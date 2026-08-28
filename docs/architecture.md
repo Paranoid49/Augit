@@ -8,6 +8,7 @@
 - 首版重建基线固定为 Scintilla `5.6.6`、Markdig `0.41.3`、Microsoft WebView2 SDK `1.0.3650.58`、xterm.js `6.0.0`、`@xterm/addon-fit` `0.11.0` 和 ripgrep `15.2.0`。
 - 随仓库保存的 Scintilla、ripgrep、xterm.js 和 `@xterm/addon-fit` 运行时文件统一记录在 `tools/runtime-assets.lock.json`；发布前校验源文件，发布后再次校验复制结果的大小和 SHA-256，锁定失败时不生成或替换最终产物。
 - 主窗口、文件树、标签、列表、工具栏和状态栏使用 User32 与 ComCtl32 原生控件；普通文本、diff 和冲突文本使用 Scintilla 原生控件。普通文本和 diff 始终只读，只有冲突结果区允许解除只读。
+- `Augit.exe` 嵌入显式 Win32 应用清单，以普通用户权限运行，声明 Windows 10/11 兼容、长路径感知和 ComCtl32 v6；不因原生外壳请求管理员权限或引入额外运行时依赖。
 - Scintilla 只分发官方 x64 `Scintilla.dll`，大小为 `1128808` 字节，SHA-256 为 `D30C0D1676AFDFFB42A8322FC52EC0BCC03DDF54F05249B566365DABC8DC50ED`；不分发、不加载 Lexilla，也不启用语法高亮。选择它是因为 Windows RichEdit 无法同时稳定满足行号、空白符显示、换行、双栏 diff 和冲突编辑，自研 DirectWrite 文本控件会显著做重；许可证为 Scintilla 宽松许可证。若原生系统控件以后能在相同性能下完整替代这些能力，应移除 Scintilla。
 - PNG、JPEG/JPG 和 BMP 使用 Windows Imaging Component 解码，首版不引入额外图片解码依赖，不支持 GIF 和 WebP 预览。
 - Markdown 与终端按需创建 WebView2 原生子窗口和 `CoreWebView2Controller`，普通浏览和启动路径不加载 WebView2。

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace Augit.App.Tests;
@@ -8,6 +9,24 @@ namespace Augit.App.Tests;
 [DoNotParallelize]
 public sealed class RuntimePackageVerificationTests
 {
+    [TestMethod]
+    public void 发布程序嵌入Windows十兼容清单()
+    {
+        string executablePath = Path.Combine(
+            Path.GetDirectoryName(typeof(Program).Assembly.Location)!,
+            "Augit.exe");
+        Assert.IsTrue(File.Exists(executablePath), executablePath);
+
+        string executableText = Encoding.UTF8.GetString(File.ReadAllBytes(executablePath));
+        Assert.Contains("Augit.app", executableText, StringComparison.Ordinal);
+        Assert.Contains("level=\"asInvoker\"", executableText, StringComparison.Ordinal);
+        Assert.Contains("{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}", executableText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("longPathAware", executableText, StringComparison.Ordinal);
+        Assert.Contains("Microsoft.Windows.Common-Controls", executableText, StringComparison.Ordinal);
+        Assert.Contains("version=\"6.0.0.0\"", executableText, StringComparison.Ordinal);
+        Assert.DoesNotContain("requireAdministrator", executableText, StringComparison.Ordinal);
+    }
+
     [TestMethod]
     public void 安装脚本与运行时锁定基线保持一致()
     {
