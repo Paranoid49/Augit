@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Tools.InnoSetup"
+                      GeneratePathProperty="true"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <Target Name="BuildInstaller">
+    <Error Condition="'$(PublishDir)' == ''" Text="必须提供 PublishDir。" />
+    <Error Condition="'$(InstallerOutputDir)' == ''" Text="必须提供 InstallerOutputDir。" />
+    <Error Condition="'$(PackageVersion)' == ''" Text="必须提供 PackageVersion。" />
+    <Exec Command="&quot;$(PkgTools_InnoSetup)\tools\ISCC.exe&quot; /Qp /DPublishDir=&quot;$(PublishDir)&quot; /DOutputDir=&quot;$(InstallerOutputDir)&quot; /DAppVersion=&quot;$(PackageVersion)&quot; &quot;$(MSBuildProjectDirectory)\Augit.iss&quot;" />
+  </Target>
+</Project>

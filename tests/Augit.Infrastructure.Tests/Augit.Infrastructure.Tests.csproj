@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MSTest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Augit.Core\Augit.Core.csproj" />
+    <ProjectReference Include="..\..\src\Augit.Infrastructure\Augit.Infrastructure.csproj" />
+    <ProjectReference Include="..\Augit.Terminal.TestHost\Augit.Terminal.TestHost.csproj"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\tools\ripgrep\win-x64\ripgrep-15.2.0-x86_64-pc-windows-msvc\rg.exe"
+             Link="tools\rg.exe"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
