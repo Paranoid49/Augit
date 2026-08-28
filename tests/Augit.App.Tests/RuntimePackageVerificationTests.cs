@@ -65,6 +65,9 @@ public sealed class RuntimePackageVerificationTests
         Assert.Contains("function InstallerOwnsApplicationPath", installer, StringComparison.Ordinal);
         Assert.Contains("if not InstallerOwnsApplicationPath then", installer, StringComparison.Ordinal);
         Assert.Contains("'InstallerAddedPath'", installer, StringComparison.Ordinal);
+        Assert.Contains("'InstallerOriginalPath'", installer, StringComparison.Ordinal);
+        Assert.Contains("'InstallerInstalledPath'", installer, StringComparison.Ordinal);
+        Assert.Contains("(PathValue = InstalledPath)", installer, StringComparison.Ordinal);
         Assert.Contains("ClearApplicationPathOwnership", installer, StringComparison.Ordinal);
     }
 

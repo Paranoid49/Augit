@@ -350,6 +350,7 @@ end;
 procedure AddApplicationPath;
 var
   PathValue: String;
+  UpdatedPath: String;
 begin
   if not RegQueryStringValue(
       HKLM64,
@@ -359,20 +360,45 @@ begin
     PathValue := '';
   if PathContainsEntry(PathValue, ExpandConstant('{app}')) then
     Exit;
-  if (PathValue <> '') and (PathValue[Length(PathValue)] <> ';') then
-    PathValue := PathValue + ';';
+  UpdatedPath := PathValue;
+  if (UpdatedPath <> '') and (UpdatedPath[Length(UpdatedPath)] <> ';') then
+    UpdatedPath := UpdatedPath + ';';
+  UpdatedPath := UpdatedPath + ExpandConstant('{app}');
+  if not RegWriteStringValue(
+      HKLM64,
+      'Software\Augit',
+      'InstallerOriginalPath',
+      PathValue) then begin
+    RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
+    RaiseException('无法记录安装前的系统 PATH。');
+  end;
+  if not RegWriteStringValue(
+      HKLM64,
+      'Software\Augit',
+      'InstallerInstalledPath',
+      UpdatedPath) then begin
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerOriginalPath');
+    RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
+    RaiseException('无法记录安装后的系统 PATH。');
+  end;
   if not RegWriteDWordValue(
       HKLM64,
       'Software\Augit',
       'InstallerAddedPath',
-      1) then
+      1) then begin
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerOriginalPath');
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerInstalledPath');
+    RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
     RaiseException('无法记录 Augit PATH 项的安装器所有权。');
+  end;
   if not RegWriteExpandStringValue(
       HKLM64,
       'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
       'Path',
-      PathValue + ExpandConstant('{app}')) then begin
+      UpdatedPath) then begin
     RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerAddedPath');
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerOriginalPath');
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerInstalledPath');
     RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
     RaiseException('无法将 Augit 加入系统 PATH。');
   end;
@@ -393,6 +419,8 @@ end;
 procedure ClearApplicationPathOwnership;
 begin
   RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerAddedPath');
+  RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerOriginalPath');
+  RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerInstalledPath');
   RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
 end;
 
@@ -402,6 +430,8 @@ var
   Remaining: String;
   Part: String;
   Updated: String;
+  OriginalPath: String;
+  InstalledPath: String;
 begin
   if not InstallerOwnsApplicationPath then
     Exit;
@@ -413,15 +443,21 @@ begin
     ClearApplicationPathOwnership;
     Exit;
   end;
-  Remaining := PathValue;
-  Updated := '';
-  while Remaining <> '' do begin
-    Part := TakeDelimitedValue(Remaining, ';');
-    if (Trim(Part) <> '') and
-      (CompareText(NormalizePathEntry(Part), NormalizePathEntry(ExpandConstant('{app}'))) <> 0) then begin
-      if Updated <> '' then
-        Updated := Updated + ';';
-      Updated := Updated + Trim(Part);
+  if RegQueryStringValue(HKLM64, 'Software\Augit', 'InstallerOriginalPath', OriginalPath) and
+    RegQueryStringValue(HKLM64, 'Software\Augit', 'InstallerInstalledPath', InstalledPath) and
+    (PathValue = InstalledPath) then
+    Updated := OriginalPath
+  else begin
+    Remaining := PathValue;
+    Updated := '';
+    while Remaining <> '' do begin
+      Part := TakeDelimitedValue(Remaining, ';');
+      if (Trim(Part) <> '') and
+        (CompareText(NormalizePathEntry(Part), NormalizePathEntry(ExpandConstant('{app}'))) <> 0) then begin
+        if Updated <> '' then
+          Updated := Updated + ';';
+        Updated := Updated + Trim(Part);
+      end;
     end;
   end;
   if RegWriteExpandStringValue(
