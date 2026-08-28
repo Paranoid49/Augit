@@ -7,13 +7,14 @@
 ## .NET Runtime
 
 - 产品：.NET 10 Runtime，Windows x64。
-- 锁定版本：`10.0.11`。
+- 已安装环境的兼容下限：`10.0.0`，与正式产物 `Augit.runtimeconfig.json` 一致；检测到任意兼容的 `10.0.x` 基础运行时时不强制更新补丁版本。
+- 缺失时的锁定下载版本：`10.0.11`。
 - 官方发布元数据：`https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json`。
 - 固定下载地址：`https://builds.dotnet.microsoft.com/dotnet/Runtime/10.0.11/dotnet-runtime-10.0.11-win-x64.exe`。
 - SHA-512：`694e0e0af26b2b8949b8eda8a3831ab31aeac79797d43d6ff8c8798eae642c0904852e641c47329d7d893408f25feab1530ca2b7a0c6ed0d991e0113466a4bf9`。
 - 校验规则：下载完成后先校验 SHA-512，再校验有效的 Microsoft Corporation Authenticode 签名，任一失败都不得执行安装。
 
-选择 `10.0.11` 是因为它是校验日 .NET 10 通道的最新安全修复版。原生 Win32 外壳只依赖基础 .NET Runtime，不安装更重的 Desktop Runtime。项目 SDK 仍按 `global.json` 独立锁定，运行时补丁版本不改变目标框架或技术栈。
+选择 `10.0.11` 是因为它是校验日 .NET 10 通道的最新安全修复版，只用于机器缺少兼容 .NET 10 Runtime 时的锁定下载。已安装环境由 .NET 自身的补丁版本前滚规则管理，Augit 安装器不把安全补丁更新伪装成应用必备条件。原生 Win32 外壳只依赖基础 .NET Runtime，不安装更重的 Desktop Runtime。项目 SDK 仍按 `global.json` 独立锁定，运行时补丁版本不改变目标框架或技术栈。
 
 ## Microsoft Edge WebView2 Runtime
 

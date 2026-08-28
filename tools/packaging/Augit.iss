@@ -142,7 +142,7 @@ begin
     try
       repeat
         if ((FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
-          VersionAtLeast(FindRec.Name, 10, 0, 11, 0) then begin
+          VersionAtLeast(FindRec.Name, 10, 0, 0, 0) then begin
           Result := True;
           Exit;
         end;
@@ -168,7 +168,7 @@ function MissingRuntimeText: String;
 begin
   Result := '';
   if NeedDotNetRuntime then
-    Result := Result + '• .NET 10 Runtime 10.0.11（Windows x64）' + #13#10;
+    Result := Result + '• .NET 10 Runtime（Windows x64；将安装锁定版 10.0.11）' + #13#10;
   if NeedWebViewRuntime then
     Result := Result + '• Microsoft Edge WebView2 Runtime 151.0.4129.107（Windows x64）' + #13#10;
 end;

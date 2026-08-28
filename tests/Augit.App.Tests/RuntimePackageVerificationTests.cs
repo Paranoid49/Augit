@@ -30,6 +30,16 @@ public sealed class RuntimePackageVerificationTests
     [TestMethod]
     public void 安装脚本与运行时锁定基线保持一致()
     {
+        string runtimeConfigPath = Path.Combine(
+            Path.GetDirectoryName(typeof(Program).Assembly.Location)!,
+            "Augit.runtimeconfig.json");
+        using JsonDocument runtimeConfig = JsonDocument.Parse(File.ReadAllBytes(runtimeConfigPath));
+        JsonElement framework = runtimeConfig.RootElement
+            .GetProperty("runtimeOptions")
+            .GetProperty("framework");
+        Assert.AreEqual("Microsoft.NETCore.App", framework.GetProperty("name").GetString());
+        Assert.AreEqual("10.0.0", framework.GetProperty("version").GetString());
+
         string installer = File.ReadAllText(FindRepositoryFile("tools", "packaging", "Augit.iss"));
         string baseline = File.ReadAllText(FindRepositoryFile("docs", "runtime-dependencies.md"));
         string[] lockedValues =
@@ -47,6 +57,8 @@ public sealed class RuntimePackageVerificationTests
         }
 
         Assert.Contains("VersionAtLeast(Version, 151, 0, 4129, 107)", installer, StringComparison.Ordinal);
+        Assert.Contains("VersionAtLeast(FindRec.Name, 10, 0, 0, 0)", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("VersionAtLeast(FindRec.Name, 10, 0, 11, 0)", installer, StringComparison.Ordinal);
         Assert.Contains("UsePreviousTasks=yes", installer, StringComparison.Ordinal);
         Assert.Contains("PrivilegesRequired=admin", installer, StringComparison.Ordinal);
         Assert.Contains("MinVersion=10.0.19045", installer, StringComparison.Ordinal);

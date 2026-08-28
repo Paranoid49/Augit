@@ -24,7 +24,7 @@
 - [x] 创建独立 Git 仓库，默认分支为 `main`。
 - [x] 建立 `Augit.App`、`Augit.Core`、`Augit.Infrastructure` 和测试项目。
 - [x] 目标框架为 .NET 10 和 Windows x64，锁定架构说明中的首版依赖版本。
-- [x] 锁定联网安装所使用的 .NET 10 Runtime 与 WebView2 Runtime 兼容版本、微软官方下载地址和完整性校验信息。
+- [x] 锁定缺失运行时时联网安装所使用的 .NET 10 Runtime 与 WebView2 Runtime 版本、微软官方下载地址和完整性校验信息，并区分正式产物兼容下限与下载版本。
 - [x] 启用可空类型、严格分析器、告警即错误、UTF-8、LF 和统一编辑格式。
 - [x] 锁定 Scintilla `5.6.6` 官方 x64 二进制、哈希和许可证，不分发 Lexilla。
 - [x] 建立核心规则测试、基础设施测试和原生 Win32 主窗口烟雾测试。
@@ -41,7 +41,7 @@
 - 迁移前的 WPF 版本于 2026-08-27 使用 .NET SDK `10.0.201` 完成 Release 构建，结果为零错误、零警告；这些证据只作为行为迁移基线，不证明新的原生 Win32 工程已经完成。
 - 迁移前 `Augit.Core.Tests` 17 项、`Augit.Infrastructure.Tests` 19 项、`Augit.App.Tests` 6 项，共 42 项自动化测试通过；原生 Win32 烟雾测试必须替换 WPF 专属测试后重新执行。
 - `dotnet format Augit.slnx --verify-no-changes --no-restore` 通过，文件编码和行尾由根目录配置统一约束。
-- [运行时依赖锁定基线](runtime-dependencies.md)记录 .NET Runtime `10.0.11` 和 WebView2 Runtime `151.0.4129.107` 的微软官方来源与完整性信息。
+- [运行时依赖锁定基线](runtime-dependencies.md)记录 .NET Runtime 兼容下限 `10.0.0`、缺失时下载版本 `10.0.11` 和 WebView2 Runtime `151.0.4129.107` 的微软官方来源与完整性信息。
 - Scintilla `5.6.6` 官方 x64 `Scintilla.dll` 大小为 `1128808` 字节，SHA-256 为 `D30C0D1676AFDFFB42A8322FC52EC0BCC03DDF54F05249B566365DABC8DC50ED`，官方包 SHA-256 为 `2E8F2952E45F18B56ED94B3738F3129C61EA4EE833A1CB86A6A4005295D19B3F`。
 - Release、`win-x64`、非 self-contained 发布目录包含 `rg.exe` `15.2.0`、第三方说明和许可证；验证结束后 Augit、测试、ripgrep 进程及 `.tmp` 目录残留均为零。
 - 原生 Win32 工程迁移后，Release 构建零警告零错误，核心 17 项、基础设施 19 项、应用 6 项，共 42 项自动化测试通过；真实发布版窗口在 `321.54 ms` 内可响应，空闲诊断 Working Set 为 `25.27 MiB`。
@@ -379,7 +379,7 @@
 - 当前发布产物为 `Augit-0.1.0-win-x64-portable.zip` 和 `Augit-0.1.0-win-x64-setup.exe`，发布脚本验证必需文件、许可证、非 self-contained、无 PDB、运行时下载哈希与微软签名后才写入最终目录。
 - 安装器只在实际新增系统 PATH 项时记录所有权；覆盖升级沿用该标记，取消任务或卸载时只移除由 Augit 安装器添加的项，不删除用户预先存在的同路径配置。
 - 发布脚本保留 UTF-8 中文信息并以 UTF-8 BOM 兼容 Windows 自带 PowerShell 5.1；自动化测试与真实发布均验证该入口能够正确解析和执行。
-- Windows 10 22H2 当前没有可用测试环境；当前会话不是管理员且本机 .NET Runtime `10.0.5` 低于安装器锁定的 `10.0.11`，因此 Windows 10 测试以及安装、升级覆盖和卸载检查均保持未完成，阶段五和首版不得宣布完成。
+- Windows 10 22H2 当前没有可用测试环境；当前会话不是管理员。本机 .NET Runtime `10.0.5` 已满足正式产物 `10.0.0` 的兼容下限，安装器不会为此强制下载 `10.0.11`，但这不能代替管理员安装、升级覆盖和卸载检查；上述外部验收仍保持未完成，阶段五和首版不得宣布完成。
 
 ## 8. 跨阶段固定约束
 
