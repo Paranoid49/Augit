@@ -361,11 +361,39 @@ begin
     Exit;
   if (PathValue <> '') and (PathValue[Length(PathValue)] <> ';') then
     PathValue := PathValue + ';';
-  RegWriteExpandStringValue(
-    HKLM64,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'Path',
-    PathValue + ExpandConstant('{app}'));
+  if not RegWriteDWordValue(
+      HKLM64,
+      'Software\Augit',
+      'InstallerAddedPath',
+      1) then
+    RaiseException('无法记录 Augit PATH 项的安装器所有权。');
+  if not RegWriteExpandStringValue(
+      HKLM64,
+      'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+      'Path',
+      PathValue + ExpandConstant('{app}')) then begin
+    RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerAddedPath');
+    RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
+    RaiseException('无法将 Augit 加入系统 PATH。');
+  end;
+end;
+
+function InstallerOwnsApplicationPath: Boolean;
+var
+  InstallerAddedPath: Cardinal;
+begin
+  Result := RegQueryDWordValue(
+      HKLM64,
+      'Software\Augit',
+      'InstallerAddedPath',
+      InstallerAddedPath) and
+    (InstallerAddedPath = 1);
+end;
+
+procedure ClearApplicationPathOwnership;
+begin
+  RegDeleteValue(HKLM64, 'Software\Augit', 'InstallerAddedPath');
+  RegDeleteKeyIfEmpty(HKLM64, 'Software\Augit');
 end;
 
 procedure RemoveApplicationPath;
@@ -375,12 +403,16 @@ var
   Part: String;
   Updated: String;
 begin
+  if not InstallerOwnsApplicationPath then
+    Exit;
   if not RegQueryStringValue(
       HKLM64,
       'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
       'Path',
-      PathValue) then
+      PathValue) then begin
+    ClearApplicationPathOwnership;
     Exit;
+  end;
   Remaining := PathValue;
   Updated := '';
   while Remaining <> '' do begin
@@ -392,11 +424,12 @@ begin
       Updated := Updated + Trim(Part);
     end;
   end;
-  RegWriteExpandStringValue(
-    HKLM64,
-    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-    'Path',
-    Updated);
+  if RegWriteExpandStringValue(
+      HKLM64,
+      'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+      'Path',
+      Updated) then
+    ClearApplicationPathOwnership;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

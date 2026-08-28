@@ -183,14 +183,30 @@ internal sealed class GitCommandRunner
             static state => KillProcessAndWait((Process)state!),
             process);
 
+        bool waitWasCancelled = false;
         try
         {
             await process.WaitForExitAsync(linked.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
+            waitWasCancelled = true;
             KillProcess(process);
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                KillProcess(process);
+                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+
+        // 取消回调可能先结束进程，使 WaitForExitAsync 正常完成，因此必须在读取退出码前固定取消状态。
+        bool cancellationWasRequested = waitWasCancelled || linked.IsCancellationRequested;
+        if (cancellationWasRequested)
+        {
             BoundedOutput cancelledOutput = await outputTask.ConfigureAwait(false);
             BoundedOutput cancelledError = await errorTask.ConfigureAwait(false);
             bool timedOut = timeout?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested;
@@ -202,14 +218,6 @@ internal sealed class GitCommandRunner
                 cancelledOutput.IsTruncated,
                 cancelledError.IsTruncated,
                 cancelledOutput.Bytes);
-        }
-        finally
-        {
-            if (!process.HasExited)
-            {
-                KillProcess(process);
-                await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
-            }
         }
 
         BoundedOutput rawOutput = await outputTask.ConfigureAwait(false);

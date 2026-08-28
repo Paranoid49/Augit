@@ -387,11 +387,15 @@ public sealed class GitOperationService : IGitOperationService
                 "仓库工作区或 Git 元数据目录已经不存在。");
         }
 
-        GitCommandResult conflictResult = await RunAsync(
+        // 冲突索引与工作区状态互不依赖，并行读取可缩短外部 Git 变化的同步延迟。
+        Task<GitCommandResult> conflictTask = RunAsync(
             original.RepositoryRoot,
             ["ls-files", "--unmerged", "-z"],
             GitCommandMode.LocalQuery,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
+        Task<GitStatusResult> statusTask = _statusService.ReadAsync(original, cancellationToken);
+        await Task.WhenAll(conflictTask, statusTask).ConfigureAwait(false);
+        GitCommandResult conflictResult = await conflictTask.ConfigureAwait(false);
         if (!conflictResult.IsSuccess
             || conflictResult.IsOutputTruncated
             || !GitConflictIndex.TryParse(conflictResult.StandardOutput, out IReadOnlyList<GitConflictIndexEntry>? conflicts))
@@ -405,7 +409,7 @@ public sealed class GitOperationService : IGitOperationService
                         : conflictResult.ErrorMessage);
         }
 
-        GitStatusResult status = await _statusService.ReadAsync(original, cancellationToken).ConfigureAwait(false);
+        GitStatusResult status = await statusTask.ConfigureAwait(false);
         if (!status.IsSuccess || status.Snapshot is null)
         {
             return GitAdvancedOperationResult.Failure(status.FailureKind, status.ErrorMessage!);

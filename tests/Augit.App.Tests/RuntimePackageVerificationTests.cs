@@ -50,6 +50,10 @@ public sealed class RuntimePackageVerificationTests
         Assert.Contains("UsePreviousTasks=yes", installer, StringComparison.Ordinal);
         Assert.Contains("PrivilegesRequired=admin", installer, StringComparison.Ordinal);
         Assert.Contains("MinVersion=10.0.19045", installer, StringComparison.Ordinal);
+        Assert.Contains("function InstallerOwnsApplicationPath", installer, StringComparison.Ordinal);
+        Assert.Contains("if not InstallerOwnsApplicationPath then", installer, StringComparison.Ordinal);
+        Assert.Contains("'InstallerAddedPath'", installer, StringComparison.Ordinal);
+        Assert.Contains("ClearApplicationPathOwnership", installer, StringComparison.Ordinal);
     }
 
     [TestMethod]

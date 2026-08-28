@@ -43,18 +43,21 @@ public sealed class GitCommandRunnerTests
     public async Task 写操作只响应用户取消并结束整个进程树()
     {
         using TemporaryDirectory temporary = new();
-        using CancellationTokenSource cancellation = new(TimeSpan.FromMilliseconds(100));
         GitCommandRunner runner = new(TimeSpan.FromSeconds(30), 1024);
 
-        GitCommandResult result = await runner.RunAsync(
-            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            temporary.FullPath,
-            ["/d", "/c", "ping 127.0.0.1 -n 10 >nul"],
-            GitCommandMode.LocalWrite,
-            cancellation.Token);
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            using CancellationTokenSource cancellation = new(TimeSpan.FromMilliseconds(100));
+            GitCommandResult result = await runner.RunAsync(
+                Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+                temporary.FullPath,
+                ["/d", "/c", "ping 127.0.0.1 -n 10 >nul"],
+                GitCommandMode.LocalWrite,
+                cancellation.Token);
 
-        Assert.AreEqual(GitOperationFailureKind.Cancelled, result.FailureKind);
-        Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.Cancelled, result.FailureKind);
+            Assert.IsFalse(result.IsSuccess);
+        }
     }
 
     [TestMethod]
