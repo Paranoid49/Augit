@@ -12,6 +12,7 @@ internal sealed class TerminalWebViewHost : IDisposable
 {
     private const string VirtualHostName = "augit-terminal.local";
     private static readonly object LoaderGate = new();
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private static nint _loaderModule;
     private readonly Action<string> _inputReceived;
     private readonly Action<int, int> _sizeChanged;
@@ -23,8 +24,12 @@ internal sealed class TerminalWebViewHost : IDisposable
     private string? _userDataFolder;
     private bool _allowInitialNavigation;
     private bool _disposed;
+    private bool _initializing;
+    private bool _visible = true;
+    private Rectangle _bounds;
+    private int _browserProcessId;
 
-    private TerminalWebViewHost(
+    internal TerminalWebViewHost(
         nint parent,
         Action<string> inputReceived,
         Action<int, int> sizeChanged)
@@ -57,27 +62,28 @@ internal sealed class TerminalWebViewHost : IDisposable
 
     internal nint Handle { get; private set; }
 
-    internal int BrowserProcessId => checked((int)(_webView?.BrowserProcessId ?? 0));
+    internal int BrowserProcessId => _browserProcessId;
 
     internal (int Columns, int Rows) InitialSize { get; private set; } = (80, 24);
 
-    internal static async Task<TerminalWebViewHost> CreateAsync(
-        nint parent,
-        ApplicationSettings settings,
-        Action<string> inputReceived,
-        Action<int, int> sizeChanged)
+    internal static string CreateConfigurationMessage(ApplicationSettings settings)
     {
-        TerminalWebViewHost host = new(parent, inputReceived, sizeChanged);
-        try
+        TerminalAppearance appearance = CreateTerminalAppearance(NativeTheme.IsDark(settings.Theme));
+        return JsonSerializer.Serialize(new
         {
-            await host.InitializeAsync(settings);
-            return host;
-        }
-        catch
-        {
-            host.Dispose();
-            throw;
-        }
+            type = "configure",
+            fontFamily = $"'{NativeFontResolver.ResolveMonospace(settings.MonospaceFontFamily).Replace("\\", "\\\\", StringComparison.Ordinal).Replace("'", "\\'", StringComparison.Ordinal)}', Consolas, monospace",
+            fontSize = Math.Clamp(settings.FontSize, 9, 40),
+            lineHeight = 1.7,
+            theme = appearance.Theme,
+        }, JsonOptions);
+    }
+
+    internal static (string Background, string Foreground, string Cursor, string SelectionBackground, string ScrollbarThumb, string ScrollbarThumbHover)
+        TerminalColorsForTest(bool dark)
+    {
+        TerminalTheme theme = CreateTerminalAppearance(dark).Theme;
+        return (theme.Background, theme.Foreground, theme.Cursor, theme.SelectionBackground, theme.ScrollbarThumb, theme.ScrollbarThumbHover);
     }
 
     internal void SetBounds(int x, int y, int width, int height)
@@ -89,11 +95,18 @@ internal sealed class TerminalWebViewHost : IDisposable
 
         int safeWidth = Math.Max(0, width);
         int safeHeight = Math.Max(0, height);
+        _bounds = new Rectangle(x, y, safeWidth, safeHeight);
         _ = NativeMethods.MoveWindow(Handle, x, y, safeWidth, safeHeight, true);
         if (_controller is not null)
         {
             _controller.Bounds = new Rectangle(0, 0, safeWidth, safeHeight);
             _controller.NotifyParentWindowPositionChanged();
+            // 只有原生布局给出实际可见尺寸后，网页才允许调整行列，避免首屏提示符被微小初始视口截断。
+            _webView?.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                type = "layout",
+                visible = safeWidth > 0 && safeHeight > 0,
+            }));
         }
     }
 
@@ -104,6 +117,7 @@ internal sealed class TerminalWebViewHost : IDisposable
             return;
         }
 
+        _visible = visible;
         _ = NativeMethods.ShowWindow(Handle, visible ? NativeMethods.ShowNormal : NativeMethods.ShowHide);
         if (_controller is not null)
         {
@@ -128,29 +142,13 @@ internal sealed class TerminalWebViewHost : IDisposable
             return;
         }
 
-        bool dark = NativeTheme.IsDark(settings.Theme);
-        object theme = dark
-            ? new
-            {
-                background = "#1e1f22",
-                foreground = "#d8d8d8",
-                cursor = "#d8d8d8",
-                selectionBackground = "#355a7a",
-            }
-            : new
-            {
-                background = "#ffffff",
-                foreground = "#202124",
-                cursor = "#202124",
-                selectionBackground = "#b7d8f5",
-            };
-        _webView.PostWebMessageAsJson(JsonSerializer.Serialize(new
+        TerminalAppearance appearance = CreateTerminalAppearance(NativeTheme.IsDark(settings.Theme));
+        if (_controller is not null)
         {
-            type = "configure",
-            fontFamily = $"{settings.MonospaceFontFamily}, Consolas, monospace",
-            fontSize = Math.Clamp(settings.FontSize, 9, 40),
-            theme,
-        }));
+            _controller.DefaultBackgroundColor = ToDrawingColor(appearance.BackgroundColor);
+        }
+
+        _webView.PostWebMessageAsJson(CreateConfigurationMessage(settings));
     }
 
     internal void Focus()
@@ -179,6 +177,13 @@ internal sealed class TerminalWebViewHost : IDisposable
         }
 
         _disposed = true;
+        _readyCompletion.TrySetCanceled();
+        // WebView2 的环境/控制器创建不能中途取消；持有对象到回调完成后再清理，不能丢弃晚到资源。
+        if (!_initializing) ReleaseResources();
+    }
+
+    private void ReleaseResources()
+    {
         _allowInitialNavigation = false;
         int browserProcessId = BrowserProcessId;
         if (_webView is not null)
@@ -200,6 +205,7 @@ internal sealed class TerminalWebViewHost : IDisposable
         _controller = null;
         _environment = null;
         StopBrowserProcess(browserProcessId);
+        _browserProcessId = 0;
         DeleteUserDataFolder();
         nint handle = Handle;
         Handle = 0;
@@ -209,7 +215,27 @@ internal sealed class TerminalWebViewHost : IDisposable
         }
     }
 
-    private async Task InitializeAsync(ApplicationSettings settings)
+    internal async Task InitializeAsync(ApplicationSettings settings, Func<string, Task>? checkpoint = null)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _initializing = true;
+        try
+        {
+            await InitializeCoreAsync(settings, checkpoint);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
+        finally
+        {
+            _initializing = false;
+            if (_disposed) ReleaseResources();
+        }
+    }
+
+    private async Task InitializeCoreAsync(ApplicationSettings settings, Func<string, Task>? checkpoint)
     {
         string assetsDirectory = Path.Combine(AppContext.BaseDirectory, "terminal");
         if (!File.Exists(Path.Combine(assetsDirectory, "index.html"))
@@ -229,14 +255,18 @@ internal sealed class TerminalWebViewHost : IDisposable
             "Terminal",
             $"Session-{Environment.ProcessId}-{Guid.NewGuid():N}");
         _environment = await CoreWebView2Environment.CreateAsync(null, _userDataFolder);
+        _browserProcessId = _environment.GetProcessInfos()
+            .FirstOrDefault(process => process.Kind == CoreWebView2ProcessKind.Browser)?.ProcessId ?? 0;
+        if (checkpoint is not null) await checkpoint("environment");
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _controller = await _environment.CreateCoreWebView2ControllerAsync(Handle);
-        if (_disposed)
-        {
-            return;
-        }
-
         _webView = _controller.CoreWebView2;
-        _controller.IsVisible = true;
+        _browserProcessId = checked((int)_webView.BrowserProcessId);
+        if (checkpoint is not null) await checkpoint("controller");
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ApplyVisualAuditRasterizationScale(_controller);
+        _controller.IsVisible = _visible;
+        _controller.Bounds = new Rectangle(0, 0, _bounds.Width, _bounds.Height);
         _webView.Settings.AreDefaultContextMenusEnabled = false;
         _webView.Settings.AreDevToolsEnabled = false;
         _webView.Settings.IsStatusBarEnabled = false;
@@ -248,10 +278,48 @@ internal sealed class TerminalWebViewHost : IDisposable
         _webView.WebMessageReceived += OnWebMessageReceived;
         _webView.NavigationStarting += OnNavigationStarting;
         _webView.NewWindowRequested += OnNewWindowRequested;
+        TerminalAppearance appearance = CreateTerminalAppearance(NativeTheme.IsDark(settings.Theme));
+        _controller.DefaultBackgroundColor = ToDrawingColor(appearance.BackgroundColor);
+        await _webView.AddScriptToExecuteOnDocumentCreatedAsync(
+            $"window.__augitTerminalConfiguration = {CreateConfigurationMessage(settings)};");
+        if (checkpoint is not null) await checkpoint("document");
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _allowInitialNavigation = true;
         _webView.Navigate($"https://{VirtualHostName}/index.html");
         InitialSize = await _readyCompletion.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        SetBounds(_bounds.X, _bounds.Y, _bounds.Width, _bounds.Height);
         ApplyAppearance(settings);
+    }
+
+    private static string ToCssColor(uint color)
+    {
+        byte red = (byte)(color & 0xFF);
+        byte green = (byte)((color >> 8) & 0xFF);
+        byte blue = (byte)((color >> 16) & 0xFF);
+        return $"#{red:X2}{green:X2}{blue:X2}";
+    }
+
+    private static Color ToDrawingColor(uint color)
+    {
+        return Color.FromArgb(
+            (int)(color & 0xFF),
+            (int)((color >> 8) & 0xFF),
+            (int)((color >> 16) & 0xFF));
+    }
+
+    private static TerminalAppearance CreateTerminalAppearance(bool dark)
+    {
+        NativeThemePalette palette = NativeTheme.Palette(dark);
+        return new(
+            palette.Panel,
+            new(
+                ToCssColor(palette.Panel),
+                ToCssColor(palette.Text),
+                ToCssColor(palette.Text),
+                ToCssColor(palette.AccentSoft),
+                ToCssColor(palette.Faint),
+                ToCssColor(palette.Muted)));
     }
 
     private static void EnsureLoaderLoaded()
@@ -270,6 +338,18 @@ internal sealed class TerminalWebViewHost : IDisposable
                 throw new Win32Exception(Marshal.GetLastWin32Error(), UiText.WebViewLoaderMissing);
             }
         }
+    }
+
+    private static void ApplyVisualAuditRasterizationScale(CoreWebView2Controller controller)
+    {
+        if (!NativeTheme.VisualAuditDpiOverrideActiveForTest)
+        {
+            return;
+        }
+
+        // 终端视觉审计与原生工具窗口使用同一目标 DPI，正常运行仍由 WebView2 跟随显示器。
+        controller.ShouldDetectMonitorScaleChanges = false;
+        controller.RasterizationScale = NativeTheme.EmbeddedContentRasterizationScaleForTest;
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
@@ -395,3 +475,13 @@ internal sealed class TerminalWebViewHost : IDisposable
         }
     }
 }
+
+internal sealed record TerminalAppearance(uint BackgroundColor, TerminalTheme Theme);
+
+internal sealed record TerminalTheme(
+    string Background,
+    string Foreground,
+    string Cursor,
+    string SelectionBackground,
+    string ScrollbarThumb,
+    string ScrollbarThumbHover);

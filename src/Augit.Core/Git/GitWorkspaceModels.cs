@@ -12,7 +12,9 @@ public sealed record GitStashInfo(
     string CommitHash,
     string ParentHash,
     DateTimeOffset Date,
-    string Subject);
+    string Subject,
+    string Branch,
+    string Message);
 
 public sealed record GitStashListResult(
     bool IsSuccess,
@@ -87,6 +89,38 @@ public sealed record GitWorktreeListResult(
     }
 
     public static GitWorktreeListResult Failure(GitOperationFailureKind failureKind, string errorMessage)
+    {
+        if (failureKind == GitOperationFailureKind.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureKind));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+        return new(false, failureKind, errorMessage, null);
+    }
+}
+
+public sealed record GitWorktreeRemovalReadiness(
+    bool CanRemove,
+    bool IsClean,
+    bool HasActiveTerminal,
+    string? Reason);
+
+public sealed record GitWorktreeRemovalReadinessResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    GitWorktreeRemovalReadiness? Readiness)
+{
+    public static GitWorktreeRemovalReadinessResult Success(GitWorktreeRemovalReadiness readiness)
+    {
+        ArgumentNullException.ThrowIfNull(readiness);
+        return new(true, GitOperationFailureKind.None, null, readiness);
+    }
+
+    public static GitWorktreeRemovalReadinessResult Failure(
+        GitOperationFailureKind failureKind,
+        string errorMessage)
     {
         if (failureKind == GitOperationFailureKind.None)
         {

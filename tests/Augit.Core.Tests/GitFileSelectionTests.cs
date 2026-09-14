@@ -6,18 +6,33 @@ namespace Augit.Core.Tests;
 public sealed class GitFileSelectionTests
 {
     [TestMethod]
-    public void 文件再次变化时保留勾选且新文件默认不勾选()
+    public void 首次出现的已跟踪改动默认勾选且未跟踪文件默认不勾选()
     {
         GitFileSelection selection = new();
-        GitChangedFile original = CreateFile("tracked.txt");
-        selection.SetSelected(original.RelativePath, true);
+        GitChangedFile tracked = CreateFile("tracked.txt");
+        GitChangedFile untracked = CreateFile(
+            "new.txt",
+            group: GitChangeGroup.UnversionedFiles,
+            kind: GitChangeKind.Untracked);
 
-        GitChangedFile changedAgain = CreateFile("tracked.txt", hasWorkingTreeChanges: true);
-        GitChangedFile newFile = CreateFile("new.txt");
-        selection.Reconcile([changedAgain, newFile]);
+        selection.Reconcile([tracked, untracked]);
 
         Assert.IsTrue(selection.IsSelected("tracked.txt"));
         Assert.IsFalse(selection.IsSelected("new.txt"));
+    }
+
+    [TestMethod]
+    public void 文件再次变化时保留用户取消的勾选()
+    {
+        GitFileSelection selection = new();
+        GitChangedFile original = CreateFile("tracked.txt");
+        selection.Reconcile([original]);
+        selection.SetSelected(original.RelativePath, false);
+
+        GitChangedFile changedAgain = CreateFile("tracked.txt", hasWorkingTreeChanges: true);
+        selection.Reconcile([changedAgain]);
+
+        Assert.IsFalse(selection.IsSelected("tracked.txt"));
     }
 
     [TestMethod]
@@ -28,7 +43,8 @@ public sealed class GitFileSelectionTests
 
         selection.Reconcile([CreateFile("remaining.txt")]);
 
-        Assert.IsEmpty(selection.SelectedPaths);
+        Assert.IsFalse(selection.IsSelected("removed.txt"));
+        Assert.IsTrue(selection.IsSelected("remaining.txt"));
     }
 
     [TestMethod]
@@ -47,13 +63,17 @@ public sealed class GitFileSelectionTests
         Assert.IsTrue(selection.IsSelected("outside.txt"));
     }
 
-    private static GitChangedFile CreateFile(string path, bool hasWorkingTreeChanges = false)
+    private static GitChangedFile CreateFile(
+        string path,
+        bool hasWorkingTreeChanges = false,
+        GitChangeGroup group = GitChangeGroup.Changes,
+        GitChangeKind kind = GitChangeKind.Modified)
     {
         return new(
             path,
             null,
-            GitChangeGroup.Changes,
-            GitChangeKind.Modified,
+            group,
+            kind,
             true,
             hasWorkingTreeChanges);
     }

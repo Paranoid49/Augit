@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using Augit.Infrastructure.Interop;
@@ -6,15 +7,20 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Augit.App;
 
-internal sealed class MarkdownWebViewHost : IDisposable
+internal sealed partial class MarkdownWebViewHost : IDisposable
 {
     private static readonly object LoaderGate = new();
+    private static readonly object BrowserProcessGate = new();
+    private static readonly SemaphoreSlim BrowserCreationGate = new(1, 1);
+    private static readonly Dictionary<int, int> BrowserProcessReferences = [];
     private static nint _loaderModule;
     private readonly Action<string, string?> _openLinkedFile;
     private readonly Action<string> _setStatus;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
     private CoreWebView2? _webView;
+    private string? _userDataFolder;
+    private int _browserProcessId;
     private bool _allowInitialNavigation;
     private bool _disposed;
 
@@ -29,7 +35,6 @@ internal sealed class MarkdownWebViewHost : IDisposable
             NativeMethods.StaticClass,
             string.Empty,
             NativeMethods.WindowStyleChild
-                | NativeMethods.WindowStyleVisible
                 | NativeMethods.WindowStyleClipChildren
                 | NativeMethods.WindowStyleClipSiblings,
             0,
@@ -48,25 +53,35 @@ internal sealed class MarkdownWebViewHost : IDisposable
 
     internal nint Handle { get; private set; }
 
-    internal int BrowserProcessId => checked((int)(_webView?.BrowserProcessId ?? 0));
+    internal int BrowserProcessId => _browserProcessId;
 
     internal static async Task<MarkdownWebViewHost> CreateAsync(
         nint parent,
         string html,
         Action<string, string?> openLinkedFile,
-        Action<string> setStatus)
+        Action<string> setStatus,
+        Action<CoreWebView2, CoreWebView2Environment>? configureForTest = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(html);
-        MarkdownWebViewHost host = new(parent, openLinkedFile, setStatus);
+        await BrowserCreationGate.WaitAsync(cancellationToken);
         try
         {
-            await host.InitializeAsync(html);
-            return host;
+            MarkdownWebViewHost host = new(parent, openLinkedFile, setStatus);
+            try
+            {
+                await host.InitializeAsync(html, configureForTest, cancellationToken);
+                return host;
+            }
+            catch
+            {
+                host.Dispose();
+                throw;
+            }
         }
-        catch
+        finally
         {
-            host.Dispose();
-            throw;
+            BrowserCreationGate.Release();
         }
     }
 
@@ -112,6 +127,30 @@ internal sealed class MarkdownWebViewHost : IDisposable
         _ = await _webView.ExecuteScriptAsync($"location.hash = {escaped};");
     }
 
+    internal async Task UpdateContentAsync(string html, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ObjectDisposedException.ThrowIf(_disposed || _webView is null, this);
+        // 仅替换自行生成的受控正文与样式，不导航、不注册宿主对象，保留浏览器和阅读位置。
+        string encoded = System.Text.Json.JsonSerializer.Serialize(html);
+        _ = await _webView.ExecuteScriptAsync($$"""
+            (() => {
+              const x = scrollX, y = scrollY;
+              const page = new DOMParser().parseFromString({{encoded}}, 'text/html');
+              document.head.querySelector('style').textContent = page.head.querySelector('style').textContent;
+              document.body.replaceChildren(...page.body.childNodes);
+              window.augitRefreshImages?.();
+              scrollTo(x, y);
+            })();
+            """);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    internal Task<string> ReadPageForTestAsync(string expression) =>
+        _webView?.ExecuteScriptAsync(expression) ?? Task.FromResult("null");
+
+    internal string? UserDataFolderForTest => _userDataFolder;
+
     public void Dispose()
     {
         if (_disposed)
@@ -121,6 +160,8 @@ internal sealed class MarkdownWebViewHost : IDisposable
 
         _disposed = true;
         _allowInitialNavigation = false;
+        int browserProcessId = _browserProcessId;
+        _browserProcessId = 0;
         if (_webView is not null)
         {
             _webView.NavigationStarting -= OnNavigationStarting;
@@ -138,6 +179,8 @@ internal sealed class MarkdownWebViewHost : IDisposable
         _webView = null;
         _controller = null;
         _environment = null;
+        ReleaseBrowserProcess(browserProcessId);
+        DeleteUserDataFolder();
         nint handle = Handle;
         Handle = 0;
         if (handle != 0 && NativeMethods.IsWindow(handle))
@@ -156,31 +199,68 @@ internal sealed class MarkdownWebViewHost : IDisposable
         return Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed) && parsed.Scheme == "about";
     }
 
-    private async Task InitializeAsync(string html)
+    private async Task InitializeAsync(string html,
+        Action<CoreWebView2, CoreWebView2Environment>? configureForTest, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         EnsureLoaderLoaded();
-        string userDataFolder = Path.Combine(
+        _userDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Augit",
             "WebView2",
-            "Markdown");
-        _environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            "Markdown",
+            $"Session-{Environment.ProcessId}-{Guid.NewGuid():N}");
+        _environment = await CoreWebView2Environment.CreateAsync(null, _userDataFolder);
+        cancellationToken.ThrowIfCancellationRequested();
         _controller = await _environment.CreateCoreWebView2ControllerAsync(Handle);
-        if (_disposed)
+        if (_disposed || cancellationToken.IsCancellationRequested)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             return;
         }
 
         _webView = _controller.CoreWebView2;
-        _controller.IsVisible = true;
+        ApplyVisualAuditRasterizationScale(_controller);
+        _browserProcessId = checked((int)_webView.BrowserProcessId);
+        RegisterBrowserProcess(_browserProcessId);
+        _controller.IsVisible = false;
         _webView.Settings.AreDefaultContextMenusEnabled = false;
         _webView.Settings.AreDevToolsEnabled = false;
         _webView.Settings.IsStatusBarEnabled = false;
         _webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
         _webView.NavigationStarting += OnNavigationStarting;
         _webView.NewWindowRequested += OnNewWindowRequested;
-        _allowInitialNavigation = true;
-        _webView.NavigateToString(html);
+        // 正文 DOM 就绪即可显示；远程图片继续独立加载，不能拖延整份文档的首次呈现。
+        await _webView.AddScriptToExecuteOnDocumentCreatedAsync(ImageFeedbackScript);
+        cancellationToken.ThrowIfCancellationRequested();
+        configureForTest?.Invoke(_webView, _environment);
+        TaskCompletionSource navigation = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        void CompleteDocument(object? sender, CoreWebView2DOMContentLoadedEventArgs eventArgs)
+        {
+            navigation.TrySetResult();
+        }
+        void CompleteInitialNavigation(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
+        {
+            if (!eventArgs.IsSuccess)
+                navigation.TrySetException(new InvalidOperationException(UiText.MarkdownPreviewNavigationFailed));
+        }
+
+        _webView.DOMContentLoaded += CompleteDocument;
+        _webView.NavigationCompleted += CompleteInitialNavigation;
+        try
+        {
+            _allowInitialNavigation = true;
+            _webView.NavigateToString(html);
+            await navigation.Task.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                cancellationToken);
+        }
+        finally
+        {
+            _webView.DOMContentLoaded -= CompleteDocument;
+            _webView.NavigationCompleted -= CompleteInitialNavigation;
+        }
     }
 
     private static void EnsureLoaderLoaded()
@@ -198,6 +278,75 @@ internal sealed class MarkdownWebViewHost : IDisposable
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), UiText.WebViewLoaderMissing);
             }
+        }
+    }
+
+    private static void ApplyVisualAuditRasterizationScale(CoreWebView2Controller controller)
+    {
+        if (!NativeTheme.VisualAuditDpiOverrideActiveForTest)
+        {
+            return;
+        }
+
+        // 审计覆盖只在独立宿主进程内生效，避免 WebView2 继续采用测试机器的真实缩放。
+        controller.ShouldDetectMonitorScaleChanges = false;
+        controller.RasterizationScale = NativeTheme.EmbeddedContentRasterizationScaleForTest;
+    }
+
+    private static void RegisterBrowserProcess(int processId)
+    {
+        if (processId <= 0)
+        {
+            return;
+        }
+
+        lock (BrowserProcessGate)
+        {
+            BrowserProcessReferences.TryGetValue(processId, out int count);
+            BrowserProcessReferences[processId] = count + 1;
+        }
+    }
+
+    private static void ReleaseBrowserProcess(int processId)
+    {
+        if (processId <= 0)
+        {
+            return;
+        }
+
+        bool stopProcess;
+        lock (BrowserProcessGate)
+        {
+            if (!BrowserProcessReferences.TryGetValue(processId, out int count) || count <= 1)
+            {
+                BrowserProcessReferences.Remove(processId);
+                stopProcess = true;
+            }
+            else
+            {
+                BrowserProcessReferences[processId] = count - 1;
+                stopProcess = false;
+            }
+        }
+
+        if (!stopProcess)
+        {
+            return;
+        }
+
+        try
+        {
+            using Process process = Process.GetProcessById(processId);
+            if (process.WaitForExit(500))
+            {
+                return;
+            }
+
+            process.Kill(entireProcessTree: true);
+            _ = process.WaitForExit(5000);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
+        {
         }
     }
 
@@ -240,6 +389,29 @@ internal sealed class MarkdownWebViewHost : IDisposable
         if (!result.IsSuccess)
         {
             _setStatus(result.ErrorMessage ?? UiText.ExternalProgramFailed);
+        }
+    }
+
+    private void DeleteUserDataFolder()
+    {
+        string? path = _userDataFolder;
+        _userDataFolder = null;
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, recursive: true);
+        }
+        catch (IOException)
+        {
+            // WebView2 可能延迟释放文件句柄，残留目录由下次启动时清理。
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // 无法删除缓存不影响窗口关闭，避免把释放流程升级为用户可见错误。
         }
     }
 }

@@ -60,6 +60,16 @@ public sealed class GitOperationServiceTests
             Assert.AreEqual(kind != GitAdvancedOperationKind.Merge, started.Session.CanSkip);
             Assert.IsFalse(started.Session.CanContinue);
             Assert.HasCount(1, started.Session.ConflictFiles);
+            if (kind == GitAdvancedOperationKind.Rebase)
+            {
+                Assert.AreEqual(1, started.Session.CurrentStep);
+                Assert.AreEqual(1, started.Session.TotalSteps);
+            }
+            else
+            {
+                Assert.IsNull(started.Session.CurrentStep);
+                Assert.IsNull(started.Session.TotalSteps);
+            }
 
             if (action == GitOperationAction.Continue)
             {

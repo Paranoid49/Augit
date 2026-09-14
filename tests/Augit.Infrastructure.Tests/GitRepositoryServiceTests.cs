@@ -47,6 +47,46 @@ public sealed class GitRepositoryServiceTests
     }
 
     [TestMethod]
+    public async Task 本地仓库可通过文件协议浅克隆最近一次提交()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string source = temporary.GetPath("source");
+        string destination = temporary.GetPath("shallow");
+        Directory.CreateDirectory(source);
+        GitRepositoryService service = new(runtime);
+        GitRepositoryOperationResult initialized = await service.InitializeAsync(source);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, source, "history.txt", "一\n", "test: first");
+        await GitTestEnvironment.CommitFileAsync(runtime, source, "history.txt", "二\n", "test: second");
+        await GitTestEnvironment.CommitFileAsync(runtime, source, "history.txt", "三\n", "test: third");
+
+        string sourceUri = new Uri(Path.GetFullPath(source) + Path.DirectorySeparatorChar).AbsoluteUri;
+        GitRepositoryOperationResult cloned = await service.CloneAsync(sourceUri, destination, depth: 1);
+
+        Assert.IsTrue(cloned.IsSuccess, cloned.ErrorMessage);
+        GitCommandResult count = await GitTestEnvironment.RunAsync(runtime, destination, "rev-list", "--count", "HEAD");
+        Assert.AreEqual("1", count.StandardOutput.Trim());
+        Assert.AreEqual("三\n", (await File.ReadAllTextAsync(Path.Combine(destination, "history.txt"))).Replace("\r\n", "\n", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task 非法浅克隆深度不会创建目标目录()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string destination = temporary.GetPath("invalid-depth");
+        GitRepositoryService service = new(runtime);
+
+        GitRepositoryOperationResult result = await service.CloneAsync("https://example.invalid/repository.git", destination, depth: 0);
+
+        Assert.IsFalse(result.IsSuccess);
+        Assert.AreEqual(GitOperationFailureKind.InvalidRequest, result.FailureKind);
+        Assert.AreEqual("浅克隆深度必须是正整数。", result.ErrorMessage);
+        Assert.IsFalse(Directory.Exists(destination));
+    }
+
+    [TestMethod]
     public async Task 合并冲突和进行中操作可被识别()
     {
         GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();

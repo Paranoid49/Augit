@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 
@@ -30,9 +31,30 @@ public static class JsonDisplayFormatter
         catch (JsonException exception)
         {
             long line = (exception.LineNumber ?? 0) + 1;
-            long column = (exception.BytePositionInLine ?? 0) + 1;
+            long column = CharacterColumn(source, line, exception.BytePositionInLine ?? 0);
             return JsonDisplayResult.Failure(source, line, column);
         }
+    }
+
+    private static long CharacterColumn(string source, long line, long bytePosition)
+    {
+        int start = 0;
+        for (long current = 1; current < line; current++)
+        {
+            int newline = source.IndexOf('\n', start);
+            if (newline < 0) return 1;
+            start = newline + 1;
+        }
+
+        // 解析器返回 UTF-8 字节列；界面按 Unicode 标量计列，代理对算一个字符。
+        long column = 1;
+        foreach (Rune rune in source.AsSpan(start).EnumerateRunes())
+        {
+            if (rune.Value == '\n' || bytePosition < rune.Utf8SequenceLength) break;
+            bytePosition -= rune.Utf8SequenceLength;
+            column++;
+        }
+        return column;
     }
 }
 

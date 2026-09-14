@@ -7,6 +7,7 @@ internal static class ConPtyNativeMethods
 {
     internal const uint ExtendedStartupInfoPresent = 0x00080000;
     internal const uint CreateSuspended = 0x00000004;
+    internal const uint CreateNoWindow = 0x08000000;
     internal const uint JobObjectLimitKillOnJobClose = 0x00002000;
     internal const nuint ProcThreadAttributePseudoConsole = 0x00020016;
     internal const int JobObjectInfoBasicAccounting = 1;
@@ -122,6 +123,9 @@ internal static class ConPtyNativeMethods
         out SafeFileHandle writePipe,
         nint pipeAttributes,
         uint size);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetConsoleCP();
 
     [DllImport("kernel32.dll")]
     internal static extern int CreatePseudoConsole(

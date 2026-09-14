@@ -11,6 +11,7 @@ public sealed class GitHistoryService : IGitHistoryService
     private const int MaximumHistoryOutputBytes = 8 * 1024 * 1024;
     private const int MaximumDetailsOutputBytes = 20 * 1024 * 1024;
     private const long MaximumSideBytes = 10L * 1024 * 1024;
+    private const string FullFileContextArgument = "--unified=10485760";
     private readonly GitRuntimeInfo _runtime;
     private readonly GitCommandRunner _queryRunner;
     private readonly GitCommandRunner _detailsRunner;
@@ -231,6 +232,12 @@ public sealed class GitHistoryService : IGitHistoryService
         {
             return CommitFailure(metadataResult);
         }
+        if (metadataResult.IsOutputTruncated)
+        {
+            return GitCommitDetailsResult.Failure(
+                GitOperationFailureKind.CommandFailed,
+                "提交信息超过 20 MB，已停止读取。");
+        }
 
         if (!TryParseCommitMetadata(metadataResult.StandardOutput, out GitHistoryEntry? entry, out string? body))
         {
@@ -330,6 +337,7 @@ public sealed class GitHistoryService : IGitHistoryService
         GitRepositorySnapshot repository,
         string revision,
         string relativePath,
+        bool ignoreWhitespace = false,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(repository);
@@ -357,22 +365,24 @@ public sealed class GitHistoryService : IGitHistoryService
                 "提交 diff 文件路径越过了仓库边界。");
         }
 
+        long oldSize = await ReadBlobSizeAsync(repositoryRoot!, resolved + "^", normalizedPath!, cancellationToken).ConfigureAwait(false);
+        long newSize = await ReadBlobSizeAsync(repositoryRoot!, resolved, normalizedPath!, cancellationToken).ConfigureAwait(false);
+        if (oldSize > MaximumSideBytes || newSize > MaximumSideBytes)
+        {
+            return GitComparisonResult.Success(new(GitDiffContentStatus.SideTooLarge,
+                revision + "^", revision, normalizedPath, null));
+        }
+
+        List<string> arguments =
+        [
+            "-c", "core.quotePath=false", "show", "--format=", "--root", "--diff-merges=first-parent",
+            "--no-ext-diff", "--no-textconv", "--find-renames=50%", "--full-index", FullFileContextArgument,
+        ];
+        if (ignoreWhitespace) arguments.Add("--ignore-all-space");
+        arguments.AddRange([resolved, "--", normalizedPath!]);
         GitCommandResult result = await RunQueryAsync(
             repositoryRoot!,
-            [
-                "-c",
-                "core.quotePath=false",
-                "show",
-                "--format=",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--find-renames=50%",
-                "--full-index",
-                "--unified=3",
-                resolved,
-                "--",
-                normalizedPath!,
-            ],
+            arguments,
             _detailsRunner,
             cancellationToken).ConfigureAwait(false);
         if (!result.IsSuccess)
@@ -390,10 +400,7 @@ public sealed class GitHistoryService : IGitHistoryService
             $"{revision}^",
             revision,
             normalizedPath,
-            status == GitDiffContentStatus.Ready ? result.StandardOutput : null,
-            status == GitDiffContentStatus.Ready
-                ? null
-                : $"git show --format= {QuotePowerShell(revision)} -- {QuotePowerShell(normalizedPath!)}"));
+            status == GitDiffContentStatus.Ready ? result.StandardOutput : null));
     }
 
     public async Task<GitComparisonResult> CompareAsync(
@@ -469,8 +476,7 @@ public sealed class GitHistoryService : IGitHistoryService
                     request.BaseRevision,
                     request.TargetRevision,
                     normalizedPath,
-                    null,
-                    CreateCopyableCompareCommand(request)));
+                    null));
             }
         }
 
@@ -483,7 +489,7 @@ public sealed class GitHistoryService : IGitHistoryService
             "--no-textconv",
             "--find-renames=50%",
             "--full-index",
-            "--unified=3",
+            FullFileContextArgument,
         ];
         if (request.IgnoreWhitespace)
         {
@@ -522,8 +528,7 @@ public sealed class GitHistoryService : IGitHistoryService
             request.BaseRevision,
             request.TargetRevision,
             normalizedPath,
-            status == GitDiffContentStatus.Ready ? result.StandardOutput : null,
-            status == GitDiffContentStatus.Ready ? null : CreateCopyableCompareCommand(request)));
+            status == GitDiffContentStatus.Ready ? result.StandardOutput : null));
     }
 
     internal static bool TryParseHistory(string output, out IReadOnlyList<GitHistoryEntry>? entries)
@@ -861,28 +866,6 @@ public sealed class GitHistoryService : IGitHistoryService
             arguments,
             GitCommandMode.LocalQuery,
             cancellationToken);
-    }
-
-    private static string CreateCopyableCompareCommand(GitComparisonRequest request)
-    {
-        List<string> parts = ["git diff", QuotePowerShell(request.BaseRevision)];
-        if (!string.IsNullOrWhiteSpace(request.TargetRevision))
-        {
-            parts.Add(QuotePowerShell(request.TargetRevision));
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.RelativePath))
-        {
-            parts.Add("--");
-            parts.Add(QuotePowerShell(request.RelativePath));
-        }
-
-        return string.Join(' ', parts);
-    }
-
-    private static string QuotePowerShell(string value)
-    {
-        return string.Concat("'", value.Replace("'", "''", StringComparison.Ordinal), "'");
     }
 
     private static bool IsBinaryPatch(string patch)

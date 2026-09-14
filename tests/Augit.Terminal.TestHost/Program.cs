@@ -11,17 +11,18 @@ internal static partial class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
-        if (arguments.Length != 2)
+        if (arguments.Length is < 2 or > 3)
         {
             return 2;
         }
 
         string resultPath = Path.GetFullPath(arguments[0]);
         string workingDirectory = Path.GetFullPath(arguments[1]);
+        string shellId = arguments.Length == 3 ? arguments[2] : TerminalShellIds.CommandPrompt;
         try
         {
             TerminalLaunchResult launchResult = TerminalShellResolver.Resolve(
-                new() { TerminalShell = TerminalShellIds.CommandPrompt },
+                new() { TerminalShell = shellId },
                 workingDirectory);
             if (!launchResult.IsSuccess)
             {
@@ -29,6 +30,7 @@ internal static partial class Program
             }
 
             StringBuilder output = new();
+            TaskCompletionSource initialPrompt = new(TaskCreationOptions.RunContinuationsAsynchronously);
             TaskCompletionSource<bool> marker = new(TaskCreationOptions.RunContinuationsAsynchronously);
             TaskCompletionSource<int> childProcess = new(TaskCreationOptions.RunContinuationsAsynchronously);
             using ConPtyTerminalSession session = ConPtyTerminalSession.Start(
@@ -42,6 +44,10 @@ internal static partial class Program
                 {
                     output.Append(text);
                     string current = output.ToString();
+                    if (current.Contains(workingDirectory, StringComparison.OrdinalIgnoreCase))
+                    {
+                        initialPrompt.TrySetResult();
+                    }
                     if (current.Contains("AUGIT_CONPTY_OK", StringComparison.Ordinal))
                     {
                         marker.TrySetResult(true);
@@ -54,6 +60,13 @@ internal static partial class Program
                     }
                 }
             };
+
+            await initialPrompt.Task.WaitAsync(TimeSpan.FromSeconds(8));
+            await session.WriteAsync("\u001b[I");
+            if (!session.IsRunning)
+            {
+                throw new InvalidOperationException("Shell 收到终端焦点序列后提前退出。");
+            }
 
             await session.WriteAsync("echo AUGIT_CONPTY_OK\r\n");
             await marker.Task.WaitAsync(TimeSpan.FromSeconds(10));

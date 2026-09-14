@@ -60,7 +60,6 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             [
                 "stash",
                 "list",
-                "--date=iso-strict",
                 $"--format=%gd{FieldSeparator}%H{FieldSeparator}%P{FieldSeparator}%aI{FieldSeparator}%s",
             ],
             GitCommandMode.LocalQuery,
@@ -129,16 +128,23 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             $"{stashReference}^",
             stashReference,
             null,
-            status == GitDiffContentStatus.Ready ? result.StandardOutput : null,
-            status == GitDiffContentStatus.Ready
-                ? null
-                : $"git stash show --patch --include-untracked {stashReference}"));
+            status == GitDiffContentStatus.Ready ? result.StandardOutput : null));
     }
 
-    public async Task<GitActionResult> StashAsync(
+    public Task<GitActionResult> StashAsync(
         GitRepositorySnapshot repository,
         string? message,
         bool includeUntracked,
+        CancellationToken cancellationToken = default)
+    {
+        return StashWithOptionsAsync(repository, message, includeUntracked, keepIndex: false, cancellationToken);
+    }
+
+    public async Task<GitActionResult> StashWithOptionsAsync(
+        GitRepositorySnapshot repository,
+        string? message,
+        bool includeUntracked,
+        bool keepIndex = false,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetRepositoryRoot(repository, out _, out string? error))
@@ -150,6 +156,11 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
         if (includeUntracked)
         {
             arguments.Add("--include-untracked");
+        }
+
+        if (keepIndex)
+        {
+            arguments.Add("--keep-index");
         }
 
         if (!string.IsNullOrWhiteSpace(message))
@@ -180,6 +191,24 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             cancellationToken);
     }
 
+    public Task<GitActionResult> DeleteStashAsync(
+        GitRepositorySnapshot repository,
+        string stashReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsStashReference(stashReference))
+        {
+            return Task.FromResult(GitActionResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "Stash 引用无效。"));
+        }
+
+        return RunMutationAsync(
+            repository,
+            ["stash", "drop", stashReference],
+            cancellationToken);
+    }
+
     public async Task<GitActionResult> ResetAsync(
         GitRepositorySnapshot repository,
         string targetRevision,
@@ -191,16 +220,25 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             return GitActionResult.Failure(GitOperationFailureKind.InvalidRequest, error!);
         }
 
-        string? resolved = await ResolveRevisionAsync(
+        GitCommandResult resolution = await ResolveRevisionAsync(
             repositoryRoot!,
             targetRevision,
             cancellationToken).ConfigureAwait(false);
-        if (resolved is null)
+        if (!resolution.IsSuccess)
         {
+            // --verify --quiet 的退出码 1 表示目标不存在；取消、超时或运行环境错误不能伪装成输入错误。
+            bool invalidTarget = resolution.FailureKind == GitOperationFailureKind.InvalidRequest
+                || resolution is { ExitCode: 1, FailureKind: GitOperationFailureKind.CommandFailed };
+            if (!invalidTarget)
+            {
+                return await MutationFailureAsync(repository, resolution).ConfigureAwait(false);
+            }
+
             return GitActionResult.Failure(
                 GitOperationFailureKind.InvalidRequest,
                 "Reset 目标不存在或不是唯一提交。");
         }
+        string resolved = resolution.StandardOutput.Trim();
 
         string option = mode switch
         {
@@ -353,11 +391,33 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             }
 
             string parent = fields[2].Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-            parsed.Add(new(fields[0], fields[1], parent, date, fields[4]));
+            (string branch, string message) = ParseStashSubject(fields[4]);
+            parsed.Add(new(fields[0], fields[1], parent, date, fields[4], branch, message));
         }
 
         stashes = parsed;
         return true;
+    }
+
+    internal static (string Branch, string Message) ParseStashSubject(string subject)
+    {
+        ArgumentNullException.ThrowIfNull(subject);
+        int prefixLength = subject.StartsWith("On ", StringComparison.OrdinalIgnoreCase)
+            ? 3
+            : subject.StartsWith("WIP on ", StringComparison.OrdinalIgnoreCase)
+                ? 7
+                : 0;
+        int separator = prefixLength == 0
+            ? -1
+            : subject.IndexOf(": ", prefixLength, StringComparison.Ordinal);
+        if (separator <= prefixLength)
+        {
+            return (string.Empty, subject);
+        }
+
+        string branch = subject[prefixLength..separator].Trim();
+        string message = subject[(separator + 2)..].Trim();
+        return (branch, message.Length == 0 ? subject : message);
     }
 
     private async Task<GitActionResult> RunMutationAsync(
@@ -409,7 +469,7 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             status.IsSuccess ? status.Snapshot : null);
     }
 
-    private async Task<string?> ResolveRevisionAsync(
+    private async Task<GitCommandResult> ResolveRevisionAsync(
         string repositoryRoot,
         string revision,
         CancellationToken cancellationToken)
@@ -418,16 +478,19 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             || revision.StartsWith('-')
             || revision.IndexOfAny(['\0', '\r', '\n']) >= 0)
         {
-            return null;
+            return new(
+                null,
+                string.Empty,
+                "Reset 目标无效。",
+                GitOperationFailureKind.InvalidRequest);
         }
 
-        GitCommandResult result = await RunAsync(
+        return await RunAsync(
             repositoryRoot,
             ["rev-parse", "--verify", "--quiet", "--end-of-options", $"{revision}^{{commit}}"],
             GitCommandMode.LocalQuery,
             _runner,
             cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess ? result.StandardOutput.Trim() : null;
     }
 
     private Task<GitCommandResult> RunAsync(

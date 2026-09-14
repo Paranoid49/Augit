@@ -1,3 +1,4 @@
+using System.Globalization;
 using Augit.Core.Git;
 
 namespace Augit.Infrastructure.Git;
@@ -464,6 +465,10 @@ public sealed class GitOperationService : IGitOperationService
             && hasRequiredStagedChanges;
         bool canSkip = kind is GitOperationKind.Rebase or GitOperationKind.CherryPick or GitOperationKind.Revert;
         bool canAbort = kind is GitOperationKind.Merge or GitOperationKind.Rebase or GitOperationKind.CherryPick or GitOperationKind.Revert;
+        (int? currentStep, int? totalSteps) = await ReadOperationProgressAsync(
+            original.GitDirectory,
+            kind,
+            cancellationToken).ConfigureAwait(false);
         GitOperationSession session = new(
             kind,
             inProgress,
@@ -472,8 +477,77 @@ public sealed class GitOperationService : IGitOperationService
             conflicts.Select(conflict => conflict.ToInfo()).ToArray(),
             canContinue,
             canSkip,
-            canAbort);
+            canAbort,
+            currentStep,
+            totalSteps);
         return GitAdvancedOperationResult.Success(session, status.Snapshot);
+    }
+
+    private static async Task<(int? CurrentStep, int? TotalSteps)> ReadOperationProgressAsync(
+        string gitDirectory,
+        GitOperationKind kind,
+        CancellationToken cancellationToken)
+    {
+        if (kind != GitOperationKind.Rebase)
+        {
+            return default;
+        }
+
+        string mergeDirectory = Path.Combine(gitDirectory, "rebase-merge");
+        if (Directory.Exists(mergeDirectory))
+        {
+            return await ReadProgressPairAsync(
+                Path.Combine(mergeDirectory, "msgnum"),
+                Path.Combine(mergeDirectory, "end"),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        string applyDirectory = Path.Combine(gitDirectory, "rebase-apply");
+        if (Directory.Exists(applyDirectory))
+        {
+            return await ReadProgressPairAsync(
+                Path.Combine(applyDirectory, "next"),
+                Path.Combine(applyDirectory, "last"),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return default;
+    }
+
+    private static async Task<(int? CurrentStep, int? TotalSteps)> ReadProgressPairAsync(
+        string currentPath,
+        string totalPath,
+        CancellationToken cancellationToken)
+    {
+        int? current = await ReadPositiveNumberAsync(currentPath, cancellationToken).ConfigureAwait(false);
+        int? total = await ReadPositiveNumberAsync(totalPath, cancellationToken).ConfigureAwait(false);
+        return current is > 0 && total is > 0 && current <= total
+            ? (current, total)
+            : default;
+    }
+
+    private static async Task<int?> ReadPositiveNumberAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            FileInfo file = new(path);
+            if (!file.Exists || file.Length is <= 0 or > 32)
+            {
+                return null;
+            }
+
+            string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            return int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+                && value > 0
+                    ? value
+                    : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     private Task<GitAdvancedOperationResult> ReadActualStateWithoutCancellationAsync(GitRepositorySnapshot repository)

@@ -139,6 +139,48 @@ public sealed class GitHistoryServiceTests
     }
 
     [TestMethod]
+    public async Task 提交文件和引用比较都返回完整文件上下文()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            string[] lines = Enumerable.Range(1, 100)
+                .Select(index => $"line {index:D3}")
+                .ToArray();
+            await GitTestEnvironment.CommitFileAsync(
+                runtime,
+                temporary.FullPath,
+                "complete.txt",
+                string.Join('\n', lines) + "\n",
+                "test: complete base");
+            lines[49] = "line 050 changed";
+            await File.WriteAllTextAsync(
+                temporary.GetPath("complete.txt"),
+                string.Join('\n', lines) + "\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "complete.txt");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-m", "test: complete changed");
+            GitHistoryService service = new(runtime);
+
+            GitComparisonResult commitDiff = await service.ReadCommitFileDiffAsync(
+                repository,
+                "HEAD",
+                "complete.txt");
+            GitComparisonResult comparison = await service.CompareAsync(
+                repository,
+                new("HEAD^", "HEAD", "complete.txt"));
+
+            foreach (GitComparisonResult result in new[] { commitDiff, comparison })
+            {
+                Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+                Assert.AreEqual(GitDiffContentStatus.Ready, result.Document!.Status);
+                Assert.Contains(" line 001", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+                Assert.Contains(" line 100", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+                Assert.Contains("+line 050 changed", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task 文件历史和Blame返回逐行提交来源()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
@@ -236,6 +278,7 @@ public sealed class GitHistoryServiceTests
 
             GitHistoryResult history = await service.ReadPageAsync(repository, new());
             GitComparisonResult diff = await service.ReadCommitFileDiffAsync(repository, "HEAD", "large.txt");
+            GitCommitDetailsResult details = await service.ReadCommitAsync(repository, "HEAD");
 
             Assert.IsFalse(history.IsSuccess);
             Assert.AreEqual(GitOperationFailureKind.CommandFailed, history.FailureKind);
@@ -243,7 +286,69 @@ public sealed class GitHistoryServiceTests
             Assert.IsTrue(diff.IsSuccess, diff.ErrorMessage);
             Assert.AreEqual(GitDiffContentStatus.OutputTooLarge, diff.Document!.Status);
             Assert.IsNull(diff.Document.UnifiedPatch);
-            Assert.IsNotNull(diff.Document.CopyableCommand);
+            Assert.IsFalse(details.IsSuccess);
+            Assert.Contains("提交信息超过 20 MB", details.ErrorMessage!, StringComparison.Ordinal);
+        }
+    }
+
+    [TestMethod]
+    public async Task 文件历史忽略空白支持根提交以及纯空白改动()
+    {
+        var (temporary, runtime, repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "中文.txt", "alpha beta\n", "test: 根提交");
+            GitHistoryService service = new(runtime);
+            GitComparisonResult root = await service.ReadCommitFileDiffAsync(repository, "HEAD", "中文.txt", ignoreWhitespace: true);
+            Assert.IsTrue(root.IsSuccess, root.ErrorMessage);
+            Assert.Contains("+alpha beta", root.Document!.UnifiedPatch!);
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "中文.txt", "alpha   beta\n", "test: 空白改动");
+            GitComparisonResult normal = await service.ReadCommitFileDiffAsync(repository, "HEAD", "中文.txt");
+            GitComparisonResult ignored = await service.ReadCommitFileDiffAsync(repository, "HEAD", "中文.txt", ignoreWhitespace: true);
+            Assert.IsTrue(normal.IsSuccess, normal.ErrorMessage);
+            Assert.IsTrue(ignored.IsSuccess, ignored.ErrorMessage);
+            Assert.Contains("+alpha   beta", normal.Document!.UnifiedPatch!);
+            Assert.AreEqual(string.Empty, ignored.Document!.UnifiedPatch);
+            Assert.AreEqual(normal.Document.BaseRevision, ignored.Document.BaseRevision);
+            Assert.AreEqual(normal.Document.TargetRevision, ignored.Document.TargetRevision);
+        }
+    }
+
+    [TestMethod]
+    public async Task 文件历史合并提交使用第一父版本的普通双侧补丁()
+    {
+        var (temporary, runtime, repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "原文\n", "test: 根提交");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "checkout", "-b", "topic");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "分支内容\n", "test: 分支变更");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "checkout", "-");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "merge", "--no-ff", "topic", "-m", "test: 合并");
+            GitComparisonResult result = await new GitHistoryService(runtime).ReadCommitFileDiffAsync(repository, "HEAD", "a.txt");
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.Contains("-原文", result.Document!.UnifiedPatch!);
+            Assert.Contains("+分支内容", result.Document.UnifiedPatch!);
+            Assert.DoesNotContain("@@@", result.Document.UnifiedPatch!);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task 文件历史任意一侧超过十MB时返回摘要不读取补丁(bool oldSide)
+    {
+        var (temporary, runtime, repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            string large = new('a', 10 * 1024 * 1024 + 1);
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "large.txt", oldSide ? large : "small\n", "test: 原版本");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "large.txt", oldSide ? "small\n" : large, "test: 新版本");
+            GitComparisonResult result = await new GitHistoryService(runtime)
+                .ReadCommitFileDiffAsync(repository, "HEAD", "large.txt");
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(GitDiffContentStatus.SideTooLarge, result.Document!.Status);
+            Assert.IsNull(result.Document.UnifiedPatch);
         }
     }
 

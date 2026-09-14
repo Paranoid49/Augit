@@ -43,6 +43,32 @@ public sealed record GitCommitPolicyResult(
     }
 }
 
+public sealed record GitCommitMessageResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    string? Message)
+{
+    public static GitCommitMessageResult Success(string message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return new(true, GitOperationFailureKind.None, null, message);
+    }
+
+    public static GitCommitMessageResult Failure(
+        GitOperationFailureKind failureKind,
+        string errorMessage)
+    {
+        if (failureKind == GitOperationFailureKind.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureKind));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+        return new(false, failureKind, errorMessage, null);
+    }
+}
+
 public sealed record GitCommitResult(
     bool IsSuccess,
     GitOperationFailureKind FailureKind,

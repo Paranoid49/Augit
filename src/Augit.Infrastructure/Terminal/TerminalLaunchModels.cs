@@ -41,7 +41,7 @@ public static class TerminalShellResolver
                         "7",
                         "pwsh.exe"),
                 ]),
-                "-NoLogo"),
+                "-NoLogo -NoExit"),
             TerminalShellIds.CommandPrompt => ResolveKnown(
                 shell,
                 "CMD",
@@ -75,7 +75,7 @@ public static class TerminalShellResolver
                         "WindowsPowerShell",
                         "v1.0",
                         "powershell.exe")]),
-                "-NoLogo"),
+                "-NoExit"),
         };
     }
 

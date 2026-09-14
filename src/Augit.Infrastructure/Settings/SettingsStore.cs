@@ -9,6 +9,7 @@ public sealed class SettingsStore
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
         WriteIndented = true,
     };
 
@@ -75,6 +76,8 @@ public sealed class SettingsStore
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(50)
             .ToArray();
+        string? activeFile = openFiles.FirstOrDefault(
+            path => path.Equals(settings.ActiveFile, StringComparison.OrdinalIgnoreCase));
         string[] expandedDirectories = string.IsNullOrWhiteSpace(settings.LastWorkspace)
             ? []
             : [.. WorkspacePathRules.NormalizeExpandedDirectories(settings.LastWorkspace, settings.ExpandedDirectories)];
@@ -86,12 +89,19 @@ public sealed class SettingsStore
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(10)
             .ToArray();
+        ToolWindowLayoutSettings toolWindows = settings.ToolWindows ?? new();
 
         return settings with
         {
             OpenFiles = openFiles,
+            ActiveFile = activeFile,
             ExpandedDirectories = expandedDirectories,
             RecentWorkspaces = recentWorkspaces,
+            ToolWindows = new()
+            {
+                ProjectPanelWidth = NormalizeDimension(toolWindows.ProjectPanelWidth, 240, 1600),
+                BottomPanelHeight = NormalizeDimension(toolWindows.BottomPanelHeight, 180, 1200),
+            },
             TerminalShell = TerminalShellIds.Normalize(settings.TerminalShell),
             TerminalCustomCommand = NullIfWhiteSpace(settings.TerminalCustomCommand),
         };
@@ -113,5 +123,12 @@ public sealed class SettingsStore
     {
         string? trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+    }
+
+    private static double? NormalizeDimension(double? value, double minimum, double maximum)
+    {
+        return value is not null && double.IsFinite(value.Value)
+            ? Math.Clamp(value.Value, minimum, maximum)
+            : null;
     }
 }

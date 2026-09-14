@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Augit.Infrastructure.Settings;
 
 namespace Augit.Infrastructure.Tests;
 
@@ -8,6 +9,27 @@ public sealed class ConPtyTerminalSessionTests
 {
     [TestMethod]
     public async Task WinExe宿主可以收发并回收完整ConPty进程树()
+    {
+        TerminalTestResult result = await RunTerminalHostAsync(TerminalShellIds.CommandPrompt);
+
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.IsTrue(result.ForegroundDetected);
+        Assert.IsTrue(result.ShellExited);
+        Assert.IsTrue(result.ChildExited);
+    }
+
+    [TestMethod]
+    public async Task WindowsPowerShell可在ConPty中保持交互会话()
+    {
+        TerminalTestResult result = await RunTerminalHostAsync(TerminalShellIds.WindowsPowerShell);
+
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.IsTrue(result.ForegroundDetected);
+        Assert.IsTrue(result.ShellExited);
+        Assert.IsTrue(result.ChildExited);
+    }
+
+    private static async Task<TerminalTestResult> RunTerminalHostAsync(string shellId)
     {
         using TemporaryDirectory temporary = new();
         string resultPath = temporary.GetPath("result.json");
@@ -20,6 +42,7 @@ public sealed class ConPtyTerminalSessionTests
         };
         startInfo.ArgumentList.Add(resultPath);
         startInfo.ArgumentList.Add(temporary.FullPath);
+        startInfo.ArgumentList.Add(shellId);
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("无法启动 ConPTY 测试宿主。");
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
@@ -31,18 +54,27 @@ public sealed class ConPtyTerminalSessionTests
         {
             process.Kill(entireProcessTree: true);
             await process.WaitForExitAsync();
-            Assert.Fail("ConPTY 测试宿主超时，已结束其整个进程树。");
+            throw new AssertFailedException("ConPTY 测试宿主超时，已结束其整个进程树。");
         }
 
-        Assert.IsTrue(File.Exists(resultPath), $"ConPTY 测试宿主退出码为 {process.ExitCode}，但没有结果文件。");
+        if (!File.Exists(resultPath))
+        {
+            throw new AssertFailedException($"ConPTY 测试宿主退出码为 {process.ExitCode}，但没有结果文件。");
+        }
+
         string json = await File.ReadAllTextAsync(resultPath);
         TerminalTestResult? result = JsonSerializer.Deserialize<TerminalTestResult>(json);
-        Assert.IsNotNull(result);
-        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
-        Assert.IsTrue(result.ForegroundDetected);
-        Assert.IsTrue(result.ShellExited);
-        Assert.IsTrue(result.ChildExited);
-        Assert.AreEqual(0, process.ExitCode);
+        if (result is null)
+        {
+            throw new AssertFailedException("ConPTY 测试宿主没有返回有效结果。");
+        }
+
+        if (process.ExitCode != 0)
+        {
+            throw new AssertFailedException(result.ErrorMessage ?? $"ConPTY 测试宿主退出码为 {process.ExitCode}。");
+        }
+
+        return result;
     }
 
     private static string GetTestHostPath()

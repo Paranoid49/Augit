@@ -32,7 +32,16 @@ public sealed record GitConflictBlock(
     int Length,
     string YoursText,
     string? AncestorText,
-    string TheirsText);
+    string TheirsText)
+{
+    public string GetResolvedText(GitConflictBlockChoice choice) => choice switch
+    {
+        GitConflictBlockChoice.Yours => YoursText,
+        GitConflictBlockChoice.Theirs => TheirsText,
+        GitConflictBlockChoice.Both => string.Concat(YoursText, TheirsText),
+        _ => throw new ArgumentOutOfRangeException(nameof(choice)),
+    };
+}
 
 public sealed record GitConflictDocument(
     string RelativePath,
@@ -111,69 +120,65 @@ public sealed record GitConflictMutationResult(
 
 public static class GitConflictText
 {
-    public static IReadOnlyList<GitConflictBlock> Parse(string text)
+    public static IReadOnlyList<GitConflictBlock> Parse(string text, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(text);
-        List<LineInfo> lines = ReadLines(text);
+        cancellationToken.ThrowIfCancellationRequested();
         List<GitConflictBlock> blocks = [];
-        for (int index = 0; index < lines.Count; index++)
+        int start = -1;
+        int contentStart = 0;
+        int ancestor = -1;
+        int ancestorContent = 0;
+        int separator = -1;
+        int theirsStart = 0;
+        int position = 0;
+        int lineCount = 0;
+        // 扫描只保存标记边界，不复制普通行；闭合后才提取块内容，未闭合的块不参与解决。
+        while (position < text.Length)
         {
-            if (!IsMarker(lines[index].Content, "<<<<<<<"))
+            if ((lineCount++ & 255) == 0)
             {
-                continue;
+                cancellationToken.ThrowIfCancellationRequested();
             }
-
-            LineInfo start = lines[index];
-            LineInfo? ancestor = null;
-            LineInfo? separator = null;
-            LineInfo? end = null;
-            for (int inner = index + 1; inner < lines.Count; inner++)
+            int newline = text.IndexOf('\n', position);
+            int end = newline < 0 ? text.Length : newline + 1;
+            int contentEnd = newline < 0 ? end : newline;
+            if (contentEnd > position && text[contentEnd - 1] == '\r')
             {
-                LineInfo line = lines[inner];
-                if (ancestor is null && separator is null && IsMarker(line.Content, "|||||||"))
-                {
-                    ancestor = line;
-                    continue;
-                }
-
-                if (separator is null && line.Content.Equals("=======", StringComparison.Ordinal))
-                {
-                    separator = line;
-                    continue;
-                }
-
-                if (separator is not null && IsMarker(line.Content, ">>>>>>>"))
-                {
-                    end = line;
-                    index = inner;
-                    break;
-                }
-
-                if (IsMarker(line.Content, "<<<<<<<"))
-                {
-                    break;
-                }
+                contentEnd--;
             }
-
-            if (separator is null || end is null)
+            ReadOnlySpan<char> content = text.AsSpan(position, contentEnd - position);
+            if (IsMarker(content, "<<<<<<<"))
             {
-                continue;
+                start = position;
+                contentStart = end;
+                ancestor = separator = -1;
             }
-
-            int yoursEnd = (ancestor ?? separator).Start;
-            string yours = text[start.End..yoursEnd];
-            string? ancestorText = ancestor is null
-                ? null
-                : text[ancestor.End..separator.Start];
-            string theirs = text[separator.End..end.Start];
-            blocks.Add(new(
-                start.Start,
-                end.End - start.Start,
-                yours,
-                ancestorText,
-                theirs));
+            else if (start >= 0)
+            {
+                if (ancestor < 0 && separator < 0 && IsMarker(content, "|||||||"))
+                {
+                    ancestor = position;
+                    ancestorContent = end;
+                }
+                else if (separator < 0 && content.SequenceEqual("======="))
+                {
+                    separator = position;
+                    theirsStart = end;
+                }
+                else if (separator >= 0 && IsMarker(content, ">>>>>>>"))
+                {
+                    blocks.Add(new(start, end - start,
+                        text[contentStart..(ancestor >= 0 ? ancestor : separator)],
+                        ancestor >= 0 ? text[ancestorContent..separator] : null,
+                        text[theirsStart..position]));
+                    start = -1;
+                }
+            }
+            position = end;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return blocks;
     }
 
@@ -192,43 +197,14 @@ public static class GitConflictText
         }
 
         GitConflictBlock block = blocks[blockIndex];
-        string replacement = choice switch
-        {
-            GitConflictBlockChoice.Yours => block.YoursText,
-            GitConflictBlockChoice.Theirs => block.TheirsText,
-            GitConflictBlockChoice.Both => string.Concat(block.YoursText, block.TheirsText),
-            _ => throw new ArgumentOutOfRangeException(nameof(choice)),
-        };
+        string replacement = block.GetResolvedText(choice);
         result = string.Concat(text.AsSpan(0, block.Start), replacement, text.AsSpan(block.Start + block.Length));
         return true;
     }
 
-    private static List<LineInfo> ReadLines(string text)
+    private static bool IsMarker(ReadOnlySpan<char> content, ReadOnlySpan<char> marker)
     {
-        List<LineInfo> lines = [];
-        int start = 0;
-        while (start < text.Length)
-        {
-            int newline = text.IndexOf('\n', start);
-            int end = newline < 0 ? text.Length : newline + 1;
-            int contentEnd = newline < 0 ? end : newline;
-            if (contentEnd > start && text[contentEnd - 1] == '\r')
-            {
-                contentEnd--;
-            }
-
-            lines.Add(new(start, end, text[start..contentEnd]));
-            start = end;
-        }
-
-        return lines;
+        return content.StartsWith(marker, StringComparison.Ordinal)
+            && (content.Length == marker.Length || content[marker.Length] == ' ');
     }
-
-    private static bool IsMarker(string content, string marker)
-    {
-        return content.Equals(marker, StringComparison.Ordinal)
-            || content.StartsWith(string.Concat(marker, " "), StringComparison.Ordinal);
-    }
-
-    private sealed record LineInfo(int Start, int End, string Content);
 }

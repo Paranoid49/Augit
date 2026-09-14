@@ -2,25 +2,79 @@ namespace Augit.App;
 
 public static class UiText
 {
+    public const string DiffChangeCount = "{0} 处差异";
+    public const string DiffPreviousFileBoundary = "再次点击可进入上一个文件";
+    public const string DiffNextFileBoundary = "再次点击可进入下一个文件";
+    public const string DiffFirstFileBoundary = "已到第一个文件的第一处差异";
+    public const string DiffLastFileBoundary = "已到最后一个文件的最后一处差异";
     public const string AppName = "Augit";
+    public const string OpenWorkspace = "打开工作区";
     public const string OpenFolder = "打开目录";
     public const string Refresh = "刷新";
+    public const string ShowDiff = "显示 Diff";
+    public const string CancelComparison = "取消比较";
+    public const string ComparisonCancelled = "比较已取消。";
+    public const string ExpandAll = "展开全部";
     public const string QuickOpen = "快速打开";
     public const string SearchWorkspace = "全仓搜索";
     public const string Settings = "设置";
+    public const string MainMenu = "主菜单";
+    public const string MainMenuFile = "文件";
+    public const string MainMenuView = "视图";
+    public const string MainMenuGit = "Git";
+    public const string MainMenuTerminal = "终端";
+    public const string MainMenuSettings = "设置";
+    public const string CurrentBranch = "当前分支";
+    public const string SearchBranchesAndActions = "搜索分支和操作";
+    public const string UpdateProject = "更新项目…";
+    public const string CommitEllipsis = "提交…";
+    public const string PushEllipsis = "推送…";
+    public const string CreateBranchEllipsis = "新建分支…";
+    public const string CheckoutTagOrRevision = "检出标签或版本…";
+    public const string LocalReferences = "本地";
+    public const string RemoteReferences = "远程";
+    public const string TagReferences = "标签";
+    public const string CheckoutReference = "检出";
+    public const string CreateTrackingBranchEllipsis = "检出为本地分支…";
+    public const string CreateWorktreeEllipsis = "新建 Worktree…";
+    public const string RenameEllipsis = "重命名…";
+    public const string DeleteEllipsis = "删除…";
+    public const string NoMatchingBranchesOrActions = "没有匹配的分支、标签或操作";
+    public const string CurrentFile = "当前文件";
+    public const string MinimizeWindow = "最小化窗口";
+    public const string MaximizeOrRestoreWindow = "最大化或还原窗口";
+    public const string CloseWindow = "关闭窗口";
+    public const string LocateActiveFile = "定位当前文件";
+    public const string CollapseDirectories = "折叠所有目录";
+    public const string MoreActions = "更多操作";
+    public const string HideProjectPanel = "收起项目工具窗口";
+    public const string OpenTabs = "打开的标签";
+    public const string CloseOtherTabs = "关闭其他标签";
+    public const string CloseAllTabs = "关闭全部标签";
     public const string Files = "文件";
+    public const string Project = "项目";
     public const string GitChanges = "Git 改动";
     public const string GitSymbol = "G";
+    public const string CommitSymbol = "✓";
     public const string History = "历史";
-    public const string HistorySymbol = "H";
+    public const string GitLog = "日志";
+    public const string ReturnFromGitHistory = "返回";
+    public const string CreateReference = "新建引用";
+    public const string DeleteReference = "删除引用";
+    public const string SearchGitHistory = "搜索提交历史";
+    public const string LocateHead = "定位 HEAD";
     public const string TerminalSymbol = ">_";
     public const string Clone = "克隆";
     public const string InitializeRepository = "初始化仓库";
+    public const string ContinueBrowse = "继续仅浏览";
+    public const string InitializeGitRepositoryTitle = "初始化 Git 仓库";
+    public const string InitializeGitRepositoryDetail = "初始化会创建 .git 元数据，不会提交或修改现有文件。";
     public const string Fetch = "Fetch";
     public const string Pull = "Pull";
-    public const string Push = "Push";
+    public const string Push = "推送";
     public const string Remotes = "Remote";
     public const string CancelOperation = "取消操作";
+    public const string OperationCancelled = "操作已取消。";
     public const string Changes = "Changes";
     public const string UnversionedFiles = "Unversioned Files";
     public const string ToggleSelection = "勾选/取消";
@@ -29,19 +83,35 @@ public static class UiText
     public const string UnifiedDiff = "单栏";
     public const string SideBySideDiff = "双栏";
     public const string IgnoreWhitespace = "忽略空白";
-    public const string CopyGitCommand = "复制 Git 命令";
     public const string PreviousChange = "上一处";
     public const string NextChange = "下一处";
+    public const string PreviousFile = "上一个文件";
+    public const string NextFile = "下一个文件";
     public const string DiffSearchPrompt = "查找 diff 文本";
+    public const string DiffSearchNoResults = "当前 diff 中没有匹配结果。";
+    public const string CurrentVersion = "当前版本";
     public const string ModifiedPreview = "修改后预览";
     public const string CommitMessage = "提交信息";
-    public const string AmendLastCommit = "Amend last commit";
-    public const string Commit = "Commit";
-    public const string CommitAndPush = "Commit and Push";
+    public const string CommitPanel = "提交";
+    public const string AmendLastCommit = "Amend";
+    public const string CommitSelectionCount = "已勾选的提交文件数量";
+    public const string LastCommit = "上一次提交";
+    public const string CommitSettings = "提交设置";
+    public const string AmendUnavailable = "当前仓库还没有可 Amend 的提交。";
+    public const string ReadingLastCommit = "正在读取上一次提交…";
+    public const string LastCommitLoaded = "已载入上一次提交信息。";
+    public const string LastCommitReadFailed = "无法读取上一次提交信息。";
+    public const string Commit = "提交";
+    public const string CommitAndPush = "提交并推送…";
     public const string PreviousPage = "上一页";
     public const string NextPage = "下一页";
     public const string ApplyFilter = "应用筛选";
     public const string ClearFilter = "清除筛选";
+    public const string HistoryFilterValue = "筛选值";
+    public const string HistoryTextOrHash = "文本或哈希";
+    public const string HistorySearch = "搜索提交历史";
+    public const string ShowCommitDetails = "显示提交详情";
+    public const string HideCommitDetails = "隐藏提交详情";
     public const string FilterMessage = "提交信息";
     public const string FilterHash = "哈希";
     public const string FilterAuthor = "作者";
@@ -49,14 +119,38 @@ public static class UiText
     public const string FilterUntil = "结束日期";
     public const string FilterBranch = "分支";
     public const string FilterFile = "文件路径";
+    public const string FilterUser = "用户";
+    public const string FilterDate = "日期";
+    public const string FilterPath = "路径";
+    public const string MoreHistoryFilters = "更多历史筛选";
+    public const string MoreHistoryTools = "更多历史工具";
+    public const string BranchOrTag = "分支或标签";
     public const string CompareReferences = "比较引用";
     public const string ManageReferences = "分支与标签";
-    public const string ManageLocalState = "Stash 与 Reset";
+    public const string ManageLocalState = "Stash";
+    public const string CreateStashMenu = "创建 Stash…";
+    public const string ManageStashes = "Stash 管理…";
+    public const string ResetCurrentBranch = "Reset 当前分支…";
     public const string ManageWorktrees = "Worktree";
     public const string AdvancedGitOperations = "高级操作";
     public const string FileHistory = "文件历史";
+    public const string ClearFileHistory = "返回 Git 日志";
+    public const string FileHistoryReadOnly = "文件历史内容只读";
+    public const string FileHistoryExpand = "展开文件历史内容";
+    public const string DiffSettings = "Diff 设置";
     public const string Blame = "Blame";
+    public const string CloseBlame = "关闭 Blame";
+    public static string BlameLineCount(int count) => $"{count} 行归属";
+    public const string CopyCommitHash = "复制提交哈希";
+    public const string CherryPick = "Cherry-pick";
+    public const string CompareWithWorkspace = "与工作区比较";
+    public const string ResetCurrentBranchHere = "Reset 当前分支到此处…";
+    public const string RevertCommit = "Revert Commit";
+    public const string NewBranch = "新建分支…";
+    public const string NewTag = "新建标签…";
+    public const string CommitDetails = "提交详情";
     public const string HistoryLoading = "正在读取提交历史…";
+    public const string FileHistoryNoContent = "该提交中没有可显示的文本内容。";
     public const string HistoryReady = "提交历史已刷新。";
     public const string HistoryUnavailable = "当前工作区没有可显示的 Git 历史。";
     public const string SelectCommit = "请选择提交查看元数据和变化文件。";
@@ -68,6 +162,7 @@ public static class UiText
     public const string HistoryPanelCreateFailed = "无法创建 Git 历史面板。";
     public const string HistoryPanelClassRegisterFailed = "无法注册 Git 历史面板窗口类。";
     public const string HistoryControlCreateFailed = "无法创建 Git 历史界面控件。";
+    public const string HistoryBranchesListSubclassFailed = "无法初始化 Git 历史引用列表的鼠标与键盘交互。";
     public const string GitTextWindowCreateFailed = "无法创建 Git 只读结果窗口。";
     public const string GitTextWindowClassRegisterFailed = "无法注册 Git 只读结果窗口类。";
     public const string GitTextControlCreateFailed = "无法创建 Git 只读结果控件。";
@@ -97,18 +192,70 @@ public static class UiText
     public const string ConfirmDeleteTag = "删除标签会移除该标签引用，确定继续吗？";
     public const string ConfirmDeleteRemoteTag = "删除远端标签会修改远端仓库，确定继续吗？";
     public const string ReferenceOperationCompleted = "分支或标签操作已完成。";
+    public const string BranchMenuLoading = "正在读取分支…";
+    public const string ReferenceListUnavailable = "无法读取分支与标签。";
+    public const string ReferenceOperationFailed = "Git 分支操作失败。";
+    public const string SmartCheckoutWarningTitle = "当前改动会被目标分支覆盖";
+    public const string SmartCheckoutWarningDetail = "Augit 可以临时 Stash 当前改动，切换后再恢复。";
+    public const string SmartCheckoutRunning = "正在执行 Smart Checkout…";
     public const string Stashes = "Stash 列表";
-    public const string StashMessage = "Stash 说明";
-    public const string ResetTarget = "Reset 目标";
+    public const string StashMessage = "消息";
+    public const string GitRoot = "Git 根目录";
+    public const string CurrentBranchLabel = "当前分支";
+    public const string KeepIndexState = "保留索引状态";
+    public const string CreateStashTitle = "Stash";
+    public const string CreateStashAction = "创建 Stash";
+    public const string StashManagement = "Stash 管理";
+    public const string DeleteStashTitle = "删除 Stash";
+    public const string DeleteStashHeading = "所选 Stash 将被永久删除";
+    public const string StashDetails = "Stash 详情";
+    public const string StashCreatedAt = "创建时间";
+    public const string StashBranch = "分支";
+    public const string StashChangedFiles = "变化文件";
+    public const string DeleteStash = "删除";
+    public const string CreatingStash = "正在创建 Stash…";
+    public const string StashOperationFailed = "创建 Stash 失败，请重试。";
+    public const string ReadingStashes = "正在读取 Stash…";
+    public const string ReadingStashDetails = "正在读取 Stash 详情…";
+    public const string StashCreated = "Stash 已创建。";
+    public const string StashOperationCompleted = "Stash 操作已完成。";
+    public const string NoStashes = "当前没有 Stash。";
+    public const string StashDialogCreateFailed = "无法创建 Stash 窗口。";
+    public const string StashDialogClassRegisterFailed = "无法注册 Stash 窗口类。";
+    public const string StashDialogControlCreateFailed = "无法创建 Stash 窗口控件。";
+    public const string StashManagerCreateFailed = "无法创建 Stash 管理窗口。";
+    public const string StashManagerClassRegisterFailed = "无法注册 Stash 管理窗口类。";
+    public const string StashManagerControlCreateFailed = "无法创建 Stash 管理控件。";
+    public const string ConfirmDeleteStash = "删除所选 Stash 后无法由 Augit 恢复，确定继续吗？";
+    public const string ResetTarget = "目标提交";
     public const string CreateStash = "Stash";
     public const string CreateStashWithUntracked = "Stash 含未跟踪";
-    public const string ApplyStash = "应用并保留";
-    public const string PopStash = "应用并删除";
+    public const string ApplyStash = "应用";
+    public const string PopStash = "弹出";
     public const string ViewStash = "查看内容";
     public const string ResetSoft = "Reset Soft";
     public const string ResetMixed = "Reset Mixed";
     public const string ResetHard = "Reset Hard";
-    public const string LocalStateManagement = "Stash 与 Reset";
+    public const string ResetTitle = "Reset 当前分支";
+    public const string ResetMode = "模式";
+    public const string ResetSoftDescription = "Soft · 仅移动 HEAD";
+    public const string ResetMixedDescription = "Mixed · 同时重置索引";
+    public const string ResetHardDescription = "Hard · 重置索引和工作区";
+    public const string ResetSoftImpact = "仅移动 HEAD，索引和工作区保持不变";
+    public const string ResetSoftNote = "已暂存和未暂存的本地改动都会保留。";
+    public const string ResetMixedImpact = "移动 HEAD 并重置索引，工作区保持不变";
+    public const string ResetMixedNote = "已暂存改动会回到工作区，本地文件不会删除。";
+    public const string ResetHardImpact = "将丢失已跟踪文件的本地改动";
+    public const string ResetHardNote = "未跟踪文件不会删除，操作不可由 Augit 自动撤销。";
+    public const string ConfirmResetHardAction = "确认 Reset Hard";
+    public const string RunReset = "执行 Reset";
+    public const string RunningReset = "正在执行 Reset…";
+    public const string ResetCompleted = "Reset 已完成。";
+    public const string ResetDialogCreateFailed = "无法创建 Reset 窗口。";
+    public const string ResetDialogClassRegisterFailed = "无法注册 Reset 窗口类。";
+    public const string ResetDialogControlCreateFailed = "无法创建 Reset 窗口控件。";
+    public const string ResetOperationFailed = "Reset 失败，请检查仓库状态后重试。";
+    public const string LocalStateManagement = "Stash 管理";
     public const string LocalStateDialogCreateFailed = "无法创建 Stash 与 Reset 窗口。";
     public const string LocalStateDialogClassRegisterFailed = "无法注册 Stash 与 Reset 窗口类。";
     public const string LocalStateDialogControlCreateFailed = "无法创建 Stash 与 Reset 控件。";
@@ -118,13 +265,24 @@ public static class UiText
     public const string ConfirmResetHard = "Reset Hard 会丢弃索引和工作区改动，此操作不可由 Augit 撤销，确定继续吗？";
     public const string LocalStateOperationCompleted = "本地状态操作已完成。";
     public const string Worktrees = "Worktree 列表";
-    public const string WorktreePath = "目标路径";
+    public const string WorktreePath = "路径";
+    public const string WorktreeBranch = "分支";
+    public const string WorktreeStatus = "状态";
+    public const string WorktreeTerminalSessions = "终端会话";
+    public const string WorktreeTargetPath = "目标路径";
     public const string WorktreeSourceBranch = "来源分支";
-    public const string WorktreeNewBranch = "新分支（留空则使用来源分支）";
+    public const string WorktreeNewBranch = "新分支（可选）";
     public const string CreateAndOpenWorktree = "创建并打开";
-    public const string OpenWorktree = "打开";
-    public const string RemoveWorktree = "安全移除";
+    public const string OpenWorktree = "打开窗口";
+    public const string NewWorktreeAction = "新建 Worktree";
+    public const string RemoveWorktree = "移除…";
     public const string WorktreeManagement = "Worktree 管理";
+    public const string RemoveWorktreeTitle = "移除 Worktree";
+    public const string RemoveWorktreeHeading = "所选 Worktree 将从仓库中移除";
+    public const string NewWorktree = "新建 Worktree";
+    public const string NoWorktrees = "当前没有可管理的 Worktree。";
+    public const string WorktreeCreatePrompt = "填写路径和来源分支后创建新的 Worktree。";
+    public const string WorktreeFieldsRequired = "请输入 Worktree 路径和来源分支。";
     public const string WorktreeDialogCreateFailed = "无法创建 Worktree 管理窗口。";
     public const string WorktreeDialogClassRegisterFailed = "无法注册 Worktree 管理窗口类。";
     public const string WorktreeDialogControlCreateFailed = "无法创建 Worktree 管理控件。";
@@ -135,8 +293,22 @@ public static class UiText
     public const string RunningWorktreeOperation = "正在执行 Worktree 操作…";
     public const string WorktreeOpened = "已在独立 Augit 窗口打开 Worktree。";
     public const string WorktreeDirectoryMissing = "Worktree 目录不存在，无法打开。";
+    public const string WorktreeCheckingStatus = "正在检查…";
+    public const string WorktreeCleanStatus = "干净，可安全移除";
+    public const string WorktreeCurrentStatus = "当前窗口正在使用";
+    public const string WorktreeTerminalChecking = "正在检查…";
+    public const string WorktreeTerminalActive = "有运行中的内置终端";
+    public const string WorktreeTerminalInactive = "无运行中的内置终端";
     public const string AugitExecutableUnavailable = "无法确定当前 Augit 可执行文件，不能打开独立窗口。";
-    public const string Rollback = "Rollback";
+    public const string Rollback = "回滚";
+    public const string RollbackDialogTitle = "回滚文件";
+    public const string RollbackWarningTitle = "将丢失此文件的全部本地改动";
+    public const string RollbackWarningDetail = "回滚完整文件，不能只回滚选中的差异块。";
+    public const string RollbackRecycleNotice = "未跟踪或新增文件将移入 Windows 回收站。";
+    public const string ConfirmRollbackAction = "回滚完整文件";
+    public const string RollbackDialogCreateFailed = "无法创建 Rollback 确认窗口。";
+    public const string RollbackDialogClassRegisterFailed = "无法注册 Rollback 确认窗口类。";
+    public const string RollbackDialogControlCreateFailed = "无法创建 Rollback 确认控件。";
     public const string ConfirmRollback = "Rollback 会丢弃所选完整文件的当前 diff；未跟踪或新增文件会进入 Windows 回收站，确定继续吗？";
     public const string SelectRollbackFile = "请先选择要 Rollback 的文件。";
     public const string RollbackConflictUnavailable = "冲突文件必须在阶段四的冲突流程中处理，不能直接 Rollback。";
@@ -162,16 +334,19 @@ public static class UiText
     public const string GitOperationDialogClassRegisterFailed = "无法注册 Git 操作与冲突窗口类。";
     public const string GitOperationDialogControlCreateFailed = "无法创建 Git 操作与冲突控件。";
     public const string ConflictResolver = "三栏冲突解决器";
+    public const string ResolveConflictDialogTitle = "解决冲突";
     public const string FinalResult = "最终结果";
-    public const string AcceptLeftBlock = "接受左侧块";
-    public const string AcceptRightBlock = "接受右侧块";
-    public const string AcceptBothBlock = "接受两侧块";
-    public const string SaveAndResolve = "保存并标记已解决";
+    public const string AcceptLeftBlock = "接受左侧";
+    public const string AcceptRightBlock = "接受右侧";
+    public const string AcceptBothBlock = "接受两侧";
+    public const string SaveAndResolve = "应用并标记已解决";
+    public const string BackToConflictList = "返回冲突列表";
     public const string ConflictResolverCreateFailed = "无法创建三栏冲突解决器窗口。";
     public const string ConflictResolverClassRegisterFailed = "无法注册三栏冲突解决器窗口类。";
     public const string ConflictResolverControlCreateFailed = "无法创建三栏冲突解决器控件。";
     public const string UnresolvedConflictBlocks = "仍有未处理的冲突块。";
     public const string ConflictResolved = "冲突文件已保存并由 Git 标记为已解决。";
+    public const string ConflictApplying = "正在应用结果并标记已解决…";
     public const string ExternalConflictChanged = "冲突文件已被外部工具修改。选择“是”重新载入外部内容，选择“否”保留当前未保存内容。";
     public const string NoWorkspace = "打开一个本地目录开始浏览";
     public const string NoDocument = "从左侧文件树打开文件";
@@ -179,9 +354,11 @@ public static class UiText
     public const string RevealInExplorer = "在资源管理器中定位";
     public const string OpenExternalTerminal = "在外部终端打开";
     public const string RecentWorkspaces = "最近目录";
+    public const string RecentWorkspaceHint = "同一目录已经打开时激活原窗口。";
     public const string NoRecentWorkspaces = "没有最近打开的目录。";
     public const string Terminal = "终端";
     public const string CloseTerminal = "关闭终端";
+    public const string HideTerminal = "隐藏终端";
     public const string TerminalShell = "终端 Shell";
     public const string WindowsPowerShell = "Windows PowerShell";
     public const string PowerShell7 = "PowerShell 7";
@@ -193,6 +370,7 @@ public static class UiText
     public const string TerminalDescription = "首次默认使用 Windows PowerShell；配置失效时终端会明确报错，不会切换到其他 Shell。";
     public const string TerminalCustomCommandRequired = "选择自定义终端时必须填写启动命令。";
     public const string TerminalLoading = "正在按需创建内置终端…";
+    public static string TerminalSessionLoading(string shell) => $"{shell} · 正在启动…";
     public const string TerminalReady = "内置终端已启动。";
     public const string TerminalClosed = "内置终端已关闭。";
     public const string TerminalStartFailed = "内置终端启动失败。";
@@ -221,11 +399,27 @@ public static class UiText
     public const string IncludeIgnoredFiles = "包含忽略文件";
     public const string SelectWorkspace = "选择工作区目录";
     public const string QuickOpenFiles = "快速打开文件";
+    public const string QuickOpenPlaceholder = "输入文件名";
     public const string WorkspaceTextSearch = "全仓文本搜索";
     public const string FollowWindows = "跟随 Windows";
     public const string Light = "浅色";
     public const string Dark = "深色";
     public const string Theme = "主题";
+    public const string AppearanceAndBehavior = "外观与行为";
+    public const string Appearance = "外观";
+    public const string FileViewing = "文件查看";
+    public const string SearchSettings = "搜索设置";
+    public const string Apply = "应用";
+    public const string SettingsTitle = "设置 — Augit";
+    public const string ThemeSection = "主题";
+    public const string FontSection = "字体";
+    public const string WindowSection = "窗口";
+    public const string GitSection = "Git";
+    public const string TerminalSection = "终端";
+    public const string GitExecutablePath = "git.exe 路径";
+    public const string TerminalProfile = "Shell 类型";
+    public const string DisplayOnlyDescription = "字体只改变显示，不会修改文件。";
+    public const string WorkspaceRestoreDescription = "启动时恢复上次打开的目录和标签。";
     public const string InterfaceFont = "界面字体";
     public const string MonospaceFont = "等宽字体";
     public const string FontSize = "字号";
@@ -245,6 +439,8 @@ public static class UiText
     public const string WorkspaceAlreadyOpen = "该目录已在另一个窗口中打开。";
     public const string DirectoryReadFailed = "目录无法读取。";
     public const string ReadingFile = "正在读取文件…";
+    public const string MarkdownPreviewLoading = "正在加载预览…";
+    public const string MarkdownPreviewNavigationFailed = "Markdown 预览页面加载失败。";
     public const string OpenWorkspaceFirst = "请先打开工作区。";
     public const string SearchComponentMissing = "随程序附带的搜索组件缺失。";
     public const string Searching = "正在搜索…";
@@ -257,10 +453,21 @@ public static class UiText
     public const string MarkdownRuntimeMissing = "Markdown 预览不可用，请安装兼容的 Microsoft Edge WebView2 Runtime。";
     public const string WebView2RuntimeMissing = "缺少兼容的 Microsoft Edge WebView2 Runtime。是否打开微软官方下载页面？";
     public const string ImageDecodeFailed = "图片解码失败，已停止预览。";
+    public const string ImageZoomOut = "缩小";
+    public const string ImageZoomIn = "放大";
+    public const string ImageFitToArea = "适应区域";
+    public const string DocumentPreviewUnavailable = "无法在 Augit 中预览此文件";
+    public const string UnsupportedImageFormat = "Augit 不支持 GIF、WebP 或其他二进制图片格式。";
     public const string FindLocated = "已定位";
     public const string FindNotFound = "未找到";
     public const string InvalidRegularExpression = "正则表达式无效";
     public const string FindTimedOut = "查找超时";
+
+    public static string FindResults(int count)
+    {
+        int total = Math.Max(0, count);
+        return total == 0 ? "0/0" : $"1/{total}";
+    }
     public const string FolderDialogUnavailable = "系统目录选择器不可用。";
     public const string WicUnavailable = "Windows 图片解码组件不可用。";
     public const string ImageDimensionsOutOfRange = "图片尺寸超出预览范围。";
@@ -268,6 +475,8 @@ public static class UiText
     public const string DocumentViewCreateFailed = "无法创建文档查看区域。";
     public const string DocumentViewClassRegisterFailed = "无法注册文档查看窗口类。";
     public const string DocumentControlCreateFailed = "无法创建文档界面控件。";
+    public const string DocumentInfoViewCreateFailed = "无法创建文件信息页。";
+    public const string DocumentInfoViewClassRegisterFailed = "无法注册文件信息页窗口类。";
     public const string ExternalProgramFailed = "无法启动外部程序。";
     public const string ReadOnlyTextControlCreateFailed = "无法创建只读文本控件。";
     public const string ScintillaMissing = "Scintilla 原生组件缺失或无法加载。";
@@ -282,6 +491,7 @@ public static class UiText
     public const string SearchPanelCreateFailed = "无法创建搜索面板。";
     public const string SearchPanelClassRegisterFailed = "无法注册搜索面板窗口类。";
     public const string SearchControlCreateFailed = "无法创建搜索控件。";
+    public const string SearchControlSubclassFailed = "无法初始化搜索输入框的绘制交互。";
     public const string MainWindowCreateFailed = "无法创建 Augit 主窗口。";
     public const string MainWindowCloseFailed = "无法关闭 Augit 主窗口。";
     public const string StartupWorkspaceOwnershipReleased = "启动工作区所有权已经释放。";
@@ -292,9 +502,11 @@ public static class UiText
     public const string AppearanceApplied = "外观设置已应用。";
     public const string SettingsApplied = "设置已应用。";
     public const string GitPanelCreateFailed = "无法创建 Git 改动面板。";
+    public const string GitChangesListSubclassFailed = "无法初始化 Git 改动列表的鼠标与键盘交互。";
     public const string GitPanelClassRegisterFailed = "无法注册 Git 改动面板窗口类。";
     public const string GitControlCreateFailed = "无法创建 Git 界面控件。";
     public const string GitUnavailable = "Git 模块不可用。";
+    public const string ConfigureGitExecutable = "配置 git.exe";
     public const string GitRefreshing = "正在刷新 Git 状态…";
     public const string GitReady = "Git 状态已刷新。";
     public const string NoGitChanges = "工作区没有本地改动。";
@@ -309,31 +521,61 @@ public static class UiText
     public const string FetchCompleted = "Fetch 已完成。";
     public const string PullCompleted = "Pull 已完成。";
     public const string PushCompleted = "Push 已完成。";
+    public const string PushDialogTitle = "推送提交到 Augit";
+    public const string ReadingPushPreview = "正在读取待推送提交…";
+    public const string PushNoRemote = "当前仓库尚未配置远端。";
+    public const string DefineRemote = "定义远端";
+    public const string PushNothingToPush = "当前引用没有待推送提交。";
+    public const string PushNoSelection = "没有选中的提交";
+    public const string PushTags = "推送标签";
+    public const string AllTags = "全部";
+    public const string PushPreviewReady = "Push 预览已就绪。";
+    public const string Pushing = "正在推送…";
+    public const string PushFailed = "Push 失败。";
+    public const string PushCredentialsNotice = "凭据由本机 Git 环境处理，Augit 不保存凭据。";
+    public const string PushDialogCreateFailed = "无法创建 Push 窗口。";
+    public const string PushDialogClassRegisterFailed = "无法注册 Push 窗口类。";
+    public const string PushDialogControlCreateFailed = "无法创建 Push 窗口控件。";
+    public const string CloneRepository = "克隆仓库";
+    public const string VersionControl = "版本控制";
     public const string CloneWindowCreateFailed = "无法创建克隆窗口。";
     public const string CloneWindowClassRegisterFailed = "无法注册克隆窗口类。";
     public const string CloneControlCreateFailed = "无法创建克隆界面控件。";
-    public const string CloneSource = "仓库地址";
-    public const string CloneDestination = "目标目录";
+    public const string CloneSource = "仓库 URL";
+    public const string CloneDestination = "目录";
+    public const string CloneSourcePlaceholder = "https://example.com/team/repository.git";
+    public const string CloneDestinationPlaceholder = @"D:\projects\repository";
+    public const string ShallowClone = "浅克隆，历史截断为";
+    public const string CloneCommitUnit = "个提交";
+    public const string CloneDepthInvalid = "浅克隆深度必须是正整数。";
+    public const string BrowseSymbol = "…";
     public const string Browse = "浏览…";
     public const string Cloning = "正在克隆…";
     public const string CloneCompleted = "克隆已完成。";
     public const string CloneFailed = "Git 克隆失败。";
+    public const string CloneFieldsRequired = "请输入仓库地址和目标目录。";
     public const string SelectCloneDestination = "选择克隆目标目录";
-    public const string RemoteManagement = "Remote 管理";
+    public const string RemoteManagement = "远端管理";
     public const string RemoteName = "名称";
-    public const string RemoteFetchUrl = "Fetch 地址";
-    public const string RemotePushUrl = "Push 地址（留空则同 Fetch）";
+    public const string RemoteFetchUrl = "获取 URL";
+    public const string RemotePushUrl = "推送 URL";
+    public const string NewRemote = "新增远端";
+    public const string NoRemotes = "尚未配置远端";
+    public const string AddSymbol = "+";
+    public const string DeleteSymbol = "−";
+    public const string RefreshSymbol = "↻";
+    public const string RemoteSymbol = "远端";
     public const string Add = "新增";
     public const string Save = "保存";
     public const string Delete = "删除";
     public const string LocalBranch = "本地分支";
     public const string RemoteBranch = "远端分支";
     public const string SetTracking = "设置跟踪";
-    public const string RemoteOperationCompleted = "Remote 设置已更新。";
-    public const string RemoteDialogCreateFailed = "无法创建 Remote 管理窗口。";
-    public const string RemoteDialogClassRegisterFailed = "无法注册 Remote 管理窗口类。";
-    public const string RemoteDialogControlCreateFailed = "无法创建 Remote 管理界面控件。";
-    public const string SelectRemoteFirst = "请先选择一个 remote。";
+    public const string RemoteOperationCompleted = "远端设置已更新。";
+    public const string RemoteDialogCreateFailed = "无法创建远端管理窗口。";
+    public const string RemoteDialogClassRegisterFailed = "无法注册远端管理窗口类。";
+    public const string RemoteDialogControlCreateFailed = "无法创建远端管理界面控件。";
+    public const string SelectRemoteFirst = "请先选择一个远端。";
     public const string PullRepositoryConfigured = "按仓库配置";
     public const string PullMerge = "Merge";
     public const string PullRebase = "Rebase";
@@ -347,17 +589,21 @@ public static class UiText
     public const string Staged = " 已暂存";
     public const string InitializingRepository = "正在初始化 Git 仓库…";
     public const string InitializeRepositoryFailed = "Git 初始化失败。";
+    public const string CalculatingDiff = "正在计算差异…";
     public const string GeneratingDiff = "正在生成 diff…";
+    public const string LoadingDiff = "正在加载";
     public const string GenerateDiffFailed = "无法生成 diff。";
     public const string Committing = "正在提交…";
     public const string CommittingAndPushing = "正在提交并推送…";
     public const string CommitFailed = "提交失败。";
+    public const string GitOperationCompleted = "Git 操作已完成。";
+    public const string GitOperationFailed = "Git 操作失败。";
     public const string GitRemoteOperationRunning = "正在执行 Git 远程操作…";
     public const string GitRemoteOperationFailed = "Git 远程操作失败。";
-    public const string ReadingRemotes = "正在读取 remote…";
-    public const string ReadRemotesFailed = "无法读取 remote。";
-    public const string UpdatingRemotes = "正在更新 remote…";
-    public const string RemoteOperationFailed = "Remote 操作失败。";
+    public const string ReadingRemotes = "正在读取远端…";
+    public const string ReadRemotesFailed = "无法读取远端。";
+    public const string UpdatingRemotes = "正在更新远端…";
+    public const string RemoteOperationFailed = "远端操作失败。";
     public const string ImageViewCreateFailed = "无法创建图片预览控件。";
     public const string ImageViewClassRegisterFailed = "无法注册图片预览窗口类。";
 
@@ -368,8 +614,12 @@ public static class UiText
     public static string SymbolicLinkTarget(string path) => $"符号链接目标：{path}";
 
     public static string JsonError(long? line, long? column) => $"JSON 格式错误：第 {line} 行，第 {column} 列。";
+    public const string JsonLocateError = " 点击定位。";
+    public const string JsonFormatUnavailable = "JSON 格式错误，请查看原文中的错误位置";
 
     public static string DocumentSummary(string type, string size, string path) => $"类型：{type}\n大小：{size}\n路径：{path}";
+
+    public static string DocumentMetadata(string fileName, string type, string size) => $"{fileName} · {type} · {size}";
 
     public static string BlockedImage(string source) => $"[已阻止图片：{source}]";
 
@@ -377,8 +627,8 @@ public static class UiText
 
     public static string GitBranchStatus(string? branch, bool detached, int changes, int unversioned)
     {
-        string current = detached ? $"Detached HEAD：{branch}" : $"分支：{branch ?? NoCommits}";
-        return $"{current}    Changes {changes}    Unversioned {unversioned}";
+        string current = detached ? $"分离头 {branch}" : branch ?? NoCommits;
+        return $"{current} · 改动 {changes} · 未跟踪 {unversioned}";
     }
 
     public static string GitGroup(string title, int count) => $"▾ {title} ({count})";
@@ -388,9 +638,15 @@ public static class UiText
 
     public static string CommitCompletedPushFailed(string? error) => $"提交已完成，但 Push 失败：{error}";
 
-    public static string RemoteCount(int count) => $"{count} 个 remote";
+    public static string RemoteCount(int count) => $"{count} 个远端";
 
-    public static string ConfirmDeleteRemote(string name) => $"确定删除 remote {name} 吗？";
+    public static string ConfirmDeleteRemote(string name) => $"确定删除远端 {name} 吗？";
+
+    public static string ConfirmDeleteRemoteDetails(string name)
+        => $"{ConfirmDeleteRemote(name)}\n\n远端：{name}";
+
+    public static string ConfirmDeleteStashDetails(string reference)
+        => $"{ConfirmDeleteStash}\n\nStash：{reference}";
 
     public static string WorktreeCount(int count) => $"{count} 个 Worktree";
 
@@ -400,7 +656,7 @@ public static class UiText
     public static string TerminalExited(int exitCode) => $"内置终端已退出，退出码 {exitCode}。";
 
     public static string ConfirmRemoveWorktreeDetails(string path, string? branch)
-        => $"路径：{path}\n分支：{branch ?? "Detached HEAD"}\n\n{ConfirmRemoveWorktree}";
+        => $"{ConfirmRemoveWorktree}\n\n路径：{path}\n分支：{branch ?? "Detached HEAD"}";
 
     public static string ConfirmRollbackDetails(string path, string oldSize, string newSize, bool recycle)
     {
@@ -409,12 +665,18 @@ public static class UiText
     }
 
     public static string ConfirmDeleteBranchDetails(string name, bool force)
-        => $"分支：{name}\n删除方式：{(force ? "强制删除，未合并提交可能丢失" : "仅在已经合并时删除")}\n\n{ConfirmDeleteBranch}";
+        => $"{ConfirmDeleteBranch}\n\n分支：{name}\n删除方式：{(force ? "强制删除，未合并提交可能丢失" : "仅在已经合并时删除")}";
+
+    public static string SwitchingBranch(string name) => $"正在切换到分支 {name}…";
+
+    public static string StashChangedFileCount(int count) => $"包含 {count} 个文件";
+
+    public static string ResetHardImpactCount(int count) => $"将丢失 {count} 个已跟踪文件的本地改动";
 
     public static string ConfirmDeleteTagDetails(string name, bool remote, string? remoteName)
         => remote
-            ? $"标签：{name}\n远端：{remoteName}\n\n{ConfirmDeleteRemoteTag}"
-            : $"标签：{name}\n\n{ConfirmDeleteTag}";
+            ? $"{ConfirmDeleteRemoteTag}\n\n标签：{name}\n远端：{remoteName}"
+            : $"{ConfirmDeleteTag}\n\n标签：{name}";
 
     public static string ConfirmResetDetails(string target, string warning)
         => $"目标：{target}\n\n{warning}";

@@ -33,7 +33,9 @@ public sealed record GitOperationSession(
     IReadOnlyList<GitConflictFileInfo> ConflictFiles,
     bool CanContinue,
     bool CanSkip,
-    bool CanAbort)
+    bool CanAbort,
+    int? CurrentStep = null,
+    int? TotalSteps = null)
 {
     public bool Supports(GitOperationAction action)
     {

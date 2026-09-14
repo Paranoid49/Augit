@@ -5,6 +5,7 @@
     <Project Path="src/Augit.Infrastructure/Augit.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Augit.App.VisualAuditHost/Augit.App.VisualAuditHost.csproj" />
     <Project Path="tests/Augit.App.Tests/Augit.App.Tests.csproj" />
     <Project Path="tests/Augit.Core.Tests/Augit.Core.Tests.csproj" />
     <Project Path="tests/Augit.Infrastructure.Tests/Augit.Infrastructure.Tests.csproj" />

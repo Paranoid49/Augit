@@ -21,10 +21,27 @@ public sealed class RuntimePackageVerificationTests
         Assert.Contains("Augit.app", executableText, StringComparison.Ordinal);
         Assert.Contains("level=\"asInvoker\"", executableText, StringComparison.Ordinal);
         Assert.Contains("{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}", executableText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("PerMonitorV2", executableText, StringComparison.Ordinal);
         Assert.Contains("longPathAware", executableText, StringComparison.Ordinal);
         Assert.Contains("Microsoft.Windows.Common-Controls", executableText, StringComparison.Ordinal);
         Assert.Contains("version=\"6.0.0.0\"", executableText, StringComparison.Ordinal);
         Assert.DoesNotContain("requireAdministrator", executableText, StringComparison.Ordinal);
+    }
+
+    [TestMethod]
+    public void 浅色终端主题不会残留深色边框()
+    {
+        string index = File.ReadAllText(FindRepositoryFile("tools", "xterm", "terminal", "index.html"));
+        string script = File.ReadAllText(FindRepositoryFile("tools", "xterm", "terminal", "terminal.js"));
+
+        Assert.Contains("#terminal {", index, StringComparison.Ordinal);
+        Assert.Contains("background: transparent", index, StringComparison.Ordinal);
+        Assert.Contains("overflow-y: auto !important", index, StringComparison.Ordinal);
+        Assert.Contains("scrollbar-color: var(--augit-scrollbar-thumb) transparent", index, StringComparison.Ordinal);
+        Assert.Contains("::-webkit-scrollbar-button", index, StringComparison.Ordinal);
+        Assert.Contains("::-webkit-scrollbar-thumb", index, StringComparison.Ordinal);
+        Assert.Contains("getElementById('terminal').style.background = 'transparent'", script, StringComparison.Ordinal);
+        Assert.Contains("--augit-scrollbar-thumb", script, StringComparison.Ordinal);
     }
 
     [TestMethod]

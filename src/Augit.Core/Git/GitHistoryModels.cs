@@ -145,8 +145,7 @@ public sealed record GitComparisonDocument(
     string BaseRevision,
     string? TargetRevision,
     string? RelativePath,
-    string? UnifiedPatch,
-    string? CopyableCommand);
+    string? UnifiedPatch);
 
 public sealed record GitComparisonResult(
     bool IsSuccess,

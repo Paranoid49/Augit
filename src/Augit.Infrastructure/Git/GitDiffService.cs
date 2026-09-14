@@ -8,6 +8,7 @@ public sealed class GitDiffService : IGitDiffService
 {
     private const long MaximumSideBytes = 10L * 1024 * 1024;
     private const int MaximumDiffBytes = 20 * 1024 * 1024;
+    private const string FullFileContextArgument = "--unified=10485760";
     private static readonly IReadOnlySet<int> NoIndexSuccessExitCodes = new HashSet<int> { 1 };
     private readonly GitRuntimeInfo _runtime;
     private readonly GitCommandRunner _queryRunner;
@@ -80,7 +81,6 @@ public sealed class GitDiffService : IGitDiffService
             return oldSizeFailure;
         }
 
-        string copyableCommand = CreateCopyableCommand(changedFile, hasOldSide);
         if (oldSize > MaximumSideBytes || newSize > MaximumSideBytes)
         {
             return GitDiffResult.Success(new(
@@ -89,8 +89,7 @@ public sealed class GitDiffService : IGitDiffService
                 changedFile.OriginalRelativePath,
                 oldSize,
                 newSize,
-                null,
-                copyableCommand));
+                null));
         }
 
         List<string> arguments = CreateDiffArguments(
@@ -125,8 +124,7 @@ public sealed class GitDiffService : IGitDiffService
                 changedFile.OriginalRelativePath,
                 oldSize,
                 newSize,
-                null,
-                copyableCommand));
+                null));
         }
 
         GitDiffContentStatus status = IsBinaryPatch(result.StandardOutput)
@@ -138,8 +136,7 @@ public sealed class GitDiffService : IGitDiffService
             changedFile.OriginalRelativePath,
             oldSize,
             newSize,
-            result.StandardOutput,
-            null));
+            result.StandardOutput));
     }
 
     private async Task<(bool HasOldSide, long OldSize, GitDiffResult? Failure)> ReadOldSizeAsync(
@@ -193,7 +190,7 @@ public sealed class GitDiffService : IGitDiffService
             "--no-textconv",
             "--find-renames=50%",
             "--full-index",
-            "--unified=3",
+            FullFileContextArgument,
         ];
         if (options.IgnoreWhitespace)
         {
@@ -251,27 +248,6 @@ public sealed class GitDiffService : IGitDiffService
     {
         return patch.Contains("Binary files ", StringComparison.Ordinal)
             || patch.Contains("GIT binary patch", StringComparison.Ordinal);
-    }
-
-    private static string CreateCopyableCommand(GitChangedFile changedFile, bool hasOldSide)
-    {
-        if (!hasOldSide)
-        {
-            return $"git diff --no-index -- /dev/null {QuotePowerShell(changedFile.RelativePath)}";
-        }
-
-        string paths = string.IsNullOrWhiteSpace(changedFile.OriginalRelativePath)
-            ? QuotePowerShell(changedFile.RelativePath)
-            : string.Concat(
-                QuotePowerShell(changedFile.OriginalRelativePath),
-                " ",
-                QuotePowerShell(changedFile.RelativePath));
-        return $"git diff HEAD -- {paths}";
-    }
-
-    private static string QuotePowerShell(string value)
-    {
-        return string.Concat("'", value.Replace("'", "''", StringComparison.Ordinal), "'");
     }
 
     private static GitDiffResult Failure(GitCommandResult result)

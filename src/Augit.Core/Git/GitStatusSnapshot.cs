@@ -29,7 +29,8 @@ public sealed record GitChangedFile(
 public sealed record GitStatusSnapshot(
     string? CurrentBranch,
     bool IsDetached,
-    IReadOnlyList<GitChangedFile> Files)
+    IReadOnlyList<GitChangedFile> Files,
+    string? HeadCommit = null)
 {
     public IReadOnlyList<GitChangedFile> Changes => Files
         .Where(file => file.Group == GitChangeGroup.Changes)
@@ -67,6 +68,7 @@ public sealed record GitStatusResult(
 public sealed class GitFileSelection
 {
     private readonly HashSet<string> _selectedPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _knownPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlySet<string> SelectedPaths => _selectedPaths;
 
@@ -101,9 +103,19 @@ public sealed class GitFileSelection
     public void Reconcile(IEnumerable<GitChangedFile> currentFiles)
     {
         ArgumentNullException.ThrowIfNull(currentFiles);
-        HashSet<string> currentPaths = currentFiles
+        GitChangedFile[] files = currentFiles.ToArray();
+        HashSet<string> currentPaths = files
             .Select(file => file.RelativePath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         _selectedPaths.RemoveWhere(path => !currentPaths.Contains(path));
+        _knownPaths.RemoveWhere(path => !currentPaths.Contains(path));
+
+        foreach (GitChangedFile file in files)
+        {
+            if (_knownPaths.Add(file.RelativePath) && file.Group == GitChangeGroup.Changes)
+            {
+                _selectedPaths.Add(file.RelativePath);
+            }
+        }
     }
 }

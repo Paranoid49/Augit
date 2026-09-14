@@ -6,7 +6,7 @@ internal static class WicBitmapLoader
 {
     private const uint GenericRead = 0x80000000;
     private static readonly Guid ImagingFactoryClass = new("CACAF262-9370-4615-A13B-9F5539DA4C0A");
-    private static readonly Guid PixelFormat32Bgra = new("6FDDC324-4E03-4BFE-B185-3D77768DC90A");
+    private static readonly Guid PixelFormat32Pbgra = new("6FDDC324-4E03-4BFE-B185-3D77768DC910");
 
     internal static WicBitmap Load(string path)
     {
@@ -31,20 +31,10 @@ internal static class WicBitmapLoader
             }
 
             factory.CreateFormatConverter(out converter);
-            Guid format = PixelFormat32Bgra;
+            Guid format = PixelFormat32Pbgra;
             converter.Initialize(frame, ref format, 0, 0, 0, 0);
             int stride = checked((int)width * 4);
-            byte[] pixels = new byte[checked(stride * (int)height)];
-            nint pixelBuffer = Marshal.AllocHGlobal(pixels.Length);
-            try
-            {
-                converter.CopyPixels(0, stride, pixels.Length, pixelBuffer);
-                Marshal.Copy(pixelBuffer, pixels, 0, pixels.Length);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(pixelBuffer);
-            }
+            int pixelBytes = checked(stride * (int)height);
 
             NativeMethods.BitmapInfo bitmapInfo = new()
             {
@@ -56,7 +46,7 @@ internal static class WicBitmapLoader
                     Planes = 1,
                     BitCount = 32,
                     Compression = 0,
-                    ImageSize = checked((uint)pixels.Length),
+                    ImageSize = checked((uint)pixelBytes),
                 },
             };
             nint bitmap = NativeMethods.CreateDeviceIndependentBitmap(
@@ -68,11 +58,21 @@ internal static class WicBitmapLoader
                 0);
             if (bitmap == 0 || bits == 0)
             {
+                if (bitmap != 0) _ = NativeMethods.DeleteObject(bitmap);
                 throw new InvalidOperationException(UiText.ImageBitmapCreateFailed);
             }
 
-            Marshal.Copy(pixels, 0, bits, pixels.Length);
-            return new(bitmap, checked((int)width), checked((int)height));
+            try
+            {
+                // WIC 直接写入唯一的预乘透明 DIB，避免托管数组和中间原生缓冲各复制一份图片。
+                converter.CopyPixels(0, stride, pixelBytes, bits);
+                return new(bitmap, checked((int)width), checked((int)height), bits);
+            }
+            catch
+            {
+                _ = NativeMethods.DeleteObject(bitmap);
+                throw;
+            }
         }
         finally
         {
@@ -82,6 +82,8 @@ internal static class WicBitmapLoader
             Release(factory);
         }
     }
+
+    internal static Guid PixelFormat32PbgraForTest => PixelFormat32Pbgra;
 
     private static void Release(object? value)
     {
@@ -211,8 +213,10 @@ internal static class WicBitmapLoader
     }
 }
 
-internal sealed class WicBitmap(nint handle, int width, int height) : IDisposable
+internal sealed class WicBitmap(nint handle, int width, int height, nint bits) : IDisposable
 {
+    private readonly object _gate = new();
+    private int _references = 1;
     private bool _disposed;
 
     internal nint Handle { get; private set; } = handle;
@@ -221,18 +225,42 @@ internal sealed class WicBitmap(nint handle, int width, int height) : IDisposabl
 
     internal int Height { get; } = height;
 
+    internal nint Bits { get; private set; } = bits;
+
+    internal IDisposable Retain()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _references++;
+            return new BitmapLease(this);
+        }
+    }
+
     public void Dispose()
     {
-        if (_disposed)
+        lock (_gate)
         {
-            return;
+            if (_disposed) return;
+            _disposed = true;
+            Release();
         }
+    }
 
-        _disposed = true;
-        if (Handle != 0)
+    private void Release()
+    {
+        lock (_gate)
         {
+            if (--_references != 0 || Handle == 0) return;
             _ = NativeMethods.DeleteObject(Handle);
             Handle = 0;
+            Bits = 0;
         }
+    }
+
+    private sealed class BitmapLease(WicBitmap bitmap) : IDisposable
+    {
+        private WicBitmap? _bitmap = bitmap;
+        public void Dispose() => Interlocked.Exchange(ref _bitmap, null)?.Release();
     }
 }

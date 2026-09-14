@@ -90,6 +90,39 @@ public sealed class GitCommitServiceTests
     }
 
     [TestMethod]
+    public async Task 读取上一次提交信息保留标题和正文并去除传输末尾换行()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            const string message = "feat: 提交标题\n\n提交正文第一行\n提交正文第二行";
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", message);
+
+            GitCommitMessageResult result = await new GitCommitService(runtime)
+                .ReadLastCommitMessageAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(message, result.Message);
+        }
+    }
+
+    [TestMethod]
+    public async Task 无HEAD时读取上一次提交信息返回稳定失败而不伪造空提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            GitCommitMessageResult result = await new GitCommitService(runtime)
+                .ReadLastCommitMessageAsync(repository);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.IsNull(result.Message);
+            Assert.AreNotEqual(GitOperationFailureKind.None, result.FailureKind);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(result.ErrorMessage));
+        }
+    }
+
+    [TestMethod]
     public async Task 无仓库规则时在调用Git前执行兜底校验()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

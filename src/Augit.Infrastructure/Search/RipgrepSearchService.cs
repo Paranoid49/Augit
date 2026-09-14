@@ -22,16 +22,31 @@ public sealed class RipgrepSearchService
         string query,
         CancellationToken cancellationToken = default)
     {
+        FileSearchResultSet result = await SearchFilesWithStatusAsync(workspaceRoot, query, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result.Matches;
+    }
+
+    public async Task<FileSearchResultSet> SearchFilesWithStatusAsync(
+        string workspaceRoot, string query, CancellationToken cancellationToken = default)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
         query ??= string.Empty;
 
         ProcessStartInfo startInfo = CreateStartInfo(workspaceRoot);
         AddCommonFileArguments(startInfo);
 
-        List<FileSearchResult> matches = [];
+        // 堆顶保留当前最差候选，遍历全仓时只持有排名最靠前的 100 项。
+        PriorityQueue<FileSearchResult, FileSearchResult> matches = new(
+            SearchOptions.MaximumFileResults, Comparer<FileSearchResult>.Create((left, right) => CompareFiles(right, left)));
+        bool timedOut = false;
+        bool cancelled = false;
+        string? error = null;
         using CancellationTokenSource timeout = new(SearchOptions.Timeout);
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        await RunLinesAsync(
+        try
+        {
+            ProcessRunResult run = await RunLinesAsync(
             startInfo,
             line =>
             {
@@ -39,19 +54,36 @@ public sealed class RipgrepSearchService
                 int score = ScoreFile(relativePath, query);
                 if (score >= 0)
                 {
-                    matches.Add(new(relativePath, score));
+                    FileSearchResult candidate = new(relativePath, score);
+                    if (matches.Count < SearchOptions.MaximumFileResults) matches.Enqueue(candidate, candidate);
+                    else if (CompareFiles(candidate, matches.Peek()) < 0) matches.EnqueueDequeue(candidate, candidate);
                 }
 
                 return true;
             },
             linked.Token).ConfigureAwait(false);
+            if (run.ExitCode is not 0 and not 1)
+                error = string.IsNullOrWhiteSpace(run.Error) ? "搜索进程执行失败。" : run.Error;
+        }
+        catch (OperationCanceledException)
+        {
+            timedOut = timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+            cancelled = cancellationToken.IsCancellationRequested;
+        }
 
-        return matches
+        FileSearchResult[] results = matches.UnorderedItems.Select(item => item.Element)
             .OrderBy(result => result.Score)
             .ThenBy(result => result.RelativePath.Length)
             .ThenBy(result => result.RelativePath, StringComparer.OrdinalIgnoreCase)
-            .Take(SearchOptions.MaximumFileResults)
             .ToArray();
+        return new(results, timedOut, cancelled, error);
+    }
+
+    private static int CompareFiles(FileSearchResult left, FileSearchResult right)
+    {
+        int order = left.Score.CompareTo(right.Score);
+        if (order == 0) order = left.RelativePath.Length.CompareTo(right.RelativePath.Length);
+        return order != 0 ? order : StringComparer.OrdinalIgnoreCase.Compare(left.RelativePath, right.RelativePath);
     }
 
     public async Task<TextSearchResult> SearchTextAsync(
@@ -177,6 +209,7 @@ public sealed class RipgrepSearchService
         Func<string, bool> handleLine,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         startInfo.FileName = _executablePath;
         using Process process = new() { StartInfo = startInfo };
         if (!process.Start())
@@ -213,6 +246,8 @@ public sealed class RipgrepSearchService
                 KillProcess(process);
                 await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             }
+            // 取消与提前结束同样等待读完 stderr，避免遗留读取任务访问已释放进程。
+            await errorTask.ConfigureAwait(false);
         }
     }
 
@@ -270,7 +305,7 @@ public sealed class RipgrepSearchService
             return 2;
         }
 
-        return relativePath.Contains(query, StringComparison.OrdinalIgnoreCase) ? 3 : -1;
+        return -1;
     }
 
     private static bool TryParseMatch(string jsonLine, out TextSearchMatch? match)

@@ -129,6 +129,122 @@ public sealed class GitRemoteServiceTests
     }
 
     [TestMethod]
+    public async Task Push预览按上游只列出尚未推送的提交()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string remotePath = temporary.GetPath("remote.git");
+        string repositoryPath = temporary.GetPath("repository");
+        Directory.CreateDirectory(repositoryPath);
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "init", "--bare", remotePath);
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime).InitializeAsync(repositoryPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "first.txt", "first\n", "test: first");
+        string branch = (await GitTestEnvironment.RunAsync(runtime, repositoryPath, "branch", "--show-current"))
+            .StandardOutput
+            .Trim();
+        GitRemoteService service = new(runtime);
+        GitRemoteOperationResult added = await service.AddRemoteAsync(initialized.Repository!, "origin", remotePath);
+        Assert.IsTrue(added.IsSuccess, added.ErrorMessage);
+        GitRemoteOperationResult firstPush = await service.PushRefAsync(
+            initialized.Repository!,
+            "origin",
+            $"refs/heads/{branch}",
+            $"refs/heads/{branch}");
+        Assert.IsTrue(firstPush.IsSuccess, firstPush.ErrorMessage);
+        GitRemoteOperationResult tracking = await service.SetTrackingAsync(
+            initialized.Repository!,
+            branch,
+            "origin",
+            branch);
+        Assert.IsTrue(tracking.IsSuccess, tracking.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "second.txt", "second\n", "test: second");
+
+        GitPushPreviewResult preview = await service.ReadPushPreviewAsync(initialized.Repository!);
+
+        Assert.IsTrue(preview.IsSuccess, preview.ErrorMessage);
+        Assert.IsNotNull(preview.Preview);
+        Assert.AreEqual($"refs/heads/{branch}", preview.Preview.LocalReference);
+        Assert.AreEqual("origin", preview.Preview.RemoteName);
+        Assert.AreEqual($"refs/heads/{branch}", preview.Preview.RemoteReference);
+        Assert.HasCount(1, preview.Preview.Commits);
+        Assert.AreEqual("test: second", preview.Preview.Commits[0].Subject);
+
+        GitRemoteOperationResult pushed = await service.PushRefAsync(
+            initialized.Repository!,
+            preview.Preview.RemoteName,
+            preview.Preview.LocalReference,
+            preview.Preview.RemoteReference);
+        Assert.IsTrue(pushed.IsSuccess, pushed.ErrorMessage);
+        GitCommandResult localHead = await GitTestEnvironment.RunAsync(runtime, repositoryPath, "rev-parse", "HEAD");
+        GitCommandResult remoteHead = await GitTestEnvironment.RunAsync(runtime, remotePath, "rev-parse", branch);
+        Assert.AreEqual(localHead.StandardOutput.Trim(), remoteHead.StandardOutput.Trim());
+    }
+
+    [TestMethod]
+    public async Task Push预览支持无上游分支和明确标签引用()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string remotePath = temporary.GetPath("remote.git");
+        string repositoryPath = temporary.GetPath("repository");
+        Directory.CreateDirectory(repositoryPath);
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "init", "--bare", remotePath);
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime).InitializeAsync(repositoryPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "file.txt", "content\n", "test: initial");
+        string branch = (await GitTestEnvironment.RunAsync(runtime, repositoryPath, "branch", "--show-current"))
+            .StandardOutput
+            .Trim();
+        await GitTestEnvironment.RunAsync(runtime, repositoryPath, "tag", "v1.0.0");
+        GitRemoteService service = new(runtime);
+        GitRemoteOperationResult added = await service.AddRemoteAsync(initialized.Repository!, "origin", remotePath);
+        Assert.IsTrue(added.IsSuccess, added.ErrorMessage);
+
+        GitPushPreviewResult branchPreview = await service.ReadPushPreviewAsync(initialized.Repository!);
+        GitPushPreviewResult tagPreview = await service.ReadPushPreviewAsync(
+            initialized.Repository!,
+            "refs/tags/v1.0.0");
+
+        Assert.IsTrue(branchPreview.IsSuccess, branchPreview.ErrorMessage);
+        Assert.AreEqual($"refs/heads/{branch}", branchPreview.Preview!.LocalReference);
+        Assert.AreEqual($"refs/heads/{branch}", branchPreview.Preview.RemoteReference);
+        Assert.HasCount(1, branchPreview.Preview.Commits);
+        Assert.IsTrue(tagPreview.IsSuccess, tagPreview.ErrorMessage);
+        Assert.AreEqual("refs/tags/v1.0.0", tagPreview.Preview!.LocalReference);
+        Assert.AreEqual("refs/tags/v1.0.0", tagPreview.Preview.RemoteReference);
+        Assert.HasCount(1, tagPreview.Preview.Commits);
+    }
+
+    [TestMethod]
+    public async Task Push预览明确区分无远端与DetachedHead()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string repositoryPath = temporary.GetPath("repository");
+        Directory.CreateDirectory(repositoryPath);
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime).InitializeAsync(repositoryPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "file.txt", "content\n", "test: initial");
+        string branch = (await GitTestEnvironment.RunAsync(runtime, repositoryPath, "branch", "--show-current"))
+            .StandardOutput
+            .Trim();
+        GitRemoteService service = new(runtime);
+
+        GitPushPreviewResult noRemote = await service.ReadPushPreviewAsync(initialized.Repository!);
+        await GitTestEnvironment.RunAsync(runtime, repositoryPath, "checkout", "--detach");
+        GitPushPreviewResult detached = await service.ReadPushPreviewAsync(initialized.Repository!);
+
+        Assert.IsFalse(noRemote.IsSuccess);
+        StringAssert.Contains(noRemote.ErrorMessage, "未配置远端");
+        Assert.IsTrue(noRemote.CanDefineRemote);
+        Assert.AreEqual($"refs/heads/{branch}", noRemote.LocalReference);
+        Assert.IsFalse(detached.IsSuccess);
+        StringAssert.Contains(detached.ErrorMessage, "detached HEAD");
+        Assert.IsFalse(detached.CanDefineRemote);
+    }
+
+    [TestMethod]
     public async Task 需要交互输入时返回稳定原因且不暴露原命令()
     {
         using TemporaryDirectory temporary = new();

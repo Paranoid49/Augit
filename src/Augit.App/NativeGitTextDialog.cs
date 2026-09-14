@@ -14,6 +14,7 @@ internal sealed class NativeGitTextDialog : IDisposable
     private static readonly NativeMethods.WindowProcedure Procedure = HandleWindowMessage;
     private static bool _classRegistered;
     private readonly nint _owner;
+    private readonly bool _dark;
     private nint _handle;
     private nint _closeButton;
     private ScintillaControl? _text;
@@ -26,6 +27,7 @@ internal sealed class NativeGitTextDialog : IDisposable
         ApplicationSettings settings)
     {
         _owner = owner;
+        _dark = NativeTheme.IsDark(settings.Theme);
         EnsureWindowClass();
         int x = NativeMethods.UseDefault;
         int y = NativeMethods.UseDefault;
@@ -65,10 +67,9 @@ internal sealed class NativeGitTextDialog : IDisposable
         _text = new(_handle, 2);
         _text.SetTextContent(content);
         _text.SetWordWrap(false);
-        bool dark = NativeTheme.IsDark(settings.Theme);
-        NativeTheme.ApplyToWindow(_handle, dark);
-        NativeTheme.ApplyToControl(_closeButton, dark);
-        _text.ApplyAppearance(settings.MonospaceFontFamily, settings.FontSize, dark);
+        NativeTheme.ApplyToWindow(_handle, _dark);
+        NativeTheme.ApplyToControl(_closeButton, _dark);
+        _text.ApplyAppearance(settings.MonospaceFontFamily, settings.FontSize, _dark);
         Layout();
     }
 
@@ -88,13 +89,30 @@ internal sealed class NativeGitTextDialog : IDisposable
 
     private void Run()
     {
+        using NativeModalFocusScope focusScope = new(_owner);
+        using NativeModalScrim scrim = NativeModalScrim.Begin(_owner, _dark);
         _ = NativeMethods.EnableWindow(_owner, false);
         _ = NativeMethods.ShowWindow(_handle, NativeMethods.ShowNormal);
         _ = NativeMethods.UpdateWindow(_handle);
+        _ = NativeMethods.SetFocus(_text?.Handle ?? _closeButton);
         try
         {
             while (!_closed && NativeMethods.GetMessage(out NativeMethods.Message message, 0, 0, 0) > 0)
             {
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyTab)
+                {
+                    MoveFocus(NativeMethods.GetKeyState(NativeMethods.VirtualKeyShift) < 0);
+                    continue;
+                }
+
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyEscape)
+                {
+                    Close();
+                    continue;
+                }
+
                 _ = NativeMethods.TranslateMessage(ref message);
                 _ = NativeMethods.DispatchMessage(ref message);
             }
@@ -103,7 +121,19 @@ internal sealed class NativeGitTextDialog : IDisposable
         {
             _ = NativeMethods.EnableWindow(_owner, true);
             _ = NativeMethods.SetForegroundWindow(_owner);
+            focusScope.Restore();
         }
+    }
+
+    /// <summary>
+    /// 按只读文本窗口的视觉顺序在正文和关闭动作之间循环移动焦点。
+    /// </summary>
+    private void MoveFocus(bool backwards)
+    {
+        NativeFocusNavigation.MoveWithinRegion(
+            [_text?.Handle ?? 0, _closeButton],
+            NativeMethods.GetFocus(),
+            backwards);
     }
 
     private static void EnsureWindowClass()
@@ -217,6 +247,7 @@ internal sealed class NativeGitTextDialog : IDisposable
 
         _closed = true;
         nint handle = _handle;
+        NativeMethods.WakeWindowMessageLoop(handle);
         _handle = 0;
         lock (InstancesGate)
         {

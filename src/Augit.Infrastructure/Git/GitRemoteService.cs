@@ -288,6 +288,191 @@ public sealed class GitRemoteService : IGitRemoteService
         return RunNetworkOperationAsync(repository, arguments, cancellationToken);
     }
 
+    public Task<GitRemoteOperationResult> PushRefAsync(
+        GitRepositorySnapshot repository,
+        string remoteName,
+        string localReference,
+        string remoteReference,
+        CancellationToken cancellationToken = default)
+    {
+        string? validationError = ValidateRemoteRequest(repository, remoteName)
+            ?? ValidatePushReference(localReference, "本地引用")
+            ?? ValidatePushReference(remoteReference, "远端引用");
+        if (validationError is not null)
+        {
+            return Task.FromResult(GitRemoteOperationResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                validationError));
+        }
+
+        return RunNetworkOperationAsync(
+            repository,
+            ["push", remoteName, $"{localReference}:{remoteReference}"],
+            cancellationToken);
+    }
+
+    public async Task<GitPushPreviewResult> ReadPushPreviewAsync(
+        GitRepositorySnapshot repository,
+        string? localReference = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsWorkingTree(repository))
+        {
+            return GitPushPreviewResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "Push 预览只适用于具有工作区的 Git 仓库。");
+        }
+
+        string resolvedLocalReference;
+        if (string.IsNullOrWhiteSpace(localReference))
+        {
+            GitCommandResult branchResult = await RunAsync(
+                repository.RepositoryRoot!,
+                ["symbolic-ref", "--quiet", "HEAD"],
+                GitCommandMode.LocalQuery,
+                cancellationToken).ConfigureAwait(false);
+            if (!branchResult.IsSuccess)
+            {
+                return GitPushPreviewResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "当前处于 detached HEAD，不能生成 Push 目标。");
+            }
+
+            resolvedLocalReference = branchResult.StandardOutput.Trim();
+        }
+        else
+        {
+            resolvedLocalReference = NormalizePushReference(localReference);
+        }
+
+        string? referenceError = ValidatePushReference(resolvedLocalReference, "本地引用");
+        if (referenceError is not null)
+        {
+            return GitPushPreviewResult.Failure(GitOperationFailureKind.InvalidRequest, referenceError);
+        }
+
+        GitCommandResult verifyResult = await RunAsync(
+            repository.RepositoryRoot!,
+            ["rev-parse", "--verify", "--quiet", $"{resolvedLocalReference}^{{commit}}"],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        if (!verifyResult.IsSuccess)
+        {
+            return GitPushPreviewResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                $"本地引用不存在：{ShortReference(resolvedLocalReference)}");
+        }
+
+        bool isTag = resolvedLocalReference.StartsWith("refs/tags/", StringComparison.Ordinal);
+        string localName = ShortReference(resolvedLocalReference);
+        string upstream = string.Empty;
+        if (!isTag)
+        {
+            GitCommandResult upstreamResult = await RunAsync(
+                repository.RepositoryRoot!,
+                ["for-each-ref", "--format=%(upstream:short)", resolvedLocalReference],
+                GitCommandMode.LocalQuery,
+                cancellationToken).ConfigureAwait(false);
+            upstream = upstreamResult.IsSuccess ? upstreamResult.StandardOutput.Trim() : string.Empty;
+        }
+
+        string remote = string.Empty;
+        string remoteName = localName;
+        int separator = upstream.IndexOf('/');
+        if (separator > 0)
+        {
+            remote = upstream[..separator];
+            remoteName = upstream[(separator + 1)..];
+        }
+        else
+        {
+            GitRemoteListResult remotes = await ReadRemotesAsync(repository, cancellationToken).ConfigureAwait(false);
+            if (!remotes.IsSuccess || remotes.Remotes is null || remotes.Remotes.Count == 0)
+            {
+                return GitPushPreviewResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "当前仓库未配置远端，请先定义远端。",
+                    canDefineRemote: true,
+                    localReference: resolvedLocalReference);
+            }
+
+            remote = remotes.Remotes[0].Name;
+        }
+
+        string remoteReference = isTag ? $"refs/tags/{remoteName}" : $"refs/heads/{remoteName}";
+        string revisionRange = resolvedLocalReference;
+        int maxCommits = isTag ? 1 : 100;
+        if (!isTag)
+        {
+            string remoteTrackingReference = $"refs/remotes/{remote}/{remoteName}";
+            GitCommandResult remoteBranchResult = await RunAsync(
+                repository.RepositoryRoot!,
+                ["rev-parse", "--verify", "--quiet", remoteTrackingReference],
+                GitCommandMode.LocalQuery,
+                cancellationToken).ConfigureAwait(false);
+            if (remoteBranchResult.IsSuccess)
+            {
+                revisionRange = $"{remoteTrackingReference}..{resolvedLocalReference}";
+            }
+        }
+
+        GitCommandResult logResult = await RunAsync(
+            repository.RepositoryRoot!,
+            ["log", "--format=%H%x1f%s", $"--max-count={maxCommits}", revisionRange],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        if (!logResult.IsSuccess)
+        {
+            return GitPushPreviewResult.Failure(NormalizeFailure(logResult), logResult.ErrorMessage);
+        }
+
+        List<GitPushCommitPreview> commits = [];
+        foreach (string rawLine in logResult.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] fields = rawLine.TrimEnd('\r').Split('\x1f', 2);
+            if (fields.Length == 2)
+            {
+                commits.Add(new(fields[0], fields[1]));
+            }
+        }
+
+        return GitPushPreviewResult.Success(new(resolvedLocalReference, remote, remoteReference, commits));
+    }
+
+    private static string NormalizePushReference(string reference)
+    {
+        string normalized = reference.Trim();
+        return normalized.StartsWith("refs/", StringComparison.Ordinal)
+            ? normalized
+            : $"refs/heads/{normalized}";
+    }
+
+    private static string ShortReference(string reference)
+    {
+        const string HeadsPrefix = "refs/heads/";
+        const string TagsPrefix = "refs/tags/";
+        return reference.StartsWith(HeadsPrefix, StringComparison.Ordinal)
+            ? reference[HeadsPrefix.Length..]
+            : reference.StartsWith(TagsPrefix, StringComparison.Ordinal)
+                ? reference[TagsPrefix.Length..]
+                : reference;
+    }
+
+    private static string? ValidatePushReference(string? reference, string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(reference)
+            || (!reference.StartsWith("refs/heads/", StringComparison.Ordinal)
+                && !reference.StartsWith("refs/tags/", StringComparison.Ordinal))
+            || reference.StartsWith('-')
+            || reference.Any(char.IsControl)
+            || reference.Any(char.IsWhiteSpace))
+        {
+            return $"{displayName}无效。";
+        }
+
+        return null;
+    }
+
     internal static bool TryParseRemotes(string output, out IReadOnlyList<GitRemoteInfo>? remotes)
     {
         remotes = null;
@@ -381,6 +566,13 @@ public sealed class GitRemoteService : IGitRemoteService
             arguments,
             mode,
             cancellationToken);
+    }
+
+    private static GitOperationFailureKind NormalizeFailure(GitCommandResult result)
+    {
+        return result.FailureKind == GitOperationFailureKind.None
+            ? GitOperationFailureKind.CommandFailed
+            : result.FailureKind;
     }
 
     private async Task<GitRemoteOperationResult> ReadActualRemoteStateAsync(GitRepositorySnapshot repository)

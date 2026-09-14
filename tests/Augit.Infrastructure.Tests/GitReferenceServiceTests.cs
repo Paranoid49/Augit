@@ -120,6 +120,41 @@ public sealed class GitReferenceServiceTests
     }
 
     [TestMethod]
+    public async Task 标签或提交可检出为分离Head且非法引用不改变仓库()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: base");
+            GitReferenceService service = new(runtime);
+            GitActionResult tagCreated = await service.CreateTagAsync(repository, "v1", "HEAD", null);
+            GitActionResult checkedOut = await service.CheckoutReferenceAsync(repository, "v1");
+            string detached = (await GitTestEnvironment.RunAsync(
+                runtime,
+                temporary.FullPath,
+                "branch",
+                "--show-current")).StandardOutput.Trim();
+            string beforeInvalid = (await GitTestEnvironment.RunAsync(
+                runtime,
+                temporary.FullPath,
+                "rev-parse",
+                "HEAD")).StandardOutput.Trim();
+            GitActionResult invalid = await service.CheckoutReferenceAsync(repository, "不存在的版本");
+            string afterInvalid = (await GitTestEnvironment.RunAsync(
+                runtime,
+                temporary.FullPath,
+                "rev-parse",
+                "HEAD")).StandardOutput.Trim();
+
+            Assert.IsTrue(tagCreated.IsSuccess, tagCreated.ErrorMessage);
+            Assert.IsTrue(checkedOut.IsSuccess, checkedOut.ErrorMessage);
+            Assert.AreEqual(string.Empty, detached);
+            Assert.IsFalse(invalid.IsSuccess);
+            Assert.AreEqual(beforeInvalid, afterInvalid);
+        }
+    }
+
+    [TestMethod]
     public async Task 非法分支标签和引用被拒绝且不改变仓库状态()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

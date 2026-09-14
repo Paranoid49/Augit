@@ -102,4 +102,53 @@ public sealed class GitWorktreeServiceTests
         GitActionResult removed = await service.RemoveAsync(initialized.Repository!, linkedPath);
         Assert.IsTrue(removed.IsSuccess, removed.ErrorMessage);
     }
+
+    [TestMethod]
+    public async Task Worktree移除就绪状态反映干净脏状态和终端占用()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string mainPath = temporary.GetPath("main");
+        string linkedPath = temporary.GetPath("linked");
+        Directory.CreateDirectory(mainPath);
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime).InitializeAsync(mainPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "config", "user.name", "Augit Tests");
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "config", "user.email", "augit-tests@example.invalid");
+        await GitTestEnvironment.CommitFileAsync(runtime, mainPath, "base.txt", "base\n", "test: base");
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "branch", "feature");
+        TerminalSessionRegistry registry = new(temporary.GetPath("locks"));
+        GitWorktreeService service = new(
+            runtime,
+            new GitCommandRunner(TimeSpan.FromSeconds(30), 1024 * 1024),
+            new GitStatusService(runtime),
+            registry);
+        GitActionResult created = await service.CreateAsync(initialized.Repository!, linkedPath, "feature");
+        Assert.IsTrue(created.IsSuccess, created.ErrorMessage);
+
+        GitWorktreeRemovalReadinessResult clean = await service.InspectRemovalReadinessAsync(
+            initialized.Repository!,
+            linkedPath);
+        await File.WriteAllTextAsync(Path.Combine(linkedPath, "dirty.txt"), "dirty\n");
+        GitWorktreeRemovalReadinessResult dirty = await service.InspectRemovalReadinessAsync(
+            initialized.Repository!,
+            linkedPath);
+        File.Delete(Path.Combine(linkedPath, "dirty.txt"));
+        using TerminalSessionLease? lease = registry.TryAcquire(linkedPath);
+        Assert.IsNotNull(lease);
+        GitWorktreeRemovalReadinessResult activeTerminal = await service.InspectRemovalReadinessAsync(
+            initialized.Repository!,
+            linkedPath);
+
+        Assert.IsTrue(clean.IsSuccess, clean.ErrorMessage);
+        Assert.IsTrue(clean.Readiness!.CanRemove);
+        Assert.IsTrue(clean.Readiness.IsClean);
+        Assert.IsFalse(clean.Readiness.HasActiveTerminal);
+        Assert.IsFalse(dirty.Readiness!.CanRemove);
+        Assert.IsFalse(dirty.Readiness.IsClean);
+        StringAssert.Contains(dirty.Readiness.Reason, "本地改动");
+        Assert.IsFalse(activeTerminal.Readiness!.CanRemove);
+        Assert.IsTrue(activeTerminal.Readiness.HasActiveTerminal);
+        StringAssert.Contains(activeTerminal.Readiness.Reason, "内置终端");
+    }
 }

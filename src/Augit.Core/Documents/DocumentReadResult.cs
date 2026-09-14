@@ -25,5 +25,7 @@ public sealed record DocumentReadResult(
     int? PixelHeight,
     string Message)
 {
+    public DocumentLineEndings LineEndings { get; init; }
+
     public bool CanOpenExternally => Status != DocumentReadStatus.Missing;
 }

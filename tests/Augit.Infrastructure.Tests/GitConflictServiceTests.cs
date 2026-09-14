@@ -49,6 +49,64 @@ public sealed class GitConflictServiceTests
     }
 
     [TestMethod]
+    public async Task 已取消的保存不继续解析冲突或改写工作区()
+    {
+        ConflictRepository setup = await CreateMergeConflictAsync(
+            "base\n"u8.ToArray(), "current\n"u8.ToArray(), "incoming\n"u8.ToArray());
+        using (setup.Temporary)
+        {
+            GitConflictService service = new(setup.Runtime);
+            GitConflictLoadResult loaded = await service.LoadAsync(setup.Repository, "conflict.txt");
+            Assert.IsTrue(loaded.IsSuccess, loaded.ErrorMessage);
+            GitConflictDocument document = loaded.Document!;
+            byte[] before = await File.ReadAllBytesAsync(setup.Temporary.GetPath("conflict.txt"));
+            using CancellationTokenSource cancellation = new();
+            cancellation.Cancel();
+
+            await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => service.SaveResolvedAsync(
+                setup.Repository,
+                new("conflict.txt", document.ResultText!, document.FileVersion!, document.Operation),
+                cancellation.Token));
+
+            CollectionAssert.AreEqual(before, await File.ReadAllBytesAsync(setup.Temporary.GetPath("conflict.txt")));
+            GitAdvancedOperationResult actual = await new GitOperationService(setup.Runtime).InspectAsync(setup.Repository);
+            Assert.IsTrue(actual.IsSuccess, actual.ErrorMessage);
+            Assert.IsTrue(actual.Session!.HasConflicts);
+            Assert.IsEmpty(Directory.GetFiles(setup.Temporary.FullPath, ".augit-conflict-*.tmp"));
+        }
+    }
+
+    [TestMethod]
+    public async Task 外部结果重载重新解析完整块并忽略未闭合块()
+    {
+        ConflictRepository setup = await CreateMergeConflictAsync(
+            "base\n"u8.ToArray(), "current\n"u8.ToArray(), "incoming\n"u8.ToArray());
+        using (setup.Temporary)
+        {
+            GitConflictService service = new(setup.Runtime);
+            GitConflictLoadResult loaded = await service.LoadAsync(setup.Repository, "conflict.txt");
+            Assert.IsTrue(loaded.IsSuccess, loaded.ErrorMessage);
+            const string prefix = "已编辑😀\r\n<<<<<<< unfinished\r\n未完成\r\n";
+            const string complete = "<<<<<<< HEAD\r\n左\r\n||||||| base\r\n祖先\r\n=======\r\n右\r\n>>>>>>> incoming";
+            await File.WriteAllTextAsync(setup.Temporary.GetPath("conflict.txt"), prefix + complete);
+
+            GitConflictLoadResult reloaded = await service.ReloadWorkingFileAsync(setup.Repository, loaded.Document!);
+
+            Assert.IsTrue(reloaded.IsSuccess, reloaded.ErrorMessage);
+            Assert.AreEqual(prefix + complete, reloaded.Document!.ResultText);
+            Assert.AreEqual(loaded.Document!.YoursText, reloaded.Document.YoursText);
+            Assert.AreEqual(loaded.Document.TheirsText, reloaded.Document.TheirsText);
+            Assert.AreNotEqual(loaded.Document.FileVersion, reloaded.Document.FileVersion);
+            GitConflictBlock block = reloaded.Document.Blocks.Single();
+            Assert.AreEqual(prefix.Length, block.Start);
+            Assert.AreEqual(complete.Length, block.Length);
+            Assert.AreEqual("左\r\n", block.YoursText);
+            Assert.AreEqual("祖先\r\n", block.AncestorText);
+            Assert.AreEqual("右\r\n", block.TheirsText);
+        }
+    }
+
+    [TestMethod]
     public async Task 保存前外部文件变化会被拒绝且不会覆盖外部内容()
     {
         ConflictRepository setup = await CreateMergeConflictAsync(

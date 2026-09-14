@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Augit.Infrastructure.Settings;
 
 public sealed record ApplicationSettings
@@ -8,11 +10,17 @@ public sealed record ApplicationSettings
 
     public string Theme { get; init; } = "System";
 
-    public string TextFontFamily { get; init; } = "Segoe UI";
+    public string TextFontFamily { get; init; } = "Microsoft YaHei UI";
 
     public string MonospaceFontFamily { get; init; } = "Cascadia Mono";
 
-    public double FontSize { get; init; } = 14;
+    public double FontSize { get; init; } = 13;
+
+    public double? TextFontSize { get; init; }
+
+    // 旧配置只有共用字号，首次分开调整前沿用该值，避免升级后文字突然变小。
+    [JsonIgnore]
+    public double UiFontSize => TextFontSize ?? FontSize;
 
     public string? GitExecutablePath { get; init; }
 
@@ -22,7 +30,11 @@ public sealed record ApplicationSettings
 
     public WindowPlacementSettings Window { get; init; } = new();
 
+    public ToolWindowLayoutSettings ToolWindows { get; init; } = new();
+
     public string[] OpenFiles { get; init; } = [];
+
+    public string? ActiveFile { get; init; }
 
     public string[] ExpandedDirectories { get; init; } = [];
 
@@ -62,4 +74,11 @@ public sealed record WindowPlacementSettings
     public double Height { get; init; } = 760;
 
     public bool IsMaximized { get; init; }
+}
+
+public sealed record ToolWindowLayoutSettings
+{
+    public double? ProjectPanelWidth { get; init; }
+
+    public double? BottomPanelHeight { get; init; }
 }

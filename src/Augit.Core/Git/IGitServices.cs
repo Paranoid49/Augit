@@ -22,6 +22,7 @@ public interface IGitRepositoryService
     Task<GitRepositoryOperationResult> CloneAsync(
         string source,
         string destinationPath,
+        int? depth = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -43,6 +44,10 @@ public interface IGitDiffService
 
 public interface IGitCommitService
 {
+    Task<GitCommitMessageResult> ReadLastCommitMessageAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default);
+
     Task<GitCommitPolicyResult> ReadPolicyAsync(
         GitRepositorySnapshot repository,
         CancellationToken cancellationToken = default);
@@ -101,6 +106,18 @@ public interface IGitRemoteService
         string? remoteName = null,
         string? branchName = null,
         CancellationToken cancellationToken = default);
+
+    Task<GitRemoteOperationResult> PushRefAsync(
+        GitRepositorySnapshot repository,
+        string remoteName,
+        string localReference,
+        string remoteReference,
+        CancellationToken cancellationToken = default);
+
+    Task<GitPushPreviewResult> ReadPushPreviewAsync(
+        GitRepositorySnapshot repository,
+        string? localReference = null,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IGitHistoryService
@@ -119,6 +136,7 @@ public interface IGitHistoryService
         GitRepositorySnapshot repository,
         string revision,
         string relativePath,
+        bool ignoreWhitespace = false,
         CancellationToken cancellationToken = default);
 
     Task<GitBlameResult> ReadBlameAsync(
@@ -154,6 +172,11 @@ public interface IGitReferenceService
     Task<GitActionResult> SwitchBranchAsync(
         GitRepositorySnapshot repository,
         string branchName,
+        CancellationToken cancellationToken = default);
+
+    Task<GitActionResult> CheckoutReferenceAsync(
+        GitRepositorySnapshot repository,
+        string reference,
         CancellationToken cancellationToken = default);
 
     Task<GitActionResult> RenameBranchAsync(
@@ -206,6 +229,13 @@ public interface IGitReferenceService
 
 public interface IGitWorkspaceStateService
 {
+    Task<GitActionResult> StashWithOptionsAsync(
+        GitRepositorySnapshot repository,
+        string? message,
+        bool includeUntracked,
+        bool keepIndex = false,
+        CancellationToken cancellationToken = default);
+
     Task<GitStashListResult> ReadStashesAsync(
         GitRepositorySnapshot repository,
         CancellationToken cancellationToken = default);
@@ -227,6 +257,11 @@ public interface IGitWorkspaceStateService
         bool keepStash,
         CancellationToken cancellationToken = default);
 
+    Task<GitActionResult> DeleteStashAsync(
+        GitRepositorySnapshot repository,
+        string stashReference,
+        CancellationToken cancellationToken = default);
+
     Task<GitActionResult> ResetAsync(
         GitRepositorySnapshot repository,
         string targetRevision,
@@ -243,6 +278,11 @@ public interface IGitWorktreeService
 {
     Task<GitWorktreeListResult> ReadAsync(
         GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default);
+
+    Task<GitWorktreeRemovalReadinessResult> InspectRemovalReadinessAsync(
+        GitRepositorySnapshot repository,
+        string worktreePath,
         CancellationToken cancellationToken = default);
 
     Task<GitActionResult> CreateAsync(
@@ -285,6 +325,11 @@ public interface IGitConflictService
     Task<GitConflictLoadResult> LoadAsync(
         GitRepositorySnapshot repository,
         string relativePath,
+        CancellationToken cancellationToken = default);
+
+    Task<GitConflictLoadResult> ReloadWorkingFileAsync(
+        GitRepositorySnapshot repository,
+        GitConflictDocument previous,
         CancellationToken cancellationToken = default);
 
     Task<GitConflictMutationResult> SaveResolvedAsync(

@@ -8,6 +8,18 @@ namespace Augit.Infrastructure.Tests;
 public sealed class GitWorkspaceStateServiceTests
 {
     [TestMethod]
+    [DataRow("On main: 工作区切换前", "main", "工作区切换前")]
+    [DataRow("WIP on feature/ux: a1b2c3d 调整交互", "feature/ux", "a1b2c3d 调整交互")]
+    [DataRow("自定义主题", "", "自定义主题")]
+    public void Stash主题解析为分支和消息(string subject, string expectedBranch, string expectedMessage)
+    {
+        (string branch, string message) = GitWorkspaceStateService.ParseStashSubject(subject);
+
+        Assert.AreEqual(expectedBranch, branch);
+        Assert.AreEqual(expectedMessage, message);
+    }
+
+    [TestMethod]
     public async Task Stash包含未跟踪文件并支持查看应用和弹出()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
@@ -31,6 +43,7 @@ public sealed class GitWorkspaceStateServiceTests
             Assert.IsTrue(stashed.IsSuccess, stashed.ErrorMessage);
             Assert.IsEmpty(stashed.ActualStatus!.Files);
             Assert.HasCount(1, list.Stashes!);
+            Assert.AreEqual("stash@{0}", list.Stashes![0].Reference);
             Assert.Contains("阶段三测试", list.Stashes![0].Subject, StringComparison.Ordinal);
             Assert.IsTrue(content.IsSuccess, content.ErrorMessage);
             Assert.Contains("tracked.txt", content.Document!.UnifiedPatch!, StringComparison.Ordinal);
@@ -38,6 +51,37 @@ public sealed class GitWorkspaceStateServiceTests
             Assert.HasCount(2, applied.ActualStatus!.Files);
             Assert.HasCount(1, kept.Stashes!);
             Assert.IsTrue(popped.IsSuccess, popped.ErrorMessage);
+            Assert.IsEmpty(empty.Stashes!);
+        }
+    }
+
+    [TestMethod]
+    public async Task Stash可以保留索引并单独删除()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "base\n", "test: base");
+            await File.WriteAllTextAsync(temporary.GetPath("tracked.txt"), "staged\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "tracked.txt");
+            await File.WriteAllTextAsync(temporary.GetPath("tracked.txt"), "unstaged\n");
+            GitWorkspaceStateService service = CreateService(runtime, out _);
+
+            GitActionResult stashed = await service.StashWithOptionsAsync(
+                repository,
+                "保留索引",
+                includeUntracked: false,
+                keepIndex: true);
+            GitStashListResult list = await service.ReadStashesAsync(repository);
+            GitActionResult deleted = await service.DeleteStashAsync(repository, "stash@{0}");
+            GitStashListResult empty = await service.ReadStashesAsync(repository);
+
+            Assert.IsTrue(stashed.IsSuccess, stashed.ErrorMessage);
+            Assert.IsTrue(stashed.ActualStatus!.Files.Single().HasStagedChanges);
+            Assert.AreEqual("staged\n", (await File.ReadAllTextAsync(temporary.GetPath("tracked.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.HasCount(1, list.Stashes!);
+            Assert.IsTrue(deleted.IsSuccess, deleted.ErrorMessage);
             Assert.IsEmpty(empty.Stashes!);
         }
     }
@@ -143,11 +187,92 @@ public sealed class GitWorkspaceStateServiceTests
             Assert.IsTrue(content.IsSuccess, content.ErrorMessage);
             Assert.AreEqual(GitDiffContentStatus.OutputTooLarge, content.Document!.Status);
             Assert.IsNull(content.Document.UnifiedPatch);
-            Assert.IsNotNull(content.Document.CopyableCommand);
             Assert.IsFalse(invalidRead.IsSuccess);
             Assert.AreEqual(GitOperationFailureKind.InvalidRequest, invalidRead.FailureKind);
             Assert.IsFalse(invalidApply.IsSuccess);
             Assert.AreEqual(GitOperationFailureKind.InvalidRequest, invalidApply.FailureKind);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(GitResetMode.Soft)]
+    [DataRow(GitResetMode.Mixed)]
+    [DataRow(GitResetMode.Hard)]
+    public async Task Reset目标解析已取消时保留取消原因实际状态且不修改仓库(GitResetMode mode)
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "value.txt", "one\n", "test: one");
+            string first = (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rev-parse", "HEAD"))
+                .StandardOutput.Trim();
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "value.txt", "two\n", "test: two");
+            string head = (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rev-parse", "HEAD"))
+                .StandardOutput.Trim();
+            await File.WriteAllTextAsync(temporary.GetPath("value.txt"), "保留未提交内容\n");
+            // 取消发生在目标解析阶段，不依赖机器负载或 Git 子进程的启动时长。
+            byte[] index = await File.ReadAllBytesAsync(temporary.GetPath(".git/index"));
+            GitWorkspaceStateService service = CreateService(runtime, out _);
+
+            GitActionResult result = await service.ResetAsync(repository, first, mode, new CancellationToken(canceled: true));
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.Cancelled, result.FailureKind);
+            Assert.IsNotNull(result.ActualStatus);
+            Assert.HasCount(1, result.ActualStatus.Files);
+            Assert.AreEqual("value.txt", result.ActualStatus.Files[0].RelativePath);
+            Assert.IsTrue(result.ActualStatus.Files[0].HasWorkingTreeChanges);
+            Assert.IsFalse(result.ActualStatus.Files[0].HasStagedChanges);
+            Assert.AreEqual(head, (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rev-parse", "HEAD"))
+                .StandardOutput.Trim());
+            Assert.AreEqual("保留未提交内容\n", await File.ReadAllTextAsync(temporary.GetPath("value.txt")));
+            CollectionAssert.AreEqual(index, await File.ReadAllBytesAsync(temporary.GetPath(".git/index")));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("")]
+    [DataRow("--hard")]
+    [DataRow("HEAD\n--hard")]
+    [DataRow("refs/heads/does-not-exist")]
+    public async Task Reset无效目标仍返回输入错误且不执行写操作(string revision)
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "value.txt", "base\n", "test: base");
+            await File.WriteAllTextAsync(temporary.GetPath("value.txt"), "保留工作区\n");
+            GitWorkspaceStateService service = CreateService(runtime, out _);
+
+            GitActionResult result = await service.ResetAsync(repository, revision, GitResetMode.Hard);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.InvalidRequest, result.FailureKind);
+            Assert.AreEqual("保留工作区\n", await File.ReadAllTextAsync(temporary.GetPath("value.txt")));
+        }
+    }
+
+    [TestMethod]
+    public async Task Reset解析器无法启动时不误报目标不存在()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "value.txt", "base\n", "test: base");
+            await File.WriteAllTextAsync(temporary.GetPath("value.txt"), "保留工作区\n");
+            GitWorkspaceStateService service = new(
+                runtime with { ExecutablePath = temporary.GetPath("missing-git.exe") },
+                new GitCommandRunner(), new GitCommandRunner(), new GitStatusService(runtime),
+                _ => throw new InvalidOperationException("Reset 不得调用回收站。"));
+
+            GitActionResult result = await service.ResetAsync(repository, "HEAD", GitResetMode.Hard);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.CommandFailed, result.FailureKind);
+            Assert.Contains("无法启动 Git", result.ErrorMessage!);
+            Assert.IsNotNull(result.ActualStatus);
+            Assert.HasCount(1, result.ActualStatus.Files);
+            Assert.AreEqual("保留工作区\n", await File.ReadAllTextAsync(temporary.GetPath("value.txt")));
         }
     }
 

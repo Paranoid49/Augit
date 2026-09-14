@@ -1,3 +1,4 @@
+using Augit.Core.Files;
 using Augit.Core.Git;
 
 namespace Augit.Infrastructure.Git;
@@ -77,24 +78,26 @@ public sealed class GitStatusService : IGitStatusService
 
         string? branch = NullIfEmpty(branchResult.StandardOutput);
         bool isDetached = false;
-        if (branch is null)
+        GitCommandResult headResult = await RunQueryAsync(
+            repository.RepositoryRoot,
+            ["rev-parse", "--verify", "HEAD"],
+            cancellationToken).ConfigureAwait(false);
+        string? headCommit = null;
+        if (headResult.IsSuccess)
         {
-            GitCommandResult headResult = await RunQueryAsync(
-                repository.RepositoryRoot,
-                ["rev-parse", "--verify", "--short=12", "HEAD"],
-                cancellationToken).ConfigureAwait(false);
-            if (headResult.IsSuccess)
+            headCommit = NullIfEmpty(headResult.StandardOutput);
+            if (branch is null && headCommit is not null)
             {
-                branch = NullIfEmpty(headResult.StandardOutput);
-                isDetached = branch is not null;
-            }
-            else if (!IsUnbornHead(headResult.ErrorMessage))
-            {
-                return Failure(headResult);
+                branch = headCommit[..Math.Min(12, headCommit.Length)];
+                isDetached = true;
             }
         }
+        else if (!IsUnbornHead(headResult.ErrorMessage))
+        {
+            return Failure(headResult);
+        }
 
-        GitStatusSnapshot snapshot = new(branch, isDetached, files!);
+        GitStatusSnapshot snapshot = new(branch, isDetached, files!, headCommit);
         return GitStatusResult.Success(snapshot);
     }
 
@@ -145,6 +148,7 @@ public sealed class GitStatusService : IGitStatusService
         files = parsed
             .DistinctBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
             .OrderBy(file => file.Group)
+            .ThenBy(file => Path.GetFileName(file.RelativePath), NaturalNameComparer.Instance)
             .ThenBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return true;

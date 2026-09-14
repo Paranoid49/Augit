@@ -107,9 +107,9 @@ public sealed class GitConflictService : IGitConflictService
             normalizedPath!,
             kind,
             operation.Session.CurrentBranch is null
-                ? "当前结果（Git stage 2）"
-                : $"当前分支 {operation.Session.CurrentBranch}（Git stage 2）",
-            "合入内容（Git stage 3）",
+                ? "当前分支"
+                : $"当前分支 · {operation.Session.CurrentBranch}",
+            "合入内容",
             kind == GitConflictContentKind.Text && entry.YoursObject is not null
                 ? Decode(yours.Bytes ?? [])
                 : null,
@@ -117,7 +117,7 @@ public sealed class GitConflictService : IGitConflictService
                 ? Decode(theirs.Bytes ?? [])
                 : null,
             resultText,
-            resultText is null ? [] : GitConflictText.Parse(resultText),
+            resultText is null ? [] : GitConflictText.Parse(resultText, cancellationToken),
             version,
             operation.Session.Kind);
         return GitConflictLoadResult.Success(document);
@@ -161,7 +161,7 @@ public sealed class GitConflictService : IGitConflictService
                 "最终结果必须是不超过 10 MB 的有效 UTF-8 文本。");
         }
 
-        if (GitConflictText.Parse(request.ResultText).Count > 0)
+        if (GitConflictText.Parse(request.ResultText, cancellationToken).Count > 0)
         {
             return GitConflictMutationResult.Failure(
                 GitOperationFailureKind.InvalidRequest,
@@ -328,7 +328,7 @@ public sealed class GitConflictService : IGitConflictService
         {
             RelativePath = normalizedPath!,
             ResultText = text,
-            Blocks = GitConflictText.Parse(text),
+            Blocks = GitConflictText.Parse(text, cancellationToken),
             FileVersion = CreateVersion(fullPath!, result.Bytes),
         });
     }

@@ -6,6 +6,16 @@ namespace Augit.Infrastructure.Tests;
 [TestClass]
 public sealed class GitStatusServiceTests
 {
+    private static readonly string[] ExpectedChangesDisplayOrder =
+    [
+        "docs/a2.cs",
+        "docs/a10.cs",
+        "src/Augit.App/z2.cs",
+        "src/z2.cs",
+        "z2.cs",
+        "src/Augit.App/z10.cs",
+    ];
+
     [TestMethod]
     public async Task 已暂存和后续修改合并为同一Changes文件()
     {
@@ -19,8 +29,16 @@ public sealed class GitStatusServiceTests
             await File.WriteAllTextAsync(temporary.GetPath("untracked.txt"), "new\n");
 
             GitStatusResult result = await new GitStatusService(runtime).ReadAsync(repository);
+            GitCommandResult head = await GitTestEnvironment.RunAsync(
+                runtime,
+                temporary.FullPath,
+                "rev-parse",
+                "--verify",
+                "HEAD");
 
             Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.IsTrue(head.IsSuccess, head.ErrorMessage);
+            Assert.AreEqual(head.StandardOutput.Trim(), result.Snapshot!.HeadCommit);
             Assert.HasCount(2, result.Snapshot!.Files);
             GitChangedFile tracked = result.Snapshot.Files.Single(file => file.RelativePath == "tracked.txt");
             Assert.AreEqual(GitChangeGroup.Changes, tracked.Group);
@@ -58,6 +76,25 @@ public sealed class GitStatusServiceTests
 
         Assert.IsFalse(parsed);
         Assert.IsNull(files);
+    }
+
+    [TestMethod]
+    public void Changes按显示文件名自然顺序排列并以路径打破同名排序()
+    {
+        bool parsed = GitStatusService.TryParseStatus(
+            " M src/Augit.App/z10.cs\0"
+            + " M src/Augit.App/z2.cs\0"
+            + " M docs/a10.cs\0"
+            + " M docs/a2.cs\0"
+            + " M z2.cs\0"
+            + " M src/z2.cs\0",
+            out IReadOnlyList<GitChangedFile>? files);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNotNull(files);
+        CollectionAssert.AreEqual(
+            ExpectedChangesDisplayOrder,
+            files!.Select(file => file.RelativePath).ToArray());
     }
 
     [TestMethod]

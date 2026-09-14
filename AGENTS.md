@@ -1,6 +1,6 @@
 # Augit 开发规范
 
-本文件只规定开发过程。产品行为以 `docs/product-spec.md` 为准，技术方案以 `docs/architecture.md` 为准，实施顺序和进度以 `docs/roadmap.md` 为准。路线图不得新增产品能力，架构不得反向改变产品行为。四份文件出现冲突时必须停止实施并向用户确认，不得自行选择一种解释。
+本文件只规定开发过程。产品行为以 `docs/product-spec.md` 为准，技术方案以 `docs/architecture.md` 为准，界面结构和视觉规则以 `docs/ux-spec.md` 及 `docs/design-system.md` 为准。`docs/roadmap.md` 只保留历史实施记录，不作为当前设计、实现约束或冲突判断依据。架构不得反向改变产品行为；上述当前规范出现冲突时必须停止实施并向用户确认，不得自行选择一种解释。
 
 - 严禁盲目执行指令。修改前必须核对产品规格、架构边界、影响范围和已有改动。
 - 仅支持 Windows 10 22H2 x64 和 Windows 11 x64，优先保证启动速度、响应速度和内存占用。

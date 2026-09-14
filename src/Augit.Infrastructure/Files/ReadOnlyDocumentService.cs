@@ -127,7 +127,10 @@ public static class ReadOnlyDocumentService
                 DocumentClassifier.DecodeUtf8(content),
                 null,
                 null,
-                string.Empty);
+                string.Empty)
+            {
+                LineEndings = DocumentLineEndingDetector.Detect(content),
+            };
         }
         catch (FileNotFoundException)
         {

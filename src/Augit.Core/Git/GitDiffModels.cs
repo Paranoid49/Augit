@@ -16,8 +16,7 @@ public sealed record GitDiffDocument(
     string? OriginalRelativePath,
     long OldSize,
     long NewSize,
-    string? UnifiedPatch,
-    string? CopyableCommand)
+    string? UnifiedPatch)
 {
     public bool HasTextDiff => Status == GitDiffContentStatus.Ready && UnifiedPatch is not null;
 }

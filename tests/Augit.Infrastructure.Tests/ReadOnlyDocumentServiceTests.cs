@@ -20,6 +20,7 @@ public sealed class ReadOnlyDocumentServiceTests
         Assert.AreEqual(DocumentReadStatus.TextReady, result.Status);
         Assert.AreEqual(DocumentKind.Markdown, result.Classification.Kind);
         Assert.AreEqual("# 标题", result.Text);
+        Assert.AreEqual(DocumentLineEndings.None, result.LineEndings);
         CollectionAssert.AreEqual(original, await File.ReadAllBytesAsync(path));
     }
 
@@ -35,6 +36,7 @@ public sealed class ReadOnlyDocumentServiceTests
         Assert.AreEqual(DocumentReadStatus.InvalidUtf8, result.Status);
         Assert.AreEqual("文件不是有效的 UTF-8。", result.Message);
         Assert.IsNull(result.Text);
+        Assert.AreEqual(DocumentLineEndings.Unknown, result.LineEndings);
     }
 
     [TestMethod]
@@ -48,6 +50,25 @@ public sealed class ReadOnlyDocumentServiceTests
 
         Assert.AreEqual(DocumentReadStatus.BinarySummary, result.Status);
         Assert.AreEqual(DocumentKind.Gif, result.Classification.Kind);
+        Assert.AreEqual(DocumentLineEndings.Unknown, result.LineEndings);
+    }
+
+    [TestMethod]
+    [DataRow("\r\n", DocumentLineEndings.CrLf)]
+    [DataRow("\r", DocumentLineEndings.Cr)]
+    [DataRow("\n", DocumentLineEndings.Lf)]
+    [DataRow("\r\n\n", DocumentLineEndings.Mixed)]
+    public async Task 换行格式由完整读取结果携带且识别首部之外的换行(string ending, DocumentLineEndings expected)
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("format.json");
+        string content = new string(' ', 65536) + ending + "{\"示例\":1}";
+        await File.WriteAllTextAsync(path, content);
+        DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(temporary.FullPath, path);
+        Assert.AreEqual(DocumentReadStatus.TextReady, result.Status);
+        Assert.AreEqual(expected, result.LineEndings);
+        Assert.AreEqual(content, result.Text);
+        Assert.AreEqual(content, await File.ReadAllTextAsync(path));
     }
 
     [TestMethod]

@@ -63,3 +63,41 @@ public sealed record GitRemoteOperationResult(
         return new(false, failureKind, errorMessage, actualRemotes, actualStatus);
     }
 }
+
+public sealed record GitPushCommitPreview(string Hash, string Subject);
+
+public sealed record GitPushPreview(
+    string LocalReference,
+    string RemoteName,
+    string RemoteReference,
+    IReadOnlyList<GitPushCommitPreview> Commits);
+
+public sealed record GitPushPreviewResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    GitPushPreview? Preview,
+    bool CanDefineRemote,
+    string? LocalReference)
+{
+    public static GitPushPreviewResult Success(GitPushPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preview);
+        return new(true, GitOperationFailureKind.None, null, preview, false, preview.LocalReference);
+    }
+
+    public static GitPushPreviewResult Failure(
+        GitOperationFailureKind failureKind,
+        string errorMessage,
+        bool canDefineRemote = false,
+        string? localReference = null)
+    {
+        if (failureKind == GitOperationFailureKind.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureKind));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+        return new(false, failureKind, errorMessage, null, canDefineRemote, localReference);
+    }
+}

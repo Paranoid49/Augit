@@ -45,6 +45,41 @@ public sealed class GitCommitService : IGitCommitService
         _statusService = statusService;
     }
 
+    public async Task<GitCommitMessageResult> ReadLastCommitMessageAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsWorkingTree(repository))
+        {
+            return GitCommitMessageResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "读取上一次提交信息只适用于具有工作区的 Git 仓库。");
+        }
+
+        GitCommandResult result = await _runner.RunAsync(
+            _runtime.ExecutablePath!,
+            repository.RepositoryRoot!,
+            ["log", "-1", "--format=%B", "HEAD"],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return GitCommitMessageResult.Failure(
+                result.FailureKind == GitOperationFailureKind.None
+                    ? GitOperationFailureKind.CommandFailed
+                    : result.FailureKind,
+                result.ErrorMessage);
+        }
+
+        // git log 会在提交信息末尾附加换行，输入框中不保留这个传输格式字符。
+        string message = result.StandardOutput.TrimEnd('\r', '\n');
+        return message.Length == 0
+            ? GitCommitMessageResult.Failure(
+                GitOperationFailureKind.CommandFailed,
+                "上一次提交没有可用的提交信息。")
+            : GitCommitMessageResult.Success(message);
+    }
+
     public async Task<GitCommitPolicyResult> ReadPolicyAsync(
         GitRepositorySnapshot repository,
         CancellationToken cancellationToken = default)

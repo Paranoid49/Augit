@@ -10,6 +10,11 @@ namespace Augit.App;
 internal sealed class NativeGitOperationDialog : IDisposable
 {
     private const string WindowClassName = "Augit.GitOperationDialog.Native";
+    private const int DialogWidth = 930;
+    private const int DialogHeight = 640;
+    private const int ConflictDialogHeight = 300;
+    private const int HeaderHeight = 45;
+    private const int FooterHeight = 53;
     private const int ConflictListIdentifier = 1;
     private const int CommandStart = 10;
     private const int CommandSmartCheckout = 11;
@@ -23,11 +28,14 @@ internal sealed class NativeGitOperationDialog : IDisposable
     private const int CommandRefresh = 19;
     private const int CommandCancel = 20;
     private const int CommandClose = 21;
+    private const int CommandHeaderClose = 22;
+    private const int KindComboIdentifier = 30;
     private const uint WindowMessageRefresh = NativeMethods.WindowMessageApp + 44;
     private static readonly object ClassGate = new();
     private static readonly object InstancesGate = new();
     private static readonly Dictionary<nint, NativeGitOperationDialog> Instances = [];
     private static readonly NativeMethods.WindowProcedure Procedure = HandleWindowMessage;
+    private static readonly string[] OperationLabels = ["Merge", "Rebase", "Cherry-pick", "Revert"];
     private static bool _classRegistered;
     private readonly nint _owner;
     private readonly GitRepositorySnapshot _repository;
@@ -59,12 +67,18 @@ internal sealed class NativeGitOperationDialog : IDisposable
     private nint _refreshButton;
     private nint _cancelButton;
     private nint _closeButton;
+    private nint _headerCloseButton;
     private nint _noticeLabel;
+    private nint _controlBrush;
+    private NativeToolTip? _toolTip;
+    private bool _dark;
     private bool _refreshing;
     private bool _refreshPending;
     private bool _operationRunning;
     private bool _changed;
     private bool _closed;
+    private bool? _compactConflictLayout;
+    private bool _showFallbackConflictActions;
 
     internal NativeGitOperationDialog(
         nint owner,
@@ -86,19 +100,16 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _settings = settings;
         _setStatus = setStatus;
         EnsureWindowClass();
-        (int x, int y) = Center(owner, 980, 650);
+        (int x, int y) = Center(owner, S(DialogWidth), S(DialogHeight));
         _handle = NativeMethods.CreateWindow(
             0,
             WindowClassName,
             UiText.GitOperationManagement,
-            NativeMethods.WindowStylePopup
-                | NativeMethods.WindowStyleCaption
-                | NativeMethods.WindowStyleSystemMenu
-                | NativeMethods.WindowStyleThickFrame,
+            NativeMethods.WindowStylePopup | NativeMethods.WindowStyleClipChildren,
             x,
             y,
-            980,
-            650,
+            S(DialogWidth),
+            S(DialogHeight),
             owner,
             0,
             NativeMethods.GetModuleHandle(null),
@@ -114,6 +125,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
         }
 
         CreateControls();
+        CreateToolTips();
         ApplyAppearance();
         _metadataWatcher = new(repository);
         _metadataWatcher.Changed += OnGitMetadataChanged;
@@ -146,6 +158,34 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
     internal nint HandleForTest => _handle;
 
+    internal static (int Width, int Height, int HeaderHeight, int FooterHeight) LogicalLayoutForTest =>
+        (DialogWidth, DialogHeight, HeaderHeight, FooterHeight);
+
+    internal static string WindowClassNameForTest => WindowClassName;
+
+    internal static int ConflictDialogHeightForTest => ConflictDialogHeight;
+
+    internal static string ConflictSessionContextForTest(GitOperationSession session) =>
+        ConflictSessionContext(session);
+
+    internal static (
+        bool Refresh,
+        bool Cancel,
+        bool Close,
+        bool Continue,
+        bool Skip,
+        bool Abort) FooterVisibilityForTest(
+            bool operationRunning,
+            bool canContinue,
+            bool canSkip,
+            bool canAbort,
+            bool keepBlockedContinueVisible = false) =>
+        GetFooterVisibility(
+            operationRunning,
+            canContinue || keepBlockedContinueVisible,
+            canSkip,
+            canAbort);
+
     internal async Task RefreshForTestAsync()
     {
         while (_refreshing)
@@ -168,28 +208,84 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _operationCancellation?.Cancel();
         _operationCancellation?.Dispose();
         _operationCancellation = null;
+        _toolTip?.Dispose();
+        _toolTip = null;
+        if (_controlBrush != 0)
+        {
+            _ = NativeMethods.DeleteObject(_controlBrush);
+            _controlBrush = 0;
+        }
         Close(force: true);
         GC.SuppressFinalize(this);
     }
 
     private void Run()
     {
+        using NativeModalFocusScope focusScope = new(_owner);
+        using NativeModalScrim scrim = NativeModalScrim.Begin(_owner, _dark);
         _ = NativeMethods.EnableWindow(_owner, false);
         _ = NativeMethods.ShowWindow(_handle, NativeMethods.ShowNormal);
         _ = NativeMethods.UpdateWindow(_handle);
+        _ = NativeMethods.SetFocus(_kindCombo);
         try
         {
             while (!_closed && NativeMethods.GetMessage(out NativeMethods.Message message, 0, 0, 0) > 0)
             {
-                _ = NativeMethods.TranslateMessage(ref message);
-                _ = NativeMethods.DispatchMessage(ref message);
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyTab)
+                {
+                    MoveFocus(NativeMethods.GetKeyState(NativeMethods.VirtualKeyShift) < 0);
+                    continue;
+                }
+
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyEscape)
+                {
+                    Close();
+                    continue;
+                }
+
+                if (!NativeMethods.IsDialogMessage(_handle, ref message))
+                {
+                    _ = NativeMethods.TranslateMessage(ref message);
+                    _ = NativeMethods.DispatchMessage(ref message);
+                }
             }
         }
         finally
         {
             _ = NativeMethods.EnableWindow(_owner, true);
             _ = NativeMethods.SetForegroundWindow(_owner);
+            focusScope.Restore();
         }
+    }
+
+    /// <summary>
+    /// 按 Git 操作窗口的视觉顺序循环移动焦点，当前状态不可用的动作会被跳过。
+    /// </summary>
+    private void MoveFocus(bool backwards)
+    {
+        NativeFocusNavigation.MoveWithinRegion(
+            [
+                _kindCombo,
+                _targetEdit,
+                _startButton,
+                _smartCheckoutButton,
+                _conflictList,
+                _resolveButton,
+                _acceptYoursButton,
+                _acceptTheirsButton,
+                _externalButton,
+                _continueButton,
+                _skipButton,
+                _abortButton,
+                _refreshButton,
+                _cancelButton,
+                _closeButton,
+                _headerCloseButton,
+            ],
+            NativeMethods.GetFocus(),
+            backwards);
     }
 
     private static void EnsureWindowClass()
@@ -236,6 +332,19 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
         switch (message)
         {
+            case NativeMethods.WindowMessagePaint:
+                return instance.PaintWindow();
+            case NativeMethods.WindowMessageEraseBackground:
+                return 1;
+            case NativeMethods.WindowMessageNonClientHitTest:
+                return instance.HitTest();
+            case NativeMethods.WindowMessageDrawItem:
+                return instance.DrawControl(longParameter) ? 1 : 0;
+            case NativeMethods.WindowMessageControlColorButton:
+            case NativeMethods.WindowMessageControlColorStatic:
+            case NativeMethods.WindowMessageControlColorEdit:
+            case NativeMethods.WindowMessageControlColorListBox:
+                return instance.ApplyControlColor(unchecked((nint)wordParameter));
             case NativeMethods.WindowMessageSize:
                 instance.Layout();
                 return 0;
@@ -259,14 +368,18 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _kindCombo = CreateControl(
             NativeMethods.ComboBoxClass,
             string.Empty,
-            30,
-            NativeMethods.ComboBoxDropDownList | NativeMethods.WindowStyleVerticalScroll);
-        foreach (string item in new[] { "Merge", "Rebase", "Cherry-pick", "Revert" })
+            KindComboIdentifier,
+            NativeComboBoxTheme.ControlStyle);
+        foreach (string item in OperationLabels)
         {
             _ = NativeMethods.SendMessage(_kindCombo, NativeMethods.ComboBoxAddString, 0, item);
         }
 
         _ = NativeMethods.SendMessage(_kindCombo, NativeMethods.ComboBoxSetCurrentSelection, 0, 0);
+        if (!NativeComboBoxTheme.Register(_kindCombo, () => _dark))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), UiText.GitOperationDialogControlCreateFailed);
+        }
         _targetLabel = CreateControl(NativeMethods.StaticClass, UiText.OperationTarget, 0, NativeMethods.StaticLeft);
         _targetEdit = CreateControl(
             NativeMethods.EditClass,
@@ -281,10 +394,16 @@ internal sealed class NativeGitOperationDialog : IDisposable
             NativeMethods.ListBoxClass,
             string.Empty,
             ConflictListIdentifier,
-            NativeMethods.WindowStyleBorder
-                | NativeMethods.WindowStyleVerticalScroll
+            NativeMethods.WindowStyleVerticalScroll
                 | NativeMethods.ListBoxNotify
+                | NativeMethods.ListBoxOwnerDrawFixed
+                | NativeMethods.ListBoxHasStrings
                 | NativeMethods.ListBoxNoIntegralHeight);
+        _ = NativeMethods.SendMessage(
+            _conflictList,
+            NativeMethods.ListBoxSetItemHeight,
+            0,
+            S(30));
         _resolveButton = CreateButton(UiText.ResolveConflict, CommandResolve);
         _acceptYoursButton = CreateButton(UiText.AcceptYours, CommandAcceptYours);
         _acceptTheirsButton = CreateButton(UiText.AcceptTheirs, CommandAcceptTheirs);
@@ -296,13 +415,14 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _refreshButton = CreateButton(UiText.Refresh, CommandRefresh);
         _cancelButton = CreateButton(UiText.CancelOperation, CommandCancel);
         _closeButton = CreateButton(UiText.Close, CommandClose);
+        _headerCloseButton = CreateButton(UiText.CloseSymbol, CommandHeaderClose);
         _ = NativeMethods.ShowWindow(_cancelButton, NativeMethods.ShowHide);
         UpdateActionControls();
     }
 
     private nint CreateButton(string text, int identifier)
     {
-        return CreateControl(NativeMethods.ButtonClass, text, identifier, NativeMethods.ButtonPushButton);
+        return CreateControl(NativeMethods.ButtonClass, text, identifier, NativeMethods.ButtonOwnerDraw);
     }
 
     private nint CreateControl(string className, string text, int identifier, uint specificStyle)
@@ -328,9 +448,26 @@ internal sealed class NativeGitOperationDialog : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error(), UiText.GitOperationDialogControlCreateFailed);
         }
 
-        nint font = NativeMethods.GetStockObject(NativeMethods.DefaultGuiFont);
-        _ = NativeMethods.SendMessage(control, NativeMethods.WindowMessageSetFont, unchecked((nuint)font), 1);
+        _ = NativeMethods.SendMessage(control, NativeMethods.WindowMessageSetFont, unchecked((nuint)NativeTheme.UiFont), 1);
         return control;
+    }
+
+    private void CreateToolTips()
+    {
+        _toolTip = new NativeToolTip(_handle);
+        _toolTip.Add(_startButton, UiText.StartOperation);
+        _toolTip.Add(_smartCheckoutButton, UiText.SmartCheckout);
+        _toolTip.Add(_resolveButton, UiText.ResolveConflict);
+        _toolTip.Add(_acceptYoursButton, UiText.AcceptYours);
+        _toolTip.Add(_acceptTheirsButton, UiText.AcceptTheirs);
+        _toolTip.Add(_externalButton, UiText.OpenConflictExternally);
+        _toolTip.Add(_continueButton, UiText.ContinueOperation);
+        _toolTip.Add(_skipButton, UiText.SkipOperation);
+        _toolTip.Add(_abortButton, UiText.AbortOperation);
+        _toolTip.Add(_refreshButton, UiText.Refresh);
+        _toolTip.Add(_cancelButton, UiText.CancelOperation);
+        _toolTip.Add(_closeButton, UiText.Close);
+        _toolTip.Add(_headerCloseButton, UiText.Close);
     }
 
     private void HandleCommand(nuint wordParameter)
@@ -342,6 +479,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
             if (notification == NativeMethods.ListBoxNotificationSelectionChanged)
             {
                 UpdateConflictControls();
+                _ = OpenResolverAsync();
             }
             else if (notification == NativeMethods.ListBoxNotificationDoubleClick)
             {
@@ -362,9 +500,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
                     "正在执行 Git 操作…");
                 break;
             case CommandSmartCheckout:
-                _ = RunOperationAsync(
-                    token => _operationService.SmartCheckoutAsync(_repository, TargetText, token),
-                    "正在执行 Smart Checkout…");
+                _ = ConfirmAndRunSmartCheckoutAsync();
                 break;
             case CommandContinue:
                 RunSessionAction(GitOperationAction.Continue);
@@ -394,6 +530,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
                 _operationCancellation?.Cancel();
                 break;
             case CommandClose:
+            case CommandHeaderClose:
                 Close();
                 break;
         }
@@ -427,7 +564,9 @@ internal sealed class NativeGitOperationDialog : IDisposable
                 }
 
                 PopulateSession(result.Session);
-                SetNotice("Git 操作状态已刷新。");
+                SetNotice(result.Session.HasConflicts
+                    ? $"还有 {result.Session.ConflictFiles.Count} 个冲突未解决，解决后可继续当前操作。"
+                    : "Git 操作状态已刷新。");
             }
             while (_refreshPending && !_operationRunning);
         }
@@ -441,17 +580,17 @@ internal sealed class NativeGitOperationDialog : IDisposable
     {
         string? selectedPath = SelectedConflict?.RelativePath;
         _session = session;
+        _showFallbackConflictActions = false;
         _conflicts.Clear();
         _conflicts.AddRange(session.ConflictFiles);
         _ = NativeMethods.SendMessage(_conflictList, NativeMethods.ListBoxResetContent, 0, 0);
         foreach (GitConflictFileInfo conflict in _conflicts)
         {
-            string sides = $"Y:{(conflict.HasYours ? "有" : "无")} T:{(conflict.HasTheirs ? "有" : "无")}";
             _ = NativeMethods.SendMessage(
                 _conflictList,
                 NativeMethods.ListBoxAddString,
                 0,
-                $"{conflict.RelativePath}  [{sides}]");
+                conflict.RelativePath);
         }
 
         if (selectedPath is not null)
@@ -467,20 +606,47 @@ internal sealed class NativeGitOperationDialog : IDisposable
                     0);
             }
         }
+        else if (_conflicts.Count > 0)
+        {
+            _ = NativeMethods.SendMessage(
+                _conflictList,
+                NativeMethods.ListBoxSetCurrentSelection,
+                0,
+                0);
+        }
 
         string operation = OperationName(session.Kind);
         string branch = session.CurrentBranch ?? "Detached HEAD / 无提交";
-        string state = session.IsInProgress ? "进行中" : "无进行中操作";
-        string conflicts = session.HasConflicts ? $"{session.ConflictFiles.Count} 个冲突" : "无冲突";
-        string actions = string.Join(" / ", new[]
+        if (session.HasConflicts)
         {
-            session.CanContinue ? UiText.ContinueOperation : null,
-            session.CanSkip ? UiText.SkipOperation : null,
-            session.CanAbort ? UiText.AbortOperation : null,
-        }.Where(action => action is not null));
-        _ = NativeMethods.SetWindowText(
-            _sessionLabel,
-            $"分支：{branch}\n操作：{operation}（{state}）\n状态：{conflicts}\n可用动作：{(actions.Length == 0 ? "无" : actions)}");
+            _ = NativeMethods.SetWindowText(
+                _conflictsLabel,
+                $"{session.ConflictFiles.Count} 个冲突文件");
+            _ = NativeMethods.SetWindowText(
+                _sessionLabel,
+                ConflictSessionContext(session));
+            _ = NativeMethods.SetWindowText(_continueButton, $"Continue {operation}");
+            _ = NativeMethods.SetWindowText(_abortButton, $"Abort {operation}");
+        }
+        else
+        {
+            string state = session.IsInProgress ? "进行中" : "无进行中操作";
+            string conflicts = session.HasConflicts ? $"{session.ConflictFiles.Count} 个冲突" : "无冲突";
+            string actions = string.Join(" / ", new[]
+            {
+                session.CanContinue ? UiText.ContinueOperation : null,
+                session.CanSkip ? UiText.SkipOperation : null,
+                session.CanAbort ? UiText.AbortOperation : null,
+            }.Where(action => action is not null));
+            _ = NativeMethods.SetWindowText(_conflictsLabel, UiText.ConflictFiles);
+            _ = NativeMethods.SetWindowText(
+                _sessionLabel,
+                $"分支：{branch}\n操作：{operation}（{state}）\n状态：{conflicts}\n可用动作：{(actions.Length == 0 ? "无" : actions)}");
+            _ = NativeMethods.SetWindowText(_continueButton, UiText.ContinueOperation);
+            _ = NativeMethods.SetWindowText(_abortButton, UiText.AbortOperation);
+        }
+
+        ApplySessionLayoutMode();
         UpdateActionControls();
         UpdateConflictControls();
     }
@@ -531,6 +697,85 @@ internal sealed class NativeGitOperationDialog : IDisposable
         }
     }
 
+    private async Task ConfirmAndRunSmartCheckoutAsync()
+    {
+        if (_closed || _operationRunning)
+        {
+            return;
+        }
+
+        string targetBranch = TargetText;
+        if (string.IsNullOrWhiteSpace(targetBranch))
+        {
+            ShowError("请输入目标本地分支。");
+            return;
+        }
+
+        GitAdvancedOperationResult inspected = await _operationService.InspectAsync(_repository);
+        if (_closed)
+        {
+            return;
+        }
+
+        if (!inspected.IsSuccess)
+        {
+            ShowError(inspected.ErrorMessage ?? UiText.GitUnavailable);
+            return;
+        }
+
+        GitStatusSnapshot? status = inspected.ActualStatus;
+        string currentBranch = status?.CurrentBranch ?? "Detached HEAD / 无提交";
+        int trackedCount = status?.Changes.Count ?? 0;
+        int untrackedCount = status?.UnversionedFiles.Count ?? 0;
+        string detail = BuildSmartCheckoutImpact(
+            currentBranch,
+            targetBranch,
+            trackedCount,
+            untrackedCount);
+        if (!NativeActionConfirmationDialog.Show(
+                _handle,
+                _settings,
+                $"切换到 {targetBranch}",
+                UiText.SmartCheckoutWarningTitle,
+                detail,
+                UiText.SmartCheckout))
+        {
+            return;
+        }
+
+        _ = RunOperationAsync(
+            token => _operationService.SmartCheckoutAsync(_repository, targetBranch, token),
+            UiText.SmartCheckoutRunning);
+    }
+
+    internal static string BuildSmartCheckoutImpactForTest(
+        string currentBranch,
+        string targetBranch,
+        int trackedCount,
+        int untrackedCount)
+    {
+        return BuildSmartCheckoutImpact(
+            currentBranch,
+            targetBranch,
+            trackedCount,
+            untrackedCount);
+    }
+
+    private static string BuildSmartCheckoutImpact(
+        string currentBranch,
+        string targetBranch,
+        int trackedCount,
+        int untrackedCount)
+    {
+        return string.Join(
+            "\n",
+            UiText.SmartCheckoutWarningDetail,
+            string.Empty,
+            $"当前分支：{currentBranch}",
+            $"目标分支：{targetBranch}",
+            $"将暂存：{trackedCount} 个已跟踪文件和 {untrackedCount} 个未跟踪文件");
+    }
+
     private void RunSessionAction(GitOperationAction action)
     {
         if (_session is null || !_session.Supports(action))
@@ -545,20 +790,23 @@ internal sealed class NativeGitOperationDialog : IDisposable
             GitOperationAction.Abort => $"中止 {OperationName(_session.Kind)}，Git 将恢复到该操作开始前保证的状态。",
             _ => throw new ArgumentOutOfRangeException(nameof(action)),
         };
-        if (NativeMethods.MessageBox(
-            _handle,
-            impact,
-            UiText.AppName,
-            NativeMethods.MessageBoxOkCancel
-                | (action == GitOperationAction.Continue ? 0 : NativeMethods.MessageBoxIconWarning))
-            != NativeMethods.DialogResultOk)
+        string actionName = ActionName(action);
+        string operationName = OperationName(_session.Kind);
+        if (!NativeActionConfirmationDialog.Show(
+                _handle,
+                _settings,
+                $"{actionName} {operationName}",
+                $"确认{actionName}当前 {operationName}",
+                impact,
+                $"{actionName} {operationName}",
+                danger: action != GitOperationAction.Continue))
         {
             return;
         }
 
         _ = RunOperationAsync(
             token => _operationService.ExecuteActionAsync(_repository, action, token),
-            $"正在{ActionName(action)} {OperationName(_session.Kind)}…");
+            $"正在{actionName} {operationName}…");
     }
 
     private async Task OpenResolverAsync()
@@ -585,7 +833,10 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
         if (loaded.Document.ContentKind != GitConflictContentKind.Text)
         {
-            ShowError(UiText.ConflictTextUnavailable);
+            _showFallbackConflictActions = true;
+            UpdateConflictControls();
+            Layout();
+            SetNotice(UiText.ConflictTextUnavailable);
             return;
         }
 
@@ -610,11 +861,16 @@ internal sealed class NativeGitOperationDialog : IDisposable
         }
 
         string sideName = side == GitConflictSide.Yours ? UiText.AcceptYours : UiText.AcceptTheirs;
-        if (NativeMethods.MessageBox(
-            _handle,
-            $"文件：{selected.RelativePath}\n处理：{sideName}\n\n所选整侧将写入工作区并由 Git 标记为已解决，确定继续吗？",
-            UiText.AppName,
-            NativeMethods.MessageBoxOkCancel | NativeMethods.MessageBoxIconWarning) != NativeMethods.DialogResultOk)
+        string impact = $"所选整侧将写入工作区并由 Git 标记为已解决，确定继续吗？\n\n"
+            + $"文件：{selected.RelativePath}\n处理：{sideName}";
+        if (!NativeActionConfirmationDialog.Show(
+                _handle,
+                _settings,
+                sideName,
+                $"使用 {sideName} 解决整个文件",
+                impact,
+                sideName,
+                danger: true))
         {
             return;
         }
@@ -687,7 +943,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _operationRunning = true;
         _operationCancellation = new();
         SetControlsEnabled(false);
-        _ = NativeMethods.ShowWindow(_cancelButton, NativeMethods.ShowNormal);
+        UpdateFooterControls();
         SetNotice(notice);
         return true;
     }
@@ -699,10 +955,10 @@ internal sealed class NativeGitOperationDialog : IDisposable
         _operationCancellation = null;
         if (!_closed)
         {
-            _ = NativeMethods.ShowWindow(_cancelButton, NativeMethods.ShowHide);
             SetControlsEnabled(true);
             UpdateActionControls();
             UpdateConflictControls();
+            UpdateFooterControls();
         }
     }
 
@@ -730,6 +986,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
             _abortButton,
             _refreshButton,
             _closeButton,
+            _headerCloseButton,
         })
         {
             _ = NativeMethods.EnableWindow(control, enabled);
@@ -749,6 +1006,7 @@ internal sealed class NativeGitOperationDialog : IDisposable
         bool canStart = _session is not { IsInProgress: true } && _session is not { HasConflicts: true };
         _ = NativeMethods.EnableWindow(_startButton, canStart);
         _ = NativeMethods.EnableWindow(_smartCheckoutButton, canStart);
+        UpdateFooterControls();
     }
 
     private void UpdateConflictControls()
@@ -759,6 +1017,11 @@ internal sealed class NativeGitOperationDialog : IDisposable
         }
 
         bool selected = SelectedConflict is not null;
+        bool fallback = selected && _showFallbackConflictActions;
+        SetVisible(_resolveButton, !IsConflictSession);
+        SetVisible(_acceptYoursButton, !IsConflictSession || fallback);
+        SetVisible(_acceptTheirsButton, !IsConflictSession || fallback);
+        SetVisible(_externalButton, !IsConflictSession || fallback);
         _ = NativeMethods.EnableWindow(_resolveButton, selected);
         _ = NativeMethods.EnableWindow(_acceptYoursButton, selected);
         _ = NativeMethods.EnableWindow(_acceptTheirsButton, selected);
@@ -791,10 +1054,13 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
     private void ApplyAppearance()
     {
-        bool dark = NativeTheme.IsDark(_settings.Theme);
-        NativeTheme.ApplyToWindow(_handle, dark);
+        _dark = NativeTheme.IsDark(_settings.Theme);
+        NativeTheme.ApplyToWindow(_handle, _dark);
         foreach (nint control in new[]
         {
+            _kindLabel,
+            _targetLabel,
+            _conflictsLabel,
             _kindCombo,
             _targetEdit,
             _startButton,
@@ -812,10 +1078,133 @@ internal sealed class NativeGitOperationDialog : IDisposable
             _refreshButton,
             _cancelButton,
             _closeButton,
+            _headerCloseButton,
         })
         {
-            NativeTheme.ApplyToControl(control, dark);
+            NativeTheme.ApplyToControl(control, _dark);
         }
+
+        _toolTip?.ApplyAppearance(_dark);
+        if (_controlBrush != 0)
+        {
+            _ = NativeMethods.DeleteObject(_controlBrush);
+        }
+
+        _controlBrush = NativeMethods.CreateSolidBrush(NativeTheme.Palette(_dark).Panel);
+        _ = NativeMethods.InvalidateRectangle(_handle, 0, true);
+    }
+
+    private nint ApplyControlColor(nint deviceContext)
+    {
+        if (deviceContext == 0 || _controlBrush == 0)
+        {
+            return 0;
+        }
+
+        NativeThemePalette palette = NativeTheme.Palette(_dark);
+        _ = NativeMethods.SetBackgroundColor(deviceContext, palette.Panel);
+        _ = NativeMethods.SetTextColor(deviceContext, palette.Text);
+        _ = NativeMethods.SetBackgroundMode(deviceContext, NativeMethods.BackgroundModeTransparent);
+        return _controlBrush;
+    }
+
+    private bool DrawControl(nint parameter)
+    {
+        if (parameter == 0)
+        {
+            return false;
+        }
+
+        NativeMethods.DrawItem item = Marshal.PtrToStructure<NativeMethods.DrawItem>(parameter);
+        if (item.ControlIdentifier == ConflictListIdentifier)
+        {
+            return DrawConflictListItem(item);
+        }
+
+        return unchecked((int)item.ControlIdentifier) switch
+        {
+            KindComboIdentifier => NativeComboBoxTheme.DrawItem(parameter, OperationLabels, _dark),
+            CommandStart or CommandSmartCheckout or CommandContinue =>
+                NativeTheme.DrawFlatButton(parameter, _dark, emphasized: true),
+            CommandAbort => NativeTheme.DrawFlatButton(parameter, _dark, outlined: true),
+            CommandClose => NativeTheme.DrawFlatButton(parameter, _dark, outlined: true),
+            CommandHeaderClose => NativeTheme.DrawFlatButton(parameter, _dark),
+            CommandSkip or CommandResolve or CommandAcceptYours or CommandAcceptTheirs
+                or CommandExternal or CommandRefresh or CommandCancel =>
+                NativeTheme.DrawFlatButton(parameter, _dark, outlined: true),
+            _ => false,
+        };
+    }
+
+    private nint PaintWindow()
+    {
+        nint deviceContext = NativeMethods.BeginPaint(_handle, out NativeMethods.PaintStructure paint);
+        if (deviceContext == 0)
+        {
+            return 0;
+        }
+
+        try
+        {
+            if (!NativeMethods.GetClientRectangle(_handle, out NativeMethods.Rectangle client))
+            {
+                return 0;
+            }
+
+            NativeThemePalette palette = NativeTheme.Palette(_dark);
+            Fill(deviceContext, client, palette.Panel);
+            Fill(
+                deviceContext,
+                new()
+                {
+                    Left = 0,
+                    Top = S(HeaderHeight),
+                    Right = client.Right,
+                    Bottom = S(HeaderHeight + 1),
+                },
+                palette.Border);
+            Fill(
+                deviceContext,
+                new()
+                {
+                    Left = 0,
+                    Top = client.Bottom - S(FooterHeight),
+                    Right = client.Right,
+                    Bottom = client.Bottom - S(FooterHeight - 1),
+                },
+                palette.Border);
+            DrawText(
+                deviceContext,
+                DialogTitle,
+                new()
+                {
+                    Left = S(17),
+                    Top = S(8),
+                    Right = client.Right - S(52),
+                    Bottom = S(38),
+                },
+                palette.Text,
+                NativeTheme.UiMediumFont);
+        }
+        finally
+        {
+            _ = NativeMethods.EndPaint(_handle, ref paint);
+        }
+
+        return 0;
+    }
+
+    private nint HitTest()
+    {
+        if (!NativeMethods.GetCursorPosition(out NativeMethods.Point point)
+            || !NativeMethods.ScreenToClient(_handle, ref point))
+        {
+            return NativeMethods.HitTestClient;
+        }
+
+        return point.Y < S(HeaderHeight)
+            ? NativeMethods.HitTestCaption
+            : NativeMethods.HitTestClient;
     }
 
     private void Layout()
@@ -827,30 +1216,233 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
         int width = Math.Max(0, rectangle.Right - rectangle.Left);
         int height = Math.Max(0, rectangle.Bottom - rectangle.Top);
-        Move(_kindLabel, 12, 12, 50, 22);
-        Move(_kindCombo, 66, 8, 150, 200);
-        Move(_targetLabel, 230, 12, 176, 22);
-        Move(_targetEdit, 412, 8, Math.Max(180, width - 678), 26);
-        Move(_startButton, Math.Max(598, width - 258), 8, 72, 28);
-        Move(_smartCheckoutButton, Math.Max(676, width - 180), 8, 132, 28);
-        Move(_sessionLabel, 12, 48, Math.Max(0, width - 24), 78);
-        Move(_conflictsLabel, 12, 134, Math.Max(0, width - 24), 22);
-        int listHeight = Math.Max(120, height - 322);
-        Move(_conflictList, 12, 158, Math.Max(0, width - 24), listHeight);
-        int conflictActionsTop = 164 + listHeight;
-        Move(_resolveButton, 12, conflictActionsTop, 138, 28);
-        Move(_acceptYoursButton, 156, conflictActionsTop, 112, 28);
-        Move(_acceptTheirsButton, 274, conflictActionsTop, 112, 28);
-        Move(_externalButton, 392, conflictActionsTop, 122, 28);
-        int sessionActionsTop = conflictActionsTop + 38;
-        Move(_continueButton, 12, sessionActionsTop, 100, 28);
-        Move(_skipButton, 118, sessionActionsTop, 88, 28);
-        Move(_abortButton, 212, sessionActionsTop, 88, 28);
-        Move(_noticeLabel, 314, sessionActionsTop + 4, Math.Max(0, width - 326), 42);
-        int bottom = Math.Max(8, height - 42);
-        Move(_refreshButton, Math.Max(12, width - 286), bottom, 72, 28);
-        Move(_cancelButton, Math.Max(90, width - 208), bottom, 94, 28);
-        Move(_closeButton, Math.Max(190, width - 108), bottom, 80, 28);
+        int bodyTop = S(HeaderHeight);
+        int footerTop = height - S(FooterHeight);
+        bool conflictSession = IsConflictSession;
+        int listTop;
+        if (conflictSession)
+        {
+            Move(_conflictsLabel, S(17), bodyTop + S(10), S(230), S(32));
+            Move(
+                _sessionLabel,
+                Math.Max(S(254), width - S(360)),
+                bodyTop + S(10),
+                S(343),
+                S(32));
+            listTop = bodyTop + S(48);
+        }
+        else
+        {
+            Move(_kindLabel, S(17), bodyTop + S(17), S(48), S(28));
+            Move(_kindCombo, S(70), bodyTop + S(13), S(148), S(220));
+            Move(_targetLabel, S(232), bodyTop + S(17), S(176), S(28));
+            Move(_targetEdit, S(408), bodyTop + S(13), Math.Max(S(180), width - S(676)), S(30));
+            Move(_startButton, Math.Max(S(598), width - S(258)), bodyTop + S(14), S(72), S(28));
+            Move(_smartCheckoutButton, Math.Max(S(676), width - S(180)), bodyTop + S(14), S(132), S(28));
+            Move(_sessionLabel, S(29), bodyTop + S(65), Math.Max(0, width - S(58)), S(76));
+            Move(_conflictsLabel, S(17), bodyTop + S(151), Math.Max(0, width - S(34)), S(28));
+            listTop = bodyTop + S(180);
+        }
+
+        bool showConflictActions = !conflictSession || _showFallbackConflictActions;
+        int conflictActionsTop = showConflictActions ? footerTop - S(50) : footerTop;
+        Move(
+            _conflictList,
+            S(17),
+            listTop,
+            Math.Max(0, width - S(34)),
+            Math.Max(S(70), conflictActionsTop - listTop - S(8)));
+        Move(_resolveButton, S(17), conflictActionsTop, S(138), S(28));
+        Move(_acceptYoursButton, S(163), conflictActionsTop, S(112), S(28));
+        Move(_acceptTheirsButton, S(283), conflictActionsTop, S(112), S(28));
+        Move(_externalButton, S(403), conflictActionsTop, S(122), S(28));
+        int right = width - S(17);
+        LayoutFooterButton(_continueButton, ref right, S(118), footerTop);
+        LayoutFooterButton(_skipButton, ref right, S(80), footerTop);
+        LayoutFooterButton(_abortButton, ref right, S(118), footerTop);
+        LayoutFooterButton(_cancelButton, ref right, S(88), footerTop);
+        LayoutFooterButton(_closeButton, ref right, S(78), footerTop);
+        LayoutFooterButton(_refreshButton, ref right, S(78), footerTop);
+        Move(_noticeLabel, S(17), footerTop + S(12), Math.Max(0, right - S(29)), S(28));
+        Move(_headerCloseButton, Math.Max(S(17), width - S(45)), S(7), S(32), S(31));
+        _ = NativeMethods.InvalidateRectangle(_handle, 0, true);
+    }
+
+    private static void LayoutFooterButton(nint control, ref int right, int width, int footerTop)
+    {
+        if (control == 0 || !NativeMethods.IsWindowVisible(control))
+        {
+            return;
+        }
+
+        right -= width;
+        Move(control, right, footerTop + S(12), width, S(28));
+        right -= S(8);
+    }
+
+    private void UpdateFooterControls()
+    {
+        (bool refresh, bool cancel, bool close, bool continueAction, bool skip, bool abort) =
+            GetFooterVisibility(
+                _operationRunning,
+                _session?.CanContinue == true || ShouldKeepContinueVisible(_session),
+                _session?.CanSkip == true,
+                _session?.CanAbort == true);
+        SetVisible(_refreshButton, refresh);
+        SetVisible(_cancelButton, cancel);
+        SetVisible(_closeButton, close);
+        SetVisible(_continueButton, continueAction);
+        SetVisible(_skipButton, skip);
+        SetVisible(_abortButton, abort);
+        Layout();
+    }
+
+    private static (
+        bool Refresh,
+        bool Cancel,
+        bool Close,
+        bool Continue,
+        bool Skip,
+        bool Abort) GetFooterVisibility(
+            bool operationRunning,
+            bool canContinue,
+            bool canSkip,
+            bool canAbort)
+    {
+        if (operationRunning)
+        {
+            return (false, true, false, false, false, false);
+        }
+
+        bool hasSessionActions = canContinue || canSkip || canAbort;
+        return (
+            !hasSessionActions,
+            false,
+            !hasSessionActions,
+            canContinue,
+            canSkip,
+            canAbort);
+    }
+
+    private static void SetVisible(nint control, bool visible)
+    {
+        if (control != 0)
+        {
+            _ = NativeMethods.ShowWindow(control, visible ? NativeMethods.ShowNormal : NativeMethods.ShowHide);
+        }
+    }
+
+    private void ApplySessionLayoutMode()
+    {
+        bool compact = IsConflictSession;
+        bool showOperationForm = !compact;
+        foreach (nint control in new[]
+        {
+            _kindLabel,
+            _kindCombo,
+            _targetLabel,
+            _targetEdit,
+            _startButton,
+            _smartCheckoutButton,
+        })
+        {
+            SetVisible(control, showOperationForm);
+        }
+
+        UpdateConflictControls();
+
+        if (_compactConflictLayout != compact)
+        {
+            _compactConflictLayout = compact;
+            int targetHeight = S(compact ? ConflictDialogHeight : DialogHeight);
+            int targetWidth = S(DialogWidth);
+            (int x, int y) = Center(_owner, targetWidth, targetHeight);
+            _ = NativeMethods.MoveWindow(_handle, x, y, targetWidth, targetHeight, true);
+        }
+
+        Layout();
+    }
+
+    private bool DrawConflictListItem(NativeMethods.DrawItem item)
+    {
+        NativeThemePalette palette = NativeTheme.Palette(_dark);
+        Fill(item.DeviceContext, item.ItemRectangle, palette.Panel);
+        int index = unchecked((int)item.ItemIdentifier);
+        if (index < 0 || index >= _conflicts.Count)
+        {
+            return true;
+        }
+
+        NativeMethods.Rectangle row = item.ItemRectangle;
+        row.Left += S(5);
+        row.Right -= S(5);
+        if ((item.ItemState & NativeMethods.OwnerDrawSelected) != 0)
+        {
+            FillRounded(item.DeviceContext, row, palette.AccentSoft, S(5));
+        }
+
+        GitConflictFileInfo conflict = _conflicts[index];
+        uint conflictColor = _dark ? 0x005F5FF0u : 0x004C4CD3u;
+        NativeMethods.Rectangle marker = row;
+        marker.Left += S(8);
+        marker.Right = marker.Left + S(18);
+        NativeTheme.DrawConflictIcon(
+            item.DeviceContext,
+            (marker.Left + marker.Right) / 2,
+            (marker.Top + marker.Bottom) / 2,
+            conflictColor);
+
+        string fileName = Path.GetFileName(conflict.RelativePath);
+        string directory = Path.GetDirectoryName(conflict.RelativePath)?.Replace('\\', '/') ?? string.Empty;
+        NativeMethods.Rectangle name = row;
+        name.Left += S(31);
+        name.Right -= S(150);
+        DrawText(item.DeviceContext, fileName, name, palette.Text, NativeTheme.UiFont);
+        NativeMethods.Rectangle detail = row;
+        detail.Left = Math.Max(detail.Left, detail.Right - S(142));
+        detail.Right -= S(8);
+        DrawText(
+            item.DeviceContext,
+            directory.Length == 0 ? "内容冲突" : $"{directory}  ·  内容冲突",
+            detail,
+            palette.Muted,
+            NativeTheme.UiFont);
+        return true;
+    }
+
+    private static void FillRounded(
+        nint deviceContext,
+        NativeMethods.Rectangle rectangle,
+        uint color,
+        int radius)
+    {
+        if (NativeGdiPlusDrawing.FillRoundedRectangle(deviceContext, rectangle, color, radius))
+        {
+            return;
+        }
+
+        nint brush = NativeMethods.CreateSolidBrush(color);
+        nint region = NativeMethods.CreateRoundRectangleRegion(
+            rectangle.Left,
+            rectangle.Top,
+            rectangle.Right + 1,
+            rectangle.Bottom + 1,
+            radius,
+            radius);
+        if (brush != 0 && region != 0)
+        {
+            _ = NativeMethods.FillRegion(deviceContext, region, brush);
+        }
+
+        if (region != 0)
+        {
+            _ = NativeMethods.DeleteObject(region);
+        }
+
+        if (brush != 0)
+        {
+            _ = NativeMethods.DeleteObject(brush);
+        }
     }
 
     private static void Move(nint window, int x, int y, int width, int height)
@@ -865,7 +1457,6 @@ internal sealed class NativeGitOperationDialog : IDisposable
     {
         SetNotice(message);
         _setStatus(message);
-        _ = NativeMethods.MessageBox(_handle, message, UiText.AppName, NativeMethods.MessageBoxIconWarning);
     }
 
     private void SetNotice(string message)
@@ -888,7 +1479,9 @@ internal sealed class NativeGitOperationDialog : IDisposable
 
         _closed = true;
         nint handle = _handle;
+        NativeMethods.WakeWindowMessageLoop(handle);
         _handle = 0;
+        NativeComboBoxTheme.Unregister(_kindCombo);
         lock (InstancesGate)
         {
             Instances.Remove(handle);
@@ -916,6 +1509,36 @@ internal sealed class NativeGitOperationDialog : IDisposable
     }
 
     private CancellationToken CurrentOperationToken => _operationCancellation?.Token ?? CancellationToken.None;
+
+    private string DialogTitle => _session is { HasConflicts: true } session
+        ? $"{OperationName(session.Kind)} 冲突"
+        : UiText.GitOperationManagement;
+
+    private bool IsConflictSession => _session is { HasConflicts: true };
+
+    private static bool ShouldKeepContinueVisible(GitOperationSession? session)
+    {
+        return session is
+        {
+            IsInProgress: true,
+            HasConflicts: true,
+            Kind: GitOperationKind.Merge
+                or GitOperationKind.Rebase
+                or GitOperationKind.CherryPick
+                or GitOperationKind.Revert,
+        };
+    }
+
+    private static string ConflictSessionContext(GitOperationSession session)
+    {
+        if (session.CurrentStep is int currentStep && session.TotalSteps is int totalSteps)
+        {
+            return $"当前步骤 {currentStep}/{totalSteps}";
+        }
+
+        string branch = session.CurrentBranch ?? "Detached HEAD / 无提交";
+        return $"{OperationName(session.Kind)} 进行中  ·  当前分支 {branch}";
+    }
 
     private GitAdvancedOperationKind GetSelectedOperationKind()
     {
@@ -969,4 +1592,41 @@ internal sealed class NativeGitOperationDialog : IDisposable
             rectangle.Left + Math.Max(0, ((rectangle.Right - rectangle.Left) - width) / 2),
             rectangle.Top + Math.Max(0, ((rectangle.Bottom - rectangle.Top) - height) / 2));
     }
+
+    private static void Fill(nint deviceContext, NativeMethods.Rectangle rectangle, uint color)
+    {
+        nint brush = NativeMethods.CreateSolidBrush(color);
+        if (brush != 0)
+        {
+            _ = NativeMethods.FillRectangle(deviceContext, ref rectangle, brush);
+            _ = NativeMethods.DeleteObject(brush);
+        }
+    }
+
+    private static void DrawText(
+        nint deviceContext,
+        string text,
+        NativeMethods.Rectangle rectangle,
+        uint color,
+        nint font)
+    {
+        _ = NativeMethods.SetTextColor(deviceContext, color);
+        _ = NativeMethods.SetBackgroundMode(deviceContext, NativeMethods.BackgroundModeTransparent);
+        nint previous = NativeMethods.SelectObject(deviceContext, font);
+        _ = NativeMethods.DrawText(
+            deviceContext,
+            text,
+            text.Length,
+            ref rectangle,
+            NativeMethods.DrawTextVerticalCenter
+                | NativeMethods.DrawTextSingleLine
+                | NativeMethods.DrawTextNoPrefix
+                | NativeMethods.DrawTextEndEllipsis);
+        if (previous != 0)
+        {
+            _ = NativeMethods.SelectObject(deviceContext, previous);
+        }
+    }
+
+    private static int S(int pixels) => NativeTheme.Scale(pixels);
 }

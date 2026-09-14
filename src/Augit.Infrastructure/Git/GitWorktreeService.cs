@@ -134,6 +134,91 @@ public sealed class GitWorktreeService : IGitWorktreeService
             : await MutationFailureAsync(repository, result).ConfigureAwait(false);
     }
 
+    public async Task<GitWorktreeRemovalReadinessResult> InspectRemovalReadinessAsync(
+        GitRepositorySnapshot repository,
+        string worktreePath,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetRepositoryRoot(repository, out _, out string? error)
+            || !TryResolveDestination(worktreePath, out string? resolvedPath, out error))
+        {
+            return GitWorktreeRemovalReadinessResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                error!);
+        }
+
+        GitWorktreeListResult list = await ReadAsync(repository, cancellationToken).ConfigureAwait(false);
+        if (!list.IsSuccess)
+        {
+            return GitWorktreeRemovalReadinessResult.Failure(list.FailureKind, list.ErrorMessage!);
+        }
+
+        GitWorktreeInfo? target = list.Worktrees!.FirstOrDefault(
+            worktree => PathEquals(worktree.Path, resolvedPath!));
+        if (target is null)
+        {
+            return GitWorktreeRemovalReadinessResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "指定路径不是当前仓库登记的 Worktree。");
+        }
+
+        if (target.IsCurrent)
+        {
+            return GitWorktreeRemovalReadinessResult.Success(new(
+                false,
+                true,
+                false,
+                "当前窗口正在使用此 Worktree。"));
+        }
+
+        if (target.IsLocked)
+        {
+            return GitWorktreeRemovalReadinessResult.Success(new(
+                false,
+                true,
+                false,
+                $"Worktree 已锁定：{target.LockReason ?? "未说明原因"}"));
+        }
+
+        if (!Directory.Exists(target.Path))
+        {
+            return GitWorktreeRemovalReadinessResult.Success(new(
+                false,
+                false,
+                false,
+                "Worktree 目录不存在。"));
+        }
+
+        using TerminalSessionLease? terminalLease = _terminalSessions.TryAcquire(target.Path);
+        if (terminalLease is null)
+        {
+            return GitWorktreeRemovalReadinessResult.Success(new(
+                false,
+                true,
+                true,
+                "存在运行中的内置终端会话。"));
+        }
+
+        GitCommandResult status = await RunAsync(
+            target.Path,
+            ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=all"],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        if (!status.IsSuccess)
+        {
+            return GitWorktreeRemovalReadinessResult.Failure(
+                NormalizeFailure(status),
+                status.ErrorMessage);
+        }
+
+        bool clean = !status.IsOutputTruncated && status.StandardOutput.Length == 0;
+        return GitWorktreeRemovalReadinessResult.Success(new(
+            clean,
+            clean,
+            false,
+            clean ? null : "存在本地改动或未跟踪文件。"));
+    }
+
     public async Task<GitActionResult> RemoveAsync(
         GitRepositorySnapshot repository,
         string worktreePath,

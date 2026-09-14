@@ -31,6 +31,38 @@ public sealed class GitDiffServiceTests
     }
 
     [TestMethod]
+    public async Task 文本Diff包含完整文件上下文而不是仅显示变化附近三行()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            string[] original = Enumerable.Range(1, 100)
+                .Select(index => $"line {index:D3}")
+                .ToArray();
+            await GitTestEnvironment.CommitFileAsync(
+                runtime,
+                temporary.FullPath,
+                "complete.txt",
+                string.Join('\n', original) + "\n",
+                "test: complete diff");
+            original[49] = "line 050 changed";
+            await File.WriteAllTextAsync(
+                temporary.GetPath("complete.txt"),
+                string.Join('\n', original) + "\n");
+            GitChangedFile changedFile = await ReadOnlyChangeAsync(runtime, repository);
+
+            GitDiffResult result = await new GitDiffService(runtime)
+                .CreateAsync(repository, changedFile, new());
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(GitDiffContentStatus.Ready, result.Document!.Status);
+            Assert.Contains(" line 001", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+            Assert.Contains(" line 100", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+            Assert.Contains("+line 050 changed", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+        }
+    }
+
+    [TestMethod]
     public async Task 未跟踪文本和二进制分别生成文本Diff与二进制摘要()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
@@ -72,7 +104,7 @@ public sealed class GitDiffServiceTests
     }
 
     [TestMethod]
-    public async Task 任一侧超过十兆时只返回大小和可复制命令()
+    public async Task 任一侧超过十兆时只返回大小和摘要()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
         using (temporary)
@@ -91,7 +123,6 @@ public sealed class GitDiffServiceTests
             Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
             Assert.AreEqual(GitDiffContentStatus.SideTooLarge, result.Document!.Status);
             Assert.IsNull(result.Document.UnifiedPatch);
-            Assert.IsNotNull(result.Document.CopyableCommand);
             Assert.AreEqual((10L * 1024 * 1024) + 1, result.Document.NewSize);
         }
     }
@@ -115,7 +146,6 @@ public sealed class GitDiffServiceTests
             Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
             Assert.AreEqual(GitDiffContentStatus.OutputTooLarge, result.Document!.Status);
             Assert.IsNull(result.Document.UnifiedPatch);
-            Assert.IsNotNull(result.Document.CopyableCommand);
         }
     }
 

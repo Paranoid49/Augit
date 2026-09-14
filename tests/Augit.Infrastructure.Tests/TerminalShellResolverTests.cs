@@ -16,6 +16,8 @@ public sealed class TerminalShellResolverTests
         Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
         Assert.AreEqual(TerminalShellIds.WindowsPowerShell, result.LaunchInfo!.ShellId);
         StringAssert.EndsWith(result.LaunchInfo.ExecutablePath, "powershell.exe");
+        StringAssert.Contains(result.LaunchInfo.Arguments, "-NoExit");
+        Assert.IsFalse(result.LaunchInfo.Arguments.Contains("-NoLogo", StringComparison.Ordinal));
     }
 
     [TestMethod]

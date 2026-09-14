@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Augit.App.VisualAuditHost</AssemblyName>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <ApplicationManifest>..\..\src\Augit.App\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\docs\ux-mockups\assets\image-sample.png" Link="image-sample.png" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\..\src\Augit.App\Augit.App.csproj" />
+    <ProjectReference Include="..\..\src\Augit.Infrastructure\Augit.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

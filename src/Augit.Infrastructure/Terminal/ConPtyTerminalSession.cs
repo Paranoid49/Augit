@@ -161,6 +161,11 @@ public sealed class ConPtyTerminalSession : IDisposable
             string commandLine = launchInfo.CommandLine;
             uint creationFlags = ConPtyNativeMethods.ExtendedStartupInfoPresent
                 | ConPtyNativeMethods.CreateSuspended;
+            // 控制台宿主若不显式分离，Shell 会继承父控制台并绕过 ConPTY。
+            if (ConPtyNativeMethods.GetConsoleCP() != 0)
+            {
+                creationFlags |= ConPtyNativeMethods.CreateNoWindow;
+            }
             ConPtyNativeMethods.SecurityAttributes processAttributes = new()
             {
                 Length = Marshal.SizeOf<ConPtyNativeMethods.SecurityAttributes>(),

@@ -69,7 +69,8 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         GitRepositorySnapshot repository,
         GitReferenceService service,
         ApplicationSettings settings,
-        Action<string> setStatus)
+        Action<string> setStatus,
+        string? initialTarget)
     {
         _owner = owner;
         _repository = repository;
@@ -112,6 +113,10 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         }
 
         CreateControls();
+        if (!string.IsNullOrWhiteSpace(initialTarget))
+        {
+            _ = NativeMethods.SetWindowText(_targetEdit, initialTarget);
+        }
         ApplyAppearance();
     }
 
@@ -120,9 +125,16 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         GitRepositorySnapshot repository,
         GitReferenceService service,
         ApplicationSettings settings,
-        Action<string> setStatus)
+        Action<string> setStatus,
+        string? initialTarget = null)
     {
-        using NativeGitReferenceDialog dialog = new(owner, repository, service, settings, setStatus);
+        using NativeGitReferenceDialog dialog = new(
+            owner,
+            repository,
+            service,
+            settings,
+            setStatus,
+            initialTarget);
         dialog.Run();
     }
 
@@ -137,14 +149,32 @@ internal sealed class NativeGitReferenceDialog : IDisposable
 
     private void Run()
     {
+        using NativeModalFocusScope focusScope = new(_owner);
+        using NativeModalScrim scrim = NativeModalScrim.Begin(_owner, NativeTheme.IsDark(_settings.Theme));
         _ = NativeMethods.EnableWindow(_owner, false);
         _ = NativeMethods.ShowWindow(_handle, NativeMethods.ShowNormal);
         _ = NativeMethods.UpdateWindow(_handle);
+        // 引用列表是窗口左侧的第一个交互区域，打开后直接把焦点交给它。
+        _ = NativeMethods.SetFocus(_branchList);
         _ = LoadAsync();
         try
         {
             while (!_closed && NativeMethods.GetMessage(out NativeMethods.Message message, 0, 0, 0) > 0)
             {
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyTab)
+                {
+                    MoveFocus(NativeMethods.GetKeyState(NativeMethods.VirtualKeyShift) < 0);
+                    continue;
+                }
+
+                if (message.MessageId == NativeMethods.WindowMessageKeyDown
+                    && unchecked((int)message.WordParameter) == NativeMethods.VirtualKeyEscape)
+                {
+                    Close(force: true);
+                    continue;
+                }
+
                 _ = NativeMethods.TranslateMessage(ref message);
                 _ = NativeMethods.DispatchMessage(ref message);
             }
@@ -153,7 +183,41 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         {
             _ = NativeMethods.EnableWindow(_owner, true);
             _ = NativeMethods.SetForegroundWindow(_owner);
+            focusScope.Restore();
         }
+    }
+
+    /// <summary>
+    /// 按引用管理窗口从列表、字段到动作栏的视觉顺序循环移动焦点。
+    /// </summary>
+    private void MoveFocus(bool backwards)
+    {
+        NativeFocusNavigation.MoveWithinRegion(
+            [
+                _branchList,
+                _tagList,
+                _nameEdit,
+                _targetEdit,
+                _remoteEdit,
+                _messageEdit,
+                _forceDeleteCheck,
+                _createBranchButton,
+                _switchBranchButton,
+                _renameBranchButton,
+                _deleteBranchButton,
+                _createTrackingButton,
+                _setTrackingButton,
+                _unsetTrackingButton,
+                _createTagButton,
+                _deleteTagButton,
+                _pushTagButton,
+                _deleteRemoteTagButton,
+                _refreshButton,
+                _cancelButton,
+                _closeButton,
+            ],
+            NativeMethods.GetFocus(),
+            backwards);
     }
 
     private static void EnsureWindowClass()
@@ -558,11 +622,15 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         }
 
         bool force = IsChecked(_forceDeleteCheck);
-        if (NativeMethods.MessageBox(
-            _handle,
-            UiText.ConfirmDeleteBranchDetails(branch!.Name, force),
-            UiText.AppName,
-            NativeMethods.MessageBoxOkCancel | NativeMethods.MessageBoxIconWarning) != 1)
+        string actionLabel = force ? UiText.ForceDeleteBranch : UiText.DeleteBranch;
+        if (!NativeActionConfirmationDialog.Show(
+                _handle,
+                _settings,
+                actionLabel,
+                $"分支 {branch!.Name} 将被删除",
+                UiText.ConfirmDeleteBranchDetails(branch.Name, force),
+                actionLabel,
+                danger: true))
         {
             return;
         }
@@ -578,11 +646,15 @@ internal sealed class NativeGitReferenceDialog : IDisposable
         }
 
         string warning = UiText.ConfirmDeleteTagDetails(tag!.Name, remote, remote ? RemoteText : null);
-        if (NativeMethods.MessageBox(
-            _handle,
-            warning,
-            UiText.AppName,
-            NativeMethods.MessageBoxOkCancel | NativeMethods.MessageBoxIconWarning) != 1)
+        string actionLabel = remote ? UiText.DeleteRemoteTag : UiText.DeleteLocalTag;
+        if (!NativeActionConfirmationDialog.Show(
+                _handle,
+                _settings,
+                actionLabel,
+                $"标签 {tag!.Name} 将被删除",
+                warning,
+                actionLabel,
+                danger: true))
         {
             return;
         }
@@ -734,7 +806,6 @@ internal sealed class NativeGitReferenceDialog : IDisposable
     {
         SetNotice(message);
         _setStatus(message);
-        _ = NativeMethods.MessageBox(_handle, message, UiText.AppName, NativeMethods.MessageBoxIconWarning);
     }
 
     private void Close(bool force = false)
@@ -752,6 +823,7 @@ internal sealed class NativeGitReferenceDialog : IDisposable
 
         _closed = true;
         nint handle = _handle;
+        NativeMethods.WakeWindowMessageLoop(handle);
         _handle = 0;
         lock (InstancesGate)
         {

@@ -154,6 +154,7 @@ public sealed class GitRepositoryService : IGitRepositoryService
     public async Task<GitRepositoryOperationResult> CloneAsync(
         string source,
         string destinationPath,
+        int? depth = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(source))
@@ -163,6 +164,13 @@ public sealed class GitRepositoryService : IGitRepositoryService
                 "克隆地址不能为空。");
         }
 
+        if (depth is <= 0)
+        {
+            return GitRepositoryOperationResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "浅克隆深度必须是正整数。");
+        }
+
         if (!TryResolveCloneDestination(destinationPath, out string? fullDestination, out string? parent, out string? validationError))
         {
             return GitRepositoryOperationResult.Failure(
@@ -170,10 +178,20 @@ public sealed class GitRepositoryService : IGitRepositoryService
                 validationError!);
         }
 
+        List<string> arguments = ["clone"];
+        if (depth is int cloneDepth)
+        {
+            arguments.Add("--depth");
+            arguments.Add(cloneDepth.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        arguments.Add("--");
+        arguments.Add(source);
+        arguments.Add(fullDestination!);
         GitCommandResult result = await _runner.RunAsync(
             Runtime.ExecutablePath!,
             parent!,
-            ["clone", "--", source, fullDestination!],
+            arguments,
             GitCommandMode.Network,
             cancellationToken).ConfigureAwait(false);
         GitRepositoryOperationResult? actualState = Directory.Exists(fullDestination)

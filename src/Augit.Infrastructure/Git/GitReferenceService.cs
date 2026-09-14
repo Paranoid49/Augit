@@ -9,6 +9,8 @@ public sealed class GitReferenceService : IGitReferenceService
     private readonly GitCommandRunner _runner;
     private readonly GitStatusService _statusService;
 
+    public GitRuntimeInfo Runtime => _runtime;
+
     public GitReferenceService(GitRuntimeInfo runtime)
         : this(
             runtime,
@@ -174,6 +176,34 @@ public sealed class GitReferenceService : IGitReferenceService
         return await RunMutationAsync(
             repository,
             ["switch", branchName],
+            GitCommandMode.LocalWrite,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<GitActionResult> CheckoutReferenceAsync(
+        GitRepositorySnapshot repository,
+        string reference,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? error))
+        {
+            return GitActionResult.Failure(GitOperationFailureKind.InvalidRequest, error!);
+        }
+
+        string? resolved = await ResolveRevisionAsync(
+            repositoryRoot!,
+            reference,
+            cancellationToken).ConfigureAwait(false);
+        if (resolved is null)
+        {
+            return GitActionResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "指定标签或版本不存在，或不是唯一提交。");
+        }
+
+        return await RunMutationAsync(
+            repository,
+            ["switch", "--detach", resolved],
             GitCommandMode.LocalWrite,
             cancellationToken).ConfigureAwait(false);
     }

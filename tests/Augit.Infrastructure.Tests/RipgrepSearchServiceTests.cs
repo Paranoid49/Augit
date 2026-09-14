@@ -48,6 +48,39 @@ public sealed class RipgrepSearchServiceTests
             .SearchFilesAsync(temporary.FullPath, "target");
 
         Assert.HasCount(SearchOptions.MaximumFileResults, results);
+        CollectionAssert.AreEqual(Enumerable.Range(0, 100).Select(index => $"target-{index:D3}.txt").ToArray(),
+            results.Select(result => result.RelativePath).ToArray());
+    }
+
+    [TestMethod]
+    public async Task 文件名搜索只匹配文件名且保留最佳一百项顺序()
+    {
+        using TemporaryDirectory temporary = new();
+        Directory.CreateDirectory(temporary.GetPath("target-directory"));
+        File.WriteAllText(temporary.GetPath("target-directory/unrelated.txt"), string.Empty);
+        List<string> names = ["target", "target.txt", "target.cs", "prefix-target.txt"];
+        names.AddRange(Enumerable.Range(0, 180).Select(index => $"target-{index:D3}.txt"));
+        foreach (string name in names.AsEnumerable().Reverse()) File.WriteAllText(temporary.GetPath(name), string.Empty);
+        IReadOnlyList<FileSearchResult> actual = await new RipgrepSearchService(RipgrepPath).SearchFilesAsync(temporary.FullPath, "target");
+        string[] expected = names.OrderBy(name => name == "target" ? 0 : name.StartsWith("target", StringComparison.Ordinal) ? 1 : 2)
+            .ThenBy(name => name.Length).ThenBy(name => name, StringComparer.OrdinalIgnoreCase).Take(100).ToArray();
+        CollectionAssert.AreEqual(expected, actual.Select(result => result.RelativePath).ToArray());
+        Assert.IsFalse(actual.Any(result => result.RelativePath.Contains("unrelated", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task 预先取消的搜索不启动缺失进程且返回明确取消状态()
+    {
+        using TemporaryDirectory temporary = new();
+        RipgrepSearchService service = new(temporary.GetPath("missing-rg.exe"));
+        CancellationToken token = new(canceled: true);
+        FileSearchResultSet files = await service.SearchFilesWithStatusAsync(temporary.FullPath, "target", token);
+        Assert.IsTrue(files.IsCancelled);
+        Assert.AreEqual("搜索已取消。", files.Notice);
+        Assert.HasCount(0, files.Matches);
+        TextSearchResult text = await service.SearchTextAsync(temporary.FullPath, new("target"), token);
+        Assert.IsTrue(text.IsCancelled);
+        Assert.HasCount(0, text.Matches);
     }
 
     [TestMethod]
