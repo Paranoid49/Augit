@@ -49,3 +49,15 @@ powershell -NoProfile -File .\tools\release.ps1
 ```
 
 发布脚本生成 `win-x64`、非 self-contained 的便携压缩包和小型联网安装器，并在结束前删除发布暂存目录。
+
+## 文档
+
+- [产品规格](docs/product-spec.md)：产品行为与功能边界。
+- [架构](docs/architecture.md)：技术方案与模块划分。
+- [界面规范](docs/ux-spec.md) 与 [设计系统](docs/design-system.md)：界面结构与视觉规则。
+- [运行时依赖](docs/runtime-dependencies.md)：锁定的运行时版本与来源。
+- [第三方依赖说明](THIRD-PARTY-NOTICES.md)：直接依赖的用途、成本、许可证与移除条件。
+
+## 许可证
+
+本项目以 [MIT 许可证](LICENSE) 发布。第三方依赖的许可证与分发要求见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
