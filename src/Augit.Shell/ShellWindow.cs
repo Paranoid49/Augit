@@ -20,6 +20,7 @@ internal sealed class ShellWindow : IDisposable
     private const int IdiApplication = 32512;
     private const int ErrorClassAlreadyExists = 1410;
     private const uint InitializeMessage = 0x0400 + 1;
+    private const uint ReplyMessage = 0x0400 + 3;
 
     private static readonly Dictionary<nint, ShellWindow> LiveWindows = [];
     private static readonly Lock LoaderGate = new();
@@ -35,6 +36,7 @@ internal sealed class ShellWindow : IDisposable
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
     private bool _disposed;
+    private readonly Queue<string> _pendingReplies = new();
 
     public ShellWindow(ShellOptions options)
     {
@@ -154,6 +156,9 @@ internal sealed class ShellWindow : IDisposable
         {
             case InitializeMessage:
                 _ = shell.InitializeWebViewAsync();
+                return 0;
+            case ReplyMessage:
+                shell.PostBridgeReplies();
                 return 0;
             case WmSize:
             case WmDpichanged:
@@ -287,6 +292,11 @@ internal sealed class ShellWindow : IDisposable
             parts.Add($"theme={Uri.EscapeDataString(theme)}");
         }
 
+        if (_options.OpenDocument is { Length: > 0 } document)
+        {
+            parts.Add($"open={Uri.EscapeDataString(document)}");
+        }
+
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
     }
 
@@ -294,26 +304,57 @@ internal sealed class ShellWindow : IDisposable
     /// 像素对照模式：把 WebView2 的栅格化比例固定为 1，使一个 CSS 像素对应一个物理像素，
     /// 从而能与 HTML 视觉稿的截图逐像素比较。正常运行保持跟随显示器缩放。
     /// </summary>
+    /// <summary>
+    /// 处理网页层请求。
+    /// 关键约束：桥接方法可能是异步的，await 之后延续不一定回到 UI 线程；
+    /// 而 PostWebMessageAsJson 只能在 UI 线程调用，否则抛
+    /// "CoreWebView2 members can only be accessed from the UI thread"。
+    /// 因此响应经自定义窗口消息投回 UI 线程后再发送。
+    /// </summary>
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
     {
-        if (sender is not CoreWebView2 webView || _disposed)
+        if (sender is not CoreWebView2 || _disposed)
         {
             return;
         }
 
         string response = await _bridge.HandleAsync(eventArgs.WebMessageAsJson, CancellationToken.None);
-        if (_disposed)
+        if (_disposed || _window == 0)
         {
             return;
         }
 
-        try
+        // 响应字符串放在托管队列里，只用消息做唤醒，避免跨线程封送字符串。
+        lock (_pendingReplies)
         {
-            webView.PostWebMessageAsJson(response);
+            _pendingReplies.Enqueue(response);
         }
-        catch (Exception)
+
+        _ = PostMessage(_window, ReplyMessage, 0, 0);
+    }
+
+    /// <summary>在 UI 线程上把桥接响应发回网页层。</summary>
+    private void PostBridgeReplies()
+    {
+        while (true)
         {
-            // 窗口在响应返回前关闭时忽略投递失败。
+            string response;
+            lock (_pendingReplies)
+            {
+                if (_pendingReplies.Count == 0)
+                {
+                    return;
+                }
+
+                response = _pendingReplies.Dequeue();
+            }
+
+            if (_disposed || _controller?.CoreWebView2 is not { } webView)
+            {
+                return;
+            }
+
+            webView.PostWebMessageAsJson(response);
         }
     }
 

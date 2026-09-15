@@ -108,18 +108,22 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 - 新增起点：真实数据路径的验收套件 `tools/audit/live-shell.spec.cjs`（14 项断言全部通过）：
   树来自宿主、展开取子项、Markdown 预览来自真实内容且不残留样例、纯文本按行渲染、展开状态保留、`?open=` 启动即打开。
 
-### 未完成（重要）
+### 已解决：文档通道（第三轮）
 
-- **Windows 外壳内的文档打开不可用**。真实外壳中点击文件行会调用宿主 `document/read`，
-  但 WebView2 的消息桥对**大响应**（本仓库 `docs/ux-spec.md` 为 106 KB）不会送达网页层：
-  宿主侧实测读取仅 16 ms、序列化响应约 32 ms，而网页侧的 Promise 永远不结算。
-  小文件（约 1.6 KB）可以送达。
-- 尝试过的两条替代通道均失败，均已回退，结论记录在案：
-  1. `WebResourceRequested` + `AddWebResourceRequestedFilter`：与 `SetVirtualHostNameToFolderMapping`
-     同时使用时，处理程序完全不被调用（滤镜写成 `*` 也不调用）。
-  2. 把文档写成资源目录下的静态文件再 fetch：页面仍为空白，未定位到原因，已回退。
-- 下一轮应优先解决该通道问题（例如改用独立虚拟主机、CDP `Fetch` 域、或分块传输），
-  在解决之前 `--open` 只能用于浏览器验收套件，不能用于真实外壳。
+**根因不是消息体积，而是线程亲和性。** 上一轮判断为「大响应不送达」是错的：
+
+- 实测消息桥可稳定送达 512 KB（1000/8000/32000/64000/96000/128000/512000 全部成功，最大用时 9 ms）。
+- 真正原因：桥接方法 `document/read` 是异步的，`await` 之后的延续**不一定回到 UI 线程**，
+  而 `PostWebMessageAsJson` 只能在 UI 线程调用，否则抛
+  `CoreWebView2 members can only be accessed from the UI thread`。
+  同步方法（`workspace/info`、`workspace/list`）因此一直正常，只有异步方法必然失败。
+- 修复：异步响应放入托管队列，用自定义窗口消息（`ReplyMessage`）唤醒 UI 线程后再发送。
+  跨线程只传消息、不封送字符串——先前用 `Marshal.StringToHGlobalUni` 传指针会被 WebView2
+  判为非法参数（`Value does not fall within the expected range`）。
+- 同时对齐了宿主与网页层的字段契约（原实现返回 `classification`，网页层读 `kind`）。
+
+真实外壳已验证：`--open global.json` 与 `--open docs/product-spec.md`（106 KB）均正确渲染，
+标签页、状态栏路径与正文内容都来自真实文件。
 
 ### 本轮踩坑记录（供后续复用）
 

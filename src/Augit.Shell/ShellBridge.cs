@@ -128,8 +128,12 @@ internal sealed class ShellBridge
         return new
         {
             path = relative,
+            name = Path.GetFileName(relative),
+            fullPath = result.ResolvedPath,
+            workspaceName = Path.GetFileName(_workspaceRoot.TrimEnd(Path.DirectorySeparatorChar)),
             status = result.Status.ToString(),
-            classification = result.Classification.Kind.ToString(),
+            kind = result.Classification.Kind.ToString(),
+            typeName = result.Classification.TypeName,
             fileSize = result.FileSize,
             text = result.Text,
             pixelWidth = result.PixelWidth,
