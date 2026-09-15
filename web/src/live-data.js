@@ -964,10 +964,31 @@ async function applyWorkspaceChanges(changes) {
       await loadDiff(diffPath, { force: true }).catch(() => null);
       touchedCurrent = true;
     } else if (hitsCurrent) {
-      // 当前查看的普通文件被外部修改：重新读取内容。
+      // 当前查看的普通文件被外部修改或删除。
+      // 先取一次最新状态：判断「是否已删除」必须基于变化后的状态，
+      // 否则拿到的是变化前的列表，永远看不到 Deleted。
+      await loadStatus().catch(() => null);
       const path = currentPath;
-      live.document = null;
-      await openDocument(path).catch(() => null);
+      const deleted = live.status && Array.isArray(live.status.files)
+        && live.status.files.some((file) => file.path === path && file.kind === "Deleted");
+      if (deleted) {
+        // 文件已不存在：移除它的标签，而不是留下一个打不开的标签（规格 §5.2）。
+        for (const tab of (live.tabs || []).filter((item) => item.kind === "document" && item.path === path)) {
+          closeTab(tab.id);
+        }
+      } else {
+        // 仍在：重新读取内容，并保留该标签在标签栏中的位置与当前标签。
+        const index = (live.tabs || []).findIndex((item) => item.kind === "document" && item.path === path);
+        await openDocument(path, { activate: false }).catch(() => null);
+        if (index >= 0 && live.document && live.document.path === path) {
+          const current = live.tabs.find((item) => item.kind === "document" && item.path === path);
+          if (current && live.tabs.indexOf(current) !== index) {
+            live.tabs.splice(live.tabs.indexOf(current), 1);
+            live.tabs.splice(index, 0, current);
+          }
+        }
+      }
+
       touchedCurrent = true;
     } else {
       // 无关文件变化：当前 diff 不进入加载状态，只刷新状态列表。
@@ -2219,7 +2240,20 @@ async function openDocument(path, options = {}) {
       open: Math.round(performance.now() - started),
     });
   } catch (error) {
-    // 读取失败时不留下半截文档：清空并记录原因，界面回退到「无文档」状态。
+    // 外部变化后文件可能已不存在：此时移除它的标签，而不是留下一个打不开的标签
+    // （规格 §5.2：外部文件变化保持标签顺序与当前标签，「除非文件已不存在」）。
+    const status = live.status;
+    const deleted = status && Array.isArray(status.files)
+      && status.files.some((file) => file.path === path && file.kind === "Deleted");
+    if (deleted) {
+      for (const tab of (live.tabs || []).filter((item) => item.kind === "document" && item.path === path)) {
+        closeTab(tab.id);
+      }
+
+      return;
+    }
+
+    // 其它读取失败：不留下半截文档，清空并记录原因，界面回退到「无文档」状态。
     window.__augitError = "open-document:" + String(error && error.message || error);
     live.document = null;
     refresh("editorContent", "editorTabs", "statusbar", "titlebar");

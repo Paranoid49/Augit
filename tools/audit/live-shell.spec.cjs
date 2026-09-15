@@ -217,6 +217,11 @@ async function main() {
         return { available: true, files: next.files || [], gitMetadata: !!next.gitMetadata };
       }
       if (method === 'git/status') {
+        if (window.__deletedPaths && window.__deletedPaths.length) {
+          const base = window.__liveFiles || data.status.files;
+          const extra = window.__deletedPaths.map((p) => ({ path: p, name: p.split('/').at(-1), directory: p.split('/').slice(0, -1).join('/'), group: 'Changes', kind: 'Deleted', staged: false, workingTree: true }));
+          return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: base.concat(extra) };
+        }
         if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
         if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
         // 支持运行中改变文件列表，用于跨模块流程验证。
@@ -265,6 +270,8 @@ async function main() {
         return { available: false, reason: 'unknown' };
       }
       if (method === 'document/read') {
+        // 支持按路径注入读取失败，用于验证「文件已删除则移除其标签」。
+        if (window.__failReads && window.__failReads[params.path]) throw new Error('not found: ' + params.path);
         // 支持按路径注入延迟，用于验证乱序返回时旧响应被丢弃。
         const delay = (window.__readDelays || {})[params.path];
         if (delay) await new Promise((r) => setTimeout(r, delay));
@@ -1833,6 +1840,49 @@ async function main() {
     check('关闭比较保留选中行: ' + kept.selectedRow, kept.selectedRow >= 1);
     check('关闭比较已移除比较标签: ' + kept.comparisons, kept.comparisons === 0);
     await keep2.page.close();
+
+    // ---- 规格 §5.2：外部变化保持标签顺序与当前标签；文件已删除则移除其标签 ----
+    const ext = await openScene('scene=main-project&theme=dark');
+    await ext.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    // 直接用标签入口打开两个文件，sources 走真实 document/read
+    await ext.page.evaluate(() => window.__augitOpenDocument('docs/product-spec.md'));
+    await ext.page.waitForFunction('(window.__augitLive.tabs || []).length === 1', null, { timeout: 8000 });
+    await ext.page.evaluate(() => window.__augitOpenDocument('docs/notes.txt'));
+    await ext.page.waitForFunction('(window.__augitLive.tabs || []).length === 2', null, { timeout: 8000 });
+    const extBefore = await ext.page.evaluate(() => ({
+      order: (window.__augitLive.tabs || []).map((t) => t.path),
+      active: window.__augitLive.activeTabId,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+
+    // 注入一次「无关文件变化」批次：标签顺序与当前标签都不得改变
+    await ext.page.evaluate(() => {
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\Unrelated.cs'], gitMetadata: true };
+    });
+    await ext.page.waitForTimeout(900);
+    const extAfter = await ext.page.evaluate(() => ({
+      order: (window.__augitLive.tabs || []).map((t) => t.path),
+      active: window.__augitLive.activeTabId,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    check('外部变化保持标签顺序: ' + JSON.stringify(extAfter.order),
+      JSON.stringify(extAfter.order) === JSON.stringify(extBefore.order));
+    check('外部变化保持当前标签: ' + extAfter.doc, extAfter.doc === extBefore.doc && extAfter.active === extBefore.active);
+
+    // 当前文件被外部删除：管理器上报一条 Deleted 变化，应移除它的标签
+    await ext.page.evaluate(() => {
+      // 让宿主状态把该文件报为已删除，并走真实的「工作区发生变化」通道
+      window.__deletedPaths = ['docs/notes.txt'];
+      window.__nextChanges = { files: ['D:\\live-ws\\docs\\notes.txt'], gitMetadata: true };
+    });
+    await ext.page.waitForTimeout(1200);
+    const extDeleted = await ext.page.evaluate(() => ({
+      paths: (window.__augitLive.tabs || []).map((t) => t.path),
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    check('文件已删除时移除其标签: ' + JSON.stringify(extDeleted),
+      !extDeleted.paths.includes('docs/notes.txt') && extDeleted.paths.includes('docs/product-spec.md'));
+    await ext.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
