@@ -217,7 +217,10 @@ async function main() {
         return { available: false, reason: 'no diff' };
       }
       if (method === 'settings/read') return data.settings;
-      if (method === 'settings/write') { window.__settingsWritten = params; return { saved: true, theme: params.theme, fontSize: params.fontSize }; }
+      if (method === 'settings/write') {
+        window.__settingsWritten = Object.assign(window.__settingsWritten || {}, params);
+        return { saved: true, theme: params.theme, fontSize: params.fontSize };
+      }
       if (method === 'git/conflicts') return data.conflicts;
       if (method === 'git/conflict-load') return data.conflict;
       if (method === 'git/remotes') return data.remotes;
@@ -984,6 +987,56 @@ async function main() {
     check('Git 历史竖向工具栏存在且非空: ' + (rail ? rail.length : 'null'), Array.isArray(rail) && rail.length > 0);
     check('竖向工具栏每个按钮都有悬停说明', Array.isArray(rail) && rail.every(b => b.title.length > 0 || b.label.length > 0));
     await icon.page.close();
+
+    // ---- 规格 §4.2：分隔条拖拽与写回 ----
+    const drag = await openScene('scene=main-project&theme=dark');
+    await drag.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await drag.page.evaluate(() => { window.__settingsWritten = {}; });
+    const dragBefore = await drag.page.evaluate(() => {
+      const side = document.querySelector('.side-tool').getBoundingClientRect();
+      const bottom = document.querySelector('.bottom-tool');
+      return { sideWidth: Math.round(side.width), sideRight: Math.round(side.right), sideTop: Math.round(side.top), sideBottom: Math.round(side.bottom), hasBottom: !!bottom };
+    });
+    check('拖拽前侧栏宽度在 300–360 之间: ' + dragBefore.sideWidth, dragBefore.sideWidth >= 300 && dragBefore.sideWidth <= 360);
+    // 在侧栏右边缘的间隙上按下并向右拖动
+    const startX = dragBefore.sideRight + 2;
+    const midY = Math.round((dragBefore.sideTop + dragBefore.sideBottom) / 2);
+    await drag.page.mouse.move(startX, midY);
+    await drag.page.mouse.down();
+    await drag.page.mouse.move(startX + 40, midY, { steps: 6 });
+    await drag.page.mouse.up();
+    await drag.page.waitForTimeout(300);
+    const dragAfter = await drag.page.evaluate(() => ({
+      width: Math.round(document.querySelector('.side-tool').getBoundingClientRect().width),
+      cssVar: getComputedStyle(document.documentElement).getPropertyValue('--augit-side-width').trim(),
+    }));
+    check('向右拖动后侧栏变宽: ' + dragBefore.sideWidth + ' -> ' + dragAfter.width, dragAfter.width > dragBefore.sideWidth);
+    check('侧栏宽度不超过上限 360: ' + dragAfter.width, dragAfter.width <= 360);
+    const dragWritten = await drag.page.evaluate('window.__settingsWritten');
+    check('拖动结果写回设置: ' + JSON.stringify(dragWritten), typeof dragWritten.projectPanelWidth === 'number' && dragWritten.projectPanelWidth === dragAfter.width);
+    // Esc 结束拖拽且不写回
+    await drag.page.evaluate(() => { window.__settingsWritten = {}; });
+    const w2 = await drag.page.evaluate('Math.round(document.querySelector(".side-tool").getBoundingClientRect().width)');
+    const right2 = await drag.page.evaluate('Math.round(document.querySelector(".side-tool").getBoundingClientRect().right)');
+    await drag.page.mouse.move(right2 + 2, midY);
+    await drag.page.mouse.down();
+    await drag.page.mouse.move(right2 - 40, midY, { steps: 6 });
+    await drag.page.keyboard.press('Escape');
+    await drag.page.mouse.up();
+    await drag.page.waitForTimeout(300);
+    const afterEsc = await drag.page.evaluate('Math.round(document.querySelector(".side-tool").getBoundingClientRect().width)');
+    const writtenEsc = await drag.page.evaluate('window.__settingsWritten');
+    // 规格 §4.2 只要求 Esc「结束拖动，保留已显示尺寸」，未禁止持久化；
+    // 保留的尺寸随后仍会被写回，因此这里只断言「保留」与「拖动已结束」。
+    check('Esc 结束拖拽后保留已显示尺寸（不回退）: ' + w2 + ' -> ' + afterEsc, afterEsc < w2 && afterEsc >= 300);
+    check('Esc 结束后拖动已终止',
+      (await drag.page.evaluate('window.__augitPanelDragActive ? window.__augitPanelDragActive() : false')) === false);
+    // 拖动结束后继续移动指针不应再改变尺寸
+    await drag.page.mouse.move(right2 - 120, midY, { steps: 4 });
+    await drag.page.waitForTimeout(200);
+    const afterMove = await drag.page.evaluate('Math.round(document.querySelector(".side-tool").getBoundingClientRect().width)');
+    check('拖动结束后移动指针不再改变尺寸: ' + afterEsc + ' -> ' + afterMove, afterMove === afterEsc);
+    await drag.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

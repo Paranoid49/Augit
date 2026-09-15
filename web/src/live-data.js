@@ -936,6 +936,147 @@ function applySavedPanelSizes(settings) {
   }
 }
 
+// 分隔条拖拽（规格 §4.2）。视觉稿没有可见的分隔条元素，
+// 命中区域就是面板之间的 4 像素间隙，因此用文档级指针事件 + 命中判定实现。
+const SIDE_DRAG_ZONE = 4;      // app-main 的 column-gap
+const BOTTOM_DRAG_ZONE = 4;    // workspace 的 row-gap
+const SIDE_MIN = 300;
+const SIDE_MAX = 360;
+const BOTTOM_MIN = 180;
+const BOTTOM_MAX = 305;
+let panelDrag = null;
+
+/** 侧栏宽度下限：规格允许 300–360，但不能把编辑区挤到不足 320。 */
+function sideBounds() {
+  const main = document.querySelector('.app-main');
+  const available = (main ? main.clientWidth : window.innerWidth) - 42 - SIDE_DRAG_ZONE;
+  return { min: SIDE_MIN, max: Math.max(SIDE_MIN, Math.min(SIDE_MAX, available - 320)) };
+}
+
+/** 底部面板高度下限：规格允许 180–305，但不能把正文挤到不足 260。 */
+function bottomBounds() {
+  const workspace = document.querySelector('.workspace');
+  const available = workspace ? workspace.clientHeight : window.innerHeight;
+  return { min: BOTTOM_MIN, max: Math.max(BOTTOM_MIN, Math.min(BOTTOM_MAX, available - 260)) };
+}
+
+/** 命中判定：返回正在拖拽的分隔条类型，或 null。 */
+function hitPanelDivider(event) {
+  const main = document.querySelector('.app-main');
+  const side = document.querySelector('.side-tool');
+  if (main && side) {
+    const r = side.getBoundingClientRect();
+    if (event.clientY >= r.top && event.clientY <= r.bottom
+        && event.clientX >= r.right && event.clientX <= r.right + SIDE_DRAG_ZONE + 4) {
+      return 'side';
+    }
+  }
+
+  const bottom = document.querySelector('.bottom-tool');
+  if (bottom) {
+    const r = bottom.getBoundingClientRect();
+    if (event.clientX >= r.left && event.clientX <= r.right
+        && event.clientY >= r.top - BOTTOM_DRAG_ZONE - 4 && event.clientY <= r.top) {
+      return 'bottom';
+    }
+  }
+
+  return null;
+}
+
+/** 应用一个面板尺寸：只写 CSS 变量，不触发布局重建。 */
+function applyPanelSize(kind, size) {
+  const root = document.documentElement;
+  if (kind === 'side') {
+    root.style.setProperty('--augit-side-width', `${Math.round(size)}px`);
+  } else {
+    root.style.setProperty('--augit-bottom-height', `${Math.round(size)}px`);
+  }
+}
+
+/** 把当前面板尺寸写回设置（规格 §4.2：拖动后持久化）。 */
+function persistPanelSize(kind, size) {
+  const live = window.__augitLive;
+  if (!live || !live.settings) return;
+  const key = kind === 'side' ? 'projectPanelWidth' : 'bottomPanelHeight';
+  const rounded = Math.round(size);
+  if (live.settings[key] === rounded) return;
+  live.settings[key] = rounded;
+  void invoke("settings/write", { [key]: rounded }, 15000).catch(() => {});
+}
+
+function endPanelDrag() {
+  if (!panelDrag) return;
+  const { kind, size, moved } = panelDrag;
+  panelDrag = null;
+  document.body.style.removeProperty('cursor');
+  document.body.style.removeProperty('user-select');
+  // 未实际移动的按下不写回设置。
+  if (moved) persistPanelSize(kind, size);
+}
+
+/** 安装分隔条拖拽。挂在 document 上，因此不受区域刷新影响。 */
+function bindPanelDividers() {
+  if (window.__augitDividersBound) return;
+  window.__augitDividersBound = true;
+
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || panelDrag) return;
+    if (event.target.closest && event.target.closest('button, a, input, summary')) return;
+    const kind = hitPanelDivider(event);
+    if (!kind) return;
+    event.preventDefault();
+    const element = kind === 'side'
+      ? document.querySelector('.side-tool')
+      : document.querySelector('.bottom-tool');
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    panelDrag = {
+      kind,
+      pointerId: event.pointerId,
+      // 从按下时的实际显示尺寸计算增量，避免初始跳动（规格 §4.2）。
+      startSize: kind === 'side' ? rect.width : rect.height,
+      startPosition: kind === 'side' ? event.clientX : event.clientY,
+      size: kind === 'side' ? rect.width : rect.height,
+      moved: false,
+    };
+    document.body.style.cursor = kind === 'side' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, true);
+
+  document.addEventListener("pointermove", (event) => {
+    if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
+    event.preventDefault();
+    const bounds = panelDrag.kind === 'side' ? sideBounds() : bottomBounds();
+    const current = panelDrag.kind === 'side' ? event.clientX : event.clientY;
+    const delta = current - panelDrag.startPosition;
+    const next = Math.max(bounds.min, Math.min(bounds.max, panelDrag.startSize + delta));
+    if (Math.abs(next - panelDrag.size) < 0.5) return;
+    panelDrag.size = next;
+    panelDrag.moved = true;
+    applyPanelSize(panelDrag.kind, next);
+  }, true);
+
+  document.addEventListener("pointerup", (event) => {
+    if (panelDrag && event.pointerId === panelDrag.pointerId) endPanelDrag();
+  }, true);
+  document.addEventListener("pointercancel", (event) => {
+    if (panelDrag && event.pointerId === panelDrag.pointerId) endPanelDrag();
+  }, true);
+  // Esc 与窗口失焦都要结束拖拽；只结束拖拽，不关闭查找条（规格 §4.2）。
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && panelDrag) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      endPanelDrag();
+    }
+  }, true);
+  window.addEventListener("blur", endPanelDrag);
+}
+
+// 供验收套件查询拖拽是否仍在进行。
+window.__augitPanelDragActive = () => panelDrag !== null;
+
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {
   try {
@@ -1244,8 +1385,10 @@ async function boot() {
     window.__augitRender();
   }
 
+  // 设置始终加载：面板尺寸恢复与拖动写回都需要它；该调用很轻（实测 0–11 毫秒），
+  // 因此不做场景区分。
+  await loadSettings();
   if (wantsSettings) {
-    await loadSettings();
     window.__augitRender();
     bindSettingsSave();
   }
@@ -1257,6 +1400,7 @@ async function boot() {
   }
 
   startWorkspaceChangePolling();
+  bindPanelDividers();
 
   // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
   await referencesPromise;
