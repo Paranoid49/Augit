@@ -232,6 +232,8 @@ internal sealed class ShellBridge : IDisposable
                 directory = (Path.GetDirectoryName(file.RelativePath) ?? string.Empty).Replace('\\', '/'),
                 group = file.Group.ToString(),
                 kind = file.Kind.ToString(),
+                // 重命名的原路径：界面需要它说明「从哪个文件改名而来」。
+                original = file.OriginalRelativePath,
                 staged = file.HasStagedChanges,
                 workingTree = file.HasWorkingTreeChanges,
             }),

@@ -70,6 +70,51 @@ public sealed class GitStatusServiceTests
     }
 
     [TestMethod]
+    public void 重命名保留原始路径且不改动后续记录()
+    {
+        // git status --porcelain=v1 -z 对重命名输出两条 NUL 分隔记录：
+        // 第一条以 "R  " 开头并带新路径，第二条只含原路径。
+        bool parsed = GitStatusService.TryParseStatus(
+            "R  renamed.txt\0rename-me.txt\0"
+            + " M tracked-mod.txt\0"
+            + "?? loose.txt\0",
+            out IReadOnlyList<GitChangedFile>? files);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNotNull(files);
+        Assert.HasCount(3, files!);
+
+        GitChangedFile renamed = files!.Single(file => file.Kind == GitChangeKind.Renamed);
+        Assert.AreEqual("renamed.txt", renamed.RelativePath);
+        // 原路径必须保留，否则界面无法说明「从哪个文件改名而来」。
+        Assert.AreEqual("rename-me.txt", renamed.OriginalRelativePath);
+
+        // 第二条记录被当作原路径消费后，后续记录不能被错位解读。
+        Assert.AreEqual("tracked-mod.txt", files.Single(file => file.Kind == GitChangeKind.Modified).RelativePath);
+        Assert.AreEqual("loose.txt", files.Single(file => file.Kind == GitChangeKind.Untracked).RelativePath);
+    }
+
+    [TestMethod]
+    public async Task 真实重命名在服务层保留原始路径()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await File.WriteAllTextAsync(temporary.GetPath("before.txt"), "内容\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "before.txt");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-m", "base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "mv", "before.txt", "after.txt");
+
+            GitStatusResult result = await new GitStatusService(runtime).ReadAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            GitChangedFile renamed = result.Snapshot!.Files.Single(file => file.Kind == GitChangeKind.Renamed);
+            Assert.AreEqual("after.txt", renamed.RelativePath);
+            Assert.AreEqual("before.txt", renamed.OriginalRelativePath);
+        }
+    }
+
+    [TestMethod]
     public void 无效状态输出返回稳定失败而不产生半截列表()
     {
         bool parsed = GitStatusService.TryParseStatus("M malformed\0", out IReadOnlyList<GitChangedFile>? files);
