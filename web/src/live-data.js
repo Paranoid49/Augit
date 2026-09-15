@@ -232,7 +232,10 @@ async function loadHistory() {
 async function loadBlame(path) {
   try {
     const blame = await invoke("git/blame", { path }, 60000);
-    if (!blame || !blame.available || !blame.lines) return null;
+    // 与 document/read 同样的契约校验：缺少身份的载荷不得进入状态，
+    // 否则渲染层会拿到 path 为 undefined 的对象。
+    if (!blame || !blame.available || !Array.isArray(blame.lines)) return null;
+    if (typeof blame.path !== "string" || blame.path.length === 0) return null;
     const live = window.__augitLive;
     if (live) {
       live.blame = {
@@ -598,7 +601,11 @@ async function loadDiff(path, options = {}) {
       const live = window.__augitLive;
       // 只有最新一次请求可以写回界面状态（每个请求带递增版本号，旧结果必须丢弃）。
       if (token === diffToken && live) {
-        live.diff = diff && diff.available ? diff : null;
+        // 差异必须带 path，否则详情区与标签会渲染出 undefined。
+        const validDiff = diff && diff.available
+          && typeof diff.path === "string" && diff.path.length > 0
+          && Array.isArray(diff.rows);
+        live.diff = validDiff ? diff : null;
         live.diffRequestKey = requestKey;
         live.diffMode = parts.mode;
         // 有差异时切到差异视图；无差异时保留当前文档视图。
@@ -1121,6 +1128,11 @@ function bindPanelDividers() {
 }
 
 // 供验收套件在清理测试残留后重新应用面板尺寸。
+// 供验收套件直接调用数据加载入口。
+window.__augitLoadBlame = (path) => loadBlame(path);
+window.__augitLoadFileHistory = (path) => loadFileHistory(path);
+window.__augitLoadDiff = (path) => loadDiff(path);
+
 // 供验收套件走与点击相同的打开路径。
 window.__augitOpenDocument = (path) => openDocument(path);
 
@@ -1305,7 +1317,8 @@ async function loadCommitDetails(revision) {
 async function loadFileHistory(path) {
   try {
     const history = await invoke("git/file-history", { path }, 60000);
-    if (!history || !history.available || !history.commits) return null;
+    if (!history || !history.available || !Array.isArray(history.commits)) return null;
+    if (typeof history.path !== "string" || history.path.length === 0) return null;
     const live = window.__augitLive;
     if (live) {
       live.fileHistory = {

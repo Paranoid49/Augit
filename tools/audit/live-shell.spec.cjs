@@ -207,12 +207,19 @@ async function main() {
         return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
       }
       if (method === 'git/history') return data.history;
-      if (method === 'git/blame') return data.blame;
-      if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/blame') {
+        if (window.__malformed) return { available: true, lines: [{ number: 1, hash: 'x' }] };  // 缺 path
+        return data.blame;
+      }
+      if (method === 'git/file-history') {
+        if (window.__malformed) return { available: true, commits: [] };  // 缺 path
+        return data.fileHistory;
+      }
       if (method === 'search/files') return data.searchFiles;
       if (method === 'search/text') return data.searchText;
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') {
+        if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
         window.__diffCalls = window.__diffCalls || [];
         window.__diffCalls.push(params.path);
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
@@ -1167,6 +1174,30 @@ async function main() {
     check('读取失败后编辑区仍在: ' + failResult.editorVisible, failResult.editorVisible === true);
     check('失败态不创建可编辑控件: ' + failResult.editable, failResult.editable === 0);
     await fail.page.close();
+
+    // ---- 宿主契约违约的载荷不得进入状态 ----
+    // 与 document/read 的修复同一口径：缺身份字段的载荷一律按失败处理，
+    // 否则渲染层会拿到 path / rows 为 undefined 的对象。
+    const bad = await openScene('scene=blame&theme=dark');
+    await bad.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await bad.page.evaluate(() => { window.__malformed = true; });
+    const badState = await bad.page.evaluate(async () => {
+      await window.__augitLoadBlame('global.json');
+      await window.__augitLoadFileHistory('global.json');
+      const diff = await window.__augitLoadDiff('src/App.cs');
+      return {
+        blame: window.__augitLive.blame ? String(window.__augitLive.blame.path) : null,
+        fileHistory: window.__augitLive.fileHistory ? String(window.__augitLive.fileHistory.path) : null,
+        diff: window.__augitLive.diff ? String(window.__augitLive.diff.path) : null,
+        // 页面不应因违约载荷抛出
+        alive: !!document.querySelector('.editor-content'),
+      };
+    });
+    check('缺 path 的 blame 载荷不进入状态: ' + JSON.stringify(badState.blame), badState.blame === null);
+    check('缺 path 的文件历史载荷不进入状态: ' + JSON.stringify(badState.fileHistory), badState.fileHistory === null);
+    check('缺 rows 的差异载荷不进入状态: ' + JSON.stringify(badState.diff), badState.diff === null);
+    check('违约载荷不影响界面存活', badState.alive === true);
+    await bad.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

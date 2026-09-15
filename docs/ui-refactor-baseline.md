@@ -1656,6 +1656,31 @@ ASCII 双引号（U+0022）与全角引号（U+F022）。
 **断言已恢复为严格版本**：读取失败不产生文档、记录原因、
 项目树与编辑区仍在、无编辑控件。
 
+### 第六十轮：把契约校验推广到其余状态写入点
+
+上一轮确认根因是「无效数据进入状态，渲染层只是最后的受害者」。
+本轮据此**审计了全部 27 处状态写入**，把同一口径推广开。
+
+**新增的契约校验**：
+
+| 写入点 | 原校验 | 补充的校验 |
+|---|---|---|
+| `loadBlame` | 只检查 `available` 与 `lines` 存在 | `lines` 必须是数组，且 `path` 必须是非空字符串 |
+| `loadFileHistory` | 只检查 `available` 与 `commits` 存在 | `commits` 必须是数组，且 `path` 必须是非空字符串 |
+| `loadDiff` | 只检查 `available` | `path` 必须是非空字符串，`rows` 必须是数组 |
+
+**为什么 `path` 是关键字段**：它是这些对象的身份。缺 `path` 时，
+渲染层会拿到 `undefined` 并据此拼接标题、状态栏、标签——
+上一轮 `document/read` 的白屏就是这样产生的。
+
+**新增 4 项断言**：让桩**故意返回违约载荷**（blame 缺 `path`、
+文件历史缺 `path`、差异缺 `rows`），断言三者都**不进入状态**
+（`live.blame` / `live.fileHistory` / `live.diff` 均为 `null`），
+且界面保持存活。
+
+这是把「不信任宿主返回」从一次性修复变成**可回归的约定**：
+以后任何一处放宽校验，这组断言都会失败。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
