@@ -925,7 +925,10 @@ async function toggleDirectory(row) {
   refresh("side");
 }
 
-function activateTreeRow(row) {
+// 单击只选择，双击或 Enter 才打开（规格 §12.5 的 main-project 不变量：
+// 「单击只选择，双击或 Enter 才正式打开」）。
+// 目录仍是单击展开/折叠。
+function activateTreeRow(row, { open = true } = {}) {
   const path = row.dataset.treePath;
   if (path === undefined) return;
   if (row.dataset.treeDirectory === "true") {
@@ -933,7 +936,21 @@ function activateTreeRow(row) {
     return;
   }
 
-  void openDocument(path);
+  selectTreeRow(row);
+  if (open) {
+    void openDocument(path);
+  }
+}
+
+/** 只更新树的选中态，不请求文件内容。 */
+function selectTreeRow(row) {
+  for (const other of document.querySelectorAll(".side-content.tree .tree-row.selected")) {
+    other.classList.remove("selected");
+    other.removeAttribute("aria-selected");
+  }
+
+  row.classList.add("selected");
+  row.setAttribute("aria-selected", "true");
 }
 
 // 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：
@@ -956,6 +973,16 @@ document.addEventListener("click", (event) => {
 document.addEventListener("click", (event) => {
   const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
   if (!row) return;
+  event.preventDefault();
+  // 双击打开，单击只选择。
+  activateTreeRow(row, { open: event.detail >= 2 });
+}, true);
+
+// 树行上的 Enter 执行默认动作（打开文件）。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
+  if (!row || row.dataset.treeDirectory === "true") return;
   event.preventDefault();
   activateTreeRow(row);
 }, true);

@@ -275,8 +275,13 @@ async function main() {
     await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 6', null, { timeout: 10000 });
     check('展开后出现子项', await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').count() === 1);
 
-    await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
-    await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    try {
+      await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    } catch {
+      const st = await page.evaluate(() => ({ doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null, err: window.__augitError || null, selected: document.querySelectorAll('.side-content.tree .tree-row.selected').length }));
+      throw new Error('双击未打开文档 state=' + JSON.stringify(st));
+    }
     // 标题栏同样来自宿主，不能停留在视觉稿的默认文案。
     const workspaceChip = await page.locator('.workspace-chip').innerText();
     check('标题栏显示真实工作区名: ' + workspaceChip, workspaceChip.includes('live-ws'));
@@ -292,7 +297,7 @@ async function main() {
     check('标签显示真实文件名', (await page.locator('.editor-tab.active').innerText()).includes('product-spec.md'));
     check('展开状态在重绘后保留', await page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').count() === 1);
 
-    await page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').click();
+    await page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').dblclick();
     await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/notes.txt"', null, { timeout: 10000 });
     const lines = await page.locator('.code-view .code-line').allInnerTexts();
     check('纯文本按行渲染', lines.length === 4 && lines[0].includes('第一行'));
@@ -671,12 +676,33 @@ async function main() {
     const expandedBefore = await keep.page.locator('.side-content.tree .tree-row').count();
     check('展开目录后树变长', expandedBefore > 4);
     // 打开文件：应只刷新编辑区，树保持展开
-    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
+    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await keep.page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
     const expandedAfter = await keep.page.locator('.side-content.tree .tree-row').count();
     check('打开文件后树仍保持展开: ' + expandedBefore + ' -> ' + expandedAfter, expandedAfter === expandedBefore);
     check('打开文件后文档已切换', (await keep.page.locator('.status-path').innerText()).includes('product-spec.md'));
     await keep.page.close();
+
+    // ---- 规格 §5.4 键盘路径 ----
+    const kb = await openScene('scene=main-project&theme=dark');
+    await kb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    // 树：方向键移动焦点，Enter 执行默认动作（打开文件）
+    await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await kb.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
+    await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();
+    await kb.page.keyboard.press('ArrowDown');
+    const focusedAfterDown = await kb.page.evaluate(() => {
+      const el = document.activeElement;
+      return el ? { cls: el.className, path: el.dataset ? el.dataset.treePath : null } : null;
+    });
+    check('树支持方向键移动焦点: ' + JSON.stringify(focusedAfterDown), !!focusedAfterDown && (focusedAfterDown.path !== 'docs' || focusedAfterDown.cls.includes('tree-row')));
+    // 列表选择变化只更新选中态，不加载文档
+    const docBefore = await kb.page.evaluate('window.__augitLive.document ? window.__augitLive.document.path : null');
+    await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').click();
+    await kb.page.waitForTimeout(500);
+    const docAfterSingleClick = await kb.page.evaluate('window.__augitLive.document ? window.__augitLive.document.path : null');
+    check('单击树行不加载文档（需 Enter 或双击）: ' + JSON.stringify({ before: docBefore, after: docAfterSingleClick }), docAfterSingleClick === docBefore);
+    await kb.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
