@@ -2455,6 +2455,18 @@ function dialog(title, body, footer, wide = false, extraClass = "") {
   return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
 }
 
+/**
+ * 紧凑单行输入窗口（规格 §5.3）。
+ *
+ * 跳转行、检出引用、创建跟踪分支和重命名共用本结构：
+ * 打开后输入框获得焦点；Tab 按「输入框 → 取消 → 确定 → 标题栏关闭」循环，Shift+Tab 反向；
+ * 输入框或确定按钮上的 Enter 确认；取消或关闭按钮上的 Enter、Esc 与标题栏关闭均取消。
+ * 按钮用 type="button" 明确语义，避免被当作链接触发页面跳转。
+ */
+function compactInputDialog(title, label, value, confirmLabel) {
+  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog compact-input" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-compact-dialog="${escapeHtml(title)}"><div class="dialog-header"><span>${escapeHtml(title)}</span><span class="grow"></span><button type="button" class="icon-button" data-compact-action="close" aria-label="关闭">${icon("x")}</button></div><div class="dialog-body"><label for="compact-input-field">${escapeHtml(label)}</label><input id="compact-input-field" class="text-field" aria-label="${escapeHtml(label)}" value="${escapeHtml(value || "")}" data-compact-field></div><div class="dialog-footer"><span class="footer-help"></span><button type="button" class="secondary-button" data-compact-action="cancel">取消</button><button type="button" class="primary-button" data-compact-action="confirm">${escapeHtml(confirmLabel)}</button></div></section></div>`;
+}
+
 // 外壳注入真实引用时使用：分组、当前分支标记与二级动作沿用样例版结构。
 function liveBranchesPopover() {
   const references = window.__augitLive.references;
@@ -2475,7 +2487,7 @@ function liveBranchesPopover() {
     + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
   const current = local.find(branch => branch.isCurrent);
   const actions = current
-    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`
+    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} 重命名…</a></section>`
     : "";
   return `<div class="overlay-layer" data-augit-overlay><section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
 }

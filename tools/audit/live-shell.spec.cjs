@@ -263,6 +263,11 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/branch') {
+        window.__branchCalls = (window.__branchCalls || []).concat([params]);
+        if (window.__branchFails) return { available: true, changed: false, reason: '分支名已存在。' };
+        return { available: true, changed: true, branch: params.name };
+      }
       if (method === 'git/checkout') {
         window.__checkoutCalls = (window.__checkoutCalls || []).concat([{ name: params.name, kind: params.kind }]);
         if (window.__checkoutFails) return { available: true, switched: false, reason: '工作区有未提交的改动，无法切换分支。' };
@@ -2168,6 +2173,107 @@ async function main() {
     check('检出失败显示 Git 给出的原因: ' + JSON.stringify(coAfterFail.alert),
       typeof coAfterFail.alert === 'string' && coAfterFail.alert.includes('未提交的改动'));
     await co.page.close();
+
+    // ---- 规格 §5.3：新建 / 重命名使用紧凑单行输入窗口 ----
+    const cd = await openScene('scene=main-project&theme=dark');
+    await cd.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cd.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+
+    const openBranchDialog = async (action) => {
+      await cd.page.evaluate(() => document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((n) => n.remove()));
+      await cd.page.locator('.top-chip.branch-chip').click();
+      await cd.page.waitForTimeout(500);
+      await cd.page.locator(`[data-augit-overlay] [data-branch-action="${action}"]`).click();
+      await cd.page.waitForTimeout(500);
+    };
+
+    await openBranchDialog('create');
+    const createOpen = await cd.page.evaluate(() => {
+      const layer = document.querySelector('[data-compact-dialog]');
+      const field = layer && layer.querySelector('[data-compact-field]');
+      return {
+        open: !!layer,
+        title: layer ? layer.querySelector('.dialog-header span').innerText : null,
+        focused: !!field && document.activeElement === field,
+        value: field ? field.value : null,
+      };
+    });
+    check('新建分支打开紧凑输入窗口: ' + JSON.stringify(createOpen),
+      createOpen.open === true && createOpen.title === '新建分支');
+    check('打开后输入框获得焦点', createOpen.focused === true);
+    check('新建时输入框为空', createOpen.value === '');
+
+    // Tab 循环顺序：输入框 → 取消 → 确定 → 标题栏关闭 → 输入框
+    const tabOrder = [];
+    for (let i = 0; i < 4; i += 1) {
+      tabOrder.push(await cd.page.evaluate(() => {
+        const el = document.activeElement;
+        return el.dataset.compactAction || (el.dataset.compactField !== undefined ? 'field' : el.className);
+      }));
+      await cd.page.keyboard.press('Tab');
+      await cd.page.waitForTimeout(120);
+    }
+    check('Tab 按输入框→取消→确定→关闭循环: ' + JSON.stringify(tabOrder),
+      tabOrder.join(',') === 'field,cancel,confirm,close');
+    // Shift+Tab 反向
+    await cd.page.keyboard.press('Shift+Tab');
+    await cd.page.waitForTimeout(150);
+    const back = await cd.page.evaluate(() => document.activeElement.dataset.compactAction || 'field');
+    check('Shift+Tab 反向循环: ' + back, back === 'close');
+
+    // 输入名称后按 Enter 确认
+    await cd.page.evaluate(() => { window.__branchCalls = []; });
+    await cd.page.locator('[data-compact-field]').fill('feat/new-branch');
+    await cd.page.locator('[data-compact-field]').press('Enter');
+    await cd.page.waitForTimeout(800);
+    const created = await cd.page.evaluate(() => ({
+      calls: window.__branchCalls || [],
+      dialog: !!document.querySelector('[data-compact-dialog]'),
+    }));
+    check('输入框 Enter 确认并调用分支接口: ' + JSON.stringify(created.calls),
+      created.calls.length === 1 && created.calls[0].action === 'create' && created.calls[0].name === 'feat/new-branch');
+    check('确认后关闭窗口', created.dialog === false);
+
+    // Esc 取消：不得调用接口
+    await openBranchDialog('create');
+    await cd.page.evaluate(() => { window.__branchCalls = []; });
+    await cd.page.keyboard.press('Escape');
+    await cd.page.waitForTimeout(400);
+    const cancelled = await cd.page.evaluate(() => ({
+      calls: window.__branchCalls || [],
+      dialog: !!document.querySelector('[data-compact-dialog]'),
+    }));
+    check('Esc 取消不调用接口: ' + JSON.stringify(cancelled.calls), cancelled.calls.length === 0);
+    check('Esc 关闭窗口: ' + cancelled.dialog, cancelled.dialog === false);
+
+    // 重命名：输入框预填当前分支名
+    await openBranchDialog('rename');
+    const renameOpen = await cd.page.evaluate(() => {
+      const field = document.querySelector('[data-compact-field]');
+      return { title: document.querySelector('[data-compact-dialog] .dialog-header span').innerText, value: field ? field.value : null };
+    });
+    check('重命名预填当前分支名: ' + JSON.stringify(renameOpen),
+      renameOpen.title === '重命名分支' && renameOpen.value === 'dsh');
+    await cd.page.locator('[data-compact-field]').fill('dsh-renamed');
+    await cd.page.locator('[data-compact-action="confirm"]').click();
+    await cd.page.waitForTimeout(800);
+    const renamed = await cd.page.evaluate(() => window.__branchCalls || []);
+    check('重命名带上原分支名: ' + JSON.stringify(renamed),
+      renamed.length === 1 && renamed[0].action === 'rename' && renamed[0].from === 'dsh' && renamed[0].name === 'dsh-renamed');
+
+    // 失败：如实显示 Git 原因
+    await cd.page.evaluate(() => { window.__branchFails = true; });
+    await openBranchDialog('create');
+    await cd.page.locator('[data-compact-field]').fill('dsh');
+    await cd.page.locator('[data-compact-field]').press('Enter');
+    await cd.page.waitForTimeout(800);
+    const failedCreate = await cd.page.evaluate(() => ({
+      alert: (document.querySelector('[data-augit-overlay] .inline-alert') || {}).textContent || null,
+      err: window.__augitCheckoutError || null,
+    }));
+    check('分支创建失败显示 Git 原因: ' + JSON.stringify(failedCreate.alert),
+      typeof failedCreate.alert === 'string' && failedCreate.alert.includes('已存在'));
+    await cd.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

@@ -2374,6 +2374,36 @@ Git 历史占用底部、终端与历史互斥、切换不改变当前文件、�
 新建分支…、检出标签或版本…、从当前分支新建、与工作区比较、新建 Worktree、重命名…），
 以及 `livePushDialogBody`、`liveFileHistoryTool`、提交设置入口。
 
+### 第八十六轮：紧凑输入窗口与分支新建／重命名（覆盖 §5.3 键盘规则）
+
+上一轮接通检出，本轮接分支弹层的「新建分支…」与「重命名…」，
+并借此把规格 §5.3 的**紧凑单行输入窗口**规则一次做齐。
+
+**新增可复用组件 `compactInputDialog()`**：跳转行、检出引用、创建跟踪分支和重命名共用同一结构。
+按钮使用 `type="button"` 并带 `data-compact-action`，避免被当作链接或提交按钮。
+
+**桥接新增 `git/branch`**：底层 `CreateBranchAsync` / `RenameBranchAsync` 早已存在，同样只缺下发入口。
+名称合法性、重名与非法字符**都由 Git 给出原因**，Augit 不自行判断。
+
+**§5.3 键盘规则全部实现并断言**：
+- 打开后输入框获得焦点并全选；
+- `Tab` 按「输入框 → 取消 → 确定 → 标题栏关闭」循环，`Shift+Tab` 反向；
+- 输入框或确定按钮上的 `Enter` 确认；取消或关闭按钮上的 `Enter`、`Esc` 与标题栏关闭均取消；
+- **中文输入法组词期间 `Enter` 与 `Esc` 交给输入法**（`isComposing` / `keyCode === 229`），
+  不提交也不关闭；
+- 窗口本身不做业务校验（空名与重名由调用方与 Git 判定）。
+
+**新增 12 项断言**（验收套件 **298 项**）：打开窗口与标题、输入框获得焦点、新建时输入为空、
+`Tab` 循环顺序、`Shift+Tab` 反向、`Enter` 确认并调用接口、确认后关闭、`Esc` 取消不调用接口、
+`Esc` 关闭窗口、重命名预填当前分支名、重命名带上原分支名、**失败时显示 Git 原因**。
+
+**负向验证通过**：临时禁用 `Tab` 分支后，「Tab 按输入框→取消→确定→关闭循环」立即失败并报出
+`["field","cancel","confirm",""]`——确认断言确实能抓住键盘循环行为。
+
+**仍未接线**：`liveBranchesPopover` 快捷菜单项 7 处（更新项目、提交…、推送…、
+新建分支…（弹层顶部那个）、检出标签或版本…、与工作区比较、新建 Worktree…）、
+`livePushDialogBody`、`liveFileHistoryTool`、提交设置入口。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

@@ -1410,6 +1410,7 @@ function rebindAfterRender() {
   bindChangesScroll();
   restoreChangesState();
   bindOverlayEscape();
+  bindCompactDialogKeys();
   guardUnwiredNavigation();
 }
 
@@ -1791,6 +1792,24 @@ function guardUnwiredNavigation() {
   window.__augitNavGuarded = true;
   window.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
+    // 分支弹层的二级动作（新建 / 重命名）：打开紧凑输入窗口（规格 §5.3）。
+    const branchAction = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch-action]");
+    if (branchAction) {
+      event.preventDefault();
+      openBranchActionDialog(branchAction.dataset.branchAction);
+      return;
+    }
+
+    // 紧凑输入窗口的按钮与标题栏关闭。
+    const compactAction = event.target.closest && event.target.closest("[data-compact-dialog] [data-compact-action]");
+    if (compactAction) {
+      event.preventDefault();
+      const action = compactAction.dataset.compactAction;
+      if (action === "confirm") void submitCompactDialog();
+      else closeCompactDialog();
+      return;
+    }
+
     // 分支弹层里的引用行是 <div>（不是链接），单独处理：点击即检出（规格 §7.11）。
     const branchRow = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch]");
     if (branchRow) {
@@ -1975,6 +1994,139 @@ async function checkoutReference(name, kind) {
     loadReferences().catch(() => null),
   ]);
   refreshAfterEvent("titlebar", "side", "editorContent", "editorTabs", "statusbar", "bottomTool");
+}
+
+/**
+ * 紧凑单行输入窗口（规格 §5.3）。
+ *
+ * Tab 按「输入框 → 取消 → 确定 → 标题栏关闭」循环，Shift+Tab 反向；
+ * 输入框或确定按钮上的 Enter 确认；取消或关闭按钮上的 Enter、Esc 与标题栏关闭均取消；
+ * 中文输入法组词期间 Enter 与 Esc 交给输入法，不提交也不关闭。
+ */
+let compactDialogKind = null;
+
+function openBranchActionDialog(kind) {
+  const live = window.__augitLive;
+  if (!live) return;
+  const current = (live.references && live.references.branches || []).find((item) => item.isCurrent);
+  compactDialogKind = kind;
+  if (kind === "rename" && !current) {
+    window.__augitCheckoutError = "当前不在任何本地分支上，无法重命名。";
+    openBranchesPopover();
+    return;
+  }
+
+  const title = kind === "create" ? "新建分支" : "重命名分支";
+  const label = kind === "create" ? "分支名" : "新名称";
+  const value = kind === "rename" ? (current ? current.name : "") : "";
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = compactInputDialog(title, label, value, kind === "create" ? "创建" : "重命名");
+  host.appendChild(layer);
+  const field = layer.querySelector("[data-compact-field]");
+  if (field) {
+    field.focus();
+    field.select();
+  }
+}
+
+function closeCompactDialog() {
+  compactDialogKind = null;
+  closeLiveOverlay();
+}
+
+/** 提交紧凑输入窗口；业务校验在调用方做，窗口本身不写 Git。 */
+async function submitCompactDialog() {
+  const layer = document.querySelector("[data-compact-dialog]");
+  const field = layer && layer.querySelector("[data-compact-field]");
+  if (!field) return;
+  const value = field.value.trim();
+  if (value.length === 0) {
+    window.__augitCheckoutError = "名称不能为空。";
+    return;
+  }
+
+  const kind = compactDialogKind;
+  const live = window.__augitLive;
+  let result;
+  try {
+    result = kind === "rename"
+      ? await invoke("git/branch", { action: "rename", from: currentBranchName(), name: value }, 60000)
+      : await invoke("git/branch", { action: "create", name: value }, 60000);
+  } catch (error) {
+    window.__augitCheckoutError = String(error && error.message || error);
+    closeCompactDialog();
+    openBranchesPopover();
+    return;
+  }
+
+  if (!result || !result.changed) {
+    window.__augitCheckoutError = (result && result.reason) || "分支操作失败。";
+    closeCompactDialog();
+    openBranchesPopover();
+    return;
+  }
+
+  closeCompactDialog();
+  if (live) {
+    live.references = null;
+    await loadReferences().catch(() => null);
+  }
+
+  refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+function currentBranchName() {
+  const live = window.__augitLive;
+  const current = live && live.references && (live.references.branches || []).find((item) => item.isCurrent);
+  return current ? current.name : "";
+}
+
+/** 紧凑输入窗口的键盘规则（规格 §5.3）。 */
+function bindCompactDialogKeys() {
+  if (window.__augitCompactBound) return;
+  window.__augitCompactBound = true;
+  document.addEventListener("keydown", (event) => {
+    const layer = document.querySelector("[data-compact-dialog]");
+    if (!layer) return;
+    // 组词期间 Enter 与 Esc 交给输入法。
+    if (event.isComposing || event.keyCode === 229) return;
+    const field = layer.querySelector("[data-compact-field]");
+    const order = [
+      field,
+      layer.querySelector('[data-compact-action="cancel"]'),
+      layer.querySelector('[data-compact-action="confirm"]'),
+      layer.querySelector('[data-compact-action="close"]'),
+    ].filter(Boolean);
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCompactDialog();
+      return;
+    }
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      const index = order.indexOf(document.activeElement);
+      const backwards = event.shiftKey;
+      const next = order[(index + (backwards ? -1 : 1) + order.length) % order.length];
+      if (next) next.focus();
+      return;
+    }
+
+    if (event.key !== "Enter") return;
+    const target = document.activeElement;
+    // 输入框或确定按钮上的 Enter 确认；取消与关闭按钮上的 Enter 取消。
+    const onInput = target === field;
+    const onConfirm = target && target.dataset.compactAction === "confirm";
+    event.preventDefault();
+    if (onInput || onConfirm) void submitCompactDialog();
+    else closeCompactDialog();
+  }, true);
 }
 
 /** 关闭实时弹层。 */

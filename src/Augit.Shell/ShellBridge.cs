@@ -144,6 +144,7 @@ internal sealed class ShellBridge : IDisposable
             "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
             "git/push" => await PushAsync(parameters, cancellationToken),
             "git/checkout" => await CheckoutAsync(parameters, cancellationToken),
+            "git/branch" => await BranchAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1350,6 +1351,48 @@ internal sealed class ShellBridge : IDisposable
             available = true,
             switched = true,
             detached = result.ActualStatus?.IsDetached ?? false,
+            branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 分支写操作（规格 §7.11）：新建与重命名。
+    /// 只做 Git 接受的动作，名称校验、重名与非法字符都由 Git 给出原因。
+    /// </summary>
+    private async Task<object?> BranchAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string action = GetString(parameters, "action")
+            ?? throw new ArgumentException("git/branch 需要 action 参数。");
+        string name = GetString(parameters, "name")
+            ?? throw new ArgumentException("git/branch 需要 name 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitReferenceService references = new(runtime);
+        GitActionResult result = action switch
+        {
+            // 从当前 HEAD 新建；startPoint 留空即由 Git 取当前引用。
+            "create" => await references.CreateBranchAsync(repository, name, null, cancellationToken).ConfigureAwait(false),
+            "rename" => await references.RenameBranchAsync(
+                repository,
+                GetString(parameters, "from") ?? string.Empty,
+                name,
+                cancellationToken).ConfigureAwait(false),
+            _ => throw new BridgeValidationException($"未知的分支动作：{action}"),
+        };
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, changed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            changed = true,
             branch = result.ActualStatus?.CurrentBranch,
         };
     }
