@@ -379,14 +379,45 @@ function currentSearchOptions() {
   };
 }
 
-/** 点击结果行打开对应文件。 */
+/**
+ * 搜索结果（规格 §5.2）。
+ * 单击只改变选中项；Enter 或双击打开并激活**临时预览标签**，
+ * 下一个结果复用同一个标签。
+ */
+function selectSearchResult(row) {
+  for (const other of document.querySelectorAll(".search-result.selected")) {
+    other.classList.remove("selected");
+  }
+
+  if (row) row.classList.add("selected");
+}
+
+function openSearchResult(row) {
+  const path = row && row.dataset.searchPath;
+  if (!path) return;
+  selectSearchResult(row);
+  void openDocument(path, { preview: true });
+}
+
 document.addEventListener("click", (event) => {
   const row = event.target.closest && event.target.closest(".search-result");
-  if (!row) return;
-  const path = row.dataset.searchPath;
-  if (!path) return;
+  if (!row || !row.dataset.searchPath) return;
   event.preventDefault();
-  void openDocument(path);
+  // 双击（detail >= 2）打开；单击只改选中，不抢占编辑区。
+  if (event.detail >= 2) {
+    openSearchResult(row);
+    return;
+  }
+
+  selectSearchResult(row);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const row = event.target.closest && event.target.closest(".search-result");
+  if (!row || !row.dataset.searchPath) return;
+  event.preventDefault();
+  openSearchResult(row);
 }, true);
 
 /** 读取远端、分支标签、Stash 与 Worktree，供管理窗口使用。 */

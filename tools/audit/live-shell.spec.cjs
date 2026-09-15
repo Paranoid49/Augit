@@ -67,13 +67,14 @@ const WORKSPACE = {
     available: true, timedOut: false, cancelled: false, notice: '',
     matches: [
       { path: 'docs/product-spec.md', name: 'product-spec.md', directory: 'docs' },
-      { path: 'src/Program.cs', name: 'Program.cs', directory: 'src' },
+      { path: 'docs/notes.txt', name: 'notes.txt', directory: 'docs' },
     ],
   },
   searchText: {
     available: true, truncated: false, timedOut: false, cancelled: false, notice: '',
     matches: [
       { path: 'docs/product-spec.md', name: 'product-spec.md', directory: 'docs', line: 12, column: 3, text: '轻量优先是 Augit 的最高产品原则。' },
+      { path: 'docs/notes.txt', name: 'notes.txt', directory: 'docs', line: 1, column: 1, text: '第一行' },
     ],
   },
   clone: { available: false, field: 'destination', reason: '目标目录不为空，请换一个目录。' },
@@ -670,6 +671,37 @@ async function main() {
     // 方向键移动选择
     await quick.page.locator('.search-overlay .search-field').press('ArrowDown');
     check('方向键移动选择', await quick.page.evaluate('document.querySelectorAll(".search-result")[1].classList.contains("selected")'));
+    // 规格 §5.2：搜索结果单击只改选中，不抢占编辑区；Enter 打开临时预览标签。
+    const docBeforeClick = await quick.page.evaluate('window.__augitLive.document ? window.__augitLive.document.path : null');
+    await quick.page.locator('.search-result').first().click();
+    await quick.page.waitForTimeout(400);
+    const afterClick = await quick.page.evaluate(() => ({
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: (window.__augitLive.tabs || []).length,
+      selected: [...document.querySelectorAll('.search-result')].filter((r) => r.classList.contains('selected')).length,
+    }));
+    check('搜索结果单击只改选中: ' + JSON.stringify(afterClick),
+      afterClick.doc === docBeforeClick && afterClick.tabs === 0 && afterClick.selected >= 1);
+
+    await quick.page.locator('.search-result').first().press('Enter');
+    await quick.page.waitForTimeout(500);
+    const afterEnter = await quick.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).map((t) => ({ path: t.path, preview: t.preview })),
+      active: window.__augitLive.activeTabId,
+    }));
+    check('Enter 打开临时预览标签: ' + JSON.stringify(afterEnter.tabs),
+      afterEnter.tabs.length === 1 && afterEnter.tabs[0].preview === true);
+
+    // 打开下一个结果复用同一个预览标签
+    await quick.page.locator('.search-result').nth(1).press('Enter');
+    await quick.page.waitForTimeout(500);
+    const afterSecond = await quick.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).map((t) => ({ path: t.path, preview: t.preview })),
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    check('下一个结果复用同一个预览标签: ' + JSON.stringify(afterSecond.tabs),
+      afterSecond.tabs.length === 1 && afterSecond.tabs[0].preview === true
+      && afterSecond.doc === afterSecond.tabs[0].path);
     await quick.page.close();
 
     // ---- 全仓搜索：按内容，含开关与结果行号 ----
