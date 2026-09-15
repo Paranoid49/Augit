@@ -1275,13 +1275,138 @@ function bindConflictSave() {
 function refresh(...regions) {
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
     window.__augitRenderRegions(...regions);
-    // 工具窗口可能在这次刷新中被替换，重新挂上切换动作（规格 §5.1）。
+    // 工具窗口与标签栏可能在这次刷新中被替换，重新挂上动作。
     bindToolRail?.();
+    bindEditorTabs?.();
     return;
   }
 
   window.__augitRender();
   bindToolRail?.();
+}
+
+/**
+ * 编辑器标签集合（规格 §5.2）。
+ *
+ * live.tabs 按显示顺序保存标签，live.activeTabId 指向当前标签。
+ * 三类标签：正式文档标签、临时预览标签（preview=true，只保留一个）、
+ * 工作区比较标签（kind="comparison"）。
+ * live.document / live.editor 是「当前标签」的派生视图，保留写入以兼容既有渲染路径。
+ */
+let tabSequence = 0;
+
+function tabState() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  live.tabs ??= [];
+  live.activeTabId ??= null;
+  return live;
+}
+
+function nextTabId() {
+  tabSequence += 1;
+  return `tab-${tabSequence}`;
+}
+
+/** 让 live.document / live.editor 反映当前标签。 */
+function syncActiveTab() {
+  const live = tabState();
+  if (!live) return;
+  const tab = live.tabs.find((item) => item.id === live.activeTabId) || null;
+  live.activeTab = tab;
+  if (tab && tab.kind === "document") {
+    live.document = tab.document;
+    live.editor = tab.editor;
+    return;
+  }
+
+  if (tab && tab.kind === "comparison") {
+    live.editor = tab.editor || "diff";
+    return;
+  }
+
+  // 没有活动标签：没有正文可显示。
+  live.document = null;
+  live.editor = live.diff ? "diff" : "empty";
+}
+
+/** 用已读取的载荷建立或复用标签；调用方负责令牌检查。 */
+function openDocumentTab(path, payload, options = {}) {
+  const { preview = false, activate = true } = options;
+  const live = tabState();
+  if (!live) return;
+  const existing = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
+  if (existing) {
+    if (!preview) existing.preview = false;
+    if (activate) {
+      live.activeTabId = existing.id;
+      syncActiveTab();
+    }
+
+    return;
+  }
+
+  const model = toLiveDocument(payload);
+  const tab = {
+    id: nextTabId(),
+    kind: "document",
+    path,
+    title: model.name || path,
+    document: model,
+    editor: model.editor,
+    preview,
+  };
+  // 临时预览标签只保留一个：新的预览顶替旧的，位置不变。
+  const previewIndex = live.tabs.findIndex((item) => item.kind === "document" && item.preview);
+  if (preview && previewIndex >= 0) {
+    live.tabs[previewIndex] = tab;
+  } else {
+    live.tabs.push(tab);
+  }
+
+  if (activate) {
+    live.activeTabId = tab.id;
+    syncActiveTab();
+  }
+}
+
+/** 激活指定标签。 */
+function activateTab(id) {
+  const live = tabState();
+  if (!live || !live.tabs.some((tab) => tab.id === id)) return;
+  if (live.activeTabId === id) return;
+  live.activeTabId = id;
+  syncActiveTab();
+  refreshAfterEvent("editorContent", "editorTabs", "side", "statusbar", "titlebar");
+}
+
+/**
+ * 关闭指定标签（规格 §5.2）。
+ * 关闭后台标签只更新标签栏；关闭当前标签则激活相邻标签（先右后左）。
+ */
+function closeTab(id) {
+  const live = tabState();
+  if (!live) return;
+  const index = live.tabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  const wasActive = live.activeTabId === id;
+  live.tabs.splice(index, 1);
+  if (!wasActive) {
+    refreshAfterEvent("editorTabs");
+    return;
+  }
+
+  const neighbour = live.tabs[index] || live.tabs[index - 1] || null;
+  live.activeTabId = neighbour ? neighbour.id : null;
+  syncActiveTab();
+  refreshAfterEvent("editorContent", "editorTabs", "side", "statusbar", "titlebar");
+}
+
+/** Ctrl+W：关闭当前标签并激活相邻标签。 */
+function closeActiveTab() {
+  const live = tabState();
+  if (!live || !live.activeTabId) return;
+  closeTab(live.activeTabId);
 }
 
 /**
@@ -1394,6 +1519,46 @@ function bindToolRail() {
     event.preventDefault();
     const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
     if (name) applyRailAction(name);
+  }, true);
+}
+
+/**
+ * 绑定标签栏交互（规格 §5.2）。
+ * 标签栏会在区域刷新时被替换，因此监听挂在 document 上，用 data-tab-id 定位。
+ */
+function bindEditorTabs() {
+  if (!window.__augitLive || window.__augitTabBound) return;
+  window.__augitTabBound = true;
+
+  document.addEventListener("click", (event) => {
+    const tab = event.target.closest && event.target.closest(".editor-tabs .editor-tab[data-tab-id]");
+    if (!tab) return;
+    event.preventDefault();
+    // 关闭叉：只移除目标标签，不激活它，也不抢焦点。
+    if (event.target.closest(".tab-close")) {
+      closeTab(tab.dataset.tabId);
+      return;
+    }
+
+    activateTab(tab.dataset.tabId);
+  }, true);
+
+  // 中键关闭：与关闭叉同样只移除目标标签。
+  document.addEventListener("auxclick", (event) => {
+    if (event.button !== 1) return;
+    const tab = event.target.closest && event.target.closest(".editor-tabs .editor-tab[data-tab-id]");
+    if (!tab) return;
+    event.preventDefault();
+    closeTab(tab.dataset.tabId);
+  }, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (event.key.toLowerCase() !== "w") return;
+    const live = window.__augitLive;
+    if (!live || !live.activeTabId) return;
+    event.preventDefault();
+    closeActiveTab();
   }, true);
 }
 
@@ -1785,25 +1950,32 @@ function toLiveDocument(payload) {
 }
 
 /** 打开一个真实文件：取回内容、更新活动文档并重绘编辑区。 */
-async function openDocument(path) {
+async function openDocument(path, options = {}) {
+  const { preview = false, activate = true } = options;
   const live = window.__augitLive;
   if (!live) return;
-  if (live.document && live.document.path === path) return;
+  live.tabs ??= [];
+  // 已经是激活标签且不要求转为正式标签：无需重复读取。
+  const current = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
+  if (current && activate && live.activeTabId === current.id && !preview) return;
   const started = performance.now();
   // 快速连续打开时只接纳最后一次选择：晚到的旧响应不得覆盖新文档。
   const token = ++documentToken;
   try {
     const payload = await fetchDocument(path);
+    // 令牌检查必须在写入任何状态之前：快速连续打开时，
+    // 晚到的旧响应不得建立或激活标签，否则会覆盖用户最后一次选择。
+    if (token !== documentToken) return;
     // 宿主契约：成功的读取必须带 path。缺 path 的载荷无法构成有效文档，
     // 直接按失败处理，避免把「字段缺失的文档对象」留在 live 上——
     // 那会让后续每一次渲染都依赖调用方的容错。
-    if (token !== documentToken) return;
     if (!payload || typeof payload.path !== "string" || payload.path.length === 0) {
       throw new Error("document/read 返回的载荷缺少 path。");
     }
 
-    live.document = toLiveDocument(payload);
-    live.editor = live.document.editor;
+    // 打开为标签；openDocumentTab 同步写入 live.document / live.editor。
+    live.tabs ??= [];
+    openDocumentTab(path, payload, { preview, activate });
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       open: Math.round(performance.now() - started),
     });

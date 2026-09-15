@@ -333,7 +333,7 @@ async function main() {
     try {
       await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
     } catch {
-      const st = await page.evaluate(() => ({ doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null, err: window.__augitError || null, selected: document.querySelectorAll('.side-content.tree .tree-row.selected').length }));
+      const st = await page.evaluate(() => ({ doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null, err: window.__augitError || null, selected: document.querySelectorAll('.side-content.tree .tree-row.selected').length, fetchErr: window.__augitFetchError || null, tabs: window.__augitLive ? (window.__augitLive.tabs || []).length : -1, activeTabId: window.__augitLive ? window.__augitLive.activeTabId : null, sync: window.__augitSyncTrace || null, nullTrace: window.__augitNullDocTrace || null, openStack: (window.__augitOpenErrorStack || '').split(String.fromCharCode(10)).slice(0,4).join(' | ') }));
       throw new Error('双击未打开文档 state=' + JSON.stringify(st));
     }
     // 打开文档后的区域刷新被推迟到事件派发结束（见 refreshAfterEvent），
@@ -1593,6 +1593,67 @@ async function main() {
     check('切换工具窗口后标签仍指向当前文档: ' + JSON.stringify(afterSwitch),
       afterSwitch.tabs > 0 && afterSwitch.doc === beforeSwitch.doc);
     await railPage.page.close();
+
+    // ---- 规格 §5.2：标签集合 ----
+    const tabPage = await openScene('scene=main-project&theme=dark');
+    await tabPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const tabIds = () => tabPage.page.evaluate(() => ({
+      ids: (window.__augitLive.tabs || []).map((t) => t.id),
+      active: window.__augitLive.activeTabId,
+      paths: (window.__augitLive.tabs || []).map((t) => t.path),
+      previews: (window.__augitLive.tabs || []).map((t) => !!t.preview),
+      domTabs: document.querySelectorAll('.editor-tabs .editor-tab[data-tab-id]').length,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+
+    // 双击打开正式标签
+    const openFile = async (path) => {
+      await tabPage.page.locator(`.side-content.tree .tree-row[data-tree-path="${path}"]`).dblclick();
+      await tabPage.page.waitForTimeout(400);
+    };
+    await tabPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await tabPage.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 8000 });
+    await openFile('docs/product-spec.md');
+    const tabOne = await tabIds();
+    check('打开文件建立标签: ' + JSON.stringify(tabOne.paths), tabOne.ids.length === 1 && tabOne.domTabs === 1);
+    check('新建标签不是预览标签', tabOne.previews[0] === false);
+
+    // 打开第二个文件：两个标签，新的成为当前标签
+    await openFile('docs/notes.txt');
+    const tabTwo = await tabIds();
+    check('打开第二个文件得到两个标签: ' + JSON.stringify(tabTwo.paths), tabTwo.ids.length === 2 && tabTwo.domTabs === 2);
+    check('新打开的标签成为当前标签: ' + tabTwo.doc, tabTwo.doc === 'docs/notes.txt');
+
+    // 点击第一个标签：切换回它
+    await tabPage.page.locator(`.editor-tabs .editor-tab[data-tab-id="${tabOne.ids[0]}"]`).click();
+    await tabPage.page.waitForTimeout(300);
+    const tabSwitched = await tabIds();
+    check('点击标签切回该文档: ' + tabSwitched.doc, tabSwitched.doc === 'docs/product-spec.md' && tabSwitched.active === tabOne.ids[0]);
+
+    // Ctrl+W 关闭当前标签，激活相邻标签
+    await tabPage.page.keyboard.press('Control+w');
+    await tabPage.page.waitForTimeout(400);
+    const afterCtrlW = await tabIds();
+    check('Ctrl+W 关闭当前标签: ' + JSON.stringify(afterCtrlW.paths), afterCtrlW.ids.length === 1);
+    check('关闭后激活相邻标签: ' + afterCtrlW.doc, afterCtrlW.doc === 'docs/notes.txt');
+
+    // 关闭最后一个标签：不残留空白文档
+    await tabPage.page.keyboard.press('Control+w');
+    await tabPage.page.waitForTimeout(400);
+    const tabEmpty = await tabIds();
+    check('关闭最后一个标签后没有活动标签: ' + JSON.stringify(tabEmpty),
+      tabEmpty.ids.length === 0 && tabEmpty.active === null && tabEmpty.doc === null && tabEmpty.domTabs === 0);
+
+    // 关闭后台标签不改变当前文档
+    await openFile('docs/product-spec.md');
+    await openFile('docs/notes.txt');
+    const tabTwoAgain = await tabIds();
+    await tabPage.page.locator(`.editor-tabs .editor-tab[data-tab-id="${tabTwoAgain.ids[0]}"] .tab-close`).click();
+    await tabPage.page.waitForTimeout(400);
+    const tabBackground = await tabIds();
+    check('关闭后台标签不改变当前文档: ' + tabBackground.doc,
+      tabBackground.doc === 'docs/notes.txt' && tabBackground.ids.length === 1);
+    await tabPage.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

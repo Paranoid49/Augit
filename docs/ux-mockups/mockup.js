@@ -1753,6 +1753,25 @@ function changesSide(selected = "app.manifest") {
 
 function editorTabs(active, extra = "") {
   const live = window.__augitLive;
+  // 实时外壳：标签来自 live.tabs（规格 §5.2）。临时预览标签用 preview 类区分，
+  // 关闭叉与中键都走同一套“不抢焦点”的关闭流程。
+  if (live && Array.isArray(live.tabs) && live.tabs.length > 0) {
+    const markup = live.tabs.map(tab => {
+      const cls = ["editor-tab"];
+      if (tab.id === live.activeTabId) cls.push("active");
+      if (tab.preview) cls.push("preview");
+      if (tab.kind === "comparison") cls.push("comparison-tab");
+      const label = tab.title || tab.path || "未命名";
+      const glyph = tab.kind === "comparison" ? icon("git-compare-arrows") : fileTypeIcon(label);
+      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${escapeHtml(label)}<span class="tab-close" role="button" aria-label="关闭标签">${icon("x")}</span></a>`;
+    }).join("");
+    return `
+    <div class="editor-tabs">
+      ${markup}
+      <span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+    </div>`;
+  }
+
   if (live && live.document) {
     const name = live.document.name || live.document.path;
     return `
@@ -1795,7 +1814,9 @@ function bindMarkdownModes() {
   const view = document.querySelector('.markdown-document');
   if (!view) return;
   const lifetime = new AbortController();
-  const on = (element, type, handler, options = {}) => element.addEventListener(type, handler, { ...options, signal: lifetime.signal });
+  // 容忍选择器未命中的情况：可选元素（例如预览区里的锚点）在实时数据下可能不存在，
+  // 一个缺失元素不该让整条绑定链抛异常并中断后续渲染。
+  const on = (element, type, handler, options = {}) => element && element.addEventListener(type, handler, { ...options, signal: lifetime.signal });
   const panes = view.querySelector('.markdown-panes');
   const source = view.querySelector('.markdown-source');
   const preview = view.querySelector('.markdown-preview');
