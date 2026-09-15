@@ -28,6 +28,9 @@ internal sealed class ShellBridge : IDisposable
 
     private const int MaximumTerminalBufferLength = 4 * 1024 * 1024;
 
+    private readonly Lock _statusGate = new();
+    private GitStatusResult? _cachedStatus;
+    private long _cachedStatusAt;
     private readonly Lock _changeGate = new();
     private readonly HashSet<string> _pendingWorkspaceChanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _terminalGate = new();
@@ -206,8 +209,7 @@ internal sealed class ShellBridge : IDisposable
             return new { available = true, isRepository = false, reason = "该目录不是带工作区的 Git 仓库。" };
         }
 
-        GitStatusService service = new(runtime);
-        GitStatusResult status = await service.ReadAsync(repository, cancellationToken);
+        GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
         if (!status.IsSuccess || status.Snapshot is not { } snapshot)
         {
             return new { available = true, isRepository = true, reason = status.ErrorMessage };
@@ -460,6 +462,7 @@ internal sealed class ShellBridge : IDisposable
 
     private void OnWorkspaceFilesChanged(object? sender, FileChangeBatchEventArgs eventArgs)
     {
+        InvalidateStatusCache();
         string[] batch;
         lock (_changeGate)
         {
@@ -491,6 +494,7 @@ internal sealed class ShellBridge : IDisposable
             _gitWatcher = new GitMetadataWatcher(repository);
             _gitWatcher.Changed += (_, _) =>
             {
+                InvalidateStatusCache();
                 lock (_changeGate)
                 {
                     _pendingGitMetadataChange = true;
@@ -509,6 +513,49 @@ internal sealed class ShellBridge : IDisposable
     {
         _workspaceWatcher?.Dispose();
         _gitWatcher?.Dispose();
+    }
+
+    /// <summary>
+    /// 读取 Git 状态，并在极短窗口内复用结果。
+    /// 状态是冲突检测与差异读取的共同前置步骤，一次界面刷新会重复请求它；
+    /// 缓存窗口很短（见 StatusCacheLifetime），文件系统变化会立即使其失效，
+    /// 因此不会让界面看到过期状态。
+    /// </summary>
+    private async Task<GitStatusResult> ReadStatusCachedAsync(
+        GitRuntimeInfo runtime,
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken)
+    {
+        lock (_statusGate)
+        {
+            if (_cachedStatus is not null
+                && Environment.TickCount64 - _cachedStatusAt < StatusCacheLifetimeMs)
+            {
+                return _cachedStatus;
+            }
+        }
+
+        GitStatusService service = new(runtime);
+        GitStatusResult status = await service.ReadAsync(repository!, cancellationToken);
+        if (status.IsSuccess)
+        {
+            lock (_statusGate)
+            {
+                _cachedStatus = status;
+                _cachedStatusAt = Environment.TickCount64;
+            }
+        }
+
+        return status;
+    }
+
+    /// <summary>让状态缓存失效；任何文件系统变化都必须调用它。</summary>
+    private void InvalidateStatusCache()
+    {
+        lock (_statusGate)
+        {
+            _cachedStatus = null;
+        }
     }
 
     /// <summary>读取当前设置。</summary>
@@ -719,8 +766,7 @@ internal sealed class ShellBridge : IDisposable
             return new { available = false, files = Array.Empty<object>(), operation = "None" };
         }
 
-        GitStatusService statusService = new(runtime);
-        GitStatusResult status = await statusService.ReadAsync(repository!, cancellationToken);
+        GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
         if (!status.IsSuccess || status.Snapshot is not { } snapshot)
         {
             return new { available = false, reason = status.ErrorMessage, files = Array.Empty<object>() };
@@ -836,8 +882,7 @@ internal sealed class ShellBridge : IDisposable
             return new { available = false, rows = Array.Empty<object>(), lines = Array.Empty<object>() };
         }
 
-        GitStatusService statusService = new(runtime);
-        GitStatusResult status = await statusService.ReadAsync(repository!, cancellationToken);
+        GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
         GitChangedFile? changed = status.Snapshot?.Files
             .FirstOrDefault(file => string.Equals(file.RelativePath, relative, StringComparison.OrdinalIgnoreCase));
         if (changed is null)
@@ -915,6 +960,12 @@ internal sealed class ShellBridge : IDisposable
     /// 换行格式的界面用名。规格 §4.1 要求 LF / CRLF / CR / 混合换行 / 无换行；
     /// 未识别到换行符时返回空串，界面据此不显示该字段。
     /// </summary>
+    /// <summary>
+    /// 状态缓存的有效期。只覆盖「同一次界面刷新内的重复请求」这一窗口；
+    /// 用户可见的数据变化都会通过文件系统监视使缓存失效。
+    /// </summary>
+    private const int StatusCacheLifetimeMs = 300;
+
     /// <summary>随包分发的 ripgrep；缺失时搜索功能明确失败，不静默降级。</summary>
     private static string RipgrepPath => Path.Combine(AppContext.BaseDirectory, "tools", "rg.exe");
 
