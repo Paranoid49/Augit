@@ -1132,28 +1132,37 @@ async function main() {
     check('非 Git 目录仍可打开文件', (await plain.evaluate('window.__augitLive.document.path')) === 'docs/product-spec.md');
     await plain.close();
 
-    // ---- 文档读取失败：不得让界面进入异常状态 ----
-    // 已知未解决：读取不存在的文件后，live.document 仍是一个字段缺失的对象
-    // （path 为 undefined），因此无法断言「不产生文档」。但渲染已不再抛异常
-    // （本轮加固了 escapeHtml 与 fileTypeIcon），项目树与编辑区都保持可用。
+    // ---- 文档读取失败：不得留下半截文档，也不得让界面进入异常状态 ----
+    // 根因已定位：失败的读取会返回一个缺少 path 的载荷，而状态写入没有校验它，
+    // 于是 live.document 变成一个字段缺失的对象（渲染时 path 为 undefined）。
+    // 现在在写入前校验契约：缺 path 即按失败处理。
     const fail = await openScene('scene=main-project&theme=dark');
     await fail.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     const failResult = await fail.page.evaluate(async () => {
+      const before = window.__augitLive.document ? window.__augitLive.document.path : null;
+      let threw = false;
       try {
         await window.__augitOpenDocument('missing-file.txt');
       } catch {
-        // 读取失败应由内部处理，不应抛到调用方。
-        return { threw: true };
+        threw = true;
       }
 
+      const doc = window.__augitLive.document;
       return {
-        threw: false,
+        threw,
+        before,
+        // 记录失败后文档对象的实际形态，用于定位根因。
+        docPath: doc ? String(doc.path) : null,
+        docKeys: doc ? Object.keys(doc).length : 0,
+        err: window.__augitError || null,
         treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
         editorVisible: !!document.querySelector('.editor-content'),
         editable: document.querySelectorAll('.editor-content [contenteditable="true"], .editor-content textarea, .editor-content input').length,
       };
     });
     check('读取失败不向调用方抛出', failResult.threw === false);
+    check('读取失败不产生文档: docPath=' + failResult.docPath, failResult.docPath === null && failResult.docKeys === 0);
+    check('读取失败记录原因: ' + JSON.stringify(failResult.err), typeof failResult.err === 'string' && failResult.err.startsWith('open-document:'));
     check('读取失败后项目树仍在: ' + failResult.treeRows, failResult.treeRows > 0);
     check('读取失败后编辑区仍在: ' + failResult.editorVisible, failResult.editorVisible === true);
     check('失败态不创建可编辑控件: ' + failResult.editable, failResult.editable === 0);

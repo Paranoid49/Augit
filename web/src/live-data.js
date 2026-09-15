@@ -1621,6 +1621,13 @@ async function openDocument(path) {
   const started = performance.now();
   try {
     const payload = await fetchDocument(path);
+    // 宿主契约：成功的读取必须带 path。缺 path 的载荷无法构成有效文档，
+    // 直接按失败处理，避免把「字段缺失的文档对象」留在 live 上——
+    // 那会让后续每一次渲染都依赖调用方的容错。
+    if (!payload || typeof payload.path !== "string" || payload.path.length === 0) {
+      throw new Error("document/read 返回的载荷缺少 path。");
+    }
+
     live.document = toLiveDocument(payload);
     live.editor = live.document.editor;
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
