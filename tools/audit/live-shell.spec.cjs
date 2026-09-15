@@ -256,6 +256,7 @@ async function main() {
         return params.revision === data.commit.fullHash ? data.commit : { available: false, reason: 'unknown' };
       }
       if (method === 'document/read') {
+        if (window.__limitDocs && window.__limitDocs[params.path]) return window.__limitDocs[params.path];
         const found = data.documents[params.path];
         if (!found) throw new Error('not found: ' + params.path);
         return found;
@@ -1291,6 +1292,38 @@ async function main() {
     });
     check('工作区内路径仍然可用: ' + JSON.stringify(inside), inside.available === true && inside.entries > 0);
     await escape.page.close();
+
+    // ---- 边界文件类型：稳定的只读摘要，不创建可编辑控件 ----
+    const limits = await openScene('scene=main-project&theme=dark');
+    await limits.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const limitCases = await limits.page.evaluate(async () => {
+      window.__limitDocs = {
+        'binary.bin': { path: 'binary.bin', name: 'binary.bin', fullPath: 'D:\\w\\binary.bin', workspaceName: 'w', status: 'BinarySummary', kind: 'Binary', typeName: '二进制文件', fileSize: 4096, message: '此文件只提供二进制摘要，可使用系统默认程序打开。' },
+        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextTooLarge', kind: 'Text', typeName: '文本文件', fileSize: 16778240, message: '文本文件超过 10 MB，已停止读取正文。' },
+      };
+      const out = [];
+      for (const path of ['binary.bin', 'oversize.txt']) {
+        await window.__augitOpenDocument(path);
+        out.push({
+          path,
+          editor: window.__augitLive.editor,
+          hasText: !!(window.__augitLive.document && window.__augitLive.document.text),
+          status: window.__augitLive.document ? window.__augitLive.document.status : null,
+        });
+      }
+      return {
+        cases: out,
+        // 超限与二进制都不得产生可编辑控件
+        editable: document.querySelectorAll('.editor-content [contenteditable="true"], .editor-content textarea, .editor-content input').length,
+        text: document.querySelector('.editor-content').innerText,
+      };
+    });
+    check('二进制与超限文件都进入只读摘要态: ' + JSON.stringify(limitCases.cases.map((c) => [c.path, c.editor])),
+      limitCases.cases.every((c) => c.editor === 'file-limit'));
+    check('超限文件不加载正文', limitCases.cases.every((c) => c.hasText === false));
+    check('边界文件不创建可编辑控件: ' + limitCases.editable, limitCases.editable === 0);
+    check('界面显示超限原因: ' + JSON.stringify(limitCases.text.slice(0, 40)), limitCases.text.includes('10 MB'));
+    await limits.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

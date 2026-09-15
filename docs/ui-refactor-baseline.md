@@ -1784,6 +1784,35 @@ ASCII 双引号（U+0022）与全角引号（U+F022）。
 
 **新增 3 项断言**：越界全部被拒绝、失败带可读原因、工作区内路径不受影响。
 
+### 第六十五轮：边界文件类型
+
+**构造 10 种边界文件**并逐一取证的结论：**全部处理正确**，本轮未发现缺陷。
+
+| 文件 | 状态 | 类型 | 换行 | 编码 | 说明 |
+|---|---|---|---|---|---|
+| `normal.txt` | TextReady | Text | LF | UTF-8 | 正常 |
+| `binary.bin` | BinarySummary | Binary | — | — | 给出二进制摘要与打开方式 |
+| `bad-utf8.txt` | BinarySummary | Binary | — | — | 非法 UTF-8 归为二进制，**不硬解成乱码** |
+| `huge.txt`（3 MB） | TextReady | Text | 无换行 | UTF-8 | 3 MB 仍在上限内，正常读取 |
+| `oversize.txt`（16 MB） | **TextTooLarge** | Text | — | — | `文本文件超过 10 MB，已停止读取正文。` |
+| `empty.txt` | TextReady | Text | 无换行 | UTF-8 | 空文件正常 |
+| `no-newline.txt` | TextReady | Text | 无换行 | UTF-8 | 无结尾换行正常 |
+| `crlf.txt` | TextReady | Text | CRLF | UTF-8 | 正确识别 |
+| `mixed-eol.txt` | TextReady | Text | **混合换行** | UTF-8 | 正确识别 |
+| `bom.txt` | TextReady | Text | LF | UTF-8 | BOM 被剥离（12 字节 → 9 字符） |
+
+**三处值得记录的正确设计**：
+1. **只有 `TextReady` 才带编码与换行**——二进制、超限、非法 UTF-8 一律不显示
+   编码，避免让用户以为它们是文本（符合规格 §4.1）；
+2. 非法 UTF-8 **归为二进制摘要而不是替换成乱码**；
+3. 超限消息**给出具体上限**（「超过 10 MB」），不是泛泛的「文件过大」。
+
+**真实外壳验证**：`oversize.txt` 与 `binary.bin` 都进入只读摘要态，
+不加载正文，页面显示超限原因，且**不创建任何可编辑控件**。
+
+**新增 4 项断言**：两种边界文件都进入只读摘要态、不加载正文、
+无编辑控件、界面显示具体的超限原因。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
