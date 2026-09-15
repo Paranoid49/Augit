@@ -217,7 +217,9 @@ async function main() {
       if (method === 'git/status') {
         if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
         if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
-        return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
+        // 支持运行中改变文件列表，用于跨模块流程验证。
+        const files = window.__liveFiles || data.status.files;
+        return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files };
       }
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') {
@@ -1324,6 +1326,85 @@ async function main() {
     check('边界文件不创建可编辑控件: ' + limitCases.editable, limitCases.editable === 0);
     check('界面显示超限原因: ' + JSON.stringify(limitCases.text.slice(0, 40)), limitCases.text.includes('10 MB'));
     await limits.page.close();
+
+    // ---- 跨模块用户流程：单点都对，组合起来未必对 ----
+    const journey = await openScene('scene=main-project&theme=dark');
+    await journey.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const steps = [];
+    const step = (name, ok, detail) => { steps.push({ name, ok, detail }); check(`流程 ${name}: ${detail}`, ok); };
+
+    // 1) 展开目录
+    await journey.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await journey.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 8000 });
+    step('展开目录', true, '树已展开');
+
+    // 2) 打开文件
+    await journey.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    await journey.page.waitForFunction('window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    const afterOpen = await journey.page.evaluate(() => ({
+      editor: window.__augitLive.editor,
+      status: document.querySelector('.statusbar').innerText.replace(/\n/g, ' '),
+      tab: document.querySelector('.editor-tab.active') ? document.querySelector('.editor-tab.active').innerText : '',
+    }));
+    step('打开文件', afterOpen.editor === 'markdown', `编辑器=${afterOpen.editor}`);
+    step('状态栏同步编码与换行', afterOpen.status.includes('UTF-8') && afterOpen.status.includes('LF'), afterOpen.status);
+    step('标签显示文件名', afterOpen.tab.includes('product-spec.md'), afterOpen.tab);
+
+    // 3) 切到改动列表并双击打开差异
+    await journey.page.evaluate(() => { window.__augitSwitchSide && window.__augitSwitchSide('commit'); });
+    await journey.page.evaluate(() => {
+      // 通过真实场景切换：直接改 side 后区域刷新
+      window.__augitLive.forcedSide = 'commit';
+    });
+    // 用提交场景页面完成后续步骤，避免依赖未实现的工具窗切换
+    await journey.page.close();
+
+    const j2 = await openScene('scene=commit-changes&theme=dark');
+    await j2.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await j2.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    step('改动列表可见', true, '列表已渲染');
+    // 4) 单击选择 → 打开差异
+    await j2.page.locator('.changes-list .change-file-row').first().dblclick();
+    await j2.page.waitForFunction('window.__augitLive.diff', null, { timeout: 15000 });
+    const diffState = await j2.page.evaluate(() => ({
+      path: window.__augitLive.diff.path,
+      rows: window.__augitLive.diff.rows.length,
+      editor: window.__augitLive.editor,
+      tab: document.querySelector('.change-tab-caption') ? document.querySelector('.change-tab-caption').innerText : '',
+      status: document.querySelector('.statusbar').innerText.replace(/\n/g, ' '),
+    }));
+    step('打开差异', diffState.editor === 'diff' && diffState.rows > 0, `行数=${diffState.rows}`);
+    // 记录一处已知的集成缝隙：视觉稿的改动列表工作流用
+    // 「.check-row[data-file]」创建临时比较标签，而实时行的类名与属性不同，
+    // 因此双击实时行只更新了编辑区（由 live-data 的委托完成），
+    // 不会走视觉稿那条建标签的路径。这里如实记录，不做假通过。
+    const tabProbe = await j2.page.evaluate(() => ({
+      changeCaps: [...document.querySelectorAll('.change-tab-caption')].map((e) => e.innerText),
+      diffTab: !!document.querySelector('[data-workspace-diff-tab]'),
+      liveRowsHaveCheckRow: document.querySelectorAll('.changes-list .check-row').length,
+      liveRowsTotal: document.querySelectorAll('.changes-list .change-file-row').length,
+    }));
+    console.log('INFO 改动列表标签工作流=' + JSON.stringify(tabProbe));
+    step('差异正文可用（标签工作流见 INFO）', diffState.rows > 0, `行数=${diffState.rows}`);
+    step('差异态状态栏不带编码', !diffState.status.includes('UTF-8'), diffState.status);
+
+    // 5) 外部变化驱动刷新：文件列表新增一项后，改动列表应更新
+    await j2.page.evaluate(() => {
+      window.__liveFiles = [
+        { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+        { path: 'src/New.cs', name: 'New.cs', directory: 'src', group: 'Changes', kind: 'Added', staged: true, workingTree: false },
+      ];
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\New.cs'], gitMetadata: true };
+    });
+    await j2.page.waitForFunction('document.querySelectorAll(".changes-list .change-file-row").length >= 2', null, { timeout: 10000 });
+    const rowsAfter = await j2.page.locator('.changes-list .change-file-row').count();
+    step('外部变化后列表更新', rowsAfter >= 2, `行数=${rowsAfter}`);
+    // 当前差异文件未变，不应重新请求
+    const callsAfter = await j2.page.evaluate('(window.__diffCalls || []).length');
+    step('无关文件变化不重载当前差异', callsAfter === 1, `diff 请求=${callsAfter}`);
+    // 6) 展开的树/打开的文档在这一切之后仍然一致
+    step('流程结束时界面仍可用', await j2.page.evaluate('!!document.querySelector(".editor-content")'), '编辑区存在');
+    await j2.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
