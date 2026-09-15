@@ -89,6 +89,10 @@ internal sealed class ShellBridge
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
+            "git/remotes" => await ReadRemotesAsync(cancellationToken),
+            "git/references" => await ReadReferencesAsync(cancellationToken),
+            "git/stashes" => await ReadStashesAsync(cancellationToken),
+            "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -239,6 +243,140 @@ internal sealed class ShellBridge
         };
     }
 
+    /// <summary>读取远端列表。</summary>
+    private async Task<object?> ReadRemotesAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, remotes = Array.Empty<object>() };
+        }
+
+        GitRemoteService remotes = new(runtime);
+        GitRemoteListResult result = await remotes.ReadRemotesAsync(repository!, cancellationToken);
+        if (!result.IsSuccess || result.Remotes is not { } list)
+        {
+            return new { available = false, reason = result.ErrorMessage, remotes = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            remotes = list.Select(remote => new
+            {
+                name = remote.Name,
+                fetchUrl = remote.FetchUrl,
+                pushUrl = remote.PushUrl,
+            }),
+        };
+    }
+
+    /// <summary>读取分支与标签。</summary>
+    private async Task<object?> ReadReferencesAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, branches = Array.Empty<object>(), tags = Array.Empty<object>() };
+        }
+
+        GitReferenceService references = new(runtime);
+        GitReferenceResult result = await references.ReadAsync(repository!, cancellationToken);
+        if (!result.IsSuccess || result.Snapshot is not { } snapshot)
+        {
+            return new
+            {
+                available = false,
+                reason = result.ErrorMessage,
+                branches = Array.Empty<object>(),
+                tags = Array.Empty<object>(),
+            };
+        }
+
+        return new
+        {
+            available = true,
+            branches = snapshot.Branches.Select(branch => new
+            {
+                name = branch.Name,
+                isRemote = branch.IsRemote,
+                isCurrent = branch.IsCurrent,
+                upstream = branch.Upstream,
+                commitHash = branch.CommitHash,
+                subject = branch.Subject,
+            }),
+            tags = snapshot.Tags.Select(tag => new
+            {
+                name = tag.Name,
+                commitHash = tag.CommitHash,
+                isAnnotated = tag.IsAnnotated,
+            }),
+        };
+    }
+
+    /// <summary>读取 Stash 列表。</summary>
+    private async Task<object?> ReadStashesAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, stashes = Array.Empty<object>() };
+        }
+
+        GitWorkspaceStateService states = new(runtime);
+        GitStashListResult result = await states.ReadStashesAsync(repository!, cancellationToken);
+        if (!result.IsSuccess || result.Stashes is not { } list)
+        {
+            return new { available = false, reason = result.ErrorMessage, stashes = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            stashes = list.Select(stash => new
+            {
+                reference = stash.Reference,
+                message = stash.Message,
+                branch = stash.Branch,
+                subject = stash.Subject,
+                date = stash.Date.ToLocalTime()
+                    .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+            }),
+        };
+    }
+
+    /// <summary>读取 Worktree 列表。</summary>
+    private async Task<object?> ReadWorktreesAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, worktrees = Array.Empty<object>() };
+        }
+
+        GitWorktreeService worktrees = new(runtime);
+        GitWorktreeListResult result = await worktrees.ReadAsync(repository!, cancellationToken);
+        if (!result.IsSuccess || result.Worktrees is not { } list)
+        {
+            return new { available = false, reason = result.ErrorMessage, worktrees = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            worktrees = list.Select(worktree => new
+            {
+                path = worktree.Path,
+                branch = worktree.Branch,
+                commitHash = worktree.CommitHash,
+                isBare = worktree.IsBare,
+                isDetached = worktree.IsDetached,
+                isLocked = worktree.IsLocked,
+                isPrunable = worktree.IsPrunable,
+            }),
+        };
+    }
+
     /// <summary>读取单个提交的详情：正文与变更文件列表。</summary>
     private async Task<object?> ReadCommitAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
@@ -381,6 +519,12 @@ internal sealed class ShellBridge
         GitRepositoryOperationResult inspection =
             await repositories.InspectAsync(_workspaceRoot, cancellationToken);
         return (runtime, inspection.IsSuccess ? inspection.Repository : null);
+    }
+
+    private static bool IsUsable(GitRepositorySnapshot? repository, GitRuntimeInfo runtime)
+    {
+        return runtime.IsAvailable && repository is not null
+            && repository.Kind == GitRepositoryKind.WorkingTree;
     }
 
     private string ResolveInsideWorkspace(string relativePath)

@@ -88,7 +88,8 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 | 文件历史（限定路径） | 已完成（浏览器验收通过） | 验收套件 28 项断言覆盖行数、首行内容、标签路径与样例隔离 |
 | Git 历史工具窗（提交详情） | 已完成 | 真实外壳截图显示真实提交主题与 3 个变更文件 |
 | 提交图（多轨复杂结构） | 未开始 | — |
-| 对话框族（Push/Remote/Clone/Stash/Reset/Worktree/冲突解决器） | 未开始 | — |
+| 远端 / Stash / Worktree 管理窗口 | 已完成 | 真实外壳截图显示真实远端 origin 与真实 URL |
+| 对话框族（Push/Clone/Reset/Rollback/冲突解决器） | 未开始 | — |
 | 终端 | 未开始 | — |
 
 ### Git 调用路径优化（第六轮）
@@ -255,6 +256,18 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 **真实外壳截图确认**（1740×1150 窗口）：
 提交详情显示真实主题（`fix(shell): 修复重复初始化，并为底部面板补齐取证`）、
 `3 个文件` 与真实文件名（`ui-refactor-baseline.md` 等）、真实作者与日期（`l49 09/15`）。
+
+### 第十二轮：管理窗口接真实数据
+
+- 新增四个只读宿主方法：`git/remotes`、`git/references`、`git/stashes`、`git/worktrees`。
+- 网页层新增 `liveManagementPage`，把远端 / Stash / Worktree 三个管理窗口接到真实数据，
+  结构、图标与样式沿用样例版。
+- 新增 `loadReferences`：并发取四类数据并在到达后补一次重绘（管理窗口依赖它们）。
+- 修复两处渲染生命周期问题：整页重绘会清空提交详情区，新增 `refreshCommitDetails`
+  在每次重绘后补齐；`__augitHistoryReady` 不再被详情加载阻塞。
+- 验收套件扩充到 **37 项断言**（新增远端列表/URL、Stash 列表与样例隔离）。
+
+**真实外壳截图确认**：远端管理显示真实远端 `origin` 与真实 URL（`git@github.com:…`）。
 
 ### 关于 CDP 诊断通道的结论
 

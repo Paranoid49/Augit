@@ -61,6 +61,14 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  remotes: { available: true, remotes: [{ name: 'origin', fetchUrl: 'https://example.com/team/Augit.git', pushUrl: 'https://example.com/team/Augit.git' }] },
+  references: {
+    available: true,
+    branches: [{ name: 'dsh', isRemote: false, isCurrent: true, upstream: 'origin/dsh', commitHash: 'aaa1111', subject: 'feat: 一' }],
+    tags: [],
+  },
+  stashes: { available: true, stashes: [{ reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' }] },
+  worktrees: { available: true, worktrees: [{ path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false }] },
   commit: {
     available: true,
     hash: 'aaa1111', fullHash: 'full-head-hash',
@@ -142,6 +150,10 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/remotes') return data.remotes;
+      if (method === 'git/references') return data.references;
+      if (method === 'git/stashes') return data.stashes;
+      if (method === 'git/worktrees') return data.worktrees;
       if (method === 'git/commit') {
         return params.revision === data.commit.fullHash ? data.commit : { available: false, reason: 'unknown' };
       }
@@ -261,7 +273,12 @@ async function main() {
     historyPage.on('pageerror', (error) => historyErrors.push(error.message));
     await historyPage.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
     await historyPage.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
-    await historyPage.waitForFunction('window.__augitCommitLoaded === "aaa1111"', null, { timeout: 15000 });
+    try {
+      await historyPage.waitForFunction('window.__augitCommitLoaded === "aaa1111"', null, { timeout: 15000 });
+    } catch {
+      const st = await historyPage.evaluate(() => ({ err: window.__augitError || null, loaded: window.__augitCommitLoaded || null }));
+      throw new Error('提交详情未加载: ' + JSON.stringify(st));
+    }
     check('提交详情无页面错误', historyErrors.length === 0);
     const changed = await historyPage.locator('[data-live-changed-files]').innerText();
     check('提交详情列出真实变更文件: ' + JSON.stringify(changed.slice(0, 60)), changed.includes('2 个文件') && changed.includes('App.cs'));
@@ -269,6 +286,37 @@ async function main() {
     check('提交详情显示真实提交信息', detail.includes('feat: 真实提交一') && detail.includes('提交正文说明。'));
     check('提交详情不残留样例', !changed.includes('architecture.md'));
     await historyPage.close();
+
+    // ---- 远端管理 ----
+    const remote = await openScene('scene=remote&theme=dark');
+    try {
+      await remote.page.waitForFunction('window.__augitRefsReady === true', null, { timeout: 20000 });
+    } catch {
+      const st = await remote.page.evaluate(() => ({
+        err: window.__augitError || null,
+        refs: !!window.__augitRefsReady,
+        hasRemotes: !!(window.__augitLive && window.__augitLive.remotes),
+        hasRefs: !!(window.__augitLive && window.__augitLive.references),
+      }));
+      throw new Error('远端数据未就绪: ' + JSON.stringify(st));
+    }
+    await remote.page.waitForSelector('.management-list .tree-row', { timeout: 10000 });
+    const remoteList = await remote.page.locator('.management-list .tree-row').allInnerTexts();
+    check('远端管理列出真实远端: ' + JSON.stringify(remoteList), remoteList.some((text) => text.includes('origin')));
+    // 远端 URL 在输入框里，innerText 取不到，必须读 value。
+    const remoteInputs = await remote.page.locator('.management-detail input').evaluateAll((els) => els.map((e) => e.value));
+    check('远端详情显示真实 URL: ' + JSON.stringify(remoteInputs), remoteInputs.includes('https://example.com/team/Augit.git'));
+    check('远端管理不残留样例', !remoteList.some((text) => text.includes('backup')));
+    await remote.page.close();
+
+    // ---- Stash 管理 ----
+    const stash = await openScene('scene=stash-manager&theme=dark');
+    await stash.page.waitForFunction('window.__augitRefsReady === true', null, { timeout: 20000 });
+    await stash.page.waitForSelector('.management-list .tree-row', { timeout: 10000 });
+    const stashList = await stash.page.locator('.management-list .tree-row').allInnerTexts();
+    check('Stash 管理列出真实贮藏: ' + JSON.stringify(stashList), stashList.some((text) => text.includes('真实贮藏')));
+    check('Stash 管理不残留样例', !stashList.some((text) => text.includes('工作区切换前')));
+    await stash.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

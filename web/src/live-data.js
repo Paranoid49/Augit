@@ -241,11 +241,61 @@ async function loadBlame(path) {
   }
 }
 
+/** 读取远端、分支标签、Stash 与 Worktree，供管理窗口使用。 */
+async function loadReferences() {
+  try {
+    const [remotes, references, stashes, worktrees] = await Promise.all([
+      invoke("git/remotes", {}, 30000).catch(() => null),
+      invoke("git/references", {}, 30000).catch(() => null),
+      invoke("git/stashes", {}, 30000).catch(() => null),
+      invoke("git/worktrees", {}, 30000).catch(() => null),
+    ]);
+    const live = window.__augitLive;
+    let changed = false;
+    if (live) {
+      if (remotes && remotes.available) { live.remotes = remotes; changed = true; }
+      if (references && references.available) { live.references = references; changed = true; }
+      if (stashes && stashes.available) { live.stashes = stashes; changed = true; }
+      if (worktrees && worktrees.available) { live.worktrees = worktrees; changed = true; }
+    }
+
+    // 管理窗口依赖这些数据，因此到达后补一次重绘；重绘会清空提交详情区，需要重新补齐。
+    if (changed && typeof window.__augitRender === "function") {
+      window.__augitRender();
+      void refreshCommitDetails();
+    }
+  } catch (error) {
+    window.__augitError = "load-references:" + String(error && error.message || error);
+  } finally {
+    // 即使失败也要放行，避免把界面卡在等待状态。
+    window.__augitRefsReady = true;
+  }
+}
+
 /** 转义为可安全插入 HTML 的文本。 */
 function escapeText(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[character]));
+}
+
+/**
+ * 在当前渲染结果上补齐提交详情。整页重绘会清空详情区，
+ * 因此每次重绘后都要调用它；已加载同一个提交时跳过，避免重复请求。
+ */
+async function refreshCommitDetails() {
+  const live = window.__augitLive;
+  if (!live || !live.history || live.history.commits.length === 0) return;
+  const selected = document.querySelector('.commit-row[aria-selected="true"]');
+  const revision = selected && selected.dataset.fullHash
+    ? selected.dataset.fullHash
+    : live.history.commits[0].fullHash;
+  if (window.__augitCommitLoaded === revision
+      && document.querySelector('[data-live-changed-files] .tree-row')) {
+    return;
+  }
+
+  await loadCommitDetails(revision);
 }
 
 /**
@@ -379,6 +429,7 @@ async function boot() {
     window.__augitGitReady = true;
   }
 
+  const referencesPromise = hasHost() ? loadReferences() : Promise.resolve(null);
   const history = await historyPromiseRef;
   if (history) {
     // 历史更慢，到达后再补一次重绘，底部 Git 日志与历史工具窗随之更新。
@@ -388,12 +439,17 @@ async function boot() {
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
       if (revision) void loadCommitDetails(revision);
     });
+    // 先标记就绪：详情加载不能拖住其它断言与界面可用性。
+    window.__augitHistoryReady = true;
     if (history.commits.length > 0) {
-      await loadCommitDetails(history.commits[0].fullHash);
+      void refreshCommitDetails();
     }
-
+  } else {
     window.__augitHistoryReady = true;
   }
+
+  // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
+  void referencesPromise;
 }
 
 /** 目录展开/折叠：状态写入 store 后整页重绘，因此打开文件不会丢失展开层级。 */
@@ -481,4 +537,10 @@ async function openDocument(path) {
   // 重绘会替换项目树，事件委托挂在 #app 上因此仍然有效。
 }
 
-await boot();
+try {
+  await boot();
+} catch (error) {
+  window.__augitError = "boot-failed:" + String(error && error.stack || error);
+  window.__augitHistoryReady = true;
+  window.__augitGitReady = true;
+}

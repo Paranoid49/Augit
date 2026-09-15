@@ -1353,6 +1353,42 @@ function managementPage(kind) {
   return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${title} 管理</strong></div><div class="management-content"><div class="management-list">${entries.map((entry, index) => `<div class="tree-row ${index === selectedIndex ? "selected" : ""}">${icon(kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive")}<span class="tree-name">${entry}</span></div>`).join("")}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
+// 外壳注入真实数据时的管理页：结构、图标与样式与样例版一致。
+function liveManagementPage(kind) {
+  const live = window.__augitLive || {};
+  const configs = {
+    remote: () => {
+      const remotes = (live.remotes && live.remotes.remotes) || [];
+      const entries = remotes.map(remote => remote.name);
+      const first = remotes[0];
+      const detail = first ? `<h2>${escapeHtml(first.name)}</h2><div class="form-grid"><label>名称</label><input class="text-field" value="${escapeHtml(first.name)}" readonly><label>获取 URL</label><input class="text-field" value="${escapeHtml(first.fetchUrl)}" readonly><label>推送 URL</label><input class="text-field" value="${escapeHtml(first.pushUrl)}" readonly></div>` : `<p class="commit-meta">没有配置远端</p>`;
+      return ["远端", entries, detail];
+    },
+    worktrees: () => {
+      const worktrees = (live.worktrees && live.worktrees.worktrees) || [];
+      const entries = worktrees.map(worktree => `${worktree.branch || "(detached)"} · ${worktree.path}`);
+      const first = worktrees[0];
+      const detail = first ? `<h2>${escapeHtml(first.branch || "(detached)")}</h2><div class="form-grid"><span>路径</span><span>${escapeHtml(first.path)}</span><span>状态</span><span>${first.isLocked ? "已锁定" : first.isPrunable ? "可清理" : "干净，可安全移除"}</span></div>` : `<p class="commit-meta">没有 Worktree</p>`;
+      return ["Worktree", entries, detail];
+    },
+    stash: () => {
+      const stashes = (live.stashes && live.stashes.stashes) || [];
+      const entries = stashes.map(stash => `${stash.reference} ${stash.message}`);
+      const first = stashes[0];
+      const detail = first ? `<h2>${escapeHtml(first.reference)} · ${escapeHtml(first.message)}</h2><p class="commit-meta">${escapeHtml(first.branch)} · ${escapeHtml(first.date)}</p>` : `<p class="commit-meta">没有 Stash</p>`;
+      return ["Stash", entries, detail];
+    },
+  };
+  const build = configs[kind];
+  if (!build) return managementPage(kind);
+  const [title, entries, detail] = build();
+  const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive";
+  const list = entries.length === 0
+    ? `<p class="commit-meta">空</p>`
+    : entries.map((entry, index) => `<div class="tree-row ${index === 0 ? "selected" : ""}">${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`).join("");
+  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
+}
+
 function conflictResolver() {
   const code = lines => lines.map(([text, kind]) => kind === "gap"
     ? `<span class="conflict-spacer" aria-hidden="true" style="height:calc(${text} * var(--conflict-line-height, 1.7em))"></span>`
@@ -2182,8 +2218,8 @@ function renderScene() {
     case "history-diff-cancelled": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: scene.slice("history-diff-".length) });
     case "branches": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: branchesPopover(), selectedFile: "app.manifest" });
     case "stash": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: dialog("Stash", stashBody, `<button class="secondary-button">取消</button><button class="primary-button">创建 Stash</button>`, false, "stash-dialog") });
-    case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
-    case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
+    case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
+    case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
     case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
     case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
     case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
@@ -2206,7 +2242,7 @@ function renderScene() {
     case "commit-empty": return shell({ activeRail: "commit", side: "commit-empty", editor: "markdown" });
     case "diff-loading": return shell({ activeRail: "commit", side: "commit", editor: "diff-loading", bottom: "git", selectedFile: "app.manifest" });
     case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", pushDialogBody(true), `<button class="secondary-button">取消</button><button class="primary-button" disabled>推送</button>`, true, "push-dialog push-no-remote") });
-    case "stash-manager": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Stash 管理", managementPage("stash"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "stash-manager-dialog") });
+    case "stash-manager": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Stash 管理", (window.__augitLive && window.__augitLive.stashes) ? liveManagementPage("stash") : managementPage("stash"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "stash-manager-dialog") });
     case "project-context-menu": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "terminal", overlay: projectContextMenu() });
     case "changes-context-menu": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: changesContextMenu(), selectedFile: "app.manifest" });
     case "git-history-menu": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", overlay: gitLogContextMenu() });
