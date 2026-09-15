@@ -71,3 +71,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\audit\capture-surf
 
 `src/Augit.Core` 与 `src/Augit.Infrastructure` 共 11929 行，是纯逻辑与 Win32 互操作层（Git 命令与解析、工作区文件、
 rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方式无关，重建界面时可整体保留。
+
+## 7. 重构进度
+
+| 模块 | 状态 | 证据 |
+|---|---|---|
+| WebView2 外壳（窗口、控件承载、场景/主题/像素对照参数） | 已完成 | 真实窗口截图；Release 构建 0 警告 0 错误 |
+| 界面资源层（`web`，与视觉稿共用同一套 CSS/场景脚本） | 已完成 | `verify-ui-assets.ps1` 四个共享文件逐字节一致 |
+| 数据桥（`workspace/info`、`workspace/list`、`document/read`、`git/status`） | 已完成 | 真实窗口截图显示 23 条真实工作区条目 |
+| 项目树接真实数据 + 目录懒展开 | 已完成 | 首屏 `info` 55ms、`root` 131ms；展开点击已验证 |
+| Git 状态异步补齐（不阻塞首屏） | 已完成 | `git/status` 实测约 15 秒，已移出首屏路径 |
+| 正文 / Markdown / JSON / 图片接真实文档 | 未开始 | — |
+| Changes 工具窗接真实状态 | 未开始 | — |
+| Git 历史、提交图、文件历史、Blame | 未开始 | — |
+| 对话框族（Push/Remote/Clone/Stash/Reset/Worktree/冲突解决器） | 未开始 | — |
+| 终端 | 未开始 | — |
+
+### 已知待办
+
+- `git/status` 单次约 15 秒，明显偏慢：需要定位是进程启动、命令数量还是输出解析导致，
+  再决定是否需要合并命令或改为后台常驻查询。
+- 项目树目前用界面侧忽略清单隐藏构建产物；应改为读取 Git 自身忽略规则（需要
+  `Augit.Infrastructure` 暴露公开接口，当前 `GitCommandRunner` 是 internal）。
+- `docs/ux-mockups/mockup.js` 是显式重复副本（与 `web/src` 一致），已由校验脚本防漂移；
+  后续应抽出共享模块消除重复。
