@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Augit.Core.Documents;
@@ -84,6 +85,7 @@ internal sealed class ShellBridge
             "workspace/list" => ListDirectory(parameters),
             "document/read" => await ReadDocumentAsync(parameters, cancellationToken),
             "git/status" => await ReadStatusAsync(cancellationToken),
+            "git/history" => await ReadHistoryAsync(cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -190,6 +192,61 @@ internal sealed class ShellBridge
                 kind = file.Kind.ToString(),
                 staged = file.HasStagedChanges,
                 workingTree = file.HasWorkingTreeChanges,
+            }),
+        };
+    }
+
+    /// <summary>
+    /// 读取 Git 历史并整理成底部日志与历史工具窗需要的形状。
+    /// 仓库检查与历史读取共用一次 locator 解析，避免重复启动 git 进程。
+    /// </summary>
+    private async Task<object?> ReadHistoryAsync(CancellationToken cancellationToken)
+    {
+        GitExecutableLocator locator = new();
+        GitRuntimeInfo runtime = await locator.ResolveAsync(null, cancellationToken);
+        if (!runtime.IsAvailable)
+        {
+            return new { available = false, reason = runtime.UnavailableReason };
+        }
+
+        GitRepositoryService repositories = new(runtime);
+        GitRepositoryOperationResult inspection = await repositories.InspectAsync(_workspaceRoot, cancellationToken);
+        if (!inspection.IsSuccess || inspection.Repository is not { } repository
+            || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = inspection.ErrorMessage ?? "该目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitHistoryService history = new(runtime);
+        GitHistoryResult result = await history.ReadPageAsync(
+            repository,
+            new GitHistoryRequest(Page: 0, PageSize: 100),
+            cancellationToken);
+        if (!result.IsSuccess || result.Page is not { } page)
+        {
+            return new { available = true, isRepository = true, reason = result.ErrorMessage };
+        }
+
+        // HEAD 由历史条目自带的引用标记给出，避免为取 HEAD 再启动一次 git 进程。
+        string? head = page.Entries
+            .FirstOrDefault(entry => entry.References.Any(reference => reference.IsHead))
+            ?.FullHash;
+        return new
+        {
+            available = true,
+            isRepository = true,
+            head,
+            hasNextPage = page.HasNextPage,
+            commits = page.Entries.Select(entry => new
+            {
+                hash = entry.ShortHash,
+                fullHash = entry.FullHash,
+                subject = entry.Subject,
+                author = entry.AuthorName,
+                date = entry.AuthorDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+                graph = entry.Graph,
+                parents = entry.ParentHashes.Select(parent => parent[..Math.Min(7, parent.Length)]).ToArray(),
+                references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
         };
     }

@@ -1855,7 +1855,55 @@ function commitGraphSvg(graph, index, rowHeight = 26) {
   return `<svg class="commit-graph-svg" data-graph-row='${JSON.stringify(row)}' viewBox="0 0 ${graph.width} ${rowHeight}" aria-hidden="true">${paths}${node}</svg>`;
 }
 
+// 外壳注入真实历史时使用：沿用与样例版一致的提交行、分支标签与图形结构。
+function liveGitLog(history, selected, cancelComparison) {
+  const commits = history.commits.map(commit => [commit.subject, (commit.references || []).join(" ") , commit.author, commit.date]);
+  const entries = history.commits.map(commit => ({
+    hash: commit.hash,
+    head: commit.fullHash === history.head,
+    parents: commit.parents || [],
+  }));
+  const fullByShort = new Map(history.commits.map(commit => [commit.hash, commit.fullHash]));
+  for (const entry of entries) {
+    entry.parents = (entry.parents || []).map(parent => fullByShort.get(parent) || parent);
+  }
+
+  const graph = buildCommitGraph(entries);
+  const filters = ["分支", "用户", "日期", "路径"];
+  const branchLabel = (commit) => (commit.references || []).filter(name => name !== "HEAD").join(" ");
+  const branches = new Set();
+  for (const commit of history.commits) {
+    for (const name of commit.references || []) {
+      if (name !== "HEAD" && name !== "origin/HEAD") branches.add(name);
+    }
+  }
+  const branchRows = [...branches].sort().map(name =>
+    `<div class="tree-row depth-1${name === history.branch ? " selected" : ""}">${gitReferenceIcon()} ${escapeHtml(name)}</div>`).join("");
+  const emptyRow = `<p class="commit-meta">没有提交</p>`;
+  return `<section class="bottom-tool">
+    <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
+    <div class="git-toolbar-layout">
+      <nav class="git-side-toolbar" aria-label="Git 日志工具"><button class="toolbar-button" aria-label="返回">${icon("history-back")}</button><span class="rail-separator"></span><button class="toolbar-button" aria-label="新建引用">${icon("plus")}</button><button class="toolbar-button" aria-label="删除引用">${icon("trash-2")}</button><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="搜索">${icon("history-search")}</button><button class="toolbar-button" aria-label="比较">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="定位 HEAD">${icon("locate-fixed")}</button></nav>
+      <div class="git-log">
+        <div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签"></label></div><div class="tree"><div class="tree-row">HEAD（当前分支）</div><div class="tree-row"><span>${icon("chevron-down")}</span><strong>本地</strong></div>${branchRows}</div></div>
+        <div class="log-list-panel">
+          <div class="log-filterbar history-filters">
+            <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希"></label>
+            ${filters.map((label, index) => `<button class="toolbar-button history-filter" data-history-filter="${index}"><span>${label}</span>${icon("chevron-down")}</button>`).join("")}
+            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${filters.map((label, index) => `<button data-history-filter="${index}">${icon("search")}${label}</button>`).join("")}</div></details>
+            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button>
+          </div>
+          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${history.commits.length === 0 ? emptyRow : history.commits.map((commit, index) => `<div class="commit-row ${index === 0 ? "selected" : ""}" role="option" aria-selected="${index === 0}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${branchLabel(commit) ? `${gitReferenceIcon(false)} ${escapeHtml(branchLabel(commit))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
+        </div>
+        <div class="log-detail-panel"><div class="changed-files"><p class="commit-meta">选择提交以查看变更</p></div><div class="commit-detail">${history.commits.length === 0 ? `<p class="commit-meta">提交详情</p>` : `<h3>${escapeHtml(history.commits[0].subject)}</h3><div>${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}</div>`}</div></div>
+      </div>
+    </div>
+  </section>`;
+}
+
 function gitLog(selected = true, complexGraph = false, cancelComparison = false) {
+  const liveHistory = window.__augitLive && window.__augitLive.history;
+  if (liveHistory && !complexGraph) return liveGitLog(liveHistory, selected, cancelComparison);
   let commits = complexGraph ? [
     ["merge: 合并历史界面调整", "main", "I49", "2026/8/29 11:00"],
     ["fix: 修正工具栏图标", "", "I49", "2026/8/29 10:00"],

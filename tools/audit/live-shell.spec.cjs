@@ -47,6 +47,15 @@ const WORKSPACE = {
     ],
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
+  history: {
+    available: true, isRepository: true,
+    head: 'full-head-hash',
+    hasNextPage: false,
+    commits: [
+      { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222'], references: ['HEAD', 'dsh'] },
+      { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
+    ],
+  },
   status: {
     branch: 'live-branch',
     files: [
@@ -107,6 +116,9 @@ async function main() {
           if (!found) throw new Error('not found: ' + params.path);
           return found;
         }
+        if (method === 'git/history') {
+          return data.history;
+        }
         if (method === 'git/status') {
           return {
             available: true, isRepository: true, isDetached: false,
@@ -133,7 +145,9 @@ async function main() {
       throw new Error(`等待 __augitReady 超时；状态=${JSON.stringify(state)}；页面错误=${JSON.stringify(errors)}`);
     }
     try {
-      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 8000 });
+      // 状态与历史到达后各会补一次重绘；先等全部就绪，避免点击被重绘打断。
+    await page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 8000 });
     } catch {
       const state = await page.evaluate(() => ({
         live: !!window.__augitLive,
@@ -144,7 +158,7 @@ async function main() {
       throw new Error('等待树超时 state=' + JSON.stringify(state));
     }
 
-    check('无页面脚本错误', errors.length === 0);
+    check('无页面脚本错误: ' + JSON.stringify(errors.slice(0, 2)), errors.length === 0);
     check('注入真实工作区数据', await page.evaluate('!!window.__augitLive'));
     const tree = page.locator('.side-content.tree .tree-row');
     check('树显示根与一层', await tree.count() === 4);
@@ -226,6 +240,20 @@ async function main() {
     check('提交区显示改动数: ' + modifiedCount, modifiedCount.includes('2 modified'));
     check('未跟踪文件默认不勾选', await changesPage.locator('.change-file-row[data-path="notes/draft.txt"] .fake-check.checked').count() === 0);
     await changesPage.close();
+
+    // 底部 Git 日志：必须渲染真实提交
+    const logPage = await context.newPage();
+    await logPage.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+    await logPage.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await logPage.waitForSelector('.commit-row', { timeout: 8000 });
+    const subjects = await logPage.locator('.commit-subject').allInnerTexts();
+    check('Git 日志显示真实提交: ' + JSON.stringify(subjects), subjects.length === 2 && subjects[0].includes('真实提交一'));
+    check('提交行带完整哈希', await logPage.locator('.commit-row[data-full-hash="full-head-hash"]').count() === 1);
+    const branchLabels = await logPage.locator('.branch-label').allInnerTexts();
+    check('分支标签来自真实引用: ' + JSON.stringify(branchLabels), branchLabels.some((text) => text.includes('dsh')));
+    const logBranches = await logPage.locator('.log-ref-panel .tree-row').allInnerTexts();
+    check('引用树列出真实分支: ' + JSON.stringify(logBranches), logBranches.some((text) => text.includes('dsh')));
+    await logPage.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

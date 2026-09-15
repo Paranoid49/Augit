@@ -21,6 +21,7 @@ function isVisibleEntry(entry) {
 // 目录树状态：展开集合与子项缓存都保存在这里，
 // 这样打开文件触发整页重绘时不会丢失展开状态，也不会重复向宿主请求。
 let latestStatus = null;
+let latestHistory = null;
 const expandedPaths = new Set([""]);
 const childrenByPath = new Map();
 
@@ -123,6 +124,7 @@ async function loadDocument() {
     };
     window.__augitLive = liveObject;
     applyStatus();
+    applyHistory();
     return liveObject;
   } catch (error) {
     window.__augitError = "load-document:" + String(error && error.message || error);
@@ -180,6 +182,45 @@ function normalizeStatus(status) {
   return { branch: status.branch, isDetached: status.isDetached, files };
 }
 
+/**
+ * 读取 Git 历史。与状态一样在首屏之后补取，不阻塞界面出现。
+ */
+async function loadHistory() {
+  try {
+    const history = await invoke("git/history", {}, 60000);
+    if (!history || !history.available || !history.isRepository || !history.commits) {
+      return null;
+    }
+
+    latestHistory = {
+      head: history.head,
+      branch: latestStatus ? latestStatus.branch : null,
+      commits: history.commits.map((commit) => ({
+        hash: commit.hash,
+        fullHash: commit.fullHash,
+        subject: commit.subject,
+        author: commit.author,
+        date: commit.date,
+        references: commit.references || [],
+        parents: commit.parents || [],
+      })),
+    };
+    applyHistory();
+    return latestHistory;
+  } catch (error) {
+    window.__augitError = "load-history:" + String(error && error.message || error);
+    return null;
+  }
+}
+
+/** 历史与状态可能任意先后到达，因此统一在这里附着。 */
+function applyHistory() {
+  const live = window.__augitLive;
+  if (!live || !latestHistory) return;
+  if (!latestHistory.branch && live.branch) latestHistory.branch = live.branch;
+  live.history = latestHistory;
+}
+
 /** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */
 function applyStatus() {
   const live = window.__augitLive;
@@ -192,10 +233,12 @@ function applyStatus() {
 
 async function boot() {
   let statusPromiseRef = Promise.resolve(null);
+  let historyPromiseRef = Promise.resolve(null);
   const requestedDocument = new URLSearchParams(window.location.search).get("open");
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
+    historyPromiseRef = loadHistory();
     window.__augitLive = await Promise.race([
       loadDocument(),
       new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
@@ -229,6 +272,13 @@ async function boot() {
     // Git 状态比首屏慢，到达后补一次重绘：分支名与 Changes 工具窗都随之更新。
     window.__augitRender();
     window.__augitGitReady = true;
+  }
+
+  const history = await historyPromiseRef;
+  if (history) {
+    // 历史更慢，到达后再补一次重绘，底部 Git 日志与历史工具窗随之更新。
+    window.__augitRender();
+    window.__augitHistoryReady = true;
   }
 }
 
