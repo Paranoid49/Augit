@@ -13,7 +13,7 @@ namespace Augit.Shell;
 /// 网页层与 C# 能力层之间的消息桥。网页发送 <c>{ id, method, params }</c>，
 /// 这里返回 <c>{ id, result }</c> 或 <c>{ id, error }</c>。
 /// </summary>
-internal sealed class ShellBridge : IDisposable
+internal sealed class ShellBridge
 {
     private static readonly JsonSerializerOptions PayloadOptions = new()
     {
@@ -22,9 +22,6 @@ internal sealed class ShellBridge : IDisposable
     };
 
     private readonly string _workspaceRoot;
-    private readonly SemaphoreSlim _gitGate = new(1, 1);
-    private GitRuntimeInfo? _runtime;
-    private GitRepositorySnapshot? _repository;
 
     public ShellBridge(string workspaceRoot)
     {
@@ -32,11 +29,6 @@ internal sealed class ShellBridge : IDisposable
     }
 
     public string WorkspaceRoot => _workspaceRoot;
-
-    public void Dispose()
-    {
-        _gitGate.Dispose();
-    }
 
     public async Task<string> HandleAsync(string requestJson, CancellationToken cancellationToken)
     {
@@ -322,37 +314,33 @@ internal sealed class ShellBridge : IDisposable
     /// 解析 Git 运行时并检查仓库，结果在本进程内复用。
     /// 两步各自都要启动 git 进程，重复执行会明显拖慢首次加载。
     /// </summary>
-    private async Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)> ResolveGitAsync(
+    private Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)>? _gitResolution;
+
+    /// <summary>
+    /// 解析 Git 运行时并检查仓库，结果在本进程内复用。
+    /// 缓存的是 Task 而不是结果：并发的 Git 请求会共享同一次解析，
+    /// 不会因为后到者等待前者的锁而阻塞（这曾导致 blame 永久挂起）。
+    /// </summary>
+    private Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)> ResolveGitAsync(
         CancellationToken cancellationToken)
     {
-        if (_runtime is not null)
+        return _gitResolution ??= ResolveGitCoreAsync(cancellationToken);
+    }
+
+    private async Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)> ResolveGitCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        GitExecutableLocator locator = new();
+        GitRuntimeInfo runtime = await locator.ResolveAsync(null, cancellationToken);
+        if (!runtime.IsAvailable)
         {
-            return (_runtime, _repository);
+            return (runtime, null);
         }
 
-        await _gitGate.WaitAsync(cancellationToken);
-        try
-        {
-            if (_runtime is null)
-            {
-                GitExecutableLocator locator = new();
-                _runtime = await locator.ResolveAsync(null, cancellationToken);
-            }
-
-            if (_repository is null && _runtime.IsAvailable)
-            {
-                GitRepositoryService repositories = new(_runtime);
-                GitRepositoryOperationResult inspection =
-                    await repositories.InspectAsync(_workspaceRoot, cancellationToken);
-                _repository = inspection.IsSuccess ? inspection.Repository : null;
-            }
-
-            return (_runtime, _repository);
-        }
-        finally
-        {
-            _gitGate.Release();
-        }
+        GitRepositoryService repositories = new(runtime);
+        GitRepositoryOperationResult inspection =
+            await repositories.InspectAsync(_workspaceRoot, cancellationToken);
+        return (runtime, inspection.IsSuccess ? inspection.Repository : null);
     }
 
     private string ResolveInsideWorkspace(string relativePath)

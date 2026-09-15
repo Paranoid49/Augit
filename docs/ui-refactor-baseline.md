@@ -199,11 +199,29 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 **结论与处置**：外壳的桥接回复继续使用 `24a40ac` 已验证的队列实现；本轮在其上只补
 `--blame` 参数透传，未再引入新的投递机制。
 
-### 未解决
+### 第八轮：修复 Blame 挂起（真实外壳内已可用）
 
-- 真实外壳中 Blame 视图仍显示样例内容，而同一进程里项目树与分支标签已是实时数据。
-  浏览器验收套件（24 项断言，含 Blame 四项）与后端探针（blame 约 40ms 返回真实数据）都通过。
-  这是被隔离出来的单点问题，下一轮用 CDP 直接观察 blame 调用即可定位。
+**根因**：`ShellBridge` 用 `SemaphoreSlim`（`_gitGate`）串行化 Git 解析，并把结果缓存在字段里。
+启动阶段 `git/status` 与 `git/history` 并发进入；`git/blame` 随后到达时排在它们之后等待信号量。
+一旦先到者的解析仍在进行，`git/blame` 就会一直等待——在真实外壳中表现为该请求永不返回，
+而诊断日志显示它停在 `ResolveGitAsync` 之前。
+
+**修复**：改为缓存 **Task** 而不是结果（`_gitResolution ??= ResolveGitCoreAsync(...)`）。
+并发的 Git 请求共享同一次解析，后到者 await 同一个 Task，不再有锁等待。
+`_gitGate` 与 `IDisposable` 随之删除。
+
+**验证**：真实外壳内 `--scene blame --blame global.json` 现在显示
+`global.json 只读` 与真实 JSON 正文、7 行归属（与后端探针的 7 行一致）。
+
+**同时确认**：`main-project`（实时项目树 20 条 + 分支 `dsh`）与
+`commit-changes`（真实改动 `src/Augit.Shell/ShellBridge.cs`）均正常。
+
+### 关于 CDP 诊断通道的结论
+
+`--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
+但**会破坏 WebView2 的消息通道**：开启后所有桥接请求超时、页面退回样例数据。
+因此该通道只能用于排查「页面完全无数据」这类问题，不能与正常数据路径并存。
+本轮已将其移除，仅在需要时临时启用。
 
 ### 本轮踩坑记录（供后续复用）
 
