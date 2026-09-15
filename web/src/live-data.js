@@ -1132,6 +1132,8 @@ function bindPanelDividers() {
 
 // 供验收套件在清理测试残留后重新应用面板尺寸。
 // 供验收套件直接调用数据加载入口。
+window.__augitListDirectory = (path) => invoke("workspace/list", { path }, 15000);
+
 window.__augitSaveSettings = () => saveSettings();
 
 // 供验收套件直接验证写入口的字段校验；返回宿主响应并刷新本地副本。

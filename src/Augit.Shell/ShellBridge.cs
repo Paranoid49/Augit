@@ -18,6 +18,12 @@ namespace Augit.Shell;
 /// 网页层与 C# 能力层之间的消息桥。网页发送 <c>{ id, method, params }</c>，
 /// 这里返回 <c>{ id, result }</c> 或 <c>{ id, error }</c>。
 /// </summary>
+/// <summary>
+/// 本应用主动抛出的校验失败。消息是写好的中文提示，可以直接回传给界面；
+/// 与「意外异常」区分开，避免把实现细节暴露出去。
+/// </summary>
+internal sealed class BridgeValidationException(string message) : Exception(message);
+
 internal sealed class ShellBridge : IDisposable
 {
     private static readonly JsonSerializerOptions PayloadOptions = new()
@@ -74,9 +80,9 @@ internal sealed class ShellBridge : IDisposable
             object? result = await DispatchAsync(method, parameters, cancellationToken);
             return Serialize(id, result, null);
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (exception is ArgumentException or BridgeValidationException)
         {
-            // 参数校验类失败：消息是本应用自己写的中文提示，可以直接给用户看。
+            // 校验类失败：消息是本应用自己写的中文提示，可以直接给用户看。
             return Serialize(id, null, exception.Message);
         }
         catch (Exception exception) when (exception is IOException
@@ -154,7 +160,7 @@ internal sealed class ShellBridge : IDisposable
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
-            _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
+            _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
         };
     }
 
@@ -1399,7 +1405,7 @@ internal sealed class ShellBridge : IDisposable
         if (!combined.StartsWith(root, StringComparison.OrdinalIgnoreCase)
             && !string.Equals(combined, _workspaceRoot, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException($"路径越出工作区：{relativePath}");
+            throw new BridgeValidationException($"路径越出工作区：{relativePath}");
         }
 
         return combined;

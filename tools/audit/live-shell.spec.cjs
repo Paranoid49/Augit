@@ -195,11 +195,18 @@ async function main() {
     window.__hostStub = (method, params) => {
       if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
       if (method === 'workspace/list') {
+        // 桩也要实现与宿主一致的越界拒绝，否则验收无法覆盖这条安全边界。
+        const requested = String(params.path || '');
+        const resolved = requested.replaceAll('\\', '/').split('/');
+        const escapes = resolved.includes('..')
+          || requested.startsWith('/')
+          || /^[a-zA-Z]:/.test(requested);
+        if (escapes) throw new Error('路径越出工作区：' + requested);
         // 只让「展开子目录」失败，首屏根目录仍可用，便于验证后续失败的处理。
-        if (window.__workspaceGone && params.path !== '') {
-          return { path: params.path, available: false, reason: '目录不存在或无法访问，请确认工作区仍然存在。', entries: [] };
+        if (window.__workspaceGone && requested !== '') {
+          return { path: requested, available: false, reason: '目录不存在或无法访问，请确认工作区仍然存在。', entries: [] };
         }
-        return { path: params.path, entries: data.tree[params.path] || [] };
+        return { path: requested, available: true, entries: data.tree[requested] || [] };
       }
       if (method === 'workspace/changes') {
         // 由测试脚本通过 window.__nextChanges 注入一次变化批次，读取后清空。
@@ -1253,6 +1260,37 @@ async function main() {
     });
     check('设置写入失败被上报: ' + JSON.stringify(roResult), roResult.ok === false && roResult.err.includes('无法访问'));
     await roSettings.page.close();
+
+    // ---- 路径不得越出工作区 ----
+    // 这是安全边界，必须回归保护：任何一次放宽都会让界面读到工作区外的文件。
+    // 注意桥接的失败形态是「resolve 一个含 error 的对象」而不是 reject，
+    // 因此判定要看 error 字段，不能只看是否抛异常。
+    const escape = await openScene('scene=main-project&theme=dark');
+    await escape.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const escapeResult = await escape.page.evaluate(async () => {
+      const attempts = ['../secret.txt', 'docs/../../secret.txt', '..\\..\\Windows\\win.ini', 'D:\\Windows\\win.ini', '/etc/passwd'];
+      const outcomes = [];
+      for (const path of attempts) {
+        const result = await window.__augitListDirectory(path).catch((error) => ({ error: String(error && error.message || error) }));
+        outcomes.push({
+          path,
+          rejected: !!(result && (result.error || result.available === false)),
+          detail: result && result.error ? String(result.error) : null,
+        });
+      }
+      return outcomes;
+    });
+    check('越界路径全部被拒绝: ' + JSON.stringify(escapeResult.map((o) => [o.path, o.rejected])),
+      escapeResult.every((o) => o.rejected === true));
+    check('越界失败带可读原因: ' + JSON.stringify(escapeResult[0].detail),
+      escapeResult.every((o) => typeof o.detail === 'string' && o.detail.length > 0));
+    // 工作区内的正常路径不受影响
+    const inside = await escape.page.evaluate(async () => {
+      const result = await window.__augitListDirectory('docs').catch(() => null);
+      return { available: result ? result.available : null, entries: result && result.entries ? result.entries.length : -1 };
+    });
+    check('工作区内路径仍然可用: ' + JSON.stringify(inside), inside.available === true && inside.entries > 0);
+    await escape.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

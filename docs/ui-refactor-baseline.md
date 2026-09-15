@@ -1759,6 +1759,31 @@ ASCII 双引号（U+0022）与全角引号（U+F022）。
 
 **新增 3 项断言**：未知主题、未知 Shell、越界字号都不得被写入。
 
+### 第六十四轮：路径边界与越界防护
+
+**越界防护本身是正确的**：对 `../secret.txt`、`docs/../../secret.txt`、
+`..\..\Windows\win.ini`、`D:\Windows\win.ini`、`//server/share/x`
+五类尝试全部拒绝，且三种工作区写法（反斜杠结尾、大小写不同）表现一致。
+`ResolveInsideWorkspace` 在比较前给根路径补了分隔符，因此不存在
+「前缀相同但实为兄弟目录」的绕过。
+
+**发现的缺陷：拒绝原因被通用兜底吃掉。**
+`ResolveInsideWorkspace` 抛出的是 `InvalidOperationException("路径越出工作区：…")`，
+而上一轮加的异常映射把 `InvalidOperationException` 统一替换成了
+「当前操作不受支持或状态不允许。」——**一句准确的中文提示被换成了含糊的通用提示**。
+
+修复：引入 `BridgeValidationException` 区分「本应用主动抛出的校验失败」
+与「意外异常」。前者保留原消息，后者才做替换。实测越界现在返回
+`路径越出工作区：../secret.txt`。
+
+**同时纠正一个我自己的错误认知**：我原以为桥接失败会 **reject**，
+因此断言写成「必须抛异常」。实际形态是 **resolve 一个含 `error` 字段的对象**，
+所以断言全部失败——**桩确实拒绝了，是我判断失败的形态判断错了**。
+断言改为同时接受 `error` 字段与 `available=false` 两种形态。
+（桩也补上了与宿主一致的越界拒绝，否则这条安全边界在验收里没有覆盖。）
+
+**新增 3 项断言**：越界全部被拒绝、失败带可读原因、工作区内路径不受影响。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
