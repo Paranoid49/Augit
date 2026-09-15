@@ -241,6 +241,31 @@ async function loadBlame(path) {
   }
 }
 
+/** 读取限定到某个文件的提交历史。 */
+async function loadFileHistory(path) {
+  try {
+    const history = await invoke("git/file-history", { path }, 60000);
+    if (!history || !history.available || !history.commits) return null;
+    const live = window.__augitLive;
+    if (live) {
+      live.fileHistory = {
+        path: history.path,
+        commits: history.commits.map((commit) => ({
+          hash: commit.hash,
+          fullHash: commit.fullHash,
+          subject: commit.subject,
+          author: commit.author,
+          date: commit.date,
+        })),
+      };
+    }
+    return live ? live.fileHistory : null;
+  } catch (error) {
+    window.__augitError = "load-file-history:" + String(error && error.message || error);
+    return null;
+  }
+}
+
 /** 历史与状态可能任意先后到达，因此统一在这里附着。 */
 function applyHistory() {
   const live = window.__augitLive;
@@ -265,6 +290,7 @@ async function boot() {
   const query = new URLSearchParams(window.location.search);
   const requestedDocument = query.get("open");
   const requestedBlame = query.get("blame");
+  const requestedFileHistory = query.get("file-history");
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -296,6 +322,11 @@ async function boot() {
 
   if (requestedBlame && window.__augitLive) {
     await loadBlame(requestedBlame);
+    window.__augitRender();
+  }
+
+  if (requestedFileHistory && window.__augitLive) {
+    await loadFileHistory(requestedFileHistory);
     window.__augitRender();
   }
 

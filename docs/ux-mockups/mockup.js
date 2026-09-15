@@ -2032,6 +2032,17 @@ function historySampleFilesHtml(subject) {
   return `<div class="tree-row">${icon("chevron-down")}${treeFolderIcon()}<strong>${files.length} 个文件</strong></div>${render(files)}`;
 }
 
+// 外壳注入真实文件历史时使用；结构与样例版一致，复用同一套样式。
+function liveFileHistoryTool() {
+  const fileHistory = window.__augitLive.fileHistory;
+  const commits = fileHistory.commits || [];
+  const rows = commits.length === 0
+    ? `<p class="commit-meta">没有历史</p>`
+    : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.author)}</span><span>${escapeHtml(commit.date)}</span><span>${escapeHtml(commit.subject)}</span></div>`).join("");
+  const head = commits[0];
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div><div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+}
+
 function fileHistoryTool() {
   return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div><div class="history-rows"><div class="history-row selected"><span>I49</span><span>2026/8/28 8:25</span><span>feat: 实现 Augit 阶段零至五功能</span></div></div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
 }
@@ -2094,7 +2105,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
-  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading") : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? fileHistoryTool() : "";
+  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading") : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : "";
   return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}${toast}</div>`;
 }
 

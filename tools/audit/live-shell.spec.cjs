@@ -61,6 +61,13 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  fileHistory: {
+    available: true, path: 'docs/notes.txt',
+    commits: [
+      { hash: 'bbb2222', fullHash: 'full-bbb', subject: 'fix: 文件历史一', author: 'l49', date: '2026/9/14 09:00' },
+      { hash: 'aaa1111', fullHash: 'full-aaa', subject: 'feat: 文件历史二', author: 'l49', date: '2026/9/13 08:00' },
+    ],
+  },
   blame: {
     available: true, path: 'docs/notes.txt',
     lines: [
@@ -124,6 +131,7 @@ async function main() {
       if (method === 'git/status') return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
+      if (method === 'git/file-history') return data.fileHistory;
       if (method === 'document/read') {
         const found = data.documents[params.path];
         if (!found) throw new Error('not found: ' + params.path);
@@ -221,6 +229,18 @@ async function main() {
     check('Blame 正文为真实文件内容', blameBody.includes('第一行') && blameBody.includes('第三行'));
     check('Blame 不残留样例归属', !blameText.includes('2026/8/28'));
     await blame.page.close();
+
+    // ---- 文件历史 ----
+    const fileHistory = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');
+    await fileHistory.page.waitForSelector('.history-row', { timeout: 10000 });
+    const historyRows = await fileHistory.page.locator('.history-row').count();
+    check('文件历史显示真实提交: ' + historyRows, historyRows === 2);
+    const firstRow = await fileHistory.page.locator('.history-row').first().innerText();
+    check('文件历史首行为最新提交', firstRow.includes('fix: 文件历史一') && firstRow.includes('l49'));
+    const historyTab = await fileHistory.page.locator('.tool-tab.active').innerText();
+    check('文件历史标签显示真实路径: ' + historyTab, historyTab.includes('docs/notes.txt'));
+    check('文件历史不残留样例', !firstRow.includes('feat: 实现 Augit 阶段零至五功能'));
+    await fileHistory.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

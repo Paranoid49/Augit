@@ -302,6 +302,11 @@ internal sealed class ShellWindow : IDisposable
             parts.Add($"blame={Uri.EscapeDataString(blame)}");
         }
 
+        if (_options.FileHistoryDocument is { Length: > 0 } fileHistory)
+        {
+            parts.Add($"file-history={Uri.EscapeDataString(fileHistory)}");
+        }
+
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
     }
 
