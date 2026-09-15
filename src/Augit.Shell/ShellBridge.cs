@@ -94,6 +94,8 @@ internal sealed class ShellBridge : IDisposable
             "document/read" => await ReadDocumentAsync(parameters, cancellationToken),
             "git/status" => await ReadStatusAsync(cancellationToken),
             "git/history" => await ReadHistoryAsync(cancellationToken),
+            "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
+            "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -155,38 +157,17 @@ internal sealed class ShellBridge : IDisposable
 
     private async Task<object?> ReadStatusAsync(CancellationToken cancellationToken)
     {
-        long t0 = Environment.TickCount64;
-        GitExecutableLocator locator = new();
-        Task<GitRuntimeInfo> locateTask = locator.ResolveAsync(null, cancellationToken);
-        while (!locateTask.IsCompleted && Environment.TickCount64 - t0 < 60000)
-        {
-            await Task.Delay(2000, cancellationToken);
-        }
-
-        GitRuntimeInfo runtime = await locateTask;
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable)
         {
             return new { available = false, reason = runtime.UnavailableReason };
         }
-        long t1 = Environment.TickCount64;
-        GitRepositoryService repositories = new(runtime);
-        Task<GitRepositoryOperationResult> inspectTask = repositories.InspectAsync(_workspaceRoot, cancellationToken);
-        while (!inspectTask.IsCompleted && Environment.TickCount64 - t1 < 60000)
-        {
-            await Task.Delay(2000, cancellationToken);
-        }
 
-        GitRepositoryOperationResult inspection = await inspectTask;
-        if (!inspection.IsSuccess || inspection.Repository is not { } repository)
-        {
-            return new { available = true, isRepository = false, reason = inspection.ErrorMessage };
-        }
-
-        if (repository.Kind != GitRepositoryKind.WorkingTree)
+        if (repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
         {
             return new { available = true, isRepository = false, reason = "该目录不是带工作区的 Git 仓库。" };
         }
-        long t2 = Environment.TickCount64;
+
         GitStatusService service = new(runtime);
         GitStatusResult status = await service.ReadAsync(repository, cancellationToken);
         if (!status.IsSuccess || status.Snapshot is not { } snapshot)
@@ -217,26 +198,19 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
-    /// <summary>
-    /// 读取 Git 历史并整理成底部日志与历史工具窗需要的形状。
-    /// 仓库检查与历史读取共用一次 locator 解析，避免重复启动 git 进程。
-    /// </summary>
     private async Task<object?> ReadHistoryAsync(CancellationToken cancellationToken)
     {
-        GitExecutableLocator locator = new();
-        GitRuntimeInfo runtime = await locator.ResolveAsync(null, cancellationToken);
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable)
         {
             return new { available = false, reason = runtime.UnavailableReason };
         }
 
-        GitRepositoryService repositories = new(runtime);
-        GitRepositoryOperationResult inspection = await repositories.InspectAsync(_workspaceRoot, cancellationToken);
-        if (!inspection.IsSuccess || inspection.Repository is not { } repository
-            || repository.Kind != GitRepositoryKind.WorkingTree)
+        if (repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
         {
-            return new { available = false, reason = inspection.ErrorMessage ?? "该目录不是带工作区的 Git 仓库。" };
+            return new { available = false, reason = "该目录不是带工作区的 Git 仓库。" };
         }
+
         GitHistoryService history = new(runtime);
         GitHistoryResult result = await history.ReadPageAsync(
             repository,
@@ -263,10 +237,83 @@ internal sealed class ShellBridge : IDisposable
                 fullHash = entry.FullHash,
                 subject = entry.Subject,
                 author = entry.AuthorName,
-                date = entry.AuthorDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+                date = entry.AuthorDate.ToLocalTime()
+                    .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
                 graph = entry.Graph,
                 parents = entry.ParentHashes.Select(parent => parent[..Math.Min(7, parent.Length)]).ToArray(),
                 references = entry.References.Select(reference => reference.Name).ToArray(),
+            }),
+        };
+    }
+
+    /// <summary>读取指定文件的逐行归属（Blame）。</summary>
+    private async Task<object?> ReadBlameAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/blame 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, lines = Array.Empty<object>() };
+        }
+
+        GitHistoryService history = new(runtime);
+        GitBlameResult result = await history.ReadBlameAsync(repository, relative, null, cancellationToken);
+        if (!result.IsSuccess || result.Lines is not { } lines)
+        {
+            return new { available = false, reason = result.ErrorMessage, lines = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            path = relative,
+            lines = lines.Select(line => new
+            {
+                number = line.LineNumber,
+                hash = line.CommitHash[..Math.Min(7, line.CommitHash.Length)],
+                fullHash = line.CommitHash,
+                author = line.AuthorName,
+                date = line.AuthorDate.ToLocalTime().ToString("yyyy/M/d", CultureInfo.InvariantCulture),
+                summary = line.Summary,
+                content = line.Content,
+            }),
+        };
+    }
+
+    /// <summary>读取限定到某个路径的提交历史（文件历史）。</summary>
+    private async Task<object?> ReadFileHistoryAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/file-history 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, commits = Array.Empty<object>() };
+        }
+
+        GitHistoryService history = new(runtime);
+        GitHistoryResult result = await history.ReadPageAsync(
+            repository,
+            new GitHistoryRequest(Page: 0, PageSize: 100, Filter: new GitHistoryFilter(FilePath: relative)),
+            cancellationToken);
+        if (!result.IsSuccess || result.Page is not { } page)
+        {
+            return new { available = false, reason = result.ErrorMessage, commits = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            path = relative,
+            commits = page.Entries.Select(entry => new
+            {
+                hash = entry.ShortHash,
+                fullHash = entry.FullHash,
+                subject = entry.Subject,
+                author = entry.AuthorName,
+                date = entry.AuthorDate.ToLocalTime()
+                    .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
             }),
         };
     }

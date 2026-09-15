@@ -213,6 +213,34 @@ async function loadHistory() {
   }
 }
 
+/** 读取指定文件的 Blame；失败只记录，不影响其它视图。 */
+async function loadBlame(path) {
+  try {
+    const blame = await invoke("git/blame", { path }, 60000);
+    if (!blame || !blame.available || !blame.lines) return null;
+    const live = window.__augitLive;
+    if (live) {
+      live.blame = {
+        path: blame.path,
+        lines: blame.lines.map((line) => ({
+          number: line.number,
+          hash: line.hash,
+          fullHash: line.fullHash,
+          author: line.author,
+          date: line.date,
+          summary: line.summary,
+          content: line.content,
+        })),
+      };
+      live.editor = "blame";
+    }
+    return live ? live.blame : null;
+  } catch (error) {
+    window.__augitError = "load-blame:" + String(error && error.message || error);
+    return null;
+  }
+}
+
 /** 历史与状态可能任意先后到达，因此统一在这里附着。 */
 function applyHistory() {
   const live = window.__augitLive;
@@ -234,7 +262,9 @@ function applyStatus() {
 async function boot() {
   let statusPromiseRef = Promise.resolve(null);
   let historyPromiseRef = Promise.resolve(null);
-  const requestedDocument = new URLSearchParams(window.location.search).get("open");
+  const query = new URLSearchParams(window.location.search);
+  const requestedDocument = query.get("open");
+  const requestedBlame = query.get("blame");
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -262,6 +292,11 @@ async function boot() {
 
   if (requestedDocument && window.__augitLive) {
     await openDocument(requestedDocument);
+  }
+
+  if (requestedBlame && window.__augitLive) {
+    await loadBlame(requestedBlame);
+    window.__augitRender();
   }
 
   // 界面此时已可交互：立即标记就绪，不能等 Git 状态（实测约 15 秒）。

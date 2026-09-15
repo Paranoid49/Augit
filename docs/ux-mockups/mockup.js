@@ -1730,6 +1730,13 @@ function textView(find = false) {
   return `<div class="document-view"><div class="document-toolbar"><span class="document-path">Augit › src › Augit.App › MainWindow.cs　只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${findBox}<div class="code-view" tabindex="0">${codeLines(textViewerSourceLines, 23)}</div></div>`;
 }
 
+// 外壳注入真实 Blame 时使用：行高由既有 measureCodeViews 统一校准，槽位结构与样例一致。
+function liveBlameView() {
+  const blame = window.__augitLive.blame;
+  const lines = blame.lines || [];
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000只读</span><span class="grow"></span><span class="commit-meta">${lines.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" aria-label="定位第 ${line.number} 行的提交" class="blame-row"><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
+}
+
 function blameView() {
   const blame = sourceLines.map((_, index) => ["2026/8/28", "I49", index + 1]);
   return `<div class="document-view blame-document"><div class="document-toolbar"><span class="grow"></span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" aria-label="定位第 ${item[2]} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}"><span>${item[0]}</span><span>${item[1]}</span><span>${item[2]}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
@@ -2054,7 +2061,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   else if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
   if (editor === "file-limit" && liveDocument()) editorBody = liveUnavailableDocument();
   else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
-  if (editor === "blame") editorBody = blameView();
+  if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   if (editor === "diff") {
     editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: app.manifest</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
     editorBody = diffView();

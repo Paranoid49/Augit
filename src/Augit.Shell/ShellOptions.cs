@@ -4,7 +4,7 @@ namespace Augit.Shell;
 /// 外壳启动参数。默认加载仓库内的 <c>web</c> 目录；<c>--mockups</c> 改为加载 HTML 视觉稿，
 /// 使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
 /// </summary>
-internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument)
+internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument)
 {
     private const string DefaultWidth = "1180";
     private const string DefaultHeight = "760";
@@ -21,6 +21,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         bool showFrame = true;
         bool pixelExact = false;
         string? openDocument = null;
+        string? blameDocument = null;
 
         for (int index = 0; index < arguments.Length; index++)
         {
@@ -57,6 +58,9 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                 case "--open":
                     openDocument = Next(arguments, ref index, argument);
                     break;
+                case "--blame":
+                    blameDocument = Next(arguments, ref index, argument);
+                    break;
                 default:
                     throw new ArgumentException($"未知的启动参数：{argument}");
             }
@@ -74,7 +78,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             ParseSize(height, DefaultHeight, "--height"),
             showFrame,
             pixelExact,
-            openDocument);
+            openDocument,
+            blameDocument);
     }
 
     private static string Next(string[] arguments, ref int index, string name)

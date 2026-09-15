@@ -47,6 +47,20 @@ const WORKSPACE = {
     ],
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
+  blame: {
+    available: true, path: 'docs/notes.txt',
+    lines: [
+      { number: 1, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', summary: 'feat: 一', content: '第一行' },
+      { number: 2, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', summary: 'feat: 一', content: '第二行' },
+      { number: 3, hash: 'bbb2222', fullHash: 'full-bbb', author: 'l49', date: '2026/9/14', summary: 'fix: 二', content: '第三行' },
+    ],
+  },
+  fileHistory: {
+    available: true, path: 'docs/notes.txt',
+    commits: [
+      { hash: 'bbb2222', fullHash: 'full-bbb', subject: 'fix: 文件历史一', author: 'l49', date: '2026/9/14 09:00' },
+    ],
+  },
   history: {
     available: true, isRepository: true,
     head: 'full-head-hash',
@@ -118,6 +132,12 @@ async function main() {
         }
         if (method === 'git/history') {
           return data.history;
+        }
+        if (method === 'git/blame') {
+          return data.blame;
+        }
+        if (method === 'git/file-history') {
+          return data.fileHistory;
         }
         if (method === 'git/status') {
           return {
@@ -254,6 +274,20 @@ async function main() {
     const logBranches = await logPage.locator('.log-ref-panel .tree-row').allInnerTexts();
     check('引用树列出真实分支: ' + JSON.stringify(logBranches), logBranches.some((text) => text.includes('dsh')));
     await logPage.close();
+
+    // Blame：必须渲染真实逐行归属
+    const blamePage = await context.newPage();
+    await blamePage.goto(`http://127.0.0.1:${port}/index.html?scene=blame&theme=dark&blame=docs%2Fnotes.txt`, { waitUntil: 'load' });
+    await blamePage.waitForFunction('window.__augitLive && !!window.__augitLive.blame', null, { timeout: 15000 });
+    await blamePage.waitForSelector('.blame-document .blame-row', { timeout: 8000 });
+    const blameRows = await blamePage.locator('.blame-document .blame-row').count();
+    check('Blame 行数与真实归属一致: ' + blameRows, blameRows === 3);
+    const blameText = await blamePage.locator('.blame-document .blame-gutter').innerText();
+    check('Blame 槽位含真实日期与作者', blameText.includes('2026/9/15') && blameText.includes('l49'));
+    const blameBody = await blamePage.locator('.blame-document .code-view').innerText();
+    check('Blame 正文为真实文件内容', blameBody.includes('第一行') && blameBody.includes('第三行'));
+    check('Blame 不残留样例归属', !blameText.includes('2026/8/28'));
+    await blamePage.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
