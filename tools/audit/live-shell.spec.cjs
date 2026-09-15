@@ -61,6 +61,7 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  clone: { available: false, field: 'destination', reason: '目标目录不为空，请换一个目录。' },
   diff: {
     available: true, path: 'src/App.cs', status: 'Ready', oldSize: 40, newSize: 44,
     lines: [],
@@ -182,6 +183,7 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') return params.path === data.diff.path ? data.diff : { available: false, reason: 'no diff' };
       if (method === 'settings/read') return data.settings;
       if (method === 'settings/write') { window.__settingsWritten = params; return { saved: true, theme: params.theme, fontSize: params.fontSize }; }
@@ -472,6 +474,35 @@ async function main() {
     check('点击改动文件加载了对应差异: ' + openedPath, openedPath === 'src/App.cs' || openedPath === clickedPath);
     check('差异视图切换到 diff 编辑器', await clickDiff.page.evaluate('window.__augitLive.editor') === 'diff');
     await clickDiff.page.close();
+
+    // ---- Clone 表单：复用视觉稿的对话框，只把执行换成真实 Git ----
+    const clone = await openScene('scene=clone&theme=dark');
+    await clone.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await clone.page.waitForSelector('#clone-source', { timeout: 10000 });
+    check('Clone 目标目录用最近目录预填', (await clone.page.locator('#clone-destination').inputValue()).includes('ws'));
+    check('Clone 深度默认禁用', await clone.page.locator('#clone-depth').isDisabled());
+    await clone.page.locator('#clone-shallow').check();
+    check('勾选浅克隆后深度启用', !(await clone.page.locator('#clone-depth').isDisabled()));
+    // 必填缺失：不调用 Git，提示原因并把焦点移到缺失字段
+    await clone.page.locator('#clone-source').fill('');
+    await clone.page.locator('.dialog-footer .primary-button').click();
+    await clone.page.waitForTimeout(300);
+    check('缺少 URL 时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
+    check('缺少 URL 时聚焦该输入', await clone.page.evaluate('document.activeElement && document.activeElement.id') === 'clone-source');
+    // 深度非法：不调用 Git
+    await clone.page.locator('#clone-depth').fill('0');
+    await clone.page.locator('#clone-source').fill('https://example.com/team/repo.git');
+    await clone.page.locator('.dialog-footer .primary-button').click();
+    await clone.page.waitForTimeout(300);
+    check('深度非正整数时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
+    // 校验通过：按输入调用真实 Git
+    await clone.page.locator('#clone-depth').fill('5');
+    await clone.page.locator('.dialog-footer .primary-button').click();
+    await clone.page.waitForFunction('window.__cloneCall', null, { timeout: 8000 });
+    const sent = await clone.page.evaluate('window.__cloneCall');
+    check('校验通过后按输入调用 Git: ' + JSON.stringify(sent), sent.source === 'https://example.com/team/repo.git' && sent.depth === 5);
+    check('失败原因显示在对话框内', (await clone.page.locator('.clone-notice').innerText()).includes('目标目录不为空'));
+    await clone.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

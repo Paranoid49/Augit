@@ -388,6 +388,29 @@ function bindCloneDialog() {
     running = true; cancelling = false; const expected = ++request;
     updateFields(); create.textContent = "正在克隆…"; cancel.textContent = "取消操作"; cancel.focus();
     showNotice("正在克隆…"); dialog.dataset.state = "running";
+    // 外壳注入真实克隆函数时执行真实 Git；否则保留视觉稿的模拟结果。
+    if (typeof window.__augitCloneRequest === "function") {
+      const depthValue = shallow.checked ? Number(depth.value.trim()) : null;
+      window.__augitCloneRequest({
+        source: source.value.trim(),
+        destination: destination.value.trim(),
+        depth: depthValue,
+      }).then(result => {
+        if (request !== expected) return;
+        if (result && result.available) { finish("success", expected); return; }
+        running = false; dialog.dataset.state = "idle"; updateFields();
+        create.textContent = "克隆"; cancel.textContent = "取消";
+        showNotice(result && result.reason ? result.reason : "克隆失败。");
+        const field = result && result.field;
+        (field === "source" ? source : field === "depth" ? depth : destination).focus();
+      }).catch(error => {
+        if (request !== expected) return;
+        running = false; dialog.dataset.state = "idle"; updateFields();
+        showNotice("克隆失败：" + String(error && error.message || error));
+      });
+      return;
+    }
+
     const result = results[Math.min(attempt++, results.length - 1)];
     if (result !== "pending") timer = setTimeout(() => finish(result, expected), 180);
   };
@@ -1527,6 +1550,13 @@ function liveDiffView() {
   return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
 }
 
+// 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。
+function liveCloneBody() {
+  const settings = (window.__augitLive && window.__augitLive.settings) || {};
+  const recent = (settings.recentWorkspaces || [])[0] || "";
+  return `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git" autofocus><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository" value="${escapeHtml(recent)}"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
+}
+
 function conflictResolver() {
   const code = lines => lines.map(([text, kind]) => kind === "gap"
     ? `<span class="conflict-spacer" aria-hidden="true" style="height:calc(${text} * var(--conflict-line-height, 1.7em))"></span>`
@@ -2364,7 +2394,7 @@ function renderScene() {
     case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
     case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
     case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
-    case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
+    case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", (window.__augitLive && window.__augitLive.settings) ? liveCloneBody() : cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
     case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
     case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: searchOverlay("quick"), selectedFile: "MainWindow.cs" });
     case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });

@@ -113,6 +113,7 @@ internal sealed class ShellBridge
             "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
+            "git/clone" => await CloneAsync(parameters, cancellationToken),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
@@ -262,6 +263,66 @@ internal sealed class ShellBridge
                 parents = entry.ParentHashes.Select(parent => parent[..Math.Min(7, parent.Length)]).ToArray(),
                 references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
+        };
+    }
+
+    /// <summary>
+    /// 克隆仓库。目标目录必须为空或不存在：宁可在调用 Git 之前明确失败，
+    /// 也不要让 Git 在半途报出难以理解的错误。
+    /// 深度为空表示完整克隆。
+    /// </summary>
+    private async Task<object?> CloneAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string source = (GetString(parameters, "source") ?? string.Empty).Trim();
+        string destination = (GetString(parameters, "destination") ?? string.Empty).Trim();
+        int? depth = GetInt(parameters, "depth");
+        if (source.Length == 0)
+        {
+            return new { available = false, field = "source", reason = "请填写仓库地址。" };
+        }
+
+        if (destination.Length == 0)
+        {
+            return new { available = false, field = "destination", reason = "请选择目标目录。" };
+        }
+
+        if (depth is { } value && value < 1)
+        {
+            return new { available = false, field = "depth", reason = "浅克隆深度必须是正整数。" };
+        }
+
+        string fullDestination;
+        try
+        {
+            fullDestination = Path.GetFullPath(destination);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return new { available = false, field = "destination", reason = "目标目录路径不合法。" };
+        }
+
+        if (Directory.Exists(fullDestination) && Directory.EnumerateFileSystemEntries(fullDestination).Any())
+        {
+            return new { available = false, field = "destination", reason = "目标目录不为空，请换一个目录。" };
+        }
+
+        (GitRuntimeInfo runtime, _) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable)
+        {
+            return new { available = false, reason = "未找到可用的 Git。" };
+        }
+
+        GitRepositoryService repositories = new(runtime);
+        GitRepositoryOperationResult result = await repositories.CloneAsync(
+            source,
+            fullDestination,
+            depth,
+            cancellationToken);
+        return new
+        {
+            available = result.IsSuccess,
+            reason = result.ErrorMessage,
+            path = result.IsSuccess ? fullDestination : null,
         };
     }
 

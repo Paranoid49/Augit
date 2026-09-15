@@ -404,7 +404,7 @@ async function stopTerminal() {
   await invoke('terminal/stop', {}, 15000).catch(() => {});
 }
 
-/** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
+/** 读取工作区中某个文件的差异，供编辑器差异视图使用。 *//** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
 async function loadDiff(path) {
   try {
     const started = performance.now();
@@ -672,6 +672,11 @@ async function boot() {
 
   const wantsTerminal = query.get("scene") === "terminal";
   const wantsSettings = query.get("scene") === "settings";
+  const wantsClone = query.get("scene") === "clone";
+  if (wantsClone && hasHost()) {
+    // 把真实克隆交给视觉稿的 Clone 对话框调用：校验、焦点与冻结逻辑已在其中实现。
+    window.__augitCloneRequest = (request) => invoke("git/clone", request, 600000);
+  }
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -753,6 +758,11 @@ async function boot() {
     }
   } else {
     window.__augitHistoryReady = true;
+  }
+
+  if (wantsClone) {
+    await loadSettings();
+    window.__augitRender();
   }
 
   if (wantsSettings) {
