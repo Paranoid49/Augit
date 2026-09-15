@@ -147,6 +147,7 @@ internal sealed class ShellBridge : IDisposable
             "git/branch" => await BranchAsync(parameters, cancellationToken),
             "git/fetch" => await FetchAsync(parameters, cancellationToken),
             "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
+            "git/remote-write" => await WriteRemoteAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1411,6 +1412,61 @@ internal sealed class ShellBridge : IDisposable
             switched = true,
             detached = result.ActualStatus?.IsDetached ?? false,
             branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 远端写操作（规格 §7.11 / §7.12）：新增、更新与删除。
+    /// 名称与 URL 的合法性由 Git 判断，Augit 不自行放宽或收紧规则。
+    /// </summary>
+    private async Task<object?> WriteRemoteAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string action = GetString(parameters, "action")
+            ?? throw new ArgumentException("git/remote-write 需要 action 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitRemoteService remotes = new(runtime);
+        GitRemoteOperationResult result = action switch
+        {
+            "add" => await remotes.AddRemoteAsync(
+                repository!,
+                GetString(parameters, "name") ?? string.Empty,
+                GetString(parameters, "fetchUrl") ?? string.Empty,
+                GetString(parameters, "pushUrl"),
+                cancellationToken).ConfigureAwait(false),
+            "update" => await remotes.UpdateRemoteAsync(
+                repository!,
+                GetString(parameters, "currentName") ?? string.Empty,
+                GetString(parameters, "name") ?? string.Empty,
+                GetString(parameters, "fetchUrl") ?? string.Empty,
+                GetString(parameters, "pushUrl"),
+                cancellationToken).ConfigureAwait(false),
+            "delete" => await remotes.DeleteRemoteAsync(
+                repository!,
+                GetString(parameters, "name") ?? string.Empty,
+                cancellationToken).ConfigureAwait(false),
+            _ => throw new BridgeValidationException($"未知的远端动作：{action}"),
+        };
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, changed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            changed = true,
+            remotes = result.ActualRemotes?.Select(remote => new
+            {
+                name = remote.Name,
+                fetchUrl = remote.FetchUrl,
+                pushUrl = remote.PushUrl,
+            }),
         };
     }
 
