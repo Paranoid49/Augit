@@ -802,6 +802,22 @@ function activateTreeRow(row) {
   void openDocument(path);
 }
 
+// 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：
+// 捕获阶段 + closest，既不受整页重绘影响，也不依赖内联处理器。
+document.addEventListener("click", (event) => {
+  const row = event.target.closest && event.target.closest(".changes-list .change-file-row");
+  if (!row) return;
+  const path = row.dataset.path;
+  if (!path) return;
+  event.preventDefault();
+  void (async () => {
+    const diff = await loadDiff(path);
+    if (diff) {
+      window.__augitRender();
+    }
+  })();
+}, true);
+
 // 用捕获阶段的委托监听：不受内容安全策略对内联处理器的限制，也不受整页重绘影响。
 document.addEventListener("click", (event) => {
   const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");

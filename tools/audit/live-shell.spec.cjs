@@ -460,6 +460,19 @@ async function main() {
     check('差异视图不残留样例路径', !(await diff.page.locator('.diff-filebar').innerText()).includes('app.manifest'));
     await diff.page.close();
 
+    // ---- 点击改动文件打开差异 ----
+    const clickDiff = await openScene('scene=commit-diff&theme=dark');
+    await clickDiff.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await clickDiff.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    check('改动列表渲染出可点击行', await clickDiff.page.locator('.changes-list .change-file-row').count() > 0);
+    await clickDiff.page.locator('.changes-list .change-file-row').first().click();
+    await clickDiff.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    const openedPath = await clickDiff.page.evaluate('window.__augitLive.diff.path');
+    const clickedPath = await clickDiff.page.evaluate('document.querySelector(".changes-list .change-file-row").dataset.path');
+    check('点击改动文件加载了对应差异: ' + openedPath, openedPath === 'src/App.cs' || openedPath === clickedPath);
+    check('差异视图切换到 diff 编辑器', await clickDiff.page.evaluate('window.__augitLive.editor') === 'diff');
+    await clickDiff.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
