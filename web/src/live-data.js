@@ -291,6 +291,7 @@ async function loadReferences() {
     if (changed && typeof window.__augitRender === "function") {
       refreshPush();
       window.__augitRender();
+      bindConflictSave();
       void refreshCommitDetails();
     }
   } catch (error) {
@@ -301,11 +302,74 @@ async function loadReferences() {
   }
 }
 
-/** 发布待推送信息，供 Push 对话框使用。 */
+/** 读取当前冲突会话与冲突文件列表。 */
+async function loadConflicts() {
+  try {
+    const conflicts = await invoke("git/conflicts", {}, 30000);
+    const live = window.__augitLive;
+    if (live && conflicts && conflicts.available) {
+      live.conflicts = conflicts;
+      window.__augitConflictsReady = true;
+    }
+  } catch (error) {
+    window.__augitError = "load-conflicts:" + String(error && error.message || error);
+  }
+}
+
+/** 读取单个冲突文件的三栏内容；结果栏可编辑。 */
+async function loadConflict(path) {
+  try {
+    const conflict = await invoke("git/conflict-load", { path }, 30000);
+    const live = window.__augitLive;
+    if (live && conflict && conflict.available) {
+      live.conflict = conflict;
+    }
+    return live ? live.conflict : null;
+  } catch (error) {
+    window.__augitError = "load-conflict:" + String(error && error.message || error);
+    return null;
+  }
+}
+
+/** 保存冲突解决结果：把结果栏文本写回文件并标记已解决。 */
+async function saveConflict(path, resultText) {
+  const saved = await invoke("git/conflict-save", { path, resultText }, 30000);
+  if (!saved || !saved.available) {
+    throw new Error(saved && saved.reason ? saved.reason : "保存失败");
+  }
+
+  return saved;
+}
+
+/** 发布待推送信息，供 Push 对话框使用。 *//** 发布待推送信息，供 Push 对话框使用。 */
 function refreshPush() {
   const live = window.__augitLive;
   if (!live) return;
   live.push = computePush(live);
+}
+
+/**
+ * 重新绑定冲突解决器的保存动作。整页重绘会替换按钮，因此每次重绘后都要调用。
+ */
+function bindConflictSave() {
+  const button = document.querySelector("[data-conflict-save]");
+  const live = window.__augitLive;
+  if (!button || !live || !live.conflict) return;
+  if (button.dataset.bound === "true") return;
+  button.dataset.bound = "true";
+  button.addEventListener("click", async () => {
+    const block = document.querySelector(".conflict-column.result .conflict-block");
+    if (!block) return;
+    button.disabled = true;
+    try {
+      await saveConflict(live.conflict.path, block.innerText);
+      window.__augitConflictSaved = live.conflict.path;
+      button.textContent = "已标记为已解决";
+    } catch (error) {
+      window.__augitError = "save-conflict:" + String(error && error.message || error);
+      button.disabled = false;
+    }
+  });
 }
 
 /** 转义为可安全插入 HTML 的文本。 */
@@ -416,6 +480,7 @@ async function boot() {
   const requestedDocument = query.get("open");
   const requestedBlame = query.get("blame");
   const requestedFileHistory = query.get("file-history");
+  const requestedConflict = query.get("conflict");
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -452,6 +517,12 @@ async function boot() {
 
   if (requestedFileHistory && window.__augitLive) {
     await loadFileHistory(requestedFileHistory);
+    window.__augitRender();
+  }
+
+  if (requestedConflict && window.__augitLive) {
+    await loadConflicts();
+    await loadConflict(requestedConflict);
     window.__augitRender();
   }
 

@@ -93,6 +93,9 @@ internal sealed class ShellBridge
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
+            "git/conflicts" => await ReadConflictsAsync(cancellationToken),
+            "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
+            "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -240,6 +243,113 @@ internal sealed class ShellBridge
                 parents = entry.ParentHashes.Select(parent => parent[..Math.Min(7, parent.Length)]).ToArray(),
                 references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
+        };
+    }
+
+    /// <summary>读取当前冲突会话与冲突文件列表。</summary>
+    private async Task<object?> ReadConflictsAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, files = Array.Empty<object>(), operation = "None" };
+        }
+
+        GitStatusService statusService = new(runtime);
+        GitStatusResult status = await statusService.ReadAsync(repository!, cancellationToken);
+        if (!status.IsSuccess || status.Snapshot is not { } snapshot)
+        {
+            return new { available = false, reason = status.ErrorMessage, files = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            operation = repository!.Operation.ToString(),
+            hasConflicts = repository.HasConflicts,
+            files = snapshot.Files
+                .Where(file => file.Kind == GitChangeKind.Unmerged)
+                .Select(file => new
+                {
+                    path = file.RelativePath,
+                    name = Path.GetFileName(file.RelativePath),
+                    directory = (Path.GetDirectoryName(file.RelativePath) ?? string.Empty).Replace('\\', '/'),
+                }),
+        };
+    }
+
+    /// <summary>读取单个冲突文件的三栏内容与冲突块。</summary>
+    private async Task<object?> LoadConflictAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/conflict-load 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false };
+        }
+
+        GitConflictService conflicts = new(runtime);
+        GitConflictLoadResult result = await conflicts.LoadAsync(repository!, relative, cancellationToken);
+        if (!result.IsSuccess || result.Document is not { } document)
+        {
+            return new { available = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            path = relative,
+            contentKind = document.ContentKind.ToString(),
+            yoursLabel = document.YoursLabel,
+            theirsLabel = document.TheirsLabel,
+            yoursText = document.YoursText,
+            theirsText = document.TheirsText,
+            resultText = document.ResultText,
+            operation = document.Operation.ToString(),
+            version = document.FileVersion is { } version
+                ? new { length = version.Length, sha256 = version.Sha256, lastWriteUtc = version.LastWriteTimeUtc.ToString("O", CultureInfo.InvariantCulture) }
+                : null,
+            blocks = document.Blocks.Select(block => new
+            {
+                start = block.Start,
+                length = block.Length,
+                yours = block.YoursText,
+                ancestor = block.AncestorText,
+                theirs = block.TheirsText,
+            }),
+        };
+    }
+
+    /// <summary>写入冲突解决结果。版本不一致时拒绝保存，避免覆盖外部改动。</summary>
+    private async Task<object?> SaveConflictAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/conflict-save 需要 path 参数。");
+        string resultText = GetString(parameters, "resultText") ?? string.Empty;
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitConflictService conflicts = new(runtime);
+        GitConflictLoadResult loaded = await conflicts.LoadAsync(repository!, relative, cancellationToken);
+        if (!loaded.IsSuccess || loaded.Document?.FileVersion is not { } version)
+        {
+            return new { available = false, reason = loaded.ErrorMessage ?? "无法读取冲突文件版本。" };
+        }
+
+        GitConflictMutationResult saved = await conflicts.SaveResolvedAsync(
+            repository!,
+            new GitConflictSaveRequest(relative, resultText, version, loaded.Document.Operation),
+            cancellationToken);
+        return new
+        {
+            available = saved.IsSuccess,
+            reason = saved.ErrorMessage,
+            hasConflicts = saved.Session?.HasConflicts,
+            conflictCount = saved.Session?.ConflictFiles.Count,
         };
     }
 

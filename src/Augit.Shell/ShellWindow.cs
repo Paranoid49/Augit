@@ -300,6 +300,11 @@ internal sealed class ShellWindow : IDisposable
             parts.Add($"file-history={Uri.EscapeDataString(fileHistory)}");
         }
 
+        if (_options.ConflictDocument is { Length: > 0 } conflict)
+        {
+            parts.Add($"conflict={Uri.EscapeDataString(conflict)}");
+        }
+
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
     }
 

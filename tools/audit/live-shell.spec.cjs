@@ -61,6 +61,20 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  conflicts: {
+    available: true, operation: 'Rebase', hasConflicts: true,
+    files: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src' }],
+  },
+  conflict: {
+    available: true, path: 'src/App.cs', contentKind: 'Text',
+    yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+    yoursText: '第一行\n左方改动\n第三行',
+    theirsText: '第一行\n右方改动\n第三行',
+    resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
+    operation: 'Rebase',
+    version: { length: 42, sha256: 'deadbeef', lastWriteUtc: '2026-09-15T00:00:00Z' },
+    blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+  },
   remotes: { available: true, remotes: [{ name: 'origin', fetchUrl: 'https://example.com/team/Augit.git', pushUrl: 'https://example.com/team/Augit.git' }] },
   references: {
     available: true,
@@ -153,6 +167,8 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/conflicts') return data.conflicts;
+      if (method === 'git/conflict-load') return data.conflict;
       if (method === 'git/remotes') return data.remotes;
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
@@ -333,6 +349,20 @@ async function main() {
     check('Push 详情显示目标与提交数', pushDetail.includes('目标：origin/dsh') && pushDetail.includes('1 个提交'));
     check('Push 不残留样例提交', !pushRows.some((text) => text.includes('避免强制更新')));
     await push.page.close();
+
+    // ---- 三栏冲突解决器 ----
+    const conflict = await openScene('scene=conflict-resolver&theme=dark&conflict=src%2FApp.cs');
+    await conflict.page.waitForSelector('.conflict-columns .conflict-column', { timeout: 12000 });
+    const columns = await conflict.page.locator('.conflict-column-title').allInnerTexts();
+    check('三栏标题来自真实分支: ' + JSON.stringify(columns), columns.some((t) => t.includes('main')) && columns.some((t) => t.includes('feature/ux')));
+    const resultColumn = conflict.page.locator('.conflict-column.result .conflict-block');
+    check('结果栏可编辑', await resultColumn.getAttribute('contenteditable') === 'plaintext-only');
+    const resultText = await resultColumn.innerText();
+    check('结果栏含真实冲突标记', resultText.includes('<<<<<<< HEAD') && resultText.includes('=======') && resultText.includes('>>>>>>> feature/ux'));
+    check('冲突块被标出', await conflict.page.locator('.conflict-column.result .conflict-line.conflict-result').count() === 5);
+    const header = await conflict.page.locator('.conflict-header').innerText();
+    check('冲突标题显示真实文件名与冲突数: ' + header.replace(/\n/g, ' '), header.includes('App.cs') && header.includes('1 个未处理冲突'));
+    await conflict.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

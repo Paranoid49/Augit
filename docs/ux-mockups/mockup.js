@@ -1409,6 +1409,35 @@ function liveManagementPage(kind) {
   return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
+// 外壳注入真实冲突文档时使用；三栏结构与样例版一致，结果栏是唯一可编辑区域。
+function liveConflictResolver() {
+  const live = window.__augitLive || {};
+  const document_ = live.conflict;
+  if (!document_) return conflictResolver();
+  const lines = (text) => String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const render = (items, extraClass) => items.map((text, index) =>
+    `<span class="conflict-line${extraClass ? ` ${extraClass}` : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join("");
+
+  const yoursLines = lines(document_.yoursText);
+  const theirsLines = lines(document_.theirsText);
+  const resultLines = lines(document_.resultText);
+  // 冲突块在结果正文里的行范围，用于标出「未处理冲突」。
+  const marked = new Set();
+  for (const block of document_.blocks || []) {
+    for (let index = block.start; index < block.start + block.length; index += 1) {
+      marked.add(index);
+    }
+  }
+
+  const column = (title, body, editable = false) => `<section class="conflict-column${editable ? " result" : ""}"><div class="conflict-column-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div><div class="conflict-block"${editable ? ' contenteditable="plaintext-only" role="textbox" aria-label="最终结果" aria-multiline="true" spellcheck="false"' : ""}>${body}</div></section>`;
+  const count = (document_.blocks || []).length;
+  return `<div class="conflict-page">
+    <div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))} · ${escapeHtml(document_.operation)}</strong><span class="grow"></span><span class="commit-meta">${count} 个未处理冲突</span><button class="secondary-button">上一处</button><button class="secondary-button">下一处</button></div>
+    <div class="conflict-columns">${column(document_.yoursLabel, render(yoursLines, ""))}${column("最终结果 · 可编辑", resultLines.map((text, index) => `<span class="conflict-line${marked.has(index) ? " conflict-result" : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join(""), true)}${column(document_.theirsLabel, render(theirsLines, "conflict-side"))}</div>
+    <div class="conflict-footer"><div class="conflict-accept-actions"><button class="secondary-button">接受左侧</button><button class="secondary-button">接受两侧</button><button class="secondary-button">接受右侧</button></div><div class="conflict-save-actions"><button class="secondary-button">取消</button><button class="primary-button" type="button" data-conflict-save>应用并标记已解决</button></div></div>
+  </div>`;
+}
+
 function conflictResolver() {
   const code = lines => lines.map(([text, kind]) => kind === "gap"
     ? `<span class="conflict-spacer" aria-hidden="true" style="height:calc(${text} * var(--conflict-line-height, 1.7em))"></span>`
@@ -2258,7 +2287,7 @@ function renderScene() {
     case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("关闭终端", `<div class="info-block" style="width:auto;text-align:left"><h2>终端中仍有命令正在运行</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>继续将结束前台命令、Shell 及其整个子进程树。</p></div>`, `<a class="secondary-button" href="terminal.html">保留终端</a><a class="danger-button" href="main-project.html">结束命令并关闭</a>`) });
     case "search-limited": return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "conflict-list": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("Rebase 冲突", `<div class="toolbar"><strong>2 个冲突文件</strong><span class="grow"></span><span class="commit-meta">当前步骤 2/4</span></div><div class="changes-list"><a class="check-row selected" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>NativeGitPanel.cs</span><span class="tree-path">内容冲突</span></a><a class="check-row" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>MainWindow.cs</span><span class="tree-path">内容冲突</span></a></div>`, `<a class="secondary-button" href="main-project.html">Abort Rebase</a><button class="secondary-button">Skip</button><button class="primary-button" disabled>Continue Rebase</button>`, true) });
-    case "conflict-resolver": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("解决冲突", conflictResolver(), `<a class="secondary-button" href="conflict-list.html">返回冲突列表</a>`, true, "dialog-xl") });
+    case "conflict-resolver": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("解决冲突", (window.__augitLive && window.__augitLive.conflict) ? liveConflictResolver() : conflictResolver(), `<a class="secondary-button" href="conflict-list.html">返回冲突列表</a>`, true, "dialog-xl") });
     case "commit-empty": return shell({ activeRail: "commit", side: "commit-empty", editor: "markdown" });
     case "diff-loading": return shell({ activeRail: "commit", side: "commit", editor: "diff-loading", bottom: "git", selectedFile: "app.manifest" });
     case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", pushDialogBody(true), `<button class="secondary-button">取消</button><button class="primary-button" disabled>推送</button>`, true, "push-dialog push-no-remote") });
