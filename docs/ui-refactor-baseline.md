@@ -92,7 +92,7 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 | Push 对话框 | 已完成 | 真实外壳显示真实分支与上游；"0 个提交"与 git 实测一致 |
 | 三栏冲突解决器 | 已完成（含保存往返实测） | 真实冲突仓库实测读取与写回；验收套件 46 项断言 |
 | 对话框族（Clone/Reset/Rollback） | 未开始 | — |
-| 终端 | 未开始 | — |
+| 内置终端 | 已完成（真实外壳实测） | 真实 ConPTY 会话输出 PowerShell 横幅，xterm.js 渲染 |
 
 ### Git 调用路径优化（第六轮）
 
@@ -304,6 +304,27 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 5. `git status --porcelain` 显示 `M  a.txt`（已暂存、冲突已解决）。
 
 这验证了「读取冲突 → 编辑结果 → 写回并标记已解决」的完整链路。
+
+### 第十五轮：内置终端
+
+**方案**：xterm.js 直接在 WebView2 主页面内渲染，ConPTY 会话由宿主
+`ConPtyTerminalSession` 管理。两者同为 Chromium，不需要第二个 WebView2 实例。
+
+- 前端：`web/vendor/xterm/`（xterm 6.0.0 + addon-fit，从 `tools/xterm` 复制）；
+  `live-data.js` 负责创建 xterm、绑定输入/尺寸事件并按偏移量轮询输出。
+- 宿主：新增 `terminal/start`、`terminal/read`、`terminal/write`、`terminal/resize`、`terminal/stop`。
+  输出按偏移增量读取，缓冲区上限 4 MB（约 2000 行量级），避免长时间运行后内存无界增长。
+  启动前先结束旧会话，避免留下孤儿 Shell 进程。
+- 终端只在 `?scene=terminal` 时启动，不做常驻进程。
+
+**真实外壳实测**：宿主日志确认 `start shell=Windows PowerShell`、
+`started ok pid=30848`，并且轮询持续读到输出（buffer 195 → 215 字节）；
+截图显示 xterm 渲染出真实的 PowerShell 启动横幅（`Windows PowerShell` /
+`Copyright (C) Microsoft Corporation.`），确认真实 ConPTY 输出已进入前端。
+
+**修复的渲染生命周期问题**：整页重绘会替换终端宿主元素并把样例文本放回去，
+新增 `reattachTerminal` 在每次重绘后把 xterm 自己的 DOM 节点搬回新宿主，
+保留既有会话而不是重建。
 
 ### 关于 CDP 诊断通道的结论
 

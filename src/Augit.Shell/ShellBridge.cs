@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Text;
+using Augit.Infrastructure.Settings;
+using Augit.Infrastructure.Terminal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Augit.Core.Documents;
@@ -21,7 +24,15 @@ internal sealed class ShellBridge
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    private const int MaximumTerminalBufferLength = 4 * 1024 * 1024;
+
+    private readonly Lock _terminalGate = new();
+    private readonly StringBuilder _terminalBuffer = new();
     private readonly string _workspaceRoot;
+    private ConPtyTerminalSession? _terminal;
+    private long _terminalOffset;
+    private bool _terminalExited;
+    private int _terminalExitCode;
 
     public ShellBridge(string workspaceRoot)
     {
@@ -96,6 +107,11 @@ internal sealed class ShellBridge
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
             "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
             "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
+            "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
+            "terminal/read" => ReadTerminal(parameters),
+            "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
+            "terminal/resize" => ResizeTerminal(parameters),
+            "terminal/stop" => await StopTerminalAsync(),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -244,6 +260,149 @@ internal sealed class ShellBridge
                 references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
         };
+    }
+
+    /// <summary>
+    /// 启动内置终端。终端是独占的单会话资源：已有会话时先结束再启动，
+    /// 避免留下孤儿 Shell 进程。
+    /// </summary>
+    private async Task<object?> StartTerminalAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        await StopTerminalAsync();
+        int columns = GetInt(parameters, "columns") ?? 80;
+        int rows = GetInt(parameters, "rows") ?? 24;
+        SettingsStore store = new();
+        ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+        TerminalLaunchResult launch = TerminalShellResolver.Resolve(settings, _workspaceRoot);
+        if (!launch.IsSuccess || launch.LaunchInfo is not { } launchInfo)
+        {
+            return new { available = false, reason = launch.ErrorMessage };
+        }
+
+        ConPtyTerminalSession session = ConPtyTerminalSession.Start(
+            launchInfo,
+            _workspaceRoot,
+            Math.Clamp(columns, 20, 500),
+            Math.Clamp(rows, 5, 200));
+        lock (_terminalGate)
+        {
+            _terminal = session;
+            _terminalBuffer.Clear();
+        }
+
+        session.OutputReceived += OnTerminalOutput;
+        session.Exited += OnTerminalExited;
+        return new
+        {
+            available = true,
+            shellId = launchInfo.ShellId,
+            displayName = launchInfo.DisplayName,
+        };
+    }
+
+    private void OnTerminalOutput(object? sender, string data)
+    {
+        lock (_terminalGate)
+        {
+            _terminalBuffer.Append(data);
+            // 只保留最近 2000 行对应的上限，避免长时间运行后内存无界增长。
+            if (_terminalBuffer.Length > MaximumTerminalBufferLength)
+            {
+                _terminalBuffer.Remove(0, _terminalBuffer.Length - MaximumTerminalBufferLength);
+                _terminalOffset = Math.Max(0, _terminalOffset - (_terminalBuffer.Length - MaximumTerminalBufferLength));
+            }
+        }
+    }
+
+    private void OnTerminalExited(object? sender, int exitCode)
+    {
+        lock (_terminalGate)
+        {
+            _terminalExited = true;
+            _terminalExitCode = exitCode;
+        }
+    }
+
+    /// <summary>增量读取终端输出：网页层按偏移量轮询，避免重复传输。</summary>
+    private object ReadTerminal(JsonElement parameters)
+    {
+        long offset = GetLong(parameters, "offset") ?? 0;
+        lock (_terminalGate)
+        {
+            long start = Math.Clamp(offset, 0, _terminalBuffer.Length);
+            string chunk = _terminalBuffer.ToString((int)start, (int)(_terminalBuffer.Length - start));
+            return new
+            {
+                available = _terminal is not null,
+                running = _terminal?.IsRunning ?? false,
+                exited = _terminalExited,
+                exitCode = _terminalExitCode,
+                offset = _terminalBuffer.Length,
+                data = chunk,
+            };
+        }
+    }
+
+    private async Task<object?> WriteTerminalAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string data = GetString(parameters, "data") ?? string.Empty;
+        ConPtyTerminalSession? session;
+        lock (_terminalGate)
+        {
+            session = _terminal;
+        }
+
+        if (session is null || !session.IsRunning)
+        {
+            return new { available = false };
+        }
+
+        await session.WriteAsync(data, cancellationToken);
+        return new { available = true };
+    }
+
+    private object ResizeTerminal(JsonElement parameters)
+    {
+        int columns = GetInt(parameters, "columns") ?? 80;
+        int rows = GetInt(parameters, "rows") ?? 24;
+        ConPtyTerminalSession? session;
+        lock (_terminalGate)
+        {
+            session = _terminal;
+        }
+
+        if (session is not null && session.IsRunning)
+        {
+            session.Resize(Math.Clamp(columns, 20, 500), Math.Clamp(rows, 5, 200));
+        }
+
+        return new { available = session is not null };
+    }
+
+    private async Task<object?> StopTerminalAsync()
+    {
+        ConPtyTerminalSession? session;
+        lock (_terminalGate)
+        {
+            session = _terminal;
+            _terminal = null;
+        }
+
+        if (session is null)
+        {
+            return new { available = false };
+        }
+
+        session.OutputReceived -= OnTerminalOutput;
+        session.Exited -= OnTerminalExited;
+        await session.StopAsync();
+        session.Dispose();
+        lock (_terminalGate)
+        {
+            _terminalExited = true;
+        }
+
+        return new { available = true };
     }
 
     /// <summary>读取当前冲突会话与冲突文件列表。</summary>
@@ -629,6 +788,24 @@ internal sealed class ShellBridge
         GitRepositoryOperationResult inspection =
             await repositories.InspectAsync(_workspaceRoot, cancellationToken);
         return (runtime, inspection.IsSuccess ? inspection.Repository : null);
+    }
+
+    private static int? GetInt(JsonElement parameters, string name)
+    {
+        return parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty(name, out JsonElement element)
+            && element.ValueKind == JsonValueKind.Number
+            ? element.GetInt32()
+            : null;
+    }
+
+    private static long? GetLong(JsonElement parameters, string name)
+    {
+        return parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty(name, out JsonElement element)
+            && element.ValueKind == JsonValueKind.Number
+            ? element.GetInt64()
+            : null;
     }
 
     private static bool IsUsable(GitRepositorySnapshot? repository, GitRuntimeInfo runtime)

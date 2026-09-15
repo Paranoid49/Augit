@@ -291,6 +291,7 @@ async function loadReferences() {
     if (changed && typeof window.__augitRender === "function") {
       refreshPush();
       window.__augitRender();
+      reattachTerminal();
       bindConflictSave();
       void refreshCommitDetails();
     }
@@ -300,6 +301,106 @@ async function loadReferences() {
     // 即使失败也要放行，避免把界面卡在等待状态。
     window.__augitRefsReady = true;
   }
+}
+
+// 终端：xterm.js 负责渲染，ConPTY 会话由宿主管理，输出按偏移量增量拉取。
+let terminalInstance = null;
+let terminalFitAddon = null;
+let terminalOffset = 0;
+let terminalTimer = 0;
+let terminalReady = false;
+
+/**
+ * 整页重绘会替换终端宿主元素，但 xterm 实例与会话必须保留，
+ * 因此重绘后把 xterm 自己的 DOM 节点搬回新的宿主里。
+ */
+function reattachTerminal() {
+  if (!terminalInstance || !terminalReady) return;
+  const host = document.querySelector('.terminal-view');
+  if (!host) return;
+  const element = terminalInstance.element;
+  if (!element) return;
+  if (element.parentElement !== host) {
+    host.innerHTML = '';
+    host.appendChild(element);
+  }
+
+  try { terminalFitAddon.fit(); } catch { /* 宿主未完成布局时忽略 */ }
+}
+
+/** 启动内置终端并接上输出轮询。重复调用时复用已有会话。 */
+async function startTerminal() {
+  const host = document.querySelector('.terminal-view');
+  if (!host || typeof window.Terminal !== 'function') return null;
+  if (terminalInstance && terminalReady) return terminalInstance;
+
+  terminalInstance = new window.Terminal({
+    allowProposedApi: false,
+    convertEol: false,
+    cursorBlink: true,
+    fontFamily: 'Cascadia Mono, Consolas, monospace',
+    fontSize: 13,
+    lineHeight: 1.7,
+    scrollback: 2000,
+  });
+  terminalFitAddon = new window.FitAddon.FitAddon();
+  terminalInstance.loadAddon(terminalFitAddon);
+  host.innerHTML = '';
+  terminalInstance.open(host);
+  try { terminalFitAddon.fit(); } catch { /* 宿主尚未布局时忽略 */ }
+
+  terminalInstance.onData((data) => {
+    void invoke('terminal/write', { data }, 10000).catch(() => {});
+  });
+  terminalInstance.onResize((size) => {
+    void invoke('terminal/resize', { columns: size.cols, rows: size.rows }, 10000).catch(() => {});
+  });
+
+  const started = await invoke('terminal/start', {
+    columns: terminalInstance.cols,
+    rows: terminalInstance.rows,
+  }, 30000);
+  if (!started || !started.available) {
+    window.__augitError = 'terminal-start:' + String(started && started.reason ? started.reason : 'unavailable');
+    return null;
+  }
+
+  terminalReady = true;
+  window.__augitTerminalShell = started.displayName;
+  pollTerminal();
+  return terminalInstance;
+}
+
+/** 增量拉取终端输出；会话结束后停止轮询。 */
+function pollTerminal() {
+  if (terminalTimer !== 0) return;
+  terminalTimer = window.setInterval(async () => {
+    if (!terminalInstance) return;
+    try {
+      const chunk = await invoke('terminal/read', { offset: terminalOffset }, 10000);
+      if (chunk && typeof chunk.data === 'string' && chunk.data.length > 0) {
+        terminalInstance.write(chunk.data);
+      }
+      if (chunk && typeof chunk.offset === 'number') terminalOffset = chunk.offset;
+      if (chunk && (chunk.exited || !chunk.running)) {
+        window.clearInterval(terminalTimer);
+        terminalTimer = 0;
+        window.__augitTerminalExited = true;
+      }
+    } catch {
+      // 单次读取失败不终止轮询，下次重试。
+    }
+  }, 60);
+}
+
+/** 结束会话并停止轮询。 */
+async function stopTerminal() {
+  if (terminalTimer !== 0) {
+    window.clearInterval(terminalTimer);
+    terminalTimer = 0;
+  }
+  terminalReady = false;
+  await invoke('terminal/stop', {}, 15000).catch(() => {});
 }
 
 /** 读取当前冲突会话与冲突文件列表。 */
@@ -481,6 +582,7 @@ async function boot() {
   const requestedBlame = query.get("blame");
   const requestedFileHistory = query.get("file-history");
   const requestedConflict = query.get("conflict");
+  const wantsTerminal = query.get("scene") === "terminal";
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -556,11 +658,18 @@ async function boot() {
     window.__augitHistoryReady = true;
   }
 
+  if (wantsTerminal) {
+    // 终端是独占资源，只在终端场景启动，避免无谓的常驻进程。
+    await startTerminal();
+    window.__augitTerminalReady = true;
+  }
+
   // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
   await referencesPromise;
   // 三类数据都到齐后才能算出待推送信息；此后再补一次重绘。
   refreshPush();
   window.__augitRender();
+  reattachTerminal();
   void refreshCommitDetails();
 }
 
