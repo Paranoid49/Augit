@@ -2279,9 +2279,22 @@ function terminalTool() {
 
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false } = {}) {
   const live = window.__augitLive || null;
+  // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
+  // 之后以 live.layout 为准。视觉稿单独打开时没有 live，行为完全不变，
+  // 因此逐场景静态浏览与既有一致性不受影响。
+  // 只有在用户实际操作过工具窗口之后才覆盖场景值。
+  // 场景可以省略 activeRail/side/bottom 而依赖 shell() 的默认参数，
+  // 若一开始就用 DOM 读出的值覆盖，会把场景依赖的默认值抹掉。
+  if (live && live.layout && live.layout.userDriven) {
+    if (live.layout.activeRail) activeRail = live.layout.activeRail;
+    side = live.layout.collapsed === "side" ? "" : live.layout.side;
+    bottom = live.layout.collapsed === "bottom" ? "" : live.layout.bottom;
+  }
+
   if (live && live.document && live.editor) editor = live.editor;
   if (live && live.document) selectedFile = live.document.name || selectedFile;
-  const sideHtml = side === "commit-empty"
+  // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
+  const sideHtml = side === "" ? "" : side === "commit-empty"
     ? emptyChangesSide()
     : side === "commit"
       ? (live && live.status ? liveChangesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "") : changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : ""))

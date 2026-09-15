@@ -125,6 +125,9 @@ async function loadDocument() {
       tree,
     };
     window.__augitLive = liveObject;
+    // 在建立 live 对象时就固定初始工具窗口布局：
+    // 之后若干次渲染会把场景值覆盖掉，晚读会丢失初始的底部工具窗口。
+    liveObject.layout = readInitialLayout();
     if (pendingGitUnavailableReason) {
       liveObject.gitUnavailableReason = pendingGitUnavailableReason;
     }
@@ -1272,10 +1275,13 @@ function bindConflictSave() {
 function refresh(...regions) {
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
     window.__augitRenderRegions(...regions);
+    // 工具窗口可能在这次刷新中被替换，重新挂上切换动作（规格 §5.1）。
+    bindToolRail?.();
     return;
   }
 
   window.__augitRender();
+  bindToolRail?.();
 }
 
 /**
@@ -1291,6 +1297,104 @@ function refresh(...regions) {
  */
 function refreshAfterEvent(...regions) {
   window.setTimeout(() => refresh(...regions), 0);
+}
+
+/**
+ * 工具窗口切换与折叠（规格 §5.1）。
+ *
+ * 左侧顶部固定顺序：项目、提交、搜索；左侧底部固定顺序：终端、Git 历史。
+ * - 点击已激活的入口：折叠该区域，再次点击恢复上次状态；
+ * - 点击同区域的另一个入口：原位替换；
+ * - 终端与 Git 历史互斥，不能同时占用底部区域。
+ *
+ * 布局由 live.layout 驱动，shell() 读取它；视觉稿单独打开时没有 live，
+ * 因此静态浏览行为不变。
+ */
+const RAIL_SIDE = ["project", "commit", "search"];
+const RAIL_BOTTOM = ["terminal", "history"];
+// 视觉稿的入口用中文 aria-label 标识；沿用同一标识，避免改动设计基线标记。
+const RAIL_LABELS = {
+  项目: "project",
+  提交: "commit",
+  搜索: "search",
+  终端: "terminal",
+  "Git 历史": "history",
+};
+// 底部区域的入口标识与 shell() 的 bottom 取值不同名（Git 历史的取值是 git）。
+const RAIL_BOTTOM_VALUE = { terminal: "terminal", history: "git" };
+
+/** 从当前 DOM 读出场景给出的初始布局，作为 live.layout 的起点。 */
+function readInitialLayout() {
+  const buttons = [...document.querySelectorAll(".tool-rail .rail-button")];
+  const names = buttons.map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null);
+  const activeIndex = buttons.findIndex((b) => b.classList.contains("active"));
+  const activeRail = activeIndex >= 0 ? names[activeIndex] : "project";
+  const side = RAIL_SIDE.includes(activeRail) ? activeRail : "project";
+  const bottom = RAIL_BOTTOM.includes(activeRail) ? (RAIL_BOTTOM_VALUE[activeRail] || "") : "";
+  return { activeRail, side, bottom, collapsed: null, userDriven: false };
+}
+
+function currentLayout() {
+  const live = window.__augitLive;
+  // 首屏渲染可能早于 live 对象建立；此时没有布局可谈，交由调用方跳过。
+  if (!live) return null;
+  live.layout ??= readInitialLayout();
+  return live.layout;
+}
+
+function applyRailAction(name) {
+  const layout = currentLayout();
+  if (!layout) return;
+  // 标记为「用户已操作」，此后由 live.layout 接管场景值。
+  layout.userDriven = true;
+  const previousCollapsed = layout.collapsed;
+  const previousBottom = layout.bottom;
+  const inSide = RAIL_SIDE.includes(name);
+  const isActive = layout.activeRail === name;
+  if (isActive) {
+    // 再次点击同一入口：折叠 / 恢复该区域。
+    layout.collapsed = layout.collapsed === (inSide ? "side" : "bottom") ? null : (inSide ? "side" : "bottom");
+  } else {
+    layout.activeRail = name;
+    layout.collapsed = null;
+    if (inSide) {
+      layout.side = name;
+    } else {
+      layout.bottom = RAIL_BOTTOM_VALUE[name] || "";
+    }
+  }
+
+  // 区域替换只在「两侧都存在」时替换，无法表达节点的出现与消失。
+  // 折叠/恢复会增删 .side-tool 或 .bottom-tool，那一步必须整页重绘；
+  // 仅仅是同区域内切换或跨区域切换时，两个区域节点都在，走定点替换即可，
+  // 这样不会丢掉编辑标签与已建立的组件实例。
+  const needsStructural = previousCollapsed !== layout.collapsed
+    || (previousBottom === "") !== (layout.bottom === "");
+  if (needsStructural && typeof window.__augitRender === "function") {
+    // 整页重绘会换掉工具窗口入口，必须重新挂上动作；
+    // 否则下一次点击会走 <a> 的默认跳转，直接离开应用页面。
+    window.__augitRender();
+  } else {
+    refresh("rail", "side", "bottomTool", "editorContent", "statusbar");
+  }
+
+  bindToolRail();
+}
+
+function bindToolRail() {
+  if (!window.__augitLive || window.__augitRailBound) return;
+  window.__augitRailBound = true;
+  // 挂在 document 的捕获阶段：工具窗口入口会在整页重绘时被换掉，
+  // 挂在节点上的监听会随节点一起消失，导致下一次点击走 <a> 默认跳转离开应用。
+  // 放在捕获阶段还能在默认动作之前阻止跳转。
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest(".tool-rail .rail-button");
+    if (!button) return;
+    // 外壳里这些入口是应用内动作，不是页面跳转。
+    event.preventDefault();
+    const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
+    if (name) applyRailAction(name);
+  }, true);
 }
 
 /** 转义为可安全插入 HTML 的文本。 */

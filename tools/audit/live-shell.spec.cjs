@@ -1524,6 +1524,76 @@ async function main() {
     check('刷新后查找条不重复打开: ' + JSON.stringify(lifetime), lifetime.every((n) => n === 1));
     await regionLifetime.page.close();
 
+    // ---- 规格 §5.1：工具窗口切换与折叠 ----
+    const railPage = await openScene('scene=main-project&theme=dark');
+    await railPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const railState = async () => railPage.page.evaluate(() => ({
+      active: [...document.querySelectorAll('.tool-rail .rail-button')]
+        .filter((b) => b.classList.contains('active')).map((b) => b.getAttribute('aria-label')),
+      hasSide: !!document.querySelector('.side-tool'),
+      sideTitle: document.querySelector('.side-tool .tool-header span') ? document.querySelector('.side-tool .tool-header span').innerText : null,
+      hasBottom: !!document.querySelector('.bottom-tool'),
+    }));
+    const initial = await railState();
+    check('初始工具窗口为项目', initial.active.join(',') === '项目' && initial.hasSide === true, JSON.stringify(initial));
+
+    // 点击「提交」：原位替换
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.waitForTimeout(400);
+    const switched = await railState();
+    check('切换到提交工具窗口', switched.active.join(',') === '提交' && switched.hasSide === true, JSON.stringify(switched));
+
+    // 再次点击同一入口：折叠
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.waitForTimeout(400);
+    const collapsed = await railState();
+    check('再次点击已激活入口则折叠侧栏', collapsed.hasSide === false, JSON.stringify(collapsed));
+
+    // 第三次点击：恢复
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.waitForTimeout(400);
+    const restored = await railState();
+    check('再次点击恢复侧栏', restored.hasSide === true && restored.active.join(',') === '提交', JSON.stringify(restored));
+
+    // 底部：Git 历史与终端互斥
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.waitForTimeout(400);
+    const withBottom = await railState();
+    check('Git 历史占用底部区域', withBottom.hasBottom === true, JSON.stringify(withBottom));
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await railPage.page.waitForTimeout(400);
+    const terminalOnly = await railPage.page.evaluate(() => document.querySelectorAll('.bottom-tool').length);
+    check('终端与 Git 历史互斥（底部只有一个工具窗口）', terminalOnly === 1, `底部工具窗口数=${terminalOnly}`);
+    // 先打开一个文件，再验证切换工具窗口不会关闭标签或改变当前文件。
+    // 重新载入以拿到干净的项目树（前面的操作已把视图切到差异）。
+    await railPage.page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+    await railPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await railPage.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    await railPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await railPage.page.waitForTimeout(300);
+    await railPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    await railPage.page.waitForFunction('window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 8000 });
+    const beforeSwitch = await railPage.page.evaluate(() => ({
+      doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: document.querySelectorAll('.editor-tab').length,
+    }));
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.waitForTimeout(400);
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="搜索"]').click();
+    await railPage.page.waitForTimeout(400);
+    const afterSwitch = await railPage.page.evaluate(() => ({
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: document.querySelectorAll('.editor-tab').length,
+    }));
+    check('切换工具窗口不改变当前文件: ' + afterSwitch.doc, afterSwitch.doc === beforeSwitch.doc);
+    // 如实说明：实时外壳目前只跟踪「当前文档」，没有已打开标签的列表
+    // （editorTabs() 在 live 下只渲染当前文档一个标签）。
+    // 因此这里只断言「切换工具窗口后仍有一个标签指向同一文档」，
+    // 不断言标签数量不变——那会假设一个尚未实现的标签集合。
+    check('切换工具窗口后标签仍指向当前文档: ' + JSON.stringify(afterSwitch),
+      afterSwitch.tabs > 0 && afterSwitch.doc === beforeSwitch.doc);
+    await railPage.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
