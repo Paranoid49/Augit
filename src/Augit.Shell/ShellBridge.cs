@@ -74,9 +74,31 @@ internal sealed class ShellBridge : IDisposable
             object? result = await DispatchAsync(method, parameters, cancellationToken);
             return Serialize(id, result, null);
         }
+        catch (ArgumentException exception)
+        {
+            // 参数校验类失败：消息是本应用自己写的中文提示，可以直接给用户看。
+            return Serialize(id, null, exception.Message);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or System.Security.SecurityException)
+        {
+            // 文件系统失败：.NET 的原始消息是英文且含实现细节，换成可读说明。
+            // 具体原因（例如只读、被占用）由各方法在返回值里给出。
+            return Serialize(id, null, "无法访问文件或目录，请检查权限或占用情况。");
+        }
+        catch (Exception exception) when (exception is System.Text.Json.JsonException)
+        {
+            return Serialize(id, null, "请求或响应不是合法的 JSON。");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+        {
+            return Serialize(id, null, "当前操作不受支持或状态不允许。");
+        }
         catch (Exception exception)
         {
-            return Serialize(id, null, exception.Message);
+            // 兜底：不回传原始消息，避免把实现细节暴露到界面。
+            return Serialize(id, null, $"内部错误：{exception.GetType().Name}");
         }
     }
 

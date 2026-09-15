@@ -235,6 +235,7 @@ async function main() {
       }
       if (method === 'settings/read') return data.settings;
       if (method === 'settings/write') {
+        if (window.__settingsReadOnly) return { saved: false, reason: '无法访问文件或目录，请检查权限或占用情况。' };
         window.__settingsWritten = Object.assign(window.__settingsWritten || {}, params);
         return { saved: true, theme: params.theme, fontSize: params.fontSize };
       }
@@ -1224,6 +1225,18 @@ async function main() {
     check('工作区消失时状态栏仍可见', goneState.statusbarVisible === true);
     check('界面未因列表失败抛出未捕获异常', goneState.err === null);
     await gone.close();
+
+    // ---- 设置写入失败：必须让用户看到原因，不能静默 ----
+    const roSettings = await openScene('scene=settings&theme=dark');
+    await roSettings.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await roSettings.page.evaluate(() => { window.__settingsReadOnly = true; });
+    const roResult = await roSettings.page.evaluate(async () => {
+      return await window.__augitSaveSettings().then(
+        () => ({ ok: true, err: window.__augitError || null }),
+        (error) => ({ ok: false, err: String(error && error.message || error) }));
+    });
+    check('设置写入失败被上报: ' + JSON.stringify(roResult), roResult.ok === false && roResult.err.includes('无法访问'));
+    await roSettings.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

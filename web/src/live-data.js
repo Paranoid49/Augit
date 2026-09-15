@@ -749,7 +749,10 @@ async function saveSettings() {
   }
 
   const saved = await invoke("settings/write", payload, 15000);
-  if (!saved || !saved.saved) throw new Error("设置未能保存");
+  if (!saved || !saved.saved) {
+    // 把宿主给出的原因带给用户；缺失时退回通用提示。
+    throw new Error(saved && saved.reason ? saved.reason : "设置未能保存");
+  }
   window.__augitSettingsSaved = true;
   return saved;
 }
@@ -1129,6 +1132,8 @@ function bindPanelDividers() {
 
 // 供验收套件在清理测试残留后重新应用面板尺寸。
 // 供验收套件直接调用数据加载入口。
+window.__augitSaveSettings = () => saveSettings();
+
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path) => loadDiff(path);
