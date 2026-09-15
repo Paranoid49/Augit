@@ -710,13 +710,10 @@ async function openChangeDiff(path) {
   try {
     const diff = await loadDiff(path);
     if (diff) {
-      // 规格 §12.2 明确要求已有 Diff 标签时「只更新该标签正文」，
-      // 不得刷新改动列表，也不得改变复选框、提交信息与列表滚动。
-      // 这不只是体验问题：改动列表一旦被替换，被点击的行会在事件继续传播前
-      // 离开文档，视觉稿「双击改动行建临时比较标签」的监听就永远收不到 dblclick
-      // （实测：真正的双击不建标签，但手动派发 dblclick 能建）。
-      // 因此这里只刷新编辑区相关区域，侧栏交给选中态本身。
-      refresh("editorContent", "editorTabs", "statusbar");
+      // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
+      // 复选框、提交信息与列表滚动；同时延后到事件派发结束再替换编辑区，
+      // 使视觉稿挂在冒泡阶段的「双击建比较标签」监听能收到事件。
+      refreshAfterEvent("editorContent", "editorTabs", "statusbar");
     }
   } finally {
     clearDiffLoadingMarker();
@@ -1276,6 +1273,21 @@ function refresh(...regions) {
   window.__augitRender();
 }
 
+/**
+ * 由指针/键盘事件触发的刷新。
+ *
+ * 为什么要单独一个入口：这些事件的处理挂在 document 的**捕获阶段**，
+ * 而视觉稿自己的监听（双击改动行建比较标签、列表键盘处理等）挂在**冒泡阶段**。
+ * 若在捕获阶段同步替换被点击的元素，它会在这个事件的后续阶段开始前离开文档，
+ * 冒泡阶段的监听就再也收不到这个事件。
+ *
+ * 因此这里把替换推迟到当前事件派发结束之后（宏任务），
+ * 让所有阶段的监听都能看到原来的节点。
+ */
+function refreshAfterEvent(...regions) {
+  window.setTimeout(() => refresh(...regions), 0);
+}
+
 /** 转义为可安全插入 HTML 的文本。 */
 function escapeText(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -1676,8 +1688,9 @@ async function openDocument(path) {
   }
 
   // 打开文档只影响编辑区、标签、状态栏与侧栏选中态；
-  // 只做区域刷新以保留项目树的展开状态与滚动位置。
-  refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
+  // 只做区域刷新以保留项目树的展开状态与滚动位置；
+  // 并延后到事件派发结束，避免在捕获阶段就替换掉被点击的行。
+  refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar", "titlebar");
 }
 
 try {

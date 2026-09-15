@@ -327,6 +327,9 @@ async function main() {
       const st = await page.evaluate(() => ({ doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null, err: window.__augitError || null, selected: document.querySelectorAll('.side-content.tree .tree-row.selected').length }));
       throw new Error('双击未打开文档 state=' + JSON.stringify(st));
     }
+    // 打开文档后的区域刷新被推迟到事件派发结束（见 refreshAfterEvent），
+    // 因此先等标题栏反映新文档，再断言。
+    await page.waitForFunction('document.querySelector(".titlebar-context").innerText.includes("product-spec.md")', null, { timeout: 5000 });
     // 标题栏同样来自宿主，不能停留在视觉稿的默认文案。
     const workspaceChip = await page.locator('.workspace-chip').innerText();
     check('标题栏显示真实工作区名: ' + workspaceChip, workspaceChip.includes('live-ws'));
@@ -344,6 +347,9 @@ async function main() {
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').dblclick();
     await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/notes.txt"', null, { timeout: 10000 });
+    // 编辑区刷新被延后到事件派发结束。等待条件必须针对**新内容**，
+    // 否则会被上一份文档残留的行满足（这会掩盖渲染滞后）。
+    await page.waitForFunction('document.querySelector(".code-view .code-line") && document.querySelector(".code-view .code-line").innerText.includes("第一行")', null, { timeout: 5000 });
     const lines = await page.locator('.code-view .code-line').allInnerTexts();
     check('纯文本按行渲染', lines.length === 4 && lines[0].includes('第一行'));
     check('状态栏显示真实路径', (await page.locator('.statusbar .status-path').innerText()).includes('notes.txt'));
@@ -738,6 +744,7 @@ async function main() {
     await keep.page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
     const expandedAfter = await keep.page.locator('.side-content.tree .tree-row').count();
     check('打开文件后树仍保持展开: ' + expandedBefore + ' -> ' + expandedAfter, expandedAfter === expandedBefore);
+    await keep.page.waitForFunction('document.querySelector(".status-path").innerText.includes("product-spec.md")', null, { timeout: 5000 });
     check('打开文件后文档已切换', (await keep.page.locator('.status-path').innerText()).includes('product-spec.md'));
     await keep.page.close();
 
@@ -892,8 +899,27 @@ async function main() {
     await key.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
     const callsSingle = await key.page.evaluate('window.__diffCalls.length');
     check('双栏模式产生一次请求: ' + callsSingle, callsSingle === 1);
+    // 差异视图的刷新被延后到事件派发结束，先等它渲染出来。
+    try {
+      await key.page.waitForSelector('.diff-toolbar .segmented button', { timeout: 8000 });
+    } catch {
+      const st = await key.page.evaluate(() => ({
+        editor: window.__augitLive.editor,
+        hasDiff: !!window.__augitLive.diff,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        hasDiffLayout: !!document.querySelector('.diff-layout'),
+        hasToolbar: !!document.querySelector('.diff-toolbar'),
+        contentClass: document.querySelector('.editor-content').firstElementChild ? document.querySelector('.editor-content').firstElementChild.className : null,
+        err: window.__augitError || null,
+      }));
+      throw new Error('差异工具栏未出现 state=' + JSON.stringify(st));
+    }
     check('工具栏存在单栏与双栏两个按钮', await key.page.locator('.diff-toolbar .segmented button').count() === 2);
-    check('实时差异视图提供单栏模板', await key.page.locator('.diff-unified-template').count() === 1);
+    // 注意：<template> 的类选择器匹配在某些情况下不可靠，因此按 DOM 结构判定，
+    // 并直接验证单栏切换的实际效果（这才是用户能感知的行为）。
+    const hasTemplate = await key.page.evaluate(
+      () => [...document.querySelector('.diff-layout').children].some((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template'));
+    check('实时差异视图提供单栏模板', hasTemplate === true);
     // 点击工具栏的单栏按钮：相同内容，只重新排版，不再查询 Git
     await key.page.locator('.diff-toolbar .segmented button[aria-label="单栏"]').click();
     await key.page.waitForTimeout(500);
@@ -1306,6 +1332,13 @@ async function main() {
       const out = [];
       for (const path of ['binary.bin', 'oversize.txt']) {
         await window.__augitOpenDocument(path);
+        // 打开文档后的刷新被延后到事件派发结束，等摘要真正渲染出来。
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline
+          && !document.querySelector('.editor-content').innerText.includes('10 MB')
+          && path === 'oversize.txt') {
+          await new Promise((r) => setTimeout(r, 50));
+        }
         out.push({
           path,
           editor: window.__augitLive.editor,
@@ -1341,6 +1374,8 @@ async function main() {
     // 2) 打开文件
     await journey.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await journey.page.waitForFunction('window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    // 打开文档后的区域刷新被延后到事件派发结束，等界面反映新文档。
+    await journey.page.waitForFunction('document.querySelector(".statusbar").innerText.includes("UTF-8")', null, { timeout: 5000 });
     const afterOpen = await journey.page.evaluate(() => ({
       editor: window.__augitLive.editor,
       status: document.querySelector('.statusbar').innerText.replace(/\n/g, ' '),
@@ -1394,7 +1429,8 @@ async function main() {
     await j2.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await j2.page.evaluate(() => { window.__diffCalls = []; });
     await j2.page.locator('.changes-list .change-file-row').first().dblclick();
-    await j2.page.waitForTimeout(900);
+    // 等待标签真正建出来（打开差异的刷新是延后的，不要用固定睡眠）。
+    await j2.page.waitForFunction('!!document.querySelector("[data-workspace-diff-tab]")', null, { timeout: 8000 }).catch(() => {});
     const dbl = await j2.page.evaluate(() => ({
       diffTab: !!document.querySelector('[data-workspace-diff-tab]'),
       caption: document.querySelector('.change-tab-caption') ? document.querySelector('.change-tab-caption').innerText : null,
