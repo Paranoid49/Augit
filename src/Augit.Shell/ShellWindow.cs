@@ -65,6 +65,9 @@ internal sealed class ShellWindow : IDisposable
         }
     }
 
+    /// <summary>原生窗口句柄；供单实例登记与外部诊断使用。</summary>
+    public nint Handle => _window;
+
     public void Show()
     {
         ShowWindow(_window, SwShow);
