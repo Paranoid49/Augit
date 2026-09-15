@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using Augit.Core.Search;
+using Augit.Infrastructure.Search;
 using Augit.Infrastructure.Settings;
 using Augit.Infrastructure.Terminal;
 using System.Text.Json;
@@ -114,6 +116,8 @@ internal sealed class ShellBridge
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
             "git/clone" => await CloneAsync(parameters, cancellationToken),
+            "search/files" => await SearchFilesAsync(parameters, cancellationToken),
+            "search/text" => await SearchTextAsync(parameters, cancellationToken),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
@@ -328,6 +332,64 @@ internal sealed class ShellBridge
             available = result.IsSuccess,
             reason = result.ErrorMessage,
             path = result.IsSuccess ? fullDestination : null,
+        };
+    }
+
+    /// <summary>
+    /// 快速打开：按文件名搜索，最多 100 项。
+    /// 上限、超时与取消语义都由搜索服务负责，这里只做参数整形与结果映射。
+    /// </summary>
+    private async Task<object?> SearchFilesAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string query = GetString(parameters, "query") ?? string.Empty;
+        RipgrepSearchService search = new(RipgrepPath);
+        FileSearchResultSet result = await search.SearchFilesWithStatusAsync(
+            _workspaceRoot,
+            query,
+            cancellationToken);
+        return new
+        {
+            available = true,
+            timedOut = result.IsTimedOut,
+            cancelled = result.IsCancelled,
+            notice = result.Notice,
+            matches = result.Matches.Select(match => new
+            {
+                path = match.RelativePath,
+                name = Path.GetFileName(match.RelativePath),
+                directory = (Path.GetDirectoryName(match.RelativePath) ?? string.Empty).Replace('\\', '/'),
+            }),
+        };
+    }
+
+    /// <summary>全仓搜索：按内容搜索，最多 1000 项并标记截断。</summary>
+    private async Task<object?> SearchTextAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string query = GetString(parameters, "query") ?? string.Empty;
+        SearchOptions options = new(
+            query,
+            GetBool(parameters, "matchCase") ?? false,
+            GetBool(parameters, "matchWholeWord") ?? false,
+            GetBool(parameters, "useRegularExpression") ?? false,
+            GetBool(parameters, "includeIgnoredFiles") ?? false);
+        RipgrepSearchService search = new(RipgrepPath);
+        TextSearchResult result = await search.SearchTextAsync(_workspaceRoot, options, cancellationToken);
+        return new
+        {
+            available = true,
+            truncated = result.IsTruncated,
+            timedOut = result.IsTimedOut,
+            cancelled = result.IsCancelled,
+            notice = result.Notice,
+            matches = result.Matches.Select(match => new
+            {
+                path = match.RelativePath,
+                name = Path.GetFileName(match.RelativePath),
+                directory = (Path.GetDirectoryName(match.RelativePath) ?? string.Empty).Replace('\\', '/'),
+                line = match.LineNumber,
+                column = match.ColumnNumber,
+                text = match.LineText,
+            }),
         };
     }
 
@@ -732,6 +794,9 @@ internal sealed class ShellBridge
     /// 换行格式的界面用名。规格 §4.1 要求 LF / CRLF / CR / 混合换行 / 无换行；
     /// 未识别到换行符时返回空串，界面据此不显示该字段。
     /// </summary>
+    /// <summary>随包分发的 ripgrep；缺失时搜索功能明确失败，不静默降级。</summary>
+    private static string RipgrepPath => Path.Combine(AppContext.BaseDirectory, "tools", "rg.exe");
+
     /// <summary>Augit 的普通文件查看器只读取 UTF-8（可带 BOM），因此文本编码固定为 UTF-8。</summary>
     private const string TextEncodingName = "UTF-8";
 

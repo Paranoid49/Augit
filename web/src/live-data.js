@@ -271,6 +271,101 @@ function computePush(live) {
   };
 }
 
+/**
+ * 搜索浮层：快速打开按文件名，全仓搜索按内容。
+ * 输入去抖 180 毫秒，避免每敲一个字符都拉起一次 ripgrep。
+ */
+let searchToken = 0;
+async function runSearch(kind, query, options) {
+  const live = window.__augitLive;
+  if (!live) return;
+  const token = ++searchToken;
+  const method = kind === "repository" ? "search/text" : "search/files";
+  try {
+    const result = await invoke(method, { query, ...(options || {}) }, 30000);
+    // 晚到的旧查询不得覆盖新查询的结果。
+    if (token !== searchToken) return;
+    live.search = {
+      kind,
+      query,
+      options: options || {},
+      matches: result && result.matches ? result.matches : [],
+      notice: result && result.notice ? result.notice : "",
+      truncated: !!(result && result.truncated),
+    };
+    window.__augitSearchReady = true;
+    window.__augitRender();
+    bindSearchOverlay(kind);
+  } catch (error) {
+    if (token !== searchToken) return;
+    window.__augitError = "search:" + String(error && error.message || error);
+  }
+}
+
+/**
+ * 绑定浮层输入与键盘。整页重绘会替换节点，因此每次重绘后重新调用。
+ * Esc 关闭浮层并恢复原焦点；上下方向键移动选择，Enter 打开。
+ */
+function bindSearchOverlay(kind) {
+  const input = document.querySelector(".search-overlay .search-field");
+  if (!input || input.dataset.searchBound === "true") return;
+  input.dataset.searchBound = "true";
+  let timer = 0;
+  input.addEventListener("input", () => {
+    window.clearTimeout(timer);
+    const value = input.value;
+    const options = currentSearchOptions();
+    timer = window.setTimeout(() => void runSearch(kind, value, options), 180);
+  });
+  input.addEventListener("keydown", (event) => {
+    const results = [...document.querySelectorAll(".search-result")];
+    const index = results.findIndex((row) => row.classList.contains("selected"));
+    if (event.key === "Escape") {
+      event.preventDefault();
+      document.querySelector(".search-overlay")?.remove();
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (results.length === 0) return;
+      const next = Math.max(0, Math.min(results.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+      results.forEach((row, i) => row.classList.toggle("selected", i === next));
+      results[next].scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    if (event.key === "Enter" && results.length > 0) {
+      event.preventDefault();
+      const row = results[Math.max(0, index)];
+      const path = row.dataset.searchPath;
+      if (path) void openDocument(path);
+    }
+  });
+  input.focus();
+}
+
+/** 读取浮层上的搜索开关当前状态。 */
+function currentSearchOptions() {
+  const pressed = (label) => document.querySelector(`.search-option[aria-label="${label}"]`)?.getAttribute("aria-pressed") === "true";
+  return {
+    matchCase: pressed("区分大小写"),
+    matchWholeWord: pressed("全字匹配"),
+    useRegularExpression: pressed("正则表达式"),
+    includeIgnoredFiles: !!document.querySelector(".search-ignored input")?.checked,
+  };
+}
+
+/** 点击结果行打开对应文件。 */
+document.addEventListener("click", (event) => {
+  const row = event.target.closest && event.target.closest(".search-result");
+  if (!row) return;
+  const path = row.dataset.searchPath;
+  if (!path) return;
+  event.preventDefault();
+  void openDocument(path);
+}, true);
+
 /** 读取远端、分支标签、Stash 与 Worktree，供管理窗口使用。 */
 async function loadReferences() {
   try {
@@ -296,6 +391,7 @@ async function loadReferences() {
       reattachTerminal();
       bindSettingsSave();
       bindConflictSave();
+      if (window.__augitLive && window.__augitLive.search) bindSearchOverlay(window.__augitLive.search.kind);
       void refreshCommitDetails();
     }
   } catch (error) {
@@ -677,6 +773,9 @@ async function boot() {
   const wantsTerminal = query.get("scene") === "terminal";
   const wantsSettings = query.get("scene") === "settings";
   const wantsClone = query.get("scene") === "clone";
+  const searchScene = query.get("scene") === "quick-open" ? "quick"
+    : query.get("scene") === "repository-search" ? "repository"
+      : null;
   if (wantsClone && hasHost()) {
     // 把真实克隆交给视觉稿的 Clone 对话框调用：校验、焦点与冻结逻辑已在其中实现。
     window.__augitCloneRequest = (request) => invoke("git/clone", request, 600000);
@@ -708,6 +807,13 @@ async function boot() {
 
   if (requestedDocument && window.__augitLive) {
     await openDocument(requestedDocument);
+  }
+
+  if (searchScene && window.__augitLive) {
+    // 浮层先以空查询渲染，再绑定输入并聚焦，符合「打开即聚焦」的规格要求。
+    window.__augitLive.search = { kind: searchScene, query: "", options: {}, matches: [], notice: "" };
+    window.__augitRender();
+    bindSearchOverlay(searchScene);
   }
 
   if (requestedBlame && window.__augitLive) {
@@ -787,6 +893,7 @@ async function boot() {
   refreshPush();
   window.__augitRender();
   reattachTerminal();
+  if (window.__augitLive && window.__augitLive.search) bindSearchOverlay(window.__augitLive.search.kind);
   void refreshCommitDetails();
 }
 

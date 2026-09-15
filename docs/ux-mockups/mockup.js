@@ -2358,6 +2358,27 @@ function statusBar(editor, selectedFile) {
   return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(fullPath)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${text}</span>`).join('')}</div></footer>`;
 }
 
+// 外壳注入真实搜索结果时使用；结构与样例版一致（浮层、开关、结果行、提示）。
+function liveSearchOverlay(kind) {
+  const live = window.__augitLive || {};
+  const search = live.search;
+  const repository = kind === "repository";
+  const header = repository
+    ? `<strong>全仓搜索</strong>${[['case-sensitive', '区分大小写', 'matchCase'], ['whole-word', '全字匹配', 'matchWholeWord'], ['regex', '正则表达式', 'useRegularExpression']].map(([name, label, key]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="${search && search.options && search.options[key] ? 'true' : 'false'}">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="包含忽略文件"${search && search.options && search.options.includeIgnoredFiles ? ' checked' : ''}>包含忽略文件</label>`
+    : `<strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
+  const query = (search && search.query) || "";
+  const matches = (search && search.matches) || [];
+  const rows = matches.map((match, index) => repository
+    ? `<a class="search-result${index === 0 ? ' selected' : ''}" href="#" data-search-path="${escapeHtml(match.path)}" data-search-line="${match.line}">${fileTypeIcon(match.name)}<span>${escapeHtml(match.name)} <span class="commit-meta">${escapeHtml(String(match.line))}: ${escapeHtml(match.text)}</span></span><span class="commit-meta">${escapeHtml(match.directory)}</span></a>`
+    : `<a class="search-result${index === 0 ? ' selected' : ''}" href="#" data-search-path="${escapeHtml(match.path)}">${fileTypeIcon(match.name)}<span>${escapeHtml(match.name)}</span><span class="commit-meta">${escapeHtml(match.directory)}</span></a>`).join("");
+  const results = matches.length > 0 ? `<div class="search-results">${rows}</div>` : "";
+  const noticeText = search && search.notice ? search.notice : "";
+  const notice = noticeText
+    ? `<div class="search-notice" role="status" tabindex="0">${escapeHtml(noticeText)}</div>`
+    : "";
+  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}"><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+}
+
 function searchOverlay(kind) {
   const repository = kind === "repository";
   const searchHeader = repository
@@ -2409,8 +2430,8 @@ function renderScene() {
     case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
     case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", (window.__augitLive && window.__augitLive.settings) ? liveCloneBody() : cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
     case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
-    case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: searchOverlay("quick"), selectedFile: "MainWindow.cs" });
-    case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
+    case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("quick") : searchOverlay("quick"), selectedFile: "MainWindow.cs" });
+    case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("repository") : searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
     case "settings": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl") });
     case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });

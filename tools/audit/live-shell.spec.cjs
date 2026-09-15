@@ -63,6 +63,19 @@ const WORKSPACE = {
       { hash: 'ccc3333', fullHash: 'full-ccc3333', subject: 'feat: 真实提交三', author: 'l49', date: '2026/9/13 08:00', graph: '*', parents: [], references: [] },
     ],
   },
+  searchFiles: {
+    available: true, timedOut: false, cancelled: false, notice: '',
+    matches: [
+      { path: 'docs/product-spec.md', name: 'product-spec.md', directory: 'docs' },
+      { path: 'src/Program.cs', name: 'Program.cs', directory: 'src' },
+    ],
+  },
+  searchText: {
+    available: true, truncated: false, timedOut: false, cancelled: false, notice: '',
+    matches: [
+      { path: 'docs/product-spec.md', name: 'product-spec.md', directory: 'docs', line: 12, column: 3, text: '轻量优先是 Augit 的最高产品原则。' },
+    ],
+  },
   clone: { available: false, field: 'destination', reason: '目标目录不为空，请换一个目录。' },
   diff: {
     available: true, path: 'src/App.cs', status: 'Ready', oldSize: 40, newSize: 44,
@@ -185,6 +198,8 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'search/files') return data.searchFiles;
+      if (method === 'search/text') return data.searchText;
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') return params.path === data.diff.path ? data.diff : { available: false, reason: 'no diff' };
       if (method === 'settings/read') return data.settings;
@@ -217,7 +232,12 @@ async function main() {
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${port}/index.html?${query}`, { waitUntil: 'load' });
-      await page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      try {
+        await page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      } catch {
+        const st = await page.evaluate(() => ({ err: window.__augitError || null, live: !!window.__augitLive }));
+        throw new Error('首屏未就绪 state=' + JSON.stringify(st) + ' pageErrors=' + JSON.stringify(errors.slice(0, 2)));
+      }
       try {
         await page.waitForFunction(
           'window.__augitGitReady === true && window.__augitHistoryReady === true',
@@ -554,6 +574,38 @@ async function main() {
       graphInfo.hashes.includes('aaa1111') && graphInfo.hashes.includes('ccc3333'));
     check('合并提交产生多条泳道配色: ' + graphInfo.colors, graphInfo.colors >= 2);
     await graphPage.page.close();
+
+    // ---- 快速打开：只搜文件名，最多 100 项 ----
+    const quick = await openScene('scene=quick-open&theme=dark');
+    await quick.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+    check('快速打开浮层默认聚焦输入框', await quick.page.evaluate('document.activeElement && document.activeElement.classList.contains("search-field")'));
+    check('快速打开标题正确', (await quick.page.locator('.search-tabs').innerText()).includes('快速打开文件'));
+    check('快速打开初始无结果', await quick.page.locator('.search-result').count() === 0);
+    await quick.page.locator('.search-overlay .search-field').fill('product');
+    await quick.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
+    await quick.page.waitForSelector('.search-result', { timeout: 10000 });
+    const quickRows = await quick.page.locator('.search-result').count();
+    check('快速打开显示真实命中: ' + quickRows, quickRows === 2);
+    const quickText = await quick.page.locator('.search-overlay').innerText();
+    check('快速打开显示文件名与路径: ' + quickText.replace(/\n/g, ' '), quickText.includes('product-spec.md') && quickText.includes('docs'));
+    check('快速打开不残留样例', !quickText.includes('NativeGitPanel.cs'));
+    // 方向键移动选择
+    await quick.page.locator('.search-overlay .search-field').press('ArrowDown');
+    check('方向键移动选择', await quick.page.evaluate('document.querySelectorAll(".search-result")[1].classList.contains("selected")'));
+    await quick.page.close();
+
+    // ---- 全仓搜索：按内容，含开关与结果行号 ----
+    const repo = await openScene('scene=repository-search&theme=dark');
+    await repo.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+    check('全仓搜索显示三个开关', await repo.page.locator('.search-option').count() === 3);
+    check('全仓搜索显示包含忽略文件', (await repo.page.locator('.search-ignored').innerText()).includes('包含忽略文件'));
+    await repo.page.locator('.search-overlay .search-field').fill('轻量');
+    await repo.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
+    await repo.page.waitForSelector('.search-result', { timeout: 10000 });
+    const repoText = await repo.page.locator('.search-overlay').innerText();
+    check('全仓搜索显示命中行号与内容: ' + repoText.replace(/\n/g, ' ').slice(0, 90), repoText.includes('12:') && repoText.includes('轻量优先'));
+    check('全仓搜索不残留样例', !repoText.includes('Git 状态已刷新'));
+    await repo.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
