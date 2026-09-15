@@ -241,6 +241,45 @@ async function loadBlame(path) {
   }
 }
 
+/** 转义为可安全插入 HTML 的文本。 */
+function escapeText(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[character]));
+}
+
+/**
+ * 读取单个提交的详情并填入底部日志的详情区。
+ * 提交选择由 mockup 的既有绑定派发 history-commit-selected 事件触发。
+ */
+async function loadCommitDetails(revision) {
+  const panel = document.querySelector(".log-detail-panel");
+  if (!panel) return;
+  const filesHost = panel.querySelector("[data-live-changed-files]");
+  const detailHost = panel.querySelector("[data-live-commit-detail]");
+  if (!filesHost || !detailHost) return;
+
+  try {
+    const commit = await invoke("git/commit", { revision }, 30000);
+    if (!commit || !commit.available) {
+      filesHost.innerHTML = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
+      return;
+    }
+
+    const files = commit.files || [];
+    filesHost.innerHTML = files.length === 0
+      ? `<p class="commit-meta">该提交没有变更文件</p>`
+      : `<div class="tree-row"><span>${escapeText(String(files.length))} 个文件</span></div>`
+        + files.map((file) => `<div class="tree-row depth-1 live-file-status-${escapeText(file.kind)}" data-history-path="${escapeText(file.path)}">${escapeText(file.name)}<span class="commit-meta">${escapeText(file.directory)}</span></div>`).join("");
+    detailHost.innerHTML = `<h3>${escapeText(commit.subject)}</h3>`
+      + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`
+      + (commit.body ? `<p class="commit-meta">${escapeText(commit.body)}</p>` : "");
+    window.__augitCommitLoaded = commit.hash;
+  } catch (error) {
+    window.__augitError = "load-commit:" + String(error && error.message || error);
+  }
+}
+
 /** 读取限定到某个文件的提交历史。 */
 async function loadFileHistory(path) {
   try {
@@ -344,6 +383,15 @@ async function boot() {
   if (history) {
     // 历史更慢，到达后再补一次重绘，底部 Git 日志与历史工具窗随之更新。
     window.__augitRender();
+    document.addEventListener("history-commit-selected", () => {
+      const selected = document.querySelector('.commit-row[aria-selected="true"]');
+      const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
+      if (revision) void loadCommitDetails(revision);
+    });
+    if (history.commits.length > 0) {
+      await loadCommitDetails(history.commits[0].fullHash);
+    }
+
     window.__augitHistoryReady = true;
   }
 }

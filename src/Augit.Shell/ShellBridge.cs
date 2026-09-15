@@ -88,6 +88,7 @@ internal sealed class ShellBridge
             "git/history" => await ReadHistoryAsync(cancellationToken),
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
+            "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -234,6 +235,45 @@ internal sealed class ShellBridge
                 graph = entry.Graph,
                 parents = entry.ParentHashes.Select(parent => parent[..Math.Min(7, parent.Length)]).ToArray(),
                 references = entry.References.Select(reference => reference.Name).ToArray(),
+            }),
+        };
+    }
+
+    /// <summary>读取单个提交的详情：正文与变更文件列表。</summary>
+    private async Task<object?> ReadCommitAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string revision = GetString(parameters, "revision")
+            ?? throw new ArgumentException("git/commit 需要 revision 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false };
+        }
+
+        GitHistoryService history = new(runtime);
+        GitCommitDetailsResult result = await history.ReadCommitAsync(repository, revision, cancellationToken);
+        if (!result.IsSuccess || result.Details is not { } details)
+        {
+            return new { available = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            hash = details.Commit.ShortHash,
+            fullHash = details.Commit.FullHash,
+            subject = details.Commit.Subject,
+            author = details.Commit.AuthorName,
+            date = details.Commit.AuthorDate.ToLocalTime()
+                .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+            body = details.Body,
+            files = details.Files.Select(file => new
+            {
+                path = file.RelativePath,
+                name = Path.GetFileName(file.RelativePath),
+                directory = (Path.GetDirectoryName(file.RelativePath) ?? string.Empty).Replace('\\', '/'),
+                kind = file.Kind.ToString(),
+                original = file.OriginalRelativePath,
             }),
         };
     }

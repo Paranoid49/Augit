@@ -61,6 +61,16 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  commit: {
+    available: true,
+    hash: 'aaa1111', fullHash: 'full-head-hash',
+    subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00',
+    body: '提交正文说明。',
+    files: [
+      { path: 'src/App.cs', name: 'App.cs', directory: 'src', kind: 'Modified', original: null },
+      { path: 'docs/notes.txt', name: 'notes.txt', directory: 'docs', kind: 'Added', original: null },
+    ],
+  },
   fileHistory: {
     available: true, path: 'docs/notes.txt',
     commits: [
@@ -132,6 +142,9 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/commit') {
+        return params.revision === data.commit.fullHash ? data.commit : { available: false, reason: 'unknown' };
+      }
       if (method === 'document/read') {
         const found = data.documents[params.path];
         if (!found) throw new Error('not found: ' + params.path);
@@ -241,6 +254,21 @@ async function main() {
     check('文件历史标签显示真实路径: ' + historyTab, historyTab.includes('docs/notes.txt'));
     check('文件历史不残留样例', !firstRow.includes('feat: 实现 Augit 阶段零至五功能'));
     await fileHistory.page.close();
+
+    // ---- 提交详情 ----
+    const historyPage = await context.newPage();
+    const historyErrors = [];
+    historyPage.on('pageerror', (error) => historyErrors.push(error.message));
+    await historyPage.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+    await historyPage.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await historyPage.waitForFunction('window.__augitCommitLoaded === "aaa1111"', null, { timeout: 15000 });
+    check('提交详情无页面错误', historyErrors.length === 0);
+    const changed = await historyPage.locator('[data-live-changed-files]').innerText();
+    check('提交详情列出真实变更文件: ' + JSON.stringify(changed.slice(0, 60)), changed.includes('2 个文件') && changed.includes('App.cs'));
+    const detail = await historyPage.locator('[data-live-commit-detail]').innerText();
+    check('提交详情显示真实提交信息', detail.includes('feat: 真实提交一') && detail.includes('提交正文说明。'));
+    check('提交详情不残留样例', !changed.includes('architecture.md'));
+    await historyPage.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
