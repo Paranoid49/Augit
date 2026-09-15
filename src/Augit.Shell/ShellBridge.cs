@@ -146,6 +146,7 @@ internal sealed class ShellBridge : IDisposable
             "git/checkout" => await CheckoutAsync(parameters, cancellationToken),
             "git/branch" => await BranchAsync(parameters, cancellationToken),
             "git/fetch" => await FetchAsync(parameters, cancellationToken),
+            "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -283,6 +284,49 @@ internal sealed class ShellBridge : IDisposable
                 original = file.OriginalRelativePath,
                 staged = file.HasStagedChanges,
                 workingTree = file.HasWorkingTreeChanges,
+            }),
+        };
+    }
+
+    /// <summary>
+    /// 待推送提交（规格 §7.12 的 Push 预览）。
+    /// 没有上游时返回可读说明而不是失败，界面据此保留「定义远端」入口并禁用推送。
+    /// </summary>
+    private async Task<object?> ReadUnpushedAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, commits = Array.Empty<object>(), upstream = (string?)null };
+        }
+
+        GitUnpushedResult result = await new GitHistoryService(runtime)
+            .ReadUnpushedAsync(repository!, maximum: 200, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess || result.Commits is not { } commits)
+        {
+            return new
+            {
+                available = true,
+                ready = false,
+                reason = result.ErrorMessage,
+                commits = Array.Empty<object>(),
+                upstream = (string?)null,
+            };
+        }
+
+        return new
+        {
+            available = true,
+            ready = true,
+            upstream = (string?)null,
+            commits = commits.Select(commit => new
+            {
+                fullHash = commit.FullHash,
+                hash = commit.ShortHash,
+                author = commit.AuthorName,
+                date = commit.AuthorDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+                subject = commit.Subject,
             }),
         };
     }

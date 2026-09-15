@@ -203,6 +203,54 @@ public sealed class GitHistoryService : IGitHistoryService
             entries));
     }
 
+    /// <summary>
+    /// 读取本地上游尚未包含的提交（规格 §7.12 的 Push 预览）。
+    ///
+    /// 没有配置上游时不报错，而是返回空列表并说明原因——
+    /// 界面据此保留「定义远端」入口并禁用推送，而不是显示一个失败。
+    /// </summary>
+    public async Task<GitUnpushedResult> ReadUnpushedAsync(
+        GitRepositorySnapshot repository,
+        int maximum = 200,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? validationError))
+        {
+            return GitUnpushedResult.Failure(GitOperationFailureKind.InvalidRequest, validationError!);
+        }
+
+        // @{u} 指向上游；未配置时 git 会以非零退出码失败，这里转成可读说明。
+        List<string> arguments =
+        [
+            "log",
+            "--topo-order",
+            $"--max-count={Math.Clamp(maximum, 1, 500)}",
+            $"--format={RecordSeparator}%H{FieldSeparator}%h{FieldSeparator}%P{FieldSeparator}%an{FieldSeparator}%ae{FieldSeparator}%aI{FieldSeparator}%s{FieldSeparator}%D",
+            "@{u}..HEAD",
+        ];
+        GitCommandResult result = await RunQueryAsync(
+            repositoryRoot!,
+            arguments,
+            _queryRunner,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return GitUnpushedResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "当前分支没有配置上游，无法生成推送预览。");
+        }
+
+        if (!TryParseHistory(result.StandardOutput, out IReadOnlyList<GitHistoryEntry>? parsed))
+        {
+            return GitUnpushedResult.Failure(
+                GitOperationFailureKind.CommandFailed,
+                "无法解析待推送提交。");
+        }
+
+        return GitUnpushedResult.Success(parsed!);
+    }
+
     public async Task<GitCommitDetailsResult> ReadCommitAsync(
         GitRepositorySnapshot repository,
         string revision,

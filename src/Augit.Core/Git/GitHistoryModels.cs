@@ -170,3 +170,25 @@ public sealed record GitComparisonResult(
         return new(false, failureKind, errorMessage, null);
     }
 }
+
+/// <summary>
+/// 待推送提交的读取结果。没有上游时 IsSuccess 为 false，Error 说明原因，
+/// 界面据此保留「定义远端」入口而不是显示成失败。
+/// </summary>
+public sealed record GitUnpushedResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    IReadOnlyList<GitHistoryEntry>? Commits)
+{
+    public static GitUnpushedResult Success(IReadOnlyList<GitHistoryEntry> commits)
+    {
+        ArgumentNullException.ThrowIfNull(commits);
+        return new(true, GitOperationFailureKind.None, null, commits);
+    }
+
+    public static GitUnpushedResult Failure(GitOperationFailureKind kind, string message)
+    {
+        return new(false, kind, message, null);
+    }
+}

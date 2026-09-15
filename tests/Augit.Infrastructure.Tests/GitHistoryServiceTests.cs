@@ -391,6 +391,56 @@ public sealed class GitHistoryServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task 没有上游时待推送读取返回可读原因而不是失败()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "test: first");
+
+            GitUnpushedResult result = await new GitHistoryService(runtime).ReadUnpushedAsync(repository);
+
+            Assert.IsFalse(result.IsSuccess);
+            // 原因必须说清是「没有上游」，界面据此保留定义远端入口。
+            StringAssert.Contains(result.ErrorMessage, "上游");
+        }
+    }
+
+    [TestMethod]
+    public async Task 待推送只包含上游之后的提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            // 用一个本地裸仓库充当远端，避免测试依赖网络。
+            // 放在临时目录内部：TemporaryDirectory.Dispose 会先把文件设为可写再删除，
+            // 否则裸仓库里只读的 Git 对象会让清理失败。
+            string remotePath = temporary.GetPath("remote.git");
+            Directory.CreateDirectory(remotePath);
+            await GitTestEnvironment.RunAsync(runtime, remotePath, "init", "--bare");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "test: 已推送");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "remote", "add", "origin", remotePath);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "push", "-u", "origin", "HEAD");
+
+            // 上游之后新增两条：只有这两条应出现在待推送列表里。
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "b.txt", "b\n", "feat: 待推送一");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "c.txt", "c\n", "feat: 待推送二");
+
+            GitUnpushedResult result = await new GitHistoryService(runtime).ReadUnpushedAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.IsNotNull(result.Commits);
+            Assert.HasCount(2, result.Commits!);
+            Assert.AreEqual("feat: 待推送二", result.Commits![0].Subject);
+            Assert.AreEqual("feat: 待推送一", result.Commits![1].Subject);
+            Assert.IsFalse(
+                result.Commits!.Any(commit => commit.Subject == "test: 已推送"),
+                "已推送到上游的提交不得出现在待推送列表里。");
+
+        }
+    }
+
     private static async Task<(TemporaryDirectory Temporary, GitRuntimeInfo Runtime, GitRepositorySnapshot Repository)>
         CreateRepositoryAsync()
     {

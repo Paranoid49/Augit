@@ -2469,6 +2469,33 @@ Git 历史占用底部、终端与历史互斥、切换不改变当前文件、�
 
 **仍未接线**：新建 Worktree…（双栏表单）、`livePushDialogBody`、`liveFileHistoryTool`、提交设置入口。
 
+### 第八十九轮：待推送提交的读取能力（Push 预览的底层）
+
+规格 §7.12 要求 Push 对话框显示**待推送提交列表**。核对后发现**这个能力此前完全不存在**：
+代码里没有任何 `@{u}..HEAD`、`rev-list` 或 ahead 计数。
+
+**新增 `GitHistoryService.ReadUnpushedAsync`**：
+`git log --topo-order @{u}..HEAD`，复用既有的 `TryParseHistory` 解析。
+**没有配置上游时不报错**，而是返回可读说明——规格要求此时保留「定义远端」入口并禁用推送，
+因此这必须是可区分的状态，不能和「读取失败」混在一起。
+
+**新增 `GitUnpushedResult`**（`IsSuccess` / `FailureKind` / `ErrorMessage` / `Commits`）。
+
+**桥接新增 `git/unpushed`**：返回 `{ available, ready, reason, commits[] }`，
+`ready=false` 时界面据此禁用推送而不是显示失败。
+
+**新增 2 项单元测试**（按规范「新增可执行逻辑必须补充自动化测试」）：
+- **没有上游时返回可读原因**（断言消息含「上游」）；
+- **待推送只包含上游之后的提交**：用本地裸仓库充当远端（不依赖网络），
+  先推送一条、再新增两条，断言列表恰好 2 条、顺序正确，且**已推送的那条不在列表里**。
+
+**过程中修掉测试自身的清理缺陷**：裸仓库原先建在临时目录之外，而 Git 对象文件是只读的，
+`Directory.Delete` 抛 `UnauthorizedAccessException`——**断言全部通过，测试却因清理失败而失败**。
+改为把裸仓库放进 `TemporaryDirectory` 内部（它的 `Dispose` 会先把文件设为可写再删）。
+这里值得记一笔：**「断言绿」不等于「测试绿」**，清理同样是测试的一部分。
+
+**下一轮**：用这个能力实现 Push 对话框本体（显示本地引用、目标远端引用、待推送提交列表；
+没有远端时禁用推送并保留「定义远端」）。
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
