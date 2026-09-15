@@ -92,6 +92,7 @@ internal sealed class ShellWindow : IDisposable
         }
 
         _disposed = true;
+        _bridge.Dispose();
         _controller?.Close();
         _controller = null;
         if (_window != 0)

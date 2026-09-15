@@ -88,13 +88,23 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 | 对话框族（Push/Remote/Clone/Stash/Reset/Worktree/冲突解决器） | 未开始 | — |
 | 终端 | 未开始 | — |
 
-### 已知待办
+### Git 调用路径优化（第六轮）
 
-- `git/status` 经宿主调用实测约 15 秒，而同机直接执行
-  `git status --porcelain=v1 --untracked-files=all` 仅 **0.73 秒**、
-  `git log --max-count=100` 仅 **0.065 秒**。因此瓶颈不在 git 本身，
-  而在 Augit 的调用路径（进程启动方式、命令条数或输出解析），需要进一步定位。
-  界面已按「不阻塞首屏」处理，但这是下一轮值得优先处理的体验问题。
+用独立探针直接调用 `Augit.Infrastructure` 的公开 API，测得真实耗时：
+
+| 阶段 | 耗时 |
+|---|---|
+| `GitExecutableLocator.ResolveAsync` | 44 ms |
+| `GitRepositoryService.InspectAsync` | 241 ms |
+| `GitStatusService.ReadAsync` | 181 ms |
+| `GitHistoryService.ReadPageAsync` | 40 ms |
+
+结论：**底层 Git 调用本来就很快（合计约 0.5 秒）**，先前的「15 秒」来自应用内重复执行：
+`git/status` 与 `git/history` 各自独立做一次「定位可执行文件 + 检查仓库」，
+在启动阶段并发争用。
+
+修复：在 `ShellBridge` 内缓存 Git 运行时与仓库快照，并用信号量串行化首次解析，
+两个方法共享同一份结果。同时让 `ShellBridge` 实现 `IDisposable`，随窗口一起释放。
 - 项目树目前用界面侧忽略清单隐藏构建产物；应改为读取 Git 自身忽略规则（需要
   `Augit.Infrastructure` 暴露公开接口，当前 `GitCommandRunner` 是 internal）。
 - `docs/ux-mockups/mockup.js` 是显式重复副本（与 `web/src` 一致），已由校验脚本防漂移；

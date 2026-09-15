@@ -13,7 +13,7 @@ namespace Augit.Shell;
 /// 网页层与 C# 能力层之间的消息桥。网页发送 <c>{ id, method, params }</c>，
 /// 这里返回 <c>{ id, result }</c> 或 <c>{ id, error }</c>。
 /// </summary>
-internal sealed class ShellBridge
+internal sealed class ShellBridge : IDisposable
 {
     private static readonly JsonSerializerOptions PayloadOptions = new()
     {
@@ -22,6 +22,9 @@ internal sealed class ShellBridge
     };
 
     private readonly string _workspaceRoot;
+    private readonly SemaphoreSlim _gitGate = new(1, 1);
+    private GitRuntimeInfo? _runtime;
+    private GitRepositorySnapshot? _repository;
 
     public ShellBridge(string workspaceRoot)
     {
@@ -29,6 +32,11 @@ internal sealed class ShellBridge
     }
 
     public string WorkspaceRoot => _workspaceRoot;
+
+    public void Dispose()
+    {
+        _gitGate.Dispose();
+    }
 
     public async Task<string> HandleAsync(string requestJson, CancellationToken cancellationToken)
     {
@@ -147,15 +155,28 @@ internal sealed class ShellBridge
 
     private async Task<object?> ReadStatusAsync(CancellationToken cancellationToken)
     {
+        long t0 = Environment.TickCount64;
         GitExecutableLocator locator = new();
-        GitRuntimeInfo runtime = await locator.ResolveAsync(null, cancellationToken);
+        Task<GitRuntimeInfo> locateTask = locator.ResolveAsync(null, cancellationToken);
+        while (!locateTask.IsCompleted && Environment.TickCount64 - t0 < 60000)
+        {
+            await Task.Delay(2000, cancellationToken);
+        }
+
+        GitRuntimeInfo runtime = await locateTask;
         if (!runtime.IsAvailable)
         {
             return new { available = false, reason = runtime.UnavailableReason };
         }
-
+        long t1 = Environment.TickCount64;
         GitRepositoryService repositories = new(runtime);
-        GitRepositoryOperationResult inspection = await repositories.InspectAsync(_workspaceRoot, cancellationToken);
+        Task<GitRepositoryOperationResult> inspectTask = repositories.InspectAsync(_workspaceRoot, cancellationToken);
+        while (!inspectTask.IsCompleted && Environment.TickCount64 - t1 < 60000)
+        {
+            await Task.Delay(2000, cancellationToken);
+        }
+
+        GitRepositoryOperationResult inspection = await inspectTask;
         if (!inspection.IsSuccess || inspection.Repository is not { } repository)
         {
             return new { available = true, isRepository = false, reason = inspection.ErrorMessage };
@@ -165,7 +186,7 @@ internal sealed class ShellBridge
         {
             return new { available = true, isRepository = false, reason = "该目录不是带工作区的 Git 仓库。" };
         }
-
+        long t2 = Environment.TickCount64;
         GitStatusService service = new(runtime);
         GitStatusResult status = await service.ReadAsync(repository, cancellationToken);
         if (!status.IsSuccess || status.Snapshot is not { } snapshot)
@@ -216,7 +237,6 @@ internal sealed class ShellBridge
         {
             return new { available = false, reason = inspection.ErrorMessage ?? "该目录不是带工作区的 Git 仓库。" };
         }
-
         GitHistoryService history = new(runtime);
         GitHistoryResult result = await history.ReadPageAsync(
             repository,
@@ -249,6 +269,43 @@ internal sealed class ShellBridge
                 references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
         };
+    }
+
+    /// <summary>
+    /// 解析 Git 运行时并检查仓库，结果在本进程内复用。
+    /// 两步各自都要启动 git 进程，重复执行会明显拖慢首次加载。
+    /// </summary>
+    private async Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)> ResolveGitAsync(
+        CancellationToken cancellationToken)
+    {
+        if (_runtime is not null)
+        {
+            return (_runtime, _repository);
+        }
+
+        await _gitGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_runtime is null)
+            {
+                GitExecutableLocator locator = new();
+                _runtime = await locator.ResolveAsync(null, cancellationToken);
+            }
+
+            if (_repository is null && _runtime.IsAvailable)
+            {
+                GitRepositoryService repositories = new(_runtime);
+                GitRepositoryOperationResult inspection =
+                    await repositories.InspectAsync(_workspaceRoot, cancellationToken);
+                _repository = inspection.IsSuccess ? inspection.Repository : null;
+            }
+
+            return (_runtime, _repository);
+        }
+        finally
+        {
+            _gitGate.Release();
+        }
     }
 
     private string ResolveInsideWorkspace(string relativePath)
