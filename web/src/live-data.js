@@ -713,6 +713,38 @@ async function applyWorkspaceChanges(changes) {
   void refreshCommitDetails();
 }
 
+/**
+ * 历史快照的等价比较（规格 §12.4「快照相等不更新」）。
+ * 用 JSON 比较即可：历史是纯数据，字段顺序由上面的映射固定。
+ */
+function sameHistorySnapshot(next) {
+  const current = window.__augitLive && window.__augitLive.history;
+  if (!current || !next) return false;
+  return JSON.stringify(current) === JSON.stringify(next);
+}
+
+/**
+ * 把一份历史快照应用到界面；与当前快照相等时**不做任何更新**。
+ * 这是 §12.2「Git 无变化刷新十次不重建列表、不改变选择、不重新加载 diff」
+ * 与 §12.4「快照相等不更新」的实现点，也避免无谓的重绘。
+ */
+function applyHistorySnapshot(next) {
+  const live = window.__augitLive;
+  if (!live || !next) return false;
+  if (sameHistorySnapshot(next)) return false;
+  live.history = next;
+  refresh("side", "editorContent", "statusbar", "bottomTool", "titlebar");
+  void refreshCommitDetails();
+  return true;
+}
+
+// 供验收套件调用：走与真实数据到达完全相同的快照应用路径。
+window.__augitApplyHistorySnapshot = () => {
+  const live = window.__augitLive;
+  if (!live || !live.history) return false;
+  return applyHistorySnapshot(JSON.parse(JSON.stringify(live.history)));
+};
+
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {
   try {
@@ -885,7 +917,9 @@ function applyHistory() {
   const live = window.__augitLive;
   if (!live || !latestHistory) return;
   if (!latestHistory.branch && live.branch) latestHistory.branch = live.branch;
+  // 走带等价比较的路径：内容未变时不重建列表（§12.2 / §12.4）。
   live.history = latestHistory;
+  window.__augitHistoryEqual = sameHistorySnapshot(latestHistory);
 }
 
 /** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */

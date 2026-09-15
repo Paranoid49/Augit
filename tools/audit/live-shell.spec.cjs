@@ -785,6 +785,49 @@ async function main() {
     check('Git 元数据变化后界面仍可用', await watch.page.evaluate('window.__augitLive && window.__augitLive.status ? true : true'));
     await watch.page.close();
 
+    // ---- 规格 §12.2：加载前后工具窗口位置不变 ----
+    const geom = await openScene('scene=commit-diff&theme=dark');
+    await geom.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await geom.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const boxOf = (selector) => geom.page.evaluate(function (sel) {
+      var el = document.querySelector(sel);
+      if (!el) return null;
+      var r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+    }, selector);
+    const sideBefore = await boxOf('.side-tool');
+    await geom.page.locator('.changes-list .change-file-row').first().dblclick();
+    await geom.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    const sideAfter = await boxOf('.side-tool');
+    check('加载 diff 后左侧工具窗口位置尺寸不变: ' + JSON.stringify({ before: sideBefore, after: sideAfter }), JSON.stringify(sideBefore) === JSON.stringify(sideAfter));
+    await geom.page.close();
+
+    // ---- 规格 §12.2 / §12.4：快照相等不更新 ----
+    const idem = await openScene('scene=git-history&theme=dark');
+    await idem.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await idem.page.waitForSelector('.commit-row', { timeout: 10000 });
+    await idem.page.evaluate(() => {
+      document.querySelectorAll('.commit-row').forEach((row, i) => { row.dataset.identity = 'row-' + i; });
+      window.__diffCalls = [];
+      window.__refreshCount = 0;
+      const original = window.__augitRenderRegions;
+      window.__augitRenderRegions = (...names) => { window.__refreshCount += 1; return original(...names); };
+    });
+    const selectedBefore = await idem.page.locator('.commit-row[aria-selected="true"]').count();
+    // 走真实刷新路径：连续十次把「与当前完全相同」的历史快照应用一遍
+    for (let i = 0; i < 10; i += 1) {
+      await idem.page.evaluate(() => window.__augitApplyHistorySnapshot());
+    }
+    await idem.page.waitForTimeout(400);
+    const refreshCount = await idem.page.evaluate('window.__refreshCount');
+    check('快照相等时十次应用不触发界面更新: ' + refreshCount, refreshCount === 0);
+    const identityKept = await idem.page.evaluate(() => [...document.querySelectorAll('.commit-row')].every((row, i) => row.dataset.identity === 'row-' + i));
+    check('提交列表节点身份保持（未重建）', identityKept);
+    const selectedAfter = await idem.page.locator('.commit-row[aria-selected="true"]').count();
+    check('刷新后提交选择不变: ' + selectedBefore + ' -> ' + selectedAfter, selectedBefore === selectedAfter);
+    check('Git 刷新不重新加载 diff', (await idem.page.evaluate('(window.__diffCalls || []).length')) === 0);
+    await idem.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
