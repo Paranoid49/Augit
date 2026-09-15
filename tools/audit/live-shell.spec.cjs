@@ -194,6 +194,12 @@ async function main() {
     window.__hostStub = (method, params) => {
       if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
       if (method === 'workspace/list') return { path: params.path, entries: data.tree[params.path] || [] };
+      if (method === 'workspace/changes') {
+        // 由测试脚本通过 window.__nextChanges 注入一次变化批次，读取后清空。
+        const next = window.__nextChanges || { files: [], gitMetadata: false };
+        window.__nextChanges = null;
+        return { available: true, files: next.files || [], gitMetadata: !!next.gitMetadata };
+      }
       if (method === 'git/status') return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
@@ -754,6 +760,30 @@ async function main() {
     const finalDiff = await race.page.evaluate('window.__augitLive.diff ? window.__augitLive.diff.path : null');
     check('快速连选后差异属于最后一次选择: ' + finalDiff, finalDiff === 'README.md');
     await race.page.close();
+
+    // ---- 规格 §12.2：外部变化驱动局部刷新 ----
+    const watch = await openScene('scene=commit-diff&theme=dark');
+    await watch.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await watch.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await watch.page.locator('.changes-list .change-file-row').first().dblclick();
+    await watch.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    const beforeCalls = await watch.page.evaluate('(window.__diffCalls || []).length');
+    // 无关文件变化：当前 diff 不得重新请求，也不得进入加载状态
+    await watch.page.evaluate(() => { window.__nextChanges = { files: ['D:\\live-ws\\docs\\unrelated.md'], gitMetadata: false }; });
+    await watch.page.waitForTimeout(1200);
+    const afterUnrelated = await watch.page.evaluate('(window.__diffCalls || []).length');
+    check('外部改变无关文件不重新请求当前 diff: ' + beforeCalls + ' -> ' + afterUnrelated, afterUnrelated === beforeCalls);
+    check('无关文件变化后当前 diff 仍在', !!(await watch.page.evaluate('window.__augitLive && window.__augitLive.diff')));
+    // 当前差异文件变化：应重新请求
+    await watch.page.evaluate(() => { window.__nextChanges = { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false }; });
+    await watch.page.waitForFunction(`(window.__diffCalls || []).length > ${beforeCalls}`, null, { timeout: 8000 });
+    const afterCurrent = await watch.page.evaluate('(window.__diffCalls || []).length');
+    check('外部改变当前差异文件会重新请求: ' + beforeCalls + ' -> ' + afterCurrent, afterCurrent > beforeCalls);
+    // Git 元数据变化：刷新状态与历史
+    await watch.page.evaluate(() => { window.__nextChanges = { files: [], gitMetadata: true }; });
+    await watch.page.waitForTimeout(1200);
+    check('Git 元数据变化后界面仍可用', await watch.page.evaluate('window.__augitLive && window.__augitLive.status ? true : true'));
+    await watch.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

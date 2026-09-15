@@ -630,7 +630,90 @@ function bindSettingsSave() {
   }, true);
 }
 
-/** 读取当前冲突会话与冲突文件列表。 */
+/**
+ * 文件系统变化轮询。
+ * 宿主不主动推送，界面按固定间隔读取累积的变化并做局部刷新：
+ * - `.git` 变化 -> 刷新 Git 状态与历史（对应 §12.2「外部改变当前文件后在
+ *   500 毫秒内更新当前 diff」）；
+ * - 普通文件变化 -> 只在该文件正是当前查看/差异对象时刷新，避免无关文件
+ *   触发当前视图进入加载状态（对应 §12.2「外部改变无关文件时当前 diff
+ *   不进入加载状态」）。
+ */
+let changeTimer = 0;
+async function pollWorkspaceChanges() {
+  if (changeTimer !== 0) return;
+  changeTimer = window.setInterval(async () => {
+    const live = window.__augitLive;
+    if (!live || document.hidden) return;
+    try {
+      const changes = await invoke("workspace/changes", {}, 10000);
+      if (!changes || !changes.available) return;
+      await applyWorkspaceChanges(changes);
+    } catch {
+      // 单次失败不影响后续轮询。
+    }
+  }, 400);
+}
+
+function startWorkspaceChangePolling() {
+  if (!hasHost()) return;
+  void pollWorkspaceChanges();
+}
+
+/** 把一次变化批次应用到界面。只刷新受影响的区域。 */
+async function applyWorkspaceChanges(changes) {
+  const live = window.__augitLive;
+  if (!live) return;
+  const files = changes.files || [];
+  const currentPath = live.document ? live.document.path : null;
+  const diffPath = live.diff ? live.diff.path : null;
+  const toRelative = (absolute) => {
+    const root = live.root || "";
+    const normalized = String(absolute).replaceAll("\\", "/");
+    const base = root.replaceAll("\\", "/").replace(/\/+$/, "");
+    return normalized.toLowerCase().startsWith(base.toLowerCase() + "/")
+      ? normalized.slice(base.length + 1)
+      : normalized;
+  };
+  const relative = files.map(toRelative);
+
+  let touchedCurrent = false;
+  let touchedNothing = false;
+
+  if (changes.gitMetadata) {
+    // Git 元数据变化：状态与历史都可能变，重新读取后局部刷新。
+    await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+    touchedCurrent = true;
+  }
+
+  if (relative.length > 0) {
+    const hitsCurrent = currentPath !== null && relative.some((path) => path.toLowerCase() === currentPath.toLowerCase());
+    const hitsDiff = diffPath !== null && relative.some((path) => path.toLowerCase() === diffPath.toLowerCase());
+    if (hitsDiff && diffPath) {
+      // 只有当前差异对象本身变化才重新请求差异。
+      await loadDiff(diffPath, { force: true }).catch(() => null);
+      touchedCurrent = true;
+    } else if (hitsCurrent) {
+      // 当前查看的普通文件被外部修改：重新读取内容。
+      const path = currentPath;
+      live.document = null;
+      await openDocument(path).catch(() => null);
+      touchedCurrent = true;
+    } else {
+      // 无关文件变化：当前 diff 不进入加载状态，只刷新状态列表。
+      touchedNothing = true;
+    }
+
+    await loadStatus().catch(() => null);
+    touchedCurrent = true;
+  }
+
+  if (!touchedCurrent && !touchedNothing) return;
+  refresh("side", "editorContent", "editorTabs", "statusbar", "bottomTool", "titlebar");
+  void refreshCommitDetails();
+}
+
+/** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {
   try {
     const conflicts = await invoke("git/conflicts", {}, 30000);
@@ -940,6 +1023,8 @@ async function boot() {
     await startTerminal();
     window.__augitTerminalReady = true;
   }
+
+  startWorkspaceChangePolling();
 
   // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
   await referencesPromise;

@@ -200,6 +200,7 @@ internal sealed class ShellWindow : IDisposable
                 return 0;
             case WmDestroy:
                 LiveWindows.Remove(window);
+                shell._bridge.Dispose();
                 shell._window = 0;
                 if (_messageLoopRunning && LiveWindows.Count == 0)
                 {

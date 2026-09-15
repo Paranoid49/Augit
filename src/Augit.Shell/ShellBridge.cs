@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Augit.Core.Search;
+using Augit.Infrastructure.Files;
 using Augit.Infrastructure.Search;
 using Augit.Infrastructure.Settings;
 using Augit.Infrastructure.Terminal;
@@ -9,7 +10,6 @@ using System.Text.Json.Serialization;
 using Augit.Core.Documents;
 using Augit.Core.Files;
 using Augit.Core.Git;
-using Augit.Infrastructure.Files;
 using Augit.Infrastructure.Git;
 
 namespace Augit.Shell;
@@ -18,7 +18,7 @@ namespace Augit.Shell;
 /// 网页层与 C# 能力层之间的消息桥。网页发送 <c>{ id, method, params }</c>，
 /// 这里返回 <c>{ id, result }</c> 或 <c>{ id, error }</c>。
 /// </summary>
-internal sealed class ShellBridge
+internal sealed class ShellBridge : IDisposable
 {
     private static readonly JsonSerializerOptions PayloadOptions = new()
     {
@@ -28,7 +28,12 @@ internal sealed class ShellBridge
 
     private const int MaximumTerminalBufferLength = 4 * 1024 * 1024;
 
+    private readonly Lock _changeGate = new();
+    private readonly HashSet<string> _pendingWorkspaceChanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _terminalGate = new();
+    private WorkspaceFileWatcher? _workspaceWatcher;
+    private GitMetadataWatcher? _gitWatcher;
+    private bool _pendingGitMetadataChange;
     private readonly StringBuilder _terminalBuffer = new();
     private readonly string _workspaceRoot;
     private ConPtyTerminalSession? _terminal;
@@ -116,6 +121,7 @@ internal sealed class ShellBridge
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
             "git/clone" => await CloneAsync(parameters, cancellationToken),
+            "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
@@ -393,6 +399,107 @@ internal sealed class ShellBridge
         };
     }
 
+    /// <summary>
+    /// 读取并清空累积的文件系统变化。
+    /// 网页层轮询这个入口：宿主不主动推送，桥接保持单一的请求/应答形状。
+    /// </summary>
+    private object ReadWorkspaceChanges()
+    {
+        EnsureWatchers();
+        string[] files;
+        bool gitMetadata;
+        lock (_changeGate)
+        {
+            files = [.. _pendingWorkspaceChanges];
+            _pendingWorkspaceChanges.Clear();
+            gitMetadata = _pendingGitMetadataChange;
+            _pendingGitMetadataChange = false;
+        }
+
+        return new
+        {
+            available = true,
+            files,
+            gitMetadata,
+        };
+    }
+
+    /// <summary>
+    /// 惰性建立文件系统监视：只有界面开始轮询时才创建，
+    /// 避免不使用的工作区也常驻监视句柄。
+    /// </summary>
+    private void EnsureWatchers()
+    {
+        if (_workspaceWatcher is not null)
+        {
+            return;
+        }
+
+        lock (_changeGate)
+        {
+            if (_workspaceWatcher is not null)
+            {
+                return;
+            }
+
+            try
+            {
+                _workspaceWatcher = new WorkspaceFileWatcher(_workspaceRoot);
+                _workspaceWatcher.Changed += OnWorkspaceFilesChanged;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                // 监视不可用不影响其它功能：界面只是不会自动刷新。
+                _workspaceWatcher = null;
+            }
+        }
+    }
+
+    private void OnWorkspaceFilesChanged(object? sender, FileChangeBatchEventArgs eventArgs)
+    {
+        lock (_changeGate)
+        {
+            foreach (string path in eventArgs.Paths)
+            {
+                _pendingWorkspaceChanges.Add(path);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 注册 Git 元数据监视。与工作区监视分开：`.git` 变化需要刷新状态与历史，
+    /// 普通文件变化只需要刷新受影响的那一个文件。
+    /// </summary>
+    private void EnsureGitWatcher(GitRepositorySnapshot repository)
+    {
+        if (_gitWatcher is not null || repository.GitDirectory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _gitWatcher = new GitMetadataWatcher(repository);
+            _gitWatcher.Changed += (_, _) =>
+            {
+                lock (_changeGate)
+                {
+                    _pendingGitMetadataChange = true;
+                }
+            };
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            _gitWatcher = null;
+        }
+    }
+
+    public void Dispose()
+    {
+        _workspaceWatcher?.Dispose();
+        _gitWatcher?.Dispose();
+    }
+
     /// <summary>读取当前设置。</summary>
     private static async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
     {
@@ -607,6 +714,9 @@ internal sealed class ShellBridge
         {
             return new { available = false, reason = status.ErrorMessage, files = Array.Empty<object>() };
         }
+
+        // 仓库已确认可用，此时建立元数据监视（.git 变化触发状态与历史刷新）。
+        EnsureGitWatcher(repository!);
 
         return new
         {
