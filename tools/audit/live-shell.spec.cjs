@@ -1985,6 +1985,16 @@ async function main() {
     await navGuard.page.locator('.top-chip.branch-chip').click();
     await navGuard.page.waitForTimeout(900);
     check('点击分支芯片不离开应用: ' + navGuard.page.url(), navGuard.page.url() === urlBefore);
+    // 分支芯片应真正打开分支弹层，而不是「拦住了但没反应」
+    const popover = await navGuard.page.evaluate(() => ({
+      overlay: !!document.querySelector('[data-augit-overlay]'),
+      hasPopover: !!document.querySelector('[data-augit-overlay] .popover'),
+      branches: document.querySelectorAll('[data-augit-overlay] [data-branch]').length,
+      hasScrim: !!document.querySelector('[data-augit-overlay] .scrim'),
+    }));
+    check('分支芯片打开分支弹层: ' + JSON.stringify(popover),
+      popover.overlay === true && popover.hasPopover === true && popover.hasScrim === true);
+    check('弹层内列出真实分支: ' + popover.branches, popover.branches > 0);
     // 打开分支弹层后，其中的菜单项同样不得离开应用
     await navGuard.page.keyboard.press('Escape');
     await navGuard.page.waitForTimeout(300);

@@ -1784,12 +1784,52 @@ function guardUnwiredNavigation() {
     if (event.defaultPrevented) return;
     const link = event.target.closest && event.target.closest('a[href$=".html"]');
     if (!link) return;
-    // 已接线的入口在自己的处理里 preventDefault，到不了这里；
-    // 能到这里说明该动作尚未接线。
     event.preventDefault();
+    // 已接线的入口在这里做应用内动作。
+    if (link.classList.contains("branch-chip")) {
+      openBranchesPopover();
+      return;
+    }
+
+    // 其余尚未接线：留在应用内，记录以便定位。
     window.__augitUnwiredAction = link.getAttribute("href");
     window.__augitUnwiredLabel = (link.getAttribute("aria-label") || link.innerText || "").trim().slice(0, 40);
   }, true);
+}
+
+/**
+ * 打开分支与标签弹层（规格 §5.3 的非模态弹层）。
+ * 复用视觉稿的 liveBranchesPopover，避免另写一套标记。
+ */
+function openBranchesPopover() {
+  const live = window.__augitLive;
+  if (!live) return;
+  if (!live.references) {
+    // 引用数据尚未到达：提示而不是静默无反应。
+    window.__augitError = "branches:references-not-ready";
+    return;
+  }
+
+  // 直接挂节点：区域替换只在「目标与替换两侧都存在」时生效，
+  // 而多数场景本来就没有 .overlay-layer 目标节点，靠区域刷新挂不出来。
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = `<div class="scrim"></div>${liveBranchesPopover()}`;
+  host.appendChild(layer);
+  // 点击遮罩关闭（与视觉稿的弹层行为一致）。
+  layer.querySelector(".scrim").addEventListener("click", () => closeLiveOverlay());
+}
+
+/** 关闭实时弹层。 */
+function closeLiveOverlay() {
+  const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
+  if (layers.length === 0) return false;
+  layers.forEach((node) => node.remove());
+  return true;
 }
 
 /**
@@ -1807,6 +1847,12 @@ function bindOverlayEscape() {
     if (event.defaultPrevented) return;
     // 组词中的 Esc 交给输入法（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
+
+    // 实时外壳打开的弹层（例如分支弹层）优先关闭。
+    if (closeLiveOverlay()) {
+      event.preventDefault();
+      return;
+    }
 
     // 非模态弹层有两类：搜索浮层自身，以及包着 .popover 的 .overlay-layer。
     // 模态对话框同样用 .overlay-layer 包裹，但它自带取消逻辑，交给它自己处理。

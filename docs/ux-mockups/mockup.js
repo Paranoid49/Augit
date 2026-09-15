@@ -2312,6 +2312,12 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     bottom = live.layout.collapsed === "bottom" ? "" : live.layout.bottom;
   }
 
+  // 实时外壳下由用户操作打开的弹层覆盖场景自带的那个（规格 §5.3）。
+  // 只在确有实时弹层时覆盖，否则保留场景值，逐场景静态浏览与既有场景行为不变。
+  if (live && live.overlay) {
+    overlay = live.overlay;
+  }
+
   if (live && live.document && live.editor) editor = live.editor;
   if (live && live.document) selectedFile = live.document.name || selectedFile;
   // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
