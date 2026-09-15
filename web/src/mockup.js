@@ -1511,12 +1511,20 @@ function liveDiffView() {
       : marked(text, spans);
     return { kind, lineNumber, content };
   };
-  const oldCells = rows.map(row => cell(row, "old"));
-  const newCells = rows.map(row => cell(row, "new"));
-  const oldSide = rows.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
-  const newSide = rows.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
-  const gutter = rows.map((row, index) => `<div>${oldCells[index].lineNumber ?? ""}</div><div>${newCells[index].lineNumber ?? ""}</div>`).join("");
-  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${rows.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+  // 元数据行（diff --git / index / --- / +++）是补丁头部，不是内容，必须剔除；
+  // 否则差异区看起来像在转储原始补丁，而不是一份差异。
+  const content = rows.filter(row => row.kind !== "Metadata");
+  const isSeparator = (row) => row.kind === "HunkHeader";
+  const cellOf = (row, side) => {
+    if (isSeparator(row)) return { kind: "hunk", lineNumber: null, content: escapeHtml(row.newText || row.oldText || "") };
+    return cell(row, side);
+  };
+  const oldCells = content.map(row => cellOf(row, "old"));
+  const newCells = content.map(row => cellOf(row, "new"));
+  const oldSide = content.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
+  const newSide = content.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
+  const gutter = content.map((row, index) => `<div>${oldCells[index].lineNumber ?? ""}</div><div>${newCells[index].lineNumber ?? ""}</div>`).join("");
+  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
 }
 
 function conflictResolver() {
@@ -2240,7 +2248,11 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   if (editor === "diff") {
-    const diffPath = (live && live.diff && live.diff.path) || (window.__augitDiffParam || "app.manifest");
+    // 标签优先用真实差异路径；差异尚未到达时用启动参数里的目标路径，
+    // 避免短暂显示样例文件名。
+    const diffPath = (live && live.diff && live.diff.path)
+      || (new URLSearchParams(location.search).get("diff"))
+      || "app.manifest";
     editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
     editorBody = (live && live.diff) ? liveDiffView() : diffView();
     if (diffBoundary) {

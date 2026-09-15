@@ -3545,3 +3545,8 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .live-settings .form-grid {
   grid-template-columns: 90px minmax(220px, 1fr);
 }
+/* 实时差异视图：区块头行单独着色，与内容行区分。 */
+.diff-code-line.hunk {
+  background: var(--augit-surface-2);
+  color: var(--augit-faint);
+}

@@ -407,7 +407,9 @@ async function stopTerminal() {
 /** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
 async function loadDiff(path) {
   try {
+    const started = performance.now();
     const diff = await invoke("git/diff", { path }, 30000);
+    window.__augitDiffTrace = `ok ms=${Math.round(performance.now() - started)} available=${diff && diff.available} rows=${diff && diff.rows ? diff.rows.length : -1}`;
     const live = window.__augitLive;
     if (live) {
       live.diff = diff && diff.available ? diff : null;
@@ -419,6 +421,7 @@ async function loadDiff(path) {
     }
     return live ? live.diff : null;
   } catch (error) {
+    window.__augitDiffTrace = "threw:" + String(error && error.message || error);
     window.__augitError = "load-diff:" + String(error && error.message || error);
     return null;
   }

@@ -405,19 +405,17 @@ internal sealed class ShellWindow : IDisposable
         }
     }
 
-    /// <summary>把网页标题同步到窗口标题，便于任务栏与外部工具识别当前场景。</summary>
+    /// <summary>把网页标题同步到窗口标题，便于任务栏识别当前场景。</summary>
     private void OnDocumentTitleChanged(object? sender, object eventArgs)
     {
-        if (_disposed || _window == 0)
+        // 该事件的参数类型没有公开的强类型成员，只能按属性名取值。
+        string? title = eventArgs?.GetType().GetProperty("Title")?.GetValue(eventArgs) as string;
+        if (string.IsNullOrWhiteSpace(title))
         {
             return;
         }
 
-        string? title = eventArgs?.GetType().GetProperty("Title")?.GetValue(eventArgs) as string;
-        if (!string.IsNullOrWhiteSpace(title))
-        {
-            _ = SetWindowText(_window, title);
-        }
+        _ = SetWindowText(_window, title);
     }
 
     private void ApplyRasterizationScale()
