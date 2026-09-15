@@ -125,6 +125,10 @@ async function loadDocument() {
       tree,
     };
     window.__augitLive = liveObject;
+    if (pendingGitUnavailableReason) {
+      liveObject.gitUnavailableReason = pendingGitUnavailableReason;
+    }
+
     applyStatus();
     applyHistory();
     return liveObject;
@@ -151,7 +155,16 @@ async function loadStatus() {
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       status: Math.round(performance.now() - started),
     });
-    if (!status || !status.available || !status.isRepository) return null;
+    if (!status) return null;
+    if (!status.available) {
+      // Git 缺失或版本过低：保留文件浏览，只提示一次（规格 §7.18）。
+      showGitUnavailable(status.reason);
+      return null;
+    }
+
+    if (!status.isRepository) {
+      return null;
+    }
     latestStatus = normalizeStatus(status);
     // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
     applyStatus();
@@ -1110,6 +1123,36 @@ window.__augitApplyPanelSizes = (settings) => applySavedPanelSizes(settings || {
 
 // 供验收套件查询拖拽是否仍在进行。
 window.__augitPanelDragActive = () => panelDrag !== null;
+
+/**
+ * Git 不可用时的局部提示（规格 §7.18）。
+ * 只显示一次：不反复弹出错误，也不阻塞普通文件查看。
+ * 提示里提供配置 git.exe 的入口。
+ */
+function showGitUnavailable(reason) {
+  // 状态可能在 live 对象建立之前就返回，因此先缓存原因，稍后再附着。
+  pendingGitUnavailableReason = reason || "未找到 Git for Windows 2.40 或更高版本。";
+  window.__augitGitUnavailable = true;
+  const live = window.__augitLive;
+  if (!live) return;
+  live.gitUnavailableReason = pendingGitUnavailableReason;
+  // 提示只出现一次，但原因始终记录（后续入口的禁用说明需要它）。
+  if (live.gitUnavailableShown) return;
+  live.gitUnavailableShown = true;
+
+  const host = document.querySelector(".toast-layer") || document.querySelector(".augit-window");
+  if (!host) return;
+  const toast = document.createElement("div");
+  toast.className = "toast error";
+  toast.setAttribute("role", "alert");
+  toast.innerHTML = '<div class="toast-title">Git 不可用</div>'
+    + `<div>${escapeText(live.gitUnavailableReason)} 文件浏览仍可使用。</div>`
+    + '<div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div>';
+  host.appendChild(toast);
+}
+
+/** Git 不可用的原因；状态可能早于 live 对象返回，因此单独缓存。 */
+let pendingGitUnavailableReason = null;
 
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {

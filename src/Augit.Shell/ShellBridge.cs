@@ -1266,8 +1266,22 @@ internal sealed class ShellBridge : IDisposable
     private async Task<(GitRuntimeInfo Runtime, GitRepositorySnapshot? Repository)> ResolveGitCoreAsync(
         CancellationToken cancellationToken)
     {
+        // 读取设置里配置的 git.exe：此前这里传 null，导致「设置 git.exe」这一项
+        // 在界面上可填可存但完全不起作用。配置为空时按 PATH 查找。
+        string? configured = null;
+        try
+        {
+            SettingsStore store = new();
+            ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+            configured = settings.GitExecutablePath;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            // 设置读取失败不应阻止 Git 发现：退回按 PATH 查找。
+        }
+
         GitExecutableLocator locator = new();
-        GitRuntimeInfo runtime = await locator.ResolveAsync(null, cancellationToken);
+        GitRuntimeInfo runtime = await locator.ResolveAsync(configured, cancellationToken);
         if (!runtime.IsAvailable)
         {
             return (runtime, null);

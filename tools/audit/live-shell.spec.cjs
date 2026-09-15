@@ -201,7 +201,10 @@ async function main() {
         window.__nextChanges = null;
         return { available: true, files: next.files || [], gitMetadata: !!next.gitMetadata };
       }
-      if (method === 'git/status') return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
+      if (method === 'git/status') {
+        if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
+        return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
+      }
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
@@ -1084,6 +1087,26 @@ async function main() {
       check('当前场景存在底部工具窗', false);
     }
     await bottom.page.close();
+
+    // ---- 规格 §7.18：Git 不可用时保留文件浏览，只提示一次 ----
+    const noGit = await context.newPage();
+    await noGit.addInitScript(() => { window.__gitUnavailable = true; });
+    await noGit.goto(`http://127.0.0.1:${port}/index.html?scene=git-unavailable&theme=dark`, { waitUntil: 'load' });
+    await noGit.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await noGit.waitForTimeout(600);
+    const noGitState = await noGit.evaluate(() => ({
+      toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+      toastCount: document.querySelectorAll('.toast.error').length,
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      reason: window.__augitLive ? window.__augitLive.gitUnavailableReason : null,
+    }));
+    check('Git 不可用时显示局部提示: ' + JSON.stringify(noGitState.toast ? noGitState.toast.slice(0, 40) : null),
+      !!noGitState.toast && noGitState.toast.includes('Git 不可用'));
+    check('提示中包含配置 git.exe 入口', !!noGitState.toast && noGitState.toast.includes('配置 git.exe'));
+    check('提示只出现一次', noGitState.toastCount === 1);
+    check('Git 不可用时项目树仍可用: ' + noGitState.treeRows, noGitState.treeRows > 0);
+    check('记录不可用原因', typeof noGitState.reason === 'string' && noGitState.reason.length > 0);
+    await noGit.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
