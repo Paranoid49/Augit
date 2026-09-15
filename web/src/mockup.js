@@ -2462,14 +2462,17 @@ function liveBranchesPopover() {
   const tags = references.tags || [];
   const local = branches.filter(branch => !branch.isRemote);
   const remote = branches.filter(branch => branch.isRemote);
-  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}">${gitReferenceIcon(branch.isRemote)} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
+  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}">${gitReferenceIcon(branch.isRemote)} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
   const group = (label, items) => items.length === 0
     ? ""
     : `<div class="menu-item"><span>${icon("chevron-down")}</span><strong>${label}</strong></div>${items.join("")}`;
-  const quick = `<input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div>`;
+  const checkoutError = window.__augitCheckoutError
+    ? `<div class="inline-alert danger" role="alert">${escapeHtml(window.__augitCheckoutError)}</div>`
+    : "";
+  const quick = `<input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作">${checkoutError}<a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div>`;
   const groups = group("本地", local.map(branch => row(branch, branch.isCurrent)))
     + group("远程", remote.map(branch => row(branch, false)))
-    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
+    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
   const current = local.find(branch => branch.isCurrent);
   const actions = current
     ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`

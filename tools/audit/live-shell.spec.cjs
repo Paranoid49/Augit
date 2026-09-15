@@ -115,7 +115,9 @@ const WORKSPACE = {
       { name: 'dsh', isRemote: false, isCurrent: true, upstream: 'origin/dsh', commitHash: 'full-head-hash', subject: 'feat: 真实提交一' },
       { name: 'origin/dsh', isRemote: true, isCurrent: false, upstream: null, commitHash: 'full-bbb2222', subject: 'fix: 真实提交二' },
     ],
-    tags: [],
+    tags: [
+      { name: 'v1.0.0', isRemote: false, isCurrent: false, upstream: null, commitHash: 'full-tag-1', subject: 'release: 一' },
+    ],
   },
   stashes: { available: true, stashes: [{ reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' }] },
   worktrees: { available: true, worktrees: [{ path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false }] },
@@ -261,6 +263,11 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/checkout') {
+        window.__checkoutCalls = (window.__checkoutCalls || []).concat([{ name: params.name, kind: params.kind }]);
+        if (window.__checkoutFails) return { available: true, switched: false, reason: '工作区有未提交的改动，无法切换分支。' };
+        return { available: true, switched: true, detached: params.kind === 'tag', branch: params.name };
+      }
       if (method === 'git/push') {
         window.__pushCalls = (window.__pushCalls || 0) + 1;
         if (window.__pushFails) return { available: true, pushed: false, reason: '没有配置推送远端。' };
@@ -2108,6 +2115,59 @@ async function main() {
       typeof pushFail.error === 'string' && pushFail.error.includes('提交已成功')
       && pushFail.error.includes('没有配置推送远端'));
     await commitPage.page.close();
+
+    // ---- 规格 §7.11：分支弹层里的引用行点击即检出 ----
+    const co = await openScene('scene=main-project&theme=dark');
+    await co.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await co.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    const refRows = await co.page.evaluate(() => [...document.querySelectorAll('[data-augit-overlay] [data-branch]')]
+      .map((el) => ({ name: el.dataset.branch, kind: el.dataset.branchKind })));
+    check('分支弹层标出引用类型: ' + JSON.stringify(refRows),
+      refRows.length > 0 && refRows.every((r) => ['branch', 'remote', 'tag'].includes(r.kind)));
+    check('弹层内同时有本地分支与标签: ' + JSON.stringify(refRows.map((r) => r.kind)),
+      refRows.some((r) => r.kind === 'branch') && refRows.some((r) => r.kind === 'tag'));
+
+    // 点击本地分支行：按 branch 类型检出
+    const refLocal = refRows.find((r) => r.kind === 'branch');
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refLocal.name}"]`).click();
+    await co.page.waitForTimeout(900);
+    const coAfterLocal = await co.page.evaluate(() => ({
+      calls: window.__checkoutCalls || [],
+      overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+      err: window.__augitCheckoutError || null,
+    }));
+    check('点击本地分支按 branch 类型检出: ' + JSON.stringify(coAfterLocal.calls),
+      coAfterLocal.calls.length === 1 && coAfterLocal.calls[0].name === refLocal.name && coAfterLocal.calls[0].kind === 'branch');
+    check('检出成功后关闭弹层', coAfterLocal.overlay === false);
+
+    // 点击标签行：按 tag 类型检出
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    const refTag = refRows.find((r) => r.kind === 'tag');
+    await co.page.evaluate(() => { window.__checkoutCalls = []; });
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refTag.name}"]`).click();
+    await co.page.waitForTimeout(900);
+    const coAfterTag = await co.page.evaluate(() => window.__checkoutCalls || []);
+    check('点击标签按 tag 类型检出: ' + JSON.stringify(coAfterTag),
+      coAfterTag.length === 1 && coAfterTag[0].kind === 'tag' && coAfterTag[0].name === refTag.name);
+
+    // 检出失败：保留弹层并显示原因，不静默关闭
+    await co.page.evaluate(() => { window.__checkoutFails = true; window.__checkoutCalls = []; });
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refLocal.name}"]`).click();
+    await co.page.waitForTimeout(900);
+    const coAfterFail = await co.page.evaluate(() => ({
+      overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+      alert: (document.querySelector('[data-augit-overlay] .inline-alert') || {}).textContent || null,
+      err: window.__augitCheckoutError || null,
+    }));
+    check('检出失败保留弹层: ' + JSON.stringify(coAfterFail.overlay), coAfterFail.overlay === true);
+    check('检出失败显示 Git 给出的原因: ' + JSON.stringify(coAfterFail.alert),
+      typeof coAfterFail.alert === 'string' && coAfterFail.alert.includes('未提交的改动'));
+    await co.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

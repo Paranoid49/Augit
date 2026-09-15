@@ -143,6 +143,7 @@ internal sealed class ShellBridge : IDisposable
             "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
             "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
             "git/push" => await PushAsync(parameters, cancellationToken),
+            "git/checkout" => await CheckoutAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1306,6 +1307,63 @@ internal sealed class ShellBridge : IDisposable
             branch = result.ActualStatus?.CurrentBranch,
             remotes = result.ActualRemotes?.Count ?? 0,
         };
+    }
+
+    /// <summary>
+    /// 检出分支、远端引用或标签（规格 §7.11）。
+    ///
+    /// 本地分支用 switch；远端引用在本地建同名分支并跟踪；标签与任意版本用 detach 检出。
+    /// 工作区不干净时由 Git 自身拒绝，Augit 不代为清理，也不伪造成功。
+    /// </summary>
+    private async Task<object?> CheckoutAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string name = GetString(parameters, "name")
+            ?? throw new ArgumentException("git/checkout 需要 name 参数。");
+        string kind = GetString(parameters, "kind") ?? "branch";
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitReferenceService references = new(runtime);
+        GitActionResult result = kind switch
+        {
+            "tag" => await references.CheckoutReferenceAsync(repository, name, cancellationToken).ConfigureAwait(false),
+            // 远端引用（如 origin/feat）在本地建同名分支并跟踪：本地名取远端名之后的部分。
+            "remote" => await references.CreateTrackingBranchAsync(
+                repository,
+                LocalBranchNameFor(name),
+                name,
+                cancellationToken).ConfigureAwait(false),
+            _ => await references.SwitchBranchAsync(repository, name, cancellationToken).ConfigureAwait(false),
+        };
+        // 检出改变了 HEAD 与工作区，状态、历史与引用都必须重新读取。
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, switched = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            switched = true,
+            detached = result.ActualStatus?.IsDetached ?? false,
+            branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 由远端引用推导本地分支名：取第一个分隔符之后的部分（origin/feat → feat）。
+    /// 不含分隔符时原样返回，交由 Git 校验并给出原因。
+    /// </summary>
+    private static string LocalBranchNameFor(string remoteReference)
+    {
+        int separator = remoteReference.IndexOf('/');
+        return separator >= 0 && separator < remoteReference.Length - 1
+            ? remoteReference[(separator + 1)..]
+            : remoteReference;
     }
 
     private async Task<object?> ReadCommitAsync(JsonElement parameters, CancellationToken cancellationToken)

@@ -1791,6 +1791,14 @@ function guardUnwiredNavigation() {
   window.__augitNavGuarded = true;
   window.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
+    // 分支弹层里的引用行是 <div>（不是链接），单独处理：点击即检出（规格 §7.11）。
+    const branchRow = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch]");
+    if (branchRow) {
+      event.preventDefault();
+      void checkoutReference(branchRow.dataset.branch, branchRow.dataset.branchKind || "branch");
+      return;
+    }
+
     const link = event.target.closest && event.target.closest('a[href$=".html"]');
     if (!link) return;
     event.preventDefault();
@@ -1799,6 +1807,8 @@ function guardUnwiredNavigation() {
       openBranchesPopover();
       return;
     }
+
+
 
     // 改动列表的提交动作（规格 §7.6）。
     const commitActions = link.closest(".commit-actions");
@@ -1929,6 +1939,42 @@ function openBranchesPopover() {
   host.appendChild(layer);
   // 点击遮罩关闭（与视觉稿的弹层行为一致）。
   layer.querySelector(".scrim").addEventListener("click", () => closeLiveOverlay());
+}
+
+/**
+ * 检出分支、远端引用或标签（规格 §7.11）。
+ *
+ * 工作区不干净时由 Git 自身拒绝，Augit 不代为清理、不伪造成功；
+ * 失败原因如实回传并保留弹层，让用户可以改选。
+ */
+async function checkoutReference(name, kind) {
+  const live = window.__augitLive;
+  if (!live || !name) return;
+  window.__augitCheckoutError = null;
+  let result;
+  try {
+    result = await invoke("git/checkout", { name, kind }, 120000);
+  } catch (error) {
+    window.__augitCheckoutError = String(error && error.message || error);
+    openBranchesPopover();
+    return;
+  }
+
+  if (!result || !result.switched) {
+    window.__augitCheckoutError = (result && result.reason) || "检出失败。";
+    // 保留弹层并把原因显示出来，不静默关闭。
+    openBranchesPopover();
+    return;
+  }
+
+  // 成功：关闭弹层，重新读取状态与引用（HEAD 与工作区都已改变）。
+  closeLiveOverlay();
+  live.references = null;
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadReferences().catch(() => null),
+  ]);
+  refreshAfterEvent("titlebar", "side", "editorContent", "editorTabs", "statusbar", "bottomTool");
 }
 
 /** 关闭实时弹层。 */
