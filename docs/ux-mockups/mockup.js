@@ -948,10 +948,12 @@ function gitReferenceIcon(filled = true) {
 
 // 文件类型图标与原生绘制使用相同的 16px 坐标；Git 状态只改变文件名颜色。
 function fileTypeIcon(name) {
-  const extension = name.toLowerCase().split(".").pop();
+  // 容忍空值：无文档或数据未到达时仍可能渲染标签，缺名称不应导致整页异常。
+  const safeName = String(name ?? "");
+  const extension = safeName.toLowerCase().split(".").pop();
   let kind = "file";
   let shape = '<path d="M2 1h8.5L14 4.5V15H2Z M10.5 1v3.5H14 M4 6h8 M4 9h8 M4 12h6"/>';
-  if (name.toLowerCase().split(/[\\/]/).pop() === ".gitignore") {
+  if (safeName.toLowerCase().split(/[\\/]/).pop() === ".gitignore") {
     kind = "ignored";
     shape = '<circle cx="8" cy="8" r="6"/><path d="m4 12 8-8"/>';
   } else if (["slnx", "props", "gitattributes"].includes(extension)) {
@@ -976,7 +978,9 @@ function fileTypeIcon(name) {
   return `<svg class="file-type-icon file-type-${kind}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
 }
 
-const escapeHtml = (value) => value
+// 容忍 undefined / null：渲染函数可能在数据尚未到达或被拒绝时被调用，
+// 缺一个字段不应该让整页渲染抛异常。
+const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;")
   .replaceAll(">", "&gt;")

@@ -825,15 +825,17 @@ async function applyWorkspaceChanges(changes) {
   const files = changes.files || [];
   const currentPath = live.document ? live.document.path : null;
   const diffPath = live.diff ? live.diff.path : null;
+  // 宿主只应传字符串路径；非字符串项直接丢弃，避免一次异常让整轮刷新中断。
   const toRelative = (absolute) => {
-    const root = live.root || "";
-    const normalized = String(absolute).replaceAll("\\", "/");
+    if (typeof absolute !== "string" || absolute.length === 0) return null;
+    const root = typeof live.root === "string" ? live.root : "";
+    const normalized = absolute.replaceAll("\\", "/");
     const base = root.replaceAll("\\", "/").replace(/\/+$/, "");
-    return normalized.toLowerCase().startsWith(base.toLowerCase() + "/")
+    return base.length > 0 && normalized.toLowerCase().startsWith(base.toLowerCase() + "/")
       ? normalized.slice(base.length + 1)
       : normalized;
   };
-  const relative = files.map(toRelative);
+  const relative = files.map(toRelative).filter((path) => path !== null);
 
   let touchedCurrent = false;
   let touchedNothing = false;
@@ -1119,6 +1121,9 @@ function bindPanelDividers() {
 }
 
 // 供验收套件在清理测试残留后重新应用面板尺寸。
+// 供验收套件走与点击相同的打开路径。
+window.__augitOpenDocument = (path) => openDocument(path);
+
 window.__augitApplyPanelSizes = (settings) => applySavedPanelSizes(settings || {});
 
 // 供验收套件查询拖拽是否仍在进行。
@@ -1622,7 +1627,10 @@ async function openDocument(path) {
       open: Math.round(performance.now() - started),
     });
   } catch (error) {
+    // 读取失败时不留下半截文档：清空并记录原因，界面回退到「无文档」状态。
     window.__augitError = "open-document:" + String(error && error.message || error);
+    live.document = null;
+    refresh("editorContent", "editorTabs", "statusbar", "titlebar");
     return;
   }
 

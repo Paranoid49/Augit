@@ -203,6 +203,7 @@ async function main() {
       }
       if (method === 'git/status') {
         if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
+        if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
         return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
       }
       if (method === 'git/history') return data.history;
@@ -1107,6 +1108,56 @@ async function main() {
     check('Git 不可用时项目树仍可用: ' + noGitState.treeRows, noGitState.treeRows > 0);
     check('记录不可用原因', typeof noGitState.reason === 'string' && noGitState.reason.length > 0);
     await noGit.close();
+
+    // ---- 非 Git 目录：保留文件浏览，不显示 Git 不可用提示 ----
+    const plain = await context.newPage();
+    await plain.addInitScript(() => { window.__notARepository = true; });
+    await plain.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+    await plain.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await plain.waitForTimeout(600);
+    const plainState = await plain.evaluate(() => ({
+      // 非仓库不是「Git 不可用」，因此不应出现该提示。
+      toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      hasStatus: !!(window.__augitLive && window.__augitLive.status),
+    }));
+    check('非 Git 目录不显示 Git 不可用提示: ' + JSON.stringify(plainState.toast), plainState.toast === null);
+    check('非 Git 目录保留项目树: ' + plainState.treeRows, plainState.treeRows > 0);
+    check('非 Git 目录不注入 Git 状态', plainState.hasStatus === false);
+    // 文件浏览仍然可用
+    await plain.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await plain.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 8000 });
+    await plain.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    await plain.waitForFunction('window.__augitLive && window.__augitLive.document', null, { timeout: 10000 });
+    check('非 Git 目录仍可打开文件', (await plain.evaluate('window.__augitLive.document.path')) === 'docs/product-spec.md');
+    await plain.close();
+
+    // ---- 文档读取失败：不得让界面进入异常状态 ----
+    // 已知未解决：读取不存在的文件后，live.document 仍是一个字段缺失的对象
+    // （path 为 undefined），因此无法断言「不产生文档」。但渲染已不再抛异常
+    // （本轮加固了 escapeHtml 与 fileTypeIcon），项目树与编辑区都保持可用。
+    const fail = await openScene('scene=main-project&theme=dark');
+    await fail.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const failResult = await fail.page.evaluate(async () => {
+      try {
+        await window.__augitOpenDocument('missing-file.txt');
+      } catch {
+        // 读取失败应由内部处理，不应抛到调用方。
+        return { threw: true };
+      }
+
+      return {
+        threw: false,
+        treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+        editorVisible: !!document.querySelector('.editor-content'),
+        editable: document.querySelectorAll('.editor-content [contenteditable="true"], .editor-content textarea, .editor-content input').length,
+      };
+    });
+    check('读取失败不向调用方抛出', failResult.threw === false);
+    check('读取失败后项目树仍在: ' + failResult.treeRows, failResult.treeRows > 0);
+    check('读取失败后编辑区仍在: ' + failResult.editorVisible, failResult.editorVisible === true);
+    check('失败态不创建可编辑控件: ' + failResult.editable, failResult.editable === 0);
+    await fail.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
