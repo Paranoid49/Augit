@@ -2114,7 +2114,9 @@ function liveGitLog(history, selected, cancelComparison) {
 
 function gitLog(selected = true, complexGraph = false, cancelComparison = false) {
   const liveHistory = window.__augitLive && window.__augitLive.history;
-  if (liveHistory && !complexGraph) return liveGitLog(liveHistory, selected, cancelComparison);
+  // 复杂泳道图同样使用真实历史：结构化行已带父子关系，
+  // 泳道由 buildCommitGraph 推导，不需要另用样例数据。
+  if (liveHistory) return liveGitLog(liveHistory, selected, cancelComparison);
   let commits = complexGraph ? [
     ["merge: 合并历史界面调整", "main", "I49", "2026/8/29 11:00"],
     ["fix: 修正工具栏图标", "", "I49", "2026/8/29 10:00"],

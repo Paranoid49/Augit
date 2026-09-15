@@ -57,8 +57,10 @@ const WORKSPACE = {
   history: {
     available: true, isRepository: true, head: 'aaa1111bbbb2222cccc3333dddd4444eeee5555', hasNextPage: false,
     commits: [
-      { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222'], references: ['HEAD', 'dsh'] },
-      { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
+      // 用一次合并提交产生多条泳道，覆盖真实历史中常见的分叉与汇合。
+      { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222', 'full-bbb2222'], references: ['HEAD', 'dsh'] },
+      { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: ['full-ccc3333'], references: [] },
+      { hash: 'ccc3333', fullHash: 'full-ccc3333', subject: 'feat: 真实提交三', author: 'l49', date: '2026/9/13 08:00', graph: '*', parents: [], references: [] },
     ],
   },
   clone: { available: false, field: 'destination', reason: '目标目录不为空，请换一个目录。' },
@@ -263,7 +265,7 @@ async function main() {
 
     // ---- 底部 Git 日志 ----
     const subjects = await page.locator('.commit-subject').allInnerTexts();
-    check('Git 日志显示真实提交: ' + JSON.stringify(subjects), subjects.length === 2 && subjects[0].includes('真实提交一'));
+    check('Git 日志显示真实提交: ' + JSON.stringify(subjects), subjects.length === 3 && subjects[0].includes('真实提交一'));
     check('提交行带完整哈希', await page.locator('.commit-row[data-full-hash="full-head-hash"]').count() === 1);
     const branchLabels = await page.locator('.branch-label').allInnerTexts();
     check('分支标签来自真实引用', branchLabels.some((text) => text.includes('dsh')));
@@ -503,6 +505,40 @@ async function main() {
     check('校验通过后按输入调用 Git: ' + JSON.stringify(sent), sent.source === 'https://example.com/team/repo.git' && sent.depth === 5);
     check('失败原因显示在对话框内', (await clone.page.locator('.clone-notice').innerText()).includes('目标目录不为空'));
     await clone.page.close();
+
+    // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
+    const graphPage = await openScene('scene=git-history-graph&theme=dark');
+    await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await graphPage.page.waitForSelector('.commit-row', { timeout: 10000 });
+    const graphInfo = await graphPage.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.commit-row')];
+      const svgs = rows.map(row => row.querySelector('.commit-graph-svg'));
+      const subjects = rows.map(row => (row.querySelector('.commit-subject') || {}).textContent || '');
+      const hashes = rows.map(row => row.dataset.hash);
+      const strokes = new Set();
+      for (const svg of svgs) {
+        if (!svg) continue;
+        for (const path of svg.querySelectorAll('path')) strokes.add(path.getAttribute('stroke'));
+        for (const circle of svg.querySelectorAll('circle')) strokes.add(circle.getAttribute('fill') || circle.getAttribute('style'));
+      }
+      return {
+        rows: rows.length,
+        everyRowHasGraph: svgs.every(svg => !!svg),
+        graphCount: svgs.filter(Boolean).length,
+        subjects,
+        hashes,
+        colors: [...strokes].filter(Boolean).length,
+      };
+    });
+    // 宿主返回 3 条提交，因此日志与图都必须正好 3 行，且每行都有图形。
+    check('提交图按真实历史行数绘制: ' + JSON.stringify({ rows: graphInfo.rows, graphs: graphInfo.graphCount }),
+      graphInfo.rows === 3 && graphInfo.everyRowHasGraph);
+    check('提交图主题来自宿主: ' + JSON.stringify(graphInfo.subjects),
+      graphInfo.subjects[0].includes('真实提交一') && !graphInfo.subjects.some(t => t.includes('避免强制更新')));
+    check('提交图哈希来自宿主: ' + JSON.stringify(graphInfo.hashes),
+      graphInfo.hashes.includes('aaa1111') && graphInfo.hashes.includes('ccc3333'));
+    check('合并提交产生多条泳道配色: ' + graphInfo.colors, graphInfo.colors >= 2);
+    await graphPage.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
