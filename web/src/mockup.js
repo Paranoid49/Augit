@@ -1597,10 +1597,10 @@ function titlebar() {
     <header class="titlebar">
       <div class="brand-mark" aria-label="Augit">A</div>
       <button class="top-button" aria-label="主菜单" data-action="menu">${icon("menu")}</button>
-      <a class="top-chip workspace-chip" href="workspace-open.html"><span class="brand-mark">A</span> ${escapeHtml((window.__augitLive && window.__augitLive.workspaceName) || "Augit")} ${icon("chevron-down")}</a>
-      <a class="top-chip branch-chip" href="branches.html">${icon("git-branch")} ${escapeHtml((window.__augitLive && window.__augitLive.branch) || "main")} ${icon("chevron-down")}</a>
+      <a class="top-chip workspace-chip" href="workspace-open.html" title="切换工作区"><span class="brand-mark">A</span> ${escapeHtml((window.__augitLive && window.__augitLive.workspaceName) || "Augit")} ${icon("chevron-down")}</a>
+      <a class="top-chip branch-chip" href="branches.html" title="分支与标签">${icon("git-branch")} ${escapeHtml((window.__augitLive && window.__augitLive.branch) || "main")} ${icon("chevron-down")}</a>
       <span></span>
-      <a class="titlebar-context" href="quick-open.html">${escapeHtml((window.__augitLive && window.__augitLive.document && window.__augitLive.document.name) || "当前文件")} ${icon("chevron-down")}</a>
+      <a class="titlebar-context" href="quick-open.html" title="快速打开文件">${escapeHtml((window.__augitLive && window.__augitLive.document && window.__augitLive.document.name) || "当前文件")} ${icon("chevron-down")}</a>
       <span></span>
       <nav class="window-actions" aria-label="窗口工具">
         <a class="top-button" href="quick-open.html" aria-label="搜索">${icon("search")}</a>

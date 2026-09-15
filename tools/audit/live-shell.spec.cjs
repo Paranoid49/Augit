@@ -933,6 +933,50 @@ async function main() {
     check('不出现被排除的产品入口: ' + JSON.stringify(found), found.length === 0);
     await vis.page.close();
 
+    // ---- 规格 §12.3 / §12.4：所有图标入口都有可访问名称与悬停说明 ----
+    const icon = await openScene('scene=git-history&theme=dark');
+    await icon.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    const audit = await icon.page.evaluate(() => {
+      const roots = ['.titlebar', '.tool-rail', '.git-side-toolbar', '.log-filterbar', '.diff-toolbar', '.document-toolbar'];
+      const missingLabel = [];
+      const missingTitle = [];
+      let total = 0;
+      for (const root of roots) {
+        for (const el of document.querySelectorAll(`${root} button, ${root} a`)) {
+          if (el.offsetParent === null) continue;
+          const svg = el.querySelector('svg');
+          if (!svg) continue;
+          // 规格针对「图标按钮」：带文字标签的按钮自带可读名称，
+          // 其中夹带的装饰性图标不构成图标按钮。
+          // 克隆后移除所有 svg，剩下的文字即为可见标签。
+          const clone = el.cloneNode(true);
+          clone.querySelectorAll('svg').forEach(node => node.remove());
+          const visibleText = (clone.textContent || '').trim();
+          if (visibleText.length > 0) continue;
+          total += 1;
+          const name = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+          if (name.length === 0) missingLabel.push(el.outerHTML.slice(0, 90));
+          if (!el.getAttribute('title')) missingTitle.push(el.outerHTML.slice(0, 90));
+        }
+      }
+      return { total, missingLabel, missingTitle };
+    });
+    check('纯图标入口数量 > 0: ' + audit.total, audit.total > 0);
+    check('所有纯图标入口都有可访问名称: ' + JSON.stringify(audit.missingLabel.slice(0, 2)), audit.missingLabel.length === 0);
+    check('所有纯图标入口都有悬停说明: ' + JSON.stringify(audit.missingTitle.slice(0, 2)), audit.missingTitle.length === 0);
+
+    // 左侧 Git 历史竖向工具栏必须完整存在（规格 §12.3）
+    const rail = await icon.page.evaluate(() => {
+      const bar = document.querySelector('.git-side-toolbar');
+      if (!bar) return null;
+      return [...bar.querySelectorAll('button')]
+        .filter(b => b.offsetParent !== null)
+        .map(b => ({ label: b.getAttribute('aria-label') || '', title: b.getAttribute('title') || '' }));
+    });
+    check('Git 历史竖向工具栏存在且非空: ' + (rail ? rail.length : 'null'), Array.isArray(rail) && rail.length > 0);
+    check('竖向工具栏每个按钮都有悬停说明', Array.isArray(rail) && rail.every(b => b.title.length > 0 || b.label.length > 0));
+    await icon.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
