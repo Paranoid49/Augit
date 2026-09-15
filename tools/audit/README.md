@@ -53,3 +53,33 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\shell-capture.ps
   必须在消息循环开始后才发起（宿主用自定义消息投递）。
 - **`RegisterClassExW` 返回 `ERROR_INVALID_PARAMETER`(87)**：`WNDCLASSEXW` 必须包含末尾的
   `hIconSm` 字段；x64 上该结构为 80 字节。字段缺失会被判为非法参数。
+
+## verify-ui-assets.ps1
+
+校验运行时界面资源（`web/src`）与视觉稿（`docs/ux-mockups`）的同名文件逐字节一致。
+视觉稿是设计基线，两者共用同一套 CSS 与场景脚本；任何漂移都会让「视觉稿即产品代码」失效。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-ui-assets.ps1
+```
+
+修改视觉稿后同步：
+
+```powershell
+copy docs\ux-mockups\mockup.js        web\src\mockup.js
+copy docs\ux-mockups\mockup.css       web\src\mockup.css
+copy docs\ux-mockups\current-find.js  web\src\current-find.js
+copy docs\ux-mockups\image-preview.js web\src\image-preview.js
+```
+
+## click-window.ps1
+
+在被测窗口的客户区内按**逻辑像素**坐标点击，用于验证真实交互（悬停、展开、标签切换）。
+脚本按窗口 DPI（`GetDpiForWindow`）换算物理坐标，因此与网页层的 CSS 坐标一致。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\click-window.ps1 `
+  -X 60 -Y 188 -Out artifacts\click-expand.png
+```
+
+参数：`-ProcessName`（默认 `Augit.Shell`）、`-AfterMs`（点击后等待，默认 1500）。

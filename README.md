@@ -61,16 +61,27 @@ powershell -NoProfile -File .\tools\release.ps1
 - `web`：界面资源（HTML/CSS/JS）。当前与 `docs/ux-mockups` 共用同一套样式与场景脚本，
   因此视觉稿即界面代码，改稿不需要二次移植。
 - `docs/ux-mockups`：HTML 视觉稿与设计参考，是界面的视觉基线。
-- `tools/audit`：真实像素采集工具，用法与实现陷阱见 `tools/audit/README.md`。
+- `tools/audit`：真实像素采集与界面资源一致性校验工具，用法与实现陷阱见 `tools/audit/README.md`。
+
+### 界面数据流
+
+界面在 WebView2 内渲染，数据由 C# 通过消息桥提供：
+
+- 网页发给宿主：`{ id, method, params }`；宿主回 `{ id, result }` 或 `{ id, error }`（见 `src/Augit.Shell/ShellBridge.cs`）。
+- 当前方法：`workspace/info`、`workspace/list`、`document/read`、`git/status`。
+- 首屏只等「工作区信息 + 根目录一层」（实测约 130 毫秒）；Git 状态明显更慢，在界面出现后再补，
+  且只更新标题栏分支标签，不重绘整页，避免让用户感到等待。
+- 目录按需展开，每次只取一层；构建产物与本地工具目录不进入项目树。
+- 在浏览器里直接打开 `docs/ux-mockups` 时没有宿主，界面回退到视觉稿样例数据，视觉稿仍可独立浏览。
 
 ### 运行 WebView2 外壳
 
 ```powershell
-# 默认加载 web 目录
+# 默认加载 web 目录，工作区取当前目录
 src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.Shell.exe
 
-# 指定场景与主题（场景名取自 docs/ux-mockups）
-Augit.Shell.exe --scene git-history --theme light
+# 指定工作区、场景与主题（场景名取自 docs/ux-mockups）
+Augit.Shell.exe --workspace D:\github\Augit --scene git-history --theme light
 
 # 直接渲染 HTML 视觉稿，便于与视觉稿逐场景对照
 Augit.Shell.exe --web-root docs\ux-mockups --scene main-project

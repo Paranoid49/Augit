@@ -31,6 +31,7 @@ internal sealed class ShellWindow : IDisposable
     private readonly ShellOptions _options;
     private readonly nint _instance;
     private nint _window;
+    private readonly ShellBridge _bridge;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
     private bool _disposed;
@@ -38,6 +39,7 @@ internal sealed class ShellWindow : IDisposable
     public ShellWindow(ShellOptions options)
     {
         _options = options;
+        _bridge = new ShellBridge(options.WorkspaceRoot);
         _instance = GetModuleHandle(null);
         RegisterWindowClass();
         _window = CreateWindowInstance();
@@ -222,12 +224,17 @@ internal sealed class ShellWindow : IDisposable
             webView.Settings.IsStatusBarEnabled = false;
             webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.Settings.AreDevToolsEnabled = true;
+            await webView.AddScriptToExecuteOnDocumentCreatedAsync(
+                "window.__augitErrors=[];"
+                + "addEventListener('error',e=>window.__augitErrors.push('error:'+(e.message||'')+' @'+(e.filename||'')+':'+(e.lineno||0)));"
+                + "addEventListener('unhandledrejection',e=>window.__augitErrors.push('reject:'+String(e.reason&&e.reason.message||e.reason)));");
             webView.SetVirtualHostNameToFolderMapping(
                 DefaultVirtualHost,
                 _options.WebRoot,
                 CoreWebView2HostResourceAccessKind.Allow);
             webView.NavigationCompleted += OnNavigationCompleted;
             webView.ProcessFailed += OnProcessFailed;
+            webView.WebMessageReceived += OnWebMessageReceived;
             ApplyRasterizationScale();
             SyncBounds();
             webView.Navigate($"https://{DefaultVirtualHost}/index.html{BuildQuery()}");
@@ -238,8 +245,9 @@ internal sealed class ShellWindow : IDisposable
         }
     }
 
-    private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
+    private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
     {
+
         if (eventArgs.IsSuccess || _disposed)
         {
             return;
@@ -286,6 +294,29 @@ internal sealed class ShellWindow : IDisposable
     /// 像素对照模式：把 WebView2 的栅格化比例固定为 1，使一个 CSS 像素对应一个物理像素，
     /// 从而能与 HTML 视觉稿的截图逐像素比较。正常运行保持跟随显示器缩放。
     /// </summary>
+    private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
+    {
+        if (sender is not CoreWebView2 webView || _disposed)
+        {
+            return;
+        }
+
+        string response = await _bridge.HandleAsync(eventArgs.WebMessageAsJson, CancellationToken.None);
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            webView.PostWebMessageAsJson(response);
+        }
+        catch (Exception)
+        {
+            // 窗口在响应返回前关闭时忽略投递失败。
+        }
+    }
+
     private void ApplyRasterizationScale()
     {
         if (_controller is null)

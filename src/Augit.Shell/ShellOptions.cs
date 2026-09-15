@@ -4,7 +4,7 @@ namespace Augit.Shell;
 /// 外壳启动参数。默认加载仓库内的 <c>web</c> 目录；<c>--mockups</c> 改为加载 HTML 视觉稿，
 /// 使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
 /// </summary>
-internal sealed record ShellOptions(string WebRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact)
+internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact)
 {
     private const string DefaultWidth = "1180";
     private const string DefaultHeight = "760";
@@ -12,6 +12,7 @@ internal sealed record ShellOptions(string WebRoot, string? Scene, string? Theme
     public static ShellOptions Parse(string[] arguments)
     {
         string? webRoot = null;
+        string? workspaceRoot = null;
         string? scene = null;
         string? theme = null;
         string? width = null;
@@ -27,6 +28,9 @@ internal sealed record ShellOptions(string WebRoot, string? Scene, string? Theme
             {
                 case "--web-root":
                     webRoot = Next(arguments, ref index, argument);
+                    break;
+                case "--workspace":
+                    workspaceRoot = Next(arguments, ref index, argument);
                     break;
                 case "--mockups":
                     mockups = true;
@@ -59,6 +63,7 @@ internal sealed record ShellOptions(string WebRoot, string? Scene, string? Theme
             : Path.GetFullPath(webRoot);
         return new ShellOptions(
             root,
+            Path.GetFullPath(workspaceRoot ?? Environment.CurrentDirectory),
             scene,
             theme,
             ParseSize(width, DefaultWidth, "--width"),

@@ -1406,7 +1406,26 @@ function rail(active) {
     </nav>`;
 }
 
-function projectTree(selected = "product-spec.md") {
+// 外壳注入真实工作区数据时使用：结构与样例树一致，保证同一套 CSS 与交互绑定。
+function liveProjectTree(selected, live) {
+  const rows = live.tree.map((entry) => {
+    const depth = entry.depth === 0 ? "root-row" : `depth-${entry.depth}`;
+    const hasChildren = entry.isDirectory && entry.hasChildren;
+    const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
+    const expanded = entry.expanded ? "true" : "false";
+    return `<div class="tree-row ${depth} ${entry.name === selected ? "selected" : ""}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+  }).join("");
+  return `
+    <aside class="tool-window side-tool">
+      <div class="tool-header"><span>项目</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="定位当前文件">${icon("locate-fixed")}</button><button class="icon-button" aria-label="折叠项目树">${icon("fold-vertical")}</button><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
+      <div class="side-content tree" role="tree" aria-label="项目文件">
+        ${rows}
+      </div>
+    </aside>`;
+}
+
+function projectTree(selected = "product-spec.md", liveRows = null) {
+  if (liveRows) return liveProjectTree(selected, liveRows);
   const rows = [
     ["root-row", "chevron-down", "folder", "Augit", "D:\\github\\Augit", ""],
     ["depth-1", "chevron-right", "folder", "artifacts", "", ""],
@@ -1871,11 +1890,12 @@ function terminalTool() {
 }
 
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false } = {}) {
+  const live = window.__augitLive || null;
   const sideHtml = side === "commit-empty"
     ? emptyChangesSide()
     : side === "commit"
       ? changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "")
-      : projectTree(selectedFile);
+      : projectTree(selectedFile, live && side === "project" ? live : null);
   let editorExtra = "";
   let editorBody = markdownView();
   if (editor === "text") editorBody = textView(false);
@@ -2808,6 +2828,12 @@ function bindInteractions() {
     }
   });
 }
+
+// 供外壳的真实数据加载器复用同一套图形与动作绑定。
+window.__augitIcon = icon;
+window.__augitFolderIcon = treeFolderIcon;
+window.__augitFileIcon = fileTypeIcon;
+window.__augitBind = bindInteractions;
 
 if (app) {
   app.innerHTML = renderScene();

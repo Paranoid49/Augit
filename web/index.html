@@ -6,13 +6,13 @@
   <title>Augit</title>
   <link rel="stylesheet" href="src/mockup.css">
   <script src="src/current-find.js" defer></script>
-  <script src="src/mockup.js" defer></script>
+  <script type="module" src="src/live-data.js"></script>
 </head>
 <body data-scene="main-project">
   <!--
     场景启动器：必须放在 <body> 起始处且为同步脚本。
-    defer 脚本（mockup.js）在文档解析完成后、DOMContentLoaded 之前按顺序执行，
-    因此这里的同步赋值一定先于 mockup.js 读取 body.dataset.scene。
+    数据加载器（live-data.js）是 module，在文档解析完成后才执行；这里先落好场景与主题，
+    保证 mockup.js 被动态插入后读取到的 body.dataset.scene 已经是目标场景。
   -->
   <script>
     (() => {
