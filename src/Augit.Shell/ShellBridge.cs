@@ -559,10 +559,14 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>读取当前设置。</summary>
-    private static async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
+    private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
     {
         SettingsStore store = new();
         ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+        bool sameWorkspace = string.Equals(
+            settings.LastWorkspace,
+            _workspaceRoot,
+            StringComparison.OrdinalIgnoreCase);
         return new
         {
             theme = settings.Theme,
@@ -574,6 +578,10 @@ internal sealed class ShellBridge : IDisposable
             terminalShell = settings.TerminalShell,
             terminalCustomCommand = settings.TerminalCustomCommand,
             recentWorkspaces = settings.RecentWorkspaces,
+            // 已保存的面板尺寸：只在该尺寸属于当前工作区时下发，
+            // 否则会把另一个工作区的布局套到今天打开的目录上。
+            projectPanelWidth = sameWorkspace ? settings.ToolWindows.ProjectPanelWidth : null,
+            bottomPanelHeight = sameWorkspace ? settings.ToolWindows.BottomPanelHeight : null,
         };
     }
 

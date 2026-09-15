@@ -704,6 +704,7 @@ async function loadSettings() {
     const live = window.__augitLive;
     if (live && settings) {
       live.settings = settings;
+      applySavedPanelSizes(settings);
       window.__augitSettingsReady = true;
     }
   } catch (error) {
@@ -919,6 +920,21 @@ window.__augitApplyHistorySnapshot = () => {
 
   return updated;
 };
+
+/**
+ * 应用已保存的面板尺寸（规格 §4.2：用户拖动后持久化，再次打开时恢复）。
+ * 只写入 CSS 变量，不触碰任何其它布局状态。
+ */
+function applySavedPanelSizes(settings) {
+  const root = document.documentElement;
+  if (typeof settings.projectPanelWidth === "number" && settings.projectPanelWidth > 0) {
+    root.style.setProperty("--augit-side-width", `${Math.round(settings.projectPanelWidth)}px`);
+  }
+
+  if (typeof settings.bottomPanelHeight === "number" && settings.bottomPanelHeight > 0) {
+    root.style.setProperty("--augit-bottom-height", `${Math.round(settings.bottomPanelHeight)}px`);
+  }
+}
 
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {

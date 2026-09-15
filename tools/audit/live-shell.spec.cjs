@@ -91,6 +91,7 @@ const WORKSPACE = {
     theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
     fontSize: 15, codeFontSize: 14, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
     terminalShell: 'PowerShell7', terminalCustomCommand: null, recentWorkspaces: ['D:\\ws'],
+    projectPanelWidth: 330, bottomPanelHeight: 240,
   },
   conflicts: {
     available: true, operation: 'Rebase', hasConflicts: true,
@@ -443,6 +444,13 @@ async function main() {
     const settings = await openScene('scene=settings&theme=dark');
     await settings.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
     await settings.page.waitForSelector('[data-setting="theme"]', { timeout: 10000 });
+    // 已保存的面板尺寸应还原为 CSS 变量（规格 §4.2：拖动后持久化并恢复）
+    const vars = await settings.page.evaluate(() => ({
+      side: getComputedStyle(document.documentElement).getPropertyValue('--augit-side-width').trim(),
+      bottom: getComputedStyle(document.documentElement).getPropertyValue('--augit-bottom-height').trim(),
+    }));
+    check('已保存的左侧面板宽度被还原: ' + vars.side, vars.side === '330px');
+    check('已保存的底部面板高度被还原: ' + vars.bottom, vars.bottom === '240px');
     check('设置窗口显示真实主题', await settings.page.locator('[data-setting="theme"]').inputValue() === 'Dark');
     check('设置窗口显示真实界面字号', await settings.page.locator('[data-setting="fontSize"]').inputValue() === '15');
     check('设置窗口显示真实等宽字号', await settings.page.locator('[data-setting="codeFontSize"]').inputValue() === '14');
