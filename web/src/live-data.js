@@ -1134,6 +1134,14 @@ function bindPanelDividers() {
 // 供验收套件直接调用数据加载入口。
 window.__augitSaveSettings = () => saveSettings();
 
+// 供验收套件直接验证写入口的字段校验；返回宿主响应并刷新本地副本。
+window.__augitSettingsWrite = async (payload) => {
+  const result = await invoke("settings/write", payload, 15000);
+  const fresh = await invoke("settings/read", {}, 15000);
+  if (window.__augitLive && fresh) window.__augitLive.settings = fresh;
+  return result;
+};
+
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path) => loadDiff(path);

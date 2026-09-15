@@ -633,17 +633,51 @@ internal sealed class ShellBridge : IDisposable
         ApplicationSettings current = await store.LoadAsync(cancellationToken);
         ApplicationSettings updated = current with
         {
-            Theme = GetString(parameters, "theme") ?? current.Theme,
+            Theme = NormalizeTheme(GetString(parameters, "theme")) ?? current.Theme,
             TextFontFamily = GetString(parameters, "textFontFamily") ?? current.TextFontFamily,
             MonospaceFontFamily = GetString(parameters, "monospaceFontFamily") ?? current.MonospaceFontFamily,
             FontSize = ClampFontSize(GetDouble(parameters, "codeFontSize")) ?? current.FontSize,
             TextFontSize = ClampFontSize(GetDouble(parameters, "fontSize")) ?? current.UiFontSize,
             GitExecutablePath = GetString(parameters, "gitExecutablePath") ?? current.GitExecutablePath,
-            TerminalShell = GetString(parameters, "terminalShell") ?? current.TerminalShell,
+            // 枚举型字段只接受已知取值：写入未知值会让界面显示与运行时行为不一致
+            // （例如主题存成 "Purple"，界面照存，运行时却按深色回退）。
+            TerminalShell = NormalizeTerminalShell(GetString(parameters, "terminalShell")) ?? current.TerminalShell,
             TerminalCustomCommand = GetString(parameters, "terminalCustomCommand") ?? current.TerminalCustomCommand,
         };
         await store.SaveAsync(updated, cancellationToken);
         return new { saved = true, theme = updated.Theme, fontSize = updated.UiFontSize };
+    }
+
+    /// <summary>主题只接受三个已知取值；未知取值一律忽略，保留原值。</summary>
+    private static string? NormalizeTheme(string? theme)
+    {
+        if (theme is null)
+        {
+            return null;
+        }
+
+        return theme.Equals("System", StringComparison.OrdinalIgnoreCase) ? "System"
+            : theme.Equals("Light", StringComparison.OrdinalIgnoreCase) ? "Light"
+            : theme.Equals("Dark", StringComparison.OrdinalIgnoreCase) ? "Dark"
+            : null;
+    }
+
+    /// <summary>终端 Shell 只接受已登记的标识；未知取值一律忽略，保留原值。</summary>
+    private static string? NormalizeTerminalShell(string? shell)
+    {
+        if (shell is null)
+        {
+            return null;
+        }
+
+        return shell is TerminalShellIds.WindowsPowerShell
+            or TerminalShellIds.PowerShell7
+            or TerminalShellIds.CommandPrompt
+            or TerminalShellIds.GitBash
+            or TerminalShellIds.Wsl
+            or TerminalShellIds.Custom
+            ? shell
+            : null;
     }
 
     private static double? ClampFontSize(double? value)

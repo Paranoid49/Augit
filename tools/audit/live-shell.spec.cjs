@@ -1226,6 +1226,22 @@ async function main() {
     check('界面未因列表失败抛出未捕获异常', goneState.err === null);
     await gone.close();
 
+    // ---- 设置写入：枚举型字段只接受已知取值 ----
+    const enumPage = await openScene('scene=settings&theme=dark');
+    await enumPage.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    const enumResult = await enumPage.page.evaluate(async () => {
+      // 直接走写入口，喂入未知主题与未知 Shell
+      const written = await window.__augitSettingsWrite({ theme: 'Purple', terminalShell: 'Nonexistent', codeFontSize: 9999 });
+      return { written, settings: window.__augitLive.settings };
+    });
+    check('未知主题不被写入: ' + JSON.stringify(enumResult.settings.theme),
+      enumResult.settings.theme !== 'Purple');
+    check('未知 Shell 不被写入: ' + JSON.stringify(enumResult.settings.terminalShell),
+      enumResult.settings.terminalShell !== 'Nonexistent');
+    check('越界字号不被写入: ' + enumResult.settings.codeFontSize,
+      enumResult.settings.codeFontSize >= 9 && enumResult.settings.codeFontSize <= 40);
+    await enumPage.page.close();
+
     // ---- 设置写入失败：必须让用户看到原因，不能静默 ----
     const roSettings = await openScene('scene=settings&theme=dark');
     await roSettings.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
