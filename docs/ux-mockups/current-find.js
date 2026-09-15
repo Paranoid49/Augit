@@ -7,6 +7,13 @@ function bindCurrentFind() {
   const view = document.querySelector('.document-view:has(.code-view):not(.blame-document)');
   if (!view || view.dataset.findBound) return;
   view.dataset.findBound = 'true';
+  // 查找条把监听挂在 document/window 上，所有者是本区域节点；
+  // 区域刷新会换掉节点，若不释放旧监听就会随刷新次数累积。
+  const lifetime = new AbortController();
+  const owner = view;
+  if (typeof registerRegionDisposer === 'function') {
+    registerRegionDisposer(() => { lifetime.abort(); owner.dataset.findBound = ''; });
+  }
   let bar = view.querySelector('.current-find');
   const code = view.querySelector('.code-view');
   let rows = [], sourceLines = [], source = '';
@@ -245,11 +252,11 @@ function bindCurrentFind() {
       event.preventDefault(); open();
     }
   });
-  window.addEventListener('pagehide', stop);
+  window.addEventListener('pagehide', stop, { signal: lifetime.signal });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { composing = false; stop(); }
     else if (bar && (!completed || label('当前文件查找').value !== savedQuery)) search();
-  });
+  }, { signal: lifetime.signal });
   if (bar) wire();
   else if (initialState) open();
 }

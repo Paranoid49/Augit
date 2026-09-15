@@ -1820,6 +1820,8 @@ function bindMarkdownModes() {
     if (previous && divider.hasPointerCapture(previous.id)) divider.releasePointerCapture(previous.id);
   };
   bindMarkdownModes.dispose = () => { cancelDrag(); lifetime.abort(); };
+  // 该绑定把监听挂在 document/window 上，所有者是本区域节点；登记以便区域替换时释放。
+  registerRegionDisposer(bindMarkdownModes.dispose);
   const setMode = mode => {
     if (view.dataset.markdownMode === mode && view.dataset.markdownBound) return;
     if (mode !== 'split') cancelDrag();
@@ -2577,6 +2579,9 @@ function bindHistoryToolbar(root = document) {
 }
 
 function bindHistoryLayout(root = document) {
+  const lifetime = new AbortController();
+  const signal = lifetime.signal;
+  registerRegionDisposer(() => lifetime.abort());
   root.querySelectorAll(".log-list-panel").forEach(panel => {
     const bar = panel.querySelector(".history-filters");
     const buttons = [...bar.querySelectorAll(".history-filter")];
@@ -2695,8 +2700,9 @@ function bindHistoryLayout(root = document) {
       input.focus();
     });
     document.addEventListener("click", event => {
+      // 该监听由本区域的筛选菜单持有，区域替换时随 signal 一并释放。
       if (!overflow.contains(event.target)) overflow.open = false;
-    });
+    }, { signal });
     overflow.addEventListener("keydown", event => {
       if (event.key === "Escape") {
         overflow.open = false;
@@ -3306,6 +3312,34 @@ function bindInteractions() {
 }
 
 // 供外壳的真实数据加载器复用同一套图形与动作绑定。
+// 区域替换前的清理登记表。
+//
+// 背景：部分绑定把监听挂在 document / window 上，但它的「所有者」是某个区域节点
+// （例如 .document-view 或日志面板）。区域刷新会换掉那个节点，于是下次绑定
+// 又挂一份新的，而旧监听仍留在 document 上——表现为「越用越慢」，
+// 且因为每次操作看起来都对而极难察觉（实测 20 次刷新把 document 监听从 24 涨到 164）。
+//
+// 这里让这类绑定登记一个清理函数；替换区域前统一调用，再清空登记表。
+const regionDisposers = new Set();
+
+function registerRegionDisposer(dispose) {
+  regionDisposers.add(dispose);
+}
+
+function disposeRegionBindings() {
+  for (const dispose of regionDisposers) {
+    try {
+      dispose();
+    } catch {
+      // 清理失败不应阻断渲染。
+    }
+  }
+
+  regionDisposers.clear();
+}
+
+window.__augitDisposeRegionBindings = disposeRegionBindings;
+
 window.__augitBuildCommitGraph = buildCommitGraph;
 window.__augitRender = () => {
   if (!app) return;
@@ -3357,6 +3391,8 @@ const REGION_SOURCES = {
  */
 window.__augitRenderRegions = (...names) => {
   if (!app || names.length === 0) return;
+  // 先释放由即将被替换的节点持有的 document/window 监听，避免累积。
+  disposeRegionBindings();
   const fragment = renderRegions();
   for (const name of names) {
     const selector = REGION_SELECTORS[name];

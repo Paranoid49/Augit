@@ -1959,6 +1959,39 @@ diff 请求数为 1。
 **同一轮确认无需改动的缓存**：状态缓存（第四十七轮）已挂在文件系统事件上，
 `.git` 与工作区变化都会使其失效，因此没有问题。
 
+### 第七十一轮：监听器累积——一次由测量缺陷制造的假阳性
+
+按计划审计「监听器累积」。**结论是：这一轮没有找到真实泄漏，而我最初的"证据"是错的。**
+
+**最初的测量与结论（错误）**：我 monkey-patch 了 `addEventListener` 统计
+document/window 上的监听数，刷 20 次后看到 `document` 从 24 涨到 164，
+并"定位"到三个绑定器（`bindMarkdownModes` +60、`bindCurrentFind` +60、
+`bindHistoryLayout` +20）。看起来是一个确凿的类缺陷。
+
+**为什么这个测量是错的**：计数器只统计 `addEventListener`，**完全不统计移除**。
+而 `AbortController.abort()` **不经过 `removeEventListener`**——它由浏览器内部移除。
+于是"挂了又正确释放"也被记成累积。
+
+我做了两次判据实验把它钉死：
+
+1. **abort 行为验证**：挂一个带 signal 的监听 → 派发事件命中 1 次 → `abort()` →
+   再派发，命中仍为 1（**没有第二次**）。abort 确实生效。
+2. **区域清理验证**：连续 3 次「刷新 → 按 Ctrl+F」，查找条数量稳定为 `1,1,1`；
+   若旧监听真的残留，Ctrl+F 会被多个处理器各开一次。
+
+**同时在排查过程中做了两处真实改进**（保留）：
+- 新增 `regionDisposers` 登记表与 `disposeRegionBindings()`：
+  区域替换前统一释放「所有者是被替换节点、但监听挂在 document/window 上」的绑定。
+  这是一个**系统性**的清理入口，比依赖各个绑定器自己管生命周期可靠。
+- `bindCurrentFind` 与 `bindHistoryLayout` 此前**没有**任何 signal 机制，
+  现已补上 `AbortController`。
+
+**新增 1 项行为断言**：刷新后连按 Ctrl+F，查找条不得重复打开
+（`[1,1,1]`）。这条断言按**用户可见行为**判定，不依赖监听器计数——
+正是这次教训的直接产物。
+
+**诊断探针已全部移除**，不留在生产路径上。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

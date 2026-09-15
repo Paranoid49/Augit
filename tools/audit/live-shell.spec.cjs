@@ -1506,6 +1506,24 @@ async function main() {
       detailRace.loaded === 'bbb2222' && (detailRace.text || '').includes('第二个提交'));
     await commitRace.page.close();
 
+    // ---- 区域刷新必须释放上一轮绑定在 document/window 上的监听 ----
+    // 计数法不可靠（见下），因此按行为判定：每次刷新后 Ctrl+F 只能打开一个查找条。
+    const regionLifetime = await openScene('scene=text-viewer&theme=dark');
+    await regionLifetime.page.waitForTimeout(1200);
+    const lifetime = await regionLifetime.page.evaluate(async () => {
+      const opens = [];
+      for (let i = 0; i < 3; i += 1) {
+        window.__augitRenderRegions('editorContent', 'statusbar');
+        await new Promise((r) => setTimeout(r, 100));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
+        await new Promise((r) => setTimeout(r, 150));
+        opens.push(document.querySelectorAll('.current-find').length);
+      }
+      return opens;
+    });
+    check('刷新后查找条不重复打开: ' + JSON.stringify(lifetime), lifetime.every((n) => n === 1));
+    await regionLifetime.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
