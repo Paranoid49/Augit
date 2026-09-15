@@ -1704,6 +1704,15 @@ function restoreChangesState() {
     box.value = live.commitDraft;
   }
 
+  // 提交校验与失败的反馈写回视觉稿已有的提示位（规格 §7.6）。
+  const feedback = document.querySelector(".commit-box .commit-feedback");
+  if (feedback) {
+    const error = window.__augitCommitError || "";
+    feedback.textContent = error || "提交信息";
+    feedback.title = error || "提交信息";
+    feedback.classList.toggle("error", error.length > 0);
+  }
+
   const list = document.querySelector(".changes-list");
   if (list && typeof live.changesScrollTop === "number") {
     list.scrollTop = live.changesScrollTop;
@@ -1791,10 +1800,80 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 改动列表的提交动作（规格 §7.6）。
+    const commitActions = link.closest(".commit-actions");
+    if (commitActions) {
+      if (link.classList.contains("primary-button")) {
+        void commitSelectedChanges(false);
+        return;
+      }
+
+      if (link.textContent.includes("提交并推送")) {
+        // 推送尚未接线，先完成提交并如实说明。
+        void commitSelectedChanges(true);
+        return;
+      }
+    }
+
     // 其余尚未接线：留在应用内，记录以便定位。
     window.__augitUnwiredAction = link.getAttribute("href");
     window.__augitUnwiredLabel = (link.getAttribute("aria-label") || link.innerText || "").trim().slice(0, 40);
   }, true);
+}
+
+/**
+ * 提交用户在改动列表勾选的文件（规格 §7.6）。
+ *
+ * 只提交勾选项：未勾选的文件不进提交，也不把既有暂存项带入。
+ * 提交前后都不自行推断状态，成功与否都以宿主返回的真实结果为准。
+ */
+async function commitSelectedChanges(andPush) {
+  const live = window.__augitLive;
+  if (!live || !live.status) return;
+  const files = live.status.files || [];
+  const selected = files.filter((file) => file.checked);
+  const message = typeof live.commitDraft === "string" ? live.commitDraft.trim() : "";
+  if (selected.length === 0) {
+    window.__augitCommitError = "请至少选择一个要提交的文件。";
+    refreshAfterEvent("side");
+    return;
+  }
+
+  if (message.length === 0) {
+    window.__augitCommitError = "提交信息不能为空。";
+    refreshAfterEvent("side");
+    return;
+  }
+
+  // 每次提交前清掉上一次的错误与结果。
+  // 结果必须在**入口**就清：只在失败分支清会漏掉异常抛出等路径，
+  // 那时界面会继续显示上次的成功哈希，让用户以为本次也提交成功了。
+  window.__augitCommitError = null;
+  window.__augitCommitResult = null;
+  let result;
+  try {
+    result = await invoke("git/commit-create", { message, paths: selected.map((file) => file.path) }, 120000);
+  } catch (error) {
+    window.__augitCommitResult = null;
+    window.__augitCommitError = String(error && error.message || error);
+    refreshAfterEvent("side");
+    return;
+  }
+
+  if (!result || !result.committed) {
+    window.__augitCommitResult = null;
+    window.__augitCommitError = (result && result.reason) || "提交失败。";
+    refreshAfterEvent("side");
+    return;
+  }
+
+  // 提交成功：清空草稿、重新读取真实状态，并按块刷新。
+  live.commitDraft = "";
+  live.selectedChangePath = null;
+  live.followChanges = false;
+  window.__augitCommitResult = { hash: result.commitHash, andPush: !!andPush, pushed: false };
+  await loadStatus().catch(() => null);
+  refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar", "bottomTool");
 }
 
 /**

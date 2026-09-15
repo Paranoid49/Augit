@@ -261,6 +261,14 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/commit-create') {
+        window.__commitWrite = { message: params.message, paths: params.paths };
+        // 支持注入失败
+        if (window.__commitFails) return { available: true, committed: false, reason: 'commit-msg hook 拒绝提交。请检查仓库提交规则。' };
+        if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: '请至少选择一个要提交的文件。' };
+        if (!params.message) return { available: true, committed: false, reason: '提交信息不能为空。' };
+        return { available: true, committed: true, commitHash: 'abc1234', branch: 'main', remaining: 1 };
+      }
       if (method === 'git/commit') {
         const delay = (window.__commitDelays || {})[params.revision];
         if (delay) await new Promise((r) => setTimeout(r, delay));
@@ -2006,6 +2014,62 @@ async function main() {
     check('点击后界面结构完好: ' + JSON.stringify(stillThere),
       stillThere.titlebar === true && stillThere.rail === true && stillThere.workspace === true);
     await navGuard.page.close();
+
+    // ---- 规格 §7.6：提交只提交勾选文件 ----
+    const commitPage = await openScene('scene=commit-changes&theme=dark');
+    await commitPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await commitPage.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const commitState = () => commitPage.page.evaluate(() => ({
+      written: window.__commitWrite || null,
+      error: window.__augitCommitError || null,
+      feedback: (document.querySelector('.commit-box .commit-feedback') || {}).textContent || null,
+      isError: !!(document.querySelector('.commit-box .commit-feedback.error')),
+      draft: window.__augitLive.commitDraft,
+      result: window.__augitCommitResult || null,
+    }));
+
+    // 未写提交信息就提交：必须被拒绝并给出原因
+    await commitPage.page.locator('.commit-actions .primary-button').first().click();
+    await commitPage.page.waitForTimeout(500);
+    const noMessage = await commitState();
+    check('空提交信息被拒绝: ' + JSON.stringify([noMessage.written, noMessage.error]),
+      noMessage.written === null && noMessage.error === '提交信息不能为空。');
+    check('拒绝原因写回反馈位: ' + JSON.stringify(noMessage.feedback),
+      noMessage.feedback === '提交信息不能为空。' && noMessage.isError === true);
+
+    // 填写信息后提交：只提交勾选的文件
+    await commitPage.page.locator('.commit-box .message-field').fill('feat: 只提交勾选项');
+    await commitPage.page.waitForTimeout(200);
+    // 取消第一行勾选，验证它不进入提交
+    await commitPage.page.locator('.changes-list .change-file-row').first().locator('.fake-check').click();
+    await commitPage.page.waitForTimeout(300);
+    const uncheckedPath = await commitPage.page.evaluate(
+      () => document.querySelector('.changes-list .change-file-row').dataset.path);
+    await commitPage.page.locator('.commit-actions .primary-button').first().click();
+    await commitPage.page.waitForTimeout(900);
+    const committed = await commitState();
+    check('提交使用填写的提交信息: ' + JSON.stringify(committed.written && committed.written.message),
+      committed.written && committed.written.message === 'feat: 只提交勾选项');
+    check('未勾选的文件不进入提交: ' + JSON.stringify(committed.written && committed.written.paths),
+      committed.written && !committed.written.paths.includes(uncheckedPath));
+    check('提交成功记录哈希: ' + JSON.stringify(committed.result), !!committed.result && committed.result.hash === 'abc1234');
+    check('提交成功后清空草稿与错误: ' + JSON.stringify([committed.draft, committed.error]),
+      committed.draft === '' && committed.error === null);
+
+    // 失败路径：宿主拒绝时必须如实显示原因
+    await commitPage.page.evaluate(() => { window.__commitFails = true; });
+    await commitPage.page.locator('.commit-box .message-field').fill('feat: 会被拒绝');
+    await commitPage.page.waitForTimeout(200);
+    await commitPage.page.locator('.commit-actions .primary-button').first().click();
+    await commitPage.page.waitForTimeout(800);
+    const failed = await commitState();
+    check('提交失败显示宿主原因: ' + JSON.stringify(failed.error),
+      typeof failed.error === 'string' && failed.error.includes('hook'));
+    // 如实记录：这条断言**没有通过负向验证**。失败分支本身就会把结果置空，
+    // 入口处也有一次重置，两处都覆盖了同一行为，因此单独移除任一处它仍会通过。
+    // 断言本身正确（失败后确实不残留结果），但它无法区分「两处都清」与「只清一处」。
+    check('失败时不记录提交结果', failed.result === null);
+    await commitPage.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

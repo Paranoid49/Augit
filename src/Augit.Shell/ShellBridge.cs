@@ -141,6 +141,7 @@ internal sealed class ShellBridge : IDisposable
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
+            "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1221,6 +1222,57 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>读取单个提交的详情：正文与变更文件列表。</summary>
+    /// <summary>
+    /// 执行一次提交（规格 §7.6）。
+    /// 只提交用户勾选的文件：先对本机 Git 补齐未跟踪文件，再以 --only 与选中路径提交磁盘内容，
+    /// 不建立 Augit 自有索引事务，也不把未选中的既有暂存项带入提交。
+    /// </summary>
+    private async Task<object?> CreateCommitAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string message = GetString(parameters, "message") ?? string.Empty;
+        bool amend = parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty("amend", out JsonElement amendElement)
+            && amendElement.ValueKind == JsonValueKind.True;
+        List<string> paths = [];
+        if (parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty("paths", out JsonElement pathsElement)
+            && pathsElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in pathsElement.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String && item.GetString() is { Length: > 0 } path)
+                {
+                    paths.Add(path);
+                }
+            }
+        }
+
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitCommitRequest request = new(paths, message, amend, GitCommitMessageSource.UserInput);
+        GitCommitResult result = await new GitCommitService(runtime).CommitAsync(repository, request, cancellationToken);
+        // 提交改变了 HEAD 与索引，状态与历史都必须重新读取，不能沿用缓存。
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, committed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            committed = true,
+            commitHash = result.CommitHash,
+            // 提交后的真实状态：界面据此刷新改动列表，而不是自行推断。
+            branch = result.ActualStatus?.CurrentBranch,
+            remaining = result.ActualStatus?.Files.Count ?? 0,
+        };
+    }
+
     private async Task<object?> ReadCommitAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string revision = GetString(parameters, "revision")
