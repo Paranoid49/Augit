@@ -1562,6 +1562,34 @@ ASCII 双引号（U+0022）与全角引号（U+F022）。
 宿主现在已下发该字段，若产品希望展示（例如 `renamed.txt ← rename-me.txt`），
 只需改前端，不需要再动宿主。
 
+### 第五十八轮：核对冲突状态与冲突解决链路
+
+**构造同时含多种冲突的仓库**，覆盖 git 的全部未合并代码：
+`UU`（双方修改）、`AA`（双方新增）、`DU`（我方删除/对方修改）、
+`UD`（我方修改/对方删除）。
+
+**核对结果**（宿主端到端）：
+
+| 检查 | 结果 |
+|---|---|
+| 状态列表 | 4 项，冲突项 `kind=Unmerged`、`group=Changes` |
+| `git/conflicts` | `operation=Merge`、`hasConflicts=true`、列出 2 个冲突文件 |
+| `git/conflict-load` | 三栏内容可用，`yours=当前分支 · main`、`theirs=合入内容`、1 个冲突块，结果正文含冲突标记 |
+| `git/conflict-save` | 写回成功，剩余冲突由 2 降为 1 |
+| 磁盘结果 | `ours-both-mod / theirs-both-mod`，与写回内容一致 |
+| git 状态 | 该文件由 `UU` 变为 `MM`（已解决并暂存） |
+
+**新增 1 项单元测试**：喂入全部 7 种未合并代码（含 `DD`、`AU`、`UA`），
+断言它们**全部**归类为 `Unmerged`、归入 `Changes` 组，
+且 `staged` 与 `workingTree` 标记都为真——否则界面无法判断该文件
+既未暂存也未被解决。
+
+**我自己的一次误判**：核对写回时我用「整个状态 JSON 是否包含
+`"kind":"Unmerged"`」来判断文件是否已解决，得到 `True` 就以为写回没生效。
+实际上该字符串来自**另一个仍未解决的冲突文件**，被解析的文件已经变成 `MM`。
+改用 git 直接核对后确认正确——**对整个响应做子串匹配是无效断言**，
+必须定位到具体项。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

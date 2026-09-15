@@ -115,6 +115,41 @@ public sealed class GitStatusServiceTests
     }
 
     [TestMethod]
+    public void 全部未合并状态都识别为冲突()
+    {
+        // 覆盖 git status --porcelain=v1 的全部未合并代码：
+        // UU 双方修改、AA 双方新增、DU 我方删除/对方修改、
+        // UD 我方修改/对方删除、DD 双方删除、AU 我方新增、UA 对方新增。
+        bool parsed = GitStatusService.TryParseStatus(
+            "UU both-mod.txt\0"
+            + "AA both-add.txt\0"
+            + "DU mod-del.txt\0"
+            + "UD del-mod.txt\0"
+            + "DD del-del.txt\0"
+            + "AU added-by-us.txt\0"
+            + "UA added-by-them.txt\0",
+            out IReadOnlyList<GitChangedFile>? files);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNotNull(files);
+        Assert.HasCount(7, files!);
+        Assert.IsTrue(
+            files!.All(file => file.Kind == GitChangeKind.Unmerged),
+            "全部未合并代码都应归类为 Unmerged：" + string.Join(
+                ", ",
+                files.Select(file => $"{file.RelativePath}={file.Kind}")));
+        // 冲突文件属于 Changes 组，界面据此把它们显示在冲突入口而不是未跟踪区。
+        Assert.IsTrue(
+            files.All(file => file.Group == GitChangeGroup.Changes),
+            "冲突文件应归入 Changes 组。");
+        // 未合并时索引与工作区都处于特殊状态，两个标记都必须为真，
+        // 否则界面无法判断该文件既未暂存也未被解决。
+        Assert.IsTrue(
+            files.All(file => file.HasStagedChanges && file.HasWorkingTreeChanges),
+            "未合并文件的 staged 与 workingTree 标记都应为真。");
+    }
+
+    [TestMethod]
     public void 无效状态输出返回稳定失败而不产生半截列表()
     {
         bool parsed = GitStatusService.TryParseStatus("M malformed\0", out IReadOnlyList<GitChangedFile>? files);
