@@ -504,32 +504,95 @@ async function stopTerminal() {
 }
 
 /** 读取工作区中某个文件的差异，供编辑器差异视图使用。 *//** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
-// 同一路径的并发请求去重（规格 §12.2：已有 Diff 标签时连续选择只产生当前请求并去重）。
+// 已加载的补丁缓存：键是「内容」维度（规格 §6.3），不含单/双栏这类显示维度。
+// 这样切换显示模式只重新排版，不再次查询 Git。
+const diffPatches = new Map();
+
+/**
+ * Diff 请求键（规格 §6.3）：由仓库、文件路径、比较基准、**显示模式**、
+ * 忽略空白与重命名选项组成。
+ * 前五项之外还带内容版本，用于判断外部变化后是否需要重新计算。
+ */
+function diffRequestKey({ path, revision, mode, ignoreWhitespace, detectRenames, version }) {
+  const live = window.__augitLive;
+  return [
+    live ? live.root : "",
+    path,
+    revision || "工作区",
+    mode || "split",
+    ignoreWhitespace ? "ignore-ws" : "keep-ws",
+    detectRenames ? "renames" : "no-renames",
+    version === undefined || version === null ? "" : String(version),
+  ].join("\u0000");
+}
+
+/** 补丁键：与请求键相同，但不含显示模式（单双栏共用同一份补丁）。 */
+function diffPatchKey(parts) {
+  return diffRequestKey({ ...parts, mode: "" });
+}
+
+// 并发请求去重：键为请求键。
 const diffRequests = new Map();
 // 递增令牌用于丢弃过期结果：快速连选多个文件时，先发的请求后到不得闪回。
 let diffToken = 0;
 
-async function loadDiff(path, { force = false } = {}) {
-  const existing = diffRequests.get(path);
+/**
+ * 读取差异。
+ *
+ * `mode` 是显示维度：相同内容下切换单栏/双栏直接复用已加载补丁，不查询 Git。
+ * `version` 是内容版本：只有它变化（真实外部变化）才重新计算当前 diff。
+ */
+async function loadDiff(path, options = {}) {
+  const live0 = window.__augitLive;
+  const parts = {
+    path,
+    revision: options.revision || "工作区",
+    mode: options.mode || (live0 && live0.diffMode) || "split",
+    ignoreWhitespace: !!options.ignoreWhitespace,
+    detectRenames: !!options.detectRenames,
+    version: options.version,
+  };
+  const requestKey = diffRequestKey(parts);
+  const existing = diffRequests.get(requestKey);
   if (existing) return existing;
 
-  // 同一项重复选择不重复加载（规格 §5.4 / §12.2）：
-  // 该文件的差异已经显示时直接复用，不再发起请求。
-  const live0 = window.__augitLive;
-  if (!force && live0 && live0.diff && live0.diff.path === path && live0.editor === "diff") {
+  // 同一项重复选择不重复加载（§5.4 / §12.2）：请求键与当前已显示的一致时直接复用。
+  if (!options.force && live0 && live0.diff
+      && live0.diffRequestKey === requestKey && live0.editor === "diff") {
     return live0.diff;
+  }
+
+  // 内容未变、仅显示模式不同：复用已缓存的补丁（§6.3「只重新排版，不再次查询 Git」）。
+  const patchKey = diffPatchKey(parts);
+  const cached = diffPatches.get(patchKey);
+  if (!options.force && cached) {
+    if (live0) {
+      live0.diff = cached;
+      live0.diffRequestKey = requestKey;
+      live0.diffMode = parts.mode;
+    }
+
+    return cached;
   }
 
   const token = ++diffToken;
   const request = (async () => {
     try {
-      const diff = await invoke("git/diff", { path }, 30000);
+      const diff = await invoke("git/diff", {
+        path,
+        ignoreWhitespace: parts.ignoreWhitespace,
+      }, 30000);
       const live = window.__augitLive;
-      // 只有最新一次请求可以写回界面状态。
+      // 只有最新一次请求可以写回界面状态（每个请求带递增版本号，旧结果必须丢弃）。
       if (token === diffToken && live) {
         live.diff = diff && diff.available ? diff : null;
+        live.diffRequestKey = requestKey;
+        live.diffMode = parts.mode;
         // 有差异时切到差异视图；无差异时保留当前文档视图。
-        if (live.diff) live.editor = "diff";
+        if (live.diff) {
+          live.editor = "diff";
+          diffPatches.set(patchKey, live.diff);
+        }
       }
 
       window.__augitDiffReady = true;
@@ -541,13 +604,42 @@ async function loadDiff(path, { force = false } = {}) {
 
       return null;
     } finally {
-      diffRequests.delete(path);
+      diffRequests.delete(requestKey);
     }
   })();
 
-  diffRequests.set(path, request);
+  diffRequests.set(requestKey, request);
   return request;
 }
+
+/** 关闭工作区 Diff：释放补丁与正文，并取消尚未完成的请求（规格 §6.3）。 */
+function closeDiff() {
+  const live = window.__augitLive;
+  diffPatches.clear();
+  diffRequests.clear();
+  // 使在途请求的结果失效：令牌前进后，旧结果不会再写回。
+  diffToken += 1;
+  if (live) {
+    live.diff = null;
+    live.diffRequestKey = null;
+    live.editor = live.document ? live.document.editor : "empty";
+  }
+}
+
+/** 切换差异显示模式；相同内容下复用已缓存补丁，不重新查询 Git。 */
+async function switchDiffMode(mode) {
+  const live = window.__augitLive;
+  if (!live || !live.diff) return null;
+  const path = live.diff.path;
+  live.diffMode = mode;
+  const diff = await loadDiff(path, { mode });
+  refresh("editorContent", "editorTabs");
+  return diff;
+}
+
+window.__augitLoadDiffMode = switchDiffMode;
+window.__augitCloseDiff = closeDiff;
+window.__augitDiffPatchCount = () => diffPatches.size;
 
 // 加载反馈阈值（规格 §6.5）：预计低于 150 毫秒的操作不显示加载动画，避免闪烁。
 const LoadingFeedbackDelay = 150;

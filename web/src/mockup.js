@@ -1547,7 +1547,18 @@ function liveDiffView() {
   const oldSide = content.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
   const newSide = content.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
   const gutter = content.map((row, index) => `<div>${oldCells[index].lineNumber ?? ""}</div><div>${newCells[index].lineNumber ?? ""}</div>`).join("");
-  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+  // 单栏视图：同一份补丁的另一种排版，切换时不查询 Git（规格 §6.3）。
+  const unified = content.map((row, index) => {
+    const kind = row.kind === "HunkHeader" ? "hunk"
+      : row.kind === "Added" ? "added"
+        : row.kind === "Removed" ? "removed"
+          : row.kind === "Modified" ? "changed" : "";
+    const lineNumber = newCells[index].lineNumber ?? oldCells[index].lineNumber ?? "";
+    const text = newCells[index].content !== "&nbsp;" ? newCells[index].content : oldCells[index].content;
+    return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
+  }).join("");
+  const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml(diff.path)}</div>${unified}</template>`;
+  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
 }
 
 // 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。
@@ -2920,7 +2931,14 @@ function bindDiffModes(root = document) {
         if (boundaryDismissed) body.querySelector(".diff-boundary-hint")?.remove();
       }
     };
-    buttons.forEach(button => button.addEventListener("click", () => update(button.getAttribute("aria-label") === "单栏")));
+    buttons.forEach(button => button.addEventListener("click", () => {
+      const unified = button.getAttribute("aria-label") === "单栏";
+      update(unified);
+      // 外壳存在时同步显示模式：相同内容只重新排版，不重新查询 Git（§6.3）。
+      if (window.__augitLive && window.__augitLive.diff && typeof window.__augitLoadDiffMode === "function") {
+        window.__augitLoadDiffMode(unified ? "unified" : "side-by-side");
+      }
+    }));
     update(new URLSearchParams(window.location.search).get("diffMode") === "unified");
   });
 }

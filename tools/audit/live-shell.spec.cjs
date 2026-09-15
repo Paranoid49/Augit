@@ -844,6 +844,32 @@ async function main() {
     check('加载期间左侧工具窗口仍可见', await fb.page.locator('.side-tool').isVisible());
     await fb.page.close();
 
+    // ---- 规格 §6.3：显示模式切换复用补丁；关闭释放 ----
+    const key = await openScene('scene=commit-diff&theme=dark');
+    await key.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await key.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await key.page.evaluate(() => { window.__diffCalls = []; });
+    await key.page.locator('.changes-list .change-file-row').first().dblclick();
+    await key.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    const callsSingle = await key.page.evaluate('window.__diffCalls.length');
+    check('双栏模式产生一次请求: ' + callsSingle, callsSingle === 1);
+    check('工具栏存在单栏与双栏两个按钮', await key.page.locator('.diff-toolbar .segmented button').count() === 2);
+    check('实时差异视图提供单栏模板', await key.page.locator('.diff-unified-template').count() === 1);
+    // 点击工具栏的单栏按钮：相同内容，只重新排版，不再查询 Git
+    await key.page.locator('.diff-toolbar .segmented button[aria-label="单栏"]').click();
+    await key.page.waitForTimeout(500);
+    const callsAfterMode = await key.page.evaluate('window.__diffCalls.length');
+    check('切换单双栏不再次查询 Git: ' + callsSingle + ' -> ' + callsAfterMode, callsAfterMode === callsSingle);
+    const patchCount = await key.page.evaluate('window.__augitDiffPatchCount()');
+    check('补丁缓存只有一份（单双栏共用）: ' + patchCount, patchCount === 1);
+    check('切换模式后差异仍在', !!(await key.page.evaluate('window.__augitLive.diff')));
+    // 关闭工作区 Diff 释放补丁
+    await key.page.evaluate(() => window.__augitCloseDiff());
+    await key.page.waitForTimeout(200);
+    check('关闭 Diff 后释放补丁缓存', (await key.page.evaluate('window.__augitDiffPatchCount()')) === 0);
+    check('关闭 Diff 后不再显示差异', !(await key.page.evaluate('window.__augitLive.diff')));
+    await key.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
