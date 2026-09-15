@@ -1872,8 +1872,36 @@ async function commitSelectedChanges(andPush) {
   live.selectedChangePath = null;
   live.followChanges = false;
   window.__augitCommitResult = { hash: result.commitHash, andPush: !!andPush, pushed: false };
+
+  if (andPush) {
+    // 提交已经成功，推送失败不能把整件事报成失败：
+    // 分开记录，让用户知道「提交成功、推送失败」这个真实状态。
+    const push = await pushCurrentBranch();
+    window.__augitCommitResult = {
+      hash: result.commitHash,
+      andPush: true,
+      pushed: !!(push && push.pushed),
+      pushReason: push && !push.pushed ? push.reason : null,
+    };
+    if (push && !push.pushed) {
+      window.__augitCommitError = "提交已成功，但推送失败：" + (push.reason || "原因未知。");
+    }
+  }
+
   await loadStatus().catch(() => null);
   refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar", "bottomTool");
+}
+
+/**
+ * 推送当前分支（规格 §7.12）。未配置远端时不伪造成功。
+ */
+async function pushCurrentBranch() {
+  try {
+    const result = await invoke("git/push", {}, 300000);
+    return result || { pushed: false, reason: "推送没有返回结果。" };
+  } catch (error) {
+    return { pushed: false, reason: String(error && error.message || error) };
+  }
 }
 
 /**

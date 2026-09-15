@@ -142,6 +142,7 @@ internal sealed class ShellBridge : IDisposable
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
             "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
+            "git/push" => await PushAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1270,6 +1271,40 @@ internal sealed class ShellBridge : IDisposable
             // 提交后的真实状态：界面据此刷新改动列表，而不是自行推断。
             branch = result.ActualStatus?.CurrentBranch,
             remaining = result.ActualStatus?.Files.Count ?? 0,
+        };
+    }
+
+    /// <summary>
+    /// 推送当前分支（规格 §7.12）。网络操作不设自动超时，只响应用户主动取消。
+    /// 未配置远端时如实返回原因，不伪造成功、不静默回退。
+    /// </summary>
+    private async Task<object?> PushAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string? remoteName = GetString(parameters, "remote");
+        string? branchName = GetString(parameters, "branch");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitRemoteService remoteService = new(runtime);
+        GitRemoteOperationResult result = await remoteService
+            .PushAsync(repository, remoteName, branchName, cancellationToken)
+            .ConfigureAwait(false);
+        // 推送可能更新远端跟踪引用，重新读取状态而不是沿用缓存。
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, pushed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            pushed = true,
+            branch = result.ActualStatus?.CurrentBranch,
+            remotes = result.ActualRemotes?.Count ?? 0,
         };
     }
 

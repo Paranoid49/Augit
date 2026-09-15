@@ -261,6 +261,11 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/push') {
+        window.__pushCalls = (window.__pushCalls || 0) + 1;
+        if (window.__pushFails) return { available: true, pushed: false, reason: '没有配置推送远端。' };
+        return { available: true, pushed: true, branch: 'main', remotes: 1 };
+      }
       if (method === 'git/commit-create') {
         window.__commitWrite = { message: params.message, paths: params.paths };
         // 支持注入失败
@@ -2069,6 +2074,39 @@ async function main() {
     // 入口处也有一次重置，两处都覆盖了同一行为，因此单独移除任一处它仍会通过。
     // 断言本身正确（失败后确实不残留结果），但它无法区分「两处都清」与「只清一处」。
     check('失败时不记录提交结果', failed.result === null);
+    await commitPage.page.evaluate(() => { window.__commitFails = false; window.__pushCalls = 0; });
+
+    // ---- 提交并推送：两步都要真实执行，且失败要区分「提交成功、推送失败」 ----
+    await commitPage.page.locator('.commit-box .message-field').fill('feat: 提交并推送');
+    await commitPage.page.waitForTimeout(200);
+    await commitPage.page.locator('.commit-actions .secondary-button').first().click();
+    await commitPage.page.waitForTimeout(1200);
+    const bothOk = await commitPage.page.evaluate(() => ({
+      pushCalls: window.__pushCalls || 0,
+      result: window.__augitCommitResult,
+      error: window.__augitCommitError,
+    }));
+    check('提交并推送真的调用了推送: ' + bothOk.pushCalls, bothOk.pushCalls === 1);
+    check('推送成功被如实记录: ' + JSON.stringify(bothOk.result),
+      bothOk.result && bothOk.result.pushed === true && bothOk.result.hash === 'abc1234');
+    check('推送成功不残留错误: ' + JSON.stringify(bothOk.error), bothOk.error === null);
+
+    // 推送失败：提交已成功，必须如实区分而不是整体报失败
+    await commitPage.page.evaluate(() => { window.__pushFails = true; window.__pushCalls = 0; });
+    await commitPage.page.locator('.commit-box .message-field').fill('feat: 推送会失败');
+    await commitPage.page.waitForTimeout(200);
+    await commitPage.page.locator('.commit-actions .secondary-button').first().click();
+    await commitPage.page.waitForTimeout(1200);
+    const pushFail = await commitPage.page.evaluate(() => ({
+      pushCalls: window.__pushCalls || 0,
+      result: window.__augitCommitResult,
+      error: window.__augitCommitError,
+    }));
+    check('推送失败仍然记录了提交成功: ' + JSON.stringify(pushFail.result),
+      pushFail.result && pushFail.result.pushed === false && pushFail.result.hash === 'abc1234');
+    check('推送失败说明是「提交成功但推送失败」: ' + JSON.stringify(pushFail.error),
+      typeof pushFail.error === 'string' && pushFail.error.includes('提交已成功')
+      && pushFail.error.includes('没有配置推送远端'));
     await commitPage.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
