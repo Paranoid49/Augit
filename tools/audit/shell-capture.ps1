@@ -9,6 +9,9 @@ param(
   # default window height, so auditing them needs a taller window.
   [int]$Height = 760,
   [int]$Attempts = 4,
+  # Audit-only logical DPI override (96/120/144). Scales the window so the logical
+  # size stays constant; does not touch registry or system display settings.
+  [int]$Dpi = 0,
   [switch]$SkipBuild
 )
 $ErrorActionPreference = "Stop"
@@ -21,5 +24,7 @@ Start-Sleep -Milliseconds 600
 if (-not $SkipBuild) {
   & $dotnet build (Join-Path $repo 'src\Augit.Shell\Augit.Shell.csproj') -c Release -p:NuGetAudit=false 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Output $_ }
 }
-& (Join-Path $repo 'tools\audit\capture-surface.ps1') -Exe $exe -Out $Out -Arguments '--scene', $Scene, '--theme', $Theme, '--height', "$Height" -WorkDir $repo -SettleMs $SettleMs -Attempts $Attempts
+$shellArgs = @('--scene', $Scene, '--theme', $Theme, '--height', "$Height")
+if ($Dpi -gt 0) { $shellArgs += @('--dpi', "$Dpi") }
+& (Join-Path $repo 'tools\audit\capture-surface.ps1') -Exe $exe -Out $Out -Arguments $shellArgs -WorkDir $repo -SettleMs $SettleMs -Attempts $Attempts
 Get-Process Augit.Shell -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }

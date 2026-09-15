@@ -159,8 +159,8 @@ internal sealed class ShellWindow : IDisposable
             WsOverlappedWindow,
             80,
             80,
-            _options.Width ?? 1180,
-            _options.Height ?? 760,
+            ScaleForDpi(_options.Width ?? 1180),
+            ScaleForDpi(_options.Height ?? 760),
             0,
             0,
             _instance,
@@ -418,10 +418,24 @@ internal sealed class ShellWindow : IDisposable
         _ = SetWindowText(_window, title);
     }
 
+    /// <summary>
+    /// 设定 WebView2 的栅格化比例。
+    /// 审计用 --dpi 覆盖逻辑 DPI 时把比例固定为 dpi/96，使界面按真实字宽字高排布；
+    /// --pixel-exact 则固定为 1，用于一个 CSS 像素对应一个物理像素的对照。
+    /// 两者都关闭监视器缩放跟随，避免外接显示器时比例被改写。
+    /// 该覆盖只作用于本进程，不修改注册表或系统显示设置。
+    /// </summary>
     private void ApplyRasterizationScale()
     {
         if (_controller is null)
         {
+            return;
+        }
+
+        if (_options.Dpi is { } dpi)
+        {
+            _controller.ShouldDetectMonitorScaleChanges = false;
+            _controller.RasterizationScale = dpi / 96.0;
             return;
         }
 
@@ -430,6 +444,14 @@ internal sealed class ShellWindow : IDisposable
             _controller.ShouldDetectMonitorScaleChanges = false;
             _controller.RasterizationScale = 1.0;
         }
+    }
+
+    /// <summary>审计用 DPI 覆盖：按比例放大窗口尺寸，使逻辑尺寸保持不变。</summary>
+    private int ScaleForDpi(int value)
+    {
+        return _options.Dpi is { } dpi && dpi != 96
+            ? (int)Math.Round(value * dpi / 96.0)
+            : value;
     }
 
     private void SyncBounds()

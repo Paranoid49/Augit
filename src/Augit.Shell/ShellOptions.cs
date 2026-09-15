@@ -4,7 +4,7 @@ namespace Augit.Shell;
 /// 外壳启动参数。默认加载仓库内的 <c>web</c> 目录；<c>--mockups</c> 改为加载 HTML 视觉稿，
 /// 使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
 /// </summary>
-internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument)
+internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi)
 {
     private const string DefaultWidth = "1180";
     private const string DefaultHeight = "760";
@@ -25,6 +25,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         string? fileHistoryDocument = null;
         string? conflictDocument = null;
         string? diffDocument = null;
+        int? dpi = null;
 
         for (int index = 0; index < arguments.Length; index++)
         {
@@ -73,6 +74,15 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                 case "--diff":
                     diffDocument = Next(arguments, ref index, argument);
                     break;
+                case "--dpi":
+                    string dpiText = Next(arguments, ref index, argument);
+                    if (!int.TryParse(dpiText, out int dpiValue) || dpiValue is < 72 or > 480)
+                    {
+                        throw new ArgumentException("--dpi 必须是 72 到 480 之间的整数。");
+                    }
+
+                    dpi = dpiValue;
+                    break;
                 default:
                     throw new ArgumentException($"未知的启动参数：{argument}");
             }
@@ -94,7 +104,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             blameDocument,
             fileHistoryDocument,
             conflictDocument,
-            diffDocument);
+            diffDocument,
+            dpi);
     }
 
     private static string Next(string[] arguments, ref int index, string name)
