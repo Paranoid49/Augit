@@ -1624,13 +1624,39 @@ function bindEditorTabs() {
   if (!window.__augitLive || window.__augitTabBound) return;
   window.__augitTabBound = true;
 
+  // 关闭叉的「按下即捕获」：记录按下时命中的关闭叉。
+  // 按下后移出原目标再松开，不得关闭其他标签；pointercancel 视为取消。
+  let pressedClose = null;
+
+  document.addEventListener("pointerdown", (event) => {
+    pressedClose = event.button === 0 && event.target.closest
+      ? event.target.closest(".editor-tabs .tab-close")
+      : null;
+  }, true);
+
+  document.addEventListener("pointercancel", () => { pressedClose = null; }, true);
+
   document.addEventListener("click", (event) => {
     const tab = event.target.closest && event.target.closest(".editor-tabs .editor-tab[data-tab-id]");
     if (!tab) return;
     event.preventDefault();
-    // 关闭叉：只移除目标标签，不激活它，也不抢焦点。
-    if (event.target.closest(".tab-close")) {
+    const closeButton = event.target.closest(".tab-close");
+    if (closeButton) {
+      // 只有在同一个关闭叉上按下并松开才关闭；否则保留按下记录并放弃本次关闭。
+      const sameTarget = pressedClose === closeButton;
+      pressedClose = null;
+      if (!sameTarget) return;
+      // 关闭叉按下时不抢焦点（不调用 focus），并保留关闭前的焦点位置。
+      const heldFocus = document.activeElement;
       closeTab(tab.dataset.tabId);
+      // 被关闭的标签可能持有焦点；若它已离开文档，把焦点交还给原处。
+      if (heldFocus && !heldFocus.isConnected && document.body.contains(heldFocus) === false) {
+        const next = document.querySelector(".side-content.tree .tree-row.selected")
+          || document.querySelector(".changes-list .change-file-row.selected")
+          || document.querySelector(".editor-tabs .editor-tab.active");
+        if (next && typeof next.focus === "function") next.focus({ preventScroll: true });
+      }
+
       return;
     }
 

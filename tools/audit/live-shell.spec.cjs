@@ -1742,6 +1742,57 @@ async function main() {
       recmpOpenedAgain.comparisons === 1 && recmpOpenedAgain.follow === true);
     await cmp.page.close();
 
+    // ---- 规格 §5.2：关闭叉的按下即捕获，以及关闭后台标签的状态保持 ----
+    const closeRule = await openScene('scene=main-project&theme=dark');
+    await closeRule.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await closeRule.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await closeRule.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 8000 });
+    await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    await closeRule.page.waitForTimeout(400);
+    await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').dblclick();
+    await closeRule.page.waitForTimeout(500);
+
+    const beforePress = await closeRule.page.evaluate(() => (window.__augitLive.tabs || []).map((t) => t.path));
+    // 在第一个标签的关闭叉上按下，移动到第二个标签的关闭叉上松开。
+    const firstClose = closeRule.page.locator('.editor-tabs .editor-tab').first().locator('.tab-close');
+    const secondClose = closeRule.page.locator('.editor-tabs .editor-tab').nth(1).locator('.tab-close');
+    const from = await firstClose.boundingBox();
+    const to = await secondClose.boundingBox();
+    await closeRule.page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await closeRule.page.mouse.down();
+    await closeRule.page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 5 });
+    await closeRule.page.mouse.up();
+    await closeRule.page.waitForTimeout(500);
+    const afterPress = await closeRule.page.evaluate(() => (window.__augitLive.tabs || []).map((t) => t.path));
+    check('移出关闭叉再松开不关闭任何标签: ' + JSON.stringify(afterPress),
+      afterPress.length === beforePress.length);
+
+    // 关闭后台标签：当前文档、项目树选择与展开状态保持
+    const stateBeforeClose = await closeRule.page.evaluate(() => ({
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      selected: (document.querySelector('.side-content.tree .tree-row.selected') || {}).dataset
+        ? document.querySelector('.side-content.tree .tree-row.selected').dataset.treePath : null,
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      tabs: (window.__augitLive.tabs || []).length,
+    }));
+    await closeRule.page.locator('.editor-tabs .editor-tab').first().locator('.tab-close').click();
+    await closeRule.page.waitForTimeout(500);
+    const stateAfterClose = await closeRule.page.evaluate(() => ({
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      selected: (document.querySelector('.side-content.tree .tree-row.selected') || {}).dataset
+        ? document.querySelector('.side-content.tree .tree-row.selected').dataset.treePath : null,
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      tabs: (window.__augitLive.tabs || []).length,
+    }));
+    check('关闭后台标签保持当前文档: ' + stateAfterClose.doc,
+      stateAfterClose.doc === stateBeforeClose.doc);
+    check('关闭后台标签保持项目树选择与展开: ' + JSON.stringify([stateBeforeClose.selected, stateAfterClose.selected, stateBeforeClose.treeRows, stateAfterClose.treeRows]),
+      stateAfterClose.selected === stateBeforeClose.selected && stateAfterClose.treeRows === stateBeforeClose.treeRows);
+    check('关闭后台标签只减少目标标签: ' + stateBeforeClose.tabs + ' -> ' + stateAfterClose.tabs,
+      stateAfterClose.tabs === stateBeforeClose.tabs - 1);
+    await closeRule.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
