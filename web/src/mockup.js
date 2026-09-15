@@ -2397,6 +2397,28 @@ function dialog(title, body, footer, wide = false, extraClass = "") {
   return `<div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section>`;
 }
 
+// 外壳注入真实引用时使用：分组、当前分支标记与二级动作沿用样例版结构。
+function liveBranchesPopover() {
+  const references = window.__augitLive.references;
+  const branches = references.branches || [];
+  const tags = references.tags || [];
+  const local = branches.filter(branch => !branch.isRemote);
+  const remote = branches.filter(branch => branch.isRemote);
+  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}">${gitReferenceIcon(branch.isRemote)} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
+  const group = (label, items) => items.length === 0
+    ? ""
+    : `<div class="menu-item"><span>${icon("chevron-down")}</span><strong>${label}</strong></div>${items.join("")}`;
+  const quick = `<input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div>`;
+  const groups = group("本地", local.map(branch => row(branch, branch.isCurrent)))
+    + group("远程", remote.map(branch => row(branch, false)))
+    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
+  const current = local.find(branch => branch.isCurrent);
+  const actions = current
+    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`
+    : "";
+  return `<section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}`;
+}
+
 function branchesPopover() {
   return `<section class="popover"><input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div><div class="menu-item"><span>${icon("chevron-down")}</span><strong>本地</strong></div><div class="menu-item selected">${gitReferenceIcon()} main <span class="grow"></span>${icon("chevron-right")}</div></section><section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 main 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`;
 }
@@ -2423,7 +2445,7 @@ function renderScene() {
     case "history-diff-loading":
     case "history-diff-failure":
     case "history-diff-cancelled": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: scene.slice("history-diff-".length) });
-    case "branches": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: branchesPopover(), selectedFile: "app.manifest" });
+    case "branches": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: (window.__augitLive && window.__augitLive.references) ? liveBranchesPopover() : branchesPopover(), selectedFile: "app.manifest" });
     case "stash": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: dialog("Stash", stashBody, `<button class="secondary-button">取消</button><button class="primary-button">创建 Stash</button>`, false, "stash-dialog") });
     case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
     case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });

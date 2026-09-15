@@ -607,6 +607,22 @@ async function main() {
     check('全仓搜索不残留样例', !repoText.includes('Git 状态已刷新'));
     await repo.page.close();
 
+    // ---- 分支与标签弹层：引用来自宿主，按本地/远程/标签分组 ----
+    const pop = await openScene('scene=branches&theme=dark');
+    await pop.page.waitForFunction('window.__augitRefsReady === true', null, { timeout: 20000 });
+    await pop.page.waitForSelector('.popover .menu-item', { timeout: 10000 });
+    const popText = await pop.page.locator('.popover').first().innerText();
+    check('弹层分组本地与远程: ' + popText.replace(/\n/g, ' ').slice(0, 80), popText.includes('本地') && popText.includes('远程'));
+    check('弹层显示真实本地分支', popText.includes('dsh'));
+    check('弹层显示真实远程分支', popText.includes('origin/dsh'));
+    check('当前分支被标记: ' + popText.replace(/\n/g, ' ').slice(0, 100), popText.includes('当前'));
+    check('弹层显示上游引用', popText.includes('origin/dsh'));
+    check('弹层不残留样例分支 main', !/(^|\s)main(\s|$)/.test(popText));
+    const actionsText = await pop.page.locator('.branch-actions').innerText();
+    check('二级动作引用当前分支: ' + actionsText.split('\n')[0], actionsText.includes('从 dsh 新建分支'));
+    check('弹层含快捷动作', popText.includes('更新项目') && popText.includes('提交') && popText.includes('推送'));
+    await pop.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
