@@ -739,21 +739,77 @@ function selectChangeRow(row) {
 
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
+  // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
+  const path = row.dataset.path;
+  if (path) void followChangeSelection(path);
 }
 
-/** 打开某个改动文件的差异视图。 */
-async function openChangeDiff(path) {
+/** 找到工作区比较标签（规格 §5.2：最多只有一个）。 */
+function findComparisonTab() {
+  const live = window.__augitLive;
+  return live && live.tabs ? live.tabs.find((tab) => tab.kind === "comparison") || null : null;
+}
+
+/**
+ * 打开或更新工作区比较标签（规格 §5.2）。
+ *
+ * - 只保留一个比较标签，双击 / Enter / 「显示 Diff」都打开并激活它；
+ * - 普通文档处于前台时只后台更新该标签正文，不抢占焦点；
+ * - `live.followChanges` 表示比较标签是否跟随 Changes 选择：
+ *   显式打开时置为 true，关闭比较后解除（置为 false），
+ *   此后 Changes 的单击与无变化刷新不会重新创建该标签。
+ */
+async function openChangeDiff(path, options = {}) {
+  const { activate = true } = options;
+  const live = window.__augitLive;
+  if (!live) return;
+  live.followChanges = true;
   scheduleDiffLoadingMarker();
   try {
     const diff = await loadDiff(path);
-    if (diff) {
-      // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
-      // 复选框、提交信息与列表滚动；同时延后到事件派发结束再替换编辑区，
-      // 使视觉稿挂在冒泡阶段的「双击建比较标签」监听能收到事件。
-      refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+    if (!diff) return;
+    if (!findComparisonTab()) {
+      live.tabs ??= [];
+      const tab = {
+        id: nextTabId(),
+        kind: "comparison",
+        path,
+        title: `提交: ${diff.name || path}`,
+        editor: "diff",
+        preview: false,
+      };
+      live.tabs.push(tab);
+      if (activate) {
+        live.activeTabId = tab.id;
+        live.editor = "diff";
+      }
+    } else if (activate) {
+      const tab = findComparisonTab();
+      live.activeTabId = tab.id;
+      live.editor = "diff";
     }
+
+    // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
+    // 复选框、提交信息与列表滚动；同时延后到事件派发结束再替换编辑区，
+    // 使视觉稿挂在冒泡阶段的「双击建比较标签」监听能收到事件。
+    refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
     clearDiffLoadingMarker();
+  }
+}
+
+/** Changes 列表选择变化时的跟随入口：解除跟随后不再自动更新比较标签。 */
+async function followChangeSelection(path) {
+  const live = window.__augitLive;
+  if (!live || !live.followChanges) return;
+  const tab = findComparisonTab();
+  if (!tab) return;
+  // 普通文档在前台时只后台更新正文，不抢占焦点。
+  const background = live.activeTabId !== tab.id;
+  const diff = await loadDiff(path).catch(() => null);
+  if (!diff) return;
+  if (background) {
+    refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   }
 }
 
@@ -1420,8 +1476,15 @@ function closeTab(id) {
   if (!live) return;
   const index = live.tabs.findIndex((tab) => tab.id === id);
   if (index < 0) return;
+  const closing = live.tabs[index];
   const wasActive = live.activeTabId === id;
   live.tabs.splice(index, 1);
+  // 关闭比较标签：解除跟随 Changes 选择（规格 §5.2）。
+  if (closing && closing.kind === "comparison") {
+    live.followChanges = false;
+    closeDiff();
+  }
+
   if (!wasActive) {
     refreshAfterEvent("editorTabs");
     return;
@@ -1903,6 +1966,9 @@ function selectTreeRow(row) {
 
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
+  // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
+  const path = row.dataset.path;
+  if (path) void followChangeSelection(path);
 }
 
 // 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：

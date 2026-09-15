@@ -1471,10 +1471,11 @@ async function main() {
     await j2.page.evaluate(() => { window.__diffCalls = []; });
     await j2.page.locator('.changes-list .change-file-row').first().dblclick();
     // 等待标签真正建出来（打开差异的刷新是延后的，不要用固定睡眠）。
-    await j2.page.waitForFunction('!!document.querySelector("[data-workspace-diff-tab]")', null, { timeout: 8000 }).catch(() => {});
+    await j2.page.waitForFunction('!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")', null, { timeout: 8000 }).catch(() => {});
     const dbl = await j2.page.evaluate(() => ({
-      diffTab: !!document.querySelector('[data-workspace-diff-tab]'),
-      caption: document.querySelector('.change-tab-caption') ? document.querySelector('.change-tab-caption').innerText : null,
+      // 比较标签现在由 live.tabs 渲染（规格 §5.2），视觉稿不再自建节点。
+      diffTab: !!(window.__augitLive.tabs || []).find((t) => t.kind === 'comparison'),
+      caption: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').map((t) => t.title).join('') || null,
       editor: window.__augitLive.editor,
       rows: window.__augitLive.diff ? window.__augitLive.diff.rows.length : -1,
       listRows: document.querySelectorAll('.changes-list .change-file-row').length,
@@ -1686,6 +1687,60 @@ async function main() {
     check('关闭后台标签不改变当前文档: ' + tabBackground.doc,
       tabBackground.doc === 'docs/notes.txt' && tabBackground.ids.length === 1);
     await tabPage.page.close();
+
+    // ---- 规格 §5.2：工作区比较标签的跟随与解除跟随 ----
+    const cmp = await openScene('scene=commit-changes&theme=dark');
+    await cmp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cmp.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const cmpState = () => cmp.page.evaluate(() => ({
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      total: (window.__augitLive.tabs || []).length,
+      active: window.__augitLive.activeTabId,
+      editor: window.__augitLive.editor,
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      follow: !!window.__augitLive.followChanges,
+    }));
+
+    // 显式打开：建立唯一的比较标签
+    await cmp.page.locator('.changes-list .change-file-row').first().dblclick();
+    await cmp.page.waitForFunction('!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")', null, { timeout: 8000 });
+    const cmpOpened = await cmpState();
+    check('双击改动文件建立比较标签: ' + JSON.stringify(cmpOpened),
+      cmpOpened.comparisons === 1 && cmpOpened.follow === true && cmpOpened.editor === 'diff');
+
+    // 再次显式打开另一个改动文件：仍然只有一个比较标签
+    await cmp.page.locator('.changes-list .change-file-row').nth(1).dblclick();
+    await cmp.page.waitForTimeout(600);
+    const recmpOpened = await cmpState();
+    check('比较标签始终只有一个: ' + JSON.stringify(recmpOpened), recmpOpened.comparisons === 1);
+
+    // 单击另一个改动行：跟随更新正文，不新增标签
+    await cmp.page.locator('.changes-list .change-file-row').first().click();
+    await cmp.page.waitForTimeout(600);
+    const cmpFollowed = await cmpState();
+    check('单击改动行跟随更新比较标签: ' + JSON.stringify(cmpFollowed),
+      cmpFollowed.comparisons === 1 && cmpFollowed.follow === true);
+
+    // 关闭比较标签：解除跟随
+    await cmp.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').click();
+    await cmp.page.waitForTimeout(500);
+    const cmpClosed = await cmpState();
+    check('关闭比较标签后解除跟随: ' + JSON.stringify(cmpClosed),
+      cmpClosed.comparisons === 0 && cmpClosed.follow === false);
+
+    // 关闭后单击变化行不得重新创建比较标签
+    await cmp.page.locator('.changes-list .change-file-row').nth(1).click();
+    await cmp.page.waitForTimeout(600);
+    const cmpAfterClick = await cmpState();
+    check('解除跟随后单击不重建比较标签: ' + JSON.stringify(cmpAfterClick), cmpAfterClick.comparisons === 0);
+
+    // 再次显式打开可以重新创建
+    await cmp.page.locator('.changes-list .change-file-row').first().dblclick();
+    await cmp.page.waitForFunction('!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")', null, { timeout: 8000 });
+    const recmpOpenedAgain = await cmpState();
+    check('显式打开可重新创建比较标签: ' + JSON.stringify(recmpOpenedAgain),
+      recmpOpenedAgain.comparisons === 1 && recmpOpenedAgain.follow === true);
+    await cmp.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

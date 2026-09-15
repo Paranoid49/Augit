@@ -3075,11 +3075,13 @@ function bindChangesWorkflow() {
   };
   const activateComparison = comparison => {
     activeComparison = comparison;
+    if (!comparison.tab) return;
     activate(comparison.tab, comparison.view);
     setStatus(comparison.path, true);
   };
   const closeComparison = comparison => {
     const active = activeComparison === comparison;
+    if (!comparison.tab) return;
     const heldFocus = comparison.tab.contains(document.activeElement) || comparison.view.contains(document.activeElement);
     if (preview === comparison) preview = null;
     comparison.tab.remove();
@@ -3088,6 +3090,14 @@ function bindChangesWorkflow() {
     if (heldFocus) list.focus({ preventScroll: true });
   };
   const createComparison = (row, existingTab = null, existingView = null) => {
+    // 实时外壳下，标签栏由 live.tabs 渲染（规格 §5.2），
+    // 这里不再另建一个标签节点，否则两套标签会互相覆盖：
+    // 区域刷新替换 .editor-tabs 后，这里持有的旧引用会往游离节点里插标签，
+    // 界面上就出现「比较标签突然消失」。
+    if (window.__augitLive && Array.isArray(window.__augitLive.tabs) && window.__augitLive.tabs.length > 0) {
+      return { tab: null, view: existingView || null, path: row.dataset.path, live: true };
+    }
+
     const tab = existingTab || document.createElement("a");
     tab.className = "editor-tab";
     tab.href = "#";
