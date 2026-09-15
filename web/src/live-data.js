@@ -270,27 +270,57 @@ async function loadBlame(path) {
  * 上游提交在已加载的历史窗口内时可直接切片得出；不在窗口内说明领先超过一页，
  * 此时只给出数量未知的提示，不猜测具体提交。
  */
+/**
+ * 推送预览（规格 §7.12）。
+ *
+ * 待推送提交必须来自宿主对 `@{u}..HEAD` 的查询，**不能用已加载的历史页推导**：
+ * 历史是分页的，推导结果在未加载完整时会偏少，且「尚未加载」与「没有待推送」
+ * 会被混为一谈——那会让界面在真正有待推送提交时禁用推送。
+ */
 function computePush(live) {
-  if (!live || !live.status || !live.references || !live.history) return null;
+  if (!live || !live.status) return null;
   const branch = live.status.branch;
   if (!branch) return null;
-  const current = (live.references.branches || []).find((item) => item.name === branch && !item.isRemote);
-  const upstream = current && current.upstream ? current.upstream : null;
-  if (!upstream) {
-    return { branch, upstream: null, commits: [] };
-  }
-
-  const upstreamBranch = (live.references.branches || []).find((item) => item.name === upstream);
-  const commits = live.history.commits || [];
-  const index = upstreamBranch
-    ? commits.findIndex((commit) => commit.fullHash === upstreamBranch.commitHash)
-    : -1;
+  // 上游与待推送提交都取自同一次查询结果。
+  // 若上游另从分支引用推导，就会出现「显示 origin/dsh」却「预览失败」的自相矛盾状态。
   return {
     branch,
-    upstream,
-    commits: index >= 0 ? commits.slice(0, index) : [],
-    truncated: index < 0,
+    upstream: live.unpushedUpstream || null,
+    commits: live.unpushedCommits || [],
+    ready: !!live.unpushedReady,
+    reason: live.unpushedReason || null,
   };
+}
+
+/**
+ * 读取待推送提交并刷新推送预览。
+ * 未配置上游时 ready=false 且给出原因——规格要求此时保留「定义远端」并禁用推送。
+ */
+async function loadUnpushed() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  try {
+    const result = await invoke("git/unpushed", {}, 60000);
+    if (!result || !result.available) {
+      live.unpushedReady = false;
+      live.unpushedCommits = [];
+      live.unpushedUpstream = null;
+      live.unpushedReason = (result && result.reason) || "当前无法读取待推送提交。";
+    } else {
+      live.unpushedReady = !!result.ready;
+      live.unpushedCommits = result.commits || [];
+      live.unpushedUpstream = result.upstream || null;
+      live.unpushedReason = result.ready ? null : (result.reason || null);
+    }
+  } catch (error) {
+    live.unpushedReady = false;
+    live.unpushedCommits = [];
+    live.unpushedUpstream = null;
+    live.unpushedReason = String(error && error.message || error);
+  }
+
+  live.push = computePush(live);
+  return live.push;
 }
 
 /**
@@ -440,7 +470,7 @@ async function loadReferences() {
 
     // 管理窗口依赖这些数据，因此到达后补一次重绘；重绘会清空提交详情区，需要重新补齐。
     if (changed && typeof window.__augitRender === "function") {
-      refreshPush();
+      void loadUnpushed();
       refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
       reattachTerminal();
       bindSettingsSave();
@@ -1352,6 +1382,7 @@ async function saveConflict(path, resultText) {
 }
 
 /** 发布待推送信息，供 Push 对话框使用。 *//** 发布待推送信息，供 Push 对话框使用。 */
+/** 状态或引用变化后按已有数据重算推送预览；不发起查询。 */
 function refreshPush() {
   const live = window.__augitLive;
   if (!live) return;
@@ -1810,6 +1841,15 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 推送对话框的动作。
+    const pushAction = event.target.closest && event.target.closest("[data-push-action]");
+    if (pushAction) {
+      event.preventDefault();
+      if (pushAction.dataset.pushAction === "confirm") void confirmPushDialog();
+      else closePushDialog();
+      return;
+    }
+
     // 紧凑输入窗口的按钮与标题栏关闭。
     const compactAction = event.target.closest && event.target.closest("[data-compact-dialog] [data-compact-action]");
     if (compactAction) {
@@ -2182,9 +2222,15 @@ async function runPopoverAction(action) {
     return;
   }
 
-  const method = action === "fetch" ? "git/fetch" : action === "push" ? "git/push" : null;
+  if (action === "push") {
+    // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
+    void openPushDialog();
+    return;
+  }
+
+  const method = action === "fetch" ? "git/fetch" : null;
   if (!method) return;
-  const key = action === "fetch" ? "fetched" : "pushed";
+  const key = "fetched";
   let result;
   try {
     result = await invoke(method, {}, 300000);
@@ -2253,6 +2299,81 @@ async function compareWithWorkspace() {
   refreshAfterEvent("editorContent", "editorTabs", "statusbar");
 }
 
+/**
+ * 推送对话框（规格 §7.12）。
+ *
+ * 推送前先读取待推送提交并显示；未配置上游或读取失败时**禁用推送**并给出原因，
+ * 同时保留「定义远端」入口。预览未就绪或没有待推送提交时不允许推送。
+ */
+async function openPushDialog() {
+  const live = window.__augitLive;
+  if (!live) return;
+  closeLiveOverlay();
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+
+  // 打开时重新读取，避免显示过期预览。
+  window.__augitPushDialogOpen = true;
+  await loadUnpushed();
+  if (!window.__augitPushDialogOpen) return;
+  renderPushDialog();
+}
+
+function renderPushDialog() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const push = live.push || { branch: live.status && live.status.branch, upstream: null, commits: [], ready: false };
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  const canPush = push.ready === true && (push.commits || []).length > 0;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Push",
+    livePushDialogBody(),
+    `<button type="button" class="secondary-button" data-push-action="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-push-action="confirm"${canPush ? "" : " disabled"}>推送</button>`,
+    true,
+    "push-dialog");
+  host.appendChild(layer);
+  const list = layer.querySelector(".push-commits");
+  if (list) list.focus();
+}
+
+/** 关闭推送对话框。 */
+function closePushDialog() {
+  window.__augitPushDialogOpen = false;
+  closeLiveOverlay();
+}
+
+/** 执行推送并关闭对话框；失败时保留对话框并显示原因。 */
+async function confirmPushDialog() {
+  const live = window.__augitLive;
+  const result = await pushCurrentBranch();
+  if (!result || !result.pushed) {
+    window.__augitPushError = (result && result.reason) || "推送失败。";
+    const notice = document.querySelector("[data-augit-overlay] .push-notice");
+    if (notice) {
+      notice.textContent = window.__augitPushError;
+      notice.hidden = false;
+    }
+
+    return;
+  }
+
+  window.__augitPushError = null;
+  window.__augitCommitResult = { pushed: true };
+  closePushDialog();
+  if (live) {
+    live.references = null;
+    await Promise.all([loadStatus().catch(() => null), loadReferences().catch(() => null)]);
+  }
+
+  refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
 /** 检出标签或任意版本：紧凑输入窗口，名称交给 Git 解析。 */
 function openRevisionDialog() {
   const host = document.querySelector(".augit-window");
@@ -2292,7 +2413,13 @@ function bindOverlayEscape() {
     // 组词中的 Esc 交给输入法（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
 
-    // 实时外壳打开的弹层（例如分支弹层）优先关闭。
+    // 推送对话框与其它实时弹层优先关闭。
+    if (document.querySelector("[data-push-action]")) {
+      event.preventDefault();
+      closePushDialog();
+      return;
+    }
+
     if (closeLiveOverlay()) {
       event.preventDefault();
       return;
@@ -2608,7 +2735,7 @@ async function boot() {
       void refreshCommitDetails();
     }
 
-    refreshPush();
+    void loadUnpushed();
     window.__augitHistoryReady = true;
     if (history.commits.length > 0) {
       void refreshCommitDetails();

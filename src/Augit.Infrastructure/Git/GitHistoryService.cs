@@ -220,7 +220,21 @@ public sealed class GitHistoryService : IGitHistoryService
             return GitUnpushedResult.Failure(GitOperationFailureKind.InvalidRequest, validationError!);
         }
 
-        // @{u} 指向上游；未配置时 git 会以非零退出码失败，这里转成可读说明。
+        // 先解析上游简称：没有上游时直接返回可读说明，
+        // 界面据此保留「定义远端」入口并禁用推送（规格 §7.12）。
+        GitCommandResult upstreamResult = await RunQueryAsync(
+            repositoryRoot!,
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            _queryRunner,
+            cancellationToken).ConfigureAwait(false);
+        string upstreamName = upstreamResult.IsSuccess ? upstreamResult.StandardOutput.Trim() : string.Empty;
+        if (upstreamName.Length == 0)
+        {
+            return GitUnpushedResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "当前分支没有配置上游，无法生成推送预览。");
+        }
+
         List<string> arguments =
         [
             "log",
@@ -237,8 +251,8 @@ public sealed class GitHistoryService : IGitHistoryService
         if (!result.IsSuccess)
         {
             return GitUnpushedResult.Failure(
-                GitOperationFailureKind.InvalidRequest,
-                "当前分支没有配置上游，无法生成推送预览。");
+                GitOperationFailureKind.CommandFailed,
+                result.ErrorMessage ?? "无法读取待推送提交。");
         }
 
         if (!TryParseHistory(result.StandardOutput, out IReadOnlyList<GitHistoryEntry>? parsed))
@@ -248,7 +262,7 @@ public sealed class GitHistoryService : IGitHistoryService
                 "无法解析待推送提交。");
         }
 
-        return GitUnpushedResult.Success(parsed!);
+        return GitUnpushedResult.Success(parsed!, upstreamName);
     }
 
     public async Task<GitCommitDetailsResult> ReadCommitAsync(

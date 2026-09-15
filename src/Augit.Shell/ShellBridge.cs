@@ -319,7 +319,9 @@ internal sealed class ShellBridge : IDisposable
         {
             available = true,
             ready = true,
-            upstream = (string?)null,
+            // 上游由 git 的 @{u} 解析结果决定；界面不再从分支引用里另推一份，
+            // 避免「有上游」与「预览失败」两个来源互相矛盾。
+            upstream = result.Upstream,
             commits = commits.Select(commit => new
             {
                 fullHash = commit.FullHash,

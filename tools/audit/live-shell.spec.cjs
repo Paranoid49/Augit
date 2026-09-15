@@ -264,6 +264,13 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/unpushed') {
+        if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，无法生成推送预览。', commits: [], upstream: null };
+        return {
+          available: true, ready: true, upstream: 'origin/dsh',
+          commits: [{ hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00' }],
+        };
+      }
       if (method === 'git/fetch') {
         window.__fetchCalls = (window.__fetchCalls || 0) + 1;
         if (window.__fetchFails) return { available: true, fetched: false, reason: '没有配置远端。' };
@@ -2304,13 +2311,59 @@ async function main() {
     check('更新项目调用 fetch: ' + fetched.calls, fetched.calls === 1);
     check('更新项目成功后关闭弹层', fetched.overlay === false);
 
-    // 推送… → git/push
+    // 推送… → 先打开推送对话框预览（规格 §7.12：预览未就绪不允许推送）
     await openPopover();
     await pa.page.evaluate(() => { window.__pushCalls = 0; });
     await pa.page.locator('[data-popover-action="push"]').click();
-    await pa.page.waitForTimeout(900);
-    const pushed = await pa.page.evaluate(() => window.__pushCalls || 0);
-    check('推送… 调用 push: ' + pushed, pushed === 1);
+    await pa.page.waitForTimeout(1200);
+    const pushDialog = await pa.page.evaluate(() => ({
+      open: !!document.querySelector('[data-push-action]'),
+      summary: (document.querySelector('.push-summary') || {}).innerText || null,
+      commits: [...document.querySelectorAll('.push-commit')].map((el) => el.innerText.trim()),
+      confirmDisabled: (document.querySelector('[data-push-action="confirm"]') || {}).disabled,
+      pushCalls: window.__pushCalls || 0,
+    }));
+    check('推送… 打开预览对话框而不是直接推送: ' + JSON.stringify([pushDialog.open, pushDialog.pushCalls]),
+      pushDialog.open === true && pushDialog.pushCalls === 0);
+    check('推送对话框显示本地引用与目标: ' + JSON.stringify(pushDialog.summary),
+      typeof pushDialog.summary === 'string' && pushDialog.summary.includes('dsh') && pushDialog.summary.includes('origin/dsh'));
+    check('推送对话框列出待推送提交: ' + JSON.stringify(pushDialog.commits),
+      pushDialog.commits.length === 1 && pushDialog.commits[0].includes('真实提交一'));
+    check('有待推送提交时可推送', pushDialog.confirmDisabled === false);
+
+    // 确认后才真正推送，并在成功后关闭
+    await pa.page.locator('[data-push-action="confirm"]').click();
+    await pa.page.waitForTimeout(1000);
+    const pushedNow = await pa.page.evaluate(() => ({
+      calls: window.__pushCalls || 0,
+      open: !!document.querySelector('[data-push-action]'),
+    }));
+    check('确认后真正推送: ' + pushedNow.calls, pushedNow.calls === 1);
+    check('推送成功后关闭对话框', pushedNow.open === false);
+
+    // 没有上游：禁用推送、保留「定义远端」、显示原因
+    await pa.page.evaluate(() => { window.__unpushedFails = true; });
+    await openPopover();
+    await pa.page.locator('[data-popover-action="push"]').click();
+    await pa.page.waitForTimeout(1200);
+    const noUpstream = await pa.page.evaluate(() => ({
+      open: !!document.querySelector('[data-push-action]'),
+      confirmDisabled: (document.querySelector('[data-push-action="confirm"]') || {}).disabled,
+      defineRemote: !!document.querySelector('.push-summary a[href$="remote.html"]'),
+      summaryHtml: (document.querySelector('.push-summary') || {}).innerHTML || null,
+      summaryText: (document.querySelector('.push-summary') || {}).innerText || null,
+      reason: (document.querySelector('.management-detail') || {}).innerText || null,
+    }));
+    check('没有上游时禁用推送: ' + JSON.stringify([noUpstream.open, noUpstream.confirmDisabled]),
+      noUpstream.open === true && noUpstream.confirmDisabled === true);
+    check('没有上游时保留「定义远端」入口', noUpstream.defineRemote === true);
+    check('没有上游时说明原因: ' + JSON.stringify(noUpstream.reason),
+      typeof noUpstream.reason === 'string' && noUpstream.reason.includes('没有配置上游'));
+    await pa.page.keyboard.press('Escape');
+    await pa.page.waitForTimeout(300);
+    const closedByEsc = await pa.page.evaluate(() => !!document.querySelector('[data-push-action]'));
+    check('Esc 关闭推送对话框', closedByEsc === false);
+    await pa.page.evaluate(() => { window.__unpushedFails = false; });
 
     // 提交… → 切到提交工具窗口，不调用任何 Git 写操作
     await openPopover();

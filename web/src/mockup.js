@@ -160,17 +160,18 @@ function livePushDialogBody() {
   const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4 4 7-8"/></svg>';
   const push = (window.__augitLive && window.__augitLive.push) || null;
   if (!push || !push.upstream) {
-    return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">定义远端</a></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读"><div class="push-empty">没有选中的提交</div><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>`;
+    return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">定义远端</a></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读"><h2>无法生成推送预览</h2><p class="commit-meta">${escapeHtml(push && push.reason ? push.reason : "请先定义远端，然后重新打开推送。")}</p><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>`;
   }
 
   const commits = push.commits || [];
-  // 上游提交不在已加载的历史窗口内时不能断言「没有提交」，只能说数量未知。
-  const unknown = !!push.truncated;
+  // ready=false 表示上游未配置或读取失败：此时不能断言「没有提交」，
+  // 只能说数量未知（规格 §7.12 要求此时禁用推送并保留「定义远端」）。
+  const unknown = push.ready === false;
   const rows = commits.length === 0
     ? `<p class="commit-meta" style="padding:6px">${unknown ? "领先提交超出已加载的历史范围" : "没有待推送的提交"}</p>`
     : commits.map((commit, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}" data-push-hash="${escapeHtml(commit.hash)}">${mark}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
   const detail = unknown
-    ? `<h2>提交数量未知</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta">领先提交超出当前加载的历史范围。</p>`
+    ? `<h2>提交数量未知</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta">${escapeHtml(push.reason || "领先提交数量未知。")}</p>`
     : `<h2>${commits.length} 个提交</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>`;
   return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push.branch)} → ${escapeHtml(push.upstream)}</strong></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${rows}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${detail}<div class="push-notice" role="status" hidden></div></div></div>`;
 }

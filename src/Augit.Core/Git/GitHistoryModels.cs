@@ -179,16 +179,17 @@ public sealed record GitUnpushedResult(
     bool IsSuccess,
     GitOperationFailureKind FailureKind,
     string? ErrorMessage,
-    IReadOnlyList<GitHistoryEntry>? Commits)
+    IReadOnlyList<GitHistoryEntry>? Commits,
+    string? Upstream)
 {
-    public static GitUnpushedResult Success(IReadOnlyList<GitHistoryEntry> commits)
+    public static GitUnpushedResult Success(IReadOnlyList<GitHistoryEntry> commits, string upstream)
     {
         ArgumentNullException.ThrowIfNull(commits);
-        return new(true, GitOperationFailureKind.None, null, commits);
+        return new(true, GitOperationFailureKind.None, null, commits, upstream);
     }
 
     public static GitUnpushedResult Failure(GitOperationFailureKind kind, string message)
     {
-        return new(false, kind, message, null);
+        return new(false, kind, message, null, null);
     }
 }
