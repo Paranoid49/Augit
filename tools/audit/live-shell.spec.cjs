@@ -194,7 +194,13 @@ async function main() {
   const stubData = (data) => {
     window.__hostStub = (method, params) => {
       if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
-      if (method === 'workspace/list') return { path: params.path, entries: data.tree[params.path] || [] };
+      if (method === 'workspace/list') {
+        // 只让「展开子目录」失败，首屏根目录仍可用，便于验证后续失败的处理。
+        if (window.__workspaceGone && params.path !== '') {
+          return { path: params.path, available: false, reason: '目录不存在或无法访问，请确认工作区仍然存在。', entries: [] };
+        }
+        return { path: params.path, entries: data.tree[params.path] || [] };
+      }
       if (method === 'workspace/changes') {
         // 由测试脚本通过 window.__nextChanges 注入一次变化批次，读取后清空。
         const next = window.__nextChanges || { files: [], gitMetadata: false };
@@ -1198,6 +1204,26 @@ async function main() {
     check('缺 rows 的差异载荷不进入状态: ' + JSON.stringify(badState.diff), badState.diff === null);
     check('违约载荷不影响界面存活', badState.alive === true);
     await bad.page.close();
+
+    // ---- 工作区在运行中消失：返回可读失败，界面保持存活 ----
+    const gone = await context.newPage();
+    await gone.addInitScript(() => { window.__workspaceGone = true; });
+    await gone.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+    await gone.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    // 尝试展开一个目录：列表不可用时应安静失败
+    await gone.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await gone.waitForTimeout(600);
+    const goneState = await gone.evaluate(() => ({
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      editorVisible: !!document.querySelector('.editor-content'),
+      statusbarVisible: !!document.querySelector('.statusbar'),
+      err: window.__augitError || null,
+    }));
+    check('工作区消失时项目树仍渲染: ' + goneState.treeRows, goneState.treeRows > 0);
+    check('工作区消失时编辑区仍可见', goneState.editorVisible === true);
+    check('工作区消失时状态栏仍可见', goneState.statusbarVisible === true);
+    check('界面未因列表失败抛出未捕获异常', goneState.err === null);
+    await gone.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

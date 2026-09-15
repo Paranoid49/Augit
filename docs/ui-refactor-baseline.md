@@ -1681,6 +1681,26 @@ ASCII 双引号（U+0022）与全角引号（U+F022）。
 这是把「不信任宿主返回」从一次性修复变成**可回归的约定**：
 以后任何一处放宽校验，这组断言都会失败。
 
+### 第六十一轮：工作区在运行中消失的处理
+
+**构造两种异常工作区**（不存在的目录、空目录）并对宿主的 7 个方法逐一取证。
+
+**发现的缺陷**：`workspace/list` 在目录不存在时**把 .NET 的英文路径异常直接抛出**：
+`Could not find a part of the path 'D:\definitely-missing-12345'.`
+界面会拿到一条英文的实现细节消息。已改为返回可读的失败结果：
+`available=false`、`reason="目录不存在或无法访问，请确认工作区仍然存在。"`、`entries=[]`。
+
+**核对确认正常的部分**（本轮验证，无需改动）：
+- `workspace/info` 返回 `valid=false` 与中文原因；
+- `document/read` 对缺失文件返回结构完整的载荷（`status="Missing"`、带 `path`），
+  因此第六十轮的契约校验不会误判它为违约；
+- `git/status` 返回 `available=true, isRepository=false` 与中文原因——
+  非仓库不是「Git 不可用」，两者在界面上是不同状态；
+- `git/history`、`git/conflicts`、`git/references` 均返回 `available=false`。
+
+**新增 4 项断言**：列表不可用时项目树仍渲染、编辑区与状态栏仍可见、
+界面没有未捕获异常。验证的是「一次失败不拖垮整个界面」。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

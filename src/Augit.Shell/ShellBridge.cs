@@ -152,9 +152,23 @@ internal sealed class ShellBridge : IDisposable
     {
         string relative = GetString(parameters, "path") ?? string.Empty;
         string fullPath = ResolveInsideWorkspace(relative);
+        // 工作区可能在运行中被删除或断开（例如网络盘）。此时返回可读的失败结果，
+        // 而不是把 .NET 的英文路径异常抛给界面。
+        if (!Directory.Exists(fullPath))
+        {
+            return new
+            {
+                path = relative,
+                available = false,
+                reason = "目录不存在或无法访问，请确认工作区仍然存在。",
+                entries = Array.Empty<object>(),
+            };
+        }
+
         IReadOnlyList<WorkspaceEntry> entries = WorkspaceDirectoryService.EnumerateChildren(fullPath);
         return new
         {
+            available = true,
             path = relative,
             entries = entries.Select(entry => new
             {
