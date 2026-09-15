@@ -82,8 +82,32 @@ public sealed class GitHistoryServiceTests
             GitHistoryResult result = await new GitHistoryService(runtime).ReadPageAsync(repository, new());
 
             Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
-            Assert.IsTrue(result.Page!.Entries.Any(entry => entry.ParentHashes.Count == 2));
-            Assert.IsTrue(result.Page.Entries.Any(entry => entry.Graph.Contains('*', StringComparison.Ordinal)));
+            // 合并提交必须带两个父提交：界面的泳道就是由父子关系推导的
+            // （buildCommitGraph），不再依赖 git 的字符画输出。
+            Assert.IsTrue(
+                result.Page!.Entries.Any(entry => entry.ParentHashes.Count == 2),
+                "应存在带两个父提交的合并提交。");
+            // 父提交必须排在子提交之后，否则泳道推导会画出回边。
+            IReadOnlyList<string> order = [.. result.Page.Entries.Select(entry => entry.FullHash)];
+            Dictionary<string, int> position = [];
+            for (int index = 0; index < order.Count; index++)
+            {
+                position[order[index]] = index;
+            }
+
+            foreach ((GitHistoryEntry entry, int index) in result.Page.Entries.Select((e, i) => (e, i)))
+            {
+                foreach (string parent in entry.ParentHashes)
+                {
+                    if (position.TryGetValue(parent, out int parentIndex))
+                    {
+                        Assert.IsGreaterThan(
+                            index,
+                            parentIndex,
+                            $"父提交 {parent[..7]} 必须排在子提交 {entry.ShortHash} 之后。");
+                    }
+                }
+            }
             Assert.IsTrue(result.Page.Entries.SelectMany(entry => entry.References)
                 .Any(reference => reference.Kind == GitReferenceKind.LocalBranch && reference.Name == main));
             Assert.IsTrue(result.Page.Entries.SelectMany(entry => entry.References)
