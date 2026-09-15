@@ -2487,7 +2487,7 @@ function liveBranchesPopover() {
     + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
   const current = local.find(branch => branch.isCurrent);
   const actions = current
-    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} 重命名…</a></section>`
+    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html" data-popover-action="compare-workspace">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} 重命名…</a></section>`
     : "";
   return `<div class="overlay-layer" data-augit-overlay><section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
 }

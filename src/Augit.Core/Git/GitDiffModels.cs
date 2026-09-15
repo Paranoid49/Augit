@@ -1,6 +1,11 @@
 namespace Augit.Core.Git;
 
-public sealed record GitDiffOptions(bool IgnoreWhitespace = false);
+/// <summary>
+/// 差异生成选项。
+/// <paramref name="BaseRevision"/> 是左侧比较基准：工作区 Diff 用 HEAD；
+/// 引用比较（规格 §7.9）传入具体分支、标签或版本。
+/// </summary>
+public sealed record GitDiffOptions(bool IgnoreWhitespace = false, string BaseRevision = "HEAD");
 
 public enum GitDiffContentStatus
 {

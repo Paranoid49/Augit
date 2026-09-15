@@ -634,6 +634,8 @@ async function loadDiff(path, options = {}) {
       const diff = await invoke("git/diff", {
         path,
         ignoreWhitespace: parts.ignoreWhitespace,
+        // 「工作区」是界面里的默认占位，不是真实基准：不传时宿主按 HEAD 处理。
+        revision: parts.revision === "工作区" ? undefined : parts.revision,
       }, 30000);
       const live = window.__augitLive;
       // 只有最新一次请求可以写回界面状态（每个请求带递增版本号，旧结果必须丢弃）。
@@ -2175,6 +2177,11 @@ async function runPopoverAction(action) {
     return;
   }
 
+  if (action === "compare-workspace") {
+    void compareWithWorkspace();
+    return;
+  }
+
   const method = action === "fetch" ? "git/fetch" : action === "push" ? "git/push" : null;
   if (!method) return;
   const key = action === "fetch" ? "fetched" : "pushed";
@@ -2201,6 +2208,49 @@ async function runPopoverAction(action) {
     loadReferences().catch(() => null),
   ]);
   refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/**
+ * 与工作区比较（规格 §7.9 引用比较）。
+ *
+ * 以当前分支为基准、对当前选中的改动文件生成差异。
+ * 没有任何改动文件时不创建比较标签，而是如实说明——避免打开一个空比较。
+ */
+async function compareWithWorkspace() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const files = (live.status && live.status.files) || [];
+  const target = files.find((file) => file.path === live.selectedChangePath) || files[0];
+  if (!target) {
+    window.__augitCheckoutError = "当前没有可比较的改动文件。";
+    openBranchesPopover();
+    return;
+  }
+
+  const branch = currentBranchName() || "HEAD";
+  closeLiveOverlay();
+  const diff = await loadDiff(target.path, { revision: branch, force: true }).catch(() => null);
+  if (!diff) {
+    window.__augitError = "compare-workspace:" + target.path;
+    return;
+  }
+
+  if (!findComparisonTab()) {
+    live.tabs = live.tabs || [];
+    const tab = {
+      id: nextTabId(),
+      kind: "comparison",
+      path: target.path,
+      title: `比较: ${branch}`,
+      editor: "diff",
+      preview: false,
+    };
+    live.tabs.push(tab);
+    live.activeTabId = tab.id;
+  }
+
+  live.editor = "diff";
+  refreshAfterEvent("editorContent", "editorTabs", "statusbar");
 }
 
 /** 检出标签或任意版本：紧凑输入窗口，名称交给 Git 解析。 */

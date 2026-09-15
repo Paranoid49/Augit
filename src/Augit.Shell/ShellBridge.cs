@@ -976,25 +976,37 @@ internal sealed class ShellBridge : IDisposable
         string relative = GetString(parameters, "path")
             ?? throw new ArgumentException("git/diff 需要 path 参数。");
         bool ignoreWhitespace = GetBool(parameters, "ignoreWhitespace") ?? false;
+        // 引用比较（规格 §7.9）传入具体基准；工作区 Diff 不传，默认对比 HEAD。
+        string? revision = GetString(parameters, "revision");
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!IsUsable(repository, runtime))
         {
             return new { available = false, rows = Array.Empty<object>(), lines = Array.Empty<object>() };
         }
 
-        GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
-        GitChangedFile? changed = status.Snapshot?.Files
-            .FirstOrDefault(file => string.Equals(file.RelativePath, relative, StringComparison.OrdinalIgnoreCase));
-        if (changed is null)
+        GitChangedFile? changed;
+        if (!string.IsNullOrWhiteSpace(revision))
         {
-            return new { available = false, reason = "该文件当前没有改动。", rows = Array.Empty<object>(), lines = Array.Empty<object>() };
+            // 引用比较的目标文件不必出现在当前改动列表里——它比较的是
+            // 「该引用与工作区」的差异，因此直接按路径构造比较对象。
+            changed = new GitChangedFile(relative, null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
+        }
+        else
+        {
+            GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
+            changed = status.Snapshot?.Files
+                .FirstOrDefault(file => string.Equals(file.RelativePath, relative, StringComparison.OrdinalIgnoreCase));
+            if (changed is null)
+            {
+                return new { available = false, reason = "该文件当前没有改动。", rows = Array.Empty<object>(), lines = Array.Empty<object>() };
+            }
         }
 
         GitDiffService diffService = new(runtime);
         GitDiffResult result = await diffService.CreateAsync(
             repository!,
             changed,
-            new GitDiffOptions(ignoreWhitespace),
+            new GitDiffOptions(ignoreWhitespace, string.IsNullOrWhiteSpace(revision) ? "HEAD" : revision),
             cancellationToken);
         if (!result.IsSuccess || result.Document is not { } document)
         {

@@ -245,6 +245,7 @@ async function main() {
       if (method === 'git/diff') {
         if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
         window.__diffCalls = window.__diffCalls || [];
+        window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
         window.__diffCalls.push(params.path);
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
@@ -2375,6 +2376,46 @@ async function main() {
       typeof fetchFail.alert === 'string' && fetchFail.alert.includes('没有配置远端'));
     check('弹层已标注的快捷动作数量: ' + actionCount, actionCount >= 5);
     await pa.page.close();
+
+    // ---- 规格 §7.9：与工作区比较（按引用基准生成差异） ----
+    const cw = await openScene('scene=commit-changes&theme=dark');
+    await cw.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cw.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await cw.page.evaluate(() => { window.__diffCalls = []; window.__diffRevisions = []; });
+    // 先选中一行，再打开分支弹层执行「与工作区比较」
+    await cw.page.locator('.changes-list .change-file-row').first().click();
+    await cw.page.waitForTimeout(300);
+    // 必须走真实入口：从标题栏分支芯片打开弹层，再点其中的「与工作区比较」。
+    // 直接注入节点会绕过被测路径，测不到真实行为。
+    await cw.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    await cw.page.locator('.top-chip.branch-chip').click();
+    await cw.page.waitForTimeout(600);
+    const compareEntry = await cw.page.evaluate(
+      () => document.querySelectorAll('[data-popover-action="compare-workspace"]').length);
+    check('真实弹层内存在「与工作区比较」入口: ' + compareEntry, compareEntry === 1);
+    await cw.page.locator('[data-popover-action="compare-workspace"]').click();
+    await cw.page.waitForTimeout(1200);
+    const compared = await cw.page.evaluate(() => ({
+      revisions: window.__diffRevisions || [],
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      title: ((window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || {}).title || null,
+      editor: window.__augitLive.editor,
+      err: window.__augitError || null,
+    }));
+    check('与工作区比较按分支基准请求差异: ' + JSON.stringify(compared.revisions),
+      compared.revisions.length >= 1 && compared.revisions.at(-1) === 'dsh');
+    check('与工作区比较建立比较标签: ' + JSON.stringify(compared.title),
+      compared.comparisons === 1 && typeof compared.title === 'string' && compared.title.startsWith('比较:'));
+    check('与工作区比较进入差异视图', compared.editor === 'diff');
+
+    // 普通工作区 Diff 必须仍然不传 revision（由宿主按 HEAD 处理）
+    await cw.page.evaluate(() => { window.__diffRevisions = []; });
+    await cw.page.locator('.changes-list .change-file-row').nth(1).dblclick();
+    await cw.page.waitForTimeout(1000);
+    const plainRevisions = await cw.page.evaluate(() => window.__diffRevisions || []);
+    check('普通工作区 Diff 不传基准: ' + JSON.stringify(plainRevisions),
+      plainRevisions.length >= 1 && plainRevisions.every((r) => r === '<未传>'));
+    await cw.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

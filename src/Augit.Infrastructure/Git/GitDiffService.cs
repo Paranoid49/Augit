@@ -206,7 +206,8 @@ public sealed class GitDiffService : IGitDiffService
             return arguments;
         }
 
-        arguments.Add("HEAD");
+        // 左侧基准由调用方决定：工作区 Diff 是 HEAD，引用比较是具体引用。
+        arguments.Add(string.IsNullOrWhiteSpace(options.BaseRevision) ? "HEAD" : options.BaseRevision);
         arguments.Add("--");
         if (!string.IsNullOrWhiteSpace(changedFile.OriginalRelativePath))
         {
