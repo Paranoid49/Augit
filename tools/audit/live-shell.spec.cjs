@@ -177,10 +177,11 @@ async function main() {
         addEventListener: (type, handler) => { if (type === 'message') listeners.push(handler); },
         postMessage: (raw) => {
           const request = JSON.parse(raw);
-          Promise.resolve().then(() => {
+          Promise.resolve().then(async () => {
             let result;
             try {
-              result = window.__hostStub(request.method, request.params);
+              // 桩可以是异步的：竞态验证需要按请求注入延迟以制造乱序返回。
+              result = await window.__hostStub(request.method, request.params);
             } catch (error) {
               result = { error: String(error && error.message || error) };
             }
@@ -192,7 +193,7 @@ async function main() {
   };
 
   const stubData = (data) => {
-    window.__hostStub = (method, params) => {
+    window.__hostStub = async (method, params) => {
       if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
       if (method === 'workspace/list') {
         // 桩也要实现与宿主一致的越界拒绝，否则验收无法覆盖这条安全边界。
@@ -255,9 +256,17 @@ async function main() {
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
       if (method === 'git/commit') {
-        return params.revision === data.commit.fullHash ? data.commit : { available: false, reason: 'unknown' };
+        const delay = (window.__commitDelays || {})[params.revision];
+        if (delay) await new Promise((r) => setTimeout(r, delay));
+        if (params.revision === data.commit.fullHash) return data.commit;
+        // 第二个提交返回可区分的详情
+        if (params.revision === 'full-bbb2222') return Object.assign({}, data.commit, { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交', files: [] });
+        return { available: false, reason: 'unknown' };
       }
       if (method === 'document/read') {
+        // 支持按路径注入延迟，用于验证乱序返回时旧响应被丢弃。
+        const delay = (window.__readDelays || {})[params.path];
+        if (delay) await new Promise((r) => setTimeout(r, delay));
         if (window.__limitDocs && window.__limitDocs[params.path]) return window.__limitDocs[params.path];
         const found = data.documents[params.path];
         if (!found) throw new Error('not found: ' + params.path);
@@ -1462,6 +1471,40 @@ async function main() {
     // 6) 展开的树/打开的文档在这一切之后仍然一致
     step('流程结束时界面仍可用', await j2.page.evaluate('!!document.querySelector(".editor-content")'), '编辑区存在');
     await j2.page.close();
+
+    // ---- 异步竞态：晚到的旧响应必须被丢弃 ----
+    const racePage = await openScene('scene=main-project&theme=dark');
+    await racePage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    // 先打开一个慢文件，再打开一个快文件；慢的旧响应不得覆盖快的
+    const docRace = await racePage.page.evaluate(async () => {
+      window.__readDelays = { 'docs/product-spec.md': 700 };
+      const slow = window.__augitOpenDocument('docs/product-spec.md');
+      const fast = window.__augitOpenDocument('docs/notes.txt');
+      await Promise.all([slow, fast]);
+      await new Promise((r) => setTimeout(r, 900));
+      window.__readDelays = {};
+      return { path: window.__augitLive.document ? window.__augitLive.document.path : null };
+    });
+    check('快速连续打开文件时保留最后一次选择: ' + docRace.path, docRace.path === 'docs/notes.txt');
+    await racePage.page.close();
+
+    // 快速切换提交：旧的详情不得恢复
+    const commitRace = await openScene('scene=git-history&theme=dark');
+    await commitRace.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await commitRace.page.waitForSelector('.commit-row', { timeout: 10000 });
+    const detailRace = await commitRace.page.evaluate(async () => {
+      window.__commitDelays = { 'full-head-hash': 700 };
+      const first = window.__augitLoadCommitDetails('full-head-hash');
+      const second = window.__augitLoadCommitDetails('full-bbb2222');
+      await Promise.all([first, second]);
+      await new Promise((r) => setTimeout(r, 900));
+      window.__commitDelays = {};
+      const detail = document.querySelector('[data-live-commit-detail]');
+      return { loaded: window.__augitCommitLoaded, text: detail ? detail.innerText.slice(0, 40) : null };
+    });
+    check('快速切换提交只接纳最新详情: ' + JSON.stringify(detailRace),
+      detailRace.loaded === 'bbb2222' && (detailRace.text || '').includes('第二个提交'));
+    await commitRace.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

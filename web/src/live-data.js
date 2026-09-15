@@ -230,8 +230,11 @@ async function loadHistory() {
 
 /** 读取指定文件的 Blame；失败只记录，不影响其它视图。 */
 async function loadBlame(path) {
+  // 连续选择不同文件时只接纳最后一次：旧响应不得覆盖新的归属结果。
+  const token = ++detailViewToken;
   try {
     const blame = await invoke("git/blame", { path }, 60000);
+    if (token !== detailViewToken) return null;
     // 与 document/read 同样的契约校验：缺少身份的载荷不得进入状态，
     // 否则渲染层会拿到 path 为 undefined 的对象。
     if (!blame || !blame.available || !Array.isArray(blame.lines)) return null;
@@ -1147,6 +1150,8 @@ window.__augitSettingsWrite = async (payload) => {
   return result;
 };
 
+window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
+
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path) => loadDiff(path);
@@ -1325,8 +1330,11 @@ async function loadCommitDetails(revision) {
   const detailHost = panel.querySelector("[data-live-commit-detail]");
   if (!filesHost || !detailHost) return;
 
+  // 规格 §7.8：快速切换提交只接纳最新详情，旧详情不得恢复旧内容。
+  const token = ++commitDetailsToken;
   try {
     const commit = await invoke("git/commit", { revision }, 30000);
+    if (token !== commitDetailsToken) return;
     if (!commit || !commit.available) {
       filesHost.innerHTML = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
       return;
@@ -1342,14 +1350,27 @@ async function loadCommitDetails(revision) {
       + (commit.body ? `<p class="commit-meta">${escapeText(commit.body)}</p>` : "");
     window.__augitCommitLoaded = commit.hash;
   } catch (error) {
-    window.__augitError = "load-commit:" + String(error && error.message || error);
+    if (token === commitDetailsToken) {
+      window.__augitError = "load-commit:" + String(error && error.message || error);
+    }
   }
 }
 
+// 提交详情的递增令牌：快速切换提交时丢弃旧响应。
+let commitDetailsToken = 0;
+
+// 打开文档的递增令牌：快速连续打开时只接纳最后一次。
+let documentToken = 0;
+
+// Blame 与文件历史共用：两者都占据文档区，后发的胜出。
+let detailViewToken = 0;
+
 /** 读取限定到某个文件的提交历史。 */
 async function loadFileHistory(path) {
+  const token = ++detailViewToken;
   try {
     const history = await invoke("git/file-history", { path }, 60000);
+    if (token !== detailViewToken) return null;
     if (!history || !history.available || !Array.isArray(history.commits)) return null;
     if (typeof history.path !== "string" || history.path.length === 0) return null;
     const live = window.__augitLive;
@@ -1665,11 +1686,14 @@ async function openDocument(path) {
   if (!live) return;
   if (live.document && live.document.path === path) return;
   const started = performance.now();
+  // 快速连续打开时只接纳最后一次选择：晚到的旧响应不得覆盖新文档。
+  const token = ++documentToken;
   try {
     const payload = await fetchDocument(path);
     // 宿主契约：成功的读取必须带 path。缺 path 的载荷无法构成有效文档，
     // 直接按失败处理，避免把「字段缺失的文档对象」留在 live 上——
     // 那会让后续每一次渲染都依赖调用方的容错。
+    if (token !== documentToken) return;
     if (!payload || typeof payload.path !== "string" || payload.path.length === 0) {
       throw new Error("document/read 返回的载荷缺少 path。");
     }
