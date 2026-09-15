@@ -932,7 +932,11 @@ function applySavedPanelSizes(settings) {
   }
 
   if (typeof settings.bottomPanelHeight === "number" && settings.bottomPanelHeight > 0) {
-    root.style.setProperty("--augit-bottom-height", `${Math.round(settings.bottomPanelHeight)}px`);
+    // 与视觉稿同一口径：最小高度随字号扩展，上限在必要时同步扩展。
+    const minimum = bottomMinimum();
+    const ceiling = Math.max(305, minimum);
+    const height = Math.max(minimum, Math.min(ceiling, settings.bottomPanelHeight));
+    root.style.setProperty("--augit-bottom-height", `${Math.round(height)}px`);
   }
 }
 
@@ -942,8 +946,31 @@ const SIDE_DRAG_ZONE = 4;      // app-main 的 column-gap
 const BOTTOM_DRAG_ZONE = 4;    // workspace 的 row-gap
 const SIDE_MIN = 300;
 const SIDE_MAX = 360;
-const BOTTOM_MIN = 180;
 const BOTTOM_MAX = 305;
+
+/**
+ * 底部面板的最小高度。规格 §4.2：字号增大时最小高度按 max(180, 4h + 80) 扩展；
+ * 视觉稿把这个值写入 `--augit-bottom-min-height`，这里读取它以保持一致，
+ * 避免在字号较大时把面板压到容不下标题与一行正文。
+ */
+function bottomMinimum() {
+  const rootStyle = getComputedStyle(document.documentElement);
+  // 视觉稿在测量后写入该变量，优先使用它。
+  const declared = Number.parseFloat(rootStyle.getPropertyValue('--augit-bottom-min-height'));
+  if (Number.isFinite(declared) && declared > 0) {
+    return declared;
+  }
+
+  // 该变量只在测量流程跑过之后才存在，因此这里按同一公式自行推导：
+  // 先取代码视图的实际行高，取不到时用界面字号 × 1.72（与视觉稿一致）。
+  const codeView = document.querySelector('.code-view, .diff-columns, .markdown-source');
+  const measured = codeView ? Number.parseFloat(getComputedStyle(codeView).lineHeight) : Number.NaN;
+  const fontSize = Number.parseFloat(rootStyle.fontSize);
+  const lineHeight = Number.isFinite(measured) && measured > 0
+    ? measured
+    : (Number.isFinite(fontSize) && fontSize > 0 ? fontSize * 1.72 : 22);
+  return Math.max(180, Math.round(lineHeight * 4 + 80));
+}
 let panelDrag = null;
 
 /** 侧栏宽度下限：规格允许 300–360，但不能把编辑区挤到不足 320。 */
@@ -957,7 +984,11 @@ function sideBounds() {
 function bottomBounds() {
   const workspace = document.querySelector('.workspace');
   const available = workspace ? workspace.clientHeight : window.innerHeight;
-  return { min: BOTTOM_MIN, max: Math.max(BOTTOM_MIN, Math.min(BOTTOM_MAX, available - 260)) };
+  // 最小高度随字号扩展；上限在最小高度超过 305 时同步扩展，
+  // 不能产生无效尺寸区间（规格 §4.2）。
+  const minimum = bottomMinimum();
+  const ceiling = Math.max(BOTTOM_MAX, minimum);
+  return { min: minimum, max: Math.max(minimum, Math.min(ceiling, available - 260)) };
 }
 
 /** 命中判定：返回正在拖拽的分隔条类型，或 null。 */
@@ -1073,6 +1104,9 @@ function bindPanelDividers() {
   }, true);
   window.addEventListener("blur", endPanelDrag);
 }
+
+// 供验收套件在清理测试残留后重新应用面板尺寸。
+window.__augitApplyPanelSizes = (settings) => applySavedPanelSizes(settings || {});
 
 // 供验收套件查询拖拽是否仍在进行。
 window.__augitPanelDragActive = () => panelDrag !== null;

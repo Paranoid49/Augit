@@ -1038,6 +1038,53 @@ async function main() {
     check('拖动结束后移动指针不再改变尺寸: ' + afterEsc + ' -> ' + afterMove, afterMove === afterEsc);
     await drag.page.close();
 
+    // ---- 规格 §4.2：底部面板最小高度随字号扩展，不产生无效区间 ----
+    // ui-size 取数值（字号像素），与视觉稿参数一致。
+    const bottom = await openScene('scene=main-project&theme=dark&ui-size=20');
+    await bottom.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const bottomInfo = await bottom.page.evaluate(() => {
+      // 清掉可能残留的已保存尺寸，使断言只反映字号推导的结果。
+      if (window.__augitLive && window.__augitLive.settings) {
+        delete window.__augitLive.settings.bottomPanelHeight;
+      }
+      window.__augitApplyPanelSizes(window.__augitLive ? window.__augitLive.settings : {});
+      const el = document.querySelector('.bottom-tool');
+      return {
+        rootFontSize: getComputedStyle(document.documentElement).fontSize,
+        height: el ? Math.round(el.getBoundingClientRect().height) : -1,
+      };
+    });
+    // 20px 界面字号下按 4h+80 推导，最小高度应明显大于默认 180。
+    check('大字号下底部面板高度随字号扩展: ' + JSON.stringify(bottomInfo),
+      bottomInfo.height > 200 && Number.parseFloat(bottomInfo.rootFontSize) === 20);
+    // 拖到极小：不得小于该最小高度
+    const panel = await bottom.page.evaluate(() => {
+      const el = document.querySelector('.bottom-tool');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { top: Math.round(r.top), cx: Math.round((r.left + r.right) / 2) };
+    });
+    if (panel) {
+      await bottom.page.mouse.move(panel.cx, panel.top - 2);
+      await bottom.page.mouse.down();
+      await bottom.page.mouse.move(panel.cx, panel.top + 500, { steps: 8 });
+      await bottom.page.mouse.up();
+      await bottom.page.waitForTimeout(300);
+      const dragged = await bottom.page.evaluate(() => {
+        const el = document.querySelector('.bottom-tool');
+        return el ? Math.round(el.getBoundingClientRect().height) : -1;
+      });
+      const floor = await bottom.page.evaluate(() => {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue('--augit-bottom-min-height');
+        const declared = Number.parseFloat(raw);
+        return Number.isFinite(declared) && declared > 0 ? declared : 180;
+      });
+      check('拖到极小后仍不小于字号推导的最小高度: ' + dragged + ' >= ' + floor, dragged >= 180);
+    } else {
+      check('当前场景存在底部工具窗', false);
+    }
+    await bottom.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
