@@ -663,6 +663,21 @@ async function main() {
     check('替换侧栏不影响编辑区节点身份: ' + JSON.stringify(afterEditor), afterEditor.editorMarked === 'kept');
     await region.page.close();
 
+    // ---- 打开文件保留项目树展开状态（此前整页重绘会丢失它） ----
+    const keep = await openScene('scene=main-project&theme=dark');
+    await keep.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await keep.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
+    const expandedBefore = await keep.page.locator('.side-content.tree .tree-row').count();
+    check('展开目录后树变长', expandedBefore > 4);
+    // 打开文件：应只刷新编辑区，树保持展开
+    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
+    await keep.page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    const expandedAfter = await keep.page.locator('.side-content.tree .tree-row').count();
+    check('打开文件后树仍保持展开: ' + expandedBefore + ' -> ' + expandedAfter, expandedAfter === expandedBefore);
+    check('打开文件后文档已切换', (await keep.page.locator('.status-path').innerText()).includes('product-spec.md'));
+    await keep.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

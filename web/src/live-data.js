@@ -294,7 +294,8 @@ async function runSearch(kind, query, options) {
       truncated: !!(result && result.truncated),
     };
     window.__augitSearchReady = true;
-    window.__augitRender();
+    refresh("overlay");
+    // 覆盖层被替换后输入框是新的，需要重新绑定并恢复焦点与光标位置。
     bindSearchOverlay(kind);
   } catch (error) {
     if (token !== searchToken) return;
@@ -832,26 +833,23 @@ async function boot() {
 
   if (requestedBlame && window.__augitLive) {
     await loadBlame(requestedBlame);
-    window.__augitRender();
+    refresh("editorContent", "editorTabs", "statusbar", "titlebar");
   }
 
   if (requestedFileHistory && window.__augitLive) {
     await loadFileHistory(requestedFileHistory);
-    window.__augitRender();
+    refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar", "bottomTool");
   }
 
   if (requestedDiff && window.__augitLive) {
     await loadDiff(requestedDiff);
-    window.__augitRender();
-    // 后续的参考数据与历史到达时会再各重绘一次；差异数据必须在那之后仍然可见，
-    // 因此在轮询结束后再补一次重绘，避免被后到的重绘覆盖成样例内容。
-    window.setTimeout(() => { if (window.__augitLive && window.__augitLive.diff) window.__augitRender(); }, 2500);
+    refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
   }
 
   if (requestedConflict && window.__augitLive) {
     await loadConflicts();
     await loadConflict(requestedConflict);
-    window.__augitRender();
+    refresh("editorContent", "editorTabs", "statusbar", "overlay");
   }
 
   // 界面此时已可交互：立即标记就绪，不能等 Git 状态（实测约 15 秒）。
@@ -859,8 +857,8 @@ async function boot() {
 
   const status = await statusPromiseRef;
   if (status) {
-    // Git 状态比首屏慢，到达后补一次重绘：分支名与 Changes 工具窗都随之更新。
-    window.__augitRender();
+    // Git 状态比首屏慢，到达后补一次刷新：分支名与 Changes 工具窗都随之更新。
+    refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
     window.__augitGitReady = true;
   }
 
@@ -923,7 +921,8 @@ async function toggleDirectory(row) {
 
   const live = window.__augitLive;
   live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
-  window.__augitRender();
+  // 只刷新侧栏：展开/折叠不应影响编辑区、焦点与滚动位置。
+  refresh("side");
 }
 
 function activateTreeRow(row) {
@@ -948,7 +947,7 @@ document.addEventListener("click", (event) => {
   void (async () => {
     const diff = await loadDiff(path);
     if (diff) {
-      window.__augitRender();
+      refresh("editorContent", "editorTabs", "side", "statusbar");
     }
   })();
 }, true);
@@ -1008,8 +1007,9 @@ async function openDocument(path) {
     return;
   }
 
-  window.__augitRender();
-  // 重绘会替换项目树，事件委托挂在 #app 上因此仍然有效。
+  // 打开文档只影响编辑区、标签、状态栏与侧栏选中态；
+  // 只做区域刷新以保留项目树的展开状态与滚动位置。
+  refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
 }
 
 try {
