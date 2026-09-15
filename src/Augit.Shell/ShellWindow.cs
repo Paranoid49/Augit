@@ -121,6 +121,35 @@ internal sealed class ShellWindow : IDisposable
         _classRegistered = true;
     }
 
+    /// <summary>
+    /// 清理历史会话目录。只删除本应用创建的 Session-* 目录；
+    /// 仍被其它实例占用的目录删不掉，忽略即可，不影响本次启动。
+    /// </summary>
+    private static void CleanStaleSessions(string root, string keep)
+    {
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (string directory in Directory.EnumerateDirectories(root, "Session-*"))
+        {
+            if (string.Equals(directory, keep, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // 目录正被其它实例使用；下次启动再试。
+            }
+        }
+    }
+
     private nint CreateWindowInstance()
     {
         return CreateWindowEx(
@@ -203,12 +232,15 @@ internal sealed class ShellWindow : IDisposable
         try
         {
             EnsureLoaderLoaded();
-            string userDataFolder = Path.Combine(
+            string shellDataRoot = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Augit",
                 "WebView2",
-                "Shell",
-                $"Session-{Environment.ProcessId}");
+                "Shell");
+            // 固定会话目录：早期实现按进程号建目录，每次运行都新增一份，
+            // 长期使用会堆积成 GB 级的残留（实测 115 个目录 / 1.4 GB）。
+            string userDataFolder = Path.Combine(shellDataRoot, "Session");
+            CleanStaleSessions(shellDataRoot, userDataFolder);
             _environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
             _controller = await _environment.CreateCoreWebView2ControllerAsync(_window);
             if (_disposed)
