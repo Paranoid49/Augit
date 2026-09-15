@@ -61,6 +61,16 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  diff: {
+    available: true, path: 'src/App.cs', status: 'Ready', oldSize: 40, newSize: 44,
+    lines: [],
+    rows: [
+      { oldLine: 1, oldText: 'line one', oldChanges: [], newLine: 1, newText: 'line one', newChanges: [], kind: 'Context' },
+      { oldLine: 2, oldText: 'old value', oldChanges: [{ start: 0, length: 3 }], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
+      { oldLine: null, oldText: null, oldChanges: [], newLine: 2, newText: 'new value', newChanges: [{ start: 0, length: 3 }], kind: 'Added' },
+      { oldLine: 3, oldText: 'line three', oldChanges: [], newLine: 3, newText: 'line three', newChanges: [], kind: 'Context' },
+    ],
+  },
   settings: {
     theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
     fontSize: 15, codeFontSize: 14, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
@@ -172,6 +182,7 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'git/diff') return params.path === data.diff.path ? data.diff : { available: false, reason: 'no diff' };
       if (method === 'settings/read') return data.settings;
       if (method === 'settings/write') { window.__settingsWritten = params; return { saved: true, theme: params.theme, fontSize: params.fontSize }; }
       if (method === 'git/conflicts') return data.conflicts;
@@ -428,6 +439,26 @@ async function main() {
     check('回滚标题显示真实文件: ' + rollbackTitle, rollbackTitle.includes('src/App.cs') || rollbackTitle.includes('README.md'));
     check('回滚对话框不残留样例路径', !rollbackTitle.includes('app.manifest'));
     await rollback.page.close();
+
+    // ---- 工作区差异视图 ----
+    const diff = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+    try {
+      await diff.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+    } catch {
+      const st = await diff.page.evaluate(() => ({ err: window.__augitError || null, diff: window.__augitLive ? !!window.__augitLive.diff : null, rows: window.__augitLive && window.__augitLive.diff ? window.__augitLive.diff.rows.length : -1 }));
+      throw new Error('差异未就绪: ' + JSON.stringify(st));
+    }
+    await diff.page.waitForSelector('.diff-columns .diff-code-line', { timeout: 10000 });
+    check('差异视图显示真实路径标签', (await diff.page.locator('.change-tab-caption').innerText()).includes('src/App.cs'));
+    const removed = await diff.page.locator('.diff-side .diff-code-line.removed').allInnerTexts();
+    check('差异左侧显示删除行: ' + JSON.stringify(removed), removed.some((t) => t.includes('old value')));
+    const added = await diff.page.locator('.diff-side .diff-code-line.added').allInnerTexts();
+    check('差异右侧显示新增行: ' + JSON.stringify(added), added.some((t) => t.includes('new value')));
+    check('行内高亮标记存在', await diff.page.locator('.diff-code-line mark').count() >= 2);
+    const gutterNumbers = await diff.page.locator('.diff-gutter > div').allInnerTexts();
+    check('行号槽含真实行号', gutterNumbers.includes('2') && gutterNumbers.includes('3'));
+    check('差异视图不残留样例路径', !(await diff.page.locator('.diff-filebar').innerText()).includes('app.manifest'));
+    await diff.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

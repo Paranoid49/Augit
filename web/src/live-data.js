@@ -404,6 +404,26 @@ async function stopTerminal() {
   await invoke('terminal/stop', {}, 15000).catch(() => {});
 }
 
+/** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
+async function loadDiff(path) {
+  try {
+    const diff = await invoke("git/diff", { path }, 30000);
+    const live = window.__augitLive;
+    if (live) {
+      live.diff = diff && diff.available ? diff : null;
+
+
+      // 有差异时切到差异视图；无差异时保留当前文档视图。
+      if (live.diff) live.editor = "diff";
+      window.__augitDiffReady = true;
+    }
+    return live ? live.diff : null;
+  } catch (error) {
+    window.__augitError = "load-diff:" + String(error && error.message || error);
+    return null;
+  }
+}
+
 /** 读取设置并挂上保存动作。 */
 async function loadSettings() {
   try {
@@ -645,6 +665,8 @@ async function boot() {
   const requestedBlame = query.get("blame");
   const requestedFileHistory = query.get("file-history");
   const requestedConflict = query.get("conflict");
+  const requestedDiff = query.get("diff");
+
   const wantsTerminal = query.get("scene") === "terminal";
   const wantsSettings = query.get("scene") === "settings";
   if (hasHost()) {
@@ -684,6 +706,14 @@ async function boot() {
   if (requestedFileHistory && window.__augitLive) {
     await loadFileHistory(requestedFileHistory);
     window.__augitRender();
+  }
+
+  if (requestedDiff && window.__augitLive) {
+    await loadDiff(requestedDiff);
+    window.__augitRender();
+    // 后续的参考数据与历史到达时会再各重绘一次；差异数据必须在那之后仍然可见，
+    // 因此在轮询结束后再补一次重绘，避免被后到的重绘覆盖成样例内容。
+    window.setTimeout(() => { if (window.__augitLive && window.__augitLive.diff) window.__augitRender(); }, 2500);
   }
 
   if (requestedConflict && window.__augitLive) {

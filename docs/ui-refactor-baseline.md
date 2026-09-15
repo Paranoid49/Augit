@@ -393,6 +393,32 @@ gpu / renderer / utility / crashpad 六个进程，合计约 0.5 GB 工作集（
 - Rollback 标题显示 `tools/audit/live-shell.spec.cjs`、变更 `Modified`，
   与工作区真实改动一致（样例路径 `app.manifest` 不再出现）。
 
+### 第十九轮：工作区差异视图
+
+- 新增宿主方法 `git/diff`：按文件读取工作区差异，返回**结构化行**而不是原始补丁。
+  解析与分栏规则留在核心层（`GitUnifiedDiffParser`），网页层只负责渲染
+  「旧行 / 行号槽 / 新行」三列，两侧规则一致。
+- 超大差异只回传前 2000 行并标记 `truncated`：整份补丁可能上万行，
+  全量下发既拖慢渲染也没有阅读价值。
+- 网页层新增 `liveDiffView`：删除行 / 新增行 / 修改行沿用既有配色，
+  差异行内的字符级区间（`GitTextSpan`）渲染为 `<mark>` 高亮。
+- 新增 `--diff <路径>` 启动参数。
+- 验收套件扩充到 **63 项断言**（新增差异六项：路径标签、删除行、新增行、
+  行内高亮、行号槽、样例隔离）。
+
+### 未验证项
+
+真实外壳中差异视图**仍渲染样例内容**，未取得可用证据：
+- 宿主侧日志确认调用链正常（`request → status ok, files=7 → matched →
+  document status=Ready, patchLen=28361 → parsed lines=873 → sideBySide rows=873`）；
+- 浏览器验收套件（含差异六项断言）全部通过；
+- 但网页层的 `live.diff` 在真实外壳中始终为空，界面回退到样例差异视图。
+
+我尝试过三种外部取证方式（结构化视图是否渲染、窗口标题镜像页面状态、
+延时重绘）都未能定位；本轮为此消耗过多时间，已停止并如实记录。
+下一轮应优先用 CDP（需临时启用，注意它会破坏消息通道）直接观察
+`live.diff` 的实际取值与赋值时机。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

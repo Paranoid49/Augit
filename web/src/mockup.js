@@ -1470,6 +1470,55 @@ function liveRollbackBody() {
   return `<div class="inline-alert danger rollback-impact"><strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p><p class="rollback-recycle" hidden>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.kind)}</span></div>`;
 }
 
+// 外壳注入真实差异时使用：按「旧行 / 行号槽 / 新行」三列渲染结构化行。
+function liveDiffView() {
+  const live = window.__augitLive || {};
+  const diff = live.diff;
+  if (!diff) return diffView();
+  const rows = diff.rows || [];
+  if (rows.length === 0) {
+    const reason = diff.status && diff.status !== "Ready"
+      ? `该文件无法显示文本差异（${escapeHtml(diff.status)}）。`
+      : "该文件当前没有文本差异。";
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${reason}</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+  }
+
+  // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
+  const marked = (text, spans) => {
+    const source = String(text ?? "");
+    if (!spans || spans.length === 0) return escapeHtml(source) || "&nbsp;";
+    let cursor = 0;
+    let html = "";
+    for (const span of [...spans].sort((a, b) => a.start - b.start)) {
+      const start = Math.max(0, Math.min(span.start, source.length));
+      const end = Math.max(start, Math.min(span.start + span.length, source.length));
+      if (start > cursor) html += escapeHtml(source.slice(cursor, start));
+      html += `<mark>${escapeHtml(source.slice(start, end))}</mark>`;
+      cursor = end;
+    }
+
+    if (cursor < source.length) html += escapeHtml(source.slice(cursor));
+    return html || "&nbsp;";
+  };
+  const cssKind = (kind) => kind === "Added" ? "added" : kind === "Removed" ? "removed" : kind === "Modified" ? "changed" : "";
+  const cell = (row, side) => {
+    const kind = row.kind === "Context" ? "" : cssKind(row.kind);
+    const lineNumber = side === "old" ? row.oldLine : row.newLine;
+    const text = side === "old" ? row.oldText : row.newText;
+    const spans = side === "old" ? row.oldChanges : row.newChanges;
+    const content = text === null || text === undefined
+      ? "&nbsp;"
+      : marked(text, spans);
+    return { kind, lineNumber, content };
+  };
+  const oldCells = rows.map(row => cell(row, "old"));
+  const newCells = rows.map(row => cell(row, "new"));
+  const oldSide = rows.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
+  const newSide = rows.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
+  const gutter = rows.map((row, index) => `<div>${oldCells[index].lineNumber ?? ""}</div><div>${newCells[index].lineNumber ?? ""}</div>`).join("");
+  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${rows.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+}
+
 function conflictResolver() {
   const code = lines => lines.map(([text, kind]) => kind === "gap"
     ? `<span class="conflict-spacer" aria-hidden="true" style="height:calc(${text} * var(--conflict-line-height, 1.7em))"></span>`
@@ -2191,8 +2240,9 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   if (editor === "diff") {
-    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: app.manifest</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
-    editorBody = diffView();
+    const diffPath = (live && live.diff && live.diff.path) || (window.__augitDiffParam || "app.manifest");
+    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
+    editorBody = (live && live.diff) ? liveDiffView() : diffView();
     if (diffBoundary) {
       editorBody = editorBody.replace('<div class="diff-columns">', '<div class="diff-columns diff-boundary-columns"><div class="diff-boundary-hint" role="status">再次点击可进入下一个文件</div>');
     }

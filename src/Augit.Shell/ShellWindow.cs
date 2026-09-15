@@ -265,6 +265,8 @@ internal sealed class ShellWindow : IDisposable
             webView.NavigationCompleted += OnNavigationCompleted;
             webView.ProcessFailed += OnProcessFailed;
             webView.WebMessageReceived += OnWebMessageReceived;
+            // 网页标题同步到窗口标题，便于任务栏与外部工具识别当前场景。
+            webView.DocumentTitleChanged += OnDocumentTitleChanged;
             ApplyRasterizationScale();
             SyncBounds();
             webView.Navigate($"https://{DefaultVirtualHost}/index.html{BuildQuery()}");
@@ -337,6 +339,11 @@ internal sealed class ShellWindow : IDisposable
             parts.Add($"conflict={Uri.EscapeDataString(conflict)}");
         }
 
+        if (_options.DiffDocument is { Length: > 0 } diff)
+        {
+            parts.Add($"diff={Uri.EscapeDataString(diff)}");
+        }
+
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
     }
 
@@ -395,6 +402,21 @@ internal sealed class ShellWindow : IDisposable
             }
 
             webView.PostWebMessageAsJson(response);
+        }
+    }
+
+    /// <summary>把网页标题同步到窗口标题，便于任务栏与外部工具识别当前场景。</summary>
+    private void OnDocumentTitleChanged(object? sender, object eventArgs)
+    {
+        if (_disposed || _window == 0)
+        {
+            return;
+        }
+
+        string? title = eventArgs?.GetType().GetProperty("Title")?.GetValue(eventArgs) as string;
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            _ = SetWindowText(_window, title);
         }
     }
 
@@ -467,6 +489,9 @@ internal sealed class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint window, out Rect rect);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW")]
+    private static extern bool SetWindowText(nint window, string text);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadCursorW")]
     private static extern nint LoadCursor(nint instance, int cursor);

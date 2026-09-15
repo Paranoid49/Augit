@@ -100,6 +100,7 @@ internal sealed class ShellBridge
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
+            "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
@@ -568,6 +569,106 @@ internal sealed class ShellBridge
             hasConflicts = saved.Session?.HasConflicts,
             conflictCount = saved.Session?.ConflictFiles.Count,
         };
+    }
+
+    /// <summary>
+    /// 读取工作区中某个文件的差异。
+    /// 返回结构化行而不是原始补丁：网页层要按「旧行 / 行号槽 / 新行」三列渲染，
+    /// 让解析与分栏规则留在核心层，两侧保持一致。
+    /// </summary>
+    private async Task<object?> ReadDiffAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/diff 需要 path 参数。");
+        bool ignoreWhitespace = GetBool(parameters, "ignoreWhitespace") ?? false;
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, rows = Array.Empty<object>(), lines = Array.Empty<object>() };
+        }
+
+        GitStatusService statusService = new(runtime);
+        GitStatusResult status = await statusService.ReadAsync(repository!, cancellationToken);
+        GitChangedFile? changed = status.Snapshot?.Files
+            .FirstOrDefault(file => string.Equals(file.RelativePath, relative, StringComparison.OrdinalIgnoreCase));
+        if (changed is null)
+        {
+            return new { available = false, reason = "该文件当前没有改动。", rows = Array.Empty<object>(), lines = Array.Empty<object>() };
+        }
+
+        GitDiffService diffService = new(runtime);
+        GitDiffResult result = await diffService.CreateAsync(
+            repository!,
+            changed,
+            new GitDiffOptions(ignoreWhitespace),
+            cancellationToken);
+        if (!result.IsSuccess || result.Document is not { } document)
+        {
+            return new
+            {
+                available = false,
+                reason = result.ErrorMessage,
+                rows = Array.Empty<object>(),
+                lines = Array.Empty<object>(),
+            };
+        }
+
+        if (!document.HasTextDiff)
+        {
+            return new
+            {
+                available = true,
+                path = document.RelativePath,
+                status = document.Status.ToString(),
+                rows = Array.Empty<object>(),
+                lines = Array.Empty<object>(),
+            };
+        }
+
+        IReadOnlyList<GitDiffLine> lines = GitUnifiedDiffParser.Parse(document.UnifiedPatch!);
+        IReadOnlyList<GitSideBySideRow> rows = GitUnifiedDiffParser.ToSideBySide(lines);
+        // 超大差异只回传前若干行：整份补丁可能有上万行，全量下发既拖慢渲染也没有阅读价值。
+        const int maximumRows = 2000;
+        bool truncated = rows.Count > maximumRows;
+        if (truncated)
+        {
+            rows = rows.Take(maximumRows).ToArray();
+        }
+        return new
+        {
+            available = true,
+            path = document.RelativePath,
+            status = document.Status.ToString(),
+            oldSize = document.OldSize,
+            newSize = document.NewSize,
+            truncated,
+            lines = lines.Select(line => new
+            {
+                kind = line.Kind.ToString(),
+                oldLine = line.OldLineNumber,
+                newLine = line.NewLineNumber,
+                text = line.Text,
+            }),
+            rows = rows.Select(row => new
+            {
+                oldLine = row.OldLineNumber,
+                oldText = row.OldText,
+                oldChanges = row.OldChanges.Select(span => new { start = span.Start, length = span.Length }),
+                newLine = row.NewLineNumber,
+                newText = row.NewText,
+                newChanges = row.NewChanges.Select(span => new { start = span.Start, length = span.Length }),
+                kind = row.Kind.ToString(),
+            }),
+        };
+    }
+
+    private static bool? GetBool(JsonElement parameters, string name)
+    {
+        return parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty(name, out JsonElement element)
+            && element.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? element.GetBoolean()
+            : null;
     }
 
     /// <summary>读取远端列表。</summary>
