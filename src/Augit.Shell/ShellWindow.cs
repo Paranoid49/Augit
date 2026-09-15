@@ -57,13 +57,6 @@ internal sealed class ShellWindow : IDisposable
         {
             throw new Win32Exception(Marshal.GetLastWin32Error(), "投递界面初始化消息失败。");
         }
-
-        // WebView2 的控件创建必须在消息循环开始之后进行：CreateCoreWebView2ControllerAsync
-        // 依赖 Shell 嵌入式浏览器在 UI 线程上泵消息，若在 Main 里等待会直接死锁。
-        if (!PostMessage(_window, InitializeMessage, 0, 0))
-        {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "投递界面初始化消息失败。");
-        }
     }
 
     public void Show()

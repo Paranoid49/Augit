@@ -5,6 +5,9 @@ param(
   [string]$Theme = "dark",
   [string]$Out = "",
   [int]$SettleMs = 3500,
+  # Bottom tool windows (Git log, file history, terminal) sit below the fold at the
+  # default window height, so auditing them needs a taller window.
+  [int]$Height = 760,
   [int]$Attempts = 4,
   [switch]$SkipBuild
 )
@@ -18,5 +21,5 @@ Start-Sleep -Milliseconds 600
 if (-not $SkipBuild) {
   & $dotnet build (Join-Path $repo 'src\Augit.Shell\Augit.Shell.csproj') -c Release -p:NuGetAudit=false 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Output $_ }
 }
-& (Join-Path $repo 'tools\audit\capture-surface.ps1') -Exe $exe -Out $Out -Arguments '--scene', $Scene, '--theme', $Theme -WorkDir $repo -SettleMs $SettleMs -Attempts $Attempts
+& (Join-Path $repo 'tools\audit\capture-surface.ps1') -Exe $exe -Out $Out -Arguments '--scene', $Scene, '--theme', $Theme, '--height', "$Height" -WorkDir $repo -SettleMs $SettleMs -Attempts $Attempts
 Get-Process Augit.Shell -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
