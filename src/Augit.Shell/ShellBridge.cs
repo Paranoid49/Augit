@@ -171,7 +171,12 @@ internal sealed class ShellBridge
             pixelWidth = result.PixelWidth,
             pixelHeight = result.PixelHeight,
             message = result.Message,
-            lineEndings = result.LineEndings.ToString(),
+            // 只有成功读取的普通文本才有编码与磁盘换行事实；图片、过大与
+            // 非法 UTF-8 等状态不显示编码，避免让用户以为文件是文本。
+            encoding = result.Status == DocumentReadStatus.TextReady ? TextEncodingName : null,
+            lineEndings = result.Status == DocumentReadStatus.TextReady
+                ? DescribeLineEndings(result.LineEndings)
+                : null,
         };
     }
 
@@ -722,6 +727,23 @@ internal sealed class ShellBridge
             }),
         };
     }
+
+    /// <summary>
+    /// 换行格式的界面用名。规格 §4.1 要求 LF / CRLF / CR / 混合换行 / 无换行；
+    /// 未识别到换行符时返回空串，界面据此不显示该字段。
+    /// </summary>
+    /// <summary>Augit 的普通文件查看器只读取 UTF-8（可带 BOM），因此文本编码固定为 UTF-8。</summary>
+    private const string TextEncodingName = "UTF-8";
+
+    private static string DescribeLineEndings(DocumentLineEndings endings) => endings switch
+    {
+        DocumentLineEndings.Lf => "LF",
+        DocumentLineEndings.CrLf => "CRLF",
+        DocumentLineEndings.Cr => "CR",
+        DocumentLineEndings.Mixed => "混合换行",
+        DocumentLineEndings.None => "无换行",
+        _ => string.Empty,
+    };
 
     private static bool? GetBool(JsonElement parameters, string name)
     {

@@ -2333,6 +2333,17 @@ function statusBar(editor, selectedFile) {
   }
 
   const comparison = ["diff", "diff-loading", "comparison"].includes(editor);
+  // 外壳存在但没有文档时，状态栏显示工作区路径（规格 §4.1），
+  // 而不是视觉稿里写死的工作区名与路径。
+  if (window.__augitLive && !liveDocument()) {
+    const workspace = window.__augitLive;
+    const rootPath = workspace.root || "";
+    const folder = rootPath ? rootPath.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) : null;
+    const name = workspace.workspaceName || folder || "工作区";
+    const title = rootPath ? `${rootPath}\\${workspace.name || folder || ""}` : name;
+    return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(title)}">${escapeHtml(name)}</span><div class="status-fields"></div></footer>`;
+  }
+
   const hasDocument = editor !== "empty";
   const isText = hasDocument && !comparison && !["image", "file-limit"].includes(editor);
   const file = comparison ? "app.manifest" : selectedFile;

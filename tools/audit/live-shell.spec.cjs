@@ -134,7 +134,7 @@ const WORKSPACE = {
       path: 'docs/product-spec.md', name: 'product-spec.md', fullPath: 'D:\\ws\\docs\\product-spec.md',
       workspaceName: 'ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
       fileSize: 120, text: '# 真实标题\n\n第一段**加粗**与`代码`。\n\n## 二级\n\n- 甲\n- 乙\n',
-      lineEndings: 'Lf', encoding: 'UTF-8',
+      lineEndings: 'LF', encoding: 'UTF-8',
     },
     'docs/notes.txt': {
       path: 'docs/notes.txt', name: 'notes.txt', fullPath: 'D:\\ws\\docs\\notes.txt',
@@ -239,6 +239,12 @@ async function main() {
     };
 
     // ---- 工作区与项目树 ----
+    // 单独开一个不预打开文档的场景：规格 §4.1 要求此时状态栏显示工作区路径。
+    const idle = await openScene('scene=git-history&theme=dark');
+    const idleStatus = await idle.page.locator('.statusbar').innerText();
+    check('无文档时状态栏显示工作区路径: ' + idleStatus.replace(/\n/g, ' '), idleStatus.includes('live-ws'));
+    await idle.page.close();
+
     const { page, errors } = await openScene('scene=main-project&theme=dark');
     check('无页面脚本错误: ' + JSON.stringify(errors.slice(0, 2)), errors.length === 0);
     check('注入真实工作区数据', await page.evaluate('!!window.__augitLive'));
@@ -256,6 +262,10 @@ async function main() {
     check('标题栏显示真实工作区名: ' + workspaceChip, workspaceChip.includes('live-ws'));
     const contextLabel = await page.locator('.titlebar-context').innerText();
     check('标题栏显示真实当前文件: ' + contextLabel, contextLabel.includes('product-spec.md'));
+    // 规格 §4.1：成功读取的 UTF-8 文本显示编码与磁盘换行格式，并带只读标识。
+    const docStatus = await page.locator('.statusbar').innerText();
+    check('文档状态栏含编码与换行: ' + docStatus.replace(/\n/g, ' '), docStatus.includes('UTF-8') && docStatus.includes('LF'));
+    check('文档状态栏含只读标识', docStatus.includes('只读'));
     const preview = await page.locator('.markdown-preview').innerHTML();
     check('Markdown 预览来自真实内容', preview.includes('真实标题') && preview.includes('<strong>加粗</strong>'));
     check('预览不残留样例标题', !preview.includes('Augit 产品规格'));
