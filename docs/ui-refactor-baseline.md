@@ -95,3 +95,36 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
   `Augit.Infrastructure` 暴露公开接口，当前 `GitCommandRunner` 是 internal）。
 - `docs/ux-mockups/mockup.js` 是显式重复副本（与 `web/src` 一致），已由校验脚本防漂移；
   后续应抽出共享模块消除重复。
+
+## 8. 第二轮：文档模块
+
+### 已完成
+
+- 项目树接真实数据、目录按需展开且展开状态在重绘后保留（缓存 + 展开集合）。
+- 新增 `web/src/markdown.js`：受控 Markdown 渲染器，只生成安全标签，原始 HTML 与远程图片被阻止。
+- 新增 `web/src/live-data.js` 的文档打开路径：按 `kind` 分派到文本 / Markdown / JSON / 图片 / 不可预览视图；
+  状态栏与标签页显示真实路径与文件名。
+- 新增 `--open <相对路径>` 启动参数，可在外壳启动时直接打开指定文件。
+- 新增起点：真实数据路径的验收套件 `tools/audit/live-shell.spec.cjs`（14 项断言全部通过）：
+  树来自宿主、展开取子项、Markdown 预览来自真实内容且不残留样例、纯文本按行渲染、展开状态保留、`?open=` 启动即打开。
+
+### 未完成（重要）
+
+- **Windows 外壳内的文档打开不可用**。真实外壳中点击文件行会调用宿主 `document/read`，
+  但 WebView2 的消息桥对**大响应**（本仓库 `docs/ux-spec.md` 为 106 KB）不会送达网页层：
+  宿主侧实测读取仅 16 ms、序列化响应约 32 ms，而网页侧的 Promise 永远不结算。
+  小文件（约 1.6 KB）可以送达。
+- 尝试过的两条替代通道均失败，均已回退，结论记录在案：
+  1. `WebResourceRequested` + `AddWebResourceRequestedFilter`：与 `SetVirtualHostNameToFolderMapping`
+     同时使用时，处理程序完全不被调用（滤镜写成 `*` 也不调用）。
+  2. 把文档写成资源目录下的静态文件再 fetch：页面仍为空白，未定位到原因，已回退。
+- 下一轮应优先解决该通道问题（例如改用独立虚拟主机、CDP `Fetch` 域、或分块传输），
+  在解决之前 `--open` 只能用于浏览器验收套件，不能用于真实外壳。
+
+### 本轮踩坑记录（供后续复用）
+
+- `ExecuteScriptAsync` 对返回 Promise 的脚本只回 `{}`；异步脚本内部的有效结果必须写入全局变量后再同步读取。
+- Win32 消息循环没有 `SynchronizationContext`，`await` 之后不能再访问 WebView2；跨步骤操作要合并进单次脚本调用。
+- `--width/--height` 在提交版外壳中不存在，窗口尺寸由设置文件决定；`MainWindowHandle` 在构造期间可能是 0，
+  必须轮询或用 `EnumWindows` 按类名取最大窗口。
+- 无头验收套件里，ES 模块必须经 HTTP 提供（`file://` 会被 CORS 拒绝）。

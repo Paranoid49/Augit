@@ -5,6 +5,7 @@
 // 因此首屏只取工作区信息、Git 状态与根目录一层；更深层级在展开时再取。
 
 import { hasHost, invoke } from "./bridge.js";
+import { renderMarkdown } from "./markdown.js";
 
 const MAX_ENTRIES_PER_DIRECTORY = 200;
 // 项目树隐藏构建产物与本地工具目录：目录名命中列表，或名称以点开头（如 .git/.idea/.vs/.tmp）。
@@ -17,12 +18,21 @@ function isVisibleEntry(entry) {
   return true;
 }
 
+// 目录树状态：展开集合与子项缓存都保存在这里，
+// 这样打开文件触发整页重绘时不会丢失展开状态，也不会重复向宿主请求。
+const expandedPaths = new Set([""]);
+const childrenByPath = new Map();
+
 /** 列举一个目录并转换成树行（只取一层，展开时再调用）。 */
 async function loadChildren(parentPath, parentDepth) {
+  if (childrenByPath.has(parentPath)) {
+    return childrenByPath.get(parentPath);
+  }
+
   const rows = [];
   let listing;
   try {
-    listing = await invoke("workspace/list", { path: parentPath });
+    listing = await invoke("workspace/list", { path: parentPath }, 30000);
   } catch {
     return rows;
   }
@@ -42,6 +52,28 @@ async function loadChildren(parentPath, parentDepth) {
     });
   }
 
+  childrenByPath.set(parentPath, rows);
+  return rows;
+}
+
+/** 只从缓存拼装可见树：展开集合决定哪些层级可见，不发起新的宿主请求。 */
+function buildVisibleTree(rootName, rootPath) {
+  const rows = [{
+    name: rootName || "工作区",
+    path: rootPath,
+    depth: 0,
+    isDirectory: true,
+    hasChildren: true,
+    expanded: true,
+  }];
+  const walk = (parentPath, depth) => {
+    if (!expandedPaths.has(parentPath)) return;
+    for (const child of childrenByPath.get(parentPath) || []) {
+      rows.push({ ...child, depth: depth + 1, expanded: expandedPaths.has(child.path) });
+      if (child.isDirectory) walk(child.path, depth + 1);
+    }
+  };
+  walk(rootPath, 0);
   return rows;
 }
 
@@ -54,39 +86,32 @@ async function loadDocument() {
   try {
     // 首屏只等「工作区信息 + 根目录一层」；两者并行，通常几十毫秒内返回。
     const infoPromise = invoke("workspace/info");
-    const rootPromise = invoke("workspace/list", { path: "" }).catch(() => null);
+    const rootPromise = invoke("workspace/list", { path: "" }, 30000).catch(() => null);
     const info = await infoPromise;
     mark("info");
     const listing = await rootPromise;
     mark("root");
 
-    const tree = [{
-      name: info.name || "工作区",
-      path: "",
-      depth: 0,
-      isDirectory: true,
-      hasChildren: true,
-      expanded: true,
-    }];
     if (listing) {
       const entries = (listing.entries || []).filter(isVisibleEntry);
       const directories = entries.filter((entry) => entry.isDirectory);
       const files = entries.filter((entry) => !entry.isDirectory);
-      for (const entry of [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY)) {
-        tree.push({
-          name: entry.name,
-          path: entry.path,
-          depth: 1,
-          isDirectory: entry.isDirectory,
-          hasChildren: entry.isDirectory,
-          expanded: false,
-        });
-      }
+      childrenByPath.set("", [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY).map((entry) => ({
+        name: entry.name,
+        path: entry.path,
+        depth: 1,
+        isDirectory: entry.isDirectory,
+        hasChildren: entry.isDirectory,
+        expanded: false,
+      })));
     }
+
+    const tree = buildVisibleTree(info.name, "");
 
     window.__augitMarks = marks;
     return {
       root: info.root,
+      rootPath: "",
       name: info.name,
       valid: info.valid,
       error: info.error,
@@ -99,6 +124,15 @@ async function loadDocument() {
     window.__augitError = "load-document:" + String(error && error.message || error);
     return null;
   }
+}
+
+/**
+ * 取回文档内容。
+ * 已知限制：WebView2 的消息桥无法可靠送达超过约 100 KB 的响应，大文件会超时；
+ * 需要改为资源通道后再恢复支持（见 docs/ui-refactor-baseline.md）。
+ */
+async function fetchDocument(path) {
+  return invoke("document/read", { path }, 30000);
 }
 
 /** Git 状态明显慢于目录列举，因此在界面出现后再补，不阻塞首屏。 */
@@ -116,7 +150,7 @@ async function loadStatus() {
       window.__augitLive.changeCount = status.files ? status.files.length : 0;
     }
     return status;
-  } catch (error) {
+  } catch {
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       statusError: Math.round(performance.now() - started),
     });
@@ -139,6 +173,7 @@ function applyBranch(branch) {
 
 async function boot() {
   let statusPromiseRef = Promise.resolve(null);
+  const requestedDocument = new URLSearchParams(window.location.search).get("open");
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -146,12 +181,12 @@ async function boot() {
       loadDocument(),
       new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
     ]);
-
     if (window.__augitLive === null) {
       window.__augitError = (window.__augitError || "") + "|timeout";
     }
   }
 
+  // 先加载构建器：openDocument 需要 __augitRender 才能把结果画出来。
   await new Promise((resolve) => {
     const mockup = document.createElement("script");
     mockup.src = "src/mockup.js";
@@ -163,70 +198,103 @@ async function boot() {
     document.head.appendChild(mockup);
   });
 
-  const live = window.__augitLive;
-  if (live && live.tree && live.tree.length > 1) {
-    bindLiveTree(live);
+  if (requestedDocument && window.__augitLive) {
+    await openDocument(requestedDocument);
   }
 
-  // 界面已就绪，再补 Git 事实；分支变化只更新标题栏标签。
+  // 界面此时已可交互：立即标记就绪，不能等 Git 状态（实测约 15 秒）。
+  window.__augitReady = true;
+
   const status = await statusPromiseRef;
   if (status) {
     applyBranch(status.branch);
-  }
-  window.__augitReady = true;
-}
-
-/** 展开/折叠真实目录；每次展开只取一层。 */
-function bindLiveTree(live) {
-  const container = document.querySelector(".side-content.tree");
-  if (!container) return;
-  const icon = window.__augitIcon;
-  container.addEventListener("click", async (event) => {
-    const row = event.target.closest(".tree-row");
-    if (!row || row.dataset.treeDirectory !== "true" || row.dataset.treePath === undefined) return;
-    event.preventDefault();
-    if (row.dataset.expanded === "true") {
-      collapseRow(row);
-      row.dataset.expanded = "false";
-      const chevron = row.querySelector(".chevron");
-      if (chevron && icon) chevron.innerHTML = icon("chevron-right");
-      return;
-    }
-
-    row.dataset.expanded = "true";
-    const chevron = row.querySelector(".chevron");
-    if (chevron && icon) chevron.innerHTML = icon("chevron-down");
-    const depth = Number(row.getAttribute("aria-level") || 1);
-    const children = await loadChildren(row.dataset.treePath, depth);
-    row.insertAdjacentHTML("afterend", children.map(renderLiveRow).join(""));
-  });
-}
-
-function collapseRow(row) {
-  const depth = Number(row.getAttribute("aria-level") || 1);
-  let next = row.nextElementSibling;
-  while (next && Number(next.getAttribute("aria-level") || 0) > depth) {
-    const current = next;
-    next = next.nextElementSibling;
-    current.remove();
+    window.__augitGitReady = true;
   }
 }
 
-/** 与 mockup.js 的 liveProjectTree 保持同一 DOM 结构，复用同一套样式与绑定。 */
-function renderLiveRow(entry) {
-  const icon = window.__augitIcon || (() => "");
-  const depthClass = entry.depth === 0 ? "root-row" : `depth-${entry.depth}`;
-  const chevron = entry.isDirectory && entry.hasChildren ? icon("chevron-right") : "";
-  const iconHtml = entry.isDirectory
-    ? (window.__augitFolderIcon ? window.__augitFolderIcon(entry.depth === 0) : "")
-    : (window.__augitFileIcon ? window.__augitFileIcon(entry.name) : "");
-  return `<div class="tree-row ${depthClass}" data-tree-path="${escapeText(entry.path)}" data-tree-directory="${entry.isDirectory}" data-expanded="false" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory}" tabindex="-1"><span class="chevron">${chevron}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${iconHtml}</span><span class="tree-name">${escapeText(entry.name)}</span></div>`;
+/** 目录展开/折叠：状态写入 store 后整页重绘，因此打开文件不会丢失展开层级。 */
+async function toggleDirectory(row) {
+  const path = row.dataset.treePath;
+  if (expandedPaths.has(path)) {
+    expandedPaths.delete(path);
+  } else {
+    expandedPaths.add(path);
+    await loadChildren(path, Number(row.getAttribute("aria-level") || 1));
+  }
+
+  const live = window.__augitLive;
+  live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+  window.__augitRender();
 }
 
-function escapeText(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[character]));
+function activateTreeRow(row) {
+  const path = row.dataset.treePath;
+  if (path === undefined) return;
+  if (row.dataset.treeDirectory === "true") {
+    void toggleDirectory(row);
+    return;
+  }
+
+  void openDocument(path);
+}
+
+// 用捕获阶段的委托监听：不受内容安全策略对内联处理器的限制，也不受整页重绘影响。
+document.addEventListener("click", (event) => {
+  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
+  if (!row) return;
+  event.preventDefault();
+  activateTreeRow(row);
+}, true);
+
+/** 把宿主返回的文档结果整理成界面需要的形状。 */
+function toLiveDocument(payload) {
+  const kind = payload.kind || "Text";
+  const editor = kind === "Markdown" ? "markdown"
+    : kind === "Json" ? "json"
+      : kind === "Png" || kind === "Jpeg" || kind === "Bmp" ? "image"
+        : payload.status === "TextReady" ? "text"
+          : "file-limit";
+  return {
+    path: payload.path,
+    name: payload.name,
+    fullPath: payload.fullPath,
+    workspaceName: payload.workspaceName,
+    kind,
+    typeName: payload.typeName,
+    status: payload.status,
+    fileSize: payload.fileSize,
+    text: payload.text,
+    preview: kind === "Markdown" && payload.text ? renderMarkdown(payload.text) : "",
+    dataUrl: payload.dataUrl,
+    pixelWidth: payload.pixelWidth,
+    pixelHeight: payload.pixelHeight,
+    message: payload.message,
+    lineEndings: payload.lineEndings,
+    encoding: payload.encoding,
+    editor,
+  };
+}
+
+/** 打开一个真实文件：取回内容、更新活动文档并重绘编辑区。 */
+async function openDocument(path) {
+  const live = window.__augitLive;
+  if (!live) return;
+  if (live.document && live.document.path === path) return;
+  const started = performance.now();
+  try {
+    const payload = await fetchDocument(path);
+    live.document = toLiveDocument(payload);
+    live.editor = live.document.editor;
+    window.__augitMarks = Object.assign(window.__augitMarks || {}, {
+      open: Math.round(performance.now() - started),
+    });
+  } catch (error) {
+    window.__augitError = "open-document:" + String(error && error.message || error);
+    return;
+  }
+
+  window.__augitRender();
+  // 重绘会替换项目树，事件委托挂在 #app 上因此仍然有效。
 }
 
 await boot();

@@ -1120,6 +1120,7 @@ function measureCodeViews() {
 }
 
 function jsonView() {
+  if (liveDocument()) return liveJsonDocument();
   const state = new URLSearchParams(window.location.search).get("json-state") || "formatted";
   const invalid = state === "invalid";
   return `<div class="document-view json-document ${invalid ? "json-invalid" : ""}" data-json-mode="${invalid || state === "source" ? "source" : "formatted"}"><div class="document-toolbar"><span class="document-path">Augit › global.json　只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted" ${invalid ? 'disabled title="JSON 格式错误，请查看原文中的错误位置"' : ""}>${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${invalid ? '<button class="json-error" aria-label="定位 JSON 错误">JSON 格式错误：第 4 行，第 19 列。 点击定位。</button>' : ""}<div class="code-view" tabindex="0" aria-label="JSON 只读正文"></div></div>`;
@@ -1496,6 +1497,16 @@ function changesSide(selected = "app.manifest") {
 }
 
 function editorTabs(active, extra = "") {
+  const live = window.__augitLive;
+  if (live && live.document) {
+    const name = live.document.name || live.document.path;
+    return `
+    <div class="editor-tabs">
+      <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a>
+      <span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+    </div>`;
+  }
+
   return `
     <div class="editor-tabs">
       <a class="editor-tab ${active === "third" ? "active" : ""}" href="text-viewer.html">${fileTypeIcon("THIRD-PARTY-NOTICES.md")} THIRD-PARTY-NOTICES.md</a>
@@ -1506,6 +1517,7 @@ function editorTabs(active, extra = "") {
 }
 
 function markdownView(mode = "preview") {
+  if (liveDocument()) return liveMarkdownDocument(new URLSearchParams(location.search).get('markdown-mode') || mode);
   const params = new URLSearchParams(location.search);
   mode = params.get('markdown-mode') || mode;
   if (!['source', 'split', 'preview'].includes(mode)) mode = 'preview';
@@ -1623,7 +1635,58 @@ function measureCurrentFind() {
   bar.style.setProperty('--find-width', `${471 + width - 48}px`);
 }
 
+// 外壳打开真实文档时使用的视图构建器；没有真实文档时继续用视觉稿样例内容。
+function liveDocument() {
+  const live = window.__augitLive;
+  return live && live.document ? live.document : null;
+}
+
+function liveLineViews(text) {
+  const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
+  return lines.map((line, index) => `<div class="code-line"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`).join("");
+}
+
+function liveTextDocument(find) {
+  const document_ = liveDocument();
+  const name = document_.name || document_.path;
+  const findBox = find ? currentFindBox() : "";
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} 只读正文">${liveLineViews(document_.text)}</div></div>`;
+}
+
+// 当前文件查找条：结构与视觉稿一致，初始为空状态。
+function currentFindBox() {
+  return `<div class="current-find"><input class="search-field" value="" aria-label="当前文件查找" placeholder="查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式">${icon("regex")}</button><span class="find-status"></span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>`;
+}
+
+function liveMarkdownDocument(mode) {
+  const document_ = liveDocument();
+  const toolbar = `<div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes">${[['source','原文','document-source'],['split','左右对照','document-split'],['preview','预览','document-preview']].map(([value,label,glyph]) => `<button class="segment" data-markdown-mode="${value}" aria-label="${label}">${icon(glyph)}</button>`).join('')}</div><button class="icon-button" aria-label="更多">${icon('ellipsis-vertical')}</button></div>`;
+  const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Markdown 只读原文">${liveLineViews(document_.text)}</div>`;
+  const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown 预览正文">${document_.preview || ""}</article>`;
+  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="ready">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
+}
+
+function liveJsonDocument() {
+  const document_ = liveDocument();
+  const formatted = document_.formatted || document_.text || "";
+  return `<div class="document-view json-document" data-json-mode="formatted"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted">${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div><div class="code-view" tabindex="0" aria-label="JSON 只读正文" data-json-source="${escapeHtml(document_.text || "")}">${liveLineViews(formatted)}</div></div>`;
+}
+
+function liveImageDocument() {
+  const document_ = liveDocument();
+  const size = document_.pixelWidth && document_.pixelHeight ? `${document_.pixelWidth} × ${document_.pixelHeight}` : "";
+  const bytes = document_.fileSize ? `${(document_.fileSize / 1024).toFixed(1)} KB` : "";
+  const label = [size, document_.typeName, bytes].filter(Boolean).join(" · ");
+  return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
+}
+
+function liveUnavailableDocument() {
+  const document_ = liveDocument();
+  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${escapeHtml(document_.name || "")}${document_.typeName ? " · " + escapeHtml(document_.typeName) : ""}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(document_.message || "该文件不能以只读文本方式查看。")}</p></div></div>`;
+}
+
 function textView(find = false) {
+  if (liveDocument()) return liveTextDocument(find);
   const state = new URLSearchParams(window.location.search).get('find-state');
   const query = state === 'invalid' ? '[' : state === 'timeout' ? '(a+)+$' : state === 'empty' ? '' : state === 'no-match' ? '不存在的文字' : 'Git';
   const result = state === 'loading' ? '正在搜索…' : state === 'timeout' ? '查找超时' : state === 'invalid' ? '正则表达式无效' : '';
@@ -1891,6 +1954,8 @@ function terminalTool() {
 
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false } = {}) {
   const live = window.__augitLive || null;
+  if (live && live.document && live.editor) editor = live.editor;
+  if (live && live.document) selectedFile = live.document.name || selectedFile;
   const sideHtml = side === "commit-empty"
     ? emptyChangesSide()
     : side === "commit"
@@ -1901,8 +1966,10 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (editor === "text") editorBody = textView(false);
   if (editor === "text-find") editorBody = textView(true);
   if (editor === "json") editorBody = jsonView();
-  if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
-  if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
+  if (editor === "image" && liveDocument()) editorBody = liveImageDocument();
+  else if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
+  if (editor === "file-limit" && liveDocument()) editorBody = liveUnavailableDocument();
+  else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = blameView();
   if (editor === "diff") {
     editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: app.manifest</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
@@ -1942,6 +2009,16 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
 
 // 状态栏描述活动视图；比较补丁不提供源文件编码与换行事实。
 function statusBar(editor, selectedFile) {
+  const live = liveDocument();
+  if (live) {
+    const fields = [];
+    if (live.encoding) fields.push(live.encoding);
+    if (live.lineEndings) fields.push(live.lineEndings);
+    fields.push("只读");
+    const location = [live.workspaceName || "Augit", ...String(live.path).split("/")].filter(Boolean).join("  ›  ");
+    return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(live.fullPath || live.path)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${escapeHtml(text)}</span>`).join('')}</div></footer>`;
+  }
+
   const comparison = ["diff", "diff-loading", "comparison"].includes(editor);
   const hasDocument = editor !== "empty";
   const isText = hasDocument && !comparison && !["image", "file-limit"].includes(editor);
@@ -2830,6 +2907,17 @@ function bindInteractions() {
 }
 
 // 供外壳的真实数据加载器复用同一套图形与动作绑定。
+window.__augitRender = () => {
+  if (!app) return;
+  app.innerHTML = renderScene();
+  bindInteractions();
+  if (scene === "go-to-line") document.querySelector("#prompt-line")?.focus();
+  if (scene === "quick-open" || scene === "quick-open-empty") {
+    document.querySelector(".search-overlay input")?.focus();
+  }
+  void applyTypographyPreview();
+};
+window.__augitScene = () => scene;
 window.__augitIcon = icon;
 window.__augitFolderIcon = treeFolderIcon;
 window.__augitFileIcon = fileTypeIcon;
