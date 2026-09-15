@@ -549,6 +549,38 @@ async function loadDiff(path, { force = false } = {}) {
   return request;
 }
 
+// 加载反馈阈值（规格 §6.5）：预计低于 150 毫秒的操作不显示加载动画，避免闪烁。
+const LoadingFeedbackDelay = 150;
+let diffLoadingMark = null;
+
+/**
+ * 在差异加载超过阈值后才显示加载提示。
+ * 提示只挂在**差异正文区**，不隐藏编辑工作区，也不影响工具窗口与标签
+ * （规格 §6.1 / §6.5）。
+ */
+function scheduleDiffLoadingMarker() {
+  clearDiffLoadingMarker();
+  diffLoadingMark = window.setTimeout(() => {
+    diffLoadingMark = null;
+    const host = document.querySelector(".diff-layout .diff-columns, .editor-content");
+    if (!host || host.querySelector(".diff-loading-status")) return;
+    const marker = document.createElement("div");
+    marker.className = "diff-loading-status";
+    marker.setAttribute("role", "status");
+    marker.innerHTML = '<span class="loading-mark"></span><span>正在生成 diff…</span>';
+    host.prepend(marker);
+  }, LoadingFeedbackDelay);
+}
+
+function clearDiffLoadingMarker() {
+  if (diffLoadingMark !== null) {
+    window.clearTimeout(diffLoadingMark);
+    diffLoadingMark = null;
+  }
+
+  document.querySelectorAll(".diff-loading-status").forEach((node) => node.remove());
+}
+
 /** 单击只更新改动列表的选中态，不请求差异（规格 §12.2）。 */
 function selectChangeRow(row) {
   for (const other of document.querySelectorAll(".changes-list .change-file-row.selected")) {
@@ -562,9 +594,14 @@ function selectChangeRow(row) {
 
 /** 打开某个改动文件的差异视图。 */
 async function openChangeDiff(path) {
-  const diff = await loadDiff(path);
-  if (diff) {
-    refresh("editorContent", "editorTabs", "side", "statusbar");
+  scheduleDiffLoadingMarker();
+  try {
+    const diff = await loadDiff(path);
+    if (diff) {
+      refresh("editorContent", "editorTabs", "side", "statusbar");
+    }
+  } finally {
+    clearDiffLoadingMarker();
   }
 }
 
@@ -714,35 +751,66 @@ async function applyWorkspaceChanges(changes) {
 }
 
 /**
- * 历史快照的等价比较（规格 §12.4「快照相等不更新」）。
- * 用 JSON 比较即可：历史是纯数据，字段顺序由上面的映射固定。
+ * 稳定快照（规格 §6.2）。至少包含：工作区路径与仓库可用状态、当前分支与 HEAD、
+ * Changes 与 Unversioned Files 的路径/状态/排序、Git 操作会话、当前选中标识。
+ *
+ * 快照只取「界面必须据此更新」的字段：比较它来决定是否需要重绘。
  */
-function sameHistorySnapshot(next) {
-  const current = window.__augitLive && window.__augitLive.history;
-  if (!current || !next) return false;
-  return JSON.stringify(current) === JSON.stringify(next);
+function buildSnapshot(status, history) {
+  const live = window.__augitLive;
+  return {
+    root: live ? live.root : null,
+    repositoryAvailable: !!(status && status.available),
+    branch: status ? status.branch : null,
+    isDetached: !!(status && status.isDetached),
+    head: history ? history.head : null,
+    // 顺序敏感：规格要求「路径、状态和排序」都进入快照。
+    files: status && status.files
+      ? status.files.map((file) => `${file.group}|${file.path}|${file.kind}|${file.staged ? 1 : 0}|${file.workingTree ? 1 : 0}`)
+      : [],
+    commits: history && history.commits
+      ? history.commits.map((commit) => `${commit.fullHash}|${commit.subject}|${(commit.references || []).join(",")}`)
+      : [],
+    hasNextPage: !!(history && history.hasNextPage),
+  };
 }
 
+/** 当前已应用快照的序列化结果，用于等价比较。 */
+let appliedSnapshot = null;
+
 /**
- * 把一份历史快照应用到界面；与当前快照相等时**不做任何更新**。
- * 这是 §12.2「Git 无变化刷新十次不重建列表、不改变选择、不重新加载 diff」
- * 与 §12.4「快照相等不更新」的实现点，也避免无谓的重绘。
+ * 在新数据到达后决定是否需要更新界面。
+ * 快照相等时不做任何更新：不重建列表、不重设选中项、不重新渲染 diff、
+ * 不改变工具窗口大小、不触发布局（规格 §6.2）。
+ *
+ * 返回 true 表示界面已更新。
  */
-function applyHistorySnapshot(next) {
-  const live = window.__augitLive;
-  if (!live || !next) return false;
-  if (sameHistorySnapshot(next)) return false;
-  live.history = next;
-  refresh("side", "editorContent", "statusbar", "bottomTool", "titlebar");
-  void refreshCommitDetails();
+function applySnapshot(status, history) {
+  const next = buildSnapshot(status, history);
+  const serialized = JSON.stringify(next);
+  if (serialized === appliedSnapshot) {
+    return false;
+  }
+
+  appliedSnapshot = serialized;
   return true;
 }
+
+/** 历史是否与已应用快照一致；供验收套件查询。 */
+window.__augitSnapshotEqual = (status, history) =>
+  JSON.stringify(buildSnapshot(status || latestStatus, history || latestHistory)) === appliedSnapshot;
 
 // 供验收套件调用：走与真实数据到达完全相同的快照应用路径。
 window.__augitApplyHistorySnapshot = () => {
   const live = window.__augitLive;
-  if (!live || !live.history) return false;
-  return applyHistorySnapshot(JSON.parse(JSON.stringify(live.history)));
+  if (!live) return false;
+  const updated = applySnapshot(latestStatus, latestHistory);
+  if (updated) {
+    refresh("side", "editorContent", "statusbar", "bottomTool", "titlebar");
+    void refreshCommitDetails();
+  }
+
+  return updated;
 };
 
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
@@ -917,9 +985,7 @@ function applyHistory() {
   const live = window.__augitLive;
   if (!live || !latestHistory) return;
   if (!latestHistory.branch && live.branch) latestHistory.branch = live.branch;
-  // 走带等价比较的路径：内容未变时不重建列表（§12.2 / §12.4）。
   live.history = latestHistory;
-  window.__augitHistoryEqual = sameHistorySnapshot(latestHistory);
 }
 
 /** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */
@@ -1016,8 +1082,12 @@ async function boot() {
 
   const status = await statusPromiseRef;
   if (status) {
-    // Git 状态比首屏慢，到达后补一次刷新：分支名与 Changes 工具窗都随之更新。
-    refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
+    // Git 状态比首屏慢，到达后补一次刷新；快照相等时不做任何更新（§6.2）。
+    if (applySnapshot(status, latestHistory)) {
+      refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
+      void refreshCommitDetails();
+    }
+
     window.__augitGitReady = true;
   }
 
@@ -1031,7 +1101,12 @@ async function boot() {
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
       if (revision) void loadCommitDetails(revision);
     });
-    // 先标记就绪：详情加载不能拖住其它断言与界面可用性。
+    // 历史比状态慢，到达后由快照判定是否需要刷新（§6.2）。
+    if (applySnapshot(latestStatus, latestHistory)) {
+      refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
+      void refreshCommitDetails();
+    }
+
     refreshPush();
     window.__augitHistoryReady = true;
     if (history.commits.length > 0) {

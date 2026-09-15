@@ -828,6 +828,22 @@ async function main() {
     check('Git 刷新不重新加载 diff', (await idem.page.evaluate('(window.__diffCalls || []).length')) === 0);
     await idem.page.close();
 
+    // ---- 规格 §6.5：低于 150 毫秒不显示加载动画；§6.1：加载期间不隐藏编辑区 ----
+    const fb = await openScene('scene=commit-diff&theme=dark');
+    await fb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await fb.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await fb.page.evaluate(() => { window.__augitLoadingSeen = false; });
+    // 立刻观察一次：加载提示不应在阈值内出现
+    await fb.page.locator('.changes-list .change-file-row').first().dblclick();
+    await fb.page.waitForTimeout(120);
+    const earlyMark = await fb.page.evaluate('!!document.querySelector(".diff-loading-status")');
+    check('150 毫秒内不显示加载动画', earlyMark === false);
+    await fb.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    check('加载完成后不残留加载提示', !(await fb.page.evaluate('!!document.querySelector(".diff-loading-status")')));
+    check('加载期间编辑工作区未被隐藏', await fb.page.locator('.editor-content').isVisible());
+    check('加载期间左侧工具窗口仍可见', await fb.page.locator('.side-tool').isVisible());
+    await fb.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
