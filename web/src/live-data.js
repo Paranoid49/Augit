@@ -739,6 +739,10 @@ function selectChangeRow(row) {
 
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
+  // 选中行也要记在状态里：区域刷新会重建改动列表，只加类名会在刷新后丢失
+  // （规格 §5.2 要求关闭比较保留 Changes 的选中行）。
+  const live = window.__augitLive;
+  if (live) live.selectedChangePath = row.dataset.path || null;
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
   const path = row.dataset.path;
   if (path) void followChangeSelection(path);
@@ -1365,6 +1369,9 @@ function refresh(...regions) {
     // 工具窗口与标签栏可能在这次刷新中被替换，重新挂上动作。
     bindToolRail?.();
     bindEditorTabs?.();
+    bindChangesState?.();
+    bindChangesScroll();
+    restoreChangesState();
     return;
   }
 
@@ -1613,6 +1620,115 @@ function bindToolRail() {
     event.preventDefault();
     const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
     if (name) applyRailAction(name);
+  }, true);
+}
+
+/**
+ * 改动列表的勾选与提交草稿（规格 §5.2）。
+ *
+ * 这两项必须保存在状态里而不是只放在 DOM 上：关闭比较标签、外部变化刷新、
+ * 切换工具窗口都会替换改动列表节点，DOM 里的勾选与草稿会随之丢失。
+ * 规格明确要求「关闭比较保留 Changes 的选中行、勾选、草稿和滚动」。
+ */
+function toggleChangeChecked(path, checked) {
+  const live = window.__augitLive;
+  if (!live || !live.status) return;
+  const file = live.status.files.find((item) => item.path === path);
+  if (!file) return;
+  file.checked = checked === undefined ? !file.checked : !!checked;
+  refreshAfterEvent("side");
+}
+
+function toggleChangeGroup(group, checked) {
+  const live = window.__augitLive;
+  if (!live || !live.status) return;
+  const label = group === "UnversionedFiles" ? "Unversioned Files" : group;
+  for (const file of live.status.files) {
+    if (file.group === label) file.checked = !!checked;
+  }
+
+  refreshAfterEvent("side");
+}
+
+/** 记录提交信息草稿，供列表重绘后恢复。 */
+function rememberCommitDraft(value) {
+  const live = window.__augitLive;
+  if (!live) return;
+  live.commitDraft = value;
+}
+
+/**
+ * 把草稿与滚动位置写回改动列表。
+ * 区域替换会新建 textarea 与列表容器，草稿与滚动位置都只存在于旧节点上，
+ * 因此每次刷新后都要恢复（规格 §5.2：关闭比较保留草稿与滚动）。
+ */
+function restoreChangesState() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const box = document.querySelector(".commit-box .message-field");
+  if (box && typeof live.commitDraft === "string" && box.value !== live.commitDraft) {
+    box.value = live.commitDraft;
+  }
+
+  const list = document.querySelector(".changes-list");
+  if (list && typeof live.changesScrollTop === "number") {
+    list.scrollTop = live.changesScrollTop;
+  }
+
+  // 恢复选中行（规格 §5.2）。
+  if (live.selectedChangePath) {
+    const rows = [...document.querySelectorAll(".changes-list .change-file-row")];
+    const target = rows.find((row) => row.dataset.path === live.selectedChangePath);
+    if (target && !target.classList.contains("selected")) {
+      for (const other of rows) {
+        other.classList.remove("selected");
+        other.removeAttribute("aria-selected");
+      }
+
+      target.classList.add("selected");
+      target.setAttribute("aria-selected", "true");
+    }
+  }
+}
+
+/** 记住改动列表的滚动位置，供刷新后恢复。 */
+function bindChangesScroll() {
+  const list = document.querySelector(".changes-list");
+  if (!list || list.__augitScrollBound) return;
+  list.__augitScrollBound = true;
+  list.addEventListener("scroll", () => {
+    const live = window.__augitLive;
+    if (live) live.changesScrollTop = list.scrollTop;
+  }, { passive: true });
+}
+
+/** 绑定勾选、分组勾选与草稿输入（挂在 document 上，不受区域刷新影响）。 */
+function bindChangesState() {
+  if (!window.__augitLive || window.__augitChangesBound) return;
+  window.__augitChangesBound = true;
+  document.addEventListener("click", (event) => {
+    const check = event.target.closest && event.target.closest(".changes-list .fake-check");
+    if (check) {
+      event.preventDefault();
+      const row = check.closest(".check-row");
+      if (!row) return;
+      if (row.classList.contains("check-group-row")) {
+        const state = check.getAttribute("aria-checked");
+        toggleChangeGroup(row.dataset.group, state !== "true");
+        return;
+      }
+
+      toggleChangeChecked(row.dataset.path);
+      return;
+    }
+
+    const chevron = event.target.closest && event.target.closest(".changes-list .change-chevron");
+    if (chevron) event.preventDefault();
+  }, true);
+
+  document.addEventListener("input", (event) => {
+    const box = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
+    if (box) rememberCommitDraft(box.value);
   }, true);
 }
 

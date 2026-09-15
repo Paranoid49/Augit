@@ -1793,6 +1793,47 @@ async function main() {
       stateAfterClose.tabs === stateBeforeClose.tabs - 1);
     await closeRule.page.close();
 
+    // ---- 规格 §5.2：关闭比较保留 Selected 行、勾选、草稿与滚动 ----
+    const keep2 = await openScene('scene=commit-changes&theme=dark');
+    await keep2.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await keep2.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const rows = await keep2.page.locator('.changes-list .change-file-row').count();
+    check('改动列表有多行可测: ' + rows, rows >= 2);
+
+    // 取消第一行的勾选，并在提交信息里写草稿
+    await keep2.page.locator('.changes-list .change-file-row').first().locator('.fake-check').click();
+    await keep2.page.waitForTimeout(300);
+    const checkState = await keep2.page.evaluate(() => ({
+      stored: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      dom: [...document.querySelectorAll('.changes-list .change-file-row .fake-check')].map((b) => b.getAttribute('aria-checked')),
+    }));
+    check('点击复选框写入状态: ' + JSON.stringify(checkState.stored) + ' DOM=' + JSON.stringify(checkState.dom),
+      checkState.stored[0] === false && checkState.dom[0] === 'false');
+
+    await keep2.page.locator('.commit-box .message-field').fill('feat: 草稿保留');
+    await keep2.page.waitForTimeout(200);
+    check('提交草稿记录到状态: ' + JSON.stringify(await keep2.page.evaluate('window.__augitLive.commitDraft')),
+      (await keep2.page.evaluate('window.__augitLive.commitDraft')) === 'feat: 草稿保留');
+
+    // 打开比较标签后再关闭它，勾选与草稿都必须保留
+    await keep2.page.locator('.changes-list .change-file-row').first().dblclick();
+    await keep2.page.waitForFunction('!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")', null, { timeout: 8000 });
+    await keep2.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').first().click();
+    await keep2.page.waitForTimeout(600);
+    const kept = await keep2.page.evaluate(() => ({
+      stored: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      draft: window.__augitLive.commitDraft,
+      boxValue: document.querySelector('.commit-box .message-field') ? document.querySelector('.commit-box .message-field').value : null,
+      selectedRow: document.querySelectorAll('.changes-list .change-file-row.selected').length,
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+    }));
+    check('关闭比较保留勾选: ' + JSON.stringify(kept.stored), kept.stored[0] === false);
+    check('关闭比较保留草稿: ' + JSON.stringify(kept.draft) + ' 输入框=' + JSON.stringify(kept.boxValue),
+      kept.draft === 'feat: 草稿保留' && kept.boxValue === 'feat: 草稿保留');
+    check('关闭比较保留选中行: ' + kept.selectedRow, kept.selectedRow >= 1);
+    check('关闭比较已移除比较标签: ' + kept.comparisons, kept.comparisons === 0);
+    await keep2.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
