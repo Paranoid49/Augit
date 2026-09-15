@@ -91,7 +91,8 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 | 远端 / Stash / Worktree 管理窗口 | 已完成 | 真实外壳截图显示真实远端 origin 与真实 URL |
 | Push 对话框 | 已完成 | 真实外壳显示真实分支与上游；"0 个提交"与 git 实测一致 |
 | 三栏冲突解决器 | 已完成（含保存往返实测） | 真实冲突仓库实测读取与写回；验收套件 46 项断言 |
-| 对话框族（Clone/Reset/Rollback） | 未开始 | — |
+| Reset / Rollback 对话框 | 已完成 | Reset 目标取真实 HEAD；Rollback 标题与详情取真实改动文件 |
+| Clone 对话框 | 未开始（需要用户输入的写操作） | — |
 | 内置终端 | 已完成（真实外壳实测） | 真实 ConPTY 会话输出 PowerShell 横幅，xterm.js 渲染 |
 
 ### Git 调用路径优化（第六轮）
@@ -378,6 +379,19 @@ gpu / renderer / utility / crashpad 六个进程，合计约 0.5 GB 工作集（
 从未清理。实测累积 **115 个目录、1.4 GB**。现改为固定 `Session` 目录，
 并在启动时清理历史 `Session-*` 目录（正被其它实例占用的会跳过，下次再试）。
 实测清理后目录数 115 → 0，磁盘占用 1.4 GB → 39 MB。
+
+### 第十八轮：Reset 与 Rollback 对话框
+
+- Reset：目标提交取真实 HEAD（短哈希），模式沿用规格说明的 Soft / Mixed / Hard。
+- Rollback：标题与详情取真实改动文件（优先「改动」组），显示路径与变更类型；
+  没有可回滚改动时给出明确的空状态而不是样例内容。
+- 验收套件扩充到 **57 项断言**（新增 Reset 目标哈希格式与样例隔离、
+  Rollback 标题真实路径与样例隔离）。
+
+**真实外壳核对**：
+- Reset 显示目标提交 `6544412`，与 `git rev-parse --short HEAD` 的 `6544412` 一致；
+- Rollback 标题显示 `tools/audit/live-shell.spec.cjs`、变更 `Modified`，
+  与工作区真实改动一致（样例路径 `app.manifest` 不再出现）。
 
 ### 关于 CDP 诊断通道的结论
 

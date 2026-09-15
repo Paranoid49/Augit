@@ -55,7 +55,7 @@ const WORKSPACE = {
     ],
   },
   history: {
-    available: true, isRepository: true, head: 'full-head-hash', hasNextPage: false,
+    available: true, isRepository: true, head: 'aaa1111bbbb2222cccc3333dddd4444eeee5555', hasNextPage: false,
     commits: [
       { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222'], references: ['HEAD', 'dsh'] },
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
@@ -412,6 +412,22 @@ async function main() {
     check('保存提交了修改后的字号: ' + JSON.stringify(written && written.fontSize), written && written.fontSize === 17);
     check('保存未丢失其它字段', written && written.theme === 'Dark' && written.terminalShell === 'PowerShell7');
     await settings.page.close();
+
+    // ---- Reset 对话框 ----
+    const reset = await openScene('scene=reset&theme=dark');
+    await reset.page.waitForSelector('[data-setting], #reset-target', { timeout: 10000 });
+    const target = await reset.page.locator('#reset-target').inputValue();
+    check('Reset 目标提交来自真实 HEAD: ' + target, /^[0-9a-f]{7}$/.test(target));
+    check('Reset 模板不残留样例哈希', target !== 'dfe5c25a');
+    await reset.page.close();
+
+    // ---- Rollback 对话框 ----
+    const rollback = await openScene('scene=rollback&theme=dark');
+    await rollback.page.waitForSelector('.dialog[aria-label^="回滚文件"]', { timeout: 10000 });
+    const rollbackTitle = await rollback.page.locator('.dialog[aria-label^="回滚文件"]').getAttribute('aria-label');
+    check('回滚标题显示真实文件: ' + rollbackTitle, rollbackTitle.includes('src/App.cs') || rollbackTitle.includes('README.md'));
+    check('回滚对话框不残留样例路径', !rollbackTitle.includes('app.manifest'));
+    await rollback.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
