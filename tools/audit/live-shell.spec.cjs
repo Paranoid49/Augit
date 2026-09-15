@@ -1911,6 +1911,66 @@ async function main() {
       escSideAfter.workspace === true && escSideAfter.statusbar === true);
     await escSide.page.close();
 
+    // ---- 规格 §5.4：树的键盘导航 ----
+    const kbTree = await openScene('scene=main-project&theme=dark');
+    await kbTree.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await kbTree.page.waitForSelector('.side-content.tree .tree-row', { timeout: 10000 });
+    const selectedPath = () => kbTree.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row.selected');
+      return row ? row.dataset.treePath : null;
+    });
+    // 先点选一行（选中并聚焦），再用方向键移动；点击目录行只会展开，故选文件行。
+    await kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await kbTree.page.waitForTimeout(300);
+    await kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
+    await kbTree.page.waitForTimeout(300);
+    await kbTree.page.keyboard.press('ArrowDown');
+    await kbTree.page.waitForTimeout(200);
+    const treeAfterDown = await selectedPath();
+    check('树支持方向键移动选择: ' + JSON.stringify(treeAfterDown), treeAfterDown !== null);
+    // 方向键继续移动，并且聚焦跟随
+    await kbTree.page.keyboard.press('ArrowDown');
+    await kbTree.page.waitForTimeout(150);
+    const treeAfterSecond = await selectedPath();
+    const treeFocusInTree = await kbTree.page.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && el.classList.contains('tree-row');
+    });
+    check('方向键可连续移动且焦点跟随: ' + JSON.stringify([treeAfterDown, treeAfterSecond, treeFocusInTree]),
+      treeAfterSecond !== treeAfterDown && treeFocusInTree === true);
+    // 右键展开目录、左键折叠
+    const treeDir = kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]');
+    await treeDir.click();
+    const treeRowsBefore = await kbTree.page.locator('.side-content.tree .tree-row').count();
+    // 先把 docs 明确置为「已展开」再测折叠/展开，避免依赖前序点击留下的状态。
+    const docsRow = kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]');
+    const docsExpanded = () => kbTree.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      return row ? row.getAttribute('aria-expanded') === 'true' : null;
+    });
+    if (!(await docsExpanded())) {
+      await kbTree.page.evaluate(() => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        row.focus();
+      });
+      await kbTree.page.keyboard.press('ArrowRight');
+      await kbTree.page.waitForTimeout(500);
+    }
+    check('前置条件：docs 已展开', (await docsExpanded()) === true);
+
+    const treeRowsExpanded = await kbTree.page.locator('.side-content.tree .tree-row').count();
+    await kbTree.page.keyboard.press('ArrowLeft');
+    await kbTree.page.waitForTimeout(600);
+    const treeRowsCollapsed = await kbTree.page.locator('.side-content.tree .tree-row').count();
+    check('左键折叠目录: ' + treeRowsExpanded + ' -> ' + treeRowsCollapsed,
+      treeRowsCollapsed < treeRowsExpanded && (await docsExpanded()) === false);
+    await kbTree.page.keyboard.press('ArrowRight');
+    await kbTree.page.waitForTimeout(600);
+    const treeRowsReExpanded = await kbTree.page.locator('.side-content.tree .tree-row').count();
+    check('右键展开目录: ' + treeRowsCollapsed + ' -> ' + treeRowsReExpanded,
+      treeRowsReExpanded > treeRowsCollapsed && (await docsExpanded()) === true);
+    await kbTree.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

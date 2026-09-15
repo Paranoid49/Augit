@@ -744,8 +744,9 @@ function selectChangeRow(row) {
   const live = window.__augitLive;
   if (live) live.selectedChangePath = row.dataset.path || null;
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
-  const path = row.dataset.path;
-  if (path) void followChangeSelection(path);
+  // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
+  const path = row.dataset.treePath;
+  if (path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
 }
 
 /** 找到工作区比较标签（规格 §5.2：最多只有一个）。 */
@@ -2164,8 +2165,9 @@ function selectTreeRow(row) {
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
-  const path = row.dataset.path;
-  if (path) void followChangeSelection(path);
+  // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
+  const path = row.dataset.treePath;
+  if (path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
 }
 
 // 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：
@@ -2203,6 +2205,43 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   // 双击打开，单击只选择。
   activateTreeRow(row, { open: event.detail >= 2 });
+}, true);
+
+// 树的键盘导航（规格 §5.4）：方向键移动选择，右键展开、左键折叠。
+document.addEventListener("keydown", (event) => {
+  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
+  if (!row) return;
+  const rows = [...document.querySelectorAll(".side-content.tree .tree-row")];
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const isDirectory = row.dataset.treeDirectory === "true";
+  const expanded = row.getAttribute("aria-expanded") === "true";
+  let next = null;
+  if (event.key === "ArrowDown") next = rows[index + 1] || null;
+  else if (event.key === "ArrowUp") next = rows[index - 1] || null;
+  else if ((event.key === "ArrowRight" && isDirectory && !expanded)
+    || (event.key === "ArrowLeft" && isDirectory && expanded)) {
+    event.preventDefault();
+    // 展开/折叠会重绘侧栏并换掉行节点，因此按路径把焦点移回同一行，
+    // 否则键盘导航在第一次展开后就断掉了。
+    const keepPath = row.dataset.treePath;
+    void Promise.resolve(activateTreeRow(row, { open: false })).then(() => {
+      const again = document.querySelector(`.side-content.tree .tree-row[data-tree-path="${CSS.escape(keepPath)}"]`);
+      if (again) {
+        selectTreeRow(again);
+        again.focus({ preventScroll: true });
+      }
+    });
+    return;
+  } else if (event.key === "Home") next = rows[0] || null;
+  else if (event.key === "End") next = rows.at(-1) || null;
+  else return;
+
+  event.preventDefault();
+  if (!next) return;
+  selectTreeRow(next);
+  next.focus({ preventScroll: true });
+  next.scrollIntoView({ block: "nearest" });
 }, true);
 
 // 树行上的 Enter 执行默认动作（打开文件）。

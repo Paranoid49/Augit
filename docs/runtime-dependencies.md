@@ -30,4 +30,6 @@
 - 签名证书指纹：`4028CAD637509D4744B17EC5B42AED8D7A31E6AF`。
 - 校验规则：阶段五安装器必须使用本文固定地址，依次校验文件大小、SHA-256 和有效的 Microsoft Corporation Authenticode 签名，任一失败都不得执行安装。
 
-WebView2 SDK 版本继续由 `Directory.Packages.props` 锁定为 `1.0.3650.58`。普通启动不创建 WebView2；只有用户打开 Markdown 预览或内置终端时才检查并加载运行时。
+WebView2 SDK 版本继续由 `Directory.Packages.props` 锁定为 `1.0.3650.58`。
+
+WebView2 Runtime 是主界面的运行前提，不再是按需能力：外壳启动时即创建 WebView2 环境并承载界面本体，缺少运行时则主界面无法显示。因此缺失时的提示必须在窗口出现前给出，并直接指向本文的官方下载入口，不能只在某个视图内提示。
