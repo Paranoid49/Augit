@@ -531,6 +531,48 @@ gpu / renderer / utility / crashpad 六个进程，合计约 0.5 GB 工作集（
 **验收方式说明**：`PrintWindow` 对 WebView2 的底部区域常返回窗口边框而非页面内容，
 状态栏截图不可靠，因此这三项以断言为准。
 
+### 第二十六轮：桥接契约核对（验收桩审计）
+
+背景：第二十五轮发现状态栏的 `encoding` 字段**从未由宿主下发**，
+但验收桩自己伪造了它，导致断言长期假通过。为排查同类问题，
+本轮写了反射探针直接调用宿主的 15 个桥接方法，打印真实返回的字段名，
+再与验收桩逐项比对。
+
+**探针实测的宿主契约**（顶层字段）：
+
+| 方法 | 宿主返回 |
+|---|---|
+| `workspace/info` | root, name, valid |
+| `document/read` | path, name, fullPath, workspaceName, status, kind, typeName, fileSize, text, message, encoding, lineEndings |
+| `git/status` | available, isRepository, repositoryRoot, operation, hasConflicts, branch, isDetached, headCommit, files |
+| `git/history` | available, isRepository, head, hasNextPage, commits |
+| `git/blame` | available, path, lines |
+| `git/file-history` | available, path, commits |
+| `git/commit` | available, hash, fullHash, subject, author, date, body, files |
+| `git/diff` | available, path, status, oldSize, newSize, truncated, rows, lines（失败时另有 reason） |
+| `git/remotes` | available, remotes |
+| `git/references` | available, branches, tags |
+| `git/stashes` | available, stashes |
+| `git/worktrees` | available, worktrees |
+| `git/conflicts` | available, operation, hasConflicts, files |
+| `settings/read` | theme, textFontFamily, monospaceFontFamily, fontSize, codeFontSize, gitExecutablePath, terminalShell, terminalCustomCommand, recentWorkspaces |
+
+嵌套项核对结果：`status.files`（7 字段）、`commit.files`（5）、`conflict.blocks`（5）、
+`references.branches`（6）、`stashes`（5）、`worktrees`（7）、`remotes`（3）、
+`diff.rows`（7）、`blame.lines`（7）**全部与桩一致**。
+
+**发现的偏差与处置**：
+
+- `diff` 桩缺少宿主成功路径返回的 `truncated` 字段。已补上。
+  （此前桩里虽声明了 `truncated`，但只出现在 `available:false` 的分支，
+  成功路径没有覆盖。）
+- 其余偏差均为「桩少字段」，而界面不读这些字段，不影响断言有效性。
+  需要警惕的方向是反过来的「桩多字段」——本轮未再发现此类。
+
+**结论**：上一轮的 `encoding` 问题属于桩伪造字段这一类，本次系统核对后
+没有发现第二例。这类问题的根因已明确：**写桩时按界面期望编字段，
+而不是按宿主契约**。后续新增桩数据时应先跑探针对齐。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，

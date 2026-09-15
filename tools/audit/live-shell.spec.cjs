@@ -66,7 +66,7 @@ const WORKSPACE = {
   clone: { available: false, field: 'destination', reason: '目标目录不为空，请换一个目录。' },
   diff: {
     available: true, path: 'src/App.cs', status: 'Ready', oldSize: 40, newSize: 44,
-    lines: [],
+    truncated: false, lines: [],
     rows: [
       { oldLine: 1, oldText: 'line one', oldChanges: [], newLine: 1, newText: 'line one', newChanges: [], kind: 'Context' },
       { oldLine: 2, oldText: 'old value', oldChanges: [{ start: 0, length: 3 }], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
