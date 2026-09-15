@@ -1,6 +1,15 @@
 # UI 重构基线审计
 
-更新日期：2026-09-14。本文件记录重构开始前的可复现基线，以及本轮建立的取证工具。数值均为实测，方法可复现。
+更新日期：2026-09-14（§2–§3 的基线数值）；后续轮次记录见文末各轮条目。
+
+> **实现基线已变更**：正式主界面现为 C# / .NET 10 原生 Win32 外壳 + **WebView2**
+> （`src/Augit.Shell` + `web/`），旧的原生自绘界面 `src/Augit.App` 及其测试
+> （`tests/Augit.App.Tests`、`tests/Augit.App.VisualAuditHost`）**已退役并从解决方案移除**。
+> 变更由用户明确授权，理由与约束见 `docs/ux-spec.md` §1。
+> 因此 §2 中记录的原生像素基线与 §3 中的 `VisualAuditHost` 用法**属于历史记录**，
+> 不再是现行取证入口；现行入口是 `tools/audit/shell-capture.ps1`。
+
+本文件记录重构开始前的可复现基线，以及各轮建立的取证工具。数值均为实测，方法可复现。
 
 ## 1. 目标与实测对象
 
@@ -788,6 +797,31 @@ Windows「应用模式」（`AppsUseLightTheme`）决定深浅。读取失败回
 | 截图对照 | 已完成（视觉稿差异 0.000） |
 | 鼠标路径 | 部分（交互逻辑在无头套件中覆盖） |
 | 键盘路径 | 部分（搜索浮层与 Clone 已覆盖） |
+
+### 第三十四轮：退役旧原生界面，并把文档改为与实现一致
+
+**移除**：`src/Augit.App`（125 文件 / 66.6k 行）、`tests/Augit.App.Tests`（126 文件）、
+`tests/Augit.App.VisualAuditHost`，并从 `Augit.slnx` 移除这三个项目。
+
+**移除前的核查**（都是可复核的事实，不是估计）：
+- `src/Augit.Core`、`src/Augit.Infrastructure`、`src/Augit.Shell` 中
+  **没有任何** `Augit.App` 命名空间引用；
+- 只有 `Augit.App` 自己的两个测试项目引用它；
+- 移除后 `Augit.slnx` 仍可 0 警告 0 错误构建，外壳正常运行，浏览器验收套件 109 项全通过。
+
+**同步修正文档与实现的不一致**：`docs/ux-spec.md` §1 与 `docs/design-system.md`
+原先写的是「正式主界面继续使用原生 Win32」「真实验收必须来自
+`Augit.App.VisualAuditHost`」——在技术方案已按用户授权切换为 WebView2 后，
+这些规定与实现矛盾。已改为：
+
+- 主界面基线 = 原生 Win32 外壳 + WebView2 渲染（并记录变更由用户授权，解除原锁定）；
+- 视觉稿与运行时界面**共用同一份 HTML/CSS**，两者都不得引入前端框架或构建步骤；
+- 真实验收入口改为 `tools/audit/shell-capture.ps1`（支持 `-Theme` / `-Height` / `-Dpi`）；
+- 运行时令牌权威改为 `web/src/mockup.css`（与 `docs/ux-mockups/mockup.css` 逐字节一致）。
+
+**已知遗留**：`tests/Augit.Infrastructure.Tests` 中「索引变化在五百毫秒内合并通知」
+在整套并行运行时偶发失败（实测 735ms > 500ms 上限），单独运行必过。
+属于对机器负载敏感的计时断言，与本次移除无关，但需要后续放宽或改用可控时钟。
 
 ### 关于 CDP 诊断通道的结论
 

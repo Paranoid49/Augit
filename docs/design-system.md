@@ -543,17 +543,17 @@ Diff 边界导航使用正文附近的非模态提示，见 [文件边界视觉�
 
 ## 11. 实现约束
 
-- 主界面继续使用原生 User32、ComCtl32、Scintilla 和现有 WebView2 宿主；不得引入 WPF、WinForms 或新的桌面 UI 框架。
-- `NativeTheme` 是颜色、字体、DPI 和通用尺寸的唯一来源；页面类不得复制颜色或字体创建逻辑。
+- 主界面为 C#、.NET 10 原生 Win32 外壳 + WebView2 渲染（用户已授权由原生自绘切换）；不得引入 WPF、WinForms、Avalonia 或其他新的桌面 UI 框架。
+- `web/src/mockup.css` 的 CSS 变量是颜色、字体、DPI 与通用尺寸的唯一来源；页面样式必须引用变量，不得自行复制颜色或字体值。
 - 所有 owner-draw 图标必须经过统一绘制入口，使用已登记的各图标线宽、端点、填充和状态颜色，不由各页面另行解释。
 - Scintilla 两条滚动条交界的空角只按主题 `panel` 令牌补画；不得接管滚动条绘制或覆盖正文，控件销毁时必须移除对应 HWND 的绘制登记。
 - 所有图标按钮必须在创建时登记命令、启用条件、可见标签和 Tooltip；没有命令映射的图标不得绘制。
-- 视觉稿中的 HTML/CSS 只作为比例和状态参照，真实验收必须来自 `Augit.App.VisualAuditHost` 的 Win32 界面。
+- 视觉稿与运行时界面共用同一份 HTML/CSS；真实验收必须来自真实外壳截图（`tools/audit/shell-capture.ps1`），不得只以浏览器渲染视觉稿作为验收依据。
 - 修改可执行逻辑时补充自动化测试；仅修改本设计文档不新增测试要求。
 
 ### 11.1 令牌权威来源
 
-真实应用的运行时令牌以 `src/Augit.App/NativeTheme.cs` 为唯一权威，包含颜色、字体、DPI 和主题切换。`docs/ux-mockups/mockup.css` 只承担视觉稿结构和状态参照；其中与本文或 `NativeTheme` 不一致的旧颜色不得回写到应用，也不得作为新的设计值。视觉稿后续调整时应迁移到本文令牌，而不是为单个页面保留另一套颜色。
+运行时令牌以 `web/src/mockup.css` 的 `:root` 与 `body[data-theme="dark"]` 为唯一权威，包含颜色、字体与主题切换。`docs/ux-mockups/mockup.css` 与该文件必须逐字节一致（由 `tools/audit/verify-ui-assets.ps1` 保证）。视觉稿后续调整应直接修改该文件，不得为单个页面保留另一套颜色。
 
 ## 12. 逐页审计清单
 

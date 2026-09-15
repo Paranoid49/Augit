@@ -9,13 +9,11 @@
 采集后会统计中心区域的纯白占比；占比超过阈值说明窗口被其它前台程序遮挡，会重试。
 
 ```powershell
-# 采集视觉审计宿主的某个场景
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\capture-surface.ps1 `
-  -Exe   path\to\Augit.App.VisualAuditHost.exe `
-  -Settings path\to\settings.json -Workspace path\to\workspace `
-  -Surface main-project -Out artifacts\main.bmp -Dpi 96
+# 采集真实外壳的某个场景（推荐：shell-capture.ps1 会先构建再采集）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\shell-capture.ps1 `
+  -Scene main-project -Theme dark -Height 760 -Out artifacts\main.png
 
-# 采集任意程序（例如新的 WebView2 外壳）
+# 采集任意程序
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\capture-surface.ps1 `
   -Exe path\to\Augit.Shell.exe -Out artifacts\shell.png `
   -Arguments '--scene','main-project','--theme','dark'
