@@ -41,9 +41,12 @@ internal sealed class ShellBridge : IDisposable
     private bool _terminalExited;
     private int _terminalExitCode;
 
-    public ShellBridge(string workspaceRoot)
+    private readonly Action<string, object>? _notify;
+
+    public ShellBridge(string workspaceRoot, Action<string, object>? notify = null)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
+        _notify = notify;
     }
 
     public string WorkspaceRoot => _workspaceRoot;
@@ -457,13 +460,19 @@ internal sealed class ShellBridge : IDisposable
 
     private void OnWorkspaceFilesChanged(object? sender, FileChangeBatchEventArgs eventArgs)
     {
+        string[] batch;
         lock (_changeGate)
         {
             foreach (string path in eventArgs.Paths)
             {
                 _pendingWorkspaceChanges.Add(path);
             }
+
+            batch = [.. _pendingWorkspaceChanges];
         }
+
+        // 主动推送，网页层无需轮询；读取时仍会返回同一批次，两者幂等。
+        _notify?.Invoke("workspace-changed", new { files = batch, gitMetadata = false });
     }
 
     /// <summary>
@@ -486,6 +495,8 @@ internal sealed class ShellBridge : IDisposable
                 {
                     _pendingGitMetadataChange = true;
                 }
+
+                _notify?.Invoke("workspace-changed", new { files = Array.Empty<string>(), gitMetadata = true });
             };
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)

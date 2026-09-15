@@ -6,10 +6,21 @@ const hostAvailable = typeof window !== "undefined" && !!window.chrome?.webview;
 const pending = new Map();
 let sequence = 0;
 
+// 宿主事件订阅：事件消息不带 id，因此与请求应答天然区分。
+const eventHandlers = new Map();
+
 if (hostAvailable) {
   window.chrome.webview.addEventListener("message", (event) => {
     const message = typeof event.data === "string" ? safeParse(event.data) : event.data;
-    if (!message || message.id === undefined) return;
+    if (!message) return;
+    // 宿主推送的事件（例如文件系统变化）走这里，不参与请求应答匹配。
+    if (message.event !== undefined) {
+      const handler = eventHandlers.get(message.event);
+      if (handler) handler(message.payload);
+      return;
+    }
+
+    if (message.id === undefined) return;
     const entry = pending.get(message.id);
     if (!entry) return;
     pending.delete(message.id);
@@ -24,6 +35,12 @@ function safeParse(text) {
   } catch {
     return null;
   }
+}
+
+/** 订阅宿主事件；返回取消订阅函数。 */
+export function subscribe(event, handler) {
+  eventHandlers.set(event, handler);
+  return () => eventHandlers.delete(event);
 }
 
 /** 是否有 C# 宿主可用。 */

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 
 namespace Augit.Shell;
@@ -47,7 +48,7 @@ internal sealed class ShellWindow : IDisposable
     public ShellWindow(ShellOptions options)
     {
         _options = options;
-        _bridge = new ShellBridge(options.WorkspaceRoot);
+        _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
         _instance = GetModuleHandle(null);
         RegisterWindowClass();
         _window = CreateWindowInstance();
@@ -388,6 +389,27 @@ internal sealed class ShellWindow : IDisposable
         lock (_pendingReplies)
         {
             _pendingReplies.Enqueue(response);
+        }
+
+        _ = PostMessage(_window, ReplyMessage, 0, 0);
+    }
+
+    /// <summary>
+    /// 向网页层推送一个事件。复用回复队列：事件不带 id，
+    /// 网页层按 id 匹配请求，因此两者不会互相干扰。
+    /// 可从任意线程调用。
+    /// </summary>
+    internal void Notify(string kind, object payload)
+    {
+        if (_disposed || _window == 0)
+        {
+            return;
+        }
+
+        string json = JsonSerializer.Serialize(new { @event = kind, payload });
+        lock (_pendingReplies)
+        {
+            _pendingReplies.Enqueue(json);
         }
 
         _ = PostMessage(_window, ReplyMessage, 0, 0);

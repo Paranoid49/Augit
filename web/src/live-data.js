@@ -4,7 +4,7 @@
 // 性能约束：桥接调用每次跨进程，必须尽量少而并行。
 // 因此首屏只取工作区信息、Git 状态与根目录一层；更深层级在展开时再取。
 
-import { hasHost, invoke } from "./bridge.js";
+import { hasHost, invoke, subscribe } from "./bridge.js";
 import { renderMarkdown } from "./markdown.js";
 
 const MAX_ENTRIES_PER_DIRECTORY = 200;
@@ -768,24 +768,39 @@ function bindSettingsSave() {
  *   触发当前视图进入加载状态（对应 §12.2「外部改变无关文件时当前 diff
  *   不进入加载状态」）。
  */
+// 变化以宿主推送为主：事件到达即处理，延迟由文件系统监视的合并窗口（50 毫秒）决定，
+// 远低于规格的 500 毫秒要求，空闲时不产生任何定时唤醒。
+// 兜底轮询只用于事件可能丢失的场景（例如观察器建立失败），间隔远大于合并窗口。
+const ChangeFallbackIntervalMs = 2000;
 let changeTimer = 0;
+
+async function drainWorkspaceChanges() {
+  const live = window.__augitLive;
+  if (!live) return;
+  try {
+    const changes = await invoke("workspace/changes", {}, 10000);
+    if (changes && changes.available) {
+      await applyWorkspaceChanges(changes);
+    }
+  } catch {
+    // 单次失败不影响后续。
+  }
+}
+
 async function pollWorkspaceChanges() {
   if (changeTimer !== 0) return;
-  changeTimer = window.setInterval(async () => {
-    const live = window.__augitLive;
-    if (!live || document.hidden) return;
-    try {
-      const changes = await invoke("workspace/changes", {}, 10000);
-      if (!changes || !changes.available) return;
-      await applyWorkspaceChanges(changes);
-    } catch {
-      // 单次失败不影响后续轮询。
-    }
-  }, 400);
+  changeTimer = window.setInterval(() => {
+    if (document.hidden) return;
+    void drainWorkspaceChanges();
+  }, ChangeFallbackIntervalMs);
 }
 
 function startWorkspaceChangePolling() {
   if (!hasHost()) return;
+  // 宿主推送立即处理；兜底轮询保持低频。
+  subscribe("workspace-changed", (payload) => {
+    void applyWorkspaceChanges(payload || { files: [], gitMetadata: false });
+  });
   void pollWorkspaceChanges();
 }
 
