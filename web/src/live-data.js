@@ -1792,6 +1792,14 @@ function guardUnwiredNavigation() {
   window.__augitNavGuarded = true;
   window.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
+    // 分支弹层的快捷动作。
+    const popoverAction = event.target.closest && event.target.closest("[data-augit-overlay] [data-popover-action]");
+    if (popoverAction) {
+      event.preventDefault();
+      void runPopoverAction(popoverAction.dataset.popoverAction);
+      return;
+    }
+
     // 分支弹层的二级动作（新建 / 重命名）：打开紧凑输入窗口（规格 §5.3）。
     const branchAction = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch-action]");
     if (branchAction) {
@@ -2054,9 +2062,15 @@ async function submitCompactDialog() {
   const live = window.__augitLive;
   let result;
   try {
-    result = kind === "rename"
-      ? await invoke("git/branch", { action: "rename", from: currentBranchName(), name: value }, 60000)
-      : await invoke("git/branch", { action: "create", name: value }, 60000);
+    if (kind === "checkout-revision") {
+      // 标签与任意版本都走 detach 检出，名称由 Git 解析，Augit 不猜。
+      result = await invoke("git/checkout", { name: value, kind: "tag" }, 120000);
+      result = result ? { changed: result.switched, reason: result.reason } : result;
+    } else if (kind === "rename") {
+      result = await invoke("git/branch", { action: "rename", from: currentBranchName(), name: value }, 60000);
+    } else {
+      result = await invoke("git/branch", { action: "create", name: value }, 60000);
+    }
   } catch (error) {
     window.__augitCheckoutError = String(error && error.message || error);
     closeCompactDialog();
@@ -2127,6 +2141,81 @@ function bindCompactDialogKeys() {
     if (onInput || onConfirm) void submitCompactDialog();
     else closeCompactDialog();
   }, true);
+}
+
+/**
+ * 分支弹层里的快捷动作（规格 §7.11 / §5.1）。
+ * 需要写 Git 的动作只在确认后执行；失败原因如实回传。
+ */
+async function runPopoverAction(action) {
+  const live = window.__augitLive;
+  if (!live) return;
+  window.__augitCheckoutError = null;
+
+  // 纯界面动作：切到提交工具窗口，不碰 Git。
+  if (action === "commit") {
+    closeLiveOverlay();
+    live.layout = live.layout || {};
+    live.layout.userDriven = true;
+    live.layout.activeRail = "commit";
+    live.layout.side = "commit";
+    live.layout.collapsed = null;
+    if (typeof window.__augitRender === "function") window.__augitRender();
+    rebindAfterRender();
+    return;
+  }
+
+  if (action === "create-branch") {
+    openBranchActionDialog("create");
+    return;
+  }
+
+  if (action === "checkout-revision") {
+    openRevisionDialog();
+    return;
+  }
+
+  const method = action === "fetch" ? "git/fetch" : action === "push" ? "git/push" : null;
+  if (!method) return;
+  const key = action === "fetch" ? "fetched" : "pushed";
+  let result;
+  try {
+    result = await invoke(method, {}, 300000);
+  } catch (error) {
+    window.__augitCheckoutError = String(error && error.message || error);
+    openBranchesPopover();
+    return;
+  }
+
+  if (!result || !result[key]) {
+    window.__augitCheckoutError = (result && result.reason) || "操作失败。";
+    openBranchesPopover();
+    return;
+  }
+
+  // 成功：关闭弹层并重新读取状态与引用。
+  closeLiveOverlay();
+  live.references = null;
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadReferences().catch(() => null),
+  ]);
+  refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/** 检出标签或任意版本：紧凑输入窗口，名称交给 Git 解析。 */
+function openRevisionDialog() {
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  compactDialogKind = "checkout-revision";
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = compactInputDialog("检出标签或版本", "标签或版本", "", "检出");
+  host.appendChild(layer);
+  const field = layer.querySelector("[data-compact-field]");
+  if (field) field.focus();
 }
 
 /** 关闭实时弹层。 */

@@ -145,6 +145,7 @@ internal sealed class ShellBridge : IDisposable
             "git/push" => await PushAsync(parameters, cancellationToken),
             "git/checkout" => await CheckoutAsync(parameters, cancellationToken),
             "git/branch" => await BranchAsync(parameters, cancellationToken),
+            "git/fetch" => await FetchAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
@@ -1351,6 +1352,36 @@ internal sealed class ShellBridge : IDisposable
             available = true,
             switched = true,
             detached = result.ActualStatus?.IsDetached ?? false,
+            branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 拉取远端引用（规格 §7.11「更新项目」）。
+    /// 网络操作不设自动超时，只响应用户主动取消；不后台定时 fetch。
+    /// </summary>
+    private async Task<object?> FetchAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string? remoteName = GetString(parameters, "remote");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitRemoteOperationResult result = await new GitRemoteService(runtime)
+            .FetchAsync(repository, remoteName, cancellationToken)
+            .ConfigureAwait(false);
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, fetched = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            fetched = true,
             branch = result.ActualStatus?.CurrentBranch,
         };
     }

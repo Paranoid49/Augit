@@ -263,6 +263,11 @@ async function main() {
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/fetch') {
+        window.__fetchCalls = (window.__fetchCalls || 0) + 1;
+        if (window.__fetchFails) return { available: true, fetched: false, reason: '没有配置远端。' };
+        return { available: true, fetched: true, branch: 'dsh' };
+      }
       if (method === 'git/branch') {
         window.__branchCalls = (window.__branchCalls || []).concat([params]);
         if (window.__branchFails) return { available: true, changed: false, reason: '分支名已存在。' };
@@ -2274,6 +2279,102 @@ async function main() {
     check('分支创建失败显示 Git 原因: ' + JSON.stringify(failedCreate.alert),
       typeof failedCreate.alert === 'string' && failedCreate.alert.includes('已存在'));
     await cd.page.close();
+
+    // ---- 规格 §7.11：分支弹层快捷动作 ----
+    const pa = await openScene('scene=main-project&theme=dark');
+    await pa.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pa.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    const openPopover = async () => {
+      await pa.page.evaluate(() => document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((n) => n.remove()));
+      await pa.page.locator('.top-chip.branch-chip').click();
+      await pa.page.waitForTimeout(500);
+    };
+    // 更新项目 → git/fetch
+    await openPopover();
+    // 弹层打开后才存在快捷动作节点，必须在打开之后统计。
+    const actionCount = await pa.page.evaluate(() => document.querySelectorAll('[data-popover-action]').length);
+    await pa.page.evaluate(() => { window.__fetchCalls = 0; });
+    await pa.page.locator('[data-popover-action="fetch"]').click();
+    await pa.page.waitForTimeout(900);
+    const fetched = await pa.page.evaluate(() => ({
+      calls: window.__fetchCalls || 0,
+      overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+    }));
+    check('更新项目调用 fetch: ' + fetched.calls, fetched.calls === 1);
+    check('更新项目成功后关闭弹层', fetched.overlay === false);
+
+    // 推送… → git/push
+    await openPopover();
+    await pa.page.evaluate(() => { window.__pushCalls = 0; });
+    await pa.page.locator('[data-popover-action="push"]').click();
+    await pa.page.waitForTimeout(900);
+    const pushed = await pa.page.evaluate(() => window.__pushCalls || 0);
+    check('推送… 调用 push: ' + pushed, pushed === 1);
+
+    // 提交… → 切到提交工具窗口，不调用任何 Git 写操作
+    await openPopover();
+    await pa.page.evaluate(() => { window.__pushCalls = 0; window.__fetchCalls = 0; });
+    await pa.page.locator('[data-popover-action="commit"]').click();
+    await pa.page.waitForTimeout(700);
+    const commitSwitch = await pa.page.evaluate(() => ({
+      activeRail: (document.querySelector('.tool-rail .rail-button.active') || {}).getAttribute
+        ? document.querySelector('.tool-rail .rail-button.active').getAttribute('aria-label') : null,
+      sideTitle: document.querySelector('.side-tool .tool-header span') ? document.querySelector('.side-tool .tool-header span').innerText : null,
+      pushCalls: window.__pushCalls || 0,
+      fetchCalls: window.__fetchCalls || 0,
+    }));
+    check('提交… 切到提交工具窗口: ' + JSON.stringify(commitSwitch),
+      commitSwitch.activeRail === '提交' && commitSwitch.sideTitle === '提交');
+    check('提交… 不触达任何 Git 写操作: ' + JSON.stringify([commitSwitch.pushCalls, commitSwitch.fetchCalls]),
+      commitSwitch.pushCalls === 0 && commitSwitch.fetchCalls === 0);
+
+    // 新建分支… → 紧凑输入窗口
+    await openPopover();
+    await pa.page.locator('[data-popover-action="create-branch"]').click();
+    await pa.page.waitForTimeout(500);
+    const createFromPopover = await pa.page.evaluate(() => ({
+      dialog: !!document.querySelector('[data-compact-dialog]'),
+      title: document.querySelector('[data-compact-dialog] .dialog-header span')
+        ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
+    }));
+    check('新建分支… 打开紧凑输入窗口: ' + JSON.stringify(createFromPopover),
+      createFromPopover.dialog === true && createFromPopover.title === '新建分支');
+    await pa.page.keyboard.press('Escape');
+    await pa.page.waitForTimeout(300);
+
+    // 检出标签或版本… → 紧凑输入窗口，确认后按 tag 检出
+    await openPopover();
+    await pa.page.locator('[data-popover-action="checkout-revision"]').click();
+    await pa.page.waitForTimeout(500);
+    const revDialog = await pa.page.evaluate(() => ({
+      dialog: !!document.querySelector('[data-compact-dialog]'),
+      title: document.querySelector('[data-compact-dialog] .dialog-header span')
+        ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
+    }));
+    check('检出标签或版本… 打开紧凑输入窗口: ' + JSON.stringify(revDialog),
+      revDialog.dialog === true && revDialog.title === '检出标签或版本');
+    await pa.page.evaluate(() => { window.__checkoutCalls = []; });
+    await pa.page.locator('[data-compact-field]').fill('v2.0.0');
+    await pa.page.locator('[data-compact-field]').press('Enter');
+    await pa.page.waitForTimeout(900);
+    const revChecked = await pa.page.evaluate(() => window.__checkoutCalls || []);
+    check('检出标签按 tag 类型调用: ' + JSON.stringify(revChecked),
+      revChecked.length === 1 && revChecked[0].kind === 'tag' && revChecked[0].name === 'v2.0.0');
+
+    // 失败：保留弹层并显示 Git 原因
+    await pa.page.evaluate(() => { window.__fetchFails = true; });
+    await openPopover();
+    await pa.page.locator('[data-popover-action="fetch"]').click();
+    await pa.page.waitForTimeout(900);
+    const fetchFail = await pa.page.evaluate(() => ({
+      overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+      alert: (document.querySelector('[data-augit-overlay] .inline-alert') || {}).textContent || null,
+    }));
+    check('更新项目失败保留弹层: ' + fetchFail.overlay, fetchFail.overlay === true);
+    check('更新项目失败显示 Git 原因: ' + JSON.stringify(fetchFail.alert),
+      typeof fetchFail.alert === 'string' && fetchFail.alert.includes('没有配置远端'));
+    check('弹层已标注的快捷动作数量: ' + actionCount, actionCount >= 5);
+    await pa.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
