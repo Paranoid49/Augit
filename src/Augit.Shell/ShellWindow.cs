@@ -92,7 +92,6 @@ internal sealed class ShellWindow : IDisposable
         }
 
         _disposed = true;
-        _bridge.Dispose();
         _controller?.Close();
         _controller = null;
         if (_window != 0)
@@ -296,6 +295,11 @@ internal sealed class ShellWindow : IDisposable
         if (_options.OpenDocument is { Length: > 0 } document)
         {
             parts.Add($"open={Uri.EscapeDataString(document)}");
+        }
+
+        if (_options.BlameDocument is { Length: > 0 } blame)
+        {
+            parts.Add($"blame={Uri.EscapeDataString(blame)}");
         }
 
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);
