@@ -201,7 +201,14 @@ async function main() {
       if (method === 'search/files') return data.searchFiles;
       if (method === 'search/text') return data.searchText;
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
-      if (method === 'git/diff') return params.path === data.diff.path ? data.diff : { available: false, reason: 'no diff' };
+      if (method === 'git/diff') {
+        window.__diffCalls = window.__diffCalls || [];
+        window.__diffCalls.push(params.path);
+        // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
+        if (params.path === data.diff.path) return data.diff;
+        if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
+        return { available: false, reason: 'no diff' };
+      }
       if (method === 'settings/read') return data.settings;
       if (method === 'settings/write') { window.__settingsWritten = params; return { saved: true, theme: params.theme, fontSize: params.fontSize }; }
       if (method === 'git/conflicts') return data.conflicts;
@@ -509,7 +516,13 @@ async function main() {
     await clickDiff.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await clickDiff.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     check('改动列表渲染出可点击行', await clickDiff.page.locator('.changes-list .change-file-row').count() > 0);
+    // 规格 §12.2：单击只选择，不创建 Diff。
     await clickDiff.page.locator('.changes-list .change-file-row').first().click();
+    await clickDiff.page.waitForTimeout(400);
+    check('单击改动文件不创建 Diff', !(await clickDiff.page.evaluate('window.__augitLive && window.__augitLive.diff')));
+    const selectedCount = await clickDiff.page.locator('.changes-list .change-file-row.selected').count();
+    check('单击改动文件只更新选中态: ' + selectedCount, selectedCount === 1);
+    await clickDiff.page.locator('.changes-list .change-file-row').first().dblclick();
     await clickDiff.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
     const openedPath = await clickDiff.page.evaluate('window.__augitLive.diff.path');
     const clickedPath = await clickDiff.page.evaluate('document.querySelector(".changes-list .change-file-row").dataset.path');
@@ -703,6 +716,44 @@ async function main() {
     const docAfterSingleClick = await kb.page.evaluate('window.__augitLive.document ? window.__augitLive.document.path : null');
     check('单击树行不加载文档（需 Enter 或双击）: ' + JSON.stringify({ before: docBefore, after: docAfterSingleClick }), docAfterSingleClick === docBefore);
     await kb.page.close();
+
+    // ---- 规格 §12.2：diff 请求去重与过期结果丢弃 ----
+    const dedup = await openScene('scene=commit-diff&theme=dark');
+    await dedup.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await dedup.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 没有 Diff 标签时连续单击十次不产生 diff 请求
+    const row = dedup.page.locator('.changes-list .change-file-row').first();
+    for (let i = 0; i < 10; i += 1) await row.click();
+    await dedup.page.waitForTimeout(500);
+    const callsAfterTenClicks = await dedup.page.evaluate('(window.__diffCalls || []).length');
+    check('连续单击十次不产生 diff 请求: ' + callsAfterTenClicks, callsAfterTenClicks === 0);
+    // 双击一次只产生一个请求
+    await row.dblclick();
+    await dedup.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    const callsAfterOpen = await dedup.page.evaluate('(window.__diffCalls || []).length');
+    check('首次双击只产生一个 diff 请求: ' + callsAfterOpen, callsAfterOpen === 1);
+    // 同一路径再次双击：请求去重（复用已加载结果）
+    await row.dblclick();
+    await dedup.page.waitForTimeout(600);
+    const callsAfterRepeat = await dedup.page.evaluate('(window.__diffCalls || []).length');
+    check('同一文件重复双击不重复请求: ' + callsAfterRepeat, callsAfterRepeat === 1);
+    await dedup.page.close();
+
+    // ---- 规格 §12.2：快速连续选择三个文件，最终结果属于最后一个 ----
+    const race = await openScene('scene=commit-diff&theme=dark');
+    await race.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await race.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const raceRows = race.page.locator('.changes-list .change-file-row');
+    const rowCount = await raceRows.count();
+    check('改动列表有多行可用于快速连选: ' + rowCount, rowCount >= 2);
+    // 连续双击前两个文件，中间不等待
+    await raceRows.nth(0).dblclick();
+    await raceRows.nth(1).dblclick();
+    await race.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 15000 });
+    await race.page.waitForTimeout(500);
+    const finalDiff = await race.page.evaluate('window.__augitLive.diff ? window.__augitLive.diff.path : null');
+    check('快速连选后差异属于最后一次选择: ' + finalDiff, finalDiff === 'README.md');
+    await race.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

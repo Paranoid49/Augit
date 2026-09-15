@@ -504,25 +504,67 @@ async function stopTerminal() {
 }
 
 /** 读取工作区中某个文件的差异，供编辑器差异视图使用。 *//** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
-async function loadDiff(path) {
-  try {
-    const started = performance.now();
-    const diff = await invoke("git/diff", { path }, 30000);
-    window.__augitDiffTrace = `ok ms=${Math.round(performance.now() - started)} available=${diff && diff.available} rows=${diff && diff.rows ? diff.rows.length : -1}`;
-    const live = window.__augitLive;
-    if (live) {
-      live.diff = diff && diff.available ? diff : null;
+// 同一路径的并发请求去重（规格 §12.2：已有 Diff 标签时连续选择只产生当前请求并去重）。
+const diffRequests = new Map();
+// 递增令牌用于丢弃过期结果：快速连选多个文件时，先发的请求后到不得闪回。
+let diffToken = 0;
 
+async function loadDiff(path, { force = false } = {}) {
+  const existing = diffRequests.get(path);
+  if (existing) return existing;
 
-      // 有差异时切到差异视图；无差异时保留当前文档视图。
-      if (live.diff) live.editor = "diff";
+  // 同一项重复选择不重复加载（规格 §5.4 / §12.2）：
+  // 该文件的差异已经显示时直接复用，不再发起请求。
+  const live0 = window.__augitLive;
+  if (!force && live0 && live0.diff && live0.diff.path === path && live0.editor === "diff") {
+    return live0.diff;
+  }
+
+  const token = ++diffToken;
+  const request = (async () => {
+    try {
+      const diff = await invoke("git/diff", { path }, 30000);
+      const live = window.__augitLive;
+      // 只有最新一次请求可以写回界面状态。
+      if (token === diffToken && live) {
+        live.diff = diff && diff.available ? diff : null;
+        // 有差异时切到差异视图；无差异时保留当前文档视图。
+        if (live.diff) live.editor = "diff";
+      }
+
       window.__augitDiffReady = true;
+      return live && live.diff && live.diff.path === path ? live.diff : null;
+    } catch (error) {
+      if (token === diffToken) {
+        window.__augitError = "load-diff:" + String(error && error.message || error);
+      }
+
+      return null;
+    } finally {
+      diffRequests.delete(path);
     }
-    return live ? live.diff : null;
-  } catch (error) {
-    window.__augitDiffTrace = "threw:" + String(error && error.message || error);
-    window.__augitError = "load-diff:" + String(error && error.message || error);
-    return null;
+  })();
+
+  diffRequests.set(path, request);
+  return request;
+}
+
+/** 单击只更新改动列表的选中态，不请求差异（规格 §12.2）。 */
+function selectChangeRow(row) {
+  for (const other of document.querySelectorAll(".changes-list .change-file-row.selected")) {
+    other.classList.remove("selected");
+    other.removeAttribute("aria-selected");
+  }
+
+  row.classList.add("selected");
+  row.setAttribute("aria-selected", "true");
+}
+
+/** 打开某个改动文件的差异视图。 */
+async function openChangeDiff(path) {
+  const diff = await loadDiff(path);
+  if (diff) {
+    refresh("editorContent", "editorTabs", "side", "statusbar");
   }
 }
 
@@ -961,12 +1003,24 @@ document.addEventListener("click", (event) => {
   const path = row.dataset.path;
   if (!path) return;
   event.preventDefault();
-  void (async () => {
-    const diff = await loadDiff(path);
-    if (diff) {
-      refresh("editorContent", "editorTabs", "side", "statusbar");
-    }
-  })();
+  // 规格 §12.2：首次单击不创建 Diff；双击或 Enter 才打开。
+  if (event.detail < 2) {
+    selectChangeRow(row);
+    return;
+  }
+
+  selectChangeRow(row);
+  void openChangeDiff(path);
+}, true);
+
+// 改动文件行上的 Enter 打开差异。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const row = event.target.closest && event.target.closest(".changes-list .change-file-row");
+  if (!row || !row.dataset.path) return;
+  event.preventDefault();
+  selectChangeRow(row);
+  void openChangeDiff(row.dataset.path);
 }, true);
 
 // 用捕获阶段的委托监听：不受内容安全策略对内联处理器的限制，也不受整页重绘影响。
