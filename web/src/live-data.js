@@ -1393,6 +1393,7 @@ function refresh(...regions) {
     bindChangesState?.();
     bindChangesScroll();
     restoreChangesState();
+    bindOverlayEscape();
     return;
   }
 
@@ -1750,6 +1751,39 @@ function bindChangesState() {
   document.addEventListener("input", (event) => {
     const box = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
     if (box) rememberCommitDraft(box.value);
+  }, true);
+}
+
+/**
+ * 全局 Esc：只关闭最上层弹层（规格 §5.3）。
+ *
+ * 视觉稿里弹层自己的 Esc 监听挂在弹层节点上，**只有焦点在弹层内时才生效**；
+ * 用户点击别处后焦点离开，Esc 就再也没有反应。这里补一层 document 级处理。
+ * 模态对话框自带取消逻辑，不在这里处理，避免重复关闭。
+ */
+function bindOverlayEscape() {
+  if (!window.__augitLive || window.__augitOverlayEscBound) return;
+  window.__augitOverlayEscBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (event.defaultPrevented) return;
+    // 组词中的 Esc 交给输入法（规格 §5.3）。
+    if (event.isComposing || event.keyCode === 229) return;
+
+    // 非模态弹层有两类：搜索浮层自身，以及包着 .popover 的 .overlay-layer。
+    // 模态对话框同样用 .overlay-layer 包裹，但它自带取消逻辑，交给它自己处理。
+    const overlays = [...document.querySelectorAll('[data-augit-overlay]')]
+      .filter((node) => !node.querySelector(':scope > .dialog') && !node.classList.contains('dialog'));
+    const overlay = overlays.at(-1);
+    if (!overlay) return;
+    event.preventDefault();
+    const popup = overlay.matches('[popover]') ? overlay : overlay.querySelector(':scope > [popover]');
+    if (popup && typeof popup.hidePopover === "function" && popup.matches(":popover-open")) {
+      popup.hidePopover();
+      return;
+    }
+
+    overlay.remove();
   }, true);
 }
 

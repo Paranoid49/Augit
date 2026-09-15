@@ -1884,6 +1884,33 @@ async function main() {
       !extDeleted.paths.includes('docs/notes.txt') && extDeleted.paths.includes('docs/product-spec.md'));
     await ext.page.close();
 
+    // ---- 规格 §5.3：Esc 关闭最上层弹层，不关闭其下方工具窗口 ----
+    // 用带完整外壳的场景，才能验证「关闭弹层后主界面结构保持」。
+    const escSide = await openScene('scene=branches&theme=dark');
+    await escSide.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await escSide.page.waitForTimeout(900);
+    const escSideBefore = await escSide.page.evaluate(() => ({
+      overlay: !!document.querySelector('[data-augit-overlay]'),
+      side: !!document.querySelector('.side-tool'),
+      workspace: !!document.querySelector('.workspace'),
+      statusbar: !!document.querySelector('.statusbar'),
+    }));
+    await escSide.page.keyboard.press('Escape');
+    await escSide.page.waitForTimeout(500);
+    const escSideAfter = await escSide.page.evaluate(() => ({
+      overlay: !!document.querySelector('[data-augit-overlay]'),
+      side: !!document.querySelector('.side-tool'),
+      workspace: !!document.querySelector('.workspace'),
+      statusbar: !!document.querySelector('.statusbar'),
+    }));
+    check('Esc 关闭弹层: ' + JSON.stringify([escSideBefore.overlay, escSideAfter.overlay]),
+      escSideBefore.overlay === true && escSideAfter.overlay === false);
+    check('Esc 不关闭下方工具窗口: ' + JSON.stringify(escSideAfter),
+      escSideAfter.side === true);
+    check('Esc 关闭弹层后主界面结构保持: ' + JSON.stringify(escSideAfter),
+      escSideAfter.workspace === true && escSideAfter.statusbar === true);
+    await escSide.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
