@@ -17,6 +17,12 @@ internal sealed class ShellWindow : IDisposable
     private const uint WmClose = 0x0010;
     private const uint WmDestroy = 0x0002;
     private const uint WmDpichanged = 0x02E0;
+    private const uint WmGetMinMaxInfo = 0x0024;
+
+    /// <summary>最小窗口的逻辑尺寸；低于此值布局无法容纳三个区域（规格 §4.2）。</summary>
+    private const int MinimumLogicalWidth = 1024;
+
+    private const int MinimumLogicalHeight = 640;
     private const int IdiApplication = 32512;
     private const int ErrorClassAlreadyExists = 1410;
     private const uint InitializeMessage = 0x0400 + 1;
@@ -185,6 +191,9 @@ internal sealed class ShellWindow : IDisposable
             case WmSize:
             case WmDpichanged:
                 shell.SyncBounds();
+                return 0;
+            case WmGetMinMaxInfo:
+                shell.ApplyMinimumSize(lParam);
                 return 0;
             case WmClose:
                 DestroyWindow(window);
@@ -444,6 +453,43 @@ internal sealed class ShellWindow : IDisposable
             _controller.ShouldDetectMonitorScaleChanges = false;
             _controller.RasterizationScale = 1.0;
         }
+    }
+
+    /// <summary>
+    /// 限制窗口最小尺寸，避免拖到布局容不下的尺寸。
+    /// MinTrackSize 使用物理像素，因此按 DPI 覆盖或系统 DPI 换算。
+    /// </summary>
+    private void ApplyMinimumSize(nint lParam)
+    {
+        if (lParam == 0)
+        {
+            return;
+        }
+
+        MinMaxInfo info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        info.MinTrackSize = new ShellPoint
+        {
+            X = ScaleForDpi(MinimumLogicalWidth),
+            Y = ScaleForDpi(MinimumLogicalHeight),
+        };
+        Marshal.StructureToPtr(info, lParam, fDeleteOld: false);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ShellPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        public ShellPoint Reserved;
+        public ShellPoint MaxSize;
+        public ShellPoint MaxPosition;
+        public ShellPoint MinTrackSize;
+        public ShellPoint MaxTrackSize;
     }
 
     /// <summary>审计用 DPI 覆盖：按比例放大窗口尺寸，使逻辑尺寸保持不变。</summary>
