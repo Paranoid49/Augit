@@ -47,7 +47,7 @@ const WORKSPACE = {
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
   status: {
-    branch: 'live-branch',
+    branch: 'dsh',
     files: [
       { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
       { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
@@ -64,7 +64,10 @@ const WORKSPACE = {
   remotes: { available: true, remotes: [{ name: 'origin', fetchUrl: 'https://example.com/team/Augit.git', pushUrl: 'https://example.com/team/Augit.git' }] },
   references: {
     available: true,
-    branches: [{ name: 'dsh', isRemote: false, isCurrent: true, upstream: 'origin/dsh', commitHash: 'aaa1111', subject: 'feat: 一' }],
+    branches: [
+      { name: 'dsh', isRemote: false, isCurrent: true, upstream: 'origin/dsh', commitHash: 'full-head-hash', subject: 'feat: 真实提交一' },
+      { name: 'origin/dsh', isRemote: true, isCurrent: false, upstream: null, commitHash: 'full-bbb2222', subject: 'fix: 真实提交二' },
+    ],
     tags: [],
   },
   stashes: { available: true, stashes: [{ reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' }] },
@@ -202,7 +205,7 @@ async function main() {
     check('无页面脚本错误: ' + JSON.stringify(errors.slice(0, 2)), errors.length === 0);
     check('注入真实工作区数据', await page.evaluate('!!window.__augitLive'));
     check('树显示根与一层', await page.locator('.side-content.tree .tree-row').count() === 4);
-    check('分支标签来自宿主', (await page.locator('.branch-chip').innerText()).includes('live-branch'));
+    check('分支标签来自宿主', (await page.locator('.branch-chip').innerText()).includes('dsh'));
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
     await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 6', null, { timeout: 10000 });
@@ -317,6 +320,19 @@ async function main() {
     check('Stash 管理列出真实贮藏: ' + JSON.stringify(stashList), stashList.some((text) => text.includes('真实贮藏')));
     check('Stash 管理不残留样例', !stashList.some((text) => text.includes('工作区切换前')));
     await stash.page.close();
+
+    // ---- Push 对话框 ----
+    const push = await openScene('scene=push&theme=dark');
+    await push.page.waitForFunction('window.__augitLive && window.__augitLive.push', null, { timeout: 20000 });
+    await push.page.waitForSelector('.push-summary', { timeout: 10000 });
+    const summaryText = await push.page.locator('.push-summary').innerText();
+    check('Push 摘要显示真实分支与上游: ' + summaryText, summaryText.includes('dsh') && summaryText.includes('origin/dsh'));
+    const pushRows = await push.page.locator('.push-commit').allInnerTexts();
+    check('Push 列出真实待推送提交: ' + JSON.stringify(pushRows), pushRows.length === 1 && pushRows[0].includes('真实提交一'));
+    const pushDetail = await push.page.locator('.management-detail').innerText();
+    check('Push 详情显示目标与提交数', pushDetail.includes('目标：origin/dsh') && pushDetail.includes('1 个提交'));
+    check('Push 不残留样例提交', !pushRows.some((text) => text.includes('避免强制更新')));
+    await push.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

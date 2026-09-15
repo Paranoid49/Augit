@@ -155,6 +155,26 @@ document.addEventListener('click', event => {
 
 // Clone 的字体适配只改变表单空间；固定动作栏不随失败或取消提示移动。
 // Push 只模拟现有对话框状态，不执行 Git；所有延迟和监听在关闭时收尾。
+// 外壳注入真实待推送信息时使用；结构、图标与样式与样例版一致。
+function livePushDialogBody() {
+  const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4 4 7-8"/></svg>';
+  const push = (window.__augitLive && window.__augitLive.push) || null;
+  if (!push || !push.upstream) {
+    return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">定义远端</a></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读"><div class="push-empty">没有选中的提交</div><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>`;
+  }
+
+  const commits = push.commits || [];
+  // 上游提交不在已加载的历史窗口内时不能断言「没有提交」，只能说数量未知。
+  const unknown = !!push.truncated;
+  const rows = commits.length === 0
+    ? `<p class="commit-meta" style="padding:6px">${unknown ? "领先提交超出已加载的历史范围" : "没有待推送的提交"}</p>`
+    : commits.map((commit, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}" data-push-hash="${escapeHtml(commit.hash)}">${mark}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
+  const detail = unknown
+    ? `<h2>提交数量未知</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta">领先提交超出当前加载的历史范围。</p>`
+    : `<h2>${commits.length} 个提交</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>`;
+  return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push.branch)} → ${escapeHtml(push.upstream)}</strong></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${rows}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${detail}<div class="push-notice" role="status" hidden></div></div></div>`;
+}
+
 function pushDialogBody(noRemote) {
   const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4 4 7-8"/></svg>';
   return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>main →${noRemote ? '' : ' origin/main'}</strong>${noRemote ? '<a class="file-status-modified" href="remote.html">定义远端</a>' : ''}</div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${noRemote ? '' : ['fix: 精确恢复系统 PATH', 'fix: 避免强制更新 .NET 10'].map((text, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}">${mark}<span>${text}</span></div>`).join('')}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${noRemote ? '<div class="push-empty">没有选中的提交</div>' : '<h2>2 个提交</h2><p class="push-target">目标：origin/main</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>'}<div class="push-notice" role="status" hidden></div></div></div>${noRemote ? '<div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>' : ''}`;
@@ -2222,7 +2242,7 @@ function renderScene() {
     case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
     case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
     case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
-    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
+    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
     case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: searchOverlay("quick"), selectedFile: "MainWindow.cs" });
     case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
@@ -2872,8 +2892,11 @@ function bindChangesWorkflow() {
   };
   ordinaryTabs.forEach(tab => tab.addEventListener("click", event => { event.preventDefault(); showDocument(tab); }));
   const initialTab = [...tabs.querySelectorAll(".editor-tab")].find(tab => tab.textContent.trim().startsWith("提交:"));
-  if (initialTab) {
-    preview = createComparison(selectedFile(), initialTab, content.querySelector(".diff-layout"));
+  // 已有「提交:」标签但没有选中的文件行时不能建立比较视图：
+  // createComparison 需要文件行提供路径。此时保留标签外观，等待用户选择文件。
+  const initialRow = selectedFile();
+  if (initialTab && initialRow) {
+    preview = createComparison(initialRow, initialTab, content.querySelector(".diff-layout"));
     activateComparison(preview);
   }
   updateActions();

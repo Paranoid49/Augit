@@ -241,6 +241,34 @@ async function loadBlame(path) {
   }
 }
 
+/**
+ * 计算待推送信息：当前分支、上游引用与领先的提交。
+ * 上游提交在已加载的历史窗口内时可直接切片得出；不在窗口内说明领先超过一页，
+ * 此时只给出数量未知的提示，不猜测具体提交。
+ */
+function computePush(live) {
+  if (!live || !live.status || !live.references || !live.history) return null;
+  const branch = live.status.branch;
+  if (!branch) return null;
+  const current = (live.references.branches || []).find((item) => item.name === branch && !item.isRemote);
+  const upstream = current && current.upstream ? current.upstream : null;
+  if (!upstream) {
+    return { branch, upstream: null, commits: [] };
+  }
+
+  const upstreamBranch = (live.references.branches || []).find((item) => item.name === upstream);
+  const commits = live.history.commits || [];
+  const index = upstreamBranch
+    ? commits.findIndex((commit) => commit.fullHash === upstreamBranch.commitHash)
+    : -1;
+  return {
+    branch,
+    upstream,
+    commits: index >= 0 ? commits.slice(0, index) : [],
+    truncated: index < 0,
+  };
+}
+
 /** 读取远端、分支标签、Stash 与 Worktree，供管理窗口使用。 */
 async function loadReferences() {
   try {
@@ -261,6 +289,7 @@ async function loadReferences() {
 
     // 管理窗口依赖这些数据，因此到达后补一次重绘；重绘会清空提交详情区，需要重新补齐。
     if (changed && typeof window.__augitRender === "function") {
+      refreshPush();
       window.__augitRender();
       void refreshCommitDetails();
     }
@@ -270,6 +299,13 @@ async function loadReferences() {
     // 即使失败也要放行，避免把界面卡在等待状态。
     window.__augitRefsReady = true;
   }
+}
+
+/** 发布待推送信息，供 Push 对话框使用。 */
+function refreshPush() {
+  const live = window.__augitLive;
+  if (!live) return;
+  live.push = computePush(live);
 }
 
 /** 转义为可安全插入 HTML 的文本。 */
@@ -440,6 +476,7 @@ async function boot() {
       if (revision) void loadCommitDetails(revision);
     });
     // 先标记就绪：详情加载不能拖住其它断言与界面可用性。
+    refreshPush();
     window.__augitHistoryReady = true;
     if (history.commits.length > 0) {
       void refreshCommitDetails();
@@ -449,7 +486,11 @@ async function boot() {
   }
 
   // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
-  void referencesPromise;
+  await referencesPromise;
+  // 三类数据都到齐后才能算出待推送信息；此后再补一次重绘。
+  refreshPush();
+  window.__augitRender();
+  void refreshCommitDetails();
 }
 
 /** 目录展开/折叠：状态写入 store 后整页重绘，因此打开文件不会丢失展开层级。 */
