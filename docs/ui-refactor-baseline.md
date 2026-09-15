@@ -819,11 +819,30 @@ Windows「应用模式」（`AppsUseLightTheme`）决定深浅。读取失败回
 - 真实验收入口改为 `tools/audit/shell-capture.ps1`（支持 `-Theme` / `-Height` / `-Dpi`）；
 - 运行时令牌权威改为 `web/src/mockup.css`（与 `docs/ux-mockups/mockup.css` 逐字节一致）。
 
-**已知遗留**：`tests/Augit.Infrastructure.Tests` 中「索引变化在五百毫秒内合并通知」
-在整套并行运行时偶发失败（实测 735ms > 500ms 上限），单独运行必过。
-属于对机器负载敏感的计时断言，与本次移除无关，但需要后续放宽或改用可控时钟。
+**已知遗留（已于第三十五轮修复）**：`tests/Augit.Infrastructure.Tests` 中
+「索引变化在五百毫秒内合并通知」在整套并行运行时偶发失败（实测 735ms > 500ms 上限）。
 
-### 关于 CDP 诊断通道的结论
+### 第三十五轮：修复计时断言的偶发失败
+
+**根因**：`GitMetadataWatcherTests` 用 `git add` 制造变化，然后把 500 毫秒的断言
+套在**整段代码**上——其中包含 git 子进程的创建与退出。这部分耗时随机器负载波动
+（整套并行运行时实测 735 毫秒），**与被测的「变化合并通知」行为无关**。
+换句话说，断言测的不是它声称要测的东西。
+
+**修复**：把被测对象与进程启动开销分开计量。
+
+- 直接改写 `git init` 之后即存在的 `.git/HEAD` 触发文件系统事件，
+  不再启动 git 进程；
+- 断言改为「合并延迟（`GitMetadataWatcher.MergeDelay` = 50 毫秒）＋ 调度余量」，
+  而不是一个与实际实现无关的 500 毫秒；
+- 等待 `MergeDelay × 2` 后再触发改动，确保 `FileSystemWatcher` 已完成内部注册。
+
+**实测**：`Augit.Infrastructure.Tests` **连续三轮 147/147 通过**（此前每轮都有概率失败），
+整套测试 86 + 147 全通过。
+
+**未改动的同类测试**：`WorkspaceFileWatcherTests` 的 500 毫秒断言**保留**——
+它只写一个文件、不启动任何子进程，因此确实在计量观察器自身的延迟，断言是恰当的。
+两个测试形式相似但实质不同，只修有问题的那个。### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
 但**会破坏 WebView2 的消息通道**：开启后所有桥接请求超时、页面退回样例数据。
