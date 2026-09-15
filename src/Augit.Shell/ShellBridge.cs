@@ -633,7 +633,7 @@ internal sealed class ShellBridge : IDisposable
     /// 写入设置。只接受已知字段：未知字段被忽略，字号等数值先做范围校验，
     /// 避免把非法值写进设置文件。
     /// </summary>
-    private static async Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
+    private async Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         SettingsStore store = new();
         ApplicationSettings current = await store.LoadAsync(cancellationToken);
@@ -651,6 +651,15 @@ internal sealed class ShellBridge : IDisposable
             TerminalCustomCommand = GetString(parameters, "terminalCustomCommand") ?? current.TerminalCustomCommand,
         };
         await store.SaveAsync(updated, cancellationToken);
+        // 设置写入后让 Git 解析缓存与状态缓存失效：
+        // 用户可能刚修正了 git.exe 路径，若沿用上一次「未找到」的结果，
+        // Git 会一直保持不可用直到重启（实测确实如此）。
+        if (!string.Equals(current.GitExecutablePath, updated.GitExecutablePath, StringComparison.Ordinal))
+        {
+            _gitResolution = null;
+        }
+
+        InvalidateStatusCache();
         return new { saved = true, theme = updated.Theme, fontSize = updated.UiFontSize };
     }
 
