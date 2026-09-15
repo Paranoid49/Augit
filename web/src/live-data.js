@@ -115,6 +115,8 @@ async function loadDocument() {
       root: info.root,
       rootPath: "",
       name: info.name,
+      // 标题栏显示工作区名；与树根的 name 分开命名，避免与文档名混淆。
+      workspaceName: info.name,
       valid: info.valid,
       error: info.error,
       branch: null,
@@ -655,6 +657,8 @@ function applyStatus() {
   const live = window.__augitLive;
   if (!live || !latestStatus) return;
   live.branch = latestStatus.branch;
+  // 标题栏的工作区名来自宿主，缺失时保留视觉稿的默认值。
+  if (latestStatus.workspaceName) live.workspaceName = latestStatus.workspaceName;
   live.isDetached = latestStatus.isDetached;
   live.changeCount = latestStatus.files.length;
   live.status = latestStatus;

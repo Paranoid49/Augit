@@ -179,7 +179,7 @@ async function main() {
 
   const stubData = (data) => {
     window.__hostStub = (method, params) => {
-      if (method === 'workspace/info') return { root: 'D:\\ws', name: 'ws', valid: true };
+      if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
       if (method === 'workspace/list') return { path: params.path, entries: data.tree[params.path] || [] };
       if (method === 'git/status') return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: data.status.files };
       if (method === 'git/history') return data.history;
@@ -251,6 +251,11 @@ async function main() {
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
     await page.waitForFunction('window.__augitLive && window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 10000 });
+    // 标题栏同样来自宿主，不能停留在视觉稿的默认文案。
+    const workspaceChip = await page.locator('.workspace-chip').innerText();
+    check('标题栏显示真实工作区名: ' + workspaceChip, workspaceChip.includes('live-ws'));
+    const contextLabel = await page.locator('.titlebar-context').innerText();
+    check('标题栏显示真实当前文件: ' + contextLabel, contextLabel.includes('product-spec.md'));
     const preview = await page.locator('.markdown-preview').innerHTML();
     check('Markdown 预览来自真实内容', preview.includes('真实标题') && preview.includes('<strong>加粗</strong>'));
     check('预览不残留样例标题', !preview.includes('Augit 产品规格'));
