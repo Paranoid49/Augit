@@ -1971,6 +1971,32 @@ async function main() {
       treeRowsReExpanded > treeRowsCollapsed && (await docsExpanded()) === true);
     await kbTree.page.close();
 
+    // ---- 未接线的跳转链接不得离开应用页面 ----
+    // 视觉稿为逐场景浏览把交互写成指向 *.html 的链接；在外壳里点击这些入口
+    // 必须留在应用内。已接线的入口自行 preventDefault，其余由防护网兜住。
+    const navGuard = await openScene('scene=main-project&theme=dark');
+    await navGuard.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const urlBefore = navGuard.page.url();
+    const guardState = await navGuard.page.evaluate(() => ({
+      guarded: !!window.__augitNavGuarded,
+      hasLive: !!window.__augitLive,
+    }));
+    check('导航防护已安装: ' + JSON.stringify(guardState), guardState.guarded === true && guardState.hasLive === true);
+    await navGuard.page.locator('.top-chip.branch-chip').click();
+    await navGuard.page.waitForTimeout(900);
+    check('点击分支芯片不离开应用: ' + navGuard.page.url(), navGuard.page.url() === urlBefore);
+    // 打开分支弹层后，其中的菜单项同样不得离开应用
+    await navGuard.page.keyboard.press('Escape');
+    await navGuard.page.waitForTimeout(300);
+    const stillThere = await navGuard.page.evaluate(() => ({
+      titlebar: !!document.querySelector('.titlebar'),
+      rail: !!document.querySelector('.tool-rail'),
+      workspace: !!document.querySelector('.workspace'),
+    }));
+    check('点击后界面结构完好: ' + JSON.stringify(stillThere),
+      stillThere.titlebar === true && stillThere.rail === true && stillThere.workspace === true);
+    await navGuard.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

@@ -1388,18 +1388,29 @@ function bindConflictSave() {
 function refresh(...regions) {
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
     window.__augitRenderRegions(...regions);
-    // 工具窗口与标签栏可能在这次刷新中被替换，重新挂上动作。
-    bindToolRail?.();
-    bindEditorTabs?.();
-    bindChangesState?.();
-    bindChangesScroll();
-    restoreChangesState();
-    bindOverlayEscape();
+    rebindAfterRender();
     return;
   }
 
   window.__augitRender();
+  rebindAfterRender();
+}
+
+/**
+ * 每次渲染后重新挂上动作与恢复状态。
+ *
+ * 两条刷新路径（定点替换与整页重绘）都必须调用它：绑定只写在其中一条上，
+ * 另一条就会出现「某些入口在启动后没有动作」——实测分支芯片因此整页导航离开应用。
+ */
+function rebindAfterRender() {
+  // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
+  bindEditorTabs?.();
+  bindChangesState?.();
+  bindChangesScroll();
+  restoreChangesState();
+  bindOverlayEscape();
+  guardUnwiredNavigation();
 }
 
 /**
@@ -1752,6 +1763,32 @@ function bindChangesState() {
   document.addEventListener("input", (event) => {
     const box = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
     if (box) rememberCommitDraft(box.value);
+  }, true);
+}
+
+/**
+ * 兜住未接线的跳转链接。
+ *
+ * 视觉稿为逐场景浏览把交互写成指向 `*.html` 的链接；在外壳里这些应当是应用内动作。
+ * 已经接线的入口（工具窗口入口、标签、改动行等）会在各自的处理里 preventDefault；
+ * 这里兜住**尚未接线**的那些，避免点击后整页导航离开应用——那会让界面退回静态视觉稿，
+ * 与「这是一个应用」直接冲突。
+ *
+ * 必须挂在 window 的捕获阶段：它晚于 document 上的既有处理，因此不会抢走已接线的动作；
+ * 又早于浏览器的默认导航，因此能拦住未接线的那些。
+ */
+function guardUnwiredNavigation() {
+  if (!window.__augitLive || window.__augitNavGuarded) return;
+  window.__augitNavGuarded = true;
+  window.addEventListener("click", (event) => {
+    if (event.defaultPrevented) return;
+    const link = event.target.closest && event.target.closest('a[href$=".html"]');
+    if (!link) return;
+    // 已接线的入口在自己的处理里 preventDefault，到不了这里；
+    // 能到这里说明该动作尚未接线。
+    event.preventDefault();
+    window.__augitUnwiredAction = link.getAttribute("href");
+    window.__augitUnwiredLabel = (link.getAttribute("aria-label") || link.innerText || "").trim().slice(0, 40);
   }, true);
 }
 
