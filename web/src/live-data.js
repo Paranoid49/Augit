@@ -387,7 +387,7 @@ async function loadReferences() {
     // 管理窗口依赖这些数据，因此到达后补一次重绘；重绘会清空提交详情区，需要重新补齐。
     if (changed && typeof window.__augitRender === "function") {
       refreshPush();
-      window.__augitRender();
+      refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
       reattachTerminal();
       bindSettingsSave();
       bindConflictSave();
@@ -657,6 +657,20 @@ function bindConflictSave() {
   });
 }
 
+/**
+ * 刷新界面。优先只替换受影响的区域（规格 §6：局部状态变化不得重建全局结构），
+ * 保留其余区域的焦点、滚动位置与已建立的组件实例；
+ * 页面未提供区域刷新入口时退回整页重绘。
+ */
+function refresh(...regions) {
+  if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
+    window.__augitRenderRegions(...regions);
+    return;
+  }
+
+  window.__augitRender();
+}
+
 /** 转义为可安全插入 HTML 的文本。 */
 function escapeText(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
@@ -891,7 +905,7 @@ async function boot() {
   await referencesPromise;
   // 三类数据都到齐后才能算出待推送信息；此后再补一次重绘。
   refreshPush();
-  window.__augitRender();
+  refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
   reattachTerminal();
   if (window.__augitLive && window.__augitLive.search) bindSearchOverlay(window.__augitLive.search.kind);
   void refreshCommitDetails();

@@ -3550,3 +3550,6 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   background: var(--augit-surface-2);
   color: var(--augit-faint);
 }
+
+/* 覆盖层容器：只用于把 scrim 与对话框作为一个整体替换，不改变布局。 */
+.overlay-layer { display: contents; }

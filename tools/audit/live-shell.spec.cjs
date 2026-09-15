@@ -623,6 +623,46 @@ async function main() {
     check('弹层含快捷动作', popText.includes('更新项目') && popText.includes('提交') && popText.includes('推送'));
     await pop.page.close();
 
+    // ---- 规格 §6：局部刷新不得重建全局结构 ----
+    // 用真实交互制造「局部状态」，再触发一次数据到达式的刷新，
+    // 确认这些状态仍然保留。
+    const region = await openScene('scene=main-project&theme=dark');
+    await region.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await region.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await region.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
+    const before = await region.page.evaluate(() => {
+      const tree = document.querySelector('.side-content.tree');
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      // 用自定义标记模拟「组件实例身份」：整页重绘会让它消失。
+      tree.dataset.regionProbe = 'kept';
+      row.dataset.regionProbeRow = 'kept';
+      tree.scrollTop = 7;
+      return { treeMarked: tree.dataset.regionProbe, rowMarked: !!row.dataset.regionProbeRow };
+    });
+    check('测试前已标记树节点', before.treeMarked === 'kept' && before.rowMarked);
+    // 触发一次数据到达式的刷新（与真实数据晚到时相同的调用路径）。
+    await region.page.evaluate(() => window.__augitRenderRegions('editorContent', 'statusbar'));
+    const afterSide = await region.page.evaluate(() => {
+      const tree = document.querySelector('.side-content.tree');
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      return {
+        treeMarked: tree ? tree.dataset.regionProbe || null : null,
+        rowMarked: row ? row.dataset.regionProbeRow || null : null,
+        expandedRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      };
+    });
+    check('替换编辑区不影响侧栏节点身份: ' + JSON.stringify(afterSide), afterSide.treeMarked === 'kept' && afterSide.rowMarked === 'kept');
+    check('替换编辑区不影响树展开状态', afterSide.expandedRows > 4);
+    // 反过来：刷新侧栏时，编辑区的节点身份必须保留。
+    await region.page.evaluate(() => { document.querySelector('.editor-content').dataset.regionProbe = 'kept'; });
+    await region.page.evaluate(() => window.__augitRenderRegions('side'));
+    const afterEditor = await region.page.evaluate(() => {
+      const editor = document.querySelector('.editor-content');
+      return { editorMarked: editor ? editor.dataset.regionProbe || null : null };
+    });
+    check('替换侧栏不影响编辑区节点身份: ' + JSON.stringify(afterEditor), afterEditor.editorMarked === 'kept');
+    await region.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

@@ -2376,7 +2376,7 @@ function liveSearchOverlay(kind) {
   const notice = noticeText
     ? `<div class="search-notice" role="status" tabindex="0">${escapeHtml(noticeText)}</div>`
     : "";
-  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}"><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
 }
 
 function searchOverlay(kind) {
@@ -2390,11 +2390,12 @@ function searchOverlay(kind) {
     : [['NativeGitPanel.cs', 'src/Augit.App'], ['NativeGitPanelRenderingTests.cs', 'tests/Augit.App.Tests'], ['product-spec.md', 'docs']];
   const results = state === 'empty' || state === 'error' ? '' : `<div class="search-results">${rows.map(([name, directory, match], index) => `<a class="search-result${index === 0 ? ' selected' : ''}" href="text-viewer.html">${fileTypeIcon(name)}<span>${name}${match ? ` <span class="commit-meta">${match}</span>` : ''}</span><span class="commit-meta">${directory}</span></a>`).join('')}</div>`;
   const notice = repository && notices[state] ? `<div class="search-notice" role="status" tabindex="0">${notices[state]}</div>` : '';
-  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}"><div class="search-tabs">${searchHeader}</div><div class="search-query"><input class="search-field" value="${state === 'empty' ? '' : repository ? 'Git 状态' : 'NativeGitPanel'}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${searchHeader}</div><div class="search-query"><input class="search-field" value="${state === 'empty' ? '' : repository ? 'Git 状态' : 'NativeGitPanel'}" aria-label="搜索内容"></div>${results}${notice}</div>`;
 }
 
 function dialog(title, body, footer, wide = false, extraClass = "") {
-  return `<div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section>`;
+  // scrim 与对话框作为同一个覆盖层整体替换，避免局部刷新后残留其一。
+  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
 }
 
 // 外壳注入真实引用时使用：分组、当前分支标记与二级动作沿用样例版结构。
@@ -2416,11 +2417,11 @@ function liveBranchesPopover() {
   const actions = current
     ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`
     : "";
-  return `<section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
 }
 
 function branchesPopover() {
-  return `<section class="popover"><input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div><div class="menu-item"><span>${icon("chevron-down")}</span><strong>本地</strong></div><div class="menu-item selected">${gitReferenceIcon()} main <span class="grow"></span>${icon("chevron-right")}</div></section><section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 main 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section>`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover"><input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div><div class="menu-item"><span>${icon("chevron-down")}</span><strong>本地</strong></div><div class="menu-item selected">${gitReferenceIcon()} main <span class="grow"></span>${icon("chevron-right")}</div></section><section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 main 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section></div>`;
 }
 
 function renderScene() {
@@ -3291,6 +3292,63 @@ window.__augitRender = () => {
   if (scene === "quick-open" || scene === "quick-open-empty") {
     document.querySelector(".search-overlay input")?.focus();
   }
+  void applyTypographyPreview();
+};
+
+// 各区域模板的取法：把整页 HTML 解析一次，再按类名取回对应片段。
+function renderRegions() {
+  const template = document.createElement("template");
+  template.innerHTML = renderScene();
+  return template.content;
+}
+
+// 只在这些区域上做定点替换。每个键对应一个选择器与它的取样器。
+const REGION_SELECTORS = {
+  titlebar: ".titlebar",
+  rail: ".tool-rail",
+  side: ".side-tool",
+  editorTabs: ".editor-tabs",
+  editorContent: ".editor-content",
+  statusbar: ".statusbar",
+  bottomTool: ".bottom-tool",
+  overlay: "[data-augit-overlay]",
+  toast: ".toast",
+};
+
+const REGION_SOURCES = {
+  titlebar: fragment => fragment.querySelector(".titlebar"),
+  rail: fragment => fragment.querySelector(".tool-rail"),
+  side: fragment => fragment.querySelector(".side-tool"),
+  editorTabs: fragment => fragment.querySelector(".editor-tabs"),
+  editorContent: fragment => fragment.querySelector(".editor-content"),
+  statusbar: fragment => fragment.querySelector(".statusbar"),
+  bottomTool: fragment => fragment.querySelector(".bottom-tool"),
+  overlay: fragment => fragment.querySelector("[data-augit-overlay]"),
+  toast: fragment => fragment.querySelector(".toast"),
+};
+
+/**
+ * 局部更新：只替换指定区域的内容，保留其余区域的 DOM 实例。
+ * 整页重绘会丢掉焦点、滚动位置、展开状态与已建立的组件实例
+ * （终端、搜索输入框等），规格 §6 要求局部状态变化不得重建全局结构。
+ */
+window.__augitRenderRegions = (...names) => {
+  if (!app || names.length === 0) return;
+  const fragment = renderRegions();
+  for (const name of names) {
+    const selector = REGION_SELECTORS[name];
+    const source = REGION_SOURCES[name];
+    if (!selector || !source) continue;
+    const target = app.querySelector(selector);
+    const replacement = source(fragment);
+    if (target && replacement) {
+      // 只在两侧都存在时替换：该场景没有这个区域时跳过，
+      // 不要因为一个区域缺失就退化成整页重绘。
+      target.replaceWith(replacement);
+    }
+  }
+
+  bindInteractions();
   void applyTypographyPreview();
 };
 window.__augitScene = () => scene;
