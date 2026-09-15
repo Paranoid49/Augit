@@ -255,7 +255,16 @@ internal sealed class ShellWindow : IDisposable
             // 长期使用会堆积成 GB 级的残留（实测 115 个目录 / 1.4 GB）。
             string userDataFolder = Path.Combine(shellDataRoot, "Session");
             CleanStaleSessions(shellDataRoot, userDataFolder);
-            _environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            CoreWebView2EnvironmentOptions environmentOptions = new();
+            if (_options.BrowserArguments is { Length: > 0 } browserArguments)
+            {
+                // 诊断用：直接传入 Chromium 参数，用于对比渲染与内存行为。
+                // 注意：实测 WebView2 会覆盖部分 Chromium 开关（例如 --disable-gpu
+                // 传入后 GPU 进程仍然存在），因此该入口只适合排查，不保证生效。
+                environmentOptions.AdditionalBrowserArguments = browserArguments;
+            }
+
+            _environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
             _controller = await _environment.CreateCoreWebView2ControllerAsync(_window);
             if (_disposed)
             {

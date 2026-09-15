@@ -1165,6 +1165,36 @@ Changes 与 Unversioned Files 的**路径/状态/排序**、已选文件或提�
 | 10 万提交按需加载 | 未验证 | 历史有 100 条上限与分页，未构造 10 万提交仓库 |
 | 核心界面 Working Set ≤ 100 MB | **未达标** | 约 490–523 MB（Chromium 渲染层固有成本） |
 
+### 第四十五轮：内存优化的尝试与结论
+
+用户明确优先「尽可能内存占用少」。本轮针对最大单项——WebView2 的 GPU 进程
+（私有内存 125 MB）——做了优化尝试。
+
+**尝试与实测**（私有内存合计，含外壳进程）：
+
+| 配置 | 合计私有内存 |
+|---|---|
+| 默认 | 283–285 MB |
+| `--disable-gpu` | 283 MB |
+| `--disable-gpu-compositing` | 284 MB |
+| `--disable-features=CalculateNativeWinOcclusion` | 284 MB |
+
+**三个开关都没有带来可测量的下降**。进一步核查发现：`--disable-gpu`
+传入后 **GPU 进程依然存在**——WebView2 会覆盖部分 Chromium 开关，
+宿主无法通过该入口真正关闭 GPU 合成。
+
+**结论**：内存无法在当前技术方案内显著降低。剩余占用是 Chromium 多进程架构的
+固有成本，而不是外壳的浪费：
+- 外壳进程私有内存仅 **19–21 MB**（本轮实测，比第十七轮的工作集 54 MB 更能反映真实增量）；
+- 其余约 263 MB 分布在 browser / gpu / renderer / utility / crashpad 五个进程。
+
+**因此我不关闭 GPU**：用户把「丝滑」列为唯一硬要求，而把内存限制明确放开。
+为省内存改成软件渲染会直接损害流畅度，与该优先级冲突。这个取舍留给用户判断，
+而不是单方面决定。
+
+**保留 `--browser-args` 诊断入口**，并在代码注释中写明「WebView2 会覆盖部分
+Chromium 开关，该入口不保证生效」——避免以后有人据此误判。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
