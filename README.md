@@ -50,6 +50,35 @@ powershell -NoProfile -File .\tools\release.ps1
 
 发布脚本生成 `win-x64`、非 self-contained 的便携压缩包和小型联网安装器，并在结束前删除发布暂存目录。
 
+若还原时无法访问 NuGet 源（离线环境），追加 `-p:NuGetAudit=false` 跳过漏洞审计即可完成还原。
+
+## 项目结构
+
+- `src/Augit.Core`：领域模型与纯逻辑（文档分类、Git 模型与补丁解析、路径规则）。
+- `src/Augit.Infrastructure`：Win32 互操作与外部程序集成（Git 命令、工作区文件、ripgrep、ConPTY、设置存储）。
+- `src/Augit.Shell`：原生 Win32 外壳 + WebView2 渲染层，界面由 `web` 目录的网页资源渲染。
+- `src/Augit.App`：原生自绘界面（旧的界面实现，保留至 WebView2 渲染层完成替换）。
+- `web`：界面资源（HTML/CSS/JS）。当前与 `docs/ux-mockups` 共用同一套样式与场景脚本，
+  因此视觉稿即界面代码，改稿不需要二次移植。
+- `docs/ux-mockups`：HTML 视觉稿与设计参考，是界面的视觉基线。
+- `tools/audit`：真实像素采集工具，用法与实现陷阱见 `tools/audit/README.md`。
+
+### 运行 WebView2 外壳
+
+```powershell
+# 默认加载 web 目录
+src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.Shell.exe
+
+# 指定场景与主题（场景名取自 docs/ux-mockups）
+Augit.Shell.exe --scene git-history --theme light
+
+# 直接渲染 HTML 视觉稿，便于与视觉稿逐场景对照
+Augit.Shell.exe --web-root docs\ux-mockups --scene main-project
+
+# 像素对照模式：栅格化比例固定为 1，使一个 CSS 像素对应一个物理像素
+Augit.Shell.exe --pixel-exact --width 1180 --height 797
+```
+
 ## 文档
 
 - [产品规格](docs/product-spec.md)：产品行为与功能边界。
