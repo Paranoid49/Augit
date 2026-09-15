@@ -710,7 +710,13 @@ async function openChangeDiff(path) {
   try {
     const diff = await loadDiff(path);
     if (diff) {
-      refresh("editorContent", "editorTabs", "side", "statusbar");
+      // 规格 §12.2 明确要求已有 Diff 标签时「只更新该标签正文」，
+      // 不得刷新改动列表，也不得改变复选框、提交信息与列表滚动。
+      // 这不只是体验问题：改动列表一旦被替换，被点击的行会在事件继续传播前
+      // 离开文档，视觉稿「双击改动行建临时比较标签」的监听就永远收不到 dblclick
+      // （实测：真正的双击不建标签，但手动派发 dblclick 能建）。
+      // 因此这里只刷新编辑区相关区域，侧栏交给选中态本身。
+      refresh("editorContent", "editorTabs", "statusbar");
     }
   } finally {
     clearDiffLoadingMarker();

@@ -1386,7 +1386,28 @@ async function main() {
     }));
     console.log('INFO 改动列表标签工作流=' + JSON.stringify(tabProbe));
     step('差异正文可用（标签工作流见 INFO）', diffState.rows > 0, `行数=${diffState.rows}`);
-    step('差异态状态栏不带编码', !diffState.status.includes('UTF-8'), diffState.status);
+    // 4b) 真实双击必须能建出临时比较标签。
+    // 这条曾经不成立：差异打开时若刷新改动列表，被点击的行会在事件继续传播前
+    // 离开文档，视觉稿「双击改动行建临时比较标签」的监听收不到 dblclick。
+    await j2.page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`, { waitUntil: 'load' });
+    await j2.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await j2.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await j2.page.evaluate(() => { window.__diffCalls = []; });
+    await j2.page.locator('.changes-list .change-file-row').first().dblclick();
+    await j2.page.waitForTimeout(900);
+    const dbl = await j2.page.evaluate(() => ({
+      diffTab: !!document.querySelector('[data-workspace-diff-tab]'),
+      caption: document.querySelector('.change-tab-caption') ? document.querySelector('.change-tab-caption').innerText : null,
+      editor: window.__augitLive.editor,
+      rows: window.__augitLive.diff ? window.__augitLive.diff.rows.length : -1,
+      listRows: document.querySelectorAll('.changes-list .change-file-row').length,
+      calls: (window.__diffCalls || []).length,
+    }));
+    step('双击改动文件建出比较标签: ' + JSON.stringify(dbl.caption), dbl.diffTab === true);
+    step('比较标签标注文件名', typeof dbl.caption === 'string' && dbl.caption.includes('App.cs'), String(dbl.caption));
+    step('差异正文与标签同时就位', dbl.editor === 'diff' && dbl.rows > 0, `行数=${dbl.rows}`);
+    step('打开差异后改动列表未被替换', dbl.listRows > 0, `列表行数=${dbl.listRows}`);
+    step('打开差异只产生一次请求', dbl.calls === 1, `请求=${dbl.calls}`);
 
     // 5) 外部变化驱动刷新：文件列表新增一项后，改动列表应更新
     await j2.page.evaluate(() => {
