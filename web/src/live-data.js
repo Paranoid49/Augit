@@ -292,6 +292,7 @@ async function loadReferences() {
       refreshPush();
       window.__augitRender();
       reattachTerminal();
+      bindSettingsSave();
       bindConflictSave();
       void refreshCommitDetails();
     }
@@ -401,6 +402,68 @@ async function stopTerminal() {
   }
   terminalReady = false;
   await invoke('terminal/stop', {}, 15000).catch(() => {});
+}
+
+/** 读取设置并挂上保存动作。 */
+async function loadSettings() {
+  try {
+    const settings = await invoke("settings/read", {}, 15000);
+    const live = window.__augitLive;
+    if (live && settings) {
+      live.settings = settings;
+      window.__augitSettingsReady = true;
+    }
+  } catch (error) {
+    window.__augitError = "load-settings:" + String(error && error.message || error);
+  }
+}
+
+/**
+ * 收集设置窗口里带 data-setting 的字段并写回。
+ * 只提交界面上真实存在的字段，未出现的字段由宿主保留原值。
+ */
+async function saveSettings() {
+  const payload = {};
+  for (const element of document.querySelectorAll("[data-setting]")) {
+    const key = element.dataset.setting;
+    if (element.type === "number") {
+      const value = Number(element.value);
+      if (Number.isFinite(value)) payload[key] = value;
+    } else {
+      payload[key] = element.value;
+    }
+  }
+
+  const saved = await invoke("settings/write", payload, 15000);
+  if (!saved || !saved.saved) throw new Error("设置未能保存");
+  window.__augitSettingsSaved = true;
+  return saved;
+}
+
+/**
+ * 设置窗口的保存动作。
+ * 用文档级委托而不是直接绑定按钮：整页重绘会替换对话框节点，
+ * 直接绑定会随着节点替换失效（这是本轮实际踩到的问题）。
+ * 底栏顺序是「取消 / 应用 / 确定」，只对后两个写回设置。
+ */
+function bindSettingsSave() {
+  if (window.__augitSettingsDelegated) return;
+  window.__augitSettingsDelegated = true;
+  document.addEventListener("click", (event) => {
+    const live = window.__augitLive;
+    if (!live || !live.settings) return;
+    const dialog = event.target.closest && event.target.closest(".dialog.dialog-xl");
+    if (!dialog) return;
+    const button = event.target.closest(".dialog-footer .secondary-button, .dialog-footer .primary-button");
+    if (!button) return;
+    const buttons = [...dialog.querySelectorAll(".dialog-footer .secondary-button, .dialog-footer .primary-button")];
+    if (buttons.indexOf(button) === 0) return;
+
+    event.preventDefault();
+    void saveSettings().catch((error) => {
+      window.__augitError = "save-settings:" + String(error && error.message || error);
+    });
+  }, true);
 }
 
 /** 读取当前冲突会话与冲突文件列表。 */
@@ -583,6 +646,7 @@ async function boot() {
   const requestedFileHistory = query.get("file-history");
   const requestedConflict = query.get("conflict");
   const wantsTerminal = query.get("scene") === "terminal";
+  const wantsSettings = query.get("scene") === "settings";
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
     statusPromiseRef = loadStatus();
@@ -656,6 +720,12 @@ async function boot() {
     }
   } else {
     window.__augitHistoryReady = true;
+  }
+
+  if (wantsSettings) {
+    await loadSettings();
+    window.__augitRender();
+    bindSettingsSave();
   }
 
   if (wantsTerminal) {

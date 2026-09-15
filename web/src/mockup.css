@@ -3533,3 +3533,15 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .terminal-header .terminal-session-close:is(:hover, :active):not(:disabled)::before { background: var(--augit-hover); }
 .terminal-header .terminal-more { right: 40px; }
 .terminal-header .terminal-hide { right: 8px; }
+
+/* 实时设置页：字体行需要在窄列里保留字体名输入的可读宽度。
+   .form-grid 的 minmax(0, 1fr) 会把字体名输入压到 0 宽，这里为字体行单独定宽。 */
+.live-settings .font-setting {
+  grid-template-columns: minmax(120px, 1fr) auto 70px;
+}
+.live-settings .font-setting > label {
+  white-space: nowrap;
+}
+.live-settings .form-grid {
+  grid-template-columns: 90px minmax(220px, 1fr);
+}

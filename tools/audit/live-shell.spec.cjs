@@ -61,6 +61,11 @@ const WORKSPACE = {
       { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: [], references: [] },
     ],
   },
+  settings: {
+    theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
+    fontSize: 15, codeFontSize: 14, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
+    terminalShell: 'PowerShell7', terminalCustomCommand: null, recentWorkspaces: ['D:\\ws'],
+  },
   conflicts: {
     available: true, operation: 'Rebase', hasConflicts: true,
     files: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src' }],
@@ -167,6 +172,8 @@ async function main() {
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') return data.blame;
       if (method === 'git/file-history') return data.fileHistory;
+      if (method === 'settings/read') return data.settings;
+      if (method === 'settings/write') { window.__settingsWritten = params; return { saved: true, theme: params.theme, fontSize: params.fontSize }; }
       if (method === 'git/conflicts') return data.conflicts;
       if (method === 'git/conflict-load') return data.conflict;
       if (method === 'git/remotes') return data.remotes;
@@ -363,6 +370,48 @@ async function main() {
     const header = await conflict.page.locator('.conflict-header').innerText();
     check('冲突标题显示真实文件名与冲突数: ' + header.replace(/\n/g, ' '), header.includes('App.cs') && header.includes('1 个未处理冲突'));
     await conflict.page.close();
+
+    // ---- 设置窗口 ----
+    const settings = await openScene('scene=settings&theme=dark');
+    await settings.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await settings.page.waitForSelector('[data-setting="theme"]', { timeout: 10000 });
+    check('设置窗口显示真实主题', await settings.page.locator('[data-setting="theme"]').inputValue() === 'Dark');
+    check('设置窗口显示真实界面字号', await settings.page.locator('[data-setting="fontSize"]').inputValue() === '15');
+    check('设置窗口显示真实等宽字号', await settings.page.locator('[data-setting="codeFontSize"]').inputValue() === '14');
+    check('设置窗口显示真实 Shell', await settings.page.locator('[data-setting="terminalShell"]').inputValue() === 'PowerShell7');
+    check('设置窗口显示真实 git 路径', (await settings.page.locator('[data-setting="gitExecutablePath"]').inputValue()).includes('Git'));
+    // 修改字号后保存，确认写回内容被提交
+    await settings.page.locator('[data-setting="fontSize"]').fill('17');
+    // 确认按钮是 <a href>，点击会导航离开；去掉 href 后再点，避免测试中断。
+    await settings.page.evaluate(() => {
+      const button = document.querySelector('.dialog.dialog-xl .dialog-footer .primary-button');
+      if (button) button.removeAttribute('href');
+    });
+    await settings.page.locator('.dialog.dialog-xl .dialog-footer .primary-button').click();
+    try {
+      await settings.page.waitForFunction('window.__augitSettingsSaved === true', null, { timeout: 10000 });
+    } catch {
+      const st = await settings.page.evaluate(() => ({
+        err: window.__augitError || null,
+        saved: !!window.__augitSettingsSaved,
+        hasDialog: !!document.querySelector('.dialog-xl'),
+        buttons: [...document.querySelectorAll('.dialog-footer .secondary-button, .dialog-footer .primary-button')].map((b) => b.innerText.trim()),
+        fields: document.querySelectorAll('[data-setting]').length,
+        trace: window.__augitBindTrace || null, boundFlag: !!window.__augitSettingsBound, histReady: !!window.__augitHistoryReady, marker: (document.querySelector('.dialog.dialog-xl .dialog-footer .primary-button')||{}).dataset ? document.querySelector('.dialog.dialog-xl .dialog-footer .primary-button').dataset.settingsBound : null,
+        topmost: (() => {
+          const b = document.querySelector('.dialog.dialog-xl .dialog-footer .primary-button');
+          if (!b) return 'no-button';
+          const r = b.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return hit ? (hit.className || hit.tagName) + ' | inButton=' + b.contains(hit) : 'none';
+        })(),
+      }));
+      throw new Error('设置保存未生效: ' + JSON.stringify(st));
+    }
+    const written = await settings.page.evaluate('window.__settingsWritten');
+    check('保存提交了修改后的字号: ' + JSON.stringify(written && written.fontSize), written && written.fontSize === 17);
+    check('保存未丢失其它字段', written && written.theme === 'Dark' && written.terminalShell === 'PowerShell7');
+    await settings.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

@@ -112,6 +112,8 @@ internal sealed class ShellBridge
             "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
+            "settings/read" => await ReadSettingsAsync(cancellationToken),
+            "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             _ => throw new InvalidOperationException($"未知的宿主方法：{method}"),
         };
     }
@@ -260,6 +262,62 @@ internal sealed class ShellBridge
                 references = entry.References.Select(reference => reference.Name).ToArray(),
             }),
         };
+    }
+
+    /// <summary>读取当前设置。</summary>
+    private static async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
+    {
+        SettingsStore store = new();
+        ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+        return new
+        {
+            theme = settings.Theme,
+            textFontFamily = settings.TextFontFamily,
+            monospaceFontFamily = settings.MonospaceFontFamily,
+            fontSize = settings.UiFontSize,
+            codeFontSize = settings.FontSize,
+            gitExecutablePath = settings.GitExecutablePath,
+            terminalShell = settings.TerminalShell,
+            terminalCustomCommand = settings.TerminalCustomCommand,
+            recentWorkspaces = settings.RecentWorkspaces,
+        };
+    }
+
+    /// <summary>
+    /// 写入设置。只接受已知字段：未知字段被忽略，字号等数值先做范围校验，
+    /// 避免把非法值写进设置文件。
+    /// </summary>
+    private static async Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        SettingsStore store = new();
+        ApplicationSettings current = await store.LoadAsync(cancellationToken);
+        ApplicationSettings updated = current with
+        {
+            Theme = GetString(parameters, "theme") ?? current.Theme,
+            TextFontFamily = GetString(parameters, "textFontFamily") ?? current.TextFontFamily,
+            MonospaceFontFamily = GetString(parameters, "monospaceFontFamily") ?? current.MonospaceFontFamily,
+            FontSize = ClampFontSize(GetDouble(parameters, "codeFontSize")) ?? current.FontSize,
+            TextFontSize = ClampFontSize(GetDouble(parameters, "fontSize")) ?? current.UiFontSize,
+            GitExecutablePath = GetString(parameters, "gitExecutablePath") ?? current.GitExecutablePath,
+            TerminalShell = GetString(parameters, "terminalShell") ?? current.TerminalShell,
+            TerminalCustomCommand = GetString(parameters, "terminalCustomCommand") ?? current.TerminalCustomCommand,
+        };
+        await store.SaveAsync(updated, cancellationToken);
+        return new { saved = true, theme = updated.Theme, fontSize = updated.UiFontSize };
+    }
+
+    private static double? ClampFontSize(double? value)
+    {
+        return value is { } size && size is >= 9 and <= 40 ? size : null;
+    }
+
+    private static double? GetDouble(JsonElement parameters, string name)
+    {
+        return parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty(name, out JsonElement element)
+            && element.ValueKind == JsonValueKind.Number
+            ? element.GetDouble()
+            : null;
     }
 
     /// <summary>

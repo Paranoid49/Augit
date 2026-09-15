@@ -326,6 +326,25 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 新增 `reattachTerminal` 在每次重绘后把 xterm 自己的 DOM 节点搬回新宿主，
 保留既有会话而不是重建。
 
+### 第十六轮：设置窗口接真实数据
+
+- 新增宿主方法 `settings/read` 与 `settings/write`。写入只接受已知字段，
+  字号先做 9–40 范围校验，避免把非法值写进设置文件。
+- 网页层新增 `liveSettingsBody`（主题、界面字体与字号、等宽字体与字号、终端 Shell、
+  git.exe 路径、最近目录计数），值全部来自设置文件。
+- 验收套件扩充到 **53 项断言**（新增设置七项：主题、界面字号、等宽字号、Shell、
+  git 路径，以及保存后字号被提交、其它字段未丢失）。
+
+**真实外壳核对**：界面显示 `跟随 Windows`、`Segoe UI`、`Cascadia Mono`；
+与设置文件（`theme: System`、`textFontFamily: Segoe UI`、`monospaceFontFamily: Cascadia Mono`）一致。
+
+**修复的保存绑定问题（第四次同类）**：直接给对话框按钮绑定监听会随整页重绘失效，
+点击后不生效。改为文档级事件委托，按底栏顺序（取消 / 应用 / 确定）只对后两个写回。
+
+**修复的布局问题**：`.form-grid` 的 `minmax(0, 1fr)` 会把字体名输入压到 0 宽、
+字号标签折成竖排。新增 `.live-settings` 作用域样式为字体行单独定宽；
+该样式只在实时设置页生效，视觉稿渲染差异仍为 **0.000**。
+
 ### 关于 CDP 诊断通道的结论
 
 `--debug-port`（`AdditionalBrowserArguments = --remote-debugging-port=N`）能开启 CDP，
