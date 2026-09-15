@@ -20,6 +20,7 @@ function isVisibleEntry(entry) {
 
 // 目录树状态：展开集合与子项缓存都保存在这里，
 // 这样打开文件触发整页重绘时不会丢失展开状态，也不会重复向宿主请求。
+let latestStatus = null;
 const expandedPaths = new Set([""]);
 const childrenByPath = new Map();
 
@@ -109,7 +110,7 @@ async function loadDocument() {
     const tree = buildVisibleTree(info.name, "");
 
     window.__augitMarks = marks;
-    return {
+    const liveObject = {
       root: info.root,
       rootPath: "",
       name: info.name,
@@ -120,6 +121,9 @@ async function loadDocument() {
       changeCount: 0,
       tree,
     };
+    window.__augitLive = liveObject;
+    applyStatus();
+    return liveObject;
   } catch (error) {
     window.__augitError = "load-document:" + String(error && error.message || error);
     return null;
@@ -144,11 +148,9 @@ async function loadStatus() {
       status: Math.round(performance.now() - started),
     });
     if (!status || !status.available || !status.isRepository) return null;
-    if (window.__augitLive) {
-      window.__augitLive.branch = status.branch;
-      window.__augitLive.isDetached = status.isDetached;
-      window.__augitLive.changeCount = status.files ? status.files.length : 0;
-    }
+    latestStatus = normalizeStatus(status);
+    // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
+    applyStatus();
     return status;
   } catch {
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
@@ -158,17 +160,34 @@ async function loadStatus() {
   }
 }
 
-/** 分支名是标题栏里的独立标签，单独更新即可，避免整页重绘。 */
-function applyBranch(branch) {
-  if (!branch) return;
-  const chip = document.querySelector(".branch-chip");
-  if (!chip) return;
-  for (const node of chip.childNodes) {
-    if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
-      node.textContent = ` ${branch} `;
-      return;
-    }
-  }
+/**
+ * 把宿主返回的 Git 状态整理成界面需要的形状。
+ * 选中态是界面状态，默认「改动」全选、「未跟踪」不选，与视觉稿一致。
+ */
+function normalizeStatus(status) {
+  const files = (status.files || []).map((file) => ({
+    path: file.path,
+    name: file.name || file.path.split("/").at(-1),
+    directory: file.directory || file.path.split("/").slice(0, -1).join("/"),
+    group: file.group,
+    kind: file.kind || "Modified",
+    staged: !!file.staged,
+    workingTree: !!file.workingTree,
+    checked: file.group === "Changes",
+  }));
+  files.sort((a, b) => a.group.localeCompare(b.group)
+    || a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }));
+  return { branch: status.branch, isDetached: status.isDetached, files };
+}
+
+/** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */
+function applyStatus() {
+  const live = window.__augitLive;
+  if (!live || !latestStatus) return;
+  live.branch = latestStatus.branch;
+  live.isDetached = latestStatus.isDetached;
+  live.changeCount = latestStatus.files.length;
+  live.status = latestStatus;
 }
 
 async function boot() {
@@ -207,7 +226,8 @@ async function boot() {
 
   const status = await statusPromiseRef;
   if (status) {
-    applyBranch(status.branch);
+    // Git 状态比首屏慢，到达后补一次重绘：分支名与 Changes 工具窗都随之更新。
+    window.__augitRender();
     window.__augitGitReady = true;
   }
 }

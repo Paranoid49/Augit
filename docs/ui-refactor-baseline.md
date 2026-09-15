@@ -82,7 +82,7 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 | 项目树接真实数据 + 目录懒展开 | 已完成 | 首屏 `info` 55ms、`root` 131ms；展开点击已验证 |
 | Git 状态异步补齐（不阻塞首屏） | 已完成 | `git/status` 实测约 15 秒，已移出首屏路径 |
 | 正文 / Markdown / JSON / 图片接真实文档 | 未开始 | — |
-| Changes 工具窗接真实状态 | 未开始 | — |
+| Changes 工具窗接真实状态 | 已完成 | 真实外壳截图显示 4 个真实改动文件；验收套件覆盖 |
 | Git 历史、提交图、文件历史、Blame | 未开始 | — |
 | 对话框族（Push/Remote/Clone/Stash/Reset/Worktree/冲突解决器） | 未开始 | — |
 | 终端 | 未开始 | — |
@@ -124,6 +124,15 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 
 真实外壳已验证：`--open global.json` 与 `--open docs/product-spec.md`（106 KB）均正确渲染，
 标签页、状态栏路径与正文内容都来自真实文件。
+
+### 第四轮：Changes 工具窗
+
+- `liveChangesSide` 按真实 Git 状态渲染：分组（Changes / Unversioned Files）、组计数、
+  文件状态（modified/added/untracked 等映射到既有配色）、勾选态（改动默认全选、未跟踪默认不选）。
+- 修复异步竞态：`git/status` 可能先于工作区数据返回，早期实现会把状态写到随后被丢弃的对象上。
+  现改为模块级缓存 + `applyStatus()`，两者任意先后到达都能正确附着。
+- 分支名改为参与渲染（`titlebar()` 直接读 live 数据），不再依赖一次性的 DOM 补丁，
+  避免后续重绘把分支名覆盖回样例值。
 
 ### 本轮踩坑记录（供后续复用）
 

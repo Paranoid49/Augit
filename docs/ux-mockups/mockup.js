@@ -1383,7 +1383,7 @@ function titlebar() {
       <div class="brand-mark" aria-label="Augit">A</div>
       <button class="top-button" aria-label="主菜单" data-action="menu">${icon("menu")}</button>
       <a class="top-chip workspace-chip" href="workspace-open.html"><span class="brand-mark">A</span> Augit ${icon("chevron-down")}</a>
-      <a class="top-chip branch-chip" href="branches.html">${icon("git-branch")} main ${icon("chevron-down")}</a>
+      <a class="top-chip branch-chip" href="branches.html">${icon("git-branch")} ${escapeHtml((window.__augitLive && window.__augitLive.branch) || "main")} ${icon("chevron-down")}</a>
       <span></span>
       <a class="titlebar-context" href="quick-open.html">当前文件 ${icon("chevron-down")}</a>
       <span></span>
@@ -1463,6 +1463,42 @@ function commitMessageBox(disabled = false) {
   const error = state === "validation" ? "提交信息不能为空。"
     : state === "hook-failure" ? "commit-msg hook 拒绝提交。请检查仓库提交规则。" : "";
   return `<div class="commit-message-box"><div class="commit-feedback ${error ? "error" : ""}" role="status" title="${escapeHtml(error || "提交信息")}">${escapeHtml(error || "提交信息")}</div><textarea class="message-field" aria-label="提交信息" ${disabled ? "disabled" : ""}>${state === "hook-failure" ? "fix: 保留失败草稿" : ""}</textarea></div>`;
+}
+
+// 外壳注入真实 Git 状态时使用；结构与样例版一致，复用同一套样式与交互绑定。
+function liveChangesSide(selected) {
+  const status = window.__augitLive.status;
+  const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
+  const changeRows = status.files.length === 0
+    ? `<div class="empty-state">没有改动</div>`
+    : groups.map(([key, label]) => {
+      const groupFiles = status.files.filter(file => file.group === key);
+      if (groupFiles.length === 0) return "";
+      const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
+      const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
+      const rows = groupFiles.map(file => `
+      <div class="check-row change-file-row ${selected === file.name ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(label)}" role="treeitem" aria-level="2" aria-selected="${selected === file.name}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
+        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
+        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
+      </div>`).join("");
+      return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>${rows}`;
+    }).join("");
+  const changed = status.files.filter(file => file.group === "Changes").length;
+  return `
+    <aside class="tool-window side-tool">
+      <div class="tool-header"><span>提交</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
+      <div class="changes-layout">
+        <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" aria-label="显示 Diff">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
+        <div class="changes-list" role="tree" aria-label="待提交文件" tabindex="0">
+          ${changeRows}
+        </div>
+        <div class="commit-box">
+          <div class="commit-options"><span class="commit-amend"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><span class="commit-last"><span>${escapeHtml(status.branch || "HEAD")}</span></span><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
+          ${commitMessageBox()}
+          <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
+        </div>
+      </div>
+    </aside>`;
 }
 
 function changesSide(selected = "app.manifest") {
@@ -1959,7 +1995,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   const sideHtml = side === "commit-empty"
     ? emptyChangesSide()
     : side === "commit"
-      ? changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "")
+      ? (live && live.status ? liveChangesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "") : changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : ""))
       : projectTree(selectedFile, live && side === "project" ? live : null);
   let editorExtra = "";
   let editorBody = markdownView();

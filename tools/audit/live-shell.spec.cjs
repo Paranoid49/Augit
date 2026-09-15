@@ -47,6 +47,14 @@ const WORKSPACE = {
     ],
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
+  status: {
+    branch: 'live-branch',
+    files: [
+      { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+      { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+      { path: 'notes/draft.txt', name: 'draft.txt', directory: 'notes', group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false },
+    ],
+  },
   documents: {
     'docs/product-spec.md': {
       path: 'docs/product-spec.md', name: 'product-spec.md', fullPath: 'D:\\ws\\docs\\product-spec.md',
@@ -99,7 +107,13 @@ async function main() {
           if (!found) throw new Error('not found: ' + params.path);
           return found;
         }
-        if (method === 'git/status') return { available: true, isRepository: true, branch: 'live-branch', isDetached: false, files: [] };
+        if (method === 'git/status') {
+          return {
+            available: true, isRepository: true, isDetached: false,
+            branch: data.status.branch,
+            files: data.status.files,
+          };
+        }
         throw new Error('unexpected method ' + method);
       };
     }, WORKSPACE);
@@ -197,6 +211,21 @@ async function main() {
     const bootLines = await bootPage.locator('.code-view .code-line').allInnerTexts();
     check('?open= 内容是真实文件', bootLines.length === 4 && bootLines[0].includes('第一行'));
     await bootPage.close();
+
+    // Changes 工具窗：必须渲染真实 Git 改动
+    const changesPage = await context.newPage();
+    await changesPage.goto(`http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`, { waitUntil: 'load' });
+    await changesPage.waitForFunction('window.__augitGitReady === true', null, { timeout: 15000 });
+    await changesPage.waitForSelector('.change-file-row', { timeout: 8000 });
+    const changeFiles = await changesPage.locator('.change-file-row').evaluateAll((els) => els.map((e) => e.dataset.path));
+    check('Changes 显示真实改动文件: ' + JSON.stringify(changeFiles), changeFiles.length === 3 && changeFiles.includes('src/App.cs'));
+    const groups = await changesPage.locator('.check-group-row strong').allInnerTexts();
+    check('Changes 分组来自 Git: ' + JSON.stringify(groups), groups.includes('Changes') && groups.includes('Unversioned Files'));
+    check('分组计数正确', (await changesPage.locator('.check-group-row .commit-meta').first().innerText()).includes('2 个文件'));
+    const modifiedCount = await changesPage.locator('.commit-count').innerText();
+    check('提交区显示改动数: ' + modifiedCount, modifiedCount.includes('2 modified'));
+    check('未跟踪文件默认不勾选', await changesPage.locator('.change-file-row[data-path="notes/draft.txt"] .fake-check.checked').count() === 0);
+    await changesPage.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
