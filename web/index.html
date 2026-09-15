@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Augit</title>
+  <link rel="stylesheet" href="src/mockup.css">
+  <script src="src/current-find.js" defer></script>
+  <script src="src/mockup.js" defer></script>
+</head>
+<body data-scene="main-project">
+  <!--
+    场景启动器：必须放在 <body> 起始处且为同步脚本。
+    defer 脚本（mockup.js）在文档解析完成后、DOMContentLoaded 之前按顺序执行，
+    因此这里的同步赋值一定先于 mockup.js 读取 body.dataset.scene。
+  -->
+  <script>
+    (() => {
+      const query = new URLSearchParams(window.location.search);
+      const theme = query.get("theme") || "dark";
+      document.documentElement.dataset.theme = theme;
+      document.body.dataset.scene = query.get("scene") || "main-project";
+    })();
+  </script>
+  <div id="app"></div>
+</body>
+</html>
