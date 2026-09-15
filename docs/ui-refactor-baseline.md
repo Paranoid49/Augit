@@ -90,8 +90,11 @@ rg 搜索、ConPTY 终端、设置存储、实例协调），与界面绘制方�
 
 ### 已知待办
 
-- `git/status` 单次约 15 秒，明显偏慢：需要定位是进程启动、命令数量还是输出解析导致，
-  再决定是否需要合并命令或改为后台常驻查询。
+- `git/status` 经宿主调用实测约 15 秒，而同机直接执行
+  `git status --porcelain=v1 --untracked-files=all` 仅 **0.73 秒**、
+  `git log --max-count=100` 仅 **0.065 秒**。因此瓶颈不在 git 本身，
+  而在 Augit 的调用路径（进程启动方式、命令条数或输出解析），需要进一步定位。
+  界面已按「不阻塞首屏」处理，但这是下一轮值得优先处理的体验问题。
 - 项目树目前用界面侧忽略清单隐藏构建产物；应改为读取 Git 自身忽略规则（需要
   `Augit.Infrastructure` 暴露公开接口，当前 `GitCommandRunner` 是 internal）。
 - `docs/ux-mockups/mockup.js` 是显式重复副本（与 `web/src` 一致），已由校验脚本防漂移；
