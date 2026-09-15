@@ -3302,6 +3302,7 @@ function bindInteractions() {
 }
 
 // 供外壳的真实数据加载器复用同一套图形与动作绑定。
+window.__augitBuildCommitGraph = buildCommitGraph;
 window.__augitRender = () => {
   if (!app) return;
   app.innerHTML = renderScene();

@@ -123,12 +123,17 @@ public sealed class GitHistoryService : IGitHistoryService
         List<string> arguments =
         [
             "log",
-            // 不请求 git 的字符画泳道图（--graph）：界面用 %P 返回的父子关系
-            // 自行推导泳道，entry.Graph 没有任何消费方。实测在 10 万提交仓库上
-            // 该开关把耗时从约 29 毫秒抬到约 284 毫秒（Git 需要遍历完整历史）。
-            // 也不指定 --topo-order / --date-order：默认顺序本就是
-            // 「按提交时间倒序、父提交在子提交之后」，已满足泳道推导的前提
-            // （实测 200 行内父先于子的违例为 0）。
+            // 请求拓扑序：界面按 %P 返回的父子关系推导泳道，
+            // 必须保证「父提交不会出现在其子提交之前」，否则推导会画出回边。
+            //
+            // git log 的默认顺序是按提交时间排，父的时间戳可能晚于子
+            // （rebase、cherry-pick、合并都会造成这种偏斜），
+            // 此时默认顺序会违反上述前提——实测构造偏斜时间戳后出现回边。
+            // 代价是 Git 需要遍历完整历史：10 万提交仓库实测 31 ms -> 271 ms。
+            // 提交图正确性优先于这 240 毫秒，因此保留该开关。
+            "--topo-order",
+            // 不请求 --graph：界面自行推导泳道，entry.Graph 没有消费方，
+            // 而该开关在 10 万提交仓库上额外增加约 250 毫秒。
             "--decorate=full",
             $"--max-count={maximumCount.ToString(CultureInfo.InvariantCulture)}",
             $"--skip={skip.ToString(CultureInfo.InvariantCulture)}",

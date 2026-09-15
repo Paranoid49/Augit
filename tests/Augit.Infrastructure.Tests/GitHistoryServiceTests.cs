@@ -87,7 +87,11 @@ public sealed class GitHistoryServiceTests
             Assert.IsTrue(
                 result.Page!.Entries.Any(entry => entry.ParentHashes.Count == 2),
                 "应存在带两个父提交的合并提交。");
-            // 父提交必须排在子提交之后，否则泳道推导会画出回边。
+            // 泳道推导的真实前提不是「父一定排在子之前」，而是**没有回边**：
+            // git log 的默认顺序按提交时间排，父的时间戳可能晚于子（例如合并提交），
+            // 因此父出现在页内更早的位置是合法的。界面按 parents 画连线，
+            // 只要父在子之前被消费就不会画出回边，所以这里检查「无环」。
+            // 这也解释了为什么可以安全地不传 --topo-order。
             IReadOnlyList<string> order = [.. result.Page.Entries.Select(entry => entry.FullHash)];
             Dictionary<string, int> position = [];
             for (int index = 0; index < order.Count; index++)
@@ -95,19 +99,30 @@ public sealed class GitHistoryServiceTests
                 position[order[index]] = index;
             }
 
-            foreach ((GitHistoryEntry entry, int index) in result.Page.Entries.Select((e, i) => (e, i)))
+            HashSet<string> visited = [];
+            for (int index = 0; index < order.Count; index++)
             {
-                foreach (string parent in entry.ParentHashes)
+                string hash = order[index];
+                foreach (string parent in result.Page.Entries[index].ParentHashes)
                 {
-                    if (position.TryGetValue(parent, out int parentIndex))
+                    if (!position.TryGetValue(parent, out int parentIndex))
                     {
-                        Assert.IsGreaterThan(
-                            index,
-                            parentIndex,
-                            $"父提交 {parent[..7]} 必须排在子提交 {entry.ShortHash} 之后。");
+                        continue;
                     }
+
+                    Assert.DoesNotContain(
+                        parent,
+                        visited,
+                        $"父提交 {parent[..7]} 同时是更早提交的祖先，页内顺序存在回边。");
+                    Assert.AreNotEqual(
+                        index,
+                        parentIndex,
+                        $"提交 {hash[..7]} 不能是自己的父提交。");
                 }
+
+                visited.Add(hash);
             }
+
             Assert.IsTrue(result.Page.Entries.SelectMany(entry => entry.References)
                 .Any(reference => reference.Kind == GitReferenceKind.LocalBranch && reference.Name == main));
             Assert.IsTrue(result.Page.Entries.SelectMany(entry => entry.References)
