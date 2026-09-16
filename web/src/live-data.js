@@ -2183,9 +2183,17 @@ function guardUnwiredNavigation() {
         void refreshFileTree();
       } else if (action) {
         void runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treePath" });
+      } else if (label.includes("复制路径")) {
+        void copyTreePath(projectMenu.closest(".project-menu").dataset.treePath);
+        closeLiveOverlay();
+      } else if (label.includes("资源管理器")) {
+        void launchExternal("reveal", projectMenu.closest(".project-menu").dataset.treePath);
+        closeLiveOverlay();
+      } else if (label.includes("外部终端")) {
+        void launchExternal("terminal", projectMenu.closest(".project-menu").dataset.treePath);
+        closeLiveOverlay();
       } else {
-        // 复制路径 / 在资源管理器中定位 / 在外部终端打开目前没有宿主能力，
-        // 如实保留为未接线记录，不假装成功。
+        // 其余条目没有对应能力时如实记录，不假装成功。
         window.__augitUnwiredAction = projectMenu.getAttribute("href");
         window.__augitUnwiredLabel = label.slice(0, 40);
         closeLiveOverlay();
@@ -3114,6 +3122,56 @@ function openTreeContextMenu(row, clientX, clientY) {
   host.appendChild(layer);
   const first = layer.querySelector(".menu-item");
   if (first) first.focus({ preventScroll: true });
+}
+
+/**
+ * 项目树菜单里"用系统程序打开"的动作（规格 §5.4）。
+ *
+ * 路径边界由宿主校验：它最终会启动进程，网页层若能传任意路径
+ * 就等于获得了任意程序启动能力，因此越界由宿主拒绝并给出原因。
+ */
+async function launchExternal(action, path) {
+  try {
+    const result = await invoke("external/launch", { action, path }, 15000);
+    if (result && result.launched === false) {
+      window.__augitLaunchError = result.reason || "无法用系统程序打开该路径。";
+      refreshAfterEvent("toast");
+    }
+
+    return result;
+  } catch (error) {
+    window.__augitLaunchError = "external-launch:" + String(error && error.message || error);
+    refreshAfterEvent("toast");
+    return null;
+  }
+}
+
+/**
+ * 复制路径到剪贴板（规格 §5.4 项目树菜单）。
+ *
+ * 交给宿主而不是 `navigator.clipboard`：WebView2 默认不授予
+ * `ClipboardApiRequested`，页面里写入会静默失败。宿主负责写入并按结果回话。
+ */
+async function copyTreePath(path) {
+  const text = String(path || "");
+  if (text.length === 0) return false;
+  try {
+    const result = await invoke("clipboard/write", { text }, 10000);
+    if (result && result.copied) {
+      window.__augitCopiedPath = text;
+      return true;
+    }
+
+    window.__augitCopiedPath = null;
+    window.__augitCopyError = (result && result.reason) || "复制失败。";
+    refreshAfterEvent("toast");
+    return false;
+  } catch (error) {
+    window.__augitCopiedPath = null;
+    window.__augitCopyError = "copy-path:" + String(error && error.message || error);
+    refreshAfterEvent("toast");
+    return false;
+  }
 }
 
 /**

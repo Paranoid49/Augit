@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using Augit.Core.Search;
 using Augit.Infrastructure.Files;
+using Augit.Infrastructure.Interop;
 using Augit.Infrastructure.Search;
 using Augit.Infrastructure.Settings;
 using Augit.Infrastructure.Terminal;
@@ -166,6 +167,8 @@ internal sealed class ShellBridge : IDisposable
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
+            "external/launch" => await LaunchExternalAsync(parameters, cancellationToken),
+            "clipboard/write" => WriteClipboard(parameters),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
@@ -688,6 +691,152 @@ internal sealed class ShellBridge : IDisposable
             _cachedStatus = null;
         }
     }
+
+    /// <summary>
+    /// 用系统程序打开仓库内的路径：在资源管理器中定位、在外部终端打开（规格 §5.4 项目树菜单）。
+    /// </summary>
+    /// <remarks>
+    /// **必须**校验路径位于当前工作区内：这个方法最终会启动进程，
+    /// 网页层若能传入任意路径就等于获得了任意程序启动能力。
+    /// 越界一律拒绝，并如实给出原因。
+    /// </remarks>
+    private Task<object?> LaunchExternalAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string action = GetString(parameters, "action")
+            ?? throw new BridgeValidationException("external/launch 需要 action 参数。");
+        string relative = GetString(parameters, "path")
+            ?? throw new BridgeValidationException("external/launch 需要 path 参数。");
+
+        string fullPath = Path.GetFullPath(Path.Combine(
+            _workspaceRoot,
+            relative.Replace('/', Path.DirectorySeparatorChar)));
+        if (!WorkspacePathRules.IsWithin(_workspaceRoot, fullPath))
+        {
+            return Task.FromResult<object?>(new
+            {
+                launched = false,
+                reason = "只能打开当前工作区内的路径。",
+            });
+        }
+
+        ExternalLaunchResult result = action switch
+        {
+            "reveal" => ExternalProgramLauncher.RevealInExplorer(fullPath),
+            "terminal" => ExternalProgramLauncher.OpenExternalTerminal(fullPath),
+            _ => ExternalLaunchResult.Failure("不支持的外部打开方式。"),
+        };
+        return Task.FromResult<object?>(new
+        {
+            launched = result.IsSuccess,
+            reason = result.ErrorMessage,
+        });
+    }
+
+    /// <summary>
+    /// 把文本写入系统剪贴板（规格 §5.4 项目树菜单的"复制路径"）。
+    /// </summary>
+    /// <remarks>
+    /// 由宿主执行而不是网页层：WebView2 默认不授予 `ClipboardApiRequested`，
+    /// 页面里 `navigator.clipboard.writeText` 会静默失败（无头 Chromium 里实测为 null）。
+    /// 用 Win32 剪贴板 API 而不是 WinForms：只为一次复制引入整个 WinForms，
+    /// 会与 app.manifest 的自定义 DPI 设置冲突。
+    /// </remarks>
+    private static object WriteClipboard(JsonElement parameters)
+    {
+        string text = GetString(parameters, "text") ?? string.Empty;
+        if (text.Length == 0)
+        {
+            return new { copied = false, reason = "没有可复制的文本。" };
+        }
+
+        if (!OpenClipboard(IntPtr.Zero))
+        {
+            return new { copied = false, reason = "系统剪贴板当前被其他程序占用。" };
+        }
+
+        IntPtr handle = IntPtr.Zero;
+        try
+        {
+            if (!EmptyClipboard())
+            {
+                return new { copied = false, reason = "系统剪贴板当前不可用。" };
+            }
+
+            // CF_UNICODETEXT：按 UTF-16 写入并以 NUL 结尾。
+            int bytes = (text.Length + 1) * 2;
+            handle = GlobalAlloc(GlobalMemoryMoveable, (UIntPtr)bytes);
+            if (handle == IntPtr.Zero)
+            {
+                return new { copied = false, reason = "系统内存不足，无法复制。" };
+            }
+
+            IntPtr target = GlobalLock(handle);
+            if (target == IntPtr.Zero)
+            {
+                return new { copied = false, reason = "系统剪贴板当前不可用。" };
+            }
+
+            try
+            {
+                System.Runtime.InteropServices.Marshal.Copy(text.ToCharArray(), 0, target, text.Length);
+                System.Runtime.InteropServices.Marshal.WriteInt16(target, text.Length * 2, 0);
+            }
+            finally
+            {
+                GlobalUnlock(handle);
+            }
+
+            if (SetClipboardData(UnicodeTextFormat, handle) == IntPtr.Zero)
+            {
+                return new { copied = false, reason = "系统剪贴板当前不可用。" };
+            }
+
+            // 交给系统后不再释放：所有权已转移给剪贴板。
+            handle = IntPtr.Zero;
+            return new { copied = true };
+        }
+        finally
+        {
+            if (handle != IntPtr.Zero)
+            {
+                GlobalFree(handle);
+            }
+
+            CloseClipboard();
+        }
+    }
+
+    private const uint GlobalMemoryMoveable = 0x0002;
+    private const uint UnicodeTextFormat = 13;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool OpenClipboard(IntPtr owner);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool CloseClipboard();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool EmptyClipboard();
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetClipboardData(uint format, IntPtr data);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GlobalLock(IntPtr handle);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GlobalUnlock(IntPtr handle);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GlobalFree(IntPtr handle);
 
     /// <summary>读取当前设置。</summary>
     private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)

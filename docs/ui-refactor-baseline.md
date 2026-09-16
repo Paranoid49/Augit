@@ -4430,3 +4430,51 @@ runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treeP
 沿用第 108 轮的无头 Chromium 对照结论（平均差 6.774、rail 区 0.428）。
 
 交付物保留在 `artifacts/`（该目录已被 `.gitignore` 忽略），本轮无源码改动。
+
+### 第一百三十五轮：项目树菜单剩余三项接线（§5.4）
+
+第 132 轮登记了"复制路径 / 在资源管理器中定位 / 在外部终端打开"仍为未接线，
+理由是"没有宿主能力"。**这个理由只对了一半**——本轮查证发现：
+
+`src/Augit.Infrastructure/Interop/ExternalProgramLauncher.cs` **早已完整实现**
+`RevealInExplorer` 与 `OpenExternalTerminal`（含 `explorer.exe /select,` 与
+`powershell.exe -NoExit` 的参数构造），但**从未被任何地方调用**：
+桥接分发表里没有对应方法。缺的只是最后一环。
+
+#### 实现
+
+| 层 | 改动 |
+|---|---|
+| 桥接 | 新增 `external/launch`：按 `action` 分派到既有启动器；**新增 `clipboard/write`** |
+| 网页 | 三个条目接线：复制路径 → 宿主剪贴板；资源管理器 → `external/launch`；外部终端 → 同上 |
+
+#### 安全边界（这是一个会启动进程的方法）
+
+`external/launch` 最终会启动进程，若网页层能传任意路径，就等于获得了**任意程序启动能力**。
+因此方法内先做 `WorkspacePathRules.IsWithin` 校验，越界一律拒绝并回话说明原因
+（该规则本身已有 Core 单元测试，含"拒绝仅共享前缀的相邻目录"）。
+
+#### 剪贴板为什么也放宿主
+
+网页层的 `navigator.clipboard.writeText` 在 **WebView2 里默认不获授权**
+（`ClipboardApiRequested` 默认拒绝），会**静默失败**；无头 Chromium 里实测就是 `null`。
+因此改为宿主执行，并把结果如实回话。
+
+实现上用 **Win32 剪贴板 API**（`OpenClipboard`/`SetClipboardData`）而不是 WinForms：
+只为一次复制引入整个 WinForms 会与 `app.manifest` 的自定义 DPI 设置冲突
+（实测报 `WFO0003`，要求从清单删除 DPI 配置）。为一个剪贴板改动应用清单是不划算的取舍。
+
+#### 断言（562 → 567）
+
+| 断言 | 覆盖 |
+|---|---|
+| 项目树「在资源管理器中定位」调用宿主并留在应用内 | `external/launch` 收到 `reveal:docs`、菜单关闭、无未接线记录 |
+| 项目树「在外部终端打开」调用宿主 | 收到 `terminal:docs` |
+| 项目树「复制路径」经宿主写入剪贴板 | `clipboard/write` 收到路径且已记录复制结果 |
+| 宿主拒绝越界路径时仍完成调用并留在应用内 | 注入 `launched:false` 后不崩溃、菜单关闭 |
+| 剪贴板不可用时不谎报成功 | 注入失败后 `__augitCopiedPath` 保持 null |
+
+负向验证：禁用"资源管理器"条目处理后断言失败（`[[], true]`）。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **567/567**、
+场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。

@@ -300,6 +300,18 @@ async function main() {
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
         return { available: false, reason: 'no diff' };
       }
+      if (method === 'clipboard/write') {
+        window.__clipboardWrites = (window.__clipboardWrites || []).concat([params.text]);
+        if (window.__clipboardFails) return { copied: false, reason: '系统剪贴板当前不可用。' };
+        return { copied: true };
+      }
+      if (method === 'external/launch') {
+        // 宿主侧动作（资源管理器 / 外部终端）。路径边界由宿主校验，
+        // 这里只记录调用并支持注入拒绝。
+        window.__launchCalls = (window.__launchCalls || []).concat([params.action + ':' + params.path]);
+        if (window.__launchFails) return { launched: false, reason: '只能打开当前工作区内的路径。' };
+        return { launched: true, reason: null };
+      }
       if (method === 'settings/read') return data.settings;
       if (method === 'settings/write') {
         if (window.__settingsReadOnly) return { saved: false, reason: '无法访问文件或目录，请检查权限或占用情况。' };
@@ -3915,6 +3927,69 @@ async function main() {
       menuGone: !document.querySelector('.project-menu'),
       unwired: window.__augitUnwiredLabel || null,
     }));
+    // 「在资源管理器中定位」「在外部终端打开」复用宿主既有能力（external/launch），
+    // 路径边界由宿主校验。
+    const runTreeItem = async (itemLabel, setup) => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+      await page.waitForTimeout(600);
+      await page.evaluate(() => {
+        window.__launchCalls = [];
+        window.__launchFails = false;
+        window.__clipboardWrites = [];
+        window.__clipboardFails = false;
+        window.__augitCopiedPath = null;
+        window.__augitUnwiredLabel = null;
+      });
+      if (setup) await page.evaluate(setup);
+      await page.evaluate(() => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const rect = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+        }));
+      });
+      await page.waitForSelector('.project-menu .menu-item', { timeout: 8000 });
+      await page.locator('.project-menu .menu-item').filter({ hasText: itemLabel }).first().click();
+      await page.waitForTimeout(700);
+      const state = await page.evaluate(() => ({
+        launchCalls: window.__launchCalls || [],
+        clipboardWrites: window.__clipboardWrites || [],
+        copied: window.__augitCopiedPath || null,
+        menuGone: !document.querySelector('.project-menu'),
+        unwired: window.__augitUnwiredLabel || null,
+      }));
+      await page.close();
+      return state;
+    };
+
+    const revealItem = await runTreeItem('资源管理器');
+    check('项目树「在资源管理器中定位」调用宿主并留在应用内: ' + JSON.stringify([revealItem.launchCalls, revealItem.menuGone]),
+      revealItem.launchCalls.length === 1 && revealItem.launchCalls[0] === 'reveal:docs'
+        && revealItem.menuGone === true && revealItem.unwired === null);
+
+    const terminalItem = await runTreeItem('外部终端');
+    check('项目树「在外部终端打开」调用宿主: ' + JSON.stringify(terminalItem.launchCalls),
+      terminalItem.launchCalls.length === 1 && terminalItem.launchCalls[0] === 'terminal:docs'
+        && terminalItem.unwired === null);
+
+    const copyItem = await runTreeItem('复制路径');
+    check('项目树「复制路径」经宿主写入剪贴板: '
+      + JSON.stringify([copyItem.clipboardWrites, copyItem.copied, copyItem.unwired]),
+    copyItem.clipboardWrites.length === 1 && copyItem.clipboardWrites[0] === 'docs'
+      && copyItem.copied === 'docs' && copyItem.unwired === null);
+
+    // 宿主拒绝（越界路径 / 剪贴板不可用）时如实记录，不假装成功。
+    const launchFail = await runTreeItem('资源管理器', () => { window.__launchFails = true; });
+    check('宿主拒绝越界路径时仍完成调用并留在应用内: ' + JSON.stringify(launchFail.launchCalls),
+      launchFail.launchCalls.length === 1 && launchFail.menuGone === true);
+
+    const copyFail = await runTreeItem('复制路径', () => { window.__clipboardFails = true; });
+    check('剪贴板不可用时不谎报成功: ' + JSON.stringify([copyFail.copied, copyFail.clipboardWrites.length]),
+      copyFail.copied === null && copyFail.clipboardWrites.length === 1);
+
     check('项目树「文件历史」切底部工具窗口并加载该路径: ' + JSON.stringify(treeHistory),
       treeHistory.path === 'docs/notes.txt' && treeHistory.bottom === 'file-history'
         && treeHistory.menuGone === true && treeHistory.unwired === null);
