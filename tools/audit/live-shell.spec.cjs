@@ -246,6 +246,9 @@ async function main() {
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') {
         if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
+        // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
+        const diffDelay = (window.__diffDelays || {})[params.path];
+        if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
         window.__diffCalls = window.__diffCalls || [];
         window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
         window.__diffCalls.push(params.path);
@@ -2996,6 +2999,54 @@ async function main() {
     check('Tab 顺序先覆盖顶部与左侧入口: ' + JSON.stringify(stops.slice(0, 4).map((x) => x.region)),
       stops.slice(0, 2).every((x) => x.region === 'titlebar' || x.region === 'rail'));
     await tb.page.close();
+
+    // ---- 规格 §6.1：加载期间主框架与其它区域位置不变 ----
+    const lu = await openScene('scene=commit-changes&theme=dark');
+    await lu.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await lu.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const geometry = () => lu.page.evaluate(() => {
+      const rect = (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+      };
+      return {
+        window: rect('.augit-window'),
+        rail: rect('.tool-rail'),
+        side: rect('.side-tool'),
+        tabs: rect('.editor-tabs'),
+        statusbar: rect('.statusbar'),
+        treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+        editorContent: !!document.querySelector('.editor-content'),
+      };
+    });
+
+    const beforeLoad = await geometry();
+    // 让差异查询慢下来，在加载期间取样
+    await lu.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1500 }; });
+    await lu.page.locator('.changes-list .change-file-row').first().dblclick();
+    await lu.page.waitForTimeout(500);
+    const duringLoad = await geometry();
+    // 断言取样确实落在加载中：否则下面几条稳定性断言什么都没验证。
+    check('取样发生在加载过程中',
+      (await lu.page.evaluate(() => !!document.querySelector('.diff-loading-status'))) === true);
+    await lu.page.waitForTimeout(1600);
+    const afterLoad = await geometry();
+
+    const sameBox = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('加载期间主窗口位置不变: ' + JSON.stringify([beforeLoad.window, duringLoad.window]),
+      sameBox(beforeLoad.window, duringLoad.window));
+    check('加载期间工具窗口位置不变: ' + JSON.stringify([beforeLoad.rail, duringLoad.rail, beforeLoad.side, duringLoad.side]),
+      sameBox(beforeLoad.rail, duringLoad.rail) && sameBox(beforeLoad.side, duringLoad.side));
+    check('加载期间标签条位置不变: ' + JSON.stringify([beforeLoad.tabs, duringLoad.tabs]),
+      sameBox(beforeLoad.tabs, duringLoad.tabs));
+    check('加载期间状态栏位置不变: ' + JSON.stringify([beforeLoad.statusbar, duringLoad.statusbar]),
+      sameBox(beforeLoad.statusbar, duringLoad.statusbar));
+    check('加载期间不隐藏编辑工作区', duringLoad.editorContent === true);
+    check('加载完成后主框架位置仍一致: ' + JSON.stringify([beforeLoad.window, afterLoad.window]),
+      sameBox(beforeLoad.window, afterLoad.window));
+    await lu.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
