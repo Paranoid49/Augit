@@ -3044,6 +3044,44 @@ function openChangesContextMenu(row, clientX, clientY) {
 }
 
 /**
+ * 项目树的右键菜单（规格 §5.4）。
+ *
+ * 契约取自 `docs/ux-mockups/mockup.js` 的 `projectContextMenu()`：
+ * 复制路径、在资源管理器中定位、在外部终端打开、刷新、文件历史、Blame。
+ * 此前项目树**完全没有右键处理**（只有改动列表有），右键毫无反应。
+ */
+function openTreeContextMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || !row) return;
+  const path = row.dataset.treePath;
+  if (!path) return;
+  rememberDialogFocus();
+  closeLiveOverlay();
+  const template = document.createElement("template");
+  template.innerHTML = projectContextMenu();
+  const menu = template.content.firstElementChild;
+  if (!menu) return;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay project-menu";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.dataset.treePath = path;
+  layer.dataset.treeDirectory = row.dataset.treeDirectory === "true" ? "true" : "false";
+  // 定位到指针处并夹在窗口内，避免菜单被裁掉（与改动列表菜单同一处理）。
+  const rect = host.getBoundingClientRect();
+  layer.style.position = "absolute";
+  layer.style.inset = "0";
+  menu.style.position = "absolute";
+  menu.style.left = `${Math.max(4, Math.min(clientX - rect.left, rect.width - 240))}px`;
+  menu.style.top = `${Math.max(4, Math.min(clientY - rect.top, rect.height - 240))}px`;
+  menu.style.zIndex = "2";
+  layer.appendChild(menu);
+  host.appendChild(layer);
+  const first = layer.querySelector(".menu-item");
+  if (first) first.focus({ preventScroll: true });
+}
+
+/**
  * 右键菜单里的动作（规格 §7.8）。
  * 「文件历史」切到底部工具窗口并读取该路径的历史；「Blame」进入归属视图。
  */
@@ -3967,6 +4005,25 @@ document.addEventListener("contextmenu", (event) => {
   if (!row || !window.__augitLive) return;
   event.preventDefault();
   openChangesContextMenu(row, event.clientX, event.clientY);
+}, true);
+
+// 项目树右键打开上下文菜单（规格 §5.4）。
+// 菜单键（Shift+F10 / ContextMenu）走同一条路径：先聚焦该行再打开。
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openTreeContextMenu(row, event.clientX, event.clientY);
+}, true);
+
+// 菜单键：键盘用户打开同一个菜单，位置取该行的左下角。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  const rect = row.getBoundingClientRect();
+  openTreeContextMenu(row, Math.round(rect.left + 12), Math.round(rect.bottom));
 }, true);
 
 // 树的键盘导航（规格 §5.4）：方向键移动选择，右键展开、左键折叠。

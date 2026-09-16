@@ -3758,6 +3758,60 @@ async function main() {
       hcAfterCloseClick.comparisons === 0);
     await hc.page.close();
 
+    // ---- 规格 §5.4：树用右键或菜单键打开上下文菜单 ----
+    const treeMenu = await openScene('scene=main-project&theme=dark');
+    await treeMenu.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await treeMenu.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    await treeMenu.page.waitForTimeout(600);
+    const treeMenuState = () => treeMenu.page.evaluate(() => {
+      const layer = document.querySelector('.project-menu');
+      const items = layer ? [...layer.querySelectorAll('.menu-item')].map((a) => a.textContent.trim()) : [];
+      return {
+        open: !!layer,
+        items,
+        target: layer ? layer.dataset.treePath || null : null,
+        unwired: window.__augitUnwiredLabel || null,
+      };
+    });
+    check('前置条件：项目树初始没有上下文菜单: ' + JSON.stringify((await treeMenuState()).open),
+      (await treeMenuState()).open === false);
+
+    // 右键：打开贴近指针的菜单，并记录目标路径。
+    await treeMenu.page.evaluate(() => {
+      window.__augitUnwiredLabel = null;
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+      }));
+    });
+    await treeMenu.page.waitForTimeout(400);
+    const treeMenuOpen = await treeMenuState();
+    check('项目树右键打开上下文菜单: ' + JSON.stringify([treeMenuOpen.open, treeMenuOpen.target]),
+      treeMenuOpen.open === true && treeMenuOpen.target === 'docs');
+    check('项目树菜单条目非空且不是未接线兜底: ' + JSON.stringify(treeMenuOpen.items.slice(0, 6)),
+      treeMenuOpen.items.length > 0 && treeMenuOpen.unwired === null);
+
+    // Esc 关闭后，菜单键（Shift+F10 / 上下文菜单键）也应能打开。
+    await treeMenu.page.keyboard.press('Escape');
+    await treeMenu.page.waitForTimeout(300);
+    check('Esc 关闭项目树菜单', (await treeMenuState()).open === false);
+    await treeMenu.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();
+    await treeMenu.page.keyboard.press('Shift+F10');
+    await treeMenu.page.waitForTimeout(400);
+    const treeMenuKey = await treeMenuState();
+    check('菜单键打开项目树上下文菜单: ' + JSON.stringify([treeMenuKey.open, treeMenuKey.target]),
+      treeMenuKey.open === true && treeMenuKey.target === 'docs');
+
+    // 菜单条目是 <a href="*.html">：点击必须留在应用内，不能被 <a> 默认行为带离页面。
+    const urlBeforeMenuClick = treeMenu.page.url();
+    await treeMenu.page.locator('.project-menu .menu-item').first().click();
+    await treeMenu.page.waitForTimeout(600);
+    check('点击项目树菜单条目不被 <a> 默认导航带离应用: ' + JSON.stringify(treeMenu.page.url()),
+      treeMenu.page.url() === urlBeforeMenuClick);
+    await treeMenu.page.close();
+
     // ---- 规格 §5.1：标题栏汉堡菜单 ----
     // 规格要求点击后在标题栏**原位**显示"文件、视图、Git、终端、设置"五个文字入口，
     // 不弹出一张替代标题栏的悬浮卡片；关闭后恢复原有标题栏。
