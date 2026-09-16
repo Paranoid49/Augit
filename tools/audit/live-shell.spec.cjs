@@ -4208,6 +4208,72 @@ async function main() {
     listUpdatedDuringDiff === true && stillLoading === true);
     await listFirst.page.close();
 
+    // ---- 规格 §6.3：从普通文件返回已加载的 Diff 时恢复正文 ----
+    // 「从普通文件返回已加载的 Diff 时恢复正文或摘要」：切走再切回不得变成空白或重新加载。
+    // 用 open= 启动参数直接建立文档标签：这样不必切换工具窗口，
+    // 切回比较标签只需点标签本身（工具窗口切换不会改变活动标签）。
+    // commit-changes 提供改动列表，open= 与场景无关地建立文档标签，两者可同时具备。
+    const returnDiff = await openScene('scene=commit-changes&theme=dark&open=docs/product-spec.md');
+    await returnDiff.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await returnDiff.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const returnDocTabId = await returnDiff.page.evaluate(
+      () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
+    check('前置条件：文档标签已建立: ' + JSON.stringify(returnDocTabId),
+      typeof returnDocTabId === 'string');
+
+    // 建立比较标签并等它加载完成（双击后它成为前台）。
+    await returnDiff.page.locator('.changes-list .change-file-row').first().dblclick();
+    await returnDiff.page.waitForFunction(
+      "window.__augitLive.diff && window.__augitLive.editor === 'diff'",
+      null,
+      { timeout: 15000 },
+    );
+    await returnDiff.page.waitForSelector('.editor-content .diff-layout', { timeout: 8000 });
+    const diffBodyBefore = await returnDiff.page.evaluate(() => {
+      const bar = document.querySelector('.editor-content .diff-filebar');
+      return {
+        text: document.querySelector('.editor-content').innerText.replace(/\s+/g, '').length,
+        calls: (window.__diffCalls || []).length,
+        // 文件栏路径是**只有真实差异才会产生**的值：样例 diffView 显示的是
+        // 固定示例路径。只看"有没有正文"区分不出二者（本轮第一次就因此假通过）。
+        filebarPath: bar && bar.querySelector('.reference-path') ? bar.querySelector('.reference-path').textContent.trim() : null,
+      };
+    });
+    check('前置条件：比较正文已加载且非空: ' + JSON.stringify([diffBodyBefore.text, diffBodyBefore.filebarPath]),
+      diffBodyBefore.text > 20 && typeof diffBodyBefore.filebarPath === 'string'
+        && diffBodyBefore.filebarPath.endsWith('.cs'));
+
+    // 切回普通文档标签，再切回比较标签。
+    await returnDiff.page.locator(`.editor-tabs .editor-tab[data-tab-id="${returnDocTabId}"]`).click();
+    await returnDiff.page.waitForFunction(
+      "window.__augitLive.document && window.__augitLive.document.path === 'docs/product-spec.md'",
+      null,
+      { timeout: 10000 },
+    );
+    const callsAfterDoc = await returnDiff.page.evaluate(() => (window.__diffCalls || []).length);
+    const comparisonTabId = await returnDiff.page.evaluate(
+      () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || {}).id || null);
+    check('前置条件：比较标签仍在标签栏: ' + JSON.stringify(comparisonTabId),
+      typeof comparisonTabId === 'string');
+    await returnDiff.page.locator(`.editor-tabs .editor-tab[data-tab-id="${comparisonTabId}"]`).click();
+    await returnDiff.page.waitForSelector('.editor-content .diff-layout', { timeout: 8000 });
+    await returnDiff.page.waitForTimeout(600);
+    const restoredDiff = await returnDiff.page.evaluate(() => {
+      const bar = document.querySelector('.editor-content .diff-filebar');
+      return {
+        text: document.querySelector('.editor-content').innerText.replace(/\s+/g, '').length,
+        calls: (window.__diffCalls || []).length,
+        editor: window.__augitLive.editor,
+        filebarPath: bar && bar.querySelector('.reference-path') ? bar.querySelector('.reference-path').textContent.trim() : null,
+      };
+    });
+    check('切回比较标签恢复正文且不重新查询 Git: '
+      + JSON.stringify([restoredDiff.text, restoredDiff.filebarPath, restoredDiff.calls, callsAfterDoc]),
+    restoredDiff.text > 20 && restoredDiff.editor === 'diff'
+      && restoredDiff.filebarPath === diffBodyBefore.filebarPath
+      && restoredDiff.calls === callsAfterDoc);
+    await returnDiff.page.close();
+
     // ---- 规格 §6.3：在途 Diff 期间的无变化状态通知必须复用该请求 ----
     // 「改选后的新 Diff 仍在查询或排版时，无变化的 Git 状态通知必须复用该进行中请求；
     // 不能拿屏幕上暂留的上一文件正文判断新请求是否失效。」
