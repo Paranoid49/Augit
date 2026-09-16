@@ -3059,8 +3059,49 @@ async function main() {
     const ksG = await ksState();
     check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactTitle]),
       ksG.compact === true && ksG.compactTitle === '跳转行');
-    await ks.page.keyboard.press('Escape');
+
+    // 规格 §5.3：打开后输入框获得焦点；Tab / Shift+Tab 在输入框、取消、确定、关闭间循环。
+    const compactOpen = await ks.page.evaluate(() => ({
+      activeIsField: document.activeElement === document.querySelector('[data-compact-dialog] [data-compact-field]'),
+      actions: [...document.querySelectorAll('[data-compact-dialog] [data-compact-action]')]
+        .map((n) => n.dataset.compactAction),
+    }));
+    check('紧凑输入窗口打开即聚焦输入框: ' + JSON.stringify(compactOpen.activeIsField),
+      compactOpen.activeIsField === true);
+    check('紧凑输入窗口具备取消/确定/关闭动作: ' + JSON.stringify(compactOpen.actions),
+      ['cancel', 'confirm', 'close'].every((a) => compactOpen.actions.includes(a)));
+
+    const compactActive = () => ks.page.evaluate(() => {
+      const active = document.activeElement;
+      if (!active || !active.dataset) return 'other';
+      return active.dataset.compactAction || (active.dataset.compactField !== undefined ? 'field' : 'other');
+    });
+    const cycle = [];
+    cycle.push(await compactActive());
+    for (let step = 0; step < 4; step++) {
+      await ks.page.keyboard.press('Tab');
+      await ks.page.waitForTimeout(120);
+      cycle.push(await compactActive());
+    }
+    check('Tab 按输入框→取消→确定→关闭→输入框循环: ' + JSON.stringify(cycle),
+      cycle.join('>') === 'field>cancel>confirm>close>field');
+    await ks.page.keyboard.press('Shift+Tab');
+    await ks.page.waitForTimeout(120);
+    const backToClose = await compactActive();
+    check('Shift+Tab 反向循环: ' + JSON.stringify([cycle.at(-1), backToClose]),
+      backToClose === 'close');
+
+    // 取消后关闭窗口；焦点恢复见下方「跳转行按钮」用例。
+    await ks.page.locator('[data-compact-dialog] [data-compact-action="cancel"]').click();
     await ks.page.waitForTimeout(400);
+    check('取消后关闭紧凑输入窗口',
+      await ks.page.evaluate(() => !document.querySelector('[data-compact-dialog]')));
+
+    // 规格 §5.3「对话框取消后恢复打开前焦点」在本场景无法核对：
+    // 该场景没有正文工具栏（跳转行按钮），而键盘按 Ctrl+G 不会让任何元素获得焦点，
+    // 快照必然为空——此时"恢复"没有可核对的目标，写一条弱断言等于假通过。
+    // 焦点恢复由既有用例覆盖：Esc 关闭弹层后焦点回到分支芯片、Worktree 取消后回到
+    // 弹层入口、设置取消后回到设置按钮。
 
     // F5 刷新文件树；不重载页面
     const ksUrl = ks.page.url();
