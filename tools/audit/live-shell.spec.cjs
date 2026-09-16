@@ -3272,6 +3272,53 @@ async function main() {
       findBar: document.querySelectorAll('.current-find').length,
     }));
 
+    // 规格 §5.3/§5.4：输入法组词期间不得抢占按键。
+    // 这一条此前没有任何断言——三个入口（紧凑窗口、Esc 关弹层、全局快捷键）
+    // 都写了 isComposing 守卫，但没有测试证明它们真的挡住了。
+    const composeKey = async (init) => ks.page.evaluate((options) => {
+      const event = new KeyboardEvent('keydown', Object.assign({
+        bubbles: true, cancelable: true, isComposing: true,
+      }, options));
+      document.dispatchEvent(event);
+      return event.defaultPrevented;
+    }, init);
+    const preventedByP = await composeKey({ key: 'p', ctrlKey: true });
+    await ks.page.waitForTimeout(400);
+    const afterComposingP = await ksState();
+    check('组词期间 Ctrl+P 不打开快速打开: ' + JSON.stringify([preventedByP, afterComposingP.tabs]),
+      afterComposingP.tabs === 0);
+    const preventedByShiftF = await composeKey({ key: 'F', ctrlKey: true, shiftKey: true });
+    await ks.page.waitForTimeout(400);
+    const afterComposingSF = await ksState();
+    check('组词期间 Ctrl+Shift+F 不打开全仓搜索: ' + JSON.stringify([preventedByShiftF, afterComposingSF.tabs]),
+      afterComposingSF.tabs === 0);
+    const preventedByG = await composeKey({ key: 'g', ctrlKey: true });
+    await ks.page.waitForTimeout(400);
+    const afterComposingG = await ksState();
+    check('组词期间 Ctrl+G 不打开跳转行: ' + JSON.stringify([preventedByG, afterComposingG.compact]),
+      afterComposingG.compact === false);
+    // Ctrl+W 走的是独立处理器（bindEditorTabs 内），同样必须被组词拦住。
+    const tabsBeforeComposingW = await ks.page.evaluate(() => (window.__augitLive.tabs || []).length);
+    const preventedByW = await composeKey({ key: 'w', ctrlKey: true });
+    await ks.page.waitForTimeout(400);
+    const tabsAfterComposingW = await ks.page.evaluate(() => (window.__augitLive.tabs || []).length);
+    check('组词期间 Ctrl+W 不关闭标签: ' + JSON.stringify([preventedByW, tabsBeforeComposingW, tabsAfterComposingW]),
+      tabsAfterComposingW === tabsBeforeComposingW);
+
+    // 组词期间 Esc 不得关闭弹层：先打开一个真实弹层再派发组词中的 Esc。
+    await ks.page.keyboard.press('Control+p');
+    await ks.page.waitForFunction('!!document.querySelector(".live-overlay")', null, { timeout: 8000 });
+    const preventedByEsc = await composeKey({ key: 'Escape' });
+    await ks.page.waitForTimeout(400);
+    const overlayAfterComposingEsc = await ks.page.evaluate(() => !!document.querySelector('.live-overlay'));
+    check('组词期间 Esc 不关闭弹层: ' + JSON.stringify([preventedByEsc, overlayAfterComposingEsc]),
+      overlayAfterComposingEsc === true);
+    // 非组词的 Esc 才关闭。
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(400);
+    check('非组词 Esc 正常关闭弹层',
+      await ks.page.evaluate(() => !document.querySelector('.live-overlay')));
+
     // Ctrl+P 快速打开文件
     await ks.page.keyboard.press('Control+p');
     await ks.page.waitForTimeout(700);
