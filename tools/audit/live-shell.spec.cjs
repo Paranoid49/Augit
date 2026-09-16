@@ -229,10 +229,15 @@ async function main() {
         if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
         if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
         // 支持运行中改变文件列表，用于跨模块流程验证。
-        const files = window.__liveFiles || data.status.files;
+        // 用 in 判断而不是真值判断：空数组是有效状态（§10.1 的无 Changes），
+        // `||` 会让它回退到默认列表，测不出空状态。
+        const files = Array.isArray(window.__liveFiles) ? window.__liveFiles : data.status.files;
         return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files };
       }
-      if (method === 'git/history') return data.history;
+      if (method === 'git/history') {
+        if (window.__emptyHistory) return { available: true, isRepository: true, head: null, hasNextPage: false, commits: [] };
+        return data.history;
+      }
       if (method === 'git/blame') {
         window.__blameCalls = (window.__blameCalls || 0) + 1;
         if (window.__malformed) return { available: true, lines: [{ number: 1, hash: 'x' }] };  // 缺 path
@@ -244,7 +249,10 @@ async function main() {
         return data.fileHistory;
       }
       if (method === 'search/files') return data.searchFiles;
-      if (method === 'search/text') return data.searchText;
+      if (method === 'search/text') {
+        if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
+        return data.searchText;
+      }
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') {
         if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
@@ -3304,6 +3312,82 @@ async function main() {
     check('§9.4 终端与 Git 历史互斥: ' + JSON.stringify([twTerminal.bottoms, twTerminal.bottomTitle]),
       twTerminal.bottoms === 1);
     await tw.page.close();
+
+    // ---- 规格 §10.1：空状态 ----
+    const es = await openScene('scene=commit-changes&theme=dark');
+    await es.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await es.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 无 Changes：显示指定文案，并保留提交工具窗口骨架
+    await es.page.evaluate(() => { window.__liveFiles = []; });
+    await es.page.evaluate(() => window.__augitRefreshPush && window.__augitRefreshPush());
+    await es.page.evaluate(() => { window.__nextChanges = { files: [], gitMetadata: true }; });
+    // 兜底轮询间隔为 2 秒，等待条件必须针对**可观察结果**而不是固定时长。
+    await es.page.waitForFunction(
+      () => !document.querySelector('.changes-list .change-file-row'), null, { timeout: 8000 }).catch(() => {});
+    const emptyChanges = await es.page.evaluate(() => ({
+      text: (document.querySelector('.side-tool') || {}).innerText || '',
+      emptyState: !!document.querySelector('.empty-tool-state'),
+      // 骨架：工具栏、提交框、提交动作仍在（提交按钮应为禁用）
+      toolbar: document.querySelectorAll('.side-tool .toolbar .toolbar-button').length,
+      commitBox: !!document.querySelector('.side-tool .commit-box'),
+      submitDisabled: (function () {
+        const button = document.querySelector('.side-tool .commit-actions .primary-button');
+        return button ? button.disabled : null;
+      })(),
+      listRows: document.querySelectorAll('.changes-list .change-file-row').length,
+    }));
+    check('§10.1 无 Changes 显示指定文案: ' + JSON.stringify(emptyChanges.text.slice(0, 24)),
+      emptyChanges.emptyState === true && emptyChanges.text.includes('没有待提交的更改'));
+    check('§10.1 无 Changes 保留提交工具窗口骨架: ' + JSON.stringify([emptyChanges.toolbar, emptyChanges.commitBox, emptyChanges.submitDisabled]),
+      emptyChanges.toolbar >= 1 && emptyChanges.commitBox === true && emptyChanges.submitDisabled === true);
+    check('§10.1 无 Changes 不再列出文件行', emptyChanges.listRows === 0);
+
+    await es.page.close();
+
+    // 无历史：显示指定文案，保留引用树与筛选栏。
+    // 用隔离页面并在加载前设好状态——历史数据在启动时读取，中途切换状态不会重读。
+    const esHist = await context.newPage();
+    await esHist.addInitScript(() => { window.__emptyHistory = true; });
+    await esHist.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+    await esHist.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await esHist.waitForSelector('.bottom-tool .commit-list', { timeout: 10000 });
+    const emptyHistory = await esHist.evaluate(() => ({
+      text: (document.querySelector('.bottom-tool') || {}).innerText || '',
+      rows: document.querySelectorAll('.bottom-tool .commit-subject').length,
+      // 引用树与筛选栏必须保留（规格 §10.1）。
+      hasRefPanel: !!document.querySelector('.bottom-tool .log-ref-panel'),
+      hasFilters: !!document.querySelector('.bottom-tool .history-filters'),
+      commits: window.__augitLive.history ? window.__augitLive.history.commits.length : -1,
+    }));
+    check('§10.1 无历史显示指定文案: ' + JSON.stringify(emptyHistory.text.slice(0, 20)),
+      emptyHistory.text.includes('仓库还没有提交'));
+    check('§10.1 无历史保留引用树与筛选栏: ' + JSON.stringify([
+      emptyHistory.hasRefPanel, emptyHistory.hasFilters, emptyHistory.rows, emptyHistory.commits]),
+      emptyHistory.hasRefPanel === true && emptyHistory.hasFilters === true
+      && emptyHistory.rows === 0 && emptyHistory.commits === 0);
+    await esHist.close();
+
+    // 搜索无结果：显示「未找到结果」，输入框与查询保持
+    const esSearch = await context.newPage();
+    await esSearch.addInitScript(() => { window.__emptySearch = true; });
+    await esSearch.goto(`http://127.0.0.1:${port}/index.html?scene=repository-search&theme=dark`, { waitUntil: 'load' });
+    await esSearch.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await esSearch.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+    await esSearch.locator('.search-overlay .search-field').fill('绝不存在的查询串');
+    await esSearch.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 }).catch(() => {});
+    await esSearch.waitForTimeout(800);
+    const emptySearch = await esSearch.evaluate(() => ({
+      text: (document.querySelector('.search-overlay') || {}).innerText || '',
+      rows: document.querySelectorAll('.search-result').length,
+      query: (document.querySelector('.search-overlay .search-field') || {}).value || null,
+      overlay: !!document.querySelector('.search-overlay'),
+    }));
+    check('§10.1 搜索无结果显示指定文案: ' + JSON.stringify(emptySearch.text.slice(0, 20)),
+      emptySearch.text.includes('未找到结果'));
+    check('§10.1 搜索无结果保留输入框与查询: ' + JSON.stringify([emptySearch.overlay, emptySearch.query]),
+      emptySearch.overlay === true && emptySearch.query === '绝不存在的查询串');
+    check('§10.1 搜索无结果不列出结果行', emptySearch.rows === 0);
+    await esSearch.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

@@ -1689,9 +1689,13 @@ function commitMessageBox(disabled = false) {
 function liveChangesSide(selected) {
   const status = window.__augitLive.status;
   const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
-  const changeRows = status.files.length === 0
-    ? `<div class="empty-state">没有改动</div>`
-    : groups.map(([key, label]) => {
+  // 无改动时复用样例版的空状态：文案与规格 §10.1 一致（「没有待提交的更改」），
+  // 并保留提交工具窗口骨架（工具栏、提交框与禁用的动作）。
+  if (status.files.length === 0) {
+    return emptyChangesSide();
+  }
+
+  const changeRows = groups.map(([key, label]) => {
       const groupFiles = status.files.filter(file => file.group === key);
       if (groupFiles.length === 0) return "";
       const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
@@ -2129,7 +2133,8 @@ function liveGitLog(history, selected, cancelComparison) {
   }
   const branchRows = [...branches].sort().map(name =>
     `<div class="tree-row depth-1${name === history.branch ? " selected" : ""}">${gitReferenceIcon()} ${escapeHtml(name)}</div>`).join("");
-  const emptyRow = `<p class="commit-meta">没有提交</p>`;
+  // 无历史文案（规格 §10.1）：保留引用树与筛选栏，只替换提交列表内容。
+  const emptyRow = `<div class="empty-tool-state"><div><strong>仓库还没有提交</strong><p>提交后会显示在这里。</p></div></div>`;
   return `<section class="bottom-tool">
     <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
@@ -2429,7 +2434,11 @@ function liveSearchOverlay(kind) {
   const rows = matches.map((match, index) => repository
     ? `<a class="search-result${index === 0 ? ' selected' : ''}" href="#" data-search-path="${escapeHtml(match.path)}" data-search-line="${match.line}">${fileTypeIcon(match.name)}<span>${escapeHtml(match.name)} <span class="commit-meta">${escapeHtml(String(match.line))}: ${escapeHtml(match.text)}</span></span><span class="commit-meta">${escapeHtml(match.directory)}</span></a>`
     : `<a class="search-result${index === 0 ? ' selected' : ''}" href="#" data-search-path="${escapeHtml(match.path)}">${fileTypeIcon(match.name)}<span>${escapeHtml(match.name)}</span><span class="commit-meta">${escapeHtml(match.directory)}</span></a>`).join("");
-  const results = matches.length > 0 ? `<div class="search-results">${rows}</div>` : "";
+  // 搜索无结果（规格 §10.1）：显示「未找到结果」，输入框与查询保持不动。
+  // 仅在**确实查询过**（有查询串）且没有命中时显示，避免打开浮层就报「未找到」。
+  const results = matches.length > 0
+    ? `<div class="search-results">${rows}</div>`
+    : (query.length > 0 ? `<div class="search-results"><div class="empty-tool-state"><div><strong>未找到结果</strong><p>换个关键词或调整筛选。</p></div></div></div>` : "");
   const noticeText = search && search.notice ? search.notice : "";
   const notice = noticeText
     ? `<div class="search-notice" role="status" tabindex="0">${escapeHtml(noticeText)}</div>`
