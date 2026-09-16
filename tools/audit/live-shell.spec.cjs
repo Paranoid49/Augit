@@ -3758,6 +3758,77 @@ async function main() {
       hcAfterCloseClick.comparisons === 0);
     await hc.page.close();
 
+    // ---- 规格 §5.1：主菜单「文件 / 视图 / Git」动作菜单的条目要执行动作 ----
+    // 规格把这三项描述为"打开贴近入口的动作菜单"，条目必须真的执行，
+    // 否则只是把"点了没反应"从入口挪到菜单里。
+    const mainMenuEntry = async (entryLabel, itemLabel) => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForFunction(
+        "document.querySelectorAll('.tool-rail .rail-button').length > 0"
+          + " && !!document.querySelector('.titlebar .branch-chip')",
+        null,
+        { timeout: 15000 },
+      );
+      await page.waitForTimeout(500);
+      await page.evaluate(() => {
+        window.__unwiredLabel = null;
+        window.__fetchCalls = 0;
+        window.__pushCalls = 0;
+      });
+      await page.locator('.titlebar [data-action="menu"]').click();
+      await page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+      await page.locator('.titlebar .main-menu-entry').filter({ hasText: entryLabel }).first().click();
+      await page.waitForSelector('.main-menu-popover .menu-item', { timeout: 8000 });
+      await page.locator('.main-menu-popover .menu-item').filter({ hasText: itemLabel }).first().click();
+      await page.waitForTimeout(900);
+      const state = await page.evaluate(() => ({
+        unwired: window.__augitUnwiredLabel || null,
+        popoverGone: !document.querySelector('.main-menu-popover'),
+        fetchCalls: window.__fetchCalls || 0,
+        pushCalls: window.__pushCalls || 0,
+        pushDialog: !!document.querySelector('[data-push-action]'),
+        bottom: window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+      }));
+      await page.close();
+      return state;
+    };
+
+    const gitFetch = await mainMenuEntry('Git', '获取');
+    check('主菜单「Git → 获取」执行取回: ' + JSON.stringify([gitFetch.fetchCalls, gitFetch.unwired]),
+      gitFetch.fetchCalls === 1 && gitFetch.unwired === null);
+
+    // 推送条目必须**打开确认对话框**而不是直接推送（规格 §7.12）。
+    const gitPush = await mainMenuEntry('Git', '推送');
+    check('主菜单「Git → 推送」打开确认对话框且未直接推送: '
+      + JSON.stringify([gitPush.pushDialog, gitPush.pushCalls, gitPush.unwired]),
+    gitPush.pushDialog === true && gitPush.pushCalls === 0 && gitPush.unwired === null);
+
+    // 「视图 → 显隐项目工具窗口」必须产生可见变化，不能是空操作。
+    const viewToggle = await openScene('scene=main-project&theme=dark');
+    await viewToggle.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await viewToggle.page.waitForTimeout(600);
+    const viewSideBefore = await viewToggle.page.evaluate(() => ({
+      side: !!document.querySelector('.side-tool'),
+      rail: document.querySelectorAll('.tool-rail .rail-button').length,
+    }));
+    check('前置条件：项目工具窗口初始可见: ' + JSON.stringify(viewSideBefore.side), viewSideBefore.side === true);
+    await viewToggle.page.locator('.titlebar [data-action="menu"]').click();
+    await viewToggle.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+    await viewToggle.page.locator('.titlebar .main-menu-entry').filter({ hasText: '视图' }).first().click();
+    await viewToggle.page.waitForSelector('.main-menu-popover .menu-item', { timeout: 8000 });
+    await viewToggle.page.locator('.main-menu-popover .menu-item').filter({ hasText: '项目工具窗口' }).first().click();
+    await viewToggle.page.waitForTimeout(800);
+    const viewSideAfter = await viewToggle.page.evaluate(() => ({
+      side: !!document.querySelector('.side-tool'),
+      rail: document.querySelectorAll('.tool-rail .rail-button').length,
+      unwired: window.__augitUnwiredLabel || null,
+    }));
+    check('主菜单「视图」条目产生可见变化: ' + JSON.stringify([viewSideBefore.side, viewSideAfter.side]),
+      viewSideAfter.side !== viewSideBefore.side && viewSideAfter.rail === viewSideBefore.rail
+        && viewSideAfter.unwired === null);
+    await viewToggle.page.close();
+
     // ---- 规格 §5.4：树用右键或菜单键打开上下文菜单 ----
     const treeMenu = await openScene('scene=main-project&theme=dark');
     await treeMenu.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });

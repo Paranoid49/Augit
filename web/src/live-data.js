@@ -2159,6 +2159,15 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 主菜单「文件 / 视图 / Git」动作菜单的条目（规格 §5.1）。
+    // 这些条目此前只渲染出来、点了没有反应——等于把"点了没反应"从入口挪进了菜单。
+    const mainMenuItem = event.target.closest && event.target.closest(".main-menu-popover .menu-item");
+    if (mainMenuItem) {
+      event.preventDefault();
+      void runMainMenuPopoverAction(mainMenuItem.dataset.mainMenuAction);
+      return;
+    }
+
     // 项目树右键菜单里的动作（规格 §5.4）。
     // 条目语义取自视觉稿的 projectContextMenu()；「文件历史」「Blame」复用
     // 改动列表菜单的同一实现，避免两套布局状态机各自漂移。
@@ -3540,10 +3549,56 @@ function openMainMenuPopover(action) {
   if (first) first.focus({ preventScroll: true });
 }
 
+/**
+ * 执行主菜单动作菜单里的条目（规格 §5.1）。
+ *
+ * 条目只复用**已经实现**的能力，不在这里新造行为：
+ * 打开工作区、刷新文件树、显隐工具窗口、取回、推送、分支与标签。
+ */
+async function runMainMenuPopoverAction(action) {
+  const live = window.__augitLive;
+  closeLiveOverlay();
+  if (!live || !action) return;
+
+  if (action === "refresh-tree") {
+    void refreshFileTree();
+    return;
+  }
+
+  if (action === "toggle-side") {
+    // 与左侧竖向入口同一套布局逻辑：切到项目工具窗口。
+    applyRailAction("project");
+    return;
+  }
+
+  if (action === "toggle-bottom") {
+    // 底部工具窗口是终端与 Git 历史二者之一（规格 §5.1 的同一套布局逻辑）。
+    const current = live.layout ? live.layout.bottom : null;
+    applyRailAction(current === "history" ? "terminal" : "history");
+    return;
+  }
+
+  if (action === "branches") {
+    openBranchesPopover();
+    return;
+  }
+
+  if (action === "push") {
+    // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
+    void openPushDialog();
+    return;
+  }
+
+  if (action === "fetch") {
+    await runPopoverAction("fetch");
+  }
+}
+
 /** 三个动作菜单的能力集合（来自规格 §7.x 已实现的动作）。 */
 const MAIN_MENU_POPOVERS = {
+  // 只列已经实现的动作：「打开工作区」需要新的宿主能力（选择目录、切换工作区），
+  // 本轮不造——菜单里放一个点了没反应的条目，等于把"点了没反应"挪进菜单。
   file: [
-    { action: "open-workspace", label: "打开工作区…" },
     { action: "refresh-tree", label: "刷新文件树" },
   ],
   view: [
