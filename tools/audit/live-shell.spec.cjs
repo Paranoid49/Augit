@@ -267,8 +267,21 @@ async function main() {
         window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
         window.__diffCalls.push(params.path);
         // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
+        // 延迟必须作用于**所有**返回分支：否则注入的最终状态会立即返回，
+        // 加载窗口不存在，"加载提示收尾不隐藏最终说明"就无从验证。
         const diffDelay = (window.__diffDelays || {})[params.path];
         if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
+        // 支持注入"最终说明"类结果（规格 §6.5：二进制、超限、无文本差异和错误的
+        // 最终说明必须持续可见，不能被加载指示的收尾隐藏）。
+        if (window.__diffStatusOverride) {
+          return {
+            available: true,
+            path: params.path,
+            status: window.__diffStatusOverride,
+            rows: [],
+            lines: [],
+          };
+        }
         // 历史比较（§7.8）传入 commit：返回可区分的内容，用于证明请求确实换成了
         // 「两个版本之间」而不是工作区比较。两版本的请求键不同，内容也构造得不同。
         if (params.commit) {
@@ -3883,6 +3896,51 @@ async function main() {
         state.top !== null && state.top >= state.titlebarBottom);
     }
 
+    // ---- 规格 §6.5：最终说明必须持续可见，不能被加载指示的收尾隐藏 ----
+    // 二进制、超限、无文本差异与错误各有最终说明；加载指示结束时不得把它清掉。
+    const finalStates = [
+      { status: 'SideTooLarge', expect: '无法显示文本差异' },
+      { status: 'OutputTooLarge', expect: '无法显示文本差异' },
+      { status: 'Binary', expect: '无法显示文本差异' },
+      { status: 'Ready', expect: '没有文本差异' },
+    ];
+    for (const item of finalStates) {
+      const { page } = await openScene('scene=commit-changes&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await page.evaluate((status) => { window.__diffStatusOverride = status; }, item.status);
+      await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1200 }; });
+      // 走真实双击路径：直调 __augitOpenChangeDiff 时编辑区在加载窗口内渲染的是
+      // 普通文档而不是 diff（实测 top=document-view、filebar=false），
+      // 双击路径下比较标签已在前台，编辑区正常渲染 diff。
+      await page.locator('.changes-list .change-file-row').first().dblclick();
+      // 在请求窗口内连续取样：固定时点取样可能错过提示（实测踩过）。
+      const hintProbe = await page.evaluate(async () => {
+        const seen = [];
+        const started = performance.now();
+        while (performance.now() - started < 2500 && !seen.includes('marker')) {
+          if (window.__augitLive.diffLoading) seen.push('loading');
+          if (document.querySelector('.editor-content .diff-loading-status')) seen.push('marker');
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return seen;
+      });
+      const hintShown = hintProbe.includes('marker');
+      // 等加载收尾，再核对最终说明仍可见。
+      await page.waitForFunction('window.__augitLive.diffLoading === false', null, { timeout: 15000 });
+      await page.waitForTimeout(400);
+      const finalState = await page.evaluate(() => {
+        const body = document.querySelector('.editor-content');
+        return {
+          text: body ? body.innerText.replace(/\s+/g, '') : '',
+          hintGone: !document.querySelector('.editor-content .diff-loading-status'),
+        };
+      });
+      check(`最终说明持续可见（${item.status}）: ` + JSON.stringify([hintShown, finalState.text.slice(0, 24)]),
+        hintShown === true && finalState.hintGone === true && finalState.text.includes(item.expect));
+      await page.close();
+    }
+
     // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
     // Git 历史常在启动后十余秒才到（live-data 注释里写明"实测约 15 秒"）。
     // 若到达时整页重绘，用户此时在查找框里的输入会被清掉——这正是本断言要抓的。
@@ -4032,23 +4090,6 @@ async function main() {
     // 已有正文时加载不得把它清空——旧正文必须留到新内容就位为止。
     // 上面的位置断言在"先清空再重建"的实现下同样会通过（清空后位置不变），
     // 因此必须单独核对正文是否还在。
-    const probe = await lu.page.evaluate(async () => {
-      const out = [];
-      for (let i = 0; i < 16; i++) {
-        out.push({
-          i,
-          delays: JSON.stringify(window.__diffDelays || null),
-          inFlight: window.__augitDiffRequestCount(),
-          loading: !!window.__augitLive.diffLoading,
-          marker: !!document.querySelector('.editor-content .diff-filebar .diff-loading-status'),
-          ready: window.__augitDiffReady,
-        });
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      return out;
-    });
-    console.log('DIAG probe=' + JSON.stringify(probe));
-
     const textDuringLoad = await lu.page.evaluate(() => {
       const body = document.querySelector('.editor-content .diff-layout, .editor-content .document-view');
       return { present: !!body, chars: body ? body.innerText.replace(/\s+/g, '').length : 0 };
