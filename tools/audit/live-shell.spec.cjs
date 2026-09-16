@@ -3939,8 +3939,9 @@ async function main() {
     const realLoadingSeen = firstSeries.some((f) => f.realLoading);
     // 记录事实，不写成断言——断言会把这个缺陷固化成"期望行为"，
     // 将来真修好时反而需要删测试。缺陷本身登记在基线文档里。
-    console.log('INFO 首次打开差异走实时加载分支=' + JSON.stringify(realLoadingSeen)
-      + '（false 表示已知缺陷：回退到样例视图）');
+    console.log('INFO 首次打开走实时加载分支=' + JSON.stringify(realLoadingSeen)
+      + '（false = 已知缺陷：加载窗口内 live.editor 不是 diff，编辑区仍是场景默认视图，'
+      + '而提示由样例 diffView 顺带渲染）');
     await firstLoad.page.close();
 
     // ---- 规格 §6.5：最终说明必须持续可见，不能被加载指示的收尾隐藏 ----

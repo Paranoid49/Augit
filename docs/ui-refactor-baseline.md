@@ -4093,3 +4093,60 @@ editorBody = (live && live.diff) ? liveDiffView() : diffView();
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **546/546**、
 场景 48/48（dark）、视觉稿字节一致 PASS。
+
+### 第一百二十八轮：首次加载缺陷的完整根因（已定位，仍未修）
+
+上一轮查清了"首次打开差异渲染样例视图"，但没定位到"为什么加载分支没生效"。
+本轮用**直接插桩**（在 `liveDiffView()` 入口记录每次调用的参数）拿到了决定性证据，
+不再依赖黑盒取样推断。
+
+#### 证据
+
+在首次加载的整个窗口内，`liveDiffView()` **一次都没有被调用**：
+
+```
+__ldv = [{ t:1657, hasDiff:true, loading:false, editor:"diff" }]   ← 只有加载完成后那一次
+```
+
+在窗口内手动触发一次 `__augitRenderRegions('editorContent')` 也显示
+`loading:false`、`editor:"diff"`——即**取样时加载早已结束**。
+
+#### 完整根因
+
+首次打开时的调用顺序是：
+
+1. 双击 → `openChangeDiff` → `scheduleDiffLoadingMarker()` 起 150 毫秒定时器 → 等差异；
+2. 此时**还没有比较标签**，因此 `live.editor` 仍是场景默认值（`commit-changes` 是 markdown），
+   **不是 `"diff"`**；
+3. 150 毫秒定时器触发，置 `live.diffLoading = true` 并 `refresh("editorContent")`，
+   但编辑器分支不被选中（`live.editor` 不是 diff），**加载分支整条没走**；
+4. 差异到达后才建标签、`live.editor = "diff"`，此时 `diffLoading` 已被 `finally` 清掉。
+
+所以**首次打开时加载窗口内没有加载指示**——编辑区显示的是场景默认视图。
+第 126/127 轮观察到的"样例视图里有提示"，是样例 `diffView()` 内部渲染文件栏时
+顺带带上了提示（`diffFileHeader` 会读 `live.diffLoading`），
+**视觉上看似正常，实际是样例数据**。
+
+#### 与已覆盖场景的区别
+
+- **有旧正文时**（已覆盖，第 125 轮）：`live.editor` 已是 `"diff"`，加载分支正常渲染，
+  提示出现在文件标题行 ✅
+- **首次打开时**（未覆盖/未修）：`live.editor` 还不是 diff，标记无处附着 ✗
+
+#### 本轮处置
+
+- 三处探索性改动（加载骨架、加载优先分支、首次加载走实时视图）**已全部回退**，
+  视觉稿与提交版一致（已核对无差异）。
+- 只保留一条**非断言的事实记录**，并把根因写进它的文案里，避免误导后来者。
+- 未把缺陷写成 `expect(false)` 断言——那会固化成"期望行为"。
+
+#### 下一步（留给后续）
+
+正确的修法方向已清楚：**首次打开时也要让编辑器提前进入 diff 视图**，
+即在 `openChangeDiff` 开始（差异未到之前）就建立比较标签并设置 `live.editor = "diff"`。
+本轮没有实施，因为需要先确认"提前建标签"不会破坏既有的
+"首次单击不创建标签""Enter/双击才打开"等已被断言的语义——
+这需要一个独立回合来做并逐条回归。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **546/546**、
+场景 48/48（dark 与 light）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
