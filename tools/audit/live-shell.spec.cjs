@@ -3807,6 +3807,89 @@ async function main() {
       menuAfter.menuLabel === '主菜单');
     await menuScene.page.close();
 
+    // ---- 规格 §5.1：菜单五个入口各自的行为 ----
+    // 规格：终端直接切换底部终端工具窗口；设置直接打开设置模态窗口；
+    // 两者执行前先恢复普通标题栏。
+    // 每个入口用独立页面：菜单动作会切换工具窗口并触发区域刷新，
+    // 在同一个页面上连续操作会互相干扰（实测第二次打开菜单会被重绘收起）。
+    const runMenuEntry = async (label) => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForFunction(
+        "document.querySelectorAll('.tool-rail .rail-button').length > 0"
+          + " && !!document.querySelector('.titlebar .branch-chip')",
+        null,
+        { timeout: 15000 },
+      );
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
+      await page.locator('.titlebar [data-action="menu"]').click();
+      await page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+      await page.locator('.titlebar .main-menu-entry').filter({ hasText: label }).first().click();
+      await page.waitForTimeout(900);
+      const state = await page.evaluate(() => ({
+        menuBar: !!document.querySelector('.titlebar .main-menu-bar'),
+        settings: !!document.querySelector('.settings-window, .live-overlay.settings-window'),
+        bottom: (window.__augitLive.layout && window.__augitLive.layout.bottom) || null,
+        unwired: window.__augitUnwiredLabel || null,
+      }));
+      await page.close();
+      return state;
+    };
+
+    const afterTerminal = await runMenuEntry('终端');
+    check('菜单「终端」切换底部终端窗口: ' + JSON.stringify([afterTerminal.bottom, afterTerminal.menuBar]),
+      afterTerminal.bottom === 'terminal' && afterTerminal.menuBar === false);
+    check('菜单「终端」不是未接线兜底: ' + JSON.stringify(afterTerminal.unwired),
+      afterTerminal.unwired === null);
+
+    const afterSettings = await runMenuEntry('设置');
+    check('菜单「设置」打开设置模态窗口: ' + JSON.stringify([afterSettings.settings, afterSettings.menuBar]),
+      afterSettings.settings === true && afterSettings.menuBar === false);
+    check('菜单「设置」不是未接线兜底: ' + JSON.stringify(afterSettings.unwired),
+      afterSettings.unwired === null);
+
+    // 文件 / 视图 / Git：打开贴近入口的动作菜单，且不落到未接线兜底。
+    const menuPopover = async (label) => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForFunction(
+        "document.querySelectorAll('.tool-rail .rail-button').length > 0"
+          + " && !!document.querySelector('.titlebar .branch-chip')",
+        null,
+        { timeout: 15000 },
+      );
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
+      await page.locator('.titlebar [data-action="menu"]').click();
+      await page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+      await page.locator('.titlebar .main-menu-entry').filter({ hasText: label }).first().click();
+      await page.waitForTimeout(700);
+      const state = await page.evaluate(() => {
+        const layer = document.querySelector('.live-overlay.main-menu-popover');
+        const list = layer ? layer.querySelector('.menu-list') : null;
+        return {
+          open: !!layer,
+          items: list ? [...list.querySelectorAll('.menu-item')].map((a) => a.textContent.trim()) : [],
+          top: list ? Math.round(list.getBoundingClientRect().top) : null,
+          titlebarBottom: Math.round(document.querySelector('.titlebar').getBoundingClientRect().bottom),
+          menuBar: !!document.querySelector('.titlebar .main-menu-bar'),
+          unwired: window.__augitUnwiredLabel || null,
+        };
+      });
+      await page.close();
+      return state;
+    };
+
+    for (const label of ['文件', '视图', 'Git']) {
+      const state = await menuPopover(label);
+      check(`菜单「${label}」打开动作菜单: ` + JSON.stringify([state.open, state.items.length]),
+        state.open === true && state.items.length > 0 && state.unwired === null);
+      check(`菜单「${label}」恢复普通标题栏: ` + JSON.stringify(state.menuBar), state.menuBar === false);
+      check(`菜单「${label}」动作菜单贴近入口: ` + JSON.stringify([state.top, state.titlebarBottom]),
+        state.top !== null && state.top >= state.titlebarBottom);
+    }
+
     // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
     // Git 历史常在启动后十余秒才到（live-data 注释里写明"实测约 15 秒"）。
     // 若到达时整页重绘，用户此时在查找框里的输入会被清掉——这正是本断言要抓的。

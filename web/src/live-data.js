@@ -2145,6 +2145,20 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 标题栏内嵌菜单的五个入口（规格 §5.1）：
+    // 必须放在"链接兜底"之前，否则会先被记成未接线动作。
+    const menuEntry = event.target.closest && event.target.closest(".titlebar .main-menu-entry");
+    if (menuEntry) {
+      const menuAction = MAIN_MENU_ACTIONS[(menuEntry.textContent || "").trim()];
+      if (menuAction) {
+        event.preventDefault();
+        // 规格：终端与设置执行前先恢复普通标题栏。
+        closeMainMenu();
+        void runMainMenuAction(menuAction);
+        return;
+      }
+    }
+
     const link = event.target.closest && event.target.closest('a[href$=".html"]');
     if (!link) return;
     event.preventDefault();
@@ -3359,6 +3373,90 @@ function bindGlobalShortcuts() {
     }
   }, true);
 }
+
+/**
+ * 标题栏内嵌菜单的五个入口（规格 §5.1）。
+ *
+ * 规格把行为写得很具体：
+ * - 「终端」直接切换底部终端工具窗口；「设置」直接打开设置模态窗口；
+ *   两者执行前**先恢复普通标题栏**。
+ * - 「文件 / 视图 / Git」打开贴近入口的动作菜单，菜单关闭后恢复原有标题栏入口、
+ *   当前分支和当前文件上下文。
+ *
+ * 视觉稿只提供了这五个 `<a>` 入口的标记（`docs/ux-mockups/mockup.js` 的内嵌菜单模板），
+ * 没有绑定行为；实时外壳此前让它们落到 `__augitUnwired*` 兜底，等于点了没有反应。
+ */
+const MAIN_MENU_ACTIONS = {
+  终端: "terminal",
+  设置: "settings",
+  文件: "file",
+  视图: "view",
+  Git: "git",
+};
+
+/** 恢复标准标题栏（内嵌菜单收起）。 */
+function closeMainMenu() {
+  const host = document.querySelector(".titlebar");
+  if (host && host.querySelector(".main-menu-bar")) host.outerHTML = titlebar();
+}
+
+async function runMainMenuAction(action) {
+  const live = window.__augitLive;
+  if (!live) return;
+  if (action === "terminal") {
+    // 直接切换底部终端工具窗口（与左侧入口同一套布局逻辑）。
+    applyRailAction("terminal");
+    return;
+  }
+
+  if (action === "settings") {
+    openSettingsDialog();
+    return;
+  }
+
+  // 文件 / 视图 / Git：打开贴近入口的动作菜单。
+  openMainMenuPopover(action);
+}
+
+/** 文件 / 视图 / Git 的动作菜单：贴近入口显示，收纳各自的能力。 */
+function openMainMenuPopover(action) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const titlebarNode = document.querySelector(".titlebar");
+  if (!live || !host || !titlebarNode) return;
+  rememberDialogFocus();
+  closeLiveOverlay();
+  const items = MAIN_MENU_POPOVERS[action] || [];
+  const template = document.createElement("template");
+  template.innerHTML = `<div class="overlay-layer live-overlay main-menu-popover"><div class="menu-list" role="menu">`
+    + items.map((item) => `<a class="menu-item" href="#" data-main-menu-action="${escapeText(item.action)}">${escapeText(item.label)}</a>`).join("")
+    + `</div></div>`;
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  layer.setAttribute("data-augit-overlay", "");
+  const rect = titlebarNode.getBoundingClientRect();
+  layer.querySelector(".menu-list").style.top = `${Math.round(rect.bottom + 4)}px`;
+  host.appendChild(layer);
+  const first = layer.querySelector(".menu-item");
+  if (first) first.focus({ preventScroll: true });
+}
+
+/** 三个动作菜单的能力集合（来自规格 §7.x 已实现的动作）。 */
+const MAIN_MENU_POPOVERS = {
+  file: [
+    { action: "open-workspace", label: "打开工作区…" },
+    { action: "refresh-tree", label: "刷新文件树" },
+  ],
+  view: [
+    { action: "toggle-side", label: "显示/隐藏项目工具窗口" },
+    { action: "toggle-bottom", label: "显示/隐藏底部工具窗口" },
+  ],
+  git: [
+    { action: "fetch", label: "获取" },
+    { action: "push", label: "推送…" },
+    { action: "branches", label: "分支与标签…" },
+  ],
+};
 
 /**
  * 标题栏内嵌菜单的 Esc 关闭（规格 §5.1）。
