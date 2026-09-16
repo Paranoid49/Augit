@@ -2054,6 +2054,8 @@ async function pushCurrentBranch() {
 function openBranchesPopover() {
   const live = window.__augitLive;
   if (!live) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
   if (!live.references) {
     // 引用数据尚未到达：提示而不是静默无反应。
     window.__augitError = "branches:references-not-ready";
@@ -2126,6 +2128,8 @@ let compactDialogKind = null;
 function openBranchActionDialog(kind) {
   const live = window.__augitLive;
   if (!live) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
   const current = (live.references && live.references.branches || []).find((item) => item.isCurrent);
   compactDialogKind = kind;
   if (kind === "rename" && !current) {
@@ -2155,6 +2159,7 @@ function openBranchActionDialog(kind) {
 function closeCompactDialog() {
   compactDialogKind = null;
   closeLiveOverlay();
+  restoreDialogFocus();
 }
 
 /** 提交紧凑输入窗口；业务校验在调用方做，窗口本身不写 Git。 */
@@ -2381,6 +2386,7 @@ async function compareWithWorkspace() {
 async function openPushDialog() {
   const live = window.__augitLive;
   if (!live) return;
+  rememberDialogFocus();
   closeLiveOverlay();
   const host = document.querySelector(".augit-window");
   if (!host) return;
@@ -2425,6 +2431,7 @@ function renderPushDialog() {
 function closePushDialog() {
   window.__augitPushDialogOpen = false;
   closeLiveOverlay();
+  restoreDialogFocus();
 }
 
 /**
@@ -2437,6 +2444,7 @@ function openRemoteDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
+  rememberDialogFocus();
   document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
   const remotes = (live.remotes && live.remotes.remotes) || [];
   const first = remotes[0];
@@ -2472,6 +2480,7 @@ async function closeRemoteDialog() {
   const live = window.__augitLive;
   document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
   if (!live) return;
+  restoreDialogFocus();
   const [references, remotes] = await Promise.all([
     invoke("git/references", {}, 30000).catch(() => null),
     invoke("git/remotes", {}, 30000).catch(() => null),
@@ -2562,6 +2571,7 @@ function openSettingsDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
+  rememberDialogFocus();
   if (!live.settings) {
     window.__augitError = "settings:not-loaded";
     return;
@@ -2586,6 +2596,7 @@ function openSettingsDialog() {
 /** 关闭设置对话框。 */
 function closeSettingsDialog() {
   document.querySelectorAll(".settings-window").forEach((node) => node.remove());
+  restoreDialogFocus();
 }
 
 /**
@@ -2599,6 +2610,7 @@ function openWorktreeDialog() {
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
   closeLiveOverlay();
+  rememberDialogFocus();
   const branch = currentBranchName() || "HEAD";
   const body = `<div class="form-grid">`
     + `<label for="worktree-destination">目录</label>`
@@ -2623,6 +2635,7 @@ function openWorktreeDialog() {
 
 function closeWorktreeDialog() {
   document.querySelectorAll(".worktree-window").forEach((node) => node.remove());
+  restoreDialogFocus();
 }
 
 /** 创建 Worktree；失败原因显示在窗口内并保留输入。 */
@@ -2684,6 +2697,7 @@ function showWorktreeNotice(message) {
 function openRevisionDialog() {
   const host = document.querySelector(".augit-window");
   if (!host) return;
+  rememberDialogFocus();
   compactDialogKind = "checkout-revision";
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
   const layer = document.createElement("div");
@@ -2705,6 +2719,7 @@ function openChangesContextMenu(row, clientX, clientY) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host || !row) return;
+  rememberDialogFocus();
   const path = row.dataset.path;
   if (!path) return;
   closeLiveOverlay();
@@ -2772,11 +2787,54 @@ async function runChangesContextAction(action) {
   }
 }
 
+/**
+ * 对话框的焦点恢复（规格 §5.3）。
+ *
+ * 打开对话框前记录当时的焦点；关闭后：
+ * - **取消**：恢复到打开前的元素；
+ * - **确认**：回到触发区域（同样是打开前的元素——它就是触发点）。
+ * 记录只保留一个：对话框是模态的，不会同时打开两个。
+ */
+let focusBeforeDialog = null;
+
+/** 打开对话框前调用；记录当前焦点供关闭后恢复。 */
+function rememberDialogFocus() {
+  // 已有快照就不覆盖：嵌套打开（从弹层里再开对话框）时，
+  // 恢复目标应是最外层那一次打开前的元素。
+  if (focusBeforeDialog) return;
+  const active = document.activeElement;
+  focusBeforeDialog = active && active !== document.body ? active : null;
+}
+
+/**
+ * 关闭对话框后调用；把焦点交回打开前的元素。
+ * 元素可能已被区域刷新替换，此时按同样的选择器语义找回——找不到就保持现状，
+ * 不强行把焦点塞给不可见节点。
+ */
+function restoreDialogFocus() {
+  const previous = focusBeforeDialog;
+  focusBeforeDialog = null;
+  if (!previous) return;
+  if (previous.isConnected && previous.getClientRects().length > 0) {
+    previous.focus({ preventScroll: true });
+    return;
+  }
+
+  // 已被替换：按 aria-label 或 data 属性找回等价入口。
+  const label = previous.getAttribute && previous.getAttribute("aria-label");
+  if (!label) return;
+  const again = document.querySelector(`[aria-label="${CSS.escape(label)}"]`);
+  if (again && again.getClientRects().length > 0) again.focus({ preventScroll: true });
+}
+
 /** 关闭实时弹层。 */
 function closeLiveOverlay() {
   const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
   if (layers.length === 0) return false;
   layers.forEach((node) => node.remove());
+  // 通用弹层关闭路径（Esc、遮罩点击、菜单选择）也要交回焦点（规格 §5.3）。
+  // 各打开函数都在调用本函数**之前**记录焦点，因此这里恢复的是打开前的元素。
+  restoreDialogFocus();
   return true;
 }
 

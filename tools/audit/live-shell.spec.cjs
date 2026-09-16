@@ -2790,6 +2790,80 @@ async function main() {
     check('取消后关闭设置对话框', seCancelled.dialog === false);
     await se.page.close();
 
+    // ---- 规格 §5.3：对话框取消后恢复打开前焦点 ----
+    const fo = await openScene('scene=commit-changes&theme=dark');
+    await fo.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await fo.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await fo.page.waitForFunction('!!(window.__augitLive && window.__augitLive.settings)', null, { timeout: 10000 });
+
+    // 从「提交设置」按钮打开设置，取消后焦点回到该按钮
+    await fo.page.locator('[aria-label="提交设置"]').first().click();
+    await fo.page.waitForTimeout(600);
+    const foOpened = await fo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.settings-window'),
+      focusLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+    }));
+    check('设置对话框已打开: ' + JSON.stringify(foOpened.dialog), foOpened.dialog === true);
+    await fo.page.locator('[data-settings-action="cancel"]').click();
+    await fo.page.waitForTimeout(500);
+    const foCancelled = await fo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.settings-window'),
+      focusLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+    }));
+    check('取消后焦点回到触发按钮: ' + JSON.stringify(foCancelled.focusLabel),
+      foCancelled.focusLabel === '提交设置');
+
+    // 保存后同样回到触发区域
+    await fo.page.locator('[aria-label="提交设置"]').first().click();
+    await fo.page.waitForTimeout(600);
+    await fo.page.locator('[data-settings-action="save"]').click();
+    await fo.page.waitForTimeout(900);
+    const foSaved = await fo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.settings-window'),
+      focusLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+    }));
+    check('保存后焦点回到触发区域: ' + JSON.stringify(foSaved.focusLabel),
+      foSaved.dialog === false && foSaved.focusLabel === '提交设置');
+
+    // Esc 关闭弹层后焦点回到打开它的入口
+    const fo2 = await openScene('scene=main-project&theme=dark');
+    await fo2.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await fo2.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    await fo2.page.locator('.top-chip.branch-chip').click();
+    await fo2.page.waitForTimeout(600);
+    check('弹层已打开', await fo2.page.evaluate(() => !!document.querySelector('.live-overlay')));
+    await fo2.page.keyboard.press('Escape');
+    await fo2.page.waitForTimeout(500);
+    const fo2Closed = await fo2.page.evaluate(() => ({
+      overlay: !!document.querySelector('.live-overlay'),
+      focusClass: document.activeElement ? document.activeElement.className : null,
+    }));
+    check('Esc 关闭弹层后焦点回到分支芯片: ' + JSON.stringify(fo2Closed.focusClass),
+      fo2Closed.overlay === false && typeof fo2Closed.focusClass === 'string'
+      && fo2Closed.focusClass.includes('branch-chip'));
+    await fo2.page.close();
+
+    // Worktree 表单取消后焦点回到触发它的弹层入口
+    await fo.page.locator('.top-chip.branch-chip').click();
+    await fo.page.waitForTimeout(600);
+    await fo.page.evaluate(() => {
+      document.querySelectorAll('[data-popover-action="create-worktree"]')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await fo.page.waitForTimeout(700);
+    await fo.page.locator('[data-worktree-action="cancel"]').click();
+    await fo.page.waitForTimeout(500);
+    const foWt = await fo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.worktree-window'),
+      focusClass: document.activeElement ? document.activeElement.className : null,
+    }));
+    // 弹层里的菜单项是不可聚焦的 <a>（没有 href），打开它时焦点仍在分支芯片上，
+    // 因此取消后回到芯片——这正是规格要求的「恢复打开前焦点」。
+    check('Worktree 取消后焦点回到打开前元素: ' + JSON.stringify(foWt),
+      foWt.dialog === false && typeof foWt.focusClass === 'string'
+      && foWt.focusClass.includes('branch-chip'));
+    await fo.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
