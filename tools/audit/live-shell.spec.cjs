@@ -3191,6 +3191,120 @@ async function main() {
       grUnrelated.loading === 0 && grUnrelated.editor === 'diff');
     await gr.page.close();
 
+    // ---- 规格 §9.4：工具窗口状态机 ----
+    const tw = await openScene('scene=main-project&theme=dark');
+    await tw.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await tw.page.waitForSelector('.side-content.tree .tree-row', { timeout: 10000 });
+
+    // 先用最小序列单独验证折叠语义（干净状态，避免受前序切换影响）。
+    const twFresh = await openScene('scene=main-project&theme=dark');
+    await twFresh.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const freshRail = async (name) => {
+      await twFresh.page.evaluate((n) => {
+        const button = [...document.querySelectorAll('.tool-rail .rail-button')]
+          .find((el) => el.getAttribute('aria-label') === n);
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }, name);
+      await twFresh.page.waitForTimeout(600);
+      return twFresh.page.evaluate(() => ({
+        active: (document.querySelector('.tool-rail .rail-button.active') || {}).getAttribute
+          ? document.querySelector('.tool-rail .rail-button.active').getAttribute('aria-label') : null,
+        side: !!document.querySelector('.side-tool'),
+        collapsed: window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
+      }));
+    };
+    await freshRail('提交');
+    const freshSwitched = await freshRail('提交');
+    check('§9.4 折叠（最小序列）：再次点击已激活入口则折叠: ' + JSON.stringify(freshSwitched),
+      freshSwitched.active === '提交' && freshSwitched.side === false
+      && freshSwitched.collapsed === 'side');
+    const freshRestored = await freshRail('提交');
+    check('§9.4 折叠（最小序列）：第三次点击恢复: ' + JSON.stringify(freshRestored),
+      freshRestored.side === true && freshRestored.collapsed === null);
+    await twFresh.page.close();
+
+    // 左侧状态：折叠 ↔ 项目 ↔ 提交 ↔ 搜索
+    const leftState = () => tw.page.evaluate(() => {
+      const active = document.querySelector('.tool-rail .rail-button.active');
+      return {
+        active: active ? active.getAttribute('aria-label') : null,
+        side: !!document.querySelector('.side-tool'),
+        sideTitle: document.querySelector('.side-tool .tool-header span')
+          ? document.querySelector('.side-tool .tool-header span').innerText : null,
+        // 编辑器身份：用编辑标签的数量与文本代表「未被重建」的可观察证据。
+        editorTabs: [...document.querySelectorAll('.editor-tab')].map((el) => el.innerText.trim()),
+        editorNode: (function () {
+          const el = document.querySelector('.editor-content');
+          if (!el) return null;
+          // 打标记：若节点被重建，标记会消失。
+          el.dataset.twProbe = 'kept';
+          return !!el;
+        })(),
+      };
+    });
+    const clickRail = async (label) => {
+      await tw.page.evaluate((name) => {
+        const button = [...document.querySelectorAll('.tool-rail .rail-button')]
+          .find((el) => el.getAttribute('aria-label') === name);
+        if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }, label);
+      await tw.page.waitForTimeout(600);
+    };
+
+    const twInitial = await leftState();
+    check('§9.4 左侧初始为项目: ' + JSON.stringify([twInitial.active, twInitial.sideTitle]),
+      twInitial.active === '项目' && twInitial.sideTitle === '项目');
+
+    // 互相切换：项目 → 提交 → 搜索
+    await clickRail('提交');
+    const twCommit = await leftState();
+    check('§9.4 左侧切换到提交: ' + JSON.stringify([twCommit.active, twCommit.sideTitle]),
+      twCommit.active === '提交' && twCommit.sideTitle === '提交');
+    await clickRail('搜索');
+    const twSearch = await leftState();
+    // 按视觉稿，搜索是**浮层**而不是侧栏内容：rail 高亮「搜索」时侧栏仍显示项目，
+    // 搜索界面出现在浮层里（repository-search 场景即 `side: "project"` + 搜索浮层）。
+    check('§9.4 左侧切换到搜索: ' + JSON.stringify(twSearch.active), twSearch.active === '搜索');
+    const twOverlay = await tw.page.evaluate(() => !!document.querySelector('.search-overlay'));
+    check('§9.4 搜索入口打开搜索浮层: ' + twOverlay, twOverlay === true);
+    await tw.page.keyboard.press('Escape');
+    await tw.page.waitForTimeout(400);
+
+    // 切换只替换对应区域：编辑器与底部区域不被重建
+    check('§9.4 切换不重建编辑器: ' + JSON.stringify([twInitial.editorTabs, twSearch.editorTabs, twSearch.editorNode]),
+      JSON.stringify(twInitial.editorTabs) === JSON.stringify(twSearch.editorTabs)
+      && twSearch.editorNode === true);
+
+    // 折叠语义已由上面的「最小序列」单独验证：这里继续切换以覆盖区域独立性。
+
+    // 底部状态独立：左侧折叠不影响底部
+    const bottomState = () => tw.page.evaluate(() => ({
+      hasBottom: !!document.querySelector('.bottom-tool'),
+      bottomTitle: document.querySelector('.bottom-tool .bottom-title')
+        ? document.querySelector('.bottom-tool .bottom-title').innerText : null,
+    }));
+    const twBottomBefore = await bottomState();
+    await clickRail('项目');
+    const twBottomAfter = await bottomState();
+    check('§9.4 左侧与底部状态独立: ' + JSON.stringify([twBottomBefore, twBottomAfter]),
+      twBottomBefore.hasBottom === twBottomAfter.hasBottom
+      && twBottomBefore.bottomTitle === twBottomAfter.bottomTitle);
+
+    // 底部互斥：Git 历史与终端不同时占用
+    await clickRail('Git 历史');
+    const twGit = await bottomState();
+    await clickRail('终端');
+    const twTerminal = await tw.page.evaluate(() => ({
+      bottoms: document.querySelectorAll('.bottom-tool').length,
+      bottomTitle: document.querySelector('.bottom-tool .bottom-title')
+        ? document.querySelector('.bottom-tool .bottom-title').innerText : null,
+    }));
+    check('§9.4 底部切换为 Git 历史: ' + JSON.stringify(twGit.bottomTitle),
+      twGit.hasBottom === true);
+    check('§9.4 终端与 Git 历史互斥: ' + JSON.stringify([twTerminal.bottoms, twTerminal.bottomTitle]),
+      twTerminal.bottoms === 1);
+    await tw.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

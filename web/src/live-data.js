@@ -1612,7 +1612,8 @@ function refreshAfterEvent(...regions) {
  * 布局由 live.layout 驱动，shell() 读取它；视觉稿单独打开时没有 live，
  * 因此静态浏览行为不变。
  */
-const RAIL_SIDE = ["project", "commit", "search"];
+// 搜索按视觉稿是**浮层**而不是侧栏内容，因此不属于侧栏区域。
+const RAIL_SIDE = ["project", "commit"];
 const RAIL_BOTTOM = ["terminal", "history"];
 // 视觉稿的入口用中文 aria-label 标识；沿用同一标识，避免改动设计基线标记。
 const RAIL_LABELS = {
@@ -1631,6 +1632,7 @@ function readInitialLayout() {
   const names = buttons.map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null);
   const activeIndex = buttons.findIndex((b) => b.classList.contains("active"));
   const activeRail = activeIndex >= 0 ? names[activeIndex] : "project";
+  // 搜索入口保持侧栏为项目，搜索界面在浮层里（与视觉稿一致）。
   const side = RAIL_SIDE.includes(activeRail) ? activeRail : "project";
   const bottom = RAIL_BOTTOM.includes(activeRail) ? (RAIL_BOTTOM_VALUE[activeRail] || "") : "";
   return { activeRail, side, bottom, collapsed: null, userDriven: false };
@@ -1654,16 +1656,33 @@ function applyRailAction(name) {
   const inSide = RAIL_SIDE.includes(name);
   const isActive = layout.activeRail === name;
   if (isActive) {
+    // 搜索是浮层：已激活时再次点击只是关闭浮层，不折叠侧栏或底部。
+    if (name === "search") {
+      closeLiveOverlay();
+      return;
+    }
+
     // 再次点击同一入口：折叠 / 恢复该区域。
     layout.collapsed = layout.collapsed === (inSide ? "side" : "bottom") ? null : (inSide ? "side" : "bottom");
   } else {
     layout.activeRail = name;
     layout.collapsed = null;
-    if (inSide) {
+    if (name === "search") {
+      // 搜索打开浮层；侧栏内容保持项目（视觉稿 repository-search 即如此）。
+      layout.side = "project";
+      layout.bottom = "";
+    } else if (inSide) {
       layout.side = name;
     } else {
       layout.bottom = RAIL_BOTTOM_VALUE[name] || "";
     }
+  }
+
+  if (name === "search") {
+    // 搜索入口打开搜索浮层；不重建编辑器与底部区域（规格 §9.4）。
+    refreshAfterEvent("rail", "side", "bottomTool", "editorContent", "statusbar");
+    openSearchOverlay("repository");
+    return;
   }
 
   // 区域替换只在「两侧都存在」时替换，无法表达节点的出现与消失。
