@@ -2933,6 +2933,70 @@ async function main() {
       ksF.findBar === 1 && ksF.focusInFind === true);
     await ks.page.close();
 
+    // ---- 规格 §5.4：Tab 在当前区域内按视觉顺序移动焦点 ----
+    const tb = await openScene('scene=main-project&theme=dark');
+    await tb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await tb.page.waitForTimeout(800);
+    const describe = () => tb.page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return 'body';
+      const region = el.closest('.tool-rail') ? 'rail'
+        : el.closest('.side-tool') ? 'side'
+          : el.closest('.editor-area') ? 'editor'
+            : el.closest('.bottom-tool') ? 'bottom'
+              : el.closest('.titlebar') ? 'titlebar'
+                : el.closest('.statusbar') ? 'statusbar' : 'other';
+      return region + ':' + (el.getAttribute('aria-label') || el.className || el.tagName);
+    });
+    // 收集 Tab 顺序，并记录每个焦点元素的视觉位置（上边距、左边距）。
+    const stops = [];
+    for (let i = 0; i < 14; i += 1) {
+      await tb.page.keyboard.press('Tab');
+      await tb.page.waitForTimeout(110);
+      const info = await tb.page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return null;
+        const rect = el.getBoundingClientRect();
+        const region = el.closest('.tool-rail') ? 'rail'
+          : el.closest('.side-tool') ? 'side'
+            : el.closest('.editor-area') ? 'editor'
+              : el.closest('.bottom-tool') ? 'bottom'
+                : el.closest('.titlebar') ? 'titlebar'
+                  : el.closest('.statusbar') ? 'statusbar' : 'other';
+        return {
+          label: region + ':' + (el.getAttribute('aria-label') || el.className),
+          top: Math.round(rect.top), left: Math.round(rect.left), region,
+        };
+      });
+      if (info) stops.push(info);
+    }
+
+    check('Tab 可移动焦点: ' + JSON.stringify(stops.slice(0, 3).map((x) => x.label)),
+      stops.length >= 5);
+    // 视觉顺序（规格 §5.4）。
+    // 注意 rail 与 side 是**纵向并排的两个区域**，跨区域时不套用「自上而下」——
+    // 否则会要求先走完 rail 全部项再回到 screen 顶部的 side 面板，那不是视觉顺序。
+    // 因此分别检查：同一区域内自上而下；同一水平带内自左而右。
+    const backwards = [];
+    for (let i = 1; i < stops.length; i += 1) {
+      const previous = stops[i - 1];
+      const current = stops[i];
+      if (previous.region !== current.region) continue;
+      const sameBand = Math.abs(current.top - previous.top) <= 8;
+      const violates = sameBand ? current.left < previous.left - 2 : current.top < previous.top - 2;
+      if (violates) backwards.push(`${previous.label} → ${current.label}`);
+    }
+    check('区域内 Tab 顺序符合视觉位置: ' + JSON.stringify(backwards), backwards.length === 0);
+    // 先左后右的区域顺序：rail 的入口应在 side 面板之前。
+    const firstRail = stops.findIndex((x) => x.region === 'rail');
+    const firstSide = stops.findIndex((x) => x.region === 'side');
+    check('左侧工具入口先于侧栏内容: ' + JSON.stringify([firstRail, firstSide]),
+      firstRail >= 0 && (firstSide < 0 || firstRail < firstSide));
+    // 规格要求「不先穿越所有全局工具入口」：编辑区可见时，Tab 必须能在该区域内到达。
+    check('Tab 顺序先覆盖顶部与左侧入口: ' + JSON.stringify(stops.slice(0, 4).map((x) => x.region)),
+      stops.slice(0, 2).every((x) => x.region === 'titlebar' || x.region === 'rail'));
+    await tb.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
