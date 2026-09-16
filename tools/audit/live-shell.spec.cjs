@@ -2088,9 +2088,10 @@ async function main() {
     await commitPage.page.waitForTimeout(500);
     const noMessage = await commitState();
     check('空提交信息被拒绝: ' + JSON.stringify([noMessage.written, noMessage.error]),
-      noMessage.written === null && noMessage.error === '提交信息不能为空。');
+      noMessage.written === null && noMessage.error.includes('提交信息不能为空。'));
     check('拒绝原因写回反馈位: ' + JSON.stringify(noMessage.feedback),
-      noMessage.feedback === '提交信息不能为空。' && noMessage.isError === true);
+      typeof noMessage.feedback === 'string' && noMessage.feedback.includes('提交信息不能为空。')
+      && noMessage.isError === true);
 
     // 填写信息后提交：只提交勾选的文件
     await commitPage.page.locator('.commit-box .message-field').fill('feat: 只提交勾选项');
@@ -3388,6 +3389,52 @@ async function main() {
       emptySearch.overlay === true && emptySearch.query === '绝不存在的查询串');
     check('§10.1 搜索无结果不列出结果行', emptySearch.rows === 0);
     await esSearch.close();
+
+    // ---- 规格 §10.2：错误必须说明「发生了什么 / 哪些状态未改变 / 可以做什么」----
+    const fm = await openScene('scene=commit-changes&theme=dark');
+    await fm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await fm.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await fm.page.locator('.commit-actions .primary-button').first().click();
+    await fm.page.waitForTimeout(600);
+    const fmEmpty = await fm.page.evaluate(() => window.__augitCommitError || '');
+    check('§10.2 提交错误说明发生了什么: ' + JSON.stringify(fmEmpty.slice(0, 16)),
+      fmEmpty.includes('提交信息不能为空'));
+    check('§10.2 提交错误说明哪些状态未改变: ' + JSON.stringify(fmEmpty),
+      fmEmpty.includes('勾选保持不变'));
+    check('§10.2 提交错误说明可以做什么: ' + JSON.stringify(fmEmpty),
+      fmEmpty.includes('填写提交信息后重试'));
+
+    // 未勾选时：错误同样具备三要素。
+    // 先填好提交信息（否则会先被「信息为空」拦下），再取消全部勾选。
+    await fm.page.locator('.commit-box .message-field').fill('feat: 三要素');
+    await fm.page.waitForTimeout(200);
+    await fm.page.evaluate(() => {
+      // 取消所有已勾选项，制造「没有选中文件」的状态。
+      document.querySelectorAll('.changes-list .change-file-row .fake-check.checked').forEach((box) => {
+        box.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+    });
+    await fm.page.waitForTimeout(500);
+    const fmChecked = await fm.page.evaluate(
+      () => (window.__augitLive.status.files || []).filter((f) => f.checked).length);
+    check('§10.2 前置：已取消全部勾选: ' + fmChecked, fmChecked === 0);
+    await fm.page.evaluate(() => { window.__augitCommitError = null; });
+    await fm.page.locator('.commit-actions .primary-button').first().click();
+    await fm.page.waitForTimeout(700);
+    const fmNoSelection = await fm.page.evaluate(() => window.__augitCommitError || '');
+    check('§10.2 未勾选错误具备三要素: ' + JSON.stringify(fmNoSelection),
+      fmNoSelection.includes('至少选择一个') && fmNoSelection.includes('工作区没有变化')
+      && fmNoSelection.includes('勾选'));
+
+    // 错误归属到发生区域而非全局消息框：提交错误出现在提交侧栏的反馈位
+    const fmRegion = await fm.page.evaluate(() => ({
+      feedback: (document.querySelector('.commit-box .commit-feedback') || {}).textContent || null,
+      globalDialog: document.querySelectorAll('.dialog[role="alert"], .modal-error').length,
+    }));
+    check('§10.2 错误归属到发生区域: ' + JSON.stringify([fmRegion.feedback, fmRegion.globalDialog]),
+      typeof fmRegion.feedback === 'string' && fmRegion.feedback.length > 0
+      && fmRegion.globalDialog === 0);
+    await fm.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

@@ -2001,13 +2001,19 @@ async function commitSelectedChanges(andPush) {
   const selected = files.filter((file) => file.checked);
   const message = typeof live.commitDraft === "string" ? live.commitDraft.trim() : "";
   if (selected.length === 0) {
-    window.__augitCommitError = "请至少选择一个要提交的文件。";
+    window.__augitCommitError = describeFailure("请至少选择一个要提交的文件。", {
+      unchanged: "工作区没有变化。",
+      next: "在改动列表里勾选要提交的文件。",
+    });
     refreshAfterEvent("side");
     return;
   }
 
   if (message.length === 0) {
-    window.__augitCommitError = "提交信息不能为空。";
+    window.__augitCommitError = describeFailure("提交信息不能为空。", {
+      unchanged: "勾选保持不变。",
+      next: "填写提交信息后重试。",
+    });
     refreshAfterEvent("side");
     return;
   }
@@ -2029,7 +2035,10 @@ async function commitSelectedChanges(andPush) {
 
   if (!result || !result.committed) {
     window.__augitCommitResult = null;
-    window.__augitCommitError = (result && result.reason) || "提交失败。";
+    window.__augitCommitError = describeFailure((result && result.reason) || "提交失败。", {
+      unchanged: "改动列表、勾选与提交信息都没有变化。",
+      next: "修正后可直接重试。",
+    });
     refreshAfterEvent("side");
     return;
   }
@@ -2124,7 +2133,10 @@ async function checkoutReference(name, kind) {
   }
 
   if (!result || !result.switched) {
-    window.__augitCheckoutError = (result && result.reason) || "检出失败。";
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "检出失败。", {
+      unchanged: "当前分支与工作区都没有变化。",
+      next: "请先提交或贮藏改动，再重试。",
+    });
     // 保留弹层并把原因显示出来，不静默关闭。
     openBranchesPopover();
     return;
@@ -2218,7 +2230,10 @@ async function submitCompactDialog() {
   }
 
   if (!result || !result.changed) {
-    window.__augitCheckoutError = (result && result.reason) || "分支操作失败。";
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "分支操作失败。", {
+      unchanged: "已有分支与当前分支都没有变化。",
+      next: "请换一个名称后重试。",
+    });
     closeCompactDialog();
     openBranchesPopover();
     return;
@@ -2343,7 +2358,10 @@ async function runPopoverAction(action) {
   }
 
   if (!result || !result[key]) {
-    window.__augitCheckoutError = (result && result.reason) || "操作失败。";
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "操作失败。", {
+      unchanged: "本地引用与工作区都没有变化。",
+      next: "请检查网络或远端配置后重试。",
+    });
     openBranchesPopover();
     return;
   }
@@ -2696,7 +2714,10 @@ async function runWorktreeAction(action) {
   }
 
   if (!result || !result.changed) {
-    showWorktreeNotice((result && result.reason) || "Worktree 创建失败。");
+    showWorktreeNotice(describeFailure((result && result.reason) || "Worktree 创建失败。", {
+      unchanged: "已填写的目录与分支都保留在表单里。",
+      next: "换一个空目录后重试。",
+    }));
     return;
   }
 
@@ -2849,6 +2870,20 @@ function restoreDialogFocus() {
   if (!label) return;
   const again = document.querySelector(`[aria-label="${CSS.escape(label)}"]`);
   if (again && again.getClientRects().length > 0) again.focus({ preventScroll: true });
+}
+
+/**
+ * 给失败原因补上「未改变什么」与「可以做什么」（规格 §10.2）。
+ *
+ * 宿主给出的原因通常只说明**发生了什么**（例如「目标目录不为空」）。
+ * 规格还要求说明**哪些状态未改变**与**用户可以做什么**——
+ * 这两项由界面层补，因为它才知道当前保留了哪些输入与区域。
+ */
+function describeFailure(reason, { unchanged, next }) {
+  const parts = [reason || "操作失败。"];
+  if (unchanged) parts.push(unchanged);
+  if (next) parts.push(next);
+  return parts.join(" ");
 }
 
 /** 关闭实时弹层。 */
