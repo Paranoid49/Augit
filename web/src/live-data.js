@@ -941,12 +941,15 @@ async function applyHistoryComparison(path, commit, options = {}) {
   const tab = ensureHistoryComparisonTab(label, path);
   live.historyComparison = { path, commit, label, status: "loading" };
   if (activate) activateComparisonTab(tab);
+  scheduleDiffLoadingMarker();
 
   refreshAfterEvent("editorTabs", "editorContent", "statusbar", "bottomTool");
 
   const diff = await loadDiff(path, { commit, force: true }).catch(() => null);
-  // 只接纳最后一次有效结果（规格 §7.8：只接纳最后一次有效结果）。
+  // 收尾只在**本次请求仍然有效**时执行：被取代的旧请求若在这里清标记，
+  // 会把新请求（乃至新请求的加载提示）一起清掉。
   if (token !== historyComparisonToken) return diff;
+  clearDiffLoadingMarker();
   if (!diff) {
     live.historyComparison = { path, commit, label, status: "unavailable" };
     refreshAfterEvent("editorTabs", "editorContent", "statusbar");
@@ -2644,34 +2647,31 @@ async function compareWithWorkspace() {
   // 引用比较独立于 Changes 跟随（规格 §5.2/§7.9）：它比较的是整个引用与工作区，
   // 不是当前选中的某个改动文件，因此必须解除跟随，否则后续单击改动行会把它改写成工作区 Diff。
   live.followChanges = false;
-  const diff = await loadDiff(target.path, { revision: branch, force: true }).catch(() => null);
-  if (!diff) {
-    window.__augitError = "compare-workspace:" + target.path;
-    return;
-  }
-
   const title = `比较: ${branch}`;
-  const existing = findComparisonTab();
-  if (!existing) {
-    live.tabs = live.tabs || [];
-    const tab = {
-      id: nextTabId(),
-      kind: "comparison",
-      path: target.path,
-      title,
-      editor: "diff",
-      preview: false,
-    };
-    live.tabs.push(tab);
-    activateComparisonTab(tab);
-  } else {
-    // 复用的比较标签必须同步目标，否则标签仍显示上一个比较的文件名。
-    syncComparisonTab(existing, target.path, title);
-    activateComparisonTab(existing);
-  }
+  // 与工作区 Diff 同一处理：标签与视图必须在**发请求之前**就位，并调度加载提示。
+  // 否则查询期间编辑区还停在上一个视图、也没有加载指示
+  // （规格 §7.9 要求"激活时立即打开并显示双方引用及文件路径，查询完成后只填充正文"）。
+  const tab = ensureComparisonTab(target.path);
+  syncComparisonTab(tab, target.path, title);
+  activateComparisonTab(tab);
+  scheduleDiffLoadingMarker();
+  let succeeded = false;
+  try {
+    const diff = await loadDiff(target.path, { revision: branch, force: true }).catch(() => null);
+    if (!diff) {
+      window.__augitError = "compare-workspace:" + target.path;
+      return;
+    }
 
-  live.editor = "diff";
-  refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+    succeeded = true;
+    syncComparisonTab(tab, target.path, title);
+    activateComparisonTab(tab);
+    refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+  } finally {
+    clearDiffLoadingMarker();
+    // 读取失败时不留下一个打不开的比较标签。
+    if (!succeeded) closeTab(tab.id);
+  }
 }
 
 /**

@@ -4207,3 +4207,61 @@ scheduleDiffLoadingMarker();
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **547/547**、
 场景 48/48（dark 与 light）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百三十轮：同类缺陷在三处打开路径上的系统排查
+
+上一轮修好"首次打开差异无加载指示"后，我意识到这不是单点问题而是一**类**缺陷：
+凡是"异步加载差异并显示"的入口，都可能存在"视图/标记未在发请求前就位"的问题。
+本轮把三处入口逐个查了一遍。
+
+#### 排查结果
+
+| 入口 | 修复前 | 处理 |
+|---|---|---|
+| 工作区 Diff（`openChangeDiff`） | 标签与视图在加载**完成后**才建立；未调度加载提示 | 第 129 轮已修 |
+| **引用比较（`compareWithWorkspace`）** | 标签与视图在加载**完成后**才建立；**完全没有调度加载提示** | 本轮修复 |
+| 历史比较（`applyHistoryComparison`） | 视图已提前切换、**但没有调度加载提示** | 本轮补齐 |
+
+三处现在一致：**发请求前**建立标签、切到 diff 视图、调度加载提示；
+读取失败时撤销提前建的标签，不留空标签。
+
+#### 引用比较的修复
+
+```js
+const tab = ensureComparisonTab(target.path);
+syncComparisonTab(tab, target.path, title);
+activateComparisonTab(tab);
+scheduleDiffLoadingMarker();
+try { … } finally { clearDiffLoadingMarker(); if (!succeeded) closeTab(tab.id); }
+```
+
+规格 §7.9 本就要求引用比较"激活时立即打开并显示双方引用及文件路径，
+Git 查询完成后只填充正文"——原实现是"查询完成后才显示"，与规格相反。
+
+#### 历史比较的一处并发陷阱（已在实现时规避）
+
+`applyHistoryComparison` 有递增令牌用于"只接纳最后一次有效结果"。
+若在 `finally` 里无条件清加载标记，**被取代的旧请求收尾时会把新请求的提示一起清掉**。
+因此收尾放在令牌检查**之后**：只有本次请求仍然有效时才清标记。
+
+#### 断言与负向验证（547 → 549）
+
+| 断言 | 内容 |
+|---|---|
+| 前置条件：引用比较有明确目标文件 | `selectedChangePath` 有效 |
+| 引用比较加载期间显示加载指示 | 窗口内存在 `loading=true`、`hintInFilebar=true`，且 `editor='diff'`、编辑区为 `diff-layout` 的帧 |
+
+负向验证：移除引用比较的 `scheduleDiffLoadingMarker()` 后断言失败
+（`loading:false`、`top:'document-view'`）。
+
+#### 一处前置条件不成立导致的假验证
+
+第一次负向验证**没有失败**。原因是延迟设在了硬编码的 `'src/App.cs'` 上，
+而引用比较的目标取自 `selectedChangePath`（桩里第一行是别的文件）——
+请求没有延迟、加载窗口不存在，断言自然"通过"。
+改为**按实际选中行取路径**再设延迟后，负向验证才成立。
+
+这与第 111、125 轮是同一类错误：**制造慢请求前必须先确认延迟确实作用在目标请求上**。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **549/549**、
+场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。

@@ -2878,6 +2878,43 @@ async function main() {
     check('引用比较后单击改动行不改写比较标签: ' + JSON.stringify(afterRefClick.title),
       typeof afterRefClick.title === 'string' && afterRefClick.title.startsWith('比较:'));
 
+    // ---- 规格 §7.9 + §6.5：引用比较加载期间也要有加载指示 ----
+    // 规格要求引用比较"激活时立即打开并显示双方引用及文件路径，
+    // Git 查询完成后只填充正文"，因此加载期间正文区应有加载指示。
+    const cwLoad = await openScene('scene=commit-changes&theme=dark');
+    await cwLoad.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cwLoad.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await cwLoad.page.locator('.changes-list .change-file-row').first().click();
+    await cwLoad.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    // 延迟必须设在实际会被比较的文件上：引用比较的目标取自 selectedChangePath，
+    // 设错路径会立即返回、加载窗口不存在（第一次写漏了这一点）。
+    const cwTarget = await cwLoad.page.evaluate(() => window.__augitLive.selectedChangePath);
+    check('前置条件：引用比较有明确目标文件: ' + JSON.stringify(cwTarget),
+      typeof cwTarget === 'string' && cwTarget.length > 0);
+    await cwLoad.page.evaluate((path) => { window.__diffDelays = { [path]: 1800 }; }, cwTarget);
+    await cwLoad.page.locator('.top-chip.branch-chip').click();
+    await cwLoad.page.waitForTimeout(400);
+    await cwLoad.page.locator('[data-popover-action="compare-workspace"]').click();
+    const cwSeries = await cwLoad.page.evaluate(async () => {
+      const out = [];
+      const started = performance.now();
+      while (performance.now() - started < 1600) {
+        out.push({
+          loading: !!window.__augitLive.diffLoading,
+          editor: window.__augitLive.editor,
+          top: (document.querySelector('.editor-content') || {}).firstElementChild
+            ? document.querySelector('.editor-content').firstElementChild.className.split(' ')[0] : null,
+          hintInFilebar: !!document.querySelector('.editor-content .diff-filebar .diff-loading-status'),
+        });
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      return out;
+    });
+    const cwHintFrame = cwSeries.find((f) => f.loading && f.hintInFilebar);
+    check('引用比较加载期间显示加载指示: ' + JSON.stringify(cwHintFrame || cwSeries.slice(0, 3)),
+      !!cwHintFrame && cwHintFrame.editor === 'diff' && cwHintFrame.top === 'diff-layout');
+    await cwLoad.page.close();
+
     // 普通工作区 Diff 必须仍然不传 revision（由宿主按 HEAD 处理）
     await cw.page.evaluate(() => { window.__diffRevisions = []; });
     await cw.page.locator('.changes-list .change-file-row').nth(1).dblclick();
