@@ -168,7 +168,7 @@ async function loadStatus() {
     if (!status.isRepository) {
       return null;
     }
-    latestStatus = normalizeStatus(status);
+    latestStatus = normalizeStatus(status, latestStatus);
     // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
     applyStatus();
     return status;
@@ -184,7 +184,16 @@ async function loadStatus() {
  * 把宿主返回的 Git 状态整理成界面需要的形状。
  * 选中态是界面状态，默认「改动」全选、「未跟踪」不选，与视觉稿一致。
  */
-function normalizeStatus(status) {
+function normalizeStatus(status, previous) {
+  // 勾选是**用户状态**，不是宿主数据（规格 §6.4：「刷新期间不得自动勾选或取消
+  // 用户的提交复选状态」）。此前每次都按默认值重置，实测把用户取消的勾选重新勾上——
+  // 用户会因此提交到自己明确排除的文件。
+  // 路径已存在的沿用用户当前勾选；只有新出现的文件才用默认值。
+  const previousChecked = new Map();
+  for (const file of (previous && previous.files) || []) {
+    previousChecked.set(file.path, !!file.checked);
+  }
+
   const files = (status.files || []).map((file) => ({
     path: file.path,
     name: file.name || file.path.split("/").at(-1),
@@ -193,7 +202,9 @@ function normalizeStatus(status) {
     kind: file.kind || "Modified",
     staged: !!file.staged,
     workingTree: !!file.workingTree,
-    checked: file.group === "Changes",
+    checked: previousChecked.has(file.path)
+      ? previousChecked.get(file.path)
+      : file.group === "Changes",
   }));
   files.sort((a, b) => a.group.localeCompare(b.group)
     || a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }));

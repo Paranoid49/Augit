@@ -1122,10 +1122,31 @@ async function main() {
         diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
       };
     });
+    // 必须先等 DOM 反映真实差异：live.diff 在请求返回时就写入，而编辑区刷新是**延后**的，
+    // 直接断言会偶发看到样例视图（实测三次里失败一次）。判据仍是"只有真实差异才有的值"。
+    const templateGrew = await key.page.waitForFunction(
+      () => {
+        const path = window.__augitLive.diff ? window.__augitLive.diff.path : null;
+        const node = [...document.querySelector('.diff-layout').children]
+          .find((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template');
+        return !!path && !!node && (node.innerHTML || '').includes(path);
+      },
+      null,
+      { timeout: 8000 },
+    ).then(() => true).catch(() => false);
+    const templateFinal = await key.page.evaluate(() => {
+      const node = [...document.querySelector('.diff-layout').children]
+        .find((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template');
+      return {
+        present: !!node,
+        head: node ? (node.innerHTML || '').slice(0, 60) : null,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      };
+    });
     check('实时差异视图提供单栏模板且内容来自真实差异: '
-      + JSON.stringify([templateInfo.present, templateInfo.diffPath]),
-    templateInfo.present === true && typeof templateInfo.diffPath === 'string'
-      && typeof templateInfo.head === 'string' && templateInfo.head.includes(templateInfo.diffPath));
+      + JSON.stringify([templateFinal.present, templateFinal.diffPath]),
+    templateFinal.present === true && templateGrew === true
+      && typeof templateFinal.head === 'string' && templateFinal.head.includes(templateFinal.diffPath));
     // 点击工具栏的单栏按钮：相同内容，只重新排版，不再查询 Git
     await key.page.locator('.diff-toolbar .segmented button[aria-label="单栏"]').click();
     await key.page.waitForTimeout(500);
@@ -4188,6 +4209,82 @@ async function main() {
       check(`菜单「${label}」动作菜单贴近入口: ` + JSON.stringify([state.top, state.titlebarBottom]),
         state.top !== null && state.top >= state.titlebarBottom);
     }
+
+    // ---- 规格 §6.4：列表更新 ----
+    // 四条：未变化时保留原列表项对象；部分变化时增量更新并保持展开/滚动；
+    // 选中项仍存在时保持选中、不存在时选同组最近邻；刷新期间不得改动用户勾选。
+    const listUp = await openScene('scene=commit-changes&theme=dark');
+    await listUp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await listUp.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await listUp.page.waitForTimeout(400);
+
+    // 给行打标记以判断节点是否被重建；取消首行勾选并选中第二行。
+    await listUp.page.evaluate(() => {
+      document.querySelectorAll('.changes-list .change-file-row').forEach((row, i) => {
+        row.dataset.identity = 'row-' + i;
+      });
+    });
+    await listUp.page.locator('.changes-list .change-file-row').first().locator('.fake-check').click();
+    await listUp.page.waitForTimeout(200);
+    await listUp.page.locator('.changes-list .change-file-row').nth(1).click();
+    await listUp.page.waitForTimeout(200);
+    const beforeRefresh = await listUp.page.evaluate(() => ({
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      domChecked: [...document.querySelectorAll('.changes-list .change-file-row .fake-check')]
+        .map((b) => b.getAttribute('aria-checked')),
+      selectedPath: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+      paths: [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.path),
+    }));
+    check('前置条件：已取消首行勾选并选中第二行: '
+      + JSON.stringify([beforeRefresh.checked, beforeRefresh.selectedPath]),
+    beforeRefresh.checked[0] === false && typeof beforeRefresh.selectedPath === 'string');
+
+    // 触发一次**无变化**的刷新（同样几行、同样状态）。
+    await listUp.page.evaluate(() => { window.__nextChanges = { files: [], gitMetadata: true }; });
+    await listUp.page.waitForTimeout(1500);
+    const afterIdleRefresh = await listUp.page.evaluate(() => ({
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      domChecked: [...document.querySelectorAll('.changes-list .change-file-row .fake-check')]
+        .map((b) => b.getAttribute('aria-checked')),
+      selectedPath: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+      identities: [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.identity || null),
+    }));
+    // 条款四：刷新期间不得自动勾选或取消用户的提交复选状态。
+    check('无变化刷新不改动用户勾选: ' + JSON.stringify([beforeRefresh.domChecked, afterIdleRefresh.domChecked]),
+      JSON.stringify(afterIdleRefresh.checked) === JSON.stringify(beforeRefresh.checked)
+        && JSON.stringify(afterIdleRefresh.domChecked) === JSON.stringify(beforeRefresh.domChecked));
+    // 条款三：当前选中项仍存在时保持选中。
+    check('无变化刷新保持选中项: ' + JSON.stringify([beforeRefresh.selectedPath, afterIdleRefresh.selectedPath]),
+      afterIdleRefresh.selectedPath === beforeRefresh.selectedPath);
+
+    // 条款二：部分变化时增量更新，未变化项保留。
+    await listUp.page.evaluate(() => {
+      window.__liveFiles = [
+        { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+        { path: 'src/Other.cs', name: 'Other.cs', directory: 'src', group: 'Changes', kind: 'Added', staged: false, workingTree: true },
+        { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+        { path: 'notes/draft.txt', name: 'draft.txt', directory: 'notes', group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false },
+      ];
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\Other.cs'], gitMetadata: false };
+    });
+    await listUp.page.waitForFunction(
+      "!!document.querySelector('.changes-list .change-file-row[data-path=\"src/Other.cs\"]')",
+      null,
+      { timeout: 8000 },
+    );
+    const afterPartial = await listUp.page.evaluate(() => ({
+      total: document.querySelectorAll('.changes-list .change-file-row').length,
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      selectedPath: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+    }));
+    check('部分变化时新增项进入列表: ' + JSON.stringify([afterPartial.total, afterPartial.checked]),
+      afterPartial.total === 4);
+    check('部分变化后用户已取消的勾选仍为取消: ' + JSON.stringify(afterPartial.checked),
+      afterPartial.checked[0] === false);
+    await listUp.page.close();
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
     // 「Git 文件列表的刷新独立完成，不能等待慢 Diff，后续新增文件和状态变化
