@@ -2736,6 +2736,60 @@ async function main() {
     check('创建成功后关闭表单: ' + JSON.stringify(wtOk), wtOk.dialog === false && wtOk.writes === 2);
     await wt.page.close();
 
+    // ---- 提交设置入口：打开设置对话框 ----
+    const se = await openScene('scene=commit-changes&theme=dark');
+    await se.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await se.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await se.page.waitForFunction('!!(window.__augitLive && window.__augitLive.settings)', null, { timeout: 10000 });
+    const seBefore = await se.page.evaluate(() => ({
+      dialogs: document.querySelectorAll('.settings-window').length,
+      url: location.pathname,
+    }));
+    await se.page.locator('[aria-label="提交设置"]').first().click();
+    await se.page.waitForTimeout(800);
+    const seOpened = await se.page.evaluate(() => ({
+      dialog: !!document.querySelector('.settings-window'),
+      title: document.querySelector('.settings-window .dialog-header span')
+        ? document.querySelector('.settings-window .dialog-header span').innerText : null,
+      fields: document.querySelectorAll('.settings-window [data-setting]').length,
+      actions: [...document.querySelectorAll('[data-settings-action]')].map((el) => el.dataset.settingsAction),
+      url: location.pathname,
+    }));
+    check('提交设置入口打开设置对话框: ' + JSON.stringify([seBefore.dialogs, seOpened.dialog]),
+      seBefore.dialogs === 0 && seOpened.dialog === true);
+    check('设置对话框标题正确: ' + JSON.stringify(seOpened.title),
+      typeof seOpened.title === 'string' && seOpened.title.includes('设置'));
+    check('设置对话框含可编辑字段: ' + seOpened.fields, seOpened.fields > 0);
+    check('设置对话框提供取消与保存: ' + JSON.stringify(seOpened.actions),
+      seOpened.actions.join(',') === 'cancel,save');
+    check('点击提交设置不跳转页面: ' + seOpened.url, !seOpened.url.includes('settings.html'));
+
+    // 保存：写入设置并关闭对话框
+    await se.page.evaluate(() => { window.__settingsWritten = null; });
+    await se.page.locator('[data-settings-action="save"]').click();
+    await se.page.waitForTimeout(1000);
+    const seSaved = await se.page.evaluate(() => ({
+      written: window.__settingsWritten,
+      dialog: !!document.querySelector('.settings-window'),
+      theme: window.__augitLive.settings ? window.__augitLive.settings.theme : null,
+    }));
+    check('保存写入设置: ' + JSON.stringify(seSaved.written), !!seSaved.written);
+    check('保存后关闭设置对话框', seSaved.dialog === false);
+
+    // 取消：不写入设置
+    await se.page.evaluate(() => { window.__settingsWritten = null; });
+    await se.page.locator('[aria-label="提交设置"]').first().click();
+    await se.page.waitForTimeout(700);
+    await se.page.locator('[data-settings-action="cancel"]').click();
+    await se.page.waitForTimeout(600);
+    const seCancelled = await se.page.evaluate(() => ({
+      written: window.__settingsWritten,
+      dialog: !!document.querySelector('.settings-window'),
+    }));
+    check('取消不写入设置: ' + JSON.stringify(seCancelled.written), seCancelled.written === null);
+    check('取消后关闭设置对话框', seCancelled.dialog === false);
+    await se.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();

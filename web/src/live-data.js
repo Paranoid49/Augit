@@ -1853,6 +1853,29 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 提交设置入口：打开设置对话框（规格 §7.6 的入口适配）。
+    const settingsEntry = event.target.closest && event.target.closest('[aria-label="提交设置"]');
+    if (settingsEntry && document.querySelector(".commit-actions")) {
+      event.preventDefault();
+      openSettingsDialog();
+      return;
+    }
+
+    // 设置对话框的动作。
+    const settingsAction = event.target.closest && event.target.closest("[data-settings-action]");
+    if (settingsAction) {
+      event.preventDefault();
+      if (settingsAction.dataset.settingsAction === "save") {
+        void saveSettings().catch((error) => {
+          window.__augitError = "save-settings:" + String(error && error.message || error);
+        }).finally(() => closeSettingsDialog());
+      } else {
+        closeSettingsDialog();
+      }
+
+      return;
+    }
+
     // Worktree 窗口的动作。
     const worktreeAction = event.target.closest && event.target.closest("[data-worktree-action]");
     if (worktreeAction) {
@@ -2527,6 +2550,42 @@ async function confirmPushDialog() {
   }
 
   refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/**
+ * 设置对话框（规格 §5.3 的模态对话框）。
+ *
+ * 复用视觉稿的 liveSettingsBody 与既有的保存绑定；
+ * 打开期间不重建背景页面，保存后只应用设置本身的影响。
+ */
+function openSettingsDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  if (!live.settings) {
+    window.__augitError = "settings:not-loaded";
+    return;
+  }
+
+  closeLiveOverlay();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay settings-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "设置 — Augit",
+    liveSettingsBody(),
+    `<button type="button" class="secondary-button" data-settings-action="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-settings-action="save">保存</button>`,
+    true,
+    "settings-dialog");
+  host.appendChild(layer);
+  // 复用既有的保存动作绑定（它按 .dialog-xl 结构挂载）。
+  bindSettingsSave();
+}
+
+/** 关闭设置对话框。 */
+function closeSettingsDialog() {
+  document.querySelectorAll(".settings-window").forEach((node) => node.remove());
 }
 
 /**
