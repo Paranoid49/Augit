@@ -4150,3 +4150,60 @@ __ldv = [{ t:1657, hasDiff:true, loading:false, editor:"diff" }]   ← 只有加
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **546/546**、
 场景 48/48（dark 与 light）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百二十九轮：修掉"首次打开差异无加载指示"（§6.5，缺陷闭合）
+
+第 126–128 轮查清但未修的缺陷，本轮修复并有负向验证。
+
+#### 修复
+
+`openChangeDiff` 里把**建立比较标签与切到 diff 视图**提到**发请求之前**：
+
+```js
+const tab = ensureComparisonTab(path);
+if (activate) activateComparisonTab(tab);
+scheduleDiffLoadingMarker();
+```
+
+这样 150 毫秒定时器触发时 `live.editor` 已经是 `"diff"`，加载分支被选中、
+提示能落到文件标题行。读取失败时在 `finally` 里 `closeTab(tab.id)` 撤销提前建的标签，
+不留一个打不开的空标签。
+
+规格的"临时标签"语义本来就是这个顺序——"进入等待阈值时临时标签已创建"。
+
+#### 顺带修正一条把断言绑在刷新时机上的测试
+
+既有断言 `§9.1 等待阈值：创建或复用 Diff 临时标签` 用 **DOM 标签数 +1** 判断，
+修复后假失败：区域刷新是**延后**的，50 毫秒取样点上 DOM 还没重绘。
+改为核对 `live.tabs` 的标签种类（`smSelected` 里没有 comparison、`smEntered` 里有一个）——
+判据落在"标签是否已创建"这一事实，而不是"刷新是否已经发生"。
+
+#### 断言与负向验证（546 → 547）
+
+| 断言 | 内容 |
+|---|---|
+| 首次打开差异时在文件标题行显示加载提示 | 加载窗口内存在 `loading=true`、`filebar=true`、`hint=true` 且编辑区是 `diff-layout`、`hasDiff=false` 的帧 |
+
+负向验证：把标签改回"加载完成后创建"后断言失败：
+
+```
+{"loading":true,"realLoading":false,"hasDiff":false,"top":"document-view","filebar":true,"hint":true}
+```
+
+注意 `top: document-view` + `hint: true` —— 这正是我前两轮假通过的那个形态：
+提示"看起来在"，实际渲染的是样例视图。新的判据要求编辑区必须是 `diff-layout`，
+因此能把它与样例区分开。
+
+#### 关于 `data-augit-loading` 标记
+
+本轮给实时加载布局加了这个标记。但它最终**不是**断言的判据——
+`diff-layout` + `hasDiff=false` 已经足够区分，且不依赖额外标记。
+标记保留（无害，且便于后续调试），但断言不依赖它。
+
+#### 收尾
+
+第 116 轮放弃、第 124 轮登记、第 126–128 轮两度误判的这条规格条款，
+现在**实现正确、断言成立、负向验证通过**。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **547/547**、
+场景 48/48（dark 与 light）、视觉稿字节一致 PASS、构建 0 警告 0 错误。

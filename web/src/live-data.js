@@ -841,30 +841,21 @@ async function openChangeDiff(path, options = {}) {
   const live = window.__augitLive;
   if (!live) return;
   live.followChanges = true;
+  // 标签与视图必须在**发请求之前**就位：首次打开时 live.editor 还是场景默认值，
+  // 加载分支不会被选中，150 毫秒后的加载提示就无处附着（实测 liveDiffView
+  // 在整个加载窗口内一次都没被调用，编辑区仍是场景默认视图）。
+  // 提前建立标签不改变"单击只选择"：单击路径根本不会走到这里。
+  const tab = ensureComparisonTab(path);
+  if (activate) activateComparisonTab(tab);
   scheduleDiffLoadingMarker();
+  let succeeded = false;
   try {
     const diff = await loadDiff(path);
     if (!diff) return;
-    const title = `提交: ${diff.name || path}`;
-    if (!findComparisonTab()) {
-      live.tabs ??= [];
-      const tab = {
-        id: nextTabId(),
-        kind: "comparison",
-        path,
-        title,
-        editor: "diff",
-        preview: false,
-      };
-      live.tabs.push(tab);
-      if (activate) activateComparisonTab(tab);
-    } else {
-      const tab = findComparisonTab();
-      // 比较标签是复用的：跟随到另一个文件时必须同步标签文字，
-      // 否则标签会一直显示第一次打开的文件名。
-      syncComparisonTab(tab, path, title);
-      if (activate) activateComparisonTab(tab);
-    }
+    succeeded = true;
+    // 复用同一个标签时同步文字，否则标签会一直显示第一次打开的文件名。
+    syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
+    if (activate) activateComparisonTab(tab);
 
     // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
     // 复选框、提交信息与列表滚动；同时延后到事件派发结束再替换编辑区，
@@ -872,7 +863,28 @@ async function openChangeDiff(path, options = {}) {
     refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
     clearDiffLoadingMarker();
+    // 读取失败时不留一个打不开的比较标签：提前建标签是为了让加载视图有着落，
+    // 失败后必须如实撤销，否则界面上会留下一个空标签。
+    if (!succeeded) closeTab(tab.id);
   }
+}
+
+/** 取得或建立唯一的比较标签；已存在则复用。 */
+function ensureComparisonTab(path) {
+  const live = window.__augitLive;
+  live.tabs ??= [];
+  const existing = findComparisonTab();
+  if (existing) return existing;
+  const tab = {
+    id: nextTabId(),
+    kind: "comparison",
+    path,
+    title: `提交: ${path}`,
+    editor: "diff",
+    preview: false,
+  };
+  live.tabs.push(tab);
+  return tab;
 }
 
 /**

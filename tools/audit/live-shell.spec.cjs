@@ -3936,12 +3936,14 @@ async function main() {
     // 同样带"正在生成 diff..."文案与默认示例路径——因此界面上看不出区别，
     // 难以用"有没有提示""路径对不对"区分（我因此假通过两次）。
     // 这里记录可区分的观测：真实加载分支会带 data-augit-loading 标记。
-    const realLoadingSeen = firstSeries.some((f) => f.realLoading);
-    // 记录事实，不写成断言——断言会把这个缺陷固化成"期望行为"，
-    // 将来真修好时反而需要删测试。缺陷本身登记在基线文档里。
-    console.log('INFO 首次打开走实时加载分支=' + JSON.stringify(realLoadingSeen)
-      + '（false = 已知缺陷：加载窗口内 live.editor 不是 diff，编辑区仍是场景默认视图，'
-      + '而提示由样例 diffView 顺带渲染）');
+    // 首次打开也必须走**实时加载分支**：判据用只有该分支才会产生的
+    // data-augit-loading 标记，而不是文案或路径——视觉稿的样例 diffView
+    // 同样渲染文件栏、同样带"正在生成 diff..."文案与默认示例路径，
+    // 用它做判据会假通过（实测两次）。
+    const firstLoadingFrame = firstSeries.find((f) => f.loading && f.filebar && f.hint);
+    check('首次打开差异时在文件标题行显示加载提示: ' + JSON.stringify(firstLoadingFrame || null),
+      !!firstLoadingFrame && firstLoadingFrame.top === 'diff-layout'
+        && firstLoadingFrame.hasDiff === false);
     await firstLoad.page.close();
 
     // ---- 规格 §6.5：最终说明必须持续可见，不能被加载指示的收尾隐藏 ----
@@ -4159,6 +4161,7 @@ async function main() {
       diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
       tabs: document.querySelectorAll('.editor-tab').length,
       listRows: document.querySelectorAll('.changes-list .change-file-row').length,
+      liveKinds: (window.__augitLive.tabs || []).map((t) => t.kind),
     }));
 
     // 已选择：单击只保留选中，不请求正文
@@ -4198,8 +4201,13 @@ async function main() {
 
     // 加载中：列表与标签不变，只有编辑区显示加载
     const smDuring = await smState();
-    check('§9.1 等待阈值：创建或复用 Diff 临时标签: ' + JSON.stringify([smSelected.tabs, smEntered.tabs]),
-      smEntered.tabs === smSelected.tabs + 1);
+    // 规格要求"进入等待阈值时临时标签已创建"。核对 live.tabs 而不是 DOM 标签数：
+    // 区域刷新是延后的，用 DOM 计数判等于是把断言绑在刷新时机上
+    // （实现调整刷新顺序就会假失败，实测踩过）。
+    check('§9.1 等待阈值：创建或复用 Diff 临时标签: '
+      + JSON.stringify([smSelected.liveKinds, smEntered.liveKinds]),
+    smSelected.liveKinds.filter((k) => k === 'comparison').length === 0
+      && smEntered.liveKinds.filter((k) => k === 'comparison').length === 1);
     check('§9.1 加载中：列表与标签不再变化: ' + JSON.stringify([smDuring.listRows, smDuring.tabs, smEntered.listRows, smEntered.tabs]),
       smDuring.listRows === smEntered.listRows && smDuring.tabs === smEntered.tabs);
 
