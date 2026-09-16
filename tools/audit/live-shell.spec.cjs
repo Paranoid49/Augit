@@ -259,12 +259,26 @@ async function main() {
         // 记录必须发生在注入延迟**之前**：__diffCalls 表示"请求已发出"，
         // 若先延迟再记录，观察者看到调用时响应已经返回，就无法判断请求是否仍在途中
         // （验证"关闭比较后取消在途请求"时踩过这个坑）。
+        window.__diffCommits = (window.__diffCommits || []).concat([params.commit === undefined ? '<未传>' : params.commit]);
         window.__diffCalls = window.__diffCalls || [];
         window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
         window.__diffCalls.push(params.path);
         // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
         const diffDelay = (window.__diffDelays || {})[params.path];
         if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
+        // 历史比较（§7.8）传入 commit：返回可区分的内容，用于证明请求确实换成了
+        // 「两个版本之间」而不是工作区比较。两版本的请求键不同，内容也构造得不同。
+        if (params.commit) {
+          return {
+            ...data.diff,
+            path: params.path,
+            rows: data.diff.rows.map((row) => Object.assign({}, row, {
+              oldText: row.oldText === null || row.oldText === undefined ? row.oldText : '历史左值 ' + params.commit.slice(0, 6) + ' ' + row.oldText,
+              newText: row.newText === null || row.newText === undefined ? row.newText : '历史右值 ' + params.commit.slice(0, 6) + ' ' + row.newText,
+            })),
+          };
+        }
+
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
@@ -334,7 +348,14 @@ async function main() {
         if (delay) await new Promise((r) => setTimeout(r, delay));
         if (params.revision === data.commit.fullHash) return data.commit;
         // 第二个提交返回可区分的详情
-        if (params.revision === 'full-bbb2222') return Object.assign({}, data.commit, { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交', files: [] });
+        // 第二个提交也给出变化文件：历史比较需要"改选提交后跟随到同一路径"的场景，
+        // 空文件列表会让该场景无法构造。
+        if (params.revision === 'full-bbb2222') {
+          return Object.assign({}, data.commit, {
+            hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交',
+            files: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src', kind: 'Modified', original: null }],
+          });
+        }
         return { available: false, reason: 'unknown' };
       }
       if (method === 'document/read') {
@@ -3484,6 +3505,133 @@ async function main() {
       !afterSuperseded.tabs.includes('docs/notes.txt')
         && afterSuperseded.doc === 'docs/product-spec.md');
     await slowTab.page.close();
+
+    // ---- 规格 §7.8：历史比较标签 ----
+    // 契约取自 docs/ux-mockups/ 里既有的历史比较实现：双击变化文件或 Enter 打开、
+    // 标签显示双方引用、单击跟随、关闭解除跟随。后端两版本 diff 见 Infrastructure 测试。
+    const hc = await openScene('scene=git-history&theme=dark');
+    await hc.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await hc.page.waitForSelector('.commit-row', { timeout: 10000 });
+    await hc.page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 10000 });
+    const hcState = () => hc.page.evaluate(() => {
+      const comparison = (window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || null;
+      return {
+        comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+        label: comparison ? comparison.title : null,
+        tabPath: comparison ? comparison.path : null,
+        active: String(window.__augitLive.activeTabId),
+        editor: window.__augitLive.editor,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        historyState: window.__augitLive.historyComparison
+          ? window.__augitLive.historyComparison.status + ':' + window.__augitLive.historyComparison.path
+          : null,
+        commitRequests: (window.__diffCommits || []).length,
+      };
+    });
+
+    // 前置条件：提交详情已列出变化文件行。
+    const hcFiles = await hc.page.evaluate(() =>
+      [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')].map((r) => r.dataset.historyPath));
+    check('前置条件：提交详情列出变化文件: ' + JSON.stringify(hcFiles), hcFiles.length >= 1);
+
+    // 单击只选择，不创建比较标签。
+    await hc.page.locator('[data-live-changed-files] [data-history-path]').first().click();
+    await hc.page.waitForTimeout(400);
+    const hcAfterClick = await hcState();
+    check('历史文件单击不创建比较标签: ' + JSON.stringify(hcAfterClick.label), hcAfterClick.comparisons === 0);
+
+    // 双击打开历史比较并激活。
+    // 用带 detail=2 的点击事件：Playwright 的 dblclick 在这里不会让 detail 进位到 2
+    // （前一次单击在捕获阶段被 preventDefault），而真实双击的 detail 会到 2。
+    await hc.page.evaluate((index) => {
+      const row = [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')][index];
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+    }, 0);
+    await hc.page.waitForFunction(
+      '!!(window.__augitLive.historyComparison && window.__augitLive.historyComparison.status === "ready")',
+      null,
+      { timeout: 10000 },
+    );
+    const hcOpened = await hcState();
+    const expectedPath = hcFiles[0];
+    const shortName = expectedPath.split('/').at(-1);
+    check('双击变化文件建立历史比较标签: ' + JSON.stringify(hcOpened.label),
+      hcOpened.comparisons === 1 && typeof hcOpened.label === 'string'
+        && hcOpened.label.includes(shortName) && hcOpened.label.includes('→'));
+    check('历史比较标签标注双方引用（保留 ^ 祖先后缀）: ' + JSON.stringify(hcOpened.label),
+      hcOpened.label.includes('^'));
+    check('历史比较打开后成为前台并显示差异: ' + JSON.stringify([hcOpened.editor, hcOpened.diffPath]),
+      hcOpened.editor === 'diff' && hcOpened.diffPath === expectedPath
+        && hcOpened.active === await hc.page.evaluate(() =>
+          ((window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || {}).id));
+
+    // 文件栏由延后的区域刷新渲染，必须等它真正出现再取样（否则拿到 null）。
+    await hc.page.waitForSelector('.editor-content .diff-filebar', { timeout: 8000 });
+    // 请求确实带上了 commit。
+    const hcCommits = await hc.page.evaluate(() => window.__diffCommits || []);
+    check('历史比较请求带上提交版本: ' + JSON.stringify(hcCommits),
+      hcCommits.length >= 1 && typeof hcCommits.at(-1) === 'string' && hcCommits.at(-1).length > 0);
+    // 文件栏必须显示双方引用（规格 §7.8）：左侧是父版本、右侧是提交版本。
+    const hcFilebar = await hc.page.evaluate(() => {
+      const bar = document.querySelector('.editor-content .diff-filebar');
+      if (!bar) return null;
+      return {
+        source: (bar.querySelector('.reference-source') || {}).textContent || null,
+        target: (bar.querySelector('.reference-target') || {}).textContent || null,
+        path: (bar.querySelector('.reference-path') || {}).textContent || null,
+      };
+    });
+    check('历史比较文件栏显示双方引用与路径: ' + JSON.stringify(hcFilebar),
+      hcFilebar !== null && hcFilebar.path === expectedPath
+        && typeof hcFilebar.source === 'string' && hcFilebar.source.endsWith('^')
+        && typeof hcFilebar.target === 'string' && hcFilebar.target.length > 0
+        && !hcFilebar.target.includes('^')
+        && hcFilebar.source.slice(0, -1) === hcFilebar.target);
+
+    // 改选提交：已打开的历史比较跟随到同一路径，且不抢占前台（规格 §7.8）。
+    await hc.page.locator('.commit-row').nth(1).click();
+    await hc.page.waitForFunction(
+      "window.__augitLive.historyComparison && window.__augitLive.historyComparison.commit === 'full-bbb2222'",
+      null,
+      { timeout: 10000 },
+    );
+    const hcFollowed = await hcState();
+    // 标签使用提交的完整哈希（截断 8 位）而不是短哈希字段，
+    // 因此这里核对的是完整哈希的前缀，不能拿提交行的短哈希去比。
+    check('改选提交后历史比较跟随: ' + JSON.stringify([hcFollowed.label, hcFollowed.comparisons]),
+      hcFollowed.comparisons === 1 && typeof hcFollowed.label === 'string'
+        && hcFollowed.label.includes('full-bbb'));
+    check('跟随仍复用同一个标签: ' + JSON.stringify(hcFollowed.tabPath),
+      hcFollowed.tabPath === expectedPath);
+
+    // 关闭后解除跟随：单击不再自动重开。
+    // 关闭叉在比较标签内是 <span>，Playwright 的 actionability 检查会超时；
+    // 真实路径是「按下与松开在同一关闭叉」的 pointerdown/pointerup + click。
+    await hc.page.evaluate(() => {
+      const close = document.querySelector('.editor-tabs .editor-tab.comparison-tab .tab-close');
+      const down = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
+      close.dispatchEvent(down);
+      close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    await hc.page.waitForTimeout(600);
+    const hcClosed = await hcState();
+    check('关闭历史比较移除标签: ' + JSON.stringify(hcClosed.comparisons), hcClosed.comparisons === 0);
+    console.log('DIAG afterClose=' + JSON.stringify(await hc.page.evaluate(() => ({
+      rows: document.querySelectorAll('[data-live-changed-files] [data-history-path]').length,
+      panel: !!document.querySelector('[data-live-changed-files]'),
+      panelText: (document.querySelector('[data-live-changed-files]') || {}).innerText || null,
+      bottom: !!document.querySelector('.bottom-tool'),
+      logPanel: !!document.querySelector('.log-detail-panel'),
+    }))));
+    await hc.page.evaluate(() => {
+      const row = document.querySelector('[data-live-changed-files] [data-history-path]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    await hc.page.waitForTimeout(700);
+    const hcAfterCloseClick = await hcState();
+    check('关闭历史比较后单击不重开: ' + JSON.stringify(hcAfterCloseClick.comparisons),
+      hcAfterCloseClick.comparisons === 0);
+    await hc.page.close();
 
     // ---- 规格 §6.1：加载期间主框架与其它区域位置不变 ----
     const lu = await openScene('scene=commit-changes&theme=dark');

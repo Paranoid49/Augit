@@ -1504,11 +1504,19 @@ function liveDiffView() {
   const diff = live.diff;
   if (!diff) return diffView();
   const rows = diff.rows || [];
+  // 文件栏的双方引用（规格 §7.8/§7.9）：
+  // 历史比较显示 `<hash>^ → <hash>`，引用比较显示该引用 → 工作区，其余按 HEAD → 工作区。
+  const comparison = live.historyComparison;
+  const historyActive = comparison && comparison.status !== "closed"
+    && comparison.path === diff.path && comparison.commit;
+  const barSource = historyActive ? `${String(comparison.commit).slice(0, 8)}^` : "HEAD";
+  const barTarget = historyActive ? String(comparison.commit).slice(0, 8) : "工作区";
+  const barFilebar = diffFileHeader(barSource, barTarget, diff.path, diff.path);
   if (rows.length === 0) {
     const reason = diff.status && diff.status !== "Ready"
       ? `该文件无法显示文本差异（${escapeHtml(diff.status)}）。`
       : "该文件当前没有文本差异。";
-    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${reason}</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${reason}</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
 
   // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
@@ -1563,7 +1571,7 @@ function liveDiffView() {
     return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
   }).join("");
   const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml(diff.path)}</div>${unified}</template>`;
-  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
 }
 
 // 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。
@@ -2324,7 +2332,9 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     overlay = live.overlay;
   }
 
-  if (live && live.document && live.editor) editor = live.editor;
+  // 比较标签（工作区 Diff、引用比较、历史比较）没有普通文档，但同样有明确视图：
+  // 只看 live.document 会让比较正文渲染不出来（表现为 editor 已是 diff 而 DOM 仍是文档）。
+  if (live && live.editor && (live.document || live.editor === "diff")) editor = live.editor;
   if (live && live.document) selectedFile = live.document.name || selectedFile;
   // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
   const sideHtml = side === "" ? "" : side === "commit-empty"

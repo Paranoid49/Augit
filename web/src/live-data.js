@@ -596,12 +596,13 @@ const diffPatches = new Map();
  * 忽略空白与重命名选项组成。
  * 前五项之外还带内容版本，用于判断外部变化后是否需要重新计算。
  */
-function diffRequestKey({ path, revision, mode, ignoreWhitespace, detectRenames, version }) {
+function diffRequestKey({ path, revision, commit, mode, ignoreWhitespace, detectRenames, version }) {
   const live = window.__augitLive;
   return [
     live ? live.root : "",
     path,
     revision || "工作区",
+    commit || "",
     mode || "split",
     ignoreWhitespace ? "ignore-ws" : "keep-ws",
     detectRenames ? "renames" : "no-renames",
@@ -630,6 +631,9 @@ async function loadDiff(path, options = {}) {
   const parts = {
     path,
     revision: options.revision || "工作区",
+    // 历史比较传入提交：宿主自行解析父版本，比较的是两个版本而不是工作区。
+    // 它必须进入请求键，否则同一文件的"工作区 Diff"与"历史比较"会互相复用结果。
+    commit: options.commit,
     mode: options.mode || (live0 && live0.diffMode) || "split",
     ignoreWhitespace: !!options.ignoreWhitespace,
     detectRenames: !!options.detectRenames,
@@ -666,6 +670,8 @@ async function loadDiff(path, options = {}) {
         ignoreWhitespace: parts.ignoreWhitespace,
         // 「工作区」是界面里的默认占位，不是真实基准：不传时宿主按 HEAD 处理。
         revision: parts.revision === "工作区" ? undefined : parts.revision,
+        // 历史比较：提交交给宿主解析父版本。
+        commit: parts.commit,
       }, 30000);
       const live = window.__augitLive;
       // 只有最新一次请求可以写回界面状态（每个请求带递增版本号，旧结果必须丢弃）。
@@ -847,19 +853,13 @@ async function openChangeDiff(path, options = {}) {
         preview: false,
       };
       live.tabs.push(tab);
-      if (activate) {
-        live.activeTabId = tab.id;
-        live.editor = "diff";
-      }
+      if (activate) activateComparisonTab(tab);
     } else {
       const tab = findComparisonTab();
       // 比较标签是复用的：跟随到另一个文件时必须同步标签文字，
       // 否则标签会一直显示第一次打开的文件名。
       syncComparisonTab(tab, path, title);
-      if (activate) {
-        live.activeTabId = tab.id;
-        live.editor = "diff";
-      }
+      if (activate) activateComparisonTab(tab);
     }
 
     // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
@@ -870,6 +870,145 @@ async function openChangeDiff(path, options = {}) {
     clearDiffLoadingMarker();
   }
 }
+
+/**
+ * 历史比较标签（规格 §7.8）。
+ *
+ * 契约来自 `docs/ux-mockups/` 里已经存在的历史比较实现（标签格式
+ * `比较: <文件名> · <hash>^ → <hash>`、双击或 `Enter` 打开、单击跟随、
+ * 关闭解除跟随），这里把它落到实时外壳的标签模型上：
+ *
+ * - 与工作区比较**共用同一套标签语义**（`live.tabs` 里的 `comparison` 标签），
+ *   因此"最多一个比较标签""关闭后解除跟随""关闭不重建"等规则自动一致；
+ * - 但跟随对象是**提交选择**而不是 Changes 选择，所以用独立的 `live.historyComparison`
+ *   记录当前目标，人工切换标签时不会被 Changes 的跟随改写。
+ * - 父版本用 Git 的祖先后缀 `^` 表示（规格要求保留该后缀），由宿主解析真实父提交。
+ */
+function historyComparisonLabel(path, hash) {
+  const name = String(path || "").split("/").at(-1) || "选择文件";
+  const short = String(hash || "").slice(0, 8);
+  return `比较: ${name} · ${short}^ → ${short}`;
+}
+
+/** 当前选中的提交（底部 Git 日志）与其中的变化文件。 */
+function selectedHistoryCommit() {
+  const row = document.querySelector('.commit-row[aria-selected="true"]');
+  return row && row.dataset.fullHash ? row.dataset.fullHash : (row ? row.dataset.hash || null : null);
+}
+
+function historyFileRows() {
+  return [...document.querySelectorAll("[data-live-changed-files] [data-history-path]")];
+}
+
+async function openHistoryComparison(row) {
+  const live = window.__augitLive;
+  if (!live || !row) return;
+  const path = row.dataset.historyPath;
+  const commit = selectedHistoryCommit();
+  if (!path || !commit) return;
+  return applyHistoryComparison(path, commit, { activate: true });
+}
+
+/**
+ * 打开或更新历史比较标签。
+ *
+ * `activate` 为 false 时只后台更新正文（普通文档在前台时不抢占，规格 §7.8）。
+ */
+async function applyHistoryComparison(path, commit, options = {}) {
+  const { activate = true } = options;
+  const live = window.__augitLive;
+  if (!live) return null;
+  const label = historyComparisonLabel(path, commit);
+  const token = ++historyComparisonToken;
+  // 标签立即建立并显示双方引用，正文随后填充（规格 §7.8：激活时立即打开并显示
+  // 双方引用及文件路径，Git 查询完成后只填充正文，不再次激活标签）。
+  const tab = ensureHistoryComparisonTab(label, path);
+  live.historyComparison = { path, commit, label, status: "loading" };
+  if (activate) activateComparisonTab(tab);
+
+  refreshAfterEvent("editorTabs", "editorContent", "statusbar", "bottomTool");
+
+  const diff = await loadDiff(path, { commit, force: true }).catch(() => null);
+  // 只接纳最后一次有效结果（规格 §7.8：只接纳最后一次有效结果）。
+  if (token !== historyComparisonToken) return diff;
+  if (!diff) {
+    live.historyComparison = { path, commit, label, status: "unavailable" };
+    refreshAfterEvent("editorTabs", "editorContent", "statusbar");
+    return null;
+  }
+
+  live.historyComparison = { path, commit, label, status: "ready" };
+  if (activate) activateComparisonTab(tab);
+
+  refreshAfterEvent("editorTabs", "editorContent", "statusbar", "bottomTool");
+  return diff;
+}
+
+/**
+ * 让比较标签成为前台。
+ *
+ * 必须同时清掉 `live.document`：视觉稿的编辑器分支写作
+ * `if (live && live.document && live.editor) editor = live.editor;`，
+ * 残留的文档会让 `live.editor = "diff"` 被忽略、比较正文渲染不出来
+ * （历史比较首轮实现时正是卡在这里，表现为 `editor` 已是 diff 但 DOM 仍是文档）。
+ */
+function activateComparisonTab(tab) {
+  const live = window.__augitLive;
+  if (!live || !tab) return;
+  live.activeTabId = tab.id;
+  live.document = null;
+  live.editor = "diff";
+}
+
+/** 建立或复用唯一的比较标签。 */
+function ensureHistoryComparisonTab(label, path) {
+  const live = window.__augitLive;
+  live.tabs ??= [];
+  const existing = findComparisonTab();
+  if (existing) {
+    syncComparisonTab(existing, path, label);
+    return existing;
+  }
+
+  const tab = {
+    id: nextTabId(),
+    kind: "comparison",
+    path,
+    title: label,
+    editor: "diff",
+    preview: false,
+  };
+  live.tabs.push(tab);
+  return tab;
+}
+
+/**
+ * 提交或文件选择变化时更新已打开的历史比较（规格 §7.8）。
+ * 普通文档在前台时只后台更新，不抢占编辑区。
+ */
+function followHistoryComparison() {
+  const live = window.__augitLive;
+  if (!live || !live.historyComparison) return;
+  if (live.historyComparison.status === "closed") return;
+  const row = historyFileRows().find((item) => item.dataset.historyPath === live.historyComparison.path)
+    || historyFileRows()[0];
+  const path = row ? row.dataset.historyPath : null;
+  const commit = selectedHistoryCommit();
+  if (!path || !commit) return;
+  if (path === live.historyComparison.path && commit === live.historyComparison.commit) return;
+  const tab = findComparisonTab();
+  const background = !tab || live.activeTabId !== tab.id;
+  void applyHistoryComparison(path, commit, { activate: false }).then(() => {
+    if (background) {
+      const active = (live.tabs || []).find((item) => item.id === live.activeTabId);
+      live.editor = active ? active.editor : (live.document ? live.document.editor : "empty");
+      refreshAfterEvent("editorTabs", "statusbar");
+    }
+  });
+}
+
+// 历史比较的递增令牌：改选提交或文件时丢弃旧响应。
+let historyComparisonToken = 0;
 
 /** Changes 列表选择变化时的跟随入口：解除跟随后不再自动更新比较标签。 */
 async function followChangeSelection(path) {
@@ -1602,8 +1741,10 @@ function closeTab(id) {
   const wasActive = live.activeTabId === id;
   live.tabs.splice(index, 1);
   // 关闭比较标签：解除跟随 Changes 选择（规格 §5.2）。
+  // 历史比较同样在此解除跟随——关闭后单击不自动重开，只有再次双击或 Enter 才打开。
   if (closing && closing.kind === "comparison") {
     live.followChanges = false;
+    if (live.historyComparison) live.historyComparison.status = "closed";
     closeDiff();
   }
 
@@ -2475,11 +2616,11 @@ async function compareWithWorkspace() {
       preview: false,
     };
     live.tabs.push(tab);
-    live.activeTabId = tab.id;
+    activateComparisonTab(tab);
   } else {
     // 复用的比较标签必须同步目标，否则标签仍显示上一个比较的文件名。
     syncComparisonTab(existing, target.path, title);
-    live.activeTabId = existing.id;
+    activateComparisonTab(existing);
   }
 
   live.editor = "diff";
@@ -3504,7 +3645,12 @@ async function boot() {
     document.addEventListener("history-commit-selected", () => {
       const selected = document.querySelector('.commit-row[aria-selected="true"]');
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
-      if (revision) void loadCommitDetails(revision);
+      if (!revision) return;
+      // 提交详情是异步填充的，变化文件行要等它写进去之后才能跟随（规格 §7.8），
+      // 因此只在同一次加载完成后触发跟随，不重复发起查询。
+      void loadCommitDetails(revision)
+        .then(() => followHistoryComparison())
+        .catch(() => {});
     });
     // 历史比状态慢，到达后由快照判定是否需要刷新（§6.2）。
     if (applySnapshot(latestStatus, latestHistory)) {
@@ -3636,6 +3782,31 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   // 双击打开，单击只选择。
   activateTreeRow(row, { open: event.detail >= 2 });
+}, true);
+
+// 历史提交里的变化文件：双击或 Enter 打开历史比较，单击只选择并跟随（规格 §7.8）。
+// 与 mockup 里既有的历史比较实现保持同一套交互契约。
+document.addEventListener("click", (event) => {
+  const row = event.target.closest && event.target.closest("[data-live-changed-files] [data-history-path]");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  for (const other of historyFileRows()) other.classList.remove("selected");
+  row.classList.add("selected");
+  if (event.detail >= 2) {
+    void openHistoryComparison(row);
+    return;
+  }
+
+  followHistoryComparison();
+}, true);
+
+// 历史变化文件行上的 Enter 打开比较。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  const row = event.target.closest && event.target.closest("[data-live-changed-files] [data-history-path]");
+  if (!row) return;
+  event.preventDefault();
+  void openHistoryComparison(row);
 }, true);
 
 // 变化文件行右键打开上下文菜单；打开菜单不打开比较（规格 §7.8）。
