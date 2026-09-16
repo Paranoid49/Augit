@@ -232,10 +232,12 @@ async function main() {
       }
       if (method === 'git/history') return data.history;
       if (method === 'git/blame') {
+        window.__blameCalls = (window.__blameCalls || 0) + 1;
         if (window.__malformed) return { available: true, lines: [{ number: 1, hash: 'x' }] };  // 缺 path
         return data.blame;
       }
       if (method === 'git/file-history') {
+        window.__fileHistoryCalls = (window.__fileHistoryCalls || 0) + 1;
         if (window.__malformed) return { available: true, commits: [] };  // 缺 path
         return data.fileHistory;
       }
@@ -2573,6 +2575,84 @@ async function main() {
     check('保存成功后主窗口结构完好: ' + remSaved.workspace, remSaved.workspace === true);
     await rem.close();
 
+
+    // ---- 规格 §7.8：变化文件右键菜单，以及文件历史入口 ----
+    const ctx = await openScene('scene=commit-changes&theme=dark');
+    await ctx.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await ctx.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const ctxBefore = await ctx.page.evaluate(() => ({
+      menus: document.querySelectorAll('.changes-menu').length,
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      editor: window.__augitLive.editor,
+    }));
+    // 右键打开菜单；打开菜单不得打开比较
+    await ctx.page.locator('.changes-list .change-file-row').first().click({ button: 'right' });
+    await ctx.page.waitForTimeout(600);
+    const ctxOpened = await ctx.page.evaluate(() => {
+      const menu = document.querySelector('.changes-menu');
+      return {
+        menus: document.querySelectorAll('.changes-menu').length,
+        items: menu ? [...menu.querySelectorAll('.menu-item')].map((el) => el.textContent.trim()) : [],
+        path: menu ? menu.dataset.changePath : null,
+        comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+        editor: window.__augitLive.editor,
+      };
+    });
+    check('右键变化文件打开菜单: ' + ctxOpened.menus, ctxOpened.menus === 1);
+    check('菜单带上目标路径: ' + JSON.stringify(ctxOpened.path), typeof ctxOpened.path === 'string' && ctxOpened.path.length > 0);
+    check('菜单含显示 Diff / 文件历史 / Blame: ' + JSON.stringify(ctxOpened.items),
+      ctxOpened.items.some((t) => t.includes('显示 Diff'))
+      && ctxOpened.items.some((t) => t.includes('文件历史'))
+      && ctxOpened.items.some((t) => t.includes('Blame')));
+    check('打开菜单不打开比较: ' + JSON.stringify([ctxBefore.comparisons, ctxOpened.comparisons, ctxOpened.editor]),
+      ctxOpened.comparisons === ctxBefore.comparisons && ctxOpened.editor === ctxBefore.editor);
+
+    // 点「文件历史」：读取该路径历史并切到底部文件历史工具窗口
+    await ctx.page.evaluate(() => { window.__fileHistoryCalls = 0; });
+    // 菜单项顺序固定：显示 Diff=0、回滚=1、文件历史=2、Blame=3、复制路径=4、定位=5。
+    // 用派发点击：弹层为绝对定位，Playwright 的可点击性检查会超时；
+    // 事件仍由真实的 document 委托处理器接收，因此行为路径未变。
+    await ctx.page.evaluate(() => {
+      document.querySelectorAll('.changes-menu .menu-item')[2].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    // 等真实状态出现，而不是靠固定延时。
+    await ctx.page.waitForFunction('!!(window.__augitLive && window.__augitLive.fileHistory)', null, { timeout: 10000 }).catch(() => {});
+    await ctx.page.waitForTimeout(600);
+    const fh = await ctx.page.evaluate(() => ({
+      calls: window.__fileHistoryCalls || 0,
+      path: window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
+      bottom: window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+      hasTool: !!document.querySelector('.bottom-tool'),
+      menuClosed: document.querySelectorAll('.changes-menu').length,
+    }));
+    check('文件历史读取目标路径: ' + JSON.stringify([fh.calls, fh.path]),
+      fh.calls === 1 && typeof fh.path === 'string' && fh.path.length > 0);
+    check('文件历史切到底部工具窗口: ' + JSON.stringify(fh.bottom), fh.bottom === 'file-history');
+    check('文件历史工具窗口已渲染', fh.hasTool === true);
+    check('选择动作后菜单关闭', fh.menuClosed === 0);
+
+    // 点「Blame」：进入归属视图。
+    // 上一步切入文件历史会整页重绘（底部区域从无到有是结构性变化），
+    // 改动列表已不在文档里，因此重新载入场景再测。
+    await ctx.page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`, { waitUntil: 'load' });
+    await ctx.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await ctx.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await ctx.page.evaluate(() => { window.__blameCalls = 0; });
+    await ctx.page.locator('.changes-list .change-file-row').nth(1).click({ button: 'right' });
+    await ctx.page.waitForTimeout(500);
+    await ctx.page.waitForTimeout(500);
+    await ctx.page.evaluate(() => {
+      document.querySelectorAll('.changes-menu .menu-item')[3].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ctx.page.waitForTimeout(1200);
+    const bl = await ctx.page.evaluate(() => ({
+      calls: window.__blameCalls || 0,
+      editor: window.__augitLive.editor,
+    }));
+    check('Blame 读取归属并进入该视图: ' + JSON.stringify(bl), bl.calls === 1 && bl.editor === 'blame');
+    await ctx.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

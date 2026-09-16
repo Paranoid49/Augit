@@ -1880,6 +1880,19 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 变化文件右键菜单里的动作。
+    const changesMenu = event.target.closest && event.target.closest(".changes-menu .menu-item");
+    if (changesMenu) {
+      event.preventDefault();
+      const label = (changesMenu.textContent || "").trim();
+      const action = label.includes("显示 Diff") ? "diff"
+        : label.includes("文件历史") ? "file-history"
+          : label.includes("Blame") ? "blame" : null;
+      if (action) void runChangesContextAction(action);
+      else closeLiveOverlay();
+      return;
+    }
+
     // 分支弹层里的引用行是 <div>（不是链接），单独处理：点击即检出（规格 §7.11）。
     const branchRow = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch]");
     if (branchRow) {
@@ -2518,6 +2531,83 @@ function openRevisionDialog() {
   if (field) field.focus();
 }
 
+/**
+ * 变化文件的右键菜单（规格 §7.8）。
+ *
+ * 只对文件行提供，打开菜单**不打开比较**；文件历史与 Blame 由此进入。
+ * 菜单项复用视觉稿的 changesContextMenu 节点。
+ */
+function openChangesContextMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || !row) return;
+  const path = row.dataset.path;
+  if (!path) return;
+  closeLiveOverlay();
+  const template = document.createElement("template");
+  template.innerHTML = changesContextMenu();
+  const menu = template.content.firstElementChild;
+  if (!menu) return;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay changes-menu";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.dataset.changePath = path;
+  // 定位到指针处并夹在窗口内，避免菜单被裁掉。
+  const rect = host.getBoundingClientRect();
+  layer.style.position = "absolute";
+  layer.style.inset = "0";
+  menu.style.position = "absolute";
+  menu.style.left = `${Math.max(4, Math.min(clientX - rect.left, rect.width - 240))}px`;
+  menu.style.top = `${Math.max(4, Math.min(clientY - rect.top, rect.height - 220))}px`;
+  menu.style.zIndex = "2";
+  layer.appendChild(menu);
+  host.appendChild(layer);
+}
+
+/**
+ * 右键菜单里的动作（规格 §7.8）。
+ * 「文件历史」切到底部工具窗口并读取该路径的历史；「Blame」进入归属视图。
+ */
+async function runChangesContextAction(action) {
+  const layer = document.querySelector(".changes-menu");
+  const path = layer && layer.dataset.changePath;
+  closeLiveOverlay();
+  if (!path) return;
+  if (action === "diff") {
+    await openChangeDiff(path);
+    return;
+  }
+
+  if (action === "file-history") {
+    await loadFileHistory(path);
+    const live = window.__augitLive;
+    if (live) {
+      // 底部工具窗口切到文件历史（规格 §5.1 的同一套布局状态）。
+      const hadBottom = !!(live.layout && live.layout.bottom);
+      live.layout = live.layout || {};
+      live.layout.userDriven = true;
+      live.layout.bottom = "file-history";
+      live.layout.collapsed = null;
+      // 底部区域从无到有是结构性变化：区域替换只在「两侧都存在」时生效，
+      // 而该场景没有 .bottom-tool 节点，定点刷新无法把它插进来
+      // （实测底部工具窗口始终不出现）。这类变化整页重绘。
+      if (!hadBottom && typeof window.__augitRender === "function") {
+        window.__augitRender();
+        rebindAfterRender();
+        return;
+      }
+    }
+
+    refreshAfterEvent("bottomTool", "statusbar", "editorContent", "editorTabs");
+    return;
+  }
+
+  if (action === "blame") {
+    await loadBlame(path);
+    refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar");
+  }
+}
+
 /** 关闭实时弹层。 */
 function closeLiveOverlay() {
   const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
@@ -2988,6 +3078,14 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   // 双击打开，单击只选择。
   activateTreeRow(row, { open: event.detail >= 2 });
+}, true);
+
+// 变化文件行右键打开上下文菜单；打开菜单不打开比较（规格 §7.8）。
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".changes-list .change-file-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openChangesContextMenu(row, event.clientX, event.clientY);
 }, true);
 
 // 树的键盘导航（规格 §5.4）：方向键移动选择，右键展开、左键折叠。
