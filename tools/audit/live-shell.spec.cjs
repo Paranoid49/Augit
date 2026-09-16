@@ -256,12 +256,15 @@ async function main() {
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') {
         if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
-        // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
-        const diffDelay = (window.__diffDelays || {})[params.path];
-        if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
+        // 记录必须发生在注入延迟**之前**：__diffCalls 表示"请求已发出"，
+        // 若先延迟再记录，观察者看到调用时响应已经返回，就无法判断请求是否仍在途中
+        // （验证"关闭比较后取消在途请求"时踩过这个坑）。
         window.__diffCalls = window.__diffCalls || [];
         window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
         window.__diffCalls.push(params.path);
+        // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
+        const diffDelay = (window.__diffDelays || {})[params.path];
+        if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
@@ -1965,6 +1968,144 @@ async function main() {
     check('关闭后台标签只减少目标标签: ' + stateBeforeClose.tabs + ' -> ' + stateAfterClose.tabs,
       stateAfterClose.tabs === stateBeforeClose.tabs - 1);
     await closeRule.page.close();
+
+    // ---- 规格 §5.2：关闭比较标签的完整取消语义 ----
+    // 关闭必须释放正文并让**在途请求的结果失效**：晚到的响应不得把差异写回，
+    // 也不得把前台切回差异视图。桩支持按路径注入延迟，用来精确制造这个竞态。
+    const cancelCmp = await openScene('scene=commit-changes&theme=dark');
+    await cancelCmp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cancelCmp.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await cancelCmp.page.locator('.changes-list .change-file-row').first().dblclick();
+    await cancelCmp.page.waitForFunction(
+      '!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")',
+      null,
+      { timeout: 8000 },
+    );
+
+    // 发起一次**真实桥接**的慢请求，并在响应到达前关闭比较标签。
+    // 注意不能复用已缓存的补丁：缓存命中会立刻返回、根本不经过桥接，
+    // 也就没有"在途请求"可取消（`__augitDiffPatchCount()` 会因此不为 0）。
+    // 这里用 ignoreWhitespace 换一个缓存键，同时也覆盖 §6.3 的独立缓存方向。
+    await cancelCmp.page.evaluate(() => {
+      window.__diffDelays = { 'README.md': 6000 };
+      window.__augitLoadDiff('README.md', { ignoreWhitespace: true });
+    });
+    await cancelCmp.page.waitForFunction(
+      "(window.__diffCalls || []).filter((p) => p === 'README.md').length === 1", null, { timeout: 8000 });
+    const beforeCancel = await cancelCmp.page.evaluate(() => ({
+      askedForTarget: (window.__diffCalls || []).filter((p) => p === 'README.md').length,
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      inFlight: window.__augitDiffRequestCount(),
+      diffNow: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+    }));
+    // 前置条件必须同时成立：真实请求已发出、比较标签存在，
+    // 且该请求**仍在途中**（在途计数为 1、正文仍未换成目标）——
+    // 否则"晚到不回写"没有作用对象。不能用补丁总数判断：它包含更早请求留下的补丁。
+    check('前置条件：在途慢请求已发出且结果尚未到达: ' + JSON.stringify(beforeCancel),
+      beforeCancel.askedForTarget === 1 && beforeCancel.comparisons === 1
+        && beforeCancel.inFlight === 1 && beforeCancel.diffNow !== 'README.md');
+
+    await cancelCmp.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').click();
+    // 等过注入的延迟，确认晚到的响应没有回写。
+    await cancelCmp.page.waitForTimeout(7000);
+    const afterCancel = await cancelCmp.page.evaluate(() => ({
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      diff: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      editor: window.__augitLive.editor,
+      requestKey: window.__augitLive.diffRequestKey,
+      patches: window.__augitDiffPatchCount(),
+      err: window.__augitError || null,
+    }));
+    check('关闭比较后晚到响应不写回差异: ' + JSON.stringify(afterCancel),
+      afterCancel.comparisons === 0 && afterCancel.diff === null
+        && afterCancel.requestKey === null && afterCancel.patches === 0);
+    check('关闭比较后不回退到差异视图: ' + JSON.stringify(afterCancel.editor),
+      afterCancel.editor !== 'diff');
+    await cancelCmp.page.close();
+
+    // ---- 规格 §5.2：关闭后台比较只移除目标标签，不抢前台焦点 ----
+    const bgClose = await openScene('scene=main-project&theme=dark&open=docs/product-spec.md');
+    await bgClose.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await bgClose.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgClose.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await bgClose.page.locator('.changes-list .change-file-row').first().dblclick();
+    await bgClose.page.waitForFunction(
+      '!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison")',
+      null,
+      { timeout: 8000 },
+    );
+    // 让普通文档回到前台：比较标签退到后台。
+    await bgClose.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+    const bgDocTab = await bgClose.page.evaluate(
+      () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
+    await bgClose.page.locator(`.editor-tabs .editor-tab[data-tab-id="${bgDocTab}"]`).click();
+    await bgClose.page.waitForFunction(
+      () => {
+        const live = window.__augitLive;
+        const comparison = (live.tabs || []).find((t) => t.kind === 'comparison');
+        return !!comparison && live.activeTabId !== comparison.id;
+      },
+      null,
+      { timeout: 8000 },
+    );
+    const bgCloseBefore = await bgClose.page.evaluate(() => ({
+      active: window.__augitLive.activeTabId,
+      editor: window.__augitLive.editor,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: (window.__augitLive.tabs || []).length,
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+    }));
+    check('前置条件：比较标签处于后台而文档在前台: ' + JSON.stringify(bgCloseBefore),
+      bgCloseBefore.comparisons === 1 && bgCloseBefore.editor !== 'diff'
+        && bgCloseBefore.doc === 'docs/product-spec.md');
+    // 关闭后台比较标签：只移除它，前台文档与活动标签都不变。
+    // 额外标记正文节点：关闭后台标签**不得重绘编辑区**（规格 §5.2「不重排主窗口」、
+    // §6.1 局部更新）。只核对活动标签不够——相邻标签恰好就是同一个文档时，
+    // 即使走错分支（重新激活相邻标签）状态也相同，断言无法区分。
+    await bgClose.page.evaluate(() => {
+      const content = document.querySelector('.editor-content');
+      if (content) content.dataset.bgCloseProbe = 'kept';
+      // 记录区域刷新调用：规格要求关闭后台标签只更新标签栏，
+      // 不得触碰编辑区（§5.2「不重排主窗口」、§6.1 局部更新）。
+      window.__regionLog = [];
+      const original = window.__augitRenderRegions;
+      window.__augitRenderRegions = (...names) => {
+        window.__regionLog.push(names.join(','));
+        return original(...names);
+      };
+    });
+    // 先等上一步（切回前台标签）的排队刷新全部落地，再清空日志：
+    // 只核对**关闭动作之后**发生的刷新。混入上一步的刷新会把
+    // "切换前台标签重绘编辑区"误判成"关闭重绘了编辑区"（实测踩过）。
+    await bgClose.page.waitForTimeout(800);
+    await bgClose.page.evaluate(() => { window.__regionLog = []; });
+    const logBeforeClose = await bgClose.page.evaluate(() => window.__regionLog || null);
+    check('前置条件：关闭前没有残留刷新: ' + JSON.stringify(logBeforeClose),
+      Array.isArray(logBeforeClose) && logBeforeClose.length === 0);
+    await bgClose.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').click();
+    await bgClose.page.waitForTimeout(700);
+    const bgCloseAfter = await bgClose.page.evaluate(() => ({
+      active: window.__augitLive.activeTabId,
+      editor: window.__augitLive.editor,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: (window.__augitLive.tabs || []).length,
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      follow: !!window.__augitLive.followChanges,
+    }));
+    check('关闭后台比较只移除目标标签: ' + JSON.stringify([bgCloseBefore.tabs, bgCloseAfter.tabs]),
+      bgCloseAfter.tabs === bgCloseBefore.tabs - 1 && bgCloseAfter.comparisons === 0);
+    check('关闭后台比较不改变前台标签与正文: ' + JSON.stringify(bgCloseAfter),
+      bgCloseAfter.active === bgCloseBefore.active
+        && bgCloseAfter.editor === bgCloseBefore.editor
+        && bgCloseAfter.doc === bgCloseBefore.doc);
+    check('关闭后台比较解除跟随: ' + JSON.stringify(bgCloseAfter.follow), bgCloseAfter.follow === false);
+    const bgRegionLog = await bgClose.page.evaluate(() => window.__regionLog || null);
+    check('关闭后台比较只刷新标签栏: ' + JSON.stringify(bgRegionLog),
+      Array.isArray(bgRegionLog) && bgRegionLog.length > 0
+        && bgRegionLog.every((entry) => !entry.includes('editorContent')));
+    check('关闭后台比较不重绘编辑区正文: ' + JSON.stringify(bgCloseAfter.editor),
+      bgCloseAfter.editor === bgCloseBefore.editor);
+    await bgClose.page.close();
 
     // ---- 规格 §5.2：关闭比较保留 Selected 行、勾选、草稿与滚动 ----
     const keep2 = await openScene('scene=commit-changes&theme=dark');

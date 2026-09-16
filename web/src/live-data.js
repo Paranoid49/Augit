@@ -739,6 +739,8 @@ window.__augitRefreshPush = () => { refreshPush(); };
 window.__augitLoadDiffMode = switchDiffMode;
 window.__augitCloseDiff = closeDiff;
 window.__augitDiffPatchCount = () => diffPatches.size;
+// 在途请求数：用于验证"关闭比较后仍有请求在飞、且其晚到结果不得回写"。
+window.__augitDiffRequestCount = () => diffRequests.size;
 
 // 加载反馈阈值（规格 §6.5）：预计低于 150 毫秒的操作不显示加载动画，避免闪烁。
 const LoadingFeedbackDelay = 150;
@@ -1345,7 +1347,7 @@ window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
 
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
-window.__augitLoadDiff = (path) => loadDiff(path);
+window.__augitLoadDiff = (path, options) => loadDiff(path, options);
 
 // 供验收套件走与点击相同的打开路径。
 window.__augitOpenDocument = (path) => openDocument(path);
