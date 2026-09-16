@@ -1853,6 +1853,14 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // Worktree 窗口的动作。
+    const worktreeAction = event.target.closest && event.target.closest("[data-worktree-action]");
+    if (worktreeAction) {
+      event.preventDefault();
+      void runWorktreeAction(worktreeAction.dataset.worktreeAction);
+      return;
+    }
+
     // 远端窗口的动作。
     const remoteAction = event.target.closest && event.target.closest("[data-remote-action]");
     if (remoteAction) {
@@ -2259,6 +2267,11 @@ async function runPopoverAction(action) {
     return;
   }
 
+  if (action === "create-worktree") {
+    openWorktreeDialog();
+    return;
+  }
+
   if (action === "push") {
     // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
     void openPushDialog();
@@ -2514,6 +2527,98 @@ async function confirmPushDialog() {
   }
 
   refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/**
+ * 新建 Worktree 表单（规格 §7.11）。
+ *
+ * 两个字段：目标目录与来源分支。字段校验只判断非空；
+ * 目录是否可用、分支是否存在由 Git 给出原因（窗口本身不执行 Git 写入）。
+ */
+function openWorktreeDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  const branch = currentBranchName() || "HEAD";
+  const body = `<div class="form-grid">`
+    + `<label for="worktree-destination">目录</label>`
+    + `<input id="worktree-destination" class="text-field" data-worktree-field="destination" placeholder="D:\\projects\\repository-worktree">`
+    + `<label for="worktree-branch">分支</label>`
+    + `<input id="worktree-branch" class="text-field" data-worktree-field="branch" value="${escapeText(branch)}">`
+    + `</div><div class="worktree-notice" role="status" hidden></div>`;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay worktree-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "新建 Worktree",
+    body,
+    `<button type="button" class="secondary-button" data-worktree-action="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-worktree-action="create">创建</button>`,
+    false,
+    "worktree-dialog");
+  host.appendChild(layer);
+  const field = layer.querySelector('[data-worktree-field="destination"]');
+  if (field) field.focus();
+}
+
+function closeWorktreeDialog() {
+  document.querySelectorAll(".worktree-window").forEach((node) => node.remove());
+}
+
+/** 创建 Worktree；失败原因显示在窗口内并保留输入。 */
+async function runWorktreeAction(action) {
+  if (action === "cancel") {
+    closeWorktreeDialog();
+    return;
+  }
+
+  const layer = document.querySelector(".worktree-window");
+  if (!layer) return;
+  const value = (name) => {
+    const field = layer.querySelector(`[data-worktree-field="${name}"]`);
+    return field ? field.value.trim() : "";
+  };
+  const destination = value("destination");
+  const branch = value("branch");
+  if (destination.length === 0) {
+    showWorktreeNotice("请填写目标目录。");
+    return;
+  }
+
+  if (branch.length === 0) {
+    showWorktreeNotice("请填写来源分支。");
+    return;
+  }
+
+  let result;
+  try {
+    result = await invoke("git/worktree-write", { destination, branch }, 120000);
+  } catch (error) {
+    showWorktreeNotice(String(error && error.message || error));
+    return;
+  }
+
+  if (!result || !result.changed) {
+    showWorktreeNotice((result && result.reason) || "Worktree 创建失败。");
+    return;
+  }
+
+  closeWorktreeDialog();
+  const live = window.__augitLive;
+  if (live) {
+    live.worktrees = null;
+    await loadReferences().catch(() => null);
+  }
+
+  refreshAfterEvent("side", "bottomTool", "statusbar");
+}
+
+function showWorktreeNotice(message) {
+  const notice = document.querySelector(".worktree-window .worktree-notice");
+  if (!notice) return;
+  notice.textContent = message;
+  notice.hidden = false;
 }
 
 /** 检出标签或任意版本：紧凑输入窗口，名称交给 Git 解析。 */

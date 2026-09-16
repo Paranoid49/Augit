@@ -278,6 +278,11 @@ async function main() {
           commits: (window.__unpushedSubjects || ['feat: 真实提交一']).map((subject, index) => ({ hash: 'aaa111' + index, fullHash: 'full-' + index, subject, author: 'l49', date: '2026/9/15 10:00' })),
         };
       }
+      if (method === 'git/worktree-write') {
+        window.__worktreeWrites = (window.__worktreeWrites || []).concat([params]);
+        if (window.__worktreeFails) return { available: true, changed: false, reason: '目标目录不为空。' };
+        return { available: true, changed: true, branch: params.branch };
+      }
       if (method === 'git/fetch') {
         window.__fetchCalls = (window.__fetchCalls || 0) + 1;
         if (window.__fetchFails) return { available: true, fetched: false, reason: '没有配置远端。' };
@@ -2653,6 +2658,83 @@ async function main() {
     }));
     check('Blame 读取归属并进入该视图: ' + JSON.stringify(bl), bl.calls === 1 && bl.editor === 'blame');
     await ctx.page.close();
+
+    // ---- 规格 §7.11：新建 Worktree 表单 ----
+    const wt = await openScene('scene=main-project&theme=dark');
+    await wt.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await wt.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+    await wt.page.locator('.top-chip.branch-chip').click();
+    await wt.page.waitForTimeout(600);
+    await wt.page.evaluate(() => {
+      document.querySelectorAll('[data-popover-action="create-worktree"]')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wt.page.waitForTimeout(700);
+    const wtOpened = await wt.page.evaluate(() => ({
+      dialog: !!document.querySelector('.worktree-window'),
+      fields: [...document.querySelectorAll('[data-worktree-field]')].map((el) => el.dataset.worktreeField),
+      destination: (document.querySelector('[data-worktree-field="destination"]') || {}).value,
+      branch: (document.querySelector('[data-worktree-field="branch"]') || {}).value,
+      focused: document.activeElement && document.activeElement.dataset
+        ? document.activeElement.dataset.worktreeField : null,
+    }));
+    check('新建 Worktree 打开表单: ' + JSON.stringify(wtOpened.dialog), wtOpened.dialog === true);
+    check('表单提供目录与分支两个字段: ' + JSON.stringify(wtOpened.fields),
+      wtOpened.fields.join(',') === 'destination,branch');
+    check('目录默认留空、分支预填当前分支: ' + JSON.stringify([wtOpened.destination, wtOpened.branch]),
+      wtOpened.destination === '' && wtOpened.branch === 'dsh');
+    check('打开后焦点在目录输入框', wtOpened.focused === 'destination');
+
+    // 目录为空：必须被拒绝且不调用接口
+    await wt.page.evaluate(() => { window.__worktreeWrites = []; });
+    await wt.page.evaluate(() => {
+      document.querySelectorAll('[data-worktree-action="create"]')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wt.page.waitForTimeout(600);
+    const wtEmpty = await wt.page.evaluate(() => ({
+      writes: window.__worktreeWrites || [],
+      notice: (document.querySelector('.worktree-window .worktree-notice') || {}).textContent || null,
+      dialog: !!document.querySelector('.worktree-window'),
+    }));
+    check('目录为空不调用接口: ' + JSON.stringify(wtEmpty.writes), wtEmpty.writes.length === 0);
+    check('目录为空给出原因: ' + JSON.stringify(wtEmpty.notice),
+      typeof wtEmpty.notice === 'string' && wtEmpty.notice.includes('目标目录'));
+    check('校验失败保留表单', wtEmpty.dialog === true);
+
+    // 创建失败：保留输入并显示 Git 原因
+    await wt.page.locator('[data-worktree-field="destination"]').fill('D:\\worktrees\\augit-feat');
+    await wt.page.evaluate(() => { window.__worktreeFails = true; });
+    await wt.page.evaluate(() => {
+      document.querySelectorAll('[data-worktree-action="create"]')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wt.page.waitForTimeout(700);
+    const wtFail = await wt.page.evaluate(() => ({
+      writes: window.__worktreeWrites || [],
+      notice: (document.querySelector('.worktree-window .worktree-notice') || {}).textContent || null,
+      dialog: !!document.querySelector('.worktree-window'),
+    }));
+    check('创建带上目录与分支: ' + JSON.stringify(wtFail.writes),
+      wtFail.writes.length === 1 && wtFail.writes[0].destination === 'D:\\worktrees\\augit-feat'
+      && wtFail.writes[0].branch === 'dsh');
+    check('创建失败保留表单: ' + wtFail.dialog, wtFail.dialog === true);
+    check('创建失败显示 Git 原因: ' + JSON.stringify(wtFail.notice),
+      typeof wtFail.notice === 'string' && wtFail.notice.includes('不为空'));
+
+    // 创建成功：关闭表单
+    await wt.page.evaluate(() => { window.__worktreeFails = false; });
+    await wt.page.evaluate(() => {
+      document.querySelectorAll('[data-worktree-action="create"]')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wt.page.waitForTimeout(1000);
+    const wtOk = await wt.page.evaluate(() => ({
+      dialog: !!document.querySelector('.worktree-window'),
+      writes: window.__worktreeWrites.length,
+    }));
+    check('创建成功后关闭表单: ' + JSON.stringify(wtOk), wtOk.dialog === false && wtOk.writes === 2);
+    await wt.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

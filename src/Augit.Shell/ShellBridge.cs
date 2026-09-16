@@ -153,6 +153,7 @@ internal sealed class ShellBridge : IDisposable
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
+            "git/worktree-write" => await WriteWorktreeAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
             "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
             "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
@@ -286,6 +287,40 @@ internal sealed class ShellBridge : IDisposable
                 staged = file.HasStagedChanges,
                 workingTree = file.HasWorkingTreeChanges,
             }),
+        };
+    }
+
+    /// <summary>
+    /// 新建 Worktree（规格 §7.11）。
+    /// 目标目录与分支的合法性由 Git 判断；失败回传最新实际状态，不伪造成功。
+    /// </summary>
+    private async Task<object?> WriteWorktreeAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string destination = GetString(parameters, "destination")
+            ?? throw new ArgumentException("git/worktree-write 需要 destination 参数。");
+        string branch = GetString(parameters, "branch")
+            ?? throw new ArgumentException("git/worktree-write 需要 branch 参数。");
+        string? newBranch = GetString(parameters, "newBranch");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitActionResult result = await new GitWorktreeService(runtime)
+            .CreateAsync(repository!, destination, branch, newBranch, cancellationToken)
+            .ConfigureAwait(false);
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, changed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            changed = true,
+            branch = result.ActualStatus?.CurrentBranch,
         };
     }
 
