@@ -726,6 +726,9 @@ async function switchDiffMode(mode) {
   return diff;
 }
 
+// 供验收套件在已打开的 Push 弹层上重算预览；不新开一层。
+window.__augitRefreshPush = () => { refreshPush(); };
+
 window.__augitLoadDiffMode = switchDiffMode;
 window.__augitCloseDiff = closeDiff;
 window.__augitDiffPatchCount = () => diffPatches.size;
@@ -1841,6 +1844,23 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // Push 内嵌的「定义远端」：打开嵌套窗口（规格 §7.12）。
+    // 只在本轮实现挂载与关闭行为，不改动弹层归属机制。
+    const defineRemote = event.target.closest && event.target.closest('a[href$="remote.html"]');
+    if (defineRemote && document.querySelector(".dialog.push-dialog")) {
+      event.preventDefault();
+      openRemoteDialog();
+      return;
+    }
+
+    // 远端窗口的动作。
+    const remoteAction = event.target.closest && event.target.closest("[data-remote-action]");
+    if (remoteAction) {
+      event.preventDefault();
+      void runRemoteAction(remoteAction.dataset.remoteAction);
+      return;
+    }
+
     // 推送对话框的动作。
     const pushAction = event.target.closest && event.target.closest("[data-push-action]");
     if (pushAction) {
@@ -2329,7 +2349,13 @@ function renderPushDialog() {
   const push = live.push || { branch: live.status && live.status.branch, upstream: null, commits: [], ready: false };
   const host = document.querySelector(".augit-window");
   if (!host) return;
+  // 场景自带一份静态 Push 弹层（没有 live-overlay 类）。只清 .live-overlay 会留下两份，
+  // 用户可能点到没有动作的那一份，选择器也会因此歧义。
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  document.querySelectorAll(".dialog.push-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
   const canPush = push.ready === true && (push.commits || []).length > 0;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
@@ -2350,6 +2376,105 @@ function renderPushDialog() {
 function closePushDialog() {
   window.__augitPushDialogOpen = false;
   closeLiveOverlay();
+}
+
+/**
+ * Push 内嵌的远端管理窗口（规格 §7.12）。
+ *
+ * 关闭它**只重新读取推送预览**：不创建第二个 Push 窗口，
+ * 不改变提交列表、提交草稿，也不重排主窗口布局。
+ */
+function openRemoteDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  const first = remotes[0];
+  const body = `<div class="management-content"><div class="management-list">`
+    + (remotes.length === 0
+      ? `<div class="tree-row"><span class="commit-meta">没有配置远端</span></div>`
+      : remotes.map((remote) => `<div class="tree-row" data-remote-entry="${escapeText(remote.name)}"><strong>${escapeText(remote.name)}</strong><span class="commit-meta">${escapeText(remote.fetchUrl)}</span></div>`).join(""))
+    + `</div><div class="management-detail" tabindex="0" aria-label="远端详情，可滚动阅读">`
+    + `<h2>${first ? escapeText(first.name) : "定义远端"}</h2>`
+    + `<div class="form-grid"><label for="remote-name">名称</label>`
+    + `<input id="remote-name" class="text-field" data-remote-field="name" value="${escapeText(first ? first.name : "origin")}">`
+    + `<label for="remote-fetch">获取 URL</label>`
+    + `<input id="remote-fetch" class="text-field" data-remote-field="fetchUrl" value="${escapeText(first ? first.fetchUrl : "")}">`
+    + `<label for="remote-push">推送 URL</label>`
+    + `<input id="remote-push" class="text-field" data-remote-field="pushUrl" value="${escapeText(first && first.pushUrl ? first.pushUrl : "")}">`
+    + `</div><div class="remote-notice" role="status" hidden></div></div></div>`;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay remote-window";
+  layer.setAttribute("data-augit-overlay", "");
+  if (first) layer.dataset.remoteCurrent = first.name;
+  layer.innerHTML = dialog(
+    "远端管理",
+    body,
+    `<button type="button" class="secondary-button" data-remote-action="cancel">关闭</button>`
+      + `<button type="button" class="primary-button" data-remote-action="save">保存远端</button>`,
+    true,
+    "remote-dialog");
+  host.appendChild(layer);
+}
+
+/** 关闭远端窗口：只重读推送预览，不动 Push 窗口本身。 */
+async function closeRemoteDialog() {
+  const live = window.__augitLive;
+  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
+  if (!live) return;
+  const [references, remotes] = await Promise.all([
+    invoke("git/references", {}, 30000).catch(() => null),
+    invoke("git/remotes", {}, 30000).catch(() => null),
+  ]);
+  if (references && references.available) live.references = references;
+  if (remotes && remotes.available) live.remotes = remotes;
+  // 只重读预览；Push 窗口节点原样保留（不新建第二个）。
+  await loadUnpushed();
+  renderPushDialog();
+}
+
+/** 保存远端；失败原因写在远端窗口内，不关闭窗口。 */
+async function runRemoteAction(action) {
+  if (action === "cancel") {
+    await closeRemoteDialog();
+    return;
+  }
+
+  const layer = document.querySelector(".remote-window");
+  if (!layer) return;
+  const value = (name) => {
+    const field = layer.querySelector(`[data-remote-field="${name}"]`);
+    return field ? field.value.trim() : "";
+  };
+
+  let result;
+  try {
+    result = await invoke("git/remote-write", {
+      action: layer.dataset.remoteCurrent ? "update" : "add",
+      name: value("name"),
+      currentName: layer.dataset.remoteCurrent || undefined,
+      fetchUrl: value("fetchUrl"),
+      pushUrl: value("pushUrl") || undefined,
+    }, 60000);
+  } catch (error) {
+    showRemoteNotice(String(error && error.message || error));
+    return;
+  }
+
+  if (!result || !result.changed) {
+    showRemoteNotice((result && result.reason) || "远端保存失败。");
+    return;
+  }
+
+  await closeRemoteDialog();
+}
+
+function showRemoteNotice(message) {
+  const notice = document.querySelector(".remote-window .remote-notice");
+  if (!notice) return;
+  notice.textContent = message;
+  notice.hidden = false;
 }
 
 /** 执行推送并关闭对话框；失败时保留对话框并显示原因。 */

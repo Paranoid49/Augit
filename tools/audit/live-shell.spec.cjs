@@ -261,6 +261,11 @@ async function main() {
       if (method === 'git/conflicts') return data.conflicts;
       if (method === 'git/conflict-load') return data.conflict;
       if (method === 'git/remotes') return data.remotes;
+      if (method === 'git/remote-write') {
+        window.__remoteWrites = (window.__remoteWrites || []).concat([params]);
+        if (window.__remoteWriteFails) return { available: true, changed: false, reason: 'remote 已存在。' };
+        return { available: true, changed: true, remotes: [{ name: params.name, fetchUrl: params.fetchUrl, pushUrl: params.pushUrl }] };
+      }
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return data.stashes;
       if (method === 'git/worktrees') return data.worktrees;
@@ -268,7 +273,7 @@ async function main() {
         if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，无法生成推送预览。', commits: [], upstream: null };
         return {
           available: true, ready: true, upstream: 'origin/dsh',
-          commits: [{ hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00' }],
+          commits: (window.__unpushedSubjects || ['feat: 真实提交一']).map((subject, index) => ({ hash: 'aaa111' + index, fullHash: 'full-' + index, subject, author: 'l49', date: '2026/9/15 10:00' })),
         };
       }
       if (method === 'git/fetch') {
@@ -2505,6 +2510,69 @@ async function main() {
     const ovTwice = await ov.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
     check('重复打开不叠加弹层节点: ' + ovTwice, ovTwice === 1);
     await ov.page.close();
+
+    // ---- 规格 §7.12：Push 内嵌的远端窗口 ----
+    // 隔离页面 + 打开前设好宿主状态：前置条件必须先成立。
+    // 「定义远端」入口只在没有上游时出现，因此整段保持该状态，
+    // 避免中途切换状态与在途读取竞态（第一次就是这么失败的）。
+    const rem = await context.newPage();
+    await rem.addInitScript(() => { window.__unpushedFails = true; });
+    await rem.goto(`http://127.0.0.1:${port}/index.html?scene=push&theme=dark`, { waitUntil: 'load' });
+    await rem.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await rem.waitForSelector('.push-summary a[href$="remote.html"]', { timeout: 10000 });
+    const entryCount = await rem.evaluate(
+      () => document.querySelectorAll('.push-summary a[href$="remote.html"]').length);
+    check('没有上游时出现「定义远端」入口: ' + entryCount, entryCount === 1);
+
+    const pushBefore = await rem.evaluate(() => document.querySelectorAll('.dialog.push-dialog').length);
+    await rem.locator('.push-summary a[href$="remote.html"]').first().click();
+    await rem.waitForTimeout(800);
+    const remOpened = await rem.evaluate(() => ({
+      remote: !!document.querySelector('.remote-window'),
+      pushDialogs: document.querySelectorAll('.dialog.push-dialog').length,
+      fields: [...document.querySelectorAll('[data-remote-field]')].map((el) => el.dataset.remoteField),
+      entries: [...document.querySelectorAll('[data-remote-entry]')].map((el) => el.dataset.remoteEntry),
+      url: location.pathname,
+    }));
+    check('定义远端打开嵌套窗口: ' + JSON.stringify(remOpened.remote), remOpened.remote === true);
+    check('远端窗口期间 Push 窗口保持唯一: ' + JSON.stringify([pushBefore, remOpened.pushDialogs]),
+      pushBefore === 1 && remOpened.pushDialogs === 1);
+    check('远端窗口提供名称与两个 URL 字段: ' + JSON.stringify(remOpened.fields),
+      remOpened.fields.join(',') === 'name,fetchUrl,pushUrl');
+    check('远端窗口列出已有远端: ' + JSON.stringify(remOpened.entries), remOpened.entries.includes('origin'));
+    check('点击定义远端不跳转页面: ' + remOpened.url, !remOpened.url.includes('remote.html'));
+
+    // 保存失败：窗口保留并显示 Git 原因（先测失败，避免保存成功后上游出现、入口消失）
+    await rem.evaluate(() => { window.__remoteWriteFails = true; window.__remoteWrites = []; });
+    await rem.locator('[data-remote-field="fetchUrl"]').fill('https://example.com/team/Augit.git');
+    await rem.locator('[data-remote-action="save"]').click();
+    await rem.waitForTimeout(900);
+    const remFail = await rem.evaluate(() => ({
+      remote: !!document.querySelector('.remote-window'),
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+      writes: window.__remoteWrites || [],
+    }));
+    check('保存失败时仍调用写接口: ' + JSON.stringify(remFail.writes),
+      remFail.writes.length === 1 && remFail.writes[0].action === 'update'
+      && remFail.writes[0].currentName === 'origin');
+    check('远端保存失败保留窗口: ' + remFail.remote, remFail.remote === true);
+    check('远端保存失败显示 Git 原因: ' + JSON.stringify(remFail.notice),
+      typeof remFail.notice === 'string' && remFail.notice.includes('已存在'));
+
+    // 保存成功：关闭远端窗口，Push 窗口保持唯一
+    await rem.evaluate(() => { window.__remoteWriteFails = false; });
+    await rem.locator('[data-remote-action="save"]').click();
+    await rem.waitForTimeout(1000);
+    const remSaved = await rem.evaluate(() => ({
+      remote: !!document.querySelector('.remote-window'),
+      pushDialogs: document.querySelectorAll('.dialog.push-dialog').length,
+      workspace: !!document.querySelector('.workspace'),
+    }));
+    check('保存成功后关闭远端窗口', remSaved.remote === false);
+    check('保存成功后 Push 窗口仍唯一: ' + remSaved.pushDialogs, remSaved.pushDialogs === 1);
+    check('保存成功后主窗口结构完好: ' + remSaved.workspace, remSaved.workspace === true);
+    await rem.close();
+
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
