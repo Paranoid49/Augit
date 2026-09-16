@@ -1295,6 +1295,24 @@ async function main() {
     check('提示只出现一次', noGitState.toastCount === 1);
     check('Git 不可用时项目树仍可用: ' + noGitState.treeRows, noGitState.treeRows > 0);
     check('记录不可用原因', typeof noGitState.reason === 'string' && noGitState.reason.length > 0);
+
+    // 规格 §6.5：加载、完成与外部触发的重新计算都不得覆盖其他操作的提示。
+    // 这里在提示存在时触发一次外部变化驱动的重算（工作区变化事件），
+    // 核对全局提示仍然只出现一次且内容不变——区域刷新不应把它清掉或叠加。
+    await noGit.evaluate(() => {
+      // 直接走区域刷新路径（加载完成与外部重算都会经过它），
+      // 这是"重算是否覆盖提示"的最直接观测点。
+      window.__augitRenderRegions('titlebar', 'side', 'editorContent', 'statusbar', 'toast');
+    });
+    await noGit.waitForTimeout(600);
+    const toastAfterRecalc = await noGit.evaluate(() => ({
+      toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+      count: document.querySelectorAll('.toast.error').length,
+    }));
+    check('外部重算后全局提示保持不变: ' + JSON.stringify([toastAfterRecalc.count, (toastAfterRecalc.toast || '').slice(0, 20)]),
+      toastAfterRecalc.count === 1
+        && typeof toastAfterRecalc.toast === 'string'
+        && toastAfterRecalc.toast.includes('Git 不可用'));
     await noGit.close();
 
     // ---- 非 Git 目录：保留文件浏览，不显示 Git 不可用提示 ----
@@ -3502,20 +3520,30 @@ async function main() {
     check('前置条件：首次加载后已有正文: ' + JSON.stringify(loadedOnce),
       loadedOnce.present === true && loadedOnce.chars > 20);
 
-    // 让第二次差异查询慢下来，在加载期间取样。
-    // 必须换一个文件：同一请求键会被 §6.3 的"直接复用结果"守卫拦下，不会发新请求，
-    // 也就没有"加载中"可取样（第一次实现时踩过）。
+    // 制造第二次差异加载：换一个文件（同一文件会命中 §6.3 去重守卫而不发请求；
+    // 切换显示模式则命中补丁缓存、同样不经桥接，都不会出现加载态）。
     await lu.page.evaluate(() => {
       window.__diffDelays = { 'README.md': 2500 };
       window.__augitDiffReady = false;
     });
     await lu.page.locator('.changes-list .change-file-row').nth(1).dblclick();
     await lu.page.waitForTimeout(500);
+    // 比较标签必须仍在前台：否则编辑区渲染的是普通文档，既没有 diff 文件标题行，
+    // 也谈不上"保留旧正文"。
+    const foregroundIsDiff = await lu.page.evaluate(() => ({
+      editor: window.__augitLive.editor,
+      activeIsComparison: (() => {
+        const active = (window.__augitLive.tabs || []).find((t) => t.id === window.__augitLive.activeTabId);
+        return active ? active.kind === 'comparison' : false;
+      })(),
+    }));
+    check('前置条件：第二次加载时比较标签在前台: ' + JSON.stringify(foregroundIsDiff),
+      foregroundIsDiff.editor === 'diff' && foregroundIsDiff.activeIsComparison === true);
     const duringLoad = await geometry();
     // 断言取样确实落在加载中：否则下面几条稳定性断言什么都没验证。
     check('取样发生在加载过程中',
       (await lu.page.evaluate(() => !!document.querySelector('.diff-loading-status'))) === true);
-    await lu.page.waitForTimeout(1600);
+    await lu.page.waitForTimeout(2800);
     const afterLoad = await geometry();
 
     const sameBox = (a, b) => JSON.stringify(a) === JSON.stringify(b);
