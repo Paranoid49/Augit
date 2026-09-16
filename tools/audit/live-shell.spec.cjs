@@ -317,7 +317,9 @@ async function main() {
         return { available: true, pushed: true, branch: 'main', remotes: 1 };
       }
       if (method === 'git/commit-create') {
+        window.__commitRequests = (window.__commitRequests || 0) + 1;
         window.__commitWrite = { message: params.message, paths: params.paths };
+        if (window.__commitDelays) await new Promise((r) => setTimeout(r, window.__commitDelays));
         // 支持注入失败
         if (window.__commitFails) return { available: true, committed: false, reason: 'commit-msg hook 拒绝提交。请检查仓库提交规则。' };
         if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: '请至少选择一个要提交的文件。' };
@@ -3507,6 +3509,108 @@ async function main() {
     check('§10.4 不使用泛化的「确定」: ' + dangerButtons.hasConfirmWord, dangerButtons.hasConfirmWord === false);
     check('§10.4 显示具体影响: ' + JSON.stringify((dangerButtons.impact || '').slice(0, 30)),
       typeof dangerButtons.impact === 'string' && dangerButtons.impact.length > 0);
+
+    // ---- 规格 §9.3：Git 写操作状态机 ----
+    const wm = await openScene('scene=commit-changes&theme=dark');
+    await wm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await wm.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await wm.page.locator('.commit-box .message-field').fill('feat: 进行中');
+    await wm.page.waitForTimeout(300);
+
+    // 进行中：禁用重复触发、显示当前动作与取消
+    await wm.page.evaluate(() => { window.__commitDelays = 1500; });
+    await wm.page.locator('.commit-actions .primary-button').first().click();
+    await wm.page.waitForTimeout(400);
+    const wmBusy = await wm.page.evaluate(() => {
+      const actions = document.querySelector('.side-tool .commit-actions');
+      return {
+        operation: window.__augitLive.writeOperation || null,
+        // 提交侧栏的动作是 <a>：disabled 属性无效，禁用态只能看 aria-disabled。
+        submitDisabled: (function () {
+          const b = actions.querySelector('.primary-button');
+          return b.tagName === 'A' ? b.getAttribute('aria-disabled') === 'true' : b.disabled;
+        })(),
+        // 用文本定位推送按钮：取消按钮同样是 .secondary-button，
+        // 按类名取到的可能不是推送。
+        pushDisabled: (function () {
+          const b = [...actions.querySelectorAll('.secondary-button')]
+            .find((el) => el.textContent.includes('提交并推送'));
+          if (!b) return null;
+          return b.tagName === 'A' ? b.getAttribute('aria-disabled') === 'true' : b.disabled;
+        })(),
+        status: (actions.querySelector('[data-write-status]') || {}).textContent || null,
+        cancel: !!actions.querySelector('[data-write-cancel]'),
+      };
+    });
+    check('§9.3 进行中记录当前动作: ' + JSON.stringify(wmBusy.operation), wmBusy.operation === '提交');
+    check('§9.3 进行中禁用重复触发: ' + JSON.stringify([wmBusy.submitDisabled, wmBusy.pushDisabled]),
+      wmBusy.submitDisabled === true && wmBusy.pushDisabled === true);
+    check('§9.3 进行中显示当前动作: ' + JSON.stringify(wmBusy.status),
+      typeof wmBusy.status === 'string' && wmBusy.status.includes('提交进行中'));
+    check('§9.3 进行中显示取消入口', wmBusy.cancel === true);
+
+    // 重复点击不产生第二次请求。
+    // 判据必须是**已发出的请求数**而不是已完成数：请求仍在进行中时，
+    // 用「已完成」计数的话，有没有保护都会是 0，断言抓不到东西。
+    const wmRequestsBefore = await wm.page.evaluate(() => window.__commitRequests || 0);
+    await wm.page.evaluate(() => {
+      document.querySelectorAll('.commit-actions .primary-button').forEach((b) => {
+        b.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+    });
+    await wm.page.waitForTimeout(500);
+    const wmDuplicates = await wm.page.evaluate(() => (window.__commitRequests || 0) - 0);
+    const wmExtra = wmDuplicates - wmRequestsBefore;
+    // 如实记录：这条断言没有通过负向验证。保护有**两层**（按钮的 aria-disabled 拦截、
+    // 以及函数入口的进行中守卫），单独移除任一层另一层仍然生效，因此断言抓不到。
+    // 断言本身正确（重复触发确实不会新增请求），但无法区分「两层都在」与「只有一层」。
+    check('§9.3 重复触发被拦下（未新增请求）: ' + JSON.stringify([wmRequestsBefore, wmDuplicates]),
+      wmRequestsBefore === 1 && wmExtra === 0);
+
+    // 完成后恢复：进行中标记清除、按钮回到渲染时的状态
+    await wm.page.waitForFunction('!window.__augitLive.writeOperation', null, { timeout: 8000 });
+    await wm.page.waitForTimeout(500);
+    const wmSettled = await wm.page.evaluate(() => {
+      const actions = document.querySelector('.side-tool .commit-actions');
+      return {
+        operation: window.__augitLive.writeOperation || null,
+        cancel: !!actions.querySelector('[data-write-cancel]'),
+        status: !!actions.querySelector('[data-write-status]'),
+        result: window.__augitCommitResult || null,
+      };
+    });
+    check('§9.3 完成后清除进行中标记: ' + JSON.stringify([wmSettled.operation, wmSettled.cancel, wmSettled.status]),
+      wmSettled.operation === null && wmSettled.cancel === false && wmSettled.status === false);
+    check('§9.3 成功后记录结果: ' + JSON.stringify(wmSettled.result),
+      !!wmSettled.result && wmSettled.result.hash === 'abc1234');
+
+    // 成功后刷新相关事实：状态被重新读取
+    const wmRefetched = await wm.page.evaluate(() => window.__statusCalls || 0);
+    check('§9.3 成功后重读状态: ' + wmRefetched, wmRefetched >= 1);
+
+    // 取消：请求停止后重新读取真实状态
+    await wm.page.evaluate(() => { window.__commitDelays = 1500; });
+    await wm.page.locator('.commit-box .message-field').fill('feat: 将被取消');
+    await wm.page.waitForTimeout(300);
+    await wm.page.locator('.commit-actions .primary-button').first().click();
+    await wm.page.waitForTimeout(400);
+    await wm.page.evaluate(() => { window.__statusCalls = 0; });
+    await wm.page.evaluate(() => {
+      document.querySelector('[data-write-cancel]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wm.page.waitForTimeout(900);
+    const wmCancelled = await wm.page.evaluate(() => ({
+      operation: window.__augitLive.writeOperation || null,
+      statusCalls: window.__statusCalls || 0,
+      reason: window.__augitLive.writeCancelReason || null,
+    }));
+    check('§9.3 取消后清除进行中标记: ' + JSON.stringify(wmCancelled.operation), wmCancelled.operation === null);
+    check('§9.3 取消后重新读取真实状态: ' + wmCancelled.statusCalls, wmCancelled.statusCalls >= 1);
+    check('§9.3 取消给出说明: ' + JSON.stringify(wmCancelled.reason),
+      typeof wmCancelled.reason === 'string' && wmCancelled.reason.includes('取消'));
+    await wm.page.evaluate(() => { window.__commitDelays = 0; });
+    await wm.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

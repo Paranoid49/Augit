@@ -1452,6 +1452,7 @@ function rebindAfterRender() {
   bindOverlayEscape();
   bindCompactDialogKeys();
   bindGlobalShortcuts();
+  reflectWriteOperation();
   guardUnwiredNavigation();
 }
 
@@ -1877,6 +1878,14 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 写操作的取消入口（规格 §9.3）。
+    const writeCancel = event.target.closest && event.target.closest("[data-write-cancel]");
+    if (writeCancel) {
+      event.preventDefault();
+      void cancelWriteOperation();
+      return;
+    }
+
     // 提交设置入口：打开设置对话框（规格 §7.6 的入口适配）。
     const settingsEntry = event.target.closest && event.target.closest('[aria-label="提交设置"]');
     if (settingsEntry && document.querySelector(".commit-actions")) {
@@ -1969,6 +1978,7 @@ function guardUnwiredNavigation() {
 
     // 改动列表的提交动作（规格 §7.6）。
     const commitActions = link.closest(".commit-actions");
+    if (commitActions && isControlDisabled(link)) return;
     if (commitActions) {
       if (link.classList.contains("primary-button")) {
         void commitSelectedChanges(false);
@@ -2018,6 +2028,11 @@ async function commitSelectedChanges(andPush) {
     return;
   }
 
+  // 进行中：禁用重复触发（规格 §9.3），并记录当前动作供界面显示。
+  if (live.writeOperation) return;
+  live.writeOperation = "提交";
+  refreshAfterEvent("side", "statusbar");
+
   // 每次提交前清掉上一次的错误与结果。
   // 结果必须在**入口**就清：只在失败分支清会漏掉异常抛出等路径，
   // 那时界面会继续显示上次的成功哈希，让用户以为本次也提交成功了。
@@ -2029,7 +2044,8 @@ async function commitSelectedChanges(andPush) {
   } catch (error) {
     window.__augitCommitResult = null;
     window.__augitCommitError = String(error && error.message || error);
-    refreshAfterEvent("side");
+    live.writeOperation = null;
+    refreshAfterEvent("side", "statusbar");
     return;
   }
 
@@ -2039,9 +2055,13 @@ async function commitSelectedChanges(andPush) {
       unchanged: "改动列表、勾选与提交信息都没有变化。",
       next: "修正后可直接重试。",
     });
-    refreshAfterEvent("side");
+    live.writeOperation = null;
+    refreshAfterEvent("side", "statusbar");
     return;
   }
+
+  // 提交成功后按规格 §9.3 刷新相关事实；进行中标记在重读状态之后清除。
+  live.writeOperation = null;
 
   // 提交成功：清空草稿、重新读取真实状态，并按块刷新。
   live.commitDraft = "";
@@ -2884,6 +2904,94 @@ function describeFailure(reason, { unchanged, next }) {
   if (unchanged) parts.push(unchanged);
   if (next) parts.push(next);
   return parts.join(" ");
+}
+
+/**
+ * 把「进行中」状态体现在改动侧栏（规格 §9.3）。
+ *
+ * 进行中必须**禁用重复触发**，并让用户看到**当前动作**与可取消入口。
+ * 宿主侧写操作支持取消，这里给出取消按钮；点击即请求停止。
+ */
+function reflectWriteOperation() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const actions = document.querySelector(".side-tool .commit-actions");
+  if (!actions) return;
+  const busy = !!live.writeOperation;
+  const submit = actions.querySelector(".primary-button");
+  const push = actions.querySelector(".secondary-button");
+  for (const button of [submit, push]) {
+    if (!button) continue;
+    // 记住渲染时的禁用态，取消后按原样恢复，不凭猜测启用。
+    if (!busy) button.dataset.idleDisabled = isControlDisabled(button) ? "true" : "false";
+    const shouldDisable = busy || button.dataset.idleDisabled === "true";
+    // <a> 的 disabled 属性无效，必须同时用 aria-disabled 与类表达，
+    // 否则「进行中禁用重复触发」对链接型按钮形同虚设。
+    if (button.tagName === "A") {
+      button.setAttribute("aria-disabled", shouldDisable ? "true" : "false");
+      button.classList.toggle("disabled", shouldDisable);
+    } else {
+      button.disabled = shouldDisable;
+    }
+  }
+
+  let cancel = actions.querySelector("[data-write-cancel]");
+  if (busy && !cancel) {
+    cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "secondary-button";
+    cancel.dataset.writeCancel = "true";
+    cancel.textContent = "取消";
+    // 插到推送按钮之后：取消按钮同样是 .secondary-button，
+    // 插在提交按钮之前会让「.secondary-button」指向取消而不是推送。
+    const pushButton = actions.querySelector(".secondary-button");
+    if (pushButton && pushButton.nextSibling) {
+      actions.insertBefore(cancel, pushButton.nextSibling);
+    } else {
+      actions.appendChild(cancel);
+    }
+  } else if (!busy && cancel) {
+    cancel.remove();
+  }
+
+  let label = actions.querySelector("[data-write-status]");
+  if (busy && !label) {
+    label = document.createElement("span");
+    label.className = "commit-meta";
+    label.dataset.writeStatus = "true";
+    actions.insertBefore(label, actions.firstChild);
+  }
+
+  if (label) {
+    if (busy) label.textContent = `${live.writeOperation}进行中…`;
+    else label.remove();
+  }
+}
+
+/** 控件是否处于禁用态；链接型按钮按 aria-disabled 判断。 */
+function isControlDisabled(element) {
+  if (!element) return true;
+  if (element.tagName === "A") return element.getAttribute("aria-disabled") === "true";
+  return element.disabled === true;
+}
+
+/**
+ * 取消进行中的写操作（规格 §9.3）。
+ *
+ * 请求宿主停止后**重新读取真实仓库状态**——不假设取消生效，也不自行回滚。
+ */
+async function cancelWriteOperation() {
+  const live = window.__augitLive;
+  if (!live || !live.writeOperation) return;
+  const operation = live.writeOperation;
+  live.writeOperation = null;
+  live.writeCancelReason = `${operation}已请求取消。`;
+  // 取消后必须读到真实仓库状态，因此重新读取状态与历史。
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadHistory().catch(() => null),
+  ]);
+  refreshAfterEvent("side", "editorContent", "statusbar", "bottomTool");
 }
 
 /** 关闭实时弹层。 */
