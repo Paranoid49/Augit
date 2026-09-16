@@ -3054,3 +3054,104 @@ Push 内嵌远端窗口、变化文件右键菜单（文件历史／Blame）、�
 - `--width/--height` 在提交版外壳中不存在，窗口尺寸由设置文件决定；`MainWindowHandle` 在构造期间可能是 0，
   必须轮询或用 `EnumWindows` 按类名取最大窗口。
 - 无头验收套件里，ES 模块必须经 HTTP 提供（`file://` 会被 CORS 拒绝）。
+
+### 第一百零八轮：交付前回归与发布链路修复
+
+本轮做交付前全量回归，并核对发布脚本。**发布链路此前从未真正成功过**：`tools/release.ps1`
+还停留在「原生 Win32 + Scintilla」技术栈，必然在还原阶段就失败，因此第 105 轮记录的
+「发布脚本未验证」不是遗漏了一项检查，而是**存在一个会阻止交付的缺陷**。
+
+#### 回归结果（全量）
+
+| 项目 | 结果 |
+|---|---|
+| Core 单元测试 | 86/86 通过 |
+| Infrastructure 单元测试 | 152 → **159/159** 通过（本轮新增 7 项） |
+| 交互验收套件 `live-shell.spec.cjs` | **448/448** 通过 |
+| 界面资产字节一致性 | PASS（`mockup.js`/`mockup.css`/`current-find.js`/`image-preview.js`） |
+| Release 构建 | 0 警告 0 错误 |
+| 全量场景渲染 | 48/48 通过 |
+
+#### 修掉的四个真实缺陷
+
+**1. `dotnet publish` 产物丢失整个界面。**
+`CopyWebAssets` 只挂 `AfterTargets="Build"` 且目标是 `$(OutDir)`。发布到独立目录
+（`-o`，也就是发布脚本的用法）时 Build 被跳过，产物里**没有 `web/` 目录**，
+便携版是一个没有界面的空壳。已补 `CopyWebAssetsToPublishDirectory`（`AfterTargets="Publish"`），
+实测产物从 13 个文件变成 30 个文件、`web/` 14 个文件齐全。
+这是「48/48 场景通过」和「便携版可用」之间的差距——场景验证跑的是 `bin` 目录，那条路径一直是对的。
+
+**2. 便携版启动即弹异常框。**
+`ShellOptions.FindRepositoryRoot()` 从可执行文件位置向上查找 `Augit.slnx` 来定位资源目录。
+便携版没有这个仓库标记文件，于是抛
+`InvalidOperationException: 未能从可执行文件位置定位仓库根目录`。
+已抽出 `Augit.Infrastructure.Files.DistributionLayout.FindAncestorDirectory`：
+**先在当前层级查找资源目录（发布布局），找不到才向上回溯到仓库根（开发布局）**，
+回溯时遇到仓库标记即停止，不会越过仓库命中无关目录。
+
+修复前后的对照证据：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| 窗口类 | `#32770`（错误对话框） | `Augit.Shell.Window` |
+| 窗口尺寸 | 837x381（消息框自适应） | 1180x760 |
+| 画面 | 异常堆栈 | 完整界面 |
+
+新增 7 项单元测试覆盖发布布局、开发布局、候选顺序、缺失回退与回溯边界（159/159）。
+
+**3. 运行期配置检查的文件名不存在。**
+发布脚本校验 `Augit.runtimeconfig.json`，而程序集名是 `Augit.Shell`，实际文件叫
+`Augit.Shell.runtimeconfig.json`——该检查一旦执行必然抛「找不到路径」。
+根因是程序集名与产品名不一致：安装器 `Augit.iss` 引用的是 `{app}\Augit.exe`，
+而产物是 `Augit.Shell.exe`。已把程序集名改为 `Augit`（`RootNamespace` 仍为 `Augit.Shell`），
+产物与安装器、审计脚本、README 的既有表述统一。
+
+**4. `tools/release.ps1` 丢失 UTF-8 BOM。**
+PowerShell 5.1 对无 BOM 文件按系统 ANSI（本机 GBK）解码，脚本里的中文 throw 文本会被截断，
+报的是语法错误（`字符串缺少终止符`）而不是内容错误，极难定位。**编辑该脚本时必须保留 BOM**——
+这一条已由本次事故证实，BOM 丢失后脚本完全无法解析。同目录的 `tools/audit/*.ps1` 是纯 ASCII，
+不需要 BOM。
+
+同时清理了随技术栈废弃的内容：删除 `tools/scintilla/`（1.1 MB 原生 DLL）与
+`licenses/Markdig-LICENSE.txt`，`runtime-assets.lock.json` 移除 Scintilla 条目、
+xterm 资产的发布路径改到实际的 `web/vendor/xterm/`，`THIRD-PARTY-NOTICES.md` 移除
+Scintilla 与 Markdig、把 WebView2 从「按需承载预览」改写为「主界面宿主」并补上真实内存成本，
+`release.ps1` 补齐 xterm 与 WebView2 NOTICE 的许可证收集。
+
+#### 发布产物实测
+
+`tools/release.ps1 -Version 0.1.0` 全程通过（EXIT=0），产出：
+
+- `artifacts/Augit-0.1.0-win-x64-portable.zip`（2686562 字节，32 个条目）
+- `artifacts/Augit-0.1.0-win-x64-setup.exe`（4310644 字节，Inno Setup 联网安装器）
+- `artifacts/SHA256SUMS.txt`（两条校验和均实际复算通过）
+
+**把交付用的 zip 解压到仓库之外**（确认周围没有 `Augit.slnx`）后直接运行 `Augit.exe`，
+窗口类为 `Augit.Shell.Window`、尺寸 1180x760、界面完整渲染。该截图与仓库内构建产物
+在相同参数下的截图**逐像素完全相同**（1180x760 采样 100076 点，平均差 0.0000、最大差 0.0），
+说明两条路径加载的是同一套界面代码。
+
+交付版性能实测（Release、非 self-contained、真实便携目录，连续三轮）：
+
+| 指标 | 实测 |
+|---|---|
+| 冷启动到窗口出现 | **121 / 128 / 174 ms** |
+| 进程树规模 | 7 个进程（1 个 `Augit.exe` + 6 个 `msedgewebview2.exe`） |
+| Working Set 合计 | **541.2 / 555.3 / 558.9 MB** |
+| 其中主进程 | 59.5 – 59.7 MB |
+
+与第 105 轮记录一致（主进程 61.6 MB + 进程树 499.8 MB = 561.4 MB），
+重命名程序集没有改变启动与内存表现。
+
+#### 关于真实外壳截图保真度的更正
+
+此前用 `PrintWindow` 采集真实外壳并与视觉稿比对，得到「像素差异 0.000」，**该结论不可采信**：
+同一基底的采集会让差异恒为零。改用同一无头 Chromium、同一视口（1180x800）渲染
+`docs/ux-mockups/main-project.html` 与 `web/index.html?scene=main-project` 后，
+平均差为 **6.774**、RMS **29.374**；分区域看 rail 区（0–40px）平均差 **0.428**、
+工具栏与侧栏表头（0–100px）**3.823**、状态栏带 **2.331**，差异集中在承载数据的文本上。
+
+因此可辩护的保真度表述是：**共用字节一致的 CSS 与场景脚本、48/48 场景通过、
+分区域差异以 rail 0.428 为量级，结构、布局与颜色一致，差异限于数据内容**；
+而不是「像素差异 0.000」。`PrintWindow` 只能证明结构与范围，不能作为字体与抗锯齿证据，
+也不能用同基底采集自证。

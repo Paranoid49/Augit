@@ -2,7 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <AssemblyName>Augit.Shell</AssemblyName>
+    <!-- 发布产物使用产品名 Augit，与安装器、审计脚本和用户可见的进程名保持一致。 -->
+    <AssemblyName>Augit</AssemblyName>
+    <RootNamespace>Augit.Shell</RootNamespace>
     <Version>0.1.0</Version>
     <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
@@ -40,14 +42,32 @@
              Link="licenses\Microsoft.Web.WebView2-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)microsoft.web.webview2\1.0.3650.58\NOTICE.txt"
+             Link="licenses\Microsoft.Web.WebView2-NOTICE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!--
+    界面本体是 web/ 下的 HTML、CSS 和 JavaScript，缺少这些文件产品无法启动。
+    Build 与 Publish 是两条独立路径：只挂 Build 时 `dotnet publish -o <独立目录>`
+    会跳过复制，产物就是一个没有界面的空壳，因此这里两条路径都必须覆盖。
+  -->
   <Target Name="CopyWebAssets" AfterTargets="Build">
     <ItemGroup>
       <WebAsset Include="$(MSBuildThisFileDirectory)..\..\web\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(WebAsset)"
           DestinationFiles="@(WebAsset->'$(OutDir)web\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyWebAssetsToPublishDirectory" AfterTargets="Publish">
+    <ItemGroup>
+      <WebAssetForPublish Include="$(MSBuildThisFileDirectory)..\..\web\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WebAssetForPublish)"
+          DestinationFiles="@(WebAssetForPublish->'$(PublishDir)web\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
@@ -63,6 +83,15 @@
              CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\tools\ripgrep\win-x64\ripgrep-15.2.0-x86_64-pc-windows-msvc\UNLICENSE"
              Link="licenses\ripgrep-UNLICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <!-- 内置终端界面由 web/vendor/xterm 提供，随包分发必须同时附带两个组件的许可证。 -->
+    <Content Include="..\..\tools\xterm\xterm-6.0.0\LICENSE"
+             Link="licenses\xterm-LICENSE.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\tools\xterm\addon-fit-0.11.0\LICENSE"
+             Link="licenses\xterm-addon-fit-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

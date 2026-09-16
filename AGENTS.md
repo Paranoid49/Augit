@@ -8,7 +8,7 @@
 - Augit 不接入 AI。开发过程中如何组织 AI 或并行工作不作限制，但不得覆盖用户已有改动。
 - 已确认的技术基线是 C# / .NET 10 原生 Win32 外壳 + WebView2，界面本体是 `web/` 下的 HTML、CSS 和 JavaScript。主界面不得重新引入 WPF、WinForms 或原生控件自绘正文。
 - `docs/ux-mockups/` 既是设计基线也是运行时界面代码来源：`mockup.js`、`mockup.css`、`current-find.js`、`image-preview.js` 在 `docs/ux-mockups/` 与 `web/src/` 之间必须字节一致，改动后运行 `tools/audit/verify-ui-assets.ps1`。修改视觉稿以迁就实现属于违规。
-- 内存目标随技术栈调整：WebView2 的 Chromium 多进程开销使 100 MB Working Set 不可达，当前实测约 525 MB（主进程约 62 MB + WebView2 进程树约 464 MB）。测量必须按父进程关系归属到本实例，不得把其他应用的浏览器进程计入。未经用户确认不得再次切换技术栈。
+- 内存目标随技术栈调整：WebView2 的 Chromium 多进程开销使 100 MB Working Set 不可达，当前实测约 540–560 MB（主进程约 60 MB + 6 个 WebView2 进程约 480–500 MB）。测量必须按父进程关系归属到本实例，不得把其他应用的浏览器进程计入。未经用户确认不得再次切换技术栈。
 - 文档和代码注释使用中文，文件统一使用 UTF-8 和 LF。
 - 新增或修改可执行逻辑必须补充自动化测试；修改后必须执行格式检查、相关测试和与风险相称的验证。
 - 测试开启的临时服务器、后台进程和创建的临时文件必须在测试结束后关闭或删除。

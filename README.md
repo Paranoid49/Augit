@@ -17,7 +17,7 @@ Augit 是面向外部 AI 协作开发场景的轻量 Windows 只读项目查看�
 - 缺少运行时时，确认页会先列出待下载项目；用户拒绝或取消下载后，Augit 不会安装。
 - 覆盖升级前先关闭 Augit，再运行新版本安装器并安装到原目录。安装器会沿用上次选择的 PATH 和资源管理器任务。
 - 卸载时从 Windows“设置 > 应用 > 已安装的应用”中找到 Augit 并执行卸载。卸载器会删除程序文件、系统 PATH 项和资源管理器入口，不会删除工作区内容、Git 配置或 `%LOCALAPPDATA%\Augit` 中的个人设置。
-- 便携版解压后直接运行 `Augit.exe`，不会写入系统 PATH 或资源管理器菜单。缺少 WebView2 时，Markdown 或终端会提供微软官方下载入口；缺少 .NET 运行时时，由 .NET 应用宿主显示缺失版本和微软下载入口。
+- 便携版解压后直接运行 `Augit.exe`，不会写入系统 PATH 或资源管理器菜单。主界面本身由 WebView2 承载，缺少 WebView2 时界面无法加载，安装器会先检测并引导安装 Evergreen Runtime；缺少 .NET 运行时时，由 .NET 应用宿主显示缺失版本和微软下载入口。
 
 ## 打开目录
 
@@ -77,17 +77,17 @@ powershell -NoProfile -File .\tools\release.ps1
 ### 运行 WebView2 外壳
 
 ```powershell
-# 默认加载 web 目录，工作区取当前目录
-src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.Shell.exe
+# 默认加载可执行文件旁的 web 目录，工作区取当前目录
+src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.exe
 
 # 指定工作区、场景与主题（场景名取自 docs/ux-mockups）
-Augit.Shell.exe --workspace D:\github\Augit --scene git-history --theme light
+Augit.exe --workspace D:\github\Augit --scene git-history --theme light
 
 # 直接渲染 HTML 视觉稿，便于与视觉稿逐场景对照
-Augit.Shell.exe --web-root docs\ux-mockups --scene main-project
+Augit.exe --web-root docs\ux-mockups --scene main-project
 
 # 像素对照模式：栅格化比例固定为 1，使一个 CSS 像素对应一个物理像素
-Augit.Shell.exe --pixel-exact --width 1180 --height 797
+Augit.exe --pixel-exact --width 1180 --height 797
 ```
 
 ## 文档

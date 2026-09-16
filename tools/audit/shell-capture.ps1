@@ -16,10 +16,10 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $repo = 'D:\github\Augit'
-$exe = Join-Path $repo 'src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.Shell.exe'
+$exe = Join-Path $repo 'src\Augit.Shell\bin\Release\net10.0-windows\win-x64\Augit.exe'
 $dotnet = 'C:\Program Files\dotnet\dotnet.exe'
 if ($Out -eq "") { $Out = Join-Path $repo ("artifacts\shell-{0}-{1}.png" -f $Scene, $Theme) }
-Get-Process Augit.Shell -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
+Get-Process Augit -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
 Start-Sleep -Milliseconds 600
 if (-not $SkipBuild) {
   & $dotnet build (Join-Path $repo 'src\Augit.Shell\Augit.Shell.csproj') -c Release -p:NuGetAudit=false 2>&1 | Select-Object -Last 4 | ForEach-Object { Write-Output $_ }
@@ -27,4 +27,4 @@ if (-not $SkipBuild) {
 $shellArgs = @('--scene', $Scene, '--theme', $Theme, '--height', "$Height")
 if ($Dpi -gt 0) { $shellArgs += @('--dpi', "$Dpi") }
 & (Join-Path $repo 'tools\audit\capture-surface.ps1') -Exe $exe -Out $Out -Arguments $shellArgs -WorkDir $repo -SettleMs $SettleMs -Attempts $Attempts
-Get-Process Augit.Shell -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }
+Get-Process Augit -ErrorAction SilentlyContinue | ForEach-Object { $_.Kill() }

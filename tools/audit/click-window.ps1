@@ -3,7 +3,7 @@
 param(
   [Parameter(Mandatory=$true)][int]$X,
   [Parameter(Mandatory=$true)][int]$Y,
-  [string]$ProcessName = "Augit.Shell",
+  [string]$ProcessName = "Augit",
   [string]$Out = "",
   [int]$AfterMs = 1500
 )

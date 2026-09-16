@@ -80,7 +80,7 @@ try {
         throw '安装器构建依赖还原失败。'
     }
 
-    & dotnet publish (Join-Path $repositoryRoot 'src\Augit.App\Augit.App.csproj') `
+    & dotnet publish (Join-Path $repositoryRoot 'src\Augit.Shell\Augit.Shell.csproj') `
         -c Release `
         -r win-x64 `
         --self-contained false `
@@ -98,6 +98,12 @@ try {
         [System.IO.File]::Delete($webViewDocumentation)
     }
 
+    # 分发产物必须自带第三方依赖说明和许可证原文，这两份文件不在发布目录里，需要单独复制。
+    foreach ($documentName in @('THIRD-PARTY-NOTICES.md', 'README.md')) {
+        Copy-Item -LiteralPath (Join-Path $repositoryRoot $documentName) `
+            -Destination (Join-Path $portableRoot $documentName)
+    }
+
     $requiredFiles = @(
         'Augit.exe',
         'Augit.dll',
@@ -105,23 +111,22 @@ try {
         'Augit.Infrastructure.dll',
         'Augit.deps.json',
         'Augit.runtimeconfig.json',
-        'native\Scintilla.dll',
         'native\WebView2Loader.dll',
-        'terminal\index.html',
-        'terminal\terminal.js',
-        'terminal\xterm.js',
-        'terminal\xterm.css',
-        'terminal\addon-fit.js',
+        'web\index.html',
+        'web\src\mockup.js',
+        'web\src\mockup.css',
+        'web\src\live-data.js',
+        'web\src\bridge.js',
+        'web\vendor\xterm\xterm.js',
+        'web\vendor\xterm\xterm.css',
+        'web\vendor\xterm\addon-fit.js',
         'tools\rg.exe',
-        'licenses\InnoSetup-LICENSE.txt',
-        'licenses\Markdig-LICENSE.txt',
-        'licenses\Microsoft.Web.WebView2-LICENSE.txt',
-        'licenses\Microsoft.Web.WebView2-NOTICE.txt',
         'licenses\ripgrep-LICENSE-MIT.txt',
         'licenses\ripgrep-UNLICENSE.txt',
-        'licenses\Scintilla-LICENSE.txt',
-        'licenses\xterm-addon-fit-LICENSE.txt',
+        'licenses\Microsoft.Web.WebView2-LICENSE.txt',
+        'licenses\Microsoft.Web.WebView2-NOTICE.txt',
         'licenses\xterm-LICENSE.txt',
+        'licenses\xterm-addon-fit-LICENSE.txt',
         'THIRD-PARTY-NOTICES.md',
         'README.md'
     )

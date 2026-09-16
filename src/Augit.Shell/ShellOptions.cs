@@ -1,8 +1,10 @@
+using Augit.Infrastructure.Files;
+
 namespace Augit.Shell;
 
 /// <summary>
-/// 外壳启动参数。默认加载仓库内的 <c>web</c> 目录；<c>--mockups</c> 改为加载 HTML 视觉稿，
-/// 使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
+/// 外壳启动参数。默认加载可执行文件旁的 <c>web</c> 目录（开发布局下回退到仓库内的同名目录）；
+/// <c>--mockups</c> 改为加载 HTML 视觉稿，使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
 /// </summary>
 internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi, string? BrowserArguments)
 {
@@ -93,7 +95,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         }
 
         string root = webRoot is null
-            ? Path.Combine(FindRepositoryRoot(), mockups ? "docs" : "web")
+            ? FindDefaultWebRoot(mockups)
             : Path.GetFullPath(webRoot);
         return new ShellOptions(
             root,
@@ -134,19 +136,17 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         return parsed;
     }
 
-    private static string FindRepositoryRoot()
+    /// <summary>
+    /// 解析界面资源目录：先在可执行文件旁查找发布布局，其次回退到仓库根目录的开发布局。
+    /// 两种模式各自只有一个候选目录，避免 <c>--mockups</c> 意外加载运行界面。
+    /// </summary>
+    private static string FindDefaultWebRoot(bool mockups)
     {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Augit.slnx")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException("未能从可执行文件位置定位仓库根目录，请使用 --web-root 指定界面资源目录。");
+        string? located = DistributionLayout.FindAncestorDirectory(
+            AppContext.BaseDirectory,
+            mockups ? ["docs/ux-mockups"] : ["web"],
+            "Augit.slnx");
+        return located ?? throw new InvalidOperationException(
+            "未能从可执行文件位置定位界面资源目录，请使用 --web-root 指定。");
     }
 }
