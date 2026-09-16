@@ -1491,6 +1491,8 @@ window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path, options) => loadDiff(path, options);
+// 真实"打开差异"入口（含加载提示调度）：供验收确定性驱动加载窗口。
+window.__augitOpenChangeDiff = (path, options) => openChangeDiff(path, options || {});
 
 // 供验收套件走与点击相同的打开路径。
 window.__augitOpenDocument = (path) => openDocument(path);

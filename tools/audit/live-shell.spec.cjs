@@ -3963,14 +3963,20 @@ async function main() {
     check('前置条件：首次加载后已有正文: ' + JSON.stringify(loadedOnce),
       loadedOnce.present === true && loadedOnce.chars > 20);
 
-    // 制造第二次差异加载：换一个文件（同一文件会命中 §6.3 去重守卫而不发请求；
-    // 切换显示模式则命中补丁缓存、同样不经桥接，都不会出现加载态）。
+    // 确定性地制造一次在途差异请求，再在加载窗口内取样。
+    // 不能用"双击另一个文件 + 延迟"：那条路径会命中补丁缓存立即返回，
+    // 取样时请求早已完成（实测 inFlight=0、ready=true），加载窗口根本不存在。
+    // 这里走真实的打开入口并给足延迟，保证窗口稳定覆盖取样区间。
     await lu.page.evaluate(() => {
-      window.__diffDelays = { 'README.md': 2500 };
-      window.__augitDiffReady = false;
+      window.__diffDelays = { 'README.md': 4000 };
+      window.__augitOpenChangeDiff('README.md');
     });
-    await lu.page.locator('.changes-list .change-file-row').nth(1).dblclick();
-    await lu.page.waitForTimeout(500);
+    await lu.page.waitForFunction(
+      "(window.__diffCalls || []).filter((p) => p === 'README.md').length >= 1"
+        + " && window.__augitLive.diffLoading === true",
+      null,
+      { timeout: 8000 },
+    );
     // 比较标签必须仍在前台：否则编辑区渲染的是普通文档，既没有 diff 文件标题行，
     // 也谈不上"保留旧正文"。
     const foregroundIsDiff = await lu.page.evaluate(() => ({
@@ -3984,6 +3990,29 @@ async function main() {
       foregroundIsDiff.editor === 'diff' && foregroundIsDiff.activeIsComparison === true);
     const duringLoad = await geometry();
     // 断言取样确实落在加载中：否则下面几条稳定性断言什么都没验证。
+    // 规格 §6.5：有旧正文时，在**该 Diff 的文件标题行**提示加载。
+    const loadingHint = await lu.page.evaluate(() => {
+      const bar = document.querySelector('.editor-content .diff-filebar');
+      const marker = bar ? bar.querySelector('.diff-loading-status') : null;
+      return {
+        loading: !!window.__augitLive.diffLoading,
+        filebar: !!bar,
+        markerInFilebar: !!marker,
+        text: marker ? marker.textContent.replace(/\s+/g, '') : null,
+        // 旧正文必须仍在（规格：保留正文，只在文件标题行提示）。
+        oldBodyKept: !!document.querySelector('.editor-content .diff-layout'),
+        shownDelay: window.__augitLoadingMarkerShownAt && window.__augitLoadingMarkerScheduledAt
+          ? Math.round(window.__augitLoadingMarkerShownAt - window.__augitLoadingMarkerScheduledAt) : null,
+      };
+    });
+    check('加载提示出现在 Diff 文件标题行: ' + JSON.stringify(loadingHint),
+      loadingHint.loading === true && loadingHint.filebar === true
+        && loadingHint.markerInFilebar === true
+        && typeof loadingHint.text === 'string' && loadingHint.text.includes('正在生成'));
+    check('加载提示不早于 150 毫秒出现: ' + JSON.stringify(loadingHint.shownDelay),
+      loadingHint.shownDelay !== null && loadingHint.shownDelay >= 140);
+    check('加载期间保留旧正文: ' + JSON.stringify(loadingHint.oldBodyKept),
+      loadingHint.oldBodyKept === true);
     check('取样发生在加载过程中',
       (await lu.page.evaluate(() => !!document.querySelector('.diff-loading-status'))) === true);
     await lu.page.waitForTimeout(2800);
@@ -4003,6 +4032,23 @@ async function main() {
     // 已有正文时加载不得把它清空——旧正文必须留到新内容就位为止。
     // 上面的位置断言在"先清空再重建"的实现下同样会通过（清空后位置不变），
     // 因此必须单独核对正文是否还在。
+    const probe = await lu.page.evaluate(async () => {
+      const out = [];
+      for (let i = 0; i < 16; i++) {
+        out.push({
+          i,
+          delays: JSON.stringify(window.__diffDelays || null),
+          inFlight: window.__augitDiffRequestCount(),
+          loading: !!window.__augitLive.diffLoading,
+          marker: !!document.querySelector('.editor-content .diff-filebar .diff-loading-status'),
+          ready: window.__augitDiffReady,
+        });
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return out;
+    });
+    console.log('DIAG probe=' + JSON.stringify(probe));
+
     const textDuringLoad = await lu.page.evaluate(() => {
       const body = document.querySelector('.editor-content .diff-layout, .editor-content .document-view');
       return { present: !!body, chars: body ? body.innerText.replace(/\s+/g, '').length : 0 };
