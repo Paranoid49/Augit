@@ -1447,6 +1447,7 @@ function rebindAfterRender() {
   restoreChangesState();
   bindOverlayEscape();
   bindCompactDialogKeys();
+  bindGlobalShortcuts();
   guardUnwiredNavigation();
 }
 
@@ -2947,6 +2948,128 @@ function bindEditorTabs() {
     event.preventDefault();
     closeActiveTab();
   }, true);
+}
+
+/**
+ * 固定快捷键（产品规格 §3.3）。
+ *
+ * `Ctrl+P` 快速打开文件、`Ctrl+Shift+F` 全仓搜索、`Ctrl+F` 当前文件搜索、
+ * `Ctrl+G` 跳转行、`Ctrl+W` 关闭当前标签、`F5` 刷新文件树、
+ * `Esc` 关闭浮层或取消搜索。
+ *
+ * 全部挂在 document 的捕获阶段：区域刷新会换掉节点，挂在节点上的监听会随节点消失。
+ */
+function bindGlobalShortcuts() {
+  if (window.__augitShortcutsBound) return;
+  window.__augitShortcutsBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (!window.__augitLive) return;
+    // 组词期间不抢占按键（规格 §5.3）。
+    if (event.isComposing || event.keyCode === 229) return;
+    const key = event.key.toLowerCase();
+
+    // F5 刷新文件树；不重载页面。
+    if (event.key === "F5" && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      void refreshFileTree();
+      return;
+    }
+
+    if (!event.ctrlKey || event.altKey) return;
+
+    // Ctrl+Shift+F 全仓搜索（必须先于 Ctrl+F 判断）。
+    if (event.shiftKey && key === "f") {
+      event.preventDefault();
+      openSearchOverlay("repository");
+      return;
+    }
+
+    if (event.shiftKey) return;
+    if (key === "p") {
+      event.preventDefault();
+      openSearchOverlay("quick");
+      return;
+    }
+
+    if (key === "f") {
+      event.preventDefault();
+      openCurrentFileFind();
+      return;
+    }
+
+    if (key === "g") {
+      event.preventDefault();
+      openGoToLineDialog();
+      return;
+    }
+  }, true);
+}
+
+/**
+ * 打开搜索浮层（快速打开或全仓搜索）。
+ * 与场景自带浮层不同，这里由输入触发，因此直接挂载节点。
+ */
+function openSearchOverlay(kind) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  live.search = { kind, query: "", options: {}, matches: [], notice: "" };
+  const template = document.createElement("template");
+  template.innerHTML = liveSearchOverlay(kind);
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  layer.classList.add("live-overlay");
+  host.appendChild(layer);
+  bindSearchOverlay(kind);
+  const field = layer.querySelector(".search-field");
+  if (field) field.focus();
+}
+
+/** Ctrl+F：当前文件查找条。没有可查找的正文时如实说明。 */
+function openCurrentFileFind() {
+  const view = document.querySelector(".document-view:has(.code-view):not(.blame-document)");
+  if (!view) {
+    window.__augitError = "current-find:no-document";
+    return;
+  }
+
+  if (typeof bindCurrentFind === "function") {
+    bindCurrentFind();
+  }
+
+  const message = { bubbles: true, cancelable: true };
+  view.dispatchEvent(new CustomEvent("document-content-changed", message));
+  const field = document.querySelector(".current-find .search-field");
+  if (field) field.focus();
+}
+
+/** Ctrl+G：跳转行（复用紧凑输入窗口）。 */
+function openGoToLineDialog() {
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  compactDialogKind = "go-to-line";
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay go-to-line-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = compactInputDialog("跳转行", "行号", "", "跳转");
+  host.appendChild(layer);
+  const field = layer.querySelector("[data-compact-field]");
+  if (field) {
+    field.setAttribute("inputmode", "numeric");
+    field.focus();
+  }
+}
+
+/** F5：刷新文件树；保留展开状态，不重载页面。 */
+async function refreshFileTree() {
+  const live = window.__augitLive;
+  if (!live) return;
+  await loadStatus().catch(() => null);
+  refreshAfterEvent("side", "statusbar");
 }
 
 /** 转义为可安全插入 HTML 的文本。 */

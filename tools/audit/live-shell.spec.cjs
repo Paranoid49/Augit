@@ -2864,6 +2864,75 @@ async function main() {
       && foWt.focusClass.includes('branch-chip'));
     await fo.page.close();
 
+    // ---- 产品规格 §3.3：固定快捷键 ----
+    const ks = await openScene('scene=main-project&theme=dark');
+    await ks.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const ksState = () => ks.page.evaluate(() => ({
+      overlays: document.querySelectorAll('.live-overlay').length,
+      tabs: document.querySelectorAll('.search-tabs').length,
+      tabText: document.querySelector('.search-tabs') ? document.querySelector('.search-tabs').innerText.trim() : null,
+      compact: !!document.querySelector('[data-compact-dialog]'),
+      compactTitle: document.querySelector('[data-compact-dialog] .dialog-header span')
+        ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
+      focused: document.activeElement ? document.activeElement.className : null,
+      focusInFind: !!(document.activeElement && document.activeElement.closest
+        && document.activeElement.closest('.current-find')),
+      findBar: document.querySelectorAll('.current-find').length,
+    }));
+
+    // Ctrl+P 快速打开文件
+    await ks.page.keyboard.press('Control+p');
+    await ks.page.waitForTimeout(700);
+    const ksP = await ksState();
+    check('Ctrl+P 打开快速打开: ' + JSON.stringify([ksP.overlays, ksP.tabText]),
+      ksP.overlays === 1 && typeof ksP.tabText === 'string' && ksP.tabText.includes('快速打开'));
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(400);
+
+    // Ctrl+Shift+F 全仓搜索
+    await ks.page.keyboard.press('Control+Shift+f');
+    await ks.page.waitForTimeout(700);
+    const ksSF = await ksState();
+    check('Ctrl+Shift+F 打开全仓搜索: ' + JSON.stringify(ksSF.tabText),
+      ksSF.overlays === 1 && typeof ksSF.tabText === 'string' && ksSF.tabText.includes('搜索'));
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(400);
+
+    // Ctrl+G 跳转行
+    await ks.page.keyboard.press('Control+g');
+    await ks.page.waitForTimeout(600);
+    const ksG = await ksState();
+    check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactTitle]),
+      ksG.compact === true && ksG.compactTitle === '跳转行');
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(400);
+
+    // F5 刷新文件树；不重载页面
+    const ksUrl = ks.page.url();
+    await ks.page.evaluate(() => { window.__augitF5 = 'before'; });
+    await ks.page.keyboard.press('F5');
+    await ks.page.waitForTimeout(800);
+    const ksF5 = await ks.page.evaluate(() => ({
+      url: location.pathname,
+      marker: window.__augitF5 || null,
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+    }));
+    check('F5 刷新文件树且不重载页面: ' + JSON.stringify([ksF5.marker, ksF5.treeRows, ksF5.url]),
+      ksF5.marker === 'before' && ksF5.treeRows > 0 && !ksF5.url.includes('main-project.html'));
+    check('F5 未导致整页导航: ' + ksUrl, ks.page.url() === ksUrl);
+
+    // Ctrl+F 当前文件查找：需要先打开一个文本文件
+    await ks.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await ks.page.waitForTimeout(400);
+    await ks.page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').dblclick();
+    await ks.page.waitForTimeout(900);
+    await ks.page.keyboard.press('Control+f');
+    await ks.page.waitForTimeout(700);
+    const ksF = await ksState();
+    check('Ctrl+F 打开当前文件查找: ' + JSON.stringify([ksF.findBar, ksF.focusInFind]),
+      ksF.findBar === 1 && ksF.focusInFind === true);
+    await ks.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
