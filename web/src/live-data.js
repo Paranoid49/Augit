@@ -678,8 +678,15 @@ async function loadDiff(path, options = {}) {
         live.diffRequestKey = requestKey;
         live.diffMode = parts.mode;
         // 有差异时切到差异视图；无差异时保留当前文档视图。
-        if (live.diff) {
+        // 但**只有比较标签在前台时才允许切换视图**：跟随 Changes 选择时的后台更新
+        // 不得改变前台正文（规格 §5.2「只后台更新，不抢占焦点」）。
+        const comparison = findComparisonTab();
+        const foreground = !live.activeTabId || (comparison && live.activeTabId === comparison.id);
+        if (live.diff && foreground) {
           live.editor = "diff";
+        }
+
+        if (live.diff) {
           diffPatches.set(patchKey, live.diff);
         }
       }
@@ -783,15 +790,29 @@ function selectChangeRow(row) {
   const live = window.__augitLive;
   if (live) live.selectedChangePath = row.dataset.path || null;
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
-  // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
-  const path = row.dataset.treePath;
-  if (path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
+  // 注意改动行与树行的路径字段**不同**：改动行是 `data-path`，树行才是 `data-tree-path`。
+  // 取错字段不会报错，只会让跟随静默失效——曾因此漏掉一整条跟随行为。
+  const path = row.dataset.path;
+  if (path) void followChangeSelection(path);
 }
 
 /** 找到工作区比较标签（规格 §5.2：最多只有一个）。 */
 function findComparisonTab() {
   const live = window.__augitLive;
   return live && live.tabs ? live.tabs.find((tab) => tab.kind === "comparison") || null : null;
+}
+
+/**
+ * 同步比较标签的标题与目标路径。
+ *
+ * 比较标签是**复用**的：同一标签会依次承载工作区比较、引用比较、不同文件的差异。
+ * 只更新正文而不同步 `path`/`title`，标签会一直显示第一次的内容
+ * （规格 §7.9 要求标签先显示文件名，再显示来源与目标引用）。
+ */
+function syncComparisonTab(tab, path, title) {
+  if (!tab) return;
+  tab.path = path;
+  tab.title = title;
 }
 
 /**
@@ -812,13 +833,14 @@ async function openChangeDiff(path, options = {}) {
   try {
     const diff = await loadDiff(path);
     if (!diff) return;
+    const title = `提交: ${diff.name || path}`;
     if (!findComparisonTab()) {
       live.tabs ??= [];
       const tab = {
         id: nextTabId(),
         kind: "comparison",
         path,
-        title: `提交: ${diff.name || path}`,
+        title,
         editor: "diff",
         preview: false,
       };
@@ -827,10 +849,15 @@ async function openChangeDiff(path, options = {}) {
         live.activeTabId = tab.id;
         live.editor = "diff";
       }
-    } else if (activate) {
+    } else {
       const tab = findComparisonTab();
-      live.activeTabId = tab.id;
-      live.editor = "diff";
+      // 比较标签是复用的：跟随到另一个文件时必须同步标签文字，
+      // 否则标签会一直显示第一次打开的文件名。
+      syncComparisonTab(tab, path, title);
+      if (activate) {
+        live.activeTabId = tab.id;
+        live.editor = "diff";
+      }
     }
 
     // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
@@ -848,13 +875,22 @@ async function followChangeSelection(path) {
   if (!live || !live.followChanges) return;
   const tab = findComparisonTab();
   if (!tab) return;
-  // 普通文档在前台时只后台更新正文，不抢占焦点。
+  // 普通文档在前台时只后台更新正文，不抢占焦点（规格 §5.2）。
   const background = live.activeTabId !== tab.id;
+  // 记下加载前的前台视图：loadDiff 会按需把 live.editor 切到 "diff"，
+  // 后台更新必须如实还原，否则前台正文与状态不一致。
+  const editorBefore = live.editor;
   const diff = await loadDiff(path).catch(() => null);
   if (!diff) return;
   if (background) {
-    refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+    live.editor = editorBefore;
+    // 前台正文没有变化，只更新标签与状态栏；不刷新编辑区，避免打断阅读位置。
+    refreshAfterEvent("editorTabs", "statusbar");
+    return;
   }
+
+  syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
+  refreshAfterEvent("editorContent", "editorTabs", "statusbar");
 }
 
 /** 读取设置并挂上保存动作。 */
@@ -2415,24 +2451,33 @@ async function compareWithWorkspace() {
 
   const branch = currentBranchName() || "HEAD";
   closeLiveOverlay();
+  // 引用比较独立于 Changes 跟随（规格 §5.2/§7.9）：它比较的是整个引用与工作区，
+  // 不是当前选中的某个改动文件，因此必须解除跟随，否则后续单击改动行会把它改写成工作区 Diff。
+  live.followChanges = false;
   const diff = await loadDiff(target.path, { revision: branch, force: true }).catch(() => null);
   if (!diff) {
     window.__augitError = "compare-workspace:" + target.path;
     return;
   }
 
-  if (!findComparisonTab()) {
+  const title = `比较: ${branch}`;
+  const existing = findComparisonTab();
+  if (!existing) {
     live.tabs = live.tabs || [];
     const tab = {
       id: nextTabId(),
       kind: "comparison",
       path: target.path,
-      title: `比较: ${branch}`,
+      title,
       editor: "diff",
       preview: false,
     };
     live.tabs.push(tab);
     live.activeTabId = tab.id;
+  } else {
+    // 复用的比较标签必须同步目标，否则标签仍显示上一个比较的文件名。
+    syncComparisonTab(existing, target.path, title);
+    live.activeTabId = existing.id;
   }
 
   live.editor = "diff";

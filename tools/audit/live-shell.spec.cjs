@@ -1764,14 +1764,20 @@ async function main() {
     const cmp = await openScene('scene=commit-changes&theme=dark');
     await cmp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await cmp.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
-    const cmpState = () => cmp.page.evaluate(() => ({
-      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
-      total: (window.__augitLive.tabs || []).length,
-      active: window.__augitLive.activeTabId,
-      editor: window.__augitLive.editor,
-      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
-      follow: !!window.__augitLive.followChanges,
-    }));
+    const cmpState = () => cmp.page.evaluate(() => {
+      const comparison = (window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || null;
+      return {
+        comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+        total: (window.__augitLive.tabs || []).length,
+        active: window.__augitLive.activeTabId,
+        editor: window.__augitLive.editor,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        follow: !!window.__augitLive.followChanges,
+        tabId: comparison ? comparison.id : null,
+        tabPath: comparison ? comparison.path : null,
+        tabTitle: comparison ? comparison.title : null,
+      };
+    });
 
     // 显式打开：建立唯一的比较标签
     await cmp.page.locator('.changes-list .change-file-row').first().dblclick();
@@ -1779,19 +1785,114 @@ async function main() {
     const cmpOpened = await cmpState();
     check('双击改动文件建立比较标签: ' + JSON.stringify(cmpOpened),
       cmpOpened.comparisons === 1 && cmpOpened.follow === true && cmpOpened.editor === 'diff');
+    // 记录两份改动行的真实路径：下面的跟随断言必须核对"正文换成了哪一个文件"，
+    // 只数标签个数无法区分"跟随生效"和"跟随静默失效"。
+    const changeRows = await cmp.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row')]
+      .map((row) => row.dataset.path));
+    check('改动行带有可比对的两条路径: ' + JSON.stringify(changeRows),
+      changeRows.length >= 2 && changeRows[0] !== changeRows[1]);
 
-    // 再次显式打开另一个改动文件：仍然只有一个比较标签
+    // 再次显式打开另一个改动文件：仍然只有一个比较标签，且标签文字跟进
     await cmp.page.locator('.changes-list .change-file-row').nth(1).dblclick();
     await cmp.page.waitForTimeout(600);
     const recmpOpened = await cmpState();
     check('比较标签始终只有一个: ' + JSON.stringify(recmpOpened), recmpOpened.comparisons === 1);
+    check('复用比较标签时同步目标路径: ' + JSON.stringify([recmpOpened.tabPath, changeRows[1]]),
+      recmpOpened.tabPath === changeRows[1] && recmpOpened.diffPath === changeRows[1]);
+    check('复用比较标签时同步标签文字: ' + JSON.stringify(recmpOpened.tabTitle),
+      typeof recmpOpened.tabTitle === 'string' && recmpOpened.tabTitle.includes(changeRows[1]));
 
-    // 单击另一个改动行：跟随更新正文，不新增标签
+    // 单击另一个改动行：跟随更新正文（必须核对正文真的换成了那一行），不新增标签
+    const beforeFollow = await cmpState();
     await cmp.page.locator('.changes-list .change-file-row').first().click();
-    await cmp.page.waitForTimeout(600);
+    await cmp.page.waitForFunction(
+      (expected) => !!window.__augitLive.diff && window.__augitLive.diff.path === expected,
+      changeRows[0],
+      { timeout: 8000 },
+    ).catch(() => {});
     const cmpFollowed = await cmpState();
     check('单击改动行跟随更新比较标签: ' + JSON.stringify(cmpFollowed),
       cmpFollowed.comparisons === 1 && cmpFollowed.follow === true);
+    check('跟随更新的是被单击那一行的正文: ' + JSON.stringify([cmpFollowed.diffPath, changeRows[0]]),
+      cmpFollowed.diffPath === changeRows[0]);
+    check('跟随复用同一个比较标签（不新建）: ' + JSON.stringify([beforeFollow.tabId, cmpFollowed.tabId]),
+      cmpFollowed.tabId === beforeFollow.tabId && cmpFollowed.total === beforeFollow.total);
+    check('跟随同步标签文字与目标: ' + JSON.stringify([cmpFollowed.tabPath, cmpFollowed.tabTitle]),
+      cmpFollowed.tabPath === changeRows[0]
+        && typeof cmpFollowed.tabTitle === 'string' && cmpFollowed.tabTitle.includes(changeRows[0]));
+
+    // ---- 规格 §5.2：普通文档在前台时只后台更新比较，不抢占焦点 ----
+    // 这段最初无法做负向验证：去掉"只有比较标签在前台才切视图"的守卫后套件仍全绿，
+    // 因为此前没有任何断言检查前台视图是否被后台更新改掉。
+    // 关键点：必须让后台更新**真的发生一次差异重载**——若目标差异已在缓存里，
+    // 写入路径根本不会执行，断言就测不到东西。这里用切换差异显示模式强制重载
+    // （请求键不同 → 必然重新查询），而不是依赖改动列表里存在第二个文件。
+    const bgScene = await openScene('scene=main-project&theme=dark&open=docs/product-spec.md');
+    await bgScene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    check('前置条件：文档已作为普通标签打开: ' + JSON.stringify(await bgScene.page.evaluate(
+      () => (window.__augitLive.tabs || []).map((t) => t.kind + ':' + (t.path || '')))),
+      await bgScene.page.evaluate(() => (window.__augitLive.tabs || []).some((t) => t.kind === 'document')));
+
+    await bgScene.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgScene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await bgScene.page.locator('.changes-list .change-file-row').first().dblclick();
+    await bgScene.page.waitForFunction(
+      '!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison") && window.__augitLive.followChanges === true',
+      null,
+      { timeout: 8000 },
+    );
+    // 切回项目视图，并**真正激活**文档标签：切换工具窗口本身不改变当前标签
+    // （规格 §5.1「切换工具窗口不改变当前文件」），所以这里必须点标签。
+    await bgScene.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+    const docTabId = await bgScene.page.evaluate(
+      () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
+    check('存在普通文档标签可激活: ' + JSON.stringify(docTabId), typeof docTabId === 'string');
+    await bgScene.page.locator(`.editor-tabs .editor-tab[data-tab-id="${docTabId}"]`).click();
+    await bgScene.page.waitForFunction(
+      () => {
+        const live = window.__augitLive;
+        const comparison = (live.tabs || []).find((t) => t.kind === 'comparison');
+        return !!comparison && live.activeTabId !== comparison.id && live.followChanges === true;
+      },
+      null,
+      { timeout: 8000 },
+    );
+    const bgBefore = await bgScene.page.evaluate(() => ({
+      editor: window.__augitLive.editor,
+      document: window.__augitLive.document ? window.__augitLive.document.path : null,
+      active: window.__augitLive.activeTabId,
+      tabs: (window.__augitLive.tabs || []).map((t) => t.kind),
+      mode: window.__augitLive.diffMode,
+      calls: (window.__diffCalls || []).length,
+    }));
+    check('前置条件：普通文档前台而比较在后台并仍在跟随: ' + JSON.stringify(bgBefore),
+      bgBefore.editor !== 'diff' && bgBefore.document === 'docs/product-spec.md'
+        && bgBefore.tabs.filter((k) => k === 'comparison').length === 1);
+
+    // 后台跟随一次选择变化：比较标签在后台更新，前台仍是那个普通文档。
+    await bgScene.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgScene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await bgScene.page.locator('.changes-list .change-file-row').first().click();
+    await bgScene.page.waitForTimeout(900);
+    const bgAfter = await bgScene.page.evaluate(() => ({
+      editor: window.__augitLive.editor,
+      activeIsDocument: (() => {
+        const active = (window.__augitLive.tabs || []).find((t) => t.id === window.__augitLive.activeTabId);
+        return active ? active.kind === 'document' : false;
+      })(),
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      bodyShowsDiff: !!document.querySelector('.editor-content .diff-layout'),
+      comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+    }));
+    check('后台跟随保持单一比较标签: ' + JSON.stringify(bgAfter.comparisons), bgAfter.comparisons === 1);
+    check('后台跟随不改变前台视图类型: ' + JSON.stringify(bgAfter),
+      bgAfter.editor === bgBefore.editor && bgAfter.activeIsDocument === true);
+    check('后台跟随不把差异画到前台正文: ' + JSON.stringify(bgAfter.bodyShowsDiff),
+      bgAfter.bodyShowsDiff === false);
+    // 如实记录验证强度：这三条断言的后台更新走的是同一文件（差异已缓存），
+    // 写入路径没有真正重跑；去掉"只有比较标签在前台才切视图"的守卫后它们不会失败。
+    // 该守卫因此只是防御层，不作为已验证行为登记。
+    await bgScene.page.close();
 
     // 关闭比较标签：解除跟随
     await cmp.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').click();
@@ -2463,9 +2564,17 @@ async function main() {
     await cw.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await cw.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await cw.page.evaluate(() => { window.__diffCalls = []; window.__diffRevisions = []; });
-    // 先选中一行，再打开分支弹层执行「与工作区比较」
-    await cw.page.locator('.changes-list .change-file-row').first().click();
-    await cw.page.waitForTimeout(300);
+    // 先建立"正在跟随 Changes"的前置状态：双击改动行显式打开比较标签。
+    // 前置条件必须确凿成立，否则下面的"引用比较解除跟随"断言无法区分
+    // "修复生效"和"本来就没在跟随"——这正是最初负向验证不通过的原因。
+    await cw.page.locator('.changes-list .change-file-row').first().dblclick();
+    await cw.page.waitForFunction(
+      '!!(window.__augitLive.tabs || []).find((t) => t.kind === "comparison") && window.__augitLive.followChanges === true',
+      null,
+      { timeout: 8000 },
+    );
+    check('引用比较前已处于跟随状态: ' + JSON.stringify(await cw.page.evaluate(
+      () => !!window.__augitLive.followChanges)), true);
     // 必须走真实入口：从标题栏分支芯片打开弹层，再点其中的「与工作区比较」。
     // 直接注入节点会绕过被测路径，测不到真实行为。
     await cw.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
@@ -2481,6 +2590,7 @@ async function main() {
       comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
       title: ((window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || {}).title || null,
       editor: window.__augitLive.editor,
+      follow: !!window.__augitLive.followChanges,
       err: window.__augitError || null,
     }));
     check('与工作区比较按分支基准请求差异: ' + JSON.stringify(compared.revisions),
@@ -2488,6 +2598,35 @@ async function main() {
     check('与工作区比较建立比较标签: ' + JSON.stringify(compared.title),
       compared.comparisons === 1 && typeof compared.title === 'string' && compared.title.startsWith('比较:'));
     check('与工作区比较进入差异视图', compared.editor === 'diff');
+    check('引用比较解除对 Changes 的跟随: ' + JSON.stringify(compared.follow), compared.follow === false);
+
+    // 引用比较独立于 Changes 跟随（规格 §5.2/§7.9）：此后单击改动行不得把它改写成工作区 Diff。
+    // 这条最初没有负向验证通过——去掉 `followChanges = false` 后套件仍然全绿，
+    // 说明当时没有任何断言覆盖"解除跟随"，因此这里补上针对引用比较的断言。
+    await cw.page.evaluate(() => { window.__diffRevisions = []; });
+    // 选与引用比较目标不同的一行：相同路径会在 loadDiff 里命中缓存，
+    // 跟随分支根本不会执行，断言就测不到东西。
+    const refRowPaths = await cw.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row')]
+      .map((row) => row.dataset.path));
+    const refCurrentPath = await cw.page.evaluate(
+      () => (window.__augitLive.diff ? window.__augitLive.diff.path : null));
+    const refOtherIndex = refRowPaths.findIndex((p) => p !== refCurrentPath);
+    check('存在与引用比较目标不同的改动行: ' + JSON.stringify([refRowPaths, refCurrentPath]),
+      refOtherIndex >= 0);
+    await cw.page.locator('.changes-list .change-file-row').nth(refOtherIndex).click();
+    await cw.page.waitForTimeout(900);
+    const afterRefClick = await cw.page.evaluate(() => ({
+      revisions: window.__diffRevisions || [],
+      follow: !!window.__augitLive.followChanges,
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      title: ((window.__augitLive.tabs || []).find((t) => t.kind === 'comparison') || {}).title || null,
+    }));
+    check('引用比较后 follow 处于关闭状态: ' + JSON.stringify(afterRefClick.follow),
+      afterRefClick.follow === false);
+    check('引用比较后单击改动行不发起工作区比较请求: ' + JSON.stringify(afterRefClick.revisions),
+      Array.isArray(afterRefClick.revisions) && afterRefClick.revisions.length === 0);
+    check('引用比较后单击改动行不改写比较标签: ' + JSON.stringify(afterRefClick.title),
+      typeof afterRefClick.title === 'string' && afterRefClick.title.startsWith('比较:'));
 
     // 普通工作区 Diff 必须仍然不传 revision（由宿主按 HEAD 处理）
     await cw.page.evaluate(() => { window.__diffRevisions = []; });
