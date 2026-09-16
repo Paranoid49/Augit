@@ -2159,6 +2159,32 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 项目树右键菜单里的动作（规格 §5.4）。
+    // 条目语义取自视觉稿的 projectContextMenu()；「文件历史」「Blame」复用
+    // 改动列表菜单的同一实现，避免两套布局状态机各自漂移。
+    const projectMenu = event.target.closest && event.target.closest(".project-menu .menu-item");
+    if (projectMenu) {
+      event.preventDefault();
+      const label = (projectMenu.textContent || "").trim();
+      const action = label.includes("文件历史") ? "file-history"
+        : label.includes("Blame") ? "blame"
+          : label.includes("刷新") ? "refresh-tree" : null;
+      if (action === "refresh-tree") {
+        closeLiveOverlay();
+        void refreshFileTree();
+      } else if (action) {
+        void runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treePath" });
+      } else {
+        // 复制路径 / 在资源管理器中定位 / 在外部终端打开目前没有宿主能力，
+        // 如实保留为未接线记录，不假装成功。
+        window.__augitUnwiredAction = projectMenu.getAttribute("href");
+        window.__augitUnwiredLabel = label.slice(0, 40);
+        closeLiveOverlay();
+      }
+
+      return;
+    }
+
     // 变化文件右键菜单里的动作。
     const changesMenu = event.target.closest && event.target.closest(".changes-menu .menu-item");
     if (changesMenu) {
@@ -3085,9 +3111,12 @@ function openTreeContextMenu(row, clientX, clientY) {
  * 右键菜单里的动作（规格 §7.8）。
  * 「文件历史」切到底部工具窗口并读取该路径的历史；「Blame」进入归属视图。
  */
-async function runChangesContextAction(action) {
-  const layer = document.querySelector(".changes-menu");
-  const path = layer && layer.dataset.changePath;
+async function runChangesContextAction(action, options = {}) {
+  // 项目树菜单复用同一实现：数据源选择器与"目标路径"字段不同，
+  // 其余（切底部工具窗口、整页重绘判断、刷新区域）完全一致——
+  // 复制一套会让两处的布局状态机日后各自漂移。
+  const layer = document.querySelector(options.layerClass || ".changes-menu");
+  const path = layer && (options.pathField ? layer.dataset[options.pathField] : layer.dataset.changePath);
   closeLiveOverlay();
   if (!path) return;
   if (action === "diff") {

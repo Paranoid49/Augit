@@ -3805,11 +3805,48 @@ async function main() {
       treeMenuKey.open === true && treeMenuKey.target === 'docs');
 
     // 菜单条目是 <a href="*.html">：点击必须留在应用内，不能被 <a> 默认行为带离页面。
+    // 「刷新」条目已接线到 refreshFileTree，用它来验证点击路径。
     const urlBeforeMenuClick = treeMenu.page.url();
-    await treeMenu.page.locator('.project-menu .menu-item').first().click();
+    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: '刷新' }).first().click();
     await treeMenu.page.waitForTimeout(600);
     check('点击项目树菜单条目不被 <a> 默认导航带离应用: ' + JSON.stringify(treeMenu.page.url()),
       treeMenu.page.url() === urlBeforeMenuClick);
+    check('点击「刷新」后菜单关闭',
+      await treeMenu.page.evaluate(() => !document.querySelector('.project-menu')));
+
+    // 「文件历史」复用改动列表菜单的同一实现：切底部工具窗口并读取该路径历史。
+    // 目标文件行在目录内，先展开目录（单击目录行即展开，规格 §5.4）。
+    await treeMenu.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await treeMenu.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 8000 });
+    await treeMenu.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+      }));
+    });
+    await treeMenu.page.waitForTimeout(400);
+    check('前置条件：菜单目标为文件行',
+      await treeMenu.page.evaluate(() => {
+        const layer = document.querySelector('.project-menu');
+        return !!layer && layer.dataset.treePath === 'docs/notes.txt';
+      }));
+    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+    await treeMenu.page.waitForFunction(
+      "window.__augitLive.fileHistory && window.__augitLive.fileHistory.path === 'docs/notes.txt'",
+      null,
+      { timeout: 10000 },
+    );
+    const treeHistory = await treeMenu.page.evaluate(() => ({
+      path: window.__augitLive.fileHistory.path,
+      bottom: window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+      menuGone: !document.querySelector('.project-menu'),
+      unwired: window.__augitUnwiredLabel || null,
+    }));
+    check('项目树「文件历史」切底部工具窗口并加载该路径: ' + JSON.stringify(treeHistory),
+      treeHistory.path === 'docs/notes.txt' && treeHistory.bottom === 'file-history'
+        && treeHistory.menuGone === true && treeHistory.unwired === null);
     await treeMenu.page.close();
 
     // ---- 规格 §5.1：标题栏汉堡菜单 ----
