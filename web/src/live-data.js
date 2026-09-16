@@ -1491,8 +1491,22 @@ window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path, options) => loadDiff(path, options);
-// 真实"打开差异"入口（含加载提示调度）：供验收确定性驱动加载窗口。
-window.__augitOpenChangeDiff = (path, options) => openChangeDiff(path, options || {});
+/**
+ * 供验收驱动"打开差异"的钩子。
+ *
+ * 它**派发一次真实的双击点击事件**，而不是直接调用 `openChangeDiff`：
+ * 直调会跳过用户路径带来的状态前置，实测加载窗口内文件栏不存在
+ * （`live.diff` 为 null 时 liveDiffView 提前返回），提示无处可挂，
+ * 与真实路径结论不一致。验收钩子必须复现真实路径，否则会把人引向错误结论。
+ */
+window.__augitOpenChangeDiff = (path) => {
+  const row = [...document.querySelectorAll(".changes-list .change-file-row")]
+    .find((node) => node.dataset.path === path);
+  if (!row) return null;
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+  row.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 2 }));
+  return null;
+};
 
 // 供验收套件走与点击相同的打开路径。
 window.__augitOpenDocument = (path) => openDocument(path);
