@@ -753,9 +753,12 @@ const LoadingFeedbackDelay = 150;
 let diffLoadingMark = null;
 
 /**
- * 在差异加载超过阈值后才显示加载提示。
- * 提示只挂在**差异正文区**，不隐藏编辑工作区，也不影响工具窗口与标签
- * （规格 §6.1 / §6.5）。
+ * 在差异加载超过阈值后才显示加载提示（规格 §6.5 / §9.1）。
+ *
+ * 提示改为**由状态驱动渲染**（`live.diffLoading`），不再注入 DOM 节点。
+ * 原因是区域刷新会重建编辑区，注入的节点会被随之清掉——实测提示在 686.9 毫秒
+ * 出现、随即被刷新抹掉，整个加载窗口内 `marker` 采样恒为 false，等于提示从未可见。
+ * 状态驱动的提示在每次渲染时都会重新出现，也能落到规格要求的**文件标题行**。
  */
 function scheduleDiffLoadingMarker() {
   clearDiffLoadingMarker();
@@ -764,14 +767,12 @@ function scheduleDiffLoadingMarker() {
   window.__augitLoadingMarkerScheduledAt = performance.now();
   diffLoadingMark = window.setTimeout(() => {
     diffLoadingMark = null;
-    const host = document.querySelector(".diff-layout .diff-columns, .editor-content");
-    if (!host || host.querySelector(".diff-loading-status")) return;
-    const marker = document.createElement("div");
-    marker.className = "diff-loading-status";
-    marker.setAttribute("role", "status");
-    marker.innerHTML = '<span class="loading-mark"></span><span>正在生成 diff…</span>';
-    host.prepend(marker);
+    const live = window.__augitLive;
+    if (!live) return;
+    live.diffLoading = true;
     window.__augitLoadingMarkerShownAt = performance.now();
+    // 只刷新编辑区：提示必须随 diff 正文一起重绘。
+    refresh("editorContent");
   }, LoadingFeedbackDelay);
 }
 
@@ -781,8 +782,11 @@ function clearDiffLoadingMarker() {
     diffLoadingMark = null;
   }
 
+  const live = window.__augitLive;
+  if (live) live.diffLoading = false;
   document.querySelectorAll(".diff-loading-status").forEach((node) => node.remove());
 }
+
 
 /** 单击只更新改动列表的选中态，不请求差异（规格 §12.2）。 */
 function selectChangeRow(row) {

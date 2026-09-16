@@ -3698,13 +3698,6 @@ async function main() {
     await hc.page.waitForTimeout(600);
     const hcClosed = await hcState();
     check('关闭历史比较移除标签: ' + JSON.stringify(hcClosed.comparisons), hcClosed.comparisons === 0);
-    console.log('DIAG afterClose=' + JSON.stringify(await hc.page.evaluate(() => ({
-      rows: document.querySelectorAll('[data-live-changed-files] [data-history-path]').length,
-      panel: !!document.querySelector('[data-live-changed-files]'),
-      panelText: (document.querySelector('[data-live-changed-files]') || {}).innerText || null,
-      bottom: !!document.querySelector('.bottom-tool'),
-      logPanel: !!document.querySelector('.log-detail-panel'),
-    }))));
     await hc.page.evaluate(() => {
       const row = document.querySelector('[data-live-changed-files] [data-history-path]');
       if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));

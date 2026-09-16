@@ -1210,7 +1210,13 @@ function bindJsonModes() {
 }
 
 function diffFileHeader(source, target, title, path = "src/Augit.App/app.manifest") {
-  return `<div class="diff-filebar reference-filebar" title="${escapeHtml(title)} · ${escapeHtml(path)}"><div class="reference-before"><span class="reference-lock">${icon("lock")}</span><span class="reference-source">${source}</span><span class="reference-path">${escapeHtml(path)}</span></div><div class="reference-after"><span class="reference-lock">${icon("lock")}</span><span class="reference-target">${target}</span></div></div>`;
+  // 加载提示挂在**文件标题行**（规格 §6.5：有旧正文时在该 Diff 的文件标题行提示加载）。
+  // 由 live.diffLoading 驱动：区域刷新会重建正文，注入的节点会被抹掉，
+  // 只有随渲染一起产生才能在整个加载窗口内保持可见。
+  const loading = window.__augitLive && window.__augitLive.diffLoading
+    ? `<span class="diff-loading-status diff-filebar-loading" role="status"><span class="loading-mark"></span>正在生成 diff…</span>`
+    : "";
+  return `<div class="diff-filebar reference-filebar" title="${escapeHtml(title)} · ${escapeHtml(path)}"><div class="reference-before"><span class="reference-lock">${icon("lock")}</span><span class="reference-source">${source}</span><span class="reference-path">${escapeHtml(path)}</span></div>${loading}<div class="reference-after"><span class="reference-lock">${icon("lock")}</span><span class="reference-target">${target}</span></div></div>`;
 }
 
 function workspaceSampleOriginal(path) {
@@ -1504,6 +1510,12 @@ function liveDiffView() {
   const diff = live.diff;
   if (!diff) return diffView();
   const rows = diff.rows || [];
+  // 加载中优先显示加载提示：此时 rows 可能是上一轮的空值，
+  // 直接走"没有文本差异"会把加载中的文件误报成无差异。
+  if (live.diffLoading) {
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>正在生成 diff…</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+  }
+
   // 文件栏的双方引用（规格 §7.8/§7.9）：
   // 历史比较显示 `<hash>^ → <hash>`，引用比较显示该引用 → 工作区，其余按 HEAD → 工作区。
   const comparison = live.historyComparison;
