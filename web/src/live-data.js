@@ -1627,6 +1627,7 @@ function rebindAfterRender() {
   bindChangesScroll();
   restoreChangesState();
   bindOverlayEscape();
+  bindTitlebarMenuEscape();
   bindCompactDialogKeys();
   bindGlobalShortcuts();
   reflectWriteOperation();
@@ -3356,6 +3357,27 @@ function bindGlobalShortcuts() {
       openGoToLineDialog();
       return;
     }
+  }, true);
+}
+
+/**
+ * 标题栏内嵌菜单的 Esc 关闭（规格 §5.1）。
+ *
+ * 视觉稿只在 `quick-open` 场景里处理了 Esc，实时外壳下按 Esc 不会恢复标题栏
+ * （实测菜单一直留着）。这条要求"关闭后恢复原有标题栏"，
+ * 因此这里补上：Esc 只在菜单确实打开时生效，并恢复标准标题栏。
+ */
+function bindTitlebarMenuEscape() {
+  if (window.__augitTitlebarEscBound) return;
+  window.__augitTitlebarEscBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (event.isComposing || event.keyCode === 229) return;
+    const bar = document.querySelector(".titlebar .main-menu-bar");
+    if (!bar) return;
+    event.preventDefault();
+    const host = document.querySelector(".titlebar");
+    if (host) host.outerHTML = titlebar();
   }, true);
 }
 

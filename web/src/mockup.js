@@ -3390,7 +3390,18 @@ function bindInteractions() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && (scene === "quick-open" || scene === "quick-open-empty")) {
+    if (event.key !== "Escape") return;
+    // 内嵌主菜单打开时，Esc 关闭菜单并恢复标准标题栏（规格 §5.1）。
+    // 组词期间交给输入法，不抢占按键。
+    if (event.isComposing || event.keyCode === 229) return;
+    const title = document.querySelector(".titlebar");
+    if (title && title.querySelector(".main-menu-bar")) {
+      event.preventDefault();
+      title.outerHTML = titlebar();
+      return;
+    }
+
+    if (scene === "quick-open" || scene === "quick-open-empty") {
       window.location.href = "main-project.html";
     }
   });

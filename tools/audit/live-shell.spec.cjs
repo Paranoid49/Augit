@@ -3715,6 +3715,98 @@ async function main() {
       hcAfterCloseClick.comparisons === 0);
     await hc.page.close();
 
+    // ---- 规格 §5.1：标题栏汉堡菜单 ----
+    // 规格要求点击后在标题栏**原位**显示"文件、视图、Git、终端、设置"五个文字入口，
+    // 不弹出一张替代标题栏的悬浮卡片；关闭后恢复原有标题栏。
+    const menuScene = await openScene('scene=main-project&theme=dark');
+    await menuScene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    // 等工具窗口与标题栏的首轮渲染稳定：启动阶段标题栏会先渲染一版、
+    // 随后历史/状态到达再补一版，过早取基线会把"尚未渲染完"当成"被菜单改掉了"。
+    await menuScene.page.waitForFunction(
+      "document.querySelectorAll('.tool-rail .rail-button').length > 0"
+        + " && !!document.querySelector('.titlebar .branch-chip')"
+        + " && document.querySelectorAll('.window-actions [aria-label]').length >= 3",
+      null,
+      { timeout: 15000 },
+    );
+    await menuScene.page.waitForTimeout(600);
+    const menuState = () => menuScene.page.evaluate(() => {
+      const titlebar = document.querySelector('.titlebar');
+      const bar = document.querySelector('.main-menu-bar');
+      const entries = bar ? [...bar.querySelectorAll('.main-menu-entry')].map((a) => a.textContent.trim()) : [];
+      return {
+        hasBar: !!bar,
+        barInTitlebar: !!(bar && titlebar && titlebar.contains(bar)),
+        entries,
+        overlayCount: document.querySelectorAll('[data-augit-overlay].live-overlay').length,
+        chipInTitlebar: !!(titlebar && titlebar.querySelector('.branch-chip')),
+        closeLabel: (() => {
+          const button = titlebar ? titlebar.querySelector('[data-action="menu"]') : null;
+          return button ? button.getAttribute('aria-label') : null;
+        })(),
+      };
+    });
+    const menuClosed = await menuState();
+    check('前置条件：标题栏初始没有内嵌菜单: ' + JSON.stringify(menuClosed.hasBar), menuClosed.hasBar === false);
+
+    await menuScene.page.locator('.titlebar [data-action="menu"]').click();
+    await menuScene.page.waitForTimeout(500);
+    const menuOpen = await menuState();
+    check('汉堡菜单在标题栏原位显示五个入口: ' + JSON.stringify(menuOpen.entries),
+      menuOpen.hasBar === true && menuOpen.barInTitlebar === true
+        && ['文件', '视图', 'Git', '终端', '设置'].every((name) => menuOpen.entries.includes(name)));
+    check('菜单不是替代标题栏的悬浮卡片: ' + JSON.stringify([menuOpen.overlayCount, menuOpen.chipInTitlebar]),
+      menuOpen.overlayCount === 0 && menuOpen.chipInTitlebar === false);
+    check('菜单打开后按钮变为关闭语义: ' + JSON.stringify(menuOpen.closeLabel),
+      menuOpen.closeLabel === '关闭主菜单');
+
+    // 规格同句还要求"窗口按钮、项目树、编辑标签和工具窗口状态保持不变"：
+    // 记下这些区域的状态，关闭菜单后逐一核对。
+    // 标题栏按钮在"菜单打开"与"标准标题栏"两种结构下的**节点层级不同**，
+    // 因此这里只核对稳定的语义状态：工具窗口/项目树/标签的数量与存在性，
+    // 以及菜单按钮的语义（打开时为"关闭主菜单"、关闭后回到"主菜单"）。
+    const menuBaseline = await menuScene.page.evaluate(() => ({
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      tabs: document.querySelectorAll('.editor-tabs .editor-tab').length,
+      side: !!document.querySelector('.side-tool'),
+      railButtons: document.querySelectorAll('.tool-rail .rail-button').length,
+      menuLabel: (document.querySelector('.titlebar [data-action="menu"]') || {}).getAttribute
+        ? document.querySelector('.titlebar [data-action="menu"]').getAttribute('aria-label') : null,
+    }));
+
+    // 再次点击汉堡按钮关闭（规格：菜单关闭后恢复原有标题栏入口与上下文）。
+    await menuScene.page.locator('.titlebar [data-action="menu"]').click();
+    await menuScene.page.waitForTimeout(500);
+    const menuAfterToggle = await menuState();
+    check('再次点击汉堡按钮关闭菜单: ' + JSON.stringify(menuAfterToggle.hasBar), menuAfterToggle.hasBar === false);
+
+    // 重新打开后用 Esc 关闭，并核对各区域状态保持不变。
+    await menuScene.page.locator('.titlebar [data-action="menu"]').click();
+    await menuScene.page.waitForTimeout(400);
+    await menuScene.page.keyboard.press('Escape');
+    await menuScene.page.waitForTimeout(500);
+    const menuAfterEsc = await menuState();
+    check('Esc 关闭内嵌菜单并恢复标题栏: ' + JSON.stringify([menuAfterEsc.hasBar, menuAfterEsc.chipInTitlebar]),
+      menuAfterEsc.hasBar === false);
+    const menuAfter = await menuScene.page.evaluate(() => ({
+      treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
+      tabs: document.querySelectorAll('.editor-tabs .editor-tab').length,
+      side: !!document.querySelector('.side-tool'),
+      railButtons: document.querySelectorAll('.tool-rail .rail-button').length,
+      menuLabel: (document.querySelector('.titlebar [data-action="menu"]') || {}).getAttribute
+        ? document.querySelector('.titlebar [data-action="menu"]').getAttribute('aria-label') : null,
+      chip: !!document.querySelector('.titlebar .branch-chip'),
+    }));
+    check('菜单关闭后项目树/标签/工具窗口保持不变: ' + JSON.stringify([menuBaseline, menuAfter]),
+      menuAfter.treeRows === menuBaseline.treeRows
+        && menuAfter.tabs === menuBaseline.tabs
+        && menuAfter.side === menuBaseline.side
+        && menuAfter.railButtons === menuBaseline.railButtons
+        && menuAfter.chip === true);
+    check('菜单关闭后入口恢复为普通标题栏: ' + JSON.stringify([menuBaseline.menuLabel, menuAfter.menuLabel]),
+      menuAfter.menuLabel === '主菜单');
+    await menuScene.page.close();
+
     // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
     // Git 历史常在启动后十余秒才到（live-data 注释里写明"实测约 15 秒"）。
     // 若到达时整页重绘，用户此时在查找框里的输入会被清掉——这正是本断言要抓的。
