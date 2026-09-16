@@ -3412,6 +3412,61 @@ async function main() {
       stops.slice(0, 2).every((x) => x.region === 'titlebar' || x.region === 'rail'));
     await tb.page.close();
 
+    // ---- 规格 §6.7：读取尚未完成时不建立标签，被取代的读取不得留下视图 ----
+    // 规格原文是"关闭尚在读取的标签后，结果不得创建视图或恢复标签"。
+    // 核对实现后确认：**标签只在读取完成后建立**（没有"先建占位标签、后填正文"的路径），
+    // 因此"读取中关闭标签"在当前标签模型下无法构造——写一条那样的断言等于空跑。
+    // 这里改为核对真正成立的不变量：读取在途中标签栏不出现该文件，
+    // 被更新请求取代后晚到结果也不得创建视图。
+    const slowTab = await openScene('scene=main-project&theme=dark');
+    await slowTab.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await slowTab.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    await slowTab.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await slowTab.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 8000 });
+    await slowTab.page.evaluate(() => { window.__readDelays = { 'docs/notes.txt': 5000 }; });
+    // 同步派发双击，不等待读取完成。
+    await slowTab.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]');
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+      window.__readStartedAt = Math.round(performance.now());
+    });
+    await slowTab.page.waitForTimeout(600);
+    const duringRead = await slowTab.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      readStartedAt: window.__readStartedAt || null,
+      now: Math.round(performance.now()),
+    }));
+    // 前置条件：取样确实落在读取过程中。
+    check('前置条件：取样落在读取过程中: ' + JSON.stringify([duringRead.now, duringRead.readStartedAt]),
+      duringRead.readStartedAt !== null && duringRead.now - duringRead.readStartedAt < 4000);
+    check('读取途中不建立标签、不替换正文: ' + JSON.stringify(duringRead),
+      !duringRead.tabs.includes('docs/notes.txt') && duringRead.doc !== 'docs/notes.txt');
+
+    // 用另一个文件取代在途读取：晚到的旧结果不得创建视图。
+    await slowTab.page.evaluate(() => { window.__readDelays = {}; });
+    // 必须双击：单击按规格只选择，不打开（§12.5）。
+    await slowTab.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+    await slowTab.page.waitForFunction(
+      'window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"',
+      null,
+      { timeout: 10000 },
+    );
+    await slowTab.page.waitForFunction(
+      (startedAt) => Math.round(performance.now()) - startedAt > 5500,
+      duringRead.readStartedAt,
+      { timeout: 20000 },
+    );
+    const afterSuperseded = await slowTab.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    check('被取代的读取晚到后不创建视图: ' + JSON.stringify(afterSuperseded),
+      !afterSuperseded.tabs.includes('docs/notes.txt')
+        && afterSuperseded.doc === 'docs/product-spec.md');
+    await slowTab.page.close();
+
     // ---- 规格 §6.1：加载期间主框架与其它区域位置不变 ----
     const lu = await openScene('scene=commit-changes&theme=dark');
     await lu.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
