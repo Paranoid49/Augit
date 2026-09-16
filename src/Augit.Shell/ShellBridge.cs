@@ -1060,6 +1060,9 @@ internal sealed class ShellBridge : IDisposable
         bool ignoreWhitespace = GetBool(parameters, "ignoreWhitespace") ?? false;
         // 引用比较（规格 §7.9）传入具体基准；工作区 Diff 不传，默认对比 HEAD。
         string? revision = GetString(parameters, "revision");
+        // 历史比较（规格 §7.8）传入提交版本：此时两侧都取自 Git，
+        // 左侧由宿主解析为该提交的父提交，调用方不必自己推导。
+        string? commit = GetString(parameters, "commit");
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!IsUsable(repository, runtime))
         {
@@ -1067,14 +1070,42 @@ internal sealed class ShellBridge : IDisposable
         }
 
         GitChangedFile? changed;
-        if (!string.IsNullOrWhiteSpace(revision))
+        string baseRevision;
+        string? targetRevision = null;
+        if (!string.IsNullOrWhiteSpace(commit))
+        {
+            // 父版本解析放在基础设施层：GitCommandRunner 是内部类型，
+            // 外壳不能直接驱动 Git 命令。
+            string? parent = await new GitHistoryService(runtime).ResolveParentRevisionAsync(
+                repository!.RepositoryRoot!,
+                commit,
+                cancellationToken);
+            if (parent is null)
+            {
+                return new
+                {
+                    available = false,
+                    reason = "无法解析该提交的父版本。",
+                    rows = Array.Empty<object>(),
+                    lines = Array.Empty<object>(),
+                };
+            }
+
+            baseRevision = parent;
+            targetRevision = commit;
+            // 历史比较的文件不必出现在改动列表里，直接按路径构造比较对象。
+            changed = new GitChangedFile(relative, null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
+        }
+        else if (!string.IsNullOrWhiteSpace(revision))
         {
             // 引用比较的目标文件不必出现在当前改动列表里——它比较的是
             // 「该引用与工作区」的差异，因此直接按路径构造比较对象。
+            baseRevision = revision;
             changed = new GitChangedFile(relative, null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
         }
         else
         {
+            baseRevision = "HEAD";
             GitStatusResult status = await ReadStatusCachedAsync(runtime, repository!, cancellationToken);
             changed = status.Snapshot?.Files
                 .FirstOrDefault(file => string.Equals(file.RelativePath, relative, StringComparison.OrdinalIgnoreCase));
@@ -1088,7 +1119,7 @@ internal sealed class ShellBridge : IDisposable
         GitDiffResult result = await diffService.CreateAsync(
             repository!,
             changed,
-            new GitDiffOptions(ignoreWhitespace, string.IsNullOrWhiteSpace(revision) ? "HEAD" : revision),
+            new GitDiffOptions(ignoreWhitespace, baseRevision, targetRevision),
             cancellationToken);
         if (!result.IsSuccess || result.Document is not { } document)
         {

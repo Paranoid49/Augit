@@ -757,6 +757,38 @@ public sealed class GitHistoryService : IGitHistoryService
         return true;
     }
 
+    /// <summary>
+    /// 解析提交的父版本，用于历史比较（规格 §7.8）。
+    /// </summary>
+    /// <remarks>
+    /// 无父提交（仓库首个提交）时回退到 Git 的空树对象，使"整个文件都是新增"
+    /// 与普通比较走同一条 diff 命令。无法解析该提交时返回 <c>null</c>，
+    /// 由调用方如实报错而不是猜一个基准。
+    /// </remarks>
+    public async Task<string?> ResolveParentRevisionAsync(
+        string repositoryRoot,
+        string commit,
+        CancellationToken cancellationToken = default)
+    {
+        string? hash = await ResolveRevisionAsync(repositoryRoot, commit, cancellationToken).ConfigureAwait(false);
+        if (hash is null)
+        {
+            return null;
+        }
+
+        GitCommandResult parent = await RunQueryAsync(
+            repositoryRoot,
+            ["rev-parse", "--verify", "--quiet", "--end-of-options", $"{hash}^"],
+            _queryRunner,
+            cancellationToken).ConfigureAwait(false);
+        return parent.IsSuccess && !string.IsNullOrWhiteSpace(parent.StandardOutput)
+            ? parent.StandardOutput.Trim()
+            : EmptyTreeHash;
+    }
+
+    /// <summary>Git 的空树对象哈希：表示"该侧不存在"。</summary>
+    public const string EmptyTreeHash = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
     private async Task<string?> ResolveRevisionAsync(
         string repositoryRoot,
         string revision,

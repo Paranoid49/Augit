@@ -4,8 +4,18 @@ namespace Augit.Core.Git;
 /// 差异生成选项。
 /// <paramref name="BaseRevision"/> 是左侧比较基准：工作区 Diff 用 HEAD；
 /// 引用比较（规格 §7.9）传入具体分支、标签或版本。
+/// <paramref name="TargetRevision"/> 只在历史比较（规格 §7.8）里给出：
+/// 它表示右侧也取自 Git 中的某个版本，而不是工作区。
+/// 两者同时给出时执行「版本 ↔ 版本」比较，不读取工作区文件。
 /// </summary>
-public sealed record GitDiffOptions(bool IgnoreWhitespace = false, string BaseRevision = "HEAD");
+public sealed record GitDiffOptions(
+    bool IgnoreWhitespace = false,
+    string BaseRevision = "HEAD",
+    string? TargetRevision = null)
+{
+    /// <summary>是否比较两个 Git 版本（历史比较），而不是「版本 ↔ 工作区」。</summary>
+    public bool IsRevisionComparison => !string.IsNullOrWhiteSpace(TargetRevision);
+}
 
 public enum GitDiffContentStatus
 {

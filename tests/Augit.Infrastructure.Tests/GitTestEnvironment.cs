@@ -26,6 +26,22 @@ internal static class GitTestEnvironment
         return result;
     }
 
+    /// <summary>解析版本为完整哈希，供历史比较等需要两版本的测试使用。</summary>
+    public static async Task<string> RevParseAsync(
+        GitRuntimeInfo runtime,
+        string repositoryPath,
+        string revision)
+    {
+        GitCommandResult result = await RunAsync(
+            runtime,
+            repositoryPath,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            $"{revision}^{{commit}}");
+        return result.StandardOutput.Trim();
+    }
+
     public static async Task CommitFileAsync(
         GitRuntimeInfo runtime,
         string repositoryPath,

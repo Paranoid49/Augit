@@ -149,6 +149,81 @@ public sealed class GitDiffServiceTests
         }
     }
 
+    // 历史比较（规格 §7.8）：两侧都取自 Git，右侧**不是**工作区内容。
+    // 这是本轮新增的能力，工作区 Diff 与引用比较仍走原来的「版本 ↔ 工作区」路径。
+    [TestMethod]
+    public async Task 历史比较取两个版本而不是工作区内容()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "first\n", "test: first");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "second\n", "test: second");
+            // 工作区再写入第三版：历史比较必须**忽略**它，否则会误把磁盘内容当作右值。
+            await File.WriteAllTextAsync(temporary.GetPath("tracked.txt"), "working\n");
+            string second = await GitTestEnvironment.RevParseAsync(runtime, temporary.FullPath, "HEAD");
+            string first = await GitTestEnvironment.RevParseAsync(runtime, temporary.FullPath, "HEAD^");
+            GitChangedFile changedFile = new("tracked.txt", null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
+
+            GitDiffResult result = await new GitDiffService(runtime).CreateAsync(
+                repository,
+                changedFile,
+                new GitDiffOptions(false, first, second));
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(GitDiffContentStatus.Ready, result.Document!.Status);
+            string patch = result.Document.UnifiedPatch!;
+            Assert.Contains("-first", patch, StringComparison.Ordinal);
+            Assert.Contains("+second", patch, StringComparison.Ordinal);
+            Assert.DoesNotContain("working", patch, StringComparison.Ordinal);
+        }
+    }
+
+    // 首个提交没有父版本：宿主回退到空树，使"整个文件都是新增"仍能生成差异。
+    [TestMethod]
+    public async Task 历史比较在无父提交时回退到空树()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "first.txt", "only\n", "test: root");
+            GitHistoryService history = new(runtime);
+            string root = await GitTestEnvironment.RevParseAsync(runtime, temporary.FullPath, "HEAD");
+            string? parent = await history.ResolveParentRevisionAsync(temporary.FullPath, root);
+
+            Assert.AreEqual(GitHistoryService.EmptyTreeHash, parent);
+            GitChangedFile changedFile = new("first.txt", null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
+            GitDiffResult result = await new GitDiffService(runtime).CreateAsync(
+                repository,
+                changedFile,
+                new GitDiffOptions(false, parent!, root));
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(GitDiffContentStatus.Ready, result.Document!.Status);
+            Assert.Contains("+only", result.Document.UnifiedPatch!, StringComparison.Ordinal);
+        }
+    }
+
+    // 无法解析的目标版本必须如实失败，不能悄悄退化成"和工作区比"。
+    [TestMethod]
+    public async Task 历史比较无法解析版本时如实失败()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "base\n", "test: base");
+            GitChangedFile changedFile = new("tracked.txt", null, GitChangeGroup.Changes, GitChangeKind.Modified, false, true);
+
+            GitDiffResult result = await new GitDiffService(runtime).CreateAsync(
+                repository,
+                changedFile,
+                new GitDiffOptions(false, "HEAD", "no-such-revision"));
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.IsNull(result.Document);
+        }
+    }
+
     private static async Task<GitChangedFile> ReadOnlyChangeAsync(
         GitRuntimeInfo runtime,
         GitRepositorySnapshot repository)
