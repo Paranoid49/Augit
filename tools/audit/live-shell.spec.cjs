@@ -700,7 +700,13 @@ async function main() {
     const clickDiff = await openScene('scene=commit-diff&theme=dark');
     await clickDiff.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await clickDiff.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
-    check('改动列表渲染出可点击行', await clickDiff.page.locator('.changes-list .change-file-row').count() > 0);
+    // 必须核对列表里是**真实改动路径**：视觉稿的样例 changesSide() 同样渲染改动行
+    // （样例路径形如 src/Augit.App/NativeToolTip.cs），只看"有没有行"区分不出真实与样例。
+    const clickRows = await clickDiff.page.evaluate(() =>
+      [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.path));
+    check('改动列表渲染出真实可点击行: ' + JSON.stringify(clickRows),
+      clickRows.length > 0 && clickRows.includes('src/App.cs')
+        && !clickRows.some((p) => typeof p === 'string' && p.includes('Augit.App')));
     // 规格 §12.2：单击只选择，不创建 Diff。
     await clickDiff.page.locator('.changes-list .change-file-row').first().click();
     await clickDiff.page.waitForTimeout(400);
