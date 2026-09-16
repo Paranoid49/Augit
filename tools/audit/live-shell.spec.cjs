@@ -4170,6 +4170,93 @@ async function main() {
         state.top !== null && state.top >= state.titlebarBottom);
     }
 
+    // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
+    // 「Git 文件列表的刷新独立完成，不能等待慢 Diff，后续新增文件和状态变化
+    // 仍须及时进入列表。」慢 Diff 在途时来一次变化批次，列表必须立刻更新。
+    const listFirst = await openScene('scene=commit-changes&theme=dark');
+    await listFirst.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await listFirst.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const listRowsBefore = await listFirst.page.locator('.changes-list .change-file-row').count();
+    const hasNewRow = () => listFirst.page.evaluate(() =>
+      [...document.querySelectorAll('.changes-list .change-file-row')].some((r) => r.dataset.path === 'src/New.cs'));
+    check('前置条件：注入前列表里没有新增文件: ' + JSON.stringify(await hasNewRow()), (await hasNewRow()) === false);
+    // 让首个文件的差异查询慢下来，再打开它。
+    await listFirst.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 4000 }; });
+    await listFirst.page.locator('.changes-list .change-file-row').first().dblclick();
+    await listFirst.page.waitForFunction('window.__augitLive.diffLoading === true', null, { timeout: 8000 });
+    // 慢 Diff 在途时注入一次文件列表变化。
+    await listFirst.page.evaluate(() => {
+      window.__liveFiles = [
+        { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+        { path: 'src/New.cs', name: 'New.cs', directory: 'src', group: 'Changes', kind: 'Added', staged: false, workingTree: true },
+        { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+      ];
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\New.cs'], gitMetadata: false };
+    });
+    // 在 diff 仍在途的窗口内，列表就应出现新增行。
+    // 必须按**路径**判断而不是行数：注入前后行数可能相同（本轮第一次就栽在这里，
+    // 3 行对 3 行，按行数根本区分不出列表是否刷新）。
+    const listUpdatedDuringDiff = await listFirst.page.waitForFunction(
+      () => [...document.querySelectorAll('.changes-list .change-file-row')]
+        .some((r) => r.dataset.path === 'src/New.cs'),
+      null,
+      { timeout: 3000 },
+    ).then(() => true).catch(() => false);
+    const stillLoading = await listFirst.page.evaluate(() => !!window.__augitLive.diffLoading);
+    check('慢 Diff 在途时文件列表仍及时刷新（未等待 Diff）: '
+      + JSON.stringify([listRowsBefore, listUpdatedDuringDiff, stillLoading]),
+    listUpdatedDuringDiff === true && stillLoading === true);
+    await listFirst.page.close();
+
+    // ---- 规格 §6.3：在途 Diff 期间的无变化状态通知必须复用该请求 ----
+    // 「改选后的新 Diff 仍在查询或排版时，无变化的 Git 状态通知必须复用该进行中请求；
+    // 不能拿屏幕上暂留的上一文件正文判断新请求是否失效。」
+    const reuseReq = await openScene('scene=commit-changes&theme=dark');
+    await reuseReq.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await reuseReq.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 先加载第一个文件，再对第二个文件发起慢请求。
+    await reuseReq.page.locator('.changes-list .change-file-row').first().dblclick();
+    await reuseReq.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+    await reuseReq.page.evaluate(() => {
+      window.__diffDelays = { 'README.md': 2500 };
+      window.__diffCalls = [];
+    });
+    await reuseReq.page.evaluate(() => { window.__augitOpenChangeDiff('README.md'); });
+    await reuseReq.page.waitForFunction(
+      "window.__augitLive.diffLoading === true && (window.__diffCalls || []).includes('README.md')",
+      null,
+      { timeout: 8000 },
+    );
+    const callsBeforeNotify = await reuseReq.page.evaluate(() => (window.__diffCalls || []).length);
+    // 在途期间注入一次"无变化"的 Git 状态通知（状态与当前一致）。
+    await reuseReq.page.evaluate(() => {
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await reuseReq.page.waitForTimeout(1200);
+    const reuseState = await reuseReq.page.evaluate(() => ({
+      calls: (window.__diffCalls || []).length,
+      loading: !!window.__augitLive.diffLoading,
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+    }));
+    check('在途 Diff 期间无变化状态通知不重复发起差异请求: '
+      + JSON.stringify([callsBeforeNotify, reuseState.calls, reuseState.loading]),
+    reuseState.calls === callsBeforeNotify && reuseState.loading === true);
+    // 在途请求必须正常落地，不被状态通知作废。
+    const landed = await reuseReq.page.waitForFunction(
+      "window.__augitLive.diff && window.__augitLive.diff.path === 'README.md'",
+      null,
+      { timeout: 10000 },
+    ).then(() => true).catch(() => false);
+    const landedState = await reuseReq.page.evaluate(() => ({
+      path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      loading: !!window.__augitLive.diffLoading,
+      rows: window.__augitLive.diff ? (window.__augitLive.diff.rows || []).length : -1,
+    }));
+    check('在途请求未被状态通知作废: ' + JSON.stringify(landedState),
+      landed === true && landedState.path === 'README.md' && landedState.rows > 0
+        && landedState.loading === false);
+    await reuseReq.page.close();
+
     // ---- 规格 §6.5：首次打开差异时也要在文件标题行提示加载 ----
     // 与"有旧正文"那次分开：首次打开时 live.diff 还是 null，
     // 提示必须挂在文件栏里，而不是退化成正文区顶部。
