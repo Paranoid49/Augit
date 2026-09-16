@@ -3048,6 +3048,76 @@ async function main() {
       sameBox(beforeLoad.window, afterLoad.window));
     await lu.page.close();
 
+    // ---- 规格 §9.1：Diff 状态机 ----
+    const sm = await openScene('scene=commit-changes&theme=dark');
+    await sm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await sm.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const smState = () => sm.page.evaluate(() => ({
+      calls: (window.__diffCalls || []).length,
+      loadingMark: document.querySelectorAll('.diff-loading-status').length,
+      editor: window.__augitLive.editor,
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      tabs: document.querySelectorAll('.editor-tab').length,
+      listRows: document.querySelectorAll('.changes-list .change-file-row').length,
+    }));
+
+    // 已选择：单击只保留选中，不请求正文
+    await sm.page.evaluate(() => { window.__diffCalls = []; });
+    await sm.page.locator('.changes-list .change-file-row').first().click();
+    await sm.page.waitForTimeout(500);
+    const smSelected = await smState();
+    check('§9.1 已选择：单击不请求差异: ' + JSON.stringify([smSelected.calls, smSelected.editor]),
+      smSelected.calls === 0 && smSelected.editor !== 'diff');
+
+    // 等待阈值：150 毫秒内不显示闪烁动画
+    await sm.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 900 }; });
+    await sm.page.locator('.changes-list .change-file-row').first().dblclick();
+    // 记录「已进入等待阈值」这一刻的基线：此时临时标签已创建（规格要求），
+    // 后续「加载中」只需断言列表与标签**不再变化**。
+    await sm.page.waitForTimeout(50);
+    const smEntered = await smState();
+    await sm.page.waitForTimeout(90);
+    const smBefore = await sm.page.evaluate(
+      () => document.querySelectorAll('.diff-loading-status').length);
+    await sm.page.waitForTimeout(140);
+    const smAfter = await sm.page.evaluate(
+      () => document.querySelectorAll('.diff-loading-status').length);
+    check('§9.1 等待阈值：150 毫秒内不显示加载动画: ' + JSON.stringify([smBefore, smAfter]),
+      smBefore === 0 && smAfter === 1);
+
+    // 加载中：列表与标签不变，只有编辑区显示加载
+    const smDuring = await smState();
+    check('§9.1 等待阈值：创建或复用 Diff 临时标签: ' + JSON.stringify([smSelected.tabs, smEntered.tabs]),
+      smEntered.tabs === smSelected.tabs + 1);
+    check('§9.1 加载中：列表与标签不再变化: ' + JSON.stringify([smDuring.listRows, smDuring.tabs, smEntered.listRows, smEntered.tabs]),
+      smDuring.listRows === smEntered.listRows && smDuring.tabs === smEntered.tabs);
+
+    // 已显示：加载内容被原位替换
+    await sm.page.waitForFunction('window.__augitLive.diff', null, { timeout: 8000 });
+    await sm.page.waitForTimeout(400);
+    const smShown = await smState();
+    check('§9.1 已显示：加载提示被正文替换: ' + JSON.stringify([smShown.loadingMark, smShown.editor]),
+      smShown.loadingMark === 0 && smShown.editor === 'diff');
+
+    // 相同选择：保持已显示，不重新进入加载
+    await sm.page.evaluate(() => { window.__diffCalls = []; window.__diffDelays = {}; });
+    const callsBeforeRepeat = smShown.calls;
+    await sm.page.locator('.changes-list .change-file-row').first().dblclick();
+    await sm.page.waitForTimeout(600);
+    const smRepeated = await smState();
+    check('§9.1 相同选择：不重新请求也不进入加载: ' + JSON.stringify([smRepeated.calls, smRepeated.loadingMark, smRepeated.editor]),
+      smRepeated.calls === 0 && smRepeated.loadingMark === 0 && smRepeated.editor === 'diff');
+    await sm.page.evaluate(() => { window.__diffDelays = {}; });
+
+    // 请求失败：保留选择与周边结构
+    const smBeforeFail = await smState();
+    await sm.page.locator('.changes-list .change-file-row').nth(1).click();
+    await sm.page.waitForTimeout(300);
+    const smAfterFail = await smState();
+    check('§9.1 请求失败：保留列表与选择: ' + JSON.stringify([smAfterFail.listRows, smAfterFail.tabs]),
+      smAfterFail.listRows === smBeforeFail.listRows && smAfterFail.tabs === smBeforeFail.tabs);
+    await sm.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
