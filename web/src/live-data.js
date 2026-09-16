@@ -1996,18 +1996,22 @@ function openBranchesPopover() {
     return;
   }
 
-  // 直接挂节点：区域替换只在「目标与替换两侧都存在」时生效，
-  // 而多数场景本来就没有 .overlay-layer 目标节点，靠区域刷新挂不出来。
+  // liveBranchesPopover 返回的**本身就是完整覆盖层**（含 .overlay-layer 与 data 属性），
+  // 因此这里不再包第二层——实测重复包裹会出现嵌套的两层覆盖层。
   const host = document.querySelector(".augit-window");
   if (!host) return;
-  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
-  const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
-  layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = `<div class="scrim"></div>${liveBranchesPopover()}`;
+  closeLiveOverlay();
+  const template = document.createElement("template");
+  template.innerHTML = liveBranchesPopover();
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  layer.classList.add("live-overlay");
+  // 弹层没有遮罩，补一个点击即关闭的层（与视觉稿其它弹层一致）。
+  const scrim = document.createElement("div");
+  scrim.className = "scrim";
+  scrim.addEventListener("click", () => closeLiveOverlay());
+  layer.prepend(scrim);
   host.appendChild(layer);
-  // 点击遮罩关闭（与视觉稿的弹层行为一致）。
-  layer.querySelector(".scrim").addEventListener("click", () => closeLiveOverlay());
 }
 
 /**

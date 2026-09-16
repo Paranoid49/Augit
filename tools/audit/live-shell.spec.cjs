@@ -2470,6 +2470,42 @@ async function main() {
       plainRevisions.length >= 1 && plainRevisions.every((r) => r === '<未传>'));
     await cw.page.close();
 
+    // ---- 弹层区域可在没有预置节点的场景中打开 ----
+    // 多数场景本来就没有 .overlay-layer 节点。区域替换只在「两侧都存在」时生效，
+    // 若弹层也只做替换，这些场景里它永远打不开（实测分支弹层完全没有反应）。
+    const ov = await openScene('scene=main-project&theme=dark');
+    await ov.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const ovBefore = await ov.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+    check('主项目场景初始没有弹层节点: ' + ovBefore, ovBefore === 0);
+    await ov.page.locator('.top-chip.branch-chip').click();
+    await ov.page.waitForTimeout(700);
+    const ovOpened = await ov.page.evaluate(() => ({
+      overlays: document.querySelectorAll('[data-augit-overlay]').length,
+      popovers: document.querySelectorAll('[data-augit-overlay] .popover').length,
+      scrim: !!document.querySelector('[data-augit-overlay] .scrim'),
+      insideWindow: !!document.querySelector('.augit-window > [data-augit-overlay]'),
+    }));
+    check('没有预置节点时弹层仍然打开: ' + JSON.stringify(ovOpened),
+      ovOpened.overlays === 1 && ovOpened.popovers >= 1 && ovOpened.scrim === true);
+    check('弹层挂在主窗口内: ' + ovOpened.insideWindow, ovOpened.insideWindow === true);
+
+    // Esc 关闭后不得残留
+    await ov.page.keyboard.press('Escape');
+    await ov.page.waitForTimeout(500);
+    const ovAfterClose = await ov.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+    check('关闭后不残留弹层节点: ' + ovAfterClose, ovAfterClose === 0);
+
+    // 连开两次不得叠加节点
+    await ov.page.locator('.top-chip.branch-chip').click();
+    await ov.page.waitForTimeout(600);
+    await ov.page.keyboard.press('Escape');
+    await ov.page.waitForTimeout(400);
+    await ov.page.locator('.top-chip.branch-chip').click();
+    await ov.page.waitForTimeout(600);
+    const ovTwice = await ov.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+    check('重复打开不叠加弹层节点: ' + ovTwice, ovTwice === 1);
+    await ov.page.close();
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
