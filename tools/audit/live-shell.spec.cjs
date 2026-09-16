@@ -976,6 +976,16 @@ async function main() {
       window.__augitRenderRegions = (...names) => { window.__refreshCount += 1; return original(...names); };
     });
     const selectedBefore = await idem.page.locator('.commit-row[aria-selected="true"]').count();
+    // 规格 §6.2 明确列出"不改变工具窗口大小、不触发布局"，这两项此前没有断言。
+    const geometryBefore = await idem.page.evaluate(() => {
+      const box = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+        return [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)];
+      };
+      return { side: box('.side-tool'), bottom: box('.bottom-tool'), tabs: box('.editor-tabs'), content: box('.editor-content') };
+    });
     // 走真实刷新路径：连续十次把「与当前完全相同」的历史快照应用一遍
     for (let i = 0; i < 10; i += 1) {
       await idem.page.evaluate(() => window.__augitApplyHistorySnapshot());
@@ -988,6 +998,18 @@ async function main() {
     const selectedAfter = await idem.page.locator('.commit-row[aria-selected="true"]').count();
     check('刷新后提交选择不变: ' + selectedBefore + ' -> ' + selectedAfter, selectedBefore === selectedAfter);
     check('Git 刷新不重新加载 diff', (await idem.page.evaluate('(window.__diffCalls || []).length')) === 0);
+    const geometryAfter = await idem.page.evaluate(() => {
+      const box = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node) return null;
+        const rect = node.getBoundingClientRect();
+        return [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)];
+      };
+      return { side: box('.side-tool'), bottom: box('.bottom-tool'), tabs: box('.editor-tabs'), content: box('.editor-content') };
+    });
+    check('快照相等不改变工具窗口大小与布局: ' + JSON.stringify([geometryBefore, geometryAfter]),
+      JSON.stringify(geometryBefore) === JSON.stringify(geometryAfter)
+        && geometryBefore.side !== null && geometryBefore.tabs !== null);
     await idem.page.close();
 
     // ---- 规格 §6.5：低于 150 毫秒不显示加载动画；§6.1：加载期间不隐藏编辑区 ----
