@@ -3435,9 +3435,26 @@ async function main() {
     });
 
     const beforeLoad = await geometry();
-    // 让差异查询慢下来，在加载期间取样
-    await lu.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1500 }; });
+    // 先正常加载一次，使"已有正文"这一前置条件成立——否则下面的"不清空主区域"
+    // 断言是在空白编辑区上取样，测不到东西。
     await lu.page.locator('.changes-list .change-file-row').first().dblclick();
+    await lu.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+    await lu.page.waitForTimeout(300);
+    const loadedOnce = await lu.page.evaluate(() => {
+      const body = document.querySelector('.editor-content .diff-layout, .editor-content .document-view');
+      return { present: !!body, chars: body ? body.innerText.replace(/\s+/g, '').length : 0 };
+    });
+    check('前置条件：首次加载后已有正文: ' + JSON.stringify(loadedOnce),
+      loadedOnce.present === true && loadedOnce.chars > 20);
+
+    // 让第二次差异查询慢下来，在加载期间取样。
+    // 必须换一个文件：同一请求键会被 §6.3 的"直接复用结果"守卫拦下，不会发新请求，
+    // 也就没有"加载中"可取样（第一次实现时踩过）。
+    await lu.page.evaluate(() => {
+      window.__diffDelays = { 'README.md': 2500 };
+      window.__augitDiffReady = false;
+    });
+    await lu.page.locator('.changes-list .change-file-row').nth(1).dblclick();
     await lu.page.waitForTimeout(500);
     const duringLoad = await geometry();
     // 断言取样确实落在加载中：否则下面几条稳定性断言什么都没验证。
@@ -3456,6 +3473,16 @@ async function main() {
     check('加载期间状态栏位置不变: ' + JSON.stringify([beforeLoad.statusbar, duringLoad.statusbar]),
       sameBox(beforeLoad.statusbar, duringLoad.statusbar));
     check('加载期间不隐藏编辑工作区', duringLoad.editorContent === true);
+    // 规格 §6.1「不允许通过先清空主区域、后重新创建控件来表现加载」：
+    // 已有正文时加载不得把它清空——旧正文必须留到新内容就位为止。
+    // 上面的位置断言在"先清空再重建"的实现下同样会通过（清空后位置不变），
+    // 因此必须单独核对正文是否还在。
+    const textDuringLoad = await lu.page.evaluate(() => {
+      const body = document.querySelector('.editor-content .diff-layout, .editor-content .document-view');
+      return { present: !!body, chars: body ? body.innerText.replace(/\s+/g, '').length : 0 };
+    });
+    check('加载期间不清空主区域正文: ' + JSON.stringify(textDuringLoad),
+      textDuringLoad.present === true && textDuringLoad.chars > 20);
     check('加载完成后主框架位置仍一致: ' + JSON.stringify([beforeLoad.window, afterLoad.window]),
       sameBox(beforeLoad.window, afterLoad.window));
     await lu.page.close();
