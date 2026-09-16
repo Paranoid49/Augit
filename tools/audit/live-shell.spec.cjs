@@ -4210,6 +4210,152 @@ async function main() {
         state.top !== null && state.top >= state.titlebarBottom);
     }
 
+    // ---- 规格 §6.6：状态所有权——「明确禁止变化」列 ----
+    // 表里对"当前 Changes 文件"明确规定：选择变化不得改动复选框、提交信息、
+    // 列表滚动和其他标签；对"当前 Git 提交"规定不得改动引用树、筛选与提交列表滚动。
+    const owner = await openScene('scene=commit-changes&theme=dark');
+    await owner.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await owner.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await owner.page.waitForTimeout(400);
+    // 写入提交草稿、取消首行勾选，并滚动改动列表。
+    await owner.page.locator('.commit-box .message-field').fill('feat: 所有权核查草稿');
+    await owner.page.locator('.changes-list .change-file-row').first().locator('.fake-check').click();
+    await owner.page.evaluate(() => {
+      const list = document.querySelector('.changes-list');
+      if (list) list.scrollTop = 40;
+    });
+    await owner.page.waitForTimeout(300);
+    const ownerBefore = await owner.page.evaluate(() => ({
+      draft: window.__augitLive.commitDraft,
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      scrollTop: (document.querySelector('.changes-list') || {}).scrollTop || 0,
+      tabs: (window.__augitLive.tabs || []).length,
+      selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+    }));
+    check('前置条件：草稿/勾选/滚动已就位: ' + JSON.stringify([ownerBefore.draft, ownerBefore.checked[0], ownerBefore.scrollTop]),
+      ownerBefore.draft === 'feat: 所有权核查草稿' && ownerBefore.checked[0] === false);
+
+    // 单击另一个改动文件行：只应改变选中项。
+    await owner.page.locator('.changes-list .change-file-row').nth(1).click();
+    await owner.page.waitForTimeout(500);
+    const ownerAfter = await owner.page.evaluate(() => ({
+      draft: window.__augitLive.commitDraft,
+      boxValue: (document.querySelector('.commit-box .message-field') || {}).value || null,
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      scrollTop: (document.querySelector('.changes-list') || {}).scrollTop || 0,
+      tabs: (window.__augitLive.tabs || []).length,
+      selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+    }));
+    check('选择变化不改动提交草稿: ' + JSON.stringify([ownerAfter.draft, ownerAfter.boxValue]),
+      ownerAfter.draft === ownerBefore.draft && ownerAfter.boxValue === ownerBefore.draft);
+    check('选择变化不改动复选框: ' + JSON.stringify([ownerBefore.checked, ownerAfter.checked]),
+      JSON.stringify(ownerAfter.checked) === JSON.stringify(ownerBefore.checked));
+    check('选择变化不改动列表滚动位置: ' + JSON.stringify([ownerBefore.scrollTop, ownerAfter.scrollTop]),
+      ownerAfter.scrollTop === ownerBefore.scrollTop);
+    check('选择变化不新增标签: ' + JSON.stringify([ownerBefore.tabs, ownerAfter.tabs]),
+      ownerAfter.tabs === ownerBefore.tabs);
+    check('选择变化确实改变了选中项: ' + JSON.stringify([ownerBefore.selected, ownerAfter.selected]),
+      ownerAfter.selected !== ownerBefore.selected);
+
+    await owner.page.close();
+
+    // 结构性变化会整页重绘（折叠/展开工具窗口）：重绘后选中行、草稿与勾选必须恢复
+    // （规格 §5.2/§6.6）。用独立页面，避免前面交互触发的延后刷新干扰折叠切换。
+    const structural = await openScene('scene=commit-changes&theme=dark');
+    await structural.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await structural.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await structural.page.waitForTimeout(500);
+    await structural.page.locator('.commit-box .message-field').fill('feat: 结构性重绘草稿');
+    await structural.page.locator('.changes-list .change-file-row').first().locator('.fake-check').click();
+    await structural.page.locator('.changes-list .change-file-row').nth(1).click();
+    await structural.page.waitForTimeout(400);
+    const structBefore = await structural.page.evaluate(() => ({
+      draft: window.__augitLive.commitDraft,
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+      side: !!document.querySelector('.side-tool'),
+    }));
+    check('前置条件：草稿/勾选/选中已就位: '
+      + JSON.stringify([structBefore.draft, structBefore.checked[0], structBefore.selected]),
+    structBefore.draft === 'feat: 结构性重绘草稿' && structBefore.checked[0] === false
+      && typeof structBefore.selected === 'string' && structBefore.side === true);
+
+    // 折叠再展开：两次都是结构性重绘。
+    await structural.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await structural.page.waitForTimeout(700);
+    const structCollapsed = await structural.page.evaluate(() => ({
+      side: !!document.querySelector('.side-tool'),
+      collapsed: window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
+    }));
+    check('点击已激活入口折叠侧栏: ' + JSON.stringify(structCollapsed),
+      structCollapsed.side === false && structCollapsed.collapsed === 'side');
+    await structural.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await structural.page.waitForTimeout(700);
+    const structExpanded = await structural.page.evaluate(() => ({
+      side: !!document.querySelector('.side-tool'),
+      collapsed: window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
+      commitBox: !!document.querySelector('.commit-box .message-field'),
+      boxValue: (document.querySelector('.commit-box .message-field') || {}).value || null,
+      draft: window.__augitLive.commitDraft,
+      selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+      checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+    }));
+    check('再次点击已激活入口恢复侧栏: ' + JSON.stringify([structExpanded.side, structExpanded.collapsed]),
+      structExpanded.side === true && structExpanded.collapsed === null);
+    check('结构性重绘后草稿恢复到输入框: '
+      + JSON.stringify([structBefore.draft, structExpanded.draft, structExpanded.boxValue]),
+    structExpanded.draft === structBefore.draft && structExpanded.boxValue === structBefore.draft
+      && structExpanded.commitBox === true);
+    check('结构性重绘后选中行恢复: ' + JSON.stringify([structBefore.selected, structExpanded.selected]),
+      structExpanded.selected === structBefore.selected);
+    check('结构性重绘后勾选保持不变: ' + JSON.stringify([structBefore.checked, structExpanded.checked]),
+      JSON.stringify(structExpanded.checked) === JSON.stringify(structBefore.checked));
+    await structural.page.close();
+
+
+
+    // 当前 Git 提交：选择提交不得改动引用树、筛选与提交列表滚动。
+    const commitOwner = await openScene('scene=git-history&theme=dark');
+    await commitOwner.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await commitOwner.page.waitForSelector('.commit-row', { timeout: 10000 });
+    await commitOwner.page.waitForTimeout(500);
+    await commitOwner.page.evaluate(() => {
+      const list = document.querySelector('.commit-list');
+      if (list) list.scrollTop = 30;
+      const search = document.querySelector('.history-search');
+      if (search) search.value = '保留的筛选输入';
+    });
+    await commitOwner.page.waitForTimeout(300);
+    const commitBefore = await commitOwner.page.evaluate(() => ({
+      scrollTop: (document.querySelector('.commit-list') || {}).scrollTop || 0,
+      searchValue: (document.querySelector('.history-search') || {}).value || null,
+      refs: document.querySelectorAll('.log-ref-panel [data-branch]').length,
+      selected: (document.querySelector('.commit-row[aria-selected="true"]') || {}).dataset
+        ? document.querySelector('.commit-row[aria-selected="true"]').dataset.hash : null,
+    }));
+    await commitOwner.page.locator('.commit-row').nth(1).click();
+    await commitOwner.page.waitForTimeout(700);
+    const commitAfter = await commitOwner.page.evaluate(() => ({
+      scrollTop: (document.querySelector('.commit-list') || {}).scrollTop || 0,
+      searchValue: (document.querySelector('.history-search') || {}).value || null,
+      refs: document.querySelectorAll('.log-ref-panel [data-branch]').length,
+      selected: (document.querySelector('.commit-row[aria-selected="true"]') || {}).dataset
+        ? document.querySelector('.commit-row[aria-selected="true"]').dataset.hash : null,
+    }));
+    check('选择提交不改动提交列表滚动: ' + JSON.stringify([commitBefore.scrollTop, commitAfter.scrollTop]),
+      commitAfter.scrollTop === commitBefore.scrollTop);
+    check('选择提交不改动筛选输入: ' + JSON.stringify([commitBefore.searchValue, commitAfter.searchValue]),
+      commitAfter.searchValue === commitBefore.searchValue);
+    check('选择提交不改动引用树: ' + JSON.stringify([commitBefore.refs, commitAfter.refs]),
+      commitAfter.refs === commitBefore.refs);
+    check('选择提交确实改变了选中提交: ' + JSON.stringify([commitBefore.selected, commitAfter.selected]),
+      commitAfter.selected !== commitBefore.selected);
+    await commitOwner.page.close();
+
     // ---- 规格 §6.4：列表更新 ----
     // 四条：未变化时保留原列表项对象；部分变化时增量更新并保持展开/滚动；
     // 选中项仍存在时保持选中、不存在时选同组最近邻；刷新期间不得改动用户勾选。

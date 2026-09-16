@@ -1869,7 +1869,25 @@ function currentLayout() {
   const live = window.__augitLive;
   // 首屏渲染可能早于 live 对象建立；此时没有布局可谈，交由调用方跳过。
   if (!live) return null;
-  live.layout ??= readInitialLayout();
+  if (!live.layout) {
+    live.layout = readInitialLayout();
+    return live.layout;
+  }
+
+  // 用户尚未操作过时，布局必须跟随**实际渲染**的场景值。
+  // 首次读取可能发生在本场景首屏渲染之前，缓存下"项目"这类默认值；
+  // 此后状态就与界面不一致——实测在 commit-changes 场景里 activeRail 是 project
+  // 而界面激活的是"提交"，于是点击已激活入口不会折叠（违反规格 §5.1）。
+  // 一旦用户操作过（userDriven），状态即权威，不再重读。
+  if (!live.layout.userDriven) {
+    const observed = readInitialLayout();
+    if (observed.activeRail !== live.layout.activeRail
+        || observed.side !== live.layout.side
+        || observed.bottom !== live.layout.bottom) {
+      live.layout = observed;
+    }
+  }
+
   return live.layout;
 }
 
@@ -1919,9 +1937,13 @@ function applyRailAction(name) {
   const needsStructural = previousCollapsed !== layout.collapsed
     || (previousBottom === "") !== (layout.bottom === "");
   if (needsStructural && typeof window.__augitRender === "function") {
-    // 整页重绘会换掉工具窗口入口，必须重新挂上动作；
-    // 否则下一次点击会走 <a> 的默认跳转，直接离开应用页面。
+    // 整页重绘会换掉工具窗口入口与侧栏内容，必须走**完整的**重绘后处理：
+    // 只重挂工具入口（bindToolRail）会让 restoreChangesState 被跳过，
+    // 于是提交草稿、改动列表选中行、滚动位置全部丢失——实测折叠/展开提交工具窗口后
+    // 草稿输入框为空、选中行为 null（违反规格 §5.2「切换工具窗口不改变当前文件」
+    // 与 §6.6 的「明确禁止变化」列）。
     window.__augitRender();
+    rebindAfterRender();
   } else {
     refresh("rail", "side", "bottomTool", "editorContent", "statusbar");
   }
