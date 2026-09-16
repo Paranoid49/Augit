@@ -3640,8 +3640,6 @@ async function boot() {
   const referencesPromise = hasHost() ? loadReferences() : Promise.resolve(null);
   const history = await historyPromiseRef;
   if (history) {
-    // 历史更慢，到达后再补一次重绘，底部 Git 日志与历史工具窗随之更新。
-    window.__augitRender();
     document.addEventListener("history-commit-selected", () => {
       const selected = document.querySelector('.commit-row[aria-selected="true"]');
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
@@ -3653,8 +3651,10 @@ async function boot() {
         .catch(() => {});
     });
     // 历史比状态慢，到达后由快照判定是否需要刷新（§6.2）。
+    // 这里必须是**定点刷新**而不是整页重绘：历史常在启动后十余秒才到，
+    // 此时用户可能已在查找框或搜索浮层里输入，整页重绘会打断输入（§6.1）。
     if (applySnapshot(latestStatus, latestHistory)) {
-      refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
+      refresh("bottomTool", "side", "statusbar", "overlay", "titlebar");
       void refreshCommitDetails();
     }
 

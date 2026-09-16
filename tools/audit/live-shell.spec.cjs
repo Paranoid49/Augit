@@ -235,6 +235,9 @@ async function main() {
         return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files };
       }
       if (method === 'git/history') {
+        // 历史常比首屏慢十余秒：支持注入延迟，用于验证"数据到达不得打断用户输入"。
+        const historyDelay = window.__historyDelayMs || 0;
+        if (historyDelay) await new Promise((r) => setTimeout(r, historyDelay));
         if (window.__emptyHistory) return { available: true, isRepository: true, head: null, hasNextPage: false, commits: [] };
         return data.history;
       }
@@ -2672,6 +2675,38 @@ async function main() {
     check('确认后真正推送: ' + pushedNow.calls, pushedNow.calls === 1);
     check('推送成功后关闭对话框', pushedNow.open === false);
 
+    // 规格 §5.3：确认后焦点回到触发区域或直接进入结果区域，且不停留在已关闭的窗口内。
+    // 这里必须先确认"打开前确实有焦点元素"，否则恢复没有可核对目标。
+    const pushFocus = await pa.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        tag: active ? active.tagName : null,
+        inDialog: !!(active && active.closest && active.closest('[data-push-action]')),
+        label: active && active.getAttribute ? active.getAttribute('aria-label') : null,
+        cls: active && typeof active.className === 'string' ? active.className : null,
+      };
+    });
+    check('推送确认后焦点不停留在已关闭的窗口内: ' + JSON.stringify(pushFocus),
+      pushFocus.inDialog === false);
+
+    // 取消（Esc）路径同样不得把焦点留在已关闭的窗口内。
+    await openPopover();
+    await pa.page.locator('[data-popover-action="push"]').click();
+    await pa.page.waitForTimeout(1000);
+    check('推送对话框可再次打开',
+      await pa.page.evaluate(() => !!document.querySelector('[data-push-action]')));
+    await pa.page.keyboard.press('Escape');
+    await pa.page.waitForTimeout(400);
+    const pushCancelFocus = await pa.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        open: !!document.querySelector('[data-push-action]'),
+        inDialog: !!(active && active.closest && active.closest('[data-push-action]')),
+      };
+    });
+    check('推送取消后关闭且焦点不在已关闭窗口内: ' + JSON.stringify(pushCancelFocus),
+      pushCancelFocus.open === false && pushCancelFocus.inDialog === false);
+
     // 没有上游：禁用推送、保留「定义远端」、显示原因
     await pa.page.evaluate(() => { window.__unpushedFails = true; });
     await openPopover();
@@ -3632,6 +3667,51 @@ async function main() {
     check('关闭历史比较后单击不重开: ' + JSON.stringify(hcAfterCloseClick.comparisons),
       hcAfterCloseClick.comparisons === 0);
     await hc.page.close();
+
+    // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
+    // Git 历史常在启动后十余秒才到（live-data 注释里写明"实测约 15 秒"）。
+    // 若到达时整页重绘，用户此时在查找框里的输入会被清掉——这正是本断言要抓的。
+    // 延迟必须在页面脚本执行前注入，否则首次 git/history 请求已经发出去了。
+    const latePage = await context.newPage();
+    await latePage.addInitScript(() => { window.__historyDelayMs = 5000; });
+    await latePage.goto(
+      `http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark&open=docs/notes.txt`,
+      { waitUntil: 'load' },
+    );
+    await latePage.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const late = { page: latePage };
+    const historyPending = await late.page.evaluate(() => ({
+      ready: !!window.__augitHistoryReady,
+      commits: document.querySelectorAll('.commit-row').length,
+    }));
+    check('前置条件：历史尚未到达: ' + JSON.stringify(historyPending),
+      historyPending.ready === false);
+
+    // 用户在历史到达前打开搜索浮层并输入。浮层在 overlay 区域，与编辑器重绘无关，
+    // 因此"输入是否被清掉"能干净地区分"整页重绘"与"局部状态变化"。
+    await late.page.keyboard.press('Control+p');
+    await late.page.waitForSelector('.search-overlay .search-field', { timeout: 8000 });
+    const overlayInput = late.page.locator('.search-overlay .search-field').first();
+    await overlayInput.fill('历史到达前的输入');
+    const typedBefore = await overlayInput.inputValue();
+
+    // 等历史真正到达。
+    await late.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await late.page.waitForTimeout(400);
+    const afterHistory = await late.page.evaluate(() => {
+      const input = document.querySelector('.search-overlay .search-field');
+      return {
+        value: input ? input.value : null,
+        overlay: !!document.querySelector('.search-overlay'),
+        rows: document.querySelectorAll('.commit-row').length,
+      };
+    });
+    check('历史到达后 Git 日志已填充: ' + JSON.stringify(afterHistory.rows), afterHistory.rows > 0);
+    check('前置条件：搜索浮层在历史到达后仍存在: ' + JSON.stringify(afterHistory.overlay),
+      afterHistory.overlay === true);
+    check('历史到达不清空用户输入（不得整页重绘）: ' + JSON.stringify([typedBefore, afterHistory.value]),
+      afterHistory.value === typedBefore);
+    await late.page.close();
 
     // ---- 规格 §6.1：加载期间主框架与其它区域位置不变 ----
     const lu = await openScene('scene=commit-changes&theme=dark');
