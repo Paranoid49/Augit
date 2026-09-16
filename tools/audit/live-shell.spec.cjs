@@ -3238,11 +3238,67 @@ async function main() {
     check('取消后关闭紧凑输入窗口',
       await ks.page.evaluate(() => !document.querySelector('[data-compact-dialog]')));
 
-    // 规格 §5.3「对话框取消后恢复打开前焦点」在本场景无法核对：
-    // 该场景没有正文工具栏（跳转行按钮），而键盘按 Ctrl+G 不会让任何元素获得焦点，
-    // 快照必然为空——此时"恢复"没有可核对的目标，写一条弱断言等于假通过。
-    // 焦点恢复由既有用例覆盖：Esc 关闭弹层后焦点回到分支芯片、Worktree 取消后回到
-    // 弹层入口、设置取消后回到设置按钮。
+    // 规格 §5.3：对话框取消后恢复打开前焦点。
+    // 前置条件必须**真的有一个获得焦点的元素**：键盘按 Ctrl+G 不会让任何元素获得焦点，
+    // 快照为空时"恢复"没有可核对目标，曾因此误判实现有缺陷。这里先点击项目树行。
+    const focusScene = await openScene('scene=main-project&theme=dark');
+    await focusScene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await focusScene.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    // 树行是 tabindex="-1"（可编程聚焦、不进 Tab 序列，与视觉稿一致）。
+    // 真实点击会聚焦该行（已实测 activeElement 落在树行上），这里显式聚焦以明确前置条件。
+    await focusScene.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();
+    await focusScene.page.waitForTimeout(200);
+    const focusPre = await focusScene.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        inTree: !!(active && active.closest && active.closest('.side-content.tree')),
+        treePath: active && active.dataset ? active.dataset.treePath || null : null,
+        sameNode: active === document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]'),
+      };
+    });
+    check('前置条件：树行确实持有焦点: ' + JSON.stringify(focusPre),
+      focusPre.inTree === true && focusPre.treePath === 'docs' && focusPre.sameNode === true);
+
+    await focusScene.page.keyboard.press('Control+g');
+    await focusScene.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
+    check('紧凑窗口打开后输入框获得焦点',
+      await focusScene.page.evaluate(() =>
+        document.activeElement === document.querySelector('[data-compact-dialog] [data-compact-field]')));
+
+    // 取消：焦点回到打开前的树行。
+    await focusScene.page.locator('[data-compact-dialog] [data-compact-action="cancel"]').click();
+    await focusScene.page.waitForTimeout(500);
+    const focusAfterCancel = await focusScene.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        gone: !document.querySelector('[data-compact-dialog]'),
+        inTree: !!(active && active.closest && active.closest('.side-content.tree')),
+        treePath: active && active.dataset ? active.dataset.treePath || null : null,
+      };
+    });
+    check('取消后焦点回到打开前的树行: ' + JSON.stringify(focusAfterCancel),
+      focusAfterCancel.gone === true && focusAfterCancel.inTree === true
+        && focusAfterCancel.treePath === 'docs');
+
+    // 确认路径：焦点同样回到触发区域，而不是留在已关闭的窗口里。
+    await focusScene.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();
+    await focusScene.page.waitForTimeout(200);
+    await focusScene.page.keyboard.press('Control+g');
+    await focusScene.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
+    await focusScene.page.locator('[data-compact-dialog] [data-compact-field]').fill('1');
+    await focusScene.page.locator('[data-compact-dialog] [data-compact-action="confirm"]').click();
+    await focusScene.page.waitForTimeout(700);
+    const focusAfterConfirm = await focusScene.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        gone: !document.querySelector('[data-compact-dialog]'),
+        inTree: !!(active && active.closest && active.closest('.side-content.tree')),
+        stillInDialog: !!(active && active.closest && active.closest('[data-compact-dialog]')),
+      };
+    });
+    check('确认后焦点不停留在已关闭的窗口内: ' + JSON.stringify(focusAfterConfirm),
+      focusAfterConfirm.gone === true && focusAfterConfirm.stillInDialog === false);
+    await focusScene.page.close();
 
     // F5 刷新文件树；不重载页面
     const ksUrl = ks.page.url();
