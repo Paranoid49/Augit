@@ -219,6 +219,8 @@ async function main() {
         return { available: true, files: next.files || [], gitMetadata: !!next.gitMetadata };
       }
       if (method === 'git/status') {
+        window.__statusCalls = (window.__statusCalls || 0) + 1;
+        if (window.__statusDelays) await new Promise((r) => setTimeout(r, window.__statusDelays));
         if (window.__deletedPaths && window.__deletedPaths.length) {
           const base = window.__liveFiles || data.status.files;
           const extra = window.__deletedPaths.map((p) => ({ path: p, name: p.split('/').at(-1), directory: p.split('/').slice(0, -1).join('/'), group: 'Changes', kind: 'Deleted', staged: false, workingTree: true }));
@@ -3069,21 +3071,32 @@ async function main() {
     check('§9.1 已选择：单击不请求差异: ' + JSON.stringify([smSelected.calls, smSelected.editor]),
       smSelected.calls === 0 && smSelected.editor !== 'diff');
 
-    // 等待阈值：150 毫秒内不显示闪烁动画
-    await sm.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 900 }; });
+    // 等待阈值：150 毫秒内不显示闪烁动画。
+    //
+    // 判据不能靠「等 90 毫秒再取样」——Playwright 的操作开销会压缩观察窗口
+    // （实测标称 90 毫秒实际经过约 150 毫秒），窗口落在阈值边缘就会随机失败。
+    // 改为**由页面记录调度时刻与出现时刻**，断言两者的差值——
+    // 判据直接落在「阈值是 150 毫秒」这一事实上，不受测试端耗时影响。
+    await sm.page.evaluate(() => {
+      window.__diffDelays = { 'src/App.cs': 4000 };
+      window.__augitLoadingMarkerScheduledAt = null;
+      window.__augitLoadingMarkerShownAt = null;
+    });
     await sm.page.locator('.changes-list .change-file-row').first().dblclick();
     // 记录「已进入等待阈值」这一刻的基线：此时临时标签已创建（规格要求），
     // 后续「加载中」只需断言列表与标签**不再变化**。
     await sm.page.waitForTimeout(50);
     const smEntered = await smState();
-    await sm.page.waitForTimeout(90);
-    const smBefore = await sm.page.evaluate(
-      () => document.querySelectorAll('.diff-loading-status').length);
-    await sm.page.waitForTimeout(140);
-    const smAfter = await sm.page.evaluate(
-      () => document.querySelectorAll('.diff-loading-status').length);
-    check('§9.1 等待阈值：150 毫秒内不显示加载动画: ' + JSON.stringify([smBefore, smAfter]),
-      smBefore === 0 && smAfter === 1);
+    await sm.page.waitForFunction('!!document.querySelector(".diff-loading-status")', null, { timeout: 5000 });
+    const threshold = await sm.page.evaluate(() => ({
+      scheduled: window.__augitLoadingMarkerScheduledAt,
+      shown: window.__augitLoadingMarkerShownAt,
+    }));
+    check('§9.1 等待阈值：加载提示延迟约 150 毫秒出现: ' +
+      JSON.stringify([threshold.scheduled, threshold.shown]),
+      typeof threshold.scheduled === 'number' && typeof threshold.shown === 'number'
+      && threshold.shown - threshold.scheduled >= 140
+      && threshold.shown - threshold.scheduled <= 600);
 
     // 加载中：列表与标签不变，只有编辑区显示加载
     const smDuring = await smState();
@@ -3117,6 +3130,66 @@ async function main() {
     check('§9.1 请求失败：保留列表与选择: ' + JSON.stringify([smAfterFail.listRows, smAfterFail.tabs]),
       smAfterFail.listRows === smBeforeFail.listRows && smAfterFail.tabs === smBeforeFail.tabs);
     await sm.page.close();
+
+    // ---- 规格 §9.2：Git 刷新状态机 ----
+    const gr = await openScene('scene=commit-changes&theme=dark');
+    await gr.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await gr.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const grState = () => gr.page.evaluate(() => ({
+      rows: document.querySelectorAll('.changes-list .change-file-row').length,
+      listText: (document.querySelector('.changes-list') || {}).innerText
+        ? document.querySelector('.changes-list').innerText.replace(/\n/g, '|').slice(0, 60) : null,
+      sideRect: (function () {
+        const el = document.querySelector('.side-tool');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+      })(),
+      statusCalls: window.__statusCalls || 0,
+    }));
+
+    const grBefore = await grState();
+    check('§9.2 前置：改动列表已渲染: ' + grBefore.rows, grBefore.rows >= 1);
+
+    // 查询期间不清空现有列表
+    await gr.page.evaluate(() => { window.__statusDelays = 1200; window.__statusCalls = 0; });
+    await gr.page.evaluate(() => { window.__nextChanges = { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: true }; });
+    await gr.page.waitForTimeout(500);
+    const grQuerying = await grState();
+    check('§9.2 查询期间保留现有列表: ' + JSON.stringify([grBefore.rows, grQuerying.rows]),
+      grQuerying.rows === grBefore.rows && grQuerying.listText === grBefore.listText);
+    check('§9.2 查询期间侧栏位置不变: ' + JSON.stringify([grBefore.sideRect, grQuerying.sideRect]),
+      JSON.stringify(grBefore.sideRect) === JSON.stringify(grQuerying.sideRect));
+    await gr.page.waitForTimeout(1600);
+    const grAfter = await grState();
+    check('§9.2 查询确实发生: ' + grAfter.statusCalls, grAfter.statusCalls >= 1);
+
+    // 无变化：界面保持不变
+    await gr.page.evaluate(() => { window.__statusDelays = 0; });
+    const grStableBefore = await grState();
+    await gr.page.evaluate(() => { window.__nextChanges = { files: [], gitMetadata: false }; });
+    await gr.page.waitForTimeout(900);
+    const grStableAfter = await grState();
+    check('§9.2 无变化时界面不变: ' + JSON.stringify([grStableBefore.rows, grStableAfter.rows, grStableBefore.sideRect, grStableAfter.sideRect]),
+      grStableAfter.rows === grStableBefore.rows
+      && JSON.stringify(grStableAfter.sideRect) === JSON.stringify(grStableBefore.sideRect));
+
+    // 无关文件变化：当前 diff 不进入加载态
+    await gr.page.locator('.changes-list .change-file-row').first().dblclick();
+    await gr.page.waitForFunction('window.__augitLive.diff', null, { timeout: 8000 });
+    await gr.page.waitForTimeout(400);
+    await gr.page.evaluate(() => {
+      window.__diffDelays = { 'src/App.cs': 900 };
+      window.__nextChanges = { files: ['D:\\live-ws\\docs\\unrelated.md'], gitMetadata: false };
+    });
+    await gr.page.waitForTimeout(450);
+    const grUnrelated = await gr.page.evaluate(() => ({
+      loading: document.querySelectorAll('.diff-loading-status').length,
+      editor: window.__augitLive.editor,
+    }));
+    check('§9.2 无关变化不使当前 diff 进入加载: ' + JSON.stringify(grUnrelated),
+      grUnrelated.loading === 0 && grUnrelated.editor === 'diff');
+    await gr.page.close();
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

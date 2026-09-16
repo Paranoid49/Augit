@@ -744,6 +744,9 @@ let diffLoadingMark = null;
  */
 function scheduleDiffLoadingMarker() {
   clearDiffLoadingMarker();
+  // 记录调度时刻：验收据此核对 150 毫秒阈值（规格 §9.1），
+  // 避免测试端用「等待固定时长再取样」这种依赖时序的判据。
+  window.__augitLoadingMarkerScheduledAt = performance.now();
   diffLoadingMark = window.setTimeout(() => {
     diffLoadingMark = null;
     const host = document.querySelector(".diff-layout .diff-columns, .editor-content");
@@ -753,6 +756,7 @@ function scheduleDiffLoadingMarker() {
     marker.setAttribute("role", "status");
     marker.innerHTML = '<span class="loading-mark"></span><span>正在生成 diff…</span>';
     host.prepend(marker);
+    window.__augitLoadingMarkerShownAt = performance.now();
   }, LoadingFeedbackDelay);
 }
 
