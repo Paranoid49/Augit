@@ -1104,9 +1104,22 @@ async function main() {
     check('工具栏存在单栏与双栏两个按钮', await key.page.locator('.diff-toolbar .segmented button').count() === 2);
     // 注意：<template> 的类选择器匹配在某些情况下不可靠，因此按 DOM 结构判定，
     // 并直接验证单栏切换的实际效果（这才是用户能感知的行为）。
-    const hasTemplate = await key.page.evaluate(
-      () => [...document.querySelector('.diff-layout').children].some((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template'));
-    check('实时差异视图提供单栏模板', hasTemplate === true);
+    // 必须核对模板内容里的**真实差异路径**：样例 diffView() 同样会渲染
+    // diff-unified-template（mockup 里有两个产生点），只看"有没有模板"区分不出
+    // 真实渲染与样例渲染——已按第 137 轮固化的约定加严。
+    const templateInfo = await key.page.evaluate(() => {
+      const node = [...document.querySelector('.diff-layout').children]
+        .find((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template');
+      return {
+        present: !!node,
+        head: node ? (node.innerHTML || '').slice(0, 120) : null,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      };
+    });
+    check('实时差异视图提供单栏模板且内容来自真实差异: '
+      + JSON.stringify([templateInfo.present, templateInfo.diffPath]),
+    templateInfo.present === true && typeof templateInfo.diffPath === 'string'
+      && typeof templateInfo.head === 'string' && templateInfo.head.includes(templateInfo.diffPath));
     // 点击工具栏的单栏按钮：相同内容，只重新排版，不再查询 Git
     await key.page.locator('.diff-toolbar .segmented button[aria-label="单栏"]').click();
     await key.page.waitForTimeout(500);

@@ -4553,3 +4553,50 @@ runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treeP
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **575/575**、
 场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百三十八轮：把方法约定反用到既有断言上，找出并加严一条弱断言
+
+第 137 轮把"样例视图陷阱"固化成一条约定：
+
+> 任何"实时渲染是否存在/已恢复"的断言，都必须用只有真实数据路径才会产生的值做判据。
+
+本轮**把这条约定反过来应用到既有套件上**做审计，立刻找到一条符合该缺陷模式的断言：
+
+```js
+const hasTemplate = await key.page.evaluate(
+  () => [...document.querySelector('.diff-layout').children]
+    .some((el) => el.tagName === 'TEMPLATE' && el.className === 'diff-unified-template'));
+check('实时差异视图提供单栏模板', hasTemplate === true);
+```
+
+**样例 `diffView()` 同样渲染 `diff-unified-template`**——`mockup.js` 里有两个产生点
+（第 1349 行的样例、第 1585 行的实时）。因此这条断言在"渲染的是样例"时也会通过。
+
+#### 加严方式
+
+实时模板的第一行是 `<div class="diff-code-line hunk">{差异路径}</div>`，
+样例模板用的是示例行数组。因此改为核对**模板内容是否包含真实差异路径**：
+
+```js
+check('实时差异视图提供单栏模板且内容来自真实差异: …',
+  templateInfo.present === true && templateInfo.head.includes(templateInfo.diffPath));
+```
+
+负向验证：把实时模板里的路径换成占位文案后，断言失败：
+`实时差异视图提供单栏模板且内容来自真实差异: [true,"src/App.cs"]`——
+注意 `present` 仍是 `true`，正是旧断言无法区分的情形。
+
+#### 其余同类位置已复核
+
+- `打开差异` / `差异正文可用` / `差异正文与标签同时就位` 用的是
+  `window.__augitLive.diff.rows.length`，取自**真实状态**，不受样例影响 ✅
+- `差异视图不残留样例路径`（第 696 行）本来就按样例路径做反向判据 ✅
+- 第 1097 行的 `hasDiffLayout` 只出现在抛错时的诊断信息里，不是断言 ✅
+
+#### 结论
+
+这条约定**能产出实际结果**，不只是经验总结：把它反用到既有断言上，
+一轮就找到一条真实存在的弱断言并加严。后续新增断言应继续按它检查。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **575/575**、
+场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
