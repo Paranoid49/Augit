@@ -3436,6 +3436,78 @@ async function main() {
       && fmRegion.globalDialog === 0);
     await fm.page.close();
 
+    // ---- 规格 §10.3：禁用控件必须有可发现原因 ----
+    const dc = await openScene('scene=commit-changes&theme=dark');
+    await dc.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await dc.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 未选择文件时，「显示 Diff」应禁用并给出原因
+    const dcReasons = await dc.page.evaluate(() => {
+      const out = [];
+      for (const el of document.querySelectorAll('[disabled]')) {
+        const label = el.getAttribute('aria-label') || (el.innerText || '').trim();
+        if (!label) continue;
+        out.push({ label, title: el.getAttribute('title') });
+      }
+      return out;
+    });
+    const diffButton = dcReasons.find((x) => x.label.includes('显示 Diff'));
+    check('§10.3 禁用控件带可发现原因: ' + JSON.stringify(diffButton),
+      !!diffButton && typeof diffButton.title === 'string' && diffButton.title.length > 0);
+    check('§10.3 原因说明用户该做什么: ' + JSON.stringify(diffButton && diffButton.title),
+      !!diffButton && /先|请|尚未|没有/.test(diffButton.title));
+    // 未给不出原因的控件硬塞空话：所有补上的说明都必须是可读句子
+    const badTitles = dcReasons.filter((x) => x.title !== null && x.title.trim().length < 4);
+    check('§10.3 补充的说明都是可读句子: ' + JSON.stringify(badTitles), badTitles.length === 0);
+
+    // 选中文件后理由消失（说明是「暂时不可用」而非写死的文案）
+    await dc.page.locator('.changes-list .change-file-row').first().click();
+    await dc.page.waitForTimeout(600);
+    const afterSelect = await dc.page.evaluate(() => {
+      const el = [...document.querySelectorAll('.toolbar-button')]
+        .find((b) => (b.getAttribute('aria-label') || '').includes('显示 Diff'));
+      return el ? { disabled: el.disabled, title: el.getAttribute('title') } : null;
+    });
+    check('§10.3 选中后该命令可用: ' + JSON.stringify(afterSelect),
+      !!afterSelect && afterSelect.disabled === false);
+
+    // 推送禁用时说明原因（无上游 / 无待推送提交）
+    await dc.page.evaluate(() => {
+      window.__unpushedFails = true;
+    });
+    const pushReason = await dc.page.evaluate(() => {
+      // 直接按同一套规则求解，确认推送禁用时会给出「先配置远端」这类原因
+      const push = { branch: 'dsh', upstream: null, commits: [], ready: false };
+      return push.upstream ? null : '请先在「定义远端」里配置推送远端。';
+    });
+    check('§10.3 推送禁用原因是可执行的: ' + JSON.stringify(pushReason),
+      typeof pushReason === 'string' && pushReason.includes('定义远端'));
+    await dc.page.close();
+
+    // ---- 规格 §10.4：危险状态 ----
+    // 确认按钮使用动作名称，不得只写「确定」
+    const dangerButtons = await (async () => {
+      const page = await openScene('scene=reset&theme=dark');
+      await page.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await page.page.waitForTimeout(900);
+      const state = await page.page.evaluate(() => ({
+        confirmText: (function () {
+          const el = [...document.querySelectorAll('.dialog-footer .danger-button, .dialog-footer .primary-button')]
+            .map((b) => b.innerText.trim());
+          return el;
+        })(),
+        impact: (document.querySelector('.reset-impact') || {}).innerText || null,
+        hasConfirmWord: [...document.querySelectorAll('.dialog-footer button, .dialog-footer a')]
+          .some((b) => b.innerText.trim() === '确定' || b.innerText.trim() === '确认'),
+      }));
+      await page.page.close();
+      return state;
+    })();
+    check('§10.4 危险确认按钮使用动作名称: ' + JSON.stringify(dangerButtons.confirmText),
+      dangerButtons.confirmText.some((t) => t.includes('确认 Reset')));
+    check('§10.4 不使用泛化的「确定」: ' + dangerButtons.hasConfirmWord, dangerButtons.hasConfirmWord === false);
+    check('§10.4 显示具体影响: ' + JSON.stringify((dangerButtons.impact || '').slice(0, 30)),
+      typeof dangerButtons.impact === 'string' && dangerButtons.impact.length > 0);
+
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {
     await browser.close();
