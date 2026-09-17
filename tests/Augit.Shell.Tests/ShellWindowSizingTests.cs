@@ -203,4 +203,190 @@ public sealed class ShellWindowSizingTests
         Assert.AreEqual(1920, size.Width);
         Assert.AreEqual(1080, size.Height);
     }
+
+    // ---- 窗口摆放恢复（§6.6「已恢复窗口尺寸不得被默认值覆盖」）----
+
+    /// <summary>一块 3840x2160 的虚拟屏幕，足够放下默认窗口。</summary>
+    private static readonly VirtualScreen Screen = new(0, 0, 3840, 2160);
+
+    [TestMethod]
+    public void 恢复的窗口尺寸优先于默认值()
+    {
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(200, 150, 1400, 900, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            workWidth: 3840,
+            workHeight: 2160,
+            screen: Screen);
+        Assert.AreEqual(1400, placement.Width);
+        Assert.AreEqual(900, placement.Height);
+        Assert.AreEqual(200, placement.X);
+        Assert.AreEqual(150, placement.Y);
+    }
+
+    [TestMethod]
+    public void 显式命令行尺寸覆盖恢复值()
+    {
+        // 审计矩阵用 --width/--height 固定尺寸；此时设置里的用户尺寸不得生效，
+        // 否则同一场景在不同机器上尺寸不同，截图无法比较。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(0, 0, 1400, 900, false),
+            overrideWidth: 1024,
+            overrideHeight: 640,
+            effectiveDpi: 96,
+            workWidth: 3840,
+            workHeight: 2160,
+            screen: Screen);
+        Assert.AreEqual(1024, placement.Width);
+        Assert.AreEqual(640, placement.Height);
+    }
+
+    [TestMethod]
+    public void 恢复的尺寸低于布局下限时收敛到下限()
+    {
+        // 设置里可能是旧版本或损坏的值；低于 .augit-window 的 1024x640 会裁掉界面。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(null, null, 400, 300, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            workWidth: 3840,
+            workHeight: 2160,
+            screen: Screen);
+        Assert.AreEqual(ShellWindowSizing.MinimumLogicalWidth, placement.Width);
+        Assert.AreEqual(ShellWindowSizing.MinimumLogicalHeight, placement.Height);
+    }
+
+    [TestMethod]
+    public void 非法恢复值回退到默认尺寸()
+    {
+        foreach (double bad in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+        {
+            PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+                new SavedPlacement(null, null, bad, bad, false),
+                overrideWidth: null,
+                overrideHeight: null,
+                effectiveDpi: 96,
+                workWidth: 3840,
+                workHeight: 2160,
+                screen: Screen);
+            Assert.AreEqual(ShellWindowSizing.DefaultLogicalWidth, placement.Width);
+            Assert.AreEqual(ShellWindowSizing.DefaultLogicalHeight, placement.Height);
+        }
+    }
+
+    [TestMethod]
+    public void 恢复的位置仍在屏幕内时被采用()
+    {
+        (int x, int y) = ShellWindowSizing.ResolveStartupPosition(600, 400, 96, Screen);
+        Assert.AreEqual(600, x);
+        Assert.AreEqual(400, y);
+    }
+
+    [TestMethod]
+    public void 恢复的位置越界时回到默认位置()
+    {
+        // 显示器被拔掉后设置里会留下屏幕外的坐标；直接用会让窗口出现在用户看不到的地方。
+        (int x, int y) = ShellWindowSizing.ResolveStartupPosition(9000, 5000, 96, Screen);
+        Assert.AreEqual(ShellWindowSizing.DefaultWindowX, x);
+        Assert.AreEqual(ShellWindowSizing.DefaultWindowY, y);
+        (int left, int _) = ShellWindowSizing.ResolveStartupPosition(-4000, 100, 96, Screen);
+        Assert.AreEqual(ShellWindowSizing.DefaultWindowX, left);
+    }
+
+    [TestMethod]
+    public void 取不到虚拟屏幕时不否决恢复位置()
+    {
+        // 取不到屏幕尺寸时不能把所有恢复位置都判为无效，否则每次启动都回到默认位置。
+        (int x, int y) = ShellWindowSizing.ResolveStartupPosition(600, 400, 96, new VirtualScreen(0, 0, 0, 0));
+        Assert.AreEqual(600, x);
+        Assert.AreEqual(400, y);
+    }
+
+    [TestMethod]
+    public void 标题栏探针点判定边界()
+    {
+        // 探针点必须落在虚拟屏幕内；右边界是开区间，避免整窗刚好贴在屏幕外仍被判定可见。
+        VirtualScreen screen = new(0, 0, 1000, 800);
+        Assert.IsTrue(ShellWindowSizing.IsTitleBarReachable(0, 0, screen));
+        Assert.IsTrue(ShellWindowSizing.IsTitleBarReachable(-79, 0, screen));
+        Assert.IsFalse(ShellWindowSizing.IsTitleBarReachable(-81, 0, screen));
+        Assert.IsFalse(ShellWindowSizing.IsTitleBarReachable(1000 - ShellWindowSizing.TitleBarProbeX, 0, screen));
+        Assert.IsFalse(ShellWindowSizing.IsTitleBarReachable(0, 800 - ShellWindowSizing.TitleBarProbeY, screen));
+    }
+
+    [TestMethod]
+    public void 恢复最大化状态()
+    {
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(100, 100, 1180, 760, true),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            workWidth: 3840,
+            workHeight: 2160,
+            screen: Screen);
+        Assert.IsTrue(placement.IsMaximized);
+    }
+
+    [TestMethod]
+    public void 显式尺寸时不恢复最大化状态()
+    {
+        // 审计要的是确定的窗口尺寸；恢复最大化会让截图尺寸不可预期。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(100, 100, 1180, 760, true),
+            overrideWidth: 1180,
+            overrideHeight: 760,
+            effectiveDpi: 96,
+            workWidth: 3840,
+            workHeight: 2160,
+            screen: Screen);
+        Assert.IsFalse(placement.IsMaximized);
+    }
+
+    [TestMethod]
+    public void 逻辑单位与物理像素可往返换算()
+    {
+        // 设置文件存逻辑单位，因此"保存再读回"必须还原同一个逻辑尺寸，
+        // 否则用户每次退出再启动窗口都会缩一点或长一点。
+        foreach (int dpi in MonitoredDpis)
+        {
+            foreach (int logical in new[] { 640, 760, 1024, 1180, 1400 })
+            {
+                double roundTrip = ShellWindowSizing.ToLogical(
+                    ShellWindowSizing.ScaleToPhysical(logical, dpi), dpi);
+                Assert.AreEqual((double)logical, roundTrip, 1.0, $"{dpi} DPI 下 {logical} 往返不一致。");
+            }
+        }
+    }
+
+    [TestMethod]
+    public void 恢复位置不因取整而偏移()
+    {
+        // 端到端实测过：把 (300,200) 物理位置按 175% 存成逻辑 (171.42857, 114.28571) 后，
+        // 先取整再换算会得到 299；必须直接按小数换算，否则用户的窗口会固定偏 1 像素。
+        (int x, int y) = ShellWindowSizing.ResolveStartupPosition(
+            171.42857142857142, 114.28571428571429, 168, Screen);
+        Assert.AreEqual(300, x);
+        Assert.AreEqual(200, y);
+    }
+
+    [TestMethod]
+    public void 位置保存恢复往返不漂移()
+    {
+        foreach (int dpi in MonitoredDpis)
+        {
+            // 只用"标题栏探针点仍落在 Screen 内"的位置：越界位置回退到默认是另一条测试覆盖的正确行为。
+            foreach ((int x, int y) in new[] { (0, 0), (80, 80), (300, 200), (1920, 1080), (-79, 40) })
+            {
+                double logicalX = ShellWindowSizing.ToLogical(x, dpi);
+                double logicalY = ShellWindowSizing.ToLogical(y, dpi);
+                (int rx, int ry) = ShellWindowSizing.ResolveStartupPosition(logicalX, logicalY, dpi, Screen);
+                Assert.AreEqual(x, rx, $"{dpi} DPI 下 x={x} 往返后变成 {rx}。");
+                Assert.AreEqual(y, ry, $"{dpi} DPI 下 y={y} 往返后变成 {ry}。");
+            }
+        }
+    }
 }

@@ -8,9 +8,6 @@ namespace Augit.Shell;
 /// </summary>
 internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi, string? BrowserArguments)
 {
-    private const string DefaultWidth = "1180";
-    private const string DefaultHeight = "760";
-
     public static ShellOptions Parse(string[] arguments)
     {
         string? webRoot = null;
@@ -102,8 +99,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             Path.GetFullPath(workspaceRoot ?? Environment.CurrentDirectory),
             scene,
             theme,
-            ParseSize(width, DefaultWidth, "--width"),
-            ParseSize(height, DefaultHeight, "--height"),
+            ParseSize(width, "--width"),
+            ParseSize(height, "--height"),
             showFrame,
             pixelExact,
             openDocument,
@@ -125,10 +122,19 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         return arguments[++index];
     }
 
-    private static int? ParseSize(string? value, string fallback, string name)
+    /// <summary>
+    /// 解析窗口尺寸覆盖。未传时返回 null——调用方需要区分"用户没指定"与"用户指定了默认值"：
+    /// 前者要恢复设置里保存的窗口尺寸（§6.6「已恢复窗口尺寸不得被默认值覆盖」），
+    /// 后者是审计要固定尺寸，必须原样生效。
+    /// </summary>
+    private static int? ParseSize(string? value, string name)
     {
-        string effective = value ?? fallback;
-        if (!int.TryParse(effective, out int parsed) || parsed < 320)
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(value, out int parsed) || parsed < 320)
         {
             throw new ArgumentException($"{name} 必须是大于等于 320 的整数。");
         }

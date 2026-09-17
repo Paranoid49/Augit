@@ -14,8 +14,10 @@ internal static class Program
         try
         {
             ShellOptions options = ShellOptions.Parse(arguments);
+            // 设置只读一次：主题与窗口摆放共用同一份快照，避免启动时读两遍文件。
+            ApplicationSettings settings = LoadSettings();
             // 未显式指定 --theme 时按设置解析主题；设置里的 System 跟随 Windows。
-            options = options with { Theme = ResolveTheme(options.Theme) };
+            options = options with { Theme = ResolveTheme(options.Theme, settings) };
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：
             // 「再次打开同一目录时，在 1 秒内激活已有窗口并退出新进程」）。
@@ -24,7 +26,7 @@ internal static class Program
             {
                 return 0;
             }
-            using ShellWindow window = new(options);
+            using ShellWindow window = new(options, settings.Window);
             window.Show();
             // 登记窗口句柄，供后续同工作区实例激活本窗口。
             _ = RegisterWindow(window.Handle, options.WorkspaceRoot);
@@ -38,26 +40,33 @@ internal static class Program
     }
 
     /// <summary>
-    /// 解析生效主题：命令行优先，其次读取设置文件；设置为 System 时跟随 Windows 应用主题。
-    /// 读取失败时回退到深色，与视觉稿基线一致。
+    /// 读取用户设置。读取失败（文件损坏、无权限）时返回默认设置：
+    /// 启动不能因为设置文件而失败，此时窗口用默认尺寸与位置。
     /// </summary>
-    private static string ResolveTheme(string? explicitTheme)
+    private static ApplicationSettings LoadSettings()
+    {
+        try
+        {
+            SettingsStore store = new();
+            return store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return new();
+        }
+    }
+
+    /// <summary>
+    /// 解析生效主题：命令行优先，其次设置；设置为 System 时跟随 Windows 应用主题。
+    /// </summary>
+    private static string ResolveTheme(string? explicitTheme, ApplicationSettings settings)
     {
         if (explicitTheme is { Length: > 0 })
         {
             return explicitTheme;
         }
 
-        string configured;
-        try
-        {
-            SettingsStore store = new();
-            configured = store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult().Theme;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
-        {
-            return "Dark";
-        }
+        string configured = settings.Theme;
 
         if (configured.Equals("Dark", StringComparison.OrdinalIgnoreCase))
         {

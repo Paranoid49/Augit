@@ -137,4 +137,64 @@ public sealed class SettingsStoreTests
         Assert.IsNull(actual.TerminalCustomCommand);
         Assert.HasCount(10, actual.RecentWorkspaces);
     }
+
+    [TestMethod]
+    public async Task 保存时归一化窗口摆放()
+    {
+        // 窗口摆放此前在模型里有字段却没有任何读写与归一化，是 §6.6「已恢复窗口尺寸
+        // 不得被默认值覆盖」的缺口；这里钉住"损坏或越界的摆放不会进入设置文件"。
+        using TemporaryDirectory temporary = new();
+        string settingsPath = temporary.GetPath("settings.json");
+        SettingsStore store = new(settingsPath);
+
+        await store.SaveAsync(new()
+        {
+            Window = new()
+            {
+                Left = double.NaN,
+                Top = 120,
+                Width = 99999,
+                Height = double.PositiveInfinity,
+            },
+        });
+        ApplicationSettings actual = await store.LoadAsync();
+
+        // 非有限值的位置被丢弃，外壳会回退到默认位置。
+        Assert.IsNull(actual.Window.Left);
+        Assert.AreEqual(120d, actual.Window.Top);
+        // 过大的尺寸收敛到上限；非法尺寸回退到默认值而不是留下 NaN 或无穷。
+        Assert.AreEqual(20000d, actual.Window.Width);
+        Assert.AreEqual(760d, actual.Window.Height);
+    }
+
+    [TestMethod]
+    public async Task 只更新窗口摆放时保留其它字段()
+    {
+        // 外壳在 WM_CLOSE 里用"读改写"只替换窗口摆放；若整体覆盖，
+        // 用户的主题、Git 路径、最近工作区会在每次关窗时丢失。
+        using TemporaryDirectory temporary = new();
+        string settingsPath = temporary.GetPath("settings.json");
+        SettingsStore store = new(settingsPath);
+        await store.SaveAsync(new()
+        {
+            Theme = "Light",
+            GitExecutablePath = @"C:\git\git.exe",
+            ToolWindows = new() { ProjectPanelWidth = 320 },
+        });
+
+        ApplicationSettings current = await store.LoadAsync();
+        await store.SaveAsync(current with
+        {
+            Window = new() { Left = 40, Top = 40, Width = 1300, Height = 820, IsMaximized = true },
+        });
+        ApplicationSettings actual = await store.LoadAsync();
+
+        Assert.AreEqual("Light", actual.Theme);
+        Assert.AreEqual(@"C:\git\git.exe", actual.GitExecutablePath);
+        Assert.AreEqual(320d, actual.ToolWindows.ProjectPanelWidth);
+        Assert.AreEqual(1300d, actual.Window.Width);
+        Assert.AreEqual(820d, actual.Window.Height);
+        Assert.AreEqual(40d, actual.Window.Left);
+        Assert.IsTrue(actual.Window.IsMaximized);
+    }
 }

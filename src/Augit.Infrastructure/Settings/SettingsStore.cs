@@ -90,6 +90,7 @@ public sealed class SettingsStore
             .Take(10)
             .ToArray();
         ToolWindowLayoutSettings toolWindows = settings.ToolWindows ?? new();
+        WindowPlacementSettings window = settings.Window ?? new();
 
         return settings with
         {
@@ -97,6 +98,16 @@ public sealed class SettingsStore
             ActiveFile = activeFile,
             ExpandedDirectories = expandedDirectories,
             RecentWorkspaces = recentWorkspaces,
+            // 窗口尺寸与位置是逻辑单位：宽度/高度收敛到能容纳界面的范围，
+            // 位置只保留有限值，非法值交给外壳回退到默认位置。
+            Window = new()
+            {
+                Left = FiniteOrNull(window.Left),
+                Top = FiniteOrNull(window.Top),
+                Width = NormalizeDimension(window.Width, 320, 20000) ?? 1180,
+                Height = NormalizeDimension(window.Height, 320, 20000) ?? 760,
+                IsMaximized = window.IsMaximized,
+            },
             ToolWindows = new()
             {
                 ProjectPanelWidth = NormalizeDimension(toolWindows.ProjectPanelWidth, 240, 1600),
@@ -131,4 +142,7 @@ public sealed class SettingsStore
             ? Math.Clamp(value.Value, minimum, maximum)
             : null;
     }
+
+    private static double? FiniteOrNull(double? value)
+        => value is { } number && double.IsFinite(number) ? number : null;
 }

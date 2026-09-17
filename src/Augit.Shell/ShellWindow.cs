@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Augit.Infrastructure.Settings;
 using Microsoft.Web.WebView2.Core;
 
 namespace Augit.Shell;
@@ -14,6 +15,11 @@ internal sealed class ShellWindow : IDisposable
     private const string DefaultVirtualHost = "augit.local";
     private const int WsOverlappedWindow = 0x00CF0000;
     private const int SwShow = 5;
+    private const int SwShowMaximized = 3;
+    private const int SystemMetricsXVirtualScreen = 76;
+    private const int SystemMetricsYVirtualScreen = 77;
+    private const int SystemMetricsCxVirtualScreen = 78;
+    private const int SystemMetricsCyVirtualScreen = 79;
     private const uint WmSize = 0x0005;
     private const uint WmClose = 0x0010;
     private const uint WmDestroy = 0x0002;
@@ -34,9 +40,12 @@ internal sealed class ShellWindow : IDisposable
     private static bool _messageLoopRunning;
 
     private readonly ShellOptions _options;
+    private readonly WindowPlacementSettings _savedPlacement;
+    private readonly bool _persistPlacement;
     private readonly nint _instance;
     private nint _window;
     private int _effectiveDpi;
+    private bool _startupMaximized;
     private Rect _workArea;
     private bool _hasWorkArea;
     private readonly ShellBridge _bridge;
@@ -45,9 +54,13 @@ internal sealed class ShellWindow : IDisposable
     private bool _disposed;
     private readonly Queue<string> _pendingReplies = new();
 
-    public ShellWindow(ShellOptions options)
+    public ShellWindow(ShellOptions options, WindowPlacementSettings? savedPlacement = null)
     {
         _options = options;
+        _savedPlacement = savedPlacement ?? new();
+        // 审计与视觉对照会显式指定场景、DPI 或尺寸；这些运行不得把审计窗口写进用户设置。
+        _persistPlacement = options is
+        { Width: null, Height: null, Dpi: null, PixelExact: false, Scene: null or "" };
         _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
         _instance = GetModuleHandle(null);
         _effectiveDpi = ShellWindowSizing.ResolveEffectiveDpi(
@@ -75,7 +88,8 @@ internal sealed class ShellWindow : IDisposable
 
     public void Show()
     {
-        ShowWindow(_window, SwShow);
+        // 上次退出时是最大化，就按最大化显示；尺寸来自设置的还原矩形。
+        ShowWindow(_window, _startupMaximized ? SwShowMaximized : SwShow);
     }
 
     public static int RunMessageLoop()
@@ -169,22 +183,34 @@ internal sealed class ShellWindow : IDisposable
         // 窗口按生效 DPI 放大，使界面拿到与视觉稿一致的逻辑视口；再收敛到工作区，
         // 避免 175%/200% 缩放的笔记本屏幕上窗口比屏幕还大。
         _hasWorkArea = SystemParametersInfo(SpiGetWorkArea, 0, ref _workArea, 0);
-        PhysicalSize size = ShellWindowSizing.InitialWindow(
-            _options.Width ?? ShellWindowSizing.DefaultLogicalWidth,
-            _options.Height ?? ShellWindowSizing.DefaultLogicalHeight,
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
+            new SavedPlacement(
+                _savedPlacement.Left,
+                _savedPlacement.Top,
+                _savedPlacement.Width,
+                _savedPlacement.Height,
+                _savedPlacement.IsMaximized),
+            _options.Width,
+            _options.Height,
             _effectiveDpi,
             WorkWidth,
-            WorkHeight);
+            WorkHeight,
+            new VirtualScreen(
+                GetSystemMetrics(SystemMetricsXVirtualScreen),
+                GetSystemMetrics(SystemMetricsYVirtualScreen),
+                GetSystemMetrics(SystemMetricsCxVirtualScreen),
+                GetSystemMetrics(SystemMetricsCyVirtualScreen)));
+        _startupMaximized = placement.IsMaximized;
 
         return CreateWindowEx(
             0,
             WindowClassName,
             "Augit",
             WsOverlappedWindow,
-            80,
-            80,
-            size.Width,
-            size.Height,
+            placement.X,
+            placement.Y,
+            placement.Width,
+            placement.Height,
             0,
             0,
             _instance,
@@ -220,6 +246,7 @@ internal sealed class ShellWindow : IDisposable
                 shell.ApplyMinimumSize(lParam);
                 return 0;
             case WmClose:
+                shell.SavePlacement();
                 DestroyWindow(window);
                 return 0;
             case WmDestroy:
@@ -532,6 +559,59 @@ internal sealed class ShellWindow : IDisposable
     }
 
     /// <summary>
+    /// 把当前窗口摆放写回设置（§6.6「已恢复窗口尺寸不得被默认值覆盖」）。
+    /// 物理像素换算成逻辑单位保存，显示器 DPI 变化后尺寸仍然正确；
+    /// 只取还原矩形，最大化/最小化状态单独记录，还原时才能得到正确尺寸。
+    /// 审计运行（显式场景、DPI 或尺寸）不写设置，避免污染用户窗口。
+    /// </summary>
+    private void SavePlacement()
+    {
+        if (!_persistPlacement || _window == 0)
+        {
+            return;
+        }
+
+        WindowPlacement placement = new() { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
+        if (!GetWindowPlacement(_window, ref placement))
+        {
+            return;
+        }
+
+        Rect bounds = placement.NormalPosition;
+        int physicalWidth = bounds.Right - bounds.Left;
+        int physicalHeight = bounds.Bottom - bounds.Top;
+        // 尺寸装不下布局时不写入：一次异常的小窗口不应该毁掉上一次保存的可用尺寸
+        // （退役的旧原生界面也是这个行为）。
+        PhysicalSize minimum = ShellWindowSizing.MinimumWindow(_effectiveDpi, WorkWidth, WorkHeight);
+        if (physicalWidth < minimum.Width || physicalHeight < minimum.Height)
+        {
+            return;
+        }
+
+        WindowPlacementSettings saved = new()
+        {
+            Left = ShellWindowSizing.ToLogical(bounds.Left, _effectiveDpi),
+            Top = ShellWindowSizing.ToLogical(bounds.Top, _effectiveDpi),
+            Width = ShellWindowSizing.ToLogical(physicalWidth, _effectiveDpi),
+            Height = ShellWindowSizing.ToLogical(physicalHeight, _effectiveDpi),
+            IsMaximized = placement.ShowCommand == SwShowMaximized,
+        };
+
+        try
+        {
+            // 读改写：设置文件同时存主题、最近工作区、打开的文件，不能整体覆盖。
+            SettingsStore store = new();
+            ApplicationSettings current = store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+            store.SaveAsync(current with { Window = saved }, CancellationToken.None).GetAwaiter().GetResult();
+        }
+        catch (Exception)
+        {
+            // 关闭阶段任何写盘失败都不影响退出（这里是窗口过程，抛出去会在退出时弹错误框），
+            // 下次启动沿用上一次保存的位置。
+        }
+    }
+
+    /// <summary>
     /// 显示器 DPI 变化时更新生效 DPI。显式 <c>--dpi</c> 与 <c>--pixel-exact</c> 已经把
     /// WebView2 的栅格化比例固定住并关闭了监视器缩放跟随，此时不得改写。
     /// 同时交给默认过程按系统建议的矩形调整窗口，否则换到更高 DPI 的显示器后
@@ -628,6 +708,12 @@ internal sealed class ShellWindow : IDisposable
     private static extern uint GetDpiForSystem();
 
     [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowPlacement(nint window, ref WindowPlacement placement);
+
+    [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(nint window);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SystemParametersInfoW", SetLastError = true)]
@@ -647,6 +733,18 @@ internal sealed class ShellWindow : IDisposable
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]
     private static extern int MessageBox(nint window, string text, string caption, uint type);
+
+    // WINDOWPLACEMENT 必须带 Length 字段，否则 GetWindowPlacement 返回失败。
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WindowPlacement
+    {
+        public uint Length;
+        public uint Flags;
+        public uint ShowCommand;
+        public ShellPoint MinimumPosition;
+        public ShellPoint MaximumPosition;
+        public Rect NormalPosition;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
