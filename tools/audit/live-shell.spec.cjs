@@ -1116,6 +1116,118 @@ async function main() {
     }
     await goto.page.close();
 
+    // ---- 规格 §5.4：Tab 在当前区域内按视觉顺序移动焦点，不先穿越全局工具入口 ----
+    const tabSoft = [];
+    const tabCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      tabSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const tabRegion = await openScene('scene=commit-changes&theme=dark&open=docs/notes.txt');
+    await tabRegion.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await tabRegion.page.waitForSelector('.side-tool .change-file-row', { timeout: 10000 });
+
+    const focusInfo = () => tabRegion.page.evaluate(() => {
+      const active = document.activeElement;
+      const rect = active && active.getBoundingClientRect ? active.getBoundingClientRect() : null;
+      const owner = ["side-tool", "current-find", "editor-tabs", "editor-content", "bottom-tool", "titlebar", "tool-rail", "statusbar"]
+        .find((name) => active && active.closest && active.closest("." + name)) || null;
+      return {
+        tag: active ? active.tagName.toLowerCase() : null,
+        label: active && active.getAttribute ? (active.getAttribute('aria-label') || active.className || null) : null,
+        region: owner,
+        top: rect ? Math.round(rect.top) : null,
+        left: rect ? Math.round(rect.left) : null,
+      };
+    });
+
+    // 侧栏区域的第一个可聚焦元素：Shift+Tab 不得先穿越全局工具入口（默认顺序会落到工具栏按钮）。
+    const sideFirst = await tabRegion.page.evaluate(() => {
+      const box = document.querySelector('.side-tool');
+      const nodes = [...box.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+        .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length > 0);
+      nodes.sort((a, b) => {
+        const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+        return Math.abs(ra.top - rb.top) > 4 ? ra.top - rb.top : ra.left - rb.left;
+      });
+      if (nodes[0]) nodes[0].focus();
+      return { count: nodes.length, first: nodes[0] ? (nodes[0].getAttribute('aria-label') || nodes[0].className) : null };
+    });
+    check('前置条件：侧栏区域有多个可聚焦元素: ' + JSON.stringify(sideFirst),
+      sideFirst.count >= 2 && typeof sideFirst.first === 'string');
+    await tabRegion.page.keyboard.press('Shift+Tab');
+    await tabRegion.page.waitForTimeout(200);
+    const sideBack = await focusInfo();
+    // 内容段内环绕：反向离开侧栏时不得落进标题栏/工具栏这些全局入口。
+    tabCheck('Shift+Tab 不先穿越全局工具入口: ' + JSON.stringify(sideBack),
+      sideBack.region !== 'titlebar' && sideBack.region !== 'tool-rail' && sideBack.region !== null
+        && sideBack.region !== 'side-tool');
+
+    // 正向：区域内的 Tab 必须按视觉顺序（顶边不倒退）。
+    const walk = [];
+    for (let i = 0; i < 4; i += 1) {
+      await tabRegion.page.keyboard.press('Tab');
+      await tabRegion.page.waitForTimeout(120);
+      walk.push(await focusInfo());
+    }
+    const insideCount = walk.filter((step) => step.region === 'side-tool').length;
+    tabCheck('侧栏内 Tab 继续留在本区域: ' + JSON.stringify(walk.map((w) => [w.region, w.top])),
+      insideCount >= 2);
+    const ordered = walk.every((step, index) => index === 0 || walk[index - 1].region !== 'side-tool'
+      || step.region !== 'side-tool' || step.top >= walk[index - 1].top - 4);
+    tabCheck('区域内按视觉顺序（顶边不倒退）: ' + JSON.stringify(walk.map((w) => w.top)), ordered === true);
+
+    // 查找条是独立区域：Tab 从最后一个元素回到输入框（规格 §5.4 明确要求这个循环）。
+    await tabRegion.page.keyboard.press('Control+f');
+    await tabRegion.page.waitForSelector('.current-find input.search-field', { timeout: 8000 });
+    await tabRegion.page.evaluate(() => document.querySelector('.current-find [aria-label="关闭查找"]').focus());
+    await tabRegion.page.keyboard.press('Tab');
+    await tabRegion.page.waitForTimeout(200);
+    const findWrap = await focusInfo();
+    tabCheck('查找条自成循环（末项 Tab 回到输入框）: ' + JSON.stringify(findWrap),
+      findWrap.region === 'current-find' && findWrap.tag === 'input');
+
+    // 区域边界：从最后一个元素继续 Tab，进入相邻的**内容**区域而不是全局入口。
+    await tabRegion.page.evaluate(() => {
+      const box = document.querySelector('.side-tool');
+      const nodes = [...box.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+        .filter((node) => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length > 0);
+      nodes.sort((a, b) => {
+        const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+        return Math.abs(ra.top - rb.top) > 4 ? ra.top - rb.top : ra.left - rb.left;
+      });
+      if (nodes.length) nodes[nodes.length - 1].focus();
+    });
+    await tabRegion.page.keyboard.press('Tab');
+    await tabRegion.page.waitForTimeout(200);
+    const sideExit = await focusInfo();
+    tabCheck('侧栏末尾继续 Tab 进入相邻内容区域: ' + JSON.stringify(sideExit),
+      sideExit.region !== 'titlebar' && sideExit.region !== 'tool-rail' && sideExit.region !== null);
+
+    // 弹层例外：对话框自己的 Tab 循环不受影响（紧凑窗口用例已单独断言，这里只确认不抢）。
+    await tabRegion.page.locator('.top-chip.branch-chip').click();
+    await tabRegion.page.waitForTimeout(400);
+    await tabRegion.page.locator('[data-augit-overlay] [data-branch-action="create"]').click();
+    await tabRegion.page.waitForSelector('[data-compact-dialog]', { timeout: 8000 }).catch(() => {});
+    const dialogTab = [];
+    for (let i = 0; i < 4; i += 1) {
+      dialogTab.push(await tabRegion.page.evaluate(() => {
+        const el = document.activeElement;
+        return el && el.dataset ? (el.dataset.compactAction || (el.dataset.compactField !== undefined ? 'field' : el.className)) : null;
+      }));
+      await tabRegion.page.keyboard.press('Tab');
+      await tabRegion.page.waitForTimeout(120);
+    }
+    tabCheck('对话框内的 Tab 仍按窗口自身顺序循环: ' + JSON.stringify(dialogTab),
+      dialogTab.join(',') === 'field,cancel,confirm,close');
+    await tabRegion.page.keyboard.press('Escape');
+    await tabRegion.page.waitForTimeout(300);
+    await tabRegion.page.close();
+
+    if (tabSoft.length > 0) {
+      throw new Error('断言失败：' + tabSoft.join(' | '));
+    }
+
     // ---- Reset 对话框 ----
     const reset = await openScene('scene=reset&theme=dark');
     await reset.page.waitForSelector('[data-setting], #reset-target', { timeout: 10000 });

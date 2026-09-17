@@ -2790,6 +2790,7 @@ function rebindAfterRender() {
   bindOverlayEscape();
   bindTitlebarMenuEscape();
   bindCompactDialogKeys();
+  bindRegionTabOrder();
   bindGlobalShortcuts();
   bindModalBackground();
   reflectWriteOperation();
@@ -4860,6 +4861,143 @@ function bindModalBackground() {
   // 回调里只做一次 querySelectorAll，且 MutationObserver 会合并同一批改动。
   new MutationObserver(() => syncModalBackground()).observe(root, { childList: true, subtree: true });
   syncModalBackground();
+}
+
+/**
+ * 区域焦点顺序（规格 §5.4）：`Tab` 在当前区域内按**视觉顺序**移动焦点，
+ * 不先穿越所有全局工具入口。
+ *
+ * 区域用选择器定义（与视觉稿的 `REGION_SELECTORS` 同一风格），取**最内层**命中的那个：
+ * 查找条在编辑区之内，因此它是自己的区域（规格 §5.4 要求查找条自成循环）。
+ * 区域之间按"内容在前、全局入口在后"衔接，边界处进入相邻区域的第一个可聚焦元素；
+ * 没有任何可聚焦元素的区域直接跳过。
+ *
+ * 只处理真正的键盘 Tab：弹层/对话框有自己的焦点规则（紧凑输入窗口自行循环），
+ * 组词期间不抢占，`body` 上没有区域时不干预（让浏览器决定起点）。
+ */
+const FOCUS_REGIONS = [
+  { name: "side", selector: ".side-tool", segment: "content" },
+  { name: "find", selector: ".current-find", segment: "content" },
+  { name: "editorTabs", selector: ".editor-tabs", segment: "content" },
+  { name: "editorContent", selector: ".editor-content", segment: "content" },
+  { name: "bottomTool", selector: ".bottom-tool", segment: "content" },
+  { name: "titlebar", selector: ".titlebar", segment: "global" },
+  { name: "rail", selector: ".tool-rail", segment: "global" },
+  { name: "statusbar", selector: ".statusbar", segment: "global" },
+];
+
+const FOCUSABLE_SELECTOR = "a[href], button, input, select, textarea, [tabindex]";
+
+function isFocusableNode(node) {
+  if (!node || node.disabled === true) return false;
+  if (node.getAttribute && node.getAttribute("aria-disabled") === "true") return false;
+  if (node.tabIndex < 0) return false;
+  return node.getClientRects().length > 0;
+}
+
+/** 元素所属的区域：取最内层命中的区域（嵌套时以里层为准）。 */
+function focusRegionOf(node) {
+  let best = null;
+  for (const region of FOCUS_REGIONS) {
+    const element = node.closest(region.selector);
+    if (!element) continue;
+    if (!best || (best.element !== element && best.element.contains(element))) {
+      best = { region, element };
+    }
+  }
+  return best;
+}
+
+/** 区域内可直接聚焦的元素，按视觉顺序（先上后下，同一行先左后右）；排除嵌套区域。 */
+function regionFocusables(regionElement) {
+  const nodes = [...regionElement.querySelectorAll(FOCUSABLE_SELECTOR)].filter((node) => {
+    if (!isFocusableNode(node)) return false;
+    const owner = focusRegionOf(node);
+    return !!owner && owner.element === regionElement;
+  });
+  nodes.sort((left, right) => {
+    const a = left.getBoundingClientRect();
+    const b = right.getBoundingClientRect();
+    // 同一视觉行（顶边差在 4 像素内）按左边界排序，否则从上到下。
+    if (Math.abs(a.top - b.top) > 4) return a.top - b.top;
+    return a.left - b.left;
+  });
+  return nodes;
+}
+
+/** 同一段内的相邻区域（跳过没有可聚焦元素的区域）；段内环绕，不跨越内容段与全局段。 */
+function moveFocusWithinSegment(owner, step) {
+  const segment = FOCUS_REGIONS.filter((region) => region.segment === owner.region.segment);
+  const index = segment.findIndex((region) => region.name === owner.region.name);
+  if (index < 0) return false;
+  for (let offset = 1; offset < segment.length; offset += 1) {
+    const position = ((index + step * offset) % segment.length + segment.length) % segment.length;
+    const element = document.querySelector(segment[position].selector);
+    if (!element) continue;
+    const candidates = regionFocusables(element);
+    if (candidates.length === 0) continue;
+    (step > 0 ? candidates[0] : candidates[candidates.length - 1]).focus();
+    return true;
+  }
+  return false;
+}
+
+/** 段内没有别的可聚焦区域时的兜底：只有"离开内容段向前"和"离开全局段向后"才跨段。 */
+function moveFocusAcrossSegments(owner, step) {
+  const content = owner.region.segment === "content";
+  const forward = step > 0;
+  const crosses = content === forward;
+  if (!crosses) {
+    // 反方向边界（内容段后退 / 全局段前进）：留在本段内环绕到本区域自身。
+    const own = regionFocusables(document.querySelector(owner.region.selector) || document.body);
+    if (own.length > 0) (forward ? own[0] : own[own.length - 1]).focus();
+    return;
+  }
+  const target = FOCUS_REGIONS.filter((region) => region.segment !== owner.region.segment);
+  for (const region of (forward ? target : [...target].reverse())) {
+    const element = document.querySelector(region.selector);
+    if (!element) continue;
+    const candidates = regionFocusables(element);
+    if (candidates.length === 0) continue;
+    (forward ? candidates[0] : candidates[candidates.length - 1]).focus();
+    return;
+  }
+}
+
+function bindRegionTabOrder() {
+  if (!window.__augitLive || window.__augitRegionTabBound) return;
+  window.__augitRegionTabBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || event.defaultPrevented) return;
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
+    // 组词中的 Tab 交给输入法（规格 §5.3）。
+    if (event.isComposing || event.keyCode === 229) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) return;
+    // 弹层与对话框自带焦点规则，不在这里接管。
+    if (active.closest("[data-augit-overlay]")) return;
+    const owner = focusRegionOf(active);
+    if (!owner) return;
+    const items = regionFocusables(owner.element);
+    if (items.length === 0) return;
+    event.preventDefault();
+    const step = event.shiftKey ? -1 : 1;
+    const index = items.indexOf(active);
+    if (index >= 0) {
+      const next = index + step;
+      if (next >= 0 && next < items.length) {
+        items[next].focus();
+        return;
+      }
+    }
+
+    // 区域边界：先在**同一段**内找相邻区域（内容段与全局入口段分开）。
+    // 这样从内容区域的第一个元素反向走不会先穿越标题栏和工具栏，
+    // 只有从内容段末尾继续向前才会进入全局入口；全局段反向离开时回到内容段末尾。
+    if (!moveFocusWithinSegment(owner, step)) {
+      moveFocusAcrossSegments(owner, step);
+    }
+  }, true);
 }
 
 /** 关闭所有实时弹层。 */
