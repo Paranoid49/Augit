@@ -3810,6 +3810,282 @@ async function main() {
       hcAfterCloseClick.comparisons === 0);
     await hc.page.close();
 
+    // ---- 规格 §6.6/§5.2：无关刷新不得把 Git 日志的提交详情打回占位 ----
+    // 机制：mockup 的 Git 日志详情区（data-live-changed-files / data-live-commit-detail）
+    // 只从 history 状态渲染占位「正在读取变更…」，真实内容由 live-data 直接写进 DOM。
+    // 因此任何包含 bottomTool 的区域刷新（例如从项目树打开一个文档）都会把真实内容
+    // 换成占位，而没有任何地方重新加载它——用户会一直看到「正在读取变更…」。
+    // 与之前修过的「空历史永远加载中」属于同一类缺陷。
+    const softFailures = [];
+    const softCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      softFailures.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+
+    const hcBg = await openScene('scene=git-history&theme=dark');
+    await hcBg.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await hcBg.page.waitForSelector('.commit-row', { timeout: 10000 });
+    await hcBg.page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 10000 });
+    // 判据用**区域刷新日志**而不是"节点是否被替换"的探针：探针分不清"这次动作触发的刷新"
+    // 和"上一次动作排队的刷新"。日志在动作前清空、动作后读取，因果更紧。
+    await hcBg.page.evaluate(() => {
+      window.__regionLog = [];
+      const original = window.__augitRenderRegions;
+      window.__augitRenderRegions = (...names) => {
+        window.__regionLog.push(names.join(','));
+        return original(...names);
+      };
+    });
+    await hcBg.page.waitForTimeout(1000);
+    await hcBg.page.evaluate(() => { window.__regionLog = []; });
+    const paneState = () => hcBg.page.evaluate(() => {
+      const pane = document.querySelector('[data-live-changed-files]');
+      const detail = document.querySelector('[data-live-commit-detail]');
+      return {
+        rows: document.querySelectorAll('[data-live-changed-files] [data-history-path]').length,
+        filesText: pane ? pane.textContent.trim().slice(0, 30) : null,
+        detailText: detail ? detail.textContent.trim().slice(0, 30) : null,
+      };
+    });
+    const hcBgFiles = await hcBg.page.evaluate(() =>
+      [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')]
+        .map((row) => row.dataset.historyPath));
+    const hcBgPaneBefore = await paneState();
+    check('前置条件：Git 日志已列出提交的变更文件: ' + JSON.stringify(hcBgPaneBefore),
+      hcBgFiles.length >= 2 && hcBgPaneBefore.rows >= 2
+        && !hcBgPaneBefore.filesText.includes('正在读取'));
+
+    // 单击变化文件行一律用合成事件派发：Playwright 的 click 要求元素"稳定"，
+    // 而这些行会随区域刷新被重建，永远等不到稳定状态（实测 30 秒超时）。
+    // 被测的是 document 捕获阶段上的处理函数，合成事件走的是同一条路径。
+    // 行不存在时返回 null 而不是抛错：否则一个失败会打断整块，看不到其余结论。
+    const clickHistoryRow = (page, index, detail) => page.evaluate((args) => {
+      const row = [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')][args.index];
+      if (!row) return null;
+      row.dispatchEvent(new MouseEvent('click', {
+        bubbles: true, cancelable: true, detail: args.detail,
+      }));
+      return row.dataset.historyPath;
+    }, { index, detail });
+
+    // 对照组：**还没有**历史比较时单击变化文件行——与后面的触发动作完全相同，
+    // 编辑区本来就不该被重绘。没有这条对照，"有比较时的重绘"就无法归因到跟随逻辑。
+    const hcBgControlClicked = await clickHistoryRow(hcBg.page, 0, 1);
+    await hcBg.page.waitForTimeout(900);
+    const hcBgControl = await hcBg.page.evaluate(() => ({
+      selected: [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')]
+        .filter((row) => row.classList.contains('selected')).map((row) => row.dataset.historyPath),
+      regions: window.__regionLog || [],
+      comparisons: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'comparison').length,
+    }));
+    check('对照：没有比较时单击变化文件行不重绘编辑区: ' + JSON.stringify(hcBgControl),
+      hcBgControl.comparisons === 0 && hcBgControlClicked === hcBgFiles[0]
+        && hcBgControl.selected.length === 1 && hcBgControl.selected[0] === hcBgFiles[0]
+        && Array.isArray(hcBgControl.regions)
+        && hcBgControl.regions.every((entry) => !entry.includes('editorContent')));
+
+    // 通过项目树真实打开一个普通文档（双击文件名），后面要让它保持在前台。
+    await hcBg.page.evaluate(() => {
+      const dir = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      if (dir) dir.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+    });
+    await hcBg.page.waitForSelector(
+      '.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 10000 });
+    await hcBg.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]');
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+    });
+    await hcBg.page.waitForFunction(
+      "!!window.__augitLive.document && window.__augitLive.document.path === 'docs/product-spec.md'",
+      null, { timeout: 10000 });
+    await hcBg.page.waitForTimeout(1200);
+    const hcBgPaneAfter = await paneState();
+    softCheck('打开文档后 Git 日志仍列出变更文件（不得退回占位）: '
+      + JSON.stringify([hcBgPaneBefore, hcBgPaneAfter]),
+    hcBgPaneAfter.rows >= 2 && !hcBgPaneAfter.filesText.includes('正在读取'));
+
+    // ---- 规格 §5.2/§6.1：历史比较在后台跟随时不得重绘前台文档 ----
+    // 本条依赖上一条：详情区被打回占位后没有变化文件行可点，跟随路径根本不会执行。
+    if (hcBgPaneAfter.rows >= 2) {
+      // 打开历史比较（双击另一个变化文件行），此时比较在前台。
+      const hcBgOpened = await clickHistoryRow(hcBg.page, 1, 2);
+      await hcBg.page.waitForFunction(
+        '!!(window.__augitLive.historyComparison && window.__augitLive.historyComparison.status === "ready")',
+        null, { timeout: 10000 });
+      // 打开历史比较会刷新 bottomTool；详情区内容此前只写在 DOM 上，
+      // 这次刷新会把它打回占位「正在读取变更…」，必须由状态重建。
+      const hcBgPaneAfterComparison = await paneState();
+      softCheck('打开历史比较后 Git 日志仍列出变更文件（不得退回占位）: '
+        + JSON.stringify(hcBgPaneAfterComparison),
+      hcBgPaneAfterComparison.rows >= 2
+        && !hcBgPaneAfterComparison.filesText.includes('正在读取'));
+
+      const hcBgDocTab = await hcBg.page.evaluate(
+        () => ((window.__augitLive.tabs || []).find((tab) => tab.kind === 'document') || {}).id || null);
+      check('前置条件：已打开普通文档标签: ' + JSON.stringify([hcBgDocTab, hcBgOpened]),
+        typeof hcBgDocTab === 'string' && hcBgOpened === hcBgFiles[1]);
+      // 让普通文档回到前台。
+      await hcBg.page.locator(`.editor-tabs .editor-tab[data-tab-id="${hcBgDocTab}"]`).click();
+      await hcBg.page.waitForFunction(
+        () => {
+          const live = window.__augitLive;
+          const comparison = (live.tabs || []).find((tab) => tab.kind === 'comparison');
+          return !!comparison && live.activeTabId !== comparison.id && live.editor !== 'diff';
+        },
+        null, { timeout: 8000 });
+      await hcBg.page.evaluate(() => { window.__regionLog = []; });
+      await hcBg.page.waitForTimeout(900);
+      await hcBg.page.evaluate(() => { window.__regionLog = []; });
+      const hcBgBefore = await hcBg.page.evaluate(() => ({
+        regions: (window.__regionLog || []).length,
+        path: window.__augitLive.historyComparison ? window.__augitLive.historyComparison.path : null,
+        doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+        editor: window.__augitLive.editor,
+        active: String(window.__augitLive.activeTabId),
+      }));
+      check('前置条件：历史比较在后台且前台是普通文档: ' + JSON.stringify(hcBgBefore),
+        hcBgBefore.regions === 0 && hcBgBefore.path === hcBgFiles[1]
+          && hcBgBefore.doc === 'docs/product-spec.md' && hcBgBefore.editor !== 'diff'
+          && hcBgBefore.active === String(hcBgDocTab));
+
+      // 触发跟随：单击另一个变化文件行（路径不同才会真的更新比较）。
+      await clickHistoryRow(hcBg.page, 0, 1);
+      await hcBg.page.waitForFunction(
+        (expected) => !!window.__augitLive.historyComparison
+          && window.__augitLive.historyComparison.path === expected,
+        hcBgFiles[0], { timeout: 10000 }).catch(() => {});
+      await hcBg.page.waitForTimeout(1200);
+      const hcBgAfter = await hcBg.page.evaluate(() => ({
+        regions: window.__regionLog || [],
+        path: window.__augitLive.historyComparison ? window.__augitLive.historyComparison.path : null,
+        status: window.__augitLive.historyComparison ? window.__augitLive.historyComparison.status : null,
+        doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+        editor: window.__augitLive.editor,
+        active: String(window.__augitLive.activeTabId),
+      }));
+      // 配对断言：先证明跟随真的发生了（比较目标已换、且确实刷新了区域），
+      // "什么都没做"才不能蒙混过关。
+      softCheck('后台历史比较跟随了文件选择: ' + JSON.stringify([hcBgAfter.path, hcBgAfter.status]),
+        hcBgAfter.path === hcBgFiles[0] && hcBgAfter.status === 'ready');
+      softCheck('后台历史比较跟随刷新了区域（配对控制，防止空转）: '
+        + JSON.stringify(hcBgAfter.regions),
+      Array.isArray(hcBgAfter.regions) && hcBgAfter.regions.length > 0);
+      softCheck('后台历史比较跟随不抢占前台视图: '
+        + JSON.stringify([hcBgAfter.doc, hcBgAfter.editor, hcBgAfter.active]),
+      hcBgAfter.doc === 'docs/product-spec.md' && hcBgAfter.editor !== 'diff'
+        && hcBgAfter.active === String(hcBgDocTab));
+      softCheck('后台历史比较跟随不重绘前台文档: ' + JSON.stringify(hcBgAfter.regions),
+        Array.isArray(hcBgAfter.regions)
+          && hcBgAfter.regions.every((entry) => !entry.includes('editorContent')));
+    } else {
+      softCheck('后台历史比较跟随不重绘前台文档（前置条件不足，未执行）', false);
+    }
+    await hcBg.page.close();
+
+    // ---- 规格 §5.2/§6.3：关闭历史比较时在途请求的结果必须失效 ----
+    // 工作区比较已有一条同类断言；历史比较走的是另一条代码路径
+    // （historyComparisonToken 与 diffToken 是两套令牌），必须单独覆盖。
+    const hcCancel = await openScene('scene=git-history&theme=dark');
+    await hcCancel.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await hcCancel.page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 10000 });
+    const hcCancelFiles = await hcCancel.page.evaluate(() =>
+      [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')]
+        .map((row) => row.dataset.historyPath));
+    check('前置条件：关闭比较用例需要至少两个变化文件: ' + JSON.stringify(hcCancelFiles),
+      hcCancelFiles.length >= 2);
+    await hcCancel.page.evaluate(
+      (target) => { window.__diffDelays = { [target]: 6000 }; }, hcCancelFiles[0]);
+    // 走真实入口：变化文件行上的 Enter 打开并激活历史比较。
+    await hcCancel.page.evaluate(() => {
+      const row = document.querySelector('[data-live-changed-files] [data-history-path]');
+      row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    });
+    await hcCancel.page.waitForFunction(
+      "!!(window.__augitLive.tabs || []).find((tab) => tab.kind === 'comparison')",
+      null, { timeout: 8000 });
+    await hcCancel.page.waitForFunction(
+      (target) => (window.__diffCalls || []).filter((entry) => entry === target).length === 1,
+      hcCancelFiles[0], { timeout: 8000 });
+    const hcCancelBefore = await hcCancel.page.evaluate(() => ({
+      inFlight: window.__augitDiffRequestCount(),
+      comparisons: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'comparison').length,
+      status: window.__augitLive.historyComparison ? window.__augitLive.historyComparison.status : null,
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+    }));
+    // 前置条件：真实请求已发出、比较标签存在、请求仍在途中。
+    check('前置条件：历史比较的在途请求已发出且尚未返回: ' + JSON.stringify(hcCancelBefore),
+      hcCancelBefore.inFlight === 1 && hcCancelBefore.comparisons === 1
+        && hcCancelBefore.status === 'loading' && hcCancelBefore.diffPath !== hcCancelFiles[0]);
+    // 等过 150 毫秒阈值，让加载指示真的显示出来：关闭时必须连它一起清掉
+    // （规格 §6.5「加载指示不能被收尾隐藏」的反面：正文都释放了，指示不能留着）。
+    await hcCancel.page.waitForTimeout(500);
+    const hcCancelMarked = await hcCancel.page.evaluate(() => !!window.__augitLive.diffLoading);
+    check('前置条件：在途期间加载指示已显示: ' + JSON.stringify(hcCancelMarked), hcCancelMarked === true);
+
+    await hcCancel.page.evaluate(() => {
+      const close = document.querySelector('.editor-tabs .editor-tab.comparison-tab .tab-close');
+      close.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }));
+      close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    // 立刻取样（不等晚到响应）：正文被释放时加载指示必须同时消失。
+    // 若只在收尾逻辑里清，被关闭的请求会因为令牌失效而提前返回，指示就一直留着。
+    await hcCancel.page.waitForTimeout(300);
+    const hcCancelLoadingRightAfterClose = await hcCancel.page.evaluate(
+      () => !!window.__augitLive.diffLoading);
+    softCheck('关闭历史比较立即清除加载指示: ' + JSON.stringify(hcCancelLoadingRightAfterClose),
+      hcCancelLoadingRightAfterClose === false);
+    await hcCancel.page.waitForTimeout(7000);
+    const hcCancelAfter = await hcCancel.page.evaluate(() => {
+      const live = window.__augitLive;
+      const ids = (live.tabs || []).map((tab) => tab.id);
+      return {
+        comparisons: (live.tabs || []).filter((tab) => tab.kind === 'comparison').length,
+        status: live.historyComparison ? live.historyComparison.status : null,
+        editor: live.editor,
+        diff: live.diff ? live.diff.path : null,
+        requestKey: live.diffRequestKey,
+        patches: window.__augitDiffPatchCount(),
+        inFlight: window.__augitDiffRequestCount(),
+        loading: !!live.diffLoading,
+        activeIsReal: live.activeTabId === null || live.activeTabId === undefined
+          || ids.includes(live.activeTabId),
+      };
+    });
+    softCheck('关闭历史比较后晚到响应不复活比较状态: ' + JSON.stringify(hcCancelAfter),
+      hcCancelAfter.comparisons === 0 && hcCancelAfter.status === 'closed'
+        && hcCancelAfter.diff === null && hcCancelAfter.patches === 0);
+    softCheck('关闭历史比较后不保留加载指示且活动标签有效: '
+      + JSON.stringify([hcCancelAfter.editor, hcCancelAfter.loading, hcCancelAfter.activeIsReal]),
+    hcCancelAfter.editor !== 'diff' && hcCancelAfter.loading === false
+      && hcCancelAfter.activeIsReal === true);
+    // 后果断言：关闭后单击**另一个**变化文件不得重新创建比较标签
+    // （§5.2「关闭后解除跟随」：只有再次 Enter、双击或"显示 Diff"才能打开）。
+    const hcCancelClicked = await hcCancel.page.evaluate((target) => {
+      const rows = [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')];
+      const row = rows.find((item) => item.dataset.historyPath === target) || rows[1];
+      if (!row) return null;
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      return row.dataset.historyPath;
+    }, hcCancelFiles[1]);
+    await hcCancel.page.waitForTimeout(900);
+    const hcCancelClickState = await hcCancel.page.evaluate(() => ({
+      comparisons: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'comparison').length,
+      selected: [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')]
+        .filter((row) => row.classList.contains('selected')).map((row) => row.dataset.historyPath),
+    }));
+    // 配对的正面证据：点击确实生效（选中行换了），否则"没重开"可能只是没点到。
+    softCheck('关闭历史比较后单击另一个文件确实生效: '
+      + JSON.stringify([hcCancelClicked, hcCancelClickState.selected]),
+    hcCancelClickState.selected.length === 1 && hcCancelClickState.selected[0] === hcCancelClicked);
+    softCheck('关闭历史比较后单击另一个文件不重开: ' + JSON.stringify(hcCancelClickState.comparisons),
+      hcCancelClickState.comparisons === 0);
+    await hcCancel.page.close();
+
+    if (softFailures.length > 0) {
+      throw new Error('断言失败：' + softFailures.join(' | '));
+    }
+
     // ---- 规格 §5.1：主菜单「文件 / 视图 / Git」动作菜单的条目要执行动作 ----
     // 规格把这三项描述为"打开贴近入口的动作菜单"，条目必须真的执行，
     // 否则只是把"点了没反应"从入口挪到菜单里。

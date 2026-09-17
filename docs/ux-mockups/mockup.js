@@ -2148,6 +2148,8 @@ function commitGraphSvg(graph, index, rowHeight = 26) {
 
 // 外壳注入真实历史时使用：沿用与样例版一致的提交行、分支标签与图形结构。
 function liveGitLog(history, selected, cancelComparison, loading = false) {
+  // 提交详情允许被区域刷新重建，因此渲染要读状态里的内容而不是只依赖 DOM 里写过的内容。
+  const live = window.__augitLive || {};
   const commits = history.commits.map(commit => [commit.subject, (commit.references || []).join(" ") , commit.author, commit.date]);
   const entries = history.commits.map(commit => ({
     hash: commit.hash,
@@ -2189,7 +2191,7 @@ function liveGitLog(history, selected, cancelComparison, loading = false) {
           </div>
           <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${loading ? loadingRow : history.commits.length === 0 ? emptyRow : history.commits.map((commit, index) => `<div class="commit-row ${index === 0 ? "selected" : ""}" role="option" aria-selected="${index === 0}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${branchLabel(commit) ? `${gitReferenceIcon(false)} ${escapeHtml(branchLabel(commit))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
         </div>
-        <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${loading ? `<p class="commit-meta">正在读取变更…</p>` : history.commits.length === 0 ? `<div class="empty-state">没有可显示的变更</div>` : `<p class="commit-meta">正在读取变更…</p>`}</div><div class="commit-detail" data-live-commit-detail><h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div></div></div>
+        <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${live && live.commitDetails && history.commits.length > 0 ? live.commitDetails.filesHtml : (loading ? `<p class="commit-meta">正在读取变更…</p>` : history.commits.length === 0 ? `<div class="empty-state">没有可显示的变更</div>` : `<p class="commit-meta">正在读取变更…</p>`)}</div><div class="commit-detail" data-live-commit-detail>${live && live.commitDetails && live.commitDetails.detailHtml ? live.commitDetails.detailHtml : `<h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div>`}</div></div>
       </div>
     </div>
   </section>`;

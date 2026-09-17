@@ -732,6 +732,9 @@ function closeDiff() {
   diffRequests.clear();
   // 使在途请求的结果失效：令牌前进后，旧结果不会再写回。
   diffToken += 1;
+  // 正文被释放了，加载指示也必须一起收掉：关闭后若请求仍在途中，
+  // 收尾逻辑会因为令牌失效而提前返回，再不在这里清就会留下一个永远的"正在加载"。
+  clearDiffLoadingMarker();
   if (live) {
     live.diff = null;
     live.diffRequestKey = null;
@@ -967,9 +970,17 @@ async function applyHistoryComparison(path, commit, options = {}) {
   const tab = ensureComparisonTab(path, label);
   live.historyComparison = { path, commit, label, status: "loading" };
   if (activate) activateComparisonTab(tab);
-  scheduleDiffLoadingMarker();
+  // 比较在前台时才重绘编辑区并显示加载提示；后台跟随时编辑区属于前台文档，
+  // 重绘会把它打断（规格 §5.2「不抢占编辑区」、§6.1 最小更新区域）。
+  // 跟随 Changes 选择的 followChangeSelection 早就是这个规则，历史比较此前没有对齐。
+  const repaint = () => refreshAfterEvent(...(live.activeTabId === tab.id
+    ? ["editorTabs", "editorContent", "statusbar", "bottomTool"]
+    : ["editorTabs", "statusbar"]));
+  if (live.activeTabId === tab.id) {
+    scheduleDiffLoadingMarker();
+  }
 
-  refreshAfterEvent("editorTabs", "editorContent", "statusbar", "bottomTool");
+  repaint();
 
   const diff = await loadDiff(path, { commit, force: true }).catch(() => null);
   // 收尾只在**本次请求仍然有效**时执行：被取代的旧请求若在这里清标记，
@@ -978,14 +989,14 @@ async function applyHistoryComparison(path, commit, options = {}) {
   clearDiffLoadingMarker();
   if (!diff) {
     live.historyComparison = { path, commit, label, status: "unavailable" };
-    refreshAfterEvent("editorTabs", "editorContent", "statusbar");
+    repaint();
     return null;
   }
 
   live.historyComparison = { path, commit, label, status: "ready" };
   if (activate) activateComparisonTab(tab);
 
-  refreshAfterEvent("editorTabs", "editorContent", "statusbar", "bottomTool");
+  repaint();
   return diff;
 }
 
@@ -1010,12 +1021,18 @@ function activateComparisonTab(tab) {
  * 提交或文件选择变化时更新已打开的历史比较（规格 §7.8）。
  * 普通文档在前台时只后台更新，不抢占编辑区。
  */
-function followHistoryComparison() {
+function followHistoryComparison(selectedPath = null) {
   const live = window.__augitLive;
   if (!live || !live.historyComparison) return;
   if (live.historyComparison.status === "closed") return;
-  const row = historyFileRows().find((item) => item.dataset.historyPath === live.historyComparison.path)
-    || historyFileRows()[0];
+  // 规格 §5.2「历史比较仅在已有比较上下文中随提交和文件选择更新」，两种来源要分开处理：
+  // - 用户点了某个变化文件行：跟随到**该行**，否则单击只改选中态、比较不更新；
+  // - 提交切换：沿用比较自己的路径（新提交仍有该文件时保持同一路径），
+  //   没有才退回第一个文件。
+  const rows = historyFileRows();
+  const row = selectedPath
+    ? rows.find((item) => item.dataset.historyPath === selectedPath)
+    : rows.find((item) => item.dataset.historyPath === live.historyComparison.path) || rows[0];
   const path = row ? row.dataset.historyPath : null;
   const commit = selectedHistoryCommit();
   if (!path || !commit) return;
@@ -1786,6 +1803,10 @@ function closeTab(id) {
   if (closing && closing.kind === "comparison") {
     live.followChanges = false;
     if (live.historyComparison) live.historyComparison.status = "closed";
+    // 历史比较有独立的递增令牌：只推进 diffToken 不足以让它的收尾逻辑失效，
+    // 晚到的响应会把状态从 "closed" 复活成 "ready"/"unavailable"，
+    // 于是"关闭后解除跟随"失效——之后改选提交或文件会重新创建比较标签（规格 §5.2）。
+    historyComparisonToken += 1;
     closeDiff();
   }
 
@@ -3820,6 +3841,11 @@ async function refreshCommitDetails() {
   const revision = selected && selected.dataset.fullHash
     ? selected.dataset.fullHash
     : live.history.commits[0].fullHash;
+  // 选中的提交已经换了：上一次的详情不能继续留在状态里被重绘出来。
+  if (live.commitDetails && live.commitDetails.revision !== revision) {
+    live.commitDetails = null;
+  }
+
   if (window.__augitCommitLoaded === revision
       && document.querySelector('[data-live-changed-files] .tree-row')) {
     return;
@@ -3843,20 +3869,32 @@ async function loadCommitDetails(revision) {
   const token = ++commitDetailsToken;
   try {
     const commit = await invoke("git/commit", { revision }, 30000);
+    const live = window.__augitLive;
     if (token !== commitDetailsToken) return;
     if (!commit || !commit.available) {
-      filesHost.innerHTML = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
+      const reasonHtml = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
+      if (live) live.commitDetails = { revision, filesHtml: reasonHtml, detailHtml: "" };
+      filesHost.innerHTML = reasonHtml;
       return;
     }
 
     const files = commit.files || [];
-    filesHost.innerHTML = files.length === 0
+    const filesHtml = files.length === 0
       ? `<p class="commit-meta">该提交没有变更文件</p>`
       : `<div class="tree-row"><span>${escapeText(String(files.length))} 个文件</span></div>`
         + files.map((file) => `<div class="tree-row depth-1 live-file-status-${escapeText(file.kind)}" data-history-path="${escapeText(file.path)}">${escapeText(file.name)}<span class="commit-meta">${escapeText(file.directory)}</span></div>`).join("");
-    detailHost.innerHTML = `<h3>${escapeText(commit.subject)}</h3>`
+    const detailHtml = `<h3>${escapeText(commit.subject)}</h3>`
       + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`
       + (commit.body ? `<p class="commit-meta">${escapeText(commit.body)}</p>` : "");
+    // 详情内容必须进状态：mockup 的 Git 日志详情区只从状态渲染占位，真实内容由这里写进 DOM，
+    // 因此任何包含 bottomTool 的区域刷新（打开历史比较、外部变化重载等）都会把占位写回去，
+    // 只放在 DOM 里的内容会被静默丢弃（handoff 第 3 节第 5 条）。
+    if (live) {
+      live.commitDetails = { revision, filesHtml, detailHtml };
+    }
+
+    filesHost.innerHTML = filesHtml;
+    detailHost.innerHTML = detailHtml;
     window.__augitCommitLoaded = commit.hash;
   } catch (error) {
     if (token === commitDetailsToken) {
@@ -4179,7 +4217,7 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  followHistoryComparison();
+  followHistoryComparison(row.dataset.historyPath);
 }, true);
 
 // 历史变化文件行上的 Enter 打开比较。
