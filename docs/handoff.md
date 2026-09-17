@@ -121,11 +121,22 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 
 - 构建：`"/mnt/c/Program Files/dotnet/dotnet.exe" build Augit.slnx -c Release -p:NuGetAudit=false`
 - 推送：`git push origin dsh`（**SSH 可用，HTTPS 被拒**）。远端 `git@github.com:Paranoid49/Augit.git`。
-- PowerShell 5.1 按 ANSI 读取 `.ps1`，**脚本必须纯 ASCII**。
-- `--width/--height` 在提交版外壳中不存在，窗口尺寸由设置文件决定。
+- PowerShell 5.1 按 ANSI 读取 `.ps1`：**无 BOM 的脚本必须纯 ASCII**，含非 ASCII 又无 BOM 会解析错乱
+  （`tools/release.ps1` 因此必须保留 UTF-8 BOM）。改完脚本跑 `tools/audit/verify-script-encoding.ps1`，
+  它除编码规则外还会真的 `Parser::ParseFile` 解析一遍。
+- 窗口尺寸与位置由设置文件 `%LOCALAPPDATA%\Augit\settings.json` 的 `window` 字段恢复（§6.6），
+  `--width/--height` 与 `--dpi` 是**审计覆盖**，优先于恢复值且不写回设置。
+  窗口物理尺寸按显示器缩放换算（不换算会让 CSS 视口缩小 1/scale，底部区域被裁）。
 - `MainWindowHandle` 在窗口构造期间可能为 0，需轮询或按类名 `EnumWindows` 取最大窗口。
+- 外壳加载**可执行文件旁**的 `web` 副本，不是仓库源码：改了 `web/` 必须重新构建，
+  否则截图是旧界面（`capture-surface.ps1` 会在源码比副本新时拒绝截图）。
 - `PrintWindow` 对 WebView2 的**底部与状态栏区域不可靠**，这些区域优先用断言而非截图。
+  实测在**交互会话锁定**时它对 Augit 窗口整体返回全白（对 Edge 正常），
+  此时用 CDP 的 `Page.captureScreenshot` 取真实渲染像素；该通道需要 Windows 侧 node，
+  WSL 直连不到 Windows 环回（未开启 mirrored 网络）。
 - `--debug-port`（CDP）**会破坏 WebView2 消息通道**，开启后所有桥接请求超时。仅用于排查「页面完全无数据」，不可与正常数据路径并存。
+  用 `--browser-args --remote-debugging-port=9333` 时实测桥接仍正常（提交列表是真实数据），
+  但 CDP 只用于布局与渲染结论，不用作数据路径证据。
 - 无头验收套件里 ES 模块必须经 HTTP 提供，`file://` 会被 CORS 拒绝。
 - 内存测量**必须按父进程关系**把 WebView2 进程树归属到本实例。曾因未归属，把 525 MB 误报成 822 MB（混入 6 个其他程序的 WebView2 进程）。
 
