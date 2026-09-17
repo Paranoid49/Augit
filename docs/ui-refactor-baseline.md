@@ -5145,3 +5145,124 @@ function ensureHistoryComparisonTab(label, path) {
 
 验证：Core 86/86、Infrastructure 170/170、live-shell **607/607**、
 场景 48/48（dark 与 light）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百五十轮：175% 缩放下窗口未按系统 DPI 换算，状态栏与底部工具窗被裁（真实缺陷）
+
+#### 怎么发现的
+
+本轮先复测真实外壳。用 CDP 直接读真实外壳（**不是**视觉稿）的 DOM 后，第一屏就与设计基线不符：
+
+| 观测量 | 实测 |
+| --- | --- |
+| 显示器缩放 | `devicePixelRatio = 1.75`（屏幕 2880x1800 物理 / 1646x1029 逻辑） |
+| 窗口物理尺寸 | 1180x760（`GetWindowRect`，即 `ShellOptions` 的默认值） |
+| CSS 视口 | **661x398** |
+| 内容高度 | `body.scrollHeight = 640` |
+| 状态栏 | `top=618, bottom=640`；`body` 为 `overflow:hidden` |
+
+状态栏被排在纵向 618~640，而视口只有 398 高，**用户既看不到也滚动不到**；
+底部工具窗（`top=438`）同样完全在视口之外。视觉稿在 `.augit-window` 上声明
+`min-width:1024px; min-height:640px`（`web/src/mockup.css:120`），正是这个 640。
+
+窗口尺寸本身没有算错——1180x760 与 `--width/--height` 默认值一致；
+错的是它没有随显示器缩放换算，因此逻辑视口被缩小了 1.75 倍。
+
+#### 根因
+
+`ShellWindow.ScaleForDpi` 只在显式传 `--dpi` 时才换算：
+
+```csharp
+return _options.Dpi is { } dpi && dpi != 96 ? (int)Math.Round(value * dpi / 96.0) : value;
+```
+
+而 `ApplyMinimumSize` 的注释写的是"按 DPI 覆盖**或系统 DPI**换算"——
+**系统 DPI 这条路径根本没有实现**，注释描述的是没做的行为。
+WebView2 侧照常跟随显示器缩放（1.75），于是物理 1180x760 只换来 661x398 的 CSS 视口。
+
+对照实验（决定性）：同一次启动加上 `--dpi 168`（= 1.75 x 96）走已有的换算路径，
+视口立刻变成 1167x724，`body.scrollHeight` 正好 724（**无溢出**），状态栏落在 702~724 正常可见。
+两者只差"是否换算"，与被测代码无关，因此可以判定为缺陷而不是有意设计。
+
+#### 修复
+
+1. 新增 `src/Augit.Shell/ShellWindowSizing.cs`，把换算抽成纯逻辑以便测试：
+   `ResolveEffectiveDpi`（显式 `--dpi` > `--pixel-exact` 固定基准 > 系统 DPI）、
+   `ScaleToPhysical`、`FitToWorkArea`、`InitialWindow`、`MinimumWindow`。
+2. 正常启动用 `GetDpiForSystem()` 的系统 DPI 换算窗口尺寸与最小尺寸。
+3. 收敛到工作区：1180 逻辑宽在 175% 下需要 2065 物理像素，屏幕只有 1920 时窗口会**大于屏幕**，
+   所以按 `SPI_GETWORKAREA` 收敛（最小尺寸同样收敛，否则屏幕小于布局下限时窗口无法缩小）。
+4. `WM_DPICHANGED` 更新生效 DPI 并交给默认过程按系统建议矩形调整，
+   否则把窗口拖到更高 DPI 的显示器后逻辑视口会再次小于布局下限。
+   （本机只有一块显示器，这条路径**未能实测**，属未验证改动。）
+5. `--pixel-exact` 的契约是"一个 CSS 像素对应一个物理像素"，必须保持，
+   否则视觉稿的逐像素对照会全部错位：该模式下固定用基准 DPI、**不放大窗口**，有单独测试钉住。
+
+#### 测试（新增 `tests/Augit.Shell.Tests`，15 条）
+
+外壳工程此前没有测试工程，新增 `tests/Augit.Shell.Tests` 并挂进 `Augit.slnx`
+（`Augit.Shell` 是 WinExe 且带 RID，测试工程需同 RID；`InternalsVisibleTo("Augit.Shell.Tests")`）。
+覆盖：生效 DPI 的三种来源与取不到系统 DPI 时的退化、按 DPI 换算、
+`--pixel-exact` 不放大、工作区收敛的正反两面、取不到工作区时不收敛，
+以及**走生产调用链**的组合用例。
+
+#### 负向验证
+
+把 `ResolveEffectiveDpi` 退回改动前行为（忽略系统 DPI），4 条断言失败：
+`正常启动时使用系统DPI`、`正常启动按显示器缩放换算窗口以保证CSS视口`、
+`本机一百七十五缩放下的窗口物理尺寸`、`高缩放小屏幕上窗口收敛到工作区`（15 → 11 通过）。
+
+只测算术的用例**不会**失败，这正是必须有"走生产调用链"用例的原因：
+测试里若用解析出的 DPI 去除物理尺寸，退化成基准值时两边同比例变化，会**自洽地通过**。
+所以组合用例用**显示器缩放**（来自系统、与被测逻辑无关）折算 CSS 视口。
+
+#### 端到端验证
+
+| | 修复前 | 修复后 |
+| --- | --- | --- |
+| CSS 视口 | 661x398 | **1167x724** |
+| 内容高度 | 640（溢出 242） | **724（无溢出）** |
+| 状态栏 bottom | 640 > 398，不可见 | **724 = 视口高度，可见** |
+
+`--pixel-exact`：dpr=1、视口 1156x696、状态栏可见（契约未破）。
+`--dpi 168`：dpr=1.75、视口 1167x724、可见（与改动前的对照值一致，无回归）。
+`--dpi 96`：dpr=1、视口 1156x696、可见。
+
+#### 本轮同时修掉的取证工具问题
+
+这四个问题都属于同一类：**工具会产出看起来很正常的假证据**。
+
+1. `capture-surface.ps1` 只按"白度"判断是否被遮挡，暗色遮挡物能通过，
+   于是把别的应用的窗口当成本项目证据存了下来（观察到一次：git-history 存下的是浏览器窗口）。
+   现在**必须同时满足前台**才接受屏幕像素。
+2. `PrintWindow` 回退路径**只保存、不校验**，应用尚未绘制时会存下全白空帧（本轮观察到一次）。
+   现在两条路径都过同一套白度校验并可重试，保存时打印 `via=screen|printwindow` 标明来源——
+   PrintWindow 不是"屏幕真实像素"这一证据类别，不能混用。
+3. 真实外壳加载的是**可执行文件旁**的 `web` 副本而不是仓库源码；
+   本轮就因为改了 `web/src/mockup.js` 但没重新构建，差一点把 5 小时前的界面当成新证据。
+   现在脚本在仓库源码比副本新时**拒绝截图**（`STALE_WEB_ASSETS`，实测退出且不产出文件）。
+   正向对照：副本同步时正常截图。
+4. 新增 `tools/audit/verify-script-encoding.ps1`：PowerShell 5.1 把无 BOM 的脚本按 ANSI 解码，
+   含非 ASCII 时会解析错乱。除编码规则外还调用 `Parser::ParseFile` **真的解析一遍**。
+   负向验证：同一段含中文注释的字节，无 BOM 时 `ParseFile` 报 1 个错误（第 3 行 `意外的标记 '}'`），
+   加 BOM 后 0 个错误。该脚本第一次运行就抓到 `tools/audit/click-window.ps1`
+   （108 个非 ASCII 字节且无 BOM，一直靠运气解析成功），已补 BOM。
+   `click-window.ps1` 另加了"抢前台"（`AttachThreadInput`）到截图脚本，但**本机当前会话已锁定，
+   该路径未能验证**。
+
+#### 未验证 / 环境限制
+
+- 本轮取证期间 Windows 交互会话处于锁定状态（`LockApp` 进程存在）：
+  `SetForegroundWindow` 失败、`PrintWindow` 对 Augit 窗口返回全白（对 Edge 正常，1.5% 白），
+  因此**"屏幕真实像素"这一证据类别本轮不可用**，工具按设计拒绝产出而非存假图。
+  锁定状态下改用 CDP 截图（`Page.captureScreenshot`）作为与前台无关的通道，
+  已确认真实外壳渲染正常（项目树、编辑器、底部 Git 面板、状态栏、真实提交列表齐全）。
+  WSL 无法直连 Windows 环回（未开启 mirrored 网络），该通道需要 Windows 侧 node，属本机诊断手段，未落仓。
+- 多显示器 DPI 切换路径未实测（只有一块显示器）。
+- Windows 10 22H2 真机验收仍未做。
+
+#### 验证范围
+
+按"分模块、不做全量矩阵"的要求，本轮只改外壳工程与审计脚本，因此只跑：
+`Augit.Shell.Tests` 15/15、`dotnet restore Augit.slnx --locked-mode` 通过、
+`dotnet build Augit.slnx -c Release` 0 警告 0 错误、编码守卫 PASS。
+Core / Infrastructure / live-shell / 视觉稿场景**未重跑**——网页层与领域层本轮没有改动。
