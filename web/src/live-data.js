@@ -21,6 +21,9 @@ function isVisibleEntry(entry) {
 // 目录树状态：展开集合与子项缓存都保存在这里，
 // 这样打开文件触发整页重绘时不会丢失展开状态，也不会重复向宿主请求。
 let latestStatus = null;
+// 规格 §9.2：查询失败要保留上一次界面，但必须明确标记它不是最新状态；
+// 这里缓存失败原因，applyStatus 会把它带进 live 供渲染层使用。
+let latestStatusError = null;
 let latestHistory = null;
 const expandedPaths = new Set([""]);
 const childrenByPath = new Map();
@@ -169,13 +172,25 @@ async function loadStatus() {
       return null;
     }
     latestStatus = normalizeStatus(status, latestStatus);
+    // 读取成功即恢复"最新"：否则上一次失败的标记会一直挂在界面上。
+    latestStatusError = null;
     // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
     applyStatus();
     return status;
-  } catch {
+  } catch (error) {
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       statusError: Math.round(performance.now() - started),
     });
+    // 规格 §9.2：查询失败显示**非阻塞**错误，保留上一个已知界面，但必须明确标记
+    // 它不是最新状态。此前这里只记了一个时间戳，界面上什么都没有——用户会把
+    // 上一次读到的改动列表当成当前状态（例如据此提交已经变化的文件）。
+    latestStatusError = String((error && error.message) || error || "原因未知");
+    const live = window.__augitLive;
+    if (live) {
+      live.statusError = latestStatusError;
+      refresh("side", "statusbar");
+    }
+
     return null;
   }
 }
@@ -3958,6 +3973,7 @@ function applyStatus() {
   live.isDetached = latestStatus.isDetached;
   live.changeCount = latestStatus.files.length;
   live.status = latestStatus;
+  live.statusError = latestStatusError;
 }
 
 async function boot() {

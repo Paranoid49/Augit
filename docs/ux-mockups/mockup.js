@@ -1374,6 +1374,7 @@ function diffView(comparison = false, state = "ready", workspaceComparison = fal
 function emptyChangesSide() {
   return `<aside class="tool-window side-tool"><div class="tool-header"><span>提交</span><span class="grow"></span><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></div>
     <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
+    ${statusRefreshNotice()}
     <div class="empty-tool-state"><div><strong>没有待提交的更改</strong><p>工作区与 HEAD 一致。</p></div></div>
     <div class="commit-box"><div class="commit-options"><span class="commit-amend"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
     ${commitMessageBox(true)}
@@ -1723,6 +1724,20 @@ function commitMessageBox(disabled = false) {
 }
 
 // 外壳注入真实 Git 状态时使用；结构与样例版一致，复用同一套样式与交互绑定。
+/**
+ * 规格 §9.2：Git 状态查询失败时必须显示**非阻塞**错误、保留上一次已知界面，
+ * 并明确标记它不是最新状态。§10.2 要求说明发生了什么、哪些状态未改变、可以做什么。
+ * 复用设计系统已有的 inline-alert，不自创视觉。
+ */
+function statusRefreshNotice() {
+  const live = window.__augitLive || {};
+  if (!live.statusError) return "";
+  // 原因本身可能已经以句号结尾（宿主文案不定），避免出现「。。」。
+  const reason = String(live.statusError);
+  const sentence = /[。.！!？?]$/.test(reason) ? reason : reason + "。";
+  return `<div class="inline-alert status-stale" role="status">无法读取最新 Git 状态：${escapeHtml(sentence)}下方列表与分支信息仍是上一次成功读取的结果，改动、勾选与提交输入没有被修改；可点击工具栏的刷新重试。</div>`;
+}
+
 function liveChangesSide(selected) {
   const status = window.__augitLive.status;
   const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
@@ -1750,6 +1765,7 @@ function liveChangesSide(selected) {
       <div class="tool-header"><span>提交</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
       <div class="changes-layout">
         <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled title="回滚在当前上下文不可用。" aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" aria-label="显示 Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
+        ${statusRefreshNotice()}
         <div class="changes-list" role="tree" aria-label="待提交文件" tabindex="0">
           ${changeRows}
         </div>

@@ -181,14 +181,20 @@ async function main() {
         postMessage: (raw) => {
           const request = JSON.parse(raw);
           Promise.resolve().then(async () => {
-            let result;
+            // 桩可以是异步的：竞态验证需要按请求注入延迟以制造乱序返回。
+            // 失败必须回**顶层** { id, error }（真实宿主的形状，也是 bridge.js 唯一
+            // 会 reject 的形状）。此前把异常塞进 result.error，页面拿到的是一个
+            // 决议成功的普通结果，于是所有"宿主失败"用例测的都是生产里不会出现的形状。
+            let message;
             try {
-              // 桩可以是异步的：竞态验证需要按请求注入延迟以制造乱序返回。
-              result = await window.__hostStub(request.method, request.params);
+              message = {
+                id: request.id,
+                result: await window.__hostStub(request.method, request.params),
+              };
             } catch (error) {
-              result = { error: String(error && error.message || error) };
+              message = { id: request.id, error: String((error && error.message) || error) };
             }
-            for (const handler of listeners) handler({ data: JSON.stringify({ id: request.id, result }) });
+            for (const handler of listeners) handler({ data: JSON.stringify(message) });
           });
         },
       },
@@ -221,6 +227,8 @@ async function main() {
       if (method === 'git/status') {
         window.__statusCalls = (window.__statusCalls || 0) + 1;
         if (window.__statusDelays) await new Promise((r) => setTimeout(r, window.__statusDelays));
+        // 查询失败通道（规格 §9.2）：异步抛出，模拟宿主侧读取状态失败。
+        if (window.__statusFails) throw new Error('Git 查询失败：索引被锁定（.git/index.lock 存在）。');
         if (window.__deletedPaths && window.__deletedPaths.length) {
           const base = window.__liveFiles || data.status.files;
           const extra = window.__deletedPaths.map((p) => ({ path: p, name: p.split('/').at(-1), directory: p.split('/').slice(0, -1).join('/'), group: 'Changes', kind: 'Deleted', staged: false, workingTree: true }));
@@ -1001,6 +1009,99 @@ async function main() {
     await watch.page.waitForTimeout(1200);
     check('Git 元数据变化后界面仍可用', await watch.page.evaluate('window.__augitLive && window.__augitLive.status ? true : true'));
     await watch.page.close();
+
+    // ---- 规格 §9.2：状态查询失败的局部失败状态 ----
+    // 条款要求「显示非阻塞错误，保留上一个已知界面但**明确标记不是最新状态**」。
+    // 此前 loadStatus 的失败分支只记了一个耗时标记，界面上什么都没有——
+    // 用户会把上一次读到的改动列表当成当前状态，可能据此提交已经变化的文件。
+    const stale = await openScene('scene=commit-changes&theme=dark');
+    // 兜底轮询里有 `if (document.hidden) return;`：无头浏览器里非前台页面都是 hidden，
+    // 不置前就永远等不到"工作区变化"被排空（实测这里超时）。
+    await stale.page.bringToFront();
+    await stale.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stale.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 用户已经在提交框里写了草稿：失败不得动它（§10.2「哪些状态未改变」）。
+    await stale.page.locator('.commit-box .message-field').fill('feat: 失败期间的草稿');
+    await stale.page.waitForTimeout(300);
+    const staleBefore = await stale.page.evaluate(() => {
+      const firstRow = document.querySelector('.changes-list .change-file-row');
+      return {
+        rows: document.querySelectorAll('.changes-list .change-file-row').length,
+        first: firstRow ? firstRow.dataset.path : null,
+        draft: window.__augitLive.commitDraft,
+        statusError: window.__augitLive.statusError || null,
+        notice: document.querySelectorAll('.status-stale').length,
+      };
+    });
+    check('前置条件：刷新前列表与草稿处于正常状态: ' + JSON.stringify(staleBefore),
+      staleBefore.rows > 0 && staleBefore.draft === 'feat: 失败期间的草稿'
+        && staleBefore.statusError === null && staleBefore.notice === 0);
+
+    // 走真实通道：注入一次 Git 元数据变化让"工作区变化 → 重新查询状态"跑起来，
+    // 同时让 git/status 失败。
+    const staleCallsBefore = await stale.page.evaluate('window.__statusCalls || 0');
+    await stale.page.evaluate(() => {
+      window.__statusFails = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    // 先等"确实重新查询过状态"，再等提示出现：这样"没触发"和"触发了但没显示"能区分开。
+    await stale.page.waitForFunction(
+      (before) => (window.__statusCalls || 0) > before, staleCallsBefore, { timeout: 15000 });
+    const readStale = () => stale.page.evaluate(() => {
+      const notice = document.querySelector('.status-stale');
+      const firstRow = document.querySelector('.changes-list .change-file-row');
+      const box = document.querySelector('.commit-box .message-field');
+      return {
+        rows: document.querySelectorAll('.changes-list .change-file-row').length,
+        first: firstRow ? firstRow.dataset.path : null,
+        draft: window.__augitLive.commitDraft,
+        boxValue: box ? box.value : null,
+        reason: window.__augitLive.statusError || null,
+        notice: document.querySelectorAll('.status-stale').length,
+        role: notice ? notice.getAttribute('role') : null,
+        text: notice ? notice.textContent : null,
+        overlays: document.querySelectorAll('.overlay-layer, [data-augit-overlay]').length,
+        statusCalls: window.__statusCalls || 0,
+      };
+    });
+    let staleAfter = await readStale();
+    for (let i = 0; i < 20 && staleAfter.notice === 0; i += 1) {
+      await stale.page.waitForTimeout(300);
+      staleAfter = await readStale();
+    }
+    check('查询失败显示非阻塞局部错误（role=status、无模态浮层、带原因）: '
+      + JSON.stringify([staleAfter.notice, staleAfter.role, staleAfter.overlays, staleAfter.reason]),
+    staleAfter.notice === 1 && staleAfter.role === 'status' && staleAfter.overlays === 0
+      && typeof staleAfter.reason === 'string' && staleAfter.reason.includes('索引被锁定'));
+    check('查询失败保留上一次已知界面: '
+      + JSON.stringify([staleBefore.rows, staleAfter.rows, staleBefore.first, staleAfter.first]),
+    staleAfter.rows === staleBefore.rows && staleAfter.first === staleBefore.first);
+    check('查询失败保留用户草稿: ' + JSON.stringify([staleAfter.draft, staleAfter.boxValue]),
+      staleAfter.draft === 'feat: 失败期间的草稿' && staleAfter.boxValue === 'feat: 失败期间的草稿');
+    check('失败提示说明状态未变与可做的动作: ' + JSON.stringify(staleAfter.text),
+      typeof staleAfter.text === 'string' && staleAfter.text.includes('仍是上一次')
+        && staleAfter.text.includes('刷新'));
+    check('确实重新查询过状态（配对控制，防止空转）: '
+      + staleCallsBefore + ' -> ' + staleAfter.statusCalls,
+    staleAfter.statusCalls > staleCallsBefore);
+
+    // 恢复：下一次成功读取必须撤掉"不是最新"标记，否则它会永远挂在界面上。
+    await stale.page.evaluate(() => {
+      window.__statusFails = false;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await stale.page.waitForFunction("!document.querySelector('.status-stale')", null, { timeout: 10000 });
+    const staleRecovered = await stale.page.evaluate(() => ({
+      notice: document.querySelectorAll('.status-stale').length,
+      statusError: window.__augitLive.statusError || null,
+      rows: document.querySelectorAll('.changes-list .change-file-row').length,
+      draft: window.__augitLive.commitDraft,
+    }));
+    check('读取成功后撤掉"不是最新"标记: ' + JSON.stringify(staleRecovered),
+      staleRecovered.notice === 0 && staleRecovered.statusError === null
+        && staleRecovered.rows === staleBefore.rows
+        && staleRecovered.draft === 'feat: 失败期间的草稿');
+    await stale.page.close();
 
     // ---- 规格 §12.2：加载前后工具窗口位置不变 ----
     const geom = await openScene('scene=commit-diff&theme=dark');
