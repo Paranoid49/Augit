@@ -6627,3 +6627,29 @@ live-shell **732/732**、mockup 场景 **48/48**（dark 与 light）、视觉稿
   `monospaceFontFamily` 只被保存，实时界面从未应用（`applyTypographyPreview` 的
   `ui-size`/`code-size` 只服务视觉稿预览）。§7.14 的"正文独立等宽字号"已按 13px 固定，
   等设置真正生效时要改成读设置值。
+
+### 下一模块计划：字体设置真正生效（侦察已完成，待实施）
+
+**证据**：`settings/read` 下发 `textFontFamily` / `monospaceFontFamily` / `fontSize`(=UiFontSize) /
+`codeFontSize`(=FontSize)，设置页也照实显示并可保存，但实时界面**从未应用**其中任何一项：
+根字号一直是 `mockup.css` 的 13px、字族一直是硬编码的 `"Microsoft YaHei UI"` / `"Cascadia Mono"`。
+视觉稿侧的度量逻辑（`applyTypographyPreview` 的 `ui-size` / `code-size` 分支）只服务预览参数。
+
+**真实默认值**（`ApplicationSettings`）：`FontSize = 13`（`TextFontSize` 为空时沿用）、
+`TextFontFamily = "Microsoft YaHei UI"`、`MonospaceFontFamily = "Cascadia Mono"` ——
+与视觉稿一致，因此把 stub 的 `data.settings` 从 15/14 改成 13/13 不会改变任何现有渲染，
+harness 里 735/736/740 三条断言要跟着改成 13/13（写盘路径不变）。
+
+**实施步骤**
+
+1. 视觉稿：把 `applyTypographyPreview` 里的度量主体抽成 `applyTypography({uiSize, codeSize,
+   uiFamily, monospaceFamily})`；`applyTypographyPreview` 依次读查询参数 → `window.__augitLive.settings`
+   → 默认值后调用它。字族要经由新变量下发（`--augit-font` / `--augit-code`），
+   CSS 里硬编码字族的几处（`body`、`.dialog`、搜索浮层等）改用
+   `var(--augit-font, "Microsoft YaHei UI", "Segoe UI", sans-serif)`，默认外观不变。
+2. 实时：`loadSettings()` 拿到设置后、以及设置保存成功后各调用一次（不要只依赖随后的重绘）。
+3. 断言：根字号、界面/等宽字族、`.code-view` 与 `.conflict-block` 的计算字号、
+   `--augit-code-size`、以及随界面字号推导的高度变量（如 `--augit-bottom-height`）——
+   并验证改等宽字号**不影响**界面字号、改界面字号**不改变**正文等宽字号。
+4. 负向验证：回退"设置生效"这一调用，断言必须失败；注意本轮新增的 §7.14 断言里
+   "三栏正文等宽字号不变"要改成读设置值后的期望（当前按固定 13px 断言）。
