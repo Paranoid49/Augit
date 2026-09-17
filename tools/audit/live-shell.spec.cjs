@@ -386,7 +386,8 @@ async function main() {
       if (method === 'git/conflicts') return data.conflicts;
       if (method === 'git/conflict-load') {
         window.__conflictLoads = (window.__conflictLoads || []).concat([params.path]);
-        return data.conflict;
+        // 测试可以注入别的冲突文档（例如两处冲突，用于验证导航与"接受作用于当前块"）。
+        return window.__conflictFixture || data.conflict;
       }
       if (method === 'git/conflict-save') {
         window.__conflictSaves = (window.__conflictSaves || []).concat([params]);
@@ -6138,6 +6139,120 @@ async function main() {
 
     if (crSoft.length > 0) {
       throw new Error('断言失败：' + crSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.14：上一处/下一处与"当前块"（接受作用于当前块）----
+    const cnSoft = [];
+    const cnCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      cnSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const cn = await openScene('scene=commit-changes&theme=dark');
+    await cn.page.bringToFront();
+    await cn.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    // 两处冲突的文档：第 1 处在结果正文第 2 行（data-line=2），第 2 处在第 8 行（data-line=8）。
+    await cn.page.evaluate(() => {
+      window.__conflictFixture = {
+        available: true, path: 'src/App.cs', contentKind: 'Text',
+        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+        yoursText: '第一行\n左方改动\n中间行\n左方改动二\n第三行',
+        theirsText: '第一行\n右方改动\n中间行\n右方改动二\n第三行',
+        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n中间行\n<<<<<<< HEAD\n左方改动二\n=======\n右方改动二\n>>>>>>> feature/ux\n第三行',
+        operation: 'Rebase',
+        version: { length: 42, sha256: 'deadbeef', lastWriteUtc: '2026-09-15T00:00:00Z' },
+        blocks: [
+          { start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' },
+          { start: 7, length: 5, yours: '左方改动二', ancestor: null, theirs: '右方改动二' },
+        ],
+      };
+      window.__sessionFixture = {
+        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 2, totalSteps: 4, conflicts: [{ path: 'src/App.cs' }],
+      };
+      window.__statusOperation = 'Rebase';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await cn.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
+    await cn.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cn.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
+
+    const readNav = () => cn.page.evaluate(() => {
+      const dialog = [...document.querySelectorAll('.dialog.conflict-session-dialog')].at(-1) || null;
+      const selection = window.getSelection();
+      const node = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+      const line = element && element.closest ? element.closest('.conflict-line') : null;
+      const prev = dialog ? dialog.querySelector('[data-conflict-nav="prev"]') : null;
+      const next = dialog ? dialog.querySelector('[data-conflict-nav="next"]') : null;
+      return {
+        count: (dialog && dialog.querySelector('[data-conflict-count]') || {}).textContent || null,
+        currentLine: line ? Number(line.dataset.line) : null,
+        index: window.__augitLive.conflictBlockIndex,
+        prevDisabled: prev ? prev.disabled : null,
+        nextDisabled: next ? next.disabled : null,
+      };
+    });
+
+    const navStart = await readNav();
+    check('前置条件：两处冲突且默认停在第一处: ' + JSON.stringify(navStart),
+      navStart.count === '2 个未处理冲突' && navStart.index === 0
+        && navStart.prevDisabled === true && navStart.nextDisabled === false);
+
+    await cn.page.evaluate(() => {
+      const next = document.querySelector('[data-conflict-nav="next"]');
+      if (next) next.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cn.page.waitForTimeout(300);
+    const navSecond = await readNav();
+    cnCheck('「下一处」移到第二处并把光标放过去: ' + JSON.stringify(navSecond),
+      navSecond.index === 1 && navSecond.currentLine === 8
+        && navSecond.prevDisabled === false && navSecond.nextDisabled === true);
+
+    // 接受作用于**当前**块：第二处被换掉，第一处保留。
+    await cn.page.evaluate(() => {
+      const button = document.querySelector('[data-conflict-side="theirs"]');
+      if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cn.page.waitForTimeout(400);
+    const acceptedSecond = await cn.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      return {
+        text: block ? block.innerText : null,
+        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
+      };
+    });
+    cnCheck('接受作用于当前块（第二处），第一处保留: ' + JSON.stringify([acceptedSecond.count]),
+      acceptedSecond.count === '1 个未处理冲突'
+        && acceptedSecond.text.includes('右方改动二') && !acceptedSecond.text.includes('左方改动二')
+        && acceptedSecond.text.includes('<<<<<<<') && acceptedSecond.text.includes('左方改动'));
+
+    // 光标落到第一处：当前块跟着走（导航与接受都跟光标）。
+    await cn.page.evaluate(() => {
+      // 必须限定在**结果列**：左右只读栏也渲染 .conflict-line 与 data-line，
+      // 不加限定会选到左栏那一行（实测就这样把"当前块"测成了没跟着走）。
+      const line = document.querySelector('.conflict-column.result .conflict-line[data-line="2"]');
+      if (!line) return;
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    await cn.page.waitForTimeout(300);
+    const caretFollowed = await readNav();
+    cnCheck('光标落到第一处后当前块跟着走: ' + JSON.stringify(caretFollowed),
+      caretFollowed.index === 0 && caretFollowed.currentLine === 2);
+    await cn.page.close();
+
+    if (cnSoft.length > 0) {
+      throw new Error('断言失败：' + cnSoft.join(' | '));
     }
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----

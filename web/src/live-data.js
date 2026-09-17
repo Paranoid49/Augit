@@ -2024,6 +2024,7 @@ function openConflictSession() {
   if (conflictSessionView() === "resolver") {
     bindConflictSave();
     bindConflictUndoRefresh();
+    bindConflictCaretTracking();
     // 重绘会造出新的对话框节点：冻结标记与按计数恢复的按钮状态都要重新落上
     // （否则应用成功后重绘会让 data-conflict-applying 消失，读状态时得到 null）。
     setConflictApplying(!!(live && live.conflictApplying));
@@ -2060,6 +2061,75 @@ function unresolvedConflictGroups(block) {
   return groups;
 }
 
+/**
+ * 当前冲突块在"未处理块"里的下标（规格 §7.14：上一处/下一处与接受动作都作用于它）。
+ * 用户把光标放进某一处冲突时下标跟着走；块被接受掉或被撤销还原后按下标夹取。
+ */
+function currentConflictGroupIndex(groups) {
+  const live = window.__augitLive;
+  const index = live && Number.isInteger(live.conflictBlockIndex) ? live.conflictBlockIndex : 0;
+  if (groups.length === 0) return -1;
+  return Math.max(0, Math.min(index, groups.length - 1));
+}
+
+/** 把某个冲突块的行选中（导航据此把目标滚动到可见处；设计里没有额外的"当前块"装饰）。 */
+function selectConflictGroup(group) {
+  if (!group || !group.spans || group.spans.length === 0) return;
+  const range = document.createRange();
+  // 起点落在第一行**内部**（而不是它之前）：这样选区锚点属于该行，
+  // "当前块"才能从光标位置读出来（锚点落在容器上就读不到行号）。
+  range.setStart(group.spans[0], 0);
+  range.setEndAfter(group.spans[group.spans.length - 1]);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  if (typeof group.spans[0].scrollIntoView === "function") {
+    group.spans[0].scrollIntoView({ block: "nearest" });
+  }
+}
+
+/** 上一处 / 下一处：移动到相邻的未处理冲突块并把光标放到该块（规格 §7.14）。 */
+function navigateConflictBlock(delta) {
+  const live = window.__augitLive;
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  if (!live || !block) return null;
+  const groups = unresolvedConflictGroups(block);
+  if (groups.length === 0) return null;
+  const current = currentConflictGroupIndex(groups);
+  const next = Math.max(0, Math.min(current + delta, groups.length - 1));
+  live.conflictBlockIndex = next;
+  selectConflictGroup(groups[next]);
+  syncConflictCount();
+  return next;
+}
+
+/**
+ * 光标位于哪一处冲突块（规格 §7.14：导航与接受都跟着"当前"块走）。
+ * 监听 `selectionchange`，只在光标确实落在结果区里时更新下标。
+ */
+function bindConflictCaretTracking() {
+  if (window.__augitConflictCaretBound) return;
+  window.__augitConflictCaretBound = true;
+  document.addEventListener("selectionchange", () => {
+    const live = window.__augitLive;
+    const block = document.querySelector(".conflict-column.result .conflict-block");
+    if (!live || !block) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const node = selection.anchorNode;
+    const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+    const line = element && element.closest ? element.closest(".conflict-line") : null;
+    if (!line || !block.contains(line)) return;
+    // 用**包含关系**判定（行号在编辑后可能不再连续）：光标所在的那一行属于哪个块。
+    const index = unresolvedConflictGroups(block)
+      .findIndex((group) => group.spans.some((span) => span === line || span.contains(line)));
+    if (index >= 0 && index !== live.conflictBlockIndex) {
+      live.conflictBlockIndex = index;
+      syncConflictCount();
+    }
+  });
+}
+
 /** 把"还有几个未处理冲突"写回解决器顶部（规格 §7.14：计数固定在顶部）。 */
 function syncConflictCount() {
   const block = document.querySelector(".conflict-column.result .conflict-block");
@@ -2072,11 +2142,18 @@ function syncConflictCount() {
   const dialog = document.querySelector(".dialog.conflict-session-dialog");
   const applying = dialog && dialog.getAttribute("data-conflict-applying") === "true";
   if (dialog && !applying) {
-    const hasConflicts = count > 0;
-    for (const node of dialog.querySelectorAll(
-      "[data-conflict-side], .conflict-header .secondary-button")) {
+    const groups = unresolvedConflictGroups(block);
+    const index = currentConflictGroupIndex(groups);
+    const hasConflicts = groups.length > 0;
+    for (const node of dialog.querySelectorAll("[data-conflict-side]")) {
       node.disabled = !hasConflicts;
     }
+
+    // 导航按钮按位置可用：第一处不能再"上一处"，最后一处不能再"下一处"。
+    const prev = dialog.querySelector('[data-conflict-nav="prev"]');
+    const next = dialog.querySelector('[data-conflict-nav="next"]');
+    if (prev) prev.disabled = index <= 0;
+    if (next) next.disabled = index < 0 || index >= groups.length - 1;
   }
 
   return count;
@@ -2177,9 +2254,12 @@ function acceptConflictBlock(side) {
   if (!document_ || !block) return false;
   const groups = unresolvedConflictGroups(block);
   if (groups.length === 0) return false;
-  // 第 k 个剩余标记组对应宿主块列表里的第 (总数 - 剩余数) 个（接受只减少标记组，顺序不变）。
+  // 当前块：光标/导航指定的那一处（§7.14「提供接受左侧、两侧或右侧的动作」作用于当前冲突块）。
+  const index = currentConflictGroupIndex(groups);
+  if (index < 0) return false;
+  // 第 k 个剩余标记组对应宿主块列表里的第 (总数 - 剩余数 + k) 个（接受只减少标记组，顺序不变）。
   const blocks = document_.blocks || [];
-  const target = blocks[blocks.length - groups.length] || null;
+  const target = blocks[blocks.length - groups.length + index] || null;
   if (!target) return false;
 
   const replacement = side === "yours"
@@ -2189,7 +2269,7 @@ function acceptConflictBlock(side) {
       // 「接受两侧」= 两侧内容都保留，顺序为先当前分支后合入内容。
       : [target.yours || "", target.theirs || ""].filter((text) => text.length > 0).join("\n");
 
-  const group = groups[0];
+  const group = groups[index];
   // execCommand 作用于当前编辑宿主：先把结果区聚焦，否则命令可能不生效。
   if (typeof block.focus === "function") block.focus({ preventScroll: true });
   const range = document.createRange();
@@ -2219,6 +2299,8 @@ async function openConflictFile(path) {
   }
 
   live.conflictSessionView = "resolver";
+  // 打开一个新文件时从第一处冲突开始。
+  live.conflictBlockIndex = 0;
   openConflictSession();
   return loaded;
 }
@@ -2916,6 +2998,13 @@ function guardUnwiredNavigation() {
     if (conflictSide) {
       event.preventDefault();
       acceptConflictBlock(conflictSide.dataset.conflictSide);
+      return;
+    }
+
+    const conflictNav = event.target.closest && event.target.closest("[data-conflict-nav]");
+    if (conflictNav) {
+      event.preventDefault();
+      navigateConflictBlock(conflictNav.dataset.conflictNav === "next" ? 1 : -1);
       return;
     }
 
