@@ -41,8 +41,12 @@ const WORKSPACE = {
       { name: 'README.md', path: 'README.md', isDirectory: false, canExpand: false },
     ],
     docs: [
+      { name: 'api', path: 'docs/api', isDirectory: true, canExpand: true },
       { name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false },
       { name: 'notes.txt', path: 'docs/notes.txt', isDirectory: false, canExpand: false },
+    ],
+    'docs/api': [
+      { name: 'schema.md', path: 'docs/api/schema.md', isDirectory: false, canExpand: false },
     ],
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
@@ -336,6 +340,8 @@ async function main() {
           ? Object.assign({}, data.settings, {
             openFiles: ['docs/product-spec.md', 'docs/notes.txt'],
             activeFile: 'docs/notes.txt',
+            // 故意把子目录放在前面：恢复必须按层级从浅到深补齐，否则子目录那层恢复不到。
+            expandedDirectories: ['docs/api', 'docs'],
           })
           : data.settings;
       }
@@ -343,6 +349,7 @@ async function main() {
         window.__sessionWrites = (window.__sessionWrites || []).concat([{
           openFiles: params.openFiles || null,
           activeFile: params.activeFile || null,
+          expandedDirectories: params.expandedDirectories || null,
         }]);
         if (window.__sessionWriteFails) throw new Error('设置目录不可写。');
         return { saved: true };
@@ -496,7 +503,8 @@ async function main() {
     check('分支标签来自宿主', (await page.locator('.branch-chip').innerText()).includes('dsh'));
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
-    await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 6', null, { timeout: 10000 });
+    // 展开 docs 后：根 + docs/src/README.md + docs 的三个子项（含用于验证多层恢复的 docs/api）。
+    await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 7', null, { timeout: 10000 });
     check('展开后出现子项', await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').count() === 1);
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
@@ -4964,6 +4972,25 @@ async function main() {
         && JSON.stringify(busy.tabs) === JSON.stringify(['docs/product-spec.md', 'docs/notes.txt']));
     await restoreBusy.page.close();
 
+    // 目录展开层级：设置里故意把子目录放在前面，恢复必须按层级从浅到深补齐。
+    const expandRestore = await openScene('scene=main-project&theme=dark&restore=1');
+    await expandRestore.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await expandRestore.page.waitForFunction('window.__augitSessionRestored === true', null, { timeout: 15000 }).catch(() => {});
+    await expandRestore.page.waitForTimeout(600);
+    const expandedRestore = await expandRestore.page.evaluate(() => {
+      const row = (path) => document.querySelector(`.side-content.tree .tree-row[data-tree-path="${path}"]`);
+      return {
+        docs: row('docs') ? row('docs').getAttribute('aria-expanded') : null,
+        api: row('docs/api') ? row('docs/api').getAttribute('aria-expanded') : null,
+        schema: !!row('docs/api/schema.md'),
+      };
+    });
+    srCheck('恢复上次展开的目录层级（两层都补齐，子目录先出现也按层级排序）: '
+      + JSON.stringify(expandedRestore),
+    expandedRestore.docs === 'true' && expandedRestore.api === 'true'
+      && expandedRestore.schema === true);
+    await expandRestore.page.close();
+
     // ---- 规格 §6.7：会话数据写回；内容未变时不重复写盘 ----
     const persistPage = await openScene('scene=main-project&theme=dark');
     await persistPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
@@ -4980,7 +5007,19 @@ async function main() {
         && Array.isArray(sessionWrote.at(-1).openFiles)
         && sessionWrote.at(-1).openFiles.includes('docs/product-spec.md')
         && sessionWrote.at(-1).activeFile === 'docs/product-spec.md');
-    const writesBefore = sessionWrote.length;
+    // 展开一个目录也要写回（展开层级属于会话数据）。
+    await persistPage.page.evaluate(() => {
+      document.querySelector('.side-content.tree .tree-row[data-tree-path="src"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    await persistPage.page.waitForFunction(
+      '(window.__sessionWrites || []).length > 1', null, { timeout: 8000 }).catch(() => {});
+    const afterExpand = await persistPage.page.evaluate(() => (window.__sessionWrites || []).at(-1) || null);
+    srCheck('展开目录后写回层级: ' + JSON.stringify(afterExpand),
+      afterExpand !== null && Array.isArray(afterExpand.expandedDirectories)
+        && afterExpand.expandedDirectories.includes('src'));
+
+    const writesBefore = await persistPage.page.evaluate(() => (window.__sessionWrites || []).length);
     await persistPage.page.evaluate(() => { window.__augitRender(); });
     await persistPage.page.waitForTimeout(1600);
     const writesAfter = await persistPage.page.evaluate(() => (window.__sessionWrites || []).length);

@@ -835,7 +835,8 @@ internal sealed class ShellBridge : IDisposable
             // 会话恢复数据只在同一工作区内有意义：跨工作区恢复会试图打开别的仓库里的文件。
             openFiles = sameWorkspace ? settings.OpenFiles : [],
             activeFile = sameWorkspace ? settings.ActiveFile : null,
-            expandedDirectories = sameWorkspace ? settings.ExpandedDirectories : [],
+            // 界面上的树用**工作区相对路径**，因此读取时相对化；写入时再还原成绝对路径。
+            expandedDirectories = sameWorkspace ? RelativeDirectories(settings.ExpandedDirectories) : [],
             projectPanelWidth = sameWorkspace ? settings.ToolWindows.ProjectPanelWidth : null,
             bottomPanelHeight = sameWorkspace ? settings.ToolWindows.BottomPanelHeight : null,
         };
@@ -851,18 +852,56 @@ internal sealed class ShellBridge : IDisposable
     /// 单独一条通道而不是复用 settings/write：后者会失效 Git 解析与状态缓存，
     /// 而"关掉一个标签"不该让界面重新查一遍 Git（§6.1 局部更新与性能要求）。
     /// </summary>
-    private static async Task<object?> WriteSessionAsync(JsonElement parameters, CancellationToken cancellationToken)
+    private async Task<object?> WriteSessionAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         SettingsStore store = new();
         ApplicationSettings current = await store.LoadAsync(cancellationToken);
+        string[]? directories = GetStringArray(parameters, "expandedDirectories");
         // Normalize 会去重、限量并把 ActiveFile 校正到列表之内。
         ApplicationSettings updated = current with
         {
             OpenFiles = GetStringArray(parameters, "openFiles") ?? current.OpenFiles,
             ActiveFile = GetString(parameters, "activeFile") ?? current.ActiveFile,
+            // 目录展开层级由界面按工作区相对路径发来，这里还原成绝对路径，
+            // 由设置层校验"必须落在工作区内"（相对路径交给 Path.GetFullPath 会被
+            // 解析到进程当前目录，那是错的）。
+            ExpandedDirectories = directories is null
+                ? current.ExpandedDirectories
+                : [.. directories.Select(path => Path.GetFullPath(Path.Combine(_workspaceRoot, path)))],
+            // 设置层只在 LastWorkspace 与本次工作区一致时才保留会话数据，
+            // 因此这里必须记下当前工作区，否则展开层级下次启动会被清空。
+            LastWorkspace = _workspaceRoot ?? current.LastWorkspace,
         };
         await store.SaveAsync(updated, cancellationToken);
         return new { saved = true };
+    }
+
+    /// <summary>
+    /// 把设置里保存的目录展开层级转成界面使用的工作区相对路径（正斜杠）。
+    /// 越界或无法相对化的条目直接丢弃——它是界面状态，宁可少恢复一层。
+    /// </summary>
+    private string[] RelativeDirectories(IEnumerable<string> directories)
+    {
+        List<string> values = [];
+        foreach (string directory in directories)
+        {
+            string relative;
+            try
+            {
+                relative = Path.GetRelativePath(_workspaceRoot, directory);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
+            if (relative.Length > 0 && relative != "." && !relative.StartsWith("..", StringComparison.Ordinal))
+            {
+                values.Add(relative.Replace('\\', '/'));
+            }
+        }
+
+        return [.. values];
     }
 
     /// <summary>读取字符串数组参数；缺失或不是数组时返回 null（表示"本次不修改"）。</summary>

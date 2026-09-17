@@ -1111,6 +1111,34 @@ function markUserInteraction() {
   sessionRestoreGeneration += 1;
 }
 
+/**
+ * 恢复上次展开的目录层级（规格 §6.7「后续目录展开仅补齐树节点」）。
+ *
+ * 宿主返回的是工作区相对路径；按层级从浅到深补齐，使恢复顺序与用户展开目录的顺序一致，
+ * 且不依赖"循环结束后才重建一次可见树"这个实现细节（若将来改成逐步重建，浅层在前才是对的）。
+ */
+async function restoreExpandedDirectories(paths) {
+  const live = window.__augitLive;
+  if (!live || !Array.isArray(paths) || paths.length === 0) {
+    return;
+  }
+
+  const relatives = paths
+    .filter((path) => typeof path === "string" && path.length > 0)
+    .slice()
+    .sort((left, right) => left.split("/").length - right.split("/").length);
+  for (const path of relatives) {
+    if (expandedPaths.has(path)) continue;
+    expandedPaths.add(path);
+    // 与 toggleDirectory 同一套深度口径：本层目录的子项深度 = 路径段数。
+    await loadChildren(path, path.split("/").length).catch(() => null);
+  }
+
+  if (live.name !== undefined) {
+    live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+  }
+}
+
 async function restoreSession() {
   const live = window.__augitLive;
   const settings = live && live.settings;
@@ -1140,6 +1168,9 @@ async function restoreSession() {
   } finally {
     live.sessionRestoring = false;
   }
+
+  // 目录展开层级与标签一起恢复；顺序由函数内部按层级排序保证。
+  await restoreExpandedDirectories(settings.expandedDirectories).catch(() => null);
 
   // 恢复完成后按**实际**结果对齐（例如某个文件已经不在了）：下一次变更才会写回真实列表。
   live.settings.openFiles = [];
@@ -1172,14 +1203,19 @@ async function persistSession() {
     .map((tab) => tab.path);
   const active = (live.tabs || []).find((tab) => tab.id === live.activeTabId) || null;
   const activeFile = active && active.kind === "document" ? active.path : null;
+  // 根（空路径）不是"展开的目录"，不写进设置。
+  const expandedDirectories = [...expandedPaths].filter((path) => path.length > 0);
   const sameFiles = JSON.stringify(openFiles) === JSON.stringify(live.settings.openFiles || []);
-  if (sameFiles && activeFile === (live.settings.activeFile || null)) {
+  const sameDirectories =
+    JSON.stringify(expandedDirectories) === JSON.stringify(live.settings.expandedDirectories || []);
+  if (sameFiles && sameDirectories && activeFile === (live.settings.activeFile || null)) {
     return;
   }
 
   live.settings.openFiles = openFiles;
   live.settings.activeFile = activeFile;
-  await invoke("session/write", { openFiles, activeFile }, 10000).catch(() => null);
+  live.settings.expandedDirectories = expandedDirectories;
+  await invoke("session/write", { openFiles, activeFile, expandedDirectories }, 10000).catch(() => null);
 }
 
 /** 读取设置并挂上保存动作。 */
@@ -4425,6 +4461,8 @@ async function toggleDirectory(row) {
 
   const live = window.__augitLive;
   live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+  // 展开层级属于会话数据（规格 §6.7）：防抖写回，内容没变不会真的写盘。
+  scheduleSessionPersist();
   // 只刷新侧栏：展开/折叠不应影响编辑区、焦点与滚动位置。
   refresh("side");
 }
