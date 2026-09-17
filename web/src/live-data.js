@@ -3988,7 +3988,13 @@ async function boot() {
     refresh("editorContent", "editorTabs", "statusbar", "overlay");
   }
 
-  // 界面此时已可交互：立即标记就绪，不能等 Git 状态（实测约 15 秒）。
+  // 界面此时已可交互：**先把重绘后的绑定补齐，再标记就绪**。
+  // 此前这里没有调用 rebindAfterRender()，而全局绑定（导航守卫、工具入口、
+  // 快捷键、Esc、紧凑窗口）都挂在它里面——于是首屏有一段"可交互但无绑定"的窗口：
+  // 实测该窗口内 `__augitNavGuarded`/`__augitShortcutsBound`/`__augitRailBound`
+  // 全为 false，点击分支芯片这类未接线链接会**直接把界面导航离开应用**。
+  // Git 状态实测约 15 秒才到，这个窗口并不短，所以必须在这里补上。
+  rebindAfterRender();
   window.__augitReady = true;
 
   const status = await statusPromiseRef;

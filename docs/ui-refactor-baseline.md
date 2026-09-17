@@ -4752,3 +4752,66 @@ rowSelected=["src/App.cs:false","README.md:false","notes/draft.txt:false"]
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **596/596**、
 场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百四十二轮：首屏"可交互但无绑定"的窗口（严重缺陷）
+
+上一轮的两个缺陷都属于"重绘后处理不完整"。顺着这条线核查**所有**整页重绘调用点
+是否都跟了 `rebindAfterRender()`——7 处里 6 处有（1 处是本轮之外已修的），
+但真正的问题不在重绘调用点，而在 **`boot()` 从头到尾没有调用过 `rebindAfterRender()`**。
+
+#### 缺陷
+
+全局绑定（导航守卫、工具入口、标签栏、改动列表状态与滚动、Esc、标题栏菜单 Esc、
+紧凑窗口按键、固定快捷键、写操作映射）**全部注册在 `rebindAfterRender()` 里**。
+它们此前只在第一次区域刷新时被建立——也就是第一次 Git 状态到达时。
+
+而 boot 自己的注释写着：**"界面此时已可交互：立即标记就绪，不能等 Git 状态（实测约 15 秒）"**。
+
+于是存在一段**"界面可交互、但事件绑定全都不在"**的窗口，实测在 `__augitReady === true`
+且 Git 未到达时：
+
+```
+{"gitReady":false,"navGuarded":false,"shortcutsBound":false,
+ "railBound":false,"overlayEscBound":false,"compactBound":false}
+```
+
+后果按严重度排序：
+
+1. **导航守卫不在位**——点击分支芯片、标题栏上下文等未接线的 `<a href>` 会把
+   整个界面**导航离开应用**。项目里留着一段注释说这个坑修过，但它只在首次刷新后才生效。
+2. 工具入口不在位——点竖向入口同样走 `<a>` 默认跳转。
+3. `Ctrl+P`/`Ctrl+F`/`Ctrl+G`/`F5` 在首屏无响应。
+
+Git 状态实测约 15 秒才到，所以这个窗口**不短**，不是理论问题。
+
+#### 修复
+
+在标记就绪**之前**调用 `rebindAfterRender()`：
+
+```js
+rebindAfterRender();
+window.__augitReady = true;
+```
+
+该函数内部的绑定目标都有幂等守卫（`__augitRailBound`/`__augitNavGuarded` 等），
+两个无守卫的（`restoreChangesState`、`reflectWriteOperation`）是"按状态写 DOM"的
+恢复函数，本身幂等——已逐个核对，重复调用安全。
+
+#### 断言（596 → 599）
+
+| 断言 | 覆盖 |
+|---|---|
+| 前置条件：Git 数据尚未到达 | 用 `__statusDelays = 6000` 拉长窗口，确认确实处在窗口内 |
+| 首屏可交互时全局绑定已就位 | 六个绑定标记全部为真 |
+| 首屏 Ctrl+P 即可用 | 直接验证行为，而不只看标记 |
+
+负向验证：移除那句 `rebindAfterRender()` 后断言失败（六个标记全为 false）。
+
+#### 为什么此前没被发现
+
+既有测试都通过 `openScene` 先等 `__augitGitReady`，也就是**都等到了第一次刷新之后**才交互，
+因此天然避开了这个窗口。要发现它必须**在就绪但数据未到时**取样——
+这也是本轮用 `addInitScript` 注入长延迟的原因。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **599/599**、
+场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。

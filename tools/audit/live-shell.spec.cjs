@@ -4210,6 +4210,41 @@ async function main() {
         state.top !== null && state.top >= state.titlebarBottom);
     }
 
+    // ---- 规格 §5.4/§6.1：首屏可交互时全局绑定必须已就位 ----
+    // boot() 若不在渲染后做完整重绑，界面会在"已可交互但尚无绑定"的窗口里运行——
+    // 而状态到达实测要十余秒，这个窗口并不短。用延迟把窗口拉长来验证。
+    const earlyPage = await context.newPage();
+    await earlyPage.addInitScript(() => { window.__statusDelays = 6000; });
+    await earlyPage.goto(
+      `http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`,
+      { waitUntil: 'load' },
+    );
+    // 等到界面已可交互（__augitReady），但 Git 数据仍未到达。
+    await earlyPage.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const earlyState = await earlyPage.evaluate(() => ({
+      gitReady: !!window.__augitGitReady,
+      navGuarded: !!window.__augitNavGuarded,
+      shortcutsBound: !!window.__augitShortcutsBound,
+      railBound: !!window.__augitRailBound,
+      overlayEscBound: !!window.__augitOverlayEscBound,
+      compactBound: !!window.__augitCompactBound,
+    }));
+    check('前置条件：Git 数据尚未到达: ' + JSON.stringify(earlyState.gitReady), earlyState.gitReady === false);
+    check('首屏可交互时全局绑定已就位: ' + JSON.stringify(earlyState),
+      earlyState.navGuarded === true && earlyState.shortcutsBound === true
+        && earlyState.railBound === true && earlyState.overlayEscBound === true
+        && earlyState.compactBound === true);
+
+    // 绑定就位的直接后果：Ctrl+P 在首屏就能打开快速打开。
+    await earlyPage.keyboard.press('Control+p');
+    await earlyPage.waitForTimeout(600);
+    const earlyShortcut = await earlyPage.evaluate(() => ({
+      overlay: document.querySelectorAll('.live-overlay').length,
+      tabs: document.querySelectorAll('.search-tabs').length,
+    }));
+    check('首屏 Ctrl+P 即可用: ' + JSON.stringify(earlyShortcut), earlyShortcut.tabs >= 1);
+    await earlyPage.close();
+
     // ---- 规格 §6.6：状态所有权——「明确禁止变化」列 ----
     // 表里对"当前 Changes 文件"明确规定：选择变化不得改动复选框、提交信息、
     // 列表滚动和其他标签；对"当前 Git 提交"规定不得改动引用树、筛选与提交列表滚动。
