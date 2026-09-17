@@ -708,15 +708,20 @@ internal sealed class ShellBridge : IDisposable
         string relative = GetString(parameters, "path")
             ?? throw new BridgeValidationException("external/launch 需要 path 参数。");
 
-        string fullPath = Path.GetFullPath(Path.Combine(
+        // 必须走 SafeLocalPathResolver 而不是自己拼路径 + IsWithin：
+        // 后者只比较**字面**路径，工作区内的符号链接（junction/symlink）指向外部时会被放行，
+        // 于是"在外部终端打开"会把终端开在工作区之外。该解析器逐段解析 reparse point
+        // 并核对目标是否仍在工作区内，且已有测试覆盖（WorkspaceDirectoryServiceTests）。
+        string candidate = Path.GetFullPath(Path.Combine(
             _workspaceRoot,
             relative.Replace('/', Path.DirectorySeparatorChar)));
-        if (!WorkspacePathRules.IsWithin(_workspaceRoot, fullPath))
+        string? fullPath = SafeLocalPathResolver.ResolveWithinWorkspace(_workspaceRoot, candidate);
+        if (fullPath is null)
         {
             return Task.FromResult<object?>(new
             {
                 launched = false,
-                reason = "只能打开当前工作区内的路径。",
+                reason = "只能打开当前工作区内已存在的路径。",
             });
         }
 
