@@ -1,4 +1,4 @@
-# Click inside a window's client area at logical (CSS) pixel coordinates and optionally capture.
+﻿# Click inside a window's client area at logical (CSS) pixel coordinates and optionally capture.
 # Coordinates are relative to the client area origin, matching what the web layer lays out.
 param(
   [Parameter(Mandatory=$true)][int]$X,
