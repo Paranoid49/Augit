@@ -5266,3 +5266,111 @@ WebView2 侧照常跟随显示器缩放（1.75），于是物理 1180x760 只换
 `Augit.Shell.Tests` 15/15、`dotnet restore Augit.slnx --locked-mode` 通过、
 `dotnet build Augit.slnx -c Release` 0 警告 0 错误、编码守卫 PASS。
 Core / Infrastructure / live-shell / 视觉稿场景**未重跑**——网页层与领域层本轮没有改动。
+
+### 第一百五十一轮：窗口位置与尺寸恢复（§6.6 缺口）
+
+#### 怎么发现的
+
+上一轮修完高 DPI 缩放后，逐条核对 §6.6「状态所有权与允许更新区域」的表格，
+其中一行是「当前工作区 / 主窗口 / 标题栏工作区名称、项目根节点、状态栏路径 /
+**已恢复窗口尺寸不得被默认值覆盖**」。查实现时发现 `ApplicationSettings.Window`
+（`WindowPlacementSettings`：Left/Top/Width/Height/IsMaximized）**只有定义，没有任何读写**：
+
+```
+$ grep -rn "WindowPlacementSettings" src/ --include=*.cs
+src/Augit.Infrastructure/Settings/ApplicationSettings.cs:31:    public WindowPlacementSettings Window { get; init; } = new();
+src/Augit.Infrastructure/Settings/ApplicationSettings.cs:66:public sealed record WindowPlacementSettings
+```
+
+`git log -S "GetWindowPlacement"` 给出了原因：`fa9831c`（退役旧原生界面）
+把 WPF 版的持久化一起删了，设置模型留了下来，新外壳没有重新实现。
+旁证很硬：用户设置文件 `%LOCALAPPDATA%\Augit\settings.json` 里至今存着
+
+```json
+"window": { "left": 1085, "top": 244, "width": 1434.857, "height": 909.714, "isMaximized": true }
+```
+
+——`left/top` 是整数、`width/height` 是小数，正是旧 WPF 实现"位置存物理像素、
+尺寸存逻辑单位"的写法留下的遗留值。新外壳读都不读，所以用户每次启动都被摆回
+默认的 (80,80) 与 1180x760。
+
+#### 实现
+
+- **启动**：尺寸与位置都按逻辑单位保存，启动时按生效 DPI 换算；
+  低于视觉稿下限（`1024x640`）收敛到下限；恢复的位置越界（显示器被拔掉、分辨率变小、
+  投影切换）时回退到默认 `(80,80)`，判据是标题栏上的探针点必须落在虚拟屏幕内。
+- **关闭**：`GetWindowPlacement` 的**还原矩形**写回，最大化/最小化状态单独记录——
+  最大化时记录的是还原后的尺寸，这样"还原"操作仍能得到正确大小；
+  读改写，不动主题、Git 路径、最近工作区等字段；小于最小尺寸的摆放不写入，
+  避免一次异常小窗口毁掉上一次保存的可用尺寸（与退役前的行为一致）。
+- **优先级**：显式 `--width/--height` ＞ 设置里恢复的值 ＞ 默认值。
+  为此 `ShellOptions.Width/Height` 改为**未传时为 null**（原来直接填 1180/760，
+  调用方无法区分"用户没指定"与"用户指定了默认值"）。
+- 显式场景/DPI/尺寸的审计运行**不写**设置，否则每次审计都会覆盖用户的窗口摆放。
+- 设置只读一次：主题与窗口摆放共用一份快照（原来启动会读两遍设置文件）。
+- `SettingsStore.Normalize` 补上 `Window` 归一化（此前完全没有）：非有限的位置丢弃、
+  尺寸收敛到 `320~20000`、非法尺寸回退默认值。
+
+#### 端到端验证（两阶段，真实窗口）
+
+| 阶段 | 观测 |
+| --- | --- |
+| 清空 `window` 后启动 | `2065x1330 at (80,80)`（= 1180x760 逻辑 @175%） |
+| 移动到 2000x1200 @ (300,200) | 生效 |
+| 关闭后设置文件 | `left=171.42857142857142, top=114.28571428571429, width=1142.857142857143, height=685.7142857142857, max=false`（= 物理 / 1.75） |
+| 重启 | `2000x1200 at (300,200)`，`matchMoved=True` |
+| 最大化后关闭 | 保存的是还原矩形 `1180x760` + `max=true` |
+| 重启 | 直接最大化，`matchZoom=True` |
+
+断言是成对的：`matchMoved=True` 旁边还有 `differsFromDefault=True`，
+否则"窗口根本没变"也会让前者为真。
+
+#### 端到端验证中发现并修掉的缺陷
+
+第一次跑到 `phase2 restored rect=2000x1200 at (299,200)`：x 少了 1 像素。
+根因是 `ResolveStartupPosition` 先把逻辑值 `Math.Round` 成整数再乘缩放比例
+（`171.42857 → 171 → 299.25 → 299`）。改成直接按小数换算，并加了两条测试钉住
+（单点不偏移、以及 96/120/144/168/192/240 DPI 下多组坐标的往返不漂移）。
+
+写这两条测试时自己先写错了一组数据（`x=-1920` 在测试用的虚拟屏外，
+回退默认 `(80,80)` 才是正确行为），测试报错后改用了仍在屏内的 `(-79,40)`。
+
+#### 负向验证
+
+- 退回 `ResolveEffectiveDpi`（忽略系统 DPI）→ 4 条失败（见上一轮）。
+- 退回 `SettingsStore` 的 `Window` 归一化 → `保存时归一化窗口摆放` 失败（8 → 7 通过）。
+- 端到端断言含配对的控制断言，见上表。
+
+#### 未验证 / 限制
+
+- 旧 WPF 写过 `left/top` 为**物理像素**、`width/height` 为**逻辑单位**（单位不一致，
+  应是旧实现的缺陷）。现在统一按逻辑单位解释；老值在高 DPI 下会被放大一次，
+  但越界会被探针点判据兜回默认位置，首次正常关闭后即被改写为正确值。
+  本机无法造出"旧 WPF 在高 DPI 下写入的遗留值"，这条**未能实测**。
+- 多显示器之间拖动窗口的 DPI 切换路径仍未实测（只有一块显示器）。
+
+#### 顺带修掉的既有违规
+
+`dotnet format --verify-no-changes` 在 HEAD 上报 `ShellBridge.cs` 的 IMPORTS
+（`System.Text.Json` 排在 `Augit.*` 之后）。**这不是本轮引入的**，
+按仓库"格式检查必须通过"的要求单独提交修正（`3ebc62a`）。
+
+#### 验证范围
+
+`Augit.Shell.Tests` 28/28、`Augit.Infrastructure.Tests` **172/172**（含新增 2 条）、
+`dotnet format --verify-no-changes` 通过、`dotnet build Augit.slnx -c Release` 0 警告 0 错误、
+窗口摆放端到端两阶段实测通过。Core 与网页层未改动，未重跑；live-shell 与视觉稿场景未重跑。
+
+#### 补充端到端验证：显式尺寸优先，且审计不污染用户设置
+
+单测只覆盖纯函数，"优先级"与"不写设置"这两条发生在真实调用链上，因此另跑一次实测：
+设置文件里写入 `window = 1400x900 @ (200,150)`，再以审计方式启动
+`--scene git-history --width 1024 --height 640`。
+
+- CSS 视口为 `1011x604`（dpr 1.75），即 1024x640 逻辑减去窗口边框——
+  与不带尺寸时的默认运行（`1167x724`）明显不同，说明显式尺寸确实赢了恢复值。
+- 优雅关闭（`CloseMainWindow`，会走 WM_CLOSE 的保存路径）后设置文件仍是
+  `1400x900 @ (200,150)`，`settingsUnchanged=True`——审计运行没有覆盖用户摆放。
+
+第二条尤其重要：如果审计运行会写设置，那么每次跑审计矩阵都会把用户的窗口尺寸
+改成审计用的 1024x640，而用户下次启动看到的就是这个尺寸。
