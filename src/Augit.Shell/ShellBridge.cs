@@ -1,17 +1,17 @@
 using System.Globalization;
 using System.Text;
-using Augit.Core.Search;
-using Augit.Infrastructure.Files;
-using Augit.Infrastructure.Interop;
-using Augit.Infrastructure.Search;
-using Augit.Infrastructure.Settings;
-using Augit.Infrastructure.Terminal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Augit.Core.Documents;
 using Augit.Core.Files;
 using Augit.Core.Git;
+using Augit.Core.Search;
+using Augit.Infrastructure.Files;
 using Augit.Infrastructure.Git;
+using Augit.Infrastructure.Interop;
+using Augit.Infrastructure.Search;
+using Augit.Infrastructure.Settings;
+using Augit.Infrastructure.Terminal;
 
 namespace Augit.Shell;
 
