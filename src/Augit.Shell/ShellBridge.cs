@@ -172,6 +172,7 @@ internal sealed class ShellBridge : IDisposable
             "clipboard/write" => WriteClipboard(parameters),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
+            "session/write" => await WriteSessionAsync(parameters, cancellationToken),
             _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
         };
     }
@@ -831,6 +832,10 @@ internal sealed class ShellBridge : IDisposable
             recentWorkspaces = settings.RecentWorkspaces,
             // 已保存的面板尺寸：只在该尺寸属于当前工作区时下发，
             // 否则会把另一个工作区的布局套到今天打开的目录上。
+            // 会话恢复数据只在同一工作区内有意义：跨工作区恢复会试图打开别的仓库里的文件。
+            openFiles = sameWorkspace ? settings.OpenFiles : [],
+            activeFile = sameWorkspace ? settings.ActiveFile : null,
+            expandedDirectories = sameWorkspace ? settings.ExpandedDirectories : [],
             projectPanelWidth = sameWorkspace ? settings.ToolWindows.ProjectPanelWidth : null,
             bottomPanelHeight = sameWorkspace ? settings.ToolWindows.BottomPanelHeight : null,
         };
@@ -840,6 +845,51 @@ internal sealed class ShellBridge : IDisposable
     /// 写入设置。只接受已知字段：未知字段被忽略，字号等数值先做范围校验，
     /// 避免把非法值写进设置文件。
     /// </summary>
+    /// <summary>
+    /// 写入会话恢复数据（上次打开的文件与当前文件，规格 §6.7）。
+    ///
+    /// 单独一条通道而不是复用 settings/write：后者会失效 Git 解析与状态缓存，
+    /// 而"关掉一个标签"不该让界面重新查一遍 Git（§6.1 局部更新与性能要求）。
+    /// </summary>
+    private static async Task<object?> WriteSessionAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        SettingsStore store = new();
+        ApplicationSettings current = await store.LoadAsync(cancellationToken);
+        // Normalize 会去重、限量并把 ActiveFile 校正到列表之内。
+        ApplicationSettings updated = current with
+        {
+            OpenFiles = GetStringArray(parameters, "openFiles") ?? current.OpenFiles,
+            ActiveFile = GetString(parameters, "activeFile") ?? current.ActiveFile,
+        };
+        await store.SaveAsync(updated, cancellationToken);
+        return new { saved = true };
+    }
+
+    /// <summary>读取字符串数组参数；缺失或不是数组时返回 null（表示"本次不修改"）。</summary>
+    private static string[]? GetStringArray(JsonElement parameters, string name)
+    {
+        if (!parameters.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        List<string> values = [];
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                string? text = item.GetString();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    values.Add(text);
+                }
+            }
+        }
+
+        return [.. values];
+    }
+
     private async Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         SettingsStore store = new();

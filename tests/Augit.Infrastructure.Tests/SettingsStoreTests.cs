@@ -197,4 +197,44 @@ public sealed class SettingsStoreTests
         Assert.AreEqual(40d, actual.Window.Left);
         Assert.IsTrue(actual.Window.IsMaximized);
     }
+
+    [TestMethod]
+    public async Task 会话恢复数据去重限量且当前文件必须落在列表内()
+    {
+        // 启动恢复（规格 §6.7）依赖这里的归一化：列表要去重、限量，
+        // 当前文件必须落在列表之内——否则恢复会去激活一个不在标签集合里的文件。
+        using TemporaryDirectory temporary = new();
+        string settingsPath = temporary.GetPath("settings.json");
+        SettingsStore store = new(settingsPath);
+        string[] many = Enumerable.Range(0, 52).Select(index => temporary.GetPath($"file-{index}.cs")).ToArray();
+
+        await store.SaveAsync(new()
+        {
+            OpenFiles = [many[0], many[0], "   ", many[1], .. many],
+            ActiveFile = temporary.GetPath("not-open.cs"),
+        });
+        ApplicationSettings actual = await store.LoadAsync();
+
+        Assert.HasCount(50, actual.OpenFiles);
+        Assert.AreEqual(many[0], actual.OpenFiles[0]);
+        Assert.IsNull(actual.ActiveFile);
+    }
+
+    [TestMethod]
+    public async Task 会话恢复的当前文件按列表项对齐()
+    {
+        using TemporaryDirectory temporary = new();
+        string settingsPath = temporary.GetPath("settings.json");
+        SettingsStore store = new(settingsPath);
+        string path = temporary.GetPath("Docs/Product-Spec.md");
+
+        await store.SaveAsync(new()
+        {
+            OpenFiles = [path],
+            ActiveFile = path.ToUpperInvariant(),
+        });
+        ApplicationSettings actual = await store.LoadAsync();
+
+        Assert.AreEqual(path, actual.ActiveFile);
+    }
 }

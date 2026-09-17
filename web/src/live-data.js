@@ -1096,6 +1096,92 @@ async function followChangeSelection(path) {
   refreshAfterEvent("editorContent", "editorTabs", "statusbar");
 }
 
+/**
+ * 启动恢复上次打开的标签（规格 §6.7「启动恢复只激活原恢复文件一次」）。
+ *
+ * 每条文件都按"后台打开"处理，最后只激活一次原恢复文件；
+ * 恢复期间用户一旦有交互（切换比较、打开别的文件、改树选择、进入查找框…），
+ * 恢复收尾就**不得**再重新激活正文、重选项目树或覆盖输入状态——
+ * 因此用一个递增代次做闸门，而不是"恢复完再强行激活"。
+ */
+let sessionRestoreGeneration = 0;
+
+/** 用户交互标记：任何点击或按键都让进行中的恢复收手。 */
+function markUserInteraction() {
+  sessionRestoreGeneration += 1;
+}
+
+async function restoreSession() {
+  const live = window.__augitLive;
+  const settings = live && live.settings;
+  const files = settings && Array.isArray(settings.openFiles) ? settings.openFiles : [];
+  if (!live || files.length === 0) {
+    return;
+  }
+
+  const generation = ++sessionRestoreGeneration;
+  const activePath = typeof settings.activeFile === "string" ? settings.activeFile : null;
+  live.sessionRestoring = true;
+  try {
+    for (const path of files) {
+      if (generation !== sessionRestoreGeneration) return;
+      await openDocument(path, { activate: false }).catch(() => null);
+    }
+
+    // 收尾闸门：用户在恢复期间有交互就不再激活（规格 §6.7 第六条）。
+    if (generation !== sessionRestoreGeneration) return;
+    // 直接激活刚恢复好的那个标签，不重新读取：文件刚读过，再读一次既慢又没有必要
+    // （慢读取场景下会白白多等一个读取周期）。
+    const restoredTab = (live.tabs || []).find(
+      (item) => item.kind === "document" && item.path === activePath) || null;
+    if (restoredTab) {
+      activateTab(restoredTab.id);
+    }
+  } finally {
+    live.sessionRestoring = false;
+  }
+
+  // 恢复完成后按**实际**结果对齐（例如某个文件已经不在了）：下一次变更才会写回真实列表。
+  live.settings.openFiles = [];
+  scheduleSessionPersist();
+  window.__augitSessionRestored = true;
+}
+
+/**
+ * 会话恢复数据的写回（防抖）：标签集合与当前文件变化时把结果存进设置。
+ *
+ * 走 `session/write` 而不是 `settings/write`：后者会失效 Git 解析与状态缓存，
+ * 而"关一个标签"不该让界面重新查一遍 Git（§6.1 局部更新与性能要求）。
+ * 内容没变时不写，避免无谓的磁盘写入。
+ */
+let sessionPersistTimer = 0;
+
+function scheduleSessionPersist() {
+  if (sessionPersistTimer !== 0) return;
+  sessionPersistTimer = window.setTimeout(() => {
+    sessionPersistTimer = 0;
+    void persistSession();
+  }, 800);
+}
+
+async function persistSession() {
+  const live = window.__augitLive;
+  if (!live || !live.settings || live.sessionRestoring) return;
+  const openFiles = (live.tabs || [])
+    .filter((tab) => tab.kind === "document" && typeof tab.path === "string" && tab.path.length > 0)
+    .map((tab) => tab.path);
+  const active = (live.tabs || []).find((tab) => tab.id === live.activeTabId) || null;
+  const activeFile = active && active.kind === "document" ? active.path : null;
+  const sameFiles = JSON.stringify(openFiles) === JSON.stringify(live.settings.openFiles || []);
+  if (sameFiles && activeFile === (live.settings.activeFile || null)) {
+    return;
+  }
+
+  live.settings.openFiles = openFiles;
+  live.settings.activeFile = activeFile;
+  await invoke("session/write", { openFiles, activeFile }, 10000).catch(() => null);
+}
+
 /** 读取设置并挂上保存动作。 */
 async function loadSettings() {
   try {
@@ -1765,6 +1851,8 @@ function nextTabId() {
 function syncActiveTab() {
   const live = tabState();
   if (!live) return;
+  // 当前标签变化同样属于会话数据（防抖 + 内容相同不写盘）。
+  scheduleSessionPersist();
   const tab = live.tabs.find((item) => item.id === live.activeTabId) || null;
   live.activeTab = tab;
   if (tab && tab.kind === "document") {
@@ -1810,6 +1898,8 @@ function openDocumentTab(path, payload, options = {}) {
     preview,
   };
   // 临时预览标签只保留一个：新的预览顶替旧的，位置不变。
+  // 标签集合变化后写回会话数据（防抖；内容没变时不会真的写盘）。
+  scheduleSessionPersist();
   const previewIndex = live.tabs.findIndex((item) => item.kind === "document" && item.preview);
   if (preview && previewIndex >= 0) {
     live.tabs[previewIndex] = tab;
@@ -1845,6 +1935,7 @@ function closeTab(id) {
   const closing = live.tabs[index];
   const wasActive = live.activeTabId === id;
   live.tabs.splice(index, 1);
+  scheduleSessionPersist();
   // 关闭比较标签：解除跟随 Changes 选择（规格 §5.2）。
   // 历史比较同样在此解除跟随——关闭后单击不自动重开，只有再次双击或 Enter 才打开。
   if (closing && closing.kind === "comparison") {
@@ -4291,6 +4382,13 @@ async function boot() {
   // 设置始终加载：面板尺寸恢复与拖动写回都需要它；该调用很轻（实测 0–11 毫秒），
   // 因此不做场景区分。
   await loadSettings();
+
+  // 会话恢复必须在设置到位之后（`loadSettings` 在就绪点之后才 await，放早了读不到
+  // openFiles，恢复会静默不发生——实测踩过）。用 void 不阻塞后续启动步骤：
+  // 首屏不能被恢复文件的读取拖慢；用户交互会通过代次闸门让进行中的恢复收手（§6.7）。
+  document.addEventListener("click", markUserInteraction, true);
+  document.addEventListener("keydown", markUserInteraction, true);
+  void restoreSession();
   if (wantsSettings) {
     window.__augitRender();
     bindSettingsSave();

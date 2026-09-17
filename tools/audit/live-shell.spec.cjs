@@ -329,7 +329,24 @@ async function main() {
         if (window.__launchFails) return { launched: false, reason: '只能打开当前工作区内的路径。' };
         return { launched: true, reason: null };
       }
-      if (method === 'settings/read') return data.settings;
+      if (method === 'settings/read') {
+        // 会话恢复用：带上 ?restore=1 时返回上次打开的文件与当前文件（同工作区语义）。
+        const wantsRestore = new URLSearchParams(location.search).has('restore');
+        return wantsRestore
+          ? Object.assign({}, data.settings, {
+            openFiles: ['docs/product-spec.md', 'docs/notes.txt'],
+            activeFile: 'docs/notes.txt',
+          })
+          : data.settings;
+      }
+      if (method === 'session/write') {
+        window.__sessionWrites = (window.__sessionWrites || []).concat([{
+          openFiles: params.openFiles || null,
+          activeFile: params.activeFile || null,
+        }]);
+        if (window.__sessionWriteFails) throw new Error('设置目录不可写。');
+        return { saved: true };
+      }
       if (method === 'settings/write') {
         if (window.__settingsReadOnly) return { saved: false, reason: '无法访问文件或目录，请检查权限或占用情况。' };
         window.__settingsWritten = Object.assign(window.__settingsWritten || {}, params);
@@ -407,7 +424,18 @@ async function main() {
         // 支持按路径注入读取失败，用于验证「文件已删除则移除其标签」。
         if (window.__failReads && window.__failReads[params.path]) throw new Error('not found: ' + params.path);
         // 支持按路径注入延迟，用于验证乱序返回时旧响应被丢弃。
-        const delay = (window.__readDelays || {})[params.path];
+        let delay = (window.__readDelays || {})[params.path];
+        // 启动恢复的竞态用查询参数注入：恢复发生在 boot 期间，测试来不及先写 __readDelays。
+        const slowRead = new URLSearchParams(location.search).get('slowread');
+        if (slowRead) {
+          const [slowPath, slowMs] = slowRead.split(':');
+          if (params.path === slowPath) {
+            // 记录"慢读已经开始"：测试要在这个窗口内制造用户交互，
+            // 才能验证恢复**收尾**是否被拦下（早于本次读取的交互会被循环内的检查拦下）。
+            window.__slowReadStarted = slowPath;
+            delay = Math.max(delay || 0, Number(slowMs) || 0);
+          }
+        }
         if (delay) await new Promise((r) => setTimeout(r, delay));
         if (window.__limitDocs && window.__limitDocs[params.path]) return window.__limitDocs[params.path];
         const found = data.documents[params.path];
@@ -4877,6 +4905,91 @@ async function main() {
 
     if (toastSoft.length > 0) {
       throw new Error('断言失败：' + toastSoft.join(' | '));
+    }
+
+    // ---- 规格 §6.7：启动恢复上次打开的标签，且只激活一次 ----
+    // 设置模型里一直有 OpenFiles / ActiveFile，但宿主既不返回、网页层也从不引用——
+    // "启动时恢复上次打开的标签"（视觉稿设置页的原话）此前完全没有实现。
+    const srSoft = [];
+    const srCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      srSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+
+    const restoreQuiet = await openScene('scene=main-project&theme=dark&restore=1');
+    await restoreQuiet.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await restoreQuiet.page.waitForFunction('window.__augitSessionRestored === true', null, { timeout: 15000 }).catch(() => {});
+    await restoreQuiet.page.waitForTimeout(500);
+    const quiet = await restoreQuiet.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+      active: (window.__augitLive.tabs || []).find((t) => t.id === window.__augitLive.activeTabId) || null,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      restored: window.__augitSessionRestored === true,
+    }));
+    srCheck('启动恢复按顺序打开上次的文件: ' + JSON.stringify(quiet.tabs),
+      JSON.stringify(quiet.tabs) === JSON.stringify(['docs/product-spec.md', 'docs/notes.txt']));
+    srCheck('启动恢复只激活原恢复文件: ' + JSON.stringify([quiet.active ? quiet.active.path : null, quiet.doc]),
+      quiet.restored === true && quiet.active !== null && quiet.active.path === 'docs/notes.txt'
+        && quiet.doc === 'docs/notes.txt');
+    await restoreQuiet.page.close();
+
+    // 恢复期间用户有交互：恢复收尾不得再激活正文（§6.7 第六条）。
+    const restoreBusy = await openScene('scene=main-project&theme=dark&restore=1&slowread=docs/notes.txt:3000');
+    await restoreBusy.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    // 等到"慢读已经开始"再制造交互：此时循环内的检查已经通过，
+    // 只有收尾闸门能阻止激活（容错等待由前置条件断言报出，而不是让超时中断套件）。
+    await restoreBusy.page.waitForFunction(
+      "window.__slowReadStarted === 'docs/notes.txt'", null, { timeout: 10000 }).catch(() => {});
+    const busyBefore = await restoreBusy.page.evaluate(() => ({
+      active: window.__augitLive.activeTabId,
+      restoring: !!window.__augitLive.sessionRestoring,
+      slowReadStarted: window.__slowReadStarted || null,
+    }));
+    srCheck('前置条件：慢读取已经开始且尚未激活: ' + JSON.stringify(busyBefore),
+      busyBefore.slowReadStarted === 'docs/notes.txt'
+        && busyBefore.restoring === true && busyBefore.active === null);
+    await restoreBusy.page.evaluate(() => {
+      document.querySelector('.titlebar').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await restoreBusy.page.waitForTimeout(4000);
+    const busy = await restoreBusy.page.evaluate(() => ({
+      tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+      active: (window.__augitLive.tabs || []).find((t) => t.id === window.__augitLive.activeTabId) || null,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    srCheck('用户交互后恢复收尾不再激活正文: ' + JSON.stringify([busy.active ? busy.active.path : null, busy.doc]),
+      busy.active === null && busy.doc === null
+        && JSON.stringify(busy.tabs) === JSON.stringify(['docs/product-spec.md', 'docs/notes.txt']));
+    await restoreBusy.page.close();
+
+    // ---- 规格 §6.7：会话数据写回；内容未变时不重复写盘 ----
+    const persistPage = await openScene('scene=main-project&theme=dark');
+    await persistPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await persistPage.page.evaluate(() => { window.__sessionWrites = []; });
+    await persistPage.page.evaluate(() => window.__augitOpenDocument('docs/product-spec.md'));
+    await persistPage.page.waitForFunction(
+      "!!window.__augitLive.document && window.__augitLive.document.path === 'docs/product-spec.md'",
+      null, { timeout: 10000 });
+    await persistPage.page.waitForFunction(
+      '(window.__sessionWrites || []).length >= 1', null, { timeout: 8000 }).catch(() => {});
+    const sessionWrote = await persistPage.page.evaluate(() => window.__sessionWrites || []);
+    srCheck('打开文件后写回会话数据: ' + JSON.stringify(sessionWrote),
+      sessionWrote.length >= 1
+        && Array.isArray(sessionWrote.at(-1).openFiles)
+        && sessionWrote.at(-1).openFiles.includes('docs/product-spec.md')
+        && sessionWrote.at(-1).activeFile === 'docs/product-spec.md');
+    const writesBefore = sessionWrote.length;
+    await persistPage.page.evaluate(() => { window.__augitRender(); });
+    await persistPage.page.waitForTimeout(1600);
+    const writesAfter = await persistPage.page.evaluate(() => (window.__sessionWrites || []).length);
+    srCheck('会话数据没有变化时不重复写盘: ' + writesBefore + ' -> ' + writesAfter,
+      writesAfter === writesBefore);
+    await persistPage.page.close();
+
+    if (srSoft.length > 0) {
+      throw new Error('断言失败：' + srSoft.join(' | '));
     }
 
     // ---- 规格 §5.1：标题栏汉堡菜单 ----
