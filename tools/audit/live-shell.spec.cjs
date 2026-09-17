@@ -242,6 +242,15 @@ async function main() {
         const files = Array.isArray(window.__liveFiles) ? window.__liveFiles : data.status.files;
         return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files };
       }
+      if (method === 'git/rollback') {
+        // 回滚（规格 §10.4）：记录调用与目标路径，支持注入失败。
+        window.__rollbackCalls = (window.__rollbackCalls || []).concat([params.path]);
+        if (window.__rollbackDelays) await new Promise((r) => setTimeout(r, window.__rollbackDelays));
+        if (window.__rollbackFails) {
+          throw new Error('Git 回滚失败：索引被锁定（.git/index.lock 存在）。');
+        }
+        return { available: true, rolledBack: true, path: params.path, recycled: !!window.__rollbackRecycled };
+      }
       if (method === 'git/history') {
         // 历史常比首屏慢十余秒：支持注入延迟，用于验证"数据到达不得打断用户输入"。
         const historyDelay = window.__historyDelayMs || 0;
@@ -3253,6 +3262,149 @@ async function main() {
     }));
     check('Blame 读取归属并进入该视图: ' + JSON.stringify(bl), bl.calls === 1 && bl.editor === 'blame');
     await ctx.page.close();
+
+    // ---- 规格 §10.4：回滚必须显示具体影响并确认 ----
+    // 此前 Changes 右键菜单里的「回滚…」落在"其余条目"分支：菜单关掉、什么都不发生。
+    // 危险操作既没有确认、也没有影响说明，更没有未跟踪文件的回收站说明。
+    // 用收集式断言：退回修复时一次运行就能看到整块的全部失败，不必因 fail-fast 反复重跑。
+    const rbSoft = [];
+    const rbCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      rbSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const rb = await openScene('scene=commit-changes&theme=dark');
+    await rb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await rb.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const rbRows = await rb.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row')]
+      .map((row) => ({ path: row.dataset.path, group: row.dataset.group })));
+    check('前置条件：同时有已跟踪改动与未跟踪文件: ' + JSON.stringify(rbRows),
+      rbRows.some((row) => row.group === 'Changes')
+        && rbRows.some((row) => row.group === 'Unversioned Files'));
+
+    const openRollbackOn = async (group) => {
+      await rb.page.evaluate((wanted) => {
+        const row = [...document.querySelectorAll('.changes-list .change-file-row')]
+          .find((item) => item.dataset.group === wanted);
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 90 }));
+      }, group);
+      await rb.page.waitForSelector('.changes-menu', { timeout: 8000 });
+      // 菜单项顺序固定：显示 Diff=0、回滚=1、文件历史=2、Blame=3…
+      await rb.page.evaluate(() => {
+        document.querySelectorAll('.changes-menu .menu-item')[1].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await rb.page.waitForSelector('.dialog.rollback-dialog', { timeout: 8000 });
+      return rb.page.evaluate(() => {
+        const dialog = document.querySelector('.dialog.rollback-dialog');
+        const recycle = dialog.querySelector('.rollback-recycle');
+        const cells = [...dialog.querySelectorAll('.form-grid > span')];
+        return {
+          title: dialog.getAttribute('aria-label'),
+          impact: (dialog.querySelector('.rollback-impact strong') || {}).textContent || null,
+          recycleHidden: recycle ? recycle.hidden : null,
+          recycleText: recycle ? recycle.textContent : null,
+          file: cells.length > 1 ? cells[1].textContent : null,
+          confirm: (dialog.querySelector('[data-rollback-action="confirm"]') || {}).textContent || null,
+          focused: document.activeElement && document.activeElement.dataset
+            ? document.activeElement.dataset.rollbackAction : null,
+          menus: document.querySelectorAll('.changes-menu').length,
+        };
+      });
+    };
+
+    const rbTracked = await openRollbackOn('Changes');
+    rbCheck('回滚确认显示已跟踪文件的具体影响与动作名: '
+      + JSON.stringify([rbTracked.title, rbTracked.impact, rbTracked.confirm]),
+    typeof rbTracked.title === 'string' && rbTracked.title.includes('回滚文件')
+      && typeof rbTracked.impact === 'string' && rbTracked.impact.includes('丢失')
+      && rbTracked.confirm === '回滚完整文件');
+    rbCheck('已跟踪文件的回滚不显示回收站说明: ' + JSON.stringify(rbTracked.recycleHidden),
+      rbTracked.recycleHidden === true);
+    rbCheck('打开回滚确认后右键菜单已关闭: ' + JSON.stringify(rbTracked.menus), rbTracked.menus === 0);
+
+    // 取消：不请求宿主，对话框关闭且状态清理干净。
+    const rbCallsBefore = await rb.page.evaluate('(window.__rollbackCalls || []).length');
+    await rb.page.evaluate(() => {
+      document.querySelector('[data-rollback-action="cancel"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rb.page.waitForTimeout(600);
+    const rbCancelled = await rb.page.evaluate(() => ({
+      dialogs: document.querySelectorAll('.dialog.rollback-dialog').length,
+      calls: (window.__rollbackCalls || []).length,
+      state: window.__augitLive.rollback || null,
+    }));
+    rbCheck('取消回滚不请求宿主并清理目标状态: '
+      + JSON.stringify([rbCancelled.dialogs, rbCancelled.calls, rbCancelled.state]),
+    rbCancelled.dialogs === 0 && rbCancelled.calls === rbCallsBefore && rbCancelled.state === null);
+
+    // 未跟踪文件：必须明确说明进入 Windows 回收站（§10.4 第三条）。
+    const rbUntracked = await openRollbackOn('Unversioned Files');
+    rbCheck('未跟踪文件的回滚说明进入回收站: '
+      + JSON.stringify([rbUntracked.file, rbUntracked.impact, rbUntracked.recycleHidden, rbUntracked.recycleText]),
+    rbUntracked.file === 'notes/draft.txt' && rbUntracked.recycleHidden === false
+      && typeof rbUntracked.recycleText === 'string' && rbUntracked.recycleText.includes('回收站'));
+
+    // 确认：调用宿主并带上目标路径，成功后关闭对话框并重新读取状态。
+    const rbStatusBefore = await rb.page.evaluate('window.__statusCalls || 0');
+    await rb.page.evaluate(() => {
+      document.querySelector('[data-rollback-action="confirm"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rb.page.waitForFunction(
+      (before) => (window.__statusCalls || 0) > before, rbStatusBefore, { timeout: 10000 });
+    const rbConfirmed = await rb.page.evaluate(() => ({
+      calls: window.__rollbackCalls || [],
+      dialogs: document.querySelectorAll('.dialog.rollback-dialog').length,
+      state: window.__augitLive.rollback || null,
+      url: location.href,
+    }));
+    rbCheck('确认回滚调用宿主并带上目标路径: ' + JSON.stringify(rbConfirmed.calls),
+      rbConfirmed.calls.length === 1 && rbConfirmed.calls[0] === 'notes/draft.txt');
+    rbCheck('确认后关闭对话框、清理目标并重新读取状态: '
+      + JSON.stringify([rbConfirmed.dialogs, rbConfirmed.state, rbStatusBefore]),
+    rbConfirmed.dialogs === 0 && rbConfirmed.state === null);
+    rbCheck('回滚不会把界面导航离开应用: ' + rbConfirmed.url, rbConfirmed.url.includes('index.html'));
+
+    // 失败：保留对话框、显示脱敏原因与"未改变"说明，不假装成功。
+    await rb.page.evaluate(() => { window.__rollbackFails = true; });
+    await openRollbackOn('Changes');
+    await rb.page.evaluate(() => {
+      document.querySelector('[data-rollback-action="confirm"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    // 轮询而不是硬等：失败提示缺失时应当由断言报出，而不是超时中断整条套件。
+    for (let i = 0; i < 20; i += 1) {
+      const shown = await rb.page.evaluate(
+        () => !!document.querySelector('.rollback-dialog .rollback-notice:not([hidden])'));
+      if (shown) break;
+      await rb.page.waitForTimeout(200);
+    }
+    const rbFailed = await rb.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.rollback-dialog');
+      const notice = dialog ? dialog.querySelector('.rollback-notice') : null;
+      const confirm = dialog ? dialog.querySelector('[data-rollback-action="confirm"]') : null;
+      return {
+        dialogs: document.querySelectorAll('.dialog.rollback-dialog').length,
+        reason: notice ? notice.textContent : null,
+        confirmDisabled: confirm ? confirm.disabled : null,
+        url: location.href,
+      };
+    });
+    rbCheck('回滚失败保留对话框并说明原因与未改变的状态: '
+      + JSON.stringify([rbFailed.dialogs, rbFailed.reason]),
+    rbFailed.dialogs === 1 && typeof rbFailed.reason === 'string'
+      && rbFailed.reason.includes('索引被锁定') && rbFailed.reason.includes('没有被修改'));
+    rbCheck('回滚失败后确认按钮恢复可用: ' + JSON.stringify(rbFailed.confirmDisabled),
+      rbFailed.confirmDisabled === false);
+    rbCheck('回滚失败不导航离开应用: ' + rbFailed.url, rbFailed.url.includes('index.html'));
+    if (rbSoft.length > 0) {
+      throw new Error('断言失败：' + rbSoft.join(' | '));
+    }
+
+    await rb.page.close();
 
     // ---- 规格 §7.11：新建 Worktree 表单 ----
     const wt = await openScene('scene=main-project&theme=dark');

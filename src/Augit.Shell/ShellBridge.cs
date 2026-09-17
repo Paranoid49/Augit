@@ -150,6 +150,7 @@ internal sealed class ShellBridge : IDisposable
             "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
             "git/remote-write" => await WriteRemoteAsync(parameters, cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
+            "git/rollback" => await RollbackAsync(parameters, cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
@@ -484,6 +485,57 @@ internal sealed class ShellBridge : IDisposable
     /// 快速打开：按文件名搜索，最多 100 项。
     /// 上限、超时与取消语义都由搜索服务负责，这里只做参数整形与结果映射。
     /// </summary>
+    /// <summary>
+    /// 回滚一个改动文件（规格 §10.4）。
+    /// 文件身份以**宿主自己的状态快照**为准，不采信页面传来的 kind：
+    /// 页面状态可能已经过期，而回滚对已跟踪文件是"恢复到 HEAD"、对未跟踪/新增文件是
+    /// "移入回收站"，用错身份会做出用户没要求的破坏性操作。
+    /// </summary>
+    private async Task<object?> RollbackAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string path = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/rollback 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitStatusResult status = await ReadStatusCachedAsync(runtime, repository, cancellationToken);
+        if (!status.IsSuccess || status.Snapshot is not { } snapshot)
+        {
+            return new { available = true, rolledBack = false, reason = status.ErrorMessage ?? "无法读取当前改动列表。" };
+        }
+
+        string normalized = path.Replace('\\', '/');
+        GitChangedFile? file = snapshot.Files.FirstOrDefault(
+            item => string.Equals(item.RelativePath.Replace('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase));
+        if (file is null)
+        {
+            return new { available = true, rolledBack = false, reason = "该文件已不在改动列表中，可能已被外部处理。" };
+        }
+
+        GitActionResult result = await new GitWorkspaceStateService(runtime)
+            .RollbackAsync(repository, file, cancellationToken)
+            .ConfigureAwait(false);
+        // 回滚改变了工作区：状态缓存必须失效，界面随后重新读取真实仓库状态。
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, rolledBack = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            rolledBack = true,
+            path = file.RelativePath,
+            // 未跟踪或新增文件是被移入回收站，不是从 HEAD 恢复：界面据此给出准确说明。
+            recycled = file.Group == GitChangeGroup.UnversionedFiles
+                || file.Kind is GitChangeKind.Untracked or GitChangeKind.Added,
+        };
+    }
+
     private async Task<object?> SearchFilesAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string query = GetString(parameters, "query") ?? string.Empty;

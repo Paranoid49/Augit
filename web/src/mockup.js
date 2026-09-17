@@ -1510,16 +1510,27 @@ function liveResetBody() {
   return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" readonly><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
 }
 
-// 外壳注入真实改动文件时的回滚对话框：路径来自当前选中的改动文件。
+// 外壳注入真实改动文件时的回滚对话框：目标是右键选中的那个文件
+// （没有显式目标时退回视觉稿原有行为：第一个已跟踪改动）。
 function liveRollbackBody() {
   const live = window.__augitLive || {};
   const files = (live.status && live.status.files) || [];
-  const file = files.find((item) => item.group === "Changes") || files[0] || null;
+  const file = live.rollback && live.rollback.path
+    ? files.find((item) => item.path === live.rollback.path) || null
+    : files.find((item) => item.group === "Changes") || files[0] || null;
   if (!file) {
-    return `<div class="inline-alert danger rollback-impact"><strong>没有可回滚的改动</strong><p class="commit-meta">当前工作区没有已跟踪文件的改动。</p></div>`;
+    return `<div class="inline-alert danger rollback-impact"><strong>没有可回滚的改动</strong><p class="commit-meta">当前工作区没有已跟踪文件的改动。</p></div><div class="rollback-notice" role="status" hidden></div>`;
   }
 
-  return `<div class="inline-alert danger rollback-impact"><strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p><p class="rollback-recycle" hidden>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.kind)}</span></div>`;
+  // 规格 §10.4：危险操作必须显示**具体影响**，且未跟踪文件删除必须明确说明进入
+  // Windows 回收站。两种身份的后果不同，不能共用一句笼统说明：
+  // 已跟踪文件是恢复到 HEAD，未跟踪/新增文件没有可恢复版本、只是被移出工作区。
+  const kind = String(file.kind || "");
+  const recycled = file.group !== "Changes" || kind === "Untracked" || kind === "Added";
+  const impact = recycled
+    ? `<strong>该文件将被移出工作区</strong><p class="commit-meta">这是未跟踪或新增文件，没有可恢复的 HEAD 版本。</p>`
+    : `<strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p>`;
+  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
 }
 
 // 外壳注入真实差异时使用：按「旧行 / 行号槽 / 新行」三列渲染结构化行。

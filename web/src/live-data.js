@@ -2203,6 +2203,15 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 回滚确认对话框的动作（规格 §10.4）。
+    const rollbackAction = event.target.closest && event.target.closest("[data-rollback-action]");
+    if (rollbackAction) {
+      event.preventDefault();
+      if (rollbackAction.dataset.rollbackAction === "confirm") void confirmRollbackDialog();
+      else closeRollbackDialog();
+      return;
+    }
+
     // 推送对话框的动作。
     const pushAction = event.target.closest && event.target.closest("[data-push-action]");
     if (pushAction) {
@@ -2271,8 +2280,9 @@ function guardUnwiredNavigation() {
       event.preventDefault();
       const label = (changesMenu.textContent || "").trim();
       const action = label.includes("显示 Diff") ? "diff"
-        : label.includes("文件历史") ? "file-history"
-          : label.includes("Blame") ? "blame" : null;
+        : label.includes("回滚") ? "rollback"
+          : label.includes("文件历史") ? "file-history"
+            : label.includes("Blame") ? "blame" : null;
       if (action) void runChangesContextAction(action);
       else closeLiveOverlay();
       return;
@@ -2842,6 +2852,97 @@ function closePushDialog() {
  * 关闭它**只重新读取推送预览**：不创建第二个 Push 窗口，
  * 不改变提交列表、提交草稿，也不重排主窗口布局。
  */
+/**
+ * 打开回滚确认对话框（规格 §10.4）。
+ *
+ * 危险操作必须先显示**具体影响**并由用户确认。此前 Changes 右键菜单里的「回滚…」
+ * 落在"其余条目"分支，只关掉菜单什么都不做——用户以为回滚了，实际没有发生任何事。
+ */
+function openRollbackDialog(path) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || !path) return;
+  const files = (live.status && live.status.files) || [];
+  const file = files.find((item) => item.path === path) || null;
+  if (!file) {
+    // 列表已经变化（例如文件刚被外部处理）：先重新读取状态，不打开一个对不上文件的确认框。
+    void loadStatus().catch(() => null);
+    return;
+  }
+
+  closeLiveOverlay();
+  rememberDialogFocus();
+  // 目标身份进状态：对话框内容由 mockup 的 liveRollbackBody 读状态渲染，
+  // 区域刷新会重建节点，只把目标写在 DOM 上会被静默丢弃（handoff 第 3 节第 5 条）。
+  live.rollback = { path: file.path };
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  document.querySelectorAll(".dialog.rollback-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    `回滚文件 · ${escapeText(file.path)}`,
+    liveRollbackBody(),
+    `<button type="button" class="secondary-button" data-rollback-action="cancel">取消</button>`
+      + `<button type="button" class="danger-button" data-rollback-action="confirm">回滚完整文件</button>`,
+    true,
+    "rollback-dialog");
+  host.appendChild(layer);
+  const confirm = layer.querySelector('[data-rollback-action="confirm"]');
+  if (confirm) confirm.focus();
+}
+
+/** 关闭回滚对话框；目标身份一并清掉，避免下次打开沿用上一个文件。 */
+function closeRollbackDialog() {
+  document.querySelectorAll(".dialog.rollback-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const live = window.__augitLive;
+  if (live) live.rollback = null;
+  restoreDialogFocus();
+}
+
+/**
+ * 确认回滚：交给宿主执行，随后重新读取真实仓库状态。
+ *
+ * 失败时保留对话框并显示脱敏原因（规格 §9.3「失败后保留用户输入并显示原因」），
+ * 不假装成功、也不自行推断结果——是否移入回收站由宿主的实际动作决定。
+ */
+async function confirmRollbackDialog() {
+  const live = window.__augitLive;
+  const path = live && live.rollback ? live.rollback.path : null;
+  if (!path) return;
+  const button = document.querySelector('[data-rollback-action="confirm"]');
+  if (button) button.disabled = true;
+  let result = null;
+  try {
+    result = await invoke("git/rollback", { path }, 60000);
+  } catch (error) {
+    result = { available: true, rolledBack: false, reason: String((error && error.message) || error) };
+  }
+
+  if (!result || !result.rolledBack) {
+    const notice = document.querySelector(".rollback-dialog .rollback-notice");
+    if (notice) {
+      notice.hidden = false;
+      notice.classList.add("error");
+      notice.textContent = notice.title = describeFailure(
+        (result && result.reason) || "回滚未完成。",
+        { unchanged: "文件内容、Changes 列表与提交输入没有被修改。" });
+    }
+    if (button) button.disabled = false;
+    return;
+  }
+
+  closeRollbackDialog();
+  await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+  refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
+}
+
 function openRemoteDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -3268,6 +3369,11 @@ async function runChangesContextAction(action, options = {}) {
   if (!path) return;
   if (action === "diff") {
     await openChangeDiff(path);
+    return;
+  }
+
+  if (action === "rollback") {
+    openRollbackDialog(path);
     return;
   }
 
