@@ -2024,7 +2024,9 @@ function openConflictSession() {
   if (conflictSessionView() === "resolver") {
     bindConflictSave();
     bindConflictUndoRefresh();
-    syncConflictCount();
+    // 重绘会造出新的对话框节点：冻结标记与按计数恢复的按钮状态都要重新落上
+    // （否则应用成功后重绘会让 data-conflict-applying 消失，读状态时得到 null）。
+    setConflictApplying(!!(live && live.conflictApplying));
   }
 }
 
@@ -2065,7 +2067,99 @@ function syncConflictCount() {
   if (!block || !label) return null;
   const count = unresolvedConflictGroups(block).length;
   label.textContent = `${count} 个未处理冲突`;
+  // 规格 §7.14：失败、取消或异常后**按实际未处理冲突数恢复动作**——
+  // 没有未处理冲突时接受与导航都不该还可点（撤销把它们还回来后要重新可用）。
+  const dialog = document.querySelector(".dialog.conflict-session-dialog");
+  const applying = dialog && dialog.getAttribute("data-conflict-applying") === "true";
+  if (dialog && !applying) {
+    const hasConflicts = count > 0;
+    for (const node of dialog.querySelectorAll(
+      "[data-conflict-side], .conflict-header .secondary-button")) {
+      node.disabled = !hasConflicts;
+    }
+  }
+
   return count;
+}
+
+/**
+ * 应用进行中的冻结与解冻（规格 §7.14）。
+ *
+ * 冻结接受、导航与普通关闭，中央结果区暂时只读并显示
+ * 「正在应用结果并标记已解决…」；解冻后按实际未处理冲突数恢复动作。
+ */
+function setConflictApplying(applying) {
+  const live = window.__augitLive;
+  if (live) live.conflictApplying = applying;
+  const dialog = document.querySelector(".dialog.conflict-session-dialog");
+  if (!dialog) return;
+  dialog.setAttribute("data-conflict-applying", applying ? "true" : "false");
+  for (const node of dialog.querySelectorAll(
+    "[data-conflict-side], [data-conflict-save], [data-conflict-back], .conflict-header .secondary-button")) {
+    node.disabled = applying;
+  }
+
+  const block = dialog.querySelector(".conflict-column.result .conflict-block");
+  if (block) block.setAttribute("contenteditable", applying ? "false" : "plaintext-only");
+  const label = dialog.querySelector("[data-conflict-count]");
+  if (label) {
+    if (applying) {
+      label.textContent = "正在应用结果并标记已解决…";
+    } else {
+      syncConflictCount();
+    }
+  }
+}
+
+/** 解决器里的局部提示（§10.2：说明发生了什么、哪些状态未改变、可以做什么）。 */
+function setConflictNotice(message) {
+  const notice = document.querySelector(".conflict-session-dialog .conflict-notice");
+  if (!notice) return;
+  notice.hidden = !message;
+  notice.textContent = message || "";
+  notice.title = message || "";
+}
+
+/**
+ * 应用结果并标记已解决（规格 §7.14）。
+ *
+ * 校验交给宿主：桥接在保存前会重新读取该文件当前版本与操作类型，版本不符即拒绝。
+ * 这里负责界面侧：进行中冻结与只读、失败保留正文并显示最新原因、结束后按实际
+ * 未处理冲突数恢复动作。进行中不重复触发（§9.3）。
+ */
+async function applyConflictResult() {
+  const live = window.__augitLive;
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  const path = live && live.conflict ? live.conflict.path : null;
+  if (!live || !path || !block || live.conflictApplying) return null;
+
+  const resultText = block.innerText;
+  setConflictApplying(true);
+  setConflictNotice("");
+  let failure = null;
+  let payload = null;
+  try {
+    payload = await invoke("git/conflict-save", { path, resultText }, 120000);
+    if (!payload || !payload.available || payload.saved === false) {
+      failure = (payload && payload.reason) || "应用结果失败。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  setConflictApplying(false);
+  if (failure) {
+    setConflictNotice(describeFailure(failure, {
+      unchanged: "中央结果区与冲突文件都没有被修改。",
+      next: "可以重新载入文件或再次应用。",
+    }));
+    return null;
+  }
+
+  window.__augitConflictSaved = path;
+  // 解决一个冲突会改变未处理数量与 Continue 的可用性：重新读取会话（§9.3）。
+  void loadOperationSession();
+  return payload;
 }
 
 /**
@@ -2245,15 +2339,6 @@ async function loadConflict(path) {
 }
 
 /** 保存冲突解决结果：把结果栏文本写回文件并标记已解决。 */
-async function saveConflict(path, resultText) {
-  const saved = await invoke("git/conflict-save", { path, resultText }, 30000);
-  if (!saved || !saved.available) {
-    throw new Error(saved && saved.reason ? saved.reason : "保存失败");
-  }
-
-  return saved;
-}
-
 /** 发布待推送信息，供 Push 对话框使用。 *//** 发布待推送信息，供 Push 对话框使用。 */
 /** 状态或引用变化后按已有数据重算推送预览；不发起查询。 */
 function refreshPush() {
@@ -2274,18 +2359,8 @@ function bindConflictSave() {
   button.addEventListener("click", async () => {
     const block = document.querySelector(".conflict-column.result .conflict-block");
     if (!block) return;
-    button.disabled = true;
-    try {
-      await saveConflict(live.conflict.path, block.innerText);
-      window.__augitConflictSaved = live.conflict.path;
-      button.textContent = "已标记为已解决";
-      // 解决一个冲突会改变"还有多少未解决"，Continue 的可用性也随之变：
-      // 重新读取会话（规格 §9.3「读取最新事实」），不自行推断。
-      void loadOperationSession();
-    } catch (error) {
-      window.__augitError = "save-conflict:" + String(error && error.message || error);
-      button.disabled = false;
-    }
+    // 统一走应用状态机：冻结、只读、忙碌提示、失败恢复都在里面（规格 §7.14）。
+    await applyConflictResult();
   });
 }
 

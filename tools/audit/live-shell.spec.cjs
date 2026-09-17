@@ -390,6 +390,10 @@ async function main() {
       }
       if (method === 'git/conflict-save') {
         window.__conflictSaves = (window.__conflictSaves || []).concat([params]);
+        // 延迟用于观察"应用进行中"的冻结与忙碌提示。
+        if (window.__conflictSaveDelays) {
+          await new Promise((r) => setTimeout(r, window.__conflictSaveDelays));
+        }
         if (window.__conflictSaveFails) return { available: true, saved: false, reason: '文件已被外部修改。' };
         return { available: true, saved: true };
       }
@@ -6044,6 +6048,92 @@ async function main() {
     crCheck('撤销恢复冲突块且计数跟着回: ' + JSON.stringify([undone.markers, undone.count]),
       undone.markers === 1 && undone.count === '1 个未处理冲突'
         && undone.text.includes('<<<<<<<') && undone.text.includes('左方改动'));
+
+    // ---- 规格 §7.14：应用进行中冻结、只读与忙碌提示；失败保留正文并显示原因 ----
+    const readApplyState = () => cr.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const block = dialog ? dialog.querySelector('.conflict-column.result .conflict-block') : null;
+      const pick = (selector) => {
+        const node = dialog ? dialog.querySelector(selector) : null;
+        return node ? node.disabled : null;
+      };
+      return {
+        applying: dialog ? dialog.getAttribute('data-conflict-applying') : null,
+        count: (dialog && dialog.querySelector('[data-conflict-count]') || {}).textContent || null,
+        editable: block ? block.getAttribute('contenteditable') : null,
+        acceptDisabled: dialog
+          ? [...dialog.querySelectorAll('[data-conflict-side]')].map((node) => node.disabled) : [],
+        navDisabled: dialog
+          ? [...dialog.querySelectorAll('.conflict-header .secondary-button')].map((node) => node.disabled) : [],
+        backDisabled: pick('[data-conflict-back]'),
+        saveDisabled: pick('[data-conflict-save]'),
+        text: block ? block.innerText : null,
+      };
+    });
+
+    // 进行中：冻结接受/导航/关闭、结果区只读、顶部显示忙碌提示。
+    await cr.page.evaluate(() => {
+      window.__conflictSaves = [];
+      window.__conflictSAVED = null;
+      window.__conflictSaveDelays = 900;
+      window.__conflictSaveFails = false;
+      const save = document.querySelector('[data-conflict-save]');
+      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForTimeout(250);
+    const cfApplying = await readApplyState();
+    crCheck('应用进行中冻结接受/导航/关闭并只读结果区: ' + JSON.stringify(cfApplying),
+      cfApplying.applying === 'true' && cfApplying.editable === 'false'
+        && cfApplying.acceptDisabled.every((value) => value === true)
+        && cfApplying.navDisabled.every((value) => value === true)
+        && cfApplying.backDisabled === true && cfApplying.saveDisabled === true);
+    crCheck('应用进行中显示忙碌提示（不隐藏未处理数）: ' + JSON.stringify(cfApplying.count),
+      cfApplying.count === '正在应用结果并标记已解决…');
+
+    await cr.page.waitForFunction('(window.__conflictSaves || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    await cr.page.waitForTimeout(1200);
+    const cfApplied = await readApplyState();
+    crCheck('应用完成后解冻并按实际未处理数恢复动作: ' + JSON.stringify([cfApplied.applying, cfApplied.editable, cfApplied.count, cfApplied.acceptDisabled]),
+      cfApplied.applying === 'false' && cfApplied.editable === 'plaintext-only'
+        && cfApplied.count === '1 个未处理冲突'
+        && cfApplied.acceptDisabled.every((value) => value === false)
+        && cfApplied.saveDisabled === false);
+
+    // 失败：保留中央正文、显示最新原因与"未改变"说明，动作按实际未处理数恢复。
+    const textBeforeFailure = cfApplied.text;
+    await cr.page.evaluate(() => {
+      window.__conflictSaveDelays = 0;
+      window.__conflictSaveFails = true;
+      const save = document.querySelector('[data-conflict-save]');
+      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForFunction(
+      "!document.querySelector('.conflict-session-dialog .conflict-notice').hidden",
+      null, { timeout: 8000 }).catch(() => {});
+    // 原子捕获：在"提示出现"的同一帧读取状态，不给后台轮询留出改写界面的窗口
+    // （否则断言可能读到轮询重绘中途的状态，得到与失败无关的 null）。
+    const cfFailed = await cr.page.waitForFunction(() => {
+      const dialog = [...document.querySelectorAll('.dialog.conflict-session-dialog')].at(-1) || null;
+      const notice = dialog ? dialog.querySelector('.conflict-notice') : null;
+      if (!dialog || !notice || notice.hidden) return false;
+      const block = dialog.querySelector('.conflict-column.result .conflict-block');
+      return {
+        dialogs: document.querySelectorAll('.dialog.conflict-session-dialog').length,
+        notice: notice.textContent,
+        text: block ? block.innerText : null,
+        editable: block ? block.getAttribute('contenteditable') : null,
+        acceptDisabled: [...dialog.querySelectorAll('[data-conflict-side]')].every((node) => node.disabled),
+        saveDisabled: dialog.querySelector('[data-conflict-save]').disabled,
+      };
+    }, null, { timeout: 8000 }).then((handle) => handle.jsonValue()).catch(() => null);
+    crCheck('应用失败保留正文并显示原因与未改变说明: '
+      + JSON.stringify([cfFailed && cfFailed.notice, cfFailed && cfFailed.text === textBeforeFailure]),
+    cfFailed !== null && cfFailed.dialogs === 1 && typeof cfFailed.notice === 'string'
+      && cfFailed.notice.includes('文件已被外部修改') && cfFailed.notice.includes('没有被修改')
+      && cfFailed.text === textBeforeFailure && cfFailed.editable === 'plaintext-only');
+    crCheck('应用失败后按实际未处理数恢复动作: '
+      + JSON.stringify([cfFailed && cfFailed.acceptDisabled, cfFailed && cfFailed.saveDisabled]),
+    cfFailed !== null && cfFailed.acceptDisabled === false && cfFailed.saveDisabled === false);
     await cr.page.close();
 
     if (crSoft.length > 0) {
