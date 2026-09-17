@@ -5540,6 +5540,12 @@ async function main() {
       lucSoft.push(label);
       console.log('SOFT_FAIL: ' + label);
     };
+    // 必须保留一个未跟踪文件：增量更新只处理"两个分组都存在"的形态（形态不符会回退到
+    // 区域替换），夹具少了这一组就测不到节点复用。
+    const untrackedFile = {
+      path: 'notes/draft.txt', name: 'draft.txt', directory: 'notes',
+      group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false,
+    };
     const manyFiles = (count, extra = []) => Array.from({ length: count }, (_, i) => ({
       path: `src/f${String(i).padStart(2, '0')}.cs`,
       name: `f${String(i).padStart(2, '0')}.cs`,
@@ -5555,9 +5561,9 @@ async function main() {
     await luc.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     // 造一个可滚动的长列表。
     await luc.page.evaluate((files) => { window.__liveFiles = files; window.__nextChanges = { files: [], gitMetadata: true }; },
-      manyFiles(30));
+      manyFiles(30, [untrackedFile]));
     await luc.page.waitForFunction(
-      "document.querySelectorAll('.changes-list .change-file-row').length === 30", null, { timeout: 10000 });
+      "document.querySelectorAll('.changes-list .change-file-row').length === 31", null, { timeout: 10000 });
     // 给每行打身份标记，选中第 11 行，并把列表滚下去。
     await luc.page.evaluate(() => {
       document.querySelectorAll('.changes-list .change-file-row').forEach((row, i) => {
@@ -5576,13 +5582,13 @@ async function main() {
     }));
     check('前置条件：行已打标记、选中第 11 行且列表已滚动: ' + JSON.stringify([lucBefore.selected, lucBefore.scrollTop]),
       lucBefore.selected === 'src/f10.cs' && lucBefore.scrollTop > 100
-        && lucBefore.identities.every((id) => id !== null));
+        && lucBefore.identities.length === 31 && lucBefore.identities.every((id) => id !== null));
 
     // 部分变化：新增一个文件，其余 30 个路径与状态都没变。
     await luc.page.evaluate((files) => {
       window.__liveFiles = files;
       window.__nextChanges = { files: ['D:\\live-ws\\src\\extra.cs'], gitMetadata: false };
-    }, manyFiles(30, [{
+    }, manyFiles(30, [untrackedFile, {
       path: 'src/extra.cs', name: 'extra.cs', directory: 'src', group: 'Changes',
       kind: 'Added', staged: false, workingTree: true,
     }]));
@@ -5603,12 +5609,14 @@ async function main() {
         paths: rows.map((r) => r.dataset.path),
       };
     });
-    // 条款一/二的"保留原列表项对象"目前**做不到**：侧栏区域是整体替换的，
-    // 部分变化会把全部行重建（实测 identities 全为 null）。滚动、选中、勾选都被
-    // restoreChangesState 保住了，丢的是节点本身。这是已登记的偏差（见
-    // docs/ui-refactor-baseline.md 第一百六十轮），这里只记录测量值，不假装断言通过。
-    console.log('INFO 部分变化后未变化行的节点标记: ' + JSON.stringify(lucAfter.identities.slice(0, 4))
-      + ' / 滚动 ' + lucBefore.scrollTop + '->' + lucAfter.scrollTop);
+    // 条款一/二：未变化项保留原列表项对象（节点复用），而不是整块重建。
+    // 新行没有标记（它是新建的），而且行按文件名自然序排列、新文件可能落在最前，
+    // 因此按**集合**判定：原有 31 个标记必须一个不少地仍然存在。
+    const lucSurvived = new Set(lucAfter.identities.filter((id) => id !== null));
+    lucCheck('部分变化时未变化项保留原列表项对象: '
+      + JSON.stringify([lucBefore.identities.length, lucSurvived.size, lucAfter.identities.slice(0, 3)]),
+    lucBefore.identities.length === 31
+      && lucBefore.identities.every((id) => lucSurvived.has(id)));
     // 条款二：保持滚动位置。
     lucCheck('部分变化时保持列表滚动位置: ' + JSON.stringify([lucBefore.scrollTop, lucAfter.scrollTop]),
       Math.abs(lucAfter.scrollTop - lucBefore.scrollTop) <= 4);
@@ -5620,7 +5628,7 @@ async function main() {
     await luc.page.evaluate((files) => {
       window.__liveFiles = files.filter((file) => file.path !== 'src/f10.cs');
       window.__nextChanges = { files: ['D:\\live-ws\\src\\f10.cs'], gitMetadata: false };
-    }, manyFiles(30));
+    }, manyFiles(30, [untrackedFile]));
     await luc.page.waitForFunction(
       "!document.querySelector('.changes-list .change-file-row[data-path=\"src/f10.cs\"]')",
       null, { timeout: 8000 });

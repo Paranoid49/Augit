@@ -1749,6 +1749,27 @@ function statusRefreshNotice() {
   return `<div class="inline-alert status-stale" role="status">无法读取最新 Git 状态：${escapeHtml(sentence)}下方列表与分支信息仍是上一次成功读取的结果，改动、勾选与提交输入没有被修改；可点击工具栏的刷新重试。</div>`;
 }
 
+/**
+ * 改动行的标记。抽成函数是**唯一来源**：整块渲染与增量更新都从这里取，
+ * 否则两处标记迟早漂移（规格 §6.4 要求部分变化时复用未变化的行）。
+ * `group` 是界面标签（Changes / Unversioned Files），不是宿主的 group 值。
+ */
+function liveChangeFileRow(file, group, selectedName) {
+  const isSelected = selectedName === file.name;
+  return `
+      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
+        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
+        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
+      </div>`;
+}
+
+/** 分组头**只含表头**：行由调用方拼在后面（这里多拼一次会让每行渲染两遍）。 */
+function liveChangeGroupRow(label, groupFiles) {
+  const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
+  const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
+  return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>`;
+}
+
 function liveChangesSide(selected) {
   const status = window.__augitLive.status;
   const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
@@ -1761,14 +1782,8 @@ function liveChangesSide(selected) {
   const changeRows = groups.map(([key, label]) => {
       const groupFiles = status.files.filter(file => file.group === key);
       if (groupFiles.length === 0) return "";
-      const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
-      const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
-      const rows = groupFiles.map(file => `
-      <div class="check-row change-file-row ${selected === file.name ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(label)}" role="treeitem" aria-level="2" aria-selected="${selected === file.name}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
-        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
-        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
-      </div>`).join("");
-      return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>${rows}`;
+      return liveChangeGroupRow(label, groupFiles) + groupFiles.map(
+        file => liveChangeFileRow(file, label, selected)).join("");
     }).join("");
   const changed = status.files.filter(file => file.group === "Changes").length;
   return `

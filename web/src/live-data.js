@@ -845,6 +845,149 @@ function selectChangeRow(row) {
   if (path) void followChangeSelection(path);
 }
 
+/**
+ * 规格 §6.4 条款一/二：部分变化时**原地**更新改动列表，复用未变化行的节点对象。
+ *
+ * 之前的做法是整块替换侧栏区域，未变化的行也被重建——悬停高亮、行级焦点与
+ * CSS 过渡都会重置；上千行的列表每次元数据事件都要重建全部行，与 §6.1
+ * "只更新负责该数据的最小内容区"和流畅性要求冲突。
+ *
+ * 只处理与视觉稿一致的形态（两个分组头 + 文件行）；形态不符（空态、加载态、
+ * 分组增删）时返回 false，调用方回退到区域替换。
+ */
+function patchChangesList() {
+  const live = window.__augitLive;
+  const files = live && live.status ? live.status.files : null;
+  const list = document.querySelector(".side-tool .changes-layout > .changes-list");
+  if (!list || !Array.isArray(files) || files.length === 0) {
+    return false;
+  }
+
+  const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
+  const expected = groups.map(([key, label]) => ({
+    label,
+    files: files.filter((file) => file.group === key),
+  }));
+  // 形态校验：只认识这两组；出现未知分组或某组变空都交给区域替换处理。
+  if (files.some((file) => !groups.some(([key]) => file.group === key))) return false;
+  const headers = [...list.querySelectorAll(".check-group-row")];
+  if (headers.length === 0 || expected.some((group) => group.files.length === 0)) return false;
+  for (const group of expected) {
+    if (!headers.some((header) => header.dataset.group === group.label)) return false;
+  }
+
+  const existing = new Map();
+  for (const row of list.querySelectorAll(".change-file-row")) {
+    existing.set(row.dataset.path, row);
+  }
+
+  const used = new Set();
+  const desired = [];
+  for (const group of expected) {
+    const header = headers.find((node) => node.dataset.group === group.label);
+    // 组头只改"文件数"与全选态两处，节点本身保留。
+    const meta = header.querySelector(".commit-meta");
+    if (meta) meta.textContent = `${group.files.length} 个文件`;
+    const check = header.querySelector(".fake-check");
+    if (check) {
+      const state = group.files.every((file) => file.checked) ? "true"
+        : group.files.some((file) => file.checked) ? "mixed" : "false";
+      check.classList.toggle("checked", state === "true");
+      check.classList.toggle("mixed", state === "mixed");
+      check.setAttribute("aria-checked", state);
+    }
+
+    desired.push(header);
+    for (const file of group.files) {
+      let row = existing.get(file.path);
+      if (row) {
+        used.add(file.path);
+        // 同一个路径的 kind 可能变（例如 Modified → Deleted）：只改这一处类名，
+        // 其余（名称/目录/图标）对同一路径不会变。
+        const name = row.querySelector(".tree-name");
+        if (name) {
+          const wanted = `tree-name live-file-status-${file.kind}`;
+          if (name.className !== wanted) name.className = wanted;
+        }
+        row.dataset.group = group.label;
+      } else {
+        // 新增行用与整块渲染**同一份**标记（勾选态来自宿主状态）。
+        const holder = document.createElement("template");
+        holder.innerHTML = liveChangeFileRow(file, group.label, "");
+        row = holder.content.firstElementChild;
+      }
+
+      desired.push(row);
+    }
+  }
+
+  // 先移除消失的行（连同它们的勾选节点），再按目标顺序就位。
+  for (const [path, row] of existing) {
+    if (!used.has(path) && row.isConnected) row.remove();
+  }
+
+  // 只在不一致时移动：把已就位的节点重新挂载会丢掉行级焦点；
+  // 未挂载的新行由 insertBefore 直接插入到位。
+  let cursor = list.firstElementChild;
+  for (const node of desired) {
+    if (cursor === node) {
+      cursor = cursor.nextElementSibling;
+      continue;
+    }
+
+    list.insertBefore(node, cursor);
+  }
+
+  // 提交框的"N modified"与分支标签也随状态变化，做定点文本更新。
+  const count = document.querySelector(".commit-box .commit-count");
+  if (count) {
+    const changed = expected[0].files.length;
+    count.textContent = `${changed} modified`;
+    count.title = `${changed} modified`;
+  }
+
+  const lastBranch = document.querySelector(".commit-box .commit-last span");
+  if (lastBranch && typeof live.branch === "string") {
+    lastBranch.textContent = live.branch;
+  }
+
+  // 同区域里的"不是最新状态"提示也必须跟着变：跳过整块替换后，
+  // 只更新列表会导致提示永远留在界面上（恢复成功也撤不掉）。
+  const layout = list.parentElement;
+  const notice = layout ? layout.querySelector(".status-stale") : null;
+  if (live.statusError) {
+    const wanted = statusRefreshNotice();
+    if (notice) {
+      if (notice.textContent !== new DOMParser().parseFromString(wanted, "text/html")
+        .querySelector(".status-stale").textContent) {
+        notice.replaceWith(new DOMParser().parseFromString(wanted, "text/html").querySelector(".status-stale"));
+      }
+    } else {
+      const holder = document.createElement("template");
+      holder.innerHTML = wanted;
+      const node = holder.content.firstElementChild;
+      if (node) list.before(node);
+    }
+  } else if (notice) {
+    notice.remove();
+  }
+
+  return true;
+}
+
+/** 状态变化后的刷新：优先原地更新改动列表，形态不符时回退到区域替换。 */
+function refreshStatusRegions(...regions) {
+  if (patchChangesList()) {
+    // 选中行、勾选、草稿与滚动位置由同一套恢复逻辑落地（含新行）。
+    restoreChangesState();
+    syncChangesToolbar();
+    refresh(...regions.filter((name) => name !== "side"));
+    return;
+  }
+
+  refresh(...regions);
+}
+
 /** 找到工作区比较标签（规格 §5.2：最多只有一个）。 */
 function findComparisonTab() {
   const live = window.__augitLive;
@@ -1403,7 +1546,8 @@ async function applyWorkspaceChanges(changes) {
   }
 
   if (!touchedCurrent && !touchedNothing) return;
-  refresh("side", "editorContent", "editorTabs", "statusbar", "bottomTool", "titlebar");
+  // 改动列表优先原地更新（§6.4：保留未变化行的节点对象），形态不符时自动回退到区域替换。
+  refreshStatusRegions("side", "editorContent", "editorTabs", "statusbar", "bottomTool", "titlebar");
   void refreshCommitDetails();
 }
 
@@ -1463,7 +1607,7 @@ window.__augitApplyHistorySnapshot = () => {
   if (!live) return false;
   const updated = applySnapshot(latestStatus, latestHistory);
   if (updated) {
-    refresh("side", "editorContent", "statusbar", "bottomTool", "titlebar");
+    refreshStatusRegions("side", "editorContent", "statusbar", "bottomTool", "titlebar");
     void refreshCommitDetails();
   }
 
