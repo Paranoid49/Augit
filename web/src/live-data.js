@@ -2279,12 +2279,24 @@ function guardUnwiredNavigation() {
     if (changesMenu) {
       event.preventDefault();
       const label = (changesMenu.textContent || "").trim();
+      // 目标路径取自菜单层自己的数据：条目本身是 <a href>，不能拿 href 当路径。
+      const changesLayer = changesMenu.closest(".changes-menu");
+      const changePath = changesLayer ? changesLayer.dataset.changePath : null;
       const action = label.includes("显示 Diff") ? "diff"
         : label.includes("回滚") ? "rollback"
           : label.includes("文件历史") ? "file-history"
             : label.includes("Blame") ? "blame" : null;
-      if (action) void runChangesContextAction(action);
-      else closeLiveOverlay();
+      if (action) {
+        void runChangesContextAction(action);
+      } else if (label.includes("复制路径")) {
+        // 与项目树菜单同一实现（规格 §5.4）：此前这两项落在"其余条目"分支，
+        // 只关掉菜单什么都不做——等于把"点了没反应"留在菜单里。
+        void copyTreePath(changePath);
+        closeLiveOverlay();
+      } else if (label.includes("资源管理器")) {
+        void launchExternal("reveal", changePath);
+        closeLiveOverlay();
+      } else closeLiveOverlay();
       return;
     }
 
@@ -4288,6 +4300,27 @@ function selectTreeRow(row) {
   const path = row.dataset.treePath;
   if (path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
 }
+
+// 改动工具窗工具栏的「显示 Diff」与「回滚」作用于当前选中的改动文件（规格 §7.6/§10.4）。
+//
+// 必须在**捕获阶段**拦下：视觉稿自身给 [data-action="show-change-diff"] 绑了
+// `openDiff(selectedFile())`（样例路径），在真实外壳里点了不会有任何真实结果
+// （实测：diffPath=null、0 次 diff 请求，按钮等于没接线）；而"回滚"按钮在视觉稿里
+// 只有解禁逻辑、没有动作。拦下后由这里给出真实行为，同时保证样例差异不会出现在真实外壳里。
+document.addEventListener("click", (event) => {
+  const live = window.__augitLive;
+  if (!live) return;
+  const button = event.target.closest && event.target.closest(
+    '.side-tool .changes-layout > .toolbar [data-action="show-change-diff"],'
+    + ' .side-tool .changes-layout > .toolbar [data-action="rollback-change"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const path = live.selectedChangePath;
+  if (!path) return;
+  if (button.dataset.action === "rollback-change") openRollbackDialog(path);
+  else void openChangeDiff(path);
+}, true);
 
 // 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：
 // 捕获阶段 + closest，既不受整页重绘影响，也不依赖内联处理器。

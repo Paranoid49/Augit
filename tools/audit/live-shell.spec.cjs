@@ -4634,6 +4634,180 @@ async function main() {
         && treeHistory.menuGone === true && treeHistory.unwired === null);
     await treeMenu.page.close();
 
+    // ---- 规格 §5.4/§10.4：Changes 右键菜单的「复制路径」「在资源管理器中定位」----
+    // 这两项与项目树菜单共用同一实现（copyTreePath / launchExternal）。
+    // 此前它们落在"其余条目"分支：只关掉菜单什么都不做，等于把"点了没反应"留在菜单里。
+    const runChangeItem = async (itemLabel, rowIndex, setup) => {
+      const { page } = await openScene('scene=commit-changes&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await page.waitForTimeout(400);
+      await page.evaluate(() => {
+        window.__launchCalls = [];
+        window.__launchFails = false;
+        window.__clipboardWrites = [];
+        window.__clipboardFails = false;
+        window.__augitCopiedPath = null;
+        window.__augitUnwiredLabel = null;
+      });
+      if (setup) await page.evaluate(setup);
+      const target = await page.evaluate((index) => {
+        const row = document.querySelectorAll('.changes-list .change-file-row')[index];
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 90,
+        }));
+        return row.dataset.path;
+      }, rowIndex);
+      await page.waitForSelector('.changes-menu .menu-item', { timeout: 8000 });
+      await page.evaluate((label) => {
+        const item = [...document.querySelectorAll('.changes-menu .menu-item')]
+          .find((el) => el.textContent.includes(label));
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }, itemLabel);
+      await page.waitForTimeout(700);
+      const state = await page.evaluate(() => ({
+        launchCalls: window.__launchCalls || [],
+        clipboardWrites: window.__clipboardWrites || [],
+        copied: window.__augitCopiedPath || null,
+        menuGone: !document.querySelector('.changes-menu'),
+        unwired: window.__augitUnwiredLabel || null,
+        url: location.href,
+      }));
+      await page.close();
+      return { ...state, target };
+    };
+
+    // 收集式断言：退回接线时一次运行即可看到这一块的全部失败。
+    const cmSoft = [];
+    const cmCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      cmSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+
+    const changeReveal = await runChangeItem('资源管理器', 0);
+    cmCheck('Changes「在资源管理器中定位」调用宿主并留在应用内: '
+      + JSON.stringify([changeReveal.target, changeReveal.launchCalls, changeReveal.unwired]),
+    changeReveal.launchCalls.length === 1
+      && changeReveal.launchCalls[0] === 'reveal:' + changeReveal.target
+      && changeReveal.menuGone === true && changeReveal.unwired === null
+      && changeReveal.url.includes('index.html'));
+
+    const changeCopy = await runChangeItem('复制路径', 0);
+    cmCheck('Changes「复制路径」经宿主写入剪贴板: '
+      + JSON.stringify([changeCopy.target, changeCopy.clipboardWrites, changeCopy.copied, changeCopy.unwired]),
+    changeCopy.clipboardWrites.length === 1
+      && changeCopy.clipboardWrites[0] === changeCopy.target
+      && changeCopy.copied === changeCopy.target && changeCopy.unwired === null);
+
+    // 配对控制：换成第二行，路径必须跟着变——否则"路径来自被右键那一行"就没有被验证。
+    const changeRevealSecond = await runChangeItem('资源管理器', 1);
+    cmCheck('Changes「定位」的路径来自被右键那一行而不是固定第一行: '
+      + JSON.stringify([changeReveal.target, changeRevealSecond.target, changeRevealSecond.launchCalls]),
+    changeRevealSecond.target !== changeReveal.target
+      && changeRevealSecond.launchCalls.length === 1
+      && changeRevealSecond.launchCalls[0] === 'reveal:' + changeRevealSecond.target);
+
+    // 宿主拒绝时如实记录，不假装成功、不导航离开。
+    const changeCopyFail = await runChangeItem('复制路径', 0, () => { window.__clipboardFails = true; });
+    cmCheck('剪贴板不可用时 Changes 菜单不谎报成功: '
+      + JSON.stringify([changeCopyFail.copied, changeCopyFail.clipboardWrites.length, changeCopyFail.url]),
+    changeCopyFail.copied === null && changeCopyFail.clipboardWrites.length === 1
+      && changeCopyFail.url.includes('index.html'));
+
+    if (cmSoft.length > 0) {
+      throw new Error('断言失败：' + cmSoft.join(' | '));
+    }
+
+    // 收集式断言：退回接线或说明管理时一次运行即可看到这一块的全部失败。
+    const ctbSoft = [];
+    const ctbCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      ctbSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+
+    // ---- 规格 §10.3/§7.6：改动工具栏的禁用原因与两个动作 ----
+    // 实测事实（修复前）：选中行后两个按钮会解禁，但 title 仍写着"先在改动列表里
+    // 选择一个文件"，与实际状态矛盾；「显示 Diff」点了完全没有反应
+    // （真实 diff 未打开、0 次请求）——视觉稿自己的 openDiff(selectedFile()) 在
+    // 真实外壳里不产生任何真实结果；「回滚」按钮则只有解禁逻辑、没有动作。
+    const ctb = await openScene('scene=commit-changes&theme=dark');
+    await ctb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await ctb.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await ctb.page.waitForTimeout(600);
+    const readToolbar = () => ctb.page.evaluate(() => {
+      const toolbar = document.querySelector('.side-tool .changes-layout > .toolbar');
+      const pick = (selector) => {
+        const el = toolbar ? toolbar.querySelector(selector) : null;
+        return el ? { disabled: el.disabled, title: el.getAttribute('title') } : null;
+      };
+      return {
+        showDiff: pick('[data-action="show-change-diff"]'),
+        rollback: pick('[data-action="rollback-change"]'),
+        selectedPath: window.__augitLive.selectedChangePath || null,
+      };
+    });
+    const ctbBoot = await readToolbar();
+    ctbCheck('未选中改动时工具栏命令禁用并各自给出原因: ' + JSON.stringify(ctbBoot),
+      ctbBoot.showDiff && ctbBoot.showDiff.disabled === true
+        && typeof ctbBoot.showDiff.title === 'string' && ctbBoot.showDiff.title.length > 0
+        && ctbBoot.rollback && ctbBoot.rollback.disabled === true
+        && typeof ctbBoot.rollback.title === 'string' && ctbBoot.rollback.title.length > 0
+        && ctbBoot.selectedPath === null);
+
+    await ctb.page.evaluate(() => {
+      window.__diffCalls = [];
+      window.__rollbackCalls = [];
+      document.querySelectorAll('.changes-list .change-file-row')[0].dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+    });
+    await ctb.page.waitForTimeout(800);
+    const ctbSelected = await readToolbar();
+    ctbCheck('选中改动行后工具栏命令解禁并撤掉过期说明: ' + JSON.stringify(ctbSelected),
+      ctbSelected.selectedPath === 'src/App.cs'
+        && ctbSelected.showDiff.disabled === false && ctbSelected.showDiff.title === null
+        && ctbSelected.rollback.disabled === false && ctbSelected.rollback.title === null);
+
+    // 「显示 Diff」必须打开**真实**差异：路径是被选中的文件，且确实请求过 Git。
+    await ctb.page.evaluate(() => {
+      document.querySelector('.side-tool [data-action="show-change-diff"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ctb.page.waitForFunction('!!(window.__augitLive && window.__augitLive.diff)', null, { timeout: 10000 }).catch(() => {});
+    await ctb.page.waitForTimeout(500);
+    const ctbShown = await ctb.page.evaluate(() => ({
+      diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      diffCalls: window.__diffCalls || [],
+      editor: window.__augitLive.editor,
+      comparisons: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'comparison').length,
+    }));
+    ctbCheck('工具栏「显示 Diff」打开选中文件的真实差异: ' + JSON.stringify(ctbShown),
+      ctbShown.diffPath === 'src/App.cs' && ctbShown.diffCalls.includes('src/App.cs')
+        && ctbShown.editor === 'diff' && ctbShown.comparisons === 1);
+
+    // 「回滚」必须打开针对该文件的确认对话框，且此时还不调用宿主。
+    await ctb.page.evaluate(() => {
+      document.querySelector('.side-tool [data-action="rollback-change"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ctb.page.waitForSelector('.dialog.rollback-dialog', { timeout: 8000 }).catch(() => {});
+    const ctbRollback = await ctb.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.rollback-dialog');
+      const cells = dialog ? [...dialog.querySelectorAll('.form-grid > span')] : [];
+      return {
+        dialog: !!dialog,
+        file: cells.length > 1 ? cells[1].textContent : null,
+        rollbackCalls: (window.__rollbackCalls || []).length,
+      };
+    });
+    ctbCheck('工具栏「回滚」打开该文件的确认对话框且未直接调用宿主: ' + JSON.stringify(ctbRollback),
+      ctbRollback.dialog === true && ctbRollback.file === 'src/App.cs' && ctbRollback.rollbackCalls === 0);
+    await ctb.page.close();
+    if (ctbSoft.length > 0) {
+      throw new Error('断言失败：' + ctbSoft.join(' | '));
+    }
+
     // ---- 规格 §5.1：标题栏汉堡菜单 ----
     // 规格要求点击后在标题栏**原位**显示"文件、视图、Git、终端、设置"五个文字入口，
     // 不弹出一张替代标题栏的悬浮卡片；关闭后恢复原有标题栏。

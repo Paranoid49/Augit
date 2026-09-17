@@ -1775,7 +1775,7 @@ function liveChangesSide(selected) {
     <aside class="tool-window side-tool">
       <div class="tool-header"><span>提交</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
       <div class="changes-layout">
-        <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled title="回滚在当前上下文不可用。" aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" aria-label="显示 Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
+        <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" data-action="rollback-change" data-disabled-reason="先在改动列表里选择一个文件。" aria-label="回滚"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" data-disabled-reason="先在改动列表里选择一个文件。" aria-label="显示 Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
         ${statusRefreshNotice()}
         <div class="changes-list" role="tree" aria-label="待提交文件" tabindex="0">
           ${changeRows}
@@ -3115,8 +3115,13 @@ function bindChangesWorkflow() {
   const selected = () => list.querySelector(".check-row.selected");
   const selectedFile = () => list.querySelector(".change-file-row.selected:not([hidden])");
   const updateActions = () => {
+    const enabled = !!selectedFile();
     side.querySelectorAll('[data-action="show-change-diff"], .toolbar [aria-label="回滚"]').forEach(button => {
-      button.disabled = !selectedFile();
+      button.disabled = !enabled;
+      // 禁用原因必须与状态一致（规格 §10.3）：解禁后还挂着"先在改动列表里选择一个文件"
+      // 是错的说明，用户悬停会看到与实际状态矛盾的文字。
+      if (enabled) button.removeAttribute("title");
+      else button.setAttribute("title", button.dataset.disabledReason || "先在改动列表里选择一个文件。");
     });
   };
   const setStatus = (path, comparison) => {
