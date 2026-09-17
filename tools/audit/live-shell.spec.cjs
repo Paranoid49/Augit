@@ -3569,6 +3569,47 @@ async function main() {
     const ksF = await ksState();
     check('Ctrl+F 打开当前文件查找: ' + JSON.stringify([ksF.findBar, ksF.focusInFind]),
       ksF.findBar === 1 && ksF.focusInFind === true);
+
+    // ---- 规格 §5.4：不得把 PyCharm 的快捷键原样带入（反向断言）----
+    // 正向断言只能证明规格里的 7 条能用；"多绑了别的键"必须反向验证，否则把
+    // PyCharm 的 Ctrl+B / Alt+1 / Ctrl+E 一起带进来也全绿。
+    // 可观测口径与既有 Esc 用例一致：浮层按 DOM 判定（`live.search` 关闭后不会清空，
+    // 拿它当"是否打开"会误判，实测踩过）。
+    const foreignState = () => ks.page.evaluate(() => ({
+      overlays: document.querySelectorAll('[data-augit-overlay], .search-overlay').length,
+      findBar: document.querySelectorAll('.find-bar, [data-find-bar]').length,
+      tabs: (window.__augitLive.tabs || []).length,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      editor: window.__augitLive.editor,
+    }));
+    const foreignBefore = await foreignState();
+    // 先在同一个页面上证明"这里确实有反应可被误触发"：规格内的 Ctrl+P 打开快速打开。
+    // 没有这条配对控制，"按什么都没反应"也能让下面的反向断言通过。
+    await ks.page.keyboard.press('Control+p');
+    await ks.page.waitForTimeout(600);
+    const specShortcutOpened = await ks.page.evaluate(
+      () => document.querySelectorAll('.search-overlay').length);
+    check('配对的正面控制：规格内 Ctrl+P 确实打开快速打开: ' + JSON.stringify(specShortcutOpened),
+      specShortcutOpened === 1);
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(500);
+    const foreignReset = await foreignState();
+    check('配对控制复位：快速打开已关闭: ' + JSON.stringify([foreignBefore, foreignReset]),
+      foreignReset.overlays === foreignBefore.overlays
+        && foreignReset.findBar === foreignBefore.findBar);
+
+    const foreignPressed = [];
+    for (const chord of ['Control+b', 'Control+e', 'Control+Shift+t', 'Alt+1', 'Control+Shift+a']) {
+      await ks.page.keyboard.press(chord);
+      await ks.page.waitForTimeout(250);
+      foreignPressed.push(chord);
+    }
+    const foreignAfter = await foreignState();
+    check('PyCharm 快捷键不生效（无浮层/无查找条/不改标签与正文）: '
+      + JSON.stringify([foreignPressed, foreignBefore, foreignAfter]),
+    foreignAfter.overlays === foreignBefore.overlays
+      && foreignAfter.findBar === foreignBefore.findBar && foreignAfter.tabs === foreignBefore.tabs
+      && foreignAfter.doc === foreignBefore.doc && foreignAfter.editor === foreignBefore.editor);
     await ks.page.close();
 
     // ---- 规格 §5.4：Tab 在当前区域内按视觉顺序移动焦点 ----
