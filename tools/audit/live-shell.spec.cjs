@@ -936,6 +936,186 @@ async function main() {
       throw new Error('断言失败：' + tySoft.join(' | '));
     }
 
+    // ---- 规格 §5.3：模态窗口期间背景禁用，关闭后恢复 ----
+    // 设计稿的静态预览用 inert 禁用背景；实时外壳此前完全没有做，Tab 能跑进标题栏与工具栏。
+    const modalIso = await openScene('scene=commit-changes&theme=dark');
+    await modalIso.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await modalIso.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+
+    const backgroundState = () => modalIso.page.evaluate(() => {
+      const host = document.querySelector('.augit-window');
+      const children = [...host.children];
+      const dialogLayer = children.find((node) => node.hasAttribute('data-augit-overlay') && node.querySelector('.dialog')) || null;
+      const inertNames = children.filter((node) => node.inert)
+        .map((node) => node.className.split(' ')[0] || node.tagName);
+      return {
+        inert: inertNames,
+        dialogInert: dialogLayer ? dialogLayer.inert : null,
+        hasDialog: !!dialogLayer,
+        titlebarInert: !!host.querySelector('.titlebar') && host.querySelector('.titlebar').inert,
+        mainInert: !!host.querySelector('.app-main') && host.querySelector('.app-main').inert,
+      };
+    });
+
+    const beforeModal = await backgroundState();
+    check('前置条件：没有对话框时背景没有被禁用: ' + JSON.stringify(beforeModal),
+      beforeModal.hasDialog === false && beforeModal.inert.length === 0);
+
+    // 非模态弹层不得禁用背景（快速打开是浮层，不是模态）。
+    await modalIso.page.keyboard.press('Control+p');
+    await modalIso.page.waitForSelector('.search-overlay', { timeout: 8000 }).catch(() => {});
+    await modalIso.page.waitForTimeout(300);
+    const withNonModal = await backgroundState();
+    check('非模态浮层不禁用背景: ' + JSON.stringify(withNonModal.inert), withNonModal.inert.length === 0);
+    await modalIso.page.keyboard.press('Escape');
+    await modalIso.page.waitForTimeout(400);
+
+    // 打开模态（分支芯片 → 新建分支的紧凑模态窗口）：背景必须禁用，对话框自身保持可交互。
+    await modalIso.page.locator('.top-chip.branch-chip').click();
+    await modalIso.page.waitForTimeout(500);
+    await modalIso.page.locator('[data-augit-overlay] [data-branch-action="create"]').click();
+    await modalIso.page.waitForSelector('[data-compact-dialog]', { timeout: 8000 }).catch(() => {});
+    await modalIso.page.waitForTimeout(400);
+    const withModal = await backgroundState();
+    check('模态窗口打开期间背景被禁用: ' + JSON.stringify(withModal),
+      withModal.hasDialog === true && withModal.titlebarInert === true && withModal.mainInert === true
+        && withModal.dialogInert === false && withModal.inert.length >= 3);
+    await modalIso.page.keyboard.press('Escape');
+    await modalIso.page.waitForTimeout(500);
+    const afterModal = await backgroundState();
+    check('关闭模态后背景恢复可用: ' + JSON.stringify(afterModal),
+      afterModal.hasDialog === false && afterModal.inert.length === 0);
+
+    // 大型模态（Reset 场景）同样禁用背景，且关闭后恢复。
+    const resetModal = await openScene('scene=reset&theme=dark');
+    await resetModal.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 }).catch(() => {});
+    await resetModal.page.waitForSelector('[data-augit-overlay] .dialog', { timeout: 10000 }).catch(() => {});
+    await resetModal.page.waitForTimeout(500);
+    const resetState = await resetModal.page.evaluate(() => {
+      const host = document.querySelector('.augit-window');
+      return {
+        dialogs: document.querySelectorAll('[data-augit-overlay] .dialog').length,
+        titlebarInert: !!host.querySelector('.titlebar') && host.querySelector('.titlebar').inert,
+        mainInert: !!host.querySelector('.app-main') && host.querySelector('.app-main').inert,
+      };
+    });
+    check('大型模态窗口同样禁用背景: ' + JSON.stringify(resetState),
+      resetState.dialogs >= 1 && resetState.titlebarInert === true && resetState.mainInert === true);
+    await resetModal.page.keyboard.press('Escape');
+    await resetModal.page.waitForTimeout(600);
+    const resetAfter = await resetModal.page.evaluate(() => {
+      const host = document.querySelector('.augit-window');
+      const children = [...host.children];
+      return {
+        dialogs: document.querySelectorAll('[data-augit-overlay] .dialog').length,
+        inert: children.filter((node) => node.inert).length,
+      };
+    });
+    check('大型模态关闭后背景恢复: ' + JSON.stringify(resetAfter),
+      resetAfter.dialogs === 0 && resetAfter.inert === 0);
+    await resetModal.page.close();
+    await modalIso.page.close();
+
+    // ---- 规格 §5.3：组词期间不抢占按键（紧凑输入窗口与全局快捷键）----
+    const ime = await openScene('scene=main-project&theme=dark');
+    await ime.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await ime.page.waitForSelector('.side-content.tree .tree-row', { timeout: 10000 });
+    await ime.page.locator('.side-content.tree .tree-row').first().focus();
+    await ime.page.keyboard.press('Control+g');
+    await ime.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
+    await ime.page.evaluate(() => { window.__branchCalls = []; });
+    // 组词中的 Enter/Esc 必须交给输入法：窗口不提交、不关闭。
+    const imeResult = await ime.page.evaluate(() => {
+      const fire = (key) => document.querySelector('[data-compact-field]').dispatchEvent(
+        new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true, cancelable: true }));
+      fire('Enter');
+      fire('Escape');
+      return {
+        composing: new KeyboardEvent('keydown', { isComposing: true }).isComposing,
+        open: !!document.querySelector('[data-compact-dialog]'),
+        value: (document.querySelector('[data-compact-field]') || {}).value,
+      };
+    });
+    await ime.page.waitForTimeout(300);
+    const imeAfter = await ime.page.evaluate(() => ({
+      open: !!document.querySelector('[data-compact-dialog]'),
+      url: location.href.includes('go-to-line') || location.href.includes('index.html'),
+    }));
+    check('前置条件：合成事件确实带 isComposing: ' + JSON.stringify(imeResult.composing), imeResult.composing === true);
+    check('组词中的 Enter/Esc 不提交也不关闭紧凑窗口: ' + JSON.stringify([imeResult.open, imeAfter.open]),
+      imeResult.open === true && imeAfter.open === true);
+    // 对照组：先关掉窗口（非组词），确认这些按键本来是会生效的。
+    await ime.page.evaluate(() => document.querySelector('[data-compact-field]')
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    await ime.page.waitForTimeout(400);
+    check('对照：非组词时 Esc 会关闭紧凑窗口',
+      (await ime.page.evaluate(() => !document.querySelector('[data-compact-dialog]'))) === true);
+    // 全局快捷键同样不抢组词按键。
+    await ime.page.evaluate(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'p', ctrlKey: true, isComposing: true, bubbles: true, cancelable: true,
+      }));
+    });
+    await ime.page.waitForTimeout(400);
+    check('组词中的 Ctrl+P 不打开快速打开',
+      (await ime.page.evaluate(() => !document.querySelector('.search-overlay'))) === true);
+    await ime.page.close();
+
+    // ---- 规格 §5.3 / 产品规格 §3.3：Ctrl+G 跳转行只移动正文，不写 Git ----
+    // 这里曾经有一个严重缺陷：确认"跳转行"窗口会落到 submitCompactDialog 的 else 分支，
+    // 也就是去执行 git branch create "<行号>"——一个导航动作真的会创建分支。
+    const goto = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+    await goto.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await goto.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+    await goto.page.locator('.side-content.tree .tree-row').first().focus();
+    await goto.page.keyboard.press('Control+g');
+    await goto.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
+    await goto.page.evaluate(() => { window.__branchCalls = []; });
+    await goto.page.locator('[data-compact-field]').fill('3');
+    await goto.page.locator('[data-compact-action="confirm"]').click();
+    await goto.page.waitForTimeout(600);
+    const gotoDone = await goto.page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        dialog: !!document.querySelector('[data-compact-dialog]'),
+        branchCalls: window.__branchCalls || [],
+        activeLine: (document.querySelector('.editor-content .code-line.active') || {}).dataset
+          ? document.querySelector('.editor-content .code-line.active').dataset.line : null,
+        focusInEditor: !!(active && active.closest && active.closest('.editor-content')),
+        scrollTop: (document.querySelector('.editor-content .code-view') || {}).scrollTop || 0,
+      };
+    });
+    check('跳转行确认后不创建分支: ' + JSON.stringify(gotoDone.branchCalls), gotoDone.branchCalls.length === 0);
+    check('跳转行确认后标出目标行并关闭窗口: ' + JSON.stringify([gotoDone.dialog, gotoDone.activeLine]),
+      gotoDone.dialog === false && gotoDone.activeLine === '3');
+    check('跳转行确认后焦点进入正文（结果区域）: ' + JSON.stringify([gotoDone.focusInEditor, gotoDone.scrollTop]),
+      gotoDone.focusInEditor === true);
+
+    // 非法行号：窗口不关闭、给出原因，并且同样不写 Git。
+    for (const bad of ['abc', '0', '999999']) {
+      await goto.page.locator('.side-content.tree .tree-row').first().focus();
+      await goto.page.keyboard.press('Control+g');
+      await goto.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
+      await goto.page.evaluate(() => { window.__branchCalls = []; });
+      await goto.page.locator('[data-compact-field]').fill(bad);
+      await goto.page.locator('[data-compact-action="confirm"]').click();
+      await goto.page.waitForTimeout(400);
+      const badState = await goto.page.evaluate(() => {
+        const dialog = document.querySelector('[data-compact-dialog]');
+        return {
+          open: !!dialog,
+          help: dialog ? dialog.querySelector('.footer-help').textContent.trim() : null,
+          branchCalls: window.__branchCalls || [],
+        };
+      });
+      check('非法行号被拒绝且不写 Git: ' + JSON.stringify([bad, badState.open, badState.help && badState.help.slice(0, 12), badState.branchCalls.length]),
+        badState.open === true && badState.branchCalls.length === 0
+          && typeof badState.help === 'string' && badState.help.length > 0);
+      await goto.page.keyboard.press('Escape');
+      await goto.page.waitForTimeout(300);
+    }
+    await goto.page.close();
+
     // ---- Reset 对话框 ----
     const reset = await openScene('scene=reset&theme=dark');
     await reset.page.waitForSelector('[data-setting], #reset-target', { timeout: 10000 });
@@ -2614,7 +2794,6 @@ async function main() {
         && loadingTab.diffReady === false
         && typeof loadingTab.label === 'string' && loadingTab.label.includes(lateTarget.split('/').at(-1)));
 
-    const lateTrace = await lateCmp.page.evaluate(() => window.__augitCmpTrace || []);
     const lateViolations = lateSeries.filter((frame) => frame.active !== secondTabId || !frame.exists);
     const lateAfter = await lateCmp.page.evaluate((secondId) => {
       const live = window.__augitLive;
@@ -4166,10 +4345,14 @@ async function main() {
         gone: !document.querySelector('[data-compact-dialog]'),
         inTree: !!(active && active.closest && active.closest('.side-content.tree')),
         stillInDialog: !!(active && active.closest && active.closest('[data-compact-dialog]')),
+        onBody: !active || active === document.body,
+        label: active && active.getAttribute ? active.getAttribute('aria-label') : null,
       };
     });
-    check('确认后焦点不停留在已关闭的窗口内: ' + JSON.stringify(focusAfterConfirm),
-      focusAfterConfirm.gone === true && focusAfterConfirm.stillInDialog === false);
+    // 规格 §5.3：确认后焦点回到触发区域或直接进入结果区域——不能掉到文档主体。
+    check('确认后焦点回到触发区域或结果区域: ' + JSON.stringify(focusAfterConfirm),
+      focusAfterConfirm.gone === true && focusAfterConfirm.stillInDialog === false
+        && (focusAfterConfirm.inTree === true || focusAfterConfirm.onBody === false));
     await focusScene.page.close();
 
     // F5 刷新文件树；不重载页面

@@ -2120,7 +2120,9 @@ function liveDocument() {
 
 function liveLineViews(text) {
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
-  return lines.map((line, index) => `<div class="code-line"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`).join("");
+  // 每行带 data-line：跳转行、错误定位这类"按行号找节点"的动作都靠它
+  // （JSON 正文与差异正文一直是这么标的，实时纯文本/Markdown 正文此前漏了）。
+  return lines.map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`).join("");
 }
 
 function liveTextDocument(find) {

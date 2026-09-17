@@ -2791,6 +2791,7 @@ function rebindAfterRender() {
   bindTitlebarMenuEscape();
   bindCompactDialogKeys();
   bindGlobalShortcuts();
+  bindModalBackground();
   reflectWriteOperation();
   guardUnwiredNavigation();
 }
@@ -3732,17 +3733,68 @@ function closeCompactDialog() {
 }
 
 /** 提交紧凑输入窗口；业务校验在调用方做，窗口本身不写 Git。 */
+/**
+ * 跳转行（产品规格 §3.3 `Ctrl+G`）：把正文滚到目标行、标出该行，并把焦点交给正文。
+ *
+ * 与视觉稿里"点击 JSON 错误行"同一套动作（`active` 类 + `scrollIntoView` + 正文获得焦点）。
+ * 行号非法或超出范围时只在窗口内说明原因：窗口不关闭、不写 Git、不动正文。
+ */
+function goToLine(text) {
+  const dialog = document.querySelector("[data-compact-dialog]");
+  const field = dialog && dialog.querySelector("[data-compact-field]");
+  const report = (message) => {
+    const help = dialog && dialog.querySelector(".footer-help");
+    if (help) {
+      help.textContent = message;
+      help.title = message;
+    }
+    if (field) field.focus();
+    return false;
+  };
+
+  const raw = String(text ?? "").trim();
+  if (!/^\d+$/.test(raw)) return report("请输入行号（正整数）。");
+  const line = Number.parseInt(raw, 10);
+  if (line < 1) return report("行号从 1 开始。");
+
+  const view = document.querySelector(".editor-content .code-view");
+  if (!view) return report("当前没有可跳转的只读正文。");
+  // 优先按 data-line 找；个别正文（Blame 等）没有该属性时按顺序兜底。
+  const row = view.querySelector(`.code-line[data-line="${line}"]`)
+    || view.querySelectorAll(".code-line")[line - 1]
+    || null;
+  if (!row) {
+    const total = view.querySelectorAll(".code-line").length;
+    return report(total > 0 ? `当前文件只有 ${total} 行。` : "当前正文没有可跳转的行。");
+  }
+
+  view.querySelectorAll(".code-line.active").forEach((node) => node.classList.remove("active"));
+  row.classList.add("active");
+  row.scrollIntoView({ block: "nearest" });
+  closeCompactDialog();
+  // 关闭时按规格把焦点交回触发区域；跳转行的"结果区域"就是正文，因此再交给正文。
+  view.focus({ preventScroll: true });
+  return true;
+}
+
 async function submitCompactDialog() {
   const layer = document.querySelector("[data-compact-dialog]");
   const field = layer && layer.querySelector("[data-compact-field]");
   if (!field) return;
   const value = field.value.trim();
+  const kind = compactDialogKind;
+
+  // 跳转行只移动正文，不写任何 Git 状态（规格 §5.3：窗口本身不执行 Git 或文件写入）。
+  if (kind === "go-to-line") {
+    goToLine(value);
+    return;
+  }
+
   if (value.length === 0) {
     window.__augitCheckoutError = "名称不能为空。";
     return;
   }
 
-  const kind = compactDialogKind;
   const live = window.__augitLive;
   let result;
   try {
@@ -3752,8 +3804,14 @@ async function submitCompactDialog() {
       result = result ? { changed: result.switched, reason: result.reason } : result;
     } else if (kind === "rename") {
       result = await invoke("git/branch", { action: "rename", from: currentBranchName(), name: value }, 60000);
-    } else {
+    } else if (kind === "create") {
       result = await invoke("git/branch", { action: "create", name: value }, 60000);
+    } else {
+      // 未知类型绝不能落到某个写操作上（此前 `else` 落在"创建分支"：
+      // 确认"跳转行"窗口会去建一个以行号命名的分支）。
+      window.__augitError = "submit-compact:unknown-kind:" + String(kind);
+      closeCompactDialog();
+      return;
     }
   } catch (error) {
     window.__augitCheckoutError = String(error && error.message || error);
@@ -4639,6 +4697,9 @@ function rememberDialogFocus() {
 function restoreDialogFocus() {
   const previous = focusBeforeDialog;
   focusBeforeDialog = null;
+  // 先解除背景的 inert 再归还焦点：观察器要到微任务之后才重算，
+  // 而 `focus()` 对 inert 元素是静默无效的——不先同步这一步，焦点会掉到文档主体。
+  syncModalBackground();
   if (!previous) return;
   if (previous.isConnected && previous.getClientRects().length > 0) {
     previous.focus({ preventScroll: true });
@@ -4755,6 +4816,44 @@ async function cancelWriteOperation() {
 }
 
 /** 关闭实时弹层。 */
+/**
+ * 模态窗口打开期间禁用背景（规格 §5.3/§5.3 第 4 条、设计稿的静态预览同样用 `inert`）。
+ *
+ * 规则与视觉稿一致：`augit-window` 的直接子节点里，只有**最上层那个含对话框的覆盖层**
+ * 保持可交互，其余（标题栏、主区域、状态栏、提示层、下层的模态）一律 `inert`。
+ * 非模态弹层（快速打开、分支/右键菜单）不含 `.dialog`，因此不会禁用背景。
+ * 关闭后恢复：`inert` 逐个与目标状态比较，只有变化时才写。
+ *
+ * 用观察器集中处理：实时弹层由十多处各自创建与关闭，逐处调用必然漏（实测分支弹层就有两套入口）。
+ */
+function syncModalBackground() {
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  const children = [...host.children];
+  const modalLayers = children.filter(
+    (node) => node.hasAttribute("data-augit-overlay") && node.querySelector(".dialog"));
+  const top = modalLayers.length > 0 ? modalLayers[modalLayers.length - 1] : null;
+  for (const node of children) {
+    const inert = top !== null && node !== top;
+    if (node.inert !== inert) node.inert = inert;
+  }
+}
+
+function bindModalBackground() {
+  if (window.__augitModalObserved) {
+    syncModalBackground();
+    return;
+  }
+  const root = document.getElementById("app");
+  if (!root) return;
+  window.__augitModalObserved = true;
+  // 观察 #app 而不是 .augit-window：整页重绘会换掉后者，而 #app 一直在。
+  // 回调里只做一次 querySelectorAll，且 MutationObserver 会合并同一批改动。
+  new MutationObserver(() => syncModalBackground()).observe(root, { childList: true, subtree: true });
+  syncModalBackground();
+}
+
+/** 关闭所有实时弹层。 */
 function closeLiveOverlay() {
   const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
   if (layers.length === 0) return false;
