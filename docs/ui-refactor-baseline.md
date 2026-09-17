@@ -5020,3 +5020,50 @@ reparse point 并核对链接目标是否仍在工作区内，而且**已有测�
 
 验证：Core 86/86、Infrastructure **170/170**、live-shell 605/605、
 场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百四十七轮：用"是否复用了已有实现"自查自己新增的网页层代码
+
+上一轮靠"新代码有没有复用项目里已有的、已测试的安全组件"找出一个安全问题。
+本轮把同一个问题用到网页层，找到两处**我引入的重复**。
+
+#### 重复一：两个几乎相同的"建立比较标签"函数
+
+我在实现历史比较时新增了 `ensureHistoryComparisonTab(label, path)`，
+它和既有的 `ensureComparisonTab(path)` 只差一件事：标题。
+
+```js
+// 既有
+function ensureComparisonTab(path) { … title: `提交: ${path}` … }
+// 我新增的（重复）
+function ensureHistoryComparisonTab(label, path) {
+  … 复用分支多一次 syncComparisonTab(existing, path, label) …
+  … 创建分支 title: label …
+}
+```
+
+合并为一个：`ensureComparisonTab(path, title)`，标题可选；**复用分支也同步标题与目标**
+（原来不在复用分支同步，所以调用方各自补一次，容易漏）。删掉重复函数，
+调用点与随之变得多余的 `syncComparisonTab` 一起收敛。
+
+合并后还顺带修正了一处行为：`openChangeDiff` 复用标签时，标题会**立刻**变成新目标，
+而不是等加载完成才变——规格要求标签反映当前比较目标。
+
+#### 重复二：同一个选择器写了三遍
+
+`.commit-row[aria-selected="true"]` 在 `refreshCommitDetails`、`history-commit-selected`
+处理器里各写一次，我在 `selectedHistoryCommit` 里又写了第三次。抽成
+`selectedCommitRow()`，三处共用；`selectedHistoryCommit()` 保留在它之上做"完整哈希优先"的语义。
+
+#### 结果
+
+净减 7 行（24 增 / 31 删），套件 605 项断言全通过，无行为回归。
+
+#### 为什么这类自查有效
+
+两轮的共同点：**我不是在读自己的代码找错，而是在问"这件事项目里是不是已经有做法了"**。
+重复不仅是冗余，它还意味着"已有的那次可能已经修过 bug，而新写的这份没有"——
+上一轮的安全问题正是这个机制：`SafeLocalPathResolver` 已经处理了符号链接，
+而我的新校验没有。
+
+验证：Core 86/86、Infrastructure 170/170、live-shell **605/605**、
+场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。

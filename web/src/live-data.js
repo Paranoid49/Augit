@@ -881,16 +881,23 @@ async function openChangeDiff(path, options = {}) {
 }
 
 /** 取得或建立唯一的比较标签；已存在则复用。 */
-function ensureComparisonTab(path) {
+function ensureComparisonTab(path, title) {
   const live = window.__augitLive;
   live.tabs ??= [];
+  // 标题可覆盖：工作区 Diff 用默认的「提交: 路径」，历史比较传入双方引用。
+  // 复用分支也同步标题与目标——否则标签会一直显示上一个比较的名字。
+  const resolvedTitle = title || `提交: ${path}`;
   const existing = findComparisonTab();
-  if (existing) return existing;
+  if (existing) {
+    syncComparisonTab(existing, path, resolvedTitle);
+    return existing;
+  }
+
   const tab = {
     id: nextTabId(),
     kind: "comparison",
     path,
-    title: `提交: ${path}`,
+    title: resolvedTitle,
     editor: "diff",
     preview: false,
   };
@@ -917,9 +924,17 @@ function historyComparisonLabel(path, hash) {
   return `比较: ${name} · ${short}^ → ${short}`;
 }
 
-/** 当前选中的提交（底部 Git 日志）与其中的变化文件。 */
+/**
+ * 当前选中的提交行（底部 Git 日志）。
+ * 选择器只留这一处：此前有三处各自写 `.commit-row[aria-selected="true"]`。
+ */
+function selectedCommitRow() {
+  return document.querySelector('.commit-row[aria-selected="true"]');
+}
+
+/** 当前选中的提交标识：优先完整哈希，取不到时退回短哈希。 */
 function selectedHistoryCommit() {
-  const row = document.querySelector('.commit-row[aria-selected="true"]');
+  const row = selectedCommitRow();
   return row && row.dataset.fullHash ? row.dataset.fullHash : (row ? row.dataset.hash || null : null);
 }
 
@@ -949,7 +964,7 @@ async function applyHistoryComparison(path, commit, options = {}) {
   const token = ++historyComparisonToken;
   // 标签立即建立并显示双方引用，正文随后填充（规格 §7.8：激活时立即打开并显示
   // 双方引用及文件路径，Git 查询完成后只填充正文，不再次激活标签）。
-  const tab = ensureHistoryComparisonTab(label, path);
+  const tab = ensureComparisonTab(path, label);
   live.historyComparison = { path, commit, label, status: "loading" };
   if (activate) activateComparisonTab(tab);
   scheduleDiffLoadingMarker();
@@ -991,27 +1006,6 @@ function activateComparisonTab(tab) {
 }
 
 /** 建立或复用唯一的比较标签。 */
-function ensureHistoryComparisonTab(label, path) {
-  const live = window.__augitLive;
-  live.tabs ??= [];
-  const existing = findComparisonTab();
-  if (existing) {
-    syncComparisonTab(existing, path, label);
-    return existing;
-  }
-
-  const tab = {
-    id: nextTabId(),
-    kind: "comparison",
-    path,
-    title: label,
-    editor: "diff",
-    preview: false,
-  };
-  live.tabs.push(tab);
-  return tab;
-}
-
 /**
  * 提交或文件选择变化时更新已打开的历史比较（规格 §7.8）。
  * 普通文档在前台时只后台更新，不抢占编辑区。
@@ -2727,8 +2721,7 @@ async function compareWithWorkspace() {
   // 与工作区 Diff 同一处理：标签与视图必须在**发请求之前**就位，并调度加载提示。
   // 否则查询期间编辑区还停在上一个视图、也没有加载指示
   // （规格 §7.9 要求"激活时立即打开并显示双方引用及文件路径，查询完成后只填充正文"）。
-  const tab = ensureComparisonTab(target.path);
-  syncComparisonTab(tab, target.path, title);
+  const tab = ensureComparisonTab(target.path, title);
   activateComparisonTab(tab);
   scheduleDiffLoadingMarker();
   let succeeded = false;
@@ -3805,7 +3798,7 @@ function escapeText(value) {
 async function refreshCommitDetails() {
   const live = window.__augitLive;
   if (!live || !live.history || live.history.commits.length === 0) return;
-  const selected = document.querySelector('.commit-row[aria-selected="true"]');
+  const selected = selectedCommitRow();
   const revision = selected && selected.dataset.fullHash
     ? selected.dataset.fullHash
     : live.history.commits[0].fullHash;
@@ -4012,7 +4005,7 @@ async function boot() {
   const history = await historyPromiseRef;
   if (history) {
     document.addEventListener("history-commit-selected", () => {
-      const selected = document.querySelector('.commit-row[aria-selected="true"]');
+      const selected = selectedCommitRow();
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
       if (!revision) return;
       // 提交详情是异步填充的，变化文件行要等它写进去之后才能跟随（规格 §7.8），
