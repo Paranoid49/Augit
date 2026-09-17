@@ -1462,10 +1462,28 @@ function liveManagementPage(kind) {
 }
 
 // 外壳注入真实冲突文档时使用；三栏结构与样例版一致，结果栏是唯一可编辑区域。
+/**
+ * 规格 §7.14 最后一条：二进制、非法 UTF-8 与超限文件无法逐块合并。
+ * 此时三栏没有意义，页面只提供"整侧接受"和"交给外部工具"。
+ * 文案与结构沿用 §7.5 文件超限页（info-state / info-block）。
+ */
+function liveConflictWholeSide(document_) {
+  const reason = document_.contentKind === "Binary"
+    ? "该文件是二进制文件，Augit 无法把它显示为可合并的文本。"
+    : document_.contentKind === "TooLarge"
+      ? "该文件超出可合并的大小上限。"
+      : "该文件不是有效的 UTF-8 文本，Augit 无法安全地改写它。";
+  const side = (value, label) => `<button class="secondary-button" type="button" data-conflict-whole="${value}">接受${escapeHtml(label)}</button>`;
+  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))} · ${escapeHtml(document_.operation)}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
+}
+
 function liveConflictResolver() {
   const live = window.__augitLive || {};
   const document_ = live.conflict;
   if (!document_) return conflictResolver();
+  // 三栏只对可合并的文本有意义；无法逐块处理的三种类型走整侧接受页。
+  // Missing（一侧被删除）仍走三栏：它是普通的空侧变体，可以逐块解决。
+  if (["Binary", "InvalidUtf8", "TooLarge"].includes(document_.contentKind)) return liveConflictWholeSide(document_);
   const lines = (text) => String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   const render = (items, extraClass) => items.map((text, index) =>
     `<span class="conflict-line${extraClass ? ` ${extraClass}` : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join("");

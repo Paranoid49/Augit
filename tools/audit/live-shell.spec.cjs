@@ -398,6 +398,19 @@ async function main() {
         if (window.__conflictSaveFails) return { available: true, saved: false, reason: '文件已被外部修改。' };
         return { available: true, saved: true };
       }
+      if (method === 'git/conflict-accept') {
+        // 整侧接受（规格 §7.14）：宿主做的是 git checkout --ours/--theirs + git add。
+        window.__conflictAccepts = (window.__conflictAccepts || []).concat([{ path: params.path, side: params.side }]);
+        if (window.__conflictAcceptFails) {
+          return { available: false, reason: '所选文件已不再处于冲突状态。' };
+        }
+        // 接受后这个文件不再是冲突：随后 git/operation 必须返回少一个冲突的会话。
+        const base = window.__operationSession !== undefined ? window.__operationSession : (window.__sessionFixture || null);
+        window.__operationSession = (window.__operationAfterWholeAccept !== undefined)
+          ? window.__operationAfterWholeAccept
+          : (base ? Object.assign({}, base, { hasConflicts: false, conflicts: [], canContinue: true }) : null);
+        return { available: true, reason: null, hasConflicts: false };
+      }
       if (method === 'git/remotes') return data.remotes;
       if (method === 'git/remote-write') {
         window.__remoteWrites = (window.__remoteWrites || []).concat([params]);
@@ -6253,6 +6266,176 @@ async function main() {
 
     if (cnSoft.length > 0) {
       throw new Error('断言失败：' + cnSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.14：二进制 / 非法 UTF-8 / 超限文件只能整侧接受 ----
+    // 三栏对这些类型没有意义：页面必须换成"整侧接受 + 外部工具"，宿主走整文件语义。
+    const wsSoft = [];
+    const wsCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      wsSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const openConflictScene = async (kind) => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.bringToFront();
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate((contentKind) => {
+        window.__conflictLoads = [];
+        window.__conflictAccepts = [];
+        window.__launchCalls = [];
+        window.__conflictAcceptFails = false;
+        window.__launchFails = false;
+        window.__conflictFixture = {
+          available: true, path: 'assets/logo.png', contentKind,
+          yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+          operation: 'Merge',
+          version: { length: 20480, sha256: 'beef', lastWriteUtc: '2026-09-15T00:00:00Z' },
+          blocks: [],
+        };
+        window.__operationSession = {
+          kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
+          canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+          currentStep: 1, totalSteps: 1, conflicts: [{ path: 'assets/logo.png' }],
+        };
+        window.__statusOperation = 'Merge';
+        window.__statusConflicts = true;
+        window.__nextChanges = { files: [], gitMetadata: true };
+        // 不等兜底轮询：直接触发一次会话读取，让冲突列表立刻出现（测试钩子）。
+        void window.__augitLoadOperation();
+      }, kind);
+      await scene.page.waitForSelector('[data-conflict-path="assets/logo.png"]', { timeout: 10000 }).catch(() => {});
+      await scene.page.evaluate(() => {
+        const row = document.querySelector('[data-conflict-path="assets/logo.png"]');
+        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForSelector('[data-conflict-whole]', { timeout: 8000 }).catch(() => {});
+      return scene;
+    };
+
+    const whole = await openConflictScene('Binary');
+    const wholeShape = await whole.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const buttons = Array.from(document.querySelectorAll('[data-conflict-whole]'));
+      const heading = dialog && dialog.querySelector('.info-block h2');
+      return {
+        columns: !!document.querySelector('.conflict-columns'),
+        save: !!document.querySelector('[data-conflict-save]'),
+        sides: buttons.map((node) => node.dataset.conflictWhole),
+        heading: heading ? heading.textContent.trim() : null,
+        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : '',
+        loads: (window.__conflictLoads || []).slice(),
+      };
+    });
+    wsCheck('前置条件：确实读取了该冲突文件: ' + JSON.stringify(wholeShape.loads),
+      wholeShape.loads.length === 1 && wholeShape.loads[0] === 'assets/logo.png');
+    wsCheck('二进制冲突不渲染三栏，也不提供逐块保存: '
+      + JSON.stringify([wholeShape.columns, wholeShape.save]), wholeShape.columns === false && wholeShape.save === false);
+    wsCheck('二进制冲突提供整侧接受与外部工具三个动作: ' + JSON.stringify(wholeShape.sides),
+      JSON.stringify(wholeShape.sides) === JSON.stringify(['yours', 'theirs', 'external']));
+    wsCheck('说明为什么不能合并且写明不可撤销: ' + JSON.stringify(wholeShape.heading),
+      wholeShape.heading === '无法在三栏中合并此文件' && wholeShape.body.includes('二进制')
+        && wholeShape.body.includes('不可撤销') && wholeShape.body.includes('assets/logo.png'));
+
+    // 反面控制：同一条路径的文本冲突仍然必须渲染三栏（否则上面的断言可能只因"页面没渲染"而通过）。
+    const textControl = await openConflictScene('Text');
+    const textShape = await textControl.page.evaluate(() => ({
+      columns: !!document.querySelector('.conflict-columns'),
+      whole: document.querySelectorAll('[data-conflict-whole]').length,
+    }));
+    wsCheck('对照：文本冲突仍走三栏且没有整侧接受按钮: ' + JSON.stringify(textShape),
+      textShape.columns === true && textShape.whole === 0);
+    await textControl.page.close();
+
+    // 整侧接受：调用宿主的整文件语义，随后该文件离开冲突列表。
+    await whole.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-whole="theirs"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await whole.page.waitForFunction('(window.__conflictAccepts || []).length === 1', null, { timeout: 10000 }).catch(() => {});
+    const wholeAccepted = await whole.page.evaluate(() => ({
+      accepts: (window.__conflictAccepts || []).slice(),
+      whole: document.querySelectorAll('[data-conflict-whole]').length,
+      list: !!document.querySelector('[data-conflict-path="assets/logo.png"]'),
+      toast: (() => {
+        const layer = document.querySelector('.toast-layer');
+        return layer ? layer.innerText.replace(/\s+/g, ' ').trim() : null;
+      })(),
+    }));
+    wsCheck('整侧接受调用宿主并带上正确的一侧: ' + JSON.stringify(wholeAccepted.accepts),
+      wholeAccepted.accepts.length === 1 && wholeAccepted.accepts[0].path === 'assets/logo.png'
+        && wholeAccepted.accepts[0].side === 'theirs');
+    wsCheck('整侧接受后离开解决器，文件不再列为冲突，并给出反馈: '
+      + JSON.stringify([wholeAccepted.whole, wholeAccepted.list, wholeAccepted.toast]),
+      wholeAccepted.whole === 0 && wholeAccepted.list === false
+        && typeof wholeAccepted.toast === 'string' && wholeAccepted.toast.includes('logo.png'));
+    await whole.page.close();
+
+    // 失败路径：文件已不再冲突时不得假装成功，也不得离开页面。
+    const failedWhole = await openConflictScene('InvalidUtf8');
+    const invalidShape = await failedWhole.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      return {
+        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : '',
+        columns: !!document.querySelector('.conflict-columns'),
+      };
+    });
+    wsCheck('非法 UTF-8 走整侧接受页并说明原因: ' + JSON.stringify(invalidShape.columns),
+      invalidShape.columns === false && invalidShape.body.includes('UTF-8'));
+    await failedWhole.page.evaluate(() => { window.__conflictAcceptFails = true; });
+    await failedWhole.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-whole="yours"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await failedWhole.page.waitForFunction('(window.__conflictAccepts || []).length === 1', null, { timeout: 10000 }).catch(() => {});
+    await failedWhole.page.waitForTimeout(400);
+    const wholeFailed = await failedWhole.page.evaluate(() => {
+      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const yours = document.querySelector('[data-conflict-whole="yours"]');
+      return {
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        whole: document.querySelectorAll('[data-conflict-whole]').length,
+        yoursDisabled: yours ? yours.disabled : null,
+        applying: dialog ? dialog.getAttribute('data-conflict-applying') : null,
+      };
+    });
+    wsCheck('整侧接受失败时说明原因、留在页面并按实际状态恢复动作: ' + JSON.stringify(wholeFailed),
+      wholeFailed.notice === '所选文件已不再处于冲突状态。' && wholeFailed.hidden === false
+        && wholeFailed.whole === 3 && wholeFailed.yoursDisabled === false && wholeFailed.applying === 'false');
+
+    // 外部工具：仍然走 external/launch，但用系统默认程序打开（不是定位、也不是终端）。
+    await failedWhole.page.evaluate(() => { window.__conflictAcceptFails = false; });
+    await failedWhole.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-whole="external"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await failedWhole.page.waitForFunction("(window.__launchCalls || []).length === 1", null, { timeout: 10000 }).catch(() => {});
+    const wholeExternal = await failedWhole.page.evaluate(() => ({
+      calls: (window.__launchCalls || []).slice(),
+      accepts: (window.__conflictAccepts || []).length,
+    }));
+    wsCheck('外部工具用系统默认程序打开该文件，且不改变仓库状态: ' + JSON.stringify(wholeExternal),
+      JSON.stringify(wholeExternal.calls) === JSON.stringify(['open:assets/logo.png']) && wholeExternal.accepts === 1);
+    await failedWhole.page.evaluate(() => { window.__launchFails = true; });
+    await failedWhole.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-whole="external"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await failedWhole.page.waitForFunction("(window.__launchCalls || []).length === 2", null, { timeout: 10000 }).catch(() => {});
+    await failedWhole.page.waitForTimeout(400);
+    const externalFailed = await failedWhole.page.evaluate(() => {
+      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
+      return { notice: notice ? notice.textContent.trim() : null, hidden: notice ? notice.hidden : null };
+    });
+    wsCheck('外部工具打不开时必须说出来: ' + JSON.stringify(externalFailed),
+      externalFailed.hidden === false && typeof externalFailed.notice === 'string'
+        && externalFailed.notice.includes('只能打开当前工作区内的路径'));
+    await failedWhole.page.close();
+
+    if (wsSoft.length > 0) {
+      throw new Error('断言失败：' + wsSoft.join(' | '));
     }
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----

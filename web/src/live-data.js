@@ -2430,6 +2430,61 @@ function refreshPush() {
 }
 
 /**
+ * 无法逐块合并的冲突文件（规格 §7.14）：二进制、非法 UTF-8、超限文件。
+ *
+ * 与三栏里的接受不同，这里走宿主的**整文件**语义（`git checkout --ours/--theirs`
+ * 后 `git add`），文件被覆盖并立即标记为已解决，**不可撤销**——页面上的说明也这么写。
+ * `external` 只是把文件交给系统默认程序，不改变仓库状态，所以不做任何冻结。
+ */
+async function runConflictWholeSide(action) {
+  const live = window.__augitLive;
+  const conflict = live && live.conflict;
+  if (!live || !conflict) return null;
+
+  if (action === "external") {
+    try {
+      const launched = await invoke("external/launch", { action: "open", path: conflict.path }, 30000);
+      if (launched && launched.launched === false) {
+        // 对话框是模态的，全局提示可能被遮住，因此失败原因就近显示（规格 §10.2）。
+        setConflictNotice(launched.reason || "无法用系统默认程序打开该文件。");
+      } else if (launched && launched.launched) {
+        // 之前那次失败的原因不该继续挂着（规格 §10.2：状态未变才可重复，恢复后要消失）。
+        setConflictNotice("");
+      }
+      return launched;
+    } catch (error) {
+      setConflictNotice("无法用系统默认程序打开该文件：" + String((error && error.message) || error));
+      return null;
+    }
+  }
+
+  if (action !== "yours" && action !== "theirs") return null;
+  const label = action === "yours" ? (conflict.yoursLabel || "左侧") : (conflict.theirsLabel || "右侧");
+  setConflictApplying(true);
+  setConflictNotice("");
+  try {
+    const result = await invoke("git/conflict-accept", { path: conflict.path, side: action }, 60000);
+    if (!result || result.available === false) {
+      // 失败后按实际未处理冲突数恢复动作，并说明原因（规格 §10.2）。
+      setConflictApplying(false);
+      setConflictNotice((result && result.reason) || "整侧接受失败，文件没有被修改。");
+      return result;
+    }
+    live.conflictApplying = false;
+    // 该文件已被暂存并标记解决：清掉解决器状态，回到（可能已关闭的）冲突列表。
+    live.conflict = null;
+    live.conflictSessionView = "list";
+    showToast({ title: `已接受${label}`, text: `${conflict.path} 已整侧接受并标记为已解决。`, kind: "info" });
+    await loadOperationSession();
+    return result;
+  } catch (error) {
+    setConflictApplying(false);
+    setConflictNotice("整侧接受失败：" + String((error && error.message) || error));
+    return null;
+  }
+}
+
+/**
  * 重新绑定冲突解决器的保存动作。整页重绘会替换按钮，因此每次重绘后都要调用。
  */
 function bindConflictSave() {
@@ -2990,6 +3045,14 @@ function guardUnwiredNavigation() {
     if (conflictRow) {
       event.preventDefault();
       void openConflictFile(conflictRow.dataset.conflictPath);
+      return;
+    }
+
+    // 无法逐块合并的文件（规格 §7.14）：整侧接受或交给外部工具。
+    const conflictWhole = event.target.closest && event.target.closest("[data-conflict-whole]");
+    if (conflictWhole) {
+      event.preventDefault();
+      void runConflictWholeSide(conflictWhole.dataset.conflictWhole);
       return;
     }
 

@@ -6428,3 +6428,80 @@ live-shell **700/700**、mockup 场景 **48/48**（dark 与 light）、视觉稿
 1. 中央有未保存内容且外部文件变化时的模态选择（重新载入 / 保留当前内容）。
 2. 二进制/非法 UTF-8/超限文件走"整侧接受 + 外部工具"（宿主 `AcceptSideAsync` 正是这条）。
 3. 大字号/窄窗口下的标题行排布。
+
+### 第一百六十七轮：整侧接受 + 外部工具（§7.14 最后一条）
+
+#### 实现
+
+- **视觉稿新增整侧接受页**（`liveConflictWholeSide`）：二进制、非法 UTF-8、超限文件没有
+  可合并的文本，三栏没有意义。页面沿用 §7.5 文件超限页的 `info-state` / `info-block` 语言
+  （橙色 `file-warning`、`<h2>无法在三栏中合并此文件</h2>`、路径、原因、"此操作不可撤销"，
+  居中的 `button-row`），动作是**接受当前分支 / 接受合入内容 / 使用系统默认程序打开**
+  （`data-conflict-whole="yours|theirs|external"`）。
+- **路由按类型白名单**：只有 `Binary` / `InvalidUtf8` / `TooLarge` 换页；
+  `Missing`（一侧被删除）是普通的空侧变体，仍走三栏——一开始写成"非 Text 就换页"会把
+  空侧也赶走，改成显式白名单。
+- **宿主新增 `git/conflict-accept`**：`{path, side}` → `GitConflictService.AcceptSideAsync`
+  （`git checkout --ours/--theirs` + `git add`，**整文件**语义），随后 `InvalidateStatusCache()`。
+  与三栏里的"接受左侧/右侧"**语义不同**：那是结果区的一次可撤销编辑，走 `git/conflict-save`；
+  这里是覆盖整个文件并立即标记已解决。页面文案如实写明"不可撤销"。
+- **`external/launch` 新增 `"open"`**：接到已有的 `ExternalProgramLauncher.OpenWithDefaultApplication`。
+  路径边界仍由宿主校验（网页层若能传任意路径就等于拿到任意程序启动能力）。
+- **失败就近显示**：对话框是模态的，全局 `toast-layer` 可能被遮住，因此外部工具打不开时
+  原因写进对话框内的 `.conflict-notice`；成功时清除上一次的失败提示（§10.2 状态驱动）。
+- 整侧接受成功后：清掉解决器状态、回到冲突列表（会话若已结束则关闭），重新读取会话与状态，
+  并给出一次反馈提示。
+
+#### 断言（700 → 711）
+
+前置条件（确实读取了该文件）、二进制冲突**不渲染三栏也不提供逐块保存**、
+三个动作按钮齐全、说明里解释了原因且写明不可撤销；
+**对照**——同一条路径的文本冲突仍渲染三栏且没有整侧按钮（防止"页面没渲染"也能通过）；
+整侧接受带上**正确的一侧**、接受后离开解决器且文件不再列为冲突并有反馈；
+非法 UTF-8 也换页；失败时说明原因、留在页面、按实际状态恢复动作；
+外部工具用 `open:assets/logo.png`（不是 reveal/terminal）且不改仓库状态；打不开时必须说出来。
+
+#### 新增真宿主契约测试（`tests/Augit.Shell.Tests`）
+
+harness 里的宿主是 **stub**，所以另加 3 条**真实 Git 仓库**上的桥接契约测试
+（`ShellBridgeConflictAcceptTests`，26 → 31）：
+`整侧接受用所选一侧覆盖文件并标记已解决`（含 `git diff --diff-filter=U` 为空 = 已暂存）、
+`整侧接受另一侧得到另一侧内容`（配对，避免两边恰好相同时假通过）、
+`整侧接受的参数与侧别非法时回到错误通道`（**顶层 `error`**，不是 `result.error`——
+网页层只认前者，放错地方会变成"成功但没有原因"；并确认非法参数不改写工作区）。
+这两个测试断言 `available`/`reason`/`hasConflicts` 的**字段语义**，字段名写错只会静默出错。
+
+测试用的 Git 工具是 `tests/Augit.Shell.Tests/Helpers/` 下自包含的最小实现：
+基础设施测试的同名工具返回 `GitCommandResult`（`Augit.Infrastructure` 的内部类型，
+只对基础设施测试程序集可见），直接复用会牵连另一个程序集的内部可见性。
+
+#### 负向验证（两次运行）
+
+- 一次运行里同时退回**路由白名单**（`if (false)`）与**侧别映射**（yours↔theirs 对调）→
+  11 条新断言里 **9 条失败**，逐条与预期一致：
+  `不渲染三栏…: [true,true]`、`三个动作: []`、`说明…: null`、`带上正确的一侧: []`、
+  `接受后离开解决器…: [0,false,""]`、`非法 UTF-8…: true`、`失败时…{"notice":"","whole":0}`、
+  `外部工具…{"calls":[]}`、`打不开时必须说出来`；**对照断言与前置条件仍通过**（正是它们该有的表现）。
+- 退回桥接的侧别传递（永远取 Yours）与校验（未知侧别默认 Yours）→
+  `整侧接受用所选一侧覆盖文件并标记已解决`（长度同为 4、索引 0 不同：拿到"当前内容"）
+  与 `整侧接受的参数与侧别非法时回到错误通道`（`{"id":4,"result":{…}}` 没有 `error`）失败。
+- 恢复后 `web/src/live-data.js` 与验证绿态 `md5` 一致
+  （`f84cc4c88d9cbc46b5b847887f4e1e9e`），视觉稿两处副本 `md5` 一致。
+
+#### 一处自己踩的坑
+
+外部工具失败断言第一次跑出来是 `所选文件已不再处于冲突状态。`——**上一轮的失败原因还挂着**。
+原因是把返回载荷的字段写成 `available`，而 `external/launch` 的真实契约是 `{launched, reason}`，
+`launched:false` 根本没被识别。这正是"负向验证/失败断言"的价值：只看成功路径永远发现不了。
+（改法：读 `launched === false`，成功时清掉旧提示。）
+
+#### 验证范围
+
+live-shell **711/711**、mockup 场景 **48/48**（dark 与 light）、Augit.Shell.Tests **31/31**、
+`dotnet build Augit.slnx -c Release` 0 警告 0 错误、`dotnet format --verify-no-changes` PASS、
+视觉稿字节一致 PASS、脚本编码 PASS。本轮未改 Infrastructure 与 Core。
+
+#### §7.14 仍待办
+
+1. 中央有未保存内容且外部文件变化时的模态选择（重新载入 / 保留当前内容）。
+2. 大字号/窄窗口下的标题行排布。

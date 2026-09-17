@@ -159,6 +159,7 @@ internal sealed class ShellBridge : IDisposable
             "git/operation" => await InspectOperationAsync(cancellationToken),
             "git/operation-action" => await RunOperationActionAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
+            "git/conflict-accept" => await AcceptConflictSideAsync(parameters, cancellationToken),
             "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
             "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
             "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
@@ -782,6 +783,8 @@ internal sealed class ShellBridge : IDisposable
 
         ExternalLaunchResult result = action switch
         {
+            // 规格 §7.5/§7.14：无法在三栏里处理的文件交给系统默认程序。
+            "open" => ExternalProgramLauncher.OpenWithDefaultApplication(fullPath),
             "reveal" => ExternalProgramLauncher.RevealInExplorer(fullPath),
             "terminal" => ExternalProgramLauncher.OpenExternalTerminal(fullPath),
             _ => ExternalLaunchResult.Failure("不支持的外部打开方式。"),
@@ -1226,6 +1229,41 @@ internal sealed class ShellBridge : IDisposable
                     hasTheirs = file.HasTheirs,
                 }).ToArray(),
             },
+        };
+    }
+
+    /// <summary>
+    /// 整侧接受一个冲突文件（规格 §7.14 最后一条）：二进制、非法 UTF-8 与超限文件
+    /// 无法逐块合并，只能整侧取一侧。语义与三栏里的"接受左侧/右侧"**不同**——
+    /// 那三个按钮是结果区的一次可撤销编辑（页面侧），走的是 `git/conflict-save`。
+    /// </summary>
+    private async Task<object?> AcceptConflictSideAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string relative = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/conflict-accept 需要 path 参数。");
+        string sideName = GetString(parameters, "side")
+            ?? throw new ArgumentException("git/conflict-accept 需要 side 参数。");
+        if (!Enum.TryParse(sideName, ignoreCase: true, out GitConflictSide side))
+        {
+            throw new ArgumentException($"未知的冲突侧：{sideName}。");
+        }
+
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitConflictMutationResult result = await new GitConflictService(runtime)
+            .AcceptSideAsync(repository!, relative, side, cancellationToken)
+            .ConfigureAwait(false);
+        // 整侧接受改写了工作区：缓存失效，界面随后读取真实状态。
+        InvalidateStatusCache();
+        return new
+        {
+            available = result.IsSuccess,
+            reason = result.ErrorMessage,
+            hasConflicts = result.Session?.HasConflicts,
         };
     }
 
