@@ -1504,6 +1504,69 @@ function liveSettingsBody() {
 }
 
 // 外壳注入真实数据时的 Reset 对话框：目标提交取当前 HEAD，模式沿用规格说明。
+/**
+ * 冲突操作会话（规格 §7.13）：窗口显示操作类型、当前步骤、冲突文件与**实际可用动作**。
+ * 只渲染宿主判定为可用的动作——无效动作直接不显示，而不是仅禁用（§10.3）。
+ * Continue 若只是"前置条件未满足"（仍有冲突未解决）则保留并禁用，并说明还有多少冲突。
+ */
+function liveConflictSessionTitle(session) {
+  const kind = session && session.kind && session.kind !== "None" ? session.kind : "Git";
+  return `${kind} 冲突`;
+}
+
+function liveConflictSessionBody(session) {
+  if (!session || !session.inProgress) {
+    return `<div class="empty-tool-state"><div><strong>没有进行中的 Git 操作</strong><p>当前工作区没有需要处理的会话。</p></div></div>`;
+  }
+
+  const conflicts = session.conflicts || [];
+  const unresolved = conflicts.length;
+  const rows = conflicts.map(file => {
+    const name = file.path.split("/").at(-1);
+    const directory = file.path.split("/").slice(0, -1).join("/");
+    return `<div class="check-row" data-conflict-path="${escapeHtml(file.path)}" role="treeitem" tabindex="-1"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>${escapeHtml(name)}</span><span class="tree-path">${escapeHtml(directory)}</span></div>`;
+  }).join("");
+  const step = session.currentStep && session.totalSteps
+    ? `<span class="commit-meta">当前步骤 ${session.currentStep}/${session.totalSteps}</span>`
+    : "";
+  const summary = unresolved > 0 ? `${unresolved} 个冲突文件` : "没有未解决的冲突";
+  return `<div class="toolbar"><strong>${summary}</strong><span class="grow"></span>${step}</div><div class="changes-list">${rows}</div>`;
+}
+
+function liveConflictSessionFooter(session) {
+  if (!session || !session.inProgress) {
+    return `<button type="button" class="secondary-button" data-operation-action="close">关闭</button>`;
+  }
+
+  const kind = session.kind || "Git";
+  const buttons = [];
+  if (session.canAbort) {
+    buttons.push(`<button type="button" class="secondary-button" data-operation-action="abort">Abort ${escapeHtml(kind)}</button>`);
+  }
+
+  if (session.canSkip) {
+    buttons.push(`<button type="button" class="secondary-button" data-operation-action="skip">Skip</button>`);
+  }
+
+  const unresolved = (session.conflicts || []).length;
+  if (session.canContinue) {
+    buttons.push(`<button type="button" class="primary-button" data-operation-action="continue">Continue ${escapeHtml(kind)}</button>`);
+  } else if (session.supportsContinue) {
+    // 前置条件未满足：保留按钮但禁用，并在附近说明还差什么（规格 §7.13）。
+    const reason = unresolved > 0
+      ? `还有 ${unresolved} 个冲突未解决`
+      : "暂存区还没有可提交的内容";
+    buttons.push(`<button type="button" class="primary-button" disabled title="${escapeHtml(reason)}。">Continue ${escapeHtml(kind)}</button>`);
+    buttons.push(`<span class="commit-meta conflict-blocked">${escapeHtml(reason)}</span>`);
+  }
+
+  if (buttons.length === 0) {
+    buttons.push(`<button type="button" class="secondary-button" data-operation-action="close">关闭</button>`);
+  }
+
+  return buttons.join("");
+}
+
 function liveResetBody() {
   const live = window.__augitLive || {};
   const head = (live.history && live.history.head) ? live.history.head.slice(0, 7) : "HEAD";

@@ -479,7 +479,8 @@ public sealed class GitOperationService : IGitOperationService
             canSkip,
             canAbort,
             currentStep,
-            totalSteps);
+            totalSteps,
+            operationSupportsContinue);
         return GitAdvancedOperationResult.Success(session, status.Snapshot);
     }
 

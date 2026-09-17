@@ -59,6 +59,9 @@ public sealed class GitOperationServiceTests
             Assert.IsTrue(started.Session.CanAbort);
             Assert.AreEqual(kind != GitAdvancedOperationKind.Merge, started.Session.CanSkip);
             Assert.IsFalse(started.Session.CanContinue);
+            // "支持但前置未满足"与"当前操作根本不支持"必须可区分：界面据此决定
+            // 保留并禁用（附原因）还是直接不显示（规格 §7.13/§10.3）。
+            Assert.IsTrue(started.Session.SupportsContinue);
             Assert.HasCount(1, started.Session.ConflictFiles);
             if (kind == GitAdvancedOperationKind.Rebase)
             {
@@ -159,6 +162,7 @@ public sealed class GitOperationServiceTests
             Assert.AreEqual(GitOperationKind.SmartCheckout, started.Session!.Kind);
             Assert.IsTrue(started.Session.HasConflicts);
             Assert.IsFalse(started.Session.CanAbort);
+            Assert.IsTrue(started.Session.SupportsContinue);
 
             service = new(setup.Runtime);
             conflictService = new(setup.Runtime, service);

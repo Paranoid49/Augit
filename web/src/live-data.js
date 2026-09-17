@@ -182,6 +182,14 @@ async function loadStatus() {
     latestStatus = normalizeStatus(status, latestStatus);
     // 读取成功即恢复"最新"：否则上一次失败的标记会一直挂在界面上。
     latestStatusError = null;
+    // 操作会话只在状态暗示"确有会话"时才去读：`git/operation` 要跑多条 Git 命令，
+    // 每次状态刷新都调用会白花时间（性能要求）。
+    if (latestStatus.hasConflicts || (latestStatus.operation && latestStatus.operation !== "None")) {
+      void loadOperationSession();
+    } else if (window.__augitLive && window.__augitLive.operationSession) {
+      window.__augitLive.operationSession = null;
+      window.__augitLive.operationSessionShown = false;
+    }
     // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
     applyStatus();
     return status;
@@ -1852,6 +1860,7 @@ window.__augitSettingsWrite = async (payload) => {
 };
 
 window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
+window.__augitLoadOperation = () => loadOperationSession();
 
 window.__augitLoadBlame = (path) => loadBlame(path);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
@@ -1936,6 +1945,119 @@ function showGitUnavailable(reason) {
 
 /** Git 不可用的原因；状态可能早于 live 对象返回，因此单独缓存。 */
 let pendingGitUnavailableReason = null;
+
+/**
+ * 读取 Git 操作会话（规格 §7.13）。
+ *
+ * 会话刚进入"进行中且有冲突"时自动打开会话窗口（§9.3「冲突后进入操作会话，
+ * 不把冲突包装成普通失败」）；会话结束后关掉窗口。
+ */
+async function loadOperationSession() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  try {
+    const payload = await invoke("git/operation", {}, 30000);
+    const session = payload && payload.available ? payload.session : null;
+    live.operationSession = session;
+    if (session && session.inProgress && session.hasConflicts && !live.operationSessionShown) {
+      live.operationSessionShown = true;
+      openConflictSession();
+    } else if (live.operationSessionShown && (!session || !session.inProgress)) {
+      live.operationSessionShown = false;
+      closeConflictSession();
+    } else if (live.operationSessionShown) {
+      // 会话进行中：窗口内容随会话变化重绘（步骤、冲突数、可用动作都会变）。
+      openConflictSession();
+    }
+
+    window.__augitOperationReady = true;
+    return session;
+  } catch (error) {
+    window.__augitError = "load-operation:" + String(error && error.message || error);
+    return null;
+  }
+}
+
+/** 打开（或就地重绘）冲突操作会话窗口。 */
+function openConflictSession() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const session = live ? live.operationSession : null;
+  if (!live || !host || !session) return;
+  document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
+  document.querySelectorAll(".dialog.conflict-session-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    liveConflictSessionTitle(session),
+    liveConflictSessionBody(session),
+    liveConflictSessionFooter(session),
+    true,
+    "conflict-session-dialog");
+  host.appendChild(layer);
+}
+
+/** 关闭会话窗口（不动会话本身，用户可再次打开）。 */
+function closeConflictSession() {
+  document.querySelectorAll(".dialog.conflict-session-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+}
+
+/**
+ * 执行会话动作（继续 / 跳过 / 中止）。
+ *
+ * 动作完成后**重新读取真实仓库状态与会话**（规格 §9.3「取消后等待本机 Git 停止，
+ * 再读取真实仓库状态」的同一条原则）：不假设动作生效、也不自行推断结果。
+ */
+async function runConflictSessionAction(action) {
+  const live = window.__augitLive;
+  if (!live) return null;
+  if (action === "close") {
+    live.operationSessionShown = false;
+    closeConflictSession();
+    return null;
+  }
+
+  const buttons = [...document.querySelectorAll("[data-operation-action]")];
+  buttons.forEach((button) => { button.disabled = true; });
+  let payload = null;
+  try {
+    payload = await invoke("git/operation-action", { action }, 120000);
+  } catch (error) {
+    payload = { available: true, ok: false, reason: String((error && error.message) || error) };
+  }
+
+  if (!payload || !payload.ok) {
+    // 失败保留窗口并显示脱敏原因，不假装成功。
+    const notice = document.querySelector(".conflict-session-dialog .commit-meta.conflict-blocked")
+      || document.querySelector(".conflict-session-dialog .toolbar");
+    if (notice) {
+      notice.textContent = describeFailure((payload && payload.reason) || "该动作没有完成。", {
+        unchanged: "仓库状态没有被这次尝试修改。",
+      });
+    }
+    buttons.forEach((button) => { button.disabled = false; });
+    return payload;
+  }
+
+  live.operationSession = payload.session || null;
+  if (!payload.session || !payload.session.inProgress) {
+    live.operationSessionShown = false;
+    closeConflictSession();
+  } else {
+    openConflictSession();
+  }
+
+  await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+  refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
+  return payload;
+}
 
 /** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {
@@ -2544,6 +2666,14 @@ function guardUnwiredNavigation() {
     if (remoteAction) {
       event.preventDefault();
       void runRemoteAction(remoteAction.dataset.remoteAction);
+      return;
+    }
+
+    // 冲突操作会话的动作（规格 §7.13）。
+    const operationAction = event.target.closest && event.target.closest("[data-operation-action]");
+    if (operationAction) {
+      event.preventDefault();
+      void runConflictSessionAction(operationAction.dataset.operationAction);
       return;
     }
 

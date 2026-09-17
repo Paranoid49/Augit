@@ -156,6 +156,8 @@ internal sealed class ShellBridge : IDisposable
             "git/stashes" => await ReadStashesAsync(cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
             "git/worktree-write" => await WriteWorktreeAsync(parameters, cancellationToken),
+            "git/operation" => await InspectOperationAsync(cancellationToken),
+            "git/operation-action" => await RunOperationActionAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
             "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
             "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
@@ -1149,6 +1151,84 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>读取当前冲突会话与冲突文件列表。</summary>
+    /// <summary>
+    /// 读取当前 Git 操作会话（规格 §7.13）：操作类型、是否进行中、冲突文件、当前步骤
+    /// 与实际可用动作。宿主本来就实现了这套判定，但此前桥接没有暴露，
+    /// 界面因此既看不到会话、也无法继续/跳过/中止。
+    /// </summary>
+    private async Task<object?> InspectOperationAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitAdvancedOperationResult result = await new GitOperationService(runtime)
+            .InspectAsync(repository, cancellationToken)
+            .ConfigureAwait(false);
+        return OperationPayload(result);
+    }
+
+    /// <summary>
+    /// 执行操作会话动作（继续 / 跳过 / 中止，规格 §7.13）。
+    /// 可用性由宿主判定：不支持的动作直接拒绝，界面只显示真实可用的动作。
+    /// </summary>
+    private async Task<object?> RunOperationActionAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string name = GetString(parameters, "action")
+            ?? throw new ArgumentException("git/operation-action 需要 action 参数。");
+        if (!Enum.TryParse(name, ignoreCase: true, out GitOperationAction action))
+        {
+            throw new ArgumentException($"未知的操作会话动作：{name}。");
+        }
+
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitAdvancedOperationResult result = await new GitOperationService(runtime)
+            .ExecuteActionAsync(repository, action, cancellationToken)
+            .ConfigureAwait(false);
+        // 会话动作会改写工作区与 HEAD：缓存必须失效，界面随后读取真实状态（§9.3）。
+        InvalidateStatusCache();
+        return OperationPayload(result);
+    }
+
+    /// <summary>操作会话的对外形状；宿主判定可用动作，界面只显示真实可用的那些。</summary>
+    private static object OperationPayload(GitAdvancedOperationResult result)
+    {
+        GitOperationSession? session = result.Session;
+        return new
+        {
+            available = true,
+            ok = result.IsSuccess,
+            reason = result.ErrorMessage,
+            session = session is null ? null : new
+            {
+                kind = session.Kind.ToString(),
+                inProgress = session.IsInProgress,
+                hasConflicts = session.HasConflicts,
+                branch = session.CurrentBranch,
+                canContinue = session.CanContinue,
+                canSkip = session.CanSkip,
+                canAbort = session.CanAbort,
+                supportsContinue = session.SupportsContinue,
+                currentStep = session.CurrentStep,
+                totalSteps = session.TotalSteps,
+                conflicts = session.ConflictFiles.Select(file => new
+                {
+                    path = file.RelativePath,
+                    hasAncestor = file.HasAncestor,
+                    hasYours = file.HasYours,
+                    hasTheirs = file.HasTheirs,
+                }).ToArray(),
+            },
+        };
+    }
+
     private async Task<object?> ReadConflictsAsync(CancellationToken cancellationToken)
     {
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);

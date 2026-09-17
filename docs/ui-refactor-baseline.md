@@ -6149,3 +6149,64 @@ live-shell **676/676**、视觉稿字节一致 PASS。本轮只改网页层与�
 1. §10.4 其余破坏性操作（Reset / 删除 Stash / 删除分支或标签 / 移除 Worktree）与冲突操作会话
    （依赖本轮的 `operation`/`hasConflicts`，现在有数据可用了）。
 2. "启动时恢复上次打开的目录"（`LastWorkspace` 驱动的工作区恢复）。
+
+### 第一百六十三轮：实现冲突操作会话（§7.13 / §10.3 / §9.3）
+
+#### 核查发现的缺口：宿主全都有，桥接与界面没有
+
+`GitOperationService` 早已实现整套会话判定——`InspectAsync` 返回 `GitOperationSession`
+（操作类型、是否进行中、冲突文件、`CanContinue/CanSkip/CanAbort`、当前步骤/总步数），
+`ExecuteActionAsync` 执行继续/跳过/中止。**但桥接从未暴露这两条**，
+界面既看不到会话、也无法继续或中止——用户卡在冲突里没有任何出口。
+这与"三栏解决器有 live 路径、但没有进入它的会话窗口"是同一处断口的另一半。
+
+#### 实现
+
+- **宿主**：新增 `git/operation`（读取会话）与 `git/operation-action`（继续/跳过/中止），
+  共用一份 `OperationPayload` 形状；动作后失效状态缓存（会话会改写工作区与 HEAD）。
+  `GitOperationSession` 增加 `SupportsContinue` 字段并由服务填充——规格 §7.13 要求
+  "Continue 前置未满足时保留并禁用"，而"当前操作根本不支持"必须直接不显示（§10.3），
+  两者必须可区分，否则界面只能自己再判断一遍宿主规则（迟早漂移）。
+- **视觉稿**：`liveConflictSessionTitle/Body/Footer` 按设计稿的冲突会话结构渲染
+  （"N 个冲突文件 / 当前步骤 x/y" + 冲突文件行 + 动作），**只渲染宿主判定可用的动作**；
+  Continue 被阻塞时保留并禁用，旁边写明"还有 N 个冲突未解决"。
+- **网页层**：状态暗示"确有会话"时才去读会话（`hasConflicts || operation !== 'None'`）——
+  `git/operation` 要跑多条 Git 命令，每次状态刷新都调用会白花时间；
+  会话首次进入"进行中且有冲突"时**自动进入操作会话**（§9.3「冲突后进入操作会话，
+  不把冲突包装成普通失败」），会话结束后关窗；动作执行后重新读取真实状态与会话。
+
+#### 断言（676 → 682，新增 6 条）
+
+前置条件（没有会话时不读会话、不弹窗——同时是性能守卫）、冲突后自动进入会话并显示
+类型/步骤/冲突文件、Continue 前置未满足时保留并禁用且说明原因、
+Skip 调用宿主并重新读取真实状态、会话结束后关闭窗口、
+**当前操作不支持的动作直接不显示**（合并会话不能 Skip）。
+
+#### 负向验证
+
+- 退回动作可用性判定（总是渲染三个动作）→
+  `当前操作不支持的动作直接不显示: {"actions":["abort","skip","continue"],"hasSkipText":true}` 失败。
+- 退回自动进入会话 → `冲突后自动进入操作会话…: null` 与 `Continue 前置…: [null,null,null]` 失败。
+恢复后 live-shell **682/682**。
+
+顺带把该块的 Skip 点击加了空值守卫（窗口没出现时由断言报出，而不是抛异常中断整块）。
+
+#### C# 侧
+
+`GitOperationServiceTests` 补两条对 `SupportsContinue` 的断言（20/20 通过），
+锁住"支持但被阻塞（CanContinue=false 且 SupportsContinue=true）"与"根本不支持"的区分。
+
+#### 验证范围
+
+live-shell **682/682**、mockup 场景 **48/48**（dark 与 light）、视觉稿字节一致 PASS、
+`GitOperationServiceTests` **20/20**、`dotnet build Augit.slnx -c Release` 0 警告 0 错误、
+`dotnet format --verify-no-changes` 通过。
+
+诚实说明：桥接的 `git/operation` / `git/operation-action` 映射本身没有单元测试
+（桥接需要 WebView2）；它们在验收套件里以桩形式被验证形状，宿主判定逻辑由上面的 C# 测试覆盖。
+
+#### 仍待办
+
+1. §10.4 其余破坏性操作（Reset / 删除 Stash / 删除分支或标签 / 移除 Worktree）。
+2. "启动时恢复上次打开的目录"（`LastWorkspace` 驱动的工作区恢复）。
+3. 会话窗口的冲突文件行目前只展示；点开三栏解决器的入口（`git/conflict-load` 已有 live 路径）尚未接线。

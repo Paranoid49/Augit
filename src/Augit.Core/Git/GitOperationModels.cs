@@ -35,7 +35,11 @@ public sealed record GitOperationSession(
     bool CanSkip,
     bool CanAbort,
     int? CurrentStep = null,
-    int? TotalSteps = null)
+    int? TotalSteps = null,
+    // 规格 §7.13：Continue 的**前置条件未满足**时保留按钮并禁用，而"当前操作根本不支持
+    // Continue"时必须直接不显示。两者必须可区分，否则界面只能自己再判断一遍宿主规则
+    // （迟早漂移），因此这里把"是否支持"单独暴露。
+    bool SupportsContinue = false)
 {
     public bool Supports(GitOperationAction action)
     {

@@ -365,6 +365,24 @@ async function main() {
         window.__settingsWritten = Object.assign(window.__settingsWritten || {}, params);
         return { saved: true, theme: params.theme, fontSize: params.fontSize };
       }
+      if (method === 'git/operation') {
+        // 操作会话（规格 §7.13）：默认无会话，测试可用 __operationSession 注入。
+        const session = window.__operationSession !== undefined
+          ? window.__operationSession
+          : (window.__sessionFixture || null);
+        window.__operationCalls = (window.__operationCalls || 0) + 1;
+        return { available: true, ok: true, reason: null, session };
+      }
+      if (method === 'git/operation-action') {
+        window.__operationActions = (window.__operationActions || []).concat([params.action]);
+        if (window.__operationActionFails) {
+          throw new Error('无法继续：仍有未解决的冲突。');
+        }
+        window.__operationSession = window.__operationAfterAction !== undefined
+          ? window.__operationAfterAction
+          : null;
+        return { available: true, ok: true, reason: null, session: window.__operationSession };
+      }
       if (method === 'git/conflicts') return data.conflicts;
       if (method === 'git/conflict-load') return data.conflict;
       if (method === 'git/remotes') return data.remotes;
@@ -5743,6 +5761,124 @@ async function main() {
 
     if (snapSoft.length > 0) {
       throw new Error('断言失败：' + snapSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.13/§10.3：冲突操作会话 ----
+    // 宿主本来就实现了整套会话判定（InspectAsync/ExecuteActionAsync），但桥接从未暴露，
+    // 界面既看不到会话也无法继续/跳过/中止——用户卡在冲突里没有任何出口。
+    const csSoft = [];
+    const csCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      csSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const cs = await openScene('scene=commit-changes&theme=dark');
+    await cs.page.bringToFront();
+    await cs.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const csIdle = await cs.page.evaluate(() => ({
+      dialogs: document.querySelectorAll('.dialog.conflict-session-dialog').length,
+      operationCalls: window.__operationCalls || 0,
+      operation: window.__augitLive.status ? window.__augitLive.status.operation : null,
+    }));
+    check('前置条件：没有操作会话时不读会话、不弹窗（性能守卫）: ' + JSON.stringify(csIdle),
+      csIdle.dialogs === 0 && csIdle.operationCalls === 0 && csIdle.operation === 'None');
+
+    // 注入一个进行中的 rebase：2 个冲突、可跳过可中止、Continue 前置未满足。
+    await cs.page.evaluate(() => {
+      window.__sessionFixture = {
+        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 2, totalSteps: 4,
+        conflicts: [
+          { path: 'src/App.cs', hasAncestor: true, hasYours: true, hasTheirs: true },
+          { path: 'README.md', hasAncestor: true, hasYours: true, hasTheirs: true },
+        ],
+      };
+      window.__statusOperation = 'Rebase';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await cs.page.waitForSelector('.dialog.conflict-session-dialog', { timeout: 10000 }).catch(() => {});
+    const csOpened = await cs.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      if (!dialog) return null;
+      const continueButton = [...dialog.querySelectorAll('button')]
+        .find((button) => button.textContent.includes('Continue'));
+      return {
+        title: dialog.getAttribute('aria-label'),
+        summary: (dialog.querySelector('.toolbar strong') || {}).textContent || null,
+        step: (dialog.querySelector('.toolbar .commit-meta') || {}).textContent || null,
+        conflicts: [...dialog.querySelectorAll('[data-conflict-path]')].map((row) => row.dataset.conflictPath),
+        actions: [...dialog.querySelectorAll('[data-operation-action]')].map((button) => button.dataset.operationAction),
+        continueDisabled: continueButton ? continueButton.disabled : null,
+        blocked: (dialog.querySelector('.conflict-blocked') || {}).textContent || null,
+      };
+    });
+    csCheck('冲突后自动进入操作会话，显示类型/步骤/冲突文件: ' + JSON.stringify(csOpened),
+      csOpened !== null && csOpened.title === 'Rebase 冲突' && csOpened.summary === '2 个冲突文件'
+        && csOpened.step === '当前步骤 2/4'
+        && JSON.stringify(csOpened.conflicts) === JSON.stringify(['src/App.cs', 'README.md']));
+    csCheck('Continue 前置未满足时保留并禁用且说明原因（§7.13）: '
+      + JSON.stringify([csOpened && csOpened.continueDisabled, csOpened && csOpened.blocked, csOpened && csOpened.actions]),
+    csOpened !== null && csOpened.continueDisabled === true
+      && typeof csOpened.blocked === 'string' && csOpened.blocked.includes('还有 2 个冲突未解决')
+      && csOpened.actions.includes('abort') && csOpened.actions.includes('skip'));
+
+    // 执行 Skip：调用宿主，随后**重新读取真实状态**并关闭窗口（§9.3 同一条原则）。
+    await cs.page.evaluate(() => {
+      window.__operationActions = [];
+      window.__operationAfterAction = null;
+    });
+    const csStatusBefore = await cs.page.evaluate('window.__statusCalls || 0');
+    await cs.page.evaluate(() => {
+      // 空值守卫：会话窗口没出现时应当由断言报出，而不是抛异常中断整块。
+      const skip = document.querySelector('[data-operation-action="skip"]');
+      if (skip) {
+        skip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
+    });
+    await cs.page.waitForFunction(
+      '(window.__operationActions || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    await cs.page.waitForFunction(
+      (before) => (window.__statusCalls || 0) > before, csStatusBefore, { timeout: 10000 }).catch(() => {});
+    const csAfter = await cs.page.evaluate(() => ({
+      actions: window.__operationActions || [],
+      dialogs: document.querySelectorAll('.dialog.conflict-session-dialog').length,
+      statusCalls: window.__statusCalls || 0,
+    }));
+    csCheck('Skip 调用宿主并重新读取真实状态: '
+      + JSON.stringify([csAfter.actions, csStatusBefore, csAfter.statusCalls]),
+    csAfter.actions.length === 1 && csAfter.actions[0] === 'skip'
+      && csAfter.statusCalls > csStatusBefore);
+    csCheck('会话结束后关闭窗口: ' + JSON.stringify(csAfter.dialogs), csAfter.dialogs === 0);
+
+    // §10.3：当前操作**不支持**的动作直接不显示（合并会话不能 Skip）。
+    await cs.page.evaluate(() => {
+      window.__operationSession = {
+        kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: true, canSkip: false, canAbort: true, supportsContinue: true,
+        currentStep: null, totalSteps: null,
+        conflicts: [{ path: 'src/App.cs', hasAncestor: true, hasYours: true, hasTheirs: true }],
+      };
+      window.__augitLoadOperation();
+    });
+    await cs.page.waitForSelector('.dialog.conflict-session-dialog', { timeout: 8000 }).catch(() => {});
+    const csMerge = await cs.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      return {
+        actions: dialog
+          ? [...dialog.querySelectorAll('[data-operation-action]')].map((button) => button.dataset.operationAction)
+          : [],
+        hasSkipText: dialog ? dialog.textContent.includes('Skip') : null,
+      };
+    });
+    csCheck('当前操作不支持的动作直接不显示（§10.3）: ' + JSON.stringify(csMerge),
+      csMerge.actions.includes('abort') && csMerge.actions.includes('continue')
+        && !csMerge.actions.includes('skip') && csMerge.hasSkipText === false);
+    await cs.page.close();
+
+    if (csSoft.length > 0) {
+      throw new Error('断言失败：' + csSoft.join(' | '));
     }
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
