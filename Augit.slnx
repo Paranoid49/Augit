@@ -7,6 +7,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Augit.Core.Tests/Augit.Core.Tests.csproj" />
     <Project Path="tests/Augit.Infrastructure.Tests/Augit.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Augit.Shell.Tests/Augit.Shell.Tests.csproj" />
     <Project Path="tests/Augit.Terminal.TestHost/Augit.Terminal.TestHost.csproj" />
   </Folder>
 </Solution>

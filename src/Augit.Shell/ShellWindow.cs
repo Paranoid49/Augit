@@ -20,11 +20,8 @@ internal sealed class ShellWindow : IDisposable
     private const uint WmDpichanged = 0x02E0;
     private const uint WmGetMinMaxInfo = 0x0024;
 
-    /// <summary>最小窗口的逻辑尺寸；低于此值布局无法容纳三个区域（规格 §4.2）。</summary>
-    private const int MinimumLogicalWidth = 1024;
-
-    private const int MinimumLogicalHeight = 640;
     private const int IdiApplication = 32512;
+    private const uint SpiGetWorkArea = 0x0030;
     private const int ErrorClassAlreadyExists = 1410;
     private const uint InitializeMessage = 0x0400 + 1;
     private const uint ReplyMessage = 0x0400 + 3;
@@ -39,6 +36,9 @@ internal sealed class ShellWindow : IDisposable
     private readonly ShellOptions _options;
     private readonly nint _instance;
     private nint _window;
+    private int _effectiveDpi;
+    private Rect _workArea;
+    private bool _hasWorkArea;
     private readonly ShellBridge _bridge;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
@@ -50,6 +50,10 @@ internal sealed class ShellWindow : IDisposable
         _options = options;
         _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
         _instance = GetModuleHandle(null);
+        _effectiveDpi = ShellWindowSizing.ResolveEffectiveDpi(
+            options.Dpi,
+            options.PixelExact,
+            (int)GetDpiForSystem());
         RegisterWindowClass();
         _window = CreateWindowInstance();
         if (_window == 0)
@@ -162,6 +166,16 @@ internal sealed class ShellWindow : IDisposable
 
     private nint CreateWindowInstance()
     {
+        // 窗口按生效 DPI 放大，使界面拿到与视觉稿一致的逻辑视口；再收敛到工作区，
+        // 避免 175%/200% 缩放的笔记本屏幕上窗口比屏幕还大。
+        _hasWorkArea = SystemParametersInfo(SpiGetWorkArea, 0, ref _workArea, 0);
+        PhysicalSize size = ShellWindowSizing.InitialWindow(
+            _options.Width ?? ShellWindowSizing.DefaultLogicalWidth,
+            _options.Height ?? ShellWindowSizing.DefaultLogicalHeight,
+            _effectiveDpi,
+            WorkWidth,
+            WorkHeight);
+
         return CreateWindowEx(
             0,
             WindowClassName,
@@ -169,13 +183,17 @@ internal sealed class ShellWindow : IDisposable
             WsOverlappedWindow,
             80,
             80,
-            ScaleForDpi(_options.Width ?? 1180),
-            ScaleForDpi(_options.Height ?? 760),
+            size.Width,
+            size.Height,
             0,
             0,
             _instance,
             0);
     }
+
+    private int WorkWidth => _hasWorkArea ? _workArea.Right - _workArea.Left : 0;
+
+    private int WorkHeight => _hasWorkArea ? _workArea.Bottom - _workArea.Top : 0;
 
     private static nint OnWindowMessage(nint window, uint message, nint wParam, nint lParam)
     {
@@ -193,9 +211,11 @@ internal sealed class ShellWindow : IDisposable
                 shell.PostBridgeReplies();
                 return 0;
             case WmSize:
-            case WmDpichanged:
                 shell.SyncBounds();
                 return 0;
+            case WmDpichanged:
+                shell.SyncBounds();
+                return shell.OnDpiChanged(message, wParam, lParam);
             case WmGetMinMaxInfo:
                 shell.ApplyMinimumSize(lParam);
                 return 0;
@@ -492,7 +512,7 @@ internal sealed class ShellWindow : IDisposable
 
     /// <summary>
     /// 限制窗口最小尺寸，避免拖到布局容不下的尺寸。
-    /// MinTrackSize 使用物理像素，因此按 DPI 覆盖或系统 DPI 换算。
+    /// MinTrackSize 使用物理像素，因此按生效 DPI（显式覆盖或系统 DPI）换算。
     /// </summary>
     private void ApplyMinimumSize(nint lParam)
     {
@@ -502,12 +522,33 @@ internal sealed class ShellWindow : IDisposable
         }
 
         MinMaxInfo info = Marshal.PtrToStructure<MinMaxInfo>(lParam);
+        PhysicalSize minimum = ShellWindowSizing.MinimumWindow(_effectiveDpi, WorkWidth, WorkHeight);
         info.MinTrackSize = new ShellPoint
         {
-            X = ScaleForDpi(MinimumLogicalWidth),
-            Y = ScaleForDpi(MinimumLogicalHeight),
+            X = minimum.Width,
+            Y = minimum.Height,
         };
         Marshal.StructureToPtr(info, lParam, fDeleteOld: false);
+    }
+
+    /// <summary>
+    /// 显示器 DPI 变化时更新生效 DPI。显式 <c>--dpi</c> 与 <c>--pixel-exact</c> 已经把
+    /// WebView2 的栅格化比例固定住并关闭了监视器缩放跟随，此时不得改写。
+    /// 同时交给默认过程按系统建议的矩形调整窗口，否则换到更高 DPI 的显示器后
+    /// 逻辑视口会再次小于布局下限。
+    /// </summary>
+    private nint OnDpiChanged(uint message, nint wParam, nint lParam)
+    {
+        if (_options.Dpi is null && !_options.PixelExact && _window != 0)
+        {
+            int dpi = (int)GetDpiForWindow(_window);
+            if (dpi > 0)
+            {
+                _effectiveDpi = dpi;
+            }
+        }
+
+        return DefWindowProc(_window, message, wParam, lParam);
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -525,14 +566,6 @@ internal sealed class ShellWindow : IDisposable
         public ShellPoint MaxPosition;
         public ShellPoint MinTrackSize;
         public ShellPoint MaxTrackSize;
-    }
-
-    /// <summary>审计用 DPI 覆盖：按比例放大窗口尺寸，使逻辑尺寸保持不变。</summary>
-    private int ScaleForDpi(int value)
-    {
-        return _options.Dpi is { } dpi && dpi != 96
-            ? (int)Math.Round(value * dpi / 96.0)
-            : value;
     }
 
     private void SyncBounds()
@@ -590,6 +623,15 @@ internal sealed class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint window, out Rect rect);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForSystem();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint window);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint action, uint parameter, ref Rect value, uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SetWindowTextW")]
     private static extern bool SetWindowText(nint window, string text);
