@@ -5284,6 +5284,17 @@ async function main() {
       emptyHistory.hasRefPanel, emptyHistory.hasFilters, emptyHistory.rows, emptyHistory.commits]),
       emptyHistory.hasRefPanel === true && emptyHistory.hasFilters === true
       && emptyHistory.rows === 0 && emptyHistory.commits === 0);
+
+    // 空历史时右侧详情区不得停在"正在读取"：那是一个永远不会结束的加载态，
+    // 与左侧"仓库还没有提交"自相矛盾（规格 §10.1 稳定空状态、§6.5 最终说明持续可见）。
+    const emptyDetail = await esHist.evaluate(() => ({
+      changedFiles: (document.querySelector('.bottom-tool [data-live-changed-files]') || {}).innerText || '',
+      detail: (document.querySelector('.bottom-tool [data-live-commit-detail]') || {}).innerText || '',
+    }));
+    check('§10.1 无历史时详情区不停在加载态: ' + JSON.stringify(emptyDetail),
+      !emptyDetail.changedFiles.includes('正在读取')
+        && !emptyDetail.detail.includes('正在读取')
+        && emptyDetail.changedFiles.trim().length > 0);
     await esHist.close();
 
     // 搜索无结果：显示「未找到结果」，输入框与查询保持
