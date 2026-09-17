@@ -4808,6 +4808,77 @@ async function main() {
       throw new Error('断言失败：' + ctbSoft.join(' | '));
     }
 
+    // ---- 规格 §10.2：失败必须说出来，且提示是状态驱动的 ----
+    // 此前 copyTreePath / launchExternal 的失败只写进一个**没有任何地方读取**的变量，
+    // 用户被宿主拒绝时界面上没有任何反馈。提示改为状态驱动（内容在 live.toast，
+    // mockup 的区域渲染出来）：直接 appendChild 会被下一次区域刷新抹掉。
+    const toastSoft = [];
+    const toastCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      toastSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const toastCase = async (itemLabel, setup) => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { window.__clipboardFails = false; window.__launchFails = false; });
+      if (setup) await page.evaluate(setup);
+      const before = await page.evaluate(async (label) => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 90 }));
+        await new Promise((r) => setTimeout(r, 400));
+        const item = [...document.querySelectorAll('.project-menu .menu-item')]
+          .find((el) => el.textContent.includes(label));
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await new Promise((r) => setTimeout(r, 800));
+        const toast = document.querySelector('.toast');
+        return {
+          count: document.querySelectorAll('.toast').length,
+          title: toast ? (toast.querySelector('.toast-title') || {}).textContent || null : null,
+          text: toast ? toast.textContent : null,
+        };
+      }, itemLabel);
+      // 状态驱动：整页重绘后提示必须仍在且只有一条（直接 appendChild 的实现会被抹掉）。
+      await page.evaluate(() => { window.__augitRender(); });
+      await page.waitForTimeout(500);
+      const after = await page.evaluate(() => ({
+        count: document.querySelectorAll('.toast').length,
+        title: (document.querySelector('.toast .toast-title') || {}).textContent || null,
+      }));
+      await page.close();
+      return { before, after };
+    };
+
+    const copyToast = await toastCase('复制路径', () => { window.__clipboardFails = true; });
+    toastCheck('复制路径失败必须显示提示（带原因与未改变的状态）: '
+      + JSON.stringify(copyToast.before),
+    copyToast.before.count === 1
+      && typeof copyToast.before.title === 'string' && copyToast.before.title.includes('复制路径失败')
+      && typeof copyToast.before.text === 'string'
+      && copyToast.before.text.includes('剪贴板当前不可用')
+      && copyToast.before.text.includes('没有被修改'));
+    toastCheck('提示由状态驱动（整页重绘后仍在且只有一条）: ' + JSON.stringify(copyToast.after),
+      copyToast.after.count === 1 && copyToast.after.title === copyToast.before.title);
+
+    const launchToast = await toastCase('资源管理器', () => { window.__launchFails = true; });
+    toastCheck('外部打开失败必须显示提示: ' + JSON.stringify(launchToast.before),
+      launchToast.before.count === 1
+        && typeof launchToast.before.title === 'string' && launchToast.before.title.includes('无法打开')
+        && typeof launchToast.before.text === 'string'
+        && launchToast.before.text.includes('只能打开当前工作区内的路径'));
+
+    // 配对控制：同样的操作在宿主接受后不得留下上一次的失败提示。
+    const copyOk = await toastCase('复制路径');
+    toastCheck('复制成功后不留下失败提示: '
+      + JSON.stringify([copyToast.before.count, copyOk.before.count]),
+    copyToast.before.count === 1 && copyOk.before.count === 0);
+
+    if (toastSoft.length > 0) {
+      throw new Error('断言失败：' + toastSoft.join(' | '));
+    }
+
     // ---- 规格 §5.1：标题栏汉堡菜单 ----
     // 规格要求点击后在标题栏**原位**显示"文件、视图、Git、终端、设置"五个文字入口，
     // 不弹出一张替代标题栏的悬浮卡片；关闭后恢复原有标题栏。

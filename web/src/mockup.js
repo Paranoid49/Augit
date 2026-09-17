@@ -2376,6 +2376,22 @@ function terminalTool() {
   return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">终端</span><span class="terminal-session" title="${name}">${name}</span><button class="icon-button terminal-session-close" aria-label="关闭终端">${icon("x")}</button><button class="icon-button terminal-more" aria-label="更多操作">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="隐藏终端">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
+/**
+ * 规格 §10.2：提示由**状态**驱动渲染。
+ *
+ * 直接往窗口里 appendChild 会被下一次区域刷新抹掉（与之前修过的 diff 加载提示同类），
+ * 而且同一时刻只允许存在一条提示。内容放在 `live.toast`，这里只负责画出来。
+ */
+function liveToast() {
+  const live = window.__augitLive || {};
+  const toast = live.toast;
+  if (!toast || !toast.title) return "";
+  const action = toast.action && toast.action.label
+    ? `<div class="button-row"><a class="secondary-button" href="${escapeHtml(toast.action.href || "settings.html")}">${escapeHtml(toast.action.label)}</a></div>`
+    : "";
+  return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
+}
+
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false } = {}) {
   const live = window.__augitLive || null;
   // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
@@ -2459,7 +2475,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading") : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : "";
-  return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}${toast}</div>`;
+  return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }
 
 // 状态栏描述活动视图；比较补丁不提供源文件编码与换行事实。
@@ -3539,7 +3555,9 @@ const REGION_SELECTORS = {
   statusbar: ".statusbar",
   bottomTool: ".bottom-tool",
   overlay: "[data-augit-overlay]",
-  toast: ".toast",
+  // 提示的区域是**常驻容器**而不是 .toast 本身：区域替换只在目标与替换都存在时生效，
+  // 用 .toast 当区域时"清空提示"会因为没有替换节点而被跳过，旧提示永远留在屏幕上。
+  toast: ".toast-layer",
 };
 
 const REGION_SOURCES = {
@@ -3551,7 +3569,7 @@ const REGION_SOURCES = {
   statusbar: fragment => fragment.querySelector(".statusbar"),
   bottomTool: fragment => fragment.querySelector(".bottom-tool"),
   overlay: fragment => fragment.querySelector("[data-augit-overlay]"),
-  toast: fragment => fragment.querySelector(".toast"),
+  toast: fragment => fragment.querySelector(".toast-layer"),
 };
 
 /**

@@ -133,6 +133,12 @@ async function loadDocument() {
     liveObject.layout = readInitialLayout();
     if (pendingGitUnavailableReason) {
       liveObject.gitUnavailableReason = pendingGitUnavailableReason;
+      // 状态早于 live 到达时，showGitUnavailable 已经返回、提示没能建立；
+      // 这里补一次，仍然遵循"只提示一次"。
+      if (!liveObject.gitUnavailableShown) {
+        liveObject.gitUnavailableShown = true;
+        liveObject.toast = gitUnavailableToast(pendingGitUnavailableReason);
+      }
     }
 
     applyStatus();
@@ -1573,6 +1579,39 @@ window.__augitPanelDragActive = () => panelDrag !== null;
  * 只显示一次：不反复弹出错误，也不阻塞普通文件查看。
  * 提示里提供配置 git.exe 的入口。
  */
+/**
+ * 显示一条全局提示（规格 §10.2）。
+ *
+ * 内容进状态、由 mockup 的提示区域渲染：直接往窗口里 appendChild 会被下一次区域刷新
+ * 抹掉（与之前修过的 diff 加载提示同类），也不满足"同一时刻只有一条提示"。
+ * 同一错误重复调用只是覆盖同一条提示，不会叠加弹出。
+ */
+function showToast({ title, text, kind = "error", action = null }) {
+  const live = window.__augitLive;
+  if (!live || !title) return false;
+  live.toast = { title, text, kind, action };
+  refreshAfterEvent("toast");
+  return true;
+}
+
+/** 清除全局提示（例如同一次操作重试成功后，旧的失败提示不该继续挂着）。 */
+function clearToast() {
+  const live = window.__augitLive;
+  if (!live || !live.toast) return;
+  live.toast = null;
+  refreshAfterEvent("toast");
+}
+
+/** Git 不可用提示的内容；状态早于 live 到达时也要能补出同一条。 */
+function gitUnavailableToast(reason) {
+  return {
+    title: "Git 不可用",
+    text: `${reason} 文件浏览仍可使用。`,
+    kind: "error",
+    action: { label: "配置 git.exe", href: "settings.html" },
+  };
+}
+
 function showGitUnavailable(reason) {
   // 状态可能在 live 对象建立之前就返回，因此先缓存原因，稍后再附着。
   pendingGitUnavailableReason = reason || "未找到 Git for Windows 2.40 或更高版本。";
@@ -1583,16 +1622,9 @@ function showGitUnavailable(reason) {
   // 提示只出现一次，但原因始终记录（后续入口的禁用说明需要它）。
   if (live.gitUnavailableShown) return;
   live.gitUnavailableShown = true;
-
-  const host = document.querySelector(".toast-layer") || document.querySelector(".augit-window");
-  if (!host) return;
-  const toast = document.createElement("div");
-  toast.className = "toast error";
-  toast.setAttribute("role", "alert");
-  toast.innerHTML = '<div class="toast-title">Git 不可用</div>'
-    + `<div>${escapeText(live.gitUnavailableReason)} 文件浏览仍可使用。</div>`
-    + '<div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div>';
-  host.appendChild(toast);
+  if (!showToast(gitUnavailableToast(live.gitUnavailableReason))) {
+    live.toast = gitUnavailableToast(live.gitUnavailableReason);
+  }
 }
 
 /** Git 不可用的原因；状态可能早于 live 对象返回，因此单独缓存。 */
@@ -3328,13 +3360,27 @@ async function launchExternal(action, path) {
     const result = await invoke("external/launch", { action, path }, 15000);
     if (result && result.launched === false) {
       window.__augitLaunchError = result.reason || "无法用系统程序打开该路径。";
-      refreshAfterEvent("toast");
+      showToast({
+        title: "无法打开该路径",
+        text: describeFailure(window.__augitLaunchError, {
+          unchanged: "文件内容与改动列表没有被修改。",
+          next: "可以改用资源管理器打开。",
+        }),
+      });
+    } else if (result && result.launched) {
+      clearToast();
     }
 
     return result;
   } catch (error) {
     window.__augitLaunchError = "external-launch:" + String(error && error.message || error);
-    refreshAfterEvent("toast");
+    showToast({
+      title: "无法打开该路径",
+      text: describeFailure(window.__augitLaunchError, {
+        unchanged: "文件内容与改动列表没有被修改。",
+        next: "可以改用资源管理器打开。",
+      }),
+    });
     return null;
   }
 }
@@ -3352,17 +3398,33 @@ async function copyTreePath(path) {
     const result = await invoke("clipboard/write", { text }, 10000);
     if (result && result.copied) {
       window.__augitCopiedPath = text;
+      // 同一次操作重试成功后，上一次的失败提示不应继续挂着。
+      clearToast();
       return true;
     }
 
     window.__augitCopiedPath = null;
     window.__augitCopyError = (result && result.reason) || "复制失败。";
-    refreshAfterEvent("toast");
+    // 规格 §10.2：失败必须说明发生了什么、哪些状态未改变、可以做什么。
+    // 此前这里只把原因写进一个**没有任何地方读取**的变量，用户看不到任何反馈。
+    showToast({
+      title: "复制路径失败",
+      text: describeFailure(window.__augitCopyError, {
+        unchanged: "文件内容与改动列表没有被修改。",
+        next: "可以直接在资源管理器中复制。",
+      }),
+    });
     return false;
   } catch (error) {
     window.__augitCopiedPath = null;
     window.__augitCopyError = "copy-path:" + String(error && error.message || error);
-    refreshAfterEvent("toast");
+    showToast({
+      title: "复制路径失败",
+      text: describeFailure(window.__augitCopyError, {
+        unchanged: "文件内容与改动列表没有被修改。",
+        next: "可以直接在资源管理器中复制。",
+      }),
+    });
     return false;
   }
 }
