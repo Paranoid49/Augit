@@ -4235,6 +4235,27 @@ async function main() {
         && earlyState.railBound === true && earlyState.overlayEscBound === true
         && earlyState.compactBound === true);
 
+    // 项目树同理：首屏不得显示视觉稿样例目录，也不得因 live.tree 为空而抛错。
+    const earlyTree = await context.newPage();
+    const earlyTreeErrors = [];
+    earlyTree.on('pageerror', (e) => earlyTreeErrors.push(e.message));
+    await earlyTree.addInitScript(() => { window.__statusDelays = 6000; });
+    await earlyTree.goto(
+      `http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`,
+      { waitUntil: 'load' },
+    );
+    await earlyTree.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const earlyTreeState = await earlyTree.evaluate(() => ({
+      treeRows: [...document.querySelectorAll('.side-content.tree .tree-row')].map((r) => r.dataset.treePath),
+      hasLiveTree: !!(window.__augitLive && window.__augitLive.tree),
+      statusText: (document.querySelector('.statusbar') || {}).innerText || null,
+    }));
+    check('首屏项目树无页面错误: ' + JSON.stringify(earlyTreeErrors.slice(0, 2)), earlyTreeErrors.length === 0);
+    check('首屏项目树不显示视觉稿样例目录: ' + JSON.stringify(earlyTreeState.treeRows.slice(0, 4)),
+      !earlyTreeState.treeRows.some((p) => typeof p === 'string'
+        && (p === 'artifacts' || p.includes('ux-mockups'))));
+    await earlyTree.close();
+
     // 首屏不得显示视觉稿样例数据：Git 未到达时改动列表应当没有内容或明确说明，
     // 而不是渲染 mockup 里的样例文件（那会让用户看到伪造的文件名）。
     // 必须用 commit-changes 场景：main-project 的侧栏是项目树，没有改动列表。
