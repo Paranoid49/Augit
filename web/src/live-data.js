@@ -3092,24 +3092,52 @@ function openChangesContextMenu(row, clientX, clientY) {
   const path = row.dataset.path;
   if (!path) return;
   closeLiveOverlay();
+  showPointerContextMenu(changesContextMenu(), {
+    layerClass: "changes-menu",
+    dataset: { changePath: path },
+    clientX,
+    clientY,
+    maxHeight: 220,
+  });
+}
+
+/**
+ * 在指针处显示一个上下文菜单层。
+ *
+ * 改动列表菜单与项目树菜单的层创建、定位与夹边逻辑完全相同（只差类名、附加数据与
+ * 夹边高度），此前各写了一遍。集中在这里后，两处菜单的定位行为不会再各自漂移。
+ */
+function showPointerContextMenu(menuMarkup, options) {
+  const { layerClass, dataset, maxHeight, focusFirst = false } = options;
+  const host = document.querySelector(".augit-window");
+  if (!host) return null;
   const template = document.createElement("template");
-  template.innerHTML = changesContextMenu();
+  template.innerHTML = menuMarkup;
   const menu = template.content.firstElementChild;
-  if (!menu) return;
+  if (!menu) return null;
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay changes-menu";
+  layer.className = `overlay-layer live-overlay ${layerClass}`;
   layer.setAttribute("data-augit-overlay", "");
-  layer.dataset.changePath = path;
+  for (const [key, value] of Object.entries(dataset || {})) {
+    layer.dataset[key] = value;
+  }
+
   // 定位到指针处并夹在窗口内，避免菜单被裁掉。
   const rect = host.getBoundingClientRect();
   layer.style.position = "absolute";
   layer.style.inset = "0";
   menu.style.position = "absolute";
-  menu.style.left = `${Math.max(4, Math.min(clientX - rect.left, rect.width - 240))}px`;
-  menu.style.top = `${Math.max(4, Math.min(clientY - rect.top, rect.height - 220))}px`;
+  menu.style.left = `${Math.max(4, Math.min(options.clientX - rect.left, rect.width - 240))}px`;
+  menu.style.top = `${Math.max(4, Math.min(options.clientY - rect.top, rect.height - maxHeight))}px`;
   menu.style.zIndex = "2";
   layer.appendChild(menu);
   host.appendChild(layer);
+  if (focusFirst) {
+    const first = layer.querySelector(".menu-item");
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  return layer;
 }
 
 /**
@@ -3127,27 +3155,17 @@ function openTreeContextMenu(row, clientX, clientY) {
   if (!path) return;
   rememberDialogFocus();
   closeLiveOverlay();
-  const template = document.createElement("template");
-  template.innerHTML = projectContextMenu();
-  const menu = template.content.firstElementChild;
-  if (!menu) return;
-  const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay project-menu";
-  layer.setAttribute("data-augit-overlay", "");
-  layer.dataset.treePath = path;
-  layer.dataset.treeDirectory = row.dataset.treeDirectory === "true" ? "true" : "false";
-  // 定位到指针处并夹在窗口内，避免菜单被裁掉（与改动列表菜单同一处理）。
-  const rect = host.getBoundingClientRect();
-  layer.style.position = "absolute";
-  layer.style.inset = "0";
-  menu.style.position = "absolute";
-  menu.style.left = `${Math.max(4, Math.min(clientX - rect.left, rect.width - 240))}px`;
-  menu.style.top = `${Math.max(4, Math.min(clientY - rect.top, rect.height - 240))}px`;
-  menu.style.zIndex = "2";
-  layer.appendChild(menu);
-  host.appendChild(layer);
-  const first = layer.querySelector(".menu-item");
-  if (first) first.focus({ preventScroll: true });
+  showPointerContextMenu(projectContextMenu(), {
+    layerClass: "project-menu",
+    dataset: {
+      treePath: path,
+      treeDirectory: row.dataset.treeDirectory === "true" ? "true" : "false",
+    },
+    clientX,
+    clientY,
+    maxHeight: 240,
+    focusFirst: true,
+  });
 }
 
 /**

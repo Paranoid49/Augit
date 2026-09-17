@@ -3916,6 +3916,35 @@ async function main() {
     check('项目树菜单条目非空且不是未接线兜底: ' + JSON.stringify(treeMenuOpen.items.slice(0, 6)),
       treeMenuOpen.items.length > 0 && treeMenuOpen.unwired === null);
 
+    // 菜单必须夹在窗口内：贴近窗口右下角打开也不例外（共用定位 helper 的职责）。
+    await treeMenu.page.evaluate(() => {
+      document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((n) => n.remove());
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(window.innerWidth - 2), clientY: Math.round(window.innerHeight - 2),
+      }));
+      return rect;
+    });
+    await treeMenu.page.waitForTimeout(400);
+    const menuBounds = await treeMenu.page.evaluate(() => {
+      const host = document.querySelector('.augit-window');
+      const menu = document.querySelector('.project-menu .context-menu, .project-menu .menu-list, .project-menu > *');
+      if (!host || !menu) return null;
+      const h = host.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      return {
+        insideLeft: m.left >= h.left - 1,
+        insideTop: m.top >= h.top - 1,
+        insideRight: m.right <= h.right + 1,
+        insideBottom: m.bottom <= h.bottom + 1,
+      };
+    });
+    check('指针在窗口右下角时菜单仍被夹在窗口内: ' + JSON.stringify(menuBounds),
+      menuBounds !== null && menuBounds.insideLeft && menuBounds.insideTop
+        && menuBounds.insideRight && menuBounds.insideBottom);
+
     // Esc 关闭后，菜单键（Shift+F10 / 上下文菜单键）也应能打开。
     await treeMenu.page.keyboard.press('Escape');
     await treeMenu.page.waitForTimeout(300);

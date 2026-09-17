@@ -34,6 +34,29 @@ public sealed class ClipboardTextTests
     private bool _hadOriginal;
 
     /// <summary>
+    /// 读回也带重试：写入成功后，其他进程仍可能瞬时占用剪贴板导致读失败。
+    /// 实测「非 ASCII 往返」在 4 次完整套件里有 1 次因读回拿到 null 而失败——
+    /// 那是环境争用，不是实现缺陷。重试上限内仍不一致才算失败，因此不会把
+    /// "写入静默失败"也一起放过。
+    /// </summary>
+    private static string? ReadBackUntil(string expected, int attempts = 10)
+    {
+        string? actual = null;
+        for (int index = 0; index < attempts; index++)
+        {
+            actual = ClipboardText.TryGetText();
+            if (string.Equals(actual, expected, StringComparison.Ordinal))
+            {
+                return actual;
+            }
+
+            Thread.Sleep(40);
+        }
+
+        return actual;
+    }
+
+    /// <summary>
     /// 剪贴板是全局独占资源，其他进程（甚至系统组件）可能瞬时占用。
     /// 因此写入带一个有界重试；重试仍失败才算真失败——不把外部争用误报成实现缺陷。
     /// </summary>
@@ -78,7 +101,7 @@ public sealed class ClipboardTextTests
         ClipboardWriteResult result = WriteWithRetry(text);
 
         Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
-        Assert.AreEqual(text, ClipboardText.TryGetText());
+        Assert.AreEqual(text, ReadBackUntil(text));
     }
 
     // 中文与 emoji 都走 UTF-16，但仍单独核对一次：编码写错时会出现半个字符。
@@ -88,7 +111,7 @@ public sealed class ClipboardTextTests
         string text = "中文与🙂混排 " + Guid.NewGuid().ToString("N");
 
         Assert.IsTrue(WriteWithRetry(text).IsSuccess);
-        Assert.AreEqual(text, ClipboardText.TryGetText());
+        Assert.AreEqual(text, ReadBackUntil(text));
     }
 
     // 空文本必须如实失败：写入空串会让剪贴板变成"有格式但内容为空"。
@@ -108,6 +131,6 @@ public sealed class ClipboardTextTests
         string text = new string('字', 5000) + Guid.NewGuid().ToString("N");
 
         Assert.IsTrue(WriteWithRetry(text).IsSuccess);
-        Assert.AreEqual(text, ClipboardText.TryGetText());
+        Assert.AreEqual(text, ReadBackUntil(text));
     }
 }
