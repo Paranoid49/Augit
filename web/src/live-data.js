@@ -3322,6 +3322,15 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 文件超限/二进制页的「使用系统默认程序打开」（规格 §7.5）。
+    const externalOpen = event.target.closest && event.target.closest("[data-external-open]");
+    if (externalOpen) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      if (live && live.document) void launchExternal("open", live.document.path);
+      return;
+    }
+
     // 无法逐块合并的文件（规格 §7.14）：整侧接受或交给外部工具。
     const conflictWhole = event.target.closest && event.target.closest("[data-conflict-whole]");
     if (conflictWhole) {

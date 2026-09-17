@@ -2152,6 +2152,36 @@ async function main() {
     check('超限文件不加载正文', limitCases.cases.every((c) => c.hasText === false));
     check('边界文件不创建可编辑控件: ' + limitCases.editable, limitCases.editable === 0);
     check('界面显示超限原因: ' + JSON.stringify(limitCases.text.slice(0, 40)), limitCases.text.includes('10 MB'));
+
+    // 视觉稿的"不可预览文件"页有 `名称 · 类型 · 大小` 与「使用系统默认程序打开」，
+    // 实时外壳此前两样都缺（大小根本没格式化过，按钮也不存在）。
+    await limits.page.evaluate(() => { window.__limitDocs = {
+      'archive.bin': { path: 'archive.bin', name: 'archive.bin', fullPath: 'D:\\w\\archive.bin', workspaceName: 'w', status: 'BinarySummary', kind: 'Binary', typeName: '二进制文件', fileSize: 5033165, message: '此文件只提供二进制摘要，可使用系统默认程序打开。' },
+    }; });
+    await limits.page.evaluate(() => window.__augitOpenDocument('archive.bin'));
+    await limits.page.waitForFunction(
+      "() => { const el = document.querySelector('.editor-content .info-block'); return !!el && el.innerText.includes('archive.bin'); }",
+      null, { timeout: 8000 }).catch(() => {});
+    const limitPage = await limits.page.evaluate(() => {
+      const block = document.querySelector('.editor-content .info-block');
+      const button = block ? block.querySelector('[data-external-open]') : null;
+      return {
+        meta: block ? block.querySelector('p').innerText.trim() : null,
+        button: button ? button.innerText.trim() : null,
+        inCenter: !!button && !!button.closest('.button-row'),
+      };
+    });
+    check('不可预览页显示名称、类型与大小: ' + JSON.stringify(limitPage.meta),
+      typeof limitPage.meta === 'string' && limitPage.meta.includes('archive.bin')
+        && limitPage.meta.includes('二进制文件') && limitPage.meta.includes('4.8 MB'));
+    check('不可预览页提供"使用系统默认程序打开": ' + JSON.stringify([limitPage.button, limitPage.inCenter]),
+      limitPage.button === '使用系统默认程序打开' && limitPage.inCenter === true);
+    await limits.page.evaluate(() => { window.__launchCalls = []; });
+    await limits.page.locator('.editor-content .info-block [data-external-open]').click();
+    await limits.page.waitForFunction('(window.__launchCalls || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    const limitLaunch = await limits.page.evaluate(() => (window.__launchCalls || []).slice());
+    check('按钮用系统默认程序打开当前文件: ' + JSON.stringify(limitLaunch),
+      JSON.stringify(limitLaunch) === JSON.stringify(['open:archive.bin']));
     await limits.page.close();
 
     // ---- 跨模块用户流程：单点都对，组合起来未必对 ----

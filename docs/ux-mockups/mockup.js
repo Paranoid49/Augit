@@ -2151,17 +2151,31 @@ function liveJsonDocument() {
   return `<div class="document-view json-document" data-json-mode="formatted"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted">${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div><div class="code-view" tabindex="0" aria-label="JSON 只读正文" data-json-source="${escapeHtml(document_.text || "")}">${liveLineViews(formatted)}</div></div>`;
 }
 
+/** 文件大小标签：与视觉稿一致（`52.5 KB` / `4.8 MB`）。 */
+function formatFileSize(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.round(value)} B`;
+}
+
 function liveImageDocument() {
   const document_ = liveDocument();
   const size = document_.pixelWidth && document_.pixelHeight ? `${document_.pixelWidth} × ${document_.pixelHeight}` : "";
-  const bytes = document_.fileSize ? `${(document_.fileSize / 1024).toFixed(1)} KB` : "";
+  const bytes = formatFileSize(document_.fileSize);
   const label = [size, document_.typeName, bytes].filter(Boolean).join(" · ");
   return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
 }
 
 function liveUnavailableDocument() {
   const document_ = liveDocument();
-  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${escapeHtml(document_.name || "")}${document_.typeName ? " · " + escapeHtml(document_.typeName) : ""}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(document_.message || "该文件不能以只读文本方式查看。")}</p></div></div>`;
+  // 与视觉稿同构：`名称 · 类型 · 大小`、路径、原因，以及"使用系统默认程序打开"。
+  const meta = [document_.name, document_.typeName, formatFileSize(document_.fileSize)]
+    .filter((part) => part && String(part).length > 0)
+    .map((part) => escapeHtml(part))
+    .join(" · ");
+  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
 }
 
 function textView(find = false) {
