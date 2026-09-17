@@ -5980,6 +5980,70 @@ async function main() {
     crCheck('保存后重新读取会话（§9.3 读取最新事实）: '
       + JSON.stringify([operationCallsBeforeSave, savedConflict.operationCalls]),
     savedConflict.operationCalls > operationCallsBeforeSave);
+
+    // ---- 规格 §7.14：接受左侧/两侧/右侧是**结果区的一次可撤销编辑** ----
+    // 宿主那个 AcceptSideAsync（git checkout --ours/--theirs）是整文件语义，
+    // 对应二进制/超大文件的"整侧接受"，不能拿来当这三个按钮的实现。
+    await cr.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
+    const acceptBefore = await cr.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      return {
+        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
+        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
+        sides: [...document.querySelectorAll('[data-conflict-side]')]
+          .map((button) => button.dataset.conflictSide),
+        leftText: (document.querySelectorAll('.conflict-column')[0] || {}).innerText || null,
+        resultText: block ? block.innerText : null,
+      };
+    });
+    check('前置条件：解决器显示 1 个未处理冲突与三种接受动作: ' + JSON.stringify([acceptBefore.markers, acceptBefore.count, acceptBefore.sides]),
+      acceptBefore.markers === 1 && acceptBefore.count === '1 个未处理冲突'
+        && JSON.stringify(acceptBefore.sides) === JSON.stringify(['yours', 'both', 'theirs']));
+
+    await cr.page.evaluate(() => {
+      const button = document.querySelector('[data-conflict-side="theirs"]');
+      if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForTimeout(400);
+    const accepted = await cr.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      return {
+        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
+        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
+        text: block ? block.innerText : null,
+        leftText: (document.querySelectorAll('.conflict-column')[0] || {}).innerText || null,
+      };
+    });
+    crCheck('接受右侧把结果区该冲突块换成右侧内容: ' + JSON.stringify([accepted.markers, accepted.count, accepted.text]),
+      accepted.markers === 0 && accepted.text.includes('右方改动')
+        && !accepted.text.includes('左方改动') && !accepted.text.includes('<<<<<<<'));
+    crCheck('接受后未处理数量随之更新: ' + JSON.stringify(accepted.count),
+      accepted.count === '0 个未处理冲突');
+    crCheck('左右只读栏不受接受动作影响: ' + JSON.stringify([acceptBefore.leftText === accepted.leftText]),
+      acceptBefore.leftText === accepted.leftText);
+
+    // Ctrl+Z：原生撤销把冲突块还回来，计数必须跟着回（不能只改正文不改计数）。
+    await cr.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      if (block) block.focus();
+    });
+    await cr.page.keyboard.press('Control+z');
+    await cr.page.waitForTimeout(400);
+    const undone = await cr.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      return {
+        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
+        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
+        text: block ? block.innerText : null,
+      };
+    });
+    crCheck('撤销恢复冲突块且计数跟着回: ' + JSON.stringify([undone.markers, undone.count]),
+      undone.markers === 1 && undone.count === '1 个未处理冲突'
+        && undone.text.includes('<<<<<<<') && undone.text.includes('左方改动'));
     await cr.page.close();
 
     if (crSoft.length > 0) {

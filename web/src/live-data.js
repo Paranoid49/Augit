@@ -2021,7 +2021,94 @@ function openConflictSession() {
   }
 
   host.appendChild(layer);
-  if (conflictSessionView() === "resolver") bindConflictSave();
+  if (conflictSessionView() === "resolver") {
+    bindConflictSave();
+    bindConflictUndoRefresh();
+    syncConflictCount();
+  }
+}
+
+/**
+ * 结果区里还未解决的冲突块（规格 §7.14）。
+ *
+ * 按结果正文里的冲突起始标记行推导，而不是按宿主返回的块下标：
+ * 接受一次就少一个标记组，撤销会把标记组还回来——两种情况下计数都自动正确，
+ * 不需要额外维护"已解决"状态（也就不会与撤销记录不一致）。
+ */
+function unresolvedConflictGroups(block) {
+  const spans = [...block.querySelectorAll(".conflict-line")];
+  const groups = [];
+  let open = null;
+  for (const span of spans) {
+    const text = span.textContent || "";
+    if (/^<{7}/.test(text)) {
+      open = { spans: [span], start: Number(span.dataset.line), end: Number(span.dataset.line) };
+      continue;
+    }
+
+    if (!open) continue;
+    open.spans.push(span);
+    if (/^>{7}/.test(text)) {
+      open.end = Number(span.dataset.line);
+      groups.push(open);
+      open = null;
+    }
+  }
+
+  return groups;
+}
+
+/** 把"还有几个未处理冲突"写回解决器顶部（规格 §7.14：计数固定在顶部）。 */
+function syncConflictCount() {
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  const label = document.querySelector("[data-conflict-count]");
+  if (!block || !label) return null;
+  const count = unresolvedConflictGroups(block).length;
+  label.textContent = `${count} 个未处理冲突`;
+  return count;
+}
+
+/**
+ * 接受当前冲突块的一侧（规格 §7.14）。
+ *
+ * 关键点：这是**结果区的一次可撤销编辑**，不是整文件 checkout——宿主那个
+ * `AcceptSideAsync`（`git checkout --ours/--theirs`）对应的是二进制/超大文件的
+ * "整侧接受"，语义不同，不能拿来当这三个按钮的实现。
+ * 编辑走 `insertText` 并保留浏览器原生撤销栈，因此 Ctrl+Z 能把这处冲突块还原。
+ */
+function acceptConflictBlock(side) {
+  const live = window.__augitLive;
+  const document_ = live ? live.conflict : null;
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  if (!document_ || !block) return false;
+  const groups = unresolvedConflictGroups(block);
+  if (groups.length === 0) return false;
+  // 第 k 个剩余标记组对应宿主块列表里的第 (总数 - 剩余数) 个（接受只减少标记组，顺序不变）。
+  const blocks = document_.blocks || [];
+  const target = blocks[blocks.length - groups.length] || null;
+  if (!target) return false;
+
+  const replacement = side === "yours"
+    ? (target.yours || "")
+    : side === "theirs"
+      ? (target.theirs || "")
+      // 「接受两侧」= 两侧内容都保留，顺序为先当前分支后合入内容。
+      : [target.yours || "", target.theirs || ""].filter((text) => text.length > 0).join("\n");
+
+  const group = groups[0];
+  // execCommand 作用于当前编辑宿主：先把结果区聚焦，否则命令可能不生效。
+  if (typeof block.focus === "function") block.focus({ preventScroll: true });
+  const range = document.createRange();
+  range.setStartBefore(group.spans[0]);
+  range.setEndAfter(group.spans[group.spans.length - 1]);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  const edited = document.execCommand("insertText", false, replacement);
+  if (!edited) return false;
+
+  syncConflictCount();
+  return true;
 }
 
 /**
@@ -2040,6 +2127,25 @@ async function openConflictFile(path) {
   live.conflictSessionView = "resolver";
   openConflictSession();
   return loaded;
+}
+
+/**
+ * 结果区聚焦时的撤销/重做（规格 §7.14：`Ctrl+Z` 撤销、`Ctrl+Shift+Z` 或 `Ctrl+Y` 重做）。
+ *
+ * 不拦截这些按键——交给浏览器的原生撤销栈处理（也就不会把控制字符写进正文），
+ * 只在其后把"还有几个未处理冲突"重新算一遍：撤销会把冲突块还回来，计数必须跟着回。
+ */
+function bindConflictUndoRefresh() {
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  if (!block || block.dataset.undoBound === "true") return;
+  block.dataset.undoBound = "true";
+  block.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== "z" && key !== "y") return;
+    // 原生撤销/重做在本事件之后生效，因此延后一拍再重新计数。
+    window.setTimeout(() => syncConflictCount(), 0);
+  });
 }
 
 /** 回到冲突列表视图（视觉稿的「返回冲突列表」）。 */
@@ -2727,6 +2833,14 @@ function guardUnwiredNavigation() {
     if (conflictRow) {
       event.preventDefault();
       void openConflictFile(conflictRow.dataset.conflictPath);
+      return;
+    }
+
+    // 解决器里的接受动作（规格 §7.14）：结果区的一次可撤销编辑。
+    const conflictSide = event.target.closest && event.target.closest("[data-conflict-side]");
+    if (conflictSide) {
+      event.preventDefault();
+      acceptConflictBlock(conflictSide.dataset.conflictSide);
       return;
     }
 
