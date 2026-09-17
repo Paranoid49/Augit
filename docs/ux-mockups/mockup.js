@@ -1475,11 +1475,29 @@ function liveManagementPage(kind) {
       const detail = first ? `<h2>${escapeHtml(first.branch || "(detached)")}</h2><div class="form-grid"><span>路径</span><span>${escapeHtml(first.path)}</span><span>状态</span><span>${first.isLocked ? "已锁定" : first.isPrunable ? "可清理" : "干净，可安全移除"}</span></div>` : `<p class="commit-meta">没有 Worktree</p>`;
       return ["Worktree", entries, detail];
     },
+    // Stash 管理（视觉稿的 stash-manager）：详情带动作行与"包含 N 个文件"。
+    // 选中项进状态（区域刷新会重建节点，把选中写死在 DOM 上会被丢掉）。
     stash: () => {
       const stashes = (live.stashes && live.stashes.stashes) || [];
       const entries = stashes.map(stash => `${stash.reference} ${stash.message}`);
-      const first = stashes[0];
-      const detail = first ? `<h2>${escapeHtml(first.reference)} · ${escapeHtml(first.message)}</h2><p class="commit-meta">${escapeHtml(first.branch)} · ${escapeHtml(first.date)}</p>` : `<p class="commit-meta">没有 Stash</p>`;
+      const index = Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex : 0;
+      const current = stashes[index] || null;
+      const files = (live.stashFiles && live.stashFiles.files) || [];
+      const detail = current
+        ? `<h2>${escapeHtml(current.reference)} · ${escapeHtml(current.message)}</h2>`
+          + `<p class="commit-meta">${escapeHtml(current.branch)} · ${escapeHtml(current.date)}</p>`
+          + '<div class="button-row" style="justify-content:flex-start">'
+          + '<button class="primary-button" type="button" data-stash-action="apply">应用</button>'
+          + '<button class="secondary-button" type="button" data-stash-action="pop">弹出</button>'
+          + `<button class="secondary-button" type="button" data-stash-action="view"${files.length > 0 ? "" : ' disabled title="这个 Stash 里没有可查看的文件。"'}>查看内容</button>`
+          + '<button class="danger-button" type="button" data-stash-action="drop">删除</button>'
+          + "</div>"
+          + `<h3>包含 ${files.length} 个文件</h3>`
+          + (files.length > 0
+            ? files.map(file => `<div class="tree-row" title="${escapeHtml(file.path)}"><span>${fileTypeIcon(file.path.split("/").at(-1))}</span> <span class="tree-name">${escapeHtml(file.path.split("/").at(-1))}</span></div>`).join("")
+            : '<p class="commit-meta">没有文件。</p>')
+          + '<p class="stash-notice commit-meta" role="status" hidden></p>'
+        : `<p class="commit-meta">没有 Stash</p>`;
       return ["Stash", entries, detail];
     },
   };
@@ -1487,9 +1505,13 @@ function liveManagementPage(kind) {
   if (!build) return managementPage(kind);
   const [title, entries, detail] = build();
   const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive";
+  const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex : 0;
   const list = entries.length === 0
     ? `<p class="commit-meta">空</p>`
-    : entries.map((entry, index) => `<div class="tree-row ${index === 0 ? "selected" : ""}">${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`).join("");
+    : entries.map((entry, index) => {
+      const hook = kind === "stash" ? ` data-stash-index="${index}"` : "";
+      return `<div class="tree-row ${index === selectedIndex ? "selected" : ""}"${hook}>${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`;
+    }).join("");
   return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 

@@ -1926,6 +1926,8 @@ window.__augitTerminalFont = () => (terminalInstance
   ? { family: terminalInstance.options.fontFamily, size: terminalInstance.options.fontSize }
   : null);
 
+window.__augitOpenStashManager = () => openStashManagerDialog();
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
   // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
@@ -3323,6 +3325,52 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // Stash 管理页（规格 §7.11 / §10.4）。
+    const stashRow = event.target.closest && event.target.closest("[data-stash-index]");
+    if (stashRow) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const index = Number(stashRow.dataset.stashIndex);
+      if (live && Number.isInteger(index)) {
+        live.selectedStashIndex = index;
+        live.stashFiles = null;
+        void loadStashFiles().then(() => renderStashManager()).catch(() => null);
+      }
+      return;
+    }
+
+    const stashCancel = event.target.closest && event.target.closest("[data-stash-cancel]");
+    if (stashCancel) {
+      event.preventDefault();
+      closeStashDropConfirm();
+      return;
+    }
+
+    const stashConfirm = event.target.closest && event.target.closest("[data-stash-confirm]");
+    if (stashConfirm) {
+      event.preventDefault();
+      closeStashDropConfirm();
+      void runStashAction(stashConfirm.dataset.stashConfirm);
+      return;
+    }
+
+    const stashAction = event.target.closest && event.target.closest("[data-stash-action]");
+    if (stashAction) {
+      event.preventDefault();
+      const action = stashAction.dataset.stashAction;
+      if (action === "close") {
+        closeLiveOverlay();
+        restoreDialogFocus();
+      } else if (action === "drop") {
+        openStashDropConfirm();
+      } else if (action === "view") {
+        void openStashContentDiff();
+      } else {
+        void runStashAction(action);
+      }
+      return;
+    }
+
     // 文件超限/二进制页的「使用系统默认程序打开」（规格 §7.5）。
     const externalOpen = event.target.closest && event.target.closest("[data-external-open]");
     if (externalOpen) {
@@ -4351,6 +4399,214 @@ function closeSettingsDialog() {
  * 两个字段：目标目录与来源分支。字段校验只判断非空；
  * 目录是否可用、分支是否存在由 Git 给出原因（窗口本身不执行 Git 写入）。
  */
+/**
+ * Stash 管理（规格 §7.11 / §10.4）。
+ *
+ * 视觉稿的 stash-manager 页：左侧列表、右侧详情带动作行（应用 / 弹出 / 查看内容 / 删除）
+ * 与「包含 N 个文件」。选中项进状态（`live.selectedStashIndex`），
+ * 详情里的文件列表来自独立的 `git/stash-content` 查询。
+ */
+async function openStashManagerDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  if (!live.stashes) {
+    await loadReferences().catch(() => null);
+  }
+  const stashes = (live.stashes && live.stashes.stashes) || [];
+  if (!Number.isInteger(live.selectedStashIndex) || live.selectedStashIndex >= stashes.length) {
+    live.selectedStashIndex = 0;
+  }
+  await loadStashFiles().catch(() => null);
+  renderStashManager();
+}
+
+/** 读取当前选中 Stash 的文件列表；读不到时按失败事实呈现，不假装有内容。 */
+async function loadStashFiles() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  const stashes = (live.stashes && live.stashes.stashes) || [];
+  const current = stashes[live.selectedStashIndex || 0] || null;
+  if (!current) {
+    live.stashFiles = { available: false, files: [], reason: "没有可查看的 Stash。" };
+    return live.stashFiles;
+  }
+
+  try {
+    const payload = await invoke("git/stash-content", { reference: current.reference }, 30000);
+    live.stashFiles = payload && payload.available
+      ? payload
+      : { available: false, files: [], reason: (payload && payload.reason) || "无法读取 Stash 内容。" };
+  } catch (error) {
+    live.stashFiles = {
+      available: false,
+      files: [],
+      reason: String((error && error.message) || error),
+    };
+  }
+  return live.stashFiles;
+}
+
+/** 重绘管理窗口（只替换弹层，不重建背景）。 */
+function renderStashManager() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  document.querySelectorAll(".dialog.stash-manager-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Stash 管理",
+    liveManagementPage("stash"),
+    '<button type="button" class="secondary-button" data-stash-action="close">关闭</button>',
+    true,
+    "stash-manager-dialog");
+  host.appendChild(layer);
+  setStashNotice("");
+}
+
+/** 管理页内的局部提示（规格 §10.2：说明发生了什么、哪些状态未改变、可以做什么）。 */
+function setStashNotice(message) {
+  const notice = document.querySelector(".dialog.stash-manager-dialog .stash-notice");
+  if (!notice) return;
+  notice.hidden = !message;
+  notice.textContent = message || "";
+  notice.title = message || "";
+}
+
+/**
+ * 删除 Stash 的确认（规格 §10.4：必须显示具体影响，确认按钮使用动作名称）。
+ *
+ * 删除不可恢复，因此先把"删掉哪个、里面有什么"讲清楚，再让用户按带动作名的按钮。
+ */
+function openStashDropConfirm() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const stashes = live && live.stashes ? live.stashes.stashes || [] : [];
+  const current = stashes[live ? live.selectedStashIndex || 0 : 0] || null;
+  if (!live || !host || !current) return;
+
+  const files = (live.stashFiles && live.stashFiles.files) || [];
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "删除 Stash",
+    `<div class="info-block" style="width:auto;text-align:left">`
+      + `<h2>${escapeText(current.reference)} · ${escapeText(current.message)}</h2>`
+      + `<p>删除后这个 Stash 及其 ${files.length} 个文件的改动都会消失，并且无法恢复。</p>`
+      + "<p>工作区与其它 Stash 不会被修改。</p></div>",
+    '<button type="button" class="secondary-button" data-stash-cancel="1">取消</button>'
+      + `<button type="button" class="danger-button" data-stash-confirm="drop">删除 ${escapeText(current.reference)}</button>`,
+    false,
+    "stash-drop-dialog");
+  host.appendChild(layer);
+  const confirm = layer.querySelector("[data-stash-confirm]");
+  if (confirm) confirm.focus();
+}
+
+/** 关闭删除确认层。 */
+function closeStashDropConfirm() {
+  document.querySelectorAll(".dialog.stash-drop-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+}
+
+/**
+ * 执行一个 Stash 动作（应用 / 弹出 / 删除）。
+ *
+ * 三种动作都由宿主执行并**回读真实列表**：界面不自行推断结果，
+ * 失败时在页面内说明原因并保持列表为最新事实（规格 §10.2）。
+ */
+async function runStashAction(action) {
+  const live = window.__augitLive;
+  const stashes = live && live.stashes ? live.stashes.stashes || [] : [];
+  const current = stashes[live ? live.selectedStashIndex || 0 : 0] || null;
+  if (!live || !current) return null;
+
+  setStashNotice(`正在${action === "apply" ? "应用" : action === "pop" ? "弹出" : "删除"} ${current.reference}…`);
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/stash-write", { action, reference: current.reference }, 120000);
+    if (!payload || payload.ok === false) {
+      failure = (payload && payload.reason) || "Stash 操作失败。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (payload && payload.stashes) {
+    live.stashes = payload.stashes;
+  }
+  const remaining = (live.stashes && live.stashes.stashes) || [];
+  if (live.selectedStashIndex >= remaining.length) {
+    live.selectedStashIndex = Math.max(0, remaining.length - 1);
+  }
+  await loadStashFiles().catch(() => null);
+  renderStashManager();
+
+  if (failure) {
+    setStashNotice(`${describeFailure(failure, {
+      unchanged: action === "drop" ? "Stash 列表没有变化。" : "工作区与 Stash 列表都没有变化。",
+      next: "可以先查看内容确认，再重试。",
+    })}`);
+    return null;
+  }
+
+  window.__augitStashAction = action;
+  setStashNotice(action === "apply"
+    ? `已应用 ${current.reference}，改动回到工作区；该 Stash 仍然保留。`
+    : action === "pop"
+      ? `已弹出 ${current.reference}，改动回到工作区，该 Stash 已删除。`
+      : `已删除 ${current.reference}。`);
+  await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+  refreshAfterEvent("side", "statusbar", "bottomTool", "titlebar");
+  return payload;
+}
+
+/**
+ * 「查看内容」：打开该 Stash 里第一个文件与基准版本的差异。
+ *
+ * 视觉稿只有一个入口按钮，而 Augit 的比较视图是按文件打开的：
+ * 这里打开第一个文件，用户可在同一 Stash 的其它文件上继续比较。
+ */
+async function openStashContentDiff() {
+  const live = window.__augitLive;
+  const stashes = live && live.stashes ? live.stashes.stashes || [] : [];
+  const current = stashes[live ? live.selectedStashIndex || 0 : 0] || null;
+  const files = (live && live.stashFiles && live.stashFiles.files) || [];
+  if (!live || !current) return null;
+  if (files.length === 0) {
+    setStashNotice("这个 Stash 里没有可查看的文件。");
+    return null;
+  }
+
+  const path = files[0].path;
+  const label = `比较: ${path.split("/").at(-1)} · ${current.reference}`;
+  const tab = ensureComparisonTab(path, label);
+  activateComparisonTab(tab);
+  const diff = await loadDiff(path, { commit: current.reference, force: true }).catch(() => null);
+  if (!diff) {
+    closeTab(tab.id);
+    setStashNotice(`无法读取 ${path} 在 ${current.reference} 中的差异。`);
+    return null;
+  }
+
+  syncComparisonTab(tab, path, label);
+  activateComparisonTab(tab);
+  closeLiveOverlay();
+  refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+  return diff;
+}
+
 function openWorktreeDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -5278,6 +5534,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "stash-manager") {
+    void openStashManagerDialog();
+    return;
+  }
+
   if (action === "push") {
     // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
     void openPushDialog();
@@ -5304,6 +5565,7 @@ const MAIN_MENU_POPOVERS = {
     { action: "fetch", label: "获取" },
     { action: "push", label: "推送…" },
     { action: "branches", label: "分支与标签…" },
+    { action: "stash-manager", label: "Stash 管理…" },
   ],
 };
 

@@ -123,7 +123,10 @@ const WORKSPACE = {
       { name: 'v1.0.0', isRemote: false, isCurrent: false, upstream: null, commitHash: 'full-tag-1', subject: 'release: 一' },
     ],
   },
-  stashes: { available: true, stashes: [{ reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' }] },
+  stashes: { available: true, stashes: [
+    { reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' },
+    { reference: 'stash@{1}', message: '第二个贮藏', branch: 'dsh', subject: 'WIP2', date: '2026/9/14 09:00' },
+  ] },
   worktrees: { available: true, worktrees: [{ path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false }] },
   commit: {
     available: true,
@@ -453,7 +456,32 @@ async function main() {
         return { available: true, changed: true, remotes: [{ name: params.name, fetchUrl: params.fetchUrl, pushUrl: params.pushUrl }] };
       }
       if (method === 'git/references') return data.references;
-      if (method === 'git/stashes') return data.stashes;
+      if (method === 'git/stashes') return window.__stashesState || data.stashes;
+      if (method === 'git/stash-content') {
+        window.__stashContentCalls = (window.__stashContentCalls || []).concat([params.reference]);
+        if (window.__stashContentFails) return { available: false, reason: '无法读取 Stash 内容。', files: [] };
+        return {
+          available: true,
+          files: params.reference === 'stash@{1}'
+            ? [{ path: 'src/Other.cs', status: 'M' }]
+            : [
+              { path: 'src/App.cs', status: 'M' },
+              { path: 'docs/product-spec.md', status: 'M' },
+            ],
+        };
+      }
+      if (method === 'git/stash-write') {
+        window.__stashWrites = (window.__stashWrites || []).concat([{ action: params.action, reference: params.reference }]);
+        if (window.__stashWriteFails) {
+          return { available: true, ok: false, reason: '你的本地改动会被覆盖。', stashes: window.__stashesState || data.stashes };
+        }
+        const current = window.__stashesState || data.stashes;
+        const kept = params.action === 'apply'
+          ? current.stashes
+          : current.stashes.filter((stash) => stash.reference !== params.reference);
+        window.__stashesState = { available: true, stashes: kept };
+        return { available: true, ok: true, reason: null, stashes: window.__stashesState };
+      }
       if (method === 'git/worktrees') return data.worktrees;
       if (method === 'git/unpushed') {
         if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，无法生成推送预览。', commits: [], upstream: null };
@@ -1226,6 +1254,193 @@ async function main() {
 
     if (tabSoft.length > 0) {
       throw new Error('断言失败：' + tabSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.11 / §10.4：Stash 管理页（动作行、文件列表、删除确认）----
+    const stSoft = [];
+    const stCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      stSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const stashPage = await openScene('scene=main-project&theme=dark');
+    await stashPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stashPage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
+    // 入口：Git 菜单 → Stash 管理…
+    await stashPage.page.locator('.top-button[aria-label="主菜单"]').click();
+    await stashPage.page.waitForTimeout(400);
+    await stashPage.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
+    await stashPage.page.waitForTimeout(400);
+    const stMenuItems = await stashPage.page.evaluate(() => [...document.querySelectorAll('.main-menu-popover .menu-item')].map((node) => node.textContent.trim()));
+    stCheck('Git 菜单提供 Stash 管理入口: ' + JSON.stringify(stMenuItems), stMenuItems.some((label) => label.includes('Stash 管理')));
+    await stashPage.page.evaluate(() => {
+      window.__stashContentCalls = [];
+      window.__stashWrites = [];
+      window.__stashesState = null;
+    });
+    await stashPage.page.locator('.main-menu-popover .menu-item', { hasText: 'Stash 管理' }).click();
+    await stashPage.page.waitForSelector('.dialog.stash-manager-dialog', { timeout: 8000 }).catch(() => {});
+    await stashPage.page.waitForTimeout(400);
+    const stManagerShape = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-manager-dialog');
+      if (!dialog) return null;
+      const rows = [...dialog.querySelectorAll('.management-list .tree-row')];
+      return {
+        title: dialog.getAttribute('aria-label'),
+        rows: rows.length,
+        selected: rows.findIndex((row) => row.classList.contains('selected')),
+        // 只取详情里的动作行：底栏的「关闭」也用同一个钩子。
+        actions: [...dialog.querySelectorAll('.management-detail [data-stash-action]')].map((node) => node.textContent.trim()),
+        heading: dialog.querySelector('.management-detail h2') ? dialog.querySelector('.management-detail h2').textContent.trim() : null,
+        filesHeading: dialog.querySelector('.management-detail h3') ? dialog.querySelector('.management-detail h3').textContent.trim() : null,
+        fileRows: [...dialog.querySelectorAll('.management-detail .tree-row')].map((node) => node.textContent.trim()),
+        calls: window.__stashContentCalls || [],
+      };
+    });
+    stCheck('Stash 管理页显示两个条目且默认选中第一个: ' + JSON.stringify([stManagerShape && stManagerShape.rows, stManagerShape && stManagerShape.selected]),
+      stManagerShape !== null && stManagerShape.rows === 2 && stManagerShape.selected === 0);
+    stCheck('详情显示动作行与文件列表: ' + JSON.stringify([stManagerShape && stManagerShape.actions, stManagerShape && stManagerShape.filesHeading, stManagerShape && stManagerShape.fileRows]),
+      stManagerShape !== null
+        && JSON.stringify(stManagerShape.actions) === JSON.stringify(['应用', '弹出', '查看内容', '删除'])
+        && stManagerShape.filesHeading === '包含 2 个文件'
+        && stManagerShape.fileRows.length === 2 && stManagerShape.fileRows[0].includes('App.cs'));
+    stCheck('文件列表按选中 Stash 查询: ' + JSON.stringify(stManagerShape && stManagerShape.calls),
+      stManagerShape !== null && stManagerShape.calls.length >= 1 && stManagerShape.calls[0] === 'stash@{0}');
+
+    // 切换选中项：详情与文件列表都跟着换（选中项进状态）。
+    await stashPage.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.dialog.stash-manager-dialog .management-list .tree-row')];
+      if (rows[1]) rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForFunction(
+      "() => { const h = document.querySelector('.dialog.stash-manager-dialog .management-detail h2'); return !!h && h.textContent.includes('stash@{1}'); }",
+      null, { timeout: 8000 }).catch(() => {});
+    const stSwitched = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-manager-dialog');
+      return {
+        heading: dialog.querySelector('.management-detail h2').textContent.trim(),
+        filesHeading: dialog.querySelector('.management-detail h3').textContent.trim(),
+        files: [...dialog.querySelectorAll('.management-detail .tree-row')].map((node) => node.textContent.trim()),
+        calls: window.__stashContentCalls || [],
+      };
+    });
+    stCheck('切换条目后详情与文件列表跟着换: ' + JSON.stringify([stSwitched.heading, stSwitched.filesHeading, stSwitched.files.length, stSwitched.calls.slice(-1)]),
+      stSwitched.heading.startsWith('stash@{1}') && stSwitched.filesHeading === '包含 1 个文件'
+        && stSwitched.files.length === 1 && stSwitched.calls.at(-1) === 'stash@{1}');
+
+    // 应用：调用宿主并保留 Stash（列表仍两条）。
+    await stashPage.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-stash-action="apply"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForFunction('(window.__stashWrites || []).length === 1', null, { timeout: 10000 }).catch(() => {});
+    await stashPage.page.waitForTimeout(400);
+    const stAppliedState = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-manager-dialog');
+      return {
+        writes: window.__stashWrites || [],
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+        notice: dialog && dialog.querySelector('.stash-notice') ? dialog.querySelector('.stash-notice').textContent.trim() : null,
+        hidden: dialog && dialog.querySelector('.stash-notice') ? dialog.querySelector('.stash-notice').hidden : null,
+      };
+    });
+    stCheck('应用调用宿主并保留 Stash: ' + JSON.stringify(stAppliedState),
+      JSON.stringify(stAppliedState.writes) === JSON.stringify([{ action: 'apply', reference: 'stash@{1}' }])
+        && stAppliedState.rows === 2 && stAppliedState.hidden === false
+        && typeof stAppliedState.notice === 'string' && stAppliedState.notice.includes('stash@{1}'));
+
+    // 删除：先确认（显示具体影响、按钮用动作名称），确认后才调用宿主。
+    await stashPage.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-stash-action="drop"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForSelector('.dialog.stash-drop-dialog', { timeout: 8000 }).catch(() => {});
+    const stDropConfirm = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-drop-dialog');
+      const confirm = dialog ? dialog.querySelector('[data-stash-confirm]') : null;
+      return {
+        open: !!dialog,
+        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : null,
+        confirmLabel: confirm ? confirm.textContent.trim() : null,
+        confirmDanger: confirm ? confirm.className.includes('danger-button') : null,
+        writes: (window.__stashWrites || []).length,
+      };
+    });
+    stCheck('删除前先确认并说明具体影响: ' + JSON.stringify([stDropConfirm.open, stDropConfirm.body, stDropConfirm.writes]),
+      stDropConfirm.open === true && stDropConfirm.writes === 1
+        && typeof stDropConfirm.body === 'string' && stDropConfirm.body.includes('stash@{1}')
+        && stDropConfirm.body.includes('无法恢复') && stDropConfirm.body.includes('1 个文件'));
+    stCheck('确认按钮使用动作名称与危险样式: ' + JSON.stringify([stDropConfirm.confirmLabel, stDropConfirm.confirmDanger]),
+      stDropConfirm.confirmLabel === '删除 stash@{1}' && stDropConfirm.confirmDanger === true);
+
+    // 取消确认：不得调用宿主。
+    await stashPage.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-drop-dialog [data-stash-cancel]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForTimeout(300);
+    const stAfterCancel = await stashPage.page.evaluate(() => ({
+      confirmOpen: !!document.querySelector('.dialog.stash-drop-dialog'),
+      writes: (window.__stashWrites || []).length,
+    }));
+    stCheck('取消删除不调用宿主: ' + JSON.stringify(stAfterCancel),
+      stAfterCancel.confirmOpen === false && stAfterCancel.writes === 1);
+
+    // 确认删除：调用宿主、列表少一条、选中夹取到剩余项。
+    await stashPage.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-stash-action="drop"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForSelector('.dialog.stash-drop-dialog [data-stash-confirm]', { timeout: 8000 }).catch(() => {});
+    await stashPage.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-drop-dialog [data-stash-confirm]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForFunction('(window.__stashWrites || []).length === 2', null, { timeout: 10000 }).catch(() => {});
+    await stashPage.page.waitForTimeout(500);
+    const stDropped = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-manager-dialog');
+      return {
+        writes: window.__stashWrites || [],
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+        heading: dialog ? dialog.querySelector('.management-detail h2').textContent.trim() : null,
+        filesHeading: dialog ? dialog.querySelector('.management-detail h3').textContent.trim() : null,
+        notice: dialog && dialog.querySelector('.stash-notice') ? dialog.querySelector('.stash-notice').textContent.trim() : null,
+      };
+    });
+    stCheck('确认删除后列表与详情都按真实结果更新: ' + JSON.stringify(stDropped),
+      JSON.stringify(stDropped.writes.at(-1)) === JSON.stringify({ action: 'drop', reference: 'stash@{1}' })
+        && stDropped.rows === 1 && stDropped.heading.startsWith('stash@{0}')
+        && stDropped.filesHeading === '包含 2 个文件'
+        && typeof stDropped.notice === 'string' && stDropped.notice.includes('stash@{1}'));
+
+    // 失败路径：宿主拒绝时在页面内说明原因，且列表仍按真实事实（这里由桩保持两条）。
+    await stashPage.page.evaluate(() => {
+      window.__stashWriteFails = true;
+      window.__stashesState = null;
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-stash-action="pop"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashPage.page.waitForFunction('(window.__stashWrites || []).length === 3', null, { timeout: 10000 }).catch(() => {});
+    await stashPage.page.waitForTimeout(400);
+    const stFailed = await stashPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-manager-dialog');
+      const notice = dialog ? dialog.querySelector('.stash-notice') : null;
+      return {
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+      };
+    });
+    stCheck('失败时说明原因与未改变的状态: ' + JSON.stringify(stFailed),
+      stFailed.hidden === false && typeof stFailed.notice === 'string'
+        && stFailed.notice.includes('本地改动') && stFailed.notice.includes('没有变化')
+        && stFailed.rows === 2);
+    await stashPage.page.evaluate(() => { window.__stashWriteFails = false; });
+    await stashPage.page.close();
+
+    if (stSoft.length > 0) {
+      throw new Error('断言失败：' + stSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----
