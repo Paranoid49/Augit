@@ -2521,6 +2521,121 @@ async function main() {
       afterCancel.editor !== 'diff');
     await cancelCmp.page.close();
 
+    // ---- 规格 §5.2：关闭叉之后，比较**调用方**的收尾也必须失效 ----
+    // 只让 diffToken 失效只能保证"晚到响应不写正文"；调用方在 await 之后还会同步标题、
+    // 激活标签、刷新区域。若同一个文件在关闭后又被打开，晚到的收尾会把活动标签改回
+    // 一个已经不存在的 id（工作区 Diff、历史比较、引用比较三条调用方都会这样）。
+    const lateCmp = await openScene('scene=commit-changes&theme=dark');
+    await lateCmp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await lateCmp.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const lateTarget = await lateCmp.page.evaluate(
+      () => document.querySelector('.changes-list .change-file-row').dataset.changePath);
+    check('前置条件：找到可比较的改动文件: ' + JSON.stringify(lateTarget),
+      typeof lateTarget === 'string' && lateTarget.length > 0);
+
+    // 第一次打开：注入长延迟，让请求停在途中。
+    await lateCmp.page.evaluate((path) => { window.__diffDelays = { [path]: 6000 }; }, lateTarget);
+    await lateCmp.page.locator('.changes-list .change-file-row').first().dblclick();
+    await lateCmp.page.waitForFunction(
+      (path) => (window.__diffCalls || []).filter((p) => p === path).length === 1, lateTarget, { timeout: 8000 });
+    const firstTabId = await lateCmp.page.evaluate(() => {
+      const tab = (window.__augitLive.tabs || []).find((t) => t.kind === 'comparison');
+      return tab ? tab.id : null;
+    });
+    check('前置条件：第一次比较仍在途中: ' + JSON.stringify(firstTabId),
+      typeof firstTabId === 'string' && firstTabId.length > 0);
+
+    // 加载窗口内标签必须已经出现、已激活，并且关闭叉真的可以点到（否则无法取消这次比较）。
+
+    // 关掉它，然后**立刻**打开同一个文件：第二次请求很快返回，第一次的收尾随后到达。
+    // 标签必须在**查询仍在途中**时就出现（§7.9「激活时立即打开并显示双方引用及文件路径，
+    // 查询完成后只填充正文」）。这里等它出现并记录当时的加载状态；若实现只在查询完成后
+    // 才刷新标签栏，等待会超时或 diffReady 已经为真。
+    const loadingTab = await lateCmp.page.evaluate(async (path) => {
+      const deadline = performance.now() + 5000;
+      while (performance.now() < deadline) {
+        const btn = document.querySelector('.editor-tabs .editor-tab.comparison-tab .tab-close');
+        const live = window.__augitLive;
+        if (btn) {
+          const r = btn.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          const tab = btn.closest('.editor-tab');
+          return {
+            waited: Math.round(performance.now() - deadline + 5000),
+            width: Math.round(r.width),
+            inside: !!(hit && (btn === hit || btn.contains(hit))),
+            current: tab ? tab.getAttribute('aria-current') : null,
+            label: tab ? tab.textContent.trim() : null,
+            loading: !!live.diffLoading,
+            diffReady: !!(live.diff && live.diff.path === path),
+          };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return null;
+    }, lateTarget);
+
+    // 加载窗口内标签必须已经出现、已激活，并且关闭叉真的可以点到（否则无法取消这次比较）。
+
+    // 关掉它，然后**立刻**打开同一个文件：第二次请求很快返回，第一次的收尾随后到达。
+    await lateCmp.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close').click();
+    await lateCmp.page.waitForFunction(
+      "() => (window.__augitLive.tabs || []).every((t) => t.kind !== 'comparison')", null, { timeout: 8000 });
+    await lateCmp.page.evaluate((path) => { window.__diffDelays = { [path]: 60 }; }, lateTarget);
+    await lateCmp.page.locator('.changes-list .change-file-row').first().dblclick();
+    await lateCmp.page.waitForFunction(
+      (path) => { const live = window.__augitLive; return !!live.diff && live.diff.path === path; },
+      lateTarget, { timeout: 10000 });
+    const secondTabId = await lateCmp.page.evaluate(() => {
+      const tab = (window.__augitLive.tabs || []).find((t) => t.kind === 'comparison');
+      return tab ? tab.id : null;
+    });
+    check('前置条件：第二次比较已就绪且是新的标签: ' + JSON.stringify([secondTabId, firstTabId]),
+      typeof secondTabId === 'string' && secondTabId.length > 0 && secondTabId !== firstTabId);
+
+    // 第一次请求的收尾会在第二次打开之后到达。最终状态可能被第二次的收尾"修回来"，
+    // 因此必须连续采样：只要期间出现过活动标签指向别的（已关闭的）标签，就是抢走了前台。
+    const lateSeries = await lateCmp.page.evaluate(async (secondId) => {
+      const out = [];
+      const started = performance.now();
+      while (performance.now() - started < 7000) {
+        const live = window.__augitLive;
+        out.push({
+          active: live.activeTabId,
+          tabs: (live.tabs || []).map((t) => t.id),
+          exists: !!live.tabs.find((t) => t.id === live.activeTabId),
+        });
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return out;
+    }, secondTabId);
+    check('比较加载期间标签立即出现且关闭叉可点击: ' + JSON.stringify(loadingTab),
+      loadingTab !== null && loadingTab.current === 'true' && loadingTab.inside === true
+        && loadingTab.diffReady === false
+        && typeof loadingTab.label === 'string' && loadingTab.label.includes(lateTarget.split('/').at(-1)));
+
+    const lateTrace = await lateCmp.page.evaluate(() => window.__augitCmpTrace || []);
+    const lateViolations = lateSeries.filter((frame) => frame.active !== secondTabId || !frame.exists);
+    const lateAfter = await lateCmp.page.evaluate((secondId) => {
+      const live = window.__augitLive;
+      return {
+        comparisons: (live.tabs || []).filter((t) => t.kind === 'comparison').map((t) => t.id),
+        activeTabId: live.activeTabId,
+        editor: live.editor,
+        diff: live.diff ? live.diff.path : null,
+        loading: !!live.diffLoading,
+      };
+    }, secondTabId);
+    check('前置条件：采样覆盖了足够长的时间窗口: ' + JSON.stringify([lateSeries.length, lateTarget]),
+      lateSeries.length > 100 && lateSeries.every((frame) => frame.tabs.includes(secondTabId)));
+    check('关闭后的晚到收尾从抢走前台: ' + JSON.stringify(lateViolations.slice(0, 3)),
+      lateViolations.length === 0);
+    check('关闭后的晚到收尾不影响最终状态: ' + JSON.stringify(lateAfter),
+      lateAfter.comparisons.length === 1 && lateAfter.comparisons[0] === secondTabId
+        && lateAfter.activeTabId === secondTabId && lateAfter.editor === 'diff'
+        && lateAfter.diff === lateTarget && lateAfter.loading === false);
+    await lateCmp.page.close();
+
     // ---- 规格 §5.2：关闭后台比较只移除目标标签，不抢前台焦点 ----
     const bgClose = await openScene('scene=main-project&theme=dark&open=docs/product-spec.md');
     await bgClose.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });

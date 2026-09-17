@@ -1062,6 +1062,18 @@ function refreshStatusRegions(...regions) {
   refresh(...regions);
 }
 
+// 比较标签的取消代际（规格 §5.2）：关闭比较后，在途请求的收尾必须失效。
+// 只靠 diffToken 不够：diffToken 管的是"谁可以写正文"，而调用方在 await 之后
+// 还会同步标题、激活标签、刷新区域——被关闭的标签会因此被重新激活，
+// 活动标签指向一个已经不存在的 id（工作区 Diff、历史比较、引用比较三条调用方都要查）。
+let comparisonGeneration = 0;
+
+/** 这次比较请求的收尾是否仍然有效：标签还在标签栏里，且期间没有关闭过比较。 */
+function comparisonStillCurrent(tab, generation) {
+  const live = window.__augitLive;
+  return generation === comparisonGeneration && !!(live && live.tabs && tab && live.tabs.includes(tab));
+}
+
 /** 找到工作区比较标签（规格 §5.2：最多只有一个）。 */
 function findComparisonTab() {
   const live = window.__augitLive;
@@ -1101,11 +1113,19 @@ async function openChangeDiff(path, options = {}) {
   // 提前建立标签不改变"单击只选择"：单击路径根本不会走到这里。
   const tab = ensureComparisonTab(path);
   if (activate) activateComparisonTab(tab);
+  const generation = comparisonGeneration;
   scheduleDiffLoadingMarker();
+  // 标签必须**立即**出现在标签栏里（规格 §5.2「打开并激活」、§7.9「激活时立即打开并显示
+  // 双方引用及文件路径，查询完成后只填充正文」）。此前只在查询完成后刷新，
+  // 整个加载窗口内标签栏上什么都没有——用户既看不到这次比较，也点不到关闭叉取消它。
+  refreshAfterEvent("editorTabs", "statusbar");
   let succeeded = false;
+  let stale = false;
   try {
     const diff = await loadDiff(path);
-    if (!diff) return;
+    // 关闭叉可能发生在请求中途：此时不得再同步标题、激活标签或刷新区域。
+    stale = !comparisonStillCurrent(tab, generation);
+    if (stale || !diff) return;
     succeeded = true;
     // 复用同一个标签时同步文字，否则标签会一直显示第一次打开的文件名。
     syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
@@ -1116,10 +1136,11 @@ async function openChangeDiff(path, options = {}) {
     // 使视觉稿挂在冒泡阶段的「双击建比较标签」监听能收到事件。
     refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
-    clearDiffLoadingMarker();
+    // 已经失效的收尾不能清加载提示：那会把后来那次请求的提示一起清掉。
+    if (!stale) clearDiffLoadingMarker();
     // 读取失败时不留一个打不开的比较标签：提前建标签是为了让加载视图有着落，
     // 失败后必须如实撤销，否则界面上会留下一个空标签。
-    if (!succeeded) closeTab(tab.id);
+    if (!stale && !succeeded) closeTab(tab.id);
   }
 }
 
@@ -1205,6 +1226,7 @@ async function applyHistoryComparison(path, commit, options = {}) {
   if (!live) return null;
   const label = historyComparisonLabel(path, commit);
   const token = ++historyComparisonToken;
+  const generation = comparisonGeneration;
   // 标签立即建立并显示双方引用，正文随后填充（规格 §7.8：激活时立即打开并显示
   // 双方引用及文件路径，Git 查询完成后只填充正文，不再次激活标签）。
   const tab = ensureComparisonTab(path, label);
@@ -1225,7 +1247,7 @@ async function applyHistoryComparison(path, commit, options = {}) {
   const diff = await loadDiff(path, { commit, force: true }).catch(() => null);
   // 收尾只在**本次请求仍然有效**时执行：被取代的旧请求若在这里清标记，
   // 会把新请求（乃至新请求的加载提示）一起清掉。
-  if (token !== historyComparisonToken) return diff;
+  if (token !== historyComparisonToken || !comparisonStillCurrent(tab, generation)) return diff;
   clearDiffLoadingMarker();
   if (!diff) {
     live.historyComparison = { path, commit, label, status: "unavailable" };
@@ -2888,6 +2910,7 @@ function closeTab(id) {
   // 关闭比较标签：解除跟随 Changes 选择（规格 §5.2）。
   // 历史比较同样在此解除跟随——关闭后单击不自动重开，只有再次双击或 Enter 才打开。
   if (closing && closing.kind === "comparison") {
+    comparisonGeneration += 1;
     live.followChanges = false;
     if (live.historyComparison) live.historyComparison.status = "closed";
     // 历史比较有独立的递增令牌：只推进 diffToken 不足以让它的收尾逻辑失效，
@@ -3914,10 +3937,17 @@ async function compareWithWorkspace() {
   // （规格 §7.9 要求"激活时立即打开并显示双方引用及文件路径，查询完成后只填充正文"）。
   const tab = ensureComparisonTab(target.path, title);
   activateComparisonTab(tab);
+  const generation = comparisonGeneration;
   scheduleDiffLoadingMarker();
+  // 与工作区比较同理：标签与加载指示都要立刻可见，查询完成后只填充正文。
+  refreshAfterEvent("editorTabs", "statusbar");
   let succeeded = false;
+  let stale = false;
   try {
     const diff = await loadDiff(target.path, { revision: branch, force: true }).catch(() => null);
+    // 关闭叉可能发生在查询途中：此时既不能激活标签，也不该记一条"比较失败"的错误。
+    stale = !comparisonStillCurrent(tab, generation);
+    if (stale) return;
     if (!diff) {
       window.__augitError = "compare-workspace:" + target.path;
       return;
@@ -3928,9 +3958,9 @@ async function compareWithWorkspace() {
     activateComparisonTab(tab);
     refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
-    clearDiffLoadingMarker();
+    if (!stale) clearDiffLoadingMarker();
     // 读取失败时不留下一个打不开的比较标签。
-    if (!succeeded) closeTab(tab.id);
+    if (!stale && !succeeded) closeTab(tab.id);
   }
 }
 
