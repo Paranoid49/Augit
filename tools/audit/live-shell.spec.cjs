@@ -6276,6 +6276,157 @@ async function main() {
       throw new Error('断言失败：' + cnSoft.join(' | '));
     }
 
+    // ---- 规格 §7.14：大字号 / 窄窗口下的标题行排布 ----
+    // 标题行放不下时：文件名移到窗口顶部"解决冲突"右侧，计数与导航保留独立一行；
+    // 来源拆成身份与分支名两行；完整路径与来源可悬停；三栏比例与正文等宽字号不变。
+    const thSoft = [];
+    const thCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      thSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const th = await openScene('scene=commit-changes&theme=dark');
+    await th.page.bringToFront();
+    await th.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await th.page.evaluate(() => {
+      window.__conflictFixture = {
+        available: true, path: 'src/App.cs', contentKind: 'Text',
+        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+        yoursText: '第一行\n左方改动\n第三行',
+        theirsText: '第一行\n右方改动\n第三行',
+        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
+        operation: 'Merge',
+        version: { length: 42, sha256: 'h1', lastWriteUtc: '2026-09-15T00:00:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+      };
+      window.__operationSession = {
+        kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
+      };
+      window.__statusOperation = 'Merge';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+      void window.__augitLoadOperation();
+    });
+    await th.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
+    await th.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await th.page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
+
+    const headerState = () => th.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const page = dialog ? dialog.querySelector('.conflict-page') : null;
+      if (!dialog || !page) return null;
+      const columns = page.querySelector('.conflict-columns');
+      const body = page.querySelector('.conflict-block');
+      const inDialogHeader = dialog.querySelector('.dialog-header .conflict-file-title');
+      const inConflictHeader = page.querySelector('.conflict-header strong.conflict-file-title');
+      const title = inDialogHeader || inConflictHeader;
+      const help = dialog.querySelector('.footer-help');
+      return {
+        compact: dialog.classList.contains('compact-conflict-header'),
+        titleAt: inDialogHeader ? 'dialog' : (inConflictHeader ? 'conflict' : 'none'),
+        titleText: title ? title.textContent.trim() : null,
+        titlePath: title ? title.getAttribute('title') : null,
+        counts: page.querySelectorAll('.conflict-header .commit-meta').length,
+        countText: (page.querySelector('.conflict-header [data-conflict-count]') || {}).textContent || null,
+        nav: page.querySelectorAll('.conflict-header [data-conflict-nav]').length,
+        help: help ? help.textContent.trim() : null,
+        grid: columns ? getComputedStyle(columns).gridTemplateColumns : null,
+        columns: page.querySelectorAll('.conflict-column').length,
+        bodyFont: body ? getComputedStyle(body).fontSize : null,
+        titles: [...page.querySelectorAll('.conflict-column-title')].map((node) => ({
+          label: node.getAttribute('title'),
+          lines: node.children.length,
+          parts: [...node.children].map((child) => child.textContent.trim()),
+          text: node.textContent.trim(),
+        })),
+      };
+    });
+
+    // 宽窗口 + 默认字号：视觉稿的原始排布（文件名留在三栏表头里）。
+    const wide = await headerState();
+    thCheck('默认尺寸下使用视觉稿原始标题行: ' + JSON.stringify([wide && wide.compact, wide && wide.titleAt, wide && wide.titleText, wide && wide.titlePath]),
+      wide !== null && wide.compact === false && wide.titleAt === 'conflict'
+        && wide.titleText === '解决冲突 · App.cs' && wide.titlePath === 'src/App.cs');
+    thCheck('默认尺寸下计数与上一处/下一处同排且表尾提示为真实值: ' + JSON.stringify([wide && wide.countText, wide && wide.nav, wide && wide.help]),
+      wide !== null && wide.countText === '1 个未处理冲突' && wide.nav === 2
+        && wide.help === '未处理冲突块：1，当前位置：1');
+
+    // 大字号 + 窄窗口：文件名移到窗口顶部，计数与导航保留独立一行。
+    await th.page.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
+    await th.page.setViewportSize({ width: 620, height: 760 });
+    await th.page.waitForFunction(
+      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    await th.page.waitForTimeout(300);
+    const compact = await headerState();
+    thCheck('大字号窄窗口下文件名移到窗口顶部且只显示文件名: '
+      + JSON.stringify([compact && compact.compact, compact && compact.titleAt, compact && compact.titleText, compact && compact.titlePath]),
+    compact !== null && compact.compact === true && compact.titleAt === 'dialog'
+      && compact.titleText === 'App.cs' && compact.titlePath === 'src/App.cs');
+    thCheck('计数与上一处/下一处保留在独立一行且仍然可用: '
+      + JSON.stringify([compact && compact.countText, compact && compact.nav, compact && compact.help]),
+    compact !== null && compact.countText === '1 个未处理冲突' && compact.nav === 2
+      && compact.help === '未处理冲突块：1，当前位置：1');
+    thCheck('来源拆成身份与分支名两行且完整来源可悬停: ' + JSON.stringify(compact && compact.titles),
+      compact !== null && compact.titles.length === 3
+        // 拆行后每一行都是独立一行，按原来的" · "拼回必须与完整来源一致（悬停值不变）。
+        && compact.titles.every((item) => item.lines === 2 && item.parts.join(' · ') === item.label)
+        && compact.titles.every((item) => item.parts.every((part) => part.length > 0)));
+    // 设计稿的三栏是 1fr / 1.08fr / 1fr：换字号或改窗口宽度时变的是像素宽度，**比例**必须不变。
+    const ratio = (grid) => {
+      const parts = String(grid || '').split(' ').map(parseFloat);
+      return parts.length === 3 && parts[0] > 0 ? parts[1] / parts[0] : null;
+    };
+    thCheck('三栏比例与正文等宽字号不随界面字号改变: '
+      + JSON.stringify([compact && compact.grid, wide && wide.grid, compact && compact.bodyFont, wide && wide.bodyFont]),
+    compact !== null && wide !== null && compact.columns === 3
+      && ratio(compact.grid) !== null && Math.abs(ratio(compact.grid) - ratio(wide.grid)) < 0.02
+      && compact.bodyFont === wide.bodyFont);
+
+    // 恢复默认尺寸：排布必须回到原始形态（度量是双向的，不是单向改写）。
+    await th.page.evaluate(() => { document.documentElement.style.fontSize = '13px'; });
+    await th.page.setViewportSize({ width: 1180, height: 760 });
+    await th.page.waitForFunction(
+      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && !d.classList.contains('compact-conflict-header'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    await th.page.waitForTimeout(300);
+    const thRestored = await headerState();
+    thCheck('恢复默认尺寸后标题行回到视觉稿原始排布: '
+      + JSON.stringify([thRestored && thRestored.titleAt, thRestored && thRestored.titleText]),
+    thRestored !== null && thRestored.compact === false && thRestored.titleAt === 'conflict'
+      && thRestored.titleText === '解决冲突 · App.cs');
+
+    // 解决器是按需创建的、不在整页重绘路径上：重开时必须自己度量一次。
+    // 这里只改界面字号（不触发 resize）再重建对话框——只有"打开时度量"能让它变成紧凑排布。
+    await th.page.setViewportSize({ width: 620, height: 760 });
+    await th.page.waitForTimeout(300);
+    const narrowOnly = await headerState();
+    thCheck('前置条件：窄窗口但默认字号不触发紧凑排布: ' + JSON.stringify(narrowOnly && narrowOnly.compact),
+      narrowOnly !== null && narrowOnly.compact === false);
+    await th.page.evaluate(() => {
+      document.documentElement.style.fontSize = '32px';
+      void window.__augitLoadOperation();
+    });
+    await th.page.waitForFunction(
+      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    await th.page.waitForTimeout(300);
+    const reopened = await headerState();
+    thCheck('重开解决器时按当前字号与窗口宽度重新度量: '
+      + JSON.stringify([reopened && reopened.compact, reopened && reopened.titleAt, reopened && reopened.titleText]),
+    reopened !== null && reopened.compact === true && reopened.titleAt === 'dialog'
+      && reopened.titleText === 'App.cs');
+    await th.page.close();
+
+    if (thSoft.length > 0) {
+      throw new Error('断言失败：' + thSoft.join(' | '));
+    }
+
     // ---- 规格 §7.14：中央有未保存内容且外部文件变化时的模态选择 ----
     // 没有未保存内容时自动接纳最新版本；有未保存内容时**不得**改写正文，必须先问。
     const exSoft = [];

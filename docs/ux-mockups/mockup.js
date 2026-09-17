@@ -764,8 +764,14 @@ function measureConflictResolver() {
   page.classList.toggle("wrap-actions", wrap);
   page.querySelectorAll(".conflict-header button").forEach(button => { button.style.width = `${navigation}px`; });
   const notice = dialog.querySelector(".footer-help");
-  notice.textContent = notice.title = "未处理冲突块：1，当前位置：1";
-  dialog.querySelector(".dialog-footer > a").style.width = `${measure("返回冲突列表", 126)}px`;
+  // 实时界面里这条提示由 syncConflictCount 按真实计数与当前块填写（样例场景才用固定文本）。
+  if (!(window.__augitLive && window.__augitLive.conflict)) {
+    notice.textContent = notice.title = "未处理冲突块：1，当前位置：1";
+  }
+  // 样例场景的返回入口是链接；实时解决器用的是按钮。度量不能因为控件类型不同就抛错
+  // （抛在这里会打断调用方随后的状态落地：冻结标记、按计数恢复动作）。
+  const back = dialog.querySelector(".dialog-footer > :is(a, button)");
+  if (back) back.style.width = `${measure("返回冲突列表", 126)}px`;
 }
 window.addEventListener("resize", measureConflictResolver);
 
@@ -1474,7 +1480,7 @@ function liveConflictWholeSide(document_) {
       ? "该文件超出可合并的大小上限。"
       : "该文件不是有效的 UTF-8 文本，Augit 无法安全地改写它。";
   const side = (value, label) => `<button class="secondary-button" type="button" data-conflict-whole="${value}">接受${escapeHtml(label)}</button>`;
-  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))} · ${escapeHtml(document_.operation)}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
+  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
 }
 
 function liveConflictResolver() {
@@ -1501,8 +1507,10 @@ function liveConflictResolver() {
 
   const column = (title, body, editable = false) => `<section class="conflict-column${editable ? " result" : ""}"><div class="conflict-column-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div><div class="conflict-block"${editable ? ' contenteditable="plaintext-only" role="textbox" aria-label="最终结果" aria-multiline="true" spellcheck="false"' : ""}>${body}</div></section>`;
   const count = (document_.blocks || []).length;
+  // 表头与视觉稿一致：标题只放**文件名**，完整路径放在 title 里悬停查看。
+  // 窄窗口或大字号时 measureConflictResolver 会把标题移到窗口顶部"解决冲突"右侧。
   return `<div class="conflict-page">
-    <div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))} · ${escapeHtml(document_.operation)}</strong><span class="grow"></span><span class="commit-meta" data-conflict-count>${count} 个未处理冲突</span><button class="secondary-button" type="button" data-conflict-nav="prev">上一处</button><button class="secondary-button" type="button" data-conflict-nav="next">下一处</button><span class="commit-meta conflict-notice" role="status" hidden></span></div>
+    <div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta" data-conflict-count>${count} 个未处理冲突</span><button class="secondary-button" type="button" data-conflict-nav="prev">上一处</button><button class="secondary-button" type="button" data-conflict-nav="next">下一处</button><span class="commit-meta conflict-notice" role="status" hidden></span></div>
     <div class="conflict-columns">${column(document_.yoursLabel, render(yoursLines, ""))}${column("最终结果 · 可编辑", resultLines.map((text, index) => `<span class="conflict-line${marked.has(index) ? " conflict-result" : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join(""), true)}${column(document_.theirsLabel, render(theirsLines, "conflict-side"))}</div>
     <div class="conflict-footer"><div class="conflict-accept-actions"><button class="secondary-button" type="button" data-conflict-side="yours">接受左侧</button><button class="secondary-button" type="button" data-conflict-side="both">接受两侧</button><button class="secondary-button" type="button" data-conflict-side="theirs">接受右侧</button></div><div class="conflict-save-actions"><button class="secondary-button">取消</button><button class="primary-button" type="button" data-conflict-save>应用并标记已解决</button></div></div>
   </div>`;

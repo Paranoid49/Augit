@@ -34,6 +34,8 @@
   --augit-reference: #ffaf0f;
   --augit-yellow-soft: #fff0c2;
   --augit-code: "Cascadia Mono", Consolas, monospace;
+  /* 正文等宽字号与界面字号相互独立（规格 §7.14：正文独立等宽字号保持不变）。 */
+  --augit-code-size: 13px;
   --augit-title-height: 44px;
   --augit-title-text-height: 30px;
   --augit-tab-height: 42px;
@@ -2443,9 +2445,10 @@ body[data-theme="dark"] .scrim {
 
 .code-view,
 .diff-columns,
-.terminal-view {
+.terminal-view,
+.conflict-block {
   font-family: "Cascadia Mono", Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--augit-code-size);
 }
 
 .markdown-preview {

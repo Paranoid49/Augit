@@ -2054,7 +2054,14 @@ function openConflictSession() {
     bindConflictCaretTracking();
     // 重绘会造出新的对话框节点：冻结标记与按计数恢复的按钮状态都要重新落上
     // （否则应用成功后重绘会让 data-conflict-applying 消失，读状态时得到 null）。
+    // 状态先落，布局后做：排版问题不该影响动作可用性与冻结标记。
     setConflictApplying(!!(live && live.conflictApplying));
+    // 解决器是按需创建的：它不在 __augitRender 的重绘路径上，因此必须自己度量一次，
+    // 否则"大字号/窄窗口把文件名移到窗口顶部"这条规则要等到用户改变窗口大小才生效。
+    if (typeof measureConflictResolver === "function") {
+      measureConflictResolver();
+      syncConflictCount();
+    }
   }
 }
 
@@ -2164,6 +2171,15 @@ function syncConflictCount() {
   if (!block || !label) return null;
   const count = unresolvedConflictGroups(block).length;
   label.textContent = `${count} 个未处理冲突`;
+  // 视觉稿的表尾提示同时给出总数与当前位置；实际计数由这里维护（度量函数不覆盖实时值）。
+  const help = document.querySelector(".conflict-session-dialog .footer-help");
+  if (help) {
+    const groups = unresolvedConflictGroups(block);
+    const position = currentConflictGroupIndex(groups);
+    help.textContent = help.title = count > 0
+      ? `未处理冲突块：${count}，当前位置：${position + 1}`
+      : "没有未处理的冲突块";
+  }
   // 规格 §7.14：失败、取消或异常后**按实际未处理冲突数恢复动作**——
   // 没有未处理冲突时接受与导航都不该还可点（撤销把它们还回来后要重新可用）。
   const dialog = document.querySelector(".dialog.conflict-session-dialog");
