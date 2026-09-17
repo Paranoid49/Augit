@@ -1961,6 +1961,8 @@ async function loadOperationSession() {
     live.operationSession = session;
     if (session && session.inProgress && session.hasConflicts && !live.operationSessionShown) {
       live.operationSessionShown = true;
+      // 自动进入会话时总是从冲突列表开始，不停留在上一次的解决器视图上。
+      live.conflictSessionView = "list";
       openConflictSession();
     } else if (live.operationSessionShown && (!session || !session.inProgress)) {
       live.operationSessionShown = false;
@@ -1978,6 +1980,15 @@ async function loadOperationSession() {
   }
 }
 
+/**
+ * 会话窗口的当前视图。视觉稿把"冲突列表"与"三栏解决器"做成两个页面，
+ * 实时界面里用同一个模态窗口的两个视图表达同一层关系（避免模态叠模态）。
+ */
+function conflictSessionView() {
+  const live = window.__augitLive;
+  return live && live.conflictSessionView === "resolver" && live.conflict ? "resolver" : "list";
+}
+
 /** 打开（或就地重绘）冲突操作会话窗口。 */
 function openConflictSession() {
   const live = window.__augitLive;
@@ -1992,13 +2003,51 @@ function openConflictSession() {
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = dialog(
-    liveConflictSessionTitle(session),
-    liveConflictSessionBody(session),
-    liveConflictSessionFooter(session),
-    true,
-    "conflict-session-dialog");
+  if (conflictSessionView() === "resolver") {
+    // 三栏解决器：正文由 mockup 从 live.conflict 渲染，保存按钮由 bindConflictSave 接管。
+    layer.innerHTML = dialog(
+      "解决冲突",
+      liveConflictResolver(),
+      '<button type="button" class="secondary-button" data-conflict-back>返回冲突列表</button>',
+      true,
+      "conflict-session-dialog");
+  } else {
+    layer.innerHTML = dialog(
+      liveConflictSessionTitle(session),
+      liveConflictSessionBody(session),
+      liveConflictSessionFooter(session),
+      true,
+      "conflict-session-dialog");
+  }
+
   host.appendChild(layer);
+  if (conflictSessionView() === "resolver") bindConflictSave();
+}
+
+/**
+ * 打开某个冲突文件的三栏解决器（规格 §7.13「点击冲突文件打开三栏冲突解决器」）。
+ * 先读取该文件的三栏内容，读不到时不切视图（不假装打开）。
+ */
+async function openConflictFile(path) {
+  const live = window.__augitLive;
+  if (!live || !path) return null;
+  const loaded = await loadConflict(path).catch(() => null);
+  if (!loaded) {
+    window.__augitError = "open-conflict:" + path;
+    return null;
+  }
+
+  live.conflictSessionView = "resolver";
+  openConflictSession();
+  return loaded;
+}
+
+/** 回到冲突列表视图（视觉稿的「返回冲突列表」）。 */
+function returnToConflictList() {
+  const live = window.__augitLive;
+  if (!live) return;
+  live.conflictSessionView = "list";
+  openConflictSession();
 }
 
 /** 关闭会话窗口（不动会话本身，用户可再次打开）。 */
@@ -2049,6 +2098,7 @@ async function runConflictSessionAction(action) {
   live.operationSession = payload.session || null;
   if (!payload.session || !payload.session.inProgress) {
     live.operationSessionShown = false;
+    live.conflictSessionView = null;
     closeConflictSession();
   } else {
     openConflictSession();
@@ -2123,6 +2173,9 @@ function bindConflictSave() {
       await saveConflict(live.conflict.path, block.innerText);
       window.__augitConflictSaved = live.conflict.path;
       button.textContent = "已标记为已解决";
+      // 解决一个冲突会改变"还有多少未解决"，Continue 的可用性也随之变：
+      // 重新读取会话（规格 §9.3「读取最新事实」），不自行推断。
+      void loadOperationSession();
     } catch (error) {
       window.__augitError = "save-conflict:" + String(error && error.message || error);
       button.disabled = false;
@@ -2666,6 +2719,21 @@ function guardUnwiredNavigation() {
     if (remoteAction) {
       event.preventDefault();
       void runRemoteAction(remoteAction.dataset.remoteAction);
+      return;
+    }
+
+    // 会话窗口里的冲突文件行与「返回冲突列表」（规格 §7.13）。
+    const conflictRow = event.target.closest && event.target.closest("[data-conflict-path]");
+    if (conflictRow) {
+      event.preventDefault();
+      void openConflictFile(conflictRow.dataset.conflictPath);
+      return;
+    }
+
+    const conflictBack = event.target.closest && event.target.closest("[data-conflict-back]");
+    if (conflictBack) {
+      event.preventDefault();
+      returnToConflictList();
       return;
     }
 

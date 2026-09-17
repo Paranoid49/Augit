@@ -384,7 +384,15 @@ async function main() {
         return { available: true, ok: true, reason: null, session: window.__operationSession };
       }
       if (method === 'git/conflicts') return data.conflicts;
-      if (method === 'git/conflict-load') return data.conflict;
+      if (method === 'git/conflict-load') {
+        window.__conflictLoads = (window.__conflictLoads || []).concat([params.path]);
+        return data.conflict;
+      }
+      if (method === 'git/conflict-save') {
+        window.__conflictSaves = (window.__conflictSaves || []).concat([params]);
+        if (window.__conflictSaveFails) return { available: true, saved: false, reason: '文件已被外部修改。' };
+        return { available: true, saved: true };
+      }
       if (method === 'git/remotes') return data.remotes;
       if (method === 'git/remote-write') {
         window.__remoteWrites = (window.__remoteWrites || []).concat([params]);
@@ -5879,6 +5887,103 @@ async function main() {
 
     if (csSoft.length > 0) {
       throw new Error('断言失败：' + csSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.13：点击冲突文件打开三栏冲突解决器 ----
+    // 三栏解决器的 live 渲染（liveConflictResolver）与保存流程本就存在，
+    // 但此前**只有审计用的 --conflict 启动参数能到达**，产品里没有任何入口。
+    const crSoft = [];
+    const crCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      crSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const cr = await openScene('scene=commit-changes&theme=dark');
+    await cr.page.bringToFront();
+    await cr.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await cr.page.evaluate(() => {
+      window.__conflictLoads = [];
+      window.__conflictSaves = [];
+      window.__operationCalls = 0;
+      window.__sessionFixture = {
+        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 2, totalSteps: 4,
+        conflicts: [{ path: 'src/App.cs' }, { path: 'README.md' }],
+      };
+      window.__statusOperation = 'Rebase';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await cr.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
+
+    await cr.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
+    const resolverView = await cr.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const result = dialog ? dialog.querySelector('.conflict-column.result .conflict-block') : null;
+      return {
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        loads: window.__conflictLoads || [],
+        columns: dialog ? dialog.querySelectorAll('.conflict-column').length : 0,
+        resultEditable: result ? result.getAttribute('contenteditable') : null,
+        header: dialog && dialog.querySelector('.conflict-header strong')
+          ? dialog.querySelector('.conflict-header strong').textContent : null,
+        hasBack: !!(dialog && dialog.querySelector('[data-conflict-back]')),
+        hasSave: !!(dialog && dialog.querySelector('[data-conflict-save]')),
+      };
+    });
+    crCheck('点击冲突文件打开三栏解决器: ' + JSON.stringify(resolverView),
+      resolverView.title === '解决冲突' && resolverView.loads.includes('src/App.cs')
+        && resolverView.columns === 3 && resolverView.resultEditable === 'plaintext-only'
+        // 设计稿的表头用**文件名**（完整路径由 __conflictLoads 佐证）。
+        && typeof resolverView.header === 'string' && resolverView.header.includes('App.cs')
+        && resolverView.hasBack === true && resolverView.hasSave === true);
+
+    await cr.page.evaluate(() => {
+      const back = document.querySelector('[data-conflict-back]');
+      if (back) back.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForTimeout(400);
+    const backToList = await cr.page.evaluate(() => ({
+      rows: document.querySelectorAll('[data-conflict-path]').length,
+      columns: document.querySelectorAll('.conflict-columns').length,
+    }));
+    crCheck('「返回冲突列表」回到会话列表: ' + JSON.stringify(backToList),
+      backToList.rows === 2 && backToList.columns === 0);
+
+    // 保存冲突结果：调用宿主、随后重新读取会话（§9.3「读取最新事实」）。
+    await cr.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForSelector('[data-conflict-save]', { timeout: 8000 }).catch(() => {});
+    const operationCallsBeforeSave = await cr.page.evaluate('window.__operationCalls || 0');
+    await cr.page.evaluate(() => {
+      const save = document.querySelector('[data-conflict-save]');
+      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await cr.page.waitForFunction(
+      '(window.__conflictSaves || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    await cr.page.waitForTimeout(700);
+    const savedConflict = await cr.page.evaluate(() => ({
+      saves: (window.__conflictSaves || []).map(
+        (entry) => ({ path: entry.path, length: String(entry.resultText || '').length })),
+      operationCalls: window.__operationCalls || 0,
+    }));
+    crCheck('保存冲突结果调用宿主并带上结果正文: ' + JSON.stringify(savedConflict.saves),
+      savedConflict.saves.length === 1 && savedConflict.saves[0].path === 'src/App.cs'
+        && savedConflict.saves[0].length > 0);
+    crCheck('保存后重新读取会话（§9.3 读取最新事实）: '
+      + JSON.stringify([operationCallsBeforeSave, savedConflict.operationCalls]),
+    savedConflict.operationCalls > operationCallsBeforeSave);
+    await cr.page.close();
+
+    if (crSoft.length > 0) {
+      throw new Error('断言失败：' + crSoft.join(' | '));
     }
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
