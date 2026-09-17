@@ -1380,6 +1380,23 @@ function emptyChangesSide() {
     <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
 }
 
+/**
+ * 改动列表的"正在读取"状态。
+ *
+ * Git 状态在首屏之后才到达（实测约 15 秒）。此前 `live` 已存在但 `live.status`
+ * 为空时会退化到样例 `changesSide()`，于是**首屏显示视觉稿里的 42 个伪造文件**——
+ * 用户看到工作区里并不存在的文件。这里改为如实说明正在读取，
+ * 骨架与空状态保持一致（规格 §6.5 的加载反馈、§10.1 的稳定空状态）。
+ */
+function loadingChangesSide() {
+  return `<aside class="tool-window side-tool"><div class="tool-header"><span>提交</span><span class="grow"></span><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></div>
+    <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
+    <div class="empty-tool-state" role="status"><div><strong>正在读取改动…</strong><p>正在从 Git 读取工作区状态。</p></div></div>
+    <div class="commit-box"><div class="commit-options"><span class="commit-amend"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
+    ${commitMessageBox(true)}
+    <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
+}
+
 function quickOpenEmpty() {
   return `<div class="search-overlay"><div class="search-tabs"><strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span></div><div class="search-query"><input class="search-field" value="" placeholder="输入文件名" aria-label="搜索内容"></div></div>`;
 }
@@ -2130,7 +2147,7 @@ function commitGraphSvg(graph, index, rowHeight = 26) {
 }
 
 // 外壳注入真实历史时使用：沿用与样例版一致的提交行、分支标签与图形结构。
-function liveGitLog(history, selected, cancelComparison) {
+function liveGitLog(history, selected, cancelComparison, loading = false) {
   const commits = history.commits.map(commit => [commit.subject, (commit.references || []).join(" ") , commit.author, commit.date]);
   const entries = history.commits.map(commit => ({
     hash: commit.hash,
@@ -2155,6 +2172,8 @@ function liveGitLog(history, selected, cancelComparison) {
     `<div class="tree-row depth-1${name === history.branch ? " selected" : ""}">${gitReferenceIcon()} ${escapeHtml(name)}</div>`).join("");
   // 无历史文案（规格 §10.1）：保留引用树与筛选栏，只替换提交列表内容。
   const emptyRow = `<div class="empty-tool-state"><div><strong>仓库还没有提交</strong><p>提交后会显示在这里。</p></div></div>`;
+  // 历史未到达时的占位：不能复用"仓库还没有提交"（那是在断言一个我们尚未知道的事实）。
+  const loadingRow = `<div class="empty-tool-state" role="status"><div><strong>正在读取提交历史…</strong><p>正在从 Git 读取提交。</p></div></div>`;
   return `<section class="bottom-tool">
     <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
@@ -2168,7 +2187,7 @@ function liveGitLog(history, selected, cancelComparison) {
             <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${filters.map((label, index) => `<button data-history-filter="${index}">${icon("search")}${label}</button>`).join("")}</div></details>
             <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button>
           </div>
-          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${history.commits.length === 0 ? emptyRow : history.commits.map((commit, index) => `<div class="commit-row ${index === 0 ? "selected" : ""}" role="option" aria-selected="${index === 0}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${branchLabel(commit) ? `${gitReferenceIcon(false)} ${escapeHtml(branchLabel(commit))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
+          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${loading ? loadingRow : history.commits.length === 0 ? emptyRow : history.commits.map((commit, index) => `<div class="commit-row ${index === 0 ? "selected" : ""}" role="option" aria-selected="${index === 0}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${branchLabel(commit) ? `${gitReferenceIcon(false)} ${escapeHtml(branchLabel(commit))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
         </div>
         <div class="log-detail-panel"><div class="changed-files" data-live-changed-files><p class="commit-meta">正在读取变更…</p></div><div class="commit-detail" data-live-commit-detail><h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div></div></div>
       </div>
@@ -2181,6 +2200,10 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false)
   // 复杂泳道图同样使用真实历史：结构化行已带父子关系，
   // 泳道由 buildCommitGraph 推导，不需要另用样例数据。
   if (liveHistory) return liveGitLog(liveHistory, selected, cancelComparison);
+  // live 已存在但历史未到达：不得退回样例提交（会显示工作区里不存在的提交）。
+  // 但仍需走完整的 liveGitLog 结构：绑定器依赖其中的工具栏、筛选栏与详情区，
+  // 手写精简骨架会让绑定器拿到 null（实测报 querySelectorAll of null）。
+  if (window.__augitLive) return liveGitLog({ commits: [], head: null }, selected, cancelComparison, true);
   let commits = complexGraph ? [
     ["merge: 合并历史界面调整", "main", "I49", "2026/8/29 11:00"],
     ["fix: 修正工具栏图标", "", "I49", "2026/8/29 10:00"],
@@ -2352,7 +2375,12 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   const sideHtml = side === "" ? "" : side === "commit-empty"
     ? emptyChangesSide()
     : side === "commit"
-      ? (live && live.status ? liveChangesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "") : changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : ""))
+      ? (live
+        ? (live.status
+          ? liveChangesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "")
+          // live 已存在但状态未到：不得退化成样例数据（会显示工作区里不存在的文件）。
+          : loadingChangesSide())
+        : changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : ""))
       : projectTree(selectedFile, live && side === "project" ? live : null);
   let editorExtra = "";
   let editorBody = markdownView();

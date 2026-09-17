@@ -4235,6 +4235,53 @@ async function main() {
         && earlyState.railBound === true && earlyState.overlayEscBound === true
         && earlyState.compactBound === true);
 
+    // 首屏不得显示视觉稿样例数据：Git 未到达时改动列表应当没有内容或明确说明，
+    // 而不是渲染 mockup 里的样例文件（那会让用户看到伪造的文件名）。
+    // 必须用 commit-changes 场景：main-project 的侧栏是项目树，没有改动列表。
+    const earlyChanges = await context.newPage();
+    await earlyChanges.addInitScript(() => { window.__statusDelays = 6000; });
+    await earlyChanges.goto(
+      `http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`,
+      { waitUntil: 'load' },
+    );
+    await earlyChanges.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const earlySample = await earlyChanges.evaluate(() => ({
+      gitReady: !!window.__augitGitReady,
+      rows: [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.path),
+      emptyState: !!document.querySelector('.changes-list .empty-tool-state, .changes-list .empty-state'),
+      sideTitle: (document.querySelector('.side-tool .tool-header span') || {}).innerText || null,
+    }));
+    check('前置条件：首屏取样时 Git 数据未到达: ' + JSON.stringify(earlySample.gitReady),
+      earlySample.gitReady === false);
+    check('首屏改动列表不显示视觉稿样例文件: ' + JSON.stringify([earlySample.sideTitle, earlySample.rows]),
+      !earlySample.rows.some((path) => typeof path === 'string' && path.includes('Augit.App')));
+    await earlyChanges.close();
+
+    // 提交历史同理：live.history 未到达时不得渲染样例提交。
+    const earlyLog = await context.newPage();
+    // 状态与历史都要延迟：两者到达前才是"无数据但已渲染"的窗口。
+    await earlyLog.addInitScript(() => { window.__statusDelays = 6000; window.__historyDelayMs = 6000; });
+    await earlyLog.goto(
+      `http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`,
+      { waitUntil: 'load' },
+    );
+    await earlyLog.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const earlyLogState = await earlyLog.evaluate(() => ({
+      historyReady: !!window.__augitHistoryReady,
+      rows: [...document.querySelectorAll('.commit-row')].map((r) => r.dataset.hash),
+      subjects: [...document.querySelectorAll('.commit-row .commit-subject')].map((s) => s.textContent.trim()).slice(0, 3),
+      bottom: !!document.querySelector('.bottom-tool'),
+    }));
+    console.log('INFO 首屏提交历史=' + JSON.stringify({
+      bottom: earlyLogState.bottom, rows: earlyLogState.rows.length, subjects: earlyLogState.subjects,
+    }));
+    check('前置条件：首屏取样时历史未到达: ' + JSON.stringify(earlyLogState.historyReady),
+      earlyLogState.historyReady === false);
+    check('首屏提交历史不显示视觉稿样例提交: ' + JSON.stringify(earlyLogState.subjects),
+      !earlyLogState.subjects.some((s) => typeof s === 'string'
+        && (s.includes('阶段零至五') || s.includes('安装前系统 PATH'))));
+    await earlyLog.close();
+
     // 绑定就位的直接后果：Ctrl+P 在首屏就能打开快速打开。
     await earlyPage.keyboard.press('Control+p');
     await earlyPage.waitForTimeout(600);

@@ -4815,3 +4815,63 @@ window.__augitReady = true;
 
 验证：Core 86/86、Infrastructure 162/162、live-shell **599/599**、
 场景 48/48（dark）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
+
+### 第一百四十三轮：首屏显示视觉稿伪造数据（两个区域）
+
+上一轮发现"首屏可交互但无绑定"的窗口，本轮顺着同一窗口继续查：
+**在数据到达前，界面渲染的是视觉稿的样例数据。**
+
+#### 缺陷一：改动列表显示 42 个不存在的文件
+
+`commit-changes` 场景首屏（Git 未到达，实测约 15 秒）实测：
+
+```
+["提交", ["src/Augit.App/app.manifest", "src/Augit.Infrastructure/Settings/ApplicationSettings.cs",
+          "src/Augit.App/AssemblyInfo.cs", … 共 42 条 ]]
+```
+
+用户打开应用会看到**工作区里并不存在的文件**。根因是渲染分支：
+
+```js
+? (live && live.status ? liveChangesSide(...) : changesSide(...))
+```
+
+`live` 已存在但 `live.status` 未到达时，退化到视觉稿的样例 `changesSide()`。
+
+#### 缺陷二：提交历史显示伪造提交
+
+同一窗口下 `git-history` 场景实测：
+
+```
+["fix: 精确恢复安装前系统 PATH", "fix: 避免强制更新兼容的 .NET 10", "fix: 提升安装卸载与 Git 取消可靠性", …]
+```
+
+`gitLog()` 在 `live.history` 为空时同样退化到样例提交（作者 `I49`、`feat: 实现 Augit 阶段零至五功能`）。
+
+#### 修复
+
+两个区域都改为**如实说明正在读取**，而不是显示伪造数据：
+
+- 改动列表：新增 `loadingChangesSide()`（与空状态骨架一致，文案「正在读取改动…」）。
+- 提交历史：`gitLog()` 在 `live` 存在但历史未到达时，改为调用
+  `liveGitLog({ commits: [], head: null }, …, loading = true)`，
+  由 `liveGitLog` 渲染「正在读取提交历史…」。
+
+第二条的实现方式值得记：一开始我手写了精简骨架，结果**绑定器拿到 null 报错**
+（`Cannot read properties of null (reading 'querySelectorAll')`）——
+绑定逻辑依赖工具栏、筛选栏、详情区等结构。改为**复用 `liveGitLog` 的完整结构、
+只把内容换成加载态**后才正确。**不要手写"简化版"骨架去替代被绑定依赖的结构。**
+
+#### 断言（599 → 603）
+
+| 断言 | 覆盖 |
+|---|---|
+| 前置条件：首屏取样时 Git 数据未到达 | 用 `__statusDelays` 构造窗口 |
+| 首屏改动列表不显示视觉稿样例文件 | 断言不含 `Augit.App` 前缀的样例路径 |
+| 前置条件：首屏取样时历史未到达 | 状态与历史都要延迟（第一次只延迟了状态，取到的其实是真数据） |
+| 首屏提交历史不显示视觉稿样例提交 | 断言不含样例提交标题 |
+
+两处各有定向负向验证，均确认失败后还原。场景 48/48（dark 与 light）仍全部通过。
+
+验证：Core 86/86、Infrastructure 162/162、live-shell **603/603**、
+场景 48/48（两主题）、视觉稿字节一致 PASS、构建 0 警告 0 错误。
