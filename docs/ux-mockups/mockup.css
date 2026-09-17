@@ -1,6 +1,8 @@
 :root {
   color-scheme: light;
-  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  /* 界面字族由字体设置下发（规格：字体设置只改变显示）；默认值与视觉稿一致。 */
+  --augit-font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-family: var(--augit-font);
   font-size: 13px;
   --augit-chrome: #e9eaee;
   --augit-panel: #ffffff;
@@ -1977,7 +1979,7 @@ body[data-theme="dark"] .fake-check.mixed {
   grid-template-columns: minmax(80px, 1fr) repeat(3, 28px) minmax(0, var(--find-status-width, 48px)) repeat(3, 28px);
   width: 100%;
   height: var(--augit-find-height);
-  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-family: var(--augit-font);
   font-size: 1rem;
   line-height: normal;
   align-items: center;
@@ -2060,7 +2062,7 @@ button:disabled,
 
 /* 第二轮视觉基线：按 PyCharm 2026.2.1 New UI 的逻辑尺寸与密度重新校准。 */
 :root {
-  font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-family: var(--augit-font);
   font-size: 13px;
   --augit-chrome: #e9eaee;
   --augit-panel: #ffffff;
@@ -2447,7 +2449,8 @@ body[data-theme="dark"] .scrim {
 .diff-columns,
 .terminal-view,
 .conflict-block {
-  font-family: "Cascadia Mono", Consolas, monospace;
+  /* 等宽字族同样来自字体设置；默认值与视觉稿一致。 */
+  font-family: var(--augit-code);
   font-size: var(--augit-code-size);
 }
 
@@ -2727,7 +2730,7 @@ body[data-theme="dark"] .scrim {
   border-radius: 3px;
   background: var(--augit-panel);
   color: var(--augit-text);
-  font: 13px/18px "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font: 13px/18px var(--augit-font);
   white-space: nowrap;
 }
 

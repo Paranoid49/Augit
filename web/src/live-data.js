@@ -563,18 +563,50 @@ function reattachTerminal() {
   try { terminalFitAddon.fit(); } catch { /* 宿主未完成布局时忽略 */ }
 }
 
+/**
+ * 终端用的等宽字体与字号。
+ *
+ * 取自字体设置下发到根元素的两个变量（`--augit-code` / `--augit-code-size`），
+ * 而不是另写一份默认值：xterm 在 canvas 上自绘，CSS 规则管不到它，
+ * 只有读同一份变量才能保证"终端跟随等宽设置"（ux-spec 字体一节）。
+ */
+function terminalTypography() {
+  const rootStyle = getComputedStyle(document.documentElement);
+  const family = rootStyle.getPropertyValue("--augit-code").trim();
+  const size = Number.parseFloat(rootStyle.getPropertyValue("--augit-code-size"));
+  return {
+    family: family.length > 0 ? family : 'Cascadia Mono, Consolas, monospace',
+    size: Number.isFinite(size) && size >= 9 && size <= 40 ? size : 13,
+  };
+}
+
+/** 字体设置变化后让已经打开的终端跟着变（规格：修改等宽设置不得改变界面文字）。 */
+function refreshTerminalTypography() {
+  if (!terminalInstance) return;
+  const typography = terminalTypography();
+  terminalInstance.options.fontFamily = typography.family;
+  terminalInstance.options.fontSize = typography.size;
+  try {
+    terminalFitAddon.fit();
+  } catch {
+    // 终端尚未布局（例如工具窗口已关闭）时忽略：下一次显示会重新 fit。
+  }
+}
+
 /** 启动内置终端并接上输出轮询。重复调用时复用已有会话。 */
 async function startTerminal() {
   const host = document.querySelector('.terminal-view');
   if (!host || typeof window.Terminal !== 'function') return null;
   if (terminalInstance && terminalReady) return terminalInstance;
 
+  // 终端与只读文本、diff、冲突用同一套等宽字体与字号（规格：字体设置只改变显示）。
+  const typography = terminalTypography();
   terminalInstance = new window.Terminal({
     allowProposedApi: false,
     convertEol: false,
     cursorBlink: true,
-    fontFamily: 'Cascadia Mono, Consolas, monospace',
-    fontSize: 13,
+    fontFamily: typography.family,
+    fontSize: typography.size,
     lineHeight: 1.7,
     scrollback: 2000,
   });
@@ -1412,6 +1444,11 @@ async function loadSettings() {
     const live = window.__augitLive;
     if (live && settings) {
       live.settings = settings;
+      // 字体设置只改变显示（规格 §7.14）：先按字体算出各区域的度量，再夹取已保存的面板尺寸。
+      if (typeof applyTypographyPreview === "function") {
+        await applyTypographyPreview();
+      }
+      refreshTerminalTypography();
       applySavedPanelSizes(settings);
       window.__augitSettingsReady = true;
     }
@@ -1442,6 +1479,8 @@ async function saveSettings() {
     throw new Error(saved && saved.reason ? saved.reason : "设置未能保存");
   }
   window.__augitSettingsSaved = true;
+  // 宿主会忽略越界字号并保留未知枚举，因此重新读取一次真实值再应用字体与面板尺寸。
+  await loadSettings();
   return saved;
 }
 
@@ -1860,10 +1899,15 @@ window.__augitListDirectory = (path) => invoke("workspace/list", { path }, 15000
 window.__augitSaveSettings = () => saveSettings();
 
 // 供验收套件直接验证写入口的字段校验；返回宿主响应并刷新本地副本。
+// 供验收套件读取终端实际使用的等宽字体与字号（xterm 自绘，CSS 探针读不到）。
+window.__augitTerminalFont = () => (terminalInstance
+  ? { family: terminalInstance.options.fontFamily, size: terminalInstance.options.fontSize }
+  : null);
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
-  const fresh = await invoke("settings/read", {}, 15000);
-  if (window.__augitLive && fresh) window.__augitLive.settings = fresh;
+  // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
+  await loadSettings();
   return result;
 };
 

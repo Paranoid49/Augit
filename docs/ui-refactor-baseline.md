@@ -6653,3 +6653,69 @@ harness 里 735/736/740 三条断言要跟着改成 13/13（写盘路径不变�
    并验证改等宽字号**不影响**界面字号、改界面字号**不改变**正文等宽字号。
 4. 负向验证：回退"设置生效"这一调用，断言必须失败；注意本轮新增的 §7.14 断言里
    "三栏正文等宽字号不变"要改成读设置值后的期望（当前按固定 13px 断言）。
+
+### 第一百七十轮：字体设置真正生效（界面/正文各自独立）
+
+#### 问题
+
+设置页显示并可保存 `fontSize` / `codeFontSize` / `textFontFamily` / `monospaceFontFamily`，
+但实时界面**从未应用**其中任何一项：根字号一直是 CSS 的 13px、字族一直硬编码
+（`--augit-code` 变量早就存在，但主正文面的规则把它写死了）。视觉稿侧的度量逻辑
+（`applyTypographyPreview` 的 `ui-size` / `code-size` 分支）只服务预览参数。
+规格与 ux-spec 都要求"字体设置只改变显示"、"只读文本、diff、冲突和终端使用独立的等宽字体和
+等宽字号，修改等宽设置不得改变界面文字"。
+
+#### 实现
+
+- **视觉稿侧抽出唯一入口 `applyTypography({uiSize, codeSize, uiFamily, monospaceFamily})`**：
+  字号走根元素 `font-size`，界面/等宽字族走 `--augit-font` / `--augit-code`（新增 `--augit-font`），
+  等宽字号走 `--augit-code-size` 并同步 `--code-line-height`；随后按**界面**字体度量
+  推导各区域高度（标题、标签、树、状态栏、底部最小高度等）并重跑所有 `measure*`。
+  `applyTypographyPreview()` 解析顺序为：URL 预览参数 → `window.__augitLive.settings` → 默认值。
+- **实时侧**：`loadSettings()` 拿到设置后先应用字体、再夹取已保存的面板尺寸；
+  `saveSettings()` 成功后重新读取（宿主会忽略越界字号、保留未知枚举）并再次应用；
+  `__augitSettingsWrite` 走同一路径。
+- **底部面板高度**：实时界面由保存值/拖拽决定，只有预览才写推导值——否则会覆盖用户尺寸。
+- **等宽字族真正生效**：`.code-view / .diff-columns / .terminal-view / .conflict-block`
+  原先把字族写死，改为 `var(--augit-code)`（这是新断言抓出来的缺口）。
+- **内置终端跟随等宽设置**：xterm 在 canvas 上自绘，读 `--augit-code` / `--augit-code-size`
+  两个变量（不再硬编码 13px/Cascadia Mono），字体变化时刷新已打开的终端并重新 fit。
+- 桩：`settings/write` 按真实 `ShellBridge.WriteSettingsAsync` 的规则落地（枚举只接受已知取值、
+  字号越界**忽略**而非夹取、未提交字段保留原值），`settings/read` 返回写入后的状态；
+  另加 URL 种子 `ui-font-size` / `code-font-size` 模拟"之前已保存过字体"，用于验证启动路径。
+  桩里的默认字号改回真实默认 13/13（与视觉稿一致，避免全场景布局漂移）。
+
+#### 断言（732 → 743）
+
+默认字号与字族来自设置并落到界面；**只改界面字号**→ 界面变、正文等宽字号与行高**不变**；
+**只改等宽字号**→ 正文变、界面字号**不变**；字族各自生效（用不在默认回退栈里的 Tahoma /
+Courier New，否则会因为默认栈里恰好含 Segoe UI 而假通过）；界面字号变化后按新字号重新推导
+区域高度（13px 时 `--augit-title-height` 落在 44px 下限上，因此断言用 26px）；
+越界字号与未知主题被忽略且界面不变；启动时就按已保存的字体渲染（含 `.terminal-view` 计算字号）；
+内置终端跟随等宽字体与字号；**已打开的终端**随等宽设置变化。
+
+#### 负向验证（三次运行，逐项归因）
+
+- 回退"设置变更后应用字体"这一调用 → 6 条失败，全部显示"设置已读到 26/17 但界面仍是 13px"。
+- 只回退等宽字族那一处 CSS（`.code-view` 等写死字族）→ 只有
+  `界面与等宽字族各自生效: [… "Courier New" … "Cascadia Mono" …]` 失败。
+- 回退终端字号来源（写死 13px）→ 只有 `内置终端跟随等宽字体与字号: {"size":13}` 失败；
+  回退"刷新已打开终端" → 只有 `已打开的终端随等宽设置变化: {"size":17}` 失败。
+- 恢复后 `live-data.js` md5 与验证绿态一致，视觉稿四文件字节一致。
+
+#### 一处测试基础设施的坑
+
+桩里新增 URL 覆盖时写成 `Number(query.get('ui-font-size'))`：参数缺失时 `get()` 返回 `null`，
+而 `Number(null) === 0` 是**合法字号**，于是所有场景的设置字号都变成 0（被当作越界忽略，
+表现为"设置页显示 0"）。必须先判 `raw === null`。
+
+#### 验证范围
+
+live-shell **743/743**、mockup 场景 **48/48**（dark 与 light）、
+`dotnet build Augit.slnx -c Release` 0 警告 0 错误、视觉稿字节一致 PASS。本轮未改 C#。
+
+#### 后续仍待办
+
+- 面板尺寸/字体设置之外的设置项（终端 Shell 自定义命令）已有断言，未受本轮影响。
+- §10.4 破坏性操作（Reset/删除 Stash/删除分支标签/移除 Worktree）、§10.2 重复错误去重、
+  启动时恢复上次目录、文件超限页接上"使用系统默认程序打开"。

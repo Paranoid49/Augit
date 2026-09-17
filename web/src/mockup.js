@@ -2,36 +2,40 @@ const scene = document.body.dataset.scene || "main-project";
 const app = document.getElementById("app");
 const requestedTheme = new URLSearchParams(window.location.search).get("theme");
 
-// 主框架字号对照只改变界面文字，正文等宽字号与图标尺寸保持独立。
-async function applyTypographyPreview() {
-  const codeSize = Number(new URLSearchParams(window.location.search).get("code-size"));
-  if (Number.isFinite(codeSize) && codeSize >= 9 && codeSize <= 40) {
+// 字体设置只改变显示：界面字号/字族与正文等宽字号/字族相互独立（规格 §7.14 与设置页）。
+// 预览参数（ui-size / code-size）优先于真实设置，便于视觉稿做字号对照。
+function typographyFamily(name, fallback) {
+  const cleaned = String(name ?? "").replace(/["\'\\;{}()]/g, "").replace(/\s+/g, " ").trim();
+  return cleaned.length > 0 ? `"${cleaned}", ${fallback}` : null;
+}
+
+async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null, monospaceFamily = null } = {}) {
+  const root = document.documentElement.style;
+  const font = typographyFamily(uiFamily, '"Segoe UI", sans-serif');
+  if (font) root.setProperty("--augit-font", font);
+  const code = typographyFamily(monospaceFamily, "Consolas, monospace");
+  if (code) root.setProperty("--augit-code", code);
+
+  const size = Number(uiSize);
+  if (Number.isFinite(size) && size >= 9 && size <= 40) root.fontSize = `${size}px`;
+  const codePixels = Number(codeSize);
+  if (Number.isFinite(codePixels) && codePixels >= 9 && codePixels <= 40) {
+    root.setProperty("--augit-code-size", `${codePixels}px`);
+    // 正文行高跟着等宽字号走：界面字号变化不得影响它。
     const scale = window.devicePixelRatio || 1;
-    document.querySelectorAll(".code-view, .diff-columns, .conflict-block, .terminal-view").forEach(view => {
-      view.style.fontSize = `${codeSize}px`;
-      view.style.lineHeight = `${Math.round(codeSize * 1.7 * scale) / scale}px`;
-    });
+    root.setProperty("--code-line-height", `${Math.round(codePixels * 1.7 * scale) / scale}px`);
   }
-  const value = new URLSearchParams(window.location.search).get("ui-size");
-  if (value === null) {
-    await document.fonts.ready;
-    measureCodeViews(); measureDocumentToolbar(); measureCommitPanels(); measureConflictResolver(); measureRemoteDialog(); measureWorktreeDialog(); measureStashDialog(); measureStashManagerDialog(); measureCloneDialog(); measureResetDialog(); measureRollbackDialog(); measurePushDialog(); measureTerminalHeaders(); measureSearchOverlay();
-    document.body.dataset.typographyPreview = "ready";
-    return;
-  }
-  const size = Number(value);
-  if (!Number.isFinite(size) || size < 9 || size > 40) return;
-  document.documentElement.style.fontSize = `${size}px`;
+
   await document.fonts.ready;
   const context = document.createElement("canvas").getContext("2d");
   const family = getComputedStyle(document.documentElement).fontFamily;
+  const uiPixels = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 13;
   let height = 0;
   for (const role of ["normal", "600", "italic"]) {
-    context.font = `${role} ${size}px ${family}`;
+    context.font = `${role} ${uiPixels}px ${family}`;
     const metrics = context.measureText("国Ag");
     height = Math.max(height, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
   }
-  const root = document.documentElement.style;
   const length = (name, pixels) => root.setProperty(`--augit-${name}`, `${pixels}px`);
   length("title-height", Math.max(44, height + 18));
   length("title-text-height", Math.max(30, height + 4));
@@ -57,7 +61,12 @@ async function applyTypographyPreview() {
   length("history-detail-meta-height", Math.max(20, height));
   const bottomMinimum = Math.max(180, height * 4 + 80);
   length("bottom-min-height", bottomMinimum);
-  root.setProperty("--augit-bottom-height", `clamp(${bottomMinimum}px, 31vh, ${Math.max(305, bottomMinimum)}px)`);
+  // 实时界面的底部面板高度由保存值或拖拽决定，只有预览才用推导值（否则会覆盖用户尺寸）。
+  const settings = window.__augitLive && window.__augitLive.settings;
+  const savedBottom = settings ? Number(settings.bottomPanelHeight) : Number.NaN;
+  if (!(Number.isFinite(savedBottom) && savedBottom > 0)) {
+    root.setProperty("--augit-bottom-height", `clamp(${bottomMinimum}px, 31vh, ${Math.max(305, bottomMinimum)}px)`);
+  }
   // 只延长轨道的纵向连线，节点半径、横向轨距和笔画不随字号拉伸。
   document.querySelectorAll(".commit-graph-svg").forEach(svg => {
     svg.outerHTML = commitGraphSvg({ width: svg.viewBox.baseVal.width, rows: [JSON.parse(svg.dataset.graphRow)] }, 0, Math.max(26, height + 6));
@@ -78,6 +87,23 @@ async function applyTypographyPreview() {
   measureTerminalHeaders();
   measureSearchOverlay();
   document.body.dataset.typographyPreview = "ready";
+}
+
+async function applyTypographyPreview() {
+  const query = new URLSearchParams(window.location.search);
+  const previewSize = (name) => {
+    const raw = query.get(name);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 9 && value <= 40 ? value : null;
+  };
+  const settings = window.__augitLive && window.__augitLive.settings ? window.__augitLive.settings : null;
+  await applyTypography({
+    uiSize: previewSize("ui-size") ?? (settings ? settings.fontSize : null),
+    codeSize: previewSize("code-size") ?? (settings ? settings.codeFontSize : null),
+    uiFamily: settings ? settings.textFontFamily : null,
+    monospaceFamily: settings ? settings.monospaceFontFamily : null,
+  });
 }
 
 // 终端标题只测量当前字体和名称；不启动真实 Shell，也不改变正文内容。

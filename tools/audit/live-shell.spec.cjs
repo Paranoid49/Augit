@@ -94,7 +94,7 @@ const WORKSPACE = {
   },
   settings: {
     theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
-    fontSize: 15, codeFontSize: 14, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
+    fontSize: 13, codeFontSize: 13, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
     terminalShell: 'PowerShell7', terminalCustomCommand: null, recentWorkspaces: ['D:\\ws'],
     projectPanelWidth: 330, bottomPanelHeight: 240,
   },
@@ -348,14 +348,29 @@ async function main() {
       if (method === 'settings/read') {
         // 会话恢复用：带上 ?restore=1 时返回上次打开的文件与当前文件（同工作区语义）。
         const wantsRestore = new URLSearchParams(location.search).has('restore');
+        // 验收用：URL 上的 ui-font-size / code-font-size 模拟"用户之前已保存过字体设置"，
+        // 用于验证启动时（不是保存后）就按设置渲染。只做一次种子，
+        // 之后仍然由 settings/write 驱动（否则后续写入会被 URL 覆盖回去）。
+        // 注意：缺失的参数 get() 返回 null，Number(null) 是 0（合法字号），必须先判空。
+        if (!window.__settingsState) {
+          window.__settingsState = Object.assign({}, data.settings);
+          const query = new URLSearchParams(location.search);
+          for (const [name, key] of [['ui-font-size', 'fontSize'], ['code-font-size', 'codeFontSize']]) {
+            const raw = query.get(name);
+            const value = raw === null ? Number.NaN : Number(raw);
+            if (Number.isFinite(value)) window.__settingsState[key] = value;
+          }
+        }
+
+        const written = window.__settingsState;
         return wantsRestore
-          ? Object.assign({}, data.settings, {
+          ? Object.assign({}, data.settings, written, {
             openFiles: ['docs/product-spec.md', 'docs/notes.txt'],
             activeFile: 'docs/notes.txt',
             // 故意把子目录放在前面：恢复必须按层级从浅到深补齐，否则子目录那层恢复不到。
             expandedDirectories: ['docs/api', 'docs'],
           })
-          : data.settings;
+          : Object.assign({}, data.settings, written);
       }
       if (method === 'session/write') {
         window.__sessionWrites = (window.__sessionWrites || []).concat([{
@@ -369,7 +384,21 @@ async function main() {
       if (method === 'settings/write') {
         if (window.__settingsReadOnly) return { saved: false, reason: '无法访问文件或目录，请检查权限或占用情况。' };
         window.__settingsWritten = Object.assign(window.__settingsWritten || {}, params);
-        return { saved: true, theme: params.theme, fontSize: params.fontSize };
+        // 与 ShellBridge.WriteSettingsAsync 同一套规则：枚举只接受已知取值，
+        // 字号越界**一律忽略**（不是夹取），未提交的字段保留原值。
+        const next = Object.assign({}, data.settings, window.__settingsState || {});
+        const themes = ['System', 'Light', 'Dark'];
+        const shells = ['WindowsPowerShell', 'PowerShell7', 'CommandPrompt', 'GitBash', 'Wsl', 'Custom'];
+        if (themes.includes(params.theme)) next.theme = params.theme;
+        if (shells.includes(params.terminalShell)) next.terminalShell = params.terminalShell;
+        const size = (value) => (typeof value === 'number' && value >= 9 && value <= 40 ? value : null);
+        if (size(params.fontSize) !== null) next.fontSize = params.fontSize;
+        if (size(params.codeFontSize) !== null) next.codeFontSize = params.codeFontSize;
+        for (const key of ['textFontFamily', 'monospaceFontFamily', 'gitExecutablePath', 'terminalCustomCommand']) {
+          if (typeof params[key] === 'string') next[key] = params[key];
+        }
+        window.__settingsState = next;
+        return { saved: true, theme: next.theme, fontSize: next.fontSize };
       }
       if (method === 'git/operation') {
         // 操作会话（规格 §7.13）：默认无会话，测试可用 __operationSession 注入。
@@ -732,8 +761,8 @@ async function main() {
     check('已保存的左侧面板宽度被还原: ' + vars.side, vars.side === '330px');
     check('已保存的底部面板高度被还原: ' + vars.bottom, vars.bottom === '240px');
     check('设置窗口显示真实主题', await settings.page.locator('[data-setting="theme"]').inputValue() === 'Dark');
-    check('设置窗口显示真实界面字号', await settings.page.locator('[data-setting="fontSize"]').inputValue() === '15');
-    check('设置窗口显示真实等宽字号', await settings.page.locator('[data-setting="codeFontSize"]').inputValue() === '14');
+    check('设置窗口显示真实界面字号', await settings.page.locator('[data-setting="fontSize"]').inputValue() === '13');
+    check('设置窗口显示真实等宽字号', await settings.page.locator('[data-setting="codeFontSize"]').inputValue() === '13');
     check('设置窗口显示真实 Shell', await settings.page.locator('[data-setting="terminalShell"]').inputValue() === 'PowerShell7');
     check('设置窗口显示真实 git 路径', (await settings.page.locator('[data-setting="gitExecutablePath"]').inputValue()).includes('Git'));
     // 修改字号后保存，确认写回内容被提交
@@ -768,6 +797,144 @@ async function main() {
     check('保存提交了修改后的字号: ' + JSON.stringify(written && written.fontSize), written && written.fontSize === 17);
     check('保存未丢失其它字段', written && written.theme === 'Dark' && written.terminalShell === 'PowerShell7');
     await settings.page.close();
+
+    // ---- 字体设置只改变显示：界面与正文相互独立（规格 §7.14 / 设置页）----
+    // 设置页显示的值必须真正作用到界面上，而且改界面字号不能动正文等宽字号（反之亦然）。
+    const tySoft = [];
+    const tyCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      tySoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const ty = await openScene('scene=settings&theme=dark');
+    await ty.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await ty.page.waitForSelector('[data-setting="fontSize"]', { timeout: 10000 });
+
+    const typography = () => ty.page.evaluate(() => {
+      const root = document.documentElement;
+      const declared = getComputedStyle(root);
+      // 设置页场景本身没有正文控件，用同类的临时节点读出 CSS 规则的结果（随后立即移除）。
+      const measure = (className) => {
+        const node = document.createElement('div');
+        node.className = className;
+        node.style.position = 'absolute';
+        node.style.visibility = 'hidden';
+        document.body.appendChild(node);
+        const style = getComputedStyle(node);
+        const value = { size: style.fontSize, family: style.fontFamily };
+        node.remove();
+        return value;
+      };
+      return {
+        rootSize: declared.fontSize,
+        uiFamilyVar: declared.getPropertyValue('--augit-font').trim(),
+        codeFamilyVar: declared.getPropertyValue('--augit-code').trim(),
+        codeSizeVar: declared.getPropertyValue('--augit-code-size').trim(),
+        codeLineHeight: declared.getPropertyValue('--code-line-height').trim(),
+        titleHeight: declared.getPropertyValue('--augit-title-height').trim(),
+        bodyFamily: getComputedStyle(document.body).fontFamily,
+        codeView: measure('code-view'),
+        conflictBlock: measure('conflict-block'),
+      };
+    });
+
+    const setSettings = (patch) => ty.page.evaluate(async (values) => {
+      for (const [key, value] of Object.entries(values)) {
+        const field = document.querySelector(`[data-setting="${key}"]`);
+        if (field) field.value = String(value);
+      }
+      await window.__augitSaveSettings();
+      const live = window.__augitLive;
+      return live ? { fontSize: live.settings.fontSize, codeFontSize: live.settings.codeFontSize, theme: live.settings.theme } : null;
+    }, patch);
+
+    const tyBase = await typography();
+    tyCheck('默认字号来自设置并落到界面上: '
+      + JSON.stringify([tyBase.rootSize, tyBase.codeSizeVar, tyBase.codeView.size, tyBase.conflictBlock.size]),
+    tyBase.rootSize === '13px' && tyBase.codeSizeVar === '13px'
+      && tyBase.codeView.size === '13px' && tyBase.conflictBlock.size === '13px');
+    tyCheck('默认字族来自设置（界面与正文各用各的栈）: '
+      + JSON.stringify([tyBase.uiFamilyVar, tyBase.codeFamilyVar, tyBase.bodyFamily]),
+    tyBase.uiFamilyVar.includes('Microsoft YaHei UI') && tyBase.codeFamilyVar.includes('Cascadia Mono')
+      && tyBase.bodyFamily.includes('Microsoft YaHei UI'));
+
+    // 只改界面字号：正文等宽字号必须保持不变。
+    const uiOnly = await setSettings({ fontSize: 26 });
+    const tyUi = await typography();
+    tyCheck('改界面字号会作用到界面但不影响正文等宽字号: '
+      + JSON.stringify([uiOnly, tyUi.rootSize, tyUi.codeSizeVar, tyUi.codeView.size, tyUi.conflictBlock.size]),
+    uiOnly !== null && uiOnly.fontSize === 26 && tyUi.rootSize === '26px'
+      && tyUi.codeSizeVar === '13px' && tyUi.codeView.size === '13px' && tyUi.conflictBlock.size === '13px');
+    tyCheck('界面字号变化后按新字号重新推导区域高度: '
+      + JSON.stringify([tyBase.titleHeight, tyUi.titleHeight]),
+    Number.parseFloat(tyUi.titleHeight) > Number.parseFloat(tyBase.titleHeight));
+
+    // 只改等宽字号：界面字号必须保持不变。
+    const codeOnly = await setSettings({ codeFontSize: 17 });
+    const tyCode = await typography();
+    tyCheck('改等宽字号会作用到正文但不影响界面字号: '
+      + JSON.stringify([codeOnly, tyCode.rootSize, tyCode.codeSizeVar, tyCode.codeView.size, tyCode.conflictBlock.size]),
+    codeOnly !== null && codeOnly.codeFontSize === 17 && tyCode.rootSize === '26px'
+      && tyCode.codeSizeVar === '17px' && tyCode.codeView.size === '17px'
+      && tyCode.conflictBlock.size === '17px');
+    tyCheck('正文行高跟着等宽字号走: ' + JSON.stringify([tyBase.codeLineHeight, tyCode.codeLineHeight]),
+      Math.abs(Number.parseFloat(tyCode.codeLineHeight) - 17 * 1.7) < 0.2);
+
+    // 字族同样生效，并且只作用于各自那一类文字。
+    const families = await setSettings({ textFontFamily: 'Tahoma', monospaceFontFamily: 'Courier New' });
+    const tyFamily = await typography();
+    tyCheck('界面与等宽字族各自生效: '
+      + JSON.stringify([families, tyFamily.uiFamilyVar, tyFamily.bodyFamily, tyFamily.codeFamilyVar, tyFamily.codeView.family]),
+    families !== null && tyFamily.uiFamilyVar.includes('"Tahoma"') && tyFamily.bodyFamily.includes('Tahoma')
+      && tyFamily.codeFamilyVar.includes('"Courier New"') && tyFamily.codeView.family.includes('Courier New')
+      && tyFamily.codeView.family !== tyFamily.bodyFamily);
+
+    // 启动路径：用户之前保存过字体设置时，首屏就必须按它渲染（不是等到保存后才生效）。
+    const boot = await openScene('scene=terminal&theme=dark&ui-font-size=19&code-font-size=17');
+    await boot.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await boot.page.waitForFunction('window.__augitTerminalFont && window.__augitTerminalFont()', null, { timeout: 20000 }).catch(() => {});
+    const bootState = await boot.page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      const terminal = document.querySelector('.terminal-view');
+      return {
+        rootSize: root.fontSize,
+        codeSizeVar: root.getPropertyValue('--augit-code-size').trim(),
+        terminalView: terminal ? getComputedStyle(terminal).fontSize : null,
+        terminalFont: window.__augitTerminalFont ? window.__augitTerminalFont() : null,
+      };
+    });
+    tyCheck('启动时就按已保存的字体设置渲染: '
+      + JSON.stringify([bootState.rootSize, bootState.codeSizeVar, bootState.terminalView]),
+    bootState.rootSize === '19px' && bootState.codeSizeVar === '17px' && bootState.terminalView === '17px');
+    tyCheck('内置终端跟随等宽字体与字号（xterm 自绘，读同一份变量）: ' + JSON.stringify(bootState.terminalFont),
+      bootState.terminalFont !== null && bootState.terminalFont.size === 17
+        && bootState.terminalFont.family.includes('Cascadia Mono'));
+    // 终端已经打开时改等宽字号：已存在的会话也要跟着变（不能等下次启动）。
+    await boot.page.evaluate(() => window.__augitSettingsWrite({ codeFontSize: 22, monospaceFontFamily: 'Courier New' }));
+    await boot.page.waitForFunction(
+      "() => { const f = window.__augitTerminalFont && window.__augitTerminalFont(); return !!f && f.size === 22; }",
+      null, { timeout: 10000 }).catch(() => {});
+    const bootRefreshed = await boot.page.evaluate(() => window.__augitTerminalFont());
+    tyCheck('已打开的终端随等宽设置变化: ' + JSON.stringify(bootRefreshed),
+      bootRefreshed !== null && bootRefreshed.size === 22 && bootRefreshed.family.includes('Courier New'));
+    await boot.page.close();
+
+    // 越界字号与未知枚举由宿主忽略：界面不能因此改变（与真实 ShellBridge 同一套规则）。
+    const rejected = await ty.page.evaluate(async () => {
+      await window.__augitSettingsWrite({ fontSize: 9999, codeFontSize: 2, theme: 'Purple' });
+      const live = window.__augitLive;
+      return { fontSize: live.settings.fontSize, codeFontSize: live.settings.codeFontSize, theme: live.settings.theme };
+    });
+    const tyRejected = await typography();
+    tyCheck('越界字号与未知主题被忽略且界面不变: '
+      + JSON.stringify([rejected, tyRejected.rootSize, tyRejected.codeSizeVar, tyRejected.uiFamilyVar]),
+    rejected.fontSize === 26 && rejected.codeFontSize === 17 && rejected.theme === 'Dark'
+      && tyRejected.rootSize === '26px' && tyRejected.codeSizeVar === '17px');
+    await ty.page.close();
+
+    if (tySoft.length > 0) {
+      throw new Error('断言失败：' + tySoft.join(' | '));
+    }
 
     // ---- Reset 对话框 ----
     const reset = await openScene('scene=reset&theme=dark');
