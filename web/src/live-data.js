@@ -21,6 +21,8 @@ function isVisibleEntry(entry) {
 // 目录树状态：展开集合与子项缓存都保存在这里，
 // 这样打开文件触发整页重绘时不会丢失展开状态，也不会重复向宿主请求。
 let latestStatus = null;
+// 上一次应用过的改动列表：判断"消失的选中项原本在哪一组、哪个位置"要用它。
+let previousStatusFiles = [];
 // 规格 §9.2：查询失败要保留上一次界面，但必须明确标记它不是最新状态；
 // 这里缓存失败原因，applyStatus 会把它带进 live 供渲染层使用。
 let latestStatusError = null;
@@ -4271,9 +4273,46 @@ function applyHistory() {
 }
 
 /** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */
+/**
+ * 规格 §6.4：当前选中的改动文件不在新列表里时，改选**同组最近邻**。
+ *
+ * 没有这一步会出现两个问题：界面上没有选中行，而 `live.selectedChangePath` 仍指向
+ * 已经消失的文件——工具栏的「显示 Diff」「回滚」是按它判断可用性的，
+ * 于是命令对一个不存在的目标保持可用。
+ */
+function reconcileChangeSelection(previous, next) {
+  const live = window.__augitLive;
+  const current = live ? live.selectedChangePath : null;
+  if (!current) return;
+  const files = next || [];
+  if (files.some((file) => file.path === current)) return;
+
+  const oldIndex = (previous || []).findIndex((file) => file.path === current);
+  const group = oldIndex >= 0 ? previous[oldIndex].group : null;
+  const sameGroup = files.filter((file) => !group || file.group === group);
+  if (sameGroup.length === 0) {
+    // 同组已空：清掉选中，让界面显示稳定空状态，而不是留一个悬空的目标。
+    live.selectedChangePath = null;
+    return;
+  }
+
+  // 最近邻：原位置**之后**的同组项优先，其次之前，最后退回同组第一项。
+  const after = (previous || []).slice(oldIndex + 1)
+    .filter((file) => !group || file.group === group)
+    .map((file) => file.path);
+  const before = (previous || []).slice(0, Math.max(oldIndex, 0)).reverse()
+    .filter((file) => !group || file.group === group)
+    .map((file) => file.path);
+  live.selectedChangePath = [...after, ...before].find(
+    (path) => sameGroup.some((file) => file.path === path)) || sameGroup[0].path;
+}
+
 function applyStatus() {
   const live = window.__augitLive;
   if (!live || !latestStatus) return;
+  // 选中项的归属要拿**上一次**的列表来判断（同组、原位置），因此先对账再覆盖。
+  reconcileChangeSelection(previousStatusFiles, latestStatus.files);
+  previousStatusFiles = latestStatus.files;
   live.branch = latestStatus.branch;
   // 标题栏的工作区名来自宿主，缺失时保留视觉稿的默认值。
   if (latestStatus.workspaceName) live.workspaceName = latestStatus.workspaceName;

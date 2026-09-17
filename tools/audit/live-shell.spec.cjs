@@ -5531,6 +5531,120 @@ async function main() {
       afterPartial.checked[0] === false);
     await listUp.page.close();
 
+    // ---- 规格 §6.4 条款一/二/三：保留原列表项、增量更新、最近邻选择 ----
+    // 原块给行打过 dataset.identity、也读了 identities，但**从未断言**——
+    // 夹具摆了、断言漏了，等于这四条里前三条没有覆盖。
+    const lucSoft = [];
+    const lucCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      lucSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const manyFiles = (count, extra = []) => Array.from({ length: count }, (_, i) => ({
+      path: `src/f${String(i).padStart(2, '0')}.cs`,
+      name: `f${String(i).padStart(2, '0')}.cs`,
+      directory: 'src',
+      group: 'Changes',
+      kind: 'Modified',
+      staged: false,
+      workingTree: true,
+    })).concat(extra);
+
+    const luc = await openScene('scene=commit-changes&theme=dark');
+    await luc.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await luc.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 造一个可滚动的长列表。
+    await luc.page.evaluate((files) => { window.__liveFiles = files; window.__nextChanges = { files: [], gitMetadata: true }; },
+      manyFiles(30));
+    await luc.page.waitForFunction(
+      "document.querySelectorAll('.changes-list .change-file-row').length === 30", null, { timeout: 10000 });
+    // 给每行打身份标记，选中第 11 行，并把列表滚下去。
+    await luc.page.evaluate(() => {
+      document.querySelectorAll('.changes-list .change-file-row').forEach((row, i) => {
+        row.dataset.identity = 'row-' + i;
+      });
+      const rows = [...document.querySelectorAll('.changes-list .change-file-row')];
+      rows[10].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      document.querySelector('.changes-list').scrollTop = 180;
+    });
+    await luc.page.waitForTimeout(400);
+    const lucBefore = await luc.page.evaluate(() => ({
+      identities: [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.identity || null),
+      selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).dataset
+        ? document.querySelector('.changes-list .change-file-row.selected').dataset.path : null,
+      scrollTop: document.querySelector('.changes-list').scrollTop,
+    }));
+    check('前置条件：行已打标记、选中第 11 行且列表已滚动: ' + JSON.stringify([lucBefore.selected, lucBefore.scrollTop]),
+      lucBefore.selected === 'src/f10.cs' && lucBefore.scrollTop > 100
+        && lucBefore.identities.every((id) => id !== null));
+
+    // 部分变化：新增一个文件，其余 30 个路径与状态都没变。
+    await luc.page.evaluate((files) => {
+      window.__liveFiles = files;
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\extra.cs'], gitMetadata: false };
+    }, manyFiles(30, [{
+      path: 'src/extra.cs', name: 'extra.cs', directory: 'src', group: 'Changes',
+      kind: 'Added', staged: false, workingTree: true,
+    }]));
+    await luc.page.waitForFunction(
+      "!!document.querySelector('.changes-list .change-file-row[data-path=\"src/extra.cs\"]')",
+      null, { timeout: 8000 });
+    await luc.page.waitForTimeout(400);
+    const lucAfter = await luc.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.changes-list .change-file-row')];
+      const selected = document.querySelector('.changes-list .change-file-row.selected');
+      const index = rows.indexOf(selected);
+      return {
+        total: rows.length,
+        identities: rows.map((r) => r.dataset.identity || null),
+        selected: selected ? selected.dataset.path : null,
+        selectedIndex: index,
+        scrollTop: document.querySelector('.changes-list').scrollTop,
+        paths: rows.map((r) => r.dataset.path),
+      };
+    });
+    // 条款一/二的"保留原列表项对象"目前**做不到**：侧栏区域是整体替换的，
+    // 部分变化会把全部行重建（实测 identities 全为 null）。滚动、选中、勾选都被
+    // restoreChangesState 保住了，丢的是节点本身。这是已登记的偏差（见
+    // docs/ui-refactor-baseline.md 第一百六十轮），这里只记录测量值，不假装断言通过。
+    console.log('INFO 部分变化后未变化行的节点标记: ' + JSON.stringify(lucAfter.identities.slice(0, 4))
+      + ' / 滚动 ' + lucBefore.scrollTop + '->' + lucAfter.scrollTop);
+    // 条款二：保持滚动位置。
+    lucCheck('部分变化时保持列表滚动位置: ' + JSON.stringify([lucBefore.scrollTop, lucAfter.scrollTop]),
+      Math.abs(lucAfter.scrollTop - lucBefore.scrollTop) <= 4);
+    // 条款三：选中项仍存在时保持选中。
+    lucCheck('部分变化后选中项仍存在时保持选中: ' + JSON.stringify(lucAfter.selected),
+      lucAfter.selected === 'src/f10.cs');
+
+    // 条款三：选中项消失时选同组最近邻。
+    await luc.page.evaluate((files) => {
+      window.__liveFiles = files.filter((file) => file.path !== 'src/f10.cs');
+      window.__nextChanges = { files: ['D:\\live-ws\\src\\f10.cs'], gitMetadata: false };
+    }, manyFiles(30));
+    await luc.page.waitForFunction(
+      "!document.querySelector('.changes-list .change-file-row[data-path=\"src/f10.cs\"]')",
+      null, { timeout: 8000 });
+    await luc.page.waitForTimeout(400);
+    const lucGone = await luc.page.evaluate(() => {
+      const selected = document.querySelector('.changes-list .change-file-row.selected');
+      const rows = [...document.querySelectorAll('.changes-list .change-file-row')];
+      return {
+        selected: selected ? selected.dataset.path : null,
+        index: selected ? rows.indexOf(selected) : -1,
+        statePath: window.__augitLive.selectedChangePath || null,
+      };
+    });
+    // 第 11 行消失后，最近邻应当是原第 10 或第 12 行（同一组内相邻）。
+    lucCheck('选中项消失时选择同组最近邻: ' + JSON.stringify(lucGone),
+      lucGone.selected !== null
+        && ['src/f09.cs', 'src/f11.cs'].includes(lucGone.selected)
+        && lucGone.statePath === lucGone.selected);
+    await luc.page.close();
+
+    if (lucSoft.length > 0) {
+      throw new Error('断言失败：' + lucSoft.join(' | '));
+    }
+
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
     // 「Git 文件列表的刷新独立完成，不能等待慢 Diff，后续新增文件和状态变化
     // 仍须及时进入列表。」慢 Diff 在途时来一次变化批次，列表必须立刻更新。
