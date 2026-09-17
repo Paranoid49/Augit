@@ -244,7 +244,13 @@ async function main() {
         // 用 in 判断而不是真值判断：空数组是有效状态（§10.1 的无 Changes），
         // `||` 会让它回退到默认列表，测不出空状态。
         const files = Array.isArray(window.__liveFiles) ? window.__liveFiles : data.status.files;
-        return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files };
+        // 操作会话类型与冲突状态：真实宿主在 git/status 里就返回它们（本轮之前页面丢弃了）。
+        return {
+          available: true, isRepository: true, isDetached: false, branch: data.status.branch,
+          operation: window.__statusOperation || 'None',
+          hasConflicts: !!window.__statusConflicts,
+          files,
+        };
       }
       if (method === 'git/rollback') {
         // 回滚（规格 §10.4）：记录调用与目标路径，支持注入失败。
@@ -5651,6 +5657,92 @@ async function main() {
 
     if (lucSoft.length > 0) {
       throw new Error('断言失败：' + lucSoft.join(' | '));
+    }
+
+    // ---- 规格 §6.2：快照必须包含"操作会话类型"与"选中标识" ----
+    // 原快照只有工作区/分支/HEAD/文件列表/提交，缺了第四、五类。后果是：
+    // 一次 rebase 开始或结束可能不改动文件列表、分支与 HEAD，快照却判定"没变化"，
+    // 界面就停在做操作之前的状态。
+    const snapSoft = [];
+    const snapCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      snapSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const snap = await openScene('scene=commit-changes&theme=dark');
+    await snap.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await snap.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const snapBase = await snap.page.evaluate(() => ({
+      operation: window.__augitLive.status ? window.__augitLive.status.operation : null,
+      hasConflicts: window.__augitLive.status ? !!window.__augitLive.status.hasConflicts : null,
+      equal: window.__augitSnapshotEqual(),
+      files: (window.__augitLive.status.files || []).map((file) => file.path),
+    }));
+    snapCheck('前置条件：状态里带上了操作会话与冲突标记: ' + JSON.stringify(snapBase),
+      snapBase.operation === 'None' && snapBase.hasConflicts === false && snapBase.equal === true
+        && snapBase.files.length === 3);
+
+    // 对照：数据完全没变时应用快照不产生任何刷新（§6.2「不触发布局」）。
+    await snap.page.evaluate(() => {
+      window.__refreshCount = 0;
+      // 计数器要**包装区域渲染函数**才生效：只置 0 的话永远是 0（第一版就栽在这里，
+      // 把"没测到"误读成"没刷新"）。
+      const original = window.__augitRenderRegions;
+      window.__augitRenderRegions = (...names) => { window.__refreshCount += 1; return original(...names); };
+      window.__augitApplyHistorySnapshot();
+    });
+    await snap.page.waitForTimeout(400);
+    const idleRefreshes = await snap.page.evaluate('window.__refreshCount');
+
+    // 只改操作会话类型与冲突标记：文件列表、分支、HEAD 都不动。
+    await snap.page.evaluate(() => {
+      window.__statusOperation = 'Rebase';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    // 容错等待：操作会话没被带上时应当由断言报出，而不是让超时中断整条套件。
+    await snap.page.waitForFunction(
+      "window.__augitLive.status && window.__augitLive.status.operation === 'Rebase'",
+      null, { timeout: 10000 }).catch(() => {});
+    await snap.page.waitForTimeout(400);
+    const changedRefreshes = await snap.page.evaluate('window.__refreshCount');
+    const afterOperation = await snap.page.evaluate(() => ({
+      operation: window.__augitLive.status.operation,
+      conflicts: !!window.__augitLive.status.hasConflicts,
+      files: (window.__augitLive.status.files || []).map((file) => file.path),
+    }));
+    const snapDiag = await snap.page.evaluate(() => ({
+      refresh: window.__refreshCount,
+      equal: window.__augitSnapshotEqual(),
+    }));
+    snapCheck('操作会话变化必须触发更新（文件列表/分支/HEAD 都没变）: '
+      + JSON.stringify([idleRefreshes, changedRefreshes, afterOperation, snapDiag]),
+    idleRefreshes === 0 && changedRefreshes > 0
+      && afterOperation.operation === 'Rebase' && afterOperation.conflicts === true
+      && JSON.stringify(afterOperation.files) === JSON.stringify(snapBase.files));
+
+    // 第五条：选中文件与选中提交的稳定标识也属于快照。
+    await snap.page.evaluate(() => { window.__augitLive.selectedChangePath = 'src/App.cs'; });
+    const afterSelectionPath = await snap.page.evaluate(() => window.__augitSnapshotEqual());
+    snapCheck('选中文件标识变化会让快照不同: ' + JSON.stringify(afterSelectionPath),
+      afterSelectionPath === false);
+    await snap.page.close();
+
+    // 选中**提交**的标识：需要带底部 Git 日志的场景（commit-changes 场景没有提交列表）。
+    const snapCommit = await openScene('scene=git-history&theme=dark');
+    await snapCommit.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await snapCommit.page.waitForSelector('.commit-row', { timeout: 10000 });
+    const commitEqualBefore = await snapCommit.page.evaluate(() => window.__augitSnapshotEqual());
+    await snapCommit.page.locator('.commit-row').nth(1).click();
+    await snapCommit.page.waitForTimeout(800);
+    const afterSelectedCommit = await snapCommit.page.evaluate(() => window.__augitSnapshotEqual());
+    snapCheck('选中提交标识变化会让快照不同: '
+      + JSON.stringify([commitEqualBefore, afterSelectedCommit]),
+    commitEqualBefore === true && afterSelectedCommit === false);
+    await snapCommit.page.close();
+
+    if (snapSoft.length > 0) {
+      throw new Error('断言失败：' + snapSoft.join(' | '));
     }
 
     // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----

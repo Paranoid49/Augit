@@ -231,7 +231,16 @@ function normalizeStatus(status, previous) {
   }));
   files.sort((a, b) => a.group.localeCompare(b.group)
     || a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }));
-  return { branch: status.branch, isDetached: status.isDetached, files };
+  return {
+    branch: status.branch,
+    isDetached: status.isDetached,
+    // 规格 §6.2 第四条：Git 操作会话类型与冲突状态属于快照。此前这两个字段被整个丢弃，
+    // 页面既进不了快照、也不知道仓库正在做操作——一次 rebase 开始/结束可能不改动
+    // 文件列表、分支与 HEAD，界面却必须跟着变。
+    operation: typeof status.operation === "string" ? status.operation : null,
+    hasConflicts: !!status.hasConflicts,
+    files,
+  };
 }
 
 /**
@@ -843,6 +852,30 @@ function selectChangeRow(row) {
   // 取错字段不会报错，只会让跟随静默失效——曾因此漏掉一整条跟随行为。
   const path = row.dataset.path;
   if (path) void followChangeSelection(path);
+}
+
+/**
+ * 改动工具窗工具栏的可用性：按当前选中行同步，并让禁用说明与状态一致（规格 §10.3）。
+ *
+ * 原地更新改动列表时不会触发区域渲染，mockup 里的 `updateActions` 也就不会跑；
+ * 选中行消失后由 `reconcileChangeSelection` 改选，工具栏必须跟着走，
+ * 否则「显示 Diff」「回滚」会对一个不存在的目标保持可用。
+ */
+function syncChangesToolbar() {
+  const live = window.__augitLive;
+  const toolbar = document.querySelector(".side-tool .changes-layout > .toolbar");
+  if (!live || !toolbar) return;
+  const selected = !!live.selectedChangePath
+    && ((live.status && live.status.files) || []).some((file) => file.path === live.selectedChangePath);
+  for (const button of toolbar.querySelectorAll(
+    '[data-action="show-change-diff"], [data-action="rollback-change"]')) {
+    button.disabled = !selected;
+    if (selected) {
+      button.removeAttribute("title");
+    } else {
+      button.setAttribute("title", button.dataset.disabledReason || "先在改动列表里选择一个文件。");
+    }
+  }
 }
 
 /**
@@ -1573,6 +1606,12 @@ function buildSnapshot(status, history) {
       ? history.commits.map((commit) => `${commit.fullHash}|${commit.subject}|${(commit.references || []).join(",")}`)
       : [],
     hasNextPage: !!(history && history.hasNextPage),
+    // 第四条：操作会话类型与冲突状态。
+    operation: status ? status.operation || null : null,
+    hasConflicts: !!(status && status.hasConflicts),
+    // 第五条：当前已选文件或提交的稳定标识。
+    selectedChangePath: live ? live.selectedChangePath || null : null,
+    selectedCommit: live && live.history ? selectedHistoryCommit() : null,
   };
 }
 
