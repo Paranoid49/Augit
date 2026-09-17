@@ -154,6 +154,8 @@ internal sealed class ShellBridge : IDisposable
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
+            "git/stash-write" => await WriteStashAsync(parameters, cancellationToken),
+            "git/stash-content" => await ReadStashContentAsync(parameters, cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
             "git/worktree-write" => await WriteWorktreeAsync(parameters, cancellationToken),
             "git/operation" => await InspectOperationAsync(cancellationToken),
@@ -1623,8 +1625,87 @@ internal sealed class ShellBridge : IDisposable
             return new { available = false, stashes = Array.Empty<object>() };
         }
 
+        return await ProjectStashesAsync(runtime, repository!, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Stash 动作（规格 §7.11：应用、弹出、删除）。
+    ///
+    /// 引用必须由界面从真实列表里带回来：这里只接受 `stash@{n}` 形状，
+    /// 任意 rev 或 `--all` 之类的选项都会被挡下（否则网页层等于拿到任意 Git 参数）。
+    /// </summary>
+    private async Task<object?> WriteStashAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string action = (GetString(parameters, "action") ?? string.Empty).ToLowerInvariant();
+        if (action is not ("apply" or "pop" or "drop"))
+        {
+            throw new ArgumentException($"未知的 Stash 动作：{action}。");
+        }
+
+        string reference = GetString(parameters, "reference")
+            ?? throw new ArgumentException("git/stash-write 需要 reference 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
         GitWorkspaceStateService states = new(runtime);
-        GitStashListResult result = await states.ReadStashesAsync(repository!, cancellationToken);
+        GitActionResult result = action switch
+        {
+            "apply" => await states.UnstashAsync(repository!, reference, keepStash: true, cancellationToken)
+                .ConfigureAwait(false),
+            "pop" => await states.UnstashAsync(repository!, reference, keepStash: false, cancellationToken)
+                .ConfigureAwait(false),
+            _ => await states.DeleteStashAsync(repository!, reference, cancellationToken).ConfigureAwait(false),
+        };
+
+        // 应用与弹出会改写工作区，删除只动 stash 列表；三种都让状态缓存失效，界面随后读真实状态。
+        InvalidateStatusCache();
+        return new
+        {
+            available = true,
+            ok = result.IsSuccess,
+            reason = result.ErrorMessage,
+            stashes = await ProjectStashesAsync(runtime, repository!, cancellationToken).ConfigureAwait(false),
+        };
+    }
+
+    /// <summary>Stash 里的文件列表（规格 §7.11：详情里的"包含 N 个文件"）。</summary>
+    private async Task<object?> ReadStashContentAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string reference = GetString(parameters, "reference")
+            ?? throw new ArgumentException("git/stash-content 需要 reference 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitStashFilesResult result = await new GitWorkspaceStateService(runtime)
+            .ReadStashFilesAsync(repository!, reference, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess || result.Files is not { } files)
+        {
+            return new { available = false, reason = result.ErrorMessage, files = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            files = files.Select(file => new { path = file.Path, status = file.Status }),
+        };
+    }
+
+    /// <summary>Stash 列表投影（读取命令与写命令共用同一形状）。</summary>
+    private static async Task<object?> ProjectStashesAsync(
+        GitRuntimeInfo runtime,
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken)
+    {
+        GitStashListResult result = await new GitWorkspaceStateService(runtime)
+            .ReadStashesAsync(repository, cancellationToken)
+            .ConfigureAwait(false);
         if (!result.IsSuccess || result.Stashes is not { } list)
         {
             return new { available = false, reason = result.ErrorMessage, stashes = Array.Empty<object>() };
@@ -1633,15 +1714,19 @@ internal sealed class ShellBridge : IDisposable
         return new
         {
             available = true,
-            stashes = list.Select(stash => new
-            {
-                reference = stash.Reference,
-                message = stash.Message,
-                branch = stash.Branch,
-                subject = stash.Subject,
-                date = stash.Date.ToLocalTime()
-                    .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
-            }),
+            stashes = list.Select(StashPayload).ToArray(),
+        };
+    }
+
+    private static object StashPayload(GitStashInfo stash)
+    {
+        return new
+        {
+            reference = stash.Reference,
+            message = stash.Message,
+            branch = stash.Branch,
+            subject = stash.Subject,
+            date = stash.Date.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
         };
     }
 

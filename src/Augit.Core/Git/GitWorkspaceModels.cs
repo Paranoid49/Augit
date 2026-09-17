@@ -40,6 +40,33 @@ public sealed record GitStashListResult(
     }
 }
 
+/// <summary>Stash 里的一个文件（规格 §7.11：详情显示"包含 N 个文件"）。</summary>
+public sealed record GitStashFileInfo(string Path, string Status);
+
+public sealed record GitStashFilesResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    IReadOnlyList<GitStashFileInfo>? Files)
+{
+    public static GitStashFilesResult Success(IReadOnlyList<GitStashFileInfo> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        return new(true, GitOperationFailureKind.None, null, files);
+    }
+
+    public static GitStashFilesResult Failure(GitOperationFailureKind failureKind, string errorMessage)
+    {
+        if (failureKind == GitOperationFailureKind.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureKind));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+        return new(false, failureKind, errorMessage, null);
+    }
+}
+
 public sealed record GitStashContentResult(
     bool IsSuccess,
     GitOperationFailureKind FailureKind,

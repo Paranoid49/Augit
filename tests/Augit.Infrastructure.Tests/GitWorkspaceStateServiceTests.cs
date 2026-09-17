@@ -20,6 +20,36 @@ public sealed class GitWorkspaceStateServiceTests
     }
 
     [TestMethod]
+    public async Task Stash文件列表含空格路径与状态字母()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: base");
+            await File.WriteAllTextAsync(temporary.GetPath("base.txt"), "changed\n");
+            await File.WriteAllTextAsync(temporary.GetPath("带 空格 的文件.txt"), "new\n");
+            GitWorkspaceStateService service = CreateService(runtime, out _);
+
+            GitActionResult stashed = await service.StashAsync(repository, "文件列表", includeUntracked: true);
+            GitStashFilesResult files = await service.ReadStashFilesAsync(repository, "stash@{0}");
+
+            Assert.IsTrue(stashed.IsSuccess, stashed.ErrorMessage);
+            Assert.IsTrue(files.IsSuccess, files.ErrorMessage);
+            // 修改 + 新增：两条记录，且带空格与中文的路径不能被引号或转义污染（`-z` 解析）。
+            Assert.HasCount(2, files.Files!);
+            Assert.IsTrue(files.Files!.Any(file => file.Path == "base.txt" && file.Status == "M"),
+                string.Join(" | ", files.Files!.Select(file => file.Path + ":" + file.Status)));
+            Assert.IsTrue(files.Files!.Any(file => file.Path == "带 空格 的文件.txt"),
+                string.Join(" | ", files.Files!.Select(file => file.Path + ":" + file.Status)));
+
+            // 引用非法时不得执行任何命令，直接给出原因。
+            GitStashFilesResult invalid = await service.ReadStashFilesAsync(repository, "--all");
+            Assert.IsFalse(invalid.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.InvalidRequest, invalid.FailureKind);
+        }
+    }
+
+    [TestMethod]
     public async Task Stash包含未跟踪文件并支持查看应用和弹出()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

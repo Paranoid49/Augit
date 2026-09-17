@@ -245,6 +245,12 @@ public interface IGitWorkspaceStateService
         string stashReference,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Stash 里的文件列表（规格 §7.11：详情里的"包含 N 个文件"）。</summary>
+    Task<GitStashFilesResult> ReadStashFilesAsync(
+        GitRepositorySnapshot repository,
+        string stashReference,
+        CancellationToken cancellationToken = default);
+
     Task<GitActionResult> StashAsync(
         GitRepositorySnapshot repository,
         string? message,

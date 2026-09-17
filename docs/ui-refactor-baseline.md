@@ -6927,3 +6927,52 @@ live-shell **776/776**。本轮只改 `web/src/live-data.js` 与验收脚本，�
 #### 后续仍待办
 
 - 逐条核查 §6.x / §9.x / §10.x（§10.4 破坏性操作、§10.2 重复错误去重、启动恢复上次目录）。
+
+### 第一百七十五轮：Stash 动作的宿主能力（§7.11/§10.4，UI 待下一轮）
+
+#### 现状核对
+
+设计稿的 Stash 管理页详情有三个动作（应用 / 弹出 / 查看内容 / 删除）与"包含 N 个文件"列表；
+实时外壳的管理页只渲染 `引用 · 消息` 与 `分支 · 日期`，**动作行与文件列表都没有**。
+基础设施层其实早就齐了（`StashAsync` / `UnstashAsync(keepStash)` / `DeleteStashAsync` /
+`ReadStashContentAsync`，且都有真实仓库测试），缺的是**桥接命令**与界面。
+本轮先把宿主能力补齐（对用户不可见，但界面要用），界面放到下一轮做完整。
+
+#### 实现
+
+- `git/stash-write`：`{action: apply|pop|drop, reference}` →
+  `UnstashAsync(keepStash: true/false)` / `DeleteStashAsync`，随后让状态缓存失效并
+  **重新读取真实的 Stash 列表**返回（界面按事实更新，不自行推断）。
+  引用只接受 `stash@{n}` 形状（复用服务里的 `IsStashReference`）：网页层若能传 `--all`
+  之类就等于拿到任意 Git 参数。动作与参数非法走**顶层 `error`**（网页层唯一认的失败通道）。
+- `git/stash-content`：`{reference}` → 新方法 `ReadStashFilesAsync`
+  （`git stash show --name-status --include-untracked -z`），返回 `[{path, status}]`，
+  供设计的"包含 N 个文件"列表使用。`-z` 是刻意的：默认输出会把带空格/中文的路径加引号转义。
+- 读取命令与写命令共用同一个列表投影（`ProjectStashesAsync` + `StashPayload`），
+  避免两处形状漂移。
+
+#### 测试
+
+- `ShellBridgeStashWriteTests`（真实仓库，3 条）：应用后列表不变且工作区内容恢复
+  （Windows 上 `core.autocrlf` 会换成 CRLF，因此按语义比较）、弹出后列表变空、
+  删除**只动列表不改工作区**（前后 `git status --porcelain` 完全一致）、
+  `--all` 与 `stash@{9}` 被拒且列表不变、缺 `reference` 与未知动作走顶层 `error`。
+- `GitWorkspaceStateServiceTests.Stash文件列表含空格路径与状态字母`：修改 + 新增两条记录、
+  状态字母正确、带空格与中文的路径不被引号污染、非法引用直接返回 `InvalidRequest`。
+
+#### 验证范围
+
+Augit.Shell.Tests **31 → 34/34**、Infrastructure（目标用例）**17 → 18/18**、
+`dotnet build Augit.slnx -c Release` 0 警告 0 错误、`dotnet format --verify-no-changes` PASS。
+本轮未改界面，因此未跑 live-shell / mockup 场景。
+
+#### 下一轮（界面，计划已定）
+
+1. `liveManagementPage("stash")` 按视觉稿补详情：`h2` + 元信息 + 动作行
+   （应用 / 弹出 / 查看内容 / 删除，删除用 `danger-button`）+「包含 N 个文件」与文件行；
+   选中项进状态（`live.stashSelection`），区域刷新不丢。
+2. 删除走确认对话框：显示**具体影响**（`stash@{n}`、消息、包含的文件数、不可恢复），
+   确认按钮用动作名称（"删除 stash@{0}"），符合 §10.4。
+3. 应用/弹出/删除失败时按 §10.2 在管理页内说明原因与"哪些状态未改变"。
+4. 桩与断言：`git/stash-write` / `git/stash-content` 的桩、动作调用参数、删除确认文案、
+   失败恢复、以及**负向验证**（回退动作行列或引用守卫）。

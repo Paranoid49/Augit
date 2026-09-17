@@ -131,6 +131,66 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             status == GitDiffContentStatus.Ready ? result.StandardOutput : null));
     }
 
+    public async Task<GitStashFilesResult> ReadStashFilesAsync(
+        GitRepositorySnapshot repository,
+        string stashReference,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? error))
+        {
+            return GitStashFilesResult.Failure(GitOperationFailureKind.InvalidRequest, error!);
+        }
+
+        if (!IsStashReference(stashReference))
+        {
+            return GitStashFilesResult.Failure(GitOperationFailureKind.InvalidRequest, "Stash 引用无效。");
+        }
+
+        // `-z` 用 NUL 分隔，路径里的空格与中文不会被引号包裹（name-status 的默认输出会）。
+        GitCommandResult result = await RunAsync(
+            repositoryRoot!,
+            [
+                "-c",
+                "core.quotePath=false",
+                "stash",
+                "show",
+                "--name-status",
+                "--include-untracked",
+                "-z",
+                stashReference,
+            ],
+            GitCommandMode.LocalQuery,
+            _contentRunner,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return GitStashFilesResult.Failure(NormalizeFailure(result), result.ErrorMessage);
+        }
+
+        if (result.IsOutputTruncated)
+        {
+            return GitStashFilesResult.Failure(
+                GitOperationFailureKind.CommandFailed,
+                "Stash 文件列表超过上限，已停止读取。");
+        }
+
+        List<GitStashFileInfo> files = [];
+        string[] fields = result.StandardOutput.Split('\0');
+        for (int index = 0; index + 1 < fields.Length; index += 2)
+        {
+            string status = fields[index].Trim();
+            string path = fields[index + 1];
+            if (status.Length == 0 || path.Length == 0)
+            {
+                continue;
+            }
+
+            files.Add(new(path.Replace('\\', '/'), status[..1]));
+        }
+
+        return GitStashFilesResult.Success(files);
+    }
+
     public Task<GitActionResult> StashAsync(
         GitRepositorySnapshot repository,
         string? message,
