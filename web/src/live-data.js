@@ -526,6 +526,7 @@ async function loadReferences() {
       reattachTerminal();
       bindSettingsSave();
       bindConflictSave();
+      bindConflictDirtyTracking();
       if (window.__augitLive && window.__augitLive.search) bindSearchOverlay(window.__augitLive.search.kind);
       void refreshCommitDetails();
     }
@@ -1546,7 +1547,14 @@ async function applyWorkspaceChanges(changes) {
   if (relative.length > 0) {
     const hitsCurrent = currentPath !== null && relative.some((path) => path.toLowerCase() === currentPath.toLowerCase());
     const hitsDiff = diffPath !== null && relative.some((path) => path.toLowerCase() === diffPath.toLowerCase());
-    if (hitsDiff && diffPath) {
+    // 解决器打开的文件变化优先处理：它可能在用户有未保存内容时被外部改写（规格 §7.14）。
+    const conflictPath = live.conflictSessionView === "resolver" && live.conflict ? live.conflict.path : null;
+    const hitsConflict = conflictPath !== null
+      && relative.some((path) => path.toLowerCase() === conflictPath.toLowerCase());
+    if (hitsConflict) {
+      await recheckOpenConflict().catch(() => null);
+      touchedCurrent = true;
+    } else if (hitsDiff && diffPath) {
       // 只有当前差异对象本身变化才重新请求差异。
       await loadDiff(diffPath, { force: true }).catch(() => null);
       touchedCurrent = true;
@@ -1995,6 +2003,19 @@ function openConflictSession() {
   const host = document.querySelector(".augit-window");
   const session = live ? live.operationSession : null;
   if (!live || !host || !session) return;
+
+  // 有未保存内容或正在应用时**不重建**解决器（规格 §7.14）。
+  // 状态刷新会顺带重绘会话窗口，而重绘会替换结果区控件、丢掉选区、滚动与撤销记录——
+  // 那等于把用户的编辑悄悄扔掉（"保留当前内容"后尤其明显）。此时只补上可能缺失的询问层。
+  const editing = document.querySelector(
+    ".dialog.conflict-session-dialog .conflict-column.result .conflict-block");
+  if (editing && conflictSessionView() === "resolver" && (live.conflictDirty || live.conflictApplying)) {
+    if (live.conflictPending) {
+      showConflictMergePrompt(live.conflictPending);
+    }
+    return;
+  }
+
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
   document.querySelectorAll(".dialog.conflict-session-dialog").forEach((node) => {
     const owner = node.closest("[data-augit-overlay]") || node;
@@ -2021,9 +2042,15 @@ function openConflictSession() {
   }
 
   host.appendChild(layer);
+  // 询问层必须最后落上：本函数会清掉所有 live 覆盖层（外部修改时状态刷新也会触发一次重绘），
+  // 否则"重新载入 / 保留当前内容"会被悄悄抹掉，而用户以为自己已经选过了（规格 §7.14）。
+  if (live.conflictPending) {
+    showConflictMergePrompt(live.conflictPending);
+  }
   if (conflictSessionView() === "resolver") {
     bindConflictSave();
     bindConflictUndoRefresh();
+    bindConflictDirtyTracking();
     bindConflictCaretTracking();
     // 重绘会造出新的对话框节点：冻结标记与按计数恢复的按钮状态都要重新落上
     // （否则应用成功后重绘会让 data-conflict-applying 消失，读状态时得到 null）。
@@ -2234,6 +2261,9 @@ async function applyConflictResult() {
   }
 
   window.__augitConflictSaved = path;
+  // 正文已经写回磁盘：不再有未保存内容，也不再挂着外部修改的询问（规格 §7.14）。
+  live.conflictDirty = false;
+  live.conflictPromptVersion = null;
   // 解决一个冲突会改变未处理数量与 Continue 的可用性：重新读取会话（§9.3）。
   void loadOperationSession();
   return payload;
@@ -2324,6 +2354,147 @@ function bindConflictUndoRefresh() {
   });
 }
 
+/**
+ * 中央结果区是否有未保存的编辑（规格 §7.14）。
+ *
+ * 用户键入、以及"接受左侧/右侧/两侧"（结果区的一次可撤销编辑）都会触发 `input`；
+ * 载入新版本或应用成功后回到干净状态。这个标记决定外部变化时是自动同步还是必须先询问。
+ */
+function bindConflictDirtyTracking() {
+  const block = document.querySelector(".conflict-column.result .conflict-block");
+  if (!block || block.dataset.dirtyBound === "true") return;
+  block.dataset.dirtyBound = "true";
+  block.addEventListener("input", () => {
+    const live = window.__augitLive;
+    if (live) live.conflictDirty = true;
+  });
+}
+
+/** 两个磁盘版本是否相同（规格 §7.14：接纳新内容前先核对文件版本）。 */
+function conflictVersionEqual(left, right) {
+  if (!left || !right) return left === right;
+  return left.length === right.length
+    && left.sha256 === right.sha256
+    && left.lastWriteUtc === right.lastWriteUtc;
+}
+
+/**
+ * 解决器打开的文件被外部改动后重新核对（规格 §7.14）。
+ *
+ * 只读一次磁盘版本再决定，不直接改写界面状态：
+ * - 文件已不再是冲突（外部工具已解决）→ 关闭解决器，交给随后的状态刷新重建列表；
+ * - 版本未变 → 什么都不做（外部事件常成串到达，不能因此反复载入）；
+ * - 版本已变且中央**没有**未保存内容 → 自动接纳最新版本（§5.3 外部解决后自动同步）；
+ * - 版本已变且中央**有**未保存内容 → 显示"重新载入 / 保留当前内容"的模态选择。
+ *
+ * 读取期间用户可能已经编辑或关掉窗口，因此回到这里要**重新核对窗口、路径与未保存状态**，
+ * 而不是用发起读取时的判断。
+ */
+async function recheckOpenConflict() {
+  const live = window.__augitLive;
+  if (!live || !live.conflict) return null;
+  const path = live.conflict.path;
+  const previous = live.conflict.version;
+  const fresh = await invoke("git/conflict-load", { path }, 30000).catch(() => null);
+  if (!live.conflict || live.conflict.path !== path) return null;
+
+  if (!fresh || !fresh.available) {
+    if (live.conflictDirty) {
+      // 文件已不是冲突，但中央有未保存内容：**不清除正文**（规格 §7.14），只说明事实。
+      // 此时没有"重新载入"可言（磁盘上已没有可合并的版本），因此给提示而不是模态选择。
+      setConflictNotice("该文件已不在冲突状态；中央的未保存内容不会被写回，可以复制后关闭。");
+      return null;
+    }
+
+    live.conflict = null;
+    live.conflictDirty = false;
+    live.conflictPending = null;
+    live.conflictPromptVersion = null;
+    live.conflictSessionView = "list";
+    closeConflictMergePrompt();
+    return null;
+  }
+
+  if (conflictVersionEqual(previous, fresh.version)) return null;
+
+  if (!live.conflictDirty) {
+    live.conflict = fresh;
+    live.conflictPending = null;
+    live.conflictPromptVersion = null;
+    openConflictSession();
+    return fresh;
+  }
+
+  // 同一个磁盘版本只询问一次：一次外部写入会引发多个事件，不能弹成一串（§10.2）。
+  if (live.conflictPromptVersion && conflictVersionEqual(live.conflictPromptVersion, fresh.version)) {
+    return fresh;
+  }
+
+  showConflictMergePrompt(fresh);
+  return fresh;
+}
+
+/**
+ * 「中央有未保存内容且外部文件变化」的模态选择（规格 §7.14）。
+ *
+ * 视觉稿没有这一页（`conflict-resolver.html` 只画了三栏），因此沿用既有的确认对话框语言
+ * （`dialog()` + `info-block`，与"初始化仓库""关闭运行中终端"同构），不新增样式。
+ */
+function showConflictMergePrompt(fresh) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || !live.conflict) return null;
+  closeConflictMergePrompt();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "文件已被外部修改",
+    `<div class="info-block" style="width:auto;text-align:left"><h2>${escapeHtml(live.conflict.path)}</h2>`
+      + "<p>磁盘上的版本已经变化，而中央结果区还有未保存的内容。</p>"
+      + "<p>重新载入会丢弃中央的编辑并显示最新内容；保留当前内容不会改动正文、选区、滚动和撤销记录。</p></div>",
+    '<button type="button" class="secondary-button" data-conflict-keep>保留当前内容</button>'
+      + '<button type="button" class="primary-button" data-conflict-reload>重新载入</button>',
+    true,
+    "conflict-external-dialog");
+  host.appendChild(layer);
+  live.conflictPending = fresh;
+  live.conflictPromptVersion = fresh.version;
+  window.__augitConflictPrompt = live.conflict.path;
+  return layer;
+}
+
+/** 关闭外部修改的询问层（不改变正文内容）。 */
+function closeConflictMergePrompt() {
+  const live = window.__augitLive;
+  if (live) live.conflictPending = null;
+  document.querySelectorAll(".dialog.conflict-external-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  window.__augitConflictPrompt = null;
+}
+
+/** 选择「重新载入」：接纳外部版本，中央的未保存编辑被丢弃。 */
+function applyPendingConflictReload() {
+  const live = window.__augitLive;
+  const fresh = live && live.conflictPending ? live.conflictPending : null;
+  closeConflictMergePrompt();
+  if (!live || !fresh) return null;
+  live.conflict = fresh;
+  live.conflictDirty = false;
+  live.conflictPromptVersion = null;
+  // 重绘会重建结果主体控件，撤销记录随新的磁盘内容一起重来（这是"重新载入"的定义）。
+  openConflictSession();
+  return fresh;
+}
+
+/** 选择「保留当前内容」：只收起询问，正文控件、选区、滚动与撤销记录都不动。 */
+function keepConflictEdits() {
+  closeConflictMergePrompt();
+  return null;
+}
+
 /** 回到冲突列表视图（视觉稿的「返回冲突列表」）。 */
 function returnToConflictList() {
   const live = window.__augitLive;
@@ -2412,6 +2583,10 @@ async function loadConflict(path) {
     const live = window.__augitLive;
     if (live && conflict && conflict.available) {
       live.conflict = conflict;
+      // 刚载入的正文与磁盘一致：没有未保存内容，也没有待处理的询问（规格 §7.14）。
+      live.conflictDirty = false;
+      live.conflictPromptVersion = null;
+      live.conflictPending = null;
     }
     return live ? live.conflict : null;
   } catch (error) {
@@ -3045,6 +3220,21 @@ function guardUnwiredNavigation() {
     if (conflictRow) {
       event.preventDefault();
       void openConflictFile(conflictRow.dataset.conflictPath);
+      return;
+    }
+
+    // 外部修改后的模态选择（规格 §7.14）。
+    const conflictReload = event.target.closest && event.target.closest("[data-conflict-reload]");
+    if (conflictReload) {
+      event.preventDefault();
+      applyPendingConflictReload();
+      return;
+    }
+
+    const conflictKeep = event.target.closest && event.target.closest("[data-conflict-keep]");
+    if (conflictKeep) {
+      event.preventDefault();
+      keepConflictEdits();
       return;
     }
 

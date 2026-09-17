@@ -203,6 +203,12 @@ async function main() {
         },
       },
     };
+    // 宿主推送（真实外壳的 workspace-changed 走这里）。事件消息不带 id，
+    // 与请求应答天然区分；测试用它可以确定性地触发一次变化，而不靠兜底轮询。
+    window.__hostPush = (event, payload) => {
+      for (const handler of listeners) handler({ data: JSON.stringify({ event, payload }) });
+      return listeners.length;
+    };
   };
 
   const stubData = (data) => {
@@ -395,7 +401,7 @@ async function main() {
         if (window.__conflictSaveDelays) {
           await new Promise((r) => setTimeout(r, window.__conflictSaveDelays));
         }
-        if (window.__conflictSaveFails) return { available: true, saved: false, reason: '文件已被外部修改。' };
+        if (window.__conflictSaveFails) return { available: true, saved: false, reason: '冲突文件已被外部工具修改，请先选择重新载入或保留当前编辑内容。' };
         return { available: true, saved: true };
       }
       if (method === 'git/conflict-accept') {
@@ -6143,7 +6149,9 @@ async function main() {
     crCheck('应用失败保留正文并显示原因与未改变说明: '
       + JSON.stringify([cfFailed && cfFailed.notice, cfFailed && cfFailed.text === textBeforeFailure]),
     cfFailed !== null && cfFailed.dialogs === 1 && typeof cfFailed.notice === 'string'
-      && cfFailed.notice.includes('文件已被外部修改') && cfFailed.notice.includes('没有被修改')
+      // 与宿主 SaveResolvedAsync 的真实文案一致（版本不匹配时给出的下一步）。
+      && cfFailed.notice.includes('冲突文件已被外部工具修改') && cfFailed.notice.includes('重新载入')
+      && cfFailed.notice.includes('没有被修改')
       && cfFailed.text === textBeforeFailure && cfFailed.editable === 'plaintext-only');
     crCheck('应用失败后按实际未处理数恢复动作: '
       + JSON.stringify([cfFailed && cfFailed.acceptDisabled, cfFailed && cfFailed.saveDisabled]),
@@ -6266,6 +6274,257 @@ async function main() {
 
     if (cnSoft.length > 0) {
       throw new Error('断言失败：' + cnSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.14：中央有未保存内容且外部文件变化时的模态选择 ----
+    // 没有未保存内容时自动接纳最新版本；有未保存内容时**不得**改写正文，必须先问。
+    const exSoft = [];
+    const exCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      exSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const ex = await openScene('scene=commit-changes&theme=dark');
+    await ex.page.bringToFront();
+    await ex.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await ex.page.evaluate(() => {
+      window.__conflictLoads = [];
+      window.__conflictSaves = [];
+      window.__conflictSaveFails = false;
+      window.__conflictFixture = {
+        available: true, path: 'src/App.cs', contentKind: 'Text',
+        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+        yoursText: '第一行\n左方改动\n第三行',
+        theirsText: '第一行\n右方改动\n第三行',
+        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
+        operation: 'Merge',
+        version: { length: 42, sha256: 'v1', lastWriteUtc: '2026-09-15T00:00:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+      };
+      window.__operationSession = {
+        kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
+      };
+      window.__statusOperation = 'Merge';
+      window.__statusConflicts = true;
+      window.__nextChanges = { files: [], gitMetadata: true };
+      void window.__augitLoadOperation();
+    });
+    await ex.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
+    await ex.page.evaluate(() => {
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
+
+    const exState = () => ex.page.evaluate(() => ({
+      prompt: !!document.querySelector('.dialog.conflict-external-dialog'),
+      result: (() => {
+        const block = document.querySelector('.conflict-column.result .conflict-block');
+        return block ? block.innerText.replace(/\s+/g, '') : null;
+      })(),
+      dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
+      loads: (window.__conflictLoads || []).length,
+      view: window.__augitLive ? window.__augitLive.conflictSessionView : null,
+    }));
+
+    // 对照组：无关文件变化既不能询问、也不能重新载入解决器。
+    // 用 gitMetadata 让这批变化必然触发一次状态查询，从而证明"批次确实到达并被处理"——
+    // 否则"什么都没发生"也可能只是因为批次没送到（这正是本段第一次跑时的假绿）。
+    const exBefore = await exState();
+    const exStatusBefore = await ex.page.evaluate('window.__statusCalls || 0');
+    await ex.page.evaluate(() => {
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\unrelated.md'], gitMetadata: true });
+    });
+    await ex.page.waitForFunction(
+      `(window.__statusCalls || 0) > ${exStatusBefore}`, null, { timeout: 10000 }).catch(() => {});
+    await ex.page.waitForTimeout(300);
+    const exUnrelated = await exState();
+    exCheck('对照：无关文件变化不询问也不重新载入解决器: '
+      + JSON.stringify([exUnrelated.prompt, exUnrelated.loads, exBefore.loads, exUnrelated.result === exBefore.result]),
+    exUnrelated.prompt === false && exUnrelated.loads === exBefore.loads
+      && exUnrelated.result === exBefore.result);
+
+    // 无未保存内容 + 外部变化 → 自动接纳最新版本。
+    await ex.page.evaluate(() => {
+      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
+        resultText: '第一行\n<<<<<<< HEAD\n外部左侧\n=======\n外部右侧\n>>>>>>> feature/ux\n第三行',
+        version: { length: 60, sha256: 'v2', lastWriteUtc: '2026-09-15T00:01:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '外部左侧', ancestor: null, theirs: '外部右侧' }],
+      });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForFunction(
+      "() => { const b = document.querySelector('.conflict-column.result .conflict-block'); return !!b && b.innerText.includes('外部左侧'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    const exAuto = await exState();
+    exCheck('无未保存内容时外部变化自动接纳最新版本且不询问: ' + JSON.stringify([exAuto.result, exAuto.prompt, exAuto.loads]),
+      exAuto.prompt === false && exAuto.loads > exUnrelated.loads && exAuto.dirty === false
+        && exAuto.result.includes('外部左侧') && exAuto.result.includes('<<<<<<<'));
+
+    // 有未保存内容 + 外部变化 → 模态选择，且正文保持用户内容。
+    await ex.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-side="yours"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForTimeout(200);
+    const exEdited = await exState();
+    exCheck('编辑结果区后进入未保存状态: ' + JSON.stringify([exEdited.dirty, exEdited.result]),
+      exEdited.dirty === true && exEdited.result === '第一行外部左侧第三行');
+
+    await ex.page.evaluate(() => {
+      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
+        resultText: '第一行\n<<<<<<< HEAD\n外部第三次左\n=======\n外部第三次右\n>>>>>>> feature/ux\n第三行',
+        version: { length: 70, sha256: 'v3', lastWriteUtc: '2026-09-15T00:02:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '外部第三次左', ancestor: null, theirs: '外部第三次右' }],
+      });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
+    const exPrompt = await ex.page.evaluate(() => {
+      const prompt = document.querySelector('.dialog.conflict-external-dialog');
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      return {
+        prompt: !!prompt,
+        text: prompt ? prompt.innerText.replace(/\s+/g, ' ').trim() : null,
+        keep: !!(prompt && prompt.querySelector('[data-conflict-keep]')),
+        reload: !!(prompt && prompt.querySelector('[data-conflict-reload]')),
+        result: block ? block.innerText.replace(/\s+/g, '') : null,
+        dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
+        saves: (window.__conflictSaves || []).length,
+      };
+    });
+    exCheck('有未保存内容时外部变化必须询问，且原文一字未改: ' + JSON.stringify([exPrompt.prompt, exPrompt.result, exPrompt.keep, exPrompt.reload, exPrompt.saves]),
+      exPrompt.prompt === true && exPrompt.keep === true && exPrompt.reload === true
+        && exPrompt.result === '第一行外部左侧第三行' && exPrompt.dirty === true && exPrompt.saves === 0);
+    exCheck('询问说明两种选择的后果: ' + JSON.stringify(exPrompt.text),
+      typeof exPrompt.text === 'string' && exPrompt.text.includes('src/App.cs')
+        && exPrompt.text.includes('重新载入') && exPrompt.text.includes('保留当前内容'));
+
+    // 「保留当前内容」：只收起询问，正文/选区/撤销记录都不动；同一磁盘版本不再重复询问。
+    await ex.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-keep]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForTimeout(300);
+    const exKept = await exState();
+    exCheck('保留当前内容后正文不变、未保存状态保留: ' + JSON.stringify([exKept.prompt, exKept.result, exKept.dirty]),
+      exKept.prompt === false && exKept.result === '第一行外部左侧第三行' && exKept.dirty === true);
+    // 撤销记录仍可用：撤销应把"左方改动"还原成冲突标记块。
+    await ex.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      block.focus();
+      document.execCommand('undo');
+    });
+    await ex.page.waitForTimeout(200);
+    const exUndone = await exState();
+    exCheck('保留当前内容不清空撤销记录（撤销后冲突块回来）: ' + JSON.stringify(exUndone.result),
+      typeof exUndone.result === 'string' && exUndone.result.includes('<<<<<<<'));
+
+    // 同一磁盘版本再次上报（一次外部写入常引发多个事件）不得重复询问。
+    const exLoadsBeforeRepeat = await ex.page.evaluate('(window.__conflictLoads || []).length');
+    await ex.page.evaluate(() => {
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForFunction(
+      `(window.__conflictLoads || []).length > ${exLoadsBeforeRepeat}`, null, { timeout: 10000 }).catch(() => {});
+    await ex.page.waitForTimeout(300);
+    const exRepeat = await exState();
+    exCheck('同一磁盘版本不重复询问: ' + JSON.stringify([exRepeat.prompt, exRepeat.loads]),
+      exRepeat.prompt === false && exRepeat.loads > exAuto.loads);
+
+    // 新的磁盘版本 → 再次询问；这次选择「重新载入」。
+    await ex.page.evaluate(() => {
+      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
+        resultText: '第一行\n外部第四次结果\n第三行',
+        version: { length: 80, sha256: 'v4', lastWriteUtc: '2026-09-15T00:03:00Z' },
+        blocks: [],
+      });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
+    await ex.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-reload]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForFunction(
+      "() => { const b = document.querySelector('.conflict-column.result .conflict-block'); return !!b && b.innerText.includes('外部第四次结果'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    const exReloaded = await exState();
+    exCheck('重新载入接纳外部版本并回到干净状态: ' + JSON.stringify([exReloaded.prompt, exReloaded.result, exReloaded.dirty]),
+      exReloaded.prompt === false && exReloaded.result === '第一行外部第四次结果第三行' && exReloaded.dirty === false);
+
+    // 外部工具把文件解决掉：解决器收起，回到冲突列表（§5.3 自动同步最新状态）。
+    await ex.page.evaluate(() => {
+      window.__conflictFixture = { available: false, reason: '该文件已不再处于冲突状态。' };
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForFunction(
+      'window.__augitLive && window.__augitLive.conflict === null', null, { timeout: 10000 }).catch(() => {});
+    await ex.page.waitForTimeout(300);
+    const exResolved = await ex.page.evaluate(() => ({
+      columns: !!document.querySelector('.conflict-columns'),
+      conflict: !!(window.__augitLive && window.__augitLive.conflict),
+      view: window.__augitLive ? window.__augitLive.conflictSessionView : null,
+    }));
+    exCheck('外部解决后收起解决器并回到冲突列表: ' + JSON.stringify(exResolved),
+      exResolved.columns === false && exResolved.conflict === false && exResolved.view === 'list');
+
+    // 文件已被外部解决、而中央仍有未保存内容：不得静默清掉正文（规格 §7.14）。
+    await ex.page.evaluate(() => {
+      // 把文件恢复成冲突，重新打开解决器并做一次用户编辑。
+      window.__conflictFixture = {
+        available: true, path: 'src/App.cs', contentKind: 'Text',
+        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+        yoursText: '第一行\n左方改动\n第三行',
+        theirsText: '第一行\n右方改动\n第三行',
+        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
+        operation: 'Merge',
+        version: { length: 90, sha256: 'v6', lastWriteUtc: '2026-09-15T00:04:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+      };
+      // 先按真实行为返回冲突列表：解决器视图里没有冲突文件行。
+      const back = document.querySelector('[data-conflict-back]');
+      if (back) back.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
+    await ex.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-side="yours"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await ex.page.waitForTimeout(200);
+    const exDirtyAgain = await exState();
+    exCheck('重新打开并编辑后再次进入未保存状态: ' + JSON.stringify([exDirtyAgain.dirty, exDirtyAgain.result]),
+      exDirtyAgain.dirty === true && exDirtyAgain.result === '第一行左方改动第三行');
+    await ex.page.evaluate(() => {
+      window.__conflictFixture = { available: false, reason: '该文件已不再处于冲突状态。' };
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await ex.page.waitForFunction(
+      "() => { const n = document.querySelector('.conflict-session-dialog .conflict-notice'); return !!n && !n.hidden; }",
+      null, { timeout: 10000 }).catch(() => {});
+    await ex.page.waitForTimeout(300);
+    const exResolvedDirty = await ex.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
+      return {
+        columns: !!document.querySelector('.conflict-columns'),
+        conflict: !!(window.__augitLive && window.__augitLive.conflict),
+        result: block ? block.innerText.replace(/\s+/g, '') : null,
+        notice: notice ? notice.textContent.trim() : null,
+      };
+    });
+    exCheck('外部解决但中央有未保存内容时保留正文并说明事实: ' + JSON.stringify(exResolvedDirty),
+      exResolvedDirty.columns === true && exResolvedDirty.conflict === true
+        && exResolvedDirty.result === '第一行左方改动第三行'
+        && typeof exResolvedDirty.notice === 'string' && exResolvedDirty.notice.includes('不在冲突状态'));
+    await ex.page.close();
+
+    if (exSoft.length > 0) {
+      throw new Error('断言失败：' + exSoft.join(' | '));
     }
 
     // ---- 规格 §7.14：二进制 / 非法 UTF-8 / 超限文件只能整侧接受 ----
