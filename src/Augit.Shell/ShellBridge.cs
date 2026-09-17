@@ -739,104 +739,18 @@ internal sealed class ShellBridge : IDisposable
     /// <remarks>
     /// 由宿主执行而不是网页层：WebView2 默认不授予 `ClipboardApiRequested`，
     /// 页面里 `navigator.clipboard.writeText` 会静默失败（无头 Chromium 里实测为 null）。
-    /// 用 Win32 剪贴板 API 而不是 WinForms：只为一次复制引入整个 WinForms，
-    /// 会与 app.manifest 的自定义 DPI 设置冲突。
+    /// Win32 调用的具体实现放在基础设施层的 <see cref="ClipboardText"/>，那里可被测试覆盖。
     /// </remarks>
     private static object WriteClipboard(JsonElement parameters)
     {
         string text = GetString(parameters, "text") ?? string.Empty;
-        if (text.Length == 0)
+        ClipboardWriteResult result = ClipboardText.TrySetText(text);
+        return new
         {
-            return new { copied = false, reason = "没有可复制的文本。" };
-        }
-
-        if (!OpenClipboard(IntPtr.Zero))
-        {
-            return new { copied = false, reason = "系统剪贴板当前被其他程序占用。" };
-        }
-
-        IntPtr handle = IntPtr.Zero;
-        try
-        {
-            if (!EmptyClipboard())
-            {
-                return new { copied = false, reason = "系统剪贴板当前不可用。" };
-            }
-
-            // CF_UNICODETEXT：按 UTF-16 写入并以 NUL 结尾。
-            int bytes = (text.Length + 1) * 2;
-            handle = GlobalAlloc(GlobalMemoryMoveable, (UIntPtr)bytes);
-            if (handle == IntPtr.Zero)
-            {
-                return new { copied = false, reason = "系统内存不足，无法复制。" };
-            }
-
-            IntPtr target = GlobalLock(handle);
-            if (target == IntPtr.Zero)
-            {
-                return new { copied = false, reason = "系统剪贴板当前不可用。" };
-            }
-
-            try
-            {
-                System.Runtime.InteropServices.Marshal.Copy(text.ToCharArray(), 0, target, text.Length);
-                System.Runtime.InteropServices.Marshal.WriteInt16(target, text.Length * 2, 0);
-            }
-            finally
-            {
-                GlobalUnlock(handle);
-            }
-
-            if (SetClipboardData(UnicodeTextFormat, handle) == IntPtr.Zero)
-            {
-                return new { copied = false, reason = "系统剪贴板当前不可用。" };
-            }
-
-            // 交给系统后不再释放：所有权已转移给剪贴板。
-            handle = IntPtr.Zero;
-            return new { copied = true };
-        }
-        finally
-        {
-            if (handle != IntPtr.Zero)
-            {
-                GlobalFree(handle);
-            }
-
-            CloseClipboard();
-        }
+            copied = result.IsSuccess,
+            reason = result.ErrorMessage,
+        };
     }
-
-    private const uint GlobalMemoryMoveable = 0x0002;
-    private const uint UnicodeTextFormat = 13;
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool OpenClipboard(IntPtr owner);
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool CloseClipboard();
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool EmptyClipboard();
-
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr SetClipboardData(uint format, IntPtr data);
-
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GlobalAlloc(uint flags, UIntPtr bytes);
-
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GlobalLock(IntPtr handle);
-
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool GlobalUnlock(IntPtr handle);
-
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GlobalFree(IntPtr handle);
 
     /// <summary>读取当前设置。</summary>
     private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
