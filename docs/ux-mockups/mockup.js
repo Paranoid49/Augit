@@ -1953,20 +1953,22 @@ function statusRefreshNotice() {
  * 否则两处标记迟早漂移（规格 §6.4 要求部分变化时复用未变化的行）。
  * `group` 是界面标签（Changes / Unversioned Files），不是宿主的 group 值。
  */
-function liveChangeFileRow(file, group, selectedName) {
+function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
   const isSelected = selectedName === file.name;
   return `
-      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
+      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
         <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
         <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
       </div>`;
 }
 
 /** 分组头**只含表头**：行由调用方拼在后面（这里多拼一次会让每行渲染两遍）。 */
-function liveChangeGroupRow(label, groupFiles) {
+// id 与视觉稿样例保持一致（change-group-N）：逐页对照按属性逐项比对，
+// 缺一个 id 就是一处可见差异；顺序由调用方按分组顺序给出。
+function liveChangeGroupRow(label, groupFiles, groupIndex = 0) {
   const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
   const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
-  return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>`;
+  return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false" id="change-group-${groupIndex}"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>`;
 }
 
 function liveChangesSide(selected) {
@@ -1978,11 +1980,13 @@ function liveChangesSide(selected) {
     return emptyChangesSide();
   }
 
-  const changeRows = groups.map(([key, label]) => {
+  // 文件行的 id 连续编号（视觉稿样例用 change-file-<序号>）：分组之间不重新起算。
+  let changeFileIndex = 0;
+  const changeRows = groups.map(([key, label], groupIndex) => {
       const groupFiles = status.files.filter(file => file.group === key);
       if (groupFiles.length === 0) return "";
-      return liveChangeGroupRow(label, groupFiles) + groupFiles.map(
-        file => liveChangeFileRow(file, label, selected)).join("");
+      return liveChangeGroupRow(label, groupFiles, groupIndex) + groupFiles.map(
+        file => liveChangeFileRow(file, label, selected, changeFileIndex++)).join("");
     }).join("");
   const changed = status.files.filter(file => file.group === "Changes").length;
   return `
