@@ -9552,3 +9552,28 @@ SHAPE 21 项：MISSING-IN-LIVE .search-overlay/div[2] <search-results> 及其全
 `bindCurrentFind`（模块已加载）、`bindImagePreview`（第 259 轮已修）、
 `__augitCloneRequest`、`__augitLoadDiffMode`（`live-data.js:832` 定义）**均已满足**，
 即"模块没被加载"这类缺陷只有 image-preview 一处，已修复（本轮审计确认无第二处）。
+
+#### 第 261 轮：搜索结果"缺失"澄清 —— **结果不在浮层里**（159 条真实存在）
+
+先用探针直读 live 状态（`-Scene repository-search`，向 `.search-field` 输入 `product` 并等 4 秒）：
+
+```
+SEARCH {"search":{"kind":"repository","q":"product","matches":159,"notice":null},
+        "results":159,"rows":1,"field":true,"err":[]}
+```
+
+**搜索功能完全正常**：`live.search.matches = 159`、页面里 `.search-result` 也有 **159** 个。
+
+但用 dump 工具（`-Selectors .search-overlay`）抓同一场景时，浮层里**没有** `search-results` 子树 ——
+两者并不矛盾：**那 159 条结果不在 `.search-overlay` 内部**，而在别的容器里
+（PyCharm 的仓库搜索本来就把结果放在**工具窗口**里，浮层只承担查询输入）。
+
+**同轮修掉的工具缺陷**：`-SetQuery` 原来选的是
+`document.querySelector('.search-overlay input')`，而真正的输入框是 **`.search-field`**；
+虽然第一次也报 `typed:product`（写到了别的 input 上），但搜索根本没被触发 ——
+改成 `.search-field` 后才与探针一致。（**教训同第 259 轮：先确认选择器/接线，再判断产品行为。**）
+
+**下一轮做法**：用 dump 抓 `.augit-window`（配合 `-Prune`）并定位 `.search-results` 的实际父容器，
+与规格 §仓库搜索（"结果按文件与命中行显示"、与工具窗口的关系）以及
+`docs/ux-mockups/repository-search.html` 的样例摆放逐项核对，判断差异属于
+"实现位置不同"还是"视觉稿场景本身是覆盖层的变体"，再决定改哪一侧。

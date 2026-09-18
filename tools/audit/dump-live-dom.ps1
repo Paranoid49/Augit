@@ -134,7 +134,7 @@ $socket = Get-CdpSocket $Port
 # SyntaxError ("Unexpected token 'const'") on the first run of this script.
 if ($SetQuery -ne "") {
   $queryJson = ConvertTo-Json $SetQuery -Compress
-  $typed = Invoke-Cdp $socket "(()=>{const i=document.querySelector('.search-overlay input')||document.querySelector('input');if(!i)return 'no-input';i.value=$queryJson;i.dispatchEvent(new Event('input',{bubbles:true}));return 'typed:'+i.value})()" 8
+  $typed = Invoke-Cdp $socket "(()=>{const i=document.querySelector('.search-overlay .search-field');if(!i)return 'no-input';i.value=$queryJson;i.dispatchEvent(new Event('input',{bubbles:true}));return 'typed:'+i.value})()" 8
   Write-Output ("SET_QUERY " + $typed)
   Start-Sleep -Milliseconds 1500
   [void](Invoke-Cdp $socket "new Promise(r=>{const t=Date.now();const i=setInterval(()=>{if(window.__augitSearchReady||Date.now()-t>8000){clearInterval(i);r(true)}},200)})" 9 20)
