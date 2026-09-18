@@ -2,7 +2,7 @@
 function bindImagePreview() {
   const stage = document.querySelector('.image-stage');
   if (!stage) return;
-  const picture = stage.querySelector('img');
+  let picture = stage.querySelector('img');
   const label = document.querySelector('.image-zoom-label');
   const smaller = document.querySelector('[aria-label="缩小"]');
   const larger = document.querySelector('[aria-label="放大"]');
@@ -16,6 +16,10 @@ function bindImagePreview() {
     stage.append(status);
   }
   let fit = true, scale = 1, panX = 0, panY = 0, drag = null;
+  // 图片异步解码：绑定时刻 naturalWidth 通常还是 0，render() 会直接返回，
+  // 于是"适应区域"从未生效、图片停在原始尺寸并溢出画布（第 257 轮真机 1920×1200 vs 视觉稿 753×471）。
+  // load 不冒泡但可捕获，因此监听挂在持久的 stage 上；节点被替换后新图片的 load 同样能捕获到。
+  stage.addEventListener("load", () => { fit = true; panX = panY = 0; render(); }, true);
   let wheelZoom = 0, wheelMode = '';
   function resetWheel() { wheelZoom = 0; wheelMode = ''; }
   function endDrag() {
@@ -28,7 +32,9 @@ function bindImagePreview() {
     return zoomIn ? steps.find(value => value > current + .0001) ?? 8 : steps.findLast(value => value < current - .0001) ?? .1;
   }
   function render() {
-    if (!picture.naturalWidth) return;
+    // 每次渲染前重新解析当前 <img>：图片节点可能已被替换（实时外壳在 dataUrl 到达后重建正文）。
+    picture = stage.querySelector('img') || picture;
+    if (!picture || !picture.naturalWidth) return;
     const dpi = devicePixelRatio || 1;
     const width = Math.round(stage.clientWidth * dpi), height = Math.round(stage.clientHeight * dpi);
     if (fit) scale = Math.min(1, Math.max(1, width - Math.round(64 * dpi)) / picture.naturalWidth,

@@ -9488,3 +9488,41 @@ FIT {"img":[1920,1200,1920,1200],"stage":[817,616],"zoom":"100%","spinClass":""}
 **同轮遗留小项**：那个 `conic-gradient` 元素 `className` 为**空字符串**（`spinClass:""`），
 既不是具名棋盘格也不是具名加载指示 —— 下一轮用 `tagName/父级类/伪元素`进一步确认
 （若它属于 `.image-stage` 的透明棋盘格，则与加载态无关）。
+
+#### 第 259 轮：图片"适应区域"缺陷的真正根因 —— **`image-preview.js` 从未被加载**
+
+第 257/258 轮两次改共享模块都"实测未生效"，本轮查 `web/index.html` 的脚本清单：
+
+```
+<script src="src/current-find.js" defer></script>
+<script type="module" src="src/live-data.js"></script>      ← 只有这两个
+```
+
+**`src/image-preview.js` 根本没有被加载**。而 `mockup.js` 的 `bindInteractions()` 里是
+`if (typeof bindImagePreview === "function") bindImagePreview();` —— 这个守卫本意是
+"视觉稿页面没有该模块时跳过"，但在实时外壳里同样为假，于是**静默跳过**：
+图片文档只被平铺成原始尺寸，缩放/拖动/"适应区域"全部不存在，
+前面两轮改的代码自然一点作用都没有（改到了一个从未执行的函数里）。
+
+**修复**：`web/index.html` 增加 `<script src="src/image-preview.js" defer></script>`
+（与 `current-find.js` 同一方式；该模块定义全局 `bindImagePreview`，defer 顺序满足要求）。
+第 257/258 轮的两处改动**保留**：它们正是"图片异步解码完成后重算适应"的实现
+（`render()` 重新解析 `<img>` + 在 stage 上捕获 `load`），现在才真正被执行到。
+
+**真机验证**（`-Scene image-preview -Open web/image-sample.png`）：
+
+| | 修复前（第 258 轮） | 修复后（本轮） |
+|---|---|---|
+| `img` 显示尺寸 | 1920 × 1200（原始、溢出画布） | **753 × 471（适应区域）** |
+| 舞台尺寸 | 817 × 616 | 817 × 616 |
+| 缩放标签 | 100% | **39%** |
+
+**与视觉稿一致**：视觉稿样例的 `img` 矩形同为 **753 × 471** ✓ ——
+即 `image-preview` 页在真实图片下与视觉稿**完全对齐**（此前 3 项 LAYOUT 中最后一项也消失了）。
+
+**回归验证**：`live-shell` **862/862**、`mockup-scenes` **48/48 × 2 主题**、
+`verify-ui-assets` PASS（两处 `image-preview.js` 副本字节一致）。
+
+**方法论沉淀（第 4 次同类）**：改了两处代码都"实测无效"时，**要立刻怀疑"代码根本没被执行"**，
+先查加载/接线/守卫，而不是继续在实现细节里找原因 —— 这与前面 `-CleanSession`、
+字体默认值、load 重算三次无效尝试是同一类教训，这次终于定位到了"模块没被加载"这一层。
