@@ -8790,3 +8790,29 @@ live-shell 失败：断言失败：显式文档参数存在时不恢复会话:
 
 恢复集合里的 `docs/product-spec.md` 如实被恢复出来 ✗ —— 断言确实盯住了这条修复，
 随后 `cp` 恢复守卫并 `node --check` 通过（守卫仍在，`grep` 计数 1）。
+
+#### 第 231 轮：blame 文档工具栏的差异形状（从签名读出，下一轮逐项修）
+
+从 `live-bl5.json` 读编辑区顶层结构（实时侧）：
+
+```
+.editor-area  <editor-area>  ''
+.editor-area/div[0]  <editor-tabs>  ''
+.editor-area/div[0]/a[0]  <editor-tab>  'THIRD-PARTY-NOTICES.md'
+.editor-area/div[0]/a[0]/svg[0]  <file-type-icon file-type-markdown>  ''
+.editor-area/div[0]/a[1]  <editor-tab>  'roadmap.md'
+.editor-area/div[0]/a[1]/svg[0]  <file-type-icon file-type-markdown>  ''
+.editor-area/div[0]/a[2]  <editor-tab active>  'product-spec.md'
+.editor-area/div[0]/a[2]/svg[0]  <file-type-icon file-type-markdown>  ''
+.editor-area/div[0]/span[3]  <span>  ''
+.editor-area/div[0]/button[4]  <icon-button>  ''
+.editor-area/div[0]/button[4]/svg[0]  <augit-toolbar-icon>  ''
+.editor-area/div[1]  <editor-content>  ''
+```
+
+**形状判读**：实时侧的文档工具栏里有一个独立元素 `span.document-path`（带该文件路径），
+而视觉稿在同一位置是 `span.grow` 空档 —— 也就是说**实时外壳在 blame 文档标签栏上多渲染了一个路径元素**，
+并把剩下的空档压缩；对应的 `color/overflow/border` 差异都是这个结构差异的派生。
+这不是"内容条件样式"（该元素在样例里根本不存在），因此属于**候选真实差异**，
+下一轮按 `.document-path` 的来源（是 live 侧新加，还是视觉稿在别的场景里也有）逐项核对后决定：
+对齐视觉稿（去掉/合并到工具栏已有元素）或补充视觉稿（若规格要求显示路径）。
