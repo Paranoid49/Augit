@@ -9703,3 +9703,32 @@ LAYOUT 差异 5 项：
 **本轮累计（④ 的"已核对对齐"清单）**：全局 chrome、git-history、commit-changes、commit-diff、
 settings、terminal、conflict-resolver、file-history、image-preview、repository-search、
 quick-open、markdown-preview —— 共 **12 个页面/区域**已逐项核对，其中 8 处修复过真实缺陷。
+
+#### 第 267 轮：`text-viewer` 真实文档对照 —— 结构一致（差异是"查找条是否打开"的状态）
+
+第一次用 `README.md` 对照时**不可比**：README 是 Markdown，实时侧渲染成
+`document-view markdown-document`（两行栅格、工具栏是 `ellipsis-vertical`），
+而视觉稿 `text-viewer` 样例画的是**纯文本**视图（`pilcrow` 图标）。
+换成真实纯文本文件 `.editorconfig` 后对照（节点 94 / 63）：
+
+```
+scene=text-viewer 节点数 视觉稿=94 实时=63
+LAYOUT 差异 2 项：
+  .editor-area/div[1]/div[0] <div class="document-view">
+      gridTemplateRows: 视觉稿="36px 42px 574px" 实时="36px 616px"
+  .editor-area/div[1]/div[0]/div[1] <div class="current-find">
+      cls: 视觉稿="current-find" 实时="code-view"
+      rect: 视觉稿=[356,122,817,42] 实时=[356,122,817,616]
+      display: 视觉稿="grid" 实时="block"
+      position: 视觉稿="relative" 实时="static"
+```
+
+**判读**：只剩 **2 项**，且是**同一个状态差异** —— 视觉稿样例把
+**查找条 `.current-find`（42px 行）画成打开**，实时侧没有查找条
+（`div[1]` 是正文 `code-view`，`grid-template-rows` 因此只有两行）。
+查找条由 Ctrl+F 触发，属于用户操作状态，不是实现差异 ✓。
+
+**结论**：`text-viewer` 页的工具栏、路径、正文排版与视觉稿一致；
+需要在"打开查找条"状态下比对时，应另用 `current-find` 相关场景或先派发 Ctrl+F。
+（**顺带的方法论**：对照前必须先确认**文档类型与视图模式**一致 ——
+README.md 被分类为 Markdown 就是一次"苹果比橘子"，与第 244 轮的字体规则、"内容条件样式"同一族。）
