@@ -9078,3 +9078,22 @@ Windows WebView2（实时侧）  : 124.20 px      → 相差 13.0 px（11.7%）
 **下一步（可执行）**：把 `dump-live-dom.ps1` 的 `-FontFamily` 默认值从
 `Microsoft YaHei UI` 换成两平台都有的字体（如 `Arial`），在两侧同一度量下重跑
 `commit-diff` 与 blame 的定点对照 → 若那些 1~3 像素差消失，则这条规则得到闭环验证。
+
+#### 第 243 轮：字体规则闭环失败 —— 根因是 `compare-dom.cjs` 没有把字体参数带给视觉稿侧
+
+按第 242 轮的"下一步"把 `dump-live-dom.ps1` 的默认字体改成两平台都有的 `Arial` 后重跑
+`commit-diff`：差异从 16 项**涨到 52 项**，且形状全变了 ——
+
+```
+.editor-area                  fontFamily: 视觉稿="Microsoft YaHei UI"  实时="Arial"
+.editor-area/div[0]/a[0]      fontFamily: 视觉稿="Microsoft YaHei UI"  实时="Arial"
+```
+
+**根因**：`compare-dom.cjs` 渲染视觉稿页时**只带 `?theme=`，没有带 `ui-size/code-size/ui-family`**，
+所以字体只改了实时侧 —— 两侧反而更不一致。**真正要修的是对照工具**：让 `compare-dom.cjs`
+从 dump JSON 里读 `fontFamily/fontSize`（dump 已记录）并拼进视觉稿页面的查询串，
+使两侧始终按同一字体、同一字号比较。
+
+**本轮处理**：**已把默认值改回 `Microsoft YaHei UI`**（不留"只改一半"的中间状态），
+并把上面这条一行修复列为下一轮第一件事（改完再按第 242 轮的规则验证：
+`commit-diff` 的 2 像素文字差是否消失/是否可按规则归类）。
