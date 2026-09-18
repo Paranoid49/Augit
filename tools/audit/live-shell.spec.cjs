@@ -658,6 +658,16 @@ async function main() {
         }
         if (delay) await new Promise((r) => setTimeout(r, delay));
         if (window.__limitDocs && window.__limitDocs[params.path]) return window.__limitDocs[params.path];
+        // 图片载荷：宿主会返回 dataUrl 与像素尺寸，桩必须给出同样的形状，
+        // 否则前端"搬运 dataUrl"这条接线无法被断言覆盖。
+        if (/\.png$/i.test(params.path)) {
+          return {
+            path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
+            workspaceName: 'live-ws', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像',
+            fileSize: 8, dataUrl: 'data:image/png;base64,iVBORw0KGgo=', pixelWidth: 1920, pixelHeight: 1200,
+            text: null, encoding: null, lineEndings: null, message: null,
+          };
+        }
         const found = data.documents[params.path];
         if (!found) throw new Error('not found: ' + params.path);
         return found;
@@ -2418,6 +2428,24 @@ async function main() {
       tabsMeasure.count === 24 && tabsMeasure.minWidth >= 60
         && tabsMeasure.overflowX === 'auto' && tabsMeasure.scrollable);
     await tabsMany.page.close();
+
+    // ---- 图片文档必须把宿主的 dataUrl 带到渲染层（第 253 轮立项缺陷的前端一半）----
+    const imgDoc = await openScene('scene=image-preview&theme=dark&open=web/image-sample.png');
+    await imgDoc.page.waitForSelector('.image-stage img', { timeout: 10000 });
+    const imgState = await imgDoc.page.evaluate(() => {
+      const live = window.__augitLive;
+      const img = document.querySelector('.image-stage img');
+      return {
+        editor: live.document ? live.document.editor : null,
+        dataUrl: live.document ? String(live.document.dataUrl || '').slice(0, 24) : null,
+        src: String(img.getAttribute('src') || '').slice(0, 24),
+        label: (document.querySelector('.image-size-label') || {}).textContent || null,
+      };
+    });
+    check('图片文档把 dataUrl 带到渲染层: ' + JSON.stringify(imgState),
+      imgState.editor === 'image' && String(imgState.dataUrl).startsWith('data:image/png')
+        && imgState.src === imgState.dataUrl);
+    await imgDoc.page.close();
 
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
     // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；

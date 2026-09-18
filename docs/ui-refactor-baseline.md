@@ -9352,3 +9352,28 @@ verify-window-chrome.ps1（真机）   11/11，WINDOW_CHROME_OK
 **为何仍未动手**：改动本身只有两处、但属于**产品代码 + 跨层**，必须配 harness 全量、
 真机图片对照与负向验证；本会话上下文余量已不足以完成这三步并留出回退余地，
 因此把"行号级计划"落到文档，交给下一轮以机械方式实施与验证。
+
+#### 第 254 轮：图片预览缺陷的**前端一半已修**（harness 862/862 验证）
+
+按第 253 轮的行号计划先做前端侧（宿主侧仍缺 `dataUrl`，见下）：
+
+- `toLiveDocument`（白名单映射）新增 `dataUrl: payload.dataUrl || null` ——
+  不显式搬运，渲染层读到的永远是 `undefined`（第 246–253 轮的实测现象）；
+- 桩数据为 `.png` 路径返回与宿主同形的图片载荷（`dataUrl` + `pixelWidth/Height/fileSize`）；
+- 新增断言：打开图片文档后 `live.document.editor === "image"`、
+  `dataUrl` 以 `data:image/png` 开头、`.image-stage img[src]` 与 `dataUrl` 完全一致。
+
+实测该断言输出：
+
+```
+{"editor":"image","dataUrl":"data:image/png;base64,iV","src":"data:image/png;base64,iV","label":"1920 × 1200 · PNG 图像 · 8 B"}
+```
+
+**顺带确认**：`pixelWidth/pixelHeight/fileSize` **原本就已在映射里**
+（尺寸标签正常渲染），因此前端缺口只有 `dataUrl` 一处 ✓。
+`live-shell` 由 861 → **862 项断言全绿**。
+
+**仍未做（宿主一半，下一轮）**：`ShellBridge.ReadDocumentAsync`（331–357 行）在图片状态下
+补 `dataUrl`（`data:image/…;base64,…`，体积上限沿用既有读取管线）。
+只有两半都到位，真机 `--open <png>` 才会真正显示图片；因此**真机验证必须等宿主侧完成**，
+本轮只宣称"前端接线已就绪并被断言覆盖"，不宣称缺陷已修复。

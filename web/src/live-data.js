@@ -7196,6 +7196,10 @@ function toLiveDocument(payload) {
     kind,
     typeName: payload.typeName,
     status: payload.status,
+    // 图片文档的位图数据（宿主 document/read 返回的 data: URL）。
+    // toLiveDocument 是白名单映射，不显式搬运的话渲染层读到的 dataUrl 永远是 undefined，
+    // 图片预览就只能停在加载指示上（第 246-253 轮实测）。
+    dataUrl: payload.dataUrl || null,
     fileSize: payload.fileSize,
     text: payload.text,
     preview: kind === "Markdown" && payload.text ? renderMarkdown(payload.text) : "",
