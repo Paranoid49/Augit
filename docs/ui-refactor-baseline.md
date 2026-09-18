@@ -9836,3 +9836,32 @@ SHAPE 差异 5 项：
 
 **结论**：`stash-manager` 的对话框框架、列表、详情栏**结构与视觉稿一致**；
 唯一待确认项是那个按钮在加载完成后是否恢复启用态（低风险）。
+
+#### 第 272 轮：`worktrees` 真实 worktree 对照 —— 结构一致（差异是选中行与数据）
+
+做法：`git worktree add … -b ux-compare-tmp` 造出真实 worktree → 抓取对照 →
+**跑完 `git worktree remove --force` + `git branch -D`，确认 `git worktree list` 回到 1 条、
+临时分支已删除、工作区干净**。两侧节点 **44 / 45**：
+
+```
+scene=worktrees 节点数 视觉稿=44 实时=45
+LAYOUT 差异 4 项：
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[0]/div[0] <div class="tree-row">
+      cls: 视觉稿="tree-row" 实时="tree-row selected"
+      backgroundColor: 视觉稿="rgba(0, 0, 0, 0)" 实时="rgb(47, 70, 111)"
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[0]/div[1] <div class="tree-row selected">
+      cls: 视觉稿="tree-row selected" 实时="tree-row"
+      backgroundColor: 视觉稿="rgb(47, 70, 111)" 实时="rgba(0, 0, 0, 0)"
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[1]/span[3] <span class="file-status-new">
+```
+
+**判读**：
+- 前两项是**选中行下标**不同（视觉稿样例选中第 2 行，实时选中的是它列表里的第一行）✓ 状态/数据；
+- `.file-status-new` 一项是状态文字/配色差（真实 worktree 的安全状态文本 vs 样例）✓ 数据；
+- 全表 `SHAPE` 未出现结构性缺失（节点数仅差 1，来自真实 worktree 列表项）。
+
+**结论**：`worktrees` 对话框**结构与视觉稿一致**，无需修改产品代码。
+
+**本阶段累计**：**已核对对齐 16 个页面/区域**；修复真实缺陷 8 处；
+三次交付级全量验证全绿。剩余未做真实内容对照：`remote`、`clone`、`push`、`reset`、
+`rollback`、`operation-result`（普查均为 LAYOUT 0–3 / SHAPE 0–15，基本对齐）。
