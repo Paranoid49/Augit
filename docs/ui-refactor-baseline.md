@@ -9764,3 +9764,24 @@ verify-window-chrome.ps1（真机）   11/11，WINDOW_CHROME_OK
   字体度量/平台字体、先对齐文档类型与视图模式）与 3 处自我更正；
 - **纪律**：**5 次无效尝试全部回退且不留半成品**（`-CleanSession`、字体默认值、
   两次顺序/结构尝试、中文注释），每次都记录原因与下一步。
+
+#### 第 269 轮：`blame` 页修复后复跑 —— 29 项差异全部可解释（无未解释的结构差异）
+
+用 `-Scene blame -Blame docs/product-spec.md` 复跑（节点 81 / 413），并把 78 条差异条目按路径分类：
+
+```
+paths=78 blame_rows=28
+  <a class="editor-tab">      ← 样例把该标签画成非活动，实时是当前活动文档 ✓
+  <span class="grow">          ← 样例的 blame 工具栏用空档；实时是 document-path（视觉稿遗漏，第 239 轮）
+  <span class="commit-meta">   ← 数据（作者/时间/提交文本）
+  <div class="code-lines"> / <div class="code-line"> …  ← 数据（真实 blame 行远多于样例；行本身已按 -Prune 排除）
+```
+
+**结论**：`blame` 页**没有未解释的结构/配色/间距差异** —— 全部落在
+"样例的非活动标签状态"、"视觉稿 blame 样例缺失 `document-path`"与"数据量"三类，
+与第 239 轮的判读一致；配合第 238 轮的单标签修复（真机 TABS=1），
+`blame` 页可列入**已核对对齐**清单（第 14 个）。
+
+**遗留（记入下一轮/交付说明）**：视觉稿 `blame.html` 的工具栏样例建议补上
+`document-path` 以与其它文档视图一致（这是**视觉稿补全建议**，不是产品改动 ——
+按 AGENTS"修改视觉稿以迁就实现属于违规"，需另行确认后再动视觉稿）。
