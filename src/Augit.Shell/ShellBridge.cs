@@ -154,6 +154,7 @@ internal sealed class ShellBridge : IDisposable
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
+            "git/stash" => await CreateStashAsync(parameters, cancellationToken),
             "git/stash-write" => await WriteStashAsync(parameters, cancellationToken),
             "git/stash-content" => await ReadStashContentAsync(parameters, cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
@@ -1629,6 +1630,52 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>
+    /// 创建 Stash（规格 §5.3：支持 stash；视觉稿的对话框给"消息"与"保留索引状态"）。
+    ///
+    /// 未跟踪文件默认一并暂存：产品规格把未跟踪文件视为工作区改动的一部分
+    /// （Smart Checkout 的影响说明也是"已跟踪文件和未跟踪文件"），视觉稿的对话框没有
+    /// 关闭这个行为的开关，因此不给界面一个"看起来可以选、实际没有第二种结果"的控件。
+    /// </summary>
+    private async Task<object?> CreateStashAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string? message = GetString(parameters, "message");
+        bool keepIndex = GetBool(parameters, "keepIndex") ?? false;
+        bool includeUntracked = GetBool(parameters, "includeUntracked") ?? true;
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        // 先记下现有条数：Git 在"没有可暂存的改动"时**可能返回成功却不创建任何 Stash**
+        // （实测：返回码 0、列表不变）。只认"列表是否真的多了一条"，
+        // 否则界面会报告创建成功、而用户什么也没得到（规格 §10.2：不假装成功）。
+        (bool beforeOk, _, IReadOnlyList<GitStashInfo> before) =
+            await ReadStashListAsync(runtime, repository!, cancellationToken).ConfigureAwait(false);
+        GitActionResult result = await new GitWorkspaceStateService(runtime)
+            .StashWithOptionsAsync(repository!, message, includeUntracked, keepIndex, cancellationToken)
+            .ConfigureAwait(false);
+        InvalidateStatusCache();
+        (bool afterOk, string? afterReason, IReadOnlyList<GitStashInfo> after) =
+            await ReadStashListAsync(runtime, repository!, cancellationToken).ConfigureAwait(false);
+
+        bool created = result.IsSuccess && beforeOk && afterOk && after.Count > before.Count;
+        return new
+        {
+            available = true,
+            ok = created,
+            reason = created
+                ? null
+                : (result.ErrorMessage
+                    ?? (beforeOk && afterOk ? "没有需要暂存的改动。" : afterReason)),
+            // 两个分支都带上 reason 字段：匿名类型不同会让条件表达式无法推断类型。
+            stashes = afterOk
+                ? new { available = true, reason = (string?)null, stashes = after.Select(StashPayload).ToArray() }
+                : new { available = false, reason = afterReason, stashes = Array.Empty<object>() },
+        };
+    }
+
+    /// <summary>
     /// Stash 动作（规格 §7.11：应用、弹出、删除）。
     ///
     /// 引用必须由界面从真实列表里带回来：这里只接受 `stash@{n}` 形状，
@@ -1697,8 +1744,8 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
-    /// <summary>Stash 列表投影（读取命令与写命令共用同一形状）。</summary>
-    private static async Task<object?> ProjectStashesAsync(
+    /// <summary>读取 Stash 列表（强类型）；失败时给出可读原因。</summary>
+    private static async Task<(bool IsSuccess, string? Reason, IReadOnlyList<GitStashInfo> List)> ReadStashListAsync(
         GitRuntimeInfo runtime,
         GitRepositorySnapshot repository,
         CancellationToken cancellationToken)
@@ -1706,16 +1753,22 @@ internal sealed class ShellBridge : IDisposable
         GitStashListResult result = await new GitWorkspaceStateService(runtime)
             .ReadStashesAsync(repository, cancellationToken)
             .ConfigureAwait(false);
-        if (!result.IsSuccess || result.Stashes is not { } list)
-        {
-            return new { available = false, reason = result.ErrorMessage, stashes = Array.Empty<object>() };
-        }
+        return result.IsSuccess && result.Stashes is { } list
+            ? (true, null, list)
+            : (false, result.ErrorMessage, Array.Empty<GitStashInfo>());
+    }
 
-        return new
-        {
-            available = true,
-            stashes = list.Select(StashPayload).ToArray(),
-        };
+    /// <summary>Stash 列表投影（读取命令与写命令共用同一形状）。</summary>
+    private static async Task<object?> ProjectStashesAsync(
+        GitRuntimeInfo runtime,
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken)
+    {
+        (bool success, string? reason, IReadOnlyList<GitStashInfo> list) =
+            await ReadStashListAsync(runtime, repository, cancellationToken).ConfigureAwait(false);
+        return success
+            ? new { available = true, stashes = list.Select(StashPayload).ToArray() }
+            : new { available = false, reason, stashes = Array.Empty<object>() };
     }
 
     private static object StashPayload(GitStashInfo stash)

@@ -16,6 +16,54 @@ namespace Augit.Shell.Tests;
 public sealed class ShellBridgeStashWriteTests
 {
     [TestMethod]
+    public async Task 创建Stash带消息并保留索引状态()
+    {
+        using TemporaryDirectory temporary = new();
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        await CreateRepositoryAsync(runtime, temporary.FullPath);
+        // 已暂存 + 未暂存各一处改动：保留索引时，已暂存的那部分必须留在索引里。
+        await File.WriteAllTextAsync(temporary.GetPath("staged.txt"), "已暂存并改动\n");
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "staged.txt");
+        await File.WriteAllTextAsync(temporary.GetPath("base.txt"), "未暂存改动\n");
+
+        using ShellBridge bridge = new(temporary.FullPath);
+        JsonElement created = await InvokeAsync(
+            bridge,
+            """{"id":9,"method":"git/stash","params":{"message":"准备切换分支","keepIndex":true}}""");
+
+        Assert.IsTrue(created.GetProperty("ok").GetBoolean(), created.GetRawText());
+        JsonElement stashes = created.GetProperty("stashes").GetProperty("stashes");
+        Assert.AreEqual(1, stashes.GetArrayLength());
+        Assert.AreEqual("准备切换分支", stashes[0].GetProperty("message").GetString());
+        // 未跟踪/未暂存的改动进了 Stash：工作区干净。
+        GitCall status = await GitTestEnvironment.RunRawAsync(
+            runtime, temporary.FullPath, "status", "--porcelain");
+        Assert.IsFalse(status.StandardOutput.Contains("未暂存改动", StringComparison.Ordinal), status.StandardOutput);
+        // 保留索引：已暂存的改动仍在索引里。
+        GitCall staged = await GitTestEnvironment.RunRawAsync(
+            runtime, temporary.FullPath, "diff", "--cached", "--name-only");
+        StringAssert.Contains(staged.StandardOutput, "staged.txt");
+    }
+
+    [TestMethod]
+    public async Task 没有改动时创建Stash按失败返回原因()
+    {
+        using TemporaryDirectory temporary = new();
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        await CreateRepositoryAsync(runtime, temporary.FullPath);
+
+        using ShellBridge bridge = new(temporary.FullPath);
+        JsonElement created = await InvokeAsync(
+            bridge,
+            """{"id":10,"method":"git/stash","params":{"message":"空仓库"}}""");
+
+        Assert.IsTrue(created.GetProperty("available").GetBoolean(), created.GetRawText());
+        Assert.IsFalse(created.GetProperty("ok").GetBoolean(), created.GetRawText());
+        Assert.IsFalse(string.IsNullOrWhiteSpace(created.GetProperty("reason").GetString()));
+        Assert.AreEqual(0, created.GetProperty("stashes").GetProperty("stashes").GetArrayLength());
+    }
+
+    [TestMethod]
     public async Task 应用与弹出按真实状态更新Stash列表()
     {
         using TemporaryDirectory temporary = new();
@@ -123,6 +171,18 @@ public sealed class ShellBridgeStashWriteTests
         string payload = await bridge.HandleAsync(request, CancellationToken.None);
         using JsonDocument document = JsonDocument.Parse(payload);
         return document.RootElement.Clone();
+    }
+
+    /// <summary>造一个有基线提交、且工作区干净的仓库。</summary>
+    private static async Task CreateRepositoryAsync(GitRuntimeInfo runtime, string repositoryPath)
+    {
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime)
+            .InitializeAsync(repositoryPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        await GitTestEnvironment.RunAsync(runtime, repositoryPath, "config", "user.name", "Augit Tests");
+        await GitTestEnvironment.RunAsync(runtime, repositoryPath, "config", "user.email", "augit-tests@example.invalid");
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "base.txt", "基线\n", "test: base");
+        await GitTestEnvironment.CommitFileAsync(runtime, repositoryPath, "staged.txt", "基线\n", "test: staged");
     }
 
     /// <summary>造一个带单个 Stash 的仓库（Stash 里有一个已跟踪文件与一个未跟踪文件）。</summary>

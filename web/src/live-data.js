@@ -1928,6 +1928,8 @@ window.__augitTerminalFont = () => (terminalInstance
 
 window.__augitOpenStashManager = () => openStashManagerDialog();
 
+window.__augitOpenStashDialog = () => openStashDialog();
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
   // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
@@ -2792,6 +2794,7 @@ function rebindAfterRender() {
   bindOverlayEscape();
   bindTitlebarMenuEscape();
   bindCompactDialogKeys();
+  bindStashDialogKeys();
   bindRegionTabOrder();
   bindGlobalShortcuts();
   bindModalBackground();
@@ -3322,6 +3325,18 @@ function guardUnwiredNavigation() {
     if (conflictKeep) {
       event.preventDefault();
       keepConflictEdits();
+      return;
+    }
+
+    // Stash 对话框（规格 §5.3）：取消 / 创建。
+    const stashCreateAction = event.target.closest && event.target.closest("[data-stash-create-action]");
+    if (stashCreateAction) {
+      event.preventDefault();
+      if (stashCreateAction.dataset.stashCreateAction === "create") {
+        void submitStashDialog();
+      } else {
+        void cancelStashDialog();
+      }
       return;
     }
 
@@ -4406,6 +4421,166 @@ function closeSettingsDialog() {
  * 与「包含 N 个文件」。选中项进状态（`live.selectedStashIndex`），
  * 详情里的文件列表来自独立的 `git/stash-content` 查询。
  */
+/** 打开 Stash 对话框（规格 §5.3；键位与状态机取自视觉稿的 bindStashDialog）。 */
+function openStashDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Stash",
+    liveStashBody(),
+    '<button type="button" class="secondary-button" data-stash-create-action="cancel">取消</button>'
+      + '<button type="button" class="primary-button" data-stash-create-action="create">创建 Stash</button>',
+    false,
+    "stash-dialog");
+  host.appendChild(layer);
+  const message = layer.querySelector("#stash-message");
+  if (message) message.focus({ preventScroll: true });
+  if (typeof measureStashDialog === "function") measureStashDialog();
+}
+
+/** 窗口内的状态提示（与视觉稿同一处：表单下方）。 */
+function setStashDialogNotice(text) {
+  const notice = document.querySelector(".dialog.stash-dialog .stash-notice");
+  if (!notice) return;
+  notice.textContent = notice.title = text || "";
+  notice.hidden = !text;
+}
+
+/**
+ * Stash 对话框的键盘规则（规格 §5.3；顺序与视觉稿一致：字段 → 取消 → 创建 → 关闭）。
+ *
+ * 挂在 document 的捕获阶段：对话框是动态创建的，节点上的监听会随重绘消失。
+ * 组词期间不抢 Enter/Esc/Tab；进行中不允许再次提交（按钮已禁用，这里再挡一次）。
+ */
+function bindStashDialogKeys() {
+  if (window.__augitStashDialogBound) return;
+  window.__augitStashDialogBound = true;
+  document.addEventListener("keydown", (event) => {
+    const layer = document.querySelector(".dialog.stash-dialog");
+    if (!layer) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    const fields = [...layer.querySelectorAll("[data-stash-field]")];
+    const cancel = layer.querySelector('[data-stash-create-action="cancel"]');
+    const create = layer.querySelector('[data-stash-create-action="create"]');
+    const close = layer.querySelector(".dialog-header .icon-button");
+    const order = [...fields, cancel, create, close].filter(Boolean);
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      void cancelStashDialog();
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+    event.preventDefault();
+    const available = order.filter((node) => !node.disabled && node.getAttribute("aria-disabled") !== "true");
+    if (available.length === 0) return;
+    const index = available.indexOf(document.activeElement);
+    const step = event.shiftKey ? -1 : 1;
+    const next = available[(index + step + available.length) % available.length];
+    if (next) next.focus();
+  }, true);
+}
+
+/** 关闭 Stash 对话框并把焦点交回打开前的元素。 */
+function closeStashDialog() {
+  document.querySelectorAll(".dialog.stash-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  restoreDialogFocus();
+}
+
+/** 取消：进行中不许直接关掉（视觉稿：取消按钮先取消这次操作，再关闭）。 */
+async function cancelStashDialog() {
+  const live = window.__augitLive;
+  if (live && live.stashCreating) {
+    live.stashCreating = false;
+    setStashDialogNotice("操作已取消。");
+    setStashDialogRunning(false);
+    return;
+  }
+  closeStashDialog();
+}
+
+/** 进行态：冻结字段与按钮，并按视觉稿改按钮文字。 */
+function setStashDialogRunning(running) {
+  const live = window.__augitLive;
+  const layer = document.querySelector(".dialog.stash-dialog");
+  if (!layer) return;
+  if (live) live.stashCreating = running;
+  for (const node of layer.querySelectorAll("[data-stash-field]")) node.disabled = running;
+  const create = layer.querySelector('[data-stash-create-action="create"]');
+  const cancel = layer.querySelector('[data-stash-create-action="cancel"]');
+  const close = layer.querySelector(".dialog-header .icon-button");
+  if (create) {
+    create.disabled = running;
+    create.textContent = running ? "正在创建 Stash…" : "创建 Stash";
+  }
+  if (cancel) cancel.textContent = running ? "取消操作" : "取消";
+  if (close) close.setAttribute("aria-disabled", String(running));
+}
+
+/** 提交创建：交给宿主执行，失败在窗口内说明原因（规格 §10.2）。 */
+async function submitStashDialog() {
+  const live = window.__augitLive;
+  const layer = document.querySelector(".dialog.stash-dialog");
+  if (!live || !layer || live.stashCreating) return null;
+  const message = layer.querySelector("#stash-message");
+  const keep = layer.querySelector("#stash-keep");
+
+  setStashDialogRunning(true);
+  setStashDialogNotice("正在创建 Stash…");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/stash", {
+      message: message ? message.value : "",
+      keepIndex: !!(keep && keep.checked),
+      includeUntracked: true,
+    }, 120000);
+    if (!payload || payload.ok === false) {
+      failure = (payload && payload.reason) || "创建 Stash 失败。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (!live.stashCreating) {
+    // 进行中被用户取消：结果不再回到界面，也不留下"正在创建…"。
+    return null;
+  }
+  live.stashCreating = false;
+  if (payload && payload.stashes) {
+    live.stashes = payload.stashes;
+  }
+  if (failure) {
+    setStashDialogRunning(false);
+    setStashDialogNotice(describeFailure(failure, {
+      unchanged: "工作区与 Stash 列表都没有变化。",
+      next: "可以先刷新状态确认是否还有需要暂存的改动。",
+    }));
+    return null;
+  }
+
+  window.__augitStashCreated = true;
+  closeStashDialog();
+  await loadStashFiles().catch(() => null);
+  const remaining = (live.stashes && live.stashes.stashes) || [];
+  if (live.selectedStashIndex >= remaining.length) {
+    live.selectedStashIndex = Math.max(0, remaining.length - 1);
+  }
+  await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+  refreshAfterEvent("side", "statusbar", "bottomTool", "titlebar");
+  return payload;
+}
+
 async function openStashManagerDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -4469,6 +4644,8 @@ function renderStashManager() {
     "stash-manager-dialog");
   host.appendChild(layer);
   setStashNotice("");
+  // 管理窗口也是按需创建的：不在 __augitRender 的重绘路径上，因此自己度量一次。
+  if (typeof measureStashManagerDialog === "function") measureStashManagerDialog();
 }
 
 /** 管理页内的局部提示（规格 §10.2：说明发生了什么、哪些状态未改变、可以做什么）。 */
@@ -5539,6 +5716,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "stash-create") {
+    openStashDialog();
+    return;
+  }
+
   if (action === "push") {
     // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
     void openPushDialog();
@@ -5566,6 +5748,7 @@ const MAIN_MENU_POPOVERS = {
     { action: "push", label: "推送…" },
     { action: "branches", label: "分支与标签…" },
     { action: "stash-manager", label: "Stash 管理…" },
+    { action: "stash-create", label: "创建 Stash…" },
   ],
 };
 

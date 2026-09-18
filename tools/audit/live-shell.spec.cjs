@@ -470,6 +470,22 @@ async function main() {
             ],
         };
       }
+      if (method === 'git/stash') {
+        window.__stashCreates = (window.__stashCreates || []).concat([{
+          message: params.message, keepIndex: params.keepIndex, includeUntracked: params.includeUntracked,
+        }]);
+        if (window.__stashCreateDelays) await new Promise((r) => setTimeout(r, window.__stashCreateDelays));
+        if (window.__stashCreateFails) {
+          return { available: true, ok: false, reason: '没有需要暂存的改动。', stashes: window.__stashesState || data.stashes };
+        }
+        const current = window.__stashesState || data.stashes;
+        window.__stashesState = {
+          available: true,
+          stashes: [{ reference: 'stash@{0}', message: params.message || 'WIP on dsh', branch: 'dsh', subject: 'WIP', date: '2026/9/15 11:00' }]
+            .concat(current.stashes.map((stash, index) => Object.assign({}, stash, { reference: `stash@{${index + 1}}` }))),
+        };
+        return { available: true, ok: true, reason: null, stashes: window.__stashesState };
+      }
       if (method === 'git/stash-write') {
         window.__stashWrites = (window.__stashWrites || []).concat([{ action: params.action, reference: params.reference }]);
         if (window.__stashWriteFails) {
@@ -1441,6 +1457,165 @@ async function main() {
 
     if (stSoft.length > 0) {
       throw new Error('断言失败：' + stSoft.join(' | '));
+    }
+
+    // ---- 规格 §5.3：Stash 对话框（创建、进行态、取消、组词）----
+    const sdSoft = [];
+    const sdCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      sdSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const stashCreate = await openScene('scene=main-project&theme=dark');
+    await stashCreate.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stashCreate.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
+    await stashCreate.page.evaluate(() => {
+      window.__stashCreates = [];
+      window.__stashesState = null;
+      window.__stashCreateFails = false;
+      window.__stashCreateDelays = 0;
+    });
+    await stashCreate.page.locator('.top-button[aria-label="主菜单"]').click();
+    await stashCreate.page.waitForTimeout(400);
+    await stashCreate.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
+    await stashCreate.page.waitForTimeout(400);
+    await stashCreate.page.locator('.main-menu-popover .menu-item', { hasText: '创建 Stash' }).click();
+    await stashCreate.page.waitForSelector('.dialog.stash-dialog', { timeout: 8000 }).catch(() => {});
+    await stashCreate.page.waitForTimeout(300);
+    const stashDialogShape = await stashCreate.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      if (!dialog) return null;
+      const active = document.activeElement;
+      return {
+        title: dialog.getAttribute('aria-label'),
+        root: dialog.querySelector('#stash-root') ? dialog.querySelector('#stash-root').value : null,
+        branch: dialog.querySelector('.stash-branch') ? dialog.querySelector('.stash-branch').textContent.trim() : null,
+        hasMessage: !!dialog.querySelector('#stash-message'),
+        hasKeep: !!dialog.querySelector('#stash-keep'),
+        focused: active === dialog.querySelector('#stash-message'),
+        actions: [...dialog.querySelectorAll('[data-stash-create-action]')].map((node) => node.textContent.trim()),
+      };
+    });
+    sdCheck('Stash 对话框显示根目录、分支、消息与保留索引: ' + JSON.stringify(stashDialogShape),
+      stashDialogShape !== null && stashDialogShape.root && stashDialogShape.root.length > 0
+        && typeof stashDialogShape.branch === 'string' && stashDialogShape.branch.length > 0
+        && stashDialogShape.hasMessage === true && stashDialogShape.hasKeep === true
+        && stashDialogShape.focused === true
+        && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['取消', '创建 Stash']));
+
+    // Tab 顺序：消息 → 保留索引 → 取消 → 创建（视觉稿的字段顺序）。
+    const stashTabOrder = [];
+    for (let i = 0; i < 3; i += 1) {
+      await stashCreate.page.keyboard.press('Tab');
+      await stashCreate.page.waitForTimeout(120);
+      stashTabOrder.push(await stashCreate.page.evaluate(() => {
+        const el = document.activeElement;
+        return el.dataset.stashField || el.dataset.stashCreateAction || el.id || el.className;
+      }));
+    }
+    sdCheck('Stash 对话框内 Tab 按字段顺序循环: ' + JSON.stringify(stashTabOrder),
+      stashTabOrder.join(',') === 'keep,cancel,create');
+
+    // 组词中的 Esc/Enter 不关闭也不提交。
+    await stashCreate.page.evaluate(() => {
+      // 每次都重新查节点：组词守则一旦失效，Esc 会关掉窗口，写死的引用会直接抛错
+      // （那样失败原因就变成脚本报错，看不出是被测行为错了）。
+      const fire = (key) => {
+        const field = document.querySelector('#stash-message');
+        if (field) field.dispatchEvent(new KeyboardEvent('keydown', {
+          key, isComposing: true, bubbles: true, cancelable: true,
+        }));
+      };
+      const field = document.querySelector('#stash-message');
+      if (field) field.focus();
+      fire('Escape');
+      fire('Enter');
+    });
+    await stashCreate.page.waitForTimeout(300);
+    const stashComposing = await stashCreate.page.evaluate(() => ({
+      open: !!document.querySelector('.dialog.stash-dialog'),
+      creates: (window.__stashCreates || []).length,
+    }));
+    sdCheck('组词中的 Esc/Enter 不关闭也不提交: ' + JSON.stringify(stashComposing),
+      stashComposing.open === true && stashComposing.creates === 0);
+
+    // 进行态：冻结字段、按钮改成进行态文字，取消变成"取消操作"。
+    await stashCreate.page.evaluate(() => {
+      window.__stashCreateDelays = 1200;
+      document.querySelector('#stash-message').value = '准备切换分支';
+      document.querySelector('#stash-keep').checked = true;
+      const create = document.querySelector('[data-stash-create-action="create"]');
+      create.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashCreate.page.waitForTimeout(300);
+    const stashRunning = await stashCreate.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      const create = dialog.querySelector('[data-stash-create-action="create"]');
+      const cancel = dialog.querySelector('[data-stash-create-action="cancel"]');
+      return {
+        createText: create.textContent.trim(),
+        cancelText: cancel.textContent.trim(),
+        fieldsDisabled: [...dialog.querySelectorAll('[data-stash-field]')].every((node) => node.disabled),
+        createDisabled: create.disabled,
+        notice: dialog.querySelector('.stash-notice').textContent.trim(),
+        creates: window.__stashCreates || [],
+      };
+    });
+    sdCheck('创建期间冻结字段并显示进行态: ' + JSON.stringify(stashRunning),
+      stashRunning.createText === '正在创建 Stash…' && stashRunning.cancelText === '取消操作'
+        && stashRunning.fieldsDisabled === true && stashRunning.createDisabled === true
+        && stashRunning.creates.length === 1);
+    sdCheck('提交带上消息、保留索引与未跟踪文件: ' + JSON.stringify(stashRunning.creates[0]),
+      stashRunning.creates[0].message === '准备切换分支' && stashRunning.creates[0].keepIndex === true
+        && stashRunning.creates[0].includeUntracked === true);
+
+    // 成功：关闭窗口、刷新真实的 Stash 列表。
+    await stashCreate.page.waitForFunction('window.__augitStashCreated === true', null, { timeout: 10000 }).catch(() => {});
+    await stashCreate.page.waitForTimeout(400);
+    const stashCreated = await stashCreate.page.evaluate(() => ({
+      dialog: !!document.querySelector('.dialog.stash-dialog'),
+      created: !!window.__augitStashCreated,
+      first: (window.__augitLive.stashes.stashes || [])[0],
+    }));
+    sdCheck('创建成功后关闭窗口并按真实列表更新: ' + JSON.stringify([stashCreated.dialog, stashCreated.first && stashCreated.first.message]),
+      stashCreated.dialog === false && stashCreated.created === true
+        && stashCreated.first && stashCreated.first.message === '准备切换分支');
+
+    // 失败：窗口保留并说明原因与未改变的状态。
+    await stashCreate.page.evaluate(() => {
+      window.__augitStashCreated = false;
+      window.__stashCreateDelays = 0;
+      window.__stashCreateFails = true;
+      window.__augitOpenStashDialog();
+    });
+    await stashCreate.page.waitForSelector('.dialog.stash-dialog', { timeout: 8000 }).catch(() => {});
+    await stashCreate.page.evaluate(() => {
+      document.querySelector('[data-stash-create-action="create"]')
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await stashCreate.page.waitForFunction('(window.__stashCreates || []).length === 2', null, { timeout: 10000 }).catch(() => {});
+    await stashCreate.page.waitForTimeout(400);
+    const stashCreateFailed = await stashCreate.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      const notice = dialog ? dialog.querySelector('.stash-notice') : null;
+      const create = dialog ? dialog.querySelector('[data-stash-create-action="create"]') : null;
+      return {
+        open: !!dialog,
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        createText: create ? create.textContent.trim() : null,
+        fieldsDisabled: dialog ? [...dialog.querySelectorAll('[data-stash-field]')].some((node) => node.disabled) : null,
+      };
+    });
+    sdCheck('创建失败时保留窗口并说明原因与未改变的状态: ' + JSON.stringify(stashCreateFailed),
+      stashCreateFailed.open === true && stashCreateFailed.hidden === false
+        && typeof stashCreateFailed.notice === 'string' && stashCreateFailed.notice.includes('没有需要暂存的改动')
+        && stashCreateFailed.notice.includes('没有变化')
+        && stashCreateFailed.createText === '创建 Stash' && stashCreateFailed.fieldsDisabled === false);
+    await stashCreate.page.close();
+
+    if (sdSoft.length > 0) {
+      throw new Error('断言失败：' + sdSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----

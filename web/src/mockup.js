@@ -2190,6 +2190,24 @@ function liveImageDocument() {
   return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
 }
 
+/**
+ * 实时外壳的 Stash 对话框正文（结构来自视觉稿的 stashBody）：
+ * Git 根目录、当前分支、消息、保留索引状态，以及窗口内的状态提示。
+ * 根目录在 Augit 里只有一个（单窗口单仓库），因此用只读文本而不是样例里的下拉框。
+ */
+function liveStashBody() {
+  const live = window.__augitLive || {};
+  const status = live.status || {};
+  const root = status.root || live.root || "";
+  const branch = status.branch || live.branch || "";
+  return `<div class="form-grid"><label for="stash-root">Git 根目录</label>`
+    + `<input id="stash-root" class="text-field" value="${escapeHtml(root)}" readonly>`
+    + `<label>当前分支</label><span class="stash-branch">${escapeHtml(branch)}</span>`
+    + `<label for="stash-message">消息</label><textarea id="stash-message" class="message-field" data-stash-field="message"></textarea><span></span>`
+    + `<label class="check-line"><input id="stash-keep" type="checkbox" data-stash-field="keep">保留索引状态</label></div>`
+    + `<div class="stash-notice" role="status" hidden></div>`;
+}
+
 function liveUnavailableDocument() {
   const document_ = liveDocument();
   // 与视觉稿同构：`名称 · 类型 · 大小`、路径、原因，以及"使用系统默认程序打开"。
