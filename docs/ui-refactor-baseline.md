@@ -8348,3 +8348,42 @@ TEXT 差异 0 项：
 **规则**：后续逐页判读时，凡"可滚动容器内部元素宽度差且内容文本一致"的项，
 一律先归入此类并在证据里标注，不再当作待修差异；确需精确核对时，
 改为比对**排除滚动条后的内容盒宽度**或直接读两侧的 `clientWidth` 与滚动条宽度。
+
+#### 第 212 轮：本阶段交付级全量验证（全绿）
+
+本轮按"模块收尾/交付前才跑全量"的约定跑了一次完整矩阵，全部通过：
+
+```
+build (Augit.slnx -c Release)          0 个警告 / 0 个错误
+Augit.Shell.Tests                      69 / 69
+live-shell.spec.cjs                    860 项断言全绿
+mockup-scenes (dark / light)           48/48 + 48/48
+verify-ui-assets.ps1                   PASS（视觉稿两处副本字节一致）
+verify-script-encoding.ps1             PASS（11 个 .ps1 均为 ASCII 无 BOM）
+dotnet format --verify-no-changes      OK
+verify-window-chrome.ps1（真机）       11/11，WINDOW_CHROME_OK
+```
+
+**本阶段（第 198–211 轮）落地清单**：
+1. ① 无边框外壳：去 `WS_CAPTION` + `WM_NCCALCSIZE=0` + 创建后 `SWP_FRAMECHANGED`
+   （否则创建期算出的 caption 框架会一直留着）；标题栏 `HTCLIENT`（保住左侧真实控件），
+   拖动/边缘缩放由网页层发起、仍走系统原生移动/缩放循环；双击最大化按系统双击度量
+   在宿主判定；最大化客户区钉回工作区。补齐了原本是"死像素"的自绘窗口按钮
+   （`window/minimize|maximize|close|query|drag|resize` + `window/state`）。
+   真机 11/11，负向验证复现"两行按钮"。
+2. ② 外壳 chrome 不可选中（正文/代码/diff/终端保持可选），含负向验证。
+3. ③ 底部 Git 工具窗重复的「更多」入口（真机 32 组 → 1 组），含断言与真机对照。
+4. ④ 逐页对照并修复：`git-history` 变更文件树（共享视觉稿构建器，LAYOUT 26→9 只剩数据差异）、
+   `commit-changes` 行 id、`commit-diff` 标签条密度（32 标签 minWidth 20→126）、
+   `settings` 表单标签列宽（90→110）；核定全局 chrome（SHAPE 0/0）、`terminal`
+   （外壳与容器排版一致，真实 xterm 属设计预期）、`conflict-resolver`（结构/文字完全一致）。
+5. 对照工具链与"证据不说谎"防护：`verify-window-chrome.ps1`、`dump-live-dom.ps1`、
+   `compare-dom.cjs`、`dom-signature.js`、`cdp-eval.ps1`；`capture-surface.ps1` 修好位置参数
+   误用（此前验收截图拍的是错误对话框）并加 CDP 就绪校验；新增 `STALE_WEB_ASSETS`、
+   `-Open`、`EMPTY_REGION`、`style/script` 文本剥离四道防护，并修正了
+   "可滚动容器宽度差 = 两侧滚动条平台差异"的判读规则。
+
+**仍未完成**：④ 还有约 14 个页面未逐页对照（`quick-open`、`image-preview`、
+`markdown-preview`、`blame`、`file-history`、`worktrees`、`stash-manager`、`remote`、
+`clone`、`push`、`reset`、`rollback`、`repository-search`、`operation-result`），
+目标保持 active。
