@@ -8963,3 +8963,17 @@ openDocumentTab(path, payload, { preview, activate });
 - 真机 `-Scene blame -Blame docs/product-spec.md` 抓取后确认标签条只有 **1 个** `.editor-tab`
   且其文本是对应文件（不再是 `THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md` 三连）；
 - 负向验证：临时移除该分支（回到"仅 `live.tabs` 非空才渲染"），标签条应重新回退成样例标签。
+
+#### 第 238 轮：blame 单标签修复的真机验证
+
+真机重跑 `-Scene blame -Blame docs/product-spec.md` 后从签名读标签条：
+
+```
+TABS 1 [('editor-tab active', 'docs/product-spec.md')]
+```
+
+**结论**：修复生效：标签条只有 1 个活动标签、文本为目标文件。
+
+负向对照（历史证据）：第 231 轮同一命令（修复前）标签条是
+`THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active)` 三个样例标签 ——
+证明这条差异确实由 `live.tabs` 为空时的样例回退造成，修复后消失。
