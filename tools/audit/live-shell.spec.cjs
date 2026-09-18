@@ -95,7 +95,8 @@ const WORKSPACE = {
   settings: {
     theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
     fontSize: 13, codeFontSize: 13, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
-    terminalShell: 'PowerShell7', terminalCustomCommand: null, recentWorkspaces: ['D:\\ws'],
+    terminalShell: 'PowerShell7', terminalCustomCommand: null,
+    recentWorkspaces: ['D:\\ws', 'D:\\ws-other'],
     projectPanelWidth: 330, bottomPanelHeight: 240,
   },
   conflicts: {
@@ -584,6 +585,18 @@ async function main() {
         if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: '请至少选择一个要提交的文件。' };
         if (!params.message) return { available: true, committed: false, reason: '提交信息不能为空。' };
         return { available: true, committed: true, commitHash: 'abc1234', branch: 'main', remaining: 1 };
+      }
+      if (method === 'workspace/open') {
+        window.__workspaceOpens = (window.__workspaceOpens || []).concat([params.path]);
+        if (window.__workspaceOpenFails) {
+          return { available: true, opened: 'invalid', reason: '目录不存在或不是可访问的本地目录。' };
+        }
+        return { available: true, opened: window.__workspaceOpenOutcome || 'activated', reason: null };
+      }
+      if (method === 'workspace/pick') {
+        window.__workspacePicks = (window.__workspacePicks || 0) + 1;
+        if (window.__workspacePickCancels) return { available: true, picked: false, path: null, reason: null };
+        return { available: true, picked: true, path: 'D:\\github\\Picked', reason: null };
       }
       if (method === 'write/cancel') {
         window.__writeCancels = (window.__writeCancels || 0) + 1;
@@ -2108,6 +2121,139 @@ async function main() {
 
     if (dedupeSoft.length > 0) {
       throw new Error('断言失败：' + dedupeSoft.join(' | '));
+    }
+
+    // ---- 产品规格 §2 / 视觉稿 workspace-open：打开工作区页与克隆入口 ----
+    const woSoft = [];
+    const woCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      woSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const wo = await openScene('scene=main-project&theme=dark');
+    await wo.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await wo.page.waitForTimeout(400);
+    await wo.page.evaluate(() => {
+      window.__workspaceOpens = [];
+      window.__workspacePicks = 0;
+      window.__workspaceOpenFails = false;
+      window.__workspaceOpenOutcome = null;
+      window.__workspacePickCancels = false;
+    });
+    await wo.page.locator('.top-button[aria-label="主菜单"]').click();
+    await wo.page.waitForTimeout(400);
+    await wo.page.locator('.main-menu-bar .main-menu-entry', { hasText: '文件' }).click();
+    await wo.page.waitForTimeout(400);
+    const woMenu = await wo.page.evaluate(() => [...document.querySelectorAll('.main-menu-popover .menu-item')].map((n) => n.textContent.trim()));
+    woCheck('文件菜单提供打开工作区入口: ' + JSON.stringify(woMenu), woMenu.some((l) => l.includes('打开工作区')));
+    await wo.page.locator('.main-menu-popover .menu-item', { hasText: '打开工作区' }).click();
+    await wo.page.waitForSelector('.dialog.workspace-open-dialog', { timeout: 8000 }).catch(() => {});
+    await wo.page.waitForTimeout(300);
+    const woShape = await wo.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.workspace-open-dialog');
+      if (!dialog) return null;
+      return {
+        entries: [...dialog.querySelectorAll('.management-list .tree-row')].map((n) => n.textContent.trim()),
+        rows: [...dialog.querySelectorAll('[data-workspace-path]')].map((n) => ({ path: n.dataset.workspacePath, text: n.textContent.trim() })),
+        hint: (dialog.querySelector('.management-detail .commit-meta') || {}).textContent || null,
+      };
+    });
+    woCheck('打开工作区页按视觉稿给出三个入口: ' + JSON.stringify(woShape && woShape.entries),
+      woShape !== null && woShape.entries.some((e) => e.includes('最近目录'))
+        && woShape.entries.some((e) => e.includes('选择目录')) && woShape.entries.some((e) => e.includes('克隆仓库')));
+    woCheck('最近目录来自真实设置（名称 + 完整路径）: ' + JSON.stringify(woShape && woShape.rows),
+      woShape !== null && woShape.rows.length === 2
+        && woShape.rows[0].path === 'D:\\ws' && woShape.rows[0].text.includes('ws')
+        && woShape.rows[0].text.includes('D:\\ws')
+        && woShape.rows[1].path === 'D:\\ws-other');
+    woCheck('保留"同一目录已经打开时激活原窗口"的说明: ' + JSON.stringify(woShape && woShape.hint),
+      woShape !== null && typeof woShape.hint === 'string' && woShape.hint.includes('激活原窗口'));
+
+    await wo.page.evaluate(() => {
+      const row = document.querySelector('.dialog.workspace-open-dialog [data-workspace-path]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wo.page.waitForFunction('(window.__workspaceOpens || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    await wo.page.waitForTimeout(300);
+    const woOpened = await wo.page.evaluate(() => ({
+      calls: window.__workspaceOpens || [],
+      outcome: window.__augitWorkspaceOpened || null,
+      dialog: !!document.querySelector('.dialog.workspace-open-dialog'),
+    }));
+    woCheck('点击最近目录调用 workspace/open 并按结果说明: ' + JSON.stringify([woOpened.calls, woOpened.outcome, woOpened.dialog]),
+      JSON.stringify(woOpened.calls) === JSON.stringify(['D:\\ws'])
+        && woOpened.outcome === 'activated' && woOpened.dialog === false);
+
+    await wo.page.evaluate(() => { window.__augitOpenWorkspaceDialog(); });
+    await wo.page.waitForSelector('.dialog.workspace-open-dialog', { timeout: 8000 }).catch(() => {});
+    await wo.page.evaluate(() => {
+      window.__workspacePickCancels = true;
+      const node = document.querySelector('.dialog.workspace-open-dialog [data-workspace-action="pick"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wo.page.waitForFunction('(window.__workspacePicks || 0) === 1', null, { timeout: 8000 }).catch(() => {});
+    await wo.page.waitForTimeout(300);
+    const woPickCancelled = await wo.page.evaluate(() => ({
+      picks: window.__workspacePicks || 0,
+      opens: (window.__workspaceOpens || []).length,
+      dialog: !!document.querySelector('.dialog.workspace-open-dialog'),
+    }));
+    woCheck('取消选择目录不打开任何工作区且保留页面: ' + JSON.stringify(woPickCancelled),
+      woPickCancelled.picks === 1 && woPickCancelled.opens === 1 && woPickCancelled.dialog === true);
+
+    await wo.page.evaluate(() => {
+      window.__workspacePickCancels = false;
+      const node = document.querySelector('.dialog.workspace-open-dialog [data-workspace-action="pick"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wo.page.waitForFunction('(window.__workspaceOpens || []).length === 2', null, { timeout: 8000 }).catch(() => {});
+    woCheck('选择目录后打开所选目录: ' + JSON.stringify((await wo.page.evaluate(() => (window.__workspaceOpens || []).slice()))),
+      JSON.stringify(await wo.page.evaluate(() => (window.__workspaceOpens || []).slice()))
+        === JSON.stringify(['D:\\ws', 'D:\\github\\Picked']));
+
+    await wo.page.evaluate(() => { window.__augitOpenWorkspaceDialog(); });
+    await wo.page.waitForSelector('.dialog.workspace-open-dialog', { timeout: 8000 }).catch(() => {});
+    await wo.page.evaluate(() => {
+      window.__workspaceOpenFails = true;
+      const row = document.querySelector('.dialog.workspace-open-dialog [data-workspace-path]');
+      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wo.page.waitForTimeout(500);
+    const woFailed = await wo.page.evaluate(() => {
+      const notice = document.querySelector('.dialog.workspace-open-dialog .workspace-notice');
+      return {
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        dialog: !!document.querySelector('.dialog.workspace-open-dialog'),
+      };
+    });
+    woCheck('打开失败时说明原因与未改变的状态: ' + JSON.stringify(woFailed),
+      woFailed.hidden === false && typeof woFailed.notice === 'string'
+        && woFailed.notice.includes('不是可访问的本地目录') && woFailed.notice.includes('没有变化')
+        && woFailed.dialog === true);
+
+    // 「克隆仓库…」打开视觉稿的 Clone 对话框，并接上真实克隆入口。
+    await wo.page.evaluate(() => {
+      const node = document.querySelector('.dialog.workspace-open-dialog [data-workspace-action="clone"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wo.page.waitForSelector('.dialog.clone-dialog', { timeout: 8000 }).catch(() => {});
+    await wo.page.waitForTimeout(300);
+    const woClone = await wo.page.evaluate(() => ({
+      clone: !!document.querySelector('.dialog.clone-dialog'),
+      source: !!document.querySelector('#clone-source'),
+      destination: !!document.querySelector('#clone-destination'),
+      shallow: !!document.querySelector('#clone-shallow'),
+      workspace: !!document.querySelector('.dialog.workspace-open-dialog'),
+      request: typeof window.__augitCloneRequest,
+    }));
+    woCheck('克隆仓库入口打开实时克隆对话框: ' + JSON.stringify(woClone),
+      woClone.clone === true && woClone.source === true && woClone.destination === true
+        && woClone.shallow === true && woClone.workspace === false && woClone.request === 'function');
+    await wo.page.close();
+
+    if (woSoft.length > 0) {
+      throw new Error('断言失败：' + woSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----

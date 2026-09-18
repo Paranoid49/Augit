@@ -7552,3 +7552,55 @@ Augit.Shell.Tests **52/52**、live-shell **823/823**、build 0 警告 0 错误�
 
 Augit.Shell.Tests **55/55**、`dotnet build Augit.slnx -c Release` 0 警告 0 错误、
 `dotnet format --verify-no-changes` PASS。界面文件未改动（上一轮的尝试已回退，避免半套交互）。
+
+### 第一百八十八轮：打开工作区页与实时克隆入口（产品规格 §2 / 视觉稿 workspace-open）
+
+#### 实现
+
+- 视觉稿侧新增 `liveWorkspaceOpenBody()`：按设计渲染左侧三个入口（最近目录 / 选择目录… /
+  克隆仓库…）与右侧最近目录列表（名称 + 完整路径 + 悬停说明），并保留"同一目录已经打开时激活原窗口"。
+- 主菜单「文件」新增「打开工作区…」（此前因动作未实现而刻意不列）。
+- 实时侧 `openWorkspaceDialog()` / `openWorkspacePath()` / `pickWorkspaceAndOpen()`：
+  条目点击 → `workspace/open`，按 `current|activated|launched` 如实说明并关闭页面；
+  失败说明原因与"当前窗口没有变化"（§10.2）；「选择目录…」先 `workspace/pick` 再打开，
+  **取消不是错误**（不关窗口、不提示失败）。
+- **克隆入口**：`window.__augitCloneRequest` 此前只在 `scene=clone` 独立页里挂上，
+  现在只要有宿主就挂；「克隆仓库…」直接打开视觉稿的 Clone 对话框
+  （`liveCloneBody()` + 设计自己的校验、焦点与冻结逻辑 + 真实 `git/clone`），
+  这条入口因此不再是死按钮。
+
+#### 一处踩到的坑（区域替换的前提）
+
+`openCloneDialog()` 最初写成"设置 `live.overlay` 再刷 overlay 区域"，结果对话框一直不出现：
+区域替换只在**目标与替换节点都存在**时生效，而当时界面上没有覆盖层（目标为 null）。
+改为直接创建覆盖层节点并手动调用视觉稿的 `bindCloneDialog()`/`measureCloneDialog()`。
+
+#### 断言（823 → 832）
+
+文件菜单有入口；页面三个入口齐全；最近目录来自真实设置且显示名称 + 完整路径；
+保留"激活原窗口"说明；点击条目调用 `workspace/open` 且按结果说明并关闭页面；
+取消选择目录不打开任何工作区且保留页面；选择目录后打开所选目录；
+打开失败时说明原因与未改变的状态；克隆入口打开实时克隆对话框（`#clone-source`/
+`#clone-destination`/`#clone-shallow` 齐备、工作区页已关闭、`__augitCloneRequest` 已挂上）。
+
+#### 负向验证（一次运行）
+
+移除最近目录条目的点击处理 → 四处失败：
+`点击最近目录调用 workspace/open 并按结果说明: [[],null,true]`、
+`取消选择目录不打开任何工作区且保留页面: {"picks":1,"opens":0,…}`、
+`选择目录后打开所选目录: ["D:\\github\\Picked"]`（少了第一项）、
+`打开失败时说明原因与未改变的状态: {"notice":"","hidden":true,…}`。
+恢复后与验证绿态 md5 一致。
+
+顺带对齐了测试数据：桩里的 `recentWorkspaces` 原本只有 `D:\ws`，
+而既有的「Clone 目标目录用最近目录预填」断言依赖它，因此只在其后补一项，不改首项。
+
+#### 验证范围
+
+live-shell **832/832**、mockup 场景 **48/48**（dark 与 light）、视觉稿字节一致 PASS。
+本轮未改 C#。
+
+#### 剩余待办
+
+- `FolderPicker`（`SHBrowseForFolder`）需要**真机人工确认**三条路径（弹出 / 取消 / 选中目录）——
+  这是唯一自动化覆盖不到的地方；结论要写回本文件。

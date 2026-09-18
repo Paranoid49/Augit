@@ -2243,6 +2243,26 @@ function liveImageDocument() {
  * Git 根目录、当前分支、消息、保留索引状态，以及窗口内的状态提示。
  * 根目录在 Augit 里只有一个（单窗口单仓库），因此用只读文本而不是样例里的下拉框。
  */
+/**
+ * 「打开工作区」（视觉稿 workspace-open）：左侧三个入口，右侧最近目录列表。
+ * 最近目录来自设置（宿主已下发），条目带完整路径与悬停说明。
+ */
+function liveWorkspaceOpenBody() {
+  const live = window.__augitLive || {};
+  const recent = (live.settings && live.settings.recentWorkspaces) || [];
+  const name = (path) => String(path).split(/[\\/]/).filter((part) => part.length > 0).at(-1) || path;
+  const rows = recent.length === 0
+    ? '<p class="commit-meta">还没有打开过其他目录。</p>'
+    : recent.map((path) => `<div class="tree-row" data-workspace-path="${escapeHtml(path)}" title="${escapeHtml(path)}"><span>${treeFolderIcon(false)}</span><span class="tree-name">${escapeHtml(name(path))}</span><span class="tree-path">${escapeHtml(path)}</span></div>`).join("");
+  return `<div class="management-content" style="height:350px"><div class="management-list">`
+    + `<div class="tree-row selected">${icon("history")} 最近目录</div>`
+    + `<div class="tree-row" data-workspace-action="pick">${icon("folder-open")} 选择目录…</div>`
+    + `<div class="tree-row" data-workspace-action="clone">${icon("clone")} 克隆仓库…</div>`
+    + `</div><div class="management-detail"><h2>最近目录</h2>${rows}`
+    + `<p class="commit-meta">同一目录已经打开时激活原窗口。</p>`
+    + `<p class="workspace-notice commit-meta" role="status" hidden></p></div></div>`;
+}
+
 function liveStashBody() {
   const live = window.__augitLive || {};
   const status = live.status || {};

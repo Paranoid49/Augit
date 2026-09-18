@@ -1966,6 +1966,8 @@ window.__augitOpenWorktreeManager = () => openWorktreeManagerDialog();
 
 window.__augitOpenRemoteManager = () => openRemoteDialog();
 
+window.__augitOpenWorkspaceDialog = () => openWorkspaceDialog();
+
 // 供验收套件读取"已经提示过哪些错误"，用于验证 §10.2 的不重复语义。
 window.__augitReportedErrors = () => [...reportedErrors.keys()];
 
@@ -3368,6 +3370,29 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 打开工作区页（产品规格 §2）：最近目录条目与两个入口。
+    const workspaceRow = event.target.closest && event.target.closest("[data-workspace-path]");
+    if (workspaceRow) {
+      event.preventDefault();
+      void openWorkspacePath(workspaceRow.dataset.workspacePath);
+      return;
+    }
+
+    const workspaceAction = event.target.closest && event.target.closest("[data-workspace-action]");
+    if (workspaceAction) {
+      event.preventDefault();
+      const action = workspaceAction.dataset.workspaceAction;
+      if (action === "pick") {
+        void pickWorkspaceAndOpen();
+      } else if (action === "clone") {
+        openCloneDialog();
+      } else if (action === "cancel") {
+        closeLiveOverlay();
+        restoreDialogFocus();
+      }
+      return;
+    }
+
     // 远端管理页（规格 §7.11）：选择条目与编辑字段都进状态。
     const remoteRow = event.target.closest && event.target.closest("[data-remote-index]");
     if (remoteRow) {
@@ -4722,6 +4747,132 @@ function closeSettingsDialog() {
  * 详情里的文件列表来自独立的 `git/stash-content` 查询。
  */
 /** 打开 Stash 对话框（规格 §5.3；键位与状态机取自视觉稿的 bindStashDialog）。 */
+/**
+ * 「打开工作区」（产品规格 §2 / 视觉稿 workspace-open）。
+ *
+ * 最近目录来自设置；条目点击后交给宿主：同目录激活已有窗口、不同目录开新窗口。
+ * 结果按事实说明，不假设成功（规格 §10.2）。
+ */
+function openWorkspaceDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay workspace-open-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "打开工作区",
+    liveWorkspaceOpenBody(),
+    '<button type="button" class="secondary-button" data-workspace-action="cancel">取消</button>',
+    true,
+    "workspace-open-dialog");
+  host.appendChild(layer);
+}
+
+/** 打开工作区页内的提示。 */
+function setWorkspaceNotice(message) {
+  const notice = document.querySelector(".workspace-open-window .workspace-notice");
+  if (!notice) return;
+  notice.hidden = !message;
+  notice.textContent = message || "";
+  notice.title = message || "";
+}
+
+/** 交给宿主打开某个目录，并按结果给用户一个明确说法。 */
+async function openWorkspacePath(path) {
+  const live = window.__augitLive;
+  if (!live || !path) return null;
+  setWorkspaceNotice(`正在打开 ${path}…`);
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("workspace/open", { path }, 30000);
+    if (!payload || payload.opened === "invalid") {
+      failure = (payload && payload.reason) || "无法打开该目录。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (failure) {
+    setWorkspaceNotice(describeFailure(failure, {
+      unchanged: "当前窗口与已打开的工作区都没有变化。",
+      next: "可以换一个目录，或先在资源管理器里确认路径。",
+    }));
+    return null;
+  }
+
+  window.__augitWorkspaceOpened = payload.opened;
+  setWorkspaceNotice(
+    payload.opened === "current"
+      ? "这个目录已经在当前窗口打开。"
+      : payload.opened === "activated"
+        ? "已激活该目录已有的窗口。"
+        : "已在新窗口中打开该目录。");
+  if (payload.opened !== "current") {
+    closeLiveOverlay();
+    restoreDialogFocus();
+  }
+  return payload;
+}
+
+/** 「选择目录…」：先用系统对话框取路径，再按同一套逻辑打开。 */
+async function pickWorkspaceAndOpen() {
+  setWorkspaceNotice("正在等待系统目录选择…");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("workspace/pick", {}, 120000);
+    if (!payload || payload.picked === false) {
+      // 取消不是错误：不关窗口，也不提示失败。
+      setWorkspaceNotice(payload && payload.reason ? payload.reason : "");
+      return null;
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (failure) {
+    setWorkspaceNotice(describeFailure(failure, {
+      unchanged: "当前窗口与已打开的工作区都没有变化。",
+      next: "可以重试，或从最近目录里选择。",
+    }));
+    return null;
+  }
+
+  return openWorkspacePath(payload.path);
+}
+
+/**
+ * 「克隆仓库…」：复用视觉稿的 Clone 对话框（校验、焦点与冻结逻辑都在它里面），
+ * 只把真实克隆的入口接上——此前它只在 `scene=clone` 独立页里可用。
+ */
+function openCloneDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  // 直接建层而不是写 live.overlay 再刷区域：区域替换只在"目标与替换节点都存在"时生效，
+  // 当前没有覆盖层时那样做等于什么都不发生（实测克隆对话框一直不出现）。
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay clone-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "克隆仓库",
+    liveCloneBody(),
+    '<button type="button" class="secondary-button">取消</button>'
+      + '<button type="button" class="primary-button">克隆</button>',
+    true,
+    "clone-dialog");
+  host.appendChild(layer);
+  // 视觉稿自己的克隆逻辑（校验、焦点、冻结与真实克隆入口）在此绑定。
+  if (typeof bindCloneDialog === "function") bindCloneDialog();
+  if (typeof measureCloneDialog === "function") measureCloneDialog();
+}
+
 function openStashDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -6217,6 +6368,11 @@ async function runMainMenuPopoverAction(action) {
   closeLiveOverlay();
   if (!live || !action) return;
 
+  if (action === "workspace-open") {
+    openWorkspaceDialog();
+    return;
+  }
+
   if (action === "refresh-tree") {
     void refreshFileTree();
     return;
@@ -6271,6 +6427,7 @@ const MAIN_MENU_POPOVERS = {
   // 只列已经实现的动作：「打开工作区」需要新的宿主能力（选择目录、切换工作区），
   // 本轮不造——菜单里放一个点了没反应的条目，等于把"点了没反应"挪进菜单。
   file: [
+    { action: "workspace-open", label: "打开工作区…" },
     { action: "refresh-tree", label: "刷新文件树" },
   ],
   view: [
@@ -6566,8 +6723,9 @@ async function boot() {
   const searchScene = query.get("scene") === "quick-open" ? "quick"
     : query.get("scene") === "repository-search" ? "repository"
       : null;
-  if (wantsClone && hasHost()) {
+  if (hasHost()) {
     // 把真实克隆交给视觉稿的 Clone 对话框调用：校验、焦点与冻结逻辑已在其中实现。
+    // 不再只对场景页生效——「打开工作区」页的「克隆仓库…」也要用同一个对话框。
     window.__augitCloneRequest = (request) => invoke("git/clone", request, 600000);
   }
   if (hasHost()) {
