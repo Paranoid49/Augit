@@ -2170,6 +2170,51 @@ async function main() {
       throw new Error('断言失败：' + dedupeSoft.join(' | '));
     }
 
+    // ---- 外壳 chrome 不得被选中复制（用户实测反馈）----
+    // 两侧都要断言：chrome 必须禁选，正文/输入必须可选——只查一侧的话
+    // "全局都禁选" 或 "压根没生效" 都能蒙过去。
+    const sel = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+    await sel.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await sel.page.waitForSelector('.editor-content .code-view', { timeout: 10000 });
+    const selState = await sel.page.evaluate(() => {
+      const pick = (selector) => {
+        const node = document.querySelector(selector);
+        return node ? getComputedStyle(node).userSelect : null;
+      };
+      return {
+        titlebar: pick('.titlebar'),
+        treeRow: pick('.side-tool .tree-row'),
+        tab: pick('.editor-tabs .editor-tab'),
+        statusbar: pick('.statusbar'),
+        toolbar: pick('.editor-content .document-toolbar'),
+        code: pick('.editor-content .code-view'),
+        codeLine: pick('.editor-content .code-line'),
+        input: pick('.search-field') || pick('input'),
+      };
+    });
+    check('前置条件：这些 chrome 与正文都存在: ' + JSON.stringify(selState),
+      selState.titlebar !== null && selState.treeRow !== null && selState.tab !== null
+        && selState.statusbar !== null && selState.code !== null);
+    check('外壳 chrome 不可被选中: ' + JSON.stringify([selState.titlebar, selState.treeRow, selState.tab, selState.statusbar]),
+      selState.titlebar === 'none' && selState.treeRow === 'none'
+        && selState.tab === 'none' && selState.statusbar === 'none');
+    check('正文与输入仍可选中复制: ' + JSON.stringify([selState.code, selState.codeLine, selState.input]),
+      selState.code === 'auto' && selState.codeLine === 'auto' && selState.input === 'text');
+    // 行为面再确认一次：在标题栏上拖选不会产生选区。
+    const selection = await sel.page.evaluate(() => {
+      const bar = document.querySelector('.titlebar .workspace-chip') || document.querySelector('.titlebar');
+      const range = document.createRange();
+      range.selectNodeContents(bar);
+      const window_ = window.getSelection();
+      window_.removeAllRanges();
+      window_.addRange(range);
+      const selected = String(window_.toString()).trim().length;
+      window_.removeAllRanges();
+      return selected;
+    });
+    check('在标题栏上建选区拿不到界面文字: ' + selection, selection === 0);
+    await sel.page.close();
+
     // ---- 规格 §6.5：加载指示不得循环触发布局 ----
     // 加载期间目标区域与主框架的节点数、几何必须稳定；配对对照用"人为注入抖动"证明采样方法有效。
     const llSoft = [];

@@ -1852,6 +1852,42 @@ body[data-theme="dark"] .fake-check.mixed {
   content: ""; position: absolute; inset: 1px 2px 2px 1px; border: 1px solid var(--augit-panel); pointer-events: none;
 }
 
+/* 外壳 chrome 不参与文本选择。
+   桌面外壳里拖选会把标题栏/项目树/标签/工具栏的文字选中，Ctrl+C 还能把它们复制走；
+   正文、代码、diff、终端**保持可选**（只读查看器需要能选中复制代码）。 */
+.titlebar,
+.tool-rail,
+.side-tool,
+.editor-tabs,
+.bottom-tool,
+.statusbar,
+.dialog-header,
+.dialog-footer,
+.menu-list,
+.popover,
+.toolbar,
+.document-toolbar,
+.diff-toolbar,
+.diff-filebar,
+.current-find,
+.commit-actions,
+.tree-row,
+.tool-tab,
+.bottom-header,
+.history-toolbar,
+.history-header,
+.management-list,
+.button-row {
+  user-select: none;
+}
+
+/* 输入类控件始终可选中（上面那条会波及后代，这里显式恢复）。 */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+}
+
 .toast {
   position: absolute;
   right: 18px;

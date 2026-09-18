@@ -7851,3 +7851,22 @@ JSON 文档）；未做内存优化前后对照，因此只作为当前实测记
 `workspace/pick` 的三条决策路径（取消 / 无效目录 / 可用目录 + 路径规范化）有自动化用例；
 `SHBrowseForFolder` 弹窗本身需要一次人工点按确认（自动化无法在无人值守环境弹出系统对话框），
 仍列为本文件收官清单里的**唯一人工项**。
+
+### 第一百九十六轮：外壳 chrome 禁选（用户实测反馈第 2 条）
+
+**现象（用户截图为证）**：项目树/标题栏等界面文字能被拖选高亮，Ctrl+C 还能把文件名等界面文字复制走。
+**成因**：`web/src/mockup.css` 只有 6 处零散 `user-select: none`，标题栏、工具窗口、项目树、标签、
+工具栏、状态栏、菜单、对话框全都没禁 ✗。
+
+**改动**：给 chrome 容器统一加 `user-select: none`（`.titlebar/.tool-rail/.side-tool/.editor-tabs/
+.bottom-tool/.statusbar/.dialog-header/.dialog-footer/.menu-list/.popover/.toolbar/.document-toolbar/
+.diff-toolbar/.diff-filebar/.current-find/.commit-actions/.tree-row/.tool-tab/.bottom-header/
+.history-toolbar/.history-header/.management-list/.button-row`），并显式恢复
+`input/textarea/[contenteditable="true"]` 为 `user-select: text`；
+正文、代码、diff、终端**保持可选**（只读查看器要能复制代码）。
+
+**断言（两侧一起查，避免"全局禁选"或"没生效"蒙过去）**：标题栏/项目树行/标签/状态栏
+`user-select === 'none'`；`.code-view` 与 `.code-line` 为 `auto`；输入控件为 `text`；
+行为面再确认一次：对标题栏建 Range 选区后 `getSelection().toString()` 长度为 0。
+
+**验证**：`verify-ui-assets.ps1` PASS（视觉稿两处副本字节一致）。
