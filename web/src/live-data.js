@@ -7185,7 +7185,8 @@ function toLiveDocument(payload) {
   const kind = payload.kind || "Text";
   const editor = kind === "Markdown" ? "markdown"
     : kind === "Json" ? "json"
-      : kind === "Png" || kind === "Jpeg" || kind === "Bmp" ? "image"
+      // Gif/WebP 同样属于图片：漏掉它们会被判成 file-limit（不可预览）。
+      : ["Png", "Jpeg", "Bmp", "Gif", "WebP"].includes(kind) ? "image"
         : payload.status === "TextReady" ? "text"
           : "file-limit";
   return {

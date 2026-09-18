@@ -9399,3 +9399,33 @@ MIME 映射 `Png→image/png、Jpeg→image/jpeg、Bmp→image/bmp、Gif→image
 **结论**：缺陷已从"未知链路"收敛为**两处已知改动的机械实施**（宿主 1 处 + 前端 1 行），
 枚举、MIME、边界状态与断言都已在文档里写死；下一轮实施后即可做
 harness 全量 + 真机 `--open <png>`（`naturalWidth>0`、加载指示消失）+ 负向验证三连。
+
+#### 第 256 轮：图片预览缺陷**修复完成并真机验证**（两半合拢）
+
+**改动**：
+1. **宿主**（`ShellBridge.ReadDocumentAsync`）：`DocumentReadStatus.ImageReady` 时读取文件字节并返回
+   `dataUrl = "data:image/<mime>;base64,…"`（`ImageMime` 覆盖 Png/Jpeg/Bmp/Gif/WebP）；
+   `ImageTooLarge`/`ImageDecodeFailed` **不返回**，界面继续走信息态；
+2. **前端**（`toLiveDocument`）：把 `dataUrl` 带进 live 文档模型（第 254 轮），
+   并把 **`Gif`/`WebP`** 补进图片视图分支（此前会被误判为 `file-limit`）。
+
+**真机验证**（`-Scene image-preview -Open web/image-sample.png`，`__augitReady` 后再等 3 秒）：
+
+```
+IMG4 {"img":[["data:image/png;base64,",1920,1200,1920,1200]],
+       "spin":1,"label":"1920 × 1200 · PNG 图片 · 72.4 KB","err":[]}
+```
+
+- `img.src` 是真实的 `data:image/png;base64,…` ✓
+- **`naturalWidth/Height = 1920 × 1200`** → 位图**确实解码成功** ✓（修复前为 0）
+- `.image-size-label` 显示 **`1920 × 1200 · PNG 图片 · 72.4 KB`** ✓（真实尺寸/类型/体积）
+- 页面无错误 ✓
+
+**关于 `spin:1`**：那唯一的 `conic-gradient` 元素在修复前后都存在，而图片现在已经解码渲染，
+因此它**不是"卡住的加载指示"，更可能是图片透明背景的棋盘格**（用
+`conic-gradient`/`repeating-conic-gradient` 实现）。作为一条**待确认的小项**记录：
+下一轮读该元素的 `className` 即可定论（若确为棋盘格，则加载指示早已消失，本页无遗留问题）。
+
+**验证矩阵**：`dotnet build` 0 警告 0 错误、`Augit.Shell.Tests` **69/69**、
+`live-shell` **862/862**（含第 254 轮新增的 dataUrl 断言）；负向证据为第 246–248 轮
+修复前的探针输出（`src` 空、自然尺寸 0、尺寸标签为空）。

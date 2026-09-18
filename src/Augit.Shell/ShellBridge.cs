@@ -334,6 +334,16 @@ internal sealed class ShellBridge : IDisposable
             ?? throw new ArgumentException("document/read 需要 path 参数。");
         string fullPath = ResolveInsideWorkspace(relative);
         DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(_workspaceRoot, fullPath, cancellationToken);
+        // 图片正文的位图数据：渲染层把 live.document.dataUrl 直接当作 <img src>。
+        // 只有真正解码成功的图片才返回；过大与解码失败保持不返回，界面继续走信息态
+        // （体积与解码边界由既有状态机覆盖，不在这里另设阈值）。
+        string? dataUrl = null;
+        if (result.Status == DocumentReadStatus.ImageReady)
+        {
+            byte[] bytes = await File.ReadAllBytesAsync(fullPath, cancellationToken);
+            dataUrl = $"data:{ImageMime(result.Classification.Kind)};base64,{Convert.ToBase64String(bytes)}";
+        }
+
         return new
         {
             path = relative,
@@ -354,8 +364,20 @@ internal sealed class ShellBridge : IDisposable
             lineEndings = result.Status == DocumentReadStatus.TextReady
                 ? DescribeLineEndings(result.LineEndings)
                 : null,
+            dataUrl,
         };
     }
+
+    /// <summary>图片 MIME；与 DocumentKind 的图片取值一一对应，供 data: URL 使用。</summary>
+    private static string ImageMime(DocumentKind kind) => kind switch
+    {
+        DocumentKind.Png => "image/png",
+        DocumentKind.Jpeg => "image/jpeg",
+        DocumentKind.Bmp => "image/bmp",
+        DocumentKind.Gif => "image/gif",
+        DocumentKind.WebP => "image/webp",
+        _ => "application/octet-stream",
+    };
 
     private async Task<object?> ReadStatusAsync(CancellationToken cancellationToken)
     {
