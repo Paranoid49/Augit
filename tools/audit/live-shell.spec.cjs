@@ -2419,6 +2419,24 @@ async function main() {
         && tabsMeasure.overflowX === 'auto' && tabsMeasure.scrollable);
     await tabsMany.page.close();
 
+    // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
+    // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；
+    // 实测 `--blame docs/product-spec.md` 时 blame 标签排在首位却不是活动标签。
+    // 桩：settings/read 带 ?restore=1 时返回 openFiles（docs/product-spec.md 等）。
+    const noRestore = await openScene('scene=main-project&theme=dark&restore=1&open=docs/notes.txt');
+    await noRestore.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const tabsAfterExplicitDocument = await noRestore.page.evaluate(() => {
+      const live = window.__augitLive;
+      return {
+        paths: (live.tabs || []).map((tab) => tab.path),
+        active: (live.tabs || []).find((tab) => tab.id === live.activeTabId)?.path || null,
+      };
+    });
+    check('显式文档参数存在时不恢复会话: ' + JSON.stringify(tabsAfterExplicitDocument),
+      tabsAfterExplicitDocument.paths.includes('docs/notes.txt')
+        && !tabsAfterExplicitDocument.paths.includes('docs/product-spec.md'));
+    await noRestore.page.close();
+
     // ---- 底部 Git 工具窗的"更多"入口不得越堆越多（用户实测反馈：右下角一堆详情）----
     // 视觉稿的侧工具条绑定会在**每次**绑定调用时 append 一组「更多」按钮与弹层；
     // 视觉稿页面只渲染一次，实时外壳却会在每次区域刷新后重新绑定，

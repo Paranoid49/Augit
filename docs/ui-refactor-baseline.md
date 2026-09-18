@@ -8772,3 +8772,21 @@ LAYOUT 差异 28 项：
       color: 视觉稿="rgb(223, 225, 229)" 实时="rgb(157, 161, 170)"
       borderColor: 视觉稿="rgb(223, 225, 229)" 实时="rgb(157, 161, 170)"
 ```
+
+#### 第 230 轮：给"显式文档参数不恢复会话"补防回归断言（含负向验证）
+
+新增断言（`live-shell.spec.cjs`）：桩数据在 `?restore=1` 时返回 `openFiles`
+（含 `docs/product-spec.md`），场景以 `&open=docs/notes.txt` 打开后，
+**标签集合里必须有请求的文档、且不得出现恢复集合里的文件**。
+
+**正向**：修复后 **861/861 全绿**（新增 1 条）✓
+
+**负向验证**（临时把守卫换回 `void restoreSession();` 后重跑同一断言）：
+
+```
+live-shell 失败：断言失败：显式文档参数存在时不恢复会话:
+  {"paths":["docs/notes.txt","docs/product-spec.md"],"active":"docs/notes.txt"}
+```
+
+恢复集合里的 `docs/product-spec.md` 如实被恢复出来 ✗ —— 断言确实盯住了这条修复，
+随后 `cp` 恢复守卫并 `node --check` 通过（守卫仍在，`grep` 计数 1）。
