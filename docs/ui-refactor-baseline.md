@@ -8864,3 +8864,27 @@ if (live && Array.isArray(live.tabs) && live.tabs.length > 0) { ... live.tabs.ma
 按理 blame 运行只应有 1 个标签，但实测 3 个，因此**仍有未定位的标签来源**。
 下一轮用 CDP 一次性打印 `live.tabs`（`path/kind/preview`）、`settings.openFiles`、
 `blame` 与 `activeTabId` 三者对照，直接定位来源（不再靠推断）。
+
+#### 第 234 轮：直接读 live 状态定位 3 个标签 —— **更正第 232 轮的结论**
+
+用 `cdp-eval.ps1` 在 `--scene blame --blame docs/product-spec.md` 运行中直接打印 live 状态：
+
+```
+PROBE {"tabs":[],"blame":true,"openFiles":["docs/product-spec.md","D:\\github\\Augit\\THIRD-PARTY-NOTICES.md", ... 共 32 项]}
+```
+
+**`tabs` 是空数组**，而 `blame:true`。结合 `mockup.js` 第 2045 行的规则
+（`live.tabs` 非空才用 live 标签，否则回退视觉稿样例标签），第 231 轮看到的
+`THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active)` 就是**视觉稿样例标签的回退** ——
+**第 232 轮"排除样例回退"的结论是错的**：我当时是从*签名里存在标签*反推"live.tabs 非空"，
+而正确做法是直接读 `live.tabs`（本轮做了）。特此更正。
+
+**由此得到的真实缺陷（比"第二条恢复路径"更准确）**：`--blame` 只把 `live.blame` 置位，
+**没有在 `live.tabs` 里建立/激活 blame 文档标签**，于是：
+1. 标签条回退成视觉稿样例（与真实状态不符，规格 §5.2/§7.7 要求标签反映真实打开的文档）；
+2. 编辑器正文却来自真实 blame —— 标签与正文不一致。
+
+**下一轮做法**：让 blame（以及同类文档视图）走 `openDocumentTab`（与打开普通文件同一路径）
+再置 blame 状态，并加断言：`--blame <path>` 后 `live.tabs` 恰好 1 个标签、
+活动标签即该路径、标签条不再出现样例文件名。修复后再对 blame 工具栏
+`span.document-path` 候选差异做判读（此前结论会被这条缺陷干扰）。
