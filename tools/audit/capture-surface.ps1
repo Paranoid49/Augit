@@ -4,17 +4,29 @@
 param(
   [Parameter(Mandatory=$true)][string]$Exe,
   [Parameter(Mandatory=$true)][string]$Out,
-  # Either pass audit-host arguments explicitly, or the Settings/Workspace/Surface triple.
+  # Either pass shell arguments explicitly, or the Workspace/Surface triple.
   [string[]]$Arguments = @(),
+  # Accepted for backward compatibility only: the shell has no settings-file argument, and a
+  # bare path here used to be passed as a positional argument, which the shell rejects with
+  # "unknown startup argument" and then only an error dialog was captured. The theme is read
+  # from this file when -Theme is not given.
   [string]$Settings = "",
   [string]$Workspace = "",
+  # Scene name rendered by the live shell (see verify-acceptance.ps1 for the list).
   [string]$Surface = "",
+  [string]$Theme = "",
   [string]$Dpi = "",
+  [switch]$PixelExact,
   [string]$WorkDir = "",
   [int]$TimeoutSec = 60,
   [int]$Attempts = 5,
   [int]$SettleMs = 2500,
-  [double]$MaxWhitePercent = 10.0
+  [double]$MaxWhitePercent = 10.0,
+  # Debug port used to verify the page really rendered the scene. A capture that only checks
+  # "not blank" cannot tell a rendered scene from an error dialog (that is exactly how the
+  # earlier acceptance sweep produced meaningless evidence).
+  [int]$Port = 9336,
+  [switch]$SkipPageCheck
 )
 $ErrorActionPreference = "Stop"
 if ($WorkDir -eq "") { $WorkDir = Split-Path -Parent $Exe }
@@ -94,12 +106,24 @@ $a = @()
 if ($Arguments.Count -gt 0) {
   $a = $Arguments
 } else {
-  if ($Settings -eq "" -or $Workspace -eq "" -or $Surface -eq "") {
-    Write-Output "MISSING_ARGS"
+  if ($Workspace -eq "" -or $Surface -eq "") {
+    Write-Output "MISSING_ARGS need -Workspace and -Surface (or -Arguments)"
     exit 5
   }
-  $a = @($Settings, $Workspace, $Surface, $Out)
-  if ($Dpi -ne "") { $a += "--dpi=$Dpi" }
+  if ($Theme -eq "" -and $Settings -ne "" -and (Test-Path -LiteralPath $Settings)) {
+    try {
+      $configured = (Get-Content -Raw -Encoding UTF8 -LiteralPath $Settings | ConvertFrom-Json).theme
+      # "System" cannot be expressed as a startup argument; fall back to dark for a stable
+      # comparison baseline.
+      if ($configured -eq "Dark" -or $configured -eq "Light") { $Theme = $configured }
+    } catch { }
+  }
+  if ($Theme -eq "") { $Theme = "dark" }
+  # Real startup flags: scene and theme are what the shell actually understands.
+  $a = @("--workspace", $Workspace, "--scene", $Surface, "--theme", $Theme)
+  if ($Dpi -ne "") { $a += @("--dpi", $Dpi) }
+  if ($PixelExact) { $a += "--pixel-exact" }
+  if (-not $SkipPageCheck) { $a += @("--browser-args", "--remote-debugging-port=$Port") }
 }
 $p = Start-Process -FilePath $Exe -ArgumentList $a -PassThru -WorkingDirectory $WorkDir
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
@@ -140,6 +164,23 @@ while ((Get-Date) -lt $deadline -and $h -eq [IntPtr]::Zero) {
 }
 if ($h -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW pid=$($p.Id)"; try { $p.Kill() } catch {}; exit 2 }
 Write-Output "WINDOW class=$([WinScreen]::ClassOf($h)) pid=$($p.Id)"
+# Verify the page actually rendered this scene before treating the pixels as evidence.
+if (-not $SkipPageCheck) {
+  . (Join-Path $PSScriptRoot 'cdp-eval.ps1')
+  try {
+    $socket = Get-CdpSocket $Port
+    $state = Invoke-Cdp $socket "JSON.stringify({ready:!!window.__augitReady,errors:window.__augitErrors||[],window:!!document.querySelector('.augit-window'),scene:(typeof window.__augitScene==='function'?window.__augitScene():null)})" 1 60
+    Write-Output ("PAGE " + $state)
+    $parsed = $state | ConvertFrom-Json
+    if (-not $parsed.window -or -not $parsed.ready) { Write-Output "PAGE_NOT_READY"; try { $p.Kill() } catch {}; exit 7 }
+    if ($parsed.errors -and $parsed.errors.Count -gt 0) { Write-Output ("PAGE_ERRORS " + $state); try { $p.Kill() } catch {}; exit 8 }
+  } catch {
+    Write-Output ("PAGE_CHECK_FAILED " + $_.Exception.Message)
+    try { $p.Kill() } catch {}
+    exit 9
+  }
+}
+
 $outAbs = [System.IO.Path]::GetFullPath($Out)
 $outDir = Split-Path -Parent $outAbs
 if (-not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Path $outDir -Force | Out-Null }

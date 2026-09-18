@@ -7,7 +7,11 @@ param(
   [string]$Settings = "",
   [string[]]$Scenes = @(),
   [int]$SettleMs = 2500,
-  [double]$MaxWhitePercent = 10.0
+  [double]$MaxWhitePercent = 10.0,
+  [string]$Theme = "dark",
+  # Light theme legitimately covers most of the window with white panels; the blank-frame
+  # guard would reject it, so the caller must relax -MaxWhitePercent deliberately.
+  [int]$BasePort = 9336
 )
 
 $DefaultScenes = @(
@@ -38,12 +42,15 @@ if (-not (Test-Path $capture)) {
 }
 
 $failed = @()
+$index = 0
 foreach ($scene in $Scenes) {
-  $out = Join-Path $OutDir ('accept-' + $scene + '.bmp')
+  $index++
+  $out = Join-Path $OutDir ('accept-' + $scene + '.png')
   $arguments = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $capture,
     '-Exe', $Exe, '-Out', $out, '-Workspace', $Workspace,
-    '-Surface', $scene, '-SettleMs', $SettleMs, '-MaxWhitePercent', $MaxWhitePercent
+    '-Surface', $scene, '-SettleMs', $SettleMs, '-MaxWhitePercent', $MaxWhitePercent,
+    '-Theme', $Theme, '-Port', ($BasePort + $index)
   )
   if ($Settings -ne '') {
     $arguments += @('-Settings', $Settings)

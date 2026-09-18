@@ -8058,3 +8058,28 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
 （`tree-row depth-2 file-status-modified`、`padding-left: 38px`、`font-weight: 600`），
 实时外壳是**扁平列表**（`tree-row depth-1 live-file-status-Modified`、
 `padding-left: 20px`、`font-weight: 400`）。下一轮按此逐条修。
+
+#### 2xx 轮（准备之二）：验收截图工具此前一直在拍错误对话框
+
+**发现的缺陷**：`capture-surface.ps1` 把 `Settings/Workspace/Surface/Out` 当作**位置参数**
+传给 `Augit.exe`（`$a = @($Settings, $Workspace, $Surface, $Out)`），而 `ShellOptions.Parse`
+遇到不认识的参数会抛 `未知的启动参数`，`Program` 随后弹出一个错误对话框。
+也就是说：**上一轮"25/25 验收"拍到的不是界面，而是错误对话框**——再叠加
+`-MaxWhitePercent 99`（等于关掉空白帧判据），那批证据不成立。这也是本轮必须先把
+证据工具修好的原因。
+
+**修复**：
+- `capture-surface.ps1` 改用真实启动参数：`--workspace <工作区> --scene <场景> --theme <主题>`
+  （`--dpi`/`--pixel-exact` 可选）；`-Settings` 只用于在没有 `-Theme` 时读取其中的主题，
+  不再作为位置参数传递；
+- 捕获前先经 CDP 校验**页面真的渲染了这个场景**：`__augitReady` 为真、
+  `.augit-window` 存在、`window.__augitErrors` 为空，否则 `PAGE_NOT_READY`/`PAGE_ERRORS`
+  直接失败（只判"不是空白"区分不了界面和错误框）；
+- 输出从 `.bmp`（实际写的是 PNG 内容）改为 `.png`；
+- CDP 取数逻辑抽成共享文件 `tools/audit/cdp-eval.ps1`（`Get-CdpSocket`/`Invoke-Cdp`），
+  `dump-live-dom.ps1` 与 `capture-surface.ps1` 共用，不再各写一份接口。
+
+**实测**：`verify-acceptance.ps1 -Scenes 'main-project,git-history' -Theme dark -MaxWhitePercent 40`
+→ `main-project PASS`、`git-history PASS`、`SUMMARY total=2 passed=2 failed=0`、`ACCEPTANCE_OK`，
+截图确认为真实界面（标题栏/项目树/编辑区/底部 Git 历史与右侧 `>` 入口），
+且右下角只有一组入口（③ 的修复在真机像素上可见）。
