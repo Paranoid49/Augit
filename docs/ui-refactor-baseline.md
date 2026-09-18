@@ -9577,3 +9577,27 @@ SEARCH {"search":{"kind":"repository","q":"product","matches":159,"notice":null}
 与规格 §仓库搜索（"结果按文件与命中行显示"、与工具窗口的关系）以及
 `docs/ux-mockups/repository-search.html` 的样例摆放逐项核对，判断差异属于
 "实现位置不同"还是"视觉稿场景本身是覆盖层的变体"，再决定改哪一侧。
+
+#### 第 262 轮：搜索结果位置的最终定论 + `-SetQuery` 的**执行顺序**问题（已回退）
+
+**定论**：直读页面里第一条搜索结果的祖先链：
+
+```
+CHAIN BODY > DIV > augit-window > search-overlay > search-results > search-result
+```
+
+即实时侧的 159 条结果**确实在 `.search-overlay` 内部**
+（`search-overlay > search-results > search-result`），与视觉稿样例的摆放**一致** ✓。
+第 260/261 轮"浮层里没有结果"是**工具问题**，不是产品问题。
+
+**工具问题的真正原因（本轮定位）**：`dump-live-dom.ps1` 里 `-SetQuery` 的代码块
+**排在排版等值化步骤之前**，而等值化会 `location.search = …` **重载页面** ——
+输入好的查询被那次重载清掉，于是抓取时浮层又回到空查询状态。
+
+**本轮尝试与回退**：把 `-SetQuery` 块整体移到 `$signature = Get-Content` 之前
+（即等值化之后），重跑时脚本直接失败（未产出 JSON/SET_QUERY 行）。
+为避免留下坏工具，**已 `git checkout` 回退到上一提交的可用版本**（其中已包含把输入选择器
+改成 `.search-field` 的修复），并把顺带发现的顺序问题写成下一轮的**一步修复**：
+把该块移到"等值化重载完成并再次就绪"之后，再用
+`-Scene repository-search -SetQuery product` 复核 —— 预期能看到 `search-results` 与结果行，
+从而完成这一页的定点对照（结构上应与视觉稿一致，行数差异属数据差异）。
