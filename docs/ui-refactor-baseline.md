@@ -8402,3 +8402,30 @@ verify-window-chrome.ps1（真机）       11/11，WINDOW_CHROME_OK
 **下一轮**：经 CDP 在实时侧真正输入一个查询（设置输入框值并派发 `input`），
 等结果到达后再对照**结果行**的几何/图标/密度；空状态本身应改用视觉稿的
 `quick-open-empty` / `search-limited` 场景对照（两者都在 48 个场景内，已随场景矩阵全绿）。
+
+#### 第 214 轮：④ 剩余页面自动化差异普查（12 个场景）
+
+一次遍历：每个场景先试 `.overlay-layer`，空则回退 `.augit-window`（`EMPTY_REGION` 守卫保证不会出空对照）。
+
+```
+blame|.augit-window|LAYOUT=96|SHAPE=306|TEXT=28
+file-history|.augit-window|LAYOUT=96|SHAPE=297|TEXT=29
+worktrees|.overlay-layer|LAYOUT=3|SHAPE=2|TEXT=13
+stash-manager|.overlay-layer|LAYOUT=2|SHAPE=14|TEXT=7
+remote|.overlay-layer|LAYOUT=3|SHAPE=2|TEXT=6
+clone|.overlay-layer|LAYOUT=1|SHAPE=0|TEXT=0
+push|.overlay-layer|LAYOUT=2|SHAPE=15|TEXT=10
+reset|.overlay-layer|LAYOUT=1|SHAPE=0|TEXT=0
+rollback|.overlay-layer|LAYOUT=139|SHAPE=0|TEXT=0
+repository-search|.augit-window|LAYOUT=35|SHAPE=318|TEXT=30
+operation-result|.augit-window|LAYOUT=39|SHAPE=749|TEXT=25
+image-preview|.augit-window|LAYOUT=22|SHAPE=280|TEXT=25
+```
+
+**判读**：
+- `clone`、`reset` 几乎完全一致（LAYOUT 1、SHAPE 0、TEXT 0）；`worktrees`、`remote`（LAYOUT 3 / SHAPE 2）也基本对齐；
+- **`rollback` 是最大异常：LAYOUT 139、SHAPE 0、TEXT 0** —— 节点结构与文字完全相同、只有几何系统性偏移，
+  典型成因是对话框容器（栅格 / 内边距 / 宽度）或比较区尺寸不一致，是下一轮第一个排查对象；
+- `stash-manager`（SHAPE 14）、`push`（SHAPE 15）中等，需要逐项看结构差；
+- `blame` / `file-history` / `repository-search` / `operation-result` / `image-preview` 回退到了 `.augit-window`，
+  计数包含整页与数据差异、信号弱 —— 下一轮先为这些页面确定**正确的区域选择器**再重新普查。
