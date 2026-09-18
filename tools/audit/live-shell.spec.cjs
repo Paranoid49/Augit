@@ -452,11 +452,26 @@ async function main() {
           : (base ? Object.assign({}, base, { hasConflicts: false, conflicts: [], canContinue: true }) : null);
         return { available: true, reason: null, hasConflicts: false };
       }
-      if (method === 'git/remotes') return data.remotes;
+      if (method === 'git/remotes') {
+        window.__remotesReads = (window.__remotesReads || 0) + 1;
+        return window.__remotesState || data.remotes;
+      }
       if (method === 'git/remote-write') {
         window.__remoteWrites = (window.__remoteWrites || []).concat([params]);
         if (window.__remoteWriteFails) return { available: true, changed: false, reason: 'remote 已存在。' };
-        return { available: true, changed: true, remotes: [{ name: params.name, fetchUrl: params.fetchUrl, pushUrl: params.pushUrl }] };
+        // 列表型桩：新增/更新/删除都作用在同一份状态上，界面才能按真实列表更新。
+        const base = window.__remotesState || data.remotes;
+        let next = base.remotes.map((remote) => Object.assign({}, remote));
+        if (params.action === 'delete') {
+          next = next.filter((remote) => remote.name !== params.name);
+        } else {
+          const entry = { name: params.name, fetchUrl: params.fetchUrl, pushUrl: params.pushUrl || params.fetchUrl };
+          const index = params.action === 'update'
+            ? next.findIndex((remote) => remote.name === params.currentName) : -1;
+          if (index >= 0) next[index] = entry; else next = next.concat([entry]);
+        }
+        window.__remotesState = { available: true, remotes: next };
+        return { available: true, changed: true, remotes: next };
       }
       if (method === 'git/references') return data.references;
       if (method === 'git/stashes') return window.__stashesState || data.stashes;
@@ -1838,6 +1853,164 @@ async function main() {
 
     if (wtmSoft.length > 0) {
       throw new Error('断言失败：' + wtmSoft.join(' | '));
+    }
+
+    // ---- 规格 §7.11：远端管理页的删除/保存动作行与工具栏（新建/删除/刷新）----
+    const rmtSoft = [];
+    const rmtCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      rmtSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const rmt = await openScene('scene=main-project&theme=dark');
+    await rmt.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await rmt.page.waitForFunction('!!window.__augitLive.remotes', null, { timeout: 10000 });
+    await rmt.page.evaluate(() => {
+      window.__remoteWrites = [];
+      window.__remotesState = null;
+      window.__remoteWriteFails = false;
+      window.__remotesReads = 0;
+    });
+    // 远端管理通常从 Push 的「定义远端」进入；这里用测试钩子直接打开同一实现。
+    await rmt.page.evaluate(() => window.__augitOpenRemoteManager());
+    await rmt.page.waitForSelector('.remote-window', { timeout: 8000 }).catch(() => {});
+    const rmtShape = await rmt.page.evaluate(() => {
+      const layer = document.querySelector('.remote-window');
+      if (!layer) return null;
+      const fields = [...layer.querySelectorAll('[data-remote-field]')];
+      return {
+        fields: fields.map((node) => node.dataset.remoteField),
+        readonly: fields.map((node) => node.readOnly),
+        actions: [...layer.querySelectorAll('.management-detail [data-remote-action]')].map((node) => node.textContent.trim()),
+        entries: [...layer.querySelectorAll('[data-remote-entry]')].map((node) => node.dataset.remoteEntry),
+        toolbar: [...layer.querySelectorAll('[data-mgmt-action]')].map((node) => node.dataset.mgmtAction),
+        notice: !!layer.querySelector('.remote-notice'),
+      };
+    });
+    rmtCheck('远端详情按视觉稿给出可编辑字段与删除/保存动作行: ' + JSON.stringify(rmtShape),
+      rmtShape !== null && rmtShape.fields.join(',') === 'name,fetchUrl,pushUrl'
+        && rmtShape.readonly.every((value) => value === false)
+        && JSON.stringify(rmtShape.actions) === JSON.stringify(['删除', '保存'])
+        && rmtShape.entries.includes('origin') && rmtShape.notice === true);
+    rmtCheck('管理页工具栏提供新建/删除/刷新: ' + JSON.stringify(rmtShape && rmtShape.toolbar),
+      rmtShape !== null && JSON.stringify(rmtShape.toolbar) === JSON.stringify(['new', 'delete', 'refresh']));
+
+    // 更新已有远端：保存调用 update 并带 currentName，窗口留在原地。
+    await rmt.page.locator('.remote-window [data-remote-field="fetchUrl"]').fill('https://example.com/team/Augit.git');
+    await rmt.page.locator('.remote-window [data-remote-action="save"]').click();
+    await rmt.page.waitForTimeout(600);
+    const rmtUpdated = await rmt.page.evaluate(() => ({
+      writes: window.__remoteWrites || [],
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+      open: !!document.querySelector('.remote-window'),
+    }));
+    rmtCheck('保存已有远端按更新提交并保留窗口: ' + JSON.stringify(rmtUpdated),
+      rmtUpdated.writes.length === 1 && rmtUpdated.writes[0].action === 'update'
+        && rmtUpdated.writes[0].currentName === 'origin' && rmtUpdated.open === true
+        && typeof rmtUpdated.notice === 'string' && rmtUpdated.notice.includes('已保存'));
+
+    // 新建：工具栏 + 清空草稿 → 保存按新增提交，列表多一条。
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.remote-window [data-mgmt-action="new"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForTimeout(300);
+    const rmtNew = await rmt.page.evaluate(() => {
+      const layer = document.querySelector('.remote-window');
+      const name = layer.querySelector('[data-remote-field="name"]');
+      const remove = layer.querySelector('[data-remote-action="delete"]');
+      return {
+        name: name ? name.value : null,
+        removeDisabled: remove ? remove.disabled : null,
+        trace: window.__augitMgmtTrace || [],
+        draft: window.__augitLive.remoteDraft || null,
+        index: window.__augitLive.selectedRemoteIndex,
+        windows: document.querySelectorAll('.remote-window').length,
+        detail: (document.querySelector('.remote-window .management-detail') || {}).innerHTML || null,
+        errors: (window.__augitErrors || []).slice(-2),
+      };
+    });
+    rmtCheck('工具栏新建清空草稿并禁用删除: ' + JSON.stringify(rmtNew),
+      rmtNew.name === '' && rmtNew.removeDisabled === true);
+    rmtCheck('反复重绘不累积覆盖层: ' + JSON.stringify(rmtNew && rmtNew.windows),
+      rmtNew !== null && rmtNew.windows === 1);
+    await rmt.page.locator('.remote-window [data-remote-field="name"]').fill('backup');
+    await rmt.page.locator('.remote-window [data-remote-field="fetchUrl"]').fill('https://example.com/backup.git');
+    await rmt.page.locator('.remote-window [data-remote-action="save"]').click();
+    await rmt.page.waitForTimeout(700);
+    const rmtAdded = await rmt.page.evaluate(() => ({
+      writes: window.__remoteWrites || [],
+      entries: [...document.querySelectorAll('.remote-window [data-remote-entry]')].map((node) => node.dataset.remoteEntry),
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+    }));
+    rmtCheck('新增远端按 add 提交并出现在列表里: ' + JSON.stringify([rmtAdded.writes.at(-1), rmtAdded.entries, rmtAdded.notice]),
+      rmtAdded.writes.at(-1).action === 'add' && rmtAdded.writes.at(-1).name === 'backup'
+        && rmtAdded.entries.includes('backup') && rmtAdded.entries.includes('origin')
+        && typeof rmtAdded.notice === 'string' && rmtAdded.notice.includes('已新增'));
+
+    // 删除：动作行直接删除，列表少一条；再次删除需要重新选择（列表空 → 没有选中项）。
+    await rmt.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.remote-window [data-remote-index]')];
+      const index = rows.findIndex((row) => row.dataset.remoteEntry === 'backup');
+      if (index >= 0) rows[index].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForTimeout(300);
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.remote-window [data-remote-action="delete"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForTimeout(700);
+    const rmtDeleted = await rmt.page.evaluate(() => ({
+      writes: window.__remoteWrites || [],
+      entries: [...document.querySelectorAll('.remote-window [data-remote-entry]')].map((node) => node.dataset.remoteEntry),
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+    }));
+    rmtCheck('删除远端按 delete 提交并从列表消失: ' + JSON.stringify([rmtDeleted.writes.at(-1), rmtDeleted.entries, rmtDeleted.notice]),
+      rmtDeleted.writes.at(-1).action === 'delete' && rmtDeleted.writes.at(-1).name === 'backup'
+        && !rmtDeleted.entries.includes('backup') && rmtDeleted.entries.includes('origin')
+        && typeof rmtDeleted.notice === 'string' && rmtDeleted.notice.includes('已删除'));
+
+    // 工具栏刷新：重新读取列表并给出说明。
+    const rmtReadsBefore = await rmt.page.evaluate(() => window.__remotesReads || 0);
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.remote-window [data-mgmt-action="refresh"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForTimeout(500);
+    const rmtRefreshed = await rmt.page.evaluate(() => ({
+      reads: window.__remotesReads || 0,
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+      open: !!document.querySelector('.remote-window'),
+    }));
+    rmtCheck('工具栏刷新重新读取列表: ' + JSON.stringify([rmtReadsBefore, rmtRefreshed.reads, rmtRefreshed.notice]),
+      rmtRefreshed.reads > rmtReadsBefore && rmtRefreshed.open === true
+        && typeof rmtRefreshed.notice === 'string' && rmtRefreshed.notice.includes('已刷新'));
+
+    // 同一套工具栏在 Stash 与 Worktree 页上分派到各自的新建/删除流程。
+    await rmt.page.evaluate(() => { window.__augitOpenStashManager(); });
+    await rmt.page.waitForSelector('.dialog.stash-manager-dialog', { timeout: 8000 }).catch(() => {});
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-mgmt-action="delete"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForSelector('.dialog.stash-drop-dialog', { timeout: 8000 }).catch(() => {});
+    rmtCheck('Stash 页的工具栏删除复用删除确认',
+      (await rmt.page.evaluate(() => !!document.querySelector('.dialog.stash-drop-dialog'))) === true);
+    await rmt.page.keyboard.press('Escape');
+    await rmt.page.waitForTimeout(300);
+    await rmt.page.evaluate(() => { window.__augitOpenWorktreeManager(); });
+    await rmt.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-mgmt-action="new"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForTimeout(400);
+    rmtCheck('Worktree 页的工具栏新建复用既有表单',
+      (await rmt.page.evaluate(() => !!document.querySelector('.worktree-window'))) === true);
+    await rmt.page.close();
+
+    if (rmtSoft.length > 0) {
+      throw new Error('断言失败：' + rmtSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----
@@ -4477,16 +4650,21 @@ async function main() {
     check('远端保存失败显示 Git 原因: ' + JSON.stringify(remFail.notice),
       typeof remFail.notice === 'string' && remFail.notice.includes('已存在'));
 
-    // 保存成功：关闭远端窗口，Push 窗口保持唯一
+    // 保存成功：窗口留在原地显示结果（视觉稿把「保存」放在详情动作行里，底栏只有「关闭」），
+    // Push 窗口保持唯一，主窗口结构不变。
     await rem.evaluate(() => { window.__remoteWriteFails = false; });
     await rem.locator('[data-remote-action="save"]').click();
     await rem.waitForTimeout(1000);
     const remSaved = await rem.evaluate(() => ({
       remote: !!document.querySelector('.remote-window'),
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
       pushDialogs: document.querySelectorAll('.dialog.push-dialog').length,
       workspace: !!document.querySelector('.workspace'),
+      entries: [...document.querySelectorAll('[data-remote-entry]')].map((el) => el.dataset.remoteEntry),
     }));
-    check('保存成功后关闭远端窗口', remSaved.remote === false);
+    check('保存成功后远端窗口留在原地', remSaved.remote === true);
+    check('保存成功后给出结果说明: ' + JSON.stringify(remSaved.notice),
+      typeof remSaved.notice === 'string' && remSaved.notice.includes('已保存'));
     check('保存成功后 Push 窗口仍唯一: ' + remSaved.pushDialogs, remSaved.pushDialogs === 1);
     check('保存成功后主窗口结构完好: ' + remSaved.workspace, remSaved.workspace === true);
     await rem.close();

@@ -1461,11 +1461,30 @@ function managementPage(kind) {
 function liveManagementPage(kind) {
   const live = window.__augitLive || {};
   const configs = {
+    // 远端管理（视觉稿的 remote）：可编辑的名称与两个 URL，动作行是删除与保存。
+    // 选中项与编辑中的草稿都进状态（区域刷新会重建节点，写在 DOM 上会被丢掉）。
     remote: () => {
       const remotes = (live.remotes && live.remotes.remotes) || [];
       const entries = remotes.map(remote => remote.name);
-      const first = remotes[0];
-      const detail = first ? `<h2>${escapeHtml(first.name)}</h2><div class="form-grid"><label>名称</label><input class="text-field" value="${escapeHtml(first.name)}" readonly><label>获取 URL</label><input class="text-field" value="${escapeHtml(first.fetchUrl)}" readonly><label>推送 URL</label><input class="text-field" value="${escapeHtml(first.pushUrl)}" readonly></div>` : `<p class="commit-meta">没有配置远端</p>`;
+      // 没有选中项（正在新建）时不能退回到第一个远端：那会让"删除"看起来可以点。
+      const index = Number.isInteger(live.selectedRemoteIndex) ? live.selectedRemoteIndex
+        : live.remoteDraft ? null : 0;
+      const selected = index === null ? null : remotes[index] || null;
+      const draft = live.remoteDraft
+        || (selected ? { name: selected.name, fetchUrl: selected.fetchUrl, pushUrl: selected.pushUrl || "" } : null);
+      const detail = draft
+        ? `<h2>${escapeHtml(draft.name || "定义远端")}</h2>`
+          + `<div class="form-grid"><label for="remote-name">名称</label>`
+          + `<input id="remote-name" class="text-field" value="${escapeHtml(draft.name)}" data-remote-field="name">`
+          + `<label for="remote-fetch">获取 URL</label>`
+          + `<input id="remote-fetch" class="text-field" value="${escapeHtml(draft.fetchUrl)}" data-remote-field="fetchUrl">`
+          + `<label for="remote-push">推送 URL</label>`
+          + `<input id="remote-push" class="text-field" value="${escapeHtml(draft.pushUrl || draft.fetchUrl)}" data-remote-field="pushUrl"></div>`
+          + '<div class="button-row">'
+          + `<button class="secondary-button" type="button" data-remote-action="delete"${selected ? "" : ' disabled title="先选择一个已有远端。"'}>删除</button>`
+          + '<button class="primary-button" type="button" data-remote-action="save">保存</button></div>'
+          + '<p class="remote-notice commit-meta" role="status" hidden></p>'
+        : `<p class="commit-meta">没有配置远端</p>`;
       return ["远端", entries, detail];
     },
     // Worktree 管理（视觉稿的 worktrees）：状态、终端会话与动作行。
@@ -1531,15 +1550,17 @@ function liveManagementPage(kind) {
   const [title, entries, detail] = build();
   const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive";
   const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex
-    : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex : 0;
+    : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex
+      : kind === "remote" && Number.isInteger(live.selectedRemoteIndex) ? live.selectedRemoteIndex : 0;
   const list = entries.length === 0
     ? `<p class="commit-meta">空</p>`
     : entries.map((entry, index) => {
       const hook = kind === "stash" ? ` data-stash-index="${index}"`
-        : kind === "worktrees" ? ` data-worktree-index="${index}"` : "";
+        : kind === "worktrees" ? ` data-worktree-index="${index}"`
+          : kind === "remote" ? ` data-remote-index="${index}" data-remote-entry="${escapeHtml(entry)}"` : "";
       return `<div class="tree-row ${index === selectedIndex ? "selected" : ""}"${hook}>${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`;
     }).join("");
-  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
+  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button" data-mgmt-action="new" aria-label="新建">${icon("plus")}</button><button class="toolbar-button" data-mgmt-action="delete" aria-label="删除">${icon("trash-2")}</button><button class="toolbar-button" data-mgmt-action="refresh" aria-label="刷新">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
 // 外壳注入真实冲突文档时使用；三栏结构与样例版一致，结果栏是唯一可编辑区域。

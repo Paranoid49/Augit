@@ -1932,6 +1932,8 @@ window.__augitOpenStashDialog = () => openStashDialog();
 
 window.__augitOpenWorktreeManager = () => openWorktreeManagerDialog();
 
+window.__augitOpenRemoteManager = () => openRemoteDialog();
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
   // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
@@ -2534,7 +2536,7 @@ function showConflictMergePrompt(fresh) {
   if (!live || !host || !live.conflict) return null;
   closeConflictMergePrompt();
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
+  layer.className = "overlay-layer live-overlay conflict-external-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "文件已被外部修改",
@@ -2556,10 +2558,7 @@ function showConflictMergePrompt(fresh) {
 function closeConflictMergePrompt() {
   const live = window.__augitLive;
   if (live) live.conflictPending = null;
-  document.querySelectorAll(".dialog.conflict-external-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
+  document.querySelectorAll("[data-augit-overlay].live-overlay.conflict-external-window").forEach((node) => node.remove());
   window.__augitConflictPrompt = null;
 }
 
@@ -2795,6 +2794,7 @@ function rebindAfterRender() {
   restoreChangesState();
   bindOverlayEscape();
   bindTitlebarMenuEscape();
+  bindManagementFieldDraft();
   bindCompactDialogKeys();
   bindStashDialogKeys();
   bindRegionTabOrder();
@@ -3327,6 +3327,39 @@ function guardUnwiredNavigation() {
     if (conflictKeep) {
       event.preventDefault();
       keepConflictEdits();
+      return;
+    }
+
+    // 远端管理页（规格 §7.11）：选择条目与编辑字段都进状态。
+    const remoteRow = event.target.closest && event.target.closest("[data-remote-index]");
+    if (remoteRow) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const index = Number(remoteRow.dataset.remoteIndex);
+      if (live && Number.isInteger(index)) {
+        live.selectedRemoteIndex = index;
+        live.remoteDraft = null;
+        renderRemoteManager();
+      }
+      return;
+    }
+
+    // 管理页工具栏（三个管理页共用）：新建 / 删除 / 刷新。
+    const mgmtAction = event.target.closest && event.target.closest("[data-mgmt-action]");
+    if (mgmtAction) {
+      event.preventDefault();
+      const kind = currentManagementKind();
+      const action = mgmtAction.dataset.mgmtAction;
+      window.__augitMgmtTrace = (window.__augitMgmtTrace || []).concat([[kind, action]]);
+      if (action === "refresh") {
+        void refreshManagementList(kind);
+      } else if (action === "new") {
+        startManagementCreate(kind);
+      } else if (action === "delete") {
+        if (kind === "remote") void deleteRemoteFromManager();
+        else if (kind === "stash") openStashDropConfirm();
+        else if (kind === "worktrees") openWorktreeRemoveConfirm();
+      }
       return;
     }
 
@@ -4299,6 +4332,13 @@ async function confirmRollbackDialog() {
   refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
 }
 
+/**
+ * 远端管理（规格 §7.11 / §7.12）。
+ *
+ * 页面本体用视觉稿的 `liveManagementPage("remote")`（列表 + 可编辑详情 + 删除/保存动作行），
+ * 底栏只留「关闭」：此前这里自己写了一份重复的列表与表单，既与视觉稿结构不一致、
+ * 也少了设计里的删除动作。
+ */
 function openRemoteDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -4306,32 +4346,193 @@ function openRemoteDialog() {
   rememberDialogFocus();
   document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
   const remotes = (live.remotes && live.remotes.remotes) || [];
-  const first = remotes[0];
-  const body = `<div class="management-content"><div class="management-list">`
-    + (remotes.length === 0
-      ? `<div class="tree-row"><span class="commit-meta">没有配置远端</span></div>`
-      : remotes.map((remote) => `<div class="tree-row" data-remote-entry="${escapeText(remote.name)}"><strong>${escapeText(remote.name)}</strong><span class="commit-meta">${escapeText(remote.fetchUrl)}</span></div>`).join(""))
-    + `</div><div class="management-detail" tabindex="0" aria-label="远端详情，可滚动阅读">`
-    + `<h2>${first ? escapeText(first.name) : "定义远端"}</h2>`
-    + `<div class="form-grid"><label for="remote-name">名称</label>`
-    + `<input id="remote-name" class="text-field" data-remote-field="name" value="${escapeText(first ? first.name : "origin")}">`
-    + `<label for="remote-fetch">获取 URL</label>`
-    + `<input id="remote-fetch" class="text-field" data-remote-field="fetchUrl" value="${escapeText(first ? first.fetchUrl : "")}">`
-    + `<label for="remote-push">推送 URL</label>`
-    + `<input id="remote-push" class="text-field" data-remote-field="pushUrl" value="${escapeText(first && first.pushUrl ? first.pushUrl : "")}">`
-    + `</div><div class="remote-notice" role="status" hidden></div></div></div>`;
+  if (!Number.isInteger(live.selectedRemoteIndex) || live.selectedRemoteIndex >= remotes.length) {
+    live.selectedRemoteIndex = remotes.length > 0 ? 0 : null;
+  }
+  live.remoteDraft = null;
+  renderRemoteManager();
+}
+
+/** 当前打开的管理页类型（远端 / Stash / Worktree），工具栏动作据此分派。 */
+function currentManagementKind() {
+  if (document.querySelector(".dialog.remote-dialog")) return "remote";
+  if (document.querySelector(".dialog.stash-manager-dialog")) return "stash";
+  if (document.querySelector(".dialog.worktree-dialog")) return "worktrees";
+  return null;
+}
+
+/** 管理页工具栏的「刷新」：重新读取真实列表并原位更新。 */
+async function refreshManagementList(kind) {
+  await loadReferences().catch(() => null);
+  if (kind === "remote") {
+    renderRemoteManager();
+    setRemoteNotice("已刷新远端列表。");
+  } else if (kind === "stash") {
+    await loadStashFiles().catch(() => null);
+    renderStashManager();
+    setStashNotice("已刷新 Stash 列表。");
+  } else if (kind === "worktrees") {
+    await loadWorktreeRemoval().catch(() => null);
+    renderWorktreeManager();
+    setWorktreeNotice("已刷新 Worktree 列表。");
+  }
+}
+
+/** 重绘远端管理窗口（保留 Push 窗口本身）。 */
+function renderRemoteManager() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  // 按**覆盖层**删除：`dialog()` 自己带一层 [data-augit-overlay]，
+  // 只删内层 dialog 会留下空的 .remote-window 外壳，反复重绘就层层累积。
+  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay remote-window";
   layer.setAttribute("data-augit-overlay", "");
-  if (first) layer.dataset.remoteCurrent = first.name;
   layer.innerHTML = dialog(
     "远端管理",
-    body,
-    `<button type="button" class="secondary-button" data-remote-action="cancel">关闭</button>`
-      + `<button type="button" class="primary-button" data-remote-action="save">保存远端</button>`,
+    liveManagementPage("remote"),
+    '<button type="button" class="secondary-button" data-remote-action="cancel">关闭</button>',
     true,
     "remote-dialog");
   host.appendChild(layer);
+  setRemoteNotice("");
+}
+
+/** 远端管理页内的局部提示（规格 §10.2）。 */
+function setRemoteNotice(message) {
+  const notice = document.querySelector(".remote-window .remote-notice");
+  if (!notice) return;
+  notice.hidden = !message;
+  notice.textContent = message || "";
+  notice.title = message || "";
+}
+
+/** 读取当前编辑中的远端草稿（界面字段优先，其次是选中的远端）。 */
+function currentRemoteDraft() {
+  const live = window.__augitLive;
+  const layer = document.querySelector(".remote-window");
+  if (!live || !layer) return null;
+  const field = (name) => {
+    const node = layer.querySelector(`[data-remote-field="${name}"]`);
+    return node ? node.value.trim() : "";
+  };
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  const selected = Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+  if (!layer.querySelector("[data-remote-field]")) return null;
+  return {
+    name: field("name"),
+    fetchUrl: field("fetchUrl"),
+    pushUrl: field("pushUrl"),
+    currentName: selected ? selected.name : null,
+  };
+}
+
+/** 保存远端：没有选中项时按"新增"提交，否则按"更新"提交（名称可改）。 */
+async function saveRemoteFromManager() {
+  const live = window.__augitLive;
+  const draft = currentRemoteDraft();
+  if (!live || !draft) return null;
+  if (draft.name.length === 0 || draft.fetchUrl.length === 0) {
+    setRemoteNotice("名称与获取 URL 都不能为空。");
+    return null;
+  }
+
+  const payload = draft.currentName
+    ? { action: "update", currentName: draft.currentName, name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl }
+    : { action: "add", name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl };
+  let result = null;
+  let failure = null;
+  try {
+    result = await invoke("git/remote-write", payload, 60000);
+    if (!result || result.changed === false) {
+      failure = (result && result.reason) || "远端没有保存成功。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (failure) {
+    setRemoteNotice(describeFailure(failure, {
+      unchanged: "远端配置没有变化。",
+      next: "可以检查名称与 URL 后重试。",
+    }));
+    return null;
+  }
+
+  window.__augitRemoteSaved = true;
+  live.remoteDraft = null;
+  await loadReferences().catch(() => null);
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  const index = remotes.findIndex((remote) => remote.name === draft.name);
+  live.selectedRemoteIndex = index >= 0 ? index : 0;
+  renderRemoteManager();
+  setRemoteNotice(draft.currentName ? `已保存 ${draft.name}。` : `已新增 ${draft.name}。`);
+  // 远端变化会影响推送预览：按已有数据重算，不发起新的远端查询。
+  refreshPush();
+  return result;
+}
+
+/** 删除选中的远端（视觉稿的动作行里就有它，不需要额外确认：不涉及本地数据）。 */
+async function deleteRemoteFromManager() {
+  const live = window.__augitLive;
+  const remotes = (live && live.remotes && live.remotes.remotes) || [];
+  const selected = live && Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+  if (!live || !selected) {
+    setRemoteNotice("先选择一个远端。");
+    return null;
+  }
+
+  let result = null;
+  let failure = null;
+  try {
+    result = await invoke("git/remote-write", { action: "delete", name: selected.name }, 60000);
+    if (!result || result.changed === false) {
+      failure = (result && result.reason) || "远端没有删除。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (failure) {
+    setRemoteNotice(describeFailure(failure, {
+      unchanged: "远端配置没有变化。",
+      next: "可以先刷新列表确认远端是否仍存在。",
+    }));
+    return null;
+  }
+
+  window.__augitRemoteDeleted = true;
+  live.remoteDraft = null;
+  await loadReferences().catch(() => null);
+  const remaining = (live.remotes && live.remotes.remotes) || [];
+  live.selectedRemoteIndex = remaining.length > 0 ? 0 : null;
+  renderRemoteManager();
+  setRemoteNotice(`已删除远端 ${selected.name}。`);
+  refreshPush();
+  return result;
+}
+
+/** 管理页工具栏的「新建」：远端切到空白草稿；Stash 与 Worktree 复用各自的新建流程。 */
+function startManagementCreate(kind) {
+  const live = window.__augitLive;
+  if (!live) return;
+  if (kind === "remote") {
+    live.remoteDraft = { name: "", fetchUrl: "", pushUrl: "" };
+    live.selectedRemoteIndex = null;
+    renderRemoteManager();
+    const field = document.querySelector(".remote-window [data-remote-field=\"name\"]");
+    if (field) field.focus({ preventScroll: true });
+    return;
+  }
+  if (kind === "stash") {
+    openStashDialog();
+    return;
+  }
+  if (kind === "worktrees") {
+    closeLiveOverlay();
+    openWorktreeDialog();
+  }
 }
 
 /** 关闭远端窗口：只重读推送预览，不动 Push 窗口本身。 */
@@ -4355,6 +4556,17 @@ async function closeRemoteDialog() {
 async function runRemoteAction(action) {
   if (action === "cancel") {
     await closeRemoteDialog();
+    return;
+  }
+
+  if (action === "delete") {
+    await deleteRemoteFromManager();
+    return;
+  }
+
+  // 保存不再关闭窗口：视觉稿把「保存」放在详情动作行里，窗口留在原地显示结果。
+  if (action === "save") {
+    await saveRemoteFromManager();
     return;
   }
 
@@ -4508,6 +4720,36 @@ function setStashDialogNotice(text) {
  * 挂在 document 的捕获阶段：对话框是动态创建的，节点上的监听会随重绘消失。
  * 组词期间不抢 Enter/Esc/Tab；进行中不允许再次提交（按钮已禁用，这里再挡一次）。
  */
+/**
+ * 管理页字段编辑进状态（规格 handoff 第 3 节第 5 条：用户状态放状态里，不只放 DOM）。
+ *
+ * 只写状态、不重绘：重绘会替换输入框，正在输入的内容与光标都会丢。
+ */
+function bindManagementFieldDraft() {
+  if (window.__augitMgmtFieldBound) return;
+  window.__augitMgmtFieldBound = true;
+  document.addEventListener("input", (event) => {
+    const live = window.__augitLive;
+    const field = event.target.closest && event.target.closest(".remote-window [data-remote-field]");
+    if (!live || !field) return;
+    const layer = document.querySelector(".remote-window");
+    if (!layer) return;
+    const read = (name) => {
+      const node = layer.querySelector(`[data-remote-field="${name}"]`);
+      return node ? node.value : "";
+    };
+    // currentName 由当前选中项推导：草稿一旦丢失这个字段，"保存"会被当成"新增"。
+    const remotes = (live.remotes && live.remotes.remotes) || [];
+    const selected = Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+    live.remoteDraft = {
+      name: read("name"),
+      fetchUrl: read("fetchUrl"),
+      pushUrl: read("pushUrl"),
+      currentName: selected ? selected.name : null,
+    };
+  }, true);
+}
+
 function bindStashDialogKeys() {
   if (window.__augitStashDialogBound) return;
   window.__augitStashDialogBound = true;
@@ -4679,12 +4921,9 @@ function renderStashManager() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
-  document.querySelectorAll(".dialog.stash-manager-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
+  document.querySelectorAll("[data-augit-overlay].live-overlay.stash-manager-window").forEach((node) => node.remove());
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
+  layer.className = "overlay-layer live-overlay stash-manager-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "Stash 管理",
@@ -4721,7 +4960,7 @@ function openStashDropConfirm() {
 
   const files = (live.stashFiles && live.stashFiles.files) || [];
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
+  layer.className = "overlay-layer live-overlay stash-drop-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "删除 Stash",
@@ -4740,10 +4979,7 @@ function openStashDropConfirm() {
 
 /** 关闭删除确认层。 */
 function closeStashDropConfirm() {
-  document.querySelectorAll(".dialog.stash-drop-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
+  document.querySelectorAll("[data-augit-overlay].live-overlay.stash-drop-window").forEach((node) => node.remove());
 }
 
 /**
@@ -4889,12 +5125,9 @@ function renderWorktreeManager() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
-  document.querySelectorAll(".dialog.worktree-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
+  document.querySelectorAll("[data-augit-overlay].live-overlay.worktree-manager-window").forEach((node) => node.remove());
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
+  layer.className = "overlay-layer live-overlay worktree-manager-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "Worktree 管理",
@@ -4950,7 +5183,7 @@ function openWorktreeRemoveConfirm() {
   }
 
   const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay";
+  layer.className = "overlay-layer live-overlay worktree-remove-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "移除 Worktree",
@@ -4970,10 +5203,7 @@ function openWorktreeRemoveConfirm() {
 
 /** 关闭移除确认层。 */
 function closeWorktreeRemoveConfirm() {
-  document.querySelectorAll(".dialog.worktree-remove-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
+  document.querySelectorAll("[data-augit-overlay].live-overlay.worktree-remove-window").forEach((node) => node.remove());
 }
 
 /** 执行安全移除：守卫由宿主强制执行，这里按真实结果更新界面。 */
