@@ -9031,3 +9031,20 @@ LAYOUT 差异 16 项：
 两侧各跑 `document.fonts.check('13px "Microsoft YaHei UI"')` 与
 `getComputedStyle(el).fontFamily`，若 Linux 侧为 false/回退，则把"文字宽度差 ≤3 像素"
 正式归入**字体可用性差异**（与滚动条差异并列），不再逐条排查。
+
+#### 第 241 轮：字体可用性假设的第一次测量 —— **未定论**（记录失败原因与改法）
+
+- `document.fonts.check('13px "Microsoft YaHei UI"')` 在 Linux Chromium 上返回 **true**，
+  对 `Segoe UI`/`Cascadia Mono` 也是 true —— 但该 API 对**系统字体**并不可靠
+  （无法区分"真的装了"与"能回退渲染"），因此**这条证据无效**；
+- 改用 canvas 实测同一字符串宽度：Linux 侧 `13px YaHei/ Segoe UI/ sans-serif`
+  下 `提交: README.md` = **111.20px**；
+- Windows（WebView2）侧探针**没有返回**（脚本只拿到 Linux 行，app 启动 11 秒可能不够，
+  或 CDP 求值失败）→ **无法对比，未定论**。
+
+**下一轮改法（两条都要）**：
+1. Windows 探针加长等待（≥15s）并先等 `window.__augitReady`；
+2. **不要手写字符串**：从两侧 DOM 里读同一条真实文本（例如活动标签的
+   `.change-tab-caption.textContent`）再 `measureText`，避免"测的不是同一个串"。
+   拿到两侧宽度后即可判定那 2 像素是否属于**平台字体度量差异**（若是，则与滚动条差异并列，
+   写成判读规则；若否，则回到布局规则里继续找）。
