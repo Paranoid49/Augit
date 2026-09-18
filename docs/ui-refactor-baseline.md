@@ -8661,3 +8661,23 @@ LAYOUT 差异 14 项：
 （清空 `live.tabs` 只留活动标签）**实测无效** —— 渲染会按会话状态重新生成标签，节点数与差异
 完全没有变化，因此**已回退**，不留无效代码；改用工具既有的 `-Prune '.editor-tabs,…'`
 把数据行与标签条排除在比对之外（节点 62/15），并把噪声的根因（icon 字段）真正修掉。
+
+#### 第 226 轮：`blame` 实时侧是 `.info-state` 的原因（从签名读出）
+
+从第 225 轮抓取的实时签名里读 `.info-state` 子树：
+
+```
+div[0] = '无法在 Augit 中预览此文件Augit-0.1.0-win-x64-setup.exe · 二进制文件 · 4.2 '
+span[0] = ''
+svg[0] = ''
+path[0] = ''
+circle[1] = ''
+h2[1] = '无法在 Augit 中预览此文件'
+```
+
+（节点类：`info-state`，矩形 `[356, 86, 817, 412]`）
+
+**判定**：实时侧把 blame 正文位置渲染成信息态而非 `document-view blame-document`。
+结合 `--blame` 的语义（只把外壳切到 blame 场景、正文由 blame 查询结果决定），
+需要确认的是**blame 查询是否真的发出并在该文件上成功**；下一轮用 CDP 直接查
+`window.__augitLive.blame` 与 `document/read`/`git/blame` 的调用记录来定位（不靠猜）。
