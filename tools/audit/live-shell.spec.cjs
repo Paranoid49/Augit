@@ -477,7 +477,10 @@ async function main() {
         return { available: true, changed: true, remotes: next };
       }
       if (method === 'git/references') return data.references;
-      if (method === 'git/stashes') return window.__stashesState || data.stashes;
+      if (method === 'git/stashes') {
+        window.__stashesReads = (window.__stashesReads || 0) + 1;
+        return window.__stashesState || data.stashes;
+      }
       if (method === 'git/stash-content') {
         window.__stashContentCalls = (window.__stashContentCalls || []).concat([params.reference]);
         if (window.__stashContentFails) return { available: false, reason: '无法读取 Stash 内容。', files: [] };
@@ -519,7 +522,10 @@ async function main() {
         window.__stashesState = { available: true, stashes: kept };
         return { available: true, ok: true, reason: null, stashes: window.__stashesState };
       }
-      if (method === 'git/worktrees') return window.__worktreesState || data.worktrees;
+      if (method === 'git/worktrees') {
+        window.__worktreesReads = (window.__worktreesReads || 0) + 1;
+        return window.__worktreesState || data.worktrees;
+      }
       if (method === 'git/worktree-removal') {
         window.__worktreeRemovalCalls = (window.__worktreeRemovalCalls || []).concat([params.path]);
         if (window.__worktreeRemovalFails) return { available: false, reason: '无法检查该 Worktree。' };
@@ -2031,6 +2037,47 @@ async function main() {
     await rmt.page.waitForTimeout(400);
     rmtCheck('Worktree 页的工具栏新建复用既有表单',
       (await rmt.page.evaluate(() => !!document.querySelector('.worktree-window'))) === true);
+    await rmt.page.keyboard.press('Escape');
+    await rmt.page.waitForTimeout(400);
+
+    // 工具栏「刷新」在 Stash / Worktree 页也要真的重读列表并给出说明（此前只有实现、无断言）。
+    await rmt.page.evaluate(() => { window.__augitOpenStashManager(); });
+    await rmt.page.waitForSelector('.dialog.stash-manager-dialog', { timeout: 8000 }).catch(() => {});
+    const stashReadsBefore = await rmt.page.evaluate(() => window.__stashesReads || 0);
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.dialog.stash-manager-dialog [data-mgmt-action="refresh"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForFunction(`(window.__stashesReads || 0) > ${stashReadsBefore}`, null, { timeout: 10000 }).catch(() => {});
+    await rmt.page.waitForTimeout(300);
+    const stashRefreshed = await rmt.page.evaluate(() => ({
+      reads: window.__stashesReads || 0,
+      notice: (document.querySelector('.dialog.stash-manager-dialog .stash-notice') || {}).textContent || null,
+      open: !!document.querySelector('.dialog.stash-manager-dialog'),
+    }));
+    rmtCheck('Stash 页工具栏刷新重读列表: ' + JSON.stringify([stashReadsBefore, stashRefreshed.reads, stashRefreshed.notice]),
+      stashRefreshed.reads > stashReadsBefore && stashRefreshed.open === true
+        && typeof stashRefreshed.notice === 'string' && stashRefreshed.notice.includes('已刷新'));
+    await rmt.page.keyboard.press('Escape');
+    await rmt.page.waitForTimeout(300);
+
+    await rmt.page.evaluate(() => { window.__augitOpenWorktreeManager(); });
+    await rmt.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
+    const wtReadsBefore = await rmt.page.evaluate(() => window.__worktreesReads || 0);
+    await rmt.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-mgmt-action="refresh"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await rmt.page.waitForFunction(`(window.__worktreesReads || 0) > ${wtReadsBefore}`, null, { timeout: 10000 }).catch(() => {});
+    await rmt.page.waitForTimeout(300);
+    const wtRefreshed = await rmt.page.evaluate(() => ({
+      reads: window.__worktreesReads || 0,
+      notice: (document.querySelector('.dialog.worktree-dialog .worktree-notice') || {}).textContent || null,
+      open: !!document.querySelector('.dialog.worktree-dialog'),
+    }));
+    rmtCheck('Worktree 页工具栏刷新重读列表: ' + JSON.stringify([wtReadsBefore, wtRefreshed.reads, wtRefreshed.notice]),
+      wtRefreshed.reads > wtReadsBefore && wtRefreshed.open === true
+        && typeof wtRefreshed.notice === 'string' && wtRefreshed.notice.includes('已刷新'));
     await rmt.page.close();
 
     if (rmtSoft.length > 0) {
