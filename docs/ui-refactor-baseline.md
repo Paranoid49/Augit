@@ -9217,3 +9217,24 @@ IMG3 {"img":[["",0,0,131,19]],"canvas":[],"spin":1,"state":null,"err":[]}
 于是没有任何代码去解码并填充 `live.imagePreview`。确认后按"打开正式图片标签也要解码"补齐，
 并加断言：`--open <图片>` 后 `live.imagePreview` 非 null 且 `img.naturalWidth > 0`、
 加载指示消失。修复前后都要跑 harness 全量与真机复核（与第 229/237 轮同一标准）。
+
+#### 第 249 轮：更正第 248 轮的一处依据 —— `imagePreview` 这个状态键**根本不存在**
+
+```
+$ grep -rn "imagePreview" web/src/*.js docs/ux-mockups/*.js      # 无输出
+$ grep -n "live\.image\|image:" web/src/live-data.js           # 无输出
+```
+
+也就是说第 246–248 轮探针里的 `state: window.__augitLive.imagePreview` **永远会是 null**，
+它**不能**作为"解码未完成"的证据。第 248 轮结论中依赖这条的部分**收回**；
+其余证据（`editor:"image"`、`active:["web/image-sample.png"]`、等 6 秒后仍无位图、
+`conic-gradient` 加载指示仍在、无页面错误）仍然成立，但需要**用真实的状态键/机制**重新验证。
+
+**下一轮做法**：先读共享模块 `docs/ux-mockups/image-preview.js`（5.5KB，视觉稿与实时共用）
+确定它绑定哪些类名、由什么触发解码、状态放在哪里（很可能不是 `live.imagePreview`，
+而是模块内部状态或 `live.document` 的某个字段），再用正确的键重跑探针；
+只有在"正确的键也表明没有位图且永远停在加载态"时，才把它作为缺陷立项。
+
+**教训（同类第三次）**：**不要在没确认状态键/契约的情况下断言"状态为 null 说明有问题"** ——
+与第 232 轮"从签名反推 tabs 非空"、第 241 轮"手写字符串比对"是同一类错误。
+今后凡涉及 `window.__augitLive.*` 字段的探针，先 grep 确认该字段确实被写入过。
