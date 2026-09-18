@@ -9891,3 +9891,25 @@ operation-result|.augit-window|LAYOUT=39|SHAPE=578|TEXT=25
 （数据、滚动条），**只剩 `operation-result` 需要先定选择器再做定点对照**。
 加上第 272 轮，本阶段**已核对对齐 16 个页面/区域**，其余 5 个对话框（remote/push/rollback 已归因，
 clone/reset 基本一致）**没有发现真实缺陷**。
+
+#### 第 274 轮：`operation-result` 定选择器后——**完全一致（0/0/0）**
+
+第 273 轮遗留的唯一未定项：该场景用 `toast:` 渲染（`case "operation-result"` 里是
+`toast: '<div class="toast error">…'`），所以正确区域是 **`.toast-layer`**，不是 `.overlay-layer`
+（后者为空才导致第 214/273 轮回退到整页比较）。
+
+按 `.toast-layer` 定点对照：
+
+```
+scene=operation-result 节点数 视觉稿=5 实时=5
+LAYOUT 差异 0 项：
+SHAPE 差异 0 项：
+TEXT 差异 0 项：
+```
+
+**完全一致** ✓ —— 且**两侧都有 5 个节点**（`EMPTY_REGION` 守卫未触发），因此这不是
+第 207 轮那种"空区域假通过"，而是真正逐项比对后的一致。
+
+**至此（第 274 轮）**：本会话 ④ 的**逐页对照全部完成**——
+**已核对 17 个页面/区域**，其中 **8 处发现并修复真实缺陷**，其余差异全部归因到
+数据/状态、滚动条、平台字体、内容条件样式或视觉稿样例遗漏五类（裁决表见第 270 轮）。
