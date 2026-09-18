@@ -173,6 +173,7 @@ internal sealed class ShellBridge : IDisposable
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
             "git/clone" => await CloneAsync(parameters, cancellationToken),
+            "workspace/open" => OpenWorkspace(parameters),
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
@@ -183,6 +184,38 @@ internal sealed class ShellBridge : IDisposable
             "session/write" => await WriteSessionAsync(parameters, cancellationToken),
             _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
         };
+    }
+
+    /// <summary>
+    /// 打开工作区（产品规格 §2）：同目录激活已有窗口，不同目录启动新窗口。
+    /// 目录选择由外壳负责（网页层只提交路径），路径校验在 <see cref="WorkspaceOpener"/> 里。
+    /// </summary>
+    private object OpenWorkspace(JsonElement parameters)
+    {
+        string path = GetString(parameters, "path")
+            ?? throw new ArgumentException("workspace/open 需要 path 参数。");
+        WorkspaceOpenResult result = WorkspaceOpener.Open(
+            _workspaceRoot,
+            path,
+            WorkspaceWindowRegistry.TryActivate,
+            LaunchWorkspaceWindow);
+        return new
+        {
+            available = true,
+            opened = result.Outcome.ToString().ToLowerInvariant(),
+            reason = result.Reason,
+        };
+    }
+
+    /// <summary>为该目录启动一个新的 Augit 窗口（当前程序 + 该目录）。</summary>
+    private static bool LaunchWorkspaceWindow(string workspacePath)
+    {
+        if (Environment.ProcessPath is not { Length: > 0 } executable)
+        {
+            return false;
+        }
+
+        return ExternalProgramLauncher.OpenAugitWorkspace(executable, workspacePath).IsSuccess;
     }
 
     private object WorkspaceInfo()
