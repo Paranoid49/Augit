@@ -9325,3 +9325,30 @@ verify-window-chrome.ps1（真机）   11/11，WINDOW_CHROME_OK
 - **工具链**：新增 5 个工具/共享模块，修好 1 个会拍错误对话框的验收脚本，
   加 4 道防护 + 4 条判读规则，消除 1 类系统性假差异（icon 字段），回退 2 个半成品改动；
 - **方法论**：3 处自我更正（tabs 反推、手写字符串、不存在的状态键）与对应的"证据先验证再落盘"规则。
+
+#### 第 253 轮：图片预览缺陷收敛为**两处改动**（计划已落到行号）
+
+本轮把链路读通，缺口只有两处：
+
+**① 宿主（`ShellBridge.ReadDocumentAsync`，331–357 行）**：已返回
+`kind`（`Png`/`Jpeg`/`Bmp`）、`status`、`typeName`、`fileSize`、`pixelWidth/pixelHeight`、
+`text`、`encoding`、`lineEndings` —— **唯独没有图片数据本身**。
+需在图片状态下补 `dataUrl`（例如 `data:image/png;base64,…`）；体积上限沿用既有读取管线的
+限制（超限本来就会走到 `file-limit`/不可预览状态，不会把大图塞进 JSON）。
+
+**② 前端（`live-data.js` 的 `toLiveDocument`，7184 行起）**：这是一个**白名单映射**
+（`kind = payload.kind || "Text"`，并按 `Png/Jpeg/Bmp → editor: "image"` 决定视图），
+只搬运列出的字段。因此新增的 `dataUrl` 必须在这里显式带过去
+（同时也应确认 `pixelWidth/pixelHeight/fileSize` 是否已在映射里 ——
+第 246 轮探针里 `.image-size-label` 为空，怀疑它们也没被搬运，一并核对）。
+
+**断言（含负向验证）**：
+- `--open <png>` 后：`live.document.dataUrl` 非空、`live.document.editor === "image"`、
+  `.image-stage img` 的 `naturalWidth > 0`、`conic-gradient` 加载指示消失、
+  `.image-size-label` 显示真实尺寸；
+- 负向：去掉 `dataUrl` 搬运 → 上述断言如实失败（当前状态即负向证据）；
+- 边界：超过体积上限的图片仍走不可预览信息态。
+
+**为何仍未动手**：改动本身只有两处、但属于**产品代码 + 跨层**，必须配 harness 全量、
+真机图片对照与负向验证；本会话上下文余量已不足以完成这三步并留出回退余地，
+因此把"行号级计划"落到文档，交给下一轮以机械方式实施与验证。
