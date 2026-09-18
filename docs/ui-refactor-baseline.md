@@ -9806,3 +9806,33 @@ paths=78 blame_rows=28
 唯一需要用户/设计基线拍板的是第 6 类（`blame.html` 样例补 `document-path`）。
 其余未核对页（`worktrees`/`stash-manager`/`remote`/`clone`/`push`/`reset`/`rollback`/`operation-result`）
 在普查中显示 LAYOUT 1–3 / SHAPE 0–15（多为数据差异），属于"低风险待复核"，不是已知缺陷。
+
+#### 第 271 轮：`stash-manager` 真实 stash 对照 —— 结构一致（仅 1 项且疑为加载态）
+
+做法：临时改动 `README.md` → `git stash push -m ux-compare`（真实产生 1 条 stash）→ 抓取对照 →
+**跑完 `git stash pop` + `git checkout -- README.md` 并确认 `git stash list` 为空、工作区干净**。
+两侧节点 **41 / 40**：
+
+```
+scene=stash-manager 节点数 视觉稿=41 实时=40
+LAYOUT 差异 1 项：
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[2]/button[2] <button class="secondary-button">
+      color: 视觉稿="rgb(223, 225, 229)" 实时="rgb(111, 115, 123)"
+      backgroundColor: 视觉稿="rgb(30, 31, 34)" 实时="rgb(37, 38, 42)"
+SHAPE 差异 5 项：
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[0]/div[1] <tree-row> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[4] <tree-row> "NativeGitPanel.cs"
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[5] <tree-row> "product-spec.md"
+```
+
+**判读**：
+- **1 项 LAYOUT**：`secondary-button` 的 `color/background` 视觉稿是启用态
+  （`rgb(223,225,229)` / `rgb(30,31,34)`）、实时是**淡化的禁用态**
+  （`rgb(111,115,123)` / `rgb(37,38,42)`）。最可能是**抓取时刻 stash 详情仍在加载**、
+  按钮处于禁用态（与第 246–248 轮图片预览同类时序），需在下一轮用更长等待或直接读
+  `live.stashes` 状态确认；
+- **5 项 SHAPE**：全部是 stash 详情的文件行 —— 我的临时 stash 只有 1 个文件（README.md），
+  样例画了 2 个（`NativeGitPanel.cs`、`product-spec.md`）✓ 数据差异。
+
+**结论**：`stash-manager` 的对话框框架、列表、详情栏**结构与视觉稿一致**；
+唯一待确认项是那个按钮在加载完成后是否恢复启用态（低风险）。
