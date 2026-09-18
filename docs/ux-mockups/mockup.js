@@ -1468,11 +1468,36 @@ function liveManagementPage(kind) {
       const detail = first ? `<h2>${escapeHtml(first.name)}</h2><div class="form-grid"><label>名称</label><input class="text-field" value="${escapeHtml(first.name)}" readonly><label>获取 URL</label><input class="text-field" value="${escapeHtml(first.fetchUrl)}" readonly><label>推送 URL</label><input class="text-field" value="${escapeHtml(first.pushUrl)}" readonly></div>` : `<p class="commit-meta">没有配置远端</p>`;
       return ["远端", entries, detail];
     },
+    // Worktree 管理（视觉稿的 worktrees）：状态、终端会话与动作行。
+    // 「移除…」只有干净且没有运行中的内置终端会话时才可用，禁用时把原因写在悬停说明里（§10.3）。
     worktrees: () => {
       const worktrees = (live.worktrees && live.worktrees.worktrees) || [];
       const entries = worktrees.map(worktree => `${worktree.branch || "(detached)"} · ${worktree.path}`);
-      const first = worktrees[0];
-      const detail = first ? `<h2>${escapeHtml(first.branch || "(detached)")}</h2><div class="form-grid"><span>路径</span><span>${escapeHtml(first.path)}</span><span>状态</span><span>${first.isLocked ? "已锁定" : first.isPrunable ? "可清理" : "干净，可安全移除"}</span></div>` : `<p class="commit-meta">没有 Worktree</p>`;
+      const index = Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex : 0;
+      const current = worktrees[index] || null;
+      const readiness = (live.worktreeRemoval && live.worktreeRemoval.path === (current && current.path))
+        ? live.worktreeRemoval : null;
+      const status = !current ? ""
+        : current.isLocked ? "已锁定"
+          : current.isPrunable ? "可清理"
+            : readiness ? (readiness.isClean ? "干净，可安全移除" : (readiness.reason || "存在本地改动或未跟踪文件"))
+              : "检查中…";
+      const terminal = !readiness ? "检查中…"
+        : readiness.hasActiveTerminal ? "有运行中的内置终端" : "无运行中的内置终端";
+      const canRemove = !!(readiness && readiness.canRemove);
+      const removeTitle = canRemove ? "" : ` title="${escapeHtml((readiness && readiness.reason) || "正在检查是否可以安全移除。")}"`;
+      const detail = current
+        ? `<h2>${escapeHtml(current.branch || "(detached)")}</h2>`
+          + `<div class="form-grid"><span>路径</span><span>${escapeHtml(current.path)}</span>`
+          + `<span>状态</span><span>${escapeHtml(status)}</span>`
+          + `<span>终端会话</span><span>${escapeHtml(terminal)}</span></div>`
+          + '<div class="button-row" style="justify-content:flex-start">'
+          + '<button class="primary-button" type="button" data-wtm-action="open">打开窗口</button>'
+          + '<button class="secondary-button" type="button" data-wtm-action="create">新建 Worktree</button>'
+          + `<button class="danger-button" type="button" data-wtm-action="remove"${canRemove ? "" : ` disabled${removeTitle}`}>移除…</button>`
+          + "</div>"
+          + '<p class="worktree-notice commit-meta" role="status" hidden></p>'
+        : `<p class="commit-meta">没有 Worktree</p>`;
       return ["Worktree", entries, detail];
     },
     // Stash 管理（视觉稿的 stash-manager）：详情带动作行与"包含 N 个文件"。
@@ -1505,11 +1530,13 @@ function liveManagementPage(kind) {
   if (!build) return managementPage(kind);
   const [title, entries, detail] = build();
   const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive";
-  const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex : 0;
+  const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex
+    : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex : 0;
   const list = entries.length === 0
     ? `<p class="commit-meta">空</p>`
     : entries.map((entry, index) => {
-      const hook = kind === "stash" ? ` data-stash-index="${index}"` : "";
+      const hook = kind === "stash" ? ` data-stash-index="${index}"`
+        : kind === "worktrees" ? ` data-worktree-index="${index}"` : "";
       return `<div class="tree-row ${index === selectedIndex ? "selected" : ""}"${hook}>${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`;
     }).join("");
   return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;

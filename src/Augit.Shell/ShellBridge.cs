@@ -159,6 +159,8 @@ internal sealed class ShellBridge : IDisposable
             "git/stash-content" => await ReadStashContentAsync(parameters, cancellationToken),
             "git/worktrees" => await ReadWorktreesAsync(cancellationToken),
             "git/worktree-write" => await WriteWorktreeAsync(parameters, cancellationToken),
+            "git/worktree-removal" => await ReadWorktreeRemovalAsync(parameters, cancellationToken),
+            "git/worktree-remove" => await RemoveWorktreeAsync(parameters, cancellationToken),
             "git/operation" => await InspectOperationAsync(cancellationToken),
             "git/operation-action" => await RunOperationActionAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
@@ -788,6 +790,10 @@ internal sealed class ShellBridge : IDisposable
         {
             // 规格 §7.5/§7.14：无法在三栏里处理的文件交给系统默认程序。
             "open" => ExternalProgramLauncher.OpenWithDefaultApplication(fullPath),
+            // 规格 §7.10：Worktree 在自己的 Augit 窗口里打开（当前程序 + 该目录）。
+            "augit" => Environment.ProcessPath is { Length: > 0 } executable
+                ? ExternalProgramLauncher.OpenAugitWorkspace(executable, fullPath)
+                : ExternalLaunchResult.Failure("无法确定当前程序路径。"),
             "reveal" => ExternalProgramLauncher.RevealInExplorer(fullPath),
             "terminal" => ExternalProgramLauncher.OpenExternalTerminal(fullPath),
             _ => ExternalLaunchResult.Failure("不支持的外部打开方式。"),
@@ -1783,6 +1789,63 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
+    /// <summary>
+    /// 读取某个 Worktree 是否可安全移除（规格 §5.3：干净且对应窗口没有运行中的内置终端会话）。
+    ///
+    /// 界面据此**禁用**「移除…」并给出可发现的原因（§10.3），而不是先让用户点开再报错。
+    /// </summary>
+    private async Task<object?> ReadWorktreeRemovalAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string path = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/worktree-removal 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitWorktreeRemovalReadinessResult result = await new GitWorktreeService(runtime)
+            .InspectRemovalReadinessAsync(repository!, path, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess || result.Readiness is not { } readiness)
+        {
+            return new { available = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            canRemove = readiness.CanRemove,
+            isClean = readiness.IsClean,
+            hasActiveTerminal = readiness.HasActiveTerminal,
+            reason = readiness.Reason,
+        };
+    }
+
+    /// <summary>安全移除 Worktree（规格 §5.3/§10.4）：守卫由服务强制执行，这里只回读真实列表。</summary>
+    private async Task<object?> RemoveWorktreeAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string path = GetString(parameters, "path")
+            ?? throw new ArgumentException("git/worktree-remove 需要 path 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitActionResult result = await new GitWorktreeService(runtime)
+            .RemoveAsync(repository!, path, cancellationToken)
+            .ConfigureAwait(false);
+        InvalidateStatusCache();
+        return new
+        {
+            available = true,
+            ok = result.IsSuccess,
+            reason = result.ErrorMessage,
+            worktrees = await ProjectWorktreesAsync(runtime, repository!, cancellationToken).ConfigureAwait(false),
+        };
+    }
+
     /// <summary>读取 Worktree 列表。</summary>
     private async Task<object?> ReadWorktreesAsync(CancellationToken cancellationToken)
     {
@@ -1792,8 +1855,16 @@ internal sealed class ShellBridge : IDisposable
             return new { available = false, worktrees = Array.Empty<object>() };
         }
 
+        return await ProjectWorktreesAsync(runtime, repository!, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<object?> ProjectWorktreesAsync(
+        GitRuntimeInfo runtime,
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken)
+    {
         GitWorktreeService worktrees = new(runtime);
-        GitWorktreeListResult result = await worktrees.ReadAsync(repository!, cancellationToken);
+        GitWorktreeListResult result = await worktrees.ReadAsync(repository, cancellationToken);
         if (!result.IsSuccess || result.Worktrees is not { } list)
         {
             return new { available = false, reason = result.ErrorMessage, worktrees = Array.Empty<object>() };

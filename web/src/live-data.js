@@ -1930,6 +1930,8 @@ window.__augitOpenStashManager = () => openStashManagerDialog();
 
 window.__augitOpenStashDialog = () => openStashDialog();
 
+window.__augitOpenWorktreeManager = () => openWorktreeManagerDialog();
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
   // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
@@ -3325,6 +3327,54 @@ function guardUnwiredNavigation() {
     if (conflictKeep) {
       event.preventDefault();
       keepConflictEdits();
+      return;
+    }
+
+    // Worktree 管理页（规格 §5.3 / §10.4）。
+    const worktreeRow = event.target.closest && event.target.closest("[data-worktree-index]");
+    if (worktreeRow) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const index = Number(worktreeRow.dataset.worktreeIndex);
+      if (live && Number.isInteger(index)) {
+        live.selectedWorktreeIndex = index;
+        live.worktreeRemoval = null;
+        void loadWorktreeRemoval()
+          .then(() => renderWorktreeManager())
+          .catch(() => null);
+      }
+      return;
+    }
+
+    const worktreeCancel = event.target.closest && event.target.closest("[data-worktree-remove-cancel]");
+    if (worktreeCancel) {
+      event.preventDefault();
+      closeWorktreeRemoveConfirm();
+      return;
+    }
+
+    const worktreeConfirm = event.target.closest && event.target.closest("[data-worktree-remove-confirm]");
+    if (worktreeConfirm) {
+      event.preventDefault();
+      closeWorktreeRemoveConfirm();
+      void runWorktreeRemove();
+      return;
+    }
+
+    const worktreeButton = event.target.closest && event.target.closest("[data-wtm-action]");
+    if (worktreeButton) {
+      event.preventDefault();
+      const action = worktreeButton.dataset.wtmAction;
+      if (action === "close") {
+        closeLiveOverlay();
+        restoreDialogFocus();
+      } else if (action === "open") {
+        void openWorktreeWindow();
+      } else if (action === "create") {
+        openWorktreeDialog();
+      } else if (action === "remove") {
+        openWorktreeRemoveConfirm();
+      }
       return;
     }
 
@@ -4784,6 +4834,193 @@ async function openStashContentDiff() {
   return diff;
 }
 
+/**
+ * Worktree 管理（规格 §5.3 / §10.4）。
+ *
+ * 视觉稿的 worktrees 页：路径、状态、终端会话，以及动作行
+ * （打开窗口 / 新建 Worktree / 移除…）。选中项与"能否安全移除"都进状态。
+ */
+async function openWorktreeManagerDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  if (!live.worktrees) {
+    await loadReferences().catch(() => null);
+  }
+  const list = (live.worktrees && live.worktrees.worktrees) || [];
+  if (!Number.isInteger(live.selectedWorktreeIndex) || live.selectedWorktreeIndex >= list.length) {
+    live.selectedWorktreeIndex = 0;
+  }
+  await loadWorktreeRemoval().catch(() => null);
+  renderWorktreeManager();
+}
+
+/** 读取当前选中 Worktree 的移除就绪状态（规格 §5.3：干净 + 无运行中的内置终端会话）。 */
+async function loadWorktreeRemoval() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  const list = (live.worktrees && live.worktrees.worktrees) || [];
+  const current = list[live.selectedWorktreeIndex || 0] || null;
+  if (!current) {
+    live.worktreeRemoval = null;
+    return null;
+  }
+
+  try {
+    const payload = await invoke("git/worktree-removal", { path: current.path }, 30000);
+    live.worktreeRemoval = payload && payload.available
+      ? Object.assign({ path: current.path }, payload)
+      : { path: current.path, available: false, canRemove: false, reason: (payload && payload.reason) || "无法检查该 Worktree。" };
+  } catch (error) {
+    live.worktreeRemoval = {
+      path: current.path,
+      available: false,
+      canRemove: false,
+      reason: String((error && error.message) || error),
+    };
+  }
+  return live.worktreeRemoval;
+}
+
+/** 重绘 Worktree 管理窗口。 */
+function renderWorktreeManager() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  document.querySelectorAll(".dialog.worktree-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Worktree 管理",
+    liveManagementPage("worktrees"),
+    '<button type="button" class="secondary-button" data-wtm-action="close">关闭</button>',
+    true,
+    "worktree-dialog");
+  host.appendChild(layer);
+  setWorktreeNotice("");
+  if (typeof measureWorktreeDialog === "function") measureWorktreeDialog();
+}
+
+/** 管理页内的局部提示（规格 §10.2）。 */
+function setWorktreeNotice(message) {
+  const notice = document.querySelector(".dialog.worktree-dialog .worktree-notice");
+  if (!notice) return;
+  notice.hidden = !message;
+  notice.textContent = message || "";
+  notice.title = message || "";
+}
+
+/** 「打开窗口」：让系统为这个 Worktree 启动一个新的 Augit 窗口（规格 §7.10）。 */
+async function openWorktreeWindow() {
+  const live = window.__augitLive;
+  const list = (live && live.worktrees && live.worktrees.worktrees) || [];
+  const current = list[live ? live.selectedWorktreeIndex || 0 : 0] || null;
+  if (!current) return null;
+  const result = await launchExternal("augit", current.path);
+  if (result && result.launched) {
+    setWorktreeNotice(`已在新窗口中打开 ${current.path}。`);
+  } else {
+    setWorktreeNotice("");
+  }
+  return result;
+}
+
+/**
+ * 「移除…」确认（规格 §10.4：必须显示具体影响）。
+ *
+ * 移除会删掉该 Worktree 的目录，因此把"哪个分支、哪个路径、当前状态、
+ * 终端会话"都讲清楚，确认按钮用动作名称，并且只在可安全移除时才可用。
+ */
+function openWorktreeRemoveConfirm() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const list = (live && live.worktrees && live.worktrees.worktrees) || [];
+  const current = list[live ? live.selectedWorktreeIndex || 0 : 0] || null;
+  const readiness = live ? live.worktreeRemoval : null;
+  if (!live || !host || !current) return;
+  if (!readiness || !readiness.canRemove) {
+    setWorktreeNotice((readiness && readiness.reason) || "正在检查是否可以安全移除。");
+    return;
+  }
+
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "移除 Worktree",
+    `<div class="info-block" style="width:auto;text-align:left">`
+      + `<h2>${escapeText(current.branch || "(detached)")}</h2>`
+      + `<p>将移除 ${escapeText(current.path)} 的目录与 Worktree 登记；分支本身不会被删除。</p>`
+      + "<p>该目录当前没有本地改动，也没有运行中的内置终端会话。</p>"
+      + "<p>移除后需要重新 `git worktree add` 才能再次使用这个目录。</p></div>",
+    '<button type="button" class="secondary-button" data-worktree-remove-cancel="1">取消</button>'
+      + '<button type="button" class="danger-button" data-worktree-remove-confirm="remove">移除 Worktree</button>',
+    false,
+    "worktree-remove-dialog");
+  host.appendChild(layer);
+  const confirm = layer.querySelector("[data-worktree-remove-confirm]");
+  if (confirm) confirm.focus();
+}
+
+/** 关闭移除确认层。 */
+function closeWorktreeRemoveConfirm() {
+  document.querySelectorAll(".dialog.worktree-remove-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+}
+
+/** 执行安全移除：守卫由宿主强制执行，这里按真实结果更新界面。 */
+async function runWorktreeRemove() {
+  const live = window.__augitLive;
+  const list = (live && live.worktrees && live.worktrees.worktrees) || [];
+  const current = list[live ? live.selectedWorktreeIndex || 0 : 0] || null;
+  if (!live || !current) return null;
+
+  setWorktreeNotice(`正在移除 ${current.path}…`);
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/worktree-remove", { path: current.path }, 120000);
+    if (!payload || payload.ok === false) {
+      failure = (payload && payload.reason) || "移除 Worktree 失败。";
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+
+  if (payload && payload.worktrees) {
+    live.worktrees = payload.worktrees;
+  }
+  const remaining = (live.worktrees && live.worktrees.worktrees) || [];
+  if (live.selectedWorktreeIndex >= remaining.length) {
+    live.selectedWorktreeIndex = Math.max(0, remaining.length - 1);
+  }
+  live.worktreeRemoval = null;
+  await loadWorktreeRemoval().catch(() => null);
+  renderWorktreeManager();
+
+  if (failure) {
+    setWorktreeNotice(describeFailure(failure, {
+      unchanged: "Worktree、分支与工作区都没有变化。",
+      next: "可以先查看状态，确认目录是否干净、终端是否已关闭。",
+    }));
+    return null;
+  }
+
+  window.__augitWorktreeRemoved = true;
+  setWorktreeNotice(`已移除 ${current.path}。分支仍然保留。`);
+  await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+  refreshAfterEvent("side", "statusbar", "bottomTool", "titlebar");
+  return payload;
+}
+
 function openWorktreeDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -5721,6 +5958,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "worktree-manager") {
+    void openWorktreeManagerDialog();
+    return;
+  }
+
   if (action === "push") {
     // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
     void openPushDialog();
@@ -5749,6 +5991,7 @@ const MAIN_MENU_POPOVERS = {
     { action: "branches", label: "分支与标签…" },
     { action: "stash-manager", label: "Stash 管理…" },
     { action: "stash-create", label: "创建 Stash…" },
+    { action: "worktree-manager", label: "Worktree 管理…" },
   ],
 };
 

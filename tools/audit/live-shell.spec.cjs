@@ -127,7 +127,10 @@ const WORKSPACE = {
     { reference: 'stash@{0}', message: '真实贮藏', branch: 'dsh', subject: 'WIP', date: '2026/9/15 10:00' },
     { reference: 'stash@{1}', message: '第二个贮藏', branch: 'dsh', subject: 'WIP2', date: '2026/9/14 09:00' },
   ] },
-  worktrees: { available: true, worktrees: [{ path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false }] },
+  worktrees: { available: true, worktrees: [
+    { path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false },
+    { path: 'D:\\ws-linked', branch: 'feature/ux', commitHash: 'bbb2222', isBare: false, isDetached: false, isLocked: false, isPrunable: false },
+  ] },
   commit: {
     available: true,
     hash: 'aaa1111', fullHash: 'full-head-hash',
@@ -498,7 +501,31 @@ async function main() {
         window.__stashesState = { available: true, stashes: kept };
         return { available: true, ok: true, reason: null, stashes: window.__stashesState };
       }
-      if (method === 'git/worktrees') return data.worktrees;
+      if (method === 'git/worktrees') return window.__worktreesState || data.worktrees;
+      if (method === 'git/worktree-removal') {
+        window.__worktreeRemovalCalls = (window.__worktreeRemovalCalls || []).concat([params.path]);
+        if (window.__worktreeRemovalFails) return { available: false, reason: '无法检查该 Worktree。' };
+        const clean = params.path !== 'D:\\ws-linked' || !window.__linkedWorktreeDirty;
+        return {
+          available: true,
+          canRemove: clean,
+          isClean: clean,
+          hasActiveTerminal: !!window.__linkedWorktreeTerminal,
+          reason: clean ? null : (window.__linkedWorktreeTerminal ? '存在运行中的内置终端会话。' : '存在本地改动或未跟踪文件。'),
+        };
+      }
+      if (method === 'git/worktree-remove') {
+        window.__worktreeRemoves = (window.__worktreeRemoves || []).concat([params.path]);
+        if (window.__worktreeRemoveFails) {
+          return { available: true, ok: false, reason: 'Worktree 存在本地改动或未跟踪文件，不能安全移除。', worktrees: window.__worktreesState || data.worktrees };
+        }
+        const current = window.__worktreesState || data.worktrees;
+        window.__worktreesState = {
+          available: true,
+          worktrees: current.worktrees.filter((worktree) => worktree.path !== params.path),
+        };
+        return { available: true, ok: true, reason: null, worktrees: window.__worktreesState };
+      }
       if (method === 'git/unpushed') {
         if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，无法生成推送预览。', commits: [], upstream: null };
         return {
@@ -1616,6 +1643,201 @@ async function main() {
 
     if (sdSoft.length > 0) {
       throw new Error('断言失败：' + sdSoft.join(' | '));
+    }
+
+    // ---- 规格 §5.3 / §10.4：Worktree 管理页（守卫、动作行、移除确认）----
+    const wtmSoft = [];
+    const wtmCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      wtmSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const wtm = await openScene('scene=main-project&theme=dark');
+    await wtm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await wtm.page.waitForFunction('!!window.__augitLive.worktrees', null, { timeout: 10000 });
+    await wtm.page.evaluate(() => {
+      window.__worktreeRemovalCalls = [];
+      window.__worktreeRemoves = [];
+      window.__launchCalls = [];
+      window.__worktreesState = null;
+      window.__linkedWorktreeDirty = false;
+      window.__linkedWorktreeTerminal = false;
+      window.__worktreeRemoveFails = false;
+    });
+    await wtm.page.locator('.top-button[aria-label="主菜单"]').click();
+    await wtm.page.waitForTimeout(400);
+    await wtm.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
+    await wtm.page.waitForTimeout(400);
+    await wtm.page.locator('.main-menu-popover .menu-item', { hasText: 'Worktree 管理' }).click();
+    await wtm.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
+    await wtm.page.waitForTimeout(400);
+
+    const wtmState = () => wtm.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.worktree-dialog');
+      if (!dialog) return null;
+      const detail = dialog.querySelector('.management-detail');
+      const remove = dialog.querySelector('[data-wtm-action="remove"]');
+      return {
+        rows: dialog.querySelectorAll('.management-list .tree-row').length,
+        selected: [...dialog.querySelectorAll('.management-list .tree-row')].findIndex((row) => row.classList.contains('selected')),
+        heading: detail.querySelector('h2') ? detail.querySelector('h2').textContent.trim() : null,
+        grid: [...detail.querySelectorAll('.form-grid > *')].map((node) => node.textContent.trim()),
+        actions: [...detail.querySelectorAll('[data-wtm-action]')].map((node) => node.textContent.trim()),
+        removeDisabled: remove ? remove.disabled : null,
+        removeTitle: remove ? remove.getAttribute('title') : null,
+        calls: window.__worktreeRemovalCalls || [],
+      };
+    });
+
+    const wtmFirst = await wtmState();
+    wtmCheck('Worktree 管理页显示条目、状态与终端会话: ' + JSON.stringify(wtmFirst && wtmFirst.grid),
+      wtmFirst !== null && wtmFirst.rows === 2 && wtmFirst.selected === 0
+        && wtmFirst.grid.includes('路径') && wtmFirst.grid.includes('D:\\ws')
+        && wtmFirst.grid.includes('状态') && wtmFirst.grid.includes('干净，可安全移除')
+        && wtmFirst.grid.includes('终端会话') && wtmFirst.grid.includes('无运行中的内置终端'));
+    wtmCheck('动作行按视觉稿给出三个动作: ' + JSON.stringify(wtmFirst && wtmFirst.actions),
+      wtmFirst !== null && JSON.stringify(wtmFirst.actions) === JSON.stringify(['打开窗口', '新建 Worktree', '移除…'])
+        && wtmFirst.calls[0] === 'D:\\ws');
+
+    // 脏 Worktree：移除按钮必须禁用，并把原因写在悬停说明里（§10.3）。
+    await wtm.page.evaluate(() => {
+      window.__linkedWorktreeDirty = true;
+      const rows = [...document.querySelectorAll('.dialog.worktree-dialog .management-list .tree-row')];
+      if (rows[1]) rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForFunction(
+      "() => { const h = document.querySelector('.dialog.worktree-dialog .management-detail h2'); return !!h && h.textContent.includes('feature/ux'); }",
+      null, { timeout: 8000 }).catch(() => {});
+    await wtm.page.waitForTimeout(300);
+    const wtmDirty = await wtmState();
+    wtmCheck('不可安全移除时禁用按钮并给出可发现原因: ' + JSON.stringify([wtmDirty && wtmDirty.removeDisabled, wtmDirty && wtmDirty.removeTitle, wtmDirty && wtmDirty.calls.at(-1)]),
+      wtmDirty !== null && wtmDirty.removeDisabled === true
+        && typeof wtmDirty.removeTitle === 'string' && wtmDirty.removeTitle.includes('本地改动')
+        && wtmDirty.grid.some((entry) => entry.includes('本地改动'))
+        && wtmDirty.calls.at(-1) === 'D:\\ws-linked');
+
+    // 「打开窗口」用当前程序在该目录开新窗口。
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="open"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForFunction('(window.__launchCalls || []).length === 1', null, { timeout: 8000 }).catch(() => {});
+    const wtmOpened = await wtm.page.evaluate(() => ({
+      calls: window.__launchCalls || [],
+      notice: (document.querySelector('.dialog.worktree-dialog .worktree-notice') || {}).textContent || null,
+    }));
+    wtmCheck('打开窗口把 Worktree 目录交给新窗口: ' + JSON.stringify(wtmOpened.calls),
+      JSON.stringify(wtmOpened.calls) === JSON.stringify(['augit:D:\\ws-linked']));
+
+    // 「新建 Worktree」复用既有表单。
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="create"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(500);
+    wtmCheck('新建 Worktree 复用既有表单',
+      (await wtm.page.evaluate(() => !!document.querySelector('.worktree-window'))) === true);
+    await wtm.page.keyboard.press('Escape');
+    await wtm.page.waitForTimeout(400);
+
+    // 恢复干净后移除：先确认（说明具体影响），取消不调用宿主，确认后列表少一条。
+    await wtm.page.evaluate(() => {
+      window.__linkedWorktreeDirty = false;
+      window.__augitOpenWorktreeManager();
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
+    await wtm.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.dialog.worktree-dialog .management-list .tree-row')];
+      if (rows[1]) rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(400);
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-remove-dialog', { timeout: 8000 }).catch(() => {});
+    const wtmConfirm = await wtm.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.worktree-remove-dialog');
+      const confirm = dialog ? dialog.querySelector('[data-worktree-remove-confirm]') : null;
+      return {
+        open: !!dialog,
+        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : null,
+        confirmLabel: confirm ? confirm.textContent.trim() : null,
+        confirmDanger: confirm ? confirm.className.includes('danger-button') : null,
+        removes: (window.__worktreeRemoves || []).length,
+      };
+    });
+    wtmCheck('移除前确认并说明具体影响: ' + JSON.stringify([wtmConfirm.open, wtmConfirm.body, wtmConfirm.removes]),
+      wtmConfirm.open === true && wtmConfirm.removes === 0
+        && typeof wtmConfirm.body === 'string' && wtmConfirm.body.includes('D:\\ws-linked')
+        && wtmConfirm.body.includes('分支本身不会被删除')
+        && wtmConfirm.body.includes('没有运行中的内置终端会话'));
+    wtmCheck('确认按钮使用动作名称: ' + JSON.stringify([wtmConfirm.confirmLabel, wtmConfirm.confirmDanger]),
+      wtmConfirm.confirmLabel === '移除 Worktree' && wtmConfirm.confirmDanger === true);
+
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-cancel]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(300);
+    wtmCheck('取消移除不调用宿主',
+      (await wtm.page.evaluate(() => !document.querySelector('.dialog.worktree-remove-dialog') && (window.__worktreeRemoves || []).length === 0)) === true);
+
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]', { timeout: 8000 }).catch(() => {});
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForFunction('window.__augitWorktreeRemoved === true', null, { timeout: 10000 }).catch(() => {});
+    await wtm.page.waitForTimeout(400);
+    const wtmRemoved = await wtm.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.worktree-dialog');
+      return {
+        removes: window.__worktreeRemoves || [],
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+        heading: dialog ? dialog.querySelector('.management-detail h2').textContent.trim() : null,
+        notice: dialog && dialog.querySelector('.worktree-notice') ? dialog.querySelector('.worktree-notice').textContent.trim() : null,
+      };
+    });
+    wtmCheck('确认移除后按真实结果更新: ' + JSON.stringify(wtmRemoved),
+      JSON.stringify(wtmRemoved.removes) === JSON.stringify(['D:\\ws-linked'])
+        && wtmRemoved.rows === 1 && wtmRemoved.heading === 'dsh'
+        && typeof wtmRemoved.notice === 'string' && wtmRemoved.notice.includes('D:\\ws-linked'));
+
+    // 失败路径：宿主拒绝时说明原因与未改变的状态。
+    await wtm.page.evaluate(() => {
+      window.__worktreeRemoveFails = true;
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]', { timeout: 8000 }).catch(() => {});
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForFunction('(window.__worktreeRemoves || []).length === 2', null, { timeout: 10000 }).catch(() => {});
+    await wtm.page.waitForTimeout(400);
+    const wtmFailed = await wtm.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.worktree-dialog');
+      const notice = dialog ? dialog.querySelector('.worktree-notice') : null;
+      return {
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+      };
+    });
+    wtmCheck('移除失败时说明原因与未改变的状态: ' + JSON.stringify(wtmFailed),
+      wtmFailed.hidden === false && typeof wtmFailed.notice === 'string'
+        && wtmFailed.notice.includes('不能安全移除') && wtmFailed.notice.includes('没有变化')
+        && wtmFailed.rows === 1);
+    await wtm.page.close();
+
+    if (wtmSoft.length > 0) {
+      throw new Error('断言失败：' + wtmSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----
