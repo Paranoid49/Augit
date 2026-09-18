@@ -8083,3 +8083,30 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
 → `main-project PASS`、`git-history PASS`、`SUMMARY total=2 passed=2 failed=0`、`ACCEPTANCE_OK`，
 截图确认为真实界面（标题栏/项目树/编辑区/底部 Git 历史与右侧 `>` 入口），
 且右下角只有一组入口（③ 的修复在真机像素上可见）。
+
+#### 第 200 轮（未完成，已回退，留给下一轮）：提交详情变更文件树的复原尝试
+
+**目标**：`git-history` 差异清单里的真实差异——视觉稿的变更文件列表是**按目录分组的树**
+（`historySampleFilesHtml`：根行 `N 个文件` + 目录行 `chevron-down`+文件夹图标+`M 个文件` +
+叶子行 `tree-row file-status-{status}`，缩进 `8 + depth*18`），实时外壳却自己拼了**扁平列表**
+（`tree-row depth-1 live-file-status-{kind}`，无目录、无折叠箭头、**且 `live-file-status-*`
+在 `mockup.css` 里根本没有任何规则 → 没有状态色**）。
+
+**尝试过的实现**（已回退，代码未保留）：把 `historySampleFilesHtml` 里的树渲染抽成
+`historyFilesHtml(files)` 并导出 `window.__augitHistoryFiles`，由 `live-data.js` 的
+`loadCommitDetails` 调用（`kind` 转小写后作为 `status`），使两侧结构**由同一份实现保证一致**。
+
+**回退原因**：`live-shell.spec.cjs` 的「改选提交后历史比较跟随同一路径」断言失败
+（`跟随仍复用同一个标签: "src/App.cs"`，调整桩数据后变成 `"docs/product-spec.md"`）。
+根因是**树的排序改变了"第一个文件"**：扁平列表沿用宿主返回顺序，树按目录名/路径排序
+（`docs/…` 排在 `src/…` 前），而该断言用 `[data-live-changed-files] [data-history-path]`
+的**第一个**路径当基准（`expectedPath = hcFiles[0]`），再用它核对跟随结果。
+把第二个提交的桩文件补成同一集合后仍不通过，说明基准路径取自与跟随逻辑不同的时机/集合，
+需要在下一轮把这条断言改成**显式指定路径**（例如固定用 `src/App.cs`）后再落树形结构，
+而不是继续猜测。仓库保持在全绿提交上，未留下半成品。
+
+**下一轮做法**：① 先把该断言改为显式路径基准（并补一条"树形结构"断言：根行 `N 个文件`、
+目录行带 `chevron-down` 与 `treeFolderIcon`、叶子行带 `file-status-*`）；
+② 再落 `historyFilesHtml` 共享实现；③ 用 `compare-dom.cjs` 复核 `git-history` 的 LAYOUT 差异数量下降。
+另外同一个类名问题也存在于左侧 Commit 变更列表（`live-data.js` 的
+`tree-name live-file-status-${kind}` vs 视觉稿 `tree-name file-status-modified`），一并按同一规则修。
