@@ -8977,3 +8977,29 @@ TABS 1 [('editor-tab active', 'docs/product-spec.md')]
 负向对照（历史证据）：第 231 轮同一命令（修复前）标签条是
 `THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active)` 三个样例标签 ——
 证明这条差异确实由 `live.tabs` 为空时的样例回退造成，修复后消失。
+
+#### 第 239 轮：blame 工具栏"多出的 `span.document-path`"判读 —— 不是缺陷
+
+第 231 轮把"实时工具栏有 `span.document-path`、视觉稿同位置是 `span.grow`"列为候选差异。
+本轮查视觉稿自身：
+
+- `mockup.css` 里有 `.document-path` 规则（命中 1 处），`mockup.js` 第 866 行还有
+  `document.querySelectorAll(".document-path").forEach(path => path.title = path.textContent)`
+  这样的通用绑定；
+- 视觉稿自己的**其它文档视图模板都在用 `document-path`**：
+  `jsonView`（1220 行）、`markdownView`（2102 行）、文本视图（2229 行，
+  `Augit › docs › product-spec.md　只读`）。
+
+也就是说 **`document-path` 是设计系统里的既有元素**，实时 blame 工具栏显示路径与其他文档视图
+一致；而**视觉稿的 blame 样例工具栏用的是空档 `.grow`** —— 是样例本身的遗漏，
+不是实时实现多画了东西。
+
+**结论**：这一项**不是缺陷**（属于"视觉稿样例与自身其它页面不一致"）。
+按 AGENTS「修改视觉稿以适应实现属于违规」，我不擅自改视觉稿；已在基线文档记录，
+作为**视觉稿补全建议**（blame 样例工具栏应与其他文档视图一致地显示 `document-path`）
+留给设计基线维护时处理。实时侧保持现状。
+
+**同轮复核**（第 238 轮修复后的 blame 对照其余差异）：
+- `.editor-tab` 的 active/配色差异：视觉稿样例把该标签画成**非活动**，实时侧它是**活动文档** ✓
+  正确（宽 211 vs 206 为文字长度差）；
+- 其余差异均为样例样式内容（节点 81 vs 413，真实 blame 行数远多于样例）。
