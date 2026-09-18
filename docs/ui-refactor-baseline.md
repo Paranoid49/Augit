@@ -8448,3 +8448,35 @@ image-preview|.augit-window|LAYOUT=22|SHAPE=280|TEXT=25
 **结论**：`rollback` 与第 211 轮确立的判读规则一致（可滚动容器宽度差 = 两侧滚动条平台差异），
 **不是排版缺陷**；同时也说明"差异条目数"不能当作严重程度 —— 一条被继承的宽度差可以刷出上百条。
 以后普查表里的 LAYOUT 计数只用于**定位候选**，必须看清差异形状（种类数、是否同源）再判断。
+
+#### 第 216 轮：普查中 `stash-manager` / `push` 的"中等差异"也是数据差异
+
+**stash-manager（SHAPE 14）**：
+```
+SHAPE 差异 14 项：
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[0]/div[0] <tree-row selected> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[0]/div[1] <tree-row> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/h2[0] <> "stash@{0} · 工作区切换前"
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/p[1] <commit-meta> "main · I49 · 2 分钟前"
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[2] <button-row> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[1]/div[1]/div[2]/button[0] <primary-button> "应用"
+```
+视觉稿样例有选中 stash 的详情行（`stash@{0} · 工作区切换前`、作者/时间、应用/删除按钮），
+实时侧本仓库**没有 stash**，因此详情行不存在 —— 数据差异，不是缺陷。
+
+**push（SHAPE 15）**：
+```
+SHAPE 差异 15 项：
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[0] <push-commit> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[0]/svg[0] <> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[0]/svg[0]/path[0] <> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[0]/span[1] <> "fix: 精确恢复系统 PATH"
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[1] <push-commit> ""
+  MISSING-IN-LIVE .overlay-layer/section[1]/div[1]/div[0]/div[0]/div[1]/div[1]/svg[0] <> ""
+视觉稿样例列出待推送提交行，实时侧当前没有待推送内容 —— 同样是数据/状态差异。
+
+**本轮结论（普查判读收敛）**：把第 211 轮的滚动条规则与数据/状态差异一起排除后，
+第 214 轮普查表里**没有任何一项是真实排版缺陷**；真正被修掉的 4 处缺陷
+（变更文件树、行 id、标签条密度、设置标签列宽）都是靠"带真实数据的定点区域对照"发现的，
+而不是靠整页计数。后续普查应继续以"定点区域 + 真实数据 + 看差异形状"为主，
+整页计数只用于发现异常候选。
