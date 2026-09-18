@@ -7511,3 +7511,44 @@ dialog("打开工作区",
 #### 验证范围
 
 Augit.Shell.Tests **52/52**、live-shell **823/823**、build 0 警告 0 错误、format PASS。
+
+### 第一百八十七轮：选择目录的宿主能力（界面留下一轮）
+
+#### 实现（只做已能验证的宿主侧）
+
+- 新增 `FolderPicker.Pick(title)`：用 `SHBrowseForFolder`（`BROWSEINFO` + `SHGetPathFromIDList`）
+  弹系统文件夹选择框。**刻意不用 COM 的 `IFileOpenDialog`**：后者要按系统 vtable 顺序声明
+  一整套接口，写错会在真机上直接崩溃；这个 API 只有两个函数与一个结构体，暴露面小得多，
+  功能上同样是"选一个目录"。用户取消返回 null，调用失败按"没选到"处理，不抛给界面。
+- 新增 `WorkspacePicker.Pick(dialog)`：对话框只负责给路径，**取值是否可用由这里判定**；
+  取消 / 无效 / 可用三条路径都可注入委托验证（真弹系统对话框无法在无人值守环境验证）。
+  顺带修掉一个规范化问题：对话框可能带回结尾分隔符，这里统一去掉。
+- 桥接新增 `workspace/pick` → `{available, picked, path, reason}`。
+
+#### 测试（Shell 52 → 55/55）
+
+取消时不产生路径；选到不存在的目录时给出原因且不带路径；选到可用目录时返回完整路径
+（含"带结尾分隔符也要规范化"这一条）。
+
+#### 本轮不做界面的原因（以及下一轮要一起做的事）
+
+界面（视觉稿 workspace-open 页 + 主菜单「文件 → 打开工作区…」）已经写出来并跑过断言，
+但发现设计里的第三个入口「克隆仓库…」在实时外壳里**没有对应的实时对话框**——
+克隆目前只有独立场景（`#clone-source` 等字段）与 `__augitCloneRequest`，没有 live 实现。
+只把前两个入口上线会让这条入口变成点了没反应的死按钮（§10.3 的反面情形），
+因此在预算不足一次做完"实时克隆对话框 + 打开工作区页"时，选择先不上线界面，
+避免留下半套交互。下一轮把两件事一起做完：
+
+1. 视觉稿侧 `liveCloneBody()`（结构取自设计里的 `cloneBody`：版本控制、URL、目录、
+   浅克隆与深度）+ 实时克隆对话框 + 接线到 `git/clone`；
+2. `liveWorkspaceOpenBody()`（最近目录 + 选择目录… + 克隆仓库…）+ 主菜单入口 +
+   `workspace/open` / `workspace/pick` 的反馈；
+3. 断言：最近目录来自真实设置、点击条目调用 `workspace/open` 并按其结果说明、
+   取消选择目录不打开任何工作区、克隆入口打开实时对话框、失败按 §10.2 说明；负向验证。
+4. `FolderPicker` 需要在真机上人工确认三条路径（弹出 / 取消 / 选中目录）——这是唯一一处
+   自动化覆盖不到的地方，结论要写回本文件。
+
+#### 验证范围
+
+Augit.Shell.Tests **55/55**、`dotnet build Augit.slnx -c Release` 0 警告 0 错误、
+`dotnet format --verify-no-changes` PASS。界面文件未改动（上一轮的尝试已回退，避免半套交互）。

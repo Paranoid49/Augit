@@ -176,6 +176,7 @@ internal sealed class ShellBridge : IDisposable
             "git/clone" => await RunWriteAsync(ct => CloneAsync(parameters, ct), cancellationToken),
             "workspace/open" => OpenWorkspace(parameters),
             "write/cancel" => CancelWrite(),
+            "workspace/pick" => PickWorkspace(),
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
@@ -185,6 +186,22 @@ internal sealed class ShellBridge : IDisposable
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             "session/write" => await WriteSessionAsync(parameters, cancellationToken),
             _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
+        };
+    }
+
+    /// <summary>
+    /// 弹出系统文件夹选择框（视觉稿「打开工作区」页的「选择目录…」）。
+    /// 取消时如实返回 <c>picked:false</c>，界面不因此关闭窗口。
+    /// </summary>
+    private static object PickWorkspace()
+    {
+        WorkspacePickResult result = WorkspacePicker.Pick(FolderPicker.Pick);
+        return new
+        {
+            available = true,
+            picked = result.Outcome == WorkspacePickOutcome.Picked,
+            path = result.Path,
+            reason = result.Reason,
         };
     }
 
