@@ -9674,3 +9674,32 @@ SHAPE 差异 12 项：
 
 **结论**：`quick-open` 页的浮层与结果行**结构、间距、图标与视觉稿一致**，无需修改产品代码。
 配合第 264 轮的 `repository-search`，**搜索类两个页面都已核对对齐**。
+
+#### 第 266 轮：`markdown-preview` 真实文档对照 —— 结构一致（仅 5 项且全部可解释）
+
+以 `-Scene markdown-preview -Open docs/product-spec.md` 定点对照（节点 112 / 434，真实文档远长于样例）：
+
+```
+scene=markdown-preview 节点数 视觉稿=112 实时=434
+LAYOUT 差异 5 项：
+  .editor-area/div[0]/a[0] <a class="editor-tab">
+      cls: 视觉稿="editor-tab" 实时="editor-tab active"
+      rect: 视觉稿=[363,51,211,28] 实时=[363,51,172,28]
+      color: 视觉稿="rgb(157, 161, 170)" 实时="rgb(223, 225, 229)"
+      backgroundColor: 视觉稿="rgba(0, 0, 0, 0)" 实时="rgb(37, 38, 42)"
+      borderColor: 视觉稿="rgba(0, 0, 0, 0)" 实时="rgb(75, 77, 83)"
+  .editor-area/div[1]/div[0]/div[1]/div[2]/article[0]/h1[0] <h1 class="">
+      rect: 视觉稿=[392,146,745,47] 实时=[392,146,730,47]
+```
+
+**判读**：
+- `.editor-tab`：视觉稿样例把该标签画成**非活动**，实时侧它是**当前活动文档** ✓ 正确
+  （宽 211 → 172 为文字长度差）；
+- `h1` 宽度 745 → 730：**15 像素差 = 滚动条**（第 211 轮规则），真实长文档出现滚动条；
+- 其余 3 项同源（活动态配色、文字长度、滚动条）。
+
+**结论**：`markdown-preview` 的标题、正文排版与标签**结构与视觉稿一致**，无需修改产品代码。
+
+**本轮累计（④ 的"已核对对齐"清单）**：全局 chrome、git-history、commit-changes、commit-diff、
+settings、terminal、conflict-resolver、file-history、image-preview、repository-search、
+quick-open、markdown-preview —— 共 **12 个页面/区域**已逐项核对，其中 8 处修复过真实缺陷。
