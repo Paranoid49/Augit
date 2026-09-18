@@ -9238,3 +9238,36 @@ $ grep -n "live\.image\|image:" web/src/live-data.js           # 无输出
 **教训（同类第三次）**：**不要在没确认状态键/契约的情况下断言"状态为 null 说明有问题"** ——
 与第 232 轮"从签名反推 tabs 非空"、第 241 轮"手写字符串比对"是同一类错误。
 今后凡涉及 `window.__augitLive.*` 字段的探针，先 grep 确认该字段确实被写入过。
+
+#### 第 250 轮：图片预览的真实契约找到了 —— `live.document.dataUrl` 为空
+
+读视觉稿的两处 `image-stage` 模板，契约一目了然：
+
+```js
+// 2265 行（实时渲染器）：
+<img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}">
+// 2724 行（样例）：
+<img src="assets/image-sample.png">
+```
+
+即**实时侧图片的 `src` 来自 `live.document.dataUrl`**；而第 246 轮探针实测该 `img` 的
+`src=""`、自然尺寸 0 —— 说明 **`live.document.dataUrl` 是空的（或根本没有这个字段）**，
+所以图片预览只能停在加载态。
+
+C# 侧检索 `dataUrl`：
+
+```
+(无输出)
+```
+
+（无输出 = 宿主 `ShellBridge`/`Infrastructure` **从未返回过 dataUrl**。）
+
+**结论（证据链完整，可立项）**：`--open <图片>` 时编辑器正确进入图片模式、`image-stage`
+与工具栏都渲染了，但**图片正文的 `src` 依赖 `live.document.dataUrl`，而宿主从未提供该字段** ——
+因此图片预览永远空白/停在加载指示。这是**真实缺陷**（与此前"状态键不存在"的误判不同：
+这次是"契约存在、字段为空"，且控件、模式、节点结构都对）。
+
+**修复方向（下一轮）**：让 `document/read` 对图片返回可用的数据（例如 `dataUrl`，
+或返回字节并由前端构造 blob URL），并在前端把它填进 `live.document.dataUrl`；
+断言：`--open <png>` 后 `live.document.dataUrl` 非空、`img.naturalWidth > 0`、
+加载指示消失、`.image-size-label` 显示真实尺寸；仍需正/负向验证与 harness 全量。
