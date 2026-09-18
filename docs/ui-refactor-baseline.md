@@ -8387,3 +8387,18 @@ verify-window-chrome.ps1（真机）       11/11，WINDOW_CHROME_OK
 `markdown-preview`、`blame`、`file-history`、`worktrees`、`stash-manager`、`remote`、
 `clone`、`push`、`reset`、`rollback`、`repository-search`、`operation-result`），
 目标保持 active。
+
+#### 第 213 轮：④ 快速打开浮层对照（选择器确认，浮层外壳一致）
+
+第 207 轮用 `.overlay-layer` 得到的是空对照（已被 `EMPTY_REGION` 拦住）；本轮确认该场景的
+浮层根节点是 **`.search-overlay`**，重新对照：
+
+- 浮层**外壳一致**：rect 的 x 与宽度两侧完全相同（`[225,144,730,…]`）；
+- `LAYOUT 1 项`：高度 188 vs 82 —— 实时侧是**空查询**状态（按规格"浮层先以空查询渲染，
+  再绑定输入并聚焦"，未输入时没有结果行），视觉稿样例展示的是已输入查询的结果列表；
+- `SHAPE 17 项` / `TEXT 1 项`：全部是样例的 `search-result` 结果行（含文件类型图标与路径）
+  在实时侧不存在于空查询状态，属数据/状态差异。
+
+**下一轮**：经 CDP 在实时侧真正输入一个查询（设置输入框值并派发 `input`），
+等结果到达后再对照**结果行**的几何/图标/密度；空状态本身应改用视觉稿的
+`quick-open-empty` / `search-limited` 场景对照（两者都在 48 个场景内，已随场景矩阵全绿）。
