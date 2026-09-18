@@ -99,6 +99,21 @@ async function main() {
     }
   }
 
+  // 空区域不能当成"没有差异"：选择器写错时两侧都是 0 个节点，逐项比对自然 0 差异，
+  // 看起来像"完全一致"（本轮 .overlay-layer 在 quick-open 场景里根本不存在，就是这样）。
+  // 因此任一选择器在两侧都取不到节点时直接失败，只在一侧取不到时明确告警。
+  const emptyRegions = selectors.filter((selector) =>
+    (mockRegions[selector] || []).length === 0 && (dump.regions[selector] || []).length === 0);
+  const oneSidedRegions = selectors.filter((selector) =>
+    ((mockRegions[selector] || []).length === 0) !== ((dump.regions[selector] || []).length === 0));
+  if (emptyRegions.length > 0) {
+    console.error('EMPTY_REGION 选择器在视觉稿与实时两侧都没有节点，对照无意义：' + JSON.stringify(emptyRegions));
+    process.exit(3);
+  }
+  if (oneSidedRegions.length > 0) {
+    console.error('WARN_ONE_SIDED_REGION 只在一侧存在节点：' + JSON.stringify(oneSidedRegions));
+  }
+
   const show = (list) => (args.all ? list : list.slice(0, args.top));
   console.log('scene=' + scene + ' 节点数 视觉稿=' + selectors.reduce((sum, s) => sum + (mockRegions[s] || []).length, 0)
     + ' 实时=' + selectors.reduce((sum, s) => sum + (dump.regions[s] || []).length, 0));
