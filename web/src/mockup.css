@@ -3595,7 +3595,9 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   white-space: nowrap;
 }
 .live-settings .form-grid {
-  grid-template-columns: 90px minmax(220px, 1fr);
+  /* 与基线 .form-grid 一致（110px minmax(0,1fr)）：这里曾把标签列改成 90px、
+     值列加 220px 下限，逐页对照实测标签列比视觉稿窄 20 像素。 */
+  grid-template-columns: 110px minmax(0, 1fr);
 }
 /* 实时差异视图：区块头行单独着色，与内容行区分。 */
 .diff-code-line.hunk {

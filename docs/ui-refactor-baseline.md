@@ -8245,3 +8245,17 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
 
 **下一轮**：定位 `settings` 表单标签列宽的规则来源并修正；随后继续
 `terminal` / `conflict-resolver` / `quick-open` / `image-preview` 等页面。
+
+#### 第 206 轮：④ 设置模态标签列宽修正（完成）
+
+第 205 轮定位的差异修好了：`mockup.css` 里有一条**只给实时外壳**的覆盖
+`.live-settings .form-grid { grid-template-columns: 90px minmax(220px, 1fr); }`，
+而基线 `.form-grid` 是 `110px minmax(0, 1fr)` —— 于是实时设置表单的**标签列比视觉稿窄 20 像素**，
+值列还多了一个 220px 下限（窄窗口下会与基线的收缩规则不一致）。
+现改为与基线一致：`grid-template-columns: 110px minmax(0, 1fr);`。
+
+**验证（真机逐元素对照）**：修复前 `gridTemplateColumns: 视觉稿="110px 583px" 实时="90px 588px"`，
+修复后 `视觉稿="110px 583px" 实时="110px 568px"` —— 标签列两侧都是 110px ✓
+（修复前的那次对照输出即负向验证证据）。剩余 15 像素差是真实设置项更多导致的
+**纵向滚动条**（`583 → 568`，值列被滚动条占掉），属于数据差异。
+`live-shell` 860/860 全绿，`verify-ui-assets.ps1` PASS（两处 mockup.css 副本字节一致）。
