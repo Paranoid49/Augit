@@ -8512,3 +8512,21 @@ SHAPE 差异 15 项：
 
 **下一轮**：用上表里对应的面板/浮层类名重新抓取并定点对照（空区域仍会被 `EMPTY_REGION` 拦下），
 配合**真实数据**态（必要时临时造数据、跑完清理），判断时先看差异形状再算计数。
+
+#### 第 219 轮：`app-main` 下的区域清单（**已更正**：按路径前缀过滤）
+
+第 219 轮第一次计算时只用"深度区间"筛选，把 `titlebar` 的子孙也算了进来（扁平节点列表里
+`titlebar` 的子节点排在 `app-main` 之前），于是表里出现了 `brand-mark/top-button/window-dot` 等
+标题栏类名 —— 又一条**未经验证就落盘**的错误记录。正确做法是按 `path` 前缀过滤（只取
+`app-main` 的子孙）。更正后的实测清单：
+
+| 场景 | `app-main` 下两层区域类（实测，去重保序） |
+|---|---|
+| `blame` | tool-rail, rail-button, rail-spacer, tool-window, tool-header, side-content, workspace, editor-area, bottom-tool |
+| `file-history` | tool-rail, rail-button, rail-spacer, tool-window, tool-header, side-content, workspace, editor-area, bottom-tool |
+| `operation-result` | tool-rail, rail-button, rail-spacer, tool-window, tool-header, changes-layout, workspace, editor-area |
+| `image-preview` | tool-rail, rail-button, rail-spacer, tool-window, tool-header, side-content, workspace, editor-area |
+| `repository-search` | tool-rail, rail-button, rail-spacer, tool-window, tool-header, side-content, workspace, editor-area |
+
+**教训（第二次同类）**：基线文档里的结论必须**先验证来源** —— 第一次是"静态猜类名得到 (none)"，
+这次是"深度区间筛选混入旁支"。两种错误都源于对证据本身没做校验；写表之前应先打印关键行确认。
