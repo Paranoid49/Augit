@@ -2392,6 +2392,33 @@ async function main() {
       throw new Error('断言失败：' + wcSoft.join(' | '));
     }
 
+    // ---- 打开的文档一多，标签条不得把标签压到看不见名字（实测 32 个文档时每个 20 像素）----
+    // 先真的打开一个文档：克隆它的字段形状来造 24 个标签，避免凭猜测构造标签对象。
+    const tabsMany = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+    await tabsMany.page.waitForSelector('.editor-tabs .editor-tab', { timeout: 10000 });
+    const tabsMeasure = await tabsMany.page.evaluate(() => {
+      const live = window.__augitLive;
+      const seed = JSON.parse(JSON.stringify(live.tabs[0]));
+      live.tabs = Array.from({ length: 24 }, (_, index) => Object.assign({}, seed, {
+        id: 'many-' + index, preview: false, dirty: false,
+        path: 'docs/many-' + index + '.txt', name: 'many-' + index + '.txt',
+      }));
+      live.activeTabId = live.tabs[0].id;
+      window.__augitRenderRegions('editorTabs');
+      const strip = document.querySelector('.editor-tabs');
+      const tabs = [...strip.querySelectorAll('.editor-tab')];
+      return {
+        count: tabs.length,
+        minWidth: Math.round(Math.min(...tabs.map((tab) => tab.getBoundingClientRect().width))),
+        overflowX: getComputedStyle(strip).overflowX,
+        scrollable: strip.scrollWidth > strip.clientWidth,
+      };
+    });
+    check('标签放不下时保持可读宽度并横向滚动: ' + JSON.stringify(tabsMeasure),
+      tabsMeasure.count === 24 && tabsMeasure.minWidth >= 60
+        && tabsMeasure.overflowX === 'auto' && tabsMeasure.scrollable);
+    await tabsMany.page.close();
+
     // ---- 底部 Git 工具窗的"更多"入口不得越堆越多（用户实测反馈：右下角一堆详情）----
     // 视觉稿的侧工具条绑定会在**每次**绑定调用时 append 一组「更多」按钮与弹层；
     // 视觉稿页面只渲染一次，实时外壳却会在每次区域刷新后重新绑定，

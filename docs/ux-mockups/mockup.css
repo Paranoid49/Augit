@@ -272,7 +272,12 @@ button {
   align-items: center;
   min-height: 38px;
   border-bottom: 1px solid var(--augit-border);
+  /* 标签放不下时横向滚动，而不是把标签压缩到看不见名字；标签条本身不显示滚动条。 */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+
+.editor-tabs::-webkit-scrollbar { display: none; }
 
 .tool-header {
   padding: 0 10px;
@@ -311,13 +316,18 @@ button {
 .editor-tabs {
   padding: 0 8px;
   gap: 2px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   white-space: nowrap;
 }
 
 .editor-tab {
   height: 31px;
   max-width: 220px;
+  /* 标签只受上限约束、不参与收缩：没有这一条时，打开的文档一多（实测 32 个），
+     flex 会把每个标签压到 20 像素左右，标签名整个消失、只剩关闭叉；
+     标签条改为横向滚动（见 .editor-tabs）。 */
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;

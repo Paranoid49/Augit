@@ -8206,3 +8206,23 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
   对上实时的 `change-group-1`）；
 - 分组勾选态：样例 `fake-check checked`（蓝底）vs 实时未勾选 ——
   未跟踪文件默认不参与提交是既有产品行为，不是缺陷。
+
+#### 第 204 轮：④ 标签条密度缺陷（真机 32 个标签被压到 20 像素，标签名消失）
+
+**对照 `commit-diff` 时发现的真实缺陷**：视觉稿样例只有 2 个标签（宽 211/122），
+而实时外壳恢复了用户会话里的**32 个文档**，每个标签被压到 **20-22 像素**、标签名整个消失、
+只剩关闭叉（`rect=[363,51,21,28]`）。根因是 `.editor-tab` 只有 `max-width: 220px`、
+没有 `min-width`，也没有 `flex: 0 0 auto`，而 `.editor-tabs` 是 `display:flex`（默认可收缩），
+于是标签越多每个越窄，最后只剩关闭叉；窗口再窄也不会滚动。
+
+**修复**（`mockup.css`，两处副本同步）：
+- `.editor-tab { flex: 0 0 auto; }`：标签只受 220px 上限约束，不参与收缩；
+- `.editor-tabs` 横向滚动：`overflow-x: auto`（并清掉后来那条把它覆盖成 `hidden` 的规则，
+  否则标签溢出后会被直接裁掉、比原来更难够到），`scrollbar-width: none` 与
+  `::-webkit-scrollbar { display: none }` 保持视觉稿的"无横向滚动条"外观。
+
+**断言与验证**：新增断言——造 24 个标签后最小宽度 ≥ 60 像素、标签条
+`overflow-x: auto` 且 `scrollWidth > clientWidth`（可滚动）。修复前该断言如实失败
+（`minWidth:120` 已达标但 `overflowX:"hidden"`，说明只改 flex 不够、覆盖规则必须一起清），
+修复后 **860/860 全绿**。真机复核（用户会话 32 个标签）：`minWidth=120`、
+标签条 `overflow-x: auto` ✓。`verify-ui-assets.ps1` PASS。
