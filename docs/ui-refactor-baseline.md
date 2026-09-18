@@ -8554,3 +8554,16 @@ LAYOUT 差异 76 项：
 四个启动参数（外壳已支持这些开关），才能给 `blame` / `file-history` / `commit-diff` /
 `conflict-resolver` 等页面造出**与视觉稿同类的真实内容**再对照；
 否则一律退化为"空态 vs 样例"的无意义比较。
+
+#### 第 221 轮：`dump-live-dom.ps1` 支持内容开关（工具能力补齐，真机运行待下一轮）
+
+按第 220 轮的结论给抓取脚本补上外壳已有的四个内容开关：
+`-Blame` / `-FileHistory` / `-Diff` / `-Conflict`（分别透传 `--blame` / `--file-history` /
+`--diff` / `--conflict`，均已存在于 `ShellOptions.Parse`）。这样 `blame` / `file-history` /
+`commit-diff` / `conflict-resolver` 才能在与视觉稿**同类内容**下对照，而不是"空态 vs 样例"。
+
+**验证状态（诚实记录）**：本轮只做到 `PSParser` 解析通过（`parse-ok`）与参数名已在
+外壳侧存在（`grep --file-history ShellOptions.cs` 命中）；**尚未做真机运行**验证，
+列为下一轮第一件事（跑 `-Scene file-history -FileHistory docs/product-spec.md` 等，
+确认实时侧真的渲染出对应内容后再逐项对照）。脚本改动是"只追加启动参数"，
+风险低，但仍按未验证记录，避免又出现"未经验证就落盘"。

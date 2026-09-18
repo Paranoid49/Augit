@@ -37,7 +37,14 @@ param(
   # Optional workspace-relative document to open before extracting. The shell restores the
   # previous session otherwise, and a restored binary document legitimately has no
   # encoding/line-ending facts in the status bar, which reads as a fake difference.
-  [string]$Open = ""
+  [string]$Open = "",
+  # Content switches the shell already supports. Document pages (blame / file history / diff /
+  # conflict resolver) render an empty state without them, and comparing an empty live state
+  # against a mockup full of sample content only measures the state difference, not fidelity.
+  [string]$Blame = "",
+  [string]$FileHistory = "",
+  [string]$Diff = "",
+  [string]$Conflict = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -95,6 +102,10 @@ Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorActi
 Start-Sleep -Seconds 2
 $launch = @("--workspace", $Workspace, "--scene", $Scene, "--pixel-exact", "--theme", $Theme, "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")
 if ($Open -ne "") { $launch += @("--open", $Open) }
+if ($Blame -ne "") { $launch += @("--blame", $Blame) }
+if ($FileHistory -ne "") { $launch += @("--file-history", $FileHistory) }
+if ($Diff -ne "") { $launch += @("--diff", $Diff) }
+if ($Conflict -ne "") { $launch += @("--conflict", $Conflict) }
 $process = Start-Process -FilePath $Exe -ArgumentList $launch -PassThru
 $handle = [IntPtr]::Zero
 $deadline = (Get-Date).AddSeconds(30)
