@@ -7369,3 +7369,61 @@ Augit.Shell.Tests **48/48**、`dotnet build Augit.slnx -c Release` 0 警告 0 �
 2. 主菜单的「文件」加入「打开工作区…」入口（此前因动作未实现而刻意不列）。
 3. 断言：最近目录来自真实设置；点击条目调用 `workspace/open` 并按结果给出反馈
    （激活已有窗口 / 新窗口 / 失败原因）；负向验证。
+
+### 第一百八十四轮：打开工作区（侦察与实施计划，未动代码）
+
+剩余的唯一功能缺口是视觉稿的「打开工作区」页。本轮把它的**精确内容与依赖**勘察清楚并写定计划，
+不写无法在本机验证的代码（理由见末尾）。
+
+#### 视觉稿原文（`docs/ux-mockups/mockup.js`，`workspace-open` 场景）
+
+```
+dialog("打开工作区",
+  <div class="management-content" style="height:350px">
+    <div class="management-list">
+      <div class="tree-row selected"><history/> 最近目录</div>
+      <div class="tree-row"><folder-open/> 选择目录…</div>
+      <div class="tree-row"><clone/> 克隆仓库…</div>
+    </div>
+    <div class="management-detail">
+      <h2>最近目录</h2>
+      <a class="tree-row selected"><folder-icon/> <span class="tree-name">Augit</span>
+        <span class="tree-path">D:\github\Augit</span></a>
+      <p class="commit-meta">同一目录已经打开时激活原窗口。</p>
+    </div>
+  </div>,
+  取消 / 打开, wide)
+```
+
+即：左侧三个入口（最近目录 / 选择目录… / 克隆仓库…），右侧"最近目录"列表（名称 + 完整路径），
+底部「取消 / 打开」，并明确写着"同一目录已经打开时激活原窗口"。
+
+#### 已有依赖（无需新做）
+
+- `settings/read` 已经下发 `recentWorkspaces`（`ShellBridge` 第 879 行）✓。
+- `workspace/open {path}`（第 183 轮）已实现"同目录不重复打开 → 激活已有窗口 → 否则启动新窗口"✓
+  并返回 `current|activated|launched|reason`。
+- 克隆仓库已有独立对话框与 `git/clone` ✓（`openCloneDialog`）。
+
+#### 实施步骤（下一轮）
+
+1. **宿主**：新增 `workspace/pick`，用 Win32 `IFileOpenDialog`（`FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM`）
+   弹出系统文件夹选择框；取消返回 `{picked:false}`、成功返回 `{picked:true, path}`；
+   决策与副作用照第 183 轮的做法分开（可注入的选取委托 + 单元测试覆盖取消/无效/成功三条路径）。
+   现有 `FolderPicker` 风格与项目里的 P/Invoke 一致，**不引入 WinForms/WPF 依赖**。
+2. **视觉稿侧**：`liveWorkspaceOpenBody()` 按上面的结构渲染（最近目录来自 `live.settings.recentWorkspaces`，
+   空列表给出说明；"同一目录已经打开时激活原窗口"的提示保留）。
+3. **实时侧**：`openWorkspaceDialog()` + 主菜单「文件」新增「打开工作区…」（此前刻意不列，
+   因为动作未实现）；条目点击 → `workspace/open` → 按 `opened` 给出反馈
+   （已激活原窗口 / 已在新窗口打开 / 失败原因按 §10.2）；「选择目录…」→ `workspace/pick` → 再 `workspace/open`。
+4. **断言**：最近目录来自真实设置并显示名称与完整路径；点击条目调用 `workspace/open` 并按其结果给出反馈；
+   取消关闭窗口且不调用宿主；`workspace/pick` 取消/失败路径不调用 `workspace/open`；负向验证。
+5. **必须补的真机验证**：COM 文件夹对话框**无法在无人值守环境验证**（本会话 Windows 处于锁屏，
+   截图与前台窗口都不可用）。下一轮写完 `workspace/pick` 后需在真机上做一次人工确认
+   （弹出、取消、选中目录三条路径），并在基线里记录结论——这是唯一一处不能靠自动化断言收口的改动。
+
+#### 本轮不做代码改动的原因
+
+`IFileOpenDialog` 的接口 vtable 顺序必须与系统定义完全一致，写错会在真机上直接崩溃；
+而本机既不能弹出该对话框（锁屏、无前台）也没有可用的自动化手段验证它。
+按"与风险相称的验证"原则，宁可不写，也不把无法验证的互操作留在代码里。
