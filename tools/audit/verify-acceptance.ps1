@@ -6,7 +6,8 @@ param(
   [Parameter(Mandatory=$true)][string]$Workspace,
   [string]$Settings = "",
   [string[]]$Scenes = @(),
-  [int]$SettleMs = 2500
+  [int]$SettleMs = 2500,
+  [double]$MaxWhitePercent = 10.0
 )
 
 $DefaultScenes = @(
@@ -42,7 +43,7 @@ foreach ($scene in $Scenes) {
   $arguments = @(
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $capture,
     '-Exe', $Exe, '-Out', $out, '-Workspace', $Workspace,
-    '-Surface', $scene, '-SettleMs', $SettleMs
+    '-Surface', $scene, '-SettleMs', $SettleMs, '-MaxWhitePercent', $MaxWhitePercent
   )
   if ($Settings -ne '') {
     $arguments += @('-Settings', $Settings)
