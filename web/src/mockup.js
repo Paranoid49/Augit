@@ -2042,10 +2042,19 @@ function editorTabs(active, extra = "") {
   const live = window.__augitLive;
   // 实时外壳：标签来自 live.tabs（规格 §5.2）。临时预览标签用 preview 类区分，
   // 关闭叉与中键都走同一套“不抢焦点”的关闭流程。
-  if (live && Array.isArray(live.tabs) && live.tabs.length > 0) {
-    const markup = live.tabs.map(tab => {
+  // blame 文档（--blame）只写 live.blame、不建标签；此时 live.tabs 为空会让标签条回退成
+  // 视觉稿样例标签（第 234/235 轮实测：样例的三个文件名与实际打开的文档不符）。
+  // 这里用 blame 路径合成唯一的活动标签（模板 1：文件名 + 关闭叉），不改任何状态，
+  // 也不影响编辑器视图选择（视图由 editor === "blame" 决定，见 blame 视图分支）。
+  const liveTabs = live && Array.isArray(live.tabs) && live.tabs.length > 0
+    ? live.tabs
+    : (live && live.blame && live.blame.path
+      ? [{ id: "__blame-document__", path: live.blame.path, title: live.blame.path, kind: "document", syntheticActive: true }]
+      : null);
+  if (live && liveTabs) {
+    const markup = liveTabs.map(tab => {
       const cls = ["editor-tab"];
-      if (tab.id === live.activeTabId) cls.push("active");
+      if (tab.id === live.activeTabId || tab.syntheticActive === true) cls.push("active");
       if (tab.preview) cls.push("preview");
       if (tab.kind === "comparison") cls.push("comparison-tab");
       const label = tab.title || tab.path || "未命名";

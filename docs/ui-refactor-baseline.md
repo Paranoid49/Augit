@@ -8945,3 +8945,21 @@ openDocumentTab(path, payload, { preview, activate });
 **下一轮做法**：先读渲染层"编辑器视图如何按 `live.blame`/`live.document` 选择"
 （一处 grep 即可），据此在 A/B 中择一实施，并连同 harness 全量与真机 blame 对照验证。
 本轮不做代码改动，避免在契约未确认时引入"编辑器被切成文本视图"的回归。
+
+#### 第 237 轮：实施路线 B —— blame 文档合成单标签（harness 已验证，真机待验）
+
+**实现**（`mockup.js` 的 `editorTabs`，两处副本同步）：当 `live.tabs` 为空但
+`live.blame.path` 存在时，合成一个活动标签（`id="__blame-document__"`、`title=path`、
+`syntheticActive: true`），使标签条渲染成视觉稿的**模板 1**（单活动标签 + 关闭叉），
+而不是回退到样例的三个文件名。**不改任何状态**，也不影响编辑器视图选择
+（确认过：视图由 `editor === "blame"` 分支决定，见 `mockup.js:2718`
+`if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();`）。
+
+**已做验证**：
+- `live-shell.spec.cjs` **861/861 全绿**（无回归）；
+- `verify-ui-assets.ps1` PASS（两处 `mockup.js` 副本字节一致）。
+
+**待做验证（下一轮第一件事）**：
+- 真机 `-Scene blame -Blame docs/product-spec.md` 抓取后确认标签条只有 **1 个** `.editor-tab`
+  且其文本是对应文件（不再是 `THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md` 三连）；
+- 负向验证：临时移除该分支（回到"仅 `live.tabs` 非空才渲染"），标签条应重新回退成样例标签。
