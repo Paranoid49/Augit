@@ -9149,3 +9149,24 @@ LAYOUT 差异 3 项：
   是别的元素（例如占位/图标），真实预览图在另一个节点上。
   下一轮用 CDP 直接读实时侧 `.image-preview`（或对应容器）里的 `img` 列表
   （`naturalWidth/naturalHeight/src/rect`）即可一次分辨。
+
+#### 第 246 轮：`image-preview` 的 img 探针 —— 实时侧只有一个空 src 的 img
+
+用 CDP 直接读实时侧 `.editor-area` 里的 `img` 列表：
+
+```
+IMGS [{"src":"","nw":0,"nh":0,"r":[356,122,131,19]}]
+```
+
+- 只有**一个** `img`，`src` 为空、`naturalWidth/Height` 均为 **0**，尺寸 131×19（不是预览图尺寸）；
+- 视觉稿侧该位置是 753×471 的真实预览图。
+
+**两种解释（本轮无法再分辨，留给下一轮一行 CDP）**：
+1. **缺陷**：`--open web/image-sample.png` 后图片预览没有真正渲染（`src` 空、自然尺寸 0）；
+2. **实现方式不同**：实时预览不是用 `<img>` 承载（例如用 `<canvas>` 或 CSS `background-image` 绘制，
+   按架构"图片解码在后台执行"的设计，这完全可能），而那个 131×19 的空 `img` 是别的占位元素。
+
+**下一轮一行分辨**：读实时侧 `.editor-area` 里是否存在 `canvas`、
+以及元素的 `backgroundImage` 与 `window.__augitLive.imagePreview`（解码状态/尺寸）——
+若存在已解码的位图但不在 `<img>` 上，则本项**不是缺陷**（结构差异已由 `SHAPE 0` 说明），
+只需在判读规则里补一条"图片预览的载体元素可能不同"。
