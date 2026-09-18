@@ -24,6 +24,15 @@
     const text = String(value === null || value === undefined ? '' : value).replace(/\s+/g, ' ').trim();
     return text.length > limit ? text.slice(0, limit) : text;
   };
+  // textContent 会把 <style>/<script> 里的源码算进来：xterm 会在自己的容器里注入样式表，
+  // 于是终端的"文字"变成 `.xterm-rows span { display: inline...` 这种 CSS 片段，
+  // 逐页对照就会报出一堆不存在的文字差异。含样式/脚本的节点先剥掉再取文本。
+  const visibleText = el => {
+    if (!el.querySelector('style,script')) return el.textContent;
+    const copy = el.cloneNode(true);
+    copy.querySelectorAll('style,script').forEach(node => node.remove());
+    return copy.textContent;
+  };
   const ownText = el => Array.from(el.childNodes)
     .filter(node => node.nodeType === 3)
     .map(node => node.textContent)
@@ -46,7 +55,7 @@
       cls: short(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className, 120),
       rect: [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)],
       ownText: short(ownText(el), 80),
-      text: short(el.textContent, 60),
+      text: short(visibleText(el), 60),
       icon: iconName(el),
       scroll: [el.scrollWidth, el.scrollHeight, el.clientWidth, el.clientHeight],
     };

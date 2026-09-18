@@ -8277,3 +8277,22 @@ TEXT 差异 0 项：
 - 只在一侧没有节点时输出 `WARN_ONE_SIDED_REGION`（可能是选择器写错，也可能是真实缺失）。
 实测该守卫对上面那次对照如实报错：`EMPTY_REGION ... :[".overlay-layer"]` ✓。
 快速打开浮层的正确选择器留待下一轮确认后再对照（该场景的浮层根节点不是 `.overlay-layer`）。
+
+#### 第 208 轮：④ 终端工具窗对照 + 修掉对照工具的一处文字假差异
+
+**工具缺陷（本轮修掉）**：`dom-signature.js` 用 `el.textContent` 取文本，而 xterm 会在自己的
+容器里注入 `<style>` 样式表，于是**终端的"文字"变成了 CSS 源码**
+（实测：`实时=".xterm-dom-renderer-owner-1 .xterm-rows span { display: inli…"`），
+逐页对照因此报出大量不存在的文字差异、并可能掩盖真实的文字差异。
+现在取值前先剥掉子树里的 `<style>/<script>`（只在确实含有它们时才克隆），
+修好后同一场景实时侧文字如实变成 `终端Windows PowerShell` ✓。
+
+**终端工具窗对照结论**：
+- `LAYOUT 1 项`：`div[1]/div[0]` 在视觉稿里是静态样例行（高 22），实时是**真实 xterm 渲染器**
+  （高 175、`position: relative`）——这是既有技术方案的预期差异（架构规定终端正文由真实
+  ConPTY 会话渲染），不是缺陷；
+- `SHAPE 43 项`：样例里的 `terminal-prompt/terminal-path/terminal-command` 等静态文本节点
+  在实时侧由 xterm 的行模型渲染，节点结构天然不同；工具窗**外壳**（标题行、会话名、
+  右侧动作图标）两侧一致；
+- 终端正文的排版（规格 §606：等宽字体、行高 1.7 倍、正文上下 11px / 左右 12px）
+  不能用 DOM 结构比对，必须改为比对 `.xterm` 与正文容器的**计算样式**，留待下一轮。
