@@ -8740,3 +8740,35 @@ editor-tab | Directory.Build.props
 带恢复会话时 `--blame <path>` 后 `__augitLive.blame` 存在且活动标签为该路径。
 这条同时会让第 224 轮"恢复标签条噪声"与第 227 轮"活动文档被抢"两个问题一起消失 ——
 比工具侧任何补丁都正确（工具侧 `-CleanSession` 已证明无效并回退）。
+
+#### 第 229 轮：修复"会话恢复覆盖显式文档参数"（真机验证通过，含负向证据）
+
+**修复**（`web/src/live-data.js`）：给会话恢复加上前置条件 —— 存在任一显式文档类启动参数
+（`--open/--blame/--file-history/--diff/--conflict`）时**不启动 restoreSession**：
+
+```js
+const explicitDocument = Boolean(
+  requestedDocument || requestedBlame || requestedFileHistory || requestedDiff || requestedConflict);
+if (!explicitDocument) void restoreSession();
+```
+
+**真机验证**：`-Scene blame -Blame docs/product-spec.md` 重跑对照 ——
+实时侧从"显示恢复出来的二进制文档信息态（`.info-state`，节点 15）"变成
+**真实 blame 正文（节点 418，差异首项落在文档工具栏 `.document-path`）** ✓。
+
+**负向证据（本轮的"修复前"状态，来自第 226/227 轮同一命令的输出）**：
+`.document-view.blame-document`（视觉稿）vs `.info-state`（实时），且标签条首个标签是
+`product-spec.md` 却不是活动标签 —— 即"没有这条守卫时，显式文档参数会被恢复覆盖"。
+断言层面由 `live-shell.spec.cjs` 的既有场景覆盖实测无回归（**860/860 全绿**）。
+
+**下一批待办（本轮暴露的新差异）**：blame 页现在有 28 项 LAYOUT 差异可供真正判读，
+首项是文档工具栏：视觉稿在该位置是 `.grow` 空档，实时是 `.document-path`
+（`color/overflow/border` 均不同）—— 下一轮从这里开始逐项核对 blame 页的工具栏与正文排版。
+scene=blame 节点数 视觉稿=81 实时=418
+LAYOUT 差异 28 项：
+  .editor-area/div[1]/div[0]/div[0]/span[0] <span class="grow">
+      cls: 视觉稿="grow" 实时="document-path"
+      rect: 视觉稿=[365,104,706,0] 实时=[365,96,347,16]
+      color: 视觉稿="rgb(223, 225, 229)" 实时="rgb(157, 161, 170)"
+      borderColor: 视觉稿="rgb(223, 225, 229)" 实时="rgb(157, 161, 170)"
+```

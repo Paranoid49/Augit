@@ -6943,7 +6943,13 @@ async function boot() {
   // 首屏不能被恢复文件的读取拖慢；用户交互会通过代次闸门让进行中的恢复收手（§6.7）。
   document.addEventListener("click", markUserInteraction, true);
   document.addEventListener("keydown", markUserInteraction, true);
-  void restoreSession();
+  // 显式文档类启动参数优先于会话恢复：restoreSession 是 fire-and-forget，
+  // 它会在文档参数（--open/--blame/--file-history/--diff/--conflict）之后才落地，
+  // 并把恢复集合里的活动文件重新激活 —— 实测 `--blame docs/product-spec.md` 时
+  // blame 标签已排在首位却不是活动标签，编辑器显示的是恢复出来的二进制文档。
+  const explicitDocument = Boolean(
+    requestedDocument || requestedBlame || requestedFileHistory || requestedDiff || requestedConflict);
+  if (!explicitDocument) void restoreSession();
   if (wantsSettings) {
     window.__augitRender();
     bindSettingsSave();
