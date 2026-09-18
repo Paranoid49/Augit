@@ -8617,3 +8617,29 @@ LAYOUT 差异 5 项：
 
 至此第 220–222 轮留下的唯一候选缺陷也已澄清；`file-history` 的对照结论是：
 **在同类内容下外壳与详情面板与视觉稿一致，剩余差异为文字长度与内容条件样式差异。**
+
+#### 第 224 轮：`blame` 对照（`-Blame` 生效）——差异集中在"恢复的会话标签条"
+
+`-Scene blame -Blame docs/product-spec.md` 真机对照（实时 236 节点 / 视觉稿 81）：
+
+```
+scene=blame 节点数 视觉稿=81 实时=236
+LAYOUT 差异 14 项：
+  .editor-area <article class="editor-area">
+      icon: 视觉稿="ellipsis-vertical" 实时="x"
+  .editor-area/div[0] <div class="editor-tabs">
+      icon: 视觉稿="ellipsis-vertical" 实时="x"
+  .editor-area/div[0]/a[0] <a class="editor-tab">
+      rect: 视觉稿=[363,51,211,28] 实时=[363,51,172,28]
+```
+
+`-Blame` **生效**（实时侧确实渲染了真实 blame 正文，节点数远多于样例）。前几项差异全部落在
+**编辑标签条**：视觉稿样例是 2 个固定标签（211 / 122 宽），实时侧是**恢复的会话**里的一批标签
+（172 / 230 宽，且第一个标签内第一个 svg 是关闭叉 `x` 而不是样例里的省略号菜单）——
+都是"打开了哪些文件"造成的状态差异，与 blame 页本身的实现无关。
+
+**结论与需要的工具能力**：`--scene` 并不会抑制会话恢复（`session`/`openFiles` 仍会写回界面），
+因此**文档类页面要公平对照，需要"干净会话"模式**：审计运行时忽略设置里的 `openFiles`
+（或用一个 `openFiles: []` 的独立设置文件）。下一轮做法二选一：
+1. 给 `dump-live-dom.ps1` 加 `-CleanSession`：启动后用 CDP 先把 `live.tabs` 清空再抓取；
+2. 或让 `ShellOptions` 在显式 `--scene` 时跳过会话恢复（改动进产品代码，需评估影响面）。
