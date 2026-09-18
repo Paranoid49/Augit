@@ -8567,3 +8567,29 @@ LAYOUT 差异 76 项：
 列为下一轮第一件事（跑 `-Scene file-history -FileHistory docs/product-spec.md` 等，
 确认实时侧真的渲染出对应内容后再逐项对照）。脚本改动是"只追加启动参数"，
 风险低，但仍按未验证记录，避免又出现"未经验证就落盘"。
+
+#### 第 222 轮：内容开关真机验证通过，`file-history` 暴露一处候选缺陷
+
+第 221 轮补的 `-FileHistory` 真机验证**通过**：`-Scene file-history -FileHistory docs/product-spec.md`
+后实时侧真的渲染出文件历史内容（节点 45，第 220 轮空态对照时是"没有内容"），差异降到 5 项：
+
+```
+scene=file-history 节点数 视觉稿=155 实时=45
+LAYOUT 差异 5 项：
+  .bottom-tool/div[0]/button[2] <button class="tool-tab active">
+      rect: 视觉稿=[450,509,161,24] 实时=[450,509,195,24]
+  .bottom-tool/div[0]/span[3] <span class="grow">
+      rect: 视觉稿=[615,521,486,0] 实时=[650,521,451,0]
+  .bottom-tool/div[1]/div[1] <div class="history-detail-pane">
+      icon: 视觉稿="arrow-up" 实时=""
+```
+
+**判读**：
+- 前两项是**文字长度**导致的（`.tool-tab.active` 161 → 195：两侧历史标签文字不同，
+  `.grow` 空档随之反向变化），属数据差异；
+- **第 3 项是候选缺陷**：`history-detail-pane` 在视觉稿里是 `display: block` 且内部有
+  `arrow-up` 图标（展开/收起入口），实时侧却是 `display: grid` + `grid-template-columns: 360px`
+  且没有该图标 —— 与第 206 轮 `settings` 的标签列宽同类（疑似实时专属的布局覆盖），
+  列入下一轮第一个排查对象。
+
+至此四类内容开关的机制已验证有效（其余三类同源，只是参数不同）。
