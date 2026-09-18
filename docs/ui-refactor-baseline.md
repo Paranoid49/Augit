@@ -8849,3 +8849,18 @@ if (live && Array.isArray(live.tabs) && live.tabs.length > 0) { ... live.tabs.ma
 对比三者的 `path/kind/preview` 与 `activeTabId`，即可判定这两个额外标签
 （`THIRD-PARTY-NOTICES.md`、`roadmap.md`）来自哪里（会话恢复的第二入口、
 还是 `--blame` 之外的默认文档集），再决定收口方式。
+
+#### 第 233 轮：核对 exe 旁 web 副本（守卫确已生效）+ 一个新发现的工具阻塞点
+
+- `grep -c explicitDocument <exeDir>/web/src/live-data.js` = **2** → 第 229 轮的守卫
+  **确实在真机那次 blame 抓取时已生效**（不是被旧副本掩盖）；
+- 但两个副本的 mtime 不同：`exe 侧 02:23` / `repo 侧 02:39` —— 第 232 轮我做"负向验证"时
+  `cp` 回写 repo 副本刷新了 mtime（内容与修复版一致），**于是 `STALE_WEB_ASSETS` 守卫现在会拒绝
+  后续所有真机抓取**（它比对的是最新写入时间，不是内容）。这是工具设计上的一个副作用，
+  已记录：**下一轮第一件事是先 `dotnet build`（同步副本 mtime）再抓取**。
+
+**结论（对 3 个标签的当前状态）**：守卫在真机生效、样例回退已排除、`live.tabs` 只由
+`openDocumentTab` 追加、`settings.openFiles` 只在被守卫的 `restoreSession` 内读取 ——
+按理 blame 运行只应有 1 个标签，但实测 3 个，因此**仍有未定位的标签来源**。
+下一轮用 CDP 一次性打印 `live.tabs`（`path/kind/preview`）、`settings.openFiles`、
+`blame` 与 `activeTabId` 三者对照，直接定位来源（不再靠推断）。
