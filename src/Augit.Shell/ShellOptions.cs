@@ -8,10 +8,18 @@ namespace Augit.Shell;
 /// </summary>
 internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi, string? BrowserArguments)
 {
+    /// <summary>
+    /// 是否在命令行显式给出了 <c>--workspace</c>。
+    /// 调用方要区分"用户没指定"与"指定了当前目录"：前者才恢复设置里上次打开的目录
+    /// （产品规格：启动时恢复上次打开的目录）。
+    /// </summary>
+    public bool WorkspaceExplicit { get; init; }
+
     public static ShellOptions Parse(string[] arguments)
     {
         string? webRoot = null;
         string? workspaceRoot = null;
+        bool workspaceExplicit = false;
         string? scene = null;
         string? theme = null;
         string? width = null;
@@ -37,6 +45,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                     break;
                 case "--workspace":
                     workspaceRoot = Next(arguments, ref index, argument);
+                    workspaceExplicit = true;
                     break;
                 case "--mockups":
                     mockups = true;
@@ -97,6 +106,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         return new ShellOptions(
             root,
             Path.GetFullPath(workspaceRoot ?? Environment.CurrentDirectory),
+            // 注意：工作区在 Program 里还会按设置解析一次（见 ShellStartup.ResolveWorkspace），
+            // 因此这里保留"命令行没给"的原始事实。
             scene,
             theme,
             ParseSize(width, "--width"),
@@ -109,7 +120,10 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             conflictDocument,
             diffDocument,
             dpi,
-            browserArguments);
+            browserArguments)
+        {
+            WorkspaceExplicit = workspaceExplicit,
+        };
     }
 
     private static string Next(string[] arguments, ref int index, string name)

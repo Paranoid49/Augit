@@ -18,6 +18,8 @@ internal static class Program
             ApplicationSettings settings = LoadSettings();
             // 未显式指定 --theme 时按设置解析主题；设置里的 System 跟随 Windows。
             options = options with { Theme = ResolveTheme(options.Theme, settings) };
+            // 未显式指定 --workspace 时恢复设置里上次打开的目录（产品规格 §3）。
+            options = ShellStartup.ResolveWorkspace(options, settings);
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：
             // 「再次打开同一目录时，在 1 秒内激活已有窗口并退出新进程」）。
