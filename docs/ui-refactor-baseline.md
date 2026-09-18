@@ -8828,3 +8828,24 @@ live-shell 失败：断言失败：显式文档参数存在时不恢复会话:
 **下一轮做法**：先用 CDP 读 `window.__augitLive.tabs` 的 `kind/path/preview` 与
 `settings.openFiles` 对比，区分"第二个恢复路径"与"视觉稿场景自带标签"，
 再决定是继续收口（把同一守卫应用到第二条路径）还是把标签条排除出比对（`-Prune`）。
+
+#### 第 232 轮：排除"样例标签回退"，确认 3 个标签确实是 live 标签（第二条预置路径成立）
+
+查 `mockup.js` 标签渲染入口：
+
+```js
+// 2043-2046
+// 实时外壳：标签来自 live.tabs（规格 §5.2）
+if (live && Array.isArray(live.tabs) && live.tabs.length > 0) { ... live.tabs.map(...) ... }
+```
+
+即**只有 `live.tabs` 为空时才会回退到视觉稿样例标签**。第 231 轮观察到的
+`THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active)` 里 blame 文档是活动标签，
+说明 `live.tabs` 当时非空 —— 所以那 3 个标签是**真实 live 标签**，
+"第二条预置/恢复路径"成立，不是样例回退（此前的候选已排除一个）。
+
+**下一轮做法（精确）**：经 CDP 打印 `window.__augitLive.tabs` 与
+`window.__augitLive.settings.openFiles`、`window.__augitLive.blame`，
+对比三者的 `path/kind/preview` 与 `activeTabId`，即可判定这两个额外标签
+（`THIRD-PARTY-NOTICES.md`、`roadmap.md`）来自哪里（会话恢复的第二入口、
+还是 `--blame` 之外的默认文档集），再决定收口方式。
