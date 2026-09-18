@@ -44,7 +44,11 @@ param(
   [string]$Blame = "",
   [string]$FileHistory = "",
   [string]$Diff = "",
-  [string]$Conflict = ""
+  [string]$Conflict = "",
+  # Optional query text typed into the overlay's input before extracting. Search/quick-open
+  # pages render an EMPTY result list until a query arrives (spec: the overlay opens with an
+  # empty query and focuses the input), so comparing result rows requires typing one.
+  [string]$SetQuery = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -128,6 +132,14 @@ $socket = Get-CdpSocket $Port
 # Read as UTF-8 explicitly: Windows PowerShell 5.1 decodes a BOM-less file with the ANSI code
 # page, which turned the extractor's comment text into mojibake and made the injected script a
 # SyntaxError ("Unexpected token 'const'") on the first run of this script.
+if ($SetQuery -ne "") {
+  $queryJson = ConvertTo-Json $SetQuery -Compress
+  $typed = Invoke-Cdp $socket "(()=>{const i=document.querySelector('.search-overlay input')||document.querySelector('input');if(!i)return 'no-input';i.value=$queryJson;i.dispatchEvent(new Event('input',{bubbles:true}));return 'typed:'+i.value})()" 8
+  Write-Output ("SET_QUERY " + $typed)
+  Start-Sleep -Milliseconds 1500
+  [void](Invoke-Cdp $socket "new Promise(r=>{const t=Date.now();const i=setInterval(()=>{if(window.__augitSearchReady||Date.now()-t>8000){clearInterval(i);r(true)}},200)})" 9 20)
+}
+
 $signature = Get-Content -Raw -Encoding UTF8 -LiteralPath $signaturePath
 # Equalize typography through the page's OWN pipeline instead of injecting CSS variables:
 # the interface font/size come from the user's saved settings on the live side and from the

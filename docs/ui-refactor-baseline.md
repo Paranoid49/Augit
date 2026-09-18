@@ -9526,3 +9526,29 @@ FIT {"img":[1920,1200,1920,1200],"stage":[817,616],"zoom":"100%","spinClass":""}
 **方法论沉淀（第 4 次同类）**：改了两处代码都"实测无效"时，**要立刻怀疑"代码根本没被执行"**，
 先查加载/接线/守卫，而不是继续在实现细节里找原因 —— 这与前面 `-CleanSession`、
 字体默认值、load 重算三次无效尝试是同一类教训，这次终于定位到了"模块没被加载"这一层。
+
+#### 第 260 轮：给对照工具加"输入查询"能力（已验证生效），搜索结果页仍待排查
+
+**工具新增** `dump-live-dom.ps1 -SetQuery <文本>`：就绪后找到浮层输入框、写入值并派发
+`input` 事件，再等待结果（此前 `repository-search` / `quick-open` 只能对照"空查询"状态，
+与视觉稿样例的结果列表根本不可比）。
+
+**已验证**：`-Scene repository-search -SetQuery product` 输出
+`SET_QUERY typed:product` ✓（输入框确实被写入），随后 8 秒等待内结果列表**仍未出现**：
+
+```
+scene=repository-search 节点数 视觉稿=44 实时=23
+LAYOUT 1 项：.search-overlay 高度 220（视觉稿）vs 82（实时）
+SHAPE 21 项：MISSING-IN-LIVE .search-overlay/div[2] <search-results> 及其全部结果行
+```
+
+也就是说浮层外壳（x/宽度 225/730）两侧一致，但**实时侧没有结果列表**。
+
+**下一轮排查（两条一起看）**：
+1. 前端：`bindSearchOverlay` 的触发条件（是否要 `Enter`、防抖时长、是否需要 `__augitSearchReady`）；
+2. 宿主：`search/text` 是否被调用与返回（在真机用 CDP 读 `window.__augitLive.search`）。
+
+**顺带完成的守卫审计**：`grep "typeof .* === .function."` 全查 `mockup.js` 的 5 处守卫 ——
+`bindCurrentFind`（模块已加载）、`bindImagePreview`（第 259 轮已修）、
+`__augitCloneRequest`、`__augitLoadDiffMode`（`live-data.js:832` 定义）**均已满足**，
+即"模块没被加载"这类缺陷只有 image-preview 一处，已修复（本轮审计确认无第二处）。
