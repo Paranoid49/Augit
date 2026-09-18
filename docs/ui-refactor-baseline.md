@@ -7890,3 +7890,96 @@ JSON 文档）；未做内存优化前后对照，因此只作为当前实测记
   用 `SetWindowSubclass` 处理 `WM_NCHITTEST`（标题栏区域返回 `HTCAPTION`、边框 8px 返回对应
   `HT*` 缩放码）+ `WM_NCCALCSIZE` 让客户区顶到窗口边；配合现有 `--no-frame` 开关。
   验证：真机启动后截图确认**只有一套**窗口按钮，且拖动/双击最大化/边缘缩放可用。
+
+#### 第一百九十八轮：① 无边框外壳 + 窗口按钮接线（完成，已负向验证）
+
+**用户报告的缺陷**：右上角有**两套关闭按钮**（原生 caption 一套 + 视觉稿自绘标题栏一套）。
+
+**修复链（三处，缺一不可）**：
+
+1. **窗口样式**：`CreateWindowEx` 的样式从 `WS_OVERLAPPEDWINDOW`（`0x00CF0000`，含 `WS_CAPTION`）
+   改为 `WsFramelessWindow = 0x00CF0000 & ~WsCaption`（`0x000F0000`：保留
+   `WS_THICKFRAME`/`WS_SYSMENU`/`WS_MINIMIZEBOX`/`WS_MAXIMIZEBOX`，因此最大化、贴边、
+   任务栏图标、动画都还在）。
+2. **`WM_NCCALCSIZE` 返回 0**：客户区铺满整个窗口，非客户区为空 —— **原生 caption 与它的按钮
+   是"非客户区"画出来的，非客户区为空就没有那套按钮**。这条才是用户可见结果的决定因素：
+   实测 `GWL_STYLE` 里**仍然带着 `WS_CAPTION`**（系统会补回这个位），所以只改样式位是不够的，
+   不能看到 `WS_CAPTION` 就以为修复没生效。
+3. **`SetWindowPos(SWP_FRAMECHANGED)`（本轮新发现的关键一步）**：只在 `CreateWindowEx` 里改样式
+   仍然会画出原生标题栏。原因是 `CreateWindowEx` 内部就会发一次 `WM_NCCALCSIZE`，那时窗口
+   **还没登记**到 `LiveWindows`，窗口过程查不到实例，只能落到默认过程按 caption + 边框算非客户区；
+   之后只要用户不改变窗口尺寸，系统不会再问一次，这层错误框架就一直留着。
+   实测证据（加这一步之前）：`style=0x14CF0000`、`window=1180x760`、
+   `client=1156x696 clientOrigin=52,92`（顶边 52 = caption 40 + 边框 12，左右各 12）；
+   加上之后：`client=1180x760 clientOrigin=40,40`，与窗口矩形完全相等 ✗ → ✓。
+
+**命中测试与拖动/缩放（`ShellWindowFrame`，纯逻辑 + 单元测试）**：
+
+- 标题栏**不返回 `HTCAPTION`**：视觉稿标题栏左侧是主菜单、工作区、分支、快速打开等**真实控件**
+  （`mockup.js:1836-1849`），整条返回 caption 会让系统在按下瞬间进入移动循环，
+  这些控件全部收不到点击。因此标题栏一律 `HTCLIENT`，边缘 8 逻辑像素按生效 DPI 换算后
+  返回对应 `HT*` 缩放码，最大化时不返回缩放码（避免屏幕边缘出现缩放指针）。
+- **拖动**由网页层发起：`mousedown` 落在标题栏空白处 → 桥接 `window/drag` →
+  宿主 `PostMessage` 后 `ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTCAPTION, 按下点)`，
+  仍走系统移动循环，所以贴边、从最大化拖出还原都保持原生行为。**投递而不是就地调用**：
+  `SendMessage` 会阻塞到松手，就地调用会让网页那次 `invoke` 等到拖动结束（长拖动直接超时）。
+- **双击最大化必须自己判定**：窗口没有 caption，输入层不会产生 `WM_NCLBUTTONDBLCLK`，
+  系统移动循环也拿不到双击消息（实测：真实双击标题栏空白处不会最大化 ✗）。
+  改在宿主按系统口径判定：两次按下在 `GetDoubleClickTime()` 内、位移不超过
+  `SM_CXDOUBLECLK/SM_CYDOUBLECLK` 的一半 → 切换最大化/还原。
+- **边缘缩放也必须由网页层发起**（本轮实测发现）：WebView2 的子窗口铺满客户区，
+  鼠标落在边缘时**系统把命中测试交给子窗口**（返回 `HTCLIENT`），窗口自己的 `WM_NCHITTEST`
+  根本不会被问到 —— 实测在左边界内 3 像素处真实按下并左移 80 像素，窗口尺寸完全不变 ✗。
+  现在网页判断按在哪条边（`windowEdgeAt`，8 个 CSS 像素，与宿主按 DPI 换算后的抓取宽度一致）
+  → 桥接 `window/resize{edge}` → 宿主 `WM_NCLBUTTONDOWN + HT*` 走系统缩放循环。
+  两条路径互斥：系统若判为边缘就不会把 `WM_LBUTTONDOWN` 交给子窗口，网页那条就不会触发。
+
+**窗口按钮原本是"死像素"（顺带修掉的严重问题）**：`windowActionIcons()` 只生成三个
+`<span class="window-dot">`，`grep` 全仓**没有任何点击绑定**。有 caption 时用户还能用原生按钮关窗；
+去掉 caption 后三个按钮若不接线，应用将**无法关闭/最小化/最大化**。因此补上桥接方法
+`window/minimize`、`window/maximize`（切换）、`window/close`、`window/query`、`window/drag`、
+`window/resize`，以及宿主 → 网页的 `window/state` 事件；宿主侧由 `ShellWindow` 实现
+（`ShellBridge.WindowCommandHandler` 注入，桥接层不认识 HWND）。
+`window/state` 只在状态真的变化时推送，避免每次 `WM_SIZE` 都跨进程发消息。
+
+**最大化客户区（无边框窗口的经典坑）**：可缩放窗口被系统最大化时，窗口矩形会向工作区外扩一圈
+边框宽度。实测 `window=-12,-12 2904x1740`、工作区 `2880x1716`：客户区必须钉回工作区，
+否则界面被推到屏幕外，标题栏右侧按钮被裁。`AdjustMaximizedClient` 在最大化时把
+`NCCALCSIZE_PARAMS.rgrc[0]` 设为 `MonitorFromWindow` 的工作区，实测
+`clientOrigin=0,0 client=2880x1716` 与工作区**完全相等** ✓。
+
+**视觉稿改动（新增一个状态图形，不是改设计）**：`windowActionIcons()` 增加
+`data-window-action`、`title`，并在最大化时换成新登记的 `window-restore` 图形
+（Windows 与 PyCharm 的窗口按钮在最大化态都换成"还原"双矩形；静态视觉稿只画了还原态，
+没有描述最大化态，因此这是补一个**缺失状态**）。状态放在 `live.windowMaximized`（state 里），
+图标**就地替换**而不重建标题栏，避免收起已展开的内嵌主菜单。
+`docs/ux-mockups/mockup.js` 与 `web/src/mockup.js` 同步拷贝后 md5 一致。
+
+**新审计工具（可复用，真机像素 + 真实鼠标输入）**：`tools/audit/verify-window-chrome.ps1`
+（ASCII-only）在真机上启动外壳并用 **真实鼠标事件**（`SetCursorPos` + `mouse_event`）验证
+11 条：无原生框架（客户区原点/尺寸 == 窗口矩形，这是"只有一套按钮"的客观证明）、
+三个自绘按钮在客户区右上、最小化按钮真的最小化、最大化按钮真的最大化且图标换成还原图形、
+最大化客户区等于工作区、再点还原且尺寸回到 1180x760、标题栏空白处拖动移动窗口、
+双击标题栏最大化、左边界拖动缩放、无页面错误、关闭按钮真的退出进程。
+按钮坐标来自 **CDP**（`--browser-args --remote-debugging-port=`）读取的真实 DOM 几何，
+不写死布局常量；每次状态变化后重新取几何（第一次跑就是用了过期的坐标，
+三次断言假失败）。本轮结果：**11/11 PASS，`WINDOW_CHROME_OK`**。
+
+**负向验证（恢复原生边框 → 缺陷复现）**：把样式改回 `0x00CF0000` 并让
+`WM_NCCALCSIZE` 交回默认过程后重跑同一脚本：
+`FAIL window-has-no-native-frame :: clientOrigin=52,92 windowOrigin=40,40 client=1156x696 window=1180x760`、
+`FAIL maximized-client-fills-work-area :: clientOrigin=0,40 client=2880x1676 work=0,0 2880x1716`，
+并且证据图 `corner-wide.png` 里**同时出现两行按钮**：上一行是系统的浅色 `— □ ✕`，
+下一行是自绘的深色 `搜索 设置 — □ ✕`（`D:\tmp-augit-cap\chrome-negative\corner-wide.png`），
+正是用户报告的现象。恢复修复后同一脚本 **11/11 PASS**，`corner-wide.png` 只剩一行自绘按钮。
+
+**顺带修掉的审计工具缺陷**：`tools/audit/capture-surface.ps1` 里"把窗口移进屏幕"那段引用了
+`WinCap`/`WinRect` 两个**本文件不存在的类**（实际类名是 `WinScreen`），而整段包在
+`try { } catch { }` 里，异常被吞掉 —— 也就是说这段"把窗口移进可见屏幕并前置"从未真正执行过，
+截图可能在窗口大半在屏幕外时进行。现已改回 `WinScreen` 并让失败时打印 `RAISE_FAILED`。
+
+**验证（本模块收尾）**：`Augit.Shell.Tests` 69/69（新增 10 条边框/命中/缩放边/双击判定）、
+`live-shell.spec.cjs` **854/854**（新增：三个按钮各自发对应命令、最大化图标切换、
+宿主事件通道、整页重绘后状态保持、标题栏空白拖动、控件上按下不拖动、四边两角报告缩放边、
+正文中间不发命令）、`verify-ui-assets.ps1` PASS、`verify-script-encoding.ps1` PASS（9 个脚本）、
+`mockup-scenes` 两主题、真机 `verify-window-chrome.ps1` 11/11。

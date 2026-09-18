@@ -62,6 +62,12 @@ internal sealed class ShellBridge : IDisposable
 
     public string WorkspaceRoot => _workspaceRoot;
 
+    /// <summary>
+    /// 窗口命令（<c>window/*</c>）的处理入口，由外壳窗口在构造后注入。
+    /// 桥接层不认识 HWND，窗口命令不属于工作区或 Git 能力，因此用注入而不是在这里判断平台。
+    /// </summary>
+    internal Func<string, JsonElement, object?>? WindowCommandHandler { get; set; }
+
     public async Task<string> HandleAsync(string requestJson, CancellationToken cancellationToken)
     {
         long id = 0;
@@ -185,9 +191,20 @@ internal sealed class ShellBridge : IDisposable
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             "session/write" => await WriteSessionAsync(parameters, cancellationToken),
+            _ when method.StartsWith("window/", StringComparison.Ordinal) => DispatchWindow(method, parameters),
             _ => throw new BridgeValidationException($"未知的宿主方法：{method}"),
         };
     }
+
+    /// <summary>
+    /// 窗口命令转交外壳窗口。
+    /// 桥接层只有工作区与 Git 能力，不认识 HWND；无 caption 之后，视觉稿自绘的
+    /// 最小化/最大化/关闭按钮必须真的能关闭窗口，因此这些方法必须一并可用。
+    /// </summary>
+    private object? DispatchWindow(string method, JsonElement parameters)
+        => WindowCommandHandler is { } handler
+            ? handler(method, parameters)
+            : throw new BridgeValidationException($"当前没有外壳窗口，无法执行：{method}");
 
     /// <summary>
     /// 弹出系统文件夹选择框（视觉稿「打开工作区」页的「选择目录…」）。

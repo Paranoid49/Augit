@@ -2834,6 +2834,7 @@ function rebindAfterRender() {
   restoreChangesState();
   bindOverlayEscape();
   bindTitlebarMenuEscape();
+  bindWindowChrome();
   bindManagementFieldDraft();
   bindCompactDialogKeys();
   bindStashDialogKeys();
@@ -6443,6 +6444,92 @@ const MAIN_MENU_POPOVERS = {
     { action: "worktree-manager", label: "Worktree 管理…" },
   ],
 };
+
+/**
+ * 自绘窗口按钮与标题栏拖动。
+ *
+ * 外壳窗口不再带 Win32 caption（否则右上角会同时出现原生关闭按钮与视觉稿自绘的关闭按钮，
+ * 同一处两套按钮）。caption 去掉之后系统不再提供任何窗口操作入口，因此：
+ * 最小化／最大化／关闭由视觉稿标题栏右侧的三个点发起，走宿主 window/* 命令；
+ * 拖动只在标题栏**空白处**发起——标题栏左侧是主菜单、工作区、分支、快速打开等真实控件，
+ * 整条交给系统 caption 会把这些控件的点击全部吞掉，所以由网页判断按在谁身上；
+ * 最大化状态来自宿主事件：用户用快捷键、双击标题栏或贴边最大化时图标要跟着换。
+ */
+function bindWindowChrome() {
+  if (window.__augitWindowChromeBound) return;
+  window.__augitWindowChromeBound = true;
+
+  document.addEventListener("click", (event) => {
+    const dot = event.target.closest ? event.target.closest(".window-dot[data-window-action]") : null;
+    if (!dot || !hasHost()) return;
+    event.preventDefault();
+    const action = dot.dataset.windowAction;
+    const call = action === "minimize" ? "window/minimize"
+      : action === "maximize" ? "window/maximize"
+        : action === "close" ? "window/close" : null;
+    if (!call) return;
+    invoke(call).then((state) => applyWindowState(state)).catch(() => {});
+  });
+
+  // 控件自己会处理点击，不能在这里抢走鼠标。
+  const CONTROLS = ".window-dot, .top-button, .top-chip, .titlebar-context, .main-menu-bar, "
+    + ".main-menu-entry, a, button, input, select, textarea, [contenteditable='true']";
+  document.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || !hasHost()) return;
+    const target = event.target;
+    if (!target.closest || target.closest(CONTROLS)) return;
+
+    // 先判边缘缩放：WebView2 的子窗口铺满客户区，系统会把边缘的命中测试交给子窗口，
+    // 窗口自己的 WM_NCHITTEST 根本不会被问到（实测左边界内 3 像素处真实拖动，尺寸不变）。
+    // 因此边缘与拖动同路：网页判断按在哪条边，宿主用原生缩放循环执行。
+    const edge = windowEdgeAt(event.clientX, event.clientY);
+    if (edge) {
+      invoke("window/resize", { edge }).catch(() => {});
+      return;
+    }
+
+    // 标题栏空白处才拖动——标题栏左侧是主菜单、工作区、分支、快速打开等真实控件。
+    if (!target.closest(".titlebar")) return;
+    // 宿主收到后交给系统移动循环：贴边、双击最大化、从最大化拖出还原都保持原生行为。
+    invoke("window/drag").catch(() => {});
+  });
+
+  subscribe("window/state", (payload) => applyWindowState(payload));
+  invoke("window/query").then((state) => applyWindowState(state)).catch(() => {});
+}
+
+/**
+ * 窗口边缘命中：按**逻辑像素**计算，与宿主按 DPI 换算后的抓取宽度一致
+ * （视觉稿在 175% 缩放下仍是 8 个 CSS 像素，宿主是 14 个物理像素）。
+ * 返回 null 表示不在边缘；最大化时宿主会忽略缩放请求，这里不必重复判断。
+ */
+function windowEdgeAt(x, y) {
+  // 8 个 CSS 像素就是宿主按 DPI 换算后的抓取宽度：175% 缩放下宿主是 14 物理像素，
+  // 而 14 物理像素正好对应 8 个 CSS 像素，两边说的是同一条边。
+  const size = 8;
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const vertical = y < size ? "top" : y >= height - size ? "bottom" : "";
+  const horizontal = x < size ? "left" : x >= width - size ? "right" : "";
+  if (vertical && horizontal) return vertical + horizontal;
+  return vertical || horizontal || null;
+}
+
+/**
+ * 应用窗口状态。图标就地替换而不重建标题栏：
+ * 重建会收起已展开的内嵌主菜单，而规格要求最大化不改变其他窗口状态。
+ */
+function applyWindowState(state) {
+  const live = window.__augitLive;
+  const maximized = !!(state && state.maximized);
+  if (live) live.windowMaximized = maximized;
+  const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
+  if (!dot || typeof window.__augitIcon !== "function") return;
+  const label = maximized ? "向下还原" : "最大化";
+  dot.setAttribute("aria-label", label);
+  dot.setAttribute("title", label);
+  dot.innerHTML = window.__augitIcon(maximized ? "window-restore" : "window-maximize");
+}
 
 /**
  * 标题栏内嵌菜单的 Esc 关闭（规格 §5.1）。

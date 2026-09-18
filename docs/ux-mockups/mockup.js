@@ -883,6 +883,7 @@ const toolbarIconShapes = {
   "menu": '<path d="M2 3h12M2 8h12M2 13h12"/>',
   "window-minimize": '<path d="M2 11h12"/>',
   "window-maximize": '<rect x="3" y="3" width="10" height="10"/>',
+  "window-restore": '<rect x="2.5" y="5.5" width="8" height="8"/><path d="M5.5 5.5v-3h8v8h-3"/>',
   "window-close": '<path d="m3 3 10 10M13 3 3 13"/>',
   "folder": '<path d="M1 2h5l2 3h7v9H1Z"/>',
   "git-commit-horizontal": '<path d="M1 8h4.5M10.5 8H15"/><circle cx="8" cy="8" r="2.5"/>',
@@ -961,10 +962,15 @@ function icon(name) {
   return `<svg class="augit-toolbar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-augit-icon="${name}">${toolbarIconShapes[name]}</svg>`;
 }
 
+// 窗口按钮：视觉稿里它们是纯标记（静态稿不描述真实的窗口状态）。
+// 实时外壳把这三点接到宿主窗口命令上（见 web/src/live-data.js），并在最大化时
+// 换成还原图形——这是 Windows 窗口按钮的既有语义，视觉稿只画了还原态。
 function windowActionIcons() {
-  return '<span class="window-dot" aria-label="最小化">' + icon("window-minimize")
-    + '</span><span class="window-dot" aria-label="最大化">' + icon("window-maximize")
-    + '</span><span class="window-dot" aria-label="关闭窗口">' + icon("window-close") + '</span>';
+  const maximized = !!(window.__augitLive && window.__augitLive.windowMaximized);
+  return '<span class="window-dot" data-window-action="minimize" aria-label="最小化" title="最小化">' + icon("window-minimize")
+    + '</span><span class="window-dot" data-window-action="maximize" aria-label="' + (maximized ? "向下还原" : "最大化")
+    + '" title="' + (maximized ? "向下还原" : "最大化") + '">' + icon(maximized ? "window-restore" : "window-maximize")
+    + '</span><span class="window-dot" data-window-action="close" aria-label="关闭窗口" title="关闭窗口">' + icon("window-close") + '</span>';
 }
 
 // 目录和引用是树节点图形，不套用工具栏的粗线空心文件夹或菜单标签。

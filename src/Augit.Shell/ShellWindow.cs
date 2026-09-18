@@ -13,9 +13,33 @@ internal sealed class ShellWindow : IDisposable
 {
     private const string WindowClassName = "Augit.Shell.Window";
     private const string DefaultVirtualHost = "augit.local";
-    private const int WsOverlappedWindow = 0x00CF0000;
+    // 视觉稿自绘标题栏（含窗口按钮），所以窗口本身不带 caption：
+    // WS_OVERLAPPEDWINDOW 去掉 WS_CAPTION 后仍是可缩放的重叠窗口（最大化按工作区、任务栏图标保留），
+    // 客户区顶到窗口边由 WM_NCCALCSIZE 处理，拖动/缩放由 WM_NCHITTEST 处理。
+    private const int WsCaption = 0x00C00000;
+    private const int WsFramelessWindow = 0x00CF0000 & ~WsCaption;
+
+    private const uint WmNcCalcSize = 0x0083;
+    private const uint WmNcHitTest = 0x0084;
+    private const uint WmNclButtonDown = 0x00A1;
+    // 网页层发起的标题栏拖动：先回响应，再进入系统移动循环（见 HandleWindowCommand）。
+    private const uint StartDragMessage = 0x0400 + 5;
+    private const uint StartResizeMessage = 0x0400 + 6;
+    private const int HtCaption = 2;
     private const int SwShow = 5;
     private const int SwShowMaximized = 3;
+    private const int SwMinimize = 6;
+    private const int SwRestore = 9;
+    private const int MonitorDefaultToNearest = 2;
+    // 双击判定用的系统度量：双击时间与双击矩形的宽高。
+    private const int SystemMetricsCxDoubleClick = 36;
+    private const int SystemMetricsCyDoubleClick = 37;
+    // SetWindowPos 的重算框架标志：让系统在窗口登记之后再发一次 WM_NCCALCSIZE。
+    private const int SwpNosize = 0x0001;
+    private const int SwpNomove = 0x0002;
+    private const int SwpNozorder = 0x0004;
+    private const int SwpNoactivate = 0x0010;
+    private const int SwpFramechanged = 0x0020;
     private const int SystemMetricsXVirtualScreen = 76;
     private const int SystemMetricsYVirtualScreen = 77;
     private const int SystemMetricsCxVirtualScreen = 78;
@@ -46,6 +70,13 @@ internal sealed class ShellWindow : IDisposable
     private nint _window;
     private int _effectiveDpi;
     private bool _startupMaximized;
+    // 上一次推给网页层的最大化状态；只在真的变化时推送，避免每次 WM_SIZE 都跨进程发消息。
+    private bool? _reportedMaximized;
+    // 标题栏双击判定：上一次标题栏按下的时刻与位置。
+    private long _lastDragTick;
+    private ShellPoint _lastDragPoint;
+    // 待执行的边缘缩放命中码（网页层报告 -> 消息队列 -> 系统缩放循环）。
+    private int _pendingResizeCode;
     private Rect _workArea;
     private bool _hasWorkArea;
     private readonly ShellBridge _bridge;
@@ -62,6 +93,8 @@ internal sealed class ShellWindow : IDisposable
         _persistPlacement = options is
         { Width: null, Height: null, Dpi: null, PixelExact: false, Scene: null or "" };
         _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
+        // 窗口命令（自绘窗口按钮、标题栏拖动）只有窗口能做：桥接层不认识 HWND。
+        _bridge.WindowCommandHandler = HandleWindowCommand;
         _instance = GetModuleHandle(null);
         _effectiveDpi = ShellWindowSizing.ResolveEffectiveDpi(
             options.Dpi,
@@ -75,6 +108,19 @@ internal sealed class ShellWindow : IDisposable
         }
 
         LiveWindows[_window] = this;
+
+        // 关键：CreateWindowEx 内部会先发一次 WM_NCCALCSIZE，那时窗口还没登记，
+        // 只能由默认过程按 caption + 边框算出非客户区，原生标题栏与按钮就是这么出现的
+        // （实测 GWL_STYLE 带回 WS_CAPTION、客户区上边距 52 物理像素）。
+        // SWP_FRAMECHANGED 会让系统在窗口已经登记之后再算一次框架，这次才落到我们的规则上。
+        _ = SetWindowPos(
+            _window,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SwpFramechanged | SwpNomove | SwpNosize | SwpNozorder | SwpNoactivate);
         // WebView2 的控件创建必须在消息循环开始之后进行：CreateCoreWebView2ControllerAsync
         // 依赖 Shell 嵌入式浏览器在 UI 线程上泵消息，若在 Main 里等待会直接死锁。
         if (!PostMessage(_window, InitializeMessage, 0, 0))
@@ -206,7 +252,7 @@ internal sealed class ShellWindow : IDisposable
             0,
             WindowClassName,
             "Augit",
-            WsOverlappedWindow,
+            WsFramelessWindow,
             placement.X,
             placement.Y,
             placement.Width,
@@ -215,6 +261,263 @@ internal sealed class ShellWindow : IDisposable
             0,
             _instance,
             0);
+    }
+
+    /// <summary>
+    /// 命中测试（规格：视觉稿自绘标题栏与边框）。
+    ///
+    /// 判定规则全部在 <see cref="ShellWindowFrame"/> 里并有单元测试：边缘给缩放码，
+    /// 其余一律 HtClient——标题栏左侧是主菜单、工作区与分支等真实控件，返回 HTCAPTION
+    /// 会让系统在按下瞬间进入移动循环，这些控件永远收不到点击。拖动由网页层发起
+    /// （网页知道按在哪个元素上），窗口再用 WM_NCLBUTTONDOWN/HTCAPTION 交给系统，
+    /// 因此贴边、双击最大化、从最大化拖出还原都保持原生行为。
+    /// </summary>
+    private nint HitTest(nint lParam)
+    {
+        int x = unchecked((short)(long)lParam);
+        int y = unchecked((short)((long)lParam >> 16));
+        if (!GetWindowRect(_window, out Rect rect))
+        {
+            return ShellWindowFrame.HtClient;
+        }
+
+        return ShellWindowFrame.HitTest(
+            x,
+            y,
+            new WindowFrameRect(rect.Left, rect.Top, rect.Right, rect.Bottom),
+            _effectiveDpi,
+            IsMaximized());
+    }
+
+    /// <summary>
+    /// 没有非客户区：客户区铺满整个窗口（标题栏与边框都由视觉稿自绘）。
+    /// 最大化时把客户区钉回显示器工作区，否则系统给最大化窗口外扩的一圈边框
+    /// 会把界面推到屏幕外，标题栏右侧的窗口按钮被裁掉。
+    /// </summary>
+    private nint AdjustMaximizedClient(nint lParam, nint wParam)
+    {
+        // 只有 NCCALCSIZE_PARAMS 形式（wParam 为真）才带三个矩形可供改写。
+        if (wParam == 0 || lParam == 0 || !IsMaximized() || !TryGetMonitorWorkArea(out WindowFrameRect work))
+        {
+            return 0;
+        }
+
+        NcCalcSizeParams parameters = Marshal.PtrToStructure<NcCalcSizeParams>(lParam);
+        WindowFrameRect monitor = new(
+            parameters.Window.Left,
+            parameters.Window.Top,
+            parameters.Window.Right,
+            parameters.Window.Bottom);
+        WindowFrameRect client = ShellWindowFrame.MaximizedClientRect(monitor, work);
+        parameters.Window = new Rect
+        {
+            Left = client.Left,
+            Top = client.Top,
+            Right = client.Right,
+            Bottom = client.Bottom,
+        };
+        Marshal.StructureToPtr(parameters, lParam, fDeleteOld: false);
+        return 0;
+    }
+
+    private bool TryGetMonitorWorkArea(out WindowFrameRect work)
+    {
+        work = default;
+        nint monitor = MonitorFromWindow(_window, MonitorDefaultToNearest);
+        if (monitor == 0)
+        {
+            return false;
+        }
+
+        MonitorInfo info = new() { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref info))
+        {
+            return false;
+        }
+
+        work = new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+        return true;
+    }
+
+    private bool IsMaximized() => _window != 0 && IsZoomed(_window);
+
+    /// <summary>
+    /// 窗口命令：视觉稿自绘的最小化/最大化/关闭按钮与标题栏拖动。
+    ///
+    /// 由窗口自己实现而不是放进 ShellBridge：桥接层只有工作区与 Git 能力，不认识 HWND。
+    /// 无 caption 之后这三个按钮是用户唯一能关闭/最小化窗口的入口，必须真的可用。
+    /// </summary>
+    private object? HandleWindowCommand(string method, JsonElement parameters)
+    {
+        switch (method)
+        {
+            case "window/query":
+                return WindowState();
+
+            case "window/drag":
+                // 不能就地进入移动循环：SendMessage(WM_NCLBUTTONDOWN) 会一直阻塞到松手，
+                // 网页层那次 invoke 只能等拖动结束才拿到响应（长拖动直接超时）。
+                // 投递到消息队列即可，鼠标此刻仍然按着，移动循环照样从按下点开始。
+                StartWindowDragOrToggleMaximize();
+                return WindowState();
+            case "window/minimize":
+                _ = ShowWindow(_window, SwMinimize);
+                return WindowState();
+
+            // 网页层报告的边缘缩放：与拖动同路，用 WM_NCLBUTTONDOWN + HT 码交给系统。
+            case "window/resize":
+                StartWindowResize(parameters);
+                return WindowState();
+
+            case "window/maximize":
+                bool maximize = !IsMaximized();
+                _ = ShowWindow(_window, maximize ? SwShowMaximized : SwRestore);
+                // 立即回报目标状态：状态栏与标题栏图标要马上跟着变，
+                // 而 WM_SIZE 的实际状态由 NotifyWindowState 在系统调整完成后兜底纠正。
+                return new { maximized = maximize, minimized = false };
+
+            case "window/close":
+                _ = PostMessage(_window, WmClose, 0, 0);
+                return WindowState();
+
+            default:
+                throw new BridgeValidationException($"未知的窗口方法：{method}");
+        }
+    }
+
+    /// <summary>当前窗口状态；网页层用它初始化最大化的图标与悬停说明。</summary>
+    private object WindowState() => new { maximized = IsMaximized(), minimized = IsIconic(_window) };
+
+    /// <summary>
+    /// 标题栏空白处按下：双击切换最大化，否则开始系统移动循环。
+    ///
+    /// 窗口没有 caption，输入层不会为标题栏产生 WM_NCLBUTTONDBLCLK，系统的移动循环也拿不到
+    /// 双击消息（实测：真实双击标题栏空白处，窗口不会最大化），所以双击必须自己判定。
+    /// </summary>
+    private void StartWindowDragOrToggleMaximize()
+    {
+        if (_window == 0)
+        {
+            return;
+        }
+
+        // 与原生 caption 一样带上按下点：移动循环用它计算光标在窗口内的偏移。
+        int anchor = 0;
+        ShellPoint cursor = default;
+        if (GetCursorPos(out cursor))
+        {
+            anchor = (cursor.Y << 16) | (cursor.X & 0xFFFF);
+        }
+
+        long now = Environment.TickCount64;
+        bool doubleClick = ShellWindowFrame.IsCaptionDoubleClick(
+            _lastDragTick,
+            _lastDragPoint.X,
+            _lastDragPoint.Y,
+            now,
+            cursor.X,
+            cursor.Y,
+            (int)GetDoubleClickTime(),
+            GetSystemMetrics(SystemMetricsCxDoubleClick) / 2,
+            GetSystemMetrics(SystemMetricsCyDoubleClick) / 2);
+        if (doubleClick)
+        {
+            // 与原生 caption 一致：在第二次按下时就切换最大化/还原，第三次按下重新算单击。
+            _lastDragTick = 0;
+            _lastDragPoint = default;
+            _ = ShowWindow(_window, IsMaximized() ? SwRestore : SwShowMaximized);
+            NotifyWindowState();
+            return;
+        }
+
+        _lastDragTick = now;
+        _lastDragPoint = cursor;
+        if (!PostMessage(_window, StartDragMessage, 0, 0))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "发起窗口拖动失败。");
+        }
+    }
+
+    /// <summary>系统移动循环入口（消息队列回调，见 StartWindowDragOrToggleMaximize）。</summary>
+    private void BeginPendingDrag()
+    {
+        if (_window == 0)
+        {
+            return;
+        }
+
+        int anchor = 0;
+        if (GetCursorPos(out ShellPoint cursor))
+        {
+            anchor = (cursor.Y << 16) | (cursor.X & 0xFFFF);
+        }
+
+        _ = ReleaseCapture();
+        _ = SendMessage(_window, WmNclButtonDown, HtCaption, anchor);
+    }
+
+    /// <summary>
+    /// 网页层报告的边缘按下：记录边后投递，由系统按原生缩放循环处理。
+    ///
+    /// 同样不能就地 SendMessage：缩放循环会阻塞到松手，网页层那次 invoke 得等到拖动结束。
+    /// </summary>
+    private void StartWindowResize(JsonElement parameters)
+    {
+        if (_window == 0 || IsMaximized())
+        {
+            // 最大化时不提供边缘缩放（与命中测试同一规则）。
+            return;
+        }
+
+        string? edge = parameters.ValueKind == JsonValueKind.Object
+            && parameters.TryGetProperty("edge", out JsonElement element)
+            && element.ValueKind == JsonValueKind.String
+                ? element.GetString()
+                : null;
+        int code = ShellWindowFrame.ResizeCode(edge);
+        if (code == 0)
+        {
+            return;
+        }
+
+        _pendingResizeCode = code;
+        if (!PostMessage(_window, StartResizeMessage, 0, 0))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "发起窗口缩放失败。");
+        }
+    }
+
+    /// <summary>系统缩放循环入口（消息队列回调，见 StartWindowResize）。</summary>
+    private void BeginPendingResize()
+    {
+        int code = _pendingResizeCode;
+        _pendingResizeCode = 0;
+        if (_window == 0 || code == 0)
+        {
+            return;
+        }
+
+        int anchor = 0;
+        if (GetCursorPos(out ShellPoint cursor))
+        {
+            anchor = (cursor.Y << 16) | (cursor.X & 0xFFFF);
+        }
+
+        _ = ReleaseCapture();
+        _ = SendMessage(_window, WmNclButtonDown, code, anchor);
+    }
+
+    /// <summary>窗口状态变化时通知网页层（用户用快捷键、双击、贴边或拖拽改变状态时也要同步）。</summary>
+    private void NotifyWindowState()
+    {
+        bool maximized = IsMaximized();
+        if (_reportedMaximized == maximized)
+        {
+            return;
+        }
+
+        _reportedMaximized = maximized;
+        Notify("window/state", new { maximized, minimized = IsIconic(_window) });
     }
 
     private int WorkWidth => _hasWorkArea ? _workArea.Right - _workArea.Left : 0;
@@ -230,6 +533,25 @@ internal sealed class ShellWindow : IDisposable
 
         switch (message)
         {
+            // 没有非客户区：客户区铺满整个窗口（标题栏与边框都由视觉稿自绘）。
+            case WmNcCalcSize:
+                return shell.AdjustMaximizedClient(lParam, wParam);
+
+            // 拖动与边缘缩放：窗口没有 caption 后，这些必须由窗口自己判定，
+            // 否则标题栏拖不动、边框也拉不动。
+            case WmNcHitTest:
+                return shell.HitTest(lParam);
+
+            // 网页层在标题栏空白处按下后投递过来：此时才进入系统移动循环。
+            case StartDragMessage:
+                shell.BeginPendingDrag();
+                return 0;
+
+            // 网页层在窗口边缘按下后投递过来：此时才进入系统缩放循环。
+            case StartResizeMessage:
+                shell.BeginPendingResize();
+                return 0;
+
             case InitializeMessage:
                 _ = shell.InitializeWebViewAsync();
                 return 0;
@@ -238,6 +560,7 @@ internal sealed class ShellWindow : IDisposable
                 return 0;
             case WmSize:
                 shell.SyncBounds();
+                shell.NotifyWindowState();
                 return 0;
             case WmDpichanged:
                 shell.SyncBounds();
@@ -648,6 +971,49 @@ internal sealed class ShellWindow : IDisposable
         public ShellPoint MaxTrackSize;
     }
 
+    // NCCALCSIZE_PARAMS：前三个矩形依次是「建议的新窗口矩形」「变化前的窗口矩形」「变化前的客户区矩形」。
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NcCalcSizeParams
+    {
+        public Rect Window;
+        public Rect Before;
+        public Rect After;
+        public ShellPoint Position;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rect Monitor;
+        public Rect Work;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool IsZoomed(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out ShellPoint point);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(nint window);
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
+    private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromWindow(nint window, int flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
+
     private void SyncBounds()
     {
         if (_controller is null || _window == 0)
@@ -697,6 +1063,9 @@ internal sealed class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(nint window, int command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, int flags);
 
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(nint window, out Rect rect);

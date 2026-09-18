@@ -220,6 +220,17 @@ async function main() {
 
   const stubData = (data) => {
     window.__hostStub = async (method, params) => {
+      if (method.startsWith('window/')) {
+        // 外壳窗口命令（自绘窗口按钮、标题栏拖动与边缘缩放）。真实宿主由 ShellWindow 处理，
+        // 这里只记录调用与参数并回报状态，使"按下后到底发起了哪个窗口操作"可断言。
+        window.__windowCalls = (window.__windowCalls || []).concat([{ method: method, edge: params && params.edge }]);
+        if (method === 'window/maximize') {
+          // 与真实宿主一致：返回**目标**状态，由调用方的 applyWindowState 立即应用；
+          // 事件通道（用户双击标题栏/贴边最大化）由测试显式 __hostPush 触发，两条路径分开验证。
+          window.__windowMaximized = !window.__windowMaximized;
+        }
+        return { maximized: !!window.__windowMaximized, minimized: false };
+      }
       if (method === 'workspace/info') return { root: 'D:\\live-ws', name: 'live-ws', valid: true };
       if (method === 'workspace/list') {
         // 桩也要实现与宿主一致的越界拒绝，否则验收无法覆盖这条安全边界。
@@ -2214,6 +2225,171 @@ async function main() {
     });
     check('在标题栏上建选区拿不到界面文字: ' + selection, selection === 0);
     await sel.page.close();
+
+    // ---- 自绘窗口按钮与标题栏拖动（用户实测反馈：右上角两套关闭按钮）----
+    // 外壳窗口不再带 Win32 caption，因此最小化/最大化/关闭与拖动必须由视觉稿标题栏发起。
+    // 这里验证网页层确实发起了正确的宿主命令；真机上的"按钮真的管用/只有一套按钮"
+    // 由捕获脚本与命中测试单测覆盖。
+    const wcSoft = [];
+    const wcCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      wcSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const wc = await openScene('scene=main-project&theme=dark');
+    const wcDots = await wc.page.evaluate(() => Array.from(document.querySelectorAll('.window-dot'))
+      .map((dot) => ({
+        action: dot.dataset.windowAction || null,
+        icon: (dot.querySelector('svg') || {}).dataset ? dot.querySelector('svg').dataset.augitIcon : null,
+        label: dot.getAttribute('aria-label'),
+      })));
+    wcCheck('标题栏有三个带动作的窗口按钮: ' + JSON.stringify(wcDots),
+      wcDots.length === 3
+        && wcDots.map((d) => d.action).join(',') === 'minimize,maximize,close'
+        && wcDots.every((d) => d.icon !== null));
+    wcCheck('初始标题栏窗口按钮使用自绘图形: ' + JSON.stringify(wcDots.map((d) => d.icon)),
+      wcDots.map((d) => d.icon).join(',') === 'window-minimize,window-maximize,window-close');
+
+    // 三个按钮各自发起对应的宿主命令；配对对照是"点空白处不发命令"。
+    for (const action of ['minimize', 'maximize', 'close']) {
+      await wc.page.evaluate(() => { window.__windowCalls = []; });
+      await wc.page.click(`.window-dot[data-window-action="${action}"]`);
+      await wc.page.waitForTimeout(120);
+      const calls = await wc.page.evaluate(() => (window.__windowCalls || []).map((c) => c.method));
+      wcCheck(`点击${action}按钮调用 window/${action}: ` + JSON.stringify(calls),
+        calls.length === 1 && calls[0] === `window/${action}`);
+    }
+
+    // 最大化状态变化：点击后图标必须换成还原图形，再次点击换回。
+    const afterMaximize = await wc.page.evaluate(() => {
+      const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
+      return { icon: dot.querySelector('svg').dataset.augitIcon, label: dot.getAttribute('aria-label') };
+    });
+    wcCheck('最大化后换成还原图形: ' + JSON.stringify(afterMaximize),
+      afterMaximize.icon === 'window-restore' && afterMaximize.label === '向下还原');
+    await wc.page.click('.window-dot[data-window-action="maximize"]');
+    await wc.page.waitForTimeout(120);
+    const afterRestore = await wc.page.evaluate(() => {
+      const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
+      return { icon: dot.querySelector('svg').dataset.augitIcon, label: dot.getAttribute('aria-label') };
+    });
+    wcCheck('还原后换回最大化图形: ' + JSON.stringify(afterRestore),
+      afterRestore.icon === 'window-maximize' && afterRestore.label === '最大化');
+
+    // 事件通道：用户双击标题栏或贴边最大化时，宿主推送 window/state，图标同样要跟着变。
+    await wc.page.evaluate(() => window.__hostPush('window/state', { maximized: true, minimized: false }));
+    await wc.page.waitForTimeout(80);
+    const afterPush = await wc.page.evaluate(() => {
+      const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
+      return {
+        icon: dot.querySelector('svg').dataset.augitIcon,
+        live: !!(window.__augitLive && window.__augitLive.windowMaximized),
+      };
+    });
+    wcCheck('宿主推送最大化状态后图标同步: ' + JSON.stringify(afterPush),
+      afterPush.icon === 'window-restore' && afterPush.live === true);
+
+    // 整页重绘后必须保持状态（用户状态在 state 里，不在 DOM 里）。
+    const afterFullRender = await wc.page.evaluate(() => {
+      window.__augitRender();
+      const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
+      return dot.querySelector('svg').dataset.augitIcon;
+    });
+    wcCheck('整页重绘后仍是还原图形: ' + afterFullRender, afterFullRender === 'window-restore');
+    await wc.page.evaluate(() => window.__hostPush('window/state', { maximized: false, minimized: false }));
+
+    // 拖动：只在标题栏空白处发起；控件上的按下必须留给控件自己。
+    // 事件必须带上真实坐标：边缘缩放按 clientX/clientY 判定，不带坐标的合成事件会被
+    // 当成 (0,0)（左上角缩放区），这条断言第一次跑就是这么假失败的。
+    const dragCases = await wc.page.evaluate(async () => {
+      const CONTROLS = ".window-dot, .top-button, .top-chip, .titlebar-context, .main-menu-bar, "
+        + ".main-menu-entry, a, button, input, select, textarea";
+      const pressAt = (node, x, y) => {
+        if (!node) return 'missing';
+        node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: x, clientY: y }));
+        return 'ok';
+      };
+      const pressCentre = (selector) => {
+        const node = document.querySelector(selector);
+        if (!node) return 'missing:' + selector;
+        const r = node.getBoundingClientRect();
+        return pressAt(node, Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+      };
+      // 找一个真正的标题栏空白点（与真机脚本同一套判定）。
+      const blankPoint = () => {
+        const bar = document.querySelector('.titlebar');
+        const r = bar.getBoundingClientRect();
+        for (let x = Math.round(r.left + r.width * 0.15); x < r.right - r.width * 0.1; x += 4) {
+          const y = Math.round(r.top + r.height / 2);
+          const el = document.elementFromPoint(x, y);
+          if (el && bar.contains(el) && !el.closest(CONTROLS)) return { el, x, y };
+        }
+        return null;
+      };
+      const results = {};
+      const blank = blankPoint();
+      window.__windowCalls = [];
+      results.blank = blank ? pressAt(blank.el, blank.x, blank.y) + ':' + blank.el.tagName + ':' + blank.y : 'no-blank-point';
+      await new Promise((r) => setTimeout(r, 60));
+      results.blankCalls = (window.__windowCalls || []).map((c) => c.method);
+      window.__windowCalls = [];
+      results.menu = pressCentre('.titlebar .top-button[data-action="menu"]');
+      results.chip = pressCentre('.titlebar .workspace-chip');
+      results.dot = pressCentre('.window-dot[data-window-action="close"]');
+      await new Promise((r) => setTimeout(r, 60));
+      results.controlCalls = (window.__windowCalls || []).map((c) => c.method);
+      return results;
+    });
+    wcCheck('标题栏空白处按下发起拖动: ' + JSON.stringify([dragCases.blank, dragCases.blankCalls]),
+      typeof dragCases.blank === 'string' && dragCases.blank.startsWith('ok:')
+        && dragCases.blankCalls.join(',') === 'window/drag');
+    wcCheck('标题栏控件上的按下不发起拖动: ' + JSON.stringify([dragCases.menu, dragCases.chip, dragCases.dot, dragCases.controlCalls]),
+      dragCases.menu === 'ok' && dragCases.chip === 'ok' && dragCases.dot === 'ok'
+        && dragCases.controlCalls.length === 0);
+
+    // 边缘缩放：WebView2 的子窗口铺满客户区，系统会把边缘命中测试交给子窗口，
+    // 窗口自己的 WM_NCHITTEST 不会被问到，因此边缘必须由网页层报告。
+    const edgeCases = await wc.page.evaluate(async () => {
+      const press = (x, y) => {
+        const node = document.elementFromPoint(x, y) || document.body;
+        node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: x, clientY: y }));
+      };
+      const collect = async (x, y) => {
+        window.__windowCalls = [];
+        press(x, y);
+        await new Promise((r) => setTimeout(r, 60));
+        return (window.__windowCalls || []).slice();
+      };
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      return {
+        left: await collect(2, Math.round(h / 2)),
+        right: await collect(w - 3, Math.round(h / 2)),
+        bottom: await collect(Math.round(w / 2), h - 3),
+        topleft: await collect(3, 3),
+        bottomright: await collect(w - 3, h - 3),
+        // 配对对照：离边缘足够远、且不在标题栏上的正文按下不发任何窗口命令。
+        middle: await collect(Math.round(w / 2), Math.round(h / 2)),
+      };
+    });
+    const edgePayload = (calls) => calls.map((c) => c.method);
+    wcCheck('四边与两角按下报告对应缩放边: '
+      + JSON.stringify([edgeCases.left, edgeCases.right, edgeCases.bottom, edgeCases.topleft, edgeCases.bottomright]),
+      JSON.stringify(edgePayload(edgeCases.left)) === '["window/resize"]'
+        && edgeCases.left[0].edge === 'left'
+        && edgeCases.right[0].edge === 'right'
+        && edgeCases.bottom[0].edge === 'bottom'
+        && edgeCases.topleft[0].edge === 'topleft'
+        && edgeCases.bottomright[0].edge === 'bottomright');
+    wcCheck('正文中间按下不发窗口命令: ' + JSON.stringify(edgeCases.middle),
+      edgeCases.middle.length === 0);
+
+    // 配对对照：宿主不可用时（视觉稿直接打开）不得发命令，也不得抛错。
+    wcCheck('标题栏拖动与窗口命令不产生页面错误: ' + JSON.stringify(wc.errors.slice(0, 2)), wc.errors.length === 0);
+    await wc.page.close();
+    if (wcSoft.length > 0) {
+      throw new Error('断言失败：' + wcSoft.join(' | '));
+    }
 
     // ---- 规格 §6.5：加载指示不得循环触发布局 ----
     // 加载期间目标区域与主框架的节点数、几何必须稳定；配对对照用"人为注入抖动"证明采样方法有效。

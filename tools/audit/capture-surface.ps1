@@ -55,6 +55,7 @@ public class WinScreen {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   [DllImport("user32.dll", EntryPoint = "GetWindowRect")] public static extern bool GetWindowRectStruct(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
@@ -114,24 +115,25 @@ while ((Get-Date) -lt $deadline -and $h -eq [IntPtr]::Zero) {
   # capture would show whatever window happens to be in front instead.
   try {
     $vis = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    $rc = New-Object WinRect
-    if ([WinCap]::GetWindowRect($h, [ref]$rc)) {
+    $rc = New-Object WinScreen+RECT
+    if ([WinScreen]::GetWindowRectStruct($h, [ref]$rc)) {
       $w = [Math]::Min(1400, $vis.Width - 60)
       $hh = [Math]::Min(900, $vis.Height - 120)
-      [void][WinCap]::MoveWindow($h, $vis.Left + 20, $vis.Top + 20, $w, $hh, $true)
+      [void][WinScreen]::MoveWindow($h, $vis.Left + 20, $vis.Top + 20, $w, $hh, $true)
       Start-Sleep -Milliseconds 400
     }
 
-    $fgHandle = [WinCap]::GetForegroundWindow()
-    $fgThread = [WinCap]::GetWindowThreadProcessId($fgHandle, [IntPtr]::Zero)
-    $myThread = [WinCap]::GetCurrentThreadId()
-    [void][WinCap]::AttachThreadInput($myThread, $fgThread, $true)
-    [void][WinCap]::BringWindowToTop($h)
-    [void][WinCap]::SetForegroundWindow($h)
-    [void][WinCap]::AttachThreadInput($myThread, $fgThread, $false)
+    $fgPid0 = [uint32]0
+    $fgThread = [WinScreen]::GetWindowThreadProcessId([WinScreen]::GetForegroundWindow(), [ref]$fgPid0)
+    $myThread = [WinScreen]::GetCurrentThreadId()
+    [void][WinScreen]::AttachThreadInput($myThread, $fgThread, $true)
+    [void][WinScreen]::BringWindowToTop($h)
+    [void][WinScreen]::SetForegroundWindow($h)
+    [void][WinScreen]::AttachThreadInput($myThread, $fgThread, $false)
     Start-Sleep -Milliseconds 800
   } catch {
     # Raising is best-effort; PrintWindow below is the fallback.
+    Write-Output "RAISE_FAILED $($_.Exception.Message)"
   }
   if ($h -eq [IntPtr]::Zero) { $h = [WinScreen]::MainFor([uint32]$p.Id, 600, 400) }
   if ($h -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 250 }
