@@ -8310,3 +8310,23 @@ letterSpacing / padding / gap / color / backgroundColor`：
 **结论**：终端页的**外壳与正文容器排版已对齐**；xterm 内部行（`.xterm-rows` 的行高/字距）
 需要在下一轮用计算样式单独核对——它由 xterm 自己的渲染器与 `--augit-code-size` 驱动，
 不属于"静态样例 vs 实时"的节点结构差异。
+
+#### 第 210 轮：④ 三栏冲突解决器对照（结构完全一致，仅 3 处内容宽度差）
+
+```
+scene=conflict-resolver 节点数 视觉稿=59 实时=59
+LAYOUT 差异 3 项：
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/section[0]/div[1]/span[2] <span class="conflict-line conflict-side">
+      rect: 视觉稿=[99,315,337,22] 实时=[99,315,328,22]
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/section[1]/div[1]/span[2] <span class="conflict-line conflict-result">
+      rect: 视觉稿=[426,315,337,22] 实时=[426,315,328,22]
+  .overlay-layer/section[1]/div[1]/div[0]/div[1]/section[2]/div[1]/span[2] <span class="conflict-line conflict-side">
+      rect: 视觉稿=[778,315,321,22] 实时=[778,315,312,22]
+SHAPE 差异 0 项：
+TEXT 差异 0 项：
+```
+
+节点数两侧同为 59，SHAPE 0 项、TEXT 0 项：三栏解决器的**结构与文字与视觉稿完全一致**
+（栏位 x 坐标 99 / 426 / 778 两侧相同）。剩余 3 项只差在每行内容 span 的宽度
+（337 → 328、321 → 312，各少 9 像素），而栏位矩形本身相同 —— 说明差异发生在行**内部**，
+候选原因是代码栏的纵向滚动条或行右内边距，下一轮按此定位（这一页没有再出现结构性差异）。
