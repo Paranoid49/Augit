@@ -7286,3 +7286,43 @@ live-shell **820/820**。本轮只改 `web/src/live-data.js` 与验收脚本，�
 
 - 视觉稿的「打开工作区」页与最近目录列表仍缺宿主能力（选择目录、切换工作区）。
 - 交付前跑一次全量（含 C# 测试、场景、资产审计与打包）。
+
+### 第一百八十二轮：交付前全量验证（当前状态钉死）
+
+按验收要求"模块收尾或交付前跑一次全量"，本轮不做功能改动，只把当前状态完整验证一遍并留下基线。
+
+#### 全量结果
+
+| 项目 | 结果 |
+| --- | --- |
+| Augit.Core.Tests | **86/86** |
+| Augit.Infrastructure.Tests | **175/175** |
+| Augit.Shell.Tests | **43/43** |
+| live-shell（桩宿主） | **820/820** |
+| mockup 场景 dark / light | **48/48**、**48/48** |
+| 视觉稿字节一致 `verify-ui-assets.ps1` | PASS |
+| 脚本编码 `verify-script-encoding.ps1` | PASS（7 个脚本） |
+| `dotnet format --verify-no-changes` | PASS |
+| `dotnet build Augit.slnx -c Release` | 0 警告 0 错误 |
+| `tools/release.ps1 -Version 0.1.0` | 产出 portable.zip / setup.exe / SHA256SUMS |
+
+打包内容抽查（portable zip 共 32 项）：`Augit.exe`、`web/index.html`、`web/src/live-data.js`、
+`web/src/mockup.js`、`web/src/mockup.css`、`web/src/bridge.js`、`web/vendor/xterm/xterm.js` 均在包内，
+即"外壳 + 完整界面资产"可独立交付。
+
+#### 规格覆盖现状
+
+- §5.x（工具窗口、标签集合、弹层与模态、焦点与键盘，含区域 Tab 顺序）：条款全部实现并有断言。
+- §6.x（局部更新、快照、异步不变量）：主体条款实现并有断言；本轮未新开条目。
+- §7.x：冲突解决器（含二进制/超限整侧接受、外部修改的模态选择、大字号排布）、Stash（创建 + 管理
+  应用/弹出/查看内容/删除）、Worktree（管理 + 安全移除）、远端（列表 + 编辑 + 删除/保存）均按视觉稿落地。
+- §9.x（四个状态机）：状态栏"非最新"标记、操作会话、推送预览等已有断言。
+- §10.x：空 / 错 / 禁用 / 危险状态全部实现并有断言（含本轮"同一错误不重复提示"）。
+
+#### 仍存在的功能缺口（未实现，非回归）
+
+1. 视觉稿的「打开工作区」页与「最近目录」列表：需要宿主能力（用系统对话框选择目录、
+   激活同一目录的已有窗口或为新目录启动新窗口）。设置里的 `LastWorkspace` 已用于**启动恢复**
+   （第 180 轮），但界面上仍没有打开/切换工作区的入口；主菜单因此没有列出「打开工作区」
+   （菜单只列已实现的动作）。
+2. 管理页工具栏的「刷新」在 Stash / Worktree 页只做了实现，未逐页加断言（远端页有断言）。
