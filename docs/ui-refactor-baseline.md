@@ -9003,3 +9003,31 @@ TABS 1 [('editor-tab active', 'docs/product-spec.md')]
 - `.editor-tab` 的 active/配色差异：视觉稿样例把该标签画成**非活动**，实时侧它是**活动文档** ✓
   正确（宽 211 vs 206 为文字长度差）；
 - 其余差异均为样例样式内容（节点 81 vs 413，真实 blame 行数远多于样例）。
+
+#### 第 240 轮：`commit-diff` 在真实改动下的对照 —— 只剩 2 像素级文字差（字体可用性差异）
+
+给 `README.md` 追加一行（跑完立刻 `git checkout --` 还原，工作区保持干净），
+以 `-Scene commit-diff -Diff README.md` 做定点对照（两侧节点 188 / 493）：
+
+```
+scene=commit-diff 节点数 视觉稿=188 实时=493
+LAYOUT 差异 16 项：
+  .editor-area/div[0]/a[3] <a class="editor-tab active">
+      rect: 视觉稿=[853,51,179,28] 实时=[853,51,177,28]
+  .editor-area/div[0]/a[3]/span[1] <span class="change-tab-caption">
+      rect: 视觉稿=[886,57,113,16] 实时=[886,57,111,16]
+  .editor-area/div[0]/a[3]/button[2] <button class="tab-close">
+      rect: 视觉稿=[1007,55,16,20] 实时=[1005,55,16,20]
+```
+
+**差异形状非常干净**：前 3 项都是**同一个 2 像素宽度差**在活动标签上传播
+（标签 179→177、标题 113→111、关闭叉整体左移 2 像素），没有任何结构/配色/间距差异 ——
+对比前几轮的 76/29 项噪声，这一页说明"给到真实内容后，diff 页的标签与工具栏与视觉稿一致"。
+
+**2 像素的成因（新判读规则候选）**：两侧虽已把字体族与字号设成一致，但
+**Linux Chromium 上很可能没有安装 `Microsoft YaHei UI`**（会退化成 sans-serif），
+而 Windows WebView2 用的是真实雅黑 —— 同一串文字的宽度因此差 1~3 像素。
+这不是布局规则差异。确认方法（下一轮，一行 CDP）：
+两侧各跑 `document.fonts.check('13px "Microsoft YaHei UI"')` 与
+`getComputedStyle(el).fontFamily`，若 Linux 侧为 false/回退，则把"文字宽度差 ≤3 像素"
+正式归入**字体可用性差异**（与滚动条差异并列），不再逐条排查。
