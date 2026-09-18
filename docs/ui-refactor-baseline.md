@@ -7983,3 +7983,78 @@ JSON 文档）；未做内存优化前后对照，因此只作为当前实测记
 宿主事件通道、整页重绘后状态保持、标题栏空白拖动、控件上按下不拖动、四边两角报告缩放边、
 正文中间不发命令）、`verify-ui-assets.ps1` PASS、`verify-script-encoding.ps1` PASS（9 个脚本）、
 `mockup-scenes` 两主题、真机 `verify-window-chrome.ps1` 11/11。
+
+#### 第一百九十九轮：③ 底部 Git 工具窗"右下角一堆详情"（完成，已真机与负向验证）
+
+**用户报告**：底部 Git 工具窗右下角有一堆重复的详情排布。
+
+**定位**：`mockup.js` 的 `bindHistoryToolbar()` 每次调用都会往每个 `.git-side-toolbar`
+**append** 一组「更多」按钮（`.history-tools-more`）与它的弹层（`.history-tools-popup`），
+没有任何幂等判断。静态视觉稿只绑定一次，实时外壳却在**每次区域刷新后**整体重新绑定
+（`__augitRenderRegions` → `bindInteractions()` → `bindHistoryToolbar()`），于是越堆越多。
+
+**量化证据（真机，`--scene git-history`，经 CDP 读真实 DOM）**：
+修复前 `.git-side-toolbar` 有 **74 个子节点**，其中 **32 组**重复的「更多」按钮 + 弹层
+（每次区域刷新 +1；本次启动过程累计 32 次）。弹层内容是
+`buttons.slice(1).map(...)`，`buttons` 来自 `toolbar.querySelectorAll("button")`——
+也就是**把上一次的「更多」按钮也当成普通按钮**，所以点开「更多」看到的是一长串重复条目，
+正是用户说的"一堆详情"。修复后同一次启动实测：**10 个子节点，1 个「更多」按钮 + 1 个弹层**。
+
+**修复**（`docs/ux-mockups/mockup.js`，两处副本同步）：
+1. `bindHistoryToolbar` 幂等：`.git-side-toolbar` 已有 `.history-tools-more` 时直接返回；
+2. 顺手把 `ResizeObserver` 登记为区域清理项（`registerRegionDisposer(() => observer.disconnect())`），
+   区域被替换后不再观察已脱离文档的节点。
+
+**断言（先复现缺陷、再修）**：`live-shell.spec.cjs` 新增 4 条，走两条真实路径——
+刷新**别的**区域（本区域节点不动，但绑定整体重跑）与直接 `__augitBind()`：
+修复前如实失败 `[{"more":4,"popups":4,"children":16}]`（3 次刷新）→
+`[{"more":6,...,"children":20}]`（再 2 次绑定），修复后
+`[{"more":1,"popups":1,"children":10}]` 通过 ✓（"入口仍然存在且只有一个"配对断言防止
+用"干脆不挂"来消除重复）。live-shell 由 854 → **858 项断言全绿**。
+
+**真机像素对照**（本轮新增工具）：见下节。并排比对结果：
+修复后实时外壳右下角只有 1 个 `>`（chevron-right）入口，与视觉稿 `git-history.html` 一致 ✓；
+证据图 `D:\tmp-augit-cap\cmp\{live,mockup}-bottomright.png`。
+
+#### 2xx 轮（准备）：逐页对照工具链（实时外壳 DOM 签名 vs 视觉稿）
+
+④ 逐页 100% 复原需要可复跑的差异清单，因此本轮补了三件工具（都在
+`tools/audit/`，`.ps1` 保持 ASCII-only）：
+
+1. `dom-signature.js`：逐元素抽取布局签名（路径、矩形、字体、配色、间距、圆角、
+   阴影、图标名、滚动尺寸），**同一段脚本**分别跑在 WebView2 里的实时外壳与 Chromium 里的
+   视觉稿页面上；支持 `prune` 跳过数据行子树（视觉稿是样例数据、实时是真实仓库）。
+2. `dump-live-dom.ps1`：真机启动外壳（`--browser-args --remote-debugging-port=`）→ 经 CDP
+   注入签名脚本 → 输出 JSON；可同时 `-Capture` 保存真实窗口像素（PrintWindow）。
+3. `compare-dom.cjs`：在 Chromium 里渲染 `docs/ux-mockups/<scene>.html`，用同一段签名脚本
+   抽取后逐路径比对，输出三类差异：LAYOUT（几何/排版/配色/间距）、TEXT（仅文字）、
+   SHAPE（节点只在一侧）。
+
+**踩到并修掉的坑（都会造成"证据是假的"）**：
+- 从 WSL 连不上 Windows 的调试端口：拆成 PowerShell 取实时侧、Node 取视觉稿侧，
+  用 JSON 交换；
+- `Runtime.evaluate` 回传深层对象图在 PowerShell 侧会失败（异常信息为空）；
+  改成页面内 `JSON.stringify` 后回传字符串、报告用文本拼接；
+- Windows PowerShell 5.1 的 `Get-Content -Raw` 会用 ANSI 代码页解码 BOM-less 文件，
+  注入脚本因此变成 `SyntaxError`；改为 `-Encoding UTF8`；
+- `Set-Content -Encoding UTF8` 会写 BOM，Node 侧 `JSON.parse` 直接失败；改为
+  `File::WriteAllText` + `UTF8Encoding($false)`；
+- PowerShell 变量名大小写不敏感：局部 `$selectors = @()` **就是**参数 `$Selectors`，
+  赋值直接清空了入参，dump 里的 regions 变成空；
+- `.ps1` 与 `.js` 都会踩"exe 旁边的 web 副本过期"：两次把已修好的 mockup.js 当成没修。
+  两个真机脚本现在都会先比对 `web/**` 与 `<exeDir>/web/**` 的最新写入时间，
+  过期直接 `STALE_WEB_ASSETS` 退出（`capture-surface.ps1` 早就有这条检查）。
+
+**字体等价（规格 §5.4：对照前必须把两侧字体与字号设成相同）**：实时外壳用用户设置
+（本机为 Segoe UI / 14px），视觉稿用设计基线（Microsoft YaHei UI / 13px）。
+插 CSS 变量只能改字号、改不了由字体度量推导出来的标题/标签/树行/状态栏高度，
+因此改为走页面**自己的**排版管线：`mockup.js` 的 `applyTypographyPreview` 现在也接受
+`ui-family`/`code-family` 查询参数（与既有 `ui-size`/`code-size` 同一机制），
+dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsoft YaHei UI", "Segoe UI", sans-serif`。
+
+**git-history 首份差异清单（26 项 LAYOUT）**：其中大部分是数据差异（选中行下标、
+滚动条导致的 15 像素列宽差、提交行的内容宽度），**真实差异 1 项**：
+`log-detail-panel` 的变更文件列表在视觉稿里是**带折叠箭头与加粗目录的树**
+（`tree-row depth-2 file-status-modified`、`padding-left: 38px`、`font-weight: 600`），
+实时外壳是**扁平列表**（`tree-row depth-1 live-file-status-Modified`、
+`padding-left: 20px`、`font-weight: 400`）。下一轮按此逐条修。

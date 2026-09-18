@@ -97,12 +97,20 @@ async function applyTypographyPreview() {
     const value = Number(raw);
     return Number.isFinite(value) && value >= 9 && value <= 40 ? value : null;
   };
+  // 字体族也可以按对照需要临时覆盖：实时外壳用用户保存的字体，视觉稿用设计基线字体，
+  // 逐页对照必须先把两侧字体与字号设成相同（规格 §5.4），否则量到的几何差异全是字体造成的。
+  const previewFamily = (name) => {
+    const raw = query.get(name);
+    if (raw === null) return null;
+    const cleaned = raw.replace(/["'\\;{}()]/g, "").replace(/\s+/g, " ").trim();
+    return cleaned.length > 0 && cleaned.length <= 60 ? cleaned : null;
+  };
   const settings = window.__augitLive && window.__augitLive.settings ? window.__augitLive.settings : null;
   await applyTypography({
     uiSize: previewSize("ui-size") ?? (settings ? settings.fontSize : null),
     codeSize: previewSize("code-size") ?? (settings ? settings.codeFontSize : null),
-    uiFamily: settings ? settings.textFontFamily : null,
-    monospaceFamily: settings ? settings.monospaceFontFamily : null,
+    uiFamily: previewFamily("ui-family") ?? (settings ? settings.textFontFamily : null),
+    monospaceFamily: previewFamily("code-family") ?? (settings ? settings.monospaceFontFamily : null),
   });
 }
 
@@ -2926,6 +2934,10 @@ function renderScene() {
 
 function bindHistoryToolbar(root = document) {
   root.querySelectorAll(".git-side-toolbar").forEach(toolbar => {
+    // 幂等：这里 append 的是「更多」按钮与它的弹层。静态视觉稿只绑定一次，
+    // 实时外壳每次区域刷新都会整体重新绑定，于是底部 Git 工具窗右侧越堆越多
+    // （用户实测："一堆详情"）。同一个工具条只允许有一组入口。
+    if (toolbar.querySelector(":scope > .history-tools-more")) return;
     const buttons = [...toolbar.querySelectorAll("button")];
     const trigger = document.createElement("button");
     trigger.className = "toolbar-button history-tools-more";
@@ -2961,7 +2973,10 @@ function bindHistoryToolbar(root = document) {
         target?.focus();
       }
     };
-    new ResizeObserver(layout).observe(toolbar);
+    const observer = new ResizeObserver(layout);
+    observer.observe(toolbar);
+    // 区域被替换或整页重绘时解除观察，否则观察器会一直持有已脱离文档的节点。
+    registerRegionDisposer(() => observer.disconnect());
     layout();
     trigger.addEventListener("click", () => {
       if (popup.matches(":popover-open")) { popup.hidePopover(); return; }

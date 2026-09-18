@@ -180,6 +180,22 @@ function Save-Corner([IntPtr]$handle, [string]$path, [int]$w, [int]$ht) {
 }
 
 # --- Launch --------------------------------------------------------------------------------
+# --- Stale web assets guard ----------------------------------------------------------------
+# The shell loads its UI from the 'web' folder NEXT TO THE EXE, not from the repository
+# sources. A stale copy silently produces evidence for an older UI (hit twice while building
+# this script: a mockup.js fix looked broken because the copied tree predated it).
+$exeWeb = Join-Path (Split-Path -Parent $Exe) "web"
+$repoWeb = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "web"
+if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
+  $copied = (Get-ChildItem -LiteralPath $exeWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+  $source = (Get-ChildItem -LiteralPath $repoWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+  if ($source -gt $copied) {
+    Write-Output "STALE_WEB_ASSETS source=$($source.ToString('s')) copied=$($copied.ToString('s'))"
+    Write-Output "Rebuild the shell (dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release) so the web copy beside the executable is refreshed."
+    exit 6
+  }
+}
+
 Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 $launchArgs = @("--workspace", $Workspace, "--pixel-exact", "--theme", "dark", "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")

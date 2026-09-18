@@ -2391,6 +2391,52 @@ async function main() {
       throw new Error('断言失败：' + wcSoft.join(' | '));
     }
 
+    // ---- 底部 Git 工具窗的"更多"入口不得越堆越多（用户实测反馈：右下角一堆详情）----
+    // 视觉稿的侧工具条绑定会在**每次**绑定调用时 append 一组「更多」按钮与弹层；
+    // 视觉稿页面只渲染一次，实时外壳却会在每次区域刷新后重新绑定，
+    // 于是底部 Git 工具窗右侧堆起一串重复的按钮与弹层。
+    // 这里同时用两条真实路径验证：刷新**别的**区域（本区域节点不动）与直接重新绑定。
+    const dupSoft = [];
+    const dupCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      dupSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const gh = await openScene('scene=git-history&theme=dark');
+    await gh.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await gh.page.waitForSelector('.git-side-toolbar', { timeout: 10000 });
+    const countToolbarExtras = () => gh.page.evaluate(() => Array.from(document.querySelectorAll('.git-side-toolbar')).map((bar) => ({
+      more: bar.querySelectorAll(':scope > .history-tools-more').length,
+      popups: bar.querySelectorAll(':scope > .history-tools-popup').length,
+      children: bar.children.length,
+    })));
+    const dupBefore = await countToolbarExtras();
+    dupCheck('前置条件：该场景有侧工具条且初始只有一组入口: ' + JSON.stringify(dupBefore),
+      dupBefore.length >= 1 && dupBefore.every((item) => item.more === 1 && item.popups === 1));
+    // 路径一：刷新编辑区（底部工具窗的节点没有被替换，但绑定会整体重跑）。
+    for (let round = 0; round < 3; round++) {
+      await gh.page.evaluate(() => window.__augitRenderRegions('editorContent'));
+      await gh.page.waitForTimeout(60);
+    }
+    const dupAfterRegion = await countToolbarExtras();
+    dupCheck('刷新其他区域不会给侧工具条再堆一组入口: ' + JSON.stringify(dupAfterRegion),
+      dupAfterRegion.every((item) => item.more === 1 && item.popups === 1));
+    // 路径二：直接重新绑定两次（整页重绘与区域刷新都会走到这里）。
+    for (let round = 0; round < 2; round++) {
+      await gh.page.evaluate(() => window.__augitBind());
+      await gh.page.waitForTimeout(60);
+    }
+    const dupAfterBind = await countToolbarExtras();
+    dupCheck('重复绑定不会给侧工具条再堆一组入口: ' + JSON.stringify(dupAfterBind),
+      dupAfterBind.every((item) => item.more === 1 && item.popups === 1));
+    // 配对对照：入口仍然可用（不能靠"干脆不挂"来消除重复）。
+    const triggerCount = await gh.page.locator('.git-side-toolbar > .history-tools-more').count();
+    dupCheck('「更多」入口仍然存在且只有一个: ' + triggerCount, triggerCount === 1);
+    await gh.page.close();
+    if (dupSoft.length > 0) {
+      throw new Error('断言失败：' + dupSoft.join(' | '));
+    }
+
     // ---- 规格 §6.5：加载指示不得循环触发布局 ----
     // 加载期间目标区域与主框架的节点数、几何必须稳定；配对对照用"人为注入抖动"证明采样方法有效。
     const llSoft = [];
