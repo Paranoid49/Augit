@@ -8530,3 +8530,27 @@ SHAPE 差异 15 项：
 
 **教训（第二次同类）**：基线文档里的结论必须**先验证来源** —— 第一次是"静态猜类名得到 (none)"，
 这次是"深度区间筛选混入旁支"。两种错误都源于对证据本身没做校验；写表之前应先打印关键行确认。
+
+#### 第 220 轮：文档类页面（file-history 等）必须先有"真实内容"才可对照
+
+按第 219 轮清单对 `file-history` 的 `.editor-area` + `.bottom-tool` 定点对照，结果仍然不可用：
+
+```
+scene=file-history 节点数 视觉稿=227 实时=391
+LAYOUT 差异 76 项：
+  .editor-area <article class="editor-area">
+      icon: 视觉稿="ellipsis-vertical" 实时="x"
+  .editor-area/div[0] <div class="editor-tabs">
+      icon: 视觉稿="ellipsis-vertical" 实时="x"
+  .editor-area/div[0]/a[0] <a class="editor-tab active">
+```
+
+实时侧**没有打开对应文档/文件历史**（标签不是 `active`、标签下的图标顺序也因此不同），
+于是差异主要来自"状态不同"而不是"实现与视觉稿不一致"。这与前几轮的教训完全一致：
+**数据/状态没对齐时，任何计数都不可信**。
+
+**需要补的工具能力（下一轮第一件事）**：`dump-live-dom.ps1` 目前只支持 `-Open`，
+需要再透传 `--blame <path>`、`--file-history <path>`、`--diff <path>`、`--conflict <path>`
+四个启动参数（外壳已支持这些开关），才能给 `blame` / `file-history` / `commit-diff` /
+`conflict-resolver` 等页面造出**与视觉稿同类的真实内容**再对照；
+否则一律退化为"空态 vs 样例"的无意义比较。
