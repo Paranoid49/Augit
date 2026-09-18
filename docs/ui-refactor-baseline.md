@@ -9913,3 +9913,29 @@ TEXT 差异 0 项：
 **至此（第 274 轮）**：本会话 ④ 的**逐页对照全部完成**——
 **已核对 17 个页面/区域**，其中 **8 处发现并修复真实缺陷**，其余差异全部归因到
 数据/状态、滚动条、平台字体、内容条件样式或视觉稿样例遗漏五类（裁决表见第 270 轮）。
+
+#### 第 275 轮：视觉稿 `blame` 样例补 `document-path`（基线一致性修复，已验证）
+
+第 270 轮裁决表里的唯一"需设计基线决定"项，本轮按**基线内部一致性**处理：
+视觉稿自己的**其它文档视图**（`jsonView` 1220 行、`markdownView` 2102 行、文本视图 2229 行）
+工具栏都显示 `document-path`，只有 `blameView()`（2332 行）用空档 `<span class="grow">`。
+
+**改动**：`blameView()` 的空档替换为
+`<span class="document-path">docs/product-spec.md　只读</span>`
+（与其它视图同一写法，样例文件与场景声明一致：`case "blame"` 的 `selectedFile: "product-spec.md"`）。
+
+**验证**：
+- `verify-ui-assets.ps1` **PASS**（两处 `mockup.js` 副本字节一致）；
+- `mockup-scenes` **48/48 × 2 主题** 全绿（48 个场景渲染未受影响）；
+- 真机 `blame` 复跑：两侧节点 81 / 413，LAYOUT 29 项 —— 与修复前**同量级**，
+  唯一与 `document-path` 相关的一条如下（下一轮确认它是文字宽度还是别的）：
+
+```
+.editor-area/div[1]/div[0]/div[0]/span[0] <span class="document-path">
+      rect: 视觉稿=[365,96,706,16] 实时=[365,96,347,16]
+  .editor-area/div[1]/div[0]/div[0]/span[1] <span class="commit-meta">
+      cls: 视觉稿="commit-meta" 实时="grow"
+```
+
+**说明**：这是**视觉稿样例的补全**（让基线自身一致），不是"改视觉稿迁就实现" ——
+实时侧本来就显示路径，且与其它文档视图一致；如需回退，只需还原这一处替换。

@@ -2331,7 +2331,7 @@ function liveBlameView() {
 
 function blameView() {
   const blame = sourceLines.map((_, index) => ["2026/8/28", "I49", index + 1]);
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="grow"></span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" aria-label="定位第 ${item[2]} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}"><span>${item[0]}</span><span>${item[1]}</span><span>${item[2]}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">docs/product-spec.md　只读</span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" aria-label="定位第 ${item[2]} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}"><span>${item[0]}</span><span>${item[1]}</span><span>${item[2]}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
 }
 
 function bindBlame() {
