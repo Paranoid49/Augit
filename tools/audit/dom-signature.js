@@ -39,8 +39,12 @@
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
+  // 只看**直接子节点**：早先用 querySelector 取"第一个后代 svg"，于是每个容器都继承了
+  // 子树里第一个图标，容器之间必然对不上（每个页面上百条假差异），而真正的图标节点本身
+  // 也会被它的父节点重复比对一次。图标只属于承载它的那个节点。
   const iconName = el => {
-    const svg = el.querySelector('svg[data-augit-icon]');
+    const svg = Array.from(el.children).find(node =>
+      node.tagName.toLowerCase() === 'svg' && node.hasAttribute('data-augit-icon'));
     return svg ? svg.getAttribute('data-augit-icon') : '';
   };
   const rows = [];

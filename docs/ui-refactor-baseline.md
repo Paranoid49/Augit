@@ -8643,3 +8643,21 @@ LAYOUT 差异 14 项：
 （或用一个 `openFiles: []` 的独立设置文件）。下一轮做法二选一：
 1. 给 `dump-live-dom.ps1` 加 `-CleanSession`：启动后用 CDP 先把 `live.tabs` 清空再抓取；
 2. 或让 `ShellOptions` 在显式 `--scene` 时跳过会话恢复（改动进产品代码，需评估影响面）。
+
+#### 第 225 轮：对照工具修掉一整类假差异（`icon` 字段只看直接子节点）
+
+排查 `blame` 时发现 `dom-signature.js` 的 `icon` 字段用 `querySelector('svg[data-augit-icon]')`
+取的是**子树里第一个图标**，于是**每个容器节点都继承了后代图标**，容器之间必然对不上 ——
+这是"每页上百条假差异"的一个系统性来源（此前 `blame` 14 项里有 11 项是它）。
+现改为只看**直接子节点**（图标只属于承载它的那个节点）。实测同一场景：
+
+- 修前：`LAYOUT 差异 14 项`（含 `.editor-area`、`.editor-tabs` 等容器互报 icon 不同）；
+- 修后：**`LAYOUT 差异 3 项`**，且剩下的是真实状态差异：
+  `.document-view.blame-document`（视觉稿）vs `.info-state`（实时）——
+  实时侧没有渲染出 blame 正文，而是信息态（`--blame docs/product-spec.md` 只把场景切到 blame，
+  正文是否加载取决于该文件的 blame 查询结果），列为下一轮排查项。
+
+**同轮否决的尝试**：为消除"恢复会话的标签条噪声"给 `dump-live-dom.ps1` 加的 `-CleanSession`
+（清空 `live.tabs` 只留活动标签）**实测无效** —— 渲染会按会话状态重新生成标签，节点数与差异
+完全没有变化，因此**已回退**，不留无效代码；改用工具既有的 `-Prune '.editor-tabs,…'`
+把数据行与标签条排除在比对之外（节点 62/15），并把噪声的根因（icon 字段）真正修掉。
