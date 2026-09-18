@@ -6674,11 +6674,18 @@ async function loadCommitDetails(revision) {
       return;
     }
 
-    const files = commit.files || [];
-    const filesHtml = files.length === 0
-      ? `<p class="commit-meta">该提交没有变更文件</p>`
-      : `<div class="tree-row"><span>${escapeText(String(files.length))} 个文件</span></div>`
-        + files.map((file) => `<div class="tree-row depth-1 live-file-status-${escapeText(file.kind)}" data-history-path="${escapeText(file.path)}">${escapeText(file.name)}<span class="commit-meta">${escapeText(file.directory)}</span></div>`).join("");
+    // 结构必须与视觉稿一致：直接复用视觉稿的变更文件树构建器（目录分组、折叠箭头、
+    // 状态色与 data-history-path 都在那一份实现里），不在实时层另拼一版。
+    const files = (commit.files || []).map((file) => ({
+      path: file.path,
+      // 视觉稿的状态类名是小写（file-status-modified/-added/-deleted），宿主给的是
+      // GitChangeKind（Modified/Added/...），这里统一转小写。
+      status: String(file.kind || "modified").toLowerCase(),
+      original: file.original || null,
+    }));
+    const filesHtml = typeof window.__augitHistoryFiles === "function"
+      ? window.__augitHistoryFiles(files)
+      : `<p class="commit-meta">该提交没有变更文件</p>`;
     const detailHtml = `<h3>${escapeText(commit.subject)}</h3>`
       + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`
       + (commit.body ? `<p class="commit-meta">${escapeText(commit.body)}</p>` : "");

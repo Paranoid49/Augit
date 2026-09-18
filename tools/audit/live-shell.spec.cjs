@@ -634,7 +634,8 @@ async function main() {
         if (params.revision === 'full-bbb2222') {
           return Object.assign({}, data.commit, {
             hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交',
-            files: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src', kind: 'Modified', original: null }],
+            // 变更文件集合与第一个提交**保持一致**：变更文件列表在视觉稿里是按目录排序的
+            // 树，「改选提交后历史比较跟随同一路径」只有在两个提交都含该路径时才有意义。
           });
         }
         return { available: false, reason: 'unknown' };
@@ -6133,6 +6134,36 @@ async function main() {
     const hcFiles = await hc.page.evaluate(() =>
       [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')].map((r) => r.dataset.historyPath));
     check('前置条件：提交详情列出变化文件: ' + JSON.stringify(hcFiles), hcFiles.length >= 1);
+
+    // 结构断言：提交详情的变更文件列表必须与视觉稿同一形态——根行「N 个文件」、
+    // 目录行（折叠箭头 + 文件夹图标 + 「M 个文件」）、叶子行带 file-status-* 与缩进。
+    // 实时层曾经自己拼扁平列表，类名 live-file-status-* 在 mockup.css 里没有任何规则，
+    // 既没有目录层级也没有状态色。
+    const hcTree = await hc.page.evaluate(() => {
+      const host = document.querySelector('[data-live-changed-files]');
+      const rows = [...host.querySelectorAll('.tree-row')];
+      const leaves = rows.filter((row) => row.dataset.historyPath);
+      return {
+        root: rows.length ? rows[0].textContent.trim() : null,
+        rootStrong: !!host.querySelector('.tree-row > strong'),
+        chevrons: rows.filter((row) => row.querySelector('svg[data-augit-icon="chevron-down"]')).length,
+        folders: rows.filter((row) => row.querySelector('.tree-folder-icon')).length,
+        leafClasses: leaves.map((row) => row.className),
+        // 缩进必须来自视觉稿的 depth-N 类，不能是内联 padding（内联会盖住样式表）。
+        leafDepth: leaves.map((row) => row.classList.contains('depth-2')),
+        leafInlinePadding: leaves.map((row) => row.style.paddingLeft),
+        groupText: rows.map((row) => row.textContent.trim()).filter((text) => /个文件/.test(text)),
+      };
+    });
+    check('变更文件列表是视觉稿的树形结构: ' + JSON.stringify(hcTree),
+      hcTree.root === '2 个文件' && hcTree.rootStrong
+        // 根行本身也有折叠箭头与文件夹图标，所以是 1(根) + 2(目录) = 3。
+        && hcTree.chevrons === 3 && hcTree.folders === 3
+        && hcTree.leafClasses.length === 2
+        && hcTree.leafClasses.every((name) => /(^|\s)file-status-[a-z]+(\s|$)/.test(name))
+        && hcTree.leafDepth.every((on) => on === true)
+        && hcTree.leafInlinePadding.every((value) => value === '')
+        && hcTree.groupText.length === 3);
 
     // 单击只选择，不创建比较标签。
     await hc.page.locator('[data-live-changed-files] [data-history-path]').first().click();

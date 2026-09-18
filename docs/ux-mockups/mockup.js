@@ -1729,7 +1729,7 @@ function liveRollbackBody() {
   const impact = recycled
     ? `<strong>该文件将被移出工作区</strong><p class="commit-meta">这是未跟踪或新增文件，没有可恢复的 HEAD 版本。</p>`
     : `<strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p>`;
-  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
+  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
 }
 
 // 外壳注入真实差异时使用：按「旧行 / 行号槽 / 新行」三列渲染结构化行。
@@ -1958,7 +1958,7 @@ function liveChangeFileRow(file, group, selectedName) {
   return `
       <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
         <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
-        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name live-file-status-${escapeHtml(file.kind)}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
+        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
       </div>`;
 }
 
@@ -2601,7 +2601,13 @@ function historySampleFiles(subject) {
 }
 
 function historySampleFilesHtml(subject) {
-  const files = historySampleFiles(subject);
+  return historyFilesHtml(historySampleFiles(subject));
+}
+
+// 提交详情的变更文件树：视觉稿样例与实时外壳的真实 Git 数据共用这一份实现。
+// 实时层此前自己拼了一版扁平列表（类名还是无人定义的 live-file-status-*），
+// 没有目录分组、没有折叠箭头、也没有状态色，与视觉稿的树形结构完全不同。
+function historyFilesHtml(files) {
   const render = (items, prefix = "", depth = 1) => {
     const groups = new Map(), leaves = [];
     items.forEach(item => {
@@ -2613,13 +2619,14 @@ function historySampleFilesHtml(subject) {
         groups.get(group).push(item);
       }
     });
-    const indent = `style="padding-left:${8 + depth * 18}px"`;
+    // 缩进用视觉稿的 depth-N 类（mockup.css: .tree-row.depth-1..4 = 20/38/56/74px），
+    // 不再写内联 padding——内联会盖住样式表，量出来的缩进与视觉稿相差 6 像素。
     return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, children]) =>
-      `<div class="tree-row" ${indent}>${icon("chevron-down")}${treeFolderIcon()}${name}<span class="commit-meta">${children.length} 个文件</span></div>${render(children, `${prefix}${name}/`, depth + 1)}`).join("")
+      `<div class="tree-row depth-${depth}"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} 个文件</span></div>${render(children, `${prefix}${name}/`, depth + 1)}`).join("")
       + leaves.sort((a, b) => a.path.localeCompare(b.path)).map(file =>
-        `<div class="tree-row file-status-${file.status}" data-history-path="${escapeHtml(file.path)}" ${indent}>${fileTypeIcon(file.path)}${file.path.slice(prefix.length)}${file.original ? ` ← ${file.original.split("/").at(-1)}` : ""}</div>`).join("");
+        `<div class="tree-row depth-${depth} file-status-${file.status}" data-history-path="${escapeHtml(file.path)}">${fileTypeIcon(file.path)}${file.path.slice(prefix.length)}${file.original ? ` ← ${file.original.split("/").at(-1)}` : ""}</div>`).join("");
   };
-  return `<div class="tree-row">${icon("chevron-down")}${treeFolderIcon()}<strong>${files.length} 个文件</strong></div>${render(files)}`;
+  return `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files)}`;
 }
 
 // 外壳注入真实文件历史时使用；结构与样例版一致，复用同一套样式。
@@ -3877,6 +3884,7 @@ window.__augitScene = () => scene;
 window.__augitIcon = icon;
 window.__augitFolderIcon = treeFolderIcon;
 window.__augitFileIcon = fileTypeIcon;
+window.__augitHistoryFiles = historyFilesHtml;
 window.__augitBind = bindInteractions;
 
 if (app) {

@@ -8110,3 +8110,46 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
 ② 再落 `historyFilesHtml` 共享实现；③ 用 `compare-dom.cjs` 复核 `git-history` 的 LAYOUT 差异数量下降。
 另外同一个类名问题也存在于左侧 Commit 变更列表（`live-data.js` 的
 `tree-name live-file-status-${kind}` vs 视觉稿 `tree-name file-status-modified`），一并按同一规则修。
+
+#### 第 201 轮：④ 提交详情变更文件树复原（完成，已负向验证）
+
+第 200 轮定位的真实差异本轮修完：提交详情的变更文件列表在视觉稿里是**按目录分组的树**，
+实时外壳却是自己拼的扁平列表（类名 `live-file-status-*` 在 `mockup.css` 里**没有任何规则**，
+所以既没有目录层级也没有状态色）。
+
+**实现（两侧共用同一份渲染，结构由构造保证一致）**：
+1. `mockup.js`：把 `historySampleFilesHtml` 里的树渲染抽成 `historyFilesHtml(files)` 并导出
+   `window.__augitHistoryFiles`；`historySampleFilesHtml` 改为调用它（视觉稿点选提交后的渲染
+   与实时外壳从此同源）；仍保留 `data-history-path`，历史比较的既有绑定不受影响。
+2. `live-data.js`：`loadCommitDetails` 改为把宿主返回的文件映射成
+   `{ path, status: String(kind).toLowerCase(), original }` 后交给 `window.__augitHistoryFiles`。
+   类名统一为视觉稿的小写 `file-status-modified/-added/...`（宿主给的是 `GitChangeKind`）。
+3. 同类问题一并修：`mockup.js` 里左侧 Commit 变更列表与回滚对话框表单也用了
+   `live-file-status-<Kind>`（同样没有样式规则），改为 `file-status-<小写>`。
+
+**与"渲染出来的视觉稿"逐项对齐（关键细节）**：视觉稿**页面**用的是静态标记里的
+`tree-row depth-1` / `tree-row depth-2` + `mockup.css` 的
+`.tree-row.depth-1..4 { padding-left: 20/38/56/74px }`；而 `historySampleFilesHtml` 原来写的是
+内联 `padding-left: 8 + depth*18`（26/44px）。**内联会盖住样式表**，量出来比视觉稿多 6 像素，
+因此统一改为 depth-N 类、不写内联 padding，并把根行与目录行的折叠箭头/文件夹图标包进
+`<span>`（与静态标记同构）。
+
+**断言（先有断言、再落结构）**：`live-shell.spec.cjs` 新增
+「变更文件列表是视觉稿的树形结构」：根行文本为 `N 个文件` 且有 `<strong>`、
+三条含"个文件"的行（根 + 2 目录）、折叠箭头 3 个（根 + 2 目录）、文件夹图标 3 个、
+两个叶子行都带 `file-status-*` 与 `depth-2`、且**内联 padding 必须为空**（缩进只能来自样式表）。
+另修好一处**桩数据缺陷**：第二个提交的桩文件集合与第一个不一致，而
+「改选提交后历史比较跟随同一路径」只有在两个提交都含该路径时才有意义——
+第 200 轮就是被这条不一致误导而回退的，现在第二个提交复用同一文件集合。
+
+**逐页对照复核**：`compare-dom.cjs` 对 `git-history` 的 LAYOUT 差异
+**26 → 21 → 9 项**（第一轮修类名与树结构、第二轮修 depth/内联缩进）。
+剩余 9 项均为数据差异：提交行的 `grid-template-columns` 由内容长度决定、
+选中行下标不同（视觉稿样例选中第 2 行、真实历史选中第 1 行）、
+以及真实数据出现滚动条导致的 15 像素列宽差（388 vs 373）。
+`live-shell` 增至 **859 项断言全绿**，mockup 场景 48/48×2 全绿。
+
+**负向验证（临时移除修复 → 断言如实失败）**：把 `live-data.js` 的变更文件渲染换回旧的扁平列表后重跑，
+断言输出 `rootStrong:false, chevrons:0, folders:0, leafClasses:["tree-row depth-1 live-file-status-Modified","tree-row depth-1 live-file-status-Added"], leafDepth:[false,false]`
+—— 根行没有 `<strong>`、没有折叠箭头与文件夹图标、叶子行用的是无人定义的 `live-file-status-*`
+且没有 `depth-2`，与视觉稿的树形结构完全不同 ✗。恢复共享构建器后 859/859 全绿 ✓。
