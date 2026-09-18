@@ -7735,3 +7735,45 @@ build 0 警告 0 错误、release 可产出）仍然有效。
 
 1. 解锁后执行收官清单三项（目录选择框人工确认 / 上屏视觉验收 / 性能复测）。
 2. 其余规格条款与断言均已收口；实现侧无待做项。
+
+### 第一百九十三轮：验收器落地（桌面仍不可用，收官三步待解锁）
+
+#### 环境实测（本轮再次确认，供判断依据）
+
+| 探测 | 结果 |
+| --- | --- |
+| `LockApp` 进程 | 仍在运行 |
+| Windows 会话 | session 1（交互会话，说明进程位置正确） |
+| 启动真实外壳（dev 构建，`web/` 齐备） | 窗口创建成功，但 5 次尝试均 `foreground=False`，`printWindowWhite=90.2%` |
+| `capture-surface.ps1` 判定 | **`OCCLUDED_OR_BLANK`** |
+| 整屏捕获（不依赖应用） | 1646×1029，**avgRGB = 246.2 → 238.3**（≈ 96% 空白） |
+
+结论：屏幕未点亮或未解锁到桌面，因此上屏验收与目录选择框的人工确认都做不了。
+
+#### 本轮产出：一条命令跑完上屏验收
+
+新增 `tools/audit/verify-acceptance.ps1`：对 25 个关键页面逐个调用
+`capture-surface.ps1`（项目 / 普通文本 / Markdown / JSON / 图片 / 不可预览 / 提交 / 工作区 Diff /
+Git 历史 / 文件历史 / Blame / 引用比较 / 冲突列表 / 三栏解决器 / Stash / Stash 管理 / Worktree /
+远端 / 打开工作区 / 设置 / 终端 / 快速打开 / 全仓搜索 / 操作结果 / 初始化仓库），
+打印逐页 PASS/FAIL 与 `SUMMARY total/passed/failed`，失败时列出 `FAILED_SCENES` 并以非零码退出。
+
+已验证接线正确：`-Scenes main-project,settings` 会被正确拆成两个场景并逐个给出判定；
+当前因桌面不可用，两页都如实报 `FAIL OCCLUDED_OR_BLANK`（不是脚本问题，是环境）。
+
+新脚本是 ASCII-only BOM-less，`verify-script-encoding.ps1` 的覆盖从 7 个脚本变为 **8 个，PASS**。
+
+#### 收官三步（解锁后执行）
+
+1. `powershell -File tools/audit/verify-acceptance.ps1 -Exe <Augit.exe> -Workspace <仓库> -OutDir <目录> -Settings <settings.json>`
+   → 期望 `ACCEPTANCE_OK`；任何 `FAIL` 都带判定词（`OCCLUDED_OR_BLANK` 表示桌面仍不可见，
+   不是页面问题）。
+2. 人工确认「文件 → 打开工作区… → 选择目录…」三条路径（弹出 / 取消 / 选中目录后按
+   "同目录激活、不同目录开新窗口"处理），结论补记到本文件。
+3. 性能复测：冷启动到首屏可交互时间 + 按父进程归属到本实例的 Working Set 合计。
+
+#### 验证范围
+
+本轮只新增审计脚本与文档；`verify-script-encoding.ps1` PASS（8 个脚本）。
+上一轮全量证据仍然有效（Core 86/86、Infrastructure 175/175、Shell 55/55、live-shell 834/834、
+场景 48/48 × 2、视觉稿字节一致 PASS、format PASS、build 0 警告 0 错误）。
