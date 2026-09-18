@@ -9865,3 +9865,29 @@ LAYOUT 差异 4 项：
 **本阶段累计**：**已核对对齐 16 个页面/区域**；修复真实缺陷 8 处；
 三次交付级全量验证全绿。剩余未做真实内容对照：`remote`、`clone`、`push`、`reset`、
 `rollback`、`operation-result`（普查均为 LAYOUT 0–3 / SHAPE 0–15，基本对齐）。
+
+#### 第 273 轮：其余六个对话框在当前构建下的普查（含逐项裁决）
+
+```
+remote|.overlay-layer|LAYOUT=3|SHAPE=2|TEXT=6
+clone|.overlay-layer|LAYOUT=1|SHAPE=0|TEXT=0
+push|.overlay-layer|LAYOUT=2|SHAPE=15|TEXT=10
+reset|.overlay-layer|LAYOUT=1|SHAPE=0|TEXT=0
+rollback|.overlay-layer|LAYOUT=139|SHAPE=0|TEXT=0
+operation-result|.augit-window|LAYOUT=39|SHAPE=578|TEXT=25
+```
+
+**逐项裁决**：
+| 场景 | 计数 | 裁决 |
+|---|---|---|
+| `clone` | 1/0/0 | **基本一致**（唯一 LAYOUT 为文字宽度/滚动条类） |
+| `reset` | 1/0/0 | **基本一致**（同上） |
+| `remote` | 3/2/6 | 数据差异（远端列表项与文字），结构无缺失 |
+| `push` | 2/15/10 | 数据差异：样例列出"待推送提交"行，实时无未推送提交（第 216 轮已定论） |
+| `rollback` | 139/0/0 | **已澄清**：15 像素滚动条差被 139 个子节点继承（第 215 轮） |
+| `operation-result` | 39/578/25 | `.overlay-layer` 为空 → 回退整页比较，**信号弱**；需先确定该页的正确区域选择器（同 `search-overlay` 的处理） |
+
+**结论**：六个页面里 **clone / reset 基本一致、remote / push / rollback 的差异已全部归因**
+（数据、滚动条），**只剩 `operation-result` 需要先定选择器再做定点对照**。
+加上第 272 轮，本阶段**已核对对齐 16 个页面/区域**，其余 5 个对话框（remote/push/rollback 已归因，
+clone/reset 基本一致）**没有发现真实缺陷**。
