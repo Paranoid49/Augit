@@ -9271,3 +9271,30 @@ C# 侧检索 `dataUrl`：
 或返回字节并由前端构造 blob URL），并在前端把它填进 `live.document.dataUrl`；
 断言：`--open <png>` 后 `live.document.dataUrl` 非空、`img.naturalWidth > 0`、
 加载指示消失、`.image-size-label` 显示真实尺寸；仍需正/负向验证与 harness 全量。
+
+#### 第 251 轮：图片预览缺陷的施工方案（跨 C#/前端，留待下一轮执行）
+
+确认宿主现状：
+
+- `ShellBridge` **没有任何 `image/*` 方法**（`grep "image/"` 无输出）；
+- `document/read`（331 行起）只返回文本类字段（`encoding` / `lineEndings` 等，
+  仅当 `DocumentReadStatus.TextReady` 时），**不含图片数据**。
+
+因此修复是三处联动，按顺序做：
+
+1. **宿主**：给 `document/read` 增加图片分支（当 `result.Status` 表明是图片/二进制可预览时），
+   或在 `Augit.Infrastructure` 增加图片读取能力，返回 `dataUrl`（建议 `image/png;base64,…`，
+   并带 `width/height/byteSize` 供 `.image-size-label` 使用）；
+   —— 注意规格要求"图片解码在后台执行"与"大图不阻塞界面"，因此**要限制体积**
+   （超限走既有的"不可预览"信息态，而不是把几十 MB 塞进 JSON）。
+2. **前端**：`live-data.js` 打开图片文档时把返回的 `dataUrl` 写进 `live.document.dataUrl`
+   （渲染器第 2265 行已经在读这个字段），并把尺寸文本写入 `.image-size-label`。
+3. **断言（含负向验证）**：
+   - `--open <png>` 后 `live.document.dataUrl` 非空、`.image-stage img.naturalWidth > 0`、
+     `conic-gradient` 加载指示消失、`.image-size-label` 显示真实尺寸；
+   - 负向：临时不写 `dataUrl` → 上述断言应如实失败（当前状态即负向证据）；
+   - 超限图片仍走信息态（新增一条边界断言）。
+
+**为何本轮不动手**：这是跨 C# 与前端、且涉及"大图/超限"边界的改动，
+必须能跑 harness 全量 + 真机图片对照 + 负向验证三轮验证；
+在上下文余量不足时贸然改动会留下未经充分验证的产品代码，违反本会话一贯的验证标准。
