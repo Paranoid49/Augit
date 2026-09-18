@@ -8888,3 +8888,29 @@ PROBE {"tabs":[],"blame":true,"openFiles":["docs/product-spec.md","D:\\github\\A
 再置 blame 状态，并加断言：`--blame <path>` 后 `live.tabs` 恰好 1 个标签、
 活动标签即该路径、标签条不再出现样例文件名。修复后再对 blame 工具栏
 `span.document-path` 候选差异做判读（此前结论会被这条缺陷干扰）。
+
+#### 第 235 轮：视觉稿的两种标签条模板（明确 blame 应渲染成哪一种）
+
+查 `mockup.js` 标签条模板，共两种：
+
+```js
+// 模板 1（live 有文档时）：单个活动标签 + 关闭叉 + 空档 + 标签选项
+<div class="editor-tabs">
+  <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${name}<span class="tab-close">${icon("x")}</span></a>
+  <span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+</div>
+
+// 模板 2（无 live 文档时，即样例）：三个样例文件标签
+THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active) + 空档 + 标签选项
+```
+
+因此 `--scene blame --blame <path>` **正确渲染应当是模板 1**：**恰好一个活动标签**
+（文件名 + 关闭叉）。第 234 轮实测 `live.tabs: []` → 落到模板 2（三个样例标签），
+这就是"标签与正文不一致"的完整机制。
+
+**修复方向（下一轮，已可写断言）**：`loadBlame` 在写 `live.blame` 之后，
+用与普通文件相同的 `openDocumentTab(path, payload, {activate:true})` 建立/激活标签；
+断言：`--blame <path>` 后 `live.tabs.length === 1`、活动标签路径等于该 path、
+标签条里只有一个 `.editor-tab` 且带 `.tab-close`、不出现样例文件名。
+**注意**：该改动风险高于纯 CSS 改动（可能把编辑器从 blame 视图切到普通文本视图），
+因此必须连同 harness 全量与真机 blame 对照一起验证，不能只做静态检查。
