@@ -41,12 +41,18 @@ function parseArgs(argv) {
 }
 
 /** 渲染静态视觉稿页（设计基线）并抽取同一份签名。 */
-async function captureMockup(browser, scene, selectors, theme, width, height, prune) {
+async function captureMockup(browser, scene, selectors, theme, width, height, prune, typography) {
   const html = path.join(REPO, 'docs', 'ux-mockups', scene + '.html');
   if (!fs.existsSync(html)) throw new Error('视觉稿页面不存在：' + html);
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1 });
   const page = await context.newPage();
-  await page.goto('file://' + html + '?theme=' + theme);
+  // 字体与字号必须和实时侧一致：它们由 dump 记录（-FontFamily/-FontSize），
+  // 视觉稿页面通过 ui-family/ui-size 查询参数应用（与实时外壳同一套排版预览管线）。
+  // 只改一侧会让"字体"本身变成差异 —— 第 243 轮就是这样把 16 项差异放大到 52 项。
+  const query = ['theme=' + encodeURIComponent(theme)];
+  if (typography && typography.fontFamily) query.push('ui-family=' + encodeURIComponent(String(typography.fontFamily).replace(/["']/g, '')));
+  if (typography && typography.fontSize) query.push('ui-size=' + encodeURIComponent(String(typography.fontSize).replace('px', '')));
+  await page.goto('file://' + html + '?' + query.join('&'));
   await page.waitForTimeout(500);
   const regions = {};
   for (const selector of selectors) {
@@ -76,7 +82,7 @@ async function main() {
   const scene = args.scene || dump.scene;
   const selectors = args.selectors || Object.keys(dump.regions);
   const browser = await chromium.launch();
-  const mockRegions = await captureMockup(browser, scene, selectors, args.theme, args.width, args.height, dump.prune);
+  const mockRegions = await captureMockup(browser, scene, selectors, args.theme, args.width, args.height, dump.prune, dump);
   await browser.close();
 
   const report = { scene, theme: args.theme, layout: [], text: [], shape: [] };
