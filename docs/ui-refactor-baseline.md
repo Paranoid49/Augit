@@ -8495,3 +8495,20 @@ SHAPE 差异 15 项：
 
 **教训**：写进基线文档的结论必须先验证来源；本轮把"静态猜类名"的结果直接落盘是错的，
 已就地更正（`(none)` 不是事实，只说明方法不适用）。
+
+#### 第 218 轮：从**已抓取的实时签名**读出各页第一层区域（选择器清单）
+
+第 217 轮静态猜类名失败（视觉稿 HTML 无内联标记）后，改用已有证据：第 214 轮普查时
+这些页面回退到 `.augit-window` 抓取过实时签名，本轮直接从那些 JSON 里读**第一层子节点的类名**，
+作为下一轮的定点对照入口（来源是真实渲染的 DOM，不是猜测）：
+
+| 场景 | `.augit-window` 第一层区域（实测） |
+|---|---|
+| `blame` | titlebar, app-main, statusbar, toast-layer |
+| `file-history` | titlebar, app-main, statusbar, toast-layer |
+| `repository-search` | titlebar, app-main, statusbar, search-overlay, toast-layer |
+| `operation-result` | titlebar, app-main, statusbar, toast-layer |
+| `image-preview` | titlebar, app-main, statusbar, toast-layer |
+
+**下一轮**：用上表里对应的面板/浮层类名重新抓取并定点对照（空区域仍会被 `EMPTY_REGION` 拦下），
+配合**真实数据**态（必要时临时造数据、跑完清理），判断时先看差异形状再算计数。
