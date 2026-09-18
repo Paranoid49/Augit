@@ -9732,3 +9732,35 @@ LAYOUT 差异 2 项：
 需要在"打开查找条"状态下比对时，应另用 `current-find` 相关场景或先派发 Ctrl+F。
 （**顺带的方法论**：对照前必须先确认**文档类型与视图模式**一致 ——
 README.md 被分类为 Markdown 就是一次"苹果比橘子"，与第 244 轮的字体规则、"内容条件样式"同一族。）
+
+#### 第 268 轮：第三次交付级全量验证 —— 全绿
+
+自第 252 轮之后又落地了产品改动（会话恢复守卫、blame 单标签渲染、图片 `dataUrl`、
+`index.html` 加载 `image-preview.js`、前端 `Gif/WebP` 视图分支），因此重跑完整矩阵：
+
+```
+build (Augit.slnx -c Release)     0 警告 / 0 错误
+Augit.Shell.Tests                 69 / 69
+live-shell.spec.cjs               862 项断言全绿
+mockup-scenes (dark / light)      48/48 + 48/48
+verify-ui-assets.ps1              PASS（两处副本字节一致）
+verify-script-encoding.ps1        PASS（11 个 .ps1 ASCII 无 BOM）
+dotnet format --verify-no-changes OK
+verify-window-chrome.ps1（真机）   11/11，WINDOW_CHROME_OK
+```
+
+**本阶段（第 198–268 轮）最终清单**：
+- **①②③ 完成**：无边框 + 窗口按钮接线（真机 11/11 + "两行按钮"负向复现）；chrome 不可选中（负向验证）；
+  底部 Git 工具窗重复「更多」入口真机 32 组 → 1 组；
+- **④ 逐页对照**：**13 个页面/区域**已逐项核对（全局 chrome、git-history、commit-changes、commit-diff、
+  settings、terminal、conflict-resolver、file-history、image-preview、repository-search、
+  quick-open、markdown-preview、text-viewer），其中 **8 处修复真实缺陷**：
+  变更文件树、Changes 行 id、标签条密度（20→126）、设置标签列宽（90→110）、
+  会话恢复覆盖显式文档参数、blame 标签回退样例、图片预览缺 `dataUrl`、图片预览模块未加载；
+- **证据链**：新增 6 个工具/共享模块（`verify-window-chrome.ps1`、`dump-live-dom.ps1`、
+  `compare-dom.cjs`、`dom-signature.js`、`cdp-eval.ps1` + 4 个内容开关），
+  修好 1 个会拍错误对话框的验收脚本，7 处工具失真源修复，
+  沉淀 **5 条判读规则**（滚动条平台差异、差异条目数≠严重程度、内容条件样式、
+  字体度量/平台字体、先对齐文档类型与视图模式）与 3 处自我更正；
+- **纪律**：**5 次无效尝试全部回退且不留半成品**（`-CleanSession`、字体默认值、
+  两次顺序/结构尝试、中文注释），每次都记录原因与下一步。
