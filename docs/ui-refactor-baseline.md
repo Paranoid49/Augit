@@ -9123,3 +9123,29 @@ Windows WebView2（实时侧）  : 124.20 px      → 相差 13.0 px（11.7%）
 
 **副产品**：`-FontFamily` 参数保留（默认仍是设计基线 `Microsoft YaHei UI`），
 但它现在会被**同时**应用到两侧 —— 这才是它原本应有的语义。
+
+#### 第 245 轮：`image-preview` 在真实图片下的对照（结构完全一致，2 项数据差异 + 1 项待查）
+
+以 `-Scene image-preview -Open web/image-sample.png` 对照（两侧节点 **39 / 39**）：
+
+```
+scene=image-preview 节点数 视觉稿=39 实时=39
+LAYOUT 差异 3 项：
+  .editor-area/div[1]/div[0]/div[0]/span[4] <span class="image-size-label">
+      rect: 视觉稿=[983,96,182,16] 实时=[953,96,212,16]
+      margin: 视觉稿="0px 0px 0px 469.578px" 实时="0px 0px 0px 439.734px"
+  .editor-area/div[1]/div[0]/div[0]/span[4]/span[0] <span class="image-size-content">
+      rect: 视觉稿=[987,96,174,16] 实时=[957,96,204,16]
+  .editor-area/div[1]/div[0]/div[1]/img[0] <img class="">
+```
+
+**判读（按第 244 轮修订后的规则，只看结构/配色/间距/边框/圆角/图标）**：
+- **`SHAPE 0`、节点数相同** → 图片预览的**结构与视觉稿一致**（工具栏、尺寸标签、画布容器都在同一层级）；
+- `.image-size-label` 的 `margin-left: 469.578px vs 439.734px` 与宽度 182 vs 212：
+  **数据差异**（样例图片与真实 `image-sample.png` 的尺寸文本不同，标签按右对齐定位）；
+- **待查 1 项**：`div[1]/div[0]/div[1]/img[0]` 的矩形为 视觉稿 `[388,194,753,471]`（真实预览图）
+  vs 实时 `[356,122,132,16]` —— 实时侧那个 `img` 只有 132×16，明显不是预览图尺寸。
+  两种可能：①实时预览根本没有渲染图片（缺陷）；②实时侧该位置的第一个 `img`
+  是别的元素（例如占位/图标），真实预览图在另一个节点上。
+  下一轮用 CDP 直接读实时侧 `.image-preview`（或对应容器）里的 `img` 列表
+  （`naturalWidth/naturalHeight/src/rect`）即可一次分辨。
