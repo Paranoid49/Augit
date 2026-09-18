@@ -2123,6 +2123,82 @@ async function main() {
       throw new Error('断言失败：' + dedupeSoft.join(' | '));
     }
 
+    // ---- 规格 §6.5：加载指示不得循环触发布局 ----
+    // 加载期间目标区域与主框架的节点数、几何必须稳定；配对对照用"人为注入抖动"证明采样方法有效。
+    const llSoft = [];
+    const llCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      llSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const ll = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+    await ll.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+    await ll.page.waitForSelector('.editor-content .diff-layout', { timeout: 10000 });
+
+    // 采样必须按**节点身份**取值：区域替换会换掉节点本身，用"持有引用数子节点"是看不见抖动的
+    // （配对对照第一次跑就是这样假通过/假失败的）。几何一起采，保证像素位置也不动。
+    const sampleLayout = () => ll.page.evaluate(async (rounds) => {
+      const frames = [];
+      const marker = () => {
+        const editor = document.querySelector('.editor-content');
+        if (!editor) return 'none';
+        if (!editor.dataset.llMarker) editor.dataset.llMarker = 'm' + Math.random().toString(36).slice(2);
+        const status = document.querySelector('.statusbar');
+        const side = document.querySelector('.side-tool');
+        return JSON.stringify({
+          id: editor.dataset.llMarker,
+          nodes: editor.querySelectorAll('*').length,
+          editor: [Math.round(editor.getBoundingClientRect().top), Math.round(editor.getBoundingClientRect().height)],
+          status: status ? Math.round(status.getBoundingClientRect().height) : -1,
+          side: side ? Math.round(side.getBoundingClientRect().width) : -1,
+        });
+      };
+      for (let index = 0; index < rounds; index += 1) {
+        frames.push(marker());
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      }
+      return frames;
+    }, 12);
+
+    // 正常加载：慢 diff 在途。**等加载指示真正出现之后**再采样——
+    // 指示出现前的那一次重绘属于"显示加载提示"，不是循环布局。
+    await ll.page.evaluate(() => {
+      window.__diffDelays = { 'src/App.cs': 1500 };
+      window.__augitLoadDiff('src/App.cs', { force: true, ignoreWhitespace: true });
+    });
+    await ll.page.waitForFunction(
+      "() => !!window.__augitLive.diffLoading && !!window.__augitLoadingMarkerShownAt", null, { timeout: 10000 }).catch(() => {});
+    await ll.page.waitForTimeout(150);
+    const llNormal = await sampleLayout();
+    llCheck('§6.5 加载期间布局不循环（逐帧一致）: ' + JSON.stringify([new Set(llNormal).size, llNormal[0]]),
+      llNormal.length === 12 && new Set(llNormal).size === 1);
+    await ll.page.evaluate(() => { window.__diffDelays = 0; });
+    await ll.page.waitForTimeout(1800);
+
+    // 配对对照：人为每 60 毫秒重绘编辑区，采样必须能看出抖动（否则上面的"稳定"没有意义）。
+    const llChurn = await ll.page.evaluate(async () => {
+      const frames = [];
+      const timer = setInterval(() => window.__augitRenderRegions('editorContent'), 60);
+      try {
+        for (let index = 0; index < 12; index += 1) {
+          const editor = document.querySelector('.editor-content');
+          if (editor && !editor.dataset.llMarker) editor.dataset.llMarker = 'c' + Math.random().toString(36).slice(2);
+          frames.push(editor ? editor.dataset.llMarker : 'none');
+          await new Promise((resolve) => setTimeout(resolve, 60));
+        }
+      } finally {
+        clearInterval(timer);
+      }
+      return frames;
+    });
+    llCheck('对照：注入重绘时采样能检测到布局变化: ' + JSON.stringify(new Set(llChurn).size),
+      new Set(llChurn).size > 1);
+    await ll.page.close();
+
+    if (llSoft.length > 0) {
+      throw new Error('断言失败：' + llSoft.join(' | '));
+    }
+
     // ---- 产品规格 §2 / 视觉稿 workspace-open：打开工作区页与克隆入口 ----
     const woSoft = [];
     const woCheck = (label, condition) => {
