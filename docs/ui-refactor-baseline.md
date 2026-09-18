@@ -8681,3 +8681,27 @@ h2[1] = '无法在 Augit 中预览此文件'
 结合 `--blame` 的语义（只把外壳切到 blame 场景、正文由 blame 查询结果决定），
 需要确认的是**blame 查询是否真的发出并在该文件上成功**；下一轮用 CDP 直接查
 `window.__augitLive.blame` 与 `document/read`/`git/blame` 的调用记录来定位（不靠猜）。
+
+#### 第 227 轮：`--blame` 在有恢复会话时没有成为活动文档（真实缺陷候选）
+
+第 226 轮读到实时侧 `.info-state` 的文案是
+**"无法在 Augit 中预览此文件 · Augit-0.1.0-win-x64-setup.exe · 二进制文件 · 4.2 MB"** ——
+也就是说编辑器里显示的是**用户会话恢复出来的那个二进制文档**，`--blame docs/product-spec.md`
+根本没有成为活动文档。本轮再从**未剪枝**的那次抓取（`live-bl.json`）读标签条确认：
+
+```
+editor-tab | product-spec.md
+editor-tab | THIRD-PARTY-NOTICES.md
+editor-tab | .gitattributes
+editor-tab | .editorconfig
+editor-tab | README.md
+editor-tab | global.json
+editor-tab | Directory.Packages.props
+editor-tab | Directory.Build.props
+标签数 = 28，样本 = ['.editorconfig', '.gitattributes', '.gitignore', 'AGENTS.md', 'Augit-0.1.0-win-x64-portable', 'Augit-0.1.0-win-x64-setup.ex']
+
+
+对比第 202 轮：`--open docs/product-spec.md` **确实**会成为活动文档（状态栏显示该文件），
+而 `--blame` 在有恢复会话时没有 —— 这是**产品行为不一致**（`--file-history` 在底部工具窗生效，
+`--open` 生效，`--blame` 不生效），列入下一轮用 CDP 直接核对
+`window.__augitLive.blame` 与标签列表来定位（是没打开、还是打开了但没激活）。
