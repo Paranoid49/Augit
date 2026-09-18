@@ -9601,3 +9601,24 @@ CHAIN BODY > DIV > augit-window > search-overlay > search-results > search-resul
 把该块移到"等值化重载完成并再次就绪"之后，再用
 `-Scene repository-search -SetQuery product` 复核 —— 预期能看到 `search-results` 与结果行，
 从而完成这一页的定点对照（结构上应与视觉稿一致，行数差异属数据差异）。
+
+#### 第 263 轮：`-SetQuery` 顺序修复的第二次尝试也失败 —— 原因是**在 .ps1 里写了中文注释**
+
+本轮用"锚点插入第二段输入逻辑"（不搬动代码块）的方式修顺序问题，插在了
+`Write-Output ("TYPOGRAPHY " + $effective)` 之后，注释用中文写明"必须在排版等值化之后重新输入"。
+结果脚本直接失败（未产出 JSON、没有新日志行）。
+
+**原因（核对规则后确认）**：`tools/audit/*.ps1` **必须 ASCII-only**
+（`verify-script-encoding.ps1` 强制）；我插入的中文注释让文件带上非 ASCII 字节，
+在 PowerShell 5.1 下按 ANSI 解码后注释里的多字节字符会破坏解析 ——
+这与会话早期"在 .ps1 里写中文注释导致 verify 失败"是同一个坑，这次直接表现为脚本执行失败。
+
+**本轮处理**：**已 `git checkout` 回退**，`verify-script-encoding` 复检 PASS，
+工具回到上一提交的可用状态（含 `.search-field` 选择器修复）。
+
+**下一轮做法（这次把约束写在最前面）**：
+1. 在 `dump-live-dom.ps1` 里追加"等值化之后重新输入查询"的代码块，
+   **注释一律用英文**（脚本内不允许非 ASCII 字节）；
+2. 追加后先跑 `verify-script-encoding.ps1`（应仍为 11 个脚本 PASS），再跑
+   `-Scene repository-search -SetQuery product`；
+3. 预期能抓到 `search-results` 与结果行，完成该页定点对照（与视觉稿结构一致，行数属数据差异）。
