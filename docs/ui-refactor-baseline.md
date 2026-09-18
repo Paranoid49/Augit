@@ -9170,3 +9170,27 @@ IMGS [{"src":"","nw":0,"nh":0,"r":[356,122,131,19]}]
 以及元素的 `backgroundImage` 与 `window.__augitLive.imagePreview`（解码状态/尺寸）——
 若存在已解码的位图但不在 `<img>` 上，则本项**不是缺陷**（结构差异已由 `SHAPE 0` 说明），
 只需在判读规则里补一条"图片预览的载体元素可能不同"。
+
+#### 第 247 轮：image-preview 探针（第二轮）—— 探针时刻处于**加载态**，需再判"慢"还是"卡"
+
+```
+IMG2 {"canvas":0,"img":1,"bg":["=conic-gradient(rgb(30, 31, 34) 2..."],"state":null,"editor":"image","active":["web/image-sample.png"]}
+```
+
+- `editor: "image"` ✓ —— 编辑器确实处在图片模式；
+- `active: ["web/image-sample.png"]` ✓ —— 文件已打开且是活动标签；
+- `canvas: 0`、`img: 1`（且第 246 轮测得其 `src` 空、自然尺寸 0）、`state: null`；
+- 唯一的 `backgroundImage` 是 **`conic-gradient(...)`**，即**加载指示（转圈）**。
+
+**判读**：探针时刻界面显示的是**加载态**，还没有任何已解码位图。
+因此此前"`img` 尺寸 131×19"的解释是：那是**加载占位/指示元素**，不是预览图。
+现在需要区分两种情况：
+
+1. **慢**（正常）：图片解码在后台线程，探针（`__augitReady` 后立即取值）早于完成；
+2. **卡**（缺陷）：解码/加载从未完成，界面永远停在转圈。
+
+**下一轮分辨（一行，已可执行）**：在 `__augitReady` 之后**再等 3~5 秒**重读同一组字段，
+判据是 `img.naturalWidth > 0` 或出现非 null 的 `imagePreview` 状态（或 canvas 尺寸 > 0）：
+- 等到即正常（并把"图片预览的加载期元素不是预览图"写进判读规则）；
+- 等不到即缺陷，转入图片加载链路排查（`live-data.js` 的图片解码/缓存与
+  `image-preview.js` 的绑定）。
