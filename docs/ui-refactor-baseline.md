@@ -9377,3 +9377,25 @@ verify-window-chrome.ps1（真机）   11/11，WINDOW_CHROME_OK
 补 `dataUrl`（`data:image/…;base64,…`，体积上限沿用既有读取管线）。
 只有两半都到位，真机 `--open <png>` 才会真正显示图片；因此**真机验证必须等宿主侧完成**，
 本轮只宣称"前端接线已就绪并被断言覆盖"，不宣称缺陷已修复。
+
+#### 第 255 轮：宿主侧改动的枚举与 MIME 已核实（下一轮可直接照抄），另发现一个前端缺口
+
+- `DocumentReadStatus`：`TextReady` / **`ImageReady`** / `BinarySummary` / `TextTooLarge` /
+  **`ImageTooLarge`** / `InvalidUtf8` / **`ImageDecodeFailed`** / `Missing` / `AccessDenied` / `UnsafeTarget`；
+- `DocumentKind`：`Text` / `Markdown` / `Json` / **`Png` / `Jpeg` / `Bmp` / `Gif` / `WebP`** / `Binary` / `InvalidUtf8`。
+
+**宿主侧实现（`ShellBridge.ReadDocumentAsync`，照此写即可）**：
+当 `result.Status == DocumentReadStatus.ImageReady` 时读取文件字节并生成
+`dataUrl = "data:image/<mime>;base64," + Convert.ToBase64String(bytes)`，
+MIME 映射 `Png→image/png、Jpeg→image/jpeg、Bmp→image/bmp、Gif→image/gif、WebP→image/webp`；
+并把它加进返回对象。`ImageTooLarge` / `ImageDecodeFailed` 保持**不返回 dataUrl**（走信息态），
+即体积与解码边界天然由既有状态机覆盖。
+
+**新发现的前端缺口（顺手记下）**：`toLiveDocument` 的视图判断只认
+`kind === "Png" | "Jpeg" | "Bmp"`，**没有 `Gif` / `WebP`** —— 这两种图片会被判成
+`file-limit`（不可预览）。修宿主时一并把 `Gif`/`WebP` 加进图片分支，
+并补一条断言（`--open <gif>` 后 `editor === "image"`）。
+
+**结论**：缺陷已从"未知链路"收敛为**两处已知改动的机械实施**（宿主 1 处 + 前端 1 行），
+枚举、MIME、边界状态与断言都已在文档里写死；下一轮实施后即可做
+harness 全量 + 真机 `--open <png>`（`naturalWidth>0`、加载指示消失）+ 负向验证三连。
