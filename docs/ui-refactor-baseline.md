@@ -8914,3 +8914,34 @@ THIRD-PARTY-NOTICES.md | roadmap.md | product-spec.md(active) + 空档 + 标签�
 标签条里只有一个 `.editor-tab` 且带 `.tab-close`、不出现样例文件名。
 **注意**：该改动风险高于纯 CSS 改动（可能把编辑器从 blame 视图切到普通文本视图），
 因此必须连同 harness 全量与真机 blame 对照一起验证，不能只做静态检查。
+
+#### 第 236 轮：blame 标签修复的两条路线（含契约与风险，下一轮择一实施）
+
+读出 `openDocumentTab` 的契约与唯一调用点：
+
+```js
+function openDocumentTab(path, payload, options = {}) {   // 2896
+  const { preview = false, activate = true } = options;
+  const live = tabState();
+  const existing = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
+  if (existing) { if (!preview) existing.preview = false; ... }   // 幂等：同路径复用
+  ...
+}
+// 唯一调用点：7238（普通打开文件路径）
+openDocumentTab(path, payload, { preview, activate });
+```
+
+**路线 A（改状态，风险中）**：`loadBlame` 写完 `live.blame` 后调用
+`openDocumentTab(blame.path, payload, { preview:false, activate:true })`。
+优点是标签成为真实的文档标签（符合规格 §5.2）；风险是 `payload` 目前只由
+`document/read` 结果构造（7238 行），blame 场景没有该 payload，
+需要确认渲染层是"以 `live.blame` 优先"（若是，payload 可只带最小身份字段）。
+
+**路线 B（改渲染，风险低）**：把 `mockup.js` 第 2045 行的模板选择条件从
+"`live.tabs` 非空"扩展为"`live.tabs` 非空 **或** `live.blame` 存在"，
+当只有 blame 时用 blame 路径渲染**模板 1**（单活动标签 + 关闭叉），
+不做任何状态改动、不触碰编辑器视图选择。
+
+**下一轮做法**：先读渲染层"编辑器视图如何按 `live.blame`/`live.document` 选择"
+（一处 grep 即可），据此在 A/B 中择一实施，并连同 harness 全量与真机 blame 对照验证。
+本轮不做代码改动，避免在契约未确认时引入"编辑器被切成文本视图"的回归。
