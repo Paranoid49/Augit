@@ -33,7 +33,11 @@ param(
   [int]$SettleMs = 9000,
   # Optional: save the real window pixels (PrintWindow PW_RENDERFULLCONTENT) next to the dump,
   # so a comparison has both the DOM signature and the actual rendering of the same run.
-  [string]$Capture = ""
+  [string]$Capture = "",
+  # Optional workspace-relative document to open before extracting. The shell restores the
+  # previous session otherwise, and a restored binary document legitimately has no
+  # encoding/line-ending facts in the status bar, which reads as a fake difference.
+  [string]$Open = ""
 )
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -90,6 +94,7 @@ if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
 Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 $launch = @("--workspace", $Workspace, "--scene", $Scene, "--pixel-exact", "--theme", $Theme, "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")
+if ($Open -ne "") { $launch += @("--open", $Open) }
 $process = Start-Process -FilePath $Exe -ArgumentList $launch -PassThru
 $handle = [IntPtr]::Zero
 $deadline = (Get-Date).AddSeconds(30)

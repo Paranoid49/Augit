@@ -8153,3 +8153,32 @@ dump 脚本按参数重载页面后再抽取。实测 `TYPOGRAPHY 13px|"Microsof
 断言输出 `rootStrong:false, chevrons:0, folders:0, leafClasses:["tree-row depth-1 live-file-status-Modified","tree-row depth-1 live-file-status-Added"], leafDepth:[false,false]`
 —— 根行没有 `<strong>`、没有折叠箭头与文件夹图标、叶子行用的是无人定义的 `live-file-status-*`
 且没有 `depth-2`，与视觉稿的树形结构完全不同 ✗。恢复共享构建器后 859/859 全绿 ✓。
+
+#### 第 202 轮：④ 全局外壳 chrome 逐项对照（标题栏 / 状态栏 / 工具入口）
+
+**做法**：`dump-live-dom.ps1 -Scene main-project -Selectors '.titlebar,.statusbar,.tool-rail'`
+取实时侧签名，`compare-dom.cjs` 与 `docs/ux-mockups/main-project.html` 逐元素比对
+（两侧字体与字号先经 `ui-size/code-size/ui-family` 等价，均为 13px / Microsoft YaHei UI）。
+
+**第一轮发现（曾以为是缺陷）**：状态栏缺 `UTF-8` 与 `LF` 两个字段，
+只有 `只读`（`SHAPE 差异 2 项：MISSING-IN-LIVE "\"LF\"", "\"只读\""`）。
+排查后确认是**对照条件不对**而非缺陷：那次运行把用户会话里恢复的
+`Augit-0.1.0-win-x64-setup.exe`（二进制、不可预览）当成活动文档——
+视觉稿自己的注释就写明"比较补丁不提供源文件编码与换行事实"，
+而 `mockup.js` 的 `statusBar()` 在 `live.encoding/lineEndings` 存在时才输出这两个字段，
+`live-data.js` 也早已把它们写进 live 状态（第 7200-7201 行来自宿主的
+`document/read.encoding/lineEndings`，宿主 ShellBridge 已返回）。二进制文档本来就没有这两个事实。
+
+**因此给对照工具补了 `-Open <工作区内相对路径>`**：启动时带上 `--open`，
+把活动文档固定成文本文件，避免"恢复的会话恰好是不可预览文件"造成的假差异。
+实测 `-Open docs/product-spec.md` 后：`节点数 视觉稿=45 实时=45`、
+**SHAPE 差异 0 项**（状态栏三个字段 `UTF-8 / LF / 只读` 齐全）✓。
+
+**剩余 9 项 LAYOUT 全部由文字长度决定，不是缺陷**（逐项核对）：
+- 分支芯片宽 83 vs 74：视觉稿样例分支名 `main`(4 字符) vs 真实仓库分支 `dsh`(3 字符)；
+- 当前文件入口宽 80 vs 134：视觉稿样例 `当前文件` vs 真实 `product-spec.md`；
+- 标题栏 `grid-template-columns` 与两个 `1fr` 空档随之变化，图标 x 坐标跟随位移；
+- TEXT 差异 3 项同样是分支名与文件名。
+
+**结论**：全局 chrome（标题栏、状态栏、左侧工具入口）与视觉稿**结构完全一致**
+（同节点数、同层级、同图标、同间距），仅剩数据文字差异 —— 这三处可作为 ④ 的已对齐样板。
