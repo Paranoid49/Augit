@@ -235,6 +235,8 @@ async function main() {
         return { path: requested, available: true, entries: data.tree[requested] || [] };
       }
       if (method === 'workspace/changes') {
+        window.__changesReads = (window.__changesReads || 0) + 1;
+        if (window.__changesFails) throw new Error('无法读取工作区变化：目录已被占用。');
         // 由测试脚本通过 window.__nextChanges 注入一次变化批次，读取后清空。
         const next = window.__nextChanges || { files: [], gitMetadata: false };
         window.__nextChanges = null;
@@ -2011,6 +2013,92 @@ async function main() {
 
     if (rmtSoft.length > 0) {
       throw new Error('断言失败：' + rmtSoft.join(' | '));
+    }
+
+    // ---- 规格 §10.2：同一错误在外部状态未变化时不重复弹出 ----
+    // 轮询类失败必须说出来，但不能每次刷新都弹一遍；恢复过一次之后再失败要重新提示。
+    const dedupeSoft = [];
+    const ddCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      dedupeSoft.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    const dd = await openScene('scene=main-project&theme=dark');
+    await dd.page.bringToFront();
+    await dd.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    const toastCount = () => dd.page.evaluate(() => {
+      const layer = document.querySelector('.toast-layer');
+      const toast = layer ? layer.querySelector('.toast') : null;
+      return {
+        shown: !!toast,
+        title: toast && toast.querySelector('.toast-title') ? toast.querySelector('.toast-title').textContent.trim() : null,
+        text: toast ? toast.innerText.replace(/\s+/g, ' ').trim() : null,
+        reads: window.__changesReads || 0,
+        reported: window.__augitReportedErrors ? window.__augitReportedErrors() : [],
+      };
+    });
+
+    // 阶段一：让轮询连续失败若干次——必须出现提示，且只按"同一个错误"提示一次。
+    await dd.page.evaluate(() => {
+      window.__changesFails = true;
+      window.__changesReads = 0;
+      window.__augitLive.toast = null;
+    });
+    await dd.page.waitForFunction('(window.__changesReads || 0) >= 3', null, { timeout: 15000 }).catch(() => {});
+    const ddFirst = await toastCount();
+    ddCheck('轮询失败必须说出来: ' + JSON.stringify([ddFirst.shown, ddFirst.title, ddFirst.reads]),
+      ddFirst.shown === true && ddFirst.title === '无法读取工作区变化' && ddFirst.reads >= 3);
+    ddCheck('提示说明"可能不是最新"与"会自动重试": ' + JSON.stringify(ddFirst.text),
+      typeof ddFirst.text === 'string' && ddFirst.text.includes('可能不是最新的')
+        && ddFirst.text.includes('自动重试'));
+
+    // 再失败若干次：不得重新弹出。直接统计 showToast 的调用次数——
+    // 区域替换会换掉 .toast-layer 节点，观察节点是数不到重复弹出的。
+    const ddBefore = await dd.page.evaluate(() => ({
+      shows: window.__augitToastShows || 0,
+      reads: window.__changesReads || 0,
+    }));
+    await dd.page.waitForFunction(`(window.__changesReads || 0) >= ${ddBefore.reads + 3}`, null, { timeout: 15000 }).catch(() => {});
+    const ddRepeat = await dd.page.evaluate(() => ({
+      shows: window.__augitToastShows || 0,
+      reads: window.__changesReads || 0,
+      reported: window.__augitReportedErrors ? window.__augitReportedErrors() : [],
+    }));
+    ddCheck('同一错误连续出现时不重复弹出: ' + JSON.stringify([ddBefore.shows, ddRepeat.shows, ddRepeat.reads]),
+      ddRepeat.reads >= ddBefore.reads + 3 && ddRepeat.shows === ddBefore.shows);
+
+    // 阶段二：恢复成功 → 记忆清空；再次失败 → 重新提示（外部状态确实变化过）。
+    const ddReadsAtRecovery = await dd.page.evaluate(() => window.__changesReads || 0);
+    await dd.page.evaluate(() => {
+      window.__changesFails = false;
+      window.__augitLive.toast = null;
+      window.__augitRenderRegions('toast');
+    });
+    // 必须等到**恢复之后**真的成功读过一次，记忆才会被清掉。
+    await dd.page.waitForFunction(`(window.__changesReads || 0) > ${ddReadsAtRecovery}`, null, { timeout: 10000 }).catch(() => {});
+    await dd.page.waitForTimeout(500);
+    const ddRecovered = await dd.page.evaluate(() => ({
+      reported: window.__augitReportedErrors ? window.__augitReportedErrors() : ['<no-hook>'],
+      shown: !!document.querySelector('.toast-layer .toast'),
+    }));
+    ddCheck('恢复成功后清掉错误记忆且不留下提示: ' + JSON.stringify(ddRecovered),
+      Array.isArray(ddRecovered.reported) && !ddRecovered.reported.includes('workspace-changes')
+        && ddRecovered.shown === false);
+
+    await dd.page.evaluate(() => {
+      window.__changesFails = true;
+      window.__augitLive.toast = null;
+      window.__augitRenderRegions('toast');
+    });
+    await dd.page.waitForFunction('(window.__augitReportedErrors ? window.__augitReportedErrors() : []).includes("workspace-changes")', null, { timeout: 15000 }).catch(() => {});
+    await dd.page.waitForTimeout(300);
+    const ddAgain = await toastCount();
+    ddCheck('恢复之后再次失败要重新提示: ' + JSON.stringify([ddAgain.shown, ddAgain.title]),
+      ddAgain.shown === true && ddAgain.title === '无法读取工作区变化');
+    await dd.page.close();
+
+    if (dedupeSoft.length > 0) {
+      throw new Error('断言失败：' + dedupeSoft.join(' | '));
     }
 
     // ---- Reset 对话框 ----

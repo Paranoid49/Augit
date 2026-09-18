@@ -1547,16 +1547,48 @@ function bindSettingsSave() {
 const ChangeFallbackIntervalMs = 2000;
 let changeTimer = 0;
 
+/**
+ * 同一错误在外部状态未变化时不重复提示（规格 §10.2）。
+ *
+ * 判据是"期间有没有成功过一次"：成功即视为外部状态已变化，记忆清空，
+ * 之后再次失败仍会提示；相同的错误连续出现则只提示第一次。
+ * 这样轮询类失败既不会沉默，也不会每次刷新都弹一遍。
+ */
+const reportedErrors = new Map();
+
+function notifyErrorOnce(key, title, text, options = {}) {
+  const signature = `${title}\u0000${text}`;
+  if (reportedErrors.get(key) === signature) return false;
+  reportedErrors.set(key, signature);
+  showToast({ title, text, kind: options.kind || "error", action: options.action || null });
+  return true;
+}
+
+/** 某个来源恢复成功：清掉它的错误记忆。 */
+function clearReportedError(key) {
+  reportedErrors.delete(key);
+}
+
 async function drainWorkspaceChanges() {
   const live = window.__augitLive;
   if (!live) return;
   try {
     const changes = await invoke("workspace/changes", {}, 10000);
     if (changes && changes.available) {
+      // 读取成功即视为外部状态已变化：清掉记忆，之后再次失败仍会提示。
+      clearReportedError("workspace-changes");
       await applyWorkspaceChanges(changes);
     }
-  } catch {
-    // 单次失败不影响后续。
+  } catch (error) {
+    // 单次失败不影响后续，但必须让用户知道"现在看到的可能不是最新的"（规格 §10.2）；
+    // 同一错误在恢复之前只提示一次，避免每次轮询都弹。
+    notifyErrorOnce(
+      "workspace-changes",
+      "无法读取工作区变化",
+      describeFailure(String((error && error.message) || error), {
+        unchanged: "当前显示的改动列表可能不是最新的。",
+        next: "会在下一次轮询时自动重试。",
+      }));
   }
 }
 
@@ -1934,6 +1966,9 @@ window.__augitOpenWorktreeManager = () => openWorktreeManagerDialog();
 
 window.__augitOpenRemoteManager = () => openRemoteDialog();
 
+// 供验收套件读取"已经提示过哪些错误"，用于验证 §10.2 的不重复语义。
+window.__augitReportedErrors = () => [...reportedErrors.keys()];
+
 window.__augitSettingsWrite = async (payload) => {
   const result = await invoke("settings/write", payload, 15000);
   // 与保存路径一致：重新读取真实设置并重新应用字体与面板尺寸。
@@ -1987,6 +2022,9 @@ window.__augitPanelDragActive = () => panelDrag !== null;
 function showToast({ title, text, kind = "error", action = null }) {
   const live = window.__augitLive;
   if (!live || !title) return false;
+  // 供验收套件统计"实际弹了几次"：区域替换会换掉 .toast-layer 节点，
+  // 用 MutationObserver 观察节点是数不到的（节点本身被替换了）。
+  window.__augitToastShows = (window.__augitToastShows || 0) + 1;
   live.toast = { title, text, kind, action };
   refreshAfterEvent("toast");
   return true;
