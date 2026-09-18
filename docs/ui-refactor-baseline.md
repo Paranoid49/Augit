@@ -7870,3 +7870,23 @@ JSON 文档）；未做内存优化前后对照，因此只作为当前实测记
 行为面再确认一次：对标题栏建 Range 选区后 `getSelection().toString()` 长度为 0。
 
 **验证**：`verify-ui-assets.ps1` PASS（视觉稿两处副本字节一致）。
+
+#### 第一百九十七轮：②的负向验证 + ①的侦察结论
+
+**②负向验证（补上第 196 轮欠的那步）**：把 `user-select` 规则临时整段移除后重跑，
+断言如实失败：`外壳 chrome 不可被选中: ["none","auto","auto","none"]` ——
+元组是 [标题栏, 项目树行, 标签, 状态栏]：标题栏与状态栏本来就有自己的规则（仍为 `none`），
+而**项目树行与标签变成了 `auto`**，正是用户抱怨的那两处 ✗ → 说明这条修复确实是断言通过的原因 ✓。
+恢复后两侧副本 md5 一致，840/840 全绿。
+
+**①侦察结论（原生边框重复）**：
+- 窗口用 `CreateWindowEx(0, WindowClassName, "Augit", WsOverlappedWindow, ...)` 创建
+  （`ShellWindow.cs` 第 205 行），即**默认带原生 caption**，所以屏幕上同时出现系统关闭按钮
+  与视觉稿自绘标题栏里的窗口按钮 ✗；
+- 该文件里**没有**任何 `WM_NCHITTEST` / `SetWindowSubclass` / `WndProc` 处理 ✗ ——
+  也就是说改成无边框后，拖动、双击最大化、边框缩放都会失效，
+  必须先补一层窗口消息子类化。
+- 改造方案（下一轮实施）：创建时去掉 caption 但保留 `WS_THICKFRAME`（缩放能力），
+  用 `SetWindowSubclass` 处理 `WM_NCHITTEST`（标题栏区域返回 `HTCAPTION`、边框 8px 返回对应
+  `HT*` 缩放码）+ `WM_NCCALCSIZE` 让客户区顶到窗口边；配合现有 `--no-frame` 开关。
+  验证：真机启动后截图确认**只有一套**窗口按钮，且拖动/双击最大化/边缘缩放可用。
