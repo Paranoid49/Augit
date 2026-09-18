@@ -8593,3 +8593,27 @@ LAYOUT 差异 5 项：
   列入下一轮第一个排查对象。
 
 至此四类内容开关的机制已验证有效（其余三类同源，只是参数不同）。
+
+#### 第 223 轮：`history-detail-pane` 候选缺陷澄清 —— 又是内容条件样式，不是缺陷
+
+查 CSS 后结论反转：
+
+```css
+.history-detail-pane {
+  display: grid;
+  grid-template-rows: var(--augit-history-toolbar-height, 39px) minmax(0, 1fr);
+}
+.history-detail-pane:has(> .diff-layout) { display: block; }
+```
+
+视觉稿样例的 `file-history.html` 在详情面板里放的是 **diff**，于是 `:has(> .diff-layout)` 命中、
+样式切到 `display: block`（`arrow-up` 图标也来自 diff 工具栏）；而实时侧（`-FileHistory`）在
+那个位置放的是别的内容，因此仍是默认的 `grid`。**这是"内容条件样式"下的状态差异，不是缺陷** ——
+与第 216/220 轮同一类。
+
+**方法教训（第三次同类）**：`compare-dom` 报出的"疑似缺陷"必须先在**视觉稿自己的 CSS/标记**里
+确认该属性是否受内容条件影响（`:has()`、状态类、内容驱动尺寸），否则会把"内容不同"当成"实现不同"。
+已把这条并入判读规则：**看形状 → 看是否同源 → 看是否内容条件 → 再看计数**。
+
+至此第 220–222 轮留下的唯一候选缺陷也已澄清；`file-history` 的对照结论是：
+**在同类内容下外壳与详情面板与视觉稿一致，剩余差异为文字长度与内容条件样式差异。**
