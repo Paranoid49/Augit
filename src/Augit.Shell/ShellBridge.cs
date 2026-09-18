@@ -46,6 +46,7 @@ internal sealed class ShellBridge : IDisposable
     private bool _pendingGitMetadataChange;
     private readonly StringBuilder _terminalBuffer = new();
     private readonly string _workspaceRoot;
+    private readonly WriteOperationTracker _writes = new();
     private ConPtyTerminalSession? _terminal;
     private long _terminalOffset;
     private bool _terminalExited;
@@ -141,16 +142,16 @@ internal sealed class ShellBridge : IDisposable
             "git/history" => await ReadHistoryAsync(cancellationToken),
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
-            "git/commit" => await ReadCommitAsync(parameters, cancellationToken),
+            "git/commit" => await RunWriteAsync(ct => ReadCommitAsync(parameters, ct), cancellationToken),
             "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
-            "git/push" => await PushAsync(parameters, cancellationToken),
-            "git/checkout" => await CheckoutAsync(parameters, cancellationToken),
-            "git/branch" => await BranchAsync(parameters, cancellationToken),
+            "git/push" => await RunWriteAsync(ct => PushAsync(parameters, ct), cancellationToken),
+            "git/checkout" => await RunWriteAsync(ct => CheckoutAsync(parameters, ct), cancellationToken),
+            "git/branch" => await RunWriteAsync(ct => BranchAsync(parameters, ct), cancellationToken),
             "git/fetch" => await FetchAsync(parameters, cancellationToken),
             "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
-            "git/remote-write" => await WriteRemoteAsync(parameters, cancellationToken),
+            "git/remote-write" => await RunWriteAsync(ct => WriteRemoteAsync(parameters, ct), cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
-            "git/rollback" => await RollbackAsync(parameters, cancellationToken),
+            "git/rollback" => await RunWriteAsync(ct => RollbackAsync(parameters, ct), cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
@@ -166,14 +167,15 @@ internal sealed class ShellBridge : IDisposable
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
             "git/conflict-accept" => await AcceptConflictSideAsync(parameters, cancellationToken),
             "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
-            "git/conflict-save" => await SaveConflictAsync(parameters, cancellationToken),
+            "git/conflict-save" => await RunWriteAsync(ct => SaveConflictAsync(parameters, ct), cancellationToken),
             "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
             "terminal/read" => ReadTerminal(parameters),
             "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
-            "git/clone" => await CloneAsync(parameters, cancellationToken),
+            "git/clone" => await RunWriteAsync(ct => CloneAsync(parameters, ct), cancellationToken),
             "workspace/open" => OpenWorkspace(parameters),
+            "write/cancel" => CancelWrite(),
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
@@ -190,6 +192,35 @@ internal sealed class ShellBridge : IDisposable
     /// 打开工作区（产品规格 §2）：同目录激活已有窗口，不同目录启动新窗口。
     /// 目录选择由外壳负责（网页层只提交路径），路径校验在 <see cref="WorkspaceOpener"/> 里。
     /// </summary>
+    /// <summary>
+    /// 执行一条写命令：交给跟踪器串接取消令牌，被取消时如实回话（不假装成功）。
+    /// 取消是否生效由命令本身决定——跟踪器只负责触发令牌与登记"当前写操作"。
+    /// </summary>
+    private async Task<object?> RunWriteAsync(
+        Func<CancellationToken, Task<object?>> action,
+        CancellationToken cancellationToken)
+    {
+        bool cancelled = false;
+        object? result = await _writes
+            .RunAsync(action, flag => cancelled = flag, cancellationToken)
+            .ConfigureAwait(false);
+        return cancelled
+            ? new { available = true, cancelled = true, reason = "操作已取消。" }
+            : result;
+    }
+
+    /// <summary>取消进行中的写操作（规格 §9.3）。没有在途操作时明确回话，界面据此说明。</summary>
+    private object CancelWrite()
+    {
+        bool cancelled = _writes.Cancel();
+        return new
+        {
+            available = true,
+            cancelled,
+            reason = cancelled ? null : "当前没有可取消的操作。",
+        };
+    }
+
     private object OpenWorkspace(JsonElement parameters)
     {
         string path = GetString(parameters, "path")

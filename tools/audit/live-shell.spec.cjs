@@ -585,6 +585,15 @@ async function main() {
         if (!params.message) return { available: true, committed: false, reason: '提交信息不能为空。' };
         return { available: true, committed: true, commitHash: 'abc1234', branch: 'main', remaining: 1 };
       }
+      if (method === 'write/cancel') {
+        window.__writeCancels = (window.__writeCancels || 0) + 1;
+        window.__writeCancelStatusCalls = window.__statusCalls || 0;
+        if (window.__writeCancelDelays) {
+          await new Promise((r) => setTimeout(r, window.__writeCancelDelays));
+        }
+        if (window.__writeCancelNothing) return { available: true, cancelled: false, reason: '当前没有可取消的操作。' };
+        return { available: true, cancelled: true, reason: null };
+      }
       if (method === 'git/commit') {
         const delay = (window.__commitDelays || {})[params.revision];
         if (delay) await new Promise((r) => setTimeout(r, delay));
@@ -9290,12 +9299,39 @@ async function main() {
     await wm.page.waitForTimeout(300);
     await wm.page.locator('.commit-actions .primary-button').first().click();
     await wm.page.waitForTimeout(400);
-    await wm.page.evaluate(() => { window.__statusCalls = 0; });
+    await wm.page.evaluate(() => {
+      window.__statusCalls = 0;
+      window.__writeCancels = 0;
+      window.__writeCancelDelays = 900;
+      window.__writeCancelNothing = false;
+    });
     await wm.page.evaluate(() => {
       document.querySelector('[data-write-cancel]').dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
-    await wm.page.waitForTimeout(900);
+    // 宿主确认之前必须保持"取消中"：按钮仍禁用、文案说明正在取消。
+    await wm.page.waitForTimeout(300);
+    const wmCancelling = await wm.page.evaluate(() => {
+      const actions = document.querySelector('.side-tool .commit-actions');
+      const submit = actions.querySelector('.primary-button');
+      return {
+        operation: window.__augitLive.writeOperation || null,
+        cancelling: !!window.__augitLive.writeCancelling,
+        reason: window.__augitLive.writeCancelReason || null,
+        submitDisabled: submit ? (submit.disabled || submit.getAttribute('aria-disabled') === 'true') : null,
+        cancels: window.__writeCancels || 0,
+        statusCalls: window.__statusCalls || 0,
+        statusCallsAtCancel: window.__writeCancelStatusCalls,
+      };
+    });
+    check('§9.3 取消先通知宿主: ' + JSON.stringify([wmCancelling.cancels, wmCancelling.statusCallsAtCancel]),
+      wmCancelling.cancels === 1 && wmCancelling.statusCallsAtCancel === 0);
+    check('§9.3 宿主确认前保持取消中: ' + JSON.stringify([wmCancelling.operation, wmCancelling.cancelling, wmCancelling.submitDisabled, wmCancelling.reason]),
+      wmCancelling.cancelling === true && wmCancelling.submitDisabled === true
+        && typeof wmCancelling.reason === 'string' && wmCancelling.reason.includes('取消中'));
+    check('§9.3 取消期间不提前重读状态: ' + JSON.stringify(wmCancelling.statusCalls),
+      wmCancelling.statusCalls === 0);
+    await wm.page.waitForTimeout(1200);
     const wmCancelled = await wm.page.evaluate(() => ({
       operation: window.__augitLive.writeOperation || null,
       statusCalls: window.__statusCalls || 0,

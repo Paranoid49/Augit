@@ -5751,16 +5751,40 @@ function isControlDisabled(element) {
  */
 async function cancelWriteOperation() {
   const live = window.__augitLive;
-  if (!live || !live.writeOperation) return;
+  if (!live || !live.writeOperation) return null;
   const operation = live.writeOperation;
-  live.writeOperation = null;
-  live.writeCancelReason = `${operation}已请求取消。`;
-  // 取消后必须读到真实仓库状态，因此重新读取状态与历史。
+  // 取消中：**保持进行态**（按钮仍禁用），等宿主确认本机 Git 真的停下来（规格 §9.3）。
+  // 提前解冻会让用户在命令仍在跑的时候再点一次提交。
+  live.writeCancelling = true;
+  live.writeCancelReason = `${operation}取消中…`;
+  refreshAfterEvent("side", "statusbar");
+
+  let stopped = false;
+  let reason = null;
+  try {
+    const payload = await invoke("write/cancel", {}, 30000);
+    stopped = !!(payload && payload.cancelled);
+    reason = payload ? payload.reason : null;
+  } catch (error) {
+    reason = String((error && error.message) || error);
+  }
+
+  live.writeCancelling = false;
+  // 不假设取消生效，也不自行回滚：**任何结果都重新读取真实仓库状态**。
   await Promise.all([
     loadStatus().catch(() => null),
     loadHistory().catch(() => null),
   ]);
+  if (!stopped) {
+    // 宿主说没有可取消的操作：说明命令已经自己结束了，此时才解除进行态。
+    live.writeOperation = null;
+  }
+  live.writeCancelReason = stopped
+    ? `${operation}已取消。`
+    : `${operation}已结束（${reason || "没有可取消的操作"}）。`;
   refreshAfterEvent("side", "editorContent", "statusbar", "bottomTool");
+  window.__augitWriteCancelStopped = stopped;
+  return stopped;
 }
 
 /** 关闭实时弹层。 */
