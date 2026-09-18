@@ -157,6 +157,16 @@ Start-Sleep -Milliseconds 1500
 [void](Invoke-Cdp $socket "new Promise(r=>{const t=Date.now();const t2=setInterval(()=>{if((window.__augitReady&&window.__augitGitReady&&window.__augitHistoryReady)||Date.now()-t>25000){clearInterval(t2);r(true)}},200)})" 6 40)
 $effective = Invoke-Cdp $socket "getComputedStyle(document.documentElement).fontSize + '|' + getComputedStyle(document.body).fontFamily" 7
 Write-Output ("TYPOGRAPHY " + $effective)
+
+# Re-type the query AFTER the typography equalization: that step reloads the page via
+# location.search, which clears whatever was typed before it (rounds 260/261 saw an empty
+# result list for exactly this reason). NOTE: keep every comment in this file ASCII-only.
+if ($SetQuery -ne "") {
+  $queryJsonAfter = ConvertTo-Json $SetQuery -Compress
+  $typedAfter = Invoke-Cdp $socket "(()=>{const i=document.querySelector('.search-overlay .search-field');if(!i)return 'no-field';i.value=$queryJsonAfter;i.dispatchEvent(new Event('input',{bubbles:true}));return 'typed:'+i.value})()" 10
+  Write-Output ("SET_QUERY_AFTER_EQUALIZE " + $typedAfter)
+  Start-Sleep -Milliseconds 2500
+}
 # NOTE: PowerShell variable names are case-insensitive, so a local named $selectors would BE
 # the $Selectors parameter - assigning @() to it wiped the argument before enumeration and the
 # dump silently contained nothing (regions=0). Use a distinct name.

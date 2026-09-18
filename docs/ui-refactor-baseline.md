@@ -9622,3 +9622,32 @@ CHAIN BODY > DIV > augit-window > search-overlay > search-results > search-resul
 2. 追加后先跑 `verify-script-encoding.ps1`（应仍为 11 个脚本 PASS），再跑
    `-Scene repository-search -SetQuery product`；
 3. 预期能抓到 `search-results` 与结果行，完成该页定点对照（与视觉稿结构一致，行数属数据差异）。
+
+#### 第 264 轮：`-SetQuery` 顺序修好（英文注释 + 先过编码检查）→ `repository-search` 页对齐
+
+按第 263 轮的清单执行：追加"等值化之后重新输入查询"的代码块、**注释全部英文**，
+随后先跑 `verify-script-encoding.ps1`（**PASS，11 个脚本 0 非 ASCII 字节**）再执行抓取。
+
+**抓取成功**：`SET_QUERY_AFTER_EQUALIZE typed:product` + 产出 JSON，
+浮层里终于出现结果行（1063 节点）：
+
+```
+MISSING-IN-LIVE .search-overlay/div[3] <search-notice> "3 条结果"
+  EXTRA-IN-LIVE .search-overlay/div[2]/a[3] <search-result> ""
+TEXT 差异 14 项：
+  .search-overlay <search-overlay repository-mode> text 视觉稿="全仓搜索包含忽略文件NativeGitPanel.cs 214: Git 状态已刷新。src/Augit.Apparch" 实时="全仓搜索包含忽略文件mockup.js 1287: \"docs/product-spec.md\": [web/srcmo"
+  .search-overlay/div[2] <search-results> text 视觉稿="NativeGitPanel.cs 214: Git 状态已刷新。src/Augit.Apparchitecture.m" 实时="mockup.js 1287: \"docs/product-spec.md\": [web/srcmockup.js 13"
+  .search-overlay/div[2]/a[0] <search-result selected> text 视觉稿="NativeGitPanel.cs 214: Git 状态已刷新。src/Augit.App" 实时="mockup.js 1287: \"docs/product-spec.md\": [web/src"
+```
+
+**判读（按第 244 轮规则只看结构/配色/间距/边框/圆角/图标）**：
+- 结构**完全一致**：`.search-overlay > div.search-results > a.search-result.selected`
+  的层级、x 坐标（226/236）、行高（32）两侧相同 ✓；
+- 差异全部来自**数据与滚动条**：浮层 220 → 407、结果容器 106 → 325
+  （真实仓库 159 条命中 vs 样例几条）；
+  `search-result` 宽 708 → 693 是**滚动条**（第 211 轮确立的规则）✓；
+- 结论：**`repository-search` 页与视觉稿结构一致**，无需修改产品代码。
+
+**本轮工具改动的验证**：编码检查 PASS（新增内容全 ASCII）+ 真机抓取成功且结果可比对 ——
+第 260/261 轮的"搜索结果缺失"至此完整闭环：**不是产品缺陷，而是对照工具的两处问题**
+（输入选择器 `.search-field`、输入时机早于等值化重载），两处都已修复。
