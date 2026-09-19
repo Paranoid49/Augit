@@ -12667,3 +12667,24 @@ harness 侧冻结同一套 walker：断言 `settings.html`/`branches.html` 不�
 
 harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html` **不得**再出现在兜底集合里
 （这正是 P0 ① "点了没反应"那一类的回归护栏）。`live-shell` **1014/1014（未执行 0 项）**。
+
+#### 第 370 轮：清单里 4 个"无变化"候选逐个定性（真机复读 13/4/9，与预测一致）
+
+**先修方法学**：上一轮的探针跑在**旧拷贝的 web 资源**上（我只改了 `web/src/` 却没重建 exe），
+所以那次读数里两个芯片仍显示"落兜底"。本轮先 `dotnet build`（确认 exe 里的 `live-data.js`
+已含 `workspace-chip` 分支）再复读，结果：
+
+- **13 个去重入口 / 4 个被识别**（`workspace-open.html`、`branches.html`、`quick-open.html`、
+  `settings.html`）/ **9 个落兜底** —— 与上一轮预测的"13/4/9"完全一致，两个芯片的接线在真机上生效。
+- 落兜底的 9 个里，5 个 `a.rail-button`（`.tool-rail`）点击后**都有变化**
+  （`layoutSide`/`layoutBottom`/`overlays` 等键变化），证明动作由 target 阶段绑定完成。
+- 剩下 4 个带"节点描述 + 逐键 diff"的读数定性为**视觉稿样例内容**，不是实时路径缺陷：
+  - `text-viewer.html` / `markdown-preview.html` 是 `a.editor-tab` 且 `wasActiveTab=false`、无变化；
+    实时标签的点击绑定是 `.editor-tab[data-tab-id]`（`live-data.js:6736/6765`），
+    而这两条来自视觉稿 `editorTabs()` 模板（`mockup.js:2352`），**没有 `data-tab-id`**；
+  - `file-history.html` / `blame.html` 是 `.bottom-tool` 里的 `a.toolbar-button`，来自视觉稿的
+    提交详情模板（`mockup.js:3570`），场景模式下同样没有实时绑定。
+
+**口径**：这 4 项从"疑似真死候选"改判为"`?scene=` 模式下点样例标签无反应"，
+实时路径（文档标签切换、提交详情的文件历史/Blame）由 harness 既有断言覆盖；
+不再把它们写成实缺陷，也不把"落兜底"混同为"没接线"。

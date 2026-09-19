@@ -1135,10 +1135,19 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     并让 harness 的清单断言**直接盯住这两个 href 不再落兜底**。
     验证：`live-shell` **1014/1014（未执行 0 项）**；真机清单读数（13 个入口里
     4 个被识别 / 9 个落兜底）留待下一轮探针复读。
-    **仍待逐个复核的 4 个候选**：`text-viewer.html`、`markdown-preview.html`（编辑器标签，
-    很可能是"点击当前活动标签"）、`file-history.html`、`blame.html`（提交详情工具栏/树菜单条目）。
-    第 368 轮的探针信号里没有 `activeTabId`、也没有记录"点了哪一个节点"，分辨不了这三种情况，
-    **不把它们写成"已确认失效"**。
+    **第 370 轮已把 4 个候选逐个定性（先重建再复读，避免用旧拷贝的 web 资源得出结论）**：
+    真机复读为 **13 个入口 / 4 个被识别（新接的两个芯片已计入）/ 9 个落兜底**，与上一轮预测一致；
+    带"节点描述 + 逐键 diff"的探针给出：
+
+    | href | 节点 | 归属 | 点击前后 | 定性 |
+    | --- | --- | --- | --- | --- |
+    | `main-project` / `commit-changes` / `repository-search` / `terminal` / `git-history` | `a.rail-button` | `.tool-rail` | bodyLength + `layoutSide`/`layoutBottom`/`overlays` **有变化** | 动作由 target 阶段绑定完成；落兜底只是"识别链不认识"的记录 |
+    | `text-viewer.html` / `markdown-preview.html` | `a.editor-tab`（`wasActiveTab=false`） | `.editor-tabs` | **无变化** | **视觉稿样例标签**：实时标签的点击绑定是 `.editor-tab[data-tab-id]`（`live-data.js:6736/6765`），而这两条来自视觉稿的 `editorTabs()` 模板（`mockup.js:2352`）**没有 `data-tab-id`** —— 属 `?scene=` 模式的样例内容，不是实时文档标签的缺陷（实时标签切换由 harness 覆盖） |
+    | `file-history.html` / `blame.html` | `a.toolbar-button` | `.bottom-tool` | **无变化** | 同上，来自视觉稿的提交详情模板（`mockup.js:3570`），场景模式下没有对应的实时绑定 |
+
+    因此这 4 项**不再列为"疑似真死"**：它们的动作对象在实时路径上由 `data-*` 标识驱动，
+    场景模式渲染的是视觉稿样例；如实记成"`?scene=` 模式下点样例标签无反应"这一条口径，
+    并保留"实时路径由 harness 断言覆盖"的既有事实。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
