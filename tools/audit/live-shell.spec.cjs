@@ -10162,6 +10162,330 @@ async function main() {
     await wm.page.evaluate(() => { window.__commitDelays = 0; });
     await wm.page.close();
 
+    // ---- 规格 §4.4 / §5.4：键盘焦点必须有可见焦点环（深浅主题都要清晰）----
+    {
+      const ringFor = async (theme) => {
+        const { page } = await openScene(`scene=main-project&theme=${theme}`);
+        await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await page.waitForTimeout(600);
+        // 先按一次 Tab：` :focus-visible ` 的判定依据是"最近一次输入模态是键盘"，
+        // 只调用 el.focus() 在 Chromium 里不一定会命中该伪类。
+        await page.keyboard.press('Tab');
+        const ring = await page.evaluate(() => {
+          const target = document.querySelector('.bottom-header > button:not([disabled])')
+            || document.querySelector('.git-side-toolbar > button:not([disabled])');
+          if (!target) return null;
+          target.focus();
+          const style = getComputedStyle(target);
+          // 深色令牌挂在 body[data-theme="dark"] 下，:root 上是浅色令牌 ——
+          // 必须从**元素自身**的计算样式读（第 287 轮的教训，这里是同一个坑）。
+          const hex = style.getPropertyValue('--augit-blue').trim();
+          const digits = hex.replace('#', '');
+          const full = digits.length === 3 ? digits.split('').map((c) => c + c).join('') : digits;
+          const value = Number.parseInt(full, 16);
+          return {
+            label: target.getAttribute('aria-label') || target.className,
+            focused: document.activeElement === target,
+            focusVisible: target.matches(':focus-visible'),
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            outlineColor: style.outlineColor,
+            boxShadow: style.boxShadow === 'none' ? null : style.boxShadow,
+            blueRgb: `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`,
+          };
+        });
+        await page.close();
+        return ring;
+      };
+      const ringDark = await ringFor('dark');
+      const ringLight = await ringFor('light');
+      const ringVisible = (ring) => !!ring && ring.focused === true && ring.focusVisible === true
+        && ((ring.outlineStyle !== 'none' && Number.parseFloat(ring.outlineWidth) >= 1) || ring.boxShadow !== null);
+      check('§4.4 深色主题下键盘焦点有可见焦点环: ' + JSON.stringify(ringDark), ringVisible(ringDark));
+      check('§4.4 浅色主题下键盘焦点有可见焦点环: ' + JSON.stringify(ringLight), ringVisible(ringLight));
+      check('§4.4 焦点环使用设计系统的蓝色令牌: '
+        + JSON.stringify([ringDark && ringDark.outlineColor, ringDark && ringDark.blueRgb]),
+      !!ringDark && ringDark.outlineColor === ringDark.blueRgb);
+
+      // 焦点离开列表：保留选中项，但选中背景转为中性灰（规格 §4.4），且不产生副作用。
+      const fc = await openScene('scene=main-project&theme=dark');
+      await fc.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await fc.page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 10000 });
+      await fc.page.waitForTimeout(400);
+      const selectionColors = () => fc.page.evaluate(() => {
+        const toRgb = (hex) => {
+          const digits = String(hex).trim().replace('#', '');
+          const full = digits.length === 3 ? digits.split('').map((c) => c + c).join('') : digits;
+          const value = Number.parseInt(full, 16);
+          return `rgb(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255})`;
+        };
+        const row = document.querySelector('.side-content.tree .tree-row.selected[data-tree-path]');
+        const region = document.querySelector('.side-content.tree');
+        // 令牌同样从元素自身读：深色令牌在 body[data-theme="dark"] 下（第 287 轮教训）。
+        const tokens = getComputedStyle(row || region || document.body);
+        if (row) row.__probeFocus = true;
+        return {
+          background: row ? getComputedStyle(row).backgroundColor : null,
+          inactive: row ? row.classList.contains('inactive') : null,
+          selectedCount: document.querySelectorAll('.side-content.tree .tree-row.selected').length,
+          inRegion: !!(document.activeElement && region.contains(document.activeElement)),
+          blueSoft: toRgb(tokens.getPropertyValue('--augit-blue-soft')),
+          neutral: toRgb(tokens.getPropertyValue('--augit-selection-inactive')),
+          selected: row ? row.dataset.treePath : null,
+          sameNode: !!(row && row.__probeFocus),
+          readCalls: window.__readCalls || 0,
+          statusCalls: window.__statusCalls || 0,
+          tabs: (window.__augitLive.tabs || []).length,
+          diff: !!window.__augitLive.diff,
+        };
+      });
+      await fc.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await fc.page.locator('.side-content.tree').focus();
+      await fc.page.waitForTimeout(200);
+      const fcFocused = await selectionColors();
+      // 用真实 Tab 把焦点移出侧栏（不点击任何按钮，避免误触动作）。
+      for (let i = 0; i < 8; i += 1) {
+        await fc.page.keyboard.press('Tab');
+        await fc.page.waitForTimeout(90);
+        if (!(await fc.page.evaluate(() => {
+          const region = document.querySelector('.side-content.tree');
+          return !!(document.activeElement && region.contains(document.activeElement));
+        }))) break;
+      }
+      const fcBlurred = await selectionColors();
+      check('§4.4 列表获得焦点时选中行用浅蓝: '
+        + JSON.stringify([fcFocused.selected, fcFocused.inactive, fcFocused.background, fcFocused.blueSoft]),
+      fcFocused.inRegion === true && fcFocused.inactive === false && fcFocused.background === fcFocused.blueSoft);
+      check('§4.4 焦点移出列表后保留选中并转中性灰: '
+        + JSON.stringify([fcBlurred.inRegion, fcBlurred.selected, fcBlurred.inactive, fcBlurred.background, fcBlurred.neutral]),
+      fcBlurred.inRegion === false && fcBlurred.selected === fcFocused.selected
+        && fcBlurred.inactive === true && fcBlurred.background === fcBlurred.neutral
+        && fcBlurred.selectedCount === 1 && fcBlurred.sameNode === true);
+      check('§4.4 焦点移出不触发打开文件/Diff/Git 查询: '
+        + JSON.stringify([fcBlurred.readCalls - fcFocused.readCalls, fcBlurred.statusCalls - fcFocused.statusCalls,
+          fcBlurred.tabs, fcBlurred.diff]),
+      fcBlurred.readCalls === fcFocused.readCalls && fcBlurred.statusCalls === fcFocused.statusCalls
+        && fcBlurred.tabs === fcFocused.tabs && fcBlurred.diff === false);
+      await fc.page.close();
+    }
+
+    // ---- 规格 §4.2：分隔条两处边界情形 —— 拖动中的 Esc 不关查找条；同一实际尺寸不重复布局 ----
+    {
+      const pd = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+      await pd.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await pd.page.waitForFunction('window.__augitLive.document && window.__augitLive.document.path === "docs/notes.txt"',
+        null, { timeout: 15000 });
+      await pd.page.waitForSelector('.document-view .document-toolbar', { timeout: 10000 });
+      const geometry = () => pd.page.evaluate(() => {
+        const side = document.querySelector('.side-tool').getBoundingClientRect();
+        return { right: Math.round(side.right), top: Math.round(side.top), bottom: Math.round(side.bottom),
+          width: Math.round(side.width) };
+      });
+      // 打开正文顶部的查找条（工具栏第 3 个按钮 = 当前文件搜索）。
+      await pd.page.evaluate(() => {
+        const toolbar = document.querySelector('.document-view .document-toolbar');
+        toolbar.querySelectorAll('button')[2].click();
+      });
+      await pd.page.waitForSelector('.current-find input', { timeout: 8000 });
+      const focusInFind = await pd.page.evaluate(() =>
+        !!(document.activeElement && document.activeElement.closest('.current-find')));
+      check('§4.2 前置条件：查找条已打开且焦点在查找输入框', focusInFind === true);
+
+      const geo = await geometry();
+      const midY = Math.round((geo.top + geo.bottom) / 2);
+      await pd.page.mouse.move(geo.right + 2, midY);
+      await pd.page.mouse.down();
+      await pd.page.mouse.move(geo.right + 30, midY, { steps: 4 });
+      await pd.page.keyboard.press('Escape');
+      await pd.page.waitForTimeout(200);
+      const duringDragEsc = await pd.page.evaluate(() => ({
+        findBars: document.querySelectorAll('.current-find').length,
+        dragActive: window.__augitPanelDragActive(),
+      }));
+      await pd.page.mouse.up();
+      check('§4.2 拖动中的 Esc 只结束拖动、不关闭查找条: '
+        + JSON.stringify([duringDragEsc.findBars, duringDragEsc.dragActive]),
+      duringDragEsc.dragActive === false && duringDragEsc.findBars === 1);
+      // 对照：同样的 Esc 在非拖动状态下会关闭查找条（证明上面的差异来自分层规则）。
+      await pd.page.keyboard.press('Escape');
+      await pd.page.waitForTimeout(300);
+      check('§4.2 对照：非拖动时 Esc 关闭查找条',
+        (await pd.page.evaluate(() => document.querySelectorAll('.current-find').length)) === 0);
+
+      // 同一实际尺寸不重复布局：在阈值内移动不得写入面板尺寸，也不得重建节点或丢上下文。
+      await pd.page.evaluate(() => { window.__settingsWritten = {}; });
+      const beforeSame = await pd.page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        const first = tree.querySelector('.tree-row[data-tree-path]');
+        if (first) first.__probeSame = true;
+        tree.scrollTop = 40;
+        return {
+          inlineWidth: document.documentElement.style.getPropertyValue('--augit-side-width'),
+          scrollTop: tree.scrollTop,
+          active: document.activeElement ? (document.activeElement.getAttribute('aria-label')
+            || document.activeElement.className || document.activeElement.tagName) : null,
+        };
+      });
+      const geo2 = await geometry();
+      const midY2 = Math.round((geo2.top + geo2.bottom) / 2);
+      await pd.page.mouse.move(geo2.right + 2, midY2);
+      await pd.page.mouse.down();
+      // 小于 0.5px 的增量必须被忽略（规格 §4.2「同一实际尺寸不重复布局」）。
+      await pd.page.mouse.move(geo2.right + 2.3, midY2);
+      await pd.page.waitForTimeout(150);
+      const duringSame = await pd.page.evaluate(() => ({
+        inlineWidth: document.documentElement.style.getPropertyValue('--augit-side-width'),
+        width: Math.round(document.querySelector('.side-tool').getBoundingClientRect().width),
+        dragActive: window.__augitPanelDragActive(),
+      }));
+      await pd.page.mouse.up();
+      await pd.page.waitForTimeout(200);
+      const afterSame = await pd.page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        const first = tree.querySelector('.tree-row[data-tree-path]');
+        return {
+          inlineWidth: document.documentElement.style.getPropertyValue('--augit-side-width'),
+          scrollTop: tree.scrollTop,
+          active: document.activeElement ? (document.activeElement.getAttribute('aria-label')
+            || document.activeElement.className || document.activeElement.tagName) : null,
+          sameNode: !!(first && first.__probeSame),
+          written: window.__settingsWritten || {},
+        };
+      });
+      check('§4.2 同一实际尺寸不重复布局（不写尺寸、不重排）: '
+        + JSON.stringify([duringSame.dragActive, duringSame.inlineWidth, duringSame.width, geo2.width]),
+      duringSame.dragActive === true && duringSame.inlineWidth === beforeSame.inlineWidth
+        && duringSame.width === geo2.width);
+      check('§4.2 同一实际尺寸保持焦点与滚动上下文: '
+        + JSON.stringify([beforeSame.scrollTop, afterSame.scrollTop, beforeSame.active, afterSame.active, afterSame.sameNode]),
+      afterSame.sameNode === true && afterSame.scrollTop === beforeSame.scrollTop
+        && afterSame.active === beforeSame.active);
+      check('§4.2 未实际改变尺寸的按下不写回设置: ' + JSON.stringify(afterSame.written),
+      afterSame.written.projectPanelWidth === undefined);
+      await pd.page.close();
+    }
+
+    // ---- 规格 §5.1：长按（键盘自动重复）不重复触发 ----
+    // 用 CDP 发**真实的自动重复按键**（Input.dispatchKeyEvent + autoRepeat），
+    // 并在页面上装一个计数器证明探针确实送出了 5 次 Enter（4 次是重复），
+    // 否则"只切换一次"可能是空断言。
+    {
+      const lp = await openScene('scene=main-project&theme=dark');
+      await lp.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await lp.page.waitForTimeout(600);
+      const client = await lp.page.context().newCDPSession(lp.page);
+      const enter = (autoRepeat) => client.send('Input.dispatchKeyEvent', {
+        type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, autoRepeat,
+      });
+
+      // 计数器必须挂在 **document 捕获阶段**：第一次激活就会重绘并替换标题栏/工具区节点，
+      // 挂在按钮节点上的计数器只能看到第一次按键（实测 `events=[false]`）。
+      await lp.page.evaluate(() => {
+        window.__enterEvents = [];
+        window.__activeAfterRepeat = [];
+        // 采样"可观察折叠状态"而不是 layout.side：折叠在实现里记在 layout.collapsed 上，
+        // layout.side 保持 'project' 不变，只看它会把"有没有切换"测成永远 0 次。
+        window.__state = () => (window.__augitLive.layout.collapsed || 'none')
+          + ':' + (document.querySelector('.side-tool') ? 'shown' : 'hidden');
+        window.__sideSequence = [window.__state()];
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') window.__enterEvents.push(event.repeat);
+        }, true);
+        document.querySelector('.tool-rail .rail-button.active').focus();
+      });
+      await enter(false);
+      for (let i = 0; i < 4; i += 1) {
+        await enter(true);
+        // 每次重复之后采样一次折叠状态：正确的实现只应发生一次切换。
+        await lp.page.waitForTimeout(80);
+        await lp.page.evaluate(() => {
+          window.__sideSequence.push(window.__state());
+          window.__activeAfterRepeat.push(document.activeElement
+            ? (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName) : null);
+        });
+      }
+      await lp.page.waitForTimeout(300);
+      const longPress = await lp.page.evaluate(() => ({
+        events: window.__enterEvents,
+        sequence: window.__sideSequence,
+        activeAfterRepeat: window.__activeAfterRepeat,
+        collapsed: window.__augitLive.layout.collapsed || 'none',
+        hasSide: !!document.querySelector('.side-tool'),
+      }));
+      const transitions = longPress.sequence.filter((value, index) => index > 0 && value !== longPress.sequence[index - 1]).length;
+      check('§5.1 控制：探针确实送出了 5 次 Enter（含 4 次重复）: ' + JSON.stringify(longPress.events),
+        longPress.events.length === 5 && longPress.events.filter(Boolean).length === 4);
+      check('§5.1 长按不重复切换工具窗口（最多切换一次）: '
+        + JSON.stringify([longPress.sequence, transitions]),
+      transitions <= 1);
+      check('§5.1 长按后状态与单击一致（已激活入口 → 折叠）: '
+        + JSON.stringify([longPress.collapsed, longPress.hasSide]),
+      longPress.collapsed === 'side' && longPress.hasSide === false);
+      console.log('INFO §5.1 重复按键后的焦点=' + JSON.stringify(longPress.activeAfterRepeat));
+      await lp.page.close();
+
+      // 对话框里的自动重复 Enter：只能触发一次动作。
+      // 注意：这里**不能**用"移除 event.repeat 守卫后断言失败"做负向验证 ——
+      // `start()` 自身还有 `running` 重入守卫，两层任取一层都能挡住重复，
+      // 因此断言只能钉住"可观察结果"，无法隔离单层（与 §9.3 重复触发那条同一情形）。
+      const rp = await openScene('scene=reset&theme=dark');
+      await rp.page.waitForSelector('[data-augit-overlay] .dialog .reset-run', { timeout: 10000 });
+      await rp.page.waitForTimeout(500);
+      const resetClient = await rp.page.context().newCDPSession(rp.page);
+      const resetEnter = (autoRepeat) => resetClient.send('Input.dispatchKeyEvent', {
+        type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, autoRepeat,
+      });
+      await rp.page.evaluate(() => {
+        window.__resetNotices = [];
+        window.__resetKeys = [];        // document 捕获阶段：5 次 Enter（含 4 次重复）
+        window.__resetDialogKeys = [];  // 对话框节点实际收到的次数（对话框可能在重复期间被关闭）
+        window.__resetStates = [];
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') window.__resetKeys.push(event.repeat);
+        }, true);
+        const dialog = document.querySelector('.reset-dialog');
+        dialog.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') window.__resetDialogKeys.push(event.repeat);
+        }, true);
+        const notice = document.querySelector('.reset-notice');
+        new MutationObserver(() => window.__resetNotices.push(notice.textContent))
+          .observe(notice, { childList: true, characterData: true, subtree: true });
+        document.querySelector('#reset-target').focus();
+      });
+      await resetEnter(false);
+      await rp.page.evaluate(() => {
+        const dialog = document.querySelector('.reset-dialog');
+        window.__resetStates.push(dialog ? dialog.dataset.state : null);
+      });
+      for (let i = 0; i < 4; i += 1) {
+        await resetEnter(true);
+        await rp.page.waitForTimeout(60);
+        await rp.page.evaluate(() => {
+          const dialog = document.querySelector('.reset-dialog');
+          window.__resetStates.push(dialog ? dialog.dataset.state : null);
+        });
+      }
+      await rp.page.waitForTimeout(500);
+      const resetRepeat = await rp.page.evaluate(() => {
+        const dialog = document.querySelector('.reset-dialog');
+        return {
+          keys: window.__resetKeys,
+          dialogKeys: window.__resetDialogKeys,
+          notices: window.__resetNotices,
+          states: window.__resetStates,
+          state: dialog ? dialog.dataset.state : null,
+          runDisabled: (document.querySelector('.reset-run') || {}).disabled,
+        };
+      });
+      console.log('INFO §5.1 Reset 对话框重复 Enter=' + JSON.stringify(resetRepeat));
+      check('§5.1 控制：探针确实送出了 5 次 Enter（含 4 次重复）: ' + JSON.stringify(resetRepeat.keys),
+        resetRepeat.keys.length === 5 && resetRepeat.keys.filter(Boolean).length === 4);
+      check('§5.1 长按 Enter 时对话框只执行一次动作: '
+        + JSON.stringify([resetRepeat.states, resetRepeat.notices, resetRepeat.dialogKeys]),
+      resetRepeat.states[0] === 'running' && resetRepeat.notices.length === 1);
+      await rp.page.close();
+    }
+
     // ---- 规格 §154：调整界面字号时保持原文档控件、树选择与首个可见节点、正文选择与滚动 ----
     // 标定阶段：先如实记录各项测量，再据实收紧为断言。
     {

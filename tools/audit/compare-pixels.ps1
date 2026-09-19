@@ -30,9 +30,11 @@ param(
   # scenes only exist in the live shell when the matching startup flag is given (blame,
   # file-history, open, diff, conflict), otherwise both sides would render sample data.
   [string[]]$LiveArgs = @(),
-  # JS evaluated on the live page before the screenshot, for aligning a view MODE with the
-  # mockup scene (e.g. text-viewer shows the inline find bar, the live shell starts without it).
-  [string]$LiveSetup = ""
+  # Path to a JS file evaluated on the live page before the screenshot, for aligning a view MODE
+  # with the mockup scene (e.g. text-viewer shows the inline find bar, the live shell starts
+  # without it). A FILE is used instead of an inline string because -File argument parsing
+  # strips double quotes from embedded JS.
+  [string]$LiveSetupFile = ""
 )
 $ErrorActionPreference = "Stop"
 if ($OutDir -eq "") { $OutDir = Join-Path $env:TEMP "augit-pixels" }
@@ -68,8 +70,9 @@ function Capture([string]$mode, [int]$port, [string]$out) {
     Start-Sleep -Seconds 3
   } else {
     Start-Sleep -Seconds 2
-    if ($LiveSetup -ne '') {
-      [void](Invoke-Cdp $socket $LiveSetup 2 30)
+    if ($LiveSetupFile -ne '' -and (Test-Path -LiteralPath $LiveSetupFile)) {
+      $script = Get-Content -LiteralPath $LiveSetupFile -Raw -Encoding UTF8
+      [void](Invoke-Cdp $socket $script 2 30)
       Start-Sleep -Seconds 1
     }
   }
