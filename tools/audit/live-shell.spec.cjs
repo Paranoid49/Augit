@@ -2465,6 +2465,56 @@ async function main() {
         && !tabsAfterExplicitDocument.paths.includes('docs/product-spec.md'));
     await noRestore.page.close();
 
+    // ---- 规格 §5/§6：悬停只改外观，不改变选择、不触发宿主查询（B 线操作逻辑）----
+    // 规格要求：树行/Changes 行的悬停由各自工具窗口独立维护，只重绘新旧命中行，
+    // 不改变选择/复选/草稿/焦点，也不查询 Git；选中态优先于悬停态。
+    const hv = await openScene('scene=commit-changes&theme=dark');
+    await hv.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await hv.page.waitForSelector('.changes-list .check-row', { timeout: 10000 });
+    const hoverProbe = await hv.page.evaluate(async () => {
+      const rows = [...document.querySelectorAll('.changes-list .check-row')];
+      if (rows.length < 2) return { skip: true, rows: rows.length };
+      const target = rows[1];
+      const before = {
+        statusCalls: window.__statusCalls || 0,
+        diffCalls: (window.__diffCalls || []).length,
+        selected: window.__augitLive.selectedChangePath || null,
+        checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      };
+      const plain = getComputedStyle(target).backgroundColor;
+      target.classList.add('__hover-probe');
+      // 用真实指针事件驱动悬停（不直接改样式），再读悬停后的计算背景。
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: rect.left + 5, clientY: rect.top + 5 }));
+      target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: rect.left + 5, clientY: rect.top + 5 }));
+      await new Promise((r) => setTimeout(r, 120));
+      const after = {
+        statusCalls: window.__statusCalls || 0,
+        diffCalls: (window.__diffCalls || []).length,
+        selected: window.__augitLive.selectedChangePath || null,
+        checked: (window.__augitLive.status.files || []).map((f) => !!f.checked),
+      };
+      target.classList.remove('__hover-probe');
+      return {
+        before, after, plain,
+        hoverBg: getComputedStyle(target).backgroundColor,
+        cssRule: [...document.styleSheets].some((sheet) => {
+          try { return [...sheet.cssRules].some((rule) => rule.selectorText && rule.selectorText.includes(':hover')); }
+          catch { return false; }
+        }),
+      };
+    });
+    check('悬停有样式规则（CSS :hover 存在）: ' + JSON.stringify(hoverProbe.cssRule), hoverProbe.cssRule === true);
+    check('悬停不触发宿主查询: ' + JSON.stringify([hoverProbe.before && hoverProbe.before.statusCalls, hoverProbe.after && hoverProbe.after.statusCalls, hoverProbe.before && hoverProbe.before.diffCalls, hoverProbe.after && hoverProbe.after.diffCalls]),
+      hoverProbe.before && hoverProbe.after
+        && hoverProbe.after.statusCalls === hoverProbe.before.statusCalls
+        && hoverProbe.after.diffCalls === hoverProbe.before.diffCalls);
+    check('悬停不改变选择与复选: ' + JSON.stringify([hoverProbe.before && hoverProbe.before.selected, hoverProbe.after && hoverProbe.after.selected, JSON.stringify(hoverProbe.after && hoverProbe.after.checked) === JSON.stringify(hoverProbe.before && hoverProbe.before.checked)]),
+      hoverProbe.before && hoverProbe.after
+        && hoverProbe.after.selected === hoverProbe.before.selected
+        && JSON.stringify(hoverProbe.after.checked) === JSON.stringify(hoverProbe.before.checked));
+    await hv.page.close();
+
     // ---- 底部 Git 工具窗的"更多"入口不得越堆越多（用户实测反馈：右下角一堆详情）----
     // 视觉稿的侧工具条绑定会在**每次**绑定调用时 append 一组「更多」按钮与弹层；
     // 视觉稿页面只渲染一次，实时外壳却会在每次区域刷新后重新绑定，
