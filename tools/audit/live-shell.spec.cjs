@@ -688,11 +688,15 @@ async function main() {
         if (window.__limitDocs && window.__limitDocs[params.path]) return window.__limitDocs[params.path];
         // 图片载荷：宿主会返回 dataUrl 与像素尺寸，桩必须给出同样的形状，
         // 否则前端"搬运 dataUrl"这条接线无法被断言覆盖。
+        // dataUrl 必须是**真正能解码**的 PNG：此前用的是只有文件头的 base64，
+        // 浏览器解不开（naturalWidth=0），加了"解码失败兜底"后会把它判成坏图。
         if (/\.png$/i.test(params.path)) {
           return {
             path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
             workspaceName: 'live-ws', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像',
-            fileSize: 8, dataUrl: 'data:image/png;base64,iVBORw0KGgo=', pixelWidth: 1920, pixelHeight: 1200,
+            fileSize: 70,
+            dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==',
+            pixelWidth: 1920, pixelHeight: 1200,
             text: null, encoding: null, lineEndings: null, message: null,
           };
         }
@@ -4007,6 +4011,67 @@ async function main() {
     check('设置写入失败被上报: ' + JSON.stringify(roResult), roResult.ok === false && roResult.err.includes('无法访问'));
     await roSettings.page.close();
 
+    // ---- 规格 §9.3 / §10.2：保存失败必须留在对话框里、显示原因、保留用户输入 ----
+    // 走**用户路径**（标题栏齿轮打开设置 → 点保存），而不是直接调 __augitSaveSettings()：
+    // 前者才会经过对话框上的动作绑定，后者只能证明 API 会抛。
+    {
+      const sf = await openScene('scene=main-project&theme=dark');
+      await sf.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await sf.page.waitForTimeout(400);
+      const openSettingsDialog = async () => {
+        await sf.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+        await sf.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+        await sf.page.waitForTimeout(200);
+      };
+      await openSettingsDialog();
+      await sf.page.evaluate(() => { window.__settingsReadOnly = true; window.__settingsWritten = {}; });
+      await sf.page.fill('.settings-window [data-setting="fontSize"]', '21');
+      await sf.page.locator('.settings-window [data-settings-action="save"]').click();
+      await sf.page.waitForTimeout(900);
+      const failure = await sf.page.evaluate(() => {
+        const dialog = document.querySelector('.settings-window');
+        const field = dialog ? dialog.querySelector('[data-setting="fontSize"]') : null;
+        const help = document.querySelector('.settings-window .dialog-footer .footer-help');
+        const footer = document.querySelector('.settings-window .dialog-footer');
+        return {
+          open: !!dialog,
+          value: field ? field.value : null,
+          help: help ? help.textContent : null,
+          helpExists: !!help,
+          helpClass: help ? help.className : null,
+          footerHtml: footer ? footer.innerHTML.replace(/\s+/g, ' ').slice(0, 120) : null,
+          bodyText: dialog ? dialog.innerText.replace(/\s+/g, ' ').slice(0, 160) : '',
+          writes: Object.keys(window.__settingsWritten || {}).length,
+          error: window.__augitError || null,
+        };
+      });
+      check('§9.3 保存失败时对话框保持打开: ' + JSON.stringify([failure.open, failure.writes, failure.error]),
+        failure.open === true);
+      check('§9.3 保存失败时保留用户输入: ' + JSON.stringify(failure.value), failure.value === '21');
+      // §10.2 要求三段式：发生了什么 + 哪些状态没有改变 + 可以做什么。
+      // 文案必须与视觉稿 `settings-save-failure` 逐字一致，否则像素对照比的是两段不同的话。
+      check('§10.2 保存失败的原因在对话框内可见: '
+        + JSON.stringify([failure.helpExists, failure.helpClass, failure.help, failure.footerHtml, failure.error]),
+      typeof failure.help === 'string' && failure.help.includes('设置没有保存成功')
+        && failure.help.includes('无法访问')
+        && failure.help.includes('设置没有被修改')
+        && failure.help.includes('可以修正后重试'));
+      // 对照：宿主可写时保存成功并关闭对话框（证明上一条不是"保存按钮根本没生效"）。
+      await sf.page.evaluate(() => { window.__settingsReadOnly = false; window.__settingsWritten = {}; });
+      await sf.page.locator('.settings-window [data-settings-action="save"]').click();
+      let closed = true;
+      try {
+        await sf.page.waitForFunction('!document.querySelector(".settings-window")', null, { timeout: 8000 });
+      } catch { closed = false; }
+      const succeeded = await sf.page.evaluate(() => ({
+        written: Object.keys(window.__settingsWritten || {}).length,
+        saved: !!window.__augitSettingsSaved,
+      }));
+      check('§9.3 对照：可写时保存成功并关闭对话框: ' + JSON.stringify([closed, succeeded]),
+        closed === true && succeeded.saved === true && succeeded.written >= 1);
+      await sf.page.close();
+    }
+
     // ---- 路径不得越出工作区 ----
     // 这是安全边界，必须回归保护：任何一次放宽都会让界面读到工作区外的文件。
     // 注意桥接的失败形态是「resolve 一个含 error 的对象」而不是 reject，
@@ -4105,6 +4170,40 @@ async function main() {
     const limitLaunch = await limits.page.evaluate(() => (window.__launchCalls || []).slice());
     check('按钮用系统默认程序打开当前文件: ' + JSON.stringify(limitLaunch),
       JSON.stringify(limitLaunch) === JSON.stringify(['open:archive.bin']));
+
+    // 图片解码失败/超限（§7.5 / §10.2）：宿主不返回 dataUrl，界面必须走"不可预览"信息态并显示原因。
+    // 修复前实测 editor=image、.image-stage img 的 src 长度为 0、info-block 不存在 —— 用户只看到一张破图。
+    await limits.page.evaluate(() => { window.__limitDocs = {
+      'broken.png': { path: 'broken.png', name: 'broken.png', fullPath: 'D:\\w\\broken.png', workspaceName: 'w', status: 'ImageDecodeFailed', kind: 'Png', typeName: 'PNG 图像', fileSize: 2048, dataUrl: null, pixelWidth: null, pixelHeight: null, message: '无法读取图片尺寸，已停止预览。' },
+    }; });
+    await limits.page.evaluate(() => window.__augitOpenDocument('broken.png'));
+    await limits.page.waitForFunction(
+      "() => { const el = document.querySelector('.editor-content'); return !!el && el.innerText.indexOf('已停止预览') >= 0; }",
+      null, { timeout: 8000 }).catch(() => {});
+    const imageDecodeFailure = await limits.page.evaluate(() => ({
+      editor: window.__augitLive.editor,
+      imgs: document.querySelectorAll('.editor-content .image-stage img').length,
+      text: document.querySelector('.editor-content').innerText.replace(/\s+/g, ' ').slice(0, 160),
+    }));
+    check('§10.2 图片解码失败时显示宿主原因而不是破图: ' + JSON.stringify(imageDecodeFailure),
+      imageDecodeFailure.editor === 'file-limit' && imageDecodeFailure.imgs === 0
+        && imageDecodeFailure.text.includes('已停止预览'));
+
+    // 宿主说"就绪"、浏览器解不开（宿主只读文件头尺寸，截断的 IDAT 也会返回 ImageReady）：
+    // 必须换成同一信息态，不能停在 naturalWidth=0 的空图。
+    await limits.page.evaluate(() => { window.__limitDocs = {
+      'truncated.png': { path: 'truncated.png', name: 'truncated.png', fullPath: 'D:\\w\\truncated.png', workspaceName: 'w', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像', fileSize: 45, dataUrl: 'data:image/png;base64,iVBORw0KGgo=', pixelWidth: 64, pixelHeight: 64, message: null },
+    }; });
+    await limits.page.evaluate(() => window.__augitOpenDocument('truncated.png'));
+    await limits.page.waitForFunction(
+      "() => { const el = document.querySelector('.editor-content'); return !!el && el.innerText.indexOf('无法解码') >= 0; }",
+      null, { timeout: 8000 }).catch(() => {});
+    const imageBrowserFailure = await limits.page.evaluate(() => ({
+      imgs: document.querySelectorAll('.editor-content .image-stage img').length,
+      text: document.querySelector('.editor-content').innerText.replace(/\s+/g, ' ').slice(0, 160),
+    }));
+    check('§10.2 浏览器解不开的图片也给出原因: ' + JSON.stringify(imageBrowserFailure),
+      imageBrowserFailure.imgs === 0 && imageBrowserFailure.text.includes('无法解码'));
     await limits.page.close();
 
     // ---- 跨模块用户流程：单点都对，组合起来未必对 ----

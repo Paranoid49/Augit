@@ -1156,6 +1156,7 @@ const scenePages = {
   "repository-search": ["全仓搜索", "查询开关、结果分组、截断与取消"],
   "terminal": ["内置终端", "底部按需单会话终端"],
   "settings": ["设置", "外观、Git、终端和字体"],
+  "settings-save-failure": ["设置保存失败", "原因写在底栏、保留用户输入、可修正后重试"],
   "git-unavailable": ["Git 不可用", "缺失或版本过低时的降级状态"],
   "operation-result": ["Git 操作反馈", "进行中、成功、失败和可取消状态"],
   "workspace-open": ["打开工作区", "最近目录、选择目录和启动降级状态"],
@@ -2514,14 +2515,14 @@ function liveStashBody() {
     + `<div class="stash-notice" role="status" hidden></div>`;
 }
 
-function liveUnavailableDocument() {
+function liveUnavailableDocument(overrideMessage = null) {
   const document_ = liveDocument();
   // 与视觉稿同构：`名称 · 类型 · 大小`、路径、原因，以及"使用系统默认程序打开"。
   const meta = [document_.name, document_.typeName, formatFileSize(document_.fileSize)]
     .filter((part) => part && String(part).length > 0)
     .map((part) => escapeHtml(part))
     .join(" · ");
-  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
+  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(overrideMessage || document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
 }
 
 function textView(find = false) {
@@ -2896,7 +2897,7 @@ function liveToast() {
   return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
 }
 
-function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null } = {}) {
+function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null, imageError = false } = {}) {
   const live = window.__augitLive || null;
   // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
   // 之后以 live.layout 为准。视觉稿单独打开时没有 live，行为完全不变，
@@ -2939,6 +2940,9 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (editor === "image" && liveDocument()) editorBody = liveImageDocument();
   else if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
   if (editor === "file-limit" && liveDocument()) editorBody = liveUnavailableDocument();
+  // 图片解码失败（宿主 ImageDecodeFailed / ImageTooLarge）：与实时侧 liveUnavailableDocument()
+  // 同构，只有原因那行不同。此前视觉稿只覆盖了"GIF/WebP 不支持"，解码失败没有基线。
+  else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>corrupt.png · PNG 图像 · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>无法读取图片尺寸，已停止预览。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   if (editor === "diff") {
@@ -3117,6 +3121,7 @@ function renderScene() {
     case "json-preview": return shell({ activeRail: "project", side: "project", editor: "json", selectedFile: "global.json" });
     case "image-preview": return shell({ activeRail: "project", side: "project", editor: "image", selectedFile: "image-sample.png" });
     case "file-limit": return shell({ activeRail: "project", side: "project", editor: "file-limit", selectedFile: "animation.webp" });
+    case "image-error": return shell({ activeRail: "project", side: "project", editor: "file-limit", selectedFile: "corrupt.png", imageError: true });
     case "commit-changes": return shell({ activeRail: "commit", side: "commit", editor: "markdown" });
     case "commit-diff": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest" });
     case "diff-status": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest",
@@ -3141,6 +3146,7 @@ function renderScene() {
     case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("repository") : searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
     case "settings": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl") });
+    case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。</span><a class="secondary-button" href="main-project.html">取消</a><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
     case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
     case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">推送失败</div><div>当前仓库未配置远端，Git 没有修改本地提交或工作区。</div><div class="commit-meta" style="margin-top:5px">关闭提示后不保留命令输出或操作历史。</div></div>` });
     case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("打开工作区", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} 最近目录</div><div class="tree-row">${icon("folder-open")} 选择目录…</div><div class="tree-row">${icon("clone")} 克隆仓库…</div></div><div class="management-detail"><h2>最近目录</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">同一目录已经打开时激活原窗口。</p></div></div>`, `<a class="secondary-button" href="main-project.html">取消</a><button class="primary-button">打开</button>`, true) });

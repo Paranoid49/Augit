@@ -20,18 +20,18 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **942/942**（见 §2 说明） |
-| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
-| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**50/50 场景**） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **956/956**（见 §2 说明） |
+| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **52/52 ×2 主题**（`docs/ux-mockups/*.html` 共 53 个，除 `index.html` 外全部渲染） |
+| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**52/52 场景**，新增 `settings-save-failure`、`image-error`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
-| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS**（默认场景列表已补齐到 `ux-spec` §12.1 要求的全部页面；实测 25/25 + 17/17 = **42/42**） |
+| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 47 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 693 个 `check(...)` 调用点，
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 733 个 `check(...)` 调用点，
 > 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
 
 ## 1. A 线：静态界面复原
@@ -77,6 +77,7 @@
 | `history-diff-failure` | 0.00 | 0.00 | 1.39 | 数据差异（字体已等化） |
 | `history-diff-loading` | 0.00 | 0.00 | 1.61 | 数据差异（字体已等化） |
 | `image-preview` | 0.00 | 0.00 | 0.01 | 两侧是同一张真实 PNG，仅 50/595138 平坦像素不同 |
+| `image-error` | 0.00 | 0.00 | 0.01 | **新增图片解码失败页**（⑭ 第 5 项）：实时侧真机实测三种失败（宿主 `ImageDecodeFailed`/`ImageTooLarge`/宿主说就绪但浏览器解不开）都走同一信息态并显示原因；有效 PNG 不受影响（见第 315 轮） |
 | `json-preview` | 0.00 | 0.00 | 1.19 | 数据差异（字体已等化） |
 | `main-project` | 0.00 | 0.00 | 1.37 | 数据差异；**等化前 1.95**（差值主要为字体） |
 | `markdown-preview` | 0.00 | 0.00 | 1.42 | 数据差异（字体已等化） |
@@ -94,6 +95,7 @@
 | `rollback` | 0.00 | 0.00 | 0.35 | 数据差异；**等化前 0.73**（差值主要为字体） |
 | `search-limited` | 0.00 | 0.00 | 0.50 | 数据差异（字体已等化） |
 | `settings` | 0.00 | 0.00 | 0.03 | 数据差异（字体已等化） |
+| `settings-save-failure` | 0.00 | 0.00 | 0.04 | **新增保存失败页**（⑭ 第 3 项）：两侧底栏文案**逐字相同**（"设置没有保存成功：…设置没有被修改，可以修正后重试。"）；另有真机交互证据（把 `settings.json` 临时造成不可写后点保存：对话框保持打开、`fontSize=21` 保留、底栏变红，见第 314 轮） |
 | `smart-checkout` | 0.00 | 0.00 | 0.25 | 数据差异；**等化前 1.74**（差值主要为字体） |
 | `stash` | 0.00 | 0.00 | 1.02 | 数据差异；**等化前 1.75**（差值主要为字体） |
 | `stash-manager` | 0.00 | 0.00 | 1.36 | 数据差异（字体已等化） |
@@ -305,7 +307,17 @@
    但 `product-spec` 只把"自动换行"列为正文查看能力（第 45 行）、没有定义持久化的默认换行设置，
    宿主 `ApplicationSettings` 也没有对应字段。按纪律**停下待用户裁决**：
    加字段（需同时改产品规格 + 宿主 + 界面）或从设置页去掉该条。其余三项（正文字体/等宽字体/字号）已实现。
-3. **外部变化刷新后标题栏汉堡菜单点不开（§5.1）—— 已修复** —— 汉堡按钮的点击处理挂在 `document` 上
+3. **图片解码失败只剩破图、宿主原因无处显示（§7.5 / §10.2）—— 已修复** ——
+   `toLiveDocument()` 按 `kind` 把 `Png/Jpeg/Bmp/Gif/WebP` 一律映射成 `image`，
+   但宿主只有在真正解码成功时才返回 `dataUrl`：`ImageDecodeFailed` / `ImageTooLarge` 时它是 `null`，
+   于是 `<img src="">` 只剩一张破图，宿主给出的 `message` 在界面上没有任何位置；
+   `Gif/WebP` 本就不被宿主解码（`IsSupportedImage` 只含 `Png/Jpeg/Bmp`），同样被错判成图片。
+   真机实测（修复前）：`{"status":"ImageDecodeFailed","editor":"image","imgSrcLen":0,"infoBlock":false,"text":"100% PNG 图片 · 45 B"}`。
+   修复：判据改为 `status === "ImageReady"` 才按图片渲染，其余走既有的"不可预览文件"信息态（同一组件）；
+   另加捕获阶段的 `<img>` `error` 兜底，覆盖"宿主只读文件头尺寸、截断 IDAT 仍返回 `ImageReady`"这一类
+   （真机实测 `truncated.png`：`naturalWidth=0` → 换成信息态并给出"图片数据无法解码，文件可能已损坏。"）。
+   验证：harness 2 条新断言 + 真机 4 个样本（`broken-dims` / `huge-pixels` / `truncated` 均出信息态，`ok.png` 仍正常显示）。
+4. **外部变化刷新后标题栏汉堡菜单点不开（§5.1）—— 已修复** —— 汉堡按钮的点击处理挂在 `document` 上
    （标题栏节点会被区域刷新替换），但 `bindInteractions()` 每次渲染都会重新注册一份，
    而处理函数按"当前有没有菜单条"取反：**两份监听叠加互相抵消**，一次外部变化刷新后点击毫无反应。
    证据：修复前的 harness 运行在 `.titlebar .main-menu-entry` 上 8000ms 超时；

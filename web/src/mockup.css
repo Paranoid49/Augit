@@ -1693,6 +1693,12 @@ body[data-theme="dark"] .fake-check.mixed {
   color: var(--augit-red);
 }
 
+/* 设置保存失败：原因写在底栏帮助位，用语义红色（规格 §9.3 / §10.2）。 */
+.dialog-footer .footer-help.settings-failure {
+  color: var(--augit-red);
+  white-space: normal;
+}
+
 .settings-group h3 {
   margin: 0 0 11px;
   padding-bottom: 6px;

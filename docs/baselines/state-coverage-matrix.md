@@ -23,7 +23,7 @@
 | 普通文本 `text-viewer` | ✅ 专用页 | ✅ `find-state=empty` | ✅ `find-state=invalid`（正则非法）/`no-match` | ✅ `find-state=loading` | — | — |
 | Markdown `markdown-preview` | ✅ 专用页 | — | 待人工确认（预览渲染失败） | — | ✅ 非源码模式的定位按钮 | — |
 | JSON `json-preview` | ✅ 专用页 | — | ✅ `json-state=invalid`（错误定位条） | — | ✅ 格式化按钮在非法 JSON 时禁用 | — |
-| 图片 `image-preview` | ✅ 专用页 | — | **缺**（解码失败只有宿主原因文案，无视觉稿） | 待人工确认 | ✅ 非 PNG/JPEG/BMP 不放行 | — |
+| 图片 `image-preview` | ✅ 专用页 | — | ✅ `image-error` 专用页（⑭ 第 5 项已完成：宿主 `ImageDecodeFailed`/`ImageTooLarge` 与"浏览器解不开"三种失败都走同一信息态并显示原因） | 待人工确认 | ✅ 非 PNG/JPEG/BMP 不放行 | — |
 | 不可预览文件 `file-limit` | ✅ 专用页（该页本身即错误/超限态：超限 / 非法 UTF-8 / GIF / WebP / 二进制摘要） | — | ✅ 同左 | — | — | — |
 
 ## 2. Commit / Diff / 历史
@@ -65,7 +65,7 @@
 | 快速打开 `quick-open` | ✅ | ✅ `quick-open-empty` 专用页 | ✅（查询失败） | ✅ | — | — |
 | 全仓搜索 `repository-search` | ✅ | ✅ `search-state=empty` | ✅ `search-state=error` | ✅ `search-state=loading` | ✅ `search-state=limited`（截断，专用页 `search-limited`） | — |
 | 内置终端 `terminal` | ✅ 专用页 | ✅（无会话） | ✅（Shell 解析失败明确报错，不静默回退） | ✅（会话启动中） | ✅（关闭确认进行中） | ✅ `terminal-close` 专用页 |
-| 设置 `settings` | ✅ 四个分类页 | — | **缺**（保存失败/只读失败只有实现态与 harness 断言，无视觉稿） | 待人工确认（Git 检测中） | ✅ 非"自定义命令"时命令输入框禁用 | — |
+| 设置 `settings` | ✅ 四个分类页 | — | ✅ `settings-save-failure` 专用页（⑭ 第 3 项已完成：两侧像素 0.04；另有"把设置文件临时造成不可写再点保存"的真机交互证据） | 待人工确认（Git 检测中） | ✅ 非"自定义命令"时命令输入框禁用 | — |
 | Git 不可用 `git-unavailable` | ✅ 专用页 | — | ✅ | — | ✅ 整个 Git 模块禁用 | — |
 | 打开工作区 `workspace-open` | ✅ 专用页 | ✅（无最近目录） | ✅（启动降级） | ✅ | — | — |
 | 初始化仓库 `repository-init` | ✅ 专用页 | — | ✅ | ✅ | — | ✅（初始化确认） |
@@ -80,9 +80,9 @@
 | --- | --- | --- | --- |
 | 1 | ~~Git 历史空态~~ **已完成** | §10.1 | `docs/ux-mockups/git-history-empty.html` + 场景 `git-history-empty`（复用同一渲染器）+ 空仓库真机像素对照 0.64 |
 | 2 | ~~工作区 Diff 的最终说明~~ **已完成** | §6.5 + §10.2 | 场景 `diff-status`（URL 参数 `diff-status`）+ 共享 `diffStatusNotice()`；实时侧改为正文说明块；真机二进制仓库像素对照 1.29 |
-| 3 | **设置保存失败/只读失败** | §9.3/§10.2；harness 有 `settingsReadOnly` 断言但无视觉稿 | 在设置页加"保存失败"状态（对话框内联原因 + 保留用户输入） |
+| 3 | ~~设置保存失败/只读失败~~ **已完成** | §9.3/§10.2；harness 有 `settingsReadOnly` 断言但无视觉稿 | `docs/ux-mockups/settings-save-failure.html` + 场景 `settings-save-failure`（复用四分类设置页渲染器）+ 两侧底栏文案逐字一致；真机用"设置文件不可写"实测复现（像素 0.04，第 314 轮） |
 | 4 | **引用比较无差异/无共同祖先** | §7.9 | 复用 `history-diff-*` 的同构状态或新增 `git-compare-empty` |
-| 5 | **图片解码失败** | §7.5 | 复用 `file-limit` 语义新增 `image-error` 或在该页加状态参数 |
+| 5 | ~~图片解码失败~~ **已完成** | §7.5 | `docs/ux-mockups/image-error.html` + 场景 `image-error`（复用"不可预览文件"信息态）；实时侧判据改为按 `status` 而非 `kind`，并补 `<img>` 解码兜底；真机三样本实测 + 两侧像素 0.01（第 315 轮） |
 | 6 | 分组折叠 / 未保存修改标记（设置页） | PyCharm 实测（`pycharm-settings-search-font.png`） | 需先定设计令牌，交用户确认 |
 | 7 | 删除确认态（Stash/Worktree/远端）是否已有专用视觉稿 | 实现与 harness 有确认流程 | 先逐一截图确认，再决定是否补页 |
 

@@ -1632,6 +1632,36 @@ async function saveSettings() {
 }
 
 /**
+ * 宿主说"图片就绪"、浏览器却解不开时的兜底（规格 §7.5 / §10.2）。
+ *
+ * 实测：宿主只读文件头的像素尺寸（`ImageDimensionsReader`），
+ * 所以 IDAT 被截断的 PNG 依然返回 `ImageReady` 并带上 data: URL，
+ * 而 `<img>` 的 `naturalWidth` 为 0 —— 页面上只剩一张破图，用户读不到任何原因。
+ * 这里把该正文换成与"不可预览文件"完全相同的信息态（同一组件、同一入口），
+ * 而不是新增一种视觉语言。
+ *
+ * `error` 事件不冒泡，只有捕获阶段能监听到，因此必须 `capture: true`。
+ */
+function bindImageDecodeFallback() {
+  if (window.__augitImageFallbackBound) return;
+  window.__augitImageFallbackBound = true;
+  document.addEventListener("error", (event) => {
+    const image = event.target;
+    if (!image || image.tagName !== "IMG" || !image.closest || !image.closest(".image-stage")) return;
+    const view = image.closest(".document-view");
+    if (!view) return;
+    const live = window.__augitLive || {};
+    // 同一张图只替换一次：替换后 `<img>` 已不在文档里，事件不会再触发。
+    const holder = document.createElement("template");
+    holder.innerHTML = liveUnavailableDocument("图片数据无法解码，文件可能已损坏。");
+    const replacement = holder.content.firstElementChild;
+    if (!replacement) return;
+    view.replaceWith(replacement);
+    if (live.document) live.document.decodeFailed = true;
+  }, true);
+}
+
+/**
  * 设置窗口的保存动作。
  * 用文档级委托而不是直接绑定按钮：整页重绘会替换对话框节点，
  * 直接绑定会随着节点替换失效（这是本轮实际踩到的问题）。
@@ -1643,18 +1673,51 @@ function bindSettingsSave() {
   document.addEventListener("click", (event) => {
     const live = window.__augitLive;
     if (!live || !live.settings) return;
-    const dialog = event.target.closest && event.target.closest(".dialog.dialog-xl");
-    if (!dialog) return;
-    const button = event.target.closest(".dialog-footer .secondary-button, .dialog-footer .primary-button");
+    // 接管范围靠"对话框里有没有 [data-setting] 字段"判定，不靠容器类名：
+    // live 设置框是 `.dialog.wide.settings-dialog`，`.dialog-xl` 只存在于视觉稿页面；
+    // 只认后者会让真机的保存路径整条静默失效，只认 `[data-settings-action]` 又会让
+    // 视觉稿场景（取消/应用/确定 三个无标记按钮）失去唯一的处理者（两次都实测踩到）。
+    const button = event.target.closest && event.target.closest(
+      ".dialog-footer [data-settings-action], .dialog-footer .secondary-button, .dialog-footer .primary-button");
     if (!button) return;
+    const dialog = button.closest(".dialog");
+    if (!dialog || !dialog.querySelector("[data-setting]")) return;
     const buttons = [...dialog.querySelectorAll(".dialog-footer .secondary-button, .dialog-footer .primary-button")];
-    if (buttons.indexOf(button) === 0) return;
+    // live 的两个按钮带显式语义；视觉稿场景退回"第一个（取消）之外都算保存"。
+    const isCancel = button.dataset.settingsAction
+      ? button.dataset.settingsAction === "cancel"
+      : buttons.indexOf(button) === 0;
 
     event.preventDefault();
-    void saveSettings().catch((error) => {
-      window.__augitError = "save-settings:" + String(error && error.message || error);
-    });
+    if (isCancel) {
+      closeSettingsDialog();
+      return;
+    }
+    // 成功才关闭；失败留在对话框里、把原因写进底栏帮助位（§9.3 保留上下文 + §10.2 说明原因）。
+    void saveSettings()
+      .then(() => closeSettingsDialog())
+      .catch((error) => {
+        const reason = String((error && error.message) || error);
+        window.__augitError = "save-settings:" + reason;
+        showSettingsFailure(reason);
+      });
   }, true);
+}
+
+/** 把保存失败的原因显示在对话框底栏（复用既有的 footer-help 位，不新增视觉语言）。 */
+function showSettingsFailure(reason) {
+  const dialog = document.querySelector(".settings-window .dialog")
+    || document.querySelector(".dialog.wide.settings-dialog")
+    || document.querySelector(".dialog-xl");
+  const help = dialog && dialog.querySelector(".dialog-footer .footer-help");
+  if (!help) return;
+  // 与视觉稿 `settings-save-failure` 逐字一致（像素对照比的是同一段文案），
+  // 并满足 §10.2 的三段式：发生了什么 / 哪些状态没有改变 / 可以做什么。
+  help.textContent = "设置没有保存成功：" + describeFailure(reason, {
+    unchanged: "设置没有被修改，可以修正后重试。",
+  });
+  help.title = help.textContent;
+  help.classList.add("settings-failure");
 }
 
 /**
@@ -3488,20 +3551,10 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 设置对话框的动作。
-    const settingsAction = event.target.closest && event.target.closest("[data-settings-action]");
-    if (settingsAction) {
-      event.preventDefault();
-      if (settingsAction.dataset.settingsAction === "save") {
-        void saveSettings().catch((error) => {
-          window.__augitError = "save-settings:" + String(error && error.message || error);
-        }).finally(() => closeSettingsDialog());
-      } else {
-        closeSettingsDialog();
-      }
-
-      return;
-    }
+    // 设置对话框的动作由 `bindSettingsSave()` 单独负责（保存失败要留在对话框里显示原因）。
+    // 这里曾经再挂一条 `[data-settings-action]` 路径：它会在 finally 里**无条件关闭**对话框，
+    // 于是保存失败时用户什么都看不到（实测：open=false、原因只在 __augitError 里），
+    // 而且同一次点击会写两遍设置。
 
     // Worktree 窗口的动作。
     const worktreeAction = event.target.closest && event.target.closest("[data-worktree-action]");
@@ -7338,6 +7391,7 @@ async function boot() {
 
   startWorkspaceChangePolling();
   bindPanelDividers();
+  bindImageDecodeFallback();
 
   // 远端、分支、Stash 与 Worktree 供管理窗口使用；失败不影响主界面。
   await referencesPromise;
@@ -7558,10 +7612,14 @@ document.addEventListener("keydown", (event) => {
 /** 把宿主返回的文档结果整理成界面需要的形状。 */
 function toLiveDocument(payload) {
   const kind = payload.kind || "Text";
+  const imageKind = ["Png", "Jpeg", "Bmp", "Gif", "WebP"].includes(kind);
   const editor = kind === "Markdown" ? "markdown"
     : kind === "Json" ? "json"
-      // Gif/WebP 同样属于图片：漏掉它们会被判成 file-limit（不可预览）。
-      : ["Png", "Jpeg", "Bmp", "Gif", "WebP"].includes(kind) ? "image"
+      // 图片只有宿主**确实解码成功**时才能按图片渲染（实测：`ImageDecodeFailed`/`ImageTooLarge`
+      // 的 `dataUrl` 是 null，按 kind 直接映射会让正文只剩一张 src 为空的破图，
+      // 宿主给出的原因在界面上没有任何位置 —— 违反 §10.2）。
+      // GIF/WebP 也走同一条：宿主 `IsSupportedImage` 只含 Png/Jpeg/Bmp，它们本就是二进制摘要。
+      : imageKind ? (payload.status === "ImageReady" ? "image" : "file-limit")
         : payload.status === "TextReady" ? "text"
           : "file-limit";
   return {

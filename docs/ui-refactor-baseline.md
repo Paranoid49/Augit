@@ -11225,3 +11225,116 @@ content 0.64 来自样例引用名/样例树 vs 空仓库的真实树（数据�
 
 **分母更新**：`docs/ui-compliance.md` §1.1 由 49 → **50 行**；状态矩阵第 2 项标记完成。
 **⑭ 剩余**：③ 设置保存失败/只读失败；④ 引用比较无差异；⑤ 图片解码失败；⑥ 设置页未保存修改标记与分组折叠；⑦ 删除确认态。
+
+#### 第 314 轮（⑭ 第 3 项）：设置保存失败可见 —— 先修掉"保存路径在真机上根本没有挂载点"
+
+**先测后改（口径）**：harness 的 `settingsReadOnly` 用例实测
+`§9.3 保存失败时对话框保持打开: [true, 0, "save-settings:…"]`、
+`§9.3 保存失败时保留用户输入: ["21"]` 都通过，而
+`§10.2 保存失败的原因在对话框内可见: ["",false]` 失败 —— 即"对话框留住了、输入留住了、原因看不见"。
+
+**根因不是文案没写进去，是处理者根本没挂上**：
+`bindSettingsSave()` 的挂载判据写的是 `event.target.closest(".dialog.dialog-xl")`，
+而 live 侧对话框的类名是 **`.dialog.wide.settings-dialog`** ——
+`dialog(title, body, footer, wide, extraClass)` 只会加 `wide` 与 `extraClass`，
+**`.dialog-xl` 是视觉稿场景自己传进去的类**（`dialog(..., true, "dialog-xl")`）。
+于是真机点"保存"时这条委托直接 `return`；真正干活的是 `guardUnwiredNavigation()` 里另一条
+`[data-settings-action]` 分支，而它在 `finally` 里**无条件关闭**对话框：
+失败时用户什么都看不到（`open=false`、原因只留在 `window.__augitError`），
+并且同一次点击会把设置写两遍。
+
+**修法（一个处理者 + 语义化判据）**：
+1. 删掉 `guardUnwiredNavigation()` 里的重复分支（原地留注释说明为什么不能再挂）；
+2. `bindSettingsSave()` 改成按"对话框里有没有 `[data-setting]` 字段"识别设置框，
+   `.settings-window` / `.dialog.wide.settings-dialog` / `.dialog-xl` 三条路径都能命中，
+   且不会误伤跳转行、检出引用等其它对话框；
+3. 取消判定优先用 `data-settings-action="cancel"`，视觉稿场景的三个无标记按钮
+   （取消/应用/确定）退回"第一个之外都算保存"；
+4. **成功才关闭**；失败走 `showSettingsFailure()`，把原因写进既有的
+   `.dialog-footer .footer-help` 位（§9.3 保留上下文 + §10.2 说明原因），不新增视觉语言。
+
+**自己踩的坑（被 harness 当场抓住）**：第一版把按钮判据收紧成"只认 `[data-settings-action]`"，
+于是 `--scene settings` 场景里那三个无标记按钮**失去了唯一的处理者**，
+harness 第一条设置断言直接失败（`设置保存未生效: {"buttons":["取消","应用","确定"],"fields":3,"boundFlag":false}`）。
+结论：收紧选择器必须同时覆盖 **live 与视觉稿场景**两条渲染路径。最终判据换成 `[data-setting]` 后两条都命中。
+
+**文案对齐（像素对照的前提）**：底栏文案改成与视觉稿 `settings-save-failure` **逐字相同**的
+`设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。`
+—— 同时满足 §10.2 的三段式（发生了什么 / 哪些状态没有改变 / 可以做什么）。
+harness 断言也从"只含 `无法访问`"加强为**四段都必须在**。
+
+**真机交互证据（不是"应该会"）**：把 `%LOCALAPPDATA%\Augit\settings.json` 临时换成同名**目录**
+（`SaveAsync` 走 `写 .tmp` → `File.Move`，落到目录上必然失败），启动真机外壳后由 CDP 驱动
+"点齿轮 → 改界面字号为 21 → 点保存"，读回的 DOM 状态：
+
+```json
+{"open":true,"cls":"dialog wide settings-dialog","help":"设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。",
+ "helpClass":"footer-help settings-failure","fontSize":"21","err":"save-settings:无法访问文件或目录，请检查权限或占用情况。","outer":"dialog-footer"}
+```
+
+截图 `D:\tmp-augit-cap\settings-failure-live.png`（1180×760，单对话框、树/标签真实、底栏红字）。
+**测量完成后已把 `settings.json` 原样还原**（758 B，`json.load` 校验通过）。
+
+**像素对照（两侧 1180×760、dark、字体等化、CDP 截图）**：
+`titlebar 0.00 | statusbar 0.00 | content 0.04` —— 与 `settings` 行（0.03）同量级，即"新增的失败页"
+在布局/边框/间距上与视觉稿一致，残余是真实设置值 vs 样例值。
+**一次被丢弃的测量（记下来避免重犯）**：先给 `compare-pixels.ps1` 加了 `-LiveSetupFile`
+在 live 侧驱动交互，但该脚本 live 分支固定带 `--scene <scene>`，
+于是 `--scene` 已经渲染了一个对话框、setup 又叠了一个真实对话框，
+两侧比的不是同一件事（content `layoutPercent` 0.35、textPercent 26.34）。
+**结论**：交互态只能"两侧同场景"比，或用真机单独取证；不能把 setup 叠加到 `--scene` 之上。
+
+**基线更新**：`live-shell` **956/956**（952 + 本轮 4 条：对话框保持打开 / 保留输入 / 原因可见（四段）/ 可写时保存成功并关闭）；
+`mockup-scenes` **51/51 ×2 主题**；`verify-ui-assets` PASS；`verify-script-encoding` PASS；
+`check-interactions.cjs` OK；`docs/ui-compliance.md` §1.1 由 50 → **51 行**，
+§0 基线表同步为 956/956、51/51、51 场景、733 个 `check` 调用点；
+`verify-acceptance.ps1` 默认场景列表 43 → **46**（补入三个新状态页，按 ⑫ 复跑回填）。
+
+**⑭ 剩余**：④ 引用比较无差异（已查明：live 侧"无差异"走 `liveDiffView` 的最终说明分支，
+但视觉稿侧的 comparison 渲染器只有 ready/loading/failure/cancelled 四态，
+且 `diffView(..., finalStatus)` 复用工作区文件栏身份，引用身份缺失）；⑤ 图片解码失败
+（已查明：`toLiveDocument()` 对 `kind=Png/Jpeg/Bmp/Gif/WebP` 只按 `kind` 映射 `image`，
+`status=ImageDecodeFailed/ImageTooLarge` 时 `dataUrl` 为 null，`<img src="">` 只剩破图、宿主 `message` 无处显示）；
+⑥ 设置页未保存修改标记与分组折叠（需先定设计令牌，待用户确认）；⑦ 删除确认态。
+
+#### 第 315 轮（⑭ 第 5 项）：图片解码失败 —— 从"只剩一张破图"到"给出宿主原因"
+
+**先标定（真机，不猜）**：造了三个只差文件头字段的 PNG，用 `--open` 逐个打开并读回 DOM：
+
+| 样本 | 宿主 status | 宿主 message | 修复前实测 | 修复后实测 |
+| --- | --- | --- | --- | --- |
+| `broken-dims.png`（IHDR 宽 0） | `ImageDecodeFailed` | 无法读取图片尺寸，已停止预览。 | `editor=image`、`imgSrcLen=0`、`infoBlock=false`、正文只有 `100% PNG 图片 · 45 B` | `editor=file-limit`、`imgCount=0`、`infoBlock=true`、正文含宿主原因 + "使用系统默认程序打开" |
+| `huge-pixels.png`（6000×6000 > 2500 万像素） | `ImageTooLarge` | 图片超过 2500 万解码像素，已停止预览。 | 同上（尺寸标签还显示 `6000 × 6000`） | 同左，原因换成像素超限 |
+| `truncated.png`（IHDR 正常、无 IDAT） | **`ImageReady`** | （无） | `imgSrcLen=82` 但 `imgNaturalW=0`：浏览器解不开，界面同样没有任何说明 | `imgCount=0`、`infoBlock=true`、原因"图片数据无法解码，文件可能已损坏。" |
+| `ok.png`（正常 4×4） | `ImageReady` | （无） | `imgNaturalW=4` | **不变**：仍按图片显示 |
+
+**根因（一句话）**：`toLiveDocument()` 用 `kind` 决定编辑器类型，
+而"能不能显示这张图"其实是 `status` 的事实 —— `dataUrl` 只在 `ImageReady` 时才有。
+顺带发现 `Gif/WebP` 也被错判成图片：宿主 `IsSupportedImage` 只含 `Png/Jpeg/Bmp`，
+它们本来就是二进制摘要（视觉稿 `file-limit` 页写的就是 WebP），却被映射成 `image`。
+
+**修法**：
+1. `toLiveDocument()`：`imageKind ? (status === "ImageReady" ? "image" : "file-limit") : …`，
+   一次修掉"解码失败/超限"和"GIF/WebP 错判"两类；
+2. 新增 `bindImageDecodeFallback()`：`document` 捕获阶段监听 `img` 的 `error`
+   （**`error` 事件不冒泡，只有捕获阶段能拿到**），把 `.document-view` 换成同一信息态
+   `liveUnavailableDocument("图片数据无法解码，文件可能已损坏。")`；
+3. `liveUnavailableDocument(overrideMessage = null)` 支持替换原因行（视觉稿侧同构分支 `imageError` 同步加）。
+
+**视觉基线**：新增 `docs/ux-mockups/image-error.html` + 场景 `image-error`
+（复用"不可预览文件"的 `.info-state`，只换原因行，不新增视觉语言）；
+两侧同引擎像素对照 `titlebar 0.00 | statusbar 0.00 | content 0.01`（旧指标 `visiblePercent` 也 `PIXELS_OK`）。
+
+**harness 侧的一个隐藏坑**：桩里 `*.png` 的 `dataUrl` 用的是只有文件头的
+`data:image/png;base64,iVBORw0KGgo=` —— **浏览器解不开**。加了兜底之后它会被判成坏图，
+于是一条"图片文档把 dataUrl 带到渲染层"的旧断言会连带失败。这不是兜底写错了，
+而是桩没有模拟"宿主返回可解码图片"这一事实；因此把桩换成**真正 1×1 可解码 PNG**
+（`iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==`，PIL 校验 1×1 RGBA），
+并新增 2 条断言：①解码失败时 `editor=file-limit` 且正文含宿主原因、无 `img`；
+②宿主说就绪但浏览器解不开时同样换成信息态（`live-shell` 956 → **958**）。
+
+**分母更新**：`mockup-scenes` 51 → **52/52 ×2 主题**；`docs/ui-compliance.md` §1.1 由 51 → **52 行**；
+`verify-acceptance.ps1` 默认列表 46 → **47**（⑫ 交付阶段复跑）；
+§3.2 新增第 3 条"已修复"记录（含修复前真机证据）。
+
+**⑭ 剩余**：④ 引用比较无差异；⑥ 设置页未保存修改标记与分组折叠（待用户定设计令牌）；⑦ 删除确认态。
