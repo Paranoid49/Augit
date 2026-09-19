@@ -244,7 +244,9 @@ async function main() {
         if (window.__workspaceGone && requested !== '') {
           return { path: requested, available: false, reason: '目录不存在或无法访问，请确认工作区仍然存在。', entries: [] };
         }
-        return { path: requested, available: true, entries: data.tree[requested] || [] };
+        // 允许测试注入更大的目录清单：只有列表真的能滚动，"首个可见节点"才有意义。
+        const override = window.__treeOverrides && window.__treeOverrides[requested];
+        return { path: requested, available: true, entries: override || data.tree[requested] || [] };
       }
       if (method === 'workspace/changes') {
         window.__changesReads = (window.__changesReads || 0) + 1;
@@ -641,6 +643,8 @@ async function main() {
         return { available: false, reason: 'unknown' };
       }
       if (method === 'document/read') {
+        // 已发出的读取请求数（不是完成数）：验证"不重新打开文件"要看请求有没有发出。
+        window.__readCalls = (window.__readCalls || 0) + 1;
         // 支持按路径注入读取失败，用于验证「文件已删除则移除其标签」。
         if (window.__failReads && window.__failReads[params.path]) throw new Error('not found: ' + params.path);
         // 支持按路径注入延迟，用于验证乱序返回时旧响应被丢弃。
@@ -10157,6 +10161,192 @@ async function main() {
       typeof wmCancelled.reason === 'string' && wmCancelled.reason.includes('取消'));
     await wm.page.evaluate(() => { window.__commitDelays = 0; });
     await wm.page.close();
+
+    // ---- 规格 §154：调整界面字号时保持原文档控件、树选择与首个可见节点、正文选择与滚动 ----
+    // 标定阶段：先如实记录各项测量，再据实收紧为断言。
+    {
+      const f154 = await openScene('scene=main-project&theme=dark');
+      await f154.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      // 桩能力：让 `docs` 展开出足够多的一层子项，只有列表真的能滚动才有"首个可见节点"可言。
+      // 必须在**展开之前**注入：根目录的首屏清单在 boot 阶段就已取过。
+      await f154.page.evaluate(() => {
+        const entries = [{ name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false }];
+        for (let i = 0; i < 60; i += 1) {
+          const name = 'bulk-' + String(i).padStart(3, '0') + '.txt';
+          entries.push({ name, path: 'docs/' + name, isDirectory: false, canExpand: false });
+        }
+        window.__treeOverrides = { docs: entries };
+        const text = Array.from({ length: 400 }, (_, i) => '第 ' + (i + 1) + ' 行：正文字号不随界面字号改变。').join('\n') + '\n';
+        window.__limitDocs = {
+          'docs/product-spec.md': {
+            path: 'docs/product-spec.md', name: 'product-spec.md', fullPath: 'D:\\live-ws\\docs\\product-spec.md',
+            workspaceName: 'live-ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
+            fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+          },
+        };
+      });
+      await f154.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await f154.page.waitForFunction(
+        'document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/bulk-"]\').length === 60',
+        null,
+        { timeout: 10000 },
+      );
+      await f154.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+      await f154.page.waitForFunction(
+        'window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"',
+        null,
+        { timeout: 15000 },
+      );
+      await f154.page.waitForFunction('document.querySelectorAll(".code-view .code-line").length > 100', null, { timeout: 10000 });
+
+      // 造出可测量的上下文：树滚到中间、选中一行、正文滚动并做一次反向选择。
+      await f154.page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        tree.scrollTop = 260;
+        const code = document.querySelector('.code-view');
+        code.scrollTop = 480;
+        code.__probe154 = true;
+        const lines = code.querySelectorAll('.code-line');
+        // 正文行的实际文本节点在行内的最后一个 span 里，偏移必须落在该文本节点上。
+        const textNode = (row) => {
+          const span = row.querySelector('span:last-child');
+          return (span && span.firstChild) || row.firstChild;
+        };
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        // 反向选择（锚点在后、焦点在前）：验证"选择方向"也被保持，而不只是范围。
+        selection.setBaseAndExtent(textNode(lines[40]), 3, textNode(lines[12]), 2);
+      });
+      await f154.page.waitForTimeout(200);
+
+      const probe = () => f154.page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        // 排除空路径的根节点行：它不参与"首个可见节点"的语义。
+        const rows = [...tree.querySelectorAll('.tree-row[data-tree-path]')].filter((row) => row.dataset.treePath);
+        const treeRect = tree.getBoundingClientRect();
+        const first = rows.find((row) => row.getBoundingClientRect().bottom > treeRect.top + 1);
+        const firstFully = rows.find((row) => row.getBoundingClientRect().top >= treeRect.top - 1);
+        const selected = tree.querySelector('.tree-row.selected[data-tree-path]');
+        const code = document.querySelector('.code-view');
+        const selection = window.getSelection();
+        const line = (node) => (node && node.parentElement && node.parentElement.dataset ? node.parentElement.dataset.line : null);
+        return {
+          fontSize: getComputedStyle(document.documentElement).fontSize,
+          rowHeight: rows[0] ? Math.round(rows[0].getBoundingClientRect().height) : null,
+          rowCount: rows.length,
+          treeScrollTop: tree.scrollTop,
+          treeScrollHeight: tree.scrollHeight,
+          treeClientHeight: tree.clientHeight,
+          firstVisible: first ? first.dataset.treePath : null,
+          firstVisibleTop: first ? Math.round(first.getBoundingClientRect().top - treeRect.top) : null,
+          firstVisibleOffsetTop: first ? first.offsetTop : null,
+          firstFully: firstFully ? firstFully.dataset.treePath : null,
+          firstFullyOffsetTop: firstFully ? firstFully.offsetTop : null,
+          selected: selected ? selected.dataset.treePath : null,
+          selectedCount: tree.querySelectorAll('.tree-row.selected').length,
+          codeScrollTop: code ? code.scrollTop : null,
+          codeScrollHeight: code ? code.scrollHeight : null,
+          codeLineHeight: code ? getComputedStyle(code).lineHeight : null,
+          sameCodeNode: !!(code && code.__probe154),
+          selectionAnchor: selection.rangeCount ? [line(selection.anchorNode), selection.anchorOffset] : null,
+          selectionFocus: selection.rangeCount ? [line(selection.focusNode), selection.focusOffset] : null,
+          selectionText: selection.rangeCount ? String(selection).slice(0, 12) : null,
+          docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+          tabs: (window.__augitLive.tabs || []).length,
+          statusCalls: window.__statusCalls || 0,
+          readCalls: window.__readCalls || 0,
+          historyCalls: window.__historyCalls || 0,
+        };
+      });
+
+      const f154Base = await probe();
+
+      // 打开设置（标题栏主菜单 → 设置），只改界面字号后保存 —— 与用户路径一致。
+      // 保存后对话框会关闭（`data-settings-action="save"` 的收尾），需要改第二次时要重新打开。
+      const openSettings154 = async () => {
+        await f154.page.locator('.titlebar [data-action="menu"]').click();
+        await f154.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+        await f154.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await f154.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+      };
+      await openSettings154();
+      const applyFontSize = async (size) => {
+        await f154.page.evaluate((value) => {
+          const field = document.querySelector('[data-setting="fontSize"]');
+          field.value = String(value);
+          [...document.querySelectorAll('.settings-window .dialog-footer button')]
+            .find((node) => node.textContent.includes('保存')).click();
+        }, size);
+        await f154.page.waitForFunction(
+          `getComputedStyle(document.documentElement).fontSize === "${size}px"`
+            + ' && window.__augitLive.settings && window.__augitLive.settings.fontSize === ' + size,
+          null,
+          { timeout: 10000 },
+        );
+        await f154.page.waitForTimeout(300);
+      };
+      await applyFontSize(20);
+      const f154After = await probe();
+      console.log('INFO §154 改字号后=' + JSON.stringify(f154After));
+
+      check('§154 界面字号变化确实生效: ' + JSON.stringify([f154Base.fontSize, f154After.fontSize]),
+        f154Base.fontSize === '13px' && f154After.fontSize === '20px');
+      // 设计系统 4.2：树行按实际字高扩展（这条是"字号改变"本来就要发生的变化）。
+      check('§154 树行高随界面字号扩展: ' + JSON.stringify([f154Base.rowHeight, f154After.rowHeight]),
+        f154After.rowHeight > f154Base.rowHeight);
+      // §154 的核心：树选择与**首个可见节点**保持。
+      check('§154 字号变化保持树的选中行: ' + JSON.stringify([f154Base.selected, f154After.selected]),
+        f154Base.selected === 'docs/product-spec.md' && f154After.selected === f154Base.selected
+          && f154After.selectedCount === 1);
+      check('§154 字号变化保持树的第一个可见节点: '
+        + JSON.stringify([f154Base.firstVisible, f154After.firstVisible, f154After.treeScrollTop]),
+      f154Base.firstVisible === 'docs/bulk-006.txt' && f154After.firstVisible === f154Base.firstVisible);
+      check('§154 首个可见节点仍在原视口位置: '
+        + JSON.stringify([f154Base.firstVisibleTop, f154After.firstVisibleTop]),
+      Math.abs(f154After.firstVisibleTop - f154Base.firstVisibleTop) <= 2);
+      // 原文档控件（同一个正文节点）、正文滚动、正文选择范围与方向都保持。
+      check('§154 字号变化保持原文档控件（不重新打开文件）: '
+        + JSON.stringify([f154After.sameCodeNode, f154Base.readCalls, f154After.readCalls, f154After.docPath]),
+      f154After.sameCodeNode === true && f154After.readCalls === f154Base.readCalls
+        && f154After.docPath === 'docs/product-spec.md');
+      check('§154 字号变化保持正文滚动位置: '
+        + JSON.stringify([f154Base.codeScrollTop, f154After.codeScrollTop]),
+      f154Base.codeScrollTop === 480 && f154After.codeScrollTop === 480);
+      check('§154 等宽正文不跟随界面字号: '
+        + JSON.stringify([f154Base.codeLineHeight, f154After.codeLineHeight]),
+      f154Base.codeLineHeight === '22px' && f154After.codeLineHeight === '22px');
+      check('§154 字号变化保持正文选择范围与方向: '
+        + JSON.stringify([f154Base.selectionAnchor, f154After.selectionAnchor, f154Base.selectionFocus, f154After.selectionFocus]),
+      JSON.stringify(f154Base.selectionAnchor) === JSON.stringify(f154After.selectionAnchor)
+        && JSON.stringify(f154Base.selectionFocus) === JSON.stringify(f154After.selectionFocus)
+        && f154After.selectionText === f154Base.selectionText);
+      // §154 明确要求"不重新打开文件或查询 Git"。
+      check('§154 字号变化不重新查询 Git、不重新打开文件: '
+        + JSON.stringify([f154Base.statusCalls, f154After.statusCalls, f154Base.readCalls, f154After.readCalls,
+          f154Base.tabs, f154After.tabs]),
+      f154After.statusCalls === f154Base.statusCalls && f154After.readCalls === f154Base.readCalls
+        && f154After.tabs === f154Base.tabs);
+
+      // 负向对照：把上面这条"首个可见节点保持"的实现**在运行时关掉**（并把引擎自带的
+      // 滚动锚定一起关掉），同一个探针必须能观察到节点改变 —— 否则断言是空的。
+      // 基线已记录未修复时的实测：首个可见行 bulk-006 → bulk-004、scrollTop 260 → 257。
+      await f154.page.evaluate(() => {
+        window.__restoreAnchor154 = window.restoreScrollAnchors;
+        window.restoreScrollAnchors = () => {};
+        document.querySelector('.side-content.tree').style.overflowAnchor = 'none';
+      });
+      await openSettings154();
+      await applyFontSize(26);
+      const f154NoAnchor = await probe();
+      check('§154 负向对照：移除锚定后首个可见节点确实改变: '
+        + JSON.stringify([f154After.firstVisible, f154NoAnchor.firstVisible, f154NoAnchor.rowHeight]),
+      f154NoAnchor.firstVisible !== f154After.firstVisible);
+      await f154.page.evaluate(() => {
+        window.restoreScrollAnchors = window.__restoreAnchor154;
+        document.querySelector('.side-content.tree').style.overflowAnchor = '';
+      });
+      await f154.page.close();
+    }
 
     console.log(`live-shell 通过 ${passed} 项断言`);
   } finally {

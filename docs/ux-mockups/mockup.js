@@ -9,7 +9,39 @@ function typographyFamily(name, fallback) {
   return cleaned.length > 0 ? `"${cleaned}", ${fallback}` : null;
 }
 
+// 规格 §154：调整界面字号时保持"原文档控件、树选择和首个可见节点、正文选择与滚动位置"。
+// 行高由界面字号推导（`--augit-tree-height` 等），而 `scrollTop` 是像素值：
+// 只改字号不回填，列表会停到别的节点上 —— 实测（tools/audit/live-shell.spec.cjs）
+// 行高 28px→34px、`scrollTop` 仍为 260 时，树的首个可见行从 `docs/bulk-006.txt`
+// 变成了 `docs/bulk-004.txt`。这里在改字号前记录每个可滚动容器中首个可见子节点的
+// 视口偏移，改完后按**同一节点**回填，而不是按比例缩放像素。
+function captureScrollAnchors() {
+  const anchors = [];
+  for (const node of document.querySelectorAll(".augit-window *")) {
+    if (node.clientHeight <= 0 || node.scrollHeight <= node.clientHeight + 1) continue;
+    const box = node.getBoundingClientRect();
+    const first = [...node.children].find((child) => child.getBoundingClientRect().bottom > box.top + 1) || null;
+    anchors.push({ node, first, offset: first ? first.getBoundingClientRect().top - box.top : 0, scrollTop: node.scrollTop });
+  }
+  return anchors;
+}
+
+function restoreScrollAnchors(anchors) {
+  for (const anchor of anchors) {
+    if (!anchor.node.isConnected) continue;
+    // 锚点节点消失（列表被替换）时退回保存的像素位置，至少不引入额外跳动。
+    if (!anchor.first || !anchor.first.isConnected) {
+      if (Math.abs(anchor.node.scrollTop - anchor.scrollTop) > 0.5) anchor.node.scrollTop = anchor.scrollTop;
+      continue;
+    }
+    const box = anchor.node.getBoundingClientRect();
+    const delta = (anchor.first.getBoundingClientRect().top - box.top) - anchor.offset;
+    if (Math.abs(delta) > 0.5) anchor.node.scrollTop += delta;
+  }
+}
+
 async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null, monospaceFamily = null } = {}) {
+  const scrollAnchors = captureScrollAnchors();
   const root = document.documentElement.style;
   const font = typographyFamily(uiFamily, '"Segoe UI", sans-serif');
   if (font) root.setProperty("--augit-font", font);
@@ -86,6 +118,7 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   measurePushDialog();
   measureTerminalHeaders();
   measureSearchOverlay();
+  restoreScrollAnchors(scrollAnchors);
   document.body.dataset.typographyPreview = "ready";
 }
 

@@ -10589,3 +10589,69 @@ function refreshStatusRegions(...regions) {
 
 **B 线进度**：② 滚动保持 —— §125 **完成**（缺陷已修 + 断言齐备）；§154（字号变化保持树选择、
 首个可见节点与正文滚动）待做；③ 焦点管理、④ 分隔条两边界、⑤ 长按 待做。
+
+#### 第 299 轮（B-② §154 完成）：字号变化保持上下文的**真实缺陷** —— 树的首个可见节点会漂移
+
+**先标定再下结论**（本阶段第 9 次同类纪律）：先用一次"只记录不断言"的探针量真实行为，
+场景取 `scene=main-project&theme=dark`，用桩能力把 `docs` 展开成 61 个子项（60 个 bulk + 文档），
+打开 400 行文档，然后：树滚到 260、选中 `docs/product-spec.md`、正文滚到 480、
+正文做一次**反向选择**（锚点在后、焦点在前）。改界面字号 13 → 20 后重测：
+
+```
+改字号前： rowHeight=28 treeScrollTop=260 firstVisible=docs/bulk-006.txt firstVisibleTop=-2
+改字号后： rowHeight=34 treeScrollTop=257 firstVisible=docs/bulk-004.txt firstVisibleTop=-13
+```
+
+**判读（真实缺陷，规格 §154 明确要求"树选择和**首个可见节点**…保持"）**：
+- 行高按设计系统 4.2 随字号扩展（28 → 34）**是对的**；
+- 但 `scrollTop` 是**像素**值：浏览器自带的滚动锚定只补了 3 像素（260 → 257），
+  结果是**首个可见行从 bulk-006 漂移到 bulk-004**，用户"正在看的那个节点"被换掉了。
+- 其余各项**本来就对**（同一轮实测）：正文控件是同一个节点、正文 `scrollTop` 480 不变、
+  等宽行高 22px 不随界面字号变、选择范围与方向保持、`statusCalls` 与 `readCalls` 都不增加
+  （即"不重新打开文件或查询 Git"）。
+
+**修复**（`web/src/mockup.js` = `docs/ux-mockups/mockup.js`，共享文件，两处字节一致）：
+在 `applyTypography()` 里改字号**之前**记录每个可滚动容器中**首个可见子节点及其视口偏移**，
+改完所有派生尺寸后按**同一节点**回填（`captureScrollAnchors()` / `restoreScrollAnchors()`）：
+
+```js
+async function applyTypography(...) {
+  const scrollAnchors = captureScrollAnchors();   // 记录首个可见子节点
+  ...现有尺寸推导...
+  restoreScrollAnchors(scrollAnchors);            // 按同一节点回填像素位置
+}
+```
+
+**为什么不用"按行高比例缩放 scrollTop"**：实测行高 28 → 34 时比例缩放会得到 315.7，
+对应 bulk-007，同样不是 bulk-006；只有按**节点实际位置**回填才是规格要求的语义。
+
+**修复后实测（同一探针）**：
+
+```
+改字号后： rowHeight=34 treeScrollTop=314 firstVisible=docs/bulk-006.txt firstVisibleTop=-2
+```
+
+`scrollTop` 从 260 重算为 314，首个可见节点与它在视口里的偏移（-2px）都保持不变。
+
+**断言（10 条硬断言 + 1 条负向对照，`live-shell` 883/883）**：
+1. 界面字号变化确实生效（13px → 20px，且 `live.settings.fontSize` 一致）；
+2. 树行高随界面字号扩展（设计系统 4.2）；
+3. 保持树的选中行（仍是 `docs/product-spec.md`，且只有一行选中）；
+4. **保持树的第一个可见节点**（`docs/bulk-006.txt`）；
+5. **首个可见节点仍在原视口位置**（偏移仍为 -2px，容差 2px）；
+6. 保持原文档控件（同一个正文节点）且**没有重新读取文件**（`__readCalls` 不增加）；
+7. 保持正文滚动位置（`scrollTop` 仍为 480）；
+8. 等宽正文不跟随界面字号（行高仍 22px）；
+9. 保持正文选择范围与**方向**（锚点/焦点行号与偏移、选中文字都一致）；
+10. 不重新查询 Git（`__statusCalls` 不增加）、标签数不变。
+
+**负向对照（写在同一条用例里，证明断言不是空的）**：把上面的实现**在运行时关掉**
+（`window.restoreScrollAnchors = () => {}`，并给树加 `overflow-anchor: none` 关掉引擎自带锚定），
+再把字号从 20 改到 26 —— 同一个探针**必须**观察到首个可见节点改变。该对照通过。
+另有**修复前**的实测作为负向证据：`bulk-006 → bulk-004`、`scrollTop 260 → 257`。
+
+**回归**：`live-shell` **883/883**；`mockup-scenes` 48/48（dark）+ 48/48（light）；
+`verify-ui-assets` PASS（两处 `mockup.js` 字节一致）；`verify-script-encoding` PASS（12 个脚本）。
+
+**B 线进度**：② 滚动保持 —— §125 与 §154 **都已完成**；下一项 ③ 焦点管理
+（焦点环、Tab 循环、失焦后选中态转中性色），随后 ④ 分隔条两边界情形、⑤ 长按不重复触发。

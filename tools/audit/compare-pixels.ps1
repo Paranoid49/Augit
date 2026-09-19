@@ -25,7 +25,14 @@ param(
   [int]$Width = 1180,
   [int]$Height = 760,
   [int]$Port = 9470,
-  [double]$MaxVisiblePercent = 5.0
+  [double]$MaxVisiblePercent = 5.0,
+  # Extra live-side flags (comma-joined, e.g. '--blame,docs/product-spec.md'): several mockup
+  # scenes only exist in the live shell when the matching startup flag is given (blame,
+  # file-history, open, diff, conflict), otherwise both sides would render sample data.
+  [string[]]$LiveArgs = @(),
+  # JS evaluated on the live page before the screenshot, for aligning a view MODE with the
+  # mockup scene (e.g. text-viewer shows the inline find bar, the live shell starts without it).
+  [string]$LiveSetup = ""
 )
 $ErrorActionPreference = "Stop"
 if ($OutDir -eq "") { $OutDir = Join-Path $env:TEMP "augit-pixels" }
@@ -38,12 +45,18 @@ if (-not (Test-Path -LiteralPath (Join-Path $mockupsRoot ($Scene + '.html')))) {
   Write-Output ("MISSING_MOCKUP " + $Scene); exit 3
 }
 
+# -File turns "a,b" into ONE element: flatten the comma-joined form (same trap as -Bands).
+$liveList = @()
+foreach ($entry in $LiveArgs) {
+  foreach ($piece in ([string]$entry).Split(',')) { if ($piece.Trim() -ne '') { $liveList += $piece.Trim() } }
+}
+
 function Capture([string]$mode, [int]$port, [string]$out) {
   Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 2
   $common = @('--workspace', $Workspace, '--pixel-exact', '--theme', $Theme,
     '--width', "$Width", '--height', "$Height", '--browser-args', "--remote-debugging-port=$port")
-  $args = if ($mode -eq 'mockup') { @('--web-root', $mockupsRoot) + $common } else { @('--scene', $Scene) + $common }
+  $args = if ($mode -eq 'mockup') { @('--web-root', $mockupsRoot) + $common } else { @('--scene', $Scene) + $liveList + $common }
   $process = Start-Process -FilePath $Exe -ArgumentList $args -PassThru
   Start-Sleep -Seconds 8
   $socket = Get-CdpSocket $port
@@ -55,6 +68,10 @@ function Capture([string]$mode, [int]$port, [string]$out) {
     Start-Sleep -Seconds 3
   } else {
     Start-Sleep -Seconds 2
+    if ($LiveSetup -ne '') {
+      [void](Invoke-Cdp $socket $LiveSetup 2 30)
+      Start-Sleep -Seconds 1
+    }
   }
   $raw = Invoke-CdpMethod $socket 'Page.captureScreenshot' '{"format":"png"}' 2 60
   $data = ($raw | ConvertFrom-Json).result.data
