@@ -4783,6 +4783,49 @@ function closeSettingsDialog() {
  */
 /** 打开 Stash 对话框（规格 §5.3；键位与状态机取自视觉稿的 bindStashDialog）。 */
 /**
+ * Reset 当前分支（规格 §7.11 / §10.4 / §9.3）。
+ *
+ * 模式说明、影响预览、进行态冻结、Tab/Enter/Esc 循环与底栏按钮都由视觉稿的
+ * `bindResetDialog()` 提供；这里只负责建层、把它接到当前 HEAD，并让"执行/取消"
+ * 落到真实的宿主写操作（`git/reset` / `write/cancel`）。
+ */
+function openResetDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  if (!live.history || !live.history.head) {
+    // 没有 HEAD 就没有可确认的目标：不伪造一个样例哈希。
+    window.__augitError = "reset:no-head";
+    return;
+  }
+
+  closeLiveOverlay();
+  rememberDialogFocus();
+  document.querySelectorAll(".dialog.reset-dialog").forEach((node) => {
+    const owner = node.closest("[data-augit-overlay]") || node;
+    owner.remove();
+  });
+  const template = document.createElement("template");
+  template.innerHTML = dialog(
+    "Reset 当前分支",
+    liveResetBody(),
+    `<button type="button" class="secondary-button">取消</button>`
+      + `<button type="button" class="reset-run danger-button">确认 Reset Hard</button>`,
+    false,
+    "reset-dialog");
+  // 直接用 dialog() 自己的覆盖层当实时层：再套一层 div 会让
+  // `dialog.closest('[data-augit-overlay]')` 命中内层，关闭后留下一个空覆盖层
+  // （实测"关闭后仍存在 reset-window 层"）。
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  layer.classList.add("live-overlay", "reset-window");
+  host.appendChild(layer);
+  // 共享绑定提供模式切换/影响预览/键盘循环/焦点，避免实时外壳另写一套状态机。
+  bindResetDialog();
+  if (typeof measureResetDialog === "function") measureResetDialog();
+}
+
+/**
  * 「打开工作区」（产品规格 §2 / 视觉稿 workspace-open）。
  *
  * 最近目录来自设置；条目点击后交给宿主：同目录激活已有窗口、不同目录开新窗口。
@@ -6446,6 +6489,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "reset") {
+    openResetDialog();
+    return;
+  }
+
   if (action === "push") {
     // 规格 §7.12：推送前先显示待推送提交并让用户确认，不直接推送。
     void openPushDialog();
@@ -6476,6 +6524,7 @@ const MAIN_MENU_POPOVERS = {
     { action: "stash-manager", label: "Stash 管理…" },
     { action: "stash-create", label: "创建 Stash…" },
     { action: "worktree-manager", label: "Worktree 管理…" },
+    { action: "reset", label: "Reset 当前分支…" },
   ],
 };
 
@@ -6855,6 +6904,44 @@ async function boot() {
     // 把真实克隆交给视觉稿的 Clone 对话框调用：校验、焦点与冻结逻辑已在其中实现。
     // 不再只对场景页生效——「打开工作区」页的「克隆仓库…」也要用同一个对话框。
     window.__augitCloneRequest = (request) => invoke("git/clone", request, 600000);
+    // Reset 同理：模式说明、影响预览、进行态冻结与 Tab/Enter/Esc 循环都在视觉稿的对话框里，
+    // 实时外壳只把"执行"与"取消"接到宿主，并在结果后重读真实状态（规格 §7.11 / §9.3）。
+    window.__augitResetRequest = async (request) => {
+      let result = null;
+      try {
+        result = await invoke("git/reset", request, 600000);
+      } catch (error) {
+        result = { available: true, reset: false, reason: String((error && error.message) || error) };
+      }
+      if (!result || !result.reset) {
+        return {
+          ok: false,
+          reason: describeFailure((result && result.reason) || "Reset 未完成。", {
+            unchanged: "HEAD、索引、工作区与改动列表没有被修改。",
+          }),
+        };
+      }
+      // 不假设成功即生效：重新读取真实仓库状态后再刷新相关区域。
+      await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+      refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar", "bottomTool");
+      window.__augitResetResult = { target: result.target || null, mode: result.mode || null };
+      return { ok: true };
+    };
+    window.__augitResetCancel = async () => {
+      let stopped = false;
+      try {
+        const payload = await invoke("write/cancel", {}, 30000);
+        stopped = !!(payload && payload.cancelled);
+      } catch {
+        stopped = false;
+      }
+      // 不假设取消生效：任何结果都重读真实仓库状态。
+      await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+      refresh("side", "editorContent", "statusbar");
+      return { stopped };
+    };
+    // 关闭 Reset 对话框时归还打开前焦点（规格 §5.3）；视觉稿的对话框本身没有焦点栈。
+    window.__augitResetClosed = () => restoreDialogFocus();
   }
   if (hasHost()) {
     // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。

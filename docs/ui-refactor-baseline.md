@@ -10753,3 +10753,64 @@ CDP `Input.dispatchKeyEvent`）驱动，操作后比较界面状态。
 **B 线进度**：① 悬停态、② 滚动保持（§125 + §154）、③ 焦点管理、④ 分隔条两边界、⑤ 长按 **全部完成**。
 下一步：⑦ 交付文档（`docs/ui-compliance.md`，已产出首版）与 ⑧ 全场景真机巡检 + 打包验证；
 交付文档已记录一处**已确认的功能缺口**：Reset 在实时外壳中未端到端接线（见该文档 §3.2）。
+
+#### 第 302 轮：Reset 端到端接线 + 顺带抓到并修复"外部变化刷新后汉堡菜单点不开"
+
+**起点**：`docs/ui-compliance.md` 第 301 轮把 Reset 记为"已确认的功能缺口"（产品规格第 121/127 行要求
+reset 可用、`ux-spec` §12.1 要求该页在真实应用中可到达，但桥接层没有 `git/reset`、实时界面没有入口）。
+本轮把它接完，并在验证过程中抓到一个**独立缺陷**。
+
+**缺陷一（先抓到的，与 Reset 无关）：汉堡菜单监听随渲染累积 → 外部变化刷新后点不开**
+
+写 Reset 用例的第一步是"从 Git 菜单打开"，于是先推一次 `workspace-changed`（要验证影响说明用的是
+**当前**改动数）——结果 harness 直接在 `.titlebar .main-menu-entry` 上 8000ms 超时：**菜单打不开**。
+
+读代码定位（不是猜）：汉堡按钮的点击处理写在 `bindInteractions()` 里，挂在 `document` 上
+（标题栏节点会被区域刷新整块替换，挂节点的监听会失效），但 `bindInteractions()` **每次渲染都会被调用**
+（`__augitRender` 与 `__augitRenderRegions` 两条路径都会调），而处理函数按"当前有没有 `.main-menu-bar`"
+取反 —— **两份监听叠加，第一份打开、第二份立刻收起**。同文件中 `bindSettingsSave`、
+`bindPanelDividers`、`bindToolRail`、`bindRegionTabOrder` 等文档级绑定都有 `__augitXxxBound` 幂等守卫，
+只有这两个（菜单点击、菜单 Esc）没有。
+
+**修复**（`web/src/mockup.js`）：把这两个监听放进 `if (!window.__augitMainMenuBound) { ... }` 守卫
+（与既有模式一致）。**负向证据**：修复前的同一条测量（推到 `workspace-changed` 后点汉堡按钮，
+`.main-menu-entry` 8s 超时）；**修复后新增 3 条断言** ——「首屏主菜单可以打开」、
+「**外部变化刷新后主菜单仍可打开**」（连续三次 `workspace-changed` 后再开）、
+「再次点击收起菜单并恢复普通标题栏」，全部通过。
+
+**缺陷二（功能缺口）：Reset 未端到端接线 —— 本轮接完**
+
+- **桥接**（`src/Augit.Shell/ShellBridge.cs`）：新增 `"git/reset" => RunWriteAsync(ct => ResetAsync(...))`
+  与 `ResetAsync(parameters, ct)` —— 校验 `target` 非空、`mode` ∈ {Soft, Mixed, Hard}，
+  经 `ResolveGitAsync` 解析仓库后调用既有的 `GitWorkspaceStateService.ResetAsync`，
+  成功后 `InvalidateStatusCache()`（Reset 会移动 HEAD 或改动工作区），失败返回原因；
+- **入口**（`web/src/live-data.js`）：Git 主菜单新增「Reset 当前分支…」；
+- **对话框**：新建 `openResetDialog()`，用共享的 `liveResetBody()` + 视觉稿的 `bindResetDialog()`
+  （模式切换、影响预览、进行态冻结、Tab/Enter/Esc 循环、Hard 危险样式都在其中），
+  实时层只提供 `__augitResetRequest`（`git/reset` → 重读状态/历史 → 刷新区域）与
+  `__augitResetCancel`（`write/cancel` → 重读状态）以及关闭时的焦点归还；
+- **影响说明改成真实数据**：`trackedChangeCount()` —— 视觉稿（无宿主）沿用样例基线 35，
+  实时外壳显示**当前**已跟踪改动文件数（§10.4「危险操作必须显示具体影响」）；
+- **踩到的坑**：第一版把 `dialog()` 的产物塞进自建 `div`，于是有两个嵌套的 `[data-augit-overlay]`，
+  `dialog.closest()` 命中内层 → 关闭后留下一个空覆盖层（断言 `layerGone` 实测 false）。
+  改用 `template.content.firstElementChild` 直接当实时层（与 `openSearchOverlay` 同一写法）后消失。
+
+**新增 17 条断言（900 → 917）**：入口可达（背景 inert）、目标取真实 HEAD、Hard 危险样式与动作名、
+影响说明用真实已跟踪改动数（注入 5 个已跟踪 + 2 个未跟踪 → 文案含「5 个已跟踪文件」）、
+切换 Soft 同步说明与按钮、进行中禁用重复触发 + 取消入口、同一次按下只发一次请求、
+请求带目标与模式、成功关闭并重读状态（`__statusCalls` 增加）且无残留覆盖层、
+失败保留对话框与目标并给出原因（可重试）、取消零请求、进行中取消先通知宿主、宿主确认后给出结果；
+另加一条"长按期间进行态一直保持且宿主只收到一次请求"。
+**负向验证**：把实时委派临时改成 `false &&`（即"移除实现"）后重跑，同一组用例如实失败
+（`§9.3 Reset 进行中禁用重复触发并给出取消入口`），随后逐字节还原。
+
+**B-⑤ 用例的相应更新**：`scene=reset` 的对话框现在也会走真实委派，第一次 Enter 后就会按成功关闭，
+于是"重复按键"打不到它（实测 `states` 全为 null）。改为先注入 `__resetDelays = 1500`，
+让进行态覆盖整段重复按键 —— 实测 `dialogKeys` 收到 5 次（含 4 次重复）、
+`states` 全部是 `running`、`notices` 只有 1 条、`git/reset` 只发出 1 次。
+
+**回归**：`live-shell` **917/917**；`mockup-scenes` 48/48 ×2 主题；`verify-ui-assets` PASS；
+`verify-script-encoding` PASS；`dotnet format --verify-no-changes` 通过；Release 构建 0 警告 0 错误。
+
+**交付文档同步**：`docs/ui-compliance.md` 的 §7.11 行改为"已实现"，
+§3.2 记为"汉堡菜单监听累积（已修复）"，并新增 §3.3「本阶段新增接线」记录 Reset。

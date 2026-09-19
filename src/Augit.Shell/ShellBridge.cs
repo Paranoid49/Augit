@@ -158,6 +158,7 @@ internal sealed class ShellBridge : IDisposable
             "git/remote-write" => await RunWriteAsync(ct => WriteRemoteAsync(parameters, ct), cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
             "git/rollback" => await RunWriteAsync(ct => RollbackAsync(parameters, ct), cancellationToken),
+            "git/reset" => await RunWriteAsync(ct => ResetAsync(parameters, ct), cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
@@ -662,6 +663,49 @@ internal sealed class ShellBridge : IDisposable
             // 未跟踪或新增文件是被移入回收站，不是从 HEAD 恢复：界面据此给出准确说明。
             recycled = file.Group == GitChangeGroup.UnversionedFiles
                 || file.Kind is GitChangeKind.Untracked or GitChangeKind.Added,
+        };
+    }
+
+    /// <summary>
+    /// Reset 当前分支到目标提交（规格 §7.11：三种模式必须在同一页面解释 HEAD、索引与工作区的影响，
+    /// Hard 使用危险确认；界面已确认，这里只做参数校验与执行）。
+    /// </summary>
+    private async Task<object?> ResetAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string target = (GetString(parameters, "target") ?? string.Empty).Trim();
+        if (target.Length == 0)
+        {
+            return new { available = true, reset = false, reason = "请输入 Reset 目标提交。" };
+        }
+
+        string modeText = GetString(parameters, "mode") ?? "Hard";
+        if (!Enum.TryParse(modeText, ignoreCase: true, out GitResetMode mode))
+        {
+            return new { available = true, reset = false, reason = "Reset 模式无效，请选择 Soft、Mixed 或 Hard。" };
+        }
+
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitActionResult result = await new GitWorkspaceStateService(runtime)
+            .ResetAsync(repository, target, mode, cancellationToken)
+            .ConfigureAwait(false);
+        // Reset 会移动 HEAD 或改动工作区：状态缓存必须失效，界面随后重新读取真实仓库状态。
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, reset = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            reset = true,
+            target,
+            mode = mode.ToString(),
         };
     }
 

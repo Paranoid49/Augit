@@ -671,6 +671,21 @@ function bindRollbackDialog() {
   window.addEventListener('pagehide', () => controller.abort(), { ...options, once: true });
 }
 
+/**
+ * Reset 的"将丢失 N 个已跟踪文件"里的 N。
+ *
+ * 视觉稿页面没有宿主（`__augitLive` 不存在），沿用样例基线值 35；
+ * 实时外壳必须显示**真实**已跟踪改动文件数（规格 §10.4：危险操作要显示具体影响），
+ * 否则用户看到的是一句与仓库无关的说明。
+ */
+function trackedChangeCount() {
+  const live = window.__augitLive;
+  const files = live && live.status && Array.isArray(live.status.files) ? live.status.files : null;
+  if (!files) return 35;
+  return files.filter((file) => file.group === "Changes"
+    && file.kind !== "Untracked" && file.kind !== "Added").length;
+}
+
 function bindResetDialog() {
   const dialog = document.querySelector('.reset-dialog');
   if (!dialog) return;
@@ -691,7 +706,7 @@ function bindResetDialog() {
     const presentations = [
       ['仅移动 HEAD，索引和工作区保持不变', '已暂存和未暂存的本地改动都会保留。'],
       ['移动 HEAD 并重置索引，工作区保持不变', '已暂存改动会回到工作区，本地文件不会删除。'],
-      ['将丢失 35 个已跟踪文件的本地改动', '未跟踪文件不会删除，操作不可由 Augit 自动撤销。'],
+      [`将丢失 ${trackedChangeCount()} 个已跟踪文件的本地改动`, '未跟踪文件不会删除，操作不可由 Augit 自动撤销。'],
     ];
     impact.querySelector('strong').textContent = presentations[mode.selectedIndex][0];
     impact.querySelector('p').textContent = presentations[mode.selectedIndex][1];
@@ -704,16 +719,45 @@ function bindResetDialog() {
     run.setAttribute('aria-disabled', String(running)); close.setAttribute('aria-disabled', String(running));
   };
   const dismiss = () => {
+    // 实时外壳的对话框外面还有一层 [data-augit-overlay]：只删 dialog 会留下空层，
+    // 背景会一直被 syncModalBackground 当成"有模态"而保持禁用。
+    const owner = dialog.closest('[data-augit-overlay]');
     clearTimeout(timer); controller.abort(); dialog.remove(); document.querySelector('.scrim')?.remove();
+    if (owner) owner.remove();
+    // 规格 §5.3：关闭后恢复打开前焦点（只有实时外壳提供这个栈，视觉稿是静态页面）。
+    if (typeof window.__augitResetClosed === 'function') window.__augitResetClosed();
   };
   const cancelAction = () => {
     if (!running) { dismiss(); return; }
+    // 实时外壳：取消必须真的请求宿主停止写操作，并等宿主确认（规格 §9.3）。
+    if (typeof window.__augitResetCancel === 'function') {
+      showNotice('正在取消 Reset，等待 Git 停止…');
+      void window.__augitResetCancel().then(outcome => {
+        running = false; update();
+        showNotice(outcome && outcome.stopped ? 'Reset 已取消。' : 'Reset 已结束（没有可取消的操作）。');
+        dialog.dataset.state = 'cancelled';
+      });
+      return;
+    }
     clearTimeout(timer); running = false; update(); showNotice('操作已取消。'); dialog.dataset.state = 'cancelled';
   };
   const start = () => {
     if (running) return;
     if (!target.value.trim()) { showNotice('请输入 Reset 目标提交。'); target.focus(); return; }
     running = true; update(); cancel.focus(); showNotice('正在执行 Reset…'); dialog.dataset.state = 'running';
+    // 实时外壳：交给宿主执行真实 Reset（三种模式与目标由界面收集，宿主讲明失败原因）。
+    if (typeof window.__augitResetRequest === 'function') {
+      void window.__augitResetRequest({
+        target: target.value.trim(),
+        mode: mode.selectedIndex === 0 ? 'Soft' : mode.selectedIndex === 1 ? 'Mixed' : 'Hard',
+      }).then(outcome => {
+        if (outcome && outcome.ok) { dismiss(); return; }
+        running = false; update();
+        showNotice((outcome && outcome.reason) || 'Reset 未完成。');
+        dialog.dataset.state = 'failure';
+      });
+      return;
+    }
     if (params.get('reset-result') === 'pending') return;
     timer = setTimeout(() => {
       running = false; update();
@@ -1739,7 +1783,9 @@ function liveConflictSessionFooter(session) {
 function liveResetBody() {
   const live = window.__augitLive || {};
   const head = (live.history && live.history.head) ? live.history.head.slice(0, 7) : "HEAD";
-  return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" readonly><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
+  // 目标可编辑：与视觉稿样例一致（`Reset 目标提交` 是一个输入框），
+  // 任何不存在的引用由宿主校验并给出原因，界面不自行判断。
+  return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset 目标提交"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
 }
 
 // 外壳注入真实改动文件时的回滚对话框：目标是右键选中的那个文件
@@ -3795,34 +3841,41 @@ function bindInteractions() {
     }
   });
 
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='menu']");
-    if (!button) return;
+  // 汉堡按钮与内嵌菜单的 Esc 都挂在 document 上（标题栏节点会被区域刷新整块替换，
+  // 挂节点的监听会随之失效）。但本函数每次渲染都会被调用，所以必须有幂等守卫：
+  // 点击处理按"当前有没有菜单条"取反，两份监听叠加就会互相抵消 ——
+  // 实测一次外部变化刷新之后点汉堡按钮毫无反应（规格 §5.1 要求它原位显示五个文字入口）。
+  if (!window.__augitMainMenuBound) {
+    window.__augitMainMenuBound = true;
+    document.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-action='menu']");
+      if (!button) return;
 
-    const title = document.querySelector(".titlebar");
-    if (title.querySelector(".main-menu-bar")) {
-      title.outerHTML = titlebar();
-    } else {
-      title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><button class="top-button" aria-label="关闭主菜单" data-action="menu">${icon("menu")}</button><nav class="main-menu-bar"><a class="main-menu-entry" href="workspace-open.html">文件</a><a class="main-menu-entry" href="main-project.html">视图</a><a class="main-menu-entry" href="git-history.html">Git</a><a class="main-menu-entry" href="terminal.html">终端</a><a class="main-menu-entry" href="settings.html">设置</a></nav><span></span><span></span><nav class="window-actions" aria-label="窗口工具">${windowActionIcons()}</nav>`;
-    }
-  });
+      const title = document.querySelector(".titlebar");
+      if (title.querySelector(".main-menu-bar")) {
+        title.outerHTML = titlebar();
+      } else {
+        title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><button class="top-button" aria-label="关闭主菜单" data-action="menu">${icon("menu")}</button><nav class="main-menu-bar"><a class="main-menu-entry" href="workspace-open.html">文件</a><a class="main-menu-entry" href="main-project.html">视图</a><a class="main-menu-entry" href="git-history.html">Git</a><a class="main-menu-entry" href="terminal.html">终端</a><a class="main-menu-entry" href="settings.html">设置</a></nav><span></span><span></span><nav class="window-actions" aria-label="窗口工具">${windowActionIcons()}</nav>`;
+      }
+    });
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
-    // 内嵌主菜单打开时，Esc 关闭菜单并恢复标准标题栏（规格 §5.1）。
-    // 组词期间交给输入法，不抢占按键。
-    if (event.isComposing || event.keyCode === 229) return;
-    const title = document.querySelector(".titlebar");
-    if (title && title.querySelector(".main-menu-bar")) {
-      event.preventDefault();
-      title.outerHTML = titlebar();
-      return;
-    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      // 内嵌主菜单打开时，Esc 关闭菜单并恢复标准标题栏（规格 §5.1）。
+      // 组词期间交给输入法，不抢占按键。
+      if (event.isComposing || event.keyCode === 229) return;
+      const title = document.querySelector(".titlebar");
+      if (title && title.querySelector(".main-menu-bar")) {
+        event.preventDefault();
+        title.outerHTML = titlebar();
+        return;
+      }
 
-    if (scene === "quick-open" || scene === "quick-open-empty") {
-      window.location.href = "main-project.html";
-    }
-  });
+      if (scene === "quick-open" || scene === "quick-open-empty") {
+        window.location.href = "main-project.html";
+      }
+    });
+  }
 }
 
 // 供外壳的真实数据加载器复用同一套图形与动作绑定。

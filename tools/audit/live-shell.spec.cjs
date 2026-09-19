@@ -626,6 +626,19 @@ async function main() {
         if (window.__writeCancelNothing) return { available: true, cancelled: false, reason: '当前没有可取消的操作。' };
         return { available: true, cancelled: true, reason: null };
       }
+      if (method === 'git/reset') {
+        // 规格 §7.11 / §10.4：Reset 是危险写操作，这里记录**请求已发出**的参数
+        // （目标与模式），并支持注入延迟与失败，用于验证进行态、取消与失败保留上下文。
+        window.__resetCalls = (window.__resetCalls || []).concat([{ target: params.target, mode: params.mode }]);
+        if (window.__resetDelays) await new Promise((r) => setTimeout(r, window.__resetDelays));
+        // 与真实宿主一致：取消会终止正在运行的 Git 命令，因此已取消的请求必须失败，
+        // 不能"取消之后还返回成功"（否则界面会把一次已取消的写操作当成生效）。
+        if (window.__writeCancels) throw new Error('操作已取消。');
+        if (window.__resetFails) {
+          throw new Error('无法解析目标提交，请检查仓库中的引用名称。');
+        }
+        return { available: true, reset: true, target: params.target, mode: params.mode };
+      }
       if (method === 'git/commit') {
         const delay = (window.__commitDelays || {})[params.revision];
         if (delay) await new Promise((r) => setTimeout(r, delay));
@@ -10162,6 +10175,214 @@ async function main() {
     await wm.page.evaluate(() => { window.__commitDelays = 0; });
     await wm.page.close();
 
+    // ---- 规格 §5.1：外部变化刷新之后主菜单仍能开合（监听不得随渲染累积）----
+    // 曾经的缺陷：汉堡按钮的点击处理挂在 document 上（标题栏会被区域刷新替换），
+    // 但每次渲染都重新注册一份，而处理函数按"当前有没有菜单条"取反 ——
+    // 两份监听叠加就互相抵消，点一下毫无反应（实测一次 workspace-changed 之后必现）。
+    {
+      const mb = await openScene('scene=main-project&theme=dark');
+      await mb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await mb.page.waitForTimeout(500);
+      const menuOpens = async () => {
+        await mb.page.locator('.titlebar [data-action="menu"]').click();
+        await mb.page.waitForTimeout(200);
+        return mb.page.evaluate(() => !!document.querySelector('.titlebar .main-menu-bar'));
+      };
+      const mbBefore = await menuOpens();
+      if (mbBefore) await mb.page.locator('.titlebar [data-action="menu"]').click();
+      await mb.page.waitForTimeout(200);
+      // 连续三次外部变化刷新：监听若累积，开合会出现"点不开"的偶数抵消。
+      for (let i = 0; i < 3; i += 1) {
+        await mb.page.evaluate(() => window.__hostPush('workspace-changed', { files: [], gitMetadata: true }));
+        await mb.page.waitForTimeout(400);
+      }
+      const mbAfter = await menuOpens();
+      await mb.page.locator('.titlebar [data-action="menu"]').click();
+      await mb.page.waitForTimeout(200);
+      const mbClosed = await mb.page.evaluate(() => ({
+        bar: !!document.querySelector('.titlebar .main-menu-bar'),
+        hamburger: document.querySelector('.titlebar [data-action="menu"]').getAttribute('aria-label'),
+      }));
+      check('§5.1 首屏主菜单可以打开: ' + JSON.stringify(mbBefore), mbBefore === true);
+      check('§5.1 外部变化刷新后主菜单仍可打开: ' + JSON.stringify(mbAfter), mbAfter === true);
+      check('§5.1 再次点击收起菜单并恢复普通标题栏: ' + JSON.stringify(mbClosed),
+        mbClosed.bar === false && mbClosed.hamburger === '主菜单');
+      await mb.page.close();
+    }
+
+    // ---- 规格 §7.11 / §10.4 / §9.3：Reset 在实时外壳中可达，且执行/取消真的落到宿主 ----
+    // 该功能此前只在 `--scene reset` 里渲染（没有入口、桥接层也没有 git/reset），
+    // 等于"界面画了、动作不存在"。这组断言要求：入口可达 → 影响按真实改动数显示 →
+    // 确认发出一次真实请求 → 成功关闭并重读状态 → 失败保留上下文 → 取消零请求。
+    {
+      const rs = await openScene('scene=main-project&theme=dark');
+      await rs.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await rs.page.waitForFunction(
+        "!!document.querySelector('.titlebar .main-menu-entry') || !!document.querySelector('.titlebar [data-action=\"menu\"]')",
+        null,
+        { timeout: 10000 },
+      );
+      await rs.page.waitForTimeout(500);
+      // 注入 5 个已跟踪改动 + 2 个未跟踪，经宿主推送刷新状态：
+      // 影响说明里的数字必须来自**当前**改动列表，而不是样例的 35。
+      await rs.page.evaluate(() => {
+        window.__liveFiles = [
+          { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+          { path: 'src/A.cs', name: 'A.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+          { path: 'src/B.cs', name: 'B.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: true, workingTree: false },
+          { path: 'src/C.cs', name: 'C.cs', directory: 'src', group: 'Changes', kind: 'Deleted', staged: false, workingTree: true },
+          { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+          { path: 'notes/draft.txt', name: 'draft.txt', directory: 'notes', group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false },
+          { path: 'notes/tmp.log', name: 'tmp.log', directory: 'notes', group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false },
+        ];
+        window.__resetCalls = [];
+        window.__writeCancels = 0;
+        window.__hostPush('workspace-changed', { files: [], gitMetadata: true });
+      });
+      await rs.page.waitForFunction('window.__augitLive.status && window.__augitLive.status.files.length === 7',
+        null, { timeout: 10000 });
+
+      const openViaMenu = async () => {
+        // 标题栏菜单可能已经展开（对话框关闭不会收起它，成功刷新会）：已展开时直接点入口，
+        // 再点汉堡按钮会把它收起（实测第二次打开会超时）。
+        const barOpen = await rs.page.evaluate(() => !!document.querySelector('.titlebar .main-menu-bar'));
+        if (!barOpen) await rs.page.locator('.titlebar [data-action="menu"]').click();
+        await rs.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+        await rs.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Git' }).first().click();
+        await rs.page.waitForSelector('.main-menu-popover .menu-item', { timeout: 8000 });
+        await rs.page.locator('.main-menu-popover .menu-item').filter({ hasText: 'Reset' }).first().click();
+        await rs.page.waitForSelector('.dialog.reset-dialog', { timeout: 8000 });
+        await rs.page.waitForTimeout(200);
+      };
+      const resetState = () => rs.page.evaluate(() => {
+        const dialog = document.querySelector('.dialog.reset-dialog');
+        const run = dialog ? dialog.querySelector('.reset-run') : null;
+        return {
+          open: !!dialog,
+          target: dialog ? dialog.querySelector('#reset-target').value : null,
+          impact: dialog ? dialog.querySelector('.reset-impact strong').textContent : null,
+          impactDetail: dialog ? dialog.querySelector('.reset-impact p').textContent : null,
+          danger: run ? run.classList.contains('danger-button') : null,
+          runText: run ? run.textContent.trim() : null,
+          runDisabled: run ? run.disabled : null,
+          cancelText: dialog ? dialog.querySelector('.dialog-footer .secondary-button').textContent.trim() : null,
+          modeValue: dialog ? dialog.querySelector('#reset-mode').selectedIndex : null,
+          backgroundInert: (function () {
+            const host = document.querySelector('.augit-window');
+            return host ? host.querySelector('.app-main').inert === true : null;
+          })(),
+          focusInDialog: !!(document.activeElement && dialog && dialog.contains(document.activeElement)),
+          notice: dialog && !dialog.querySelector('.reset-notice').hidden
+            ? dialog.querySelector('.reset-notice').textContent : null,
+        };
+      });
+
+      await openViaMenu();
+      const rsOpen = await resetState();
+      check('§7.11 Reset 可从 Git 菜单打开: ' + JSON.stringify([rsOpen.open, rsOpen.backgroundInert]),
+        rsOpen.open === true && rsOpen.backgroundInert === true);
+      check('§7.11 Reset 目标取真实 HEAD: ' + JSON.stringify(rsOpen.target),
+        typeof rsOpen.target === 'string' && /^[0-9a-f]{7}$/.test(rsOpen.target));
+      check('§10.4 Hard 使用危险确认样式且按钮写动作名: '
+        + JSON.stringify([rsOpen.modeValue, rsOpen.danger, rsOpen.runText]),
+      rsOpen.modeValue === 2 && rsOpen.danger === true && rsOpen.runText.includes('确认 Reset Hard'));
+
+      // 影响说明必须按**当前**已跟踪改动数（5）显示，而不是样例的 35。
+      check('§10.4 影响说明使用真实已跟踪改动数: ' + JSON.stringify([rsOpen.impact, rsOpen.impactDetail]),
+        rsOpen.impact.includes('5 个已跟踪文件') && rsOpen.impactDetail.length > 0);
+
+      // 模式切换：说明与按钮文字同步变化，且非 Hard 不再使用危险样式。
+      await rs.page.selectOption('#reset-mode', { index: 0 });
+      await rs.page.waitForTimeout(150);
+      const rsSoft = await resetState();
+      check('§7.11 切换到 Soft 同步说明与按钮: '
+        + JSON.stringify([rsSoft.impact, rsSoft.runText, rsSoft.danger]),
+      rsSoft.impact.includes('仅移动 HEAD') && rsSoft.runText.includes('执行 Reset') && rsSoft.danger === false);
+      await rs.page.selectOption('#reset-mode', { index: 2 });
+      await rs.page.waitForTimeout(150);
+
+      // 进行中：禁用重复触发、出现取消入口；完成一次请求后关闭并重读真实状态。
+      await rs.page.evaluate(() => { window.__resetDelays = 800; window.__resetCalls = []; });
+      const statusBeforeReset = await rs.page.evaluate(() => window.__statusCalls || 0);
+      await rs.page.locator('.dialog.reset-dialog .reset-run').click();
+      await rs.page.waitForTimeout(250);
+      const rsBusy = await resetState();
+      check('§9.3 Reset 进行中禁用重复触发并给出取消入口: '
+        + JSON.stringify([rsBusy.runDisabled, rsBusy.cancelText, rsBusy.notice]),
+      rsBusy.runDisabled === true && rsBusy.cancelText.includes('取消') && rsBusy.open === true);
+      check('§9.3 Reset 进行中在同一次按下里只发一次请求: '
+        + JSON.stringify((await rs.page.evaluate(() => window.__resetCalls)).length),
+      (await rs.page.evaluate(() => window.__resetCalls)).length === 1);
+      const rsBusyCall = await rs.page.evaluate(() => window.__resetCalls[0]);
+      check('§7.11 Reset 请求带上目标与模式: ' + JSON.stringify(rsBusyCall),
+        rsBusyCall && rsBusyCall.mode === 'Hard' && /^[0-9a-f]{7}$/.test(String(rsBusyCall.target)));
+      await rs.page.waitForFunction('!document.querySelector(".dialog.reset-dialog")', null, { timeout: 10000 });
+      const rsDone = await rs.page.evaluate(() => ({
+        calls: window.__resetCalls,
+        statusCalls: window.__statusCalls || 0,
+        result: window.__augitResetResult || null,
+        layerGone: document.querySelectorAll('[data-augit-overlay].live-overlay.reset-window').length === 0,
+        inert: (function () {
+          const host = document.querySelector('.augit-window');
+          return host ? host.querySelector('.app-main').inert === true : null;
+        })(),
+      }));
+      check('§7.11 Reset 成功后关闭并重读真实状态: '
+        + JSON.stringify([rsDone.layerGone, rsDone.inert, rsDone.statusCalls - statusBeforeReset, rsDone.result]),
+      rsDone.layerGone === true && rsDone.inert === false
+        && rsDone.statusCalls > statusBeforeReset
+        && rsDone.result && rsDone.result.mode === 'Hard');
+      await rs.page.evaluate(() => { window.__resetDelays = 0; });
+
+      // 失败：保留对话框与目标、显示可执行原因，并允许重试（不假装成功、不关闭）。
+      await rs.page.evaluate(() => { window.__resetFails = true; });
+      await openViaMenu();
+      await rs.page.locator('.dialog.reset-dialog .reset-run').click();
+      await rs.page.waitForTimeout(500);
+      const rsFail = await resetState();
+      check('§9.3 / §10.2 Reset 失败保留对话框并说明原因: '
+        + JSON.stringify([rsFail.open, rsFail.runDisabled, rsFail.target, rsFail.notice]),
+      rsFail.open === true && rsFail.runDisabled === false
+        && /^[0-9a-f]{7}$/.test(String(rsFail.target))
+        && typeof rsFail.notice === 'string' && rsFail.notice.includes('没有被修改'));
+      await rs.page.evaluate(() => { window.__resetFails = false; });
+
+      // 取消：零请求、关闭对话框（负向：如果取消路径直接发请求，这条会红）。
+      await rs.page.evaluate(() => { window.__resetCalls = []; });
+      await rs.page.locator('.dialog.reset-dialog .dialog-footer .secondary-button').click();
+      await rs.page.waitForTimeout(400);
+      const rsCancel = await rs.page.evaluate(() => ({
+        open: !!document.querySelector('.dialog.reset-dialog'),
+        calls: window.__resetCalls,
+      }));
+      check('§10.4 Reset 取消不发出任何写请求: ' + JSON.stringify([rsCancel.open, rsCancel.calls.length]),
+        rsCancel.open === false && rsCancel.calls.length === 0);
+
+      // 进行中取消：先请求宿主停止，再按真实结果给出说明。
+      await rs.page.evaluate(() => { window.__resetDelays = 1500; window.__resetCalls = []; window.__writeCancels = 0; });
+      await openViaMenu();
+      await rs.page.locator('.dialog.reset-dialog .reset-run').click();
+      await rs.page.waitForTimeout(250);
+      await rs.page.locator('.dialog.reset-dialog .dialog-footer .secondary-button').click();
+      await rs.page.waitForTimeout(400);
+      const rsCancelling = await resetState();
+      check('§9.3 Reset 进行中取消先通知宿主: '
+        + JSON.stringify([rsCancelling.cancelText, rsCancelling.notice]),
+      typeof rsCancelling.notice === 'string' && rsCancelling.notice.includes('取消'));
+      await rs.page.waitForTimeout(2200);
+      const rsCancelled = await rs.page.evaluate(() => ({
+        cancels: window.__writeCancels || 0,
+        notice: (function () {
+          const dialog = document.querySelector('.dialog.reset-dialog');
+          return dialog ? dialog.querySelector('.reset-notice').textContent : null;
+        })(),
+      }));
+      check('§9.3 Reset 取消请求发到宿主并给出结果: ' + JSON.stringify(rsCancelled),
+        rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && rsCancelled.notice.includes('取消'));
+      await rs.page.evaluate(() => { window.__resetDelays = 0; });
+      await rs.page.close();
+    }
+
     // ---- 规格 §4.4 / §5.4：键盘焦点必须有可见焦点环（深浅主题都要清晰）----
     {
       const ringFor = async (theme) => {
@@ -10431,6 +10652,9 @@ async function main() {
       const rp = await openScene('scene=reset&theme=dark');
       await rp.page.waitForSelector('[data-augit-overlay] .dialog .reset-run', { timeout: 10000 });
       await rp.page.waitForTimeout(500);
+      // 让宿主的写操作慢下来：进行态要覆盖整段重复按键，否则对话框会在第一次按键后
+      // 立刻按成功关闭，后续重复根本没有机会打到它（实测 states 全为 null）。
+      await rp.page.evaluate(() => { window.__resetDelays = 1500; window.__resetCalls = []; });
       const resetClient = await rp.page.context().newCDPSession(rp.page);
       const resetEnter = (autoRepeat) => resetClient.send('Input.dispatchKeyEvent', {
         type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, autoRepeat,
@@ -10482,7 +10706,12 @@ async function main() {
         resetRepeat.keys.length === 5 && resetRepeat.keys.filter(Boolean).length === 4);
       check('§5.1 长按 Enter 时对话框只执行一次动作: '
         + JSON.stringify([resetRepeat.states, resetRepeat.notices, resetRepeat.dialogKeys]),
-      resetRepeat.states[0] === 'running' && resetRepeat.notices.length === 1);
+      resetRepeat.states[0] === 'running' && resetRepeat.notices.length === 1
+        && resetRepeat.states.filter((state) => state === 'running').length === resetRepeat.states.length);
+      check('§5.1 长按期间进行态一直保持且宿主只收到一次请求: '
+        + JSON.stringify((await rp.page.evaluate(() => window.__resetCalls))),
+      (await rp.page.evaluate(() => window.__resetCalls)).length === 1);
+      await rp.page.evaluate(() => { window.__resetDelays = 0; });
       await rp.page.close();
     }
 

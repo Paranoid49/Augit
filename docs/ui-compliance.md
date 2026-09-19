@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **900/900**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **917/917**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（16 场景） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -30,8 +30,8 @@
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机与竞态。它有 674 个 `check(...)` 调用点，
-> 其中一部分在场景/主题循环里重复执行，因此实际断言数（900）大于调用点数。
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 693 个 `check(...)` 调用点，
+> 其中一部分在场景/主题循环里重复执行，因此实际断言数（917）大于调用点数。
 
 ## 1. A 线：静态界面复原
 
@@ -195,7 +195,7 @@
 | §7.8 | 历史比较标签标注双方引用，打开后成为前台 | 是 | 「规格 §7.8：历史比较标签」块（`双击变化文件建立历史比较标签`、`历史比较标签标注双方引用`、`历史比较打开后成为前台并显示差异`） |
 | §7.9 | 引用比较按引用基准生成差异，且解除对 Changes 的跟随 | 是 | 「规格 §7.9：与工作区比较」块 + 「引用比较解除对 Changes 的跟随」块 |
 | §7.11 | Stash 创建/管理、Worktree 管理、远端管理的动作行与守卫 | 是 | 「规格 §7.11 / §10.4：Stash 管理页」块、「Worktree 管理页」块、「远端管理页的删除/保存动作行」块、「新建 Worktree 表单」块 |
-| §7.11 | Reset 紧凑对话框：模式影响说明、Hard 红色确认、字号/限高适配 | **部分** | 视觉稿 `scene=reset` 渲染并绑定（`规格 §10.4：危险确认按钮使用动作名称`、`不使用泛化的「确定」`、`显示具体影响`）；**实时外壳没有入口、没有 `git/reset` 桥接方法** → §3.2 |
+| §7.11 | Reset 紧凑对话框：模式影响说明、Hard 红色确认、字号/限高适配 | 是 | 「§7.11 / §10.4 / §9.3：Reset 在实时外壳中可达」块：入口 `Git 菜单 → Reset 当前分支…`；影响说明用**当前真实已跟踪改动数**；Hard 用危险确认（`确认 Reset Hard`）；确认发出一次 `git/reset`（带目标与模式）→ 成功关闭并重读状态；失败保留对话框与目标并给出原因；取消零请求；进行中禁用重复触发 + 取消入口走 `write/cancel` | 见 §3.2 说明（本项由本节新接线） |
 | §7.12 | Push 确认对话框、错误反馈、生命周期 | 是 | 「规格 §7.12：Push 内嵌的远端窗口」块 + 「Push 对话框」块 |
 | §7.13 | 冲突操作会话（Continue/Skip/Abort）与打开三栏解决器 | 是 | 「规格 §7.13/§10.3：冲突操作会话」块 + 「点击冲突文件打开三栏冲突解决器」块 |
 | §7.14 | 接受左/两/右侧是结果区一次可撤销编辑；进行中冻结；失败保留正文并显示原因 | 是 | 「规格 §7.14：接受左侧/两侧/右侧是结果区的一次可撤销编辑」块 + 「应用进行中冻结、只读与忙碌提示」块 |
@@ -244,15 +244,18 @@
 
 ### 3.2 已确认的实现差异
 
-1. **Reset 未端到端接线（§7.11）** —— 证据：
-   - `src/Augit.Infrastructure/Git/GitWorkspaceStateService.cs:272` 有 `ResetAsync`（含 Soft/Mixed/Hard 与目标校验），
-     但 `src/Augit.Shell/ShellBridge.cs` 的方法分发表（第 150–195 行）**没有 `git/reset`**，
-     前端 `web/src/live-data.js` 全文**没有任何 reset 相关引用**；
-   - 实时外壳的 Git 主菜单（`MAIN_MENU_POPOVERS.git`）只有 获取/推送/分支与标签/Stash 管理/创建 Stash/Worktree 管理，
-     **没有 Reset 入口**（该数组带有注释：不放"点了没反应"的条目）；
-   - 现在能看到的 Reset 界面只在 `--scene reset` 场景下渲染（`mockup.js` 的 `renderScene`），
-     确认按钮沿用视觉稿时序（`bindResetDialog` 的 160ms 演示定时器），不执行真实 Git 写入。
-   - 影响：产品规格第 121/127 行要求的 reset（含影响预览与明确确认）在实时外壳中**不可达**。
-2. **侧栏整体替换（§6.4 遗留）** —— 同一状态刷新时 `refreshStatusRegions` 对改动列表走原地更新，
+1. **侧栏整体替换（§6.4 遗留）** —— 同一状态刷新时 `refreshStatusRegions` 对改动列表走原地更新，
    但项目树（非改动列表形态）仍整体替换节点；已按规格口径断言**用户可见状态**（首个可见行/选中行/滚动）
    保持不变（第 298 轮），节点身份不作为要求。
+2. **外部变化刷新后标题栏汉堡菜单点不开（§5.1）—— 已修复** —— 汉堡按钮的点击处理挂在 `document` 上
+   （标题栏节点会被区域刷新替换），但 `bindInteractions()` 每次渲染都会重新注册一份，
+   而处理函数按"当前有没有菜单条"取反：**两份监听叠加互相抵消**，一次外部变化刷新后点击毫无反应。
+   证据：修复前的 harness 运行在 `.titlebar .main-menu-entry` 上 8000ms 超时；
+   修复（加幂等守卫，与 rail/changes/compact 等既有绑定同一模式）后，
+   新增断言「外部变化刷新后主菜单仍可打开 / 再次点击收起并恢复普通标题栏」通过。
+
+### 3.3 本阶段新增接线（原为未覆盖项）
+
+| 项 | 原状 | 现状 | 证据 |
+| --- | --- | --- | --- |
+| Reset（§7.11 / §10.4 / §9.3） | 基础设施有 `ResetAsync`，但桥接层没有 `git/reset`、实时界面没有入口，只有 `--scene reset` 能渲染（产品规格第 121/127 行要求 reset 可用） | 桥接新增 `git/reset`；Git 菜单新增「Reset 当前分支…」；共享对话框负责模式/影响/进行态/键盘循环，实时层接 `git/reset` 与 `write/cancel`；影响说明显示真实已跟踪改动数 | harness 13 条 Reset 断言 + 1 条长按期间请求数断言；负向验证：把实时委派改成 `false &&` 后同一用例如实失败（`§9.3 Reset 进行中禁用重复触发并给出取消入口`） |
