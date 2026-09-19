@@ -897,7 +897,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | --- | --- | --- |
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
-| **终端大输出（跨 4 MB 裁剪窗口）真机未验成** | 第一次尝试（`artifacts/p0-terminal-large/` 的 `control-1.6MB.json`）在发命令后读回 `.xterm-rows` 为 **0 个渲染行**；第二次尝试连前置条件都不成立 —— 探针报告 `FOCUS no-textarea`、全程 `divs:0`（`.xterm` 尚未挂载） | **不判缺陷也不判通过**：探针缺少"等 xterm 真正挂载再输入"的前置等待，两次运行的基线不同，结果不可比。另有一次**成功**的真机输入验证（`echo AUGIT_TERMINAL_OK` → 读回输出，见 `artifacts/p0-terminal-io.json`）。补齐需要：① 等到 `.xterm-helper-textarea` 存在再发按键；② 同时读宿主侧终端缓冲长度/读取偏移，才能区分"渲染未挂载"与"裁剪后偏移失步" |
+| ~~终端大输出（跨 4 MB 裁剪窗口）真机未验成~~ | **已验成（第 364 轮）：输入路径通过，大输出路径是实缺陷** —— 前置等待补齐后（探针确认 `.xterm` 挂载、`textarea` 存在、`FOCUSED`），`Write-Output INPUT-PROBE-OK` 的输入→回显→输出→新提示符整链在真机通过；但 ~4.8 MB 洪泛后终端**永久停止更新**，见 §3.2 第 15 条（带复现命令与全部读数） | 输入路径已移出本表；大输出已升级为已确认缺陷，下一步按 §3.2 第 15 条的修法处理 |
 | **Editor › Font 页面内容未抓到** | 已抓到分类路径与 UI 字体事实（`artifacts/pycharm-interactions-16/`：搜索结果树、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 页的子页列表）；页面正文（字体名/字号/行距的具体值）未抓到 | 原因是设置树的滚动位置随会话变化，固定坐标点击会落到别的分类；补抓需要 UI 自动化（Settings 搜索 + 键盘导航），缺口只在这一格 |
 
 ### 3.2 已确认的实现差异
@@ -1038,6 +1038,31 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     作为证据，没有任何断言读真实 DOM。本轮补一条几何断言：Markdown 三个段按钮、JSON 两个段按钮
     共 5 个 rect **逐个**等于 26×26、相邻间距 0、两种文档的工具栏高度都是 36px、且控件垂直中心一致
     （JSON"复用 Markdown 控件"的直接证据）。图形形状本身（图标逐项复原）仍只有像素基线。
+
+15. **终端在约 4.8 MB 输出后永久停止更新（§7.16 / §3.1 遗留，**已复现，待修**）** ——
+    真机探针 `D:\tmp-augit-cap\term-io-probe.ps1`（启动真实外壳 + CDP，**先等
+    `.xterm-helper-textarea` 存在**再输入，这正是此前两次尝试缺的前置条件）读数如下：
+
+    - 挂载与输入正常：`{xterm:true, textarea:true, ready:true, shell:"Windows PowerShell"}`、`FOCUSED`；
+      `Write-Output INPUT-PROBE-OK` 读回完整链路
+      `PS …> Write-Output INPUT-PROBE-OK` / `INPUT-PROBE-OK` / 新提示符 —— 此前"真机输入未验"这一格**就此关闭**。
+    - 洪泛命令 `$l = "x" * 400; 1..12000 | ForEach-Object { $l }`（约 4.8 MB，跨越宿主 4 MB 裁剪窗口）之后：
+      视口冻结在满屏 `x`，**120 秒内 20 次采样逐字节相同**（`scrollTop 0`、`scrollHeight 242` 不变）；
+      排在洪泛之后的 `Write-Output AFTER-TRIM-SENTINEL` **始终不出现**（洪泛结束后新提示符也不出现）；
+      强制把 `.xterm-viewport` 滚到底再读，仍然没有 sentinel。
+    - 期间应用**没有卡死**：`evaluate` 往返 6 ms、`Responding=true`、`hung=false`、
+      `__augitError=null`、`__augitTerminalExited=false`、`__augitTerminalReady=true`。
+
+    **已确定的代码事实**（不是推测）：`ShellBridge.ReadTerminal` 返回的 `data` 是"从请求偏移到
+    `_terminalBuffer.Length` 的**全部剩余内容**"，并把 `offset` 报成 `_terminalBuffer.Length`；
+    `live-data.js` 的 `pollTerminal()` 每 60 ms 用上一次的偏移读一次、采纳返回的 `offset`，
+    且 `catch {}` **静默吞掉读取失败**（所以 `__augitError` 一直是 null）。
+    **两个候选机制（尚未证实，不得当成结论）**：① 一次读取要搬最多 4 MB 的字符串，
+    响应体积超过桥接消息上限后每次都失败，而失败被吞掉 → 偏移永不前进 → 永久冻结；
+    ② 宿主读取侧停摆导致 Shell 写满管道阻塞，输出不再产生。
+    **下一步修法（本轮未实施）**：给 `terminal/read` 加每轮上限（如 128 KB）让客户端分步排空积压，
+    并把最后一次读取失败暴露出来（不再静默吞），然后用同一探针复验；
+    复验判据是"洪泛后 sentinel 与新提示符出现、且宿主缓冲回落到上限以内"。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

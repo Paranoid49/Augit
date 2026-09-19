@@ -12534,3 +12534,26 @@ harness 的 `remembered: null` 把它暴露出来，加上 `bubbles: true` 即�
 
 `live-shell` 1012 → **1013/1013（未执行 0 项）**。仍未断言的是**图标形状本身**（三个图形各自复原），
 它只有像素基线；已在该条目的"未断言"里写清楚，不含糊成"已覆盖"。
+
+#### 第 364 轮：真机终端输入验成 + 发现"大输出后永久冻结"（§3.1 遗留升级为已复现缺陷）
+
+**补齐的前置条件**：此前的两次大输出尝试都栽在"没等 xterm 真正挂载就发按键"，
+所以这次的探针（`D:\tmp-augit-cap\term-io-probe.ps1`）先等 `.xterm-helper-textarea` 存在，
+并先做一次小命令验证输入链路：
+
+- `{xterm:true, textarea:true, ready:true, shell:"Windows PowerShell"}`、`FOCUSED`；
+- `Write-Output INPUT-PROBE-OK` 读回 `PS …> Write-Output INPUT-PROBE-OK` → `INPUT-PROBE-OK` → 新提示符。
+  **真机输入这一格不再是"未验"。**
+
+**新发现（已复现，未修）**：`$l = "x" * 400; 1..12000 | ForEach-Object { $l }`（≈4.8 MB，
+跨宿主 4 MB 裁剪窗口）之后终端**永久停止更新**：120 秒 20 次采样逐字节相同
+（`scrollTop 0`、`scrollHeight 242`），排在后面的 `Write-Output AFTER-TRIM-SENTINEL`
+始终不出现（新提示符也不出现），强制滚到底也一样；而应用本身完全正常
+（`evaluate` 6 ms、`Responding=true`、`hung=false`、`__augitError=null`、`exited=false`）。
+
+**已确定的代码事实**：`ShellBridge.ReadTerminal` 每轮返回"从请求偏移到缓冲区末尾的全部内容"
+（最多 4 MB），`pollTerminal()` 每 60 ms 读一次并采纳返回偏移，且 `catch {}` **静默吞掉失败**。
+**候选机制（未证实）**：桥接消息体积超限导致每轮都失败 + 失败被吞 → 偏移永不前进；
+或宿主读取侧停摆导致 Shell 写满管道阻塞。**下一步**：给 `terminal/read` 加每轮上限、
+暴露最后一次读取失败，再用同一探针复验（判据：sentinel 与新提示符出现）。
+**本轮不实施修复**：本轮预算用在"把此前无法复现的现象变成可复现读数"，避免半验证的改动。
