@@ -12739,3 +12739,25 @@ harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html
 新段为空时看不出来）。结果：`BASELINE surfaces=5 jumps=4 feedback=4 sequences=6 gaps=4`、
 `CHECKED 14 (pass=8 diff=1 gap=1 other=4)`、`INTERACTIONS_BASELINE_OK`；
 人类视图 `docs/baselines/pycharm-interactions.md` 由生成器重出（128 行）。
+
+#### 第 373 轮：把 §1.4 逐页覆盖表变成**真的**脚本生成（声明与事实不符 + 两处已漂移）
+
+**问题**：§1.4 正文写着"本表由脚本从 §1.1 的像素行与 `verify-acceptance.ps1` 的场景列表直接生成，
+不手写数字"，但 `grep -rln` **在仓库里找不到这个脚本** —— 声明与事实不符，而且已经漂移了两处：
+
+- `diff-boundary` 的 B 线列仍写"未进列表"，而 §0 早已更新为"含改动工作区 1/1（第 371 轮）"；
+- 行为断言那一行停在旧的 **191 条用例行（上界 54.4%）**，而 §2.0 的当前事实是
+  **407 条用例行 / 351 条中 336 条有逐条行**。
+
+**修法**：补上 `tools/audit/gen-coverage-table.cjs`（零依赖，与其它 `.cjs` 检查器同风格），
+从三处上游**读时解析**：`verify-acceptance.ps1` 的 `$DefaultScenes`、§1.1 的像素行、
+§2.0 的合计行与"当前事实"段；B 线判读是小常量但**必须写明轮次**（干净仓库 54/54 +
+`diff-boundary` 单独 1/1）。`--write` 就地替换 §1.4 区块，默认打印到 stdout。
+
+**验证**：
+- `node tools/audit/gen-coverage-table.cjs --write` → `WROTE §1.4 rows=55 scenes=54 clauses=351 caseRows=407`；
+- **幂等**：写回后再生成一次，与文档内区块逐字相同（`IDEMPOTENT: True`）；
+- **邻居未受伤**：§1.4 之后仍是 `### 2.0 条文穷举进度`；旧数字 `191 条用例行` 已消失；
+  `diff-boundary` 行现在是 `**OK**（含改动的工作区，第 371 轮）`；
+- `check-interactions.cjs` 仍 `INTERACTIONS_BASELINE_OK`、`verify-script-encoding.ps1` PASS、
+  `verify-ui-assets.ps1` PASS。
