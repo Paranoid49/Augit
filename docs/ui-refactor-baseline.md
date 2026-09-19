@@ -13002,3 +13002,18 @@ Data Editor and Viewer、Quick Lists、Required Plugins）**没有**出现在这
 **heatmap 复核结论**：黑底上绝大部分标记是**字形级**（文字栅格化，预期内）；只有**两条通栏色带**
 （结果面板首行带、末行带）属于平坦像素差异 —— 即 `layoutPercent` 的实际来源。结论：
 这一格是"文字差异 + 结果面板两处条带"，**不是整页错位**。
+
+#### 第 390 轮：⑫ 交付两闸在最近一批改动之后**重新验证**
+
+最近几轮改动落在真实宿主路径上（终端分批读取与摊销裁剪、JSON 格式化/错误行列接线、
+Markdown 链接接管、文档模式记忆、两个芯片），因此 2026-09-20 的验收与打包记录**必须重跑**：
+
+- **真机全场景巡检**：`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`（2026-09-21），
+  截图入 `artifacts/acceptance-20260921/`；`FAIL/MISSING/TIMEOUT/OCCLUDED` 计数为 **0**。
+  分母仍是 **54（干净仓库）**，`diff-boundary` 按第 371 轮的方式单独验（含改动工作区，1/1）。
+- **打包**：`tools/release.ps1` 退出码 0；portable zip **2,795,619 B**、setup.exe **4,386,825 B**、
+  `SHA256SUMS.txt` 两条新哈希；**包内容抽查**：32 个条目、0 个可疑条目（无 `tests/`、`obj/`、
+  `.pdb`、`live-shell.spec`），含 `Augit.exe` 与 WebView2 运行时。
+
+改动的体量（zip 2,789,584 → 2,795,619 B，+6,035 B）与"只加了代码/资源、没有加测试或被忽略文件"
+一致；这也说明**重新打包不是形式**：包体确实随改动变了。
