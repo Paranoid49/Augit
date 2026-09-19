@@ -12654,3 +12654,16 @@ docs 与 commit 都写明"仍然冻结、机制未定"。
 harness 侧冻结同一套 walker：断言 `settings.html`/`branches.html` 不在兜底集合、分母 ≥ 10，
 并**注入合成入口 `brand-new-scene.html` 必须落兜底**（非空性对照）。这样"新入口悄悄没接线"
 会直接让套件失败，而不是靠人记得看。
+
+#### 第 369 轮：清单交出的"无变化"候选里，两个确认是死入口并接上（P0 ① 同类）
+
+第 368 轮的真机清单给出 6 个"点击后四元组信号无变化"的候选。查代码后的结论分三类：
+
+| 候选 | 代码事实 | 处置 |
+| --- | --- | --- |
+| `workspace-open.html`（`.top-chip.workspace-chip`，title="切换工作区"） | `grep -n "workspace-chip" web/src/live-data.js` 只命中窗口拖拽控件选择器，**无点击处理** | **已接线** → `openWorkspaceDialog()` |
+| `quick-open.html`（`.titlebar-context`，title="快速打开文件"） | 同上，**无点击处理**（放大镜那条走的是 `.top-button[aria-label="搜索"]` 分支，不是这个芯片） | **已接线** → `openSearchOverlay('quick')` |
+| `text-viewer.html` / `markdown-preview.html` / `file-history.html` / `blame.html` | 编辑器标签 / 提交详情工具栏 / 树菜单条目；探针信号缺 `activeTabId`，分辨不了"点击当前活动标签"与"真死" | **保留为候选**，不写成"已确认失效" |
+
+harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html` **不得**再出现在兜底集合里
+（这正是 P0 ① "点了没反应"那一类的回归护栏）。`live-shell` **1014/1014（未执行 0 项）**。

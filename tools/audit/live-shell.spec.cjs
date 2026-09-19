@@ -8708,6 +8708,9 @@ async function main() {
       // P0 ① 的两个入口必须已被识别链接住（否则点下去就没反应）。
       && !entryInventory.fallThrough.includes('settings.html')
       && !entryInventory.fallThrough.includes('branches.html')
+      // 第 369 轮接上的两个芯片（它们此前和放大镜/齿轮一样点下去毫无反应）。
+      && !entryInventory.fallThrough.includes('workspace-open.html')
+      && !entryInventory.fallThrough.includes('quick-open.html')
       // 非空性：walker 必须真的能发现"落兜底"的入口。
       && entryInventory.injected === 'brand-new-scene.html');
     // 真机复核过这一格（`D:\tmp-augit-cap\unwired-entries-probe.ps1`）：main-project 场景

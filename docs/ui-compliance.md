@@ -1124,6 +1124,22 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     **并注入一个合成入口 `brand-new-scene.html` 必须被判成落兜底**（非空性对照，
     否则"某入口不落兜底"可能只是 walker 没生效）。
 
+17. **工作区芯片与"当前文件"芯片点了没反应（P0 ① 同类，第 369 轮已修）** ——
+    第 368 轮的真机清单把 6 个"点击后无变化"的候选交出来，逐个查代码后确认其中两个是
+    **和曾经的放大镜/齿轮完全同一类**的死入口：
+    `grep -n "titlebar-context\|workspace-chip" web/src/live-data.js` 只命中窗口拖拽的控件选择器，
+    **没有任何点击处理**。而视觉稿给它们的 `title` 写明了语义：
+    `.top-chip.workspace-chip` → "切换工作区"、`.titlebar-context` → "快速打开文件"。
+    修法：在 `guardUnwiredNavigation()` 的识别链里按各自 title 的语义接上
+    （工作区芯片 → `openWorkspaceDialog()`；当前文件芯片 → `openSearchOverlay('quick')`），
+    并让 harness 的清单断言**直接盯住这两个 href 不再落兜底**。
+    验证：`live-shell` **1014/1014（未执行 0 项）**；真机清单读数（13 个入口里
+    4 个被识别 / 9 个落兜底）留待下一轮探针复读。
+    **仍待逐个复核的 4 个候选**：`text-viewer.html`、`markdown-preview.html`（编辑器标签，
+    很可能是"点击当前活动标签"）、`file-history.html`、`blame.html`（提交详情工具栏/树菜单条目）。
+    第 368 轮的探针信号里没有 `activeTabId`、也没有记录"点了哪一个节点"，分辨不了这三种情况，
+    **不把它们写成"已确认失效"**。
+
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
 | 项 | 原状 | 现状 | 证据 |

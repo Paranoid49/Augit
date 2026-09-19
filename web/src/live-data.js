@@ -3546,6 +3546,26 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 工作区芯片（"A <工作区名> ▾"，title="切换工作区"）与"当前文件"芯片
+    // （`.titlebar-context`，title="快速打开文件"）。第 368 轮的真机清单发现它们**和曾经的
+    // 放大镜/齿轮一样没有任何绑定**：点下去只留下兜底记录，界面毫无反应
+    // （`grep -n "titlebar-context\|workspace-chip" web/src/live-data.js` 只命中窗口拖拽的
+    // 控件选择器，没有任何点击处理）。这里按各自 title 声明的语义接上：
+    // 工作区芯片 → 打开工作区页；当前文件芯片 → 打开快速打开浮层。
+    const workspaceChip = event.target.closest && event.target.closest('.top-chip.workspace-chip');
+    if (workspaceChip) {
+      event.preventDefault();
+      openWorkspaceDialog();
+      return;
+    }
+
+    const contextChip = event.target.closest && event.target.closest('.titlebar-context');
+    if (contextChip) {
+      event.preventDefault();
+      openSearchOverlay('quick');
+      return;
+    }
+
     // 终端标题行的动作（规格 §7.16）。这两个入口此前同样没有绑定 ——
     // 终端关不掉、也收不起来，只能靠点左侧入口折叠。
     const terminalClose = event.target.closest && event.target.closest('[aria-label="关闭终端"]');
