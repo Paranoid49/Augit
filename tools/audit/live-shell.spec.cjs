@@ -2693,7 +2693,101 @@ async function main() {
     });
     check('§7.5 隐藏时不接受滚轮输入、可见时按档位缩放: ' + JSON.stringify(hiddenInput),
       hiddenInput.afterHidden === hiddenInput.before && hiddenInput.afterVisible !== hiddenInput.before);
+
+    // ---- §7.5 继续：Ctrl+滚轮累计/多档合并（真实滚轮事件）----
+    // 规格：不足一档的增量先累计，达到整档才缩放；单次多档输入合并为一次比例更新。
+    const readZoom = () => imgDoc.page.evaluate(() => ({
+      scale: Number(document.querySelector('.image-stage').dataset.scale),
+      imgLeft: Math.round(document.querySelector('.image-stage img').getBoundingClientRect().left),
+    }));
+    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.waitForTimeout(250);
+    const wheelStart = await readZoom();
+    const stageBox = await imgDoc.page.locator('.image-stage').boundingBox();
+    await imgDoc.page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+    await imgDoc.page.keyboard.down('Control');
+    await imgDoc.page.mouse.wheel(0, -10);
+    await imgDoc.page.waitForTimeout(120);
+    const wheelUnder = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -10);
+    await imgDoc.page.mouse.wheel(0, -25);
+    await imgDoc.page.waitForTimeout(120);
+    const wheelAccumulated = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -160);
+    await imgDoc.page.waitForTimeout(150);
+    const wheelMulti = await readZoom();
+    await imgDoc.page.keyboard.up('Control');
+    const zoomTable = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+    const stepUp = (value, times) => {
+      let current = value;
+      for (let i = 0; i < times; i++) current = zoomTable.find((step) => step > current + 1e-4) ?? 8;
+      return current;
+    };
+    check('§7.5 Ctrl+滚轮不足一档不缩放、累计到整档缩放、单次多档合并: '
+      + JSON.stringify([wheelStart.scale, wheelUnder.scale, wheelAccumulated.scale, wheelMulti.scale]),
+    Math.abs(wheelUnder.scale - wheelStart.scale) < 1e-4
+      && Math.abs(wheelAccumulated.scale - stepUp(wheelStart.scale, 1)) < 1e-3
+      && Math.abs(wheelMulti.scale - stepUp(wheelAccumulated.scale, 4)) < 1e-3);
+
+    // ---- §7.5 继续：拖动边缘夹取 + 方向键平移（真实鼠标/键盘）----
+    await imgDoc.page.evaluate(() => {
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+    });
+    await imgDoc.page.waitForTimeout(250);
+    await imgDoc.page.mouse.move(stageBox.x + 40, stageBox.y + 40);
+    await imgDoc.page.mouse.down();
+    await imgDoc.page.mouse.move(stageBox.x + stageBox.width + 500, stageBox.y + 40, { steps: 6 });
+    await imgDoc.page.mouse.up();
+    const dragRight = await imgDoc.page.evaluate(() => {
+      const stage = document.querySelector('.image-stage').getBoundingClientRect();
+      const img = document.querySelector('.image-stage img').getBoundingClientRect();
+      return { left: Math.round(img.left - stage.left), right: Math.round(img.right - stage.right) };
+    });
+    check('§7.5 向右拖动被夹取在实际图像边缘（左边缘不越过舞台左边）: ' + JSON.stringify(dragRight),
+      dragRight.left <= 1 && dragRight.left >= -2 && dragRight.right >= -1);
+    // 方向键：刚才是"向右拖到夹取极限"，所以这里必须按 ArrowRight（把图片往左挪）——
+    // 按 ArrowLeft 会继续往右，被 `render()` 的夹取挡住，位置不变（实现正确，是测试方向选错）。
+    const arrowBefore = await readZoom();
+    await imgDoc.page.locator('.image-stage').click({ position: { x: 20, y: 20 } });
+    await imgDoc.page.keyboard.press('ArrowRight');
+    await imgDoc.page.waitForTimeout(120);
+    const arrowAfter = await readZoom();
+    check('§7.5 方向键移动图片（ArrowRight 左移 32px）: ' + JSON.stringify([arrowBefore.imgLeft, arrowAfter.imgLeft]),
+      arrowBefore.imgLeft - arrowAfter.imgLeft >= 30 && arrowBefore.imgLeft - arrowAfter.imgLeft <= 34);
+    // Escape 解除拖动：按下后不松开，按 Escape，再移动鼠标不应再改变位置
+    await imgDoc.page.mouse.move(stageBox.x + 60, stageBox.y + 60);
+    await imgDoc.page.mouse.down();
+    await imgDoc.page.mouse.move(stageBox.x + 80, stageBox.y + 60, { steps: 3 });
+    await imgDoc.page.keyboard.press('Escape');
+    const escapeBefore = await readZoom();
+    await imgDoc.page.mouse.move(stageBox.x + 200, stageBox.y + 60, { steps: 3 });
+    const escapeAfter = await readZoom();
+    await imgDoc.page.mouse.up();
+    check('§7.5 Escape 解除拖动（此后移动鼠标不再改变位置）: ' + JSON.stringify([escapeBefore.imgLeft, escapeAfter.imgLeft]),
+      Math.abs(escapeAfter.imgLeft - escapeBefore.imgLeft) <= 1);
     await imgDoc.page.close();
+
+    // ---- §7.5 加载态：?image-state=loading 只在画布中心提示，不改工具栏 ----
+    const imgLoading = await openScene('scene=image-preview&theme=dark&open=web/image-sample.png&image-state=loading');
+    await imgLoading.page.waitForSelector('.image-stage', { timeout: 10000 });
+    await imgLoading.page.waitForTimeout(400);
+    const loadingState = await imgLoading.page.evaluate(() => {
+      const loader = document.querySelector('.image-stage .image-loading');
+      const stage = document.querySelector('.image-stage').getBoundingClientRect();
+      const box = loader ? loader.getBoundingClientRect() : null;
+      return {
+        text: loader ? loader.textContent.trim() : null,
+        role: loader ? loader.getAttribute('role') : null,
+        centered: box ? Math.abs((box.left + box.width / 2) - (stage.left + stage.width / 2)) <= 2
+          && Math.abs((box.top + box.height / 2) - (stage.top + stage.height / 2)) <= 2 : false,
+        label: (document.querySelector('.image-zoom-label') || {}).textContent || null,
+        sizeLabel: !!document.querySelector('.image-size-label'),
+      };
+    });
+    check('§7.5 加载态只在画布中心提示且不改工具栏: ' + JSON.stringify(loadingState),
+      loadingState.text === '正在读取文件…' && loadingState.role === 'status'
+        && loadingState.centered === true && loadingState.sizeLabel === true);
+    await imgLoading.page.close();
 
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
     // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；

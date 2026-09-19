@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **981/981**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **986/986**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -372,10 +372,10 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 1 | §7.5 | 图片居中显示；工具栏左侧缩小/比例/放大/适应区域，右侧像素尺寸·类型·大小 | 是 | 结构在视觉稿与 `liveImageDocument()` 里都有；`§7.5 初次打开按适应区域显示…` 断言居中与四边边距，比例标签与实测一致（`图片文档把 dataUrl 带到渲染层` 覆盖 dataUrl 搬运） |
 | 2 | §7.5 | 透明棋盘格只覆盖图片矩形，外围主题画布纯色；不添加编辑工具 | 部分 | 棋盘格是 `<img>` 自身的 CSS 背景（随图片矩形，天然只覆盖图片范围）；**没有断言**核对范围，"不添加编辑工具"也没有显式断言 |
 | 3 | §7.5 | 初次打开与"适应区域"完整显示（四边 ≥32px、不放大小图、极大图可 <10%） | 是 | `image-preview.js` 的 fit：`scale = min(1, (stage-64·dpi)/naturalW, (stage-64·dpi)/naturalH)`，即四边 32·dpi 且上限 1（不放大小图、极大图可低于 10%）；断言 `§7.5 初次打开按适应区域显示：四边各留 ≥32px、不放大…` |
-| 4 | §7.5 | 放大后拖动、方向键、滚轮/Shift+滚轮/Ctrl+滚轮、限制边缘、适应居中、仅影响图片、保留按钮焦点、解除拖动 | 部分 | `image-preview.js` 已实现 pointer 拖动 + `setPointerCapture`、方向键 32px、滚轮 / Shift+滚轮 / Ctrl+滚轮、边缘夹取与适应居中、`Escape` 解除拖动；已断言**适应区域重居中**与**滚轮可见/隐藏**，拖动 / 方向键 / 边缘夹取**尚无断言** |
-| 5 | §7.5 | 高精度滚轮累计到整档才缩放；单次多档合并；切换/按钮/拖动/隐藏时清除未完成输入 | 部分 | 实现里有 `wheelZoom` 余量累计 + `wheelMode` 切换与按钮动作都 `resetWheel()`；已断言"隐藏时不接受滚轮输入、可见时按档位缩放"，**累计与多档合并没有更细的断言** |
+| 4 | §7.5 | 放大后拖动、方向键、滚轮/Shift+滚轮/Ctrl+滚轮、限制边缘、适应居中、仅影响图片、保留按钮焦点、解除拖动 | 部分 | `image-preview.js` 已实现 pointer 拖动 + `setPointerCapture`、方向键 32px、滚轮 / Shift+滚轮 / Ctrl+滚轮、边缘夹取与适应居中、`Escape` 解除拖动；已断言**适应区域重居中**、**向右拖动到边缘被夹取**、**ArrowRight 左移 32px**、**Escape 解除拖动**、**滚轮可见/隐藏**；仍缺**按钮缩放保留焦点**与"操作仅影响图片"的断言 |
+| 5 | §7.5 | 高精度滚轮累计到整档才缩放；单次多档合并；切换/按钮/拖动/隐藏时清除未完成输入 | 部分 | 实现里有 `wheelZoom` 余量累计 + `wheelMode` 切换与按钮动作都 `resetWheel()`；已断言"隐藏时不接受滚轮输入、可见时按档位缩放"、**不足一档不缩放**、**累计到整档缩放一档**、**单次多档合并**（`wheelZoom` 余量）；仍缺"切换滚轮模式时清除未完成输入"的断言 |
 | 6 | §7.5 | 同一有效图片的外部更新复用预览、保留手动缩放与位置、适应模式重算；损坏时显示信息页 | 部分 | "损坏/不再支持 → 信息页"有断言（`§10.2 图片解码失败时显示宿主原因而不是破图`、`§10.2 浏览器解不开的图片也给出原因`）；"复用预览窗口 + 保留缩放与位置 + 重新解码"没有断言 |
-| 7 | §7.5 | 解码在后台执行；可切标签/输入/关闭；旧请求失效、晚到位图释放；>150ms 只在画布中心显示"正在读取文件…" | 部分 | `image-preview.js` 支持 `?image-state=loading` 并在画布中心渲染 `.image-loading`；已断言"隐藏时不接受滚轮输入"；**150ms 阈值与"不抢文档/焦点"没有断言** |
+| 7 | §7.5 | 解码在后台执行；可切标签/输入/关闭；旧请求失效、晚到位图释放；>150ms 只在画布中心显示"正在读取文件…" | 部分 | `image-preview.js` 支持 `?image-state=loading` 并在画布中心渲染 `.image-loading`；已断言加载态 `.image-loading` 文案/`role=status`/**画布中心**/**不改工具栏**；**150ms 阈值与"不抢文档/焦点"没有断言** |
 | 8 | §7.5 | 缩小时对相邻像素平滑采样；平滑图后台生成，先快速采样再原位更新 | 部分 | 缩小走浏览器默认的平滑采样（未显式设置 `image-rendering`），100% 时 `scale=1` 保留原像素；**没有断言**核对采样方式与 100% 原像素 |
 | 9 | §7.5 | 超限、解码失败、GIF、WebP 和其他二进制使用信息页，显示类型、大小和完整路径 | 是 | `§10.2 图片解码失败时显示宿主原因而不是破图`、`不可预览页显示名称、类型与大小`、`界面显示超限原因` |
 | 10 | §7.5 | 信息页唯一主要动作是用系统默认程序打开 | 是 | `不可预览页提供"使用系统默认程序打开"`、`按钮用系统默认程序打开当前文件` |
