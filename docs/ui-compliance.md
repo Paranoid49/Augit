@@ -23,7 +23,7 @@
 | A 线：`ux-spec` §4 的令牌/视觉条文核销 | §1.2 |
 | C 线：与 PyCharm 的对照（配方 + 已测面） | §1.3 |
 | **⑪ 逐页覆盖表（页面 × 检查层级 × 判读）** | §1.4 |
-| ⑨ 条文穷举的**分母**（用例行 / 规格条文） | §2.0 |
+| ⑨ 条文穷举的**分母**（用例行 / 规格条文） | §2.0（数字由 `tools/audit/check-doc-claims.cjs` 机械核对：分节之和 = 合计） |
 | B 线：条文 → 用例 → 证据 | §2.1–§2.9 |
 | ⑩ 未执行/环境不可达项 | §3.1 |
 | ⑪ 差异清单（规范/实现/基线差异） | §3.2–§3.3 |
@@ -40,6 +40,7 @@
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-20 复跑）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |；**`diff-boundary` 在"含改动的工作区"上单独验收 OK（第 371 轮）**
+| 交付文档数字自洽 | `node tools/audit/check-doc-claims.cjs` | **DOC_CLAIMS_OK**（§2.0 分节之和 = 合计、当前事实加数与缺口自洽、§2.8 行数/状态与 §2.0 一致、§1.1 像素行数 = §1.4 A 线分母；需跑套件才能得的数字只打印并标注"未机械核对"） |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=5 jumps=4 feedback=4 sequences=6 gaps=4`，逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-20 实测）**：`Augit-0.1.0-win-x64-portable.zip` **2,789,584 B**、`Augit-0.1.0-win-x64-setup.exe` **4,382,814 B**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
 
@@ -240,7 +241,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | A 线：同引擎像素对照 | 55 场景 | 55/55 有行（见 §1.1） | 逐带 `layoutPercent`；判据是"平坦像素差异"而非逐像素相等 |
 | B 线：真机巡检 | 54 场景（干净仓库） | **54/54 PASS** | 分母 = 场景总数 − diff-boundary（需含改动的工作区） |
 | B 线：含改动工作区的场景 | 1 场景 | **OK 1/1**（`diff-boundary`，第 371 轮） | 单独一次真机验收；与干净仓库那一轮**分开计**，不合并成一个数字 |
-| B 线：行为断言 | 351 条规格条文 | 407 条用例行（其中 336 条有逐条行） | **按条文归属，不按页面**；逐页行为覆盖请查 §2 对应小节 |
+| B 线：行为断言 | 351 条规格条文 | 402 条用例行（其中 336 条有逐条行） | **按条文归属，不按页面**；逐页行为覆盖请查 §2 对应小节 |
 | C 线：PyCharm 对照 | 见 §1.3 | 2 个面（主窗口 chrome、设置对话框） | 判据是"声明容差内地标等价"，不做逐像素相等 |
 
 > **为什么行为断言不按页面列**：Harness 的断言是按"规格条文/状态转换"组织的（一个断言常跨多页，
@@ -306,7 +307,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `worktrees` | 0.00 | 0.00 | 1.41 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
 
 > 生成来源：§1.1 55 行像素数据、`verify-acceptance.ps1` 54 个场景、
-> §2.0 合计行（351 条条文 / 407 条用例行）。
+> §2.0 合计行（351 条条文 / 402 条用例行）。
 ### 2.0 条文穷举进度（⑨，如实带分母）
 
 **口径（两件事分开说，避免把"行数"当"已覆盖条数"）**：
@@ -323,13 +324,20 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | §7 页面规格 | 210 | **224（全 18 节逐条展开完成）** | §2.6 概览 14 行 + 全部 210 条逐条展开 |
 | §9 关键状态机 | 22 | 22 | §2.7 概览 4 行 + 逐条展开 22 行 |
 | §10 空/错/禁用/危险 | 15 | 15 | §2.8（逐条展开：**15 条全部有断言**，由脚本按表统计） |
-| **合计** | **351** | **407** | §1.2 与 §2.1–§2.8（§5/§6/§7/§9 含概览行） |
+| **合计** | **351** | **402** | §1.2 与 §2.1–§2.8（§5/§6/§7/§9 含概览行）；**合计 = 上列六行之和**（第 374 轮由 `tools/audit/check-doc-claims.cjs` 机械核对，此前写 407 与本节各行之和 402 矛盾） |
 
 > **当前事实**：**九节全部逐条展开完成** —— 规格条文 351 条中有逐条行的是 **336 条**
 > （§4 20 + §5 29 + §6 40 + §7 210 + §9 22 + §10 15）；**唯一未成行的是 §4 的 15 条**（视觉/令牌类，
-> 以 §1.2 的像素表与令牌表核销，未逐条成行）。用例行合计 **407 行**（含 §2.1–§2.4/§2.5/§2.6/§2.7 的概览行）。
+> 以 §1.2 的像素表与令牌表核销，未逐条成行）。用例行合计 **402 行**（含 §2.1–§2.4/§2.5/§2.6/§2.7 的概览行；**= 上表六行之和**）。
 > 与 §6（40 条 19 行）。推进顺序：§7 按页面分批 → §6 → §5/§9/§10 补齐 → §4 的像素化核销。
 > 每一行的证据位置必须能在 `live-shell` 里找到对应断言名，找不到的不计入（宁少不虚）。
+
+> **⚠ 未解决的内部矛盾（第 374 轮如实记录，未猜口径）**：§9 那一行写"用例行数 22"，而它的
+> "位置"列写的是"§2.7 概览 4 行 + 逐条展开 22 行"（4 + 22 = **26**）；同时 `§2.7` 小节里
+> 实际有 **91** 条编号行。三个数字（22 / 26 / 91）互不相同，说明 §9 的"用例行数"与
+> 其它节用的口径可能不一致。**本轮只把"合计 = 各行之和"这条内部一致性修好（407 → 402）**，
+> §9 的口径问题留待重算，不擅自改数字。其它五节的"位置"列加数与行值自洽
+> （§4 20；§5 33+29=62；§6 19+40=59；§7 14+210=224；§10 15）。
 
 ### 2.1 §5.1 工具窗口切换与标题栏菜单
 
