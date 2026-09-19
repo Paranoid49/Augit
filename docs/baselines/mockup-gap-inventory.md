@@ -42,6 +42,9 @@
 | 文件查看：等宽字体/字号 | **已实施** | 从"外观"页迁到"文件查看"页 |
 | 文件查看：**默认换行** | **待裁决（规范冲突）** | `ux-spec` §7.17 要求该设置；`product-spec` 只把"自动换行"列为正文查看能力（第 45 行），**没有定义持久化的默认换行设置**，宿主 `ApplicationSettings` 里也没有对应字段。按纪律须由用户裁决：加字段（改产品规格+宿主+界面）／或从设置页去掉该条 |
 | 真机证据 | **已留档** | `artifacts/settings-pages-20260919/`（外观/文件查看/Git/终端 四页，dark，1180×760）；Git 页实测显示 `C:\Program Files\Git\cmd\git.exe（2.45.1）` |
+| **终端字体归属** | **既定选择（差异）** | PyCharm 终端字体是独立设置（`Tools › Terminal` → Font: JetBrains Mono 13.0，实测截图 `pycharm-settings-search-terminal.png`）；Augit 按 `product-spec` 第 163 行让终端跟随「等宽字体/字号」——不新增独立设置 |
+| **分类分组折叠** | **未做（已知差异）** | PyCharm 分类分组可折叠（▼/▶ 箭头）；Augit 的分组表头「外观与行为」不可折叠 |
+| **未保存修改的分类标记** | **未做（缺口，待定）** | PyCharm 在被改动但未 Apply 的分类行上加实心圆点（证据 `pycharm-settings-search-font.png` 的 Appearance 行）；Augit 目前没有任何提示——切页草稿保留，但用户看不到"哪里改了"。加标记需先定设计令牌，交用户确认 |
 | 分组折叠（PyCharm 的 ▼ 箭头） | **未做（已知差异）** | 我们的导航把"外观与行为"作为不可点的分组表头，不折叠；PyCharm 是可折叠树节点 |
 | 最近目录条目 | **已从设置页移除** | 规格四分类里没有该分类；最近目录在「打开工作区」页（`recentWorkspaces`） |
 

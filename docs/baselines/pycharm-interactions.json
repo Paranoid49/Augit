@@ -24,7 +24,12 @@
       "evidenceDir": "artifacts/pycharm-baseline-20260919 (仓库内，长期保留)；原始抓取脚本在 D:\\tmp-augit-cap\\pycharm-*.ps1",
       "files": [
         "artifacts/pycharm-baseline-20260919/pycharm-main.png (主窗口 1659x994, DPI168)",
-        "artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.png (Settings 对话框 900x700, Appearance & Behavior > Appearance)"
+        "artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.png (Settings 对话框 900x700, Appearance & Behavior > Appearance)",
+        "pycharm-settings-appearance.png (Settings > Appearance & Behavior > Appearance)",
+        "pycharm-settings-search-font.png (搜索 font 过滤后的分类树 + Appearance 页字段)",
+        "pycharm-settings-search-terminal.png (搜索 terminal -> Tools > Terminal 页字段)",
+        "pycharm-settings-tree-1/2/3.png (分类树逐屏滚动)",
+        "pycharm-settings-tree-tail.png (分类树尾部)"
       ]
     },
     "uiFontOverride": {
@@ -101,7 +106,72 @@
         "界面字体(UI font)属于 Appearance & Behavior > Appearance（Accessibility 区的 Use custom font），不是编辑器字体页",
         "编辑器/等宽字体在 PyCharm 里是另一个顶层分类 Editor > Font（本轮尚未抓取，待补）",
         "选中项用浅蓝底整行高亮（Appearance 行），未选中项无底色；分类树带展开箭头，可折叠"
-      ]
+      ],
+      "treeFull": {
+        "Appearance & Behavior": [
+          "Appearance",
+          "Menus and Toolbars",
+          "System Settings",
+          "Notifications",
+          "Quick Lists",
+          "Required Plugins",
+          "Trusted Locations",
+          "Path Variables",
+          "Presentation Assistant",
+          "Data Editor and Viewer"
+        ],
+        "Keymap": [],
+        "Editor": {
+          "General": [
+            "Auto Import",
+            "Appearance (modified marker: dot)",
+            "Breadcrumbs",
+            "Code Completion",
+            "Code Folding",
+            "Console",
+            "Editor Tabs",
+            "Gutter Icons",
+            "Postfix Completion"
+          ],
+          "Smart Keys": [],
+          "Sticky Lines": [],
+          "Code Editing": [],
+          "Font": [],
+          "Color Scheme": [
+            "General",
+            "Language Defaults",
+            "Color Scheme Font",
+            "Console Font",
+            "Code Review",
+            "Console Colors",
+            "Debugger",
+            "Diff & Merge",
+            "User-Defined File Types",
+            "VCS"
+          ],
+          "Inspections": [],
+          "Live Templates": [],
+          "Reader Mode": []
+        },
+        "Plugins": [],
+        "Build, Execution, Deployment": [],
+        "Tools": [
+          "Terminal",
+          "Advanced Settings"
+        ],
+        "Languages & Frameworks": [
+          "Markdown"
+        ],
+        "Jupyter": [
+          "Jupyter General"
+        ],
+        "Python": [],
+        "Project Structure": [],
+        "Scopes": [],
+        "File Colors": []
+      },
+      "searchBehaviour": "搜索框输入关键字后左侧分类树被过滤成只含命中页面（实测 font 命中 Editor>Font、Color Scheme Font、Console Font；terminal 命中 Tools>Terminal）",
+      "breadcrumb": "右页顶部面包屑『分组 › 页面』+ 前进/后退箭头 + 右侧固定图标；被修改但未应用的页在树里带实心圆点（实测 Appearance 行有蓝点）"
     },
     {
       "id": "pycharm.main",
@@ -115,10 +185,155 @@
         "编辑器当前行(46)有整行浅绿底高亮，行号槽独立列宽",
         "Light 主题：内容面板近白、分隔线浅灰、选中/激活用浅蓝"
       ]
+    },
+    {
+      "id": "pycharm.settings.appearance",
+      "title": "Appearance & Behavior › Appearance",
+      "fields": {
+        "Theme": "Islands Light（下拉；勾选 Sync with OS 时为只读灰态）",
+        "Sync with OS": "已勾选（对应 Augit 的『跟随 Windows』）",
+        "Editor color scheme": "Light Theme default（灰态）",
+        "Different tool window background": "未勾选",
+        "Accessibility.Zoom": "100%（提示 Alt+Shift+= / - / 0 调整）",
+        "Accessibility.Use custom font": "已勾选 Microsoft YaHei UI，Size 12（与 options/other.xml 的 fontSize=12.0 一致）",
+        "Accessibility.Support screen readers": "未勾选（Requires restart）",
+        "Use contrast scrollbars": "未勾选",
+        "Adjust colors for red-green vision deficiency": "未勾选",
+        "UI Options": "Compact mode 未勾选；Drag-and-drop with Alt pressed only 未勾选；Smooth scrolling 已勾选"
+      },
+      "evidence": [
+        "pycharm-settings-appearance.png",
+        "pycharm-settings-search-font.png"
+      ]
+    },
+    {
+      "id": "pycharm.settings.tools-terminal",
+      "title": "Tools › Terminal",
+      "fields": {
+        "Terminal engine": "Reworked 2025",
+        "Command Completion": "已勾选 Show a completion popup as you type（Only for parameters）；popup Ctrl+Space；insert with Enter",
+        "Start directory": "D:\\github\\Augit（默认取项目目录）",
+        "Environment variables": "（空）",
+        "Font Settings": "Font: JetBrains Mono；Fallback: JetBrains Mono；Size: 13.0；Line height: 1.0；Column width: 1.0",
+        "Configure colors…": "链接"
+      },
+      "evidence": [
+        "pycharm-settings-search-terminal.png"
+      ],
+      "note": "PyCharm 的终端字体是独立设置；Augit 按产品规格第 163 行让终端跟随『等宽字体/字号』——属既定产品选择，不是缺陷，但必须在 ⑦ 对照表里列为差异"
+    },
+    {
+      "id": "pycharm.settings.editor-font",
+      "title": "Editor › Font（路径已确认，字段待二次采集）",
+      "pathEvidence": "搜索 font 后分类树中出现 Editor > Font（见 pycharm-settings-search-font.png）",
+      "note": "编辑器字体在 PyCharm 属于另一个顶层分类 Editor，而不是外观页；这与 ux-spec §7.17 把等宽字体放在『文件查看』一致"
     }
   ],
-  "jumps": [],
-  "feedback": [],
+  "jumps": [
+    {
+      "id": "settings.open",
+      "surface": "pycharm.settings",
+      "trigger": "Ctrl+Alt+S",
+      "to": "模态 SunAwtDialog（标题 Settings - <项目名>）",
+      "kind": "modal",
+      "spec": "ux-spec §7.17",
+      "augit": {
+        "status": "pass",
+        "trigger": "标题栏齿轮 / 提交设置入口 / 主菜单-设置",
+        "ref": "live-shell:§5.1 齿轮图标打开设置窗口 | live-shell:§7.17 设置窗口有四个分类入口与分组表头"
+      }
+    },
+    {
+      "id": "settings.search-filter",
+      "surface": "pycharm.settings",
+      "trigger": "在搜索框输入关键字",
+      "to": "左侧分类树被过滤为命中页面",
+      "kind": "filter",
+      "spec": "ux-spec §7.17",
+      "augit": {
+        "status": "pass",
+        "trigger": "同一个搜索框",
+        "ref": "live-shell:§7.17 搜索框按分类名过滤"
+      }
+    },
+    {
+      "id": "settings.nav.switch",
+      "surface": "pycharm.settings",
+      "trigger": "点击分类树中的页面行",
+      "to": "右侧页面替换为该分类（面包屑同步）",
+      "kind": "in-place",
+      "spec": "ux-spec §7.17",
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§7.17 点击\"文件查看\"真正切页且右页只显示该分类"
+      }
+    },
+    {
+      "id": "settings.dirty-marker",
+      "surface": "pycharm.settings",
+      "trigger": "在某分类页修改字段但未 Apply",
+      "to": "该分类行出现实心圆点（未应用标记）",
+      "kind": "indicator",
+      "spec": "PyCharm 行为",
+      "augit": {
+        "status": "gap",
+        "note": "Augit 没有『哪个分类有未保存修改』的指示：切页草稿保留，但用户看不到改动位置",
+        "docsRef": "未保存修改的分类标记"
+      }
+    }
+  ],
+  "feedback": [
+    {
+      "id": "settings.tree.selected",
+      "target": "分类树选中行",
+      "pycharm": {
+        "bg": "#d0dffe",
+        "note": "整行浅蓝底（实测取色，原图坐标 (250,690)）"
+      },
+      "augit": {
+        "token": "--augit-blue-soft: #d0dffe",
+        "note": "浅色令牌与 PyCharm 实测逐值相同"
+      },
+      "ref": "live-shell:§7.17 默认停在『外观』…（选中行 selected 类）"
+    },
+    {
+      "id": "settings.primary-button",
+      "target": "主按钮（OK）",
+      "pycharm": {
+        "bg": "#3871e1",
+        "note": "实测取色 (1180,1150)"
+      },
+      "augit": {
+        "token": "--augit-blue: #3871e1",
+        "note": "逐值相同"
+      }
+    },
+    {
+      "id": "settings.surfaces",
+      "target": "对话框/树/底栏 底色",
+      "pycharm": {
+        "bg": "#f7f8f9",
+        "searchFieldBg": "#ffffff",
+        "lowerAreaBg": "#d9dbdb"
+      },
+      "augit": {
+        "chrome": "#e9eaee",
+        "panel": "#ffffff",
+        "panelMuted": "#f5f8fe"
+      },
+      "verdict": "不同：PyCharm 面板灰 #f7f8f9，Augit 按 design-system 用冷灰标题栏 #e9eaee + 白色内容面板 #ffffff（ux-spec §4.4 明文规定）。属规范内既定选择，不是缺陷；⑦ 对照表如实列出。"
+    },
+    {
+      "id": "settings.field.disabled",
+      "target": "不可用字段（Theme 在 Sync with OS 勾选时）",
+      "pycharm": "文字转灰、下拉不可展开",
+      "augit": {
+        "status": "diff",
+        "note": "Shell 非『自定义命令』时禁用自定义启动命令输入框（同一手法）"
+      },
+      "ref": "live-shell:§7.17 终端自定义命令仅在选择『自定义命令』时可编辑"
+    }
+  ],
   "sequences": [],
   "decisions": {
     "spec_7_17_conflict": {
@@ -175,6 +390,32 @@
       "why": "Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口",
       "evidence": "FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活",
       "unblock": "用户在方便时点一下 PyCharm 使其成为前台（或用任务栏激活），随后即可继续抓取；不需要改任何 PyCharm 设置"
+    }
+  ],
+  "gaps": [
+    {
+      "id": "settings-dirty-indicator",
+      "what": "未保存修改的分类标记（PyCharm 的实心圆点）",
+      "evidence": "pycharm-settings-search-font.png（Appearance 行带蓝点）",
+      "augit": "无此指示；草稿会保留但用户看不到哪里改了",
+      "plan": "候选：在导航行加未保存标记（需先定设计令牌，交用户确认）",
+      "docsRef": "未保存修改的分类标记"
+    },
+    {
+      "id": "settings-terminal-font",
+      "what": "PyCharm 终端字体是独立设置（JetBrains Mono 13.0）",
+      "evidence": "pycharm-settings-search-terminal.png",
+      "augit": "按产品规格第 163 行跟随『等宽字体/字号』",
+      "plan": "既定选择，仅记录差异",
+      "docsRef": "PyCharm 终端字体是独立设置"
+    },
+    {
+      "id": "settings-group-fold",
+      "what": "PyCharm 分类分组可折叠（▼/▶）",
+      "evidence": "pycharm-settings-tree-2/3.png",
+      "augit": "分组表头不可折叠",
+      "plan": "已在三方覆盖清单登记",
+      "docsRef": "分类分组可折叠"
     }
   ]
 }

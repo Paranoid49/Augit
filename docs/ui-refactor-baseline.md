@@ -10980,3 +10980,44 @@ harness 断言（4 条）：入口存在、搜索开浮层且焦点在浮层内�
 （只有正文查看的"自动换行"能力），宿主 `ApplicationSettings` 也没有字段 → 属**规范冲突**，
 按纪律停下交用户裁决（加字段需同时改产品规格 + 宿主 + 界面，或从设置页去掉该条）；
 PyCharm 的分组折叠箭头未做（我们是不分组表头），已记入三方覆盖清单。
+
+#### 第 307 轮（⑯）：PyCharm 交互基线三件套落地 + 一次成功的设置抓取
+
+**PyCharm 抓取（本轮它在前台，脚本的"前台不是 PyCharm 就中止"硬校验通过）**：
+新增截图入仓 `artifacts/pycharm-baseline-20260919/`：`pycharm-settings-appearance`、
+`pycharm-settings-search-font`、`pycharm-settings-search-terminal`、`pycharm-settings-tree-1/2/3`、
+`pycharm-settings-tree-tail`（对话框 1575×1225，PrintWindow 非黑；抓完用 Esc 关闭、IDE 状态未改）。
+
+**采集到的事实**（写进基线 JSON）：
+- **分类树全量**（Appearance & Behavior / Keymap / Editor(General→…、Font、Color Scheme→Color Scheme Font、
+  Console Font…)、Plugins、Build/Execution/Deployment、Tools(Terminal、Advanced Settings)、
+  Languages & Frameworks、Jupyter、Python、Project Structure、Scopes、File Colors…）；
+- **搜索即过滤**：输入 `font` 后左侧树被过滤成只含命中页面（`Editor > Font`、`Color Scheme Font`、`Console Font`）；
+  输入 `terminal` 命中 `Tools > Terminal`；
+- **Appearance 页字段**：Theme=Islands Light（勾选 **Sync with OS** 时 Theme 为只读灰态）、
+  Editor color scheme、☐Different tool window background、Accessibility(Zoom 100%、
+  ☑Use custom font=Microsoft YaHei **Size 12**、☐Support screen readers)、☐Use contrast scrollbars、
+  UI Options(☐Compact mode、☐Drag-and-drop with Alt、☑Smooth scrolling)；
+- **Tools › Terminal 页字段**：Terminal engine=Reworked 2025、Start directory=`D:\github\Augit`、
+  Environment variables 空、**Font: JetBrains Mono / Size 13.0 / Line height 1.0 / Column width 1.0**；
+- **面包屑与未应用标记**：右页顶部「分组 › 页面」+ 前进/后退箭头；被修改未 Apply 的分类行带**实心圆点**；
+- **实测取色**（⑦ 的硬数据）：选中行 `#d0dffe`、主按钮 `#3871e1`、面板/树/底栏 `#f7f8f9`、
+  搜索框 `#ffffff`、右页下方区域 `#d9dbdb`。
+
+**与 Augit 令牌对照（同一次测量）**：选中行 `--augit-blue-soft: #d0dffe` 与主按钮
+`--augit-blue: #3871e1` **与 PyCharm 实测逐值相同**；面板灰不同——Augit 按 `ux-spec` §4.4 用
+冷灰标题栏 `#e9eaee` + 白色内容面板 `#ffffff`，属规范内既定选择（**不是缺陷**，⑦ 对照表如实列出）。
+
+**⑯ 三件套落地（"补基线与核对共用同一份数据"）**：
+1. `docs/baselines/pycharm-interactions.json` —— 机器源：`source`（含上述实测值与取色）、
+   `decisions`（§7.17 裁决、对照主题 A）、`surfaces`×5、`jumps`×4、`feedback`×4、`gaps`×3、
+   `compareRecipe`、`blockers`；
+2. `docs/baselines/pycharm-interactions.md` —— 由 `tools/audit/gen-interaction-baseline.cjs`
+   生成的人类视图（零依赖、输出确定、按 id 排序便于 diff）；
+3. `tools/audit/check-interactions.cjs` —— 核对器：每条 `status=pass` 必须引用**真实存在**的断言名
+   （`live-shell.spec.cjs` 里的 `check(...)` 文案），每条 `status=gap` 必须带 `docsRef` 且该短语
+   确实出现在交付文档里。**它第一次运行就抓到 3 处真问题**：`settings.nav.switch` 引用的断言名写短了、
+   两条差异（终端字体归属、分组折叠）没有写进任何交付文档 —— 修完输出 `INTERACTIONS_BASELINE_OK`。
+
+**新增缺口（已登记）**：Augit 设置页**没有"哪个分类有未保存修改"的指示**（PyCharm 用实心圆点标记）；
+终端的字体归属属既定差异；分组折叠未做。

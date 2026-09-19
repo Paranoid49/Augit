@@ -26,6 +26,7 @@
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS**（默认场景列表已补齐到 `ux-spec` §12.1 要求的全部页面；实测 25/25 + 17/17 = **42/42**） |
+| 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
