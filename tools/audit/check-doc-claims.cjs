@@ -60,6 +60,45 @@ if (totalRow && sectionRows.length > 0) {
   notes.push(`§2.0 表格：分节 ${sectionRows.length} 节，条文之和 ${clauseSum}，用例行之和 ${rowSum}`);
 }
 
+// ---- 1b) 用例行数：逐块计数后与 §2.0 表格各行相加核对 ----
+// §2.7 里有**三个**"逐条展开"区块（§6 40 / §5 29 / §9 22 = 91 条编号行）；
+// §5/§6 的概览分别在 §2.1–§2.4 与 §2.5，§7 的概览与逐条都在 §2.6，§10 在 §2.8，§4 在 §1.2。
+const countRows = (body, pattern) => body.split('\n')
+  .filter((line) => pattern.test(line.trim())).length;
+const twoSeven = sectionOf('### 2.7 ');
+const twoSix = sectionOf('### 2.6 ');
+const oneTwo = sectionOf('### 1.2 ');
+const twoEight = sectionOf('### 2.8 ');
+const five = sectionOf('### 2.1 ');
+const six = sectionOf('### 2.5 ');
+if (!twoSeven || !twoSix || !oneTwo || !twoEight || !five || !six) {
+  problems.push('用例行数核对所需的某些小节找不到');
+} else {
+  const expand = {};
+  for (const match of twoSeven.matchAll(/\*\*§(\d+) 逐条展开（[^）]*?(\d+) 条）\*\*/g)) {
+    expand[match[1]] = Number(match[2]);
+  }
+  const twoOneToFour = ['### 2.1 ', '### 2.2 ', '### 2.3 ', '### 2.4 ']
+    .map((heading) => sectionOf(heading) || '')
+    .reduce((total, body) => total + countRows(body, /^\| §5\.\d+/), 0);
+  const counted = {
+    '§4': countRows(oneTwo, /^\| §4(\.\d+)? \|/) + countRows(oneTwo, /^\| §4 /),
+    '§5': twoOneToFour + (expand['5'] || 0),
+    '§6': countRows(six, /^\| §6\.\d+/) + (expand['6'] || 0),
+    '§7': countRows(twoSix, /^\| §7\.\d+/) + countRows(twoSix, /^\| \d+ \| §7/),
+    '§9': countRows(twoSeven, /^\| §9\.\d+/) + (expand['9'] || 0),
+    '§10': countRows(twoEight, /^\| \d+ \| §10\./),
+  };
+  for (const row of sectionRows) {
+    const key = '§' + (row.section.match(/§(\d+)/) || [])[1];
+    if (!(key in counted)) continue;
+    if (counted[key] !== row.rows) {
+      problems.push(`§2.0 ${key} 的用例行 ${row.rows} ≠ 逐块计数 ${counted[key]}`);
+    }
+  }
+  notes.push('用例行逐块计数：' + Object.entries(counted).map(([key, value]) => `${key}=${value}`).join(' '));
+}
+
 // ---- 2) §2.0 "当前事实"里的加数与总数 ----
 const factLine = /规格条文 (\d+) 条中有逐条行的是 \*\*(\d+) 条\*\*/.exec(facts);
 // 只在**这一句后面的那个括号里**解析加数：用全文匹配会把正文里其它「§N 数字」也算进来
