@@ -2509,8 +2509,9 @@ async function main() {
     });
     ssCheck('前置条件：相同状态刷新确实查询了宿主（对照，避免空断言）: ' + JSON.stringify([beforeSame.statusCalls, afterSame.statusCalls]),
       afterSame.statusCalls > beforeSame.statusCalls);
-    ssCheck('相同状态刷新不重建主框架节点: ' + JSON.stringify([afterSame.viewKept, afterSame.sideKept]),
-      afterSame.viewKept === true && afterSame.sideKept === true);
+    check('相同状态刷新不替换正文节点（焦点不被销毁）: ' + JSON.stringify(afterSame.viewKept), afterSame.viewKept === true);
+    ssCheck('相同状态刷新不替换侧栏节点（§6.4 原地更新，待办）: ' + JSON.stringify(afterSame.sideKept),
+      afterSame.sideKept === true);
     ssCheck('相同状态刷新不改变滚动位置: ' + JSON.stringify([beforeSame.scrollTop, afterSame.scrollTop]),
       afterSame.scrollTop === beforeSame.scrollTop);
     // 焦点只能在页面本身有焦点时断言：无头/未激活的页面里 activeElement 会被浏览器重置，

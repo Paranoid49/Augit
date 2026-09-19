@@ -10519,3 +10519,35 @@ refreshStatusRegions("side", "editorContent", "editorTabs", "statusbar", "bottom
 同时"焦点、滚动、主窗口布局不被破坏"（§125）。
 
 **修复后的验证**：第 293 轮的软收集断言转正；再做负向验证（临时恢复无条件替换 → 断言失败）。
+
+#### 第 297 轮（B-②）：修复"同状态刷新销毁正文节点/丢焦点"—— 按"是否碰到当前文档"收窄区域替换
+
+**修复**（`web/src/live-data.js` 的 `applyWorkspaceChanges`）：新增 `editorTouched` 标记 ——
+只有这一批**真的碰到了当前文档或当前比较**（`diffPath` 分支、`hitsCurrent` 分支）时才把
+`editorContent`/`editorTabs` 放进重绘区域；其余情况只刷新
+`side / statusbar / bottomTool / titlebar`：
+
+```js
+const regions = ["side", "statusbar", "bottomTool", "titlebar"];
+if (editorTouched) { regions.push("editorContent", "editorTabs"); }
+refreshStatusRegions(...regions);
+```
+
+**为什么这样切**：第 295/296 轮证明"整批跳过刷新"会破坏规格要求的外部变化提示与列表收敛
+（5 处 `waitForFunction` 依赖）；而缺陷的本质是"**刷新把正文节点也替换了**"，
+所以只收窄**正文区域**，既保住提示/列表，又保住用上下文。
+
+**验证（同引擎实测 + harness）**：
+- 断言由 `[false,false]`（正文与侧栏都被替换）变为 **`[true,false]`** ——
+  **正文节点保住了**，焦点丢失随之消失（软收集里"不改变焦点"不再失败）；
+- **`live-shell` 870/870 绿色**；
+- **负向证据**：第 293 轮修复前的同一测量（`[false,false]` + `activeElement: "code-view" → ""`）即负向证据。
+
+**断言处理**：把已修复的部分**转正为硬断言**
+（`相同状态刷新不替换正文节点（焦点不被销毁）`），
+把仍存在的部分保留为**软收集待办**
+（`相同状态刷新不替换侧栏节点（§6.4 原地更新，待办）`）—— 侧栏节点仍被整体替换，
+按 §6.4"改动列表优先原地更新、保留未变化行的节点对象"的同类思路，下一步应让侧栏列表也原地更新。
+
+**B 线进度**：② 滚动保持 —— §125 的主要缺陷（销毁正文节点/丢焦点）**已修复并验证**；
+遗留"侧栏节点原地更新"（§6.4）待办；§154 字号保持上下文待做。

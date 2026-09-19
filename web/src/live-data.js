@@ -1654,6 +1654,10 @@ async function applyWorkspaceChanges(changes) {
 
   let touchedCurrent = false;
   let touchedNothing = false;
+  // 这一批是否**碰到了正文所依赖的东西**（当前文档或当前比较）。只有碰到时才需要替换
+  // editorContent/editorTabs 的节点；否则替换会销毁用户正在看的节点、丢掉焦点与输入上下文
+  // （规格 §125：不改变焦点、滚动和主窗口布局；第 293/294 轮同引擎实测）。
+  let editorTouched = false;
 
   if (changes.gitMetadata) {
     // Git 元数据变化：状态与历史都可能变，重新读取后局部刷新。
@@ -1675,6 +1679,7 @@ async function applyWorkspaceChanges(changes) {
       // 只有当前差异对象本身变化才重新请求差异。
       await loadDiff(diffPath, { force: true }).catch(() => null);
       touchedCurrent = true;
+      editorTouched = true;
     } else if (hitsCurrent) {
       // 当前查看的普通文件被外部修改或删除。
       // 先取一次最新状态：判断「是否已删除」必须基于变化后的状态，
@@ -1702,6 +1707,7 @@ async function applyWorkspaceChanges(changes) {
       }
 
       touchedCurrent = true;
+      editorTouched = true;
     } else {
       // 无关文件变化：当前 diff 不进入加载状态，只刷新状态列表。
       touchedNothing = true;
@@ -1712,8 +1718,12 @@ async function applyWorkspaceChanges(changes) {
   }
 
   if (!touchedCurrent && !touchedNothing) return;
-  // 改动列表优先原地更新（§6.4：保留未变化行的节点对象），形态不符时自动回退到区域替换。
-  refreshStatusRegions("side", "editorContent", "editorTabs", "statusbar", "bottomTool", "titlebar");
+  // 正文区域只在这一批**真的碰到当前文档/比较**时才替换（见 editorTouched 注释）。
+  // 其余情况仍然刷新列表、状态栏与标题栏：外部变化的提示与列表收敛必须照常发生
+  // （§6.4/§6.5），第 295/296 轮证明"整批跳过刷新"会破坏这条规格要求。
+  const regions = ["side", "statusbar", "bottomTool", "titlebar"];
+  if (editorTouched) { regions.push("editorContent", "editorTabs"); }
+  refreshStatusRegions(...regions);
   void refreshCommitDetails();
 }
 
