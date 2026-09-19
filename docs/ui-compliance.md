@@ -66,6 +66,23 @@
 **不要用 `PrintWindow`**；**不要把 `visiblePercent` 当作缺陷判据**（它被真实数据文字差异淹没）。
 
 | 场景 | titlebar | statusbar | content | 判读 |
+
+> **偏高项复核示例（第 389 轮，④）：`repository-search`（当时 55 行里 content 最高 = 2.84）**
+> 用同一对照器重跑（`tools/audit/compare-pixels.ps1` → `compare-pixels.py`），并把证据留在仓库：
+> `artifacts/pixel-review-20260921/repository-search/`（`*-mockup.png`、`*-live.png`、`heatmap.png`）。
+> - **重跑读数**：titlebar `layoutPercent=0.00`、statusbar `0.00`、content **`2.08`**
+>   （`textPercent=17.31`、`visiblePercent=6.90`）；**与 §1.1 记录的 2.84 不同**（Δ0.76）。
+> - **为什么不同**：`layoutPercent` 统计的是"两侧都平坦的像素里差异 > 8 的占比"，而 live 侧的
+>   真实数据（文件树内容、结果行、选中项）**随工作区状态变化** —— 记录值来自 2026-09-19/20 那次运行，
+>   重跑时工作区已不同。**因此 §1.1 的行值应读作"那一次运行的读数"，不是可永久复现的常数**；
+>   判读（"数据差异"而不是"布局错位"）在两次运行里一致。
+> - **heatmap 复核结论**：黑底上绝大部分标记是**字形级**（文字栅格化差异，预期内）；
+>   只有**两条通栏色带**（结果面板的首行带与末行带）是平坦像素差异 —— 即 `layoutPercent` 的来源。
+>   也就是说这一格是"文字差异 + 结果面板两处条带"，不是整页错位。
+> - **工具口径提醒**：`compare-pixels.ps1` 自己打印的 `SUMMARY failures=…` / `PIXELS_DIFFER` 用的是
+>   `visiblePercent`（§1.1 明确写了"不要把 visiblePercent 当作缺陷判据"），本次它就报了
+>   `failures=2`，而三个带的 `layoutPercent` 是 0.00/0.00/2.08。**读判据请读 `layoutPercent` 行**，
+>   那个 SUMMARY 只反映可见像素差异（被真实数据文字差异淹没）。
 | --- | --- | --- | --- | --- |
 | `blame` | 0.00 | 0.00 | 1.44 | 数据差异（字体已等化） |
 | `branches` | 0.00 | 0.00 | 1.39 | 数据差异；**等化前 2.81**（差值主要为字体） |

@@ -12980,3 +12980,25 @@ Data Editor and Viewer、Quick Lists、Required Plugins）**没有**出现在这
 结果：`feedback` 7 → **8** 条（新增 `settings.dialog.geometry`）；
 `check-interactions.cjs` → `BASELINE surfaces=6 jumps=4 feedback=8 sequences=6 gaps=4`、
 `CHECKED 18 (pass=9 diff=2 gap=1 other=6)`、`INTERACTIONS_BASELINE_OK`；§1.3 增补该对照表；§0 同步。
+
+#### 第 389 轮：④ 偏高项复核示例（`repository-search`）—— 顺带发现两处口径问题
+
+**做法**：对 §1.1 里 content 最高的那一格（`repository-search` 2.84）用同一对照器重跑，
+并把两侧截图与 heatmap **留在仓库**：`artifacts/pixel-review-20260921/repository-search/`。
+
+**读数（重跑）**：titlebar `layoutPercent=0.00`、statusbar `0.00`、content **`2.08`**
+（同次 `textPercent=17.31`、`visiblePercent=6.90`）。
+
+**两处口径问题（本轮新发现，都已写进 §1.1 的示例说明）**：
+1. **行值不可永久复现**：记录值 2.84 与重跑值 2.08 不同（Δ0.76）。原因是 `layoutPercent` 比的是
+   "两侧都平坦的像素"，而 live 侧的真实数据随工作区状态变化（文件树、结果行、选中项），
+   记录值属于 2026-09-19/20 那一次运行。判读（数据差异 vs 布局错位）两次一致，
+   但**数字必须带上"哪一次运行"**，不能当成常数。
+2. **工具自己的 SUMMARY 用错了判据**：`compare-pixels.ps1` 打印 `SUMMARY failures=2`、
+   `PIXELS_DIFFER`，用的是 `visiblePercent`（§1.1 早写明"不要把 visiblePercent 当作缺陷判据"，
+   它会被真实数据文字差异淹没）；同一跑的三个带 `layoutPercent` 是 0.00/0.00/2.08。
+   已在文档里写明"读判据请读 `layoutPercent` 行"。
+
+**heatmap 复核结论**：黑底上绝大部分标记是**字形级**（文字栅格化，预期内）；只有**两条通栏色带**
+（结果面板首行带、末行带）属于平坦像素差异 —— 即 `layoutPercent` 的实际来源。结论：
+这一格是"文字差异 + 结果面板两处条带"，**不是整页错位**。
