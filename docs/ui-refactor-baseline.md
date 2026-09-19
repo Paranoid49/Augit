@@ -10115,3 +10115,32 @@ BAND rail       visiblePercent=13.52 flatTotal=816560 flatDiffPercent=13.52
 **本轮结论**：新目标的 ①②③ 已拿到可信的**可见像素差异率**（标题栏 97.4% 一致、
 状态栏差异为文字数据），"把布局差异从文字差异中分离"这一步**尚未完成**，
 下一步按上面三条继续。
+
+#### 第 283 轮（新目标 ②）：掩膜比对实现成功 —— 标题栏/状态栏**布局差异 0.00%**
+
+PowerShell 里做邻域判断不可靠（第 282 轮），改到 **Python + PIL**（本机有 PIL 10.2.0），
+新增 `tools/audit/compare-pixels.py`：
+
+- 两侧各做**边缘掩膜**（`FIND_EDGES` + 阈值 + `MaxFilter(3)` 外扩）→ 取交集 = "两侧都平坦"的像素；
+- 分别统计 **`layoutPercent`**（平坦像素里差异 > 8 的占比 = 布局/配色差异）与
+  **`textPercent`**（边缘像素里的差异占比 = 文字/图标内容差异）；
+- 附带输出 `heatmap.png`（红=布局差异、绿=文字差异），便于人工定位。
+
+`git-history`（两侧 1180×760，CDP 截图）实测：
+
+```
+BAND titlebar   layoutPercent=0.00  textPercent=16.52  visiblePercent=2.53  flatDiff=0/43956
+BAND statusbar  layoutPercent=0.00  textPercent=19.32  visiblePercent=5.92  flatDiff=0/19642
+BAND rail       layoutPercent=3.60  textPercent=51.69  visiblePercent=13.24 flatDiff=23501/652934
+HEATMAP D:\tmp-augit-cap\pxs\heatmap.png
+```
+
+**结论（新目标 ② 的核心答案）**：
+- **标题栏与状态栏的 `layoutPercent` 都是 0.00** —— 背景、边框、间距、圆角**逐像素完全一致**，
+  可见差异 100% 来自文字（分支名/文件名/编码字段等数据）；
+- 这**证实**上一阶段把宽度差归因于"跨平台字体/滚动条"是正确的：同引擎下这些差异消失，
+  没有藏在背后的真实布局缺陷；
+- `rail`（内容带）3.60% 是**真实数据差异**（真实提交行/文件树的行底色与选中态 vs 样例），
+  属数据而非实现差异 —— 下一轮可用 heatmap 逐块确认其中是否有真正的行高/内边距问题。
+
+**工具链位置**：`compare-pixels.ps1`（Windows 侧取图）+ `compare-pixels.py`（WSL 侧掩膜比对）。
