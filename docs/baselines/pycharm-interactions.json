@@ -337,7 +337,129 @@
       "ref": "live-shell:§7.17 终端自定义命令仅在选择『自定义命令』时可编辑"
     }
   ],
-  "sequences": [],
+  "sequences": [
+    {
+      "id": "seq.diff.loading-threshold",
+      "surface": "pycharm.main",
+      "spec": "ux-spec §9.1（加载超过阈值才提示）+ §6.5",
+      "steps": [
+        "选中一个改动文件",
+        "差异在 150ms 内返回 → 不显示任何加载提示",
+        "差异较慢 → 150ms 后左侧/文件标题行出现加载提示",
+        "正文到达 → 提示被正文替换且不残留"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§9.1 等待阈值：加载提示延迟约 150 毫秒出现 | live-shell:150 毫秒内不显示加载动画 | live-shell:§9.1 已显示：加载提示被正文替换 | live-shell:加载完成后不残留加载提示"
+      }
+    },
+    {
+      "id": "seq.diff.request-failure",
+      "surface": "pycharm.main",
+      "spec": "ux-spec §9.1（失败保留列表与选择）+ §5.3（草稿保留）",
+      "steps": [
+        "选中一个改动文件",
+        "宿主读取失败",
+        "列表与当前选择保持原样",
+        "用户已输入的草稿不丢"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§9.1 请求失败：保留列表与选择 | live-shell:查询失败保留用户草稿"
+      }
+    },
+    {
+      "id": "seq.settings.save-failure",
+      "surface": "pycharm.settings",
+      "spec": "ux-spec §9.3 / §10.2",
+      "steps": [
+        "在设置里改一个字段",
+        "点应用/保存",
+        "写入失败 → 对话框保持打开并显示原因",
+        "用户输入保留，可重试"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§9.3 保存失败时对话框保持打开 | live-shell:§9.3 保存失败时保留用户输入"
+      }
+    },
+    {
+      "id": "seq.json.invalid-defaults-to-source",
+      "surface": "pycharm.main",
+      "spec": "ux-spec §7.4（格式错误默认原文 + 错误行列 + 禁用格式化）",
+      "steps": [
+        "打开格式错误的 .json",
+        "默认显示原文而不是格式化结果",
+        "顶部错误条给出宿主算出的行列",
+        "『格式化』按钮保持位置但被禁用",
+        "点错误条（或 Enter）定位到出错行并把焦点交给正文"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列 | live-shell:§7.4 错误条 Enter 与单击同效 | live-shell:§7.4 点击错误条定位到宿主给出的出错行并把焦点交给正文"
+      }
+    },
+    {
+      "id": "seq.doc.mode-memory",
+      "surface": "pycharm.main",
+      "spec": "ux-spec §7.3（会话内记忆模式、各自滚动位置保持）",
+      "steps": [
+        "打开 Markdown 文件（默认预览）",
+        "切到原文",
+        "切到别的标签再切回 → 仍是原文",
+        "三模式往返后原文滚动与预览阅读位置保持",
+        "切模式不创建新标签、不写回文件"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§7.3 会话内记住文档模式、三段式切换不创建标签 | live-shell:§7.3 模式切换不丢失各自滚动位置"
+      }
+    },
+    {
+      "id": "seq.terminal.large-output",
+      "surface": "pycharm.main",
+      "spec": "ux-spec §7.16（大段输出后仍可继续交互）",
+      "steps": [
+        "终端里执行产生 ~4.8MB 输出的命令",
+        "输出持续滚动渲染直到结束",
+        "随后输入的命令仍能回显并产生输出"
+      ],
+      "pycharm": {
+        "status": "notCollected",
+        "blockedBy": "pycharm-focus",
+        "plan": "PyCharm 处于前台时按同一条序列逐步截图（当前被 Windows 前台锁挡住，见 blockers）"
+      },
+      "augit": {
+        "status": "probe",
+        "note": "没有 harness 断言（xterm 真实渲染无法在桩里复现）：由 Augit.Shell.Tests 的 4 条裁剪单测 + 真机探针 D:\\tmp-augit-cap\\term-io-probe.ps1 覆盖（洪泛后 1 次轮询/6 秒读回 sentinel 与新提示符）"
+      }
+    }
+  ],
   "decisions": {
     "spec_7_17_conflict": {
       "decision": "按规格 §7.17 + PyCharm 结构落地（现有视觉稿把等宽字体/字号画在『外观』页是基线自身的错）",

@@ -100,6 +100,17 @@
 | settings.surfaces | 对话框/树/底栏 底色 | {"bg":"#f7f8f9","searchFieldBg":"#ffffff","lowerAreaBg":"#d9dbdb"} | {"chrome":"#e9eaee","panel":"#ffffff","panelMuted":"#f5f8fe"} | 不同：PyCharm 面板灰 #f7f8f9，Augit 按 design-system 用冷灰标题栏 #e9eaee + 白色内容面板 #ffffff（ux-spec §4.4 明文规定）。属规范内既定选择，不是缺陷；⑦ 对照表如实列出。 |
 | settings.tree.selected | 分类树选中行 | {"bg":"#d0dffe","note":"整行浅蓝底（实测取色，原图坐标 (250,690)）"} | {"token":"--augit-blue-soft: #d0dffe","note":"浅色令牌与 PyCharm 实测逐值相同"} | live-shell:§7.17 默认停在『外观』…（选中行 selected 类） |
 
+## 操作序列与状态转换（sequences）
+
+| id | 步骤 | 期望 | 规格出处 | Augit |
+| --- | --- | --- | --- | --- |
+| seq.diff.loading-threshold | ["选中一个改动文件","差异在 150ms 内返回 → 不显示任何加载提示","差异较慢 → 150ms 后左侧/文件标题行出现加载提示","正文到达 → 提示被正文替换且不残留"] |  | ux-spec §9.1（加载超过阈值才提示）+ §6.5 | ✅ 一致（live-shell:§9.1 等待阈值：加载提示延迟约 150 毫秒出现 \\| live-shell:150 毫秒内不显示加载动画 \\| live-shell:§9.1 已显示：加载提示被正文替换 \\| live-shell:加载完成后不残留加载提示） |
+| seq.diff.request-failure | ["选中一个改动文件","宿主读取失败","列表与当前选择保持原样","用户已输入的草稿不丢"] |  | ux-spec §9.1（失败保留列表与选择）+ §5.3（草稿保留） | ✅ 一致（live-shell:§9.1 请求失败：保留列表与选择 \\| live-shell:查询失败保留用户草稿） |
+| seq.doc.mode-memory | ["打开 Markdown 文件（默认预览）","切到原文","切到别的标签再切回 → 仍是原文","三模式往返后原文滚动与预览阅读位置保持","切模式不创建新标签、不写回文件"] |  | ux-spec §7.3（会话内记忆模式、各自滚动位置保持） | ✅ 一致（live-shell:§7.3 会话内记住文档模式、三段式切换不创建标签 \\| live-shell:§7.3 模式切换不丢失各自滚动位置） |
+| seq.json.invalid-defaults-to-source | ["打开格式错误的 .json","默认显示原文而不是格式化结果","顶部错误条给出宿主算出的行列","『格式化』按钮保持位置但被禁用","点错误条（或 Enter）定位到出错行并把焦点交给正文"] |  | ux-spec §7.4（格式错误默认原文 + 错误行列 + 禁用格式化） | ✅ 一致（live-shell:§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列 \\| live-shell:§7.4 错误条 Enter 与单击同效 \\| live-shell:§7.4 点击错误条定位到宿主给出的出错行并把焦点交给正文） |
+| seq.settings.save-failure | ["在设置里改一个字段","点应用/保存","写入失败 → 对话框保持打开并显示原因","用户输入保留，可重试"] |  | ux-spec §9.3 / §10.2 | ✅ 一致（live-shell:§9.3 保存失败时对话框保持打开 \\| live-shell:§9.3 保存失败时保留用户输入） |
+| seq.terminal.large-output | ["终端里执行产生 ~4.8MB 输出的命令","输出持续滚动渲染直到结束","随后输入的命令仍能回显并产生输出"] |  | ux-spec §7.16（大段输出后仍可继续交互） | ⏳ 未核对 |
+
 ## 已知缺口（gaps）
 
 - **settings-dirty-indicator**：未保存修改的分类标记（PyCharm 的实心圆点）｜证据：pycharm-settings-search-font.png（Appearance 行带蓝点）｜Augit：已补未保存标记（第 316 轮）；分组折叠仍不做｜计划：已裁决并实现：导航行/标题行加未保存标记（复用 --augit-blue），不做分组折叠

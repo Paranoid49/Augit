@@ -98,7 +98,8 @@ for (const gap of baseline.gaps || []) {
 
 const assertionCount = (spec.match(/check\(/g) || []).length;
 console.log(`BASELINE surfaces=${(baseline.surfaces || []).length} jumps=${(baseline.jumps || []).length} `
-  + `feedback=${(baseline.feedback || []).length} gaps=${gapIds.size}`);
+  + `feedback=${(baseline.feedback || []).length} sequences=${(baseline.sequences || []).length} `
+  + `gaps=${gapIds.size}`);
 console.log(`CHECKED ${stats.checked} (pass=${stats.pass} diff=${stats.diff} gap=${stats.gap} other=${stats.other}) `
   + `against ${assertionCount} check() call sites`);
 if (problems.length > 0) {

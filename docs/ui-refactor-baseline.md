@@ -12715,3 +12715,27 @@ harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html
 
 **验收分母的写法**：巡检仍是 **54/54（干净仓库）**，`diff-boundary` 记为
 **1/1（含改动的工作区，单独一次）** —— 不把两者混成一个"55/55"来掩盖工作区差异。
+
+#### 第 372 轮：交互基线补上 `sequences`（此前是 0 条 —— 满足 schema 但内容空着）
+
+`docs/baselines/pycharm-interactions.json` 的 schema 里有四段（`surfaces` / `jumps` / `feedback` /
+`sequences`），此前 `sequences` **一条都没有**：加载/失败/取消/进行中/空态这一族完全没有落在基线里。
+本轮把它补成 **6 条**，每条都绑到**已存在的 harness 断言**上（不是新写一段散文）：
+
+| id | 序列要点 | Augit 侧 |
+| --- | --- | --- |
+| `seq.diff.loading-threshold` | 150ms 内不提示 → 之后出现 → 正文到达后提示被替换且不残留 | `pass`，引 4 条既有断言 |
+| `seq.diff.request-failure` | 失败保留列表与选择、草稿不丢 | `pass`，引 2 条 |
+| `seq.settings.save-failure` | 写入失败对话框保持打开、输入保留 | `pass`，引 2 条 |
+| `seq.json.invalid-defaults-to-source` | 默认原文 + 宿主行列 + 禁用格式化 + 错误条定位/焦点交正文 | `pass`，引 3 条 |
+| `seq.doc.mode-memory` | 会话内记忆模式、往返保留滚动位置、不建标签 | `pass`，引 2 条 |
+| `seq.terminal.large-output` | ~4.8MB 洪泛后仍可继续交互 | `probe`：无断言（xterm 真实渲染无法在桩里复现），由 4 条裁剪单测 + 真机探针覆盖 |
+
+**PyCharm 一侧全部显式写 `notCollected` + `blockedBy: pycharm-focus` + plan** ——
+`sequences` 需要"逐步截图"，而这一步仍被 Windows 前台锁挡住（`blockers`）。也就是说：
+这 6 条**不是**对 PyCharm 行为的声明，而是"必须采集的清单 + Augit 侧已有的可核对断言"。
+
+顺带把检查器摘要补上 `sequences=` 计数（原先只印 surfaces/jumps/feedback/gaps，
+新段为空时看不出来）。结果：`BASELINE surfaces=5 jumps=4 feedback=4 sequences=6 gaps=4`、
+`CHECKED 14 (pass=8 diff=1 gap=1 other=4)`、`INTERACTIONS_BASELINE_OK`；
+人类视图 `docs/baselines/pycharm-interactions.md` 由生成器重出（128 行）。
