@@ -37,7 +37,7 @@
 | Git 历史右键菜单 `git-history-menu` | ✅ | — | — | — | ✅ | ✅ |
 | 文件历史与 Blame `file-history` | ✅ | — | 待人工确认 | ✅ | — | — |
 | Blame `blame` | ✅ | — | ✅ 二进制/超限时只读说明（同 `file-limit` 语义） | ✅ | — | — |
-| 引用比较 `git-compare` | ✅ | **缺**（无差异/无共同祖先） | ✅ `history-diff-failure`（同构） | ✅ `history-diff-loading`（同构） | — | — |
+| 引用比较 `git-compare` | ✅ | ✅ `git-compare-empty` 专用页（⑭ 第 4 项已完成：无文本差异时正文按比较语义说明，变更导航禁用但保留入口） | ✅ `history-diff-failure`（同构） | ✅ `history-diff-loading`（同构） | — | — |
 | 历史 Diff 加载/失败/取消 | — | — | ✅ `history-diff-failure` | ✅ `history-diff-loading` | — | ✅ `history-diff-cancelled`（取消后保留身份） |
 
 ## 3. Git 写操作与危险确认
@@ -81,7 +81,7 @@
 | 1 | ~~Git 历史空态~~ **已完成** | §10.1 | `docs/ux-mockups/git-history-empty.html` + 场景 `git-history-empty`（复用同一渲染器）+ 空仓库真机像素对照 0.64 |
 | 2 | ~~工作区 Diff 的最终说明~~ **已完成** | §6.5 + §10.2 | 场景 `diff-status`（URL 参数 `diff-status`）+ 共享 `diffStatusNotice()`；实时侧改为正文说明块；真机二进制仓库像素对照 1.29 |
 | 3 | ~~设置保存失败/只读失败~~ **已完成** | §9.3/§10.2；harness 有 `settingsReadOnly` 断言但无视觉稿 | `docs/ux-mockups/settings-save-failure.html` + 场景 `settings-save-failure`（复用四分类设置页渲染器）+ 两侧底栏文案逐字一致；真机用"设置文件不可写"实测复现（像素 0.04，第 314 轮） |
-| 4 | **引用比较无差异/无共同祖先** | §7.9 | 复用 `history-diff-*` 的同构状态或新增 `git-compare-empty` |
+| 4 | ~~引用比较无差异/无共同祖先~~ **已完成（其中的"无差异"部分）** | §7.9 | `docs/ux-mockups/git-compare-empty.html` + 场景 `git-compare-empty`：`diffView(comparison, state="summary")` 复用同一比较框架，正文换成 `comparisonSummaryNotice()`；实时侧在"历史比较生效且无差异行"时改用同一措辞（工作区 Diff 仍用工作区措辞，有负向对照）。**"无共同祖先"当前产品面不可达**：Augit 的引用比较只有 `commit^ → commit`（`git show`）与 `HEAD → 工作区` 两条路径，没有"任意两个引用"的比较对话框（§7.9 末条的比较对话框尚未实现），因此不补该态，避免造一个界面到不了的页面 |
 | 5 | ~~图片解码失败~~ **已完成** | §7.5 | `docs/ux-mockups/image-error.html` + 场景 `image-error`（复用"不可预览文件"信息态）；实时侧判据改为按 `status` 而非 `kind`，并补 `<img>` 解码兜底；真机三样本实测 + 两侧像素 0.01（第 315 轮） |
 | 6 | 分组折叠 / 未保存修改标记（设置页） | PyCharm 实测（`pycharm-settings-search-font.png`） | 需先定设计令牌，交用户确认 |
 | 7 | 删除确认态（Stash/Worktree/远端）是否已有专用视觉稿 | 实现与 harness 有确认流程 | 先逐一截图确认，再决定是否补页 |

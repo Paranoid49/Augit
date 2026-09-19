@@ -20,18 +20,18 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **956/956**（见 §2 说明） |
-| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **52/52 ×2 主题**（`docs/ux-mockups/*.html` 共 53 个，除 `index.html` 外全部渲染） |
-| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**52/52 场景**，新增 `settings-save-failure`、`image-error`） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **962/962**（见 §2 说明） |
+| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **53/53 ×2 主题**（`docs/ux-mockups/*.html` 共 54 个，除 `index.html` 外全部渲染） |
+| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**53/53 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
-| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 47 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
+| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 48 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 733 个 `check(...)` 调用点，
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 739 个 `check(...)` 调用点，
 > 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
 
 ## 1. A 线：静态界面复原
@@ -67,6 +67,7 @@
 | `file-history` | 0.00 | 0.00 | 0.63 | 数据差异（字体已等化） |
 | `file-limit` | 0.00 | 0.00 | 0.01 | 两侧都是"不可预览"页（数据不同） |
 | `git-compare` | 0.00 | 0.00 | 1.71 | 数据差异；**等化前 4.08**（差值主要为字体） |
+| `git-compare-empty` | 0.00 | 0.00 | 1.41 | **新增引用比较无差异页**（⑭ 第 4 项）：文件栏保留双方引用、变更导航禁用但保留入口、正文只留比较语义的摘要说明；实时侧同一条规则由 harness 正/负向两条断言覆盖（见第 316 轮） |
 | `git-history` | 0.00 | 0.00 | 1.37 | 数据差异；**等化前 1.73**（差值主要为字体） |
 | `git-history-empty` | 0.00 | 0.00 | 0.64 | **新增空态页**（⑭ 第 1 项）：实时侧用空仓库实测，提交区显示"仓库还没有提交"，引用树/筛选栏保留 |
 | `git-history-graph` | 0.00 | 0.00 | 1.40 | 数据差异（字体已等化） |

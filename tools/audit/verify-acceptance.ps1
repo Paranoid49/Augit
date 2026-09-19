@@ -28,8 +28,8 @@ $DefaultScenes = @(
   'terminal-close', 'project-context-menu', 'changes-context-menu', 'git-history-menu',
   'git-unavailable',
   # Empty / final-status / failure states added while completing the visual baseline (rounds 312-314).
-  # They are real pages in docs/ux-mockups, so the sweep must carry them too (43 -> 47).
-  'git-history-empty', 'diff-status', 'settings-save-failure', 'image-error'
+  # They are real pages in docs/ux-mockups, so the sweep must carry them too (43 -> 48).
+  'git-history-empty', 'diff-status', 'settings-save-failure', 'image-error', 'git-compare-empty'
 )
 
 # `powershell -File ... -Scenes a,b` arrives as one comma-joined string, so split it.

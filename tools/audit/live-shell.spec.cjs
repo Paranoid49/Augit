@@ -9653,6 +9653,72 @@ async function main() {
       await page.close();
     }
 
+    // ---- 规格 §7.9：引用比较的"无文本差异"摘要按比较语义措辞（⑭ 第 4 项）----
+    // 视觉稿侧此前只有 ready/loading/failure/cancelled 四态：无差异只能借用工作区那句
+    // "改动文件后重新双击该行即可刷新" —— 对"这个提交没有改这个文件"是误导。
+    const compareEmpty = await openScene('scene=git-compare-empty&theme=dark');
+    const compareEmptyState = await compareEmpty.page.evaluate(() => {
+      const body = document.querySelector('.editor-content');
+      const buttons = [...document.querySelectorAll('.editor-content .comparison-toolbar .toolbar-button')]
+        .map((b) => ({ label: b.getAttribute('aria-label'), disabled: b.hasAttribute('disabled') }));
+      const filebar = document.querySelector('.editor-content .diff-filebar');
+      return {
+        text: body ? body.innerText.replace(/\s+/g, '') : '',
+        buttons,
+        filebar: filebar ? filebar.innerText.replace(/\s+/g, ' ').trim() : null,
+        diffRows: document.querySelectorAll('.editor-content .diff-columns .diff-side').length,
+      };
+    });
+    check('§7.9 引用比较无差异时给出比较语义的摘要: ' + JSON.stringify(compareEmptyState.text.slice(0, 60)),
+      compareEmptyState.text.includes('这两个引用在这个文件上没有文本差异')
+        && compareEmptyState.text.includes('没有被修改')
+        && compareEmptyState.text.includes('选择另一个提交或文件'));
+    // 规格 §7.9：清空的是"变更导航"（前后改动与正文搜索），显示模式与忽略空白仍可用。
+    // 文件栏的"→"是 CSS 绘制的，`innerText` 里拿不到；因此核对**双方引用都在**而不是核对箭头字符。
+    const navButtons = compareEmptyState.buttons.filter((b) => ['上一处差异', '下一处差异', '查找'].includes(b.label));
+    check('§7.9 摘要禁用变更导航但保留入口、且不渲染差异行: '
+      + JSON.stringify([compareEmptyState.buttons, compareEmptyState.diffRows, compareEmptyState.filebar]),
+    navButtons.length === 3 && navButtons.every((b) => b.disabled === true)
+      && compareEmptyState.buttons.some((b) => b.label === '忽略空白' && b.disabled === false)
+      && compareEmptyState.diffRows === 0
+      && String(compareEmptyState.filebar).includes('dfe5c25a^')
+      && String(compareEmptyState.filebar).includes('dfe5c25a')
+      && !String(compareEmptyState.filebar).includes('工作区'));
+    await compareEmpty.page.close();
+
+    // 实时侧同一条规则：历史比较有效且没有差异行时用比较措辞，工作区 Diff 仍用工作区措辞。
+    const compareLive = await openScene('scene=commit-changes&theme=dark');
+    await compareLive.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await compareLive.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    await compareLive.page.locator('.changes-list .change-file-row').first().dblclick();
+    await compareLive.page.waitForFunction('window.__augitLive.diff && (window.__augitLive.diff.rows || []).length > 0', null, { timeout: 15000 });
+    const liveWording = await compareLive.page.evaluate(() => {
+      const text = () => {
+        const body = document.querySelector('.editor-content');
+        return body ? body.innerText.replace(/\s+/g, '') : '';
+      };
+      const live = window.__augitLive;
+      live.diff.rows = [];
+      live.diff.status = 'Ready';
+      // ① 有生效的历史比较 -> 比较措辞
+      live.historyComparison = { status: 'open', path: live.diff.path, commit: 'full-bbb2222' };
+      window.__augitRender();
+      const asComparison = text();
+      // ② 没有历史比较 -> 工作区措辞（负向对照）
+      live.historyComparison = { status: 'closed' };
+      window.__augitRender();
+      const asWorkspace = text();
+      live.diff.rows = [{ kind: 'context', oldNumber: 1, newNumber: 1, text: 'x', spans: [] }];
+      window.__augitRender();
+      return { asComparison, asWorkspace };
+    });
+    check('§7.9 历史比较无差异用比较措辞: ' + JSON.stringify(liveWording.asComparison.slice(0, 48)),
+      liveWording.asComparison.includes('这两个引用在这个文件上没有文本差异'));
+    check('§7.9 工作区无差异仍用工作区措辞（负向对照）: ' + JSON.stringify(liveWording.asWorkspace.slice(0, 48)),
+      liveWording.asWorkspace.includes('该文件当前没有文本差异')
+        && !liveWording.asWorkspace.includes('这两个引用'));
+    await compareLive.page.close();
+
     // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
     // Git 历史常在启动后十余秒才到（live-data 注释里写明"实测约 15 秒"）。
     // 若到达时整页重绘，用户此时在查找框里的输入会被清掉——这正是本断言要抓的。

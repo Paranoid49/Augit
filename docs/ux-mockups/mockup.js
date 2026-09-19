@@ -1423,6 +1423,24 @@ function diffStatusNotice(status) {
     + `<p class="commit-meta">${escapeHtml(action)}</p></div></div>`;
 }
 
+/**
+ * 引用比较的"摘要"说明（规格 §7.9：摘要页清空变更导航，正文说明留在比较区域）。
+ *
+ * 与工作区 Diff 的最终说明分开措辞：工作区那句"改动文件后重新双击该行即可刷新"
+ * 对"这个提交没有改这个文件"是误导 —— 用户要换的是提交或文件，不是去改文件。
+ * 两者共用 `.comparison-notice` 组件，只是文案按比较语义切换。
+ */
+function comparisonSummaryNotice() {
+  const reason = "这两个引用在这个文件上没有文本差异。";
+  const unchanged = "文件内容、改动列表、其它标签和当前选择都没有被修改。";
+  const action = "可以选择另一个提交或文件再比较，或关闭这个比较标签。";
+  return `<div class="comparison-notice diff-status-notice" role="status">`
+    + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
+    + `<div><strong>${escapeHtml(reason)}</strong>`
+    + `<p class="commit-meta">${escapeHtml(unchanged)}</p>`
+    + `<p class="commit-meta">${escapeHtml(action)}</p></div></div>`;
+}
+
 function diffView(comparison = false, state = "ready", workspaceComparison = false, fileHistory = false, workspacePath = "src/Augit.App/app.manifest", historyHash = null, finalStatus = null) {
   // 最终说明视觉稿（规格 §6.5/§10.2）：与 liveDiffView 的同一分支**同构**，
   // 否则像素对照比的就不是同一件事（实测漏写这个分支时，视觉稿侧仍在渲染样例 diff 行）。
@@ -1521,6 +1539,9 @@ function diffView(comparison = false, state = "ready", workspaceComparison = fal
       const lines = [72, 46, 87, 61, 78, 39, 69, 54, 82, 48, 64, 43].map(width => `<span class="diff-loading-line" style="width:${width}%"></span>`).join("");
       const gutter = Array.from({ length: 12 }, () => '<span class="diff-loading-gutter-line"></span><span class="diff-loading-gutter-line"></span>').join("");
       body = `<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>正在生成 diff...</span></div><div class="diff-loading-side">${lines}</div><div class="diff-loading-gutter">${gutter}</div><div class="diff-loading-side">${lines}</div></div>`;
+    } else if (state === "summary") {
+      // 无文本差异：清空正文变更导航（按钮禁用但保留），正文只留比较语义的摘要说明。
+      body = comparisonSummaryNotice();
     } else if (state !== "ready") {
       body = `<div class="comparison-notice ${state === "failure" ? "failure" : ""}"><svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg><span>${state === "failure" ? "无法读取提交中的文件：Git 查询失败。" : "比较已取消。"}</span></div>`;
     }
@@ -1968,7 +1989,12 @@ function liveDiffView() {
   const barFilebar = diffFileHeader(barSource, barTarget, diff.path, diff.path);
   if (rows.length === 0) {
     // 最终说明放到正文区（§6.5：持续可见；§10.2：三要素齐备），工具栏只留显示模式。
-    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${diffStatusNotice(diff.status && diff.status !== "Ready" ? diff.status : "Ready")}</div>`;
+    // 历史/引用比较要按比较语义措辞（§7.9 摘要页）：工作区那句"改动文件后重新双击该行"
+    // 对"这个提交没有改这个文件"是误导 —— 可换的是提交或文件。
+    const emptyNotice = historyActive && (!diff.status || diff.status === "Ready")
+      ? comparisonSummaryNotice()
+      : diffStatusNotice(diff.status && diff.status !== "Ready" ? diff.status : "Ready");
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${emptyNotice}</div>`;
   }
 
   // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
@@ -3132,6 +3158,8 @@ function renderScene() {
     case "git-history-graph": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", complexGraph: true });
     case "file-history": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "file-history", selectedFile: "product-spec.md" });
     case "git-compare": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", workspaceComparison: true });
+    // 引用比较的"无文本差异"摘要态（⑭ 第 4 项）：live 侧在"该提交没有改这个文件"时走同一分支。
+    case "git-compare-empty": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: "summary" });
     case "history-diff-loading":
     case "history-diff-failure":
     case "history-diff-cancelled": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: scene.slice("history-diff-".length) });
