@@ -1343,6 +1343,8 @@ internal sealed class ShellBridge : IDisposable
                 offset = start + length,
                 // 还剩多少没读：客户端可以据此连续轮询追平（也便于真机探针判断积压）。
                 pending = backlog - length,
+                // 后台读取循环里"投递输出"失败的原因（诊断用；null 表示没有失败）。
+                notifyError = _terminal?.LastNotifyError,
                 data = chunk,
             };
         }

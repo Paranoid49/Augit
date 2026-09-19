@@ -23,6 +23,9 @@ public sealed class ConPtyTerminalSession : IDisposable
     private readonly Task _outputTask;
     private readonly Queue<string> _pendingOutput = [];
     private EventHandler<string>? _outputReceived;
+
+    /// <summary>最近一次"投递输出"失败的原因；null 表示没有失败（诊断用，见 docs/ui-compliance §3.2 第 15 条）。</summary>
+    public string? LastNotifyError { get; private set; }
     private int _pendingOutputLength;
     private bool _stopping;
     private bool _disposed;
@@ -444,7 +447,17 @@ public sealed class ConPtyTerminalSession : IDisposable
                 }
 
                 string text = new(buffer, 0, count);
-                _promptTracker.OnOutput(text);
+                // 通知下游时**任何异常都不得终止读取循环**：本循环跑在后台任务上，一旦抛出就会
+                // 永久停止投递输出（进程仍 alive、会话仍 running），表现为"大量输出后终端再也不更新"。
+                // 原来的 catch 只覆盖 IOException/ObjectDisposedException，处理器异常会逃出去把循环打死。
+                try
+                {
+                    _promptTracker.OnOutput(text);
+                }
+                catch (Exception exception)
+                {
+                    LastNotifyError = exception.GetType().Name + ": " + exception.Message;
+                }
                 EventHandler<string>? outputReceived;
                 lock (_gate)
                 {
@@ -460,11 +473,23 @@ public sealed class ConPtyTerminalSession : IDisposable
                     }
                 }
 
-                outputReceived?.Invoke(this, text);
+                try
+                {
+                    outputReceived?.Invoke(this, text);
+                }
+                catch (Exception exception)
+                {
+                    LastNotifyError = exception.GetType().Name + ": " + exception.Message;
+                }
             }
         }
         catch (Exception exception) when (exception is IOException or ObjectDisposedException)
         {
+        }
+        catch (Exception exception)
+        {
+            // 非"管道关闭"类异常：记录并结束（此时确实无法继续读取），但必须留下痕迹。
+            LastNotifyError = exception.GetType().Name + ": " + exception.Message;
         }
     }
 

@@ -12582,3 +12582,27 @@ harness 的 `remembered: null` 把它暴露出来，加上 `bubbles: true` 即�
 
 **纪律记录**：这一轮**没有**把"加了分批"写成"已修"，因为真机复验是否定的；
 docs 与 commit 都写明"仍然冻结、机制未定"。
+
+#### 第 366 轮：冻结机制两个候选全部证伪 + 观测字段接到真机（仍冻结，但范围大幅收窄）
+
+把第 365 轮加的两个字段接到真机探针后，一次运行就排除了两条路：
+
+| 候选机制 | 判据 | 实测 | 结论 |
+| --- | --- | --- | --- |
+| ① 每轮搬最多 4 MB 积压、桥接消息体积超限 | 分批 128 KB 后是否恢复 | 仍冻结 | **证伪** |
+| ② 投递输出的处理器抛异常打死后台读取循环 | `LastNotifyError` 是否非空 | 全程 `null` | **证伪** |
+
+**客户端健康**（冻结期间）：`backlog 0`、`readError null`、`notifyError null`、`exited false`、
+会话 `running`、60 ms 仍在轮询 —— "有数据没搬"与"读取一直失败"都不成立，
+**停顿在宿主/pty 输出路径**。剩余待区分子机制：(a) 读取循环走了 `count == 0` 的 **EOF 分支**
+`return`（该分支不留痕迹）；(b) Shell 写满 pty 管道后阻塞。下一步判据：给 EOF 分支加记录 +
+冻结时采样 Shell 进程（存活？CPU 是否增长）。
+
+**保留的防护**（即使在机制 ② 证伪后仍有价值，把这类故障变成不可能且可观测）：
+`ReadOutputAsync` 的 `_promptTracker.OnOutput` 与 `OutputReceived?.Invoke` 各自 try/catch
+并记录 `LastNotifyError`；`terminal/read` 下发 `notifyError`；客户端暴露
+`window.__augitTerminalNotifyError`。
+
+**验证**：`dotnet build` 0 警告 0 错误、`Augit.Shell.Tests` **73/73**、
+`live-shell` **1013/1013（未执行 0 项）**（第 365 轮遗留的全量重跑完成，客户端改动无回归）。
+**纪律**：连续两轮都明确写"仍然冻结、机制未定"，不把"加了防护/分批"说成"已修"。

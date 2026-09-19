@@ -684,6 +684,7 @@ function pollTerminal() {
       if (chunk && typeof chunk.offset === 'number') terminalOffset = chunk.offset;
       window.__augitTerminalReadError = null;
       window.__augitTerminalBacklog = chunk && typeof chunk.pending === 'number' ? chunk.pending : 0;
+      window.__augitTerminalNotifyError = chunk && chunk.notifyError ? chunk.notifyError : null;
       if (chunk && (chunk.exited || !chunk.running)) {
         window.clearInterval(terminalTimer);
         terminalTimer = 0;
