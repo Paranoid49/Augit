@@ -22,7 +22,7 @@
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
 | 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **942/942**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
-| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**49/49 场景**） |
+| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**50/50 场景**） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS**（默认场景列表已补齐到 `ux-spec` §12.1 要求的全部页面；实测 25/25 + 17/17 = **42/42**） |
@@ -62,6 +62,7 @@
 | `conflict-list` | 0.00 | 0.00 | 0.01 | 数据差异（字体已等化） |
 | `conflict-resolver` | 0.00 | 0.00 | 0.00 | **等化后 0.00**（等化前 0.60） |
 | `diff-boundary` | 0.00 | 0.00 | 1.60 | 数据差异；**等化前 4.09**（差值主要为字体） |
+| `diff-status` | 0.00 | 0.00 | 1.29 | **新增最终说明页**（⑭ 第 2 项）：二进制/超限/无差异/失败共用同一说明块；实时侧用真·二进制改动仓库实测（`status=Binary`） |
 | `diff-loading` | 0.00 | 0.00 | 1.47 | 数据差异（字体已等化） |
 | `file-history` | 0.00 | 0.00 | 0.63 | 数据差异（字体已等化） |
 | `file-limit` | 0.00 | 0.00 | 0.01 | 两侧都是"不可预览"页（数据不同） |
@@ -104,7 +105,7 @@
 
 **结论**（分母 = 全部 48 个视觉稿页面，逐个实测，无抽样）：
 
-- **49 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
+- **50 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
   图标底色逐像素一致，可见差异 100% 来自文字数据；唯一出现过的非 0 是 `terminal` 状态栏 4.11%，
   后被证明是**掩膜外扩不足**造成的指标假象（第 285 轮），把外扩从 1px 改为 3px 后同样是 0.00；
 - **字体等化（ux-spec §4.3 强制要求）**：实时外壳按**用户保存的字体设置**渲染（本机实测 14px Segoe UI），
@@ -114,7 +115,7 @@
   `changes-context-menu` 3.80→1.25、`diff-boundary` 4.09→1.60、`git-compare` 4.08→1.71、`commit-diff` 3.71→1.59、
   `conflict-resolver` 0.60→0.00；内容带最大值从 4.09 降到 **1.71**。
   **判读：此前偏高的内容带差异是字体差异造成的假象，不存在被它掩盖的真实布局差异。**
-- 覆盖率：**49/49 页**（全部带审计开关 `--no-session-restore`，
+- 覆盖率：**50/50 页**（全部带审计开关 `--no-session-restore`，
   避免上一次运行留下的活动文件污染场景渲染；`file-limit` 用工作区内 `.dll` 造出同类"不可预览"内容，
   `diff-boundary` 用 `--diff src/App.cs`；`history-diff-failure` 首次抓图出现 276×45 的竞态截图，已重跑成功）；
 - 内容带 0.00–4.09 的复核方法：**分区域拆分统计**（左栏 x<300 与内容区 x≥300 分别算 `layoutPercent`）

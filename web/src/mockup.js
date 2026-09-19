@@ -1134,6 +1134,7 @@ const scenePages = {
   "file-limit": ["不可预览文件", "超限、非法 UTF-8、GIF、WebP 与二进制摘要"],
   "commit-changes": ["提交工具窗", "Changes、Unversioned Files、复选和提交信息"],
   "commit-diff": ["工作区 Diff", "选择变更文件后的稳定双栏预览"],
+  "diff-status": ["Diff 最终说明", "二进制、超限、无文本差异与失败时的最终说明（发生了什么/未改变什么/可以做什么）"],
   "diff-boundary": ["Diff 文件边界", "再次同方向操作才进入相邻文件"],
   "git-history": ["Git 历史", "引用树、提交图、筛选、文件和元数据"],
   "git-history-empty": ["Git 历史空态", "仓库还没有提交时的稳定空态：保留引用树与筛选栏"],
@@ -1395,7 +1396,39 @@ function workspaceSampleOriginal(path) {
   return text;
 }
 
-function diffView(comparison = false, state = "ready", workspaceComparison = false, fileHistory = false, workspacePath = "src/Augit.App/app.manifest", historyHash = null) {
+/**
+ * Diff 的最终说明（规格 §6.5 + §10.2）。
+ *
+ * 二进制 / 超限 / 无文本差异 / 查询失败都必须给出三件事：
+ * **发生了什么、哪些状态没有改变、可以做什么**；此前实时侧只把一句
+ * `（Binary）` 塞在工具栏里，既不完整也和加载提示挤在同一行。
+ * 复用设计系统里既有的 `.comparison-notice`（局部状态说明）组件，不新增视觉语言。
+ * 文案保留"无法显示文本差异 / 没有文本差异"的既有措辞：harness 的 §6.5 断言依赖它。
+ */
+function diffStatusNotice(status) {
+  const unavailable = Boolean(status) && status !== "Ready";
+  const reason = unavailable
+    ? `该文件无法显示文本差异（${status}）。`
+    : "该文件当前没有文本差异。";
+  const unchanged = "文件内容、改动列表、其它标签和当前选择都没有被修改。";
+  const action = unavailable
+    ? "可以关闭这个比较标签，或用系统默认程序打开该文件。"
+    : "改动文件后重新双击该行即可刷新。";
+  const tone = status === "Failed" ? " failure" : "";
+  return `<div class="comparison-notice diff-status-notice${tone}" role="status">`
+    + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
+    + `<div><strong>${escapeHtml(reason)}</strong>`
+    + `<p class="commit-meta">${escapeHtml(unchanged)}</p>`
+    + `<p class="commit-meta">${escapeHtml(action)}</p></div></div>`;
+}
+
+function diffView(comparison = false, state = "ready", workspaceComparison = false, fileHistory = false, workspacePath = "src/Augit.App/app.manifest", historyHash = null, finalStatus = null) {
+  // 最终说明视觉稿（规格 §6.5/§10.2）：与 liveDiffView 的同一分支**同构**，
+  // 否则像素对照比的就不是同一件事（实测漏写这个分支时，视觉稿侧仍在渲染样例 diff 行）。
+  if (finalStatus) {
+    const bar = diffFileHeader("HEAD", "工作区", workspacePath, workspacePath);
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${bar}${diffStatusNotice(finalStatus)}</div>`;
+  }
   let oldLines = [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
     "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\">",
@@ -1933,10 +1966,8 @@ function liveDiffView() {
   const barTarget = historyActive ? String(comparison.commit).slice(0, 8) : "工作区";
   const barFilebar = diffFileHeader(barSource, barTarget, diff.path, diff.path);
   if (rows.length === 0) {
-    const reason = diff.status && diff.status !== "Ready"
-      ? `该文件无法显示文本差异（${escapeHtml(diff.status)}）。`
-      : "该文件当前没有文本差异。";
-    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>${reason}</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+    // 最终说明放到正文区（§6.5：持续可见；§10.2：三要素齐备），工具栏只留显示模式。
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${diffStatusNotice(diff.status && diff.status !== "Ready" ? diff.status : "Ready")}</div>`;
   }
 
   // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
@@ -2865,7 +2896,7 @@ function liveToast() {
   return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
 }
 
-function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false } = {}) {
+function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null } = {}) {
   const live = window.__augitLive || null;
   // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
   // 之后以 live.layout 为准。视觉稿单独打开时没有 live，行为完全不变，
@@ -2917,7 +2948,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
       || (new URLSearchParams(location.search).get("diff"))
       || "app.manifest";
     editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
-    editorBody = (live && live.diff) ? liveDiffView() : diffView();
+    editorBody = (live && live.diff) ? liveDiffView() : diffView(false, "ready", false, false, undefined, null, diffStatus);
     if (diffBoundary) {
       editorBody = editorBody.replace('<div class="diff-columns">', '<div class="diff-columns diff-boundary-columns"><div class="diff-boundary-hint" role="status">再次点击可进入下一个文件</div>');
     }
@@ -3088,6 +3119,8 @@ function renderScene() {
     case "file-limit": return shell({ activeRail: "project", side: "project", editor: "file-limit", selectedFile: "animation.webp" });
     case "commit-changes": return shell({ activeRail: "commit", side: "commit", editor: "markdown" });
     case "commit-diff": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest" });
+    case "diff-status": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest",
+      diffStatus: new URLSearchParams(location.search).get("diff-status") || "Binary" });
     case "diff-boundary": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest", diffBoundary: true });
     case "git-history": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git" });
     case "git-history-empty": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", emptyHistory: true });

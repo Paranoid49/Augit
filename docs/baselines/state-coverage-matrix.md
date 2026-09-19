@@ -32,7 +32,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | Commit `commit-changes` | ✅ | ✅ `commit-empty` 专用页 | ✅ `commit-state=validation`/`hook-failure` | ✅ 写操作进行中（`operation-progress` + 按钮进行态） | ✅ 无勾选/无信息时禁用提交 | ✅ 回滚确认（`rollback`） |
 | Changes 右键菜单 `changes-context-menu` | ✅ | — | — | — | ✅ 不适用项禁用 | ✅ 回滚入口 |
-| 工作区 Diff `commit-diff` | ✅ | **缺**（"两个版本没有文本差异"只有实现态，无专用页） | **缺**（工作区 Diff 失败只有实现态；`history-diff-failure` 是*历史比较*的失败页） | ✅ `diff-loading` 专用页（含"再次点击进入下一个文件"的边界页 `diff-boundary`） | — | — |
+| 工作区 Diff `commit-diff` | ✅ | ✅ `diff-status` 专用页（⑭ 第 2 项完成；`diff-status=Ready` 即无文本差异） | ✅ `diff-status`（二进制/超限/失败共用同一说明块，§10.2 三要素齐备） | ✅ `diff-loading` 专用页（含"再次点击进入下一个文件"的边界页 `diff-boundary`） | — | — |
 | Git 历史 `git-history` | ✅ | ✅ `git-history-empty` 专用页（⑭ 第 1 项已完成：实时侧用空仓库实测 content 0.64） | ✅ Git 不可用 `git-unavailable` | ✅ 历史常比首屏慢（`history-state` 参数） | — | ✅ 危险提交操作入口 |
 | Git 历史右键菜单 `git-history-menu` | ✅ | — | — | — | ✅ | ✅ |
 | 文件历史与 Blame `file-history` | ✅ | — | 待人工确认 | ✅ | — | — |
@@ -79,7 +79,7 @@
 | # | 缺什么 | 依据 | 补法（候选） |
 | --- | --- | --- | --- |
 | 1 | ~~Git 历史空态~~ **已完成** | §10.1 | `docs/ux-mockups/git-history-empty.html` + 场景 `git-history-empty`（复用同一渲染器）+ 空仓库真机像素对照 0.64 |
-| 2 | **工作区 Diff 的无差异/失败/二进制最终说明** | §6.5「最终说明必须持续可见」；实现有 4 种 `diff.status` | 新增场景 `diff-status`（用 `--diff-status` 参数或 URL 参数表达 4 种说明） |
+| 2 | ~~工作区 Diff 的最终说明~~ **已完成** | §6.5 + §10.2 | 场景 `diff-status`（URL 参数 `diff-status`）+ 共享 `diffStatusNotice()`；实时侧改为正文说明块；真机二进制仓库像素对照 1.29 |
 | 3 | **设置保存失败/只读失败** | §9.3/§10.2；harness 有 `settingsReadOnly` 断言但无视觉稿 | 在设置页加"保存失败"状态（对话框内联原因 + 保留用户输入） |
 | 4 | **引用比较无差异/无共同祖先** | §7.9 | 复用 `history-diff-*` 的同构状态或新增 `git-compare-empty` |
 | 5 | **图片解码失败** | §7.5 | 复用 `file-limit` 语义新增 `image-error` 或在该页加状态参数 |

@@ -9546,6 +9546,11 @@ async function main() {
       });
       check(`最终说明持续可见（${item.status}）: ` + JSON.stringify([hintShown, finalState.text.slice(0, 24)]),
         hintShown === true && finalState.hintGone === true && finalState.text.includes(item.expect));
+      // §10.2：最终说明还必须写清"哪些状态没有改变"和"可以做什么"，不能只给一句原因。
+      check(`最终说明三要素齐备（${item.status}）: ` + JSON.stringify(finalState.text.slice(0, 60)),
+        finalState.text.includes('没有被修改')
+          && (finalState.text.includes('可以关闭') || finalState.text.includes('重新双击'))
+          && finalState.text.includes(item.expect));
       await page.close();
     }
 
