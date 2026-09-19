@@ -12848,3 +12848,30 @@ harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html
 2. **状态栏上边缘两侧逐值相同（1677）**，是"按内容地标对齐"的直接证据；
 3. **状态栏高度差 ≈6 逻辑 px（PyCharm 更高）**，**纠正**了早先跨尺度记录的"18.9 vs 22"（方向相反）。
    是否加高 Augit 状态栏属设计口径问题（`design-system` 给 22），本轮只记录差值。
+
+#### 第 384 轮：同尺度悬停反馈（⑯ feedback 4 → 6 条）
+
+用第 383 轮对上的同尺度图（`p16-main-idle` / `p16-main-hover-toolbutton` / `p16-main-hover-statusbar`，
+均 2904×1740 物理）做悬停前后比对，方法与前一轮一致：逐 8px 网格找差异 > 12 的单元，
+再对**变化单元本身**取均值。
+
+**两次方法学修正（本轮实测踩的）**：
+1. 对**整框**取均值会把悬停高亮冲掉 —— 工具按钮那一格 bbox 是 368×1232，整框均值两侧都是
+   240,240,241（看不出任何差异），必须先筛出变化单元再取均值；
+2. 单点采样会把截图自带的 `0,0,0` 外框或当前行高亮当成底色（第 383 轮已踩，这里再确认）。
+
+**读数**：
+- **左侧工具按钮条**：47 个变化单元，bbox x 24..392 / y 232..1464，
+  idle **208,211,216** → hover **217,219,224**（聚合均值，含图标/边框像素）；
+  Augit 侧是 `--augit-hover: #f1f2f4`（241,242,244）由 `.rail-button:hover` 应用
+  （`mockup.css:177`）。两侧都有反馈，**取值差异明显**（PyCharm 更暗），记为 `diff` 并写明按
+  design-system 实现、不改 UI。
+- **状态栏**：**零变化单元**。两图 md5 不同，所以在 8px 网格 + 阈值 12 的分辨率下
+  "要么悬停未生效、要么差异小于采样分辨率"（例如只有 1px 顶边线）。
+  **这张图不能当状态栏悬停取值的证据** —— 记为 `inconclusive`，不编数字；
+  Augit 侧状态栏也**没有** `:hover` 规则（grep 无命中），所以这一格两侧都没有可比对的证据。
+
+**结果**：`docs/baselines/pycharm-interactions.json` 的 `feedback` 4 → **6** 条；
+生成器重出 `pycharm-interactions.md`（130 行）；`check-interactions.cjs` →
+`BASELINE surfaces=5 jumps=4 feedback=6 sequences=6 gaps=4`、`CHECKED 16 (pass=8 diff=2 gap=1 other=5)`、
+`INTERACTIONS_BASELINE_OK`；§1.3 增补同尺度悬停表；§0 交互基线行同步为带分母表述。

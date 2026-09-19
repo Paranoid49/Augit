@@ -335,6 +335,46 @@
         "note": "Shell 非『自定义命令』时禁用自定义启动命令输入框（同一手法）"
       },
       "ref": "live-shell:§7.17 终端自定义命令仅在选择『自定义命令』时可编辑"
+    },
+    {
+      "id": "rail.button.hover",
+      "target": "左侧工具窗口按钮条（rail button）",
+      "pycharm": {
+        "method": "同尺度（2904x1740 物理）两图对比：逐 8px 网格找差异 > 12 的单元，再对**变化单元本身**取均值（不是整框均值，也不是单点采样）",
+        "changedCells": 47,
+        "bbox": "x 24..392, y 232..1464",
+        "idleMean": "208,211,216",
+        "hoverMean": "217,219,224",
+        "caveat": "这是**变化单元的聚合均值**（含图标/边框像素），不能当成纯底色采样值",
+        "evidence": [
+          "artifacts/pycharm-interactions-16/p16-main-idle.png",
+          "artifacts/pycharm-interactions-16/p16-main-hover-toolbutton.png"
+        ]
+      },
+      "augit": {
+        "status": "diff",
+        "token": "--augit-hover: #f1f2f4 (=241,242,244)",
+        "rule": "mockup.css .rail-button:hover",
+        "ref": "live-shell:真实悬停改变行背景",
+        "note": "两侧都有悬停反馈，但取值差异明显：PyCharm 变化单元聚合 ≈217,219,224（更暗），Augit 悬停底色 241,242,244（更亮）。按 design-system 的 --augit-hover 实现，不改。"
+      }
+    },
+    {
+      "id": "statusbar.hover",
+      "target": "状态栏",
+      "pycharm": {
+        "method": "同上（同一套网格与阈值）",
+        "changedCells": 0,
+        "note": "两图 md5 不同（3f37a60d… vs c116df40…），但在 8px 网格 + 阈值 12 下**零变化单元**：要么悬停未生效，要么差异小于该采样分辨率（例如只有 1px 顶边线）。**因此这张图不能作为状态栏悬停取值的证据**。",
+        "evidence": [
+          "artifacts/pycharm-interactions-16/p16-main-idle.png",
+          "artifacts/pycharm-interactions-16/p16-main-hover-statusbar.png"
+        ]
+      },
+      "augit": {
+        "status": "inconclusive",
+        "note": "Augit 状态栏本身没有 :hover 规则（grep 无命中），因此这一格既不是 diff 也不是 pass：两侧都缺少可比对的悬停取值证据"
+      }
     }
   ],
   "sequences": [

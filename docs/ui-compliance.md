@@ -41,7 +41,7 @@
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-20 复跑）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |；**`diff-boundary` 在"含改动的工作区"上单独验收 OK（第 371 轮）**
 | 交付文档数字自洽 | `node tools/audit/check-doc-claims.cjs` | **DOC_CLAIMS_OK**（§2.0 分节之和 = 合计、当前事实加数与缺口自洽、§2.8 行数/状态与 §2.0 一致、§1.1 像素行数 = §1.4 A 线分母；需跑套件才能得的数字只打印并标注"未机械核对"） |
-| 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=5 jumps=4 feedback=4 sequences=6 gaps=4`，逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
+| 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=5 jumps=4 feedback=6 sequences=6 gaps=4`（`CHECKED 16`：pass 8 / diff 2 / gap 1 / other 5），逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-20 实测）**：`Augit-0.1.0-win-x64-portable.zip` **2,789,584 B**、`Augit-0.1.0-win-x64-setup.exe` **4,382,814 B**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
@@ -197,6 +197,14 @@ Augit 侧 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png` 为 **28
 | 顶部工具带下边缘 | **y=89** | **y=79**（自绘标题栏 44 CSS × 1.75 = 77，实测 79） | 51 vs 45 | **语义不同，不可直接相减**：PyCharm 这张是**客户区**截图（无系统标题栏），0–89 是它的主工具栏；Augit 的 0–79 是自绘标题栏 |
 | 状态栏上边缘 | **y=1677** | **y=1677** | — | **逐值相同**：两侧图高不同（1740 vs 1717）却在这一行对齐 |
 | 状态栏高度 | **51**（1677→1728，1728 以下 `0,0,0` 是外框） | **40**（1677→1717 图像底） | 29.1 vs 22.9 | **Augit 比 PyCharm 矮约 6 逻辑 px** |
+
+**同尺度悬停反馈（第 384 轮，同一套网格法）**：`p16-main-idle` 与两张 hover 图逐 8px 网格比对
+（阈值 12，对**变化单元本身**取均值，而不是整框均值或单点采样 —— 两种错法本轮都实测踩过）：
+
+| 目标 | 变化单元 | 变化单元均值（idle → hover） | 判读 |
+| --- | ---: | --- | --- |
+| 左侧工具按钮条 | **47**（bbox x 24..392, y 232..1464） | **208,211,216 → 217,219,224** | 两侧都有悬停反馈，但取值差异明显：Augit 用 `--augit-hover: #f1f2f4`(=241,242,244)，比 PyCharm 的聚合值更亮。按 design-system 实现，不改 |
+| 状态栏 | **0** | — | 两图 md5 不同（`3f37a60d…` vs `c116df40…`）却在 8px 网格 + 阈值 12 下**零变化单元**：要么悬停未生效，要么差异小于采样分辨率（如仅 1px 顶边线）→ **这张图不能作为状态栏悬停取值证据**，已记为 `inconclusive` 而不是编一个数 |
 
 **这条复核同时纠正了一个跨尺度错值**：§1.3 早先记的"状态栏 18.9（PyCharm）vs 22（Augit）"
 方向是"Augit 更高"，而**同尺度**量出来是 **29.1 vs 22.9（PyCharm 更高）** —— 旧值来自修正前
