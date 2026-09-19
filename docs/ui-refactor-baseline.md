@@ -11704,3 +11704,33 @@ ACCEPTANCE_OK
 **踩到并修掉的一个小事故**：新断言里我用了 `const diffState`，与文件里已有的同名标识符冲突，
 `node --check` 直接报 `Identifier 'diffState' has already been declared`（后台那次启动因此没有真正跑起来）。
 改名 `diffDisabledFlag` 后通过 —— 这也说明"先 `node --check` 再启动"这一步不能省。
+
+#### 第 328 轮（⑨ §10 收口）：三条缺口全部转"是"，§10 15/15 有断言
+
+**§10.1 第 1 条（空态不使用大插画）**：新增 `§10.1 空态不使用插画且只给一句说明` ——
+空态容器内 `img/svg/canvas` 计数必须为 0、文字长度 > 0 且 ≤ 80。
+（原来只有"基线页里确实没有插画"这种间接证据。）
+
+**§10.2 第 3 条（脱敏 / 限长 / 无 Git Console）**：这条其实是**三段不同的证据**，分开写清：
+1. **脱敏**在宿主：`GitOutputSanitizer` 处理 URL 凭据、`Authorization: Basic|Bearer`、具名密钥
+   （`access_token|api_key|password|secret|token`），并且已有单测 `隐藏网址凭据和常见敏感字段`；
+2. **限长**也在宿主：`GitCommandRunner` 用 `BoundedOutput.IsTruncated`，超限时向结果追加
+   "Git 输出超过上限，已截断。"／"Git 错误输出超过上限，已截断。"；
+3. **无 Console / 不持久化**在界面：新增 `§10.2 界面上没有 Git Console / 控制台入口`
+   （枚举 `a/button/[role=tab]/.tree-row/.menu-item` 的文字与 `href`）。
+   "关闭后不保留"由"错误只落在当前操作区域的 DOM 里"这一既有断言族覆盖。
+
+**§10.3 第 4 条（不支持的能力不得以禁用占位出现）**：**原来标"未覆盖"是我漏查了** ——
+已存在 `不出现被排除的产品入口`（整页文字扫描 `Force Push/GitHub/GitLab/Perforce/子模块/JetBrains/PyCharm`）。
+本轮在最可能出现这类入口的**分支弹层**里再补一条 `§10.3 分支弹层不以禁用占位出现不支持的能力`。
+清单本身有规格出处（§7.10），不需要我再"先定清单"。
+
+**修掉一个测试自身的抖动（并证明不是产品缺陷）**：第 327 轮那次运行在
+`§10.2 图片解码失败时显示宿主原因而不是破图` 失败，诊断显示 `docPath=broken.png` 但正文还是 `archive.bin`。
+真机探针 `artifacts/p0-stale-render.json` 连续打开三个文件（`blob.bin → notes.txt → blob.bin`）
+**每次都正确重绘**，因此不是"晚到渲染覆盖新状态"的产品缺陷；
+根因是测试**直调 `__augitOpenDocument()` 不走事件路径**（区域重绘由事件派发结束调度），
+注入状态后没有触发重绘。修法：注入后显式 `__augitRender()`，并把原因写进注释。
+
+**分母**：`live-shell` 971 → **974/974**（新增 3 条）；`§10` 状态统计由脚本按表得出：
+**15 是 / 0 部分 / 0 未覆盖**；`check()` 调用点 749。

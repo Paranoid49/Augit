@@ -4204,7 +4204,10 @@ async function main() {
     await limits.page.evaluate(() => { window.__limitDocs = {
       'broken.png': { path: 'broken.png', name: 'broken.png', fullPath: 'D:\\w\\broken.png', workspaceName: 'w', status: 'ImageDecodeFailed', kind: 'Png', typeName: 'PNG 图像', fileSize: 2048, dataUrl: null, pixelWidth: null, pixelHeight: null, message: '无法读取图片尺寸，已停止预览。' },
     }; });
-    await limits.page.evaluate(() => window.__augitOpenDocument('broken.png'));
+    // 直调 `__augitOpenDocument` 不走事件路径，而区域重绘是由**事件派发结束**调度的；
+    // 测试注入状态后必须显式重绘一次，否则断言读到的是上一个文件的正文
+    // （真机上连续打开三个文件都正常，见 artifacts/p0-stale-render.json —— 这是测试的注入方式问题）。
+    await limits.page.evaluate(() => { window.__augitOpenDocument('broken.png'); window.__augitRender(); });
     // 先等宿主载荷真的落地（document.path 切换），再看正文：否则读到的可能是上一个文件
     // （archive.bin）的正文，断言会含糊地失败，拿不到"打开失败"还是"渲染滞后"的区分。
     await limits.page.waitForFunction(
@@ -4228,7 +4231,7 @@ async function main() {
     await limits.page.evaluate(() => { window.__limitDocs = {
       'truncated.png': { path: 'truncated.png', name: 'truncated.png', fullPath: 'D:\\w\\truncated.png', workspaceName: 'w', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像', fileSize: 45, dataUrl: 'data:image/png;base64,iVBORw0KGgo=', pixelWidth: 64, pixelHeight: 64, message: null },
     }; });
-    await limits.page.evaluate(() => window.__augitOpenDocument('truncated.png'));
+    await limits.page.evaluate(() => { window.__augitOpenDocument('truncated.png'); window.__augitRender(); });
     await limits.page.waitForFunction(
       "() => window.__augitLive.document && window.__augitLive.document.path === 'truncated.png'",
       null, { timeout: 8000 }).catch(() => {});
@@ -5185,6 +5188,16 @@ async function main() {
     check('分支芯片打开分支弹层: ' + JSON.stringify(popover),
       popover.overlay === true && popover.hasPopover === true && popover.hasScrim === true);
     check('弹层内列出真实分支: ' + popover.branches, popover.branches > 0);
+    // §10.3 第 4 条：产品不支持的能力**不得以禁用占位出现**。
+    // §7.10 给了明确清单（Force Push / GitHub / GitLab / 子模块等），这里在分支弹层里核对一遍。
+    const popoverForbidden = await navGuard.page.evaluate(() => {
+      const layer = document.querySelector('[data-augit-overlay]');
+      const text = layer ? layer.innerText : '';
+      const words = ['Force Push', 'GitHub', 'GitLab', 'Perforce', '子模块'];
+      return { text: text.slice(0, 80), found: words.filter((word) => text.includes(word)) };
+    });
+    check('§10.3 分支弹层不以禁用占位出现不支持的能力: ' + JSON.stringify(popoverForbidden),
+      popoverForbidden.found.length === 0);
     // 打开分支弹层后，其中的菜单项同样不得离开应用
     await navGuard.page.keyboard.press('Escape');
     await navGuard.page.waitForTimeout(300);
@@ -10257,6 +10270,20 @@ async function main() {
       emptyChanges.toolbar >= 1 && emptyChanges.commitBox === true && emptyChanges.submitDisabled === true);
     check('§10.1 无 Changes 不再列出文件行', emptyChanges.listRows === 0);
 
+    // §10.1 第 1 条：空态只用一句主说明（+ 必要的一个动作），**不使用大插画**。
+    // 判据：空态容器内不得有 img/svg（图标也不行——空态不是图标位），且文字量保持在一句说明量级。
+    const emptyIllustration = await es.page.evaluate(() => {
+      const nodes = [...document.querySelectorAll('.empty-tool-state, .empty-state')];
+      return {
+        count: nodes.length,
+        images: nodes.reduce((sum, node) => sum + node.querySelectorAll('img, svg, canvas').length, 0),
+        longest: nodes.reduce((max, node) => Math.max(max, (node.innerText || '').trim().length), 0),
+      };
+    });
+    check('§10.1 空态不使用插画且只给一句说明: ' + JSON.stringify(emptyIllustration),
+      emptyIllustration.count >= 1 && emptyIllustration.images === 0
+        && emptyIllustration.longest > 0 && emptyIllustration.longest <= 80);
+
     await es.page.close();
 
     // 无历史：显示指定文案，保留引用树与筛选栏。
@@ -10359,6 +10386,19 @@ async function main() {
     check('§10.2 错误归属到发生区域: ' + JSON.stringify([fmRegion.feedback, fmRegion.globalDialog]),
       typeof fmRegion.feedback === 'string' && fmRegion.feedback.length > 0
       && fmRegion.globalDialog === 0);
+
+    // §10.2 第 3 条：不提供 Git Console 或持久化日志入口（脱敏与截断由宿主侧负责：
+    // `GitOutputSanitizer` 有单测，超限时命令结果会追加"已截断"说明）。
+    const consoleSurfaces = await fm.page.evaluate(() => {
+      const hits = [];
+      for (const el of document.querySelectorAll('a,button,[role="tab"],.tree-row,.menu-item')) {
+        const text = (el.innerText || '').trim();
+        const href = el.getAttribute('href') || '';
+        if (/console|控制台/i.test(text) || /console/i.test(href)) hits.push(text || href);
+      }
+      return hits;
+    });
+    check('§10.2 界面上没有 Git Console / 控制台入口: ' + JSON.stringify(consoleSurfaces), consoleSurfaces.length === 0);
     await fm.page.close();
 
     // ---- 规格 §10.3：禁用控件必须有可发现原因 ----
