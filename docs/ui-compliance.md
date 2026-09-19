@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **968/968**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **970/970**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -31,7 +31,7 @@
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 745 个 `check(...)` 调用点，
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 745 个 `check(...)` 调用点（另有 `csCheck` 包裹的 2 条会话断言，不计入该调用点数），
 > 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
 
 ## 1. A 线：静态界面复原
@@ -364,13 +364,13 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 8 | §10.2 | 同一错误在外部状态未变化时不重复弹出 | 是 | `同一错误连续出现时不重复弹出`（`ddBefore.shows`/`ddRepeat.shows` 对照） |
 | 9 | §10.3 | 禁用控件必须有可发现原因，例如悬停说明或相邻文字 | 是 | `§10.3 禁用控件带可发现原因`、`§10.3 原因说明用户该做什么`、`§10.3 补充的说明都是可读句子` |
 | 10 | §10.3 | 工具栏中暂时不可用的稳定命令可以禁用并保留位置 | 部分 | 改动工具窗口的工具栏按钮带 `data-disabled-reason` 并保留在原位（实现与视觉稿一致），但**没有断言**"禁用后仍在原位置"（只断言了原因可见） |
-| 11 | §10.3 | Git 操作会话中"不适用于当前状态"的 Continue、Skip 和 Abort 必须隐藏 | 部分 | `liveConflictSessionBody()` 的注释与实现写明"只渲染宿主判定为可用的动作——无效动作直接不显示，而不是仅禁用"，冲突会话块只断言了**已存在**的三种接受动作（`前置条件：解决器显示 1 个未处理冲突与三种接受动作`），**没有**构造"宿主未提供某动作时它不出现"的断言 |
+| 11 | §10.3 | Git 操作会话中"不适用于当前状态"的 Continue、Skip 和 Abort 必须隐藏 | 是 | `§10.3 宿主不适用的会话动作被隐藏而不是禁用占位`（构造 `canAbort/canSkip/canContinue/supportsContinue` 全 false 且 `hasConflicts:true` 的会话：只剩 `close`，按钮文字里没有 Continue/Skip/Abort）+ **负向对照** `§10.3 负向对照：宿主提供的动作确实会渲染出来`（同一套断言在宿主提供动作时必须看到三个动作，证明前一条不是空断言） |
 | 12 | §10.3 | 产品明确不支持的能力不得以禁用占位出现 | 未覆盖 | 没有断言"界面上不存在某个不支持能力的禁用占位"（例如 Force Push / 子模块等）；规格举例与实际检查项都还没定，需先列清单再断言 |
 | 13 | §10.4 | Reset Hard、Rollback、删除分支或标签、删除 Stash、移除 Worktree 必须显示具体影响 | 是 | `§10.4 显示具体影响`、`§10.4 影响说明使用真实已跟踪改动数`、`回滚必须显示具体影响并确认`、`§10.4 危险确认基线给出具体影响与动作名按钮`（Stash 删除）；分支/标签删除在同块 |
 | 14 | §10.4 | 确认按钮使用动作名称，例如"确认 Reset Hard"，不得只写"确定" | 是 | `§10.4 危险确认按钮使用动作名称`、`§10.4 不使用泛化的「确定」`、`§10.4 Hard 使用危险确认样式且按钮写动作名` |
 | 15 | §10.4 | 未跟踪文件删除必须明确说明进入 Windows 回收站 | 是 | `未跟踪文件的回滚说明进入回收站`（+ 对照 `已跟踪文件的回滚不显示回收站说明`） |
 
-**本节结论（带分母）**：15 条中 **8 条有断言（是）+ 4 条部分 + 3 条未覆盖**。
+**本节结论（带分母，按表格逐行统计）**：15 条中 **11 条有断言（是）+ 3 条部分 + 1 条未覆盖**。
 补断言是纯增量工作，优先级：第 11 条（构造宿主不提供动作的会话）→ 第 12 条（先定"不支持能力"清单）
 → 第 7 条（断言无 Git Console/日志与输出上限）→ 第 10 条（禁用项原位）→ 第 1 条（空态无插画）。
 

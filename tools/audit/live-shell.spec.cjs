@@ -8447,6 +8447,56 @@ async function main() {
       && typeof csOpened.blocked === 'string' && csOpened.blocked.includes('还有 2 个冲突未解决')
       && csOpened.actions.includes('abort') && csOpened.actions.includes('skip'));
 
+    // §10.3：宿主判定"不适用于当前状态"的动作必须**隐藏**，而不是以禁用占位。
+    // 与上一条正好构成对照：supportsContinue=true 时 Continue 保留并禁用；
+    // supportsContinue=false 且 canAbort/canSkip=false 时三者都不应出现，只留关闭。
+    await cs.page.evaluate(() => {
+      window.__operationSession = {
+        kind: 'Cherry-pick', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: false, canAbort: false, supportsContinue: false,
+        currentStep: 1, totalSteps: 2,
+        conflicts: [{ path: 'src/App.cs', hasAncestor: true, hasYours: true, hasTheirs: true }],
+      };
+      window.__augitLive.operationSessionShown = false;
+    });
+    await cs.page.evaluate(() => window.__augitLoadOperation());
+    await cs.page.waitForTimeout(600);
+    const csHidden = await cs.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const buttons = dialog ? [...dialog.querySelectorAll('button')] : [];
+      return {
+        open: !!dialog,
+        actions: dialog ? [...dialog.querySelectorAll('[data-operation-action]')].map((b) => b.dataset.operationAction) : null,
+        labels: buttons.map((b) => b.textContent.trim()),
+      };
+    });
+    csCheck('§10.3 宿主不适用的会话动作被隐藏而不是禁用占位: ' + JSON.stringify(csHidden),
+      csHidden.open === true
+        && JSON.stringify(csHidden.actions) === JSON.stringify(['close'])
+        && csHidden.labels.every((text) => !/Continue|Skip|Abort/.test(text)));
+    // 对照：同一套断言在"宿主提供了动作"的会话上必须看到三个动作（证明上面那条不是空断言）。
+    await cs.page.evaluate(() => {
+      window.__operationSession = {
+        kind: 'Cherry-pick', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: true, canSkip: true, canAbort: true, supportsContinue: true,
+        currentStep: 1, totalSteps: 2,
+        conflicts: [{ path: 'src/App.cs', hasAncestor: true, hasYours: true, hasTheirs: true }],
+      };
+      window.__augitLive.operationSessionShown = false;
+    });
+    await cs.page.evaluate(() => window.__augitLoadOperation());
+    await cs.page.waitForTimeout(600);
+    const csProvided = await cs.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      return dialog ? [...dialog.querySelectorAll('[data-operation-action]')].map((b) => b.dataset.operationAction) : null;
+    });
+    csCheck('§10.3 负向对照：宿主提供的动作确实会渲染出来: ' + JSON.stringify(csProvided),
+      Array.isArray(csProvided) && csProvided.includes('abort') && csProvided.includes('skip') && csProvided.includes('continue'));
+    // 还原：后续用例依赖 __sessionFixture（未注入 __operationSession 时走它）。
+    await cs.page.evaluate(() => { delete window.__operationSession; window.__augitLive.operationSessionShown = false; });
+    await cs.page.evaluate(() => window.__augitLoadOperation());
+    await cs.page.waitForTimeout(400);
+
     // 执行 Skip：调用宿主，随后**重新读取真实状态**并关闭窗口（§9.3 同一条原则）。
     await cs.page.evaluate(() => {
       window.__operationActions = [];
