@@ -7,7 +7,7 @@
     "version": "2026.2.1",
     "installPath": "D:\\JetBrains\\PyCharm 2026.2.1",
     "configDir": "%APPDATA%\\JetBrains\\PyCharm2026.2",
-    "theme": "Islands Light",
+    "theme": "Islands Light (laf.xml: laf themeId=\"Islands Light\")",
     "editorColorScheme": "Light Theme",
     "zoom": "100%",
     "uiFont": "Microsoft YaHei (Use custom font, checked)",
@@ -26,6 +26,38 @@
         "artifacts/pycharm-baseline-20260919/pycharm-main.png (主窗口 1659x994, DPI168)",
         "artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.png (Settings 对话框 900x700, Appearance & Behavior > Appearance)"
       ]
+    },
+    "uiFontOverride": {
+      "enabled": true,
+      "face": "Microsoft YaHei UI",
+      "size": 12.0,
+      "source": "options/other.xml: overrideLafFonts/fontFace/fontSize",
+      "note": "12.0 是 PyCharm 自己的单位（UI 里显示为 Size 12），不能直接等同于 Augit 的 13px；对照时必须按几何/视觉等价测，不得当成同值"
+    },
+    "editorFont": {
+      "customized": false,
+      "source": "options/editor-font.xml 只有 VERSION=1（未自定义，用主题内置默认）"
+    },
+    "consoleFont": {
+      "customized": false,
+      "source": "options/console-font.xml 只有 VERSION=1"
+    },
+    "terminalFont": {
+      "customized": false,
+      "source": "options/terminal-font.xml 只有 VERSION=1（SECONDARY_FONT_FAMILY 空）"
+    },
+    "ideScale": {
+      "presentationModeIdeScale": 1.75,
+      "source": "options/other.xml"
+    },
+    "screen": {
+      "device": "\\\\.\\DISPLAY1",
+      "boundsPhysical": "1646x1029",
+      "workingAreaPhysical": "1646x981",
+      "dpi": 168,
+      "scalePercent": 175,
+      "logicalArea": "941x588",
+      "evidence": "System.Windows.Forms.Screen (bounds) + GetDpiForWindow=168 + PyCharm 键名后缀 @168dpi"
     }
   },
   "surfaces": [
@@ -87,5 +119,62 @@
   ],
   "jumps": [],
   "feedback": [],
-  "sequences": []
+  "sequences": [],
+  "decisions": {
+    "spec_7_17_conflict": {
+      "decision": "按规格 §7.17 + PyCharm 结构落地（现有视觉稿把等宽字体/字号画在『外观』页是基线自身的错）",
+      "confirmedBy": "用户 2026-09-19 确认",
+      "target": {
+        "外观": [
+          "主题",
+          "界面字体",
+          "界面字号"
+        ],
+        "文件查看": [
+          "正文字体",
+          "等宽字体",
+          "等宽字号",
+          "默认换行"
+        ],
+        "Git": [
+          "git.exe 路径",
+          "检测结果",
+          "最低版本说明"
+        ],
+        "终端": [
+          "Shell 类型",
+          "自定义启动命令"
+        ],
+        "导航": "点击分类真正切页，右页只显示当前分类；切换保留未保存编辑；搜索框按分类过滤"
+      }
+    },
+    "compare_theme": {
+      "decision": "A —— 直接在 PyCharm 当前 Light 主题下对照，不切换其 IDE 主题",
+      "confirmedBy": "用户 2026-09-19 选择 A",
+      "note": "Augit 侧用 --theme light；dark 主题的 PyCharm 对照本轮不做（用户不改 IDE 偏好）"
+    }
+  },
+  "compareRecipe": {
+    "goal": "在同一 DPI 与同一逻辑尺寸下比较 PyCharm（Swing）与 Augit（WebView2）的关键区域几何与配色",
+    "steps": [
+      "PyCharm 在 DISPLAY1 最大化：物理 1646x1029，DPI 168（175%）",
+      "Augit 用相同**逻辑**尺寸启动：--width 941 --height 588，并且**不加 --pixel-exact**（让 WebView2 按 1.75 缩放 CSS px，与 PyCharm 一致）",
+      "两侧截图按物理像素比较；以内容地标对齐（如标题栏下边缘 / 菜单栏下边缘），不按 (0,0) 硬对齐——PyCharm 最大化窗口有系统边框，Augit 是无边框自绘",
+      "逐区域记录几何（位置/尺寸/行高/字号）与配色取值，判据为『在声明容差内等价』；Swing 与 Chromium 的字体栅格化不同，**不做逐像素相等判定**"
+    ],
+    "theme": "Light（用户选 A：不改 PyCharm 主题）",
+    "notCovered": [
+      "dark 主题的 PyCharm 对照（需要改用户 IDE 主题，用户选 A 不做）",
+      "Windows 10 22H2"
+    ]
+  },
+  "blockers": [
+    {
+      "id": "pycharm-focus",
+      "what": "需要 PyCharm 处于前台才能做的交互抓取（打开设置、点击工具窗口、逐态截图）",
+      "why": "Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口",
+      "evidence": "FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活",
+      "unblock": "用户在方便时点一下 PyCharm 使其成为前台（或用任务栏激活），随后即可继续抓取；不需要改任何 PyCharm 设置"
+    }
+  ]
 }
