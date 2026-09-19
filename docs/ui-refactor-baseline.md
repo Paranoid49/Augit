@@ -12902,3 +12902,32 @@ EditorConfig、HTML…）`、`Natural Languages` —— 其中 **`Console Font` 
 
 结果：生成器重出 `pycharm-interactions.md`（133 行）；`check-interactions.cjs` 仍
 `BASELINE surfaces=5 jumps=4 feedback=6 sequences=6 gaps=4`、`CHECKED 16`、`INTERACTIONS_BASELINE_OK`。
+
+#### 第 386 轮：Color Scheme 页入基线 + 检查器抓出**我自己上一轮留下的 docsRef 回归**
+
+**新增证据（读图，不靠文件名猜）**：`p16c-console-font.png` 本意是抓 Console Font 正文，
+实际落在 **Editor › Color Scheme › VCS** —— 但它意外提供了 Color Scheme 页的完整结构：
+面包屑三段 `Editor › Color Scheme › VCS`、Scheme 下拉 + Configure… 链接、
+左侧条目列表（Editor Gutter、VCS Annotations…）、右上 Bold/Italic 复选 +
+Foreground/Background/Error stripe mark/Effects 色块 + Underscored 下拉、
+底部预览（Deleted line below / Modified line / Added line / Line with modified whitespaces）。
+
+**两条新增基线**：
+1. `surfaces[pycharm.settings.color-scheme]`：上述结构 + **禁用态**（未选左侧条目时整块颜色控件灰态、
+   Sync with OS 勾选时 Scheme 下拉灰态）+ 说明 Console Font 是它的子页；
+2. `feedback[settings.field.disabled-by-precondition]`：前置条件不满足就**禁用并保留位置**（不是隐藏），
+   Augit 侧的同一手法由既有断言 `§7.17 终端自定义命令仅在选择"自定义命令"时可编辑` 覆盖（pass）。
+
+**修正上一轮的记录**：`font` 这个查询词**两次落到不同页**（Color Scheme / Color Scheme › VCS），
+说明搜索落点**状态相关、不可复现**；`failedSearchPaths` 因此补到四条，文档 §3.1 的"三次实测"
+也改为"四次实测（其中 font 两次落到不同页）"。
+
+**检查器抓出的回归（值得单记）**：加完两条后 `check-interactions.cjs` 立刻报了**两个真问题** ——
+① 我写的断言名用了 `『』`，而套件里是 ASCII 引号 `"..."`；② **上一轮我改写 §3.1 那行标题
+（"页面内容未抓到" → "页面正文未抓到…"）时，没有同步 `gaps[settings-font-page-content].docsRef`**，
+于是"缺口必须写明文档出处"这条规则立刻失败。两处都已修，`docsRef` 改为文档中实际存在的
+`Editor › Font 页面正文未抓到`。
+
+**结果**：生成器重出 `pycharm-interactions.md`（142 行）；
+`check-interactions.cjs` → `BASELINE surfaces=6 jumps=4 feedback=7 sequences=6 gaps=4`、
+`CHECKED 17 (pass=9 diff=2 gap=1 other=5)`、`INTERACTIONS_BASELINE_OK`；§0 同步为新的分母。

@@ -252,6 +252,12 @@
           "evidence": "artifacts/pycharm-interactions-16/p16c-editor-font.png"
         },
         {
+          "query": "font",
+          "landed": "Editor › Color Scheme › VCS",
+          "evidence": "artifacts/pycharm-interactions-16/p16c-console-font.png",
+          "note": "**同一个查询词两次落到不同页** —— 落点取决于树当时的选中/滚动状态，因此搜索跳转不仅会带偏，还**不可复现**"
+        },
+        {
           "query": "editor font",
           "landed": "Keymap",
           "evidence": "artifacts/pycharm-interactions-16/p16b-page-editor-font.png"
@@ -262,6 +268,17 @@
           "evidence": "artifacts/pycharm-interactions-16/p16d-linespacing-y450.png"
         }
       ]
+    },
+    {
+      "id": "pycharm.settings.color-scheme",
+      "title": "Editor › Color Scheme（含子页 VCS，实测于 p16c-console-font.png）",
+      "breadcrumb": "Editor › Color Scheme › VCS（面包屑三段，用 › 分隔）",
+      "layout": "顶部 Scheme 下拉（Sync with OS 勾选时为**灰态**）+ Configure… 链接；左 = 条目列表（Editor Gutter、VCS Annotations…）；右上 = Bold/Italic 复选 + Foreground/Background/Error stripe mark/Effects 色块 + Underscored 下拉；底部 = 预览（Deleted line below / Modified line / Added line / Line with modified whitespaces）",
+      "disabledState": "**未选中左侧条目时，整块颜色控件（色块 + 下拉）呈灰态、不可用**；此时 Scheme 下拉也因 Sync with OS 而灰态",
+      "evidence": [
+        "artifacts/pycharm-interactions-16/p16c-console-font.png"
+      ],
+      "note": "Console Font 是 Color Scheme 的子页之一（见 editor-font surface 的 consoleFontPath）；**其页面正文同样未抓到**：本图是搜索 font 落到 VCS 的结果"
     }
   ],
   "jumps": [
@@ -406,6 +423,19 @@
       "augit": {
         "status": "inconclusive",
         "note": "Augit 状态栏本身没有 :hover 规则（grep 无命中），因此这一格既不是 diff 也不是 pass：两侧都缺少可比对的悬停取值证据"
+      }
+    },
+    {
+      "id": "settings.field.disabled-by-precondition",
+      "target": "前置条件未满足时整块控件灰态（示例：Color Scheme 的颜色控件、Sync with OS 时的 Scheme 下拉）",
+      "pycharm": {
+        "evidence": "artifacts/pycharm-interactions-16/p16c-console-font.png",
+        "observed": "色块与下拉在未选条目时整体灰态；Sync with OS 勾选时 Scheme 下拉灰态"
+      },
+      "augit": {
+        "status": "pass",
+        "ref": "live-shell:§7.17 终端自定义命令仅在选择\"自定义命令\"时可编辑",
+        "note": "同一手法：前置条件不满足就禁用并保留位置（不是隐藏）"
       }
     }
   ],
@@ -656,10 +686,10 @@
     {
       "id": "settings-font-page-content",
       "what": "Editor › Font / Console Font 页面内容未抓到（只抓到分类路径与 UI 字体事实）",
-      "evidence": "artifacts/pycharm-interactions-16/：p16-settings-search-font.png（分类路径）、p16b-page-editor-font.png、p16d-*.png",
+      "evidence": "artifacts/pycharm-interactions-16/：p16-settings-search-font.png（分类路径）、p16c-editor-font.png（完整 Editor 子树）、p16c-console-font.png（搜索 font 落到 Color Scheme › VCS）、p16b-page-editor-font.png（editor font → Keymap）、p16d-linespacing-y450.png（line spacing → Code Style › HTML）",
       "augit": "Augit 的『文件查看』页字段按 product-spec 与 PyCharm 结构对齐，不照搬编辑器字体页",
-      "plan": "补抓需要 UI 自动化（设置树滚动位置随会话变化，固定坐标点击会落到别的分类）；已在 §3.1 如实登记",
-      "docsRef": "Editor › Font 页面内容未抓到"
+      "plan": "原因已查清：**搜索跳转会打开命中字段所在的页且落点状态相关**（同一个 font 两次分别落到 Color Scheme 与 Color Scheme › VCS）。正确做法已写进 surfaces[pycharm.settings.editor-font].navigationRecipe（清空搜索 → 展开 Editor → 直接点 Font），前台解锁后点一次截图即可",
+      "docsRef": "Editor › Font 页面正文未抓到"
     }
   ]
 }
