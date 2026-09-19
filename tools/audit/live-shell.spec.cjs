@@ -422,6 +422,17 @@ async function main() {
         window.__settingsState = next;
         return { saved: true, theme: next.theme, fontSize: next.fontSize };
       }
+      if (method === 'git/detect') {
+        // 规格 §7.17：Git 分类要显示检测结果与最低版本说明。
+        window.__gitDetectCalls = (window.__gitDetectCalls || 0) + 1;
+        if (window.__gitDetectDelays) await new Promise((r) => setTimeout(r, window.__gitDetectDelays));
+        if (window.__gitDetectUnavailable) {
+          return { available: false, path: null, version: null, minimumVersion: '2.40',
+            reason: '未找到 Git for Windows 2.40 或更高版本。' };
+        }
+        return { available: true, path: 'C:\\Program Files\\Git\\cmd\\git.exe', version: '2.47.1',
+          minimumVersion: '2.40', reason: null };
+      }
       if (method === 'git/operation') {
         // 操作会话（规格 §7.13）：默认无会话，测试可用 __operationSession 注入。
         const session = window.__operationSession !== undefined
@@ -958,6 +969,8 @@ async function main() {
     const settings = await openScene('scene=settings&theme=dark');
     await settings.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
     await settings.page.waitForSelector('[data-setting="theme"]', { timeout: 10000 });
+    // 分类分页（规格 §7.17）：先等导航行就位，再做任何按键/切页操作。
+    await settings.page.waitForSelector('[data-settings-page]', { timeout: 10000 });
     // 已保存的面板尺寸应还原为 CSS 变量（规格 §4.2：拖动后持久化并恢复）
     const vars = await settings.page.evaluate(() => ({
       side: getComputedStyle(document.documentElement).getPropertyValue('--augit-side-width').trim(),
@@ -965,12 +978,38 @@ async function main() {
     }));
     check('已保存的左侧面板宽度被还原: ' + vars.side, vars.side === '330px');
     check('已保存的底部面板高度被还原: ' + vars.bottom, vars.bottom === '240px');
-    check('设置窗口显示真实主题', await settings.page.locator('[data-setting="theme"]').inputValue() === 'Dark');
-    check('设置窗口显示真实界面字号', await settings.page.locator('[data-setting="fontSize"]').inputValue() === '13');
-    check('设置窗口显示真实等宽字号', await settings.page.locator('[data-setting="codeFontSize"]').inputValue() === '13');
-    check('设置窗口显示真实 Shell', await settings.page.locator('[data-setting="terminalShell"]').inputValue() === 'PowerShell7');
-    check('设置窗口显示真实 git 路径', (await settings.page.locator('[data-setting="gitExecutablePath"]').inputValue()).includes('Git'));
-    // 修改字号后保存，确认写回内容被提交
+    // 分类分页后（规格 §7.17）字段各自在自己的分类里：按页读取，读完整套值。
+    const settingsValues = await settings.page.evaluate(async () => {
+      const read = (key) => {
+        const field = document.querySelector(`[data-setting="${key}"]`);
+        return field ? field.value : null;
+      };
+      const goto = async (page) => {
+        const row = document.querySelector(`[data-settings-page="${page}"]`);
+        if (row) row.click();
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      };
+      const values = {};
+      await goto('appearance');
+      values.theme = read('theme');
+      values.fontSize = read('fontSize');
+      await goto('file-view');
+      values.codeFontSize = read('codeFontSize');
+      await goto('git');
+      values.gitExecutablePath = read('gitExecutablePath');
+      await goto('terminal');
+      values.terminalShell = read('terminalShell');
+      await goto('appearance');
+      return values;
+    });
+    check('设置窗口显示真实主题: ' + JSON.stringify(settingsValues), settingsValues.theme === 'Dark');
+    check('设置窗口显示真实界面字号: ' + JSON.stringify(settingsValues), settingsValues.fontSize === '13');
+    check('设置窗口显示真实等宽字号: ' + JSON.stringify(settingsValues), settingsValues.codeFontSize === '13');
+    check('设置窗口显示真实 Shell: ' + JSON.stringify(settingsValues), settingsValues.terminalShell === 'PowerShell7');
+    check('设置窗口显示真实 git 路径: ' + JSON.stringify(settingsValues),
+      String(settingsValues.gitExecutablePath).includes('Git'));
+    // 修改字号后保存，确认写回内容被提交（外观页在第 3 步已切回）
+    await settings.page.waitForSelector('[data-setting="fontSize"]', { timeout: 8000 });
     await settings.page.locator('[data-setting="fontSize"]').fill('17');
     // 确认按钮是 <a href>，点击会导航离开；去掉 href 后再点，避免测试中断。
     await settings.page.evaluate(() => {
@@ -1043,10 +1082,27 @@ async function main() {
       };
     });
 
+    // 设置窗口按分类分页（规格 §7.17）：字段分布在各自分类里，
+    // 因此写入前必须先切到**拥有该字段的分类**；切页会收草稿，保存时跨分类合并。
     const setSettings = (patch) => ty.page.evaluate(async (values) => {
-      for (const [key, value] of Object.entries(values)) {
-        const field = document.querySelector(`[data-setting="${key}"]`);
-        if (field) field.value = String(value);
+      const owner = {
+        theme: 'appearance', textFontFamily: 'appearance', fontSize: 'appearance',
+        monospaceFontFamily: 'file-view', codeFontSize: 'file-view',
+        gitExecutablePath: 'git',
+        terminalShell: 'terminal', terminalCustomCommand: 'terminal',
+      };
+      const pending = Object.entries(values);
+      for (const page of ['appearance', 'file-view', 'git', 'terminal']) {
+        const mine = pending.filter(([key]) => (owner[key] || 'appearance') === page);
+        if (mine.length === 0) continue;
+        // 容器无关：设置场景是 .dialog-xl，实时弹层是 .settings-window（写死容器会点不到）。
+        const row = document.querySelector(`[data-settings-page="${page}"]`);
+        if (row) row.click();
+        await new Promise((r) => setTimeout(r, 40));
+        for (const [key, value] of mine) {
+          const field = document.querySelector(`[data-setting="${key}"]`);
+          if (field) field.value = String(value);
+        }
       }
       await window.__augitSaveSettings();
       const live = window.__augitLive;
@@ -10299,6 +10355,133 @@ async function main() {
       check('§5.1 齿轮图标打开设置窗口: ' + JSON.stringify(afterGear),
         afterGear.unwired === null && afterGear.dialog === true && afterGear.inert === true);
       await tb.page.close();
+    }
+
+    // ---- 规格 §7.17：设置窗口按分类分页（① 真正切页 ② 切页保留未保存编辑 ③ 搜索过滤）----
+    // 用户实测"设置只能停在外观与行为页签"：根因是 `.settings-nav` 零绑定，
+    // 而且四个分类的内容（含规格要求的"文件查看"）从来没有被画出来过。
+    {
+      const st = await openScene('scene=main-project&theme=dark');
+      await st.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await st.page.waitForTimeout(400);
+      const openSettings = async () => {
+        await st.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+        await st.page.waitForSelector('.settings-window [data-settings-page]', { timeout: 8000 });
+        await st.page.waitForTimeout(200);
+      };
+      const pageState = () => st.page.evaluate(() => {
+        const body = document.querySelector('.settings-window .settings-page');
+        return {
+          rows: [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+            .map((row) => row.textContent.trim()),
+          group: !!document.querySelector('.settings-window .settings-nav .settings-nav-group'),
+          active: body ? body.dataset.settingsPageBody : null,
+          heading: body ? (body.querySelector('h2') || {}).textContent : null,
+          hasUiFontSize: !!document.querySelector('.settings-window [data-setting="fontSize"]'),
+          hasCodeFontSize: !!document.querySelector('.settings-window [data-setting="codeFontSize"]'),
+          hasCustomCommand: !!document.querySelector('.settings-window [data-setting="terminalCustomCommand"]'),
+          hasGitPath: !!document.querySelector('.settings-window [data-setting="gitExecutablePath"]'),
+        };
+      });
+
+      await openSettings();
+      const opened = await pageState();
+      check('§7.17 设置窗口有四个分类入口与分组表头: ' + JSON.stringify([opened.rows, opened.group]),
+        JSON.stringify(opened.rows) === JSON.stringify(['外观', '文件查看', 'Git', '终端']) && opened.group === true);
+      check('§7.17 默认停在"外观"且右页只显示外观字段: '
+        + JSON.stringify([opened.active, opened.heading, opened.hasUiFontSize, opened.hasCodeFontSize, opened.hasGitPath]),
+      opened.active === 'appearance' && opened.heading === '外观' && opened.hasUiFontSize === true
+        && opened.hasCodeFontSize === false && opened.hasGitPath === false);
+
+      await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
+      await st.page.waitForFunction(
+        'document.querySelector(".settings-window .settings-page").dataset.settingsPageBody === "file-view"',
+        null,
+        { timeout: 8000 },
+      );
+      const fileView = await pageState();
+      check('§7.17 点击"文件查看"真正切页且右页只显示该分类: '
+        + JSON.stringify([fileView.active, fileView.heading, fileView.hasUiFontSize, fileView.hasCodeFontSize]),
+      fileView.active === 'file-view' && fileView.heading === '文件查看'
+        && fileView.hasUiFontSize === false && fileView.hasCodeFontSize === true);
+
+      // 切页保留未保存编辑：在外观改界面字号、在文件查看改等宽字号，来回切一遍再看
+      await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+      await st.page.fill('.settings-window [data-setting="fontSize"]', '17');
+      await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
+      await st.page.fill('.settings-window [data-setting="codeFontSize"]', '15');
+      await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+      const keptUi = await st.page.evaluate(() => document.querySelector('.settings-window [data-setting="fontSize"]').value);
+      await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
+      const keptCode = await st.page.evaluate(() => document.querySelector('.settings-window [data-setting="codeFontSize"]').value);
+      check('§7.17 切页保留未保存编辑: ' + JSON.stringify([keptUi, keptCode]), keptUi === '17' && keptCode === '15');
+
+      // 保存：两个分类的改动必须一起写回（分页后 DOM 里只有当前分类）
+      await st.page.evaluate(() => { window.__settingsWritten = {}; });
+      await st.page.locator('.settings-window [data-settings-action="save"]').click();
+      await st.page.waitForFunction('window.__settingsWritten && window.__settingsWritten.fontSize === 17', null, { timeout: 8000 });
+      const writtenPages = await st.page.evaluate(() => window.__settingsWritten);
+      check('§7.17 跨分类的改动一起保存: ' + JSON.stringify(writtenPages),
+        writtenPages.fontSize === 17 && writtenPages.codeFontSize === 15);
+
+      // 搜索框按分类名过滤
+      await openSettings();
+      await st.page.fill('.settings-window [data-settings-filter]', '文件');
+      await st.page.waitForTimeout(200);
+      const filtered = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+        .filter((row) => !row.hidden).map((row) => row.textContent.trim()));
+      check('§7.17 搜索框按分类名过滤: ' + JSON.stringify(filtered),
+        JSON.stringify(filtered) === JSON.stringify(['文件查看']));
+      await st.page.fill('.settings-window [data-settings-filter]', '');
+      await st.page.waitForTimeout(150);
+      const cleared = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+        .filter((row) => !row.hidden).length);
+      check('§7.17 清空搜索后分类恢复: ' + JSON.stringify(cleared), cleared === 4);
+
+      // Git 分类：检测结果取宿主（路径+版本）+ 最低版本说明
+      await st.page.locator('.settings-window [data-settings-page="git"]').click();
+      await st.page.waitForFunction(
+        'document.querySelector(".settings-window [data-git-detection]")'
+          + ' && !document.querySelector(".settings-window [data-git-detection]").textContent.includes("正在检测")',
+        null,
+        { timeout: 8000 },
+      );
+      const gitPage = await st.page.evaluate(() => ({
+        detection: document.querySelector('.settings-window [data-git-detection]').textContent.trim(),
+        notes: [...document.querySelectorAll('.settings-window .settings-page .commit-meta')].map((n) => n.textContent),
+        calls: window.__gitDetectCalls || 0,
+      }));
+      check('§7.17 Git 分类显示检测结果与最低版本说明: ' + JSON.stringify([gitPage.detection, gitPage.calls]),
+        gitPage.detection.includes('git.exe') && gitPage.detection.includes('2.47.1')
+          && gitPage.notes.some((text) => text.includes('2.40')) && gitPage.calls >= 1);
+
+      // 终端分类：自定义启动命令只在"自定义命令"时可编辑，并写入宿主
+      await st.page.locator('.settings-window [data-settings-page="terminal"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="terminalCustomCommand"]', { timeout: 8000 });
+      const beforeCustom = await st.page.evaluate(() =>
+        document.querySelector('.settings-window [data-setting="terminalCustomCommand"]').disabled);
+      await st.page.selectOption('.settings-window [data-setting="terminalShell"]', 'Custom');
+      await st.page.waitForTimeout(200);
+      const afterCustom = await st.page.evaluate(() =>
+        document.querySelector('.settings-window [data-setting="terminalCustomCommand"]').disabled);
+      check('§7.17 终端自定义命令仅在选择"自定义命令"时可编辑: ' + JSON.stringify([beforeCustom, afterCustom]),
+        beforeCustom === true && afterCustom === false);
+      await st.page.fill('.settings-window [data-setting="terminalCustomCommand"]', 'wsl.exe -d Ubuntu');
+      await st.page.evaluate(() => { window.__settingsWritten = {}; });
+      await st.page.locator('.settings-window [data-settings-action="save"]').click();
+      await st.page.waitForFunction(
+        'window.__settingsWritten && window.__settingsWritten.terminalCustomCommand === "wsl.exe -d Ubuntu"',
+        null,
+        { timeout: 8000 },
+      );
+      const writtenTerminal = await st.page.evaluate(() => window.__settingsWritten);
+      check('§7.17 终端自定义命令写入宿主: ' + JSON.stringify(writtenTerminal),
+        writtenTerminal.terminalShell === 'Custom' && writtenTerminal.terminalCustomCommand === 'wsl.exe -d Ubuntu');
+      await st.page.close();
     }
 
     // ---- 规格 §7.16：终端按需单会话——运行时点入口必须真的建立会话 ----

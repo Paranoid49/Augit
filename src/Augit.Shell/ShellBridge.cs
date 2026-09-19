@@ -145,6 +145,7 @@ internal sealed class ShellBridge : IDisposable
             "workspace/list" => ListDirectory(parameters),
             "document/read" => await ReadDocumentAsync(parameters, cancellationToken),
             "git/status" => await ReadStatusAsync(cancellationToken),
+            "git/detect" => await ReadGitDetectionAsync(cancellationToken),
             "git/history" => await ReadHistoryAsync(cancellationToken),
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
@@ -380,6 +381,27 @@ internal sealed class ShellBridge : IDisposable
         DocumentKind.WebP => "image/webp",
         _ => "application/octet-stream",
     };
+
+    /// <summary>
+    /// Git 探测结果（规格 §7.17：Git 分类要提供 git.exe 路径、**检测结果**和**最低版本说明**）。
+    /// 只读一次缓存的运行时信息，不启动任何命令。
+    /// </summary>
+    private async Task<object?> ReadGitDetectionAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, _) = await ResolveGitAsync(cancellationToken);
+        return new
+        {
+            available = runtime.IsAvailable,
+            path = runtime.ExecutablePath,
+            version = runtime.Version is { } version
+                ? string.Create(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}.{version.Patch}")
+                : null,
+            minimumVersion = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{GitVersion.MinimumSupported.Major}.{GitVersion.MinimumSupported.Minor}"),
+            reason = runtime.UnavailableReason,
+        };
+    }
 
     private async Task<object?> ReadStatusAsync(CancellationToken cancellationToken)
     {

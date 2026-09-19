@@ -1670,6 +1670,23 @@ body[data-theme="dark"] .fake-check.mixed {
   margin-bottom: 24px;
 }
 
+/* 设置窗口左侧是"分类组"表头，与可点击的分类行区分开（对照 PyCharm 的加粗分组行）。 */
+.settings-nav .settings-nav-group {
+  font-weight: 600;
+}
+
+/* Git 分类的检测结果：与普通说明文字区分，失败时用语义红色（规格 §4.4）。 */
+.settings-detection {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  color: var(--augit-text);
+}
+
+.settings-detection.error {
+  color: var(--augit-red);
+}
+
 .settings-group h3 {
   margin: 0 0 11px;
   padding-bottom: 6px;

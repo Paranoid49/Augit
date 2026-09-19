@@ -1705,15 +1705,115 @@ function liveConflictResolver() {
 
 // 外壳注入真实设置时使用；结构与样例版一致，字段值来自设置文件。
 function settingsBodyFallback() {
-  return `<div class="settings-layout"><nav class="settings-nav"><input class="search-field" placeholder="搜索设置" style="width:100%;margin-bottom:10px"><div class="tree-row selected">外观与行为</div><div class="tree-row depth-1">外观</div><div class="tree-row">文件查看</div><div class="tree-row">Git</div><div class="tree-row">终端</div></nav><div class="settings-page"><h2>外观</h2><section class="settings-group"><div class="form-grid"><label>主题</label><select class="select-field"><option>跟随 Windows</option></select><label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span></div></section><section class="settings-group"><div class="form-grid"><label>界面字体</label><div class="font-setting"><input class="text-field" value="Microsoft YaHei UI"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field" value="13"></div><label>等宽字体</label><div class="font-setting"><input class="text-field" value="Cascadia Mono"><label for="code-font-size">字号</label><input id="code-font-size" type="number" min="9" max="40" class="text-field" value="13"></div><label></label><span class="commit-meta">字体只改变显示，不会修改文件。</span></div></section><section class="settings-group"><p class="commit-meta">启动时恢复上次打开的目录和标签。</p></section></div></div>`;
+  return settingsLayoutHtml("appearance", null, null);
 }
 
-function liveSettingsBody() {
+/**
+ * 设置分类（规格 §7.17）：四个分类各自一个页面，导航点击真正切页。
+ * 静态视觉稿与实时外壳**共用同一份结构**，区别只有两点：
+ * 取值来源（样例 vs 设置文件）与是否带 `data-setting`（决定能否保存）。
+ */
+const SETTINGS_PAGES = [
+  { id: "appearance", title: "外观", depth: 1 },
+  { id: "file-view", title: "文件查看", depth: 1 },
+  { id: "git", title: "Git", depth: 0 },
+  { id: "terminal", title: "终端", depth: 0 },
+];
+
+function settingsNavHtml(page, live) {
+  const row = (id, label, depth) => {
+    const selected = page === id ? " selected" : "";
+    const depthClass = depth > 0 ? ` depth-${depth}` : "";
+    const attr = live ? ` data-settings-page="${id}"` : "";
+    return `<div class="tree-row${depthClass}${selected}"${attr}>${escapeHtml(label)}</div>`;
+  };
+  const filter = live ? ' data-settings-filter="true"' : "";
+  return `<nav class="settings-nav">`
+    + `<input class="search-field" placeholder="搜索设置" style="width:100%;margin-bottom:10px"${filter}>`
+    + `<div class="tree-row settings-nav-group">外观与行为</div>`
+    + SETTINGS_PAGES.slice(0, 2).map((item) => row(item.id, item.title, item.depth)).join("")
+    + SETTINGS_PAGES.slice(2).map((item) => row(item.id, item.title, item.depth)).join("")
+    + `</nav>`;
+}
+
+/** 单页正文。`live` 为真时带 `data-setting`（可保存），否则是纯展示的视觉稿。 */
+function settingsPageHtml(page, values, live) {
+  const attr = (key) => (live && key ? ` data-setting="${key}"` : "");
+  const value = (key, fallback) => escapeHtml(String(values && values[key] !== undefined && values[key] !== null
+    ? values[key] : fallback));
+  const themeOption = (option, label) => `<option value="${option}"${values && values.theme === option ? " selected" : ""}>${label}</option>`;
+  const shellOption = (option, label) => `<option value="${option}"${values && values.terminalShell === option ? " selected" : ""}>${label}</option>`;
+
+  if (page === "file-view") {
+    return `<section class="settings-group"><div class="form-grid">`
+      + `<label>等宽字体</label><div class="font-setting"><input class="text-field"${attr("monospaceFontFamily")} value="${value("monospaceFontFamily", "Cascadia Mono")}"><label for="code-font-size">字号</label><input id="code-font-size" type="number" min="9" max="40" class="text-field"${attr("codeFontSize")} value="${value("codeFontSize", 13)}"></div>`
+      + `<label></label><span class="commit-meta">等宽设置作用于只读正文、Diff、冲突三栏和终端；Markdown 代码块跟随等宽设置。</span>`
+      + `<label></label><span class="commit-meta">字体只改变显示，不会修改文件。</span>`
+      + `</div></section>`;
+  }
+
+  if (page === "git") {
+    const detection = values && values.gitDetection;
+    const state = !detection
+      ? "正在检测 git.exe…"
+      : detection.available
+        ? `已找到：${detection.path}${detection.version ? `（${detection.version}）` : ""}`
+        : `${detection.reason || "未找到 Git"}`;
+    const tone = detection && !detection.available ? " error" : "";
+    return `<section class="settings-group"><div class="form-grid">`
+      + `<label for="git-path">git.exe</label><input id="git-path" class="text-field"${attr("gitExecutablePath")} value="${value("gitExecutablePath", "")}" placeholder="留空则从系统 PATH 查找">`
+      + `<label></label><span class="commit-meta">设置缺失时 Git 功能不可用，文件浏览仍可使用。</span>`
+      + `<label>检测结果</label><span class="settings-detection${tone}" data-git-detection>${escapeHtml(state)}</span>`
+      + `<label>最低版本</label><span class="commit-meta">Git for Windows ${value("gitMinimum", "2.40")} 或更高；低于该版本时整个 Git 模块禁用。</span>`
+      + `</div></section>`;
+  }
+
+  if (page === "terminal") {
+    const custom = values && values.terminalShell === "Custom";
+    return `<section class="settings-group"><div class="form-grid">`
+      + `<label for="terminal-shell">Shell</label><select id="terminal-shell" class="select-field"${attr("terminalShell")}>`
+      + shellOption("WindowsPowerShell", "Windows PowerShell") + shellOption("PowerShell7", "PowerShell 7")
+      + shellOption("CommandPrompt", "CMD") + shellOption("GitBash", "Git Bash")
+      + shellOption("Wsl", "WSL") + shellOption("Custom", "自定义命令")
+      + `</select><label></label><span class="commit-meta">配置失效时会明确报错，不会静默切换 Shell。</span>`
+      + `<label for="terminal-command">自定义启动命令</label><input id="terminal-command" class="text-field"${attr("terminalCustomCommand")} value="${value("terminalCustomCommand", "")}" placeholder="例如 wsl.exe -d Ubuntu"${live && !custom ? " disabled" : ""}>`
+      + `<label></label><span class="commit-meta">仅在 Shell 选择“自定义命令”时使用；留空会明确报错，不静默回退到默认 Shell。</span>`
+      + `</div></section>`;
+  }
+
+  return `<section class="settings-group"><div class="form-grid">`
+    + `<label>主题</label><select class="select-field"${attr("theme")}>${themeOption("System", "跟随 Windows")}${themeOption("Light", "浅色")}${themeOption("Dark", "深色")}</select>`
+    + `<label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span>`
+    + `<label>界面字体</label><div class="font-setting"><input class="text-field"${attr("textFontFamily")} value="${value("textFontFamily", "Microsoft YaHei UI")}"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 13)}"></div>`
+    + `<label></label><span class="commit-meta">界面设置作用于文件树、标签、工具窗口、菜单、按钮和状态栏；Markdown 预览正文跟随界面设置。</span>`
+    + `<label></label><span class="commit-meta">启动时恢复上次打开的目录和标签。</span>`
+    + `</div></section>`;
+}
+
+/** 设置窗口的完整正文：左侧分类导航 + 右侧**只显示当前分类**的页面。 */
+function settingsLayoutHtml(page, values, live) {
+  const active = SETTINGS_PAGES.some((item) => item.id === page) ? page : "appearance";
+  const title = (SETTINGS_PAGES.find((item) => item.id === active) || {}).title || "外观";
+  return `<div class="settings-layout${live ? " live-settings" : ""}">`
+    + settingsNavHtml(active, live)
+    + `<div class="settings-page" data-settings-page-body="${active}">`
+    + `<h2>${escapeHtml(title)}</h2>`
+    + settingsPageHtml(active, values, live)
+    + `</div></div>`;
+}
+
+function liveSettingsBody(page) {
   const settings = (window.__augitLive && window.__augitLive.settings) || null;
   if (!settings) return settingsBodyFallback();
-  const themeOption = (value, label) => `<option value="${value}"${settings.theme === value ? " selected" : ""}>${label}</option>`;
-  const shellOption = (value, label) => `<option value="${value}"${settings.terminalShell === value ? " selected" : ""}>${label}</option>`;
-  return `<div class="settings-layout live-settings"><nav class="settings-nav"><input class="search-field" placeholder="搜索设置" style="width:100%;margin-bottom:10px"><div class="tree-row selected">外观与行为</div><div class="tree-row depth-1">外观</div><div class="tree-row">文件查看</div><div class="tree-row">Git</div><div class="tree-row">终端</div></nav><div class="settings-page"><h2>外观</h2><section class="settings-group"><div class="form-grid"><label>主题</label><select class="select-field" data-setting="theme">${themeOption("System", "跟随 Windows")}${themeOption("Light", "浅色")}${themeOption("Dark", "深色")}</select><label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span></div></section><section class="settings-group"><div class="form-grid"><label>界面字体</label><div class="font-setting"><input class="text-field" data-setting="textFontFamily" value="${escapeHtml(settings.textFontFamily)}"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field" data-setting="fontSize" value="${escapeHtml(String(settings.fontSize))}"></div><label>等宽字体</label><div class="font-setting"><input class="text-field" data-setting="monospaceFontFamily" value="${escapeHtml(settings.monospaceFontFamily)}"><label for="code-font-size">字号</label><input id="code-font-size" type="number" min="9" max="40" class="text-field" data-setting="codeFontSize" value="${escapeHtml(String(settings.codeFontSize))}"></div><label></label><span class="commit-meta">字体只改变显示，不会修改文件。</span></div></section><section class="settings-group"><h2>终端</h2><div class="form-grid"><label for="terminal-shell">Shell</label><select id="terminal-shell" class="select-field" data-setting="terminalShell">${shellOption("WindowsPowerShell", "Windows PowerShell")}${shellOption("PowerShell7", "PowerShell 7")}${shellOption("CommandPrompt", "CMD")}${shellOption("GitBash", "Git Bash")}${shellOption("Wsl", "WSL")}${shellOption("Custom", "自定义命令")}</select><label></label><span class="commit-meta">配置失效时会明确报错，不会静默切换 Shell。</span></div></section><section class="settings-group"><h2>Git</h2><div class="form-grid"><label for="git-path">git.exe</label><input id="git-path" class="text-field" data-setting="gitExecutablePath" value="${escapeHtml(settings.gitExecutablePath || "")}" placeholder="留空则从系统 PATH 查找"><label></label><span class="commit-meta">设置缺失时 Git 功能不可用，文件浏览仍可使用。</span></div></section><section class="settings-group"><h2>最近目录</h2><p class="commit-meta">共 ${(settings.recentWorkspaces || []).length} 个记录。</p></section></div></div>`;
+  const live = window.__augitLive;
+  // 值来源优先级：**未保存草稿** > 设置文件 > Git 检测结果（`git/detect`）。
+  // 草稿必须参与渲染，否则切到别的分类再切回来会看到磁盘上的旧值——
+  // 用户会以为刚改的内容丢了（规格 §7.17「切页保留未保存编辑」）。
+  const values = Object.assign({}, settings, (live && live.settingsDraft) || {}, {
+    gitDetection: live ? live.gitDetection || null : null,
+    gitMinimum: live && live.gitDetection ? live.gitDetection.minimumVersion : "2.40",
+  });
+  return settingsLayoutHtml(page || (live && live.settingsPage) || "appearance", values, true);
 }
 
 // 外壳注入真实数据时的 Reset 对话框：目标提交取当前 HEAD，模式沿用规格说明。
@@ -2969,7 +3069,7 @@ function branchesPopover() {
 }
 
 function renderScene() {
-  const settingsBody = `<div class="settings-layout"><nav class="settings-nav"><input class="search-field" placeholder="搜索设置" style="width:100%;margin-bottom:10px"><div class="tree-row selected">外观与行为</div><div class="tree-row depth-1">外观</div><div class="tree-row">文件查看</div><div class="tree-row">Git</div><div class="tree-row">终端</div></nav><div class="settings-page"><h2>外观</h2><section class="settings-group"><div class="form-grid"><label>主题</label><select class="select-field"><option>跟随 Windows</option></select><label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span></div></section><section class="settings-group"><div class="form-grid"><label>界面字体</label><div class="font-setting"><input class="text-field" value="Microsoft YaHei UI"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field" value="13"></div><label>等宽字体</label><div class="font-setting"><input class="text-field" value="Cascadia Mono"><label for="code-font-size">字号</label><input id="code-font-size" type="number" min="9" max="40" class="text-field" value="13"></div><label></label><span class="commit-meta">字体只改变显示，不会修改文件。</span></div></section><section class="settings-group"><p class="commit-meta">启动时恢复上次打开的目录和标签。</p></section></div></div>`;
+  const settingsBody = settingsBodyFallback();
   const stashBody = `<div class="form-grid"><label for="stash-root">Git 根目录</label><select id="stash-root" class="select-field"><option>D:\\github\\Augit</option></select><label>当前分支</label><span class="stash-branch">main</span><label for="stash-message">消息</label><textarea id="stash-message" class="message-field"></textarea><span></span><label class="check-line"><input id="stash-keep" type="checkbox">保留索引状态</label></div><div class="stash-notice" role="status" hidden></div>`;
   const cloneBody = `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
   switch (scene) {

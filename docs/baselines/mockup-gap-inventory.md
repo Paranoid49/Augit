@@ -30,6 +30,21 @@
 `Git` = git.exe + 检测结果 + 最低版本说明；`终端` = Shell 类型 + 自定义启动命令；
 导航点击真正切页（右页只显示当前分类）、切页保留未保存编辑、搜索框按分类过滤。
 
+**实施状态（本阶段）**：
+
+| 项 | 状态 | 证据 |
+| --- | --- | --- |
+| 四分类分页 + 导航真正切页 | **已实施** | `mockup.js` 的 `settingsLayoutHtml/settingsNavHtml/settingsPageHtml`（静态稿与实时外壳共用同一份结构）；`live-data.js` 的 `switchSettingsPage/renderSettingsDialog/bindSettingsPages` |
+| 切页保留未保存编辑 | **已实施** | `collectSettingsDraft()` 在切页前收草稿，`saveSettings()` 先合并草稿再收当前页 DOM；数字字段按 number 存（宿主 `GetDouble` 只接受 JSON number，字符串会被静默忽略） |
+| 搜索框按分类名过滤 | **已实施** | `bindSettingsPages()` 的 input 委托：按分类名隐藏不匹配行 |
+| Git 检测结果 + 最低版本说明 | **已实施** | 桥接新增 `git/detect`（读缓存的 `GitRuntimeInfo`：路径/版本/最低 2.40/原因）；Git 页显示"已找到：<路径>（<版本>）"或失败原因 |
+| 终端自定义启动命令 | **已实施** | 宿主 `TerminalCustomCommand` 早已存在、界面此前没有输入框；现按 Shell 选择启用/禁用并随保存写入 |
+| 文件查看：等宽字体/字号 | **已实施** | 从"外观"页迁到"文件查看"页 |
+| 文件查看：**默认换行** | **待裁决（规范冲突）** | `ux-spec` §7.17 要求该设置；`product-spec` 只把"自动换行"列为正文查看能力（第 45 行），**没有定义持久化的默认换行设置**，宿主 `ApplicationSettings` 里也没有对应字段。按纪律须由用户裁决：加字段（改产品规格+宿主+界面）／或从设置页去掉该条 |
+| 真机证据 | **已留档** | `artifacts/settings-pages-20260919/`（外观/文件查看/Git/终端 四页，dark，1180×760）；Git 页实测显示 `C:\Program Files\Git\cmd\git.exe（2.45.1）` |
+| 分组折叠（PyCharm 的 ▼ 箭头） | **未做（已知差异）** | 我们的导航把"外观与行为"作为不可点的分组表头，不折叠；PyCharm 是可折叠树节点 |
+| 最近目录条目 | **已从设置页移除** | 规格四分类里没有该分类；最近目录在「打开工作区」页（`recentWorkspaces`） |
+
 ## 2. 主窗口与工具窗口
 
 | 项 | 规格 | 现有视觉稿 | PyCharm 实测 | 差集 / 结论 |

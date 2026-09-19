@@ -10933,3 +10933,50 @@ harness 断言（4 条）：入口存在、搜索开浮层且焦点在浮层内�
 我用 CDP `Input.dispatchKeyEvent` 发键，但没有先让 xterm 的 helper textarea 获得焦点，
 因此 `dir` 与大段输出**只在 harness 里验证过**（真实 Playwright 键盘事件 → `terminal/write` 收到 `dir`、
 宿主输出渲染进正文）；4MB 裁剪路径只有单测覆盖，没有真机跑到 4MB。
+
+#### 第 306 轮（⑭/⑮/③）：设置窗口按分类分页落地（外观 / 文件查看 / Git / 终端）
+
+**背景**：用户实测"设置只能停在外观与行为页签"。核实后是**基线缺口**而非仅仅接线缺失——
+`ux-spec` §7.17 要求"左侧分类、右侧当前分类"且四个分类各有内容，而视觉稿只画了"外观"一页，
+导航行零绑定；`文件查看`（规格要求在它下面的等宽字体/字号/默认换行）、`Git 检测结果与最低版本说明`、
+`终端自定义启动命令`全部缺失。用户 2026-09-19 裁决：**按规格 + PyCharm 结构落地**（PyCharm 把界面字体
+放在 `Appearance & Behavior › Appearance`、编辑器字体放在另一个顶层分类，与规格一致）。
+
+**落地内容**：
+1. **视觉稿与实时外壳共用同一份设置结构**（`mockup.js`）：`SETTINGS_PAGES` +
+   `settingsNavHtml/settingsPageHtml/settingsLayoutHtml`；静态样例版与实时版只差"取值来源"与"是否带
+   `data-setting`"，避免又出现两份会各自漂移的模板。
+2. **四个分类**：`外观`=主题+界面字体+界面字号；`文件查看`=等宽字体+等宽字号；
+   `Git`=git.exe+**检测结果**+**最低版本说明**；`终端`=Shell+**自定义启动命令**。
+3. **导航真正切页**（`live-data.js`）：`switchSettingsPage/renderSettingsDialog/bindSettingsPages`；
+   右页只渲染当前分类，切页仅替换 `.settings-layout`，底栏与焦点保持。
+4. **切页保留未保存编辑**：`collectSettingsDraft()` 在切页前收草稿，`liveSettingsBody()` 渲染时
+   **草稿优先于已保存值**，`saveSettings()` 保存时**跨分类合并**。数字字段存成 number
+   （宿主 `GetDouble` 只接受 JSON number，字符串会被静默忽略——字号会"看起来保存成功但没生效"）。
+5. **搜索框按分类名过滤**导航行。
+6. **桥接新增 `git/detect`**：读缓存的 `GitRuntimeInfo`（路径/版本/最低 `2.40`/失败原因）。
+
+**本轮踩到并修掉的 4 个坑（都是先有实测证据再改）**：
+- **stale web assets**：改完 `web/` 没重建 exe 就跑真机探针，量到的还是旧布局
+  （探针显示 `rows: []`、7 个字段在一页）→ 重建后 `rows` 变为四个分类。这是本轮第一次"探针骗人"。
+- **只认 `.settings-window`**：`--scene settings` 用的是 `.dialog-xl`，于是"场景里点分类不切页"
+  （真机探针：`CLICK clicked` 但 `pageBody` 仍是 `appearance`）与"点击过滤条件匹配不到"两处同类错误，
+  统一改成按"在 `.settings-layout` 内"判定归属。
+- **草稿只在保存时合并、渲染时没用**：切回来看到的是磁盘旧值（harness：`["13","13"]`），
+  改为渲染时草稿优先。
+- **标题重复**：外层布局已有页面标题 `<h2>`，页面正文又写了一个 → Git 页出现两个"Git"（截图可见），已删正文里的 h2。
+
+**验证**：
+- harness `live-shell` **942/942**（932 → 942，新增 10 条：四分类入口/默认停在外观/点击切页且右页只显示当前分类/
+  切页保留未保存编辑/跨分类一起保存/搜索过滤/清空恢复/Git 检测结果与最低版本/终端自定义命令启用禁用/写入宿主）；
+- `mockup-scenes` 48/48 ×2 主题（设置页改版后视觉稿仍可渲染）；
+- `Augit.Shell.Tests` 73/73；`dotnet format --verify-no-changes` 通过；Release 0 警告 0 错误；
+- 真机四页截图入仓 `artifacts/settings-pages-20260919/`（外观/文件查看/Git/终端，dark，1180×760）。
+  肉眼核对：导航五项（外观与行为分组 + 四分类，选中行整行蓝底）、Git 页显示真实
+  `已找到：C:\Program Files\Git\cmd\git.exe（2.45.1）`、终端页在 Shell=Windows PowerShell 时
+  "自定义启动命令"输入框为禁用态。
+
+**未覆盖 / 待裁决**：`文件查看` 规格要求的**默认换行**在 `product-spec` 里没有对应设置
+（只有正文查看的"自动换行"能力），宿主 `ApplicationSettings` 也没有字段 → 属**规范冲突**，
+按纪律停下交用户裁决（加字段需同时改产品规格 + 宿主 + 界面，或从设置页去掉该条）；
+PyCharm 的分组折叠箭头未做（我们是不分组表头），已记入三方覆盖清单。

@@ -1606,6 +1606,10 @@ async function loadSettings() {
  */
 async function saveSettings() {
   const payload = {};
+  // 先把**其它分类**的草稿合并进来：分页后 DOM 里只有当前分类的字段，
+  // 只收 DOM 会静默丢掉在别的分类里改过的值。
+  const live = window.__augitLive;
+  if (live && live.settingsDraft) Object.assign(payload, live.settingsDraft);
   for (const element of document.querySelectorAll("[data-setting]")) {
     const key = element.dataset.setting;
     if (element.type === "number") {
@@ -2974,6 +2978,7 @@ function rebindAfterRender() {
   bindModalBackground();
   reflectWriteOperation();
   guardUnwiredNavigation();
+  bindSettingsPages();
 }
 
 /**
@@ -4879,12 +4884,15 @@ function openSettingsDialog() {
   }
 
   closeLiveOverlay();
+  // 每次打开都从第一个分类开始；草稿只在**本次打开期间**跨分类保留未保存编辑。
+  live.settingsPage = "appearance";
+  live.settingsDraft = {};
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay settings-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "设置 — Augit",
-    liveSettingsBody(),
+    liveSettingsBody("appearance"),
     `<button type="button" class="secondary-button" data-settings-action="cancel">取消</button>`
       + `<button type="button" class="primary-button" data-settings-action="save">保存</button>`,
     true,
@@ -4892,6 +4900,113 @@ function openSettingsDialog() {
   host.appendChild(layer);
   // 复用既有的保存动作绑定（它按 .dialog-xl 结构挂载）。
   bindSettingsSave();
+  bindSettingsPages();
+  void ensureGitDetection();
+}
+
+/** 读取一次 Git 检测结果（规格 §7.17 的 Git 分类要显示检测结果与最低版本）。 */
+async function ensureGitDetection() {
+  const live = window.__augitLive;
+  if (!live || live.gitDetection !== undefined) return live ? live.gitDetection : null;
+  live.gitDetection = null;
+  let detection = null;
+  try {
+    detection = await invoke("git/detect", {}, 15000);
+  } catch (error) {
+    detection = { available: false, reason: String((error && error.message) || error) };
+  }
+  live.gitDetection = detection || { available: false, reason: "无法读取 Git 检测结果。" };
+  // 对话框正开在 Git 分类上时补一次重绘，避免一直停在"正在检测…"。
+  if (live.settingsPage === "git" && document.querySelector(".settings-window")) renderSettingsDialog();
+  return live.gitDetection;
+}
+
+/** 收集当前分类里已改动的字段到草稿：切页/保存前都必须先调用，否则切页会丢编辑。 */
+function collectSettingsDraft() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const draft = live.settingsDraft || (live.settingsDraft = {});
+  for (const element of document.querySelectorAll(".settings-page [data-setting]")) {
+    const key = element.dataset.setting;
+    // 数字字段必须存成数字：宿主的 GetDouble 只接受 JSON number，
+    // 存字符串会被静默忽略（字号看起来保存成功、实际没生效）。
+    if (element.type === "number") {
+      const value = Number(element.value);
+      if (Number.isFinite(value)) draft[key] = value;
+    } else {
+      draft[key] = element.value;
+    }
+  }
+}
+
+/**
+ * 设置窗口的导航与字段联动（规格 §7.17）。
+ *
+ * 文档级委托 + 幂等守卫：设置对话框会被区域刷新整块替换，
+ * 挂节点的监听会随节点消失（同 `bindToolRail`/`bindSettingsSave` 的做法）。
+ */
+function bindSettingsPages() {
+  if (window.__augitSettingsPagesBound) return;
+  window.__augitSettingsPagesBound = true;
+
+  // 归属判定一律用"在 .settings-layout 里"，不写死外层容器类：
+  // 实时外壳是 `.settings-window`，`--scene settings` 是 `.dialog-xl`；
+  // 写死容器会让场景里的分类点了不动（实测踩过）。
+  document.addEventListener("click", (event) => {
+    const row = event.target.closest && event.target.closest("[data-settings-page]");
+    if (!row || !row.closest(".settings-layout")) return;
+    event.preventDefault();
+    switchSettingsPage(row.dataset.settingsPage);
+  }, true);
+
+  // 搜索框按分类名过滤（对应 PyCharm 设置窗口左侧搜索过滤分类树）。
+  document.addEventListener("input", (event) => {
+    const field = event.target.closest && event.target.closest("[data-settings-filter]");
+    if (!field || !field.closest(".settings-layout")) return;
+    const query = String(field.value || "").trim().toLowerCase();
+    for (const row of document.querySelectorAll(".settings-layout .settings-nav [data-settings-page]")) {
+      row.hidden = query.length > 0 && !row.textContent.trim().toLowerCase().includes(query);
+    }
+  }, true);
+
+  // Shell 不是"自定义命令"时禁用自定义启动命令输入框：避免"填了却不生效"的错觉。
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest && event.target.closest('[data-setting="terminalShell"]');
+    if (!select || !select.closest(".settings-layout")) return;
+    const layout = select.closest(".settings-layout");
+    const command = layout.querySelector('[data-setting="terminalCustomCommand"]');
+    if (command) command.disabled = select.value !== "Custom";
+  }, true);
+}
+
+/** 切到某个分类：先收草稿，再只重绘右页（左导航与底栏保持）。 */
+function switchSettingsPage(page) {
+  const live = window.__augitLive;
+  if (!live) return;
+  const allowed = ["appearance", "file-view", "git", "terminal"];
+  const next = allowed.includes(page) ? page : "appearance";
+  collectSettingsDraft();
+  live.settingsPage = next;
+  renderSettingsDialog();
+  // 切到 Git 分类时按需取检测结果（场景路径同样要能拿到，否则永远停在"正在检测…"）。
+  if (next === "git") void ensureGitDetection();
+}
+
+/** 用当前分类与草稿重绘设置对话框正文。 */
+function renderSettingsDialog() {
+  const live = window.__augitLive;
+  // 两种承载都要认：实时外壳用 `.settings-window` 覆盖层，
+  // `--scene settings` 场景用 `.dialog-xl`（实测只认前者时，场景里点分类不切页）。
+  const window_ = document.querySelector(".settings-window .settings-layout")
+    || document.querySelector(".dialog-xl .settings-layout")
+    || document.querySelector("[data-augit-overlay] .settings-layout");
+  if (!live || !window_) return;
+  const holder = document.createElement("template");
+  holder.innerHTML = liveSettingsBody(live.settingsPage || "appearance");
+  const replacement = holder.content.firstElementChild;
+  if (!replacement) return;
+  window_.replaceWith(replacement);
+  bindSettingsPages();
 }
 
 /** 关闭设置对话框。 */
@@ -7206,6 +7321,10 @@ async function boot() {
   if (wantsSettings) {
     window.__augitRender();
     bindSettingsSave();
+    // 场景渲染的设置页同样要能切分类（`__augitRender` 只走 bindInteractions，
+    // 不经过 rebindAfterRender，这里显式补一次；函数本身有幂等守卫）。
+    bindSettingsPages();
+    void ensureGitDetection();
   }
 
   if (wantsTerminal) {
