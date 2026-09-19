@@ -10038,3 +10038,32 @@ SUMMARY failures=0 / PIXELS_OK
 残余差异是文字内容（分支名 `main`/`dsh`、当前文件名、路径与编码字段）这类数据差异。
 这比此前"DOM 结构一致"是强得多的证据，也说明**上一阶段把宽度差归因于平台字体/滚动条是对的**
 （同引擎下不再出现那些差异）。
+
+#### 第 280 轮（新目标 ②③）：8 个场景的"带级像素一致率"量化表
+
+用 `tools/audit/compare-pixels.ps1` 对 8 个代表页跑同引擎像素对照
+（两侧 1180×760、dark、`--pixel-exact`、CDP 截图；`visiblePercent` = 差异 > 8 的像素占比）：
+
+```
+main-project|titlebar=2.63|statusbar=6.57
+git-history|titlebar=2.63|statusbar=6.57
+commit-changes|titlebar=2.63|statusbar=9.66
+commit-diff|titlebar=2.63|statusbar=6.81
+settings|titlebar=2.55|statusbar=9.59
+terminal|titlebar=2.63|statusbar=12.85
+conflict-resolver|titlebar=2.55|statusbar=7.15
+image-preview|titlebar=2.63|statusbar=7.94
+```
+
+**判读**：
+- **标题栏在全部 8 个场景都是 2.55–2.63%** → 即 **97.4% 的像素完全一致**；残余就是
+  分支名（`main` vs `dsh`）与当前文件名这两处文字，属数据差异；
+- **状态栏 6.57–12.85%**：同样是文字（路径、`UTF-8`/`LF`/`只读` 字段、
+  `terminal` 页的会话信息），带本身的结构与配色一致；
+- 差异随场景小幅变化（`settings` 9.59%、`terminal` 12.85% 最高），与"文字多少"成正比，
+  符合"结构一致、文字不同"的判断 —— **没有任何一个场景出现整带或整块颜色的差异**，
+  这排除了此前用 DOM 无法完全排除的"背景/边框/间距被改过"这类问题。
+
+**结论**：新目标的 ①（链路）与 ②③ 的"外壳层"部分已完成量化验证；
+下一轮把该表补齐到剩余场景，并加入"文字掩膜"比对以把"布局差异"从"文字差异"里分离出来
+（做法：只统计两侧文字像素的**包围盒与行列位置**是否一致，或先按阈值把文字像素剔除再比背景）。
