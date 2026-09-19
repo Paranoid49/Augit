@@ -25,7 +25,7 @@
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
-| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 50 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
+| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **49/49 PASS（2026-09-19 实测）**：默认列表 42 → 49（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm` 七个状态页），`SUMMARY total=49 passed=49 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260919-full/` |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
@@ -110,7 +110,7 @@
 
 **结论**（分母 = 全部 48 个视觉稿页面，逐个实测，无抽样）：
 
-- **50 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
+- **55 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
   图标底色逐像素一致，可见差异 100% 来自文字数据；唯一出现过的非 0 是 `terminal` 状态栏 4.11%，
   后被证明是**掩膜外扩不足**造成的指标假象（第 285 轮），把外扩从 1px 改为 3px 后同样是 0.00；
 - **字体等化（ux-spec §4.3 强制要求）**：实时外壳按**用户保存的字体设置**渲染（本机实测 14px Segoe UI），
@@ -219,6 +219,28 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 每行是一组可执行用例：**规格出处 → 已实现 → 证据位置（断言名）**。
 所有操作都用 CDP/Playwright 的真实鼠标键盘事件或宿主桩推送驱动，断言比较操作**之后**的界面状态。
+
+### 2.0 条文穷举进度（⑨，如实带分母）
+
+**口径（两件事分开说，避免把"行数"当"已覆盖条数"）**：
+- **分母** = `docs/ux-spec.md` 各节的**一级条文**（`- ` 开头）条数；
+- **分子** = 本文件里显式写出「规格出处 → 操作 → 状态转换 → 已实现 → 证据位置」的**用例行数**。
+  一条规格可能拆成多行（例如 §5.1 的折叠/恢复各一行），也可能一行都没有 ——
+  **因此"用例行数"是已覆盖条数的上界，不是逐条核对后的结果**；逐条打勾是 ⑨ 的剩余工作。
+
+| 章节 | 规格条数（分母） | 用例行数（上界） | 位置 |
+| --- | ---: | ---: | --- |
+| §4 全局视觉系统 | 35 | 20 | §1.2（视觉/令牌类以像素表与令牌表核销） |
+| §5 外壳与交互框架 | 29 | 33 | §2.1（11）+ §2.2（10）+ §2.3（7）+ §2.4（5） |
+| §6 异步加载与刷新不变量 | 40 | 19 | §2.5 |
+| §7 页面规格 | 210 | 14 | §2.6 |
+| §9 关键状态机 | 22 | 4 | §2.7 |
+| §10 空/错/禁用/危险 | 15 | 4 | §2.8 |
+| **合计** | **351** | **94** | §1.2 与 §2.1–§2.8 |
+
+> **当前事实：94 条用例行覆盖 351 条规格条文（上界 26.8%）**；缺口最大的是 §7（210 条只有 14 行）
+> 与 §6（40 条 19 行）。推进顺序：§7 按页面分批 → §6 → §5/§9/§10 补齐 → §4 的像素化核销。
+> 每一行的证据位置必须能在 `live-shell` 里找到对应断言名，找不到的不计入（宁少不虚）。
 
 ### 2.1 §5.1 工具窗口切换与标题栏菜单
 
