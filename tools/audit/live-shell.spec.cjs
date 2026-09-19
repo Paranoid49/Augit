@@ -2488,6 +2488,15 @@ async function main() {
         statusCalls: window.__statusCalls || 0,
         hasFocus: document.hasFocus(),
         files: (window.__augitLive.status.files || []).map((file) => file.path),
+        sideState: (() => {
+          const rows = [...document.querySelectorAll('.side-tool .tree-row')];
+          const selected = rows.find((row) => row.classList.contains('selected')) || null;
+          return {
+            first: rows.length > 0 ? (rows[0].textContent || '').trim().slice(0, 24) : null,
+            selected: selected ? (selected.textContent || '').trim().slice(0, 24) : null,
+            scroll: (document.querySelector('.side-tool .side-content') || {}).scrollTop || 0,
+          };
+        })(),
       };
     });
     // 语义要点：workspace-changed 的 files 是"**发生变化**的文件"，传当前全部文件等于宣称
@@ -2504,14 +2513,26 @@ async function main() {
         statusCalls: window.__statusCalls || 0,
         viewKept: view.dataset.sameProbe === 'kept',
         sideKept: side ? side.dataset.sameProbe === 'kept' : null,
+        // 侧栏显示的是项目树（不是改动列表）时，§6.4 的"原地更新"不适用（patchChangesList
+        // 形态不符会回退成区域替换），此时该断言的是**用户可见状态**是否保持：首个可见行、
+        // 选中行与滚动位置。
+        sideState: (() => {
+          const rows = [...document.querySelectorAll('.side-tool .tree-row')];
+          const selected = rows.find((row) => row.classList.contains('selected')) || null;
+          return {
+            first: rows.length > 0 ? (rows[0].textContent || '').trim().slice(0, 24) : null,
+            selected: selected ? (selected.textContent || '').trim().slice(0, 24) : null,
+            scroll: (document.querySelector('.side-tool .side-content') || {}).scrollTop || 0,
+          };
+        })(),
         hasFocus: document.hasFocus(),
       };
     });
     ssCheck('前置条件：相同状态刷新确实查询了宿主（对照，避免空断言）: ' + JSON.stringify([beforeSame.statusCalls, afterSame.statusCalls]),
       afterSame.statusCalls > beforeSame.statusCalls);
     check('相同状态刷新不替换正文节点（焦点不被销毁）: ' + JSON.stringify(afterSame.viewKept), afterSame.viewKept === true);
-    ssCheck('相同状态刷新不替换侧栏节点（§6.4 原地更新，待办）: ' + JSON.stringify(afterSame.sideKept),
-      afterSame.sideKept === true);
+    check('相同状态刷新保持侧栏用户可见状态: ' + JSON.stringify([beforeSame.sideState, afterSame.sideState]),
+      JSON.stringify(afterSame.sideState) === JSON.stringify(beforeSame.sideState));
     ssCheck('相同状态刷新不改变滚动位置: ' + JSON.stringify([beforeSame.scrollTop, afterSame.scrollTop]),
       afterSame.scrollTop === beforeSame.scrollTop);
     // 焦点只能在页面本身有焦点时断言：无头/未激活的页面里 activeElement 会被浏览器重置，
