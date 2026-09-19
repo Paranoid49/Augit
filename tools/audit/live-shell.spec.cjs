@@ -2923,6 +2923,53 @@ async function main() {
     });
     check('§7.4 错误条 Enter 与单击同效: ' + JSON.stringify(jsonLocateEnter),
       jsonLocateEnter.activeLine === '4' && jsonLocateEnter.focusIsCode === true);
+
+    // §7.3 第 3 条 / §7.4 第 2 条：模式控件是**26px 按钮步长、36px 工具栏高度**，
+    // 且 JSON 的双段式必须与 Markdown 的三段式**同一套尺寸与对齐**（规格明说"复用"）。
+    const modeGeometry = await jsonMode.page.evaluate(async () => {
+      const measure = (selector) => {
+        const view = document.querySelector(selector);
+        if (!view) return null;
+        const toolbar = view.querySelector('.document-toolbar');
+        const segments = [...view.querySelectorAll('.document-modes .segment')];
+        const rects = segments.map((node) => {
+          const rect = node.getBoundingClientRect();
+          return { w: +rect.width.toFixed(2), h: +rect.height.toFixed(2), x: +rect.x.toFixed(2), y: +rect.y.toFixed(2) };
+        });
+        return {
+          count: segments.length,
+          toolbarHeight: toolbar ? +toolbar.getBoundingClientRect().height.toFixed(2) : null,
+          rects,
+          gaps: rects.slice(1).map((rect, index) => +(rect.x - (rects[index].x + rects[index].w)).toFixed(2)),
+        };
+      };
+      const json = measure('.json-document');
+      window.__limitDocs = Object.assign({}, window.__limitDocs, {
+        'docs/geom.md': {
+          path: 'docs/geom.md', name: 'geom.md', fullPath: 'D:\\ws\\docs\\geom.md', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Markdown', typeName: 'Markdown', fileSize: 12,
+          text: '# 几何\n\n正文。', lineEndings: 'LF', encoding: 'UTF-8',
+        },
+      });
+      await window.__augitOpenDocument('docs/geom.md');
+      window.__augitRender();
+      await new Promise((r) => setTimeout(r, 300));
+      const markdown = measure('.markdown-document');
+      return { json, markdown };
+    });
+    const geometryRects = [].concat(
+      (modeGeometry.markdown && modeGeometry.markdown.rects) || [],
+      (modeGeometry.json && modeGeometry.json.rects) || []);
+    check('§7.3 模式控件 26px 步长/36px 工具栏，§7.4 JSON 复用同一控件（尺寸与对齐一致）: '
+      + JSON.stringify(modeGeometry),
+    !!modeGeometry.markdown && !!modeGeometry.json
+      && modeGeometry.markdown.count === 3 && modeGeometry.json.count === 2
+      && geometryRects.length === 5
+      && geometryRects.every((rect) => rect.w === 26 && rect.h === 26)
+      && modeGeometry.markdown.toolbarHeight === 36 && modeGeometry.json.toolbarHeight === 36
+      && modeGeometry.markdown.gaps.every((gap) => gap === 0)
+      && modeGeometry.json.gaps.every((gap) => gap === 0)
+      && Math.abs(modeGeometry.markdown.rects[0].y - modeGeometry.json.rects[0].y) <= 0.5);
     check('§7.4 JSON 用例无脚本错误: ' + JSON.stringify(jsonMode.errors.slice(0, 2)), jsonMode.errors.length === 0);
     await jsonMode.page.close();
 

@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1012/1012（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1013/1013（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -560,7 +560,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | ---: | --- | --- | --- | --- |
 | 1 | §7.3 | 从文件树打开时默认预览模式；用户切换模式后在当前会话记忆该选择 | 是 | 默认预览由 `Markdown 预览来自真实内容` 覆盖；会话内记忆由本轮断言 `§7.3 会话内记住文档模式、三段式切换不创建标签` 覆盖（切到 `source` → 打开另一个文档 → 切回，模式仍是 `source`，且另一个文档保持自己的 `preview`，互不污染） |
 | 2 | §7.3 | 原文、预览和左右对照使用编辑区右上角三段式切换，不创建三个标签 | 是 | 三段式控件在视觉稿与实现里（`document-modes`）；"不创建三个标签"由 `§7.3 会话内记住文档模式、三段式切换不创建标签` 覆盖（三种模式各切一遍后文档标签数不变）；**图标尺寸/图形复原仍无断言（见第 3 条）** |
-| 3 | §7.3 | 三段式沿用 PyCharm 紧凑图标控件：26px 按钮步长、36px 工具栏高度；三个图形各自复原；只有当前按钮显示内缩选中底色 | 部分 | 有像素基线（`markdown-preview` 1.42）；**26/36 两个数值与三图形复原没有断言** |
+| 3 | §7.3 | 三段式沿用 PyCharm 紧凑图标控件：26px 按钮步长、36px 工具栏高度；三个图形各自复原；只有当前按钮显示内缩选中底色 | 部分 | 已断言：`§7.3 模式控件 26px 步长/36px 工具栏，§7.4 JSON 复用同一控件`（DOM 实测 5 个段按钮全是 26×26、间距 0、工具栏 36px，两种文档控件垂直对齐一致）+ 像素基线（`markdown-preview` 1.42）+ 选中态断言（`aria-pressed`）。**未断言**：三个图形的形状复原、"只有当前按钮有底色"的样式取值（内缩底色本身只有像素基线） |
 | 4 | §7.3 | 左右对照分隔位置允许拖动，模式切换不丢失各自滚动位置 | 是 | `§7.3 拖动分隔条保留按下偏移并按实际宽度重排`（+120px 偏移）、`§7.3 模式切换不丢失各自滚动位置`（原文 180 / 预览 90 往返后逐位相等） |
 | 5 | §7.3 | 拖动保留按下偏移、越界停在最小栏宽、重复位置不重排、结束条件与保留比例 | 部分 | 已断言：按下偏移、越界夹紧（左侧宽度 = available − min(available/2,240)，±1.5px）、同坐标重复移动零写入（并有 1px 对照证明事件真的到达）、Esc 结束拖动并释放捕获且保留比例、方向键 2% 步进可还原。**未断言**：`pointercancel`/`lostpointercapture`、切出对照、标签隐藏/关闭结束拖动，以及"窗口过窄时暂时夹紧、恢复后沿用原比例" |
 | 6 | §7.3 | 预览加载期间保留原文或上一次预览，只在预览侧显示局部加载状态 | 未覆盖 | `markdown-preview` 有加载态像素页？**无断言** |
@@ -577,7 +577,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | # | 规格出处 | 条文 | 状态 | 证据 / 缺什么 |
 | ---: | --- | --- | --- | --- |
 | 1 | §7.4 | 原文和格式化使用双段式切换，均只读 | 是 | 两段式控件与 `json-preview` 像素行 + 本轮断言（切换后正文来自真实 `data-json-source`，控件本身不产生可编辑区）；**"均只读"的显式断言仍缺**，但目前没有把该行降级为部分 —— 切换路径已覆盖 |
-| 2 | §7.4 | 双段式复用 Markdown 模式控件的尺寸、对齐和状态规则，图形按 PyCharm 图标逐项复原 | 部分 | 同上：**尺寸/对齐/图形复原没有断言** |
+| 2 | §7.4 | 双段式复用 Markdown 模式控件的尺寸、对齐和状态规则，图形按 PyCharm 图标逐项复原 | 部分 | 已断言：与 Markdown 控件**同一套尺寸与对齐**（同一条几何断言，5 个段按钮逐值 26×26、间距 0、工具栏 36px、垂直中心相同）与禁用态（格式错误时 `disabled` + `title`）。**未断言**：图形（图标本身）按 PyCharm 图标逐项复原 |
 | 3 | §7.4 | 格式化结果使用两空格缩进并保留属性顺序 | 是 | 格式化正文由宿主 `JsonDisplayFormatter`（Core 单测 `使用两空格并保持属性顺序`）产生，界面显示宿主的 `formatted` 字段；harness `§7.4 原文显示真实来源、格式化用宿主结果且两空格缩进保序、不写回文件` 用**压缩原文 + 宿主格式化正文**验证界面用的确实是宿主结果（而不是原样显示原文） |
 | 4 | §7.4 | 格式错误时默认显示原文，并在顶部显示准确行列与错误文字；点击错误定位对应行 | 是 | harness `§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列`（`json-invalid` + 模式回落 `source` + 正文为原文 + 错误条文字含宿主给出的"第 4 行…第 19 列"）与 `§7.4 点击错误条定位到宿主给出的出错行并把焦点交给正文` |
 | 5 | §7.4 | 错误行列从 1 开始、列按 Unicode 标量计数、不显示字节偏移；错误条可 Tab 到达，Enter/Space 与单击同效；定位后焦点进正文 | 是 | 行列口径由 Core 单测 `错误行列从一开始并按Unicode字符计列` 覆盖（含中文、代理对、CRLF 共 8 组数据）；错误条是原生 `<button>`（harness 断言 `tagName=BUTTON` 且 `tabIndex=0`），`§7.4 错误条 Enter 与单击同效` 覆盖 Enter 与焦点进正文。**Space 未单独断言**（原生 button 的默认动作，与 Enter 同路径） |
@@ -1032,6 +1032,12 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     并暴露 `__augitRememberedDocumentMode()`；`markdownView()` 的优先级为
     URL 参数（审计/视觉稿）> 标签记忆 > 默认。
     证据：`§7.3 会话内记住文档模式、三段式切换不创建标签`。
+
+14. **模式控件的几何此前只靠像素基线"看着像"（§7.3 第 3 条 / §7.4 第 2 条，已补断言）** ——
+    规格把"26px 按钮步长、36px 工具栏高度"写成可核对数值，但此前只有一张像素图（`markdown-preview` 1.42）
+    作为证据，没有任何断言读真实 DOM。本轮补一条几何断言：Markdown 三个段按钮、JSON 两个段按钮
+    共 5 个 rect **逐个**等于 26×26、相邻间距 0、两种文档的工具栏高度都是 36px、且控件垂直中心一致
+    （JSON"复用 Markdown 控件"的直接证据）。图形形状本身（图标逐项复原）仍只有像素基线。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
