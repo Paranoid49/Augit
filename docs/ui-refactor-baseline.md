@@ -12688,3 +12688,30 @@ harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html
 **口径**：这 4 项从"疑似真死候选"改判为"`?scene=` 模式下点样例标签无反应"，
 实时路径（文档标签切换、提交详情的文件历史/Blame）由 harness 既有断言覆盖；
 不再把它们写成实缺陷，也不把"落兜底"混同为"没接线"。
+
+#### 第 371 轮：`diff-boundary` 真机验收补上（＋验收脚本两处工具问题）
+
+**这一格为什么以前是空的**：`verify-acceptance.ps1` 的巡检跑在**干净仓库**上，而 `diff-boundary`
+需要含改动的工作区（`--diff <path>`）；干净仓库下应用根本到不了这一页（第 345 轮实测
+`PAGE_CHECK_FAILED`），所以它被有意排除在场景列表之外。本轮用专门 fixture 把它补上：
+
+- fixture：`D:\tmp-augit-cap\diff-boundary-ws`（`git init` → 提交 `sample.txt`（**无行尾换行**）
+  → 改首行、改末行、加行尾换行）；
+- 直连 CDP 读数：`ready=true`、`errors=0`、`scene="diff-boundary"`、
+  提示"再次点击可进入下一个文件"、`.diff-filebar` = `sample.txt → sample.txt`、
+  `columns="diff-columns diff-boundary-columns"`、2 处被改行已渲染；
+- 截图：`artifacts/diff-boundary-20260921/accept-diff-boundary.png`（PrintWindow，白帧 0%）。
+
+**顺带修掉的两个工具问题（都不是应用缺陷，但都会误导结论）**：
+
+1. **跨 shell 传数组参数**：`powershell -File capture-surface.ps1 -ExtraArguments '--diff','sample.txt'`
+   会被拼成一个 token `--diff,sample.txt`，应用弹对话框（窗口类 `#32770`）、没有 CDP 目标 ——
+   我因此先怀疑"这个场景跑不起来"，两次都失败。改用 `-Command` + `@('--diff','sample.txt')`
+   后窗口类立刻恢复 `Augit.Shell.Window`。教训：**bash → powershell 传数组必须走 `-Command` 数组字面量**。
+2. **就绪判定是单次读取**：窗口出现后 `window.__augitReady` 还是 false，脚本直接判
+   `PAGE_NOT_READY`；已把 `capture-surface.ps1` 的页面检查改为**有界轮询**（≤12 次 ×1s），
+   改后同一条命令 `ATTEMPT 1 printwindowOk=True printwindowWhite=0%` + `SAVED`。
+   `verify-script-encoding.ps1` 复跑 PASS（12 个脚本）。
+
+**验收分母的写法**：巡检仍是 **54/54（干净仓库）**，`diff-boundary` 记为
+**1/1（含改动的工作区，单独一次）** —— 不把两者混成一个"55/55"来掩盖工作区差异。

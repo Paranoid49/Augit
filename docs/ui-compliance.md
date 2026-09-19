@@ -39,7 +39,7 @@
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
-| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-20 复跑）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |
+| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-20 复跑）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |；**`diff-boundary` 在"含改动的工作区"上单独验收 OK（第 371 轮）**
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-20 实测）**：`Augit-0.1.0-win-x64-portable.zip` **2,789,584 B**、`Augit-0.1.0-win-x64-setup.exe` **4,382,814 B**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
 
@@ -1148,6 +1148,24 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     因此这 4 项**不再列为"疑似真死"**：它们的动作对象在实时路径上由 `data-*` 标识驱动，
     场景模式渲染的是视觉稿样例；如实记成"`?scene=` 模式下点样例标签无反应"这一条口径，
     并保留"实时路径由 harness 断言覆盖"的既有事实。
+
+18. **`diff-boundary` 的真机验收 + 验收脚本两处工具问题（第 371 轮）** —— 该场景此前被排除在
+    验收巡检之外（它需要**含改动的工作区** `--diff <path>`，而巡检跑在干净仓库上）。
+    本轮用专门 fixture（`D:\tmp-augit-cap\diff-boundary-ws`：提交后改首行与末行、并去掉行尾换行）
+    补上这一格，直连 CDP 读到的页面事实：
+    `ready=true` / `errors=0` / `scene="diff-boundary"` / 边界提示"再次点击可进入下一个文件" /
+    `.diff-filebar` 标题 `sample.txt → sample.txt` / `columns="diff-columns diff-boundary-columns"` /
+    2 处被改行已渲染 —— **页面可达且边界态正确**。截图存
+    `artifacts/diff-boundary-20260921/accept-diff-boundary.png`（PrintWindow 非白帧 0%）。
+    过程中暴露并修掉两个**工具**问题（都不是应用缺陷）：
+    ① 通过 `-File` 传 `-ExtraArguments '--diff','sample.txt'` 会被拼成一个 token
+    `--diff,sample.txt`，应用因此弹出一个对话框（窗口类 `#32770`）且没有 CDP 目标 ——
+    实测两次都失败；改用 `-Command` + `@('--diff','sample.txt')` 数组传参后窗口类恢复为
+    `Augit.Shell.Window`。**结论：跨 shell 传数组参数必须用 `-Command` + 数组字面量**。
+    ② `capture-surface.ps1` 的就绪判定原来是**单次读取**，对这个场景抓到了
+    `PAGE ready=false` 而直接判 `PAGE_NOT_READY`；已改为**有界轮询**（最多 12 次、每次 1 秒），
+    改后同一命令 `ATTEMPT 1 printwindowOk=True printwindowWhite=0%` + `SAVED` 成功。
+    脚本改动后 `verify-script-encoding.ps1` 仍 PASS（12 个脚本、BOM-less 且纯 ASCII）。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

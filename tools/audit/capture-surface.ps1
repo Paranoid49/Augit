@@ -176,9 +176,18 @@ if (-not $SkipPageCheck) {
   . (Join-Path $PSScriptRoot 'cdp-eval.ps1')
   try {
     $socket = Get-CdpSocket $Port
-    $state = Invoke-Cdp $socket "JSON.stringify({ready:!!window.__augitReady,errors:window.__augitErrors||[],window:!!document.querySelector('.augit-window'),scene:(typeof window.__augitScene==='function'?window.__augitScene():null)})" 1 60
+    # Poll for readiness instead of a single read: the first read can land before the scene
+    # finished booting (diff-boundary against a modified workspace needs git reads, measured
+    # 2026-09-21 with PAGE ready=false right after the window appeared).
+    $state = $null
+    $parsed = $null
+    for ($attempt = 1; $attempt -le 12; $attempt++) {
+      $state = Invoke-Cdp $socket "JSON.stringify({ready:!!window.__augitReady,errors:window.__augitErrors||[],window:!!document.querySelector('.augit-window'),scene:(typeof window.__augitScene==='function'?window.__augitScene():null)})" $attempt 60
+      $parsed = $state | ConvertFrom-Json
+      if ($parsed.window -and $parsed.ready) { break }
+      Start-Sleep -Milliseconds 1000
+    }
     Write-Output ("PAGE " + $state)
-    $parsed = $state | ConvertFrom-Json
     if (-not $parsed.window -or -not $parsed.ready) { Write-Output "PAGE_NOT_READY"; try { $p.Kill() } catch {}; exit 7 }
     if ($parsed.errors -and $parsed.errors.Count -gt 0) { Write-Output ("PAGE_ERRORS " + $state); try { $p.Kill() } catch {}; exit 8 }
   } catch {
