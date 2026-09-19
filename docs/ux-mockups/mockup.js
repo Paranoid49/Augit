@@ -1136,6 +1136,7 @@ const scenePages = {
   "commit-diff": ["工作区 Diff", "选择变更文件后的稳定双栏预览"],
   "diff-boundary": ["Diff 文件边界", "再次同方向操作才进入相邻文件"],
   "git-history": ["Git 历史", "引用树、提交图、筛选、文件和元数据"],
+  "git-history-empty": ["Git 历史空态", "仓库还没有提交时的稳定空态：保留引用树与筛选栏"],
   "file-history": ["文件历史与 Blame", "限定当前路径的提交历史与逐行归属"],
   "git-compare": ["引用比较", "分支、标签、提交和工作区比较"],
   "history-diff-loading": ["历史 Diff 加载", "延迟加载反馈与原位取消"],
@@ -2684,7 +2685,12 @@ function liveGitLog(history, selected, cancelComparison, loading = false) {
   </section>`;
 }
 
-function gitLog(selected = true, complexGraph = false, cancelComparison = false) {
+function gitLog(selected = true, complexGraph = false, cancelComparison = false, emptyHistory = false) {
+  // 空历史视觉稿（规格 §10.1）：直接复用实时侧的同一渲染器与同一段文案，
+  // 避免"样例页自己写一份空态"与真实实现漂移（两侧标记同源才能做像素对照）。
+  if (emptyHistory && !(window.__augitLive && window.__augitLive.history)) {
+    return liveGitLog({ commits: [], head: null }, selected, cancelComparison, false);
+  }
   const liveHistory = window.__augitLive && window.__augitLive.history;
   // 复杂泳道图同样使用真实历史：结构化行已带父子关系，
   // 泳道由 buildCommitGraph 推导，不需要另用样例数据。
@@ -2859,7 +2865,7 @@ function liveToast() {
   return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
 }
 
-function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false } = {}) {
+function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false } = {}) {
   const live = window.__augitLive || null;
   // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
   // 之后以 live.layout 为准。视觉稿单独打开时没有 live，行为完全不变，
@@ -2941,7 +2947,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
-  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading") : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : "";
+  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : "";
   return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }
 
@@ -3084,6 +3090,7 @@ function renderScene() {
     case "commit-diff": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest" });
     case "diff-boundary": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "app.manifest", diffBoundary: true });
     case "git-history": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git" });
+    case "git-history-empty": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", emptyHistory: true });
     case "git-history-graph": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", complexGraph: true });
     case "file-history": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "file-history", selectedFile: "product-spec.md" });
     case "git-compare": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", workspaceComparison: true });

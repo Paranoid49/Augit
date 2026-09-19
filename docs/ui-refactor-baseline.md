@@ -11161,3 +11161,35 @@ WebView2 不显示明显滚动条，表现为"右侧和底部被切掉"。
 
 **工具与口径变更**：`compare-pixels.ps1` 新增 `-EqualizeFont`（默认 `$true`）与 `-EqualizeQuery`；
 `docs/ui-compliance.md` §1.1 的 48 行表已替换为**等化后的权威数值**（保留等化前数值用于对照）。
+
+#### 第 312 轮（⑭ 第 1 项）：补出"Git 历史空态"视觉稿——实时实现其实早已有，缺的是基线那一半
+
+**先把两边的现状查清（不猜）**：
+- **实时侧已实现**：`liveGitLog()` 里就有空态（`仓库还没有提交 / 提交后会显示在这里。`），
+  并且 harness 已有 **3 条断言**覆盖它（指定文案、保留引用树与筛选栏、右侧详情不得停在"正在读取"）；
+- **视觉稿侧缺失**：样例路径 `gitLog()` 永远渲染样例提交，`docs/ux-mockups/` 里也没有这一页 ——
+  所以这是"设计基线缺一项"，正是 ⑭ 要补的。
+
+**补法（让两侧标记同源，而不是另写一份样例空态）**：
+1. `shell()` 新增 `emptyHistory` 参数并透传给 `gitLog()`；`gitLog()` 在**非 live** 时若 `emptyHistory`
+   直接复用实时侧的同一渲染器：`liveGitLog({ commits: [], head: null }, …)`；
+2. 新增场景 `git-history-empty`（`scenePages` 登记）+ `docs/ux-mockups/git-history-empty.html`；
+3. `mockup-scenes` 由 48 → **49/49**（dark）通过。
+
+**真机像素对照（这次能真做，因为"空仓库"可以真造）**：用 `git init` 出来的空仓库当工作区
+（`D:\tmp-augit-cap\empty-repo`，无提交）跑 `compare-pixels.ps1 -Scene git-history-empty`：
+
+```
+titlebar 0.00 | statusbar 0.00 | content 0.64
+```
+
+实时侧截图肉眼核对：引用树保留 `HEAD（当前分支）`/`本地`、筛选栏保留、
+提交区显示"仓库还没有提交 / 提交后会显示在这里。"、右侧详情为"提交详情" —— **稳定空态且保留工具窗骨架**（§10.1）。
+content 0.64 来自样例引用名/样例树 vs 空仓库的真实树（数据差异）。
+
+**分母更新**：`docs/ui-compliance.md` §1.1 由 48 → **49 行**（新页一行）；
+`state-coverage-matrix` 第 1 项标记完成。
+
+**⑭ 剩余清单**（下一轮继续）：② 工作区 Diff 的"无差异/二进制/超限/失败"最终说明；
+③ 设置保存失败/只读失败；④ 引用比较无差异；⑤ 图片解码失败；⑥ 设置页"未保存修改"标记与分组折叠；
+⑦ 删除确认态是否需要专用页（先逐一截图确认）。
