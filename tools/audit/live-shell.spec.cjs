@@ -10338,6 +10338,63 @@ async function main() {
       await mb.page.close();
     }
 
+    // ---- 规格 §4.2 / design-system 310：窗口变窄必须"压缩"而不是溢出 ----
+    // 真实缺陷（用户显示器为 1646x1029 @175%，逻辑区仅 941x588）：
+    // `.augit-window` 曾写死 min-width:1024px / min-height:640px，窗口铺满时横向溢出 82px、
+    // 纵向溢出 52px —— 标题栏右侧把最大化/关闭按钮、底部把状态栏整个裁掉。
+    // 回归判据：外壳不得超出视口，状态栏与标题栏控件必须完整可见。
+    {
+      const ov = await openScene('scene=main-project&theme=dark');
+      await ov.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await ov.page.setViewportSize({ width: 942, height: 588 });
+      await ov.page.waitForTimeout(700);
+      const measure = () => ov.page.evaluate(() => {
+        const de = document.documentElement;
+        const box = (selector) => {
+          const node = document.querySelector(selector);
+          if (!node) return null;
+          const rect = node.getBoundingClientRect();
+          return [Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom)];
+        };
+        const inside = (node) => {
+          const rect = node.getBoundingClientRect();
+          return rect.right <= window.innerWidth + 0.5 && rect.left >= -0.5
+            && rect.bottom <= window.innerHeight + 0.5 && rect.top >= -0.5;
+        };
+        return {
+          inner: [window.innerWidth, window.innerHeight],
+          overflowX: de.scrollWidth - window.innerWidth,
+          overflowY: de.scrollHeight - window.innerHeight,
+          shell: box('.augit-window'),
+          statusbar: box('.statusbar'),
+          statusbarInside: (function () {
+            const node = document.querySelector('.statusbar');
+            return node ? inside(node) : false;
+          })(),
+          controls: [...document.querySelectorAll('.titlebar .window-actions > *, .titlebar .top-button')]
+            .map((node) => ({
+              label: node.getAttribute('aria-label') || node.className,
+              inside: inside(node),
+            })),
+        };
+      });
+      const narrow = await measure();
+      check('§4.2 窄窗口（942x588）外壳不溢出视口: ' + JSON.stringify([narrow.inner, narrow.overflowX, narrow.overflowY, narrow.shell]),
+        narrow.overflowX <= 1 && narrow.overflowY <= 1);
+      check('§4.2 窄窗口下状态栏完整可见: ' + JSON.stringify(narrow.statusbar),
+        narrow.statusbarInside === true);
+      check('§4.2 窄窗口下标题栏控件全部在视口内: ' + JSON.stringify(narrow.controls),
+        narrow.controls.length >= 5 && narrow.controls.every((control) => control.inside === true));
+      // 对照：普通窗口尺寸下同样不得溢出（避免把断言写成"只在窄屏成立"）。
+      await ov.page.setViewportSize({ width: 1180, height: 760 });
+      await ov.page.waitForTimeout(500);
+      const wide = await measure();
+      check('§4.2 对照：常规窗口（1180x760）同样不溢出: '
+        + JSON.stringify([wide.overflowX, wide.overflowY, wide.controls.length]),
+      wide.overflowX <= 1 && wide.overflowY <= 1 && wide.controls.every((control) => control.inside === true));
+      await ov.page.close();
+    }
+
     // ---- 规格 §5.1：标题栏右侧搜索/设置入口必须真的执行动作 ----
     // 用户实测：右上角放大镜与齿轮点了没反应。根因是它们没有任何绑定，
     // 落进 guardUnwiredNavigation 的"其余尚未接线"兜底（只 preventDefault）。

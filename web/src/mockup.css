@@ -119,10 +119,16 @@ button {
 }
 
 .augit-window {
-  width: 100vw;
+  /* 外壳自身绝不设最小尺寸：规格要求"窗口变窄时先压缩左侧工具窗口和 Git 详情区"
+     （ux-spec §4.2 / design-system 第 310 行，side-panel-min = 300）。
+     这里曾写死 min-width:1024px / min-height:640px，于是在逻辑 941x588 的屏幕上
+     （175% 缩放的 1646x1029 显示器）窗口一铺满就横向溢出 82px、纵向溢出 52px ——
+     标题栏右侧把最大化/关闭按钮、底部把状态栏整个裁掉（实测截图可见只剩半个最小化按钮）。
+     需要最小宽度的是**正文/列表内容**，它们各自已有 min-width:0 或局部横向滚动。 */
+  width: 100%;
+  /* 高度必须绑定视口：写成 height:100% 时父级高度是 auto，会退化成"内容高度"
+     （实测 942x588 的窗口里 .augit-window 被撑到 1220，状态栏落到视口外）。 */
   height: 100vh;
-  min-width: 1024px;
-  min-height: 640px;
   display: grid;
   grid-template-rows: 44px minmax(0, 1fr) 23px;
   background: var(--augit-chrome);
