@@ -19,7 +19,14 @@ $DefaultScenes = @(
   'file-limit', 'commit-changes', 'commit-diff', 'git-history', 'file-history', 'blame',
   'git-compare', 'conflict-list', 'conflict-resolver', 'stash', 'stash-manager',
   'worktrees', 'remote', 'workspace-open', 'settings', 'terminal', 'quick-open',
-  'repository-search', 'operation-result', 'repository-init'
+  'repository-search', 'operation-result', 'repository-init',
+  # Every remaining page that ux-spec 12.1 requires to be reachable in the real app.
+  # They were verified in a separate pass first (17/17) and are listed here so a single
+  # sweep covers the whole 12.1 page set.
+  'reset', 'rollback', 'push', 'push-no-remote', 'clone', 'branches', 'smart-checkout',
+  'operation-progress', 'commit-empty', 'diff-loading', 'quick-open-empty', 'search-limited',
+  'terminal-close', 'project-context-menu', 'changes-context-menu', 'git-history-menu',
+  'git-unavailable'
 )
 
 # `powershell -File ... -Scenes a,b` arrives as one comma-joined string, so split it.

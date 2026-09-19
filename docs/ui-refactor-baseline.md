@@ -10814,3 +10814,39 @@ reset 可用、`ux-spec` §12.1 要求该页在真实应用中可到达，但桥
 
 **交付文档同步**：`docs/ui-compliance.md` 的 §7.11 行改为"已实现"，
 §3.2 记为"汉堡菜单监听累积（已修复）"，并新增 §3.3「本阶段新增接线」记录 Reset。
+
+#### 第 303 轮（收尾 ⑧）：真机全场景巡检 42/42 + 打包验证通过
+
+**真机全场景巡检**（`tools/audit/verify-acceptance.ps1`，Release 构建、`--theme dark`、settle 2.5s）：
+
+```
+SUMMARY total=25 passed=25 failed=0   ACCEPTANCE_OK   （默认场景列表）
+SUMMARY total=17 passed=17 failed=0   ACCEPTANCE_OK   （ux-spec 12.1 要求但不在默认列表的页面）
+```
+
+第二步的 17 个场景是 `reset`、`rollback`、`push`、`push-no-remote`、`clone`、`branches`、
+`smart-checkout`、`operation-progress`、`commit-empty`、`diff-loading`、`quick-open-empty`、
+`search-limited`、`terminal-close`、`project-context-menu`、`changes-context-menu`、
+`git-history-menu`、`git-unavailable`。两批合起来覆盖了 `ux-spec` §12.1 表格里的**全部页面**。
+
+**工具改进**（`tools/audit/verify-acceptance.ps1`，改完过 `verify-script-encoding` PASS）：
+把上述 17 个场景并入默认列表，此后**一次巡检**就覆盖 §12.1 全部页面（42 个场景），
+不再需要额外的 `-Scenes` 手工列表。
+
+**打包验证**（`tools/release.ps1`，退出码 0，`$ErrorActionPreference='Stop'` 下任何一步失败都会抛出）：
+
+```
+artifacts/Augit-0.1.0-win-x64-portable.zip   2776666 B
+artifacts/Augit-0.1.0-win-x64-setup.exe      4373513 B
+artifacts/SHA256SUMS.txt                     两项
+sha256sum -c SHA256SUMS.txt -> 两个文件都 OK
+```
+
+**包内容抽查**（确认发出去的是本轮代码，而不是旧产物）：
+包内 `Augit.dll` 含 `git/reset`（UTF-16 字符串，272896 B）；
+包内 `web/src/live-data.js`（298691 B）含 `__augitResetRequest`。
+
+**结论**：目标里的收尾项 ⑧ 完成。当前全线基线：
+`live-shell` **917/917**、真机巡检 **42/42**、`mockup-scenes` 48/48 ×2 主题、
+`verify-ui-assets` PASS、`verify-script-encoding` PASS（12 个脚本）、
+`dotnet format --verify-no-changes` 通过、Release 构建 0 警告 0 错误、打包三项产物与校验和齐备。
