@@ -11051,3 +11051,27 @@ PyCharm 的分组折叠箭头未做（我们是不分组表头），已记入三
 **④ 进行中**：剩余 **31 个场景**的同引擎像素对照已在后台启动（统一带 `--no-session-restore`，
 `file-limit` 用 `--open <工作区内 .dll>` 造出同类"不可预览"内容，`diff-boundary` 用 `--diff src/App.cs`），
 结果表在下一轮汇总。
+
+#### 第 309 轮（④ 测量完成 / ⑤ 完成）：48/48 场景同引擎像素对照 + 48/48 真机巡检
+
+**④ 同引擎像素对照补齐到 48/48**（前 17 页 + 本轮 31 页）：
+
+- 全部 31 个新场景统一带审计开关 `--no-session-restore`（第 308 轮加的），因此**不再有会话恢复污染**；
+- **48/48 场景的 `titlebar` 与 `statusbar` 的 `layoutPercent` 全部 0.00**；
+  内容带 0.00（`commit-empty`）～4.09（`diff-boundary`）；
+- 31 个新场景的内容带区间：0.00–4.09，前六高为 `diff-boundary` 4.09、`git-compare` 4.08、
+  `changes-context-menu` 3.80、`operation-progress` 3.21、`branches` 2.81、`quick-open` 2.56；
+- **复核方法（可复跑）**：对内容带做**分区域拆分统计**（左栏 x<300 / 内容区 x≥300），
+  实测左栏 0.29–2.39（真实仓库树 vs 样例树）、内容区 2.62–5.47；再对最高项裁图肉眼核对 ——
+  `git-compare` 两侧**行高、工具栏、文件栏、行号列全部对齐**，差异来自真实路径
+  `src/Augit.App/app.manifest` 与样例 `src/AugitApp/app.manifest` 的文本长度与字宽（数据差异）。
+- `settings` 一行因第 306 轮的设置改版而重测：content **0.28 → 0.05**（两侧现在共用同一份四分类模板）。
+- `history-diff-failure` 首次抓图得到 **276×45** 的视觉稿侧截图（明确的取图竞态），
+  重跑后 1180×760、content 1.37 —— 这类竞态必须重跑而不是当作结果记录。
+
+**⑤ 真机巡检补齐到 48/48**：`verify-acceptance.ps1` 补跑缺的 6 个场景
+（`diff-boundary`、`git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading`）：
+`SUMMARY total=6 passed=6 failed=0 ACCEPTANCE_OK`，累计 **48/48**。
+
+**A 线的分母现在是事实**：视觉稿 48 页 = 像素对照 48 = 真机可达 48。
+`docs/ui-compliance.md` §1.1 已换成 48 行完整表（含每行判读），结论段补上覆盖率与复核方法。

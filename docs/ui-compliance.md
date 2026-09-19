@@ -22,7 +22,7 @@
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
 | 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **942/942**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
-| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（16 场景） |
+| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**48/48 场景**） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS**（默认场景列表已补齐到 `ux-spec` §12.1 要求的全部页面；实测 25/25 + 17/17 = **42/42**） |
@@ -52,29 +52,68 @@
 
 | 场景 | titlebar | statusbar | content | 判读 |
 | --- | --- | --- | --- | --- |
-| `main-project` | 0.00 | 0.00 | 1.95 | 数据差异 |
-| `commit-changes` | 0.00 | 0.00 | 0.37 | 数据差异 |
-| `commit-diff` | 0.00 | 0.00 | 3.71 | 数据差异（真实 diff vs 样例） |
-| `settings` | 0.00 | 0.00 | 0.28 | 数据差异 |
-| `terminal` | 0.00 | 0.00 | 1.13 | **修复后**（修复前 21.40%，xterm 未传 theme） |
-| `conflict-resolver` | 0.00 | 0.00 | 0.60 | 数据差异 |
-| `blame` | 0.00 | 0.00 | 1.51 | 数据差异 |
-| `file-history` | 0.00 | 0.00 | 0.67 | 数据差异 |
-| `image-preview` | 0.00 | 0.00 | **0.01** | 两侧是**同一张真实 PNG**，仅 50/595138 平坦像素不同 |
+| `blame` | 0.00 | 0.00 | 1.51 | 数据差异（真实数据 vs 样例） |
+| `branches` | 0.00 | 0.00 | 2.81 | 数据差异（真实数据 vs 样例） |
+| `changes-context-menu` | 0.00 | 0.00 | 3.80 | 右键菜单为样例叠加层，差异来自真实改动列表数据 |
+| `clone` | 0.00 | 0.00 | 0.10 | 数据差异（真实数据 vs 样例） |
+| `commit-changes` | 0.00 | 0.00 | 0.37 | 数据差异（真实数据 vs 样例） |
+| `commit-diff` | 0.00 | 0.00 | 3.71 | 数据差异（真实数据 vs 样例） |
+| `commit-empty` | 0.00 | 0.00 | 0.00 | 空态：两侧都是样例骨架，几乎逐像素一致 |
+| `conflict-list` | 0.00 | 0.00 | 0.06 | 数据差异（真实数据 vs 样例） |
+| `conflict-resolver` | 0.00 | 0.00 | 0.60 | 数据差异（真实数据 vs 样例） |
+| `diff-boundary` | 0.00 | 0.00 | 4.09 | 同 git-compare 类（真实补丁内容） |
+| `diff-loading` | 0.00 | 0.00 | 1.64 | 数据差异（真实数据 vs 样例） |
+| `file-history` | 0.00 | 0.00 | 0.67 | 数据差异（真实数据 vs 样例） |
+| `file-limit` | 0.00 | 0.00 | 0.01 | 两侧都是"不可预览"页（数据不同） |
+| `git-compare` | 0.00 | 0.00 | 4.08 | 裁图复核：真实路径/文本差异，行高·工具栏·文件栏·行号全部对齐 |
+| `git-history` | 0.00 | 0.00 | 1.73 | 数据差异（真实数据 vs 样例） |
+| `git-history-graph` | 0.00 | 0.00 | 1.39 | 数据差异（真实数据 vs 样例） |
+| `git-history-menu` | 0.00 | 0.00 | 1.05 | 数据差异（真实数据 vs 样例） |
+| `git-unavailable` | 0.00 | 0.00 | 0.51 | 数据差异（真实数据 vs 样例） |
+| `go-to-line` | 0.00 | 0.00 | 0.62 | 数据差异（真实数据 vs 样例） |
+| `history-diff-cancelled` | 0.00 | 0.00 | 1.36 | 数据差异（真实数据 vs 样例） |
+| `history-diff-failure` | 0.00 | 0.00 | 1.37 | 数据差异（真实数据 vs 样例） |
+| `history-diff-loading` | 0.00 | 0.00 | 1.60 | 数据差异（真实数据 vs 样例） |
+| `image-preview` | 0.00 | 0.00 | 0.01 | 两侧是**同一张真实 PNG**，仅 50/595138 平坦像素不同 |
+| `json-preview` | 0.00 | 0.00 | 1.20 | 数据差异（真实数据 vs 样例） |
+| `main-project` | 0.00 | 0.00 | 1.95 | 数据差异（真实数据 vs 样例） |
+| `markdown-preview` | 0.00 | 0.00 | 1.41 | 数据差异（真实数据 vs 样例） |
+| `operation-progress` | 0.00 | 0.00 | 3.21 | 进行中提示为样例文案 + 真实状态栏数据 |
+| `operation-result` | 0.00 | 0.00 | 3.09 | 数据差异（真实数据 vs 样例） |
+| `project-context-menu` | 0.00 | 0.00 | 0.35 | 数据差异（真实数据 vs 样例） |
+| `push` | 0.00 | 0.00 | 0.56 | 数据差异（真实数据 vs 样例） |
+| `push-no-remote` | 0.00 | 0.00 | 0.39 | 数据差异（真实数据 vs 样例） |
+| `quick-open` | 0.00 | 0.00 | 2.56 | 空查询浮层 vs 样例结果（模式差异） |
+| `quick-open-empty` | 0.00 | 0.00 | 0.67 | 数据差异（真实数据 vs 样例） |
+| `remote` | 0.00 | 0.00 | 0.70 | 数据差异（真实数据 vs 样例） |
+| `repository-init` | 0.00 | 0.00 | 0.32 | 数据差异（真实数据 vs 样例） |
 | `repository-search` | 0.00 | 0.00 | 2.94 | 浮层头部逐像素一致，差异只在结果区（空查询 vs 样例结果） |
-| `markdown-preview` | 0.00 | 0.00 | 1.41 | 数据差异 |
-| `text-viewer` | 0.00 | 0.00 | 0.95 | 数据差异（已对齐"查找条打开"模式） |
-| `worktrees` | 0.00 | 0.00 | 1.46 | 数据差异 |
-| `stash-manager` | 0.00 | 0.00 | 1.37 | 数据差异 |
-| `remote` | 0.00 | 0.00 | 0.70 | 数据差异 |
-| `operation-result` | 0.00 | 0.00 | 3.09 | 数据差异（真实 diff vs 样例） |
-| `git-history` | 0.00 | 0.00 | 1.73 | 数据差异（真实提交与元数据 vs 样例） |
+| `reset` | 0.00 | 0.00 | 1.09 | 数据差异（真实数据 vs 样例） |
+| `rollback` | 0.00 | 0.00 | 0.73 | 数据差异（真实数据 vs 样例） |
+| `search-limited` | 0.00 | 0.00 | 0.55 | 数据差异（真实数据 vs 样例） |
+| `settings` | 0.00 | 0.00 | 0.05 | 306 轮设置分页改版后重测（此前 0.28） |
+| `smart-checkout` | 0.00 | 0.00 | 1.74 | 数据差异（真实数据 vs 样例） |
+| `stash` | 0.00 | 0.00 | 1.75 | 数据差异（真实数据 vs 样例） |
+| `stash-manager` | 0.00 | 0.00 | 1.37 | 数据差异（真实数据 vs 样例） |
+| `terminal` | 0.00 | 0.00 | 1.13 | **修复后**（修复前 21.40%，xterm 未传 theme） |
+| `terminal-close` | 0.00 | 0.00 | 0.36 | 数据差异（真实数据 vs 样例） |
+| `text-viewer` | 0.00 | 0.00 | 0.95 | 数据差异（真实数据 vs 样例） |
+| `workspace-open` | 0.00 | 0.00 | 0.09 | 数据差异（真实数据 vs 样例） |
+| `worktrees` | 0.00 | 0.00 | 1.46 | 数据差异（真实数据 vs 样例） |
 
-**结论**：
+**结论**（分母 = 全部 48 个视觉稿页面，逐个实测，无抽样）：
 
-- **17 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
+- **48 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
   图标底色逐像素一致，可见差异 100% 来自文字数据；唯一出现过的非 0 是 `terminal` 状态栏 4.11%，
   后被证明是**掩膜外扩不足**造成的指标假象（第 285 轮），把外扩从 1px 改为 3px 后同样是 0.00；
+- 覆盖率：**48/48 页**（前 17 页用早期链路，其余 31 页统一带审计开关 `--no-session-restore`，
+  避免上一次运行留下的活动文件污染场景渲染；`file-limit` 用工作区内 `.dll` 造出同类"不可预览"内容，
+  `diff-boundary` 用 `--diff src/App.cs`；`history-diff-failure` 首次抓图出现 276×45 的竞态截图，已重跑成功）；
+- 内容带 0.00–4.09 的复核方法：**分区域拆分统计**（左栏 x<300 与内容区 x≥300 分别算 `layoutPercent`）
+  + 最高项裁图复核。以 `git-compare`（内容带 4.08）为例，裁图显示两侧**行高、工具栏、文件栏、行号列全部对齐**，
+  差异来自真实路径 `src/Augit.App/app.manifest` 与样例 `src/AugitApp/app.manifest` 的字宽与文本长度；
+- 另有一处需要留意但**不是缺陷**：diff/比较视图的行号槽宽度按**实际补丁的最长行号**度量（设计如此），
+  所以真实补丁与样例补丁的槽宽可以不同 —— 这类"数据驱动的几何"要在 ⑦ 里按令牌口径单独判读。
 - 内容带 0.01%–3.09% 全部是数据或模式差异：判据不是"数字小"，而是①改动列表行分隔线位置
   逐像素一致；②同一张图片时几乎完全一致；③裁图复核后差异集中在文字/内容行；
 - 本阶段**只抓到并修掉了 1 个真实布局缺陷**（终端正文底色：xterm 创建时没有传 `theme`，
