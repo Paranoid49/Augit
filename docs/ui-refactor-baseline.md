@@ -12931,3 +12931,26 @@ Foreground/Background/Error stripe mark/Effects 色块 + Underscored 下拉、
 **结果**：生成器重出 `pycharm-interactions.md`（142 行）；
 `check-interactions.cjs` → `BASELINE surfaces=6 jumps=4 feedback=7 sequences=6 gaps=4`、
 `CHECKED 17 (pass=9 diff=2 gap=1 other=5)`、`INTERACTIONS_BASELINE_OK`；§0 同步为新的分母。
+
+#### 第 387 轮：设置分类树抄全 + `Tools › Terminal` 页面正文入基线（⑯ 第②项的残差也写清楚了）
+
+逐张读图（不是看文件名猜）后，四张连续截图覆盖了**整棵树**：
+- `p16-settings-tree-a.png`（树顶，搜索框为空）：Python / Jupyter / Project Structure / Appearance & Behavior / **Keymap（选中，整行浅蓝）** / Editor（展开）
+- `p16-settings-tree-b.png`：Editor▸Code Style 的语言段（VCS、Python、CSS、Data Editor and Viewer、Diagrams … reStructuredText）
+- `p16-settings-tree-c.png`：续段（Shell Script/TOML/TypeScript/XML/YAML、**By Scope（Images）**、Code Style、Inspections、File and Code Templates、File Encodings、Live Templates、File Types、Copyright、Inlay Hints、Emmet、Intentions、Language Injections）
+- `pycharm-settings-tree-tail.png`（树底）：**Plugins（Memory Usage）**、Version Control、Build, Execution, Deployment、Languages & Frameworks、**Tools**（Actions on Save … Terminal … Web Browsers and Preview）
+
+同张 tail 图还给出了 **`Tools › Terminal` 页面正文**，把此前只有文字注记的字段补上了视觉证据，
+且**逐值一致**：Terminal engine `Reworked 2025`；Command Completion ☑、
+◉ Only for parameters、`Ctrl+Space`、`Enter`；Start directory `D:\github\Augit`（灰态=默认）、
+Environment variables 空；**Font Settings：`JetBrains Mono` / Fallback `JetBrains Mono` /
+Size `13.0` / Line height `1.0` / Column width `1.0`**。
+
+**如实留的残差**：更早注记里的 7 个顶层项（System Settings、File Colors、Scopes、Notifications、
+Data Editor and Viewer、Quick Lists、Required Plugins）**没有**出现在这四张连续截图里，
+而末张已经到树底 —— 所以要么它们属于别的插件集/别的会话，要么我的截图段不连续。
+已在 `surfaces[pycharm.settings].notInTheseCaptures` 与 §3.1 里写成"待复核"，
+**没有**把这次的树写成"已抄全"。
+
+结果：生成器重出 `pycharm-interactions.md`（145 行）；`check-interactions.cjs` 仍
+`BASELINE surfaces=6 jumps=4 feedback=7 sequences=6 gaps=4`、`CHECKED 17`、`INTERACTIONS_BASELINE_OK`。

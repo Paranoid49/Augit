@@ -174,7 +174,56 @@
         "File Colors": []
       },
       "searchBehaviour": "搜索框输入关键字后左侧分类树被过滤成只含命中页面（实测 font 命中 Editor>Font、Color Scheme Font、Console Font；terminal 命中 Tools>Terminal）",
-      "breadcrumb": "右页顶部面包屑『分组 › 页面』+ 前进/后退箭头 + 右侧固定图标；被修改但未应用的页在树里带实心圆点（实测 Appearance 行有蓝点）"
+      "breadcrumb": "右页顶部面包屑『分组 › 页面』+ 前进/后退箭头 + 右侧固定图标；被修改但未应用的页在树里带实心圆点（实测 Appearance 行有蓝点）",
+      "treeTopLevelConfirmed": {
+        "order": [
+          "Python",
+          "Jupyter",
+          "Project Structure",
+          "Appearance & Behavior",
+          "Keymap",
+          "Editor",
+          "Plugins（Memory Usage）",
+          "Version Control",
+          "Build, Execution, Deployment",
+          "Languages & Frameworks",
+          "Tools（…、Startup Tasks、Tasks、Terminal、Web Browsers and Preview）"
+        ],
+        "evidence": [
+          "artifacts/pycharm-interactions-16/p16-settings-tree-a.png（树顶，搜索框为空）",
+          "artifacts/pycharm-interactions-16/p16-settings-tree-b.png（Editor▸Code Style 语言段）",
+          "artifacts/pycharm-interactions-16/p16-settings-tree-c.png（…By Scope/Code Style/Inspections/Live Templates/Emmet/Language Injections）",
+          "artifacts/pycharm-baseline-20260919/pycharm-settings-tree-tail.png（树底：Plugins…Tools▸Terminal/Web Browsers and Preview）"
+        ],
+        "notInTheseCaptures": [
+          "System Settings",
+          "File Colors",
+          "Scopes",
+          "Notifications",
+          "Data Editor and Viewer",
+          "Quick Lists",
+          "Required Plugins"
+        ],
+        "note": "上面 7 项来自更早的注记，**没有**出现在这四张连续截图里（末张已到树底）；可能是不同滚动段/不同插件集，需复核后才能写进'已抄全'。"
+      },
+      "treeEditorChildren": [
+        "General",
+        "Code Editing",
+        "Font",
+        "Color Scheme（General、Language Defaults、Color Scheme Font、Console Font、Code Review、Console Colors、Debugger、Diff & Merge、User-Defined File Types、VCS、Python、CSS、Data Editor and Viewer、Diagrams、Dockerfile、EditorConfig、gettext PO、HTML、HTTP Request、Ini、JavaScript、JSON、JSONPath、Jupyter Notebooks、Markdown、Mermaid、Properties、Puppet、RegExp、reStructuredText、Shell Script、TOML、TypeScript、XML、YAML）",
+        "By Scope（Images）",
+        "Code Style",
+        "Inspections",
+        "File and Code Templates",
+        "File Encodings",
+        "Live Templates",
+        "File Types",
+        "Copyright",
+        "Inlay Hints",
+        "Emmet",
+        "Intentions",
+        "Language Injections"
+      ]
     },
     {
       "id": "pycharm.main",
@@ -223,7 +272,15 @@
       "evidence": [
         "pycharm-settings-search-terminal.png"
       ],
-      "note": "PyCharm 的终端字体是独立设置；Augit 按产品规格第 163 行让终端跟随『等宽字体/字号』——属既定产品选择，不是缺陷，但必须在 ⑦ 对照表里列为差异"
+      "note": "PyCharm 的终端字体是独立设置；Augit 按产品规格第 163 行让终端跟随『等宽字体/字号』——属既定产品选择，不是缺陷，但必须在 ⑦ 对照表里列为差异",
+      "pageBodyConfirmed": {
+        "evidence": "artifacts/pycharm-baseline-20260919/pycharm-settings-tree-tail.png（面包屑 Tools › Terminal，右侧为页面正文）",
+        "Terminal engine": "Reworked 2025",
+        "Command Completion": "☑ Show a completion popup as you type：○ Always / ◉ Only for parameters；☑ Show completion popup with: Ctrl+Space；Insert suggestion with: Enter",
+        "Project Settings": "Start directory: D:\\github\\Augit（灰态=默认）；Environment variables: 空（占位符 'Environment variables'）",
+        "Font Settings": "Font: JetBrains Mono；Fallback: JetBrains Mono；Size: 13.0；Line height: 1.0；Column width: 1.0；Configure colors… 链接",
+        "note": "这组值与更早记录的 Tools›Terminal 字段**逐值一致**，本轮补上了视觉证据（此前只有文字注记）"
+      }
     },
     {
       "id": "pycharm.settings.editor-font",
