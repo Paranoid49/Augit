@@ -5030,6 +5030,33 @@ function bindSettingsPages() {
     const command = layout.querySelector('[data-setting="terminalCustomCommand"]');
     if (command) command.disabled = select.value !== "Custom";
   }, true);
+
+  // 未保存修改标记（PyCharm 实测的实心圆点）：随输入即时更新，但**不重绘右页** ——
+  // 重绘会把焦点与光标位置一起清掉（"输入一个字符就跳到开头"）。
+  // 只增删导航行上的标记节点，因此不需要重建页面。
+  const syncSettingsDirtyMarkers = () => {
+    const live = window.__augitLive;
+    const layout = document.querySelector(".settings-window .settings-layout")
+      || document.querySelector("[data-augit-overlay] .settings-layout");
+    if (!live || !layout) return;
+    collectSettingsDraft();
+    const dirty = settingsDirtyPages(live);
+    for (const row of layout.querySelectorAll(".settings-nav [data-settings-page]")) {
+      const page = row.dataset.settingsPage;
+      const existing = row.querySelector(".settings-dirty");
+      if (dirty.has(page) && !existing) {
+        row.insertAdjacentHTML("beforeend",
+          '<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>');
+      } else if (!dirty.has(page) && existing) {
+        existing.remove();
+      }
+    }
+  };
+  for (const type of ["input", "change"]) {
+    document.addEventListener(type, (event) => {
+      if (event.target.closest && event.target.closest(".settings-window .settings-page")) syncSettingsDirtyMarkers();
+    }, true);
+  }
 }
 
 /** 切到某个分类：先收草稿，再只重绘右页（左导航与底栏保持）。 */

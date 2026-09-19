@@ -37,6 +37,11 @@
   - 落地方案：`{"外观":["主题","界面字体","界面字号"],"文件查看":["正文字体","等宽字体","等宽字号","默认换行"],"Git":["git.exe 路径","检测结果","最低版本说明"],"终端":["Shell 类型","自定义启动命令"],"导航":"点击分类真正切页，右页只显示当前分类；切换保留未保存编辑；搜索框按分类过滤"}`
 - **compare_theme**：A —— 直接在 PyCharm 当前 Light 主题下对照，不切换其 IDE 主题
   - 确认人/时间：用户 2026-09-19 选择 A；备注：Augit 侧用 --theme light；dark 主题的 PyCharm 对照本轮不做（用户不改 IDE 偏好）
+- **settings_dirty_marker**：只补『未保存修改』标记，不做分组折叠；标记复用现有令牌 --augit-blue
+  - 确认人/时间：用户 2026-09-19 选择『只补标记，不做分组折叠』
+  - 落地方案：`{"标记位置":"设置导航里该分类行 + 对话框标题行","触发":"该分类存在未保存草稿（live.settingsDraft 含该页字段）","清除":"保存成功后消失；取消/关闭对话框不改磁盘也不留标记","分组折叠":"不做（Augit 分组表头保持现状）"}`
+- **default_wrap_conflict**：从设置页去掉『默认换行』一行，只保留正文查看时的自动换行动作
+  - 确认人/时间：用户 2026-09-19 选择『从设置页去掉这一行』
 
 ## 界面（surfaces）
 
@@ -95,13 +100,14 @@
 
 ## 已知缺口（gaps）
 
-- **settings-dirty-indicator**：未保存修改的分类标记（PyCharm 的实心圆点）｜证据：pycharm-settings-search-font.png（Appearance 行带蓝点）｜Augit：无此指示；草稿会保留但用户看不到哪里改了｜计划：候选：在导航行加未保存标记（需先定设计令牌，交用户确认）
+- **settings-dirty-indicator**：未保存修改的分类标记（PyCharm 的实心圆点）｜证据：pycharm-settings-search-font.png（Appearance 行带蓝点）｜Augit：已补未保存标记（第 316 轮）；分组折叠仍不做｜计划：已裁决并实现：导航行/标题行加未保存标记（复用 --augit-blue），不做分组折叠
 - **settings-terminal-font**：PyCharm 终端字体是独立设置（JetBrains Mono 13.0）｜证据：pycharm-settings-search-terminal.png｜Augit：按产品规格第 163 行跟随『等宽字体/字号』｜计划：既定选择，仅记录差异
-- **settings-group-fold**：PyCharm 分类分组可折叠（▼/▶）｜证据：pycharm-settings-tree-2/3.png｜Augit：分组表头不可折叠｜计划：已在三方覆盖清单登记
+- **settings-group-fold**：PyCharm 分类分组可折叠（▼/▶）｜证据：pycharm-settings-tree-2/3.png｜Augit：分组表头不可折叠｜计划：用户 2026-09-19 裁决：只补未保存标记，分组折叠不做（登记为差异）
+- **settings-font-page-content**：Editor › Font / Console Font 页面内容未抓到（只抓到分类路径与 UI 字体事实）｜证据：artifacts/pycharm-interactions-16/：p16-settings-search-font.png（分类路径）、p16b-page-editor-font.png、p16d-*.png｜Augit：Augit 的『文件查看』页字段按 product-spec 与 PyCharm 结构对齐，不照搬编辑器字体页｜计划：补抓需要 UI 自动化（设置树滚动位置随会话变化，固定坐标点击会落到别的分类）；已在 §3.1 如实登记
 
 ## 阻塞（blockers）
 
-- **pycharm-focus**：需要 PyCharm 处于前台才能做的交互抓取（打开设置、点击工具窗口、逐态截图）｜原因：Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口｜证据：FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活｜解除：用户在方便时点一下 PyCharm 使其成为前台（或用任务栏激活），随后即可继续抓取；不需要改任何 PyCharm 设置
+- **pycharm-focus**：需要 PyCharm 处于前台才能做的交互抓取（打开设置、点击工具窗口、逐态截图）｜原因：Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口｜证据：FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活｜解除：用户 2026-09-19 把 PyCharm 切到前台后本轮的抓取已完成（FOREGROUND_PID 7688 want=7688，31 张产物见 artifacts/pycharm-interactions-16/）；后续同类抓取仍需前台
 
 ## 对照配方（compareRecipe）
 

@@ -66,6 +66,7 @@
 | 全仓搜索 `repository-search` | ✅ | ✅ `search-state=empty` | ✅ `search-state=error` | ✅ `search-state=loading` | ✅ `search-state=limited`（截断，专用页 `search-limited`） | — |
 | 内置终端 `terminal` | ✅ 专用页 | ✅（无会话） | ✅（Shell 解析失败明确报错，不静默回退） | ✅（会话启动中） | ✅（关闭确认进行中） | ✅ `terminal-close` 专用页 |
 | 设置 `settings` | ✅ 四个分类页 | — | ✅ `settings-save-failure` 专用页（⑭ 第 3 项已完成：两侧像素 0.04；另有"把设置文件临时造成不可写再点保存"的真机交互证据） | 待人工确认（Git 检测中） | ✅ 非"自定义命令"时命令输入框禁用 | — |
+| 未保存修改标记 `settings-dirty` | ✅ 专用页（⑭ 第 6 项已完成：分类行实心圆点，复用 `--augit-blue`，两侧像素 0.03） | — | — | — | — | — |
 | Git 不可用 `git-unavailable` | ✅ 专用页 | — | ✅ | — | ✅ 整个 Git 模块禁用 | — |
 | 打开工作区 `workspace-open` | ✅ 专用页 | ✅（无最近目录） | ✅（启动降级） | ✅ | — | — |
 | 初始化仓库 `repository-init` | ✅ 专用页 | — | ✅ | ✅ | — | ✅（初始化确认） |
@@ -83,7 +84,7 @@
 | 3 | ~~设置保存失败/只读失败~~ **已完成** | §9.3/§10.2；harness 有 `settingsReadOnly` 断言但无视觉稿 | `docs/ux-mockups/settings-save-failure.html` + 场景 `settings-save-failure`（复用四分类设置页渲染器）+ 两侧底栏文案逐字一致；真机用"设置文件不可写"实测复现（像素 0.04，第 314 轮） |
 | 4 | ~~引用比较无差异/无共同祖先~~ **已完成（其中的"无差异"部分）** | §7.9 | `docs/ux-mockups/git-compare-empty.html` + 场景 `git-compare-empty`：`diffView(comparison, state="summary")` 复用同一比较框架，正文换成 `comparisonSummaryNotice()`；实时侧在"历史比较生效且无差异行"时改用同一措辞（工作区 Diff 仍用工作区措辞，有负向对照）。**"无共同祖先"当前产品面不可达**：Augit 的引用比较只有 `commit^ → commit`（`git show`）与 `HEAD → 工作区` 两条路径，没有"任意两个引用"的比较对话框（§7.9 末条的比较对话框尚未实现），因此不补该态，避免造一个界面到不了的页面 |
 | 5 | ~~图片解码失败~~ **已完成** | §7.5 | `docs/ux-mockups/image-error.html` + 场景 `image-error`（复用"不可预览文件"信息态）；实时侧判据改为按 `status` 而非 `kind`，并补 `<img>` 解码兜底；真机三样本实测 + 两侧像素 0.01（第 315 轮） |
-| 6 | 分组折叠 / 未保存修改标记（设置页） | PyCharm 实测（`pycharm-settings-search-font.png`） | 需先定设计令牌，交用户确认 |
+| 6 | ~~未保存修改标记~~ **已完成**；分组折叠**裁决不做** | PyCharm 实测（`pycharm-settings-search-font.png`、本轮 `artifacts/pycharm-interactions-16/`） | 用户 2026-09-19 裁决：只补标记（复用 `--augit-blue`），分组折叠登记为差异。标记已完成（页面 `settings-dirty` + 3 条 harness 断言 + 像素 0.03） |
 | 7 | 删除确认态（Stash/Worktree/远端）是否已有专用视觉稿 | 实现与 harness 有确认流程 | 先逐一截图确认，再决定是否补页 |
 
 > 说明：「待人工确认」的格子会在补图时先截图核对（避免把"实现里有"写成"视觉稿有"）；

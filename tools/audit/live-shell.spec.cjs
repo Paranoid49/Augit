@@ -4177,17 +4177,23 @@ async function main() {
       'broken.png': { path: 'broken.png', name: 'broken.png', fullPath: 'D:\\w\\broken.png', workspaceName: 'w', status: 'ImageDecodeFailed', kind: 'Png', typeName: 'PNG 图像', fileSize: 2048, dataUrl: null, pixelWidth: null, pixelHeight: null, message: '无法读取图片尺寸，已停止预览。' },
     }; });
     await limits.page.evaluate(() => window.__augitOpenDocument('broken.png'));
+    // 先等宿主载荷真的落地（document.path 切换），再看正文：否则读到的可能是上一个文件
+    // （archive.bin）的正文，断言会含糊地失败，拿不到"打开失败"还是"渲染滞后"的区分。
+    await limits.page.waitForFunction(
+      "() => window.__augitLive.document && window.__augitLive.document.path === 'broken.png'",
+      null, { timeout: 8000 }).catch(() => {});
     await limits.page.waitForFunction(
       "() => { const el = document.querySelector('.editor-content'); return !!el && el.innerText.indexOf('已停止预览') >= 0; }",
       null, { timeout: 8000 }).catch(() => {});
     const imageDecodeFailure = await limits.page.evaluate(() => ({
+      docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
       editor: window.__augitLive.editor,
       imgs: document.querySelectorAll('.editor-content .image-stage img').length,
       text: document.querySelector('.editor-content').innerText.replace(/\s+/g, ' ').slice(0, 160),
     }));
     check('§10.2 图片解码失败时显示宿主原因而不是破图: ' + JSON.stringify(imageDecodeFailure),
-      imageDecodeFailure.editor === 'file-limit' && imageDecodeFailure.imgs === 0
-        && imageDecodeFailure.text.includes('已停止预览'));
+      imageDecodeFailure.docPath === 'broken.png' && imageDecodeFailure.editor === 'file-limit'
+        && imageDecodeFailure.imgs === 0 && imageDecodeFailure.text.includes('已停止预览'));
 
     // 宿主说"就绪"、浏览器解不开（宿主只读文件头尺寸，截断的 IDAT 也会返回 ImageReady）：
     // 必须换成同一信息态，不能停在 naturalWidth=0 的空图。
@@ -4196,14 +4202,19 @@ async function main() {
     }; });
     await limits.page.evaluate(() => window.__augitOpenDocument('truncated.png'));
     await limits.page.waitForFunction(
+      "() => window.__augitLive.document && window.__augitLive.document.path === 'truncated.png'",
+      null, { timeout: 8000 }).catch(() => {});
+    await limits.page.waitForFunction(
       "() => { const el = document.querySelector('.editor-content'); return !!el && el.innerText.indexOf('无法解码') >= 0; }",
       null, { timeout: 8000 }).catch(() => {});
     const imageBrowserFailure = await limits.page.evaluate(() => ({
+      docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
       imgs: document.querySelectorAll('.editor-content .image-stage img').length,
       text: document.querySelector('.editor-content').innerText.replace(/\s+/g, ' ').slice(0, 160),
     }));
     check('§10.2 浏览器解不开的图片也给出原因: ' + JSON.stringify(imageBrowserFailure),
-      imageBrowserFailure.imgs === 0 && imageBrowserFailure.text.includes('无法解码'));
+      imageBrowserFailure.docPath === 'truncated.png' && imageBrowserFailure.imgs === 0
+        && imageBrowserFailure.text.includes('无法解码'));
     await limits.page.close();
 
     // ---- 跨模块用户流程：单点都对，组合起来未必对 ----
@@ -10707,6 +10718,44 @@ async function main() {
       check('§7.17 Git 分类显示检测结果与最低版本说明: ' + JSON.stringify([gitPage.detection, gitPage.calls]),
         gitPage.detection.includes('git.exe') && gitPage.detection.includes('2.47.1')
           && gitPage.notes.some((text) => text.includes('2.40')) && gitPage.calls >= 1);
+
+      // 未保存修改标记（⑭ 第 6 项，依据 PyCharm 实测的实心圆点）：
+      // 判定口径是"草稿值与磁盘值不同"，不是"碰过这个分类"，因此改回原值必须消失。
+      // 注意：这里**不能**再点标题栏齿轮 —— 设置对话框此刻是打开的（且停在 Git 分类），
+      // 遮罩会挡住点击（实测 Playwright 30s 超时：scrim intercepts pointer events）；
+      // 应先切回"外观"分类再改字号。
+      await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+      // "改回原值"必须改回**磁盘上的当前值**：本块的上一段测试已经保存过 fontSize=17，
+      // 写死 13 会与磁盘不同，标记本就应该保留（第一版就是这么假失败的）。
+      const diskFontSize = await st.page.evaluate(() => String(window.__augitLive.settings.fontSize));
+      await st.page.fill('.settings-window [data-setting="fontSize"]', '19');
+      await st.page.waitForTimeout(250);
+      const dirtyShown = await st.page.evaluate(() => ({
+        appearance: !!document.querySelector('.settings-window .settings-nav [data-settings-page="appearance"] .settings-dirty'),
+        fileView: !!document.querySelector('.settings-window .settings-nav [data-settings-page="file-view"] .settings-dirty'),
+        total: document.querySelectorAll('.settings-window .settings-nav .settings-dirty').length,
+      }));
+      check('§7.17 未保存修改标记只出现在被改动的分类: ' + JSON.stringify(dirtyShown),
+        dirtyShown.appearance === true && dirtyShown.fileView === false && dirtyShown.total === 1);
+      await st.page.fill('.settings-window [data-setting="fontSize"]', diskFontSize);
+      await st.page.waitForTimeout(250);
+      const dirtyCleared = await st.page.evaluate(() =>
+        document.querySelectorAll('.settings-window .settings-nav .settings-dirty').length);
+      check('§7.17 改回原值后未保存标记消失: ' + JSON.stringify([diskFontSize, dirtyCleared]), dirtyCleared === 0);
+      // 保存成功后关闭对话框再打开不应残留标记；保存本身也会关闭对话框，
+      // 因此这里用"对话框消失"作为保存生效的观测（随后的分类点击需要对话框仍在，
+      // 所以紧接着重新打开一次，恢复后续断言的前置条件）。
+      await st.page.fill('.settings-window [data-setting="fontSize"]', '14');
+      await st.page.waitForTimeout(200);
+      await st.page.evaluate(() => { window.__settingsWritten = {}; });
+      await st.page.locator('.settings-window [data-settings-action="save"]').click();
+      await st.page.waitForFunction('window.__settingsWritten && window.__settingsWritten.fontSize === 14', null, { timeout: 8000 });
+      await st.page.waitForFunction('!document.querySelector(".settings-window")', null, { timeout: 8000 }).catch(() => {});
+      const dirtyAfterSave = await st.page.evaluate(() => document.querySelectorAll('.settings-dirty').length);
+      check('§7.17 保存后未保存标记不残留: ' + JSON.stringify(dirtyAfterSave), dirtyAfterSave === 0);
+      // 恢复：重新打开对话框（下一个分类断言依赖它已打开）
+      await openSettings();
 
       // 终端分类：自定义启动命令只在"自定义命令"时可编辑，并写入宿主
       await st.page.locator('.settings-window [data-settings-page="terminal"]').click();

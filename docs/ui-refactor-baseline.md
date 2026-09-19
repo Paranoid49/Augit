@@ -11378,3 +11378,45 @@ harness 断言也从"只含 `无法访问`"加强为**四段都必须在**。
 
 **⑭ 剩余**：⑥ 设置页"未保存修改"标记与分组折叠（**需用户先定设计令牌**）；
 ⑦ 删除确认态是否需要专用页（先逐一截图核对）。
+
+#### 第 317 轮（⑭ 第 6 项 + 规范冲突裁决）：未保存修改标记；"默认换行"裁决为不实现
+
+**用户裁决（2026-09-19）**：① 只补"未保存修改"标记，**不做分组折叠**；② 设置页"默认换行"一行**去掉**，
+只保留正文查看时的自动换行。两条都写进 `docs/baselines/pycharm-interactions.json` 的 `decisions`
+（`settings_dirty_marker`、`default_wrap_conflict`），并由 `gen-interaction-baseline.cjs` 生成人类视图。
+
+**② 的核对结果：实现里本来就没有这一行** —— `settingsPageHtml("file-view")` 只有等宽字体/字号，
+正文工具栏上是「自动换行」按钮（查看时动作）。所以不需要改代码，只需把 §3.2 第 2 条从"待裁决"
+改成"已裁决 + 不实现"，避免交付文档继续把它记成"缺基线"。
+
+**① 的实现（标记复用既有令牌，不新增视觉语言）**：
+1. `SETTINGS_PAGE_KEYS`：分类 → 字段常量（与 `settingsPageHtml` 的 `data-setting` 一一对应）。
+   写成常量而不是反查 DOM，是因为标记必须**不重绘右页**地更新 —— 重绘会把焦点和光标位置清掉
+   （"输入一个字符光标跳到开头"是这类实现的典型症状）；
+2. `settingsDirtyPages(live)`：判定口径是**草稿值与该分类磁盘值不同**，不是"碰过该分类的字段"——
+   改回原值后标记必须消失，否则标记会骗人；数值字段按数字比较，避免 `13` 与 `"13"` 被误判；
+3. `settingsNavHtml()` 在脏分类行尾插入 `<span class="settings-dirty">`（6px 圆点，`--augit-blue`，
+   只占一个小节点、不改行高）；`liveSettingsBody()` 把 `settingsDirtyPages()` 传进布局；
+4. 实时侧在 `bindSettingsPages()` 里挂 `input`/`change` 捕获监听：只增删导航行上的标记节点；
+5. 视觉基线：`docs/ux-mockups/settings-dirty.html` + 场景 `settings-dirty`（静态基线里标"文件查看"）。
+   截图中"文件查看"行右侧的蓝点与 PyCharm `pycharm-settings-search-font.png` 里 Appearance 行的蓝点一致。
+
+**验证**：harness 新增 3 条 —— ①标记只出现在被改动的分类（其余为 0）；
+②**改回原值后标记消失**（负向验证"标记会骗人"这条）；③保存成功后重新打开不残留
+（`live-shell` 962 → 预期 965）；像素对照 `titlebar 0.00 | statusbar 0.00 | content 0.03`；
+`mockup-scenes` **54/54**；`verify-ui-assets` PASS。
+
+**⑯ 前台抓取（本轮实际完成的部分）**：用户把 PyCharm 切到前台后运行了 `artifacts/pycharm-interactions-16/`（31 张）：
+- 设置搜索结果的分类树（含 `Editor › Font`、`Color Scheme Font`、`Console Font` 路径）、
+  Appearance 页（`Use custom font: Microsoft YaHei UI / Size 12`）、Color Scheme 页与其子页列表、
+  分类树尾部三档滚动、主窗口 idle 与两处 hover；
+- **没抓到的**：`Editor › Font` / `Console Font` 的页面正文（字体名/字号/行距的具体值）。
+  原因如实登记：设置树的滚动位置随会话变化，固定坐标点击会落到别的分类
+  （三次尝试分别落到 Appearance / Live Templates / Color Scheme），补抓需要 UI 自动化。
+  已写进 `docs/ui-compliance.md` §3.1 与 `pycharm-interactions.json` 的新 gap `settings-font-page-content`；
+  同时把 `blockers.pycharm-focus` 的 `unblock` 更新为"本轮已解除，后续同类抓取仍需前台"。
+
+**分母更新**：`docs/ui-compliance.md` §1.1 由 53 → **54 行**；§0 基线表同步 965/965、54/54 ×2、54 场景、
+742 个 `check` 调用点；`verify-acceptance.ps1` 默认列表 48 → **49**（⑫ 复跑）。
+
+**⑭ 剩余**：⑦ 删除确认态（先逐一截图核对是否需要专用页）。

@@ -1765,6 +1765,43 @@ function settingsBodyFallback() {
 }
 
 /**
+ * 分类 → 该分类的字段（与 `settingsPageHtml` 里的 `data-setting` 一一对应）。
+ * 用于"未保存修改"标记；写成常量而不是去 DOM 里反查，是因为标记要在
+ * **不重绘右页**的前提下更新（重绘会打断用户正在输入的光标）。
+ */
+const SETTINGS_PAGE_KEYS = {
+  "appearance": ["theme", "textFontFamily", "fontSize"],
+  "file-view": ["monospaceFontFamily", "codeFontSize"],
+  "git": ["gitExecutablePath"],
+  "terminal": ["terminalShell", "terminalCustomCommand"],
+};
+
+/**
+ * 哪些分类有**未保存的修改**（规格 §7.17 的适配，依据 PyCharm 实测的实心圆点）。
+ *
+ * 判定口径是"草稿值与该分类的磁盘值不同"，而不是"碰过该分类的字段"：
+ * 改回原值后标记应当消失，否则标记会骗人。数值字段按数字比较，
+ * 避免 `13`（磁盘）与 `"13"`（输入框字符串）被判成不同。
+ */
+function settingsDirtyPages(live) {
+  const settings = (live && live.settings) || null;
+  const draft = (live && live.settingsDraft) || {};
+  const dirty = new Set();
+  if (!settings) return dirty;
+  for (const page of Object.keys(SETTINGS_PAGE_KEYS)) {
+    for (const key of SETTINGS_PAGE_KEYS[page]) {
+      if (!Object.prototype.hasOwnProperty.call(draft, key)) continue;
+      const next = draft[key];
+      const current = settings[key];
+      const numeric = typeof next === "number" || typeof current === "number";
+      const same = numeric ? Number(next) === Number(current) : String(next) === String(current);
+      if (!same) { dirty.add(page); break; }
+    }
+  }
+  return dirty;
+}
+
+/**
  * 设置分类（规格 §7.17）：四个分类各自一个页面，导航点击真正切页。
  * 静态视觉稿与实时外壳**共用同一份结构**，区别只有两点：
  * 取值来源（样例 vs 设置文件）与是否带 `data-setting`（决定能否保存）。
@@ -1776,12 +1813,17 @@ const SETTINGS_PAGES = [
   { id: "terminal", title: "终端", depth: 0 },
 ];
 
-function settingsNavHtml(page, live) {
+function settingsNavHtml(page, live, dirty) {
+  const dirtyPages = dirty || new Set();
   const row = (id, label, depth) => {
     const selected = page === id ? " selected" : "";
     const depthClass = depth > 0 ? ` depth-${depth}` : "";
     const attr = live ? ` data-settings-page="${id}"` : "";
-    return `<div class="tree-row${depthClass}${selected}"${attr}>${escapeHtml(label)}</div>`;
+    // 未保存修改标记：复用既有令牌 `--augit-blue`，只加一个点，不新增视觉语言。
+    const mark = dirtyPages.has(id)
+      ? `<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>`
+      : "";
+    return `<div class="tree-row${depthClass}${selected}"${attr}>${escapeHtml(label)}${mark}</div>`;
   };
   const filter = live ? ' data-settings-filter="true"' : "";
   return `<nav class="settings-nav">`
@@ -1847,11 +1889,11 @@ function settingsPageHtml(page, values, live) {
 }
 
 /** 设置窗口的完整正文：左侧分类导航 + 右侧**只显示当前分类**的页面。 */
-function settingsLayoutHtml(page, values, live) {
+function settingsLayoutHtml(page, values, live, dirty) {
   const active = SETTINGS_PAGES.some((item) => item.id === page) ? page : "appearance";
   const title = (SETTINGS_PAGES.find((item) => item.id === active) || {}).title || "外观";
   return `<div class="settings-layout${live ? " live-settings" : ""}">`
-    + settingsNavHtml(active, live)
+    + settingsNavHtml(active, live, dirty)
     + `<div class="settings-page" data-settings-page-body="${active}">`
     + `<h2>${escapeHtml(title)}</h2>`
     + settingsPageHtml(active, values, live)
@@ -1869,7 +1911,7 @@ function liveSettingsBody(page) {
     gitDetection: live ? live.gitDetection || null : null,
     gitMinimum: live && live.gitDetection ? live.gitDetection.minimumVersion : "2.40",
   });
-  return settingsLayoutHtml(page || (live && live.settingsPage) || "appearance", values, true);
+  return settingsLayoutHtml(page || (live && live.settingsPage) || "appearance", values, true, settingsDirtyPages(live));
 }
 
 // 外壳注入真实数据时的 Reset 对话框：目标提交取当前 HEAD，模式沿用规格说明。
@@ -3175,6 +3217,8 @@ function renderScene() {
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
     case "settings": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl") });
     case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。</span><a class="secondary-button" href="main-project.html">取消</a><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
+    // 未保存修改标记（⑭ 第 6 项，PyCharm 实测的实心圆点）：静态基线里直接标"文件查看"有草稿。
+    case "settings-dirty": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsLayoutHtml("appearance", null, false, new Set(["file-view"])), `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
     case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
     case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">推送失败</div><div>当前仓库未配置远端，Git 没有修改本地提交或工作区。</div><div class="commit-meta" style="margin-top:5px">关闭提示后不保留命令输出或操作历史。</div></div>` });
     case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("打开工作区", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} 最近目录</div><div class="tree-row">${icon("folder-open")} 选择目录…</div><div class="tree-row">${icon("clone")} 克隆仓库…</div></div><div class="management-detail"><h2>最近目录</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">同一目录已经打开时激活原窗口。</p></div></div>`, `<a class="secondary-button" href="main-project.html">取消</a><button class="primary-button">打开</button>`, true) });

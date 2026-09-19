@@ -1694,6 +1694,18 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 /* 设置保存失败：原因写在底栏帮助位，用语义红色（规格 §9.3 / §10.2）。 */
+/* 设置分类的"未保存修改"标记（规格 §7.17 的适配，依据 PyCharm 实测的实心圆点）。
+   复用 --augit-blue，不新增视觉语言；只占一个小圆点，不改变行高与文字基线。 */
+.settings-nav .tree-row .settings-dirty {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--augit-blue);
+  vertical-align: middle;
+}
+
 .dialog-footer .footer-help.settings-failure {
   color: var(--augit-red);
   white-space: normal;
