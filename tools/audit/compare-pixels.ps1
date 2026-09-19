@@ -34,7 +34,15 @@ param(
   # with the mockup scene (e.g. text-viewer shows the inline find bar, the live shell starts
   # without it). A FILE is used instead of an inline string because -File argument parsing
   # strips double quotes from embedded JS.
-  [string]$LiveSetupFile = ""
+  [string]$LiveSetupFile = "",
+  # Equalize typography before comparing. The live shell renders with the USER'S saved font
+  # settings (measured 14px Segoe UI on this machine) while the mockup renders the design
+  # baseline (13px Microsoft YaHei UI / Cascadia Mono). ux-spec 4.3 requires both sides to use
+  # the same font and size before any screenshot comparison, otherwise text metrics leak into
+  # the numbers. The live page accepts the same preview overrides as the mockup page
+  # (ui-size / ui-family / code-size / code-family), so the live URL is reloaded with them.
+  [bool]$EqualizeFont = $true,
+  [string]$EqualizeQuery = "ui-size=13&ui-family=Microsoft%20YaHei%20UI&code-size=13&code-family=Cascadia%20Mono"
 )
 $ErrorActionPreference = "Stop"
 if ($OutDir -eq "") { $OutDir = Join-Path $env:TEMP "augit-pixels" }
@@ -70,6 +78,21 @@ function Capture([string]$mode, [int]$port, [string]$out) {
     Start-Sleep -Seconds 3
   } else {
     Start-Sleep -Seconds 2
+    if ($EqualizeFont) {
+      # Reload the live page with the typography overrides (boot re-runs; preview params win
+      # over the saved settings), then wait until the shell is ready again.
+      $go = '(()=>{location.href=location.pathname+location.search+"&' + $EqualizeQuery + '";return "equalize";})()'
+      [void](Invoke-Cdp $socket $go 3 30)
+      Start-Sleep -Seconds 3
+      $ready = $false
+      for ($i = 0; $i -lt 20; $i++) {
+        $state = Invoke-Cdp $socket '(()=>!!window.__augitReady)()' 4 15
+        if ($state -eq $true) { $ready = $true; break }
+        Start-Sleep -Milliseconds 500
+      }
+      if (-not $ready) { Write-Output 'EQUALIZE_NOT_READY' }
+      Start-Sleep -Milliseconds 1500
+    }
     if ($LiveSetupFile -ne '' -and (Test-Path -LiteralPath $LiveSetupFile)) {
       $script = Get-Content -LiteralPath $LiveSetupFile -Raw -Encoding UTF8
       [void](Invoke-Cdp $socket $script 2 30)
