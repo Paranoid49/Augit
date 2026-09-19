@@ -694,9 +694,11 @@ async function main() {
           return {
             path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
             workspaceName: 'live-ws', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像',
-            fileSize: 70,
-            dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==',
-            pixelWidth: 1920, pixelHeight: 1200,
+            fileSize: 816,
+            // 桩给**真能解码的 400x300** PNG：图片页的 fit/步进/拖动都以 naturalWidth 计算，
+            // 用 1x1 会让几何断言全部退化成"1px 也满足边距"的假通过（实测踩过）。
+            dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAEsCAIAAABi1XKVAAAC90lEQVR42u3UQQ0AAAjEsHOENLTiCB2QJlWwx1I9ACdEAsCwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCDEsFwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIMSwXAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCDAvAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsAAMCzAsAMMCDAvAsAAMCzAsAMMCMCzAsAAMC8CwAMMCMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAAw5IAMCwAwwIMC8CwAAwLMCwAwwIwLMCwAAwLwLAAwwIwLADDAgwLwLAADAswLADDAjAswLAADAvAsADDAjAsAMMCDAvAsADDUgEwLADDAgwLwLAADAswLADDAjAswLAADAvAsIDPFtuNJqFsqmj9AAAAAElFTkSuQmCC',
+            pixelWidth: 400, pixelHeight: 300,
             text: null, encoding: null, lineEndings: null, message: null,
           };
         }
@@ -2600,6 +2602,97 @@ async function main() {
     check('图片文档把 dataUrl 带到渲染层: ' + JSON.stringify(imgState),
       imgState.editor === 'image' && String(imgState.dataUrl).startsWith('data:image/png')
         && imgState.src === imgState.dataUrl);
+
+    // ---- 规格 §7.5 图片缩放：核对**既有实现** `image-preview.js` 的契约 ----
+    // 第 330 轮我误判"四个按钮没有绑定"（只 grep 了 mockup.js/live-data.js，漏了 image-preview.js），
+    // 实际 fit/步进/拖动/滚轮/方向键/隐藏重置都在那里实现；本块把这些行为变成断言。
+    const zoomState = () => imgDoc.page.evaluate(() => {
+      const stage = document.querySelector('.image-stage');
+      const img = stage ? stage.querySelector('img') : null;
+      const button = (label) => document.querySelector(`.image-toolbar [aria-label="${label}"]`);
+      return {
+        ready: stage ? stage.dataset.ready === 'true' : null,
+        scale: stage ? Number(stage.dataset.scale) : null,
+        fit: stage ? stage.dataset.fit : null,
+        label: (document.querySelector('.image-zoom-label') || {}).textContent || null,
+        smallerDisabled: button('缩小') ? button('缩小').disabled : null,
+        largerDisabled: button('放大') ? button('放大').disabled : null,
+        gap: (function () {
+          if (!stage || !img) return null;
+          const s = stage.getBoundingClientRect();
+          const i = img.getBoundingClientRect();
+          return {
+            left: Math.round(i.left - s.left), right: Math.round(s.right - i.right),
+            top: Math.round(i.top - s.top), bottom: Math.round(s.bottom - i.bottom),
+            width: Math.round(i.width), height: Math.round(i.height),
+          };
+        })(),
+      };
+    });
+    await imgDoc.page.waitForFunction(
+      "() => { const s = document.querySelector('.image-stage'); return !!s && s.dataset.ready === 'true'; }",
+      null, { timeout: 8000 }).catch(() => {});
+    const fit = await zoomState();
+    check('§7.5 初次打开按适应区域显示：四边各留 ≥32px、不放大、比例标签与实测一致: ' + JSON.stringify(fit),
+      fit.ready === true && fit.fit === 'true' && fit.scale !== null && fit.scale <= 1 + 1e-3
+        && fit.gap !== null && fit.gap.width >= 64
+        && fit.gap.left >= 32 && fit.gap.right >= 32 && fit.gap.top >= 32 && fit.gap.bottom >= 32
+        && fit.label === `${Math.max(1, Math.round(fit.scale * 100))}%`);
+    // 放大：走到步进表里比当前大的下一个档位；缩小可用（即当前不是最小档）
+    await imgDoc.page.locator('.image-toolbar [aria-label="放大"]').click();
+    await imgDoc.page.waitForTimeout(250);
+    const zoomed = await zoomState();
+    const imageSteps = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
+    const expectedNext = imageSteps.find((value) => value > fit.scale + 1e-4);
+    check('§7.5 放大走到步进表的下一个档位: ' + JSON.stringify([fit.scale, zoomed.scale, expectedNext]),
+      zoomed.fit === 'false' && Math.abs(zoomed.scale - expectedNext) < 1e-3 && zoomed.smallerDisabled === false);
+    // 缩小：回到上一档
+    await imgDoc.page.locator('.image-toolbar [aria-label="缩小"]').click();
+    await imgDoc.page.waitForTimeout(250);
+    const shrunk = await zoomState();
+    check('§7.5 缩小回到上一个档位: ' + JSON.stringify([zoomed.scale, shrunk.scale, fit.scale]),
+      shrunk.scale < zoomed.scale
+        && Math.abs(shrunk.scale - (imageSteps.findLast((value) => value < zoomed.scale - 1e-4) ?? 0.1)) < 1e-3);
+    // 适应区域：回到 fit 且四边重新留出 32px
+    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.waitForTimeout(250);
+    const refit = await zoomState();
+    check('§7.5 适应区域重新居中并恢复边距: ' + JSON.stringify([refit.fit, refit.gap]),
+      refit.fit === 'true' && refit.gap !== null
+        && refit.gap.left >= 32 && refit.gap.right >= 32 && refit.gap.top >= 32 && refit.gap.bottom >= 32);
+    // 两端档位必须禁用按钮，且连点也不能越过 800% / 10%（负向控制）
+    await imgDoc.page.evaluate(() => {
+      const stage = document.querySelector('.image-stage');
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+      return stage.dataset.scale;
+    });
+    await imgDoc.page.waitForTimeout(300);
+    const capped = await zoomState();
+    check('§7.5 放大到 800% 后按钮禁用且不再继续放大: ' + JSON.stringify([capped.scale, capped.label, capped.largerDisabled]),
+      Math.abs(capped.scale - 8) < 1e-3 && capped.label === '800%' && capped.largerDisabled === true);
+    await imgDoc.page.evaluate(() => {
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="缩小"]').click();
+    });
+    await imgDoc.page.waitForTimeout(300);
+    const floored = await zoomState();
+    check('§7.5 缩小到 10% 后按钮禁用: ' + JSON.stringify([floored.scale, floored.label, floored.smallerDisabled]),
+      Math.abs(floored.scale - 0.1) < 1e-3 && floored.label === '10%' && floored.smallerDisabled === true);
+    // 隐藏视图时不接受滚轮输入（规格 §7.5：隐藏视图不接受旧输入）
+    const hiddenInput = await imgDoc.page.evaluate(() => {
+      const stage = document.querySelector('.image-stage');
+      const before = stage.dataset.scale;
+      const originalHidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden');
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, bubbles: true, cancelable: true }));
+      const afterHidden = stage.dataset.scale;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true, bubbles: true, cancelable: true }));
+      const afterVisible = stage.dataset.scale;
+      if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden);
+      return { before, afterHidden, afterVisible };
+    });
+    check('§7.5 隐藏时不接受滚轮输入、可见时按档位缩放: ' + JSON.stringify(hiddenInput),
+      hiddenInput.afterHidden === hiddenInput.before && hiddenInput.afterVisible !== hiddenInput.before);
     await imgDoc.page.close();
 
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----

@@ -388,7 +388,7 @@
     },
     "image_zoom_scope": {
       "decision": "按 ux-spec §7.5 实现完整的图片缩放/平移（选项①），并保留视觉稿里的四个按钮",
-      "confirmedBy": "用户 2026-09-19 选择『① 要：按 ux-spec 实现完整缩放/平移』",
+      "confirmedBy": "用户 2026-09-19 选择①（按 ux-spec 实现/保留完整缩放平移）；第 333 轮更正：实现早已存在，本轮补断言",
       "whyItWasAConflict": "ux-spec §7.5 有 8 条缩放/平移要求，product-spec 第 49-50 行只要求格式与体积/像素上限、超限或解码失败显示文件信息；视觉稿与 liveImageDocument() 都画了按钮但全仓库没有绑定",
       "scope": [
         "步进表：10/25/50/75/100/125/150/200/300/400/600/800%，比例按图片物理像素计算",
@@ -405,7 +405,8 @@
         "harness：步进/适应/边界/焦点保留/未完成输入清除 各至少 1 条断言 + 至少 1 条负向对照",
         "视觉基线：新增/扩展 image-preview 的缩放态页（如 100% / 适应 / 放大后拖动）并跑同引擎像素对照",
         "真机：CDP 驱动按钮与滚轮，核对比例标签、图片矩形与视口关系"
-      ]
+      ],
+      "correction": "2026-09-19 复核更正：**这不是冲突，也不缺实现**。缩放/平移的完整逻辑一直在 `docs/ux-mockups/image-preview.js`（与 web/src/ 字节一致的共享文件）里：步进表、fit（四边 32·dpi、上限 1）、pointer 拖动 + setPointerCapture、方向键 32px、滚轮与 Shift/Ctrl 组合、wheelZoom 余量累计、wheelMode 切换时 resetWheel、Escape 解除拖动、visibilitychange 重置、ResizeObserver、?image-state=loading。第 330 轮判定\"全仓库没有任何地方给它们绑定行为\"是**漏查**：我只 grep 了 mockup.js 与 live-data.js，没有查第三个共享文件 image-preview.js。用户按该错误前提做的选择 ① 因此在效果上等于\"保留现有实现\"，不需要新增实现；真正缺的是**断言**（本轮补了 7 条）。"
     }
   },
   "compareRecipe": {
