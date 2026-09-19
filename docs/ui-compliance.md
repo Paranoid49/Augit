@@ -20,18 +20,18 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **965/965**（见 §2 说明） |
-| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **54/54 ×2 主题**（`docs/ux-mockups/*.html` 共 55 个，除 `index.html` 外全部渲染） |
-| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**54/54 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **966/966**（见 §2 说明） |
+| 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
+| 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
-| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 49 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
+| 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS（旧口径 42/42）**；本轮把默认列表补到 50 个场景（新增 `git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），按用户确认的执行顺序在 ⑫ 交付阶段复跑并回填新分母 |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 742 个 `check(...)` 调用点，
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 743 个 `check(...)` 调用点，
 > 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
 
 ## 1. A 线：静态界面复原
@@ -100,6 +100,7 @@
 | `settings-dirty` | 0.00 | 0.00 | 0.03 | **新增未保存修改标记页**（⑭ 第 6 项）：分类行上的实心圆点复用 `--augit-blue`（对照 `pycharm-settings-search-font.png` 里 Appearance 行的蓝点）；实时侧判定口径是"草稿值与磁盘值不同"，harness 有 3 条断言（出现/改回即消失/保存后不残留） |
 | `smart-checkout` | 0.00 | 0.00 | 0.25 | 数据差异；**等化前 1.74**（差值主要为字体） |
 | `stash` | 0.00 | 0.00 | 1.02 | 数据差异；**等化前 1.75**（差值主要为字体） |
+| `stash-drop-confirm` | 0.00 | 0.00 | 1.10 | **新增危险确认页**（⑭ 第 7 项）：正文出自实时侧同一函数 `dangerConfirmBody()`，确认按钮用动作名"删除 stash@{0}"；真机实测同一结构（Stash 删除确认：取消后 0 次写入；Worktree 移除确认：取消后 0 次移除，见第 318 轮） |
 | `stash-manager` | 0.00 | 0.00 | 1.36 | 数据差异（字体已等化） |
 | `terminal` | 0.00 | 0.00 | 0.63 | 数据差异；**等化前 1.13**（差值主要为字体） |
 | `terminal-close` | 0.00 | 0.00 | 0.34 | 数据差异（字体已等化） |
@@ -327,6 +328,7 @@
    另加捕获阶段的 `<img>` `error` 兜底，覆盖"宿主只读文件头尺寸、截断 IDAT 仍返回 `ImageReady`"这一类
    （真机实测 `truncated.png`：`naturalWidth=0` → 换成信息态并给出"图片数据无法解码，文件可能已损坏。"）。
    验证：harness 2 条新断言 + 真机 4 个样本（`broken-dims` / `huge-pixels` / `truncated` 均出信息态，`ok.png` 仍正常显示）。
+6. **危险确认的视觉基线缺口（§10.4，已补）** —— 视觉稿此前没有"删除 Stash / 移除 Worktree"这类影响确认页，实现里的确认层（`.info-block` + 动作名 danger 按钮）**没有任何基线可对照**。已补页面 `stash-drop-confirm`，并把正文抽成两侧共用的 `dangerConfirmBody()`（基线与实时侧同源，避免各写一套）。实测结论：Stash 删除与 Worktree 移除都有确认层，取消后不产生写入/移除；**远端删除没有影响确认**（点删除即调用 `git/remote-write delete`，实测列表 `["origin"] → []`），而 §10.4 的危险操作清单**不含**远端删除 → 登记为"规格未要求的差异"，不改实现；PyCharm 侧该行为**未采集**（需要前台，本轮未验证），不计入通过。
 5. **外部变化刷新后标题栏汉堡菜单点不开（§5.1）—— 已修复** —— 汉堡按钮的点击处理挂在 `document` 上
    （标题栏节点会被区域刷新替换），但 `bindInteractions()` 每次渲染都会重新注册一份，
    而处理函数按"当前有没有菜单条"取反：**两份监听叠加互相抵消**，一次外部变化刷新后点击毫无反应。

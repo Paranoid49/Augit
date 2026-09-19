@@ -46,11 +46,11 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | 分支与标签 `branches` | ✅ 专用页 | ✅（无匹配引用） | ✅（检出失败文案） | ✅（弹层内进行态） | ✅ 不一致时禁用 | ✅ 删除分支/标签 |
 | 创建 Stash `stash` | ✅ | — | ✅ `stash-result` | ✅ `stash-result` | ✅ 无改动时 | — |
-| Stash 管理 `stash-manager` | ✅ | ✅（无 Stash） | 待人工确认（应用/弹出失败） | ✅ | ✅ 选项不可用时 | ✅ 删除确认（待人工确认是否有专用态） |
+| Stash 管理 `stash-manager` | ✅ | ✅（无 Stash） | 待人工确认（应用/弹出失败） | ✅ | ✅ 选项不可用时 | ✅ 删除确认：`stash-drop-confirm` 专用页（⑭ 第 7 项）+ 真机实测（取消后 0 次写入） |
 | Reset `reset` | ✅ | — | ✅（目标不存在） | ✅（进行态 + 取消） | ✅ 进行中禁用 | ✅ Hard 红确认 |
 | Rollback `rollback` | ✅ | ✅（无改动可回滚） | ✅（失败保留说明） | ✅ | ✅ | ✅ 将丢失改动 + 回收站说明 |
-| Worktree 管理 `worktrees` | ✅ | ✅（无 Worktree） | 待人工确认 | ✅ | ✅ 内置终端占用时禁用移除并给原因 | ✅ 移除确认（待人工确认） |
-| 远端管理 `remote` | ✅ | ✅（无远端） | ✅ 保存失败 | ✅ | ✅ | ✅ 删除确认（待人工确认） |
+| Worktree 管理 `worktrees` | ✅ | ✅（无 Worktree） | 待人工确认 | ✅ | ✅ 内置终端占用时禁用移除并给原因 | ✅ 移除确认：与 `stash-drop-confirm` 共用 `dangerConfirmBody()` + 真机实测（干净 worktree 才可移除，取消后 0 次移除） |
+| 远端管理 `remote` | ✅ | ✅（无远端） | ✅ 保存失败 | ✅ | ✅ | ⚠️ **无影响确认**（真机实测点删除即写入）；§10.4 危险操作清单不含远端删除 → 规格未要求的差异，PyCharm 行为未采集 |
 | Clone `clone` | ✅ | — | ✅ `clone-result` | ✅ `clone-result` + 进度 | ✅ 浅克隆关闭时深度禁用 | — |
 | Push `push` | ✅ | ✅ `push-no-remote` | ✅（错误反馈保留上下文） | ✅ 进行态 + 取消 | ✅ 无远端时禁用 | — |
 | Git 操作进行中 `operation-progress` | ✅ 专用页 | — | — | ✅ | ✅ 重复动作不可触发 | ✅ 取消入口 |
@@ -85,7 +85,7 @@
 | 4 | ~~引用比较无差异/无共同祖先~~ **已完成（其中的"无差异"部分）** | §7.9 | `docs/ux-mockups/git-compare-empty.html` + 场景 `git-compare-empty`：`diffView(comparison, state="summary")` 复用同一比较框架，正文换成 `comparisonSummaryNotice()`；实时侧在"历史比较生效且无差异行"时改用同一措辞（工作区 Diff 仍用工作区措辞，有负向对照）。**"无共同祖先"当前产品面不可达**：Augit 的引用比较只有 `commit^ → commit`（`git show`）与 `HEAD → 工作区` 两条路径，没有"任意两个引用"的比较对话框（§7.9 末条的比较对话框尚未实现），因此不补该态，避免造一个界面到不了的页面 |
 | 5 | ~~图片解码失败~~ **已完成** | §7.5 | `docs/ux-mockups/image-error.html` + 场景 `image-error`（复用"不可预览文件"信息态）；实时侧判据改为按 `status` 而非 `kind`，并补 `<img>` 解码兜底；真机三样本实测 + 两侧像素 0.01（第 315 轮） |
 | 6 | ~~未保存修改标记~~ **已完成**；分组折叠**裁决不做** | PyCharm 实测（`pycharm-settings-search-font.png`、本轮 `artifacts/pycharm-interactions-16/`） | 用户 2026-09-19 裁决：只补标记（复用 `--augit-blue`），分组折叠登记为差异。标记已完成（页面 `settings-dirty` + 3 条 harness 断言 + 像素 0.03） |
-| 7 | 删除确认态（Stash/Worktree/远端）是否已有专用视觉稿 | 实现与 harness 有确认流程 | 先逐一截图确认，再决定是否补页 |
+| 7 | ~~删除确认态~~ **已完成** | §10.4；实现与 harness 有确认流程 | 真机逐一核对：Stash 删除确认与 Worktree 移除确认**都有**确认层（取消无副作用），已补 `stash-drop-confirm` 基线页（正文抽成两侧共用的 `dangerConfirmBody()`）；**远端删除没有确认**且 §10.4 未要求 → 登记为差异、不改实现（第 318 轮） |
 
 > 说明：「待人工确认」的格子会在补图时先截图核对（避免把"实现里有"写成"视觉稿有"）；
 > 每补一页按 ⑮ 立即接线 + 断言 + 负向验证，并在本表把该格改成 ✅ + 场景名。

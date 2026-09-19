@@ -1651,6 +1651,34 @@ async function main() {
         && stDropped.filesHeading === '包含 2 个文件'
         && typeof stDropped.notice === 'string' && stDropped.notice.includes('stash@{1}'));
 
+    // 危险操作的「影响确认」视觉基线（⑭ 第 7 项）：正文与实时侧共用 `dangerConfirmBody()`，
+    // 因此基线页必须同样给出「具体影响」+「动作名确认按钮」（规格 §10.4）。
+    const dangerScene = await openScene('scene=stash-drop-confirm&theme=dark');
+    const dangerBaseline = await dangerScene.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-drop-dialog');
+      const block = dialog ? dialog.querySelector('.dialog-body .info-block') : null;
+      const confirm = dialog ? dialog.querySelector('.dialog-footer .danger-button') : null;
+      const cancel = dialog ? dialog.querySelector('.dialog-footer .secondary-button') : null;
+      return {
+        hasDialog: !!dialog,
+        heading: block && block.querySelector('h2') ? block.querySelector('h2').textContent.trim() : null,
+        lines: block ? [...block.querySelectorAll('p')].map((p) => p.textContent.trim()) : [],
+        confirm: confirm ? confirm.textContent.trim() : null,
+        confirmDanger: !!confirm,
+        cancel: cancel ? cancel.textContent.trim() : null,
+        // 与实时侧同构：正文是对话框内的 info-block（不是按钮行里的说明）
+        bodyInsideDialog: !!(block && block.closest('.dialog-body')),
+      };
+    });
+    check('§10.4 危险确认基线给出具体影响与动作名按钮: ' + JSON.stringify(dangerBaseline),
+      dangerBaseline.hasDialog === true && dangerBaseline.bodyInsideDialog === true
+        && String(dangerBaseline.heading).includes('stash@{0}')
+        && dangerBaseline.lines.some((line) => line.includes('都会消失') && line.includes('无法恢复'))
+        && dangerBaseline.lines.some((line) => line.includes('工作区与其它 Stash 不会被修改'))
+        && dangerBaseline.confirm === '删除 stash@{0}' && dangerBaseline.confirmDanger === true
+        && dangerBaseline.cancel === '取消');
+    await dangerScene.page.close();
+
     // 失败路径：宿主拒绝时在页面内说明原因，且列表仍按真实事实（这里由桩保持两条）。
     await stashPage.page.evaluate(() => {
       window.__stashWriteFails = true;

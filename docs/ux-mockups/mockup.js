@@ -1424,6 +1424,22 @@ function diffStatusNotice(status) {
 }
 
 /**
+ * 危险操作的「影响确认」正文（规格 §10.4）。
+ *
+ * 视觉稿与实时侧共用同一份结构，避免"基线画一套、实现写另一套"：
+ * 对话框内的 `.info-block` 用标题（受影响对象）+ 若干影响条目；
+ * 确认按钮由调用方给出，且必须是**动作名**（例如"删除 stash@{0}"、"移除 Worktree"），
+ * 不能只写"确定"。
+ */
+function dangerConfirmBody(title, lines) {
+  const items = (lines || [])
+    .filter((line) => line !== null && line !== undefined && String(line).length > 0)
+    .map((line) => `<p>${escapeHtml(String(line))}</p>`)
+    .join("");
+  return `<div class="info-block" style="width:auto;text-align:left"><h2>${escapeHtml(String(title))}</h2>${items}</div>`;
+}
+
+/**
  * 引用比较的"摘要"说明（规格 §7.9：摘要页清空变更导航，正文说明留在比较区域）。
  *
  * 与工作区 Diff 的最终说明分开措辞：工作区那句"改动文件后重新双击该行即可刷新"
@@ -3207,6 +3223,13 @@ function renderScene() {
     case "history-diff-cancelled": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: scene.slice("history-diff-".length) });
     case "branches": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: (window.__augitLive && window.__augitLive.references) ? liveBranchesPopover() : branchesPopover(), selectedFile: "app.manifest" });
     case "stash": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: dialog("Stash", stashBody, `<button class="secondary-button">取消</button><button class="primary-button">创建 Stash</button>`, false, "stash-dialog") });
+    // 危险操作的「影响确认」基线（⑭ 第 7 项）：正文出自实时侧同一函数 `dangerConfirmBody()`，
+    // 确认按钮用动作名（规格 §10.4）。删除 Stash / 移除 Worktree / 删除分支或标签共用该结构。
+    case "stash-drop-confirm": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "product-spec.md",
+      overlay: dialog("删除 Stash", dangerConfirmBody("stash@{0} · fix: 待处理的本地改动", [
+        "删除后这个 Stash 及其 2 个文件的改动都会消失，并且无法恢复。",
+        "工作区与其它 Stash 不会被修改。",
+      ]), '<button type="button" class="secondary-button">取消</button><button type="button" class="danger-button">删除 stash@{0}</button>', false, "stash-drop-dialog") });
     case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
     case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
     case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });

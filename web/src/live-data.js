@@ -5558,10 +5558,11 @@ function openStashDropConfirm() {
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "删除 Stash",
-    `<div class="info-block" style="width:auto;text-align:left">`
-      + `<h2>${escapeText(current.reference)} · ${escapeText(current.message)}</h2>`
-      + `<p>删除后这个 Stash 及其 ${files.length} 个文件的改动都会消失，并且无法恢复。</p>`
-      + "<p>工作区与其它 Stash 不会被修改。</p></div>",
+    // 与视觉基线共用 `dangerConfirmBody()`：基线页与实时侧的结构出自同一函数。
+    dangerConfirmBody(`${current.reference} · ${current.message}`, [
+      `删除后这个 Stash 及其 ${files.length} 个文件的改动都会消失，并且无法恢复。`,
+      "工作区与其它 Stash 不会被修改。",
+    ]),
     '<button type="button" class="secondary-button" data-stash-cancel="1">取消</button>'
       + `<button type="button" class="danger-button" data-stash-confirm="drop">删除 ${escapeText(current.reference)}</button>`,
     false,
@@ -5781,11 +5782,13 @@ function openWorktreeRemoveConfirm() {
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "移除 Worktree",
-    `<div class="info-block" style="width:auto;text-align:left">`
-      + `<h2>${escapeText(current.branch || "(detached)")}</h2>`
-      + `<p>将移除 ${escapeText(current.path)} 的目录与 Worktree 登记；分支本身不会被删除。</p>`
-      + "<p>该目录当前没有本地改动，也没有运行中的内置终端会话。</p>"
-      + "<p>移除后需要重新 `git worktree add` 才能再次使用这个目录。</p></div>",
+    // 与视觉基线 `stash-drop-confirm` 共用 `dangerConfirmBody()`：结构由同一函数产出，
+    // 基线页与实时侧不会再各写一套（§10.4 要求显示具体影响）。
+    dangerConfirmBody(current.branch || "(detached)", [
+      `将移除 ${current.path} 的目录与 Worktree 登记；分支本身不会被删除。`,
+      "该目录当前没有本地改动，也没有运行中的内置终端会话。",
+      "移除后需要重新 `git worktree add` 才能再次使用这个目录。",
+    ]),
     '<button type="button" class="secondary-button" data-worktree-remove-cancel="1">取消</button>'
       + '<button type="button" class="danger-button" data-worktree-remove-confirm="remove">移除 Worktree</button>',
     false,

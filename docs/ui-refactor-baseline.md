@@ -11420,3 +11420,40 @@ harness 断言也从"只含 `无法访问`"加强为**四段都必须在**。
 742 个 `check` 调用点；`verify-acceptance.ps1` 默认列表 48 → **49**（⑫ 复跑）。
 
 **⑭ 剩余**：⑦ 删除确认态（先逐一截图核对是否需要专用页）。
+
+#### 第 318 轮（⑭ 第 7 项）：危险确认态 —— 先真机逐一核对，再补基线页
+
+**方法（用户要求：先截图核对再决定是否补页）**：造一个临时仓库
+`D:\tmp-augit-cap\mgmt-repo`（1 个提交 + 1 个 Stash + 1 个链接 Worktree + 1 个远端），
+用 CDP 驱动真机外壳逐个打开管理窗口 → 点删除 → **读回确认层的结构与文案**（截图入
+`artifacts/danger-confirm-20260919/`），全程不确认删除（远端那一步在一次性仓库上确认，用于取证）。
+
+**核对结果**：
+| 操作 | 确认层 | 真机实测 | 规格 §10.4 |
+| --- | --- | --- | --- |
+| 删除 Stash | ✅ `stash-drop-dialog` | 文案「删除后这个 Stash 及其 1 个文件的改动都会消失，并且无法恢复。／工作区与其它 Stash 不会被修改。」；按钮「取消 / **删除 stash@{0}**」；点删除前 `writes=0`，取消后 `writes=0` | ✅ 要求，且确认按钮用动作名 |
+| 移除 Worktree | ✅ `worktree-remove-dialog` | 文案「将移除 … 的目录与 Worktree 登记；分支本身不会被删除。／该目录当前没有本地改动…／移除后需要重新 `git worktree add`…」；按钮「取消 / **移除 Worktree**」；取消后 `removes=0` | ✅ 要求 |
+| 删除远端 | ❌ **无确认** | 点「删除」直接写宿主：列表 `["origin"] → []` | ⚠️ §10.4 清单**不含**远端删除 |
+
+**结论与动作**：
+1. 前两者**有**确认层，但 `docs/ux-mockups/` 里**没有**任何"影响确认"页 —— 即"实现有、基线无"（正是 ⑭ 要补的）。
+   新增 `docs/ux-mockups/stash-drop-confirm.html` + 场景 `stash-drop-confirm`，并把确认正文抽成
+   **两侧共用**的 `dangerConfirmBody(title, lines)`（实时侧 `openStashDropConfirm()` /
+   `openWorktreeRemoveConfirm()` 改用它）——基线页与实现同源，不会再各写一套；
+   像素对照 `titlebar 0.00 | statusbar 0.00 | content 1.10`（与 `branches` 1.39 同量级，差值来自底部真实 Git 日志）。
+2. 远端删除**没有影响确认**，而 §10.4 的危险操作清单是**穷举式**且不含它 → 按"规格未要求"处理，
+   **不改实现**、只把事实写进 `state-coverage-matrix` 与 §3.2 第 6 条；PyCharm 侧该行为**未采集**
+   （需要前台），如实标注不计入通过。
+3. **一次自己的测量错误（记下来）**：第一版 worktree 用 WSL 的 `git worktree add` 创建，
+   写进 `.git/worktrees/...` 的是 POSIX 路径 `/mnt/d/...`；Windows 宿主 `Directory.Exists` 为 false，
+   于是 `canRemove=false / reason="Worktree 目录不存在。"`。这不是 Augit 缺陷，是**夹具越过平台边界**。
+   改用 Windows `git.exe` 重建 worktree（`D:\tmp-augit-cap\mgmt-wt`）后 `isClean=true, canRemove=true`，
+   确认层正常打开。凡是"路径写进 Git 元数据"的夹具，都必须用 Windows git 创建。
+
+**harness**：新增 1 条断言（基线页给出「具体影响」两条 + 动作名 danger 按钮 + 正文确实在 `.dialog-body` 的 `info-block` 里，
+即与实时侧同构）→ `live-shell` 965 → 预期 **966**；`mockup-scenes` **55/55**；
+`verify-acceptance.ps1` 默认列表 49 → **50**；§1.1 由 54 → **55 行**。
+
+**⑭ 全部收尾**：第 1/2 项（早前）+ 第 3/4/5/6/7 项（第 314–318 轮）均已完成并带分母。
+下一阶段按用户确认的执行顺序进入 **⑦⑧ PyCharm 对照**（配方已在 `pycharm-interactions.json` 的 `compareRecipe`），
+以及 ⑯ 剩余采图（`Editor › Font` / `Console Fonts` 页面正文、工具窗口跳转、hover/pressed/focus 对）。
