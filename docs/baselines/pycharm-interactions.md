@@ -74,7 +74,10 @@
 ### pycharm.settings.editor-font：Editor › Font（路径已确认，字段待二次采集）
 
 - **pathEvidence**：`搜索 font 后分类树中出现 Editor > Font（见 pycharm-settings-search-font.png）`
-- **note**：`编辑器字体在 PyCharm 属于另一个顶层分类 Editor，而不是外观页；这与 ux-spec §7.17 把等宽字体放在『文件查看』一致`
+- **note**：`编辑器字体属于顶层分类 Editor（与 ux-spec §7.17 把等宽字体放在『文件查看』一致）；**页面正文（Font/Size/Line height/Fallback 的取值）仍未抓到**，但已确认树路径、Console Font 的第二条路径，以及三次搜索落空的具体去向与证据图 —— 下一步只需在前台解锁后按 navigationRecipe 点一次并截图。`
+- **treeConfirmed**：`{"evidence":"artifacts/pycharm-interactions-16/p16c-editor-font.png（搜索 font 后落到 Color Scheme，但左侧树完整展开）","editorSubtree":["General（Appearance、Editor Tabs）","Font","Color Scheme（Color Scheme Font、Console Font、Code Review、VCS）","Inspections","Live Templates","Reader Mode","Code Style（Python、EditorConfig、HTML、…）","Natural Languages"],"consoleFontPath":"Editor › Color Scheme › Console Font（与 Editor › Font 是两处不同的字体设置）"}`
+- **navigationRecipe**：`清空搜索框 → 展开 Editor → **直接点 Font**。不要用搜索跳转：三次实测都被带到别的页面（见 failedSearchPaths）——固定坐标/搜索驱动是这台机器上反复抓不到该页正文的原因。`
+- **failedSearchPaths**：`[{"query":"font","landed":"Editor › Color Scheme","evidence":"artifacts/pycharm-interactions-16/p16c-editor-font.png"},{"query":"editor font","landed":"Keymap","evidence":"artifacts/pycharm-interactions-16/p16b-page-editor-font.png"},{"query":"line spacing","landed":"Editor › Code Style › HTML","evidence":"artifacts/pycharm-interactions-16/p16d-linespacing-y450.png"}]`
 
 ### pycharm.settings.tools-terminal：Tools › Terminal
 

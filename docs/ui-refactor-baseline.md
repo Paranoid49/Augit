@@ -12875,3 +12875,30 @@ harness 的清单断言追加两条：`workspace-open.html` 与 `quick-open.html
 生成器重出 `pycharm-interactions.md`（130 行）；`check-interactions.cjs` →
 `BASELINE surfaces=5 jumps=4 feedback=6 sequences=6 gaps=4`、`CHECKED 16 (pass=8 diff=2 gap=1 other=5)`、
 `INTERACTIONS_BASELINE_OK`；§1.3 增补同尺度悬停表；§0 交互基线行同步为带分母表述。
+
+#### 第 385 轮：查清"Editor › Font 页面反复抓不到"的真正原因（不是滚动，而是搜索跳转）
+
+§3.1 一直把这一格记成"设置树的滚动位置随会话变化，固定坐标点击会落到别的分类"。本轮把
+`artifacts/pycharm-interactions-16/` 里那批历次尝试的截图逐张看了一遍，结论**不是滚动**：
+
+| 搜索词 | 实际落到 | 证据图 |
+| --- | --- | --- |
+| `font` | **Editor › Color Scheme** | `p16c-editor-font.png` |
+| `editor font` | **Keymap**（结果是 "Editor Actions"） | `p16b-page-editor-font.png` |
+| `line spacing` | **Editor › Code Style › HTML** | `p16d-linespacing-y450.png` |
+
+也就是说：**用搜索框跳转在 PyCharm 里会把"命中项所在的页"打开，而命中的往往是该页里的某个字段/动作**，
+并不是目标页本身；三次都因此错过了 `Editor › Font`。
+
+同时，`p16c-editor-font.png` 意外提供了**完整展开的 Editor 子树**（这是之前缺的"分类树下半部分"里
+与字体相关的一段）：`General（Appearance、Editor Tabs）`、**`Font`**、`Color Scheme（Color Scheme Font、
+Console Font、Code Review、VCS）`、`Inspections`、`Live Templates`、`Reader Mode`、`Code Style（Python、
+EditorConfig、HTML…）`、`Natural Languages` —— 其中 **`Console Font` 在 `Editor › Color Scheme` 之下**，
+与 `Editor › Font` 是两处不同的设置（这一点对 §7.17 的分组也有意义）。
+
+**已写进基线**（`pycharm-interactions.json` → `surfaces[pycharm.settings.editor-font]`）：
+`treeConfirmed`（含 `consoleFontPath`）、`navigationRecipe`（清空搜索 → 展开 Editor → 直接点 Font）、
+`failedSearchPaths`（三条，各带证据图）。缺口描述也随之改写为"**只剩页面正文**，且已知道怎么点"。
+
+结果：生成器重出 `pycharm-interactions.md`（133 行）；`check-interactions.cjs` 仍
+`BASELINE surfaces=5 jumps=4 feedback=6 sequences=6 gaps=4`、`CHECKED 16`、`INTERACTIONS_BASELINE_OK`。

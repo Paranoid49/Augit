@@ -935,7 +935,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
 | ~~终端输入与大输出真机验证~~ | **全部验成（第 364–367 轮）**：输入链路在真机通过（`INPUT-PROBE-OK` 的输入→回显→输出→新提示符）；~4.8 MB 洪泛后的永久冻结**已定位并修好**（见 §3.2 第 15 条：根因是逐次裁剪的二次成本，改成摊销后同一探针 **6 秒**内读回 `AFTER-TRIM-SENTINEL` 与新提示符） | 无剩余计划项 |
-| **Editor › Font 页面内容未抓到** | 已抓到分类路径与 UI 字体事实（`artifacts/pycharm-interactions-16/`：搜索结果树、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 页的子页列表）；页面正文（字体名/字号/行距的具体值）未抓到 | 原因是设置树的滚动位置随会话变化，固定坐标点击会落到别的分类；补抓需要 UI 自动化（Settings 搜索 + 键盘导航），缺口只在这一格 |
+| **Editor › Font 页面正文未抓到（原因现已查清，第 385 轮）** | 已抓到：分类路径、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 的子页列表，以及**完整的 Editor 子树**（`p16c-editor-font.png`：General/Font/Color Scheme(含 Color Scheme Font、Console Font)/Inspections/Live Templates/Reader Mode/Code Style…） | **原因不是"滚动位置随机"，而是"搜索跳转会落到别的页面"** —— 三次实测：`font → Editor › Color Scheme`、`editor font → Keymap`、`line spacing → Editor › Code Style › HTML`（三张证据图见 `pycharm-interactions.json` 的 `failedSearchPaths`）。**正确修法已写进基线**：清空搜索框 → 展开 Editor → 直接点 `Font`，在前台解锁后点一次截图即可（缺口只剩这一格） |
 
 ### 3.2 已确认的实现差异
 
