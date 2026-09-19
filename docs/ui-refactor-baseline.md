@@ -12557,3 +12557,28 @@ harness 的 `remembered: null` 把它暴露出来，加上 `bubbles: true` 即�
 或宿主读取侧停摆导致 Shell 写满管道阻塞。**下一步**：给 `terminal/read` 加每轮上限、
 暴露最后一次读取失败，再用同一探针复验（判据：sentinel 与新提示符出现）。
 **本轮不实施修复**：本轮预算用在"把此前无法复现的现象变成可复现读数"，避免半验证的改动。
+
+#### 第 365 轮：终端分批读取改动 + 复验仍冻结（候选机制 ① 未证实）
+
+按上一轮写下的修法动了三处（都属"更正确"的改动，但**都不足以修好冻结**）：
+
+1. `ShellBridge.ReadTerminal`：新增每轮上限（缺省 **128 KB**，`maximumLength` 可调，
+   夹在 1 KB–4 MB）；
+2. 返回的 `offset` 由 `_terminalBuffer.Length` 改为 **`start + length`（本段末尾）** ——
+   原先"返回整段 + 报缓冲区末尾"一旦分批就会跳掉尚未取走的那一段，这是必须先修的语义；
+   另返回 `pending`（剩余积压）；
+3. `pollTerminal()` 显式带 `maximumLength: 131072`，并**不再静默吞失败**：
+   写 `window.__augitTerminalReadError`，同时写 `window.__augitTerminalBacklog`。
+
+**复验（同一探针，真实外壳）**：洪泛 ~4.8 MB 后仍然冻结 —— 120 秒 20 次采样逐字节相同
+（`scrollTop 0` / `scrollHeight 242`），`AFTER-TRIM-SENTINEL` 与新提示符都不出现，
+强制滚到底亦无。**结论：候选机制 ①（桥接消息体积超限）不成立/不是主因**，
+机制仍待定位（下一步用新增的 `__augitTerminalReadError` 与 `__augitTerminalBacklog` 区分
+"每轮读取都在失败"与"宿主侧不再产生新输出"）。
+
+**已验证**：`dotnet build` 0 警告 0 错误；`Augit.Shell.Tests` **73/73**（含 4 条裁剪单测）。
+**未验证**：`live-shell` 全量重跑（改动只走真实宿主路径，harness 的 `terminal/read` 桩忽略
+`maximumLength`，预计无差异）——留待下一轮与机制定位一起做。
+
+**纪律记录**：这一轮**没有**把"加了分批"写成"已修"，因为真机复验是否定的；
+docs 与 commit 都写明"仍然冻结、机制未定"。

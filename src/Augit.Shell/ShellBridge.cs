@@ -35,6 +35,14 @@ internal sealed class ShellBridge : IDisposable
 
     private const int MaximumTerminalBufferLength = 4 * 1024 * 1024;
 
+    /// <summary>
+    /// 单次 `terminal/read` 最多返回的字符数。
+    ///
+    /// 真机实测（`docs/ui-compliance.md` §3.2 第 15 条）：一次把最多 4 MB 的积压全部搬过桥，
+    /// 在约 4.8 MB 输出之后终端会**永久停止更新**；分批返回后客户端连续轮询即可追平，不丢内容。
+    /// </summary>
+    private const int MaximumTerminalChunkLength = 128 * 1024;
+
     private readonly Lock _statusGate = new();
     private GitStatusResult? _cachedStatus;
     private long _cachedStatusAt;
@@ -1313,17 +1321,28 @@ internal sealed class ShellBridge : IDisposable
     private object ReadTerminal(JsonElement parameters)
     {
         long offset = GetLong(parameters, "offset") ?? 0;
+        // 客户端可以要求更小的分段；缺省用 128 KB。上限夹在 1 KB 到整个缓冲区之间。
+        int maximum = (int)Math.Clamp(
+            GetLong(parameters, "maximumLength") ?? MaximumTerminalChunkLength,
+            1024,
+            MaximumTerminalBufferLength);
         lock (_terminalGate)
         {
             long start = Math.Clamp(offset, 0, _terminalBuffer.Length);
-            string chunk = _terminalBuffer.ToString((int)start, (int)(_terminalBuffer.Length - start));
+            int backlog = (int)(_terminalBuffer.Length - start);
+            int length = Math.Min(backlog, maximum);
+            string chunk = _terminalBuffer.ToString((int)start, length);
             return new
             {
                 available = _terminal is not null,
                 running = _terminal?.IsRunning ?? false,
                 exited = _terminalExited,
                 exitCode = _terminalExitCode,
-                offset = _terminalBuffer.Length,
+                // 报告**本段末尾**而不是缓冲区末尾：偏移必须与真正返回的字符数一致，
+                // 否则分批返回时客户端会跳过还没拿到的那一段。
+                offset = start + length,
+                // 还剩多少没读：客户端可以据此连续轮询追平（也便于真机探针判断积压）。
+                pending = backlog - length,
                 data = chunk,
             };
         }

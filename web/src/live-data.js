@@ -675,18 +675,24 @@ function pollTerminal() {
     if (terminalPolling) return;
     terminalPolling = true;
     try {
-      const chunk = await invoke('terminal/read', { offset: terminalOffset }, 10000);
+      // 分批读：每轮最多 128 KB。真机实测一次搬最多 4 MB 的积压会让大输出后的终端
+      // **永久停止更新**（§3.2 第 15 条）；宿主按返回的 offset 连续轮询即可追平。
+      const chunk = await invoke('terminal/read', { offset: terminalOffset, maximumLength: 131072 }, 10000);
       if (chunk && typeof chunk.data === 'string' && chunk.data.length > 0) {
         terminalInstance.write(chunk.data);
       }
       if (chunk && typeof chunk.offset === 'number') terminalOffset = chunk.offset;
+      window.__augitTerminalReadError = null;
+      window.__augitTerminalBacklog = chunk && typeof chunk.pending === 'number' ? chunk.pending : 0;
       if (chunk && (chunk.exited || !chunk.running)) {
         window.clearInterval(terminalTimer);
         terminalTimer = 0;
         window.__augitTerminalExited = true;
       }
-    } catch {
-      // 单次读取失败不终止轮询，下次重试。
+    } catch (error) {
+      // 单次读取失败不终止轮询，下次重试；但**必须留下痕迹** —— 此前这里静默吞掉，
+      // 真机大输出冻结时 __augitError 一直是 null，用户与探针都看不到原因。
+      window.__augitTerminalReadError = String(error && error.message || error);
     } finally {
       terminalPolling = false;
     }
