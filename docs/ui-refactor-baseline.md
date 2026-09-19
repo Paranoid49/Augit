@@ -10199,3 +10199,29 @@ conflict-resolver |titlebar=0.00|statusbar=0.00|content=0.60
 
 **方法论沉淀（第 6 次同类）**：任何"差异率"指标都要先用**肉眼可核对的样本**标定阈值 ——
 本次若不做裁图肉眼复核，就会把 4.11% 当成真缺陷去改代码。
+
+#### 第 286 轮：新链路抓到**真实缺陷**（终端正文纯黑）；首次修复尝试失败并已回退
+
+**抓到的真实差异**（掩膜比对 + 直接采样像素）：`terminal` 内容带 `layoutPercent=21.40%`，
+采样可见实时侧终端正文是**纯黑 `(0,0,0)`**，而视觉稿是面板色 `(30,31,34)`。
+根因读代码确认：`live-data.js` 创建 xterm 时**只传了字体参数、没有传 `theme`** ——
+xterm 在 canvas 上自绘、CSS 管不到它，默认主题就是纯黑背景；
+而同一文件里 `terminalTypography()` 已经确立了"从根元素的设计令牌读值"的做法。
+
+**首次修复尝试（失败，已回退）**：按同一做法加 `terminalTheme()`，从
+`--augit-panel`/`--augit-text` 读背景与前景并传给 xterm。结果**更糟**：
+实时终端变成**纯白 `(255,255,255)`**，内容带 `layoutPercent` 反而升到 20.98%。
+
+**结论**：令牌名或取值方式不对（我猜的 `--augit-panel` 在实时外壳里要么不存在、
+要么不是深色面板色）。已 `git checkout` 级别的还原（重写文件恢复原状）+ 重新构建；**不留半成品**。
+
+**下一轮（这次先验证令牌再改代码）**：
+1. 用 CDP 在实时外壳里读 `getComputedStyle(document.documentElement).getPropertyValue('--augit-panel')`、
+   `--augit-surface`、`--augit-surface-2`、`--augit-editor` 的真实值；
+2. 同时读**视觉稿页面**里终端正文容器的 `background-color`（同一个 WebView2 里渲染，值可直接对比）；
+3. 用**实测到的那个颜色**作为 xterm `theme.background`（不要猜令牌名），
+   再用 `compare-pixels.py` 验证内容带 `layoutPercent` 是否从 21.40% 降到接近 0；
+4. 断言 + 负向验证后写入基线文档。
+
+**方法论（第 7 次同类）**：即使方向正确（"xterm 缺主题"确实是真的），
+**取值来源也必须先实测**，否则"修"会把黑变成白 —— 本次就是没先读令牌值就下手。
