@@ -9,3 +9,7 @@ publish/
 *.suo
 *.nupkg
 *.snupkg
+
+# Python 工具缓存（compare-pixels.py 被 import 时会生成）
+__pycache__/
+*.pyc
