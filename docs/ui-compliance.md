@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **989/989（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **991/991（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -387,7 +387,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 2 | §7.2 | 行号列固定，不因长行横向滚动消失 | 是 | `行号槽含真实行号`（+ 正文滚动快照断言） |
 | 3 | §7.2 | 短文件不保留空白横向范围；长行扩展范围；内容或字体变化重新度量并收回旧偏移 | 部分 | 滚动快照覆盖"内容变化后位置保持"；**"短文件不保留空白横向范围""收回旧偏移"没有断言** |
 | 4 | §7.2 | 工具栏提供自动换行、空白符显示、当前文件搜索和跳转行 | 是 | `Ctrl+F 打开当前文件查找`、`Ctrl+G 打开跳转行`、工具栏结构断言（`自动换行`/`显示空白` 按钮在文档工具栏里） |
-| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 部分 | §12.3 只断言"图标有可访问名称/悬停说明"；**Tab 顺序与"切换保留焦点"没有断言**（与 §7.7 第 5 条同一缺口） |
+| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 部分 | 本轮新增 `§7.2 文档工具栏 Tab 按从左到右只经过可用控件`（路径文本 `tabindex=false`、x 单调递增、经过的标签全在"可用控件"集合内、禁用项不入列）与 `§7.2 切换显示选项保留按钮焦点`（点"自动换行"后焦点仍在它上面）；**"Enter/Space 激活"仍未断言**，且比较/终端工具栏（§7.7 第 5、§7.16 第 9 条）还没做同样核对 |
 | 6 | §7.2 | `Ctrl+F` 在正文顶部打开占一行的查找条，不改变标签身份；关闭后恢复原正文区域 | 是 | `Ctrl+F 打开当前文件查找`、`刷新后查找条不重复打开`、`§4.2 前置条件：查找条已打开且焦点在查找输入框` |
 | 7 | §7.2 | 搜索条包含普通文本、区分大小写、全字、正则开关，以及结果数量、上一项、下一项和关闭 | 是 | 查找块（`find-state` 系列 + 开关与导航按钮断言） |
 | 8 | §7.2 | 有效查询自动定位首个匹配、显示"当前项/总数"、`Enter`/`Shift+Enter` 前后定位、焦点仍在查找框、`Tab` 循环、`Esc` 收起并交回正文、组词期间不抢 Enter/Esc/Tab | 是 | 自动定位/数量/前后定位/Esc 有断言；本轮新增 `§7.2 查找条 Tab 在输入框/开关/导航/关闭之间循环`（Tab 始终停在条内控件、经过 ≥4 个不同控件、若干次后回到输入框）与 `§7.2 组词期间不扫描、Escape/Enter 被抢占`（组词中 Esc/Enter 不关闭条、不导航）。**保留一处精度缺口**：逐项顺序与 DOM 顺序未一一对应，因此没有写"逐项相等"的判据 |

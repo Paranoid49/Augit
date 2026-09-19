@@ -6753,6 +6753,64 @@ async function main() {
         && imeProbe.duringComposition.status === '');
     check('§7.2 组词结束后按最终文字重新统计: ' + JSON.stringify(imeProbe.afterComposition),
       imeProbe.afterComposition.status.length > 0);
+    // ---- §7.2（5）：文档工具栏按画面从左到右参与 Tab，禁用与纯文字项不参与；切换显示选项保留按钮焦点 ----
+    const toolbarTab = await (async () => {
+      const page = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+      await page.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await page.page.waitForSelector('.code-view', { timeout: 10000 });
+      const order = await page.page.evaluate(() => {
+        const bar = document.querySelector('.document-toolbar');
+        const path = bar ? bar.querySelector('.document-path') : null;
+        const controls = bar ? [...bar.querySelectorAll('button, [tabindex]')] : [];
+        return {
+          pathHasTabindex: path ? path.hasAttribute('tabindex') : null,
+          controls: controls.map((node) => ({
+            label: node.getAttribute('aria-label') || (node.innerText || '').trim(),
+            disabled: node.hasAttribute('disabled') || node.getAttribute('aria-disabled') === 'true',
+            x: Math.round(node.getBoundingClientRect().x),
+          })),
+        };
+      });
+      const enabled = order.controls.filter((control) => !control.disabled).map((control) => control.label);
+      // 从第一个可用控件开始，按 Tab 走一遍工具栏
+      const first = enabled[0];
+      await page.page.locator(`.document-toolbar [aria-label="${first}"]`).focus();
+      const seen = [];
+      for (let i = 0; i < Math.max(0, enabled.length - 1); i++) {
+        await page.page.keyboard.press('Tab');
+        await page.page.waitForTimeout(60);
+        seen.push(await page.page.evaluate(() => {
+          const node = document.activeElement;
+          if (!node) return null;
+          return { label: node.getAttribute('aria-label') || (node.innerText || '').trim(),
+            x: Math.round(node.getBoundingClientRect().x),
+            inToolbar: !!node.closest('.document-toolbar') };
+        }));
+      }
+      // 切换显示选项（自动换行）后按钮焦点是否保留
+      const toggle = await page.page.evaluate(async () => {
+        const button = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+        if (!button) return { missing: true };
+        button.focus();
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        return { focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null };
+      });
+      await page.page.close();
+      return { order, enabled, seen, toggle };
+    })();
+    const seenInToolbar = toolbarTab.seen.filter((entry) => entry && entry.inToolbar);
+    const monotonic = seenInToolbar.every((entry, index) => index === 0 || entry.x >= seenInToolbar[index - 1].x);
+    const disabledLabels = toolbarTab.order.controls.filter((control) => control.disabled).map((control) => control.label);
+    check('§7.2 文档工具栏 Tab 按从左到右只经过可用控件: '
+      + JSON.stringify([toolbarTab.enabled, toolbarTab.seen.map((entry) => entry && entry.label), disabledLabels]),
+    toolbarTab.order.pathHasTabindex === false
+      && toolbarTab.enabled.length >= 3
+      && seenInToolbar.length === toolbarTab.enabled.length - 1
+      && monotonic === true
+      && toolbarTab.seen.every((entry) => entry && toolbarTab.enabled.includes(entry.label)));
+    check('§7.2 切换显示选项保留按钮焦点: ' + JSON.stringify(toolbarTab.toggle),
+      toolbarTab.toggle.focused === '自动换行');
     check('Ctrl+F 打开当前文件查找: ' + JSON.stringify([ksF.findBar, ksF.focusInFind]),
       ksF.findBar === 1 && ksF.focusInFind === true);
 
