@@ -36,7 +36,10 @@ def flat_mask(image, edge_threshold):
     """两侧都平坦才留下的掩膜：255 = 平坦（背景/边框），0 = 有边缘（文字/图标）。"""
     gray = image.convert("L")
     edges = gray.filter(ImageFilter.FIND_EDGES).point(lambda v: 255 if v > edge_threshold else 0)
-    edges = edges.filter(ImageFilter.MaxFilter(3))  # 边缘外扩一圈，避免抗锯齿像素混进平坦区
+    # 外扩 3 像素（MaxFilter(7)）：文字笔画有 1~2 像素宽，笔画**内部**在局部也是"平坦"的，
+    # 只外扩 1 像素时这些内部像素会被当成布局像素，长文本（如状态栏路径）就会刷出假差异
+    # （terminal 状态栏 4.11% 就是这么来的，第 284 轮）。
+    edges = edges.filter(ImageFilter.MaxFilter(7))
     return ImageChops.invert(edges)
 
 
