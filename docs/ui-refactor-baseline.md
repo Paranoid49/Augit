@@ -10875,3 +10875,61 @@ git-history | titlebar layoutPercent=0.00 | statusbar layoutPercent=0.00 | conte
 
 **结果：`live-shell` 920/920 全绿**（917 → 920）。这一步同时把 ⑥ 的"DOM 快照 + 关键区域像素"
 两种口径补齐。
+
+#### 第 305 轮（P0-① 完成 / P0-② 完成）：标题栏搜索·设置入口接线；终端"点开像卡死"实为**会话从未创建**
+
+**① 标题栏右上角放大镜/齿轮点了没反应（用户实测）—— 已修复并验证**
+
+根因（代码级）：`titlebar()` 里这两个入口是 `<a href="quick-open.html">` / `<a href="settings.html">`
+（`web/src/mockup.js:1938-1939`），而实时外壳**没有任何绑定**，于是落进
+`guardUnwiredNavigation()` 末尾的"其余尚未接线"兜底（只 `preventDefault()` 并写 `__augitUnwired*`）。
+真机证据（CDP 探针）：点击后 `afterSearch.overlay=false`、`afterGear.settings=false`，但
+`unwired` 被写成"搜索"/"设置" —— 确实只被兜底吞掉。
+
+修复：在该守卫里接上——搜索 → `openSearchOverlay("quick")`（快速打开浮层并聚焦输入框）；
+设置 → `openSettingsDialog()`（模态设置窗口，背景 inert）。
+harness 断言（4 条）：入口存在、搜索开浮层且焦点在浮层内、齿轮开设置窗口且背景 inert、
+两者都不再落进 `__augitUnwired*`。
+
+**② 左下角终端"点开卡死"—— 实测不是 UI 卡死，是会话从未创建；已修复并在真机复验**
+
+定性（真机 CDP 探针，先复现再改代码）：点终端后 `.terminal-view` 存在但
+`.xterm`/`.xterm-screen` **从未出现**、`window.__augitTerminalShell` 为 null、`rows=0`，
+同时 `IsHungAppWindow=false`、`SendMessageTimeout` ping 0–1ms、40 秒 CPU 只涨 156ms
+—— 窗口并未无响应，用户看到的是**全空、无回显、无输出的终端面板**。
+根因：`startTerminal()` 只在 `if (wantsTerminal)`（即 `--scene terminal` 启动路径）里调用，
+运行时点左下角入口只渲染空的 `.terminal-view`。
+
+修复（`web/src/live-data.js` + `src/Augit.Shell/ShellBridge.cs`）：
+1. `ensureTerminal()` —— 终端面板出现即按需建会话（`applyRailAction` 渲染后调用），已有会话则重挂；
+2. 轮询在途守卫（`terminalPolling`）：60ms tick 原先**无节流**，一次往返慢于 60ms 就在途请求堆积；
+3. 桥接新增 `terminal/status`（`available/running/foreground/exited`）——关闭前只查一次前台进程；
+4. 关闭/隐藏接线：`关闭终端` → 有前台命令先弹确认（取消保留、确认结束）、无则直接结束并收起；
+   `隐藏终端` → 只收起面板、会话与正文保留；
+5. 修掉 `_terminalOffset` 裁剪 bug：原式 `offset - (buffer.Length - max)` 在 `Remove` 之后恒为 0，
+   偏移永远大于缓冲长度 → `ReadTerminal` 的 Clamp 把起点夹到末尾 → **终端从那一刻起永久读空**。
+   抽成 `internal static TrimTerminalBuffer(...)` 并补 4 条单测（`Augit.Shell.Tests` 69 → 73）。
+
+**harness 又抓出我修法里的第二个 bug（值得记录）**：关闭终端后 `activeRail` 仍是 `"terminal"`，
+再次点入口被 `applyRailAction` 当成"折叠已激活入口"，面板永远打不开 ——
+现场 state `bottom:"" collapsed:"bottom"`。修法：关闭时把 `activeRail` 还原为侧栏入口
+（`RAIL_SIDE.includes(side) ? side : "project"`）。
+
+**同一轮里两次"我的断言写错了"**（如实记录，避免下轮重复）：
+- 用"重开后 xterm 在位"作为关闭后的第一条等待，实测关闭→重开本身要重建会话，
+  于是我把断言改成"关闭后入口回到侧栏入口"的语义；
+- "隐藏保留正文"一条我原先跨会话比较（`starts===1`、旧正文仍在），
+  但前一步已经确认关闭并重建，`starts:3` 与"旧正文消失"都是**正确行为**；
+  改成**同一会话内**比较（`starts` 与 hide-marker 正文在隐藏前后一致）。
+
+**验证**：
+- harness **932/932**（920 → 932，新增 12 条：标题栏 4 + 终端 8）；
+- 真机复探（同一支探针）：点终端后 `xterm=true, screen=true, rows=7`，
+  正文是真实 `Windows PowerShell` banner + `PS D:` 提示，`shell="Windows PowerShell"`，
+  `hung=false`、ping 0–1ms；折叠重开、切到 Git 历史再切回都保持 xterm 在位；
+- `Augit.Shell.Tests` **73/73**；`dotnet format --verify-no-changes` 通过；Release 构建 0 警告 0 错误。
+
+**本轮未覆盖（必须写清，不许含糊）**：真机探针里"输入命令/大段输出"没有生效 ——
+我用 CDP `Input.dispatchKeyEvent` 发键，但没有先让 xterm 的 helper textarea 获得焦点，
+因此 `dir` 与大段输出**只在 harness 里验证过**（真实 Playwright 键盘事件 → `terminal/write` 收到 `dir`、
+宿主输出渲染进正文）；4MB 裁剪路径只有单测覆盖，没有真机跑到 4MB。

@@ -544,6 +544,8 @@ let terminalFitAddon = null;
 let terminalOffset = 0;
 let terminalTimer = 0;
 let terminalReady = false;
+// 同一时刻只允许一个在途的 terminal/read（见 pollTerminal）。
+let terminalPolling = false;
 
 /**
  * 整页重绘会替换终端宿主元素，但 xterm 实例与会话必须保留，
@@ -667,6 +669,11 @@ function pollTerminal() {
   if (terminalTimer !== 0) return;
   terminalTimer = window.setInterval(async () => {
     if (!terminalInstance) return;
+    // 上一轮还没回来就跳过这一轮：60ms 的间隔短于一次桥接往返时，
+    // 旧写法会不停堆积在途请求（实测每个 tick 都新发一个），把渲染进程和
+    // UI 线程一起拖住，表现为"点开终端像卡死"。
+    if (terminalPolling) return;
+    terminalPolling = true;
     try {
       const chunk = await invoke('terminal/read', { offset: terminalOffset }, 10000);
       if (chunk && typeof chunk.data === 'string' && chunk.data.length > 0) {
@@ -680,8 +687,30 @@ function pollTerminal() {
       }
     } catch {
       // 单次读取失败不终止轮询，下次重试。
+    } finally {
+      terminalPolling = false;
     }
   }, 60);
+}
+
+/**
+ * 终端面板出现时确保会话已经建好（规格 §7.16「按需单会话」）。
+ *
+ * 此前 `startTerminal()` 只在 `--scene terminal` 启动路径上调用，
+ * 运行时点左下角终端入口只会渲染出一个空的 `.terminal-view`：
+ * 没有 xterm、没有会话、输入无回显（用户实测"点开卡死"）。
+ */
+async function ensureTerminal() {
+  const host = document.querySelector('.terminal-view');
+  if (!host) return null;
+  if (terminalInstance && terminalReady) {
+    reattachTerminal();
+    return terminalInstance;
+  }
+  const instance = await startTerminal();
+  reattachTerminal();
+  if (instance) window.__augitTerminalReady = true;
+  return instance;
 }
 
 /** 结束会话并停止轮询。 */
@@ -691,7 +720,75 @@ async function stopTerminal() {
     terminalTimer = 0;
   }
   terminalReady = false;
+  terminalPolling = false;
   await invoke('terminal/stop', {}, 15000).catch(() => {});
+}
+
+/** 关闭终端：先问宿主有没有前台命令，有则先确认（规格 §7.16）。 */
+async function requestCloseTerminal() {
+  const status = await invoke('terminal/status', {}, 8000).catch(() => null);
+  if (status && status.foreground) {
+    openTerminalCloseDialog();
+    return;
+  }
+  await closeTerminalNow();
+}
+
+/** 真正结束会话并收起底部工具窗口。 */
+async function closeTerminalNow() {
+  await stopTerminal();
+  const live = window.__augitLive;
+  if (terminalInstance) {
+    try { terminalInstance.dispose(); } catch { /* 已销毁时忽略 */ }
+    terminalInstance = null;
+  }
+  terminalOffset = 0;
+  window.__augitTerminalExited = false;
+  window.__augitTerminalReady = false;
+  if (live && live.layout && live.layout.bottom === 'terminal') {
+    live.layout.userDriven = true;
+    live.layout.bottom = '';
+    live.layout.collapsed = null;
+    // 关闭后入口必须回到侧栏那个入口：否则 activeRail 仍是"终端"，
+    // 再次点击会被 applyRailAction 当成"折叠已激活入口"，面板永远打不开
+    // （实测：关闭后点入口得到 bottom='' 且 collapsed='bottom'）。
+    live.layout.activeRail = RAIL_SIDE.includes(live.layout.side) ? live.layout.side : 'project';
+    window.__augitRender();
+    rebindAfterRender();
+  }
+}
+
+/** 「关闭终端」确认窗口（视觉稿 terminal-close 页的对话框，规格 §7.16）。 */
+function openTerminalCloseDialog() {
+  const host = document.querySelector('.augit-window');
+  if (!host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const layer = document.createElement('div');
+  layer.className = 'overlay-layer live-overlay terminal-close-window';
+  layer.setAttribute('data-augit-overlay', '');
+  layer.innerHTML = dialog(
+    '关闭终端',
+    `<div class="info-block" style="width:auto;text-align:left"><h2>终端中仍有命令正在运行</h2><p>继续将结束前台命令、Shell 及其整个子进程树。</p></div>`,
+    `<button type="button" class="secondary-button" data-terminal-close="cancel">保留终端</button>`
+      + `<button type="button" class="danger-button" data-terminal-close="confirm">结束命令并关闭</button>`,
+    false,
+    'terminal-close-dialog');
+  host.appendChild(layer);
+  const confirm = layer.querySelector('[data-terminal-close="confirm"]');
+  if (confirm) confirm.focus();
+
+  layer.addEventListener('click', (event) => {
+    const action = event.target.closest && event.target.closest('[data-terminal-close]');
+    if (!action) return;
+    event.preventDefault();
+    if (action.dataset.terminalClose === 'confirm') {
+      closeLiveOverlay();
+      void closeTerminalNow();
+    } else {
+      closeLiveOverlay();
+    }
+  });
 }
 
 /** 读取工作区中某个文件的差异，供编辑器差异视图使用。 *//** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
@@ -3158,6 +3255,12 @@ function applyRailAction(name) {
   }
 
   bindToolRail();
+
+  // 终端面板刚出现时创建会话（规格 §7.16 按需单会话）。
+  // 必须在渲染之后：startTerminal 需要真实的 .terminal-view 宿主节点。
+  if (layout.bottom === "terminal" && layout.collapsed !== "bottom") {
+    void ensureTerminal();
+  }
 }
 
 function bindToolRail() {
@@ -3348,6 +3451,35 @@ function guardUnwiredNavigation() {
     if (settingsEntry && document.querySelector(".commit-actions")) {
       event.preventDefault();
       openSettingsDialog();
+      return;
+    }
+
+    // 标题栏右侧的搜索与设置入口（视觉稿 titlebar 的两个 top-button，规格 §5.1）。
+    // 它们此前没有任何绑定，直接落到文件末尾的"其余尚未接线"兜底 ——
+    // 点下去只有 preventDefault，界面毫无反应（用户实测"右上角放大镜和齿轮点了没反应"）。
+    const titlebarEntry = event.target.closest && event.target.closest(".titlebar .top-button[aria-label]");
+    const titlebarLabel = titlebarEntry ? titlebarEntry.getAttribute("aria-label") : null;
+    if (titlebarLabel === "搜索" || titlebarLabel === "设置") {
+      event.preventDefault();
+      if (titlebarLabel === "搜索") openSearchOverlay("quick");
+      else openSettingsDialog();
+      return;
+    }
+
+    // 终端标题行的动作（规格 §7.16）。这两个入口此前同样没有绑定 ——
+    // 终端关不掉、也收不起来，只能靠点左侧入口折叠。
+    const terminalClose = event.target.closest && event.target.closest('[aria-label="关闭终端"]');
+    if (terminalClose && terminalClose.closest('.terminal-tool')) {
+      event.preventDefault();
+      void requestCloseTerminal();
+      return;
+    }
+
+    const terminalHide = event.target.closest && event.target.closest('[aria-label="隐藏终端"]');
+    if (terminalHide && terminalHide.closest('.terminal-tool')) {
+      event.preventDefault();
+      // 隐藏只收起底部工具窗口，会话保留（再次点入口即恢复）。
+      applyRailAction("terminal");
       return;
     }
 

@@ -177,6 +177,7 @@ internal sealed class ShellBridge : IDisposable
             "git/conflict-save" => await RunWriteAsync(ct => SaveConflictAsync(parameters, ct), cancellationToken),
             "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
             "terminal/read" => ReadTerminal(parameters),
+            "terminal/status" => ReadTerminalStatus(),
             "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
             "terminal/resize" => ResizeTerminal(parameters),
             "terminal/stop" => await StopTerminalAsync(),
@@ -1227,12 +1228,26 @@ internal sealed class ShellBridge : IDisposable
         {
             _terminalBuffer.Append(data);
             // 只保留最近 2000 行对应的上限，避免长时间运行后内存无界增长。
-            if (_terminalBuffer.Length > MaximumTerminalBufferLength)
-            {
-                _terminalBuffer.Remove(0, _terminalBuffer.Length - MaximumTerminalBufferLength);
-                _terminalOffset = Math.Max(0, _terminalOffset - (_terminalBuffer.Length - MaximumTerminalBufferLength));
-            }
+            TrimTerminalBuffer(_terminalBuffer, ref _terminalOffset, MaximumTerminalBufferLength);
         }
+    }
+
+    /// <summary>
+    /// 终端输出缓冲区的裁剪：超过上限时丢掉最旧的一段。
+    /// 读取偏移量必须**同步减去被裁掉的字符数**，否则偏移会永久大于缓冲区长度，
+    /// `ReadTerminal` 的 <c>Math.Clamp</c> 会把起点夹到末尾，终端从此再也读不到输出
+    /// （此前写成 <c>_terminalOffset - (buffer.Length - Maximum)</c>，而 Remove 之后该项已变成 0）。
+    /// </summary>
+    internal static void TrimTerminalBuffer(StringBuilder buffer, ref long offset, int maximumLength)
+    {
+        if (buffer.Length <= maximumLength)
+        {
+            return;
+        }
+
+        int removed = buffer.Length - maximumLength;
+        buffer.Remove(0, removed);
+        offset = Math.Max(0, offset - removed);
     }
 
     private void OnTerminalExited(object? sender, int exitCode)
@@ -1260,6 +1275,26 @@ internal sealed class ShellBridge : IDisposable
                 exitCode = _terminalExitCode,
                 offset = _terminalBuffer.Length,
                 data = chunk,
+            };
+        }
+    }
+
+    /// <summary>
+    /// 终端会话状态（规格 §7.16：关闭运行中终端前必须先确认）。
+    /// 只有用户点了关闭才会查一次前台进程，因此不进轮询路径。
+    /// </summary>
+    private object ReadTerminalStatus()
+    {
+        lock (_terminalGate)
+        {
+            bool available = _terminal is not null;
+            return new
+            {
+                available,
+                running = _terminal?.IsRunning ?? false,
+                foreground = available && _terminal!.HasForegroundProcess,
+                exited = _terminalExited,
+                exitCode = _terminalExitCode,
             };
         }
     }

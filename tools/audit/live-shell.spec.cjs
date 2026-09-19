@@ -689,6 +689,56 @@ async function main() {
         if (!found) throw new Error('not found: ' + params.path);
         return found;
       }
+      if (method.startsWith('terminal/')) {
+        // 终端子系统此前在 harness 里完全没有桩，因此"点开终端"这条路径从未被断言覆盖。
+        // 这里按宿主真实形状给出最小会话：start 建会话、read 按 offset 增量返回、
+        // status 报告前台进程、stop 结束；并统计在途 read 的并发峰值。
+        window.__terminalCalls = (window.__terminalCalls || []).concat([method]);
+        if (method === 'terminal/start') {
+          window.__terminalSession = { running: true, buffer: '', exitCode: 0 };
+          window.__terminalForeground = false;
+          window.__terminalInFlight = 0;
+          window.__terminalMaxInFlight = 0;
+          return { available: true, shellId: 'WindowsPowerShell', displayName: 'Windows PowerShell' };
+        }
+        if (method === 'terminal/read') {
+          window.__terminalInFlight = (window.__terminalInFlight || 0) + 1;
+          window.__terminalMaxInFlight = Math.max(window.__terminalMaxInFlight || 0, window.__terminalInFlight);
+          if (window.__terminalReadDelays) await new Promise((r) => setTimeout(r, window.__terminalReadDelays));
+          window.__terminalInFlight -= 1;
+          const session = window.__terminalSession;
+          if (!session) return { available: false, running: false, exited: true, data: '', offset: 0 };
+          const from = Math.max(0, Math.min(Number(params.offset) || 0, session.buffer.length));
+          return {
+            available: true, running: session.running, exited: !session.running,
+            exitCode: session.exitCode, offset: session.buffer.length, data: session.buffer.slice(from),
+          };
+        }
+        if (method === 'terminal/write') {
+          window.__terminalWrites = (window.__terminalWrites || []).concat([params.data]);
+          return { available: true };
+        }
+        if (method === 'terminal/resize') {
+          window.__terminalResizes = (window.__terminalResizes || 0) + 1;
+          return { available: true };
+        }
+        if (method === 'terminal/status') {
+          const session = window.__terminalSession;
+          return {
+            available: !!session,
+            running: !!(session && session.running),
+            foreground: !!window.__terminalForeground,
+            exited: !session,
+            exitCode: session ? session.exitCode : 0,
+          };
+        }
+        if (method === 'terminal/stop') {
+          window.__terminalStops = (window.__terminalStops || 0) + 1;
+          window.__terminalSession = null;
+          window.__terminalForeground = false;
+          return { available: true };
+        }
+      }
       throw new Error('unexpected method ' + method);
     };
   };
@@ -10208,6 +10258,182 @@ async function main() {
       check('§5.1 再次点击收起菜单并恢复普通标题栏: ' + JSON.stringify(mbClosed),
         mbClosed.bar === false && mbClosed.hamburger === '主菜单');
       await mb.page.close();
+    }
+
+    // ---- 规格 §5.1：标题栏右侧搜索/设置入口必须真的执行动作 ----
+    // 用户实测：右上角放大镜与齿轮点了没反应。根因是它们没有任何绑定，
+    // 落进 guardUnwiredNavigation 的"其余尚未接线"兜底（只 preventDefault）。
+    {
+      const tb = await openScene('scene=main-project&theme=dark');
+      await tb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await tb.page.waitForTimeout(500);
+      const entries = await tb.page.evaluate(() => {
+        const el = (label) => [...document.querySelectorAll('.titlebar .top-button')]
+          .find((node) => node.getAttribute('aria-label') === label) || null;
+        return { search: !!el('搜索'), gear: !!el('设置') };
+      });
+      check('§5.1 标题栏存在搜索与设置图标入口: ' + JSON.stringify(entries),
+        entries.search === true && entries.gear === true);
+
+      await tb.page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
+      await tb.page.locator('.titlebar .top-button[aria-label="搜索"]').click();
+      await tb.page.waitForSelector('.search-overlay', { timeout: 8000 });
+      const afterSearch = await tb.page.evaluate(() => ({
+        unwired: window.__augitUnwiredLabel || null,
+        field: !!document.querySelector('.search-overlay .search-field'),
+        focused: !!(document.activeElement && document.activeElement.closest('.search-overlay')),
+      }));
+      check('§5.1 齿轮左边的搜索图标打开快速打开浮层并聚焦输入框: ' + JSON.stringify(afterSearch),
+        afterSearch.unwired === null && afterSearch.field === true && afterSearch.focused === true);
+      await tb.page.keyboard.press('Escape');
+      await tb.page.waitForTimeout(300);
+
+      await tb.page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
+      await tb.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+      await tb.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+      const afterGear = await tb.page.evaluate(() => ({
+        unwired: window.__augitUnwiredLabel || null,
+        dialog: !!document.querySelector('.settings-window'),
+        inert: document.querySelector('.app-main').inert === true,
+      }));
+      check('§5.1 齿轮图标打开设置窗口: ' + JSON.stringify(afterGear),
+        afterGear.unwired === null && afterGear.dialog === true && afterGear.inert === true);
+      await tb.page.close();
+    }
+
+    // ---- 规格 §7.16：终端按需单会话——运行时点入口必须真的建立会话 ----
+    // 用户实测"左下角终端点开卡死"：实测（真机 CDP 探针）窗口并未无响应
+    // （IsHungAppWindow=false、evaluate 4ms），而是 `.terminal-view` 里根本没有 xterm：
+    // 会话从未创建。根因：startTerminal() 只在 `--scene terminal` 启动路径上调用。
+    {
+      const tmScene = await openScene('scene=main-project&theme=dark');
+      const tm = tmScene;
+      await tm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await tm.page.waitForTimeout(500);
+      // 失败时打印现场：终端这条链路此前在 harness 里完全没有桩，第一次跑必须能自解释。
+      const terminalState = () => tm.page.evaluate(() => ({
+        shell: window.__augitTerminalShell || null,
+        ready: !!window.__augitTerminalReady,
+        calls: (window.__augitTerminalCalls || []).slice(-10),
+        host: !!document.querySelector('.terminal-view'),
+        xterm: !!document.querySelector('.terminal-view .xterm'),
+        terminalFn: typeof window.Terminal,
+        fitFn: typeof (window.FitAddon && window.FitAddon.FitAddon),
+        bottom: window.__augitLive && window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+        collapsed: window.__augitLive && window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
+        err: window.__augitError || null,
+      }));
+      const tryWait = async (label, expression, timeout = 10000) => {
+        try {
+          await tm.page.waitForFunction(expression, null, { timeout });
+        } catch {
+          throw new Error(label + ' 超时 state=' + JSON.stringify(await terminalState())
+            + ' pageErrors=' + JSON.stringify(tmScene.errors.slice(0, 2)));
+        }
+      };
+      await tm.page.evaluate(() => {
+        window.__terminalCalls = [];
+        window.__terminalWrites = [];
+        window.__terminalStops = 0;
+        window.__terminalReadDelays = 120;   // 让轮询间隔短于一次往返，检验并发守卫
+      });
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('终端建立会话', 'window.__augitTerminalShell === "Windows PowerShell"');
+      await tryWait('终端挂载 xterm', '!!document.querySelector(".terminal-view .xterm")');
+      await tm.page.waitForTimeout(900);
+      const opened = await tm.page.evaluate(() => ({
+        host: !!document.querySelector('.terminal-view'),
+        xterm: !!document.querySelector('.terminal-view .xterm'),
+        screen: !!document.querySelector('.terminal-view .xterm-screen'),
+        starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+        reads: (window.__terminalCalls || []).filter((m) => m === 'terminal/read').length,
+        bottom: window.__augitLive.layout.bottom,
+        err: window.__augitError || null,
+      }));
+      check('§7.16 运行时点终端入口真的建立会话（挂载 xterm 且只 start 一次）: ' + JSON.stringify(opened),
+        opened.host === true && opened.xterm === true && opened.screen === true
+          && opened.starts === 1 && opened.reads > 0 && opened.bottom === 'terminal' && opened.err === null);
+      check('§7.16 终端轮询不堆积在途请求（并发上限 1）: '
+        + JSON.stringify(await tm.page.evaluate(() => window.__terminalMaxInFlight)),
+      (await tm.page.evaluate(() => window.__terminalMaxInFlight)) === 1);
+
+      // 输入经 xterm 交给宿主（真实键盘事件）
+      await tm.page.locator('.terminal-view').click();
+      await tm.page.keyboard.type('dir');
+      await tm.page.waitForTimeout(400);
+      const typed = await tm.page.evaluate(() => (window.__terminalWrites || []).join(''));
+      check('§7.16 终端输入经宿主写入: ' + JSON.stringify(typed), typed.includes('dir'));
+
+      // 宿主输出进入正文（真实渲染到 .xterm-rows）
+      await tm.page.evaluate(() => { window.__terminalSession.buffer += 'augit-shell-output\r\n'; });
+      await tryWait('终端显示宿主输出', 'document.querySelector(".terminal-view").textContent.includes("augit-shell-output")');
+      check('§7.16 终端正文显示宿主输出', true);
+
+      // 没有前台命令：关闭直接结束会话并收起
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
+      const closed = await tm.page.evaluate(() => ({
+        stops: window.__terminalStops || 0,
+        bottom: window.__augitLive.layout.bottom,
+        confirm: !!document.querySelector('.terminal-close-dialog'),
+      }));
+      check('§7.16 无前台命令时关闭终端：直接结束会话并收起（不弹确认）: ' + JSON.stringify(closed),
+        closed.stops === 1 && closed.bottom === '' && closed.confirm === false);
+
+      // 有前台命令：先确认；取消不结束会话，确认才结束
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('重开后重新挂载 xterm', '!!document.querySelector(".terminal-view .xterm")');
+      await tm.page.evaluate(() => { window.__terminalStops = 0; window.__terminalForeground = true; });
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.waitForSelector('.terminal-close-dialog', { timeout: 8000 });
+      const asking = await tm.page.evaluate(() => ({
+        stops: window.__terminalStops || 0,
+        text: document.querySelector('.terminal-close-dialog').textContent,
+      }));
+      check('§7.16 有前台命令时先确认且未结束会话: ' + JSON.stringify([asking.stops, asking.text.slice(0, 40)]),
+        asking.stops === 0 && asking.text.includes('命令正在运行'));
+      await tm.page.locator('.terminal-close-dialog [data-terminal-close="cancel"]').click();
+      await tm.page.waitForTimeout(400);
+      const kept = await tm.page.evaluate(() => ({
+        stops: window.__terminalStops || 0,
+        dialog: !!document.querySelector('.terminal-close-dialog'),
+        tool: !!document.querySelector('.terminal-tool'),
+      }));
+      check('§7.16 取消后保留终端: ' + JSON.stringify(kept),
+        kept.stops === 0 && kept.dialog === false && kept.tool === true);
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.waitForSelector('.terminal-close-dialog', { timeout: 8000 });
+      await tm.page.locator('.terminal-close-dialog [data-terminal-close="confirm"]').click();
+      await tryWait('确认后收起面板', '!document.querySelector(".terminal-tool")');
+      const ended = await tm.page.evaluate(() => ({ stops: window.__terminalStops || 0, bottom: window.__augitLive.layout.bottom }));
+      check('§7.16 确认后结束会话并收起: ' + JSON.stringify(ended), ended.stops === 1 && ended.bottom === '');
+
+      // 隐藏：只收起面板，会话保留（再次打开即恢复同一会话与同一段正文）
+      // 注意：上一步是"确认关闭"，会话已结束并重建；因此 starts/正文 必须在**同一会话内**比较。
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('隐藏前 xterm 在位', '!!document.querySelector(".terminal-view .xterm")');
+      await tm.page.evaluate(() => {
+        window.__terminalStops = 0;
+        window.__terminalForeground = false;
+        window.__terminalSession.buffer += 'hide-marker\r\n';
+      });
+      await tryWait('隐藏前正文已渲染', 'document.querySelector(".terminal-view").textContent.includes("hide-marker")');
+      const startsBeforeHide = await tm.page.evaluate(() =>
+        (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length);
+      await tm.page.locator('.terminal-tool [aria-label="隐藏终端"]').click();
+      await tryWait('隐藏后收起面板', '!document.querySelector(".terminal-tool")');
+      const hidden = await tm.page.evaluate(() => ({ stops: window.__terminalStops || 0 }));
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('恢复后 xterm 在位', '!!document.querySelector(".terminal-view .xterm")');
+      const restored = await tm.page.evaluate(() => ({
+        stops: window.__terminalStops || 0,
+        starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+        text: document.querySelector('.terminal-view').textContent.includes('hide-marker'),
+      }));
+      check('§7.16 隐藏只收起面板、同一会话与正文保留: ' + JSON.stringify([hidden.stops, startsBeforeHide, restored]),
+        hidden.stops === 0 && restored.stops === 0 && restored.starts === startsBeforeHide && restored.text === true);
+      await tm.page.evaluate(() => { window.__terminalReadDelays = 0; });
+      await tm.page.close();
     }
 
     // ---- 规格 §7.11 / §10.4 / §9.3：Reset 在实时外壳中可达，且执行/取消真的落到宿主 ----

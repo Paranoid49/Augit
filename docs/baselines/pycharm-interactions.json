@@ -1,0 +1,91 @@
+{
+  "schema": "augit.interaction-baseline/1",
+  "purpose": "PyCharm 侧『操作 → 状态转换』的机器可读基线：页面/窗口跳转关系、点击/悬停/焦点反馈、状态转换。配合 tools/audit/check-interactions.cjs 在同一份数据上重放 Augit 并逐条给出 PASS/DIFF/环境不可达。",
+  "source": {
+    "product": "PyCharm",
+    "edition": "Professional",
+    "version": "2026.2.1",
+    "installPath": "D:\\JetBrains\\PyCharm 2026.2.1",
+    "configDir": "%APPDATA%\\JetBrains\\PyCharm2026.2",
+    "theme": "Islands Light",
+    "editorColorScheme": "Light Theme",
+    "zoom": "100%",
+    "uiFont": "Microsoft YaHei (Use custom font, checked)",
+    "dpi": 168,
+    "scalePercent": 175,
+    "window": {
+      "rect": "-7,-7 1659x994",
+      "state": "maximized"
+    },
+    "project": "D:\\github\\Augit",
+    "capturedAt": "2026-09-19",
+    "capture": {
+      "window": "PrintWindow(hwnd, hdc, 2) via tools-less scratch script; meanBrightness 232-243 (not black)",
+      "evidenceDir": "artifacts/pycharm-baseline-20260919 (仓库内，长期保留)；原始抓取脚本在 D:\\tmp-augit-cap\\pycharm-*.ps1",
+      "files": [
+        "artifacts/pycharm-baseline-20260919/pycharm-main.png (主窗口 1659x994, DPI168)",
+        "artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.png (Settings 对话框 900x700, Appearance & Behavior > Appearance)"
+      ]
+    }
+  },
+  "surfaces": [
+    {
+      "id": "pycharm.settings",
+      "title": "Settings",
+      "host": "modal dialog (SunAwtDialog 'Settings - Augit'), opens on Ctrl+Alt+S",
+      "layout": "左侧 = 搜索框 + 分类树；右侧 = 当前分类页面（顶部面包屑 'Appearance & Behavior > Appearance'）",
+      "treeTopLevel": [
+        "Python",
+        "Jupyter",
+        "Project Structure",
+        "Appearance & Behavior",
+        "System Settings",
+        "File Colors",
+        "Scopes",
+        "Notifications",
+        "Data Editor and Viewer",
+        "Quick Lists",
+        "Required Plugins"
+      ],
+      "treeAppearanceChildren": [
+        "Appearance",
+        "Menus and Toolbars"
+      ],
+      "rightPageAppearance": {
+        "theme": "Islands Light",
+        "editorColorScheme": "Light Theme",
+        "checkbox": "Different tool window background in the dark theme",
+        "accessibility": {
+          "zoom": "100%",
+          "useCustomFont": true,
+          "fontName": "Microsoft YaHei",
+          "supportScreenReaders": false
+        }
+      },
+      "evidence": [
+        "artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.png"
+      ],
+      "observations": [
+        "界面字体(UI font)属于 Appearance & Behavior > Appearance（Accessibility 区的 Use custom font），不是编辑器字体页",
+        "编辑器/等宽字体在 PyCharm 里是另一个顶层分类 Editor > Font（本轮尚未抓取，待补）",
+        "选中项用浅蓝底整行高亮（Appearance 行），未选中项无底色；分类树带展开箭头，可折叠"
+      ]
+    },
+    {
+      "id": "pycharm.main",
+      "title": "主窗口",
+      "layout": "顶部 = 主工具栏(菜单/工作区下拉/运行控件/搜索/设置/窗口按钮)；左 = 工具窗口按钮条(竖排)；左栏 = 工具窗口内容；中 = 编辑器标签与正文；右 = 工具窗口或编辑器；底 = 状态栏",
+      "evidence": [
+        "artifacts/pycharm-baseline-20260919/pycharm-main.png"
+      ],
+      "observations": [
+        "当前项目树展开到 D:\\github\\Augit；编辑器标签 3 个（audit-clone-seq3.bmp / product-spec.md / performance-rep...）",
+        "编辑器当前行(46)有整行浅绿底高亮，行号槽独立列宽",
+        "Light 主题：内容面板近白、分隔线浅灰、选中/激活用浅蓝"
+      ]
+    }
+  ],
+  "jumps": [],
+  "feedback": [],
+  "sequences": []
+}

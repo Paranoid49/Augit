@@ -20,18 +20,18 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **920/920**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **932/932**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（16 场景） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
-| C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **69/69** |
+| C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **PASS**（默认场景列表已补齐到 `ux-spec` §12.1 要求的全部页面；实测 25/25 + 17/17 = **42/42**） |
 | 打包 | `powershell -File tools/release.ps1` | **通过**：`Augit-0.1.0-win-x64-portable.zip` 2,776,666 B、`Augit-0.1.0-win-x64-setup.exe` 4,373,513 B、`SHA256SUMS.txt` 两项 `sha256sum -c` 全部 OK；包内 `Augit.dll` 含 `git/reset`、`web/src/live-data.js` 含 Reset 执行/取消钩子 |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
 > 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 693 个 `check(...)` 调用点，
-> 其中一部分在场景/主题循环里重复执行，因此实际断言数（920）大于调用点数。
+> 其中一部分在场景/主题循环里重复执行，因此实际断言数（932）大于调用点数。
 
 ## 1. A 线：静态界面复原
 
@@ -124,6 +124,7 @@
 | §5.1 | Esc 关闭内嵌菜单并恢复原标题栏，窗口按钮/树/标签/工具窗口状态不变 | 是 | 同块（`Esc 关闭内嵌菜单` + 关闭前后结构快照比对） |
 | §5.1 | 已聚焦、可见、启用的标题栏按钮按 Enter 执行点击动作；**长按不重复切换** | 是 | 「规格 §5.1：长按（键盘自动重复）不重复触发」块（控制：`探针确实送出了 5 次 Enter（含 4 次重复）`；`长按不重复切换工具窗口（最多切换一次）`；`长按后状态与单击一致（已激活入口 → 折叠）`；`长按 Enter 时对话框只执行一次动作`） |
 | §5.1 | 悬停/焦点只重绘相关按钮，不打开文件、不查 Git、不重排主框架 | 是 | 「悬停只改外观」块 + 焦点环块 |
+| §5.1 | 标题栏右侧**搜索**（放大镜）与**设置**（齿轮）入口必须执行动作 | 是 | 「§5.1：标题栏右侧搜索/设置入口必须真的执行动作」块（`搜索图标打开快速打开浮层并聚焦输入框`、`齿轮图标打开设置窗口`，并断言不再落进 `__augitUnwired*` 未接线兜底） |
 
 ### 2.2 §5.2 标签
 
@@ -201,6 +202,7 @@
 | §7.13 | 冲突操作会话（Continue/Skip/Abort）与打开三栏解决器 | 是 | 「规格 §7.13/§10.3：冲突操作会话」块 + 「点击冲突文件打开三栏冲突解决器」块 |
 | §7.14 | 接受左/两/右侧是结果区一次可撤销编辑；进行中冻结；失败保留正文并显示原因 | 是 | 「规格 §7.14：接受左侧/两侧/右侧是结果区的一次可撤销编辑」块 + 「应用进行中冻结、只读与忙碌提示」块 |
 | §7.14 | 上一处/下一处与当前块；大字号与窄窗口排布；二进制/非法 UTF-8/超限只能整侧接受 | 是 | 「§7.14：上一处/下一处与当前块」块、「§7.14：大字号 / 窄窗口下的标题行排布」块、「§7.14：二进制 / 非法 UTF-8 / 超限文件只能整侧接受」块 |
+| §7.16 | 终端按需单会话：运行时点入口即建会话、能输入、有输出、关闭需前台命令确认、隐藏保留会话 | 是 | 「§7.16：终端按需单会话」块（8 条：`运行时点终端入口真的建立会话（挂载 xterm 且只 start 一次）`、`终端轮询不堆积在途请求（并发上限 1）`、`终端输入经宿主写入`、`终端正文显示宿主输出`、`无前台命令时关闭终端：直接结束会话并收起（不弹确认）`、`有前台命令时先确认且未结束会话`、`取消后保留终端`、`确认后结束会话并收起`、`隐藏只收起面板、同一会话与正文保留`）；真机复探：xterm 挂载、7 行真实 banner、`hung=false` |
 | §7.18 | Git 不可用时保留文件浏览并只提示一次 | 是 | 「规格 §7.18：Git 不可用时保留文件浏览，只提示一次」块 |
 
 ### 2.7 §9 关键状态机
