@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1013/1013（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1014/1014（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -1098,6 +1098,31 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     **真机复验（同一探针）**：洪泛后 **1 次轮询 / 6 秒**即读回
     `PS …> Write-Output AFTER-TRIM-SENTINEL` / `AFTER-TRIM-SENTINEL` / 新提示符；
     修复前是 120 秒 × 20 次采样都没有。
+
+16. **未接线兜底的清单式事实（P0 ① 遗留，已产出）** —— 用户要的是"还有哪些入口落进
+    `guardUnwiredNavigation()` 兜底"的**有分母**答案，而不是"那两个按钮现在不落了"。
+    真机探针 `D:\tmp-augit-cap\unwired-entries-probe.ps1` 在 `main-project` 场景把**全部可见**的
+    `a[href$=".html"]` 入口逐个点一遍（每次都按 href 重新查询 —— 接线的入口会重绘场景，
+    预先抓的节点会失效，第一版因此丢了 10/16 个入口），结果：
+
+    | 项 | 数量 | 明细 |
+    | --- | --- | --- |
+    | 去重入口（分母） | **13** | 13 个不同 `href`，0 个"找不到" |
+    | 被识别（不落兜底） | **2** | `branches.html`（分支芯片 `dsh`）、`settings.html`（设置） |
+    | 落进兜底记录 | **11** | `workspace-open` / `quick-open` / `main-project` / `commit-changes` / `repository-search` / `terminal` / `git-history` / `text-viewer` / `markdown-preview` / `file-history` / `blame` |
+    | 其中"点击后四元组信号无变化"（疑似真死候选） | **6** | `workspace-open.html`、`quick-open.html`、`text-viewer.html`、`markdown-preview.html`、`file-history.html`、`blame.html` |
+
+    两个必须写清楚的限定：① **落兜底 ≠ 功能失效** —— 有 5 个（`main-project`/`commit-changes`/
+    `repository-search`/`terminal`/`git-history`）点击后确实有变化，说明它们的动作由 target 阶段的
+    既有绑定完成，兜底只是"guard 的识别链不认识它"的记录；② 那 6 个"无变化"是**候选**不是结论 ——
+    信号里没有 `activeTabId`，因此"点击当前活动标签"（`text-viewer.html` 与
+    `markdown-preview.html` 很可能就是编辑器标签）分辨不出来，逐个功能复核留待下一轮。
+    机器可读一侧已冻结进 harness（`live-shell` 1013 → **1014/1014**；harness 场景里读到的
+    分母与集合与真机同构，每次运行都会打印在断言消息里）：
+    `P0① 主场景 .html 入口清单（分母 + 未接线兜底集合）`
+    —— 走同一套 walker，断言 `settings.html`/`branches.html` 不在兜底集合里、
+    **并注入一个合成入口 `brand-new-scene.html` 必须被判成落兜底**（非空性对照，
+    否则"某入口不落兜底"可能只是 walker 没生效）。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

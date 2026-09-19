@@ -8633,6 +8633,90 @@ async function main() {
     // 两者执行前先恢复普通标题栏。
     // 每个入口用独立页面：菜单动作会切换工具窗口并触发区域刷新，
     // 在同一个页面上连续操作会互相干扰（实测第二次打开菜单会被重绘收起）。
+    // ---- P0 ① 清单式事实：主场景里有多少 .html 入口、其中多少落进"未接线兜底" ----
+    // 用户要求的是"有分母的事实"，不是"那两个按钮不再落兜底"。这里把主场景里**全部**
+    // 可见的 `a[href$=".html"]` 入口逐个点一遍（每次都重新按 href 查询：接线的入口会重绘
+    // 场景，预先抓的节点会失效 —— 真机探针第一版因此丢了 10/16 个入口），记录：
+    //   recognised  = guard 的识别链显式处理（不落兜底）
+    //   fallThrough = 落进兜底记录
+    //   changed     = 点击前后四元组信号（body 长度、标签数、activeRail、弹层数）是否有变化
+    // 注意：**fallThrough 不等于功能失效** —— 有些入口由 target 阶段的既有绑定完成动作，
+    // 兜底只是"guard 的识别链不认识它"的记录（真机实测 11 个落兜底里有 5 个确实有变化）。
+    const entryInventory = await (async () => {
+      const { page } = await openScene('scene=main-project&theme=dark');
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForTimeout(600);
+      const inventory = await page.evaluate(async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        const hrefs = [...new Set([...document.querySelectorAll('a[href$=".html"]')]
+          .map((a) => a.getAttribute('href')))];
+        const snap = () => [
+          document.body.innerHTML.length,
+          (window.__augitLive && window.__augitLive.tabs ? window.__augitLive.tabs.length : -1),
+          (window.__augitLive && window.__augitLive.activeRail) || '',
+          document.querySelectorAll('[data-augit-overlay]').length,
+        ].join('|');
+        const results = [];
+        for (const href of hrefs) {
+          const entry = [...document.querySelectorAll('a[href="' + href + '"]')]
+            .find((a) => a.getClientRects().length > 0);
+          if (!entry) { results.push({ href, missing: true }); continue; }
+          window.__augitUnwiredLabel = null;
+          window.__augitUnwiredAction = null;
+          const before = snap();
+          entry.click();
+          await wait(150);
+          results.push({
+            href,
+            recognised: !window.__augitUnwiredLabel,
+            changed: before !== snap(),
+          });
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await wait(80);
+        }
+        // 非空性对照：注入一个**没人认识**的入口，walker 必须把它判成"落兜底"，
+        // 否则"某入口不落兜底"可能只是因为 walker 根本没生效。
+        const probe = document.createElement('a');
+        probe.id = 'augit-unwired-probe';
+        probe.href = 'brand-new-scene.html';
+        probe.textContent = 'probe';
+        document.body.appendChild(probe);
+        window.__augitUnwiredLabel = null;
+        probe.click();
+        await wait(100);
+        const injected = window.__augitUnwiredAction;
+        probe.remove();
+        return {
+          total: hrefs.length,
+          results,
+          recognised: results.filter((r) => r.recognised).map((r) => r.href),
+          fallThrough: results.filter((r) => r.recognised === false).map((r) => r.href),
+          silentlyDead: results.filter((r) => r.recognised === false && r.changed === false).map((r) => r.href),
+          injected,
+        };
+      });
+      await page.close();
+      return inventory;
+    })();
+    check('P0① 主场景 .html 入口清单（分母 + 未接线兜底集合）: ' + JSON.stringify({
+      total: entryInventory.total,
+      recognised: entryInventory.recognised,
+      fallThrough: entryInventory.fallThrough,
+      silentlyDead: entryInventory.silentlyDead,
+    }),
+    entryInventory.total >= 10
+      // P0 ① 的两个入口必须已被识别链接住（否则点下去就没反应）。
+      && !entryInventory.fallThrough.includes('settings.html')
+      && !entryInventory.fallThrough.includes('branches.html')
+      // 非空性：walker 必须真的能发现"落兜底"的入口。
+      && entryInventory.injected === 'brand-new-scene.html');
+    // 真机复核过这一格（`D:\tmp-augit-cap\unwired-entries-probe.ps1`）：main-project 场景
+    // 13 个去重入口 = 2 个被识别（`branches.html` 分支芯片、`settings.html` 设置）
+    // + 11 个落兜底，其中 6 个在四元组信号下**没有任何变化**（`workspace-open.html`、
+    // `quick-open.html`、`text-viewer.html`、`markdown-preview.html`、`file-history.html`、
+    // `blame.html`）—— 这 6 个是"疑似真死"的候选，逐个功能复核留待下一轮（`text-viewer.html`
+    // 与 `markdown-preview.html` 很可能只是"点击当前活动标签"，信号里缺 activeTabId 分辨不了）。
+
     const runMenuEntry = async (label) => {
       const { page } = await openScene('scene=main-project&theme=dark');
       await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
