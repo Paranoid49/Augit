@@ -9972,3 +9972,33 @@ HEAD                              75035b1
 其余差异全部归因（数据/状态、滚动条、平台字体、内容条件样式、样例内容）
 并已写成 5 条判读规则；唯一需要设计基线拍板的 `blame` 样例缺 `document-path`
 已按"基线内部一致性"补全并回归验证。**没有已知的未修复实现缺陷。**
+
+#### 第 278 轮（新目标 ①）：同引擎像素对照链路**已建立**，标题栏 97.3% 像素一致
+
+按用户建议把视觉稿页面放到 **Windows 侧同一个 WebView2** 里渲染（外壳 `--web-root docs/ux-mockups`
++ CDP 导航到 `<scene>.html`），两侧同窗口尺寸/主题/`--pixel-exact`，PrintWindow 取图后逐像素比对：
+
+```
+MOCKPROBE {"url":"https://augit.local/git-history.html?theme=dark","title":"Augit - Git 历史",
+           "theme":"dark","tabs":3,"bottom":true}          ← 视觉稿页确实在壳里渲染
+MOCKGEO   {"inner":[1180,760],"win":[1180,760],"bar":[738,22]}  ← 布局与实时一致（状态栏 y=738、高 22）
+SIZES     mock=1180x760 live=1180x760
+BAND titlebar   total=51920 diff=1414  visible=1399 max=181   ← 97.3% 像素完全一致
+BAND statusbar  total=28320 diff=26119 visible=26119 max=181  ← 92% 不同，原因未明
+```
+
+**已确认的结论**：跨平台字体/滚动条差异被彻底消除后，**标题栏达到 97.3% 像素一致**
+（剩余 2.7% 是分支名 `main`/`dsh` 与当前文件名的文字差异，属数据）——
+这是比此前"DOM 结构一致"强得多的证据。
+
+**未解的异常**：状态栏那条 40 像素带 92% 不同，但 DOM 探针表明两侧状态栏都在 y=738（高 22）。
+已排除"CDP 导航后 PrintWindow 返回旧帧"（改成连拍两张取第二张后数字完全不变）。
+下一轮排查顺序：
+1. 直接把两张图的最后 24 行像素值 dump 出来（看是"状态栏背景"还是"编辑器正文"），
+   确认 mockup 那张图的底带到底画了什么；
+2. 校验两次连拍的哈希是否相同（确认没有陈旧帧）；
+3. 若确认是"视觉稿页在壳里被渲染得比视口高"（例如滚动条/缩放导致），
+   改用 CDP `Emulation.setDeviceMetricsOverride` 固定视口后再抓。
+
+**链路代码**（暂放 scratch，稳定后移入 `tools/audit/`）：`D:\tmp-augit-cap\mockcap.ps1`
+（`--web-root` 启动 + CDP 导航 + 连拍）、`pxdiff.ps1`（按带逐像素统计）、`crop2.ps1`（裁带并排看图）。
