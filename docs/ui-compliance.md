@@ -960,6 +960,37 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 ## 3. 差异与未覆盖（逐条）
 
+### 0.1 本轮验证汇总与剩余未闭环项（2026-09-21，最后一批改动之后重跑）
+
+| 闸门 | 命令 | 本轮读数 |
+| --- | --- | --- |
+| 构建 | `dotnet build src/Augit.Shell -c Release` | **0 警告 / 0 错误** |
+| 外壳单测 | `dotnet test tests/Augit.Shell.Tests` | **74/74** |
+| 核心单测 | `dotnet test tests/Augit.Core.Tests` | **86/86** |
+| 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **1014/1014（未执行 0 项）**（2026-09-21 本轮重跑，摘要行 `live-shell 通过 1014 项断言`） |
+| 真机全场景巡检 | `verify-acceptance.ps1` | **54/54 PASS（干净仓库）** + `diff-boundary` **1/1**（含改动工作区） |
+| 打包 | `tools/release.ps1` | zip **2,795,619 B** / setup **4,386,825 B** / `sha256sum -c` **两项 OK** / 包内 32 条目 0 可疑 / 包内 `live-data.js` 与仓库**逐字节相同** |
+| 交互基线 | `check-interactions.cjs` | `INTERACTIONS_BASELINE_OK`（surfaces 6 / jumps 4 / feedback 8 / sequences 6 / gaps 4；CHECKED 18） |
+| 文档数字自洽 | `check-doc-claims.cjs` | `DOC_CLAIMS_OK`（§2.0 分节之和 = 合计、逐块计数一致） |
+| 共享资源一致 | `verify-ui-assets.ps1` | **PASS** |
+| 脚本编码 | `verify-script-encoding.ps1` | **PASS（12 个脚本）** |
+| 像素逐页表 | `gen-coverage-table.cjs` | 55 行，生成幂等；偏高项复核样例 `repository-search`（heatmap 入仓） |
+
+**明确未闭环（不在上表"通过"之列）**：
+
+1. **⑦⑧ 逐页 PyCharm 对照**：目前只有 2 个面（主窗口 chrome、设置对话框）与设置对话框内部几何；
+   48 个视觉稿页面的逐页对照表尚未产出。
+2. **④ 其余场景的 heatmap 复核**：55 行里只完成了最高值那 1 行（`repository-search`）的复核示例；
+   其余行的判读仍只有数字（且已注明数字属"那一次运行"，不可当作常数）。
+3. **⑯ 三块采集（外部阻塞）**：`Editor › Font` / `Console Font` 页面正文、分类树 7 项残差、
+   进行中/失败/空态截图。**阻塞事实**：Windows 前台锁拒绝 `SetForegroundWindow`/`AppActivate`/合成点击，
+   采集脚本的硬校验因此主动中止（`FOREGROUND=Edge(pid 3340) → ABORT want=7688`），
+   这是有意的保护，避免按键落到用户其他窗口；**解锁动作**：用户点一下 PyCharm 使其成为前台即可继续
+   （不改其任何设置），配方已写进 `pycharm-interactions.json` 的 `navigationRecipe`。
+   该阻塞自第 16 轮起持续存在。
+4. **§2 的"部分/未覆盖"行**：见 §2.0 的逐节分母（用例行 406 条，其中条文 336 条有逐条行；
+   未成行的仍是 §4 的 15 条视觉/令牌类，以 §1.2 的像素表与令牌表核销）。
+
 ### 3.1 尚未执行的验证（不是已知缺陷）
 
 | 项 | 现状 | 计划 |
