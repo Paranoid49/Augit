@@ -6082,6 +6082,75 @@ async function launchExternal(action, path) {
 }
 
 /**
+ * 把 Markdown 预览里的相对链接解析成工作区相对路径（规格 §7.3）。
+ *
+ * 解析基准是当前文档所在目录；`..` 越出工作区根时返回 `null`，
+ * 由调用方按"阻止"处理。这里只做纯字符串解析，不碰文件系统。
+ */
+function resolveMarkdownTarget(target, basePath) {
+  const raw = String(target || "");
+  if (raw.length === 0) return null;
+  // 绝对路径与盘符（`/x`、`C:\x`、`\\server`）都不属于工作区相对链接。
+  if (/^[\\/]/.test(raw) || /^[a-zA-Z]:/.test(raw)) return null;
+  const base = String(basePath || "").split("/").slice(0, -1);
+  const stack = base.slice();
+  for (const part of raw.split(/[\\/]/)) {
+    if (part.length === 0 || part === ".") continue;
+    if (part === "..") {
+      // 基准目录已经被退完时再退一级就越出工作区根。
+      if (stack.length === 0) return null;
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return stack.length > 0 ? stack.join("/") : null;
+}
+
+/**
+ * Markdown 预览里的受控链接（规格 §7.3）。
+ *
+ * "相对文件链接在 Augit 标签中打开，外部链接交给系统前保持当前页面"：
+ * 网页层始终自行处理点击，任何情况下都不让 WebView 自己导航。
+ * 越界、协议不支持、目标不存在时返回阻止原因，由界面在**原链接位置**显示紧凑错误，
+ * 保留原标签文字；不使用跳到页首的空锚点，也不让整篇预览失败。
+ */
+async function openMarkdownLink(target) {
+  const raw = String(target || "");
+  if (raw.length === 0) return { opened: false, reason: "链接目标为空。" };
+  if (/^(https?:)?\/\//i.test(raw) || /^mailto:/i.test(raw)) {
+    const result = await launchExternal("open", raw);
+    if (result && result.launched) return { opened: true };
+    return { opened: false, reason: window.__augitLaunchError || "系统无法打开该链接。" };
+  }
+  // 其它协议（javascript:、file: 等）一律阻止，不做任何降级解释。
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) {
+    return { opened: false, reason: "不支持该链接协议。" };
+  }
+  let decoded = raw;
+  try { decoded = decodeURIComponent(raw); } catch { /* 保留原文 */ }
+  const document_ = (window.__augitLive && window.__augitLive.document) || null;
+  const resolved = resolveMarkdownTarget(decoded.split("#")[0].split("?")[0], document_ && document_.path);
+  if (!resolved) return { opened: false, reason: "目标越出工作区。" };
+  const parent = resolved.split("/").slice(0, -1).join("/");
+  const name = resolved.split("/").at(-1);
+  let entry = null;
+  try {
+    const listing = await invoke("workspace/list", { path: parent }, 15000);
+    entry = ((listing && listing.entries) || []).find((item) => item && item.name === name) || null;
+  } catch {
+    return { opened: false, reason: "无法确认目标是否存在。" };
+  }
+  if (!entry) return { opened: false, reason: "路径不存在。" };
+  if (entry.isDirectory) return { opened: false, reason: "目标是目录，不是可查看的文件。" };
+  await openDocument(entry.path || resolved);
+  return { opened: true };
+}
+
+window.__augitResolveMarkdownTarget = resolveMarkdownTarget;
+window.__augitOpenMarkdownLink = (target) => openMarkdownLink(target);
+
+/**
  * 复制路径到剪贴板（规格 §5.4 项目树菜单）。
  *
  * 交给宿主而不是 `navigator.clipboard`：WebView2 默认不授予

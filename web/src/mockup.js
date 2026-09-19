@@ -2496,6 +2496,36 @@ function bindMarkdownModes() {
     event.preventDefault();
     preview.scrollTo(0, preview.querySelector('#section-0').offsetTop - preview.offsetTop - 24);
   });
+  // 受控链接（规格 §7.3）：renderMarkdown 把链接渲染成带 data 属性的锚点，href 是占位 `#`。
+  // 不接管的话，点外部链接会让 WebView 自己导航，点相对链接则会跳到页首——规格明确禁止
+  // "跳到页首的空锚点"。这里先无条件 preventDefault，再按类型交给宿主处理；
+  // 被阻止时在**原链接位置**替换成紧凑错误，保留原标签文字与原因，预览其余部分不受影响。
+  on(preview, 'click', event => {
+    const link = event.target && event.target.closest ? event.target.closest('a[data-external-link], a[data-document-link]') : null;
+    if (!link) return;
+    event.preventDefault();
+    const external = link.hasAttribute('data-external-link');
+    const target = link.getAttribute(external ? 'data-external-link' : 'data-document-link') || '';
+    const blocked = reason => {
+      const replacement = document.createElement('span');
+      replacement.className = 'markdown-blocked';
+      replacement.setAttribute('title', reason);
+      replacement.textContent = `${link.textContent}（链接已阻止：${reason}）`;
+      link.replaceWith(replacement);
+    };
+    // 文档内锚点：留在预览区滚动，不算链接失败。
+    if (!external && target.startsWith('#')) {
+      const anchor = preview.querySelector(target);
+      if (anchor) preview.scrollTo(0, anchor.offsetTop - preview.offsetTop - 24);
+      else blocked('找不到该锚点。');
+      return;
+    }
+
+    if (typeof window.__augitOpenMarkdownLink !== 'function') return;
+    void Promise.resolve(window.__augitOpenMarkdownLink(target)).then(result => {
+      if (result && result.opened === false) blocked(result.reason || '无法打开该链接。');
+    }).catch(() => blocked('无法打开该链接。'));
+  });
   setRatio(ratio);
   setMode(view.dataset.markdownMode);
 }

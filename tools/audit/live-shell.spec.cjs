@@ -2830,6 +2830,306 @@ async function main() {
         && jsonState.formattedTwoSpace === true && jsonState.orderKept === true);
     await jsonMode.page.close();
 
+    // ---- §7.3 Markdown：受控链接、分隔条拖动、模式切换保留滚动（本轮补断言）----
+    // 背景：`renderMarkdown` 把链接渲染成 href="#" + data-external-link / data-document-link，
+    // 但**没有任何代码读这两个属性** —— 点外部链接会让 WebView 自己导航，点相对链接会跳到页首，
+    // 正是规格 §7.3 明令禁止的"跳到页首的空锚点"。这里既断言解析边界，也断言点击后的界面结果。
+    const mdScene = await openScene('scene=main-project&theme=dark');
+    await mdScene.page.waitForTimeout(400);
+    const mdResolved = await mdScene.page.evaluate(() => ({
+      sibling: window.__augitResolveMarkdownTarget('api/schema.md', 'docs/guide.md'),
+      sameDirectory: window.__augitResolveMarkdownTarget('./notes.txt', 'docs/guide.md'),
+      up: window.__augitResolveMarkdownTarget('../README.md', 'docs/guide.md'),
+      escape: window.__augitResolveMarkdownTarget('../../etc/passwd', 'docs/guide.md'),
+      absolute: window.__augitResolveMarkdownTarget('/etc/passwd', 'docs/guide.md'),
+      drive: window.__augitResolveMarkdownTarget('C:\\Windows\\win.ini', 'docs/guide.md'),
+    }));
+    check('§7.3 相对链接按当前文档目录解析、越界一律返回 null: ' + JSON.stringify(mdResolved),
+      mdResolved.sibling === 'docs/api/schema.md'
+        && mdResolved.sameDirectory === 'docs/notes.txt'
+        && mdResolved.up === 'README.md'
+        && mdResolved.escape === null
+        && mdResolved.absolute === null
+        && mdResolved.drive === null);
+
+    const mdLinks = await mdScene.page.evaluate(async () => {
+      const paragraphs = [];
+      for (let i = 0; i < 40; i += 1) paragraphs.push('第 ' + i + ' 段：用于撑出可滚动的原文区。');
+      const source = [
+        '# Markdown 链接与模式用例',
+        '',
+        '## 链接',
+        '',
+        '[API 规格](api/schema.md)',
+        '',
+        '[越界文档](../../etc/passwd)',
+        '',
+        '[本地文件](file:///C:/Windows/win.ini)',
+        '',
+        '[外部文档](https://example.com/docs)',
+        '',
+        '[章节锚点](#missing-section)',
+        '',
+        '## 正文',
+        '',
+        // 段落之间必须有空行，否则 Markdown 会把连续行合并成一个 <p>，
+        // "预览未被破坏"的计数断言就会变成假通过（本轮实测踩到）。
+        paragraphs.join('\n\n'),
+      ].join('\n');
+      window.__limitDocs = {
+        'docs/guide.md': {
+          path: 'docs/guide.md', name: 'guide.md', fullPath: 'D:\\live-ws\\docs\\guide.md',
+          workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+          fileSize: source.length, text: source, lineEndings: 'LF', encoding: 'UTF-8',
+        },
+        // 相对链接的落点：必须在桩里真的可读，否则"在 Augit 标签中打开"只能失败。
+        'docs/api/schema.md': {
+          path: 'docs/api/schema.md', name: 'schema.md', fullPath: 'D:\\live-ws\\docs\\api\\schema.md',
+          workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+          fileSize: 12, text: '# Schema\n\n字段说明。', lineEndings: 'LF', encoding: 'UTF-8',
+        },
+      };
+      await window.__augitOpenDocument('docs/guide.md');
+      window.__augitRender();
+      await new Promise((r) => setTimeout(r, 300));
+      document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      const preview = document.querySelector('.markdown-document .markdown-preview');
+      const byLabel = (selector, label) => [...preview.querySelectorAll(selector)].find((a) => a.textContent === label);
+      const external = byLabel('a[data-external-link]', '外部文档');
+      const escape = byLabel('a[data-document-link]', '越界文档');
+      const protocol = byLabel('a[data-document-link]', '本地文件');
+      const anchor = byLabel('a[data-document-link]', '章节锚点');
+      const documentLink = byLabel('a[data-document-link]', 'API 规格');
+      const hashBefore = location.hash;
+      const hrefBefore = external ? external.getAttribute('href') : null;
+      external.click();
+      escape.click();
+      protocol.click();
+      anchor.click();
+      await new Promise((r) => setTimeout(r, 250));
+      const blocked = [...preview.querySelectorAll('.markdown-blocked')].map((span) => ({
+        label: span.textContent,
+        title: span.getAttribute('title'),
+        inPlace: !!span.closest('p'),
+      }));
+      return {
+        launchCalls: (window.__launchCalls || []).slice(),
+        hashBefore,
+        hashAfter: location.hash,
+        hrefBefore,
+        hashHref: external ? external.getAttribute('href') : null,
+        externalStillAnchor: !!(external && external.isConnected),
+        documentPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+        previewIntact: !!preview.querySelector('h1') && preview.querySelectorAll('p').length >= 40,
+        blocked,
+        documentLinkText: documentLink ? documentLink.textContent : null,
+      };
+    });
+    const mdBlockedLabels = mdLinks.blocked.map((item) => item.label).join(' | ');
+    const mdBlockedTitles = mdLinks.blocked.map((item) => item.title).join(' | ');
+    check('§7.3 外部链接交给系统、当前页面不导航: ' + JSON.stringify({
+      launchCalls: mdLinks.launchCalls, hash: [mdLinks.hashBefore, mdLinks.hashAfter],
+      href: [mdLinks.hrefBefore, mdLinks.hashHref],
+    }),
+      mdLinks.launchCalls.includes('open:https://example.com/docs')
+        && mdLinks.hashAfter === mdLinks.hashBefore
+        && mdLinks.hrefBefore === '#'
+        && mdLinks.hashHref === '#'
+        && mdLinks.externalStillAnchor === true
+        && mdLinks.documentPath === 'docs/guide.md');
+    check('§7.3 越界/协议不支持/锚点缺失在原位置显示原因且不破坏预览: ' + JSON.stringify(mdLinks.blocked),
+      mdLinks.blocked.length === 3
+        && mdBlockedLabels.includes('越界文档') && mdBlockedLabels.includes('目标越出工作区')
+        && mdBlockedLabels.includes('本地文件') && mdBlockedLabels.includes('不支持该链接协议')
+        && mdBlockedLabels.includes('章节锚点') && mdBlockedLabels.includes('找不到该锚点')
+        && mdBlockedTitles.includes('目标越出工作区')
+        && mdLinks.blocked.every((item) => item.inPlace === true)
+        && mdLinks.previewIntact === true);
+
+    // 分隔条：拖动保偏移、越界夹紧到最小栏宽、Esc 只结束拖动、方向键步进、
+    // 重复移动到同一位置不重新布局（用 setProperty 计数证明提前返回）。
+    const mdSplit = await mdScene.page.evaluate(async () => {
+      document.querySelector('.markdown-document button[data-markdown-mode="split"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const panes = document.querySelector('.markdown-panes');
+      const divider = document.querySelector('.markdown-divider');
+      divider.focus();
+      const panesRect = panes.getBoundingClientRect();
+      const dividerRect = divider.getBoundingClientRect();
+      // 计数包装：重复调用不应触达 style.setProperty（提前返回）。
+      const original = panes.style.setProperty.bind(panes.style);
+      window.__ratioWrites = 0;
+      panes.style.setProperty = (...args) => { window.__ratioWrites += 1; return original(...args); };
+      return {
+        panesClient: panes.clientWidth,
+        sourceWidth: document.querySelector('.markdown-source').getBoundingClientRect().width,
+        dividerX: dividerRect.left + dividerRect.width / 2,
+        dividerY: dividerRect.top + dividerRect.height / 2,
+        panesRight: panesRect.right,
+        ratio: panes.style.getPropertyValue('--markdown-source-ratio'),
+      };
+    });
+    const mdAvailable = mdSplit.panesClient - 6;
+    await mdScene.page.mouse.move(mdSplit.dividerX, mdSplit.dividerY);
+    await mdScene.page.mouse.down();
+    await mdScene.page.mouse.move(mdSplit.dividerX + 120, mdSplit.dividerY, { steps: 5 });
+    const mdDragged = await mdScene.page.evaluate(() => {
+      const panes = document.querySelector('.markdown-panes');
+      const divider = document.querySelector('.markdown-divider');
+      return {
+        sourceWidth: document.querySelector('.markdown-source').getBoundingClientRect().width,
+        captured: divider.hasPointerCapture(1),
+        ratio: panes.style.getPropertyValue('--markdown-source-ratio'),
+        aria: divider.getAttribute('aria-valuenow'),
+      };
+    });
+    check('§7.3 拖动分隔条保留按下偏移并按实际宽度重排: ' + JSON.stringify({ mdDragged, mdWidthBefore: mdSplit.sourceWidth, mdAvailable }),
+      Math.abs(mdDragged.sourceWidth - (mdSplit.sourceWidth + 120)) <= 2
+        && mdDragged.captured === true
+        && mdDragged.aria !== null
+        && mdDragged.ratio !== mdSplit.ratio);
+    // 越界：拖到右边界之外，必须夹紧到"左侧宽度 = mdAvailable - min(mdAvailable/2, 240)"。
+    await mdScene.page.mouse.move(mdSplit.panesRight + 400, mdSplit.dividerY, { steps: 5 });
+    const mdClamped = await mdScene.page.evaluate(() => document.querySelector('.markdown-source').getBoundingClientRect().width);
+    const mdExpectedRight = mdAvailable - Math.min(mdAvailable / 2, 240);
+    check('§7.3 越过边界停在最小栏宽: ' + JSON.stringify({ mdClamped, mdAvailable, mdExpectedRight }),
+      Math.abs(mdClamped - mdExpectedRight) <= 1.5);
+    // Esc 必须在**一次真实的拖动中**按下才有效。分隔条此时已经被移到右边界，
+    // 不能再拿最初记录的坐标去按（那样按在原文区上，拖动根本没开始，断言会假通过）。
+    const mdEscBox = await mdScene.page.evaluate(() => {
+      const divider = document.querySelector('.markdown-divider');
+      const rect = divider.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    await mdScene.page.mouse.up();
+    await mdScene.page.mouse.move(mdEscBox.x, mdEscBox.y);
+    await mdScene.page.mouse.down();
+    await mdScene.page.mouse.move(mdEscBox.x + 60, mdEscBox.y, { steps: 3 });
+    const mdBeforeEscape = await mdScene.page.evaluate(() => ({
+      sourceWidth: document.querySelector('.markdown-source').getBoundingClientRect().width,
+      captured: document.querySelector('.markdown-divider').hasPointerCapture(1),
+    }));
+    await mdScene.page.keyboard.press('Escape');
+    await mdScene.page.mouse.move(mdEscBox.x - 200, mdEscBox.y, { steps: 5 });
+    const mdAfterEscape = await mdScene.page.evaluate(() => ({
+      sourceWidth: document.querySelector('.markdown-source').getBoundingClientRect().width,
+      captureReleased: !document.querySelector('.markdown-divider').hasPointerCapture(1),
+    }));
+    await mdScene.page.mouse.up();
+    check('§7.3 拖动中的 Esc 只结束拖动并保留比例: ' + JSON.stringify({ mdClamped, mdBeforeEscape, mdAfterEscape }),
+      mdBeforeEscape.captured === true
+        && Math.abs(mdBeforeEscape.sourceWidth - mdClamped) <= 62
+        && Math.abs(mdAfterEscape.sourceWidth - mdBeforeEscape.sourceWidth) <= 1.5
+        && mdAfterEscape.captureReleased === true);
+    // 方向键步进 2%。注意上一步刚把分隔条夹在**最大**左侧宽度上，
+    // 因此先按 ArrowLeft（缩小）才有变化；ArrowRight 此时是正确的空操作。
+    const mdWidthBefore = await mdScene.page.evaluate(() => document.querySelector('.markdown-source').getBoundingClientRect().width);
+    await mdScene.page.keyboard.press('ArrowLeft');
+    const mdStepped = await mdScene.page.evaluate(() => document.querySelector('.markdown-source').getBoundingClientRect().width);
+    await mdScene.page.keyboard.press('ArrowRight');
+    const mdRestored = await mdScene.page.evaluate(() => document.querySelector('.markdown-source').getBoundingClientRect().width);
+    check('§7.3 分隔条方向键按 2% 步进并可还原: ' + JSON.stringify({ mdWidthBefore, mdStepped, mdRestored, mdAvailable }),
+      Math.abs((mdWidthBefore - mdStepped) - Math.round(mdAvailable * 0.02)) <= 2
+        && Math.abs(mdRestored - mdWidthBefore) <= 1.5);
+    // 先离开"最大左侧宽度"边界（上一步刚夹在那里，任何向右移动都不会产生新比例），
+    // 再验证"重复移动到同一实际位置不重排正文"：setProperty 计数必须只增加一次。
+    // 用方向键离开边界，避免再引入一组可能过期的坐标。
+    await mdScene.page.keyboard.press('ArrowLeft');
+    await mdScene.page.keyboard.press('ArrowLeft');
+    await mdScene.page.keyboard.press('ArrowLeft');
+    const mdMidWidth = await mdScene.page.evaluate(() => document.querySelector('.markdown-source').getBoundingClientRect().width);
+    const mdProbe = await mdScene.page.evaluate(() => {
+      const divider = document.querySelector('.markdown-divider');
+      const rect = divider.getBoundingClientRect();
+      window.__ratioWrites = 0;
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    await mdScene.page.mouse.move(mdProbe.x, mdProbe.y);
+    await mdScene.page.mouse.down();
+    // 向左拖（远离右侧夹紧边界），因此每一步都真的产生新比例。
+    await mdScene.page.mouse.move(mdProbe.x - 60, mdProbe.y, { steps: 3 });
+    const mdFirst = await mdScene.page.evaluate(() => ({
+      writes: window.__ratioWrites,
+      width: document.querySelector('.markdown-source').getBoundingClientRect().width,
+    }));
+    // 同坐标重复移动：累计写入次数必须**不再增加**。
+    await mdScene.page.mouse.move(mdProbe.x - 60, mdProbe.y);
+    const mdRepeat = await mdScene.page.evaluate(() => ({
+      writes: window.__ratioWrites,
+      width: document.querySelector('.markdown-source').getBoundingClientRect().width,
+    }));
+    // 非空性对照：再左移 1px 必须真的新增写入，证明事件确实到达（否则"没增加"可能是假通过）。
+    await mdScene.page.mouse.move(mdProbe.x - 61, mdProbe.y);
+    const mdControl = await mdScene.page.evaluate(() => ({
+      writes: window.__ratioWrites,
+      width: document.querySelector('.markdown-source').getBoundingClientRect().width,
+    }));
+    await mdScene.page.mouse.up();
+    const mdRepeated = { mdMidWidth, mdExpectedRight, mdFirst, mdRepeat, mdControl };
+    check('§7.3 重复移动到同一实际位置不重排正文: ' + JSON.stringify(mdRepeated),
+      mdMidWidth < mdExpectedRight
+        && mdFirst.writes >= 1
+        && mdRepeat.writes === mdFirst.writes && Math.abs(mdRepeat.width - mdFirst.width) <= 0.5
+        && mdControl.writes > mdRepeat.writes && mdControl.width < mdFirst.width);
+
+    // 模式切换保留各自滚动位置（原文/预览离开再回来）。
+    const mdScroll = await mdScene.page.evaluate(async () => {
+      const click = (mode) => document.querySelector('.markdown-document button[data-markdown-mode="' + mode + '"]').click();
+      const wait = () => new Promise((r) => setTimeout(r, 200));
+      click('source');
+      await wait();
+      const source = document.querySelector('.markdown-source');
+      source.scrollTop = 180;
+      const savedSource = source.scrollTop;
+      click('preview');
+      await wait();
+      click('source');
+      await wait();
+      const afterBack = document.querySelector('.markdown-source').scrollTop;
+      click('preview');
+      await wait();
+      const preview = document.querySelector('.markdown-preview');
+      preview.scrollTop = 90;
+      const savedPreview = preview.scrollTop;
+      click('source');
+      await wait();
+      click('preview');
+      await wait();
+      const previewAfter = document.querySelector('.markdown-preview').scrollTop;
+      return { savedSource, afterBack, savedPreview, previewAfter, mode: document.querySelector('.markdown-document').dataset.markdownMode };
+    });
+    check('§7.3 模式切换不丢失各自滚动位置: ' + JSON.stringify(mdScroll),
+      mdScroll.savedSource > 0 && mdScroll.afterBack === mdScroll.savedSource
+        && mdScroll.savedPreview > 0 && mdScroll.previewAfter === mdScroll.savedPreview
+        && mdScroll.mode === 'preview');
+    check('§7.3 Markdown 用例无脚本错误: ' + JSON.stringify(mdScene.errors.slice(0, 2)), mdScene.errors.length === 0);
+
+    // 相对文件链接在 Augit 标签中打开（必须放在最后：它会切换活动文档）。
+    const mdRelativeOpen = await mdScene.page.evaluate(async () => {
+      document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+      await new Promise((r) => setTimeout(r, 150));
+      const preview = document.querySelector('.markdown-document .markdown-preview');
+      const link = [...preview.querySelectorAll('a[data-document-link]')].find((a) => a.textContent === 'API 规格');
+      const tabsBefore = (window.__augitLive.tabs || []).map((tab) => tab.path);
+      link.click();
+      await new Promise((r) => setTimeout(r, 400));
+      const live = window.__augitLive;
+      return {
+        tabsBefore,
+        tabs: (live.tabs || []).map((tab) => tab.path),
+        active: (live.tabs || []).find((tab) => tab.id === live.activeTabId)?.path || null,
+        hash: location.hash,
+        // 诊断用：若解析或存在性检查失败，链接会被替换成紧凑错误，原因在这里可见。
+        blocked: [...document.querySelectorAll('.markdown-document .markdown-blocked')].map((span) => span.textContent),
+      };
+    });
+    check('§7.3 相对文件链接在 Augit 标签中打开: ' + JSON.stringify(mdRelativeOpen),
+      mdRelativeOpen.tabs.includes('docs/api/schema.md')
+        && mdRelativeOpen.active === 'docs/api/schema.md'
+        && mdRelativeOpen.hash === '');
+    await mdScene.page.close();
+
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
     // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；
     // 实测 `--blame docs/product-spec.md` 时 blame 标签排在首位却不是活动标签。
