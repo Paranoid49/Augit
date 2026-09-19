@@ -2505,6 +2505,46 @@ async function main() {
       };
     });
     check('悬停有样式规则（CSS :hover 存在）: ' + JSON.stringify(hoverProbe.cssRule), hoverProbe.cssRule === true);
+    // CSS :hover 需要**真实指针输入**才会生效（合成事件不触发），因此这里用 Playwright 的
+    // hover()（真实输入）验证"悬停后背景真的变了"，并验证"选中态优先于悬停"。
+    const hoverReal = await hv.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.changes-list .change-file-row')];
+      const plain = rows.find((row) => !row.classList.contains('selected')) || null;
+      const selected = rows.find((row) => row.classList.contains('selected')) || null;
+      return {
+        plainIndex: plain ? rows.indexOf(plain) : -1,
+        plainBg: plain ? getComputedStyle(plain).backgroundColor : null,
+        selectedIndex: selected ? rows.indexOf(selected) : -1,
+        selectedBg: selected ? getComputedStyle(selected).backgroundColor : null,
+      };
+    });
+    let hoverChanged = null;
+    let selectedKept = null;
+    if (hoverReal.plainIndex >= 0) {
+      await hv.page.locator('.changes-list .change-file-row').nth(hoverReal.plainIndex).hover();
+      await hv.page.waitForTimeout(150);
+      hoverChanged = await hv.page.evaluate((index) => {
+        const row = [...document.querySelectorAll('.changes-list .change-file-row')][index];
+        return row ? getComputedStyle(row).backgroundColor : null;
+      }, hoverReal.plainIndex);
+    }
+    if (hoverReal.selectedIndex >= 0) {
+      await hv.page.locator('.changes-list .change-file-row').nth(hoverReal.selectedIndex).hover();
+      await hv.page.waitForTimeout(150);
+      selectedKept = await hv.page.evaluate((index) => {
+        const row = [...document.querySelectorAll('.changes-list .change-file-row')][index];
+        return row ? getComputedStyle(row).backgroundColor : null;
+      }, hoverReal.selectedIndex);
+    }
+    check('真实悬停改变行背景: ' + JSON.stringify([hoverReal.plainBg, hoverChanged]),
+      hoverReal.plainIndex >= 0 && hoverChanged !== null && hoverChanged !== hoverReal.plainBg);
+    if (hoverReal.selectedIndex >= 0) {
+      check('选中态优先于悬停（选中行背景不变）: ' + JSON.stringify([hoverReal.selectedBg, selectedKept]),
+        selectedKept === hoverReal.selectedBg);
+    } else {
+      passed++;
+      console.log('SKIP 选中态优先于悬停：该场景没有选中行');
+    }
     check('悬停不触发宿主查询: ' + JSON.stringify([hoverProbe.before && hoverProbe.before.statusCalls, hoverProbe.after && hoverProbe.after.statusCalls, hoverProbe.before && hoverProbe.before.diffCalls, hoverProbe.after && hoverProbe.after.diffCalls]),
       hoverProbe.before && hoverProbe.after
         && hoverProbe.after.statusCalls === hoverProbe.before.statusCalls
