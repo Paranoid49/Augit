@@ -26,6 +26,9 @@ public sealed class ConPtyTerminalSession : IDisposable
 
     /// <summary>最近一次"投递输出"失败的原因；null 表示没有失败（诊断用，见 docs/ui-compliance §3.2 第 15 条）。</summary>
     public string? LastNotifyError { get; private set; }
+
+    /// <summary>输出管道是否读到了 0 字节（EOF）而结束读取循环（诊断用，见 §3.2 第 15 条）。</summary>
+    public bool OutputEnded { get; private set; }
     private int _pendingOutputLength;
     private bool _stopping;
     private bool _disposed;
@@ -443,6 +446,9 @@ public sealed class ConPtyTerminalSession : IDisposable
                 int count = await reader.ReadAsync(buffer).ConfigureAwait(false);
                 if (count == 0)
                 {
+                    // 读到 0 字节：以前这里静默 return，外部**完全看不到**"读取循环已经结束"
+                    //（真机复现的永久冻结正是"会话仍 running、却再无输出"的形态）。
+                    OutputEnded = true;
                     return;
                 }
 

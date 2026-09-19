@@ -685,6 +685,7 @@ function pollTerminal() {
       window.__augitTerminalReadError = null;
       window.__augitTerminalBacklog = chunk && typeof chunk.pending === 'number' ? chunk.pending : 0;
       window.__augitTerminalNotifyError = chunk && chunk.notifyError ? chunk.notifyError : null;
+      window.__augitTerminalOutputEnded = !!(chunk && chunk.outputEnded === true);
       if (chunk && (chunk.exited || !chunk.running)) {
         window.clearInterval(terminalTimer);
         terminalTimer = 0;

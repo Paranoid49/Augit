@@ -43,6 +43,16 @@ internal sealed class ShellBridge : IDisposable
     /// </summary>
     private const int MaximumTerminalChunkLength = 128 * 1024;
 
+    /// <summary>
+    /// 裁剪的摊销余量：超过"上限 + 余量"才裁剪，并一次裁回上限。
+    ///
+    /// 每次追加都裁（`Remove(0, 超出量)`）会让**每 4 KB 追加都 memmove 整个 4 MB 缓冲区**，
+    /// 真机 ~4.8 MB 洪泛时读取线程长期卡在 <see cref="OnTerminalOutput"/> 里 →
+    /// pty 管道写满 → Shell 阻塞在写 → 终端永久冻结（而 CPU 只花在宿主上、Shell 侧 CPU 不增长，
+    /// 这正是探针第 367 轮的读数）。留出余量后裁剪次数下降约两个数量级。
+    /// </summary>
+    private const int TerminalTrimSlackLength = 512 * 1024;
+
     private readonly Lock _statusGate = new();
     private GitStatusResult? _cachedStatus;
     private long _cachedStatusAt;
@@ -1285,8 +1295,12 @@ internal sealed class ShellBridge : IDisposable
         lock (_terminalGate)
         {
             _terminalBuffer.Append(data);
-            // 只保留最近 2000 行对应的上限，避免长时间运行后内存无界增长。
-            TrimTerminalBuffer(_terminalBuffer, ref _terminalOffset, MaximumTerminalBufferLength);
+            // 只保留最近一段的输出，避免长时间运行后内存无界增长。
+            // 用"上限 + 余量"再裁（见 TerminalTrimSlackLength）：逐次裁剪是二次成本。
+            if (ShouldTrimTerminalBuffer(_terminalBuffer.Length, MaximumTerminalBufferLength, TerminalTrimSlackLength))
+            {
+                TrimTerminalBuffer(_terminalBuffer, ref _terminalOffset, MaximumTerminalBufferLength);
+            }
         }
     }
 
@@ -1296,6 +1310,10 @@ internal sealed class ShellBridge : IDisposable
     /// `ReadTerminal` 的 <c>Math.Clamp</c> 会把起点夹到末尾，终端从此再也读不到输出
     /// （此前写成 <c>_terminalOffset - (buffer.Length - Maximum)</c>，而 Remove 之后该项已变成 0）。
     /// </summary>
+    /// <summary>是否该裁剪：超过"上限 + 余量"才裁，用于把裁剪成本摊销掉。</summary>
+    internal static bool ShouldTrimTerminalBuffer(int length, int maximumLength, int slack)
+        => length > maximumLength + slack;
+
     internal static void TrimTerminalBuffer(StringBuilder buffer, ref long offset, int maximumLength)
     {
         if (buffer.Length <= maximumLength)
@@ -1345,6 +1363,9 @@ internal sealed class ShellBridge : IDisposable
                 pending = backlog - length,
                 // 后台读取循环里"投递输出"失败的原因（诊断用；null 表示没有失败）。
                 notifyError = _terminal?.LastNotifyError,
+                // 输出管道是否已读到 EOF（读取循环结束）：真机探针据此区分
+                // "循环已退出"与"Shell 阻塞写满管道"这两种机制。
+                outputEnded = _terminal?.OutputEnded ?? false,
                 data = chunk,
             };
         }

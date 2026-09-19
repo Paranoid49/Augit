@@ -64,4 +64,22 @@ public sealed class ShellBridgeTerminalBufferTests
 
         Assert.AreEqual("AB", chunk);
     }
+
+    /// <summary>
+    /// 裁剪必须摊销：只有超过"上限 + 余量"才裁。
+    ///
+    /// 逐次裁剪（每 4 KB 追加都 `Remove(0, 超出量)` 整个 4 MB 缓冲区）是二次成本，
+    /// 真机实测会让读取线程长期卡住、pty 管道写满、Shell 阻塞 → 终端永久冻结
+    ///（§3.2 第 15 条；改成摊销后同一探针 6 秒内就拿到后续输出）。
+    /// </summary>
+    [TestMethod]
+    public void 裁剪阈值留出摊销余量()
+    {
+        const int maximum = 4 * 1024 * 1024;
+        const int slack = 512 * 1024;
+
+        Assert.IsFalse(ShellBridge.ShouldTrimTerminalBuffer(maximum, maximum, slack));
+        Assert.IsFalse(ShellBridge.ShouldTrimTerminalBuffer(maximum + slack, maximum, slack));
+        Assert.IsTrue(ShellBridge.ShouldTrimTerminalBuffer(maximum + slack + 1, maximum, slack));
+    }
 }

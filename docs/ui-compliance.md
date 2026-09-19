@@ -38,7 +38,7 @@
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
-| C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **73/73**（含终端缓冲裁剪 4 条） |
+| C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-20 复跑）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**（8 条 + 3 条 gap 全部可核对；检查器曾抓出 1 处断言名过期、2 处差异未写进文档） |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-20 实测）**：`Augit-0.1.0-win-x64-portable.zip` **2,789,584 B**、`Augit-0.1.0-win-x64-setup.exe` **4,382,814 B**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
@@ -897,7 +897,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | --- | --- | --- |
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
-| ~~终端大输出（跨 4 MB 裁剪窗口）真机未验成~~ | **已验成（第 364 轮）：输入路径通过，大输出路径是实缺陷** —— 前置等待补齐后（探针确认 `.xterm` 挂载、`textarea` 存在、`FOCUSED`），`Write-Output INPUT-PROBE-OK` 的输入→回显→输出→新提示符整链在真机通过；但 ~4.8 MB 洪泛后终端**永久停止更新**，见 §3.2 第 15 条（带复现命令与全部读数） | 输入路径已移出本表；大输出已升级为已确认缺陷，下一步按 §3.2 第 15 条的修法处理 |
+| ~~终端输入与大输出真机验证~~ | **全部验成（第 364–367 轮）**：输入链路在真机通过（`INPUT-PROBE-OK` 的输入→回显→输出→新提示符）；~4.8 MB 洪泛后的永久冻结**已定位并修好**（见 §3.2 第 15 条：根因是逐次裁剪的二次成本，改成摊销后同一探针 **6 秒**内读回 `AFTER-TRIM-SENTINEL` 与新提示符） | 无剩余计划项 |
 | **Editor › Font 页面内容未抓到** | 已抓到分类路径与 UI 字体事实（`artifacts/pycharm-interactions-16/`：搜索结果树、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 页的子页列表）；页面正文（字体名/字号/行距的具体值）未抓到 | 原因是设置树的滚动位置随会话变化，固定坐标点击会落到别的分类；补抓需要 UI 自动化（Settings 搜索 + 键盘导航），缺口只在这一格 |
 
 ### 3.2 已确认的实现差异
@@ -1084,8 +1084,20 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     `OutputReceived?.Invoke` 各自包 try/catch 并记录 `LastNotifyError`；
     `terminal/read` 下发 `notifyError`，客户端暴露为 `window.__augitTerminalNotifyError`。
 
-    **验证**：`Augit.Shell.Tests` **73/73**、`live-shell` **1013/1013（未执行 0 项）**
+    **验证**：`Augit.Shell.Tests` **74/74**、`live-shell` **1013/1013（未执行 0 项）**
     （第 365 轮遗留的全量重跑已完成，客户端改动无回归）、`dotnet build` 0 警告 0 错误。
+
+    **第 367 轮：已定位并修好。** 第 366 轮的进程采样给出了决定性读数 —— 冻结期间
+    `outputEnded = false`（读取循环没退出）+ `powershell`/`conhost` 的 CPU **10 秒内零增长**
+    （Shell 不是在算，而是**阻塞在写**）。据此定位到裁剪实现：`OnTerminalOutput` 每次追加都调用
+    `TrimTerminalBuffer`，而它在 4 MB 缓冲区上执行 `StringBuilder.Remove(0, 超出量)` ——
+    **每约 4 KB 追加都要 memmove 整个 4 MB**，是二次成本。洪泛时读取线程长期卡在里面 →
+    pty 管道写满 → Shell 阻塞在写 → 终端永久冻结（且客户端一切正常、无任何错误可见）。
+    **修法**：只在超过"上限 + 512 KB 余量"时才裁、且一次裁回上限
+    （新增 `ShouldTrimTerminalBuffer`，并补 1 条单测）。
+    **真机复验（同一探针）**：洪泛后 **1 次轮询 / 6 秒**即读回
+    `PS …> Write-Output AFTER-TRIM-SENTINEL` / `AFTER-TRIM-SENTINEL` / 新提示符；
+    修复前是 120 秒 × 20 次采样都没有。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

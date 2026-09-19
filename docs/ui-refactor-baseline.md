@@ -12606,3 +12606,33 @@ docs 与 commit 都写明"仍然冻结、机制未定"。
 **验证**：`dotnet build` 0 警告 0 错误、`Augit.Shell.Tests` **73/73**、
 `live-shell` **1013/1013（未执行 0 项）**（第 365 轮遗留的全量重跑完成，客户端改动无回归）。
 **纪律**：连续两轮都明确写"仍然冻结、机制未定"，不把"加了防护/分批"说成"已修"。
+
+#### 第 367 轮：终端"约 4.8 MB 后永久冻结"—— 根因定位并修好（逐次裁剪的二次成本）
+
+**决定性读数（第 366 轮的两处新观测）**：冻结期间
+`outputEnded = false`（读取循环没退出，排除了 EOF 分支）、
+`backlog = 0`、`readError/notifyError = null`（客户端健康），
+而进程采样显示 `powershell` 与 `conhost` 的 CPU **10 秒内完全没有增长**（1.625 → 1.640625、
+0.890625 → 0.890625）——**Shell 不在计算，它阻塞在写**。
+
+**根因**：`ShellBridge.OnTerminalOutput` 每次拿到一段（≤4 KB）就调用 `TrimTerminalBuffer`，
+而后者在 4 MB 的 `StringBuilder` 上执行 `Remove(0, 超出量)`：
+**每约 4 KB 追加都要 memmove 整个 4 MB 缓冲区**（二次成本）。洪泛时读取线程长期卡在里面
+→ pty 管道写满 → Shell 阻塞在写 → 终端永久冻结，而客户端每 60 ms 的轮询一切正常、
+看不到任何错误。这也解释了前两轮为什么"分批读取"和"处理器异常防护"都不是原因。
+
+**修法**：摊销 —— 只在 `长度 > 上限 + 512 KB` 时才裁，且一次裁回上限：
+新增 `ShouldTrimTerminalBuffer(length, maximumLength, slack)`（可单测），
+`OnTerminalOutput` 用它做门槛；`TrimTerminalBuffer` 本身不动（原有 4 条单测继续有效）。
+
+**验证**：
+1. 单测：`Augit.Shell.Tests` 73 → **74/74**（新增"裁剪阈值留出摊销余量"，含边界三例）；
+2. **真机复验（同一探针）**：洪泛约 4.8 MB 后 **1 次轮询 / 6 秒**即读回
+   `PS …> Write-Output AFTER-TRIM-SENTINEL` / `AFTER-TRIM-SENTINEL` / 新提示符；
+   修复前为"120 秒 × 20 次采样逐字节相同、sentinel 从不出现"；
+3. `dotnet build` 0 警告 0 错误；`live-shell` 全量重跑见本轮结论。
+
+**方法论收获**：连续两轮"证伪"都不是白做 —— 正是那两轮排除掉"消息体积"与"处理器异常"、
+并把 `backlog/readError/notifyError/outputEnded` 四个观测字段接到真机上，
+这一轮才能用一个 CPU 零增长的读数把范围锁到"读取线程卡在投递路径里"，
+进而找到摊销这个真正的二次成本。
