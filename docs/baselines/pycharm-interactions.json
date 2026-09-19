@@ -14,8 +14,10 @@
     "dpi": 168,
     "scalePercent": 175,
     "window": {
-      "rect": "-7,-7 1659x994",
-      "state": "maximized"
+      "rect": "-12,-12 2904x1740",
+      "state": "maximized",
+      "logicalRect": "1659x994（= 2904/1.75）",
+      "note": "窗口矩形含最大化时超出屏幕的不可见 resize 边框（2880+24=2904；1800-60=1740），所以宽度大于屏幕物理宽度是正常的"
     },
     "project": "D:\\github\\Augit",
     "capturedAt": "2026-09-19",
@@ -57,12 +59,13 @@
     },
     "screen": {
       "device": "\\\\.\\DISPLAY1",
-      "boundsPhysical": "1646x1029",
-      "workingAreaPhysical": "1646x981",
+      "boundsPhysical": "2880x1800",
+      "workingAreaPhysical": "2880x1676",
       "dpi": 168,
       "scalePercent": 175,
-      "logicalArea": "941x588",
-      "evidence": "System.Windows.Forms.Screen (bounds) + GetDpiForWindow=168 + PyCharm 键名后缀 @168dpi"
+      "logicalArea": "1646x1029",
+      "evidence": "GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN) + GetDpiForSystem=168 + GetDpiForMonitor=168 (scale 175%)，均在本进程 SetProcessDPIAware 之后读取；此前记录的「1646x1029 物理 = 941x588 逻辑」是**重复缩放**的错值（已被 2904 宽的窗口证伪）",
+      "correction": "2026-09-19 复核：1646x1029 是**逻辑**尺寸，物理为 2880x1800；工作区 2880x1676 物理（1800-1676=124 物理 ≈ 71 逻辑，任务栏）"
     }
   },
   "surfaces": [
@@ -387,8 +390,8 @@
   "compareRecipe": {
     "goal": "在同一 DPI 与同一逻辑尺寸下比较 PyCharm（Swing）与 Augit（WebView2）的关键区域几何与配色",
     "steps": [
-      "PyCharm 在 DISPLAY1 最大化：物理 1646x1029，DPI 168（175%）",
-      "Augit 用相同**逻辑**尺寸启动：--width 941 --height 588，并且**不加 --pixel-exact**（让 WebView2 按 1.75 缩放 CSS px，与 PyCharm 一致）",
+      "PyCharm 在 DISPLAY1 最大化：窗口矩形 2904x1740 物理，屏幕 2880x1800 物理 @ DPI 168（175%）= 逻辑 1646x1029",
+      "Augit 用相同**逻辑**尺寸启动：--width 1659 --height 994，并且**不加 --pixel-exact**（让 WebView2 按 1.75 缩放 CSS px，与 PyCharm 一致）",
       "两侧截图按物理像素比较；以内容地标对齐（如标题栏下边缘 / 菜单栏下边缘），不按 (0,0) 硬对齐——PyCharm 最大化窗口有系统边框，Augit 是无边框自绘",
       "逐区域记录几何（位置/尺寸/行高/字号）与配色取值，判据为『在声明容差内等价』；Swing 与 Chromium 的字体栅格化不同，**不做逐像素相等判定**"
     ],
@@ -396,7 +399,9 @@
     "notCovered": [
       "dark 主题的 PyCharm 对照（需要改用户 IDE 主题，用户选 A 不做）",
       "Windows 10 22H2"
-    ]
+    ],
+    "scaleMatch": "两侧最终都在 175% 下渲染：PyCharm 截图是物理像素（2904x1740），Augit 用 --width 1659 --height 994（CSS px）且不加 --pixel-exact，WebView2 按 1.75 缩放后物理渲染同样是 2904x1740 → 可 1:1 叠加比较几何",
+    "method": "按**内容地标**对齐（标题栏高度、工具窗标题行、编辑器标签行、状态栏），在声明容差内比几何与配色；Swing vs Chromium 不做逐像素相等判定"
   },
   "blockers": [
     {

@@ -20,7 +20,7 @@
 | uiFont | Microsoft YaHei (Use custom font, checked) |
 | dpi | 168 |
 | scalePercent | 175 |
-| window | {"rect":"-7,-7 1659x994","state":"maximized"} |
+| window | {"rect":"-12,-12 2904x1740","state":"maximized","logicalRect":"1659x994（= 2904/1.75）","note":"窗口矩形含最大化时超出屏幕的不可见 resize 边框（2880+24=2904；1800-60=1740），所以宽度大于屏幕物理宽度是正常的"} |
 | project | D:\github\Augit |
 | capturedAt | 2026-09-19 |
 | uiFontOverride | {"enabled":true,"face":"Microsoft YaHei UI","size":12,"source":"options/other.xml: overrideLafFonts/fontFace/fontSize","note":"12.0 是 PyCharm 自己的单位（UI 里显示为 Size 12），不能直接等同于 Augit 的 13px；对照时必须按几何/视觉等价测，不得当成同值"} |
@@ -28,7 +28,7 @@
 | consoleFont | {"customized":false,"source":"options/console-font.xml 只有 VERSION=1"} |
 | terminalFont | {"customized":false,"source":"options/terminal-font.xml 只有 VERSION=1（SECONDARY_FONT_FAMILY 空）"} |
 | ideScale | {"presentationModeIdeScale":1.75,"source":"options/other.xml"} |
-| screen | {"device":"\\\\.\\DISPLAY1","boundsPhysical":"1646x1029","workingAreaPhysical":"1646x981","dpi":168,"scalePercent":175,"logicalArea":"941x588","evidence":"System.Windows.Forms.Screen (bounds) + GetDpiForWindow=168 + PyCharm 键名后缀 @168dpi"} |
+| screen | {"device":"\\\\.\\DISPLAY1","boundsPhysical":"2880x1800","workingAreaPhysical":"2880x1676","dpi":168,"scalePercent":175,"logicalArea":"1646x1029","evidence":"GetSystemMetrics(SM_CXSCREEN/SM_CYSCREEN) + GetDpiForSystem=168 + GetDpiForMonitor=168 (scale 175%)，均在本进程 SetProcessDPIAware 之后读取；此前记录的「1646x1029 物理 = 941x588 逻辑」是**重复缩放**的错值（已被 2904 宽的窗口证伪）","correction":"2026-09-19 复核：1646x1029 是**逻辑**尺寸，物理为 2880x1800；工作区 2880x1676 物理（1800-1676=124 物理 ≈ 71 逻辑，任务栏）"} |
 
 ## 已确认的裁决
 

@@ -11457,3 +11457,39 @@ harness 断言也从"只含 `无法访问`"加强为**四段都必须在**。
 **⑭ 全部收尾**：第 1/2 项（早前）+ 第 3/4/5/6/7 项（第 314–318 轮）均已完成并带分母。
 下一阶段按用户确认的执行顺序进入 **⑦⑧ PyCharm 对照**（配方已在 `pycharm-interactions.json` 的 `compareRecipe`），
 以及 ⑯ 剩余采图（`Editor › Font` / `Console Fonts` 页面正文、工具窗口跳转、hover/pressed/focus 对）。
+
+#### 第 319 轮（⑦⑧ 起步）：先修掉对照配方里的环境错值，再出第一张 PyCharm↔Augit 对照表
+
+**为什么先修配方**：`pycharm-interactions.json` 里记的"屏幕 1646×1029 **物理** = 逻辑 941×588"
+与它自己记的"PyCharm 窗口 1659×994"**互相矛盾** —— 2904 物理宽的窗口不可能待在 1646 物理宽的屏幕上。
+先用 DPI-aware 的 `GetSystemMetrics/GetDpiForSystem/GetDpiForMonitor` 实测（`SetProcessDPIAware` 之后）：
+
+```
+SCREEN_PHYSICAL 2880x1800     MAXIMIZED_TRACK 2880x1676
+SYSTEM_DPI 168 scale=1.75     MONITOR_DPI 168x168 scale=1.75
+LOGICAL 1646x1029
+```
+
+即 **1646×1029 是逻辑尺寸**，物理是 2880×1800；941×588 是**把逻辑尺寸又除了一次 1.75** 得到的错值。
+已写进 `source.screen.correction`，`compareRecipe` 同步改为可执行版本：
+PyCharm 最大化（窗口矩形 2904×1740 物理，含超出屏幕的不可见 resize 边框）
+↔ Augit `--width 1659 --height 994`（CSS px）且**不加 `--pixel-exact`**。
+
+**实测验证配方可用**：Augit 侧读回 `innerWidth=1646, innerHeight=981, devicePixelRatio=1.75`，
+CDP 截图落到 **2881×1717 物理**，与 PyCharm 截图 **同一物理尺度**（2904×1740，差的是原生边框那几行），
+因此可以 1:1 比对地标。截图 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png`、
+状态 `…/augit-capture-state.json`。
+
+**第一张对照表**（同一物理尺度，按行/列均值分带）：
+- **配色逐值相同**：标题栏与左侧工具条底色都是 `233,234,238`；正文 `255,255,255`；
+  选中行 `#d0dffe` = `--augit-blue-soft`；主按钮 `#3871e1` = `--augit-blue`。
+- **几何差异**（可核对、已定位）：
+  ① PyCharm 有原生窗口外框（顶部 12 物理 `240,244,242`），Augit 无边框自绘 → 结构性差异，不是缺陷；
+  ② 左侧工具条：PyCharm 72 物理 ≈ 41 逻辑，Augit 93 物理 ≈ 53 逻辑 → Augit 宽 **12 逻辑 px**，登记为待说明的几何差异；
+  ③ 标题栏构成：PyCharm 是"细标题栏 + 独立工具栏行"两段，Augit 是一段 44 逻辑 px（`--augit-titlebar-height`）。
+- **口径**：判据是"声明容差内地标等价"，**不做逐像素相等**（Swing vs Chromium）。
+  未覆盖：逐页逐状态全量对照、PyCharm dark 口径、字形/行高差。
+
+**下一轮起**：把对照扩到逐页（先做已在 §1.1 有像素基线的页面里最常用的 6–8 页：
+`main-project` / `text-viewer` / `git-history` / `commit-changes` / `settings` / `terminal`），
+每页记录"几何地标 + 配色取值 + 判读"，并同步 `pycharm-interactions.json` 的 `surfaces`。
