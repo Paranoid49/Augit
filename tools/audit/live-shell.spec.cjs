@@ -10383,6 +10383,58 @@ async function main() {
       await rs.page.close();
     }
 
+    // ---- ⑥ 动态行为的界面状态对照：操作后比较**关键区域像素**（不只是 DOM）----
+    // DOM 快照能证明结构没变，但证明不了"画出来一样"。这里对同一条操作序列取
+    // 标题栏与状态栏两个关键区域的真实截图，逐字节比较：
+    // 不该变的操作必须**像素级不变**，对照操作必须真的改变它（否则探针没有分辨力）。
+    {
+      const px = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+      await px.page.waitForFunction(
+        'window.__augitLive.document && window.__augitLive.document.path === "docs/notes.txt"',
+        null,
+        { timeout: 15000 },
+      );
+      await px.page.waitForSelector('.side-content.tree .tree-row', { timeout: 10000 });
+      await px.page.waitForTimeout(700);
+      const titlePixels = () => px.page.screenshot({ clip: { x: 0, y: 0, width: 1180, height: 44 } });
+      const statusPixels = () => px.page.screenshot({ clip: { x: 0, y: 736, width: 1180, height: 24 } });
+      const base = { title: await titlePixels(), status: await statusPixels() };
+
+      // 操作 1：悬停树行 —— 规格 §4.4「悬停只更新目标行」。
+      await px.page.locator('.side-content.tree .tree-row').nth(2).hover();
+      await px.page.waitForTimeout(400);
+      const afterHover = { title: await titlePixels(), status: await statusPixels() };
+      check('⑥ 悬停操作后标题栏与状态栏逐像素不变',
+        base.title.equals(afterHover.title) && base.status.equals(afterHover.status));
+
+      // 操作 2：相同状态的外部变化刷新 —— 规格 §125「不改变焦点、滚动和主窗口布局」。
+      await px.page.evaluate(() => {
+        window.__statusCalls = 0;
+        window.__hostPush('workspace-changed', { files: [], gitMetadata: true });
+      });
+      await px.page.waitForFunction('window.__statusCalls > 0', null, { timeout: 10000 });
+      await px.page.waitForTimeout(700);
+      const afterRefresh = { title: await titlePixels(), status: await statusPixels() };
+      check('⑥ 同状态刷新后标题栏与状态栏逐像素不变（§125）',
+        base.title.equals(afterRefresh.title) && base.status.equals(afterRefresh.status));
+
+      // 操作 3（对照）：真正切换文档必须让这两个区域发生变化，证明上面两条不是空断言。
+      await px.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await px.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 10000 });
+      await px.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
+      await px.page.waitForFunction(
+        'window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"',
+        null,
+        { timeout: 15000 },
+      );
+      await px.page.waitForTimeout(700);
+      const afterOpen = { title: await titlePixels(), status: await statusPixels() };
+      check('⑥ 对照：切换文档后标题栏与状态栏像素确实改变: '
+        + JSON.stringify([!base.title.equals(afterOpen.title), !base.status.equals(afterOpen.status)]),
+      !base.title.equals(afterOpen.title) && !base.status.equals(afterOpen.status));
+      await px.page.close();
+    }
+
     // ---- 规格 §4.4 / §5.4：键盘焦点必须有可见焦点环（深浅主题都要清晰）----
     {
       const ringFor = async (theme) => {

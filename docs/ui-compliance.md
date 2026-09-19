@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **917/917**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **920/920**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **48/48 ×2 主题** |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（16 场景） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -31,7 +31,7 @@
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
 > 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 693 个 `check(...)` 调用点，
-> 其中一部分在场景/主题循环里重复执行，因此实际断言数（917）大于调用点数。
+> 其中一部分在场景/主题循环里重复执行，因此实际断言数（920）大于调用点数。
 
 ## 1. A 线：静态界面复原
 
@@ -67,10 +67,11 @@
 | `stash-manager` | 0.00 | 0.00 | 1.37 | 数据差异 |
 | `remote` | 0.00 | 0.00 | 0.70 | 数据差异 |
 | `operation-result` | 0.00 | 0.00 | 3.09 | 数据差异（真实 diff vs 样例） |
+| `git-history` | 0.00 | 0.00 | 1.73 | 数据差异（真实提交与元数据 vs 样例） |
 
 **结论**：
 
-- **16 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
+- **17 个场景的标题栏与状态栏 `layoutPercent` 全部为 0.00** —— 背景、边框、内边距、圆角、
   图标底色逐像素一致，可见差异 100% 来自文字数据；唯一出现过的非 0 是 `terminal` 状态栏 4.11%，
   后被证明是**掩膜外扩不足**造成的指标假象（第 285 轮），把外扩从 1px 改为 3px 后同样是 0.00；
 - 内容带 0.01%–3.09% 全部是数据或模式差异：判据不是"数字小"，而是①改动列表行分隔线位置
@@ -224,6 +225,9 @@
 
 除逐条用例外，另有整段用户流程与"操作后界面状态"对照：
 
+- **关键区域像素对照**（`⑥`）：同一条操作序列里对**标题栏 0..44 与状态栏 736..760** 两个关键区域
+  取真实截图并逐字节比较 —— 悬停树行、相同状态的外部变化刷新之后**像素完全不变**（§4.4 / §125），
+  而"切换到另一个文档"这个对照操作必须让两个区域都发生变化（证明探针有分辨力）；实测 3 条全绿；
 - 「跨模块用户流程：单点都对，组合起来未必对」块：一段连续操作后比对界面状态；
 - 「规格 §6.6：状态所有权」块：对每个"明确禁止变化"列做操作后快照比对；
 - 「异步竞态：晚到的旧响应必须被丢弃」块：注入乱序响应后比对最终状态；

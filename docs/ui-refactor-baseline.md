@@ -10850,3 +10850,28 @@ sha256sum -c SHA256SUMS.txt -> 两个文件都 OK
 `live-shell` **917/917**、真机巡检 **42/42**、`mockup-scenes` 48/48 ×2 主题、
 `verify-ui-assets` PASS、`verify-script-encoding` PASS（12 个脚本）、
 `dotnet format --verify-no-changes` 通过、Release 构建 0 警告 0 错误、打包三项产物与校验和齐备。
+
+#### 第 304 轮（A-② / B-⑥ 补完）：第 17 个场景 `git-history` + 操作后**关键区域像素**对照
+
+**A-② 的最后一个场景**：此前 16 个场景用的是同一组带（`titlebar:0:44` / `statusbar:H-24:H` /
+`content:44:H-24`），`git-history` 只在第 283 轮量过 titlebar/statusbar/rail。本轮用同一组带补测：
+
+```
+git-history | titlebar layoutPercent=0.00 | statusbar layoutPercent=0.00 | content layoutPercent=1.73
+```
+
+于是"A 线②：17 个页面/区域逐带核对"**收口**：**17 个场景的 titlebar 与 statusbar 全部 0.00**，
+内容带 0.01%–3.09% 全部是数据/模式差异（判据与裁图证据见第 300 轮）。
+
+**B-⑥ 还缺的"关键区域像素"这一半**：DOM 快照能证明结构没变，证明不了"画出来一样"。
+本轮在 harness 里加了 3 条**真实截图逐字节比较**断言（`page.screenshot({clip})` + `Buffer.equals`）：
+
+1. **悬停树行**之后，标题栏（0..44）与状态栏（736..760）**像素完全不变**（§4.4 悬停只重绘目标行）；
+2. **相同状态的外部变化刷新**（`workspace-changed`，`git/status` 计数确实增加）之后，
+   这两个区域**像素完全不变**（§125"不改变焦点、滚动和主窗口布局"——这条比 DOM 断言更强，
+   因为它连"重绘成一样"与"压根没重绘"的差别都不需要区分，直接要求输出一致）；
+3. **对照**：切换到另一个文档（`docs/notes.txt` → `docs/product-spec.md`）之后，
+   这两个区域**都必须变化**，证明上面两条不是"截图没生效"的空断言。
+
+**结果：`live-shell` 920/920 全绿**（917 → 920）。这一步同时把 ⑥ 的"DOM 快照 + 关键区域像素"
+两种口径补齐。
