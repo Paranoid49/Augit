@@ -11541,3 +11541,34 @@ PyCharm 侧用已有截图 `pycharm-settings-appearance.png`（1575×1225 物理
 
 **下一步**：按同一配方把对照扩到 `text-viewer` / `git-history` / `commit-changes` / `terminal`
 （Augit 侧全部可离线测；PyCharm 侧对应页面需要一次前台窗口才能逐页取图，已在 §3.1 登记为环境限项）。
+
+#### 第 322 轮（P0 ① 遗留收尾）：标题栏入口的清单式断言 + 负向对照 + 真机复核
+
+**遗留项**：① 修好后只断言了"搜索/设置两个入口不落进未接线兜底"，没有回答"**还有哪些入口会落进兜底**"，
+也没有证明这条断言不是空断言。
+
+**harness 补两条**（第 10645 行起的同一个块内）：
+1. **清单式**：枚举 `.titlebar .top-button` 的所有 `aria-label`，逐个点一遍（每次先清空
+   `__augitUnwiredLabel/__augitUnwiredAction`，点后 250ms 读回，再用 Escape 复位），
+   断言**每一项都没有落进兜底**；断言消息里带上完整 `[label, unwired]` 列表，失败时能直接看出是哪一项。
+2. **负向对照**：往标题栏注入一个确实没接线的入口
+   （`<a class="top-button" href="unwired-probe.html" aria-label="未接线探针">`），点它，
+   断言兜底**如实记录**了它（`__augitUnwiredAction === "unwired-probe.html"`）。
+   没有这条的话，第 1 条可能因为探针失效而永远为真 —— 这正是本项目"每条都要负向验证"的原因。
+
+**真机复核（`artifacts/p0-titlebar-inventory.json`）**：真机标题栏共 **6 个入口**
+（`主菜单` / 工作区 chip / 分支 chip / 当前文件 / 搜索 / 设置）。逐个点会**把应用导航走**
+（chip 是真实链接），因此只对两个 P0 入口做点击复核：
+
+| 入口 | `unwired` | 页面 | 结果 |
+| --- | --- | --- | --- |
+| 搜索 | `null` | 仍 `index.html` | 不落兜底、不离开应用（浮层选择器是 `.search-overlay`，我的探针按 `.overlay-layer` 计数所以显示 0，harness 里那条断言才是权威判据） |
+| 设置 | `null` | 仍 `index.html` | 不落兜底；`overlay-layer` 0 → 2，即设置窗口已打开 |
+
+**顺带查掉一个自己造成的假象**：上一轮我在设置对话框探针里写
+`document.querySelector('.titlebar .top-button[aria-label="设置"]')` 得到 `no-gear`，当时怀疑真机选择器不同。
+本轮实测真机**确实有**该入口（`aria='设置'`，`href='settings.html'`）。原因是那个 scratch 脚本里含中文，
+PowerShell 5.1 按 ANSI 读取导致选择器里的中文变乱码 —— **不是产品问题**，
+再次印证 `tools/audit/*.ps1` 必须 ASCII-only 这条规则的必要性（scratch 脚本同样适用）。
+
+**分母**：`live-shell` 966 → 预期 **968**（§0 与 §2 的调用点数同步为 745）。

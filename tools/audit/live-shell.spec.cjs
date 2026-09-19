@@ -10642,6 +10642,52 @@ async function main() {
       }));
       check('§5.1 齿轮图标打开设置窗口: ' + JSON.stringify(afterGear),
         afterGear.unwired === null && afterGear.dialog === true && afterGear.inert === true);
+
+      // ① 的遗留：**清单式**核对"还有哪些入口落进未接线兜底" —— 逐个点标题栏入口，
+      // 任何一次落进兜底都要如实列出（不是只测搜索/设置两个已知入口）。
+      await tb.page.keyboard.press('Escape');
+      await tb.page.waitForTimeout(200);
+      const inventory = await tb.page.evaluate(async () => {
+        const labels = [...document.querySelectorAll('.titlebar .top-button')]
+          .map((node) => node.getAttribute('aria-label')).filter(Boolean);
+        const results = [];
+        for (const label of labels) {
+          window.__augitUnwiredLabel = null;
+          window.__augitUnwiredAction = null;
+          const node = [...document.querySelectorAll('.titlebar .top-button')]
+            .find((item) => item.getAttribute('aria-label') === label);
+          if (!node) { results.push([label, 'missing']); continue; }
+          node.click();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          results.push([label, window.__augitUnwiredLabel || window.__augitUnwiredAction || null]);
+          // 关掉本次入口可能打开的浮层，避免影响下一个入口
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        return { labels, results };
+      });
+      check('§5.1 标题栏入口清单里没有落进未接线兜底的项: ' + JSON.stringify(inventory.results),
+        inventory.labels.length >= 2
+          && inventory.results.every(([, unwired]) => unwired === null));
+
+      // 负向对照：注入一个"确实没有接线"的入口，兜底必须**如实记录**它 ——
+      // 否则上面那条清单断言可能只是因为探针失效而永远为真（空断言）。
+      const negative = await tb.page.evaluate(async () => {
+        window.__augitUnwiredLabel = null;
+        window.__augitUnwiredAction = null;
+        const probe = document.createElement('a');
+        probe.className = 'top-button';
+        probe.setAttribute('aria-label', '未接线探针');
+        probe.setAttribute('href', 'unwired-probe.html');
+        document.querySelector('.titlebar').appendChild(probe);
+        probe.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const recorded = { label: window.__augitUnwiredLabel || null, action: window.__augitUnwiredAction || null };
+        probe.remove();
+        return recorded;
+      });
+      check('§5.1 负向对照：未接线入口会被如实记录（证明上一条不是空断言）: ' + JSON.stringify(negative),
+        negative.action === 'unwired-probe.html' || negative.label === '未接线探针');
       await tb.page.close();
     }
 
