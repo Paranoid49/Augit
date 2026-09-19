@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **970/970**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **971/971**（见 §2 说明） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -363,14 +363,14 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 7 | §10.2 | Git 命令输出脱敏并限制长度，不提供 Git Console 或持久化日志 | 部分 | 实现里失败原因经 `describeFailure` 组装并在宿主侧带 `truncated` 标记（`live-data.js` 多处注释写明"脱敏原因"），但**没有断言**"不存在 Git Console 页面/持久化日志"，也没有断言输出长度上限 |
 | 8 | §10.2 | 同一错误在外部状态未变化时不重复弹出 | 是 | `同一错误连续出现时不重复弹出`（`ddBefore.shows`/`ddRepeat.shows` 对照） |
 | 9 | §10.3 | 禁用控件必须有可发现原因，例如悬停说明或相邻文字 | 是 | `§10.3 禁用控件带可发现原因`、`§10.3 原因说明用户该做什么`、`§10.3 补充的说明都是可读句子` |
-| 10 | §10.3 | 工具栏中暂时不可用的稳定命令可以禁用并保留位置 | 部分 | 改动工具窗口的工具栏按钮带 `data-disabled-reason` 并保留在原位（实现与视觉稿一致），但**没有断言**"禁用后仍在原位置"（只断言了原因可见） |
+| 10 | §10.3 | 工具栏中暂时不可用的稳定命令可以禁用并保留位置 | 是 | `§10.3 暂时不可用的工具栏命令保留在原位置（禁用而非移除/重排）`：对比"无选中（禁用态）"与"已选中（可用态）"两张页面的工具栏按钮顺序，要求**序列完全一致**且只有 `显示 Diff` 的 disabled 不同 |
 | 11 | §10.3 | Git 操作会话中"不适用于当前状态"的 Continue、Skip 和 Abort 必须隐藏 | 是 | `§10.3 宿主不适用的会话动作被隐藏而不是禁用占位`（构造 `canAbort/canSkip/canContinue/supportsContinue` 全 false 且 `hasConflicts:true` 的会话：只剩 `close`，按钮文字里没有 Continue/Skip/Abort）+ **负向对照** `§10.3 负向对照：宿主提供的动作确实会渲染出来`（同一套断言在宿主提供动作时必须看到三个动作，证明前一条不是空断言） |
 | 12 | §10.3 | 产品明确不支持的能力不得以禁用占位出现 | 未覆盖 | 没有断言"界面上不存在某个不支持能力的禁用占位"（例如 Force Push / 子模块等）；规格举例与实际检查项都还没定，需先列清单再断言 |
 | 13 | §10.4 | Reset Hard、Rollback、删除分支或标签、删除 Stash、移除 Worktree 必须显示具体影响 | 是 | `§10.4 显示具体影响`、`§10.4 影响说明使用真实已跟踪改动数`、`回滚必须显示具体影响并确认`、`§10.4 危险确认基线给出具体影响与动作名按钮`（Stash 删除）；分支/标签删除在同块 |
 | 14 | §10.4 | 确认按钮使用动作名称，例如"确认 Reset Hard"，不得只写"确定" | 是 | `§10.4 危险确认按钮使用动作名称`、`§10.4 不使用泛化的「确定」`、`§10.4 Hard 使用危险确认样式且按钮写动作名` |
 | 15 | §10.4 | 未跟踪文件删除必须明确说明进入 Windows 回收站 | 是 | `未跟踪文件的回滚说明进入回收站`（+ 对照 `已跟踪文件的回滚不显示回收站说明`） |
 
-**本节结论（带分母，按表格逐行统计）**：15 条中 **11 条有断言（是）+ 3 条部分 + 1 条未覆盖**。
+**本节结论（带分母，按表格逐行统计）**：15 条中 **12 条有断言（是）+ 2 条部分 + 1 条未覆盖**。
 补断言是纯增量工作，优先级：第 11 条（构造宿主不提供动作的会话）→ 第 12 条（先定"不支持能力"清单）
 → 第 7 条（断言无 Git Console/日志与输出上限）→ 第 10 条（禁用项原位）→ 第 1 条（空态无插画）。
 

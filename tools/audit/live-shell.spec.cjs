@@ -10395,6 +10395,37 @@ async function main() {
     check('§10.3 选中后该命令可用: ' + JSON.stringify(afterSelect),
       !!afterSelect && afterSelect.disabled === false);
 
+    // §10.3：工具栏里"暂时不可用"的稳定命令必须**保留位置**（禁用，而不是移除或重排）。
+    // 判据：同一组按钮在"无选中（禁用态）"与"已选中（可用态）"两张页面里的顺序完全一致，
+    // 只有 disabled 不同 —— 这比"菜单里还有这项"更严格，能抓到"禁用时按钮消失/挪位"。
+    const orderEnabled = await dc.page.evaluate(() => {
+      const bar = document.querySelector('.changes-layout .toolbar') || document.querySelector('.toolbar');
+      return bar ? [...bar.querySelectorAll('.toolbar-button')].map((b) => ({
+        label: b.getAttribute('aria-label'), disabled: b.hasAttribute('disabled'),
+      })) : null;
+    });
+    const dcFresh = await openScene('scene=commit-changes&theme=dark');
+    await dcFresh.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await dcFresh.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    const orderDisabled = await dcFresh.page.evaluate(() => {
+      const bar = document.querySelector('.changes-layout .toolbar') || document.querySelector('.toolbar');
+      return bar ? [...bar.querySelectorAll('.toolbar-button')].map((b) => ({
+        label: b.getAttribute('aria-label'), disabled: b.hasAttribute('disabled'),
+      })) : null;
+    });
+    await dcFresh.page.close();
+    const labelsOf = (list) => (list || []).map((b) => b.label);
+    const diffDisabledFlag = (list) => {
+      const item = (list || []).find((b) => (b.label || '').includes('显示 Diff'));
+      return item ? item.disabled : null;
+    };
+    check('§10.3 暂时不可用的工具栏命令保留在原位置（禁用而非移除/重排）: '
+      + JSON.stringify([labelsOf(orderDisabled), diffDisabledFlag(orderDisabled), diffDisabledFlag(orderEnabled)]),
+    Array.isArray(orderDisabled) && Array.isArray(orderEnabled)
+      && orderDisabled.length >= 3
+      && JSON.stringify(labelsOf(orderDisabled)) === JSON.stringify(labelsOf(orderEnabled))
+      && diffDisabledFlag(orderDisabled) === true && diffDisabledFlag(orderEnabled) === false);
+
     // 推送禁用时说明原因（无上游 / 无待推送提交）
     await dc.page.evaluate(() => {
       window.__unpushedFails = true;
