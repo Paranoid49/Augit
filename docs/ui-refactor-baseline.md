@@ -12133,3 +12133,28 @@ seen         = [隐藏终端, 关闭终端, Terminal input]     // 但 Tab 之�
 
 **⑫ 剩余**：`verify-acceptance.ps1` 与 `release.ps1` 都已实测通过；交付清单里还剩
 ⑪ 的"逐页覆盖表（页面 × 检查层级 × 判读）"合并与 ⑨ 的条文穷举收尾（§7 余 110 条、§5/§6/§9 待补行）。
+
+#### 第 345 轮（⑪/⑫）：巡检列表曾漏 6 个场景 —— 补到 54/54，并修掉两个脚本缺陷
+
+**发现（交叉核对得出）**：做 ⑪ 的"逐页覆盖表"时把 §1.1 的 **55 条像素行**与巡检脚本的 `$DefaultScenes`
+对了一遍，发现 **6 个场景只有像素行、没进巡检列表**：`diff-boundary`、`git-history-graph`、`go-to-line`、
+`history-diff-cancelled`、`history-diff-failure`、`history-diff-loading` —— 正是任务书 ⑤ 里点过名的那几个。
+也就是说此前的"49/49"**分母小于实际页集**，属于交付文档不该存在的未言明缺口。
+
+**处置**：把其中 5 条补进列表并复跑 → **54/54 PASS**（`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`）。
+`diff-boundary` **不进列表**并写明原因：它需要"工作区里有一个被改动的文件"（`--diff <path>`），
+巡检跑在干净仓库上时实测 `PAGE_CHECK_FAILED no CDP page target`（快照根本没有到页面）。
+
+**为把它跑起来踩的两个脚本缺陷（都值得记）**：
+1. `capture-surface.ps1` 的 `-Arguments` 是**替换**而不是追加：一用就把 `--workspace/--scene/--theme/`
+   `--remote-debugging-port` 全丢掉，实测报 `no CDP page target`。于是新增了 **`-ExtraArguments`**（追加语义），
+   并把它放在 `--browser-args` **之前**。
+2. 放在 `--browser-args` **之后**也不行：该开关把后面的内容透传给 Chromium，Chromium 收到未知开关起不来，
+   同样表现为没有 CDP 目标。**顺序本身就是一个坑**，已在脚本注释里写明。
+
+**自己违规一次并当场修掉**：我在 `tools/audit/verify-acceptance.ps1` 里写了中文注释，
+`verify-script-encoding.ps1` 立刻报 `3 script(s) violate the encoding rule`
+（`tools/audit/*.ps1` 必须 ASCII-only）——已改成英文注释后重新 PASS。
+这条规则是**用工具守住**的，这次正好证明它有效。
+
+**分母**：真机巡检 **54/54**（分母 54 = 55 条像素行 − `diff-boundary`，且这一差额与原因都写在文档与脚本里）。

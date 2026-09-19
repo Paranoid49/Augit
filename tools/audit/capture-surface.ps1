@@ -6,6 +6,10 @@ param(
   [Parameter(Mandatory=$true)][string]$Out,
   # Either pass shell arguments explicitly, or the Workspace/Surface triple.
   [string[]]$Arguments = @(),
+  # Extra startup flags appended to the constructed args (scene/theme/dpi/port are built here;
+  # -Arguments would REPLACE them and silently drop the debug port -- measured as
+  # "PAGE_CHECK_FAILED no CDP page target" on the first try).
+  [string[]]$ExtraArguments = @(),
   # Accepted for backward compatibility only: the shell has no settings-file argument, and a
   # bare path here used to be passed as a positional argument, which the shell rejects with
   # "unknown startup argument" and then only an error dialog was captured. The theme is read
@@ -123,6 +127,9 @@ if ($Arguments.Count -gt 0) {
   $a = @("--workspace", $Workspace, "--scene", $Surface, "--theme", $Theme)
   if ($Dpi -ne "") { $a += @("--dpi", $Dpi) }
   if ($PixelExact) { $a += "--pixel-exact" }
+  # Extra flags go BEFORE --browser-args: that switch forwards the rest of the line to Chromium,
+  # so appending after it made Chromium reject an unknown switch and no CDP target appeared.
+  if ($ExtraArguments.Count -gt 0) { $a += $ExtraArguments }
   if (-not $SkipPageCheck) { $a += @("--browser-args", "--remote-debugging-port=$Port") }
 }
 $p = Start-Process -FilePath $Exe -ArgumentList $a -PassThru -WorkingDirectory $WorkDir
