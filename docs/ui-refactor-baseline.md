@@ -10225,3 +10225,39 @@ xterm 在 canvas 上自绘、CSS 管不到它，默认主题就是纯黑背景�
 
 **方法论（第 7 次同类）**：即使方向正确（"xterm 缺主题"确实是真的），
 **取值来源也必须先实测**，否则"修"会把黑变成白 —— 本次就是没先读令牌值就下手。
+
+#### 第 287 轮：终端底色缺陷**修复完成**（像素证据：21.40% → 1.13%）
+
+**先实测再改**（第 286 轮的教训）——CDP 读两侧真实值：
+
+```
+LIVE   tokens: --augit-panel = "#ffffff"（!）, --augit-chrome = "#e9eaee", --augit-text = "#202124"
+       .terminal-view background = rgb(30,31,34)   .terminal-tool = rgb(30,31,34)
+MOCKUP tokens: 与实时完全相同的浅色令牌；.terminal-view = rgb(30,31,34)
+```
+
+**根因（比我原先的猜测更精确）**：`:root` 上挂的是**浅色**令牌，深色令牌在 `body[data-theme="dark"]` 下 ——
+所以从 `:root` 读 `--augit-panel` 得到 `#ffffff`，这正是第 286 轮"终端变成纯白"的原因。
+**正确的取色来源是终端宿主自身的计算样式**（`.terminal-view` → `background: rgb(30,31,34)`）。
+
+**修复**（`web/src/live-data.js`）：新增 `terminalTheme()`，从 `.terminal-view` 的
+`getComputedStyle` 读 `backgroundColor`/`color` 作为 xterm 的 `theme.background/foreground`，
+选中色沿用界面选中蓝 `#2F466F`（DOM 对照实测值）；创建终端时传入，并在字体刷新时一并更新。
+
+**像素证据（同一场景、同一带）**：
+
+| | 修复前 | 修复后 |
+|---|---|---|
+| `content` `layoutPercent` | **21.40%** | **1.13%** |
+| `content` `flatDiff` | 118633 / 565333 | **6478 / 574340** |
+| `content` `visiblePercent` | 26.32% | 9.65% |
+| 终端正文采样 | `(0,0,0)` 纯黑 | **`(30,31,34)`** 与视觉稿一致 |
+
+**负向验证**：第 286 轮"未修复"的同一测量（21.40% / 纯黑采样）即负向证据；
+本轮修复后同一命令输出 1.13% —— 指标确实盯住了这条修复。
+
+**回归**：`live-shell` 862/862、`mockup-scenes` 48/48（dark）、`verify-ui-assets` PASS。
+
+**结论**：这是**新像素链路抓到的第一个真实缺陷并修复完成** ——
+此前用 DOM 对照判成"终端容器排版一致"（第 209 轮），实际终端底色与视觉稿差一个令牌；
+这正是"把视觉稿放到 Windows 侧同引擎对比"的价值所在。

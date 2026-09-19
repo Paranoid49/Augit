@@ -581,11 +581,34 @@ function terminalTypography() {
 }
 
 /** 字体设置变化后让已经打开的终端跟着变（规格：修改等宽设置不得改变界面文字）。 */
+/**
+ * 终端配色：xterm 自绘在 canvas 上，CSS 规则管不到它；**不传 theme 时默认是纯黑背景**，
+ * 与视觉稿的终端底色不一致（同引擎像素对照实测：实时 (0,0,0) vs 视觉稿 (30,31,34)）。
+ *
+ * 取色必须从**终端宿主自身的计算样式**读：根元素 :root 上挂的是浅色令牌
+ * （实测 `--augit-panel` = `#ffffff`，深色令牌在 body[data-theme="dark"] 下），
+ * 从 :root 读会把终端整成白底（第 286 轮踩过）。
+ */
+function terminalTheme() {
+  const host = document.querySelector('.terminal-view') || document.body;
+  const style = getComputedStyle(host);
+  const background = style.backgroundColor;
+  const foreground = style.color;
+  return {
+    background,
+    foreground,
+    cursor: foreground,
+    // 选中底色沿用界面里的选中蓝（DOM 对照实测 rgb(47,70,111)）。
+    selectionBackground: '#2F466F',
+  };
+}
+
 function refreshTerminalTypography() {
   if (!terminalInstance) return;
   const typography = terminalTypography();
   terminalInstance.options.fontFamily = typography.family;
   terminalInstance.options.fontSize = typography.size;
+  terminalInstance.options.theme = terminalTheme();
   try {
     terminalFitAddon.fit();
   } catch {
@@ -609,6 +632,7 @@ async function startTerminal() {
     fontSize: typography.size,
     lineHeight: 1.7,
     scrollback: 2000,
+    theme: terminalTheme(),
   });
   terminalFitAddon = new window.FitAddon.FitAddon();
   terminalInstance.loadAddon(terminalFitAddon);
