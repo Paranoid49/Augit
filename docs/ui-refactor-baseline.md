@@ -11572,3 +11572,33 @@ PowerShell 5.1 按 ANSI 读取导致选择器里的中文变乱码 —— **不�
 再次印证 `tools/audit/*.ps1` 必须 ASCII-only 这条规则的必要性（scratch 脚本同样适用）。
 
 **分母**：`live-shell` 966 → 预期 **968**（§0 与 §2 的调用点数同步为 745）。
+
+#### 第 323 轮（P0 ② 遗留）：真机"输入命令"已验成；"大段输出"如实记为未验成
+
+**已验成（真机，`artifacts/p0-terminal-io.json`）**：`--scene terminal` 启动真机外壳，
+CDP 聚焦真实 `.xterm-helper-textarea`（`FOCUS focused`），用 `Input.insertText` 输入
+`echo AUGIT_TERMINAL_OK` 并用 `Input.dispatchKeyEvent` 发 Enter，3 秒后读回 `.xterm-rows`：
+
+```
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+PS D:\github\Augit> echo AUGIT_TERMINAL_OK
+AUGIT_TERMINAL_OK
+PS D:\github\Augit>
+```
+
+即 ②的"真机输入未验"这条遗留**已闭合**（此前只有 harness 覆盖）。
+
+**未验成：大段输出跨 4 MB 裁剪窗口**。两次尝试结论不一致：
+1. 第一次：发 `1..60000 | ForEach-Object { ("A" * 70) + " TAIL$_" }`（≈4.8 MB）后 25 秒，
+   `.xterm-rows` 读回 **0 个渲染行**、文本为空，而 `__augitReady` 仍为 true；
+2. 第二次（先跑 1.6 MB 对照组再加倍）：**前置条件就不成立** —— `FOCUS no-textarea`，
+   从第一次取样起 `divs:0`，即本次运行里 `.xterm` 压根没挂载。
+
+**为什么两次数值不可比（方法问题，不是产品结论）**：我的探针在发按键前**没有等待
+"xterm 已挂载且可聚焦"**，于是"渲染还没挂上"与"裁剪后偏移失步导致永久读空"这两种完全不同的情况
+在读数上长得一样。**因此本轮既不判缺陷也不判通过**，把它登记为"探针不足导致的未验成"，
+并写进 `docs/ui-compliance.md` §3.1（带两条补齐要求：先等挂载；同时读宿主侧缓冲长度/读取偏移）。
+
+**这条纪律值得重复**：`IsHungAppWindow=false`、`__augitReady === true` 都只能证明"应用没卡"，
+**不能**证明"终端渲染正常"；要分清这两件事，必须让探针同时观测**渲染层与宿主侧缓冲**的状态。

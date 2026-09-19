@@ -356,6 +356,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | --- | --- | --- |
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
+| **终端大输出（跨 4 MB 裁剪窗口）真机未验成** | 第一次尝试（`artifacts/p0-terminal-large/` 的 `control-1.6MB.json`）在发命令后读回 `.xterm-rows` 为 **0 个渲染行**；第二次尝试连前置条件都不成立 —— 探针报告 `FOCUS no-textarea`、全程 `divs:0`（`.xterm` 尚未挂载） | **不判缺陷也不判通过**：探针缺少"等 xterm 真正挂载再输入"的前置等待，两次运行的基线不同，结果不可比。另有一次**成功**的真机输入验证（`echo AUGIT_TERMINAL_OK` → 读回输出，见 `artifacts/p0-terminal-io.json`）。补齐需要：① 等到 `.xterm-helper-textarea` 存在再发按键；② 同时读宿主侧终端缓冲长度/读取偏移，才能区分"渲染未挂载"与"裁剪后偏移失步" |
 | **Editor › Font 页面内容未抓到** | 已抓到分类路径与 UI 字体事实（`artifacts/pycharm-interactions-16/`：搜索结果树、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 页的子页列表）；页面正文（字体名/字号/行距的具体值）未抓到 | 原因是设置树的滚动位置随会话变化，固定坐标点击会落到别的分类；补抓需要 UI 自动化（Settings 搜索 + 键盘导航），缺口只在这一格 |
 
 ### 3.2 已确认的实现差异
