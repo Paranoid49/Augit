@@ -10089,3 +10089,29 @@ BAND content    visiblePercent=13.58 blockDiffPercent=27.42
   差异全部来自文字内容；
 - 若显著大于 0 → 存在**真实的布局/配色差异**（这才是要修的）。
 另外可加"行/列剖面"比较（把每行/每列的均值拉成序列比对齐），用于发现整体位移与高度差。
+
+#### 第 282 轮：`flatDiffPercent` 第一次实现**无效，已回退**（附排查方向）
+
+实现思路：只统计"两侧局部都平坦"（与左邻/上邻通道差 ≤ 2）的像素，再比它们的颜色 ——
+预期能把文字差异完全排除。**实测无效**：
+
+```
+BAND titlebar   visiblePercent=2.63  flatTotal=51920  flatDiffPercent=2.63
+BAND statusbar  visiblePercent=6.57  flatTotal=28320  flatDiffPercent=6.57
+BAND rail       visiblePercent=13.52 flatTotal=816560 flatDiffPercent=13.52
+```
+
+`flatTotal` **恰好等于** `total`（每一个像素都被判成"平坦"），说明平坦判据没有生效，
+指标退化成 visible —— 不合格的指标不能留在工具里，**已回退**（`verify-script-encoding` PASS）。
+
+**下一轮排查方向（不猜，按顺序验证）**：
+1. 先单独打印几个已知文字像素与其左邻/上邻的通道差（确认取样位置与期望一致）；
+2. 检查 `New-Object 'int[]' $mock.Width` 的数组取值与 `$prevA[$x]` 的读写顺序
+   （PowerShell 数组装箱/取值语义容易写错，也可能是"上邻数组被本行覆盖"的时序问题）；
+3. 若 PowerShell 里做逐像素邻域判断太慢或易错，改为**先在 C#/ImageMagick 侧做掩膜**：
+   用 `Page.captureScreenshot` 的 PNG 走一次"按块统计"或"边缘检测"再比较，
+   比在 PowerShell 里逐像素判断更可靠。
+
+**本轮结论**：新目标的 ①②③ 已拿到可信的**可见像素差异率**（标题栏 97.4% 一致、
+状态栏差异为文字数据），"把布局差异从文字差异中分离"这一步**尚未完成**，
+下一步按上面三条继续。

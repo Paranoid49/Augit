@@ -111,6 +111,7 @@ foreach ($band in $bandList) {
     }
   }
   $blockPercent = if ($blockTotal -gt 0) { [Math]::Round(100.0 * $blockDiff / $blockTotal, 2) } else { 100 }
+
   $percent = if ($total -gt 0) { [Math]::Round(100.0 * $visible / $total, 2) } else { 100 }
   $verdict = if ($percent -le $MaxVisiblePercent) { 'PASS' } else { 'FAIL'; }
   if ($percent -gt $MaxVisiblePercent) { $failures++ }
