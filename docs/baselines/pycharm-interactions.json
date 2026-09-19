@@ -410,12 +410,19 @@
       "target": "主按钮（OK）",
       "pycharm": {
         "bg": "#3871e1",
-        "note": "实测取色 (1180,1150)"
+        "note": "实测取色 (1180,1150)",
+        "measuredSize": "232x49 物理",
+        "cssEquivalent": "132.6x28（÷1.75）",
+        "measuredColour": "56,113,225",
+        "evidence": "artifacts/pycharm-interactions-16/p16-settings-tree-a.png"
       },
       "augit": {
         "token": "--augit-blue: #3871e1",
-        "note": "逐值相同"
-      }
+        "note": "逐值相同",
+        "measuredSize": "54x30 CSS",
+        "source": "artifacts/pycharm-compare-20260919/augit-settings-geometry.json"
+      },
+      "verdict": "颜色**逐值相同**（#3871e1）；尺寸：PyCharm 宽 132.6 CSS vs Augit 54 CSS（Swing 按钮带文字与内边距，Augit 是紧凑按钮），高度 28 vs 30 CSS 接近"
     },
     {
       "id": "settings.surfaces",
@@ -494,6 +501,43 @@
         "ref": "live-shell:§7.17 终端自定义命令仅在选择\"自定义命令\"时可编辑",
         "note": "同一手法：前置条件不满足就禁用并保留位置（不是隐藏）"
       }
+    },
+    {
+      "id": "settings.dialog.geometry",
+      "target": "设置对话框内部几何（左栏宽 / 搜索框 / 选中行）",
+      "method": "PyCharm 侧：p16-settings-tree-a.png（1575x1225 物理）分区掩膜 + 分隔线计分；Augit 侧：CDP DOM 矩形（同一台机、同一 1.75 缩放）",
+      "rows": [
+        {
+          "part": "左栏宽",
+          "pycharm": "分隔线 x=453 物理 → 258.9 CSS",
+          "augit": "nav w=245 CSS",
+          "delta": "+13.9 CSS"
+        },
+        {
+          "part": "搜索框",
+          "pycharm": "409x44 物理 → 233.7x25 CSS",
+          "augit": "224.4x30 CSS",
+          "delta": "宽 +9.3 / 高 −5 CSS"
+        },
+        {
+          "part": "选中行底色",
+          "pycharm": "#d0dffe（早先取色，原图坐标 (250,690)）",
+          "augit": "rgb(208,223,254)",
+          "delta": "逐值相同"
+        },
+        {
+          "part": "选中行高",
+          "pycharm": "掩膜测到 113 物理 → **不采用**（很可能是掩膜同时命中了相邻蓝色元素）",
+          "augit": "27 CSS",
+          "delta": "待重新测"
+        }
+      ],
+      "augit": {
+        "status": "other",
+        "source": "artifacts/pycharm-compare-20260919/augit-settings-geometry.json",
+        "note": "Augit 侧 6 个矩形（dialog/nav/search/row/selectedRow/field/ok/cancel）与 9 个配色均在同一个 JSON 里，可复读"
+      },
+      "note": "差异集中在'控件有多宽'（Swing 的按钮/输入框更宽），高度与底色基本等价；选中行高这一格**没有**采信不可靠读数"
     }
   ],
   "sequences": [

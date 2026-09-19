@@ -12954,3 +12954,29 @@ Data Editor and Viewer、Quick Lists、Required Plugins）**没有**出现在这
 
 结果：生成器重出 `pycharm-interactions.md`（145 行）；`check-interactions.cjs` 仍
 `BASELINE surfaces=6 jumps=4 feedback=7 sequences=6 gaps=4`、`CHECKED 17`、`INTERACTIONS_BASELINE_OK`。
+
+#### 第 388 轮：设置对话框内部几何的同尺度对照（⑧ settings 面）
+
+**两侧量法**（都写明来源，避免又一次"跨尺度错值"）：
+- PyCharm：`artifacts/pycharm-interactions-16/p16-settings-tree-a.png`（1575×1225 物理）
+  分区掩膜 + 竖直分隔线计分；物理值 ÷1.75 = CSS 等价；
+- Augit：`artifacts/pycharm-compare-20260919/augit-settings-geometry.json`（CDP DOM 矩形 8 个 +
+  配色 9 个，同一台机、同一 1.75 缩放）。
+
+**读数与判读**：
+
+| 项 | PyCharm（物理 → CSS） | Augit（CSS） | 判读 |
+| --- | --- | --- | --- |
+| 左栏宽 | 453 → **258.9** | 245 | 接近（+13.9） |
+| 搜索框 | 409×44 → **233.7×25** | 224.4×30 | 宽接近、Augit 高 5 |
+| OK 按钮 | 232×49 → **132.6×28** | 54×30 | 宽差 2.5×（Swing 按钮带文字与内边距） |
+| OK 底色 | **56,113,225** | 56,113,225 | **逐值相同** |
+| 选中行底色 | `#d0dffe` | 208,223,254 | **逐值相同** |
+
+**一次自我拦下**：选中行高第一次掩膜读到 113 物理（≈64 CSS，显然不合理），
+判断为掩膜同时命中了相邻蓝色元素（搜索框聚焦边框等），**没有**把它写进对照表，
+而是标成"不采用 / 待重测"——这正是本仓库反复强调的"宁可少、不可编"。
+
+结果：`feedback` 7 → **8** 条（新增 `settings.dialog.geometry`）；
+`check-interactions.cjs` → `BASELINE surfaces=6 jumps=4 feedback=8 sequences=6 gaps=4`、
+`CHECKED 18 (pass=9 diff=2 gap=1 other=6)`、`INTERACTIONS_BASELINE_OK`；§1.3 增补该对照表；§0 同步。
