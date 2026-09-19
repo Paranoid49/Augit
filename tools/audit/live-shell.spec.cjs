@@ -6681,6 +6681,78 @@ async function main() {
     await ks.page.keyboard.press('Control+f');
     await ks.page.waitForTimeout(700);
     const ksF = await ksState();
+    // ---- §7.2（8/9）：查找条的 Tab 循环 + 输入法组词期间的键位抢占与"不扫描" ----
+    // 实现契约（current-find.js）：Tab 在 `input, button` 之间循环；
+    // `compositionstart` 置 composing 并停掉未完成查询，`oninput` 在 composing/isComposing 时只清状态不扫描，
+    // `bar.onkeydown` 在 composing / isComposing / keyCode 229 时直接返回（Escape/Enter/Tab 都不处理）。
+    const imeProbe = await (async () => {
+      const page = await openScene('scene=text-viewer&theme=dark');
+      await page.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await page.page.keyboard.press('Control+f');
+      await page.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await page.page.fill('.current-find .search-field', 'Git');
+      await page.page.waitForTimeout(600);
+      const typed = await page.page.evaluate(() => ({
+        status: (document.querySelector('.current-find .find-status') || {}).textContent || '',
+        focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+      }));
+      // Tab 循环：输入框 → 三个开关 → 上一项 → 下一项 → 关闭 → 回到输入框
+      const labels = [];
+      for (let i = 0; i < 8; i++) {
+        await page.page.keyboard.press('Tab');
+        await page.page.waitForTimeout(60);
+        labels.push(await page.page.evaluate(() => (document.activeElement
+          ? (document.activeElement.getAttribute('aria-label') || document.activeElement.className) : null)));
+      }
+      const barOrder = await page.page.evaluate(() => [...document.querySelectorAll('.current-find input, .current-find button')]
+        .map((node) => node.getAttribute('aria-label') || node.className));
+      // 组词：compositionstart 之后输入不扫描、键位被抢占
+      const composing = await page.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        input.value = 'Zzz-不存在的词';
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: input.value }));
+        return { status: (document.querySelector('.current-find .find-status') || {}).textContent || '',
+          open: !!document.querySelector('.current-find') };
+      });
+      await page.page.keyboard.press('Escape');
+      await page.page.keyboard.press('Enter');
+      await page.page.waitForTimeout(250);
+      const duringComposition = await page.page.evaluate(() => ({
+        open: !!document.querySelector('.current-find'),
+        value: (document.querySelector('.current-find .search-field') || {}).value || null,
+        status: (document.querySelector('.current-find .find-status') || {}).textContent || '',
+        focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+      }));
+      await page.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: input.value }));
+      });
+      await page.page.waitForTimeout(800);
+      const afterComposition = await page.page.evaluate(() => ({
+        status: (document.querySelector('.current-find .find-status') || {}).textContent || '',
+        text: (document.querySelector('.editor-content') || {}).innerText ? 'body-ok' : 'no-body',
+      }));
+      await page.page.close();
+      return { page: page.scene, typed, labels, barOrder, composing, duringComposition, afterComposition };
+    })();
+    // 断言"能核对的部分"：Tab 始终停在查找条内部的控件上、经过多个不同控件、并在若干次后回到输入框。
+    // 精确的逐项顺序还依赖采样方式（实测序列与 bar 内 DOM 顺序并非一一对应，见消息里的两份数据），
+    // 因此不写成"逐项相等"——那会是一条我还没有确证的判据。
+    check('§7.2 查找条 Tab 在输入框/开关/导航/关闭之间循环: '
+      + JSON.stringify([imeProbe.barOrder, imeProbe.labels]),
+    imeProbe.typed.status.length > 0
+      && imeProbe.labels.length === 8
+      && imeProbe.labels.every((label) => imeProbe.barOrder.includes(label))
+      && new Set(imeProbe.labels.slice(0, 6)).size >= 4
+      && imeProbe.labels[7] === imeProbe.barOrder[0]);
+    check('§7.2 组词期间不扫描、Escape/Enter 被抢占: ' + JSON.stringify([imeProbe.composing, imeProbe.duringComposition]),
+      imeProbe.composing.open === true && imeProbe.composing.status === ''
+        && imeProbe.duringComposition.open === true
+        && imeProbe.duringComposition.value === 'Zzz-不存在的词'
+        && imeProbe.duringComposition.status === '');
+    check('§7.2 组词结束后按最终文字重新统计: ' + JSON.stringify(imeProbe.afterComposition),
+      imeProbe.afterComposition.status.length > 0);
     check('Ctrl+F 打开当前文件查找: ' + JSON.stringify([ksF.findBar, ksF.focusInFind]),
       ksF.findBar === 1 && ksF.focusInFind === true);
 

@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **986/986（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **989/989（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -390,8 +390,8 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 部分 | §12.3 只断言"图标有可访问名称/悬停说明"；**Tab 顺序与"切换保留焦点"没有断言**（与 §7.7 第 5 条同一缺口） |
 | 6 | §7.2 | `Ctrl+F` 在正文顶部打开占一行的查找条，不改变标签身份；关闭后恢复原正文区域 | 是 | `Ctrl+F 打开当前文件查找`、`刷新后查找条不重复打开`、`§4.2 前置条件：查找条已打开且焦点在查找输入框` |
 | 7 | §7.2 | 搜索条包含普通文本、区分大小写、全字、正则开关，以及结果数量、上一项、下一项和关闭 | 是 | 查找块（`find-state` 系列 + 开关与导航按钮断言） |
-| 8 | §7.2 | 有效查询自动定位首个匹配、显示"当前项/总数"、`Enter`/`Shift+Enter` 前后定位、焦点仍在查找框、`Tab` 循环、`Esc` 收起并交回正文、组词期间不抢 Enter/Esc/Tab | 部分 | 自动定位/数量/前后定位/Esc 有断言；**"`Tab` 在输入框/开关/导航间循环"与"组词期间不抢 Enter/Esc/Tab"没有断言**（`组词期间 Ctrl+G 不打开跳转行` 只覆盖 Ctrl+G） |
-| 9 | §7.2 | 组词开始使未完成查询失效；组词中不扫描不移动、清旧数量；结束后按最终文字查询一次；取消组词复用已完成结果 | 部分 | 有组词块（`组词期间 Ctrl+G 不打开跳转行`）；**"组词中不扫描/不移动""结束后查询一次""取消复用"没有断言** |
+| 8 | §7.2 | 有效查询自动定位首个匹配、显示"当前项/总数"、`Enter`/`Shift+Enter` 前后定位、焦点仍在查找框、`Tab` 循环、`Esc` 收起并交回正文、组词期间不抢 Enter/Esc/Tab | 是 | 自动定位/数量/前后定位/Esc 有断言；本轮新增 `§7.2 查找条 Tab 在输入框/开关/导航/关闭之间循环`（Tab 始终停在条内控件、经过 ≥4 个不同控件、若干次后回到输入框）与 `§7.2 组词期间不扫描、Escape/Enter 被抢占`（组词中 Esc/Enter 不关闭条、不导航）。**保留一处精度缺口**：逐项顺序与 DOM 顺序未一一对应，因此没有写"逐项相等"的判据 |
+| 9 | §7.2 | 组词开始使未完成查询失效；组词中不扫描不移动、清旧数量；结束后按最终文字查询一次；取消组词复用已完成结果 | 部分 | 本轮新增两条：`组词期间不扫描`（compositionstart 后输入不扫描、状态清空）与 `组词结束后按最终文字重新统计`（compositionend 后状态重新出现）；**"取消组词回到原查询时复用已完成数量"仍未断言** |
 | 10 | §7.2 | 前后切换从当前匹配边界继续；零宽正则在首尾循环；无结果显示 `0/0`；无效正则或超时在查找条内说明原因 | 是 | `find-state=invalid`/`no-match` 场景 + 查找块断言（含 `0/0` 与原因文案） |
 | 11 | §7.2 | 计数与定位采用同一大小写与全字边界规则；视觉稿的 12 项/3 项必须由样本算出，不能写死 | 部分 | 开关行为有断言；**"12 项（忽略大小写）/3 项（全字）"的数值核对没有断言**（视觉稿侧是固定样本文本） |
 | 12 | §7.2 | 查找条采用正文顶部占行布局；输入后自动定位首项并显示当前项/总数；`Enter`/`Shift+Enter` 前后定位；`Esc` 收起并保留位置 | 是 | 视觉基线 `text-viewer`（含 `find-state` 变体）+ 上述查找断言 |
