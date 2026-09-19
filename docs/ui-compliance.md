@@ -1065,12 +1065,27 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     （原先"整段返回 + 报缓冲区末尾"在分批后必然跳数据）、新增 `pending` 表示剩余积压、
     `pollTerminal()` 显式带上限并**把最后一次读取失败写进 `__augitTerminalReadError`**
     （另记录 `__augitTerminalBacklog`）。
-    **复验结果：仍然冻结** —— 用同一探针重跑，洪泛后 120 秒 20 次采样依旧逐字节相同、
-    sentinel 与新提示符都不出现。因此**候选机制 ①（桥接消息体积超限）没有被证实**，
-    真正的机制仍待定位；本轮新增的两个观测字段（读取错误、积压量）正是下一轮区分
-    "读取一直失败"与"宿主侧不再产生输出"的判据。
-    本轮同时确认改动本身没有破坏既有验证：`Augit.Shell.Tests` **73/73**（含 4 条裁剪单测）；
-    `live-shell` 全量重跑**留待下一轮**（改动只影响真实宿主路径，harness 的桩会忽略 `maximumLength`）。
+    **复验结果：仍然冻结**。第 366 轮把观测字段接到真机后，**两个候选机制都被证伪**：
+
+    | 候选机制 | 判据 | 实测 | 结论 |
+    | --- | --- | --- | --- |
+    | ① 桥接消息体积超限（每轮搬最多 4 MB） | 分批 128 KB 后是否恢复 | 仍冻结（120 s × 20 次采样逐字节相同，sentinel 与新提示符都不出现） | **证伪** |
+    | ② 投递输出的处理器抛异常打死读取循环 | `notifyError`（`LastNotifyError`）是否非空 | **全程 `null`** | **证伪** |
+
+    同时确认**客户端是健康的**：冻结期间 `backlog = 0`、`readError = null`、
+    `notifyError = null`、`exited = false`、会话 `running`、每 60 ms 仍在轮询 ——
+    "有数据但没搬过来"与"读取一直失败"都不成立，**停顿发生在宿主/pty 的输出路径上**。
+    剩下两个待区分的子机制（下一步判据已定）：(a) 后台读取循环从 `count == 0` 的 **EOF 分支**
+    `return` 掉了（这条路目前不留任何痕迹）；(b) Shell 写满 pty 管道后阻塞、根本不再产出。
+    下一步：给 EOF 分支加记录，并在冻结时采样 Shell 进程（是否存活、CPU 是否还在增长）。
+
+    **机制 ② 虽被证伪，第 366 轮加的两处防护仍然保留**（它们让"处理器异常打死读取循环"
+    这一整类故障变得不可能且可观测）：`ReadOutputAsync` 里 `_promptTracker.OnOutput` 与
+    `OutputReceived?.Invoke` 各自包 try/catch 并记录 `LastNotifyError`；
+    `terminal/read` 下发 `notifyError`，客户端暴露为 `window.__augitTerminalNotifyError`。
+
+    **验证**：`Augit.Shell.Tests` **73/73**、`live-shell` **1013/1013（未执行 0 项）**
+    （第 365 轮遗留的全量重跑已完成，客户端改动无回归）、`dotnet build` 0 警告 0 错误。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
