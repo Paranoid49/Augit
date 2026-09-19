@@ -59,3 +59,31 @@ function Invoke-Cdp([string]$socketUrl, [string]$expression, [int]$id, [int]$tim
   [void]$ws.Dispose()
   throw "CDP evaluate timed out"
 }
+
+# Generic CDP call (any method, not just Runtime.evaluate). Returns the RAW response text so
+# callers can read whatever field they need (e.g. Page.captureScreenshot returns .result.data).
+function Invoke-CdpMethod([string]$socketUrl, [string]$method, [string]$paramsJson, [int]$id, [int]$timeoutSec = 60) {
+  $ws = New-Object System.Net.WebSockets.ClientWebSocket
+  $token = [System.Threading.CancellationToken]::None
+  [void]$ws.ConnectAsync([Uri]$socketUrl, $token).GetAwaiter().GetResult()
+  $payload = '{"id":' + $id + ',"method":"' + $method + '","params":' + $paramsJson + '}'
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
+  $segment = New-Object System.ArraySegment[byte] -ArgumentList @(,$bytes)
+  [void]$ws.SendAsync($segment, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, $token).GetAwaiter().GetResult()
+  $buffer = New-Object byte[] 8388608
+  $builder = New-Object System.Text.StringBuilder
+  $deadline = (Get-Date).AddSeconds($timeoutSec)
+  while ((Get-Date) -lt $deadline) {
+    $receiveSegment = New-Object System.ArraySegment[byte] -ArgumentList @(,$buffer)
+    $result = $ws.ReceiveAsync($receiveSegment, $token).GetAwaiter().GetResult()
+    [void]$builder.Append([System.Text.Encoding]::UTF8.GetString($buffer, 0, $result.Count))
+    if (-not $result.EndOfMessage) { continue }
+    $text = $builder.ToString()
+    [void]$builder.Clear()
+    $message = $null
+    try { $message = $text | ConvertFrom-Json } catch { continue }
+    if ($message.id -eq $id) { [void]$ws.Dispose(); return $text }
+  }
+  [void]$ws.Dispose()
+  throw "CDP method timed out: $method"
+}

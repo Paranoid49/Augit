@@ -10002,3 +10002,39 @@ BAND statusbar  total=28320 diff=26119 visible=26119 max=181  ← 92% 不同，�
 
 **链路代码**（暂放 scratch，稳定后移入 `tools/audit/`）：`D:\tmp-augit-cap\mockcap.ps1`
 （`--web-root` 启动 + CDP 导航 + 连拍）、`pxdiff.ps1`（按带逐像素统计）、`crop2.ps1`（裁带并排看图）。
+
+#### 第 279 轮（新目标 ①②）：同引擎像素对照链路**建成并固化**；PrintWindow 是此前的假象来源
+
+**关键更正**：第 278 轮"状态栏 92% 不同"是**抓图方法的假象** ——
+`PrintWindow(PW_RENDERFULLCONTENT)` 在这个 WebView2 窗口上**会裁切/移位底部约 22 像素**
+（视觉稿页的状态栏被画成了编辑器正文）。用 CDP `Page.captureScreenshot` 验证：
+
+```
+CDPSHOT 1180x760
+  y=H-1/11/21  x5=43,45,48  x600=43,45,48     ← 整宽统一色带 = 状态栏（页面确实画了）
+  y=H-31/40    x5=43,45,48  x600=30,31,34     ← 工具条/正文
+```
+
+**因此对照链路改为两侧都用 CDP 截图**，并固化成仓库工具 **`tools/audit/compare-pixels.ps1`**
+（ASCII-only，已过 `verify-script-encoding.ps1`，脚本数 11 → **12**）：
+
+- 视觉稿侧：`--web-root docs/ux-mockups` 启动 + CDP 导航到 `<scene>.html?theme=…`；
+- 实时侧：`--scene <scene>` 启动；
+- 两侧同窗口尺寸/主题/`--pixel-exact`，`Page.captureScreenshot` 取图，按"带"逐像素统计
+  `diff / visible(>8) / visiblePercent / max`，超过阈值即 `PIXELS_DIFFER`（退出码 1）；
+- 新增 `cdp-eval.ps1` 的通用方法调用 `Invoke-CdpMethod`（支持 `Page.captureScreenshot` 这类非
+  `Runtime.evaluate` 的 CDP 方法）。
+- 顺手修掉 `-Bands 'a,b'` 经 `-File` 变成单元素的绑定陷阱（与 `-Selectors` 同源）。
+
+**首次测量（`git-history`，两侧均 1180×760）**：
+
+```
+BAND titlebar   total=51920  visible=1367  visiblePercent=2.63  max=181  PASS
+BAND statusbar  total=28320  visible=1862  visiblePercent=6.57  max=122  PASS
+SUMMARY failures=0 / PIXELS_OK
+```
+
+即：**关掉跨平台噪声后，标题栏 97.4%、状态栏 93.4% 的像素完全一致**，
+残余差异是文字内容（分支名 `main`/`dsh`、当前文件名、路径与编码字段）这类数据差异。
+这比此前"DOM 结构一致"是强得多的证据，也说明**上一阶段把宽度差归因于平台字体/滚动条是对的**
+（同引擎下不再出现那些差异）。
