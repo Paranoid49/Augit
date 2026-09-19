@@ -10144,3 +10144,29 @@ HEATMAP D:\tmp-augit-cap\pxs\heatmap.png
   属数据而非实现差异 —— 下一轮可用 heatmap 逐块确认其中是否有真正的行高/内边距问题。
 
 **工具链位置**：`compare-pixels.ps1`（Windows 侧取图）+ `compare-pixels.py`（WSL 侧掩膜比对）。
+
+#### 第 284 轮（新目标 ②③）：6 场景"布局差异率"表 —— 抓到一个真实差异（terminal 状态栏）
+
+`layoutPercent` = **两侧都平坦**（背景/边框/填充）的像素里差异 > 8 的占比（文字差异已被掩膜排除）：
+
+```
+main-project|titlebar=0.00|statusbar=0.00|content=3.60
+commit-changes|titlebar=0.00|statusbar=0.00|content=0.79
+commit-diff|titlebar=0.00|statusbar=0.00|content=6.12
+settings|titlebar=0.00|statusbar=0.00|content=0.67
+terminal|titlebar=0.00|statusbar=4.11|content=20.76
+conflict-resolver|titlebar=0.00|statusbar=0.00|content=1.96
+```
+
+**判读**：
+- **标题栏在全部 6 个场景都是 0.00%** —— 外壳标题栏逐像素一致（含边框、内边距、图标底色）；
+- **状态栏除 `terminal` 外都是 0.00%**；**`terminal` 是 4.11%** ← **这是新链路抓到的第一个真实布局差异**
+  （此前用 DOM 对照时它被"文字/数据差异"淹没，第 209 轮只判成"容器排版一致"）；
+- 内容带：`commit-changes` 0.79%、`settings` 0.67%、`conflict-resolver` 1.96%、`main-project` 3.60%、
+  `commit-diff` 6.12% 属数据差异（真实文件/提交/差异行 vs 样例）；
+  **`terminal` 20.76%** 明显偏高 —— 终端正文是真实 xterm 渲染、样例是静态行，预期会差，
+  但需要用 heatmap 确认其中**没有**可修的行高/内边距问题。
+
+**下一轮**：先看 `terminal` 的两处 ——
+① 用 `heatmap.png` 定位状态栏 4.11% 差异的具体区域（是整条高度、某段背景，还是某个字段位置？），
+② 对比两侧状态栏的 DOM 计算样式（高度/内边距/背景令牌），找出差异来源并决定改实现还是改样例。
