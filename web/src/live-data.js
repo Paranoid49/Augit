@@ -7736,6 +7736,13 @@ function toLiveDocument(payload) {
     fileSize: payload.fileSize,
     text: payload.text,
     preview: kind === "Markdown" && payload.text ? renderMarkdown(payload.text) : "",
+    // 宿主的 JSON 结果（规格 §7.4）：格式有效时给重新序列化的正文，
+    // 无效时给从 1 开始的行号与按 Unicode 标量计的列号。
+    // toLiveDocument 是白名单映射，不搬运的话渲染层永远读到 undefined（同 dataUrl 的教训）。
+    formatted: typeof payload.formatted === "string" ? payload.formatted : "",
+    jsonError: payload.jsonError && typeof payload.jsonError.line === "number"
+      ? { line: payload.jsonError.line, column: payload.jsonError.column }
+      : null,
     dataUrl: payload.dataUrl,
     pixelWidth: payload.pixelWidth,
     pixelHeight: payload.pixelHeight,

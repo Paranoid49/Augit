@@ -12418,3 +12418,48 @@ const source = typeof liveSource === "string" && liveSource.length > 0 ? liveSou
 **顺带记录一条未实现项**（§3.2 第 11 条）：`liveMarkdownDocument` 永远输出
 `data-markdown-state="ready"`，实时层也没有"读取中文档"的占位，因此规格 §7.3 第 6/12 条
 （预览加载提示、失败重试）在真机上不可达 —— 这两条只在视觉稿里以 `?markdown-state=` 呈现。
+
+#### 第 358 轮（补断言优先级 #3）：JSON 格式化与错误行列**从未接到界面上** —— 实缺陷，已接线
+
+**怎么抓到的**：补 §7.4 的断言时先核对"格式化"到底由谁产生，结果发现
+`src/Augit.Core/Documents/JsonDisplayFormatter.cs` **只有单元测试在调用**：
+
+```
+grep -rn "JsonDisplayFormatter" --include=*.cs .    # 除自身外只命中 tests/Augit.Core.Tests
+grep -rn "formatted" src/Augit.Shell/*.cs           # 无输出：桥接载荷里没有这个字段
+```
+
+即"格式化""错误行列"这一族在真机上从未对外提供：点"格式化"看到的其实是原文，
+格式错误时没有错误条、没有禁用"格式化"、没有行列提示 —— §7.4 第 4/5/6 条在真机上不可达，
+第 3 条只是"看起来对"（原文本来就带缩进时与格式化结果一致，我上一轮的断言正是在这种输入下通过的：
+**注入的源本身就是两空格缩进的**，所以它只证明了"显示的是原文"，没证明"显示的是格式化结果"）。
+
+**接线**：
+- `ShellBridge.ReadDocumentAsync`：`TextReady` + `Json` 时调用 `JsonDisplayFormatter.Format`，
+  有效下发 `formatted`，无效下发 `jsonError: { line, column }`；
+- `live-data.js` 的 `toLiveDocument` 白名单搬运这两个字段（不搬就是 `undefined`，同 `dataUrl` 的教训）；
+- `liveJsonDocument`：无效时加 `json-invalid`、把"格式化"按钮改成 `disabled` + `title`、
+  用宿主行列渲染错误条（原生 `<button>`，Tab/Enter/Space 天然同效），默认模式回落到原文；
+- `bindJsonModes`：格式化正文优先用 `data-json-formatted`（宿主结果），定位行改用
+  `data-json-error-line`（不再写死第 4 行）。
+
+**三层验证（这是本轮的重点，因为这个缺陷正是"只看一层就会漏"的典型）**：
+1. **Core 单测**（算法与口径）：`使用两空格并保持属性顺序`、`拒绝非严格Json并保留原文`、
+   `错误行列从一开始并按Unicode字符计列`（8 组数据，含中文、代理对、CRLF）——共 86 项通过；
+2. **harness**（界面显示与交互，对桩载荷）：4 条新断言 —— 压缩原文 + 宿主 formatted 时
+   正文逐字等于宿主结果且原文逐字等于压缩源、"格式化"不再凭空可用、无保存按钮且正文不被写回、
+   无效时原文/禁用/错误条行列/点击与 Enter 定位到宿主给出的行并把焦点交给正文；
+3. **真机端到端**（宿主 → 桥接 → 界面）：`D:\tmp-augit-cap\json-format-probe.ps1` 启动真实外壳 +
+   CDP 读真实 DOM：`valid.json`（压缩 29 字符）默认渲染 **20 行**、含 `\n  "b": 1`、`b` 在 `a` 前、
+   `data-json-formatted` 72 字符；`broken.json`（中文键，11 字符）落到 `json-invalid` + `source`、
+   按钮禁用、错误条为**第 2 行，第 8 列** —— 与 Core 单测同一输入的期望**逐值一致**。
+
+`live-shell` 1006 → **1010/1010**（未执行 0 项）。
+
+**两个自己踩的坑**：
+1. **断言测的是行号不是正文**：`.code-line > [.line-number, span]` 的结构让 `innerText` 带上行号，
+   于是"正文逐字等于宿主 formatted"被判失败。改为只取内容 span 后再逐字比较。
+2. **探针 fixture 被编码坑掉**：BOM-less 的 UTF-8 `.ps1` 会被 PowerShell 5.1 按 ANSI 解码，
+   脚本里的 `"中文"` 在写文件之前就变成乱码，第一次探针造出的"中文键"其实是 3 个乱码字符
+   （行列也因此差 1）。改为在 PowerShell 之外准备 fixture 后，真机行列与 Core 单测逐值吻合
+   —— 这同时解释了 `tools/audit/*.ps1` 为什么必须纯 ASCII。

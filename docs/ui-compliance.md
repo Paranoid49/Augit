@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1006/1006（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1010/1010（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -578,11 +578,11 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | ---: | --- | --- | --- | --- |
 | 1 | §7.4 | 原文和格式化使用双段式切换，均只读 | 是 | 两段式控件与 `json-preview` 像素行 + 本轮断言（切换后正文来自真实 `data-json-source`，控件本身不产生可编辑区）；**"均只读"的显式断言仍缺**，但目前没有把该行降级为部分 —— 切换路径已覆盖 |
 | 2 | §7.4 | 双段式复用 Markdown 模式控件的尺寸、对齐和状态规则，图形按 PyCharm 图标逐项复原 | 部分 | 同上：**尺寸/对齐/图形复原没有断言** |
-| 3 | §7.4 | 格式化结果使用两空格缩进并保留属性顺序 | 是 | `§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序`（注入 `{"b":1,"a":{...}}`，断言格式化后 `\n  "b"` 两空格缩进且 `"b"` 在 `"a"` 之前） |
-| 4 | §7.4 | 格式错误时默认显示原文，并在顶部显示准确行列与错误文字；点击错误定位对应行 | 部分 | `json-preview` 场景含错误条（含"第 4 行，第 19 列"）；**"默认显示原文""点击定位"没有断言** |
-| 5 | §7.4 | 错误行列从 1 开始、列按 Unicode 标量计数、不显示字节偏移；错误条可 Tab 到达，Enter/Space 与单击同效；定位后焦点进正文 | 未覆盖 | 没有断言 |
-| 6 | §7.4 | 格式错误时保留"格式化"按钮位置并禁用；修复后恢复；错误条被外部修复隐藏时焦点回原文，其他焦点不变 | 部分 | `json-preview` 的实现里有 `disabled` 与标题原因；**禁用/恢复/焦点回退都没有断言** |
-| 7 | §7.4 | 切换格式化模式不写回文件，不显示保存按钮 | 未覆盖 | 没有断言 |
+| 3 | §7.4 | 格式化结果使用两空格缩进并保留属性顺序 | 是 | 格式化正文由宿主 `JsonDisplayFormatter`（Core 单测 `使用两空格并保持属性顺序`）产生，界面显示宿主的 `formatted` 字段；harness `§7.4 原文显示真实来源、格式化用宿主结果且两空格缩进保序、不写回文件` 用**压缩原文 + 宿主格式化正文**验证界面用的确实是宿主结果（而不是原样显示原文） |
+| 4 | §7.4 | 格式错误时默认显示原文，并在顶部显示准确行列与错误文字；点击错误定位对应行 | 是 | harness `§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列`（`json-invalid` + 模式回落 `source` + 正文为原文 + 错误条文字含宿主给出的"第 4 行…第 19 列"）与 `§7.4 点击错误条定位到宿主给出的出错行并把焦点交给正文` |
+| 5 | §7.4 | 错误行列从 1 开始、列按 Unicode 标量计数、不显示字节偏移；错误条可 Tab 到达，Enter/Space 与单击同效；定位后焦点进正文 | 是 | 行列口径由 Core 单测 `错误行列从一开始并按Unicode字符计列` 覆盖（含中文、代理对、CRLF 共 8 组数据）；错误条是原生 `<button>`（harness 断言 `tagName=BUTTON` 且 `tabIndex=0`），`§7.4 错误条 Enter 与单击同效` 覆盖 Enter 与焦点进正文。**Space 未单独断言**（原生 button 的默认动作，与 Enter 同路径） |
+| 6 | §7.4 | 格式错误时保留"格式化"按钮位置并禁用；修复后恢复；错误条被外部修复隐藏时焦点回原文，其他焦点不变 | 部分 | 已断言：同一工具栏内保留按钮位置、`disabled` 为真且有 `title` 说明（harness `§7.4 格式错误默认原文并禁用格式化…`）。**未断言**："外部修复后恢复可用"与"错误条被外部修复隐藏时焦点回原文、其他焦点不变" |
+| 7 | §7.4 | 切换格式化模式不写回文件，不显示保存按钮 | 是 | harness 在 JSON 文档内断言保存类按钮数为 0，且切换原文/格式化后 `live.document.text` 与切换前逐字相同 |
 | 8 | §7.4 | 查找基于当前可见文本；切换模式保留查找词与开关、立即更新结果数、从新文本起点继续；重复点当前模式不重置查找位置；同内容复用结果 | 部分 | `重复点击当前模式不重置查找位置` 有断言（查找块）；**"切换模式后结果数立即更新并从新起点继续"没有断言** |
 | 9 | §7.4 | JSON 同类型外部更新复用原文与格式化正文，保留模式/阅读位置/查找；变无效时显示最新原文并更新原因；仅焦点原在格式化正文时才转交 | 部分 | §6 外部更新族部分覆盖；**"变无效时转交原文的焦点规则"没有断言** |
 
@@ -990,6 +990,32 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     "加载超过 150ms 时在预览区顶部显示紧凑提示、原文或旧预览继续可见""失败提示给出原因并可重试"
     在真机上**不可达**：这两条只在视觉稿里以 `?markdown-state=loading/failure` 呈现。
     读取失败时走的是通用的"清空文档并记录原因"分支（§5.2 外部删除语义），没有预览侧的局部失败提示。
+
+12. **JSON 格式化与错误行列从未接到界面上（§7.4 第 3/4/5/6 条，已接线）** ——
+    `src/Augit.Core/Documents/JsonDisplayFormatter.cs` 一直在仓库里，但它**只有单元测试在调用**
+    （`grep -rn "JsonDisplayFormatter" --include=*.cs .` 的产出里除自身外只有 `tests/`）：
+    桥接层的 `document/read` 载荷没有任何 `formatted` / 错误行列字段，
+    `DocumentReadResult` 里也没有位置放它们。后果：真机上点"格式化"看到的其实是原文；
+    格式错误时没有错误条、没有禁用"格式化"、没有行列提示——规格 §7.4 的第 4/5/6 条在真机上不可达，
+    第 3 条只是"看起来对"（原文本来就带缩进时与格式化结果一致）。
+    接线：`ReadDocumentAsync` 对 `TextReady` + `Json` 调用 `JsonDisplayFormatter.Format`，
+    有效时下发 `formatted`，无效时下发 `jsonError: { line, column }`；
+    `toLiveDocument` 白名单里搬运这两个字段（不搬的话渲染层永远读到 `undefined`，同 `dataUrl` 的教训）；
+    `liveJsonDocument` 无效时加 `json-invalid`、把"格式化"按钮改为 `disabled` + `title`、
+    用宿主行列渲染错误条（原生 `<button>`，因此 Tab/Enter/Space 天然同效）。
+    **验证分工**：格式化算法与行列口径由 Core 单测（86 项，含中文/代理对/CRLF 共 8 组行列数据）覆盖；
+    界面显示与交互由 harness 对**桩载荷**断言；`document/read` 载荷本身**没有 Shell 级单测**
+    （该桥接方法从无单测，属已知空白，见 §3.1），因此本轮另做**真机端到端探针**
+    （`D:\tmp-augit-cap\json-format-probe.ps1`，启动真实外壳 + CDP 读真实 DOM），实测：
+    `valid.json`（压缩源 29 字符）在默认模式下渲染 **20 行**、含 `\n  "b": 1`、`b` 在 `a` 之前、
+    `data-json-formatted` 长 72 字符（证明正文来自宿主而不是原文）、"格式化"按钮可用；
+    `broken.json`（源含中文键，11 字符）落到 `json-invalid` + `source` 模式、正文为原文、
+    "格式化"被禁用，错误条文字为**第 2 行，第 8 列** —— 与 Core 单测
+    `[DataRow("{\n  \"中文\":}\n", 2L, 8L)]` 的期望**逐值一致**，即宿主 → 桥接 → 界面的整条链路口径相同。
+    探针自身踩的坑：BOM-less 的 UTF-8 `.ps1` 会被 PowerShell 5.1 按 ANSI 解码，
+    脚本里的非 ASCII 字面量（`"中文"`）在写文件前就已经变成乱码，
+    于是第一次探针造出的 fixture 并不是中文键；改为**在 PowerShell 之外**准备 fixture 后结果自洽
+    ——这也是 `tools/audit/*.ps1` 必须纯 ASCII 的原因。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

@@ -2790,44 +2790,140 @@ async function main() {
         && loadingState.centered === true && loadingState.sizeLabel === true);
     await imgLoading.page.close();
 
-    // ---- §7.4 三/双段式：切"原文"必须显示**真实来源**，不能是样例 ----
-    // 修复前实测：`bindJsonModes()` 恒用样例 source，真机点"原文"会把正文换成样例 JSON。
+    // ---- §7.4 JSON：真实来源、宿主格式化正文、格式错误的行列表与禁用态 ----
+    // 修复前实测两处：`bindJsonModes()` 恒用样例 source（点"原文"换成样例 JSON）；
+    // 且宿主侧的 `JsonDisplayFormatter` **只有单元测试在调用**，桥接层从不把结果发给界面，
+    // 于是真机上"格式化"看到的其实是原文、格式错误时没有错误条也没有禁用"格式化"。
     const jsonMode = await openScene('scene=main-project&theme=dark');
     await jsonMode.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    // 用例 1：原文是**压缩**的，格式化正文由宿主给出（两空格缩进、属性顺序保持）。
     const jsonState = await jsonMode.page.evaluate(async () => {
       const source = '{"b":1,"a":{"c":2,"d":[1,2]}}';
+      const formatted = '{\n  "b": 1,\n  "a": {\n    "c": 2,\n    "d": [\n      1,\n      2\n    ]\n  }\n}';
       window.__limitDocs = {
         'global.json': {
           path: 'global.json', name: 'global.json', fullPath: 'D:\\ws\\global.json', workspaceName: 'ws',
           status: 'TextReady', kind: 'Json', typeName: 'JSON', fileSize: source.length,
-          text: source, lineEndings: 'LF', encoding: 'UTF-8',
+          text: source, formatted, lineEndings: 'LF', encoding: 'UTF-8',
         },
       };
       await window.__augitOpenDocument('global.json');
       window.__augitRender();
       await new Promise((r) => setTimeout(r, 300));
-      const code = document.querySelector('.json-document .code-view');
-      const formatted = code ? code.innerText.replace(/\s+/g, '') : null;
-      const attr = code && code.dataset ? code.dataset.jsonSource : null;
-      document.querySelector('.json-document button[data-json-mode="source"]').click();
+      const view = document.querySelector('.json-document');
+      const code = view.querySelector('.code-view');
+      // 正文每行是 `.code-line > [.line-number, span]`，`innerText` 会把行号也带进来，
+      // 因此断言必须只取内容 span（否则"界面用的就是宿主 formatted"会被行号噪音判成失败）。
+      const renderedText = (element) => [...element.querySelectorAll('.code-line')].map((line) => {
+        const spans = line.querySelectorAll('span');
+        return spans.length > 1 ? spans[spans.length - 1].textContent : line.textContent;
+      }).join('\n');
+      const defaultText = renderedText(code);
+      const defaultMode = view.dataset.jsonMode;
+      const saveButtons = [...view.querySelectorAll('button')]
+        .filter((button) => /保存|写入|save/i.test(button.getAttribute('aria-label') || button.textContent || '')).length;
+      const textBefore = window.__augitLive.document.text;
+      view.querySelector('button[data-json-mode="source"]').click();
       await new Promise((r) => setTimeout(r, 200));
-      const afterSource = document.querySelector('.json-document .code-view').innerText.replace(/\s+/g, '');
-      document.querySelector('.json-document button[data-json-mode="formatted"]').click();
+      const afterSource = renderedText(view.querySelector('.code-view'));
+      view.querySelector('button[data-json-mode="formatted"]').click();
       await new Promise((r) => setTimeout(r, 200));
-      const afterFormatted = document.querySelector('.json-document .code-view').innerText;
+      const afterFormatted = renderedText(view.querySelector('.code-view'));
       return {
-        attr: attr,
-        formattedHasSample: formatted ? formatted.includes('"sdk"') : null,
-        sourceIsReal: afterSource.includes('"b"') && afterSource.includes('"a"') && !afterSource.includes('"sdk"'),
-        formattedTwoSpace: /\n  "b"/.test(afterFormatted) || /\n\s{2}"b"/.test(afterFormatted),
+        attrSource: code.dataset.jsonSource,
+        attrFormatted: code.dataset.jsonFormatted,
+        defaultMode,
+        // 默认必须是格式化模式，且默认正文来自宿主的 formatted（压缩原文里没有换行）。
+        defaultIsFormatted: /\n\s{2}"b"/.test(defaultText) && defaultText.split('\n').length >= 5,
+        // 逐字相等才是"用的就是宿主结果"；只比包含关系会被行号/空白掩盖。
+        formattedIsHostText: afterFormatted === formatted && code.dataset.jsonFormatted === formatted,
+        sourceIsMinified: afterSource === source,
+        renderedHasNoLineNumbers: !/\n\s*\d+\s*[{[]/.test(afterFormatted),
+        formattedTwoSpace: /\n  "b": 1/.test(afterFormatted),
         orderKept: afterFormatted.indexOf('"b"') < afterFormatted.indexOf('"a"'),
+        saveButtons,
+        sourceTextUnchanged: window.__augitLive.document.text === textBefore,
       };
     });
-    check('§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序: ' + JSON.stringify(jsonState),
-      typeof jsonState.attr === 'string' && jsonState.attr.includes('"b"')
-        && jsonState.formattedHasSample === false
-        && jsonState.sourceIsReal === true
-        && jsonState.formattedTwoSpace === true && jsonState.orderKept === true);
+    check('§7.4 原文显示真实来源、格式化用宿主结果且两空格缩进保序、不写回文件: ' + JSON.stringify(jsonState),
+      jsonState.attrSource === '{"b":1,"a":{"c":2,"d":[1,2]}}' && jsonState.attrFormatted.length > 0
+        && jsonState.defaultMode === 'formatted' && jsonState.defaultIsFormatted === true
+        && jsonState.formattedIsHostText === true
+        && jsonState.sourceIsMinified === true && jsonState.renderedHasNoLineNumbers === true
+        && jsonState.formattedTwoSpace === true && jsonState.orderKept === true
+        && jsonState.saveButtons === 0 && jsonState.sourceTextUnchanged === true);
+
+    // 用例 2：格式错误 → 默认原文、禁用"格式化"、顶部给出宿主算出的行列，
+    // 错误条可 Tab 到达（原生 button），点击/Enter 都定位到出错行并把焦点交给正文。
+    const jsonInvalid = await jsonMode.page.evaluate(async () => {
+      const source = '{\n  "sdk": {\n    "version": "10.0.201",\n    "rollForward":}\n}\n';
+      window.__limitDocs = {
+        'broken.json': {
+          path: 'broken.json', name: 'broken.json', fullPath: 'D:\\ws\\broken.json', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Json', typeName: 'JSON', fileSize: source.length,
+          text: source, jsonError: { line: 4, column: 19 }, lineEndings: 'LF', encoding: 'UTF-8',
+        },
+      };
+      await window.__augitOpenDocument('broken.json');
+      window.__augitRender();
+      await new Promise((r) => setTimeout(r, 300));
+      const view = document.querySelector('.json-document');
+      const code = view.querySelector('.code-view');
+      const error = view.querySelector('.json-error');
+      const formattedButton = view.querySelector('button[data-json-mode="formatted"]');
+      return {
+        invalidClass: view.classList.contains('json-invalid'),
+        mode: view.dataset.jsonMode,
+        showsSource: code.innerText.includes('"rollForward":') && code.innerText.split('\n').length >= 5,
+        errorTag: error ? error.tagName : null,
+        errorText: error ? error.textContent : null,
+        errorLine: error ? error.dataset.jsonErrorLine : null,
+        formattedDisabled: !!(formattedButton && formattedButton.disabled),
+        formattedTitle: formattedButton ? formattedButton.getAttribute('title') : null,
+        errorTabIndex: error ? error.tabIndex : null,
+      };
+    });
+    check('§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列: ' + JSON.stringify(jsonInvalid),
+      jsonInvalid.invalidClass === true && jsonInvalid.mode === 'source' && jsonInvalid.showsSource === true
+        && jsonInvalid.errorTag === 'BUTTON' && jsonInvalid.errorTabIndex === 0
+        && /第 4 行/.test(jsonInvalid.errorText || '') && /第 19 列/.test(jsonInvalid.errorText || '')
+        && jsonInvalid.errorLine === '4'
+        && jsonInvalid.formattedDisabled === true && !!jsonInvalid.formattedTitle);
+
+    // 点击错误条：出错行被标记、焦点进正文。
+    const jsonLocateClick = await jsonMode.page.evaluate(async () => {
+      document.querySelector('.json-document .json-error').click();
+      await new Promise((r) => setTimeout(r, 150));
+      const active = document.querySelector('.json-document .code-line.active');
+      const focused = document.activeElement;
+      return {
+        activeLine: active ? active.getAttribute('data-line') : null,
+        activeCount: document.querySelectorAll('.json-document .code-line.active').length,
+        focusClass: focused ? focused.className : null,
+        focusIsCode: !!(focused && focused.classList.contains('code-view')),
+      };
+    });
+    check('§7.4 点击错误条定位到宿主给出的出错行并把焦点交给正文: ' + JSON.stringify(jsonLocateClick),
+      jsonLocateClick.activeLine === '4' && jsonLocateClick.activeCount === 1 && jsonLocateClick.focusIsCode === true);
+
+    // Enter 与单击同效（原生 button 的默认动作），验证"可 Tab 到达 + Enter/Space 同效"。
+    await jsonMode.page.evaluate(() => {
+      document.querySelector('.json-document .code-line.active')?.classList.remove('active');
+      document.querySelector('.json-document .code-view').blur();
+      document.querySelector('.json-document .json-error').focus();
+    });
+    await jsonMode.page.keyboard.press('Enter');
+    const jsonLocateEnter = await jsonMode.page.evaluate(() => {
+      const active = document.querySelector('.json-document .code-line.active');
+      const focused = document.activeElement;
+      return {
+        activeLine: active ? active.getAttribute('data-line') : null,
+        focusIsCode: !!(focused && focused.classList.contains('code-view')),
+      };
+    });
+    check('§7.4 错误条 Enter 与单击同效: ' + JSON.stringify(jsonLocateEnter),
+      jsonLocateEnter.activeLine === '4' && jsonLocateEnter.focusIsCode === true);
+    check('§7.4 JSON 用例无脚本错误: ' + JSON.stringify(jsonMode.errors.slice(0, 2)), jsonMode.errors.length === 0);
     await jsonMode.page.close();
 
     // ---- §7.3 Markdown：受控链接、分隔条拖动、模式切换保留滚动（本轮补断言）----

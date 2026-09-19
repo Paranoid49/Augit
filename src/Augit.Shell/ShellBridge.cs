@@ -347,6 +347,30 @@ internal sealed class ShellBridge : IDisposable
             dataUrl = $"data:{ImageMime(result.Classification.Kind)};base64,{Convert.ToBase64String(bytes)}";
         }
 
+        // JSON 的"格式化"正文与错误行列（规格 §7.4）。
+        // `JsonDisplayFormatter` 此前**只有单元测试在调用**，桥接层从未把结果发给界面：
+        // 真机上点"格式化"看到的其实是原文，格式错误时也没有错误条、没有禁用"格式化"。
+        // 这里把它接上：格式有效给出重新序列化的正文（两空格缩进、保持属性顺序），
+        // 格式无效给出**从 1 开始的行号与按 Unicode 标量计的列号**。
+        string? formatted = null;
+        long? jsonErrorLine = null;
+        long? jsonErrorColumn = null;
+        if (result.Status == DocumentReadStatus.TextReady
+            && result.Classification.Kind == DocumentKind.Json
+            && result.Text is { } jsonText)
+        {
+            JsonDisplayResult display = JsonDisplayFormatter.Format(jsonText);
+            if (display.IsValid)
+            {
+                formatted = display.DisplayText;
+            }
+            else
+            {
+                jsonErrorLine = display.ErrorLine;
+                jsonErrorColumn = display.ErrorColumn;
+            }
+        }
+
         return new
         {
             path = relative,
@@ -368,6 +392,10 @@ internal sealed class ShellBridge : IDisposable
                 ? DescribeLineEndings(result.LineEndings)
                 : null,
             dataUrl,
+            formatted,
+            jsonError = jsonErrorLine is { } errorLine
+                ? (object?)new { line = errorLine, column = jsonErrorColumn }
+                : null,
         };
     }
 

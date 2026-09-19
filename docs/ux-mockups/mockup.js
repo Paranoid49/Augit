@@ -1297,7 +1297,7 @@ function jsonView() {
   if (liveDocument()) return liveJsonDocument();
   const state = new URLSearchParams(window.location.search).get("json-state") || "formatted";
   const invalid = state === "invalid";
-  return `<div class="document-view json-document ${invalid ? "json-invalid" : ""}" data-json-mode="${invalid || state === "source" ? "source" : "formatted"}"><div class="document-toolbar"><span class="document-path">Augit › global.json　只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted" ${invalid ? 'disabled title="JSON 格式错误，请查看原文中的错误位置"' : ""}>${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${invalid ? '<button class="json-error" aria-label="定位 JSON 错误">JSON 格式错误：第 4 行，第 19 列。 点击定位。</button>' : ""}<div class="code-view" tabindex="0" aria-label="JSON 只读正文"></div></div>`;
+  return `<div class="document-view json-document ${invalid ? "json-invalid" : ""}" data-json-mode="${invalid || state === "source" ? "source" : "formatted"}"><div class="document-toolbar"><span class="document-path">Augit › global.json　只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted" ${invalid ? 'disabled title="JSON 格式错误，请查看原文中的错误位置"' : ""}>${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${invalid ? '<button class="json-error" data-json-error-line="4" aria-label="定位 JSON 错误">JSON 格式错误：第 4 行，第 19 列。 点击定位。</button>' : ""}<div class="code-view" tabindex="0" aria-label="JSON 只读正文"></div></div>`;
 }
 
 function bindJsonModes() {
@@ -1310,6 +1310,13 @@ function bindJsonModes() {
   const codeView = view.querySelector(".code-view");
   const liveSource = codeView && codeView.dataset ? codeView.dataset.jsonSource : null;
   const source = typeof liveSource === "string" && liveSource.length > 0 ? liveSource : sampleSource;
+  // 宿主给出的"格式化后正文"（规格 §7.4）：实时文档直接用它，视觉稿页面没有该属性时
+  // 才用 JSON.stringify 重新序列化样例。两条路径都必须两空格缩进并保持属性顺序。
+  const liveFormatted = codeView && codeView.dataset ? codeView.dataset.jsonFormatted : null;
+  const formattedSource = typeof liveFormatted === "string" && liveFormatted.length > 0 ? liveFormatted : null;
+  // 出错行来自渲染时写入的 `data-json-error-line`（宿主按 Unicode 标量计列的行号）；
+  // 视觉稿样例没有该属性，退回样例里固定的第 4 行。
+  const errorLine = Number(codeView && codeView.dataset ? codeView.dataset.jsonErrorLine : NaN) || 4;
   const invalidSource = view.classList.contains("json-invalid") ? source : sampleInvalidSource;
   const code = view.querySelector(".code-view");
   const positions = new Map();
@@ -1324,7 +1331,7 @@ function bindJsonModes() {
       button.setAttribute("aria-pressed", String(active));
     });
     const text = view.classList.contains("json-invalid") ? invalidSource
-      : mode === "source" ? source : JSON.stringify(JSON.parse(source), null, 2);
+      : mode === "source" ? source : formattedSource != null ? formattedSource : JSON.stringify(JSON.parse(source), null, 2);
     code.innerHTML = text.split("\n").map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line)}</span></div>`).join("");
     measureCodeViews();
     const [left, top] = positions.get(mode) || [0, 0];
@@ -1333,9 +1340,11 @@ function bindJsonModes() {
   };
   view.querySelectorAll("button[data-json-mode]").forEach(button => button.addEventListener("click", () => update(button.dataset.jsonMode)));
   view.querySelector(".json-error")?.addEventListener("click", () => {
-    const row = code.querySelector('[data-line="4"]');
+    const row = code.querySelector(`[data-line="${errorLine}"]`) || code.querySelector(".code-line");
+    if (!row) return;
     row.classList.add("active");
     row.scrollIntoView({ block: "nearest" });
+    // 定位后焦点进正文（规格 §7.4）；错误条是原生 button，因此 Enter/Space 与单击同效。
     code.focus({ preventScroll: true });
   });
   update(view.dataset.jsonMode);
@@ -2576,8 +2585,19 @@ function liveMarkdownDocument(mode) {
 
 function liveJsonDocument() {
   const document_ = liveDocument();
-  const formatted = document_.formatted || document_.text || "";
-  return `<div class="document-view json-document" data-json-mode="formatted"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted">${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div><div class="code-view" tabindex="0" aria-label="JSON 只读正文" data-json-source="${escapeHtml(document_.text || "")}">${liveLineViews(formatted)}</div></div>`;
+  // 格式错误（规格 §7.4）：默认显示原文、禁用"格式化"按钮、顶部给出准确行列与错误文字，
+  // 错误条的点击/Enter/Space 都定位到出错行并把焦点交给正文。
+  const error = document_.jsonError || null;
+  const invalid = !!error;
+  const formatted = invalid ? (document_.text || "") : (document_.formatted || document_.text || "");
+  const mode = invalid ? "source" : "formatted";
+  const errorBar = invalid
+    ? `<button class="json-error" data-json-error-line="${escapeHtml(String(error.line))}" aria-label="定位 JSON 错误">JSON 格式错误：第 ${escapeHtml(String(error.line))} 行，第 ${escapeHtml(String(error.column))} 列。 点击定位。</button>`
+    : "";
+  const formattedButton = invalid
+    ? `<button class="segment" aria-label="格式化" data-json-mode="formatted" disabled title="JSON 格式错误，请查看原文中的错误位置">${icon("document-formatted")}</button>`
+    : `<button class="segment" aria-label="格式化" data-json-mode="formatted">${icon("document-formatted")}</button>`;
+  return `<div class="document-view json-document${invalid ? " json-invalid" : ""}" data-json-mode="${mode}"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button>${formattedButton}</div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${errorBar}<div class="code-view" tabindex="0" aria-label="JSON 只读正文" data-json-source="${escapeHtml(document_.text || "")}" data-json-formatted="${escapeHtml(invalid ? "" : (document_.formatted || ""))}" data-json-error-line="${invalid ? escapeHtml(String(error.line)) : ""}">${liveLineViews(formatted)}</div></div>`;
 }
 
 /** 文件大小标签：与视觉稿一致（`52.5 KB` / `4.8 MB`）。 */
