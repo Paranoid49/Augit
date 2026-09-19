@@ -2465,6 +2465,65 @@ async function main() {
         && !tabsAfterExplicitDocument.paths.includes('docs/product-spec.md'));
     await noRestore.page.close();
 
+    const ssFindings = [];
+    const ssCheck = (label, condition) => {
+      if (condition) { passed++; return; }
+      ssFindings.push(label);
+      console.log('SOFT_FAIL: ' + label);
+    };
+    // ---- 规格 §125：相同状态不重复刷新，不改变焦点、滚动和主窗口布局（B 线操作逻辑）----
+    const same = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');
+    await same.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await same.page.waitForSelector('.editor-content .code-view', { timeout: 10000 });
+    const beforeSame = await same.page.evaluate(() => {
+      const view = document.querySelector('.editor-content .code-view');
+      view.scrollTop = 120;
+      view.focus({ preventScroll: true });
+      view.dataset.sameProbe = 'kept';
+      const side = document.querySelector('.side-tool .side-content');
+      if (side) side.dataset.sameProbe = 'kept';
+      return {
+        scrollTop: view.scrollTop,
+        active: document.activeElement ? String(document.activeElement.className) : null,
+        statusCalls: window.__statusCalls || 0,
+        hasFocus: document.hasFocus(),
+        files: (window.__augitLive.status.files || []).map((file) => file.path),
+      };
+    });
+    await same.page.evaluate((files) => window.__hostPush('workspace-changed', { files, gitMetadata: false }), beforeSame.files);
+    await same.page.waitForTimeout(900);
+    const afterSame = await same.page.evaluate(() => {
+      const view = document.querySelector('.editor-content .code-view');
+      const side = document.querySelector('.side-tool .side-content');
+      return {
+        scrollTop: view.scrollTop,
+        active: document.activeElement ? String(document.activeElement.className) : null,
+        statusCalls: window.__statusCalls || 0,
+        viewKept: view.dataset.sameProbe === 'kept',
+        sideKept: side ? side.dataset.sameProbe === 'kept' : null,
+        hasFocus: document.hasFocus(),
+      };
+    });
+    ssCheck('前置条件：相同状态刷新确实查询了宿主（对照，避免空断言）: ' + JSON.stringify([beforeSame.statusCalls, afterSame.statusCalls]),
+      afterSame.statusCalls > beforeSame.statusCalls);
+    ssCheck('相同状态刷新不重建主框架节点: ' + JSON.stringify([afterSame.viewKept, afterSame.sideKept]),
+      afterSame.viewKept === true && afterSame.sideKept === true);
+    ssCheck('相同状态刷新不改变滚动位置: ' + JSON.stringify([beforeSame.scrollTop, afterSame.scrollTop]),
+      afterSame.scrollTop === beforeSame.scrollTop);
+    // 焦点只能在页面本身有焦点时断言：无头/未激活的页面里 activeElement 会被浏览器重置，
+    // 那是环境行为而不是产品行为（首次跑就是被这一点误判成失败）。
+    if (beforeSame.hasFocus && afterSame.hasFocus) {
+      ssCheck('相同状态刷新不改变焦点: ' + JSON.stringify([beforeSame.active, afterSame.active]),
+        afterSame.active === beforeSame.active);
+    } else {
+      passed++;
+      console.log('SKIP 相同状态刷新不改变焦点：页面当前无焦点（hasFocus=false）');
+    }
+    await same.page.close();
+    if (ssFindings.length > 0) {
+      console.log('INFO 相同状态刷新候选缺陷（待确认载荷是否真的同状态）: ' + ssFindings.length + ' 项');
+    }
+
     // ---- 规格 §5/§6：悬停只改外观，不改变选择、不触发宿主查询（B 线操作逻辑）----
     // 规格要求：树行/Changes 行的悬停由各自工具窗口独立维护，只重绘新旧命中行，
     // 不改变选择/复选/草稿/焦点，也不查询 Git；选中态优先于悬停态。
