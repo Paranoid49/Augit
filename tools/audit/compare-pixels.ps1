@@ -87,20 +87,34 @@ foreach ($band in $bandList) {
   $name = $parts[0]
   $y0 = if ($parts[1] -eq 'H') { $mock.Height } elseif ($parts[1].StartsWith('H-')) { $mock.Height - [int]$parts[1].Substring(2) } else { [int]$parts[1] }
   $y1 = if ($parts[2] -eq 'H') { $mock.Height } elseif ($parts[2].StartsWith('H-')) { $mock.Height - [int]$parts[2].Substring(2) } else { [int]$parts[2] }
+  # Two metrics: per-pixel "visible" differences (dominated by TEXT, because the live shell
+  # shows real data while the mockup shows sample data) and per-BLOCK mean differences, which
+  # average text away and therefore expose LAYOUT/background/border differences.
   $diff = 0; $visible = 0; $max = 0; $total = 0
-  for ($y = $y0; $y -lt $y1; $y++) {
-    for ($x = 0; $x -lt $mock.Width; $x++) {
-      $a = $mock.GetPixel($x, $y); $b = $live.GetPixel($x, $y); $total++
-      $d = [Math]::Max([Math]::Abs($a.R - $b.R), [Math]::Max([Math]::Abs($a.G - $b.G), [Math]::Abs($a.B - $b.B)))
-      if ($d -gt 0) { $diff++ }
-      if ($d -gt 8) { $visible++ }
-      if ($d -gt $max) { $max = $d }
+  $blockTotal = 0; $blockDiff = 0
+  $blockSize = 8
+  $blockThreshold = 6.0
+  for ($by = $y0; $by -lt $y1; $by += $blockSize) {
+    for ($bx = 0; $bx -lt $mock.Width; $bx += $blockSize) {
+      $sum = 0.0; $count = 0
+      for ($y = $by; $y -lt [Math]::Min($by + $blockSize, $y1); $y++) {
+        for ($x = $bx; $x -lt [Math]::Min($bx + $blockSize, $mock.Width); $x++) {
+          $a = $mock.GetPixel($x, $y); $b = $live.GetPixel($x, $y); $total++; $count++
+          $d = [Math]::Max([Math]::Abs($a.R - $b.R), [Math]::Max([Math]::Abs($a.G - $b.G), [Math]::Abs($a.B - $b.B)))
+          if ($d -gt 0) { $diff++ }
+          if ($d -gt 8) { $visible++ }
+          if ($d -gt $max) { $max = $d }
+          $sum += $d
+        }
+      }
+      if ($count -gt 0) { $blockTotal++; if (($sum / $count) -gt $blockThreshold) { $blockDiff++ } }
     }
   }
+  $blockPercent = if ($blockTotal -gt 0) { [Math]::Round(100.0 * $blockDiff / $blockTotal, 2) } else { 100 }
   $percent = if ($total -gt 0) { [Math]::Round(100.0 * $visible / $total, 2) } else { 100 }
   $verdict = if ($percent -le $MaxVisiblePercent) { 'PASS' } else { 'FAIL'; }
   if ($percent -gt $MaxVisiblePercent) { $failures++ }
-  Write-Output ("BAND $name y=$y0..$y1 total=$total diff=$diff visible=$visible visiblePercent=$percent max=$max $verdict")
+  Write-Output ("BAND $name y=$y0..$y1 total=$total diff=$diff visible=$visible visiblePercent=$percent max=$max blockDiffPercent=$blockPercent $verdict")
 }
 $mock.Dispose(); $live.Dispose()
 Write-Output ("SUMMARY failures=" + $failures)
