@@ -8,7 +8,8 @@
   配置目录 `%APPDATA%\JetBrains\PyCharm2026.2`，主题 **Islands Light**，
   UI 字体覆盖 **Microsoft YaHei UI / 12.0**（`options/other.xml`），
   编辑器·控制台·终端字体**均未自定义**（三个 font xml 只有 `VERSION=1`），
-  屏幕 **1646×1029 物理 @ DPI 168（175%）= 逻辑 941×588**，项目即本仓库。
+  屏幕 **2880×1800 物理 @ DPI 168（175%）= 逻辑 1646×1029**（工作区 2880×1676 物理），项目即本仓库。
+  > 2026-09-19 复核修正：此前写的"1646×1029 物理 = 941×588 逻辑"是**重复缩放**的错值，已被 PyCharm 最大化窗口 2904 物理宽证伪；实测见 `pycharm-interactions.json` 的 `source.screen.correction`。
 - 证据图：`artifacts/pycharm-baseline-20260919/`（主窗口 + Settings 对话框）。
 
 ## 1. 设置窗口（规格 §7.17）

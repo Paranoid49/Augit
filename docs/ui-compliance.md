@@ -159,35 +159,44 @@
 | §4.5 | 自绘图标几何/线宽/状态；纯图标按钮必须有可访问名称与悬停说明 | 是 | 「规格 §12.3 / §12.4：所有图标入口都有可访问名称与悬停说明」块 | 与参考图标逐项几何一致性见 `docs/visual-refinement-status.md`（历史记录） |
 | §4.5 | 禁止 Emoji 代替正式图标 | 是 | 图标形状集中在 `mockup.js` 的 `icon()` 表（自绘 SVG path），无 Emoji 字符 | — |
 
-### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径；配方的环境值已实测校正）
+### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径）
 
-**环境实测（本轮复核，DPI-aware）**：显示器 `\\.\DISPLAY1` **2880×1800 物理 @ DPI 168（175%）
+**环境实测（2026-09-19 复核，DPI-aware）**：显示器 `\\.\DISPLAY1` **2880×1800 物理 @ DPI 168（175%）
 = 1646×1029 逻辑**，工作区 2880×1676 物理。此前记录的"1646×1029 物理 = 941×588 逻辑"是**重复缩放**的错值
-（被 PyCharm 最大化窗口 2904 物理宽证伪：它比 1646 宽）；已在 `pycharm-interactions.json` 的
-`source.screen.correction` 与 `compareRecipe` 里改正。
+（被 PyCharm 最大化窗口 2904 物理宽证伪）；已在 `pycharm-interactions.json` 的 `source.screen.correction`
+与 `compareRecipe`、`mockup-gap-inventory.md` 三处改正。
 
 **可执行配方**：PyCharm 最大化（窗口矩形 2904×1740 物理，含最大化时超出屏幕的不可见 resize 边框）
 ↔ Augit `--width 1659 --height 994`（CSS px，客户端实测 1646×981）且**不加 `--pixel-exact`**：
-实测 `devicePixelRatio = 1.75`，CDP 截图落到 **2881×1717 物理**，与 PyCharm 截图**同一物理尺度**，
-可以 1:1 叠加比几何。判据是「声明容差内地标等价」，**不做逐像素相等**（PyCharm 是 Swing）。
+实测 `devicePixelRatio = 1.75`，CDP 截图落到 **2881×1717 物理**，与 PyCharm 截图**同一物理尺度**。
 
-**第一张对照表（同一物理尺度下按行/列均值分带；边界检测是粗探，标题栏内部的文字与控件会把均值切成子带）**：
+**两侧的量法必须写明，否则数字不可比**：
+- **PyCharm 侧 = 图像色带检测**（`PrintWindow` 截图逐行/逐列均值找边界）。它有个硬限制：
+  **同色的相邻区域无法分开** —— 首版就把"6px 窗口留白 + 42px 轨道 + 树面板左内边距"读成了一个 53 逻辑 px 的轨道，
+  据此写出"Augit 轨道比 PyCharm 宽 12px"的**错结论**（下一轮自查发现并改正）。
+- **Augit 侧 = DOM 精确矩形**（CDP 读 `getBoundingClientRect()` 与计算样式），不受颜色重合影响。
+  实测：`titlebar h=44`、`rail w=42`（grid `42px 360px …`，面板 x=52 → 窗口左留白 6px）、
+  `editorTabs h=42`、`statusbar h=22 y=959.14`、`sideTool w=360`，`dpr=1.75`。
+  证据：`artifacts/pycharm-compare-20260919/augit-geometry.json`。
 
-| 地标 | PyCharm（物理 px / rgb） | Augit（物理 px / rgb） | 判读 |
-| --- | --- | --- | --- |
-| 窗口外框 | 顶部 0..12 = `240,244,242` | 无（无边框自绘） | 结构性差异（原生边框 vs 自绘），不是缺陷 |
-| 标题栏底色 | `233,234,238` | `233,234,238` | **逐值相同** |
-| 标题栏带高 | 12..35（其上是系统边框；下面还有工具栏行） | 0..78 ≈ 44 逻辑 px（设计令牌 `--augit-titlebar-height`） | PyCharm 用「细标题栏 + 独立工具栏行」两段，Augit 用一段 44px |
-| 左侧工具条底色 | `233,234,238`（12..84） | `233,234,238`（0..93） | **逐值相同** |
-| 左侧工具条宽 | 72 物理 ≈ 41 逻辑 | 93 物理 ≈ 53 逻辑 | **真实几何差异**（Augit 轨道宽 12 逻辑 px），登记待裁决/说明 |
-| 正文底色 | `255,255,255` | `255,255,255` | 一致 |
-| 选中行底色 | `208,223,254`（早前实测 `#d0dffe`） | `--augit-blue-soft` = `#d0dffe` | **逐值相同** |
-| 主按钮底色 | `#3871e1` | `--augit-blue` = `#3871e1` | **逐值相同** |
+| 地标 | PyCharm（换算到逻辑 px / rgb） | Augit（逻辑 px / rgb） | 差值 | 判读 |
+| --- | --- | --- | ---: | --- |
+| 标题栏 + 工具栏带高 | 12..88 物理 = **43.4** | **44**（`window-title-height`） | 0.6 | 结构不同（PyCharm 细标题栏 + 独立工具栏行），总高几乎相同 |
+| 左侧全局工具栏宽 | 12..84 物理 = **41.1** | **42**（`global-rail-width`，实测 grid 42px） | 0.9 | 等价 |
+| 状态栏高 | 33 物理 = **18.9** | **22**（`status-height: 22–23`） | 3.1 | Augit 按自己的令牌；PyCharm 更薄，登记为参考差异 |
+| 标题栏 / 全局工具栏底色 | `233,234,238` | `233,234,238`（`chrome` = `#E9EAEE`） | 0 | **逐值相同** |
+| 状态栏底色 | `226,227,232` | `233,234,238`（同一 `chrome` 令牌，规格明写"状态栏基础背景"） | ≈7 | 规格已定义 Augit 取值 → **规格内的差异**，非缺陷 |
+| 工具窗口 / 编辑区底色 | `255,255,255` | `255,255,255`（`panel` = `#FFFFFF`） | 0 | 逐值相同 |
+| 选中行底色 | `#d0dffe` | `--augit-blue-soft` = `#d0dffe` | 0 | 逐值相同 |
+| 主按钮底色 | `#3871e1` | `--augit-blue` = `#3871e1` | 0 | 逐值相同 |
+| 原生窗口外框 | 顶部 12 物理 `240,244,242` + 底部 12 物理黑 | 无（无边框自绘） | — | 结构性差异，不是缺陷 |
+| 编辑器标签栏高 | 未单独测（与工具栏同带） | **42**（设计"标签栏高度 42px"） | — | 待 PyCharm 前台时补测 |
 
-证据：`artifacts/pycharm-interactions-16/p16-main-idle.png`（2904×1740）、
-`artifacts/pycharm-compare-20260919/augit-light-1659x994.png`（2881×1717）、
-`artifacts/pycharm-compare-20260919/augit-capture-state.json`（`dpr=1.75`、`innerWidth/Height`）。
-**未覆盖**：逐页逐状态的完整对照、PyCharm dark 口径、Swing 与 Chromium 的字形/行高差。
+**口径**：判据是"声明容差内地标等价"，**不做逐像素相等**（PyCharm 是 Swing、Augit 是 Chromium；
+字形与行高来自不同排版引擎）。证据：`artifacts/pycharm-interactions-16/p16-main-idle.png`（2904×1740）、
+`artifacts/pycharm-compare-20260919/augit-light-1659x994.png`（2881×1717）。
+**未覆盖**：逐页逐状态全量对照（当前只覆盖主窗口 chrome 与设置对话框的配色/几何量级）、PyCharm dark 口径、
+编辑器标签栏与底部工具窗口的 PyCharm 实测（需要前台）。
 
 ## 2. B 线：操作逻辑复原（操作 → 状态转换）
 
