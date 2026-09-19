@@ -12110,3 +12110,26 @@ seen         = [隐藏终端, 关闭终端, Terminal input]     // 但 Tab 之�
 **方法教训（第 341→343 轮共同的）**：在一个"已有全局键盘机制"的界面里加局部键盘行为前，
 **先确认谁在处理这个按键**（这里只需读一次 `bindRegionTabOrder` 就能省下两轮尝试）；
 "我加一个处理器应该就能改行为"是这次两次失败的共同根因。
+
+#### 第 344 轮（⑫ 交付项）：真机巡检复跑 49/49 + 打包实测通过（含包内容抽查）
+
+**为什么复跑巡检**：第 12 轮那次 49/49 之后，有**两次提交改动了随包发布的界面资源**
+（`27330f2` 未保存标记、`ac3c94d` 危险确认页），旧证据对新构建不再成立。复跑结果：
+`SUMMARY total=49 passed=49 failed=0`、`ACCEPTANCE_OK`，截图 `artifacts/acceptance-20260920/`。
+
+**打包（`tools/release.ps1`，本轮实测）**：
+- `Augit-0.1.0-win-x64-portable.zip` **2,789,584 B**、`Augit-0.1.0-win-x64-setup.exe` **4,382,814 B**、
+  `SHA256SUMS.txt` 195 B；**两项 `sha256sum -c` 均 OK**；
+- 包内 **32 个条目**；抽查含 `Augit\web\index.html`、`web\src\{live-data,mockup,current-find,image-preview}.js`、
+  `web\src\mockup.css`、`web\vendor\xterm\xterm.js`，以及 **5 个第三方许可证文件**
+  （WebView2 LICENSE/NOTICE、ripgrep MIT/UNLICENSE、xterm 与 xterm-addon-fit）—— 与"新增依赖必须标注许可证"的约定一致；
+- 包内 `live-data.js` 含 `__augitResetRequest`、`write/cancel`、`terminal/status`；
+  `Augit.dll` 含 `git/reset`、`git/detect`、`terminal/status`、`git/operation`、`git/worktree-removal`。
+
+**一个会让检查假阴性的坑（记下来）**：我第一次在 zip 里按 ASCII 搜 `git/reset` 得到 **False**，
+差点写成"包里没有 Reset 桥接"。实际原因是 **.NET 的字符串字面量以 UTF-16LE 存进程序集**，
+按 UTF-8/ASCII 字节搜必然搜不到；改按 `utf-16-le` 编码匹配后全部命中。
+文档里那条结论现在明确标注了匹配方式，避免后来者重复踩。
+
+**⑫ 剩余**：`verify-acceptance.ps1` 与 `release.ps1` 都已实测通过；交付清单里还剩
+⑪ 的"逐页覆盖表（页面 × 检查层级 × 判读）"合并与 ⑨ 的条文穷举收尾（§7 余 110 条、§5/§6/§9 待补行）。
