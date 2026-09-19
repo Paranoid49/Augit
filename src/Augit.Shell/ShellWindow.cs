@@ -91,7 +91,7 @@ internal sealed class ShellWindow : IDisposable
         _savedPlacement = savedPlacement ?? new();
         // 审计与视觉对照会显式指定场景、DPI 或尺寸；这些运行不得把审计窗口写进用户设置。
         _persistPlacement = options is
-        { Width: null, Height: null, Dpi: null, PixelExact: false, Scene: null or "" };
+        { Width: null, Height: null, Dpi: null, PixelExact: false, NoSessionRestore: false, Scene: null or "" };
         _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
         // 窗口命令（自绘窗口按钮、标题栏拖动）只有窗口能做：桥接层不认识 HWND。
         _bridge.WindowCommandHandler = HandleWindowCommand;
@@ -735,6 +735,11 @@ internal sealed class ShellWindow : IDisposable
         if (_options.DiffDocument is { Length: > 0 } diff)
         {
             parts.Add($"diff={Uri.EscapeDataString(diff)}");
+        }
+
+        if (_options.NoSessionRestore)
+        {
+            parts.Add("no-session-restore=1");
         }
 
         return parts.Count == 0 ? string.Empty : "?" + string.Join('&', parts);

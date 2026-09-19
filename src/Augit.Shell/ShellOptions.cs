@@ -6,7 +6,7 @@ namespace Augit.Shell;
 /// 外壳启动参数。默认加载可执行文件旁的 <c>web</c> 目录（开发布局下回退到仓库内的同名目录）；
 /// <c>--mockups</c> 改为加载 HTML 视觉稿，使视觉稿可以在原生窗口内直接被渲染，用于逐场景像素对照。
 /// </summary>
-internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi, string? BrowserArguments)
+internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string? Scene, string? Theme, int? Width, int? Height, bool ShowFrame, bool PixelExact, bool NoSessionRestore, string? OpenDocument, string? BlameDocument, string? FileHistoryDocument, string? ConflictDocument, string? DiffDocument, int? Dpi, string? BrowserArguments)
 {
     /// <summary>
     /// 是否在命令行显式给出了 <c>--workspace</c>。
@@ -27,6 +27,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         bool mockups = false;
         bool showFrame = true;
         bool pixelExact = false;
+        bool noSessionRestore = false;
         string? openDocument = null;
         string? blameDocument = null;
         string? fileHistoryDocument = null;
@@ -67,6 +68,11 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                     break;
                 case "--pixel-exact":
                     pixelExact = true;
+                    break;
+                // 审计用：跳过"恢复上次打开的标签"。逐场景截图必须与启动参数完全对应，
+                // 否则上一次运行留下的活动文件会把场景渲染成另一个页面（实测踩过）。
+                case "--no-session-restore":
+                    noSessionRestore = true;
                     break;
                 case "--open":
                     openDocument = Next(arguments, ref index, argument);
@@ -114,6 +120,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             ParseSize(height, "--height"),
             showFrame,
             pixelExact,
+            noSessionRestore,
             openDocument,
             blameDocument,
             fileHistoryDocument,

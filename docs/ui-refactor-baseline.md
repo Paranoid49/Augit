@@ -11021,3 +11021,33 @@ PyCharm 的分组折叠箭头未做（我们是不分组表头），已记入三
 
 **新增缺口（已登记）**：Augit 设置页**没有"哪个分类有未保存修改"的指示**（PyCharm 用实心圆点标记）；
 终端的字体归属属既定差异；分组折叠未做。
+
+#### 第 308 轮（④ 起步 / ⑭）：新增审计开关 `--no-session-restore`；产出状态覆盖矩阵
+
+**为什么要加这个开关**：`verify-acceptance.ps1`/`compare-pixels.ps1` 都是"按启动参数渲染某个场景"，
+但实时外壳会**恢复上次打开的标签**，于是上一次运行留下的活动文件会把场景渲染成另一个页面
+（第 300 轮 `repository-search` 的 36.51% 就是这么来的，当时只能靠传 `--open/--diff` 绕过，
+而对比较类场景（`history-diff-*`、`diff-loading`）没有合适的文档参数可传）。
+
+**实现**（与既有审计参数 `--scene/--pixel-exact/--web-root` 同类）：
+`ShellOptions` 新增 `--no-session-restore` → `ShellWindow.BuildQuery()` 追加 `no-session-restore=1`
+→ `live-data.js` 的启动守卫改为
+`if (!explicitDocument && !noSessionRestore) void restoreSession();`。
+
+**断言（942 → 944）**：
+1. `§6.7 审计开关 no-session-restore 跳过会话恢复`：带 `restore=1&no-session-restore=1` 启动，
+   标签集合为空、无当前文档；
+2. **负向对照**：同样 `restore=1` 但不带开关时，恢复**确实发生**（否则第 1 条可能是"桩没给数据"）。
+`live-shell` **944/944** 全绿。
+
+**⑭ 状态覆盖矩阵**：新增 `docs/baselines/state-coverage-matrix.md`。口径先定死：
+**专用场景页**（`scenePages` + HTML）／**页面内状态**（实测 `find-state`、`search-state`、`json-state`、
+`commit-state`、`clone-result`、`stash-result`、`terminal-state`、`history-state` 等 URL 参数）／
+**缺**／**待人工确认**（实现里有但我还没逐一截图核对的，不写成"已有"）。
+按 `ux-spec` §6.5/§9/§10.1–§10.4 的六个状态族逐页填表后，得到 7 项补图清单，优先级前三：
+① **Git 历史空态**（仓库无提交；harness 实测会出现 `rows:0`）；② **工作区 Diff 的"无差异/失败/二进制"最终说明**
+（§6.5 要求最终说明持续可见，实现有 4 种 `diff.status`，视觉稿只有加载与边界两种）；③ **设置保存失败/只读失败**。
+
+**④ 进行中**：剩余 **31 个场景**的同引擎像素对照已在后台启动（统一带 `--no-session-restore`，
+`file-limit` 用 `--open <工作区内 .dll>` 造出同类"不可预览"内容，`diff-boundary` 用 `--diff src/App.cs`），
+结果表在下一轮汇总。

@@ -7317,7 +7317,10 @@ async function boot() {
   // blame 标签已排在首位却不是活动标签，编辑器显示的是恢复出来的二进制文档。
   const explicitDocument = Boolean(
     requestedDocument || requestedBlame || requestedFileHistory || requestedDiff || requestedConflict);
-  if (!explicitDocument) void restoreSession();
+  // 审计用（`--no-session-restore`）：逐场景截图必须只取决于启动参数；
+  // 会话恢复会把上一次运行的活动文件带进来，把场景渲染成另一个页面（实测踩过）。
+  const noSessionRestore = query.get("no-session-restore") === "1";
+  if (!explicitDocument && !noSessionRestore) void restoreSession();
   if (wantsSettings) {
     window.__augitRender();
     bindSettingsSave();

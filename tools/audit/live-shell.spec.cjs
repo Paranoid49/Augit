@@ -2588,6 +2588,28 @@ async function main() {
         && !tabsAfterExplicitDocument.paths.includes('docs/product-spec.md'));
     await noRestore.page.close();
 
+    // 审计开关 `--no-session-restore`（场景取图必须只取决于启动参数）：
+    // 不带它时恢复会话会把上一次运行的文件带进来，逐场景截图因此会被污染（实测踩过）。
+    const flagRestore = await openScene('scene=main-project&theme=dark&restore=1&no-session-restore=1');
+    await flagRestore.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await flagRestore.page.waitForTimeout(700);
+    const tabsAfterFlag = await flagRestore.page.evaluate(() => ({
+      paths: (window.__augitLive.tabs || []).map((tab) => tab.path),
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    check('§6.7 审计开关 no-session-restore 跳过会话恢复: ' + JSON.stringify(tabsAfterFlag),
+      tabsAfterFlag.paths.length === 0 && tabsAfterFlag.doc === null);
+    // 负向对照：同样 restore=1 但不带开关时必须发生恢复（证明上一条不是"桩没给数据"）。
+    const flagControl = await openScene('scene=main-project&theme=dark&restore=1');
+    await flagControl.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await flagControl.page.waitForTimeout(1400);
+    const tabsAfterControl = await flagControl.page.evaluate(() =>
+      (window.__augitLive.tabs || []).map((tab) => tab.path));
+    check('§6.7 对照：不带开关时恢复确实发生: ' + JSON.stringify(tabsAfterControl),
+      tabsAfterControl.includes('docs/product-spec.md') || tabsAfterControl.includes('docs/notes.txt'));
+    await flagRestore.page.close();
+    await flagControl.page.close();
+
     const ssFindings = [];
     const ssCheck = (label, condition) => {
       if (condition) { passed++; return; }
