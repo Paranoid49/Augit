@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **991/991（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **994/994（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -465,7 +465,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 6 | §7.16 | WebView2 首次导航期间 Shell 可并行启动；ready 前的提示符/输出在终端显示后保留；ready 后按实际列行补偿尺寸 | 未覆盖 | 需要"页面 ready 前已有输出"的时序构造 |
 | 7 | §7.16 | 正文等宽字体、行高 = 等宽字号 ×1.7（13px→22px）、留白上下 11px/左右 12px；字号变化只重新度量终端 | 部分 | 有 `__augitTerminalFont()` 探针与真机复探（字体跟随等宽设置）；**行高 1.7 与留白数值没有断言** |
 | 8 | §7.16 | 标题栏显示当前 Shell；"更多"菜单提供切换配置与外部终端入口 | 部分 | `项目树「在外部终端打开」调用宿主` 覆盖了外部终端入口的一处；**终端标题栏的"更多"菜单没有断言** |
-| 9 | §7.16 | 会话名称按字宽显示；标题行随字高扩展；三个动作按可见顺序 Tab/Shift+Tab 循环；正文 Tab 交给 Shell；当前 Shell 标签不入 Tab 顺序；长名称悬停说明 | 未覆盖 | 需要键盘焦点序列断言 |
+| 9 | §7.16 | 会话名称按字宽显示；标题行随字高扩展；三个动作按可见顺序 Tab/Shift+Tab 循环；正文 Tab 交给 Shell；当前 Shell 标签不入 Tab 顺序；长名称悬停说明 | 部分 | 本轮新增三条：`§7.16 终端标题栏动作按可见顺序、当前 Shell 标签不入 Tab 顺序`（三个按钮 x 递增、`.terminal-session` 无 `tabindex`）、`§7.16 当前实现的第三个 Tab 会离开标题栏（规格的"循环"尚未实现）`、`§7.16 终端正文的 Tab 交给 Shell（宿主收到 \t）`；**"循环"与"Shift+Tab 反向"未实现**（见 §3.2 第 8 条），会话名称字宽/标题行随字高/长名称悬停说明也没有断言 |
 | 10 | §7.16 | 关闭空闲终端直接释放；存在前台命令时确认并说明将结束整个子进程树 | 是 | `§7.16 无前台命令时关闭终端：直接结束会话并收起（不弹确认）`、`有前台命令时先确认且未结束会话`、`§7.16 取消后保留终端`、`确认后结束会话并收起` |
 | 11 | §7.16 | 关闭后恢复先前底部工具窗口状态或折叠底部区域，并回收 WebView2、Shell、WSL 与会话目录 | 部分 | "收起/恢复"有断言；**"回收会话目录/进程"没有断言**（宿主侧 `TerminalSessionRegistry` 有实现，但没有断言或单测引用它） |
 
@@ -576,6 +576,15 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
    适应区域重居中、800% 上限并禁用、10% 下限并禁用、隐藏时不接受滚轮输入而可见时缩放），
    并把 harness 的图片桩从 1×1 换成**真能解码的 400×300**（否则几何断言会因"1px 也满足边距"而假通过）。
    更正记录：`decisions.image_zoom_scope.correction`；§2.6 的 §7.5 表已按"已实现 + 现有断言"重新定级（4 是 / 6 部分）。
+
+8. **终端标题栏三个动作的 Tab 不循环（规格 §7.16 第 9 条，已实测，未修）** —— 规格要求
+   "标题栏三个动作按可见顺序循环 Tab/Shift+Tab"，实测（harness 断言
+   `§7.16 当前实现的第三个 Tab 会离开标题栏（规格的"循环"尚未实现）`）：在
+   `关闭终端 → 更多操作 → 隐藏终端` 之后，第三次 Tab **离开标题栏**而不是回到第一个动作；
+   Shift+Tab 同样没有反向循环。`live-data.js` 里没有任何针对 `.terminal-header` 的 `keydown` 处理。
+   影响面小（键盘用户多用 Tab 浏览，不会卡住），修法也明确：给 `.terminal-header` 加一个
+   `keydown` 处理，在三个按钮间 `preventDefault` + 焦点回绕（`Enter/Space` 由原生按钮行为负责）。
+   **本轮只登记不改**：这是一处产品行为补充，需要像 §7.17/图片缩放那样先确认是要"补实现"还是"改规格措辞"。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
