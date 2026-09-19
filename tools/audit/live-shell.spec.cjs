@@ -179,6 +179,7 @@ async function main() {
   const port = server.address().port;
   const browser = await chromium.launch({ headless: true });
   let passed = 0;
+  let skippedChecks = 0;
   const check = (label, condition) => {
     if (!condition) throw new Error('断言失败：' + label);
     passed++;
@@ -2905,8 +2906,10 @@ async function main() {
       ssCheck('相同状态刷新不改变焦点: ' + JSON.stringify([beforeSame.active, afterSame.active]),
         afterSame.active === beforeSame.active);
     } else {
-      passed++;
-      console.log('SKIP 相同状态刷新不改变焦点：页面当前无焦点（hasFocus=false）');
+      // 这项在无头/未激活页面里无法核对（activeElement 会被浏览器重置，是环境行为）。
+      // 但**未执行 ≠ 通过**：只登记，不 `passed++`，最终摘要里单独报"未执行"条数。
+      skippedChecks++;
+      console.log('SKIP_NOT_COUNTED 相同状态刷新不改变焦点：页面当前无焦点（hasFocus=false）');
     }
     await same.page.close();
     if (ssFindings.length > 0) {
@@ -2919,6 +2922,11 @@ async function main() {
     const hv = await openScene('scene=commit-changes&theme=dark');
     await hv.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await hv.page.waitForSelector('.changes-list .check-row', { timeout: 10000 });
+    // 这个场景默认**没有选中行**，于是"选中态优先于悬停"一直走 SKIP 分支 —— 而 SKIP 分支还会
+    // `passed++`，等于把没跑的检查算成通过（实测日志里每次都有 `SKIP 选中态优先于悬停`）。
+    // 先用真实点击选中一行（在采集 before 快照之前），让该断言真正执行。
+    await hv.page.locator('.changes-list .change-file-row').nth(1).click();
+    await hv.page.waitForTimeout(250);
     const hoverProbe = await hv.page.evaluate(async () => {
       const rows = [...document.querySelectorAll('.changes-list .check-row')];
       if (rows.length < 2) return { skip: true, rows: rows.length };
@@ -2990,8 +2998,8 @@ async function main() {
       check('选中态优先于悬停（选中行背景不变）: ' + JSON.stringify([hoverReal.selectedBg, selectedKept]),
         selectedKept === hoverReal.selectedBg);
     } else {
-      passed++;
-      console.log('SKIP 选中态优先于悬停：该场景没有选中行');
+      // 没有选中行就无法核对"选中态优先"——如实记为失败，不再静默计入通过。
+      check('选中态优先于悬停（选中行背景不变）: 场景中没有选中行，无法核对', false);
     }
     check('悬停不触发宿主查询: ' + JSON.stringify([hoverProbe.before && hoverProbe.before.statusCalls, hoverProbe.after && hoverProbe.after.statusCalls, hoverProbe.before && hoverProbe.before.diffCalls, hoverProbe.after && hoverProbe.after.diffCalls]),
       hoverProbe.before && hoverProbe.after
@@ -12042,7 +12050,7 @@ async function main() {
       await f154.page.close();
     }
 
-    console.log(`live-shell 通过 ${passed} 项断言`);
+    console.log(`live-shell 通过 ${passed} 项断言` + (skippedChecks > 0 ? `（另有 ${skippedChecks} 项因环境未执行，不计入通过）` : ''));
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

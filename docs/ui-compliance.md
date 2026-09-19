@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **986/986**（见 §2 说明） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **986/986（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -388,7 +388,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 2 | §7.6 | 只有 Changes 与 Unversioned Files 两组，不显示 Changelist 名称或创建入口 | 部分 | `Changes 分组来自 Git`、`未跟踪文件默认不勾选` 覆盖分组事实；**没有**"不存在 Changelist 名称/创建入口"的反向断言 |
 | 3 | §7.6 | 每组文件按显示文件名自然顺序，同名再按完整相对路径稳定排序 | 部分 | 分组树按目录生成（视觉稿与实现同源）；**没有排序断言** |
 | 4 | §7.6 | 文件复选决定是否提交完整文件；选中行与提交复选互相独立 | 是 | `未跟踪文件默认不勾选`、`单击改动文件只更新选中态`、`选择变化不改动提交草稿` |
-| 5 | §7.6 | 悬停独立维护、选中优先、只重绘命中行、滚动折叠后重命中、空白区不算最后一行、隐藏清除、悬停不改状态且不查 Git | 部分 | `真实悬停改变行背景`、`悬停不触发宿主查询`、`悬停不改变选择与复选`、`⑥ 悬停操作后标题栏与状态栏逐像素不变`；**"选中态优先于悬停"这条在运行中一直 SKIP**（`SKIP 选中态优先于悬停：该场景没有选中行`）——即该项实际未被覆盖；重命中/空白区/隐藏清除也没有断言 |
+| 5 | §7.6 | 悬停独立维护、选中优先、只重绘命中行、滚动折叠后重命中、空白区不算最后一行、隐藏清除、悬停不改状态且不查 Git | 部分 | `真实悬停改变行背景`、`悬停不触发宿主查询`、`悬停不改变选择与复选`、`⑥ 悬停操作后标题栏与状态栏逐像素不变`；**"选中态优先于悬停"此前一直 SKIP**（场景没有选中行）——第 336 轮已在采集快照前用真实点击选中一行，该断言现在真正执行并通过；重命中 / 空白区 / 隐藏清除仍没有断言 |
 | 6 | §7.6 | 单击行只选中文件；已有 Diff 时后台更新、Diff 激活时原位更新；复选框只改提交选择 | 是 | `单击改动文件只更新选中态`、`单击改动文件不创建 Diff`（后台/原位更新见 §5.2 块） |
 | 7 | §7.6 | Enter／双击／"显示 Diff" 打开并激活唯一工作区 Diff 标签，后续选择持续更新，关闭后解除跟随 | 是 | §5.2 块（`双击改动文件建立比较标签`、`比较标签始终只有一个`、`关闭比较标签后解除跟随`） |
 | 8 | §7.6 | 用户修改文件后保留复选状态，仅更新状态标记与 diff 版本 | 部分 | `前置条件：草稿/勾选/滚动已就位`、`结构性重绘后草稿恢复到输入框` 覆盖重绘保状态；**"外部修改文件后复选保留"没有断言** |
