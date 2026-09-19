@@ -6470,6 +6470,9 @@ const FOCUS_REGIONS = [
   { name: "find", selector: ".current-find", segment: "content" },
   { name: "editorTabs", selector: ".editor-tabs", segment: "content" },
   { name: "editorContent", selector: ".editor-content", segment: "content" },
+  // 规格 §7.16：终端标题栏的三个动作**按可见顺序循环** Tab/Shift+Tab（自成循环，不跨到别的区域）。
+  // 之前它落在外层 `bottomTool` 区域里，于是第三个动作之后焦点直接离开标题栏 —— 与"循环"不符。
+  { name: "terminalHeader", selector: ".terminal-header", segment: "content", wrap: true },
   { name: "bottomTool", selector: ".bottom-tool", segment: "content" },
   { name: "titlebar", selector: ".titlebar", segment: "global" },
   { name: "rail", selector: ".tool-rail", segment: "global" },
@@ -6573,6 +6576,12 @@ function bindRegionTabOrder() {
     event.preventDefault();
     const step = event.shiftKey ? -1 : 1;
     const index = items.indexOf(active);
+    // 自成循环的区域（规格 §7.16 终端标题栏）：Tab/Shift+Tab 在区内回绕，不跨到相邻区域。
+    if (owner.region.wrap === true) {
+      const current = index >= 0 ? index : 0;
+      items[(current + step + items.length) % items.length].focus();
+      return;
+    }
     if (index >= 0) {
       const next = index + step;
       if (next >= 0 && next < items.length) {

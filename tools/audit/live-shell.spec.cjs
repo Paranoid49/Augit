@@ -9189,6 +9189,14 @@ async function main() {
           return node ? { label: node.getAttribute('aria-label'), inHeader: !!node.closest('.terminal-header') } : null;
         }));
       }
+      // 反向：从第一个动作 Shift+Tab 必须回到**最后一个**（循环的另一半）。
+      await page.page.locator('.terminal-header button').first().focus();
+      await page.page.keyboard.press('Shift+Tab');
+      await page.page.waitForTimeout(60);
+      const reverse = await page.page.evaluate(() => {
+        const node = document.activeElement;
+        return node ? { label: node.getAttribute('aria-label'), inHeader: !!node.closest('.terminal-header') } : null;
+      });
       // 正文里的 Tab 要交给 Shell：xterm 自己 preventDefault（这样浏览器不移动焦点），
       // 并把 \t 经 terminal/write 送给 pty。判据取"焦点没离开终端 + 宿主收到了 \t"，
       // 而不是"事件没被 preventDefault"（那正好会读反）。
@@ -9205,7 +9213,7 @@ async function main() {
         }));
       })();
       await page.page.close();
-      return { shape, seen, bodyTab };
+      return { shape, seen, reverse, bodyTab };
     })();
     check('§7.16 终端标题栏动作按可见顺序、当前 Shell 标签不入 Tab 顺序: '
       + JSON.stringify([termTab.shape.buttons, termTab.shape.sessionTabindex, termTab.seen]),
@@ -9215,10 +9223,14 @@ async function main() {
       && termTab.shape.sessionTabindex === null
       && termTab.seen.slice(0, 2).every((entry) => entry && entry.inHeader === true
         && entry.label === termTab.shape.buttons[termTab.seen.indexOf(entry) + 1].label));
-    // 规格要求三个动作"循环"，但实现没有拦 Tab：第三次 Tab 会离开标题栏。如实记为差异（见 §3.2）。
-    check('§7.16 当前实现的第三个 Tab 会离开标题栏（规格的"循环"尚未实现）: '
-      + JSON.stringify(termTab.seen[2] || null),
-    !!termTab.seen[2] && termTab.seen[2].inHeader === false);
+    // 规格 §7.16：三个动作"按可见顺序循环" —— 第三个动作之后必须回到第一个，而不是离开标题栏。
+    // 修复前这里断言的是"离开标题栏"（记录差异）；现在断言规格要求的行为。
+    check('§7.16 标题栏三个动作 Tab 循环（第三个之后回到第一个）: ' + JSON.stringify(termTab.seen[2] || null),
+      !!termTab.seen[2] && termTab.seen[2].inHeader === true
+        && termTab.seen[2].label === termTab.shape.buttons[0].label);
+    check('§7.16 标题栏 Shift+Tab 反向循环（第一个回退到最后一个）: ' + JSON.stringify(termTab.reverse || null),
+      !!termTab.reverse && termTab.reverse.inHeader === true
+        && termTab.reverse.label === termTab.shape.buttons[2].label);
     // 规格只要求"正文里的 Tab 交给 Shell"：实测宿主确实收到 \t（判据用这个）。
     // 同时观察到 Tab 之后焦点离开了终端（xterm 未 preventDefault）—— 规格没有规定这一点，
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。

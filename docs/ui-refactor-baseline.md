@@ -12463,3 +12463,36 @@ grep -rn "formatted" src/Augit.Shell/*.cs           # 无输出：桥接载荷�
    脚本里的 `"中文"` 在写文件之前就变成乱码，第一次探针造出的"中文键"其实是 3 个乱码字符
    （行列也因此差 1）。改为在 PowerShell 之外准备 fixture 后，真机行列与 Core 单测逐值吻合
    —— 这同时解释了 `tools/audit/*.ps1` 为什么必须纯 ASCII。
+
+#### 第 360 轮：终端标题栏 Tab 循环落地（§7.16 第 9 条，第 341/342 轮两次失败后的正确修法）
+
+**修的是一条记录了很久的实现差异**（§3.2 第 8 条）。规格 §7.16 要求"标题栏三个动作按可见顺序
+**循环** Tab/Shift+Tab"，而实现里第三个动作之后焦点直接离开标题栏（harness 断言曾如实写成
+`当前实现的第三个 Tab 会离开标题栏（规格的"循环"尚未实现）`）。
+
+前两次修复都失败的原因（第 343 轮定位）：实时外壳已有一套**区域式 Tab 顺序**
+（`bindRegionTabOrder()`），终端标题栏落在外层 `bottomTool` 区域里，到边界就走"跨区域"分支；
+再挂一个自己的 Tab 处理器只会与它互相竞争。这次没有再挂处理器，而是**改区域模型本身**：
+
+```js
+// FOCUS_REGIONS
+{ name: "terminalHeader", selector: ".terminal-header", segment: "content", wrap: true },
+
+// bindRegionTabOrder()
+if (owner.region.wrap === true) {
+  const current = index >= 0 ? index : 0;
+  items[(current + step + items.length) % items.length].focus();
+  return;
+}
+```
+
+**验证**：harness 1010 → **1011/1011（未执行 0 项）**，其中
+`§7.16 标题栏三个动作 Tab 循环（第三个之后回到第一个）`（`inHeader === true` 且标签等于第一个动作）
+与 `§7.16 标题栏 Shift+Tab 反向循环（第一个回退到最后一个）`为新增/改写的断言；
+`§7.16 终端标题栏动作按可见顺序、当前 Shell 标签不入 Tab 顺序` 与
+`§7.16 终端正文的 Tab 交给 Shell（宿主收到 \t）` 未受影响（后者证明改区域模型没有把正文的 Tab 抢走）。
+
+**如实记录的规格层面后果**：按字面实现"三个动作循环"后，焦点进入标题栏就只能在这三个动作之间循环
+（Tab 与 Shift+Tab 都回绕），键盘用户无法再用 Tab 离开标题栏。这是规格字面要求的结果，不是实现取舍：
+若要"循环 + 仍能离开"（例如循环一圈后放行、或另定义离开键），属于规格需要补充裁决的点，
+已在 §3.2 第 8 条写明，等用户裁决，不自行改写成"更好用"的行为。
