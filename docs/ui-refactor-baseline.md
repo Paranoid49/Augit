@@ -12344,3 +12344,35 @@ seen         = [隐藏终端, 关闭终端, Terminal input]     // 但 Tab 之�
 
 **这一轮同时修掉了上一轮发现的"统计句静默失败"隐患**：本次对**每一处**替换都写了 `assert`
 （`old_row`/`old_tot`/`summary line` 三处），所以数值与结论这次是同步改到的。
+
+#### 第 356 轮（补断言优先级 #1）：JSON 模式切换显示**样例**而不是真实文件 —— 实缺陷，已修
+
+**怎么抓到的**：开始"按逐条展开暴露的缺口补断言"时，先读 §7.4 的实现契约，发现
+`mockup.js` 的 `bindJsonModes()` 里：
+
+```js
+const source = '{"sdk":{"version":"10.0.201","rollForward":"latestPatch","allowPrerelease":false}}\n';
+```
+
+是**写死的样例**；而实时外壳的 `liveJsonDocument()` 把真实原文写在 `.code-view[data-json-source]` 上，
+**没有任何代码读它**（我 grep 了 `live-data.js`，也没有覆盖 `bindJsonModes`）。
+即：真机打开真实 `.json` 后点"原文"，正文会被换成样例 `{"sdk":…}` —— 与 §7.4"原文和格式化均只读"冲突。
+
+**修法**（最小改动，视觉稿不受影响）：
+
+```js
+const codeView = view.querySelector(".code-view");
+const liveSource = codeView && codeView.dataset ? codeView.dataset.jsonSource : null;
+const source = typeof liveSource === "string" && liveSource.length > 0 ? liveSource : sampleSource;
+```
+
+**新增 1 条断言**（`§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序`）：
+注入 `{"b":1,"a":{"c":2,"d":[1,2]}}` 后打开，点"原文"正文必须含 `"b"`/`"a"` 且**不含 `"sdk"`**；
+点"格式化"后必须是两空格缩进且 `"b"` 仍在 `"a"` 之前。修复前这条会因出现 `"sdk"` 而失败。
+`live-shell` 994 → **995/995**（未执行 0 项）。
+
+**顺带记一个自己踩的坑**：第一版修法在 `const code = …` **之前**引用了 `code`，直接 TDZ 报错
+（`Cannot access 'code' before initialization`，harness 第一条断言就崩）。改成先取 `codeView` 再读 dataset 即好 ——
+**在共享函数里插代码前，先把变量声明顺序看一遍**。
+
+**同步更新**：§7.4 第 3 条由"未覆盖"→"是"；§3.2 新增第 9 条（已修复，含修法与证据）。

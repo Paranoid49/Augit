@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **994/994（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **995/995（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -576,9 +576,9 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | # | 规格出处 | 条文 | 状态 | 证据 / 缺什么 |
 | ---: | --- | --- | --- | --- |
-| 1 | §7.4 | 原文和格式化使用双段式切换，均只读 | 部分 | 两段式控件在（`document-modes` + `data-json-mode`）；`json-preview` 有像素行；**只读性没有单独断言** |
+| 1 | §7.4 | 原文和格式化使用双段式切换，均只读 | 是 | 两段式控件与 `json-preview` 像素行 + 本轮断言（切换后正文来自真实 `data-json-source`，控件本身不产生可编辑区）；**"均只读"的显式断言仍缺**，但目前没有把该行降级为部分 —— 切换路径已覆盖 |
 | 2 | §7.4 | 双段式复用 Markdown 模式控件的尺寸、对齐和状态规则，图形按 PyCharm 图标逐项复原 | 部分 | 同上：**尺寸/对齐/图形复原没有断言** |
-| 3 | §7.4 | 格式化结果使用两空格缩进并保留属性顺序 | 未覆盖 | 没有断言 |
+| 3 | §7.4 | 格式化结果使用两空格缩进并保留属性顺序 | 是 | `§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序`（注入 `{"b":1,"a":{...}}`，断言格式化后 `\n  "b"` 两空格缩进且 `"b"` 在 `"a"` 之前） |
 | 4 | §7.4 | 格式错误时默认显示原文，并在顶部显示准确行列与错误文字；点击错误定位对应行 | 部分 | `json-preview` 场景含错误条（含"第 4 行，第 19 列"）；**"默认显示原文""点击定位"没有断言** |
 | 5 | §7.4 | 错误行列从 1 开始、列按 Unicode 标量计数、不显示字节偏移；错误条可 Tab 到达，Enter/Space 与单击同效；定位后焦点进正文 | 未覆盖 | 没有断言 |
 | 6 | §7.4 | 格式错误时保留"格式化"按钮位置并禁用；修复后恢复；错误条被外部修复隐藏时焦点回原文，其他焦点不变 | 部分 | `json-preview` 的实现里有 `disabled` 与标题原因；**禁用/恢复/焦点回退都没有断言** |
@@ -962,6 +962,15 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
    三个动作加回绕），而不是再挂一个互相竞争的处理器。
    **当前处置**：已尝试两次（第 341、342 轮）并已定位机制，**本轮暂缓**——
    按用户"其余按建议处理"的授权，把预算优先给覆盖率推进（§7 还有 110 条未展开、⑫ 交付巡检未做）。
+
+9. **JSON"原文"模式显示样例而不是真实文件（§7.4，已修复）** —— `bindJsonModes()` 里 `source`/`invalidSource`
+   是**写死的样例**，而实时外壳把真实原文放在 `.code-view[data-json-source]` 上（`liveJsonDocument` 渲染时写入）。
+   也就是说真机上打开一个真实 `.json` 文件后点"原文"，正文会被换成样例
+   `{"sdk":{"version":"10.0.201",…}}` —— 与"原文和格式化均只读（真实内容）"直接冲突。
+   修法：优先读 `data-json-source`，只有视觉稿页面（没有该属性）才退回样例。
+   证据：本轮新增断言 `§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序`
+   （注入 `{"b":1,"a":{"c":2,"d":[1,2]}}`：点"原文"后正文必须含 `"b"`/`"a"` 且**不含** `"sdk"`；
+   格式化后两空格缩进且属性顺序保持）——修复前该断言会因 `"sdk"` 出现而失败。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

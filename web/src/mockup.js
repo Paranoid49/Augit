@@ -1303,8 +1303,14 @@ function jsonView() {
 function bindJsonModes() {
   const view = document.querySelector(".json-document");
   if (!view) return;
-  const source = '{"sdk":{"version":"10.0.201","rollForward":"latestPatch","allowPrerelease":false}}\n';
-  const invalidSource = '{\n  "sdk": {\n    "version": "10.0.201",\n    "rollForward":}\n}\n';
+  const sampleSource = '{"sdk":{"version":"10.0.201","rollForward":"latestPatch","allowPrerelease":false}}\n';
+  const sampleInvalidSource = '{\n  "sdk": {\n    "version": "10.0.201",\n    "rollForward":}\n}\n';
+  // 实时外壳把**真实原文**放在 `.code-view[data-json-source]` 上（liveJsonDocument 渲染时写入）。
+  // 之前这里恒用样例：真机上点"原文"会把正文换成样例 JSON —— 实测缺陷。
+  const codeView = view.querySelector(".code-view");
+  const liveSource = codeView && codeView.dataset ? codeView.dataset.jsonSource : null;
+  const source = typeof liveSource === "string" && liveSource.length > 0 ? liveSource : sampleSource;
+  const invalidSource = view.classList.contains("json-invalid") ? source : sampleInvalidSource;
   const code = view.querySelector(".code-view");
   const positions = new Map();
   let current;

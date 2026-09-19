@@ -2790,6 +2790,46 @@ async function main() {
         && loadingState.centered === true && loadingState.sizeLabel === true);
     await imgLoading.page.close();
 
+    // ---- §7.4 三/双段式：切"原文"必须显示**真实来源**，不能是样例 ----
+    // 修复前实测：`bindJsonModes()` 恒用样例 source，真机点"原文"会把正文换成样例 JSON。
+    const jsonMode = await openScene('scene=main-project&theme=dark');
+    await jsonMode.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    const jsonState = await jsonMode.page.evaluate(async () => {
+      const source = '{"b":1,"a":{"c":2,"d":[1,2]}}';
+      window.__limitDocs = {
+        'global.json': {
+          path: 'global.json', name: 'global.json', fullPath: 'D:\\ws\\global.json', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Json', typeName: 'JSON', fileSize: source.length,
+          text: source, lineEndings: 'LF', encoding: 'UTF-8',
+        },
+      };
+      await window.__augitOpenDocument('global.json');
+      window.__augitRender();
+      await new Promise((r) => setTimeout(r, 300));
+      const code = document.querySelector('.json-document .code-view');
+      const formatted = code ? code.innerText.replace(/\s+/g, '') : null;
+      const attr = code && code.dataset ? code.dataset.jsonSource : null;
+      document.querySelector('.json-document button[data-json-mode="source"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const afterSource = document.querySelector('.json-document .code-view').innerText.replace(/\s+/g, '');
+      document.querySelector('.json-document button[data-json-mode="formatted"]').click();
+      await new Promise((r) => setTimeout(r, 200));
+      const afterFormatted = document.querySelector('.json-document .code-view').innerText;
+      return {
+        attr: attr,
+        formattedHasSample: formatted ? formatted.includes('"sdk"') : null,
+        sourceIsReal: afterSource.includes('"b"') && afterSource.includes('"a"') && !afterSource.includes('"sdk"'),
+        formattedTwoSpace: /\n  "b"/.test(afterFormatted) || /\n\s{2}"b"/.test(afterFormatted),
+        orderKept: afterFormatted.indexOf('"b"') < afterFormatted.indexOf('"a"'),
+      };
+    });
+    check('§7.4 切换"原文"显示真实来源、格式化保持 2 空格缩进与属性顺序: ' + JSON.stringify(jsonState),
+      typeof jsonState.attr === 'string' && jsonState.attr.includes('"b"')
+        && jsonState.formattedHasSample === false
+        && jsonState.sourceIsReal === true
+        && jsonState.formattedTwoSpace === true && jsonState.orderKept === true);
+    await jsonMode.page.close();
+
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
     // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；
     // 实测 `--blame docs/product-spec.md` 时 blame 标签排在首位却不是活动标签。
