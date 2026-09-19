@@ -3037,6 +3037,7 @@ function rebindAfterRender() {
   bindCompactDialogKeys();
   bindStashDialogKeys();
   bindRegionTabOrder();
+  bindDocumentModeMemory();
   bindGlobalShortcuts();
   bindModalBackground();
   reflectWriteOperation();
@@ -3116,6 +3117,9 @@ function openDocumentTab(path, payload, options = {}) {
     document: model,
     editor: model.editor,
     preview,
+    // 当前会话记住的文档模式（规格 §7.3：切换原文/对照/预览后在会话内记忆）。
+    // 之前模式只存在 DOM 的 data 属性上，任何一次区域重绘都会把它重置成默认"预览"。
+    documentMode: null,
   };
   // 临时预览标签只保留一个：新的预览顶替旧的，位置不变。
   // 标签集合变化后写回会话数据（防抖；内容没变时不会真的写盘）。
@@ -6598,6 +6602,31 @@ function bindRegionTabOrder() {
     }
   }, true);
 }
+
+/**
+ * 文档模式记忆（规格 §7.3）：用户切换原文/对照/预览后，在**当前会话**里记住这个选择，
+ * 切到别的标签再回来仍是离开时的模式。模式本身由渲染层的 `setMode` 产生并派发事件，
+ * 这里只负责把它写到活动文档标签上（不写文件、不写设置）。
+ */
+function bindDocumentModeMemory() {
+  if (!window.__augitLive || window.__augitDocumentModeBound) return;
+  window.__augitDocumentModeBound = true;
+  document.addEventListener("document-mode-changed", (event) => {
+    const live = window.__augitLive;
+    if (!live || !event.detail) return;
+    const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
+    if (!tab || tab.kind !== "document") return;
+    tab.documentMode = event.detail.mode;
+  });
+}
+
+/** 当前活动文档标签记住的模式；没有记住时返回 null（调用方回落到默认模式）。 */
+window.__augitRememberedDocumentMode = () => {
+  const live = window.__augitLive;
+  if (!live) return null;
+  const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
+  return tab && tab.kind === "document" && typeof tab.documentMode === "string" ? tab.documentMode : null;
+};
 
 /** 关闭所有实时弹层。 */
 function closeLiveOverlay() {

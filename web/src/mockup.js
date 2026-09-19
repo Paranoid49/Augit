@@ -2398,7 +2398,11 @@ function editorTabs(active, extra = "") {
 }
 
 function markdownView(mode = "preview") {
-  if (liveDocument()) return liveMarkdownDocument(new URLSearchParams(location.search).get('markdown-mode') || mode);
+  if (liveDocument()) {
+    // 规格 §7.3：会话内记住用户选过的模式。优先级：URL 参数（审计/视觉稿用）> 标签记住的 > 默认。
+    const remembered = typeof window.__augitRememberedDocumentMode === 'function' ? window.__augitRememberedDocumentMode() : null;
+    return liveMarkdownDocument(new URLSearchParams(location.search).get('markdown-mode') || remembered || mode);
+  }
   const params = new URLSearchParams(location.search);
   mode = params.get('markdown-mode') || mode;
   if (!['source', 'split', 'preview'].includes(mode)) mode = 'preview';
@@ -2463,6 +2467,9 @@ function bindMarkdownModes() {
     });
     for (const [element, [x,y]] of positions) if (element.clientWidth) element.scrollTo(x,y);
     view.dispatchEvent(new Event('document-content-changed'));
+    // 通知实时层把模式记到当前文档标签上（规格 §7.3 会话内记忆）；视觉稿页面没有监听方，纯空转。
+    // 注意 `bubbles` 必须显式打开：CustomEvent 默认不冒泡，document 级监听收不到。
+    view.dispatchEvent(new CustomEvent('document-mode-changed', { detail: { mode }, bubbles: true }));
   };
   view.querySelectorAll('button[data-markdown-mode]').forEach(button => on(button, 'click', () => setMode(button.dataset.markdownMode)));
   on(divider, 'pointerdown', event => {

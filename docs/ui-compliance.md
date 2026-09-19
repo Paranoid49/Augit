@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1011/1011（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1012/1012（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -558,8 +558,8 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | # | 规格出处 | 条文 | 状态 | 证据 / 缺什么 |
 | ---: | --- | --- | --- | --- |
-| 1 | §7.3 | 从文件树打开时默认预览模式；用户切换模式后在当前会话记忆该选择 | 部分 | `Markdown 预览来自真实内容` 覆盖"默认预览"；**"切换后记忆该选择"没有断言** |
-| 2 | §7.3 | 原文、预览和左右对照使用编辑区右上角三段式切换，不创建三个标签 | 部分 | 三段式控件在视觉稿与实现里（`document-modes`）；**"不创建三个标签"没有断言** |
+| 1 | §7.3 | 从文件树打开时默认预览模式；用户切换模式后在当前会话记忆该选择 | 是 | 默认预览由 `Markdown 预览来自真实内容` 覆盖；会话内记忆由本轮断言 `§7.3 会话内记住文档模式、三段式切换不创建标签` 覆盖（切到 `source` → 打开另一个文档 → 切回，模式仍是 `source`，且另一个文档保持自己的 `preview`，互不污染） |
+| 2 | §7.3 | 原文、预览和左右对照使用编辑区右上角三段式切换，不创建三个标签 | 是 | 三段式控件在视觉稿与实现里（`document-modes`）；"不创建三个标签"由 `§7.3 会话内记住文档模式、三段式切换不创建标签` 覆盖（三种模式各切一遍后文档标签数不变）；**图标尺寸/图形复原仍无断言（见第 3 条）** |
 | 3 | §7.3 | 三段式沿用 PyCharm 紧凑图标控件：26px 按钮步长、36px 工具栏高度；三个图形各自复原；只有当前按钮显示内缩选中底色 | 部分 | 有像素基线（`markdown-preview` 1.42）；**26/36 两个数值与三图形复原没有断言** |
 | 4 | §7.3 | 左右对照分隔位置允许拖动，模式切换不丢失各自滚动位置 | 是 | `§7.3 拖动分隔条保留按下偏移并按实际宽度重排`（+120px 偏移）、`§7.3 模式切换不丢失各自滚动位置`（原文 180 / 预览 90 往返后逐位相等） |
 | 5 | §7.3 | 拖动保留按下偏移、越界停在最小栏宽、重复位置不重排、结束条件与保留比例 | 部分 | 已断言：按下偏移、越界夹紧（左侧宽度 = available − min(available/2,240)，±1.5px）、同坐标重复移动零写入（并有 1px 对照证明事件真的到达）、Esc 结束拖动并释放捕获且保留比例、方向键 2% 步进可还原。**未断言**：`pointercancel`/`lostpointercapture`、切出对照、标签隐藏/关闭结束拖动，以及"窗口过窄时暂时夹紧、恢复后沿用原比例" |
@@ -1021,6 +1021,17 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     脚本里的非 ASCII 字面量（`"中文"`）在写文件前就已经变成乱码，
     于是第一次探针造出的 fixture 并不是中文键；改为**在 PowerShell 之外**准备 fixture 后结果自洽
     ——这也是 `tools/audit/*.ps1` 必须纯 ASCII 的原因。
+
+13. **Markdown 模式选择没有会话记忆（§7.3 第 1/10 条，**已修复**）** —— 模式只存在于 DOM 的
+    `data-markdown-mode` 上，渲染层每次重绘（切标签、外部变化、区域刷新）都重新调用
+    `markdownView()`，参数是写死的默认 `"preview"`：用户切到"原文"后切走再回来就被重置成"预览"，
+    与"用户切换模式后在当前会话记忆该选择""同一文件的三模式切换保留原文选择"直接矛盾。
+    修法：标签上新增 `documentMode`；`setMode()` 在切换后派发 `document-mode-changed`
+    （**必须显式 `bubbles: true`** —— CustomEvent 默认不冒泡，第一版就是这样静默失效的）；
+    `live-data.js` 新增 `bindDocumentModeMemory()` 把它写到当前文档标签，
+    并暴露 `__augitRememberedDocumentMode()`；`markdownView()` 的优先级为
+    URL 参数（审计/视觉稿）> 标签记忆 > 默认。
+    证据：`§7.3 会话内记住文档模式、三段式切换不创建标签`。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

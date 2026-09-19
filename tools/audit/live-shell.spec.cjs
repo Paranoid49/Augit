@@ -3199,6 +3199,43 @@ async function main() {
       mdScroll.savedSource > 0 && mdScroll.afterBack === mdScroll.savedSource
         && mdScroll.savedPreview > 0 && mdScroll.previewAfter === mdScroll.savedPreview
         && mdScroll.mode === 'preview');
+
+    // 规格 §7.3 第 1/10 条：切换模式后在**当前会话**记住该选择（切走再回来仍是离开时的模式），
+    // 且三段式切换不得创建新标签（"不创建三个标签"）。
+    const mdMemory = await mdScene.page.evaluate(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const click = (mode) => document.querySelector('.markdown-document button[data-markdown-mode="' + mode + '"]').click();
+      const tabsOf = () => (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'document');
+      await window.__augitOpenDocument('docs/guide.md');
+      window.__augitRender();
+      await wait(300);
+      const tabsBefore = tabsOf().length;
+      // 三种模式各切一遍，标签数必须不变。
+      for (const mode of ['source', 'split', 'preview', 'source']) { click(mode); await wait(150); }
+      const tabsAfterModes = tabsOf().length;
+      const remembered = window.__augitRememberedDocumentMode();
+      // 切到另一个文档再切回来：离开时的模式必须保留。
+      await window.__augitOpenDocument('docs/api/schema.md');
+      window.__augitRender();
+      await wait(300);
+      const otherMode = document.querySelector('.markdown-document').dataset.markdownMode;
+      await window.__augitOpenDocument('docs/guide.md');
+      window.__augitRender();
+      await wait(300);
+      const backMode = document.querySelector('.markdown-document').dataset.markdownMode;
+      const backActive = document.querySelector('.markdown-document .segment.active')?.dataset.markdownMode || null;
+      // 另一个文档自己的默认模式不得被前一个文档的选择污染。
+      const schemaTab = (window.__augitLive.tabs || []).find((tab) => tab.path === 'docs/api/schema.md');
+      return {
+        tabsBefore, tabsAfterModes, remembered, otherMode, backMode, backActive,
+        schemaRemembered: schemaTab ? schemaTab.documentMode : null,
+      };
+    });
+    check('§7.3 会话内记住文档模式、三段式切换不创建标签: ' + JSON.stringify(mdMemory),
+      mdMemory.tabsBefore === 1 && mdMemory.tabsAfterModes === 1
+        && mdMemory.remembered === 'source'
+        && mdMemory.otherMode === 'preview' && mdMemory.schemaRemembered === 'preview'
+        && mdMemory.backMode === 'source' && mdMemory.backActive === 'source');
     check('§7.3 Markdown 用例无脚本错误: ' + JSON.stringify(mdScene.errors.slice(0, 2)), mdScene.errors.length === 0);
 
     // 相对文件链接在 Augit 标签中打开（必须放在最后：它会切换活动文档）。

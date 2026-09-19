@@ -12496,3 +12496,26 @@ if (owner.region.wrap === true) {
 （Tab 与 Shift+Tab 都回绕），键盘用户无法再用 Tab 离开标题栏。这是规格字面要求的结果，不是实现取舍：
 若要"循环 + 仍能离开"（例如循环一圈后放行、或另定义离开键），属于规格需要补充裁决的点，
 已在 §3.2 第 8 条写明，等用户裁决，不自行改写成"更好用"的行为。
+
+#### 第 362 轮：Markdown 模式选择的会话记忆（§7.3 第 1/10 条，实缺陷）
+
+**怎么抓到的**：核对"从文件树打开时默认预览模式；用户切换模式后在当前会话记忆该选择"时，
+`grep -rn "markdownMode" web/src/live-data.js` **没有任何命中** —— 模式只活在 DOM 的
+`data-markdown-mode` 上，而 `editorContent` 每次重绘都走 `markdownView()`（默认参数 `"preview"`）。
+也就是说：切到"原文"→ 切到别的标签 → 切回来，模式被重置成"预览"，
+"预览阅读位置"也一并丢掉，与 §7.3 第 1/10 条矛盾。
+
+**修法**（三层，改的都是既有机制，不新增并行状态）：
+1. 标签模型加 `documentMode`（`openDocumentTab`）；
+2. `setMode()` 切换后派发 `document-mode-changed`，`live-data.js` 的
+   `bindDocumentModeMemory()` 把它写到当前文档标签，并暴露 `__augitRememberedDocumentMode()`；
+3. `markdownView()` 的优先级：URL 参数（审计/视觉稿）> 标签记忆 > 默认 `preview`。
+
+**坑**：第一版没写 `bubbles: true` —— `new CustomEvent('document-mode-changed', { detail })`
+**默认不冒泡**，挂在 `document` 上的监听永远收不到，表现为"事件派发了但标签字段始终是 null"。
+harness 的 `remembered: null` 把它暴露出来，加上 `bubbles: true` 即通过。
+
+**验证**：`live-shell` 1011 → **1012/1012（未执行 0 项）**；新增断言
+`§7.3 会话内记住文档模式、三段式切换不创建标签`：三种模式各切一遍后**文档标签数不变**
+（覆盖第 2 条"不创建三个标签"），切到另一文档再切回后模式仍是 `source`，
+且另一个文档保持自己的 `preview`（互不污染）。
