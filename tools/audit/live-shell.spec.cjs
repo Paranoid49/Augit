@@ -2490,7 +2490,10 @@ async function main() {
         files: (window.__augitLive.status.files || []).map((file) => file.path),
       };
     });
-    await same.page.evaluate((files) => window.__hostPush('workspace-changed', { files, gitMetadata: false }), beforeSame.files);
+    // 语义要点：workspace-changed 的 files 是"**发生变化**的文件"，传当前全部文件等于宣称
+    // "全都变了"，外壳刷新是合理的（第 293 轮的候选缺陷就是这么来的 —— 载荷写错，不是实现错）。
+    // 要测 §125，必须触发一次"只重读状态、不声称任何文件变化"的刷新：gitMetadata=true + files=[]。
+    await same.page.evaluate(() => window.__hostPush('workspace-changed', { files: [], gitMetadata: true }));
     await same.page.waitForTimeout(900);
     const afterSame = await same.page.evaluate(() => {
       const view = document.querySelector('.editor-content .code-view');
