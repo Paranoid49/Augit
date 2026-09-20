@@ -9585,10 +9585,41 @@ async function main() {
       // 视觉稿的工具条项里既有 `<button>` 也有 `<a>`，而 `自动换行`/`显示空白` 没有任何状态标记，
       // `跳转行` 用真实 Enter/Space 也读不到 `.go-to-line-window`（实测 afterEnter/afterSpace 均 false）
       // ⇒ 在本轮可达的场景里，**"激活"没有可观测效果**，无法据此断言。已登记进 §2 该行与 §3.2 #31。
-      console.log('INFO 文档工具栏键盘=' + JSON.stringify({ realTab, labels: order.labels }));
-      check('§7.2 文档工具栏：真实 Tab 按可见顺序遍历可见按钮: ' + JSON.stringify({ realTab, labels: order.labels }),
+      // ---- 第 119 轮：`自动换行` 现在是**真开关**（`aria-pressed` + `.code-view.wrap`），
+      // 于是"Enter/Space 激活"这一半终于有可观测效果可断言（收掉 §3.2 #31）----
+      const wrapToggleKey = await (async () => {
+        const read = () => toolbar.page.evaluate(() => {
+          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          const v = document.querySelector('.code-view, .diff-columns');
+          return {
+            pressed: b ? b.getAttribute('aria-pressed') : null,
+            wrapped: v ? v.classList.contains('wrap') : null,
+          };
+        });
+        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').click();
+        await toolbar.page.waitForTimeout(250);
+        const afterClick = await read();
+        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').focus();
+        await toolbar.page.keyboard.press('Enter');
+        await toolbar.page.waitForTimeout(300);
+        const afterEnter = await read();
+        await toolbar.page.keyboard.press('Space');
+        await toolbar.page.waitForTimeout(300);
+        const afterSpace = await read();
+        return { afterClick, afterEnter, afterSpace };
+      })();
+      console.log('INFO 文档工具栏键盘=' + JSON.stringify({ realTab, wrapToggleKey, labels: order.labels }));
+      check('§7.2 文档工具栏：真实 Tab 按可见顺序；自动换行可切换且 Enter/Space 均可激活: '
+        + JSON.stringify({ realTab, wrapToggleKey }),
         order.labels.length >= 3
-        && order.labels.slice(0, realTab.length).every((label, i) => realTab[i] === label));
+        && order.labels.slice(0, realTab.length).every((label, i) => realTab[i] === label)
+        // 判据写成**相位无关**：前面那段既有断言也会点一次 `自动换行`，所以起始相位不固定。
+        // 关键性质是"每次激活都翻转"且 `aria-pressed` 与 `.wrap` 始终一致。
+        && wrapToggleKey.afterClick.pressed === String(wrapToggleKey.afterClick.wrapped)
+        && wrapToggleKey.afterEnter.pressed === String(wrapToggleKey.afterEnter.wrapped)
+        && wrapToggleKey.afterSpace.pressed === String(wrapToggleKey.afterSpace.wrapped)
+        && wrapToggleKey.afterEnter.pressed !== wrapToggleKey.afterClick.pressed
+        && wrapToggleKey.afterSpace.pressed !== wrapToggleKey.afterEnter.pressed);
       await toolbar.page.close();
 
       // §7.8「字号增大时各部位按字高扩展、图标不变」这一条**本轮没能断言**：

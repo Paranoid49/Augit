@@ -565,6 +565,11 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   box-shadow: 0 0 0 1px var(--augit-border);
 }
 
+
+/* 显示选项：自动换行（规格 §7.2 工具条）。由 live-data.js 按 `live.displayOptions.wrap` 切换。 */
+.code-view.wrap .code-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-view.wrap .code-lines { width: auto; min-width: 100%; }
+
 .code-view {
   min-height: 0;
   min-width: 0;

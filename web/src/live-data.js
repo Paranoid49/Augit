@@ -3226,6 +3226,37 @@ function applyPendingDocumentStatus() {
   fields.appendChild(marker);
 }
 
+/**
+ * 显示选项开关（规格 §7.2 文档工具栏的"自动换行 / 显示空白"）。
+ *
+ * 核实过：这两个按钮此前在 live 代码里**零命中** —— 点了没有任何效果，也没有状态标记
+ * （连 `aria-pressed` 都没有，第 118 轮想验"Enter/Space 激活"时因此拿不到任何可观测效果）。
+ * 这里先实现**自动换行**这一档：状态存 `live.displayOptions.wrap`，渲染后重新贴标记。
+ */
+function applyDisplayOptionMarkers() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const wrap = !!(live.displayOptions && live.displayOptions.wrap);
+  const view = document.querySelector(".code-view, .diff-columns");
+  if (view) view.classList.toggle("wrap", wrap);
+  const button = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+  if (button) {
+    button.setAttribute("aria-pressed", wrap ? "true" : "false");
+    button.classList.toggle("active", wrap);
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest('.document-toolbar [aria-label="自动换行"]');
+  if (!button) return;
+  event.preventDefault();
+  const live = window.__augitLive;
+  if (!live) return;
+  live.displayOptions = live.displayOptions || {};
+  live.displayOptions.wrap = !live.displayOptions.wrap;
+  applyDisplayOptionMarkers();
+}, true);
+
 function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
@@ -3245,6 +3276,7 @@ function rebindAfterRender() {
   bindModalBackground();
   labelFileHistoryClearEntry();
   ensureComparisonReadonlyMarker();
+  applyDisplayOptionMarkers();
   applyPendingDocumentStatus();
   restoreAmendDraft();
   reflectWriteOperation();
