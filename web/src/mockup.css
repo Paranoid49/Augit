@@ -199,7 +199,7 @@ button {
 .titlebar-center {
   justify-self: center;
   color: var(--augit-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .window-actions {
@@ -1767,7 +1767,7 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .data-table th {
   color: var(--augit-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .conflict-page {
@@ -1811,7 +1811,7 @@ body[data-theme="dark"] .fake-check.mixed {
   justify-content: center;
   border-bottom: 1px solid var(--augit-border);
   color: var(--augit-muted);
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .conflict-block {
@@ -2585,7 +2585,7 @@ body[data-theme="dark"] .scrim {
   height: 30px;
   padding: 0 13px;
   border-radius: 5px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .diff-layout {

@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1052/1052（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1052/1052（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -221,7 +221,7 @@
 | §4.2 | 普通控件高度 30–31 像素 | 是 | `--augit-find-edit-height: 30px`；§1.3 实测主按钮高 **30**（PyCharm 28 → Δ+2） | — |
 | §4.2 | 面板圆角只用于主工具窗口外边缘、弹层和对话框；内容行不使用卡片圆角 | 部分 | 圆角确实存在且分级（`border-radius` 3/5/6/7/8/9px 共 50+ 处，集中在弹层/对话框/按钮）；**"内容行不使用卡片圆角"未逐类核对** | — |
 | §4.2 | 分隔线 1 像素中性颜色，不使用厚重描边 | 是 | `--augit-border: #e3e3e3`（浅）/ `#393b40`（深），全部以 `1px` 使用；§1.3 实测两侧状态栏上边缘同为 1px 分隔 | — |
-| §4.3 | 只允许普通和半粗两个主要字重，避免过多粗体层级 | 部分 | CSS 主要使用 `font-weight: 400`（3 处）与 `600`（14 处）✓；但**仍有 `500` 4 处**，与"只允许普通与半粗"不完全一致 | — |
+| §4.3 | 只允许普通和半粗两个主要字重，避免过多粗体层级 | 是 | **第 106 轮已按角色改齐并加守卫**：`design-system.md:135` 的角色表把**按钮**明确归「普通 400」、「当前项目/工具窗口标题」归「半粗 600」；据此把实现里仅有的 4 处 `font-weight: 500` 改掉 —— `.titlebar-center`→600、`.data-table th`→600、`.conflict-column-title`→400、`.primary/secondary/danger-button`→400；改后 `mockup.css` 字重集合 = **400/600**（`check-doc-claims.cjs` 新增机械守卫，出现第三档即 FAIL）；两副本字节一致 + `verify-ui-assets` PASS | — |
 | §4.3 | 次要路径、时间、作者和状态使用同字号的弱化颜色，不缩小到难以阅读 | 是 | `--augit-muted: #646870`（浅）/ `#9da1aa`（深），字号与正文同（不额外缩小） | — |
 | §4.4 | 浅色主背景为冷灰色标题栏与白色内容面板 | 是 | `--augit-chrome: #e9eaee`（冷灰）+ `--augit-panel: #ffffff`（白面板） | — |
 | §4.4 | 深色主背景为深灰标题栏与接近黑色的内容面板，不使用纯黑大面积背景 | 是 | `--augit-chrome: #2b2d30` + `--augit-panel: #1e1f22`（**非 `#000000`**） | — |

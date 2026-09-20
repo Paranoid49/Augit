@@ -102,7 +102,19 @@ if (!twoSeven || !twoSix || !oneTwo || !twoEight || !five || !six) {
     // 因此不能把 §4 的行数当成"有逐条行的条文数" —— 之前那个手写的 336 就是这么来的（既算不出也不准）。
     const specCounts = { '§4': 35, '§5': 29, '§6': 40, '§7': 210, '§9': 22, '§10': 15 };
     const perClause = ['§5', '§6', '§7', '§9', '§10'].reduce((sum, key) => sum + specCounts[key], 0);
-    notes.push('逐条展开合计（§5+§6+§7+§9+§10 规格条数）= ' + perClause
+    // 第 106 轮：`design-system.md:135/144` 只允许普通(400)与半粗(600)两个主要字重，
+  // 而且 135 行的角色表把"按钮"明确归到普通档。第 105 轮发现实现里有 4 处 `font-weight: 500`，
+  // 已按角色改掉；这里加一条机械守卫，防止第三档字重再悄悄回来。
+  try {
+    const css = fs.readFileSync(path.join(root, 'web', 'src', 'mockup.css'), 'utf8');
+    const weights = new Set();
+    for (const m of css.matchAll(/font-weight:\s*([0-9]+|normal|bold|bolder|lighter)/g)) weights.add(m[1]);
+    const allowed = new Set(['400', '600', 'normal']);
+    const bad = [...weights].filter((w) => !allowed.has(w));
+    if (bad.length) problems.push('mockup.css 出现规格未允许的字重：' + bad.join(', '));
+    else notes.push('mockup.css 字重集合 = ' + [...weights].sort().join('/') + '（规格只允许普通 400 与半粗 600）');
+  } catch (error) { /* 读不到就跳过，不影响其它判定 */ }
+  notes.push('逐条展开合计（§5+§6+§7+§9+§10 规格条数）= ' + perClause
       + '（§4 的 ' + specCounts['§4'] + ' 条在 §1.2 按维度主题式核销，不是逐条一一对应）');
   } catch (error) { /* NOTE 失败不影响判定 */ }
   notes.push('用例行逐块计数：' + Object.entries(counted).map(([key, value]) => `${key}=${value}`).join(' '));
