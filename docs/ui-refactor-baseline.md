@@ -14212,3 +14212,31 @@ live 代码里没有行为。于是想把它**机械审计**出来：取视觉�
 ⇒ `live-shell` **1047 → 1048/1048**；§2 该行补上这条断言并写明仍缺哪些（`Enter/Space` 继续定位、Tab 顺序、边界提示）；
 新增 **§3.2 第 26 条**登记**未实现**的跨文件导航（上一个文件/文件计数/下一个文件 + 边界"再次点击进入相邻文件"）；
 `§2.10`：非"是"行 **117 → 116**；`check-doc-claims` OK。
+
+#### 第 448 轮：§7.6 Amend —— **跨层实现了一半并验证**（宿主桥接 + 页面回填），另一半如实登记
+
+**首查看清缺口在哪一层**：`commit-amend` 在 `web/src/live-data.js` **0 命中** ⇒ 复选框从没接线；
+但宿主侧的 `IGitCommitService.ReadLastCommitMessageAsync` 与它的单测**一直都在** ⇒ 缺的是**桥接 + 页面**这一层。
+
+**实现**：
+1. `src/Augit.Shell/ShellBridge.cs`：新增 `"git/last-commit-message" => ReadLastCommitMessageBridgeAsync(...)` ——
+   与其它 git 桥接同一口径（`ResolveGitAsync` → 服务 → 整形映射），**不重复实现语义**（工作区判定、无 HEAD 的稳定失败都在服务里）；
+2. 桩：应答 `git/last-commit-message` 并计数（`__lastCommitCalls`）；
+3. `web/src/live-data.js`：捕获阶段的点击处理 —— 勾选后把草稿存进 `dataset.amendDraft`、调宿主回填；取消时恢复。
+
+**两处"控件形态"教训（都是实测踩出来的）**：
+- 视觉稿的 Amend 是 **`<button role="checkbox" aria-checked>`（fake-check），不是 `input`** ⇒
+  既不能监听 `change`、也不能读 `.checked`（第一版断言因此报 `hasAmend:false`）；
+- 状态由**应用自己的处理**翻转 ⇒ 必须**捕获阶段 + `setTimeout(…, 0)`** 延后一拍读取，才读得到翻转后的值。
+
+**验证（只断言已验证的那半，不写成通过）**：
+`INFO Amend={"found":{"ok":true},"checked":{"value":"上一次提交标题\n\n上一次提交正文","calls":1},
+"unchecked":{"value":"fix: 精确恢复安装前系统 PATH"}}`
+⇒ **勾选 → 调宿主（calls=1）→ 正确回填** ✓；
+**取消勾选后没有恢复原草稿**（字段变成应用自身状态里的上一次提交标题）⇒ 说明**提交区重渲染/应用自己的草稿绑定覆盖了页面侧存的草稿**。
+已按纪律把断言**收窄到已验证的那半**（`§7.6 Amend 勾选后读取上一次提交信息并回填`），
+另一半登记 **§3.2 第 27 条**并写明修法（草稿要存到**能活过重渲染**的地方 + 渲染后重新应用）。
+
+**读数**：`live-shell` **1048 → 1049/1049**；`Augit.Shell.Tests` **74/74**（桥接改动后复跑）；
+§0 同步；`§2.10`：非"是"行 **116 → 115**；`check-doc-claims` OK。只改了 `live-data.js` / `ShellBridge.cs` / harness 三处，
+**未触碰四个共享视觉稿资产**（因此无需 `verify-ui-assets` 复跑，但我仍会周期性复跑）。

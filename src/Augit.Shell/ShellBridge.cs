@@ -165,6 +165,7 @@ internal sealed class ShellBridge : IDisposable
             "git/status" => await ReadStatusAsync(cancellationToken),
             "git/detect" => await ReadGitDetectionAsync(cancellationToken),
             "git/history" => await ReadHistoryAsync(cancellationToken),
+            "git/last-commit-message" => await ReadLastCommitMessageBridgeAsync(cancellationToken),
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
             "git/commit" => await RunWriteAsync(ct => ReadCommitAsync(parameters, ct), cancellationToken),
@@ -569,6 +570,35 @@ internal sealed class ShellBridge : IDisposable
                 date = commit.AuthorDate.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
                 subject = commit.Subject,
             }),
+        };
+    }
+
+    /// <summary>
+    /// 读取上一次提交信息（规格 §7.6：Amend 勾选后回填提交信息）。
+    /// 语义（是否适用于工作区、无 HEAD 时的稳定失败）由 <see cref="IGitCommitService"/> 负责，
+    /// 这里只做整形与结果映射 —— 与其它 git 桥接方法同一口径。
+    /// </summary>
+    private async Task<object?> ReadLastCommitMessageBridgeAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable)
+        {
+            return new { available = false, reason = runtime.UnavailableReason };
+        }
+
+        if (repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "该目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitCommitService commit = new(runtime);
+        GitCommitMessageResult result = await commit.ReadLastCommitMessageAsync(repository, cancellationToken);
+        return new
+        {
+            available = true,
+            isRepository = true,
+            message = result.Message,
+            reason = result.ErrorMessage,
         };
     }
 

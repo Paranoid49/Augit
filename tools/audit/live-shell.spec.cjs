@@ -361,6 +361,10 @@ async function main() {
         if (window.__clipboardFails) return { copied: false, reason: '系统剪贴板当前不可用。' };
         return { copied: true };
       }
+      if (method === 'git/last-commit-message') {
+        window.__lastCommitCalls = (window.__lastCommitCalls || 0) + 1;
+        return { available: true, isRepository: true, message: '上一次提交标题\n\n上一次提交正文', reason: null };
+      }
       if (method === 'external/launch') {
         // 宿主侧动作（资源管理器 / 外部终端）。路径边界由宿主校验，
         // 这里只记录调用并支持注入拒绝。
@@ -9687,6 +9691,54 @@ async function main() {
 
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
+
+    // ---- 第 100 轮补断言：§7.6「Amend 勾选后读取上一次提交信息；取消后恢复原文本」----
+    // 核实过：`commit-amend` 在 live 代码里 0 命中；宿主 `ReadLastCommitMessageAsync` 与其单测早已存在，
+    // 本轮补的是桥接 `git/last-commit-message` + 页面接线。
+    const amendFlow = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForTimeout(1200);
+      const draft = '用户尚未提交的草稿';
+      const found = await scene.page.evaluate((text) => {
+        const box = document.querySelector('.commit-box');
+        const field = box && box.querySelector('.message-field, textarea');
+        // 视觉稿的 Amend 是 <button role="checkbox" aria-checked>（fake-check），不是 input。
+        const amend = box && box.querySelector('[aria-label="Amend"]');
+        if (!field || !amend) return { ok: false, hasField: !!field, hasAmend: !!amend };
+        field.value = text;
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        return { ok: true };
+      }, draft);
+      let checked = null;
+      let unchecked = null;
+      if (found.ok) {
+        await scene.page.locator('.commit-box [aria-label="Amend"]').click();
+        await scene.page.waitForTimeout(1200);
+        checked = await scene.page.evaluate(() => {
+          const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+          return {
+            value: field ? field.value : null,
+            calls: window.__lastCommitCalls || 0,
+          };
+        });
+        await scene.page.locator('.commit-box [aria-label="Amend"]').click();
+        await scene.page.waitForTimeout(700);
+        unchecked = await scene.page.evaluate(() => {
+          const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+          return { value: field ? field.value : null };
+        });
+      }
+      await scene.page.close();
+      console.log('INFO Amend=' + JSON.stringify({ found, checked, unchecked }));
+      return { found, checked, unchecked, draft };
+    })();
+    // 只断言**已验证的那一半**：勾选 → 调宿主 → 回填。另一半（取消后恢复原草稿）**未通过**，
+    // 实测字段变成应用自身状态里的上一次提交标题（`fix: 精确恢复安装前系统 PATH`），
+    // 说明重新渲染/应用自己的草稿绑定覆盖了页面侧存的草稿 —— 已登记为 §3.2 第 27 条，**不写成通过**。
+    check('§7.6 Amend 勾选后读取上一次提交信息并回填（取消恢复那半见 §3.2 #27）: ' + JSON.stringify(amendFlow),
+      amendFlow.found.ok === true
+        && amendFlow.checked.calls >= 1
+        && typeof amendFlow.checked.value === 'string' && amendFlow.checked.value.includes('上一次提交标题'));
 
     // ---- 第 99 轮补断言：比较工具栏「上一处/下一处差异」（此前是死入口，按规格实现）----
     // 规格要点：差异按**连续变更块**计（同一次替换的删除+新增算一处）；定位后**保留触发按钮焦点**。

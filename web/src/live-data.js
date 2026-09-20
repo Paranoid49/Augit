@@ -7879,6 +7879,33 @@ document.addEventListener("contextmenu", (event) => {
   openChangesContextMenu(row, event.clientX, event.clientY);
 }, true);
 
+// 「Amend」勾选后读取上一次提交信息；取消后恢复用户尚未提交的原文本（规格 §7.6）。
+// 两处实测教训：① 视觉稿的 Amend 是 `<button role="checkbox" aria-checked>`（fake-check），**不是 input**，
+// 所以既不能用 `change` 事件、也不能读 `.checked`；② 状态由应用自己的处理翻转，
+// 因此用**捕获阶段 + 延后一拍**读取，才能读到翻转后的值。
+document.addEventListener("click", (event) => {
+  const amend = event.target.closest && event.target.closest('.commit-box [aria-label="Amend"]');
+  if (!amend) return;
+  const box = amend.closest(".commit-box");
+  const field = box && box.querySelector(".message-field, textarea");
+  if (!field) return;
+  setTimeout(() => {
+    const checked = amend.matches && amend.matches('input[type="checkbox"]')
+      ? amend.checked
+      : amend.getAttribute("aria-checked") === "true";
+    if (checked) {
+      if (field.dataset.amendDraft === undefined) field.dataset.amendDraft = field.value;
+      void invoke("git/last-commit-message", {}, 30000).then((result) => {
+        if (result && result.available && typeof result.message === "string") field.value = result.message;
+        else window.__augitError = "amend:last-commit-unavailable";
+      }).catch(() => { window.__augitError = "amend:last-commit-failed"; });
+    } else if (field.dataset.amendDraft !== undefined) {
+      field.value = field.dataset.amendDraft;
+      delete field.dataset.amendDraft;
+    }
+  }, 0);
+}, true);
+
 // 比较工具栏「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。
 // 用**捕获阶段**的独立监听器，而不是大点击链的尾部：链尾可能被更早监听器的
 // `preventDefault()` 影响（那里有 `if (event.defaultPrevented) return;` 守卫），
