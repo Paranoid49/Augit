@@ -9407,6 +9407,97 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 68 轮补断言：§7.8 两个图标入口各自只做一件事、§7.9 Blame 头部与关闭、§7.16 终端"更多"菜单 ----
+    const r68 = await (async () => {
+      // §7.8 筛选栏右侧"显示/隐藏提交详情"与"搜索提交历史"两个图标入口，各自只做一件事
+      const hist = await openScene('scene=git-history&theme=dark');
+      await hist.page.waitForTimeout(800);
+      const entries = await hist.page.evaluate(() => {
+        const details = document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+        const search = document.querySelector('[aria-label="搜索提交"]');
+        return {
+          details: !!details, detailsLabel: details ? details.getAttribute('aria-label') : null,
+          search: !!search,
+          inputs: document.querySelectorAll('.history-search input, .commit-search input').length,
+        };
+      });
+      const afterToggle = await (async () => {
+        const before = await hist.page.evaluate(() => document.querySelectorAll('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').length);
+        await hist.page.locator('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').first().click();
+        await hist.page.waitForTimeout(400);
+        return await hist.page.evaluate((beforeCount) => {
+          const details = document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+          return {
+            beforeCount,
+            labelAfter: details ? details.getAttribute('aria-label') : null,
+            searchInputs: document.querySelectorAll('.history-search input, .commit-search input').length,
+          };
+        }, before);
+      })();
+      // 实测（第 68 轮）：两个入口都在（`显示提交详情` / `搜索提交`），但**点"显示提交详情"没有任何效果** ——
+      // 标签不翻转、也不出现详情面板；`grep -n "显示提交详情" web/src/live-data.js` 只有 commitDetails 的状态逻辑，
+      // **没有对应点击绑定**（它落在 `guardUnwiredNavigation()` 的"其余未接线"兜底里）。
+      // 因此这条断言**把缺口钉住**（入口在但无效果），并把"搜索提交"的实际效果一并记进诊断，
+      // 不把未接线写成"已实现两个入口各自只做一件事"。
+      check('§7.8 缺口钉住：显示提交详情入口无绑定（点击无效果）: ' + JSON.stringify({ entries, afterToggle }),
+        entries.details === true && entries.search === true
+          && afterToggle.labelAfter === entries.detailsLabel
+          && afterToggle.searchInputs === entries.inputs);
+      await hist.page.close();
+
+      // §7.9 Blame 顶部右侧"n 行归属"与关闭入口；关闭按钮可聚焦并用 Enter 关闭
+      const blame = await openScene('scene=blame&theme=dark');
+      await blame.page.waitForTimeout(900);
+      const blameHeader = await blame.page.evaluate(() => {
+        const close = document.querySelector('[aria-label="关闭 Blame"]');
+        const header = close ? close.closest('.document-toolbar, .toolbar, header, .blame-header') : null;
+        const text = header ? header.textContent.replace(/\s+/g, ' ').trim() : null;
+        return { hasClose: !!close, text, attrCount: document.querySelectorAll('[aria-label="Blame 只读正文"]').length };
+      });
+      const closedByEnter = await (async () => {
+        await blame.page.evaluate(() => document.querySelector('[aria-label="关闭 Blame"]').focus());
+        await blame.page.keyboard.press('Enter');
+        await blame.page.waitForTimeout(500);
+        return await blame.page.evaluate(() => ({
+          blameCloseStill: document.querySelectorAll('[aria-label="关闭 Blame"]').length,
+          bodyStill: document.querySelectorAll('[aria-label="Blame 只读正文"]').length,
+        }));
+      })();
+      check('§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭: ' + JSON.stringify({ blameHeader, closedByEnter }),
+        blameHeader.hasClose === true && !!blameHeader.text && /行归属/.test(blameHeader.text)
+          && closedByEnter.blameCloseStill === 0);
+      await blame.page.close();
+
+      // §7.16 标题栏"更多"菜单：条文要求提供切换配置与外部终端入口
+      const termMore = await openScene('scene=terminal&theme=dark');
+      await termMore.page.waitForSelector('.terminal-header', { timeout: 15000 });
+      await termMore.page.waitForTimeout(500);
+      // 注意：`更多操作` 是 `<button>`，而"未接线兜底"只记 `a[href$=".html"]` 链接，
+      // 所以这里不能用 `__augitUnwiredLabel` 判断（上一版就是因此假失败）——
+      // 改用**DOM 签名对比**：点击前后 body 长度 + 覆盖层数 + 任何新弹层都不变，即"入口在但无效果"。
+      const more = await (async () => {
+        const signature = () => termMore.page.evaluate(() => ([
+          document.body.innerHTML.length,
+          document.querySelectorAll('[data-augit-overlay]').length,
+          document.querySelectorAll('.popover, .context-menu, .menu-item').length,
+        ].join('|')));
+        const before = await signature();
+        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.waitForTimeout(500);
+        const after = await signature();
+        const menus = await termMore.page.evaluate(() => {
+          const overlay = document.querySelector('[data-augit-overlay]');
+          return { overlay: !!overlay, text: overlay ? overlay.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) : null };
+        });
+        return { before, after, menus };
+      })();
+      check('§7.16 缺口钉住：终端"更多"入口当前无效果（不提供切换配置/外部终端菜单）: ' + JSON.stringify(more),
+        more.before === more.after && more.menus.overlay === false);
+      await termMore.page.close();
+
+      return { entries, afterToggle, blameHeader, closedByEnter, more };
+    })();
+
     // ---- 第 67 轮补断言：§7.2 查找条随字高扩展、§7.16 终端行高 = 等宽字号 ×1.7 ----
     // 用 URL 播种字号（`code-font-size=`，桩在 boot 时读，见 settings/read 的注释），
     // 两次启动对比即可，不需要走设置对话框写盘。
