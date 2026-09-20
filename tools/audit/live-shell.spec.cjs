@@ -9407,6 +9407,37 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 73 轮：把分支弹层的**实测几何**钉成可复跑证据（供 §1.3 的 L 行与 PyCharm 对照）----
+    // 动机：PyCharm 侧已量到 Branches 弹出层 763x699 物理 = 436.0x399.4 CSS（按边框/阴影定位，3 行 3 列一致）；
+    // 要对照就必须有 Augit 侧的**实测 DOM 尺寸**，而不是令牌名（`--augit-popover` 之类在 mockup.css 里根本不存在）。
+    const branchBox = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForTimeout(700);
+      await scene.page.locator('.titlebar .branch-chip').click();
+      await scene.page.waitForTimeout(500);
+      const out = await scene.page.evaluate(() => {
+        const pop = document.querySelector('[data-augit-overlay] .popover');
+        const search = pop ? pop.querySelector('input.search-field') : null;
+        const items = pop ? [...pop.querySelectorAll('.menu-item')] : [];
+        const heights = items.map((i) => +i.getBoundingClientRect().height.toFixed(1));
+        const box = pop ? pop.getBoundingClientRect() : null;
+        return {
+          width: box ? +box.width.toFixed(1) : null,
+          height: box ? +box.height.toFixed(1) : null,
+          searchHeight: search ? +search.getBoundingClientRect().height.toFixed(1) : null,
+          itemCount: items.length,
+          firstRowHeight: heights.length ? heights[0] : null,
+          rowPitches: heights.slice(0, 4),
+        };
+      });
+      await scene.page.keyboard.press('Escape');
+      await scene.page.close();
+      console.log('INFO 分支弹层几何=' + JSON.stringify(out));
+      return out;
+    })();
+    check('§7.10 分支弹层含搜索框且几何可测（供 §1.3 与 PyCharm 对照）: ' + JSON.stringify(branchBox),
+      branchBox.width > 150 && branchBox.height > 100 && branchBox.searchHeight > 20 && branchBox.itemCount >= 3);
+
     // ---- 第 69 轮补断言：§7.14 三栏与"仅中央可编辑"、§7.2 文档工具栏 Tab 顺序（§7.8 那条未成） ----
     const r69 = await (async () => {
       // §7.14 中央显示可编辑、左右始终只读（DOM 事实：`.conflict-column.result` 里才有 contenteditable）
