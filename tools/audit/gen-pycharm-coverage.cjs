@@ -75,10 +75,10 @@ const ENV_BLOCKED = new Map([
 //  PRECONDITION：形态在，但当前环境不满足前提（写明缺什么前提）
 //  AUGIT_ONLY：PyCharm 没有一一对应的面（写明差异，不算"欠采"）
 const UNCOVERED = new Map(Object.entries({
-  blame: ['RECOVERABLE', 'PyCharm 的 Annotate 视图在 VCS 弹出菜单里有入口（`Annotate`），可直接采'],
-  'file-history': ['RECOVERABLE', 'VCS 弹出菜单的 `Show History` 即文件历史入口'],
-  'repository-search': ['RECOVERABLE', "PyCharm 的 `Find in Path`（Ctrl+Shift+F）弹层；尚未采"],
-  'workspace-open': ['RECOVERABLE', 'PyCharm 的 `File | Open` 项目选择对话框；尚未采'],
+  blame: ['MEDIUM_BLOCKED', '入口可达（VCS 弹出菜单能过滤出 `Annotate`，证据 pycharm-annotate-r95b.png），但**条目无法激活**：Enter 无效、鼠标点击只 hover → 需人工一次点击或换其它入口'],
+  'file-history': ['MEDIUM_BLOCKED', '同上：`Show History` 能让弹出菜单过滤到该条目，但条目激活在合成输入下不可达'],
+  'repository-search': ['MEDIUM_BLOCKED', '`Find in Path` 弹层同理：能打开/输入，弹层内确认动作不可达'],
+  'workspace-open': ['RECOVERABLE', '`File | Open` 是独立对话框（非弹出菜单），**未试**；对话框类此前有成功先例（Confirm Exit 能点）'],
   'image-error': ['RECOVERABLE', '需先造一张损坏图片样本，再看 PyCharm 图片查看器的报错呈现；尚未采'],
   'changes-context-menu': ['RECOVERABLE', 'Git 工具窗里对改动文件的右键菜单；需要工作区先有改动'],
   'operation-progress': ['RECOVERABLE', 'PyCharm 的后台任务进度（状态栏）+ 通知气泡；需在做一次真实操作时采'],

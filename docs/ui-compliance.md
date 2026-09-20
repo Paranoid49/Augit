@@ -549,7 +549,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |
 | --- | --- | --- |
-| `blame` | 未对照（RECOVERABLE） | PyCharm 的 Annotate 视图在 VCS 弹出菜单里有入口（`Annotate`），可直接采 |
+| `blame` | 未对照（MEDIUM_BLOCKED） | 入口可达（VCS 弹出菜单能过滤出 `Annotate`，证据 pycharm-annotate-r95b.png），但**条目无法激活**：Enter 无效、鼠标点击只 hover → 需人工一次点击或换其它入口 |
 | `branches` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
 | `changes-context-menu` | 未对照（RECOVERABLE） | Git 工具窗里对改动文件的右键菜单；需要工作区先有改动 |
 | `clone` | 未对照（RECOVERABLE） | PyCharm 用 `File | New | Project from Version Control` 向导，形态与 Augit 的 Clone 对话框不同 |
@@ -561,7 +561,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `diff-boundary` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `diff-status` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `diff-loading` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
-| `file-history` | 未对照（RECOVERABLE） | VCS 弹出菜单的 `Show History` 即文件历史入口 |
+| `file-history` | 未对照（MEDIUM_BLOCKED） | 同上：`Show History` 能让弹出菜单过滤到该条目，但条目激活在合成输入下不可达 |
 | `file-limit` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `git-compare` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `git-compare-empty` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
@@ -588,7 +588,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `quick-open-empty` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `remote` | 未对照（RECOVERABLE） | `Git | Manage Remotes` 对话框（不在 VCS 弹出菜单里，需从 Git 菜单进） |
 | `repository-init` | 未对照（RECOVERABLE） | PyCharm 用 `Enable Version Control Integration`，形态与 Augit 的初始化页面不同 |
-| `repository-search` | 未对照（RECOVERABLE） | PyCharm 的 `Find in Path`（Ctrl+Shift+F）弹层；尚未采 |
+| `repository-search` | 未对照（MEDIUM_BLOCKED） | `Find in Path` 弹层同理：能打开/输入，弹层内确认动作不可达 |
 | `reset` | 未对照（PRECONDITION） | PyCharm 的 `Rollback…` 需要本地改动；当前树干净（与 rollback 同因） |
 | `rollback` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Rollback 需要本地改动；当前工作区干净 → PyCharm 禁用该动作 |
 | `search-limited` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
@@ -602,7 +602,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `terminal` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `terminal-close` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `text-viewer` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `workspace-open` | 未对照（RECOVERABLE） | PyCharm 的 `File | Open` 项目选择对话框；尚未采 |
+| `workspace-open` | 未对照（RECOVERABLE） | `File | Open` 是独立对话框（非弹出菜单），**未试**；对话框类此前有成功先例（Confirm Exit 能点） |
 | `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径） |
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
