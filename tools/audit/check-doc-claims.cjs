@@ -96,6 +96,15 @@ if (!twoSeven || !twoSix || !oneTwo || !twoEight || !five || !six) {
       problems.push(`§2.0 ${key} 的用例行 ${row.rows} ≠ 逐块计数 ${counted[key]}`);
     }
   }
+  try {
+    // 第 105 轮：把"有多少条规格有逐条行"变成**脚本可核**的数字。
+    // §5/§6/§7/§9/§10 是逐条展开（条数=应有的逐条行数）；§4 属于"主题式核销"（§1.2 按维度成行，不是逐条一一对应），
+    // 因此不能把 §4 的行数当成"有逐条行的条文数" —— 之前那个手写的 336 就是这么来的（既算不出也不准）。
+    const specCounts = { '§4': 35, '§5': 29, '§6': 40, '§7': 210, '§9': 22, '§10': 15 };
+    const perClause = ['§5', '§6', '§7', '§9', '§10'].reduce((sum, key) => sum + specCounts[key], 0);
+    notes.push('逐条展开合计（§5+§6+§7+§9+§10 规格条数）= ' + perClause
+      + '（§4 的 ' + specCounts['§4'] + ' 条在 §1.2 按维度主题式核销，不是逐条一一对应）');
+  } catch (error) { /* NOTE 失败不影响判定 */ }
   notes.push('用例行逐块计数：' + Object.entries(counted).map(([key, value]) => `${key}=${value}`).join(' '));
 }
 
