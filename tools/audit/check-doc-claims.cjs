@@ -102,7 +102,39 @@ if (!twoSeven || !twoSix || !oneTwo || !twoEight || !five || !six) {
     // 因此不能把 §4 的行数当成"有逐条行的条文数" —— 之前那个手写的 336 就是这么来的（既算不出也不准）。
     const specCounts = { '§4': 35, '§5': 29, '§6': 40, '§7': 210, '§9': 22, '§10': 15 };
     const perClause = ['§5', '§6', '§7', '§9', '§10'].reduce((sum, key) => sum + specCounts[key], 0);
-    // 第 106 轮：`design-system.md:135/144` 只允许普通(400)与半粗(600)两个主要字重，
+    // 第 107 轮：规格里"给了死值"的视觉条款也做成机械核对 —— 尺寸令牌的**兜底值**必须等于规格（§4.2 尺寸与密度），
+  // 主题底色必须满足"浅色白面板 / 深色非纯黑"（§4.4 颜色）。运行时这些令牌会被 mockup.js 按实测字高覆盖，
+  // 但兜底值本身也是规格的一部分（改错会让首帧或异常路径不符合规格）。
+  try {
+    const css = fs.readFileSync(path.join(root, 'web', 'src', 'mockup.css'), 'utf8');
+    const tokenOf = (name) => {
+      const m = css.match(new RegExp('--augit-' + name + ':\\s*([^;]+);'));
+      return m ? m[1].trim() : null;
+    };
+    const wanted = {
+      'title-height': '44px',
+      'tab-height': '42px',
+      'tree-height': '27px',
+      'status-height': '22px',
+      'project-header-height': '39px',
+      'document-toolbar-height': '36px',
+      'side-width': 'clamp(300px, 22vw, 360px)',
+      'bottom-height': 'clamp(180px, 31vh, 305px)',
+    };
+    let checked = 0;
+    for (const [name, value] of Object.entries(wanted)) {
+      const actual = tokenOf(name);
+      if (actual === value) { checked += 1; continue; }
+      problems.push('mockup.css 的 --augit-' + name + ' 兜底值 ' + actual + ' ≠ 规格 ' + value);
+    }
+    const panels = [...css.matchAll(/--augit-panel:\s*(#[0-9a-fA-F]{6})/g)].map((m) => m[1].toLowerCase());
+    if (!panels.includes('#ffffff')) problems.push('浅色主题 --augit-panel 不是 #ffffff（规格 §4.4）');
+    if (panels.includes('#000000')) problems.push('深色主题 --augit-panel 用了纯黑 #000000（规格 §4.4 明确禁止）');
+    if (checked === Object.keys(wanted).length && !panels.includes('#000000') && panels.includes('#ffffff')) {
+      notes.push('mockup.css 规格固定值核对通过：尺寸令牌 ' + checked + ' 项、主题面板 ' + panels.join(' / '));
+    }
+  } catch (error) { /* 读不到就跳过，不影响其它判定 */ }
+  // 第 106 轮：`design-system.md:135/144` 只允许普通(400)与半粗(600)两个主要字重，
   // 而且 135 行的角色表把"按钮"明确归到普通档。第 105 轮发现实现里有 4 处 `font-weight: 500`，
   // 已按角色改掉；这里加一条机械守卫，防止第三档字重再悄悄回来。
   try {
