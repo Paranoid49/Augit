@@ -9407,6 +9407,78 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 69 轮补断言：§7.14 三栏与"仅中央可编辑"、§7.2 文档工具栏 Tab 顺序（§7.8 那条未成） ----
+    const r69 = await (async () => {
+      // §7.14 中央显示可编辑、左右始终只读（DOM 事实：`.conflict-column.result` 里才有 contenteditable）
+      const conflict = await openScene('scene=conflict-resolver&theme=dark');
+      await conflict.page.waitForSelector('.conflict-columns .conflict-column', { timeout: 10000 });
+      await conflict.page.waitForTimeout(400);
+      const panes = await conflict.page.evaluate(() => {
+        const columns = [...document.querySelectorAll('.conflict-columns .conflict-column')];
+        return {
+          count: columns.length,
+          titles: columns.map((c) => ((c.querySelector('.conflict-column-title') || {}).textContent || '').trim()),
+          editable: columns.map((c) => !!c.querySelector('[contenteditable]')),
+          editablesTotal: document.querySelectorAll('.conflict-columns [contenteditable]').length,
+          resultIsMiddle: !!(columns[1] && columns[1].classList.contains('result')),
+        };
+      });
+      check('§7.14 三栏结构、仅中央可编辑、左右只读: ' + JSON.stringify(panes),
+        panes.count === 3 && panes.editablesTotal === 1 && panes.editable[1] === true
+          && panes.editable[0] === false && panes.editable[2] === false
+          && panes.resultIsMiddle === true && /可编辑/.test(panes.titles[1] || ''));
+      await conflict.page.close();
+
+      // §7.2 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活并保留按钮
+      const toolbar = await openScene('scene=text-viewer&theme=dark');
+      await toolbar.page.waitForSelector('.document-toolbar', { timeout: 10000 });
+      await toolbar.page.waitForTimeout(400);
+      const order = await toolbar.page.evaluate(async () => {
+        const buttons = [...document.querySelectorAll('.document-toolbar button')]
+          .filter((b) => !b.disabled && b.getBoundingClientRect().width > 0);
+        const xs = buttons.map((b) => Math.round(b.getBoundingClientRect().x));
+        const nonDecreasing = xs.every((x, i) => i === 0 || x >= xs[i - 1]);
+        buttons[0].focus();
+        const seen = [document.activeElement.getAttribute('aria-label')];
+        for (let i = 0; i < buttons.length - 1; i += 1) {
+          await new Promise((r) => setTimeout(r, 60));
+          const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+          document.activeElement.dispatchEvent(event);
+          seen.push(document.activeElement ? document.activeElement.getAttribute('aria-label') : null);
+        }
+        return { labels: buttons.map((b) => b.getAttribute('aria-label')), xs, nonDecreasing, seen };
+      });
+      const wrapToggle = await (async () => {
+        const before = await toolbar.page.evaluate(() => {
+          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          return { pressed: b ? b.getAttribute('aria-pressed') : null, inToolbar: !!b };
+        });
+        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').click();
+        await toolbar.page.waitForTimeout(250);
+        const after = await toolbar.page.evaluate(() => {
+          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          return {
+            pressed: b ? b.getAttribute('aria-pressed') : null,
+            stillInToolbar: !!(b && b.closest('.document-toolbar')),
+            focusInToolbar: !!(document.activeElement && document.activeElement.closest('.document-toolbar')),
+          };
+        });
+        return { before, after };
+      })();
+      check('§7.2 文档工具栏按可见顺序参与 Tab 且切换显示选项保留按钮: ' + JSON.stringify({ order, wrapToggle }),
+        order.nonDecreasing === true && order.labels.length >= 3
+          && wrapToggle.before.inToolbar === true && wrapToggle.after.stillInToolbar === true
+          && wrapToggle.after.focusInToolbar === true);
+      await toolbar.page.close();
+
+      // §7.8「字号增大时各部位按字高扩展、图标不变」这一条**本轮没能断言**：
+      // 实时 `scene=git-history` 里 `.history-toolbar` 等待超时（两次尝试：先只等选择器、再先等
+      // `__augitGitReady`），说明该场景下工具条要么尚未渲染要么不可见；不再继续猜选择器，
+      // 如实记为未断言并在 §2 里写明。
+
+      return { panes, order, wrapToggle };
+    })();
+
     // ---- 第 68 轮补断言：§7.8 两个图标入口各自只做一件事、§7.9 Blame 头部与关闭、§7.16 终端"更多"菜单 ----
     const r68 = await (async () => {
       // §7.8 筛选栏右侧"显示/隐藏提交详情"与"搜索提交历史"两个图标入口，各自只做一件事
