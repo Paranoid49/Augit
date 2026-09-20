@@ -232,6 +232,8 @@ Augit 侧 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png` 为 **28
 | 主按钮底色 | `56,113,225` | `rgb(56,113,225)` | **0** | **逐值相同** |
 | 悬停反馈（工具按钮条） | 变化单元聚合 `208,211,216 → 217,219,224` | `--augit-hover: #f1f2f4` | 明显 | 两侧都有反馈；取值不同（PyCharm 更暗），按 design-system 实现 |
 | 禁用态（前置条件未满足） | 整块灰态（Color Scheme 色块、Sync with OS 时的 Scheme 下拉） | 同手法，由 `§7.17 … 时可编辑` 断言覆盖 | — | 手法一致：禁用并保留位置 |
+| Search Everywhere 浮层（↔ Augit `quick-open`/`quick-open-empty`/`search-limited`） | 顶部**页签 `All / Classes / Files / Symbols / Actions / Text`** + 查询框（提示 `Type / to see commands`）+ `Include non-project items` 复选；结果行 = 类型图标 + 名称 + 工作区相对路径；底部提示 `Open in Right Split`。**两态已采**：空查询（`search-everywhere-empty.png`）与有结果（`search-everywhere-results.png`） | Augit 快速打开：单一浮层（无分类页签）+ 结果行显示文件名与工作区相对路径、上限 100 项 | — | **面已对照**：结构对应（查询框/结果行/路径提示）；**差异如实记**：PyCharm 有 6 个分类页签，Augit 按产品规格只做文件名搜索 |
+| 文件/编辑器右键菜单（↔ Augit `project-context-menu`） | `Refactor This…`(Ctrl+Alt+Shift+T)、`Rename…`(Shift+F6)、`Move File…`(F6)、`Copy File…`(F5)、`Safe Delete…`(Alt+Delete)；快捷键右对齐 | Augit 项目树右键菜单只列产品规格已实现的动作 | — | **面已对照**；**差异如实记**：PyCharm 首组是重构动作，Augit 不提供重构（产品规格禁止），菜单项集合因此不同 |
 | Diff 视图（↔ Augit `commit-diff`/`diff-loading`/`diff-status`/`diff-boundary`/`git-compare*`/`history-diff-*`） | 编辑器内并排 diff：顶部工具条（上/下差异、刷新）+ 右侧 `N differences` 标签；列头 `Local`；左=基线版本、右=本地；行号槽 + 变更行整行浅色底 + 差异分隔箭头。**两态均已采集**：有差异（`diff-viewer-ctrlD-file.png`，显示 `1 difference`）与无差异（`readme-buffer-after-undo.png`，显示 `Contents are identical`） | Augit 的 diff 为自绘双栏/单栏 + 差异导航，页内横幅显示差异数 | — | **面已对照**（结构一一对应：工具条/列头/行号槽/差异底色）；Swing↔Chromium 不判逐像素 |
 | Terminal 工具窗（↔ Augit `terminal` / `terminal-close`） | 底部工具窗 tabs `Terminal / Local`，真实 PowerShell 会话（`Windows PowerShell` banner + `PS D:\github\Augit>` 提示符）；面板白、chrome `233,234,238` | Augit 终端为 xterm.js + ConPTY，同样在底部工具窗、可拖动 | — | **面已对照**（证据 `toolwindow-terminal2.png`）；两侧都"真起一个 shell"这点一致 |
 | Git Log 工具窗（↔ Augit `git-history`） | 底部工具窗高 499 物理 → **285.1 CSS**；面板白 `255,255,255`、chrome `233,234,238`；tabs `Git / Log / Console`、分支过滤 + 文本过滤两栏、提交列表含图标记号、右侧 Commit details | Augit 底部工具窗高度用户可拖动（无固定令牌） | — | **面已对照**（证据 `toolwindow-gitlog.png`）：结构对应，尺寸按可拖动处理 |
@@ -398,7 +400,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 **口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；
 本表因此给出**每个 Augit 页面**的 PyCharm 侧状态，而不是硬凑一一对应。
-`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗、`G` = Diff 视图（七面均已在 §1.3 有实测值/证据图）。
+`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗、`G` = Diff 视图、`H` = Search Everywhere、`I` = 文件/编辑器右键菜单（九面均已在 §1.3 有实测值/证据图）。
 
 | 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |
 | --- | --- | --- |
@@ -434,17 +436,17 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `markdown-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `operation-progress` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `operation-result` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `project-context-menu` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `project-context-menu` | **面级已对照** | I（文件/编辑器右键菜单）——见 §1.3 逐面表的实测值与判读 |
 | `push` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
 | `push-no-remote` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
-| `quick-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `quick-open-empty` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `quick-open` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
+| `quick-open-empty` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `remote` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
 | `repository-init` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
 | `repository-search` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `reset` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
 | `rollback` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
-| `search-limited` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `search-limited` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `settings` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-save-failure` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-dirty` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
@@ -458,7 +460,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `workspace-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `worktrees` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
 
-> 本轮读数：**27/55 个页面**落在已实测的面上；其余 28 个页面
+> 本轮读数：**31/55 个页面**落在已实测的面上；其余 24 个页面
 > 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
 ### 2.0 条文穷举进度（⑨，如实带分母）
 

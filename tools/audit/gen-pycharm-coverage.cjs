@@ -34,6 +34,10 @@ const TERMINAL_TW = ['terminal', 'terminal-close'];
 //  G = Diff 视图（已采集两态：'1 difference' 与 'Contents are identical'；见 §1.3）
 const DIFF_VIEW = ['commit-diff', 'diff-loading', 'diff-status', 'diff-boundary', 'git-compare',
                    'git-compare-empty', 'history-diff-loading', 'history-diff-failure', 'history-diff-cancelled'];
+//  H = Search Everywhere 浮层（两态：空查询 + 有结果；tabs All/Classes/Files/Symbols/Actions/Text）
+const SEARCH_EVERYWHERE = ['quick-open', 'quick-open-empty', 'search-limited'];
+//  I = 文件/编辑器右键菜单（Refactor This…/Rename…/Move File…/Copy File…/Safe Delete…）
+const CONTEXT_MENU = ['project-context-menu'];
 const covered = new Map();
 for (const s of CHROME_EDITOR) covered.set(s, 'A+B（主窗口 chrome / 编辑器标签行）');
 for (const s of SETTINGS) covered.set(s, 'C（设置对话框）');
@@ -41,6 +45,8 @@ for (const s of GIT_LOG) covered.set(s, 'D（Git Log 工具窗）');
 for (const s of COMMIT_TW) covered.set(s, 'E（Commit 工具窗）');
 for (const s of TERMINAL_TW) covered.set(s, 'F（Terminal 工具窗）');
 for (const s of DIFF_VIEW) covered.set(s, 'G（Diff 视图）');
+for (const s of SEARCH_EVERYWHERE) covered.set(s, 'H（Search Everywhere）');
+for (const s of CONTEXT_MENU) covered.set(s, 'I（文件/编辑器右键菜单）');
 
 const reason = (scene) => {
   if (/^(commit-diff|diff-|history-diff|git-compare)/.test(scene)) return 'PyCharm Diff 视图未采集';
@@ -57,7 +63,7 @@ out.push('### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；�
 out.push('');
 out.push('**口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；');
 out.push('本表因此给出**每个 Augit 页面**的 PyCharm 侧状态，而不是硬凑一一对应。');
-out.push('`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗、`G` = Diff 视图（七面均已在 §1.3 有实测值/证据图）。');
+out.push('`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗、`G` = Diff 视图、`H` = Search Everywhere、`I` = 文件/编辑器右键菜单（九面均已在 §1.3 有实测值/证据图）。');
 out.push('');
 out.push('| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |');
 out.push('| --- | --- | --- |');

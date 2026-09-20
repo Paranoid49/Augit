@@ -13207,3 +13207,27 @@ Shelf / Worktree / Search Everywhere），做法是：`Ctrl+Shift+A` → **点�
 D 其它部分覆盖 25 条**（合计 **138**）。这与 §2.0 的"用例行 406、条文 351 中 336 条有条文级行"
 互为分母：**A 类是下一批补断言的队列**，C 类要么补断言要么交用户裁决 —— 都不写成通过。
 §2.0 的"当前事实"已补上这条去向说明。
+
+#### 第 400 轮：Search Everywhere（两态）+ 文件右键菜单采到 → 逐页覆盖 27 → 31/55
+
+**先修一个测量错误**：之前点菜单栏用了 `y=40`，而实测**菜单栏文字带在 `y≈12..32`**（`screen-baseline.png`
+逐行统计深色像素：y=28 峰值 16，y≥36 归零）—— 所以那一串"点 Git 菜单"的点击其实都落在工具栏上，
+难怪什么都没打开。**教训：点任何东西前先用同一张整屏图量出目标带，别按预览图的目测坐标。**
+
+**采到的两个面**（证据在 `artifacts/pycharm-16-final/`）：
+1. **Search Everywhere**：
+   - 空查询态 `search-everywhere-empty.png`；
+   - 有结果态 `search-everywhere-results.png` —— 顶部页签 `All / Classes / Files / Symbols / Actions / Text`、
+     查询框（提示 `Type / to see commands`）、`Include non-project items` 复选、结果行 = 类型图标 + 名称 +
+     工作区相对路径、底部 `Open in Right Split`。
+   - **可复现的触发方式**：点工具栏放大镜（物理 `(2279,34)`）再输入查询 ✓。
+   - **诚实标注**：空查询态那张的出现**不能确定是哪次操作触发的**（当时点的是菜单栏区域，
+     而此前"连发两次 Shift"的尝试也可能延迟生效），因此只把"点放大镜 + 输入"记为配方。
+2. **文件/编辑器右键菜单**（另一次尝试的产物）：`Refactor This…`(Ctrl+Alt+Shift+T)、`Rename…`(Shift+F6)、
+   `Move File…`(F6)、`Copy File…`(F5)、`Safe Delete…`(Alt+Delete)：
+   与 Augit 的 `project-context-menu` 面级对照，并**如实记差异**——PyCharm 首组是重构动作，Augit 按产品规格不提供重构。
+
+**覆盖读数**：§1.3 逐面表新增 `H = Search Everywhere`、`I = 文件/编辑器右键菜单` 两行；
+`§1.6` 重生成 → **31/55 页**落在已实测面上（新增覆盖 `quick-open`/`quick-open-empty`/`search-limited`/
+`project-context-menu` 四页），其余 **24 页**逐行写明未采集原因。
+守卫复跑：`DOC_CLAIMS_OK`、`INTERACTIONS_BASELINE_OK`。
