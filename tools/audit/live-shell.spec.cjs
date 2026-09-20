@@ -10184,6 +10184,8 @@ async function main() {
           files: [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path),
           active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
           hit: window.__diffFileHit || 0,
+          hasNextButton: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
+          hasPrevButton: !!document.querySelector('.diff-toolbar [aria-label="上一个文件"]'),
         };
       });
       const before = await read();
@@ -10206,11 +10208,15 @@ async function main() {
     // 只断言**实测成立**的部分：点「下一个文件」会（在尚无 diff 时）落到第一个改动文件 —— 选中 Changes 行
     // 并加载它的 diff。另两处**未成立**并已记入 §3.2 #26：① 计数标签在重渲染后消失
     // （新变体工具条没有 `.file-status-modified`）；② 跨文件切换后文件导航按钮本身消失。
-    check('§7.8 工作区 Diff 的「下一个文件」选中并加载相邻改动文件: ' + JSON.stringify(diffFiles),
+    // 第 114 轮起收紧：文件导航现在是**工作区 Diff 视图内**的导航（`liveDiffView` 自己渲染计数），
+    // 所以要求"路径变成第一个改动文件 + 计数显示 1/N + 导航按钮仍在"（第 102 轮时工具条会整个变样）。
+    check('§7.8 工作区 Diff 的「下一个文件」切到相邻改动文件且工具条保持文件导航与计数: ' + JSON.stringify(diffFiles),
       diffFiles.before.files.length >= 2
         && diffFiles.afterNext.hit >= 1
         && diffFiles.afterNext.selected === diffFiles.before.files[0]
-        && diffFiles.afterNext.path === diffFiles.before.files[0]);
+        && diffFiles.afterNext.path === diffFiles.before.files[0]
+        && diffFiles.afterNext.count === '1/' + diffFiles.before.files.length + ' 个文件'
+        && diffFiles.afterNext.hasNextButton === true);
 
     // ---- 第 100 轮补断言：§7.6「Amend 勾选后读取上一次提交信息；取消后恢复原文本」----
     // 核实过：`commit-amend` 在 live 代码里 0 命中；宿主 `ReadLastCommitMessageAsync` 与其单测早已存在，

@@ -8026,9 +8026,14 @@ function moveDiffFile(direction) {
     row.classList.add("selected");
     row.setAttribute("aria-selected", "true");
   }
-  const count = document.querySelector(".diff-toolbar .file-status-modified");
-  if (count) count.textContent = `${next + 1}/${files.length} 个文件`;
-  void openChangeDiff(path);
+  // 规格 §441：文件箭头是**工作区 Diff 视图内**的导航 —— 不能像 `openChangeDiff` 那样另开比较标签
+  // （那会切到 comparison 变体，工具条上的文件导航与计数随之消失，第 102 轮实测就是这个现象）。
+  // 现在 `liveDiffView` 自己渲染计数（`live.status.files` + `diff.path`），这里只切换装载目标。
+  live.followChanges = true;
+  live.selectedChangePath = path;
+  void loadDiff(path)
+    .then(() => refreshAfterEvent("editorContent", "statusbar"))
+    .catch(() => null);
   return { path, index: next, total: files.length };
 }
 
