@@ -49,6 +49,29 @@
 > 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 745 个 `check(...)` 调用点（另有 `csCheck` 包裹的 2 条会话断言，不计入该调用点数），
 > 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
 
+### 0.2 交接摘要（2026-09-21，第 89 轮收敛时写）
+
+**闸门（离开时的实测值）**：`live-shell` **1039/1039（未执行 0 项）**、`Augit.Shell.Tests` 74/74、
+`Augit.Core.Tests` 86/86、真机巡检 54/54（干净仓库）+ `diff-boundary` 1/1（含改动工作区）、
+打包 zip 2,795,619 B / setup 4,386,825 B（`sha256sum -c` 两项 OK、32 条目 0 可疑、包内 `live-data.js` 与仓库逐字节相同）、
+`verify-ui-assets` PASS、`verify-script-encoding` PASS（13 个脚本）、
+`check-interactions` `surfaces=7 jumps=4 feedback=8 sequences=6 gaps=4`、`check-doc-claims` `DOC_CLAIMS_OK`。
+
+**覆盖率口径（全部带分母）**：
+- **⑦⑧ PyCharm 对照**：**33/55 面级已对照** + **5 页仅入口级证据** + **17 页未对照**；
+  17 页已三分类（RECOVERABLE 10 / PRECONDITION 6 / AUGIT_ONLY 1），每页写明入口或前提；见 §1.6。
+- **④ 同引擎像素对照**：**42/55 场景**已有本轮口径（`layoutPercent`）的实测证据；6 个场景两次独立运行 **Δ ≤ 0.01**；
+  唯一 > 2.0 的是 `repository-search`（2.08，归因 live 数据状态，非布局错位）。
+- **⑨⑩ 条文穷举**：351 条里 **125 条非"是"**，逐行结论见 §2.10（A 88 / C 13 / D 20 / B 4）。
+
+**待用户裁决（§3.4）**：#19 查找条是否随字高扩展（改基线 / 改规格）｜#20 终端行高口径（配置 1.7 / 渲染 22px）｜
+#21 `显示提交详情` 与终端 `更多操作` 两个空按钮（接线 / 移除）｜#23 树 `Enter` 的默认动作（接线 / 删要求）｜
+#24 PyCharm 残留界面导致采集暂停（你按 Esc / 授权我重启）。
+
+**下一步（无阻塞部分）**：④ 继续补 13 个场景；§2.10 的 A 类 88 行按"严格匹配 + 读断言源码"逐条核实
+（已有 5 行因此转"是"）；⑦⑧ 的 RECOVERABLE 10 页在 #24 解决后按 type-to-filter 配方逐个采
+（`Annotate` / `Show History` / `Find in Path` 等）。
+
 ## 1. A 线：静态界面复原
 
 ### 1.1 同引擎像素对照（链路 + 结果）
@@ -455,6 +478,24 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > 两次独立运行的 `content layoutPercent` **完全一致**（`repository-search` 2.08/2.08、`markdown-preview` 0.55/0.55、
 > `search-limited` 0.50/0.50、`git-history` 1.38/1.38，**Δ 全部 0.00**）—— 说明这条链路在同一版本上是**可复现**的，
 > 数字不是随机波动。累计 **34/55** 个场景已有本轮口径的实测证据。
+
+> **第 89 轮补测（④ 第 5 批，判据 = `layoutPercent`）**：8 个场景 ——
+>
+> | 场景 | content `layoutPercent` | 判读 |
+> | --- | ---: | --- |
+> | `image-error` | **0.01** | 一致 |
+> | `operation-progress` | **0.27** | 一致 |
+> | `file-history` | **0.61** | 一致 |
+> | `blame` | **0.63** | 一致；**与第 60 轮复核值完全一致（Δ 0.00）** |
+> | `changes-context-menu` | **1.22** | 一致 |
+> | `diff-status` | **1.27** | 一致 |
+> | `history-diff-failure` | **1.40** | 一致 |
+> | `git-compare` | **1.73** | 一致；**与第 60 轮 1.72 相差 +0.01**（在 ±0.08 复现带内） |
+>
+> 本批 8 个场景的 **titlebar/statusbar 也全部 0.00**；`content` 最高 1.73，无一超过 2.0。
+> **稳定性证据累计 6 个场景**：`repository-search` 2.08/2.08、`markdown-preview` 0.55/0.55、`search-limited` 0.50/0.50、
+> `git-history` 1.38/1.38、`blame` 0.63/0.63（Δ 0.00）、`git-compare` 1.73/1.72（Δ +0.01）。
+> 累计 **42/55** 个场景已有本轮口径的实测证据（12 高值 + 6 + 8 + 8 + 8）。
 
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
