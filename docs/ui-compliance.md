@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1044/1044（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1045/1045（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -851,7 +851,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 1 | §7.15 | `Ctrl+P` 在窗口上方中央打开非模态搜索浮层，输入框自动获得焦点 | 是 | `快速打开浮层默认聚焦输入框`、`组词中的 Ctrl+P 不打开快速打开` |
 | 2 | §7.15 | 快速打开只搜索文件名，显示文件名和工作区相对路径，最多 100 项 | 是 | **harness**：`快速打开浮层默认聚焦输入框`、`快速打开显示文件名与路径`、`快速打开显示真实命中`、`方向键移动选择`；**C# 单测**（`tests/Augit.Infrastructure.Tests/RipgrepSearchServiceTests.cs`）：`文件搜索最多返回一百项`、`文件名搜索只匹配文件名且保留最佳一百项顺序`（本轮复跑该类 6/6 通过）——"最多 100 项"与"只搜文件名"由宿主侧单测钉住，界面侧由 harness 钉住 |
 | 3 | §7.15 | 空态只保留标题和输入框所需高度；结果出现后浮层向下增长，不预留固定空白 | 是 | `快速打开标题正确`、`快速打开初始无结果` + `quick-open-empty` 像素行 |
-| 4 | §7.15 | 上下方向键移动选择，`Enter` 打开，`Esc` 取消并恢复原焦点 | 部分 | `Enter 打开临时预览标签` 覆盖 Enter；**上下键移动与 Esc 恢复原焦点没有断言** |
+| 4 | §7.15 | 上下方向键移动选择，`Enter` 打开，`Esc` 取消并恢复原焦点 | 是 | **三半全部有断言**：`方向键移动选择`（快速打开覆层内上下移动）、`Enter 打开临时预览标签`、**`§7.15 Esc 取消快速打开并把焦点还给触发按钮`**（第 94 轮新增：`opener=搜索`、覆层 1→0、`document.activeElement` 回到同一按钮）。实现侧靠通用的 `restoreDialogFocus()`，分支芯片/树行/Worktree 也各有同类断言 —— 本条此前只差"快速打开"这一处
 | 5 | §7.15 | 全仓搜索使用相同浮层骨架，但显示区分大小写、全字、正则和包含忽略文件开关 | 是 | `全仓搜索显示三个开关`、`全仓搜索显示包含忽略文件` |
 | 6 | §7.15 | 结果按文件与命中行显示，单击预览，双击或 `Enter` 正式打开并定位 | 是 | `全仓搜索显示命中行号与内容` + §5.4 的预览/打开断言 |
 | 7 | §7.15 | 第 1001 项出现时停止搜索并在结果底部显示统一截断提示 | 是 | `search-limited` 场景 + `search-state=limited`（"结果超过 1000 条，已停止搜索…"）断言 |
@@ -1276,11 +1276,11 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 ### 2.10 非"是"条文的结论清单（⑨/⑩，逐行；生成器 `tools/audit/gen-clause-conclusions.cjs`）
 
-**分母**：§2.1–§2.8 里状态为**非"是"**的条文共 **120** 行，分类如下：
+**分母**：§2.1–§2.8 里状态为**非"是"**的条文共 **119** 行，分类如下：
 
 | 结论类别 | 行数 | 含义与下一步 |
 | --- | ---: | --- |
-| A 实现已有、仅缺断言 | 86 | 补 harness 断言 → 可转"是" |
+| A 实现已有、仅缺断言 | 85 | 补 harness 断言 → 可转"是" |
 | B 只有像素或间接证据 | 4 | 把像素/间接证据升级为可复跑断言 |
 | C 未覆盖（无断言也无观察） | 11 | 补断言或明确不做（需用户裁决） |
 | D 其它部分覆盖 | 19 | 定位子条件后补断言 |
@@ -1323,7 +1323,6 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | §2.6 | §7.9 | 未覆盖 | C 未覆盖（无断言也无观察） | 该对话框本身未实现（§3.2 已记为"当前产品面不可达"），因此无断言 |
 | §2.6 | §7.10 | 部分 | D 其它部分覆盖 | 小型输入对话框有 `组词中的 Enter/Esc 不提交也不关闭紧凑窗口` 等断言族；**分支/标签删除的影响确认断言未落到本行**（危险确认在 §10.4 块里，未按此条复核） |
 | §2.6 | §7.10 | 部分 | B 只有像素或间接证据 | `smart-checkout` 有独立场景与像素行；**"停止普通切换"+影响说明+确认的断言没有落到本行**；**宿主侧已有两个单测**：`GitOperationServiceTests.SmartCheckout恢复冲突进入解决流程 |
-| §2.6 | §7.15 | 部分 | A 实现已有、仅缺断言 | `Enter 打开临时预览标签` 覆盖 Enter；**上下键移动与 Esc 恢复原焦点没有断言** |
 | §2.6 | §7.15 | 部分 | A 实现已有、仅缺断言 | `search-state=timeout` 有像素页与文案断言；**"结束 ripgrep 进程"没有断言**（宿主侧进程回收） |
 | §2.6 | §7.15 | 部分 | A 实现已有、仅缺断言 | 浮层有像素基线；**三个下限公式没有断言** |
 | §2.6 | §7.15 | 部分 | A 实现已有、仅缺断言 | 结构与像素在；**16px 固定、窄宽度换行顺序、状态换行没有断言** |

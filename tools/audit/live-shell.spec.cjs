@@ -9688,6 +9688,37 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
+    // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
+    const escFocus = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(500);
+      const opener = await scene.page.evaluate(() => {
+        const btn = document.querySelector('.titlebar .top-button[aria-label="搜索"]');
+        if (!btn) return null;
+        btn.focus();
+        btn.click();
+        return btn.getAttribute('aria-label');
+      });
+      await scene.page.waitForTimeout(700);
+      const opened = await scene.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(600);
+      const after = await scene.page.evaluate(() => ({
+        overlays: document.querySelectorAll('[data-augit-overlay]').length,
+        active: document.activeElement
+          ? (document.activeElement.getAttribute('aria-label') || document.activeElement.className || document.activeElement.tagName)
+          : null,
+      }));
+      await scene.page.close();
+      console.log('INFO Esc焦点=' + JSON.stringify({ opener, opened, after }));
+      return { opener, opened, after };
+    })();
+    check('§7.15 Esc 取消快速打开并把焦点还给触发按钮: ' + JSON.stringify(escFocus),
+      escFocus.opener !== null && escFocus.opened > 0
+        && escFocus.after.overlays === 0 && escFocus.after.active === escFocus.opener);
+
     // ---- 第 91 轮补断言：§7.2 查找条随**界面**字号扩展（补上第 67 轮测错旋钮的那一半）----
     // 设计系统：查找条高度 = max(42px, h + 16px)，h 是**界面字体**实测行高（design-system.md:462），
     // 实现见 mockup.js:83；`code-font-size` 不影响它，所以要用 `ui-font-size` 对照。
