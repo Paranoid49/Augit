@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1057/1057（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1058/1058（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -230,7 +230,7 @@
 | §4.4 | Diff 新增块使用浅绿，删除块使用浅红，修改块使用浅黄或局部词级高亮 | 是 | `--augit-green-soft: #c9eecf`（新增）、`--augit-red-soft: #f7d7d7`（删除）、`--augit-yellow-soft: #fff0c2`（修改）；词级高亮见 §1.3 的 diff 面 | — |
 
 | §4.4 | 提交文件复选框的全选使用蓝底白勾、部分选中使用蓝底白横线；折叠分组不改变复选状态；分组标题只在被选中时显示行选中背景，文件勾选与行选择不混用 | 是 | `mockup.js` 的 `fake-check` 渲染三态（`aria-checked` = `true`/`false`/**`mixed`**，全文 `mixed` 9 处）；全选/半选样式在 `mockup.css` 的 `.fake-check` 规则里（蓝底 + 白勾 / 白横线）；分组标题的背景只在选中时挂 `--augit-row-background` | — |
-| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 部分 | **六种情形已验五种**：文本 `["UTF-8","LF","只读"]`；**图片**（`ImageReady`）与**不可预览**（`TextTooLarge`）`["只读"]` 且编码/换行为 null；**无文档**字段区为空；**比较**（工作区 Diff / 文件历史）`["只读"]`（第 112 轮实现 `ensureComparisonReadonlyMarker()`）；**未完成读取**（第 112 轮实现：`live.pendingDocument` + `applyPendingDocumentStatus()`）—— pending 窗口内实测 `pathText = "live-ws › docs › product-spec.md"`、`fields = ["只读"]`，读完变 `["UTF-8","LF","只读"]`（对照）。**仍未单独验**：**引用比较**（见 §3.2 #30） | — |
+| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 是 | **六种情形全部有断言**：① 文本 `["UTF-8","LF","只读"]`（第 109 轮）；② **图片**（`ImageReady`）与 ③ **不可预览**（`TextTooLarge`）均 `["只读"]` 且编码/换行为 null（第 111 轮）；④ **无文档**字段区为空（第 108 轮）；⑤ **读取未完成**：pending 窗口显示"本次打开的路径 + 只读"，读完变三项（第 112 轮实现 `live.pendingDocument` + `applyPendingDocumentStatus()`）；⑥ **比较**三类：工作区 Diff、**文件历史**（第 112 轮实现 `ensureComparisonReadonlyMarker()`）与**引用比较**（第 113 轮：点分支芯片 → `[data-popover-action="compare-workspace"]`，实测 `followChanges:false`、`fields:["只读"]`） | — |
 | §4.1 | 操作或错误提示与路径分别分配空间，长路径不能吞掉提示；普通文件类型不在路径旁重复显示；完整提示与格式也可通过状态栏悬停读取 | 是 | **第 108 轮补断言**：`§4.1 无文档时状态栏只显示工作区路径、字段区为空` —— 在页面里把 `.status-path` 换成 40 段的超长路径后，实测路径**发生截断**（`scrollWidth > clientWidth`）且**字段区宽度不变**、仍留在状态栏内；无文档时字段区为空（`<div class="status-fields"></div>`）（**有文档状态下字段非空的对照见 §3.2 #28**） | — |
 
 ### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径）
@@ -1754,7 +1754,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 28. ~~§4.1 有文档状态下的状态栏标识未验到~~ **【第 109 轮已闭环】** —— 配方是"**先 `ArrowRight` 展开 `docs`**，再在 `docs/product-spec.md` 行上按 Enter 装载文档"。实测：`live.document = { path: docs/product-spec.md, encoding: UTF-8, lineEndings: LF }`，状态栏字段 **`["UTF-8","LF","只读"]`**；超长路径注入后字段区宽度不变、仍在状态栏内 ⇒ 断言 `§4.1 有文档时状态栏给"只读"且字段区不被超长路径吞掉` ✓。**仍未单独验**：图片 / 不可预览 / 三类比较文档（视觉稿规则给它们只有 `只读`，但桩树里没有相应样本）。
 
 29. ~~§4.1"未完成读取的文件只显示只读标识"未验到~~ **【第 112 轮已实现并断言】** —— 用桩内置的 `slowread=<path>:<ms>` 造出可观测的 pending 窗口。**实测发现两处缺口**（都不是"只差验证"）：pending 窗口里状态栏显示的是**工作区名**、字段区**为空**，即 §4.1 第 121 行"文件加载期间显示本次打开的路径"与第 123 行"未完成读取只显示只读标识"**都没满足**。已实现 `live.pendingDocument` + `applyPendingDocumentStatus()`（只改 `live-data.js`），实测通过；并在**失败路径**同样清除该状态（否则状态栏会卡在"只读 + 待打开路径"）。
-30. **§4.1 的"引用比较"未单独验（**未闭环**）** —— 六种情形里只剩它：桩里有 `references` 数据，但还没有"打开某个引用的比较"这条可复现路径。**下一步**：照第 106/108 轮的做法先 dump 引用视图的真实标记与状态键，再决定是"用已有场景可达"还是需要补 fixture。
+30. ~~§4.1 的"引用比较"未单独验~~ **【第 113 轮已验】** —— 入口**不在 Git 日志的右键菜单**里（第一次跑 `opened:false` 才发现），而在**分支弹层的动作区**（`mockup.js:3250` 的 `branch-actions`，`data-popover-action="compare-workspace"`）。做法：点 `.branch-chip` → 点该动作。实测 `{opened:true, hasDiff:true, diffPath:"src/App.cs", followChanges:false, fields:["只读"]}` ✓，这一格的"只读"标识由第 112 轮的 `ensureComparisonReadonlyMarker()` 覆盖。
 
 
 ### 3.3 本阶段新增接线（原为未覆盖项）

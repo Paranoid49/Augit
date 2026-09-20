@@ -14544,3 +14544,18 @@ pending 状态；要验它得先给桩加"延迟应答"的路径。**不写成�
 **验证**：`during = { slowReadStarted: "docs/product-spec.md", fields: ["只读"], pathText: "live-ws › docs › product-spec.md" }`、
 `after.fields = ["UTF-8","LF","只读"]` ✓ ⇒ `live-shell` **1056 → 1057/1057**；§1.2 该行六种情形**已验五种**；
 §3.2 **#29 关闭**，并如实新增 **#30**（**引用比较**仍未单独验）。
+
+#### 第 464 轮：**§4.1 六种情形全部验完**（补上"引用比较"）→ 该行转"是"，`live-shell` 1057 → 1058/1058
+
+**找入口比写断言花的时间多**：我先按"Git 日志里右键提交行"去点（`rows:3` 有提交行、但 `opened:false` —— 那个右键菜单**没有**这个动作），
+读代码才确认 `compare-workspace` 在 **`mockup.js:3250` 的分支弹层动作区**（`branch-actions`）。
+改成"点 `.branch-chip` → 点 `[data-popover-action="compare-workspace"]`"后一次通过。
+
+**实测**：`{ opened: true, hasDiff: true, diffPath: "src/App.cs", followChanges: false, fields: ["只读"] }`
+⇒ 引用比较激活时状态栏**给"只读"、不给编码/换行** ✓（这一格的实现是第 112 轮的 `ensureComparisonReadonlyMarker()`，
+它按 `live.diff` 判定，正好覆盖引用比较这条路径）。
+`live-shell` **1057 → 1058/1058**；§1.2 该行 **部分 → 是**（六种情形：文本 / 图片 / 不可预览 / 无文档 / 读取未完成 / 三类比较）；
+**§3.2 #30 关闭**；§0 同步；`GEN_EXIT=0`、`DOC_EXIT=0`。
+
+**方法学小结（最近几轮反复验证）**：**断言前先确认"入口在哪"** —— 猜入口的代价（一次 9 分钟的 harness 跑）
+远大于先 `grep` 一遍标记或先做一次诊断。这一轮和上一轮都是"先诊断/先读码 → 一次通过"。

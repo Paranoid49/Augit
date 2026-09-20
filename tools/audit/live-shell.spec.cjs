@@ -9714,6 +9714,48 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 113 轮补断言：§4.1「**引用比较**只给只读、不继承编码/换行」（收掉 §3.2 #30）----
+    // 入口：Git 日志里右键提交行 → `[data-popover-action="compare-workspace"]` → `compareWithWorkspace()`
+    // （规格 §7.9；它会解除 followChanges 并复用比较标签）。
+    const referenceCompare = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      // 入口不在日志右键菜单里（第 113 轮第一次跑：右键后 `opened:false`），而在**分支弹层的动作区**
+      // （`mockup.js:3250` 的 `branch-actions`）。所以走"点分支芯片 → 点该动作"。
+      await scene.page.waitForSelector('.branch-chip', { timeout: 15000 }).catch(() => null);
+      const rows = await scene.page.locator('.commit-row').count();
+      let opened = false;
+      const chips = await scene.page.locator('.branch-chip').count();
+      if (chips > 0) {
+        await scene.page.locator('.branch-chip').first().click();
+        await scene.page.waitForTimeout(800);
+        const action = scene.page.locator('[data-popover-action="compare-workspace"]');
+        if (await action.count() > 0) {
+          await action.first().click();
+          opened = true;
+        }
+      }
+      await scene.page.waitForTimeout(2200);
+      const out = await scene.page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const bar = document.querySelector('.statusbar');
+        return {
+          hasDiff: !!(live.diff && live.diff.path),
+          diffPath: live.diff && live.diff.path ? live.diff.path : null,
+          followChanges: live.followChanges,
+          fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+          pathText: bar && bar.querySelector('.status-path') ? bar.querySelector('.status-path').textContent.trim() : null,
+        };
+      });
+      await scene.page.close();
+      return { rows, opened, ...out };
+    })();
+    console.log('INFO 引用比较=' + JSON.stringify(referenceCompare));
+    check('§4.1 引用比较激活时状态栏给"只读"、不给编码/换行: ' + JSON.stringify(referenceCompare),
+      referenceCompare.opened === true && referenceCompare.hasDiff === true
+        && Array.isArray(referenceCompare.fields) && referenceCompare.fields.includes('只读')
+        && !referenceCompare.fields.includes('UTF-8') && !referenceCompare.fields.includes('LF'));
+
     // ---- 第 112 轮诊断：§4.1「**读取尚未完成**的文件只显示适用的只读标识」（§3.2 #29）----
     // 桩已内置按路径延迟：URL 参数 `slowread=<path>:<ms>`（会置 `window.__slowReadStarted`）。
     // 先用**诊断**把 pending 窗口内的状态栏打出来，再决定是"已符合"还是"缺口" —— 不改断言口径硬猜。
