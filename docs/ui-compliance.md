@@ -497,6 +497,25 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > `git-history` 1.38/1.38、`blame` 0.63/0.63（Δ 0.00）、`git-compare` 1.73/1.72（Δ +0.01）。
 > 累计 **42/55** 个场景已有本轮口径的实测证据（12 高值 + 6 + 8 + 8 + 8）。
 
+> **第 92 轮补测（④ 第 6 批，判据 = `layoutPercent`）**：8 个场景 ——
+>
+> | 场景 | titlebar | statusbar | content `layoutPercent` | 判读 |
+> | --- | ---: | ---: | ---: | --- |
+> | `settings-dirty` | 0.00 | 0.00 | **0.03** | 一致（脏标记与保存失败横幅**不产生布局位移**） |
+> | `settings-save-failure` | 0.00 | 0.00 | **0.03** | 同上（两场景 flatDiff 同为 212，说明新增横幅没挤动布局） |
+> | `terminal-close` | 0.00 | 0.00 | **0.34** | 一致（关闭确认框） |
+> | `git-history-empty` | 0.00 | 0.00 | **1.03** | 一致（空态） |
+> | `main-project` | 0.00 | 0.00 | **1.38** | 一致 |
+> | `git-history-graph` | 0.00 | 0.00 | **1.39** | 一致（提交图列） |
+> | `commit-diff` | 0.00 | 0.00 | **1.56** | 一致 |
+> | `quick-open` | 0.00 | 0.00 | **2.30** | **本批唯一 > 2.0**；与第 60 轮复核值 **2.30 逐值相同（Δ 0.00）** |
+>
+> **稳定性证据累计 7 个场景**（新增 `quick-open` 2.30/2.30）。**精确统计（脚本按两个证据目录算）：42/55 个场景**
+> 已有本轮口径的实测证据；**剩余 13 个**：`clone` / `conflict-list` / `git-history-menu` / `history-diff-cancelled` /
+> `push` / `push-no-remote` / `remote` / `repository-init` / `rollback` / `smart-checkout` /
+> `stash-drop-confirm` / `stash-manager` / `workspace-open`（按需再补，**不为凑 55/55 而跑全量矩阵**）。
+> ⚠️ 我第一版这里写了"50/55"，是**按记忆估的**；用脚本一算才发现那 8 个场景本就在已测集合里 —— **分母要用脚本算，不能凭印象**。
+
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
 **口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；
