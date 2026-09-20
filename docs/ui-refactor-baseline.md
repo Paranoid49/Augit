@@ -13774,3 +13774,29 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 **本轮的净结果**：覆盖率**没有增长**（这是诚实的结果），但避免了两种**假断言**
 （一条测空气、一条判据不成立）。下一轮换手段：§7.8 先找触发点；§7.5 拖动改用
 `pointerdown/pointermove`（而非 mouse.*）或先确认图片在目标倍率下确实溢出舞台。
+
+#### 第 429 轮：④ 再补 6 个场景的像素对照（判据 = `layoutPercent`）—— 三个带全部 0.00
+
+先补上必要前置：Release 二进制之前不在工作区（`bin/Release/.../win-x64/Augit.exe`），
+本轮先 `dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release`（0 错误，8.64 s）再跑对照链路。
+
+用 `tools/audit/compare-pixels.ps1` + `compare-pixels.py` 重跑 6 个场景（证据 `artifacts/pixel-review-20260921b/`）：
+
+| 场景 | titlebar | statusbar | content `layoutPercent` |
+| --- | ---: | ---: | ---: |
+| `settings` | 0.00 | 0.00 | **0.03** |
+| `quick-open-empty` | 0.00 | 0.00 | **0.61** |
+| `reset` | 0.00 | 0.00 | **1.09** |
+| `stash` | 0.00 | 0.00 | **1.09** |
+| `branches` | 0.00 | 0.00 | **1.36** |
+| `worktrees` | 0.00 | 0.00 | **1.41** |
+
+**结论**：三个带在 6 个场景上**全部 0.00**（布局一致）；最高 content 只有 1.41（`worktrees`），
+远低于 §1.5 里 2.0 以上的"偏高项"水平，**无整页错位**。
+
+**顺手拿到一条"别拿 `visiblePercent` 当判据"的活证据**：`quick-open-empty` 在 `compare-pixels.ps1`
+自报 `statusbar … visiblePercent=5.09 / blockDiffPercent=16.44 → FAIL`，而同一张图经
+`compare-pixels.py` 的边缘掩膜算是 **`layoutPercent=0.00`** —— 状态栏差异**全部来自真实数据文字**
+（时间、行数、编码等），布局并没有错。这条已写进 §1.5，作为文档里那条口径提醒的**实例**。
+
+`.gitignore` 同步加上 `!artifacts/pixel-review-20260921b/`（证据入库，1.5 MB / 18 个文件）。

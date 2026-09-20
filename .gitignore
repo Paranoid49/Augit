@@ -11,6 +11,7 @@ artifacts/*
 !artifacts/pycharm-16-final/
 !artifacts/pycharm-compare-20260919/
 !artifacts/pixel-review-20260921/
+!artifacts/pixel-review-20260921b/
 publish/
 *.user
 *.suo

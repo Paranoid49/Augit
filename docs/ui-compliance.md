@@ -403,6 +403,23 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 > 生成来源：§1.1 55 行像素数据、`verify-acceptance.ps1` 54 个场景、
 > §2.0 合计行（351 条条文 / 406 条用例行）。
+> **第 86 轮补测（④，判据 = `layoutPercent`）**：又用同一链路重跑 6 个此前未复核的场景（证据
+> `artifacts/pixel-review-20260921b/`，每场景 `-mockup/-live.png` + `heatmap.png`）：
+>
+> | 场景 | titlebar | statusbar | content `layoutPercent` | 判读 |
+> | --- | ---: | ---: | ---: | --- |
+> | `settings` | 0.00 | 0.00 | **0.03** | 布局一致 |
+> | `quick-open-empty` | 0.00 | 0.00 | **0.61** | 布局一致 |
+> | `reset` | 0.00 | 0.00 | **1.09** | 布局一致（差异集中在文字） |
+> | `stash` | 0.00 | 0.00 | **1.09** | 同上 |
+> | `branches` | 0.00 | 0.00 | **1.36** | 同上 |
+> | `worktrees` | 0.00 | 0.00 | **1.41** | 本批最高，仍 < 2.0；无整页错位 |
+>
+> **三个带（titlebar/statusbar）六个场景全部 0.00** —— 布局层面与视觉稿一致。
+> **同时给出一条"别用 visiblePercent"的活证据**：`quick-open-empty` 在 `compare-pixels.ps1` 自报
+> `statusbar visiblePercent=5.09 / blockDiffPercent=16.44 FAIL`，而同一张图用 `compare-pixels.py`
+> 的边缘掩膜算是 **`layoutPercent=0.00`** —— 状态栏那点差异全是**真实数据文字**，不是布局。
+
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
 **口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；
