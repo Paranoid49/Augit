@@ -3065,6 +3065,42 @@ function diffScrollableAncestor(el) {
   return document.scrollingElement || document.documentElement;
 }
 
+/**
+ * 边界提示（规格 `ux-spec.md:441`）：在工作区 Diff 里到达首/尾变更块、同方向再按时显示
+ * "再次点击可进入上一个/下一个文件"。用注入而不是改共享视觉稿 —— 静态变体已有同构元素
+ * （`.diff-boundary-hint`，文案"再次点击可进入下一个文件"）。
+ */
+function applyDiffBoundaryHint() {
+  const live = window.__augitLive;
+  const layout = document.querySelector(".diff-layout");
+  if (!layout) return;
+  const all = [...document.querySelectorAll(".diff-boundary-hint")];
+  const existing = all[0] || null;
+  const hint = live && live.workspaceDiff ? live.diffBoundaryHint : null;
+  if (!hint) {
+    // 清**所有**同类元素：第 116 轮第一次跑时只删了第一处，切换文件后旧的提示还留在 DOM 里。
+    all.forEach((node) => node.remove());
+    return;
+  }
+  all.slice(1).forEach((node) => node.remove());
+  const text = hint.direction > 0 ? "再次点击可进入下一个文件" : "再次点击可进入上一个文件";
+  if (existing) {
+    if (existing.textContent !== text) existing.textContent = text;
+    return;
+  }
+  const node = document.createElement("div");
+  node.className = "diff-boundary-hint";
+  node.setAttribute("role", "status");
+  node.textContent = text;
+  const columns = layout.querySelector(".diff-columns");
+  if (columns) {
+    columns.classList.add("diff-boundary-columns");
+    columns.insertBefore(node, columns.firstChild);
+    return;
+  }
+  layout.appendChild(node);
+}
+
 function moveDiffChange(direction) {
   const blocks = diffChangeBlocks();
   if (!blocks.length) return null;
@@ -3073,15 +3109,35 @@ function moveDiffChange(direction) {
   let index = Number(scroller.dataset.diffIndex);
   if (!Number.isFinite(index)) index = direction > 0 ? -1 : total;
   index = Math.max(0, Math.min(total - 1, index + direction));
+  // 先把夹住的索引写进 dataset（**要在边界分支之前**：边界分支会 return，若之后再写就读不到索引 ——
+  // 第 116 轮第一次跑 `afterEnter: null` 就是这么来的）。
   scroller.dataset.diffIndex = String(index);
   scroller.dataset.diffTotal = String(total);
-  // 同时把"当前处/总处数"记在**稳定的根容器**上：内层滚动容器会随模式（单/双栏）更换，
-  // 而 `.diff-layout`/`.document-view` 是稳定的观测点（第 99 轮踩过：只写内层导致读不到）。
-  const root = document.querySelector(".diff-layout, .document-view");
-  if (root) {
-    root.dataset.diffIndex = String(index);
-    root.dataset.diffTotal = String(total);
+  {
+    const rootForIndex = document.querySelector(".diff-layout, .document-view");
+    if (rootForIndex) {
+      rootForIndex.dataset.diffIndex = String(index);
+      rootForIndex.dataset.diffTotal = String(total);
+    }
   }
+  const live = window.__augitLive;
+  // 规格 `ux-spec.md:441`：到达当前文件**首/尾变更块**后再按**同方向**，第一次只显示
+  // "再次点击可进入上一个/下一个文件"，**再按同方向**才切换相邻文件（文件导航只属于工作区 Diff）。
+  const atEdge = direction > 0 ? (index === total - 1) : (index === 0);
+  if (atEdge && live && live.workspaceDiff) {
+    const hint = live.diffBoundaryHint;
+    if (!hint || hint.direction !== direction) {
+      live.diffBoundaryHint = { direction };
+      applyDiffBoundaryHint();
+      return { index, total, hint: true };
+    }
+    live.diffBoundaryHint = null;
+    applyDiffBoundaryHint();
+    const moved = moveDiffFile(direction);
+    return moved ? { index, total, movedFile: moved.path } : { index, total };
+  }
+  if (live) live.diffBoundaryHint = null;
+  applyDiffBoundaryHint();
   blocks[index].first.scrollIntoView({ block: "center" });
   // 规格 §502：定位后**保留触发按钮焦点** —— 这里刻意不调用 focus()，由调用方保持按钮焦点。
   return { index, total };

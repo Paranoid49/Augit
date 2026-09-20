@@ -10220,6 +10220,72 @@ async function main() {
         && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' 个文件'
         && diffFiles.afterNext.selected === diffFiles.files[1]);
 
+    // ---- 第 116 轮补断言：§441 的**两段式边界**（同方向再按一次先给提示、再按才换文件）+ Enter/Space 继续定位 ----
+    const boundaryHint = await (async () => {
+      const scene = await openScene('scene=diff-boundary&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row[data-path]', { timeout: 15000 });
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 20000 }).catch(() => null);
+      await scene.page.waitForTimeout(1000);
+      // 进入"工作区 Diff"并跳到**最后一个**变更块（只把边界状态准备好，不改文件）。
+      await scene.page.evaluate(() => {
+        const live = window.__augitLive;
+        live.workspaceDiff = true;
+        if (typeof window.__augitRender === 'function') window.__augitRender();
+      });
+      await scene.page.waitForTimeout(800);
+      const before = await scene.page.evaluate(() => ({ path: window.__augitLive.diff.path }));
+      // 连点"下一处差异"直到**提示出现**（不依赖 `data-diff-total`：第 116 轮第一次跑时它还是空，
+      // 因为该字段只在 `moveDiffChange` 跑过之后才有）。
+      let first = null;
+      for (let i = 0; i < 8; i += 1) {
+        await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+        await scene.page.waitForTimeout(400);
+        const state = await scene.page.evaluate(() => ({
+          hintSet: !!(window.__augitLive && window.__augitLive.diffBoundaryHint),
+          hintText: (document.querySelector('.diff-boundary-hint') || {}).textContent || null,
+          path: window.__augitLive.diff.path,
+        }));
+        if (state.hintSet) { first = { ...state, clicks: i + 1 }; break; }
+      }
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.waitForTimeout(1400);
+      const second = await scene.page.evaluate(() => ({
+        hintSet: !!(window.__augitLive && window.__augitLive.diffBoundaryHint),
+        hintGone: !document.querySelector('.diff-boundary-hint'),
+        path: window.__augitLive.diff.path,
+      }));
+      // Enter/Space 继续定位（规格 §502"箭头定位后保留触发按钮焦点，可继续按 Enter 或空格"）：
+      // 用**真实按键**（焦点在按钮上时 Enter/Space 会原生激活它），断言索引连续两次递增。
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').focus();
+      const hitBefore = await scene.page.evaluate(() => window.__diffNavHit || 0);
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForTimeout(500);
+      const hitAfterEnter = await scene.page.evaluate(() => window.__diffNavHit || 0);
+      await scene.page.keyboard.press('Space');
+      await scene.page.waitForTimeout(500);
+      const hitAfterSpace = await scene.page.evaluate(() => window.__diffNavHit || 0);
+      // 判据用**探针**（`__diffNavHit` 在箭头处理里自增）：Enter/Space 在真实浏览器里会原生激活聚焦的按钮，
+      // 所以"探针递增"就是"继续定位被触发"的直接证据；不用索引，因为单块文件里每次都处于边界、
+      // Enter 可能先给提示、Space 才换文件（索引在换文件后本来就为空）。
+      const enter = { hitBefore, hitAfterEnter, hitAfterSpace };
+      await scene.page.close();
+      console.log('INFO 边界提示=' + JSON.stringify({ before, first, second, enter }));
+      return { before, first, second, enter };
+    })();
+    check('§7.9 首/尾边界两段式：先提示、再按才换文件；Enter 继续定位: ' + JSON.stringify(boundaryHint),
+      boundaryHint.first.hintSet === true
+        && typeof boundaryHint.first.hintText === 'string' && boundaryHint.first.hintText.includes('下一个文件')
+        && boundaryHint.first.path === boundaryHint.before.path
+        // 注意：**不能**用"DOM 里没有 `.diff-boundary-hint`"当判据 —— `mockup.js:3121` 在
+        // `diff-boundary` 场景下**静态就会插入**同构提示元素（视觉稿自己的边界提示）。
+        // 有效判据是"应用状态已清" + "文件确实切换了"。
+        && boundaryHint.second.hintSet === false
+        && boundaryHint.second.path !== boundaryHint.before.path
+        && boundaryHint.enter.hitAfterEnter > boundaryHint.enter.hitBefore
+        && boundaryHint.enter.hitAfterSpace > boundaryHint.enter.hitAfterEnter);
+
     // ---- 第 100 轮补断言：§7.6「Amend 勾选后读取上一次提交信息；取消后恢复原文本」----
     // 核实过：`commit-amend` 在 live 代码里 0 命中；宿主 `ReadLastCommitMessageAsync` 与其单测早已存在，
     // 本轮补的是桥接 `git/last-commit-message` + 页面接线。

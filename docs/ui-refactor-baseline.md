@@ -14623,3 +14623,24 @@ pending 状态；要验它得先给桩加"延迟应答"的路径。**不写成�
    守卫失败（DOC_CLAIMS_FAILED）后**提交照样做出去**了。这与第 455 轮"守卫别过管道"是同一类问题，
    合并成一条纪律：**守卫 → `&&` → 写入/提交**，且**守卫不过管道**（`set -o pipefail` 或直接不接管道）。
    本轮已用 `node check && …` 复核通过（`DOC_EXIT=0`、`DOC_CLAIMS_OK`）。
+
+#### 第 468 轮：**§3.2 #26 闭环** —— 两段式边界提示 + Enter/Space 继续定位（`live-shell` 1058 → 1059/1059）
+
+**实现（只改 `web/src/live-data.js`，共享资产未动）**：
+- `moveDiffChange(direction)`：夹住索引后判断"是否已在首/尾变更块"；若在边界且处于工作区 Diff ⇒
+  第一次只置 `live.diffBoundaryHint = { direction }` 并显示提示，**再按同方向**才 `moveDiffFile(direction)` 换文件；
+- `applyDiffBoundaryHint()`：把 `.diff-boundary-hint`（`role="status"`，文案"再次点击可进入下一个文件/上一个文件"）
+  注入 `.diff-columns`；状态清空时移除。
+
+**验证**：`first = { hintSet: true, hintText: "再次点击可进入下一个文件", path: "src/App.cs", clicks: 2 }`（文件**未**变）、
+`second = { hintSet: false, path: "README.md" }`（**再按才换文件** ✓）、
+`enter = { hitBefore: 3, hitAfterEnter: 4, hitAfterSpace: 5 }`（真实 `Enter` 与 `Space` 都继续触发了箭头 ✓）。
+
+**三处我自己造成的问题（都记下来）**：
+1. **dataset 写在边界分支之后** ⇒ 边界分支 `return` 时索引读不到（`afterEnter: null`）→ 改为**先写 dataset 再做边界判断**；
+2. **提示只删了第一个** `.diff-boundary-hint` ⇒ 换文件后旧的还在 → 改为清**所有**同类元素；
+3. **判据选错**：我用"DOM 里没有 `.diff-boundary-hint`"当"提示已消退"，但 `mockup.js:3121` 在 `diff-boundary` 场景下
+   **静态就会插入**同构元素（视觉稿自己的提示）⇒ 该判据无效，改为"应用状态 `live.diffBoundaryHint` 已清 + 文件已切换"。
+   （又一次印证：**先看清 DOM 属于谁，再写判据**。）
+
+`live-shell` **1058 → 1059/1059**；§3.2 **#26 关闭**；§2 该行补上两条断言并注明仍未断言的 `Tab 顺序`；§0 同步。
