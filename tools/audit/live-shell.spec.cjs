@@ -9692,6 +9692,83 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 109 轮补断言：§4.1 **有文档**分支的状态栏（收掉 §3.2 #28）----
+    // 配方来自第 44 轮：在项目树上聚焦一个桩确实能读的行（`docs/product-spec.md`）再按 **Enter**，
+    // 这会把 `live.document` 真正置起来（第 108 轮诊断 INFO 树Enter 已证明）。
+    const statusWithDoc = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      // 必须显式等树渲染出来：只等固定毫秒时 `picked` 会是 null（第 109 轮第一次跑就是这么失败的）。
+      await scene.page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 15000 });
+      await scene.page.waitForTimeout(400);
+      // 树默认只渲染根行 + 顶层目录（第 109 轮 dump：`.tree-row` 共 12 行、其中只有 4 行带 `data-tree-path`，
+      // 根行路径为空串）—— 文件行要**先展开 `docs`** 才存在。这正是早先记过的教训："取
+      // `docs/product-spec.md` 要先 ArrowRight 展开 docs"。
+      const expanded = await scene.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.tree-row[data-tree-path][data-tree-directory="true"]')];
+        const docs = rows.find((r) => (r.dataset.treePath || '').split('/').filter(Boolean).pop() === 'docs')
+          || rows.find((r) => (r.dataset.treePath || '') !== '');
+        if (!docs) return null;
+        docs.focus();
+        return docs.dataset.treePath;
+      });
+      if (expanded !== null) {
+        await scene.page.keyboard.press('ArrowRight');
+        await scene.page.waitForTimeout(700);
+      }
+      const picked = await scene.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.tree-row[data-tree-path]')];
+        const prefer = rows.find((r) => r.dataset.treePath === 'docs/product-spec.md')
+          || rows.find((r) => /\.(md|txt|cs)$/.test(r.dataset.treePath || ''));
+        if (!prefer) return null;
+        prefer.focus();
+        return prefer.dataset.treePath;
+      });
+      let out = { expanded, picked };
+      if (picked) {
+        await scene.page.keyboard.press('Enter');
+        await scene.page.waitForFunction('window.__augitLive && window.__augitLive.document', null, { timeout: 20000 }).catch(() => null);
+        await scene.page.waitForTimeout(900);
+        const read = await scene.page.evaluate(() => {
+          const live = window.__augitLive || {};
+          const doc = live.document || null;
+          const bar = document.querySelector('.statusbar');
+          const path = bar && bar.querySelector('.status-path');
+          const fields = bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null;
+          let longPath = null;
+          if (path && bar) {
+            const spans = () => [...bar.querySelectorAll('.status-fields > span')];
+            const before = spans().map((e) => +e.getBoundingClientRect().width.toFixed(1));
+            path.textContent = 'Augit  ›  ' + Array.from({ length: 40 }, (_, i) => 'very-long-folder-' + i).join('  ›  ');
+            const after = spans().map((e) => +e.getBoundingClientRect().width.toFixed(1));
+            const fb = bar.querySelector('.status-fields').getBoundingClientRect();
+            const bb = bar.getBoundingClientRect();
+            longPath = {
+              before, after,
+              keep: JSON.stringify(before) === JSON.stringify(after),
+              inside: fb.width > 0 && fb.right <= bb.right + 1,
+            };
+          }
+          return {
+            docPath: doc ? doc.path : null,
+            encoding: doc ? doc.encoding : null,
+            lineEndings: doc ? doc.lineEndings : null,
+            pathText: path ? path.textContent.trim() : null,
+            fields, longPath,
+          };
+        });
+        out = { ...out, ...read };
+      }
+      await scene.page.close();
+      return out;
+    })();
+    console.log('INFO 有文档状态栏=' + JSON.stringify(statusWithDoc));
+    check('§4.1 有文档时状态栏给"只读"且字段区不被超长路径吞掉: ' + JSON.stringify(statusWithDoc),
+      typeof statusWithDoc.docPath === 'string' && statusWithDoc.docPath.length > 0
+        && Array.isArray(statusWithDoc.fields) && statusWithDoc.fields.includes('只读')
+        && statusWithDoc.longPath && statusWithDoc.longPath.keep === true
+        && statusWithDoc.longPath.inside === true);
+
     // ---- 第 108 轮补断言：§4.1 状态栏的编码/换行/只读标识（L122/L123）与"长路径不吞提示"（L124）----
     // 渲染规则（mockup.js:3137 `statusBar`）：文本 = [编码, 换行, 只读]；图片/不可预览/比较 = **只有"只读"**；
     // 没有文档 = 空。L124 用**注入超长路径**的方式做行为验证（不新增场景）。
