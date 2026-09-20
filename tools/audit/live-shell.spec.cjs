@@ -41,12 +41,17 @@ const WORKSPACE = {
       { name: 'README.md', path: 'README.md', isDirectory: false, canExpand: false },
     ],
     docs: [
+      { name: 'assets', path: 'docs/assets', isDirectory: true, canExpand: true },
+      { name: 'archive.zip', path: 'docs/archive.zip', isDirectory: false, canExpand: false },
       { name: 'api', path: 'docs/api', isDirectory: true, canExpand: true },
       { name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false },
       { name: 'notes.txt', path: 'docs/notes.txt', isDirectory: false, canExpand: false },
     ],
     'docs/api': [
       { name: 'schema.md', path: 'docs/api/schema.md', isDirectory: false, canExpand: false },
+    ],
+    'docs/assets': [
+      { name: 'logo.png', path: 'docs/assets/logo.png', isDirectory: false, canExpand: false },
     ],
     src: [{ name: 'Program.cs', path: 'src/Program.cs', isDirectory: false, canExpand: false }],
   },
@@ -158,6 +163,22 @@ const WORKSPACE = {
     ],
   },
   documents: {
+    // 第 111 轮为 §4.1"图片/不可预览只给只读、不继承编码换行"补的两条样本。
+    // 两条教训：① `status` 必须取 `DocumentReadStatus` 的**合法值**（`ImageReady` / `TextTooLarge`）；
+    // ② 改树 fixture 后必须同步**启动期的行数断言**（第 819 行 `length === 7` → 9），
+    //    否则所有场景都会在 10s 就绪等待处超时，且失败发生在任何诊断之前（第 110 轮为此白跑 4 次）。
+    'docs/assets/logo.png': {
+      path: 'docs/assets/logo.png', name: 'logo.png', fullPath: 'D:\\ws\\docs\\assets\\logo.png',
+      workspaceName: 'ws', status: 'ImageReady', kind: 'Image', typeName: '图片',
+      fileSize: 2048, text: null, lineEndings: null, encoding: null,
+      pixelWidth: 64, pixelHeight: 32,
+    },
+    'docs/archive.zip': {
+      path: 'docs/archive.zip', name: 'archive.zip', fullPath: 'D:\\ws\\docs\\archive.zip',
+      workspaceName: 'ws', status: 'TextTooLarge', kind: 'Binary', typeName: '压缩包',
+      fileSize: 9011200, text: null, lineEndings: null, encoding: null,
+      message: '文件过大，未预览。',
+    },
     'docs/product-spec.md': {
       path: 'docs/product-spec.md', name: 'product-spec.md', fullPath: 'D:\\ws\\docs\\product-spec.md',
       workspaceName: 'ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
@@ -816,7 +837,8 @@ async function main() {
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
     // 展开 docs 后：根 + docs/src/README.md + docs 的三个子项（含用于验证多层恢复的 docs/api）。
-    await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 7', null, { timeout: 10000 });
+    // 第 111 轮：树 fixture 新增 `docs/assets` 与 `docs/archive.zip` ⇒ 启动期行数 7 → 9。
+    await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 9', null, { timeout: 10000 });
     check('展开后出现子项', await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').count() === 1);
 
     await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
@@ -9759,6 +9781,46 @@ async function main() {
         });
         out = { ...out, ...read };
       }
+      // 同一场景内继续装载"非文本"文档（新开场景会撞上 harness 的 10s 就绪上限 —— 第 110 轮实测）。
+      const openByTree = async (docPath) => {
+        const parts = docPath.split('/');
+        for (let i = 1; i < parts.length; i += 1) {
+          const dir = parts.slice(0, i).join('/');
+          const ok = await scene.page.evaluate((d) => {
+            const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + d + '"]');
+            if (!row) return false;
+            row.focus();
+            return true;
+          }, dir);
+          if (!ok) break;
+          await scene.page.keyboard.press('ArrowRight');
+          await scene.page.waitForTimeout(350);
+        }
+        const found = await scene.page.evaluate((p) => {
+          const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + p + '"]');
+          if (!row) return false;
+          row.focus();
+          return true;
+        }, docPath);
+        if (!found) return { docPath, missing: true, fields: null };
+        await scene.page.keyboard.press('Enter');
+        await scene.page.waitForTimeout(1200);
+        return await scene.page.evaluate(() => {
+          const live = window.__augitLive || {};
+          const doc = live.document || null;
+          const bar = document.querySelector('.statusbar');
+          return {
+            docPath: doc ? doc.path : null,
+            encoding: doc ? doc.encoding : null,
+            lineEndings: doc ? doc.lineEndings : null,
+            fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+          };
+        });
+      };
+      out.nonText = {
+        image: await openByTree('docs/assets/logo.png'),
+        unsupported: await openByTree('docs/archive.zip'),
+      };
       await scene.page.close();
       return out;
     })();
@@ -9768,6 +9830,11 @@ async function main() {
         && Array.isArray(statusWithDoc.fields) && statusWithDoc.fields.includes('只读')
         && statusWithDoc.longPath && statusWithDoc.longPath.keep === true
         && statusWithDoc.longPath.inside === true);
+
+    const onlyReadonly = (r) => r && Array.isArray(r.fields) && r.fields.length === 1 && r.fields[0] === '只读';
+    check('§4.1 图片与不可预览文档只给"只读"、不给编码/换行: ' + JSON.stringify(statusWithDoc.nonText),
+      onlyReadonly(statusWithDoc.nonText && statusWithDoc.nonText.image)
+        && onlyReadonly(statusWithDoc.nonText && statusWithDoc.nonText.unsupported));
 
     // ---- 第 108 轮补断言：§4.1 状态栏的编码/换行/只读标识（L122/L123）与"长路径不吞提示"（L124）----
     // 渲染规则（mockup.js:3137 `statusBar`）：文本 = [编码, 换行, 只读]；图片/不可预览/比较 = **只有"只读"**；

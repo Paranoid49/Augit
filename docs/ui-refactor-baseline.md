@@ -14482,3 +14482,23 @@ live 代码里没有行为。于是想把它**机械审计**出来：取视觉�
 
 **本轮最大的方法学教训**：连续两次"猜结构"失败后，**正确的动作是降级成诊断、把真实结构打出来**，
 而不是继续改断言猜下去。这条与第 108 轮同一课 —— 我在同一件事上重犯了一次，值得记牢。
+
+#### 第 461 轮：§4.1「图片/不可预览只给只读、不继承编码换行」**做成了断言** —— 9 次 harness 迭代换来一条关键教训
+
+**结果**：`live-shell` **1054 → 1055/1055**；实测
+`nonText: { image: { fields: ["只读"], encoding: null, lineEndings: null }, unsupported: { fields: ["只读"], … } }`
+（图片 `ImageReady`；不可预览用 `TextTooLarge`）。断言：`§4.1 图片与不可预览文档只给"只读"、不给编码/换行`。
+
+**为什么烧了 9 次**（每一次都是我自己的判断失误，逐条记下）：
+1. `&open=<path>` 启动参数**在本 harness 里不可用** —— 带它时连 `openScene` 自身的就绪等待都超时；
+2. 改成"新开场景 + 树上装载"后仍失败：本 harness 里**连续新开场景会撞上 10s 就绪上限**；
+3. 于是改成"**在已经跑通的场景内继续展开树**"（不再新开场景）—— 设计对了，但**仍然**超时；
+4. 我怀疑 `status` 取值非法（写了 `'Unsupported'`），查 `DocumentReadStatus` 枚举确认**确实非法**
+   （合法值：`TextReady/ImageReady/BinarySummary/TextTooLarge/…`）→ 改成 `ImageReady`/`TextTooLarge`，**还是**超时；
+5. **真正的原因**：我改了树 fixture（新增 `docs/assets`、`docs/archive.zip`），而 harness 里有一条**启动期结构断言**
+   `document.querySelectorAll(".side-content.tree .tree-row").length === 7` —— 新 fixture 让启动树变成 **9** 行，
+   于是**每一个场景**都在那条 10s 等待上超时，失败点出现在**任何诊断之前**。把 7 改成 9，一次通过。
+
+**教训（写进纪律）**：**改 fixture = 改被测结构**，必须**同步启动期的结构断言**；
+否则症状会伪装成"与本次改动无关的启动超时"。这也是"失败在任何诊断之前 ⇒ 先怀疑 fixture/启动期断言，
+而不是继续改被断言对象"的又一例。另外本次也确认：`status` 这类枚举值应当**先查 C# 枚举**再写 fixture（同"先查键名"一课）。
