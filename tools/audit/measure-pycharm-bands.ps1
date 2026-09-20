@@ -48,6 +48,11 @@ try {
     if ($min -lt 0) { Write-Output 'NO_EDGE (scan line is entirely background-coloured)'; exit 0 }
     $size = $max - $min + 1
     Write-Output ("EDGE first=" + $min + " last=" + $max + " size=" + $size + " CSS=" + [Math]::Round($size / $Dpi, 1))
+    # Round 76 lesson: a scan line that starts or ends still inside non-background pixels is CLIPPED,
+    # so "size" is a lower bound rather than a measurement. Two of three lines came back clipped and
+    # I nearly published the number anyway - hence this warning is printed by the tool, not by the caller.
+    if ($min -eq $From) { Write-Output 'WARN CLIPPED_AT_START (first == From): size is a lower bound, widen the range' }
+    if ($max -eq $To) { Write-Output 'WARN CLIPPED_AT_END (last == To): size is a lower bound, widen the range' }
     Write-Output 'NOTE: run at least two parallel lines and only trust agreeing values.'
     exit 0
   }
