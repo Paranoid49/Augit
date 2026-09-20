@@ -9620,6 +9620,39 @@ async function main() {
         && wrapToggleKey.afterSpace.pressed === String(wrapToggleKey.afterSpace.wrapped)
         && wrapToggleKey.afterEnter.pressed !== wrapToggleKey.afterClick.pressed
         && wrapToggleKey.afterSpace.pressed !== wrapToggleKey.afterEnter.pressed);
+      // ---- 第 120 轮：`显示空白` 也做成真开关（收掉 §3.2 #32）----
+      // 判据除了状态标记，还加一条**负向对照**：开启后行文本 `textContent` 必须**不变**
+      // （点位由 CSS 伪元素画，不能把点插进文本 —— 那会污染查找/选择/既有断言）。
+      const whitespaceToggle = await (async () => {
+        const read = () => toolbar.page.evaluate(() => {
+          const b = document.querySelector('.document-toolbar [aria-label="显示空白"]');
+          const v = document.querySelector('.code-view, .diff-columns');
+          const line = document.querySelector('.code-line');
+          return {
+            pressed: b ? b.getAttribute('aria-pressed') : null,
+            shown: v ? v.classList.contains('show-whitespace') : null,
+            marks: document.querySelectorAll('.code-line span.ws').length,
+            text: line ? line.textContent : null,
+          };
+        });
+        const before = await read();
+        await toolbar.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+        await toolbar.page.waitForTimeout(400);
+        const afterClick = await read();
+        await toolbar.page.locator('.document-toolbar [aria-label="显示空白"]').focus();
+        await toolbar.page.keyboard.press('Enter');
+        await toolbar.page.waitForTimeout(400);
+        const afterEnter = await read();
+        return { before, afterClick, afterEnter };
+      })();
+      console.log('INFO 显示空白=' + JSON.stringify(whitespaceToggle));
+      check('§7.2 显示空白可切换、Enter 可激活且不改变行文本: ' + JSON.stringify(whitespaceToggle),
+        whitespaceToggle.afterClick.pressed === String(whitespaceToggle.afterClick.shown)
+        && whitespaceToggle.afterClick.shown === true && whitespaceToggle.afterClick.marks > 0
+        && whitespaceToggle.afterClick.text === whitespaceToggle.before.text
+        && whitespaceToggle.afterEnter.pressed !== whitespaceToggle.afterClick.pressed
+        && whitespaceToggle.afterEnter.marks === 0
+        && whitespaceToggle.afterEnter.text === whitespaceToggle.before.text);
       await toolbar.page.close();
 
       // §7.8「字号增大时各部位按字高扩展、图标不变」这一条**本轮没能断言**：

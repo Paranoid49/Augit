@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1061/1061（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1062/1062（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -821,7 +821,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 2 | §7.2 | 行号列固定，不因长行横向滚动消失 | 是 | `行号槽含真实行号`（+ 正文滚动快照断言） |
 | 3 | §7.2 | 短文件不保留空白横向范围；长行扩展范围；内容或字体变化重新度量并收回旧偏移 | 部分 | 滚动快照覆盖"内容变化后位置保持"；**"短文件不保留空白横向范围""收回旧偏移"没有断言** |
 | 4 | §7.2 | 工具栏提供自动换行、空白符显示、当前文件搜索和跳转行 | 是 | `Ctrl+F 打开当前文件查找`、`Ctrl+G 打开跳转行`、工具栏结构断言（`自动换行`/`显示空白` 按钮在文档工具栏里） |
-| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 是 | **三半都有断言**：① 按可见顺序参与 Tab —— 第 118 轮用**真实 Tab 按键**实测遍历顺序与可见顺序一致（既有断言只算了 `seen` 没进判据）；② **Enter/Space 激活** —— 第 119 轮把 `自动换行` 实现成真开关后，实测 `afterClick→afterEnter→afterSpace` 每次激活都翻转且 `aria-pressed` 与 `.wrap` 一致；③ 切换显示选项保留按钮焦点（既有断言）。**注**：同排的 `显示空白` 仍无行为（§3.2 #32） |
+| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 是 | **三半都有断言**：① 按可见顺序参与 Tab —— 第 118 轮用**真实 Tab 按键**实测遍历顺序与可见顺序一致（既有断言只算了 `seen` 没进判据）；② **Enter/Space 激活** —— 第 119 轮把 `自动换行` 实现成真开关后，实测 `afterClick→afterEnter→afterSpace` 每次激活都翻转且 `aria-pressed` 与 `.wrap` 一致；③ 切换显示选项保留按钮焦点（既有断言）。**注**：同排的 `显示空白` 仍无行为（§3.2 #32）；**第 120 轮**：同排的 `显示空白` 也实现为真开关（`span.ws` + 伪元素画点，`textContent` 不变；实测 `marks: 90` ↔ `0`） |
 | 6 | §7.2 | `Ctrl+F` 在正文顶部打开占一行的查找条，不改变标签身份；关闭后恢复原正文区域 | 是 | `Ctrl+F 打开当前文件查找`、`刷新后查找条不重复打开`、`§4.2 前置条件：查找条已打开且焦点在查找输入框` |
 | 7 | §7.2 | 搜索条包含普通文本、区分大小写、全字、正则开关，以及结果数量、上一项、下一项和关闭 | 是 | 查找块（`find-state` 系列 + 开关与导航按钮断言） |
 | 8 | §7.2 | 有效查询自动定位首个匹配、显示"当前项/总数"、`Enter`/`Shift+Enter` 前后定位、焦点仍在查找框、`Tab` 循环、`Esc` 收起并交回正文、组词期间不抢 Enter/Esc/Tab | 是 | 自动定位/数量/前后定位/Esc 有断言；本轮新增 `§7.2 查找条 Tab 在输入框/开关/导航/关闭之间循环`（Tab 始终停在条内控件、经过 ≥4 个不同控件、若干次后回到输入框）与 `§7.2 组词期间不扫描、Escape/Enter 被抢占`（组词中 Esc/Enter 不关闭条、不导航）。**保留一处精度缺口**：逐项顺序与 DOM 顺序未一一对应，因此没有写"逐项相等"的判据 |
@@ -1774,10 +1774,9 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 
 31. ~~§7.2"文档工具栏 Enter/Space 激活"未验到~~ **【第 119 轮已闭环】** —— 根因不是"没法观测"，而是**这两个按钮根本没有行为**（live 代码里 `自动换行`/`显示空白` 零命中、连 `aria-pressed` 都没有）。本轮把 **`自动换行` 实现成真开关**：状态 `live.displayOptions.wrap`、渲染后贴 `aria-pressed`/`.active`、并给 `.code-view` 切 `.wrap`（共享资产加了两条 CSS，两副本字节一致 + `verify-ui-assets` PASS）。实测 `afterClick:false → afterEnter:true → afterSpace:false`（每次激活都翻转、`aria-pressed` 与 `.wrap` 一致）⇒ **真实 `Enter` 与 `Space` 都能激活**。
-32. **§7.2 的"显示空白"仍无行为（**未闭环**）** —— 与 `自动换行` 同一排的那个按钮**点了没有任何效果**（live 代码里同样零命中、无状态标记）。规格把两者并列为"显示选项"，因此这属于缺口而非裁决。
-    **下一步**：按 `自动换行` 的同一套做法实现（状态 + `aria-pressed` + 空白可视化的呈现规则），
-    再补"可切换 + Enter/Space 激活"的断言。
-
+32. ~~§7.2 的"显示空白"仍无行为~~ **【第 120 轮已闭环】** —— 与 `自动换行` 同一套做法：状态 `live.displayOptions.whitespace`、`aria-pressed`/`.active` 标记、把代码行里的空格/制表符**包进 `span.ws`**（伪元素 `content: "·"` 画点，**`textContent` 不变**）。
+    实测 `afterClick: { pressed: "true", shown: true, marks: 90 }`、`afterEnter: { pressed: "false", marks: 0 }`，且三步的**行文本完全一致**（负向对照：点位不能进文本，否则会污染查找/选择）。
+    过程踩坑两条：① 一次性包裹会被**区域重渲染**覆盖 ⇒ 用 `MutationObserver` 续贴；② 只遍历直接子文本节点时 `marks: 0` ⇒ 改用 **TreeWalker** 抓全部文本节点（跳过行号）。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

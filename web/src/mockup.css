@@ -570,6 +570,14 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 .code-view.wrap .code-line { white-space: pre-wrap; overflow-wrap: anywhere; }
 .code-view.wrap .code-lines { width: auto; min-width: 100%; }
 
+
+/* 显示空白（规格 §7.2 显示选项）：用**伪元素**画点，`textContent` 保持不变（便于断言与查找）。 */
+.code-view.show-whitespace .code-line span.ws { position: relative; }
+.code-view.show-whitespace .code-line span.ws::before {
+  content: "·"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--augit-muted); opacity: 0.55; pointer-events: none;
+}
+
 .code-view {
   min-height: 0;
   min-width: 0;

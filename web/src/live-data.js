@@ -3233,6 +3233,86 @@ function applyPendingDocumentStatus() {
  * （连 `aria-pressed` 都没有，第 118 轮想验"Enter/Space 激活"时因此拿不到任何可观测效果）。
  * 这里先实现**自动换行**这一档：状态存 `live.displayOptions.wrap`，渲染后重新贴标记。
  */
+/**
+ * 显示空白（规格 §7.2 显示选项）。视觉稿里这个按钮同样**没有任何行为**（live 代码零命中、无状态标记）。
+ * 实现方式：把代码行里的空格/制表符**包进 `span.ws`**，点位由 CSS 伪元素画（`content: "·"`），
+ * 因此 `textContent` 不变 —— 查找、选择与既有断言都不受影响；关闭时把 span 还原成纯文本。
+ */
+let whitespaceObserver = null;
+
+function applyWhitespaceMarkers() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const on = !!(live.displayOptions && live.displayOptions.whitespace);
+  // 实测（第 120 轮第一次跑）：点击后应用会**重渲染代码区**，一次性包裹会被新 DOM 覆盖
+  // （区域刷新不等于整页重渲染，`rebindAfterRender` 那条钩子不会再跑）⇒ 用 MutationObserver 续贴。
+  if (on && !whitespaceObserver && typeof MutationObserver === "function") {
+    whitespaceObserver = new MutationObserver(() => {
+      if (whitespaceObserver) {
+        whitespaceObserver.disconnect();
+        whitespaceObserver = null;
+        applyWhitespaceMarkers();
+      }
+    });
+    whitespaceObserver.observe(document.body, { childList: true, subtree: true });
+  } else if (!on && whitespaceObserver) {
+    whitespaceObserver.disconnect();
+    whitespaceObserver = null;
+  }
+  const view = document.querySelector(".code-view, .diff-columns");
+  if (view) view.classList.toggle("show-whitespace", on);
+  const button = document.querySelector('.document-toolbar [aria-label="显示空白"]');
+  if (button) {
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+    button.classList.toggle("active", on);
+  }
+  const lines = [...document.querySelectorAll(".code-line")];
+  if (!on) {
+    lines.forEach((line) => {
+      const marks = [...line.querySelectorAll("span.ws")];
+      if (marks.length === 0) return;
+      marks.forEach((mark) => mark.replaceWith(document.createTextNode(mark.textContent)));
+      line.normalize();
+    });
+    return;
+  }
+  lines.forEach((line) => {
+    if (line.querySelector("span.ws")) return;
+    // 用 **TreeWalker** 抓**全部**文本节点（不只直接子节点），并跳过行号 —— 第 120 轮第一次跑
+    // 只遍历了直接子文本节点，结果一个都没包上（`marks: 0`）。
+    if (typeof document.createTreeWalker !== "function") return;
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const text = node.nodeValue || "";
+        if (!/[ \t]/.test(text)) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (parent && (parent.classList.contains("line-number") || parent.closest(".line-number"))) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const targets = [];
+    while (walker.nextNode()) targets.push(walker.currentNode);
+    for (const node of targets) {
+      const text = node.nodeValue || "";
+      const fragment = document.createDocumentFragment();
+      for (const piece of text.split(/([ \t])/)) {
+        if (piece === "") continue;
+        if (piece === " " || piece === "\t") {
+          const span = document.createElement("span");
+          span.className = "ws";
+          span.textContent = piece;
+          fragment.appendChild(span);
+        } else {
+          fragment.appendChild(document.createTextNode(piece));
+        }
+      }
+      node.replaceWith(fragment);
+    }
+  });
+}
+
 function applyDisplayOptionMarkers() {
   const live = window.__augitLive;
   if (!live) return;
@@ -3247,6 +3327,17 @@ function applyDisplayOptionMarkers() {
 }
 
 document.addEventListener("click", (event) => {
+  const whitespace = event.target.closest && event.target.closest('.document-toolbar [aria-label="显示空白"]');
+  if (whitespace) {
+    event.preventDefault();
+    const live = window.__augitLive;
+    if (live) {
+      live.displayOptions = live.displayOptions || {};
+      live.displayOptions.whitespace = !live.displayOptions.whitespace;
+      applyWhitespaceMarkers();
+    }
+    return;
+  }
   const button = event.target.closest && event.target.closest('.document-toolbar [aria-label="自动换行"]');
   if (!button) return;
   event.preventDefault();
@@ -3275,6 +3366,7 @@ function rebindAfterRender() {
   bindGlobalShortcuts();
   bindModalBackground();
   labelFileHistoryClearEntry();
+  applyWhitespaceMarkers();
   ensureComparisonReadonlyMarker();
   applyDisplayOptionMarkers();
   applyPendingDocumentStatus();
