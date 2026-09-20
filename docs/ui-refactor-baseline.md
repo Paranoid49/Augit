@@ -14000,3 +14000,27 @@ content 都是 **0.03 且 flatDiff 同为 212** —— 说明"脏标记/保存�
 2. 修正目录解析后，我在文档里**凭印象**写了"累计 50/55"，脚本一算实际是 **42/55**（那 8 个场景本就在已测集合内，
    本批是**复测**而非新增）。已改成脚本算出的数字并把 13 个剩余场景逐个列出。
 ⇒ **教训：分母必须用脚本从证据目录算出来，不能凭记忆估**（这与"覆盖率一律写成有分母的事实"是同一条纪律）。
+
+#### 第 438 轮：④ **完成 —— 55/55 场景**（最后 13 个：13 × 3 带里 titlebar/statusbar 全 0.00）
+
+| 场景 | content `layoutPercent` | 场景 | content `layoutPercent` |
+| --- | ---: | --- | ---: |
+| `conflict-list` | 0.01 | `rollback` | 0.34 |
+| `push-no-remote` | 0.02 | `remote` | 0.70 |
+| `clone` | 0.09 | `stash-drop-confirm` | 1.00 |
+| `workspace-open` | 0.09 | `git-history-menu` | 1.06 |
+| `push` | 0.18 | `stash-manager` | 1.36 |
+| `smart-checkout` | 0.21 | `history-diff-cancelled` | 1.39 |
+| `repository-init` | 0.31 | | |
+
+**结论**：13 个场景 × 3 带 = **39 个读数，titlebar/statusbar 全部 0.00**，content 最高 1.39。
+⇒ **④ 完成：55/55** 个场景都有 `layoutPercent` + 三带 + heatmap 的实测证据。
+**全量 > 2.0 的只有 2 个**：`quick-open` 2.30、`repository-search` 2.08 —— 均已归因 **live 数据状态**
+（真实文本差异，且 titlebar/statusbar 为 0.00），**不是布局错位**；`quick-open` 与第 60 轮**逐值相同**。
+
+**过程记录（两条，都是我的操作失误，已纠正）**：
+1. 这批第一次跑**卡在第一个场景**：原因是它与后台的 `live-shell` 抢 CDP/端口（并发），日志只有一行 `=== clone ===`；
+   已按规范 `Stop-Process` 掉残留的 `Augit` 进程，改为**无并发**重跑。
+2. 第二次跑**13 个场景全部无输出**：因为我自己**编造了一个不存在的参数 `-TimeoutSec`**
+   （那是 `capture-surface.ps1` 的参数，`compare-pixels.ps1` 没有）→ PowerShell 直接报参数不匹配。
+   教训：**调脚本前先 `grep` 它的 `param()`**，别凭记忆；这与"先量再改、先看规格再动手"是同一条纪律。

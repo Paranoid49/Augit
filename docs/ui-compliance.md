@@ -60,8 +60,8 @@
 **覆盖率口径（全部带分母）**：
 - **⑦⑧ PyCharm 对照**：**33/55 面级已对照** + **5 页仅入口级证据** + **17 页未对照**；
   17 页已三分类（RECOVERABLE 10 / PRECONDITION 6 / AUGIT_ONLY 1），每页写明入口或前提；见 §1.6。
-- **④ 同引擎像素对照**：**42/55 场景**已有本轮口径（`layoutPercent`）的实测证据；6 个场景两次独立运行 **Δ ≤ 0.01**；
-  唯一 > 2.0 的是 `repository-search`（2.08，归因 live 数据状态，非布局错位）。
+- **④ 同引擎像素对照**：**55/55 场景**已有本轮口径（`layoutPercent`）的实测证据；7 个场景两次独立运行 **Δ ≤ 0.01**；
+  全量 > 2.0 的只有 2 个（`quick-open` 2.30、`repository-search` 2.08），均归因 live 数据状态、非布局错位。
 - **⑨⑩ 条文穷举**：351 条里 **125 条非"是"**，逐行结论见 §2.10（A 88 / C 13 / D 20 / B 4）。
 
 **待用户裁决（§3.4）**：#19 查找条是否随字高扩展（改基线 / 改规格）｜#20 终端行高口径（配置 1.7 / 渲染 22px）｜
@@ -515,6 +515,31 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > `push` / `push-no-remote` / `remote` / `repository-init` / `rollback` / `smart-checkout` /
 > `stash-drop-confirm` / `stash-manager` / `workspace-open`（按需再补，**不为凑 55/55 而跑全量矩阵**）。
 > ⚠️ 我第一版这里写了"50/55"，是**按记忆估的**；用脚本一算才发现那 8 个场景本就在已测集合里 —— **分母要用脚本算，不能凭印象**。
+
+> **第 93 轮补测（④ 第 7 批 = 最后 13 个场景）→ ④ 达到 55/55**
+>
+> | 场景 | titlebar | statusbar | content `layoutPercent` |
+> | --- | ---: | ---: | ---: |
+> | `conflict-list` | 0.00 | 0.00 | 0.01 |
+> | `push-no-remote` | 0.00 | 0.00 | 0.02 |
+> | `clone` | 0.00 | 0.00 | 0.09 |
+> | `workspace-open` | 0.00 | 0.00 | 0.09 |
+> | `push` | 0.00 | 0.00 | 0.18 |
+> | `smart-checkout` | 0.00 | 0.00 | 0.21 |
+> | `repository-init` | 0.00 | 0.00 | 0.31 |
+> | `rollback` | 0.00 | 0.00 | 0.34 |
+> | `remote` | 0.00 | 0.00 | 0.70 |
+> | `stash-drop-confirm` | 0.00 | 0.00 | 1.00 |
+> | `git-history-menu` | 0.00 | 0.00 | 1.06 |
+> | `stash-manager` | 0.00 | 0.00 | 1.36 |
+> | `history-diff-cancelled` | 0.00 | 0.00 | 1.39 |
+>
+> **13 个场景 × 3 带 = 39 个读数，titlebar/statusbar 全部 0.00**，content 最高 1.39。
+> ⇒ **④ 完成：55/55 个场景**都有本轮口径（`layoutPercent` + 三带 + heatmap）的实测证据（证据目录
+> `artifacts/pixel-review-20260921/` 12 个 + `artifacts/pixel-review-20260921b/` 51 个）。
+> **全量 > 2.0 的只有 2 个场景**：`quick-open` **2.30**、`repository-search` **2.08** ——
+> 两者都已归因于 **live 数据状态**（真实文本/命中差异，且 titlebar/statusbar 均为 0.00），**不是布局错位**；
+> 其中 `quick-open` 与第 60 轮复核值**逐值相同（Δ 0.00）**，属 7 条稳定性证据之一。
 
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
