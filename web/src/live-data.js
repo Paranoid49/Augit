@@ -3615,6 +3615,19 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 提交历史工具栏「搜索提交」（规格 §7.8）：把焦点交给日志搜索框。
+    // 核实过：`history-utility`（该按钮的类）在 live-data.js 里此前**完全没有出现** ⇒ 死入口。
+    const historySearchEntry = event.target.closest
+      && event.target.closest('[aria-label="搜索提交"]');
+    if (historySearchEntry) {
+      event.preventDefault();
+      const input = historySearchEntry.closest(".log-filterbar")
+        ? historySearchEntry.closest(".log-filterbar").querySelector(".history-search input")
+        : document.querySelector(".history-search input");
+      if (input) input.focus({ preventScroll: true });
+      return;
+    }
+
     // 文件历史「清除路径筛选」入口（规格 §7.9）。
     const clearHistoryPath = event.target.closest
       && event.target.closest('.history-tool-content [aria-label="清除路径筛选"]');

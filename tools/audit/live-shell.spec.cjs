@@ -9688,6 +9688,27 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 98 轮补断言：§7.8 提交历史「搜索提交」把焦点交给日志搜索框（此前是死入口）----
+    const historySearch = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForTimeout(1000);
+      const before = await scene.page.evaluate(() => ({
+        entry: !!document.querySelector('[aria-label="搜索提交"]'),
+        activeLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+      }));
+      await scene.page.locator('[aria-label="搜索提交"]').click();
+      await scene.page.waitForTimeout(500);
+      const after = await scene.page.evaluate(() => ({
+        activeLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+        activeTag: document.activeElement ? document.activeElement.tagName : null,
+      }));
+      await scene.page.close();
+      console.log('INFO 搜索提交=' + JSON.stringify({ before, after }));
+      return { before, after };
+    })();
+    check('§7.8 提交历史「搜索提交」把焦点交给日志搜索框: ' + JSON.stringify(historySearch),
+      historySearch.before.entry === true && historySearch.after.activeTag === 'INPUT');
+
     // ---- 第 97 轮补断言：§7.9 文件历史的「清除路径筛选」入口（第 96 轮尝试失败后重做）----
     // 第 96 轮的教训：该状态的工具条**不是** `.log-filterbar.history-filters`，而是
     // `.history-tool-content .history-toolbar`（视觉稿里那儿本就有个 × 图标按钮，只是没标签没绑定）。

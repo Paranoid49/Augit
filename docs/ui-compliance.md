@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1046/1046（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1047/1047（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -965,7 +965,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 8 | §7.8 | 工具栏按钮用 Enter/Space 执行、焦点显示统一蓝色内框；收纳箭头消失时焦点交给同组最后一个可见可用动作；极短区域不绘制越界按钮 | 部分 | 有焦点环断言；**Enter/Space 执行与焦点交接、极短区域不越界没有断言** |
 | 9 | §7.8 | 引用树顶部有"分支或标签"搜索 | 是 | 引用树筛选断言族（§1.1 `git-history` + `筛选栏保留` 类断言） |
 | 10 | §7.8 | 提交列表顶部有文本或哈希搜索，以及分支、用户、日期和路径筛选 | 是 | 筛选栏断言族（`log-filterbar` 相关断言与像素行） |
-| 11 | §7.8 | 筛选栏右侧"显示/隐藏提交详情"与"搜索提交历史"两个图标入口，各自只做一件事 | 是 | **第 435 轮实现并断言**：`§7.8 显示提交详情入口切换详情面板显隐`（点一下 → `.log-detail-panel` `display:none`、`aria-label` 翻成"隐藏提交详情"）+ **负向验证** `§7.8 再次点击还原详情面板`（面板恢复、标签翻回）；同节的 `搜索提交` 入口独立（不打开搜索框） |
+| 11 | §7.8 | 筛选栏右侧"显示/隐藏提交详情"与"搜索提交历史"两个图标入口，各自只做一件事 | 是 | **第 435 轮实现并断言**：`§7.8 显示提交详情入口切换详情面板显隐`（点一下 → `.log-detail-panel` `display:none`、`aria-label` 翻成"隐藏提交详情"）+ **负向验证** `§7.8 再次点击还原详情面板`（面板恢复、标签翻回）；同节的 `搜索提交` 入口独立（不打开搜索框）；**第 98 轮再补**：`§7.8 提交历史「搜索提交」把焦点交给日志搜索框` —— 核实 `history-utility`（该按钮的类）在 `live-data.js` 里**从未出现**（死入口），现实现为"把焦点交给 `.history-search input`"；实测 `activeElement: null → INPUT(文本或哈希)`。两个入口因此都各自只做一件事
 | 12 | §7.8 | 窄栏按原顺序把放不下的筛选项收入右箭头菜单，不压细输入框、不移除能力；菜单调用已有筛选动作并交接焦点 | 部分 | 同上：结构在，**收纳行为与焦点交接没有断言** |
 | 13 | §7.8 | 引用、作者和日期分别成列、共享文字度量；常规宽度显示本地完整日期与时间，引用含标签图形；窄栏短日期与省略为同构推导 | 部分 | 列布局在视觉稿与像素基线里；**"共享文字度量""不吞掉后续列"没有断言** |
 | 14 | §7.8 | 变化文件与项目树/标签/Changes/搜索结果共用文件类型图标；类型色不被 Git 状态色覆盖；辅助技术名称保留状态符号与文件名 | 部分 | 图标复用有断言族；**"状态色不覆盖图标色""辅助技术名称含状态与文件名"没有断言** |
