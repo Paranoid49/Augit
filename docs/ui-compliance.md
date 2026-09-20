@@ -1584,6 +1584,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 23 | **项目树 Enter 不执行默认动作**：条文要求 Enter 执行默认动作，实测无效 | 行保持焦点、`__augitLive.document` 仍 `null`、也没落进"未接线兜底"；第 81 轮钉住断言 | **接线**："文件行 = 打开该文件；目录行 = 展开/折叠"（需你确认这个映射） | **改规格**：删掉 Enter 这条要求（明确不提供） | 项目树键盘操作；§5 的这条从"部分"变"是/未覆盖" |
 | 22 | *(非裁决，仅记录)* §7.8"工具栏随字号扩展"本轮**没能断言** | 两次等待实时 `scene=git-history` 的 `.history-toolbar` 超时（先只等选择器、再先等 `__augitGitReady`） | 换场景（如 `commit-changes` 的 `.git-side-toolbar`）再试 | — | 无（采集方法问题，非实现问题） |
 
+| 24 | **PyCharm 侧剩余采集被"界面残留状态"挡住**（IDE 本身没卡） | 截图上编辑器区停着残留的 "Search Everywhere" 浮层（输入框内容 `otate`）＋标签栏留着第 412 轮误触打开的无关标签；`pycharm64` 1 个进程、`Responding=True`、`IsHungAppWindow=False`（CPU 7022.9 s、WS ≈2.9 GB） | **你在 PyCharm 里按几次 `Esc` 关掉残留浮层、顺手关掉多余标签**（最省事，不影响我其它工作） | **允许我重启 PyCharm**（不丢代码；会丢未保存的编辑器缓冲区与工具窗布局） | 只影响 ⑦⑧ 里 `blame`/`file-history`/`repository-search` 等 RECOVERABLE 页面的采集；在此之前我暂停向 IDE 发按键（避免再误触） |
 **另外两条"已裁决但需保持"的口径**（供对照，不需再答）：
 - **§7.17 设置冲突**：按规格 + PyCharm 结构落地（外观=主题+界面字体/字号；文件查看=正文字体+等宽字体/字号+默认换行；Git；终端；导航真正切页、保留草稿、搜索过滤）—— 已实施。
 - **对照主题 = A（Islands Light）**：不修改你的 IDE 设置；dark 对照从未做，已如实标"未覆盖"。
