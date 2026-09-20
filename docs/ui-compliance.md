@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1064/1064（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1065/1065（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -848,7 +848,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 8 | §7.9 | Blame 在普通文本左侧增加作者与提交信息列，不改变只读属性 | 是 | `Blame 正文为真实文件内容`、`Blame 不残留样例归属` + 只读标识断言 |
 | 9 | §7.9 | 归属边栏分日期/作者摘要/行号三列；与正文同行高、纵向同步、横向不动；字号变化按字宽扩展；作者列内省略；点击用完整哈希 | 部分 | `Blame 槽位含真实日期与作者`、`Blame 行数与真实归属一致` 覆盖三列与同步；**字号扩展、横向滚动不动、完整哈希点击没有断言** |
 | 10 | §7.9 | Blame 未完成时切换文件/比较/关闭/隐藏/切工作区/销毁使旧请求失效；只接纳最后一次；旧结果不覆盖新状态 | 部分 | `缺 path 的 blame 载荷不进入状态` 是其中一条；**"只接纳最后一次"的乱序用例没有断言** |
-| 11 | §7.9 | Blame 顶部右侧"n 行归属"与关闭入口；隐藏普通文档动作；Tab 可达关闭，Enter/Space 关闭后恢复工具栏、保留原文与位置并交回焦点 | 部分 | 结构在视觉稿与实现里；**Tab/Enter/Space 与"恢复工具栏/交回焦点"没有断言**；**已断言**：`§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭`（头部文本含"行归属"、`aria-label="关闭 Blame"` 在、聚焦后 Enter 使该入口消失）；**未断言**：Tab 可达关闭、Space、关闭后恢复工具栏/保留原文与位置/交回焦点、隐藏普通文档动作 |
+| 11 | §7.9 | Blame 顶部右侧"n 行归属"与关闭入口；隐藏普通文档动作；Tab 可达关闭，Enter/Space 关闭后恢复工具栏、保留原文与位置并交回焦点 | 是 | 结构在视觉稿与实现里；**Tab/Enter/Space 与"恢复工具栏/交回焦点"没有断言**；**已断言**：`§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭`（头部文本含"行归属"、`aria-label="关闭 Blame"` 在、聚焦后 Enter 使该入口消失）；**未断言**：Tab 可达关闭、Space、关闭后恢复工具栏/保留原文与位置/交回焦点、隐藏普通文档动作；**第 123 轮补齐三处**：① 把此前**算了却没进判据**的 `bodyStill` 用起来（Enter 关闭后**正文也消失**）；② **隐藏普通文档动作** —— 反向断言 Blame 工具栏里 `自动换行/显示空白/当前文件搜索/跳转行` 命中数为 **0**（实测工具栏 `aria-label` 清单只有 `["关闭 Blame"]`）；③ **Tab 可达关闭** —— 从正文第一行 `Shift+Tab` 落点即 `关闭 Blame`（断言 `§7.9 Blame 隐藏普通文档动作、Tab 可达关闭`） |
 | 12 | §7.9 | 点击 Blame 提交定位 Git 历史并选择对应提交 | 未覆盖 | 没有断言（需要"从 Blame 点提交 → 历史选中该提交"的用例） |
 | 13 | §7.9 | 从文件历史中的 Blame 定位提交时恢复日志布局、解除旧路径限定与预览请求；异步完成不抢焦点、不恢复旧页 | 未覆盖 | 同上，没有断言 |
 | 14 | §7.9 | 引用比较复用 diff 编辑标签，并在标签和文件栏明确显示双方引用 | 是 | `历史比较标签标注双方引用`、`复用比较标签时同步标签文字`、`与工作区比较建立比较标签` |
@@ -1306,11 +1306,11 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 ### 2.10 非"是"条文的结论清单（⑨/⑩，逐行；生成器 `tools/audit/gen-clause-conclusions.cjs`）
 
-**分母**：§2.1–§2.8 里状态为**非"是"**的条文共 **113** 行，分类如下：
+**分母**：§2.1–§2.8 里状态为**非"是"**的条文共 **112** 行，分类如下：
 
 | 结论类别 | 行数 | 含义与下一步 |
 | --- | ---: | --- |
-| A 实现已有、仅缺断言 | 81 | 补 harness 断言 → 可转"是" |
+| A 实现已有、仅缺断言 | 80 | 补 harness 断言 → 可转"是" |
 | B 只有像素或间接证据 | 4 | 把像素/间接证据升级为可复跑断言 |
 | C 未覆盖（无断言也无观察） | 11 | 补断言或明确不做（需用户裁决） |
 | D 其它部分覆盖 | 17 | 定位子条件后补断言 |
@@ -1339,7 +1339,6 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | §2.6 | §7.9 | 部分 | A 实现已有、仅缺断言 | 有隐藏/恢复类断言（`§7.16` 同族）；**Tab 顺序与"重显补查"没有断言** |
 | §2.6 | §7.9 | 部分 | A 实现已有、仅缺断言 | `Blame 槽位含真实日期与作者`、`Blame 行数与真实归属一致` 覆盖三列与同步；**字号扩展、横向滚动不动、完整哈希点击没有断言** |
 | §2.6 | §7.9 | 部分 | A 实现已有、仅缺断言 | `缺 path 的 blame 载荷不进入状态` 是其中一条；**"只接纳最后一次"的乱序用例没有断言** |
-| §2.6 | §7.9 | 部分 | A 实现已有、仅缺断言 | 结构在视觉稿与实现里；**Tab/Enter/Space 与"恢复工具栏/交回焦点"没有断言**；**已断言**：`§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭`（头部文本含"行归属"、`aria-label=" |
 | §2.6 | §7.9 | 未覆盖 | C 未覆盖（无断言也无观察） | 没有断言（需要"从 Blame 点提交 → 历史选中该提交"的用例） |
 | §2.6 | §7.9 | 未覆盖 | C 未覆盖（无断言也无观察） | 同上，没有断言 |
 | §2.6 | §7.9 | 部分 | A 实现已有、仅缺断言 | 双栏/单栏结构有像素基线（`commit-diff`/`git-compare`）；**"旧正文期间保留布局""失败/摘要按模式显示身份"没有断言** |

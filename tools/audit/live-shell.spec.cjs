@@ -9826,8 +9826,45 @@ async function main() {
       })();
       check('§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭: ' + JSON.stringify({ blameHeader, closedByEnter }),
         blameHeader.hasClose === true && !!blameHeader.text && /行归属/.test(blameHeader.text)
-          && closedByEnter.blameCloseStill === 0);
+        // `bodyStill` 此前**算了却没进判据**（第 123 轮发现）：Enter 关闭后正文也必须消失。
+        && closedByEnter.blameCloseStill === 0 && closedByEnter.bodyStill === 0);
       await blame.page.close();
+
+      // ---- 第 123 轮补断言：§7.9 的另两半（**隐藏普通文档动作** + **Tab 可达关闭**）----
+      const blameA11y = await (async () => {
+        const scene = await openScene('scene=blame&theme=dark');
+        await scene.page.waitForTimeout(900);
+        const absent = await scene.page.evaluate(() => {
+          const toolbar = document.querySelector('.blame-document .document-toolbar');
+          if (!toolbar) return null;
+          const plain = ['自动换行', '显示空白', '当前文件搜索', '跳转行'];
+          return {
+            count: plain.filter((label) => toolbar.querySelector('[aria-label="' + label + '"]')).length,
+            labels: [...toolbar.querySelectorAll('[aria-label]')].map((b) => b.getAttribute('aria-label')),
+          };
+        });
+        // Tab 可达关闭：从**正文第一行**（工具栏之后的可聚焦元素）反向 Shift+Tab 应落到关闭按钮。
+        const tabToClose = await scene.page.evaluate(() => {
+          const row = document.querySelector('.blame-document .blame-gutter a');
+          if (row) row.focus();
+          return !!row;
+        });
+        let focused = null;
+        if (tabToClose) {
+          await scene.page.keyboard.press('Shift+Tab');
+          await scene.page.waitForTimeout(200);
+          focused = await scene.page.evaluate(() => {
+            const a = document.activeElement;
+            return a ? a.getAttribute('aria-label') : null;
+          });
+        }
+        await scene.page.close();
+        return { absent, tabToClose, focused };
+      })();
+      console.log('INFO Blame 可访问性=' + JSON.stringify(blameA11y));
+      check('§7.9 Blame 隐藏普通文档动作、Tab 可达关闭: ' + JSON.stringify(blameA11y),
+        blameA11y.absent && blameA11y.absent.count === 0
+        && blameA11y.tabToClose === true && blameA11y.focused === '关闭 Blame');
 
       // §7.16 标题栏"更多"菜单：条文要求提供切换配置与外部终端入口
       const termMore = await openScene('scene=terminal&theme=dark');
