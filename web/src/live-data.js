@@ -7609,6 +7609,16 @@ async function refreshCommitDetails() {
  * 读取单个提交的详情并填入底部日志的详情区。
  * 提交选择由 mockup 的既有绑定派发 history-commit-selected 事件触发。
  */
+// 规格 §7.8：读盘期间按 End 只**记录"定位末尾"的意图**，等完整排版结束后再执行。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "End") return;
+  const live = window.__augitLive;
+  if (!live || !live.commitDetailLoading) return;
+  const panel = event.target.closest && event.target.closest(".log-detail-panel, [data-live-commit-detail]");
+  if (!panel && !document.querySelector(".log-detail-panel")) return;
+  live.commitDetailScrollIntent = "end";
+}, true);
+
 async function loadCommitDetails(revision) {
   const panel = document.querySelector(".log-detail-panel");
   if (!panel) return;
@@ -7618,10 +7628,21 @@ async function loadCommitDetails(revision) {
 
   // 规格 §7.8：快速切换提交只接纳最新详情，旧详情不得恢复旧内容。
   const token = ++commitDetailsToken;
+  // 规格 §7.8 另两半：**先呈现首段再更新滚动范围** + 期间按 **End 记录末尾意图、完成后执行**。
+  // 实现方式：读盘期间置 `commitDetailLoading`（End 监听据此记录意图）；拿到载荷后先渲染**首段**，
+  // 下一帧再渲染完整正文（滚动范围随之更新），最后若有末尾意图就滚到末尾。
+  const live0 = window.__augitLive;
+  if (live0) {
+    live0.commitDetailLoading = true;
+    live0.commitDetailScrollIntent = null;
+  }
   try {
     const commit = await invoke("git/commit", { revision }, 30000);
     const live = window.__augitLive;
-    if (token !== commitDetailsToken) return;
+    if (token !== commitDetailsToken) {
+      if (live) live.commitDetailLoading = false;
+      return;
+    }
     if (!commit || !commit.available) {
       const reasonHtml = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
       if (live) live.commitDetails = { revision, filesHtml: reasonHtml, detailHtml: "" };
@@ -7651,8 +7672,32 @@ async function loadCommitDetails(revision) {
       live.commitDetails = { revision, filesHtml, detailHtml };
     }
 
+    // ① 先呈现**首段**（主题/元信息 + 正文第一段），让用户尽快看到内容；
+    const bodyText = commit.body ? String(commit.body) : "";
+    const firstParagraph = bodyText.split(/\n\s*\n/)[0] || "";
+    const firstStageHtml = `<h3>${escapeText(commit.subject)}</h3>`
+      + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`
+      + (firstParagraph ? `<p class="commit-meta">${escapeText(firstParagraph)}</p>` : "");
     filesHost.innerHTML = filesHtml;
+    detailHost.innerHTML = firstStageHtml;
+    window.__commitDetailStages = 1;
+    // ② 下一帧再渲染完整正文：滚动范围在此时更新（首段阶段的范围与完整阶段不同）。
+    await new Promise((resolve) => {
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
+    if (token !== commitDetailsToken) {
+      if (live) live.commitDetailLoading = false;
+      return;
+    }
     detailHost.innerHTML = detailHtml;
+    window.__commitDetailStages = 2;
+    // ③ 读盘期间按过 End ⇒ 完成后执行"定位末尾"的意图。
+    if (live && live.commitDetailScrollIntent === "end") {
+      detailHost.scrollTop = detailHost.scrollHeight;
+      live.commitDetailScrollIntent = null;
+    }
+    if (live) live.commitDetailLoading = false;
     window.__augitCommitLoaded = commit.hash;
   } catch (error) {
     if (token === commitDetailsToken) {

@@ -686,6 +686,9 @@ async function main() {
         if (params.revision === 'full-bbb2222') {
           return Object.assign({}, data.commit, {
             hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交',
+            // 第 122 轮：给第二个提交一条**足够长的正文**，否则详情区不产生滚动，
+            // "End 记录末尾意图"的判据会**平凡为真**（上一轮的教训）。
+            body: '修复第二个提交的正文首段。\n\n' + Array.from({ length: 30 }, (_, i) => '补充说明第 ' + (i + 1) + ' 行：用于让详情区可以滚动。').join('\n'),
             // 变更文件集合与第一个提交**保持一致**：变更文件列表在视觉稿里是按目录排序的
             // 树，「改选提交后历史比较跟随同一路径」只有在两个提交都含该路径时才有意义。
           });
@@ -5219,6 +5222,39 @@ async function main() {
     });
     check('快速切换提交只接纳最新详情: ' + JSON.stringify(detailRace),
       detailRace.loaded === 'bbb2222' && (detailRace.text || '').includes('第二个提交'));
+
+    // ---- 第 122 轮补断言：§7.8 的另两半（**先呈现首段再更新滚动范围** + **End 记录末尾意图**）----
+    // 口径说明（两次跑摸清的）：桩的 `__commitDelays` 在这条 live 路径上**没有生效**（150ms 内两段就跑完了），
+    // 所以**不依赖延迟**来做时序：触发加载后**立刻**发真实 `End` —— 此刻 `commitDetailLoading` 必为 true
+    // （`loadCommitDetails` 的第一个 `await` 之后才会渲染）。能证的部分照实断言，不能证的不写。
+    await commitRace.page.evaluate(() => {
+      window.__augitCommitLoaded = null;
+      window.__augitLoadCommitDetails('full-bbb2222');
+      const host = document.querySelector('[data-live-commit-detail]');
+      if (host) { host.setAttribute('tabindex', '0'); host.focus(); }
+    });
+    await commitRace.page.keyboard.press('End');
+    await commitRace.page.waitForTimeout(900);
+    const longDetail = await commitRace.page.evaluate(() => {
+      const host = document.querySelector('[data-live-commit-detail]');
+      const live = window.__augitLive || {};
+      return {
+        stages: window.__commitDetailStages || 0,
+        hasFirstParagraph: host ? host.innerText.includes('修复第二个提交的正文首段') : null,
+        hasTail: host ? host.innerText.includes('补充说明第 30 行') : null,
+        scrollTop: host ? Math.round(host.scrollTop) : null,
+        maxScroll: host ? Math.round(host.scrollHeight - host.clientHeight) : null,
+        intent: live.commitDetailScrollIntent || null,
+        loading: !!live.commitDetailLoading,
+      };
+    });
+    console.log('INFO 长说明排版=' + JSON.stringify(longDetail));
+    check('§7.8 分段渲染（两段）且 End 意图在完成后执行到末尾: ' + JSON.stringify(longDetail),
+      longDetail.stages === 2
+        && longDetail.hasFirstParagraph === true && longDetail.hasTail === true
+        && longDetail.maxScroll > 40
+        && longDetail.intent === null && longDetail.loading === false
+        && longDetail.scrollTop >= longDetail.maxScroll - 2);
     await commitRace.page.close();
 
     // ---- 区域刷新必须释放上一轮绑定在 document/window 上的监听 ----

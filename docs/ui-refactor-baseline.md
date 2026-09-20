@@ -14750,3 +14750,26 @@ pending 状态；要验它得先给桩加"延迟应答"的路径。**不写成�
 ⇒ `live-shell` **1062 → 1063/1063**；§2 该行 **部分 → 是**（六种触发全部有断言）；§0 同步。
 **方法学收获**：判据除了"要有前置条件"，还要**检查被测可观测量的取值范围** ——
 "到了上限所以不再变化"与"被正确清除所以不再变化"长得一模一样。
+
+#### 第 475 轮：§7.8 的"先呈现首段 + End 记录末尾意图"**实现并断言** → `live-shell` 1063 → 1064/1064
+
+**先读实现再下结论**（上一轮的教训）：`loadCommitDetails` 是**一次性渲染**，只有 token 防覆盖 ⇒
+规格 §7.8 的另两半（"先呈现首段再更新滚动范围"、"期间按 End 记录定位末尾的意图、完成后执行"）**确实没有实现** ✓。
+
+**实现**（只改 `live-data.js`）：
+- `live.commitDetailLoading = true` + `commitDetailScrollIntent = null`（读盘开始）；
+- 拿到载荷后先渲染**首段**（主题 + 元信息 + 正文第一段）并置 `window.__commitDetailStages = 1`；
+  `await` 一个 `requestAnimationFrame` 后再渲染**完整正文**并置 `2`（滚动范围在此时更新）；
+- 完成后若 `commitDetailScrollIntent === 'end'` ⇒ `detailHost.scrollTop = detailHost.scrollHeight`；
+- 新增捕获阶段 `keydown` 监听：读盘期间按 `End` 只记录意图。
+
+**验证**：触发一次**新**加载（清掉 `__augitCommitLoaded` 以免被短路）后**立刻**发真实 `End`，等完成后读：
+`{stages:2, hasFirstParagraph:true, hasTail:true, scrollTop:1186, maxScroll:1186, intent:null, loading:false}` ✓
+（`maxScroll > 40` 作为**非平凡前置** —— 内容确实可滚动，否则"在末尾"毫无意义）。
+`live-shell` **1063 → 1064/1064**；§2 该行 **部分 → 是**；§0 同步。
+
+**三次迭代的口径澄清（都是我这边）**：
+① 桩的 `__commitDelays` 在这条 live 路径上**没有生效**（150ms 内两段就跑完）⇒ 我**放弃依赖延迟**的时序判据；
+② 直接调用被 `if (window.__augitCommitLoaded === revision) return;` **短路**（上一段刚加载过同一提交）；
+③ 最终设计"**触发加载后立刻发真实 End**"——此刻 `commitDetailLoading` 必为 true（第一个 `await` 之后才渲染），
+既不需要延迟旋钮，也不依赖观察中间态。
