@@ -13417,3 +13417,24 @@ PyCharm 剩余 24 页继续用"工具窗按钮"路线尝试。
 
 `§2.10`：非"是"行 **128 → 127**（A 89→88、C 13、D 22、B 4）；§0 同步 **1033/1033**；
 `check-doc-claims` / `check-interactions` 复跑通过；`pgrep` 复查无遗留测试进程（只剩 `dsh web` 本体）。
+
+#### 第 410 轮：⑦⑧ 新增两个 PyCharm 面（**入口级 / 确认框级**，单独计数）—— 面级覆盖仍 31/55
+
+**可复现的新发现**：PyCharm 的 **VCS Operations 弹出菜单**用 `Alt+`` ` 打开 —— SendKeys **一次即成**
+（此前"连发两次 Shift"打开 Search Everywhere 是偶发，这次是稳定复现），证据 `vcs-operations-popup.png`：
+Git 分组下 `Commit… Ctrl+K` / `Commit File…` / `Rollback… Ctrl+Alt+Z` / `Show History` / `Annotate` /
+`Show Diff Ctrl+D` / `Branches… Ctrl+Shift+`` ` / `Push… Ctrl+Shift+K` / `Stash Changes…` /
+`Unstash Changes…` / `Worktrees…` / `Copy Branch Name` / `Show Local History…`。
+
+**同时意外拿到一张"确认对话框"**（`confirm-exit-dialog.png`）：标题 `Confirm Exit`、问句
+`Are you sure you want to exit?`、`☐ Don't ask again`、`[Exit]`（危险默认）+ `[Cancel]`（次按钮）。
+**触发方式是教训**：我在 VCS 弹出菜单里连按方向键 + Enter，结果触发了 **IDE 退出确认**；
+当场立刻 `Esc` 取消，并复查 `Get-Process pycharm64` = 1（**IDE 仍活着**）。
+**采集脚本不得在 IDE 里乱按 Enter** —— 已写进本节，后续只在明确知道目标弹层时才发 Enter。
+
+**口径处理（关键，防止数字虚高）**：这两张都只是**入口级/确认框级**证据 —— 弹出菜单不等于
+Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新增一类
+**「仅入口级证据」**（7 页：branches / smart-checkout / push / push-no-remote / rollback / stash / worktrees），
+**单独计数、不计入"面级已对照"**：
+> **31/55 面级已对照**；**7 页仅入口级证据**；其余 **17 页未对照**（逐行写明原因）。
+§1.3 的逐面表也把 J/K 两行如实标为"入口级/模式级对照"。

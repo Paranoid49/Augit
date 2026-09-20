@@ -38,6 +38,15 @@ const DIFF_VIEW = ['commit-diff', 'diff-loading', 'diff-status', 'diff-boundary'
 const SEARCH_EVERYWHERE = ['quick-open', 'quick-open-empty', 'search-limited'];
 //  I = 文件/编辑器右键菜单（Refactor This…/Rename…/Move File…/Copy File…/Safe Delete…）
 const CONTEXT_MENU = ['project-context-menu'];
+//  **入口级证据**（第 70 轮新增，单独计数、不计入「面级已对照」）：PyCharm 只采到
+//  「操作入口/命名/快捷键」或「确认框模式」，对话框本体仍未采集。
+const ENTRY_LEVEL = new Map();
+for (const s of ['branches', 'smart-checkout', 'push', 'push-no-remote', 'rollback', 'stash', 'worktrees']) {
+  ENTRY_LEVEL.set(s, 'J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）');
+}
+for (const s of ['terminal-close']) {
+  ENTRY_LEVEL.set(s, 'K 确认框级（Confirm Exit：danger 默认 + 次按钮 + 不再询问）');
+}
 const covered = new Map();
 for (const s of CHROME_EDITOR) covered.set(s, 'A+B（主窗口 chrome / 编辑器标签行）');
 for (const s of SETTINGS) covered.set(s, 'C（设置对话框）');
@@ -68,13 +77,17 @@ out.push('');
 out.push('| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |');
 out.push('| --- | --- | --- |');
 let coveredCount = 0;
+let entryCount = 0;
 for (const scene of scenes) {
   const hit = covered.get(scene);
   if (hit) { coveredCount++; out.push(`| \`${scene}\` | **面级已对照** | ${hit}——见 §1.3 逐面表的实测值与判读 |`); }
+  else if (ENTRY_LEVEL.has(scene)) { entryCount++; out.push(`| \`${scene}\` | 仅入口级证据 | ${ENTRY_LEVEL.get(scene)}；**对话框本体未采集，不计入面级已对照** |`); }
   else { out.push(`| \`${scene}\` | 未对照 | ${reason(scene)} |`); }
 }
 out.push('');
-out.push(`> 本轮读数：**${coveredCount}/${scenes.length} 个页面**落在已实测的面上；其余 ${scenes.length - coveredCount} 个页面`);
+out.push(`> 本轮读数：**${coveredCount}/${scenes.length} 个页面**落在已实测的面上；`
+  + `另有 **${entryCount} 页**只有**入口级/确认框级**证据（不计入面级已对照）；`
+  + `其余 ${scenes.length - coveredCount - entryCount} 个页面`);
 out.push('> 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**');
 out.push('');
 const generated = out.join('\n');
