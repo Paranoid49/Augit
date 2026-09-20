@@ -20,13 +20,14 @@
 #   powershell -File tools/audit/measure-pycharm-bands.ps1 -Image a.png -Mode colour -Axis row -At 800 -From 1150 -To 1500
 param(
   [Parameter(Mandatory = $true)][string]$Image,
-  [Parameter(Mandatory = $true)][ValidateSet('edge', 'bands', 'colour')][string]$Mode,
+  [Parameter(Mandatory = $true)][ValidateSet('edge', 'bands', 'colour', 'transitions')][string]$Mode,
   [Parameter(Mandatory = $true)][ValidateSet('row', 'col')][string]$Axis,
   [int]$At = 0,
   [Parameter(Mandatory = $true)][int]$From,
   [Parameter(Mandatory = $true)][int]$To,
   [int]$Threshold = 244,
   [int]$Dark = 150,
+  [int]$Threshold2 = 24,
   [double]$Dpi = 1.75
 )
 $ErrorActionPreference = 'Stop'
@@ -54,6 +55,28 @@ try {
     if ($min -eq $From) { Write-Output 'WARN CLIPPED_AT_START (first == From): size is a lower bound, widen the range' }
     if ($max -eq $To) { Write-Output 'WARN CLIPPED_AT_END (last == To): size is a lower bound, widen the range' }
     Write-Output 'NOTE: run at least two parallel lines and only trust agreeing values.'
+    exit 0
+  }
+
+  if ($Mode -eq 'transitions') {
+    # Colour-transition boundaries. This is the method that worked for bands that are ADJACENT to other
+    # non-background regions (round 76: menu bar + toolbar + tab bar are one contiguous non-white block,
+    # so -Mode edge cannot separate them; only the colour step at y=76/77 and y=145/147 can).
+    $prev = $null; $cuts = @()
+    for ($i = $From; $i -le $To; $i++) {
+      $p = if ($Axis -eq 'row') { $img.GetPixel($i, $At) } else { $img.GetPixel($At, $i) }
+      if ($null -ne $prev) {
+        $d = [Math]::Abs([int]$p.R - [int]$prev.R) + [Math]::Abs([int]$p.G - [int]$prev.G) + [Math]::Abs([int]$p.B - [int]$prev.B)
+        if ($d -gt $Threshold2) {
+          $cuts += [pscustomobject]@{ at = $i; delta = $d; before = ("" + $prev.R + ',' + $prev.G + ',' + $prev.B); after = ("" + $p.R + ',' + $p.G + ',' + $p.B) }
+        }
+      }
+      $prev = $p
+    }
+    Write-Output ("TRANSITIONS count=" + $cuts.Count + " threshold=" + $Threshold2)
+    foreach ($c in $cuts) {
+      Write-Output ("  at=" + $c.at + " CSS=" + [Math]::Round($c.at / $Dpi, 1) + " delta=" + $c.delta + " " + $c.before + " -> " + $c.after)
+    }
     exit 0
   }
 
