@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1043/1043（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1044/1044（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -756,7 +756,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 11 | §7.2 | 计数与定位采用同一大小写与全字边界规则；视觉稿的 12 项/3 项必须由样本算出，不能写死 | 部分 | 开关行为有断言；**"12 项（忽略大小写）/3 项（全字）"的数值核对没有断言**（视觉稿侧是固定样本文本） |
 | 12 | §7.2 | 查找条采用正文顶部占行布局；输入后自动定位首项并显示当前项/总数；`Enter`/`Shift+Enter` 前后定位；`Esc` 收起并保留位置 | 是 | 视觉基线 `text-viewer`（含 `find-state` 变体）+ 上述查找断言 |
 | 13 | §7.2 | 大文档与正则的计数、定位在后台执行；低于 150ms 不显示加载；超过显示"正在搜索…"；换查询/开关/正文/模式取消旧任务与方向队列；隐藏/关闭使旧结果失效 | 部分 | `find-state=loading` 页存在并有像素基线；**150ms 阈值、旧任务与方向队列取消、隐藏/关闭失效都没有断言** |
-| 14 | §7.2 | 查找条按实际字高扩展；修改字体后保留查询、输入选择和焦点 | 部分 | **第 91 轮改正**：公式 `max(42px, h+16px)`（`design-system.md:462`）**已实现**于 `mockup.js:83`，`h` 由界面字体实测（`mockup.js:67-70`）；第 67 轮用 `code-font-size` 测属**选错旋钮**（不影响界面行高），故误判为固定值。**仍缺**：一次用 `ui-font-size`（13 与 20）的确认测量，证明它随界面字号增长
+| 14 | §7.2 | 查找条按实际字高扩展；修改字体后保留查询、输入选择和焦点 | 是 | **第 91 轮用正确旋钮验证通过**：`§7.2 查找条高度 = max(42px, h + 16px)（h 为界面字体实测行高）` —— `ui-font-size=13` → h=16、期望 42、token 42、实测栏高 **42**；`ui-font-size=32` → h=41、期望 57、token 57、实测栏高 **57**（**随界面字号真的增长**）。第 67 轮"固定 42px 不扩展"是用 `code-font-size` 测错旋钮（不影响界面行高），已在 §3.2 #19 撤回
 | 15 | §7.2 | 文件外部变化后尽量恢复滚动位置和选择；被删除时替换为删除状态页 | 是 | 外部变化块（`外部改变当前差异文件会重新请求` 等）+ 删除文件的断言（`文件已删除则移除其标签`） |
 | 16 | §7.2 | 同类型外部更新复用正文控件，保留选择方向、横纵滚动、焦点与开关；变短时限制范围；选择端点不得停在 UTF-8 字符内部；查找保持并继续 | 部分 | 滚动/焦点保持有断言；**"选择端点不在 UTF-8 字符内部""查找结果数更新与继续定位"没有断言** |
 

@@ -9688,6 +9688,52 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 91 轮补断言：§7.2 查找条随**界面**字号扩展（补上第 67 轮测错旋钮的那一半）----
+    // 设计系统：查找条高度 = max(42px, h + 16px)，h 是**界面字体**实测行高（design-system.md:462），
+    // 实现见 mockup.js:83；`code-font-size` 不影响它，所以要用 `ui-font-size` 对照。
+    const findBarAt = async (uiSize) => {
+      const scene = await openScene('scene=text-viewer&theme=dark&ui-font-size=' + uiSize);
+      await scene.page.waitForSelector('.current-find input.search-field', { timeout: 15000 });
+      await scene.page.waitForTimeout(500);
+      const out = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.current-find');
+        const field = document.querySelector('.current-find .search-field');
+        const root = document.documentElement;
+        const cs = getComputedStyle(root);
+        // 按 mockup.js:67-70 的同一口径重算 h（界面字体 fontBoundingBox 的最大值），
+        // 这样验的是**公式**本身，而不是"某个字号下是否恰好变大"。
+        const family = cs.fontFamily;
+        const uiPixels = Number.parseFloat(cs.fontSize) || 13;
+        const ctx = document.createElement('canvas').getContext('2d');
+        let h = 0;
+        for (const role of ['normal', '600', 'italic']) {
+          ctx.font = role + ' ' + uiPixels + 'px ' + family;
+          const m = ctx.measureText('国Ag');
+          h = Math.max(h, Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent));
+        }
+        return {
+          uiFont: cs.fontSize,
+          measuredH: h,
+          expected: Math.max(42, h + 16),
+          tokenFindHeight: Number.parseFloat(cs.getPropertyValue('--augit-find-height')) || null,
+          barHeight: bar ? +bar.getBoundingClientRect().height.toFixed(1) : null,
+          fieldHeight: field ? +field.getBoundingClientRect().height.toFixed(1) : null,
+        };
+      });
+      await scene.page.close();
+      return out;
+    };
+    const find13 = await findBarAt(13);
+    // 取一个 h+16 明显超过 42 的字号（界面字号允许 9..40；32px 时 h≈40 → 期望 ≈56），
+    // 这样"是否随字高扩展"才有判别力；20px 时 max(42, h+16) 恰好还是 42，用它断言会假失败。
+    const find32 = await findBarAt(32);
+    console.log('INFO 查找条随界面字号=' + JSON.stringify({ find13, find32 }));
+    check('§7.2 查找条高度 = max(42px, h + 16px)（h 为界面字体实测行高）: '
+      + JSON.stringify({ find13, find32 }),
+      find13.tokenFindHeight === find13.expected && find13.barHeight === find13.expected
+        && find32.tokenFindHeight === find32.expected && find32.barHeight === find32.expected
+        && find32.barHeight > find13.barHeight);
+
     // ---- 第 67 轮补断言：§7.2 查找条随字高扩展、§7.16 终端行高 = 等宽字号 ×1.7 ----
     // 用 URL 播种字号（`code-font-size=`，桩在 boot 时读，见 settings/read 的注释），
     // 两次启动对比即可，不需要走设置对话框写盘。
