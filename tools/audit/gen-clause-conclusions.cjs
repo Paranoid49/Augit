@@ -23,6 +23,21 @@ const end = doc.indexOf('### 3.1');
 secs.push({ at: end, name: 'end' });
 
 const rows = [];
+// 守卫（第 101 轮加的）：§2.x 里"像条文行、却没有以 | 结尾"的行是**畸形表格行** ——
+// 它们会被下面的正则静默跳过，从而让"非是行"的分母偏小。第 100/101 轮我自己的补丁就把
+// Amend 那行的尾管符吃掉了，导致我报出错误的分母。宁可直接报错，也不要悄悄少算。
+const malformed = [];
+for (let i = 0; i < secs.length - 1; i++) {
+  const body = doc.slice(secs[i].at, secs[i + 1].at);
+  for (const line of body.split('\n')) {
+    const t = line.trim();
+    if (/^\| (?:\d+ \| )?§[\d.]+ \|/.test(t) && !t.endsWith('|')) malformed.push(secs[i].name + ': ' + t.slice(0, 60));
+  }
+}
+if (malformed.length) {
+  console.error('GEN_CLAUSE_CONCLUSIONS_FAILED malformed rows=' + malformed.length + '\n  ' + malformed.join('\n  '));
+  process.exit(1);
+}
 for (let i = 0; i < secs.length - 1; i++) {
   if (secs[i].name === '2.10') continue;
   const body = doc.slice(secs[i].at, secs[i + 1].at);
