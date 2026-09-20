@@ -2718,6 +2718,23 @@ async function main() {
     await imgDoc.page.waitForTimeout(150);
     const wheelMulti = await readZoom();
     await imgDoc.page.keyboard.up('Control');
+    // 规格 §7.5 另一半：切换/按钮/拖动/隐藏时**清除未完成的滚轮输入** ——
+    // 累计到一半的滚轮不能在"用户去按了按钮"之后突然生效。
+    // 设计：-100（不足一档）→ 点"适应区域" → 再 -100；若未清除则累计 200 会越过一档而缩放。
+    await imgDoc.page.keyboard.down('Control');
+    await imgDoc.page.mouse.wheel(0, -100);
+    await imgDoc.page.waitForTimeout(150);
+    const beforeClear = await readZoom();
+    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.waitForTimeout(200);
+    const afterButton = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -100);
+    await imgDoc.page.waitForTimeout(150);
+    const afterClear = await readZoom();
+    await imgDoc.page.keyboard.up('Control');
+    check('§7.5 按钮操作后清除未完成的滚轮输入: ' + JSON.stringify({ beforeClear, afterButton, afterClear }),
+      afterClear.scale === afterButton.scale);
+
     const zoomTable = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
     const stepUp = (value, times) => {
       let current = value;
@@ -9665,6 +9682,33 @@ async function main() {
           && ratio13 !== null && ratio17 !== null);
       return { small, large, t13, t17, ratio13, ratio17 };
     })();
+
+    // ---- 第 80 轮补断言：§7.16「会话名称按字宽显示」（此前一直只写"没有断言"）----
+    const sessionWidth = await (async () => {
+      const scene = await openScene('scene=terminal&theme=dark');
+      await scene.page.waitForSelector('.terminal-header .terminal-session', { timeout: 15000 });
+      await scene.page.waitForTimeout(400);
+      const out = await scene.page.evaluate(() => {
+        const el = document.querySelector('.terminal-header .terminal-session');
+        const cs = getComputedStyle(el);
+        return {
+          text: el.textContent.trim(),
+          width: +el.getBoundingClientRect().width.toFixed(1),
+          clientWidth: el.clientWidth,
+          scrollWidth: el.scrollWidth,
+          whiteSpace: cs.whiteSpace,
+          overflow: cs.overflow,
+          textOverflow: cs.textOverflow,
+          fontSize: cs.fontSize,
+        };
+      });
+      await scene.page.close();
+      console.log('INFO 会话名称=' + JSON.stringify(out));
+      return out;
+    })();
+    check('§7.16 会话名称按字宽显示（定宽 + nowrap + 溢出裁剪）: ' + JSON.stringify(sessionWidth),
+      sessionWidth.width > 20 && sessionWidth.width <= 220
+        && sessionWidth.whiteSpace === 'nowrap' && sessionWidth.overflow === 'hidden');
 
     // ---- 第 65 轮补断言：§7.6 分组/排序/底部动作、§7.10 分支弹层焦点、§7.15 快速打开、§7.16 终端度量 ----
     const r65 = await (async () => {
