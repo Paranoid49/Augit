@@ -9407,6 +9407,127 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 64 轮补断言：§5 / §7.5 / §7.16 / §7.18 的 A 类条文（实现已有、此前只缺断言）----
+    const need64 = await (async () => {
+      const term = await openScene('scene=terminal&theme=dark');
+      await term.page.waitForSelector('.terminal-header', { timeout: 10000 });
+      await term.page.waitForTimeout(500);
+      const header = await term.page.evaluate(() => {
+        const sessions = [...document.querySelectorAll('.terminal-header .terminal-session')];
+        const multi = [...document.querySelectorAll('.terminal-header [data-session-tab], .terminal-sessions .session-tab, .terminal-session-tab')];
+        return {
+          sessionCount: sessions.length,
+          sessionText: sessions[0] ? sessions[0].textContent.trim() : null,
+          shellName: window.__augitTerminalShell || null,
+          multiSessionUi: multi.length,
+        };
+      });
+      check('§7.16 只显示一个会话标签、标题栏显示当前 Shell、无多会话管理 UI: ' + JSON.stringify(header),
+        header.sessionCount === 1 && header.multiSessionUi === 0
+          && typeof header.sessionText === 'string' && header.sessionText.length > 0
+          && header.sessionText === header.shellName);
+
+      // §5 左侧与底部工具窗口可同时打开；§9 两者状态独立；§5 Esc 只关弹层
+      const both = await term.page.evaluate(() => ({
+        side: !!document.querySelector('.side-tool') && document.querySelector('.side-tool').checkVisibility(),
+        bottom: !!document.querySelector('.terminal-tool') && document.querySelector('.terminal-tool').checkVisibility(),
+      }));
+      const opened = await term.page.evaluate(async () => {
+        // 保证左侧工具窗处于打开态：点左侧轨道里的项目入口
+        const rail = [...document.querySelectorAll('.tool-rail .rail-button')];
+        const side = document.querySelector('.side-tool');
+        if (!side || !side.checkVisibility()) {
+          const entry = rail.find((b) => (b.getAttribute('aria-label') || '').includes('项目'));
+          if (entry) { entry.click(); await new Promise((r) => setTimeout(r, 300)); }
+        }
+        return {
+          side: !!document.querySelector('.side-tool') && document.querySelector('.side-tool').checkVisibility(),
+          bottom: !!document.querySelector('.terminal-tool') && document.querySelector('.terminal-tool').checkVisibility(),
+        };
+      });
+      check('§5 左侧与底部工具窗口可以同时打开: ' + JSON.stringify({ before: both, after: opened }),
+        opened.side === true && opened.bottom === true);
+
+      // Esc：打开标题栏搜索浮层 -> Esc 关闭浮层，终端工具窗仍在（§5）
+      const escState = await (async () => {
+        await term.page.locator('.titlebar .top-button[aria-label="搜索"]').click();
+        await term.page.waitForTimeout(400);
+        const openedOverlay = await term.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+        await term.page.keyboard.press('Escape');
+        await term.page.waitForTimeout(400);
+        return await term.page.evaluate((openedCount) => ({
+          openedOverlay: openedCount,
+          afterOverlay: document.querySelectorAll('[data-augit-overlay]').length,
+          bottomStill: !!document.querySelector('.terminal-tool') && document.querySelector('.terminal-tool').checkVisibility(),
+          sideStill: !!document.querySelector('.side-tool') && document.querySelector('.side-tool').checkVisibility(),
+        }), openedOverlay);
+      })();
+      check('§5 Esc 只关闭最上层弹层、不关闭其下方工具窗口: ' + JSON.stringify(escState),
+        escState.openedOverlay > 0 && escState.afterOverlay === 0
+          && escState.bottomStill === true && escState.sideStill === true);
+
+      // §9 左侧与底部状态独立：隐藏终端不应改变左侧的可见性
+      const independent = await (async () => {
+        const before = await term.page.evaluate(() => ({
+          side: document.querySelector('.side-tool').checkVisibility(),
+          bottom: !!document.querySelector('.terminal-tool'),
+        }));
+        await term.page.locator('.terminal-header [aria-label="隐藏终端"]').click();
+        await term.page.waitForTimeout(500);
+        const after = await term.page.evaluate(() => ({
+          side: document.querySelector('.side-tool').checkVisibility(),
+          bottom: !!document.querySelector('.terminal-tool') && document.querySelector('.terminal-tool').checkVisibility(),
+        }));
+        return { before, after };
+      })();
+      check('§9 左侧与底部状态独立（隐藏终端不改左侧）: ' + JSON.stringify(independent),
+        independent.after.side === independent.before.side && independent.after.bottom === false);
+      await term.page.close();
+
+      // §7.5 图片页不提供编辑工具（只读查看）
+      const img = await openScene('scene=image-preview&theme=dark');
+      await img.page.waitForSelector('.image-toolbar', { timeout: 10000 });
+      await img.page.waitForTimeout(300);
+      const tools = await img.page.evaluate(() => {
+        const labels = [...document.querySelectorAll('.image-toolbar button')].map((b) => b.getAttribute('aria-label'));
+        const forbidden = labels.filter((l) => /编辑|裁剪|旋转|画笔|标注|保存|撤销/.test(l || ''));
+        return { labels, forbidden };
+      });
+      check('§7.5 图片页只读：工具条只有缩放/适应，不含编辑类动作: ' + JSON.stringify(tools),
+        tools.labels.length > 0
+          && tools.labels.every((l) => ['缩小', '放大', '适应区域'].includes(l))
+          && tools.forbidden.length === 0);
+      await img.page.close();
+
+      // §7.18 Git 不可用时给出局部错误 + 配置 git.exe 的设置入口。
+      // 注意：条文里的"入口显示禁用状态及悬停原因"**当前没有实现**（harness 实测 5 个 rail 按钮
+      // 里 aria-disabled=true 的数量为 0；代码里 aria-disabled 只用在 commit-actions 上，
+      // live-data.js:6357-6361），因此这里只断言**已实现的那一半**，另一半在 §2 里如实记为缺口。
+      const noGit = await openScene('scene=git-unavailable&theme=dark');
+      await noGit.page.waitForTimeout(900);
+      const gitOff = await noGit.page.evaluate(() => {
+        const boom = document.querySelector('.toast.error, .management-notice, [role="status"].error');
+        const title = document.querySelector('.toast-title');
+        const setter = document.querySelector('.toast a[href$="settings.html"], .toast [data-settings-action], [data-git-unavailable] a');
+        const buttons = [...document.querySelectorAll('.tool-rail .rail-button')];
+        return {
+          railTotal: buttons.length,
+          railDisabled: buttons.filter((b) => b.getAttribute('aria-disabled') === 'true').length,
+          hasError: !!boom,
+          title: title ? title.textContent.trim() : null,
+          hasSettingsEntry: !!setter,
+          text: boom ? boom.textContent.replace(/\s+/g, ' ').trim().slice(0, 90) : null,
+        };
+      });
+      check('§7.18 Git 不可用时显示局部错误并提供配置 git.exe 入口: ' + JSON.stringify(gitOff),
+        gitOff.hasError === true && gitOff.title === 'Git 不可用' && gitOff.hasSettingsEntry === true);
+      check('§7.18 缺口如实标注：Git 不可用**没有**把入口置为禁用（当前实现）: ' + JSON.stringify({ railTotal: gitOff.railTotal, railDisabled: gitOff.railDisabled }),
+        gitOff.railTotal > 0 && gitOff.railDisabled === 0);
+      await noGit.page.close();
+
+      return { header, opened, escState, independent, tools, gitOff };
+    })();
+
     // ---- 规格 §7.13/§10.3：冲突操作会话 ----
     // 宿主本来就实现了整套会话判定（InspectAsync/ExecuteActionAsync），但桥接从未暴露，
     // 界面既看不到会话也无法继续/跳过/中止——用户卡在冲突里没有任何出口。
