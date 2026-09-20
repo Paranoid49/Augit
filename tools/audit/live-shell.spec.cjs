@@ -9407,6 +9407,71 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 67 轮补断言：§7.2 查找条随字高扩展、§7.16 终端行高 = 等宽字号 ×1.7 ----
+    // 用 URL 播种字号（`code-font-size=`，桩在 boot 时读，见 settings/read 的注释），
+    // 两次启动对比即可，不需要走设置对话框写盘。
+    const r67 = await (async () => {
+      const measureFind = async (size) => {
+        const scene = await openScene('scene=text-viewer&theme=dark&code-font-size=' + size);
+        await scene.page.waitForSelector('.current-find input.search-field', { timeout: 15000 });
+        await scene.page.waitForTimeout(400);
+        const out = await scene.page.evaluate(() => {
+          const bar = document.querySelector('.current-find');
+          const field = document.querySelector('.current-find .search-field');
+          return {
+            barHeight: bar ? +bar.getBoundingClientRect().height.toFixed(1) : null,
+            fieldHeight: field ? +field.getBoundingClientRect().height.toFixed(1) : null,
+            lineHeight: bar ? getComputedStyle(bar).lineHeight : null,
+          };
+        });
+        await scene.page.close();
+        return out;
+      };
+      const small = await measureFind(13);
+      const large = await measureFind(19);
+      // 规格 §7.2 要求"查找条按实际字高扩展"，但**当前实现是固定值**：
+      // `--augit-find-height: 42px`（mockup.css:48，视觉稿与实时外壳共用同一个令牌），
+      // 实测 code-font-size 13 → 42，19 → 42（输入框 30 → 30）。
+      // 这条断言因此**把当前实现钉住**（防止被误写成"已按字高扩展"），缺口记在 §3.2 第 19 条，
+      // 并按纪律标为"待用户裁决"（规格文本 vs 共用基线的固定令牌）。
+      check('§7.2 缺口钉住：查找条高度不随字号变化（当前固定 42px，与规格"按实际字高扩展"不符）: '
+        + JSON.stringify({ small, large }),
+        small.barHeight === 42 && large.barHeight === 42
+          && small.fieldHeight === large.fieldHeight);
+
+      const termMetrics = async (size) => {
+        const scene = await openScene('scene=terminal&theme=dark&code-font-size=' + size);
+        await scene.page.waitForSelector('.xterm-rows', { timeout: 20000 });
+        await scene.page.waitForTimeout(900);
+        const out = await scene.page.evaluate(() => {
+          const row = document.querySelector('.xterm-rows > div');
+          const font = typeof window.__augitTerminalFont === 'function' ? window.__augitTerminalFont() : null;
+          return {
+            rowHeight: row ? +row.getBoundingClientRect().height.toFixed(2) : null,
+            fontFamily: font ? (font.family || font.fontFamily || null) : null,
+            fontSize: font ? Number(font.size || font.fontSize) : null,
+          };
+        });
+        await scene.page.close();
+        return out;
+      };
+      const t13 = await termMetrics(13);
+      const t17 = await termMetrics(17);
+      const ratio13 = t13.rowHeight && t13.fontSize ? +(t13.rowHeight / t13.fontSize).toFixed(3) : null;
+      const ratio17 = t17.rowHeight && t17.fontSize ? +(t17.rowHeight / t17.fontSize).toFixed(3) : null;
+      // 事实（第 67 轮实测 + 代码核对）：
+      //  * 应用**确实**给 xterm 设了 `lineHeight: 1.7`（live-data.js:634-635），与规格的"×1.7"一致；
+      //  * 但 xterm **渲染出来的行框**更高：13px → 25px（比率 1.92）、17px → 34px（比率 2.0），
+      //    而规格写的是"13px→22px"。也就是说配置侧符合、渲染侧不符 —— 这是"规格给的渲染值 vs
+      //    xterm 自身度量"的差异，不是配置漏了。已在 §3.2 第 20 条记为待裁决项。
+      // 断言只钉住**可核对的部分**：行高随字号单调增长，且 13px 时就是实测的 25（当前实现）。
+      check('§7.16 终端行高随字号增长（配置 lineHeight=1.7，渲染实测 13→25 / 17→34）: '
+        + JSON.stringify({ t13, t17, ratio13, ratio17 }),
+        t13.rowHeight === 25 && t17.rowHeight === 34 && t17.rowHeight > t13.rowHeight
+          && ratio13 !== null && ratio17 !== null);
+      return { small, large, t13, t17, ratio13, ratio17 };
+    })();
+
     // ---- 第 65 轮补断言：§7.6 分组/排序/底部动作、§7.10 分支弹层焦点、§7.15 快速打开、§7.16 终端度量 ----
     const r65 = await (async () => {
       // §7.6 只有 Changes 与 Unversioned Files 两组，不显示 Changelist 名称。
