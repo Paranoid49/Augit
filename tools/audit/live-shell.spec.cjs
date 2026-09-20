@@ -9567,6 +9567,28 @@ async function main() {
         order.nonDecreasing === true && order.labels.length >= 3
           && wrapToggle.before.inToolbar === true && wrapToggle.after.stillInToolbar === true
           && wrapToggle.after.focusInToolbar === true);
+
+      // ---- 第 118 轮补齐：上面那段**其实没有验证"按可见顺序"** ——
+      // `order.seen` 是用**合成** keydown 记的（原生不会移动焦点），所以只用来观察、没进判据。
+      // 这里用**真实键盘**补两段：① Tab 真的按可见顺序在工具栏内走；② Enter/Space 都能激活。
+      const realTab = [];
+      await toolbar.page.locator('.document-toolbar button:not([disabled])').first().focus();
+      for (let i = 0; i < 4; i += 1) {
+        realTab.push(await toolbar.page.evaluate(() => {
+          const a = document.activeElement;
+          return a ? (a.getAttribute('aria-label') || a.tagName) : null;
+        }));
+        await toolbar.page.keyboard.press('Tab');
+        await toolbar.page.waitForTimeout(140);
+      }
+      // **Enter/Space 激活这一半本轮没验成**（如实记录，不写成通过）：
+      // 视觉稿的工具条项里既有 `<button>` 也有 `<a>`，而 `自动换行`/`显示空白` 没有任何状态标记，
+      // `跳转行` 用真实 Enter/Space 也读不到 `.go-to-line-window`（实测 afterEnter/afterSpace 均 false）
+      // ⇒ 在本轮可达的场景里，**"激活"没有可观测效果**，无法据此断言。已登记进 §2 该行与 §3.2 #31。
+      console.log('INFO 文档工具栏键盘=' + JSON.stringify({ realTab, labels: order.labels }));
+      check('§7.2 文档工具栏：真实 Tab 按可见顺序遍历可见按钮: ' + JSON.stringify({ realTab, labels: order.labels }),
+        order.labels.length >= 3
+        && order.labels.slice(0, realTab.length).every((label, i) => realTab[i] === label));
       await toolbar.page.close();
 
       // §7.8「字号增大时各部位按字高扩展、图标不变」这一条**本轮没能断言**：

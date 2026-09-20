@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1060/1060（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1061/1061（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -821,7 +821,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 2 | §7.2 | 行号列固定，不因长行横向滚动消失 | 是 | `行号槽含真实行号`（+ 正文滚动快照断言） |
 | 3 | §7.2 | 短文件不保留空白横向范围；长行扩展范围；内容或字体变化重新度量并收回旧偏移 | 部分 | 滚动快照覆盖"内容变化后位置保持"；**"短文件不保留空白横向范围""收回旧偏移"没有断言** |
 | 4 | §7.2 | 工具栏提供自动换行、空白符显示、当前文件搜索和跳转行 | 是 | `Ctrl+F 打开当前文件查找`、`Ctrl+G 打开跳转行`、工具栏结构断言（`自动换行`/`显示空白` 按钮在文档工具栏里） |
-| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 部分 | 本轮新增 `§7.2 文档工具栏 Tab 按从左到右只经过可用控件`（路径文本 `tabindex=false`、x 单调递增、经过的标签全在"可用控件"集合内、禁用项不入列）与 `§7.2 切换显示选项保留按钮焦点`（点"自动换行"后焦点仍在它上面）；**"Enter/Space 激活"仍未断言**，且比较/终端工具栏（§7.7 第 5、§7.16 第 9 条）还没做同样核对；**本轮已断言**：`§7.2 文档工具栏按可见顺序参与 Tab 且切换显示选项保留按钮` —— 工具条按钮按可见顺序排列（x 非递减、≥3 个）、切换"自动换行"后按钮仍在工具条且焦点留在工具条；**仍未断言**：真实 Tab/Shift+Tab 焦点循环（本轮只用合成 keydown 采集可见顺序，合成事件不移动焦点）与 Enter/Space 激活 |
+| 5 | §7.2 | 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活；切换显示选项保留按钮焦点 | 部分 | 本轮新增 `§7.2 文档工具栏 Tab 按从左到右只经过可用控件`（路径文本 `tabindex=false`、x 单调递增、经过的标签全在"可用控件"集合内、禁用项不入列）与 `§7.2 切换显示选项保留按钮焦点`（点"自动换行"后焦点仍在它上面）；**"Enter/Space 激活"仍未断言**，且比较/终端工具栏（§7.7 第 5、§7.16 第 9 条）还没做同样核对；**本轮已断言**：`§7.2 文档工具栏按可见顺序参与 Tab 且切换显示选项保留按钮` —— 工具条按钮按可见顺序排列（x 非递减、≥3 个）、切换"自动换行"后按钮仍在工具条且焦点留在工具条；**仍未断言**：真实 Tab/Shift+Tab 焦点循环（本轮只用合成 keydown 采集可见顺序，合成事件不移动焦点）与 Enter/Space 激活；**第 118 轮**：`§7.2 文档工具栏：真实 Tab 按可见顺序遍历可见按钮` —— 用**真实 Tab 按键**（不是合成的 keydown）实测遍历顺序 `["自动换行","显示空白","当前文件搜索","跳转行"]` 与 DOM 可见顺序**完全一致** ✓（此前那条断言其实**只算了 `seen` 没进判据**，等于"按可见顺序"没被验过）。**仍未验**：`Enter/Space 激活` —— 视觉稿工具条项是 `<button>`/`<a>` 混合，`自动换行`/`显示空白` 无任何状态标记，`跳转行` 用真实 Enter/Space 也读不到对话框 ⇒ 本轮可达场景里"激活"无**可观测**效果（见 §3.2 #31） |
 | 6 | §7.2 | `Ctrl+F` 在正文顶部打开占一行的查找条，不改变标签身份；关闭后恢复原正文区域 | 是 | `Ctrl+F 打开当前文件查找`、`刷新后查找条不重复打开`、`§4.2 前置条件：查找条已打开且焦点在查找输入框` |
 | 7 | §7.2 | 搜索条包含普通文本、区分大小写、全字、正则开关，以及结果数量、上一项、下一项和关闭 | 是 | 查找块（`find-state` 系列 + 开关与导航按钮断言） |
 | 8 | §7.2 | 有效查询自动定位首个匹配、显示"当前项/总数"、`Enter`/`Shift+Enter` 前后定位、焦点仍在查找框、`Tab` 循环、`Esc` 收起并交回正文、组词期间不抢 Enter/Esc/Tab | 是 | 自动定位/数量/前后定位/Esc 有断言；本轮新增 `§7.2 查找条 Tab 在输入框/开关/导航/关闭之间循环`（Tab 始终停在条内控件、经过 ≥4 个不同控件、若干次后回到输入框）与 `§7.2 组词期间不扫描、Escape/Enter 被抢占`（组词中 Esc/Enter 不关闭条、不导航）。**保留一处精度缺口**：逐项顺序与 DOM 顺序未一一对应，因此没有写"逐项相等"的判据 |
@@ -1773,6 +1773,14 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 29. ~~§4.1"未完成读取的文件只显示只读标识"未验到~~ **【第 112 轮已实现并断言】** —— 用桩内置的 `slowread=<path>:<ms>` 造出可观测的 pending 窗口。**实测发现两处缺口**（都不是"只差验证"）：pending 窗口里状态栏显示的是**工作区名**、字段区**为空**，即 §4.1 第 121 行"文件加载期间显示本次打开的路径"与第 123 行"未完成读取只显示只读标识"**都没满足**。已实现 `live.pendingDocument` + `applyPendingDocumentStatus()`（只改 `live-data.js`），实测通过；并在**失败路径**同样清除该状态（否则状态栏会卡在"只读 + 待打开路径"）。
 30. ~~§4.1 的"引用比较"未单独验~~ **【第 113 轮已验】** —— 入口**不在 Git 日志的右键菜单**里（第一次跑 `opened:false` 才发现），而在**分支弹层的动作区**（`mockup.js:3250` 的 `branch-actions`，`data-popover-action="compare-workspace"`）。做法：点 `.branch-chip` → 点该动作。实测 `{opened:true, hasDiff:true, diffPath:"src/App.cs", followChanges:false, fields:["只读"]}` ✓，这一格的"只读"标识由第 112 轮的 `ensureComparisonReadonlyMarker()` 覆盖。
 
+
+31. **§7.2"文档工具栏 Enter/Space 激活"未验到（**未闭环**）** —— 这条规格的另外两半（按可见顺序参与 Tab ✓ 第 118 轮、
+    切换显示选项保留按钮 ✓ 既有）都已断言；只有"激活"这一半**没有可观测效果**：
+    视觉稿工具条项是 `<button>` 与 `<a>` 混合，`自动换行`/`显示空白` **没有任何状态标记**（连 `aria-pressed` 都没有），
+    `当前文件搜索` 所在的 `text-viewer` 场景**默认就带内联查找条**（`before` 已为 true），
+    `跳转行` 用真实 `Enter`/`Space` 也读不到 `.go-to-line-window`（实测三次均 false）。
+    **下一步**：换到**有状态标记**的工具条项上验（例如终端工具条的"更多操作"或查找条的开关按钮），
+    或给这些装饰性按钮补上状态标记再断言 —— 在此之前**不写成通过**。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
