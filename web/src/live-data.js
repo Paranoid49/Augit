@@ -7939,6 +7939,54 @@ document.addEventListener("click", (event) => {
   }, 0);
 }, true);
 
+/**
+ * 比较工具栏的「上一个文件/下一个文件」与"文件计数"（规格 `ux-spec.md:438/441/442`）。
+ *
+ * 视觉稿侧本来就是对的：工作区 Diff 的工具条顺序是
+ * `上一处差异, 下一处差异, 查找, 上一个文件, <span class="file-status-modified">1/42 个文件</span>, 下一个文件, …`
+ * —— 缺的是 **live 端行为**（本函数补的就是这一段）：切换相邻改动文件、同步 Changes 选中与文件计数。
+ * 边界（首/尾）本增量**留在原地**；规格要求的"再次点击才跨文件"的提示留给后续增量（§3.2 #26）。
+ */
+function diffChangedFiles() {
+  return [...document.querySelectorAll(".changes-list .change-file-row[data-path]")]
+    .map((row) => row.dataset.path)
+    .filter((path) => typeof path === "string" && path.length > 0);
+}
+
+function moveDiffFile(direction) {
+  const files = diffChangedFiles();
+  if (files.length === 0) return null;
+  const live = window.__augitLive;
+  const current = live && live.diff && live.diff.path ? live.diff.path : null;
+  let index = files.indexOf(current);
+  if (index < 0) index = direction > 0 ? -1 : files.length;
+  const next = index + direction;
+  if (next < 0 || next >= files.length) return null;
+  const path = files[next];
+  for (const row of document.querySelectorAll(".changes-list .change-file-row.selected")) {
+    row.classList.remove("selected");
+    row.setAttribute("aria-selected", "false");
+  }
+  const row = document.querySelector(`.changes-list .change-file-row[data-path="${CSS.escape(path)}"]`);
+  if (row) {
+    row.classList.add("selected");
+    row.setAttribute("aria-selected", "true");
+  }
+  const count = document.querySelector(".diff-toolbar .file-status-modified");
+  if (count) count.textContent = `${next + 1}/${files.length} 个文件`;
+  void openChangeDiff(path);
+  return { path, index: next, total: files.length };
+}
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest
+    && event.target.closest('.diff-toolbar [aria-label="上一个文件"], .diff-toolbar [aria-label="下一个文件"]');
+  if (!button) return;
+  event.preventDefault();
+  window.__diffFileHit = (window.__diffFileHit || 0) + 1;
+  moveDiffFile(button.getAttribute("aria-label") === "下一个文件" ? 1 : -1);
+}, true);
+
 // 比较工具栏「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。
 // 用**捕获阶段**的独立监听器，而不是大点击链的尾部：链尾可能被更早监听器的
 // `preventDefault()` 影响（那里有 `if (event.defaultPrevented) return;` 守卫），

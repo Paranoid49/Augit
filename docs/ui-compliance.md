@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1049/1049（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1050/1050（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -1718,7 +1718,17 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     **处置**：按纪律**回滚未验证的改动**（`git checkout -- web/src/live-data.js tools/audit/live-shell.spec.cjs`，
     与上一份已验证状态 **1045/1045** 字节一致），缺口与上述三步重做方案记录在此。
 
-26. **比较工具栏还缺"跨文件导航"与"边界提示"（§7.8，**未实现**）** —— 规格 `ux-spec.md:438/441`：工具栏左侧还有**上一个文件/文件计数/下一个文件**，且"到达当前文件首/尾变更块后再按同方向只显示**再次点击可进入上一个/下一个文件**，再次按才切换相邻文件"；第 99 轮只实现了**单文件内的上一处/下一处差异**（含焦点保留），跨文件导航、文件计数与边界提示**仍未实现**；`Enter/Space` 继续定位也未接。
+26. ~~比较工具栏缺"跨文件导航"与"边界提示"~~ **【第 102 轮做了第一段，其余如实登记】** ——
+    规格 `ux-spec.md:438/441/442`：工作区 Diff 工具栏左侧为 `上一处差异/下一处差异/查找/上一个文件/文件计数/下一个文件`，
+    到达首/尾变更块后再按同方向"只显示再次点击可进入相邻文件"、再次按才跨文件，并同步 Changes 选中/标签身份/文件计数。
+    **已实现并断言**：`上一个文件/下一个文件` 会选中并加载相邻改动文件（第 102 轮；
+    `§7.8 工作区 Diff 的「下一个文件」选中并加载相邻改动文件`，实测在尚无 diff 时正确落到**第一个**改动文件）。
+    **未成立并已实测记录**：① **文件计数不会保持**——跨文件切换后重渲染出的工具条**没有** `.file-status-modified`（计数标签消失）；
+    ② 跨文件切换后**文件导航按钮本身消失**（新文件的 diff 走了另一种工具条变体）；③ "再次点击才跨文件"的边界提示与
+    `Enter/Space` 继续定位仍未接。
+    **探测结论（顺带弄清）**：文件导航只存在于**工作区 Diff** 的工具条（`mockup.js:1581`）；
+    `commit-diff`/`git-compare`/`file-history` 用的是 `comparison-toolbar`（`mockup.js:1579`）**没有**文件导航 ——
+    所以正确的采集场景是 `diff-boundary`（工作区 Diff + 文件边界）。
 
 27. ~~Amend 取消勾选后不恢复用户原草稿~~ **【第 101 轮已修并断言】**（原记：§7.6） —— 勾选那半已实现并断言（宿主桥接 `git/last-commit-message` + 页面回填，实测 `calls:1` 且字段被正确回填）；但**取消勾选后字段没有恢复用户原草稿**，实测变成应用自身状态里的上一次提交标题（`fix: 精确恢复安装前系统 PATH`）—— 说明提交区重新渲染/应用自己的草稿绑定**覆盖了页面侧存的草稿**。
     **下一步**：把草稿存到**能活过重渲染**的地方（模块级 Map 或 `live` 状态，按字段身份索引），并在渲染后重新应用；断言补"取消后 === 原草稿"。在此之前**不写成通过**。

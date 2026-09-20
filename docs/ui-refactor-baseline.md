@@ -14278,3 +14278,23 @@ live 代码里没有行为。于是想把它**机械审计**出来：取视觉�
   （第一次是第 437 轮凭印象写 50/55）。
 
 **读数（修正后）**：§2.10 ⇒ **117 条非"是"**（A 82 / C 11 / D 20 / B 4）；`check-doc-claims` OK。
+
+#### 第 451 轮：工作区 Diff 的**跨文件导航**第一段实现并验证（另两处不成立，如实登记）
+
+**先弄清"哪个工具条有文件导航"**：`diffView` 有两个返回分支 ——
+`comparison-toolbar`（`mockup.js:1579`：上一处差异/下一处差异/查找/差异摘要/忽略空白/双栏/单栏/设置，**没有**文件导航）
+与**工作区 Diff**（`mockup.js:1581`：…`上一个文件` + `<span class="file-status-modified">1/42 个文件</span>` + `下一个文件`…，
+**顺序与规格 `:438` 完全一致**）。所以 `commit-diff`/`git-compare`/`file-history` 这些 **comparison** 场景里
+我一开始必然找不到文件导航（第 102 轮前两次跑就是这么卡住的），正确场景是 **`diff-boundary`**。
+
+**实现（只改 `web/src/live-data.js`）**：`diffChangedFiles()` 取改动列表 → `moveDiffFile(direction)`
+选中相邻文件行 + 更新计数标签 + 复用应用自己的 `openChangeDiff(path)` 加载其 diff + 捕获阶段监听两个按钮。
+
+**验证（只断言实测成立的部分）**：`INFO 跨文件导航={"before":{"count":"1/42 个文件","selected":null,
+"files":["src/App.cs","README.md","notes/draft.txt"]},"afterNext":{"path":"src/App.cs","selected":"src/App.cs","hit":1}}`
+⇒ 点「下一个文件」在**尚无 diff** 时正确落到**第一个**改动文件并加载它 ✓（我原先按 `files[1]` 断言是**预期写错**）。
+**两处未成立、已记入 §3.2 #26**：① 跨文件切换后重渲染出的工具条**没有** `.file-status-modified` ⇒ **计数标签消失**；
+② 跨文件切换后**文件导航按钮本身消失**（新文件走另一种工具条变体）；③ 边界提示与 `Enter/Space` 继续定位未接。
+
+**读数**：`live-shell` **1049 → 1050/1050**；§0 同步；`§2.10`：非"是"行仍 **117**（这一段只让原来的"部分"更精确，
+没有把未成立的两处写成通过）；`check-doc-claims` OK。
