@@ -9688,6 +9688,42 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 97 轮补断言：§7.9 文件历史的「清除路径筛选」入口（第 96 轮尝试失败后重做）----
+    // 第 96 轮的教训：该状态的工具条**不是** `.log-filterbar.history-filters`，而是
+    // `.history-tool-content .history-toolbar`（视觉稿里那儿本就有个 × 图标按钮，只是没标签没绑定）。
+    const fhClear = await (async () => {
+      const scene = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');
+      await scene.page.waitForSelector('.history-row', { timeout: 15000 });
+      await scene.page.waitForTimeout(900);
+      const before = await scene.page.evaluate(() => {
+        const btn = document.querySelector('.history-tool-content .history-toolbar .icon-button');
+        return {
+          hasButton: !!btn,
+          label: btn ? btn.getAttribute('aria-label') : null,
+          path: window.__augitLive && window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
+          rows: document.querySelectorAll('.history-row').length,
+        };
+      });
+      let after = null;
+      if (before.label === '清除路径筛选') {
+        await scene.page.locator('.history-tool-content [aria-label="清除路径筛选"]').click();
+        await scene.page.waitForTimeout(1200);
+        after = await scene.page.evaluate(() => ({
+          path: window.__augitLive && window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
+          label: (document.querySelector('.history-tool-content .history-toolbar .icon-button') || {}).getAttribute
+            ? document.querySelector('.history-tool-content .history-toolbar .icon-button').getAttribute('aria-label')
+            : null,
+        }));
+      }
+      await scene.page.close();
+      console.log('INFO 清除路径筛选=' + JSON.stringify({ before, after }));
+      return { before, after };
+    })();
+    check('§7.9 文件历史清除入口有标签且点击后清掉路径筛选: ' + JSON.stringify(fhClear),
+      fhClear.before.hasButton === true && fhClear.before.label === '清除路径筛选'
+        && fhClear.before.path !== null && fhClear.before.rows > 0
+        && fhClear.after && fhClear.after.path === null);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

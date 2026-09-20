@@ -3031,6 +3031,37 @@ function refresh(...regions) {
  * 两条刷新路径（定点替换与整页重绘）都必须调用它：绑定只写在其中一条上，
  * 另一条就会出现「某些入口在启动后没有动作」——实测分支芯片因此整页导航离开应用。
  */
+/**
+ * 文件历史工具条的「清除路径筛选」入口（规格 §7.9）。
+ * 视觉稿里这个 × 图标按钮**本来就在**（`.history-tool-content .history-toolbar` 的第一个 `.icon-button`），
+ * 但它既没有 `aria-label`、也没有绑定 —— 于是"路径筛选固定为当前文件并**显示清除入口**"只实现了一半。
+ * 这里只补标签（不改共享视觉稿），点击由全局委托处理。
+ */
+function labelFileHistoryClearEntry() {
+  const button = document.querySelector(".history-tool-content .history-toolbar .icon-button");
+  if (!button) return;
+  if (!button.getAttribute("aria-label")) button.setAttribute("aria-label", "清除路径筛选");
+}
+
+/** 清掉文件历史的路径筛选，并**恢复进入前的底部工具窗上下文**（规格 §7.9）。 */
+async function clearHistoryPathFilter() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const back = live.fileHistoryReturn && live.fileHistoryReturn.bottom;
+  live.fileHistory = null;
+  live.layout = live.layout || {};
+  // 从 URL 直接进文件历史时没有"进入前上下文"，此时按"折叠底部区域"处理。
+  live.layout.bottom = back || "";
+  live.layout.collapsed = null;
+  await loadHistory().catch(() => null);
+  if (typeof window.__augitRender === "function") {
+    window.__augitRender();
+    rebindAfterRender();
+    return;
+  }
+  refresh("bottomTool", "statusbar");
+}
+
 function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
@@ -3048,6 +3079,7 @@ function rebindAfterRender() {
   bindDocumentModeMemory();
   bindGlobalShortcuts();
   bindModalBackground();
+  labelFileHistoryClearEntry();
   reflectWriteOperation();
   guardUnwiredNavigation();
   bindSettingsPages();
@@ -3580,6 +3612,15 @@ function guardUnwiredNavigation() {
       event.preventDefault();
       // 隐藏只收起底部工具窗口，会话保留（再次点入口即恢复）。
       applyRailAction("terminal");
+      return;
+    }
+
+    // 文件历史「清除路径筛选」入口（规格 §7.9）。
+    const clearHistoryPath = event.target.closest
+      && event.target.closest('.history-tool-content [aria-label="清除路径筛选"]');
+    if (clearHistoryPath) {
+      event.preventDefault();
+      void clearHistoryPathFilter();
       return;
     }
 
@@ -6314,6 +6355,8 @@ async function runChangesContextAction(action, options = {}) {
     if (live) {
       // 底部工具窗口切到文件历史（规格 §5.1 的同一套布局状态）。
       const hadBottom = !!(live.layout && live.layout.bottom);
+      // 规格 §7.9：清除入口要"恢复进入前上下文"，先记下进入前的底部工具窗状态。
+      live.fileHistoryReturn = { bottom: hadBottom ? live.layout.bottom : "" };
       live.layout = live.layout || {};
       live.layout.userDriven = true;
       live.layout.bottom = "file-history";
