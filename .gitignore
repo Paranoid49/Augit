@@ -3,7 +3,14 @@
 **/bin/
 **/obj/
 TestResults/
-artifacts/
+# artifacts/ 默认不入库（构建产物、截图流水），但**交付文档明确引用的核对证据**必须入库，
+# 否则 "证据在 artifacts/..." 这类声明在 clone 出来的仓库里无法核对（第 396 轮修正）。
+artifacts/*
+!artifacts/pycharm-baseline-20260919/
+!artifacts/pycharm-interactions-16/
+!artifacts/pycharm-16-final/
+!artifacts/pycharm-compare-20260919/
+!artifacts/pixel-review-20260921/
 publish/
 *.user
 *.suo

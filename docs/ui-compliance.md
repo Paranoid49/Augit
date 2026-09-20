@@ -1085,6 +1085,15 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 4. **§2 的"部分/未覆盖"行**：见 §2.0 的逐节分母（用例行 406 条，其中条文 336 条有逐条行；
    未成行的仍是 §4 的 15 条视觉/令牌类，以 §1.2 的像素表与令牌表核销）。
 
+> **证据入库范围（第 396 轮修正）**：`.gitignore` 原先整体忽略 `artifacts/`，于是文档里
+> "证据在 `artifacts/...`" 这类声明**在 clone 出来的仓库里根本无法核对**（本轮发现并修正）。
+> 现在**交付文档明确引用的核对证据已入库**：
+> `artifacts/pycharm-baseline-20260919/`（PyCharm 基线截图）、`artifacts/pycharm-interactions-16/`
+> （交互采集与树段）、`artifacts/pycharm-16-final/`（本轮三页正文 + 树底 + 工具窗/主窗口）、
+> `artifacts/pixel-review-20260921/`（④ 的 12 场景两侧截图 + heatmap）、
+> `artifacts/pycharm-compare-20260919/`（Augit 侧 DOM 几何/配色 JSON 与截图）。
+> 其余 `artifacts/*`（构建产物、打包 zip/setup、54 场景验收截图）**仍不入库**，需要时按命令重跑。
+
 ### 1.5 偏高项复核（④，第 392 轮：12 个高值场景全部重测 + heatmap 入仓）
 
 方法同 §1.1（同一对照器、三条带：titlebar `0:44`、statusbar `H-24:H`、content `44:H-24`），

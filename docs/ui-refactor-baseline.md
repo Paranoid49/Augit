@@ -13131,3 +13131,20 @@ Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** 
 （连发两次 Shift 未打开）、Git 分支/远端/克隆等对话框。
 
 **覆盖读数**：`§1.6` 由生成器重出 → **18/55 页落在已实测面上**，37 页未采集且逐行写明原因。
+
+#### 第 396 轮：Diff 视图第四次尝试仍失败 + **发现"证据入仓"是假声明并修正**
+
+**Diff 视图**：`Ctrl+D`（Show Diff）在选中提交后也没有打开 diff —— 连同之前的
+单击提交行、双击提交行、双击 Shift 开 Search Everywhere，共 **四次交互尝试**都没拿到那两个面。
+现象一致：右侧始终是 `Select commit to view changes` / `Commit details` 提示，说明该面板需要先
+被点开/加载。**如实记为"未采集"，不猜它长什么样。**
+
+**更重要的发现（本轮自查）**：`.gitignore` 里是 `artifacts/` —— 整个目录被忽略，于是
+`git ls-files artifacts/pycharm-16-final/ | wc -l` 是 **0**：我这几轮反复写的"证据入仓 `artifacts/...`"
+**在仓库里根本不存在**，clone 出来无法核对。这属于"声明与事实不符"，与本任务一直在修的那一类问题相同。
+
+**修法**：`.gitignore` 改成 `artifacts/*` + 对**交付文档实际引用的证据目录**逐条 `!` 反挂，
+并把它们提交（95 个文件、约 13.6 MB）：
+`pycharm-baseline-20260919/`（880 K）、`pycharm-interactions-16/`（3.8 M）、
+`pycharm-16-final/`（5.7 M）、`pixel-review-20260921/`（2.8 M）、`pycharm-compare-20260919/`（520 K）。
+其余 `artifacts/*`（构建产物、打包 zip/setup、54 场景验收截图）**仍不入库**，并在 §1.5 写明范围。

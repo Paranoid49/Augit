@@ -1,0 +1,50 @@
+﻿[
+    {
+        "scene":  "repository-search",
+        "content":  null
+    },
+    {
+        "scene":  "quick-open",
+        "content":  null
+    },
+    {
+        "scene":  "git-compare",
+        "content":  null
+    },
+    {
+        "scene":  "history-diff-loading",
+        "content":  null
+    },
+    {
+        "scene":  "diff-boundary",
+        "content":  null
+    },
+    {
+        "scene":  "commit-diff",
+        "content":  null
+    },
+    {
+        "scene":  "diff-loading",
+        "content":  null
+    },
+    {
+        "scene":  "blame",
+        "content":  null
+    },
+    {
+        "scene":  "markdown-preview",
+        "content":  null
+    },
+    {
+        "scene":  "git-compare-empty",
+        "content":  null
+    },
+    {
+        "scene":  "search-limited",
+        "content":  null
+    },
+    {
+        "scene":  "git-history",
+        "content":  null
+    }
+]
