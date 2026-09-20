@@ -10220,6 +10220,36 @@ async function main() {
         && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' 个文件'
         && diffFiles.afterNext.selected === diffFiles.files[1]);
 
+    // ---- 第 117 轮补断言：**`--diff` 启动路径**（真实工作区 Diff）也要有文件导航与计数 ----
+    // `live-data.js` 的启动参数里有 `query.get("diff")`，其分支会置 `live.workspaceDiff = true` 再 `loadDiff`。
+    // 前面的用例是**显式置位**该标志造出来的状态；这里走的是**应用的启动路径**（等价于 `--diff <path>`），
+    // 所以它验证的是"真实入口能否到达工作区 Diff 并有文件导航"，而不是"标志置位后渲染对不对"。
+    const bootDiff = await (async () => {
+      const scene = await openScene('scene=diff-boundary&theme=dark&diff=src%2FApp.cs');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(1400);
+      const out = await scene.page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const count = document.querySelector('.diff-toolbar .file-status-modified');
+        return {
+          workspaceDiff: !!live.workspaceDiff,
+          diffPath: live.diff ? live.diff.path : null,
+          hasNext: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
+          hasPrev: !!document.querySelector('.diff-toolbar [aria-label="上一个文件"]'),
+          count: count ? count.textContent : null,
+          errors: (window.__augitErrors || []).slice(0, 3),
+        };
+      });
+      await scene.page.close();
+      return out;
+    })();
+    console.log('INFO 启动路径文件导航=' + JSON.stringify(bootDiff));
+    check('§7.8 `--diff` 启动路径进入工作区 Diff 并给出文件导航与 n/N 计数: ' + JSON.stringify(bootDiff),
+      bootDiff.workspaceDiff === true
+        && bootDiff.diffPath === 'src/App.cs'
+        && bootDiff.hasNext === true && bootDiff.hasPrev === true
+        && /^1\/\d+ 个文件$/.test(bootDiff.count || ''));
+
     // ---- 第 116 轮补断言：§441 的**两段式边界**（同方向再按一次先给提示、再按才换文件）+ Enter/Space 继续定位 ----
     const boundaryHint = await (async () => {
       const scene = await openScene('scene=diff-boundary&theme=dark');
