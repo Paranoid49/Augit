@@ -9407,6 +9407,123 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // ---- 第 65 轮补断言：§7.6 分组/排序/底部动作、§7.10 分支弹层焦点、§7.15 快速打开、§7.16 终端度量 ----
+    const r65 = await (async () => {
+      // §7.6 只有 Changes 与 Unversioned Files 两组，不显示 Changelist 名称。
+      // DOM 事实（先量后写，第一版就是因为把整表当一条有序序列而误报）：
+      //   组头 = `.changes-list .check-group-row`（内含 <strong>标签</strong> + .commit-meta），
+      //   文件行 = `.changes-list .change-file-row`，带 data-path / data-file / data-group。
+      const changes = await openScene('scene=commit-changes&theme=dark');
+      await changes.page.waitForTimeout(800);
+      const groups = await changes.page.evaluate(() => {
+        const headers = [...document.querySelectorAll('.changes-list .check-group-row')];
+        const labels = headers.map((h) => ((h.querySelector('strong') || {}).textContent || '').trim());
+        const files = [...document.querySelectorAll('.changes-list .change-file-row')];
+        return {
+          labels,
+          changelist: labels.filter((l) => /Changelist/i.test(l)),
+          fileCount: files.length,
+          rowGroups: [...new Set(files.map((f) => f.getAttribute('data-group')))],
+        };
+      });
+      check('§7.6 只有 Changes 与 Unversioned Files 两组、不显示 Changelist: ' + JSON.stringify(groups),
+        groups.labels.length === 2 && groups.labels[0] === 'Changes' && groups.labels[1] === 'Unversioned Files'
+          && groups.changelist.length === 0 && groups.fileCount > 0);
+
+      // §7.6 每组内按显示文件名自然顺序、同名按完整相对路径（**分组比较**，不是整表一条序列）
+      const order = await changes.page.evaluate(() => {
+        const files = [...document.querySelectorAll('.changes-list .change-file-row')];
+        const byGroup = new Map();
+        for (const f of files) {
+          const g = f.getAttribute('data-group') || '';
+          if (!byGroup.has(g)) byGroup.set(g, []);
+          byGroup.get(g).push({ path: f.getAttribute('data-path') || '', name: (f.getAttribute('data-file') || '').trim() });
+        }
+        const report = [];
+        let allSorted = true;
+        for (const [group, items] of byGroup) {
+          const expected = items.slice().sort((a, b) =>
+            a.name.localeCompare(b.name, 'zh-Hans-CN', { numeric: true }) || a.path.localeCompare(b.path));
+          const sorted = items.every((item, i) => item.path === expected[i].path);
+          if (!sorted) allSorted = false;
+          report.push({ group, actual: items.map((i) => i.name), expected: expected.map((i) => i.name), sorted });
+        }
+        return { report, allSorted, groupCount: byGroup.size };
+      });
+      check('§7.6 每组按显示文件名自然顺序、同名按完整路径: ' + JSON.stringify(order),
+        order.groupCount >= 1 && order.allSorted === true);
+
+      // §7.6 Commit / Commit and Push 固定在底部：滚动列表后动作行仍贴合面板底部
+      const fixed = await changes.page.evaluate(async () => {
+        const list = document.querySelector('.changes-list, .side-content.changes');
+        const actions = document.querySelector('.commit-actions');
+        if (!actions) return { missing: true };
+        const listBox = list ? list.getBoundingClientRect() : null;
+        const before = actions.getBoundingClientRect();
+        if (list) { list.scrollTop = list.scrollHeight; await new Promise((r) => setTimeout(r, 250)); }
+        const after = actions.getBoundingClientRect();
+        return {
+          beforeBottom: Math.round(before.bottom), afterBottom: Math.round(after.bottom),
+          listBottom: listBox ? Math.round(listBox.bottom) : null,
+          stillVisible: actions.checkVisibility(),
+        };
+      });
+      check('§7.6 Commit 动作固定在底部、滚动长列表仍可见: ' + JSON.stringify(fixed),
+        fixed.missing !== true && fixed.stillVisible === true
+          && Math.abs(fixed.afterBottom - fixed.beforeBottom) <= 2);
+      await changes.page.close();
+
+      // §7.10 点击标题栏当前分支打开非模态弹层，搜索框自动获得焦点
+      const branch = await openScene('scene=main-project&theme=dark');
+      await branch.page.waitForTimeout(700);
+      const popup = await (async () => {
+        await branch.page.locator('.titlebar .branch-chip').click();
+        await branch.page.waitForTimeout(400);
+        const state = await branch.page.evaluate(() => {
+          const overlay = document.querySelector('[data-augit-overlay]');
+          const active = document.activeElement;
+          return {
+            overlay: !!overlay,
+            rows: overlay ? overlay.querySelectorAll('[data-branch]').length : 0,
+            focusIsInput: !!(active && active.tagName === 'INPUT' && overlay && overlay.contains(active)),
+            focusTag: active ? active.tagName : null,
+          };
+        });
+        await branch.page.keyboard.press('Escape');
+        await branch.page.waitForTimeout(300);
+        const closed = await branch.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
+        return { ...state, afterEscape: closed };
+      })();
+      check('§7.10 点分支芯片开非模态弹层且搜索框自动获得焦点: ' + JSON.stringify(popup),
+        popup.overlay === true && popup.rows > 0 && popup.focusIsInput === true && popup.afterEscape === 0);
+      await branch.page.close();
+
+      // §7.15 由既有断言覆盖（`快速打开显示文件名与路径` / `快速打开显示真实命中` / `方向键移动选择` /
+      // `快速打开浮层默认聚焦输入框`）；**只差"最多 100 项"这一半没有断言**，已在 §2 里如实标注。
+
+      // §7.16 终端正文留白上下 11px / 左右 12px；字体来自等宽设置
+      const term = await openScene('scene=terminal&theme=dark');
+      await term.page.waitForSelector('.terminal-view', { timeout: 10000 });
+      await term.page.waitForTimeout(600);
+      const metrics = await term.page.evaluate(() => {
+        const view = document.querySelector('.terminal-view');
+        const style = view ? getComputedStyle(view) : null;
+        const font = typeof window.__augitTerminalFont === 'function' ? window.__augitTerminalFont() : null;
+        return {
+          padding: style ? `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}` : null,
+          fontFamily: font ? font.family || font.fontFamily || null : null,
+          fontSize: font ? font.size || font.fontSize || null : null,
+        };
+      });
+      check('§7.16 终端正文留白 11px/12px 且字体来自等宽设置: ' + JSON.stringify(metrics),
+        metrics.padding === '11px 12px 11px 12px'
+          && !!metrics.fontFamily && String(metrics.fontFamily).length > 0
+          && Number(metrics.fontSize) > 0);
+      await term.page.close();
+
+      return { groups, order, fixed, popup, metrics };
+    })();
+
     // ---- 第 64 轮补断言：§5 / §7.5 / §7.16 / §7.18 的 A 类条文（实现已有、此前只缺断言）----
     const need64 = await (async () => {
       const term = await openScene('scene=terminal&theme=dark');

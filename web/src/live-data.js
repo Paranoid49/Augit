@@ -4121,6 +4121,11 @@ function openBranchesPopover() {
   scrim.addEventListener("click", () => closeLiveOverlay());
   layer.prepend(scrim);
   host.appendChild(layer);
+  // 规格 §7.10：打开分支弹层后**搜索框自动获得焦点**。
+  // 实测（第 65 轮 harness）修复前什么都不聚焦，焦点留在被点击的分支芯片 <a> 上 ——
+  // 弹层虽然开了，键盘用户却要先 Tab 才能搜索，与条文不符。
+  const branchSearch = layer.querySelector("input.search-field");
+  if (branchSearch) branchSearch.focus({ preventScroll: true });
 }
 
 /**
