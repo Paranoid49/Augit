@@ -2051,7 +2051,10 @@ function liveDiffView() {
   // **live 变体此前完全没有**（第 114 轮 grep 零命中），导致 live 里跨文件导航根本不存在。
   const changedFiles = ((live.status && live.status.files) || []).map((file) => file.path);
   const currentFileIndex = changedFiles.indexOf(diff.path);
-  const hasFileNav = currentFileIndex >= 0 && changedFiles.length > 1;
+  // 规格 `ux-spec.md:438` 的文件导航属于**工作区 Diff**；`:489` 明确**比较视图的工具条没有**它
+  // （上一处/下一处/查找/差异计数/忽略空白/双栏/单栏/设置）。第 115 轮重测暴露：不加这个门控时
+  // 文件导航会**泄漏进比较视图**（commit-diff 1.59→1.80、diff-status 1.29→1.45）。
+  const hasFileNav = live.workspaceDiff === true && currentFileIndex >= 0 && changedFiles.length > 1;
   const fileNavCount = '<span class="file-status-modified">' + (currentFileIndex + 1) + '/' + changedFiles.length + ' 个文件</span>';
   const fileNav = hasFileNav
     ? '<button class="toolbar-button" aria-label="上一个文件">' + icon("arrow-left") + '</button>' + fileNavCount

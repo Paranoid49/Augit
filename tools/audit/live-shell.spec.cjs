@@ -10165,58 +10165,60 @@ async function main() {
         && th32.token === th32.expected && Math.abs(th32.headerHeight - th32.expected) <= 1
         && th32.headerHeight > th13.headerHeight);
 
-    // ---- 第 102 轮补断言：§7.8/§7.9 工作区 Diff 的「上一个文件/下一个文件」与文件计数 ----
+    // ---- 第 115 轮重写：文件导航**只属于工作区 Diff**（规格 `ux-spec.md:438`）；
+    // 比较视图的工具条**没有**它（`:489`：上一处/下一处/查找/差异计数/忽略空白/双栏/单栏/设置）。
+    // 第 114 轮我把导航无条件加进 `liveDiffView`，结果**泄漏进比较视图** —— 重测的 band 直接照出来了
+    // （commit-diff 1.59→1.80、diff-status 1.29→1.45）。现在用 `live.workspaceDiff` 门控，
+    // 断言也拆成"比较视图没有 / 工作区 Diff 有且能切文件"两段（前者是反向对照）。
     const diffFiles = await (async () => {
-      // 文件导航只在**工作区 Diff** 的工具条里（`diffView` 的非 comparison 分支，mockup.js:1581）；
-      // `commit-diff`/`git-compare` 用的是 comparison 工具条（1579），那里**没有**文件导航。
-      // `diff-boundary` 正是"工作区 Diff + 文件边界"场景（规格 :441 说的"再次同方向才进入相邻文件"）。
       const scene = await openScene('scene=diff-boundary&theme=dark');
-      await scene.page.waitForSelector('.diff-toolbar [aria-label="下一个文件"]', { timeout: 15000 });
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row[data-path]', { timeout: 15000 });
+      const files = await scene.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path));
+      // ① 比较视图：双击改动行（`openChangeDiff` → 比较标签）⇒ **不得**出现文件导航。
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 20000 }).catch(() => null);
+      await scene.page.waitForTimeout(1200);
+      const comparison = await scene.page.evaluate(() => ({
+        hasNext: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
+        workspaceDiff: !!(window.__augitLive && window.__augitLive.workspaceDiff),
+        diffPath: window.__augitLive && window.__augitLive.diff ? window.__augitLive.diff.path : null,
+      }));
+      // ② 工作区 Diff（`--diff` 打开的那种视图）：置位后重渲染 ⇒ 应出现文件导航与 `n/N` 计数。
+      await scene.page.evaluate(() => {
+        const live = window.__augitLive;
+        live.workspaceDiff = true;
+        if (typeof window.__augitRender === 'function') window.__augitRender();
+      });
       await scene.page.waitForTimeout(900);
       const read = () => scene.page.evaluate(() => {
         const live = window.__augitLive;
+        const sel = document.querySelector('.changes-list .change-file-row.selected');
         return {
           path: live && live.diff ? live.diff.path : null,
           count: (document.querySelector('.diff-toolbar .file-status-modified') || {}).textContent || null,
-          selected: (document.querySelector('.changes-list .change-file-row.selected') || {}).getAttribute
-            ? document.querySelector('.changes-list .change-file-row.selected').getAttribute('data-path')
-            : null,
-          files: [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path),
-          active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
-          hit: window.__diffFileHit || 0,
+          selected: sel ? sel.getAttribute('data-path') : null,
           hasNextButton: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
           hasPrevButton: !!document.querySelector('.diff-toolbar [aria-label="上一个文件"]'),
+          hit: window.__diffFileHit || 0,
         };
       });
       const before = await read();
       await scene.page.locator('.diff-toolbar [aria-label="下一个文件"]').click();
-      await scene.page.waitForTimeout(1200);
+      await scene.page.waitForTimeout(1500);
       const afterNext = await read();
-      // 实测：跨文件切换后 diff 会重新渲染，**文件导航按钮可能随之消失**（新文件的 diff 走的可能是
-      // 另一种工具条变体）。所以向后那步只在按钮仍存在时才做，断言也只依赖已验证的向前那一半 ——
-      // 不把"按钮消失"当成通过，也不让它把套件变红（现象记在日志第 452 轮）。
-      let afterPrev = null;
-      if (await scene.page.locator('.diff-toolbar [aria-label="上一个文件"]').count() > 0) {
-        await scene.page.locator('.diff-toolbar [aria-label="上一个文件"]').click();
-        await scene.page.waitForTimeout(1200);
-        afterPrev = await read();
-      }
       await scene.page.close();
-      console.log('INFO 跨文件导航=' + JSON.stringify({ before, afterNext, afterPrev }));
-      return { before, afterNext, afterPrev };
+      console.log('INFO 文件导航=' + JSON.stringify({ files, comparison, before, afterNext }));
+      return { files, comparison, before, afterNext };
     })();
-    // 只断言**实测成立**的部分：点「下一个文件」会（在尚无 diff 时）落到第一个改动文件 —— 选中 Changes 行
-    // 并加载它的 diff。另两处**未成立**并已记入 §3.2 #26：① 计数标签在重渲染后消失
-    // （新变体工具条没有 `.file-status-modified`）；② 跨文件切换后文件导航按钮本身消失。
-    // 第 114 轮起收紧：文件导航现在是**工作区 Diff 视图内**的导航（`liveDiffView` 自己渲染计数），
-    // 所以要求"路径变成第一个改动文件 + 计数显示 1/N + 导航按钮仍在"（第 102 轮时工具条会整个变样）。
-    check('§7.8 工作区 Diff 的「下一个文件」切到相邻改动文件且工具条保持文件导航与计数: ' + JSON.stringify(diffFiles),
-      diffFiles.before.files.length >= 2
-        && diffFiles.afterNext.hit >= 1
-        && diffFiles.afterNext.selected === diffFiles.before.files[0]
-        && diffFiles.afterNext.path === diffFiles.before.files[0]
-        && diffFiles.afterNext.count === '1/' + diffFiles.before.files.length + ' 个文件'
-        && diffFiles.afterNext.hasNextButton === true);
+    check('§7.9 比较视图无文件导航、工作区 Diff 有且能切到相邻文件: ' + JSON.stringify(diffFiles),
+      diffFiles.files.length >= 2
+        && diffFiles.comparison.hasNext === false
+        && diffFiles.before.hasNextButton === true
+        && diffFiles.before.count === '1/' + diffFiles.files.length + ' 个文件'
+        && diffFiles.afterNext.path === diffFiles.files[1]
+        && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' 个文件'
+        && diffFiles.afterNext.selected === diffFiles.files[1]);
 
     // ---- 第 100 轮补断言：§7.6「Amend 勾选后读取上一次提交信息；取消后恢复原文本」----
     // 核实过：`commit-amend` 在 live 代码里 0 命中；宿主 `ReadLastCommitMessageAsync` 与其单测早已存在，

@@ -1240,6 +1240,8 @@ async function openChangeDiff(path, options = {}) {
   // 加载分支不会被选中，150 毫秒后的加载提示就无处附着（实测 liveDiffView
   // 在整个加载窗口内一次都没被调用，编辑区仍是场景默认视图）。
   // 提前建立标签不改变"单击只选择"：单击路径根本不会走到这里。
+  // 打开改动行是**比较**视图（规格 §489：比较工具条没有文件导航）⇒ 清掉工作区 Diff 标记。
+  live.workspaceDiff = false;
   const tab = ensureComparisonTab(path);
   if (activate) activateComparisonTab(tab);
   const generation = comparisonGeneration;
@@ -7680,6 +7682,8 @@ async function boot() {
   }
 
   if (requestedDiff && window.__augitLive) {
+    // `--diff` 打开的是**工作区 Diff**（不建比较标签）：只有这种视图才有"上一个文件/计数/下一个文件"。
+    window.__augitLive.workspaceDiff = true;
     await loadDiff(requestedDiff);
     refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
   }
