@@ -9692,6 +9692,64 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 104 轮补断言：规格 `ux-spec.md:154`「主框架六处随实际字高扩展、图标尺寸保持」----
+    // 公式来自 mockup.js:72-80（`h` = **界面字体**实测行高）：
+    //   title-height=max(44,h+18) / tab-height=max(42,h+14) / project-header-height=max(39,h+10) /
+    //   tree-height=ceil(max(27,h+8)/2)*2 / document-toolbar-height=max(36,h+8) / status-height=max(22,h+2)
+    // 这条规格此前**在 §2 里没有对应行**（穷举漏了一条），本轮把断言与行一起补上。
+    const frameAt = async (uiSize) => {
+      const scene = await openScene('scene=main-project&theme=dark&ui-font-size=' + uiSize);
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(600);
+      const out = await scene.page.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement);
+        const family = cs.fontFamily;
+        const uiPixels = Number.parseFloat(cs.fontSize) || 13;
+        const ctx = document.createElement('canvas').getContext('2d');
+        let h = 0;
+        for (const role of ['normal', '600', 'italic']) {
+          ctx.font = role + ' ' + uiPixels + 'px ' + family;
+          const m = ctx.measureText('国Ag');
+          h = Math.max(h, Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent));
+        }
+        const num = (name) => Number.parseFloat(cs.getPropertyValue('--augit-' + name)) || null;
+        const icon = document.querySelector('.tool-rail .rail-button');
+        const iconBox = icon ? icon.getBoundingClientRect() : null;
+        return {
+          uiFont: cs.fontSize,
+          h,
+          expect: {
+            'title-height': Math.max(44, h + 18),
+            'tab-height': Math.max(42, h + 14),
+            'project-header-height': Math.max(39, h + 10),
+            'tree-height': Math.ceil(Math.max(27, h + 8) / 2) * 2,
+            'document-toolbar-height': Math.max(36, h + 8),
+            'status-height': Math.max(22, h + 2),
+          },
+          actual: {
+            'title-height': num('title-height'),
+            'tab-height': num('tab-height'),
+            'project-header-height': num('project-header-height'),
+            'tree-height': num('tree-height'),
+            'document-toolbar-height': num('document-toolbar-height'),
+            'status-height': num('status-height'),
+          },
+          iconW: iconBox ? +iconBox.width.toFixed(1) : null,
+          iconH: iconBox ? +iconBox.height.toFixed(1) : null,
+        };
+      });
+      await scene.page.close();
+      return out;
+    };
+    const frame13 = await frameAt(13);
+    const frame32 = await frameAt(32);
+    const frameMatches = (f) => Object.keys(f.expect).every((key) => f.actual[key] === f.expect[key]);
+    console.log('INFO 主框架字高=' + JSON.stringify({ frame13, frame32 }));
+    check('规格:154 主框架六处随实际字高扩展、图标尺寸保持: ' + JSON.stringify({ frame13, frame32 }),
+      frameMatches(frame13) && frameMatches(frame32)
+        && frame32.h > frame13.h
+        && frame32.iconW === frame13.iconW && frame32.iconH === frame13.iconH);
+
     // ---- 第 103 轮补断言：§7.16「标题行随字高扩展」（与查找条同型的**公式校验**）----
     // 实现见 mockup.js:168-169：`--terminal-header-height = max(38, h+12)`、`--terminal-text-height = max(24, h+4)`，
     // 其中 h 是**界面字体**实测行高。所以要用 `ui-font-size` 对照，并直接校验公式取值。

@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1051/1051（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1052/1052（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -213,6 +213,8 @@
 | §4.4 | 悬停使用更弱背景；选中态优先于悬停 | 是 | 「规格 §5/§6：悬停只改外观」块 + 真实指针悬停断言（`选中态优先于悬停`） | — |
 | §4.5 | 自绘图标几何/线宽/状态；纯图标按钮必须有可访问名称与悬停说明 | 是 | 「规格 §12.3 / §12.4：所有图标入口都有可访问名称与悬停说明」块 | 与参考图标逐项几何一致性见 `docs/visual-refinement-status.md`（历史记录） |
 | §4.5 | 禁止 Emoji 代替正式图标 | 是 | 图标形状集中在 `mockup.js` 的 `icon()` 表（自绘 SVG path），无 Emoji 字符 | — |
+
+| §4.3 | 调整界面字体/字号时，主框架**标题栏、文件标签、项目头、树行、文件路径工具栏、状态栏**按设计系统 §4.2 的**实际字高**扩展；**图标尺寸保持** | 是 | `规格:154 主框架六处随实际字高扩展、图标尺寸保持` —— 13px（h=16）→ 44/42/39/28/36/22；32px（h=41）→ 59/55/51/50/49/43；图标两侧均 32×32；token 与公式 `max(base, h+k)` **精确相等**（公式见 `mockup.js:72-80`） | — |
 
 ### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径）
 
@@ -617,7 +619,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | 章节 | 规格条数（分母） | 用例行数（上界） | 位置 |
 | --- | ---: | ---: | --- |
-| §4 全局视觉系统 | 35 | 20 | §1.2（视觉/令牌类以像素表与令牌表核销） |
+| §4 全局视觉系统 | 35 | 21 | §1.2（视觉/令牌类以像素表与令牌表核销） |
 | §5 外壳与交互框架 | 29 | 62 | §2.1–§2.4 概览 33 行 + 逐条展开 29 行 |
 | §6 异步加载与刷新不变量 | 40 | 59 | §2.5 概览 19 行 + 逐条展开 40 行 |
 | §7 页面规格 | 210 | **224（全 18 节逐条展开完成）** | §2.6 概览 14 行 + 全部 210 条逐条展开 |
