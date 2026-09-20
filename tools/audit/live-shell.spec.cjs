@@ -9714,6 +9714,61 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 112 轮诊断：§4.1「**读取尚未完成**的文件只显示适用的只读标识」（§3.2 #29）----
+    // 桩已内置按路径延迟：URL 参数 `slowread=<path>:<ms>`（会置 `window.__slowReadStarted`）。
+    // 先用**诊断**把 pending 窗口内的状态栏打出来，再决定是"已符合"还是"缺口" —— 不改断言口径硬猜。
+    const pendingStatus = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark&slowread=docs/product-spec.md:1200');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 15000 });
+      await scene.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.tree-row[data-tree-path][data-tree-directory="true"]')];
+        const docs = rows.find((r) => (r.dataset.treePath || '').split('/').filter(Boolean).pop() === 'docs');
+        if (docs) docs.focus();
+      });
+      await scene.page.keyboard.press('ArrowRight');
+      await scene.page.waitForTimeout(500);
+      await scene.page.evaluate(() => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]');
+        if (row) row.focus();
+      });
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForFunction('window.__slowReadStarted', null, { timeout: 10000 }).catch(() => null);
+      await scene.page.waitForTimeout(250);
+      const during = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.statusbar');
+        const live = window.__augitLive || {};
+        return {
+          slowReadStarted: window.__slowReadStarted || null,
+          docPath: live.document ? live.document.path : null,
+          fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+          pathText: bar && bar.querySelector('.status-path') ? bar.querySelector('.status-path').textContent.trim() : null,
+          barHtml: bar ? bar.outerHTML.slice(0, 240) : null,
+        };
+      });
+      await scene.page.waitForTimeout(1800);
+      const after = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.statusbar');
+        const live = window.__augitLive || {};
+        return {
+          docPath: live.document ? live.document.path : null,
+          fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+        };
+      });
+      await scene.page.close();
+      return { during, after };
+    })();
+    console.log('INFO 未完成读取状态栏=' + JSON.stringify(pendingStatus));
+    // 规格 §4.1 第 121/123 行：**读取尚未完成**时状态栏要显示"本次打开的路径"并给出"只读"标识；
+    // 读完后再变成 `["UTF-8","LF","只读"]`（对照组）。
+    const during = pendingStatus.during || {};
+    const after = pendingStatus.after || {};
+    check('§4.1 读取未完成时状态栏显示本次打开的路径并给"只读": ' + JSON.stringify(pendingStatus),
+      during.slowReadStarted === 'docs/product-spec.md'
+        && Array.isArray(during.fields) && during.fields.length === 1 && during.fields[0] === '只读'
+        && typeof during.pathText === 'string' && during.pathText.includes('product-spec.md')
+        && Array.isArray(after.fields) && after.fields.includes('UTF-8') && after.fields.includes('LF'));
+
     // ---- 第 112 轮补断言：§4.1「比较（工作区/历史）只给只读、不继承后台文件的编码/换行」----
     // 口径：只要比较处于激活状态（`live.diff` 有值），状态栏就**不应**出现 `UTF-8`/`LF` 之类的编码/换行字段。
     const comparisonStatus = await (async () => {

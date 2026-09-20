@@ -3145,6 +3145,29 @@ function ensureComparisonReadonlyMarker() {
   fields.appendChild(marker);
 }
 
+/**
+ * 规格 §4.1 第 121/123 行：**读取尚未完成**的文件要"显示本次打开的路径"并"只显示适用的只读标识"。
+ *
+ * 实测（第 112 轮）：pending 窗口里状态栏显示的是**工作区名**、字段区**为空** —— 两条要求都没满足
+ * （读完才变成 `["UTF-8","LF","只读"]`）。这里按 `live.pendingDocument` 直接补齐（只改 live-data.js）。
+ */
+function applyPendingDocumentStatus() {
+  const live = window.__augitLive;
+  const bar = document.querySelector(".statusbar");
+  const fields = bar && bar.querySelector(".status-fields");
+  const path = bar && bar.querySelector(".status-path");
+  if (!live || !bar || !fields || !path) return;
+  const pending = live.pendingDocument;
+  if (!pending) return;
+  const location = [live.workspaceName || "Augit", ...String(pending).split("/")].filter(Boolean).join("  ›  ");
+  path.textContent = location;
+  path.setAttribute("title", pending);
+  fields.textContent = "";
+  const marker = document.createElement("span");
+  marker.textContent = "只读";
+  fields.appendChild(marker);
+}
+
 function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
@@ -3164,6 +3187,7 @@ function rebindAfterRender() {
   bindModalBackground();
   labelFileHistoryClearEntry();
   ensureComparisonReadonlyMarker();
+  applyPendingDocumentStatus();
   restoreAmendDraft();
   reflectWriteOperation();
   guardUnwiredNavigation();
@@ -8159,6 +8183,9 @@ async function openDocument(path, options = {}) {
   const started = performance.now();
   // 快速连续打开时只接纳最后一次选择：晚到的旧响应不得覆盖新文档。
   const token = ++documentToken;
+  // 规格 §4.1 第 121/123 行：读取尚未完成时状态栏要显示"本次打开的路径"并给"只读"标识。
+  live.pendingDocument = path;
+  applyPendingDocumentStatus();
   try {
     const payload = await fetchDocument(path);
     // 令牌检查必须在写入任何状态之前：快速连续打开时，
@@ -8177,7 +8204,14 @@ async function openDocument(path, options = {}) {
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       open: Math.round(performance.now() - started),
     });
+    live.pendingDocument = null;
+    refresh("statusbar");
   } catch (error) {
+    // 失败路径也必须清掉"读取中"状态，否则状态栏会**卡在**"只读 + 待打开路径"上（成功路径已清）。
+    if (live.pendingDocument === path) {
+      live.pendingDocument = null;
+      refresh("statusbar");
+    }
     // 外部变化后文件可能已不存在：此时移除它的标签，而不是留下一个打不开的标签
     // （规格 §5.2：外部文件变化保持标签顺序与当前标签，「除非文件已不存在」）。
     const status = live.status;
