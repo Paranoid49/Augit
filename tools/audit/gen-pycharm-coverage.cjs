@@ -70,6 +70,29 @@ const ENV_BLOCKED = new Map([
   ['push-no-remote', '同上：无 remote 时 PyCharm 不提供 Push 对话框'],
   ['worktrees', 'VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径）'],
 ]);
+//  第 82/84 轮：把"未对照"的每一条也给**明确结论**（三分类 + 具体入口），而不是笼统的"未采集"。
+//  RECOVERABLE：PyCharm 有明确入口，只是我还没采（写明入口，下一轮可直接去采）
+//  PRECONDITION：形态在，但当前环境不满足前提（写明缺什么前提）
+//  AUGIT_ONLY：PyCharm 没有一一对应的面（写明差异，不算"欠采"）
+const UNCOVERED = new Map(Object.entries({
+  blame: ['RECOVERABLE', 'PyCharm 的 Annotate 视图在 VCS 弹出菜单里有入口（`Annotate`），可直接采'],
+  'file-history': ['RECOVERABLE', 'VCS 弹出菜单的 `Show History` 即文件历史入口'],
+  'repository-search': ['RECOVERABLE', "PyCharm 的 `Find in Path`（Ctrl+Shift+F）弹层；尚未采"],
+  'workspace-open': ['RECOVERABLE', 'PyCharm 的 `File | Open` 项目选择对话框；尚未采'],
+  'image-error': ['RECOVERABLE', '需先造一张损坏图片样本，再看 PyCharm 图片查看器的报错呈现；尚未采'],
+  'changes-context-menu': ['RECOVERABLE', 'Git 工具窗里对改动文件的右键菜单；需要工作区先有改动'],
+  'operation-progress': ['RECOVERABLE', 'PyCharm 的后台任务进度（状态栏）+ 通知气泡；需在做一次真实操作时采'],
+  'operation-result': ['RECOVERABLE', '同上：操作完成后的通知/结果呈现'],
+  remote: ['RECOVERABLE', '`Git | Manage Remotes` 对话框（不在 VCS 弹出菜单里，需从 Git 菜单进）'],
+  clone: ['RECOVERABLE', 'PyCharm 用 `File | New | Project from Version Control` 向导，形态与 Augit 的 Clone 对话框不同'],
+  'repository-init': ['RECOVERABLE', 'PyCharm 用 `Enable Version Control Integration`，形态与 Augit 的初始化页面不同'],
+  'stash-manager': ['PRECONDITION', 'PyCharm 的 Stash/Unstash 需要先有 stash 内容；当前工作区干净'],
+  'stash-drop-confirm': ['PRECONDITION', '同上：没有 stash 就看不到删除确认'],
+  'conflict-list': ['PRECONDITION', 'PyCharm 的 Merges/冲突视图需要真实冲突文件；当前树干净'],
+  'conflict-resolver': ['PRECONDITION', 'PyCharm 的三栏合并工具需要真实冲突；当前树干净'],
+  reset: ['PRECONDITION', 'PyCharm 的 `Rollback…` 需要本地改动；当前树干净（与 rollback 同因）'],
+  'git-unavailable': ['AUGIT_ONLY', 'PyCharm 没有"Git 不可用"降级页：它只是隐藏/禁用 VCS 菜单，Augit 用显式页面表达该状态'],
+}));
 const reason = (scene) => {
   if (ENV_BLOCKED.has(scene)) return ENV_BLOCKED.get(scene);
   if (/^(commit-diff|diff-|history-diff|git-compare)/.test(scene)) return 'PyCharm Diff 视图未采集';
@@ -92,10 +115,13 @@ out.push('| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |');
 out.push('| --- | --- | --- |');
 let coveredCount = 0;
 let entryCount = 0;
+let uncoveredCount = 0;
 for (const scene of scenes) {
   const hit = covered.get(scene);
   if (hit) { coveredCount++; out.push(`| \`${scene}\` | **面级已对照** | ${hit}——见 §1.3 逐面表的实测值与判读 |`); }
   else if (ENTRY_LEVEL.has(scene)) { entryCount++; out.push(`| \`${scene}\` | 仅入口级证据 | ${ENTRY_LEVEL.get(scene)}；**对话框本体未采集，不计入面级已对照**${ENV_BLOCKED.has(scene) ? '；**环境前提**：' + ENV_BLOCKED.get(scene) : ''} |`); }
+  else if (UNCOVERED.has(scene)) { uncoveredCount++; const [kind, note] = UNCOVERED.get(scene);
+    out.push(`| \`${scene}\` | 未对照（${kind}） | ${note} |`); }
   else { out.push(`| \`${scene}\` | 未对照 | ${reason(scene)} |`); }
 }
 out.push('');

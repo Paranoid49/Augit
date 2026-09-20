@@ -13711,3 +13711,20 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 于是该行改判 **是**，并把"第 419 轮说 2/4"这一段作为**漏检的实例**写进证据格 ——
 它说明"关键词匹配"只能用来**排候选**，**最终必须读断言源码**（第 419 轮的方法学结论再次被验证）。
 `§2.10`：非"是"行 **126 → 125**（A 88→87）；本轮未跑 harness（引用的都是上一轮 1039/1039 已通过的断言）。
+
+#### 第 426 轮：⑦⑧ 把 17 个"未对照"页也变成**三分类明确结论**（附具体入口）
+
+写清原因不等于给出结论。本轮给 §1.6 里 17 个未对照页各判一个类别并写明**具体入口或缺什么前提**：
+- **RECOVERABLE（10 页）** —— PyCharm 有明确入口，只是我还没采：`blame`（VCS 菜单 `Annotate`）、
+  `file-history`（`Show History`）、`repository-search`（`Find in Path`）、`workspace-open`（`File | Open`）、
+  `image-error`（需造损坏图片样本）、`changes-context-menu`（需先有改动）、`operation-progress`/`operation-result`
+  （后台任务进度与通知）、`remote`（`Git | Manage Remotes`）、`clone` 与 `repository-init`
+  （PyCharm 用向导/`Enable Version Control Integration`，**形态不同**）。
+- **PRECONDITION（6 页）** —— 形态在、当前环境不满足：`stash-manager`、`stash-drop-confirm`、`conflict-list`、
+  `conflict-resolver`、`reset`（同 rollback：需要本地改动/冲突，当前树干净）。
+- **AUGIT_ONLY（1 页）** —— `git-unavailable`：PyCharm **没有**"Git 不可用"降级页（它只是隐藏/禁用 VCS 菜单），
+  Augit 用显式页面表达该状态 —— 这是**产品差异**，不是"欠采"。
+
+实现：生成器新增 `UNCOVERED` 表，替换原先 `reason()` 的笼统文案；读数仍是
+**33/55 面级 + 5 页入口级 + 17 页未对照**（分类不改变覆盖数，只让"为什么没采"变成可执行的下一步）。
+`check-doc-claims` 通过。

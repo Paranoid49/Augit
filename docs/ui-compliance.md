@@ -411,19 +411,19 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |
 | --- | --- | --- |
-| `blame` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `blame` | 未对照（RECOVERABLE） | PyCharm 的 Annotate 视图在 VCS 弹出菜单里有入口（`Annotate`），可直接采 |
 | `branches` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
-| `changes-context-menu` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `clone` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `changes-context-menu` | 未对照（RECOVERABLE） | Git 工具窗里对改动文件的右键菜单；需要工作区先有改动 |
+| `clone` | 未对照（RECOVERABLE） | PyCharm 用 `File | New | Project from Version Control` 向导，形态与 Augit 的 Clone 对话框不同 |
 | `commit-changes` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `commit-diff` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `commit-empty` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
-| `conflict-list` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `conflict-resolver` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `conflict-list` | 未对照（PRECONDITION） | PyCharm 的 Merges/冲突视图需要真实冲突文件；当前树干净 |
+| `conflict-resolver` | 未对照（PRECONDITION） | PyCharm 的三栏合并工具需要真实冲突；当前树干净 |
 | `diff-boundary` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `diff-status` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `diff-loading` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
-| `file-history` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `file-history` | 未对照（RECOVERABLE） | VCS 弹出菜单的 `Show History` 即文件历史入口 |
 | `file-limit` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `git-compare` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `git-compare-empty` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
@@ -431,27 +431,27 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `git-history-empty` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `git-history-graph` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `git-history-menu` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
-| `git-unavailable` | 未对照 | 未采集 |
+| `git-unavailable` | 未对照（AUGIT_ONLY） | PyCharm 没有"Git 不可用"降级页：它只是隐藏/禁用 VCS 菜单，Augit 用显式页面表达该状态 |
 | `go-to-line` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `history-diff-cancelled` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `history-diff-failure` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `history-diff-loading` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `image-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `image-error` | 未对照 | 未采集 |
+| `image-error` | 未对照（RECOVERABLE） | 需先造一张损坏图片样本，再看 PyCharm 图片查看器的报错呈现；尚未采 |
 | `json-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `main-project` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `markdown-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `operation-progress` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `operation-result` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `operation-progress` | 未对照（RECOVERABLE） | PyCharm 的后台任务进度（状态栏）+ 通知气泡；需在做一次真实操作时采 |
+| `operation-result` | 未对照（RECOVERABLE） | 同上：操作完成后的通知/结果呈现 |
 | `project-context-menu` | **面级已对照** | I（文件/编辑器右键菜单）——见 §1.3 逐面表的实测值与判读 |
 | `push` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：本仓库没有 remote → PyCharm 不弹 Push 对话框（与 Augit 的 push-no-remote 状态吻合） |
 | `push-no-remote` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：同上：无 remote 时 PyCharm 不提供 Push 对话框 |
 | `quick-open` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `quick-open-empty` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
-| `remote` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
-| `repository-init` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
-| `repository-search` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `reset` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `remote` | 未对照（RECOVERABLE） | `Git | Manage Remotes` 对话框（不在 VCS 弹出菜单里，需从 Git 菜单进） |
+| `repository-init` | 未对照（RECOVERABLE） | PyCharm 用 `Enable Version Control Integration`，形态与 Augit 的初始化页面不同 |
+| `repository-search` | 未对照（RECOVERABLE） | PyCharm 的 `Find in Path`（Ctrl+Shift+F）弹层；尚未采 |
+| `reset` | 未对照（PRECONDITION） | PyCharm 的 `Rollback…` 需要本地改动；当前树干净（与 rollback 同因） |
 | `rollback` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Rollback 需要本地改动；当前工作区干净 → PyCharm 禁用该动作 |
 | `search-limited` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `settings` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
@@ -459,12 +459,12 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `settings-dirty` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `smart-checkout` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
 | `stash` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Stash Changes 需要本地改动；当前工作区干净 → PyCharm 禁用该动作（实测无对话框） |
-| `stash-drop-confirm` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
-| `stash-manager` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
+| `stash-drop-confirm` | 未对照（PRECONDITION） | 同上：没有 stash 就看不到删除确认 |
+| `stash-manager` | 未对照（PRECONDITION） | PyCharm 的 Stash/Unstash 需要先有 stash 内容；当前工作区干净 |
 | `terminal` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `terminal-close` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `text-viewer` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `workspace-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `workspace-open` | 未对照（RECOVERABLE） | PyCharm 的 `File | Open` 项目选择对话框；尚未采 |
 | `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径） |
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
