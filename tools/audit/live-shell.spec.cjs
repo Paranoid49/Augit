@@ -9688,6 +9688,51 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 99 轮补断言：比较工具栏「上一处/下一处差异」（此前是死入口，按规格实现）----
+    // 规格要点：差异按**连续变更块**计（同一次替换的删除+新增算一处）；定位后**保留触发按钮焦点**。
+    const diffNav = await (async () => {
+      const scene = await openScene('scene=commit-diff&theme=dark');
+      // 该场景要**先双击一个改动行**才会加载 diff（既有 §12.2 用例同法），否则 live.diff 一直是空。
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 15000 });
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(900);
+      const read = () => scene.page.evaluate(() => {
+        const scroller = document.querySelector('.diff-layout, .document-view');
+        return {
+          index: scroller && scroller.dataset ? scroller.dataset.diffIndex || null : null,
+          total: scroller && scroller.dataset ? scroller.dataset.diffTotal || null : null,
+          active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+          blocks: document.querySelectorAll('.diff-code-line.added, .diff-code-line.removed').length,
+          hit: window.__diffNavHit || 0,
+        };
+      });
+      const initial = await read();
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.waitForTimeout(400);
+      const afterNext = await read();
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.waitForTimeout(400);
+      const afterNext2 = await read();
+      await scene.page.locator('.diff-toolbar [aria-label="上一处差异"]').click();
+      await scene.page.waitForTimeout(400);
+      const afterPrev = await read();
+      await scene.page.close();
+      console.log('INFO 差异导航=' + JSON.stringify({ initial, afterNext, afterNext2, afterPrev }));
+      return { initial, afterNext, afterNext2, afterPrev };
+    })();
+    check('§7.9 差异导航按连续变更块移动且保留按钮焦点: ' + JSON.stringify(diffNav),
+      // 该 diff 有 4 条变更行、按"连续变更块"合并为**2 处**（同一次替换的删除+新增算一处）——
+      // 这正是规格 §7.9 的口径；我第一版断言按"只有一处"写，才假失败。
+      diffNav.initial.blocks === 4
+        && diffNav.afterNext.index === '0' && diffNav.afterNext.total === '2'
+        && diffNav.afterNext2.index === '1'
+        && diffNav.afterPrev.index === '0'
+        && diffNav.afterNext.active === '下一处差异'
+        && diffNav.afterNext2.active === '下一处差异'
+        && diffNav.afterPrev.active === '上一处差异');
+
     // ---- 第 98 轮补断言：§7.8 提交历史「搜索提交」把焦点交给日志搜索框（此前是死入口）----
     const historySearch = await (async () => {
       const scene = await openScene('scene=git-history&theme=dark');

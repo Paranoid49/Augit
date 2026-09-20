@@ -3032,6 +3032,60 @@ function refresh(...regions) {
  * 另一条就会出现「某些入口在启动后没有动作」——实测分支芯片因此整页导航离开应用。
  */
 /**
+ * 比较工具栏的「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。
+ *
+ * 条文（`ux-spec.md:438/439/441/502`）：左侧依次为上一处、下一处…；**差异按连续变更块计算**
+ * （同一次替换的删除行与新增行算同一处，未修改的上下文或补丁段分隔变更块）；
+ * 箭头定位正文后**保留触发按钮焦点**，可继续按 Enter/Space。
+ * 核实：该按钮（`.diff-toolbar .toolbar-button`）此前在 live 代码里**没有任何处理** ⇒ 死入口。
+ */
+function diffChangeBlocks() {
+  const root = document.querySelector(".diff-layout, .document-view");
+  if (!root) return [];
+  const lines = [...root.querySelectorAll(".diff-code-line")];
+  const changed = (el) => /(^|\s)(added|removed|conflict\S*)(\s|$)/.test(el.className || "");
+  const blocks = [];
+  lines.forEach((el, index) => {
+    if (!changed(el)) return;
+    const last = blocks[blocks.length - 1];
+    if (last && last.lastIndex === index - 1) { last.lastIndex = index; return; }
+    blocks.push({ first: el, lastIndex: index });
+  });
+  return blocks;
+}
+
+function diffScrollableAncestor(el) {
+  let node = el && el.parentElement;
+  while (node) {
+    if (node.scrollHeight > node.clientHeight + 1) return node;
+    node = node.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+function moveDiffChange(direction) {
+  const blocks = diffChangeBlocks();
+  if (!blocks.length) return null;
+  const scroller = diffScrollableAncestor(blocks[0].first);
+  const total = blocks.length;
+  let index = Number(scroller.dataset.diffIndex);
+  if (!Number.isFinite(index)) index = direction > 0 ? -1 : total;
+  index = Math.max(0, Math.min(total - 1, index + direction));
+  scroller.dataset.diffIndex = String(index);
+  scroller.dataset.diffTotal = String(total);
+  // 同时把"当前处/总处数"记在**稳定的根容器**上：内层滚动容器会随模式（单/双栏）更换，
+  // 而 `.diff-layout`/`.document-view` 是稳定的观测点（第 99 轮踩过：只写内层导致读不到）。
+  const root = document.querySelector(".diff-layout, .document-view");
+  if (root) {
+    root.dataset.diffIndex = String(index);
+    root.dataset.diffTotal = String(total);
+  }
+  blocks[index].first.scrollIntoView({ block: "center" });
+  // 规格 §502：定位后**保留触发按钮焦点** —— 这里刻意不调用 focus()，由调用方保持按钮焦点。
+  return { index, total };
+}
+
+/**
  * 文件历史工具条的「清除路径筛选」入口（规格 §7.9）。
  * 视觉稿里这个 × 图标按钮**本来就在**（`.history-tool-content .history-toolbar` 的第一个 `.icon-button`），
  * 但它既没有 `aria-label`、也没有绑定 —— 于是"路径筛选固定为当前文件并**显示清除入口**"只实现了一半。
@@ -7823,6 +7877,19 @@ document.addEventListener("contextmenu", (event) => {
   if (!row || !window.__augitLive) return;
   event.preventDefault();
   openChangesContextMenu(row, event.clientX, event.clientY);
+}, true);
+
+// 比较工具栏「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。
+// 用**捕获阶段**的独立监听器，而不是大点击链的尾部：链尾可能被更早监听器的
+// `preventDefault()` 影响（那里有 `if (event.defaultPrevented) return;` 守卫），
+// 而捕获阶段先于所有冒泡监听器执行 —— 这也与项目树/上下文菜单的既有做法一致。
+document.addEventListener("click", (event) => {
+  const button = event.target.closest
+    && event.target.closest('.diff-toolbar [aria-label="上一处差异"], .diff-toolbar [aria-label="下一处差异"]');
+  if (!button) return;
+  window.__diffNavHit = (window.__diffNavHit || 0) + 1;
+  event.preventDefault();
+  moveDiffChange(button.getAttribute("aria-label") === "下一处差异" ? 1 : -1);
 }, true);
 
 // 项目树右键打开上下文菜单（规格 §5.4）。
