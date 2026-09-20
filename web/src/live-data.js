@@ -3134,6 +3134,7 @@ function rebindAfterRender() {
   bindGlobalShortcuts();
   bindModalBackground();
   labelFileHistoryClearEntry();
+  restoreAmendDraft();
   reflectWriteOperation();
   guardUnwiredNavigation();
   bindSettingsPages();
@@ -7880,28 +7881,60 @@ document.addEventListener("contextmenu", (event) => {
 }, true);
 
 // 「Amend」勾选后读取上一次提交信息；取消后恢复用户尚未提交的原文本（规格 §7.6）。
-// 两处实测教训：① 视觉稿的 Amend 是 `<button role="checkbox" aria-checked>`（fake-check），**不是 input**，
-// 所以既不能用 `change` 事件、也不能读 `.checked`；② 状态由应用自己的处理翻转，
-// 因此用**捕获阶段 + 延后一拍**读取，才能读到翻转后的值。
+//
+// 三处实测教训（前两处来自第 100 轮，第三处来自"一半未通过"的复盘）：
+// ① 视觉稿的 Amend 是 `<button role="checkbox" aria-checked>`（fake-check），**不是 input** ——
+//    既不能监听 `change`、也不能读 `.checked`；
+// ② 状态由应用自己的处理翻转，所以必须**捕获阶段 + 延后一拍**读取才读得到翻转后的值；
+// ③ 第 100 轮把草稿存在 `dataset` 上**活不过提交区重渲染**（取消后字段被应用自身的草稿绑定覆盖）⇒
+//    草稿改存**模块级 Map**，并在每次渲染后重新应用；用户一旦自己编辑就以他的输入为准（丢弃草稿）。
+const amendDrafts = new Map();
+
+function amendFieldKey(field) {
+  const layout = field.closest(".changes-layout") || field.closest(".commit-box");
+  return (layout && (layout.getAttribute("data-workspace") || layout.id)) || "commit-box";
+}
+
+/** 渲染后把未提交的草稿写回（仅在 Amend 未勾选时），保证"取消勾选后恢复原草稿"活过重渲染。 */
+function restoreAmendDraft() {
+  document.querySelectorAll(".commit-box .message-field, .commit-box textarea").forEach((field) => {
+    const box = field.closest(".commit-box");
+    const amend = box && box.querySelector('[aria-label="Amend"]');
+    if (!amend) return;
+    const checked = amend.matches('input[type="checkbox"]')
+      ? amend.checked
+      : amend.getAttribute("aria-checked") === "true";
+    const key = amendFieldKey(field);
+    if (!checked && amendDrafts.has(key) && field.value !== amendDrafts.get(key)) {
+      field.value = amendDrafts.get(key);
+    }
+  });
+}
+
+document.addEventListener("input", (event) => {
+  const field = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
+  if (field) amendDrafts.delete(amendFieldKey(field));
+}, true);
+
 document.addEventListener("click", (event) => {
   const amend = event.target.closest && event.target.closest('.commit-box [aria-label="Amend"]');
   if (!amend) return;
   const box = amend.closest(".commit-box");
   const field = box && box.querySelector(".message-field, textarea");
   if (!field) return;
+  const key = amendFieldKey(field);
   setTimeout(() => {
     const checked = amend.matches && amend.matches('input[type="checkbox"]')
       ? amend.checked
       : amend.getAttribute("aria-checked") === "true";
     if (checked) {
-      if (field.dataset.amendDraft === undefined) field.dataset.amendDraft = field.value;
+      if (!amendDrafts.has(key)) amendDrafts.set(key, field.value);
       void invoke("git/last-commit-message", {}, 30000).then((result) => {
         if (result && result.available && typeof result.message === "string") field.value = result.message;
         else window.__augitError = "amend:last-commit-unavailable";
       }).catch(() => { window.__augitError = "amend:last-commit-failed"; });
-    } else if (field.dataset.amendDraft !== undefined) {
-      field.value = field.dataset.amendDraft;
-      delete field.dataset.amendDraft;
+    } else if (amendDrafts.has(key)) {
+      field.value = amendDrafts.get(key);
     }
   }, 0);
 }, true);

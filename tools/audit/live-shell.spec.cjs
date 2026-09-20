@@ -9735,10 +9735,11 @@ async function main() {
     // 只断言**已验证的那一半**：勾选 → 调宿主 → 回填。另一半（取消后恢复原草稿）**未通过**，
     // 实测字段变成应用自身状态里的上一次提交标题（`fix: 精确恢复安装前系统 PATH`），
     // 说明重新渲染/应用自己的草稿绑定覆盖了页面侧存的草稿 —— 已登记为 §3.2 第 27 条，**不写成通过**。
-    check('§7.6 Amend 勾选后读取上一次提交信息并回填（取消恢复那半见 §3.2 #27）: ' + JSON.stringify(amendFlow),
+    check('§7.6 Amend 勾选回填上一次提交信息、取消恢复原草稿: ' + JSON.stringify(amendFlow),
       amendFlow.found.ok === true
         && amendFlow.checked.calls >= 1
-        && typeof amendFlow.checked.value === 'string' && amendFlow.checked.value.includes('上一次提交标题'));
+        && typeof amendFlow.checked.value === 'string' && amendFlow.checked.value.includes('上一次提交标题')
+        && amendFlow.unchecked.value === amendFlow.draft);
 
     // ---- 第 99 轮补断言：比较工具栏「上一处/下一处差异」（此前是死入口，按规格实现）----
     // 规格要点：差异按**连续变更块**计（同一次替换的删除+新增算一处）；定位后**保留触发按钮焦点**。
