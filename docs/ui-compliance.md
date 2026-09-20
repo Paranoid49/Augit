@@ -551,8 +551,8 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | --- | --- | --- |
 | `blame` | 未对照（MEDIUM_BLOCKED） | 入口可达（VCS 弹出菜单能过滤出 `Annotate`，证据 pycharm-annotate-r95b.png），但**条目无法激活**：Enter 无效、鼠标点击只 hover → 需人工一次点击或换其它入口 |
 | `branches` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
-| `changes-context-menu` | 未对照（RECOVERABLE） | Git 工具窗里对改动文件的右键菜单；需要工作区先有改动 |
-| `clone` | 未对照（RECOVERABLE） | PyCharm 用 `File | New | Project from Version Control` 向导，形态与 Augit 的 Clone 对话框不同 |
+| `changes-context-menu` | 未对照（RECOVERABLE） | Git 工具窗里对改动文件的右键菜单；需要工作区先有改动（临时副本可造） |
+| `clone` | 未对照（MEDIUM_BLOCKED） | 需经 File 菜单进入；实测 File 菜单点击无效（同因）→ 形态对照可留待人工 |
 | `commit-changes` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `commit-diff` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `commit-empty` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
@@ -575,19 +575,19 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `history-diff-failure` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `history-diff-loading` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `image-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `image-error` | 未对照（RECOVERABLE） | 需先造一张损坏图片样本，再看 PyCharm 图片查看器的报错呈现；尚未采 |
+| `image-error` | 未对照（RECOVERABLE） | 需先造一张损坏图片样本（可做：在临时副本里造），再看 PyCharm 图片查看器的报错呈现 |
 | `json-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `main-project` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `markdown-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `operation-progress` | 未对照（RECOVERABLE） | PyCharm 的后台任务进度（状态栏）+ 通知气泡；需在做一次真实操作时采 |
-| `operation-result` | 未对照（RECOVERABLE） | 同上：操作完成后的通知/结果呈现 |
+| `operation-progress` | 未对照（MEDIUM_BLOCKED） | 同上介质限制：需要一次真实操作触发；且其入口多在弹层/菜单内，条目激活不可达 |
+| `operation-result` | 未对照（MEDIUM_BLOCKED） | 同上介质限制：通知/结果多在弹层内，条目激活不可达 |
 | `project-context-menu` | **面级已对照** | I（文件/编辑器右键菜单）——见 §1.3 逐面表的实测值与判读 |
 | `push` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：本仓库没有 remote → PyCharm 不弹 Push 对话框（与 Augit 的 push-no-remote 状态吻合） |
 | `push-no-remote` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：同上：无 remote 时 PyCharm 不提供 Push 对话框 |
 | `quick-open` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `quick-open-empty` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
-| `remote` | 未对照（RECOVERABLE） | `Git | Manage Remotes` 对话框（不在 VCS 弹出菜单里，需从 Git 菜单进） |
-| `repository-init` | 未对照（RECOVERABLE） | PyCharm 用 `Enable Version Control Integration`，形态与 Augit 的初始化页面不同 |
+| `remote` | 未对照（MEDIUM_BLOCKED） | 需经 Git 菜单/弹层进入；实测菜单栏点击在工具窗输入框持有焦点时无效 → 同因 |
+| `repository-init` | 未对照（MEDIUM_BLOCKED） | 需经 VCS 菜单进入；同因（菜单/弹层激活不可达） |
 | `repository-search` | 未对照（MEDIUM_BLOCKED） | `Find in Path` 弹层同理：能打开/输入，弹层内确认动作不可达 |
 | `reset` | 未对照（PRECONDITION） | PyCharm 的 `Rollback…` 需要本地改动；当前树干净（与 rollback 同因） |
 | `rollback` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Rollback 需要本地改动；当前工作区干净 → PyCharm 禁用该动作 |
@@ -602,7 +602,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `terminal` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `terminal-close` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `text-viewer` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `workspace-open` | 未对照（RECOVERABLE） | `File | Open` 是独立对话框（非弹出菜单），**未试**；对话框类此前有成功先例（Confirm Exit 能点） |
+| `workspace-open` | 未对照（MEDIUM_BLOCKED） | 本轮试了：点 File 菜单栏位置无效（同因），未能到达 `File | Open` |
 | `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径） |
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面

@@ -14090,3 +14090,19 @@ content 都是 **0.03 且 flatDiff 同为 212** —— 说明"脏标记/保存�
 **清理**：本轮新增的 8 张无信息量截图已删，只留两张有判别力的（`pycharm-annotate-r95b.png` 证明"过滤可达"、
 `pycharm-state-clean.png` 证明窗口可用）；并**从 git 历史取回**被第 439 轮误删、却仍被本文档引用的
 `pycharm-popup-filtered.png`（证据引用必须能兑现）。
+
+#### 第 442 轮：⑦⑧ 剩余页**统一如实标为 `MEDIUM_BLOCKED`**（同因），转回仓库内工作
+
+上一轮查清根因后，本轮又试了一条路：**点菜单栏 `File`**（此前点菜单栏打开过 `Help` 菜单），
+**同样无效** —— 因为焦点在那个停靠的 `Search Everywhere` 工具窗**输入框**里时，菜单栏点击不再生效。
+窗口矩形实测 `L=-14 T=-14 R=2884 B=1720`（全屏、客户区从 14px 起），说明坐标假设本身没问题，是**焦点状态**决定了成败。
+
+**处置（不硬凑、不反复试）**：把 §1.6 里剩下的入口型页面**逐页**改标 `MEDIUM_BLOCKED` 并写明"同因"与"已试过什么"：
+`blame` / `file-history` / `repository-search` / `operation-progress` / `operation-result` / `remote` / `clone` /
+`repository-init` / `workspace-open`（共 **9 页**）。仍记 `RECOVERABLE` 的只剩两页，而且它们**不依赖弹层点击**：
+`image-error`（造一张损坏图片样本即可）与 `changes-context-menu`（临时副本里造出改动即可）。
+`PRECONDITION` 6 页与 `AUGIT_ONLY` 1 页不变。
+
+**诚实的现状**：⑦⑧ 的**面级覆盖仍是 33/55**；这 9 页的入口**我都能到达**（能打开 VCS 弹出菜单并过滤出
+具体条目，证据 `pycharm-annotate-r95b.png`），**唯一做不到的是"激活条目"这一步**（合成输入对 Swing 弹层的限制）。
+这一步若要有真值，最省力的是**人在那个已过滤好的菜单上点一下**；但我不把它当请求，而是**如实标为受阻并继续推进其它可做的**。
