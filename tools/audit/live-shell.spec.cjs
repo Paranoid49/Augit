@@ -2755,6 +2755,10 @@ async function main() {
       + JSON.stringify({ beforeModeSwitch, afterModeSwitch, afterModeSwitchWheel }),
       afterModeSwitchWheel.scale === afterModeSwitch.scale);
 
+    // 规格 §7.5 的**第三个触发（拖动）本轮没能断言**：把图片放大到 1.5 倍后，用 Playwright 的
+    // mouse.down/move/up 做拖动，`imgLeft` **前后都是 479**（拖动没有发生），因此"未清除就缩放"的
+    // 判断不成立 —— 这是**断言设计/采集手段的限制**，不是应用行为结论。诊断见日志第 428 轮。
+
     const zoomTable = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
     const stepUp = (value, times) => {
       let current = value;
@@ -9702,6 +9706,13 @@ async function main() {
           && ratio13 !== null && ratio17 !== null);
       return { small, large, t13, t17, ratio13, ratio17 };
     })();
+
+    // ---- 第 85 轮尝试过两条断言，**都没能成立，已撤回**（不留在套件里凑数）----
+    //  1) §7.8"比较完成不再次激活标签/不抢焦点"：`scene=git-compare` 下 comparison 始终为 false
+    //     （`__augitLive.comparison` 与 `filesHtml` 早/晚两次都是 false）→ 断言根本没走到被测路径；
+    //  2) §7.5"拖动时清除未完成滚轮输入"：放大到 1.5 倍后合成拖动**没有真的平移**（`imgLeft` 前后都是 479），
+    //     于是"没缩放"的判断不成立 —— 属断言设计/采集手段限制。
+    //  两条的原始诊断都写进了 `docs/ui-refactor-baseline.md` 第 428 轮，供下一轮换手段再试。
 
     // ---- 第 81 轮补断言：§5 树 Enter 执行默认动作、§7.2 取消组词后复用已完成结果 ----
     const r81 = await (async () => {
