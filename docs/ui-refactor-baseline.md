@@ -13871,3 +13871,27 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 **两次自身纠错（文档补丁的锚点）**：本次补丁第一次因为把 `## 1. A 线：静态界面复原` 写成了 `### 1. …`
 （三级标题）而 assert 中止、**写盘前全丢**；这是同一类错误的**第四次**。教训已经足够明确：
 **在补丁里先 `grep` 出真实标题、再改，并且改完立刻 `grep` 校验**（本轮第二次就加了 `grep -c 交接摘要`）。
+
+#### 第 433 轮（第 90 轮）：收口前的最终验证 —— 并补上我自己漏掉的**第三个测试项目**
+
+按纪律在收口前把闸门全部重跑一遍（本轮实测值）：
+
+| 闸门 | 结果 |
+| --- | --- |
+| `live-shell.spec.cjs` | **1039/1039（未执行 0 项）** |
+| `Augit.Shell.Tests` | **74/74** |
+| `Augit.Core.Tests` | **86/86** |
+| **`Augit.Infrastructure.Tests`** | **175/175** ← **此前我在 §0 里一直只列了 Shell/Core 两个项目** |
+| 真机巡检 / `diff-boundary` | 54/54（干净仓库）+ 1/1（改动工作区）（同一次运行，见 §0.1） |
+| `verify-ui-assets.ps1` | PASS |
+| `verify-script-encoding.ps1` | PASS（13 个脚本） |
+| `check-doc-claims.cjs` | `DOC_CLAIMS_OK` |
+| `check-interactions.cjs` | `INTERACTIONS_BASELINE_OK` |
+
+**自身账目纠错**：`tests/Augit.Infrastructure.Tests` 有 **175 个测试**（搜索、Git、终端、设置存储等），
+而我在 §0 的基线表里**只列了 `Augit.Shell.Tests` 与 `Augit.Core.Tests`**，等于**少报了一整个测试项目**。
+更讽刺的是：第 66 轮我引用的 `RipgrepSearchServiceTests` 就在这个项目里 —— **引用它的测试却没有把它列进闸门**。
+已补进 §0 基线表（标注"第 90 轮补录"）。
+
+这条也再次印证本任务的核心口径：**"没列出来"很容易被当成"没有"** ——
+分母写漏和覆盖率虚高是同一类错误的两种方向。

@@ -1168,6 +1168,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 构建 | `dotnet build src/Augit.Shell -c Release` | **0 警告 / 0 错误** |
 | 外壳单测 | `dotnet test tests/Augit.Shell.Tests` | **74/74** |
 | 核心单测 | `dotnet test tests/Augit.Core.Tests` | **86/86** |
+| C# 单测（基础设施：搜索/Git/终端/设置） | `dotnet test tests/Augit.Infrastructure.Tests` | **175/175**（第 90 轮补录） |
 | 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **1014/1014（未执行 0 项）**（2026-09-21 本轮重跑，摘要行 `live-shell 通过 1014 项断言`） |
 | 真机全场景巡检 | `verify-acceptance.ps1` | **54/54 PASS（干净仓库）** + `diff-boundary` **1/1**（含改动工作区） |
 | 打包 | `tools/release.ps1` | zip **2,795,619 B** / setup **4,386,825 B** / `sha256sum -c` **两项 OK** / 包内 32 条目 0 可疑 / 包内 `live-data.js` 与仓库**逐字节相同** |
