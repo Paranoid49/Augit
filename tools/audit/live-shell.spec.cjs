@@ -307,7 +307,7 @@ async function main() {
         if (window.__malformed) return { available: true, commits: [] };  // 缺 path
         return data.fileHistory;
       }
-      if (method === 'search/files') return data.searchFiles;
+      if (method === 'search/files') { window.__searchFilesCalls = (window.__searchFilesCalls || 0) + 1; return data.searchFiles; }
       if (method === 'search/text') {
         if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
         return data.searchText;
@@ -9681,6 +9681,74 @@ async function main() {
         t13.rowHeight === 25 && t17.rowHeight === 34 && t17.rowHeight > t13.rowHeight
           && ratio13 !== null && ratio17 !== null);
       return { small, large, t13, t17, ratio13, ratio17 };
+    })();
+
+    // ---- 第 81 轮补断言：§5 树 Enter 执行默认动作、§7.2 取消组词后复用已完成结果 ----
+    const r81 = await (async () => {
+      // §5 树使用方向键移动、右键/菜单键打开菜单、Enter 执行默认动作（前 3 项早有断言，Enter 一直没有）
+      const treeEnter = await openScene('scene=main-project&theme=dark');
+      await treeEnter.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await treeEnter.page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 10000 });
+      await treeEnter.page.waitForTimeout(500);
+      const before = await treeEnter.page.evaluate(() => ({
+        path: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
+        unwired: window.__augitUnwiredLabel || null,
+      }));
+      const enter = await treeEnter.page.evaluate(async () => {
+        const row = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
+          .find((r) => r.dataset.treePath && /\.(md|txt|cs)$/.test(r.dataset.treePath));
+        if (!row) return { noRow: true };
+        row.focus();
+        const path = row.dataset.treePath;
+        row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await new Promise((r) => setTimeout(r, 900));
+        return {
+          rowPath: path,
+          focused: document.activeElement ? document.activeElement.getAttribute('data-tree-path') : null,
+          path: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
+          unwired: window.__augitUnwiredLabel || null,
+        };
+      });
+      await treeEnter.page.close();
+      console.log('INFO 树Enter=' + JSON.stringify({ before, enter }));
+      // 实测（第 81 轮）：Enter **没有**执行默认动作 —— 行仍持有焦点、`__augitLive.document` 仍为 null，
+      // 也没有落进"未接线兜底"（`unwired` 为 null，因为它不是 `.html` 链接）。
+      // 按纪律：**把当前实现钉住**（而不是让套件红着），缺口记在 §3.2 第 23 条。
+      // 注意这一条同时说明了"为什么它此前一直是部分"：方向键/右键/菜单键早有断言，Enter 确实没有实现。
+      check('§5 缺口钉住：树 Enter 当前不执行默认动作（没有打开该行文件）: ' + JSON.stringify(enter),
+        enter.noRow !== true && enter.path === null && enter.focused === enter.rowPath);
+      return { treeEnter: enter };
+    })();
+
+    const r81b = await (async () => {
+      // §7.2 取消组词后**复用已完成结果**：组词结束后文字回到上一次查询过的内容时，不应再发起查询。
+      const ime = await openScene('scene=quick-open&theme=dark');
+      await ime.page.waitForSelector('.search-overlay .search-field', { timeout: 15000 });
+      await ime.page.locator('.search-overlay .search-field').fill('product');
+      await ime.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 15000 });
+      await ime.page.waitForTimeout(500);
+      const base = await ime.page.evaluate(() => window.__searchFilesCalls || 0);
+      const composed = await ime.page.evaluate(async () => {
+        const field = document.querySelector('.search-overlay .search-field');
+        field.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+        field.value = 'productx';
+        field.dispatchEvent(new CompositionEvent('compositionupdate', { data: 'productx', bubbles: true }));
+        await new Promise((r) => setTimeout(r, 400));
+        // 取消组词：文字回到上一次已完成查询的内容
+        field.value = 'product';
+        field.dispatchEvent(new CompositionEvent('compositionend', { data: 'product', bubbles: true }));
+        await new Promise((r) => setTimeout(r, 900));
+        return { calls: window.__searchFilesCalls || 0, value: field.value };
+      });
+      // 非空对照：换成一个真正新的查询必须真的再查一次
+      await ime.page.locator('.search-overlay .search-field').fill('producty');
+      await ime.page.waitForTimeout(900);
+      const control = await ime.page.evaluate(() => window.__searchFilesCalls || 0);
+      await ime.page.close();
+      console.log('INFO 组词取消=' + JSON.stringify({ base, composed, control }));
+      check('§7.2 取消组词后复用已完成结果（不重复查询），换新词仍会查: ' + JSON.stringify({ base, composed, control }),
+        composed.calls === base && control > composed.calls);
+      return { base, composed, control };
     })();
 
     // ---- 第 80 轮补断言：§7.16「会话名称按字宽显示」（此前一直只写"没有断言"）----
