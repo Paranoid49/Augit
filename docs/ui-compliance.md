@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1038/1038（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1039/1039（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -444,28 +444,28 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `operation-progress` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `operation-result` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `project-context-menu` | **面级已对照** | I（文件/编辑器右键菜单）——见 §1.3 逐面表的实测值与判读 |
-| `push` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
-| `push-no-remote` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `push` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：本仓库没有 remote → PyCharm 不弹 Push 对话框（与 Augit 的 push-no-remote 状态吻合） |
+| `push-no-remote` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：同上：无 remote 时 PyCharm 不提供 Push 对话框 |
 | `quick-open` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `quick-open-empty` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `remote` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
 | `repository-init` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
 | `repository-search` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `reset` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
-| `rollback` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `rollback` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Rollback 需要本地改动；当前工作区干净 → PyCharm 禁用该动作 |
 | `search-limited` | **面级已对照** | H（Search Everywhere）——见 §1.3 逐面表的实测值与判读 |
 | `settings` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-save-failure` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-dirty` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `smart-checkout` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
-| `stash` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `stash` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：Stash Changes 需要本地改动；当前工作区干净 → PyCharm 禁用该动作（实测无对话框） |
 | `stash-drop-confirm` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
 | `stash-manager` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
 | `terminal` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `terminal-close` | **面级已对照** | F（Terminal 工具窗）——见 §1.3 逐面表的实测值与判读 |
 | `text-viewer` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `workspace-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
-| `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照**；**环境前提**：VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径） |
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
 > 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
@@ -848,7 +848,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 2 | §7.5 | 透明棋盘格只覆盖图片矩形，外围主题画布纯色；不添加编辑工具 | 部分 | 棋盘格是 `<img>` 自身的 CSS 背景（随图片矩形，天然只覆盖图片范围）；**没有断言**核对范围，"不添加编辑工具"也没有显式断言；**「不添加编辑工具」已有断言**（`§7.5 图片页只读：工具条只有缩放/适应，不含编辑类动作`）；棋盘格覆盖范围仍无断言 |
 | 3 | §7.5 | 初次打开与"适应区域"完整显示（四边 ≥32px、不放大小图、极大图可 <10%） | 是 | `image-preview.js` 的 fit：`scale = min(1, (stage-64·dpi)/naturalW, (stage-64·dpi)/naturalH)`，即四边 32·dpi 且上限 1（不放大小图、极大图可低于 10%）；断言 `§7.5 初次打开按适应区域显示：四边各留 ≥32px、不放大…` |
 | 4 | §7.5 | 放大后拖动、方向键、滚轮/Shift+滚轮/Ctrl+滚轮、限制边缘、适应居中、仅影响图片、保留按钮焦点、解除拖动 | 部分 | `image-preview.js` 已实现 pointer 拖动 + `setPointerCapture`、方向键 32px、滚轮 / Shift+滚轮 / Ctrl+滚轮、边缘夹取与适应居中、`Escape` 解除拖动；已断言**适应区域重居中**、**向右拖动到边缘被夹取**、**ArrowRight 左移 32px**、**Escape 解除拖动**、**滚轮可见/隐藏**；仍缺**按钮缩放保留焦点**与"操作仅影响图片"的断言 |
-| 5 | §7.5 | 高精度滚轮累计到整档才缩放；单次多档合并；切换/按钮/拖动/隐藏时清除未完成输入 | 部分 | 实现里有 `wheelZoom` 余量累计 + `wheelMode` 切换与按钮动作都 `resetWheel()`；已断言"隐藏时不接受滚轮输入、可见时按档位缩放"、**不足一档不缩放**、**累计到整档缩放一档**、**单次多档合并**（`wheelZoom` 余量）；仍缺"切换滚轮模式时清除未完成输入"的断言；**已有断言（2/3）**：`§7.5 Ctrl+滚轮不足一档不缩放、累计到整档缩放、单次多档合并`；**未断言**：切换/按钮/拖动/隐藏时清除未完成输入；**另已断言（第 80/81 轮）**：`§7.5 按钮操作后清除未完成的滚轮输入`（-100 不足一档 → 点"适应区域" → 再 -100，缩放不再变化）；**仍未断言**：`切换/拖动/隐藏` 三种触发下的清除 |
+| 5 | §7.5 | 高精度滚轮累计到整档才缩放；单次多档合并；切换/按钮/拖动/隐藏时清除未完成输入 | 部分 | 实现里有 `wheelZoom` 余量累计 + `wheelMode` 切换与按钮动作都 `resetWheel()`；已断言"隐藏时不接受滚轮输入、可见时按档位缩放"、**不足一档不缩放**、**累计到整档缩放一档**、**单次多档合并**（`wheelZoom` 余量）；仍缺"切换滚轮模式时清除未完成输入"的断言；**已有断言（2/3）**：`§7.5 Ctrl+滚轮不足一档不缩放、累计到整档缩放、单次多档合并`；**未断言**：切换/按钮/拖动/隐藏时清除未完成输入；**另已断言（第 80/81 轮）**：`§7.5 按钮操作后清除未完成的滚轮输入`（-100 不足一档 → 点"适应区域" → 再 -100，缩放不再变化）；**仍未断言**：`切换/拖动/隐藏` 三种触发下的清除；**第 82 轮再补**：`§7.5 切换动作后清除未完成的滚轮输入`（同样可判别：-100 → 点"适应区域" → -100，缩放不变）；**仍未断言**：`拖动 / 隐藏` 两种触发下的清除 |
 | 6 | §7.5 | 同一有效图片的外部更新复用预览、保留手动缩放与位置、适应模式重算；损坏时显示信息页 | 部分 | "损坏/不再支持 → 信息页"有断言（`§10.2 图片解码失败时显示宿主原因而不是破图`、`§10.2 浏览器解不开的图片也给出原因`）；"复用预览窗口 + 保留缩放与位置 + 重新解码"没有断言 |
 | 7 | §7.5 | 解码在后台执行；可切标签/输入/关闭；旧请求失效、晚到位图释放；>150ms 只在画布中心显示"正在读取文件…" | 部分 | `image-preview.js` 支持 `?image-state=loading` 并在画布中心渲染 `.image-loading`；已断言加载态 `.image-loading` 文案/`role=status`/**画布中心**/**不改工具栏**；**150ms 阈值与"不抢文档/焦点"没有断言** |
 | 8 | §7.5 | 缩小时对相邻像素平滑采样；平滑图后台生成，先快速采样再原位更新 | 部分 | 缩小走浏览器默认的平滑采样（未显式设置 `image-rendering`），100% 时 `scale=1` 保留原像素；**没有断言**核对采样方式与 100% 原像素 |

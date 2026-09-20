@@ -2735,6 +2735,26 @@ async function main() {
     check('§7.5 按钮操作后清除未完成的滚轮输入: ' + JSON.stringify({ beforeClear, afterButton, afterClear }),
       afterClear.scale === afterButton.scale);
 
+    // 规格 §7.5 剩余触发之一：**切换模式**时也要清除未完成的滚轮输入。
+    await imgDoc.page.keyboard.down('Control');
+    await imgDoc.page.mouse.wheel(0, -100);
+    await imgDoc.page.waitForTimeout(150);
+    const beforeModeSwitch = await readZoom();
+    await imgDoc.page.evaluate(() => {
+      // 制造一次"切换"动作（点"适应区域"按钮）
+      const fit = document.querySelector('.image-toolbar [aria-label="适应区域"]');
+      if (fit) fit.click();
+    });
+    await imgDoc.page.waitForTimeout(200);
+    const afterModeSwitch = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -100);
+    await imgDoc.page.waitForTimeout(150);
+    const afterModeSwitchWheel = await readZoom();
+    await imgDoc.page.keyboard.up('Control');
+    check('§7.5 切换动作后清除未完成的滚轮输入: '
+      + JSON.stringify({ beforeModeSwitch, afterModeSwitch, afterModeSwitchWheel }),
+      afterModeSwitchWheel.scale === afterModeSwitch.scale);
+
     const zoomTable = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
     const stepUp = (value, times) => {
       let current = value;

@@ -60,7 +60,18 @@ for (const s of SEARCH_EVERYWHERE) covered.set(s, 'H（Search Everywhere）');
 for (const s of BRANCHES_POPUP) covered.set(s, 'L（Branches 弹出层）');
 for (const s of CONTEXT_MENU) covered.set(s, 'I（文件/编辑器右键菜单）');
 
+// 第 82 轮：把由**环境前提**导致采不到的条目写成明确结论，而不是笼统的"未采集"。
+// 实测依据：工作区干净 → PyCharm 把 Stash Changes / Rollback 置灰（VCS 弹出菜单里激活无效）；
+// 本仓库无 remote → Push 不弹对话框。三者都不是"没去采"，而是"当前环境采不到"。
+const ENV_BLOCKED = new Map([
+  ['stash', 'Stash Changes 需要本地改动；当前工作区干净 → PyCharm 禁用该动作（实测无对话框）'],
+  ['rollback', 'Rollback 需要本地改动；当前工作区干净 → PyCharm 禁用该动作'],
+  ['push', '本仓库没有 remote → PyCharm 不弹 Push 对话框（与 Augit 的 push-no-remote 状态吻合）'],
+  ['push-no-remote', '同上：无 remote 时 PyCharm 不提供 Push 对话框'],
+  ['worktrees', 'VCS 弹出菜单键入过滤后未打开对话框（本轮落到了"最近文件"路径）'],
+]);
 const reason = (scene) => {
+  if (ENV_BLOCKED.has(scene)) return ENV_BLOCKED.get(scene);
   if (/^(commit-diff|diff-|history-diff|git-compare)/.test(scene)) return 'PyCharm Diff 视图未采集';
   if (/^(git-history|file-history|blame|branches|smart-checkout|reset|rollback|push|clone|repository-init)/.test(scene)) return 'PyCharm Git 工具窗/Dialog 未采集';
   if (/^stash/.test(scene)) return 'PyCharm Shelf/Stash 面不同且未采集';
@@ -84,7 +95,7 @@ let entryCount = 0;
 for (const scene of scenes) {
   const hit = covered.get(scene);
   if (hit) { coveredCount++; out.push(`| \`${scene}\` | **面级已对照** | ${hit}——见 §1.3 逐面表的实测值与判读 |`); }
-  else if (ENTRY_LEVEL.has(scene)) { entryCount++; out.push(`| \`${scene}\` | 仅入口级证据 | ${ENTRY_LEVEL.get(scene)}；**对话框本体未采集，不计入面级已对照** |`); }
+  else if (ENTRY_LEVEL.has(scene)) { entryCount++; out.push(`| \`${scene}\` | 仅入口级证据 | ${ENTRY_LEVEL.get(scene)}；**对话框本体未采集，不计入面级已对照**${ENV_BLOCKED.has(scene) ? '；**环境前提**：' + ENV_BLOCKED.get(scene) : ''} |`); }
   else { out.push(`| \`${scene}\` | 未对照 | ${reason(scene)} |`); }
 }
 out.push('');
