@@ -232,6 +232,8 @@ Augit 侧 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png` 为 **28
 | 主按钮底色 | `56,113,225` | `rgb(56,113,225)` | **0** | **逐值相同** |
 | 悬停反馈（工具按钮条） | 变化单元聚合 `208,211,216 → 217,219,224` | `--augit-hover: #f1f2f4` | 明显 | 两侧都有反馈；取值不同（PyCharm 更暗），按 design-system 实现 |
 | 禁用态（前置条件未满足） | 整块灰态（Color Scheme 色块、Sync with OS 时的 Scheme 下拉） | 同手法，由 `§7.17 … 时可编辑` 断言覆盖 | — | 手法一致：禁用并保留位置 |
+| Git Log 工具窗（↔ Augit `git-history`） | 底部工具窗高 499 物理 → **285.1 CSS**；面板白 `255,255,255`、chrome `233,234,238`；tabs `Git / Log / Console`、分支过滤 + 文本过滤两栏、提交列表含图标记号、右侧 Commit details | Augit 底部工具窗高度用户可拖动（无固定令牌） | — | **面已对照**（证据 `toolwindow-gitlog.png`）：结构对应，尺寸按可拖动处理 |
+| Commit 工具窗（↔ Augit `commit-changes`） | 底部工具窗高 301 物理 → **172 CSS**；同底色 | 同上 | — | **面已对照**（证据 `toolwindow-commit.png`） |
 | 设置页正文（字体类） | `Editor › Font`：JetBrains Mono 13.0 / line 1.2 / 无 Fallback；`Console Font`：同上 + Fallback `<None>` | Augit 的等宽字体/字号设置（跟随用户选择） | — | 字段语义对照；**数值不做等式**（PyCharm 用自身单位，用户环境） |
 
 **未逐页对照的部分（诚实标注）**：48 个视觉稿页面里，PyCharm 一侧并不存在"逐页对应"的界面
@@ -390,6 +392,72 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 > 生成来源：§1.1 55 行像素数据、`verify-acceptance.ps1` 54 个场景、
 > §2.0 合计行（351 条条文 / 406 条用例行）。
+### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
+
+**口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；
+本表因此给出**每个 Augit 页面**的 PyCharm 侧状态，而不是硬凑一一对应。
+`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗（五面均已在 §1.3 有实测值/证据图）。
+
+| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |
+| --- | --- | --- |
+| `blame` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `branches` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `changes-context-menu` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `clone` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `commit-changes` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `commit-diff` | 未对照 | PyCharm Diff 视图未采集 |
+| `commit-empty` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `conflict-list` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `conflict-resolver` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `diff-boundary` | 未对照 | PyCharm Diff 视图未采集 |
+| `diff-status` | 未对照 | PyCharm Diff 视图未采集 |
+| `diff-loading` | 未对照 | PyCharm Diff 视图未采集 |
+| `file-history` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `file-limit` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `git-compare` | 未对照 | PyCharm Diff 视图未采集 |
+| `git-compare-empty` | 未对照 | PyCharm Diff 视图未采集 |
+| `git-history` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `git-history-empty` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `git-history-graph` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `git-history-menu` | **面级已对照** | D（Git Log 工具窗）——见 §1.3 逐面表的实测值与判读 |
+| `git-unavailable` | 未对照 | 未采集 |
+| `go-to-line` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `history-diff-cancelled` | 未对照 | PyCharm Diff 视图未采集 |
+| `history-diff-failure` | 未对照 | PyCharm Diff 视图未采集 |
+| `history-diff-loading` | 未对照 | PyCharm Diff 视图未采集 |
+| `image-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `image-error` | 未对照 | 未采集 |
+| `json-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `main-project` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `markdown-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `operation-progress` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `operation-result` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `project-context-menu` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `push` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `push-no-remote` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `quick-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `quick-open-empty` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `remote` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
+| `repository-init` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `repository-search` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `reset` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `rollback` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `search-limited` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `settings` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
+| `settings-save-failure` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
+| `settings-dirty` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
+| `smart-checkout` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
+| `stash` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
+| `stash-drop-confirm` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
+| `stash-manager` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
+| `terminal` | 未对照 | PyCharm 终端工具窗未采集（Alt+F12 未打开，见日志） |
+| `terminal-close` | 未对照 | PyCharm 终端工具窗未采集（Alt+F12 未打开，见日志） |
+| `text-viewer` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
+| `workspace-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
+| `worktrees` | 未对照 | PyCharm 对应面（Git 分支/远端）形态不同且未采集 |
+
+> 本轮读数：**16/55 个页面**落在已实测的面上；其余 39 个页面
+> 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
 ### 2.0 条文穷举进度（⑨，如实带分母）
 
 **口径（两件事分开说，避免把"行数"当"已覆盖条数"）**：

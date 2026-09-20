@@ -13092,3 +13092,25 @@ Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** 
 **过程坑**：第一版 sweep 脚本在 PowerShell 里直接调 `python3`（那是 WSL 命令，Windows 端解析不到），
 于是 `$lines` 为 null、每场景只留下 ps1 的 `PIXELS_DIFFER` 噪声；改为**只用 ps1 出图、回到 bash 里跑 python**
 才拿到数字。另一个已知口径问题同 §1.1：ps1 自己的 SUMMARY 用 `visiblePercent`（非判据）。
+
+#### 第 394 轮：⑦⑧ 的对账口径定死（逐面表 + 55 行逐页覆盖表），以及两次未成功的采集
+
+**产出**：
+1. `docs/ui-compliance.md` §1.3 增补**逐面（per-surface）对照表**：把 PyCharm 与 Augit 共有的面
+   逐个给出实测值、Δ 与判读；含本轮新采的 **Git Log 工具窗（底部高 499 物理 → 285.1 CSS）**、
+   **Commit 工具窗（301 物理 → 172 CSS）**、主窗口菜单/工具栏/标签带的边界，
+   以及两条**逐值相同**的配色（状态栏底色 `233,234,238`、选中行 `#d0dffe`、主按钮 `#3871e1`）。
+   状态栏高度是最大的一处真实差异：PyCharm **31.4 CSS** vs Augit `--augit-status-height: 22`。
+2. 新增生成器 `tools/audit/gen-pycharm-coverage.cjs`，产出 §1.6 **55 行逐页 × PyCharm 对照状态**：
+   按"面"判定（A 主窗口 chrome / B 编辑器标签行 / C 设置对话框 / D Git Log / E Commit 工具窗），
+   **16/55 页落在已实测面上**，其余 **39 页逐行写明原因**（Diff 视图未采集 / Git 工具窗未采集 /
+   终端工具窗未采集 / 同类弹层未采集）。生成器幂等（再生成与文档内区块逐字相同）。
+
+**两次没成功的采集（如实记录，不算通过）**：
+- 想用 Git Log 的 Commit details 面板拿 **Diff 视图**：单击提交行只完成"选中"，右侧仍是
+  "Select commit to view changes" → **没有拿到 diff**（下一步应双击提交行，让 diff 在编辑器里打开）；
+- 想用**双击 Shift** 打开 **Search Everywhere**：连发两次 Shift 后截图与之前完全相同 → **未打开**。
+
+**结论**：⑦⑧ 的**逐面**对照已经完成并有实测值；**逐页**部分当前 **16/55 可核对**、39 页未采集且
+逐行给出原因 —— 这是"有分母的事实"，不是"已完成"。下一步的具体动作也写在上面（双击提交行取 diff、
+底部工具窗里的 Terminal 页签、Search Everywhere 的快捷键核对）。
