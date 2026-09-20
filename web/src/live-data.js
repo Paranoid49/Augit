@@ -3116,6 +3116,35 @@ async function clearHistoryPathFilter() {
   refresh("bottomTool", "statusbar");
 }
 
+/**
+ * 规格 §4.1 第 123 行：**比较**（工作区 Diff / 文件历史 / 引用比较）激活时，状态栏"只显示适用的只读标识"，
+ * 且**不继承后台文件的编码或换行**。
+ *
+ * 实测（第 112 轮）：live 的工作区 Diff 激活时（`live.diff.path = src/App.cs`）状态栏字段区是**空的** ——
+ * 渲染走到了"有工作区、无文档"那条分支，于是连"只读"标识都没有。这里按规格补上（只改 live-data.js，
+ * 不动共享视觉稿）。
+ */
+function ensureComparisonReadonlyMarker() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const bar = document.querySelector(".statusbar");
+  const fields = bar && bar.querySelector(".status-fields");
+  if (!fields) return;
+  // 判定"是否处于比较"：工作区 Diff、文件历史（`live.fileHistory` 才是该场景的真实状态键，
+  // 第 112 轮实测 `layout.bottom` 在那里并不是 `"file-history"`）、历史/引用比较。
+  const comparing = !!((live.diff && live.diff.path)
+    || (live.fileHistory && live.fileHistory.path)
+    || (live.layout && live.layout.bottom === "file-history")
+    || (live.historyComparison && live.historyComparison.path)
+    || (live.referenceComparison && live.referenceComparison.path));
+  if (!comparing) return;
+  const spans = [...fields.querySelectorAll("span")];
+  if (spans.some((span) => span.textContent.trim() === "只读")) return;
+  const marker = document.createElement("span");
+  marker.textContent = "只读";
+  fields.appendChild(marker);
+}
+
 function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
@@ -3134,6 +3163,7 @@ function rebindAfterRender() {
   bindGlobalShortcuts();
   bindModalBackground();
   labelFileHistoryClearEntry();
+  ensureComparisonReadonlyMarker();
   restoreAmendDraft();
   reflectWriteOperation();
   guardUnwiredNavigation();

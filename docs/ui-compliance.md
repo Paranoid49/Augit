@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1055/1055（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1056/1056（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -230,7 +230,7 @@
 | §4.4 | Diff 新增块使用浅绿，删除块使用浅红，修改块使用浅黄或局部词级高亮 | 是 | `--augit-green-soft: #c9eecf`（新增）、`--augit-red-soft: #f7d7d7`（删除）、`--augit-yellow-soft: #fff0c2`（修改）；词级高亮见 §1.3 的 diff 面 | — |
 
 | §4.4 | 提交文件复选框的全选使用蓝底白勾、部分选中使用蓝底白横线；折叠分组不改变复选状态；分组标题只在被选中时显示行选中背景，文件勾选与行选择不混用 | 是 | `mockup.js` 的 `fake-check` 渲染三态（`aria-checked` = `true`/`false`/**`mixed`**，全文 `mixed` 9 处）；全选/半选样式在 `mockup.css` 的 `.fake-check` 规则里（蓝底 + 白勾 / 白横线）；分组标题的背景只在选中时挂 `--augit-row-background` | — |
-| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 部分 | **已验（第 109/111 轮）**：普通文本 `["UTF-8","LF","只读"]`；**图片**（`status=ImageReady`，桩里新增 `docs/assets/logo.png`）与**不可预览**（`TextTooLarge`，`docs/archive.zip`）均为 **`["只读"]` 且 `encoding/lineEndings` 为 null**（断言 `§4.1 图片与不可预览文档只给"只读"、不给编码/换行`）；**无文档**时字段区为空；**未完成读取**与**三类比较**仍未单独验 | — |
+| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 部分 | **已验**：文本 `["UTF-8","LF","只读"]`；**图片**（`ImageReady`）与**不可预览**（`TextTooLarge`）均为 `["只读"]` 且编码/换行为 null（第 111 轮）；**无文档**字段区为空（第 108 轮）；**比较**（工作区 Diff 与文件历史）**原本连"只读"都没有**，第 112 轮实现 `ensureComparisonReadonlyMarker()` 后两者均为 `["只读"]`（断言 `§4.1 比较激活时状态栏给"只读"、不给编码/换行`）。**仍未验**：**未完成读取**（桩的读取是同步的，没有可观测的 pending 状态；需给桩加延迟才能造，见 §3.2 #29） | — |
 | §4.1 | 操作或错误提示与路径分别分配空间，长路径不能吞掉提示；普通文件类型不在路径旁重复显示；完整提示与格式也可通过状态栏悬停读取 | 是 | **第 108 轮补断言**：`§4.1 无文档时状态栏只显示工作区路径、字段区为空` —— 在页面里把 `.status-path` 换成 40 段的超长路径后，实测路径**发生截断**（`scrollWidth > clientWidth`）且**字段区宽度不变**、仍留在状态栏内；无文档时字段区为空（`<div class="status-fields"></div>`）（**有文档状态下字段非空的对照见 §3.2 #28**） | — |
 
 ### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径）
@@ -1752,6 +1752,9 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     **下一步**：把草稿存到**能活过重渲染**的地方（模块级 Map 或 `live` 状态，按字段身份索引），并在渲染后重新应用；断言补"取消后 === 原草稿"。在此之前**不写成通过**。
 
 28. ~~§4.1 有文档状态下的状态栏标识未验到~~ **【第 109 轮已闭环】** —— 配方是"**先 `ArrowRight` 展开 `docs`**，再在 `docs/product-spec.md` 行上按 Enter 装载文档"。实测：`live.document = { path: docs/product-spec.md, encoding: UTF-8, lineEndings: LF }`，状态栏字段 **`["UTF-8","LF","只读"]`**；超长路径注入后字段区宽度不变、仍在状态栏内 ⇒ 断言 `§4.1 有文档时状态栏给"只读"且字段区不被超长路径吞掉` ✓。**仍未单独验**：图片 / 不可预览 / 三类比较文档（视觉稿规则给它们只有 `只读`，但桩树里没有相应样本）。
+
+29. **§4.1"未完成读取的文件只显示只读标识"未验到（**未闭环**）** —— 本轮把图片/不可预览/无文档/比较都验了，只剩"读取尚未完成"这一种：而**桩的 `open-document` 是同步应答**，页面上不存在可观测的 pending 文档状态。
+    **下一步**：给桩加一个"延迟应答"的路径（例如按路径前缀 sleep 300ms 再回），在延迟窗口内读状态栏 —— 若那时字段区为空（而不是"只读"），则属实现缺口，需要与比较标记同样处理。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 

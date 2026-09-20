@@ -9714,6 +9714,48 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 112 轮补断言：§4.1「比较（工作区/历史）只给只读、不继承后台文件的编码/换行」----
+    // 口径：只要比较处于激活状态（`live.diff` 有值），状态栏就**不应**出现 `UTF-8`/`LF` 之类的编码/换行字段。
+    const comparisonStatus = await (async () => {
+      const read = async (url, openDiff) => {
+        const scene = await openScene(url);
+        await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await scene.page.waitForTimeout(900);
+        if (openDiff) {
+          const rows = await scene.page.locator('.changes-list .change-file-row').count();
+          if (rows > 0) {
+            await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+            await scene.page.waitForTimeout(1400);
+          }
+        }
+        const out = await scene.page.evaluate(() => {
+          const live = window.__augitLive || {};
+          const bar = document.querySelector('.statusbar');
+          return {
+            hasDiff: !!(live.diff && live.diff.path),
+            diffPath: live.diff && live.diff.path ? live.diff.path : null,
+            fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+            barHtml: bar ? bar.outerHTML.slice(0, 260) : null,
+          };
+        });
+        await scene.page.close();
+        return out;
+      };
+      return {
+        workspaceDiff: await read('scene=diff-boundary&theme=dark', true),
+        // 历史比较：`git-compare` 场景里比较**并未激活**（实测 `hasDiff:false`、字段为空 ⇒ 不该要求"只读"），
+        // 改用真正进入历史比较状态的 `file-history`（`live.layout.bottom === "file-history"`）。
+        historyCompare: await read('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt', false),
+      };
+    })();
+    console.log('INFO 比较状态栏=' + JSON.stringify(comparisonStatus));
+    // 第 112 轮实现后：比较激活时状态栏**必须有"只读"**、且不得出现 UTF-8/LF（规格 §4.1 第 123 行）。
+    const comparisonFields = (r) => r && Array.isArray(r.fields)
+      && r.fields.includes('只读')
+      && !r.fields.includes('UTF-8') && !r.fields.includes('LF');
+    check('§4.1 比较激活时状态栏给"只读"、不给编码/换行: ' + JSON.stringify(comparisonStatus),
+      comparisonFields(comparisonStatus.workspaceDiff) && comparisonFields(comparisonStatus.historyCompare));
+
     // ---- 第 109 轮补断言：§4.1 **有文档**分支的状态栏（收掉 §3.2 #28）----
     // 配方来自第 44 轮：在项目树上聚焦一个桩确实能读的行（`docs/product-spec.md`）再按 **Enter**，
     // 这会把 `live.document` 真正置起来（第 108 轮诊断 INFO 树Enter 已证明）。
@@ -9884,7 +9926,10 @@ async function main() {
       return {
         text: await read('scene=main-project&theme=dark'),
         image: await read('scene=image-preview&theme=dark'),
-        comparison: await read('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt'),
+        // 第 112 轮修正：`file-history` **是比较场景**（`live.fileHistory` 有值），一旦给比较补上"只读"标识，
+        // 它就**不属于**"无文档 ⇒ 字段区为空"这一组了 —— 之前把它放进这组是我自己的口径错误。
+        // 换成真正既无文档、也无比较的场景（git-history 只是日志）。
+        comparison: await read('scene=git-history&theme=dark'),
       };
     })();
     // 实测（第 108 轮诊断）：`scene=main-project`（**不带** `ui-font-size`）时 live 外壳**没有加载文档**
