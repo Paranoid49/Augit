@@ -9692,6 +9692,47 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 103 轮补断言：§7.16「标题行随字高扩展」（与查找条同型的**公式校验**）----
+    // 实现见 mockup.js:168-169：`--terminal-header-height = max(38, h+12)`、`--terminal-text-height = max(24, h+4)`，
+    // 其中 h 是**界面字体**实测行高。所以要用 `ui-font-size` 对照，并直接校验公式取值。
+    const terminalHeaderAt = async (uiSize) => {
+      const scene = await openScene('scene=terminal&theme=dark&ui-font-size=' + uiSize);
+      await scene.page.waitForSelector('.terminal-header', { timeout: 15000 });
+      await scene.page.waitForTimeout(500);
+      const out = await scene.page.evaluate(() => {
+        const cs = getComputedStyle(document.documentElement);
+        const family = cs.fontFamily;
+        const uiPixels = Number.parseFloat(cs.fontSize) || 13;
+        const ctx = document.createElement('canvas').getContext('2d');
+        let h = 0;
+        for (const role of ['normal', '600', 'italic']) {
+          ctx.font = role + ' ' + uiPixels + 'px ' + family;
+          const m = ctx.measureText('国Ag');
+          h = Math.max(h, Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent));
+        }
+        const tool = document.querySelector('.terminal-tool');
+        const header = document.querySelector('.terminal-header');
+        return {
+          uiFont: cs.fontSize,
+          measuredH: h,
+          expected: Math.max(38, h + 12),
+          token: tool ? Number.parseFloat(getComputedStyle(tool).getPropertyValue('--terminal-header-height')) : null,
+          headerHeight: header ? +header.getBoundingClientRect().height.toFixed(1) : null,
+        };
+      });
+      await scene.page.close();
+      return out;
+    };
+    const th13 = await terminalHeaderAt(13);
+    const th32 = await terminalHeaderAt(32);
+    console.log('INFO 终端标题行=' + JSON.stringify({ th13, th32 }));
+    // token 必须**精确等于**公式；渲染高度允许 ±1px —— 头部还有一条 1px 底边框
+    // （实测 13px 时 token 38 / 渲染 39；32px 时 token 53 / 渲染 53）。
+    check('§7.16 终端标题行高度 = max(38px, h + 12px)（随界面字号增长）: ' + JSON.stringify({ th13, th32 }),
+      th13.token === th13.expected && Math.abs(th13.headerHeight - th13.expected) <= 1
+        && th32.token === th32.expected && Math.abs(th32.headerHeight - th32.expected) <= 1
+        && th32.headerHeight > th13.headerHeight);
+
     // ---- 第 102 轮补断言：§7.8/§7.9 工作区 Diff 的「上一个文件/下一个文件」与文件计数 ----
     const diffFiles = await (async () => {
       // 文件导航只在**工作区 Diff** 的工具条里（`diffView` 的非 comparison 分支，mockup.js:1581）；
