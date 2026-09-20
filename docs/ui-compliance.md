@@ -982,12 +982,12 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
    48 个视觉稿页面的逐页对照表尚未产出。
 2. **④ 其余场景的 heatmap 复核**：55 行里只完成了最高值那 1 行（`repository-search`）的复核示例；
    其余行的判读仍只有数字（且已注明数字属"那一次运行"，不可当作常数）。
-3. **⑯ 三块采集（外部阻塞）**：`Editor › Font` / `Console Font` 页面正文、分类树 7 项残差、
-   进行中/失败/空态截图。**阻塞事实**：Windows 前台锁拒绝 `SetForegroundWindow`/`AppActivate`/合成点击，
-   采集脚本的硬校验因此主动中止（`FOREGROUND=Edge(pid 3340) → ABORT want=7688`），
-   这是有意的保护，避免按键落到用户其他窗口；**解锁动作**：用户点一下 PyCharm 使其成为前台即可继续
-   （不改其任何设置），配方已写进 `pycharm-interactions.json` 的 `navigationRecipe`。
-   该阻塞自第 16 轮起持续存在。
+3. ~~**⑯ 三块采集（外部阻塞）**~~ → **已解除并采到（第 391 轮）**：页面正文（`Editor › Font`、
+   `Console Font`、`Color Scheme Font`）与树底都已入仓 `artifacts/pycharm-16-final/`。
+   **前台锁不再需要用户介入**：脚本自己发一次 ALT 抬起（取得设置前台窗口的资格）+
+   `AttachThreadInput` + `BringWindowToTop`/`SetForegroundWindow`/`SwitchToThisWindow`，
+   实测 `IS_PYCHARM=True` 后点击/SendKeys/PrintWindow 全部生效；并需 `SetProcessDPIAware()`，
+   否则矩形/光标/截图都是虚拟化坐标（900×700 而非 1575×1225）。
 4. **§2 的"部分/未覆盖"行**：见 §2.0 的逐节分母（用例行 406 条，其中条文 336 条有逐条行；
    未成行的仍是 §4 的 15 条视觉/令牌类，以 §1.2 的像素表与令牌表核销）。
 
@@ -998,7 +998,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
 | ~~终端输入与大输出真机验证~~ | **全部验成（第 364–367 轮）**：输入链路在真机通过（`INPUT-PROBE-OK` 的输入→回显→输出→新提示符）；~4.8 MB 洪泛后的永久冻结**已定位并修好**（见 §3.2 第 15 条：根因是逐次裁剪的二次成本，改成摊销后同一探针 **6 秒**内读回 `AFTER-TRIM-SENTINEL` 与新提示符） | 无剩余计划项 |
-| **Editor › Font 页面正文未抓到（原因现已查清，第 385 轮）** | 已抓到：分类路径、Appearance 页的 `Microsoft YaHei UI / 12`、Color Scheme 的子页列表，以及**完整的 Editor 子树**（`p16c-editor-font.png`：General/Font/Color Scheme(含 Color Scheme Font、Console Font)/Inspections/Live Templates/Reader Mode/Code Style…） | **原因不是"滚动位置随机"，而是"搜索跳转会落到别的页面"，而且落点状态相关** —— 四次实测：`font → Editor › Color Scheme`、`font → Editor › Color Scheme › VCS`（**同一个词两次落到不同页，因此不可复现**）、`editor font → Keymap`、`line spacing → Editor › Code Style › HTML`（三张证据图见 `pycharm-interactions.json` 的 `failedSearchPaths`）。**正确修法已写进基线**：清空搜索框 → 展开 Editor → 直接点 `Font`，在前台解锁后点一次截图即可（缺口只剩这一格） ；**同轮把分类树抄全了**（四张连续截图 `p16-settings-tree-a/b/c` + `pycharm-settings-tree-tail`：树顶到树底 11 个顶层项 + Editor/Plugins/Version Control/Build,Execution,Deployment/Languages & Frameworks/Tools 的可见子项），并把 `Tools › Terminal` 页面正文逐值入基线（`Font: JetBrains Mono`、`Size 13.0`、`Line height 1.0`、engine `Reworked 2025`、`Ctrl+Space`/`Enter`）；**但早先注记的 7 项（System Settings / File Colors / Scopes / Notifications / Data Editor and Viewer / Quick Lists / Required Plugins）没有出现在这四张里**，已记为"待复核"，不写成已抄全 |
+| ~~Editor › Font 页面正文未抓到~~ | **已抓到（第 391 轮）**：`artifacts/pycharm-16-final/editor-font.png`（面包屑 `Editor › Font`：Font `JetBrains Mono`、Size `13.0`、Line height `1.2`、☐ Enable ligatures、▸ Typography Settings、实时预览；**本页没有 Fallback font 字段**）、`console-font.png`（`Editor › Color Scheme › Console Font`：Font `JetBrains Mono`、Fallback `<None>`、Size `13.0`、Line height `1.2`、☑ Show only monospaced fonts）、`color-scheme-font.png`（同构）、`tree-bottom.png`（树底：Tools → Backup and Sync → **Advanced Settings**，树到此为止） | 采集方法已写进基线 `navigationRecipe`：**搜索 `font` → 点树 → Home → Down×10（Font）/×13（Console Font）**；不要用坐标点击（树随选中滚动）也不要从"当前选中"起算（搜索后的选中项随状态变化）。此前记的 7 项（System Settings / File Colors / Scopes / Notifications / Data Editor and Viewer / Quick Lists / Required Plugins）**在本版本树里不存在**（树底已到 Advanced Settings） |
 
 ### 3.2 已确认的实现差异
 

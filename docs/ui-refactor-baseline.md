@@ -13037,3 +13037,39 @@ Markdown 链接接管、文档模式记忆、两个芯片），因此 2026-09-20
 
 **结论（不宣称完成）**：目标仍未达成"完全复刻"的全部口径 —— 上列 1/2 属可继续推进的工作，
 3 属外部阻塞；因此本轮**不把目标标记为完成**，保持 active，等待用户一次前台激活以解锁 ⑯ 的采集。
+
+#### 第 392 轮：⑯ 采集缺口**当场解决**（前台锁自己解，两页正文 + 树底全部采到）
+
+用户指出两件事都对：**"未闭环"不该只记账**，而且**前台锁并非不可解**。本轮实测确认：
+
+1. **前台锁可以自己解**：先 `keybd_event` 发一次 ALT 按下/抬起（这一步让本进程取得
+   "可以设置前台窗口"的资格），再 `AttachThreadInput(当前前台线程, PyCharm 线程)` +
+   `BringWindowToTop` + `SetForegroundWindow` + `SwitchToThisWindow`，
+   `IS_PYCHARM=True`（第 391 轮第一次就成功）。此前几轮只试了 `SetForegroundWindow`/`AppActivate`
+   就判定"被前台锁拒绝"，**结论下早了**，已修正并写进 `blockers[pycharm-focus].solution`。
+2. **还要 `SetProcessDPIAware()`**：不加它，`GetWindowRect`/`SetCursorPos`/`PrintWindow` 全走虚拟化坐标
+   （截图 900×700），加了才是物理坐标（1575×1225，与基线图同尺度）。这是本轮第二次自我纠正。
+3. **导航要用确定性的键盘路径**：搜索 `font` → 点树 → `Home` → `Down×N`。
+   过滤后的行序（从历史截图读出）：… 7 Editor、8 General、9 Appearance、10 Editor Tabs、**11 Font**、
+   12 Color Scheme、13 Color Scheme Font、**14 Console Font**、15 Code Review、16 VCS。
+   失败过的两种做法都记在 `navigationRecipe` 里：**坐标点击**（树随选中滚动 → 偏移漂移，
+   三次都点错行）与**从"当前选中"起算方向键**（搜索后的选中项随状态变化：一次是 Font、一次是
+   Color Scheme Font、一次是 Editor Tabs）。
+
+**采到的证据**（`artifacts/pycharm-16-final/`，均 1575×1225 物理同尺度）：
+- `editor-font.png`：**Editor › Font** —— Font `JetBrains Mono`、Size `13.0`、Line height `1.2`、
+  ☐ Enable ligatures、▸ Typography Settings、实时预览；**本页没有 Fallback 字段**；
+- `console-font.png`：**Editor › Color Scheme › Console Font** —— Font `JetBrains Mono`、
+  **Fallback `<None>`**、Size `13.0`、Line height `1.2`、☑ Show only monospaced fonts、
+  默认字体标注 `(JetBrains Mono,13)`；
+- `color-scheme-font.png`：Color Scheme Font（与 Console Font 同构）；
+- `tree-bottom.png`：树底 = Tools → **Backup and Sync** → **Advanced Settings**（树到此结束）。
+
+**由此关掉两格**：§3.1 的"Editor › Font 页面正文未抓到"改为已抓到；
+`gaps[settings-font-page-content]` 与 `blockers[pycharm-focus]` 标为 resolved（第 391 轮）。
+**7 项残差也定了性**：System Settings / File Colors / Scopes / Notifications / Data Editor and Viewer /
+Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** —— 树顶到树底已连续覆盖。
+
+结果：`pycharm-interactions.json` surfaces 6 → **7**（新增 Console Font 页）；
+生成器重出 `pycharm-interactions.md`（154 行）；`check-interactions.cjs` 仍
+`CHECKED 18`、`INTERACTIONS_BASELINE_OK`。

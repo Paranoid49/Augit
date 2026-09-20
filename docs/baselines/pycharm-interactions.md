@@ -81,13 +81,21 @@
 - **evidence**：`["artifacts/pycharm-interactions-16/p16c-console-font.png"]`
 - **note**：`Console Font 是 Color Scheme 的子页之一（见 editor-font surface 的 consoleFontPath）；**其页面正文同样未抓到**：本图是搜索 font 落到 VCS 的结果`
 
+### pycharm.settings.console-font：Editor › Color Scheme › Console Font
+
+- **breadcrumb**：`Editor › Color Scheme › Console Font`
+- **fields**：`{"Use console font instead of the default":"未勾选（默认字体标注 (JetBrains Mono,13)）","Font":"JetBrains Mono","Show only monospaced fonts":"已勾选","Fallback font":"<None>（提示：用于主字体未覆盖的符号）","Size":"13.0","Line height":"1.2","Enable ligatures":"未勾选"}`
+- **evidence**：`["artifacts/pycharm-16-final/console-font.png","artifacts/pycharm-16-final/color-scheme-font.png"]`
+- **note**：`Color Scheme Font 与 Console Font 字段同构，都有 Fallback；Editor › Font 没有 Fallback`
+
 ### pycharm.settings.editor-font：Editor › Font（路径已确认，字段待二次采集）
 
 - **pathEvidence**：`搜索 font 后分类树中出现 Editor > Font（见 pycharm-settings-search-font.png）`
 - **note**：`编辑器字体属于顶层分类 Editor（与 ux-spec §7.17 把等宽字体放在『文件查看』一致）；**页面正文（Font/Size/Line height/Fallback 的取值）仍未抓到**，但已确认树路径、Console Font 的第二条路径，以及三次搜索落空的具体去向与证据图 —— 下一步只需在前台解锁后按 navigationRecipe 点一次并截图。`
 - **treeConfirmed**：`{"evidence":"artifacts/pycharm-interactions-16/p16c-editor-font.png（搜索 font 后落到 Color Scheme，但左侧树完整展开）","editorSubtree":["General（Appearance、Editor Tabs）","Font","Color Scheme（Color Scheme Font、Console Font、Code Review、VCS）","Inspections","Live Templates","Reader Mode","Code Style（Python、EditorConfig、HTML、…）","Natural Languages"],"consoleFontPath":"Editor › Color Scheme › Console Font（与 Editor › Font 是两处不同的字体设置）"}`
-- **navigationRecipe**：`清空搜索框 → 展开 Editor → **直接点 Font**。不要用搜索跳转：三次实测都被带到别的页面（见 failedSearchPaths）——固定坐标/搜索驱动是这台机器上反复抓不到该页正文的原因。`
+- **navigationRecipe**：`搜索框输入 font → 点树 → Home → Down x10。过滤后行序：1 Jupyter、2 Jupyter General、3 Appearance & Behavior、4 Appearance、5 Data Editor and Viewer、6 Keymap、7 Editor、8 General、9 Appearance、10 Editor Tabs、11 Font、12 Color Scheme、13 Color Scheme Font、14 Console Font、15 Code Review、16 VCS。不要用坐标点击（树随选中滚动、偏移会漂移），也不要用方向键从当前选中起算（搜索后的选中项随状态变化）。`
 - **failedSearchPaths**：`[{"query":"font","landed":"Editor › Color Scheme","evidence":"artifacts/pycharm-interactions-16/p16c-editor-font.png"},{"query":"font","landed":"Editor › Color Scheme › VCS","evidence":"artifacts/pycharm-interactions-16/p16c-console-font.png","note":"**同一个查询词两次落到不同页** —— 落点取决于树当时的选中/滚动状态，因此搜索跳转不仅会带偏，还**不可复现**"},{"query":"editor font","landed":"Keymap","evidence":"artifacts/pycharm-interactions-16/p16b-page-editor-font.png"},{"query":"line spacing","landed":"Editor › Code Style › HTML","evidence":"artifacts/pycharm-interactions-16/p16d-linespacing-y450.png"}]`
+- **pageBodyConfirmed**：`{"evidence":"artifacts/pycharm-16-final/editor-font.png（1575x1225，面包屑 Editor › Font）","Font":"JetBrains Mono","Size":"13.0","Line height":"1.2","Enable ligatures":"未勾选","Typography Settings":"可折叠小节（未展开）","preview":"有实时预览：Default / Bold 样本字母表、数字与标点，底部 Enter any text to preview","note":"**这一页没有 Fallback font 字段** —— 与 Color Scheme Font / Console Font 不同（那两页都有）"}`
 
 ### pycharm.settings.tools-terminal：Tools › Terminal
 
@@ -134,11 +142,11 @@
 - **settings-dirty-indicator**：未保存修改的分类标记（PyCharm 的实心圆点）｜证据：pycharm-settings-search-font.png（Appearance 行带蓝点）｜Augit：已补未保存标记（第 316 轮）；分组折叠仍不做｜计划：已裁决并实现：导航行/标题行加未保存标记（复用 --augit-blue），不做分组折叠
 - **settings-terminal-font**：PyCharm 终端字体是独立设置（JetBrains Mono 13.0）｜证据：pycharm-settings-search-terminal.png｜Augit：按产品规格第 163 行跟随『等宽字体/字号』｜计划：既定选择，仅记录差异
 - **settings-group-fold**：PyCharm 分类分组可折叠（▼/▶）｜证据：pycharm-settings-tree-2/3.png｜Augit：分组表头不可折叠｜计划：用户 2026-09-19 裁决：只补未保存标记，分组折叠不做（登记为差异）
-- **settings-font-page-content**：Editor › Font / Console Font 页面内容未抓到（只抓到分类路径与 UI 字体事实）｜证据：artifacts/pycharm-interactions-16/：p16-settings-search-font.png（分类路径）、p16c-editor-font.png（完整 Editor 子树）、p16c-console-font.png（搜索 font 落到 Color Scheme › VCS）、p16b-page-editor-font.png（editor font → Keymap）、p16d-linespacing-y450.png（line spacing → Code Style › HTML）｜Augit：Augit 的『文件查看』页字段按 product-spec 与 PyCharm 结构对齐，不照搬编辑器字体页｜计划：原因已查清：**搜索跳转会打开命中字段所在的页且落点状态相关**（同一个 font 两次分别落到 Color Scheme 与 Color Scheme › VCS）。正确做法已写进 surfaces[pycharm.settings.editor-font].navigationRecipe（清空搜索 → 展开 Editor → 直接点 Font），前台解锁后点一次截图即可
+- **settings-font-page-content**：Editor › Font / Console Font / Color Scheme Font 页面正文（已抓到）｜证据：artifacts/pycharm-16-final/{editor-font,console-font,color-scheme-font}.png｜Augit：Augit 的『文件查看』页字段按 product-spec 与 PyCharm 结构对齐，不照搬编辑器字体页｜计划：已抓到（第 391 轮）：按 navigationRecipe（搜索 font → 树 Home → Down x10/x13）采集，三页正文逐值记录
 
 ## 阻塞（blockers）
 
-- **pycharm-focus**：需要 PyCharm 处于前台才能做的交互抓取（打开设置、点击工具窗口、逐态截图）｜原因：Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口｜证据：FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活｜解除：用户 2026-09-19 把 PyCharm 切到前台后本轮的抓取已完成（FOREGROUND_PID 7688 want=7688，31 张产物见 artifacts/pycharm-interactions-16/）；后续同类抓取仍需前台
+- **pycharm-focus**：需要 PyCharm 处于前台才能做的交互抓取（打开设置、点击工具窗口、逐态截图）（已解除）｜原因：Windows 前台锁拒绝了 SetForegroundWindow / AppActivate / 合成点击，脚本的硬校验（只有前台是 PyCharm 才发按键）因此主动中止 —— 这是有意的保护，避免按键落到用户其他窗口｜证据：FOREGROUND=Edge(pid 3340) → ABORT_NOT_FOREGROUND want=7688；连续 3 次标题栏合成点击后仍未激活｜解除：用户 2026-09-19 把 PyCharm 切到前台后本轮的抓取已完成（FOREGROUND_PID 7688 want=7688，31 张产物见 artifacts/pycharm-interactions-16/）；后续同类抓取仍需前台
 
 ## 对照配方（compareRecipe）
 
