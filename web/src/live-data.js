@@ -3583,6 +3583,61 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 提交历史工具栏的「显示/隐藏提交详情」（规格 §7.8）：切换底部日志详情区的显隐。
+    // 此前该入口有 aria-label、有图形，却没有绑定（点击无任何效果）。
+    const historyDetails = event.target.closest
+      && event.target.closest('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+    if (historyDetails) {
+      event.preventDefault();
+      const panel = document.querySelector(".log-detail-panel");
+      if (panel) {
+        const collapsed = panel.style.display === "none";
+        panel.style.display = collapsed ? "" : "none";
+        // 展开后按钮应变成"隐藏提交详情"（此前我把三元写反，实测：面板隐藏了、标签却仍是"显示提交详情"）。
+        historyDetails.setAttribute("aria-label", collapsed ? "显示提交详情" : "隐藏提交详情");
+        historyDetails.setAttribute("aria-pressed", collapsed ? "false" : "true");
+      }
+      return;
+    }
+
+    // 终端标题栏「更多操作」（规格 §7.16）：菜单提供「切换 Shell 配置」与「在外部终端打开」。
+    const terminalMore = event.target.closest
+      && event.target.closest('.terminal-header [aria-label="更多操作"]');
+    if (terminalMore) {
+      event.preventDefault();
+      const rect = terminalMore.getBoundingClientRect();
+      // 注意 `showPointerContextMenu(menuMarkup, …)` 收的是 **markup 字符串**（内部走 template.innerHTML）：
+      // 传 DOM 元素会被字符串化，`firstElementChild` 为 null 后**静默返回 null**（第一次实测菜单没出现就是这个原因）。
+      const menuMarkup = '<section class="popover context-menu">'
+        + '<a class="menu-item" href="#" data-terminal-more="settings">切换 Shell 配置</a>'
+        + '<a class="menu-item" href="#" data-terminal-more="external">在外部终端打开</a>'
+        + '</section>';
+      showPointerContextMenu(menuMarkup, {
+        layerClass: "terminal-more-menu",
+        clientX: rect.left,
+        clientY: rect.bottom,
+        maxHeight: 200,
+      });
+      return;
+    }
+
+    const terminalMoreAction = event.target.closest && event.target.closest("[data-terminal-more]");
+    if (terminalMoreAction) {
+      event.preventDefault();
+      const kind = terminalMoreAction.dataset.terminalMore;
+      closeLiveOverlay();
+      if (kind === "settings") {
+        openSettingsDialog();
+        switchSettingsPage("terminal");
+      } else {
+        const live = window.__augitLive;
+        const root = (live && (live.workspaceRoot || live.statusRoot || live.repoRoot))
+          || (live && live.tree && live.tree.root) || "";
+        void launchExternal("terminal", root);
+      }
+      return;
+    }
+
     // 设置对话框的动作由 `bindSettingsSave()` 单独负责（保存失败要留在对话框里显示原因）。
     // 这里曾经再挂一条 `[data-settings-action]` 路径：它会在 finally 里**无条件关闭**对话框，
     // 于是保存失败时用户什么都看不到（实测：open=false、原因只在 __augitError 里），
@@ -7758,6 +7813,13 @@ document.addEventListener("keydown", (event) => {
         again.focus({ preventScroll: true });
       }
     });
+    return;
+  } else if (event.key === "Enter") {
+    // 规格 §12.5：「单击只选择，双击或 Enter 才正式打开」；目录行仍是展开/折叠。
+    // 此前只接了双击与方向键，Enter 落空（第 81 轮 harness 实测：行保持焦点、document 仍为 null）。
+    event.preventDefault();
+    window.__treeEnterFired = (window.__treeEnterFired || 0) + 1;
+    void activateTreeRow(row, { open: true });
     return;
   } else if (event.key === "Home") next = rows[0] || null;
   else if (event.key === "End") next = rows.at(-1) || null;

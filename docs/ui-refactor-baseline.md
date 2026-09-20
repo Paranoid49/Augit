@@ -13922,3 +13922,29 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 **修正后的"待用户裁决"只剩**：#21 两个空按钮（**其实也是实现缺口**，规格已点名「更多操作」里应有"切换配置/外部终端入口"，
 按 AGENTS.md 规格优先 → 属我该做的实现，不是裁决）、#23 树 `Enter`（同上，规格优先）、#24 PyCharm 残留浮层（操作阻塞）。
 `§2.10`：非"是"行 125 → **123**（C 13→12、D 20→19）；`check-doc-claims` 通过。
+
+#### 第 435 轮：**按用户认可实现三处接线**（终端「更多操作」/ 提交详情切换 / 树 `Enter`）→ `live-shell` 1043/1043
+
+用户 2026-09-21 认可后动手（全部只改 `web/src/live-data.js`，**不碰共享视觉稿**）：
+
+1. **项目树 `Enter`**：在树的 keydown 链里补 `Enter → activateTreeRow(row, { open: true })`
+   （`activateTreeRow` 的注释本来就写着"单击只选择，**双击或 Enter 才正式打开**"，只是 keydown 没接上）。
+   断言：文件行 → `document.path === rowPath`；目录行 → `aria-expanded` 翻转。
+2. **提交历史「显示/隐藏提交详情」**：点一下 → `.log-detail-panel` `display:none` + `aria-label` 翻成"隐藏提交详情"；
+   再点 → 还原。断言含**负向验证**（再点必须恢复）。
+3. **终端「更多操作」**：弹出菜单两项（**切换 Shell 配置** / **在外部终端打开**）——
+   前者 `openSettingsDialog()` + `switchSettingsPage("terminal")`，后者
+   `launchExternal("terminal", root)`（宿主既有能力，桩里可见 `__launchCalls` 收到 `terminal:`）。
+
+**接线过程中踩到并修掉的 4 个坑（都留了注释，避免后人重踩）**：
+- **三元写反**：隐藏面板时标签却仍写"显示提交详情"（实测 `panelDisplay:"none"` 但 `aria-label` 没变）→ 改正；
+- **`showPointerContextMenu(menuMarkup, …)` 收的是 markup 字符串**（内部 `template.innerHTML`），
+  我第一次传了 DOM 元素 → 被字符串化成 `[object HTMLDivElement]`、`firstElementChild` 为 null 后**静默返回 null**（菜单不出现）；
+- **测试选错了文件**：先选 `README.md`（树 fixture 里有，但桩的读取不供它 → `open-document:not found`），
+  而且 `docs` 目录**默认折叠**、子文件不在 DOM 里 → 先 `ArrowRight` 展开再选 `docs/product-spec.md`；
+  诊断探针 `window.__treeEnterFired` 一次分清"处理器没触发"与"触发了但打开失败"；
+- **`page.close()` 排在了目录断言之前**（连跑 4 次都是 `Target page ... has been closed`）——
+  根因是我前面几次补丁的锚点在不同位置命中，最后**把整块原文打出来读**才定位。
+
+**读数**：`live-shell` **1039 → 1043/1043（未执行 0 项）**；§0 同步；§2 三行（§5 树、§7.16 更多、§7.8 详情）转"是"；
+**§3.2 #21 / #23 关闭**；`§2.10`：非"是"行 **123 → 120**（A 88→86、C 12→11、D 19）；`check-doc-claims` OK。

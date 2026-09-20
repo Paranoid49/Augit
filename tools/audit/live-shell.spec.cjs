@@ -9574,6 +9574,7 @@ async function main() {
           return {
             beforeCount,
             labelAfter: details ? details.getAttribute('aria-label') : null,
+            panelDisplay: (document.querySelector('.log-detail-panel') || { style: {} }).style.display || '',
             searchInputs: document.querySelectorAll('.history-search input, .commit-search input').length,
           };
         }, before);
@@ -9583,10 +9584,25 @@ async function main() {
       // **没有对应点击绑定**（它落在 `guardUnwiredNavigation()` 的"其余未接线"兜底里）。
       // 因此这条断言**把缺口钉住**（入口在但无效果），并把"搜索提交"的实际效果一并记进诊断，
       // 不把未接线写成"已实现两个入口各自只做一件事"。
-      check('§7.8 缺口钉住：显示提交详情入口无绑定（点击无效果）: ' + JSON.stringify({ entries, afterToggle }),
+      check('§7.8 显示提交详情入口切换详情面板显隐: ' + JSON.stringify({ entries, afterToggle }),
         entries.details === true && entries.search === true
-          && afterToggle.labelAfter === entries.detailsLabel
+          && afterToggle.labelAfter === '隐藏提交详情'
+          && afterToggle.panelDisplay === 'none'
           && afterToggle.searchInputs === entries.inputs);
+      // 负向验证：再点一次必须还原（面板恢复、标签翻回），且不影响"搜索提交"入口的存在。
+      const restored = await (async () => {
+        await hist.page.locator('[aria-label="隐藏提交详情"]').click();
+        await hist.page.waitForTimeout(400);
+        return await hist.page.evaluate(() => ({
+          label: (document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]') || {}).getAttribute
+            ? document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').getAttribute('aria-label')
+            : null,
+          display: (document.querySelector('.log-detail-panel') || {}).style
+            ? document.querySelector('.log-detail-panel').style.display : null,
+        }));
+      })();
+      check('§7.8 再次点击还原详情面板（负向验证）: ' + JSON.stringify(restored),
+        restored.label === '显示提交详情' && restored.display === '');
       await hist.page.close();
 
       // §7.9 Blame 顶部右侧"n 行归属"与关闭入口；关闭按钮可聚焦并用 Enter 关闭
@@ -9635,8 +9651,38 @@ async function main() {
         });
         return { before, after, menus };
       })();
-      check('§7.16 缺口钉住：终端"更多"入口当前无效果（不提供切换配置/外部终端菜单）: ' + JSON.stringify(more),
-        more.before === more.after && more.menus.overlay === false);
+      const moreMenu = await termMore.page.evaluate(() => {
+        const items = [...document.querySelectorAll('[data-terminal-more]')].map((a) => a.textContent.trim());
+        return { open: items.length > 0, items, launchCalls: (window.__launchCalls || []).length };
+      });
+      check('§7.16 终端「更多操作」弹出规格点名的两个入口: ' + JSON.stringify({ more, moreMenu }),
+        moreMenu.open === true && moreMenu.items.length === 2
+          && moreMenu.items[0].includes('切换 Shell 配置') && moreMenu.items[1].includes('在外部终端打开'));
+      // 「切换 Shell 配置」→ 设置对话框停在「终端」页
+      const settingsFromMenu = await (async () => {
+        await termMore.page.locator('[data-terminal-more="settings"]').click();
+        await termMore.page.waitForTimeout(700);
+        return await termMore.page.evaluate(() => ({
+          dialog: !!document.querySelector('.settings-layout, .settings-window'),
+          page: window.__augitLive ? window.__augitLive.settingsPage : null,
+        }));
+      })();
+      check('§7.16 「切换 Shell 配置」进入设置对话框的终端页: ' + JSON.stringify(settingsFromMenu),
+        settingsFromMenu.dialog === true && settingsFromMenu.page === 'terminal');
+      // 「在外部终端打开」→ 宿主 external/launch 收到 terminal 动作
+      const externalFromMenu = await (async () => {
+        await termMore.page.keyboard.press('Escape');
+        await termMore.page.waitForTimeout(400);
+        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.waitForTimeout(400);
+        await termMore.page.locator('[data-terminal-more="external"]').click();
+        await termMore.page.waitForTimeout(700);
+        return await termMore.page.evaluate(() => ({
+          calls: (window.__launchCalls || []).filter((c) => c.startsWith('terminal:')),
+        }));
+      })();
+      check('§7.16 「在外部终端打开」调用宿主 external/launch（action=terminal）: ' + JSON.stringify(externalFromMenu),
+        externalFromMenu.calls.length >= 1);
       await termMore.page.close();
 
       return { entries, afterToggle, blameHeader, closedByEnter, more };
@@ -9725,30 +9771,68 @@ async function main() {
         path: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
         unwired: window.__augitUnwiredLabel || null,
       }));
-      const enter = await treeEnter.page.evaluate(async () => {
-        const row = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
-          .find((r) => r.dataset.treePath && /\.(md|txt|cs)$/.test(r.dataset.treePath));
+      // 用**真键盘事件**（page.keyboard.press）而不是合成 dispatchEvent，并读探针区分
+      // "处理器没触发"与"触发了但打开失败" —— 第 90 轮那次合成事件失败后不猜，直接量。
+      // `docs` 在树里默认折叠 → 先按 ArrowRight 展开（这也是既有的方向键行为），否则找不到它的子文件。
+      const docsFocused = await treeEnter.page.evaluate(() => {
+        const row = [...document.querySelectorAll('.side-content.tree .tree-row')]
+          .find((r) => r.dataset.treePath === 'docs');
+        if (!row) return false;
+        row.focus();
+        return true;
+      });
+      if (docsFocused) {
+        await treeEnter.page.keyboard.press('ArrowRight');
+        await treeEnter.page.waitForTimeout(700);
+      }
+      const rowPath = await treeEnter.page.evaluate(() => {
+        // 选一个**桩确实能读**的文件：`README.md` 在树 fixture 里，但 stub 的读取不供它
+        // （第 90 轮诊断 `error: open-document:not found: README.md`），而 `docs/product-spec.md`
+        // 是套件其它用例已成功打开过的路径。
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')];
+        const prefer = rows.find((r) => r.dataset.treePath === 'docs/product-spec.md')
+          || rows.find((r) => r.dataset.treePath && /\.(md|txt|cs)$/.test(r.dataset.treePath) && r.dataset.treePath.includes('/'));
+        if (!prefer) return null;
+        prefer.focus();
+        window.__treeEnterFired = 0;
+        return prefer.dataset.treePath;
+      });
+      const enter = rowPath === null ? { noRow: true } : await (async () => {
+        await treeEnter.page.keyboard.press('Enter');
+        await treeEnter.page.waitForTimeout(1200);
+        return await treeEnter.page.evaluate((p) => ({
+          rowPath: p,
+          fired: window.__treeEnterFired || 0,
+          focused: document.activeElement ? document.activeElement.getAttribute('data-tree-path') : null,
+          path: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
+          error: window.__augitError || null,
+          unwired: window.__augitUnwiredLabel || null,
+        }), rowPath);
+      })();
+      console.log('INFO 树Enter=' + JSON.stringify({ before, enter }));
+      check('§5 树 Enter 打开文件行（默认动作）: ' + JSON.stringify(enter),
+        enter.noRow !== true && enter.path === enter.rowPath);
+      // 目录行：Enter = 展开/折叠（与方向键同一套 activateTreeRow 口径），用 aria-expanded 翻转验证。
+      const dirEnter = await treeEnter.page.evaluate(async () => {
+        const row = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-directory="true"]')]
+          .find((r) => r.dataset.treePath);
         if (!row) return { noRow: true };
         row.focus();
         const path = row.dataset.treePath;
-        row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-        await new Promise((r) => setTimeout(r, 900));
-        return {
-          rowPath: path,
-          focused: document.activeElement ? document.activeElement.getAttribute('data-tree-path') : null,
-          path: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
-          unwired: window.__augitUnwiredLabel || null,
-        };
+        const before = row.getAttribute('aria-expanded');
+        return { path, before };
       });
+      await treeEnter.page.keyboard.press('Enter');
+      await treeEnter.page.waitForTimeout(900);
+      const dirAfter = await treeEnter.page.evaluate((p) => {
+        const again = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + CSS.escape(p) + '"]');
+        return { after: again ? again.getAttribute('aria-expanded') : null };
+      }, dirEnter.path || '');
+      check('§5 树 Enter 展开/折叠目录行: ' + JSON.stringify({ dirEnter, dirAfter }),
+        dirEnter.noRow !== true && dirEnter.before !== null && dirAfter.after !== null
+          && dirEnter.before !== dirAfter.after);
       await treeEnter.page.close();
-      console.log('INFO 树Enter=' + JSON.stringify({ before, enter }));
-      // 实测（第 81 轮）：Enter **没有**执行默认动作 —— 行仍持有焦点、`__augitLive.document` 仍为 null，
-      // 也没有落进"未接线兜底"（`unwired` 为 null，因为它不是 `.html` 链接）。
-      // 按纪律：**把当前实现钉住**（而不是让套件红着），缺口记在 §3.2 第 23 条。
-      // 注意这一条同时说明了"为什么它此前一直是部分"：方向键/右键/菜单键早有断言，Enter 确实没有实现。
-      check('§5 缺口钉住：树 Enter 当前不执行默认动作（没有打开该行文件）: ' + JSON.stringify(enter),
-        enter.noRow !== true && enter.path === null && enter.focused === enter.rowPath);
-      return { treeEnter: enter };
+      return { treeEnter: enter, dirEnter };
     })();
 
     const r81b = await (async () => {
