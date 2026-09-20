@@ -2833,6 +2833,59 @@ async function main() {
     await imgDoc.page.mouse.up();
     check('§7.5 Escape 解除拖动（此后移动鼠标不再改变位置）: ' + JSON.stringify([escapeBefore.imgLeft, escapeAfter.imgLeft]),
       Math.abs(escapeAfter.imgLeft - escapeBefore.imgLeft) <= 1);
+
+    // ---- 第 121 轮补齐：§7.5 的**第三个触发（拖动）时清除未完成的滚轮输入** ----
+    // 实现侧本来就有（`image-preview.js:65` 的 `pointerdown` 第一行就是 `resetWheel()`）；
+    // 前几次跑不成全是我这边的采集问题，两个原因都已查清：
+    //   ① `mouse.wheel(0,-40)` **恰好是一整档**（阈值 40）⇒ 拖动后那次 1→1.25 是正常单档缩放，不是"未清除"；
+    //   ② fit 档下图片比舞台小，平移被设计性禁用 ⇒ 拖动没发生（`imgLeft` 前后都是 579）。
+    // 因此：先像"边缘夹取"用例那样**点 16 次放大**让图片超过视口，再用**两次各 30**（各自不足一档、
+    // 合计 60 ≥ 40）来区分"是否被清除"，并配一条**同场景对照**（不做拖动时两次 30 应当累计成功）。
+    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.waitForTimeout(250);
+    await imgDoc.page.evaluate(() => {
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+    });
+    // **再退回中间档**：只点放大到 16 次会顶到缩放上限 8，那样"不再变大"是**平凡为真**（本轮第三次跑就是
+    // `[8,8,8,8,8]` —— 连同场景对照都动不了，断言正确地拒绝通过）。退回 ~3：既超过视口（平移可用），
+    // 又离上限有距离（放大/缩小两个方向都可观测）。
+    await imgDoc.page.evaluate(() => {
+      for (let i = 0; i < 3; i++) document.querySelector('.image-toolbar [aria-label="缩小"]').click();
+    });
+    await imgDoc.page.waitForTimeout(300);
+    await imgDoc.page.mouse.move(stageBox.x + 40, stageBox.y + 40);
+    await imgDoc.page.keyboard.down('Control');
+    await imgDoc.page.mouse.wheel(0, -30);
+    await imgDoc.page.waitForTimeout(180);
+    const beforeDragClear = await readZoom();
+    await imgDoc.page.mouse.move(stageBox.x + 40, stageBox.y + 40);
+    await imgDoc.page.mouse.down();
+    await imgDoc.page.mouse.move(stageBox.x + 120, stageBox.y + 100, { steps: 4 });
+    const duringDrag = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -30);
+    await imgDoc.page.waitForTimeout(180);
+    const afterDragWheel = await readZoom();
+    await imgDoc.page.mouse.up();
+    await imgDoc.page.keyboard.up('Control');
+    // 同场景对照：不做拖动时，两次 30 应当累计成功（否则上面的"不变"没有意义）。
+    await imgDoc.page.keyboard.down('Control');
+    await imgDoc.page.mouse.wheel(0, -30);
+    await imgDoc.page.waitForTimeout(180);
+    const controlStart = await readZoom();
+    await imgDoc.page.mouse.wheel(0, -30);
+    await imgDoc.page.waitForTimeout(180);
+    const controlAccumulated = await readZoom();
+    await imgDoc.page.keyboard.up('Control');
+    console.log('INFO 拖动清除滚轮=' + JSON.stringify({
+      before: beforeDragClear, during: duringDrag, after: afterDragWheel, controlStart, controlAccumulated,
+    }));
+    check('§7.5 拖动时清除未完成的滚轮输入（含同场景对照）: '
+      + JSON.stringify([beforeDragClear.scale, duringDrag.scale, afterDragWheel.scale,
+        controlStart.scale, controlAccumulated.scale]),
+      beforeDragClear.scale > 1 && beforeDragClear.scale < 8
+        && duringDrag.imgLeft !== beforeDragClear.imgLeft
+        && afterDragWheel.scale === duringDrag.scale
+        && controlAccumulated.scale > controlStart.scale);
     await imgDoc.page.close();
 
     // ---- §7.5 加载态：?image-state=loading 只在画布中心提示，不改工具栏 ----
