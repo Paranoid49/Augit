@@ -29,11 +29,14 @@ const SETTINGS = ['settings', 'settings-dirty', 'settings-save-failure'];
 //  E = Commit 工具窗（已采集：底窗高 172 CSS、文件列表 + 提交信息区）
 const GIT_LOG = ['git-history', 'git-history-graph', 'git-history-empty', 'git-history-menu'];
 const COMMIT_TW = ['commit-changes', 'commit-empty'];
+//  F = Terminal 工具窗（已采集：底部 tabs Terminal|Local + 真实 PowerShell 会话）
+const TERMINAL_TW = ['terminal', 'terminal-close'];
 const covered = new Map();
 for (const s of CHROME_EDITOR) covered.set(s, 'A+B（主窗口 chrome / 编辑器标签行）');
 for (const s of SETTINGS) covered.set(s, 'C（设置对话框）');
 for (const s of GIT_LOG) covered.set(s, 'D（Git Log 工具窗）');
 for (const s of COMMIT_TW) covered.set(s, 'E（Commit 工具窗）');
+for (const s of TERMINAL_TW) covered.set(s, 'F（Terminal 工具窗）');
 
 const reason = (scene) => {
   if (/^(commit-diff|diff-|history-diff|git-compare)/.test(scene)) return 'PyCharm Diff 视图未采集';
@@ -50,7 +53,7 @@ out.push('### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；�
 out.push('');
 out.push('**口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；');
 out.push('本表因此给出**每个 Augit 页面**的 PyCharm 侧状态，而不是硬凑一一对应。');
-out.push('`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗（五面均已在 §1.3 有实测值/证据图）。');
+out.push('`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗（六面均已在 §1.3 有实测值/证据图）。');
 out.push('');
 out.push('| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |');
 out.push('| --- | --- | --- |');

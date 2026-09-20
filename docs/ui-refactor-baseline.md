@@ -13114,3 +13114,20 @@ Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** 
 **结论**：⑦⑧ 的**逐面**对照已经完成并有实测值；**逐页**部分当前 **16/55 可核对**、39 页未采集且
 逐行给出原因 —— 这是"有分母的事实"，不是"已完成"。下一步的具体动作也写在上面（双击提交行取 diff、
 底部工具窗里的 Terminal 页签、Search Everywhere 的快捷键核对）。
+
+#### 第 395 轮：Terminal 工具窗采到（Find Action 法），覆盖 16 → 18/55
+
+第三次尝试拿到了之前两次没拿到的面：**不用猜快捷键**，改走 **Find Action**——
+`Ctrl+Shift+A` → 输入 `Terminal` → Enter。截图 `toolwindow-terminal2.png` 显示底部工具窗
+**tabs `Terminal / Local` + 真实 PowerShell 会话**（`Windows PowerShell` banner、
+提示符 `PS D:\github\Augit>`），底部工具窗高 **499 物理 → 285.1 CSS**、面板白 `255,255,255`。
+
+于是 `terminal` / `terminal-close` 两页从"未采集"进入**面级已对照**：
+两侧都是"在底部工具窗里真起一个 shell"（PyCharm 起 PowerShell；Augit 是 xterm.js + ConPTY），
+结构一致、高度可拖动。
+
+**仍未采集**（37 页，逐行原因在 §1.6）：Diff 视图（单击/双击提交行都只到"选中 + Commit details 提示"，
+需要在 Commit details 面板加载后打开 diff，或对改动文件走 `Ctrl+D`）、Search Everywhere
+（连发两次 Shift 未打开）、Git 分支/远端/克隆等对话框。
+
+**覆盖读数**：`§1.6` 由生成器重出 → **18/55 页落在已实测面上**，37 页未采集且逐行写明原因。
