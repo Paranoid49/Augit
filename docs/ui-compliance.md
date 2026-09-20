@@ -438,6 +438,24 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > （可见像素差超标），而 `layoutPercent=0.60` —— 差异同样主要来自真实数据文字。
 > 累计已有 **26/55** 个场景拿到本轮口径下的 `layoutPercent` 实测（12 高值 + 6 + 8）。
 
+> **第 88 轮补测（④ 第 4 批，判据 = `layoutPercent`）**：8 个场景 ——
+>
+> | 场景 | titlebar | statusbar | content `layoutPercent` | 判读 |
+> | --- | ---: | ---: | ---: | --- |
+> | `file-limit` | 0.00 | 0.00 | **0.01** | 一致 |
+> | `project-context-menu` | 0.00 | 0.00 | **0.34** | 一致 |
+> | `search-limited` | 0.00 | 0.00 | **0.50** | 一致 |
+> | `markdown-preview` | 0.00 | 0.00 | **0.55** | 一致 |
+> | `go-to-line` | 0.00 | 0.00 | **0.58** | 一致 |
+> | `terminal` | 0.00 | 0.00 | **0.63** | 一致 |
+> | `git-history` | 0.00 | 0.00 | **1.38** | 一致 |
+> | `repository-search` | 0.00 | 0.00 | **2.08** | **本批唯一 > 2.0**；与第 60 轮复核值 **2.08 完全一致（Δ 0.00）**，差异仍归因于 live 数据状态（真实搜索命中文本），无布局错位 |
+>
+> **稳定性交叉验证（本轮顺带得到）**：本批里有 4 个场景在第 60 轮已复核过，
+> 两次独立运行的 `content layoutPercent` **完全一致**（`repository-search` 2.08/2.08、`markdown-preview` 0.55/0.55、
+> `search-limited` 0.50/0.50、`git-history` 1.38/1.38，**Δ 全部 0.00**）—— 说明这条链路在同一版本上是**可复现**的，
+> 数字不是随机波动。累计 **34/55** 个场景已有本轮口径的实测证据。
+
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
 **口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；
