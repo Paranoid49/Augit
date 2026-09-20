@@ -13148,3 +13148,24 @@ Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** 
 `pycharm-baseline-20260919/`（880 K）、`pycharm-interactions-16/`（3.8 M）、
 `pycharm-16-final/`（5.7 M）、`pixel-review-20260921/`（2.8 M）、`pycharm-compare-20260919/`（520 K）。
 其余 `artifacts/*`（构建产物、打包 zip/setup、54 场景验收截图）**仍不入库**，并在 §1.5 写明范围。
+
+#### 第 397 轮：Diff 视图采到（两态）→ 逐页覆盖 18 → 27/55；并处理一次**自动化误输入**
+
+**拿 Diff 视图的办法**（前四次失败后换的路子）：`Ctrl+D`（Compare with HEAD）在**当前打开的编辑器文件**上
+触发，diff 在编辑器里以并排形式打开 —— 不依赖 Git Log 的 Commit details 面板（那个面板始终停在
+`Select commit to view changes`）。两态都采到了：
+- `diff-viewer-ctrlD-file.png`：**有差异态**（工具条 + `1 difference` + 列头 `Local` + 变更行整行浅底 + 差异分隔箭头）；
+- `readme-buffer-after-undo.png`：**无差异态**（`Contents are identical`）。
+
+**同一轮里抓到的两个坑**：
+1. **Alt+9 是切换不是打开**：上一轮把 Git Log 留在打开状态，这一轮再按 Alt+9 反而关掉了它，
+   于是右键落在编辑器上、什么都没发生。改用 Find Action 后又要小心第 2 条 ——
+2. **SendKeys 打进了编辑器缓冲区**：`Ctrl+Shift+A` 的 Find Action 没拿到焦点时，随后的
+   `SendKeys('Git Log')` 直接写进了 README.md 的**编辑器缓冲区**（两行 `Git Log`），
+   于是后面那次 `Ctrl+D` 的 diff 显示 `1 difference`、标签出现 `M`。
+   **磁盘文件始终没被动过**（`git diff` 为空、README mtime 未变）—— 这是我先查 `git status` 再动手的结果；
+   随后聚焦编辑器连续 `Ctrl+Z` 撤回，并**再截一张验证**：diff 变成 `Contents are identical`、`M` 消失。
+   **教训**：发按键前先确认焦点落在哪个控件；自动化跑完必须查 `git status`。
+
+**覆盖读数**：`§1.6` 重生成 → **27/55 页**落在已实测面上（新增 `G = Diff 视图` 覆盖 9 页 diff 家族），
+其余 28 页逐行写明未采集原因。两项守卫复跑：`DOC_CLAIMS_OK`、`INTERACTIONS_BASELINE_OK`。
