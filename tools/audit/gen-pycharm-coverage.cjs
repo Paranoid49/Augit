@@ -41,7 +41,9 @@ const CONTEXT_MENU = ['project-context-menu'];
 //  **入口级证据**（第 70 轮新增，单独计数、不计入「面级已对照」）：PyCharm 只采到
 //  「操作入口/命名/快捷键」或「确认框模式」，对话框本体仍未采集。
 const ENTRY_LEVEL = new Map();
-for (const s of ['branches', 'smart-checkout', 'push', 'push-no-remote', 'rollback', 'stash', 'worktrees']) {
+//  L = Branches 弹出层（第 71 轮采到本体：搜索框 + 动作区 + Recent/Local 分组 + 跟踪引用）
+const BRANCHES_POPUP = ['branches', 'smart-checkout'];
+for (const s of ['push', 'push-no-remote', 'rollback', 'stash', 'worktrees']) {
   ENTRY_LEVEL.set(s, 'J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）');
 }
 for (const s of ['terminal-close']) {
@@ -55,6 +57,7 @@ for (const s of COMMIT_TW) covered.set(s, 'E（Commit 工具窗）');
 for (const s of TERMINAL_TW) covered.set(s, 'F（Terminal 工具窗）');
 for (const s of DIFF_VIEW) covered.set(s, 'G（Diff 视图）');
 for (const s of SEARCH_EVERYWHERE) covered.set(s, 'H（Search Everywhere）');
+for (const s of BRANCHES_POPUP) covered.set(s, 'L（Branches 弹出层）');
 for (const s of CONTEXT_MENU) covered.set(s, 'I（文件/编辑器右键菜单）');
 
 const reason = (scene) => {

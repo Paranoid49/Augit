@@ -232,6 +232,7 @@ Augit 侧 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png` 为 **28
 | 主按钮底色 | `56,113,225` | `rgb(56,113,225)` | **0** | **逐值相同** |
 | 悬停反馈（工具按钮条） | 变化单元聚合 `208,211,216 → 217,219,224` | `--augit-hover: #f1f2f4` | 明显 | 两侧都有反馈；取值不同（PyCharm 更暗），按 design-system 实现 |
 | 禁用态（前置条件未满足） | 整块灰态（Color Scheme 色块、Sync with OS 时的 Scheme 下拉） | 同手法，由 `§7.17 … 时可编辑` 断言覆盖 | — | 手法一致：禁用并保留位置 |
+| **Branches 弹出层**（↔ Augit `branches` / `smart-checkout`） | 顶部**搜索框**（占位符 `Search for branches and actions`，右侧 ✕ 清除与 ⚙ 设置）；动作区 `Update Project… Ctrl+T`、`Commit… Ctrl+K`、`Push… Ctrl+Shift+K`，分隔后 `New Branch… Ctrl+Alt+N`、`Checkout Tag or Revision…`；分支列表按 `Recent` / `Local`（含 `Remote`）分组，每行 = 分支名 + 右侧**跟踪引用**（如 `origin/main`），当前分支有标记 | Augit 分支弹层：搜索框 + 动作 + 分支列表（本地/远端分组） | — | **面级已对照**（证据 `pycharm-branches-dialog.png`）。**顺带验证**：PyCharm 这个弹层的搜索框也在顶部、打开即用——与第 65 轮给 Augit 分支弹层补的"打开后聚焦搜索框"是同一种结构 |
 | **VCS Operations 弹出菜单**（↔ Augit 的 Git 操作入口：`branches`/`smart-checkout`/`push`/`push-no-remote`/`rollback`/`stash`/`worktrees`） | `Alt+`` ` 打开（**可复现**：SendKeys 一次即成）。Git 分组条目与快捷键：`Commit… Ctrl+K`、`Commit File…`、`Rollback… Ctrl+Alt+Z`、`Show History`、`Annotate`、`Show Diff Ctrl+D`、`Branches… Ctrl+Shift+`` `、`Push… Ctrl+Shift+K`、`Stash Changes…`、`Unstash Changes…`、`Worktrees…`、`Copy Branch Name`、`Show Local History…` | Augit 把这些做成**独立页面/对话框**（分支、推送、回滚、暂存、工作树） | — | **仅入口级对照**（命名、快捷键、分组可比）；**对话框本体未采集**，因此不计入面级已对照——见 `vcs-operations-popup.png` |
 | **确认对话框**（Confirm Exit，↔ Augit 破坏性操作的确认框） | 结构：警示图标 + 标题「Confirm Exit」+ 问句「Are you sure you want to exit?」+ `☐ Don't ask again` + 右侧按钮行 `[Exit]`（**危险默认**）+ `[Cancel]`（次按钮） | Augit 的关闭终端/回滚等确认框：正文说明影响 + 主按钮 + 次按钮 | — | **模式级对照**（危险默认、次按钮、不再询问的排布可对照）；证据 `confirm-exit-dialog.png`。**注意触发方式的教训**：这张是"在 VCS 弹出菜单里连按方向键 + Enter"时**意外触发**的（IDE 退出确认），当时立即 `Esc` 取消并复查 PyCharm 仍在运行（`Get-Process pycharm64` = 1）—— 采集脚本不得在 IDE 里乱按 Enter |
 | Search Everywhere 浮层（↔ Augit `quick-open`/`quick-open-empty`/`search-limited`） | 顶部**页签 `All / Classes / Files / Symbols / Actions / Text`** + 查询框（提示 `Type / to see commands`）+ `Include non-project items` 复选；结果行 = 类型图标 + 名称 + 工作区相对路径；底部提示 `Open in Right Split`。**两态已采**：空查询（`search-everywhere-empty.png`）与有结果（`search-everywhere-results.png`） | Augit 快速打开：单一浮层（无分类页签）+ 结果行显示文件名与工作区相对路径、上限 100 项 | — | **面已对照**：结构对应（查询框/结果行/路径提示）；**差异如实记**：PyCharm 有 6 个分类页签，Augit 按产品规格只做文件名搜索 |
@@ -407,7 +408,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |
 | --- | --- | --- |
 | `blame` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
-| `branches` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `branches` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
 | `changes-context-menu` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `clone` | 未对照 | PyCharm Git 工具窗/Dialog 未采集 |
 | `commit-changes` | **面级已对照** | E（Commit 工具窗）——见 §1.3 逐面表的实测值与判读 |
@@ -452,7 +453,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `settings` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-save-failure` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
 | `settings-dirty` | **面级已对照** | C（设置对话框）——见 §1.3 逐面表的实测值与判读 |
-| `smart-checkout` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
+| `smart-checkout` | **面级已对照** | L（Branches 弹出层）——见 §1.3 逐面表的实测值与判读 |
 | `stash` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
 | `stash-drop-confirm` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
 | `stash-manager` | 未对照 | PyCharm Shelf/Stash 面不同且未采集 |
@@ -462,7 +463,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `workspace-open` | 未对照 | PyCharm 同类弹层/状态未采集 |
 | `worktrees` | 仅入口级证据 | J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）；**对话框本体未采集，不计入面级已对照** |
 
-> 本轮读数：**31/55 个页面**落在已实测的面上；另有 **7 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
+> 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
 > 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
 ### 2.0 条文穷举进度（⑨，如实带分母）
 

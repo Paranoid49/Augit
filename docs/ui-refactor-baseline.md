@@ -13438,3 +13438,25 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 **单独计数、不计入"面级已对照"**：
 > **31/55 面级已对照**；**7 页仅入口级证据**；其余 **17 页未对照**（逐行写明原因）。
 §1.3 的逐面表也把 J/K 两行如实标为"入口级/模式级对照"。
+
+#### 第 411 轮：**type-to-filter 配方**打通 PyCharm 弹出菜单 → Branches 升级为面级对照（31 → 33/55）
+
+**关键配方（本轮最有价值的产出）**：PyCharm 的 VCS 弹出菜单支持**输入即过滤**，于是有了确定性打法 ——
+`Alt+`` ` 打开 → **输入条目名** → `Enter` 激活。一次即成，不再靠猜坐标或猜快捷键，也**不会**像上一轮那样
+在未过滤的列表里乱按 Enter 触发别的动作（上一轮的 Confirm Exit 事故就是那么来的）。
+顺带否证了两条"看着应该行"的路：`Ctrl+Shift+K`（Push）与 `Ctrl+Shift+`（Branches）在本机 SendKeys 下
+**都没反应**（其中 Push 还因为**本仓库没有 remote**，本来也不会有对话框 —— 这与 Augit 的 `push-no-remote` 状态吻合）。
+
+**拿到 `Branches` 弹出层本体**（`pycharm-branches-dialog.png`）：
+- 顶部**搜索框**（占位符 `Search for branches and actions`，右侧 ✕ 清除 + ⚙ 设置）；
+- 动作区 `Update Project… Ctrl+T`、`Commit… Ctrl+K`、`Push… Ctrl+Shift+K`；分隔后 `New Branch… Ctrl+Alt+N`、
+  `Checkout Tag or Revision…`；
+- 分支列表按 **`Recent` / `Local`（含 `Remote`）分组**，每行"分支名 + 右侧跟踪引用"（如 `origin/main`），
+  当前分支有标记。
+
+于是 `branches` 与 `smart-checkout` **从"仅入口级"升级为面级已对照**（L）：
+`§1.6` 读数变为 **33/55 面级已对照 + 5 页仅入口级证据 + 17 页未对照**。
+**顺带互相验证**：PyCharm 这个弹层的搜索框也在顶部且打开即用 —— 与第 65 轮给 Augit 分支弹层补的
+"打开后聚焦搜索框"（当时由断言暴露缺陷并修复）是**同一种结构**，这条修复因此有了对照依据。
+
+清理：删掉两张无信息量的截图（`pycharm-push-dialog.png`、`pycharm-branches-popup2.png`）。
