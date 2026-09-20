@@ -14024,3 +14024,29 @@ content 都是 **0.03 且 flatDiff 同为 212** —— 说明"脏标记/保存�
 2. 第二次跑**13 个场景全部无输出**：因为我自己**编造了一个不存在的参数 `-TimeoutSec`**
    （那是 `capture-surface.ps1` 的参数，`compare-pixels.ps1` 没有）→ PowerShell 直接报参数不匹配。
    教训：**调脚本前先 `grep` 它的 `param()`**，别凭记忆；这与"先量再改、先看规格再动手"是同一条纪律。
+
+#### 第 439 轮：PyCharm 编辑器区**是"绘制残留"、不是卡死** —— 已用最小化/还原清除（⑦⑧ 采集的阻塞点定位到根因）
+
+第 437 轮之后我一直以为"编辑器区停着一个 Search Everywhere 浮层、挡住剩余采集"，本轮把它彻底查清：
+
+**证据链**：
+1. 双击项目树里的 `README.md` → **只选中、没打开**（编辑器仍显示 `App.manifest` 的 diff 视图）；
+2. `Alt+→` 切标签 + `Alt+`` ` 打开 VCS 弹出菜单 + 输入 `Annotate` 过滤 → **过滤成功**，但 `{ENTER}`
+   不激活；**鼠标点击**在该 Swing 弹层上只 hover；
+3. 无 ALT 的 `{ESC}` 也无效；
+4. **决定性一步**：`ShowWindow(SW_MINIMIZE)` → 700ms → `ShowWindow(SW_RESTORE)` →
+   编辑器区**立刻变干净**（旧画面消失，显示为空的编辑器 + 折叠的 Project 工具窗）。
+   ⇒ 那块"浮层"其实是**窗口的陈旧绘制**（stale paint），不是活着的弹层，也就解释了为什么
+   所有针对它的按键都"无效"而布局其它部分能变化 —— **`IsHungAppWindow=False` 从一开始就是对的**。
+
+**处置与当前状态**：PyCharm 现在**干净可用**（无陈旧绘制）；编辑器标签被这次重绘/最小化清空
+（**只是视图状态**：`git status` 仍干净，文件未改动）。采集脚本本轮新增两个能力（都纯 ASCII）：
+`-DoubleClick`（PyCharm 靠双击打开文件）与 `-Keys2`/`-DelayMs`（同一次运行内"先过滤、等 900ms、再 Enter"，
+避免分两次运行导致弹层失焦、以及再发 ALT 把 Enter 变成系统菜单）。
+
+**⑦⑧ 剩余采集的可执行路线（下一轮直接照做）**：
+① `-SkipAlt -Keys '{ESC}'` 清一遍 → ② `Alt+1` 打开 Project 工具窗 → ③ **双击**一个普通文本文件
+（如 `README.md`）把编辑器切到它 → ④ `-SkipAlt -Keys '%`Annotate' -Keys2 '{ENTER}' -DelayMs 900`
+→ ⑤ 全屏抓图核对 Annotate 视图。同法可采 `Show History` / `Find in Path` / `File|Open`。
+
+**本轮没有新增 PyCharm 面**（不把"清理了窗口"写成"采到了面"）；删除 5 张无信息量截图。
