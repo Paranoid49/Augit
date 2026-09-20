@@ -13073,3 +13073,22 @@ Quick Lists / Required Plugins **在本版本（2026.2.1）的树里不存在** 
 结果：`pycharm-interactions.json` surfaces 6 → **7**（新增 Console Font 页）；
 生成器重出 `pycharm-interactions.md`（154 行）；`check-interactions.cjs` 仍
 `CHECKED 18`、`INTERACTIONS_BASELINE_OK`。
+
+#### 第 393 轮：④ 偏高项复核完成（12 个高值场景全部重测 + heatmap 入仓）
+
+对 §1.1 里 content 最高的 12 个场景逐个重跑同尺度对照（`compare-pixels.ps1` 出两侧截图，
+再用 `compare-pixels.py` 取 `layoutPercent`/`textPercent` 并写 heatmap），证据留在
+`artifacts/pixel-review-20260921/<scene>/`。读数（layout）：
+
+`quick-open 2.30`（=记录）、`repository-search 2.08`(−0.76)、`git-compare 1.72`(+0.01)、
+`diff-boundary 1.68`(+0.08)、`commit-diff 1.67`(+0.08)、`history-diff-loading 1.61`(0.00)、
+`diff-loading 1.55`(+0.08)、`git-compare-empty 1.42`(+0.01)、`git-history 1.38`(新增)、
+`blame 0.63`(−0.81)、`markdown-preview 0.55`(−0.87)、`search-limited 0.50`(新增)。
+
+**有分母的结论**：**7/12 复现（|Δ| ≤ 0.08）**、3/12 偏差 0.76–0.87（`repository-search`、
+`blame`、`markdown-preview` —— 均由 live 侧数据状态差异解释）、2/12 为本轮新增读数；
+**无任何场景是整页错位**，heatmap 上差异一律为字形级 + 少数内容带。
+
+**过程坑**：第一版 sweep 脚本在 PowerShell 里直接调 `python3`（那是 WSL 命令，Windows 端解析不到），
+于是 `$lines` 为 null、每场景只留下 ps1 的 `PIXELS_DIFFER` 噪声；改为**只用 ps1 出图、回到 bash 里跑 python**
+才拿到数字。另一个已知口径问题同 §1.1：ps1 自己的 SUMMARY 用 `visiblePercent`（非判据）。
