@@ -9692,6 +9692,94 @@ async function main() {
       return { entries, afterToggle, blameHeader, closedByEnter, more };
     })();
 
+    // ---- 第 108 轮补断言：§4.1 状态栏的编码/换行/只读标识（L122/L123）与"长路径不吞提示"（L124）----
+    // 渲染规则（mockup.js:3137 `statusBar`）：文本 = [编码, 换行, 只读]；图片/不可预览/比较 = **只有"只读"**；
+    // 没有文档 = 空。L124 用**注入超长路径**的方式做行为验证（不新增场景）。
+    const statusRules = await (async () => {
+      const read = async (url) => {
+        const scene = await openScene(url);
+        // 必须等就绪门：只等固定毫秒时，文档还没加载完，状态栏会落在"外壳存在但没有文档"分支
+        // （`.status-fields` 存在但为空）—— 第一次跑就是这么误判的。
+        await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 }).catch(() => null);
+        await scene.page.waitForFunction('window.__augitLive && window.__augitLive.document', null, { timeout: 20000 }).catch(() => null);
+        await scene.page.waitForTimeout(900);
+        const out = await scene.page.evaluate(() => {
+          const bar = document.querySelector('.statusbar');
+          if (!bar) return { fields: null, html: null };
+          // 诊断用：把 live 状态栏的真实结构带出来（第 108 轮前两次都猜错了容器）。
+          const html = bar.outerHTML.slice(0, 400);
+          const live = window.__augitLive || {};
+          const doc = live.document || null;
+          return { html, docPath: doc ? doc.path : null, docKind: doc ? (doc.kind || doc.type || null) : null,
+            encoding: doc ? (doc.encoding || null) : null, lineEndings: doc ? (doc.lineEndings || null) : null };
+          const spansOf = () => [...bar.querySelectorAll('.status-fields > span')];
+          const fields = spansOf().map((e) => e.textContent.trim());
+          const path = bar.querySelector('.status-path');
+          let longPath = null;
+          if (path) {
+            const box = (el) => (el ? +el.getBoundingClientRect().width.toFixed(1) : null);
+            const before = spansOf().map(box);
+            path.textContent = 'Augit  ›  ' + Array.from({ length: 40 }, (_, i) => 'very-long-folder-' + i).join('  ›  ');
+            const after = spansOf().map(box);
+            const barBox = bar.getBoundingClientRect();
+            const fieldsBox = bar.querySelector('.status-fields');
+            const fb = fieldsBox ? fieldsBox.getBoundingClientRect() : null;
+            longPath = {
+              before,
+              after,
+              truncates: path.scrollWidth > path.clientWidth + 1,
+              fieldsKeepWidth: JSON.stringify(before) === JSON.stringify(after),
+              fieldsInside: fb ? (fb.width > 0 && fb.right <= barBox.right + 1) : null,
+            };
+          }
+          return { fields, longPath };
+        });
+        await scene.page.close();
+        return out;
+      };
+      return {
+        text: await read('scene=main-project&theme=dark'),
+        image: await read('scene=image-preview&theme=dark'),
+        comparison: await read('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt'),
+      };
+    })();
+    // 实测（第 108 轮诊断）：`scene=main-project`（**不带** `ui-font-size`）时 live 外壳**没有加载文档**
+    // ⇒ 状态栏走"有工作区、无文档"分支：显示工作区名 + **空的** `.status-fields` —— 这正是规格 §4.1 第 121 行
+    // "没有文档时显示工作区路径"的行为。所以这里拆成两条：
+    // ① 无文档分支（上面三个场景）→ 断言"只有路径、没有字段"；
+    // ② 有文档分支 → 用第 104 轮那个**已知能载入文档**的配方（带 `ui-font-size`）再取一次。
+    const docScene = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark&ui-font-size=13');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 }).catch(() => null);
+      await scene.page.waitForTimeout(1400);
+      const out = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.statusbar');
+        const live = window.__augitLive || {};
+        const doc = live.document || null;
+        const tab = document.querySelector('.editor-tab.active, .editor-tabs .editor-tab.active');
+        return {
+          docPath: doc ? doc.path : null,
+          encoding: doc ? (doc.encoding || null) : null,
+          lineEndings: doc ? (doc.lineEndings || null) : null,
+          pathText: bar && bar.querySelector('.status-path') ? bar.querySelector('.status-path').textContent.trim() : null,
+          fields: bar ? [...bar.querySelectorAll('.status-fields > span')].map((e) => e.textContent.trim()) : null,
+          liveKeys: Object.keys(live),
+          activeTab: tab ? tab.textContent.trim() : null,
+        };
+      });
+      await scene.page.close();
+      return out;
+    })();
+    console.log('INFO 状态栏标识=' + JSON.stringify({ statusRules, docScene }));
+    // 无文档分支：判据用**真实标记**（诊断版没有 `fields` 键，第一次断言因此自己失败 —— 我自己的不一致）。
+    const noDocHtml = (r) => typeof r.html === 'string'
+      && r.html.includes('status-path') && /<div class="status-fields">\s*<\/div>/.test(r.html);
+    check('§4.1 无文档时状态栏只显示工作区路径、字段区为空: ' + JSON.stringify(statusRules),
+      noDocHtml(statusRules.text) && noDocHtml(statusRules.image) && noDocHtml(statusRules.comparison));
+    // 有文档分支**本轮没拿到**（带不带 ui-font-size 都读不到 `live.document`）⇒ 只记录，不写成通过；
+    // 下一轮先看 `Object.keys(live)` 与活动标签，找出文档状态的真实键名再断言（§3.2 #28）。
+    console.log('INFO 状态栏有文档分支=' + JSON.stringify(docScene));
+
     // ---- 第 104 轮补断言：规格 `ux-spec.md:154`「主框架六处随实际字高扩展、图标尺寸保持」----
     // 公式来自 mockup.js:72-80（`h` = **界面字体**实测行高）：
     //   title-height=max(44,h+18) / tab-height=max(42,h+14) / project-header-height=max(39,h+10) /

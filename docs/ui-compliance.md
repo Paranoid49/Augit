@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1052/1052（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1053/1053（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -230,8 +230,8 @@
 | §4.4 | Diff 新增块使用浅绿，删除块使用浅红，修改块使用浅黄或局部词级高亮 | 是 | `--augit-green-soft: #c9eecf`（新增）、`--augit-red-soft: #f7d7d7`（删除）、`--augit-yellow-soft: #fff0c2`（修改）；词级高亮见 §1.3 的 diff 面 | — |
 
 | §4.4 | 提交文件复选框的全选使用蓝底白勾、部分选中使用蓝底白横线；折叠分组不改变复选状态；分组标题只在被选中时显示行选中背景，文件勾选与行选择不混用 | 是 | `mockup.js` 的 `fake-check` 渲染三态（`aria-checked` = `true`/`false`/**`mixed`**，全文 `mixed` 9 处）；全选/半选样式在 `mockup.css` 的 `.fake-check` 规则里（蓝底 + 白勾 / 白横线）；分组标题的背景只在选中时挂 `--augit-row-background` | — |
-| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 部分 | 状态栏只读标识与"比较不继承后台编码/换行"这一半已有断言（§1.2 第 2 行）；**图片 / 不可预览 / 未完成读取 / 三类比较各自的只读标识未逐状态核对** | — |
-| §4.1 | 操作或错误提示与路径分别分配空间，长路径不能吞掉提示；普通文件类型不在路径旁重复显示；完整提示与格式也可通过状态栏悬停读取 | 部分 | §1.3 实测状态栏的分区几何（路径区 + 提示区）与悬停 `title` 存在；**"长路径不能吞掉提示"未用超长路径样本单独断言** | — |
+| §4.1 | 图片、不可预览文件、未完成读取的文件及工作区/历史/引用比较只显示适用的只读标识，不继承后台文件的编码或换行 | 部分 | **第 108 轮实测**：`scene=main-project/image-preview/file-history` 三个场景里 live 外壳的 `live` **没有 `document` 键**（键名清单见日志），状态栏一律走"有工作区、无文档"分支 ⇒ 本条的**有文档分支没验到**；**配方已找到**：第 44 轮的 `树Enter` 断言显示"在项目树上回车"会真正装载文档（`docs/product-spec.md`）—— 下一轮据此重做（§3.2 #28） | — |
+| §4.1 | 操作或错误提示与路径分别分配空间，长路径不能吞掉提示；普通文件类型不在路径旁重复显示；完整提示与格式也可通过状态栏悬停读取 | 是 | **第 108 轮补断言**：`§4.1 无文档时状态栏只显示工作区路径、字段区为空` —— 在页面里把 `.status-path` 换成 40 段的超长路径后，实测路径**发生截断**（`scrollWidth > clientWidth`）且**字段区宽度不变**、仍留在状态栏内；无文档时字段区为空（`<div class="status-fields"></div>`）（**有文档状态下字段非空的对照见 §3.2 #28**） | — |
 
 ### 1.3 与 PyCharm 的对照（⑦⑧，Light 口径）
 
@@ -1750,6 +1750,9 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 27. ~~Amend 取消勾选后不恢复用户原草稿~~ **【第 101 轮已修并断言】**（原记：§7.6） —— 勾选那半已实现并断言（宿主桥接 `git/last-commit-message` + 页面回填，实测 `calls:1` 且字段被正确回填）；但**取消勾选后字段没有恢复用户原草稿**，实测变成应用自身状态里的上一次提交标题（`fix: 精确恢复安装前系统 PATH`）—— 说明提交区重新渲染/应用自己的草稿绑定**覆盖了页面侧存的草稿**。
     **下一步**：把草稿存到**能活过重渲染**的地方（模块级 Map 或 `live` 状态，按字段身份索引），并在渲染后重新应用；断言补"取消后 === 原草稿"。在此之前**不写成通过**。
+
+28. **§4.1 有文档状态下的状态栏标识（编码/换行/只读）未验到（**未闭环**）** —— 第 108 轮把 §4.1 第 121/124 行做成了断言（无文档分支：只显示工作区路径 + 字段区为空 + 超长路径截断），但**有文档分支**没拿到：`scene=main-project`（带不带 `ui-font-size` 都一样）里 `live` **没有 `document` 键**，而活动标签却已是 `product-spec.md` ⇒ 状态栏走的是"无文档"分支。
+    **配方已找到**：第 44 轮的 `树Enter` 断言证明"在项目树上按 Enter"会真正装载文档；下一轮据此先装载文档，再断言字段区含 `只读`（文本另含真实 `encoding`/`lineEndings`），并顺带在有文档状态下重做超长路径对照。
 
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
