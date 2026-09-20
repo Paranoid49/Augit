@@ -1709,6 +1709,17 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 23. ~~项目树 Enter 不执行默认动作~~ **【第 435 轮已实现并断言】**（原记：§5） —— 第 81 轮补断言时抓到：在文件树行上按 Enter，行仍持有焦点、`window.__augitLive.document` 仍为 `null`（没有打开文件），也没有落进"未接线兜底"（它既不是 `.html` 链接、又不是无绑定的 `<button>`，兜底的两条路都不覆盖它）。条文要求"方向键移动、右键/菜单键开菜单、**Enter 执行默认动作**"，前 3 项早有断言、只有 Enter 没实现。已加**钉住断言** `§5 缺口钉住：树 Enter 当前不执行默认动作`（`live-shell` 1038/1038 通过，不把缺口写成红灯、也不写成通过）。修复需要确认"默认动作"对目录行/文件行分别是什么，故本轮只记录。
 
+25. **文件历史缺"清除路径筛选"入口（§7.9，**缺口已确认，实现未通过验证 → 已回滚，待重做**）** ——
+    条文要求"路径筛选固定为当前文件并**显示清除入口**"。核实：`grep -n "清除\|data-history-clear" web/src/mockup.js web/src/live-data.js`
+    **零命中** ⇒ 入口在视觉稿与实现里都不存在（这是规格要求、实现没做 = 我的活，不是裁决）。
+    本轮实现了一版（注入 `aria-label="清除路径筛选"` 按钮 + 记录/恢复进入前的底部工具窗上下文）并写了两条断言，
+    **两次都没通过**，原因都已查明：
+    ① `scene=file-history` 单独不会置起 `live.fileHistory`（要带 URL 参数 `file-history=<path>`，既有用例就是这么进的）；
+    ② 带上参数后 `live.fileHistory.path` **确实有值** ✓，但该状态里**不存在**我假设的容器 `.log-filterbar.history-filters`，
+       而且 **URL 启动路径不走**我在右键菜单动作里打补丁的那段代码 ⇒ 注入点与调用点都要改。
+    **处置**：按纪律**回滚未验证的改动**（`git checkout -- web/src/live-data.js tools/audit/live-shell.spec.cjs`，
+    与上一份已验证状态 **1045/1045** 字节一致），缺口与上述三步重做方案记录在此。
+
 ### 3.3 本阶段新增接线（原为未覆盖项）
 
 | 项 | 原状 | 现状 | 证据 |
