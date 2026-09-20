@@ -420,6 +420,24 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > `statusbar visiblePercent=5.09 / blockDiffPercent=16.44 FAIL`，而同一张图用 `compare-pixels.py`
 > 的边缘掩膜算是 **`layoutPercent=0.00`** —— 状态栏那点差异全是**真实数据文字**，不是布局。
 
+> **第 87 轮补测（④，判据 = `layoutPercent`）**：又跑 8 个场景（同一证据目录）——
+>
+> | 场景 | titlebar | statusbar | content `layoutPercent` | 判读 |
+> | --- | ---: | ---: | ---: | --- |
+> | `conflict-resolver` | 0.00 | 0.00 | **0.00** | 三栏布局一致 |
+> | `commit-empty` | 0.00 | 0.00 | **0.00** | 一致 |
+> | `image-preview` | 0.00 | 0.00 | **0.01** | 一致 |
+> | `commit-changes` | 0.00 | 0.00 | **0.26** | 一致（差异在文字/真实数据） |
+> | `operation-result` | 0.00 | 0.00 | **0.28** | 同上 |
+> | `git-unavailable` | 0.00 | 0.00 | **0.51** | 同上 |
+> | `text-viewer` | 0.00 | 0.00 | **0.60** | 同上 |
+> | `json-preview` | 0.00 | 0.00 | **1.19** | 本批最高，仍 < 2.0 |
+>
+> **8 个场景 × 3 个带 = 24 个读数里，titlebar/statusbar 全为 0.00**；content 最高 1.19。
+> **`visiblePercent` 陷阱再添一例**：`text-viewer` 在 `compare-pixels.ps1` 自报 `failures=1 / PIXELS_DIFFER`
+> （可见像素差超标），而 `layoutPercent=0.60` —— 差异同样主要来自真实数据文字。
+> 累计已有 **26/55** 个场景拿到本轮口径下的 `layoutPercent` 实测（12 高值 + 6 + 8）。
+
 ### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）
 
 **口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；

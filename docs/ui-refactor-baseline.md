@@ -13800,3 +13800,27 @@ Augit 的"分支/推送/回滚/暂存"**对话框本体**。因此 `§1.6` 新�
 （时间、行数、编码等），布局并没有错。这条已写进 §1.5，作为文档里那条口径提醒的**实例**。
 
 `.gitignore` 同步加上 `!artifacts/pixel-review-20260921b/`（证据入库，1.5 MB / 18 个文件）。
+
+#### 第 430 轮：④ 第 3 批（8 个场景）—— 24 个带读数里 titlebar/statusbar 全 0.00
+
+| 场景 | titlebar | statusbar | content `layoutPercent` |
+| --- | ---: | ---: | ---: |
+| `conflict-resolver` | 0.00 | 0.00 | 0.00 |
+| `commit-empty` | 0.00 | 0.00 | 0.00 |
+| `image-preview` | 0.00 | 0.00 | 0.01 |
+| `commit-changes` | 0.00 | 0.00 | 0.26 |
+| `operation-result` | 0.00 | 0.00 | 0.28 |
+| `git-unavailable` | 0.00 | 0.00 | 0.51 |
+| `text-viewer` | 0.00 | 0.00 | 0.60 |
+| `json-preview` | 0.00 | 0.00 | 1.19 |
+
+**结论**：8 场景 × 3 带 = 24 个读数，**titlebar/statusbar 全部 0.00**（布局一致），content 最高 **1.19**，无整页错位。
+
+**`visiblePercent` 陷阱第二例**：`text-viewer` 在 `compare-pixels.ps1` 自报 `failures=1 / PIXELS_DIFFER`，
+而 `compare-pixels.py` 的 `layoutPercent=0.60` —— 差异同样主要来自**真实数据文字**。
+（第一例是第 429 轮的 `quick-open-empty`：visiblePercent 16.44 FAIL vs layoutPercent 0.00。）
+两例都写进 §1.5，作为"**判据是 layoutPercent，不是 visiblePercent**"的实证。
+
+**④ 进度**：累计 **26/55** 个场景已有本轮口径（`layoutPercent`）的实测证据（12 高值 + 6 + 8）。
+剩下的部分（尤其 `history-diff-*`、`operation-progress`、`stash-*`、`remote`、`clone`、`repository-init`
+等需要特定仓库状态或交互的场景）按需继续，不为了凑数跑全量矩阵。
