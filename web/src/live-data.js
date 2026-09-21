@@ -1258,6 +1258,10 @@ async function openChangeDiff(path, options = {}) {
     stale = !comparisonStillCurrent(tab, generation);
     if (stale || !diff) return;
     succeeded = true;
+    // 规格 §7.8：重试**成功后必须清掉上一次的失败状态与说明**，否则"可重试"重试成功了界面上仍写着失败
+    //（第 131 轮实测：`afterRetry` 里 diff 已装载，但 `diffError` 与说明还在）。
+    if (live) live.diffError = null;
+    renderDiffErrorNotice();
     // 复用同一个标签时同步文字，否则标签会一直显示第一次打开的文件名。
     syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
     if (activate) activateComparisonTab(tab);
@@ -1272,11 +1276,41 @@ async function openChangeDiff(path, options = {}) {
     // 规格 §7.8 要求"失败与取消**保留标签可重试**"，与此处行为**相反**（见 §3.2 #35）。
     // 第 128/129 两轮都**没能触发真实的 diff 失败**（注入的失败旋钮没被应用采用，原因待查），
     // 因此按纪律**不发布未验证的行为改动**，维持原行为。
-    // 规格 §7.8 要求"失败与取消**保留标签可重试**"，与此处行为**相反**（见 §3.2 #35）。
-    // 第 128/129/130 三轮都没能触发真实的 diff 失败（该场景的改动行点击**根本不发查询**），
-    // 按纪律**不发布未验证的行为改动**，维持原行为。
-    if (!stale && !succeeded) closeTab(tab.id);
+    // 规格 §7.8：「**失败与取消保留标签可重试**」——第 131 轮按规格改为**保留标签**并给出失败说明，
+    // 并在 `diff-boundary`（工作区 Diff）场景用 `window.__failAllDiffs` **稳定触发**后验证。
+    if (!stale && !succeeded) {
+      const liveNow = window.__augitLive;
+      if (liveNow) {
+        liveNow.diffLoading = false;
+        liveNow.diffError = { path, reason: window.__augitError || "读取差异失败" };
+      }
+      renderDiffErrorNotice();
+      refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+    }
   }
+}
+
+/**
+ * 失败的比较**保留标签**后的说明与重试提示（规格 §7.8）。挂在 `rebindAfterRender()` 上重贴：
+ * 说明所在区域会被后续刷新重绘（第 128 轮两次直接注入都被覆盖）。
+ */
+function renderDiffErrorNotice() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".editor-area .editor-content, .editor-area");
+  if (!host) return;
+  const existing = document.querySelector("[data-augit-diff-error]");
+  if (!live || !live.diffError) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) return;
+  const notice = document.createElement("div");
+  notice.className = "comparison-notice diff-status-notice";
+  notice.setAttribute("role", "status");
+  notice.setAttribute("data-augit-diff-error", String(live.diffError.path || ""));
+  notice.textContent = "无法读取 " + String(live.diffError.path || "")
+    + " 的差异：" + String(live.diffError.reason || "读取差异失败") + "。可再次双击该文件重试。";
+  host.insertBefore(notice, host.firstChild);
 }
 
 /** 取得或建立唯一的比较标签；已存在则复用。 */
@@ -3370,6 +3404,7 @@ function rebindAfterRender() {
   bindGlobalShortcuts();
   bindModalBackground();
   labelFileHistoryClearEntry();
+  renderDiffErrorNotice();
   applyWhitespaceMarkers();
   ensureComparisonReadonlyMarker();
   applyDisplayOptionMarkers();
@@ -4902,8 +4937,16 @@ async function compareWithWorkspace() {
     refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
     if (!stale) clearDiffLoadingMarker();
-    // 同上：规格要求保留标签可重试，但与实现相反，未验证前不改（§3.2 #35）。
-    if (!stale && !succeeded) closeTab(tab.id);
+    // 规格 §7.8：失败的比较**保留标签可重试**（与 openChangeDiff 同一口径）。
+    if (!stale && !succeeded) {
+      const liveNow = window.__augitLive;
+      if (liveNow) {
+        liveNow.diffLoading = false;
+        liveNow.diffError = { path: target.path, reason: window.__augitError || "读取差异失败" };
+      }
+      renderDiffErrorNotice();
+      refreshAfterEvent("editorContent", "editorTabs", "statusbar");
+    }
   }
 }
 

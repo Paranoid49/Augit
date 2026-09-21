@@ -10609,6 +10609,53 @@ async function main() {
         && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' 个文件'
         && diffFiles.afterNext.selected === diffFiles.files[1]);
 
+    // ---- 第 131 轮补断言（收 §3.2 #35）：§7.8「**失败**保留标签、给出说明、可重试」----
+    // 场景选 **`diff-boundary`（工作区 Diff）**：那里双击改动行会走 `openChangeDiff` → `loadDiff`，
+    // **真的发查询**（§7.9 的文件导航用例已证明）；配合桩的确定性旋钮 `window.__failAllDiffs` 即可稳定触发失败。
+    // （历史比较场景里行点击会复用已加载的 diff、不发查询，三轮都没触发到 —— 见 §3.2 #35。）
+    const failureRetry = await (async () => {
+      const scene = await openScene('scene=diff-boundary&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row[data-path]', { timeout: 15000 });
+      const paths = await scene.page.evaluate(() =>
+        [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path));
+      const read = () => scene.page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const notice = document.querySelector('[data-augit-diff-error]');
+        return {
+          tabs: (live.tabs || []).filter((t) => t.kind === 'comparison').length,
+          error: live.diffError ? String(live.diffError.path || '') : null,
+          notice: notice ? 1 : 0,
+          noticeText: notice ? notice.textContent : null,
+          diffPath: live.diff ? live.diff.path : null,
+        };
+      });
+      const before = await read();
+      // ① 注入确定性失败 → 双击第一行 ⇒ 失败分支必须执行：**标签保留 + 说明可见**
+      await scene.page.evaluate(() => { window.__failAllDiffs = true; });
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForTimeout(1600);
+      const afterFailure = await read();
+      // ② 清除注入 → 再双击同一行 ⇒ **重试成功**、说明消失
+      await scene.page.evaluate(() => { window.__failAllDiffs = false; });
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForTimeout(1600);
+      const afterRetry = await read();
+      await scene.page.close();
+      return { paths, before, afterFailure, afterRetry };
+    })();
+    console.log('INFO 失败重试(工作区Diff)=' + JSON.stringify(failureRetry));
+    check('§7.8 失败的比较保留标签、给出说明、可重试: ' + JSON.stringify(failureRetry),
+      failureRetry.paths.length >= 1 && failureRetry.before.error === null
+        && failureRetry.afterFailure.tabs >= 1
+        && typeof failureRetry.afterFailure.error === 'string' && failureRetry.afterFailure.error.length > 0
+        && failureRetry.afterFailure.notice === 1
+        && typeof failureRetry.afterFailure.noticeText === 'string'
+        && failureRetry.afterFailure.noticeText.includes('重试')
+        && failureRetry.afterRetry.error === null
+        && failureRetry.afterRetry.notice === 0
+        && failureRetry.afterRetry.diffPath === failureRetry.paths[0]);
+
     // ---- 第 117 轮补断言：**`--diff` 启动路径**（真实工作区 Diff）也要有文件导航与计数 ----
     // `live-data.js` 的启动参数里有 `query.get("diff")`，其分支会置 `live.workspaceDiff = true` 再 `loadDiff`。
     // 前面的用例是**显式置位**该标志造出来的状态；这里走的是**应用的启动路径**（等价于 `--diff <path>`），
