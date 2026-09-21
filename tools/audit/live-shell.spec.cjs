@@ -335,6 +335,8 @@ async function main() {
       }
       if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
       if (method === 'git/diff') {
+        // 第 130 轮：**确定性**失败注入（不必猜应用查哪条路径）——验证"失败保留标签可重试"用。
+        if (window.__failAllDiffs) return { available: false, reason: '读取失败（注入）' };
         if (window.__malformed) return { available: true, path: 'src/App.cs', status: 'Ready' };  // 缺 rows
         // 记录必须发生在注入延迟**之前**：__diffCalls 表示"请求已发出"，
         // 若先延迟再记录，观察者看到调用时响应已经返回，就无法判断请求是否仍在途中
