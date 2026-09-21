@@ -10098,6 +10098,42 @@ async function main() {
       })();
       check('§7.16 「在外部终端打开」调用宿主 external/launch（action=terminal）: ' + JSON.stringify(externalFromMenu),
         externalFromMenu.calls.length >= 1);
+
+      // ---- 第 133 轮补断言：**生命周期**（打开 → Esc/选择 → 菜单关闭 + 焦点还原；设置关闭后回终端）----
+      // 既有断言只覆盖"入口能开、能进设置、能调宿主"，**没有**覆盖"用完怎么收"。
+      const menuLifecycle = await (async () => {
+        const snapshot = () => termMore.page.evaluate(() => ({
+          menu: document.querySelectorAll('[data-terminal-more]').length,
+          active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+        }));
+        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.waitForTimeout(400);
+        const opened = await snapshot();
+        await termMore.page.keyboard.press('Escape');
+        await termMore.page.waitForTimeout(400);
+        const afterEsc = await snapshot();
+        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.waitForTimeout(400);
+        await termMore.page.locator('[data-terminal-more="settings"]').click();
+        await termMore.page.waitForTimeout(700);
+        const afterChoose = await snapshot();
+        await termMore.page.keyboard.press('Escape');
+        await termMore.page.waitForTimeout(500);
+        const afterCloseDialog = await termMore.page.evaluate(() => ({
+          dialog: !!document.querySelector('.settings-layout, .settings-window'),
+          terminal: !!document.querySelector('.terminal-tool, .terminal-header'),
+        }));
+        return { opened, afterEsc, afterChoose, afterCloseDialog };
+      })();
+      console.log('INFO 终端菜单生命周期=' + JSON.stringify(menuLifecycle));
+      check('§7.16 终端「更多操作」生命周期：Esc 关闭并还原焦点、选择后关闭、设置关闭后回终端: '
+        + JSON.stringify(menuLifecycle),
+        menuLifecycle.opened.menu === 2                 // 非平凡前置：确实有两条入口
+          && menuLifecycle.afterEsc.menu === 0
+          && menuLifecycle.afterEsc.active === '更多操作'
+          && menuLifecycle.afterChoose.menu === 0
+          && menuLifecycle.afterCloseDialog.dialog === false
+          && menuLifecycle.afterCloseDialog.terminal === true);
       await termMore.page.close();
 
       return { entries, afterToggle, blameHeader, closedByEnter, more };
