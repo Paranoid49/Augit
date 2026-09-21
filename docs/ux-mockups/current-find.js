@@ -126,7 +126,21 @@ function bindCurrentFind() {
       if (matches.length) select(false, preservePosition);
       for (const backwards of queue.splice(0)) select(backwards);
     };
-    if (!options.regex) { accept(computeMatches(request)); return; }
+    if (!options.regex) {
+      // **同步路径**（非正则）也要有同一个测试注入点：小文档走的就是这条，
+      // 只给 Worker 路径加延迟时"在途窗口"根本不存在（第 127 轮第二次跑因此得到 `status: "1/2"`）。
+      const injectableSync = Number(window.__augitFindResultDelay || 0) || 0;
+      if (injectableSync > 0) {
+        const token = generation;
+        setTimeout(() => {
+          // 延迟期间用户可能已经开始组词（`compositionstart` 会抬 `generation`）⇒ 必须重新校验。
+          if (generation === token) accept(computeMatches(request));
+        }, injectableSync);
+        return;
+      }
+      accept(computeMatches(request));
+      return;
+    }
     // 正则可能长时间运行，专用 Worker 在超时、换查询或关闭时终止。
     busy = true;
     const version = generation;
@@ -134,7 +148,7 @@ function bindCurrentFind() {
       `const compute=${computeMatches.toString()};onmessage=event=>{try{postMessage({matches:compute(event.data)})}catch{postMessage({error:true})}};postMessage({ready:true});`
     ], { type: 'text/javascript' }));
     worker = new Worker(workerUrl);
-    worker.onmessage = event => {
+    worker.onmessage = async event => {
       if (generation !== version) return;
       if (event.data.ready) {
         // 250ms 从 Worker 就绪后开始，避免把进程调度和启动时间误报成正则超时。
@@ -146,7 +160,18 @@ function bindCurrentFind() {
       const pending = queue;
       stop(); queue = pending;
       if (event.data.error) { queue = []; completed = true; status('正则表达式无效'); }
-      else accept(event.data.matches);
+      else {
+        // 测试可注入的**结果延迟**：让"查询在途"窗口可观测（规格 §7.2：组词开始必须使未完成查询失效）。
+        // 生产环境 `window.__augitFindResultDelay` 为空 ⇒ 不产生额外延迟。
+        const injectable = Number(window.__augitFindResultDelay || 0) || 0;
+        if (injectable > 0) {
+          await new Promise((resolve) => setTimeout(resolve, injectable));
+          // `await` 之后**必须重新校验**：这期间用户可能已经开始组词（`compositionstart` 会抬 generation），
+          // 晚到的结果绝不能落到界面上 —— 这正是本延迟要验证的那条规格。
+          if (generation !== version) return;
+        }
+        accept(event.data.matches);
+      }
     };
     worker.onerror = () => { if (generation === version) { stop(); completed = true; status('查找失败'); } };
     progress = setTimeout(() => { if (generation === version) status('正在搜索…'); }, 150);

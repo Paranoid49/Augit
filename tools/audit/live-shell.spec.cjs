@@ -7429,6 +7429,75 @@ async function main() {
         && imeProbe.duringComposition.status === '');
     check('§7.2 组词结束后按最终文字重新统计: ' + JSON.stringify(imeProbe.afterComposition),
       imeProbe.afterComposition.status.length > 0);
+
+    // ---- 第 127 轮补断言（收 §3.2 #33）：**组词开始使未完成查询失效** ----
+    // 查找条用 Web Worker 搜索，小文档里在途窗口短到不可观测 ⇒ 本轮给 `current-find.js` 加了
+    // **测试可注入的结果延迟** `window.__augitFindResultDelay`（生产为空、无开销），
+    // 并在 `await` 之后**重新校验 generation**。判据配一条**对照组**：同样的延迟下不组词，结果应当照常出现。
+    const pendingQuery = await (async () => {
+      // **自开场景**：这里的作用域里 `page` 是外层变量（不是本块的 scene），
+      // 第 127 轮第一次跑就是因此抛 `Cannot read properties of undefined (reading 'evaluate')`。
+      const scene = await openScene('scene=text-viewer&theme=dark');
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      const read = () => scene.page.evaluate(() => {
+        const bar = document.querySelector('.current-find');
+        const status = bar ? bar.querySelector('.find-status') : null;
+        const input = bar ? bar.querySelector('.search-field') : null;
+        return {
+          status: status ? status.textContent.trim() : null,
+          value: input ? input.value : null,
+          marks: document.querySelectorAll('.current-find ~ * .find-hit, .find-highlight').length,
+        };
+      });
+      const type = async (text) => {
+        await scene.page.evaluate((value) => {
+          const input = document.querySelector('.current-find .search-field');
+          input.focus();
+          input.value = value;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }, text);
+      };
+      // ① 对照组：有延迟、不组词 ⇒ 结果照常出现
+      await scene.page.evaluate(() => { window.__augitFindResultDelay = 500; });
+      await type('using');
+      await scene.page.waitForTimeout(900);
+      const control = await read();
+      // ② 实验组：有延迟、**在途期间组词** ⇒ 晚到结果必须被丢弃（状态保持为空）
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(300);
+      await type('class');
+      await scene.page.waitForTimeout(120);
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(1100);
+      const duringComposition = await read();
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'class' }));
+        window.__augitFindResultDelay = 0;
+      });
+      await scene.page.waitForTimeout(700);
+      const afterComposition = await read();
+      await scene.page.close();
+      return { control, duringComposition, afterComposition };
+    })();
+    console.log('INFO 在途查询与组词=' + JSON.stringify(pendingQuery));
+    check('§7.2 组词开始使未完成查询失效（含对照组）: ' + JSON.stringify(pendingQuery),
+      // 对照：延迟生效且结果确实出现（否则"没出现"说明不了任何事）
+      pendingQuery.control.status !== null && pendingQuery.control.status.length > 0
+        && pendingQuery.control.value === 'using'
+        // 实验：在途期间组词 ⇒ 晚到结果被丢弃
+        && pendingQuery.duringComposition.status === ''
+        && pendingQuery.duringComposition.value === 'class'
+        // 组词结束、复用了已完成结果或重新查询 ⇒ 状态重新出现
+        && pendingQuery.afterComposition.status.length > 0);
     // ---- §7.2（5）：文档工具栏按画面从左到右参与 Tab，禁用与纯文字项不参与；切换显示选项保留按钮焦点 ----
     const toolbarTab = await (async () => {
       const page = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');

@@ -14828,3 +14828,26 @@ pending 状态；要验它得先给桩加"延迟应答"的路径。**不写成�
 
 **这一轮最值得记的**：**"我没能观测到 X" 与 "X 没发生" 是两件事**；
 判断前者要检查**观测手段是否作用于同一路径**（钩子不设标记、点击会重渲染、变量作用域跨不过 `evaluate`）。
+
+#### 第 479 轮：**§3.2 #33 闭环** —— 让"在途查询"成为可观测（`live-shell` 1066 → 1067/1067）
+
+**先读实现再动手**：失效机制**本来就有** —— `current-find.js` 的 `compositionstart` 处理器调用 `stop()`
+（抬 `generation`），晚到的结果被 `if (generation !== version) return;` 拦下 ✓。
+真正缺的是**可观测的在途窗口**：小文档下搜索是**同步**完成的。
+
+**实现**（共享资产 `current-find.js`，两副本字节一致 + `verify-ui-assets` PASS）：
+加**测试可注入的结果延迟** `window.__augitFindResultDelay`（生产为空 ⇒ 无开销），
+并在**两条路径**上都放注入点、且都在延迟后**重新校验 `generation`**：
+1. 非正则的**同步路径**（`if (!options.regex) { accept(computeMatches(request)); return; }`）；
+2. 正则的 **Worker 路径**（`worker.onmessage` 里 `accept` 之前）。
+> 第一次只加了 Worker 路径 ⇒ 小文档走同步路径，在途窗口根本不存在（实测 `duringComposition.status === "1/2"`）。
+
+**验证（含对照组，判据有鉴别力）**：
+`control{status:"1/10", value:"using"}`（有延迟、不组词 ⇒ 结果照常出现）→
+`duringComposition{status:"", value:"class"}`（**在途期间组词 ⇒ 晚到结果被丢弃** ✓）→
+`afterComposition{status:"1/2"}`（组词结束重新查询 ✓）。
+⇒ `live-shell` **1066 → 1067/1067**；§3.2 **#33 关闭**；§2 该行 **部分 → 是**（四半齐）；§0 同步。
+
+**方法学**：当"行为无法观测"时，除了怀疑实现，还要**检查观测手段是否覆盖了全部代码路径** ——
+这一轮和上一轮（`__augitLoadDiff` 不设加载标记）是同一个坑的两面。
+**给共享资产加"仅测试用"的注入点**时，务必①生产默认零开销、②两条路径都覆盖、③**注入延迟后重新校验防陈旧结果的令牌**（否则注入点本身会掩盖要验证的行为）。
