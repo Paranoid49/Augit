@@ -1269,12 +1269,11 @@ async function openChangeDiff(path, options = {}) {
   } finally {
     // 已经失效的收尾不能清加载提示：那会把后来那次请求的提示一起清掉。
     if (!stale) clearDiffLoadingMarker();
-    // 读取失败时不留一个打不开的比较标签：提前建标签是为了让加载视图有着落，
-    // 失败后必须如实撤销，否则界面上会留下一个空标签。
-    // **注意**：规格 §7.8 写的是"失败与取消**保留标签可重试**"，与此处行为**相反**；
-    // 第 128 轮想改成"保留"但**没能触发真实的失败路径**（注入的假行点击进不了应用处理器），
-    // 无法验证 ⇒ 按纪律**不发布未验证的行为改动**，维持原行为并把冲突记入 §3.2 #35。
-    if (!stale && !succeeded) closeTab(tab.id);  }
+    // 规格 §7.8 要求"失败与取消**保留标签可重试**"，与此处行为**相反**（见 §3.2 #35）。
+    // 第 128/129 两轮都**没能触发真实的 diff 失败**（注入的失败旋钮没被应用采用，原因待查），
+    // 因此按纪律**不发布未验证的行为改动**，维持原行为。
+    if (!stale && !succeeded) closeTab(tab.id);
+  }
 }
 
 /** 取得或建立唯一的比较标签；已存在则复用。 */
@@ -4900,7 +4899,7 @@ async function compareWithWorkspace() {
     refreshAfterEvent("editorContent", "editorTabs", "statusbar");
   } finally {
     if (!stale) clearDiffLoadingMarker();
-    // 读取失败时不留下一个打不开的比较标签。
+    // 同上：规格要求保留标签可重试，但与实现相反，未验证前不改（§3.2 #35）。
     if (!stale && !succeeded) closeTab(tab.id);
   }
 }

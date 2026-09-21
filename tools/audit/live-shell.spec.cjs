@@ -346,6 +346,10 @@ async function main() {
         // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
         // 延迟必须作用于**所有**返回分支：否则注入的最终状态会立即返回，
         // 加载窗口不存在，"加载提示收尾不隐藏最终说明"就无从验证。
+        // 第 129 轮：按**真实路径**注入 diff 失败（规格 §7.8「失败保留标签可重试」需要真失败才能验证）。
+        if ((window.__failDiffPaths || []).includes(params.path)) {
+          return { available: false, reason: '读取失败（注入）' };
+        }
         const diffDelay = (window.__diffDelays || {})[params.path];
         if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
         // 支持注入"最终说明"类结果（规格 §6.5：二进制、超限、无文本差异和错误的
