@@ -1271,8 +1271,10 @@ async function openChangeDiff(path, options = {}) {
     if (!stale) clearDiffLoadingMarker();
     // 读取失败时不留一个打不开的比较标签：提前建标签是为了让加载视图有着落，
     // 失败后必须如实撤销，否则界面上会留下一个空标签。
-    if (!stale && !succeeded) closeTab(tab.id);
-  }
+    // **注意**：规格 §7.8 写的是"失败与取消**保留标签可重试**"，与此处行为**相反**；
+    // 第 128 轮想改成"保留"但**没能触发真实的失败路径**（注入的假行点击进不了应用处理器），
+    // 无法验证 ⇒ 按纪律**不发布未验证的行为改动**，维持原行为并把冲突记入 §3.2 #35。
+    if (!stale && !succeeded) closeTab(tab.id);  }
 }
 
 /** 取得或建立唯一的比较标签；已存在则复用。 */
@@ -7609,6 +7611,19 @@ async function refreshCommitDetails() {
  * 读取单个提交的详情并填入底部日志的详情区。
  * 提交选择由 mockup 的既有绑定派发 history-commit-selected 事件触发。
  */
+// 规格 §7.8：「超 150ms 显示局部加载与"取消比较"」——加载态的"取消比较"入口。
+// 语义要点（同条规格的后半）：**失败与取消都保留标签可重试** ⇒ 只作废在途请求与加载态，**不关标签**。
+document.addEventListener("click", (event) => {
+  const cancel = event.target.closest && event.target.closest('[aria-label="取消比较"]');
+  if (!cancel) return;
+  event.preventDefault();
+  const live = window.__augitLive;
+  comparisonGeneration += 1;          // 在途请求的收尾据此失效（同一套代际机制）
+  clearDiffLoadingMarker();
+  if (live) live.diffLoading = false;
+  refresh("editorContent", "editorTabs");
+}, true);
+
 // 规格 §7.8：读盘期间按 End 只**记录"定位末尾"的意图**，等完整排版结束后再执行。
 document.addEventListener("keydown", (event) => {
   if (event.key !== "End") return;

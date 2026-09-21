@@ -7884,6 +7884,65 @@ async function main() {
       return { before, after };
     })();
     console.log('INFO 比较完成不抢焦点=' + JSON.stringify(noRefocus));
+    // ---- 第 128 轮补断言：§7.8「超 150ms 显示局部加载与"取消比较"；**短查询不闪现**；取消后保留标签可重试」----
+    // 实现侧已埋好时间戳（`__augitLoadingMarkerScheduledAt/ShownAt`，注释明确"供验收核对 150ms 阈值"），
+    // 因此**不用"等固定时长再取样"**这种依赖时序的判据。
+    const loadingThreshold = await (async () => {
+      const read = () => hc.page.evaluate(() => ({
+        scheduledAt: window.__augitLoadingMarkerScheduledAt || null,
+        shownAt: window.__augitLoadingMarkerShownAt || null,
+        loading: !!window.__augitLive.diffLoading,
+        cancelEntry: document.querySelectorAll('[aria-label="取消比较"]').length,
+        tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+      }));
+      // ① **短查询不闪现**：延迟 40ms（< 150ms 阈值）⇒ 加载标记**从未**出现
+      await hc.page.evaluate(() => {
+        window.__augitLoadingMarkerShownAt = undefined;
+        window.__diffDelays = { 'src/App.cs': 40 };
+      });
+      await hc.page.locator('[data-live-changed-files] [data-history-path]').first().click();
+      await hc.page.waitForTimeout(900);
+      const short = await read();
+      // ② **超 150ms 才显示**：延迟 700ms ⇒ 出现，且 shown - scheduled ≥ 150ms
+      await hc.page.evaluate(() => {
+        window.__augitLoadingMarkerShownAt = undefined;
+        window.__augitLoadingMarkerScheduledAt = undefined;
+        window.__diffDelays = { 'src/App.cs': 700 };
+      });
+      await hc.page.locator('[data-live-changed-files] [data-history-path]').nth(1).click();
+      let duringLoad = { cancelEntry: 0 };
+      for (let i = 0; i < 16; i += 1) {
+        await hc.page.waitForTimeout(80);
+        duringLoad = await read();
+        if (duringLoad.loading) break;
+      }
+      // ③ **取消比较可重试**：加载中点取消 ⇒ 加载态结束、**标签保留**
+      let afterCancel = null;
+      if (duringLoad.cancelEntry > 0) {
+        await hc.page.locator('[aria-label="取消比较"]').first().click();
+        await hc.page.waitForTimeout(500);
+        afterCancel = await read();
+      }
+      await hc.page.waitForTimeout(900);
+      const long = await read();
+      await hc.page.evaluate(() => { window.__diffDelays = 0; });
+      return { short, duringLoad, afterCancel, long };
+    })();
+    console.log('INFO 加载阈值与取消=' + JSON.stringify(loadingThreshold));
+    check('§7.8 短查询不闪现、超 150ms 显示加载与"取消比较"、取消后标签保留: '
+      + JSON.stringify(loadingThreshold),
+      // ① 短查询：标记从未出现
+      loadingThreshold.short.shownAt === null
+        // ② 长查询：出现且阈值 ≥150ms，加载期间可见"取消比较"
+        && typeof loadingThreshold.long.shownAt === 'number'
+        && typeof loadingThreshold.long.scheduledAt === 'number'
+        && loadingThreshold.long.shownAt - loadingThreshold.long.scheduledAt >= 150
+        && loadingThreshold.duringLoad.loading === true && loadingThreshold.duringLoad.cancelEntry > 0
+        // ③ 取消后：加载态结束、标签仍在（可重试）、取消入口随加载态消失
+        && loadingThreshold.afterCancel !== null
+        && loadingThreshold.afterCancel.loading === false
+        && loadingThreshold.afterCancel.tabs >= 1);
+
     check('§7.8 历史比较查询完成只填正文、不抢焦点: ' + JSON.stringify(noRefocus),
       // **非平凡前置**：装载期间焦点确实在搜索按钮上、且确实处于加载态。
       noRefocus.before.focus === '搜索' && noRefocus.before.loading === true
