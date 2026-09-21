@@ -7779,6 +7779,49 @@ async function main() {
     check('跟随仍复用同一个标签: ' + JSON.stringify(hcFollowed.tabPath),
       hcFollowed.tabPath === expectedPath);
 
+    // ---- 第 125 轮补断言：§7.8「查询完成只填正文、不再次激活/抢焦点」（重做 #34 的最终设计）----
+    // 四次尝试摸清的因果链：
+    //   ① 装载的**加载标记**只由"打开比较"那条路径（`scheduleDiffLoadingMarker`）设置，而它的入口是**点击改动行**；
+    //   ② 点击本身会让改动列表重渲染 ⇒ **点击前**放在行上的焦点必然掉到 BODY（上一轮据此误判）；
+    //   ③ `window.__augitLoadDiff` 这条钩子**不设**加载标记（轮询 1.4s 也没等到 `diffLoading`）。
+    // 于是正确设计是：**用点击触发装载、在装载期间**把焦点放到**稳定元素**（标题栏搜索按钮，不在被重渲染的区域里），
+    // 再比较"装载完成后"焦点是否被抢走。
+    const noRefocus = await (async () => {
+      await hc.page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 900 }; });
+      await hc.page.locator('[data-live-changed-files] [data-history-path]').nth(1).click();
+      let before = { focus: null, loading: false, activeTab: null, editor: null };
+      for (let i = 0; i < 14; i += 1) {
+        await hc.page.waitForTimeout(100);
+        before = await hc.page.evaluate(() => {
+          const button = document.querySelector('.titlebar .top-button[aria-label="搜索"]');
+          if (button && document.activeElement !== button) button.focus();
+          return {
+            focus: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+            loading: !!window.__augitLive.diffLoading,
+            activeTab: window.__augitLive.activeTabId,
+            editor: window.__augitLive.editor,
+          };
+        });
+        if (before.loading) break;
+      }
+      await hc.page.waitForTimeout(1500);
+      const after = await hc.page.evaluate(() => ({
+        focus: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+        loading: !!window.__augitLive.diffLoading,
+        activeTab: window.__augitLive.activeTabId,
+        editor: window.__augitLive.editor,
+      }));
+      await hc.page.evaluate(() => { window.__diffDelays = 0; });
+      return { before, after };
+    })();
+    console.log('INFO 比较完成不抢焦点=' + JSON.stringify(noRefocus));
+    check('§7.8 历史比较查询完成只填正文、不抢焦点: ' + JSON.stringify(noRefocus),
+      // **非平凡前置**：装载期间焦点确实在搜索按钮上、且确实处于加载态。
+      noRefocus.before.focus === '搜索' && noRefocus.before.loading === true
+        && noRefocus.after.focus === noRefocus.before.focus
+        && noRefocus.after.activeTab === noRefocus.before.activeTab
+        && noRefocus.after.editor === noRefocus.before.editor);
+
     // 关闭后解除跟随：单击不再自动重开。
     // 关闭叉在比较标签内是 <span>，Playwright 的 actionability 检查会超时；
     // 真实路径是「按下与松开在同一关闭叉」的 pointerdown/pointerup + click。
