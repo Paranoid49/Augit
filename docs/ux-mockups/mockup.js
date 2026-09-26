@@ -5239,7 +5239,13 @@ function bindDiffModes(root = document) {
         window.__augitLoadDiffMode(unified ? "unified" : "side-by-side");
       }
     }));
-    update(new URLSearchParams(window.location.search).get("diffMode") === "unified");
+    // 实时外壳下显示模式是**会话状态**（`live.diffMode`，由 `loadDiff()`／`switchDiffMode()` 维护）：
+    // 正文重绘会换掉整个布局元素，不再按状态回填的话，切到单栏后一次刷新就退回双栏（第 224 轮修正）。
+    // 这里只改 DOM、不回调宿主（回调只在点击监听器里），所以不会与重绘互相触发。
+    const liveMode = window.__augitLive && window.__augitLive.diffMode;
+    update(liveMode
+      ? liveMode === "unified"
+      : new URLSearchParams(window.location.search).get("diffMode") === "unified");
   });
 }
 

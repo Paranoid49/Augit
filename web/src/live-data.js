@@ -4275,7 +4275,14 @@ function refresh(...regions) {
 function diffChangeBlocks() {
   const root = document.querySelector(".diff-layout, .document-view");
   if (!root) return [];
-  const lines = [...root.querySelectorAll(".diff-code-line")];
+  // 规格 `ux-spec.md:441`「差异数量按连续变更块计算」：双栏视图里**每一栏都是同一份变更块的
+  // 完整行列表**（`.diff-side` 各含全部行），按整份 DOM 计块会把每一处差异算两次 ——
+  // `data-diff-total` 因此是规格口径的两倍，按同方向要按两倍次才走完（第 224 轮修正）。
+  // 只按**一栏**计块：取后一栏（`mockup.js` 里它是"当前版本"侧）；单栏模式下 `.diff-side`
+  // 被统一行列表替换掉，此时容器本身就是唯一一份行列表。
+  const sides = root.querySelectorAll(".diff-columns > .diff-side");
+  const container = sides.length ? sides[sides.length - 1] : root;
+  const lines = [...container.querySelectorAll(".diff-code-line")];
   // 「同一次替换的删除行与新增行属于同一处差异」：解析器把成对的删/增合成一行 `Modified`
   // （`GitUnifiedDiffParser.AppendChangedRows`），界面给它的类名是 `changed`
   // （`mockup.js` 的 `cssKind()`），所以块判据必须同时认 `added`／`removed`／`changed`／冲突行，
@@ -4339,27 +4346,29 @@ function applyDiffBoundaryHint() {
 function moveDiffChange(direction) {
   const blocks = diffChangeBlocks();
   if (!blocks.length) return null;
-  const scroller = diffScrollableAncestor(blocks[0].first);
+  // 导航状态（当前块索引/总数）挂在**布局根**上：每次正文重绘都会换一个新的 `.diff-layout`，
+  // 内容变了就自然回到"首次点击"（规格 `ux-spec.md:441`：首次点下一处定位第一块）。
+  // 此前挂在**滚动容器**上，而滚动容器会跨重绘存活 —— 切单双栏或换了文件之后，第一次点同方向
+  // 箭头会拿上一个内容的索引去判"已在边界"，从而**直接切到相邻文件**（第 224 轮修正）。
+  const root = document.querySelector(".diff-layout, .document-view");
+  const stateHost = root || diffScrollableAncestor(blocks[0].first);
   const total = blocks.length;
-  let index = Number(scroller.dataset.diffIndex);
-  if (!Number.isFinite(index)) index = direction > 0 ? -1 : total;
+  let index = Number(stateHost.dataset.diffIndex);
+  const hadIndex = Number.isFinite(index);
+  if (!hadIndex) index = direction > 0 ? -1 : total;
+  // 规格 `ux-spec.md:441`：到达当前文件**首/尾变更块**后再按**同方向**，第一次只显示
+  // "再次点击可进入上一个/下一个文件"，**再按同方向**才切换相邻文件（文件导航只属于工作区 Diff）。
+  // 「是否已在边界」必须用**点击前**的位置判断（第 224 轮修正）：否则"定位到首/尾块"的那一次点击
+  // 会立刻变成提示，违背"首次点击先定位"（`ux-spec.md:441` 的"首次点击上一处定位最后一块"）。
+  const wasAtEdge = hadIndex && (direction > 0 ? index === total - 1 : index === 0);
   index = Math.max(0, Math.min(total - 1, index + direction));
   // 先把夹住的索引写进 dataset（**要在边界分支之前**：边界分支会 return，若之后再写就读不到索引 ——
   // 第 116 轮第一次跑 `afterEnter: null` 就是这么来的）。
-  scroller.dataset.diffIndex = String(index);
-  scroller.dataset.diffTotal = String(total);
-  {
-    const rootForIndex = document.querySelector(".diff-layout, .document-view");
-    if (rootForIndex) {
-      rootForIndex.dataset.diffIndex = String(index);
-      rootForIndex.dataset.diffTotal = String(total);
-    }
-  }
+  stateHost.dataset.diffIndex = String(index);
+  stateHost.dataset.diffTotal = String(total);
   const live = window.__augitLive;
-  // 规格 `ux-spec.md:441`：到达当前文件**首/尾变更块**后再按**同方向**，第一次只显示
-  // "再次点击可进入上一个/下一个文件"，**再按同方向**才切换相邻文件（文件导航只属于工作区 Diff）。
   const atEdge = direction > 0 ? (index === total - 1) : (index === 0);
-  if (atEdge && live && live.workspaceDiff) {
+  if (wasAtEdge && atEdge && live && live.workspaceDiff) {
     const hint = live.diffBoundaryHint;
     if (!hint || hint.direction !== direction) {
       live.diffBoundaryHint = { direction };

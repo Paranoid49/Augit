@@ -533,8 +533,9 @@ async function main() {
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
-        // 第 223 轮：**纯修改型** Diff（解析器把成对的删/增合成一行 `Modified`，
-        // `GitUnifiedDiffParser.AppendChangedRows`）。用于验证「上一处/下一处差异」认 `changed` 类，
+        // 第 223／224 轮：**纯修改型** Diff（解析器把成对的删/增合成一行 `Modified`，
+        // `GitUnifiedDiffParser.AppendChangedRows`），两块之间用上下文字隔开 ——
+        // 用于验证「上一处/下一处差异」认 `changed` 类、按**连续变更块**计数（不按两栏算两次），
         // 以及行内词级高亮（`oldChanges`/`newChanges`）在两种主题下的取色。
         if (params.path === 'src/Modified.cs') {
           return {
@@ -544,6 +545,8 @@ async function main() {
               { oldLine: 1, oldText: '// keep', oldChanges: [], newLine: 1, newText: '// keep', newChanges: [], kind: 'Context' },
               { oldLine: 2, oldText: 'alpha beta', oldChanges: [{ start: 0, length: 5 }], newLine: 2, newText: 'alpha gamma', newChanges: [{ start: 6, length: 5 }], kind: 'Modified' },
               { oldLine: 3, oldText: '// tail', oldChanges: [], newLine: 3, newText: '// tail', newChanges: [], kind: 'Context' },
+              { oldLine: 4, oldText: 'delta one', oldChanges: [{ start: 6, length: 3 }], newLine: 4, newText: 'delta two', newChanges: [{ start: 6, length: 3 }], kind: 'Modified' },
+              { oldLine: 5, oldText: '// end', oldChanges: [], newLine: 5, newText: '// end', newChanges: [], kind: 'Context' },
             ],
           };
         }
@@ -12051,7 +12054,8 @@ async function main() {
           index: scroller && scroller.dataset ? scroller.dataset.diffIndex || null : null,
           total: scroller && scroller.dataset ? scroller.dataset.diffTotal || null : null,
           active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
-          blocks: document.querySelectorAll('.diff-code-line.added, .diff-code-line.removed').length,
+          // 变更**单元格**数（两栏各一份）：1 处替换 = 删+增两行 × 两栏 = 4。
+          changedCells: document.querySelectorAll('.diff-code-line.added, .diff-code-line.removed').length,
           hit: window.__diffNavHit || 0,
         };
       });
@@ -12070,11 +12074,13 @@ async function main() {
       return { initial, afterNext, afterNext2, afterPrev };
     })();
     check('§7.9 差异导航按连续变更块移动且保留按钮焦点: ' + JSON.stringify(diffNav),
-      // 该 diff 有 4 条变更行、按"连续变更块"合并为**2 处**（同一次替换的删除+新增算一处）——
-      // 这正是规格 §7.9 的口径；我第一版断言按"只有一处"写，才假失败。
-      diffNav.initial.blocks === 4
-        && diffNav.afterNext.index === '0' && diffNav.afterNext.total === '2'
-        && diffNav.afterNext2.index === '1'
+      // 该 diff 是**一次替换**（Removed + Added 相邻），按连续变更块就是**1 处**
+      // （`ux-spec.md:441`「同一次替换的删除行与新增行属于同一处差异」）。
+      // 第 116 轮这里记成"2 处"是**两栏各算一次**的产物（`diffChangeBlocks()` 当时扫整份 DOM），
+      // 第 224 轮改为只按一栏计块后回到规格口径：总数 1、`下一处`定位到 0、再按仍在 0。
+      diffNav.initial.changedCells === 4
+        && diffNav.afterNext.index === '0' && diffNav.afterNext.total === '1'
+        && diffNav.afterNext2.index === '0'
         && diffNav.afterPrev.index === '0'
         && diffNav.afterNext.active === '下一处差异'
         && diffNav.afterNext2.active === '下一处差异'
@@ -12089,10 +12095,12 @@ async function main() {
         const scene = await openScene(`scene=commit-diff&theme=${theme}&diff=src%2FModified.cs`);
         await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
         await scene.page.waitForSelector('.diff-columns .diff-code-line', { timeout: 10000 });
+        // 边界两段式只在**工作区 Diff** 内生效（文件导航是工作区 Diff 的能力）。
+        await scene.page.evaluate(() => { window.__augitLive.workspaceDiff = true; });
         const read = () => scene.page.evaluate(() => {
           const changed = document.querySelector('.diff-code-line.changed');
           const mark = changed ? changed.querySelector('mark') : null;
-          const scroller = document.querySelector('.diff-layout, .document-view');
+          const layout = document.querySelector('.diff-layout, .document-view');
           const style = mark ? getComputedStyle(mark) : null;
           return {
             changedLines: document.querySelectorAll('.diff-code-line.changed').length,
@@ -12102,35 +12110,54 @@ async function main() {
             lineColor: changed ? getComputedStyle(changed).color : null,
             currentTokens: ['--augit-diff-current-added', '--augit-diff-current-deleted', '--augit-diff-current-modified']
               .map((n) => getComputedStyle(document.body).getPropertyValue(n).trim()).join('|'),
-            total: scroller && scroller.dataset ? scroller.dataset.diffTotal || null : null,
-            index: scroller && scroller.dataset ? scroller.dataset.diffIndex || null : null,
+            total: layout && layout.dataset ? layout.dataset.diffTotal || null : null,
+            index: layout && layout.dataset ? layout.dataset.diffIndex || null : null,
+            hintSet: !!(window.__augitLive && window.__augitLive.diffBoundaryHint),
+            path: window.__augitLive && window.__augitLive.diff ? window.__augitLive.diff.path : null,
           };
         });
-        const before = await read();
+        const steps = [await read()];
+        for (let i = 0; i < 3; i += 1) {
+          await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+          await scene.page.waitForTimeout(400);
+          steps.push(await read());
+        }
+        // 规格 §7.7「单栏与双栏保持相同数量」：切到单栏后**重新**按当前 DOM 计块（`switchDiffMode`
+        // 会重绘正文，索引与总数都要重算），数量必须与双栏一致，而每处差异只占一行。
+        await scene.page.locator('.diff-toolbar .segmented [aria-label="单栏"]').click();
+        await scene.page.waitForTimeout(900);
         await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
         await scene.page.waitForTimeout(400);
-        const navigated = await read();
+        steps.push(await read());
         await scene.page.close();
-        return { before, navigated };
+        return steps;
       };
       const dark = await readScene('dark');
       const light = await readScene('light');
       console.log('INFO 行内词级高亮=' + JSON.stringify({ dark, light }));
       return { dark, light };
     })();
-    check('第 223 轮 行内词级高亮取权威 DIFF_*.BACKGROUND 且两主题可辨: ' + JSON.stringify(inlineDiff),
-      inlineDiff.dark.before.changedLines === 2 && inlineDiff.dark.before.marks === 2
-        && inlineDiff.dark.before.markBg === 'rgb(56, 85, 112)'   // DIFF_MODIFIED.BACKGROUND #385570
-        && inlineDiff.dark.before.markColor === inlineDiff.dark.before.lineColor  // 保留语法色，不是 UA 默认黑字
-        && inlineDiff.light.before.markBg === 'rgb(194, 216, 242)' // expUI_lightScheme #c2d8f2
-        && inlineDiff.light.before.markBg !== inlineDiff.dark.before.markBg);
-    check('第 223 轮 纯修改型 Diff 的 changed 行可被差异导航定位、且 .diff-current 层已删除: '
-      + JSON.stringify({ dark: inlineDiff.dark.navigated, light: inlineDiff.light.navigated }),
-      // 修复前 `diffChangeBlocks` 只认 added/removed，纯修改型 Diff 一处差异都定位不到（index/total 全空）。
-      inlineDiff.dark.navigated.index === '0' && Number(inlineDiff.dark.navigated.total) >= 1
-        && inlineDiff.light.navigated.index === '0'
+    check('第 223／224 轮 行内词级高亮取权威 DIFF_*.BACKGROUND 且两主题可辨: ' + JSON.stringify(inlineDiff),
+      // 桩里两个 `Modified` 行 × 两栏 = 4 个 `.changed` 行、各带一个 `<mark>`。
+      inlineDiff.dark[0].changedLines === 4 && inlineDiff.dark[0].marks === 4
+        && inlineDiff.dark[0].markBg === 'rgb(56, 85, 112)'   // DIFF_MODIFIED.BACKGROUND #385570
+        && inlineDiff.dark[0].markColor === inlineDiff.dark[0].lineColor  // 保留语法色，不是 UA 默认黑字
+        && inlineDiff.light[0].markBg === 'rgb(194, 216, 242)' // expUI_lightScheme #c2d8f2
+        && inlineDiff.light[0].markBg !== inlineDiff.dark[0].markBg);
+    check('第 223／224 轮 差异按连续变更块计数、两段式边界用点击前位置判断、且 .diff-current 层已删除: '
+      + JSON.stringify({ dark: inlineDiff.dark.map((s) => ({ index: s.index, total: s.total, hintSet: s.hintSet })) }),
+      // 单栏口径下这个 Diff 是**两处**连续变更块（两个 `Modified` 行被上下文隔开）：
+      // 第 224 轮前按整份 DOM 计块会得到 4（两栏各 2），且"到边界"的那一次点击就出提示。
+      inlineDiff.dark[0].index === null && inlineDiff.dark[0].total === null
+        && inlineDiff.dark[1].index === '0' && inlineDiff.dark[1].total === '2' && inlineDiff.dark[1].hintSet === false
+        && inlineDiff.dark[2].index === '1' && inlineDiff.dark[2].hintSet === false
+        // 第三次同方向：已在尾块 ⇒ 只给提示、不换文件（两段式的第一段）。
+        && inlineDiff.dark[3].index === '1' && inlineDiff.dark[3].hintSet === true
+        && inlineDiff.dark[3].path === inlineDiff.dark[2].path
+        // 切到单栏后重新计块：总数与双栏一致（2），而每处差异只占一行（`changed` 2 行，不是 4）。
+        && inlineDiff.dark[4].total === '2' && inlineDiff.dark[4].changedLines === 2
         // `.diff-current` 的三个令牌在两种主题下都必须为空（第 223 轮删除该无权威对应的层）。
-        && inlineDiff.dark.before.currentTokens === '||' && inlineDiff.light.before.currentTokens === '||');
+        && inlineDiff.dark.every((s) => s.currentTokens === '||') && inlineDiff.light.every((s) => s.currentTokens === '||'));
 
     // ---- 第 98 轮补断言：§7.8 提交历史「搜索提交」把焦点交给日志搜索框（此前是死入口）----
     const historySearch = await (async () => {

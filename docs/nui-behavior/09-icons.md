@@ -6997,7 +6997,74 @@ Shell 谁都不再引用（不会被 `terminal/stop` 释放）。这正是第 3 
 - 新增 **T10**（差异视图中间行号槽的 `#C2D8F2` 填充与"变更连接区"梯形未实现）与 **T11**（差异块计数按两栏
   各算一次，`data-diff-total` 是规格口径的两倍）到归类总表 §7。
 
+## ducentum-viginti-quattuor. 第二百二十四轮：差异块计数回到"连续变更块"口径（T11 关闭）+ 单栏模式被刷掉
+
+第 223 轮把 `changed` 纳入块判据、删掉 `.diff-current` 之后，顺着同一片代码读下去发现
+`ux-spec.md:441` 那条"**差异数量按连续变更块计算**"并没有真正成立，而且边界两段式与显示模式
+各有一处真实缺陷。三处都在同一个函数链上，一并修掉。
+
+### 缺陷一：块按**两栏**各算一次（T11）
+
+`diffChangeBlocks()` 扫的是整份 DOM 的 `.diff-code-line`，而双栏视图里**每一栏都是同一份变更块的
+完整行列表**（`.diff-side` 各含全部行）⇒ 每一处差异被算两次：
+
+- `data-diff-total` 是规格口径的两倍（"一次替换 = 1 处"在界面上成了 2 处）；
+- 走完一处差异要按两次同方向箭头；
+- 第 116 轮那条断言把"2 处"写成了规格口径，其实是这个重复计数的产物。
+
+**落地**：只按**一栏**计块 —— `root.querySelectorAll(".diff-columns > .diff-side")` 取**后一栏**
+（`mockup.js` 里它是"当前版本"侧）；单栏模式下 `.diff-side` 被统一行列表替换掉，
+容器本身就是唯一一份行列表（此时 `querySelectorAll` 不会进入 `<template>` 的惰性内容）。
+断言随之回到规格口径：`src/App.cs` 的"删+增"是**1 处**。
+
+### 缺陷二：边界两段式用**点击后**的索引判断
+
+原判据 `atEdge = index === total - 1`（`index` 已被本次点击推进）⇒ **"定位到首/尾块"的那一次点击
+就直接变成提示**，违背 `ux-spec.md:441` 的"首次点击上一处定位最后一块／首次点击下一处定位第一块"
+（提示应当是"到达后再按同方向"）。
+
+**落地**：`wasAtEdge` 用**点击前**的位置判断（`hadIndex && (direction > 0 ? index === total - 1 : index === 0)`），
+边界分支改为 `wasAtEdge && atEdge && workspaceDiff`。
+
+### 缺陷三：导航状态挂在**跨重绘存活**的滚动容器上
+
+索引/总数此前写在 `diffScrollableAncestor(...)`（正文里那个滚动容器）的 `dataset` 上，而
+`.diff-layout` 每次重绘都会换新元素、滚动容器却存活 ⇒ **切单双栏或换了文件之后**，第一次点同方向
+箭头会拿上一个内容的 `dataset.diffIndex` 去判"已在边界"，把这一次点击直接变成"切相邻文件"。
+本轮验证时就是这样把 `src/Modified.cs` 切到了 `src/App.cs`（第 5 步实测）。
+
+**落地**：状态改挂**布局根**（`.diff-layout, .document-view`，没有根时才回落滚动容器）。
+内容一变就是新元素 ⇒ 自然回到"首次点击"。
+
+### 缺陷四（同批发现并为缺陷三的复现路径）：切单栏后一次刷新退回双栏
+
+`live.diffMode` 是会话状态（`loadDiff()`／`switchDiffMode()` 维护），但正文重绘只重画
+`liveDiffView()` 的双栏结构，**没有任何地方按 `live.diffMode` 回填**：点击"单栏"后
+`switchDiffMode()` 的 `refresh()` 一落地，正文就退回双栏（第 223 轮前无人断言这一点 ——
+既有断言只查"不再查询 Git"与"补丁缓存只有一份"）。
+
+**落地**：`mockup.js` 的 `bindDiffModes()` 在绑定新布局时按状态回填 ——
+`live.diffMode` 存在时用它，否则沿用 `?diffMode=` 参数。它只改 DOM、不回调宿主
+（宿主回调只在点击监听器里），因此不会与重绘互相触发。
+
+### 验证
+
+- `live-shell` **`通过 1237 项断言`**（退出码 0；本轮只改既有断言，条数不变）：
+  - `§7.9 差异导航按连续变更块移动且保留按钮焦点`：`changedCells=4`（两栏 × 删/增各一行）、
+    `下一处` → `index=0 / total=1`、再按仍在 0、`上一处` 仍在 0，焦点三次都留在触发的按钮上；
+  - `第 223／224 轮 差异按连续变更块计数、两段式边界用点击前位置判断……`：`src/Modified.cs` 是
+    **两处**被上下文隔开的 `Modified` ⇒ 第 1 次点击 `index=0/total=2`、第 2 次 `index=1`、
+    **第 3 次**才出边界提示且文件不变；切"单栏"后重绘再计数仍是 `total=2`，
+    而 `changed` 行只有 **2**（每处差异一行，不是两栏的 4）⇒ "单栏与双栏保持相同数量"成立。
+- `verify-ux-diff-typography`（PASS=72）、`verify-ux-file-history`、`verify-css-balance`、
+  `verify-ui-assets.ps1`、`check-diff-inline.test.cjs` 全绿。
+- 登记哈希（第 224 轮）：`live-data.js` `0f923b60…` → **`e4e42c9604f5c6dec0340032edbd9561`**、
+  `mockup.js` `eaf45b2e…` → **`53bff6e90722ef31a6b211c422d4ae64`**、
+  `live-shell.spec.cjs` `95253c84…` → **`31c74cc80b3cda807ce2ca33df027c01`**；
+  `mockup.css`（`b30cda95…`）与 `bridge.js`（`8d2d3173…`）本轮未变。
+
 ### 下一轮
 
 归类总表 §7 剩余：T3（操作进度条）、T6（§2.10 C 类 **3** 条：`§7.3` Markdown 加载态 2 条 +
-"产品面不可达" 1 条）、T10（中间行号槽着色）、T11（差异块两栏重复计数）。
+"产品面不可达" 1 条）、T10（中间栏"变更连接区"：权威 `DiffDividerDrawUtil` 的取色/几何已读到，
+但"行号列自身被填充"那一半未定位到绘制者 ⇒ 需产品口径：实现或登记有意差异）。
