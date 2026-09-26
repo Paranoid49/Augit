@@ -914,7 +914,11 @@ async function main() {
         window.__commitWrite = { message: params.message, paths: params.paths };
         if (window.__commitDelays) await new Promise((r) => setTimeout(r, window.__commitDelays));
         // 支持注入失败
-        if (window.__commitFails) return { available: true, committed: false, reason: 'commit-msg hook 拒绝提交。请检查仓库提交规则。' };
+        // 第 245 轮：失败原因可注入（用于验证"长原因可悬停读全文"：固定文案不足以触发省略号）。
+        if (window.__commitFails) {
+          return { available: true, committed: false,
+            reason: window.__commitFailReason || 'commit-msg hook 拒绝提交。请检查仓库提交规则。' };
+        }
         if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: '请至少选择一个要提交的文件。' };
         if (!params.message) return { available: true, committed: false, reason: '提交信息不能为空。' };
         return { available: true, committed: true, commitHash: 'abc1234', branch: 'main', remaining: 1 };
@@ -16909,6 +16913,164 @@ async function main() {
       && imageRefresh.hundred.label === '100%' && imageRefresh.hundred.imgRendering === 'auto'
       && imageRefresh.hundred.cssSize.join('|') === imageRefresh.hundred.natural.join('|')
       && imageRefresh.hundred.scale === 1);
+    // ---- 第 245 轮补断言（收 §7.6 第 8、14 条）：外部修改文件后保留复选状态并更新状态标记；
+    // 提交校验失败的提示用危险色、可悬停读全文、等待与失败期间不抢焦点 ----
+    const commitFeedback = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(400);
+      const rows = () => scene.page.evaluate(() => {
+        const feedback = document.querySelector('.commit-box .commit-feedback');
+        const token = (name) => {
+          const probe = document.createElement('span');
+          probe.style.color = `var(${name})`;
+          document.body.append(probe);
+          const value = getComputedStyle(probe).color;
+          probe.remove();
+          return value;
+        };
+        return {
+          list: [...document.querySelectorAll('.changes-list .change-file-row')].map((row) => ({
+            path: row.dataset.path,
+            checked: (row.querySelector('.fake-check') || {}).classList
+              ? row.querySelector('.fake-check').classList.contains('checked') : null,
+            status: [...(row.querySelector('.tree-name') || row).classList]
+              .find((name) => name.startsWith('file-status-')) || null,
+          })),
+          feedback: feedback ? {
+            text: feedback.textContent,
+            title: feedback.title,
+            error: feedback.classList.contains('error'),
+            color: getComputedStyle(feedback).color,
+            truncated: feedback.scrollWidth > feedback.clientWidth,
+            visible: Math.round(feedback.clientWidth),
+            full: Math.round(feedback.scrollWidth),
+          } : null,
+          red: token('--augit-red'),
+          muted: token('--augit-muted'),
+          active: document.activeElement
+            ? (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName) : null,
+          // [光标起点, 光标终点, 文本长度]：重绘后光标要从 live 状态找回来，而不是落到 0。
+          caret: (() => {
+            const field = document.querySelector('.commit-box .message-field');
+            if (!field) return null;
+            try { return [field.selectionStart, field.selectionEnd, String(field.value || '').length]; }
+            catch (error) { return null; }
+          })(),
+          statusCalls: window.__statusCalls || 0,
+          error: window.__augitCommitError || null,
+          draft: window.__augitLive.commitDraft || '',
+        };
+      });
+      const initial = await rows();
+      // ① 取消一个「改动」文件的勾选（用户状态），再让宿主回报它变成 Deleted
+      await scene.page.evaluate(() => {
+        const row = document.querySelector('.changes-list .change-file-row[data-path="README.md"]');
+        row.querySelector('.fake-check').click();
+      });
+      await scene.page.waitForTimeout(300);
+      const unchecked = await rows();
+      await scene.page.evaluate(() => {
+        window.__liveFiles = [
+          { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+          { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Deleted', staged: false, workingTree: true },
+          { path: 'notes/draft.txt', name: 'draft.txt', directory: 'notes', group: 'UnversionedFiles', kind: 'Untracked', staged: false, workingTree: false },
+        ];
+        window.__hostPush('workspace-changed', { files: ['README.md'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(1200);
+      const afterExternal = await rows();
+      // ② 提交失败：危险色 + 悬停读全文 + 等待/失败期间不抢焦点
+      await scene.page.evaluate(() => {
+        window.__liveFiles = null;
+        window.__commitDelays = 700;
+        window.__commitFails = true;
+        window.__commitFailReason = 'commit-msg hook 拒绝提交：提交信息必须以一个有效的类型前缀开头（feat／fix／docs／test／chore 等），'
+          + '并且首行不超过 72 个字符；当前信息同时缺少类型前缀与作用域，请修改后重试。';
+      });
+      // 用真实输入路径写草稿，并把光标从末尾往左移 4 格：重绘后光标必须还在同一处
+      //（只断言"焦点回来了"抓不到"光标掉到 0"这种半吊子恢复）。
+      await scene.page.locator('.commit-box .message-field').fill('保留下来的草稿');
+      for (let i = 0; i < 4; i += 1) {
+        await scene.page.locator('.commit-box .message-field').press('ArrowLeft');
+      }
+      await scene.page.waitForTimeout(150);
+      const beforeClick = await rows();
+      // 真实点击主按钮（不是合成事件）：用户按下按钮时焦点不应被整块重绘带走。
+      await scene.page.locator('.commit-actions .primary-button').first().click();
+      await scene.page.waitForTimeout(250);
+      const waiting = await rows();
+      await scene.page.waitForTimeout(900);
+      const failed = await rows();
+      // ③ 焦点在别处时，带错误提示的重绘不许把焦点抢进提交区（"不抢焦点"的另一半）
+      await scene.page.evaluate(() => {
+        const rail = document.querySelector('.tool-rail .rail-button');
+        if (rail) rail.focus();
+      });
+      const elsewhereBefore = await rows();
+      await scene.page.evaluate(() => {
+        window.__hostPush('workspace-changed', { files: ['README.md'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(900);
+      const elsewhereAfter = await rows();
+      await scene.page.close();
+      const payload = { initial, unchecked, afterExternal, beforeClick, waiting, failed, elsewhereBefore, elsewhereAfter };
+      console.log('INFO 提交校验失败=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const commitRow = (snapshot, path) => snapshot.list.find((row) => row.path === path) || null;
+    check('§7.6 外部修改文件后保留复选状态、仅更新状态标记: '
+      + JSON.stringify([commitFeedback.unchecked.list, commitFeedback.afterExternal.list]),
+    commitRow(commitFeedback.unchecked, 'README.md') !== null
+      && commitRow(commitFeedback.unchecked, 'README.md').checked === false
+      && commitRow(commitFeedback.unchecked, 'src/App.cs').checked === true
+      // 外部把它改成 Deleted：勾选保持不变（用户状态），状态标记更新
+      && commitRow(commitFeedback.afterExternal, 'README.md').checked === false
+      && commitRow(commitFeedback.afterExternal, 'README.md').status === 'file-status-deleted'
+      && commitRow(commitFeedback.afterExternal, 'src/App.cs').checked === true
+      && commitRow(commitFeedback.afterExternal, 'src/App.cs').status === 'file-status-modified'
+      && commitRow(commitFeedback.afterExternal, 'notes/draft.txt').checked === false
+      && commitFeedback.afterExternal.statusCalls > commitFeedback.unchecked.statusCalls);
+    check('§7.6 校验失败提示用危险色、可悬停读全文、等待与失败期间不抢焦点: '
+      + JSON.stringify([commitFeedback.beforeClick, commitFeedback.waiting, commitFeedback.failed]),
+    // 基线：无错误时用弱化色，且没有错误类
+    commitFeedback.beforeClick.feedback.error === false
+      && commitFeedback.beforeClick.feedback.color === commitFeedback.beforeClick.muted
+      // 失败后：危险色 + `title` 是完整原因 + 视觉上确实被省略（可悬停读全文）
+      && commitFeedback.failed.feedback.error === true
+      && commitFeedback.failed.feedback.color === commitFeedback.failed.red
+      && commitFeedback.failed.feedback.color !== commitFeedback.failed.muted
+      && commitFeedback.failed.feedback.title === commitFeedback.failed.feedback.text
+      && commitFeedback.failed.feedback.text.includes('commit-msg hook')
+      && commitFeedback.failed.feedback.truncated === true
+      && commitFeedback.failed.feedback.full > commitFeedback.failed.feedback.visible
+      // 等待与失败期间焦点都留在提交信息输入框上（不抢焦点），
+      // 且光标位置与提交前一致（区域重绘不能把光标冲回开头）
+      && commitFeedback.waiting.active === '提交信息'
+      && commitFeedback.failed.active === '提交信息'
+      && commitFeedback.beforeClick.caret !== null
+      && commitFeedback.beforeClick.caret[0] > 0
+      && commitFeedback.waiting.caret !== null
+      && commitFeedback.waiting.caret[0] === commitFeedback.beforeClick.caret[0]
+      && commitFeedback.failed.caret !== null
+      && commitFeedback.failed.caret[0] === commitFeedback.beforeClick.caret[0]
+      && commitFeedback.failed.caret[2] === commitFeedback.beforeClick.caret[2]
+      // 草稿与勾选都保留（失败不清用户状态）
+      && commitFeedback.failed.draft === '保留下来的草稿'
+      && commitRow(commitFeedback.failed, 'README.md').checked === false
+      && commitRow(commitFeedback.failed, 'src/App.cs').checked === true);
+    check('§7.6 带错误提示的重绘不把焦点从别处抢进提交区: '
+      + JSON.stringify([commitFeedback.elsewhereBefore.active, commitFeedback.elsewhereAfter.active,
+        commitFeedback.elsewhereAfter.feedback.error, commitFeedback.elsewhereAfter.statusCalls]),
+    // 重绘前焦点在工具入口上（提交区之外）
+    commitFeedback.elsewhereBefore.active !== null
+      && commitFeedback.elsewhereBefore.active !== '提交信息'
+      // 外部更新确实引起了一次宿主查询与重绘，错误提示仍在
+      && commitFeedback.elsewhereAfter.statusCalls > commitFeedback.failed.statusCalls
+      && commitFeedback.elsewhereAfter.feedback.error === true
+      // 但焦点仍在原处，没有被重绘抢进提交区
+      && commitFeedback.elsewhereAfter.active === commitFeedback.elsewhereBefore.active);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

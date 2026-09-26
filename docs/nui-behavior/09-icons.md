@@ -7991,3 +7991,86 @@ A 类队列里挑 §7.5 第 6、8 条。两条都是"实现已有、只缺断言
 
 §7.5 只剩第 8 条的那半"无法取证"（等用户口径）。下一轮转 §7.6（提交工具窗的动作换行与最小行数、
 危险色与悬停读全文、悬停重命中）与 §7.7（保留旧正文 200ms 的时序、工具栏 Tab 顺序）。
+
+## trecentum-quadraginta-quinque. 第二百四十五轮：提交工具窗的复选保留与失败提示（§7.6 第 8、14 条）
+
+A 类队列里挑 §7.6 第 8 条（外部修改文件后保留复选状态、仅更新状态标记与 diff 版本）与第 14 条
+（校验/Hooks 失败复用提示行、危险色、长原因可悬停、保留草稿与勾选、等待与失败期间不抢焦点）。
+两条都从"实现已有、只缺断言"出发，结果**两条各挂出一处真实缺陷**。
+
+### 缺陷一：增量补丁把行状态类名写成 `live-file-status-*`（CSS 里没有这条规则）
+
+`patchChangesList()`（即时改动列表的增量更新）在外部更新时只改已有行的 `.tree-name` 类名，
+写的是 `tree-name live-file-status-${file.kind}`；而 `mockup.css` 里只有 `.file-status-*`
+（初次渲染 `liveChangeFileRow()` 用的也是 `file-status-<小写 kind>`）。于是外部更新一旦走增量补丁，
+文件名就**丢掉 Git 状态色**——`file-status-*` 类整个消失。
+
+实测（`workspace-changed` 把已取消勾选的 `README.md` 改成 `Deleted`）：
+初始三行状态为 `file-status-modified` / `file-status-modified` / `file-status-untracked`，
+补丁后 `[...row.querySelector('.tree-name').classList].find(n => n.startsWith('file-status-'))`
+返回 **null**。勾选状态与"查询次数增加"两项本来就对（用户状态已按 path 保留），只有状态标记丢了。
+
+修法：改回与初次渲染一致的 `tree-name file-status-${String(file.kind).toLowerCase()}`。
+
+### 缺陷二：整块替换侧栏会重建提交信息 `textarea`，等待与失败期间焦点与光标一起丢
+
+提交动作入口先 `live.writeOperation = "提交"` 再 `refreshAfterEvent("side", "statusbar")`；
+定点替换会新建提交信息 `textarea`，**焦点掉到 `document.body`**，随后失败分支再刷新一次，
+焦点仍回不来。权威里提交期间与失败之后焦点一直在提交信息编辑器上（用户的下一个动作就是改信息），
+而 Augit 把焦点与光标位置都只留在旧节点上 ⇒ "失败后接着改信息"在界面上做不到。
+
+实测（真点击主按钮、`__commitDelays = 700`、`__commitFails = true`）：
+
+| 时刻 | 修前 | 修后 |
+| --- | --- | --- |
+| 点击前 | `active=提交信息`、光标 `[3,3,7]` | 同左 |
+| 等待中（250ms） | `active=BODY` | `active=提交信息`、光标 `[3,3,7]` |
+| 失败后（1150ms） | `active=BODY` | `active=提交信息`、光标 `[3,3,7]` |
+
+修法：把焦点意图与光标位置当**用户状态**记进 `live`（六条硬约束之四）——
+`live.commitSelection` 由 `input`／`keyup`／`select`／`click`／`focusin` 记录，
+`live.commitFocusBeforeRender` 由 `refresh()` 在**替换之前**捕获"焦点是否还在提交区内"，
+提交动作自身也显式置一次（按钮是否吃焦点因控件类型而异，不依赖它）；
+`restoreChangesState()` 只在这次重绘**确实弄丢**焦点时恢复焦点与选区，用完即清。
+焦点在别处（编辑器正文、改动行、工具入口）时**不抢**。
+
+### 实测（失败提示）
+
+| 项 | 值 |
+| --- | --- |
+| 基线提示 | `text/title = "提交信息"`、无 `error` 类、`color = rgb(157,160,168)`（`--augit-muted`）、未截断 |
+| 失败提示 | 带 `error` 类、`color = rgb(219,92,92)`（`--augit-red`，dark）、`title` 与全文逐字相等、`scrollWidth 1499 > clientWidth 312`（确实可悬停读全文） |
+| 用户状态 | 草稿 `保留下来的草稿`、勾选（`src/App.cs` 勾选／`README.md` 取消）都保留 |
+| 别处焦点 | 焦点在工具入口「项目」时推送外部更新（`statusCalls 2 → 3`，错误提示仍在）⇒ 焦点**仍是「项目」** |
+
+### 新增断言（`live-shell`，3 条）
+
+| # | 断言 | 判据要点 |
+| --- | --- | --- |
+| 1 | `§7.6 外部修改文件后保留复选状态、仅更新状态标记` | 上表缺陷一的全部实测值 + 查询次数增加 |
+| 2 | `§7.6 校验失败提示用危险色、可悬停读全文、等待与失败期间不抢焦点` | 上表失败提示与"焦点/光标复原" |
+| 3 | `§7.6 带错误提示的重绘不把焦点从别处抢进提交区` | 焦点在「项目」时外部更新 → 焦点不动、错误提示仍在 |
+
+两条缺陷都做了负向验证：① 关掉光标恢复（只留焦点恢复）⇒ 焦点回来了但光标从 3 变成 **7**
+（`box.value = live.commitDraft` 的赋值把选区留在末尾），断言 2 失败；② 去掉"重绘前焦点在提交区内"
+这一一次性信号（保留"有错误就恢复"）⇒ 焦点被从「项目」抢成「提交信息」，断言 3 失败。
+
+### 验证
+
+- `live-shell` **`通过 1287 项断言`**（1284 → **+3**），退出码 0（登记哈希即最终字节；本轮末尾有一处**注释位置**调整，之后又复跑了一次全量确认）。
+- 如实记录一次失败：与另外三个 Chromium 套件**并发**跑全量时，在**无关**的既有块（§7.16「ready 前的提示符/输出在终端显示后保留」，
+  失败态 `ready=true`／`calls=[]` ⇒ 关闭后重开终端没有重新调用 `terminal/start`）超时；同一份字节单独重跑即
+  **1287/1287 通过** ⇒ 判为并发下的既有块时序抖动，不是本轮改动引入。
+- 运行时文件改了 `web/src/live-data.js` ⇒ 按范围重跑：`verify-ux-commit-feedback` **72 组通过**、
+  `verify-ux-commit-workflow` **6/6**、`mockup-scenes` **55/55**、`verify-ui-assets.ps1` **PASS**
+  （共享视觉稿四个文件本轮未改，逐副本字节一致）。
+- 登记哈希：`live-data.js` `4d3f278974afd943395ad56d8ceaee57` → **`7baa7a6d9596b8c232a88ec61da9fdab`**；
+  `live-shell.spec.cjs` `09d756824c9a153097322dbf0e82de87` → **`c14a59d563da8cdc94e0377e6aae925a`**；
+  `mockup.css`／`mockup.js`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 244 轮逐个相同。
+- §2.6 §7.6 第 8、14 行都由"部分"转 **是**；§2.10 重算：分母 83 → **81**，A **62 → 60**
+  （B 4／C 0／D 16／E 1 不变）。
+
+### 下一轮
+
+§7.6 只剩第 5 条（悬停重命中／空白区／隐藏清除）与第 10 条（动作换行与输入框最小行数），
+继续按 A 类队列推进，然后转 §7.7（保留旧正文 200ms 的时序、工具栏 Tab 顺序）。

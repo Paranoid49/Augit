@@ -1893,7 +1893,11 @@ function patchChangesList() {
         // 其余（名称/目录/图标）对同一路径不会变。
         const name = row.querySelector(".tree-name");
         if (name) {
-          const wanted = `tree-name live-file-status-${file.kind}`;
+          // 类名必须与 `liveChangeFileRow()` 的初始渲染一致：`file-status-<小写 kind>`。
+          // 这里曾经写的是 `live-file-status-*` —— mockup.css 里**没有任何规则**匹配它
+          //（`03-editor-tabs` 那轮也为同一类名问题留下过注释），于是外部更新走增量补丁之后
+          // 文件名会**丢掉 Git 状态色**（第 245 轮实测：补丁后 `file-status-*` 整个消失）。
+          const wanted = `tree-name file-status-${String(file.kind).toLowerCase()}`;
           if (name.className !== wanted) name.className = wanted;
         }
         row.dataset.group = group.label;
@@ -4293,6 +4297,8 @@ function bindConflictSave() {
  * 页面未提供区域刷新入口时退回整页重绘。
  */
 function refresh(...regions) {
+  // 区域替换连焦点一起丢（`__augitRenderRegions` 不保留焦点）：在替换前先记下焦点意图。
+  rememberCommitFocusBeforeRender();
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
     window.__augitRenderRegions(...regions);
     rebindAfterRender();
@@ -5090,6 +5096,23 @@ function rememberCommitDraft(value) {
 }
 
 /**
+ * 在区域替换**之前**记下"焦点是否还在提交区内"（规格 §7.6 第 14 条：等待与失败期间不抢焦点）。
+ *
+ * 必须在替换之前读：替换之后 `document.activeElement` 已经掉到文档主体，
+ * 再无法区分"被这次重绘弄丢"与"用户本来就没把焦点放在这里"。
+ */
+function rememberCommitFocusBeforeRender() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const active = document.activeElement;
+  const box = document.querySelector(".commit-box");
+  // 与提交动作显式置的信号取"或"：点击可能让焦点先离开提交区（按钮是否吃焦点因控件类型而异），
+  // 但"用户按了提交"本身就意味着这次重绘要把焦点交回提交信息。
+  const inCommitBox = !!(box && active && active !== document.body && box.contains(active));
+  live.commitFocusBeforeRender = !!live.commitFocusBeforeRender || inCommitBox;
+}
+
+/**
  * 把草稿与滚动位置写回改动列表。
  * 区域替换会新建 textarea 与列表容器，草稿与滚动位置都只存在于旧节点上，
  * 因此每次刷新后都要恢复（规格 §5.2：关闭比较保留草稿与滚动）。
@@ -5100,6 +5123,33 @@ function restoreChangesState() {
   const box = document.querySelector(".commit-box .message-field");
   if (box && typeof live.commitDraft === "string" && box.value !== live.commitDraft) {
     box.value = live.commitDraft;
+  }
+
+  // 提交进行中或校验失败后，提交信息的输入焦点与光标必须回到输入框（规格 §7.6）。
+  //
+  // 权威里提交期间与失败之后**焦点始终在提交信息编辑器上**：失败原因出现在提交区，
+  // 用户的下一个动作就是改提交信息（`CommitChangeListDialog` 的消息编辑器是对话框的
+  // 焦点组件，出错不改变焦点）。Augit 的区域替换会重建 textarea，焦点会掉到文档主体，
+  // 于是"失败后直接继续输入"这个动作在界面上做不到——这是实现落差，不是产品差异。
+  //
+  // 只在焦点**确实是被这次重绘弄丢的**时候夺回：重绘前焦点就在提交区内
+  //（`rememberCommitFocusBeforeRender()` 记的是一次性信号）。用户把焦点放在别处
+  //（编辑器正文、改动行、其它工具窗口）时绝不抢——那时重绘前的焦点不在提交区，
+  // 信号为假，这里整段跳过。用完即清，避免下一次不经过 `refresh()` 的重绘复用旧信号。
+  const lostByRender = !!live.commitFocusBeforeRender;
+  live.commitFocusBeforeRender = false;
+  if (box && lostByRender && (window.__augitCommitError || live.writeOperation)) {
+    const caret = live.commitSelection;
+    box.focus({ preventScroll: true });
+    if (caret && typeof box.setSelectionRange === "function") {
+      const end = String(box.value || "").length;
+      const start = Math.min(Math.max(0, caret.start | 0), end);
+      try {
+        box.setSelectionRange(start, Math.min(Math.max(start, caret.end | 0), end));
+      } catch (error) {
+        // 控件不支持选区（不是文本框）时保持 focus() 的结果。
+      }
+    }
   }
 
   // 提交校验与失败的反馈写回视觉稿已有的提示位（规格 §7.6）。
@@ -5171,6 +5221,27 @@ function bindChangesState() {
     const box = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
     if (box) rememberCommitDraft(box.value);
   }, true);
+
+  // 提交信息的光标位置与草稿一样属于用户状态：区域替换会重建 textarea，
+  // 节点上的选区无从在重绘后找回，因此同样记进 live（六条硬约束之四）。
+  // 没有它，`restoreChangesState()` 恢复草稿时的 `box.value = …` 赋值会把选区留在**末尾**
+  //（第 245 轮实测：光标从提交前的 3 变成 7），用户在信息中间继续编辑时会被甩到末尾。
+  const rememberCaret = (box) => {
+    const live = window.__augitLive;
+    if (!live || !box) return;
+    try {
+      live.commitSelection = { start: box.selectionStart, end: box.selectionEnd };
+    } catch (error) {
+      // 控件不支持选区读取（不是文本框）时按"放到末尾"处理。
+      live.commitSelection = null;
+    }
+  };
+  for (const name of ["input", "keyup", "select", "click", "focusin"]) {
+    document.addEventListener(name, (event) => {
+      const box = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
+      if (box) rememberCaret(box);
+    }, true);
+  }
 }
 
 /**
@@ -6521,6 +6592,10 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
   // 进行中：禁用重复触发（规格 §9.3），并记录当前动作供界面显示。
   if (live.writeOperation) return;
   live.writeOperation = "提交";
+  // 提交动作由提交区触发：权威把焦点留在提交信息编辑器上（用户接着看结果或改信息），
+  // 因此这次重绘要把焦点还回输入框（`restoreChangesState()` 读这个一次性信号）。
+  // 不依赖"点击后 activeElement 在哪"——按钮是否吃焦点因浏览器与控件类型而异。
+  live.commitFocusBeforeRender = true;
   refreshAfterEvent("side", "statusbar");
 
   // 每次提交前清掉上一次的错误与结果。
