@@ -376,10 +376,36 @@ JIT，不是磁盘）、窗口创建 ≈ 32 ms、`CoreWebView2Environment.Create
 因此这一项需要：先给"哪些绑定属于首屏必须"定一份可复验清单，再让延后集合在
 `__augitReady` 之后立刻补齐，并补一条断言（首帧后 N ms 内延后集合已绑定）。留给下一轮。
 
-### 12.5 清理记录
+### 12.5 顺带发现并修掉的产品缺陷：默认场景把**样例文档**当成真实文件显示
+
+追 `bindMarkdownModes` 那 37 ms 时发现：`shell()` 里 `let editorBody = markdownView();` 是**默认**正文，
+而实时侧没有文档时 `editor` 会停在场景默认值 `"markdown"`（`live.editor` 此时还没被赋值），
+于是 `liveMarkdownDocument()`／样例 `markdownView()` 把视觉稿的**样例文档**画了出来 —— 标题
+"Augit 产品规格"、文件栏写着 `Augit › docs › product-spec.md　只读`，而 `live.document` 是 `null`。
+
+**实测（stub 宿主 + 真机，`--no-session-restore`、空仓库）**：
+
+```
+修复前 PROBE {"editor":null,"doc":null,"path":"Augit › docs › product-spec.md　只读",
+              "h1":"Augit 产品规格","hasEmpty":false,"errors":[]}
+修复后 PROBE {"editor":null,"doc":null,"path":null,"h1":null,"hasEmpty":true,"errors":[]}
+```
+
+即：刚启动、还没打开任何文件时，界面显示的是一份**磁盘上并不存在**的文件，且没有任何错误提示。
+**修复**：`main-project`（产品默认场景）下，没有任何视图可显示时把 `editor` 落成 `"empty"`
+（"选择文件以查看内容"的无文档提示，规格 §6.7 提到的那个状态）；`--scene <名字>` 的审计/视觉稿场景
+不在其列 —— 那些场景本来就靠样例正文演示排版与绑定。
+
+**性能上没有可测收益**：修复前后各 3 次的空仓库中位数为 boot 245 → 238 ms、首屏 962 → 1000 ms
+（同量级噪声；此前"优化臂 n=5／对照臂 n=3"的经验同样表明这一档差异不可辨）。原因是空态自身也要布局，
+而整页首帧本来就要布局一次 ⇒ **这次改动只按产品缺陷记，不记性能收益**。
+
+### 12.6 清理记录
 
 - 两次实验的临时改动（`boot()`／`mockup.js` 埋点、`SettingsJsonContext` 与 `SettingsStore` 改动）
   都已从产品代码移除；`git status` 干净。
 - 回退后复跑 `dotnet test tests/Augit.Infrastructure.Tests -c Release`：**188/188 通过**
   （也证明 12.3 的 3 项失败确由源生成改动引起）。
 - `obj/generated`（为读生成代码而产出的中间目录）已删除。
+- 第 228 轮的临时探针脚本（`probe-startup.ps1`，放在 `C:\Users\Public` 与 fixture 目录各一份）
+  已删除；`emptyfix-{1,2,3}.json` 是 12.6 修复前后的对照读数，随本节入库。

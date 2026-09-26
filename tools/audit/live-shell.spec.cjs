@@ -5726,6 +5726,33 @@ async function main() {
         && initFailed.createDisabled === false);
     await plain.close();
 
+    // ---- 第 228 轮：默认场景下"什么都没打开"时正文必须是**无文档提示**，不得显示样例文档 ----
+    // 缺陷：实时侧没有文档时 `editor` 会停在场景默认值 `"markdown"`，于是正文渲染的是视觉稿的
+    // 样例文档（标题"Augit 产品规格"、路径 docs/product-spec.md）—— 把不存在的文件当成真实只读文件显示。
+    const emptyStartup = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      const state = await scene.page.evaluate(() => {
+        const empty = document.querySelector('.editor-content .empty-state');
+        return {
+          doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+          editor: window.__augitLive.editor || null,
+          emptyState: !!empty,
+          emptyText: empty ? empty.textContent : null,
+          markdownDocument: !!document.querySelector('.editor-content .markdown-document'),
+          sampleTitle: document.querySelector('.editor-content').innerText.includes('Augit 产品规格'),
+          errors: (window.__augitErrors || []).slice(0, 2),
+        };
+      });
+      await scene.page.close();
+      return state;
+    })();
+    check('第 228 轮 默认场景无文档时显示无文档提示而不是样例文档: ' + JSON.stringify(emptyStartup),
+      emptyStartup.doc === null && emptyStartup.emptyState === true
+        && typeof emptyStartup.emptyText === 'string' && emptyStartup.emptyText.includes('选择文件')
+        && emptyStartup.markdownDocument === false && emptyStartup.sampleTitle === false
+        && emptyStartup.errors.length === 0);
+
     // ---- 文档读取失败：不得留下半截文档，也不得让界面进入异常状态 ----
     // 根因已定位：失败的读取会返回一个缺少 path 的载荷，而状态写入没有校验它，
     // 于是 live.document 变成一个字段缺失的对象（渲染时 path 为 undefined）。
@@ -8459,6 +8486,12 @@ async function main() {
     const focusScene = await openScene('scene=main-project&theme=dark');
     await focusScene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await focusScene.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    // 第 228 轮：默认场景"什么都没打开"时正文是**无文档提示**（不再渲染视觉稿的样例文档），
+    // 而本用例要验的是"确认后焦点回到触发区域"，需要一份真的有行的只读正文 ⇒ 先打开一个真实文档。
+    // （无正文时按规格 §5.3 应是"窗口不关闭并说明原因"，那是另一条行为，不在本用例。）
+    await focusScene.page.evaluate(() => window.__augitOpenDocument('docs/notes.txt'));
+    await focusScene.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+    await focusScene.page.waitForTimeout(200);
     // 树行是 tabindex="-1"（可编程聚焦、不进 Tab 序列，与视觉稿一致）。
     // 真实点击会聚焦该行（已实测 activeElement 落在树行上），这里显式聚焦以明确前置条件。
     await focusScene.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();

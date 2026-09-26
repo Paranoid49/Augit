@@ -7160,7 +7160,62 @@ T10 两半的权威都齐了。Augit 的行号槽是**逐行两个 `<div>`**（`
   补齐三档权威、`ui-classification.md` 的 T3／T10 行与 §9 修订记录）⇒ **四个运行时哈希与断言数不变**，
   不需要重跑套件；`check-doc-claims` **DOC_CLAIMS_OK**、`git diff --check` 干净。
 
+## ducentum-viginti-octo. 第二百二十八轮：首屏链路再细分，并修掉"默认场景显示样例文档"
+
+延续 §8 的性能项：把"页面 boot ≈ 250 ms"再拆一层；两个候选优化都被实测否掉，
+但在追踪 `bindMarkdownModes` 那 37 ms 时**发现并修掉一处产品缺陷**。
+
+### 页面 boot 的细分（临时 `__augitMarks` 埋点，取证后移除）
+
+| 段 | ms | 说明 |
+| --- | ---: | --- |
+| `loadDocument()` | 38 | 宿主 `workspace/info` + `workspace/list`（并行） |
+| → mockup 脚本求值 | 17 | 动态插入 `<script>`（缓存命中） |
+| **`renderScene()` + `innerHTML`** | **4** | 整页标记构建 —— "渲染太重"的猜测不成立 |
+| **`bindInteractions()`** | **63** | 逐项计时后：`bindMarkdownModes` **38**、`measureCodeViews` 6、两个历史绑定各 3，其余 ≈0 |
+| `rebindAfterRender()` | 3 | |
+
+`bindMarkdownModes` 内部再细分：setup 0、`setRatio` 2、`setMode` 0（热调用）—— 37 ms 其实是它读
+`panes.clientWidth` 触发的**整页首次布局**（新解析完的 DOM 本来就要布局一次）⇒ 不是可省的工作。
+据此两个候选都被否：
+
+1. **设置读写的源生成序列化**（省 `LoadSettings` 首次 73 ms）：`Infrastructure.Tests` 188 项里
+   **3 项失败** —— 生成器把 record 的 init-only 属性当构造参数逐个赋默认值，缺键的 JSON 会**覆盖属性初始化器**
+   （默认 true→false、默认字体/字号丢失），属静默语义回归 ⇒ 回退（回退后 188/188 通过）。
+2. **把 `bindInteractions` 的一部分延后到首帧之后**：该函数含 `guardUnwiredNavigation` 与轨道/标签入口，
+   历史上"可交互但无绑定"的窗口里点未接线链接会把界面导航离开应用 ⇒ 需先定"首屏必须"清单，留待下轮。
+
+### 顺带修掉的产品缺陷：默认场景把样例文档当成真实文件
+
+`shell()` 的默认正文是 `markdownView()`（视觉稿样例），而实时侧没有文档时 `editor` 会停在**场景默认值**
+`"markdown"`（`live.editor` 此刻还没被赋值）⇒ 刚启动、什么都没打开时正文显示样例文档
+（标题"Augit 产品规格"、文件栏 `Augit › docs › product-spec.md　只读`），而 `live.document` 是 `null`：
+**一份磁盘上不存在的文件被当成真实只读文件显示**，且没有任何错误提示。
+
+- **修复**：`main-project`（产品默认场景）下，没有任何视图可显示时把 `editor` 落成 `"empty"`
+  （"选择文件以查看内容"的无文档提示，规格 §6.7 提到的那个状态）；`--scene <名字>` 的审计/视觉稿场景
+  不在其列 —— 那些场景本来就靠样例正文演示排版与绑定。
+- **真机探针**：修复前 `{"doc":null,"path":"Augit › docs › product-spec.md　只读","h1":"Augit 产品规格","hasEmpty":false}`；
+  修复后 `{"doc":null,"path":null,"h1":null,"hasEmpty":true,"errors":[]}`。
+- **性能上没有可测收益**（boot 245→238、首屏 962→1000，同量级噪声）⇒ 只按产品缺陷记。
+- **两处用例补前置**：`text-viewer` 的"刷新后查找条不重复打开"与 `main-project` 的"确认后焦点回到触发区域"
+  此前都隐式依赖样例正文，现改为先打开真实文档；无正文时按规格 §5.3 应是"窗口不关闭并说明原因"（另一条行为）。
+
+### 验证
+
+- `live-shell` **`通过 1240 项断言`**（1239 → **+1**：新增
+  `第 228 轮 默认场景无文档时显示无文档提示而不是样例文档`）。
+- `mockup-scenes` **55/55 场景**、`verify-ux-markdown`、`verify-ux-find-documents`、
+  `verify-ux-document-toolbar`（60 组）、`verify-ui-assets.ps1`、`check-doc-claims` 全绿。
+  **运行后只改了一处注释**（文档引用编号 `§12.6` → `§12.5`），之后复跑 `verify-ui-assets` 与
+  `mockup-scenes` 通过，行为未变。
+- 登记哈希（第 228 轮）：`mockup.js` `4265f7be…` → **`dd600b5acd54de47c07f822d3a12f66f`**、
+  `live-shell.spec.cjs` `cdacdc6e…` → **`be58f7d3cdec7b7308f9a889ad50fb7d`**；
+  `mockup.css`（`b30cda95…`）／`live-data.js`（`fa143e52…`）／`bridge.js`（`8d2d3173…`）未变。
+- 结果 JSON：`artifacts/perf-20260927/emptyfix-{1,2,3}.json`。
+
 ### 下一轮
 
-归类总表 §7 剩余：T3 与 T10**两条都只等用户口径**（建议结论已写明）。用户认可后：把对应行从 §7 移除、
-改标归类总表 §5/§6 或 §2/§3 的相应行；若选择"实现"，则 T10 拆成"逐行槽底（含基线同构）"与"变更连接区梯形"两步做。
+归类总表 §7 剩余：T3 与 T10**两条都只等用户口径**（建议结论已写明）。性能项：`bindInteractions` 的 63 ms
+已定位为"整页首次布局"这一不可省的部分 ⇒ 除非愿意缩小首帧 DOM，该链路已到地板；下轮把这条结论写进 §8，
+并转回 T3/T10 或别的模块。

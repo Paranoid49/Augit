@@ -4248,6 +4248,21 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (live && live.pendingDocument && !live.document && editor !== "diff") {
     editor = "document-loading";
   }
+  // 什么都没有打开时，正文必须是**无文档提示**（`editor === "empty"`），不能停在场景的默认值上：
+  // 场景默认是 `editor: "markdown"`，而那个分支会渲染视觉稿的**样例文档**（`markdownView()`：
+  // 标题"Augit 产品规格"、路径 `docs/product-spec.md`）—— 于是刚启动、还没有打开任何文件时，
+  // 界面把一份并不存在的文件当成真实只读文档显示（第 228 轮实测：`live.document` 为 null 而
+  // `.markdown-document .document-path` 仍是 `Augit › docs › product-spec.md`，无任何错误提示）。
+  // 顺带不再为这份样例文档做首次布局（它是 `bindMarkdownModes` 那 37 ms 的主要来源）；
+  // 但首屏耗时**没有**可测的变化（空态自身也要布局，且整页首帧本来就要布局一次），
+  // 因此这次改动只按"显示不存在的文件"这个产品缺陷记，不记性能收益（见 `performance-report.md` §12.5）。
+  // 只在**产品默认场景**（`main-project`）生效：`--scene <名字>` 是审计/视觉稿入口
+  // （`text-viewer`／`json-preview`／`markdown-preview` 等），那些场景本来就靠视觉稿的样例正文
+  // 演示排版与绑定（例如"刷新后查找条不重复打开"用 `text-viewer` 的样例正文验绑定生命周期）。
+  if (scene === "main-project" && live && !live.document && !live.diff && !live.blame
+      && !live.conflict && !live.pendingDocument && editor !== "diff") {
+    editor = "empty";
+  }
   // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
   const sideHtml = side === "" ? "" : side === "commit-empty"
     ? emptyChangesSide()
