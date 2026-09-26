@@ -697,7 +697,12 @@ internal sealed class ShellBridge : IDisposable
         GitHistoryService history = new(runtime);
         GitHistoryResult result = await history.ReadPageAsync(
             repository,
-            new GitHistoryRequest(Page: 0, PageSize: 100, Filter: new GitHistoryFilter(
+            new GitHistoryRequest(
+                // 规格 §7.8「分页加载在列表底部触发」：`page` 由界面在滚动触底时给出，缺省第 0 页。
+                // 页大小固定 100（与 `hasNextPage` 的判定同一来源）。
+                Page: Math.Max(0, GetInt(parameters, "page") ?? 0),
+                PageSize: 100,
+                Filter: new GitHistoryFilter(
                 Message: GetString(parameters, "message"),
                 Hash: GetString(parameters, "hash"),
                 Author: GetString(parameters, "author"),

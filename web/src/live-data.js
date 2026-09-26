@@ -27,6 +27,8 @@ let previousStatusFiles = [];
 // 这里缓存失败原因，applyStatus 会把它带进 live 供渲染层使用。
 let latestStatusError = null;
 let latestHistory = null;
+// 历史请求令牌（规格 §7.8）：全量重读递增，在途的"下一页"结果因此作废，不覆盖新上下文。
+let historyRequestToken = 0;
 const expandedPaths = new Set([""]);
 const childrenByPath = new Map();
 
@@ -264,7 +266,7 @@ function normalizeStatus(status, previous) {
  * Augit 的宿主 `git/history` 收 `branch`／`message`／`hash`／`author`／`since`／`until`／`path`；
  * 一个都不传时是整仓历史（等价权威 `GitLogUtil.LOG_ALL` = `HEAD --branches --remotes --tags`，即 `--all`）。
  */
-function historyFilterParams(filter) {
+function historyFilterParams(filter, page = 0) {
   const active = filter || {};
   const params = {};
   if (active.branch) params.branch = active.branch;
@@ -278,6 +280,8 @@ function historyFilterParams(filter) {
   if (active.path) params.path = active.path;
   // 「按路径筛选」的值是一组路径（权威 `VcsLogStructureFilter`）：宿主的 `paths`（数组）优先于单值 `path`。
   if (Array.isArray(active.paths) && active.paths.length > 0) params.paths = active.paths;
+  // 规格 §7.8：分页只在滚动触底时请求下一页；第 0 页不送 `page`，避免改变既有请求形状。
+  if (page > 0) params.page = page;
   return params;
 }
 
@@ -291,9 +295,14 @@ function historyFilterActive(filter) {
  */
 async function loadHistory() {
   try {
-    const live = window.__augitLive;
-    const filter = (live && live.historyFilter) || {};
+    // `git/status`／历史在 `loadDocument()` **之前**就发出，因此这里不能一开始就捕获 `live`：
+    // 响应回来时 `window.__augitLive` 往往才刚建立（第 218 轮实测：早捕获会让页码/`hasNextPage` 写不进状态）。
+    const filter = (window.__augitLive && window.__augitLive.historyFilter) || {};
+    // 全量重读（换筛选、刷新、进入/离开文件历史）⇒ 递增令牌：在途的"下一页"结果作废，
+    // 不能把旧上下文的页追加到新列表上（规格 §7.8「旧页结果即使晚到也不能覆盖当前列表」）。
+    const token = ++historyRequestToken;
     const history = await invoke("git/history", historyFilterParams(filter), 60000);
+    if (token !== historyRequestToken) return null;
     if (!history || !history.available || !history.isRepository || !history.commits) {
       return null;
     }
@@ -302,27 +311,137 @@ async function loadHistory() {
       head: history.head,
       branch: latestStatus ? latestStatus.branch : null,
       filterActive: historyFilterActive(filter),
-      commits: history.commits.map((commit) => ({
-        hash: commit.hash,
-        fullHash: commit.fullHash,
-        subject: commit.subject,
-        author: commit.author,
-        // 「与当前分支比较」沿用文件历史列表的行：作者列的值与 tooltip 需要邮箱与提交者
-        //（权威 `FileHistoryPanelImpl.AuthorColumnInfo`，`FileHistoryPanelImpl.java:751-799`）。
-        authorEmail: commit.authorEmail,
-        committerName: commit.committerName,
-        committerEmail: commit.committerEmail,
-        date: commit.date,
-        references: commit.references || [],
-        parents: commit.parents || [],
-      })),
+      hasNextPage: !!history.hasNextPage,
+      commits: history.commits.map(mapHistoryCommit),
     };
+    const live = window.__augitLive;
+    if (live) {
+      live.historyPage = 0;
+      live.historyHasNextPage = !!history.hasNextPage;
+      live.historyLoadingMore = false;
+      // 全量重读＝新的列表上下文：滚动回到顶部（分页追加路径不会再走这里）。
+      live.historyScrollTop = 0;
+    }
     applyHistory();
     return latestHistory;
   } catch (error) {
     window.__augitError = "load-history:" + String(error && error.message || error);
     return null;
   }
+}
+
+/** 历史提交载荷 → 界面条目（日志与「与当前分支比较」共用同一套作者列字段）。 */
+function mapHistoryCommit(commit) {
+  return {
+    hash: commit.hash,
+    fullHash: commit.fullHash,
+    subject: commit.subject,
+    author: commit.author,
+    // 「与当前分支比较」沿用文件历史列表的行：作者列的值与 tooltip 需要邮箱与提交者
+    //（权威 `FileHistoryPanelImpl.AuthorColumnInfo`，`FileHistoryPanelImpl.java:751-799`）。
+    authorEmail: commit.authorEmail,
+    committerName: commit.committerName,
+    committerEmail: commit.committerEmail,
+    date: commit.date,
+    references: commit.references || [],
+    parents: commit.parents || [],
+  };
+}
+
+/**
+ * 读取下一页提交并追加（规格 §7.8「分页加载在列表底部触发」）。
+ *
+ * 规则（逐条对应 `ux-spec.md:475-476`）：
+ * - 下一页**成功接纳后**才更新已加载页码；失败/取消不更新页码，下次触底仍从同一页重试；
+ * - 追加不改变已有 100 条的可见性（保留 `scrollTop`）；
+ * - 查询期间不禁用列表（只忽略重复触发）；
+ * - 上下文切换后（`historyRequestToken` 变化）旧页结果丢弃，不覆盖当前列表。
+ */
+async function loadHistoryPage(page) {
+  const live = window.__augitLive;
+  if (!live || live.historyLoadingMore || page <= 0) return false;
+  const token = historyRequestToken;
+  const filter = live.historyFilter || {};
+  live.historyLoadingMore = true;
+  // 观测用（也给验收套件读）：不改变界面，列表在加载期间仍可选择与滚动（规格 §7.8）。
+  window.__augitHistoryLoadingMore = true;
+  try {
+    const history = await invoke("git/history", historyFilterParams(filter, page), 60000);
+    if (token !== historyRequestToken) return false;
+    if (!history || !history.available || !history.isRepository || !Array.isArray(history.commits)) {
+      // 失败：保留当前页与页码，下一次触底从同一页重试（不显示为成功）。
+      window.__augitHistoryPageError = (history && history.reason) || "读取下一页失败。";
+      return false;
+    }
+    const known = new Set((latestHistory.commits || []).map((commit) => commit.fullHash));
+    const appended = history.commits.map(mapHistoryCommit).filter((commit) => !known.has(commit.fullHash));
+    latestHistory = {
+      ...latestHistory,
+      commits: [...(latestHistory.commits || []), ...appended],
+      hasNextPage: !!history.hasNextPage,
+    };
+    live.historyPage = page;
+    live.historyHasNextPage = !!history.hasNextPage;
+    window.__augitHistoryPageError = null;
+    applyHistory();
+    // 追加后区域刷新会重建列表、`scrollTop` 归零。位置由两重还原保证：
+    // ① `live.historyScrollTop` 持续记录、`restoreHistoryScroll()` 每次渲染后还原；
+    // ② 本函数再按刷新前抓到的值补一次（下一帧），覆盖刷新之后仍会发生的重建。
+    const list = document.querySelector(".log-list-panel .commit-list");
+    const keepScroll = list ? list.scrollTop : null;
+    if (keepScroll !== null) live.historyScrollTop = keepScroll;
+    refresh("bottomTool");
+    if (keepScroll !== null) {
+      window.requestAnimationFrame(() => {
+        const current = document.querySelector(".log-list-panel .commit-list");
+        if (current && Math.abs(current.scrollTop - keepScroll) > 1) current.scrollTop = keepScroll;
+      });
+    }
+    return true;
+  } catch (error) {
+    if (token === historyRequestToken) {
+      window.__augitHistoryPageError = String((error && error.message) || error);
+    }
+    return false;
+  } finally {
+    if (token === historyRequestToken) {
+      live.historyLoadingMore = false;
+      window.__augitHistoryLoadingMore = false;
+    }
+  }
+}
+
+/**
+ * 历史列表滚动触底加载下一页。
+ *
+ * 只有**纵向向下**滚动才触发：横向滚动与无关按键不触发（规格 §7.8）。
+ * 监听挂在 `.commit-list`（滚动容器）上，随区域刷新重建，因此每次渲染后重新绑定。
+ */
+function bindHistoryScroll() {
+  const list = document.querySelector(".log-list-panel .commit-list");
+  if (!list || list.__augitHistoryScrollBound) return;
+  list.__augitHistoryScrollBound = true;
+  let lastTop = list.scrollTop;
+  list.addEventListener("scroll", () => {
+    const live = window.__augitLive;
+    if (!live) return;
+    // 持续记录位置：区域刷新会重建列表，`restoreHistoryScroll()` 用它还原
+    //（规格 §7.8「加载下一页时现有 100 条保持可见」与 §6.4 的滚动保持）。
+    live.historyScrollTop = list.scrollTop;
+    const vertical = list.scrollTop > lastTop;
+    lastTop = list.scrollTop;
+    if (!vertical || !live.historyHasNextPage || live.historyLoadingMore) return;
+    if (list.scrollTop + list.clientHeight < list.scrollHeight - 4) return;
+    void loadHistoryPage(live.historyPage + 1);
+  }, { passive: true });
+}
+
+/** 渲染后还原历史列表的滚动位置（`historyScrollTop` 由滚动监听持续记录）。 */
+function restoreHistoryScroll() {
+  const live = window.__augitLive;
+  if (!live || typeof live.historyScrollTop !== "number") return;
+  const list = document.querySelector(".log-list-panel .commit-list");
+  if (list) list.scrollTop = live.historyScrollTop;
 }
 
 /**
@@ -4419,6 +4538,9 @@ function rebindAfterRender() {
   if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
   bindChangesState?.();
   bindChangesScroll();
+  // 规格 §7.8：历史列表滚动触底加载下一页；追加后的滚动位置在新节点上还原。
+  bindHistoryScroll();
+  restoreHistoryScroll();
   restoreChangesState();
   bindOverlayEscape();
   bindTitlebarMenuEscape();
@@ -10630,6 +10752,11 @@ function applyHistory() {
   if (!live || !latestHistory) return;
   if (!latestHistory.branch && live.branch) latestHistory.branch = live.branch;
   live.history = latestHistory;
+  // 分页状态随历史一起附着。`loadHistory` 可能早于 `window.__augitLive` 建立（见其注释），
+  // 那时只能把 `hasNextPage` 存在 `latestHistory` 上；`loadDocument()` 末尾会再调一次本函数，
+  // 这里把页码补进状态。只在未设置时初始化，避免覆盖 `loadHistoryPage` 已推进的页码。
+  if (typeof live.historyPage !== "number") live.historyPage = 0;
+  if (typeof live.historyHasNextPage !== "boolean") live.historyHasNextPage = !!latestHistory.hasNextPage;
 }
 
 /** 把已到达的 Git 状态附着到 live 对象；两个异步结果先后不定，谁后到都调用它。 */

@@ -6716,3 +6716,47 @@ T6（§2.10 C 类 10 条）、T9（树缩进/`Tree.border` 逐值核对）。
 
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T6（§2.10 C 类 10 条）。
+
+## ducentum-duodeviginti. 第二百一十八轮：Git 历史分页（§7.8 底部触底加载下一页）
+
+`ui-compliance.md` §2.10 的 C 类里有一条**规范要求、产品完全没有**的实现缺口：`ux-spec` §7.8
+第 475-476 行写着"分页加载在列表底部触发，加载下一页时现有 100 条提交保持可见；下一页成功接纳后才更新
+已加载页码；失败或取消后继续从同一页重试；查询期间可以选择、滚动已有提交及查看其详情；横向滚动和无关
+按键不触发下一页；切换文件历史或返回原上下文后，旧页结果即使晚到也不能覆盖当前列表"。宿主
+`GitHistoryService.ReadPageAsync` 早就支持分页，但 `ShellBridge` 把 `Page` **硬编码为 0**、界面也从不请求下一页。
+
+### 落地
+
+| 层 | 改动 |
+| --- | --- |
+| 宿主 | `ShellBridge.ReadHistoryAsync` 读取 `page`（`Math.Max(0, GetInt(parameters, "page") ?? 0)`）并传给 `GitHistoryRequest`；页大小仍 100，`hasNextPage` 由同一来源回传。`ShellBridgeHistoryTests` 新增 `历史分页把page交给宿主`（第 0 页 3 条、第 1 页 0 条、负页码按 0 页 ⇒ 证明 `page` 真生效） |
+| 界面 `live-data.js` | ① `historyFilterParams(filter, page)`：`page > 0` 才送该参数，不改变既有第 0 页请求形状；② 提交映射抽成 `mapHistoryCommit()`；③ `loadHistory()` 递增 `historyRequestToken`（全量重读使在途下一页作废）、记 `hasNextPage`／页 0，并**不再一开始捕获 `live`**（历史在 `loadDocument()` 之前发出，早捕获会把分页状态写丢）；④ `loadHistoryPage(page)`：滚动触底取下一页、按 `fullHash` 去重追加、失败不推进页码（`window.__augitHistoryPageError`）、成功后才更新页码；⑤ `bindHistoryScroll()`：只有**纵向向下**且触底才触发（横向滚动不触发），并持续记录 `live.historyScrollTop`；⑥ `restoreHistoryScroll()` 在每次渲染后还原位置，追加时再补一帧兜底；⑦ `applyHistory()` 负责把分页状态附着到 live（live 晚建立时） |
+| 验收桩 | `git/history` 支持 `window.__historyPages`（按页注入）与 `window.__historyPageFails`（注入下一页失败），并按 `page` 像宿主一样切片 + 回 `hasNextPage` |
+| 断言（5 条） | `§7.8 第 0 页 120 条已加载且 hasNextPage=true`（请求里只有 `page` 缺省）／`§7.8 横向滚动不触发下一页`／`§7.8 下一页失败不更新页码、已有提交保留`（失败后页码仍 0、下次触底请求同一页）／`§7.8 触底加载第 1 页并保留前 100 条可见`（125 行、首行仍是 `p0- 提交 0`、`scrollTop > 0`）／`§7.8 重读第 0 页后页码归零、不保留旧页` |
+
+### 过程中定位的两处真实问题
+
+1. **`loadHistory` 早捕获 `live`**：历史请求在 `loadDocument()` 之前发出，响应回来时 `window.__augitLive`
+   往往才刚建立；旧代码在函数开头 `const live = window.__augitLive` 之后才用，导致分页状态写不进 live。
+   现在只在写状态时读 `window.__augitLive`，并让 `applyHistory()` 在 live 建立时补附着。
+2. **区域刷新后历史列表滚动位置归零**：`refresh("bottomTool")` 会重建 `.commit-list`。规格要求
+   "加载下一页时现有 100 条保持可见"（§6.4 也要求刷新保持滚动），因此新增持续记录 + 渲染后还原，
+   并在追加路径补一帧兜底。
+
+### 验证
+
+- `live-shell` **`通过 1227 项断言`**（1222 → **+5**，退出码 0）。
+- `Augit.Shell.Tests` 的 `ShellBridgeHistoryTests` **6 → 7**，全绿；`dotnet build Augit.slnx -c Release` **0 警告 0 错误**。
+- `ui-compliance.md` §2.6 §7.8 第 20/21 条由"未覆盖／部分"转"是"；§2.10 重生成 → 非"是" 108 → **106**、
+  C 类 10 → **9**。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 218 轮）：`live-data.js` → **`e27be79f6524c85db9dff8a1adf82652`**、
+  `live-shell.spec.cjs` → `97083432699136cd472a3dec73e4a671`；`mockup.css`（`55634f2a…`）／
+  `mockup.js`（`0728db52…`）／`bridge.js`（`8d2d3173…`）未变。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 9 条：`§7.13` 外部解决冲突后的会话列表增量更新、`§7.9` Blame 点提交定位历史（2 条）、
+`§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、`§6` 关闭比较后的占位 1 条，
+以及"产品面不可达"的 1 条）。

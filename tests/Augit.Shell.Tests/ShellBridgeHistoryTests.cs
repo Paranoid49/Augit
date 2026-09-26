@@ -194,6 +194,29 @@ public sealed class ShellBridgeHistoryTests
         Assert.HasCount(3, none.GetProperty("commits").EnumerateArray().ToArray());
     }
 
+    [TestMethod]
+    public async Task 历史分页把page交给宿主()
+    {
+        // 规格 §7.8「分页加载在列表底部触发」：界面滚动触底时把 page 送来。
+        // 夹具只有 3 条，因此"第 1 页为空"就是 page 确实生效的证据（没生效会再次返回 3 条）。
+        using TemporaryDirectory temporary = new();
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        await CreateRepositoryAsync(runtime, temporary.FullPath);
+        using ShellBridge bridge = new(temporary.FullPath);
+
+        JsonElement first = await InvokeAsync(bridge, HistoryRequest(1, page: 0));
+        Assert.HasCount(3, first.GetProperty("commits").EnumerateArray().ToArray());
+
+        JsonElement second = await InvokeAsync(bridge, HistoryRequest(2, page: 1));
+        Assert.IsTrue(second.GetProperty("available").GetBoolean(), second.GetRawText());
+        Assert.HasCount(0, second.GetProperty("commits").EnumerateArray().ToArray());
+        Assert.IsFalse(second.GetProperty("hasNextPage").GetBoolean(), second.GetRawText());
+
+        // 负页码按第 0 页处理，不抛出。
+        JsonElement negative = await InvokeAsync(bridge, HistoryRequest(3, page: -5));
+        Assert.HasCount(3, negative.GetProperty("commits").EnumerateArray().ToArray());
+    }
+
     private static string oldFullOf(JsonElement response, int index) =>
         response.GetProperty("commits")[index].GetProperty("fullHash").GetString()!;
 
@@ -209,7 +232,8 @@ public sealed class ShellBridgeHistoryTests
         string? rangeExclusive = null,
         string? rangeInclusive = null,
         string[]? branches = null,
-        string[]? paths = null)
+        string[]? paths = null,
+        int? page = null)
     {
         List<string> fields = [];
         void Add(string name, string? value)
@@ -229,6 +253,10 @@ public sealed class ShellBridgeHistoryTests
         Add("path", path);
         Add("rangeExclusive", rangeExclusive);
         Add("rangeInclusive", rangeInclusive);
+        if (page is not null)
+        {
+            fields.Add("\"page\":" + page.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
         if (branches is not null)
         {
             fields.Add("\"branches\":" + JsonSerializer.Serialize(branches));

@@ -349,6 +349,25 @@ async function main() {
         window.__historyCalls = (window.__historyCalls || 0) + 1;
         // 第 179 轮：记录参数，验证界面真的把筛选交给了宿主（而不是只改占位符）。
         window.__historyParams = (window.__historyParams || []).concat([params]);
+        // 规格 §7.8「分页加载在列表底部触发」：像宿主一样按 `page`（页大小 100）切片并回报 `hasNextPage`。
+        // 需要确定性多页的用例用 `window.__historyPages` 注入（每项是一页），与 `__emptyHistory` 同类旋钮。
+        const pageSlice = (payload) => {
+          const page = Math.max(0, Number(params.page) || 0);
+          const all = Array.isArray(payload.commits) ? payload.commits : [];
+          return { ...payload, commits: all.slice(page * 100, page * 100 + 100), hasNextPage: (page + 1) * 100 < all.length };
+        };
+        if (Array.isArray(window.__historyPages)) {
+          const page = Math.max(0, Number(params.page) || 0);
+          // 可注入"下一页失败"：验证失败不更新页码、下次触底从同一页重试（规格 §7.8）。
+          if (page > 0 && window.__historyPageFails) {
+            return { available: true, isRepository: true, reason: '读取下一页失败（注入）' };
+          }
+          return {
+            available: true, isRepository: true, head: data.history.head,
+            commits: window.__historyPages[page] || [],
+            hasNextPage: page < window.__historyPages.length - 1,
+          };
+        }
         // 历史常比首屏慢十余秒：支持注入延迟，用于验证"数据到达不得打断用户输入"。
         const historyDelay = window.__historyDelayMs || 0;
         if (historyDelay) await new Promise((r) => setTimeout(r, historyDelay));
@@ -371,7 +390,7 @@ async function main() {
           // 需要非空结果的用例用 `window.__compareRange` 注入（与 `__emptyHistory`／`__failAllDiffs` 同类旋钮）。
           if (params.rangeExclusive || params.rangeInclusive) {
             if (Array.isArray(window.__compareRange)) {
-              return { ...data.history, commits: window.__compareRange };
+              return pageSlice({ ...data.history, commits: window.__compareRange });
             }
             const byId = new Map();
             for (const commit of data.history.commits) {
@@ -403,7 +422,7 @@ async function main() {
             commits = commits.filter((c) => String(c.subject).toLowerCase().includes(needle));
           }
         }
-        return { ...data.history, commits };
+        return pageSlice({ ...data.history, commits });
       }
       if (method === 'git/blame') {
         window.__blameCalls = (window.__blameCalls || 0) + 1;
@@ -4917,6 +4936,105 @@ async function main() {
       JSON.stringify(geometryBefore) === JSON.stringify(geometryAfter)
         && geometryBefore.side !== null && geometryBefore.tabs !== null);
     await idem.page.close();
+
+    // ---- 规格 §7.8：分页加载在列表底部触发（第 218 轮）----
+    // `ux-spec.md:475-476`：底部触发；加载下一页时现有 100 条保持可见；成功后才更新页码；
+    // 失败/取消从同一页重试；横向滚动不触发；查询期间不禁用列表；旧页晚到不覆盖。
+    // 第 0 页要在首帧之前注入，因此这里手工建页（与 `openScene` 同一套宿主桩 + 本页 init script）。
+    const paged = await context.newPage();
+    await paged.addInitScript(() => {
+      const make = (prefix, count) => Array.from({ length: count }, (_, i) => ({
+        hash: `${prefix}${i}`, fullHash: `${prefix}full-${i}`, subject: `${prefix} 提交 ${i}`,
+        author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com',
+        date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
+      }));
+      window.__historyPages = [make('p0-', 120), make('p1-', 5)];
+      window.__historyPageFails = false;
+    });
+    await paged.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+    await paged.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+    await paged.waitForFunction(
+      "() => document.querySelectorAll('.log-list-panel .commit-row').length === 120", null, { timeout: 15000 });
+    const pageState = () => paged.evaluate(() => ({
+      rows: document.querySelectorAll('.log-list-panel .commit-row').length,
+      first: document.querySelector('.log-list-panel .commit-row .commit-subject')?.textContent || null,
+      last: [...document.querySelectorAll('.log-list-panel .commit-row .commit-subject')].at(-1)?.textContent || null,
+      page: window.__augitLive.historyPage,
+      hasNext: window.__augitLive.historyHasNextPage,
+      scrollTop: Math.round(document.querySelector('.log-list-panel .commit-list').scrollTop),
+      requests: (window.__historyParams || []).map((p) => p.page || 0),
+    }));
+    const beforePage = await pageState();
+    check('§7.8 第 0 页 120 条已加载且 hasNextPage=true: ' + JSON.stringify(beforePage),
+      beforePage.rows === 120 && beforePage.page === 0 && beforePage.hasNext === true
+        && beforePage.last === 'p0- 提交 119' && beforePage.requests.every((p) => p === 0));
+
+    // 横向滚动不触发下一页（规格明说"横向滚动和无关按键不触发"）。
+    await paged.evaluate(() => {
+      const list = document.querySelector('.log-list-panel .commit-list');
+      list.scrollLeft = 40;
+    });
+    await paged.waitForTimeout(400);
+    const afterHorizontal = await pageState();
+    check('§7.8 横向滚动不触发下一页: ' + JSON.stringify([afterHorizontal.rows, afterHorizontal.requests]),
+      afterHorizontal.rows === 120 && afterHorizontal.requests.every((p) => p === 0));
+
+    // 注入"下一页失败"：页码不前进、已有提交仍在；清掉后再次触底从同一页重试。
+    await paged.evaluate(() => {
+      window.__historyPageFails = true;
+      const list = document.querySelector('.log-list-panel .commit-list');
+      list.scrollTop = list.scrollHeight;
+    });
+    await paged.waitForTimeout(700);
+    const afterFail = await pageState();
+    check('§7.8 下一页失败不更新页码、已有提交保留: ' + JSON.stringify([afterFail.rows, afterFail.page, afterFail.requests.at(-1), afterFail.scrollTop]),
+      afterFail.rows === 120 && afterFail.page === 0 && afterFail.requests.at(-1) === 1);
+    await paged.evaluate(() => {
+      window.__historyPageFails = false;
+      // 先离开底部再回到底部：滚动事件只在 `scrollTop` 真正变化时触发，
+      // 而失败那次已经把列表停在底部了（"再次触底重试"要由用户再滚一次动作表达）。
+      const list = document.querySelector('.log-list-panel .commit-list');
+      list.scrollTop = list.scrollHeight - 200;
+    });
+    await paged.waitForTimeout(250);
+    await paged.evaluate(() => {
+      const list = document.querySelector('.log-list-panel .commit-list');
+      list.scrollTop = list.scrollHeight;
+    });
+    await paged.waitForFunction(
+      "() => document.querySelectorAll('.log-list-panel .commit-row').length === 125", null, { timeout: 15000 });
+    // 位置还原在渲染后的下一帧兜一次（重建可能发生在刷新之后），这里等它落定再读。
+    await paged.waitForFunction(
+      "() => document.querySelector('.log-list-panel .commit-list').scrollTop > 0", null, { timeout: 5000 }).catch(() => {});
+    const afterPage = await pageState();
+    check('§7.8 触底加载第 1 页并保留前 100 条可见: ' + JSON.stringify(afterPage),
+      afterPage.rows === 125 && afterPage.page === 1 && afterPage.hasNext === false
+        && afterPage.first === 'p0- 提交 0' && afterPage.last === 'p1- 提交 4'
+        && afterPage.requests.at(-1) === 1 && afterPage.scrollTop > 0);
+
+    // 重读第 0 页后页码归零、不保留旧页（旧页晚到不得覆盖新上下文）。
+    await paged.evaluate(() => {
+      window.__historyPages = [Array.from({ length: 120 }, (_, i) => ({
+        hash: `q0-${i}`, fullHash: `q0-full-${i}`, subject: `q0- 提交 ${i}`,
+        author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com',
+        date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
+      }))];
+    });
+    const callsBeforeReload = await paged.evaluate(() => window.__historyCalls || 0);
+    await paged.locator('.history-filters .toolbar-button[aria-label="刷新"]').click();
+    await paged.waitForFunction((before) => (window.__historyCalls || 0) > before, callsBeforeReload, { timeout: 15000 });
+    // 状态到达后再渲染（刷新入口只负责取数；列表由下一次区域刷新呈现）。
+    await paged.waitForFunction(
+      "() => (window.__augitLive.history && window.__augitLive.history.commits[0] && window.__augitLive.history.commits[0].subject) === 'q0- 提交 0'",
+      null, { timeout: 15000 });
+    await paged.evaluate(() => window.__augitRenderRegions('bottomTool'));
+    await paged.waitForFunction(
+      "() => document.querySelectorAll('.log-list-panel .commit-row').length === 120 && (document.querySelector('.log-list-panel .commit-row .commit-subject')||{}).textContent === 'q0- 提交 0'",
+      null, { timeout: 15000 });
+    const afterContext = await pageState();
+    check('§7.8 重读第 0 页后页码归零、不保留旧页: ' + JSON.stringify([afterContext.page, afterContext.hasNext, afterContext.last]),
+      afterContext.page === 0 && afterContext.hasNext === false && afterContext.last === 'q0- 提交 119');
+    await paged.close();
 
     // ---- 规格 §6.5：低于 150 毫秒不显示加载动画；§6.1：加载期间不隐藏编辑区 ----
     const fb = await openScene('scene=commit-diff&theme=dark');
