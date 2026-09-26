@@ -14961,8 +14961,54 @@ async function main() {
     });
     csCheck('§10.3 负向对照：宿主提供的动作确实会渲染出来: ' + JSON.stringify(csProvided),
       Array.isArray(csProvided) && csProvided.includes('abort') && csProvided.includes('skip') && csProvided.includes('continue'));
+
+    // §7.13：外部解决冲突后，会话列表在 500 毫秒内更新（宿主推送 `workspace-changed` 带 gitMetadata）。
+    // 链路：推送 → `applyWorkspaceChanges` → `loadStatus()`（`hasConflicts`）→ `loadOperationSession()`
+    // → `openConflictSession()` 就地重绘列表。这里把冲突数从 2 改成 1 并计时。
+    await cs.page.evaluate(() => {
+      window.__statusConflicts = true;
+      window.__operationSession = {
+        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
+        canContinue: false, canSkip: true, canAbort: true, supportsContinue: false,
+        currentStep: 2, totalSteps: 4,
+        conflicts: [
+          { path: 'src/App.cs', hasAncestor: true, hasYours: true, hasTheirs: true },
+          { path: 'src/Other.cs', hasAncestor: true, hasYours: true, hasTheirs: true },
+        ],
+      };
+      window.__augitLive.operationSessionShown = false;
+    });
+    await cs.page.evaluate(() => window.__augitLoadOperation());
+    await cs.page.waitForFunction(
+      "() => document.querySelectorAll('.dialog.conflict-session-dialog .check-row[data-conflict-path]').length === 2",
+      null, { timeout: 10000 });
+    const beforeExternal = await cs.page.evaluate(() => ({
+      rows: document.querySelectorAll('.dialog.conflict-session-dialog .check-row[data-conflict-path]').length,
+      summary: (document.querySelector('.dialog.conflict-session-dialog .toolbar strong') || {}).textContent || null,
+    }));
+    const externalUpdate = await cs.page.evaluate(async () => {
+      window.__operationSession.conflicts = [
+        { path: 'src/Other.cs', hasAncestor: true, hasYours: true, hasTheirs: true },
+      ];
+      const started = performance.now();
+      window.__hostPush('workspace-changed', { files: [], gitMetadata: true });
+      while (performance.now() - started < 2000) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        if (document.querySelectorAll('.dialog.conflict-session-dialog .check-row[data-conflict-path]').length === 1) break;
+      }
+      return {
+        elapsed: Math.round(performance.now() - started),
+        rows: document.querySelectorAll('.dialog.conflict-session-dialog .check-row[data-conflict-path]').length,
+        summary: (document.querySelector('.dialog.conflict-session-dialog .toolbar strong') || {}).textContent || null,
+      };
+    });
+    csCheck('§7.13 外部解决冲突后会话列表在 500ms 内更新: ' + JSON.stringify([beforeExternal, externalUpdate]),
+      beforeExternal.rows === 2 && beforeExternal.summary === '2 个冲突文件'
+        && externalUpdate.rows === 1 && externalUpdate.summary === '1 个冲突文件'
+        && externalUpdate.elapsed < 500);
+
     // 还原：后续用例依赖 __sessionFixture（未注入 __operationSession 时走它）。
-    await cs.page.evaluate(() => { delete window.__operationSession; window.__augitLive.operationSessionShown = false; });
+    await cs.page.evaluate(() => { delete window.__operationSession; delete window.__statusConflicts; window.__augitLive.operationSessionShown = false; });
     await cs.page.evaluate(() => window.__augitLoadOperation());
     await cs.page.waitForTimeout(400);
 

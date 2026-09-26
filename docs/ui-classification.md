@@ -213,12 +213,12 @@
 | T2 | 行内词级 Diff 高亮 | 权威键已定（`DIFF_*.BACKGROUND`），参考图证实存在；落地需宿主提供词级差异范围 | **需产品口径**：是否属"现有 diff 功能的呈现方式"（触碰"不新增数据通道"边界） |
 | T3 | 操作进度条（`.progress-track`）实时侧不渲染 | `16-operation-progress.md` §3：当时因 Smart Checkout 未接线而搁置；**第 206–207 轮已接线** | 重新评估：按权威 `ProgressWindow`／`ProgressDialogUI` 决定是否给写操作补进度呈现 |
 | T4 | ~~Amend"仅在用户没改过信息时才覆盖"~~ | `12-commit-changes.md` §9 登记待做 | **已关闭（第 216 轮）**：按权威 `AmendCommitHandlerImpl.kt:78-115` 实现"面板激活时的初始信息"基线 |
-| T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **9** 条 | `ui-compliance.md` §2.10（第 218 轮重生成；原 11 条中 `git-unavailable` 与 §7.8 分页已闭环） | 每条补断言或明确不做；不得写成通过 |
+| T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **8** 条 | `ui-compliance.md` §2.10（第 219 轮重生成；原 11 条中 `git-unavailable`、§7.8 分页、§7.13 外部冲突更新已闭环） | 每条补断言或明确不做；不得写成通过 |
 | T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
 | T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
 | T9 | ~~树/列表缩进与 `Tree.border` 的逐值核对~~ | `02-tree-list.md` 记 18px 步长，`design-system.md` §8.3 却写 16px，实现是四条固定规则（16px 步长） | **已关闭（第 217 轮）**：按权威 7+11=18 与参考图 18.4 订正为 `--tree-depth` 的 18px 步长（支持任意深度），并加 dpi×字号矩阵断言；`Tree.border` 是 Swing 外内距、Augit 用行内距表达（登记为实现方式差异） |
 
-**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。T9（树缩进步长）由**第 217 轮**订正为权威的 18px 并加断言（见 §1.22／§1.23／`02-tree-list.md`）。**第 218 轮**实现并断言 **Git 历史上翻页**（`ux-spec` §7.8 第 475-476 行）：宿主 `git/history` 收 `page`、界面滚动触底追加并由 `restoreHistoryScroll()` 保持可见位置，T6 的 C 类随之由 10 条降到 9 条。
+**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。T9（树缩进步长）由**第 217 轮**订正为权威的 18px 并加断言（见 §1.22／§1.23／`02-tree-list.md`）。**第 218 轮**实现并断言 **Git 历史上翻页**（`ux-spec` §7.8 第 475-476 行）：宿主 `git/history` 收 `page`、界面滚动触底追加并由 `restoreHistoryScroll()` 保持可见位置。**第 219 轮**为 **§7.13 外部解决冲突后的会话列表更新**补断言（推送 `workspace-changed {gitMetadata:true}` 后 500ms 内列表 2 → 1）。T6 的 C 类随之由 10 条降到 **8** 条。
 
 ## 8. 非界面目标项（不计入上面的功能归类）
 

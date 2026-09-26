@@ -6760,3 +6760,43 @@ T6（§2.10 C 类 10 条）。
 T6（§2.10 C 类 9 条：`§7.13` 外部解决冲突后的会话列表增量更新、`§7.9` Blame 点提交定位历史（2 条）、
 `§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、`§6` 关闭比较后的占位 1 条，
 以及"产品面不可达"的 1 条）。
+
+## ducentum-undeviginti. 第二百一十九轮：外部解决冲突后会话列表 500ms 内更新（关闭 §7.13 的 C 类缺口）
+
+`ui-compliance.md` §2.10 的 C 类还留着一条"规范要求、有实现、无断言"：`ux-spec` §7.13 要求
+"外部工具解决文件后列表在 500 毫秒内增量更新，已消失的冲突项不保留"，而界面侧此前**没有任何断言**
+（只有 diff 侧的"外部改变当前差异文件会重新请求"）。
+
+### 链路核对（结论：实现已有，缺的是断言）
+
+推送 `workspace-changed {gitMetadata:true}` →
+
+1. `applyWorkspaceChanges()` 的 `gitMetadata` 分支 `await Promise.all([loadStatus(), loadHistory()])`；
+2. `loadStatus()` 见 `latestStatus.hasConflicts || operation !== "None"` ⇒ `void loadOperationSession()`（`live-data.js:193-195`）；
+3. `loadOperationSession()` 更新 `live.operationSession`，并在 `operationSessionShown` 时调
+   `openConflictSession()` **就地重绘**会话窗口（`live-data.js:3463`）。
+
+因此不需要改产品代码；本轮补的是可复跑的断言。
+
+### 断言
+
+在 §7.13 的 `cs` 块里新增 1 条：
+
+1. 注入 2 个冲突的 `__operationSession` 并置 `__statusConflicts = true`，`__augitLoadOperation()` 打开会话窗口 ⇒ 列表 2 行、说明 `2 个冲突文件`；
+2. 把宿主会话的 `conflicts` 改成 1 项，`__hostPush('workspace-changed', { files: [], gitMetadata: true })`，在页面内轮询到列表变 1 行并计时；
+3. 断言 `rows 2 → 1`、说明 `2 个冲突文件 → 1 个冲突文件`、**耗时 < 500ms**；随后清掉 `__statusConflicts`/`__operationSession` 以免影响后续用例。
+
+### 验证
+
+- `live-shell` **`通过 1228 项断言`**（1227 → **+1**，退出码 0）。
+- `ui-compliance.md` §2.6 §7.13 第 5 条由"未覆盖"转"是"；§2.10 重生成 → 非"是" 106 → **105**、C 类 9 → **8**。
+- `check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 219 轮）：**只改 `live-shell.spec.cjs`** → `4dbec4e581c91677273f73d4380acc07`；
+  `mockup.css`（`55634f2a…`）／`mockup.js`（`0728db52…`）／`live-data.js`（`e27be79f…`）／
+  `bridge.js`（`8d2d3173…`）四个运行时文件**未变**。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 **8** 条：`§7.9` Blame 点提交定位历史（2 条）、`§7.3` Markdown 加载态（2 条）、
+`§7.16` 终端启动时序（2 条）、`§6` 关闭比较后的占位 1 条、"产品面不可达" 1 条）。
