@@ -1,0 +1,233 @@
+# Augit 功能与界面的 New UI 归类清单
+
+本文件是目标文本要求的**归类总表**：「Augit 当前每个功能和界面都必须明确归类为：已按 New UI 对齐、有意产品差异、不适用、无法取证或待处理，并具备对应的权威出处、实现位置和按场景可复验的依据。」
+
+本文件只做**归类与索引**，不新增产品能力、不改写任何规格条文。行为规则仍以 `docs/product-spec.md`、`docs/architecture.md`、`docs/ux-spec.md`、`docs/design-system.md` 为准；逐条取证的详细过程在 `docs/nui-behavior/*.md`。
+
+## 0. 口径
+
+### 0.1 五个归类
+
+| 归类 | 含义 | 目标完成时的要求 |
+| --- | --- | --- |
+| **已按 New UI 对齐** | 行为/视觉按本地权威 `intellij-community@576e328` 落地，且有可复跑依据 | 允许存在 |
+| **有意产品差异** | 与权威不同，但是**产品已决定**的偏离（用户裁决或 `product-spec` 明确不做），已写明理由 | 允许存在 |
+| **不适用** | 权威里的那个概念要求 Augit 没有的能力（多仓库、后台运行等），或该界面是 Augit 自有表面 | 允许存在 |
+| **无法取证** | 权威材料不在本地 checkout、或权威自己写明已搬迁，无法可靠确认 | 允许存在，但必须写明**具体原因**与处理结论（用户认可） |
+| **待处理** | 尚未完成的对齐工作 | **必须清零**；无法完成的要转成"有意产品差异／不适用／无法取证"并记录原因 |
+
+### 0.2 证据等级（可复验依据）
+
+| 等级 | 形式 |
+| --- | --- |
+| E1 断言 | `tools/audit/live-shell.spec.cjs` 的具名断言；`tools/verify-ux-*.cjs`（39 个，全绿） |
+| E2 单元测试 | `tests/Augit.{Core,Infrastructure,Shell}.Tests` |
+| E3 真机脚本 | `tools/audit/verify-window-chrome.ps1`、`verify-acceptance.ps1`、`capture-surface.ps1`、`measure-performance.ps1` |
+| E4 像素/截图 | `docs/ui-compliance.md` §1.1 的 55 场景 `layoutPercent`、`artifacts/*` |
+| E5 取证记录 | `docs/nui-behavior/*.md` 的权威 `文件:行号` |
+| E6 内部一致性 | 视觉稿＝运行时字节一致（`verify-ui-assets.ps1`），仅用于"无法取证"类 |
+
+### 0.3 通用实现位置
+
+界面本体在 `web/src/`（`mockup.js` 结构、`live-data.js` 实时逻辑、`mockup.css` 令牌与规则；四个共享文件与 `docs/ux-mockups/` 字节一致）；宿主与桥接在 `src/Augit.Shell/ShellBridge.cs`；业务在 `src/Augit.Infrastructure/`、`src/Augit.Core/`。下表的"实现位置"只写**该行特有**的落点，其余默认指上述文件。
+
+---
+
+## 1. 全局框架与视觉系统
+
+| # | 功能/界面 | 归类 | 权威出处 | 实现位置 | 可复验依据 |
+| --- | --- | --- | --- | --- | --- |
+| 1.1 | 窗口骨架（自绘标题栏、无原生 caption、窗口三键） | 已按 New UI 对齐 | `01-tool-window.md`；`MainToolbar.*` | `mockup.js` 标题栏 | E3 `verify-window-chrome.ps1` 11/11；E1 live-shell |
+| 1.2 | 左轨工具窗口按钮（32×32、图标 16、圆角 3、选中两档） | 已按 New UI 对齐 | `01`；`ToolWindowStripeExtension`、`SquareStripeButtonLook` | `mockup.css` `.rail-button` | E1 `verify-ux-frame-buttons.cjs`、live-shell |
+| 1.3 | 工具窗口切换/折叠/互斥、分隔条 | 已按 New UI 对齐 | `01`；`ToolWindowDescriptor` | `live-data.js` 布局状态 | E1 live-shell（§5.1/§9.4） |
+| 1.4 | 状态栏（字段、只读标识、编码/换行） | 已按 New UI 对齐 | `07`；`StatusBar` | `mockup.js` 状态栏 | E1 `verify-ux-statusbar.cjs`、live-shell |
+| 1.5 | 编辑器标签几何与状态（42px、两套渲染定为 expUI 经典） | 已按 New UI 对齐 | `03`；`EditorTabs.*`、`IslandsTabPainter` | `mockup.css` 标签 | E1、E4 |
+| 1.6 | 树/列表选择、键盘导航、speed search、复选框 | 已按 New UI 对齐 | `02`；`Tree.Selection.arc`、`WideSelectionListUI` | `live-data.js` 焦点区域 | E1 live-shell（§5.4） |
+| 1.7 | 动作可用性：禁用 vs 隐藏（`Presentation.setEnabledAndVisible(false)` ⇒ 不显示） | 已按 New UI 对齐 | `04`；`Presentation.java:576`、`GitSingleRefAction.kt:40` | `mockup.js` 各行菜单 | E1 live-shell（第 171 轮） |
+| 1.8 | 菜单项行高 28、选中圆角 4、分隔线 3、弹层圆角 8 | 已按 New UI 对齐 | `04`；`PopupMenu.Selection.*`、`IdeaPopupMenuUI` | `mockup.css` `.menu-item` | E1 `verify-ux-typography.cjs` |
+| 1.9 | 主工具栏项目配色渐变 | 已按 New UI 对齐 | `intellij-platform-ui-reference.md` §3.1；`MainToolbar` | `mockup.css` `.titlebar[data-project-color]` | E1 `verify-ux-titlebar.cjs`、E5 |
+| 1.10 | 图标线宽 1 / 关闭叉 9×9 / 填充化 / 颜色 | 已按 New UI 对齐 | `09-icons.md`；`expui/*` | `mockup.js` `icon()`、`mockup.css` | E1 `verify-ux-offline-icons.cjs` |
+| 1.11 | 主题切换链路（WebView2 表面色、系统主题即时跟随） | 已按 New UI 对齐 | `07` §1.3；`ShellTheme.cs` | `src/Augit.Shell/ShellTheme.cs` | E2 `ShellThemeTests`、E1 live-shell |
+| 1.12 | DPI 缩放契约（逻辑像素不变、细线整设备像素） | 已按 New UI 对齐 | `07` §2；`JBUIScale.scale` | `mockup.css` `--augit-hairline`、`applyDeviceScale()` | E1 live-shell（第 199/200 轮） |
+| 1.13 | 模态遮罩：透明点击承接层、不做背景变暗 | 已按 New UI 对齐 | `IdeGlassPaneImpl.kt`（无变暗绘制） | `mockup.css` `.scrim` | E5 `intellij-platform-ui-behavior.md` §11、E4 |
+| 1.14 | 滚动条滑块（`ScrollBar.Transparent.thumbColor`，悬停档不实现） | 有意产品差异 | `ScrollBarPainter.java:113` | `mockup.css` `scrollbar-color` | E5 `10-backlog.md` §五（悬停档无 CSS 表达） |
+| 1.15 | 树/Changes 行悬停底 | 有意产品差异 | 权威未给树装 `TreeHoverListener`；平台元数据支持 `if hover is allowed` | `mockup.css` `.tree-row:hover`、`.changes-list .check-row:hover` | 用户裁决（`10-backlog.md` 第 100 轮）；E1 live-shell |
+| 1.16 | 树行高 28 基准（权威 `Tree.rowHeight` = 24、参考图 23.5） | 有意产品差异 | `02`；`Tree.rowHeight` | `mockup.js` `tree-height = ceil(max(27,h+8)/2)*2` | 用户裁决"规格名义值"（`10-backlog.md` §五，第 116 轮）；E4 |
+| 1.17 | 只读正文行高 1.7×（权威运行时为 `字体度量高×1.2`） | 有意产品差异 | `03` §8.3；`Editor` 行高 | `mockup.js` `--code-line-height` | E5 `design-system.md` §4.3、E4 |
+| 1.18 | 字号范围 9–40px（平台不校验上限） | 有意产品差异 | 平台建议 8–72、不校验 | `mockup.js` 字号设置 | E5 `intellij-platform-ui-behavior.md` §3 |
+| 1.19 | 空右键菜单不显示占位项 | 有意产品差异 | 权威补占位项 | 各右键菜单渲染 | E5 `intellij-platform-ui-behavior.md` §3；`ux-spec` 为准 |
+| 1.20 | WebView2 多进程内存基数（约 543–631 MB，100 MB 目标不可达） | 不适用 | 平台自绘/原生控件才有 100 MB 量级 | 架构决定 | E3 `measure-performance.ps1`、`performance-report.md` §10 |
+| 1.21 | Compose/Jewel 专属尺寸（如 Jewel `IconButton` 24×24、`dialogUnscaledGaps` 10/12） | 不适用 | 那属 Compose 栈，Augit 是 Swing 等价物的 HTML 复刻 | —— | E5 `intellij-platform-ui-behavior.md` §2.3、`10-backlog.md` 一/二·补四 |
+
+## 2. Git 与文件功能
+
+| # | 功能/界面 | 归类 | 权威出处 | 实现位置 | 可复验依据 |
+| --- | --- | --- | --- | --- | --- |
+| 2.1 | 项目树（展开/刷新/外部变化增量、右键菜单） | 已按 New UI 对齐 | `02`；`AbstractProjectViewPane` | `live-data.js` 树渲染 | E1 `verify-ux-project-tree.cjs`、live-shell |
+| 2.2 | 只读文本查看（行号、换行、显示空白、查找） | 已按 New UI 对齐 | `03`、`05`；`EditorTabs`、查找条 | `mockup.js` `code-view` | E1 `verify-ux-find.cjs`、`verify-ux-document-toolbar.cjs` |
+| 2.3 | Markdown 预览/原文（模式记忆、链接处理） | 已按 New UI 对齐 | `03`；`ux-spec` §7.3 | `markdown.js`、`live-data.js` | E1 `verify-ux-markdown.cjs` |
+| 2.4 | JSON 原文/格式化与错误行列 | 已按 New UI 对齐 | `ux-spec` §7.4；`JsonDisplayFormatter` | `live-data.js`、`mockup.js` | E1 `verify-ux-json.cjs` 24/24、E2 Core 单测 |
+| 2.5 | 图片查看器（缩放/平移/适应） | **无法取证** | 图像查看器**不在本 checkout**（三次独立检索 0 命中） | `image-preview.js`（与视觉稿字节一致） | E6 `verify-ui-assets.ps1`；用户裁决（第 211 轮）逐字见 `10-backlog.md` §三 第 3 项 |
+| 2.6 | 不可预览文件（三档上限、只读预览、警告横幅） | 已按 New UI 对齐 | `FileSizeLimit.kt:14-24`、`LargeFileNotificationProvider.java:37-58` | `DocumentLimits`、`ReadOnlyDocumentService`、`mockup.js` `largeFileBanner()` | E1 `verify-ux-large-file-preview.cjs`、E2 |
+| 2.7 | Changes 列表与提交（勾选、Amend、空信息确认、可用性） | 已按 New UI 对齐 | `12-commit-changes.md`；`CommitChangeListDialog.java:602-604`、`SingleChangeListCommitWorkflowHandler.kt:117-122` | `live-data.js` `commitSelectedChanges` | E1 `verify-ux-commit-workflow.cjs`、live-shell |
+| 2.8 | Changes 右键菜单顺序 | 已按 New UI 对齐 | `12` §10；`ChangesViewPopupMenu`、`Git.FileActions` | `mockup.js` `changesContextMenu()` | E1 `check-changes-context-menu.test.cjs` |
+| 2.9 | 工作区 Diff（状态机、边界两段式、文件导航） | 已按 New UI 对齐 | `08`、`ux-spec` §7.7 | `live-data.js` `loadDiff`/`moveDiffFile` | E1 live-shell（§7.9 块）、`verify-ux-diff-typography.cjs` |
+| 2.10 | Diff 三层颜色（软行底/行内/行号槽） | 已按 New UI 对齐（软行底 + 行号槽）／**行内层待处理** | `08` §2.2；`TextDiffTypeImpl`、`LineStatusMarkerColorScheme` | `mockup.css` `--augit-diff-*` | E1 `check-diff-current.test.cjs`、E5 |
+| 2.11 | Git 历史（列表、详情、分页、快捷键） | 已按 New UI 对齐 | `06`、`07`；`VcsLogUI` | `live-data.js` `loadHistory` | E1 `verify-ux-history.cjs`、`verify-ux-history-details.cjs` |
+| 2.12 | 提交图（轨道分配、边、配色） | 已按 New UI 对齐 | `06`；`GitLogGraphColorManager` | `mockup.js` 图形绘制 | E1 `verify-ux-commit-graph.cjs` |
+| 2.13 | Git 历史筛选（文本/哈希、分支、用户、日期、路径） | 已按 New UI 对齐（**登记差异**见右） | `VcsLogFilterCollection`、`VcsLogFiltererImpl.kt:88-101` | `git/history` 参数、`live-data.js` 筛选弹层 | E1 live-shell（第 179/185/188–191 轮） |
+| 2.14 | 文件历史（权威四列 + 作者 `*`/tooltip） | 已按 New UI 对齐 | `14`；`FileHistoryPanelImpl.java:292-306,764-788` | `mockup.js` `historyAuthorCell()` | E1 `verify-ux-file-history.cjs` |
+| 2.15 | Blame（归属列、悬停日期、上一修订） | 已按 New UI 对齐 | `14`；`GitFileAnnotation.java:193`、`AnnotatePreviousRevisionAction` | `live-data.js` `loadBlame(path, revision)` | E1 `verify-ux-blame.cjs`、E2 |
+| 2.16 | 引用比较（与当前分支、两任意分支） | 已按 New UI 对齐（**登记差异**：开在编辑器标签） | `GitCompareBranchesUi`、`ShowArbitraryBranchesDiffAction` | `live-data.js` `openBranchComparison()` | E1 live-shell（第 180/193 轮） |
+| 2.17 | 分支与标签（创建/重命名/删除、两步确认、引用树、多选） | 已按 New UI 对齐（**登记差异**见 20 册） | `13` §8、`20-branches-host-batch.md` | `git/branch`、`git/tag`、`live-data.js` 引用树 | E1 live-shell（第 170/171/182–184 轮）、E2 |
+| 2.18 | 日志左竖条 = 分支面板动作组 + 引用树 + 我的分支 | 已按 New UI 对齐 | `BranchesInGitLogUiFactoryProvider`、`BranchesTreeModel.kt:214-222` | `live-data.js` `refTree`、`mockup.js` | E1 live-shell（第 173–178 轮） |
+| 2.19 | Stash 创建/应用/弹出/删除（`Include untracked` 默认不勾） | 已按 New UI 对齐 | `GitStashDialog.kt:41-53`、`GitUnstashAsDialog` | `ShellBridge.CreateStashAsync`、`mockup.js` | E1 `verify-ux-stash.cjs`、E2（第 211 轮） |
+| 2.20 | Reset（默认 Mixed、模式顺序、影响说明） | 已按 New UI 对齐 | `GitResetDialog.java:157-159` | `git/reset`、`mockup.js` | E1 `verify-ux-reset-rollback.cjs`、live-shell |
+| 2.21 | Rollback（入口文案、回收站说明） | 已按 New UI 对齐（**登记差异**：确认框形态按 `ux-spec`） | `RollbackAction`／`RollbackChangesDialog` | `live-data.js` | E1 `verify-ux-rollback-layout.cjs` |
+| 2.22 | Worktree 管理（创建/新分支/打开/安全移除/主工作树） | 已按 New UI 对齐 | `GitWorkingTreeDialog.kt:185-198`、`RemoveWorkingTreeAction.kt:31-40` | `GitWorktreeService`、`ShellBridge`、`mockup.js` | E1 `verify-ux-worktree.cjs`、E2（第 212 轮） |
+| 2.23 | Clone（浅克隆、URL 空即禁用） | 已按 New UI 对齐 | `DvcsCloneDialogComponent.kt:127`、`GitShallowCloneViewModel` | `live-data.js` | E1 `verify-ux-clone.cjs` |
+| 2.24 | Push（标题用仓库名、拆分动作、无远端） | 已按 New UI 对齐（**差异**：Force Push 不提供） | `VcsPushDialog.java` | `git/unpushed`、`mockup.js` | E1 `verify-ux-push.cjs` |
+| 2.25 | 远端管理（名称/fetchUrl/pushUrl） | 已按 New UI 对齐（**差异**：三重名校验未前置；远端分支删除未接线） | `GitDefineRemoteDialog` | `git/remote-write`、`mockup.js` | E1 `verify-ux-remote.cjs`；E5 `13` §9.1 |
+| 2.26 | 仓库初始化（创建 Git 仓库、确认形态、失败原因） | 已按 New UI 对齐 | `GitInit.java:45-83` | `git/init`、`mockup.js` `repositoryInitBody()` | E1 `verify-ux-repository-init.cjs`、E2 |
+| 2.27 | Smart Checkout（overwriteRisk 对话框、恢复冲突说明） | 已按 New UI 对齐（**差异**：Force Checkout 不提供） | `GitSmartOperationDialog.java:36-125`、`GitBrancher.java:91-92` | `git/checkout-smart`、`live-data.js` | E1 `verify-ux-smart-checkout.cjs`、E2 |
+| 2.28 | 冲突操作会话列表（Continue/Skip/Abort 可用性） | 已按 New UI 对齐 | `08` §7bis；`MergeActionCaptions` | `git/operation`、`live-data.js` | E1 live-shell（第 149 轮） |
+| 2.29 | 三栏冲突解决器（唯一可编辑区、每侧高亮、整侧接受） | 已按 New UI 对齐 | `08` §7bis；`ThreesideMergeHighlighters` | `mockup.js` `conflict-*`、`live-data.js` | E1 `verify-ux-conflict.cjs` 72/72 |
+| 2.30 | 快速打开 / 跳转行（结果上限 30、进行中状态） | 已按 New UI 对齐 | `15`；`GotoFileAction`、`SearchEverywhereUI.java:217` | `search/files`、`mockup.js` | E1 live-shell（第 152/153/201 轮） |
+| 2.31 | 全仓搜索（浮层扁平行、1000 条上限、Continue/Abort） | 已按 New UI 对齐 | `17`；`UsageLimitUtil.java:26-34`、`FindPopupResultsAutoloadHandler.kt:69-80` | `search/text`、`live-data.js` | E1 `verify-ux-search-limited.cjs`、E2 |
+| 2.32 | Git 不可用（提示一次、配置入口） | 已按 New UI 对齐（**但缺一处禁用态**，见 §7 待处理 T5） | `17`；`GitExecutable` 检测 | `live-data.js` `showGitUnavailable` | E1 live-shell；E5 `17-repository-init-search.md` |
+| 2.33 | 内置终端（键位 Esc/Tab、标题栏三动作、会话回收） | 已按 New UI 对齐（**键位侧**）／**无法取证**（标签生命周期） | `19`；`TerminalEscapeKeyListener.java` | `live-data.js` xterm 接线 | E1 live-shell（第 157 轮）、E2 `ShellBridgeTerminalBufferTests` |
+| 2.34 | 终端标签生命周期／关闭确认／重命名 | **无法取证** | 权威写明已搬到 `org.jetbrains.plugins.terminal`（本 checkout 不含） | 按 `ux-spec` §7.16 与实现维护 | E5 `19-terminal.md`、`11-surface-audit.md` 第 5 区 |
+| 2.35 | 设置（分类/搜索/spotlight/底栏/快捷键/草稿） | 已按 New UI 对齐（**登记差异**见右） | `SettingsDialog.java:86-96`、`SettingsSearch.java`、`SpotlightPainter.kt` | `live-data.js` 设置 | E1 live-shell（第 195–197 轮） |
+| 2.36 | 操作进行/结果（取消一次性、提示不自动消失） | 已按 New UI 对齐 | `16`；`ProgressDialogUI.kt:136-152`、`ProcessBalloon.kt:114-127` | `reflectWriteOperation()` | E1 live-shell（第 154 轮） |
+| 2.37 | 操作进度条（`.progress-track`） | **待处理**（见 §7 T3） | `ProgressWindow`／`ProgressDialogUI` | 实时侧尚未渲染 | E4 仅视觉稿 `operation-progress` |
+| 2.38 | 提交信息校验/Amend 覆盖条件 | **待处理**（见 §7 T4） | `12` §9 | `live-data.js` 草稿机制 | E5 登记待做 |
+| 2.39 | Git「标记为收藏」 | 有意产品差异（维持禁用并写明） | `ToggleFavoriteAction`＋`DvcsBranchSettings.favorites` | 竖条禁用项 | 用户裁决（第 211 轮，`10-backlog.md` §三 第 4 项） |
+| 2.40 | 分支面板「按仓库分组」 | 不适用 | 权威要求多仓库 | 设置弹层禁用项 | E5 `20-branches-host-batch.md` §4 |
+| 2.41 | 远端分支删除、Prune、CheckinFiles 等 Changes 动作家族 | 不适用（产品无该能力，按边界不新增） | `GitDeleteRemoteBranchOperation` 等 | —— | E5 `09-icons.md` 第 171 轮、`13` §8 |
+
+## 3. 对话框与状态机（权威均出自 `13-git-dialogs.md` 与 `07-theme-dpi-dialogs.md`）
+
+| # | 项 | 归类 | 说明 |
+| --- | --- | --- | --- |
+| 3.1 | 经典对话框内容/标题/底栏内距、无底栏分隔线 | 已按 New UI 对齐 | `DialogWrapper.java:838-845,1522`、`UIUtil.java:370-371` |
+| 3.2 | 破坏性确认框标题图标（reset/rollback 问号） | 已按 New UI 对齐 | 官方 `questionDialog.svg`；其余 5 个对话框图标无依据 ⇒ 不适用（见 §6） |
+| 3.3 | 对话框状态机（进行中冻结、取消、焦点恢复） | 已按 New UI 对齐 | `07`；`DialogWrapper` |
+| 3.4 | `Diff 当前块`（`.diff-current`） | **待处理**（见 §7 T1） | `DiffDrawUtil.PaintMode` 无对应层 |
+| 3.5 | 行内词级 Diff 高亮 | **待处理**（见 §7 T2） | 需宿主提供词级差异范围 |
+| 3.6 | 冲突解决器 Continue/Skip/Abort 文案 | 有意产品差异 | 权威走 `MERGE_ACTION_CAPTIONS` 钩子，由 `ux-spec` 定义 |
+| 3.7 | 对话框"在后台运行"按钮、任务自定义取消文案 | 不适用 | Augit 写操作不阻塞、只有一种取消文案 |
+| 3.8 | 图像查看器缩放/平移规则 | 无法取证 | 同 2.5 |
+| 3.9 | 终端标签生命周期 | 无法取证 | 同 2.34 |
+| 3.10 | Force Push、`As new branch`、`Reinstate index`、`Clear`、`Delete local copies of added files` | 不适用 | 产品无能力，按边界不新增（`13` §2/§9） |
+
+## 4. 场景级归类（55 个产品场景；`index.html` 是视觉稿索引页，不属产品界面）
+
+实现位置统一为 `web/src/mockup.js`（结构）＋ `web/src/live-data.js`（实时）＋ `web/src/mockup.css`；下表的"依据"指该场景特有的证据（通用证据见 §0.2）。
+
+| 场景 | 归类 | 依据 |
+| --- | --- | --- |
+| `main-project` | 已按 New UI 对齐 | E3 真机巡检、E4 像素 |
+| `workspace-open` | 已按 New UI 对齐 | E4；E1 live-shell |
+| `project-context-menu` | 已按 New UI 对齐 | E1 `verify-ux-project-tree.cjs` |
+| `text-viewer` | 已按 New UI 对齐 | E1 `verify-ux-find.cjs`、E4 |
+| `markdown-preview` | 已按 New UI 对齐 | E1 `verify-ux-markdown.cjs`、`verify-ux-json.cjs` |
+| `json-preview` | 已按 New UI 对齐 | E1 `verify-ux-json.cjs` 24/24 |
+| `image-preview` | 无法取证 | E6；用户裁决第 211 轮 |
+| `image-error` | 无法取证 | E6；用户裁决第 211 轮 |
+| `file-limit` | 已按 New UI 对齐 | E1 `verify-ux-large-file-preview.cjs` |
+| `commit-changes` | 已按 New UI 对齐 | E1 `verify-ux-commit-workflow.cjs`、E3 |
+| `commit-empty` | 已按 New UI 对齐 | E1 `check-commit-empty-message.test.cjs` |
+| `changes-context-menu` | 已按 New UI 对齐 | E1 `check-changes-context-menu.test.cjs` |
+| `commit-diff` | 已按 New UI 对齐 | E1、E4 |
+| `diff-status` | 已按 New UI 对齐 | E1 `verify-ux-diff-typography.cjs` |
+| `diff-loading` | 已按 New UI 对齐 | E1 live-shell |
+| `diff-boundary` | 已按 New UI 对齐 | E3（第 371 轮专测）、E4 |
+| `git-history` | 已按 New UI 对齐 | E1 `verify-ux-history.cjs`、E3 |
+| `git-history-empty` | 已按 New UI 对齐 | E1 live-shell |
+| `git-history-graph` | 已按 New UI 对齐 | E1 `verify-ux-commit-graph.cjs` |
+| `git-history-menu` | 已按 New UI 对齐 | E1 live-shell（第 167/172 轮） |
+| `history-diff-loading` | 已按 New UI 对齐 | E1 live-shell |
+| `history-diff-cancelled` | 已按 New UI 对齐 | E1 live-shell（取消入口） |
+| `history-diff-failure` | 已按 New UI 对齐 | E1 live-shell（失败保留标签可重试） |
+| `git-compare` | 已按 New UI 对齐 | E1 `verify-ux-history-follow.cjs` |
+| `git-compare-empty` | 已按 New UI 对齐 | E4 |
+| `file-history` | 已按 New UI 对齐 | E1 `verify-ux-file-history.cjs` |
+| `blame` | 已按 New UI 对齐 | E1 `verify-ux-blame.cjs` |
+| `branches` | 已按 New UI 对齐 | E1、E2（第 170/171 轮） |
+| `stash` | 已按 New UI 对齐 | E1 `verify-ux-stash.cjs` |
+| `stash-manager` | 已按 New UI 对齐 | E1 `verify-ux-stash-manager.cjs` |
+| `stash-drop-confirm` | 已按 New UI 对齐 | E1、E4 |
+| `reset` | 已按 New UI 对齐 | E1 `verify-ux-reset-layout.cjs`、`verify-ux-reset-rollback.cjs` |
+| `rollback` | 已按 New UI 对齐 | E1 `verify-ux-rollback-layout.cjs` |
+| `worktrees` | 已按 New UI 对齐 | E1 `verify-ux-worktree.cjs`、E2（第 212 轮） |
+| `remote` | 已按 New UI 对齐 | E1 `verify-ux-remote.cjs` |
+| `clone` | 已按 New UI 对齐 | E1 `verify-ux-clone.cjs` |
+| `push` | 已按 New UI 对齐 | E1 `verify-ux-push.cjs` |
+| `push-no-remote` | 已按 New UI 对齐 | E1 `verify-ux-push.cjs` |
+| `operation-progress` | 待处理（进度条） | E4 仅视觉稿（见 §7 T3） |
+| `operation-result` | 已按 New UI 对齐 | E1 live-shell（第 154 轮） |
+| `smart-checkout` | 已按 New UI 对齐 | E1 `verify-ux-smart-checkout.cjs` |
+| `conflict-list` | 已按 New UI 对齐 | E1 live-shell（第 149 轮） |
+| `conflict-resolver` | 已按 New UI 对齐 | E1 `verify-ux-conflict.cjs` 72/72 |
+| `repository-init` | 已按 New UI 对齐 | E1 `verify-ux-repository-init.cjs` |
+| `repository-search` | 已按 New UI 对齐 | E1 live-shell |
+| `search-limited` | 已按 New UI 对齐 | E1 `verify-ux-search-limited.cjs` |
+| `quick-open` | 已按 New UI 对齐 | E1 live-shell（第 153 轮） |
+| `quick-open-empty` | 已按 New UI 对齐 | E1、E4 |
+| `go-to-line` | 已按 New UI 对齐 | E1 live-shell（第 152 轮） |
+| `settings` | 已按 New UI 对齐 | E1 live-shell（第 195–197 轮） |
+| `settings-dirty` | 已按 New UI 对齐 | E1、E4 |
+| `settings-save-failure` | 已按 New UI 对齐 | E1、E4 |
+| `terminal` | 已按 New UI 对齐（键位）／无法取证（标签） | E1 live-shell（第 157 轮）；见 2.34 |
+| `terminal-close` | 无法取证（标签生命周期） | 见 2.34 |
+| `git-unavailable` | 已按 New UI 对齐（**缺禁用态**，见 T5） | E1 live-shell；E5 §2.10 |
+| `index`（索引页） | 不适用 | 视觉稿索引，不是产品界面 |
+
+## 5. 无法取证清单（含具体原因与处理结论）
+
+| 项 | 为什么无法取证 | 处理结论 |
+| --- | --- | --- |
+| 图像查看器（`image-preview`／`image-error`） | New UI 图像查看器不在 `/mnt/d/github/intellij-community`：`rg -l "class ImageViewer\|class UberImageViewer\|class ImageEditor"`、`find -name "*ImageViewer*"`、全仓 `rg -l "UberImageViewer"` 三次检索 0 命中 | **用户裁决（第 211 轮）：认定为"无本地权威"**；此后只按内部一致性（视觉稿＝运行时基线）维护，不声称与 PyCharm 对齐 |
+| 终端标签生命周期／关闭确认／重命名 | 权威自己在 `session/TerminalSession.kt` 的 `@Deprecated` 文本里写明已搬到 `org.jetbrains.plugins.terminal`，该插件不在本 checkout | 按 `ux-spec` §7.16 与实现维护，**不写成"已对齐"**（`19-terminal.md`） |
+| Windows 10 22H2 实机行为 | 当前无 Windows 10 实机 | 只登记 Windows 11 x64 结果并明确标注；**不宣称完成 Windows 10 验证** |
+
+## 6. 不适用清单（权威概念要求 Augit 没有的能力）
+
+| 项 | 原因 |
+| --- | --- |
+| 多仓库相关（按仓库分组、多仓库分歧时的检出、跨仓库日志） | 产品规格不含多仓库 |
+| 后台运行按钮、任务自定义取消文案 | Augit 写操作不阻塞、只有一种取消文案 |
+| Compose/Jewel 专属尺寸 | 属另一个 UI 栈，不能套用到 Swing 等价物的 HTML 复刻 |
+| 图像查看器之外的 New UI 专有编辑器能力（结构视图、意图动作等） | 属"完整 IDE"能力，Augit 不提供 |
+| 十万提交历史 fixture | 本机无快速生成条件（性能项，见 §8） |
+
+## 7. 待处理清单（目标完成前必须清零）
+
+> 这是目标的硬性要求：「待处理」只用于执行期间的追踪，**不进入目标完成状态**。下列每项都必须解决、或转成"有意产品差异／不适用／无法取证"并取得用户认可的处理结论。
+
+| # | 项 | 现状与依据 | 出路 |
+| --- | --- | --- | --- |
+| T1 | `.diff-current`（当前差异块）在 New UI 无对应物 | `08-diff-merge.md` §7bis.4、`10-backlog.md` 二·补五；`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`／`EXCLUDED_*` | ① 删除层（只滚动不染色）；② 改为行内词级高亮；③ 保留但换行号槽色族。**需产品口径** |
+| T2 | 行内词级 Diff 高亮 | 权威键已定（`DIFF_*.BACKGROUND`），参考图证实存在；落地需宿主提供词级差异范围 | **需产品口径**：是否属"现有 diff 功能的呈现方式"（触碰"不新增数据通道"边界） |
+| T3 | 操作进度条（`.progress-track`）实时侧不渲染 | `16-operation-progress.md` §3：当时因 Smart Checkout 未接线而搁置；**第 206–207 轮已接线** | 重新评估：按权威 `ProgressWindow`／`ProgressDialogUI` 决定是否给写操作补进度呈现 |
+| T4 | Amend"仅在用户没改过信息时才覆盖" | `12-commit-changes.md` §9 登记待做；权威 `:81` 依赖面板打开时的 `initialMessage`，Augit 无该基准 | 补基准并实现，或登记为差异（需说明理由） |
+| T5 | `git-unavailable` 下 rail 按钮无禁用态 | `ui-compliance.md` §2.10（第 402 轮实测）：5 个 rail 按钮 `aria-disabled="true"` 数量为 0 | 实现禁用 + 原因（对齐 `ux-spec` §7.18），或改规格说明（需裁决） |
+| T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 11 条 | `ui-compliance.md` §2.10；逐条列出（除已单列的 T5） | 每条补断言或明确不做；不得写成通过 |
+| T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
+| T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
+| T9 | 树/列表缩进与 `Tree.border = 4,12,4,12`、`List.border = 4,0,4,0` 的逐值核对 | `02-tree-list.md`；`design-system.md` §8.3 现写"树缩进 16px 一级步长"，与权威的 `Tree.border` 内距是两件事，尚未逐值核对 | 逐值核对权威 `Tree.border`／缩进并落地或登记差异（行为索引 §4 第 2 项已改标为"仍待做"） |
+
+## 8. 非界面目标项（不计入上面的功能归类）
+
+| 项 | 状态 |
+| --- | --- |
+| 三类场景性能基线（空仓库/已有仓库/大仓库） | **已建立**（第 213 轮，`performance-report.md` §10，`measure-performance.ps1`）；后续为持续优化 |
+| 首屏链路与 WebView2 内存基数优化 | 待优化（基线已定，改前复跑同一脚本对比） |
+| 十万提交历史性能 | 缺 fixture（本机无法快速生成），沿用第 0 节早期抽样并标注非本轮实测 |
+| Windows 10 22H2 实机兼容性 | 未验证，无实机条件 |
+
+## 9. 修订记录
+
+- 第 214 轮建立本文件（目标 Round 3）。来源：`11-surface-audit.md` 的 11 区结论、`ui-compliance.md` §1.4／§2.10／§3.2／§3.4、`10-backlog.md` 的裁决表、`design-system.md` §2/§8.3、各分册的权威出处。
+- 同轮修订两处规范矛盾（T7／T8）：`design-system.md` §8.3 的树悬停段落与 `intellij-platform-ui-behavior.md` §3 的四行旧状态，按已记录的用户裁决（第 100／116 轮）与已实施事实（第 11 模块）改标，去掉"待实施/待核实"字样；行为索引 §4 的第 2/3/4 项同步改标（第 2 项留下一处新登记的待办 T9）。
+- 归类判定原则：**"权威有、Augit 也有且按权威落地"= 已对齐；"权威有、产品明确不做"= 有意差异；"权威概念不适用"= 不适用；"权威材料不在本地"= 无法取证；其余未决 = 待处理**。不把"实现已有、只缺断言"写成"未实现"，也不把"未验证"写成"已对齐"。
