@@ -12,6 +12,7 @@ artifacts/*
 !artifacts/pycharm-compare-20260919/
 !artifacts/pixel-review-20260921/
 !artifacts/pixel-review-20260921b/
+!artifacts/perf-20260926/
 publish/
 *.user
 *.suo

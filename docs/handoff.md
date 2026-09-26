@@ -98,6 +98,7 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 | 资源一致性 | `powershell -File tools\audit\verify-ui-assets.ps1` | 视觉稿 ↔ 运行时字节一致 | 约 3 s |
 | 场景渲染 | 逐场景打开 `docs/ux-mockups/*.html` | 41 场景可渲染、无页面错误 | 约 60 s |
 | 真实外壳截图 | `powershell -File tools\audit\shell-capture.ps1 -Scene X -Theme dark` | 保真度、启动、内存 | 视场景 |
+| 三类场景性能基线 | `powershell -File tools\audit\measure-performance.ps1 -Exe <exe> -Workspace <ws> -Scenario <n>` | 启动／操作响应／内存／关闭／清理 | 约 25 s/次 |
 | 视觉稿像素比对 | 截图与视觉稿逐像素差 | 目标 0.000 | 约 20 s |
 
 **用户明确禁止每轮跑全应用矩阵。** 日常改动只跑相关的分模块验证；全量只在模块完成或交付前跑。
@@ -163,6 +164,10 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 > （第 177 轮实测：单元测试 **Core 86 ＋ Shell 91 ＋ Infrastructure 175**、`live-shell` **1136 项断言**，
 > 资源一致性 PASS、构建 0 警告 0 错误）。视觉稿场景渲染数、像素差异与冷启动耗时未在本轮复测，
 > 因此**不把旧值写成当前值**。
+>
+> **性能基线另有出处**：空仓库／已有仓库／大仓库三类场景的当前基线（启动、操作响应、内存、关闭、清理）
+> 见 `docs/performance-report.md` §10（第 213 轮，2026-09-26，复跑脚本 `tools/audit/measure-performance.ps1`）；
+> 本表不含性能数字。
 
 | 项目 | 数值（历史快照） |
 |---|---|

@@ -1,8 +1,8 @@
 # Augit 阶段五性能验收报告
 
-## 0. 当前技术基线的实测值（以本节为准）
+## 0. WebView2 时代的早期实测值（历史快照，不是当前基线）
 
-以下数值在 WebView2 界面上实测，**取代**第 2–9 节中基于「原生 Win32 + Scintilla」外壳的历史数值。第 2–9 节保留为历史记录，其中的启动与内存数字**不代表当前版本**。
+以下数值是 WebView2 界面**早期**的一次抽样，**不是当前基线**；当前基线见 **§10**（第 212 轮建立，空仓库／已有仓库／大仓库三类场景各 3 次运行）。第 2–9 节保留为「原生 Win32 + Scintilla」外壳的历史记录，其中的启动与内存数字同样**不代表当前版本**。
 
 | 指标 | 实测值 | 说明 |
 | --- | ---: | --- |
@@ -22,7 +22,7 @@
 
 ## 1. 结论
 
-本报告第 2–9 节记录历史版本（原生 Win32 + Scintilla 外壳）的验收与诊断；**它们不适用于当前 WebView2 界面版本**，不作为当前性能结论。当前版本的实测值见第 0 节。
+本报告第 2–9 节记录历史版本（原生 Win32 + Scintilla 外壳）的验收与诊断；**它们不适用于当前 WebView2 界面版本**，不作为当前性能结论。当前版本的三类场景基线见 **§10**；第 0 节是更早的一次 WebView2 抽样，仅作历史对照。
 
 现行启动与流畅性目标为持续优化目标；交互流畅性与完整视觉还原优先，任何超出都必须记录实测值、原因分析和可复现的测量方法。
 
@@ -131,3 +131,112 @@ Windows 11 管理员验收先安装 `0.0.9`，再覆盖升级到 `0.1.0`，两�
 最终项目树、文档标签、工作区恢复及状态队列组合回归为 107/107，0 失败、0 跳过；完整格式检查通过。原始输出保存在 `artifacts/project-tree-incremental-2026-09-13/tree-incremental-final.trx`，被测 `Augit.dll` 的 SHA-256 为 `22A90D3E17FFD966572FA77E939ED155AC53262FEB5D4588F8662C8C7D0EA80E`。隔离文件由测试清理，测试与构建进程在收尾后退出。
 
 当前正式发布版冷启动、核心内存、十万提交历史、按需资源反复开关以及全应用连续输入性能仍未重新验收；本节也不替代 Windows 10 22H2 实机兼容性或 PyCharm 同内容视觉对照。
+
+## 10. 三类场景的当前基线（第 212 轮建立，2026-09-26）
+
+本节是**当前基线**，取代第 0 节那次早期 WebView2 抽样。目的按目标文本执行："先在当前 Windows 11 x64 环境建立冷启动空仓库、已有仓库和大仓库三类场景的启动速度、操作响应、内存占用、关闭速度和资源清理基线，再持续优化。"
+
+### 10.1 测量环境
+
+| 项 | 实测环境 |
+| --- | --- |
+| 操作系统 | Windows 11 家庭版中文版 25H2，`10.0.26200`，x64 |
+| 处理器 | AMD Ryzen 7 8845HS（8 核 16 线程） |
+| 内存 | 31.29 GiB |
+| 磁盘 | CT1000P3PSSD8（NVMe SSD） |
+| .NET Runtime | `Microsoft.NETCore.App 10.0.5` |
+| WebView2 Runtime | `153.0.4234.48`（比第 0 节记录的 `151.0.4129.107` 新） |
+| Git | Git for Windows `2.45.1.windows.1` |
+| 被测程序 | `src/Augit.Shell/bin/Release/net10.0-windows/win-x64/Augit.exe`（Release、非 self-contained） |
+| 主题 | `--theme dark` |
+
+> **Windows 10 22H2 未验证**：本节全部读数来自 Windows 11 x64 实机，不构成 Windows 10 结论。
+
+### 10.2 方法与命令
+
+测量脚本：`tools/audit/measure-performance.ps1`（第 212 轮新增，BOM-less 纯 ASCII，符合 `verify-script-encoding.ps1`）。
+
+```powershell
+powershell -NoProfile -File tools/audit/measure-performance.ps1 `
+  -Exe <Augit.exe> -Workspace <工作区> -Scenario <名字> `
+  [-LargeDirectory <相对目录>] [-OpenFile <相对文件>] `
+  -Out artifacts/perf-20260926/<场景>-<n>.json
+```
+
+口径：
+
+- **启动到窗口出现**（`windowMs`）：`Start-Process` 到主窗口句柄出现，10 ms 轮询。
+- **首屏可用**（`pageReadyMs`）：到页面 `window.__augitReady === true`，经 CDP `Runtime.evaluate` 30 ms 轮询。
+- **Git 与历史就绪**（`gitReadyMs`）：到 `__augitGitReady && __augitHistoryReady`。
+- **操作响应**：在页面内用 `performance.now()` 包住真实宿主调用 —— 根目录列举（`workspace/list`）、指定大目录列举（1000 项目录）、打开文档（`document/read`）；另有应用自身埋点 `__augitMarks`（`info`／`root`／`status`／`open`）。
+- **内存**：空闲 5 秒后按**父进程关系**遍历被测进程的全部后代，分开记 `Augit` 主进程、`msedgewebview2` 树、以及其它后代（例如浏览器拉起的第三方覆盖层进程）——避免把别的应用的浏览器算进来，也不把第三方助手混进 WebView2 数字。
+- **空闲 CPU**：主进程 `TotalProcessorTime` 在 2 秒窗口内的增量。
+- **关闭速度**（`shutdownMs`）：`CloseMainWindow()` 到进程退出。
+- **资源清理**（`descendantsLeft`）：关闭后轮询最多 15 秒，后代进程必须为 0。
+- 每次运行前备份 `%LOCALAPPDATA%\Augit\settings.json`，结束时**按字节还原**（本次运行不写回任何持久设置）；`--width/--height/--theme` 是审计覆盖，本身不写回。
+- 每场景 3 次独立运行；下表给 min／median／max。
+
+### 10.3 场景定义（可复建）
+
+| 场景 | 工作区 | 定义 | 复建命令 |
+| --- | --- | --- | --- |
+| 空仓库 `empty-repo` | `D:\tmp-augit-perf\empty-repo` | `git init`，无提交、无文件 | `git init` |
+| 已有仓库 `existing-repo` | `D:\github\Augit` | 本仓库自身（README／C#／web／docs，含真实历史与未提交状态） | 无 |
+| 大仓库 `large-repo` | `D:\tmp-augit-perf\large-repo` | 100 目录 × 1000 个文件（共 100 100），单条基线提交，目录被 `.gitignore` 忽略 ⇒ 工作区大而状态为空 | 见下 |
+
+大仓库复建（一次性，2026-09-26 实测建目录约 4 分 40 秒，NTFS／drvfs）：
+
+```bash
+python3 - <<'PY'
+import os
+root = "/mnt/d/tmp-augit-perf/large-repo"
+for d in range(100):
+    dd = os.path.join(root, f"dir-{d:03d}")
+    os.makedirs(dd, exist_ok=True)
+    for i in range(1000):
+        open(os.path.join(dd, f"f-{i:04d}.txt"), "w").close()
+PY
+cd /mnt/d/tmp-augit-perf/large-repo && git init -q && printf 'dir-*/\n' > .gitignore \
+  && git add .gitignore && git commit -q -m "test: large workspace baseline"
+```
+
+> 大仓库的**历史**是单条提交（本机不具备快速生成十万提交 fixture 的条件）。因此本节的大仓库结论覆盖"大工作区 + 大目录列举"，不覆盖"十万提交历史"——后者仍是历史缺口（第 0 节的 `git/history` 271 ms 是早期抽样，不是本轮实测）。
+>
+> 该 fixture 与 9 份结果 JSON 一起登记；fixture 属临时测试资源，性能模块收尾时按 `docs/development-validation.md` §5 删除。
+
+### 10.4 实测结果（每场景 3 次：min／median／max）
+
+| 场景 | 窗口 ms | 首屏 ms | Git+历史 ms | 列举根目录 ms | 列举大目录 ms | 打开文档 ms | 主进程 WS MB | WebView2 WS MB | 树合计 WS MB | 关闭 ms | 残留 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 空仓库 | 302／324／326 | 969／990／1000 | 1149／1167／1171 | 1／1／28 | 不适用 | 不适用 | 57.38／57.55／57.63 | 528.61／543.37／543.58 | 586.24／600.74／601.14 | 126／128／132 | 0 |
+| 已有仓库 | 293／305／308 | 977／980／981 | 1273／1283／1289 | 6／15／21 | 2／2／99（61 项） | 35／38／38 | 64.52／64.62／69.85 | 614.05／631.03／634.47 | 678.57／695.65／704.32 | 116／136／137 | 0 |
+| 大仓库 | 294／322／330 | 972／998／1013 | 1173／1182／1199 | 2／2／11 | 55／55／57（1001 项） | 26／27／28 | 64.23／64.26／64.49 | 558.69／563.29／580.04 | 622.95／627.52／644.52 | 116／118／147 | 0 |
+
+应用自身埋点（3 次一致）：工作区信息／根目录 `info=root` ≈ 29–30 ms（空仓库）、120–124 ms（已有仓库）、121–125 ms（大仓库）；`git/status` ≈ 398–423 ms（三场景接近，说明状态耗时与文件数弱相关，索引干净时按索引读）。
+
+空闲 CPU（主进程 2 秒 CPU 增量）：0／0／15.6 ms 交替出现（15.6 ms 是采样窗口边界处的取整），即**空闲期无可观测的持续 CPU 活动**。
+
+其它后代进程：三场景均为空（`otherDescendants=""`）——即被测进程树里没有第三方注入进程；此前一次运行里曾出现浏览器拉起的 AMD 覆盖层进程（`AMDRSServ`／`amdown`／`AMDRSSrcExt`），已按名称单独统计，不再混入 WebView2 数字。
+
+### 10.5 与历史数值的关系（不要混用）
+
+| 指标 | 第 0 节（早期抽样） | 本节（当前基线，median） | 说明 |
+| --- | ---: | ---: | --- |
+| 冷启动到窗口出现 | 94–158 ms | 305–324 ms | 口径不同：本节是"到主窗口句柄出现"，且经 CDP 附加（`--browser-args --remote-debugging-port`）。不能与旧值直接比较 |
+| 首屏可用 | 未单列（旧"首次可用"141–158 ms） | 980–998 ms | 本节口径含"页面就绪 + 进程冷启"，且是 WebView2 冷启链路；旧值口径不同 |
+| 10 万文件工作区 | 141–158 ms | 大仓库窗口 322 ms／首屏 998 ms | 旧值测的是"启动路径不递归扫描"；本节同样不递归（`info/root` 121–125 ms），三场景差异很小 |
+| 主进程 Working Set | 约 62 MB | 57.6／64.6／64.3 MB | 一致 |
+| WebView2 树 Working Set | 约 464 MB | 543／631／563 MB | WebView2 Runtime 已从 151 升到 153，且本节把 6 个浏览器子进程全数计入 |
+| 合计 Working Set | 约 540–560 MB | 601／696／628 MB | 同上；仍远超 100 MB 目标，原因见第 0 节 |
+| 空闲 CPU | 0.08% | 无可观测持续活动 | 一致 |
+| 关闭 | 未单列 | 128／136／118 ms，`forcedClose=false` | 本节新增 |
+| 资源清理 | 未见成文断言 | 后代残留 **0**（三场景 × 3 次） | 本节新增 |
+
+**结论**：三类场景的启动、操作响应与关闭都在同一量级，**大仓库不因文件数变慢**（根目录只列一层，`info/root` 121–125 ms 与已有仓库持平；唯一的规模相关项是列 1000 项目录 55 ms vs 61 项目录 2 ms）。当前可优化的最大项是**首屏链路**（窗口 300 ms → 页面就绪 ~980 ms，差值约 680 ms 花在 WebView2 初始化与页面首帧），以及 WebView2 树的内存基数；这两项都属"持续优化"范围，本轮只建立基线，不改实现。
+
+### 10.6 复跑与清理记录
+
+- 全部 9 次运行：`descendantsLeft=0`、`forcedClose=false`；脚本 `finally` 中已把 `%LOCALAPPDATA%\Augit\settings.json` 还原为运行前字节。
+- 结果 JSON：`artifacts/perf-20260926/{empty-repo,existing-repo,large-repo}-{1,2,3}.json`（含每次的完整字段）。
+- 启动的进程：仅本脚本自己 `Start-Process` 的 Augit 进程及其 WebView2 后代；未触碰任何其它 Augit 实例或用户进程。
+- 大仓库 fixture（`D:\tmp-augit-perf\large-repo`）与空仓库 fixture 保留到性能模块收尾，届时删除；本节保留复建命令以便重建。
