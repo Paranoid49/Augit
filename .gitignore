@@ -13,6 +13,7 @@ artifacts/*
 !artifacts/pixel-review-20260921/
 !artifacts/pixel-review-20260921b/
 !artifacts/perf-20260926/
+!artifacts/perf-20260927/
 publish/
 *.user
 *.suo

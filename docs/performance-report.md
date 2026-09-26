@@ -240,3 +240,75 @@ cd /mnt/d/tmp-augit-perf/large-repo && git init -q && printf 'dir-*/\n' > .gitig
 - 结果 JSON：`artifacts/perf-20260926/{empty-repo,existing-repo,large-repo}-{1,2,3}.json`（含每次的完整字段）。
 - 启动的进程：仅本脚本自己 `Start-Process` 的 Augit 进程及其 WebView2 后代；未触碰任何其它 Augit 实例或用户进程。
 - 大仓库 fixture（`D:\tmp-augit-perf\large-repo`）与空仓库 fixture 保留到性能模块收尾，届时删除；本节保留复建命令以便重建。
+
+## 11. 首屏链路的实测拆分与一次被否掉的优化（第 227 轮）
+
+§10 把"窗口出现 → 页面就绪"的约 **680 ms** 差值列为最大可优化项，但没有拆开。本轮给测量脚本加了
+三个字段（`breakdown`／`launchEpochMs`／`webviewFirstStartMs`），把这条链路切成**可归因的五段**，
+并做了一次 A/B；**结论是上一段的可优化空间比看上去小得多**，这一段记录过程与数据，避免下轮重复试错。
+
+### 11.1 新增字段与分段口径
+
+| 字段 | 来源 | 含义 |
+| --- | --- | --- |
+| `launchEpochMs` | 脚本在 `Start-Process` **之前**记的墙钟毫秒 | 页面时钟（`performance.timeOrigin` 是 epoch 毫秒）与脚本时钟的对齐锚点 |
+| `breakdown.timeOrigin - launchEpochMs` | 两者相减 | **导航开始**距启动的毫秒数 |
+| `breakdown.loadEnd` | 页面 `PerformanceNavigationTiming` | 文档、CSS、脚本全部就绪（页面时钟，从导航开始算） |
+| `pageReadyMs - nav - loadEnd` | 脚本时钟 | **页面自身 boot**（`loadDocument` 的宿主往返 ＋ mockup 注入 ＋ 首帧渲染 ＋ 绑定） |
+| `webviewFirstStartMs` | 被测进程树里 `msedgewebview2` 的 `StartTime` | **WebView2 浏览器进程**出现的时刻；到导航开始之间是**环境握手 ＋ 控制器创建** |
+
+### 11.2 复跑基线（每场景 3 次，2026-09-26；脚本与 §10 同一条命令 ＋ 新字段）
+
+| 场景 | 窗口 ms | 浏览器进程 ms | 环境＋控制器 ms | 页面载入 ms | 页面 boot ms | 首屏 ms | Git+历史 ms | 主进程 MB | WebView2 MB | 树 MB | 关闭 ms | 残留 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 空仓库 | 289／323／270 | 302／340／311 | 374／350／362 | 41／39／41 | 245／266／224 | 962／995／938 | 1181／1191／1159 | 58／57／57 | 523／534／541 | 580／591／598 | 117／191／114 | 0 |
+| 已有仓库 | 297／300／301 | 329／347／345 | 348／368／373 | 39／41／46 | 266／242／236 | 982／998／1000 | 1274／1297／1337 | 67／67／67 | 613／615／615 | 680／682／682 | 143／133／122 | 0 |
+| 大仓库 | 313／314／319 | 341／344／335 | 364／346／336 | 41／38／46 | 393／269／274 | 1139／997／991 | 1391／1192／1174 | 64／63／64 | 575／575／558 | 640／639／622 | 147／133／144 | 0 |
+
+三场景 `descendantsLeft=0`、`forcedClose=false`；与 §10 的读数逐个同量级（首屏 962／998／997 vs 969／977／972），
+说明基线可复现。
+
+宿主侧探针（临时 `Stopwatch` 埋点，取证后已删除）给出 `Main` 内部的毫秒分布，空仓库典型一次：
+
+```
+main=5  parse=21  settings=87  workspace=88  window-ctor=120  window-show=133
+wv-init-enter=138  wv-loader=140  wv-clean=142  wv-env=159  wv-controller=439
+wv-pre-navigate=455  wv-navigate=457
+```
+
+即：`ShellOptions.Parse` ≈ 16 ms、`LoadSettings` ≈ **66 ms**（小文件 1.2 KB，成本是 JSON 序列化器的首次预热与
+JIT，不是磁盘）、窗口创建 ≈ 32 ms、`CoreWebView2Environment.CreateAsync` 仅 ≈ 17 ms、
+**`CreateCoreWebView2ControllerAsync` ≈ 280 ms**（最重的一段，WebView2 内部）。
+
+### 11.3 一次被否掉的优化（页面错误收集器内联）
+
+**想法**：导航前 `await AddScriptToExecuteOnDocumentCreatedAsync(...)` 是一次 IPC 往返（宿主探针显示
+`wv-controller → wv-pre-navigate` 有 **72 ms**）。这段脚本是静态的，挪进 `web/index.html` 的同步脚本里
+即可省掉这次等待。
+
+**A/B**（空仓库；"优化臂" n=5 与"对照臂" n=3，同一脚本、同一构建方式）：
+
+| 臂 | 导航开始 ms（中位） | 页面首个资源 ms | 页面载入 ms（中位） | 首屏 ms（中位） |
+| --- | ---: | ---: | ---: | ---: |
+| 基线（§11.2） | 676 | 15 | 41 | 962 |
+| 优化臂（去掉导航前 await） | **642** | 53 | **82** | 1003 |
+| 对照臂（改回原样重测） | 704 | 16 | 40 | 992 |
+
+**读法**：导航确实**提前了约 60 ms**（宿主探针同向：`wv-pre-navigate` 511 → 438～455），
+但页面自己的资源与 `load` 时序**整体后移约 40 ms** —— 也就是那段等待原本在**掩盖渲染器进程的启动**，
+把它去掉只是把等待搬到了页面侧。首屏中位数在双方噪声内（992 vs 1003），**没有净收益**。
+因此**不采用该改动**，产品代码保持原样（该轮只保留测量能力）。
+
+**这一段给出的结论**：`窗口 300 ms ＋ 控制器 280 ms` 是放不掉的地板（WebView2 内部）；
+剩下真正属于我们的只有**页面 boot ≈ 240–270 ms**（宿主往返 ＋ mockup.js 注入求值 ＋ 首帧整页渲染 ＋ 绑定）。
+下一轮应先用 `performance.mark` 把这三者分开再决定改什么，而不是继续在宿主侧挪等待。
+
+### 11.4 复跑与清理记录
+
+- 结果 JSON：`artifacts/perf-20260927/`（`empty-repo|existing-repo|large-repo-{1,2,3}.json` 为 §11.2 基线；
+  `opt-5x-{1..5}.json` 与 `ctrl-3x-{1,2,3}.json` 为 §11.3 的 A/B 两臂；同目录已在 `.gitignore` 里放行）。
+- 全部运行：`descendantsLeft=0`、`forcedClose=false`；脚本 `finally` 已按字节还原
+  `%LOCALAPPDATA%\Augit\settings.json`。
+- 临时宿主埋点（`StartupTrace`）与内联脚本试验都已**从产品代码移除**；本轮产品代码零改动，
+  唯一保留的脚本改动是 `tools/audit/measure-performance.ps1` 的新增字段（BOM-less ASCII，`verify-script-encoding` PASS）。
+- 大仓库/空仓库 fixture 仍需保留到性能模块收尾。

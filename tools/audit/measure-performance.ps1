@@ -212,6 +212,10 @@ try {
     "--height", "$Height",
     "--browser-args", "--remote-debugging-port=$Port"
   )
+  # Wall-clock anchor for the page-side timeline: `performance.timeOrigin` is an epoch timestamp,
+  # so recording the launch epoch lets the breakdown separate "before navigation" (WebView2 init)
+  # from "page load + page boot".
+  $result.launchEpochMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $watch = [System.Diagnostics.Stopwatch]::StartNew()
   $process = Start-Process -FilePath $exeFull -ArgumentList $launchArgs -PassThru
   $rootPid = $process.Id
@@ -240,6 +244,10 @@ try {
       $id = 1
       $result.marks = Invoke-Cdp $ws "JSON.stringify(window.__augitMarks || {})" $id
       $result.live = Invoke-Cdp $ws "JSON.stringify({workspace: (window.__augitLive||{}).name || null, historyRows: ((window.__augitLive||{}).history && (window.__augitLive.history.commits||[]).length) || 0, files: ((window.__augitLive||{}).tree||[]).length, gitUnavailable: !!window.__augitGitUnavailable, error: window.__augitError || null})" ($id + 1)
+      # Startup-chain breakdown (round 227): splits "window shown -> page ready" into
+      # [navigation start] / [response end] / [DOMContentLoaded] / [load] / [page boot marks],
+      # so the ongoing first-paint optimization can point at a measured segment instead of a guess.
+      $result.breakdown = Invoke-Cdp $ws "(function(){var nav=(performance.getEntriesByType('navigation')||[])[0]||null;var res=(performance.getEntriesByType('resource')||[]).map(function(e){return {name:e.name.split('/').pop(),start:Math.round(e.startTime),dur:Math.round(e.duration)};});return JSON.stringify({now:Math.round(performance.now()),timeOrigin:Math.round(performance.timeOrigin),navStart:nav?Math.round(nav.startTime):null,responseEnd:nav?Math.round(nav.responseEnd):null,domInteractive:nav?Math.round(nav.domInteractive):null,domContentLoaded:nav?Math.round(nav.domContentLoadedEventEnd):null,loadEnd:nav?Math.round(nav.loadEventEnd):null,resources:res});})()" ($id + 5)
 
       # Operation response: one host round trip for a directory listing, measured in the page.
       $result.listRootMs = Invoke-Cdp $ws "(async function(){var t=performance.now(); await window.__augitListDirectory(''); return Math.round(performance.now()-t);})()" ($id + 2)
@@ -266,6 +274,16 @@ try {
       $result.treeWorkingSetMb = $memory.TreeWorkingSetMb
       $result.treePrivateMb = $memory.TreePrivateMb
       $result.otherDescendants = $memory.OtherDescendants
+      # When did the WebView2 browser processes appear? `performance.timeOrigin` (page clock) is the
+      # navigation start, so this splits "before navigation" into [browser launched] and
+      # [renderer/controller ready]: the piece to overlap with the native window setup.
+      $webviewStarts = @()
+      foreach ($procId in (Get-ProcessTree $rootPid)) {
+        $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
+        if ($null -eq $proc -or $proc.ProcessName -ne "msedgewebview2") { continue }
+        try { $webviewStarts += [int64]($proc.StartTime.ToUniversalTime() - (Get-Date "1970-01-01T00:00:00Z").ToUniversalTime()).TotalMilliseconds } catch { }
+      }
+      $result.webviewFirstStartMs = if ($webviewStarts.Count -gt 0) { [int](($webviewStarts | Measure-Object -Minimum).Minimum - $result.launchEpochMs) } else { $null }
 
       $mainProc = Get-Process -Id $rootPid -ErrorAction SilentlyContinue
       if ($mainProc) {
