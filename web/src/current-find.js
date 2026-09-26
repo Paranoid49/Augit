@@ -144,8 +144,15 @@ function bindCurrentFind() {
     // 正则可能长时间运行，专用 Worker 在超时、换查询或关闭时终止。
     busy = true;
     const version = generation;
+    // 测试可注入的**后台启动耗时** `window.__augitFindResultDelay`：让"查询在途"窗口可观测
+    // （规格 §7.2：150ms 后才显示"正在搜索…"、在途期间的上一项/下一项进方向队列、
+    // 组词/换查询/隐藏/关闭必须让旧结果失效）。延迟放在 Worker 报告就绪**之前**，
+    // 这样页面侧的 150ms 加载阈值与"仍在计算"的语义都与真实大文档一致。
+    // 生产环境该值为空 ⇒ 生成的就是原实现逐字相同的 `postMessage({ready:true});`，不产生额外延迟。
+    const startup = Number(window.__augitFindResultDelay || 0) || 0;
+    const readyPost = startup > 0 ? `setTimeout(()=>postMessage({ready:true}),${startup});` : 'postMessage({ready:true});';
     workerUrl = URL.createObjectURL(new Blob([
-      `const compute=${computeMatches.toString()};onmessage=event=>{try{postMessage({matches:compute(event.data)})}catch{postMessage({error:true})}};postMessage({ready:true});`
+      `const compute=${computeMatches.toString()};onmessage=event=>{try{postMessage({matches:compute(event.data)})}catch{postMessage({error:true})}};${readyPost}`
     ], { type: 'text/javascript' }));
     worker = new Worker(workerUrl);
     worker.onmessage = async event => {
@@ -160,18 +167,7 @@ function bindCurrentFind() {
       const pending = queue;
       stop(); queue = pending;
       if (event.data.error) { queue = []; completed = true; status('正则表达式无效'); }
-      else {
-        // 测试可注入的**结果延迟**：让"查询在途"窗口可观测（规格 §7.2：组词开始必须使未完成查询失效）。
-        // 生产环境 `window.__augitFindResultDelay` 为空 ⇒ 不产生额外延迟。
-        const injectable = Number(window.__augitFindResultDelay || 0) || 0;
-        if (injectable > 0) {
-          await new Promise((resolve) => setTimeout(resolve, injectable));
-          // `await` 之后**必须重新校验**：这期间用户可能已经开始组词（`compositionstart` 会抬 generation），
-          // 晚到的结果绝不能落到界面上 —— 这正是本延迟要验证的那条规格。
-          if (generation !== version) return;
-        }
-        accept(event.data.matches);
-      }
+      else accept(event.data.matches);
     };
     worker.onerror = () => { if (generation === version) { stop(); completed = true; status('查找失败'); } };
     progress = setTimeout(() => { if (generation === version) status('正在搜索…'); }, 150);

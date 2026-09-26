@@ -8781,6 +8781,343 @@ async function main() {
         && pendingQuery.duringComposition.value === 'class'
         // 组词结束、复用了已完成结果或重新查询 ⇒ 状态重新出现
         && pendingQuery.afterComposition.status.length > 0);
+    // ---- 第 233 轮补断言（收 §7.2 第 13 条）：后台执行、150ms 加载阈值、换查询/开关/模式取消、
+    // 隐藏与关闭使旧结果失效 ----
+    // 实现契约（current-find.js）：只有正则（可能长时间运行）走 Worker 后台执行；`progress` 定时器
+    // 150ms 后才写"正在搜索…"；`stop()` 抬 generation、终止 Worker 并清空方向队列；组词、正文/模式变化、
+    // `pagehide`、`visibilitychange(hidden)` 与关闭查找条都走 `stop()`。
+    // 本轮同时修掉一个**桩可见性缺陷**：Worker 结果到达时先 `stop()`（generation++）再进入注入的结果延迟，
+    // 延迟结束却拿取消前的 `version` 比对 ⇒ 注入延迟下结果恒被丢弃（第 127 轮只走同步路径，未暴露）。
+    const findBackground = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/search-sample.txt'));
+      await scene.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+      await scene.page.waitForTimeout(300);
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.value = 'git';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(300);
+      const plainBaseline = await scene.page.evaluate(
+        () => document.querySelector('.current-find .find-status').textContent);
+      // ① 后台执行：普通文本（同步路径）不得建线程；打开正则后必须建线程。
+      //    把 `window.Worker` 包一层计数是直接观测"有没有后台线程"，比看耗时可靠。
+      const workers = await scene.page.evaluate(async () => {
+        const Original = window.Worker;
+        let created = 0;
+        window.Worker = function (...args) { created += 1; return new Original(...args); };
+        window.Worker.prototype = Original.prototype;
+        const input = document.querySelector('.current-find .search-field');
+        const type = (text) => { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        type('VCS');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const plain = created;
+        type('git');
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        const plainReverted = created;
+        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const regex = created;
+        window.Worker = Original;
+        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return { plain, plainReverted, regex,
+          status: document.querySelector('.current-find .find-status').textContent };
+      });
+      // ② 150ms 阈值：正则后台路径在 150ms 前不得出现加载提示、之后必须出现，且结果照常落地。
+      const samples = await scene.page.evaluate(async () => {
+        const status = document.querySelector('.current-find .find-status');
+        const toggle = document.querySelector('.current-find [aria-label="正则表达式"]');
+        // 先把正则确认关掉（同步路径，结果立刻落定），再带注入延迟点开正则 —— 只有 Worker 路径有加载提示。
+        if (toggle.getAttribute('aria-pressed') === 'true') {
+          toggle.click();
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        window.__augitFindResultDelay = 400;
+        const start = performance.now();
+        const out = [];
+        toggle.click();
+        while (performance.now() - start < 1200) {
+          out.push([Math.round(performance.now() - start), status.textContent]);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        window.__augitFindResultDelay = 0;
+        return out;
+      });
+      const threshold = await scene.page.evaluate(() => ({
+        status: document.querySelector('.current-find .find-status').textContent,
+        current: document.querySelectorAll('mark.find-current').length,
+        matches: document.querySelectorAll('mark.find-match').length,
+      }));
+      await scene.page.close();
+      const firstLoading = samples.find(([, text]) => text === '正在搜索…') || null;
+      return { plainBaseline, workers, firstLoading, threshold,
+        early: samples.filter(([time]) => time < 145).filter(([, text]) => text === '正在搜索…').length };
+    })();
+    console.log('INFO 查找后台执行与加载阈值=' + JSON.stringify({
+      plainBaseline: findBackground.plainBaseline,
+      workers: findBackground.workers,
+      firstLoading: findBackground.firstLoading,
+      early: findBackground.early,
+      threshold: findBackground.threshold,
+    }));
+    check('§7.2 正则查找在后台线程执行（普通文本不建线程，作对照）: '
+      + JSON.stringify([findBackground.plainBaseline, findBackground.workers]),
+    findBackground.plainBaseline === '1/8'
+      && findBackground.workers.plain === 0
+      && findBackground.workers.plainReverted === 0
+      && findBackground.workers.regex >= 1
+      && findBackground.workers.status === '1/8');
+    check('§7.2 正则查找 150ms 内不显示加载提示、之后显示"正在搜索…"、结果照常落地: '
+      + JSON.stringify([findBackground.early, findBackground.firstLoading, findBackground.threshold]),
+    findBackground.early === 0
+      && findBackground.firstLoading !== null
+      && findBackground.firstLoading[0] >= 145 && findBackground.firstLoading[0] < 300
+      && findBackground.threshold.status === '1/8'
+      && findBackground.threshold.current === 1
+      && findBackground.threshold.matches === 7);
+
+    // ---- §7.2（13）：方向队列被尊重（对照组）＋ 换查询/换开关取消在途任务与方向队列；关闭使旧结果失效 ----
+    const findQueue = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/search-sample.txt'));
+      await scene.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+      await scene.page.waitForTimeout(300);
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.value = 'git';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(250);
+      // 打开正则并等基线落定（'git' 忽略大小写 8 项）
+      await scene.page.locator('.current-find [aria-label="正则表达式"]').click();
+      await scene.page.waitForTimeout(500);
+      const baseline = await scene.page.evaluate(
+        () => document.querySelector('.current-find .find-status').textContent);
+      // 对照组：在途时连按两次"下一项"必须都进方向队列，结果落地后要真的走到第 3 项（3/8）。
+      // 直接用 `input` 值相同不会重搜（`oninput` 有"同值且已完成就复用"的短路），因此用正则开关
+      // 切一次再切回来触发新的 Worker 搜索 —— 只有 Worker 路径 `busy` 才为真，方向才会入队。
+      // 判据用 `3/8` 而不是 `2/8`：`busy` 若为假，入队变成对**空 matches** 的直接导航（无效果），
+      // 落地后只会是 `1/8`；只有两次导航都被队列兜住，才可能出现 `3/8`。
+      const control = await scene.page.evaluate(async () => {
+        const bar = document.querySelector('.current-find');
+        const status = bar.querySelector('.find-status');
+        const toggle = bar.querySelector('[aria-label="正则表达式"]');
+        const before = status.textContent;
+        toggle.click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        window.__augitFindResultDelay = 800;
+        toggle.click();
+        bar.querySelector('[aria-label="下一项"]').click();
+        bar.querySelector('[aria-label="下一项"]').click();
+        const out = [];
+        const start = performance.now();
+        while (performance.now() - start < 1400) {
+          out.push([Math.round(performance.now() - start), status.textContent]);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        window.__augitFindResultDelay = 0;
+        return { before, samples: out, settled: status.textContent };
+      });
+      // 实验组：A('VCS|Augit' 2 项) ＋ 一次方向导航 ⇒ 被"换查询"取消；B('git' 8 项) ＋ 一次方向导航
+      // ⇒ 被"换开关"取消；C('git' ＋ 全字匹配 4 项) 是唯一允许落地的一次。任何 A/B 的结果、
+      // 以及 C 落地后多走一步（2/4）都说明取消没生效。
+      const cancelled = await scene.page.evaluate(async () => {
+        const bar = document.querySelector('.current-find');
+        const status = bar.querySelector('.find-status');
+        const input = bar.querySelector('.search-field');
+        const type = (text) => { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); };
+        const next = () => bar.querySelector('[aria-label="下一项"]').click();
+        const out = [];
+        const start = performance.now();
+        const push = () => out.push([Math.round(performance.now() - start), status.textContent]);
+        window.__augitFindResultDelay = 1500;
+        type('VCS|Augit');
+        next();
+        while (performance.now() - start < 200) { push(); await new Promise((r) => setTimeout(r, 20)); }
+        type('git');
+        next();
+        const mark = performance.now();
+        while (performance.now() - mark < 200) { push(); await new Promise((r) => setTimeout(r, 20)); }
+        bar.querySelector('[aria-label="全字匹配"]').click();
+        while (performance.now() - start < 2400) { push(); await new Promise((r) => setTimeout(r, 20)); }
+        window.__augitFindResultDelay = 0;
+        return { samples: out, settled: {
+          status: status.textContent,
+          value: input.value,
+          whole: bar.querySelector('[aria-label="全字匹配"]').getAttribute('aria-pressed'),
+          current: document.querySelectorAll('mark.find-current').length,
+          matches: document.querySelectorAll('mark.find-match').length,
+        } };
+      });
+      // 关闭：Esc 收起查找条后，在途结果不得再把正文涂亮
+      await scene.page.evaluate(() => {
+        window.__augitFindResultDelay = 1500;
+        const input = document.querySelector('.current-find .search-field');
+        input.value = 'VCS|Augit';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(200);
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(1900);
+      const closed = await scene.page.evaluate(() => ({
+        bar: document.querySelectorAll('.current-find').length,
+        marks: document.querySelectorAll('mark.find-current, mark.find-match').length,
+        body: (document.querySelector('.editor-content') || {}).innerText ? 'body-ok' : 'no-body',
+      }));
+      await scene.page.evaluate(() => { window.__augitFindResultDelay = 0; });
+      await scene.page.close();
+      const controlTexts = control.samples.map(([, text]) => text);
+      const cancelTexts = cancelled.samples.map(([, text]) => text);
+      return { baseline, control, cancelled, closed,
+        controlSettled: control.settled,
+        controlQueued: controlTexts.includes('3/8'),
+        stale: cancelTexts.filter((text) => ['1/2', '2/2', '1/8', '2/8', '2/4'].includes(text)).length };
+    })();
+    console.log('INFO 查找在途取消=' + JSON.stringify({
+      baseline: findQueue.baseline,
+      controlSettled: findQueue.controlSettled,
+      settled: findQueue.cancelled.settled,
+      stale: findQueue.stale,
+      closed: findQueue.closed,
+    }));
+    check('§7.2 在途方向导航被尊重（对照组：两次"下一项"都在落地后按队列走完，3/8）: '
+      + JSON.stringify([findQueue.baseline, findQueue.control.before, findQueue.controlQueued, findQueue.controlSettled]),
+    findQueue.baseline === '1/8' && findQueue.control.before === '1/8'
+      && findQueue.controlQueued === true && findQueue.controlSettled === '3/8');
+    check('§7.2 换查询/换开关取消在途任务与方向队列（A/B 结果与队列都不落地）: '
+      + JSON.stringify([findQueue.cancelled.settled, findQueue.stale]),
+    findQueue.cancelled.settled.status === '1/4'
+      && findQueue.cancelled.settled.value === 'git'
+      && findQueue.cancelled.settled.whole === 'true'
+      && findQueue.cancelled.settled.current === 1
+      && findQueue.cancelled.settled.matches === 3
+      && findQueue.stale === 0);
+    check('§7.2 关闭查找条使在途结果失效（Esc 后不再出现查找高亮）: ' + JSON.stringify(findQueue.closed),
+      findQueue.closed.bar === 0 && findQueue.closed.marks === 0 && findQueue.closed.body === 'body-ok');
+
+    // ---- §7.2（13）：页面隐藏使在途结果失效、恢复可见后重新查询 ----
+    const findHidden = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/search-sample.txt'));
+      await scene.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+      await scene.page.waitForTimeout(300);
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.value = 'git';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(250);
+      await scene.page.locator('.current-find [aria-label="正则表达式"]').click();
+      await scene.page.waitForTimeout(500);
+      const baseline = await scene.page.evaluate(
+        () => document.querySelector('.current-find .find-status').textContent);
+      const probe = await scene.page.evaluate(async () => {
+        const bar = document.querySelector('.current-find');
+        const input = bar.querySelector('.search-field');
+        const status = bar.querySelector('.find-status');
+        window.__augitFindResultDelay = 1500;
+        input.value = 'VCS|Augit';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        // 页面隐藏：必须取消在途任务；旧结果不得在隐藏期间落到界面
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        const during = [];
+        const started = performance.now();
+        while (performance.now() - started < 1800) {
+          during.push(status.textContent);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        // 恢复可见：按规格（§7.2 第 13 条"隐藏/关闭使旧结果失效"）重新发起一次查询
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        document.dispatchEvent(new Event('visibilitychange'));
+        const resumed = status.textContent;
+        await new Promise((resolve) => setTimeout(resolve, 2200));
+        window.__augitFindResultDelay = 0;
+        const after = { status: status.textContent,
+          marks: document.querySelectorAll('mark.find-current, mark.find-match').length };
+        delete document.hidden;
+        return { during, resumed, after };
+      });
+      await scene.page.close();
+      return { baseline, probe };
+    })();
+    console.log('INFO 查找隐藏失效=' + JSON.stringify({
+      baseline: findHidden.baseline,
+      during: [...new Set(findHidden.probe.during)],
+      resumed: findHidden.probe.resumed,
+      after: findHidden.probe.after,
+    }));
+    check('§7.2 页面隐藏使在途结果失效（隐藏期间不出现计数）、恢复可见后重新查询: '
+      + JSON.stringify([findHidden.baseline, [...new Set(findHidden.probe.during)], findHidden.probe.resumed, findHidden.probe.after]),
+    findHidden.baseline === '1/8'
+      && findHidden.probe.during.length > 0
+      // 隐藏前确实在途（加载提示已在）：否则"隐藏期间没有计数"可能只是压根没发起查询。
+      && findHidden.probe.during[0] === '正在搜索…'
+      // 隐藏期间不得出现任何"当前项/总数"——旧任务的结果必须被取消。
+      && findHidden.probe.during.every((text) => !/^\d+\/\d+$/.test(text))
+      && findHidden.probe.resumed === ''
+      && findHidden.probe.after.status === '1/2'
+      && findHidden.probe.after.marks === 2);
+
+    // ---- §7.2（13）：正文/模式变化（切 Markdown 预览）取消在途任务并收起查找条 ----
+    const findMode = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/product-spec.md'));
+      // 文档可能记忆在"预览"模式（原文栏不可见），因此等容器而不是等 .code-line；
+      // Ctrl+F 会按 current-find.js 的 open() 把模式切回原文。
+      await scene.page.waitForSelector('.markdown-document .markdown-panes', { timeout: 10000 });
+      await scene.page.waitForTimeout(300);
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.evaluate(() => {
+        const input = document.querySelector('.current-find .search-field');
+        input.value = '第一段';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await scene.page.waitForTimeout(300);
+      const probe = await scene.page.evaluate(async () => {
+        const read = () => ({
+          bar: document.querySelectorAll('.current-find').length,
+          status: (document.querySelector('.current-find .find-status') || {}).textContent || '',
+          mode: (document.querySelector('.document-view[data-markdown-mode]') || { dataset: {} }).dataset.markdownMode || null,
+          marks: document.querySelectorAll('mark.find-current, mark.find-match').length,
+        });
+        const before = read();
+        window.__augitFindResultDelay = 1200;
+        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const inFlight = read();
+        // 切到"预览"：模式变化等同正文变化 ⇒ 必须取消在途任务；预览模式下不保留查找条
+        document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+        const immediate = read();
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        window.__augitFindResultDelay = 0;
+        return { before, inFlight, immediate, later: read() };
+      });
+      await scene.page.close();
+      return probe;
+    })();
+    console.log('INFO 查找模式取消=' + JSON.stringify(findMode));
+    check('§7.2 切 Markdown 预览取消在途任务并收起查找条（正文/模式变化）: ' + JSON.stringify(findMode),
+      findMode.before.bar === 1 && findMode.before.status === '1/1'
+        // 切换前确实在途（加载提示已在）：否则"条被收起"说明不了在途任务被取消
+        && findMode.inFlight.bar === 1 && findMode.inFlight.status === '正在搜索…'
+        && findMode.immediate.bar === 0 && findMode.immediate.mode === 'preview'
+        && findMode.later.bar === 0 && findMode.later.status === ''
+        && findMode.later.marks === 0);
     // ---- §7.2（5）：文档工具栏按画面从左到右参与 Tab，禁用与纯文字项不参与；切换显示选项保留按钮焦点 ----
     const toolbarTab = await (async () => {
       const page = await openScene('scene=main-project&theme=dark&open=docs/notes.txt');

@@ -104,7 +104,7 @@
 ### 2.5 输入法组词（composition）
 
 - **IntelliJ 的查找包内没有任何 `composition` / `InputMethodRequests` 相关分支**（`SearchTextArea`、`EditorSearchSession`、`SearchResults`、`LivePreview` 均无），组词由 Swing 文本组件与 AWT 输入法层原生处理。**[Swing 特有]**（依据：对 `platform/lang-impl/src/com/intellij/find` 全目录检索 `composition|inputmethod|isComposing` 无结果）
-- 因此 Augit 现有的"组词期间不触发查询、`compositionstart` 让在途查询失效、`compositionend` 后按需重搜"规则**在 IntelliJ 中找不到直接对应**，属于 WebView2/DOM 输入模型下的必要补充。**[需推断]**（对照：docs/ux-mockups/current-find.js:221-240）
+- 因此 Augit 现有的"组词期间不触发查询、`compositionstart` 让在途查询失效、`compositionend` 后按需重搜"规则**在 IntelliJ 中找不到直接对应**，属于 WebView2/DOM 输入模型下的必要补充。**[需推断]**（对照：docs/ux-mockups/current-find.js:228-247；第 233 轮行号重取）
 - 可对应的事实是"**旧查询结果必须整体失效、绝不能落到界面上**"这一条：IntelliJ 用 stamp 丢弃（见 §8.3），Augit 用 generation 丢弃，语义等价。**[可直接实现]**（来源：SearchResults.java:404-435）
 
 ### 2.6 输入上限
@@ -286,7 +286,8 @@
 - 编辑器查找条**没有独立的 spinner**；进行中的唯一可见信号是"上一项/下一项被禁用"（`isSearchInProgress()`）+ 状态文字保持上一轮的形态（分块结果会持续刷新计数）。**[可直接实现]**（来源：EditorSearchSession.java:478-481；PrevNextOccurrenceAction.java:34-37）
 - 全仓搜索有明确的加载态：头部 16×16 加载图标 + `{n}+ matches in {m}+ files` 的"未完成"文案（计数带 `+`）。**[可直接实现]**（来源：FindPopupPanel.java:1345-1356；FindPopupHeader.kt:68-70）
 - Search Everywhere 在查询期间把结果列表空文本设为 `Searching…`。**[可直接实现]**（来源：SearchEverywhereUI.java:936）
-- Augit 现有视觉稿的"正在搜索…"（150 ms 后显示）在 IntelliJ 中没有精确对应值，属于 Web 端补充。**[需推断]**（对照：docs/ux-mockups/current-find.js:177）
+- Augit 现有视觉稿的"正在搜索…"（150 ms 后显示）在 IntelliJ 中没有精确对应值，属于 Web 端补充。**[需推断]**（对照：docs/ux-mockups/current-find.js:173；第 233 轮行号重取）
+- **可观测性（Augit 侧，第 233 轮）**：实时查找的在途窗口靠 `window.__augitFindResultDelay` 注入（生产为空 ⇒ 生成的 Worker 源码与原实现**逐字相同**）。注入点必须放在 **"Worker 报告就绪之前"**（`setTimeout(()=>postMessage({ready:true}),N)`），不能放在"结果到达之后" —— 后者那一刻 `stop()` 已经抬过 `generation`，延迟后再比对取消前的代次会恒不相等，结果永远落不了地，页面侧的 150 ms 加载阈值与 `busy` 期间的方向队列也就都观测不到（第 127 轮的 Worker 路径正是这样失效的，第 233 轮订正）。**[可直接实现]**
 
 ### 8.2 分块与让出
 
@@ -381,7 +382,7 @@
 | 匹配上限 | 10000，超限不画高亮 + 链接 | 无上限 | 建议补上限与"点击高亮"入口 |
 | 全字匹配 | `isJavaIdentifierPart` + 相邻同字符规则 | `[\p{L}\p{N}_]` | 明确差异，勿声称等价 |
 
-（Augit 现状出处：docs/ux-mockups/current-find.js:34-35, 61-95, 96-179, 206-258）
+（Augit 现状出处：docs/ux-mockups/current-find.js:34-35, 61-95, 96-175, 202-254；第 233 轮行号重取）
 
 ---
 
