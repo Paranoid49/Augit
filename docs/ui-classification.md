@@ -100,7 +100,7 @@
 | 2.35 | 设置（分类/搜索/spotlight/底栏/快捷键/草稿） | 已按 New UI 对齐（**登记差异**见右） | `SettingsDialog.java:86-96`、`SettingsSearch.java`、`SpotlightPainter.kt` | `live-data.js` 设置 | E1 live-shell（第 195–197 轮） |
 | 2.36 | 操作进行/结果（取消一次性、提示不自动消失） | 已按 New UI 对齐 | `16`；`ProgressDialogUI.kt:136-152`、`ProcessBalloon.kt:114-127` | `reflectWriteOperation()` | E1 live-shell（第 154 轮） |
 | 2.37 | 操作进度条（`.progress-track`） | **待处理**（见 §7 T3） | `ProgressWindow`／`ProgressDialogUI` | 实时侧尚未渲染 | E4 仅视觉稿 `operation-progress` |
-| 2.38 | 提交信息校验/Amend 覆盖条件 | **待处理**（见 §7 T4） | `12` §9 | `live-data.js` 草稿机制 | E5 登记待做 |
+| 2.38 | 提交信息校验/Amend 覆盖条件 | 已按 New UI 对齐 | `12` §9；`AmendCommitHandlerImpl.kt:78-115`、`SingleChangeListCommitWorkflowHandler.kt:75` | `live-data.js` `amendInitialMessages`／`amendDrafts` | E1 live-shell（第 216 轮：改过不覆盖/不查宿主、没改过载入并聚焦、取消按权威恢复） |
 | 2.39 | Git「标记为收藏」 | 有意产品差异（维持禁用并写明） | `ToggleFavoriteAction`＋`DvcsBranchSettings.favorites` | 竖条禁用项 | 用户裁决（第 211 轮，`10-backlog.md` §三 第 4 项） |
 | 2.40 | 分支面板「按仓库分组」 | 不适用 | 权威要求多仓库 | 设置弹层禁用项 | E5 `20-branches-host-batch.md` §4 |
 | 2.41 | 远端分支删除、Prune、CheckinFiles 等 Changes 动作家族 | 不适用（产品无该能力，按边界不新增） | `GitDeleteRemoteBranchOperation` 等 | —— | E5 `09-icons.md` 第 171 轮、`13` §8 |
@@ -210,13 +210,13 @@
 | T1 | `.diff-current`（当前差异块）在 New UI 无对应物 | `08-diff-merge.md` §7bis.4、`10-backlog.md` 二·补五；`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`／`EXCLUDED_*` | ① 删除层（只滚动不染色）；② 改为行内词级高亮；③ 保留但换行号槽色族。**需产品口径** |
 | T2 | 行内词级 Diff 高亮 | 权威键已定（`DIFF_*.BACKGROUND`），参考图证实存在；落地需宿主提供词级差异范围 | **需产品口径**：是否属"现有 diff 功能的呈现方式"（触碰"不新增数据通道"边界） |
 | T3 | 操作进度条（`.progress-track`）实时侧不渲染 | `16-operation-progress.md` §3：当时因 Smart Checkout 未接线而搁置；**第 206–207 轮已接线** | 重新评估：按权威 `ProgressWindow`／`ProgressDialogUI` 决定是否给写操作补进度呈现 |
-| T4 | Amend"仅在用户没改过信息时才覆盖" | `12-commit-changes.md` §9 登记待做；权威 `:81` 依赖面板打开时的 `initialMessage`，Augit 无该基准 | 补基准并实现，或登记为差异（需说明理由） |
+| T4 | ~~Amend"仅在用户没改过信息时才覆盖"~~ | `12-commit-changes.md` §9 登记待做 | **已关闭（第 216 轮）**：按权威 `AmendCommitHandlerImpl.kt:78-115` 实现"面板激活时的初始信息"基线 |
 | T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **10** 条 | `ui-compliance.md` §2.10（第 215 轮重生成；原 11 条中的 `git-unavailable` 已闭环） | 每条补断言或明确不做；不得写成通过 |
 | T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
 | T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
 | T9 | 树/列表缩进与 `Tree.border = 4,12,4,12`、`List.border = 4,0,4,0` 的逐值核对 | `02-tree-list.md`；`design-system.md` §8.3 现写"树缩进 16px 一级步长"，与权威的 `Tree.border` 内距是两件事，尚未逐值核对 | 逐值核对权威 `Tree.border`／缩进并落地或登记差异（行为索引 §4 第 2 项已改标为"仍待做"） |
 
-**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。
+**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。
 
 ## 8. 非界面目标项（不计入上面的功能归类）
 

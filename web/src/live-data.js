@@ -6260,6 +6260,10 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
 
   // 提交成功：清空草稿、重新读取真实状态，并按块刷新。
   live.commitDraft = "";
+  // 提交成功等于"新面板"：Amend 的初始信息基线与成对草稿一并重置，否则下一次勾选会把
+  // 提交前那条旧信息当成 `initialMessage`（权威每次 `activate()` 重设 `initialMessage`）。
+  amendInitialMessages.clear();
+  amendDrafts.clear();
   live.selectedChangePath = null;
   live.followChanges = false;
   window.__augitCommitResult = { hash: result.commitHash, andPush: !!andPush, pushed: false };
@@ -11053,7 +11057,12 @@ document.addEventListener("contextmenu", (event) => {
 //    既不能监听 `change`、也不能读 `.checked`；
 // ② 状态由应用自己的处理翻转，所以必须**捕获阶段 + 延后一拍**读取才读得到翻转后的值；
 // ③ 第 100 轮把草稿存在 `dataset` 上**活不过提交区重渲染**（取消后字段被应用自身的草稿绑定覆盖）⇒
-//    草稿改存**模块级 Map**，并在每次渲染后重新应用；用户一旦自己编辑就以他的输入为准（丢弃草稿）。
+//    草稿改存**模块级 Map**。
+//
+// 第 216 轮按权威补齐"仅在用户没改过信息时才覆盖/恢复"（`AmendCommitHandlerImpl.kt:78-115`）：
+// 字段值本身改由 `live.commitDraft` 跨重渲染保持（载入/恢复时两处一起写），`amendDrafts`
+// 只记录一次"载入 → 可恢复"的成对数据 `{ before, amend }`；是否载入由 `amendInitialMessages`
+// 的基线判定。
 const amendDrafts = new Map();
 
 function amendFieldKey(field) {
@@ -11082,7 +11091,24 @@ function applyAmendActionLabel(box, checked) {
   if (secondary) secondary.textContent = checked ? "修改提交并推送…" : "提交并推送…";
 }
 
-/** 渲染后把未提交的草稿写回（仅在 Amend 未勾选时），保证"取消勾选后恢复原草稿"活过重渲染。 */
+/**
+ * 面板"激活"时的提交信息（权威 `initialMessage`）。
+ *
+ * `SingleChangeListCommitWorkflowHandler.kt:75` 在 `activate()` 里执行
+ * `amendCommitHandler.initialMessage = getCommitMessage()` —— 即**面板打开那一刻**的信息；
+ * `AmendCommitHandlerImpl.kt:82` 用它判断"用户有没有改过"：只有
+ * `initialMessage == null || beforeAmendMessage == initialMessage` 才允许载入上一次提交信息。
+ * Augit 没有 Swing 的 `activate()` 事件，用"每个提交框第一次出现时看到的值"作为基线；
+ * 提交成功后清空（下一次是新面板）。
+ */
+const amendInitialMessages = new Map();
+
+/** 权威 `StringUtil.equalsIgnoreWhitespaces`：忽略空白比较提交信息。 */
+function equalIgnoringWhitespace(left, right) {
+  return String(left).replace(/\s+/g, "") === String(right).replace(/\s+/g, "");
+}
+
+/** 渲染后重贴 Amend 的动作文案，并记录"面板激活时的初始信息"。 */
 function restoreAmendDraft() {
   document.querySelectorAll(".commit-box .message-field, .commit-box textarea").forEach((field) => {
     const box = field.closest(".commit-box");
@@ -11094,16 +11120,9 @@ function restoreAmendDraft() {
     // 提交动作的文案随 Amend 状态（权威 `updateDefaultCommitActionName()`）。
     applyAmendActionLabel(box, checked);
     const key = amendFieldKey(field);
-    if (!checked && amendDrafts.has(key) && field.value !== amendDrafts.get(key)) {
-      field.value = amendDrafts.get(key);
-    }
+    if (!amendInitialMessages.has(key)) amendInitialMessages.set(key, field.value);
   });
 }
-
-document.addEventListener("input", (event) => {
-  const field = event.target.closest && event.target.closest(".commit-box .message-field, .commit-box textarea");
-  if (field) amendDrafts.delete(amendFieldKey(field));
-}, true);
 
 document.addEventListener("click", (event) => {
   const amend = event.target.closest && event.target.closest('.commit-box [aria-label="Amend"]');
@@ -11119,17 +11138,38 @@ document.addEventListener("click", (event) => {
     // 文案随状态（权威 `updateDefaultCommitActionName()`，见 applyAmendActionLabel 注释）。
     applyAmendActionLabel(box, checked);
     if (checked) {
-      if (!amendDrafts.has(key)) amendDrafts.set(key, field.value);
+      // 权威 `AmendCommitHandlerImpl.kt:78-89`：只有"用户没改过信息"（当前值 == 面板激活时的
+      // 初始信息 `initialMessage`）才载入上一次提交信息；用户改过就保持他的文本 ——
+      // 不覆盖、不记 `AmendData`、也不移焦点。
+      const initial = amendInitialMessages.has(key) ? amendInitialMessages.get(key) : field.value;
+      const before = field.value;
+      if (before !== initial) return;
       void invoke("git/last-commit-message", {}, 30000).then((result) => {
-        if (result && result.available && typeof result.message === "string") {
-          field.value = result.message;
-          // 权威 `AmendCommitHandlerImpl.kt:117-119` 的 `setCommitMessageAndFocus()`：
-          // 载入上次提交信息后**把焦点移到提交信息栏**。
-          field.focus({ preventScroll: true });
-        } else window.__augitError = "amend:last-commit-unavailable";
+        if (!result || !result.available || typeof result.message !== "string") {
+          window.__augitError = "amend:last-commit-unavailable";
+          return;
+        }
+        const amendMessage = result.message;
+        // 权威 `:98-100`：忽略空白相等时不动字段，也不记 `AmendData`。
+        if (equalIgnoringWhitespace(before, amendMessage)) return;
+        amendDrafts.set(key, { before, amend: amendMessage });
+        field.value = amendMessage;
+        // 字段值同时写进提交草稿，区域刷新后不会退回原文（`restoreChangesState()`）。
+        rememberCommitDraft(amendMessage);
+        // 权威 `AmendCommitHandlerImpl.kt:117-119` 的 `setCommitMessageAndFocus()`：
+        // 载入上次提交信息后**把焦点移到提交信息栏**。
+        field.focus({ preventScroll: true });
       }).catch(() => { window.__augitError = "amend:last-commit-failed"; });
-    } else if (amendDrafts.has(key)) {
-      field.value = amendDrafts.get(key);
+    } else {
+      const draft = amendDrafts.get(key);
+      if (!draft) return;
+      amendDrafts.delete(key);
+      // 权威 `:107-115` 的 `restoreBeforeAmendMessage()`：只有字段**仍等于**载入的 amend 信息
+      // 才恢复"进入 amend 前"的信息；用户改过就保留他的文本。
+      if (field.value === draft.amend) {
+        field.value = draft.before;
+        rememberCommitDraft(draft.before);
+      }
     }
   }, 0);
 }, true);

@@ -6633,3 +6633,42 @@ Augit 既有的产品口径是"条件不满足时禁用移除并**显示具体�
 
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T4（Amend 覆盖条件）、T6（§2.10 C 类 10 条）、T9（树缩进/`Tree.border` 逐值核对）。
+
+## ducentum-sedecim. 第二百一十六轮：Amend 的"仅在用户没改过信息时才覆盖/恢复"（关闭 T4）
+
+归类总表 §7 的 T4（`12-commit-changes.md` §9.3 第 2 项）：Augit 的 Amend 勾选后**无条件**用
+上一次提交信息覆盖提交框，而权威只在"用户没改过信息"时才覆盖。用户先写了提交信息再勾 Amend，
+Augit 会把他写的内容换掉（虽然取消勾选能恢复），这是真实的交互偏差。
+
+### 权威
+
+| 项 | 权威 | 出处 |
+| --- | --- | --- |
+| `initialMessage` 的含义 | 面板**激活**时的提交信息：`activate()` 里 `amendCommitHandler.initialMessage = getCommitMessage()` | `platform/vcs-impl/src/com/intellij/vcs/commit/SingleChangeListCommitWorkflowHandler.kt:75` |
+| 何时载入 | `if (initialMessage == null \|\| beforeAmendMessage == initialMessage)` 才读上一次提交信息 | `AmendCommitHandlerImpl.kt:82` |
+| 忽略空白 | `setAmendMessage(before, amend)` 里 `!equalsIgnoreWhitespaces(before, amend)` 才保存草稿并写入字段 | `:98-105` |
+| 何时恢复 | `restoreBeforeAmendMessage()`：只有 `amendData.amendMessage == getCommitMessage()`（字段仍等于载入的 amend 信息）才恢复 | `:107-115` |
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/live-data.js` | 新增 `amendInitialMessages`（每个提交框**首次渲染时**记录字段值作为 `initialMessage`；提交成功后与 `amendDrafts` 一起清空）；勾选时只有"当前值 == 基线"才调 `git/last-commit-message`，忽略空白相等则不动字段；`amendDrafts` 改成成对数据 `{ before, amend }`；载入与恢复**同时写 `live.commitDraft`**，字段值跨重渲染由它保持（旧实现靠渲染钩子回写，且会与提交草稿互相覆盖）；删除"用户 input 即丢弃草稿"的旧监听（恢复条件已由值比较表达） |
+| `web/src/mockup.js` | `bindChangesWorkflow()` 的 Amend **示例行为**加 `window.__augitLive` 守卫：live 下只翻转 `aria-checked`，不写样例文本 `fix: 精确恢复安装前系统 PATH`。**这是本轮第一次跑套件时暴露的冲突**：样例监听挂在冒泡阶段、live 监听在捕获阶段延后一拍读值，样例先把字段改成示例文本，导致 live 侧读到"已改过"而拒绝载入 |
+| `tools/audit/live-shell.spec.cjs` | 原断言"勾选回填、取消恢复原草稿"编码的正是"改过也覆盖"的旧行为（它先输入草稿再勾选，却期望被覆盖）⇒ 拆成两条：**改过 ⇒ 不覆盖、不查宿主、不抢焦点、动作仍改名**；**没改过 ⇒ 载入上一次提交信息并聚焦、取消后回到初始文本** |
+| `ui-compliance.md` §2.6 §7.6 第 12 条 | 证据改为上述两条断言，并写明权威条件 |
+
+### 验证
+
+- `live-shell` **`通过 1222 项断言`**（替换 2 条，断言数不变）。实测读数：
+  改过 → `{value:"用户尚未提交的草稿", calls:0, focused:false, primary:"修改提交"}`、取消 → 草稿且按钮回"提交"；
+  没改过 → `{value:"上一次提交标题\n\n上一次提交正文", calls:1, focused:true}`、取消 → 初始 `""`。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 216 轮）：`mockup.js` → **`3ecf6c5d9a29255d62f10d6f4b2118f5`**、
+  `live-data.js` → **`b6b19170d0c6fde955b1d9df5658ddd1`**；`mockup.css`（`8407d37b…`）／
+  `bridge.js`（`8d2d3173…`）未变；`live-shell.spec.cjs` → `6233249f8ead1f54431f128b95d340e5`。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 10 条）、T9（树缩进/`Tree.border` 逐值核对）。

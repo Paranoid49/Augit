@@ -5479,6 +5479,10 @@ function bindChangesWorkflow() {
     const checked = amend.getAttribute("aria-checked") !== "true";
     if (checked) originalDraft = message.value;
     setCheck(amend, String(checked));
+    // 实时外壳下由 `live-data.js` 的 Amend 处理器负责真实行为（调宿主读上一次提交信息，
+    // 并按权威"仅当用户没改过信息时才覆盖/恢复"）；这里的示例信息会把用户真实输入冲掉，
+    // 因此 live 下只翻转勾选状态，不写样例文本。视觉稿样例（无 live）仍用这条示例。
+    if (window.__augitLive) return;
     message.value = checked ? "fix: 精确恢复安装前系统 PATH" : originalDraft;
     message.dispatchEvent(new Event("input", { bubbles: true }));
   });

@@ -11686,14 +11686,16 @@ async function main() {
         && boundaryHint.enter.hitAfterEnter > boundaryHint.enter.hitBefore
         && boundaryHint.enter.hitAfterSpace > boundaryHint.enter.hitAfterEnter);
 
-    // ---- 第 100 轮补断言：§7.6「Amend 勾选后读取上一次提交信息；取消后恢复原文本」----
-    // 核实过：`commit-amend` 在 live 代码里 0 命中；宿主 `ReadLastCommitMessageAsync` 与其单测早已存在，
-    // 本轮补的是桥接 `git/last-commit-message` + 页面接线。
+    // ---- §7.6 Amend：勾选读取上一次提交信息、取消恢复；且"仅在用户没改过信息时才覆盖/恢复" ----
+    // 权威 `AmendCommitHandlerImpl.kt:78-115`：`initialMessage` 是**面板激活时**的信息；
+    // 只有"当前值 == initialMessage"才载入上一次提交信息，只有"当前值 == 载入的 amend 信息"
+    // 才恢复进入 amend 前的文本。第 216 轮按此实现（原实现是无条件覆盖）。
     const amendFlow = await (async () => {
-      const scene = await openScene('scene=commit-changes&theme=dark');
-      await scene.page.waitForTimeout(1200);
+      // 情形 A：用户已经改过信息 —— 勾选 Amend 不得覆盖他的文本，也不查宿主、不移焦点。
+      const edited = await openScene('scene=commit-changes&theme=dark');
+      await edited.page.waitForTimeout(1200);
       const draft = '用户尚未提交的草稿';
-      const found = await scene.page.evaluate((text) => {
+      const found = await edited.page.evaluate((text) => {
         const box = document.querySelector('.commit-box');
         const field = box && box.querySelector('.message-field, textarea');
         // 视觉稿的 Amend 是 <button role="checkbox" aria-checked>（fake-check），不是 input。
@@ -11703,58 +11705,70 @@ async function main() {
         field.dispatchEvent(new Event('input', { bubbles: true }));
         return { ok: true };
       }, draft);
-      let checked = null;
-      let unchecked = null;
-      if (found.ok) {
-        await scene.page.locator('.commit-box [aria-label="Amend"]').click();
-        await scene.page.waitForTimeout(1200);
-        checked = await scene.page.evaluate(() => {
-          const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
-          const actions = document.querySelector('.commit-box .commit-actions');
-          const primary = actions && actions.querySelector('.primary-button');
-          const secondary = actions && actions.querySelector('.secondary-button');
-          return {
-            value: field ? field.value : null,
-            calls: window.__lastCommitCalls || 0,
-            primary: primary ? primary.textContent : null,
-            secondary: secondary ? secondary.textContent : null,
-            focused: !!field && document.activeElement === field,
-          };
-        });
-        await scene.page.locator('.commit-box [aria-label="Amend"]').click();
-        await scene.page.waitForTimeout(700);
-        unchecked = await scene.page.evaluate(() => {
-          const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
-          const actions = document.querySelector('.commit-box .commit-actions');
-          const primary = actions && actions.querySelector('.primary-button');
-          const secondary = actions && actions.querySelector('.secondary-button');
-          return { value: field ? field.value : null,
-            primary: primary ? primary.textContent : null,
-            secondary: secondary ? secondary.textContent : null };
-        });
-      }
-      await scene.page.close();
-      console.log('INFO Amend=' + JSON.stringify({ found, checked, unchecked }));
-      return { found, checked, unchecked, draft };
+      await edited.page.locator('.commit-box [aria-label="Amend"]').click();
+      await edited.page.waitForTimeout(1200);
+      const editedChecked = await edited.page.evaluate(() => {
+        const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+        const actions = document.querySelector('.commit-box .commit-actions');
+        const primary = actions && actions.querySelector('.primary-button');
+        return {
+          value: field ? field.value : null,
+          calls: window.__lastCommitCalls || 0,
+          focused: !!field && document.activeElement === field,
+          primary: primary ? primary.textContent : null,
+        };
+      });
+      await edited.page.locator('.commit-box [aria-label="Amend"]').click();
+      await edited.page.waitForTimeout(700);
+      const editedUnchecked = await edited.page.evaluate(() => {
+        const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+        const actions = document.querySelector('.commit-box .commit-actions');
+        const primary = actions && actions.querySelector('.primary-button');
+        return { value: field ? field.value : null, primary: primary ? primary.textContent : null };
+      });
+      await edited.page.close();
+
+      // 情形 B：用户没改过信息 —— 勾选后载入上一次提交信息并聚焦；取消后恢复面板打开时的文本。
+      const untouched = await openScene('scene=commit-changes&theme=dark');
+      await untouched.page.waitForTimeout(1200);
+      const initial = await untouched.page.evaluate(
+        () => (document.querySelector('.commit-box .message-field, .commit-box textarea') || {}).value ?? null);
+      await untouched.page.locator('.commit-box [aria-label="Amend"]').click();
+      await untouched.page.waitForTimeout(1200);
+      const untouchedChecked = await untouched.page.evaluate(() => {
+        const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+        return {
+          value: field ? field.value : null,
+          calls: window.__lastCommitCalls || 0,
+          focused: !!field && document.activeElement === field,
+        };
+      });
+      await untouched.page.locator('.commit-box [aria-label="Amend"]').click();
+      await untouched.page.waitForTimeout(700);
+      const untouchedUnchecked = await untouched.page.evaluate(
+        () => ({ value: (document.querySelector('.commit-box .message-field, .commit-box textarea') || {}).value ?? null }));
+      await untouched.page.close();
+      return { found, draft, editedChecked, editedUnchecked, initial, untouchedChecked, untouchedUnchecked };
     })();
-    // 只断言**已验证的那一半**：勾选 → 调宿主 → 回填。另一半（取消后恢复原草稿）**未通过**，
-    // 实测字段变成应用自身状态里的上一次提交标题（`fix: 精确恢复安装前系统 PATH`），
-    // 说明重新渲染/应用自己的草稿绑定覆盖了页面侧存的草稿 —— 已登记为 §3.2 第 27 条，**不写成通过**。
-    check('§7.6 Amend 勾选回填上一次提交信息、取消恢复原草稿: ' + JSON.stringify(amendFlow),
+    console.log('INFO Amend=' + JSON.stringify(amendFlow));
+    // 情形 A：改过 ⇒ 不覆盖、不查宿主、不抢焦点；动作仍改名（权威 `updateDefaultCommitActionName()`）。
+    check('§7.6 Amend 用户改过信息时不覆盖、不查宿主、不抢焦点: '
+      + JSON.stringify([amendFlow.editedChecked, amendFlow.editedUnchecked]),
       amendFlow.found.ok === true
-        && amendFlow.checked.calls >= 1
-        && typeof amendFlow.checked.value === 'string' && amendFlow.checked.value.includes('上一次提交标题')
-        && amendFlow.unchecked.value === amendFlow.draft);
-    // 权威 `AmendCommitHandlerImpl.kt:50-52` 的 `updateDefaultCommitActionName()`：勾选 Amend 后
-    // **提交动作改名**（`amend.action.name` = "Amend {0}"，`VcsBundle.properties:38`；
-    // `action.amend.commit.and.push.text` = "Amend Commit and Push…"，`DvcsBundle.properties:128`），
-    // 且载入上次信息后**聚焦信息栏**（`setCommitMessageAndFocus()`，`:117-119`）。
-    check('Amend 勾选后动作改名、载入后聚焦信息栏、取消后恢复原名: '
-      + JSON.stringify([amendFlow.checked.primary, amendFlow.checked.secondary,
-        amendFlow.checked.focused, amendFlow.unchecked.primary, amendFlow.unchecked.secondary]),
-      amendFlow.checked.primary === '修改提交' && amendFlow.checked.secondary === '修改提交并推送…'
-      && amendFlow.checked.focused === true
-      && amendFlow.unchecked.primary === '提交' && amendFlow.unchecked.secondary === '提交并推送…');
+        && amendFlow.editedChecked.value === amendFlow.draft
+        && amendFlow.editedChecked.calls === 0
+        && amendFlow.editedChecked.focused === false
+        && amendFlow.editedChecked.primary === '修改提交'
+        && amendFlow.editedUnchecked.value === amendFlow.draft
+        && amendFlow.editedUnchecked.primary === '提交');
+    // 情形 B：没改过 ⇒ 载入上一次提交信息、聚焦信息栏；取消后恢复初始文本。
+    check('§7.6 Amend 用户没改过信息时载入上一次提交信息并聚焦、取消后恢复: '
+      + JSON.stringify([amendFlow.initial, amendFlow.untouchedChecked, amendFlow.untouchedUnchecked]),
+      typeof amendFlow.untouchedChecked.value === 'string'
+        && amendFlow.untouchedChecked.value.includes('上一次提交标题')
+        && amendFlow.untouchedChecked.calls >= 1
+        && amendFlow.untouchedChecked.focused === true
+        && amendFlow.untouchedUnchecked.value === amendFlow.initial);
 
     // ---- 第 99 轮补断言：比较工具栏「上一处/下一处差异」（此前是死入口，按规格实现）----
     // 规格要点：差异按**连续变更块**计（同一次替换的删除+新增算一处）；定位后**保留触发按钮焦点**。

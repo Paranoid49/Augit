@@ -240,7 +240,7 @@ Augit **已经**实现了"勾选→调宿主 `git/last-commit-message` 回填；
 ### 9.3 仍未落地（记录，不自行决定）
 
 1. **助记符 `Alt+M`**：Augit 的界面没有助记符体系（中文界面 + 非 Swing 菜单），实现它等于**新增一套键盘交互**，触及"不新增功能"的边界 ⇒ 只登记。
-2. **"仅在用户没改过信息时才覆盖/恢复"**：Augit 的草稿机制在用户编辑时会删除草稿（`input` 监听），因此**效果等价**于"改过就不恢复"；但"勾选时是否覆盖用户已输入的内容"仍有差别（Augit 会覆盖并暂存）。权威 `:81` 的条件依赖 `initialMessage`（面板打开时的初始信息），Augit 侧没有这个基准 ⇒ 登记待做。
+2. ~~**"仅在用户没改过信息时才覆盖/恢复"**~~ **第 216 轮已落地**：Augit 的草稿机制在用户编辑时会删除草稿（`input` 监听），因此"取消后恢复"**效果等价**于"改过就不恢复"；差别在"**勾选时是否覆盖用户已输入的内容**"——权威 `AmendCommitHandlerImpl.kt:82` 的条件依赖 `initialMessage`（**面板激活时**的信息，`SingleChangeListCommitWorkflowHandler.kt:75` 在 `activate()` 里 `initialMessage = getCommitMessage()`）。落地：新增 `amendInitialMessages` 基线（每个提交框第一次渲染时记录字段值，提交成功后清空），勾选时只有"当前值 == 基线"才调用 `git/last-commit-message` 并载入；载入与恢复同时写 `live.commitDraft`（字段值跨重渲染由它保持），恢复条件照权威 `:112` 改成"字段仍等于载入的 amend 信息"；忽略空白相等则不动字段（`:99`）。
 3. **载入失败的呈现**：Augit 目前只写 `window.__augitError`；权威是带标题的错误对话框。
 
 ### 9.4 验证
