@@ -550,6 +550,16 @@ async function main() {
             ],
           };
         }
+        // 第 230 轮：长差异（120 行上下文 + 一处修改），供"左右正文同步垂直滚动"断言使用 ——
+        // 原先的 4 行 fixture 根本滚不动，那条条文一直没有断言。
+        if (params.path === 'src/LongDiff.cs') {
+          const rows = [{ oldLine: 1, oldText: '// head', oldChanges: [], newLine: 1, newText: '// head', newChanges: [], kind: 'Context' }];
+          for (let i = 2; i <= 120; i += 1) {
+            rows.push({ oldLine: i, oldText: 'line ' + i, oldChanges: [], newLine: i, newText: 'line ' + i, newChanges: [], kind: 'Context' });
+          }
+          rows.push({ oldLine: 121, oldText: 'old tail', oldChanges: [{ start: 0, length: 3 }], newLine: 121, newText: 'new tail', newChanges: [{ start: 0, length: 3 }], kind: 'Modified' });
+          return { available: true, path: 'src/LongDiff.cs', status: 'Ready', oldSize: 220, newSize: 220, truncated: false, lines: [], rows };
+        }
         return { available: false, reason: 'no diff' };
       }
       if (method === 'clipboard/write') {
@@ -12280,6 +12290,109 @@ async function main() {
         && inlineDiff.dark[4].total === '2' && inlineDiff.dark[4].changedLines === 2
         // `.diff-current` 的三个令牌在两种主题下都必须为空（第 223 轮删除该无权威对应的层）。
         && inlineDiff.dark.every((s) => s.currentTokens === '||') && inlineDiff.light.every((s) => s.currentTokens === '||'));
+
+    // ---- 第 230 轮：比较视图的几何、只读身份与同步滚动（§7.7 第 5/7/11/12 条）----
+    const diffGeometry = await (async () => {
+      const scene = await openScene('scene=commit-diff&theme=dark&diff=src%2FModified.cs');
+      await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.diff-columns .diff-code-line', { timeout: 10000 });
+      const geo = await scene.page.evaluate(() => {
+        const view = document.querySelector('.diff-columns');
+        const layout = view.closest('.diff-layout');
+        const line = view.querySelector('.diff-code-line');
+        const cell = view.querySelector('.diff-gutter > div');
+        const viewStyle = getComputedStyle(view);
+        const tracks = viewStyle.gridTemplateColumns.split(' ').map((value) => parseFloat(value));
+        // 复算实现用的"按最长行号度量"公式（`mockup.js` 的 `measureCodeViews()`）：
+        // `max(84, 最长行号文本宽 + 14)`，文本是"两组数字 + 四空格"。
+        const context = document.createElement('canvas').getContext('2d');
+        context.font = `${viewStyle.fontSize} ${viewStyle.fontFamily}`;
+        const columns = [...view.querySelectorAll('.diff-gutter > div')];
+        const digits = Math.max(3, ...columns.flatMap((column) => [...column.childNodes]
+          .filter((node) => node.nodeType === Node.TEXT_NODE)
+          .map((node) => node.textContent.trim().length)));
+        const dpr = window.devicePixelRatio || 1;
+        const expectedGutter = Math.max(84,
+          Math.ceil(context.measureText(`${'9'.repeat(digits)}    ${'9'.repeat(digits)}`).width * dpr) / dpr + 14);
+        // 文件栏的中栏必须与行号中栏同宽（规格：目标信息对齐右正文起点）。
+        const filebar = document.querySelector('.reference-filebar');
+        const filebarTracks = filebar ? getComputedStyle(filebar).gridTemplateColumns.split(' ').map((value) => parseFloat(value)) : [];
+        return {
+          linePad: [getComputedStyle(line).paddingLeft, getComputedStyle(line).paddingRight],
+          cellPad: [getComputedStyle(cell).paddingLeft, getComputedStyle(cell).paddingRight],
+          gutters: tracks[1], expectedGutter, digits,
+          sides: [tracks[0], tracks[2]],
+          filebarGutter: filebarTracks[1] ?? null,
+          locks: filebar ? filebar.querySelectorAll('.reference-lock').length : 0,
+          filebarTitle: filebar ? filebar.getAttribute('title') : null,
+          diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+          toolbar: (() => { const r = document.querySelector('.diff-toolbar').getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]; })(),
+        };
+      });
+      // 切到单栏再切回：工具栏矩形必须不变（规格：仅重排 Diff 文件信息与正文，不移动工具栏）。
+      await scene.page.locator('.diff-toolbar .segmented [aria-label="单栏"]').click();
+      await scene.page.waitForTimeout(700);
+      const toolbarUnified = await scene.page.evaluate(() => {
+        const r = document.querySelector('.diff-toolbar').getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      });
+      await scene.page.locator('.diff-toolbar .segmented [aria-label="双栏"]').click();
+      await scene.page.waitForTimeout(700);
+      const toolbarSplit = await scene.page.evaluate(() => {
+        const r = document.querySelector('.diff-toolbar').getBoundingClientRect();
+        return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+      });
+      await scene.page.close();
+      return { geo, toolbarUnified, toolbarSplit };
+    })();
+    check('§7.7 双栏留白 13px、中栏左右 7px、中栏按最长行号度量且文件栏对齐: ' + JSON.stringify(diffGeometry.geo),
+      diffGeometry.geo.linePad[0] === '13px' && diffGeometry.geo.linePad[1] === '13px'
+        && diffGeometry.geo.cellPad[0] === '7px' && diffGeometry.geo.cellPad[1] === '7px'
+        && diffGeometry.geo.gutters >= 84 && diffGeometry.geo.sides[0] > 0 && diffGeometry.geo.sides[1] > 0
+        && Math.abs(diffGeometry.geo.gutters - diffGeometry.geo.expectedGutter) < 0.6
+        && diffGeometry.geo.filebarGutter !== null
+        && Math.abs(diffGeometry.geo.filebarGutter - diffGeometry.geo.gutters) < 0.6);
+    check('§7.7 比较视图明确只读身份、文件栏悬停含完整路径、切单双栏不移动工具栏: '
+      + JSON.stringify({ locks: diffGeometry.geo.locks, title: diffGeometry.geo.filebarTitle,
+        toolbar: [diffGeometry.geo.toolbar, diffGeometry.toolbarUnified, diffGeometry.toolbarSplit] }),
+      diffGeometry.geo.locks === 2
+        && typeof diffGeometry.geo.filebarTitle === 'string'
+        && diffGeometry.geo.filebarTitle.includes(diffGeometry.geo.diffPath)
+        && diffGeometry.geo.toolbar.join(',') === diffGeometry.toolbarUnified.join(',')
+        && diffGeometry.geo.toolbar.join(',') === diffGeometry.toolbarSplit.join(','));
+
+    // 同步垂直滚动：同一滚动容器 ⇒ 左右正文与中栏行号同步位移（规格 §7.7 第 11 条）。
+    const diffScrollSync = await (async () => {
+      const scene = await openScene('scene=commit-diff&theme=dark&diff=src%2FLongDiff.cs');
+      await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.diff-columns .diff-code-line', { timeout: 10000 });
+      const result = await scene.page.evaluate(async () => {
+        const first = document.querySelector('.diff-columns .diff-code-line');
+        let scroller = first && first.parentElement;
+        while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1) scroller = scroller.parentElement;
+        if (!scroller) return { scrollable: false };
+        const sides = [...document.querySelectorAll('.diff-side')];
+        const gutter = document.querySelector('.diff-gutter');
+        const top = (root) => (root ? root.getBoundingClientRect().top : null);
+        const before = { scrollTop: scroller.scrollTop, left: top(sides[0]), right: top(sides[sides.length - 1]), gutter: top(gutter) };
+        scroller.scrollTop = before.scrollTop + 60;
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const after = { scrollTop: scroller.scrollTop, left: top(sides[0]), right: top(sides[sides.length - 1]), gutter: top(gutter) };
+        scroller.scrollTop = before.scrollTop;
+        return {
+          scrollable: true,
+          moved: after.scrollTop - before.scrollTop,
+          rows: document.querySelectorAll('.diff-columns .diff-code-line').length,
+          delta: [after.left - before.left, after.right - before.right, after.gutter - before.gutter],
+        };
+      });
+      await scene.page.close();
+      return result;
+    })();
+    check('§7.7 双栏左右正文与中栏行号在同一滚动容器中同步位移: ' + JSON.stringify(diffScrollSync),
+      diffScrollSync.scrollable === true && diffScrollSync.rows >= 200
+        && diffScrollSync.moved >= 40
+        && diffScrollSync.delta.every((value) => Math.abs(value + diffScrollSync.moved) < 1.5));
 
     // ---- 第 98 轮补断言：§7.8 提交历史「搜索提交」把焦点交给日志搜索框（此前是死入口）----
     const historySearch = await (async () => {
