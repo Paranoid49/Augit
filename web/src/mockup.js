@@ -4181,6 +4181,18 @@ function liveToast() {
   return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
 }
 
+/**
+ * 普通文件读取尚未完成时的正文占位（规格 §6.7）。
+ *
+ * 用既有的 `.empty-tool-state`／`role="status"` 结构，与"正在读取改动…／正在读取提交历史…"同一族；
+ * 关键是**不能**落到 `editor === "empty"` 的"选择文件以查看内容"无文档提示上。
+ */
+function documentLoadingView(path) {
+  const text = typeof path === "string" ? path : "";
+  const name = text.split("/").at(-1) || text;
+  return `<div class="empty-tool-state" role="status"><div><strong>正在读取 ${escapeHtml(name)}…</strong><p>${escapeHtml(text)}</p></div></div>`;
+}
+
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null, imageError = false, gitUnavailable = "" } = {}) {
   const live = window.__augitLive || null;
   // 实时外壳下，Git 不可用的原因**只**来自宿主检测（`showGitUnavailable`）：live 存在但没有原因，
@@ -4211,6 +4223,11 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   // 只看 live.document 会让比较正文渲染不出来（表现为 editor 已是 diff 而 DOM 仍是文档）。
   if (live && live.editor && (live.document || live.editor === "diff")) editor = live.editor;
   if (live && live.document) selectedFile = live.document.name || selectedFile;
+  // 规格 §6.7：普通文件读取尚未完成时（典型是"读取在途时打开比较、随后关闭比较"返回的普通标签），
+  // 正文显示该文件的**读取占位**，不能退回"选择文件以查看内容"的无文档提示。
+  if (live && live.pendingDocument && !live.document && editor !== "diff") {
+    editor = "document-loading";
+  }
   // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
   const sideHtml = side === "" ? "" : side === "commit-empty"
     ? emptyChangesSide()
@@ -4235,6 +4252,8 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>corrupt.png · PNG 图像 · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>无法读取图片尺寸，已停止预览。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
+  // 规格 §6.7 的读取占位（见上方 editor 覆盖处）。
+  if (editor === "document-loading") editorBody = documentLoadingView(live && live.pendingDocument);
   if (editor === "diff") {
     // 标签优先用真实差异路径；差异尚未到达时用启动参数里的目标路径，
     // 避免短暂显示样例文件名。

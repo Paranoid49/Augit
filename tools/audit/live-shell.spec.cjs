@@ -11327,6 +11327,59 @@ async function main() {
         && typeof during.pathText === 'string' && during.pathText.includes('product-spec.md')
         && Array.isArray(after.fields) && after.fields.includes('UTF-8') && after.fields.includes('LF'));
 
+    // ---- §6.7：关闭比较后返回尚未就绪的普通标签，正文显示读取占位而不是无文档提示 ----
+    const pendingReturn = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark&slowread=docs/product-spec.md:2500');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row[data-path="src/App.cs"]', { timeout: 10000 });
+      // 1) 开始慢读普通文件（不等待完成）
+      await scene.page.evaluate(() => { void window.__augitOpenDocument('docs/product-spec.md'); });
+      await scene.page.waitForFunction("window.__slowReadStarted === 'docs/product-spec.md'", null, { timeout: 10000 });
+      // 2) 读取在途时打开比较：比较成为前台，`live.document` 被清空
+      await scene.page.evaluate(() => window.__augitOpenChangeDiff('src/App.cs'));
+      await scene.page.waitForFunction('!!(window.__augitLive && window.__augitLive.diff)', null, { timeout: 15000 });
+      const duringDiff = await scene.page.evaluate(() => ({
+        editor: window.__augitLive.editor,
+        pending: window.__augitLive.pendingDocument || null,
+        hasComparisonTab: [...document.querySelectorAll('.editor-tab')].some((tab) => tab.textContent.trim().startsWith('提交:')),
+      }));
+      // 3) 用真实入口关闭比较标签（标签上的关闭叉要求"同一目标按下再松开"，故必须走真实点击）
+      const closeLocator = scene.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close');
+      const closed = (await closeLocator.count()) > 0;
+      if (closed) await closeLocator.first().click();
+      await scene.page.waitForTimeout(500);
+      const afterClose = await scene.page.evaluate(() => {
+        const content = document.querySelector('.editor-content');
+        const live = window.__augitLive || {};
+        return {
+          text: content ? content.innerText.replace(/\s+/g, ' ').trim() : null,
+          hasEmptyState: !!(content && content.querySelector('.empty-state')),
+          pending: live.pendingDocument || null,
+          docPath: live.document ? live.document.path : null,
+        };
+      });
+      // 4) 读取完成后占位被真实正文替换
+      await scene.page.waitForFunction(
+        "window.__augitLive.document && window.__augitLive.document.path === 'docs/product-spec.md'", null, { timeout: 10000 }).catch(() => null);
+      const afterReady = await scene.page.evaluate(() => ({
+        docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+        hasEmptyState: !!(document.querySelector('.editor-content .empty-state')),
+      }));
+      await scene.page.close();
+      return { duringDiff, closed, afterClose, afterReady };
+    })();
+    console.log('INFO 关闭比较返回未就绪普通标签=' + JSON.stringify(pendingReturn));
+    check('§6.7 关闭比较后返回尚未就绪的普通标签显示读取占位而非无文档提示: ' + JSON.stringify(pendingReturn),
+      pendingReturn.duringDiff.editor === 'diff'
+        && pendingReturn.duringDiff.pending === 'docs/product-spec.md'
+        && pendingReturn.duringDiff.hasComparisonTab === true
+        && pendingReturn.closed === true
+        && pendingReturn.afterClose.pending === 'docs/product-spec.md'
+        && pendingReturn.afterClose.hasEmptyState === false
+        && typeof pendingReturn.afterClose.text === 'string' && pendingReturn.afterClose.text.includes('正在读取')
+        && pendingReturn.afterReady.docPath === 'docs/product-spec.md'
+        && pendingReturn.afterReady.hasEmptyState === false);
+
     // ---- 第 112 轮补断言：§4.1「比较（工作区/历史）只给只读、不继承后台文件的编码/换行」----
     // 口径：只要比较处于激活状态（`live.diff` 有值），状态栏就**不应**出现 `UTF-8`/`LF` 之类的编码/换行字段。
     const comparisonStatus = await (async () => {

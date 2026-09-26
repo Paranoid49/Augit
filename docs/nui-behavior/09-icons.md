@@ -6846,3 +6846,39 @@ T6（§2.10 C 类 **8** 条：`§7.9` Blame 点提交定位历史（2 条）、`
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T6（§2.10 C 类 **6** 条：`§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、
 `§6` 关闭比较后的占位 1 条、"产品面不可达" 1 条）。
+
+## ducentum-viginti-unus. 第二百二十一轮：关闭比较后返回未就绪的普通标签显示读取占位（§6.7）
+
+`ui-compliance.md` §2.7 第 39 条的 C 类缺口：`ux-spec` §6.7 要求"关闭比较后若返回的普通标签尚未就绪，
+正文显示该文件的读取占位，不能显示'从左侧文件树打开文件'的无文档提示"。实现里 `closeDiff()` 把
+`live.editor` 置成 `live.document ? live.document.editor : "empty"`，而比较在台前时 `live.document`
+被清空（`activateComparisonTab()`），于是关闭比较会落到 `editor === "empty"` 的无文档提示上。
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.js` | ① 新增 `documentLoadingView(path)`：用既有 `.empty-tool-state` + `role="status"` 结构给出"正在读取 <文件名>…"与完整路径（与"正在读取改动…／正在读取提交历史…"同一族）；② `shell()` 在 `live.pendingDocument && !live.document && editor !== "diff"` 时把 `editor` 切成 `document-loading` 并渲染该占位。条件里排除 `diff`：读取在途但比较仍是台前时不能抢正文 |
+
+**范围说明**：这不只修"关闭比较"这一条路径——任何"读取在途且当前没有普通文档"的时刻（首次打开文件、
+读取中切走再返回）正文都会显示读取占位，比原来的无文档提示更贴合 §6.7 的语义；读取完成后
+`openDocumentTab()` 建标签并激活，占位被真实正文替换。
+
+### 验证
+
+- `live-shell` **`通过 1232 项断言`**（1231 → **+1**）：`§6.7 关闭比较后返回尚未就绪的普通标签显示读取占位而非无文档提示`
+  —— 用 `slowread=docs/product-spec.md:2500` 制造在途读取 → 打开 `src/App.cs` 的比较（`live.document` 清空）→
+  **真实点击**比较标签的关闭叉（关闭叉要求"同一目标按下再松开"，合成 click 无效，第一次就是这么失败的）→
+  正文为 `正在读取 product-spec.md… docs/product-spec.md` 且 `hasEmptyState === false`、`live.pendingDocument` 仍在 →
+  读完后 `live.document.path === docs/product-spec.md`。
+- `ui-compliance.md` §2.7 第 39 条由"未覆盖"转"是"；§2.10 重生成 → 非"是" 103 → **102**、C 类 6 → **5**。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 221 轮）：`mockup.js` → **`eaf45b2e04af8b66386a5847d075d867`**、
+  `live-shell.spec.cjs` → `b5898340461dedcc3dbcea288075cebd`；`mockup.css`（`55634f2a…`）／
+  `live-data.js`（`cadcac3b…`）／`bridge.js`（`8d2d3173…`）未变。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 **5** 条：`§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、
+"产品面不可达" 1 条）。
