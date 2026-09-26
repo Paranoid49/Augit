@@ -17289,6 +17289,185 @@ async function main() {
       // 指针移到列表内后照常命中
       && oneVisible(hoverRehit.shownBackMoved));
 
+    // ---- 第 247 轮补断言（收 §7.6 第 10 条）：字号下各按字高扩展而图标/复选框固定、
+    // 提交动作放不下时按原顺序排成两行、输入框至少保留提示行与一行正文、
+    // 「上一次提交」在空间不足时只留历史图标并保留完整悬停说明 ----
+    const commitLayout = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const snap = () => scene.page.evaluate(() => {
+        const rect = (selector) => {
+          const el = document.querySelector(selector);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        const field = document.querySelector('.commit-box .message-field');
+        const feedback = document.querySelector('.commit-box .commit-feedback');
+        const list = document.querySelector('.changes-layout > .changes-list');
+        const last = document.querySelector('.commit-box .commit-last');
+        const count = document.querySelector('.commit-box .commit-count');
+        // 一行正文的实际行盒高：用同一份字体量一个等宽文本节点，避免读 `line-height: normal` 的字面值。
+        let lineHeight = null;
+        if (field) {
+          const cs = getComputedStyle(field);
+          const probe = document.createElement('div');
+          probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:' + cs.font;
+          probe.textContent = 'Xg';
+          document.body.append(probe);
+          lineHeight = Math.round(probe.getBoundingClientRect().height);
+          probe.remove();
+        }
+        return {
+          viewport: { w: window.innerWidth, h: window.innerHeight },
+          rowHeight: Number.parseFloat(getComputedStyle(document.querySelector('.changes-layout')).getPropertyValue('--commit-row-height')) || 0,
+          optionsHeight: Math.round(document.querySelector('.commit-options').getBoundingClientRect().height),
+          boxGrid: getComputedStyle(document.querySelector('.commit-box')).gridTemplateRows,
+          amendCheck: rect('.commit-amend .fake-check'),
+          primary: rect('.commit-actions > .primary-button'),
+          secondary: rect('.commit-actions > .secondary-button'),
+          settings: rect('.commit-actions > .icon-button'),
+          settingsIcon: rect('.commit-actions > .icon-button svg'),
+          last: last ? {
+            tag: last.tagName, href: last.getAttribute('href'), text: last.textContent.trim(),
+            title: last.getAttribute('title'), icons: last.querySelectorAll('svg').length,
+            iconOnly: last.classList.contains('icon-only'), box: rect('.commit-box .commit-last'),
+            iconBox: rect('.commit-box .commit-last svg'),
+            spanDisplay: last.querySelector('span') ? getComputedStyle(last.querySelector('span')).display : null,
+          } : null,
+          count: count ? { text: count.textContent.trim(), truncated: count.scrollWidth > count.clientWidth, box: rect('.commit-box .commit-count') } : null,
+          field: field ? { h: Math.round(field.getBoundingClientRect().height), lineHeight } : null,
+          feedback: feedback ? { h: Math.round(feedback.getBoundingClientRect().height), visible: getComputedStyle(feedback).display !== 'none' } : null,
+          list: list ? { h: Math.round(list.getBoundingClientRect().height) } : null,
+        };
+      });
+      const setFont = async (size) => {
+        await scene.page.evaluate(async (value) => { await window.applyTypography({ uiSize: value }); }, size);
+        await scene.page.waitForTimeout(450);
+      };
+      const base = await snap();
+      await setFont(20);
+      const f20 = await snap();
+      await setFont(26);
+      const f26 = await snap();
+      await setFont(40);
+      const f40 = await snap();
+      // 面板高度不足：列表必须让位，输入框仍保留提示行 + 一行正文
+      await scene.page.setViewportSize({ width: 1024, height: 420 });
+      await setFont(13);
+      const short13 = await snap();
+      await scene.page.setViewportSize({ width: 1024, height: 480 });
+      await setFont(40);
+      const short40 = await snap();
+      // 「上一次提交」入口：先切到底部「终端」，再点它 ⇒ 必须打开 Git 历史工具窗口，且重复点击不折叠
+      await scene.page.setViewportSize({ width: 1180, height: 760 });
+      await setFont(13);
+      await scene.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await scene.page.waitForTimeout(700);
+      const beforeOpen = await scene.page.evaluate(() => ({
+        bottom: window.__augitLive.layout.bottom,
+        hasLog: !!document.querySelector('.log-list-panel .commit-list'),
+        historyCalls: window.__historyCalls || 0,
+        unwired: window.__augitUnwiredAction || null,
+      }));
+      // 清掉"未接线兜底"上一次记录的 href（上一步点工具入口会留下它的值），
+      // 这样下面的 `unwired === null` 才是在验证**这次**点击没有被打成死入口。
+      await scene.page.evaluate(() => { window.__augitUnwiredAction = null; });
+      await scene.page.locator('.commit-box .commit-last').click();
+      await scene.page.waitForTimeout(1000);
+      const afterOpen = await scene.page.evaluate(() => ({
+        bottom: window.__augitLive.layout.bottom,
+        collapsed: window.__augitLive.layout.collapsed,
+        hasLog: !!document.querySelector('.log-list-panel .commit-list'),
+        historyCalls: window.__historyCalls || 0,
+        unwired: window.__augitUnwiredAction || null,
+        selectedCommit: !!document.querySelector('.log-list-panel .commit-list .commit-row'),
+      }));
+      await scene.page.locator('.commit-box .commit-last').click();
+      await scene.page.waitForTimeout(800);
+      const afterSecond = await scene.page.evaluate(() => ({
+        bottom: window.__augitLive.layout.bottom,
+        collapsed: window.__augitLive.layout.collapsed,
+        hasLog: !!document.querySelector('.log-list-panel .commit-list'),
+      }));
+      await scene.page.close();
+      const payload = { base, f20, f26, f40, short13, short40, beforeOpen, afterOpen, afterSecond };
+      console.log('INFO 提交布局=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const keepsLine = (snapshot) => snapshot.feedback.visible === true
+      && snapshot.field !== null && snapshot.field.h >= snapshot.field.lineHeight;
+    check('§7.6 字号改变时提交工具窗各按字高扩展、图标与复选框固定: '
+      + JSON.stringify([[commitLayout.base.rowHeight, commitLayout.f20.rowHeight, commitLayout.f26.rowHeight],
+        [commitLayout.base.optionsHeight, commitLayout.f20.optionsHeight, commitLayout.f26.optionsHeight],
+        [commitLayout.base.primary.h, commitLayout.f20.primary.h, commitLayout.f26.primary.h],
+        [commitLayout.base.settingsIcon, commitLayout.f20.settingsIcon, commitLayout.f26.settingsIcon],
+        [commitLayout.base.amendCheck, commitLayout.f20.amendCheck, commitLayout.f26.amendCheck]]),
+    // 行高、选项行与动作按钮都按字高增长
+    commitLayout.base.rowHeight < commitLayout.f20.rowHeight
+      && commitLayout.f20.rowHeight < commitLayout.f26.rowHeight
+      && commitLayout.base.optionsHeight < commitLayout.f20.optionsHeight
+      && commitLayout.f20.optionsHeight < commitLayout.f26.optionsHeight
+      && commitLayout.base.primary.h < commitLayout.f20.primary.h
+      && commitLayout.f20.primary.h < commitLayout.f26.primary.h
+      // 工具图标（16×16）、设置按钮（27×30）与 Amend 复选框（15×15）在三档字号下逐值不变
+      && [commitLayout.base, commitLayout.f20, commitLayout.f26].every((snapshot) => snapshot.settingsIcon.w === 16
+        && snapshot.settingsIcon.h === 16 && snapshot.settings.w === 27 && snapshot.settings.h === 30
+        && snapshot.amendCheck.w === 15 && snapshot.amendCheck.h === 15));
+    check('§7.6 提交动作放不下时按原顺序排成两行、设置图标留在第一行右侧: '
+      + JSON.stringify([commitLayout.f40.primary, commitLayout.f40.secondary, commitLayout.f40.settings, commitLayout.f40.boxGrid]),
+    // 大字下确实换行：提交在上、提交并推送在下，左边缘对齐（原顺序），两行不重叠
+    commitLayout.f40.primary.bottom <= commitLayout.f40.secondary.top
+      && commitLayout.f40.primary.left === commitLayout.f40.secondary.left
+      && commitLayout.f40.primary.top < commitLayout.f40.secondary.top
+      // 设置图标仍在**第一行**的行带内（不是居中到两行之间）
+      && commitLayout.f40.settings.top >= commitLayout.f40.primary.top
+      && commitLayout.f40.settings.bottom <= commitLayout.f40.primary.bottom);
+    check('§7.6 输入框至少保留提示行与一行正文，必要时减少列表高度: '
+      + JSON.stringify([[commitLayout.base.field, commitLayout.base.list.h], [commitLayout.short13.field, commitLayout.short13.list.h],
+        [commitLayout.short40.field, commitLayout.short40.list.h], [commitLayout.f40.field, commitLayout.f40.list.h]]),
+    // 面板高 420（字号 13）与 480（字号 40）时：提示行可见 + 正文至少一行
+    keepsLine(commitLayout.short13)
+      && keepsLine(commitLayout.short40)
+      // 面板被压低时是**列表**让位（列表高下降），而不是压缩输入框到一行以下
+      && commitLayout.short13.list.h < commitLayout.base.list.h
+      && commitLayout.short40.list.h < commitLayout.short13.list.h
+      // 字号变大时提交区更高、列表同样让位，但输入框始终保留一行
+      && commitLayout.f40.list.h < commitLayout.f26.list.h
+      && keepsLine(commitLayout.f40));
+    check('§7.6 上一次提交在空间不足时只显示历史图标、保留完整悬停说明、数量按剩余宽度省略: '
+      + JSON.stringify([commitLayout.base.last, commitLayout.f20.last, commitLayout.f40.last, commitLayout.f40.count,
+        commitLayout.beforeOpen, commitLayout.afterOpen, commitLayout.afterSecond]),
+    // 设计基线：可容纳时是「上一次提交」+ 历史图标 + 完整悬停说明，且指向 Git 历史
+    commitLayout.base.last.tag === 'A'
+      && commitLayout.base.last.text === '上一次提交'
+      && commitLayout.base.last.title === '上一次提交'
+      && commitLayout.base.last.icons === 1
+      && /git-history\.html$/.test(commitLayout.base.last.href || '')
+      && commitLayout.base.last.iconOnly === false
+      // 空间不足（字号 20 起）：文字让位但**历史图标仍在**，`title` 仍保留完整说明，且不与数量重叠
+      && [commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === true
+        && snapshot.last.spanDisplay === 'none'
+        && snapshot.last.icons === 1
+        && snapshot.last.iconBox.w >= 14 && snapshot.last.iconBox.h >= 14
+        && snapshot.last.title === '上一次提交'
+        && snapshot.last.box.right <= snapshot.count.box.left)
+      // 数量按剩余宽度省略（大字下确实被截断，而不是挤掉图标）
+      && commitLayout.f40.count.truncated === true
+      // 入口可用：从终端切过去必须打开 Git 历史工具窗口，且不算"未接线"
+      && commitLayout.beforeOpen.bottom === 'terminal'
+      && commitLayout.beforeOpen.hasLog === false
+      && commitLayout.afterOpen.bottom === 'git'
+      && commitLayout.afterOpen.hasLog === true
+      && commitLayout.afterOpen.selectedCommit === true
+      && commitLayout.afterOpen.unwired === null
+      // 日志已经可见时重复点击不折叠底部区域
+      && commitLayout.afterSecond.bottom === 'git'
+      && commitLayout.afterSecond.collapsed === null
+      && commitLayout.afterSecond.hasLog === true);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

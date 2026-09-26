@@ -246,3 +246,26 @@ Augit **已经**实现了"勾选→调宿主 `git/last-commit-message` 回填；
 ### 9.4 验证
 
 spec 的 Amend 场景（`live-shell.spec.cjs`）扩了断言：勾选后主/次按钮文案 = 「修改提交」／「修改提交并推送…」、信息栏**获得焦点**，取消后恢复「提交」／「提交并推送…」。因工作区 spec 仍被并行会话的 `Too many arguments` 拖着跑不到底，本轮继续用"HEAD + 本轮三段改动"的临时副本验证（断言数见 `09-icons.md` 第 138 轮记录）。
+
+## 11. 提交选项行的「上一次提交」入口（第 247 轮）
+
+`ux-spec` §7.6 第 10 条要求「上一次提交在空间不足时只显示原有历史图标并保留完整悬停说明，数量使用剩余宽度省略」。
+本轮核对时发现实时外壳与设计基线不一致：
+
+| | 标记 | 文本 | `title` | 图标 |
+| --- | --- | --- | --- | --- |
+| 视觉稿静态场景（`changesSide()`，另起静态服务实测 `commit-changes.html`） | `<a class="commit-last file-status-modified" href="git-history.html">` | `上一次提交` | `上一次提交` | 1 个历史图标 |
+| 实时外壳（修前） | `<span class="commit-last">` | 分支名（`live.branch`） | 无 | 0 |
+
+`measureCommitPanels()` 在装不下文字时会给该行加 `icon-only`（`.commit-last.icon-only > span { display: none }`），
+修前那一档就只剩一个空槽（实测字号 20 时 85×29、26 时 30×37 的空白块）。
+
+**落地（第 247 轮）**：
+
+- `web/src/mockup.js` 的 `liveChangesSide()` 按视觉稿渲染同一份标记（`上一次提交` ＋ `icon("history")` ＋ `title`）；
+- `web/src/live-data.js` 删掉 `patchChangesList()` 里"把 `.commit-last span` 写成 `live.branch`"的定点更新
+  （分支名由状态栏承担）；
+- 点该入口打开 Git 历史工具窗口（视觉稿的 `href` 就是 `git-history.html`）：复用「打开日志视图」的路径，
+  日志已可见时不重绘（避免把用户当前选中行重置成首行），因此重复点击不会折叠底部区域；
+- 实测：字号 13 显示文字＋图标；20／26／40 进入 `icon-only`，文字让位而**图标仍在**（16×16）、`title` 仍完整、
+  与数量不重叠；字号 40 时数量按剩余宽度省略。

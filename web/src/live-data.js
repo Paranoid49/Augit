@@ -1937,10 +1937,10 @@ function patchChangesList() {
     count.title = `${changed} modified`;
   }
 
-  const lastBranch = document.querySelector(".commit-box .commit-last span");
-  if (lastBranch && typeof live.branch === "string") {
-    lastBranch.textContent = live.branch;
-  }
+  // 提交框的 `.commit-last` 槽位是设计基线的**「上一次提交」入口**
+  //（`mockup.js` 的 `changesSide()`：`<a href="git-history.html" title="上一次提交">上一次提交</a>` ＋ 历史图标），
+  // 不是分支名——第 247 轮实测：这里原先写 `live.branch`，既没有图标也没有 `title`，
+  // 到 `icon-only` 档（装不下文字时）干脆剩一个**空槽**。分支名由状态栏承担。
 
   // 同区域里的"不是最新状态"提示也必须跟着变：跳过整块替换后，
   // 只更新列表会导致提示永远留在界面上（恢复成功也撤不掉）。
@@ -5999,6 +5999,28 @@ function guardUnwiredNavigation() {
     if (clearHistoryPath) {
       event.preventDefault();
       void clearHistoryPathFilter();
+      return;
+    }
+
+    // 提交框的「上一次提交」入口（规格 §7.6 第 10 条）：视觉稿里它是
+    // `<a class="commit-last" href="git-history.html" title="上一次提交">`，语义就是打开 Git 历史工具窗口。
+    // 实时外壳此前没有处理者 ⇒ 被"未接线兜底"拦成死入口。这里复用「打开日志视图」的同一条路径：
+    // 日志已经可见时不重绘（避免把用户当前选中行重置），因此重复点击也不会折叠底部区域。
+    const lastCommitEntry = event.target.closest
+      && event.target.closest('.commit-box .commit-last[href$="git-history.html"]');
+    if (lastCommitEntry) {
+      event.preventDefault();
+      const liveEntry = window.__augitLive;
+      const entryLayout = liveEntry ? liveEntry.layout : null;
+      const entryVisible = entryLayout && entryLayout.bottom === "git" && entryLayout.collapsed !== "bottom"
+        && !!document.querySelector(".log-list-panel .commit-list");
+      if (liveEntry && entryLayout && !entryVisible) {
+        liveEntry.layout.userDriven = true;
+        liveEntry.layout.bottom = "git";
+        liveEntry.layout.collapsed = null;
+        void (liveEntry.history ? Promise.resolve() : loadHistory().catch(() => null))
+          .then(() => refresh("bottomTool", "statusbar"));
+      }
       return;
     }
 

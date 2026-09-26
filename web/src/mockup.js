@@ -2624,7 +2624,7 @@ function liveChangesSide(selected) {
           ${changeRows}
         </div>
         <div class="commit-box">
-          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><span class="commit-last"><span>${escapeHtml(status.branch || "HEAD")}</span></span><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
+          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last file-status-modified" href="git-history.html" title="上一次提交"><span>上一次提交</span>${icon("history")}</a><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
           ${commitMessageBox()}
           <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
         </div>
