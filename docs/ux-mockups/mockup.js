@@ -4375,7 +4375,11 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
       || "app.manifest";
     editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
     editorBody = (live && live.diff) ? liveDiffView() : diffView(false, "ready", false, false, undefined, null, diffStatus);
-    if (diffBoundary) {
+    // `diff-boundary` 场景的**样例**提示只属于静态视觉稿：实时外壳的提示由
+    // `live-data.js` 的 `applyDiffBoundaryHint()` 按 `live.diffBoundaryHint` 状态插入，
+    // 否则实时页面会凭空显示一条"再次点击可进入下一个文件"（第 251 轮实测：启动后
+    // `live.diffBoundaryHint` 为 null，DOM 里却有一个提示节点，直到第一次交互才被清掉）。
+    if (diffBoundary && !live) {
       editorBody = editorBody.replace('<div class="diff-columns">', '<div class="diff-columns diff-boundary-columns"><div class="diff-boundary-hint" role="status">再次点击可进入下一个文件</div>');
     }
   }

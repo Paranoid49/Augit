@@ -584,6 +584,8 @@ async function main() {
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
+        // 第 251 轮：改动列表的**最后一个**文件也要有差异载荷，才能核对"已到列表末尾"的局部说明。
+        if (params.path === 'notes/draft.txt') return { ...data.diff, path: 'notes/draft.txt' };
         // 第 250 轮：Markdown 文件的**真实文本 diff**（规格 §7.7 第 14 条「Markdown 与 JSON 的默认 Git 页面
         // 仍显示磁盘真实文本 diff，可从工具栏打开修改后预览」）。行内容与 `document/read` 的 Markdown 载荷同源：
         // 正文里保留 `**加粗**` 的源标记，渲染后的预览则是 `<strong>加粗</strong>` —— 两者可区分。
@@ -18137,6 +18139,261 @@ async function main() {
       && markdownPreviewEntry.afterPreview.reads === 1
       && markdownPreviewEntry.afterPreview.unwired === null
       && markdownPreviewEntry.afterPreview.error === null);
+
+    // ---- 第 251 轮补断言（收 §7.7 第 7、10 条）：单栏文件栏上下排列；边界提示撤销矩阵与首尾局部说明 ----
+    const unifiedFilebar = await (async () => {
+      const scene = await openScene('scene=commit-diff&theme=dark&diff=src%2FModified.cs');
+      await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(500);
+      const snap = () => scene.page.evaluate(() => {
+        const rect = (selector) => {
+          const el = document.querySelector(selector);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        const bar = document.querySelector('.editor-content .reference-filebar');
+        const before = document.querySelector('.editor-content .reference-before');
+        const path = document.querySelector('.editor-content .reference-path');
+        const columns = document.querySelector('.editor-content .diff-columns');
+        const tracks = bar ? getComputedStyle(bar).gridTemplateColumns : null;
+        return {
+          mode: (() => { const el = document.querySelector('.editor-content .diff-layout'); return el ? el.dataset.diffMode || null : null; })(),
+          bar: rect('.editor-content .reference-filebar'),
+          before: rect('.editor-content .reference-before'),
+          after: rect('.editor-content .reference-after'),
+          beforeText: before ? before.textContent.replace(/\s+/g, ' ').trim() : null,
+          afterText: (() => { const el = document.querySelector('.editor-content .reference-after'); return el ? el.textContent.replace(/\s+/g, ' ').trim() : null; })(),
+          pathInBefore: !!(path && before && before.contains(path)),
+          locks: document.querySelectorAll('.editor-content .reference-lock').length,
+          barRows: bar ? getComputedStyle(bar).gridTemplateRows : null,
+          barGutter: tracks ? tracks.split(' ').map((v) => parseFloat(v))[1] : null,
+          diffGutter: columns ? getComputedStyle(columns).gridTemplateColumns.split(' ').map((v) => parseFloat(v))[1] : null,
+        };
+      });
+      const split = await snap();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const unified = await snap();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="双栏"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const back = await snap();
+      await scene.page.close();
+      console.log('INFO 文件栏模式=' + JSON.stringify({ split, unified, back }));
+      return { split, unified, back };
+    })();
+    check('§7.7 单栏文件栏把来源与目标上下排列、路径跟随来源；双栏并排且都标只读: '
+      + JSON.stringify([unifiedFilebar.split, unifiedFilebar.unified, unifiedFilebar.back]),
+    // 双栏：来源在左、目标在右（并排、同高），文件栏中栏与正文行号中栏同宽
+    unifiedFilebar.split.mode === 'side-by-side'
+      && unifiedFilebar.split.before.left < unifiedFilebar.split.after.left
+      && unifiedFilebar.split.before.top === unifiedFilebar.split.after.top
+      && unifiedFilebar.split.before.h === unifiedFilebar.split.after.h
+      && unifiedFilebar.split.barGutter === unifiedFilebar.split.diffGutter
+      // 单栏：同一列、目标在来源**下方**（上下排列），文件栏变成两行
+      && unifiedFilebar.unified.mode === 'unified'
+      && unifiedFilebar.unified.before.left === unifiedFilebar.unified.after.left
+      && unifiedFilebar.unified.after.top >= unifiedFilebar.unified.before.bottom
+      && unifiedFilebar.unified.before.w === unifiedFilebar.unified.after.w
+      && unifiedFilebar.unified.barRows.split(' ').length === 2
+      // 两种模式：来源（基准）在前、目标（当前）在后，路径跟随来源，两侧各一个只读锁
+      && unifiedFilebar.unified.beforeText.includes('HEAD')
+      && unifiedFilebar.unified.afterText.includes('工作区')
+      && unifiedFilebar.unified.pathInBefore === true
+      && unifiedFilebar.split.pathInBefore === true
+      && unifiedFilebar.split.locks === 2 && unifiedFilebar.unified.locks === 2
+      // 切回双栏几何与初始一致（只重排文件信息与正文）
+      && JSON.stringify(unifiedFilebar.back) === JSON.stringify(unifiedFilebar.split));
+    const boundaryMatrix = await (async () => {
+      const show = async (page, label) => {
+        await page.locator(`.diff-toolbar [aria-label="${label}"]`).first().click();
+        await page.waitForTimeout(300);
+        await page.locator(`.diff-toolbar [aria-label="${label}"]`).first().click();
+        await page.waitForTimeout(300);
+      };
+      const state = (page) => page.evaluate(() => ({
+        hint: window.__augitLive.diffBoundaryHint
+          ? { direction: window.__augitLive.diffBoundaryHint.direction, atEnd: !!window.__augitLive.diffBoundaryHint.atEnd } : null,
+        hintDom: (() => { const el = document.querySelector('.diff-boundary-hint'); return el ? el.textContent.trim() : null; })(),
+        hintCount: document.querySelectorAll('.diff-boundary-hint').length,
+        path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        editor: window.__augitLive.editor,
+        count: (() => { const el = document.querySelector('.diff-toolbar .file-status-modified'); return el ? el.textContent.trim() : null; })(),
+      }));
+      const cycle = async (action) => {
+        const scene = await openScene('scene=diff-boundary&theme=dark&diff=src%2FApp.cs');
+        await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await scene.page.waitForTimeout(1200);
+        await show(scene.page, '下一处差异');
+        const shown = await state(scene.page);
+        if (action) { await action(scene.page); await scene.page.waitForTimeout(500); }
+        const after = await state(scene.page);
+        let followUp = null;
+        if (after.path) {
+          await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+          await scene.page.waitForTimeout(600);
+          followUp = await state(scene.page);
+        }
+        await scene.page.close();
+        return { shown, after, followUp };
+      };
+      const out = {};
+      out.baseline = await cycle(null);
+      out.esc = await cycle((page) => page.keyboard.press('Escape'));
+      out.direction = await cycle((page) => page.locator('.diff-toolbar [aria-label="上一处差异"]').first().click());
+      out.selectFile = await cycle((page) => page.locator('.changes-list .change-file-row').nth(1).click());
+      out.switchMode = await cycle((page) => page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click());
+      out.reload = await cycle((page) => page.evaluate(() => { window.__augitLoadDiff('src/App.cs', { force: true }); }));
+      out.layout = await cycle((page) => page.evaluate(() => { const btn = document.querySelector('.tool-rail .rail-button[aria-label="项目"]'); if (btn) btn.click(); }));
+      out.close = await cycle((page) => page.evaluate(() => { window.__augitCloseDiff(); }));
+      console.log('INFO 撤销矩阵=' + JSON.stringify(out));
+      return out;
+    })();
+    const hintCancelled = (cycle) => cycle.shown.hint !== null && cycle.shown.hint.direction === 1
+      && cycle.shown.hintDom === '再次点击可进入下一个文件'
+      && cycle.after.hint === null && cycle.after.hintCount === 0
+      && (cycle.followUp === null || cycle.followUp.path === cycle.after.path);
+    check('§7.7 边界提示的撤销矩阵：Esc/改方向/选文件/切模式/重载/布局/关闭都撤销待跨文件状态: '
+      + JSON.stringify(boundaryMatrix),
+    // 正对照：不改任何东西时，第二次同方向点击确实切到相邻文件（两段式本身仍然成立）
+    boundaryMatrix.baseline.after.hint !== null
+      && boundaryMatrix.baseline.followUp.path === 'README.md'
+      && boundaryMatrix.baseline.followUp.count === '2/3 个文件'
+      // Esc：提示与状态都清掉，且下一次同方向点击**重新给提示**（不直接跨文件）
+      && hintCancelled(boundaryMatrix.esc)
+      && boundaryMatrix.esc.followUp.hint !== null && boundaryMatrix.esc.followUp.hintDom === '再次点击可进入下一个文件'
+      // 改方向：旧的待跨文件状态被撤销，待跨文件方向跟着最新一次走，且绝不因此跨文件
+      && boundaryMatrix.direction.shown.hint !== null && boundaryMatrix.direction.shown.hint.direction === 1
+      && boundaryMatrix.direction.shown.hintDom === '再次点击可进入下一个文件'
+      && boundaryMatrix.direction.after.hint !== null && boundaryMatrix.direction.after.hint.direction === -1
+      && boundaryMatrix.direction.after.hintDom === '再次点击可进入上一个文件'
+      && boundaryMatrix.direction.after.path === 'src/App.cs'
+      && boundaryMatrix.direction.followUp.hint !== null && boundaryMatrix.direction.followUp.hint.direction === 1
+      && boundaryMatrix.direction.followUp.path === boundaryMatrix.direction.after.path
+      // 选文件 / 重新加载：状态清掉，下一次同方向点击重新给提示
+      && hintCancelled(boundaryMatrix.selectFile)
+      && boundaryMatrix.selectFile.followUp.hint !== null
+      && hintCancelled(boundaryMatrix.reload)
+      && boundaryMatrix.reload.followUp.hint !== null
+      // 切显示模式 / 改变窗口布局：状态清掉，且下一次同方向点击不跨文件
+      && hintCancelled(boundaryMatrix.switchMode)
+      && hintCancelled(boundaryMatrix.layout)
+      // 关闭 Diff：状态与提示都清掉，正文回到无文档态
+      && hintCancelled(boundaryMatrix.close)
+      && boundaryMatrix.close.after.path === null && boundaryMatrix.close.after.editor === 'empty');
+    const boundaryEnds = await (async () => {
+      const ends = {};
+      for (const [name, path, label, verifyDirection] of [
+        ['first', 'src%2FApp.cs', '上一处差异', -1],
+        ['last', 'notes%2Fdraft.txt', '下一处差异', 1],
+      ]) {
+        const scene = await openScene(`scene=diff-boundary&theme=dark&diff=${path}`);
+        await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await scene.page.waitForTimeout(1200);
+        const state = () => scene.page.evaluate(() => ({
+          hint: window.__augitLive.diffBoundaryHint
+            ? { direction: window.__augitLive.diffBoundaryHint.direction, atEnd: !!window.__augitLive.diffBoundaryHint.atEnd } : null,
+          hintDom: (() => { const el = document.querySelector('.diff-boundary-hint'); return el ? el.textContent.trim() : null; })(),
+          hintCount: document.querySelectorAll('.diff-boundary-hint').length,
+          path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+          count: (() => { const el = document.querySelector('.diff-toolbar .file-status-modified'); return el ? el.textContent.trim() : null; })(),
+        }));
+        await scene.page.locator(`.diff-toolbar [aria-label="${label}"]`).first().click();
+        await scene.page.waitForTimeout(300);
+        await scene.page.locator(`.diff-toolbar [aria-label="${label}"]`).first().click();
+        await scene.page.waitForTimeout(300);
+        const shown = await state();
+        // 再按一次：没有相邻文件 ⇒ 只给"已到首/尾"的局部说明，路径不动（不循环整个列表）
+        await scene.page.locator(`.diff-toolbar [aria-label="${label}"]`).first().click();
+        await scene.page.waitForTimeout(600);
+        const after = await state();
+        ends[name] = { direction: verifyDirection, shown, after };
+        await scene.page.close();
+      }
+      console.log('INFO 首尾说明=' + JSON.stringify(ends));
+      return ends;
+    })();
+    check('§7.7 列表首尾没有相邻文件时只显示已到首/尾的局部说明、不循环整个列表: '
+      + JSON.stringify(boundaryEnds),
+    // 首个文件：方向 -1 的提示后，再按一次 ⇒ 局部说明"已到首个文件"，路径不动（没有回卷到列表末尾）
+    boundaryEnds.first.shown.hint !== null && boundaryEnds.first.shown.hint.direction === -1
+      && boundaryEnds.first.shown.hintDom === '再次点击可进入上一个文件'
+      && boundaryEnds.first.after.hint !== null && boundaryEnds.first.after.hint.atEnd === true
+      && boundaryEnds.first.after.hintDom === '已到改动列表的首个文件'
+      && boundaryEnds.first.after.path === 'src/App.cs'
+      && boundaryEnds.first.after.count === '1/3 个文件'
+      && boundaryEnds.first.after.hintCount === 1
+      // 末尾文件：方向 +1 的提示后，再按一次 ⇒ 局部说明"已到最后一个文件"，路径不动（没有回卷到列表开头）
+      && boundaryEnds.last.shown.hint !== null && boundaryEnds.last.shown.hint.direction === 1
+      && boundaryEnds.last.shown.hintDom === '再次点击可进入下一个文件'
+      && boundaryEnds.last.after.hint !== null && boundaryEnds.last.after.hint.atEnd === true
+      && boundaryEnds.last.after.hintDom === '已到改动列表的最后一个文件'
+      && boundaryEnds.last.after.path === 'notes/draft.txt'
+      && boundaryEnds.last.after.count === '3/3 个文件'
+      && boundaryEnds.last.after.hintCount === 1);
+
+    // ---- 第 251 轮补断言（续 §7.7 第 8 条）：首次边界提示不查询 Git、不移动正文 ----
+    const boundaryQuiet = await (async () => {
+      const scene = await openScene('scene=diff-boundary&theme=dark&diff=src%2FLongDiff.cs');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(1200);
+      const snap = () => scene.page.evaluate(() => {
+        const columns = document.querySelector('.editor-content .diff-columns');
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; };
+        return {
+          diffCalls: (window.__diffCalls || []).length,
+          statusCalls: window.__statusCalls || 0,
+          historyCalls: window.__historyCalls || 0,
+          reads: window.__readCalls || 0,
+          scrollTop: columns ? Math.round(columns.scrollTop) : null,
+          pageScroll: Math.round(window.scrollY),
+          index: layout ? layout.dataset.diffIndex || null : null,
+          path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+          firstLine: (() => { const el = document.querySelector('.editor-content .diff-code-line'); return el ? el.textContent.trim().slice(0, 24) : null; })(),
+          columnsRect: rect(columns),
+        };
+      });
+      // 先把正文滚到别处，确认"提示"不会顺手把正文滚走或滚回来
+      await scene.page.evaluate(() => { const el = document.querySelector('.editor-content .diff-columns'); if (el) el.scrollTop = 40; });
+      await scene.page.waitForTimeout(200);
+      const before = await snap();
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.waitForTimeout(400);
+      const positioned = await snap();
+      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.waitForTimeout(400);
+      const hinted = await snap();
+      const hint = await scene.page.evaluate(() => {
+        const el = document.querySelector('.diff-boundary-hint');
+        return el ? el.textContent.trim() : null;
+      });
+      await scene.page.close();
+      console.log('INFO 提示静止=' + JSON.stringify({ before, positioned, hinted, hint }));
+      return { before, positioned, hinted, hint };
+    })();
+    check('§7.7 首次边界提示不查询 Git、不移动正文（首次提示与已定位后都如此）: '
+      + JSON.stringify([boundaryQuiet.before, boundaryQuiet.positioned, boundaryQuiet.hinted, boundaryQuiet.hint]),
+    // 前置：正文确实被滚到别处（否则"不移动正文"是空过）
+    boundaryQuiet.before.scrollTop === 40
+      // 定位到块首：只滚到该块（这是"定位"本身的动作），期间不查 Git
+      && boundaryQuiet.positioned.index === '0'
+      && boundaryQuiet.positioned.scrollTop !== boundaryQuiet.before.scrollTop
+      && boundaryQuiet.positioned.diffCalls === boundaryQuiet.before.diffCalls
+      && boundaryQuiet.positioned.statusCalls === boundaryQuiet.before.statusCalls
+      && boundaryQuiet.positioned.historyCalls === boundaryQuiet.before.historyCalls
+      // **首次提示**：不查询任何宿主接口、不移动正文（滚动位置、首行、正文区矩形、索引都不变）
+      && boundaryQuiet.hinted.diffCalls === boundaryQuiet.positioned.diffCalls
+      && boundaryQuiet.hinted.statusCalls === boundaryQuiet.positioned.statusCalls
+      && boundaryQuiet.hinted.historyCalls === boundaryQuiet.positioned.historyCalls
+      && boundaryQuiet.hinted.reads === boundaryQuiet.positioned.reads
+      && boundaryQuiet.hinted.scrollTop === boundaryQuiet.positioned.scrollTop
+      && boundaryQuiet.hinted.pageScroll === boundaryQuiet.positioned.pageScroll
+      && boundaryQuiet.hinted.firstLine === boundaryQuiet.positioned.firstLine
+      && JSON.stringify(boundaryQuiet.hinted.columnsRect) === JSON.stringify(boundaryQuiet.positioned.columnsRect)
+      && boundaryQuiet.hinted.index === boundaryQuiet.positioned.index
+      && boundaryQuiet.hinted.path === boundaryQuiet.positioned.path
+      && boundaryQuiet.hint === '再次点击可进入下一个文件');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

@@ -425,3 +425,21 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
   连"未接线"都不记录）——现在按选中的改动文件打开只读文档：Markdown 显式切到**预览**模式
   （与文档工具栏的原文／对照／预览同一套模式状态），JSON 不用额外设置（`liveJsonDocument()` 默认即格式化视图，
   无效 JSON 时才回落原文）。
+
+## 15. 文件栏的单栏排列与边界提示的撤销矩阵（第 251 轮）
+
+- **单栏文件栏上下排列**（§7.7 第 7 条）：`mockup.css` 的
+  `.diff-layout[data-diff-mode="unified"] .reference-filebar` 把文件栏改成单列两行（来源在上、目标在下），
+  `.reference-after` 落到第二行；实测单栏下两者左边缘相同、目标顶边 ≥ 来源底边、宽度同为整宽，
+  双栏下并排同高且文件栏中栏与正文行号中栏逐值相同。两种模式下来源都是 `HEAD`（基准）、目标是 `工作区`（当前），
+  路径节点在来源一侧，两侧各一个只读锁。
+- **边界提示的撤销矩阵**（§7.7 第 10 条）：`clearDiffBoundaryHint()` 统一撤销 `live.diffBoundaryHint`（只清状态不算撤销，
+  DOM 会被重绘抹掉但状态会留到下一次点击），接到 `Esc`（只在真有提示时消费）、`loadDiff`（覆盖切模式／切文件／外部重载）、
+  `selectChangeRow`（选文件）、`applyRailAction` 与窗口 `resize`（改布局）、`activateTab`（隐藏 Diff）、`closeDiff`（关闭）。
+  撤销后再按同方向必须**重新走两段式**。
+- **首/尾局部说明**：列表没有相邻文件时，不再静默清掉提示，而是在同一提示位显示
+  「已到改动列表的首个文件」／「已到改动列表的最后一个文件」，并且不回卷整个文件列表。
+- **样例提示不再进实时正文**：`diff-boundary` 场景的样例提示节点此前会被注入实时外壳
+  （`live.diffBoundaryHint` 为 null 时 DOM 里仍有一条提示，直到第一次交互才清）—— 现在只在静态视觉稿注入。
+- **一处待口径观察**：提示按视觉稿的 `position: absolute` 贴在**内容**顶部（偏移父级是滚动容器），
+  长差异滚到边界块后提示可能落在可视区之外；视觉稿场景是短差异，未覆盖该情形。

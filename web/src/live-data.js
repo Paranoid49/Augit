@@ -1640,6 +1640,8 @@ async function loadDiff(path, options = {}) {
     detectRenames: !!options.detectRenames,
     version: options.version,
   };
+  // 重新加载（含切显示模式、切相邻文件、外部重载）同样撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+  clearDiffBoundaryHint();
   const requestKey = diffRequestKey(parts);
   // 记住"当前正文"的完整请求上下文：切换显示模式要**只重新排版**（规格 §6.3），
   // 必须复用同一次请求的 revision／commit／ignoreWhitespace／version，否则历史比较与引用比较
@@ -1730,6 +1732,8 @@ function closeDiff() {
   // 正文被释放了，加载指示也必须一起收掉：关闭后若请求仍在途中，
   // 收尾逻辑会因为令牌失效而提前返回，再不在这里清就会留下一个永远的"正在加载"。
   clearDiffLoadingMarker();
+  // 关闭 Diff 同样撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+  clearDiffBoundaryHint();
   if (live) {
     live.diff = null;
     live.diffRequestKey = null;
@@ -1801,6 +1805,8 @@ function clearDiffLoadingMarker() {
 
 /** 单击只更新改动列表的选中态，不请求差异（规格 §12.2）。 */
 function selectChangeRow(row) {
+  // 选择文件撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+  clearDiffBoundaryHint();
   for (const other of document.querySelectorAll(".changes-list .change-file-row.selected")) {
     other.classList.remove("selected");
     other.removeAttribute("aria-selected");
@@ -4374,6 +4380,30 @@ function diffScrollableAncestor(el) {
  * "再次点击可进入上一个/下一个文件"。用注入而不是改共享视觉稿 —— 静态变体已有同构元素
  * （`.diff-boundary-hint`，文案"再次点击可进入下一个文件"）。
  */
+// `Esc` 先关边界提示：只有真的显示着提示时才消费这个按键（规格 §7.7 第 10 条），
+// 否则 Esc 照旧走弹层/查找条/冲突解决器自己的语义。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  const live = window.__augitLive;
+  if (!live || !live.diffBoundaryHint) return;
+  event.preventDefault();
+  event.stopPropagation();
+  clearDiffBoundaryHint();
+}, true);
+
+/**
+ * 撤销"待跨文件"状态与边界提示（规格 §7.7 第 10 条）。
+ *
+ * 规格要求 `Esc`、改变方向、选择文件、切换显示模式、隐藏/关闭 Diff、重新加载、改变窗口布局
+ * 都撤销这一状态 —— 撤销后必须**重新走两段式**（同方向第一次只给提示），而不是直接跨文件。
+ * 状态记在 `live.diffBoundaryHint`，所以只有清这里才算真的撤销（DOM 会被重绘抹掉）。
+ */
+function clearDiffBoundaryHint() {
+  const live = window.__augitLive;
+  if (live) live.diffBoundaryHint = null;
+  applyDiffBoundaryHint();
+}
+
 function applyDiffBoundaryHint() {
   const live = window.__augitLive;
   const layout = document.querySelector(".diff-layout");
@@ -4387,7 +4417,10 @@ function applyDiffBoundaryHint() {
     return;
   }
   all.slice(1).forEach((node) => node.remove());
-  const text = hint.direction > 0 ? "再次点击可进入下一个文件" : "再次点击可进入上一个文件";
+  // 规格 §7.7 第 10 条：列表首/尾没有相邻文件时**只显示"已到首/尾"的局部说明**，不循环整个文件列表。
+  const text = hint.atEnd
+    ? (hint.direction > 0 ? "已到改动列表的最后一个文件" : "已到改动列表的首个文件")
+    : (hint.direction > 0 ? "再次点击可进入下一个文件" : "再次点击可进入上一个文件");
   if (existing) {
     if (existing.textContent !== text) existing.textContent = text;
     return;
@@ -4437,10 +4470,16 @@ function moveDiffChange(direction) {
       applyDiffBoundaryHint();
       return { index, total, hint: true };
     }
-    live.diffBoundaryHint = null;
-    applyDiffBoundaryHint();
     const moved = moveDiffFile(direction);
-    return moved ? { index, total, movedFile: moved.path } : { index, total };
+    if (moved) {
+      live.diffBoundaryHint = null;
+      applyDiffBoundaryHint();
+      return { index, total, movedFile: moved.path };
+    }
+    // 没有相邻文件：不循环整个列表，只保留一条"已到首/尾"的局部说明（规格 §7.7 第 10 条）。
+    live.diffBoundaryHint = { direction, atEnd: true };
+    applyDiffBoundaryHint();
+    return { index, total, atEnd: true };
   }
   if (live) live.diffBoundaryHint = null;
   applyDiffBoundaryHint();
@@ -4830,6 +4869,8 @@ function openDocumentTab(path, payload, options = {}) {
 
 /** 激活指定标签。 */
 function activateTab(id) {
+  // 切走标签等于把 Diff 收起来：撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+  clearDiffBoundaryHint();
   const live = tabState();
   if (!live || !live.tabs.some((tab) => tab.id === id)) return;
   if (live.activeTabId === id) return;
@@ -4989,6 +5030,8 @@ function currentLayout() {
 function applyRailAction(name) {
   const layout = currentLayout();
   if (!layout) return;
+  // 改变窗口布局同样撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+  clearDiffBoundaryHint();
   // 标记为「用户已操作」，此后由 live.layout 接管场景值。
   layout.userDriven = true;
   const previousCollapsed = layout.collapsed;
@@ -10243,6 +10286,9 @@ function bindDocumentModeMemory() {
 }
 
 /** 当前活动文档标签记住的模式；没有记住时返回 null（调用方回落到默认模式）。 */
+// 窗口尺寸变化属于"改变窗口布局"：同样撤销"待跨文件"状态（规格 §7.7 第 10 条）。
+window.addEventListener("resize", () => { clearDiffBoundaryHint(); });
+
 window.__augitRememberedDocumentMode = () => {
   const live = window.__augitLive;
   if (!live) return null;
