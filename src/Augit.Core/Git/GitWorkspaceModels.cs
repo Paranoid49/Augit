@@ -101,7 +101,8 @@ public sealed record GitWorktreeInfo(
     string? LockReason,
     bool IsPrunable,
     string? PruneReason,
-    bool IsCurrent);
+    bool IsCurrent,
+    bool IsMain);
 
 public sealed record GitWorktreeListResult(
     bool IsSuccess,

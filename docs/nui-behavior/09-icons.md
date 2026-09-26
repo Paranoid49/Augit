@@ -6488,3 +6488,63 @@ live 接线与检查器；同时把 live-shell 里仍写死 `TextTooLarge` 的�
 
 `10-backlog.md` §三 与 §三·补 **全部结案**。若还要继续对齐，只能靠新增权威面（例如把 PyCharm 的可达界面
 再扩到尚未采集的表面）或用户提供新的权威来源；当前目标范围内没有已知待办。
+
+## ducentum-duodecim. 第二百一十二轮：Worktree 移除补上权威的「主工作树」判据（`!isMain`）
+
+第 146 轮采集 Worktree 对话框时记录了一处**真实缺陷**（`13-git-dialogs.md` §7.2 末行、§7.4 第 1 项）：
+Augit 的移除就绪判据只查 `IsCurrent`／`IsLocked`／目录不存在／终端占用／是否干净，**缺 `!isMain`**。
+后果是"当前窗口打开的是链接 Worktree"时，主工作树既不 current、也（通常）不 locked，只要干净就会被允许移除，
+而 `git worktree remove` 会直接拒绝 —— 用户拿到的是 Git 原始报错，而不是"提前禁用 + 原因"。
+该轮因 `GitWorktreeInfo` 没有 `IsMain` 字段而记为"待做（C# 侧）"，本轮结清。
+
+### 权威
+
+| 项 | 权威 | 出处 |
+| --- | --- | --- |
+| 移除的启用判据 | `isEnabledFor()` = `trees.all { !it.isCurrent && !it.isMain && !creation && !deletion }` | `plugins/git4idea/backend/src/workingTrees/ui/actions/RemoveWorkingTreeAction.kt:31-40` |
+| 主工作树的判定 | 解析器持有 `isFirst`，**第一条** worktree 记录即为 main（`createWorkingTree(..., main = isFirst, ...)`，末尾 `isFirst = false`） | `plugins/git4idea/backend/src/workingTrees/GitWorktreeListParser.kt:24,34,103` |
+| 主/链接的措辞 | `toolwindow.working.trees.worktree.kind.main` = **"Main worktree"**、`…kind.linked` = "Linked worktree"（进 tooltip） | `plugins/git4idea/shared/resources/messages/GitBundle.properties:1886-1887`；`GitWorkingTreesListEntry.kt:111-118` |
+| 主工作树名称加粗 | `nameLabel.font = font.deriveFont(if (worktree?.isMain == true) Font.BOLD else Font.PLAIN)` | `GitWorkingTreeRowComponent.kt:84` |
+| 锁定动作同样排除主工作树 | `if (trees.any { it.isCurrent \|\| it.isMain \|\| … })` 则禁用 | `GitToggleLockWorkingTreeAction.kt:42` |
+
+**判据的范围说明**：权威里"不可移除"是 `isEnabled = false`（动作变灰），没有给用户一句原因；
+Augit 既有的产品口径是"条件不满足时禁用移除并**显示具体原因**"（`ux-spec` §5.3、§7.11 场景表），
+因此本次只**多一档禁用条件**，呈现方式沿用 Augit 既有口径，不新增能力。
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `src/Augit.Core/Git/GitWorkspaceModels.cs` | `GitWorktreeInfo` 新增 `bool IsMain`（位置参数，置于 `IsCurrent` 之后） |
+| `src/Augit.Infrastructure/Git/GitWorktreeService.cs` | `TryParseWorktrees` 构建每条记录时传 `isMain: parsed.Count == 0`（与权威的 `isFirst` 等价）；`InspectRemovalReadinessAsync` 与 `RemoveAsync` 都在 `IsCurrent` 之后加 `IsMain` 分支，原因文案「仓库的主工作树不能移除。」 |
+| `src/Augit.Shell/ShellBridge.cs` | `git/worktrees` 的投影新增 `isMain = worktree.IsMain` |
+| `web/src/mockup.js`（与 `docs/ux-mockups/mockup.js` 字节一致） | `liveManagementPage("worktrees")`：`isMain` 时状态显示「主工作树，不能移除」，`canRemove` 追加 `&& !current.isMain`，悬停说明优先给「仓库的主工作树不能移除。」 |
+
+`data-worktree-index`、动作行与其余几何未动 ⇒ 视觉基线（双栏管理窗口、三个动作）不变。
+
+### 验证
+
+- `tools/audit/live-shell.spec.cjs`：桩数据补 `isMain`（`D:\ws` 为首项＝main），
+  `git/worktree-removal`／`git/worktree-remove` 的桩按同一判据拒绝主工作树（桩与宿主同构，
+  否则"界面禁用"会在桩上假通过）；原首条断言期望的「干净，可安全移除」按权威改为「主工作树，不能移除」，
+  并新增 1 条断言「主工作树不能移除：按钮禁用并写明原因」。
+  **失败路径的用例改在可移除的链接 Worktree 上触发**（主工作树已禁用，无法再由它制造失败），
+  顺序调整为"失败 → 成功移除"，相应三处计数断言同步更新。
+  实测 **`live-shell 通过 1220 项断言`**（1219 → +1，退出码 0；本轮第一次运行在终端小节遇到一次
+  `Target page, context or browser has been closed` 的浏览器瞬时崩溃，重跑从头到尾通过）。
+- 单测：`GitWorktreeServiceTests` **4 → 5**（新增「主工作树不能从链接Worktree窗口移除」，
+  同时给既有列出用例补 `IsMain`／`IsCurrent` 断言）、`ShellBridgeWorktreeTests` **2 → 3**
+  （新增「主工作树在链接窗口里不可移除并标记IsMain」）。全套：Core 88／Infrastructure **188**／Shell **116**
+  全绿；`dotnet build Augit.slnx -c Release` **0 警告 0 错误**。
+- `verify-ui-assets.ps1` **PASS**；`node tools/audit/check-doc-claims.cjs` **DOC_CLAIMS_OK**。
+- 登记哈希（第 212 轮）：`mockup.js` → **`9f16205b658b61326762aa7dbd19e302`**；
+  `mockup.css`（`8407d37b…`）／`live-data.js`（`f6ed07ea…`）／`bridge.js`（`8d2d3173…`）**未变**；
+  `live-shell.spec.cjs` → `1b4a9860f4148c6e4f9b5c4dc25f39bb`；
+  `docs/ux-mockups/mockup.js` 已字节同步。
+
+### 下一轮
+
+`13-git-dialogs.md` §7.4 的该项已闭合；`10-backlog.md` §一/§二 表本就为空、§三/§三·补 已结案，本轮未改它。
+其余仍开放项：`12-commit-changes.md` §9 的"仅在用户没改过信息时才覆盖"（登记待做）、
+`16-operation-progress.md` §3 的操作进度条（Smart Checkout 已接线，可评估是否需要进度呈现）、
+以及两处需要产品口径的项（`.diff-current` 的处置、行内词级高亮是否需要宿主提供词级差异范围）。

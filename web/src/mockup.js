@@ -1880,14 +1880,18 @@ function liveManagementPage(kind) {
       const readiness = (live.worktreeRemoval && live.worktreeRemoval.path === (current && current.path))
         ? live.worktreeRemoval : null;
       const status = !current ? ""
-        : current.isLocked ? "已锁定"
-          : current.isPrunable ? "可清理"
-            : readiness ? (readiness.isClean ? "干净，可安全移除" : (readiness.reason || "存在本地改动或未跟踪文件"))
-              : "检查中…";
+        : current.isMain ? "主工作树，不能移除"
+          : current.isLocked ? "已锁定"
+            : current.isPrunable ? "可清理"
+              : readiness ? (readiness.isClean ? "干净，可安全移除" : (readiness.reason || "存在本地改动或未跟踪文件"))
+                : "检查中…";
       const terminal = !readiness ? "检查中…"
         : readiness.hasActiveTerminal ? "有运行中的内置终端" : "无运行中的内置终端";
-      const canRemove = !!(readiness && readiness.canRemove);
-      const removeTitle = canRemove ? "" : ` title="${escapeHtml((readiness && readiness.reason) || "正在检查是否可以安全移除。")}"`;
+      // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：主工作树不可移除（`!it.isMain`），
+      // 因此禁用按钮时优先说明"主工作树"，而不是等 Git 拒绝后报错。
+      const canRemove = !!(readiness && readiness.canRemove) && !current.isMain;
+      const removeTitle = canRemove ? ""
+        : ` title="${escapeHtml(current.isMain ? "仓库的主工作树不能移除。" : ((readiness && readiness.reason) || "正在检查是否可以安全移除。"))}"`;
       const detail = current
         ? `<h2>${escapeHtml(current.branch || "(detached)")}</h2>`
           + `<div class="form-grid"><span>路径</span><span>${escapeHtml(current.path)}</span>`

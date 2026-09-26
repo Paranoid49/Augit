@@ -242,7 +242,7 @@ spec 的 Reset 场景原本断言"**打开即** Hard ＋ 红色确认 ＋ 确认
 | **字段顺序** | 目录 → 分支 | 引用 → 新分支 → 名称 → 位置 | **已改**为 **分支 → 新分支 → 目录**（Augit 没有独立"名称"字段，`destination` 即完整路径） |
 | 名称自动建议 | 无 | 有 | 记录（Augit 的目录是完整路径，无"名称"这一栏） |
 | 位置的**浏览按钮** | 纯文本框 | 带文件夹选择器 | **不新增**（文件选择器是 C# 侧能力，Augit 没有） |
-| **移除缺"主工作树"这一档** | 宿主只查 `IsCurrent`／`IsLocked`／目录不存在／终端占用／是否干净 | 另有 **`!isMain`** | **待做（C# 侧）**：当工作区本身是**链接** worktree 时，**主** worktree 既非 current 也非 locked，若干净就会被允许移除，而 `git worktree remove` 会**拒绝** —— 用户拿到 Git 报错而不是"提前禁用 + 原因"。`GitWorktreeInfo` 目前没有 `IsMain` 字段，需要从 `git worktree list` 的首项／仓库根派生 |
+| **移除缺"主工作树"这一档** | 宿主只查 `IsCurrent`／`IsLocked`／目录不存在／终端占用／是否干净 | 另有 **`!isMain`** | **已落地（第 212 轮，C# 侧 + 界面）**：`GitWorktreeInfo` 新增 `IsMain`，按 `GitWorktreeListParser` 的判据取 **`git worktree list` 的第一项**（`isFirst`）；`InspectRemovalReadinessAsync` 与 `RemoveAsync` 都在 `IsCurrent` 之后加 `IsMain` 分支，回"仓库的主工作树不能移除。"；`git/worktrees` 下发 `isMain`，界面把状态显示成"主工作树，不能移除"并禁用「移除…」+ 悬停原因。证据：`GitWorktreeServiceTests.主工作树不能从链接Worktree窗口移除`、`ShellBridgeWorktreeTests.主工作树在链接窗口里不可移除并标记IsMain`、`live-shell` 三条新断言 |
 
 ### 7.3 连带改正的断言
 
@@ -250,7 +250,7 @@ spec 的 Reset 场景原本断言"**打开即** Hard ＋ 红色确认 ＋ 确认
 
 ### 7.4 未落地
 
-1. **主工作树判据**（§7.2 末行，C# 侧）；
+1. ~~**主工作树判据**（§7.2 末行，C# 侧）~~ → **第 212 轮已落地**（见 §7.2 末行）；
 2. 名称自动建议与位置浏览按钮（见上）；
 3. 移除失败的呈现已在既有断言里覆盖（`worktree-remove` 的 `canRemove`/`reason` 经真机实测 ✓）。
 

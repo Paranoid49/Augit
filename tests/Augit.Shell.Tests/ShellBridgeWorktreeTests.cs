@@ -72,6 +72,45 @@ public sealed class ShellBridgeWorktreeTests
         StringAssert.Contains(error.GetString(), "path");
     }
 
+    [TestMethod]
+    public async Task 主工作树在链接窗口里不可移除并标记IsMain()
+    {
+        // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：`!it.isCurrent && !it.isMain`。
+        // 宿主必须把 `isMain` 下发给界面（列表要能标出主工作树），并在读写两侧都挡住移除。
+        using TemporaryDirectory temporary = new();
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        await CreateRepositoryAsync(runtime, temporary.FullPath);
+        string worktreePath = temporary.GetPath("linked");
+        await CreateWorktreeAsync(runtime, temporary.FullPath, worktreePath);
+
+        using ShellBridge bridge = new(worktreePath);
+        JsonElement listed = await InvokeAsync(bridge, """{"id":8,"method":"git/worktrees","params":{}}""");
+        Assert.IsTrue(listed.GetProperty("available").GetBoolean(), listed.GetRawText());
+        JsonElement[] worktrees = [.. listed.GetProperty("worktrees").EnumerateArray().Select(item => item.Clone())];
+        Assert.HasCount(2, worktrees, listed.GetRawText());
+        JsonElement main = worktrees.Single(worktree => worktree.GetProperty("isMain").GetBoolean());
+        Assert.AreEqual(
+            NormalizePath(Path.GetFullPath(temporary.FullPath)),
+            NormalizePath(main.GetProperty("path").GetString()!),
+            listed.GetRawText());
+
+        JsonElement readiness = await InvokeAsync(bridge, PathRequest(9, "git/worktree-removal", temporary.FullPath));
+        Assert.IsTrue(readiness.GetProperty("available").GetBoolean(), readiness.GetRawText());
+        Assert.IsFalse(readiness.GetProperty("canRemove").GetBoolean(), readiness.GetRawText());
+        StringAssert.Contains(readiness.GetProperty("reason").GetString(), "主工作树");
+
+        JsonElement refused = await InvokeAsync(bridge, PathRequest(10, "git/worktree-remove", temporary.FullPath));
+        Assert.IsFalse(refused.GetProperty("ok").GetBoolean(), refused.GetRawText());
+        StringAssert.Contains(refused.GetProperty("reason").GetString(), "主工作树");
+        Assert.IsTrue(Directory.Exists(temporary.FullPath));
+    }
+
+    /// <summary>Git 回报的路径分隔符可能与本地路径不同（`/` 与 `\`），比较前统一。</summary>
+    private static string NormalizePath(string path)
+    {
+        return path.Replace('\\', '/').TrimEnd('/');
+    }
+
     /// <summary>带路径参数请求体；拼接构造避免内插原始字符串里 JSON 大括号的歧义。</summary>
     private static string PathRequest(long id, string method, string path)
     {

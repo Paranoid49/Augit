@@ -49,7 +49,7 @@
 | Stash 管理 `stash-manager` | ✅ | ✅（无 Stash） | 待人工确认（应用/弹出失败） | ✅ | ✅ 选项不可用时 | ✅ 删除确认：`stash-drop-confirm` 专用页（⑭ 第 7 项）+ 真机实测（取消后 0 次写入） |
 | Reset `reset` | ✅ | — | ✅（目标不存在） | ✅（进行态 + 取消） | ✅ 进行中禁用 | ✅ Hard 红确认 |
 | Rollback `rollback` | ✅ | ✅（无改动可回滚） | ✅（失败保留说明） | ✅ | ✅ | ✅ 将丢失改动 + 回收站说明 |
-| Worktree 管理 `worktrees` | ✅ | ✅（无 Worktree） | 待人工确认 | ✅ | ✅ 内置终端占用时禁用移除并给原因 | ✅ 移除确认：与 `stash-drop-confirm` 共用 `dangerConfirmBody()` + 真机实测（干净 worktree 才可移除，取消后 0 次移除） |
+| Worktree 管理 `worktrees` | ✅ | ✅（无 Worktree） | 待人工确认 | ✅ | ✅ 内置终端占用时禁用移除并给原因；主工作树禁用移除并给原因（权威 `RemoveWorkingTreeAction` 的 `!isMain`，第 212 轮） | ✅ 移除确认：与 `stash-drop-confirm` 共用 `dangerConfirmBody()` + 真机实测（干净 worktree 才可移除，取消后 0 次移除） |
 | 远端管理 `remote` | ✅ | ✅（无远端） | ✅ 保存失败 | ✅ | ✅ | ⚠️ **无影响确认**（真机实测点删除即写入）；§10.4 危险操作清单不含远端删除 → 规格未要求的差异，PyCharm 行为未采集 |
 | Clone `clone` | ✅ | — | ✅ `clone-result` | ✅ `clone-result` + 进度 | ✅ 浅克隆关闭时深度禁用 | — |
 | Push `push` | ✅ | ✅ `push-no-remote` | ✅（错误反馈保留上下文） | ✅ 进行态 + 取消 | ✅ 无远端时禁用 | — |

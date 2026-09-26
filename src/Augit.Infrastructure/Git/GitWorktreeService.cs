@@ -171,6 +171,18 @@ public sealed class GitWorktreeService : IGitWorktreeService
                 "当前窗口正在使用此 Worktree。"));
         }
 
+        if (target.IsMain)
+        {
+            // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：`!it.isCurrent && !it.isMain`。
+            // 主工作树没有独立的登记可以移除，`git worktree remove` 会直接拒绝，
+            // 因此在就绪检查里先给出原因，而不是等用户点开再拿到 Git 报错。
+            return GitWorktreeRemovalReadinessResult.Success(new(
+                false,
+                true,
+                false,
+                "仓库的主工作树不能移除。"));
+        }
+
         if (target.IsLocked)
         {
             return GitWorktreeRemovalReadinessResult.Success(new(
@@ -256,6 +268,13 @@ public sealed class GitWorktreeService : IGitWorktreeService
                 "不能从当前窗口移除正在使用的 Worktree。");
         }
 
+        if (target.IsMain)
+        {
+            return GitActionResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "仓库的主工作树不能移除。");
+        }
+
         if (!Directory.Exists(target.Path))
         {
             return GitActionResult.Failure(
@@ -312,7 +331,7 @@ public sealed class GitWorktreeService : IGitWorktreeService
             {
                 if (builder is not null)
                 {
-                    if (!builder.TryBuild(currentRepositoryRoot, out GitWorktreeInfo? item))
+                    if (!builder.TryBuild(currentRepositoryRoot, parsed.Count == 0, out GitWorktreeInfo? item))
                     {
                         return false;
                     }
@@ -331,7 +350,7 @@ public sealed class GitWorktreeService : IGitWorktreeService
             {
                 if (builder is not null)
                 {
-                    if (!builder.TryBuild(currentRepositoryRoot, out GitWorktreeInfo? previous))
+                    if (!builder.TryBuild(currentRepositoryRoot, parsed.Count == 0, out GitWorktreeInfo? previous))
                     {
                         return false;
                     }
@@ -375,7 +394,7 @@ public sealed class GitWorktreeService : IGitWorktreeService
 
         if (builder is not null)
         {
-            if (!builder.TryBuild(currentRepositoryRoot, out GitWorktreeInfo? final))
+            if (!builder.TryBuild(currentRepositoryRoot, parsed.Count == 0, out GitWorktreeInfo? final))
             {
                 return false;
             }
@@ -524,7 +543,7 @@ public sealed class GitWorktreeService : IGitWorktreeService
 
         internal string? PruneReason { get; set; }
 
-        internal bool TryBuild(string currentRepositoryRoot, out GitWorktreeInfo? worktree)
+        internal bool TryBuild(string currentRepositoryRoot, bool isMain, out GitWorktreeInfo? worktree)
         {
             worktree = null;
             if (string.IsNullOrWhiteSpace(Path))
@@ -542,7 +561,8 @@ public sealed class GitWorktreeService : IGitWorktreeService
                 LockReason,
                 IsPrunable,
                 PruneReason,
-                PathEquals(Path, currentRepositoryRoot));
+                PathEquals(Path, currentRepositoryRoot),
+                isMain);
             return true;
         }
     }

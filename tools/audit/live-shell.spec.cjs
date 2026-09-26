@@ -144,8 +144,8 @@ const WORKSPACE = {
     { reference: 'stash@{1}', message: '第二个贮藏', branch: 'dsh', subject: 'WIP2', date: '2026/9/14 09:00' },
   ] },
   worktrees: { available: true, worktrees: [
-    { path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false },
-    { path: 'D:\\ws-linked', branch: 'feature/ux', commitHash: 'bbb2222', isBare: false, isDetached: false, isLocked: false, isPrunable: false },
+    { path: 'D:\\ws', branch: 'dsh', commitHash: 'aaa1111', isBare: false, isDetached: false, isLocked: false, isPrunable: false, isMain: true },
+    { path: 'D:\\ws-linked', branch: 'feature/ux', commitHash: 'bbb2222', isBare: false, isDetached: false, isLocked: false, isPrunable: false, isMain: false },
   ] },
   commit: {
     available: true,
@@ -732,6 +732,13 @@ async function main() {
       if (method === 'git/worktree-removal') {
         window.__worktreeRemovalCalls = (window.__worktreeRemovalCalls || []).concat([params.path]);
         if (window.__worktreeRemovalFails) return { available: false, reason: '无法检查该 Worktree。' };
+        // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：主工作树不可移除。宿主侧同一判据，
+        // 桩必须同构，否则界面"主工作树禁用"的断言会在桩上假通过。
+        const worktreeList = ((window.__worktreesState || data.worktrees).worktrees) || [];
+        const target = worktreeList.find((worktree) => worktree.path === params.path) || null;
+        if (target && target.isMain) {
+          return { available: true, canRemove: false, isClean: true, hasActiveTerminal: false, reason: '仓库的主工作树不能移除。' };
+        }
         const clean = params.path !== 'D:\\ws-linked' || !window.__linkedWorktreeDirty;
         return {
           available: true,
@@ -743,6 +750,11 @@ async function main() {
       }
       if (method === 'git/worktree-remove') {
         window.__worktreeRemoves = (window.__worktreeRemoves || []).concat([params.path]);
+        const listed = ((window.__worktreesState || data.worktrees).worktrees) || [];
+        const removing = listed.find((worktree) => worktree.path === params.path) || null;
+        if (removing && removing.isMain) {
+          return { available: true, ok: false, reason: '仓库的主工作树不能移除。', worktrees: window.__worktreesState || data.worktrees };
+        }
         if (window.__worktreeRemoveFails) {
           return { available: true, ok: false, reason: 'Worktree 存在本地改动或未跟踪文件，不能安全移除。', worktrees: window.__worktreesState || data.worktrees };
         }
@@ -2262,8 +2274,14 @@ async function main() {
     wtmCheck('Worktree 管理页显示条目、状态与终端会话: ' + JSON.stringify(wtmFirst && wtmFirst.grid),
       wtmFirst !== null && wtmFirst.rows === 2 && wtmFirst.selected === 0
         && wtmFirst.grid.includes('路径') && wtmFirst.grid.includes('D:\\ws')
-        && wtmFirst.grid.includes('状态') && wtmFirst.grid.includes('干净，可安全移除')
+        && wtmFirst.grid.includes('状态') && wtmFirst.grid.includes('主工作树，不能移除')
         && wtmFirst.grid.includes('终端会话') && wtmFirst.grid.includes('无运行中的内置终端'));
+    // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：`!it.isCurrent && !it.isMain`
+    // ⇒ 主工作树的「移除…」必须禁用并把原因写在悬停说明里，而不是等 Git 拒绝。
+    wtmCheck('主工作树不能移除：按钮禁用并写明原因: '
+      + JSON.stringify([wtmFirst && wtmFirst.removeDisabled, wtmFirst && wtmFirst.removeTitle]),
+      wtmFirst !== null && wtmFirst.removeDisabled === true
+        && typeof wtmFirst.removeTitle === 'string' && wtmFirst.removeTitle.includes('主工作树'));
     wtmCheck('动作行按视觉稿给出三个动作: ' + JSON.stringify(wtmFirst && wtmFirst.actions),
       wtmFirst !== null && JSON.stringify(wtmFirst.actions) === JSON.stringify(['打开窗口', '新建 Worktree', '移除…'])
         && wtmFirst.calls[0] === 'D:\\ws');
@@ -2358,6 +2376,47 @@ async function main() {
     await wtm.page.keyboard.press('Escape');
     await wtm.page.waitForTimeout(400);
 
+    // 失败路径：宿主拒绝时说明原因与未改变的状态。
+    // 主工作树已按权威禁用，因此失败路径必须在**可移除的链接 Worktree** 上触发。
+    await wtm.page.evaluate(() => {
+      window.__linkedWorktreeDirty = false;
+      window.__worktreeRemoveFails = true;
+      window.__augitOpenWorktreeManager();
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
+    await wtm.page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.dialog.worktree-dialog .management-list .tree-row')];
+      if (rows[1]) rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(400);
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForSelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]', { timeout: 8000 }).catch(() => {});
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForFunction('(window.__worktreeRemoves || []).length === 1', null, { timeout: 10000 }).catch(() => {});
+    await wtm.page.waitForTimeout(400);
+    const wtmFailed = await wtm.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.worktree-dialog');
+      const notice = dialog ? dialog.querySelector('.worktree-notice') : null;
+      return {
+        notice: notice ? notice.textContent.trim() : null,
+        hidden: notice ? notice.hidden : null,
+        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
+      };
+    });
+    wtmCheck('移除失败时说明原因与未改变的状态: ' + JSON.stringify(wtmFailed),
+      wtmFailed.hidden === false && typeof wtmFailed.notice === 'string'
+        && wtmFailed.notice.includes('不能安全移除') && wtmFailed.notice.includes('没有变化')
+        && wtmFailed.rows === 2);
+    await wtm.page.evaluate(() => {
+      window.__worktreeRemoveFails = false;
+    });
+
     // 恢复干净后移除：先确认（说明具体影响），取消不调用宿主，确认后列表少一条。
     await wtm.page.evaluate(() => {
       window.__linkedWorktreeDirty = false;
@@ -2386,20 +2445,23 @@ async function main() {
       };
     });
     wtmCheck('移除前确认并说明具体影响: ' + JSON.stringify([wtmConfirm.open, wtmConfirm.body, wtmConfirm.removes]),
-      wtmConfirm.open === true && wtmConfirm.removes === 0
+      wtmConfirm.open === true && wtmConfirm.removes === 1
         && typeof wtmConfirm.body === 'string' && wtmConfirm.body.includes('D:\\ws-linked')
         && wtmConfirm.body.includes('分支本身不会被删除')
         && wtmConfirm.body.includes('没有运行中的内置终端会话'));
     wtmCheck('确认按钮使用动作名称: ' + JSON.stringify([wtmConfirm.confirmLabel, wtmConfirm.confirmDanger]),
       wtmConfirm.confirmLabel === '移除 Worktree' && wtmConfirm.confirmDanger === true);
 
+    const removesBeforeCancel = await wtm.page.evaluate(() => (window.__worktreeRemoves || []).length);
     await wtm.page.evaluate(() => {
       const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-cancel]');
       if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await wtm.page.waitForTimeout(300);
     wtmCheck('取消移除不调用宿主',
-      (await wtm.page.evaluate(() => !document.querySelector('.dialog.worktree-remove-dialog') && (window.__worktreeRemoves || []).length === 0)) === true);
+      (await wtm.page.evaluate(
+        (before) => !document.querySelector('.dialog.worktree-remove-dialog') && (window.__worktreeRemoves || []).length === before,
+        removesBeforeCancel)) === true);
 
     await wtm.page.evaluate(() => {
       const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
@@ -2422,36 +2484,9 @@ async function main() {
       };
     });
     wtmCheck('确认移除后按真实结果更新: ' + JSON.stringify(wtmRemoved),
-      JSON.stringify(wtmRemoved.removes) === JSON.stringify(['D:\\ws-linked'])
+      wtmRemoved.removes.length === 2 && wtmRemoved.removes[0] === 'D:\\ws-linked' && wtmRemoved.removes[1] === 'D:\\ws-linked'
         && wtmRemoved.rows === 1 && wtmRemoved.heading === 'dsh'
         && typeof wtmRemoved.notice === 'string' && wtmRemoved.notice.includes('D:\\ws-linked'));
-
-    // 失败路径：宿主拒绝时说明原因与未改变的状态。
-    await wtm.page.evaluate(() => {
-      window.__worktreeRemoveFails = true;
-      const node = document.querySelector('.dialog.worktree-dialog [data-wtm-action="remove"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await wtm.page.waitForSelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]', { timeout: 8000 }).catch(() => {});
-    await wtm.page.evaluate(() => {
-      const node = document.querySelector('.dialog.worktree-remove-dialog [data-worktree-remove-confirm]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await wtm.page.waitForFunction('(window.__worktreeRemoves || []).length === 2', null, { timeout: 10000 }).catch(() => {});
-    await wtm.page.waitForTimeout(400);
-    const wtmFailed = await wtm.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.worktree-dialog');
-      const notice = dialog ? dialog.querySelector('.worktree-notice') : null;
-      return {
-        notice: notice ? notice.textContent.trim() : null,
-        hidden: notice ? notice.hidden : null,
-        rows: dialog ? dialog.querySelectorAll('.management-list .tree-row').length : -1,
-      };
-    });
-    wtmCheck('移除失败时说明原因与未改变的状态: ' + JSON.stringify(wtmFailed),
-      wtmFailed.hidden === false && typeof wtmFailed.notice === 'string'
-        && wtmFailed.notice.includes('不能安全移除') && wtmFailed.notice.includes('没有变化')
-        && wtmFailed.rows === 1);
     await wtm.page.close();
 
     if (wtmSoft.length > 0) {

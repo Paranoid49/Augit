@@ -37,7 +37,11 @@ public sealed class GitWorktreeServiceTests
 
         Assert.IsTrue(created.IsSuccess, created.ErrorMessage);
         Assert.HasCount(2, listed.Worktrees!);
+        // 权威 `GitWorktreeListParser` 用"`git worktree list` 的第一项"判定主工作树（`isFirst`）。
+        Assert.IsTrue(listed.Worktrees![0].IsMain);
+        Assert.IsTrue(listed.Worktrees![0].IsCurrent);
         GitWorktreeInfo linked = listed.Worktrees!.Single(worktree => !worktree.IsCurrent);
+        Assert.IsFalse(linked.IsMain);
         Assert.AreEqual("feature", linked.Branch);
         Assert.IsFalse(dirtyRemoval.IsSuccess);
         Assert.AreEqual(GitOperationFailureKind.InvalidRequest, dirtyRemoval.FailureKind);
@@ -66,6 +70,48 @@ public sealed class GitWorktreeServiceTests
         Assert.IsFalse(result.IsSuccess);
         Assert.AreEqual(GitOperationFailureKind.InvalidRequest, result.FailureKind);
         Assert.IsTrue(Directory.Exists(temporary.FullPath));
+    }
+
+    [TestMethod]
+    public async Task 主工作树不能从链接Worktree窗口移除()
+    {
+        // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：`!it.isCurrent && !it.isMain`。
+        // 真实场景是"当前窗口打开的是链接 Worktree"，此时主工作树既不 current、也不可移除；
+        // 若不显式拦截，用户点下去拿到的是 `git worktree remove` 的原始报错。
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string mainPath = temporary.GetPath("main");
+        string linkedPath = temporary.GetPath("linked");
+        Directory.CreateDirectory(mainPath);
+        GitRepositoryService repositories = new(runtime);
+        GitRepositoryOperationResult mainRepository = await repositories.InitializeAsync(mainPath);
+        Assert.IsTrue(mainRepository.IsSuccess, mainRepository.ErrorMessage);
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "config", "user.name", "Augit Tests");
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "config", "user.email", "augit-tests@example.invalid");
+        await GitTestEnvironment.CommitFileAsync(runtime, mainPath, "base.txt", "base\n", "test: base");
+        await GitTestEnvironment.RunAsync(runtime, mainPath, "branch", "feature");
+        GitWorktreeService service = new(runtime);
+        GitActionResult created = await service.CreateAsync(mainRepository.Repository!, linkedPath, "feature");
+        Assert.IsTrue(created.IsSuccess, created.ErrorMessage);
+
+        GitRepositoryOperationResult linkedRepository = await repositories.InspectAsync(linkedPath);
+        Assert.IsTrue(linkedRepository.IsSuccess, linkedRepository.ErrorMessage);
+        GitWorktreeListResult listed = await service.ReadAsync(linkedRepository.Repository!);
+        GitWorktreeInfo main = listed.Worktrees!.Single(worktree => worktree.IsMain);
+        Assert.IsFalse(main.IsCurrent, "从链接 Worktree 观察时主工作树不应是当前工作树。");
+
+        GitWorktreeRemovalReadinessResult readiness = await service.InspectRemovalReadinessAsync(
+            linkedRepository.Repository!,
+            mainPath);
+        GitActionResult refused = await service.RemoveAsync(linkedRepository.Repository!, mainPath);
+
+        Assert.IsTrue(readiness.IsSuccess, readiness.ErrorMessage);
+        Assert.IsFalse(readiness.Readiness!.CanRemove);
+        StringAssert.Contains(readiness.Readiness.Reason, "主工作树");
+        Assert.IsFalse(refused.IsSuccess);
+        Assert.AreEqual(GitOperationFailureKind.InvalidRequest, refused.FailureKind);
+        StringAssert.Contains(refused.ErrorMessage, "主工作树");
+        Assert.IsTrue(Directory.Exists(mainPath));
     }
 
     [TestMethod]

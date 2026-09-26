@@ -2401,6 +2401,7 @@ internal sealed class ShellBridge : IDisposable
                 isDetached = worktree.IsDetached,
                 isLocked = worktree.IsLocked,
                 isPrunable = worktree.IsPrunable,
+                isMain = worktree.IsMain,
             }),
         };
     }
