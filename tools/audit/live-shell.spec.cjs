@@ -15758,6 +15758,135 @@ async function main() {
       && filterOverflow.afterWiden.focusInBar === true
       && filterOverflow.afterWiden.focused === filterOverflow.afterWiden.expected
       && filterOverflow.afterWiden.focused !== null);
+    // ---- 第 237 轮补断言（收 §7.8 第 12 条）：窄栏收纳菜单的顺序、键盘可达、
+    // 调用同一套筛选动作与焦点交接 ----
+    // 实现位置：`mockup.js` 的 `bindHistoryLayout()`（按可用宽度把放不下的筛选项收进 `details` 菜单，
+    // 菜单项是带 `data-filter-key` 的克隆按钮）＋ `live-data.js` 的 `[data-filter-key]` 分派器
+    //（收纳菜单与可见控件走同一套动作）。
+    const filterMenu = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(400);
+      const readBar = () => scene.page.evaluate(() => {
+        const bar = document.querySelector('.git-log .history-filters');
+        const overflow = bar.querySelector('details');
+        const menu = overflow.querySelector('.history-filter-menu');
+        const controls = [...bar.querySelectorAll(':scope > button[data-filter-key]')];
+        const active = document.activeElement;
+        const dateMenu = document.querySelector('.history-date-menu');
+        return {
+          overflowShown: !overflow.hidden,
+          overflowOpen: overflow.open,
+          controls: controls.filter((button) => !button.hidden).map((button) => button.dataset.filterKey),
+          menuItems: [...menu.querySelectorAll('button')].map((button) => ({
+            key: button.dataset.filterKey, hidden: button.hidden, text: button.textContent.trim(),
+          })),
+          searchWidth: Math.round(bar.querySelector('.history-search').clientWidth),
+          focusKey: active && active.dataset ? (active.dataset.filterKey || null) : null,
+          focusInBar: !!active && bar.contains(active),
+          focusLabel: active ? (active.getAttribute('aria-label') || active.textContent.trim().slice(0, 10)) : null,
+          dateItems: [...document.querySelectorAll('.history-date-menu .menu-item')].map((node) => node.textContent.trim()),
+          focusInDate: !!active && !!dateMenu && dateMenu.contains(active),
+          filter: JSON.parse(JSON.stringify((window.__augitLive && window.__augitLive.historyFilter) || {})),
+        };
+      });
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const wide = await readBar();
+      // 可见控件路径：点「日期」⇒ 打开日期弹层
+      await scene.page.evaluate(() => document.querySelector(
+        '.git-log .history-filters > button[data-filter-key="date"]').click());
+      await scene.page.waitForTimeout(500);
+      const viaControl = await readBar();
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      // 窄栏：收纳菜单的顺序、键盘可达
+      await scene.page.setViewportSize({ width: 1280, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const narrow = await readBar();
+      await scene.page.evaluate(() => {
+        const summary = document.querySelector('.git-log .history-filters details > summary');
+        summary.focus();
+        summary.click();
+      });
+      await scene.page.waitForTimeout(300);
+      const opened = await readBar();
+      await scene.page.keyboard.press('Tab');
+      await scene.page.waitForTimeout(200);
+      const afterTab = await readBar();
+      await scene.page.keyboard.press('Tab');
+      await scene.page.waitForTimeout(200);
+      const afterTab2 = await readBar();
+      // 键盘选中「日期」并回车：必须打开与可见控件**同一个**弹层，并把焦点交进去
+      const focusedDate = await scene.page.evaluate(() => {
+        const item = [...document.querySelectorAll('.history-filter-menu button')]
+          .find((button) => button.dataset.filterKey === 'date');
+        if (item) item.focus();
+        return document.activeElement === item;
+      });
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForTimeout(600);
+      const viaMenu = await readBar();
+      // 再用同一入口「应用」一次（选中项变成值 ⇒ 第二次是关闭叉复位）
+      await scene.page.evaluate(() => {
+        const item = document.querySelector('.history-date-menu [data-history-date="last-week"]');
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(900);
+      const applied = await readBar();
+      await scene.page.evaluate(() => {
+        const summary = document.querySelector('.git-log .history-filters details > summary');
+        summary.focus();
+        summary.click();
+      });
+      await scene.page.waitForTimeout(300);
+      const reopened = await readBar();
+      const focusedSelected = await scene.page.evaluate(() => {
+        const item = [...document.querySelectorAll('.history-filter-menu button')]
+          .find((button) => button.dataset.filterKey === 'date');
+        if (!item) return false;
+        item.focus();
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return true;
+      });
+      await scene.page.waitForTimeout(900);
+      const reset = await readBar();
+      await scene.page.close();
+      const payload = { wide, viaControl, narrow, opened, afterTab, afterTab2, focusedDate, viaMenu,
+        applied, reopened, focusedSelected, reset };
+      console.log('INFO 筛选收纳菜单=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const menuKeys = (snapshot) => snapshot.menuItems.map((item) => item.key).join('|');
+    check('§7.8 窄栏按原顺序把放不下的筛选项收进收纳菜单，键盘可达且不压细输入框: '
+      + JSON.stringify([filterMenu.wide.menuItems, filterMenu.narrow, filterMenu.afterTab, filterMenu.afterTab2]),
+    filterMenu.wide.controls.join('|') === 'branch|user|date|path'
+      && filterMenu.wide.overflowShown === false
+      && filterMenu.wide.menuItems.every((item) => item.hidden === true)
+      && filterMenu.narrow.overflowShown === true
+      && filterMenu.narrow.controls.join('|') === 'branch|user'
+      && menuKeys(filterMenu.narrow) === 'branch|user|date|path'
+      && filterMenu.narrow.menuItems.map((item) => item.hidden).join('|') === 'true|true|false|false'
+      && filterMenu.narrow.menuItems.filter((item) => !item.hidden).map((item) => item.key).join('|') === 'date|path'
+      && filterMenu.narrow.controls.length + filterMenu.narrow.menuItems.filter((item) => !item.hidden).length === 4
+      && filterMenu.narrow.searchWidth >= 100
+      && filterMenu.afterTab.focusInBar === true && filterMenu.afterTab.focusKey === 'date'
+      && filterMenu.afterTab2.focusInBar === true && filterMenu.afterTab2.focusKey === 'path');
+    check('§7.8 收纳菜单调用同一套筛选动作并把焦点交给打开的弹层（与可见控件逐项一致）: '
+      + JSON.stringify([filterMenu.viaControl, filterMenu.focusedDate, filterMenu.viaMenu, filterMenu.reset]),
+    filterMenu.viaControl.dateItems.join('|') === '选择期间…|最近 24 小时|最近 7 天'
+      && filterMenu.viaControl.focusInDate === true
+      && filterMenu.focusedDate === true
+      && filterMenu.viaMenu.overflowOpen === false
+      && filterMenu.viaMenu.dateItems.join('|') === filterMenu.viaControl.dateItems.join('|')
+      && filterMenu.viaMenu.focusInDate === true
+      && filterMenu.applied.filter.since !== undefined && !!filterMenu.applied.filter.since
+      && filterMenu.reopened.menuItems.find((item) => item.key === 'date').hidden === false
+      && filterMenu.focusedSelected === true
+      && filterMenu.reset.dateItems.length === 0
+      && !filterMenu.reset.filter.since && !filterMenu.reset.filter.until);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

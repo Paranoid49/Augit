@@ -5469,6 +5469,10 @@ function guardUnwiredNavigation() {
             clientX: Math.round(rect.left),
             clientY: Math.round(rect.bottom + 4),
             maxHeight: 320,
+            // 规格 §7.8：窄栏收纳菜单选完项后要把输入焦点交给**相应已有控件**（这里就是它打开的弹层）。
+            // 弹层不拿焦点时，键盘用户从收纳菜单回车后焦点会掉到 `body`
+            //（第 237 轮实测：summary → Tab → 日期 → Enter，`document.activeElement` 变成 body）。
+            focusFirst: true,
           });
         });
         return;
@@ -5482,6 +5486,7 @@ function guardUnwiredNavigation() {
           clientX: Math.round(rect.left),
           clientY: Math.round(rect.bottom + 4),
           maxHeight: 320,
+          focusFirst: true,
         });
         return;
       }
@@ -5494,6 +5499,7 @@ function guardUnwiredNavigation() {
           clientX: Math.round(rect.left),
           clientY: Math.round(rect.bottom + 4),
           maxHeight: 320,
+          focusFirst: true,
         });
       }
       return;
@@ -9990,10 +9996,12 @@ function bindRegionTabOrder() {
     const active = document.activeElement;
     if (!active || active === document.body) return;
     // 弹层与对话框自带焦点规则，不在这里接管。
-    // 开放中的 `popover`（竖条溢出菜单等）在顶层、又不是 `[data-augit-overlay]`，此前漏掉了：
-    // Tab 于是被处理两次（本处理器一次 ＋ 弹层自己一次），在弹层里**跳过一个动作**
-    //（第 236 轮实测：焦点在「新建分支…」时按一次 Tab 直接落到「获取」，跳过「我的分支」）。
-    if (active.closest("[data-augit-overlay], [popover]:popover-open")) return;
+    // 开放中的 `popover`（竖条溢出菜单等）与开放中的 `details` 菜单（筛选栏收纳菜单）在顶层、
+    // 又不是 `[data-augit-overlay]`，此前漏掉了：Tab 于是被处理两次（本处理器一次 ＋ 弹层自己一次），
+    // 在弹层里**跳过一个动作**（第 236 轮实测：焦点在「新建分支…」时按一次 Tab 直接落到「获取」，
+    // 跳过「我的分支」）；筛选栏收纳菜单更直接 —— 焦点被带出菜单，键盘够不到收纳项（第 237 轮实测：
+    // summary →「定位当前文件」）。这两处的键位由弹层自己负责，这里整体让开。
+    if (active.closest("[data-augit-overlay], [popover]:popover-open, details[open]")) return;
     const owner = focusRegionOf(active);
     if (!owner) return;
     const items = regionFocusables(owner.element);
