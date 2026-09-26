@@ -16164,6 +16164,236 @@ async function main() {
       && historyScroll.afterTrip.top === historyScroll.beforeTrip.top
       && historyScroll.afterWiden.maxLeft === 0 && historyScroll.afterWiden.left === 0
       && historyScroll.afterWiden.maxTop > 40);
+    // ---- 第 240 轮同轮修掉的缺陷：键盘打开的搜索浮层结果从不落到 DOM ----
+    // `openSearchOverlay()` 只把节点手动挂在窗口上，而 `main-project` 一类场景的模板里没有 overlay ⇒
+    // `__augitRenderRegions('overlay')`（结果到达时由 `renderSearchOverlay()` 调用）**找不到替换源**，
+    // `live.search.matches` 更新了、DOM 里却一直没有 `.search-results`。
+    // 修法：打开时置 `live.searchOpen`，`shell()` 据此把 `liveSearchOverlay()` 作为模板里的 overlay，
+    // 于是结果更新走正常区域替换；关闭时 `closeLiveOverlay()` 清掉该状态，避免"刷新又回来"。
+    const searchOverlay = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(500);
+      await scene.page.keyboard.press('Control+p');
+      await scene.page.waitForSelector('.search-overlay .search-field', { timeout: 8000 });
+      const tagged = await scene.page.evaluate(() => {
+        document.querySelector('.search-overlay').dataset.probe = 'tagged';
+        return document.querySelectorAll('.search-overlay .search-result').length;
+      });
+      await scene.page.fill('.search-overlay .search-field', 'notes');
+      await scene.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
+      await scene.page.waitForSelector('.search-overlay .search-result', { timeout: 10000 });
+      const quick = await scene.page.evaluate(() => ({
+        rows: [...document.querySelectorAll('.search-overlay .search-result')].map((row) => ({
+          path: row.dataset.searchPath,
+          icon: row.querySelector('svg.file-type-icon')
+            ? row.querySelector('svg.file-type-icon').getAttribute('class') : null,
+        })),
+        replaced: (document.querySelector('.search-overlay').dataset.probe || null) === null,
+        searchOpen: !!(window.__augitLive && window.__augitLive.searchOpen),
+        kind: window.__augitLive && window.__augitLive.search ? window.__augitLive.search.kind : null,
+      }));
+      // Esc：关闭浮层并清状态
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(400);
+      const closed = await scene.page.evaluate(() => ({
+        overlays: document.querySelectorAll('.search-overlay').length,
+        searchOpen: !!(window.__augitLive && window.__augitLive.searchOpen),
+      }));
+      const afterRefresh = await scene.page.evaluate(() => {
+        window.__augitRenderRegions('overlay');
+        return document.querySelectorAll('.search-overlay').length;
+      });
+      // Ctrl+Shift+F：全仓搜索走同一条渲染路径
+      await scene.page.keyboard.press('Control+Shift+f');
+      await scene.page.waitForSelector('.search-overlay .search-field', { timeout: 8000 });
+      await scene.page.fill('.search-overlay .search-field', 'Git');
+      await scene.page.waitForFunction(
+        () => document.querySelectorAll('.search-overlay .search-result').length === 2,
+        null, { timeout: 10000 }).catch(() => {});
+      const repository = await scene.page.evaluate(() => ({
+        kind: window.__augitLive && window.__augitLive.search ? window.__augitLive.search.kind : null,
+        rows: document.querySelectorAll('.search-overlay .search-result').length,
+        icons: document.querySelectorAll('.search-overlay .search-result svg.file-type-icon').length,
+      }));
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      const closedAgain = await scene.page.evaluate(() => document.querySelectorAll('.search-overlay').length);
+      await scene.page.close();
+      const payload = { tagged, quick, closed, afterRefresh, repository, closedAgain };
+      console.log('INFO 搜索浮层结果=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§5.1 键盘打开的搜索浮层结果必须落到 DOM（改前只更新状态、不重画）: '
+      + JSON.stringify([searchOverlay.tagged, searchOverlay.quick, searchOverlay.repository]),
+    searchOverlay.tagged === 0
+      && searchOverlay.quick.rows.length === 2
+      && searchOverlay.quick.rows.some((row) => row.path === 'docs/notes.txt')
+      && searchOverlay.quick.rows.every((row) => typeof row.icon === 'string' && row.icon.includes('file-type-'))
+      && searchOverlay.quick.replaced === true
+      && searchOverlay.quick.searchOpen === true && searchOverlay.quick.kind === 'quick'
+      && searchOverlay.repository.kind === 'repository' && searchOverlay.repository.rows === 2
+      && searchOverlay.repository.icons === 2);
+    check('§5.1 Esc 关闭搜索浮层后清状态，区域刷新不得把它画回来: '
+      + JSON.stringify([searchOverlay.closed, searchOverlay.afterRefresh, searchOverlay.closedAgain]),
+    searchOverlay.closed.overlays === 0 && searchOverlay.closed.searchOpen === false
+      && searchOverlay.afterRefresh === 0 && searchOverlay.closedAgain === 0);
+    // ---- 第 240 轮补断言（收 §7.8 第 14 条）：类型图标跨上下文共用、状态色不覆盖类型色、
+    // 辅助技术名称保留状态符号与文件名 ----
+    // 实现位置：`mockup.js` 的 `fileTypeIcon()`（统一的 `svg.file-type-icon.file-type-<kind>`）与
+    // `changeAccessibleName()`；类型色写在图标自身的 class 上（`mockup.css` 的 `.file-type-*`），
+    // 状态色写在行/文件名的 `file-status-*` 上，两者互不覆盖。
+    const iconReuse = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const mainDark = await scene.page.evaluate(() => {
+        const info = (node) => {
+          const svg = node.querySelector('svg.file-type-icon');
+          return svg ? {
+            cls: svg.getAttribute('class'),
+            shapes: [...svg.children].map((child) => child.getAttribute('d')
+              || child.getAttribute('fill') || child.tagName).join('|'),
+          } : null;
+        };
+        const collect = (selector, nameOf) => {
+          const out = {};
+          for (const node of document.querySelectorAll(selector)) {
+            const entry = info(node);
+            if (entry) out[nameOf(node)] = entry;
+          }
+          return out;
+        };
+        return {
+          tree: collect('.side-content.tree .tree-row[data-tree-path]',
+            (node) => String(node.dataset.treePath).split('/').pop()),
+          tabs: collect('.editor-tab', (node) => node.textContent.trim().split('/').pop()),
+          changedFiles: collect('.changed-files [data-history-path]',
+            (node) => String(node.dataset.historyPath).split('/').pop()),
+          changedLabels: [...document.querySelectorAll('.changed-files [data-history-path]')].map((node) => ({
+            path: node.dataset.historyPath,
+            label: node.getAttribute('aria-label'),
+            status: [...node.classList].find((name) => name.startsWith('file-status-')) || null,
+          })),
+        };
+      });
+      // 快速打开（Ctrl+P）：结果行也带同一套类型图标
+      await scene.page.keyboard.press('Control+p');
+      await scene.page.waitForSelector('.search-overlay .search-field', { timeout: 8000 });
+      await scene.page.fill('.search-overlay .search-field', 'notes');
+      await scene.page.waitForSelector('.search-overlay .search-result', { timeout: 8000 });
+      const quickOpen = await scene.page.evaluate(() => {
+        const out = {};
+        for (const node of document.querySelectorAll('.search-overlay .search-result')) {
+          const svg = node.querySelector('svg.file-type-icon');
+          if (!svg) continue;
+          out[String(node.dataset.searchPath).split('/').pop()] = {
+            cls: svg.getAttribute('class'),
+            shapes: [...svg.children].map((child) => child.getAttribute('d')
+              || child.getAttribute('fill') || child.tagName).join('|'),
+          };
+        }
+        return out;
+      });
+      await scene.page.close();
+      const readChanges = async (theme) => {
+        const page = await openScene(`scene=commit-changes&theme=${theme}`);
+        await page.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await page.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+        await page.page.waitForTimeout(500);
+        const out = await page.page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.changes-list .change-file-row')].map((row) => {
+            const svg = row.querySelector('svg.file-type-icon');
+            const name = row.querySelector('.tree-name');
+            return {
+              name: row.dataset.file,
+              icon: svg ? {
+                cls: svg.getAttribute('class'),
+                shapes: [...svg.children].map((child) => child.getAttribute('d')
+                  || child.getAttribute('fill') || child.tagName).join('|'),
+              } : null,
+              iconColor: svg ? getComputedStyle(svg).color : null,
+              textColor: name ? getComputedStyle(name).color : null,
+              // 状态类名在**文件名节点**上（`<span class="tree-name file-status-modified">`），
+              // 行本身只有 `check-row change-file-row`。
+              status: [...(name || row).classList].find((entry) => entry.startsWith('file-status-')) || null,
+              label: row.getAttribute('aria-label'),
+            };
+          });
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--augit-file-modified)';
+          document.body.append(probe);
+          const modifiedToken = getComputedStyle(probe).color;
+          probe.remove();
+          return { rows, modifiedToken };
+        });
+        await page.page.close();
+        return out;
+      };
+      const changesDark = await readChanges('dark');
+      const changesLight = await readChanges('light');
+      const payload = { mainDark, quickOpen, changesDark, changesLight };
+      console.log('INFO 类型图标与状态符号=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const iconContexts = {
+      tree: iconReuse.mainDark.tree,
+      tabs: iconReuse.mainDark.tabs,
+      changedFiles: iconReuse.mainDark.changedFiles,
+      quickOpen: iconReuse.quickOpen,
+      changes: Object.fromEntries(iconReuse.changesDark.rows.map((row) => [row.name, row.icon])),
+    };
+    const iconKey = (entry) => `${entry.cls}|${entry.shapes}`;
+    const iconByName = {};
+    for (const [context, map] of Object.entries(iconContexts)) {
+      for (const [name, entry] of Object.entries(map)) {
+        (iconByName[name] = iconByName[name] || []).push({ context, key: iconKey(entry) });
+      }
+    }
+    const sharedIcons = Object.entries(iconByName).filter(([, list]) => list.length >= 2);
+    const sharedKinds = new Set(sharedIcons.flatMap(([name, list]) =>
+      list.map((entry) => iconContexts[entry.context][name].cls)));
+    check('§7.8 变化文件/项目树/标签/Changes/搜索结果共用同一套文件类型图标: '
+      + JSON.stringify(Object.fromEntries(Object.entries(iconContexts).map(([name, map]) => [name, Object.keys(map)]))),
+    Object.values(iconContexts).every((map) => Object.keys(map).length > 0)
+      && sharedIcons.length >= 4
+      && sharedIcons.every(([, list]) => new Set(list.map((entry) => entry.key)).size === 1)
+      && sharedIcons.every(([, list]) => new Set(list.map((entry) => entry.context)).size >= 2)
+      && sharedKinds.size >= 3);
+    const changesByName = (snapshot) => Object.fromEntries(snapshot.rows.map((row) => [row.name, row]));
+    const darkRows = changesByName(iconReuse.changesDark);
+    const lightRows = changesByName(iconReuse.changesLight);
+    check('§7.8 文件名用 Git 状态色、文件类型图标保持类型色（两套主题逐值核对）: '
+      + JSON.stringify([darkRows['App.cs'], darkRows['README.md'], lightRows['App.cs'], lightRows['README.md']]),
+    darkRows['App.cs'].iconColor === 'rgb(95, 173, 101)'            // Csharp dark #5FAD65
+      && lightRows['App.cs'].iconColor === 'rgb(32, 138, 60)'       // Csharp light #208A3C
+      && darkRows['README.md'].iconColor === 'rgb(84, 138, 247)'    // markdown dark #548AF7
+      && lightRows['README.md'].iconColor === 'rgb(53, 116, 240)'   // markdown light #3574F0
+      && darkRows['App.cs'].textColor === iconReuse.changesDark.modifiedToken
+      && lightRows['App.cs'].textColor === iconReuse.changesLight.modifiedToken
+      && darkRows['README.md'].textColor === iconReuse.changesDark.modifiedToken
+      && darkRows['App.cs'].textColor !== darkRows['App.cs'].iconColor
+      && darkRows['README.md'].textColor !== darkRows['README.md'].iconColor);
+    // 权威 `GitChangeType`（`plugins/git4idea/backend/src/history/GitChangeType.java:11-18`）的单字母；
+    // `Untracked` 不在该枚举里 ⇒ 不给符号（未跟踪文件在「Unversioned Files」分组里）。
+    const statusSymbols = { modified: 'M', added: 'A', copied: 'C', deleted: 'D', renamed: 'R', unmerged: 'U', typechanged: 'T' };
+    const expectedLabel = (row) => {
+      const kind = String(row.status || '').replace('file-status-', '');
+      const symbol = statusSymbols[kind];
+      return symbol ? `${symbol} ${row.name}` : row.name;
+    };
+    check('§7.8 变更行的辅助技术名称同时保留状态符号与文件名: '
+      + JSON.stringify([iconReuse.changesDark.rows.map((row) => row.label), iconReuse.mainDark.changedLabels]),
+    iconReuse.changesDark.rows.length >= 3
+      && iconReuse.changesDark.rows.every((row) => row.label === expectedLabel(row))
+      && darkRows['App.cs'].label === 'M App.cs'
+      && darkRows['README.md'].label === 'M README.md'
+      && darkRows['draft.txt'].label === 'draft.txt'
+      && darkRows['draft.txt'].status === 'file-status-untracked'
+      && iconReuse.mainDark.changedLabels.map((row) => row.label).sort().join('|') === 'A notes.txt|M App.cs'
+      && iconReuse.mainDark.changedLabels.every((row) => row.label.endsWith(String(row.path).split('/').pop())));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

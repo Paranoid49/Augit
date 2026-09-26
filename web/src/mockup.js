@@ -1221,6 +1221,29 @@ function gitReferenceIcon(kind = "local") {
 }
 
 // 文件类型图标与原生绘制使用相同的 16px 坐标；Git 状态只改变文件名颜色。
+/**
+ * 变更状态符号。权威 `GitChangeType`
+ *（`plugins/git4idea/backend/src/history/GitChangeType.java:11-18`）给出的就是 Git 的单字母
+ * `MODIFIED('M')`／`ADDED('A')`／`COPIED('C')`／`DELETED('D')`／`RENAMED('R')`／
+ * `UNRESOLVED('U')`／`TYPE_CHANGED('T')`，`toString()` 返回大写字母。
+ * `Untracked` 不在该枚举里（Git porcelain 用 `??`，权威没有对应字母）⇒ 不给符号；
+ * Augit 把未跟踪文件放在「Unversioned Files」分组里，分组本身说明了状态。
+ */
+const changeStatusSymbols = {
+  modified: "M", added: "A", copied: "C", deleted: "D",
+  renamed: "R", unmerged: "U", typechanged: "T",
+};
+
+/**
+ * 变更行的辅助技术名称：状态符号（有则加）＋ 文件名。
+ * 规格 §7.8：**原生列表的辅助技术名称同时保留状态符号与文件名**——视觉上状态只由文件名颜色表达，
+ * 读屏拿不到颜色，因此把符号写进名称。
+ */
+function changeAccessibleName(kind, text) {
+  const symbol = changeStatusSymbols[String(kind || "").toLowerCase()] || "";
+  return `${symbol ? `${symbol} ` : ""}${text}`;
+}
+
 function fileTypeIcon(name) {
   // 容忍空值：无文档或数据未到达时仍可能渲染标签，缺名称不应导致整页异常。
   const safeName = String(name ?? "");
@@ -2558,7 +2581,7 @@ function statusRefreshNotice() {
 function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
   const isSelected = selectedName === file.name;
   return `
-      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
+      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" aria-label="${escapeHtml(changeAccessibleName(file.kind, file.name))}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
         <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
         <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
       </div>`;
@@ -4081,8 +4104,10 @@ function historyFilesHtml(files) {
     // 不再写内联 padding——内联会盖住样式表，量出来的缩进与视觉稿相差 6 像素。
     return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, children]) =>
       `<div class="tree-row depth-${depth}"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} 个文件</span></div>${render(children, `${prefix}${name}/`, depth + 1)}`).join("")
-      + leaves.sort((a, b) => a.path.localeCompare(b.path)).map(file =>
-        `<div class="tree-row depth-${depth} file-status-${file.status}" data-history-path="${escapeHtml(file.path)}">${fileTypeIcon(file.path)}${file.path.slice(prefix.length)}${file.original ? ` ← ${file.original.split("/").at(-1)}` : ""}</div>`).join("");
+      + leaves.sort((a, b) => a.path.localeCompare(b.path)).map(file => {
+        const label = `${file.path.slice(prefix.length)}${file.original ? ` ← ${file.original.split("/").at(-1)}` : ""}`;
+        return `<div class="tree-row depth-${depth} file-status-${file.status}" data-history-path="${escapeHtml(file.path)}" aria-label="${escapeHtml(changeAccessibleName(file.status, label))}">${fileTypeIcon(file.path)}${label}</div>`;
+      }).join("");
   };
   return `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files)}`;
 }
@@ -4235,7 +4260,13 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
 
   // 实时外壳下由用户操作打开的弹层覆盖场景自带的那个（规格 §5.3）。
   // 只在确有实时弹层时覆盖，否则保留场景值，逐场景静态浏览与既有场景行为不变。
-  if (live && live.overlay) {
+  // 实时搜索浮层（Ctrl+P／Ctrl+Shift+F）也必须走这条渲染路径：它的结果写在 `live.search` 上，
+  // 区域刷新要靠 `renderScene()` 产出替换节点。此前只把节点手动挂在窗口上，而 `main-project`
+  // 一类场景的模板里根本没有 overlay ⇒ `__augitRenderRegions('overlay')` 找不到替换源，
+  // 结果永远画不出来（第 240 轮实测：`live.search.matches` 已 2 项、DOM 里没有 `.search-results`）。
+  if (live && live.searchOpen && live.search) {
+    overlay = liveSearchOverlay(live.search.kind === "repository" ? "repository" : "quick");
+  } else if (live && live.overlay) {
     overlay = live.overlay;
   }
 
@@ -4399,7 +4430,9 @@ function liveSearchOverlay(kind) {
     : "";
   // 结果到限：按权威弹「结果过多」（Continue／Abort）。对话框叠在搜索浮层之上，
   // 在用户选择之前不重复发起搜索（`search.limitPrompt` 由 live-data 设置与清除）。
-  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+  // `live-overlay` 是"由实时层打开、可以被 `closeLiveOverlay()` 关掉"的标记；两种渲染路径
+  //（首次手动挂载与后续区域替换）都要带，否则 Esc 走不到统一的关闭分支、状态也不会清。
+  return `<div class="search-overlay live-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
 }
 
 function searchOverlay(kind) {

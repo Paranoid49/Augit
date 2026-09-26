@@ -10113,6 +10113,13 @@ window.__augitRememberedDocumentMode = () => {
 
 /** 关闭所有实时弹层。 */
 function closeLiveOverlay() {
+  // 关掉搜索浮层时必须**同时清状态**：否则下一次区域刷新会按 `live.searchOpen` 把它重新画出来
+  //（第 240 轮：不清理就会"Esc 关掉、一刷新又回来"）。
+  const live = window.__augitLive;
+  if (live) {
+    live.searchOpen = false;
+    live.overlay = null;
+  }
   const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
   if (layers.length === 0) return false;
   layers.forEach((node) => node.remove());
@@ -10593,6 +10600,9 @@ function openSearchOverlay(kind) {
   closeLiveOverlay();
   rememberDialogFocus();
   live.search = { kind, query: "", options: {}, matches: [], notice: "" };
+  // 标记"搜索浮层已打开"：结果的定点刷新要靠它让 `renderScene()` 产出 overlay 替换节点
+  //（首次打开时区域里还没有 overlay，只能手动挂载；之后每次结果更新都走区域替换）。
+  live.searchOpen = true;
   const template = document.createElement("template");
   template.innerHTML = liveSearchOverlay(kind);
   const layer = template.content.firstElementChild;

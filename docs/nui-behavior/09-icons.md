@@ -7707,3 +7707,72 @@ t=2506  scrollTop = 0     ← 下一次 rAF 再对齐时读到的已经是 0
 
 A 类队列 68 行。继续 §7.8：第 14 条（类型图标与状态色、辅助技术名称）、第 2 条（字号变化下的顶部锚点/
 横向偏移与"不触发 Git 查询"）、第 5 条之外的菜单项。
+
+## trecentum-quadraginta. 第二百四十轮：类型图标跨上下文一致、状态色不覆盖类型色、辅助技术名称（§7.8 第 14 条）
+
+A 类队列里挑 §7.8 第 14 条。三半里"图标复用"与"类型色"都是**实现已有、只缺断言**；
+第三半（辅助技术名称）实现里没有，而为了拿"快速打开结果"当图标复用的第五个上下文，
+**先撞出一处更严重的缺陷**。
+
+### 新实现：变更行的辅助技术名称
+
+`mockup.js` 新增 `changeAccessibleName(kind, text)`，给两类带状态的列表行写 `aria-label`：
+Changes 列表的 `.change-file-row` 与日志变化文件树的叶子行。符号取自**权威**
+`GitChangeType`（`plugins/git4idea/backend/src/history/GitChangeType.java:11-18`）：
+
+```
+MODIFIED('M') ADDED('A') COPIED('C') DELETED('D') RENAMED('R') UNRESOLVED('U') TYPE_CHANGED('T')   // toString() 返回大写字母
+```
+
+`Untracked` 不在该枚举里（Git porcelain 用 `??`，权威没有对应字母）⇒ **不造符号**，
+Augit 把它们放在「Unversioned Files」分组里，分组本身说明状态。视觉上状态仍只由文件名颜色表达，
+读屏拿不到颜色，因此把符号写进名称：`M App.cs`、`A notes.txt`、`draft.txt`。
+
+### 撞出来的缺陷：键盘打开的搜索浮层结果从不落到 DOM
+
+想用"快速打开结果行"当第五个上下文，灌 `fill('notes')` 后 `live.search.matches` 已有 2 项、
+DOM 里却没有 `.search-results`。查下去：
+
+- `openSearchOverlay()` 只 `host.appendChild(layer)` 手动挂节点；结果到达时 `renderSearchOverlay()`
+  调 `refresh("overlay")` → `__augitRenderRegions('overlay')` 要求**目标与替换节点同时存在**，
+  而 `main-project` 一类场景的模板里没有 overlay（`main-project` 的 `shell()` 没传 overlay）
+  ⇒ 替换被跳过，节点一直是初始那个（用 `dataset.probe` 标记验证：搜索后标记仍在）；
+- `quick-open`／`repository-search` 两个**场景**能出结果，是因为它们的场景模板里本来就带 overlay。
+
+因此 **Ctrl+P 与 Ctrl+Shift+F 打开的浮层永远不显示结果**（既有断言只查"浮层是否打开"，
+所以一直没暴露）。修法三处：
+
+1. `openSearchOverlay()` 置 `live.searchOpen = true`；
+2. `shell()` 在该状态下把 `liveSearchOverlay()` 作为模板里的 overlay（首次仍靠手动挂载，
+   之后每次结果更新走正常区域替换）；
+3. `liveSearchOverlay()` 的根节点补 `live-overlay` 类，`closeLiveOverlay()` 关闭时清
+   `searchOpen`／`overlay` 状态 —— 否则"Esc 关掉、一刷新又回来"。
+
+修后实测：`Ctrl+P` → `fill('notes')` ⇒ `.search-result` **2** 条（带类型图标）、标记消失（节点确被替换）、
+`searchOpen=true`；`Esc` ⇒ 浮层 0、`searchOpen=false`、再 `__augitRenderRegions('overlay')` 仍 0；
+`Ctrl+Shift+F` ⇒ `.search-result` **2** 条、图标 2 个。
+
+### 新增断言（`live-shell`，5 条）
+
+| # | 断言 | 判据要点 |
+| --- | --- | --- |
+| 1 | 键盘打开的搜索浮层结果必须落到 DOM | Ctrl+P：2 条命中（含 `docs/notes.txt`）、每行都有 `file-type-*` 图标、原节点被替换、`searchOpen`；Ctrl+Shift+F：2 条命中、2 个图标 |
+| 2 | Esc 关闭搜索浮层后清状态，区域刷新不得把它画回来 | 关闭后浮层 0、`searchOpen=false`，再刷新仍 0 |
+| 3 | 五个上下文共用同一套文件类型图标 | tree／tabs／changedFiles／quickOpen／changes **都非空**；**4 个同名文件跨 ≥2 上下文**且 class 与内部路径数据逐字节相同；覆盖 markdown／csharp／file 三类 |
+| 4 | 文件名用 Git 状态色、类型图标保持类型色 | 深色 Csharp `rgb(95,173,101)`=#5FAD65、markdown `rgb(84,138,247)`=#548AF7；浅色 `rgb(32,138,60)`=#208A3C、`rgb(53,116,240)`=#3574F0；文字色 = 该主题的 `--augit-file-modified` 且**不等于**图标色 |
+| 5 | 变更行的辅助技术名称同时保留状态符号与文件名 | Changes 列表 `M App.cs`／`M README.md`／`draft.txt`（未跟踪无符号），日志变化文件 `A notes.txt`／`M App.cs`；符号与行的 `file-status-*` 逐项对应 |
+
+### 验证
+
+- `live-shell` **`通过 1276 项断言`**（1271 → **+5**），退出码 0。
+- 共享视觉稿 `mockup.js` 改了（两副本字节一致）⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、
+  `mockup-scenes` **55/55**、**全部 39 个 `verify-ux-*.cjs` 通过**（静态页不受影响）。
+- 登记哈希：`mockup.js` `5784eafc…` → **`c42a3216b31cf74f76126d3eaaf09ec6`**；
+  `live-data.js` `05805485…` → **`c15acb7d892823cb1ede4f6148bf7299`**；
+  `live-shell.spec.cjs` `cd84fd41…` → **`ee46c6dbddaa4ec0da4f46b9cf2cab65`**。
+- §2.6 第 14 行由"部分"转 **是**；§7.15 第 1 行补上两条新断言；§2.10 重算：分母 89 → **88**，A **68 → 67**。
+
+### 下一轮
+
+A 类队列 67 行。继续 §7.8：第 2 条（字号变化下的顶部锚点/横向偏移与"不触发 Git 查询"）、
+第 4 条（长说明排版不阻塞选择）之外的其它行，以及 §7.5／§7.6 的剩余项。
