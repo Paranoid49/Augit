@@ -9990,7 +9990,10 @@ function bindRegionTabOrder() {
     const active = document.activeElement;
     if (!active || active === document.body) return;
     // 弹层与对话框自带焦点规则，不在这里接管。
-    if (active.closest("[data-augit-overlay]")) return;
+    // 开放中的 `popover`（竖条溢出菜单等）在顶层、又不是 `[data-augit-overlay]`，此前漏掉了：
+    // Tab 于是被处理两次（本处理器一次 ＋ 弹层自己一次），在弹层里**跳过一个动作**
+    //（第 236 轮实测：焦点在「新建分支…」时按一次 Tab 直接落到「获取」，跳过「我的分支」）。
+    if (active.closest("[data-augit-overlay], [popover]:popover-open")) return;
     const owner = focusRegionOf(active);
     if (!owner) return;
     const items = regionFocusables(owner.element);

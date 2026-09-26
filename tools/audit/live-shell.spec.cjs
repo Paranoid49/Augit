@@ -15516,6 +15516,248 @@ async function main() {
       && detailActions.folderMenu.menus === 0
       && detailActions.folderMenu.selectedBefore.length > 0
       && detailActions.folderMenu.selectedAfter.join('|') === detailActions.folderMenu.selectedBefore.join('|'));
+    // ---- 第 236 轮补断言（收 §7.8 第 7、8、12 条）：竖条溢出箭头与弹层、极短区域不越界、
+    // 工具栏按钮的 Enter/Space、收纳箭头消失时的焦点交接 ----
+    // 实现位置：`mockup.js` 的 `bindHistoryToolbar()`（竖条 `layout()` 按 `--augit-history-filter-height`
+    // 与实际高度算每颗按钮的 `top`、放不下就换成右箭头，弹层用 `popover` 克隆 `buttons.slice(1)`）
+    // 与 `bindHistoryLayout()`（筛选栏按可用宽度把筛选项收进 `details` 菜单并交接焦点）。
+    const stripeOverflow = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const readStripe = () => scene.page.evaluate(() => {
+        const toolbar = document.querySelector('.git-side-toolbar');
+        const buttons = [...toolbar.querySelectorAll(':scope > button:not(.history-tools-more)')];
+        const trigger = toolbar.querySelector('.history-tools-more');
+        const shown = buttons.filter((button) => !button.hidden);
+        const top = toolbar.getBoundingClientRect().top;
+        return {
+          height: Math.round(toolbar.clientHeight),
+          total: buttons.length,
+          visible: shown.map((button) => button.getAttribute('aria-label')),
+          hidden: buttons.length - shown.length,
+          overflowShown: trigger ? !trigger.hidden : null,
+          overflowTop: trigger ? trigger.style.top : null,
+          maxBottom: shown.length
+            ? Math.max(...shown.map((button) => Math.round(button.getBoundingClientRect().bottom - top)))
+            : 0,
+        };
+      });
+      // 恢复必须写回**原始内联值**：`applySavedPanelSizes()` 已经把设置里的 240px 写在内联样式上，
+      // 直接 `removeProperty` 会掉回 CSS 的 `clamp(180px, 31vh, 305px)`，高度与基线差 4px（实测 202 → 198）。
+      const originalBottom = await scene.page.evaluate(
+        () => document.documentElement.style.getPropertyValue('--augit-bottom-height'));
+      const setBottom = (size) => scene.page.evaluate((value) => {
+        if (value) document.documentElement.style.setProperty('--augit-bottom-height', value);
+        else document.documentElement.style.removeProperty('--augit-bottom-height');
+      }, size);
+      const restoreBottom = () => setBottom(originalBottom || null);
+      const baseline = await readStripe();
+      await setBottom('120px');
+      await scene.page.waitForTimeout(600);
+      const short = await readStripe();
+      await setBottom('80px');
+      await scene.page.waitForTimeout(600);
+      const ultra = await readStripe();
+      await restoreBottom();
+      await scene.page.waitForTimeout(600);
+      const restored = await readStripe();
+      // 溢出弹层：内容必须是原按钮的克隆（动作、图标、禁用状态都跟着）
+      const opened = await scene.page.evaluate(async () => {
+        const toolbar = document.querySelector('.git-side-toolbar');
+        const trigger = toolbar.querySelector('.history-tools-more');
+        const originals = [...toolbar.querySelectorAll(':scope > button:not(.history-tools-more)')];
+        trigger.click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const host = toolbar.querySelector('.history-tools-popup');
+        const items = [...host.querySelectorAll('button')];
+        return {
+          open: host.matches(':popover-open'),
+          expanded: trigger.getAttribute('aria-expanded'),
+          labels: items.map((button) => button.getAttribute('aria-label')),
+          expected: originals.slice(1).map((button) => button.getAttribute('aria-label')),
+          disabled: items.map((button) => button.disabled),
+          expectedDisabled: originals.slice(1).map((button) => button.disabled),
+          icons: items.filter((button) => button.querySelector('svg')).length,
+          focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+        };
+      });
+      const focusedLabel = () => scene.page.evaluate(
+        () => (document.activeElement ? document.activeElement.getAttribute('aria-label') : null));
+      await scene.page.keyboard.press('ArrowRight');
+      await scene.page.waitForTimeout(150);
+      const afterRight = await focusedLabel();
+      await scene.page.keyboard.press('ArrowLeft');
+      await scene.page.waitForTimeout(150);
+      const afterLeft = await focusedLabel();
+      await scene.page.keyboard.press('Tab');
+      await scene.page.waitForTimeout(150);
+      const afterTab = await focusedLabel();
+      await scene.page.keyboard.press('Shift+Tab');
+      await scene.page.waitForTimeout(150);
+      const afterShiftTab = await focusedLabel();
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(250);
+      const afterEscape = await scene.page.evaluate(() => {
+        const toolbar = document.querySelector('.git-side-toolbar');
+        return {
+          open: toolbar.querySelector('.history-tools-popup').matches(':popover-open'),
+          expanded: toolbar.querySelector('.history-tools-more').getAttribute('aria-expanded'),
+          focusedTrigger: document.activeElement === toolbar.querySelector('.history-tools-more'),
+        };
+      });
+      // 布局改变（底部工具窗变矮）必须关掉弹层
+      const layoutClose = await scene.page.evaluate(async () => {
+        const toolbar = document.querySelector('.git-side-toolbar');
+        toolbar.querySelector('.history-tools-more').click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const openBefore = toolbar.querySelector('.history-tools-popup').matches(':popover-open');
+        document.documentElement.style.setProperty('--augit-bottom-height', '120px');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const openAfter = toolbar.querySelector('.history-tools-popup').matches(':popover-open');
+        document.documentElement.style.removeProperty('--augit-bottom-height');
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return { openBefore, openAfter };
+      });
+      // 工具栏按钮用真实 Enter / Space 执行（把竖条放宽到「我的分支」可见的那一档）
+      await setBottom('300px');
+      await scene.page.waitForTimeout(600);
+      const tallerVisible = (await readStripe()).visible;
+      const keyboard = await scene.page.evaluate(() => {
+        const button = document.querySelector('.git-side-toolbar [data-ref-stripe="my-branches"]');
+        button.focus();
+        return {
+          focused: document.activeElement === button,
+          before: button.getAttribute('aria-pressed'),
+        };
+      });
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForTimeout(1000);
+      const afterEnter = await scene.page.evaluate(() => {
+        const button = document.querySelector('.git-side-toolbar [data-ref-stripe="my-branches"]');
+        // 切换会触发区域刷新（节点被替换、焦点落回 body），所以下一次按键前必须重新聚焦新节点。
+        if (button) button.focus();
+        return button ? button.getAttribute('aria-pressed') : 'missing';
+      });
+      await scene.page.keyboard.press('Space');
+      await scene.page.waitForTimeout(1000);
+      const afterSpace = await scene.page.evaluate(() => {
+        const button = document.querySelector('.git-side-toolbar [data-ref-stripe="my-branches"]');
+        return button ? button.getAttribute('aria-pressed') : 'missing';
+      });
+      await restoreBottom();
+      await scene.page.waitForTimeout(400);
+      await scene.page.close();
+      const payload = { baseline, short, ultra, restored, opened, afterRight, afterLeft, afterTab, afterShiftTab,
+        afterEscape, layoutClose, tallerVisible, keyboard: { ...keyboard, afterEnter, afterSpace } };
+      console.log('INFO 竖条溢出=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.8 竖条用右箭头替换放不下的按钮，极短区域不绘制越过底边的按钮、保留第一个入口: '
+      + JSON.stringify([stripeOverflow.baseline, stripeOverflow.short, stripeOverflow.ultra, stripeOverflow.restored]),
+    stripeOverflow.baseline.total === 12 && stripeOverflow.baseline.hidden > 0
+      && stripeOverflow.baseline.visible[0] === '隐藏分支'
+      && stripeOverflow.baseline.overflowShown === true
+      && stripeOverflow.baseline.maxBottom <= stripeOverflow.baseline.height - 4
+      && stripeOverflow.short.height < 150 && stripeOverflow.short.visible.join('|') === '隐藏分支'
+      && stripeOverflow.short.overflowShown === true
+      && stripeOverflow.short.maxBottom <= stripeOverflow.short.height - 4
+      && stripeOverflow.ultra.height < 60 && stripeOverflow.ultra.visible.join('|') === '隐藏分支'
+      && stripeOverflow.ultra.overflowShown === false
+      && stripeOverflow.ultra.maxBottom <= stripeOverflow.ultra.height - 4
+      && stripeOverflow.restored.visible.join('|') === stripeOverflow.baseline.visible.join('|'));
+    check('§7.8 竖条溢出弹层复用整组动作与禁用状态，左右键/Tab 循环、Esc 关闭并把焦点交回箭头: '
+      + JSON.stringify([stripeOverflow.opened, stripeOverflow.afterRight, stripeOverflow.afterLeft,
+        stripeOverflow.afterTab, stripeOverflow.afterShiftTab, stripeOverflow.afterEscape]),
+    stripeOverflow.opened.open === true && stripeOverflow.opened.expanded === 'true'
+      && stripeOverflow.opened.labels.length === 11
+      && stripeOverflow.opened.labels.join('|') === stripeOverflow.opened.expected.join('|')
+      && stripeOverflow.opened.disabled.join('|') === stripeOverflow.opened.expectedDisabled.join('|')
+      && stripeOverflow.opened.disabled.filter(Boolean).length > 0
+      && stripeOverflow.opened.icons === 11
+      && stripeOverflow.opened.focused === stripeOverflow.opened.labels[0]
+      && stripeOverflow.afterRight !== stripeOverflow.opened.focused
+      && stripeOverflow.afterTab === stripeOverflow.afterRight
+      && stripeOverflow.afterLeft === stripeOverflow.opened.focused
+      && stripeOverflow.afterShiftTab === stripeOverflow.opened.focused
+      && stripeOverflow.afterEscape.open === false && stripeOverflow.afterEscape.expanded === 'false'
+      && stripeOverflow.afterEscape.focusedTrigger === true);
+    check('§7.8 布局改变时关闭竖条溢出弹层: ' + JSON.stringify(stripeOverflow.layoutClose),
+      stripeOverflow.layoutClose.openBefore === true && stripeOverflow.layoutClose.openAfter === false);
+    check('§7.8 工具栏按钮用真实 Enter/Space 执行: ' + JSON.stringify([stripeOverflow.tallerVisible, stripeOverflow.keyboard]),
+    stripeOverflow.tallerVisible.includes('我的分支')
+      && stripeOverflow.keyboard.focused === true && stripeOverflow.keyboard.before === null
+      && stripeOverflow.keyboard.afterEnter === 'true' && stripeOverflow.keyboard.afterSpace === null);
+
+    // ---- §7.8（8、12）：筛选栏收纳箭头消失时焦点交给同组最后一个可见可用动作 ----
+    const filterOverflow = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(400);
+      const readFilter = () => scene.page.evaluate(() => {
+        const bar = document.querySelector('.git-log .history-filters');
+        const buttons = [...bar.querySelectorAll('.history-filter')];
+        const overflow = bar.querySelector('details');
+        const label = (button) => button.getAttribute('aria-label') || button.textContent.trim();
+        return {
+          barWidth: Math.round(bar.clientWidth),
+          visible: buttons.filter((button) => !button.hidden).map(label),
+          overflowShown: !overflow.hidden,
+          menuItems: [...overflow.querySelectorAll('button')]
+            .filter((button) => !button.hidden).map(label),
+          searchWidth: Math.round(bar.querySelector('.history-search').clientWidth),
+        };
+      });
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(600);
+      const wide = await readFilter();
+      await scene.page.setViewportSize({ width: 1280, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const narrow = await readFilter();
+      // 焦点放到收纳箭头上，再放宽：箭头消失 ⇒ 焦点必须交给同组最后一个可见可用动作
+      const handoff = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.git-log .history-filters');
+        const summary = bar.querySelector('details > summary');
+        summary.focus();
+        return { focusedArrow: document.activeElement === summary };
+      });
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const afterWiden = await scene.page.evaluate(() => {
+        const bar = document.querySelector('.git-log .history-filters');
+        const buttons = [...bar.querySelectorAll('.history-filter')];
+        const label = (button) => button.getAttribute('aria-label') || button.textContent.trim();
+        const visible = buttons.filter((button) => !button.hidden);
+        const expected = [...visible].reverse().find((button) => !button.disabled);
+        return {
+          overflowShown: !bar.querySelector('details').hidden,
+          visible: visible.map(label),
+          expected: expected ? label(expected) : null,
+          focused: document.activeElement ? label(document.activeElement) : null,
+          focusInBar: bar.contains(document.activeElement),
+        };
+      });
+      await scene.page.close();
+      const payload = { wide, narrow, handoff, afterWiden };
+      console.log('INFO 筛选栏收纳=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.8 筛选栏收纳箭头消失时焦点交给同组最后一个可见可用动作: '
+      + JSON.stringify([filterOverflow.wide, filterOverflow.narrow, filterOverflow.handoff, filterOverflow.afterWiden]),
+    filterOverflow.wide.overflowShown === false && filterOverflow.wide.visible.length === 4
+      && filterOverflow.wide.menuItems.length === 0
+      && filterOverflow.narrow.overflowShown === true && filterOverflow.narrow.visible.length < 4
+      && filterOverflow.narrow.menuItems.length > 0
+      && filterOverflow.narrow.searchWidth > 60
+      && filterOverflow.handoff.focusedArrow === true
+      && filterOverflow.afterWiden.overflowShown === false
+      && filterOverflow.afterWiden.focusInBar === true
+      && filterOverflow.afterWiden.focused === filterOverflow.afterWiden.expected
+      && filterOverflow.afterWiden.focused !== null);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
