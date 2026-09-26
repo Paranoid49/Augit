@@ -17072,6 +17072,223 @@ async function main() {
       // 但焦点仍在原处，没有被重绘抢进提交区
       && commitFeedback.elsewhereAfter.active === commitFeedback.elsewhereBefore.active);
 
+    // ---- 第 246 轮补断言（收 §7.6 第 5 条）：悬停只改外观不重绘、按指针位置重命中、
+    // 空白区不算最后一行、隐藏/销毁清除且重新显示不恢复 ----
+    const hoverRehit = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+
+      // 页面侧口径：可见行 = display 非 none 且几何高度 > 0（折叠后 `[hidden]` 行是 display:none，
+      // 它们可能保留一个**看不见**的陈旧 `:hover` 匹配，因此一律排除，只谈可见悬停）。
+      const state = (y) => scene.page.evaluate((yy) => {
+        const list = document.querySelector('.changes-list');
+        const rows = [...document.querySelectorAll('.changes-list .check-row')];
+        const key = (row) => row.dataset.path || row.dataset.group || '(row)';
+        const visible = rows.filter((row) => getComputedStyle(row).display !== 'none' && row.getBoundingClientRect().height > 0);
+        const under = (row) => {
+          const r = row.getBoundingClientRect();
+          return yy !== null && r.top <= yy && r.bottom >= yy;
+        };
+        const fileRows = visible.filter((row) => !row.classList.contains('check-group-row'));
+        // "悬停中"的判据取**底色相对基线的变化**而不是 `matches(':hover')`：
+        // 视觉规则今后若改成 JS 维护悬停类，这条断言仍然成立；`.selected` 行按规格不参与悬停。
+        const bg = (row) => getComputedStyle(row).backgroundColor;
+        if (!window.__hoverBaseline) {
+          const map = {};
+          for (const row of rows) map[key(row)] = bg(row);
+          window.__hoverBaseline = map;
+        }
+        const base = window.__hoverBaseline;
+        return {
+          hovered: visible.filter((row) => !row.classList.contains('selected')
+            && bg(row) !== (Object.prototype.hasOwnProperty.call(base, key(row)) ? base[key(row)] : 'rgba(0, 0, 0, 0)')).map(key),
+          hoverMatch: visible.filter((row) => row.matches(':hover')).map(key),
+          under: visible.filter(under).map(key),
+          visibleCount: visible.length,
+          rowHeight: fileRows[0] ? Math.round(fileRows[0].getBoundingClientRect().height) : 0,
+          firstRowBg: fileRows[0] ? getComputedStyle(fileRows[0]).backgroundColor : null,
+          mutations: window.__hoverMutations || 0,
+          sameNodes: Array.isArray(window.__hoverNodes)
+            && window.__hoverNodes.length === rows.length
+            && window.__hoverNodes.every((row, index) => row === rows[index]),
+          scrollTop: list ? Math.round(list.scrollTop) : null,
+          listBottom: list ? Math.round(list.getBoundingClientRect().bottom) : null,
+          lastRowBottom: visible.length ? Math.round(visible.at(-1).getBoundingClientRect().bottom) : null,
+          panel: !!list,
+        };
+      }, y);
+      const rects = () => scene.page.evaluate(() => {
+        const list = document.querySelector('.changes-list');
+        const rows = [...document.querySelectorAll('.changes-list .check-row')];
+        const visible = rows.filter((row) => getComputedStyle(row).display !== 'none' && row.getBoundingClientRect().height > 0);
+        const listRect = list.getBoundingClientRect();
+        return {
+          x: Math.round(listRect.left + 30),
+          rows: visible.map((row) => {
+            const r = row.getBoundingClientRect();
+            return { key: row.dataset.path || row.dataset.group, top: Math.round(r.top), mid: Math.round(r.top + r.height / 2), bottom: Math.round(r.bottom) };
+          }),
+          listBottom: Math.round(listRect.bottom),
+        };
+      });
+      const move = async (x, y) => { await scene.page.mouse.move(x, y); await scene.page.waitForTimeout(250); };
+
+      const geom = await rects();
+      // ① 悬停只改外观：指针在别处时的底色基线 → 装上变更观察器 → 悬停
+      await move(geom.x, 20); // 标题栏（列表之外）
+      const neutral = await state(null);
+      await scene.page.evaluate(() => {
+        window.__hoverMutations = 0;
+        window.__hoverNodes = [...document.querySelectorAll('.changes-list .check-row')];
+        const list = document.querySelector('.changes-list');
+        window.__hoverObserver = new MutationObserver((records) => { window.__hoverMutations += records.length; });
+        window.__hoverObserver.observe(list, { childList: true, subtree: true, attributes: true, characterData: true });
+      });
+      const fileRow = geom.rows.find((row) => row.key && row.key.includes('.')) || geom.rows[1];
+      await move(geom.x, fileRow.mid);
+      const styled = await state(fileRow.mid);
+      // 同一行内横向移动：不得再产生 DOM 变更，命中行不变
+      await move(geom.x + 40, fileRow.mid);
+      const sameRow = await state(fileRow.mid);
+      // 换到另一行
+      const otherRow = geom.rows.filter((row) => row.key !== fileRow.key).at(-1);
+      await move(geom.x, otherRow.mid);
+      const otherRowState = await state(otherRow.mid);
+      const mutations = await scene.page.evaluate(() => {
+        window.__hoverObserver.disconnect();
+        return window.__hoverMutations;
+      });
+
+      // ② 空白区不算最后一行（短列表：最后一行与列表底之间有空区）
+      const blankY = Math.round((geom.rows.at(-1).bottom + geom.listBottom) / 2);
+      await move(geom.x, blankY);
+      const blank = await state(blankY);
+      await move(geom.x, geom.rows.at(-1).mid);
+      const lastRow = await state(geom.rows.at(-1).mid);
+
+      // ③ 长列表：滚动 / 增删 / 行高变化 / 折叠后按指针位置重新命中
+      const makeFiles = (count, from) => {
+        const list = [];
+        for (let i = from; i < from + count; i += 1) {
+          const name = `File${String(i).padStart(2, '0')}.cs`;
+          list.push({ path: `src/${name}`, name, directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true });
+        }
+        return list;
+      };
+      const inject = async (files) => {
+        await scene.page.evaluate((list) => {
+          window.__liveFiles = list;
+          window.__hostPush('workspace-changed', { files: list.map((f) => f.path), gitMetadata: false });
+        }, files);
+        await scene.page.waitForTimeout(1300);
+      };
+      await inject(makeFiles(40, 0));
+      const longGeom = await rects();
+      const spotY = Math.round((longGeom.rows[0].top + longGeom.listBottom) / 2);
+      await move(longGeom.x, spotY);
+      const hit0 = await state(spotY);
+      // 滚动：指针不动，内容移动 ⇒ 命中行必须跟着几何走
+      await scene.page.mouse.wheel(0, 160);
+      await scene.page.waitForTimeout(400);
+      const hitScrolled = await state(spotY);
+      // 列表增删：指针不动
+      await inject(makeFiles(20, 40));
+      await scene.page.waitForTimeout(200);
+      const hitGrown = await state(spotY);
+      // 行高变化：字号 13 → 20（指针不动）
+      await scene.page.evaluate(async () => { await window.applyTypography({ uiSize: 20 }); });
+      await scene.page.waitForTimeout(500);
+      const hitTypo = await state(spotY);
+      await scene.page.evaluate(async () => { await window.applyTypography({ uiSize: 13 }); });
+      await scene.page.waitForTimeout(400);
+      // 折叠：合成点击（不移动真实指针）⇒ 该处不再有可见行，可见悬停必须为空
+      await scene.page.evaluate(() => document.querySelector('.changes-list .change-chevron').click());
+      await scene.page.waitForTimeout(400);
+      const hitCollapsed = await state(spotY);
+      await scene.page.evaluate(() => document.querySelector('.changes-list .change-chevron').click());
+      await scene.page.waitForTimeout(400);
+      const hitExpanded = await state(spotY);
+
+      // ④ 销毁（工具窗口切换重建）清除悬停、重新显示不恢复旧状态
+      await move(longGeom.x, spotY);
+      const beforeHide = await state(spotY);
+      await scene.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await scene.page.waitForTimeout(500);
+      const hiddenPanel = await state(null);
+      await scene.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+      await scene.page.waitForTimeout(700);
+      const shownBack = await state(null);
+      await move(longGeom.x, spotY);
+      const shownBackMoved = await state(spotY);
+
+      await scene.page.close();
+      const payload = {
+        neutral, styled, sameRow, otherRow: otherRowState, mutations, fileRow: fileRow.key, otherRowKey: otherRow.key,
+        blankY, blank, lastRow,
+        hit0, hitScrolled, hitGrown, hitTypo, hitCollapsed, hitExpanded,
+        beforeHide, hiddenPanel, shownBack, shownBackMoved,
+      };
+      console.log('INFO 悬停重命中=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const oneVisible = (snapshot) => snapshot.hovered.length === 1 && snapshot.under.length === 1
+      && snapshot.hovered[0] === snapshot.under[0];
+    check('§7.6 悬停只改外观、不重绘列表（同一行内移动不重复重绘）: '
+      + JSON.stringify([hoverRehit.neutral.firstRowBg, hoverRehit.styled.firstRowBg, hoverRehit.mutations, hoverRehit.styled.sameNodes, hoverRehit.sameRow.hovered]),
+    // 基线（指针在列表外）该行没有悬停底；悬停后底色变化
+    hoverRehit.neutral.firstRowBg !== hoverRehit.styled.firstRowBg
+      && hoverRehit.neutral.hovered.length === 0
+      // 悬停期间列表零 DOM 变更（含 attributes），且行节点身份不变 ⇒ 没有重绘任何行
+      && hoverRehit.mutations === 0
+      && hoverRehit.styled.sameNodes === true
+      // 命中行就是几何上在指针下的那一行；同一行内横向移动不改变命中行
+      && oneVisible(hoverRehit.styled)
+      && hoverRehit.sameRow.hovered[0] === hoverRehit.styled.hovered[0]
+      && oneVisible(hoverRehit.sameRow)
+      // 换行后只有新行悬停
+      && oneVisible(hoverRehit.otherRow)
+      && hoverRehit.otherRow.hovered[0] === hoverRehit.otherRowKey);
+    check('§7.6 滚动、列表增删、行高变化与折叠后按指针位置重新命中: '
+      + JSON.stringify([hoverRehit.hit0.hovered, hoverRehit.hitScrolled.hovered, hoverRehit.hitGrown.hovered, hoverRehit.hitTypo.hovered, hoverRehit.hitCollapsed.hovered, hoverRehit.hitExpanded.hovered]),
+    // 基线：指针下的那一行被悬停
+    oneVisible(hoverRehit.hit0)
+      // 滚动后：命中行跟着几何走（内容真的移动了 ⇒ 新行与基线不同）
+      && hoverRehit.hitScrolled.scrollTop > hoverRehit.hit0.scrollTop
+      && oneVisible(hoverRehit.hitScrolled)
+      && hoverRehit.hitScrolled.hovered[0] !== hoverRehit.hit0.hovered[0]
+      // 列表增删后：仍是几何上在指针下的那一行
+      && oneVisible(hoverRehit.hitGrown)
+      // 行高变化后：行高确实变了（27 → 31），命中行仍与几何一致
+      && hoverRehit.hitTypo.rowHeight > hoverRehit.hitGrown.rowHeight
+      && oneVisible(hoverRehit.hitTypo)
+      // 折叠后：该处没有可见行，可见悬停必须为空（隐藏行上的陈旧 :hover 匹配不算）
+      && hoverRehit.hitCollapsed.visibleCount < hoverRehit.hitTypo.visibleCount
+      && hoverRehit.hitCollapsed.hovered.length === 0
+      // 展开后重新命中
+      && oneVisible(hoverRehit.hitExpanded));
+    check('§7.6 空白区不算最后一行: '
+      + JSON.stringify([hoverRehit.blankY, hoverRehit.lastRow.lastRowBottom, hoverRehit.blank.hovered, hoverRehit.lastRow.hovered]),
+    // 空白点确实在最后一行之下、列表之内（否则这条断言会因为点在列表外而空过）
+    hoverRehit.blankY > hoverRehit.lastRow.lastRowBottom
+      && hoverRehit.blankY < hoverRehit.lastRow.listBottom
+      && hoverRehit.blank.under.length === 0
+      && hoverRehit.blank.hovered.length === 0
+      // 同一根指针移到最后一行上就必须命中它（证明空区为空是判据本身的结果）
+      && oneVisible(hoverRehit.lastRow));
+    check('§7.6 隐藏/销毁后清除悬停、重新显示不恢复旧状态: '
+      + JSON.stringify([hoverRehit.beforeHide.hovered, hoverRehit.hiddenPanel.panel, hoverRehit.shownBack.hovered, hoverRehit.shownBackMoved.hovered]),
+    // 切换工具窗口前：命中行在悬停
+    oneVisible(hoverRehit.beforeHide)
+      // 隐藏后提交工具窗已销毁（列表不在文档里）
+      && hoverRehit.hiddenPanel.panel === false
+      && hoverRehit.hiddenPanel.hovered.length === 0
+      // 重新显示、指针仍在原处时：**不得**恢复旧悬停——可见悬停只能是几何上在指针下的行
+      && hoverRehit.shownBack.hovered.every((key) => hoverRehit.shownBack.under.includes(key))
+      // 指针移到列表内后照常命中
+      && oneVisible(hoverRehit.shownBackMoved));
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
