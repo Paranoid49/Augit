@@ -7862,3 +7862,68 @@ A 类队列里挑 §7.5 第 2、4 条 —— 两条都属"图片页只影响图�
 
 A 类队列 65 行。§7.5 还剩第 6 条（外部更新复用预览并保留缩放位置）、第 7 条（>150ms 才在画布中心给加载提示、
 旧请求失效）、第 8 条（缩小平滑采样与 100% 原像素）—— 第 7 条需要先给实时图片路径补"画布中心加载态"。
+
+## trecentum-quadraginta-tres. 第二百四十三轮：实时图片的加载提示、旧请求与标签条（§7.5 第 7 条）
+
+A 类队列里挑 §7.5 第 7 条。静态态（`?image-state=loading`）早有断言，缺的四半都在**实时侧**：
+150ms 阈值、不抢当前文档与焦点、旧请求失效、关闭后晚到位图释放。补断言的过程里又挂出两处真实缺陷。
+
+### 新实现：实时图片画布中心的加载提示
+
+`live-data.js` 新增 `live.imagePreview` 状态与 `scheduleImagePreviewHint()`／`syncImagePreviewState()`／
+`clearImagePreviewState()`（与 Markdown 预览的 §7.3 提示同一套做法：状态进 `live`，DOM 只按状态增删节点，
+并在 `rebindAfterRender()` 里按状态补回被区域重绘抹掉的节点）。只对"**当前显示的就是图片**"给提示 ——
+首次打开图片时画布还不存在，正文走 §6.7 的读取占位。
+
+### 挂出来的缺陷一：图片/JSON 的标签条是视觉稿样例标签
+
+实时侧打开图片后，标签条上是一个 `href="image-preview.html"`、**没有 `data-tab-id`** 的样例标签
+（`shell()` 的 `editor === "image"`／`"json"` 分支硬编码了静态标签）。后果有三：
+
+1. `web/` 下只有 `index.html` ⇒ 点这个标签会**整页导航到 404**；
+2. 没有 `data-tab-id` ⇒ 关闭叉、中键关闭、点击激活全部失效（`bindEditorTabs` 只认 `[data-tab-id]`）；
+3. 实测关闭叉点了没反应（`tabs` 1 → 1、`pending` 仍在）。
+
+修法：`shell()` 把两个静态分支收进 `staticTabs`，实时外壳一律用 `editorTabs()`（`live.tabs`）。
+修后实测：标签 `data-tab-id="tab-1"`、`href="#"`，关闭叉真的关得掉。
+
+### 挂出来的缺陷二：关闭标签后晚到的位图会复活标签
+
+`closeTab()` 不推进 `documentToken`，于是在途的文档读取晚到时仍走成功分支，把刚关掉的标签重新建出来。
+修法：关闭的标签是文档且正是 `live.pendingDocument` 时推进令牌并清掉在途/提示状态
+（规格 §7.5 明确要求"关闭后晚到位图必须释放"，这条对普通文档同样成立）。
+
+### 实测（外部更新推送 + `__readDelays` 注入慢读）
+
+| 时刻 | 观测 |
+| --- | --- |
+| 基线 | 图在、无提示、`pending=null`、标签 `tab-1` |
+| 推送后 80ms | `pending=web/image-sample.png`，**无提示**（150ms 阈值） |
+| ~300ms | 提示「正在读取文件…」、`role=status`、与画布中心差 ≤2px；工具栏 3 键／标签 1 个／画布 787×616 逐值不变；旧图仍在；焦点仍在树行 |
+| 完成 | 提示撤去、`pending=null`、`imagePreview=null`、图仍在 |
+| 在途时改开 notes.txt | 晚到位图不覆盖：`path=docs/notes.txt`、`editor=text`、`dataUrl=false`、`.image-stage` 0 个 |
+| 在途时关闭图片标签 | 标签条只剩 notes.txt；等 1.5s 后**不复活**、`.image-stage` 仍 0 个 |
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 | 判据要点 |
+| --- | --- | --- |
+| 1 | 刷新超过 150ms 才在图片画布中心提示，不改工具栏/标签/面板尺寸，完成即撤去 | 上表前三档 + 焦点与当前文档不被抢 + 实时标签有 `data-tab-id` 且 `href="#"` |
+| 2 | 图片读取旧请求失效、关闭后晚到位图释放 | 晚到不覆盖新文档（path/editor/dataUrl 三项）＋ 关闭后不复活标签 |
+
+### 验证
+
+- `live-shell` **`通过 1282 项断言`**（1280 → **+2**），退出码 0。
+  第一次全量跑还抓到我本轮引入的一处回归：`syncImagePreviewState()` 会把**静态** `?image-state=loading`
+  的提示节点也删掉（那条断言已有），修法是给实时提示加 `data-live-hint="true"`、只删自己加的节点。
+- 运行时文件与共享视觉稿都改了 ⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、`mockup-scenes` **55/55**、
+  全部 **39** 个 `verify-ux-*.cjs` 通过（静态页无 `live`，标签条分支未变）。
+- 登记哈希：`mockup.js` `c42a3216…` → **`98664052f6976ed5aed4c492a4d0f5f4`**；
+  `live-data.js` `c15acb7d…` → **`273635f5d5a9ad4601ecac4b90f5b5e9`**；
+  `live-shell.spec.cjs` `3df40383…` → **`81bc6ca5fcfe5cc2241ad30b7ea47244`**。
+- §2.6 §7.5 第 7 行由"部分"转 **是**；§2.10 重算：分母 85 → **84**，A **65 → 64**。
+
+### 下一轮
+
+§7.5 还剩第 6 条（外部更新复用预览并保留缩放位置）、第 8 条（缩小平滑采样与 100% 原像素）、
+第 5 条（工具栏/面板尺寸不因提示变化之外的部分）。之后转 §7.6、§7.7。

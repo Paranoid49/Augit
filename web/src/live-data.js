@@ -4661,6 +4661,9 @@ function rebindAfterRender() {
   // 规格 §7.8：历史列表滚动触底加载下一页；追加后的滚动位置在新节点上还原。
   bindHistoryScroll();
   restoreHistoryScroll();
+  // 图片画布中心的加载提示是"状态 → DOM"：区域重绘会抹掉追加的节点，重绘后按状态补回
+  //（规格 §7.5：提示只属于当时那张图，读取完成或切标签时由 `clearImagePreviewState()` 撤去）。
+  syncImagePreviewState();
   restoreChangesState();
   bindOverlayEscape();
   bindTitlebarMenuEscape();
@@ -4734,6 +4737,12 @@ function syncActiveTab() {
   if (previewState && previewState.path
       && (!tab || tab.kind !== "document" || tab.path !== previewState.path)) {
     live.markdownPreview = null;
+  }
+  // 图片画布的加载提示同理（规格 §7.5）：它只属于"当时显示的那张图"。
+  const imageState = live.imagePreview;
+  if (imageState && imageState.path
+      && (!tab || tab.kind !== "document" || tab.path !== imageState.path)) {
+    clearImagePreviewState();
   }
   if (tab && tab.kind === "document") {
     live.document = tab.document;
@@ -4830,6 +4839,17 @@ function closeTab(id) {
     // 于是"关闭后解除跟随"失效——之后改选提交或文件会重新创建比较标签（规格 §5.2）。
     historyComparisonToken += 1;
     closeDiff();
+  }
+
+  // 关闭标签要让**这个文件**在途的读取失效：否则晚到的响应会走 `openDocument` 的成功分支，
+  // 把刚关掉的标签重新建出来 —— 规格 §7.5 明确要求"关闭后晚到位图必须释放"，
+  // 而这条对普通文档同样成立（`documentToken` 是全局的，因此只在该文件正是待打开路径时才推进）。
+  if (closing && closing.kind === "document" && live.pendingDocument === closing.path) {
+    documentToken += 1;
+    live.pendingDocument = null;
+    clearTimeout(markdownPreviewHintTimer);
+    markdownPreviewHintTimer = null;
+    clearImagePreviewState();
   }
 
   if (!wasActive) {
@@ -11785,6 +11805,68 @@ function scheduleMarkdownPreviewHint(token) {
 }
 
 /**
+ * 图片画布的加载提示（规格 §7.5）：**已经显示着图片**时重新读取超过 `LoadingFeedbackDelay`（150ms）
+ * 才在画布中心显示"正在读取文件…"，不改变工具栏、标签或面板尺寸；完成或失败后撤去。
+ * 短读取不闪提示。状态进 `live.imagePreview`，DOM 只按状态渲染 —— 与 Markdown 预览的 §7.3 提示同一套做法。
+ *
+ * 只对"当前显示的就是图片"这一种情况给提示：首次打开图片时画布还不存在，正文走 §6.7 的读取占位。
+ */
+let imagePreviewHintTimer = null;
+
+function isImageDocumentVisible() {
+  const live = window.__augitLive;
+  return !!(live && live.document && live.document.editor === "image");
+}
+
+/** 按 `live.imagePreview` 就地增删画布中心的提示节点（不重绘正文，尺寸与其它区域都不动）。 */
+function syncImagePreviewState() {
+  const stage = document.querySelector(".document-view .image-stage");
+  if (!stage) return;
+  const live = window.__augitLive;
+  const state = live && live.imagePreview;
+  const loading = !!(state && state.state === "loading");
+  const hint = stage.querySelector(".image-loading");
+  // 只认**自己加的**提示：`?image-state=loading` 是视觉稿/静态审计用的加载态（由 `image-preview.js` 建节点），
+  // 不能被这里的同步逻辑删掉（第 243 轮全量跑抓到的回归）。
+  const liveHint = stage.querySelector('.image-loading[data-live-hint="true"]');
+  if (loading && !hint) {
+    const node = document.createElement("div");
+    node.className = "image-loading";
+    node.dataset.liveHint = "true";
+    node.setAttribute("role", "status");
+    node.textContent = "正在读取文件…";
+    stage.append(node);
+  } else if (!loading && liveHint) {
+    liveHint.remove();
+  }
+}
+
+/** 读取在途超过 150ms 才给提示（规格 §7.5）；读取结束时由 `openDocument` 取消。 */
+function scheduleImagePreviewHint(token) {
+  clearTimeout(imagePreviewHintTimer);
+  imagePreviewHintTimer = null;
+  if (!isImageDocumentVisible()) return;
+  imagePreviewHintTimer = setTimeout(() => {
+    imagePreviewHintTimer = null;
+    if (token !== documentToken) return;
+    if (!isImageDocumentVisible()) return;
+    const live = window.__augitLive;
+    if (!live || !live.pendingDocument) return;
+    live.imagePreview = { state: "loading", path: live.document ? live.document.path : null };
+    syncImagePreviewState();
+  }, LoadingFeedbackDelay);
+}
+
+/** 撤去图片加载提示并清状态（读取完成、失败或切换标签都走这里）。 */
+function clearImagePreviewState() {
+  clearTimeout(imagePreviewHintTimer);
+  imagePreviewHintTimer = null;
+  const live = window.__augitLive;
+  if (live) live.imagePreview = null;
+  syncImagePreviewState();
+}
+
+/**
  * 大文件只读预览的警告是否已隐藏。
  *
  * 权威的两个动作用两处状态：`HIDDEN_KEY` 记在**编辑器**上（本次打开内隐藏）、
@@ -11820,6 +11902,7 @@ async function openDocument(path, options = {}) {
   // 规格 §7.3：预览加载期间保留原文或上一次预览，**只在预览侧**显示局部加载状态；
   // 短读取（<150ms）不闪提示。
   scheduleMarkdownPreviewHint(token);
+  scheduleImagePreviewHint(token);
   try {
     const payload = await fetchDocument(path);
     // 令牌检查必须在写入任何状态之前：快速连续打开时，
@@ -11842,6 +11925,7 @@ async function openDocument(path, options = {}) {
     clearTimeout(markdownPreviewHintTimer);
     markdownPreviewHintTimer = null;
     live.markdownPreview = null;
+    clearImagePreviewState();
     refresh("statusbar");
   } catch (error) {
     // 失败路径也必须清掉"读取中"状态，否则状态栏会**卡在**"只读 + 待打开路径"上（成功路径已清）。
@@ -11864,6 +11948,7 @@ async function openDocument(path, options = {}) {
 
     clearTimeout(markdownPreviewHintTimer);
     markdownPreviewHintTimer = null;
+    clearImagePreviewState();
     // 规格 §7.3：失败提示给出**当前原因**，且"原文或旧预览继续可见，用户可再次点击预览重试"。
     // 这一条只对**已经显示着 Markdown 文档**的正文成立（提示挂在预览区顶部）；其它情况保持
     // 原有行为：不留下半截文档，清空并记录原因，界面回退到「无文档」状态。

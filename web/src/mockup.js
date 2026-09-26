@@ -4348,7 +4348,11 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     editorBody = `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>正在计算差异…</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "当前版本", "HEAD → 当前版本")}<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>正在加载 app.manifest 的差异</span></div><div class="diff-loading-side">${loadingLines()}</div><div class="diff-loading-gutter">${loadingGutterLines}</div><div class="diff-loading-side">${loadingLines(3)}</div></div></div>`;
   }
   if (editor === "empty") editorBody = `<div class="empty-state">选择文件以查看内容</div>`;
-  const tabs = editor === "image"
+  // 实时外壳下标签条**一律**来自 `live.tabs`（规格 §5.2）。此前 `editor === "image"`／`"json"`
+  // 两个分支渲染的是**视觉稿样例标签**：`href="image-preview.html"`（`web/` 下只有 `index.html`，
+  // 点它会整页导航到 404），而且没有 `data-tab-id` ⇒ 关闭叉、中键关闭、点击激活全部失效
+  //（第 243 轮实测：实时侧打开图片后，标签条上是一个没有 tab-id 的样例标签）。
+  const staticTabs = editor === "image"
     ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button></div>`
     : editor === "json"
     ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button></div>`
@@ -4357,6 +4361,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
+  const tabs = live ? editorTabs("", editorExtra) : staticTabs;
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
   return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail, railGitReason)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }

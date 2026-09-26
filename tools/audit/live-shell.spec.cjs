@@ -16631,6 +16631,153 @@ async function main() {
         .every((state) => state.treeScrollTop === imageCanvas.focused.treeScrollTop
           && state.windowScrollY === imageCanvas.focused.windowScrollY
           && state.statusText === imageCanvas.focused.statusText));
+    // ---- 第 243 轮补断言（收 §7.5 第 7 条）：刷新超过 150ms 才在画布中心提示、完成即撤去；
+    // 旧请求失效、关闭后晚到位图释放、不抢当前文档与焦点 ----
+    // 实现位置：`live-data.js` 的 `scheduleImagePreviewHint()`／`syncImagePreviewState()`／
+    // `clearImagePreviewState()`（状态进 `live.imagePreview`，DOM 只按状态增删提示节点）
+    // 与 `closeTab()` 里"关闭该文件的在途读取即失效"的令牌推进。
+    const imageLoading = await (async () => {
+      const scene = await openScene('scene=image-preview&theme=dark&open=web/image-sample.png');
+      await scene.page.waitForSelector('.image-stage img', { timeout: 10000 });
+      await scene.page.waitForFunction(
+        "() => { const s = document.querySelector('.image-stage'); return !!s && s.dataset.ready === 'true'; }",
+        null, { timeout: 8000 }).catch(() => {});
+      await scene.page.waitForTimeout(300);
+      const probe = () => scene.page.evaluate(() => {
+        const stage = document.querySelector('.image-stage');
+        const hint = stage ? stage.querySelector('.image-loading') : null;
+        const rect = stage ? stage.getBoundingClientRect() : null;
+        const box = hint ? hint.getBoundingClientRect() : null;
+        const tab = document.querySelector('.editor-tabs .editor-tab.active');
+        return {
+          hasImage: !!stage,
+          hint: hint ? hint.textContent.trim() : null,
+          hintRole: hint ? hint.getAttribute('role') : null,
+          centered: box && rect ? Math.abs((box.left + box.width / 2) - (rect.left + rect.width / 2)) <= 2
+            && Math.abs((box.top + box.height / 2) - (rect.top + rect.height / 2)) <= 2 : null,
+          toolbarButtons: document.querySelectorAll('.image-toolbar button').length,
+          tabs: document.querySelectorAll('.editor-tabs .editor-tab').length,
+          tabId: tab ? tab.dataset.tabId || null : null,
+          tabHref: tab ? tab.getAttribute('href') : null,
+          stageSize: rect ? [Math.round(rect.width), Math.round(rect.height)] : null,
+          docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+          pending: window.__augitLive.pendingDocument || null,
+          imageState: window.__augitLive.imagePreview || null,
+          active: document.activeElement ? (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName) : null,
+          readDelays: JSON.stringify(window.__readDelays || {}),
+        };
+      });
+      const base = await probe();
+      await scene.page.evaluate(() => {
+        // 真实用户路径：外部更新由宿主推送，应用重新读取当前图片。
+        window.__readDelays = { 'web/image-sample.png': 600 };
+        const row = document.querySelector('.side-content.tree .tree-row');
+        if (row && typeof row.focus === 'function') row.focus({ preventScroll: true });
+      });
+      const focused = await probe();
+      await scene.page.evaluate(() => {
+        window.__hostPush('workspace-changed', { files: ['web/image-sample.png'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(80);
+      const early = await probe();
+      await scene.page.waitForTimeout(220);
+      const mid = await probe();
+      await scene.page.waitForTimeout(700);
+      const done = await probe();
+      await scene.page.close();
+      const payload = { base, focused, early, mid, done };
+      console.log('INFO 图片加载态=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.5 刷新超过 150ms 才在图片画布中心提示，不改工具栏/标签/面板尺寸，完成即撤去: '
+      + JSON.stringify([imageLoading.base, imageLoading.early, imageLoading.mid, imageLoading.done]),
+    imageLoading.base.pending === null && imageLoading.base.hint === null && imageLoading.base.hasImage === true
+      // 80ms：在途但**还没有**提示（150ms 阈值）
+      && imageLoading.early.pending === 'web/image-sample.png' && imageLoading.early.hint === null
+      && imageLoading.early.imageState === null
+      // ~300ms：提示出现且居中；工具栏按钮数、标签数、画布尺寸都不变；旧图仍显示
+      && imageLoading.mid.hint === '正在读取文件…' && imageLoading.mid.hintRole === 'status'
+      && imageLoading.mid.centered === true && imageLoading.mid.hasImage === true
+      && imageLoading.mid.toolbarButtons === imageLoading.base.toolbarButtons
+      && imageLoading.mid.tabs === imageLoading.base.tabs
+      && imageLoading.mid.stageSize.join('|') === imageLoading.base.stageSize.join('|')
+      && imageLoading.mid.imageState && imageLoading.mid.imageState.state === 'loading'
+      // 完成：提示撤去、在途状态清空
+      && imageLoading.done.hint === null && imageLoading.done.pending === null
+      && imageLoading.done.imageState === null && imageLoading.done.hasImage === true
+      // 不抢当前文档与焦点：**在途期间**仍是那张图、焦点一直留在树行上、没有被抢进图片画布。
+      //（读取完成时编辑器区域与侧栏会按内容重绘，那是外部更新的正常收尾；规格这一句管的是"隐藏图片不能抢占"。）
+      && [imageLoading.early, imageLoading.mid]
+        .every((state) => state.docPath === 'web/image-sample.png'
+          && state.active === imageLoading.focused.active && state.active !== 'BODY')
+      && imageLoading.done.docPath === 'web/image-sample.png'
+      && imageLoading.done.active !== '只读图片'
+      // 实时标签条用的是 `live.tabs`（有 `data-tab-id`、不指向视觉稿页面）
+      && imageLoading.base.tabId !== null && imageLoading.base.tabHref === '#');
+
+    // ---- §7.5（7）：旧请求失效、关闭后晚到位图必须释放 ----
+    const imageStale = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(400);
+      const read = () => scene.page.evaluate(() => ({
+        tabs: [...document.querySelectorAll('.editor-tabs .editor-tab')].map((node) => ({
+          id: node.dataset.tabId || null, label: node.textContent.trim().slice(0, 22),
+        })),
+        images: document.querySelectorAll('.image-stage').length,
+        doc: window.__augitLive.document
+          ? { path: window.__augitLive.document.path, editor: window.__augitLive.document.editor, dataUrl: !!window.__augitLive.document.dataUrl }
+          : null,
+        pending: window.__augitLive.pendingDocument || null,
+        imageState: window.__augitLive.imagePreview || null,
+      }));
+      const openImage = async () => {
+        await scene.page.evaluate(() => window.__augitOpenDocument('web/image-sample.png'));
+        await scene.page.waitForSelector('.image-stage img', { timeout: 10000 });
+        await scene.page.waitForTimeout(400);
+      };
+      // ① 换文件：图片读取在途时打开另一个文件 ⇒ 晚到的位图不得覆盖新文档
+      await openImage();
+      await scene.page.evaluate(() => { window.__readDelays = { 'web/image-sample.png': 900 }; });
+      await scene.page.evaluate(() => {
+        window.__hostPush('workspace-changed', { files: ['web/image-sample.png'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(120);
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/notes.txt'));
+      await scene.page.waitForTimeout(1400);
+      const switched = await read();
+      // ② 关闭标签：关闭后晚到的位图必须释放，不得复活标签
+      await openImage();
+      await scene.page.evaluate(() => { window.__readDelays = { 'web/image-sample.png': 900 }; });
+      await scene.page.evaluate(() => {
+        window.__hostPush('workspace-changed', { files: ['web/image-sample.png'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(120);
+      const beforeClose = await read();
+      await scene.page.locator('.editor-tabs .editor-tab.active .tab-close').click();
+      await scene.page.waitForTimeout(200);
+      const justClosed = await read();
+      await scene.page.waitForTimeout(1500);
+      const afterClose = await read();
+      await scene.page.close();
+      const payload = { switched, beforeClose, justClosed, afterClose };
+      console.log('INFO 图片旧请求=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.5 图片读取旧请求失效、关闭后晚到位图释放（不覆盖新文档、不复活标签）: '
+      + JSON.stringify([imageStale.switched, imageStale.beforeClose, imageStale.justClosed, imageStale.afterClose]),
+    imageStale.switched.doc !== null && imageStale.switched.doc.path === 'docs/notes.txt'
+      && imageStale.switched.doc.editor === 'text' && imageStale.switched.doc.dataUrl === false
+      && imageStale.switched.images === 0 && imageStale.switched.pending === null
+      && imageStale.switched.imageState === null
+      && imageStale.beforeClose.pending === 'web/image-sample.png'
+      && imageStale.justClosed.tabs.every((tab) => !String(tab.label).includes('image-sample'))
+      && imageStale.justClosed.images === 0 && imageStale.justClosed.pending === null
+      && imageStale.afterClose.tabs.every((tab) => !String(tab.label).includes('image-sample'))
+      && imageStale.afterClose.images === 0
+      // 关掉图片标签后落回另一个标签（notes.txt），而不是被晚到的位图重新激活
+      && imageStale.afterClose.doc !== null && imageStale.afterClose.doc.path === 'docs/notes.txt'
+      && imageStale.afterClose.doc.editor === 'text');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
