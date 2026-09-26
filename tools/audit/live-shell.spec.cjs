@@ -16512,6 +16512,125 @@ async function main() {
       && fontMetrics.after.historyCalls === fontMetrics.before.historyCalls
       && fontMetrics.after.statusCalls === fontMetrics.before.statusCalls
       && fontMetrics.identity.sameRow === true && fontMetrics.identity.rows === fontMetrics.before.rows);
+    // ---- 第 242 轮补断言（收 §7.5 第 2、4 条）：棋盘格只覆盖图片矩形、外围画布纯色；
+    // 按钮缩放保留焦点、缩放/拖动/按键只影响图片 ----
+    // 实现位置：`mockup.css` 把棋盘格画在 `.image-stage img` 自己的 `background-image` 上
+    //（`conic-gradient` + `background-size: 16px 16px`），`.image-stage` 只给纯色画布；
+    // `image-preview.js` 的 `render()`／按钮点击只改 `<img>` 的尺寸与位置，不动其它区域。
+    const imageCanvas = await (async () => {
+      const scene = await openScene('scene=image-preview&theme=dark&open=web/image-sample.png');
+      await scene.page.waitForSelector('.image-stage img', { timeout: 10000 });
+      await scene.page.waitForFunction(
+        "() => { const s = document.querySelector('.image-stage'); return !!s && s.dataset.ready === 'true'; }",
+        null, { timeout: 8000 }).catch(() => {});
+      await scene.page.waitForTimeout(400);
+      const probe = () => scene.page.evaluate(() => {
+        const stage = document.querySelector('.image-stage');
+        const img = stage.querySelector('img');
+        const style = getComputedStyle(stage);
+        const imgStyle = getComputedStyle(img);
+        const s = stage.getBoundingClientRect();
+        const i = img.getBoundingClientRect();
+        const token = (name) => {
+          const probeNode = document.createElement('span');
+          probeNode.style.background = `var(${name})`;
+          document.body.append(probeNode);
+          const value = getComputedStyle(probeNode).backgroundColor;
+          probeNode.remove();
+          return value;
+        };
+        const tree = document.querySelector('.side-content.tree');
+        return {
+          stageBgImage: style.backgroundImage,
+          stageBgColor: style.backgroundColor,
+          panelToken: token('--augit-panel'),
+          panelMutedToken: token('--augit-panel-muted'),
+          imgBgImage: imgStyle.backgroundImage,
+          imgBgSize: imgStyle.backgroundSize,
+          imgBgPosition: imgStyle.backgroundPosition,
+          insideStage: i.left >= s.left - 1 && i.right <= s.right + 1
+            && i.top >= s.top - 1 && i.bottom <= s.bottom + 1,
+          imgRect: [Math.round(i.left), Math.round(i.top), Math.round(i.width), Math.round(i.height)],
+          stageRect: [Math.round(s.left), Math.round(s.top), Math.round(s.width), Math.round(s.height)],
+          scale: Number(stage.dataset.scale),
+          fit: stage.dataset.fit,
+          active: document.activeElement
+            ? (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName) : null,
+          treeScrollTop: tree ? Math.round(tree.scrollTop) : null,
+          windowScrollY: Math.round(window.scrollY),
+          statusText: (document.querySelector('.statusbar') || {}).textContent || '',
+        };
+      });
+      const fit = await probe();
+      // 键盘聚焦「放大」后按真实 Enter：必须缩放且焦点留在按钮上
+      await scene.page.locator('.image-toolbar [aria-label="放大"]').focus();
+      const focused = await probe();
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForTimeout(300);
+      const afterEnter = await probe();
+      // 拖动 + 方向键：只影响图片，不动其它区域的滚动与状态栏。
+      // 必须先放大到图片**大于画布**——适应区域时 `image-preview.js` 明确不进入拖动
+      //（`picture.offsetWidth <= stage.clientWidth` 直接 return），方向键的平移也会被夹回 0。
+      for (let step = 0; step < 2; step += 1) {
+        await scene.page.locator('.image-toolbar [aria-label="放大"]').click();
+        await scene.page.waitForTimeout(150);
+      }
+      const beforeOps = await probe();
+      const box = await scene.page.locator('.image-stage').boundingBox();
+      await scene.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await scene.page.mouse.down();
+      await scene.page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2 + 20, { steps: 4 });
+      await scene.page.mouse.up();
+      await scene.page.waitForTimeout(250);
+      const afterDrag = await probe();
+      await scene.page.locator('.image-stage').focus();
+      await scene.page.keyboard.press('ArrowRight');
+      await scene.page.waitForTimeout(250);
+      const afterKey = await probe();
+      await scene.page.close();
+      const payload = { fit, focused, afterEnter, beforeOps, afterDrag, afterKey };
+      console.log('INFO 图片画布=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.5 透明棋盘格只覆盖图片矩形、外围主题画布是纯色: '
+      + JSON.stringify([imageCanvas.fit.stageBgImage, imageCanvas.fit.stageBgColor,
+        imageCanvas.fit.imgBgSize, imageCanvas.fit.imgBgPosition, imageCanvas.fit.insideStage]),
+    imageCanvas.fit.stageBgImage === 'none'
+      && imageCanvas.fit.stageBgColor === imageCanvas.fit.panelToken
+      && imageCanvas.fit.stageBgColor.startsWith('rgb(')
+      && imageCanvas.fit.imgBgImage.includes('conic-gradient')
+      && imageCanvas.fit.imgBgImage.includes(imageCanvas.fit.panelToken)
+      && imageCanvas.fit.imgBgImage.includes(imageCanvas.fit.panelMutedToken)
+      && imageCanvas.fit.imgBgSize === '16px 16px'
+      && imageCanvas.fit.imgBgPosition === '8px 0px'
+      && imageCanvas.fit.insideStage === true
+      && imageCanvas.fit.stageRect[2] > imageCanvas.fit.imgRect[2]);
+    check('§7.5 按钮缩放保留焦点、缩放/拖动/按键只影响图片: '
+      + JSON.stringify([imageCanvas.focused, imageCanvas.afterEnter, imageCanvas.beforeOps,
+        imageCanvas.afterDrag, imageCanvas.afterKey]),
+    imageCanvas.focused.active === '放大'
+      && imageCanvas.afterEnter.active === '放大'
+      && imageCanvas.afterEnter.scale > imageCanvas.focused.scale
+      // 放大到 200%：图片宽高都超过画布，拖动与方向键才有作用
+      && imageCanvas.beforeOps.scale >= 2
+      && imageCanvas.beforeOps.imgRect[2] > imageCanvas.beforeOps.stageRect[2]
+      && imageCanvas.afterEnter.statusText === imageCanvas.focused.statusText
+      // 拖动：图片位置变化、画布不动；且被夹在画布边缘内（200% 时横向可平移范围只有 ±7px）
+      && imageCanvas.afterDrag.imgRect[0] > imageCanvas.beforeOps.imgRect[0]
+      && imageCanvas.afterDrag.imgRect[0] <= imageCanvas.afterDrag.stageRect[0] + 1
+      && imageCanvas.afterDrag.stageRect.join('|') === imageCanvas.beforeOps.stageRect.join('|')
+      // 方向键：向右按键把图片**向左**移动，且仍夹在画布范围内
+      //（32px 的整步只在未触边时可观测；此处已在上限边缘，因此断言方向 + 边界）
+      && imageCanvas.afterKey.imgRect[0] < imageCanvas.afterDrag.imgRect[0]
+      // 边界不变量：图片右缘不得越过画布右缘（留白）——即左移最多到
+      // `画布左 + 画布宽 − 图片宽`（800 宽图片在 787 宽画布里最多左移到 373）
+      && imageCanvas.afterKey.imgRect[0] >= imageCanvas.afterKey.stageRect[0]
+        + imageCanvas.afterKey.stageRect[2] - imageCanvas.afterKey.imgRect[2] - 1
+      // 全程不动其它区域：项目树滚动、页面滚动、状态栏文本都不变
+      && [imageCanvas.beforeOps, imageCanvas.afterDrag, imageCanvas.afterKey]
+        .every((state) => state.treeScrollTop === imageCanvas.focused.treeScrollTop
+          && state.windowScrollY === imageCanvas.focused.windowScrollY
+          && state.statusText === imageCanvas.focused.statusText));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
