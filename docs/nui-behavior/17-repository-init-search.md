@@ -72,6 +72,20 @@ Augit 原来的 `repository-init` 场景是一个**模态确认对话框**（`�
 - Augit 的门槛是 **2.40**（`git-unavailable` 场景与设置页的最低版本说明，`ui-compliance.md:798` 有断言），比权威的 2.19.2 **更严**。这是 Augit 的产品决定 —— 它用到的 Git 能力（`worktree`、`--path-format` 一类）晚于 2.19，把门槛降到权威值会让运行期出现"命令不存在"。⇒ **登记不改**（属能力门槛，不是界面交互）。
 - 权威在缺失/过旧时给的是 **"Install Git {0}"／"Update to Git {0}"** 这类**下载安装**动作；Augit 只给"配置 git.exe"并提供检测结果与最低版本说明。下载安装属**新增能力**（联网拉取安装包），按边界**不新增** ⇒ 登记。
 
+### 3.1 入口禁用（第 215 轮落地，`ux-spec` §7.18 第 2 条）
+
+第 402 轮实测的缺口是：`git-unavailable` 下 5 个 rail 按钮里 `aria-disabled="true"` 的数量为 **0**（`ui-compliance.md` §2.6 §7.18 第 2 条记为"未覆盖"）。第 215 轮按 `ux-spec` §7.18 落地：
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.js` | `rail(active, gitUnavailableReason)`：原因非空时给「提交」「Git 历史」写 `aria-disabled="true"` ＋ `title` 原因；项目（树）、搜索（ripgrep）、终端都不依赖 Git，保持可用。`shell()` 新增 `gitUnavailable` 参数并从 `live.gitUnavailableReason` 取值；视觉稿场景 `git-unavailable` 传同一条原因 |
+| `web/src/live-data.js` | `bindToolRail()` 对 `aria-disabled="true"` 的入口 `preventDefault` 后直接返回：不切换工具窗口、不重复弹错（局部错误与「配置 git.exe」入口已在检测时给过一次） |
+| `web/src/mockup.css` | **未改** —— `.rail-button[aria-disabled="true"]` 的 faint 前景与悬停抑制此前已存在 |
+
+**与权威的关系**：PyCharm 没有"Git 不可用降级页"，它在缺 Git 时只是隐藏/禁用 VCS 入口（`ui-compliance.md` §1.6 记为 AUGIT_ONLY）；Augit 用显式降级页表达同一状态，入口的禁用表达与权威同向。属"现有功能的呈现方式"，不新增能力。
+
+**验证**：`live-shell` 两条断言（禁用标签集恰为「提交／Git 历史」、每个禁用入口带原因、其余三个可用；点击禁用入口前后 `live.layout.side` 与错误提示数不变）。
+
 ## 4. 验证（第 155 轮）
 
 - **第 159 轮补记**：§2 表里最后一行"结果的呈现与排序"已由"未采"改为"已对齐（弹层表面扁平行＋按文件路径排序）" —— 第 158 轮曾据"两个表面都用到 `UsageViewPresentation`"判定"都按文件分组"，第 159 轮钉住**表面**后撤销（见 `10-backlog.md` §三·补三）。

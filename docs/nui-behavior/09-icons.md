@@ -6589,3 +6589,47 @@ Augit 既有的产品口径是"条件不满足时禁用移除并**显示具体�
 - **未改运行时文件** ⇒ 四个登记哈希与 `live-shell 1220` 沿用第 212 轮；`verify-script-encoding.ps1` 由 13 → **14** 个脚本全 PASS。
 - **临时资源**：空仓库/大仓库 fixture 在 `D:\tmp-augit-perf\`，与结果 JSON 一起登记；性能模块收尾时按
   `docs/development-validation.md` §5 删除（保留复建命令）。9 次运行后代残留均为 0，设置文件已按字节还原。
+
+## ducentum-quindecim. 第二百一十五轮：Git 不可用时入口禁用（§7.18 第 2 条，关闭 T5）
+
+归类总表（`docs/ui-classification.md` §7）把 `ux-spec` §7.18 第 2 条登记为 **T5 待处理**：
+"提交和 Git 历史入口显示禁用状态及悬停原因"。第 402 轮实测的读数是"`git-unavailable` 下 5 个 rail 按钮里
+`aria-disabled='true'` 的数量为 0"，`ui-compliance.md` §2.6 该行状态为"未覆盖"。本轮关闭。
+
+### 权威与口径
+
+| 项 | 依据 |
+| --- | --- |
+| 通道的呈现 | PyCharm **没有**"Git 不可用降级页"，它在缺 Git 时只是**隐藏/禁用 VCS 入口**（`ui-compliance.md` §1.6 记为 AUGIT_ONLY） |
+| Augit 的产品要求 | `ux-spec` §7.18 第 2 条：入口显示禁用状态及悬停原因；第 1/4 条：保留文件浏览、只提示一次 |
+| 禁用态样式 | **已有**：`.rail-button[aria-disabled="true"]`（faint 前景、透明底）与 `:not([aria-disabled="true"])` 的悬停抑制此前就在 `mockup.css`，本轮**未改 CSS** |
+| 判定归属 | 属"现有功能的呈现方式"（不新增能力）：把宿主已有的"Git 不可用"状态表达在入口上 |
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.js` | `rail(active, gitUnavailableReason)`：原因非空时给「提交」「Git 历史」写 `aria-disabled="true"` ＋ `title`；项目/搜索(ripgrep)/终端保持可用。`shell()` 新增 `gitUnavailable` 参数；**live 下只取 `live.gitUnavailableReason`**（live 存在但无原因＝Git 可用，不退回场景参数），无 live 的视觉稿才用参数。`git-unavailable` 场景传同一条原因，静态基线与实时降级页一致 |
+| `web/src/live-data.js` | ① `bindToolRail()`：`aria-disabled="true"` 的入口 `preventDefault` 后直接返回（不切换工具窗口、不重复弹错）；② `showGitUnavailable()`：原因相对 live 已有值**变化**时 `refreshAfterEvent("rail")` —— `git/status` 通常慢于目录列举，原因晚于首帧到达是常规路径，不重绘入口就会停在"可用" |
+| `web/src/mockup.css` | 未改 |
+| `docs/ux-mockups/mockup.js` | 已字节同步（`verify-ui-assets.ps1` PASS） |
+
+### 验证
+
+- `tools/audit/live-shell.spec.cjs`：§7.18 实时块（注入 `__gitUnavailable`）新增 2 条断言 ——
+  「禁用标签集恰为 `['提交','Git 历史']`、每个禁用入口的 `title` 含原因、其余三个 `['项目','搜索','终端']` 未禁用」与
+  「点击禁用入口前后 `live.layout.side` 与错误提示数不变」；把原先那条"缺口钉住"断言
+  （`§7.18 缺口如实标注：Git 不可用**没有**把入口置为禁用`）改成对照断言（Git 可用时 `railDisabled === 0`）。
+  实测 **`live-shell 通过 1222 项断言`**（1220 → +2，退出码 0）。
+- 静态基线另用一次性 Playwright 检查确认：`git-unavailable.html` 的禁用标签集与原因正确、`main-project.html` 无禁用入口
+  （临时脚本跑完即删）。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净；
+  `ui-compliance.md` §2.10 由生成器重跑 → 非"是"条文 109 → **108**、C 类 11 → **10**。
+- 登记哈希（第 215 轮）：`mockup.js` → **`3568ae82d76a50a3086dd886bab3216a`**、
+  `live-data.js` → **`c8910e19155e1c027d188bcaca883f47`**；`mockup.css`（`8407d37b…`）／
+  `bridge.js`（`8d2d3173…`）未变；`live-shell.spec.cjs` → `164d5898254b6384609e8c2b388fe495`。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T4（Amend 覆盖条件）、T6（§2.10 C 类 10 条）、T9（树缩进/`Tree.border` 逐值核对）。

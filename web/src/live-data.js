@@ -2979,7 +2979,11 @@ function showGitUnavailable(reason) {
   window.__augitGitUnavailable = true;
   const live = window.__augitLive;
   if (!live) return;
+  const changed = live.gitUnavailableReason !== pendingGitUnavailableReason;
   live.gitUnavailableReason = pendingGitUnavailableReason;
+  // 提交/Git 历史入口的禁用态属于 `rail` 区域（ux-spec §7.18）：原因晚于首帧到达时必须重绘该区域，
+  // 否则入口会停在"可用"状态。`git/status` 通常比目录列举慢，这条是常规路径而非兜底。
+  if (changed) refreshAfterEvent("rail");
   // 提示只出现一次，但原因始终记录（后续入口的禁用说明需要它）。
   if (live.gitUnavailableShown) return;
   live.gitUnavailableShown = true;
@@ -4762,6 +4766,10 @@ function bindToolRail() {
     if (!button) return;
     // 外壳里这些入口是应用内动作，不是页面跳转。
     event.preventDefault();
+    // ux-spec §7.18：Git 不可用时提交与 Git 历史入口是禁用态（`rail()` 写入
+    // `aria-disabled` + `title` 原因）。点击不再切换工具窗口，也不重复弹错——
+    // 局部错误与「配置 git.exe」入口在检测时已给出一次。
+    if (button.getAttribute("aria-disabled") === "true") return;
     const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
     if (name) applyRailAction(name);
   }, true);

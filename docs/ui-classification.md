@@ -94,7 +94,7 @@
 | 2.29 | 三栏冲突解决器（唯一可编辑区、每侧高亮、整侧接受） | 已按 New UI 对齐 | `08` §7bis；`ThreesideMergeHighlighters` | `mockup.js` `conflict-*`、`live-data.js` | E1 `verify-ux-conflict.cjs` 72/72 |
 | 2.30 | 快速打开 / 跳转行（结果上限 30、进行中状态） | 已按 New UI 对齐 | `15`；`GotoFileAction`、`SearchEverywhereUI.java:217` | `search/files`、`mockup.js` | E1 live-shell（第 152/153/201 轮） |
 | 2.31 | 全仓搜索（浮层扁平行、1000 条上限、Continue/Abort） | 已按 New UI 对齐 | `17`；`UsageLimitUtil.java:26-34`、`FindPopupResultsAutoloadHandler.kt:69-80` | `search/text`、`live-data.js` | E1 `verify-ux-search-limited.cjs`、E2 |
-| 2.32 | Git 不可用（提示一次、配置入口） | 已按 New UI 对齐（**但缺一处禁用态**，见 §7 待处理 T5） | `17`；`GitExecutable` 检测 | `live-data.js` `showGitUnavailable` | E1 live-shell；E5 `17-repository-init-search.md` |
+| 2.32 | Git 不可用（提示一次、配置入口、提交/历史入口禁用） | 已按 New UI 对齐 | `17` §3；`GitExecutable` 检测（权威在缺 Git 时隐藏/禁用 VCS 入口） | `live-data.js` `showGitUnavailable`、`mockup.js` `rail()` 的禁用分支 | E1 live-shell（第 215 轮：禁用标签集、悬停原因、点击不切换） |
 | 2.33 | 内置终端（键位 Esc/Tab、标题栏三动作、会话回收） | 已按 New UI 对齐（**键位侧**）／**无法取证**（标签生命周期） | `19`；`TerminalEscapeKeyListener.java` | `live-data.js` xterm 接线 | E1 live-shell（第 157 轮）、E2 `ShellBridgeTerminalBufferTests` |
 | 2.34 | 终端标签生命周期／关闭确认／重命名 | **无法取证** | 权威写明已搬到 `org.jetbrains.plugins.terminal`（本 checkout 不含） | 按 `ux-spec` §7.16 与实现维护 | E5 `19-terminal.md`、`11-surface-audit.md` 第 5 区 |
 | 2.35 | 设置（分类/搜索/spotlight/底栏/快捷键/草稿） | 已按 New UI 对齐（**登记差异**见右） | `SettingsDialog.java:86-96`、`SettingsSearch.java`、`SpotlightPainter.kt` | `live-data.js` 设置 | E1 live-shell（第 195–197 轮） |
@@ -180,7 +180,7 @@
 | `settings-save-failure` | 已按 New UI 对齐 | E1、E4 |
 | `terminal` | 已按 New UI 对齐（键位）／无法取证（标签） | E1 live-shell（第 157 轮）；见 2.34 |
 | `terminal-close` | 无法取证（标签生命周期） | 见 2.34 |
-| `git-unavailable` | 已按 New UI 对齐（**缺禁用态**，见 T5） | E1 live-shell；E5 §2.10 |
+| `git-unavailable` | 已按 New UI 对齐 | E1 live-shell（第 215 轮：入口禁用 + 悬停原因 + 点击不切换） |
 | `index`（索引页） | 不适用 | 视觉稿索引，不是产品界面 |
 
 ## 5. 无法取证清单（含具体原因与处理结论）
@@ -211,11 +211,12 @@
 | T2 | 行内词级 Diff 高亮 | 权威键已定（`DIFF_*.BACKGROUND`），参考图证实存在；落地需宿主提供词级差异范围 | **需产品口径**：是否属"现有 diff 功能的呈现方式"（触碰"不新增数据通道"边界） |
 | T3 | 操作进度条（`.progress-track`）实时侧不渲染 | `16-operation-progress.md` §3：当时因 Smart Checkout 未接线而搁置；**第 206–207 轮已接线** | 重新评估：按权威 `ProgressWindow`／`ProgressDialogUI` 决定是否给写操作补进度呈现 |
 | T4 | Amend"仅在用户没改过信息时才覆盖" | `12-commit-changes.md` §9 登记待做；权威 `:81` 依赖面板打开时的 `initialMessage`，Augit 无该基准 | 补基准并实现，或登记为差异（需说明理由） |
-| T5 | `git-unavailable` 下 rail 按钮无禁用态 | `ui-compliance.md` §2.10（第 402 轮实测）：5 个 rail 按钮 `aria-disabled="true"` 数量为 0 | 实现禁用 + 原因（对齐 `ux-spec` §7.18），或改规格说明（需裁决） |
-| T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 11 条 | `ui-compliance.md` §2.10；逐条列出（除已单列的 T5） | 每条补断言或明确不做；不得写成通过 |
+| T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **10** 条 | `ui-compliance.md` §2.10（第 215 轮重生成；原 11 条中的 `git-unavailable` 已闭环） | 每条补断言或明确不做；不得写成通过 |
 | T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
 | T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
 | T9 | 树/列表缩进与 `Tree.border = 4,12,4,12`、`List.border = 4,0,4,0` 的逐值核对 | `02-tree-list.md`；`design-system.md` §8.3 现写"树缩进 16px 一级步长"，与权威的 `Tree.border` 内距是两件事，尚未逐值核对 | 逐值核对权威 `Tree.border`／缩进并落地或登记差异（行为索引 §4 第 2 项已改标为"仍待做"） |
+
+**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。
 
 ## 8. 非界面目标项（不计入上面的功能归类）
 
@@ -231,3 +232,4 @@
 - 第 214 轮建立本文件（目标 Round 3）。来源：`11-surface-audit.md` 的 11 区结论、`ui-compliance.md` §1.4／§2.10／§3.2／§3.4、`10-backlog.md` 的裁决表、`design-system.md` §2/§8.3、各分册的权威出处。
 - 同轮修订两处规范矛盾（T7／T8）：`design-system.md` §8.3 的树悬停段落与 `intellij-platform-ui-behavior.md` §3 的四行旧状态，按已记录的用户裁决（第 100／116 轮）与已实施事实（第 11 模块）改标，去掉"待实施/待核实"字样；行为索引 §4 的第 2/3/4 项同步改标（第 2 项留下一处新登记的待办 T9）。
 - 归类判定原则：**"权威有、Augit 也有且按权威落地"= 已对齐；"权威有、产品明确不做"= 有意差异；"权威概念不适用"= 不适用；"权威材料不在本地"= 无法取证；其余未决 = 待处理**。不把"实现已有、只缺断言"写成"未实现"，也不把"未验证"写成"已对齐"。
+- 第 215 轮：关闭 T5。`ux-spec` §7.18 第 2 条（提交/Git 历史入口禁用 + 悬停原因）实现并断言：`web/src/mockup.js` 的 `rail(active, gitUnavailableReason)` 给这两个入口写 `aria-disabled`／`title`（项目/搜索/终端保持可用），`web/src/live-data.js` 的 `bindToolRail()` 对禁用入口直接返回；视觉稿场景 `git-unavailable` 传同一条原因，静态基线与实时降级页一致。`ui-compliance.md` §2.6 该行转"是"，§2.10 C 类 11→10。

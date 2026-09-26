@@ -2453,15 +2453,27 @@ function titlebar() {
     </header>`;
 }
 
-function rail(active) {
+/**
+ * 工具窗口轨。`gitUnavailableReason` 非空时，**提交**与 **Git 历史**入口按 ux-spec §7.18
+ * 禁用并给出悬停原因（权威在缺 Git 时隐藏/禁用 VCS 入口，Augit 用显式降级页表达该状态）。
+ * 项目树、搜索（ripgrep）与终端都不依赖 Git，保持可用。
+ */
+function rail(active, gitUnavailableReason = "") {
+  const disabled = typeof gitUnavailableReason === "string" && gitUnavailableReason.length > 0;
+  const button = (railName, label, href, iconName) => {
+    if (disabled && (railName === "commit" || railName === "history")) {
+      return `<a class="rail-button" href="${href}" aria-label="${label}" aria-disabled="true" title="${escapeHtml(gitUnavailableReason)}">${icon(iconName)}</a>`;
+    }
+    return `<a class="rail-button ${active === railName ? "active" : ""}" href="${href}" aria-label="${label}">${icon(iconName)}</a>`;
+  };
   return `
     <nav class="tool-rail" aria-label="工具窗口">
-      <a class="rail-button ${active === "project" ? "active" : ""}" href="main-project.html" aria-label="项目">${icon("folder")}</a>
-      <a class="rail-button ${active === "commit" ? "active" : ""}" href="commit-changes.html" aria-label="提交">${icon("git-commit-horizontal")}</a>
-      <a class="rail-button ${active === "search" ? "active" : ""}" href="repository-search.html" aria-label="搜索">${icon("search")}</a>
+      ${button("project", "项目", "main-project.html", "folder")}
+      ${button("commit", "提交", "commit-changes.html", "git-commit-horizontal")}
+      ${button("search", "搜索", "repository-search.html", "search")}
       <div class="rail-spacer"></div>
-      <a class="rail-button ${active === "terminal" ? "active" : ""}" href="terminal.html" aria-label="终端">${icon("square-terminal")}</a>
-      <a class="rail-button ${active === "history" ? "active" : ""}" href="git-history.html" aria-label="Git 历史">${icon("git-history")}</a>
+      ${button("terminal", "终端", "terminal.html", "square-terminal")}
+      ${button("history", "Git 历史", "git-history.html", "git-history")}
     </nav>`;
 }
 
@@ -4169,8 +4181,14 @@ function liveToast() {
   return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
 }
 
-function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null, imageError = false } = {}) {
+function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null, imageError = false, gitUnavailable = "" } = {}) {
   const live = window.__augitLive || null;
+  // 实时外壳下，Git 不可用的原因**只**来自宿主检测（`showGitUnavailable`）：live 存在但没有原因，
+  // 就是"Git 可用"，不能退回场景参数（否则 `?scene=git-unavailable` 在 Git 可用时也会禁用入口）。
+  // 视觉稿单独打开（无 live）时才用参数给出同一条原因，使静态基线与实时降级页一致（ux-spec §7.18）。
+  const railGitReason = live
+    ? (typeof live.gitUnavailableReason === "string" ? live.gitUnavailableReason : "")
+    : gitUnavailable;
   // 实时外壳下，工具窗口由用户操作驱动（规格 §5.1）：场景只提供初始布局，
   // 之后以 live.layout 为准。视觉稿单独打开时没有 live，行为完全不变，
   // 因此逐场景静态浏览与既有一致性不受影响。
@@ -4255,7 +4273,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
-  return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
+  return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail, railGitReason)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }
 
 // 状态栏描述活动视图；比较补丁不提供源文件编码与换行事实。
@@ -4712,7 +4730,7 @@ function renderScene() {
     case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。</span><a class="secondary-button" href="main-project.html">取消</a><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
     // 未保存修改标记（⑭ 第 6 项，PyCharm 实测的实心圆点）：静态基线里直接标"文件查看"有草稿。
     case "settings-dirty": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsLayoutHtml("appearance", null, false, new Set(["file-view"])), `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
-    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
+    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", gitUnavailable: "未找到 Git for Windows 2.40 或更高版本。", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
     case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">推送失败</div><div>当前仓库未配置远端，Git 没有修改本地提交或工作区。</div><div class="commit-meta" style="margin-top:5px">关闭提示后不保留命令输出或操作历史。</div></div>` });
     case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("打开工作区", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} 最近目录</div><div class="tree-row">${icon("folder-open")} 选择目录…</div><div class="tree-row">${icon("clone")} 克隆仓库…</div></div><div class="management-detail"><h2>最近目录</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">同一目录已经打开时激活原窗口。</p></div></div>`, `<a class="secondary-button" href="main-project.html">取消</a><button class="primary-button">打开</button>`, true) });
     case "repository-init": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: repositoryInitScene() });

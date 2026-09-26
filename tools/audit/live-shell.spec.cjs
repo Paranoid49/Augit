@@ -5244,6 +5244,37 @@ async function main() {
     check('Git 不可用时项目树仍可用: ' + noGitState.treeRows, noGitState.treeRows > 0);
     check('记录不可用原因', typeof noGitState.reason === 'string' && noGitState.reason.length > 0);
 
+    // ux-spec §7.18 第 2 条：提交与 Git 历史入口显示禁用状态及悬停原因。
+    // 权威侧没有"Git 不可用降级页"（PyCharm 只是隐藏/禁用 VCS 入口），Augit 用显式降级页
+    // 加上同样的入口禁用表达；项目树/搜索(ripgrep)/终端都不依赖 Git，必须保持可用。
+    const noGitRail = await noGit.evaluate(() => [...document.querySelectorAll('.tool-rail .rail-button')].map((b) => ({
+      label: b.getAttribute('aria-label'),
+      disabled: b.getAttribute('aria-disabled') === 'true',
+      title: b.getAttribute('title'),
+    })));
+    const noGitDisabled = noGitRail.filter((b) => b.disabled);
+    check('§7.18 Git 不可用时提交与 Git 历史入口禁用并给出悬停原因: ' + JSON.stringify(noGitRail),
+      JSON.stringify(noGitDisabled.map((b) => b.label)) === JSON.stringify(['提交', 'Git 历史'])
+        && noGitDisabled.every((b) => typeof b.title === 'string' && b.title.includes('Git'))
+        && JSON.stringify(noGitRail.filter((b) => !b.disabled).map((b) => b.label)) === JSON.stringify(['项目', '搜索', '终端']));
+    // 点击禁用的 Git 入口：不切换工具窗口、不重复弹错（原因已在首条提示里给过一次）。
+    const noGitRailBefore = await noGit.evaluate(() => ({
+      side: (window.__augitLive.layout || {}).side || null,
+      toasts: document.querySelectorAll('.toast.error').length,
+    }));
+    await noGit.evaluate(() => {
+      const button = [...document.querySelectorAll('.tool-rail .rail-button')]
+        .find((b) => b.getAttribute('aria-label') === '提交');
+      if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await noGit.waitForTimeout(400);
+    const noGitRailAfter = await noGit.evaluate(() => ({
+      side: (window.__augitLive.layout || {}).side || null,
+      toasts: document.querySelectorAll('.toast.error').length,
+    }));
+    check('§7.18 点击禁用的 Git 入口不切换工具窗口、不重复弹错: ' + JSON.stringify([noGitRailBefore, noGitRailAfter]),
+      JSON.stringify(noGitRailBefore) === JSON.stringify(noGitRailAfter));
+
     // 规格 §6.5：加载、完成与外部触发的重新计算都不得覆盖其他操作的提示。
     // 这里在提示存在时触发一次外部变化驱动的重算（工作区变化事件），
     // 核对全局提示仍然只出现一次且内容不变——区域刷新不应把它清掉或叠加。
@@ -14664,9 +14695,9 @@ async function main() {
       await img.page.close();
 
       // §7.18 Git 不可用时给出局部错误 + 配置 git.exe 的设置入口。
-      // 注意：条文里的"入口显示禁用状态及悬停原因"**当前没有实现**（harness 实测 5 个 rail 按钮
-      // 里 aria-disabled=true 的数量为 0；代码里 aria-disabled 只用在 commit-actions 上，
-      // live-data.js:6357-6361），因此这里只断言**已实现的那一半**，另一半在 §2 里如实记为缺口。
+      // 注意：这里**没有**注入 `__gitUnavailable`，所以页面的 Git 是可用的 —— 本段只核对
+      // "提示 + 设置入口"；"提交/Git 历史入口禁用并给出悬停原因"由上面的实时降级块
+      // （注入 `__gitUnavailable`）断言，此前那条"当前实现不禁用"的缺口钉住断言已随实现删除。
       const noGit = await openScene('scene=git-unavailable&theme=dark');
       await noGit.page.waitForTimeout(900);
       const gitOff = await noGit.page.evaluate(() => {
@@ -14685,7 +14716,7 @@ async function main() {
       });
       check('§7.18 Git 不可用时显示局部错误并提供配置 git.exe 入口: ' + JSON.stringify(gitOff),
         gitOff.hasError === true && gitOff.title === 'Git 不可用' && gitOff.hasSettingsEntry === true);
-      check('§7.18 缺口如实标注：Git 不可用**没有**把入口置为禁用（当前实现）: ' + JSON.stringify({ railTotal: gitOff.railTotal, railDisabled: gitOff.railDisabled }),
+      check('§7.18 Git 可用时 rail 入口不禁用（对照）: ' + JSON.stringify({ railTotal: gitOff.railTotal, railDisabled: gitOff.railDisabled }),
         gitOff.railTotal > 0 && gitOff.railDisabled === 0);
       await noGit.page.close();
 
