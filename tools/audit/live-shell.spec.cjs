@@ -1001,6 +1001,26 @@ async function main() {
         // dataUrl 必须是**真正能解码**的 PNG：此前用的是只有文件头的 base64，
         // 浏览器解不开（naturalWidth=0），加了"解码失败兜底"后会把它判成坏图。
         if (/\.png$/i.test(params.path)) {
+          // 第 244 轮：可按注入的像素尺寸**现造**一张真能解码的 PNG，用于验证
+          // "适应模式按新尺寸重新计算"（固定夹具是 400×300，换尺寸才不是平凡真）。
+          if (window.__imagePixelSize) {
+            const canvas = document.createElement('canvas');
+            canvas.width = window.__imagePixelSize.width;
+            canvas.height = window.__imagePixelSize.height;
+            const context = canvas.getContext('2d');
+            context.fillStyle = '#4a90d9';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#ffffff';
+            context.fillRect(8, 8, canvas.width - 16, canvas.height - 16);
+            return {
+              path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
+              workspaceName: 'live-ws', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像',
+              fileSize: 2048,
+              dataUrl: canvas.toDataURL('image/png'),
+              pixelWidth: canvas.width, pixelHeight: canvas.height,
+              text: null, encoding: null, lineEndings: null, message: null,
+            };
+          }
           return {
             path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
             workspaceName: 'live-ws', status: 'ImageReady', kind: 'Png', typeName: 'PNG 图像',
@@ -16778,6 +16798,117 @@ async function main() {
       // 关掉图片标签后落回另一个标签（notes.txt），而不是被晚到的位图重新激活
       && imageStale.afterClose.doc !== null && imageStale.afterClose.doc.path === 'docs/notes.txt'
       && imageStale.afterClose.doc.editor === 'text');
+    // ---- 第 244 轮补断言（收 §7.5 第 6、8 条）：外部更新复用预览、保留手动缩放与位置、
+    // 适应模式按新尺寸重算、即使大小不变也重新解码；缩小时平滑采样与 100% 原像素 ----
+    // 实现位置：`image-preview.js` 把视图状态（适应/比例/平移）记在 `live.imageView`（按文档路径），
+    // 区域重绘后按路径恢复；`render()` 的列宽/位置全部由当前 `naturalWidth` 与画布尺寸算出。
+    const imageRefresh = await (async () => {
+      const scene = await openScene('scene=image-preview&theme=dark&open=web/image-sample.png');
+      await scene.page.waitForSelector('.image-stage img', { timeout: 10000 });
+      await scene.page.waitForFunction(
+        "() => { const s = document.querySelector('.image-stage'); return !!s && s.dataset.ready === 'true'; }",
+        null, { timeout: 8000 }).catch(() => {});
+      await scene.page.waitForTimeout(300);
+      const probe = () => scene.page.evaluate(() => {
+        const stage = document.querySelector('.image-stage');
+        const img = stage.querySelector('img');
+        const rect = img.getBoundingClientRect();
+        const stageRect = stage.getBoundingClientRect();
+        return {
+          scale: Number(stage.dataset.scale),
+          fit: stage.dataset.fit,
+          natural: [img.naturalWidth, img.naturalHeight],
+          cssSize: [Math.round(rect.width), Math.round(rect.height)],
+          left: Math.round(rect.left),
+          margins: {
+            left: Math.round(rect.left - stageRect.left),
+            right: Math.round(stageRect.right - rect.right),
+            top: Math.round(rect.top - stageRect.top),
+            bottom: Math.round(stageRect.bottom - rect.bottom),
+          },
+          label: (document.querySelector('.image-zoom-label') || {}).textContent,
+          imgRendering: getComputedStyle(img).imageRendering,
+          docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+          tabs: document.querySelectorAll('.editor-tabs .editor-tab').length,
+          readCalls: window.__readCalls || 0,
+          view: window.__augitLive.imageView || null,
+        };
+      });
+      const pushUpdate = async (wait = 900) => {
+        await scene.page.evaluate(() => {
+          window.__hostPush('workspace-changed', { files: ['web/image-sample.png'], gitMetadata: false });
+        });
+        await scene.page.waitForTimeout(wait);
+      };
+      const initial = await probe();
+      // ① 手动缩放 + 拖动后外部更新：复用预览、保留比例与位置（即使大小不变也重新解码）
+      for (let step = 0; step < 3; step += 1) {
+        await scene.page.locator('.image-toolbar [aria-label="放大"]').click();
+        await scene.page.waitForTimeout(120);
+      }
+      const box = await scene.page.locator('.image-stage').boundingBox();
+      await scene.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await scene.page.mouse.down();
+      await scene.page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2 + 15, { steps: 3 });
+      await scene.page.mouse.up();
+      await scene.page.waitForTimeout(200);
+      const manual = await probe();
+      await pushUpdate();
+      const afterManualRefresh = await probe();
+      // ② 适应模式：换一个尺寸（注入 2000×1200）后按新尺寸重新计算
+      await scene.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+      await scene.page.waitForTimeout(250);
+      const fitted = await probe();
+      await scene.page.evaluate(() => { window.__imagePixelSize = { width: 2000, height: 1200 }; });
+      await pushUpdate(1200);
+      const refitted = await probe();
+      // ③ 缩小时平滑采样 + 100% 原像素
+      await scene.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+      await scene.page.waitForTimeout(250);
+      const small = await probe();
+      await scene.page.evaluate(() => {
+        // 走到步进表里的 100% 档（此时图片是 2000×1200，适应比例远小于 1）
+        const label = () => document.querySelector('.image-zoom-label').textContent;
+        for (let i = 0; i < 14 && label() !== '100%'; i += 1) {
+          document.querySelector('.image-toolbar [aria-label="放大"]').click();
+        }
+      });
+      await scene.page.waitForTimeout(350);
+      const hundred = await probe();
+      await scene.page.close();
+      const payload = { initial, manual, afterManualRefresh, fitted, refitted, small, hundred };
+      console.log('INFO 图片外部更新=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.5 同一图片的外部更新复用预览、保留手动缩放与位置，并即使大小不变也重新解码: '
+      + JSON.stringify([imageRefresh.initial, imageRefresh.manual, imageRefresh.afterManualRefresh]),
+    imageRefresh.initial.fit === 'true' && imageRefresh.initial.scale === 1
+      && imageRefresh.manual.fit === 'false' && imageRefresh.manual.scale >= 2
+      // 更新后：仍是同一文档、标签数不变（复用预览窗口），比例与位置逐值不变
+      && imageRefresh.afterManualRefresh.docPath === 'web/image-sample.png'
+      && imageRefresh.afterManualRefresh.tabs === imageRefresh.manual.tabs
+      && imageRefresh.afterManualRefresh.fit === 'false'
+      && imageRefresh.afterManualRefresh.scale === imageRefresh.manual.scale
+      && imageRefresh.afterManualRefresh.cssSize.join('|') === imageRefresh.manual.cssSize.join('|')
+      && imageRefresh.afterManualRefresh.left === imageRefresh.manual.left
+      && imageRefresh.afterManualRefresh.imgRendering === imageRefresh.manual.imgRendering
+      // 即使大小不变也重新读取/解码（宿主读取次数增加，且始终有可用位图）
+      && imageRefresh.afterManualRefresh.readCalls > imageRefresh.manual.readCalls
+      && imageRefresh.afterManualRefresh.natural[0] > 0);
+    check('§7.5 适应模式按新尺寸重新计算，缩小时平滑采样、100% 保留原像素: '
+      + JSON.stringify([imageRefresh.fitted, imageRefresh.refitted, imageRefresh.small, imageRefresh.hundred]),
+    imageRefresh.fitted.fit === 'true' && imageRefresh.fitted.natural.join('|') === '400|300'
+      // 换成 2000×1200 后：仍是适应模式，但比例按新尺寸重算（400 宽的图在 787 画布上 fit=1，2000 宽必然 <1）
+      && imageRefresh.refitted.fit === 'true' && imageRefresh.refitted.natural.join('|') === '2000|1200'
+      && imageRefresh.refitted.scale < 1 && imageRefresh.refitted.scale < imageRefresh.fitted.scale
+      && imageRefresh.refitted.margins.left >= 32 && imageRefresh.refitted.margins.right >= 32
+      && imageRefresh.refitted.margins.top >= 32 && imageRefresh.refitted.margins.bottom >= 32
+      && imageRefresh.refitted.label === `${Math.max(1, Math.round(imageRefresh.refitted.scale * 100))}%`
+      // 缩小档（<100%）用浏览器默认平滑采样；100% 档 CSS 尺寸与原始像素逐一相等（不额外锐化）
+      && imageRefresh.small.scale < 1 && imageRefresh.small.imgRendering === 'auto'
+      && imageRefresh.hundred.label === '100%' && imageRefresh.hundred.imgRendering === 'auto'
+      && imageRefresh.hundred.cssSize.join('|') === imageRefresh.hundred.natural.join('|')
+      && imageRefresh.hundred.scale === 1);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

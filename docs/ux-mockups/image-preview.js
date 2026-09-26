@@ -15,11 +15,33 @@ function bindImagePreview() {
     status.textContent = '正在读取文件…';
     stage.append(status);
   }
-  let fit = true, scale = 1, panX = 0, panY = 0, drag = null;
+  // 视图状态（适应/比例/平移）要跨越**区域重绘**存活：外部更新会重建整个图片正文，
+  // 而 `bindImagePreview()` 每次都从头绑定。实时外壳把它记在 `live.imageView` 上（按文档路径），
+  // 视觉稿页面没有 `live`、也就没有这份记忆（静态页每次都按适应区域显示）。
+  const viewKey = stage.dataset.documentPath || null;
+  const storedView = () => {
+    const live = window.__augitLive;
+    const view = live && live.imageView;
+    return viewKey && view && view.path === viewKey ? view : null;
+  };
+  const rememberView = () => {
+    const live = window.__augitLive;
+    if (!viewKey || !live) return;
+    live.imageView = { path: viewKey, fit, scale, panX, panY };
+  };
+  const restored = storedView();
+  let fit = restored ? restored.fit : true, scale = restored ? restored.scale : 1;
+  let panX = restored ? restored.panX : 0, panY = restored ? restored.panY : 0, drag = null;
   // 图片异步解码：绑定时刻 naturalWidth 通常还是 0，render() 会直接返回，
   // 于是"适应区域"从未生效、图片停在原始尺寸并溢出画布（第 257 轮真机 1920×1200 vs 视觉稿 753×471）。
   // load 不冒泡但可捕获，因此监听挂在持久的 stage 上；节点被替换后新图片的 load 同样能捕获到。
-  stage.addEventListener("load", () => { fit = true; panX = panY = 0; render(); }, true);
+  // 首次解码：`naturalWidth` 之前是 0，`render()` 会直接返回 ⇒ 这里补一次。
+  // 外部更新复用同一张图时**保留手动缩放**（规格 §7.5「外部更新复用预览窗口、保留手动缩放与仍有效的位置」）：
+  // 只有处于"适应区域"模式才清零平移并重新计算比例；手动缩放过就按原比例重画，位置由 `render()` 按新尺寸夹取。
+  stage.addEventListener("load", () => {
+    if (fit) { panX = panY = 0; }
+    render();
+  }, true);
   let wheelZoom = 0, wheelMode = '';
   function resetWheel() { wheelZoom = 0; wheelMode = ''; }
   function endDrag() {
@@ -50,6 +72,7 @@ function bindImagePreview() {
     stage.dataset.scale = String(scale);
     stage.dataset.fit = String(fit);
     stage.dataset.ready = 'true';
+    rememberView();
   }
   function setScale(value) {
     if (Math.abs(value - scale) < .0001) return;

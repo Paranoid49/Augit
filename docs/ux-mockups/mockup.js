@@ -2983,7 +2983,7 @@ function liveImageDocument() {
   const size = document_.pixelWidth && document_.pixelHeight ? `${document_.pixelWidth} × ${document_.pixelHeight}` : "";
   const bytes = formatFileSize(document_.fileSize);
   const label = [size, document_.typeName, bytes].filter(Boolean).join(" · ");
-  return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
+  return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片" data-document-path="${escapeHtml(document_.path)}"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
 }
 
 /**

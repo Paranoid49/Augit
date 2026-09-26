@@ -4768,11 +4768,17 @@ function openDocumentTab(path, payload, options = {}) {
   const existing = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
   if (existing) {
     if (!preview) existing.preview = false;
-    if (activate) {
-      live.activeTabId = existing.id;
-      syncActiveTab();
-    }
-
+    // 外部更新复用**同一个标签**，但内容必须换成这次读取的结果：此前这里直接 return，
+    // 于是"重新读取"的载荷被丢掉 —— 界面上仍是旧正文/旧位图，连规格 §7.5 第 6 条要求的
+    // "即使大小不变也重新解码"与"更新后损坏时显示准确的信息页"都做不到
+    //（第 244 轮实测：桩按注入尺寸现造 2000×1200 的图，推送后正文仍是 400×300）。
+    // 标签身份、位置、预览标记与会话内记住的文档模式都保持不变（复用控件，不重建标签）。
+    const model = toLiveDocument(payload);
+    existing.document = model;
+    existing.editor = model.editor;
+    existing.title = model.name || path;
+    if (activate) live.activeTabId = existing.id;
+    syncActiveTab();
     return;
   }
 
@@ -4850,6 +4856,11 @@ function closeTab(id) {
     clearTimeout(markdownPreviewHintTimer);
     markdownPreviewHintTimer = null;
     clearImagePreviewState();
+  }
+  // 关闭图片标签时一并丢掉它的视图记忆（比例/平移）：重新打开应按适应区域显示，
+  // 而不是继承上一次的缩放（那份记忆只为"同一张图的外部更新复用预览"而留，规格 §7.5）。
+  if (closing && closing.kind === "document" && live.imageView && live.imageView.path === closing.path) {
+    live.imageView = null;
   }
 
   if (!wasActive) {
