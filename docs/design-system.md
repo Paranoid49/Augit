@@ -410,7 +410,7 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 
 - 行高使用 28px 基准，允许在 27–30px 内随 DPI 四舍五入。
 - 展开箭头、文件图标、状态标记和文本依次排列，中心线一致。
-- 树缩进使用 16px 一级步长；箭头到图标 4px，图标到文字 8px。
+- 树缩进使用 **18px 一级步长**（权威 `Tree.leftChildIndent` = 7 ＋ `Tree.rightChildIndent` = 11，实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`；2026 参考图三层最左墨迹实测步长 33 物理px ≈ 18.4）；箭头到图标 4px，图标到文字 8px。项目树的行内距由行上的 `--tree-depth` 计算（首级 22px = 4 + 18），**任意深度**都按 18 递增；`Tree.border = 4,12,4,12` 是 Swing 树的外内距，Augit 的 DOM 用行内距表达同一边距，不逐值套用。
 - 焦点位于列表时，选中行使用 `accent-soft`；焦点移出列表后仍保留选择，但改用对应的 `selection-inactive`（Git 历史使用 `history-selection-inactive`）。这不是取消选择，也不触发文件打开、Diff 请求或 Git 勾选变化。悬停使用 `hover`；背景覆盖内容行，不绘制卡片边框。
 - 项目树悬停复用现有内容行范围，选中态优先于悬停态；文件夹根角标周围使用当前行的真实底色。HTML 与原生共用 `row-hover`：浅色 = `selection-bg-hovered` = `transparent-black-10` = `#00000008`（半透明覆盖），深色 = 代码默认 `#464A4D`。平台元数据把 `List/Tree/Table.hoverBackground` 都记为"…if hover is allowed"，即平台支持、由组件决定；参考实现没给树装监听，Augit 按验收套件要求与用户裁决**保留树的悬停**，属有意偏离。（原表述引用的 `#F1F2F4` 是被删除的 `--augit-blue-hover` 的值，已失效。）
 - 单击行只改变选择；双击或 `Enter` 执行打开。复选框的勾选状态与列表选择状态完全独立。

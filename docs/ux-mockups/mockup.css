@@ -2923,10 +2923,15 @@ button:disabled,
   padding-right: 6px;
 }
 
-.side-content.tree .depth-1 { padding-left: 22px; }
-.side-content.tree .depth-2 { padding-left: 38px; }
-.side-content.tree .depth-3 { padding-left: 54px; }
-.side-content.tree .depth-4 { padding-left: 70px; }
+/* 项目树缩进步长 **18px**：权威 `Tree.leftChildIndent`(7) + `Tree.rightChildIndent`(11)，
+   实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`（`platform/platform-impl/
+   src/com/intellij/ui/tree/ui/ClassicPainter.java:37-45`），2026 参考图三层最左墨迹实测步长 33 物理px ≈ 18.4。
+   第 216 轮之前这里被四条固定 `depth-N` 规则写成 **16px** 步长（22/38/54/70），与权威和参考图都不符。
+   现在改用行上的 `--tree-depth`：首级 22（= 4 + 18×1，与旧值一致，只修正步长），**任意深度**都按 18 递增；
+   旧写法只定义到 `depth-4`，更深层会退回 6px 而丢掉缩进。 */
+.side-content.tree .tree-row:not(.root-row) {
+  padding-left: calc(4px + 18px * var(--tree-depth, 1));
+}
 
 .side-content.tree .chevron {
   display: flex;

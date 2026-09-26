@@ -432,7 +432,7 @@
 
 同时去掉了原先"向上取偶数物理像素"的做法：官方按整数缩放（`JBUIScale.scale(24)`），不取偶；该做法只影响大字号（32px 字号下 50 → 49）。
 
-**顺带核对（结论：不用改）——树的缩进步长**：`Tree.leftChildIndent` / `rightChildIndent` 这两个键只在旧 LAF `intellijlaf.theme.json`（7 / 11）里出现，New UI 主题**不定义**它们；New UI 的实际默认在 Jewel 桥接里是 `retrieveUnscaledIntAsNonNegativeDpOrUnspecified("Tree.leftChildIndent").takeOrElse { 7.dp }`。**7 + 11 = 18** 正好是每级缩进步长，而 2026 参考图里三个层级的最左墨迹 x 为 145 / 178 / 211 物理px（**步长 33 物理px ≈ 18.4 逻辑px**），与 Augit 的 `.tree-row.depth-N { padding-left: 18·N + 2 }` 一致。因此缩进**不动**。
+**树的缩进步长（第 217 轮订正）**：`Tree.leftChildIndent` / `rightChildIndent` 的权威取值是 **7 / 11**（`ManyIslandsDarcula.theme.json:415,418`、`intellijlaf.theme.json:1001,1003`、`darcula.theme.json:724,727`；Jewel 桥接的回落也是 `7.dp` / `11.dp`，`IntUiBridgeLazyTree.kt:37-38`），实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`（`platform/platform-impl/src/com/intellij/ui/tree/ui/ClassicPainter.java:37-45`），即每级 **18px**；2026 参考图三个层级的最左墨迹 x 为 145 / 178 / 211 物理px（**步长 33 物理px ≈ 18.4 逻辑px**），与 18 一致。**第 217 轮订正了一处回归**：本仓库曾在 `.side-content.tree` 下写过四条固定规则 `depth-1..4 = 22/38/54/70`（**16px 步长**，且超过 `depth-4` 会退回 6px 而丢掉缩进），与本节的 18 结论相反；现已改为按行上的 `--tree-depth` 计算 —— `padding-left: calc(4px + 18px * var(--tree-depth))`（首级 22px，任意深度按 18 递增），并由 `tools/verify-ux-project-tree.cjs` 在 dpi 96/120/144 × 字号 13/40 的每一步断言步长与 depth-7=130px。`Tree.border = 4,12,4,12` 是 Swing 树的外内距，Augit 用行内距表达，不逐值套用。
 
 **验收套件里有两处与行高耦合的期望，必须同步**（否则出现"实现对了、套件红了"的假失败）：
 

@@ -58,6 +58,8 @@
 | 1.19 | 空右键菜单不显示占位项 | 有意产品差异 | 权威补占位项 | 各右键菜单渲染 | E5 `intellij-platform-ui-behavior.md` §3；`ux-spec` 为准 |
 | 1.20 | WebView2 多进程内存基数（约 543–631 MB，100 MB 目标不可达） | 不适用 | 平台自绘/原生控件才有 100 MB 量级 | 架构决定 | E3 `measure-performance.ps1`、`performance-report.md` §10 |
 | 1.21 | Compose/Jewel 专属尺寸（如 Jewel `IconButton` 24×24、`dialogUnscaledGaps` 10/12） | 不适用 | 那属 Compose 栈，Augit 是 Swing 等价物的 HTML 复刻 | —— | E5 `intellij-platform-ui-behavior.md` §2.3、`10-backlog.md` 一/二·补四 |
+| 1.22 | 项目树缩进步长 18px（首级 22px） | 已按 New UI 对齐 | `02`；`Tree.leftChildIndent`(7)+`Tree.rightChildIndent`(11)、`ClassicPainter.getRendererOffset()` | `mockup.css` 的 `--tree-depth` 计算、`mockup.js` 两处树构建 | E3 `verify-ux-project-tree.cjs`（dpi×字号矩阵断言步长与 depth-7=130px） |
+| 1.23 | `Tree.border = 4,12,4,12`（Swing 树外内距） | 有意产品差异（实现方式） | `expUI_light.theme.json:802` 等 | `mockup.css` `.side-content.tree` 的行内距 | Augit 的 DOM 无 Swing border 层，用行内距表达同一边距，不逐值套用 |
 
 ## 2. Git 与文件功能
 
@@ -214,9 +216,9 @@
 | T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **10** 条 | `ui-compliance.md` §2.10（第 215 轮重生成；原 11 条中的 `git-unavailable` 已闭环） | 每条补断言或明确不做；不得写成通过 |
 | T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
 | T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
-| T9 | 树/列表缩进与 `Tree.border = 4,12,4,12`、`List.border = 4,0,4,0` 的逐值核对 | `02-tree-list.md`；`design-system.md` §8.3 现写"树缩进 16px 一级步长"，与权威的 `Tree.border` 内距是两件事，尚未逐值核对 | 逐值核对权威 `Tree.border`／缩进并落地或登记差异（行为索引 §4 第 2 项已改标为"仍待做"） |
+| T9 | ~~树/列表缩进与 `Tree.border` 的逐值核对~~ | `02-tree-list.md` 记 18px 步长，`design-system.md` §8.3 却写 16px，实现是四条固定规则（16px 步长） | **已关闭（第 217 轮）**：按权威 7+11=18 与参考图 18.4 订正为 `--tree-depth` 的 18px 步长（支持任意深度），并加 dpi×字号矩阵断言；`Tree.border` 是 Swing 外内距、Augit 用行内距表达（登记为实现方式差异） |
 
-**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。
+**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。T9（树缩进步长）由**第 217 轮**订正为权威的 18px 并加断言（见 §1.22／§1.23／`02-tree-list.md`）。
 
 ## 8. 非界面目标项（不计入上面的功能归类）
 

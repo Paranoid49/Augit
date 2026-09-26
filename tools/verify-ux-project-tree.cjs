@@ -55,6 +55,26 @@ async function main() {
             await selected.hover();
             assert.equal(await selected.evaluate(element => getComputedStyle(element).backgroundColor), selectedColor, '悬停不能覆盖选中背景。');
             assert.deepEqual(errors, []);
+            // 缩进步长 = 18px（权威 `Tree.leftChildIndent`(7) + `Tree.rightChildIndent`(11)，
+            // `ClassicPainter.getRendererOffset()` 的 `(depth-1)*(left+right)`；2026 参考图 33 物理px ≈ 18.4）。
+            // 旧实现是四条固定 `depth-N` 规则写成 16px 步长、且超过 depth-4 会退回 6px，因此在
+            // dpi/size 的每一步都核对步长，并注入一个 depth-7 的行证明任意深度都按 18 递增。
+            const indent = await page.evaluate(() => {
+              const tree = document.querySelector('.side-content.tree');
+              const px = (element) => parseFloat(getComputedStyle(element).paddingLeft);
+              const numeric = (path) => parseFloat(getComputedStyle(tree.querySelector(`.tree-row.${path}`)).paddingLeft);
+              const deep = document.createElement('div');
+              deep.className = 'tree-row depth-7';
+              deep.style.setProperty('--tree-depth', '7');
+              tree.append(deep);
+              const value = px(deep);
+              deep.remove();
+              return { d1: numeric('depth-1'), d2: numeric('depth-2'), d3: numeric('depth-3'), d7: value };
+            });
+            assert.equal(indent.d2 - indent.d1, 18, `项目树第 1→2 级步长应为 18px：${JSON.stringify(indent)}`);
+            assert.equal(indent.d3 - indent.d2, 18, `项目树第 2→3 级步长应为 18px：${JSON.stringify(indent)}`);
+            assert.equal(indent.d7, 4 + 18 * 7, `项目树第 7 级应按 18px 递增（4 + 18×7 = 130）：${JSON.stringify(indent)}`);
+            if (theme === 'light' && dpi === 96 && size === 13) console.log('项目树缩进=' + JSON.stringify(indent));
             passed++;
           } finally { await context.close(); }
         }

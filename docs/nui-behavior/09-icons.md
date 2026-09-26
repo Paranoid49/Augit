@@ -6672,3 +6672,47 @@ Augit 会把他写的内容换掉（虽然取消勾选能恢复），这是真�
 
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T6（§2.10 C 类 10 条）、T9（树缩进/`Tree.border` 逐值核对）。
+
+## ducentum-septendecim. 第二百一十七轮：项目树缩进步长订正为权威的 18px（关闭 T9）
+
+归类总表 §7 的 T9：树缩进步长在文档与实现之间**自相矛盾** —— `02-tree-list.md`（第 8 行与 §末）用权威
+`Tree.leftChildIndent`(7) + `Tree.rightChildIndent`(11) 与 2026 参考图实测（三层最左墨迹 145/178/211 物理px，
+步长 33 物理px ≈ **18.4 逻辑px**）得出 **18px**，并称与 Augit 的 `18·N + 2` 一致；而 `design-system.md` §8.3
+写"16px 一级步长"，`mockup.css` 里 `.side-content.tree .depth-1..4 = 22/38/54/70` 也是 **16px** 步长。
+**实现与设计系统是 16，行为文档的证据是 18** ——按 `design-system.md` §2 的"以 New UI 为准"，18 才是对的。
+
+### 权威（复核）
+
+| 项 | 权威 | 出处 |
+| --- | --- | --- |
+| 左右缩进 | `Tree.leftChildIndent = 7`、`Tree.rightChildIndent = 11` | `ManyIslandsDarcula.theme.json:415,418`；`intellijlaf.theme.json:1001,1003`；`darcula.theme.json:724,727`；Jewel 回落 `IntUiBridgeLazyTree.kt:37-38` |
+| 每级偏移 | `ClassicPainter.getRendererOffset()`：`depth > 1 ? (depth-1) * (left + right) + offset : offset`（`left = max(controlWidth/2, 7)`、`GAP = 2`） | `platform/platform-impl/src/com/intellij/ui/tree/ui/ClassicPainter.java:37-45` |
+| 参考图 | 三个层级最左墨迹 145/178/211 物理px ⇒ 步长 33 物理px ≈ 18.4 逻辑px | `docs/nui-behavior/02-tree-list.md` §末（第 217 轮保留该段并改标题） |
+| 外内距 | `Tree.border = "4,12,4,12"`、`rowHeight = 24` | `expUI_light.theme.json:798-803` |
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.css` | 删除 `.side-content.tree .depth-1..4` 四条固定规则（16px 步长、且 **depth>4 会退回 6px 而丢掉缩进**），改为 `.side-content.tree .tree-row:not(.root-row) { padding-left: calc(4px + 18px * var(--tree-depth, 1)); }`：首级仍是 **22px**（= 4 + 18×1，与改动前一致，只修正步长），第 2/3/4 级变为 40/58/76，**任意深度**都按 18 递增 |
+| `web/src/mockup.js` | 两处项目树构建（静态 `projectTree()` 与实时 `liveProjectTree()`）在行上写 `style="--tree-depth:<depth>"` |
+| `tools/verify-ux-project-tree.cjs` | 新增断言：depth-1→2、2→3 步长 = 18px，并注入一个 `--tree-depth: 7` 的行断言 `padding-left = 4 + 18×7 = 130px`（证明任意深度有效）。在原有 **dpi 96/120/144 × 字号 13/40 × 两主题** 的每一步都跑 |
+
+**与早期判断的关系**：`02-tree-list.md` 的旧文写"因此缩进**不动**"——那是基于"当时实现是 18"的判断；
+后来 `.side-content.tree` 下新增了 16px 的四条规则，该判断就失效了（文档却没跟着改）。本轮把实现改回 18
+并补上断言，这类"无断言覆盖、被后加规则静默覆盖"的回归以后会在 dpi×字号的矩阵里立刻暴露。
+
+### 验证
+
+- `tools/verify-ux-project-tree.cjs`：**12/12** 通过，实测缩进 `{d1:22, d2:40, d3:58, d7:130}`（步长 18）。
+- `tools/audit/mockup-scenes.spec.cjs`：**55/55**（dark）渲染通过。
+- `tools/audit/live-shell.spec.cjs`：**`通过 1222 项断言`**（步长不在 live-shell 里断言，故条数不变）。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 217 轮）：`mockup.css` → **`55634f2a07d1285da204b44f92dd24c6`**、
+  `mockup.js` → **`0728db52995672492523e8009d3c3ab2`**；`live-data.js`（`b6b19170…`）／
+  `bridge.js`（`8d2d3173…`）／`live-shell.spec.cjs`（`6233249f…`）未变。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 10 条）。

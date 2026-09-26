@@ -2484,7 +2484,7 @@ function liveProjectTree(selected, live) {
     const hasChildren = entry.isDirectory && entry.hasChildren;
     const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
     const expanded = entry.expanded ? "true" : "false";
-    return `<div class="tree-row ${depth} ${entry.name === selected ? "selected" : ""}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+    return `<div class="tree-row ${depth} ${entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
   }).join("");
   return `
     <aside class="tool-window side-tool">
@@ -2523,7 +2523,7 @@ function projectTree(selected = "product-spec.md", liveRows = null) {
     <aside class="tool-window side-tool">
       <div class="tool-header"><span>项目</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="定位当前文件">${icon("locate-fixed")}</button><button class="icon-button" aria-label="折叠项目树">${icon("fold-vertical")}</button><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
       <div class="side-content tree">
-        ${rows.map(([depth, chevron, fileIcon, name, path, href]) => `${href ? `<a href="${href}"` : `<div`} class="tree-row ${depth} ${name === selected ? "selected" : ""}"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${fileIcon === "folder" ? "folder-icon" : "file-icon"}">${fileIcon === "folder" ? treeFolderIcon(depth === "root-row") : fileTypeIcon(name)}</span><span class="tree-name">${name}</span>${path ? `<span class="tree-path">${path}</span>` : ""}${href ? "</a>" : "</div>"}`).join("")}
+        ${rows.map(([depth, chevron, fileIcon, name, path, href]) => `${href ? `<a href="${href}"` : `<div`} class="tree-row ${depth} ${name === selected ? "selected" : ""}" style="--tree-depth:${depth === "root-row" ? 0 : Number(depth.slice(6))}"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${fileIcon === "folder" ? "folder-icon" : "file-icon"}">${fileIcon === "folder" ? treeFolderIcon(depth === "root-row") : fileTypeIcon(name)}</span><span class="tree-name">${name}</span>${path ? `<span class="tree-path">${path}</span>` : ""}${href ? "</a>" : "</div>"}`).join("")}
       </div>
     </aside>`;
 }
