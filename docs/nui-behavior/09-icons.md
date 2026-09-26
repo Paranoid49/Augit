@@ -6921,7 +6921,83 @@ Shell 谁都不再引用（不会被 `terminal/stop` 释放）。这正是第 3 
   `live-shell.spec.cjs` → `2c84041e99266ac9f66b971a0b25867d`；`mockup.css`（`55634f2a…`）／
   `mockup.js`（`eaf45b2e…`）／`bridge.js`（`8d2d3173…`）未变。
 
+## ducentum-viginti-tres. 第二百二十三轮：Diff 行色两层定案 + 行内词级高亮 + 删除 `.diff-current`（T1／T2 关闭）
+
+归类总表 §7 的 T1（`.diff-current` 在 New UI 无对应物）与 T2（行内词级高亮）本轮一起关闭：
+两者其实是**同一个色层模型**的两面。
+
+### 起点：T2 的前提不成立
+
+`10-backlog.md` 二·补五把行内高亮判为"需宿主提供词级差异范围 ⇒ 接近新增数据通道 ⇒ 暂不实施"。
+本轮读代码发现**通道早就存在**：`GitWordDiff.FindChanges()`（Core）→ `AppendChangedRows` 写进
+`GitSideBySideRow.OldChanges/NewChanges` → `ShellBridge.cs:1971-1974` 投影成 `oldChanges`／`newChanges`
+→ `mockup.js:2306-2332` 的 `marked()` 已经渲染 `<mark>`，`live-shell.spec.cjs:4440` 甚至已有
+"行内高亮标记存在"的断言。**缺的只是 `.diff-code-line mark` 的配色**（浏览器 UA 默认黄底黑字）。
+
+### 权威模型（本轮读全）
+
+| 环节 | 权威 | 结论 |
+| --- | --- | --- |
+| 行内高亮取色 | `InlineHighlighterBuilder.done()` → `getTextAttributes(type, editor, DEFAULT)` → `DiffTextAttributes.getBackgroundColor()` → `TextDiffTypeImpl.getColor()`（`DiffDrawUtil.java:660-670,847-863`、`TextDiffTypeFactory.java:50-62`） | 全强度 `DIFF_*.BACKGROUND`，**不叠 alpha** |
+| 行内高亮用哪个类型 | `DiffViewerHighlighters.createInnerHighlighter`：`createInlineHighlighter(editor, innerStart, innerEnd, change.diffType)`（`:100-108`） | 用**变更块自己的** `diffType`，不是按侧固定增/删 |
+| 整行底 | 同一文件 `createHighlighter`：`ignored = !resolved && innerFragments != null` ⇒ `PaintMode.IGNORED`（`:113-129`） | **有**行内差异 ⇒ `getIgnoredColor()` = `mix(DIFF_*.BACKGROUND, 编辑器底, 0.6)`；**没有** ⇒ 全强度 |
+| `getIgnoredColor()` 实现 | `TextDiffTypeFactory.java:64-74`：先取 `FOREGROUND`，为空才 `ColorUtil.mix(fg, bg, 0.6)`；`MixedColorProducer.java:48-53` 是逐通道 `v0 + round(0.6*(v1-v0))` | 两套方案的 `DIFF_*` 都只定义 `BACKGROUND` ⇒ 恒走 mix 分支 |
+| `PaintMode` 全集 | `DiffDrawUtil.java:754-783` | `DEFAULT`／`IGNORED`／`RESOLVED`／`EXCLUDED_EDITOR`／`EXCLUDED_GUTTER` —— **没有"当前差异"** |
+
+由此得到两档整行底 + 一层行内高亮（深色编辑器底取 `expUI_darkScheme.xml:756-760` 的 `TEXT.BACKGROUND = 1e1f22`）：
+
+| 层 | 浅色 | 深色 |
+| --- | --- | --- |
+| 整行底 · 纯新增（无行内差异） | `#BEE6BE` | `#294436` |
+| 整行底 · 纯删除（无行内差异） | `#D6D6D6` | `#484A4A` |
+| 整行底 · 修改（有行内差异） | `#E7EFFA` = mix(`#C2D8F2`, `#FFFFFF`, .6) | `#283541` = mix(`#385570`, `#1E1F22`, .6) |
+| 行内（词/段级）高亮 | `#C2D8F2` | `#385570` |
+
+### 像素复测（推翻第 110／133 轮的"软行底"）
+
+用无头 Chromium 读 `artifacts/pycharm-16-final/diff-viewer-ctrlD-file.png`（2898×1734，1.5x），
+逐行统计目标色的**左右两栏**（左 `x850-1670`、右 `x1975-2815`）覆盖：
+
+| 观察 | 数值 | 推论 |
+| --- | --- | --- |
+| `#EDFCED`（原记"增行软底"，213160 px） | `y738..892` 段**左右两栏同时满宽**（各 820px 全命中）；`diff-viewer-open.png`（**非差异**的编辑器截图）里也覆盖同样这些行 | 一个截图里不可能有两个"增行底色"（同图的纯新增行已被量到是 `#BEE6BE`）⇒ 它不是差异色。它逐字等于 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`（`DefaultColorSchemesManager.xml:759-765`）= README 里 ``` PowerShell ``` 代码围栏的语言注入底色；Augit 不做语言服务 ⇒ **不适用** |
+| `#F4F7F9`（原记"删行软底"） | 在差异正文两栏内**0 像素** | 它只是浅色 `layer-1-bg`（面板底），也属错认 |
+| `#E7EFFA`（原记"改行软底"） | 122390 px，两栏满宽 | 恰等于 `mix(#C2D8F2, #FFFFFF, 0.6)` ⇒ 正是"修改行取 `getIgnoredColor()`"的逐值验证 |
+| `#BEE6BE`（原记"行内层"） | 36323 px，且**存在单行满宽**（`y623–661` ≈ 26 逻辑px） | 那是"无行内差异的纯新增块"的**整行**全强度色；§7 的 `#BEE6BE` 局部段同样存在 ⇒ 同色两层都成立 |
+
+第 113 轮"参考图整行剖面宽 590.7 ⇒ 当前差异被整块选中"的判断随之作废：那段只有**一行**高。
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.css`（与 `docs/ux-mockups/mockup.css` 字节一致） | 删除 6 处 `--augit-diff-current-*` 定义与 3 条 `.diff-current` 规则；新增 `--augit-diff-inline-added/deleted/modified`（浅 `#bee6be`／`#d6d6d6`／`#c2d8f2`，深 `#294436`／`#484a4a`／`#385570`）；整行底订正为 增 `#bee6be`／删 `#d6d6d6`／改 `#e7effa`（深 `#294436`／`#484a4a`／`#283541`）；新增 `.diff-code-line mark` 与三条按行类型的行内规则（`color: inherit` 以免被 UA 黑字覆盖） |
+| `web/src/live-data.js` | `moveDiffChange()` 删除施加/清除 `.diff-current` 的分支（只保留索引写入、边界提示与 `scrollIntoView`）；`diffChangeBlocks()` 的块判据补 `changed` —— 解析器把成对的删/增合成一行 `Modified`（`GitUnifiedDiffParser.AppendChangedRows:114-135`），界面类名是 `changed`，**原判据只认 `added|removed|conflict`，纯修改型 Diff 一处差异都定位不到** |
+| `tools/audit/check-diff-inline.test.cjs`（新） | 取代 `check-diff-current.test.cjs`：两侧文件字节一致、六个令牌的权威值、`modified` 行底 = `mix(行内色, 编辑器底, 0.6)` 的推导、两档可分辨、`.diff-current` 不再出现、两主题 × 三种行的 `mark` 背景与文字色继承、整行底取色 |
+| `tools/audit/live-shell.spec.cjs`（桩 + 断言） | 桩新增 `src/Modified.cs`（纯修改型 Diff：一行 `Modified`），补 2 条断言：行内层两主题取色（深 `rgb(56,85,112)`、浅 `rgb(194,216,242)`，且文字色继承行本身）、`changed` 行可被差异导航定位且 `--augit-diff-current-*` 全为空（回归守卫） |
+
+### 验证
+
+- `live-shell` **`通过 1237 项断言`**（1235 → **+2**，退出码 0）。
+- `check-diff-inline.test.cjs` **PASS**（29 项：令牌／推导／回归守卫／两主题 × 三种行的计算样式）。
+- 受影响范围：`verify-ux-diff-typography`（PASS=72）、`verify-ux-file-history`（26 组）、`verify-ux-text-layout`（126 组合）、`verify-css-balance`（括号配平）全绿；`verify-ui-assets.ps1` PASS。
+- `ui-compliance.md` §2.10 重生成后 C 类仍为 **3** 条（本轮两条断言不对应 §2.10 的条文）。
+- 登记哈希（第 223 轮）：`mockup.css` `55634f2a…` → **`b30cda953510278f7395344b6a7082f1`**、
+  `live-data.js` `246c2f1f…` → **`0f923b60bfe224171327948e08c29903`**、
+  `live-shell.spec.cjs` `2c84041e…` → `95253c84860fb73bde571f1a36ccb520`；
+  `mockup.js`（`eaf45b2e…`）／`bridge.js`（`8d2d3173…`）未变。
+
+### 登记差异与遗留
+
+- **`.diff-current` 删除**是有意的权威对齐：导航只定位不染色。此前该层的两个浅色值（`#BEE6BE`／`#C2D8F2`）
+  本就是行内层的色，已归还行内层。
+- **纯新增/纯删除行仍会得到一个覆盖整行文本的 `<mark>`**（宿主的 `AppendChangedRows` 给缺失侧填整行的
+  `GitTextSpan`）。它的颜色与该行整行底相同 ⇒ 视觉等价于权威的"没有行内差异"，未改宿主以免动
+  `GitDiffParserTests` 的既有期望；登记为实现细节差异。
+- 新增 **T10**（差异视图中间行号槽的 `#C2D8F2` 填充与"变更连接区"梯形未实现）与 **T11**（差异块计数按两栏
+  各算一次，`data-diff-total` 是规格口径的两倍）到归类总表 §7。
+
 ### 下一轮
 
-归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
-T6（§2.10 C 类 **3** 条：`§7.3` Markdown 加载态（2 条）、"产品面不可达" 1 条）。
+归类总表 §7 剩余：T3（操作进度条）、T6（§2.10 C 类 **3** 条：`§7.3` Markdown 加载态 2 条 +
+"产品面不可达" 1 条）、T10（中间行号槽着色）、T11（差异块两栏重复计数）。

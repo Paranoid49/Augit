@@ -326,14 +326,14 @@ Diff 行底色与文件状态色**不在主题文件里**，而在 `platform/pla
 
 | 键 | 浅色 | 深色 | 含义 |
 | --- | --- | --- | --- |
-| `ADDED_LINES_COLOR` | `#7FC784` | `#549159` | 新增行 |
-| `DELETED_LINES_COLOR` | `#767A8A` | `#868A91` | 删除行（**灰**，不是红） |
-| `MODIFIED_LINES_COLOR` | `#88ADF7` | `#375FAD` | 修改行（**蓝**，不是黄） |
+| `ADDED_LINES_COLOR` | `#7FC784` | `#549159` | 行号槽**实心标记**（VCS 行状态）：新增行 |
+| `DELETED_LINES_COLOR` | `#767A8A` | `#868A91` | 行号槽实心标记：删除行（**灰**，不是红） |
+| `MODIFIED_LINES_COLOR` | `#88ADF7` | `#375FAD` | 行号槽实心标记：修改行（**蓝**，不是黄） |
 | `WHITESPACES_MODIFIED_LINES_COLOR` | `#F7E2CB` | `#52433D` | 仅空白差异的修改行 |
 | `DIFF_SEPARATORS_BACKGROUND` | `#E4E6EB` | `#2B2D30` | 分隔条颜色的**废弃回退键**（仅向后兼容）。真正的键是 `DIFF_SEPARATOR_WAVE`，expUI 未定义它，因此实际回退到这里 |
 | `WHITESPACES` | — | `#6F737A` | 空白符显示颜色（仅深色注册） |
 | `BORDER_LINES_COLOR` | — | — | 变更块边框色。expUI 深浅两套**均未定义**，`ColorKey` 也无代码默认值 ⇒ 取到 null，即 expUI 下不画彩色边框 |
-| `DIFF_MODIFIED`（属性） | `BACKGROUND=#C2D8F2`、`ERROR_STRIPE_COLOR=#B6D2F2` | 未定义 | 词级/错误条纹属性。`DIFF_INSERTED` 与 `DIFF_DELETED` 在 expUI 下**没有 BACKGROUND** |
+| `DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED`（属性） | `BACKGROUND` = `#BEE6BE` / `#D6D6D6` / `#C2D8F2` | `#294436` / `#484A4A` / `#385570` | **差异正文**的整行底与行内（词级）高亮（第 223 轮订正：三者是**同一批键**，整行底按"该块有无行内差异"取全强度或 `mix(…, 编辑器底, 0.6)`；见 `nui-behavior/08-diff-merge.md` §2.1）。expUI light 只覆写 `DIFF_MODIFIED.BACKGROUND`（`#C2D8F2`，原默认 `#CAD9FA`），深色三值取自 Darcula 段 `DefaultColorSchemesManager.xml:2261-2276`，浅色 INSERTED/DELETED 回落 Default（`:498-513`） |
 | `IGNORED_ADDED_LINES_BORDER_COLOR` | `#7FC784` | `#549159` | 忽略空白时的新增行边框 |
 | `IGNORED_DELETED_LINES_BORDER_COLOR` | `#767A8A` | `#868A91` | 忽略空白时的删除行边框 |
 | `IGNORED_MODIFIED_LINES_BORDER_COLOR` | `#88ADF7` | `#375FAD` | 忽略空白时的修改行边框 |
@@ -342,7 +342,7 @@ Diff 行底色与文件状态色**不在主题文件里**，而在 `platform/pla
 | `FILESTATUS_DELETED` | `#6C707E` | `#6F737A` | 删除文件 |
 | `FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS` | `#DE1B2E` | `#DE6A66` | 冲突文件 |
 
-**与现有规范的冲突：** design-system.md §6.2 规定"Diff 使用 `success` 的低对比度背景表示新增，`danger` 的低对比度背景表示删除，`warning` 的低对比度背景表示修改"。权威方案是**新增绿、删除灰、修改蓝**——删除与修改的色相与现有规定不同。既然已确认完全按 New UI 对齐，此处改为按上表取值。
+**与现有规范的冲突：** design-system.md §6.2 规定"Diff 使用 `success` 的低对比度背景表示新增，`danger` 的低对比度背景表示删除，`warning` 的低对比度背景表示修改"。权威方案是**新增绿、删除灰、修改蓝**——删除与修改的色相与现有规定不同。既然已确认完全按 New UI 对齐，此处改为按上表取值。**第 223 轮补充**：上表前三个 `*_LINES_COLOR` 是**行号槽实心标记**色族，差异正文的行底/行内层用 `DIFF_*.BACKGROUND`（见该行说明）。
 
 **待补充：** 上表是"线条颜色"，IntelliJ 会以某个 alpha 与编辑区底色混合后作为行背景，另有独立的变更块边框与折叠分隔绘制规则。alpha 值与块边框规则尚未提取（见 §8）。
 

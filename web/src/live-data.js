@@ -4276,7 +4276,11 @@ function diffChangeBlocks() {
   const root = document.querySelector(".diff-layout, .document-view");
   if (!root) return [];
   const lines = [...root.querySelectorAll(".diff-code-line")];
-  const changed = (el) => /(^|\s)(added|removed|conflict\S*)(\s|$)/.test(el.className || "");
+  // 「同一次替换的删除行与新增行属于同一处差异」：解析器把成对的删/增合成一行 `Modified`
+  // （`GitUnifiedDiffParser.AppendChangedRows`），界面给它的类名是 `changed`
+  // （`mockup.js` 的 `cssKind()`），所以块判据必须同时认 `added`／`removed`／`changed`／冲突行，
+  // 否则纯修改型 Diff 一处差异都定位不到（第 223 轮修正）。
+  const changed = (el) => /(^|\s)(added|removed|changed|conflict\S*)(\s|$)/.test(el.className || "");
   const blocks = [];
   lines.forEach((el, index) => {
     if (!changed(el)) return;
@@ -4369,17 +4373,9 @@ function moveDiffChange(direction) {
   }
   if (live) live.diffBoundaryHint = null;
   applyDiffBoundaryHint();
-  // 规格：当前差异块整块高亮（2026 参考图 diff-viewer-ctrlD-file 实测用强色，与软行底区分）。
-  // 块由 `diffChangeBlocks` 给出 `{ first, lastIndex }`，两者都是 `.diff-code-line` 列表中的下标。
-  {
-    const root = document.querySelector(".diff-layout, .document-view");
-    if (root) {
-      root.querySelectorAll(".diff-code-line.diff-current").forEach((el) => el.classList.remove("diff-current"));
-      const all = [...root.querySelectorAll(".diff-code-line")];
-      const from = all.indexOf(blocks[index].first);
-      for (let i = Math.max(0, from); i <= blocks[index].lastIndex; i += 1) all[i].classList.add("diff-current");
-    }
-  }
+  // 规格 `ux-spec.md:438/439/502` 只要求"上一处/下一处差异"能**定位**到变更块并保持触发按钮焦点，
+  // **没有**"当前差异块整块染色"这一层：权威 `DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／
+  // `RESOLVED`／`EXCLUDED_*`，不存在"当前差异"模式（第 223 轮据此删除 `.diff-current` 层）。
   blocks[index].first.scrollIntoView({ block: "center" });
   // 规格 §502：定位后**保留触发按钮焦点** —— 这里刻意不调用 focus()，由调用方保持按钮焦点。
   return { index, total };

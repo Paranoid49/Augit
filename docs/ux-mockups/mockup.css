@@ -157,17 +157,25 @@
   --augit-project-8: #bee4e1;
   --augit-project-9: #ccebd1;
   /* New UI Diff 行底与文件状态配色（docs/nui-behavior/08-diff-merge.md §2、数值参考 §5.7）。
-     Diff 行底用配色方案里已经合成好的柔和底色，不需要再叠 alpha。
-     注意：这些与 --augit-red 不是同一套——后者服务冲突解决器与危险动作等非 Diff 场景。
+     注意：Diff 行色与 --augit-red 不是同一套——后者服务冲突解决器与危险动作等非 Diff 场景。
      （原来的 --augit-green / --augit-green-soft 从未被引用，第 98 轮已删除。） */
-  --augit-diff-added: #edfced;
-  --augit-diff-deleted: #f4f7f9;
-  /* 当前差异块高亮：2026 参考图 diff-viewer-ctrlD-file（按 Ctrl+D 后）实测整块使用强色 ——
-     增 #BEE6BE／改 #C2D8F2（即换用软底后空出来的旧值）；删行参考图未量到，用配色方案原值 #767A8A。 */
-  --augit-diff-current-added: #bee6be;
-  --augit-diff-current-deleted: #767a8a;
-  --augit-diff-current-modified: #c2d8f2;
-  --augit-diff-modified: #e7effa;
+  /* New UI Diff 配色（权威模型与实测见 docs/nui-behavior/08-diff-merge.md §2.2）。
+     权威整行取色**分两档**：`DiffViewerHighlighters.createHighlighter` 里
+     `ignored = !resolved && innerFragments != null` —— 该变更块**有**行内（词/段级）差异时，
+     整行取 `TextDiffTypeImpl.getIgnoredColor()` = `ColorUtil.mix(DIFF_*.BACKGROUND, 编辑器底, 0.6)`；
+     **没有**行内差异时取全强度 `DIFF_*.BACKGROUND`。纯新增/纯删除块的一侧为空 ⇒ 永远没有行内差异 ⇒ 全强度；
+     只有 `Modified` 行（解析器把成对的删/增合成一行）才有行内差异 ⇒ 柔和底。
+     深色同样按 `mix(DIFF_*.BACKGROUND, 编辑器底 #1e1f22, 0.6)` 推。 */
+  --augit-diff-added: #bee6be;          /* DIFF_INSERTED.BACKGROUND 全强度 */
+  --augit-diff-deleted: #d6d6d6;        /* DIFF_DELETED.BACKGROUND 全强度 */
+  --augit-diff-modified: #e7effa;       /* mix(c2d8f2, #ffffff, 0.6) = E7EFFA（参考图实测一致） */
+  /* 行内（词/段级）高亮取权威 `DIFF_*.BACKGROUND` 全强度：
+     `DiffDrawUtil.InlineHighlighterBuilder.done()` → `getTextAttributes(type, editor, DEFAULT)`
+     → `DiffTextAttributes.getBackgroundColor()` → `TextDiffTypeImpl.getColor()`（`TextDiffTypeFactory.java:50-62`）。
+     实际只可能出现在 `Modified` 行上（纯新增/纯删除块没有行内差异）。 */
+  --augit-diff-inline-added: #bee6be;
+  --augit-diff-inline-deleted: #d6d6d6;
+  --augit-diff-inline-modified: #c2d8f2; /* expUI 覆写 expUI_lightScheme.xml:260-263 */
   --augit-diff-whitespace: #f7e2cb;
   --augit-diff-separator: #e4e6eb;
   --augit-file-added: #067d17;
@@ -342,14 +350,16 @@ body[data-theme="dark"] {
   --augit-project-7: #4f3e65;
   --augit-project-8: #1d4744;
   --augit-project-9: #3e5540;
-  /* New UI Diff 行底与文件状态配色（深色）。 */
-  --augit-diff-added: #294436;
-  --augit-diff-deleted: #484a4a;
-  /* 深色无参考图，取配色方案 ADDED/DELETED/MODIFIED_LINES_COLOR 原值。 */
-  --augit-diff-current-added: #549159;
-  --augit-diff-current-deleted: #868a91;
-  --augit-diff-current-modified: #375fad;
-  --augit-diff-modified: #385570;
+  /* New UI Diff 配色（深色）。整行底按权威 `getIgnoredColor()` 的同一式推：
+     `mix(DIFF_*.BACKGROUND, 编辑器底 #1e1f22, 0.6)`（`TextDiffTypeFactory.java:64-74`、
+     `MixedColorProducer.java:52`；编辑器底取 expUI_darkScheme.xml:756-760 的 `TEXT.BACKGROUND`）。 */
+  --augit-diff-added: #294436;          /* DIFF_INSERTED.BACKGROUND 全强度 */
+  --augit-diff-deleted: #484a4a;        /* DIFF_DELETED.BACKGROUND 全强度 */
+  --augit-diff-modified: #283541;       /* mix(385570, 1e1f22, 0.6) */
+  /* 行内（词/段级）高亮取权威 `DIFF_*.BACKGROUND` 原值（Darcula 段 `DefaultColorSchemesManager.xml:2261-2276`）。 */
+  --augit-diff-inline-added: #294436;
+  --augit-diff-inline-deleted: #484a4a;
+  --augit-diff-inline-modified: #385570;
   --augit-diff-whitespace: #52433d;
   --augit-diff-separator: #2b2d30;
   --augit-file-added: #73bd79;
@@ -1440,10 +1450,16 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   background: var(--augit-diff-modified);
 }
 
-/* 当前差异块（`live-data.js` 的 moveDiffChange 施加 .diff-current）：整块用强色，与软行底区分。 */
-.diff-code-line.added.diff-current { background: var(--augit-diff-current-added); }
-.diff-code-line.removed.diff-current { background: var(--augit-diff-current-deleted); }
-.diff-code-line.changed.diff-current { background: var(--augit-diff-current-modified); }
+/* 行内（词/段级）差异：`mockup.js` 的 marked() 把宿主 `diff` 载荷里的 oldChanges／newChanges
+   区间包成 `<mark>`（`ShellBridge` 投影 `oldChanges`／`newChanges`，数据来自 `GitWordDiff`）。
+   取色是权威 `DIFF_*.BACKGROUND` 全强度（见文件顶部 `--augit-diff-inline-*` 注释）；文字仍沿用该行
+   原本的语法颜色（`color: inherit`，否则会被 `<mark>` 的 UA 默认黑字覆盖）。
+   纯新增/纯删除行此刻会得到一个覆盖整行文本的 `<mark>`，其颜色与整行底相同 ⇒ 视觉等价于权威的
+   "没有行内差异"，只有 `changed`（`Modified`）行能看出行内层。 */
+.diff-code-line mark { background: transparent; color: inherit; }
+.diff-code-line.added mark { background: var(--augit-diff-inline-added); }
+.diff-code-line.removed mark { background: var(--augit-diff-inline-deleted); }
+.diff-code-line.changed mark { background: var(--augit-diff-inline-modified); }
 
 .bottom-tool {
   display: grid;

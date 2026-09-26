@@ -74,7 +74,7 @@
 | 2.7 | Changes 列表与提交（勾选、Amend、空信息确认、可用性） | 已按 New UI 对齐 | `12-commit-changes.md`；`CommitChangeListDialog.java:602-604`、`SingleChangeListCommitWorkflowHandler.kt:117-122` | `live-data.js` `commitSelectedChanges` | E1 `verify-ux-commit-workflow.cjs`、live-shell |
 | 2.8 | Changes 右键菜单顺序 | 已按 New UI 对齐 | `12` §10；`ChangesViewPopupMenu`、`Git.FileActions` | `mockup.js` `changesContextMenu()` | E1 `check-changes-context-menu.test.cjs` |
 | 2.9 | 工作区 Diff（状态机、边界两段式、文件导航） | 已按 New UI 对齐 | `08`、`ux-spec` §7.7 | `live-data.js` `loadDiff`/`moveDiffFile` | E1 live-shell（§7.9 块）、`verify-ux-diff-typography.cjs` |
-| 2.10 | Diff 三层颜色（软行底/行内/行号槽） | 已按 New UI 对齐（软行底 + 行号槽）／**行内层待处理** | `08` §2.2；`TextDiffTypeImpl`、`LineStatusMarkerColorScheme` | `mockup.css` `--augit-diff-*` | E1 `check-diff-current.test.cjs`、E5 |
+| 2.10 | Diff 行色两档 + 行内（词级）层 | 已按 New UI 对齐（整行底两档 + 行内层）／**中间行号槽着色待处理**（T10） | `08` §2.1／§2.2；`DiffViewerHighlighters.kt:113-129`、`TextDiffTypeFactory.java:50-74`、`DiffDrawUtil.java:754-783` | `mockup.css` `--augit-diff-*`、`--augit-diff-inline-*`；`mockup.js` `marked()` | E1 `check-diff-inline.test.cjs`、E5、live-shell（第 223 轮 `src/Modified.cs` 场景） |
 | 2.11 | Git 历史（列表、详情、分页、快捷键） | 已按 New UI 对齐 | `06`、`07`；`VcsLogUI` | `live-data.js` `loadHistory` | E1 `verify-ux-history.cjs`、`verify-ux-history-details.cjs` |
 | 2.12 | 提交图（轨道分配、边、配色） | 已按 New UI 对齐 | `06`；`GitLogGraphColorManager` | `mockup.js` 图形绘制 | E1 `verify-ux-commit-graph.cjs` |
 | 2.13 | Git 历史筛选（文本/哈希、分支、用户、日期、路径） | 已按 New UI 对齐（**登记差异**见右） | `VcsLogFilterCollection`、`VcsLogFiltererImpl.kt:88-101` | `git/history` 参数、`live-data.js` 筛选弹层 | E1 live-shell（第 179/185/188–191 轮） |
@@ -114,8 +114,8 @@
 | 3.1 | 经典对话框内容/标题/底栏内距、无底栏分隔线 | 已按 New UI 对齐 | `DialogWrapper.java:838-845,1522`、`UIUtil.java:370-371` |
 | 3.2 | 破坏性确认框标题图标（reset/rollback 问号） | 已按 New UI 对齐 | 官方 `questionDialog.svg`；其余 5 个对话框图标无依据 ⇒ 不适用（见 §6） |
 | 3.3 | 对话框状态机（进行中冻结、取消、焦点恢复） | 已按 New UI 对齐 | `07`；`DialogWrapper` |
-| 3.4 | `Diff 当前块`（`.diff-current`） | **待处理**（见 §7 T1） | `DiffDrawUtil.PaintMode` 无对应层 |
-| 3.5 | 行内词级 Diff 高亮 | **待处理**（见 §7 T2） | 需宿主提供词级差异范围 |
+| 3.4 | `Diff 当前块`（`.diff-current`） | 已按 New UI 对齐（**第 223 轮删除该层**） | 权威 `DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`／`EXCLUDED_*`，没有"当前差异"模式；导航只定位（`ux-spec.md:438/439/502`） |
+| 3.5 | 行内词级 Diff 高亮 | 已按 New UI 对齐（第 223 轮实现） | `DIFF_*.BACKGROUND`；宿主 `oldChanges`／`newChanges` 通道此前已存在（`GitWordDiff`、`ShellBridge`） |
 | 3.6 | 冲突解决器 Continue/Skip/Abort 文案 | 有意产品差异 | 权威走 `MERGE_ACTION_CAPTIONS` 钩子，由 `ux-spec` 定义 |
 | 3.7 | 对话框"在后台运行"按钮、任务自定义取消文案 | 不适用 | Augit 写操作不阻塞、只有一种取消文案 |
 | 3.8 | 图像查看器缩放/平移规则 | 无法取证 | 同 2.5 |
@@ -209,16 +209,18 @@
 
 | # | 项 | 现状与依据 | 出路 |
 | --- | --- | --- | --- |
-| T1 | `.diff-current`（当前差异块）在 New UI 无对应物 | `08-diff-merge.md` §7bis.4、`10-backlog.md` 二·补五；`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`／`EXCLUDED_*` | ① 删除层（只滚动不染色）；② 改为行内词级高亮；③ 保留但换行号槽色族。**需产品口径** |
-| T2 | 行内词级 Diff 高亮 | 权威键已定（`DIFF_*.BACKGROUND`），参考图证实存在；落地需宿主提供词级差异范围 | **需产品口径**：是否属"现有 diff 功能的呈现方式"（触碰"不新增数据通道"边界） |
+| T1 | ~~`.diff-current`（当前差异块）在 New UI 无对应物~~ | **已关闭（第 223 轮）**：删层（只定位不染色）。像素复测证明参考图里那段强色是**一行**的高度（`y623–661` ≈ 26 逻辑px），是"无行内差异的新增块"的全强度 `DIFF_INSERTED.BACKGROUND`，不是"当前差异被整块选中" | — |
+| T2 | ~~行内词级 Diff 高亮~~ | **已关闭（第 223 轮）**：实现为 `.diff-code-line mark`，取权威 `DIFF_*.BACKGROUND`；宿主通道（`GitWordDiff` → `ShellBridge` 的 `oldChanges`／`newChanges`）第 8 模块起就存在，`mockup.js` 的 `marked()` 也早已渲染 `<mark>`，缺的只是配色 | — |
 | T3 | 操作进度条（`.progress-track`）实时侧不渲染 | `16-operation-progress.md` §3：当时因 Smart Checkout 未接线而搁置；**第 206–207 轮已接线** | 重新评估：按权威 `ProgressWindow`／`ProgressDialogUI` 决定是否给写操作补进度呈现 |
 | T4 | ~~Amend"仅在用户没改过信息时才覆盖"~~ | `12-commit-changes.md` §9 登记待做 | **已关闭（第 216 轮）**：按权威 `AmendCommitHandlerImpl.kt:78-115` 实现"面板激活时的初始信息"基线 |
 | T6 | §2.10 的 C 类"未覆盖（无断言也无观察）"共 **3** 条 | `ui-compliance.md` §2.10（第 222 轮重生成；原 11 条中 `git-unavailable`、§7.8 分页、§7.13 外部冲突更新、§7.9 Blame 定位历史 2 条、§6 关闭比较占位、§7.16 终端启动 2 条已闭环） | 余下为 §7.3 Markdown 加载态 2 条与"产品面不可达"1 条；每条补断言或明确不做 |
 | T7 | 规范内部矛盾：树/Changes 行悬停 | `design-system.md` §8.3 第 415 行（用户裁决保留）与第 427 行（"待移除"）互相冲突 | **本轮已按用户裁决（第 100 轮）统一为"保留 + 有意差异"**，见 §9 修订 |
 | T8 | 行为索引 §3 冲突表的三行旧状态 | `intellij-platform-ui-behavior.md` §3 仍把"行悬停/行高/行高 1.2/模态遮罩"写成"待实施/待核实" | **本轮已改标为已裁决的"有意产品差异"或"已实施"**，见 §9 修订 |
 | T9 | ~~树/列表缩进与 `Tree.border` 的逐值核对~~ | `02-tree-list.md` 记 18px 步长，`design-system.md` §8.3 却写 16px，实现是四条固定规则（16px 步长） | **已关闭（第 217 轮）**：按权威 7+11=18 与参考图 18.4 订正为 `--tree-depth` 的 18px 步长（支持任意深度），并加 dpi×字号矩阵断言；`Tree.border` 是 Swing 外内距、Augit 用行内距表达（登记为实现方式差异） |
+| T10 | 差异视图**中间行号槽**的着色与"变更连接区"未实现 | 参考图 `diff-viewer-ctrlD-file.png` 里修改块的左右行号槽（`x1678-1794`／`x1838-1925`）被 `#C2D8F2` 填充，两槽之间还有连接两侧行范围的梯形；Augit 的 `.diff-gutter` 只有行号文字、无填充与梯形。`DiffDividerDrawUtil` 的多边形与槽填充未逐值读 | 读 `DiffDividerDrawUtil`／`DiffDividerDrawUtil.paintPolygons` 的取色与几何，或登记为有意差异。**需产品口径** |
+| T11 | 差异块计数与边界提示**按两栏各算一次** | `diffChangeBlocks()` 从整份 DOM 取 `.diff-code-line`，双栏下同一变更块在左右两栏各产生一个块 ⇒ `data-diff-total` 是规格"连续变更块"数的两倍；`ux-spec.md:441` 要求"差异数量按连续变更块计算" | 只取一栏计块（并对"已到首/尾块"用**点击前**的 index 判断，避免首次点击就出边界提示）。**需回归 §7.9 边界断言** |
 
-**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。T9（树缩进步长）由**第 217 轮**订正为权威的 18px 并加断言（见 §1.22／§1.23／`02-tree-list.md`）。**第 218 轮**实现并断言 **Git 历史上翻页**（`ux-spec` §7.8 第 475-476 行）：宿主 `git/history` 收 `page`、界面滚动触底追加并由 `restoreHistoryScroll()` 保持可见位置。**第 219 轮**为 **§7.13 外部解决冲突后的会话列表更新**补断言（推送 `workspace-changed {gitMetadata:true}` 后 500ms 内列表 2 → 1）。**第 220 轮**实现并断言 **§7.9 点击 Blame 提交定位 Git 历史并选中该提交**（含从文件历史打开的 Blame 恢复日志布局、解除路径限定；权威 `GitFileAnnotation.showAffectedPaths()` → `VcsLogNavigationUtil.jumpToRevisionAsync`，registry 默认 true），并把日志提交选中写进 `live.historySelectedHash` 使刷新不再重置选中。**第 221 轮**为 **§6.7 关闭比较后返回尚未就绪的普通标签**补读取占位（`documentLoadingView()`）并加断言。**第 222 轮**为 **§7.16 终端启动时序**补代际失效（关闭期间晚到的 `terminal/start` 释放刚启动的 Shell、不复活终端）与"ready 前输出保留"断言。T6 的 C 类随之由 10 条降到 **3** 条。
+**已关闭**：T5（`git-unavailable` 下提交/Git 历史入口禁用态）由**第 215 轮**实现并断言 —— `rail()` 按 `gitUnavailableReason` 写 `aria-disabled="true"` ＋ `title` 原因，`bindToolRail()` 阻止禁用入口切换工具窗口；`ui-compliance.md` §2.6 §7.18 第 2 条由"未覆盖"转"是"，§2.10 的 C 类随之由 11 条降到 10 条（本表 T6 已同步）。T4（Amend 覆盖条件）由**第 216 轮**按权威 `AmendCommitHandlerImpl.kt:78-115` 实现并断言（见 §2.38）。T9（树缩进步长）由**第 217 轮**订正为权威的 18px 并加断言（见 §1.22／§1.23／`02-tree-list.md`）。**第 218 轮**实现并断言 **Git 历史上翻页**（`ux-spec` §7.8 第 475-476 行）：宿主 `git/history` 收 `page`、界面滚动触底追加并由 `restoreHistoryScroll()` 保持可见位置。**第 219 轮**为 **§7.13 外部解决冲突后的会话列表更新**补断言（推送 `workspace-changed {gitMetadata:true}` 后 500ms 内列表 2 → 1）。**第 220 轮**实现并断言 **§7.9 点击 Blame 提交定位 Git 历史并选中该提交**（含从文件历史打开的 Blame 恢复日志布局、解除路径限定；权威 `GitFileAnnotation.showAffectedPaths()` → `VcsLogNavigationUtil.jumpToRevisionAsync`，registry 默认 true），并把日志提交选中写进 `live.historySelectedHash` 使刷新不再重置选中。**第 221 轮**为 **§6.7 关闭比较后返回尚未就绪的普通标签**补读取占位（`documentLoadingView()`）并加断言。**第 222 轮**为 **§7.16 终端启动时序**补代际失效（关闭期间晚到的 `terminal/start` 释放刚启动的 Shell、不复活终端）与"ready 前输出保留"断言。T6 的 C 类随之由 10 条降到 **3** 条。**第 223 轮**关闭 T1／T2 并订正 Diff 行色模型：删除无权威对应的 `.diff-current` 层（`moveDiffChange` 只保留定位与按钮焦点），实现行内（词级）高亮层（`.diff-code-line mark`，权威 `DIFF_*.BACKGROUND`），按 `DiffViewerHighlighters.createHighlighter` 的 `ignored = !resolved && innerFragments != null` 两档规则把整行底订正为 增 `#BEE6BE`／删 `#D6D6D6`／改 `#E7EFFA`（深 `#294436`／`#484A4A`／`#283541`）；同时修正 `diffChangeBlocks()` 不认 `changed`（`Modified`）行导致纯修改型 Diff 一处差异都定位不到的真实缺陷。像素复测推翻第 110／133 轮的"软行底"结论（`#EDFCED` = `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`，在参考图里左右两栏同时满宽覆盖；`#F4F7F9` 在差异正文两栏内 0 像素），新增 T10（中间行号槽着色）与 T11（差异块两栏重复计数）。
 
 ## 8. 非界面目标项（不计入上面的功能归类）
 

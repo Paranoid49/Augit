@@ -533,6 +533,20 @@ async function main() {
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
+        // 第 223 轮：**纯修改型** Diff（解析器把成对的删/增合成一行 `Modified`，
+        // `GitUnifiedDiffParser.AppendChangedRows`）。用于验证「上一处/下一处差异」认 `changed` 类，
+        // 以及行内词级高亮（`oldChanges`/`newChanges`）在两种主题下的取色。
+        if (params.path === 'src/Modified.cs') {
+          return {
+            available: true, path: 'src/Modified.cs', status: 'Ready', oldSize: 34, newSize: 34,
+            truncated: false, lines: [],
+            rows: [
+              { oldLine: 1, oldText: '// keep', oldChanges: [], newLine: 1, newText: '// keep', newChanges: [], kind: 'Context' },
+              { oldLine: 2, oldText: 'alpha beta', oldChanges: [{ start: 0, length: 5 }], newLine: 2, newText: 'alpha gamma', newChanges: [{ start: 6, length: 5 }], kind: 'Modified' },
+              { oldLine: 3, oldText: '// tail', oldChanges: [], newLine: 3, newText: '// tail', newChanges: [], kind: 'Context' },
+            ],
+          };
+        }
         return { available: false, reason: 'no diff' };
       }
       if (method === 'clipboard/write') {
@@ -12065,6 +12079,58 @@ async function main() {
         && diffNav.afterNext.active === '下一处差异'
         && diffNav.afterNext2.active === '下一处差异'
         && diffNav.afterPrev.active === '上一处差异');
+
+    // ---- 第 223 轮：行内（词/段级）差异高亮 + 纯修改型 Diff 的差异导航 ----
+    // 规格：行内高亮取权威 `DIFF_*.BACKGROUND`（`08-diff-merge.md` §2.2、§7bis.4）；
+    // 差异按连续变更块计，同一次替换合成的 `Modified` 行（界面类名 `changed`）也是变更块。
+    // 同时回归守卫：无权威对应的 `.diff-current` 层已删除，不得回归。
+    const inlineDiff = await (async () => {
+      const readScene = async (theme) => {
+        const scene = await openScene(`scene=commit-diff&theme=${theme}&diff=src%2FModified.cs`);
+        await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+        await scene.page.waitForSelector('.diff-columns .diff-code-line', { timeout: 10000 });
+        const read = () => scene.page.evaluate(() => {
+          const changed = document.querySelector('.diff-code-line.changed');
+          const mark = changed ? changed.querySelector('mark') : null;
+          const scroller = document.querySelector('.diff-layout, .document-view');
+          const style = mark ? getComputedStyle(mark) : null;
+          return {
+            changedLines: document.querySelectorAll('.diff-code-line.changed').length,
+            marks: document.querySelectorAll('.diff-code-line mark').length,
+            markBg: style ? style.backgroundColor : null,
+            markColor: style ? style.color : null,
+            lineColor: changed ? getComputedStyle(changed).color : null,
+            currentTokens: ['--augit-diff-current-added', '--augit-diff-current-deleted', '--augit-diff-current-modified']
+              .map((n) => getComputedStyle(document.body).getPropertyValue(n).trim()).join('|'),
+            total: scroller && scroller.dataset ? scroller.dataset.diffTotal || null : null,
+            index: scroller && scroller.dataset ? scroller.dataset.diffIndex || null : null,
+          };
+        });
+        const before = await read();
+        await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+        await scene.page.waitForTimeout(400);
+        const navigated = await read();
+        await scene.page.close();
+        return { before, navigated };
+      };
+      const dark = await readScene('dark');
+      const light = await readScene('light');
+      console.log('INFO 行内词级高亮=' + JSON.stringify({ dark, light }));
+      return { dark, light };
+    })();
+    check('第 223 轮 行内词级高亮取权威 DIFF_*.BACKGROUND 且两主题可辨: ' + JSON.stringify(inlineDiff),
+      inlineDiff.dark.before.changedLines === 2 && inlineDiff.dark.before.marks === 2
+        && inlineDiff.dark.before.markBg === 'rgb(56, 85, 112)'   // DIFF_MODIFIED.BACKGROUND #385570
+        && inlineDiff.dark.before.markColor === inlineDiff.dark.before.lineColor  // 保留语法色，不是 UA 默认黑字
+        && inlineDiff.light.before.markBg === 'rgb(194, 216, 242)' // expUI_lightScheme #c2d8f2
+        && inlineDiff.light.before.markBg !== inlineDiff.dark.before.markBg);
+    check('第 223 轮 纯修改型 Diff 的 changed 行可被差异导航定位、且 .diff-current 层已删除: '
+      + JSON.stringify({ dark: inlineDiff.dark.navigated, light: inlineDiff.light.navigated }),
+      // 修复前 `diffChangeBlocks` 只认 added/removed，纯修改型 Diff 一处差异都定位不到（index/total 全空）。
+      inlineDiff.dark.navigated.index === '0' && Number(inlineDiff.dark.navigated.total) >= 1
+        && inlineDiff.light.navigated.index === '0'
+        // `.diff-current` 的三个令牌在两种主题下都必须为空（第 223 轮删除该无权威对应的层）。
+        && inlineDiff.dark.before.currentTokens === '||' && inlineDiff.light.before.currentTokens === '||');
 
     // ---- 第 98 轮补断言：§7.8 提交历史「搜索提交」把焦点交给日志搜索框（此前是死入口）----
     const historySearch = await (async () => {

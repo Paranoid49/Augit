@@ -48,7 +48,7 @@
 
 ### 2.1 正文行底色的有效值（方案覆盖 + 默认回落）
 
-上表是"线条颜色"，**不是正文行的底色**。~~正文行底色来自 `DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED` 这三个 `TextAttributesKey` 的 `BACKGROUND` 属性~~ —— **第 133 轮的像素实测推翻了这句（见 §2.2）：这三个键的 `BACKGROUND` 是行内（词级）高亮的取色，整行底色是另一层更浅的色。** `DIFF_*` 的 `BACKGROUND` 取值仍如下（expUI 只覆盖了其中的 `DIFF_MODIFIED`（浅色），其余走默认值）。默认值在 `platform/platform-resources/src/DefaultColorSchemesManager.xml`：
+上表是"线条颜色"，**不是正文行的底色**。`DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED` 这三个 `TextAttributesKey` 的 `BACKGROUND` 同时供**整行底**与**行内（词级）高亮**使用（两者同色，见 §2.2 的两档规则；第 223 轮定案）。取值如下（expUI 只覆盖了其中的 `DIFF_MODIFIED`（浅色），其余走默认值）。默认值在 `platform/platform-resources/src/DefaultColorSchemesManager.xml`：
 
 | 属性 | 浅色 BACKGROUND | 深色 BACKGROUND | 有效来源 |
 | --- | --- | --- | --- |
@@ -57,11 +57,29 @@
 | `DIFF_MODIFIED` | `#C2D8F2` | `#385570` | 浅色由 expUI 覆盖（原默认 `#CAD9FA`）；深色走默认值 |
 | `DIFF_CONFLICT` | `#FFD5CC` | `#45302B` | 默认值 |
 
-（来源：`platform/platform-resources/src/DefaultColorSchemesManager.xml:507,2267` 起两套方案；`expUI/expUI_lightScheme.xml:260`）
+（来源：`platform/platform-resources/src/DefaultColorSchemesManager.xml:489-524,2255-2278`；`expUI/expUI_lightScheme.xml:260-263`）
 
-**这些就是最终底色，不需要再叠 alpha。** 因此 `ADDED_LINES_COLOR`（`#7FC784`）与 `DIFF_INSERTED.BACKGROUND`（`#BEE6BE`）是**两个不同用途的值**：前者用于 gutter 标记等实心部件，后者用于**行内词级高亮**（第 133 轮修正：§2.1 原写"正文行底"，实测证明是行内层）。实现时不要混用。
+**这些就是最终色值，不需要再叠 alpha。** `ADDED_LINES_COLOR`（浅 `#7FC784`）等 `*_LINES_COLOR` 仍是**另一个用途**的键：它服务 `LineStatusMarkerColorScheme` 的**行号槽实心标记**（VCS 行状态），不是差异正文的行底；`DIFF_*.BACKGROUND` 服务差异正文的行底与行内高亮。实现时不要混用。
 
-### 2.2 三层归属的实测裁决（第 133 轮：像素直方图 + 裁剪取证）
+**整行底色分两档（第 223 轮由权威代码定案）**：`DiffViewerHighlighters.createHighlighter` 里
+
+```
+val ignored = !resolved && innerFragments != null      // platform/diff-impl/.../simple/DiffViewerHighlighters.kt:113-129
+... LineHighlighterBuilder(editor, startLine, endLine, type).withIgnored(ignored) ...
+```
+
+`ignored` ⇒ `PaintMode.IGNORED` ⇒ `DiffTextAttributes.getBackgroundColor()` 取 `TextDiffTypeImpl.getIgnoredColor()` = `ColorUtil.mix(DIFF_*.BACKGROUND, 编辑器底, 0.6)`（`DiffDrawUtil.java:568-590,847-863`、`TextDiffTypeFactory.java:64-74`、`MixedColorProducer.java:48-53`）；否则取 `PaintMode.DEFAULT` 的全强度 `DIFF_*.BACKGROUND`。`getIgnoredColor()` 先看 `FOREGROUND`，而两套方案的 `DIFF_*` 都只定义了 `BACKGROUND`（`FOREGROUND` 为空）⇒ 总是走 mix 分支。
+
+因此**只有存在行内差异的变更块才有柔和行底**。纯新增／纯删除块的一侧为空 ⇒ 没有行内差异 ⇒ 整行是全强度色；`Modified` 行才有行内差异 ⇒ 整行是 mix 出来的柔和色。深色同理（编辑器底取 `expUI_darkScheme.xml:756-760` 的 `TEXT.BACKGROUND = #1E1F22`）：
+
+| 层 | 浅色 | 深色 | 出处 |
+| --- | --- | --- | --- |
+| 整行底 · 纯新增（无行内差异） | `#BEE6BE` | `#294436` | `DIFF_INSERTED.BACKGROUND` 全强度 |
+| 整行底 · 纯删除（无行内差异） | `#D6D6D6` | `#484A4A` | `DIFF_DELETED.BACKGROUND` 全强度 |
+| 整行底 · 修改（有行内差异） | `#E7EFFA` | `#283541` | `mix(DIFF_MODIFIED.BACKGROUND, 编辑器底, 0.6)` |
+| 行内（词/段级）高亮 | `#C2D8F2` | `#385570` | `DIFF_MODIFIED.BACKGROUND` 全强度（`change.diffType`） |
+
+### 2.2 层归属的像素复测（第 133 轮首测 → 第 223 轮订正）
 
 §2.1 把 `DIFF_*.BACKGROUND` 记成"正文行底色"**不完整**。第 133 轮直接测参考图 `artifacts/pycharm-16-final/diff-viewer-ctrlD-file.png`（2898×1734）：
 
@@ -69,22 +87,42 @@
 
 | 参考图里的层 | 浅色实测值 | 像素数 | 几何 | 对应权威键 |
 | --- | --- | --- | --- | --- |
-| **整行软底** | `#EDFCED`（增）／`#E7EFFA`（改）／`#F4F7F9`（删） | 213160／122390／21133 | **整行满宽**（最宽行 w1625–1697） | **未找到**——`Default` 与 expUI 两套方案里都没有这三个值（`EDFCED` 只命中无关的 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`） |
-| **行内（词/段级）高亮** | `#BEE6BE`（增）／`#C2D8F2`（改） | 36323／63788 | **局部段**：`#C2D8F2` 在 y700 分为 `887-1026(140)`、`1678-1794(117)`、`1796-1836(41)`、`1838-1925(88)`、`1973-2817(845)` 五段；`#BEE6BE` 在 y623–625 为 `1932-2817(886)` | **`DIFF_*.BACKGROUND`** ✓ |
-| 行号槽实心标记 | `#7FC784`／`#767A8A`／`#88ADF7` | —— | 窄条 | `*_LINES_COLOR` ✓ |
+| **整行底 · 纯新增** | `#BEE6BE` | 36323（同一值也用于行内层） | 单行满宽（`y623–661` ≈ 26 逻辑px，`1932-2817`） | `DIFF_INSERTED.BACKGROUND` 全强度 ✓ |
+| **整行底 · 修改** | `#E7EFFA` | 122390 | 整行满宽（`y623–776`，两栏） | `mix(DIFF_MODIFIED.BACKGROUND #C2D8F2, #FFFFFF, 0.6)` ✓ 逐值吻合 |
+| **行内（词/段级）高亮** | `#C2D8F2`（改）／`#BEE6BE`（增） | 63788／36323 | **局部段**：`#C2D8F2` 在 y700 为 `887-1026(140)`（左栏 `powershell` 一词）等；`#BEE6BE` 的局部段同样出现 | `DIFF_*.BACKGROUND` 全强度（`change.diffType`）✓ |
+| 行号槽实心标记 | `#7FC784`／`#767A8A`／`#88ADF7` | —— | 窄条 | `*_LINES_COLOR` ✓（差异视图里的中间槽着色**未逐值核对**，见 §2.3） |
 
-裁剪目视（`x840-1840,y600-800` 与 `x1840-2898,y600-800`）：蓝带里**只有 `powershell` 这个词**被 `#C2D8F2` 覆盖，该行行底是更浅的 `#E7EFFA`；绿带（`dotnet restore/build/test`）是整行 `#EDFCED` 且**没有**行内高亮。
+裁剪目视（`x840-1840,y600-800` 与 `x1840-2898,y600-800`）：蓝带里**只有 `powershell` 这个词**被 `#C2D8F2` 覆盖，该行行底是更浅的 `#E7EFFA` ✓。
 
-**结论**（与 §7bis.4 的代码路径完全自洽）：`createInlineHighlighter` → `getTextAttributes(type, editor, BackgroundType.DEFAULT)` → `DiffTextAttributes.getBackgroundColor()` → `TextDiffTypeImpl.getColor()` → `getAttributes(DIFF_*).getBackgroundColor()`，所以 **`DIFF_*.BACKGROUND` = 行内词级高亮**；**整行底色是另一层更浅的色，权威里没有对应键**，浅色只能取参考实测值。
+**第 223 轮订正（§2.2 原表把 `#EDFCED`／`#F4F7F9` 记成"整行软底"）**：这两个值**不是**差异配色。
 
-**因此 Augit 现行的层归属是错位的**（第 133 轮实测）：
+- `#EDFCED`（原记"增行软底"，213160 px）：第 223 轮逐列复测发现它在 `y738..892` 段**左右两栏同时满宽覆盖**（左 850-1670 与右 1975-2815 各自 820px 全命中）。同一张图里"新增行"的颜色已被量到是 `#BEE6BE`（`y623–661`），一个截图里不可能有两个"新增行底色" ⇒ `#EDFCED` 不是差异行色。它逐字等于配色方案的 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`（`DefaultColorSchemesManager.xml:759-765`），且在同一目录的**非差异**截图 `diff-viewer-open.png` 里也覆盖同样这些行 ⇒ 它是**语言注入片段**的底色（README 的 ``` PowerShell ``` 代码围栏），Augit 不做语言服务，**不适用**。
+- `#F4F7F9`（原记"删行软底"）：在差异正文两栏内**一个像素都没有**（`y150..1230` 两栏计数全 0），它只等于浅色主题的 `layer-1-bg`（面板/对话框底）⇒ 也是错认。
+- 因此第 133 轮"整行软底无权威键、只能取参考实测值"的结论**作废**：整行底就是 `DIFF_*.BACKGROUND`（两档规则见 §2.1），`#E7EFFA` 的逐值吻合正是"修改行取 `getIgnoredColor()`"的验证。
 
-| Augit 令牌 | 实际值（浅/深） | 用在 | 应属的层 |
+**第 223 轮的落地与遗留**：
+
+| Augit 令牌 | 第 223 轮起（浅/深） | 用在 | 依据 |
 | --- | --- | --- | --- |
-| `--augit-diff-*` | `#EDFCED`/`#F4F7F9`/`#E7EFFA` ／ `#294436`/`#484A4A`/`#385570` | `.diff-code-line.*` 整行底 | 浅色 ✓ 对（参考实测）；**深色 ✗** —— `#294436` 等是 `DIFF_*.BACKGROUND`，属**行内**层 |
-| `--augit-diff-current-*` | `#BEE6BE`/`#767A8A`/`#C2D8F2` ／ `#549159`/`#868A91`/`#375FAD` | `.diff-current` 整行"当前差异" | 浅色的 `#BEE6BE`/`#C2D8F2` 是**行内**层色；深色三个是 `*_LINES_COLOR`（**行号槽**色）。**权威里没有"当前差异"这一层**（`PaintMode` 只有 `DEFAULT`/`IGNORED`/`RESOLVED`(无底+点线边框)/`EXCLUDED_*`） |
+| `--augit-diff-added` | `#BEE6BE`／`#294436` | `.diff-code-line.added` 整行底 | `DIFF_INSERTED.BACKGROUND`（纯新增块无行内差异 ⇒ 全强度） |
+| `--augit-diff-deleted` | `#D6D6D6`／`#484A4A` | `.diff-code-line.removed` 整行底 | `DIFF_DELETED.BACKGROUND` |
+| `--augit-diff-modified` | `#E7EFFA`／`#283541` | `.diff-code-line.changed` 整行底 | `getIgnoredColor()` = `mix(DIFF_MODIFIED.BACKGROUND, 编辑器底, 0.6)` |
+| `--augit-diff-inline-*` | `#BEE6BE`／`#D6D6D6`／`#C2D8F2` ／ `#294436`／`#484A4A`／`#385570` | `.diff-code-line mark` 行内层 | `DIFF_*.BACKGROUND` 全强度 |
+| ~~`--augit-diff-current-*`~~ | **已删除** | ~~`.diff-current` 整行"当前差异"~~ | 权威 `DiffDrawUtil.PaintMode` 无此模式（见 §2.2bis） |
 
-**待裁决（不自行选择解释）**：`.diff-current` 这一层在 New UI 里没有对应物。三条出路各有代价，需要产品口径：① 删掉它（导航差异只滚动不染色）；② 改为**行内词级高亮**（需要宿主提供词级差异范围，属新数据通道）；③ 保留整行染色，但换用**行号槽**色族（深色已是如此）——这与浅色现状又不一致。改动前不动色值。
+**遗留（见 §2.3）**：差异视图**中间行号槽**的着色（参考图里 `#C2D8F2` 填充与变更连接区梯形）在 Augit 未实现；层归属与几何未逐值核对。
+
+### 2.2bis 当前差异块（`.diff-current`）的处置（第 223 轮：删除）
+
+规格只要求"上一处／下一处差异"**定位**到连续变更块并保留触发按钮焦点（`ux-spec.md:438/439/502`）。权威里**没有**"当前差异"这一层：`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`（无底 + 点线边框）／`EXCLUDED_*`（`DiffDrawUtil.java:754-783`）。
+
+第 113 轮曾把参考图里 `#BEE6BE` 的一段"整栏宽 590.7"读成"按 Ctrl+D 后当前差异被整块选中"，**第 223 轮复测推翻**：那段是**一行**（`y623–661` ≈ 26 逻辑px，其余同宽行同属这一行），且颜色恰是"无行内差异的纯新增块"的全强度 `DIFF_INSERTED.BACKGROUND`。据此删除该层：`live-data.js` 的 `moveDiffChange` 只做定位，`mockup.css` 删除 3 条规则与 6 处令牌定义。
+
+### 2.3 仍未逐值核对（第 223 轮登记）
+
+| 缺口 | 现象 | 出处 |
+| --- | --- | --- |
+| 差异视图中间行号槽的着色 | 参考图里修改块的左右行号槽（`x1678-1794`／`x1838-1925`）被 `#C2D8F2` 填充，两槽之间还有连接两侧行范围的**梯形**（`»` 图标在其中）；Augit 的 `.diff-gutter` 只有行号文字、无填充与梯形 | `DiffDividerDrawUtil` 的多边形绘制未逐值读；登记为待处理 T10 |
 
 
 ## 3. 变更标记的绘制规则
@@ -146,7 +184,7 @@
 | 并排视图的行对齐与空白填充区颜色 | 未收集 |
 | 差异查看器工具栏与文件信息行的几何 | 未收集；Augit 现有实现见 design-system.md §8.4 |
 | `MergeConflictType.Type` 的完整枚举值 | 本次未定位到定义文件；`MergeThreesideViewer.java:384` 可见其中至少有两种（`MODIFIED_DELETED`、`DELETED_MODIFIED`） |
-| 行内差异的最终着色 | ~~未定死~~ → **第 133 轮已定**：行内层取 `DIFF_*.BACKGROUND`（不叠 alpha），与整行软底是**两层**（见 §2.2 像素实测） |
+| 行内差异的最终着色 | **第 223 轮定案**：行内层取 `DIFF_*.BACKGROUND` 全强度（不叠 alpha）；整行底按"该块有无行内差异"分两档（见 §2.1／§2.2） |
 
 ## 7bis. 三栏合并与冲突解决的渲染规则
 
@@ -205,7 +243,7 @@
 - 数据：`MergeInnerDifferences` 按 side 保存三组 `TextRange`（left/base/right），`get(side)` 取对应一组（`platform/diff-impl/src/com/intellij/diff/tools/util/text/MergeInnerDifferences.java`）。
 - 绘制：对每组范围调用 `DiffDrawUtil.createInlineHighlighter(editor, innerStart, innerEnd, change.diffType)`，偏移基于该侧变更块的起始行（`DiffViewerHighlighters.kt:100-108`）。
 - 着色来源：`InlineHighlighterBuilder.done()` 取 `getTextAttributes(type, editor, BackgroundType.DEFAULT)`，即**沿用该变更类型自己的背景属性**，不是另设一套色（`platform/diff-impl/src/com/intellij/diff/util/DiffDrawUtil.java:668-669`）。
-- **仍未定死**：行内色与行底色的深浅关系（是否叠加 alpha）需继续读 `getTextAttributes` 的 `BackgroundType` 分支才能确认，见 §7。
+- **第 223 轮定案**：行内色取 `change.diffType` 的 `DIFF_*.BACKGROUND` **全强度、不叠 alpha**（`getTextAttributes(type, editor, BackgroundType.DEFAULT)` → `DiffTextAttributes.getBackgroundColor()`，`DiffDrawUtil.java:668-669,847-863`）；同一块的**整行**底则因为 `ignored = innerFragments != null` 而取 `getIgnoredColor()` 的柔和值 ⇒ "行内全强度 + 行底柔和"的深浅关系来自这两条不同分支，不是 alpha 叠加（见 §2.1）。
 
 ### 7bis.5 合并动作组与文案
 
@@ -271,15 +309,16 @@
 | CONTINUE / SKIP / ABORT 三动作的文案与状态判据 | 参考实现里这三个词无硬编码来源（走 `MERGE_ACTION_CAPTIONS` 钩子，见分册 04），须由 Augit 产品规格定义；可照搬的只有"按 Git 操作状态决定可用性"的机制 |
 | 三栏视图的分隔条**拖动**行为 | 初始比例已收（见 §7bis.9），拖动时的夹紧与持久化仍未收集 |
 
-## 8. 已落地实现（模块 5）
-
-`web/src/mockup.css` 已按本册取值新增令牌并接线：
+## 8. 已落地实现（模块 5；第 223 轮按 §2.1／§2.2 订正 Diff 行色与新增行内层）
 
 | 令牌 | 浅色 | 深色 | 来源 |
 | --- | --- | --- | --- |
-| `--augit-diff-added` | `#EDFCED` | `#294436` | 浅色＝参考实测（§2.2 整行软底，**权威无键**）；深色＝`DIFF_INSERTED.BACKGROUND` ⇒ **层归属不一致**，见 §2.2 |
-| `--augit-diff-deleted` | `#F4F7F9` | `#484A4A` | 同上（深色为 `DIFF_DELETED.BACKGROUND`） |
-| `--augit-diff-modified` | `#E7EFFA` | `#385570` | 同上（深色为 `DIFF_MODIFIED.BACKGROUND`） |
+| `--augit-diff-added` | `#BEE6BE` | `#294436` | `DIFF_INSERTED.BACKGROUND` 全强度（纯新增块无行内差异，§2.1 两档规则） |
+| `--augit-diff-deleted` | `#D6D6D6` | `#484A4A` | `DIFF_DELETED.BACKGROUND` 全强度 |
+| `--augit-diff-modified` | `#E7EFFA` | `#283541` | `getIgnoredColor()` = `mix(DIFF_MODIFIED.BACKGROUND, 编辑器底, 0.6)` |
+| `--augit-diff-inline-added` | `#BEE6BE` | `#294436` | 行内层 `DIFF_*.BACKGROUND` 全强度 |
+| `--augit-diff-inline-deleted` | `#D6D6D6` | `#484A4A` | 同上 |
+| `--augit-diff-inline-modified` | `#C2D8F2` | `#385570` | 同上（浅色由 expUI 覆写） |
 | `--augit-diff-whitespace` | `#F7E2CB` | `#52433D` | `WHITESPACES_MODIFIED_LINES_COLOR` |
 | `--augit-diff-separator` | `#E4E6EB` | `#2B2D30` | `DIFF_SEPARATORS_BACKGROUND`（废弃回退键，见 §4） |
 | `--augit-file-added` | `#067D17` | `#73BD79` | `FILESTATUS_ADDED` |
@@ -288,21 +327,22 @@
 | `--augit-file-conflict` | `#DE1B2E` | `#DE6A66` | `FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS` |
 | `--augit-status-clean` | `#1F7536` | `#57965C` | `VersionControl.Merge.Status.NoConflicts.foreground`（Green2 / Green6） |
 
-接线：`.diff-code-line.added/.removed/.changed` 与 `.file-status-added/.file-status-modified/.file-status-deleted`。**新增了此前缺失的 `.file-status-added` 与 `.file-status-deleted` 两条规则**——这两个类名由 JS 产出（各 6 处）但原先没有颜色规则，靠继承。
+接线：`.diff-code-line.added/.removed/.changed`（整行底）、`.diff-code-line.<kind> mark`（行内层，`mockup.js` 的 `marked()` 用宿主 `oldChanges`／`newChanges` 包 `<mark>`）与 `.file-status-added/.file-status-modified/.file-status-deleted`。**新增了此前缺失的 `.file-status-added` 与 `.file-status-deleted` 两条规则**——这两个类名由 JS 产出（各 6 处）但原先没有颜色规则，靠继承。
 
 `--augit-green` / `--augit-red` / `--augit-orange` **保持不变**：它们服务冲突解决器、内联告警与危险动作等非 Diff 场景，与 Diff 色板不是同一套。
 
 **注意** `.file-status-new` 不是文件状态，而是 Worktree 面板"干净，可安全移除"这类正向状态文字，因此映射到 `NoConflicts.foreground` 的绿，而不是 `FILESTATUS_UNKNOWN`。
 
-浏览器实测（`docs/ux-mockups/commit-diff.html`）：
+浏览器实测（`tools/audit/check-diff-inline.test.cjs`，两主题 × 三种行 + 行内层，共 29 项断言）：
 
 | 元素 | 浅色 | 深色 |
 | --- | --- | --- |
-| `.diff-code-line.added` | `rgb(190,230,190)` = `#BEE6BE` | `rgb(41,68,54)` = `#294436` |
-| `.diff-code-line.removed` | `rgb(214,214,214)` = `#D6D6D6` | `rgb(72,74,74)` = `#484A4A` |
+| `.diff-code-line.added` / `… mark` | `rgb(190,230,190)` = `#BEE6BE` | `rgb(41,68,54)` = `#294436` |
+| `.diff-code-line.removed` / `… mark` | `rgb(214,214,214)` = `#D6D6D6` | `rgb(72,74,74)` = `#484A4A` |
+| `.diff-code-line.changed`（整行底 / `mark`） | `rgb(231,239,250)` = `#E7EFFA` ／ `rgb(194,216,242)` = `#C2D8F2` | `rgb(40,53,65)` = `#283541` ／ `rgb(56,85,112)` = `#385570` |
 | `.file-status-modified` | `rgb(0,51,179)` = `#0033B3` | `rgb(112,174,255)` = `#70AEFF` |
 
-`.diff-code-line.changed` 在该视觉稿中没有对应数据行（`commit-diff.html` 无 Modified 行），但 `mockup.js` 的 `cssKind()` 会把 `Modified` 映射为 `changed`，规则可达。
+整行底的 `.diff-code-line.changed` 在视觉稿 `commit-diff.html` 里没有对应数据行，检查器用注入元素验证；`mockup.js` 的 `cssKind()` 会把 `Modified` 映射为 `changed`，实时侧由 `live-shell.spec.cjs` 的 `src/Modified.cs` 场景覆盖。
 
 ## 8. 标注说明
 
