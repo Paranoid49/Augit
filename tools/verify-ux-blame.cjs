@@ -43,6 +43,7 @@ async function main() {
             const bounds = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
             return { text: code.textContent, count: code.querySelectorAll('.code-line').length,
               label: document.querySelector('.blame-document .commit-meta').textContent,
+              tip: row.getAttribute('title'), tips: [...gutter.querySelectorAll('.blame-row')].map(item => item.getAttribute('title')),
               first: bounds(code.querySelector('.code-line')), row: bounds(row),
               columns: [...row.children].map(bounds), gutter: bounds(gutter),
               tab: document.querySelector('.editor-tab.active').textContent.trim(),
@@ -51,6 +52,10 @@ async function main() {
           assert.equal(initial.tab, 'product-spec.md', label);
           assert.ok(initial.history.includes('历史: product-spec.md'), `${label} 初始保留文件历史`);
           assert.equal(initial.label, `${initial.count} 行归属`, label);
+          // 悬停提示：权威 GitFileAnnotation.getToolTip（GitFileAnnotation.java:175-206）逐行给出
+          // commit {完整修订} / Author: / Date: 三段 + 空行 + 提交信息；Path: 行只在跨文件归属时出现。
+          assert.equal(initial.tip, 'commit commit-4\nAuthor: I49\nDate: 2026/8/28 8:25\n\nfeat: 实现 Augit 阶段零至五功能', `${label} 归属行悬停提示`);
+          assert.ok(initial.tips.every(tip => tip === initial.tip), `${label} 每行归属都带同一提交的提示`);
           assert.ok(Math.abs(initial.first[1] - initial.row[1]) < .02, label);
           assert.ok(Math.abs(initial.first[3] - initial.row[3]) < .02, label);
           let right = initial.gutter[0];

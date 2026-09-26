@@ -15,6 +15,16 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
     /// </summary>
     public bool WorkspaceExplicit { get; init; }
 
+    /// <summary>
+    /// 主题模式：设置里的 <c>System</c>／<c>Light</c>／<c>Dark</c>，或命令行显式给出的值。
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Theme"/> 保存的是**解析后**的生效主题，分辨不出它来自"跟随系统"还是
+    /// 用户显式选择；而系统主题变化时只有前者应该被覆盖。因此这里单独保留模式本身。
+    /// 系统主题变化的跟随逻辑见 <see cref="ShellTheme.NextOnSystemChange"/>。
+    /// </remarks>
+    public string ThemeMode { get; init; } = "System";
+
     public static ShellOptions Parse(string[] arguments)
     {
         string? webRoot = null;

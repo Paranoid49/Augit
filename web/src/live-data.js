@@ -177,6 +177,10 @@ async function loadStatus() {
     }
 
     if (!status.isRepository) {
+      // 非 Git 目录（产品规格 §2）。状态可能早于 live 对象与 `mockup.js` 到达，
+      // 需求先缓存，由 `showRepositoryInitEntry()` 在可弹时补上；只弹一次。
+      pendingRepositoryInit = true;
+      showRepositoryInitEntry();
       return null;
     }
     latestStatus = normalizeStatus(status, latestStatus);
@@ -252,11 +256,44 @@ function normalizeStatus(status, previous) {
 }
 
 /**
+ * 把界面上的日志筛选翻成 `git/history` 的参数。
+ *
+ * 权威 `GitLogProvider.getGitLogParameters()`（`plugins/git4idea/backend/src/log/GitLogProvider.kt:446-533`）
+ * 把六类筛选翻成 git 参数：分支/引用 → 起始修订、文本 → `--grep`（`--fixed-strings` ＋ `--regexp-ignore-case`）、
+ * 用户 → `--author`、日期 → `--after`／`--before`、路径 → `--` 之后的路径。
+ * Augit 的宿主 `git/history` 收 `branch`／`message`／`hash`／`author`／`since`／`until`／`path`；
+ * 一个都不传时是整仓历史（等价权威 `GitLogUtil.LOG_ALL` = `HEAD --branches --remotes --tags`，即 `--all`）。
+ */
+function historyFilterParams(filter) {
+  const active = filter || {};
+  const params = {};
+  if (active.branch) params.branch = active.branch;
+  if (Array.isArray(active.branches) && active.branches.length > 0) params.branches = active.branches;
+  if (Array.isArray(active.authors) && active.authors.length > 0) params.authors = active.authors;
+  if (active.message) params.message = active.message;
+  if (active.hash) params.hash = active.hash;
+  if (active.author) params.author = active.author;
+  if (active.since) params.since = active.since;
+  if (active.until) params.until = active.until;
+  if (active.path) params.path = active.path;
+  // 「按路径筛选」的值是一组路径（权威 `VcsLogStructureFilter`）：宿主的 `paths`（数组）优先于单值 `path`。
+  if (Array.isArray(active.paths) && active.paths.length > 0) params.paths = active.paths;
+  return params;
+}
+
+/** 日志筛选是否生效（决定空态文案与"重置筛选"入口是否出现）。 */
+function historyFilterActive(filter) {
+  return Object.keys(historyFilterParams(filter)).length > 0;
+}
+
+/**
  * 读取 Git 历史。与状态一样在首屏之后补取，不阻塞界面出现。
  */
 async function loadHistory() {
   try {
-    const history = await invoke("git/history", {}, 60000);
+    const live = window.__augitLive;
+    const filter = (live && live.historyFilter) || {};
+    const history = await invoke("git/history", historyFilterParams(filter), 60000);
     if (!history || !history.available || !history.isRepository || !history.commits) {
       return null;
     }
@@ -264,11 +301,17 @@ async function loadHistory() {
     latestHistory = {
       head: history.head,
       branch: latestStatus ? latestStatus.branch : null,
+      filterActive: historyFilterActive(filter),
       commits: history.commits.map((commit) => ({
         hash: commit.hash,
         fullHash: commit.fullHash,
         subject: commit.subject,
         author: commit.author,
+        // 「与当前分支比较」沿用文件历史列表的行：作者列的值与 tooltip 需要邮箱与提交者
+        //（权威 `FileHistoryPanelImpl.AuthorColumnInfo`，`FileHistoryPanelImpl.java:751-799`）。
+        authorEmail: commit.authorEmail,
+        committerName: commit.committerName,
+        committerEmail: commit.committerEmail,
         date: commit.date,
         references: commit.references || [],
         parents: commit.parents || [],
@@ -282,12 +325,18 @@ async function loadHistory() {
   }
 }
 
-/** 读取指定文件的 Blame；失败只记录，不影响其它视图。 */
-async function loadBlame(path) {
+/**
+ * 读取指定文件的 Blame；失败只记录，不影响其它视图。
+ *
+ * `revision` 非空时按**该修订**标注（权威 `AnnotatePreviousRevisionAction` →
+ * `AnnotateRevisionAction`：用 `PreviousFileRevisionProvider.getPreviousRevision(lineNumber)`
+ * 拿到上一修订后重新标注，`GitFileAnnotation.java:482-501`）。
+ */
+async function loadBlame(path, revision = null) {
   // 连续选择不同文件时只接纳最后一次：旧响应不得覆盖新的归属结果。
   const token = ++detailViewToken;
   try {
-    const blame = await invoke("git/blame", { path }, 60000);
+    const blame = await invoke("git/blame", revision ? { path, revision } : { path }, 60000);
     if (token !== detailViewToken) return null;
     // 与 document/read 同样的契约校验：缺少身份的载荷不得进入状态，
     // 否则渲染层会拿到 path 为 undefined 的对象。
@@ -297,12 +346,19 @@ async function loadBlame(path) {
     if (live) {
       live.blame = {
         path: blame.path,
+        // 当前标注所依据的修订（空表示工作区）；「标注上一修订」后非空。
+        revision: blame.revision || null,
         lines: blame.lines.map((line) => ({
+          // 该行的上一修订（`git blame --line-porcelain` 的 `previous` 头，权威同源）；
+          // 空串表示没有更早的修订，权威此时把该动作隐藏。
+          previousRevision: line.previousRevision || "",
           number: line.number,
           hash: line.hash,
           fullHash: line.fullHash,
           author: line.author,
+          // 槽位显示短日期；悬停提示的 `Date:` 要用日期时间（权威 `DateFormatUtil.formatDateTime`）。
           date: line.date,
+          dateTime: line.dateTime,
           summary: line.summary,
           content: line.content,
         })),
@@ -384,26 +440,135 @@ async function runSearch(kind, query, options) {
   if (!live) return;
   const token = ++searchToken;
   const method = kind === "repository" ? "search/text" : "search/files";
+  // 权威 `SearchEverywhereUI.rebuildList()`：每次搜索开始先清空上一个查询的结果，空态显示
+  // "Searching…"，结果到达才替换 ⇒ 先落到"进行中"状态再发查询。
+  live.search = { kind, query, options: options || {}, matches: [], notice: "", truncated: false, pending: true };
+  renderSearchOverlay(kind);
   try {
     const result = await invoke(method, { query, ...(options || {}) }, 30000);
     // 晚到的旧查询不得覆盖新查询的结果。
     if (token !== searchToken) return;
+    const matches = result && result.matches ? result.matches : [];
+    const truncated = !!(result && result.truncated);
     live.search = {
       kind,
       query,
       options: options || {},
-      matches: result && result.matches ? result.matches : [],
+      matches,
       notice: result && result.notice ? result.notice : "",
-      truncated: !!(result && result.truncated),
+      truncated,
+      pending: false,
+      // 权威 `UsageLimitUtil.USAGES_LIMIT`：到限先问一句 Continue／Abort
+      // （`showTooManyUsagesWarning`，`:26-34`），选 Continue 才继续。
+      limitPrompt: truncated && kind === "repository"
+        ? { query, options: options || {}, offset: matches.length }
+        : null,
     };
     window.__augitSearchReady = true;
-    refresh("overlay");
-    // 覆盖层被替换后输入框是新的，需要重新绑定并恢复焦点与光标位置。
-    bindSearchOverlay(kind);
+    renderSearchOverlay(kind);
+    // 到限按权威弹「结果过多」（Continue／Abort）。对话框是独立的覆盖层：
+    // 搜索浮层的区域刷新不会连带把它重画，用户的答案由下面的两个函数显式落地。
+    if (live.search.limitPrompt) openSearchLimitDialog();
+    else closeSearchLimitDialog();
   } catch (error) {
     if (token !== searchToken) return;
     window.__augitError = "search:" + String(error && error.message || error);
   }
+}
+
+/**
+ * 重绘搜索浮层（"进行中"状态或结果），但**不覆盖查询框里用户已经继续输入的内容**。
+ * 权威的搜索框内容从不由结果回写；Augit 之前每次结果到达都整体重绘、把输入框重置成已发出的那个 query，
+ * 慢查询返回时会把用户新敲的字吞掉（与历史面板"数据到达不得打断用户输入"同一类缺陷，第 153 轮改正）。
+ */
+function renderSearchOverlay(kind) {
+  const field = document.querySelector(".search-overlay .search-field");
+  const typed = field ? { value: field.value, start: field.selectionStart, end: field.selectionEnd } : null;
+  refresh("overlay");
+  // 覆盖层被替换后输入框是新的，需要重新绑定并恢复焦点与光标位置。
+  bindSearchOverlay(kind);
+  const next = document.querySelector(".search-overlay .search-field");
+  if (next && typed) {
+    next.value = typed.value;
+    try { next.setSelectionRange(typed.start, typed.end); } catch { /* 不支持选择区的输入类型忽略 */ }
+  }
+}
+
+/** 打开/关闭「结果过多」对话框（权威 `UsageLimitUtil.showTooManyUsagesWarning`）。 */
+function openSearchLimitDialog() {
+  const host = document.querySelector(".augit-window");
+  if (!host || document.querySelector(".search-limit-window") || typeof searchLimitDialog !== "function") return;
+  const template = document.createElement("template");
+  template.innerHTML = searchLimitDialog();
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  host.appendChild(layer);
+  // 默认按钮是「继续」（权威 `MessageDialogBuilder.okCancel` 的 OK）。
+  const next = layer.querySelector('[data-search-limit-action="continue"]');
+  if (next) next.focus({ preventScroll: true });
+}
+
+function closeSearchLimitDialog() {
+  document.querySelectorAll(".search-limit-window").forEach((node) => node.remove());
+}
+
+/**
+ * 「结果过多」里选**继续**：按分页把余下的结果取回来并追加。
+ *
+ * 权威选 Continue 后让同一次搜索继续跑完且**不再提示**（`UsageViewManagerImpl:334-357`）——
+ * Augit 用 `offset` 分页表达"继续"，每页仍是 1000 条：既等价于继续跑完，
+ * 又不让单次桥接响应超过 WebView2 可靠传输的规模。
+ */
+async function continueLimitedSearch() {
+  const live = window.__augitLive;
+  const prompt = live && live.search && live.search.limitPrompt;
+  if (!live || !prompt) return null;
+  const token = searchToken;
+  live.search.limitPrompt = null;
+  closeSearchLimitDialog();
+  renderSearchOverlay("repository");
+  let offset = prompt.offset || 0;
+  // 安全上限：即使结果被持续追加，也不让一次"继续"无限循环（100 页 = 10 万条）。
+  for (let page = 0; page < 100; page++) {
+    let result = null;
+    try {
+      result = await invoke("search/text", {
+        query: prompt.query,
+        ...(prompt.options || {}),
+        offset,
+        limit: 1000,
+      }, 30000);
+    } catch (error) {
+      window.__augitError = "search-continue:" + String((error && error.message) || error);
+      return null;
+    }
+    // 用户又发起了新查询：晚到的分页结果不得落到新查询上。
+    if (token !== searchToken) return null;
+    const added = result && result.matches ? result.matches : [];
+    const current = live.search;
+    if (!current) return null;
+    current.matches = current.matches.concat(added);
+    current.truncated = !!(result && result.truncated);
+    current.notice = result && result.notice ? result.notice : "";
+    current.pending = false;
+    offset += added.length;
+    renderSearchOverlay("repository");
+    if (!current.truncated || added.length === 0) break;
+  }
+  return live.search;
+}
+
+/** 「结果过多」里选**中止**：保留已有结果并说明是谁停止了搜索（权威 Abort 即取消搜索）。 */
+function abortLimitedSearch() {
+  const live = window.__augitLive;
+  if (!live || !live.search) return null;
+  const count = (live.search.matches || []).length;
+  live.search.limitPrompt = null;
+  live.search.truncated = false;
+  live.search.notice = `已按你的选择中止继续搜索，当前显示前 ${count} 条。`;
+  closeSearchLimitDialog();
+  renderSearchOverlay("repository");
+  return live.search;
 }
 
 /**
@@ -648,6 +813,17 @@ async function startTerminal() {
   terminalInstance.onResize((size) => {
     void invoke('terminal/resize', { columns: size.cols, rows: size.rows }, 10000).catch(() => {});
   });
+  // 权威 `TerminalEscapeKeyListener`（platform/execution-impl/src/com/intellij/terminal/
+  // TerminalEscapeKeyListener.java:34-72）：在终端工具窗口里按 **`Esc`**（即
+  // `Terminal.SwitchFocusToEditor` 的快捷键）会把焦点**交给编辑器组件**并 `consume()` 掉这个键
+  // —— ESC 不送给 Shell。Augit 原来所有按键都经 onData 原样转发，Esc 会被送到 pty。
+  // 只拦**不带修饰键**的 Esc（权威的 `isEscape`：`VK_ESCAPE && modifiersEx == 0`）；
+  // Shift/Esc 这类组合仍是 Shell 的输入。没有可聚焦的正文时不拦（权威在拿不到工具窗口时也不处理）。
+  terminalInstance.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown' || event.key !== 'Escape') return true;
+    if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return true;
+    return !focusEditorFromTerminal();
+  });
 
   const started = await invoke('terminal/start', {
     columns: terminalInstance.cols,
@@ -662,6 +838,437 @@ async function startTerminal() {
   window.__augitTerminalShell = started.displayName;
   pollTerminal();
   return terminalInstance;
+}
+
+/**
+ * 记录日志筛选框里**尚未执行**的输入（规格 §7.9：进入文件历史要保存"尚未执行的筛选输入"）。
+ *
+ * 草稿存进状态、由模板回填，而不是留在 DOM 里：底部工具窗口是**整块重绘**的
+ * （进入/离开文件历史、刷新历史都会触发），输入框节点会被重建 —— 长度、选区与值一起丢。
+ * 这与搜索浮层第 153 轮修过的"结果到达把输入框冲回旧值"是同一类缺陷。
+ */
+function bindLogFilterDraft() {
+  const field = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+  if (!field || field.dataset.logFilterDraftBound === "true") return;
+  field.dataset.logFilterDraftBound = "true";
+  field.addEventListener("input", () => {
+    const live = window.__augitLive;
+    if (live) live.historyFilterDraft = field.value;
+  });
+  // 权威 `VcsLogClassicFilterUi.TextFilterField`（`VcsLogClassicFilterUi.kt:228-266`）：
+  // 输入框自己的 `ActionListener`（回车）执行筛选并入历史；`onFieldCleared()` 在清空时清掉筛选；
+  // `onFocusLost()` 在文本与已应用的不一致时也执行一次（on-the-fly 关闭时即失焦执行）。
+  field.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (applyHistoryTextFilter(field.value)) void reloadHistoryKeepingFocus();
+  });
+  field.addEventListener("blur", () => {
+    // 区域重绘会把输入框节点摘下；那不是"用户离开输入框"，不能在这里执行筛选
+    // （第 160 轮的草稿断言正是靠"重绘后草稿仍在"成立的）。
+    if (!field.isConnected) return;
+    const live = window.__augitLive;
+    const applied = live && live.historyFilter
+      ? (live.historyFilter.hash || live.historyFilter.message || "")
+      : "";
+    if (String(field.value).trim() === applied) return;
+    if (applyHistoryTextFilter(field.value)) void reloadHistoryKeepingFocus();
+  });
+}
+
+/**
+ * 文本/哈希输入成立为一组哈希前缀吗 —— 照权威 `VcsLogFilterObject.fromHash`
+ * （`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/filters/VcsLogFilters.kt:149-160`
+ * ＋ `HashSeparatorCharFilter` 的 `,`／`;`／空白切词）：**每个**词都要匹配
+ * `VcsLogUtil.GIT_HASH_REGEX` = `[a-fA-F0-9]{7,64}`
+ * （`platform/vcs-log/impl/src/com/intellij/vcs/log/util/VcsLogUtil.java:92`），否则整串不是哈希。
+ */
+function isHistoryHashQuery(text) {
+  const words = String(text || "").trim().split(/[\s,;]+/).filter(Boolean);
+  return words.length > 0 && words.every((word) => /^[0-9a-fA-F]{7,64}$/.test(word));
+}
+
+/**
+ * 应用"文本或哈希"筛选（权威 `TextFilterField.applyFilter()`／`textFilterModel.setFilterText()`
+ * 的 `setFilter(collection(createTextFilter(text), VcsLogFilterObject.fromHash(text)))`，
+ * `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/TextFilterModel.kt:96-103`）：
+ * 空白 ⇒ 清掉文本与哈希筛选（`onFieldCleared()`）；否则**同时**挂上文本筛选与（像哈希时的）哈希筛选。
+ *
+ * 两者必须一起送：权威 `applyHashFilter()` 只在前缀**命中非空**时短路其它筛选，一条都没命中时
+ * `return null` 落回普通筛选（`VcsLogFiltererImpl.kt:336-341`），此时文本筛选（`--grep`）才是结果来源。
+ * **只动这两项**：`setFilterText` 只改文本筛选，分支/用户/日期都保留。
+ */
+function applyHistoryTextFilter(value) {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const text = String(value == null ? "" : value).trim();
+  const next = { ...(live.historyFilter || {}) };
+  delete next.hash;
+  delete next.message;
+  if (text) {
+    next.message = text;
+    if (isHistoryHashQuery(text)) next.hash = text;
+  }
+  live.historyFilterDraft = text;
+  live.historyFilter = next;
+  return true;
+}
+
+/**
+ * 设置／清除「分支」筛选（权威 `VcsLogFilterUiEx.filterBy(branches)`，
+ * `BranchesInGitLogUiFactoryProvider.kt:267-277`：先 `without(VcsLogBranchLikeFilter)` 再按选中集 `with(...)`，
+ * 即**替换**同类筛选、不动其它筛选；选中集为空则清掉）。
+ */
+function setHistoryBranchFilter(branches) {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const next = { ...(live.historyFilter || {}) };
+  const values = (Array.isArray(branches) ? branches : [branches])
+    .map((value) => String(value || ""))
+    .filter(Boolean);
+  delete next.branch;
+  delete next.branches;
+  // 权威的筛选值是一组分支名（`fromBranches`）：单个仍走单值参数，多个走 `branches`（宿主两者等价）。
+  if (values.length === 1) next.branch = values[0];
+  else if (values.length > 1) next.branches = values;
+  live.historyFilter = next;
+  return true;
+}
+
+/**
+ * 当前引用树的选中集（权威 `BranchesTreeSelection`：树是 `DISCONTIGUOUS_TREE_SELECTION`，可多选）。
+ * 返回 `[{name, kind}]`，顺序与状态里保存的一致。
+ */
+function selectedRefs() {
+  const live = window.__augitLive;
+  return Array.isArray(live && live.logRefSelection)
+    ? live.logRefSelection.filter((item) => item && item.name)
+    : [];
+}
+
+/** 选中集对应的**行**，按 DOM 顺序（= 树的可见顺序）。 */
+function selectedRefRows() {
+  const selections = selectedRefs();
+  return [...document.querySelectorAll(".log-ref-panel .tree-row[data-ref-name]")]
+    .filter((row) => selections.some((item) => item.name === row.dataset.refName && item.kind === row.dataset.refKind));
+}
+
+/**
+ * 把一组引用行翻成日志筛选的引用名（权威 `BranchesTreeSelection.selectedBranchFilters`）：
+ * 分支行给分支名、HEAD 行给 `VcsLogUtil.HEAD` = "HEAD"、**标签给不出**（权威里该动作对标签不成立）。
+ * 一个都给不出时返回空表。
+ */
+function branchFilterNamesOf(rows) {
+  const names = [];
+  for (const row of rows || []) {
+    const kind = row.dataset.refKind;
+    if (kind === "head") names.push("HEAD");
+    else if (kind === "branch" || kind === "remote") names.push(row.dataset.refName);
+  }
+  return names;
+}
+
+/**
+ * 读取历史里出现过的作者（权威 `VcsLogUserResolver`／`GitUserRegistry` 从日志收集用户），
+ * 供「按用户筛选」的弹层列表；只在弹层打开时读一次并缓存。
+ */
+async function ensureHistoryAuthors() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  if (Array.isArray(live.historyAuthors)) return live.historyAuthors;
+  live.historyAuthorsLoading = true;
+  refreshAfterEvent("bottomTool");
+  const result = await invoke("git/authors", {}, 30000).catch(() => null);
+  const liveNow = window.__augitLive;
+  if (!liveNow) return null;
+  liveNow.historyAuthorsLoading = false;
+  liveNow.historyAuthors = result && result.available && Array.isArray(result.authors) ? result.authors : [];
+  refreshAfterEvent("bottomTool");
+  return liveNow.historyAuthors;
+}
+
+/** 设置用户筛选（权威 `fromUserNames(values)`：一组用户；空集即清除）。 */
+function setHistoryAuthorFilter(values) {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const next = { ...(live.historyFilter || {}) };
+  delete next.authors;
+  const list = (Array.isArray(values) ? values : [values]).map((v) => String(v || "")).filter(Boolean);
+  if (list.length > 0) next.authors = list;
+  live.historyFilter = next;
+  return true;
+}
+
+/**
+ * 设置／清除「路径」筛选（权威 `StructureFilterPopupComponent.setStructureFilter(...)`，
+ * `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/StructureFilterPopupComponent.java:452-458`：
+ * `myFilterModel.setFilter(VcsLogFilterObject.collection(newFilter))` 之后把**整组**值记进最近筛选）。
+ * 空集即清除（权威 `EditPathsAction` 在多行文本里一个路径都不剩时 `myFilterModel.setFilter(null)`）。
+ *
+ * 路径写法沿用宿主与 Git 的相对路径：目录给不带尾斜杠的相对路径（`git log -- docs` 本身就按目录筛），
+ * 用户手输里的 `\` 与首尾空白在这里归一。
+ */
+function setHistoryPathFilter(paths) {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const list = (Array.isArray(paths) ? paths : [paths])
+    .map((value) => String(value || "").replace(/\\/g, "/").trim().replace(/^\.\//, "").replace(/\/+$/, ""))
+    .filter(Boolean);
+  const next = { ...(live.historyFilter || {}) };
+  delete next.paths;
+  delete next.path;
+  if (list.length > 0) next.paths = [...new Set(list)];
+  live.historyFilter = next;
+  if (list.length > 0) rememberHistoryPathFilter(next.paths);
+  return true;
+}
+
+/**
+ * 「最近」路径筛选（权威 `MainVcsLogUiProperties.addRecentlyFilteredGroup("Paths", values)` →
+ * `VcsLogProjectTabsProperties.addRecentGroup`，`platform/vcs-log/impl/src/com/intellij/vcs/log/impl/VcsLogProjectTabsProperties.kt:142-152`：
+ * 相同的整组先去重再插到最前，上限 `RECENTLY_FILTERED_VALUES_LIMIT = 10`，同文件 `:139`）。
+ *
+ * **登记差异**：权威把它写进项目级设置（`RECENT_FILTERS`），Augit 只在本次会话内保留
+ * —— 不新增 Augit 没有的持久化设置项。
+ */
+function rememberHistoryPathFilter(paths) {
+  const live = window.__augitLive;
+  if (!live) return;
+  const key = (group) => group.slice().sort().join("\u0000");
+  const group = paths.slice();
+  const recent = (Array.isArray(live.historyPathRecent) ? live.historyPathRecent : [])
+    .filter((item) => Array.isArray(item) && key(item) !== key(group));
+  recent.unshift(group);
+  live.historyPathRecent = recent.slice(0, 10);
+}
+
+/**
+ * 「选择期间…」对话框（权威 `DateFilterPopupComponent.SelectAction` → `DateFilterComponent`
+ * ＋ `DialogBuilder`，标题 `vcs.log.date.filter.select.period.dialog.title` = "Select Period"）：
+ * 起始／结束两个日期字段；确定后走 `VcsLogFilterObject.fromDates(after, before)`，
+ * **两端都空则不设筛选**（权威 `if (after != null || before != null)`）。
+ */
+function openHistoryDateRangeDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const filter = live.historyFilter || {};
+  const day = (value) => {
+    const date = value ? new Date(value) : null;
+    if (!date || Number.isNaN(date.getTime())) return "";
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  };
+  const body = `<div class="form-grid">`
+    + `<label for="history-date-since">起始</label>`
+    + `<input id="history-date-since" type="date" class="text-field" data-history-date-field="since" value="${day(filter.since)}">`
+    + `<label for="history-date-until">结束</label>`
+    + `<input id="history-date-until" type="date" class="text-field" data-history-date-field="until" value="${day(filter.until)}">`
+    + `</div>`;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay history-date-range-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "选择期间",
+    body,
+    `<button type="button" class="secondary-button" data-history-date-range="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-history-date-range="confirm">确定</button>`,
+    false,
+    "history-date-range-dialog");
+  host.appendChild(layer);
+  const first = layer.querySelector('[data-history-date-field="since"]');
+  if (first) first.focus({ preventScroll: true });
+}
+
+/**
+ * 「选择…」对话框（权威 `StructureFilterPopupComponent.EditPathsAction` →
+ * `MultilinePopupBuilder(project, oldValue, {'\n'})`，同文件 `:404-441`）：
+ * 一个多行文本框，初始值是当前筛选路径按 `\n` 连接；弹层底部的提示文本是
+ * `vcs.log.filter.popup.advertisement.with.key.text` = "Select one or more values separated with {0},
+ * use {1} to finish"（{0} = `….text.new.lines` = "new lines"，{1} = `Ctrl+Enter`），
+ * 输入按 `\n` 切分、逐项 trim、丢空行，`Ctrl+Enter` 以 OK 关闭并应用（`popup.closeOk(...)` ⇒ `event.isOk()`）；
+ * 一个路径都不剩时清掉筛选（`myFilterModel.setFilter(null)`）。
+ *
+ * **登记差异**：权威是**无标题**弹层（提示文本在弹层底部）、只有 `Ctrl+Enter` 一个收尾手势；
+ * Augit 用带标题的对话框，并保留「确定／取消」按钮（键盘仍支持 `Ctrl+Enter`）。
+ */
+function openHistoryPathTextDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const current = ((live.historyFilter || {}).paths) || [];
+  const body = `<div class="form-grid">`
+    + `<label for="history-path-text">路径</label>`
+    + `<textarea id="history-path-text" class="text-field history-path-text" rows="6" aria-label="路径" data-log-path-field>${escapeHtml(current.join("\n"))}</textarea>`
+    + `</div>`;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay history-path-text-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "按路径筛选",
+    body,
+    `<button type="button" class="secondary-button" data-log-path-text="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-log-path-text="confirm">确定</button>`,
+    false,
+    "history-path-text-dialog");
+  host.appendChild(layer);
+  // 提示文本复用对话框底栏的空位（`.footer-help`），不新增视觉语言。
+  const help = layer.querySelector(".dialog-footer .footer-help");
+  if (help) help.textContent = "每行一个值，Ctrl+Enter 完成。";
+  const field = layer.querySelector("[data-log-path-field]");
+  if (field) {
+    // 权威的收尾手势就是 `Ctrl+Enter`（`MultilinePopupBuilder` 给 `okAction` 注册的
+    // `CommonShortcuts.getCtrlEnter()`）；这里同样生效，按钮只是 Augit 多给的一条路。
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      const confirm = layer.querySelector('[data-log-path-text="confirm"]');
+      if (confirm) confirm.click();
+    });
+    field.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * 「在树中选择…」对话框（权威 `StructureFilterPopupComponent.SelectPathsInTreeAction` →
+ * `VcsStructureChooser(project, vcs.log.select.folder.dialog.title, files, roots)`，同文件 `:364-390`；
+ * `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/VcsStructureChooser.java:77-140`）：
+ * 标题 = "Select Paths to Filter by"，一棵带复选框的树，勾选结果进 `VcsLogFilterObject.fromVirtualFiles(...)`；
+ * 底部标签是 `vcs.log.filters.structure.label` = "Selected: {0}"，**一个都没勾时确定按钮禁用**
+ * （`setOKActionEnabled(!mySelectedFiles.isEmpty())`，同文件 `:136`）。
+ *
+ * **登记差异**：权威的树是模块文件系统的完整 `CheckboxTree`（带速搜与 `MAX_FOLDERS` 上限提示，
+ * 同文件 `:231-234`）；Augit 用**已经加载**的项目树（`live.tree`，懒加载 ⇒ 未展开过的目录不在候选里）。
+ */
+function openHistoryPathTreeDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const current = new Set((((live.historyFilter || {}).paths) || []).map(String));
+  const rows = (Array.isArray(live.tree) ? live.tree : []).filter((entry) => entry && entry.path && entry.depth > 0);
+  const row = (entry) => {
+    const checked = current.has(entry.path);
+    return `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${checked ? "true" : "false"}"`
+      + ` data-log-path-row="${escapeHtml(entry.path)}" style="padding-left:${8 + entry.depth * 14}px">`
+      + `<span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(entry.name)}</a>`;
+  };
+  const body = `<div class="form-grid">`
+    + `<label>路径</label>`
+    + `<div id="history-path-tree-list" role="group" aria-label="选择要筛选的路径" data-log-path-list>`
+    + (rows.length === 0 ? `<span class="menu-item disabled" aria-disabled="true">项目树里还没有可选的路径</span>` : rows.map(row).join(""))
+    + `</div>`
+    + `</div>`;
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay history-path-tree-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "选择要筛选的路径",
+    body,
+    `<button type="button" class="secondary-button" data-log-path-tree="cancel">取消</button>`
+      + `<button type="button" class="primary-button" data-log-path-tree="confirm"${current.size === 0 ? " disabled aria-disabled=\"true\"" : ""}>确定</button>`,
+    false,
+    "history-path-tree-dialog");
+  host.appendChild(layer);
+  // 底部标签就是权威 `vcs.log.filters.structure.label` = "Selected: {0}"，复用底栏空位。
+  const help = layer.querySelector(".dialog-footer .footer-help");
+  if (help) help.textContent = `已选择: ${current.size}`;
+  const first = layer.querySelector("[data-log-path-row]");
+  if (first) first.focus({ preventScroll: true });
+}
+
+/**
+ * 设置／清除日期筛选（权威 `VcsLogFilterObject.fromDates(after, before)`：
+ * `DateFilterPopupComponent` 的两个预设都只是 `fromDates(since, null)`）。
+ */
+function setHistoryDateFilter(since, until) {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const next = { ...(live.historyFilter || {}) };
+  delete next.since;
+  delete next.until;
+  if (since) next.since = since;
+  if (until) next.until = until;
+  live.historyFilter = next;
+  return true;
+}
+
+/** 清除全部日志筛选（权威空态的 `vcs.log.reset.filters.status.action` = "Reset filters"）。 */
+function resetHistoryFilters() {
+  const live = window.__augitLive;
+  if (!live) return false;
+  live.historyFilter = {};
+  live.historyFilterDraft = "";
+  return true;
+}
+
+/**
+ * 按引用树的行设置分支筛选（权威 `UpdateBranchFilterInLogAction` ＋
+ * `BranchesTreeSelection.selectedBranchFilters`，`BranchesTreeSelection.kt:34-41`）：
+ * 本地/远程分支取分支名，HEAD 节点取 `VcsLogUtil.HEAD`，**标签与分组不产生筛选** ⇒ 双击标签是空操作。
+ */
+function filterLogToRefRow(row) {
+  return filterLogToRefRows(row ? [row] : []);
+}
+
+/**
+ * 把**一整组**引用行筛选到日志（权威 `UpdateBranchFilterInLogAction` →
+ * `BranchesTreeSelection.selectedBranchFilters`：整个选中集一起进去，`fromBranches` 是并集）。
+ * 选中集里全是标签时给不出筛选值 ⇒ 返回 false（权威里该动作此刻禁用）。
+ */
+function filterLogToRefRows(rows) {
+  const names = branchFilterNamesOf(rows);
+  if (names.length === 0) return false;
+  return setHistoryBranchFilter(names);
+}
+
+/**
+ * 重新读历史并重绘底部区域，同时把焦点交回**触发它的那个元素**。
+ *
+ * 底部区域是整块重绘的（`__augitRenderRegions` 不保留焦点），而权威在应用筛选后
+ * 光标仍在筛选框／引用行上（`TextFilterField` 与树都不重建）。这里按"身份"恢复：
+ * 引用行按 `data-ref-kind` + `data-ref-name`，筛选框按 `aria-label`。
+ */
+async function reloadHistoryKeepingFocus() {
+  const active = document.activeElement;
+  const restore = active && active.getAttribute
+    ? {
+      label: active.getAttribute("aria-label"),
+      kind: active.dataset ? active.dataset.refKind : null,
+      name: active.dataset ? active.dataset.refName : null,
+    }
+    : null;
+  await loadHistory().catch(() => null);
+  refresh("bottomTool");
+  if (!restore) return;
+  let target = null;
+  if (restore.name) {
+    target = document.querySelector(
+      `.log-ref-panel .tree-row[data-ref-kind="${restore.kind}"][data-ref-name="${CSS.escape(restore.name)}"]`);
+  } else if (restore.label === "文本或哈希") {
+    target = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+  }
+  if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
+}
+
+/**
+ * 把焦点从终端交回编辑器正文（权威 `TerminalEscapeKeyListener` 的
+ * `ToolWindowManager.activateEditorComponent()`）。
+ *
+ * 返回是否真的找到了可聚焦的正文：找不到时不消费按键，让 Esc 照常送给 Shell
+ * （对应权威在 `toolWindow == null` 时不处理的守卫）。
+ */
+function focusEditorFromTerminal() {
+  const target = document.querySelector(
+    '.editor-content .code-view, .editor-content .markdown-source, .editor-content [tabindex="0"]');
+  if (!target || typeof target.focus !== 'function') return false;
+  target.focus({ preventScroll: true });
+  return true;
 }
 
 /** 增量拉取终端输出；会话结束后停止轮询。 */
@@ -1635,6 +2242,14 @@ async function loadSettings() {
     const live = window.__augitLive;
     if (live && settings) {
       live.settings = settings;
+      // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true）：从持久化设置恢复，
+      // 而不是每次启动都回到默认值。
+      live.logRefShowTags = settings.showGitBranchesTags !== false;
+      // 分支面板「按目录分组」（权威 `git.branches.group.by.directory`，默认 true）：同上。
+      live.logRefGroupByDirectory = settings.groupBranchesByDirectory !== false;
+      // 大文件只读预览的警告横幅「不再显示」（权威 `PropertiesComponent` 的
+      // `large.file.editor.notification.disabled`，`LargeFileNotificationProvider.java:38-58`）。
+      live.hideLargeFileWarning = settings.hideLargeFileWarning === true;
       // 字体设置只改变显示（规格 §7.14）：先按字体算出各区域的度量，再夹取已保存的面板尺寸。
       if (typeof applyTypographyPreview === "function") {
         await applyTypographyPreview();
@@ -1738,12 +2353,23 @@ function bindSettingsSave() {
 
     event.preventDefault();
     if (isCancel) {
+      // 取消 = 全部改动的 configurable `cancel()` 后关窗（权威 `SettingsEditor.cancel()`：
+      // 遍历 `filter.context.getModified()` 调 `configurable.cancel()`）。
       closeSettingsDialog();
       return;
     }
-    // 成功才关闭；失败留在对话框里、把原因写进底栏帮助位（§9.3 保留上下文 + §10.2 说明原因）。
+    // 「应用」= 写回设置但**不关窗**（权威 `SettingsDialog.createActions()` 里的 Apply 只 `editor.apply()`，
+    // 关窗是 OK 的 `applyAndClose()`）；「确定」= 写回后关窗。
+    const applyOnly = button.dataset.settingsAction === "apply";
     void saveSettings()
-      .then(() => closeSettingsDialog())
+      .then(() => {
+        if (applyOnly) {
+          // 应用后未保存标记与「应用」的可用性都要就地重算（权威在 `updateStatus()` 里做同一件事）。
+          syncSettingsDirtyMarkers();
+          return;
+        }
+        closeSettingsDialog();
+      })
       .catch((error) => {
         const reason = String((error && error.message) || error);
         window.__augitError = "save-settings:" + reason;
@@ -1767,6 +2393,57 @@ function showSettingsFailure(reason) {
   help.title = help.textContent;
   help.classList.add("settings-failure");
 }
+
+/**
+ * 归属行的右键菜单：权威把「标注上一修订」放在**注释槽的动作组**里
+ * （`AnnotateToggleAction.java:272-276` 把 `AnnotateCurrentRevisionAction` 与
+ * `AnnotatePreviousRevisionAction` 加进槽的展示组），该动作只在
+ * `PreviousFileRevisionProvider` 能给出上一修订时才出现（`AnnotatePreviousRevisionAction.update()`：
+ * `myProvider == null` 时 `setEnabledAndVisible(false)`）⇒ Augit 只在行带 `previousRevision` 时给这一项。
+ *
+ * **登记差异**：权威拿到上一修订后在**新标签**里打开标注（动作描述即 "…in a new tab"），
+ * Augit 目前就地重标注同一份视图（工具栏显示所依据的修订）。
+ */
+function openBlameRowMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  if (!live || !live.blame || !row) return;
+  const revision = row.dataset.blamePrevious || "";
+  closeLiveOverlay();
+  if (!revision) return;
+  const markup = `<section class="popover context-menu blame-row-menu" aria-label="归属行" data-blame-revision="${escapeHtml(revision)}">`
+    + `<a class="menu-item" href="#" data-blame-action="annotate-previous">${icon("git-history")} 标注上一修订</a>`
+    + `</section>`;
+  const layer = showPointerContextMenu(markup, {
+    layerClass: "blame-row-menu-layer",
+    clientX,
+    clientY,
+    maxHeight: 240,
+  });
+  if (layer && typeof layer.focus === "function") layer.focus({ preventScroll: true });
+}
+
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".blame-document .blame-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openBlameRowMenu(row, event.clientX, event.clientY);
+}, true);
+
+// 「标注上一修订」：按该行的上一修订重新标注（权威 `AnnotatePreviousRevisionAction.getFileRevision`）。
+document.addEventListener("click", (event) => {
+  const item = event.target.closest && event.target.closest('[data-blame-action="annotate-previous"]');
+  if (!item) return;
+  const live = window.__augitLive;
+  const layer = item.closest(".blame-row-menu");
+  const revision = layer ? layer.dataset.blameRevision : null;
+  if (!live || !live.blame || !revision) return;
+  event.preventDefault();
+  closeLiveOverlay();
+  // 与"进入 Blame"同一条收尾：读完后刷新受影响区域（编辑区/标签/状态栏/侧栏）。
+  void loadBlame(live.blame.path, revision).then(() => {
+    refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar");
+  });
+}, true);
 
 /**
  * 文件系统变化轮询。
@@ -2227,7 +2904,7 @@ window.__augitSettingsWrite = async (payload) => {
 window.__augitLoadCommitDetails = (revision) => loadCommitDetails(revision);
 window.__augitLoadOperation = () => loadOperationSession();
 
-window.__augitLoadBlame = (path) => loadBlame(path);
+window.__augitLoadBlame = (path, revision) => loadBlame(path, revision || null);
 window.__augitLoadFileHistory = (path) => loadFileHistory(path);
 window.__augitLoadDiff = (path, options) => loadDiff(path, options);
 /**
@@ -2313,6 +2990,329 @@ function showGitUnavailable(reason) {
 
 /** Git 不可用的原因；状态可能早于 live 对象返回，因此单独缓存。 */
 let pendingGitUnavailableReason = null;
+
+/**
+ * 非 Git 目录是否还要给出「创建 Git 仓库」入口。
+ *
+ * 与 `pendingGitUnavailableReason` 同理：`git/status` 在 `loadDocument()` 之前就发出，
+ * 返回时 `window.__augitLive` 还不存在，而对话框用的 `repositoryInitBody()` 在 `mockup.js` 里、
+ * 那个脚本要稍后才加载 ⇒ 需求先缓存，首屏可交互后再弹。
+ */
+let pendingRepositoryInit = false;
+
+/**
+ * 非 Git 工作区的入口（产品规格 §2「允许打开非 Git 目录，并由用户显式初始化仓库」，
+ * ux-spec §8「非 Git 目录 → 初始化仓库 → Git 操作进行中，随后启用 Git 工具窗口」）。
+ *
+ * 权威 `GitInit` 的入口在 VCS 菜单里，Augit 对应 Git 主菜单的「创建 Git 仓库…」；
+ * 打开非 Git 目录时只自动弹**一次**（与「Git 不可用」同一套"只提示一次"处理），
+ * 「取消」关掉后仍可从 Git 菜单再次打开。
+ */
+function showRepositoryInitEntry() {
+  const live = window.__augitLive;
+  if (!live || live.repositoryInitShown) return;
+  if (typeof repositoryInitBody !== "function") {
+    pendingRepositoryInit = true;
+    return;
+  }
+  live.repositoryInitShown = true;
+  openRepositoryInitDialog();
+}
+
+/** 打开「创建 Git 仓库」对话框（权威 `action.Git.Init.text` = "Create Git Repository…"）。 */
+function openRepositoryInitDialog() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || typeof repositoryInitBody !== "function") return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay repository-init-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "创建 Git 仓库",
+    // 目标目录缺省取工作区根（权威：起点是当前选中目录、取不到则项目根）。
+    repositoryInitBody(live.root || "", "", false),
+    '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
+      + '<button type="button" class="primary-button" data-repo-init-action="create">创建</button>',
+    false,
+    "repository-init-dialog");
+  host.appendChild(layer);
+  const field = layer.querySelector("[data-repo-init-path]");
+  if (field) field.focus({ preventScroll: true });
+}
+
+/** 目标已在 Git 下时的 Yes/No 警告（权威唯一的确认时机，`GitInit.java:66-74`）。 */
+function openRepositoryInitWarning(target) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || typeof repositoryInitWarningBody !== "function") return;
+  live.repositoryInitTarget = target;
+  closeLiveOverlay();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay repository-init-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "初始化 Git",
+    repositoryInitWarningBody(target),
+    '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
+      + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
+    false,
+    "repository-init-dialog");
+  host.appendChild(layer);
+}
+
+/** 对话框内的状态行（失败原因／进行中说明）。 */
+function setRepositoryInitNotice(notice) {
+  const node = document.querySelector(".repository-init-window [data-repo-init-notice]");
+  if (!node) return;
+  node.hidden = !notice;
+  node.textContent = notice || "";
+}
+
+/** 进行态：冻结所有动作，锁住重复提交（ux-spec「初始化进行中只锁定重复提交」）。 */
+function setRepositoryInitBusy(busy, notice) {
+  const layer = document.querySelector(".repository-init-window .dialog");
+  if (!layer) return;
+  for (const node of layer.querySelectorAll("[data-repo-init-action]")) {
+    node.disabled = busy;
+  }
+  const create = layer.querySelector('[data-repo-init-action="create"]');
+  if (create) create.textContent = busy ? "正在初始化…" : "创建";
+  const confirm = layer.querySelector('[data-repo-init-action="confirm"]');
+  if (confirm) confirm.textContent = busy ? "正在初始化…" : "继续";
+  setRepositoryInitNotice(notice);
+}
+
+/** 「选择目录…」：权威用单目录选择器，外壳用系统的 `workspace/pick`（同一选择动作）。 */
+async function pickRepositoryInitTarget() {
+  const field = document.querySelector(".repository-init-window [data-repo-init-path]");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("workspace/pick", {}, 120000);
+    if (!payload || payload.picked === false) {
+      // 取消不是错误：保留原目标，不提示失败。
+      return null;
+    }
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+  if (failure) {
+    setRepositoryInitNotice(`无法选择目录：${failure}`);
+    return null;
+  }
+  if (field && payload && typeof payload.path === "string") {
+    field.value = payload.path;
+  }
+  return payload;
+}
+
+/**
+ * 提交「创建 Git 仓库」。
+ *
+ * 权威只在**目标已在 Git 下**时才问一次（`GitInit.java:66-74`）；不是仓库时没有任何确认，
+ * 点按钮即意图 ⇒ 直接初始化。
+ */
+async function submitRepositoryInit() {
+  const live = window.__augitLive;
+  const field = document.querySelector(".repository-init-window [data-repo-init-path]");
+  const target = field ? field.value : (live && live.root) || "";
+  if (!live || !target || live.repositoryInitializing) return null;
+  live.repositoryInitializing = true;
+  setRepositoryInitBusy(true, "正在初始化…");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/init", { path: target }, 120000);
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+  live.repositoryInitializing = false;
+
+  if (!failure && payload && payload.requiresConfirmation) {
+    openRepositoryInitWarning(target);
+    return payload;
+  }
+
+  return finishRepositoryInit(payload, failure);
+}
+
+/** 警告窗口里选「继续」：带 `confirm` 再调一次（权威 Yes 分支）。 */
+async function confirmRepositoryInit() {
+  const live = window.__augitLive;
+  const target = live && live.repositoryInitTarget ? live.repositoryInitTarget : null;
+  if (!live || !target || live.repositoryInitializing) return null;
+  live.repositoryInitializing = true;
+  setRepositoryInitBusy(true, "正在初始化…");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/init", { path: target, confirm: true }, 120000);
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+  live.repositoryInitializing = false;
+  return finishRepositoryInit(payload, failure);
+}
+
+/** 收尾：失败在窗口内写明原因（权威是带 Git 错误输出的错误通知），成功则关窗并刷新。 */
+async function finishRepositoryInit(payload, failure) {
+  if (!failure && payload && payload.cancelled) {
+    failure = payload.reason || "操作已取消。";
+  }
+  if (!failure && payload && payload.available === false) {
+    failure = payload.reason || "无法初始化该目录。";
+  }
+  if (!failure && (!payload || payload.initialized !== true)) {
+    failure = "初始化没有完成。";
+  }
+  if (failure) {
+    setRepositoryInitBusy(false, `Git 初始化失败：${failure}`);
+    return null;
+  }
+
+  closeLiveOverlay();
+  await refreshAfterRepositoryInit();
+  return payload;
+}
+
+/**
+ * 初始化成功后的刷新（ux-spec §8：Git 操作进行中，随后启用 Git 工具窗口；
+ * 保持不变的状态：项目树、当前文件和标签）。
+ *
+ * 目录是**刚**变成仓库的：状态、历史与引用都要重读，文件树也要刷新；
+ * 宿主侧同时已作废它的 Git 解析缓存（`ShellBridge.InitRepositoryAsync`）。
+ */
+async function refreshAfterRepositoryInit() {
+  const live = window.__augitLive;
+  if (!live) return;
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadHistory().catch(() => null),
+    loadReferences().catch(() => null),
+  ]);
+  void refreshFileTree();
+  refresh("side", "editorContent", "editorTabs", "statusbar", "bottomTool", "titlebar");
+  void refreshCommitDetails();
+}
+
+/**
+ * 检出被本地改动挡住时的 Smart Checkout 对话框（权威 `GitSmartOperationDialog`，
+ * `plugins/git4idea/backend/src/branch/GitSmartOperationDialog.java:36-125`）。
+ *
+ * 结构与文案在 `mockup.js` 的 `smartCheckoutBody()`／`smartCheckoutScene()` 里（样例页与实时共用）；
+ * 这里只负责打开、绑定与默认焦点 —— 权威把 `FOCUSED_ACTION` 设在**取消**上（`:118`），
+ * 因此打开后焦点落在「不检出」，回车不会误触发会改写工作区的操作。
+ */
+function openSmartCheckoutDialog(name, kind, paths) {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  if (!live || !host || typeof smartCheckoutBody !== "function") return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  live.smartCheckout = { name, kind: kind || "branch" };
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay smart-checkout-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Git 检出问题",
+    smartCheckoutBody(paths, "", false),
+    '<button type="button" class="secondary-button" data-smart-action="cancel">不检出</button>'
+      + '<button type="button" class="primary-button" data-smart-action="smart">Smart Checkout</button>',
+    false,
+    "smart-checkout-dialog");
+  host.appendChild(layer);
+  const cancel = layer.querySelector('[data-smart-action="cancel"]');
+  if (cancel) cancel.focus({ preventScroll: true });
+}
+
+/** 对话框内的状态行（进行中说明／恢复冲突说明）。 */
+function setSmartCheckoutNotice(notice) {
+  const node = document.querySelector(".smart-checkout-window [data-smart-notice]");
+  if (!node) return;
+  node.hidden = !notice;
+  node.textContent = notice || "";
+}
+
+/** 进行态：冻结全部动作，锁住重复提交。 */
+function setSmartCheckoutBusy(busy, notice) {
+  const layer = document.querySelector(".smart-checkout-window .dialog");
+  if (!layer) return;
+  for (const node of layer.querySelectorAll("[data-smart-action]")) {
+    node.disabled = busy;
+  }
+  const smart = layer.querySelector('[data-smart-action="smart"]');
+  if (smart) smart.textContent = busy ? "正在切换…" : "Smart Checkout";
+  setSmartCheckoutNotice(notice);
+}
+
+/**
+ * 执行 Smart Checkout：`stash → 检出 → 恢复`（权威 `GitPreservingProcess`，
+ * `GitCheckoutOperation.java:505-524`）。
+ */
+async function submitSmartCheckout() {
+  const live = window.__augitLive;
+  const pending = live && live.smartCheckout;
+  if (!live || !pending || !pending.name || live.smartCheckoutRunning) return null;
+  live.smartCheckoutRunning = true;
+  setSmartCheckoutBusy(true, "正在暂存改动并切换…");
+  let payload = null;
+  let failure = null;
+  try {
+    payload = await invoke("git/checkout-smart", { name: pending.name }, 120000);
+  } catch (error) {
+    failure = String((error && error.message) || error);
+  }
+  live.smartCheckoutRunning = false;
+  return finishSmartCheckout(payload, failure);
+}
+
+/**
+ * 收尾：成功即关窗并刷新；恢复失败会留下 `SmartCheckout` 冲突会话（临时 stash 保留），
+ * 按权威「改动不丢」的语义说明后交由既有的操作会话／冲突界面继续处理（规格 §7.13）。
+ */
+async function finishSmartCheckout(payload, failure) {
+  if (!failure && payload && payload.cancelled) {
+    failure = payload.reason || "操作已取消。";
+  }
+  if (!failure && payload && payload.available === false) {
+    failure = payload.reason || "无法执行 Smart Checkout。";
+  }
+
+  const session = payload && payload.session ? payload.session : null;
+  if (!failure && session && session.kind === "SmartCheckout" && session.hasConflicts) {
+    closeLiveOverlay();
+    await refreshAfterSmartCheckout();
+    showToast({
+      title: "Smart Checkout 未完成",
+      text: "恢复改动时发生冲突：改动已保留在临时 stash 中，解决冲突后可从操作会话继续。",
+      kind: "warning",
+    });
+    return payload;
+  }
+
+  if (failure || !payload || payload.switched !== true) {
+    setSmartCheckoutBusy(false, `Smart Checkout 失败：${failure || "分支没有切换。"}`);
+    return null;
+  }
+
+  closeLiveOverlay();
+  await refreshAfterSmartCheckout();
+  return payload;
+}
+
+/** Smart Checkout 之后的刷新：HEAD 与工作区都可能变，引用也要重读。 */
+async function refreshAfterSmartCheckout() {
+  const live = window.__augitLive;
+  if (!live) return;
+  live.references = null;
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadReferences().catch(() => null),
+  ]);
+  refreshAfterEvent("titlebar", "side", "editorContent", "editorTabs", "statusbar", "bottomTool");
+}
 
 /**
  * 读取 Git 操作会话（规格 §7.13）。
@@ -3176,6 +4176,17 @@ function moveDiffChange(direction) {
   }
   if (live) live.diffBoundaryHint = null;
   applyDiffBoundaryHint();
+  // 规格：当前差异块整块高亮（2026 参考图 diff-viewer-ctrlD-file 实测用强色，与软行底区分）。
+  // 块由 `diffChangeBlocks` 给出 `{ first, lastIndex }`，两者都是 `.diff-code-line` 列表中的下标。
+  {
+    const root = document.querySelector(".diff-layout, .document-view");
+    if (root) {
+      root.querySelectorAll(".diff-code-line.diff-current").forEach((el) => el.classList.remove("diff-current"));
+      const all = [...root.querySelectorAll(".diff-code-line")];
+      const from = all.indexOf(blocks[index].first);
+      for (let i = Math.max(0, from); i <= blocks[index].lastIndex; i += 1) all[i].classList.add("diff-current");
+    }
+  }
   blocks[index].first.scrollIntoView({ block: "center" });
   // 规格 §502：定位后**保留触发按钮焦点** —— 这里刻意不调用 focus()，由调用方保持按钮焦点。
   return { index, total };
@@ -3197,13 +4208,23 @@ function labelFileHistoryClearEntry() {
 async function clearHistoryPathFilter() {
   const live = window.__augitLive;
   if (!live) return;
-  const back = live.fileHistoryReturn && live.fileHistoryReturn.bottom;
+  const back = live.fileHistoryReturn || {};
+  // 选择与正文位置必须**在重绘之前**写回状态：渲染读的是 `live.historySelectedHash`，
+  // 详情的滚动值由 `loadCommitDetails()` 收尾时套用（与既有的"End 意图"同一处）。
+  if (back.hash) live.historySelectedHash = back.hash;
+  if (back.detailScroll > 0) live.commitDetailScrollRestore = back.detailScroll;
   live.fileHistory = null;
   live.layout = live.layout || {};
+  // 必须同时把布局标成"用户驱动"：否则 `shell()` 会继续用**场景参数**里的 `bottom: file-history`，
+  // 于是刚清掉的文件历史会被渲染成**样例行**（实测：清掉后底部仍有一条 `feat: 实现 Augit 阶段零至五功能`）——
+  // 第 161 轮由"点日志标签后数 `.history-row`"的断言抓出来。
+  live.layout.userDriven = true;
   // 从 URL 直接进文件历史时没有"进入前上下文"，此时按"折叠底部区域"处理。
-  live.layout.bottom = back || "";
+  live.layout.bottom = back.bottom || "";
   live.layout.collapsed = null;
-  await loadHistory().catch(() => null);
+  // 已加载（含"已确认是空"）的日志**直接恢复**，不重复查询（规格 §7.9：已加载的空日志
+  // 仍直接恢复，不因没有提交而重复查询）。只有从未查过历史的入口才补一次查询。
+  if (!live.history) await loadHistory().catch(() => null);
   if (typeof window.__augitRender === "function") {
     window.__augitRender();
     rebindAfterRender();
@@ -3390,6 +4411,8 @@ function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
   bindEditorTabs?.();
+  // 标签栏是区域刷新的产物，重建后滚动位置归零，边缘渐隐要按新状态重量一次。
+  if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
   bindChangesState?.();
   bindChangesScroll();
   restoreChangesState();
@@ -3397,11 +4420,19 @@ function rebindAfterRender() {
   bindTitlebarMenuEscape();
   bindWindowChrome();
   bindManagementFieldDraft();
+  bindLogFilterDraft();
+  // 引用树选中态决定竖条里"需要选中引用"的项能否用（权威按选择刷 `update()`）；
+  // 区域刷新会重建行与竖条，因此每次渲染后都要按状态重新落一遍。
+  if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
   bindCompactDialogKeys();
   bindStashDialogKeys();
   bindRegionTabOrder();
   bindDocumentModeMemory();
   bindGlobalShortcuts();
+  bindRefTreeKeys();
+  bindRefTreeDoubleClick();
+  bindRefTreeFilter();
+  bindHistoryUserSearch();
   bindModalBackground();
   labelFileHistoryClearEntry();
   renderDiffErrorNotice();
@@ -3410,6 +4441,11 @@ function rebindAfterRender() {
   applyDisplayOptionMarkers();
   applyPendingDocumentStatus();
   restoreAmendDraft();
+  // 重绘路径先按状态对齐一次（不消费）：详情可能是**缓存重绘**，不会再走异步收尾；
+  // 随后的定点刷新还可能再替换一次详情，所以再排一次短延时对齐。
+  applyPendingDetailScroll(false);
+  scheduleDetailScrollReapply();
+  bindDetailScrollIntent();
   reflectWriteOperation();
   guardUnwiredNavigation();
   bindSettingsPages();
@@ -3609,7 +4645,17 @@ function readInitialLayout() {
   const activeRail = activeIndex >= 0 ? names[activeIndex] : "project";
   // 搜索入口保持侧栏为项目，搜索界面在浮层里（与视觉稿一致）。
   const side = RAIL_SIDE.includes(activeRail) ? activeRail : "project";
-  const bottom = RAIL_BOTTOM.includes(activeRail) ? (RAIL_BOTTOM_VALUE[activeRail] || "") : "";
+  // 底部工具窗取**实际渲染出来的那个**：场景可以只给 `bottom` 参数、而 `activeRail` 仍是侧栏入口
+  // （`main-project` 就是 `bottom: "git"` ＋ `activeRail: "project"`）。只从 activeRail 推导会把
+  // "日志正开着"读成空串 ⇒ "进入文件历史前的上下文"记成空串 ⇒ 返回时底部被折叠而不是回到日志
+  // （第 162/163 轮实测 `after.bottom === ""`）。
+  let bottom = RAIL_BOTTOM.includes(activeRail) ? (RAIL_BOTTOM_VALUE[activeRail] || "") : "";
+  const rendered = document.querySelector(".bottom-tool");
+  if (rendered) {
+    if (rendered.classList.contains("terminal-tool")) bottom = "terminal";
+    else if (rendered.querySelector(".history-tool-content")) bottom = "file-history";
+    else if (rendered.querySelector(".git-toolbar-layout")) bottom = "git";
+  }
   return { activeRail, side, bottom, collapsed: null, userDriven: false };
 }
 
@@ -3945,6 +4991,621 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 文档工具栏与工具窗标题栏上的"死入口"（第 169 轮行为实测扫出：这些 aria-label 在 live-data 里
+    // 一处都没有出现）——「跳转行」按钮（`Ctrl+G` 可用、按钮没接）、侧栏「最小化」、
+    // 「定位当前文件」、「折叠项目树」。四者的能力都已存在，分别接到既有实现上。
+    // 必须限定在**文档工具栏**里：紧凑输入窗口自己的 `aria-label` 就是标题（"跳转行"），
+    // 用裸的 `[aria-label=…]` 会把对话框内的点击（包括"跳转"按钮）也当成这个入口
+    // —— 实测后果是点"跳转"又开一个窗口、目标行永远不生效。
+    const jumpToLineButton = event.target.closest
+      && event.target.closest('.document-toolbar [aria-label="跳转行"]');
+    if (jumpToLineButton) {
+      event.preventDefault();
+      openGoToLineDialog();
+      return;
+    }
+
+    const minimizeTool = event.target.closest
+      && event.target.closest('.side-tool .tool-header [aria-label="最小化"]');
+    if (minimizeTool) {
+      event.preventDefault();
+      const layout = currentLayout();
+      if (layout) {
+        layout.userDriven = true;
+        layout.collapsed = "side";
+        window.__augitRender();
+        rebindAfterRender();
+      }
+      return;
+    }
+
+    const locateCurrentFile = event.target.closest
+      && event.target.closest('.side-tool .tool-header [aria-label="定位当前文件"]');
+    if (locateCurrentFile) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const path = live && live.document ? live.document.path : null;
+      const row = path
+        ? document.querySelector(`.side-content.tree .tree-row[data-tree-path="${CSS.escape(path)}"]`)
+        : null;
+      if (row) {
+        selectTreeRow(row);
+        row.scrollIntoView({ block: "nearest" });
+      }
+      return;
+    }
+
+    const collapseTree = event.target.closest
+      && event.target.closest('.side-tool .tool-header [aria-label="折叠项目树"]');
+    if (collapseTree) {
+      event.preventDefault();
+      // 展开层级是会话数据（`expandedPaths` + `live.tree`）：清空后重建可见树并按规格 §6.7 防抖写回。
+      expandedPaths.clear();
+      const live = window.__augitLive;
+      if (live) live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+      scheduleSessionPersist();
+      refresh("side");
+      return;
+    }
+
+    // 提交侧栏工具栏「刷新」（规格 §5.2）：第 168 轮行为实测（点一下看宿主请求/焦点）发现它点了没反应。
+    const changesRefresh = event.target.closest
+      && event.target.closest('.changes-layout .toolbar [aria-label="刷新"]');
+    if (changesRefresh) {
+      event.preventDefault();
+      void loadStatus().catch(() => null);
+      return;
+    }
+
+    // 日志左竖条＝**分支面板自己的动作组**（权威 `BranchesInGitLogUiFactoryProvider.createMainComponent`：
+    // `expandControlPanel` 的展开卡片是竖向 ActionToolbar〔`Git.Log.Hide.Branches` ＋ 分隔 ＋
+    // `BranchesDashboardTreeComponent.createActionGroup()`〕，折叠卡片是 `ExpandStripeButton`）。
+    // 日志级动作（刷新）在横向工具条的右角，由下面的分支处理；这里只接竖条自己的入口。
+    const refStripe = event.target.closest && event.target.closest('.git-side-toolbar [data-ref-stripe]');
+    if (refStripe) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const action = refStripe.dataset.refStripe;
+      if (action === 'hide-branches' || action === 'show-branches') {
+        // 权威 `HideBranchesAction`：把 `Show.Git.Branches` 置为 false（折叠卡片随即接管竖条）。
+        if (live) live.logBranchesCollapsed = action === 'hide-branches';
+        refreshAfterEvent("bottomTool");
+        return;
+      }
+      if (action === 'new-branch') {
+        closeLiveOverlay();
+        openBranchActionDialog('create');
+        return;
+      }
+      if (action === 'fetch') {
+        // 与分支弹层的「更新项目…」同一条通道（`git/fetch`）。
+        closeLiveOverlay();
+        void runPopoverAction('fetch');
+        return;
+      }
+      if (action === 'update-selected') {
+        // 权威 `UpdateSelectedBranchAction`：整个选中集一起交给 `updateBranches`（逐个快进）。
+        const names = selectedRefs()
+          .filter((item) => item.kind === 'branch')
+          .map((item) => item.name);
+        if (names.length > 0) {
+          closeLiveOverlay();
+          void updateSelectedBranch(names);
+        }
+        return;
+      }
+      if (action === 'delete-branch') {
+        // 权威 `DeleteBranchAction` → `GitBrancher.deleteBranches`：删除**整个选中集**
+        // （本地/远端分支与标签分别处理）；确认层与引用行菜单共用（第 171 轮的两步删除）。
+        const targets = selectedRefs().map((item) => ({ name: item.name, kind: item.kind }));
+        if (targets.length > 0) {
+          closeLiveOverlay();
+          openRefDeleteConfirm(targets, false);
+        }
+        return;
+      }
+      if (action === 'settings') {
+        // 权威 `Git.Log.Branches.Settings`：齿轮弹层（位置与关闭规则与其它指针菜单一致）。
+        closeLiveOverlay();
+        const rect = refStripe.getBoundingClientRect();
+        showPointerContextMenu(refPaneSettingsMenu(), {
+          layerClass: 'ref-settings-menu',
+          clientX: Math.round(rect.right + 4),
+          clientY: Math.round(rect.top),
+          maxHeight: 320,
+        });
+        return;
+      }
+      if (action === 'expand-all' || action === 'collapse-all') {
+        // 权威 `ExpandAllAction`／`CollapseAllAction`：经 `TreeExpander` 展开/折叠全部分组。
+        if (typeof window.__augitSetRefTreeExpanded === 'function') {
+          window.__augitSetRefTreeExpanded(action === 'expand-all');
+        }
+        return;
+      }
+      if (action === 'locate-branch') {
+        // 权威 `NavigateLogToSelectedBranchAction`（图标 `AllIcons.General.Locate`）：把日志定位到选中分支的提交。
+        void locateSelectedRef();
+        return;
+      }
+      if (action === 'my-branches') {
+        // 权威 `ShowMyBranchesAction`（真正的 `ToggleAction`：`isSelected` 读 `controller.showOnlyMy`，
+        // `setSelected` 写回；状态**会话内**、不持久化）。打开时才现算判据数据。
+        const next = !(live && live.showOnlyMyBranches);
+        if (live) {
+          live.showOnlyMyBranches = next;
+          if (!next) {
+            // 关掉时清掉结果，下次打开重新算（分支可能已经变了）。
+            live.myBranchNames = null;
+            live.myBranchesReason = null;
+          }
+        }
+        closeLiveOverlay();
+        if (next) void ensureMyBranches();
+        refreshAfterEvent('bottomTool');
+        return;
+      }
+      if (action === 'show-diff') {
+        // 权威 `ShowBranchDiffAction.actionPerformed`（`BranchesDashboardActions.kt:290-313`）：
+        // 对**每个**非当前选中分支 `GitBrancher.compare(name, repositories)` 各比较一次。
+        const names = selectedRefs()
+          .filter((item) => item.kind === 'branch' || item.kind === 'remote')
+          .map((item) => item.name)
+          .filter((name) => {
+            const branch = ((live.references && live.references.branches) || [])
+              .find((item) => item.name === name);
+            return !!branch && !branch.isCurrent;
+          });
+        if (names.length > 0) {
+          closeLiveOverlay();
+          // 权威对每个非当前分支各开一个比较视图；Augit 只有一个比较视图，因此只比较选中集里的第一个
+          // （登记差异，见 `09-icons.md` 第 183 轮）。
+          void openBranchComparison(names[0]);
+        }
+        return;
+      }
+    }
+
+    // 横向筛选行右角（权威 `Vcs.Log.Toolbar.RightCorner`：`Refresh` 在右角、`GoToRef` 紧随其后）。
+    const logToolbarEntry = event.target.closest
+      && event.target.closest('.history-filters .toolbar-button[aria-label]');
+    if (logToolbarEntry) {
+      const label = logToolbarEntry.getAttribute('aria-label');
+      if (label === '刷新') {
+        event.preventDefault();
+        void loadHistory().catch(() => null);
+        return;
+      }
+    }
+
+    // 分支面板设置里的开关（权威 `git.branches.show.tags` 与 `git.branches.group.by.directory`）。
+    const refSetting = event.target.closest && event.target.closest('[data-ref-setting]');
+    if (refSetting) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      if (refSetting.dataset.refSetting === 'show-tags' && live) {
+        // 权威把该开关持久化在项目设置（`GitVcsSettings.showTags()`，`GitBranchesTreeShowTagsAction`），
+        // 因此这里写回设置文件；登记差异：权威是项目级（workspace 文件），Augit 的设置文件是应用级。
+        live.logRefShowTags = live.logRefShowTags === false;
+        void invoke('settings/write', { showGitBranchesTags: live.logRefShowTags }, 15000).catch(() => null);
+      } else if (refSetting.dataset.refSetting === 'group-by-directory' && live) {
+        // 权威 `GitGroupBranchByDirectoryAction`（`GitGroupBranchAction.kt:26-45`）：
+        // `setBranchGroupingSettings(GROUPING_BY_DIRECTORY, state)` ＋ `saveSettingsForRemoteDevelopment`，
+        // 即**持久化**在项目设置里（默认开启）。这里同样写回设置文件。
+        live.logRefGroupByDirectory = live.logRefGroupByDirectory === false;
+        void invoke('settings/write', { groupBranchesByDirectory: live.logRefGroupByDirectory }, 15000).catch(() => null);
+      }
+      closeLiveOverlay();
+      refreshAfterEvent('bottomTool');
+      return;
+    }
+
+    // 分支面板设置里的「单击时」两项（权威 `SelectionHandlingModeAction`，`BranchesDashboardActions.kt:474-496`）：
+    // 互斥 —— 选中一个即清掉另一个，再点已选中的那个则回到"单击只选中"。默认都不生效。
+    const selectionMode = event.target.closest && event.target.closest('[data-ref-selection-action]');
+    if (selectionMode) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const key = selectionMode.dataset.refSelectionAction;
+      if (live) live.logRefSelectionAction = live.logRefSelectionAction === key ? null : key;
+      closeLiveOverlay();
+      refreshAfterEvent('bottomTool');
+      return;
+    }
+
+    // 日志筛选栏的四个筛选控件（权威 `com.intellij.util.ui.FilterComponent`：
+    // 设了值时右侧是关闭叉 ⇒ 点它复位该筛选；否则点开弹层）。
+    const filterControl = event.target.closest
+      && event.target.closest('.history-filters [data-filter-key]');
+    if (filterControl) {
+      event.preventDefault();
+      const liveFilter = window.__augitLive;
+      const key = filterControl.dataset.filterKey;
+      const filterNow = (liveFilter && liveFilter.historyFilter) || {};
+      // 日期筛选的值在 `since`／`until` 两个键上、路径筛选在 `paths` 上，都不是控件名本身。
+      const selected = key === 'date'
+        ? !!(filterNow.since || filterNow.until)
+        : key === 'user' ? !!(filterNow.authors && filterNow.authors.length > 0)
+        : key === 'path' ? !!(filterNow.paths && filterNow.paths.length > 0)
+        : !!filterNow[key];
+      if (selected) {
+        // 关闭叉：复位（权威 `createResetAction()` → `setFilter(null)`）。
+        if (key === 'branch') {
+          setHistoryBranchFilter('');
+          void reloadHistoryKeepingFocus();
+        } else if (key === 'date') {
+          setHistoryDateFilter(null, null);
+          void reloadHistoryKeepingFocus();
+        } else if (key === 'user') {
+          setHistoryAuthorFilter([]);
+          void reloadHistoryKeepingFocus();
+        } else if (key === 'path') {
+          setHistoryPathFilter([]);
+          void reloadHistoryKeepingFocus();
+        }
+        return;
+      }
+      if (key === 'user') {
+        closeLiveOverlay();
+        // 每次打开都是一张新弹层：搜索词从空开始（权威的弹层不保留上次的搜索）。
+        if (liveFilter) liveFilter.historyUserFilter = "";
+        const rect = filterControl.getBoundingClientRect();
+        // **先读列表再弹**：列表来自宿主（`git/authors`），弹早了会显示"没有可选的用户"且不会二次刷新。
+        void ensureHistoryAuthors().then(() => {
+          showPointerContextMenu(historyUserFilterMenu(), {
+            layerClass: 'history-user-filter-menu',
+            clientX: Math.round(rect.left),
+            clientY: Math.round(rect.bottom + 4),
+            maxHeight: 320,
+          });
+        });
+        return;
+      }
+      if (key === 'branch' || key === 'date') {
+        // 弹层（权威 `BranchFilterPopupComponent`／`DateFilterPopupComponent`）。位置与关闭规则与其它指针菜单一致。
+        closeLiveOverlay();
+        const rect = filterControl.getBoundingClientRect();
+        showPointerContextMenu(key === 'branch' ? historyBranchFilterMenu() : historyDateFilterMenu(), {
+          layerClass: key === 'branch' ? 'history-branch-filter-menu' : 'history-date-menu',
+          clientX: Math.round(rect.left),
+          clientY: Math.round(rect.bottom + 4),
+          maxHeight: 320,
+        });
+        return;
+      }
+      if (key === 'path') {
+        // 路径弹层（权威 `StructureFilterPopupComponent.createActionGroup()`）。
+        closeLiveOverlay();
+        const rect = filterControl.getBoundingClientRect();
+        showPointerContextMenu(historyPathFilterMenu(), {
+          layerClass: 'history-path-menu',
+          clientX: Math.round(rect.left),
+          clientY: Math.round(rect.bottom + 4),
+          maxHeight: 320,
+        });
+      }
+      return;
+    }
+
+    // 路径弹层：「选择…」= 多行文本框（权威 `EditPathsAction`）、「在树中选择…」= 复选框树
+    // （权威 `SelectPathsInTreeAction`）。
+    const pathAction = event.target.closest && event.target.closest('[data-log-path-action]');
+    if (pathAction) {
+      event.preventDefault();
+      if (pathAction.dataset.logPathAction === 'select') openHistoryPathTextDialog();
+      else openHistoryPathTreeDialog();
+      return;
+    }
+
+    // 路径弹层里的「最近」条目（权威 `SelectFromHistoryAction`：点哪一条就把整组作为筛选，
+    // `KeepPopupOnPerform.Never` ⇒ 点完即关）。
+    const pathRecent = event.target.closest && event.target.closest('[data-log-path-recent]');
+    if (pathRecent) {
+      event.preventDefault();
+      const livePath = window.__augitLive;
+      const recent = (livePath && livePath.historyPathRecent) || [];
+      const group = recent[Number(pathRecent.dataset.logPathRecent)];
+      if (Array.isArray(group)) {
+        setHistoryPathFilter(group.slice());
+        closeLiveOverlay();
+        void reloadHistoryKeepingFocus();
+      }
+      return;
+    }
+
+    // 「选择…」对话框的确定／取消（权威 `MultilinePopupBuilder`：按 `\n` 切分、逐项 trim、丢空行；
+    // 一个都不剩 ⇒ `setFilter(null)`）。
+    const pathText = event.target.closest && event.target.closest('[data-log-path-text]');
+    if (pathText) {
+      event.preventDefault();
+      const layer = pathText.closest('.history-path-text-window');
+      const field = layer ? layer.querySelector('[data-log-path-field]') : null;
+      const action = pathText.dataset.logPathText;
+      const values = action === 'confirm' && field
+        ? field.value.split('\n').map((line) => line.trim()).filter(Boolean)
+        : [];
+      closeLiveOverlay();
+      if (action === 'confirm') {
+        setHistoryPathFilter(values);
+        void reloadHistoryKeepingFocus();
+      }
+      return;
+    }
+
+    // 「在树中选择…」对话框里的勾选行（权威 `VcsStructureChooser` 的 `CheckboxTree`）：
+    // 勾选只改这一份待确认的集合，确定时才进筛选；底栏同步 `vcs.log.filters.structure.label`，
+    // 并在一个都没勾时禁用确定（`setOKActionEnabled(!mySelectedFiles.isEmpty())`）。
+    const pathRow = event.target.closest && event.target.closest('[data-log-path-row]');
+    if (pathRow) {
+      event.preventDefault();
+      const layer = pathRow.closest('.history-path-tree-window');
+      const checked = pathRow.getAttribute('aria-checked') === 'true';
+      pathRow.setAttribute('aria-checked', checked ? 'false' : 'true');
+      const box = pathRow.querySelector('.fake-check');
+      if (box) box.classList.toggle('checked', !checked);
+      if (layer) {
+        const count = layer.querySelectorAll('[data-log-path-row][aria-checked="true"]').length;
+        const help = layer.querySelector('.dialog-footer .footer-help');
+        if (help) help.textContent = `已选择: ${count}`;
+        const confirm = layer.querySelector('[data-log-path-tree="confirm"]');
+        if (confirm) {
+          confirm.disabled = count === 0;
+          if (count === 0) confirm.setAttribute('aria-disabled', 'true');
+          else confirm.removeAttribute('aria-disabled');
+        }
+      }
+      return;
+    }
+
+    // 「在树中选择…」的确定／取消：确定时把勾选集合作为筛选（权威 `VcsLogFilterObject.fromVirtualFiles(...)`）。
+    const pathTree = event.target.closest && event.target.closest('[data-log-path-tree]');
+    if (pathTree) {
+      event.preventDefault();
+      const layer = pathTree.closest('.history-path-tree-window');
+      const values = layer
+        ? [...layer.querySelectorAll('[data-log-path-row][aria-checked="true"]')].map((row) => row.dataset.logPathRow)
+        : [];
+      const action = pathTree.dataset.logPathTree;
+      closeLiveOverlay();
+      if (action === 'confirm') {
+        setHistoryPathFilter(values);
+        void reloadHistoryKeepingFocus();
+      }
+      return;
+    }
+
+    // 「分支」筛选弹层里的条目（权威 `vcs.log.filter.all` = "All" ＋ 分支列表）。
+    const branchFilterItem = event.target.closest && event.target.closest('[data-history-branch]');
+    if (branchFilterItem) {
+      event.preventDefault();
+      setHistoryBranchFilter(branchFilterItem.dataset.historyBranch);
+      closeLiveOverlay();
+      void reloadHistoryKeepingFocus();
+      return;
+    }
+
+    // 日期筛选弹层里的预设（权威 `DateFilterPopupComponent` 的 `DateAction`：
+    // `fromDates(now-1d/now-7d, null)`，即只给 `since`）。
+    const dateItem = event.target.closest && event.target.closest('[data-history-date]');
+    if (dateItem) {
+      event.preventDefault();
+      if (dateItem.dataset.historyDate === 'select') {
+        // 权威 `SelectAction`：打开期间对话框（两端都空时不设筛选）。
+        openHistoryDateRangeDialog();
+        return;
+      }
+      const days = dateItem.dataset.historyDate === 'last-day' ? 1 : 7;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      setHistoryDateFilter(since.toISOString(), null);
+      closeLiveOverlay();
+      void reloadHistoryKeepingFocus();
+      return;
+    }
+
+    // 用户筛选弹层的复选行与全选/全不选（权威 `MultipleValueFilterPopupComponent`）。
+    const userItem = event.target.closest && event.target.closest('[data-history-user]');
+    if (userItem) {
+      event.preventDefault();
+      closeLiveOverlay();
+      const liveUser = window.__augitLive;
+      const current = ((liveUser && liveUser.historyFilter && liveUser.historyFilter.authors) || []).slice();
+      const key = userItem.dataset.historyUser;
+      const next = current.includes(key) ? current.filter((value) => value !== key) : [...current, key];
+      setHistoryAuthorFilter(next);
+      void reloadHistoryKeepingFocus();
+      return;
+    }
+    const userAll = event.target.closest && event.target.closest('[data-history-user-all], [data-history-user-none]');
+    if (userAll) {
+      event.preventDefault();
+      closeLiveOverlay();
+      const liveUser = window.__augitLive;
+      const authors = (liveUser && liveUser.historyAuthors) || [];
+      const values = userAll.dataset.historyUserAll ? authors.map((author) => author.email || author.name) : [];
+      setHistoryAuthorFilter(values);
+      void reloadHistoryKeepingFocus();
+      return;
+    }
+
+    // 「选择期间…」对话框的确定／取消（本地零点；本地日期 → ISO，宿主按 ISO 解析）。
+    const dateRange = event.target.closest && event.target.closest('[data-history-date-range]');
+    if (dateRange) {
+      event.preventDefault();
+      const layer = dateRange.closest('.history-date-range-window');
+      const read = (name) => {
+        const input = layer ? layer.querySelector(`[data-history-date-field="${name}"]`) : null;
+        return input && input.value ? new Date(`${input.value}T00:00:00`) : null;
+      };
+      const since = read('since');
+      const until = read('until');
+      const action = dateRange.dataset.historyDateRange;
+      closeLiveOverlay();
+      if (action === 'confirm' && (since || until)) {
+        setHistoryDateFilter(since ? since.toISOString() : null, until ? until.toISOString() : null);
+        void reloadHistoryKeepingFocus();
+      }
+      return;
+    }
+
+    // 空态里的「重置筛选」（权威 `vcs.log.reset.filters.status.action` = "Reset filters"）。
+    const resetFilters = event.target.closest && event.target.closest('[data-history-action="reset-filters"]');
+    if (resetFilters) {
+      event.preventDefault();
+      resetHistoryFilters();
+      void reloadHistoryKeepingFocus();
+      return;
+    }
+
+    // 引用树分组头（权威标准 JTree）：单击折叠/展开该组；状态记在 `live.logRefCollapsed`。
+    // 类型分组与前缀分组都带 `data-ref-collapse-key`（`[data-ref-group]` 只有类型分组）。
+    const refGroup = event.target.closest
+      && event.target.closest('.log-ref-panel .tree-row.group-row[data-ref-collapse-key]');
+    if (refGroup) {
+      event.preventDefault();
+      toggleRefGroup(refGroup.dataset.refCollapseKey);
+      return;
+    }
+
+    // 引用树选中（权威 `BranchesTreeSelection`）：单击本身只改选中。
+    // 但「单击时」的**行为开关**打开后单击要顺带执行该行为（权威
+    // `BranchesDashboardTreeController.init` 的 `TreeSelectionListener`：`selectionAction` 为
+    // `FILTER` 就 `updateLogBranchFilter()`、为 `NAVIGATE` 就 `navigateTo(...)`）。
+    // 双击/回车恒为「筛选到该分支」（`Git.Log.Branches.Change.Branch.Filter`，注册为
+    // `button1 doubleClick` ＋ `ENTER`，见 `intellij.vcs.git.backend.xml:130-134`）。
+    const refRow = event.target.closest
+      && event.target.closest('.log-ref-panel .tree-row[data-ref-name]');
+    if (refRow) {
+      event.preventDefault();
+      selectRefRow(refRow, {
+        toggle: event.ctrlKey || event.metaKey,
+        range: event.shiftKey,
+      });
+      // 权威的选择监听对**任何**选择变化都触发（含 Ctrl/Shift 多选）：
+      // FILTER ⇒ 用整个选中集刷日志筛选；NAVIGATE ⇒ 定位到选中集里第一个可导航的引用。
+      const liveNow = window.__augitLive;
+      const selectionAction = (liveNow && liveNow.logRefSelectionAction) || null;
+      if (selectionAction === "filter") {
+        if (filterLogToRefRows(selectedRefRows())) void reloadHistoryKeepingFocus();
+      } else if (selectionAction === "navigate") {
+        void locateSelectedRef();
+      }
+      return;
+    }
+
+    // 分支/标签行动作菜单（权威 `GitBranchPopupActions` 的每引用动作组）。
+    const refMenuAction = event.target.closest && event.target.closest('.ref-menu [data-ref-action]');
+    if (refMenuAction) {
+      event.preventDefault();
+      const menu = refMenuAction.closest('.ref-menu');
+      const name = menu ? menu.dataset.refName : null;
+      const kind = menu ? menu.dataset.refKind : null;
+      const action = refMenuAction.dataset.refAction;
+      // 引用树行的菜单带着**整个选中集**（`data-ref-targets`）；分支浮层的行菜单只有这一行。
+      let targets = [{ name, kind: kind || 'branch' }];
+      if (menu && menu.dataset.refTargets) {
+        try {
+          targets = normalizeRefTargets(JSON.parse(menu.dataset.refTargets));
+        } catch (error) {
+          targets = [{ name, kind: kind || 'branch' }];
+        }
+      }
+      if (action === 'compare') {
+        closeLiveOverlay();
+        void openBranchComparison(name);
+        return;
+      }
+      // 「比较分支」（权威 `ShowArbitraryBranchesDiffAction` → `compareAny(b1, b2)`）：
+      // 配对从**选中集**里取（`getBranchPair()`）：两个分支 ⇒ `b2..b1`；1 分支 + HEAD ⇒ `当前..该分支`。
+      if (action === 'compare-branches') {
+        closeLiveOverlay();
+        const headPicked = targets.some((item) => item.kind === 'head');
+        const picked = targets.filter((item) => item.kind === 'branch' || item.kind === 'remote');
+        if (headPicked && picked.length === 1) {
+          void openBranchComparison(picked[0].name);
+        } else if (picked.length === 2) {
+          void openBranchComparison(picked[0].name, picked[1].name);
+        }
+        return;
+      }
+      if (action === 'update-selected') {
+        closeLiveOverlay();
+        void updateSelectedBranch(targets.filter((item) => item.kind !== 'tag').map((item) => item.name));
+        return;
+      }
+      if (name && action === 'checkout') {
+        closeLiveOverlay();
+        void checkoutReference(name, kind || 'branch');
+        return;
+      }
+      if (name && action === 'delete') {
+        openRefDeleteConfirm(targets, false);
+        return;
+      }
+      if (name && action === 'rename') {
+        closeLiveOverlay();
+        // 权威 `GitRenameBranchAction`：重命名的是**这一行**那个分支，不是"当前分支"。
+        openBranchActionDialog('rename', { from: name });
+        return;
+      }
+    }
+
+    const refDeleteCancel = event.target.closest && event.target.closest('[data-ref-delete-cancel]');
+    if (refDeleteCancel) {
+      event.preventDefault();
+      closeLiveOverlay();
+      openBranchesPopover();
+      return;
+    }
+
+    const refDeleteConfirm = event.target.closest && event.target.closest('[data-ref-delete-confirm]');
+    if (refDeleteConfirm) {
+      event.preventDefault();
+      const layer = refDeleteConfirm.closest('.ref-delete-window');
+      const name = layer ? layer.dataset.refName : null;
+      const kind = layer ? layer.dataset.refKind : null;
+      const force = refDeleteConfirm.dataset.refDeleteConfirm === 'force';
+      // 多选删除时确认层带着**整个目标集**（`data-ref-targets`），单选时退回该行的身份。
+      let targets = [{ name, kind }];
+      if (layer && layer.dataset.refTargets) {
+        try {
+          targets = normalizeRefTargets(JSON.parse(layer.dataset.refTargets));
+        } catch (error) {
+          targets = [{ name, kind }];
+        }
+      }
+      closeLiveOverlay();
+      void runRefDelete(targets, force);
+      return;
+    }
+
+    // 日志右键菜单的动作（第 167 轮接线）：只接有能力的两项，其余在模板里就是禁用＋原因的 `span`，
+    // 因此这里不会收到它们的点击（KISS：不在处理端再判一次）。
+    const logMenuAction = event.target.closest && event.target.closest('.log-menu [data-log-action]');
+    if (logMenuAction) {
+      event.preventDefault();
+      const action = logMenuAction.dataset.logAction;
+      const menu = logMenuAction.closest('.log-menu');
+      const fullHash = menu ? menu.dataset.commitFullHash : null;
+      closeLiveOverlay();
+      if (action === 'copy-hash' && fullHash) {
+        // 与"复制路径"同一条宿主通道：WebView2 里页面自己写剪贴板会静默失败。
+        void invoke('clipboard/write', { text: fullHash }, 10000).then((result) => {
+          if (result && result.copied) window.__augitCopiedHash = fullHash;
+        }).catch(() => {});
+        return;
+      }
+      if (action === 'new-branch') {
+        // 权威 `Git.CreateNewBranch.FromCommit`：从**选中的提交**起分支，不是 HEAD。
+        openBranchActionDialog('create', { startPoint: fullHash });
+        return;
+      }
+      if (action === 'new-tag') {
+        // 权威 `Git.CreateNewTag` → `GitCreateTagAction`：单字段输入框，标签打在选中的提交上。
+        openTagDialog(fullHash);
+        return;
+      }
+    }
+
     // 提交历史工具栏「搜索提交」（规格 §7.8）：把焦点交给日志搜索框。
     // 核实过：`history-utility`（该按钮的类）在 live-data.js 里此前**完全没有出现** ⇒ 死入口。
     const historySearchEntry = event.target.closest
@@ -3964,6 +5625,37 @@ function guardUnwiredNavigation() {
     if (clearHistoryPath) {
       event.preventDefault();
       void clearHistoryPathFilter();
+      return;
+    }
+
+    // 底部「日志」标签：从文件历史切回日志（规格 §7.9「点击底部『日志』标签与清除路径筛选入口
+    // **均**恢复进入前的日志上下文」）。视觉稿里它是 `<a class="tool-tab" href="git-history.html">`，
+    // 实时外壳此前没有任何处理者 —— 实测点下去 URL 不变、文件历史照旧（被未接线兜底拦成死入口）。
+    // 两条入口的结果是同一个：放弃这次文件历史、恢复进入前的底部上下文，故复用同一条路径。
+    const historyLogTab = event.target.closest
+      && event.target.closest('.bottom-header .tool-tab[href$="git-history.html"]');
+    if (historyLogTab) {
+      event.preventDefault();
+      // 「比较」也是底部工具窗口的一个标签（与「历史: <文件>」同构）⇒ 点「日志」同样恢复进入前的上下文。
+      const liveNow = window.__augitLive;
+      void (liveNow && liveNow.branchComparison ? closeBranchComparison() : clearHistoryPathFilter());
+      return;
+    }
+
+    // 「与当前分支比较」视图的关闭叉与刷新（权威是关闭/刷新那个比较日志标签）。
+    const branchCompareClose = event.target.closest && event.target.closest('[data-branch-compare-close]');
+    if (branchCompareClose) {
+      event.preventDefault();
+      void closeBranchComparison();
+      return;
+    }
+
+    const branchCompareRefresh = event.target.closest && event.target.closest('[data-branch-compare-refresh]');
+    if (branchCompareRefresh) {
+      event.preventDefault();
+      const liveNow = window.__augitLive;
+      const compare = liveNow && liveNow.branchComparison;
+      if (compare) void openBranchComparison(compare.branch);
       return;
     }
 
@@ -4170,6 +5862,27 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // Smart Checkout 对话框（权威 `GitSmartOperationDialog`）：取消（默认焦点，绝不执行 Git）/ 执行。
+    const smartAction = event.target.closest && event.target.closest("[data-smart-action]");
+    if (smartAction) {
+      event.preventDefault();
+      if (smartAction.dataset.smartAction === "smart") void submitSmartCheckout();
+      else closeLiveOverlay();
+      return;
+    }
+
+    // 「创建 Git 仓库」对话框（权威 `GitInit`）：选择目录 / 创建 / 已在 Git 下的继续 / 取消。
+    const repoInitAction = event.target.closest && event.target.closest("[data-repo-init-action]");
+    if (repoInitAction) {
+      event.preventDefault();
+      const action = repoInitAction.dataset.repoInitAction;
+      if (action === "pick") void pickRepositoryInitTarget();
+      else if (action === "create") void submitRepositoryInit();
+      else if (action === "confirm") void confirmRepositoryInit();
+      else closeLiveOverlay();
+      return;
+    }
+
     // Stash 对话框（规格 §5.3）：取消 / 创建。
     const stashCreateAction = event.target.closest && event.target.closest("[data-stash-create-action]");
     if (stashCreateAction) {
@@ -4229,6 +5942,38 @@ function guardUnwiredNavigation() {
     }
 
     // 文件超限/二进制页的「使用系统默认程序打开」（规格 §7.5）。
+    // 「结果过多」对话框（权威 `UsageLimitUtil.showTooManyUsagesWarning`）。
+    const searchLimit = event.target.closest && event.target.closest("[data-search-limit-action]");
+    if (searchLimit) {
+      event.preventDefault();
+      if (searchLimit.dataset.searchLimitAction === "continue") void continueLimitedSearch();
+      else abortLimitedSearch();
+      return;
+    }
+
+    // 大文件只读预览的通知面板（权威 `EditorNotificationPanel` 的「隐藏通知」/「不再显示」）。
+    const largeFileAction = event.target.closest && event.target.closest("[data-large-file-action]");
+    if (largeFileAction) {
+      event.preventDefault();
+      const live = window.__augitLive;
+      const document_ = live && live.document;
+      if (largeFileAction.dataset.largeFileAction === "disable") {
+        // 「不再显示」：写进设置（权威写 `PropertiesComponent` 的 DISABLE_KEY）。
+        if (live) {
+          live.hideLargeFileWarning = true;
+          live.settings = live.settings || {};
+          live.settings.hideLargeFileWarning = true;
+        }
+        void invoke("settings/write", { hideLargeFileWarning: true }, 15000).catch(() => null);
+      } else if (live && document_ && document_.path) {
+        // 「隐藏通知」：只记在本次会话（权威的 HIDDEN_KEY 记在编辑器上）。
+        live.hiddenLargeFileWarnings = live.hiddenLargeFileWarnings || new Set();
+        live.hiddenLargeFileWarnings.add(document_.path);
+      }
+      refreshAfterEvent("editorContent");
+      return;
+    }
+
     const externalOpen = event.target.closest && event.target.closest("[data-external-open]");
     if (externalOpen) {
       event.preventDefault();
@@ -4410,13 +6155,13 @@ function guardUnwiredNavigation() {
     if (commitActions && isControlDisabled(link)) return;
     if (commitActions) {
       if (link.classList.contains("primary-button")) {
-        void commitSelectedChanges(false);
+        void commitSelectedChanges(false, event);
         return;
       }
 
       if (link.textContent.includes("提交并推送")) {
         // 推送尚未接线，先完成提交并如实说明。
-        void commitSelectedChanges(true);
+        void commitSelectedChanges(true, event);
         return;
       }
     }
@@ -4433,12 +6178,15 @@ function guardUnwiredNavigation() {
  * 只提交勾选项：未勾选的文件不进提交，也不把既有暂存项带入。
  * 提交前后都不自行推断状态，成功与否都以宿主返回的真实结果为准。
  */
-async function commitSelectedChanges(andPush) {
+async function commitSelectedChanges(andPush, event, confirmed = false) {
   const live = window.__augitLive;
   if (!live || !live.status) return;
   const files = live.status.files || [];
   const selected = files.filter((file) => file.checked);
   const message = typeof live.commitDraft === "string" ? live.commitDraft.trim() : "";
+  // 无勾选 = 权威的 `hasDiffs() === false`。权威此时**按钮本身就是禁用的**
+  // （`CommitChangeListDialog.java:602-604,616-618`）；Augit 的禁用由渲染侧负责，
+  // 这里只保留一次兜底说明，避免"点了没反应"。
   if (selected.length === 0) {
     window.__augitCommitError = describeFailure("请至少选择一个要提交的文件。", {
       unchanged: "工作区没有变化。",
@@ -4448,12 +6196,22 @@ async function commitSelectedChanges(andPush) {
     return;
   }
 
-  if (message.length === 0) {
-    window.__augitCommitError = describeFailure("提交信息不能为空。", {
-      unchanged: "勾选保持不变。",
-      next: "填写提交信息后重试。",
-    });
-    refreshAfterEvent("side");
+  // 空提交信息**不是阻断**（第 135 轮采集，见 docs/nui-behavior/12-commit-changes.md）：
+  // 权威 `SingleChangeListCommitWorkflowHandler.kt:117-122` 是
+  // `getCommitMessage().isNotEmpty() || ui.confirmCommitWithEmptyMessage()` ——
+  // **弹确认、确认后照常提交**。原实现是"设错误后 return，永不提交"，属旧交互。
+  // 这里同时拦下冒泡：共享绑定（`mockup.js` 的 bindInteractions）里还有一道同样的门，
+  // 不拦会让两处各弹一次。
+  if (message.length === 0 && !confirmed) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    confirmCommitWithEmptyMessage(() => { void commitSelectedChanges(andPush, null, true); },
+      () => {
+        const field = document.querySelector(".commit-box .message-field, .commit-box textarea");
+        if (field) field.focus({ preventScroll: true });
+      });
     return;
   }
 
@@ -4587,6 +6345,16 @@ async function checkoutReference(name, kind) {
   }
 
   if (!result || !result.switched) {
+    // 权威 `GitCheckoutOperation.smartCheckoutOrNotify`（`:367-395`）：普通检出被**本地改动／未跟踪文件**
+    // 挡住时，不给一句"失败"，而是列出受影响文件并提供 Smart Checkout。宿主把 git 的那条错误
+    // 解析成 `overwriteRisk` / `overwritePaths`（`ShellBridge.ParseCheckoutOverwritePaths`）。
+    const overwritePaths = result && Array.isArray(result.overwritePaths) ? result.overwritePaths : [];
+    if (result && result.overwriteRisk === true && overwritePaths.length > 0) {
+      window.__augitCheckoutError = null;
+      openSmartCheckoutDialog(name, kind || "branch", overwritePaths);
+      return;
+    }
+
     window.__augitCheckoutError = describeFailure((result && result.reason) || "检出失败。", {
       unchanged: "当前分支与工作区都没有变化。",
       next: "请先提交或贮藏改动，再重试。",
@@ -4614,30 +6382,20 @@ async function checkoutReference(name, kind) {
  * 中文输入法组词期间 Enter 与 Esc 交给输入法，不提交也不关闭。
  */
 let compactDialogKind = null;
+/** 重命名窗口的目标分支（来自某一行的动作菜单时是那一行，否则是当前分支）。 */
+let compactDialogFrom = null;
+/** 新建分支窗口的起点提交（日志右键菜单用；空串即当前 HEAD）。 */
+let compactDialogStartPoint = null;
 
-function openBranchActionDialog(kind) {
-  const live = window.__augitLive;
-  if (!live) return;
-  closeLiveOverlay();
-  rememberDialogFocus();
-  const current = (live.references && live.references.branches || []).find((item) => item.isCurrent);
-  compactDialogKind = kind;
-  if (kind === "rename" && !current) {
-    window.__augitCheckoutError = "当前不在任何本地分支上，无法重命名。";
-    openBranchesPopover();
-    return;
-  }
-
-  const title = kind === "create" ? "新建分支" : "重命名分支";
-  const label = kind === "create" ? "分支名" : "新名称";
-  const value = kind === "rename" ? (current ? current.name : "") : "";
+/** 显示紧凑输入窗口（标题、字段标签、初值、确认按钮文案）。 */
+function showCompactInput(title, label, value, confirmLabel) {
   const host = document.querySelector(".augit-window");
   if (!host) return;
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = compactInputDialog(title, label, value, kind === "create" ? "创建" : "重命名");
+  layer.innerHTML = compactInputDialog(title, label, value, confirmLabel);
   host.appendChild(layer);
   const field = layer.querySelector("[data-compact-field]");
   if (field) {
@@ -4646,8 +6404,56 @@ function openBranchActionDialog(kind) {
   }
 }
 
+function openBranchActionDialog(kind, context) {
+  const live = window.__augitLive;
+  if (!live) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const branches = (live.references && live.references.branches) || [];
+  const fromName = (context && context.from) || currentBranchName();
+  const target = branches.find((item) => item.name === fromName) || null;
+  compactDialogKind = kind;
+  compactDialogFrom = target ? target.name : null;
+  compactDialogStartPoint = (context && context.startPoint) || null;
+  if (kind === "rename" && !target) {
+    window.__augitCheckoutError = "找不到要重命名的分支。";
+    openBranchesPopover();
+    return;
+  }
+
+  const title = kind === "create" ? "新建分支" : "重命名分支";
+  const label = kind === "create" ? "分支名" : "新名称";
+  const value = kind === "rename" ? (target ? target.name : "") : "";
+  showCompactInput(title, label, value, kind === "create" ? "创建" : "重命名");
+}
+
+/**
+ * 在某个提交上新建标签（日志右键菜单，权威 `Git.CreateNewTag` → `GitCreateTagAction`）。
+ *
+ * 权威用的是 `Messages.showInputDialog` —— **单字段**：标题 `git.new.tag.dialog.title`
+ * = `Create New Tag On {0}`（`{0}` 是**选中的提交**，`GitCreateTagAction.java:36-38` 传的是
+ * `commit.asString()`）、字段文案 `git.new.tag.dialog.tag.name.label`
+ * = `Enter the name of new tag`（`GitBundle.properties:1234-1235`），
+ * 校验是"非空且不含空白字符"（同文件 `:42-53` 的 `checkInput`／`canClose`），
+ * 确认后在该提交上建**轻量**标签（无 message、无 force）。
+ *
+ * 注意：四字段的 `GitTagDialog` 是**分支浮层**那条路径（`Git.Tag`），不是这个入口。
+ */
+function openTagDialog(hash) {
+  const live = window.__augitLive;
+  if (!live) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  compactDialogKind = "tag";
+  compactDialogFrom = null;
+  compactDialogStartPoint = hash || null;
+  showCompactInput(`在 ${hash || "HEAD"} 上新建标签`, "新标签名称", "", "创建");
+}
+
 function closeCompactDialog() {
   compactDialogKind = null;
+  compactDialogFrom = null;
+  compactDialogStartPoint = null;
   closeLiveOverlay();
   restoreDialogFocus();
 }
@@ -4690,7 +6496,10 @@ function goToLine(text) {
 
   view.querySelectorAll(".code-line.active").forEach((node) => node.classList.remove("active"));
   row.classList.add("active");
-  row.scrollIntoView({ block: "nearest" });
+  // 权威 `EditorGotoLineNumberDialog.doOKAction()`（platform/platform-impl/src/com/intellij/ide/util/
+  // EditorGotoLineNumberDialog.java:50-57）：`getScrollingModel().scrollToCaret(ScrollType.CENTER)`
+  // —— 目标行滚到**可视区中部**，不是"够到就停"（Augit 原为 `block:"nearest"`，第 152 轮按权威改正）。
+  row.scrollIntoView({ block: "center" });
   closeCompactDialog();
   // 关闭时按规格把焦点交回触发区域；跳转行的"结果区域"就是正文，因此再交给正文。
   view.focus({ preventScroll: true });
@@ -4715,6 +6524,15 @@ async function submitCompactDialog() {
     return;
   }
 
+  // 权威对这三个窗口都有"不含空白字符"的前置校验：
+  // `GitCreateTagAction.java:42-53`（`!StringUtil.containsWhitespaces`）、
+  // `GitReferenceValidator.java`（分支/引用名走 `git rev-parse --verify`，空白名必然不通过）。
+  // 宿主 `check-ref-format` 也会拒绝，这里先在窗口内给出原因，不打无谓的 Git 调用。
+  if (kind !== "checkout-revision" && /\s/.test(value)) {
+    window.__augitCheckoutError = "名称不能包含空白字符。";
+    return;
+  }
+
   const live = window.__augitLive;
   let result;
   try {
@@ -4723,9 +6541,17 @@ async function submitCompactDialog() {
       result = await invoke("git/checkout", { name: value, kind: "tag" }, 120000);
       result = result ? { changed: result.switched, reason: result.reason } : result;
     } else if (kind === "rename") {
-      result = await invoke("git/branch", { action: "rename", from: currentBranchName(), name: value }, 60000);
+      result = await invoke("git/branch", { action: "rename", from: compactDialogFrom || currentBranchName(), name: value }, 60000);
     } else if (kind === "create") {
-      result = await invoke("git/branch", { action: "create", name: value }, 60000);
+      // `startPoint` 来自日志右键菜单（从选中的提交起分支）；芯片里的「新建分支…」不带它 ⇒ 取 HEAD。
+      const payload = { action: "create", name: value };
+      if (compactDialogStartPoint) payload.startPoint = compactDialogStartPoint;
+      result = await invoke("git/branch", payload, 60000);
+    } else if (kind === "tag") {
+      // 权威 `Git.CreateNewTag`：标签打在**选中的提交**上（`target` 为空时宿主才回退到 HEAD）。
+      const payload = { action: "create", name: value };
+      if (compactDialogStartPoint) payload.target = compactDialogStartPoint;
+      result = await invoke("git/tag", payload, 60000);
     } else {
       // 未知类型绝不能落到某个写操作上（此前 `else` 落在"创建分支"：
       // 确认"跳转行"窗口会去建一个以行号命名的分支）。
@@ -4859,13 +6685,26 @@ async function runPopoverAction(action) {
   const method = action === "fetch" ? "git/fetch" : null;
   if (!method) return;
   const key = "fetched";
+  // 权威 `UpdateSelectedBranchAction.update()` 用 `GitFetchSupport.isFetchRunning` 判断"获取进行中"；
+  // Augit 侧对应 `live.logFetchRunning`（竖条的「获取」「更新选中分支」据此禁用）。
+  const liveNow = window.__augitLive;
+  if (liveNow) {
+    liveNow.logFetchRunning = true;
+    if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
+  }
   let result;
   try {
     result = await invoke(method, {}, 300000);
   } catch (error) {
+    if (liveNow) liveNow.logFetchRunning = false;
     window.__augitCheckoutError = String(error && error.message || error);
     openBranchesPopover();
     return;
+  }
+
+  if (liveNow) {
+    liveNow.logFetchRunning = false;
+    if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
   }
 
   if (!result || !result[key]) {
@@ -4885,6 +6724,148 @@ async function runPopoverAction(action) {
     loadReferences().catch(() => null),
   ]);
   refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/**
+ * 竖条「更新选中分支」（权威 `UpdateSelectedBranchAction` → `updateBranches()`）。
+ *
+ * 权威对**非当前**的受跟踪本地分支用 refspec `远端分支:本地分支` 直接快进该分支
+ * （`plugins/git4idea/backend/src/ui/branch/GitBranchActionsUtil.kt:93-96`），对当前分支改走
+ * "更新方式"（合并或 rebase）—— 那条通道 Augit 尚未提供，因此竖条对当前分支保持禁用，
+ * 这里也只接受非当前的受跟踪本地分支（`refStripeState()` 是同一判据，双重保险）。
+ */
+async function updateSelectedBranch(names) {
+  const live = window.__augitLive;
+  if (!live) return;
+  // 权威 `UpdateSelectedBranchAction.actionPerformed`：`updateBranches(project, repos, branchNames)` ——
+  // 对**选中的每个**非当前、有跟踪配置的本地分支按它自己的 refspec 快进。
+  const wanted = (Array.isArray(names) ? names : [names]).map((value) => String(value || "")).filter(Boolean);
+  const targets = wanted.filter((name) => {
+    const branch = ((live.references && live.references.branches) || [])
+      .find((item) => !item.isRemote && item.name === name);
+    return !!branch && !branch.isCurrent && !!branch.upstream;
+  });
+  if (targets.length === 0) return;
+  live.logFetchRunning = true;
+  if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
+  let result;
+  try {
+    result = await invoke(
+      "git/fetch",
+      targets.length === 1 ? { branch: targets[0] } : { branches: targets },
+      300000);
+  } catch (error) {
+    live.logFetchRunning = false;
+    window.__augitCheckoutError = String(error && error.message || error);
+    openBranchesPopover();
+    return;
+  }
+
+  live.logFetchRunning = false;
+  if (!result || !result.fetched) {
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "操作失败。", {
+      unchanged: "该分支与远端没有可快进的内容。",
+      next: "请检查网络、远端配置或该分支的跟踪关系后重试。",
+    });
+    openBranchesPopover();
+    return;
+  }
+
+  // 成功：该分支的引用移动了，重读状态与引用（当前分支与工作区不变）。
+  live.references = null;
+  await Promise.all([
+    loadStatus().catch(() => null),
+    loadReferences().catch(() => null),
+  ]);
+  refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
+}
+
+/**
+ * 「与当前分支比较」（权威 `ShowBranchDiffAction` → `GitBrancher.compare` →
+ * `GitBranchesUIHandler.compareWithCurrent`）。
+ *
+ * 权威先取 `currentRef = repositories.getCommonCurrentBranch() ?: GitUtil.HEAD`，再用
+ * `VcsLogFilterObject.fromRange(currentRef, branchName)` 打开一个**按范围过滤的日志**
+ * （不是文件差异）：范围文本是 `"<currentRef>..<branchName>"`。Augit 侧因此把底部工具窗口
+ * 切成"比较"标签，并用 `git/history` 的 `rangeExclusive`/`rangeInclusive` 取这一批提交
+ * （宿主解析成 `git log <currentRef>..<branchName>`）。
+ */
+/**
+ * 打开「比较」日志视图（权威 `GitBranchesUIHandler.compare(repos, branchName, otherBranchName)`，
+ * `GitBranchesUIHandler.kt:22-27`：`GitCompareBranchesUi` 的构造就是
+ * `fromRange(otherBranchName, branchName)`，即范围 **`otherBranchName..branchName`**）。
+ *
+ * - 单值调用＝「与当前分支比较」（`compareWithCurrent` 把 `otherBranchName` 取成当前分支／`HEAD`）
+ *   ⇒ 范围 `当前..选中`；
+ * - 两个分支时＝「比较分支」（`ShowArbitraryBranchesDiffAction` → `compareAny(b1, b2)`）
+ *   ⇒ `branchName = b1`（选中集里的**第一个**）、`otherBranchName = b2`（第二个），范围 `b2..b1`
+ *   —— 方向按 `BranchesTreeSelection.selectedBranches` 的顺序，与权威逐字一致。
+ */
+async function openBranchComparison(branchName, otherBranchName = null) {
+  const live = window.__augitLive;
+  if (!live || !branchName) return null;
+  const base = otherBranchName || currentBranchName() || "HEAD";
+  // 进入前的底部上下文：与文件历史同一套往返规则（点「日志」标签或关闭比较即恢复）。
+  const layout = (typeof currentLayout === "function" ? currentLayout() : null) || live.layout || {};
+  const hadBottom = !!layout.bottom && layout.bottom !== "branch-compare";
+  // 刷新（已在比较视图里）时**不要**覆盖进入前的上下文，否则"关闭后回到哪里"会被改成 git。
+  if (!live.branchComparison) {
+    live.branchComparisonReturn = { bottom: hadBottom ? layout.bottom : "git" };
+  }
+  live.branchComparison = { branch: branchName, base, commits: [], loading: true };
+  live.layout = live.layout || {};
+  live.layout.userDriven = true;
+  live.layout.bottom = "branch-compare";
+  live.layout.collapsed = null;
+  if (!hadBottom && typeof window.__augitRender === "function") {
+    window.__augitRender();
+    rebindAfterRender();
+  } else {
+    refreshAfterEvent("bottomTool", "statusbar");
+  }
+
+  const page = await invoke("git/history", {
+    rangeExclusive: base,
+    rangeInclusive: branchName,
+  }, 60000).catch(() => null);
+  const liveNow = window.__augitLive;
+  if (!liveNow || !liveNow.branchComparison) return null;
+  // 期间又比较了别的分支（或已经关闭）：只接纳最新一次的结果。
+  if (liveNow.branchComparison.branch !== branchName || liveNow.branchComparison.base !== base) {
+    return liveNow.branchComparison;
+  }
+
+  const commits = page && page.available && page.isRepository && page.commits ? page.commits : [];
+  liveNow.branchComparison = {
+    branch: branchName,
+    base,
+    loading: false,
+    reason: commits.length === 0 ? ((page && page.reason) || null) : null,
+    commits: commits.map((commit) => ({
+      hash: commit.hash,
+      fullHash: commit.fullHash,
+      subject: commit.subject,
+      author: commit.author,
+      date: commit.date,
+    })),
+  };
+  refreshAfterEvent("bottomTool", "statusbar");
+  return liveNow.branchComparison;
+}
+
+/** 关闭「与当前分支比较」的日志视图，恢复进入前的底部上下文（权威是关闭该日志标签）。 */
+async function closeBranchComparison() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const back = live.branchComparisonReturn || {};
+  live.branchComparison = null;
+  live.layout = live.layout || {};
+  live.layout.userDriven = true;
+  live.layout.bottom = back.bottom || "git";
+  live.layout.collapsed = null;
+  // 已加载的日志直接恢复，不重复查询（与文件历史同一口径）。
+  if (!live.history) await loadHistory().catch(() => null);
+  refreshAfterEvent("bottomTool", "statusbar");
 }
 
 /**
@@ -5424,14 +7405,22 @@ function openSettingsDialog() {
   // 每次打开都从第一个分类开始；草稿只在**本次打开期间**跨分类保留未保存编辑。
   live.settingsPage = "appearance";
   live.settingsDraft = {};
+  // 搜索框也每次从空开始（权威 `SearchTextField` 只记历史、不恢复文本）。
+  live.settingsFilter = "";
+  live.settingsFilterNoHits = false;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay settings-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "设置 — Augit",
     liveSettingsBody("appearance"),
+    // 底栏照权威 `SettingsDialog.createActions()`：OK ＋ Cancel ＋ Apply（主设置对话框
+    // `isApplyButtonNeeded = true`、`isResetButtonNeeded = false`，`SettingsDialog.java:86-96,200-215`）
+    // ⇒ 「取消 / 应用 / 确定」，与视觉稿同一组。`apply` 只在有未保存修改时可用
+    //（`SettingsEditor.updateStatus()`：`editor.getApplyAction().setEnabled(isModified())`）。
     `<button type="button" class="secondary-button" data-settings-action="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-settings-action="save">保存</button>`,
+      + `<button type="button" class="secondary-button" data-settings-action="apply" disabled aria-disabled="true">应用</button>`
+      + `<button type="button" class="primary-button" data-settings-action="save">确定</button>`,
     true,
     "settings-dialog");
   host.appendChild(layer);
@@ -5496,14 +7485,91 @@ function bindSettingsPages() {
     switchSettingsPage(row.dataset.settingsPage);
   }, true);
 
-  // 搜索框按分类名过滤（对应 PyCharm 设置窗口左侧搜索过滤分类树）。
+  // 设置搜索（权威 `SettingsFilter` ＋ `SearchableOptionsRegistrar`）：
+  //   - 命中判据是**选项**（标签、下拉项、当前取值）与**分类名**，不是只有分类名
+  //     （`SearchableOptionsRegistrar.getConfigurables()` 返回 nameHits／contentHits，
+  //      `SettingsFilter.shouldBeShowing()` 让"含命中项的分类"保持可见）；
+  //   - 文字变化后 **100 ms 去抖**再过滤（`SettingsFilter.update()` 的 `delay(100.milliseconds)`）；
+  //   - 一个命中都没有时搜索框底色变红（`SettingsEditor` 把编辑器背景设成 `LightColors.RED`
+  //     = `SearchField.errorBackground`，JBColor 兜底 浅 `0xffcccc` / 深 `0x743A3A`）；
+  //   - 当前分类没有命中而别的分类有 ⇒ 选中第一个命中的分类（`SettingsFilter.update()` 的
+  //     `shouldMoveSelection`），命中项按 spotlight 边框色标出并滚到视野中央
+  //     （`SpotlightPainter` 的 `glassPanel.addSpotlight` ＋ `center(component)`）；
+  //   - ESC 在文本框有内容时清空过滤（`SettingsSearch.preprocessEventForTextField`）。
+  // 过滤**不能**重绘右页以外的状态：重绘由 `switchSettingsPage` 负责，且搜索词记在
+  // `live.settingsFilter` 里，重绘后由 `settingsNavHtml` 回填、这里再恢复焦点与光标。
   document.addEventListener("input", (event) => {
     const field = event.target.closest && event.target.closest("[data-settings-filter]");
     if (!field || !field.closest(".settings-layout")) return;
-    const query = String(field.value || "").trim().toLowerCase();
-    for (const row of document.querySelectorAll(".settings-layout .settings-nav [data-settings-page]")) {
-      row.hidden = query.length > 0 && !row.textContent.trim().toLowerCase().includes(query);
+    const live = window.__augitLive;
+    if (live) live.settingsFilter = field.value;
+    window.clearTimeout(settingsFilterTimer);
+    settingsFilterTimer = window.setTimeout(() => refreshSettingsFilter(), 100);
+  }, true);
+  // ESC 清空搜索：挂在 **window 捕获阶段**，因为"Esc 关弹层"的通用处理者
+  //（`bindOverlayEscape`，document 捕获、注册更早）会先跑并整层移除设置对话框；
+  // 它只认 `event.defaultPrevented` ⇒ 这里先 `preventDefault()` 就能按权威
+  //（`SettingsSearch.preprocessEventForTextField`：文本框有内容时 ESC 清空过滤、事件被消费）
+  // 让 ESC 只清搜索、不关对话框；文本为空时仍交给通用处理者关窗。
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const field = event.target.closest && event.target.closest("[data-settings-filter]");
+    if (!field || !field.value) return;
+    event.preventDefault();
+    const live = window.__augitLive;
+    if (live) live.settingsFilter = "";
+    field.value = "";
+    refreshSettingsFilter();
+  }, true);
+
+  // 设置窗口的快捷键与默认动作（都挂在 window 捕获，理由同上：要抢在文档级处理者之前）：
+  //   ① `Ctrl+F` = 聚焦并全选搜索框（权威 `SettingsDialog.init()` 把 `SearchTextField.FindAction`
+  //      注册到 `ACTION_FIND` 的快捷键上，`SearchTextField.java:490-498`：`selectText()` ＋ `requestFocus()`）；
+  //      必须 `stopPropagation`，否则文档级的 `Ctrl+F`（打开"当前文件查找"）也会被触发。
+  //   ② 搜索框里的 `↑/↓` = 移动**分类树**的选择（权威 `SettingsSearch.preprocessEventForTextField()`
+  //      把无修饰键的上下键委托给 `treeView.getTree().processKeyEvent(event)`，
+  //      焦点仍留在搜索框）。
+  //   ③ `Enter` = 默认按钮「确定」（权威 `DialogWrapper` 把 OK 动作的按钮 `setDefaultButton`，
+  //      单行输入框不消费 Enter；多行输入自己吞掉，所以这里跳过 TEXTAREA）。
+  const moveSettingsSelection = (step) => {
+    const live = window.__augitLive;
+    if (!live) return false;
+    const rows = [...document.querySelectorAll(".settings-window .settings-nav [data-settings-page]")]
+      .filter((row) => !row.hidden);
+    if (rows.length === 0) return false;
+    const index = rows.findIndex((row) => row.dataset.settingsPage === live.settingsPage);
+    const target = rows[Math.max(0, Math.min(rows.length - 1, (index < 0 ? 0 : index) + step))];
+    if (!target || target.dataset.settingsPage === live.settingsPage) return false;
+    switchSettingsPage(target.dataset.settingsPage);
+    return true;
+  };
+  window.addEventListener("keydown", (event) => {
+    if (event.isComposing) return;
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey
+        && String(event.key).toLowerCase() === "f") {
+      const field = document.querySelector(".settings-window [data-settings-filter]")
+        || document.querySelector(".dialog-xl [data-settings-filter]");
+      if (!field) return;
+      event.preventDefault();
+      event.stopPropagation();
+      field.focus({ preventScroll: true });
+      if (typeof field.select === "function") field.select();
+      return;
     }
+    const searchField = event.target.closest && event.target.closest("[data-settings-filter]");
+    if (searchField && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      if (event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (moveSettingsSelection(event.key === "ArrowDown" ? 1 : -1)) event.preventDefault();
+      return;
+    }
+    if (event.key !== "Enter" || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+    if (event.target && event.target.tagName === "TEXTAREA") return;
+    const dialog = document.querySelector(".settings-window .dialog");
+    if (!dialog) return;
+    const save = dialog.querySelector('[data-settings-action="save"]');
+    if (!save) return;
+    event.preventDefault();
+    save.click();
   }, true);
 
   // Shell 不是"自定义命令"时禁用自定义启动命令输入框：避免"填了却不生效"的错觉。
@@ -5515,31 +7581,184 @@ function bindSettingsPages() {
     if (command) command.disabled = select.value !== "Custom";
   }, true);
 
-  // 未保存修改标记（PyCharm 实测的实心圆点）：随输入即时更新，但**不重绘右页** ——
-  // 重绘会把焦点与光标位置一起清掉（"输入一个字符就跳到开头"）。
-  // 只增删导航行上的标记节点，因此不需要重建页面。
-  const syncSettingsDirtyMarkers = () => {
-    const live = window.__augitLive;
-    const layout = document.querySelector(".settings-window .settings-layout")
-      || document.querySelector("[data-augit-overlay] .settings-layout");
-    if (!live || !layout) return;
-    collectSettingsDraft();
-    const dirty = settingsDirtyPages(live);
-    for (const row of layout.querySelectorAll(".settings-nav [data-settings-page]")) {
-      const page = row.dataset.settingsPage;
-      const existing = row.querySelector(".settings-dirty");
-      if (dirty.has(page) && !existing) {
-        row.insertAdjacentHTML("beforeend",
-          '<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>');
-      } else if (!dirty.has(page) && existing) {
-        existing.remove();
-      }
-    }
-  };
   for (const type of ["input", "change"]) {
     document.addEventListener(type, (event) => {
       if (event.target.closest && event.target.closest(".settings-window .settings-page")) syncSettingsDirtyMarkers();
     }, true);
+  }
+}
+
+/**
+ * 设置搜索的取值来源：与 `liveSettingsBody()` 同一套优先级
+ * （草稿 > 设置文件 > Git 检测结果），否则搜索会与用户眼前的值不一致。
+ */
+function settingsSearchValues() {
+  const live = window.__augitLive || {};
+  return Object.assign({}, live.settings || {}, live.settingsDraft || {}, {
+    gitDetection: live.gitDetection || null,
+    gitMinimum: live.gitDetection ? live.gitDetection.minimumVersion : "2.40",
+  });
+}
+
+/**
+ * 一个设置字段的可见标签：先按 `label[for]`（元素 id，如 `ui-font-size`）；否则回到 `.form-grid`，
+ * 找**承载该字段的那一格**（字段可能包在 `.font-setting` 这类容器里）并取它前面的 `<label>`。
+ */
+function settingsFieldLabelNode(field, root) {
+  if (!field) return null;
+  if (field.id) {
+    const explicit = (root || document).querySelector(`label[for="${CSS.escape(field.id)}"]`);
+    if (explicit) return explicit;
+  }
+  const grid = field.closest ? field.closest(".form-grid") : null;
+  let cell = field;
+  if (grid) {
+    while (cell && cell.parentElement !== grid) cell = cell.parentElement;
+  }
+  const parent = (grid && cell) ? grid : field.parentElement;
+  if (!parent) return null;
+  const children = [...parent.children];
+  for (let index = children.indexOf(cell || field) - 1; index >= 0; index -= 1) {
+    if (children[index].tagName === "LABEL") return children[index];
+  }
+  return null;
+}
+
+/**
+ * 一个分类里可被搜索的文本（权威 `SearchableOptionsRegistrar` 索引的是**选项**：
+ * 标签文案、下拉项文案、取值；分类自己的显示名另算 `nameHits`）。
+ * 用离屏模板渲染该分类的正文来取，避免维护一份会漂移的标签清单。
+ */
+function settingsPageSearchTexts(page) {
+  const holder = document.createElement("template");
+  holder.innerHTML = settingsPageHtml(page, settingsSearchValues(), true);
+  const root = holder.content;
+  return [...root.querySelectorAll("[data-setting]")].map((field) => {
+    const label = settingsFieldLabelNode(field, root);
+    const texts = [
+      label ? label.textContent : "",
+      field.getAttribute("aria-label") || "",
+      field.getAttribute("title") || "",
+      field.getAttribute("placeholder") || "",
+      field.value || "",
+      ...[...(field.options || [])].map((option) => option.textContent || ""),
+    ];
+    return { key: field.dataset.setting, text: texts.join("\u0001") };
+  });
+}
+
+/**
+ * 设置搜索的判定与落地（权威 `SettingsFilter` ＋ `SearchableOptionsRegistrar`）。
+ * 返回 `{ query, pages }`：`pages` 是命中的分类 id（顺序照导航）。
+ */
+function applySettingsFilter(layout, rawQuery) {
+  const live = window.__augitLive || {};
+  const query = String(rawQuery || "").trim().toLowerCase();
+  const pages = [];
+  const hitsByPage = new Map();
+  for (const item of SETTINGS_PAGES) {
+    const hits = [];
+    if (query && item.title.toLowerCase().includes(query)) pages.push(item.id);
+    if (query) {
+      for (const entry of settingsPageSearchTexts(item.id)) {
+        if (entry.text.toLowerCase().includes(query)) hits.push(entry.key);
+      }
+    }
+    hitsByPage.set(item.id, hits);
+    if (query && hits.length > 0 && !pages.includes(item.id)) pages.push(item.id);
+  }
+  // 导航：命中分类可见（权威 `SettingsFilter.shouldBeShowing()`）；空查询恢复全部。
+  for (const row of layout.querySelectorAll(".settings-nav [data-settings-page]")) {
+    row.hidden = query.length > 0 && !pages.includes(row.dataset.settingsPage);
+  }
+  // 无命中 ⇒ 搜索框底色变红（`SearchField.errorBackground`）。
+  const noHits = query.length > 0 && pages.length === 0;
+  live.settingsFilterNoHits = noHits;
+  const field = layout.querySelector("[data-settings-filter]");
+  if (field) field.classList.toggle("no-hits", noHits);
+  // 命中项标记 + 滚到视野中央（权威 `SpotlightPainter` 的 spotlight 与 `center(component)`）。
+  for (const node of layout.querySelectorAll("[data-settings-hit]")) {
+    node.removeAttribute("data-settings-hit");
+    node.classList.remove("settings-hit");
+  }
+  const keys = new Set(hitsByPage.get(live.settingsPage) || []);
+  let first = null;
+  for (const node of layout.querySelectorAll(".settings-page [data-setting]")) {
+    if (!keys.has(node.dataset.setting)) continue;
+    node.setAttribute("data-settings-hit", "true");
+    node.classList.add("settings-hit");
+    const label = settingsFieldLabelNode(node, layout);
+    if (label) {
+      label.setAttribute("data-settings-hit", "true");
+      label.classList.add("settings-hit");
+    }
+    if (!first) first = node;
+  }
+  if (first && typeof first.scrollIntoView === "function") first.scrollIntoView({ block: "center" });
+  return { query, pages };
+}
+
+/** 设置搜索的 100 ms 去抖句柄（`live-data.js` 是 module ⇒ 严格模式，未声明的赋值会抛 ReferenceError）。 */
+let settingsFilterTimer = 0;
+
+/**
+ * 按当前搜索词刷新设置窗口（输入 100 ms 去抖后调用、切页重绘后也会调用）。
+ * 当前分类没有命中而别的分类有 ⇒ 切到第一个命中的分类（权威 `SettingsFilter.update()`：
+ * 当前 configurable 不在命中集里就移动选择）；切页会重绘，随后这里再跑一次标出命中项。
+ */
+function refreshSettingsFilter(options = {}) {
+  const live = window.__augitLive;
+  const layout = document.querySelector(".settings-window .settings-layout")
+    || document.querySelector(".dialog-xl .settings-layout")
+    || document.querySelector("[data-augit-overlay] .settings-layout");
+  if (!live || !layout) return null;
+  const result = applySettingsFilter(layout, live.settingsFilter || "");
+  if (result.query && result.pages.length > 0 && !result.pages.includes(live.settingsPage)) {
+    switchSettingsPage(result.pages[0]);
+    return result;
+  }
+  const field = layout.querySelector("[data-settings-filter]");
+  if (field && options.keepFocus !== false) {
+    field.focus({ preventScroll: true });
+    const end = field.value.length;
+    try { field.setSelectionRange(end, end); } catch { /* 非文本输入忽略 */ }
+  }
+  return result;
+}
+
+/**
+ * 未保存修改标记与「应用」的可用性（PyCharm 实测的实心圆点 ＋ 权威 `SettingsEditor.updateStatus()`：
+ * `getApplyAction().setEnabled(isModified())`）。随输入即时更新，但**不重绘右页** ——
+ * 重绘会把焦点与光标位置一起清掉（"输入一个字符就跳到开头"）；只增删导航行上的标记节点、
+ * 改底栏按钮的禁用态，因此不需要重建页面。
+ */
+function syncSettingsDirtyMarkers() {
+  const live = window.__augitLive;
+  const layout = document.querySelector(".settings-window .settings-layout")
+    || document.querySelector("[data-augit-overlay] .settings-layout");
+  if (!live || !layout) return;
+  collectSettingsDraft();
+  const dirty = settingsDirtyPages(live);
+  for (const row of layout.querySelectorAll(".settings-nav [data-settings-page]")) {
+    const page = row.dataset.settingsPage;
+    const existing = row.querySelector(".settings-dirty");
+    if (dirty.has(page) && !existing) {
+      row.insertAdjacentHTML("beforeend",
+        '<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>');
+    } else if (!dirty.has(page) && existing) {
+      existing.remove();
+    }
+  }
+  // 「应用」只在有未保存修改时可用；没有改动时它不解锁（权威同一条 `setEnabled(isModified())`）。
+  // 注意按钮在**底栏**、不在 `.settings-layout` 里 ⇒ 必须从对话框（或整页）查。
+  const applyButton = document.querySelector(".settings-window [data-settings-action=\"apply\"]")
+    || document.querySelector(".dialog-xl [data-settings-action=\"apply\"]")
+    || layout.querySelector('[data-settings-action="apply"]');
+  if (applyButton) {
+    const enabled = dirty.size > 0;
+    applyButton.disabled = !enabled;
+    if (enabled) applyButton.removeAttribute("aria-disabled");
+    else applyButton.setAttribute("aria-disabled", "true");
   }
 }
 
@@ -5552,6 +7771,8 @@ function switchSettingsPage(page) {
   collectSettingsDraft();
   live.settingsPage = next;
   renderSettingsDialog();
+  // 搜索驱动的切页：重绘后重新标出命中项并把焦点交回搜索框（权威在过滤期间保持搜索框持有焦点）。
+  if (live.settingsFilter) refreshSettingsFilter({ keepFocus: true });
   // 切到 Git 分类时按需取检测结果（场景路径同样要能拿到，否则永远停在"正在检测…"）。
   if (next === "git") void ensureGitDetection();
 }
@@ -5582,8 +7803,9 @@ function closeSettingsDialog() {
 /**
  * 新建 Worktree 表单（规格 §7.11）。
  *
- * 两个字段：目标目录与来源分支。字段校验只判断非空；
- * 目录是否可用、分支是否存在由 Git 给出原因（窗口本身不执行 Git 写入）。
+ * 字段与顺序见 `openWorktreeDialog()` 的注释（分支 → 新分支 → 目录，取权威 `GitWorkingTreeDialog`）。
+ * 字段校验只判断非空；目录是否可用、分支是否存在、新分支名是否合法都由 Git 给出原因
+ *（第 146 轮起「新分支」会作为 `newBranch` 传给宿主，由 `check-ref-format --branch` 校验）。
  */
 /**
  * Stash 管理（规格 §7.11 / §10.4）。
@@ -5904,6 +8126,10 @@ async function submitStashDialog() {
   if (!live || !layer || live.stashCreating) return null;
   const message = layer.querySelector("#stash-message");
   const keep = layer.querySelector("#stash-keep");
+  // 权威 `GitStashDialog.kt:30-36,48-56`：`Include untracked` 复选**默认不勾选**，
+  // 与「保留索引状态」同处一行。此前 Augit 没有这个复选、且写死 `includeUntracked: true`，
+  // 等于总是把未跟踪文件一起暂存（第 168 轮按权威改正）。
+  const include = layer.querySelector("#stash-include-untracked");
 
   setStashDialogRunning(true);
   setStashDialogNotice("正在创建 Stash…");
@@ -5913,7 +8139,7 @@ async function submitStashDialog() {
     payload = await invoke("git/stash", {
       message: message ? message.value : "",
       keepIndex: !!(keep && keep.checked),
-      includeUntracked: true,
+      includeUntracked: !!(include && include.checked),
     }, 120000);
     if (!payload || payload.ok === false) {
       failure = (payload && payload.reason) || "创建 Stash 失败。";
@@ -6339,11 +8565,21 @@ function openWorktreeDialog() {
   closeLiveOverlay();
   rememberDialogFocus();
   const branch = currentBranchName() || "HEAD";
+  // 字段与顺序取权威 `GitWorkingTreeDialog.kt:175-230`：
+  //   ① 来源引用（`createRefComboBox`）② **「新分支」复选 + 新分支名**（`:185-198`，
+  //   `createNewBranch` 默认 **false**）③ 名称 ④ 位置（带浏览按钮）。
+  // Augit 没有独立的"名称"字段（`destination` 就是完整路径，覆盖权威的"位置 + 名称"两栏），
+  // 因此顺序为 **分支 → 新分支 → 目录**（原实现是"目录 → 分支"，与权威相反，第 146 轮改正）。
+  // 「新分支」的宿主能力**早已存在**（`ShellBridge.cs:507` 的 `newBranch` →
+  // `GitWorktreeService.cs:103-122` 用 `check-ref-format --branch` 校验后加 `-b`），
+  // 只是 UI 从未传过它；默认**不勾** ⇒ 不改变任何现有行为（不新增功能，只是暴露已有能力）。
   const body = `<div class="form-grid">`
-    + `<label for="worktree-destination">目录</label>`
-    + `<input id="worktree-destination" class="text-field" data-worktree-field="destination" placeholder="D:\\projects\\repository-worktree">`
     + `<label for="worktree-branch">分支</label>`
     + `<input id="worktree-branch" class="text-field" data-worktree-field="branch" value="${escapeText(branch)}">`
+    + `<span class="worktree-new-branch-row"><label class="check-line"><input id="worktree-new-branch" type="checkbox" data-worktree-field="newBranchEnabled">新分支</label>`
+    + `<input id="worktree-new-branch-name" class="text-field" data-worktree-field="newBranch" placeholder="新分支名" disabled></span>`
+    + `<label for="worktree-destination">目录</label>`
+    + `<input id="worktree-destination" class="text-field" data-worktree-field="destination" placeholder="D:\\projects\\repository-worktree">`
     + `</div><div class="worktree-notice" role="status" hidden></div>`;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay worktree-window";
@@ -6356,6 +8592,15 @@ function openWorktreeDialog() {
     false,
     "worktree-dialog");
   host.appendChild(layer);
+  // 「新分支」复选联动分支名输入（权威 `.enabledIf(...)` 式的联动：不勾则禁用）。
+  const newBranchToggle = layer.querySelector('[data-worktree-field="newBranchEnabled"]');
+  const newBranchField = layer.querySelector('[data-worktree-field="newBranch"]');
+  const syncNewBranch = () => {
+    if (!newBranchField) return;
+    newBranchField.disabled = !(newBranchToggle && newBranchToggle.checked);
+    if (!newBranchField.disabled) newBranchField.focus({ preventScroll: true });
+  };
+  if (newBranchToggle) newBranchToggle.addEventListener("change", syncNewBranch);
   const field = layer.querySelector('[data-worktree-field="destination"]');
   if (field) field.focus();
 }
@@ -6380,19 +8625,36 @@ async function runWorktreeAction(action) {
   };
   const destination = value("destination");
   const branch = value("branch");
-  if (destination.length === 0) {
-    showWorktreeNotice("请填写目标目录。");
-    return;
-  }
-
+  // 权威 `GitWorkingTreeDialog.kt:185-198`：「新分支」勾选后必须给出分支名
+  //（`validationOnInput` / `validationOnApply` 都只在非空时才放行）。
+  const newBranchEnabled = (() => {
+    const toggle = layer.querySelector('[data-worktree-field="newBranchEnabled"]');
+    return !!(toggle && toggle.checked);
+  })();
+  const newBranch = newBranchEnabled ? value("newBranch") : "";
   if (branch.length === 0) {
     showWorktreeNotice("请填写来源分支。");
     return;
   }
 
+  if (newBranchEnabled && newBranch.length === 0) {
+    showWorktreeNotice("请填写新分支名。");
+    const field = layer.querySelector('[data-worktree-field="newBranch"]');
+    if (field) field.focus({ preventScroll: true });
+    return;
+  }
+
+  if (destination.length === 0) {
+    showWorktreeNotice("请填写目标目录。");
+    return;
+  }
+
   let result;
   try {
-    result = await invoke("git/worktree-write", { destination, branch }, 120000);
+    // 不勾「新分支」时不传该参数 ⇒ 宿主走原有路径（`newBranch` 为 null），行为与改动前完全一致。
+    result = await invoke("git/worktree-write", newBranch.length > 0
+      ? { destination, branch, newBranch }
+      : { destination, branch }, 120000);
   } catch (error) {
     showWorktreeNotice(String(error && error.message || error));
     return;
@@ -6459,6 +8721,422 @@ function openChangesContextMenu(row, clientX, clientY) {
     clientX,
     clientY,
     maxHeight: 220,
+  });
+}
+
+/** 打开分支/标签行的动作菜单（每个引用一组动作，见 `branchRowMenu()` 的权威出处）。 */
+/**
+ * 引用树行的右键菜单（权威 `BranchesTree.kt:272` 的 `BranchesTreeActionGroup` ＋
+ * `Tree.MyMouseListener` 的右键选择规则 `Tree.java:1112-1130`：右键落到**不在选中集里**的行时，
+ * 先把选中集替换成它；已在选中集里则保持整个多选）。
+ *
+ * 菜单内容由 `refTreeRowMenu()` 按选中集构成（对应 `BranchActionsBuilder.build` 的分支）。
+ */
+function openRefTreeMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  if (!live || !row) return;
+  if (!isSelectedRefRow(row)) {
+    selectRefRow(row);
+  }
+  const markup = refTreeRowMenu({
+    selections: selectedRefs(),
+    references: live.references || { branches: [], tags: [] },
+  });
+  if (!markup) return;
+  rememberDialogFocus();
+  closeLiveOverlay();
+  showPointerContextMenu(markup, {
+    layerClass: "ref-menu",
+    dataset: {
+      refName: row.dataset.refName || "",
+      refKind: row.dataset.refKind || "branch",
+      refTargets: JSON.stringify(selectedRefs()),
+    },
+    clientX,
+    clientY,
+    maxHeight: 260,
+  });
+}
+
+function openRefMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  if (!live || !row) return;
+  const name = row.dataset.branch;
+  if (!name) return;
+  // 当前分支在模板里带 `data-branch-current`：用它判定"不能检出/不能删除"，
+  // 不用 `.selected`（那个类也用于键盘高亮，判定会漂）。
+  const isCurrent = row.dataset.branchCurrent === "true";
+  rememberDialogFocus();
+  closeLiveOverlay();
+  showPointerContextMenu(branchRowMenu({ name, kind: row.dataset.branchKind || "branch", isCurrent }), {
+    layerClass: "ref-menu",
+    dataset: { refName: name, refKind: row.dataset.branchKind || "branch" },
+    clientX,
+    clientY,
+    maxHeight: 200,
+  });
+}
+
+/**
+ * 删除引用（规格 §5.2／§10.4；权威 `GitDeleteBranchOperation`）。
+ *
+ * 分支分两步：先 `force=false`，由 Git 拒绝未完全合并的分支并给出原因；用户确认"丢弃未合并提交"后再 `force=true`。
+ * 标签一步删除（`git/tag` 的 `delete`）。
+ */
+/**
+ * 引用树选中（权威 `BranchesTreeSelection` ＋ Swing `DefaultTreeSelectionModel` 的
+ * `DISCONTIGUOUS_TREE_SELECTION`，`Tree.java:141,291`）：
+ * 普通单击**替换**选中集、Ctrl/⌘+单击**切换**该行、Shift+单击从**锚点**做区间扩展（只数可见行）。
+ *
+ * 选中集落在 `live.logRefSelection`（`[{name, kind}]`，跨区域刷新保留），随后**就地**刷新
+ * 行的 `.selected` 与竖条的启停（`window.__augitApplyRefSelection`），不整块重绘 ——
+ * 权威也是按选择刷 `update()`。
+ */
+function selectRefRow(row, options = {}) {
+  const live = window.__augitLive;
+  if (!live || !row) return;
+  const item = { name: row.dataset.refName, kind: row.dataset.refKind };
+  const current = Array.isArray(live.logRefSelection)
+    ? live.logRefSelection.filter((entry) => entry && entry.name)
+    : [];
+  const same = (a, b) => !!a && !!b && a.name === b.name && a.kind === b.kind;
+  if (options.toggle) {
+    live.logRefSelection = current.some((entry) => same(entry, item))
+      ? current.filter((entry) => !same(entry, item))
+      : [...current, item];
+    live.logRefAnchor = item;
+  } else if (options.range) {
+    const anchor = live.logRefAnchor || current[0] || item;
+    const rows = [...row.closest(".tree").querySelectorAll(".tree-row[data-ref-name]")]
+      .filter((node) => !node.hidden);
+    const from = rows.findIndex((node) => node.dataset.refName === anchor.name && node.dataset.refKind === anchor.kind);
+    const to = rows.indexOf(row);
+    if (from < 0 || to < 0) {
+      live.logRefSelection = [item];
+    } else {
+      const start = Math.min(from, to);
+      const end = Math.max(from, to);
+      live.logRefSelection = rows.slice(start, end + 1)
+        .map((node) => ({ name: node.dataset.refName, kind: node.dataset.refKind }));
+    }
+  } else {
+    live.logRefSelection = [item];
+    live.logRefAnchor = item;
+  }
+
+  if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
+}
+
+/** 这一行是否在当前选中集里。 */
+function isSelectedRefRow(row) {
+  if (!row) return false;
+  return selectedRefs().some((item) => item.name === row.dataset.refName && item.kind === row.dataset.refKind);
+}
+
+/** 选中集是否**恰好**是这一行（用于判断"单击已选中的行"这类只在单选时成立的动作）。 */
+function isOnlySelectedRef(row) {
+  if (!row) return false;
+  const selections = selectedRefs();
+  return selections.length === 1
+    && selections[0].name === row.dataset.refName
+    && selections[0].kind === row.dataset.refKind;
+}
+
+/**
+ * 折叠/展开一个引用树分组（权威标准 JTree 的组节点行为）。
+ * 参数是**折叠键**：类型分组用组名（`本地`），前缀分组用 `类型/路径`（`本地/feature`）。
+ */
+function setRefGroupCollapsed(label, collapsed) {
+  const live = window.__augitLive;
+  if (!live || !label) return;
+  live.logRefCollapsed = live.logRefCollapsed || {};
+  if (collapsed) live.logRefCollapsed[label] = true;
+  else delete live.logRefCollapsed[label];
+  if (typeof window.__augitApplyRefTreeFilter === "function") window.__augitApplyRefTreeFilter();
+}
+
+function toggleRefGroup(label) {
+  const live = window.__augitLive;
+  const collapsed = !!(live && live.logRefCollapsed && live.logRefCollapsed[label]);
+  setRefGroupCollapsed(label, !collapsed);
+}
+
+/**
+ * 引用树键盘：上下键在**可见行**之间移动选择并把焦点交给新行（权威的树是标准 JTree 行为）；
+ * 回车 = 「筛选到该分支」（权威把 `Git.Log.Branches.Change.Branch.Filter` 注册在
+ * `ENTER` 与 `button1 doubleClick` 上，`intellij.vcs.git.backend.xml:130-134`）；
+ * 空格只是选中（JTree 的空格用于勾选，Augit 的树没有勾选框）。
+ *
+ * 分组节点（类型分组 `本地/远程/标签` 与前缀分组 `feature`）都用**折叠键** `data-ref-collapse-key`
+ * 标识：类型分组是组名、前缀分组是 `类型/路径`，所以两层键不会撞名。
+ */
+function bindRefTreeKeys() {
+  if (window.__augitRefTreeKeysBound) return;
+  window.__augitRefTreeKeysBound = true;
+  document.addEventListener("keydown", (event) => {
+    const row = document.activeElement;
+    if (!row || !row.classList || !row.classList.contains("tree-row")) return;
+    if (!row.closest(".log-ref-panel")) return;
+    const collapseKey = row.dataset.refCollapseKey;
+    if (collapseKey) {
+      // 组头：Enter/Space 与单击同义；左右键照 JTree 约定折叠/展开。
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggleRefGroup(collapseKey);
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        setRefGroupCollapsed(collapseKey, event.key === "ArrowLeft");
+        return;
+      }
+    }
+    if (!row.dataset.refName) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      // ENTER 就是 `Git.Log.Branches.Change.Branch.Filter`：把**整个选中集**筛选到日志
+      // （权威 `selectedBranchFilters` 收全部选中分支，HEAD 行给 `HEAD`，标签给不出）。
+      // 焦点行不在选中集里时先把它选上（Swing 里回车作用于选择，不是焦点）。
+      if (!isSelectedRefRow(row)) selectRefRow(row);
+      if (filterLogToRefRows(selectedRefRows())) void reloadHistoryKeepingFocus();
+      return;
+    }
+    if (event.key === " ") {
+      event.preventDefault();
+      // Space = 切换该行的选中（与 Ctrl+单击同义，键盘用户的多选入口）。
+      selectRefRow(row, { toggle: true });
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const rows = [...row.closest(".tree").querySelectorAll(".tree-row[data-ref-name]")]
+      .filter((node) => !node.hidden);
+    const index = rows.indexOf(row);
+    const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    next.focus({ preventScroll: true });
+    next.scrollIntoView({ block: "nearest" });
+    // Shift+方向键 = 从锚点扩展区间（Swing `BasicTreeUI` 的 "selectNextChangeLead" 同义）；
+    // 不带 Shift 就是普通的单选移动。
+    selectRefRow(next, { range: event.shiftKey });
+  });
+}
+
+/**
+ * 引用树双击 = 把日志筛选到该分支（权威 `Git.Log.Branches.Change.Branch.Filter` 的
+ * `button1 doubleClick`）。单击已经在上面按「单击时」开关分派，这里只补双击这一条。
+ */
+function bindRefTreeDoubleClick() {
+  if (!window.__augitLive || window.__augitRefDoubleClickBound) return;
+  window.__augitRefDoubleClickBound = true;
+  document.addEventListener("dblclick", (event) => {
+    const row = event.target.closest
+      && event.target.closest('.log-ref-panel .tree-row[data-ref-name]');
+    if (!row) return;
+    event.preventDefault();
+    if (!isSelectedRefRow(row)) selectRefRow(row);
+    // 双击 = `Git.Log.Branches.Change.Branch.Filter`：作用于**整个选中集**。
+    if (filterLogToRefRows(selectedRefRows())) void reloadHistoryKeepingFocus();
+  }, true);
+}
+
+/** "分支或标签"搜索（权威 `FilteringBranchesTree`）：按子串就地过滤行与空分组，并保留输入焦点。 */
+function bindRefTreeFilter() {
+  if (window.__augitRefTreeFilterBound) return;
+  window.__augitRefTreeFilterBound = true;
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (!field || field.getAttribute("aria-label") !== "分支或标签") return;
+    const live = window.__augitLive;
+    if (live) live.logRefFilter = field.value;
+    if (typeof window.__augitApplyRefTreeFilter === "function") window.__augitApplyRefTreeFilter(field.value);
+  });
+}
+
+/**
+ * 读取「我的分支」（权威 `ShowMyBranchesAction` → `BranchesDashboardUtil.checkIsMyBranchesSynchronously`，
+ * `plugins/git4idea/backend/src/ui/branch/dashboard/BranchesDashboardUtil.kt:85-132`）：
+ * 分支的**独占提交**非空、且**全部**由当前 Git 用户提交。
+ *
+ * 只在开关打开时算一次并缓存（权威的 `isMy` 是树模型上的三态缓存）；失败时给出可读原因而不是清空列表。
+ * 登记差异：权威要求日志索引可用（`supportsIndexing && isGraphReady && allRootsIndexed`），
+ * Augit 没有日志索引、按需现算（`git/branches-mine`），因此开关恒可用。
+ */
+async function ensureMyBranches() {
+  const live = window.__augitLive;
+  if (!live) return null;
+  if (Array.isArray(live.myBranchNames) && !live.myBranchesReason) return live.myBranchNames;
+  live.myBranchesLoading = true;
+  refreshAfterEvent("bottomTool");
+  const result = await invoke("git/branches-mine", {}, 30000).catch(() => null);
+  const liveNow = window.__augitLive;
+  if (!liveNow) return null;
+  liveNow.myBranchesLoading = false;
+  liveNow.myBranchNames = result && result.available && Array.isArray(result.mine) ? result.mine : [];
+  liveNow.myBranchesAuthor = result && result.author ? result.author : null;
+  liveNow.myBranchesReason = result && result.available
+    ? null
+    : ((result && result.reason) || "无法判断哪些分支属于你。");
+  refreshAfterEvent("bottomTool");
+  return liveNow.myBranchNames;
+}
+
+/**
+ * 用户弹层的搜索框（权威 `MultipleValueFilterPopupComponent` 列表顶部的搜索框）：
+ * 就地隐藏不匹配的行并保留输入焦点（与引用树搜索同一口径）。
+ */
+function bindHistoryUserSearch() {
+  if (window.__augitUserSearchBound) return;
+  window.__augitUserSearchBound = true;
+  document.addEventListener("input", (event) => {
+    const field = event.target;
+    if (!field || !field.getAttribute || field.getAttribute("aria-label") !== "搜索用户") return;
+    const live = window.__augitLive;
+    if (live) live.historyUserFilter = field.value;
+    const needle = String(field.value || "").trim().toLowerCase();
+    document.querySelectorAll(".history-user-filter-menu [data-history-user]").forEach((node) => {
+      node.hidden = !!needle && !node.textContent.toLowerCase().includes(needle);
+    });
+  });
+}
+
+/** 定位到选中引用（权威 `navigateLogToRef`）：把日志选到该引用的提交；不在当前加载页时说明原因。 */
+async function locateSelectedRef() {
+  const live = window.__augitLive;
+  // 权威 `BranchesTreeSelection.logNavigatableNodeDescriptor` 取的是选中集里**第一个**可导航的节点
+  // （`selectedNodes.firstNotNullOfOrNull { … }`）——多选时定位第一个，不是最后一个。
+  const rows = selectedRefRows();
+  if (rows.length === 0) return false;
+  const row = rows.find((node) => node.dataset.refCommit) || rows[0];
+  const target = row ? row.dataset.refCommit : "";
+  const commit = target ? document.querySelector(`.commit-row[data-full-hash="${CSS.escape(target)}"]`) : null;
+  if (!commit) {
+    showToast({
+      title: "无法定位到该引用",
+      text: target
+        ? "该引用的提交不在当前加载的历史里。"
+        : "这个引用没有可定位的提交。",
+      kind: "error",
+    });
+    return false;
+  }
+  commit.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  commit.scrollIntoView({ block: "nearest" });
+  return true;
+}
+
+function openRefDeleteConfirm(targets, force) {
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  // 目标可以是单个 `{name, kind}`，也可以是选中集（权威 `DeleteBranchAction.delete()` 对整个选中集生效）。
+  const list = (Array.isArray(targets) ? targets : [targets])
+    .filter((item) => item && item.name)
+    .map((item) => ({ name: item.name, kind: item.kind || "branch" }));
+  if (list.length === 0) return;
+  const name = list[0].name;
+  const onlyTag = list.every((item) => item.kind === "tag");
+  const noun = onlyTag ? "标签" : "分支";
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay ref-delete-window";
+  layer.setAttribute("data-augit-overlay", "");
+  // 确认层自己带上目标身份：点击处理者只从 DOM 读，不再依赖闭包里的变量（重绘后仍正确）。
+  layer.dataset.refName = name;
+  layer.dataset.refKind = list[0].kind;
+  layer.dataset.refTargets = JSON.stringify(list);
+  const what = list.length === 1 ? `${noun} ${name}` : `${list.length} 个引用`;
+  layer.innerHTML = dialog(
+    `删除${noun}`,
+    dangerConfirmBody(what, force
+      ? ["其中还有提交没有合并到当前分支。", "继续将删除，未合并的提交会一并丢弃。", "删除后只能通过 Reflog 找回。"]
+      : [`将删除${what}的引用。`, "已合并到当前分支的提交不会丢失。", "删除后需要重新创建才能再次使用这些引用。"]),
+    '<button type="button" class="secondary-button" data-ref-delete-cancel="1">取消</button>'
+      + `<button type="button" class="danger-button" data-ref-delete-confirm="${force ? "force" : "plain"}">删除${noun}</button>`,
+    false,
+    "ref-delete-dialog");
+  host.appendChild(layer);
+  const confirm = layer.querySelector("[data-ref-delete-confirm]");
+  if (confirm) confirm.focus();
+}
+
+/** 执行删除：按真实结果更新界面（失败时把原因给用户，必要时再问一次"是否丢弃未合并提交"）。 */
+async function runRefDelete(targets, force) {
+  const live = window.__augitLive;
+  if (!live) return null;
+  // 目标可以是单个 `{name, kind}`，也可以是选中集（权威 `DeleteBranchAction.delete()` 对整个选中集生效：
+  // 本地/远端分支一次交给 `git/branch` 的 `names`（宿主逐个删），标签逐个走 `git/tag` 的 delete）。
+  const list = normalizeRefTargets(targets);
+  if (list.length === 0) return null;
+  const branches = list.filter((item) => item.kind !== "tag").map((item) => item.name);
+  const tags = list.filter((item) => item.kind === "tag").map((item) => item.name);
+  let payload = null;
+  try {
+    if (branches.length > 0) {
+      payload = await invoke("git/branch", {
+        action: "delete",
+        name: branches[0],
+        names: branches,
+        force: !!force,
+      }, 60000);
+    }
+    for (const name of tags) {
+      const result = await invoke("git/tag", { action: "delete", name }, 60000);
+      if (!payload) payload = result;
+      else if (!result || result.changed !== true) {
+        payload = { ...payload, reason: (result && result.reason) || payload.reason };
+      }
+    }
+  } catch (error) {
+    payload = { available: true, changed: false, reason: String((error && error.message) || error) };
+  }
+
+  const refused = (payload && Array.isArray(payload.refused) ? payload.refused : [])
+    .filter((item) => item && item.name)
+    .map((item) => ({ name: item.name, kind: "branch" }));
+  const changed = !!(payload && payload.changed === true);
+  // 未完全合并：这是**预期内的第一次拒绝**，按权威的"说明影响后再删"再问一次。
+  // 宿主多目标时回 `refused[]`（只对被拒的那些再问）；单目标/旧形状只回 `reason`，用原目标再问。
+  const notMerged = /not fully merged|未.{0,4}合并/.test((refused[0] && refused[0].reason) || (payload && payload.reason) || "");
+  if (!force && notMerged && branches.length > 0) {
+    await loadReferences().catch(() => null);
+    openRefDeleteConfirm(refused.length > 0 ? refused : list.filter((item) => item.kind !== "tag"), true);
+    return payload;
+  }
+  if (!changed) {
+    window.__augitReferenceError = (payload && payload.reason) || "删除失败。";
+    openBranchesPopover();
+    return payload;
+  }
+
+  window.__augitReferenceDeleted = { name: list[0].name, kind: list[0].kind };
+  if (refused.length > 0) window.__augitReferenceError = refused[0].reason;
+  await loadReferences().catch(() => null);
+  refreshAfterEvent("overlay", "side", "statusbar");
+  return payload;
+}
+
+/** 把"单个目标或目标数组"归一化成 `[{name, kind}]`（多选删除的入口都用它）。 */
+function normalizeRefTargets(targets) {
+  return (Array.isArray(targets) ? targets : [targets])
+    .filter((item) => item && item.name)
+    .map((item) => ({ name: String(item.name), kind: item.kind || "branch" }));
+}
+
+/** 打开日志提交行的右键菜单（与改动列表菜单共用同一套定位、夹边与焦点逻辑）。 */
+function openLogContextMenu(row, clientX, clientY) {
+  const live = window.__augitLive;
+  if (!live || !row) return;
+  const hash = row.dataset.hash;
+  if (!hash) return;
+  rememberDialogFocus();
+  closeLiveOverlay();
+  showPointerContextMenu(gitLogContextMenu(true), {
+    layerClass: "log-menu",
+    dataset: { commitHash: hash, commitFullHash: row.dataset.fullHash || hash },
+    clientX,
+    clientY,
+    maxHeight: 280,
   });
 }
 
@@ -6701,13 +9379,29 @@ async function runChangesContextAction(action, options = {}) {
   }
 
   if (action === "file-history") {
+    // 规格 §7.9：进入前先记下上下文（底部工具窗状态、**提交选择**、**详情正文位置**）。
+    // 必须在 `await loadFileHistory(path)` **之前**记：读取过程会重绘底部区域，
+    // 那时详情正文已经被重建、scrollTop 归零（第 164 轮实测：放在后面记下来的一直是 0）。
+    const liveBefore = window.__augitLive;
+    let hadBottom = false;
+    if (liveBefore) {
+      // 用 `currentLayout()` 而不是直接读 `live.layout`：布局在 `!userDriven` 时由**实际渲染**校正
+      // （`readInitialLayout()`），直接读可能拿到首屏之前写入的空值，那样"进入前上下文"就记成了空串。
+      const layout = currentLayout() || liveBefore.layout || {};
+      hadBottom = !!layout.bottom;
+      const detailHost = document.querySelector("[data-live-commit-detail]");
+      const selectedRow = selectedCommitRow();
+      liveBefore.fileHistoryReturn = {
+        bottom: hadBottom ? layout.bottom : "",
+        hash: selectedRow ? selectedRow.dataset.hash : null,
+        detailScroll: detailHost ? Math.round(detailHost.scrollTop) : 0,
+      };
+    }
+
     await loadFileHistory(path);
     const live = window.__augitLive;
     if (live) {
       // 底部工具窗口切到文件历史（规格 §5.1 的同一套布局状态）。
-      const hadBottom = !!(live.layout && live.layout.bottom);
-      // 规格 §7.9：清除入口要"恢复进入前上下文"，先记下进入前的底部工具窗状态。
-      live.fileHistoryReturn = { bottom: hadBottom ? live.layout.bottom : "" };
       live.layout = live.layout || {};
       live.layout.userDriven = true;
       live.layout.bottom = "file-history";
@@ -6790,10 +9484,19 @@ function describeFailure(reason, { unchanged, next }) {
 }
 
 /**
- * 把「进行中」状态体现在改动侧栏（规格 §9.3）。
+ * 提交动作的可用性 + 「进行中」状态（规格 §9.3；启用判据见权威）。
  *
- * 进行中必须**禁用重复触发**，并让用户看到**当前动作**与可取消入口。
- * 宿主侧写操作支持取消，这里给出取消按钮；点击即请求停止。
+ * **启用判据取权威**（`CommitChangeListDialog.java:616-624`）：
+ *   boolean enabled = hasDiffs() && !myWorkflow.isExecuting();
+ * 其中 `hasDiffs() = !getIncludedChanges().isEmpty() || !getIncludedUnversionedFiles().isEmpty()`
+ * （`:602-604`）—— 即「**有已勾选项** 且 不在提交中」。**提交信息是否为空不参与该判据**
+ * （空信息走确认层，见 `docs/nui-behavior/12-commit-changes.md` §2）。
+ *
+ * 原实现只处理了 `isExecuting()` 那一半，把「空闲时的禁用态」寄存在 `dataset.idleDisabled`
+ * 里**等别处设置** —— 而实时侧没有任何地方设置它，于是"无勾选时提交按钮仍可用、点了才报错"，
+ * 与权威的"按钮直接禁用"不一致（第 136 轮发现）。
+ *
+ * 进行中还必须**禁用重复触发**，并让用户看到**当前动作**与可取消入口。
  */
 function reflectWriteOperation() {
   const live = window.__augitLive;
@@ -6801,21 +9504,24 @@ function reflectWriteOperation() {
   const actions = document.querySelector(".side-tool .commit-actions");
   if (!actions) return;
   const busy = !!live.writeOperation;
+  // 勾选项（`hasDiffs()`）：未版本化文件同样计入，Augit 的模型里它们就在 status.files 里。
+  const hasIncluded = ((live.status && live.status.files) || []).some((file) => file.checked);
   const submit = actions.querySelector(".primary-button");
   const push = actions.querySelector(".secondary-button");
   for (const button of [submit, push]) {
     if (!button) continue;
-    // 记住渲染时的禁用态，取消后按原样恢复，不凭猜测启用。
-    if (!busy) button.dataset.idleDisabled = isControlDisabled(button) ? "true" : "false";
-    const shouldDisable = busy || button.dataset.idleDisabled === "true";
+    const shouldDisable = busy || !hasIncluded;
     // <a> 的 disabled 属性无效，必须同时用 aria-disabled 与类表达，
-    // 否则「进行中禁用重复触发」对链接型按钮形同虚设。
+    // 否则禁用对链接型按钮形同虚设。
     if (button.tagName === "A") {
       button.setAttribute("aria-disabled", shouldDisable ? "true" : "false");
       button.classList.toggle("disabled", shouldDisable);
     } else {
       button.disabled = shouldDisable;
     }
+    // 禁用理由与状态一致（规格 §10.3）：无勾选时说明要先勾选；进行中由下面的状态文字负责。
+    if (!busy && !hasIncluded) button.setAttribute("title", "先在改动列表里勾选要提交的文件。");
+    else button.removeAttribute("title");
   }
 
   let cancel = actions.querySelector("[data-write-cancel]");
@@ -6835,6 +9541,17 @@ function reflectWriteOperation() {
     }
   } else if (!busy && cancel) {
     cancel.remove();
+  }
+
+  if (cancel) {
+    // 权威 `ProgressDialogUI.initCancellation()`（platform/platform-impl/src/com/intellij/openapi/progress/util/
+    // ProgressDialogUI.kt:136-152）：`ActionListener { cancelAction(); cancelButton.isEnabled = false }`
+    // —— 取消是**一次性**动作，按过即禁用（同一监听器也绑在 Esc 上）。
+    // 不禁用的话，宿主确认之前再按一次会发出第二次 `write/cancel`。
+    const cancelling = !!live.writeCancelling;
+    cancel.disabled = cancelling;
+    cancel.setAttribute("aria-disabled", cancelling ? "true" : "false");
+    cancel.classList.toggle("disabled", cancelling);
   }
 
   let label = actions.querySelector("[data-write-status]");
@@ -6866,6 +9583,9 @@ function isControlDisabled(element) {
 async function cancelWriteOperation() {
   const live = window.__augitLive;
   if (!live || !live.writeOperation) return null;
+  // 取消是一次性动作（权威 `ProgressDialogUI.kt:136-152` 按过即禁用按钮）：已经处于"取消中"时
+  // 不再发第二次请求 —— 按钮禁用是表层，这里是第二层守卫。
+  if (live.writeCancelling) return null;
   const operation = live.writeOperation;
   // 取消中：**保持进行态**（按钮仍禁用），等宿主确认本机 Git 真的停下来（规格 §9.3）。
   // 提前解冻会让用户在命令仍在跑的时候再点一次提交。
@@ -7144,6 +9864,14 @@ function bindOverlayEscape() {
       return;
     }
 
+    // 「结果过多」对话框优先：Esc = 中止继续搜索（权威 `okCancel` 的取消分支），
+    // 不把整个搜索浮层关掉。
+    if (document.querySelector('.search-limit-dialog')) {
+      event.preventDefault();
+      abortLimitedSearch();
+      return;
+    }
+
     if (closeLiveOverlay()) {
       event.preventDefault();
       return;
@@ -7370,6 +10098,13 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "git-init") {
+    // 权威 `GitInit`（VCS 菜单 → Create Git Repository…）：目标目录缺省为工作区根，
+    // 需要别的目录时在窗口里用「选择目录…」走系统目录选择器。
+    openRepositoryInitDialog();
+    return;
+  }
+
   if (action === "refresh-tree") {
     void refreshFileTree();
     return;
@@ -7437,6 +10172,8 @@ const MAIN_MENU_POPOVERS = {
     { action: "toggle-bottom", label: "显示/隐藏底部工具窗口" },
   ],
   git: [
+    // 权威 `GitInit` 的入口就在 VCS 菜单里（`action.Git.Init.text` = "Create Git Repository…"）。
+    { action: "git-init", label: "创建 Git 仓库…" },
     { action: "fetch", label: "获取" },
     { action: "push", label: "推送…" },
     { action: "branches", label: "分支与标签…" },
@@ -7497,6 +10234,16 @@ function bindWindowChrome() {
   });
 
   subscribe("window/state", (payload) => applyWindowState(payload));
+  // 主题跟随 Windows：外壳在系统应用模式变化时推送新的生效主题（用户显式选浅色/深色时外壳不推）。
+  // 主题只替换颜色与资源，不改变尺寸、间距和交互状态（design-system.md §10），
+  // 因此这里只切 data-theme，并刷新按主题取色的自绘区域——终端画在 canvas 上，CSS 规则管不到它。
+  subscribe("theme/changed", (payload) => {
+    const name = String((payload && payload.theme) || "").trim().toLowerCase();
+    if (name !== "dark" && name !== "light") return;
+    if (name === "dark") document.body.dataset.theme = "dark";
+    else delete document.body.dataset.theme;
+    refreshTerminalTypography();
+  });
   invoke("window/query").then((state) => applyWindowState(state)).catch(() => {});
 }
 
@@ -7629,6 +10376,59 @@ function escapeText(value) {
 }
 
 /**
+ * 恢复"进入文件历史前的详情正文位置"（规格 §7.9 的**正文位置**）。
+ *
+ * 与既有的"End 意图"不同，这里按**数值**恢复。两处都要调用：详情可能是**缓存重绘**
+ * （`refreshCommitDetails()` 直接返回、不重新请求），也可能是异步请求回来后再排版 ——
+ * 因此只有当宿主真的已经排到那么高（`scrollHeight - clientHeight` 够）时才套用并清除待办，
+ * 否则留给下一次渲染（第 164 轮实测：只挂在异步分支上，缓存重绘那条路径就恢复不到）。
+ */
+function applyPendingDetailScroll(consume) {
+  const live = window.__augitLive;
+  if (!live || typeof live.commitDetailScrollRestore !== "number") return;
+  const host = document.querySelector("[data-live-commit-detail]");
+  if (!host) return;
+  if (host.scrollHeight - host.clientHeight < live.commitDetailScrollRestore) return;
+  host.scrollTop = live.commitDetailScrollRestore;
+  // 只有**异步详情真正排完**那一处才消费掉这个待办：重绘路径先套一次是"临时对齐"，
+  // 之后详情还可能因为重新请求而整体重建（innerHTML 替换会把 scrollTop 清零），
+  // 提前消费就再也恢复不到了（第 164 轮实测：`pending` 已为 null 但 scrollTop 仍是 0）。
+  if (consume) live.commitDetailScrollRestore = null;
+}
+
+let detailScrollReapplyTimer = 0;
+
+/**
+ * 用户一旦自己操作详情正文（滚轮／按键／按下），就放弃"进入前位置"这份待办 ——
+ * 不能拿程序恢复的位置去覆盖用户的新意图。
+ */
+function bindDetailScrollIntent() {
+  const host = document.querySelector("[data-live-commit-detail]");
+  if (!host || host.dataset.detailScrollBound === "true") return;
+  host.dataset.detailScrollBound = "true";
+  for (const type of ["wheel", "keydown", "pointerdown"]) {
+    host.addEventListener(type, () => {
+      const live = window.__augitLive;
+      if (live) live.commitDetailScrollRestore = null;
+    }, { passive: true });
+  }
+}
+
+/**
+ * 重绘路径套用"详情正文位置"之后，详情仍可能被**随后的定点刷新**再次替换（innerHTML 替换会把
+ * scrollTop 清零）。因此在一个短延时内再对齐一次；待办本身留到异步详情真正排完或用户自己滚动时再清。
+ */
+function scheduleDetailScrollReapply() {
+  const live = window.__augitLive;
+  if (!live || typeof live.commitDetailScrollRestore !== "number") return;
+  window.clearTimeout(detailScrollReapplyTimer);
+  detailScrollReapplyTimer = window.setTimeout(() => {
+    detailScrollReapplyTimer = 0;
+    applyPendingDetailScroll(false);
+  }, 150);
+}
+
+/**
  * 在当前渲染结果上补齐提交详情。整页重绘会清空详情区，
  * 因此每次重绘后都要调用它；已加载同一个提交时跳过，避免重复请求。
  */
@@ -7642,6 +10442,8 @@ async function refreshCommitDetails() {
   // 选中的提交已经换了：上一次的详情不能继续留在状态里被重绘出来。
   if (live.commitDetails && live.commitDetails.revision !== revision) {
     live.commitDetails = null;
+    // 换了提交：上一条待恢复的"正文位置"属于**另一个**提交，必须丢掉（否则会把新详情滚到旧位置）。
+    live.commitDetailScrollRestore = null;
   }
 
   if (window.__augitCommitLoaded === revision
@@ -7757,6 +10559,8 @@ async function loadCommitDetails(revision) {
       detailHost.scrollTop = detailHost.scrollHeight;
       live.commitDetailScrollIntent = null;
     }
+    // 从文件历史返回时要恢复"进入前的详情正文位置"（规格 §7.9）；这是异步详情排完的收尾处 ⇒ 消费待办。
+    applyPendingDetailScroll(true);
     if (live) live.commitDetailLoading = false;
     window.__augitCommitLoaded = commit.hash;
   } catch (error) {
@@ -7792,6 +10596,11 @@ async function loadFileHistory(path) {
           fullHash: commit.fullHash,
           subject: commit.subject,
           author: commit.author,
+          // 作者列的值与 tooltip（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
+          // `*` 看作者是否等于提交者，tooltip 还要两组邮箱。
+          authorEmail: commit.authorEmail,
+          committerName: commit.committerName,
+          committerEmail: commit.committerEmail,
           date: commit.date,
         })),
       };
@@ -7987,6 +10796,12 @@ async function boot() {
   // Git 状态实测约 15 秒才到，这个窗口并不短，所以必须在这里补上。
   rebindAfterRender();
   window.__augitReady = true;
+
+  // 非 Git 目录：此刻 `mockup.js` 已加载、live 对象也已建立，可以给出「创建 Git 仓库」入口。
+  if (pendingRepositoryInit && window.__augitLive) {
+    pendingRepositoryInit = false;
+    showRepositoryInitEntry();
+  }
 
   const status = await statusPromiseRef;
   if (status) {
@@ -8238,6 +11053,27 @@ function amendFieldKey(field) {
   return (layout && (layout.getAttribute("data-workspace") || layout.id)) || "commit-box";
 }
 
+/**
+ * Amend 勾选时提交动作**改名**（权威）。
+ *
+ * `AmendCommitHandlerImpl.kt:50-52` 在切换 Amend 后调 `workflowHandler.updateDefaultCommitActionName()`，
+ * 文案随之改变：`amend.action.name` = "Amend {0}"（`VcsBundle.properties:38`）、
+ * `action.amend.commit.and.push.text` = "Amend Commit and Push…"（`DvcsBundle.properties:128`）。
+ * **是改名不是换动作** —— 类名与点击路径都不变（`live-data.js` 的 `.commit-actions` 分支照旧按
+ * `primary-button` / "提交并推送" 分流；注意"修改提交并推送…"仍含子串"提交并推送"）。
+ * 按 Augit 中文界面本地化。
+ *
+ * 每次重渲染后也要重贴（区域刷新会把文案恢复成渲染默认值），因此由 `restoreAmendDraft()` 统一调用。
+ */
+function applyAmendActionLabel(box, checked) {
+  const actions = box && box.querySelector(".commit-actions");
+  if (!actions) return;
+  const primary = actions.querySelector(".primary-button");
+  const secondary = actions.querySelector(".secondary-button");
+  if (primary) primary.textContent = checked ? "修改提交" : "提交";
+  if (secondary) secondary.textContent = checked ? "修改提交并推送…" : "提交并推送…";
+}
+
 /** 渲染后把未提交的草稿写回（仅在 Amend 未勾选时），保证"取消勾选后恢复原草稿"活过重渲染。 */
 function restoreAmendDraft() {
   document.querySelectorAll(".commit-box .message-field, .commit-box textarea").forEach((field) => {
@@ -8247,6 +11083,8 @@ function restoreAmendDraft() {
     const checked = amend.matches('input[type="checkbox"]')
       ? amend.checked
       : amend.getAttribute("aria-checked") === "true";
+    // 提交动作的文案随 Amend 状态（权威 `updateDefaultCommitActionName()`）。
+    applyAmendActionLabel(box, checked);
     const key = amendFieldKey(field);
     if (!checked && amendDrafts.has(key) && field.value !== amendDrafts.get(key)) {
       field.value = amendDrafts.get(key);
@@ -8270,11 +11108,17 @@ document.addEventListener("click", (event) => {
     const checked = amend.matches && amend.matches('input[type="checkbox"]')
       ? amend.checked
       : amend.getAttribute("aria-checked") === "true";
+    // 文案随状态（权威 `updateDefaultCommitActionName()`，见 applyAmendActionLabel 注释）。
+    applyAmendActionLabel(box, checked);
     if (checked) {
       if (!amendDrafts.has(key)) amendDrafts.set(key, field.value);
       void invoke("git/last-commit-message", {}, 30000).then((result) => {
-        if (result && result.available && typeof result.message === "string") field.value = result.message;
-        else window.__augitError = "amend:last-commit-unavailable";
+        if (result && result.available && typeof result.message === "string") {
+          field.value = result.message;
+          // 权威 `AmendCommitHandlerImpl.kt:117-119` 的 `setCommitMessageAndFocus()`：
+          // 载入上次提交信息后**把焦点移到提交信息栏**。
+          field.focus({ preventScroll: true });
+        } else window.__augitError = "amend:last-commit-unavailable";
       }).catch(() => { window.__augitError = "amend:last-commit-failed"; });
     } else if (amendDrafts.has(key)) {
       field.value = amendDrafts.get(key);
@@ -8357,6 +11201,62 @@ document.addEventListener("contextmenu", (event) => {
   openTreeContextMenu(row, event.clientX, event.clientY);
 }, true);
 
+// 引用树行：右键（以及菜单键／Shift+F10）打开该引用自己的动作菜单。
+// 权威 `BranchesTree.kt:272` 给树装了 `BranchesTreeActionGroup` 弹出组，右键的选择规则见
+// `Tree.java:1112-1130`（`openRefTreeMenu` 里实现）。
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".log-ref-panel .tree-row[data-ref-name]");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openRefTreeMenu(row, event.clientX, event.clientY);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const row = document.activeElement;
+  if (!row || !row.closest || !row.closest(".log-ref-panel")) return;
+  if (!row.dataset || !row.dataset.refName) return;
+  event.preventDefault();
+  const rect = row.getBoundingClientRect();
+  openRefTreeMenu(row, Math.round(rect.left + 12), Math.round(rect.bottom));
+}, true);
+
+// 分支/标签行：右键（以及菜单键／Shift+F10）打开该引用自己的动作菜单（规格 §5.2）。
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".branches-popover [data-branch]");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openRefMenu(row, event.clientX, event.clientY);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const row = event.target.closest && event.target.closest(".branches-popover [data-branch]");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  const rect = row.getBoundingClientRect();
+  openRefMenu(row, Math.round(rect.left + 12), Math.round(rect.bottom));
+}, true);
+
+// 日志提交行：右键（以及菜单键／Shift+F10）打开提交菜单（规格 §7.8）。
+// 此前 `gitLogContextMenu()` 只被静态场景用到，实时外壳里**没有任何 contextmenu 处理者** ⇒
+// 用户右键提交行什么都不发生（第 167 轮实测）。
+document.addEventListener("contextmenu", (event) => {
+  const row = event.target.closest && event.target.closest(".commit-list .commit-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  openLogContextMenu(row, event.clientX, event.clientY);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
+  const row = event.target.closest && event.target.closest(".commit-list .commit-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  const rect = row.getBoundingClientRect();
+  openLogContextMenu(row, Math.round(rect.left + 12), Math.round(rect.bottom));
+}, true);
+
 // 菜单键：键盘用户打开同一个菜单，位置取该行的左下角。
 document.addEventListener("keydown", (event) => {
   if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
@@ -8431,8 +11331,13 @@ function toLiveDocument(payload) {
       // 宿主给出的原因在界面上没有任何位置 —— 违反 §10.2）。
       // GIF/WebP 也走同一条：宿主 `IsSupportedImage` 只含 Png/Jpeg/Bmp，它们本就是二进制摘要。
       : imageKind ? (payload.status === "ImageReady" ? "image" : "file-limit")
-        : payload.status === "TextReady" ? "text"
-          : "file-limit";
+        // 大文件只读预览：权威把它交给**纯文本编辑器**（`LargeFileEditorProvider` 建的是
+        // `TextEditorImpl` ＋ `editor.setViewer(true)`，`LargeFileEditorProvider.java:53-59`），
+        // 没有 Markdown/JSON 之类的语言能力 ⇒ 即使扩展名是 .md/.json 也走 `text`
+        // （否则截断的 Markdown 会被当完整文档渲染）。
+        : payload.status === "TextPreview" ? "text"
+          : payload.status === "TextReady" ? "text"
+            : "file-limit";
   return {
     path: payload.path,
     name: payload.name,
@@ -8461,9 +11366,31 @@ function toLiveDocument(payload) {
     message: payload.message,
     lineEndings: payload.lineEndings,
     encoding: payload.encoding,
+    // 大文件只读预览（宿主 `DocumentReadStatus.TextPreview`）：横幅文案要 `{0}` 文件大小与
+    // `{1}` 预览字节数（权威 `LargeFileNotificationProvider` 的 `large.file.preview.notification`）。
+    readOnlyPreview: payload.status === "TextPreview",
+    previewBytes: typeof payload.previewBytes === "number" ? payload.previewBytes : null,
     editor,
   };
 }
+
+/**
+ * 大文件只读预览的警告是否已隐藏。
+ *
+ * 权威的两个动作用两处状态：`HIDDEN_KEY` 记在**编辑器**上（本次打开内隐藏）、
+ * `DISABLE_KEY` 记在 `PropertiesComponent`（永久关闭）——`LargeFileNotificationProvider.java:38-58`。
+ * Augit 的对应物是 `live.hiddenLargeFileWarnings`（会话内、按路径）与设置里的 `hideLargeFileWarning`
+ * （应用级、持久化）。
+ */
+function largeFileWarningHidden(document_) {
+  const live = window.__augitLive;
+  if (!live || !document_) return false;
+  if (live.hideLargeFileWarning === true) return true;
+  const dismissed = live.hiddenLargeFileWarnings;
+  return !!(dismissed && document_.path && dismissed.has(document_.path));
+}
+
+window.__augitLargeFileWarningHidden = largeFileWarningHidden;
 
 /** 打开一个真实文件：取回内容、更新活动文档并重绘编辑区。 */
 async function openDocument(path, options = {}) {

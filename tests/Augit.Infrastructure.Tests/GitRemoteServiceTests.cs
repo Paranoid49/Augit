@@ -217,6 +217,81 @@ public sealed class GitRemoteServiceTests
     }
 
     [TestMethod]
+    public async Task 按分支取只快进该本地分支且没有跟踪配置时说明原因()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string remotePath = temporary.GetPath("remote.git");
+        string sourcePath = temporary.GetPath("source");
+        string consumerPath = temporary.GetPath("consumer");
+        Directory.CreateDirectory(sourcePath);
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "init", "--bare", remotePath);
+        GitRepositoryService repositoryService = new(runtime);
+        GitRepositoryOperationResult sourceInitialized = await repositoryService.InitializeAsync(sourcePath);
+        Assert.IsTrue(sourceInitialized.IsSuccess, sourceInitialized.ErrorMessage);
+        await GitTestEnvironment.CommitFileAsync(runtime, sourcePath, "base.txt", "基线\n", "test: base");
+        GitRemoteService sourceRemoteService = new(runtime);
+        GitRemoteOperationResult added = await sourceRemoteService.AddRemoteAsync(
+            sourceInitialized.Repository!,
+            "origin",
+            remotePath);
+        Assert.IsTrue(added.IsSuccess, added.ErrorMessage);
+        string defaultBranch = (await GitTestEnvironment.RunAsync(runtime, sourcePath, "branch", "--show-current"))
+            .StandardOutput
+            .Trim();
+        await GitTestEnvironment.RunAsync(runtime, sourcePath, "branch", "feature/tracked");
+        Assert.IsTrue(
+            (await sourceRemoteService.PushAsync(sourceInitialized.Repository!, "origin", defaultBranch)).IsSuccess);
+        Assert.IsTrue(
+            (await sourceRemoteService.PushAsync(sourceInitialized.Repository!, "origin", "feature/tracked")).IsSuccess);
+
+        GitRepositoryOperationResult cloned = await repositoryService.CloneAsync(remotePath, consumerPath);
+        Assert.IsTrue(cloned.IsSuccess, cloned.ErrorMessage);
+        // 消费端：本地 feature/tracked 跟踪远端同名分支，当前分支仍是克隆时检出的那条。
+        await GitTestEnvironment.RunAsync(
+            runtime,
+            consumerPath,
+            "branch",
+            "--track",
+            "feature/tracked",
+            "origin/feature/tracked");
+        await GitTestEnvironment.RunAsync(runtime, consumerPath, "branch", "local/only");
+        string currentBefore = (await GitTestEnvironment.RunAsync(runtime, consumerPath, "rev-parse", "HEAD"))
+            .StandardOutput
+            .Trim();
+
+        // 远端前进：feature/tracked 上再加一个提交并推送。
+        await GitTestEnvironment.RunAsync(runtime, sourcePath, "switch", "feature/tracked");
+        await GitTestEnvironment.CommitFileAsync(runtime, sourcePath, "tracked.txt", "远端新增\n", "test: tracked");
+        Assert.IsTrue(
+            (await sourceRemoteService.PushAsync(sourceInitialized.Repository!, "origin", "feature/tracked")).IsSuccess);
+        string sourceTrackedHead = (await GitTestEnvironment.RunAsync(runtime, sourcePath, "rev-parse", "feature/tracked"))
+            .StandardOutput
+            .Trim();
+
+        GitRemoteService consumerRemoteService = new(runtime);
+        GitRemoteOperationResult updated = await consumerRemoteService.FetchBranchAsync(
+            cloned.Repository!,
+            "feature/tracked");
+        string localTrackedHead = (await GitTestEnvironment.RunAsync(runtime, consumerPath, "rev-parse", "feature/tracked"))
+            .StandardOutput
+            .Trim();
+        string currentAfter = (await GitTestEnvironment.RunAsync(runtime, consumerPath, "rev-parse", "HEAD"))
+            .StandardOutput
+            .Trim();
+        GitRemoteOperationResult untracked = await consumerRemoteService.FetchBranchAsync(
+            cloned.Repository!,
+            "local/only");
+
+        Assert.IsTrue(updated.IsSuccess, updated.ErrorMessage);
+        Assert.AreEqual(sourceTrackedHead, localTrackedHead);
+        // 只动被选中的分支：当前分支不能被顺带更新（权威也只对选中的分支取）。
+        Assert.AreEqual(currentBefore, currentAfter);
+        Assert.IsFalse(untracked.IsSuccess);
+        StringAssert.Contains(untracked.ErrorMessage, "没有配置跟踪的远端分支");
+    }
+
+    [TestMethod]
     public async Task Push预览明确区分无远端与DetachedHead()
     {
         GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();

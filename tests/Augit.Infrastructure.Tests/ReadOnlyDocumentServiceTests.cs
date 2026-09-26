@@ -93,25 +93,60 @@ public sealed class ReadOnlyDocumentServiceTests
     }
 
     [TestMethod]
-    public async Task 超过十兆的有效文本不读取正文()
+    public async Task 超过内容加载上限的文本给前二千五百KB的只读预览()
     {
         using TemporaryDirectory temporary = new();
         string path = temporary.GetPath("large.txt");
         byte[] block = Enumerable.Repeat((byte)'a', 1024 * 1024).ToArray();
         await using (FileStream stream = File.Create(path))
         {
-            for (int index = 0; index < 10; index++)
+            // 内容加载上限 20 MB（权威 `idea.max.content.load.filesize`）之上再多 1 字节。
+            for (int index = 0; index < 20; index++)
             {
                 await stream.WriteAsync(block);
             }
 
-            stream.WriteByte((byte)'a');
+            await stream.WriteAsync("TAIL"u8.ToArray());
         }
 
         DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(temporary.FullPath, path);
 
-        Assert.AreEqual(DocumentReadStatus.TextTooLarge, result.Status);
-        Assert.IsNull(result.Text);
+        // 权威 `LargeFileEditorProvider` ＋ `LargeFileNotificationProvider`：超限仍给**只读预览**，
+        // 预览长度是 `getPreviewLimit(extension)`（默认 2500 KB），不是整页拒绝。
+        Assert.AreEqual(DocumentReadStatus.TextPreview, result.Status);
+        Assert.AreEqual(DocumentLimits.DefaultPreviewBytes, result.PreviewBytes);
+        Assert.IsNotNull(result.Text);
+        Assert.AreEqual(DocumentLimits.DefaultPreviewBytes, (long)Encoding.UTF8.GetByteCount(result.Text!));
+        Assert.DoesNotContain("TAIL", result.Text!, StringComparison.Ordinal);
+        StringAssert.Contains(result.Message, "只读预览");
+        Assert.AreEqual(DocumentLimits.DefaultContentLoadBytes + 4, result.FileSize);
+    }
+
+    [TestMethod]
+    public async Task 预览截断落在完整字符边界上()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("boundary.txt");
+        const int filler = (int)DocumentLimits.DefaultPreviewBytes - 1;
+        byte[] head = Enumerable.Repeat((byte)'a', filler).ToArray();
+        await using (FileStream stream = File.Create(path))
+        {
+            await stream.WriteAsync(head);
+            // 三字节字符正好跨在预览上限上：前 1 字节落在预览内，后 2 字节在预览外。
+            await stream.WriteAsync("中"u8.ToArray());
+            long remaining = DocumentLimits.DefaultContentLoadBytes + 1 - filler - 3;
+            byte[] tail = new byte[remaining];
+            Array.Fill(tail, (byte)'b');
+            await stream.WriteAsync(tail);
+        }
+
+        DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(temporary.FullPath, path);
+
+        Assert.AreEqual(DocumentReadStatus.TextPreview, result.Status);
+        Assert.IsNotNull(result.Text);
+        // 截断回退到字符边界：正文比预览字节数少 1（少了那个不完整字符的首字节）。
+        Assert.AreEqual(filler, (long)Encoding.UTF8.GetByteCount(result.Text!));
+        Assert.DoesNotContain('\uFFFD', result.Text!);
     }
 
     [TestMethod]

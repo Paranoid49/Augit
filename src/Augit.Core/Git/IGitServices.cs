@@ -96,6 +96,16 @@ public interface IGitRemoteService
         string? remoteName = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 只取一个本地分支（分支面板的「更新选中分支」）。
+    /// refspec 的源是该分支跟踪的远端分支、目标是该本地分支本身，因此它**快进本地分支**；
+    /// 不带 `+`，非快进会被 Git 拒绝。
+    /// </summary>
+    Task<GitRemoteOperationResult> FetchBranchAsync(
+        GitRepositorySnapshot repository,
+        string localBranch,
+        CancellationToken cancellationToken = default);
+
     Task<GitRemoteOperationResult> PullAsync(
         GitRepositorySnapshot repository,
         GitPullMode mode = GitPullMode.RepositoryConfigured,
@@ -122,6 +132,14 @@ public interface IGitRemoteService
 
 public interface IGitHistoryService
 {
+    /// <summary>
+    /// 读取提交历史里出现过的**作者集合**（权威 `GitUserRegistry` 从日志收集用户，
+    /// 供「按用户筛选」的弹层列表；第 186 轮，只做宿主地基）。
+    /// </summary>
+    Task<GitAuthorsResult> ReadAuthorsAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default);
+
     Task<GitHistoryResult> ReadPageAsync(
         GitRepositorySnapshot repository,
         GitHistoryRequest request,
@@ -154,6 +172,15 @@ public interface IGitHistoryService
 public interface IGitReferenceService
 {
     Task<GitReferenceResult> ReadAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 读取"我的分支"（分支面板的「我的分支」，权威 `ShowMyBranchesAction` 的判据
+    /// `BranchesDashboardUtil.checkIsMyBranchesSynchronously`）：分支的独占提交非空、
+    /// 且全部由当前 Git 用户提交。只在用户打开该开关时调用。
+    /// </summary>
+    Task<GitMyBranchesResult> ReadMyBranchesAsync(
         GitRepositorySnapshot repository,
         CancellationToken cancellationToken = default);
 

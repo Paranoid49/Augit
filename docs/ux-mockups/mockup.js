@@ -1,6 +1,8 @@
 const scene = document.body.dataset.scene || "main-project";
 const app = document.getElementById("app");
-const requestedTheme = new URLSearchParams(window.location.search).get("theme");
+// 主题查询值大小写不敏感：外壳曾下发首字母大写的 theme=Dark，而这里只认小写，
+// 导致设置里选了“深色”却仍是浅色界面（审计与视觉稿一律用小写参数，掩盖了它）。
+const requestedTheme = (new URLSearchParams(window.location.search).get("theme") || "").trim().toLowerCase();
 
 // 字体设置只改变显示：界面字号/字族与正文等宽字号/字族相互独立（规格 §7.14 与设置页）。
 // 预览参数（ui-size / code-size）优先于真实设置，便于视觉稿做字号对照。
@@ -71,14 +73,24 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   const length = (name, pixels) => root.setProperty(`--augit-${name}`, `${pixels}px`);
   length("title-height", Math.max(44, height + 18));
   length("title-text-height", Math.max(30, height + 4));
+  // 标签栏 = 卡片高 + 上下各 6（权威 ui.EditorTabs.tabInsets = -6,8,-6,8）。默认字号下卡片为 28，
+  // 故 28 + 12 = 40（2026 参考图实测 39.2，吻合）；其余字号按文本高同步增长。
+  // 规格（design-system.md:385/392「全局工具栏 42px」）名义值：默认字号下应得 42。
   length("tab-height", Math.max(42, height + 14));
   length("project-header-height", Math.max(39, height + 10));
+  // 文件树行高 = max(24, 文本高 + 8)：权威 `Tree.rowHeight = 24`／`JBUIScale.scale(24)`（doc 02 已收），
+  // 2026 参考图实测选中行色带与行距均为 42 物理px，按卡片 28 逻辑px 定标（≈1.79）得 23.5，吻合。
+  // 官方按整数缩放而不取偶数，故去掉原先的向上取偶。
+  // 规格（§8.3「行高使用 28px 基准，允许在 27–30px 内随 DPI 四舍五入」）：取偶数并保底 27。
   length("tree-height", Math.ceil(Math.max(27, height + 8) / 2) * 2);
   length("document-toolbar-height", Math.max(36, height + 8));
   length("diff-toolbar-height", Math.max(39, height + 12));
   length("diff-filebar-height", Math.max(31, height + 12));
   length("diff-unified-row-height", Math.max(24, height + 4));
   length("diff-unified-filebar-height", Math.max(55, Math.max(24, height + 4) * 2 + 7));
+  // 状态栏 = max(scale(20), 文本高 + widget 边框高)；New UI 的 StatusBar.Widget.border 是 insets(6, 8)
+  // （高 12），默认字号下即 max(20, 16 + 12) = 28（参考图实测 28.5，吻合）。
+  // 规格名义值 22（design-system.md 状态栏）。
   length("status-height", Math.max(22, height + 2));
   length("find-height", Math.max(42, height + 16));
   length("find-edit-height", Math.max(30, height + 4));
@@ -87,6 +99,9 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   length("history-filter-height", Math.max(36, height + 14));
   length("history-input-height", Math.max(25, height + 2));
   length("history-row-height", Math.max(26, height + 6));
+  // 文件历史列表表头：权威的表头高度默认 25（`TableHeader.height`，DarculaTableHeaderUI.java:115），
+  // 字号变大时按文本高同步增长，避免表头文字被固定高度裁切。
+  length("history-columns-height", Math.max(25, height + 6));
   length("history-file-row-height", Math.max(24, height + 4));
   length("history-toolbar-height", Math.max(39, height + 12));
   length("history-detail-title-height", Math.max(40, height * 2));
@@ -118,6 +133,8 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   measurePushDialog();
   measureTerminalHeaders();
   measureSearchOverlay();
+  measureTitlebarGlow();
+  measureTabFade();
   restoreScrollAnchors(scrollAnchors);
   document.body.dataset.typographyPreview = "ready";
 }
@@ -215,6 +232,34 @@ function measureSearchOverlay() {
   overlay.dataset.layoutReady = 'true';
 }
 window.addEventListener('resize', measureSearchOverlay);
+window.addEventListener('resize', measureTitlebarGlow);
+
+/**
+ * 细线厚度的设备像素对齐（`07-theme-dpi-dialogs.md` §2：分隔线粗细必须按 DPI 缩放）。
+ *
+ * 权威把"1 单位的线"按 `JBUIScale.scale(1) = round(userScaleFactor)` 取整到**整设备像素**
+ * （`JBValue.get()` 也是 `scale(...)`，`JBValue.java:65-78`；§2.4 的 `alignIntToInt()` 同义），
+ * 在 CSS 侧的等价写法是 `round(dpr) / dpr` px —— 这里只负责把两个变量写到 `:root`，
+ * 规则在 `--augit-hairline` 里（未运行 JS 时回落 1px）。
+ *
+ * 换显示器会让 `devicePixelRatio` 变化，`resize` 之后重算一次即可（跨屏拖动必然触发）。
+ */
+function applyDeviceScale() {
+  const scale = window.devicePixelRatio || 1;
+  const root = document.documentElement;
+  root.style.setProperty('--augit-dpr', String(scale));
+  root.style.setProperty('--augit-hairline-device', String(Math.max(1, Math.round(scale))));
+}
+
+applyDeviceScale();
+window.addEventListener('resize', applyDeviceScale);
+window.addEventListener('DOMContentLoaded', applyDeviceScale);
+window.addEventListener('resize', measureTabFade);
+// 标签栏的滚动事件不冒泡，用捕获阶段在 document 上收；只处理标签栏自身的滚动。
+document.addEventListener('scroll', (event) => {
+  const target = event.target;
+  if (target && target.classList && target.classList.contains('editor-tabs')) measureTabFade();
+}, true);
 document.addEventListener('click', event => {
   const option = event.target.closest('.search-option');
   if (option) option.setAttribute('aria-pressed', String(option.getAttribute('aria-pressed') !== 'true'));
@@ -224,7 +269,7 @@ document.addEventListener('click', event => {
 // Push 只模拟现有对话框状态，不执行 Git；所有延迟和监听在关闭时收尾。
 // 外壳注入真实待推送信息时使用；结构、图标与样式与样例版一致。
 function livePushDialogBody() {
-  const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4 4 7-8"/></svg>';
+  const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.25L6 11.75L13.5 4.25"/></svg>';
   const push = (window.__augitLive && window.__augitLive.push) || null;
   if (!push || !push.upstream) {
     return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">定义远端</a></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读"><h2>无法生成推送预览</h2><p class="commit-meta">${escapeHtml(push && push.reason ? push.reason : "请先定义远端，然后重新打开推送。")}</p><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>`;
@@ -243,8 +288,24 @@ function livePushDialogBody() {
   return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push.branch)} → ${escapeHtml(push.upstream)}</strong></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${rows}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${detail}<div class="push-notice" role="status" hidden></div></div></div>`;
 }
 
+/**
+ * Push 对话框的标题（权威）。
+ *
+ * 权威 `DvcsBundle.properties:54-55`：
+ *   单仓库 = `push.dialog.push.commits.to.title` = **"Push Commits to {0}"**（{0} 是**仓库短名**，
+ *   见 `VcsPushDialog.java:134-137` 的 `DvcsUtil.getShortRepositoryName(...)`）；
+ *   多仓库 = `push.dialog.push.commits.title` = "Push Commits"。
+ * Augit 一个工作区就是一个仓库 ⇒ 取**工作区名**，与标题栏 chip 用同一个来源（`workspaceName`）。
+ *
+ * 原实现把"Augit"硬编码进标题 —— 推送的目标是**远端**而不是产品名，属语义错误（第 140 轮按权威改正）。
+ */
+function pushDialogTitle() {
+  const name = (window.__augitLive && window.__augitLive.workspaceName) || "Augit";
+  return `推送提交到 ${name}`;
+}
+
 function pushDialogBody(noRemote) {
-  const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8l4 4 7-8"/></svg>';
+  const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.25L6 11.75L13.5 4.25"/></svg>';
   return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>main →${noRemote ? '' : ' origin/main'}</strong>${noRemote ? '<a class="file-status-modified" href="remote.html">定义远端</a>' : ''}</div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${noRemote ? '' : ['fix: 精确恢复系统 PATH', 'fix: 避免强制更新 .NET 10'].map((text, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}">${mark}<span>${text}</span></div>`).join('')}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${noRemote ? '<div class="push-empty">没有选中的提交</div>' : '<h2>2 个提交</h2><p class="push-target">目标：origin/main</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>'}<div class="push-notice" role="status" hidden></div></div></div>${noRemote ? '<div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>' : ''}`;
 }
 
@@ -260,7 +321,12 @@ function measurePushDialog() {
   }
   canvas.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(canvas.measureText(value).width);
-  const header = Math.max(45, line + 18), footer = Math.max(53, line + 25), row = Math.max(27, line + 8), button = Math.max(28, line + 8);
+  const header = Math.max(45, line + 18),
+    // 底栏高度必须容得下按钮（`button` = `max(37, line + 17)`）+ 底栏顶部内距 12；
+    // 原 `line + 25` 在大字号下会比按钮矮 4px，导致按钮溢出对话框底边（verify-ux-push 实测 size=40 时溢出 3px）。
+    footer = Math.max(53, line + 29), row = Math.max(27, line + 8),
+    // 按钮高度：权威 `Button.minimumSize` = 72×28 是下限；2026 参考图实测 37（该图缩放已复核为 1.5x），故下限取 37。
+    button = Math.max(37, line + 17);
   const tags = dialog.classList.contains('push-no-remote') ? Math.max(30, row + 3) : 0;
   const width = Math.min(930, innerWidth - 80), define = Math.max(72, text('定义远端') + 16);
   const sidebar = tags ? Math.min(Math.max(260, 16 + text('main →') + 8 + define + 8), Math.max(260, (width - 34) / 2)) : 260;
@@ -276,7 +342,7 @@ function bindPushDialog() {
   const list = dialog.querySelector('.push-commits'), rows = [...list.children], detail = dialog.querySelector('.management-detail');
   const push = dialog.querySelector('.primary-button'), cancel = dialog.querySelector('.secondary-button'), close = dialog.querySelector('.dialog-header a');
   const define = dialog.querySelector('.push-summary a'), notice = dialog.querySelector('.push-notice');
-  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5l7 7m0-7-7 7"/></svg>';
+  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M3.5 12.5l9-9m0 9-9-9"/></svg>';
   const query = new URLSearchParams(location.search), results = (query.get('push-result') || 'success').split(',');
   const controller = new AbortController(), options = { signal: controller.signal }, scrim = document.querySelector('.scrim');
   const background = [...dialog.parentElement.children].filter(node => node !== dialog && node !== scrim);
@@ -373,13 +439,15 @@ function measureCloneDialog() {
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
   const header = Math.max(45, line + 16), field = Math.max(30, line + 10), footer = field + 23;
+  // 按钮此前借用了 `--clone-field`（字段高度），本轮改为独立的 `--clone-button`。
+  const button = Math.max(37, line + 17);
   const label = Math.max(110, ...["版本控制", "仓库 URL", "目录"].map(text));
   const cancel = Math.max(53, text("取消操作") + 24), create = Math.max(52, text("正在克隆…") + 24);
   const shallow = Math.max(180, text("浅克隆，历史截断为") + 23), depth = Math.max(58, text("1000") + 16), suffix = Math.max(80, text("个提交"));
   const width = Math.min(Math.max(930, label + 44 + shallow), innerWidth - 90);
   const wrapped = shallow + depth + suffix + 20 > width - 46 - label;
   const height = header + 191 + 4 * (field - 30) + (wrapped ? field + 8 : 0) + footer;
-  for (const [name, value] of Object.entries({ header, field, footer, label, cancel, create, shallow, depth, suffix, width, height }))
+  for (const [name, value] of Object.entries({ header, field, footer, button, label, cancel, create, shallow, depth, suffix, width, height }))
     dialog.style.setProperty(`--clone-${name}`, `${value}px`);
 }
 
@@ -392,7 +460,7 @@ function bindCloneDialog() {
   const shallow = dialog.querySelector("#clone-shallow"), depth = dialog.querySelector("#clone-depth");
   const create = dialog.querySelector(".primary-button"), cancel = dialog.querySelector(".secondary-button"), close = dialog.querySelector(".dialog-header a");
   const notice = dialog.querySelector(".clone-notice"), body = dialog.querySelector(".dialog-body");
-  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5l7 7m0-7-7 7"/></svg>';
+  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M3.5 12.5l9-9m0 9-9-9"/></svg>';
   const fields = [versionControl, source, destination, shallow, depth], order = [...fields, cancel, create, close];
   const controller = new AbortController(), options = { signal: controller.signal };
   const background = document.querySelector(".editor-content"), scrim = document.querySelector(".scrim");
@@ -411,7 +479,17 @@ function bindCloneDialog() {
     fields.forEach(field => field.disabled = running);
     depth.disabled = running || !shallow.checked;
     dialog.querySelector(".clone-depth-group").classList.toggle("disabled", depth.disabled);
-    create.disabled = running; close.setAttribute("aria-disabled", String(running));
+    // 克隆按钮的可用性取权威 `DvcsCloneDialogComponent.kt:127`：
+    //   `isOkActionEnabled() = getUrl().isNotBlank()` ⇒ **URL 为空即禁用**。
+    // 原实现是"按钮始终可用、点击后才提示"，属旧交互（第 144 轮按权威改正）。
+    // 目录仍走点击时校验：`ux-spec:541` 要求"提示原因并聚焦对应输入"，且 Augit 的目录**初始为空**
+    //（权威是随 URL 自动派生目录），所以"目录为空"这一档只能由点击时的提示覆盖。
+    const hasUrl = !!source.value.trim();
+    create.disabled = running || !hasUrl;
+    create.setAttribute("aria-disabled", String(create.disabled));
+    if (!running && !hasUrl) create.title = "请先填写仓库地址。";
+    else create.removeAttribute("title");
+    close.setAttribute("aria-disabled", String(running));
   };
   const showNotice = text => {
     notice.textContent = notice.title = text; notice.hidden = !text;
@@ -486,6 +564,8 @@ function bindCloneDialog() {
   cancel.addEventListener("click", cancelOrClose, options);
   close.addEventListener("click", event => { event.preventDefault(); if (!running) dismiss(); }, options);
   shallow.addEventListener("change", updateFields, options);
+  // URL 变化要即时反映到克隆按钮的可用性（权威 `isOkActionEnabled()` 只看 URL）。
+  source.addEventListener("input", updateFields, options);
   dialog.addEventListener("compositionstart", () => composing = true, options);
   dialog.addEventListener("compositionend", () => composing = false, options);
   body.addEventListener("focusin", event => ensureVisible(event.target), options);
@@ -521,7 +601,7 @@ function measureStashDialog() {
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
   const header = Math.max(45, line + 16), field = Math.max(30, line + 10), branch = Math.max(24, line);
-  const button = Math.max(30, line + 10), message = Math.max(78, line * 3 + 12), footer = Math.max(53, button + 23);
+  const button = Math.max(37, line + 17), message = Math.max(78, line * 3 + 12), footer = Math.max(53, button + 23);
   const label = Math.max(110, ...["Git 根目录", "当前分支", "消息"].map(text));
   const cancel = Math.max(54, text("取消操作") + 24), create = Math.max(90, text("正在创建 Stash…") + 24);
   const body = 16 + field + 13 + branch + 5 + message + 13 + button + 16;
@@ -539,7 +619,7 @@ function measureStashManagerDialog() {
   context.font = `600 ${style.fontSize} ${style.fontFamily}`;
   const m = context.measureText('国Ag');
   const line = Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
-  const header = Math.max(45, line + 18), toolbar = Math.max(61, line + 28), button = Math.max(28, line + 8), footer = Math.max(53, button + 25);
+  const header = Math.max(45, line + 18), toolbar = Math.max(61, line + 28), button = Math.max(37, line + 17), footer = Math.max(53, button + 25);
   const height = Math.min(header + toolbar + 220 + footer, innerHeight - 88);
   for (const [name, value] of Object.entries({ header, toolbar, button, footer, height })) dialog.style.setProperty(`--stash-manager-${name}`, `${value}px`);
   dialog.querySelector('.footer-help')?.remove();
@@ -552,10 +632,12 @@ function bindStashDialog() {
   dialog.querySelector(".footer-help")?.remove();
   dialog.setAttribute("aria-modal", "true");
   const root = dialog.querySelector("#stash-root"), message = dialog.querySelector("#stash-message"), keep = dialog.querySelector("#stash-keep");
+  // 权威 `GitStashDialog.kt:48-56`：保留索引与「包含未跟踪文件」同处一行 ⇒ Tab 顺序里紧挨着。
+  const include = dialog.querySelector("#stash-include-untracked");
   const create = dialog.querySelector(".primary-button"), cancel = dialog.querySelector(".secondary-button"), close = dialog.querySelector(".dialog-header a");
   const notice = dialog.querySelector(".stash-notice"), body = dialog.querySelector(".dialog-body");
-  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5l7 7m0-7-7 7"/></svg>';
-  const fields = [root, message, keep], order = [...fields, cancel, create, close];
+  close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M3.5 12.5l9-9m0 9-9-9"/></svg>';
+  const fields = [root, message, keep, include], order = [...fields, cancel, create, close];
   const background = document.querySelector(".editor-content");
   let running = false, timer = null, version = 0, composing = false;
   const showNotice = text => {
@@ -616,13 +698,15 @@ function measureResetDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(30, line + 10), footer = 53 + button - 30;
+  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = 53 + button - 37;
+  // 表单控件高度必须随字号缩放（否则大字号下 clientHeight < fontSize，被判为裁剪）；与 clone/stash 的 field 同式。
+  const field = Math.max(30, line + 10);
   const label = Math.max(110, text('目标提交'), text('模式'));
   const cancel = Math.max(78, text('取消操作') + 26);
   const run = Math.max(116, ...['确认 Reset Hard', '执行 Reset', '正在执行 Reset…'].map(value => text(value) + 26));
   const mode = Math.max(...[...dialog.querySelector('select').options].map(option => text(option.textContent)));
   const width = Math.max(620, label + mode + 110, cancel + run + 42);
-  for (const [name, value] of Object.entries({ header, button, footer, label, cancel, run, width, line }))
+  for (const [name, value] of Object.entries({ header, button, footer, label, cancel, run, width, line, field }))
     dialog.style.setProperty(`--reset-${name}`, `${value}px`);
   const form = dialog.querySelector('.form-grid'), impact = dialog.querySelector('.reset-impact');
   const height = Math.max(288, header + 15 + form.offsetHeight + 16 + impact.offsetHeight + 17 + footer + 1);
@@ -642,7 +726,7 @@ function measureRollbackDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(30, line + 10), footer = button + 23;
+  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = button + 23;
   const cancel = Math.max(78, text('取消') + 26), run = Math.max(116, text('回滚完整文件') + 26);
   const width = Math.max(930, cancel + run + 42);
   const comparison = Math.max(214, Math.max(39, line + 12) + Math.max(55, 2 * Math.max(24, line + 4) + 7) + 96);
@@ -703,9 +787,11 @@ function bindResetDialog() {
     if (value) notice.scrollIntoView({ block: 'nearest' });
   };
   const update = () => {
+    // 顺序必须与 `#reset-mode` 的 option 顺序一致（权威 `GitResetDialog.java:157-159`：MIXED → SOFT → HARD），
+    // 因为下面用 `mode.selectedIndex` 索引它。危险档仍是索引 2。
     const presentations = [
-      ['仅移动 HEAD，索引和工作区保持不变', '已暂存和未暂存的本地改动都会保留。'],
       ['移动 HEAD 并重置索引，工作区保持不变', '已暂存改动会回到工作区，本地文件不会删除。'],
+      ['仅移动 HEAD，索引和工作区保持不变', '已暂存和未暂存的本地改动都会保留。'],
       [`将丢失 ${trackedChangeCount()} 个已跟踪文件的本地改动`, '未跟踪文件不会删除，操作不可由 Augit 自动撤销。'],
     ];
     impact.querySelector('strong').textContent = presentations[mode.selectedIndex][0];
@@ -800,7 +886,7 @@ function measureRemoteDialog() {
     line = Math.max(line, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
-  const header = Math.max(45, line + 16), field = Math.max(30, line + 12), button = Math.max(28, line + 12);
+  const header = Math.max(45, line + 16), field = Math.max(30, line + 12), button = Math.max(37, line + 17);
   const footer = Math.max(53, button + 25), toolbar = Math.max(61, line + 28), title = Math.max(30, line);
   const values = { header, field, button, footer, toolbar, title,
     label: Math.max(110, ...["名称", "获取 URL", "推送 URL"].map(text => Math.ceil(context.measureText(text).width))),
@@ -818,7 +904,7 @@ function measureWorktreeDialog() {
   const sample = context.measureText('国Ag');
   const line = Math.ceil(sample.fontBoundingBoxAscent + sample.fontBoundingBoxDescent);
   const header = Math.max(45, line + 16), footer = Math.max(53, line + 25), toolbar = Math.max(61, line + 28);
-  const button = Math.max(31, line + 10);
+  const button = Math.max(37, line + 17);
   const body = 190 + Math.max(0, line - 31) + 3 * Math.max(0, line - 24) + Math.max(0, button - 31);
   const values = { header, footer, toolbar, title: Math.max(30, line), button,
     label: Math.max(110, context.measureText('新分支（可选）').width), height: Math.max(365, header + toolbar + body + footer) };
@@ -837,7 +923,7 @@ function measureConflictResolver() {
   const style = getComputedStyle(page);
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const metrics = context.measureText("国Ag"), line = Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
-  const button = Math.max(28, line + 8), header = Math.max(45, line + 18);
+  const button = Math.max(37, line + 17), header = Math.max(45, line + 18);
   const contentHeader = Math.max(42, button + 14), footer = Math.max(53, button + 25);
   const measure = (text, minimum) => Math.max(minimum, Math.ceil(context.measureText(text).width) + 24);
   const accept = measure("接受两侧", 112), cancel = measure("取消", 80), save = measure("应用并标记已解决", 164);
@@ -869,7 +955,11 @@ function measureConflictResolver() {
   }
   const wrap = accept * 3 + cancel + save + 40 > dialog.clientWidth - 34;
   const actions = button * (wrap ? 2 : 1) + (wrap ? 28 : 20);
-  dialog.style.height = `${Math.min(243 + header + contentHeader + column + actions + footer, innerHeight - 40)}px`;
+  // 适屏取权威 `ScreenUtil.fitToScreen()`：它转调 `moveToFit(rect, screen, padding = null, crop = true)`，
+  // 即**没有外边距**、超出屏幕时直接裁到屏幕边界（`ScreenUtil.java:371-393`）。
+  // 原来的 `innerHeight - 40` 是自定边距，与权威不符；第 132 轮实测：1024×640、ui-size=40 时它把总高截到
+  // 600，而期望高 765 ⇒ 缺口 165 全部由正文承担（三栏 190、列标题 114、正文只剩 76）。去掉自定边距后正文 116。
+  dialog.style.height = `${Math.min(243 + header + contentHeader + column + actions + footer, innerHeight)}px`;
   for (const [name, value] of Object.entries({ button, header, 'content-header': contentHeader, column, footer, actions, accept, cancel, save }))
     dialog.style.setProperty(`--conflict-${name}`, `${value}px`);
   page.classList.toggle("wrap-actions", wrap);
@@ -964,75 +1054,111 @@ if (requestedTheme === "dark") {
 
 // 视觉稿直接使用本地几何，不依赖联网后的第二次图标替换。
 // 以下补齐项依据现有原生绘制；与原生一致不等于已取得 PyCharm 同场景实测。
+// Stash/Shelve 托盘箭头：`platform/vcs-impl/resources/icons/new/stash.svg` 与
+// `platform/icons/src/expui/vcs/shelve.svg` 属于同一份几何。提交工具栏托盘按钮与
+// Stash 管理列表共用该图形但语义不同，因此分别登记、共用同一份几何以免漂移。
+const trayArrowShape = '<path d="M1 8h3l1 3h6l1-3h3v6H1Z M8 1v7M5 5l3 3 3-3"/>';
+
 const toolbarIconShapes = {
-  "menu": '<path d="M2 3h12M2 8h12M2 13h12"/>',
-  "window-minimize": '<path d="M2 11h12"/>',
-  "window-maximize": '<rect x="3" y="3" width="10" height="10"/>',
-  "window-restore": '<rect x="2.5" y="5.5" width="8" height="8"/><path d="M5.5 5.5v-3h8v8h-3"/>',
-  "window-close": '<path d="m3 3 10 10M13 3 3 13"/>',
+  // 菜单（汉堡）：权威 expui/general/menu.svg 是 3 条实心条，中线 y=3.5/7.5/11.5、x2..14（平头）。
+  "menu": '<path stroke-linecap="butt" d="M2 3.5h12M2 7.5h12M2 11.5h12"/>',
+  "window-minimize": '<rect x="3" y="8" width="10" height="1" fill="currentColor" stroke="none"/>',
+  "window-maximize": '<rect x="3.5" y="3.5" width="9" height="9" fill="none"/>',
+  "window-restore": '<g fill="currentColor" stroke="none"><path fill-rule="evenodd" d="M5 3H13V11H5ZM6 4V10H12V4Z"/><path fill-rule="evenodd" d="M3 5H11V13H3ZM4 6V12H10V6Z"/></g>',
+  "window-close": '<g fill="currentColor" stroke="none"><rect x="1.5" y="7.5" width="13" height="1" transform="rotate(45 8 8)"/><rect x="1.5" y="7.5" width="13" height="1" transform="rotate(-45 8 8)"/></g>',
   "folder": '<path d="M1 2h5l2 3h7v9H1Z"/>',
-  "git-commit-horizontal": '<path d="M1 8h4.5M10.5 8H15"/><circle cx="8" cy="8" r="2.5"/>',
-  "git-branch": '<circle cx="4" cy="3" r="2"/><circle cx="12" cy="5" r="2"/><path d="M4 5v10M12 7v1a4 4 0 0 1-4 4H4"/>',
+  "git-commit-horizontal": '<g fill="currentColor" stroke="none"><path fill-rule="evenodd" d="M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM8 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/><rect x="0" y="7.5" width="5.5" height="1" rx="0.5"/><rect x="10.5" y="7.5" width="5.5" height="1" rx="0.5"/></g>',
+  "git-branch": '<g fill="currentColor" stroke="none"><circle cx="5.05" cy="2.75" r="1.75"/><circle cx="10.88" cy="3.92" r="1.75"/><circle cx="5.05" cy="13.25" r="1.75"/></g><path d="M5.05 4.5V11.5M5.9 11.5C6.3 10.9 6.9 10.3 7.85 9.94C9.4 9.35 11.76 8.1 11.76 5.43" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round"/>',
   "search": '<circle cx="7" cy="7" r="5"/><path d="m11 11 3 3"/>',
   "history-search": '<circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 5 5"/>',
   "history-back": '<path d="m12 2-6 6 6 6"/>',
-  "arrow-up": '<path d="M8 14V2M4 6l4-4 4 4"/>',
-  "arrow-down": '<path d="M8 2v12M4 10l4 4 4-4"/>',
-  "arrow-left": '<path d="m10 4-4 4 4 4"/>',
-  "arrow-right": '<path d="m6 4 4 4-4 4"/>',
-  "chevron-left": '<path d="m10 4-4 4 4 4"/>',
-  "chevron-right": '<path d="m6 4 4 4-4 4"/>',
-  "chevron-up": '<path d="m4 10 4-4 4 4"/>',
-  "plus": '<path d="M2 8h12M8 2v12"/>',
-  "minus": '<path d="M3 8h10"/>',
-  "trash-2": '<path d="M1 3h14M5 1h6"/><rect x="3" y="5" width="10" height="10"/>',
-  "x": '<path stroke-width="1.2" d="m4.5 4.5 7 7m0-7-7 7"/>',
+  "arrow-up": '<path d="M8 14V3.9M3.65 6.35 8 2l4.35 4.35"/>',
+  "arrow-down": '<path d="M8 2v10.1M3.65 9.65 8 14l4.35-4.35"/>',
+  "arrow-left": '<path d="M14 8H3.9M6.35 3.65 2 8l4.35 4.35"/>',
+  "arrow-right": '<path d="M2 8h10.1M9.65 3.65 14 8l-4.35 4.35"/>',
+  "chevron-left": '<path d="m10 4.5-3.5 3.5 3.5 3.5"/>',
+  "chevron-right": '<path d="m6 4.5 3.5 3.5-3.5 3.5"/>',
+  "chevron-up": '<path d="m4.5 9.75 3.5-3.5 3.5 3.5"/>',
+  "plus": '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M7 1H8V7H14V8H8V14H7V8H1V7H7Z"/>',
+  "minus": '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M1 7H14V8H1Z"/>',
+  // 删除：权威 expui/general/delete.svg —— 盖 x2..14、桶体 x4..12（底角圆角）、把手为弧形，
+  // 且桶内**有两条竖线**（x6.5／x9.5，y7..12，这是 trash-2 与普通垃圾桶的区别）。
+  "trash-2": '<path d="M2.5 4.5h11"/><path d="M6.5 4.5V3.3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.2"/><path d="M4.5 6.5h7v6a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1z"/><path d="M6.5 8v3.5M9.5 8v3.5"/>',
+  "x": '<path stroke-width="1" d="m3.5 12.5 9-9m0 9-9-9"/>',
   "pilcrow": '<g stroke-width="1"><ellipse cx="6" cy="5" rx="4" ry="4"/><path d="M8 1v14M12 1v14"/></g>',
   "corner-down-right": '<path stroke-width="1" d="M2 2v9h11M9 7l4 4-4 4"/>',
   "history-expand": '<path d="M8 1v14M4 5l4-4 4 4M4 11l4 4 4-4"/>',
   "cloud": '<path d="m3 8 5-4 5 4-5 4Z"/><circle cx="3" cy="8" r="2.2"/><circle cx="8" cy="4" r="2.2"/><circle cx="13" cy="8" r="2.2"/><circle cx="8" cy="12" r="2.2"/>',
-  "archive": '<g stroke-width="1"><rect x="2" y="5" width="12" height="9"/><path d="M2 5V2h12v3M6 8h4"/></g>',
+  "stash": trayArrowShape,
   "folder-git-2": '<g stroke-width="1"><path d="M.5 4h5l2-2h8v12H.5Z M7.5 8h4v2"/><circle cx="7" cy="7.5" r="1.5"/><circle cx="12" cy="7.5" r="1.5"/><circle cx="12" cy="11.5" r="1.5"/></g>',
-  // 分支菜单沿用当前原生实现，尚未计为 PyCharm 图形校准完成。
-  "branch-update": '<path d="m3 4 8 8H7M11 12V8"/>',
+  // 分支菜单的更新项目与推送按 `expui/vcs/update.svg`、`expui/vcs/push.svg` 校准：
+  // 两者互为 180° 旋转，更新项目朝左下、推送朝右上。其余分支菜单图标尚未计为校准完成。
+  "branch-update": '<path d="m12 4-8 8H8M4 12V8"/>',
   "branch-push": '<path d="m4 12 8-8H8M12 4v4"/>',
-  "case-sensitive": '<g stroke-width="1"><path d="m1.5 12 3-8 3 8M2.5 9h4m7-1.5V12"/><ellipse cx="11.25" cy="9.75" rx="2.25" ry="2.25"/></g>',
-  "whole-word": '<g stroke-width="1"><path d="M3 3H1v10h2M13 3h2v10h-2M7 7.5v4M9 4.5v7"/><ellipse cx="5.25" cy="9.5" rx="1.75" ry="2"/><ellipse cx="10.75" cy="9.5" rx="1.75" ry="2"/></g>',
-  "regex": '<g stroke-width="1"><path d="M10.5 3v7m-3-5.25 6 3.5m-6 0 6-3.5"/><circle cx="3.25" cy="12.25" r=".75"/></g>',
-  "settings": '<path d="M5.3000 3.3235L6.3313 2.8643L6.5446 1.1530L9.4554 1.1530L9.6687 2.8643L10.7000 3.3235L10.7000 3.3235L11.6133 3.9870L13.2020 3.3161L14.6574 5.8369L13.2820 6.8773L13.4000 8.0000L13.4000 8.0000L13.2820 9.1227L14.6574 10.1631L13.2020 12.6839L11.6133 12.0130L10.7000 12.6765L10.7000 12.6765L9.6687 13.1357L9.4554 14.8470L6.5446 14.8470L6.3313 13.1357L5.3000 12.6765L5.3000 12.6765L4.3867 12.0130L2.7980 12.6839L1.3426 10.1631L2.7180 9.1227L2.6000 8.0000L2.6000 8.0000L2.7180 6.8773L1.3426 5.8369L2.7980 3.3161L4.3867 3.9870L5.3000 3.3235Z"/><circle cx="8" cy="8" r="2.3"/>',
+  // 区分大小写：权威 expui/inline/matchCase.svg 是**填充的 "Cc" 字形对**（字体轮廓）。
+  // 按 §7.0 不复制字体轮廓，这里按官方渲染比例自绘等效版本：大 C（中心 5.2,7.4、半径 4.6）
+  // + 右下小 c（中心 11.7,11.3、半径 3.0），开口都朝右。
+  "case-sensitive": '<path d="M8.16 3.88A4.6 4.6 0 1 0 8.16 10.92"/><path d="M13.63 9A3 3 0 1 0 13.63 13.6"/>',
+  // 查找面板「全字匹配」：权威 expui/inline/exactWords.svg 是**填充的字母 W**（描边宽约 1.33px），
+  // 不是旧版的 |ab| 括号形。这里按官方 W 的中心线自绘描边等效版本（官方外缘 x1.30..14.51、y3.9..13）。
+  "whole-word": '<path d="M2.1 4.6 5 12.6 7.9 5.5 10.8 12.6 13.7 4.6"/>',
+  // 查找面板「正则」：权威 expui/inline/regex.svg 的星号与**实心方点**（x2.9675 y12.35 1.65×1.65），
+  // 不是圆点。星号保持现有的描边三线形式（与官方填充字形渲染等效）。
+  "regex": '<g stroke-width="1"><path d="M10.5 3v7m-3-5.25 6 3.5m-6 0 6-3.5"/><rect x="2.9675" y="12.35" width="1.65" height="1.65" fill="currentColor" stroke="none"/></g>',
+  // 齿轮按官方 expui/general/settings.svg 的外缘实测参数自绘：瓣尖是绕中心 r=6.5 的圆弧（跨瓣尖中心 ±9.1°）、
+  // 瓣谷是 r=1.073 的凹弧（中心在谷射线 6.013 处）、瓣侧是连接两者的直线（中心线到中心垂距 4.186 / 法线 −29°）。
+  // 中心孔为 r=2.151 的 1px 环（外 2.651 / 内 1.651）。逐角外缘偏差 ≤0.04px。
+  "settings": '<path d="M14.072 5.681A6.5 6.5 0 0 0 13.044 3.901L10.988 3.865A1.073 1.073 0 0 1 10.087 3.345L9.028 1.582A6.5 6.5 0 0 0 6.972 1.582L5.913 3.345A1.073 1.073 0 0 1 5.012 3.865L2.956 3.901A6.5 6.5 0 0 0 1.928 5.681L2.925 7.48A1.073 1.073 0 0 1 2.925 8.52L1.928 10.319A6.5 6.5 0 0 0 2.956 12.099L5.012 12.135A1.073 1.073 0 0 1 5.913 12.655L6.972 14.418A6.5 6.5 0 0 0 9.028 14.418L10.087 12.655A1.073 1.073 0 0 1 10.988 12.135L13.044 12.099A6.5 6.5 0 0 0 14.072 10.319L13.075 8.52A1.073 1.073 0 0 1 13.075 7.48L14.072 5.681Z"/><circle cx="8" cy="8" r="2.151"/>',
   "document-source": '<path stroke-width="1" d="M3 3.5h10M3 6.5h10M3 9.5h10M3 12.5h10"/>',
   "document-split": '<g stroke-width="1"><path d="M1.5 3.5H6M1.5 6.5H6M1.5 9.5H6M1.5 12.5H6"/><rect x="8.5" y="2.5" width="6" height="11" rx="1.5"/></g>',
-  "document-preview": '<g stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><circle cx="10" cy="6" r="1.5"/><path d="m2.5 9.5 2-2 6 6"/></g>',
+  // 预览模式：权威 expui/general/previewOnly.svg = 圆角框（rx1.5）+ 圆点(10,6) r1.5 + 山形（x2.36→12.0）。
+  "document-preview": '<g stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><circle cx="10" cy="6" r="1.5"/><path d="M2.36 9.5 4.18 7.67 12 13.5"/></g>',
   "document-formatted": '<g fill="none" stroke-width="1"><path d="M6.5 2.5C4.5 2.5 4.5 4.5 4.5 6c0 1.2-1 1.2-1 2s1 0.8 1 2c0 1.5 0 3.5 2 3.5M9.5 2.5c2 0 2 2 2 3.5 0 1.2 1 1.2 1 2s-1 .8-1 2c0 1.5 0 3.5-2 3.5"/></g>',
-  "zoom-out": '<g stroke-width="1"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5M4.5 7h5"/></g>',
-  "zoom-in": '<g stroke-width="1"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5M4.5 7h5M7 4.5v5"/></g>',
-  "image-fit": '<path stroke-width="1" d="M2 6V2h4M10 2h4v4M2 10v4h4M10 14h4v-4"/>',
-  "diff-unified": '<rect stroke-width="1" x="2.5" y="2.5" width="11" height="11" rx="2"/>',
-  "diff-side-by-side": '<g stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M8 2.5v11"/></g>',
+  // 缩小：同圆，只有减号（横条 y=8 跨 x4..12）。
+  "zoom-out": '<g stroke-width="1"><circle cx="8" cy="8" r="6.5"/><path d="M4.5 8h7"/></g>',
+  // 放大：权威 expui/image/zoomIn.svg = **无手柄的圆**（中心 8,8、r6.5）+ 贯穿圆心的加号
+  // （竖条 x=8 跨 y4..12、横条 y=8 跨 x4..12，官方是 rx0.5 的实心条，这里用圆头 1px 线等效）。
+  "zoom-in": '<g stroke-width="1"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5v7M4.5 8h7"/></g>',
+  // 适应区域：权威 expui/image/fitContent.svg = 圆角外框（1.5,2.5 13×11 rx1.5）+ 两组内角线
+  // （左上：竖 x4.5 跨 y5..9、横 y5.5 跨 x4..8；右下：竖 x11.5 跨 y7..11、横 y10.5 跨 x8..12）。
+  "image-fit": '<g stroke-width="1"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 5v4M4 5.5h4M11.5 7v4M8 10.5h4"/></g>',
+  // 单栏：权威 expui/diff/unified.svg —— 外缘 2..14、外圆角 2／内圆角 1 ⇒ 中心线圆角 1.5。
+  "diff-unified": '<rect stroke-width="1" x="2.5" y="2.5" width="11" height="11" rx="1.5"/>',
+  // 双栏：同一外框（中心线圆角 1.5）+ 中缝。官方两栏内缘在 y3..13，故中缝取 `M8 3v10`，
+  // 而不是画到外框中心线（2.5..13.5）——那样会穿过上下边线。
+  "diff-side-by-side": '<g stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M8 3v10"/></g>',
   "diff-ignore-whitespace": '<path stroke-width="1" d="M9 2.5v11M12 2.5v11M14 2.5H6a3.5 3.5 0 0 0 0 7h3"/>',
-  "ellipsis-vertical": '<g fill="currentColor" stroke="none"><circle cx="8" cy="4" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="8" cy="12" r=".8"/></g>',
+  "ellipsis-vertical": '<g fill="currentColor" stroke="none"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></g>',
 
   "copy": '<path stroke-width="1" d="M5 2h7a2 2 0 0 1 2 2v7 M4 4h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2 M5 7h3M5 9.5h3M5 12h3"/>',
   "cherry": '<circle cx="3.5" cy="11.5" r="2.5"/><circle cx="11.5" cy="12.5" r="2.5"/><path d="M3.5 9C4 6 10 6 10 2 M11.5 10C13 6 10 5 10 2 M10 2C7 2 6 3 6 5"/>',
   "git-branch-plus": '<circle cx="4" cy="3" r="2"/><circle cx="4" cy="13" r="2"/><circle cx="12" cy="3" r="2"/><path d="M4 5v6M4 10C4 6 12 9 12 5M12 9v6M9 12h6"/>',
   "tag": '<path d="M1 3h7l7 7-6 5-8-7Z"/><circle cx="4.5" cy="6.5" r="1"/>',
-  "external-link": '<path d="M2 4h5M2 4v10h10V9M7 9l7-7H9M14 2v5"/>',
+  // 收藏：权威 `platform/icons/src/nodes/favorite.svg` 是五角星多边形（固定填充 #F4AF3D）。
+  // Augit 的图标一律跟随 currentColor（这样禁用/深色/浅色都能正确着色），故同形但用 currentColor 填充；
+  // 色值差异登记在轮次记录里。
+  "star": '<polygon fill="currentColor" stroke="none" points="8 11.5 3.7 14.3 5 9.3 1 6.1 6.1 5.8 8 1 9.9 5.8 15 6.1 11 9.3 12.3 14.3"/>',
+  // 外部打开／在资源管理器中定位：权威 expui/ide/externalLink.svg 是**角 + 斜向箭头、没有方框**
+  // （旧版那个带方框的 "在新窗口打开" 图形不是 New UI 的形态）。
+  "external-link": '<path d="M5.5 5.5H10.5V10.5M9.65 6.35 4.5 11.5"/>',
   "list-tree": '<path d="M2 3v10M2 3h3M2 8h3M2 13h3M8 3h6M8 8h6M8 13h6"/>',
   "wrap-text": '<path d="M2 3h12M2 7h9a3 3 0 0 1 0 6H7l2-2M7 13l2 2M2 13h2"/>',
-  "chevron-down": '<path d="m4 6 4 4 4-4"/>',
+  "chevron-down": '<path d="m4.5 6.25 3.5 3.5 3.5-3.5"/>',
   "refresh-cw": '<path d="M1 8l1.83 1.88L4.7 8 M15 8l-1.83-1.88L11.3 8 M2.83 9.88A5.5 5.5 0 0 1 10.75 3.24 M13.17 6.12A5.5 5.5 0 0 1 5.25 12.76"/>',
   "git-compare-arrows": '<path d="M7 4h8 M10 1 7 4l3 3 M1 12h8 M6 9l3 3-3 3"/>',
-  "undo-2": '<path d="M2 5h8a4 4 0 0 1 0 8H5 M5 2 2 5l3 3"/>',
-  "download": '<path d="M1 8h3l1 3h6l1-3h3v6H1Z M8 1v7M5 5l3 3 3-3"/>',
-  "eye": '<path d="M1 8C4.5 1.333 11.5 1.333 15 8C11.5 14.667 4.5 14.667 1 8Z"/><circle cx="8" cy="8" r="2.5"/>',
-  "locate-fixed": '<circle cx="8" cy="8" r="6"/><path d="M1 8h4m6 0h4 M8 1v4m0 6v4"/>',
-  "fold-vertical": '<path d="m4.5 2 3.5 3.5L11.5 2 M4.5 14 8 10.5l3.5 3.5"/>',
+  "undo-2": '<path d="M3 5H10.5a4 4 0 0 1 0 8H5.5M5.5 1.5 1.8 5l3.7 3.5"/>',
+  "download": trayArrowShape,
+  "eye": '<circle cx="8" cy="8" r="1.5"/><path d="M8 11.5C5.62351 11.5 3.2737 9.94494 2.53088 8C3.2737 6.05506 5.62351 4.5 8 4.5C10.3765 4.5 12.7263 6.05506 13.4691 8C12.7263 9.94494 10.3765 11.5 8 11.5Z"/>',
+  "locate-fixed": '<circle cx="8" cy="8" r="6.5"/><path d="M8 2V5.5M8 10.5V14M2 8H5.5M10.5 8H14"/>',
+  "fold-vertical": '<path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/>',
   "square-terminal": '<rect x="1" y="2" width="14" height="12"/><path d="m4 5 3 3-3 3m5 0h3"/>',
-  "history": '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l3.5 2 M1 8h3M1 8l2-2"/>',
-  "rotate-ccw": '<path d="M2 5h8a4 4 0 0 1 0 8H5 M5 2 2 5l3 3"/>',
+  // 历史与 Git 历史是两个不同图形：前者是「时钟」（general/history.svg），后者是 VCS 工具窗口的「两空心节点分支图」
+  // （toolwindows/vcs.svg，design-system §7.2 的「Git 历史」一行）；标题栏分支芯片用的是 vcs/branch.svg 的三实心圆盘。
+  "history": '<circle cx="8" cy="8" r="6.5"/><path d="M8 5V8L10.5 9.5"/>',
+  "git-history": '<circle cx="4.5" cy="4" r="2"/><path d="M4.5 11.5H8.5C9.60457 11.5 10.5 10.6046 10.5 9.5V8"/><path d="M4.5 6.5V14.5"/><circle cx="10.5" cy="6" r="2"/>',
   "rename": '<path d="M3 13 5 5l8 8H3Zm2-8 3 3m1-7 4 4"/>',
-  "clone": '<g stroke-width="1.2"><path d="M1.5 5h5l1.5 1.5h6.5v7h-13Z"/><circle cx="6" cy="9" r="1.4"/><circle cx="11" cy="11" r="1.4"/><path d="M7.2 9.8 9.8 10.4"/></g>',
-  "conflict": '<g stroke-width="1.2"><path d="M3 1.5h7l3 3v10H3Z M10 1.5v3h3M8 7v4"/><circle cx="8" cy="13" r=".8"/></g>',
+  "clone": '<g stroke-width="1"><path d="M1.5 5h5l1.5 1.5h6.5v7h-13Z"/><circle cx="6" cy="9" r="1.4"/><circle cx="11" cy="11" r="1.4"/><path d="M7.2 9.8 9.8 10.4"/></g>',
+  "conflict": '<g stroke-width="1"><path d="M3 1.5h7l3 3v10H3Z M10 1.5v3h3M8 7v4"/><circle cx="8" cy="13" r=".8"/></g>',
 };
 function icon(name) {
   if (name === "none") return '<span class="menu-icon-empty" aria-hidden="true"></span>';
@@ -1044,7 +1170,7 @@ function icon(name) {
     return '<svg class="augit-toolbar-icon" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" data-augit-icon="file-warning"><path d="M3 1h8l4 4v12H3Z M11 1v4h4M9 7v4"/><circle cx="9" cy="14" r="1"/></svg>';
   }
   if (!Object.hasOwn(toolbarIconShapes, name)) throw new Error(`视觉稿未登记图标：${name}`);
-  return `<svg class="augit-toolbar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-augit-icon="${name}">${toolbarIconShapes[name]}</svg>`;
+  return `<svg class="augit-toolbar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-augit-icon="${name}">${toolbarIconShapes[name]}</svg>`;
 }
 
 // 窗口按钮：视觉稿里它们是纯标记（静态稿不描述真实的窗口状态）。
@@ -1065,9 +1191,33 @@ function treeFolderIcon(workspaceRoot = false) {
   return `<svg class="tree-folder-icon" viewBox="0 0 16 16" aria-hidden="true">${folder}${badge}</svg>`;
 }
 
-function gitReferenceIcon(filled = true) {
+// Git 引用标签图标：形状沿用现有标签形，颜色按分组取权威色（本地分支绿／远程紫／标签灰／HEAD 黄）。
+// 当前分支（HEAD）按参考图取两色：描边用本地分支绿、内点用 HEAD 黄（main 标签就是这个样子）。
+// 日志/引用面板里的引用串分组：HEAD 当前分支、`tag: ` 前缀为标签，其余按是否落在远程名前缀上区分。
+function refKindOf(refs) {
+  const list = Array.isArray(refs) ? refs : String(refs || "").split(" ");
+  if (list.includes("HEAD")) return "head";
+  const first = list.find((name) => name && name !== "HEAD" && name !== "->") || "";
+  if (first.startsWith("tag:")) return "tag";
+  // 实时外壳里 `live.remotes` 是 `{available, remotes: [...]}` 而不是数组（见 live-data.js 的既有用法），
+  // 静态视觉稿没有该对象 ⇒ 回落到 local。
+  const remotes = (window.__augitLive && window.__augitLive.remotes && window.__augitLive.remotes.remotes) || [];
+  return remotes.some((remote) => first.startsWith(`${(remote && remote.name) || remote}/`)) ? "remote" : "local";
+}
+// 引用显示名去掉 `tag:` 前缀与 HEAD/箭头。
+function refDisplayName(refs) {
+  const list = Array.isArray(refs) ? refs : String(refs || "").split(" ");
+  return list.filter((token) => token && token !== "HEAD" && token !== "->")
+    .map((token) => token.replace(/^tag:/, "")).join(" ");
+}
+
+function gitReferenceIcon(kind = "local") {
   const outline = 'M8.6 1.5h4.9c.55 0 1 .45 1 1v4.9L7.9 14c-.39.39-1.01.39-1.4 0L2 9.5c-.39-.39-.39-1.01 0-1.4L8.6 1.5Z M12 5c0 .83-.67 1.5-1.5 1.5S9 5.83 9 5s.67-1.5 1.5-1.5S12 4.17 12 5Z';
-  return `<svg class="git-reference-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${outline}" fill="${filled ? 'var(--augit-reference)' : 'none'}" fill-rule="evenodd" stroke="${filled ? 'none' : 'var(--augit-reference)'}" stroke-width="1" stroke-linejoin="round"/></svg>`;
+  if (kind === "head") {
+    return `<svg class="git-reference-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${outline}" fill="none" fill-rule="evenodd" stroke="var(--augit-ref-branch)" stroke-width="1" stroke-linejoin="round"/><circle cx="10.5" cy="5" r="1.5" fill="var(--augit-ref-head)"/></svg>`;
+  }
+  const color = { local: 'var(--augit-ref-branch)', remote: 'var(--augit-ref-remote)', tag: 'var(--augit-ref-tag)' }[kind] || 'var(--augit-ref-branch)';
+  return `<svg class="git-reference-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${outline}" fill="${color}" fill-rule="evenodd" stroke="none"/></svg>`;
 }
 
 // 文件类型图标与原生绘制使用相同的 16px 坐标；Git 状态只改变文件名颜色。
@@ -1078,8 +1228,13 @@ function fileTypeIcon(name) {
   let kind = "file";
   let shape = '<path d="M2 1h8.5L14 4.5V15H2Z M10.5 1v3.5H14 M4 6h8 M4 9h8 M4 12h6"/>';
   if (safeName.toLowerCase().split(/[\\/]/).pop() === ".gitignore") {
-    kind = "ignored";
-    shape = '<circle cx="8" cy="8" r="6"/><path d="m4 12 8-8"/>';
+    // 权威 `expui/fileTypes/gitignore.svg` 是**橙红圆角菱形 + 挖空的分支图形**（#F34E29），
+    // 与 `fileTypes/ignored.svg`（灰色斜线圆，代表"被忽略的文件"）是两个不同图标。
+    // 这里自绘等效：圆角菱形（用同色描边加圆角）+ 白色分支图形。
+    kind = "gitignore";
+    shape = '<path d="M8 2.2 13.8 8 8 13.8 2.2 8Z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+      + '<path d="M8 5.4v4.4M8 6.8l1.9 1.9" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>'
+      + '<circle cx="8" cy="4.5" r="1.05" fill="#ffffff"/><circle cx="10.2" cy="8.9" r="1.05" fill="#ffffff"/>';
   } else if (["slnx", "props", "gitattributes"].includes(extension)) {
     kind = "text";
     shape = '<path d="M2 4h11 M2 8h11 M2 12h11"/>';
@@ -1089,17 +1244,23 @@ function fileTypeIcon(name) {
   } else if (["cs", "csproj"].includes(extension)) {
     kind = "csharp";
     shape = '<path d="M7.47 10.83A3.5 4 0 1 1 7.47 5.17 M11.5 4.5l-1 7 M14.5 4.5l-1 7 M9.5 6.5H15 M9 9.5h5.5"/>';
-  } else if (["html", "htm", "xml"].includes(extension)) {
-    kind = "markup";
+  } else if (["html", "htm"].includes(extension)) {
+    kind = "html";
     shape = '<path d="m8 4-3 4 3 4m2-8 3 4-3 4"/>';
-  } else if (["json", "yaml", "yml"].includes(extension)) {
-    kind = "structured";
+  } else if (extension === "xml") {
+    kind = "xml";
+    shape = '<path d="m8 4-3 4 3 4m2-8 3 4-3 4"/>';
+  } else if (extension === "json") {
+    kind = "json";
+    shape = '<path d="m7 4-2 2v4l2 2m4-8 2 2v4l-2 2"/>';
+  } else if (["yaml", "yml"].includes(extension)) {
+    kind = "yaml";
     shape = '<path d="m7 4-2 2v4l2 2m4-8 2 2v4l-2 2"/>';
   } else if (["png", "jpg", "jpeg", "bmp"].includes(extension)) {
     kind = "image";
     shape = '<rect x="2" y="2" width="12" height="12"/><circle cx="10.5" cy="5.5" r="1"/><path d="m2 11 4-4 8 7"/>';
   }
-  return `<svg class="file-type-icon file-type-${kind}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
+  return `<svg class="file-type-icon file-type-${kind}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
 }
 
 // 容忍 undefined / null：渲染函数可能在数据尚未到达或被拒绝时被调用，
@@ -1152,7 +1313,7 @@ const scenePages = {
   "push": ["Push", "提交列表、目标引用和错误反馈"],
   "conflict-list": ["冲突操作会话", "冲突文件、Continue、Skip 与 Abort"],
   "conflict-resolver": ["三栏冲突解决", "当前分支、可编辑结果和合入内容"],
-  "quick-open": ["快速打开文件", "最多 100 项的键盘优先浮层"],
+  "quick-open": ["快速打开文件", "最多 30 项的键盘优先浮层"],
   "repository-search": ["全仓搜索", "查询开关、结果分组、截断与取消"],
   "terminal": ["内置终端", "底部按需单会话终端"],
   "settings": ["设置", "外观、Git、终端和字体"],
@@ -1309,7 +1470,8 @@ function bindJsonModes() {
   // 之前这里恒用样例：真机上点"原文"会把正文换成样例 JSON —— 实测缺陷。
   const codeView = view.querySelector(".code-view");
   const liveSource = codeView && codeView.dataset ? codeView.dataset.jsonSource : null;
-  const source = typeof liveSource === "string" && liveSource.length > 0 ? liveSource : sampleSource;
+  const hasLiveSource = typeof liveSource === "string" && liveSource.length > 0;
+  const source = hasLiveSource ? liveSource : sampleSource;
   // 宿主给出的"格式化后正文"（规格 §7.4）：实时文档直接用它，视觉稿页面没有该属性时
   // 才用 JSON.stringify 重新序列化样例。两条路径都必须两空格缩进并保持属性顺序。
   const liveFormatted = codeView && codeView.dataset ? codeView.dataset.jsonFormatted : null;
@@ -1317,7 +1479,11 @@ function bindJsonModes() {
   // 出错行来自渲染时写入的 `data-json-error-line`（宿主按 Unicode 标量计列的行号）；
   // 视觉稿样例没有该属性，退回样例里固定的第 4 行。
   const errorLine = Number(codeView && codeView.dataset ? codeView.dataset.jsonErrorLine : NaN) || 4;
-  const invalidSource = view.classList.contains("json-invalid") ? source : sampleInvalidSource;
+  // 只有**实时文档**（`data-json-source` 由 `liveJsonDocument()` 写入）的原文才可能是那份无效文本。
+  // 视觉稿场景 `json-preview.html?json-state=invalid` 同样带 `json-invalid`，但它的 `source` 是回退后的
+  // **有效**样例 `sampleSource`（单行）；用它渲染后根本没有第 4 行，"定位 JSON 错误"会退化成选中第一行
+  // ——`verify-ux-json` 实测 `'1' !== '4'`（HEAD 即已失败，与后续改动无关）。故按"有没有实时原文"分流。
+  const invalidSource = view.classList.contains("json-invalid") && hasLiveSource ? source : sampleInvalidSource;
   const code = view.querySelector(".code-view");
   const positions = new Map();
   let current;
@@ -1586,7 +1752,7 @@ function emptyChangesSide() {
     <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
     ${statusRefreshNotice()}
     <div class="empty-tool-state"><div><strong>没有待提交的更改</strong><p>工作区与 HEAD 一致。</p></div></div>
-    <div class="commit-box"><div class="commit-options"><span class="commit-amend"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
+    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
     ${commitMessageBox(true)}
     <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
 }
@@ -1603,7 +1769,7 @@ function loadingChangesSide() {
   return `<aside class="tool-window side-tool"><div class="tool-header"><span>提交</span><span class="grow"></span><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></div>
     <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
     <div class="empty-tool-state" role="status"><div><strong>正在读取改动…</strong><p>正在从 Git 读取工作区状态。</p></div></div>
-    <div class="commit-box"><div class="commit-options"><span class="commit-amend"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
+    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
     ${commitMessageBox(true)}
     <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
 }
@@ -1617,22 +1783,61 @@ function projectContextMenu() {
 }
 
 function changesContextMenu() {
-  return `<section class="popover context-menu changes-context"><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} 显示 Diff</a><a class="menu-item" href="rollback.html">${icon("undo-2")} 回滚…</a><div class="menu-separator"></div><a class="menu-item" href="file-history.html">${icon("history")} 文件历史</a><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><div class="menu-separator"></div><a class="menu-item" href="commit-changes.html">${icon("copy")} 复制路径</a><a class="menu-item" href="commit-changes.html">${icon("external-link")} 在资源管理器中定位</a></section>`;
+  // 项的**相对顺序**取权威 `ChangesViewPopupMenu`（`platform/vcs-impl/resources/META-INF/VcsActions.xml:186-219`）：
+  //   CheckinFiles → **ChangesView.Revert / .RevertFiles** → Move → **Diff.ShowDiff** → EditSource →
+  //   CopyReferencePopupGroup → … → Refresh → **VersionControlsGroup**
+  // 而 `VersionControlsGroup` 经 `VcsFileGroupPopup`（`VcsActions.xml:56-58`）收编各 VCS 的文件级动作，
+  // git 侧是 `Git.FileActions`（`intellij.vcs.git.backend.xml:162-174`）：
+  //   CheckinFiles → Git.Add → **Annotate（Blame）** → Compare.* → **Vcs.ShowTabbedFileHistory（文件历史）** → …
+  // 因此权威的相对顺序是：**回滚在显示 Diff 之前**、**Blame 在文件历史之前**。
+  // 原实现两处都反了（第 138 轮按权威改正）。
+  // 注：`在资源管理器中定位` 在 `ChangesViewPopupMenu` 里**未定位到对应动作** ⇒ 保留现状（不删既有入口），
+  // 记为待核，见 docs/nui-behavior/12-commit-changes.md §10。
+  return `<section class="popover context-menu changes-context"><a class="menu-item" href="rollback.html">${icon("undo-2")} 回滚…</a><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} 显示 Diff</a><div class="menu-separator"></div><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><a class="menu-item" href="file-history.html">${icon("history")} 文件历史</a><div class="menu-separator"></div><a class="menu-item" href="commit-changes.html">${icon("copy")} 复制路径</a><a class="menu-item" href="commit-changes.html">${icon("external-link")} 在资源管理器中定位</a></section>`;
 }
 
-function gitLogContextMenu() {
-  return `<section class="popover context-menu log-context"><a class="menu-item" href="git-history.html">${icon("copy")} 复制提交哈希</a><a class="menu-item" href="operation-progress.html">${icon("cherry")} Cherry-pick</a><div class="menu-separator"></div><a class="menu-item" href="git-compare.html">${icon("none")} 与工作区比较</a><a class="menu-item" href="reset.html">${icon("undo-2")} Reset 当前分支到此处…</a><a class="menu-item" href="operation-progress.html">${icon("none")} Revert Commit</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("none")} 新建分支…</a><a class="menu-item" href="branches.html">${icon("none")} 新建标签…</a></section>`;
+/**
+ * 日志提交行的右键菜单（权威 `Vcs.Log` 的提交弹出菜单同族：复制修订号／Cherry-pick／
+ * 与工作区比较／Reset 到此处／Revert／新建分支/标签）。
+ *
+ * `live` 为真时改用 `data-log-action` 表达动作，并把**没有能力**的项标成禁用并写明原因
+ * （规格 §7.8 第 460 行的同一口径："禁用时保留位置并显示原因"）；静态场景保持设计基线的链接不变。
+ */
+function gitLogContextMenu(live = false) {
+  const staticHref = {
+    "copy-hash": "git-history.html", "cherry-pick": "operation-progress.html",
+    "compare-workspace": "git-compare.html", "reset-here": "reset.html", "revert": "operation-progress.html",
+    "new-branch": "branches.html", "new-tag": "branches.html",
+  };
+  const entry = (action, iconName, label, reason) => {
+    if (!live) return `<a class="menu-item" href="${staticHref[action]}">${icon(iconName)} ${label}</a>`;
+    if (reason) {
+      return `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}">${icon(iconName)} ${label}</span>`;
+    }
+    return `<a class="menu-item" href="#" data-log-action="${action}">${icon(iconName)} ${label}</a>`;
+  };
+  return `<section class="popover context-menu log-context">`
+    + entry("copy-hash", "copy", "复制提交哈希")
+    + entry("cherry-pick", "cherry", "Cherry-pick", "Augit 尚未提供 Cherry-pick。")
+    + `<div class="menu-separator"></div>`
+    + entry("compare-workspace", "none", "与工作区比较", "提交与工作区的整份比较尚未接线。")
+    + entry("reset-here", "undo-2", "Reset 当前分支到此处…", "Augit 的 Reset 只能重置到当前 HEAD。")
+    + entry("revert", "none", "Revert Commit", "Augit 尚未提供 Revert。")
+    + `<div class="menu-separator"></div>`
+    + entry("new-branch", "none", "新建分支…")
+    + entry("new-tag", "none", "新建标签…")
+    + `</section>`;
 }
 
 function managementPage(kind) {
   const configs = {
-    stash: ["Stash", ["stash@{0} 工作区切换前", "stash@{1} 调整安装器"], `<h2>stash@{0} · 工作区切换前</h2><p class="commit-meta">main · I49 · 2 分钟前</p><div class="button-row" style="justify-content:flex-start"><button class="primary-button">应用</button><button class="secondary-button">弹出</button><button class="secondary-button">查看内容</button><button class="danger-button">删除</button></div><h3>包含 3 个文件</h3><div class="tree-row"><span>${fileTypeIcon("NativeGitPanel.cs")}</span> NativeGitPanel.cs</div><div class="tree-row"><span>${fileTypeIcon("product-spec.md")}</span> product-spec.md</div>`],
+    stash: ["Stash", ["stash@{0} 工作区切换前", "stash@{1} 调整安装器"], `<h2>stash@{0} · 工作区切换前</h2><p class="commit-meta">main · I49 · 2 分钟前</p><div class="button-row" style="justify-content:flex-start"><button class="primary-button" title="应用后保留该 Stash">应用</button><button class="secondary-button" title="应用后丢弃该 Stash">弹出</button><button class="secondary-button">查看内容</button><button class="danger-button">删除</button></div><h3>包含 3 个文件</h3><div class="tree-row"><span>${fileTypeIcon("NativeGitPanel.cs")}</span> NativeGitPanel.cs</div><div class="tree-row"><span>${fileTypeIcon("product-spec.md")}</span> product-spec.md</div>`],
     worktrees: ["Worktree", ["main · D:\\github\\Augit", "feature/ux · D:\\github\\Augit-ux"], `<h2>feature/ux</h2><div class="form-grid"><span>路径</span><span>D:\\github\\Augit-ux</span><span>状态</span><span class="file-status-new">干净，可安全移除</span><span>终端会话</span><span>无运行中的内置终端</span></div><div class="button-row" style="justify-content:flex-start"><button class="primary-button">打开窗口</button><button class="secondary-button">新建 Worktree</button><button class="danger-button">移除…</button></div>`],
     remote: ["远端", ["origin", "backup"], `<h2>origin</h2><div class="form-grid"><label>名称</label><input class="text-field" value="origin"><label>获取 URL</label><input class="text-field" value="https://example.com/team/Augit.git"><label>推送 URL</label><input class="text-field" value="https://example.com/team/Augit.git"></div><div class="button-row"><button class="secondary-button">删除</button><button class="primary-button">保存</button></div>`],
   };
   const [title, entries, detail] = configs[kind];
   const selectedIndex = kind === "worktrees" ? 1 : 0;
-  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${title} 管理</strong></div><div class="management-content"><div class="management-list">${entries.map((entry, index) => `<div class="tree-row ${index === selectedIndex ? "selected" : ""}">${icon(kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive")}<span class="tree-name">${entry}</span></div>`).join("")}</div><div class="management-detail">${detail}</div></div></div>`;
+  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${title} 管理</strong></div><div class="management-content"><div class="management-list">${entries.map((entry, index) => `<div class="tree-row ${index === selectedIndex ? "selected" : ""}">${icon(kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "stash")}<span class="tree-name">${entry}</span></div>`).join("")}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
 // 外壳注入真实数据时的管理页：结构、图标与样式与样例版一致。
@@ -1709,8 +1914,8 @@ function liveManagementPage(kind) {
         ? `<h2>${escapeHtml(current.reference)} · ${escapeHtml(current.message)}</h2>`
           + `<p class="commit-meta">${escapeHtml(current.branch)} · ${escapeHtml(current.date)}</p>`
           + '<div class="button-row" style="justify-content:flex-start">'
-          + '<button class="primary-button" type="button" data-stash-action="apply">应用</button>'
-          + '<button class="secondary-button" type="button" data-stash-action="pop">弹出</button>'
+          + '<button class="primary-button" type="button" data-stash-action="apply" title="应用后保留该 Stash">应用</button>'
+          + '<button class="secondary-button" type="button" data-stash-action="pop" title="应用后丢弃该 Stash">弹出</button>'
           + `<button class="secondary-button" type="button" data-stash-action="view"${files.length > 0 ? "" : ' disabled title="这个 Stash 里没有可查看的文件。"'}>查看内容</button>`
           + '<button class="danger-button" type="button" data-stash-action="drop">删除</button>'
           + "</div>"
@@ -1726,7 +1931,7 @@ function liveManagementPage(kind) {
   const build = configs[kind];
   if (!build) return managementPage(kind);
   const [title, entries, detail] = build();
-  const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "archive";
+  const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "stash";
   const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex
     : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex
       : kind === "remote" && Number.isInteger(live.selectedRemoteIndex) ? live.selectedRemoteIndex : 0;
@@ -1856,9 +2061,14 @@ function settingsNavHtml(page, live, dirty) {
       : "";
     return `<div class="tree-row${depthClass}${selected}"${attr}>${escapeHtml(label)}${mark}</div>`;
   };
-  const filter = live ? ' data-settings-filter="true"' : "";
+  // 搜索框：搜索词与"无命中"态都记在 `live` 上（`live-data.js` 的搜索实现负责写），
+  // 因此整块重绘（例如搜索驱动的切页）后这两者都能回填。静态视觉稿没有 live ⇒ 原样输出。
+  const filterLive = live ? (window.__augitLive || {}) : {};
+  const filterQuery = live ? String(filterLive.settingsFilter || "") : "";
+  const noHits = live && filterLive.settingsFilterNoHits ? " no-hits" : "";
+  const filter = live ? ` data-settings-filter="true" aria-label="搜索设置" value="${escapeHtml(filterQuery)}"` : "";
   return `<nav class="settings-nav">`
-    + `<input class="search-field" placeholder="搜索设置" style="width:100%;margin-bottom:10px"${filter}>`
+    + `<input class="search-field${noHits}" placeholder="搜索设置" style="width:100%;margin-bottom:10px"${filter}>`
     + `<div class="tree-row settings-nav-group">外观与行为</div>`
     + SETTINGS_PAGES.slice(0, 2).map((item) => row(item.id, item.title, item.depth)).join("")
     + SETTINGS_PAGES.slice(2).map((item) => row(item.id, item.title, item.depth)).join("")
@@ -2014,7 +2224,7 @@ function liveResetBody() {
   const head = (live.history && live.history.head) ? live.history.head.slice(0, 7) : "HEAD";
   // 目标可编辑：与视觉稿样例一致（`Reset 目标提交` 是一个输入框），
   // 任何不存在的引用由宿主校验并给出原因，界面不自行判断。
-  return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset 目标提交"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
+  return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset 目标提交"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · 同时重置索引</option><option value="soft">Soft · 仅移动 HEAD</option><option value="hard">Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
 }
 
 // 外壳注入真实改动文件时的回滚对话框：目标是右键选中的那个文件
@@ -2144,10 +2354,14 @@ function liveDiffView() {
 }
 
 // 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。
+// 浅克隆行取权威 `GitShallowCloneComponentFactory`（`GitShallowCloneViewModel.kt:29-45`）：
+//   复选 `clone.dialog.shallow.clone`（"Shallow clone with a history truncated to"）→ 数字框（1..Int.MAX_VALUE，默认 1，
+//   `.enabledIf(shallowCloneCheckbox.selected)`）→ 标签 `clone.dialog.shallow.clone.depth`（"commits"）；
+//   **数字框的 tooltip 是字面量 `--depth`**（同文件 `:41,48`）。
 function liveCloneBody() {
   const settings = (window.__augitLive && window.__augitLive.settings) || {};
   const recent = (settings.recentWorkspaces || [])[0] || "";
-  return `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git" autofocus><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository" value="${escapeHtml(recent)}"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
+  return `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git" autofocus><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository" value="${escapeHtml(recent)}"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" title="--depth" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
 }
 
 function conflictResolver() {
@@ -2174,9 +2388,52 @@ function conflictResolver() {
 }
 
 /* 第二轮共享骨架：只复用 PyCharm 的界面组织与交互语言，不复制品牌资产。 */
+// 项目配色索引：参考实现把配色存在项目元数据里并可人工修改；Augit 不引入“项目配色”这一新能力，
+// 改为按工作区根路径稳定推导，保证“同一工作区永远同一配色”，视觉机制与参考实现一致。
+function projectColorIndex() {
+  const live = window.__augitLive || {};
+  const key = String(live.rootPath || live.workspaceName || "");
+  if (!key) return 4;
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return (Math.abs(hash) % 9) + 1;
+}
+
+// 渐变中心 = 项目部件图标（工作区入口里的品牌方块）中心到标题栏左缘的距离。
+function measureTitlebarGlow() {
+  const bar = document.querySelector(".titlebar");
+  if (!bar) return;
+  const mark = bar.querySelector(".workspace-chip .brand-mark");
+  if (!mark) return;
+  const barRect = bar.getBoundingClientRect();
+  const markRect = mark.getBoundingClientRect();
+  if (!markRect.width) return;
+  const center = markRect.left - barRect.left + markRect.width / 2;
+  bar.style.setProperty("--augit-title-glow-center", `${Math.round(center)}px`);
+}
+
+// 标签栏边缘渐隐：按实际滚动位置决定两端各留多少渐隐宽度（0 或 10px）。
+// 权威值 ide.editor.tabs.fadeout.width = 10；语义是"标签被滚动到部分移出可见区时"
+// 才在可见边缘渐隐——静止在两端时不渐隐，所以两端分别是 0。
+function measureTabFade() {
+  const fade = 10;
+  document.querySelectorAll(".editor-tabs").forEach((strip) => {
+    const maximum = strip.scrollWidth - strip.clientWidth;
+    if (maximum <= 1) {
+      strip.style.setProperty("--tab-fade-start", "0px");
+      strip.style.setProperty("--tab-fade-end", "0px");
+      return;
+    }
+    strip.style.setProperty("--tab-fade-start", strip.scrollLeft > 1 ? `${fade}px` : "0px");
+    strip.style.setProperty("--tab-fade-end", strip.scrollLeft < maximum - 1 ? `${fade}px` : "0px");
+  });
+}
+
+window.__augitMeasureTabFade = measureTabFade;
+
 function titlebar() {
   return `
-    <header class="titlebar">
+    <header class="titlebar" data-project-color="${projectColorIndex()}">
       <div class="brand-mark" aria-label="Augit">A</div>
       <button class="top-button" aria-label="主菜单" data-action="menu">${icon("menu")}</button>
       <a class="top-chip workspace-chip" href="workspace-open.html" title="切换工作区"><span class="brand-mark">A</span> ${escapeHtml((window.__augitLive && window.__augitLive.workspaceName) || "Augit")} ${icon("chevron-down")}</a>
@@ -2200,7 +2457,7 @@ function rail(active) {
       <a class="rail-button ${active === "search" ? "active" : ""}" href="repository-search.html" aria-label="搜索">${icon("search")}</a>
       <div class="rail-spacer"></div>
       <a class="rail-button ${active === "terminal" ? "active" : ""}" href="terminal.html" aria-label="终端">${icon("square-terminal")}</a>
-      <a class="rail-button ${active === "history" ? "active" : ""}" href="git-history.html" aria-label="Git 历史">${icon("git-branch")}</a>
+      <a class="rail-button ${active === "history" ? "active" : ""}" href="git-history.html" aria-label="Git 历史">${icon("git-history")}</a>
     </nav>`;
 }
 
@@ -2328,7 +2585,7 @@ function liveChangesSide(selected) {
           ${changeRows}
         </div>
         <div class="commit-box">
-          <div class="commit-options"><span class="commit-amend"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><span class="commit-last"><span>${escapeHtml(status.branch || "HEAD")}</span></span><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
+          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><span class="commit-last"><span>${escapeHtml(status.branch || "HEAD")}</span></span><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
           ${commitMessageBox()}
           <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
         </div>
@@ -2359,7 +2616,7 @@ function changesSide(selected = "app.manifest") {
           ${changeRows}
         </div>
         <div class="commit-box">
-          <div class="commit-options"><span class="commit-amend"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last file-status-modified" href="git-history.html" title="上一次提交"><span>上一次提交</span>${icon("history")}</a><span class="commit-count file-status-modified" title="${changesSamples.filter(file => file.group === "Changes").length} modified">${changesSamples.filter(file => file.group === "Changes").length} modified</span></div>
+          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last file-status-modified" href="git-history.html" title="上一次提交"><span>上一次提交</span>${icon("history")}</a><span class="commit-count file-status-modified" title="${changesSamples.filter(file => file.group === "Changes").length} modified">${changesSamples.filter(file => file.group === "Changes").length} modified</span></div>
           ${commitMessageBox()}
           <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
         </div>
@@ -2592,7 +2849,35 @@ function liveTextDocument(find) {
   const document_ = liveDocument();
   const name = document_.name || document_.path;
   const findBox = find ? currentFindBox() : "";
-  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} 只读正文">${liveLineViews(document_.text)}</div></div>`;
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} 只读正文">${liveLineViews(document_.text)}</div></div>`;
+}
+
+/**
+ * 大文件只读预览的警告横幅。
+ *
+ * 权威 `LargeFileNotificationProvider`（`platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/text/
+ * LargeFileNotificationProvider.java:37-58`）：`EditorNotificationPanel` 的 **Warning** 状态，文案
+ * `large.file.preview.notification` = **"The file is too large ({0}). Showing a read-only preview of the first {1}."**
+ * （`IdeBundle.properties:2120`，`{0}` 文件大小、`{1}` = `FileSizeLimit.getPreviewLimit(extension)`），
+ * 两个动作标签 `action.label.hide.notification`（**"Hide notification"**，只记在编辑器上、本次会话内隐藏）
+ * 与 `label.dont.show`（**"Don't show again"**，写进 `PropertiesComponent` 永久关闭）。
+ *
+ * 面板画在**编辑器顶部**（正文之上）；隐藏判定见 `largeFileWarningHidden()`。
+ */
+function largeFileBanner(document_, hidden = false) {
+  if (!document_ || !document_.readOnlyPreview || hidden) {
+    return "";
+  }
+
+  const size = formatFileSize(document_.fileSize);
+  const preview = formatFileSize(document_.previewBytes || document_.fileSize);
+  return `<div class="editor-notification warning" role="status" data-large-file-banner>`
+    + `<span class="editor-notification-icon">${icon("file-warning")}</span>`
+    + `<span class="editor-notification-text">文件过大（${escapeHtml(size)}）。这里显示前 ${escapeHtml(preview)} 的只读预览。</span>`
+    + `<span class="grow"></span>`
+    + `<button type="button" class="editor-notification-action" data-large-file-action="hide">隐藏通知</button>`
+    + `<button type="button" class="editor-notification-action" data-large-file-action="disable">不再显示</button>`
+    + `</div>`;
 }
 
 // 当前文件查找条：结构与视觉稿一致，初始为空状态。
@@ -2676,7 +2961,7 @@ function liveStashBody() {
     + `<input id="stash-root" class="text-field" value="${escapeHtml(root)}" readonly>`
     + `<label>当前分支</label><span class="stash-branch">${escapeHtml(branch)}</span>`
     + `<label for="stash-message">消息</label><textarea id="stash-message" class="message-field" data-stash-field="message"></textarea><span></span>`
-    + `<label class="check-line"><input id="stash-keep" type="checkbox" data-stash-field="keep">保留索引状态</label></div>`
+    + `<label class="check-line" title="勾选后，已加入索引的改动会原样保留"><input id="stash-keep" type="checkbox" data-stash-field="keep">保留索引状态</label><label class="check-line" title="勾选后，未跟踪文件也会一起暂存。"><input id="stash-include-untracked" type="checkbox" data-stash-field="includeUntracked">包含未跟踪文件</label></div>`
     + `<div class="stash-notice" role="status" hidden></div>`;
 }
 
@@ -2696,19 +2981,52 @@ function textView(find = false) {
   const query = state === 'invalid' ? '[' : state === 'timeout' ? '(a+)+$' : state === 'empty' ? '' : state === 'no-match' ? '不存在的文字' : 'Git';
   const result = state === 'loading' ? '正在搜索…' : state === 'timeout' ? '查找超时' : state === 'invalid' ? '正则表达式无效' : '';
   const findBox = find ? `<div class="current-find"><input class="search-field" value="${query}" aria-label="当前文件查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式" aria-pressed="${state === 'invalid' || state === 'timeout'}">${icon("regex")}</button><span class="find-status" title="${result}">${result}</span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>` : "";
-  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">Augit › src › Augit.App › MainWindow.cs　只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${findBox}<div class="code-view" tabindex="0">${codeLines(textViewerSourceLines, 23)}</div></div>`;
+  // `large-preview=1`／`large-preview=hidden`：大文件只读预览的警告横幅（有／已被隐藏）。
+  const largePreview = new URLSearchParams(window.location.search).get("large-preview");
+  const largeBanner = largePreview
+    ? largeFileBanner({ readOnlyPreview: true, fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024 }, largePreview === "hidden")
+    : "";
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">Augit › src › Augit.App › MainWindow.cs　只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${largeBanner}${findBox}<div class="code-view" tabindex="0">${codeLines(textViewerSourceLines, 23)}</div></div>`;
+}
+
+// 归属行的悬停提示按权威 GitFileAnnotation.getToolTip 拼装（plugins/git4idea/backend/src/annotate/
+// GitFileAnnotation.java:175-176 取纯文本变体，:184-206 拼装）：首行 `commit {修订}`，随后
+// `Author: {作者}`、`Date: {日期时间}` 各占一行，提交信息前空一行（换行规则见
+// platform/vcs-impl/src/com/intellij/openapi/vcs/annotate/AnnotationTooltipBuilder.java:35-60；
+// 文案见 platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties:975-977）。
+// 修订取其完整哈希（GitRevisionNumber.asString()，plugins/git4idea/backend/src/GitRevisionNumber.java:48-50），
+// 不是归属列旁显示的短哈希。权威的 `Path:` 行只在归属跨文件时追加（GitFileAnnotation.java:195-197），
+// 本视图是按文件归属，故不出现。提交信息取不到完整消息时权威退回“主题 + …”
+// （GitFileAnnotation.java:200-202），Augit 只有主题，同为一行。
+// `Date:` 用 `DateFormatUtil.formatDateTime`（日期 + 时间，platform/platform-api/src/com/intellij/
+// util/text/DateFormatUtil.java:120-124）；外壳 `git/blame` 因此同时回传短日期 `date`（槽位用）与
+// 日期时间 `dateTime`（本提示用），两者都取本地时区。
+function blameRowTooltip(revision, author, date, message) {
+  return `commit ${revision}\nAuthor: ${author}\nDate: ${date}\n\n${message}`;
+}
+
+/** 归属行悬停提示要用的日期串：优先宿主给的**日期时间**（`dateTime`），退化到短日期。 */
+function blameTooltipDate(line) {
+  return (line && (line.dateTime || line.date)) || "";
 }
 
 // 外壳注入真实 Blame 时使用：行高由既有 measureCodeViews 统一校准，槽位结构与样例一致。
 function liveBlameView() {
   const blame = window.__augitLive.blame;
   const lines = blame.lines || [];
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000只读</span><span class="grow"></span><span class="commit-meta">${lines.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" aria-label="定位第 ${line.number} 行的提交" class="blame-row"><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
+  // 工具栏在按**上一修订**标注时补一行说明（权威在新标签里标注，Augit 就地重标注 ⇒ 至少要能看出依据哪一版）。
+  const revisionNote = blame.revision
+    ? `<span class="commit-meta">上一修订 ${escapeHtml(String(blame.revision).slice(0, 7))}</span>`
+    : "";
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000只读</span>${revisionNote}<span class="grow"></span><span class="commit-meta">${lines.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" data-blame-previous="${escapeHtml(line.previousRevision || "")}" aria-label="定位第 ${line.number} 行的提交" class="blame-row" title="${escapeHtml(blameRowTooltip(line.fullHash || line.hash, line.author, blameTooltipDate(line), line.summary))}"><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
 }
 
 function blameView() {
-  const blame = sourceLines.map((_, index) => ["2026/8/28", "I49", index + 1]);
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">docs/product-spec.md　只读</span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" aria-label="定位第 ${item[2]} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}"><span>${item[0]}</span><span>${item[1]}</span><span>${item[2]}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
+  // 样例归属全部指向文件历史的根提交（data-blame-commit="commit-4"），悬停提示取该提交在日志样例里的
+  // 同一份数据（主题、作者 I49、2026/8/28 8:25），修订沿用本文件对该提交的既有显示值。
+  const tooltip = blameRowTooltip("commit-4", "I49", "2026/8/28 8:25", "feat: 实现 Augit 阶段零至五功能");
+  const blame = sourceLines.map((_, index) => ({ date: "2026/8/28", author: "I49", number: index + 1 }));
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">docs/product-spec.md　只读</span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" aria-label="定位第 ${item.number} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}" title="${escapeHtml(tooltip)}"><span>${item.date}</span><span>${item.author}</span><span>${item.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
 }
 
 function bindBlame() {
@@ -2831,13 +3149,717 @@ function commitGraphSvg(graph, index, rowHeight = 26) {
   return `<svg class="commit-graph-svg" data-graph-row='${JSON.stringify(row)}' viewBox="0 0 ${graph.width} ${rowHeight}" aria-hidden="true">${paths}${node}</svg>`;
 }
 
+// 当前分支的提交范围：权威 `CurrentBranchHighlighter` 用 "contained in current branch" 判定，
+// 即从当前分支 HEAD 沿父链可达的全部提交；被选中的行不染色（由 CSS 规则顺序保证选中优先）。
+// 实时数据里 `entry.hash` 是短哈希、`entry.parents` 是完整哈希，因此两边都建索引。
+function currentBranchCommitSet(entries) {
+  const byHash = new Map();
+  for (const entry of entries) {
+    byHash.set(entry.hash, entry);
+    if (entry.fullHash) byHash.set(entry.fullHash, entry);
+  }
+  const result = new Set();
+  const queue = entries.filter((entry) => entry.head);
+  while (queue.length > 0) {
+    const entry = queue.pop();
+    if (!entry || result.has(entry.hash)) continue;
+    result.add(entry.hash);
+    for (const parent of entry.parents || []) {
+      const next = byHash.get(parent);
+      if (next) queue.push(next);
+    }
+  }
+  return result;
+}
+
 // 外壳注入真实历史时使用：沿用与样例版一致的提交行、分支标签与图形结构。
+/**
+ * 日志左竖条：**分支面板自己的动作组**，不是日志级动作的堆放处。
+ *
+ * 权威 `git4idea` 的"日志里的分支面板"：`BranchesInGitLogUiFactoryProvider.createMainComponent()`
+ * （`plugins/git4idea/backend/src/ui/branch/dashboard/BranchesInGitLogUiFactoryProvider.kt:88-140`）
+ * 把日志主区做成 `simplePanel().addToLeft(expandControlPanel).addToCenter(branchViewSplitter)`，
+ * 其中 `expandControlPanel` 是一张 `CardLayout`：
+ *   - 展开卡片 = **竖向** `ActionToolbar`（`createActionToolbar("Git.Log.Branches", actions, false)`，
+ *     第三个实参 `false` 就是"竖向"），动作组 = `Git.Log.Hide.Branches` ＋ `Separator()` ＋
+ *     `BranchesDashboardTreeComponent.createActionGroup()`（同目录 `BranchesDashboardTreeComponent.kt:171-195`）；
+ *   - 折叠卡片 = `ExpandStripeButton`（同目录 `ExpandStripeButton.kt`：文本 "Show Branches"、图标
+ *     `AllIcons.Actions.ArrowExpand`，**文字旋转 90° 绘制**，悬停底色取 `ToolWindow.Button.hoverBackground`）。
+ *
+ * 权威那组动作按 `createActionGroup()` 的顺序是：新建分支／更新选中分支／删除分支／与当前分支比较／
+ * 我的分支／获取／收藏／定位到选中分支／(工具栏动作，本 checkout 为空组)／分隔／设置／全部展开／全部折叠。
+ * 文案与图标（`intellij.vcs.git.backend.xml:129,135-153`、`GitBundle.properties`）：
+ *   - `Git.Log.Hide.Branches` = "Hide Git Branches"（`:723`），图标 `AllIcons.Actions.ArrowCollapse`；
+ *   - `Git.New.Branch.In.Log` = "New Branch"（`DvcsBundle.properties:78`），图标 `AllIcons.General.Add`；
+ *   - `UpdateSelectedAction` = "Update Selected"（`:678`，图标 `AllIcons.Actions.CheckOut`）、
+ *     `DeleteBranchAction` = "Delete Branch"（`:688`，`AllIcons.Actions.GC`）、
+ *     `ShowBranchDiffAction` = "Compare with Current"（`:689`，`AllIcons.Actions.Diff`）、
+ *     `ShowMyBranchesAction` = "Show My Branches"（`:695`，`AllIcons.Actions.Find`）、
+ *     `Git.Fetch` = "Fetch"（`:653`，`AllIcons.Vcs.Fetch`）、
+ *     `ToggleFavoriteAction` = "Mark/Unmark As Favorite"（`:703`，`AllIcons.Nodes.Favorite`，
+ *     名字里有 Toggle 但它**不是** ToggleAction）、
+ *     `NavigateLogToSelectedBranchAction` = "Navigate Log to Selected Branch Head"（`:711`，`AllIcons.General.Locate`）、
+ *     `Git.Log.Branches.Settings` = "Branches Pane Settings"（`:705`，`AllIcons.General.GearPlain`）、
+ *     ExpandAll／CollapseAll（`ActionsBundle.properties:229,233`）；
+ *   - `Git.Log.Branches.Toolbar.Actions`（`:135`）在本 checkout 里是**空组**（无子项、无 add-to-group）⇒ 不渲染。
+ * 折叠卡片的 `ExpandStripeButton` 首选尺寸是 `ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE` = **22×22**
+ * （`ExpandStripeButton.kt:49-51`、`ActionToolbar.java:77-79`）；Augit 竖条的 28px 按钮是实测基线、且 28 ≥ 22
+ * （那个 22 是**下限**），两种状态统一到 28 以免折叠/展开时宽度跳变。
+ *
+ * 启用条件照各 action 的 `update()`（见 `BranchesDashboardActions.kt`）：全部动作在**没有选中引用**时禁用
+ * （`BranchesActionBase.update`），删除分支还要求"选中的引用没有一个是当前分支"
+ * （`DeleteBranchAction.update`：`refs.none { it.isCurrent || isRemoteBranchProtected }`），
+ * 与当前分支比较同理（`ShowBranchDiffAction.update`：`branches.none { !it.isCurrent }` ⇒ 禁用），
+ * 定位到选中分支要求选中节点有 `logNavigatableNodeDescriptor`
+ * （`NavigateLogToSelectedBranchAction.update`）。Augit 侧因此把"需要选中引用"的项画成**禁用并写明原因**，
+ * 并在引用树选中后由 `applyRefSelection()` 就地刷新 —— 与权威"项始终在、按选择启停"一致。
+ * 日志级动作（刷新）**不在**这里 —— 权威把 `Vcs.Log.Refresh` 放在横向工具条的右角。
+ */
+function gitLogStripe(collapsed = false) {
+  if (collapsed) {
+    // 折叠卡片：只留一个竖排的分支面板入口（权威 `ExpandStripeButton`）。
+    // 可见文字照权威的 `action.Git.Log.Show.Branches.text` = "Branches"（`GitBundle.properties:724`）；
+    // 这是**标签**而不是动作名，所以无障碍名另给"显示分支"。
+    return `<nav class="git-side-toolbar collapsed" aria-label="Git 分支面板"><button class="toolbar-button stripe-expand" type="button" aria-label="显示分支" title="显示分支" data-ref-stripe="show-branches"><span class="stripe-expand-label">分支</span>${icon("chevron-right")}</button></nav>`;
+  }
+  const state = refStripeState();
+  const entry = (action, label, iconName) => {
+    const item = state[action] || { enabled: true, reason: label };
+    // 权威 `DeleteBranchAction.update()` 的文案随选中集变化（全是分支 / 混了标签）⇒ 允许状态覆盖标签。
+    const text = item.label || label;
+    const pressed = item.checked === true;
+    const cls = `toolbar-button${pressed ? " selected" : ""}`;
+    const pressedAttr = pressed ? ' aria-pressed="true"' : "";
+    const title = pressed ? `${text}（已开启）` : text;
+    return item.enabled
+      ? `<button class="${cls}" type="button" aria-label="${escapeHtml(text)}"${pressedAttr} title="${escapeHtml(title)}" data-ref-stripe="${action}">${icon(iconName)}</button>`
+      : `<button class="${cls}" type="button" aria-label="${escapeHtml(text)}"${pressedAttr} title="${escapeHtml(item.reason)}" aria-disabled="true" data-ref-stripe="${action}" disabled>${icon(iconName)}</button>`;
+  };
+  return `<nav class="git-side-toolbar" aria-label="Git 分支面板">`
+    + entry("hide-branches", "隐藏分支", "chevron-left")
+    + `<span class="rail-separator"></span>`
+    + entry("new-branch", "新建分支…", "plus")
+    + entry("update-selected", "更新选中分支", "branch-update")
+    + entry("delete-branch", "删除分支…", "trash-2")
+    + entry("show-diff", "与当前分支比较", "git-compare-arrows")
+    + entry("my-branches", "我的分支", "search")
+    + entry("fetch", "获取", "branch-update")
+    + entry("favorite", "标记为收藏", "star")
+    + entry("locate-branch", "定位到选中分支", "locate-fixed")
+    + entry("settings", "分支面板设置", "settings")
+    + entry("expand-all", "全部展开", "chevron-down")
+    + entry("collapse-all", "全部折叠", "chevron-right")
+    + `</nav>`;
+}
+
+/**
+ * 竖条里"需要选中引用"的项的启用状态（顺序与文案见 `gitLogStripe()` 的权威表）。
+ *
+ * 判据全部来自权威的 `update()`；"Augit 尚未提供"的项（引用之间的整份比较、
+ * 收藏/我的分支/分组）另给原因，等能力落地后再按同一张表改。
+ */
+function refStripeState() {
+  const live = window.__augitLive || {};
+  const references = live.references || { branches: [], tags: [] };
+  // 选中集（权威 `BranchesTreeSelection`：引用树是 `DISCONTIGUOUS_TREE_SELECTION`，动作判据都对**整个选中集**）。
+  const selections = Array.isArray(live.logRefSelection) ? live.logRefSelection.filter((item) => item && item.name) : [];
+  const branches = references.branches || [];
+  const tags = references.tags || [];
+  const selectedBranches = selections
+    .filter((item) => item.kind === "branch" || item.kind === "remote")
+    .map((item) => branches.find((branch) => branch.isRemote === (item.kind === "remote") && branch.name === item.name))
+    .filter(Boolean);
+  const selectedTags = selections
+    .filter((item) => item.kind === "tag")
+    .map((item) => tags.find((tag) => tag.name === item.name))
+    .filter(Boolean);
+  const headSelected = selections.some((item) => item.kind === "head");
+  const hasSelection = selections.length > 0;
+  const isBranch = selectedBranches.length > 0;
+  const currentSelected = selectedBranches.some((branch) => branch.isCurrent);
+  // 权威 `UpdateSelectedBranchAction`：`isTrackingInfosExist(branchNames)` 只要**有**一个选中分支
+  // 配了跟踪就可用；当前分支那一支走"更新方式"，Augit 未提供 ⇒ 只对非当前分支生效（登记差异）。
+  const trackedNonCurrent = selectedBranches.filter((branch) => !branch.isCurrent && branch.upstream);
+  const nonCurrentBranches = selectedBranches.filter((branch) => !branch.isCurrent);
+  // 权威 `DeleteBranchAction.update()`：`allRefsAreBranches = refs.all { it is BranchInfo }` ——
+  // **空集也成立**（vacuous），所以没选中时文案仍是 `action.Git.Delete.Branch.title`；
+  // 一旦混进标签就换成 `button.delete` = "Delete"。中文没有复数形态，因此数量由选中集本身表达
+  // （英文的 `{0,choice,1#Branch|2#Branches}` 在这里塌成同一个字符串，登记这条本地化差异）。
+  // 只看选中集里的 kind（不依赖 `live.references` 是否已加载）：标签/HEAD 一旦入集就不是"全是分支"。
+  const selectionIncludesTag = selections.some((item) => item.kind === "tag");
+  const allBranches = !selectionIncludesTag && !headSelected;
+  // 权威 `UpdateSelectedBranchAction.update()`：`GitFetchSupport.fetchSupport(project).isFetchRunning` 为真时禁用。
+  const fetchRunning = !!live.logFetchRunning;
+  const selectBranch = "先在引用树中选中一个非当前分支。";
+  const trackingMissing = "选中的分支没有配置跟踪的远端分支。";
+  return {
+    "new-branch": { enabled: true, reason: "新建分支…" },
+    "fetch": { enabled: !fetchRunning, reason: fetchRunning ? "获取正在进行中。" : "获取" },
+    "hide-branches": { enabled: true, reason: "隐藏分支" },
+    // 权威 `UpdateSelectedBranchAction.update()`：`hasRemotes` ＋ 非 fetch 进行中 ＋ `isTrackingInfosExist`；
+    // 动作对**每个**选中的非当前分支按它自己的 refspec 快进（`GitBranchActionsUtil.updateBranches()`），
+    // 对当前分支改走"更新方式"（合并或 rebase）—— 那条通道 Augit 尚未提供，故排除在选中集之外。
+    "update-selected": {
+      enabled: trackedNonCurrent.length > 0 && !fetchRunning,
+      reason: !isBranch ? selectBranch
+        : currentSelected && nonCurrentBranches.length === 0
+          ? "当前分支的更新在权威里按更新方式合并（或 rebase），Augit 尚未提供该通道。"
+          : nonCurrentBranches.length === 0 ? selectBranch
+            : trackedNonCurrent.length === 0 ? trackingMissing
+              : "获取正在进行中。",
+    },
+    // 权威 `DeleteBranchAction.update()`：`refs.none { it.isCurrent || isRemoteBranchProtected }` ——
+    // 选中集里任何一个当前分支都会禁用整个动作（不是只跳过它）。
+    "delete-branch": {
+      enabled: hasSelection && !currentSelected,
+      label: allBranches ? "删除分支…" : "删除",
+      reason: currentSelected
+        ? "选中的引用里有当前已检出的分支，不能删除。"
+        : hasSelection ? (selectionIncludesTag ? "删除" : "删除分支…") : "先选中一个引用。",
+    },
+    // 权威 `ShowBranchDiffAction.update()`（`BranchesDashboardActions.kt:290-313`）：`RefActionBase`
+    // 要求有选中的引用，且 `selectedBranches` 里**至少有一个不是当前分支**才可用；
+    // `actionPerformed` 对**每个**非当前分支各比较一次。
+    "show-diff": {
+      enabled: nonCurrentBranches.length > 0,
+      reason: !isBranch ? selectBranch
+        : nonCurrentBranches.length === 0 ? "选中的分支全是当前分支，与自身比较没有可显示的提交。" : "与当前分支比较",
+    },
+    "my-branches": {
+      enabled: true,
+      checked: !!live.showOnlyMyBranches,
+      reason: live.myBranchesLoading ? "正在计算我的分支…" : "我的分支",
+    },
+    // 权威 `ToggleFavoriteAction`（`BranchesDashboardActions.kt:459-472`）是**新增的持久化状态**
+    // （`GitBranchManager.setFavorite` → `GitVcsSettings.branchSettings`，落在 workspace 文件），
+    // 且影响行图标与排序。按用户裁决的范围边界（不新增 Augit 没有的功能）**暂不实施**、待产品裁决。
+    "favorite": { enabled: false, reason: "分支收藏是新增的项目级持久化状态，按范围边界待产品裁决。" },
+    // 权威 `NavigateLogToSelectedBranchAction.update()`：选中节点要有 `logNavigatableNodeDescriptor`。
+    "locate-branch": { enabled: hasSelection, reason: hasSelection ? "定位到选中分支" : "先选中一个引用。" },
+    // 权威 `Git.Log.Branches.Settings`：弹层本身可用；其中只有「显示标签」在 Augit 侧能立即生效。
+    "settings": { enabled: true, reason: "分支面板设置" },
+    // 权威 `ExpandAllAction`／`CollapseAllAction`：经 `TreeExpander` 作用在分组树上（引用树已有 本地/远程/标签 三组）。
+    "expand-all": { enabled: !!live.references, reason: live.references ? "全部展开" : "引用尚未加载。" },
+    "collapse-all": { enabled: !!live.references, reason: live.references ? "全部折叠" : "引用尚未加载。" },
+  };
+}
+
+/**
+ * 引用树（权威 `BranchesDashboardTreeComponent`）："分支或标签" 搜索 ＋ 引用树。
+ *
+ * 结构照权威的模型：HEAD/当前分支一行 ＋ `本地`／`远程`／`标签` 分组
+ * （本轮只落地这些；收藏分区、"我的分支"过滤、按目录/按仓库分组与"显示标签"开关见 `10-backlog.md` §三·前 第 6 项）。
+ * 选中态落在 `live.logRefSelection`（`{name, kind}`），跨区域刷新保留；搜索词落在 `live.logRefFilter`。
+ * 引用尚未到达时退回"从已加载提交推出来的分支名"——不编造引用。
+ */
+function liveRefTree() {
+  const live = window.__augitLive || {};
+  const filter = (live.logRefFilter || "").trim().toLowerCase();
+  // 选中集（权威 `BranchesTreeSelection`：`DISCONTIGUOUS_TREE_SELECTION`，可同时选中多个节点）。
+  const selections = Array.isArray(live.logRefSelection) ? live.logRefSelection.filter((item) => item && item.name) : [];
+  const refSelected = (name, kind) => selections.some((item) => item.name === name && item.kind === kind);
+  const visible = (name) => !filter || name.toLowerCase().includes(filter);
+  // 行内容照权威 `BranchTreeCellRenderer`（`BranchesTree.kt:130-152`）：只有名字（图标另示当前/收藏）；
+  // 上游引用**只进 tooltip**（`:141-143,163-170` 的 `LinkedBranchDataImpl`），不写在行里。
+  //
+  // `ancestors` 是这一行所属的**全部可折叠祖先**（外层类型分组 ＋ 各层前缀分组），
+  // 折叠/搜索时就地刷新只用它判定可见性，不必再按兄弟节点推算层级。
+  // `depth` 用既有的 `.depth-N` 缩进阶梯（`.tree-row.depth-1` = 20px，`mockup.css:742-745`）：
+  // 类型分组的直接子节点是 1（与分组功能落地前一致），每进一层前缀多一级。
+  const row = (item, kind, ancestors, depth) => {
+    const selected = refSelected(item.name, kind);
+    const iconKind = kind === "tag" ? "tag" : kind === "remote" ? "remote" : "local";
+    const tip = kind === "branch" && item.upstream ? `${item.name} → ${item.upstream}` : item.name;
+    return `<div class="tree-row depth-${Math.min(depth, 4)}${selected ? " selected" : ""}" role="treeitem" tabindex="0" aria-selected="${selected ? "true" : "false"}" title="${escapeHtml(tip)}" data-ref-name="${escapeHtml(item.name)}" data-ref-kind="${kind}" data-ref-current="${item.isCurrent ? "true" : "false"}" data-ref-commit="${escapeHtml(item.commitHash || "")}" data-ref-group-owner="${escapeHtml(ancestors[0] || "")}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}">${gitReferenceIcon(iconKind)} ${escapeHtml(item.name)}</div>`;
+  };
+  // 排序照权威 `getRefComparator()`（`GitBranchesTreeModel.kt:141-152`）：
+  // 当前分支 → 收藏（Augit 暂无）→ **按目录分组开启时名字含 `/` 的在前**（第三个键
+  // `!(isDirectoryGrouping && name.contains('/'))`）→ 引用名自然序
+  // （`GitReference.REFS_NAMES_COMPARATOR` = `NaturalComparator`，忽略大小写优先）。
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), "zh-Hans", { numeric: true, sensitivity: "base" });
+  // 「按目录分组」（权威 `git.branches.group.by.directory`，`GitGroupBranchByDirectoryAction`；
+  // 默认**开启** —— `DvcsBranchSettings.groupingKeyIds` 的默认值就是 `GROUPING_BY_DIRECTORY`，
+  // `platform/dvcs-impl/shared/src/com/intellij/dvcs/branch/DvcsBranchSettings.kt:22-23,26-28`）。
+  const grouping = live.logRefGroupByDirectory !== false;
+  const order = (items) => [...items].sort((a, b) => (b.isCurrent ? 1 : 0) - (a.isCurrent ? 1 : 0)
+    || (grouping ? (b.name.includes("/") ? 1 : 0) - (a.name.includes("/") ? 1 : 0) : 0)
+    || byName(a, b));
+  // 分组可折叠（权威是标准 JTree：`FilteringTree` + `SmartExpander`，打开时 `TreeUtil.expandAll` 默认全展开）。
+  // 折叠状态按**折叠键**记在 `live.logRefCollapsed`（跨区域刷新保留）：类型分组用组名（`本地`），
+  // 前缀分组用"类型/路径"（`本地/feature`），因此两层键不会互相撞名。
+  // 行始终渲染，折叠只体现在 `hidden` 上，这样搜索时能照权威"过滤时展开全部"
+  // （`FilteringTree.java:137-139`）就地显示命中行。
+  const collapsedGroups = live.logRefCollapsed || {};
+  const groupHeader = (label, key, ancestors, depth) => {
+    const collapsed = !!collapsedGroups[key] && !filter;
+    return `<div class="tree-row group-row depth-${Math.min(depth, 4)}${collapsed ? " collapsed" : ""}" role="treeitem" tabindex="0" aria-expanded="${collapsed ? "false" : "true"}" data-ref-collapse-key="${escapeHtml(key)}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}"${label ? ` data-ref-group="${escapeHtml(label)}"` : ` data-ref-prefix-group="${escapeHtml(key)}"`}><span>${icon(collapsed ? "chevron-right" : "chevron-down")}</span><strong>${escapeHtml(label || key.split("/").at(-1))}</strong></div>`;
+  };
+  /**
+   * 按目录分组（权威 `LazyRefsSubtreeHolder.buildSubTree()`，`GitBranchesTreeModelUtil.kt:255-289`）：
+   * 名字按 `/` 切段逐层构树，**组节点落在第一个成员的位置**（`LinkedHashMap` 的插入序）；
+   * 组内的子节点再按 `getSubTreeComparator()`（`GitBranchesTreeModel.kt:154-160`：子组 → 当前分支 → 其它）
+   * **稳定**排序，而类型层（本地／远程／标签）的子节点不重排、保持 `getRefComparator()` 的顺序
+   * （`GitBranchesTreeSingleRepoModel.kt:49-53` 只对 `BranchesPrefixGroup` 的子节点排序）。
+   */
+  const subtreeRows = (entries, kind, typeLabel, ancestors, depth, prefixPath, nested) => {
+    const nodes = [];
+    const groups = new Map();
+    for (const entry of entries) {
+      const [first, ...rest] = entry.parts;
+      if (rest.length === 0) {
+        nodes.push({ ref: entry.item });
+      } else {
+        if (!groups.has(first)) {
+          groups.set(first, []);
+          nodes.push({ prefix: first });
+        }
+        groups.get(first).push({ item: entry.item, parts: rest });
+      }
+    }
+    if (nested) {
+      const rank = (node) => (node.prefix ? 0 : node.ref.isCurrent ? 1 : 2);
+      nodes.sort((a, b) => rank(a) - rank(b));
+    }
+    return nodes.map((node) => {
+      if (node.ref) return row(node.ref, kind, ancestors, depth);
+      const childPath = prefixPath ? `${prefixPath}/${node.prefix}` : node.prefix;
+      const key = `${typeLabel}/${childPath}`;
+      return groupHeader("", key, ancestors, depth)
+        + subtreeRows(groups.get(node.prefix), kind, typeLabel, [...ancestors, key], depth + 1, childPath, true);
+    }).join("");
+  };
+  const group = (label, items, kind) => {
+    if (items.length === 0) return "";
+    const header = groupHeader(label, label, [], 0);
+    if (!grouping) return header + items.map((item) => row(item, kind, [label], 1)).join("");
+    // 前缀分组的祖先链从类型分组开始，`subtreeRows` 再从空的前缀路径往下叠。
+    return header + subtreeRows(items.map((item) => ({ item, parts: String(item.name).split("/") })), kind, label, [label], 1, "", false);
+  };
+  const references = live.references;
+  if (!references) {
+    const names = new Set();
+    for (const commit of (live.history && live.history.commits) || []) {
+      for (const name of commit.references || []) if (name !== "HEAD" && name !== "origin/HEAD") names.add(name);
+    }
+    const rows = [...names].sort().filter(visible);
+    return refTreeShell(group("本地", rows.map((name) => ({ name })), "branch"));
+  }
+  const branches = references.branches || [];
+  const tags = references.tags || [];
+  // 「我的分支」（权威 `BranchesDashboardTreeModelBase.showOnlyMy` → `NodeDescriptorsModel.buildTreeNodes`
+  // 的过滤器 `(ref as? BranchInfo)?.isMy == ThreeState.YES`，`BranchesTreeModel.kt:209-221`）：
+  // HEAD 行在过滤之前**无条件**加入（`:215`），只留"我的"分支；标签不是 `BranchInfo` ⇒ 一并被过滤掉。
+  const mine = live.showOnlyMyBranches ? new Set(live.myBranchNames || []) : null;
+  const branchVisible = (branch) => (!mine || mine.has(branch.name)) && visible(branch.name);
+  const local = order(branches.filter((branch) => !branch.isRemote && branchVisible(branch)));
+  const remote = order(branches.filter((branch) => branch.isRemote && branchVisible(branch)));
+  const visibleTags = order(mine ? [] : tags.filter((tag) => visible(tag.name)));
+  const current = branches.find((branch) => branch.isCurrent && !branch.isRemote);
+  // 权威 `BranchesTree.kt:210-217`：`HEAD` 节点的匹配文本是 null ⇒ **任何搜索词都保留它**。
+  const headName = current ? current.name : "HEAD";
+  const headPicked = refSelected(headName, "head");
+  const headRow = `<div class="tree-row${headPicked ? " selected" : ""}" role="treeitem" tabindex="0" aria-selected="${headPicked ? "true" : "false"}" data-ref-name="${escapeHtml(headName)}" data-ref-kind="head" data-ref-current="true" data-ref-commit="${escapeHtml((current && current.commitHash) || "")}">HEAD（当前分支）</div>`;
+  // 权威 `git.branches.show.tags`（`GitBranchesTreeShowTagsAction`，默认 true，持久化在项目设置里）。
+  const showTags = live.logRefShowTags !== false;
+  return refTreeShell(headRow + group("本地", local, "branch")
+    + group("远程", remote, "remote")
+    + (showTags ? group("标签", visibleTags, "tag") : "")
+    // 「我的分支」开着却没有命中任何分支时如实说明，不留一个只有 HEAD 行的空树。
+    + (mine && local.length === 0 && remote.length === 0
+      ? `<p class="commit-meta">${escapeHtml(live.myBranchesLoading ? "正在计算我的分支…" : (live.myBranchesReason || `没有只属于 ${live.myBranchesAuthor || "你"} 的分支`))}</p>`
+      : ""));
+}
+
+/**
+ * 分支面板设置弹层（权威 `Git.Log.Branches.Settings`，组名 "Branches Pane Settings"、
+ * 第一段分隔文案 "On Single Click"，`intellij.vcs.git.backend.xml:142-153`、`GitBundle.properties:705-706`）。
+ *
+ * 条目按权威顺序：更新分支筛选（单击时筛选日志）／导航到分支头（单击时定位）／分隔／按目录分组／
+ * 按仓库分组／显示标签（`action.git.branches.show.tags.text`，`DumbAwareToggleAction`，默认 true）。
+ * 「单击时」两项是**互斥的**行为开关（`SelectionHandlingModeAction`，`BranchesDashboardActions.kt:474-496`，
+ * 默认都不生效），状态落在 `live.logRefSelectionAction`（`null`／`"filter"`／`"navigate"`）；
+ * 分组两项需要前缀分组与多仓库，故仍禁用并写明原因。
+ */
+function refPaneSettingsMenu() {
+  const live = window.__augitLive || {};
+  const showTags = live.logRefShowTags !== false;
+  // 「按目录分组」默认**开启**（权威 `DvcsBranchSettings.groupingKeyIds` 的默认值就是 `directory`）。
+  const groupByDirectory = live.logRefGroupByDirectory !== false;
+  const selectionAction = live.logRefSelectionAction || null;
+  const disabled = (label, reason) => `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}">${icon("none")} ${label}</span>`;
+  // 互斥的单选项：选中一个即清掉另一个（权威把两个布尔属性互斥地写回日志 UI 属性）。
+  const singleClick = (key, label) => `<a class="menu-item" href="#" role="menuitemradio" aria-checked="${selectionAction === key ? "true" : "false"}" data-ref-selection-action="${key}"><span class="fake-check${selectionAction === key ? " checked" : ""}"></span> ${label}</a>`;
+  return `<section class="popover context-menu ref-settings-menu" aria-label="分支面板设置">`
+    + `<div class="menu-item menu-group-label"><strong>单击时</strong></div>`
+    + singleClick("filter", "更新分支筛选")
+    + singleClick("navigate", "导航到分支头")
+    + `<div class="menu-separator"></div>`
+    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${groupByDirectory ? "true" : "false"}" data-ref-setting="group-by-directory"><span class="fake-check${groupByDirectory ? " checked" : ""}"></span> 按目录分组</a>`
+    + disabled("按仓库分组", "Augit 只打开一个仓库。")
+    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${showTags ? "true" : "false"}" data-ref-setting="show-tags"><span class="fake-check${showTags ? " checked" : ""}"></span> 显示标签</a>`
+    + `</section>`;
+}
+
+/**
+ * 「分支」筛选控件的弹层（权威 `BranchFilterPopupComponent`，`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/BranchFilterPopupComponent.java`：
+ * `MultipleValueFilterPopupComponent` 的复选列表 ＋ `vcs.log.filter.all` = "All" 的清除项，
+ * 值文本取 `BranchFilterModel.getFilterPresentation()`）。
+ *
+ * Augit 的引用树目前是**单选**（多选登记在 `10-backlog.md` §三·前 第 6 项①），
+ * 因此这里是单选项列表：全部／HEAD（当前分支）／本地／远程；当前生效的分支打勾。
+ * `HEAD` 这一项照权威：`getBranchLikeFilterParameters()` 的候选名里永远含 `GitUtil.HEAD`
+ * （`GitLogProvider.kt:545-548`）。
+ */
+function historyBranchFilterMenu() {
+  const live = window.__augitLive || {};
+  const branch = (live.historyFilter && live.historyFilter.branch) || "";
+  const references = live.references || { branches: [] };
+  const branches = references.branches || [];
+  const item = (value, label) => `<a class="menu-item" href="#" role="menuitemradio" aria-checked="${branch === value ? "true" : "false"}" data-history-branch="${escapeHtml(value)}"><span class="fake-check${branch === value ? " checked" : ""}"></span> ${escapeHtml(label)}</a>`;
+  const group = (title, rows) => rows.length === 0 ? "" : `<div class="menu-item menu-group-label"><strong>${title}</strong></div>` + rows.join("");
+  const local = branches.filter((entry) => !entry.isRemote).map((entry) => item(entry.name, entry.name));
+  const remote = branches.filter((entry) => entry.isRemote).map((entry) => item(entry.name, entry.name));
+  return `<section class="popover context-menu history-branch-menu" aria-label="按分支筛选">`
+    + item("", "全部")
+    + `<div class="menu-separator"></div>`
+    + item("HEAD", "HEAD（当前分支）")
+    + group("本地", local)
+    + group("远程", remote)
+    + `</section>`;
+}
+
+function refTreeShell(inner) {
+  const live = window.__augitLive || {};
+  return `<div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签" value="${escapeHtml(live.logRefFilter || "")}"></label></div><div class="tree" role="tree" aria-label="分支或标签">${inner || '<p class="commit-meta">没有引用</p>'}</div></div>`;
+}
+
+/** 引用树选中后**就地**刷新选中态与竖条的启停，不整块重绘（权威的 `update()` 也是按选择刷状态）。 */
+window.__augitApplyRefSelection = () => {
+  const live = window.__augitLive || {};
+  const selections = Array.isArray(live.logRefSelection) ? live.logRefSelection.filter((item) => item && item.name) : [];
+  document.querySelectorAll(".log-ref-panel .tree-row[data-ref-name]").forEach((node) => {
+    const selected = selections.some((item) => item.name === node.dataset.refName && item.kind === node.dataset.refKind);
+    node.classList.toggle("selected", selected);
+    node.setAttribute("aria-selected", selected ? "true" : "false");
+  });
+  const state = refStripeState();
+  document.querySelectorAll(".git-side-toolbar [data-ref-stripe]").forEach((button) => {
+    const item = state[button.dataset.refStripe];
+    if (!item) return;
+    button.disabled = !item.enabled;
+    // 就地刷新也要更新**文案与按下态**：`DeleteBranchAction` 的文案随选中集变化、
+    // 「我的分支」是 ToggleAction —— 只在整块重绘时更新会让这两者停留在旧值（第 183 轮实测）。
+    const text = item.label || button.getAttribute("aria-label");
+    if (item.label) {
+      button.setAttribute("aria-label", item.label);
+    }
+    const pressed = item.checked === true;
+    if (pressed) {
+      button.setAttribute("aria-pressed", "true");
+      button.classList.add("selected");
+    } else {
+      button.removeAttribute("aria-pressed");
+      button.classList.remove("selected");
+    }
+    if (item.enabled) {
+      button.removeAttribute("aria-disabled");
+      button.title = pressed ? `${text}（已开启）` : text;
+    } else {
+      button.setAttribute("aria-disabled", "true");
+      button.title = item.reason;
+    }
+  });
+};
+
+/**
+ * 引用树的折叠与"分支或标签"搜索共用一次就地刷新：
+ *   - 折叠：`live.logRefCollapsed` 记住被折叠的**折叠键**（类型分组＝组名，前缀分组＝`类型/路径`），
+ *     组内行 `hidden`；组头的箭头与 `aria-expanded` 同步；
+ *   - 搜索：按引用名匹配（HEAD 行恒保留），**过滤期间忽略折叠**（权威 `FilteringTree.java:137-139`
+ *     "pattern 非空即 `expandAll`"）；清空后回到各自的折叠状态。
+ *
+ * 每一行都带 `data-ref-ancestors`（它所属的**全部**可折叠祖先键，从外到内），
+ * 因此一层的折叠能连带隐藏所有更深层内容，不必按兄弟节点推算层级（按目录分组落地前是那样做的）。
+ */
+window.__augitApplyRefTreeFilter = (value) => {
+  const live = window.__augitLive || {};
+  if (value !== undefined) live.logRefFilter = value;
+  const needle = String(live.logRefFilter || "").trim().toLowerCase();
+  const collapsed = live.logRefCollapsed || {};
+  const keysOf = (node) => String(node.dataset.refAncestors || "").split("|").filter(Boolean);
+  const hiddenByCollapse = (node) => keysOf(node).some((key) => collapsed[key]);
+  const panel = document.querySelector(".log-ref-panel");
+  if (!panel) return;
+  panel.querySelectorAll(".tree-row[data-ref-name]").forEach((node) => {
+    if (node.dataset.refKind === "head") { node.hidden = false; return; }
+    if (needle) node.hidden = !node.dataset.refName.toLowerCase().includes(needle);
+    else node.hidden = hiddenByCollapse(node);
+  });
+  // 分组行从**内层往外**算：内层先定 `hidden`，外层的"有没有可见后代"才准。
+  const groupRows = [...panel.querySelectorAll(".tree-row.group-row")].reverse();
+  for (const node of groupRows) {
+    const key = node.dataset.refCollapseKey;
+    const isCollapsed = !!collapsed[key] && !needle;
+    node.classList.toggle("collapsed", isCollapsed);
+    node.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    const chevron = node.querySelector("span");
+    if (chevron) chevron.innerHTML = icon(isCollapsed ? "chevron-right" : "chevron-down");
+    if (needle) {
+      // 过滤期间按"还有没有可见的后代"决定这一层是否出现；`data-ref-ancestors` 里含本键的即后代。
+      node.hidden = ![...panel.querySelectorAll(".tree-row[data-ref-name], .tree-row.group-row")]
+        .some((other) => other !== node && keysOf(other).includes(key) && !other.hidden && other.dataset.refCollapseKey !== key);
+    } else {
+      node.hidden = hiddenByCollapse(node);
+    }
+  }
+};
+
+/** 竖条的「全部展开／全部折叠」（权威 `ExpandAllAction`／`CollapseAllAction`）：作用于**所有**分组层级。 */
+window.__augitSetRefTreeExpanded = (expanded) => {
+  const live = window.__augitLive || {};
+  const labels = [...document.querySelectorAll(".log-ref-panel .tree-row.group-row")]
+    .map((n) => n.dataset.refCollapseKey)
+    .filter(Boolean);
+  live.logRefCollapsed = expanded ? {} : Object.fromEntries(labels.map((label) => [label, true]));
+  window.__augitApplyRefTreeFilter();
+  return labels.length;
+};
+
+/** 筛选控件上的值文本：权威 `MultipleValueFilterPopupComponent.getText()` 截到 20 字符
+ *  （`MAX_FILTER_VALUE_LENGTH = 20`，`MultipleValueFilterPopupComponent.java:41,88-90`）。 */
+function truncateFilterValue(value) {
+  const text = String(value || "");
+  return text.length > 20 ? `${text.slice(0, 19)}…` : text;
+}
+
+/**
+ * 日志筛选栏的四个筛选控件（权威 `VcsLogClassicFilterUi.createActionGroup()`：分支／用户／日期／路径／
+ * 图选项；`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/VcsLogClassicFilterUi.kt:145-151`）。
+ *
+ * 每个控件是本仓库里 `com.intellij.util.ui.FilterComponent` 的实例（`platform/vcs-log/impl/.../FilterComponent.java`）：
+ *   - `DrawLabelMode.ALWAYS` ⇒ 文本是"名称"（未设值时）或"名称: 值"（设了值时）；
+ *   - 右侧按钮的图标**未设值时是向下箭头 `AllIcons.General.ArrowDown`，设了值换成关闭叉 `AllIcons.Actions.Close`**；
+ *   - 点关闭叉（或键盘 `Delete`）复位该筛选，点其余部分打开弹层（`createResetAction()`、
+ *     `showPopupMenuFromKeyboardAndClearOnDelete()`、`FilterComponent.java:96-200`）。
+ *
+ * Augit 侧目前只有「分支」有真实筛选（引用树双击/回车，或本控件弹层；宿主 `git/history` 的 `branch`）。
+ * 其余三项**禁用并写明原因**，而不是保留"改占位符"那种假交互。
+ */
+/**
+ * 筛选栏收纳菜单里的同四项（权威在窄宽度下把筛选控件收进 `ActionToolbar` 的溢出菜单，
+ * 条目仍带各自的可用状态与当前值）。禁用项同样写明原因。
+ */
+/**
+ * 用户筛选在控件上的值文本（权威 `MultipleValueFilterPopupComponent` 的值显示 = 已选用户列表）。
+ */
+function historyAuthorFilterText(filter) {
+  const values = filter && Array.isArray(filter.authors) ? filter.authors : [];
+  return values.length === 0 ? "" : values.join(", ");
+}
+
+/**
+ * 用户筛选弹层（权威 `UserFilterPopupComponent` = `MultipleValueFilterPopupComponent` 的**复选列表**
+ * ＋ 全选/全不选，值进 `VcsLogFilterObject.fromUserNames(values)`，复选框一变就 `setFilter`）。
+ * 列表来自宿主 `git/authors`（历史里出现过的人）；勾选即应用。
+ * **登记差异**：Augit 暂未做搜索框与显式「Filter」按钮（列表直接应用）。
+ */
+function historyUserFilterMenu() {
+  const live = window.__augitLive || {};
+  const authors = live.historyAuthors || [];
+  const selected = new Set(((live.historyFilter || {}).authors) || []);
+  const keyOf = (author) => author.email || author.name;
+  // 权威 `MultipleValueFilterPopupComponent` 的列表顶部有**搜索框**：按名字/邮箱过滤列表行。
+  const needle = String(live.historyUserFilter || "").trim().toLowerCase();
+  const row = (author) => {
+    const key = keyOf(author);
+    const checked = selected.has(key);
+    const text = `${author.name || key} <${author.email || ""}>`;
+    const hidden = !!needle && !text.toLowerCase().includes(needle);
+    return `<a class="menu-item" href="#" role="menuitemcheckbox"${hidden ? " hidden" : ""} aria-checked="${checked ? "true" : "false"}" data-history-user="${escapeHtml(key)}"><span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(author.name || key)} &lt;${escapeHtml(author.email || "")}&gt;</a>`;
+  };
+  const all = authors.length > 0 && authors.every((author) => selected.has(keyOf(author)));
+  return `<section class="popover context-menu history-user-menu" aria-label="按用户筛选">`
+    + `<label class="history-search">${icon("search")}<input class="search-field" placeholder="搜索用户" aria-label="搜索用户" value="${escapeHtml(live.historyUserFilter || "")}"></label>`
+    + `<a class="menu-item" href="#" data-history-user-all="true"><span class="fake-check${all ? " checked" : ""}"></span> 全选</a>`
+    + `<a class="menu-item" href="#" data-history-user-none="true">${icon("none")} 全不选</a>`
+    + `<div class="menu-separator"></div>`
+    + (authors.length === 0
+      ? `<span class="menu-item disabled" aria-disabled="true">${icon("none")} ${live.historyAuthorsLoading ? "正在读取作者…" : "没有可选的用户"}</span>`
+      : authors.map(row).join(""))
+    + `</section>`;
+}
+
+/**
+ * 路径筛选在控件上的值文本（权威 `StructureFilterPopupComponent.getText()`，
+ * `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/StructureFilterPopupComponent.java:96-137`）：
+ * 路径按 `FILE_PATH_BY_PATH_COMPARATOR`（`getPresentableUrl()`，同文件 `:296-302`）排序后取第一条，
+ * 用 `StringUtil.shortenPathWithEllipsis(path, FILTER_LABEL_LENGTH)` 缩到 30 个字符
+ * （`StructureFilterPopupComponent.java:63` 的 `FILTER_LABEL_LENGTH = 30`；
+ * `platform/util/src/com/intellij/openapi/util/text/StringUtil.java:2841-2848` ⇒
+ * 保留前 `30 - 21 - 3 = 6` 个字符 ＋ `"..."` ＋ 末 21 个字符，其中 21 = `(int)(30 * 0.7)`）；
+ * 多于一条时是「第一条 + N」（`firstFileName + " + " + (files.size() - 1)`，同文件 `:123-136`）。
+ */
+function shortenPathValue(value, maxLength) {
+  const text = String(value || "");
+  if (text.length <= maxLength) return text;
+  const suffixLength = Math.trunc(maxLength * 0.7);
+  return `${text.slice(0, maxLength - suffixLength - 3)}...${text.slice(text.length - suffixLength)}`;
+}
+
+function historyPathFilterText(filter) {
+  const paths = (((filter && filter.paths) || [])).map((value) => String(value || "")).filter(Boolean);
+  if (paths.length === 0) return "";
+  const first = paths.slice().sort()[0];
+  const text = shortenPathValue(first, 30);
+  return paths.length === 1 ? text : `${text} + ${paths.length - 1}`;
+}
+
+/**
+ * 路径筛选的悬停提示（权威 `StructureFilterPopupComponent.getToolTip()` 的 `getTooltipTextForFilePaths`
+ * ＋ `vcs.log.filter.tooltip.folders` = "Paths:"）：排序后最多列 10 条，多出的用 `...` 收尾
+ * （同文件 `:147-166`）。Augit 单根 ⇒ 没有「根」那一段（`vcs.log.filter.tooltip.roots`）。
+ */
+function historyPathFilterTooltip(filter) {
+  const paths = (((filter && filter.paths) || [])).map((value) => String(value || "")).filter(Boolean).sort();
+  if (paths.length === 0) return "";
+  const head = paths.slice(0, 10);
+  return `路径: ${head.join(" ")}${paths.length > 10 ? " ..." : ""}`;
+}
+
+/**
+ * 路径筛选弹层（权威 `StructureFilterPopupComponent.createActionGroup()`，同文件 `:170-205`）：
+ * 「选择…」= `EditPathsAction`（文本 `vcs.log.filter.edit.folders` = "Select…"，用一个多行文本框
+ * `MultilinePopupBuilder` 收一组按 `\n` 分隔的路径，`Ctrl+Enter` 收尾）、
+ * 「在树中选择…」= `SelectPathsInTreeAction`（文本 `vcs.log.filter.select.folders` = "Select in Tree…"，
+ * 打开 `VcsStructureChooser`，标题 `vcs.log.select.folder.dialog.title` = "Select Paths to Filter by"）、
+ * 分隔条「最近」(`vcs.log.filter.recent`) ＋ 最近用过的路径筛选（`SelectFromHistoryAction`：
+ * 文本用同一个 `getTextFromFilePaths`，勾选态 = 与当前筛选相等，`KeepPopupOnPerform.Never` ⇒ 点完即关）。
+ *
+ * **登记差异**：① 权威只在 `myColorManager.hasMultiplePaths()` 为真时列「根」分组
+ * （`SelectVisibleRootAction`，`Ctrl+点击` = 只看这个根），Augit 是单根仓库 ⇒ 不做根分组；
+ * ② 权威把最近筛选写进 `MainVcsLogUiProperties.getRecentlyFilteredGroups("Paths")`（设置持久化，
+ * 由 `myUiProperties.addRecentlyFilteredGroup(PATHS, …)` 维护），Augit 只在本次会话内保留
+ * —— 不新增 Augit 没有的持久化设置项。
+ */
+function historyPathFilterMenu() {
+  const live = window.__augitLive || {};
+  const selected = (((live.historyFilter || {}).paths) || []).map(String);
+  const recent = Array.isArray(live.historyPathRecent) ? live.historyPathRecent : [];
+  const samePaths = (paths) => paths.length === selected.length && paths.every((path) => selected.includes(path));
+  const recentRow = (paths, index) => {
+    const checked = samePaths(paths);
+    return `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${checked ? "true" : "false"}"`
+      + ` title="${escapeHtml(paths.join(" "))}" data-log-path-recent="${index}">`
+      + `<span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(historyPathFilterText({ paths }))}</a>`;
+  };
+  return `<section class="popover context-menu history-path-menu" aria-label="按路径筛选">`
+    + `<a class="menu-item" href="#" data-log-path-action="select">${icon("none")} 选择…</a>`
+    + `<a class="menu-item" href="#" data-log-path-action="tree">${icon("none")} 在树中选择…</a>`
+    + `<div class="menu-separator"></div>`
+    + `<span class="menu-item disabled" role="presentation" aria-disabled="true">最近</span>`
+    + (recent.length === 0
+      ? `<span class="menu-item disabled" aria-disabled="true">没有最近的路径筛选</span>`
+      : recent.map((paths, index) => recentRow(paths.map(String), index)).join(""))
+    + `</section>`;
+}
+
+/**
+ * 日期筛选在控件上的值文本（权威 `DateFilterPopupComponent.getText()`，
+ * `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/DateFilterPopupComponent.java:26-42`）：
+ * 两端 ⇒ `"<after>-<before>"`；只有起点 ⇒ `vcs.log.date.filter.since` = "Since {0}"；
+ * 只有终点 ⇒ `vcs.log.date.filter.until` = "Until {0}"；都没有 ⇒ 空（控件显示名称）。
+ */
+function historyDateFilterText(filter) {
+  const short = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value || "");
+    const pad = (number) => String(number).padStart(2, "0");
+    return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`;
+  };
+  const since = filter && filter.since ? short(filter.since) : "";
+  const until = filter && filter.until ? short(filter.until) : "";
+  if (since && until) return `${since}-${until}`;
+  if (since) return `自从 ${since}`;
+  if (until) return `直到 ${until}`;
+  return "";
+}
+
+/**
+ * 日期筛选弹层（权威 `DateFilterPopupComponent.createActionGroup()`，同文件 `:54-62`）：只有三项 ——
+ * `SelectAction`（`vcs.log.filter.action.select` = "Select…"，打开 `DateFilterComponent` 的期间对话框）、
+ * `DateAction(now-1d, "Last 24 hours")`、`DateAction(now-7d, "Last 7 days")`；
+ * 两者都只是 `fromDates(since, null)`。清空走控件右侧的关闭叉（`FilterComponent` 的复位），
+ * 弹层里**没有** "All" 项。
+ * 「选择期间…」打开 `DateFilterComponent` 的期间对话框（见 `openHistoryDateRangeDialog()`）。
+ */
+function historyDateFilterMenu() {
+  return `<section class="popover context-menu history-date-menu" aria-label="按日期筛选">`
+    + `<a class="menu-item" href="#" data-history-date="select">${icon("none")} 选择期间…</a>`
+    + `<a class="menu-item" href="#" data-history-date="last-day">${icon("none")} 最近 24 小时</a>`
+    + `<a class="menu-item" href="#" data-history-date="last-week">${icon("none")} 最近 7 天</a>`
+    + `</section>`;
+}
+
+function historyFilterOverflowItems() {
+  const live = window.__augitLive || {};
+  const active = live.historyFilter || {};
+  const entries = [
+    { key: "branch", label: "分支", value: active.branch || "" },
+    { key: "user", label: "用户", value: historyAuthorFilterText(active) },
+    { key: "date", label: "日期", value: historyDateFilterText(active) },
+    { key: "path", label: "路径", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
+  ];
+  return entries.map((entry, index) => {
+    const selected = entry.value !== "";
+    // 路径的值文本已经按权威自己的长度规则缩过（`FILTER_LABEL_LENGTH` = 30，中间省略），
+    // 不再套用户/分支弹层的 `MAX_FILTER_VALUE_LENGTH` = 20（`entry.truncate === false`）。
+    const text = selected
+      ? `${entry.label}: ${entry.truncate === false ? entry.value : truncateFilterValue(entry.value)}`
+      : entry.label;
+    const disabled = !!entry.reason;
+    const title = disabled ? entry.reason : selected
+      ? `清除「${entry.label}」筛选${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
+      : `${entry.label}筛选`;
+    return `<button type="button" data-history-filter="${index}" data-filter-key="${entry.key}"`
+      + `${disabled ? ` disabled aria-disabled="true" title="${escapeHtml(entry.reason)}"` : ` title="${escapeHtml(title)}"`}>`
+      + `${icon(selected ? "x" : "search")}${escapeHtml(text)}</button>`;
+  }).join("");
+}
+
+function historyFilterButtons() {
+  const live = window.__augitLive || {};
+  const active = live.historyFilter || {};
+  const entries = [
+    { key: "branch", label: "分支", value: active.branch || "" },
+    { key: "user", label: "用户", value: historyAuthorFilterText(active) },
+    { key: "date", label: "日期", value: historyDateFilterText(active) },
+    { key: "path", label: "路径", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
+  ];
+  return entries.map((entry, index) => {
+    const selected = entry.value !== "";
+    // 路径的值文本已经按权威自己的长度规则缩过（`FILTER_LABEL_LENGTH` = 30，中间省略），
+    // 不再套用户/分支弹层的 `MAX_FILTER_VALUE_LENGTH` = 20（`entry.truncate === false`）。
+    const text = selected
+      ? `${entry.label}: ${entry.truncate === false ? entry.value : truncateFilterValue(entry.value)}`
+      : entry.label;
+    const disabled = !!entry.reason;
+    const title = disabled ? entry.reason : selected
+      ? `清除「${entry.label}」筛选${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
+      : `${entry.label}筛选`;
+    return `<button class="toolbar-button history-filter${selected ? " selected" : ""}" type="button"`
+      + ` data-history-filter="${index}" data-filter-key="${entry.key}" aria-label="${escapeHtml(entry.label)}"`
+      + ` title="${escapeHtml(title)}"${disabled ? ' aria-disabled="true" disabled' : ""}>`
+      + `<span>${escapeHtml(text)}</span>${icon(selected ? "x" : "chevron-down")}</button>`;
+  }).join("");
+}
+
 function liveGitLog(history, selected, cancelComparison, loading = false) {
   // 提交详情允许被区域刷新重建，因此渲染要读状态里的内容而不是只依赖 DOM 里写过的内容。
   const live = window.__augitLive || {};
   const commits = history.commits.map(commit => [commit.subject, (commit.references || []).join(" ") , commit.author, commit.date]);
   const entries = history.commits.map(commit => ({
     hash: commit.hash,
+    fullHash: commit.fullHash,
     head: commit.fullHash === history.head,
     parents: commit.parents || [],
   }));
@@ -2847,34 +3869,36 @@ function liveGitLog(history, selected, cancelComparison, loading = false) {
   }
 
   const graph = buildCommitGraph(entries);
+  const currentBranchCommits = currentBranchCommitSet(entries);
   const filters = ["分支", "用户", "日期", "路径"];
   const branchLabel = (commit) => (commit.references || []).filter(name => name !== "HEAD").join(" ");
-  const branches = new Set();
-  for (const commit of history.commits) {
-    for (const name of commit.references || []) {
-      if (name !== "HEAD" && name !== "origin/HEAD") branches.add(name);
-    }
-  }
-  const branchRows = [...branches].sort().map(name =>
-    `<div class="tree-row depth-1${name === history.branch ? " selected" : ""}">${gitReferenceIcon()} ${escapeHtml(name)}</div>`).join("");
   // 无历史文案（规格 §10.1）：保留引用树与筛选栏，只替换提交列表内容。
   const emptyRow = `<div class="empty-tool-state"><div><strong>仓库还没有提交</strong><p>提交后会显示在这里。</p></div></div>`;
+  // 选中的提交由状态决定（规格 §7.9 的"提交选择"要跨重绘保留）：有记录就按哈希选中，
+  // 没有（首次渲染）才退回"选中第一行"。此前模板写死 `index === 0`，任何整页重绘都会把选择丢回第一行。
+  const historySelectedHash = (window.__augitLive && window.__augitLive.historySelectedHash) || "";
+  const isCommitSelected = (commit, index) => historySelectedHash ? commit.hash === historySelectedHash : index === 0;
   // 历史未到达时的占位：不能复用"仓库还没有提交"（那是在断言一个我们尚未知道的事实）。
   const loadingRow = `<div class="empty-tool-state" role="status"><div><strong>正在读取提交历史…</strong><p>正在从 Git 读取提交。</p></div></div>`;
+  // 空态分两种（权威 `VcsLogBundle.properties:148,151,153`：`vcs.log.no.commits.status` = "No changes committed."、
+  // `vcs.log.no.commits.matching.status` = "No commits matching filters"、`vcs.log.reset.filters.status.action` = "Reset filters"）：
+  // 「仓库本身没有提交」与「**筛选**把结果筛空了」不是同一件事 —— 后者不能显示成仓库是空的，且要能就地清掉筛选。
+  const filterEmptyRow = `<div class="empty-tool-state"><div><strong>没有匹配筛选的提交</strong><p>调整或清除筛选后再看。</p><button type="button" class="secondary-button" data-history-action="reset-filters">重置筛选</button></div></div>`;
+  const branchesCollapsed = !!(live && live.logBranchesCollapsed);
   return `<section class="bottom-tool">
     <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
-      <nav class="git-side-toolbar" aria-label="Git 日志工具"><button class="toolbar-button" aria-label="返回">${icon("history-back")}</button><span class="rail-separator"></span><button class="toolbar-button" aria-label="新建引用">${icon("plus")}</button><button class="toolbar-button" aria-label="删除引用">${icon("trash-2")}</button><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="搜索">${icon("history-search")}</button><button class="toolbar-button" aria-label="比较">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="定位 HEAD">${icon("locate-fixed")}</button></nav>
-      <div class="git-log">
-        <div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签"></label></div><div class="tree"><div class="tree-row">HEAD（当前分支）</div><div class="tree-row"><span>${icon("chevron-down")}</span><strong>本地</strong></div>${branchRows}</div></div>
+      ${gitLogStripe(!!(live && live.logBranchesCollapsed))}
+      <div class="git-log${branchesCollapsed ? " branches-collapsed" : ""}">
+        ${branchesCollapsed ? "" : liveRefTree()}
         <div class="log-list-panel">
           <div class="log-filterbar history-filters">
-            <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希"></label>
-            ${filters.map((label, index) => `<button class="toolbar-button history-filter" data-history-filter="${index}"><span>${label}</span>${icon("chevron-down")}</button>`).join("")}
-            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${filters.map((label, index) => `<button data-history-filter="${index}">${icon("search")}${label}</button>`).join("")}</div></details>
-            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button>
+            <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希" value="${escapeHtml((window.__augitLive && window.__augitLive.historyFilterDraft) || "")}"></label>
+            ${historyFilterButtons()}
+            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
+            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${loading ? loadingRow : history.commits.length === 0 ? emptyRow : history.commits.map((commit, index) => `<div class="commit-row ${index === 0 ? "selected" : ""}" role="option" aria-selected="${index === 0}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${branchLabel(commit) ? `${gitReferenceIcon(false)} ${escapeHtml(branchLabel(commit))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
+          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${loading ? loadingRow : history.commits.length === 0 ? (history.filterActive ? filterEmptyRow : emptyRow) : history.commits.map((commit, index) => `<div class="commit-row ${isCommitSelected(commit, index) ? "selected" : ""}${currentBranchCommits.has(commit.hash) ? " current-branch" : ""}" role="option" aria-selected="${isCommitSelected(commit, index)}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${refDisplayName(commit.references) ? `${gitReferenceIcon(refKindOf(commit.references))} ${escapeHtml(refDisplayName(commit.references))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
         </div>
         <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${live && live.commitDetails && history.commits.length > 0 ? live.commitDetails.filesHtml : (loading ? `<p class="commit-meta">正在读取变更…</p>` : history.commits.length === 0 ? `<div class="empty-state">没有可显示的变更</div>` : `<p class="commit-meta">正在读取变更…</p>`)}</div><div class="commit-detail" data-live-commit-detail>${live && live.commitDetails && live.commitDetails.detailHtml ? live.commitDetails.detailHtml : `<h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div>`}</div></div>
       </div>
@@ -2897,7 +3921,8 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
   // 手写精简骨架会让绑定器拿到 null（实测报 querySelectorAll of null）。
   if (window.__augitLive) return liveGitLog({ commits: [], head: null }, selected, cancelComparison, true);
   let commits = complexGraph ? [
-    ["merge: 合并历史界面调整", "main", "I49", "2026/8/29 11:00"],
+    // 首个提交即当前分支 HEAD：引用串按 git --decorate 的真实形态给出，展示时过滤掉 HEAD 与箭头。
+    ["merge: 合并历史界面调整", "HEAD -> main", "I49", "2026/8/29 11:00"],
     ["fix: 修正工具栏图标", "", "I49", "2026/8/29 10:00"],
     ["feat: 调整历史筛选布局", "feature/graph", "I49", "2026/8/29 9:00"],
     ["fix: 精确恢复安装前系统 PATH", "", "I49", "2026/8/28 22:55"],
@@ -2906,7 +3931,8 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
     ["fix: 补充原生 Windows 应用清单", "", "I49", "2026/8/28 8:45"],
     ["feat: 实现 Augit 阶段零至五功能", "", "I49", "2026/8/28 8:25"],
   ] : [
-    ["fix: 精确恢复安装前系统 PATH", "main", "I49", "2026/8/28 22:55"],
+    // 首个提交即当前分支 HEAD（参考图里该行有浅蓝底 + main 标签）。
+    ["fix: 精确恢复安装前系统 PATH", "HEAD -> main", "I49", "2026/8/28 22:55"],
     ["fix: 避免强制更新兼容的 .NET 10", "", "I49", "2026/8/28 21:32"],
     ["fix: 提升安装卸载与 Git 取消可靠性", "", "I49", "2026/8/28 21:25"],
     ["fix: 补充原生 Windows 应用清单", "", "I49", "2026/8/28 8:45"],
@@ -2937,6 +3963,7 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
     }
   }
   const graph = buildCommitGraph(entries);
+  const currentBranchCommits = currentBranchCommitSet(entries);
   const filters = ["分支", "用户", "日期", "路径"];
   const branchRows = wideGraph
     ? `${Array.from({ length: 11 }, (_, index) => `<a class="tree-row depth-1" href="branches.html">${gitReferenceIcon()} feature/branch-${index + 1}</a>`).join("")}<a class="tree-row depth-1 selected" href="branches.html">${gitReferenceIcon()} main</a>`
@@ -2949,17 +3976,17 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
   return `<section class="bottom-tool">
     <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? '<a class="toolbar-button" href="history-diff-cancelled.html">取消比较</a>' : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
-      <nav class="git-side-toolbar" aria-label="Git 日志工具"><button class="toolbar-button" aria-label="返回">${icon("history-back")}</button><span class="rail-separator"></span><button class="toolbar-button" aria-label="新建引用">${icon("plus")}</button><button class="toolbar-button" aria-label="删除引用">${icon("trash-2")}</button><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="搜索">${icon("history-search")}</button><button class="toolbar-button" aria-label="比较">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="定位 HEAD">${icon("locate-fixed")}</button></nav>
+      ${gitLogStripe(false)}
       <div class="git-log">
         <div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签"></label></div><div class="tree"><div class="tree-row">HEAD（当前分支）</div><div class="tree-row"><span>${icon("chevron-down")}</span><strong>本地</strong></div>${branchRows}</div></div>
         <div class="log-list-panel">
           <div class="log-filterbar history-filters">
             <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希"></label>
-            ${filters.map((label, index) => `<button class="toolbar-button history-filter" data-history-filter="${index}"><span>${label}</span>${icon("chevron-down")}</button>`).join("")}
-            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${filters.map((label, index) => `<button data-history-filter="${index}">${icon("search")}${label}</button>`).join("")}</div></details>
-            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button>
+            ${historyFilterButtons()}
+            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
+            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${item[1] ? `${gitReferenceIcon(false)} ${item[1]}` : ""}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
+          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}${currentBranchCommits.has(entries[index].hash) ? " current-branch" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${refDisplayName(item[1]) ? `${gitReferenceIcon(refKindOf(item[1]))} ${escapeHtml(refDisplayName(item[1]))}` : ""}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
         </div>
         <div class="log-detail-panel"><div class="changed-files">${selected ? complexGraph ? '<div class="tree-row">0 个文件</div>' : `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>6 个文件</strong></div><div class="tree-row depth-1"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span> docs <span class="commit-meta">4 个文件</span></div>${["architecture.md", "performance-report.md", "roadmap.md", "runtime-dependencies.md"].map(name => `<div class="tree-row depth-2 file-status-modified" data-history-path="docs/${name}">${fileTypeIcon(name)}${name}</div>`).join("")}` : `<div class="empty-state">选择提交以查看变更</div>`}</div><div class="commit-detail">${selected ? `<h3>${detailTitle}</h3><div>${detailMeta}</div>${detailBody}` : `<div class="empty-state">提交详情</div>`}</div></div>
       </div>
@@ -3024,19 +4051,95 @@ function historyFilesHtml(files) {
   return `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files)}`;
 }
 
+// 文件历史列表的四列表头。权威 `FileHistoryPanelImpl.createColumnList`（platform/vcs-impl/src/com/intellij/
+// openapi/vcs/history/FileHistoryPanelImpl.java:292-306）按 **Version → Date → Author → [provider 附加列] →
+// Commit Message** 依次追加，Git 的 `isDateOmittable()` = false（plugins/git4idea/backend/src/history/
+// GitHistoryProvider.java:75-78）故日期列在；同一顺序另有 `VcsSelectionHistoryDialog.java:182-185` 佐证。
+// 列名取各 `ColumnInfo.getName()`：`column.name.revision.version` / `column.name.revision.date` /
+// `column.name.revision.list.author` / `label.selected.revision.commit.message`
+// （platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties:160、161、111、159），
+// 本处按界面语言写中文。表头由 `DualView(ColumnInfo[])` 建表时自带（FileHistoryPanelImpl.java:184-200），
+// 其高度参与布局计算（platform/platform-api/src/com/intellij/ui/dualView/DualView.java:462），
+// 默认高度 25（platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/DarculaTableHeaderUI.java:115）。
+function fileHistoryColumns() {
+  return `<div class="history-columns"><span>版本</span><span>日期</span><span>作者</span><span>提交信息</span></div>`;
+}
+
+// 文件历史列表作者列的单元格。权威 `FileHistoryPanelImpl.AuthorColumnInfo`：
+// 值 = `revision.getAuthor()`，**当 `author != committerName` 时追加 `*`**
+//（`valueOf`，platform/vcs-impl/src/com/intellij/openapi/vcs/history/FileHistoryPanelImpl.java:780-788）；
+// 单元格 tooltip = `{作者} <{邮箱}>`，提交者不同名时再追加
+// `, via {提交者} <{提交者邮箱}>`（`getCustomizedRenderer`，`:764-778`；
+// `file.history.details.committer.tooltip.info` = "via {0}"，VcsBundle.properties:935）。
+// 字段缺失一律当空串：真实 Git 记录里提交者恒存在，空串只是"宿主没给"的退化形态。
+function historyAuthorCell(commit) {
+  const author = commit.author || "";
+  const authorEmail = commit.authorEmail || "";
+  const committerName = commit.committerName || "";
+  const committerEmail = commit.committerEmail || "";
+  const different = committerName !== author;
+  let tooltip = author + (authorEmail ? ` <${authorEmail}>` : "");
+  if (different && committerName) {
+    tooltip += `, via ${committerName}` + (committerEmail ? ` <${committerEmail}>` : "");
+  }
+  return `<span title="${escapeHtml(tooltip)}">${escapeHtml(different ? author + "*" : author)}</span>`;
+}
+
 // 外壳注入真实文件历史时使用；结构与样例版一致，复用同一套样式。
 function liveFileHistoryTool() {
   const fileHistory = window.__augitLive.fileHistory;
   const commits = fileHistory.commits || [];
+  // 「版本」列取短修订：权威 `RevisionColumnInfo` 的值过 `VcsUtil.getShortRevisionString`
+  // （FileHistoryPanelImpl.java:657-666、platform/vcs-api/src/com/intellij/vcsUtil/VcsUtil.java:402-406）。
   const rows = commits.length === 0
     ? `<p class="commit-meta">没有历史</p>`
-    : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.author)}</span><span>${escapeHtml(commit.date)}</span><span>${escapeHtml(commit.subject)}</span></div>`).join("");
+    : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
   const head = commits[0];
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div><div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+}
+
+/**
+ * 「与当前分支比较」的日志视图（权威 `ShowBranchDiffAction` → `GitBrancher.compare` →
+ * `GitBranchesUIHandler.compareWithCurrent`）。
+ *
+ * 权威打开的是**按范围过滤的日志**，不是文件差异：`compareWithCurrent()` 取
+ * `currentRef = repositories.getCommonCurrentBranch() ?: GitUtil.HEAD`，再
+ * `GitCompareBranchesUi(project, repositories, branchName, currentRef)`，后者用
+ * `VcsLogFilterObject.fromRange(currentRef, branchName)`（`GitCompareBranchesUi.kt:44-52`）
+ * 建 `VcsLogRangeFilter`；范围文本取 `VcsLogRangeFilterImpl.getTextPresentation()` =
+ * `"<exclusive>..<inclusive>"`，标签名取 `getEditorTabName()`（同文件 `:177-181`）：
+ * `git.compare.branches.tab.name` = "Compare"、`git.compare.branches.tab.suffix` = "{0} and {1}"
+ * （参数是 `(end=inclusive, start=exclusive)`，
+ * `plugins/git4idea/shared/resources/messages/GitBundle.properties:1313-1314`）。
+ * 该范围过滤器在权威里**不可从界面修改**（`getRange()` 的 check 写明 "changing it from the UI is disabled"），
+ * 因此这里只显示范围文本，不提供筛选控件。
+ *
+ * 登记差异：权威把它开在**编辑器标签**里（`VcsLogFile` ＋ 完整 `VcsLogUiImpl`，含提交图与筛选栏）；
+ * Augit 的日志本体在底部工具窗口，因此做成它的**兄弟标签**（与「历史: <文件>」同构），
+ * 列表沿用同一套 `history-columns`／`history-rows`。
+ */
+function liveBranchCompareTool() {
+  const compare = window.__augitLive.branchComparison || {};
+  const commits = compare.commits || [];
+  const rows = commits.length === 0
+    ? `<p class="commit-meta">${compare.loading ? "正在读取差异提交…" : escapeHtml(compare.reason || "两个引用之间没有独有提交")}</p>`
+    : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
+  const head = commits[0];
+  const base = compare.base || "HEAD";
+  const branch = compare.branch || "HEAD";
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">比较: ${escapeHtml(branch)} 与 ${escapeHtml(base)}</button><span class="grow"></span><button class="icon-button" aria-label="关闭比较" data-branch-compare-close="true">${icon("x")}</button><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>${escapeHtml(`${base}..${branch}`)}</span><span class="toolbar-separator"></span><span class="commit-meta">${commits.length} 个提交</span><span class="grow"></span><button class="icon-button" aria-label="刷新" data-branch-compare-refresh="true">${icon("refresh-cw")}</button><button class="icon-button" aria-label="显示提交详情">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
 }
 
 function fileHistoryTool() {
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div><div class="history-rows"><div class="history-row selected"><span>I49</span><span>2026/8/28 8:25</span><span>feat: 实现 Augit 阶段零至五功能</span></div></div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
+  // 样例行的四个槽位与实时侧同序：版本（该提交在样例日志里显示的哈希）→ 日期 → 作者 → 提交信息。
+  // 第二行演示作者列的 `*`：作者与提交者不同名（权威 `AuthorColumnInfo.valueOf`），
+  // 悬停提示因此带上 `, via {提交者}`。
+  const sampleRows = [
+    { hash: "commit-4", date: "2026/8/28 8:25", subject: "feat: 实现 Augit 阶段零至五功能", author: "I49", authorEmail: "i49@example.com", committerName: "I49", committerEmail: "i49@example.com" },
+    { hash: "commit-3", date: "2026/8/27 19:02", subject: "docs: 补阶段五验收记录", author: "I49", authorEmail: "i49@example.com", committerName: "build-bot", committerEmail: "build@example.invalid" },
+  ];
+  const rows = sampleRows.map((commit, index) => `<div class="history-row${index === 0 ? " selected" : ""}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
 }
 
 function terminalTool() {
@@ -3147,7 +4250,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
-  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : "";
+  const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
   return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }
 
@@ -3204,13 +4307,22 @@ function liveSearchOverlay(kind) {
     : `<a class="search-result${index === 0 ? ' selected' : ''}" href="#" data-search-path="${escapeHtml(match.path)}">${fileTypeIcon(match.name)}<span>${escapeHtml(match.name)}</span><span class="commit-meta">${escapeHtml(match.directory)}</span></a>`).join("");
   // 搜索无结果（规格 §10.1）：显示「未找到结果」，输入框与查询保持不动。
   // 仅在**确实查询过**（有查询串）且没有命中时显示，避免打开浮层就报「未找到」。
+  // 查询进行中另有中间态：权威 `SearchEverywhereUI.rebuildList()`（platform/lang-impl/src/com/intellij/
+  // ide/actions/searcheverywhere/SearchEverywhereUI.java:932-936）每次搜索开始先 `expireResults()`、
+  // 把列表空态设为 `label.choosebyname.searching` = **"Searching…"**（IdeBundle.properties:675），
+  // 结果到达才替换 ⇒ 上一个查询的结果不得留在界面上冒充本次结果。
+  const pending = !!(search && search.pending);
   const results = matches.length > 0
     ? `<div class="search-results">${rows}</div>`
-    : (query.length > 0 ? `<div class="search-results"><div class="empty-tool-state"><div><strong>未找到结果</strong><p>换个关键词或调整筛选。</p></div></div></div>` : "");
+    : (pending
+      ? `<div class="search-results"><div class="empty-tool-state"><div><strong>正在搜索…</strong></div></div></div>`
+      : (query.length > 0 ? `<div class="search-results"><div class="empty-tool-state"><div><strong>未找到结果</strong><p>换个关键词或调整筛选。</p></div></div></div>` : ""));
   const noticeText = search && search.notice ? search.notice : "";
   const notice = noticeText
     ? `<div class="search-notice" role="status" tabindex="0">${escapeHtml(noticeText)}</div>`
     : "";
+  // 结果到限：按权威弹「结果过多」（Continue／Abort）。对话框叠在搜索浮层之上，
+  // 在用户选择之前不重复发起搜索（`search.limitPrompt` 由 live-data 设置与清除）。
   return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
 }
 
@@ -3220,7 +4332,7 @@ function searchOverlay(kind) {
     ? `<strong>全仓搜索</strong>${[['case-sensitive', '区分大小写'], ['whole-word', '全字匹配'], ['regex', '正则表达式']].map(([name, label]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="false">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="包含忽略文件">包含忽略文件</label>`
     : `<strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
   const state = new URLSearchParams(location.search).get('search-state') || (scene === 'search-limited' ? 'limited' : 'ready');
-  const notices = { ready: '3 条结果', limited: '结果超过 1000 条，已停止搜索，请缩小范围或使用更准确的关键词。', timeout: '搜索超时，已保留完成的结果。', error: '搜索表达式无效，请检查括号后重试。\n'.repeat(12).trim(), empty: '' };
+  const notices = { ready: '3 条结果', limited: '结果超过 1000 条，可以继续搜索，或缩小范围与关键词。', timeout: '搜索超时，已保留完成的结果。', error: '搜索表达式无效，请检查括号后重试。\n'.repeat(12).trim(), empty: '' };
   const rows = repository ? [['NativeGitPanel.cs', 'src/Augit.App', '214: Git 状态已刷新。'], ['architecture.md', 'docs', 'Git 状态以本地事实为准'], ['Win32SmokeTests.cs', 'tests', 'Assert.Contains("Git 状态")']]
     : [['NativeGitPanel.cs', 'src/Augit.App'], ['NativeGitPanelRenderingTests.cs', 'tests/Augit.App.Tests'], ['product-spec.md', 'docs']];
   const results = state === 'empty' || state === 'error' ? '' : `<div class="search-results">${rows.map(([name, directory, match], index) => `<a class="search-result${index === 0 ? ' selected' : ''}" href="text-viewer.html">${fileTypeIcon(name)}<span>${name}${match ? ` <span class="commit-meta">${match}</span>` : ''}</span><span class="commit-meta">${directory}</span></a>`).join('')}</div>`;
@@ -3228,9 +4340,153 @@ function searchOverlay(kind) {
   return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${searchHeader}</div><div class="search-query"><input class="search-field" value="${state === 'empty' ? '' : repository ? 'Git 状态' : 'NativeGitPanel'}" aria-label="搜索内容"></div>${results}${notice}</div>`;
 }
 
+/**
+ * 「结果过多」对话框（权威 `UsageLimitUtil.showTooManyUsagesWarning`，
+ * `platform/usageView/src/com/intellij/usages/UsageLimitUtil.java:26-34`）：
+ * 标题 `find.excessive.usages.title` = **"Too Many Results"**、
+ * 正文 `find.excessive.usage.count.prompt` = **"Too many results found. Are you sure you wish to continue?"**、
+ * 按钮 `button.text.continue` = Continue 与 `button.text.abort` = Abort（警告图标）。
+ * `MessageDialogBuilder.okCancel(...)` 让 **Continue 成为默认按钮**（与 Smart Checkout 的默认焦点相反）。
+ *
+ * 触发点是搜索超过 `UsageLimitUtil.USAGES_LIMIT`（`ide.find.result.count.warning.limit`，默认 1000）；
+ * 用户选 Continue 后权威让同一次搜索**继续跑完且不再提示**（`UsageViewManagerImpl:334-357`），
+ * 选 Abort 则取消搜索并保留已有结果。
+ */
+function searchLimitBody() {
+  return `<div class="info-block" style="width:auto;text-align:left"><h2>找到的结果过多</h2>`
+    + `<p>结果已超过 1000 条。确定要继续搜索吗？</p></div>`;
+}
+
+function searchLimitDialog() {
+  // 窗口级模态：与其它实时对话框同构，单独占一个覆盖层。搜索浮层的区域刷新只替换**第一个**
+  // `[data-augit-overlay]`，这里的兄弟节点因此不会被搜到、也不会在"继续"后留下残影
+  // （实时侧由 `openSearchLimitDialog()`/`closeSearchLimitDialog()` 显式增删）。
+  return `<div class="overlay-layer live-overlay search-limit-window" data-augit-overlay><div class="scrim search-limit-scrim"></div>`
+    + `<section class="dialog search-limit-dialog" role="dialog" aria-modal="true" aria-label="结果过多">`
+    + `<div class="dialog-header"><span>结果过多</span></div>`
+    + `<div class="dialog-body">${searchLimitBody()}</div>`
+    + `<div class="dialog-footer"><span class="footer-help"></span>`
+    + `<button type="button" class="secondary-button" data-search-limit-action="abort">中止</button>`
+    + `<button type="button" class="primary-button" data-search-limit-action="continue">继续</button>`
+    + `</div></section></div>`;
+}
+
 function dialog(title, body, footer, wide = false, extraClass = "") {
   // scrim 与对话框作为同一个覆盖层整体替换，避免局部刷新后残留其一。
   return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
+}
+
+/**
+ * 「创建 Git 仓库」对话框的内容（权威 `GitInit`，
+ * `plugins/git4idea/backend/src/actions/GitInit.java`）。
+ *
+ * - 入口文案取 `action.Git.Init.text` = **"Create Git Repository…"**（`GitBundle.properties:774`）；
+ * - 目标目录一行对应权威的**单目录选择器**（`:45-64`：`createSingleFolderDescriptor`，标题
+ *   `init.destination.directory.title` = "Create Git Repository"、描述
+ *   `init.destination.directory.description` = "Select directory where the new Git repository will be created."，
+ *   起点是当前选中目录、取不到则项目根）——外壳里由 `data-repo-init-action="pick"` 接到 `workspace/pick`；
+ * - **不是仓库时没有任何确认**（`:66-74` 只在目标已在 Git 下才弹 Yes/No），因此这里没有"确认要初始化吗"的二次询问，
+ *   按钮本身就是用户的明确意图；
+ * - `busy` 时冻结重复提交（ux-spec「初始化进行中只锁定重复提交」）。
+ *
+ * 样例页与实时外壳共用本函数（`data-repo-init-action` 的绑定在 `live-data.js`）。
+ */
+function repositoryInitBody(target, notice, busy = false) {
+  return `<div class="form-grid"><label for="repo-init-path">目标目录</label>`
+    + `<div class="path-row"><input id="repo-init-path" class="text-field" aria-label="目标目录" value="${escapeHtml(target || "")}" readonly data-repo-init-path>`
+    + `<button type="button" class="secondary-button" data-repo-init-action="pick"${busy ? " disabled" : ""}>选择目录…</button></div></div>`
+    + `<p class="commit-meta">初始化会在该目录创建 .git 元数据，不会提交或修改现有文件。</p>`
+    + `<div class="stash-notice" role="status" data-repo-init-notice${notice ? "" : " hidden"}>${escapeHtml(notice || "")}</div>`;
+}
+
+/**
+ * 「目标已在 Git 下」的 Yes/No 确认（权威 `GitInit` 的唯一确认时机，`:66-74`）。
+ *
+ * 标题 `init.warning.title` = "Git Init"、正文 `init.warning.already.under.git` =
+ * "The selected directory {0} is already under Git.\nAre you sure that you want to create a new VCS root?"
+ * （`GitBundle.properties:101-103`），带警告图标；两项结果就是 Yes/No。
+ */
+function repositoryInitWarningBody(target) {
+  return `<div class="info-block" style="width:auto;text-align:left"><h2>所选目录已在 Git 下</h2>`
+    + `<p>${escapeHtml(target || "")}</p>`
+    + `<p>确定要为它创建一个新的 VCS 根吗？</p></div>`
+    + `<div class="stash-notice" role="status" data-repo-init-notice hidden></div>`;
+}
+
+/** `repository-init` 场景（`init-state` 取 `ready`（默认）／`under-git`／`busy`／`failure`）。 */
+function repositoryInitScene() {
+  const state = new URLSearchParams(location.search).get("init-state") || "ready";
+  const target = "D:\\projects\\notes";
+  if (state === "under-git") {
+    return dialog(
+      "初始化 Git",
+      repositoryInitWarningBody(target),
+      '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
+        + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
+      false,
+      "repository-init-dialog");
+  }
+  const busy = state === "busy";
+  const notice = busy
+    ? "正在初始化…"
+    : state === "failure"
+      ? "Git 初始化失败：fatal: unable to create 'D:/projects/notes/.git/': Permission denied"
+      : "";
+  return dialog(
+    "创建 Git 仓库",
+    repositoryInitBody(target, notice, busy),
+    `<button type="button" class="secondary-button" data-repo-init-action="cancel"${busy ? " disabled" : ""}>取消</button>`
+      + `<button type="button" class="primary-button" data-repo-init-action="create"${busy ? " disabled" : ""}>${busy ? "正在初始化…" : "创建"}</button>`,
+    false,
+    "repository-init-dialog");
+}
+
+/**
+ * Smart Checkout 对话框的内容（权威 `GitSmartOperationDialog`，
+ * `plugins/git4idea/backend/src/branch/GitSmartOperationDialog.java:36-125`）。
+ *
+ * - 标题 `smart.operation.dialog.git.operation.name.problem` = "Git {0} Problem"（{0} 取
+ *   `checkout.operation.name` = "checkout"，`GitBundle.properties:1356-1357`）⇒ 中文写「Git 检出问题」；
+ * - 北侧说明取 stash 版 `smart.operation.dialog.north.panel.label.stash.text`（`:426`）：
+ *   "Your local changes to the following files would be overwritten by checkout. … can stash the changes,
+ *   checkout and unstash them after that."；
+ * - 中部是**受影响的改动**（权威是 `ChangesBrowserWithRollback`，无 diff 数据时退化为路径列表
+ *   `GitSimplePathsBrowser`，`:57-63`；Augit 拿到的是 git 报出的路径 ⇒ 用路径列表表达同一件事）；
+ * - 两个按钮：OK = `smart.operation.dialog.smart.operation.name` = "Smart Checkout"
+ *   （tooltip `…ok.action.stash.description` = "Stash local changes, {0}, unstash"），
+ *   取消 = `smart.operation.dialog.don.t.operation.name` = "Don't {0}" ⇒「不检出」。
+ *   权威把 `FOCUSED_ACTION` 设在取消上（`:118`）—— **默认焦点在取消**，实时侧照此聚焦。
+ * - `busy` 时冻结重复提交；`conflict` 态由调用方用 `notice` 说明"临时 stash 已保留"。
+ *
+ * 样例页与实时外壳共用（`data-smart-action` 的绑定在 `live-data.js`）。
+ */
+function smartCheckoutBody(paths, notice, busy = false) {
+  const list = (paths || []).length > 0
+    ? `<div class="smart-checkout-paths" role="list">${paths.map((path) =>
+      `<div class="smart-checkout-path" role="listitem" title="${escapeHtml(path)}">${escapeHtml(path)}</div>`).join("")}</div>`
+    : `<p class="commit-meta">本地改动会被目标分支覆盖。</p>`;
+  return list
+    + `<p class="commit-meta">以下文件的本地改动会被检出覆盖。Augit 可以暂存这些改动，检出后再恢复。</p>`
+    + `<div class="stash-notice" role="status" data-smart-notice${notice ? "" : " hidden"}>${escapeHtml(notice || "")}</div>`;
+}
+
+/** `smart-checkout` 场景（`smart-state` 取 `ready`（默认）／`busy`／`conflict`／`restored`）。 */
+function smartCheckoutScene() {
+  const state = new URLSearchParams(location.search).get("smart-state") || "ready";
+  const paths = ["docs/notes.txt", "src/App.cs"];
+  const busy = state === "busy";
+  const notice = busy
+    ? "正在暂存改动并切换…"
+    : state === "conflict"
+      ? "恢复改动时发生冲突：临时 stash 已保留，解决冲突后可继续。"
+      : state === "restored"
+        ? "已切换到 feature/ux，改动的暂存已删除。"
+        : "";
+  const footer = state === "conflict"
+    ? '<button type="button" class="secondary-button" data-smart-action="cancel">关闭</button>'
+    : `<button type="button" class="secondary-button" data-smart-action="cancel"${busy ? " disabled" : ""}>不检出</button>`
+      + `<button type="button" class="primary-button" data-smart-action="smart"${busy ? " disabled" : ""}>${busy ? "正在切换…" : "Smart Checkout"}</button>`;
+  return dialog("Git 检出问题", smartCheckoutBody(paths, notice, busy), footer, false, "smart-checkout-dialog");
 }
 
 /**
@@ -3252,7 +4508,7 @@ function liveBranchesPopover() {
   const tags = references.tags || [];
   const local = branches.filter(branch => !branch.isRemote);
   const remote = branches.filter(branch => branch.isRemote);
-  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}">${gitReferenceIcon(branch.isRemote)} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
+  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}"${branch.isCurrent ? ' data-branch-current="true"' : ""}>${gitReferenceIcon(branch.isCurrent ? "head" : branch.isRemote ? "remote" : "local")} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
   const group = (label, items) => items.length === 0
     ? ""
     : `<div class="menu-item"><span>${icon("chevron-down")}</span><strong>${label}</strong></div>${items.join("")}`;
@@ -3262,12 +4518,133 @@ function liveBranchesPopover() {
   const quick = `<input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作">${checkoutError}<a class="menu-item" href="operation-result.html" data-popover-action="fetch">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html" data-popover-action="commit">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html" data-popover-action="push">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html" data-popover-action="create-branch">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html" data-popover-action="checkout-revision">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div>`;
   const groups = group("本地", local.map(branch => row(branch, branch.isCurrent)))
     + group("远程", remote.map(branch => row(branch, false)))
-    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon(false)} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
+    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon("tag")} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
   const current = local.find(branch => branch.isCurrent);
   const actions = current
     ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html" data-popover-action="compare-workspace">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html" data-popover-action="create-worktree">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} 重命名…</a></section>`
     : "";
-  return `<div class="overlay-layer" data-augit-overlay><section class="popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
+}
+
+/**
+ * 分支/标签行的动作菜单（权威 `GitSingleRefActions.getSingleRefActionGroup()`：`Git.Branch`
+ * = `Git.Branch.Checkout` ＋ `Git.Branch.Placeholder` 里那一长串 ——
+ * `plugins/git4idea/shared/resources/intellij.vcs.git.shared.xml:62-67`、
+ * `plugins/git4idea/backend/resources/intellij.vcs.git.backend.xml:322-344`；
+ * 每个引用都有自己的动作组，而不是只有"当前分支"才有一组动作）。
+ *
+ * 谁出现、谁不出现照权威的 `Presentation.setEnabledAndVisible()`（`GitSingleRefAction.update()`）：
+ * 不适用就**整项不出现**，不是"灰掉"。
+ *   - 检出：`GitCheckoutAction.isEnabledForRef()` —— 当前引用只在**多仓库分歧**时可再检出；
+ *     Augit 是单仓库（`repositories.diverged()` 为假）⇒ 当前分支行没有"检出"。
+ *   - 删除：`GitDeleteRefAction.isEnabledForRef()` = `!isCurrentRefInAnyRepo` ⇒ 当前分支行没有"删除"。
+ *   - 重命名：`GitRenameBranchAction`（`refClass = GitBranch`、`disabledForRemote = true`）⇒ 只有本地分支有。
+ *
+ * 只有"权威有这个动作、Augit 尚未接线"的项才留成禁用＋原因（例如远端分支的删除）。
+ */
+function branchRowMenu({ name, kind, isCurrent }) {
+  const noun = kind === "tag" ? "标签" : "分支";
+  const link = (action, iconName, label) => `<a class="menu-item" href="#" data-ref-action="${action}">${icon(iconName)} ${label}</a>`;
+  const blocked = (iconName, label, reason) => `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}">${icon(iconName)} ${label}</span>`;
+  const checkout = kind === "branch" && isCurrent
+    ? ""
+    : link("checkout", "branch-update", `检出${noun}`);
+  const rename = kind === "branch" ? link("rename", "rename", "重命名…") : "";
+  const remove = kind === "remote"
+    ? blocked("trash-2", `删除${noun}`, "Augit 尚未接线删除远端分支。")
+    : isCurrent ? "" : link("delete", "trash-2", `删除${noun}`);
+  const tail = rename + remove;
+  return `<section class="popover context-menu ref-menu" data-ref-name="${escapeHtml(name)}" data-ref-kind="${escapeHtml(kind)}">`
+    + checkout
+    + (checkout && tail ? `<div class="menu-separator"></div>` : "")
+    + tail
+    + `</section>`;
+}
+
+/**
+ * 引用树行的弹出菜单（权威 `BranchesTree.kt:272`：`PopupHandler.installPopupMenu(component,
+ * BranchesTreeActionGroup(), place)`；组内容由 `BranchActionsBuilder.build`
+ * （`BranchesDashboardActions.kt:100-120`）**按选中集**决定）。
+ *
+ * 权威的构成状态机：
+ *   - 单节点且（1 个引用 或 选中 HEAD）⇒ `GitSingleRefActions.getSingleRefActionGroup()`（该引用自己的动作组）；
+ *   - HEAD ＋ 1 个分支（2 节点）⇒ `HeadAndBranchActions` = {两任意分支整份比较, 两任意分支单文件 diff}；
+ *   - 引用数 > 1 ⇒ `MultipleLocalBranchActions` = {两任意分支整份比较, 两任意分支单文件 diff,
+ *     `UpdateSelectedBranchAction`, `DeleteBranchAction`} —— **没有**检出与重命名；
+ *   - 远端分组行 ⇒ `GroupActions`／`MultipleGroupActions`／`RemoteGlobalActions`。
+ * 组本身 `isHideGroupIfEmpty = true` ⇒ 一条都没有时**不弹**。
+ *
+ * Augit 有对应能力的部分：单引用 ⇒ 检出／与当前分支比较／重命名…／删除…；
+ * 多引用 ⇒ 与当前分支比较／更新选中分支／删除…；标签行 ⇒ 删除标签。
+ * **登记差异**：`ShowArbitraryBranchesDiffAction`／`ShowArbitraryBranchesFileDiffAction`
+ * （两**任意**分支的比较）Augit 未做，见 `09-icons.md` 第 184 轮。
+ */
+/**
+ * 引用树行的右键菜单（权威 `BranchesTree.kt:272` 的 `BranchesTreeActionGroup` →
+ * `BranchesDashboardActions.BranchActionsBuilder.build()`，`BranchesDashboardActions.kt:100-121`）。
+ * 选中集的构成决定用哪一组动作：
+ *
+ * | 选中集 | 权威动作组 | 条目 |
+ * | --- | --- | --- |
+ * | 1 个节点（引用或 HEAD） | `GitSingleRefActions`（`Git.Branch`） | 检出／与当前分支比较／重命名／删除… |
+ * | 2 个节点且 1 引用 + HEAD | `HeadAndBranchActions` | 比较分支／显示文件差异 |
+ * | 全是引用且 > 1 | `MultipleLocalBranchActions` | 比较分支／显示文件差异／更新选中分支／删除分支 |
+ * | 其它（含「引用 ＋ 标签」这类混合） | `else -> null` | 没有菜单 |
+ *
+ * 「比较分支」= `ShowArbitraryBranchesDiffAction`：**恰好两个分支**（或 1 分支 + HEAD）才出现；
+ * 3 个及以上分支时 `getBranchPair()` 返回 null ⇒ 该动作 `isEnabledAndVisible = false`（隐藏）；
+ * 两个名字相同（只可能是 HEAD + 当前分支）时禁用，说明文本是
+ * `action.Git.Compare.Selected.description.disabled`。
+ *
+ * **登记差异**：权威这两组里还有 `ShowArbitraryBranchesFileDiffAction`（「显示文件差异」，
+ * `GitBrancher.showDiff` → `CompareWithLocalDialog` 的**整树变更列表**对话框）；Augit 没有这个界面，
+ * 按"不新增 Augit 没有的功能"暂不落地，见 `09-icons.md` 第 193 轮。
+ */
+function refTreeRowMenu({ selections = [], references = { branches: [], tags: [] } } = {}) {
+  const link = (action, iconName, label) => `<a class="menu-item" href="#" data-ref-action="${action}">${icon(iconName)} ${label}</a>`;
+  // 禁用项是**惰性**的行（没有 `data-ref-action`，因此点不动），但保留可断言的钩子与说明文本。
+  const disabled = (action, iconName, label, reason) => `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}" data-ref-action-disabled="${action}">${icon(iconName)} ${label}</span>`;
+  const lookup = (item) => (references.branches || []).find(
+    (branch) => branch.isRemote === (item.kind === "remote") && branch.name === item.name);
+  const branches = selections
+    .filter((item) => item.kind === "branch" || item.kind === "remote")
+    .map(lookup)
+    .filter(Boolean);
+  const headSelected = selections.some((item) => item.kind === "head");
+  // 权威 `action.Git.Compare.Selected.title` = "Compare Branches"。
+  const compareLink = link("compare-branches", "git-compare-arrows", "比较分支");
+  const compareDisabled = disabled("compare-branches", "git-compare-arrows", "比较分支", "请选择同一仓库中的两个不同分支。");
+  const items = [];
+  if (selections.length === 1 && selections[0].kind === "tag") {
+    items.push(link("delete", "trash-2", "删除标签"));
+  } else if (selections.length === 1 && selections[0].kind !== "head" && branches.length === 1) {
+    const branch = branches[0];
+    if (!branch.isCurrent) {
+      items.push(link("checkout", "branch-update", branch.isRemote ? "检出远端分支" : "检出分支"));
+      items.push(link("compare", "git-compare-arrows", "与当前分支比较"));
+    }
+    items.push(link("rename", "rename", "重命名…"));
+    if (!branch.isCurrent) {
+      items.push(link("delete", "trash-2", "删除分支…"));
+    }
+  } else if (selections.length === 2 && headSelected && branches.length === 1) {
+    // `HeadAndBranchActions`：配对是（该分支, 当前分支）；两个名字相同时禁用（`getBranchPair()` 的守卫）。
+    items.push(branches[0].isCurrent ? compareDisabled : compareLink);
+  } else if (branches.length === selections.length && branches.length > 1) {
+    // `MultipleLocalBranchActions`：只有**恰好两个**分支时才给出「比较分支」（`getBranchPair()`）。
+    if (branches.length === 2) {
+      items.push(branches[0].name === branches[1].name ? compareDisabled : compareLink);
+    }
+    items.push(link("update-selected", "branch-update", "更新选中分支"));
+    items.push(link("delete", "trash-2", "删除…"));
+  }
+  if (items.length === 0) {
+    return "";
+  }
+
+  // 身份与目标集写在弹出元素自己身上：菜单动作的处理者只从 DOM 读（与 `branchRowMenu` 同形）。
+  const primary = selections[0] || { name: "", kind: "branch" };
+  return `<section class="popover context-menu ref-menu" data-ref-name="${escapeHtml(primary.name)}" data-ref-kind="${escapeHtml(primary.kind)}" data-ref-targets="${escapeHtml(JSON.stringify(selections))}">${items.join("")}</section>`;
 }
 
 function branchesPopover() {
@@ -3276,8 +4653,16 @@ function branchesPopover() {
 
 function renderScene() {
   const settingsBody = settingsBodyFallback();
-  const stashBody = `<div class="form-grid"><label for="stash-root">Git 根目录</label><select id="stash-root" class="select-field"><option>D:\\github\\Augit</option></select><label>当前分支</label><span class="stash-branch">main</span><label for="stash-message">消息</label><textarea id="stash-message" class="message-field"></textarea><span></span><label class="check-line"><input id="stash-keep" type="checkbox">保留索引状态</label></div><div class="stash-notice" role="status" hidden></div>`;
-  const cloneBody = `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
+  // Stash 创建对话框的字段与提示取权威 `GitStashDialog.kt:41-53` + `GitBundle.properties:52-55,437-446`：
+  //   字段顺序 根 → 当前分支 → 消息 → 复选；每个字段都带 toolTipText（`common.git.root.tooltip`、
+  //   `common.current.branch.tooltip`、`stash.message.tooltip`、`stash.keep.index.tooltip`、
+  //   `stash.include.untracked.tooltip`）。这里只补 Augit **已有字段**的提示。
+  //   **`Include untracked` 复选是"规范 vs 权威"的冲突**：`ux-spec:524-525` 明确规定只要四个字段
+  //   （根目录／当前分支／消息／保留索引），而权威有该复选、宿主机 `ShellBridge.cs:1970` 也早已支持
+  //   `includeUntracked` 且**默认 true**。加上它等于改变"什么会被 stash"（产品行为，不只是呈现），
+  //   已升级为人工裁决，见 docs/nui-behavior/10-backlog.md §三 与 13-git-dialogs.md §2.3。
+  const stashBody = `<div class="form-grid"><label for="stash-root">Git 根目录</label><select id="stash-root" class="select-field" title="选择 Git 仓库根目录"><option>D:\\github\\Augit</option></select><label>当前分支</label><span class="stash-branch" title="当前已检出的分支">main</span><label for="stash-message">消息</label><textarea id="stash-message" class="message-field" title="在此输入 Stash 消息"></textarea><span></span><label class="check-line" title="勾选后，已加入索引的改动会原样保留"><input id="stash-keep" type="checkbox">保留索引状态</label><label class="check-line" title="勾选后，未跟踪文件也会一起暂存。"><input id="stash-include-untracked" type="checkbox">包含未跟踪文件</label></div><div class="stash-notice" role="status" hidden></div>`;
+  const cloneBody = `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" title="--depth" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
   switch (scene) {
     case "main-project": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "git" });
     case "text-viewer": return shell({ activeRail: "project", side: "project", editor: "text-find", selectedFile: "MainWindow.cs" });
@@ -3313,9 +4698,9 @@ function renderScene() {
       ]), '<button type="button" class="secondary-button">取消</button><button type="button" class="danger-button">删除 stash@{0}</button>', false, "stash-drop-dialog") });
     case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
     case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
-    case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option>Soft · 仅移动 HEAD</option><option>Mixed · 同时重置索引</option><option selected>Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
+    case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · 同时重置索引</option><option value="soft">Soft · 仅移动 HEAD</option><option value="hard">Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
     case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", (window.__augitLive && window.__augitLive.settings) ? liveCloneBody() : cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
-    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
+    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
     case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("quick") : searchOverlay("quick"), selectedFile: "MainWindow.cs" });
     case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("repository") : searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
@@ -3326,9 +4711,9 @@ function renderScene() {
     case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
     case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">推送失败</div><div>当前仓库未配置远端，Git 没有修改本地提交或工作区。</div><div class="commit-meta" style="margin-top:5px">关闭提示后不保留命令输出或操作历史。</div></div>` });
     case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("打开工作区", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} 最近目录</div><div class="tree-row">${icon("folder-open")} 选择目录…</div><div class="tree-row">${icon("clone")} 克隆仓库…</div></div><div class="management-detail"><h2>最近目录</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">同一目录已经打开时激活原窗口。</p></div></div>`, `<a class="secondary-button" href="main-project.html">取消</a><button class="primary-button">打开</button>`, true) });
-    case "repository-init": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("初始化 Git 仓库", `<div class="info-block" style="width:auto;text-align:left"><h2>D:\\projects\\notes 不是 Git 仓库</h2><p>初始化会创建 .git 元数据，不会提交或修改现有文件。</p></div>`, `<a class="secondary-button" href="main-project.html">继续仅浏览</a><a class="primary-button" href="operation-progress.html">初始化仓库</a>`) });
+    case "repository-init": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: repositoryInitScene() });
     case "blame": return shell({ activeRail: "history", side: "project", editor: "blame", bottom: "file-history", selectedFile: "product-spec.md" });
-    case "smart-checkout": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("切换到 feature/ux", `<div class="inline-alert"><strong>当前改动会被目标分支覆盖</strong><p class="commit-meta">Augit 可以临时 Stash 当前改动，切换后再恢复。</p></div><div class="form-grid" style="margin-top:16px"><span>当前分支</span><span>main</span><span>目标分支</span><span>feature/ux</span><span>将暂存</span><span>8 个已跟踪文件和 2 个未跟踪文件</span></div>`, `<a class="secondary-button" href="branches.html">取消</a><a class="primary-button" href="operation-progress.html">Smart Checkout</a>`) });
+    case "smart-checkout": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: smartCheckoutScene() });
     case "rollback": {
       const liveStatus = window.__augitLive && window.__augitLive.status;
       const rollbackFile = liveStatus && liveStatus.files ? (liveStatus.files.find(f => f.group === "Changes") || liveStatus.files[0]) : null;
@@ -3338,12 +4723,16 @@ function renderScene() {
     }
     case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast"><div class="toast-title">正在执行 Smart Checkout…</div><div class="commit-meta">正在恢复临时 Stash</div><div class="progress-track"><div class="progress-value"></div></div><div class="button-row"><a class="secondary-button" href="operation-result.html">取消</a></div></div>` });
     case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("关闭终端", `<div class="info-block" style="width:auto;text-align:left"><h2>终端中仍有命令正在运行</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>继续将结束前台命令、Shell 及其整个子进程树。</p></div>`, `<a class="secondary-button" href="terminal.html">保留终端</a><a class="danger-button" href="main-project.html">结束命令并关闭</a>`) });
-    case "search-limited": return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
+    case "search-limited": {
+      // 到限态叠上权威的「结果过多」；`search-state=timeout` 等其它态只显示浮层自己的说明。
+      const limited = (new URLSearchParams(location.search).get('search-state') || 'limited') === 'limited';
+      return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository") + (limited ? searchLimitDialog() : ''), selectedFile: "NativeGitPanel.cs" });
+    }
     case "conflict-list": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("Rebase 冲突", `<div class="toolbar"><strong>2 个冲突文件</strong><span class="grow"></span><span class="commit-meta">当前步骤 2/4</span></div><div class="changes-list"><a class="check-row selected" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>NativeGitPanel.cs</span><span class="tree-path">内容冲突</span></a><a class="check-row" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>MainWindow.cs</span><span class="tree-path">内容冲突</span></a></div>`, `<a class="secondary-button" href="main-project.html">Abort Rebase</a><button class="secondary-button">Skip</button><button class="primary-button" disabled>Continue Rebase</button>`, true) });
     case "conflict-resolver": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("解决冲突", (window.__augitLive && window.__augitLive.conflict) ? liveConflictResolver() : conflictResolver(), `<a class="secondary-button" href="conflict-list.html">返回冲突列表</a>`, true, "dialog-xl") });
     case "commit-empty": return shell({ activeRail: "commit", side: "commit-empty", editor: "markdown" });
     case "diff-loading": return shell({ activeRail: "commit", side: "commit", editor: "diff-loading", bottom: "git", selectedFile: "app.manifest" });
-    case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("推送提交到 Augit", pushDialogBody(true), `<button class="secondary-button">取消</button><button class="primary-button" disabled>推送</button>`, true, "push-dialog push-no-remote") });
+    case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), pushDialogBody(true), `<button class="secondary-button">取消</button><button class="primary-button" disabled>推送</button>`, true, "push-dialog push-no-remote") });
     case "stash-manager": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Stash 管理", (window.__augitLive && window.__augitLive.stashes) ? liveManagementPage("stash") : managementPage("stash"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "stash-manager-dialog") });
     case "project-context-menu": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "terminal", overlay: projectContextMenu() });
     case "changes-context-menu": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: changesContextMenu(), selectedFile: "app.manifest" });
@@ -3408,9 +4797,7 @@ function bindHistoryToolbar(root = document) {
         copy.addEventListener("click", () => {
           popup.hidePopover();
           trigger.focus();
-          if (copy.getAttribute("aria-label") === "搜索") {
-            toolbar.closest(".git-toolbar-layout").querySelector(".history-filters input").focus();
-          } else button.click();
+          button.click();
         });
         return copy;
       }));
@@ -3532,7 +4919,12 @@ function bindHistoryLayout(root = document) {
     };
     list.addEventListener("click", event => {
       const row = event.target.closest(".commit-row");
-      if (row) select(rows.indexOf(row));
+      if (!row) return;
+      select(rows.indexOf(row));
+      // 选择同时进状态：规格 §7.9 要求"提交选择"跨重绘保留（进入/离开文件历史都会整块重绘），
+      // 只改 DOM 的话重绘后必然退回第一行（第 164 轮实测）。
+      const live = window.__augitLive;
+      if (live) live.historySelectedHash = row.dataset.hash || null;
     });
     list.addEventListener("keydown", event => {
       if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
@@ -3551,9 +4943,10 @@ function bindHistoryLayout(root = document) {
     bar.addEventListener("click", event => {
       const button = event.target.closest("[data-history-filter]");
       if (!button) return;
-      input.placeholder = ["分支", "用户", "日期", "路径"][Number(button.dataset.historyFilter)];
+      // 旧行为是"把输入框的占位符改成该筛选的名字" —— 那是个**假交互**（看起来像筛选入口，实际什么都没筛）。
+      // 权威里点筛选控件要么打开弹层、要么点右侧关闭叉复位（`FilterComponent.java:96-200`）；
+      // 外壳侧由 `live-data.js` 的分派器接线（`data-filter-key`），静态视觉稿只收起收纳菜单。
       overflow.open = false;
-      input.focus();
     });
     document.addEventListener("click", event => {
       // 该监听由本区域的筛选菜单持有，区域替换时随 signal 一并释放。
@@ -4120,6 +5513,40 @@ function bindChangesWorkflow() {
   });
 }
 
+/**
+ * 空提交信息的确认（权威，第 135 轮采集）。
+ *
+ * 权威：`platform/vcs-impl/src/com/intellij/vcs/commit/SingleChangeListCommitWorkflowHandler.kt:117-122`
+ *   checkCommit = super.checkCommit(...) && (
+ *     getCommitMessage().isNotEmpty() || ui.confirmCommitWithEmptyMessage())
+ * 即**空信息不是阻断条件**，而是弹一个确认；用户确认后**照常提交**，取消才回到编辑。
+ * 文案取 `VcsBundle.properties:36-37`（title `No Commit Message` / text `Add a summary of your
+ * changes in the commit message field`）与 `:35` 的 `action.commit.anyway.text`（"… Anyway"），
+ * 按 Augit 的中文界面本地化，语义逐条对应。
+ *
+ * 实时侧（`live-data.js` 的 `commitSelectedChanges`）与视觉稿共用本函数，避免各写一套。
+ */
+function confirmCommitWithEmptyMessage(onConfirm, onCancel) {
+  document.querySelectorAll("[data-commit-empty-message]").forEach(node => node.remove());
+  const host = document.querySelector(".app-frame") || document.body;
+  host.insertAdjacentHTML("beforeend", dialog(
+    "无提交信息",
+    '<div class="info-block"><p>请在提交信息栏填写改动摘要。</p></div>',
+    '<button type="button" class="secondary-button" data-commit-empty-cancel="1">取消</button>'
+      + '<button type="button" class="primary-button" data-commit-empty-anyway="1">仍然提交</button>',
+    false, "commit-empty-message-dialog"));
+  const layer = host.lastElementChild;
+  if (!layer) return;
+  layer.setAttribute("data-commit-empty-message", "");
+  const close = () => layer.remove();
+  const cancel = layer.querySelector("[data-commit-empty-cancel]");
+  const anyway = layer.querySelector("[data-commit-empty-anyway]");
+  // 取消 = 不提交并把焦点退回提交信息栏（权威的 cancel 语义）。
+  if (cancel) cancel.addEventListener("click", () => { close(); if (onCancel) onCancel(); });
+  if (anyway) anyway.addEventListener("click", () => { close(); onConfirm(); });
+  if (anyway) anyway.focus();
+}
+
 function bindInteractions() {
   bindStashDialog();
   bindCloneDialog();
@@ -4137,10 +5564,19 @@ function bindInteractions() {
     input.addEventListener("input", () => showError(""));
     box.closest(".commit-box").querySelectorAll(".commit-actions > .primary-button, .commit-actions > .secondary-button").forEach(button => {
       button.addEventListener("click", event => {
+        // 已通过确认：放行这一次（`__augitCommitAnyway` 由确认回调置位，见下）。
+        if (window.__augitCommitAnyway) { delete window.__augitCommitAnyway; return; }
         if (input.value.trim()) return;
+        // 空信息**不阻断**：弹确认；确认后重新触发一次点击并放行。
+        // 原实现是 `preventDefault()` + 报错且**永不继续**，属旧交互（见
+        // docs/nui-behavior/12-commit-changes.md §5）。
         event.preventDefault();
-        showError("提交信息不能为空。");
-        input.focus({ preventScroll: true });
+        event.stopPropagation();
+        confirmCommitWithEmptyMessage(() => {
+          window.__augitCommitAnyway = true;
+          button.click();
+          delete window.__augitCommitAnyway;
+        }, () => input.focus({ preventScroll: true }));
       });
     });
   });

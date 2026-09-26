@@ -22,6 +22,8 @@ internal sealed class ShellWindow : IDisposable
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcHitTest = 0x0084;
     private const uint WmNclButtonDown = 0x00A1;
+    // 系统设置变化广播。lParam 指向变化区域名，应用模式（浅色/深色）用 "ImmersiveColorSet"。
+    private const uint WmSettingChange = 0x001A;
     // 网页层发起的标题栏拖动：先回响应，再进入系统移动循环（见 HandleWindowCommand）。
     private const uint StartDragMessage = 0x0400 + 5;
     private const uint StartResizeMessage = 0x0400 + 6;
@@ -72,6 +74,8 @@ internal sealed class ShellWindow : IDisposable
     private bool _startupMaximized;
     // 上一次推给网页层的最大化状态；只在真的变化时推送，避免每次 WM_SIZE 都跨进程发消息。
     private bool? _reportedMaximized;
+    // 最近一次下发给网页层的生效主题；系统应用模式变化时用它判断是否需要推送。
+    private string? _notifiedTheme;
     // 标题栏双击判定：上一次标题栏按下的时刻与位置。
     private long _lastDragTick;
     private ShellPoint _lastDragPoint;
@@ -520,6 +524,42 @@ internal sealed class ShellWindow : IDisposable
         Notify("window/state", new { maximized, minimized = IsIconic(_window) });
     }
 
+    /// <summary>
+    /// 系统设置变化后，如果变化的是「应用模式」且主题设置为跟随系统，就重新解析主题并下发。
+    /// </summary>
+    /// <remarks>
+    /// Windows 在切换浅色/深色应用模式时广播 <c>WM_SETTINGCHANGE</c>，区域名放在 <c>lParam</c>
+    /// 指向的宽字符串里。同一条消息也用于其它设置变化（语言、无障碍等），因此必须按区域名过滤。
+    /// 主题只替换颜色，不改变尺寸与布局，所以这里只推送主题、不做重新布局。
+    /// </remarks>
+    private void OnSystemSettingChange(nint lParam)
+    {
+        if (lParam == 0)
+        {
+            return;
+        }
+
+        string? area = Marshal.PtrToStringUni(lParam);
+        if (!ShellTheme.IsImmersiveColorSet(area))
+        {
+            return;
+        }
+
+        // 已下发过就以已下发的为准，避免窗口过程被重入时拿不到最新值。
+        // Theme 在 Program 里一定已被解析成具体主题，这里的兜底只为满足可空性检查。
+        string current = _notifiedTheme ?? _options.Theme ?? "Light";
+        string? next = ShellTheme.NextOnSystemChange(_options.ThemeMode, ShellSystemTheme.DetectDark(), current);
+        if (next is null)
+        {
+            return;
+        }
+
+        _notifiedTheme = next;
+        // 外壳自己的底色也要跟着换：WebView2 的默认背景在页面重绘前仍然可见（深色下是白闪）。
+        ApplySurfaceColor(next);
+        Notify("theme/changed", new { theme = ShellTheme.QueryValue(next) });
+    }
+
     private int WorkWidth => _hasWorkArea ? _workArea.Right - _workArea.Left : 0;
 
     private int WorkHeight => _hasWorkArea ? _workArea.Bottom - _workArea.Top : 0;
@@ -567,6 +607,9 @@ internal sealed class ShellWindow : IDisposable
                 return shell.OnDpiChanged(message, wParam, lParam);
             case WmGetMinMaxInfo:
                 shell.ApplyMinimumSize(lParam);
+                return 0;
+            case WmSettingChange:
+                shell.OnSystemSettingChange(lParam);
                 return 0;
             case WmClose:
                 shell.SavePlacement();
@@ -642,6 +685,7 @@ internal sealed class ShellWindow : IDisposable
                 return;
             }
 
+            ApplySurfaceColor(_options.Theme);
             CoreWebView2 webView = _controller.CoreWebView2;
             webView.Settings.AreDefaultContextMenusEnabled = false;
             webView.Settings.IsStatusBarEnabled = false;
@@ -668,6 +712,22 @@ internal sealed class ShellWindow : IDisposable
         {
             _ = MessageBox(_window, exception.ToString(), "Augit 界面加载失败", 0x00000010);
         }
+    }
+
+    /// <summary>
+    /// 把主题对应的窗口表面色交给 WebView2（<c>DefaultBackgroundColor</c>）。
+    /// 取色规则见 <see cref="ShellTheme.SurfaceColor"/>；控制器尚未创建时静默跳过
+    /// （创建时还会再设一次，见 <c>CreateWebViewAsync</c>）。
+    /// </summary>
+    private void ApplySurfaceColor(string? theme)
+    {
+        if (_controller is null)
+        {
+            return;
+        }
+
+        (int r, int g, int b) = ShellTheme.SurfaceColor(theme ?? "Light");
+        _controller.DefaultBackgroundColor = System.Drawing.Color.FromArgb(r, g, b);
     }
 
     private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
@@ -709,7 +769,9 @@ internal sealed class ShellWindow : IDisposable
 
         if (_options.Theme is { Length: > 0 } theme)
         {
-            parts.Add($"theme={Uri.EscapeDataString(theme)}");
+            // 网页层的主题契约是小写（见 ShellTheme.QueryValue）：设置里的取值是
+            // System/Light/Dark，不归一化会让 theme=Dark 认不出来，深色主题在真实应用里失效。
+            parts.Add($"theme={Uri.EscapeDataString(ShellTheme.QueryValue(theme))}");
         }
 
         if (_options.OpenDocument is { Length: > 0 } document)

@@ -21,19 +21,23 @@ async function main() {
           url.searchParams.set('theme', theme);
           await page.goto(url.href);
           await page.waitForSelector('body[data-typography-preview="ready"]');
+          // 危险样式只属于 Hard 一档：权威 `GitResetDialog.java:157-159` 按 MIXED → SOFT → HARD
+          // 依次添加下拉项 ⇒ 打开时默认落在 MIXED（非破坏性，`GitBundle.properties:1205-1206`）。
+          // 原断言直接抓 `.danger-button`，编码的是"打开即 Hard"的旧默认（第 143 轮按权威改正默认后暴露）。
+          if (scene === 'reset') await page.selectOption('#reset-mode', 'hard');
           const cancel = page.locator('.dialog-footer .secondary-button');
           const run = page.locator('.dialog-footer .danger-button');
           const close = page.locator('.dialog-header .icon-button');
           const colors = theme === 'light'
-            ? { panel: 'rgb(255, 255, 255)', hover: 'rgb(241, 242, 244)', danger: 'rgb(199, 68, 64)', accent: 'rgb(56, 113, 225)', disabled: 'rgb(245, 248, 254)' }
-            : { panel: 'rgb(30, 31, 34)', hover: 'rgb(45, 47, 51)', danger: 'rgb(227, 122, 122)', accent: 'rgb(84, 138, 247)', disabled: 'rgb(37, 38, 42)' };
+            ? { panel: 'rgb(255, 255, 255)', hover: 'rgba(0, 0, 0, 0.07)', pressed: 'rgba(0, 0, 0, 0.125)', danger: 'rgb(197, 78, 88)' /* 权威 `accent-error-bg` = #C54E58（第 109 轮核对；原 #C74440 无依据） */, accent: 'rgb(56, 113, 225)', disabled: 'rgb(247, 248, 249)' /* 禁用底取 `--augit-panel-muted`：浅 = Islands `*.disabledBackground` = `dialog-bg` = `gray-160` #F7F8F9（第 131 轮订正；原 #F5F8FE = Blue13 无依据） */ }
+            : { panel: 'rgb(30, 31, 34)', hover: 'rgba(255, 255, 255, 0.086)', pressed: 'rgba(255, 255, 255, 0.15)', danger: 'rgb(219, 92, 92)' /* 权威 expUI_dark `dangerBackground` = Red7 #DB5C5C（ManyIslandsDark 的 `dangerBackground` 同值；原 #E37A7A 在任何调色板里都查不到） */, accent: 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（原 Blue8 #548AF7 无依据） */, disabled: 'rgb(43, 45, 48)' /* expUI_dark 通配 `*.disabledBackground` = Gray2 #2B2D30（原 #25262A 无依据） */ };
           const style = locator => locator.evaluate(node => {
             const css = getComputedStyle(node);
             return { background: css.backgroundColor, outline: css.outlineColor, outlineStyle: css.outlineStyle, radius: css.borderRadius };
           });
           const before = await cancel.boundingBox();
           assert.equal((await style(cancel)).background, colors.panel);
-          assert.equal((await style(cancel)).radius, '5px');
+          assert.equal((await style(cancel)).radius, '3px');   // 权威 Button.arc = 6 ⇒ 半径 3（原 5px 无依据）
           assert.equal((await style(run)).background, colors.danger);
           await cancel.hover();
           assert.equal((await style(cancel)).background, colors.hover);
@@ -41,7 +45,8 @@ async function main() {
           assert.equal((await style(cancel)).outline, colors.accent);
           assert.equal((await style(cancel)).outlineStyle, 'solid');
           await page.mouse.down();
-          try { assert.equal((await style(cancel)).background, colors.hover); }
+          // 按下是独立一档（`--augit-pressed`），不再沿用悬停色。
+          try { assert.equal((await style(cancel)).background, colors.pressed); }
           finally { await page.mouse.move(0, 0); await page.mouse.up(); }
           await run.focus();
           assert.equal((await style(run)).outline, colors.accent);

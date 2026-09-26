@@ -101,6 +101,8 @@ public sealed class RipgrepSearchService
         ProcessStartInfo startInfo = CreateStartInfo(workspaceRoot);
         AddTextArguments(startInfo, options);
         List<TextSearchMatch> matches = [];
+        int skipped = 0;
+        int maximum = Math.Max(1, options.MaximumResults);
         bool truncated = false;
         bool timedOut = false;
         bool cancelled = false;
@@ -116,12 +118,21 @@ public sealed class RipgrepSearchService
                 {
                     if (TryParseMatch(line, out TextSearchMatch? match) && match is not null)
                     {
-                        matches.Add(match);
-                        if (matches.Count > SearchOptions.MaximumTextResults)
+                        // "继续搜索"取下一页：先按 `SkipResults` 跳过已展示的那些。
+                        if (skipped < options.SkipResults)
                         {
+                            skipped++;
+                            return true;
+                        }
+
+                        if (matches.Count >= maximum)
+                        {
+                            // 本页取满且还有下一条 ⇒ 标记还有更多（下一条不进结果）。
                             truncated = true;
                             return false;
                         }
+
+                        matches.Add(match);
                     }
 
                     return true;
@@ -136,11 +147,6 @@ public sealed class RipgrepSearchService
         {
             timedOut = timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
             cancelled = cancellationToken.IsCancellationRequested;
-        }
-
-        if (truncated)
-        {
-            matches.RemoveRange(SearchOptions.MaximumTextResults, matches.Count - SearchOptions.MaximumTextResults);
         }
 
         return new(matches, truncated, timedOut, cancelled, timedOut ? "搜索超过 15 秒，已停止。" : error);

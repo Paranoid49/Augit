@@ -8,7 +8,21 @@ public sealed class GitHistoryService : IGitHistoryService
 {
     private const char RecordSeparator = '\x1e';
     private const char FieldSeparator = '\x1f';
+
+    /// <summary>
+    /// 历史条目的一行格式（与 `TryParseHistory` 的解析顺序一一对应）。
+    /// 作者与提交者都取：文件历史的作者列按权威 `FileHistoryPanelImpl.AuthorColumnInfo`
+    /// 用「作者 ≠ 提交者」决定 `*` 与 `, via {提交者}` 的 tooltip。
+    /// </summary>
+    private static readonly string HistoryFormat =
+        $"{RecordSeparator}%H{FieldSeparator}%h{FieldSeparator}%P{FieldSeparator}%an{FieldSeparator}%ae{FieldSeparator}%cn{FieldSeparator}%ce{FieldSeparator}%aI{FieldSeparator}%s{FieldSeparator}%D";
     private const int MaximumHistoryOutputBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// 哈希筛选一次最多展开的提交数（安全上限：前缀越短命中的对象越多，
+    /// 而 `--disambiguate` 会给出**所有**以该前缀开头的对象）。
+    /// </summary>
+    private const int MaximumHashMatches = 500;
     private const int MaximumDetailsOutputBytes = 20 * 1024 * 1024;
     private const long MaximumSideBytes = 10L * 1024 * 1024;
     private const string FullFileContextArgument = "--unified=10485760";
@@ -40,6 +54,66 @@ public sealed class GitHistoryService : IGitHistoryService
         _detailsRunner = detailsRunner;
     }
 
+    /// <summary>
+    /// 读取作者集合（权威 `VcsLogUserResolver`／`GitUserRegistry` 从日志收集用户）：
+    /// `git log --branches --remotes --format=%an%x1f%ae` 去重后按名字排序。
+    /// 只回"历史里出现过的人"，不猜配置里的默认用户。
+    /// </summary>
+    public async Task<GitAuthorsResult> ReadAuthorsAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(repository);
+        if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? validationError))
+        {
+            return GitAuthorsResult.Failure(GitOperationFailureKind.InvalidRequest, validationError!);
+        }
+
+        GitCommandResult result = await RunQueryAsync(
+            repositoryRoot!,
+            [
+                "-c",
+                "core.quotePath=false",
+                "log",
+                "--branches",
+                "--remotes",
+                $"--format=%an{FieldSeparator}%ae",
+            ],
+            _queryRunner,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return GitAuthorsResult.Failure(NormalizeFailure(result), result.ErrorMessage);
+        }
+
+        Dictionary<string, GitAuthorInfo> byKey = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string rawLine in result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] fields = rawLine.TrimEnd('\r').Split(FieldSeparator);
+            if (fields.Length != 2)
+            {
+                continue;
+            }
+
+            string name = fields[0].Trim();
+            string email = fields[1].Trim();
+            if (name.Length == 0 && email.Length == 0)
+            {
+                continue;
+            }
+
+            // 同一个人可能换过显示名：以"名字 ＋ 邮箱"为键去重，避免把同一邮箱列两次。
+            string key = $"{name}\u0000{email}";
+            byKey.TryAdd(key, new GitAuthorInfo(name, email));
+        }
+
+        GitAuthorInfo[] authors = byKey.Values
+            .OrderBy(author => author.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(author => author.Email, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return GitAuthorsResult.Success(authors);
+    }
+
     public async Task<GitHistoryResult> ReadPageAsync(
         GitRepositorySnapshot repository,
         GitHistoryRequest request,
@@ -60,113 +134,200 @@ public sealed class GitHistoryService : IGitHistoryService
         }
 
         GitHistoryFilter filter = request.Filter ?? new();
-        string? normalizedPath = null;
-        if (!string.IsNullOrWhiteSpace(filter.FilePath)
-            && !GitPathValidator.TryNormalizeRelativePath(
-                repositoryRoot!,
-                filter.FilePath,
-                out normalizedPath,
-                out _))
+        // 路径筛选：权威 `VcsLogStructureFilter` 持有的是一组 `FilePath`
+        // （`VcsLogFilterObject.fromPaths(...)`，`platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/FileFilterModel.kt:76-83`），
+        // 用户可以在「选择…」里一次给多行、或在树里一次勾多个目录/文件。
+        // `Paths` 优先于单值 `FilePath`（文件历史面板给单值）。
+        IReadOnlyList<string> requestedPaths = filter.Paths is { Count: > 0 }
+            ? filter.Paths
+            : string.IsNullOrWhiteSpace(filter.FilePath) ? [] : [filter.FilePath!];
+        List<string> normalizedPaths = [];
+        foreach (string requestedPath in requestedPaths)
         {
-            return GitHistoryResult.Failure(
-                GitOperationFailureKind.InvalidRequest,
-                "历史筛选的文件路径越过了仓库边界。");
-        }
-
-        string? startingRevision = null;
-        bool exactHash = !string.IsNullOrWhiteSpace(filter.Hash);
-        if (exactHash)
-        {
-            if (!Regex.IsMatch(filter.Hash!, "^[0-9a-fA-F]{4,40}$", RegexOptions.CultureInvariant))
+            if (string.IsNullOrWhiteSpace(requestedPath))
             {
-                return GitHistoryResult.Success(new(
-                    request.Page,
-                    request.PageSize,
-                    request.Page > 0,
-                    false,
-                    []));
+                continue;
             }
 
-            startingRevision = await ResolveRevisionAsync(
-                repositoryRoot!,
-                filter.Hash!,
-                cancellationToken).ConfigureAwait(false);
-            if (startingRevision is null)
+            if (!GitPathValidator.TryNormalizeRelativePath(
+                    repositoryRoot!,
+                    requestedPath,
+                    out string? normalized,
+                    out _))
             {
-                return GitHistoryResult.Success(new(
-                    request.Page,
-                    request.PageSize,
-                    request.Page > 0,
-                    false,
-                    []));
+                return GitHistoryResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "历史筛选的文件路径越过了仓库边界。");
             }
-        }
-        else if (!string.IsNullOrWhiteSpace(filter.Branch))
-        {
-            startingRevision = await ResolveRevisionAsync(
-                repositoryRoot!,
-                filter.Branch!,
-                cancellationToken).ConfigureAwait(false);
-            if (startingRevision is null)
+
+            if (normalized is not null && !normalizedPaths.Contains(normalized, StringComparer.Ordinal))
             {
-                return GitHistoryResult.Success(new(
-                    request.Page,
-                    request.PageSize,
-                    request.Page > 0,
-                    false,
-                    []));
+                normalizedPaths.Add(normalized);
             }
         }
 
-        int maximumCount = exactHash ? 1 : request.PageSize + 1;
-        int skip = exactHash ? request.Page : checked(request.Page * request.PageSize);
-        List<string> arguments =
-        [
-            "log",
-            // 请求拓扑序：界面按 %P 返回的父子关系推导泳道，
-            // 必须保证「父提交不会出现在其子提交之前」，否则推导会画出回边。
-            //
-            // git log 的默认顺序是按提交时间排，父的时间戳可能晚于子
-            // （rebase、cherry-pick、合并都会造成这种偏斜），
-            // 此时默认顺序会违反上述前提——实测构造偏斜时间戳后出现回边。
-            // 代价是 Git 需要遍历完整历史：10 万提交仓库实测 31 ms -> 271 ms。
-            // 提交图正确性优先于这 240 毫秒，因此保留该开关。
-            "--topo-order",
-            // 不请求 --graph：界面自行推导泳道，entry.Graph 没有消费方，
-            // 而该开关在 10 万提交仓库上额外增加约 250 毫秒。
-            "--decorate=full",
-            $"--max-count={maximumCount.ToString(CultureInfo.InvariantCulture)}",
-            $"--skip={skip.ToString(CultureInfo.InvariantCulture)}",
-            $"--format={RecordSeparator}%H{FieldSeparator}%h{FieldSeparator}%P{FieldSeparator}%an{FieldSeparator}%ae{FieldSeparator}%aI{FieldSeparator}%s{FieldSeparator}%D",
-        ];
-        if (!string.IsNullOrWhiteSpace(filter.Message))
+        // 哈希筛选：权威 `VcsLogFiltererImpl.filter()`
+        // （`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/VcsLogFiltererImpl.kt:88-101`）
+        // 在存在哈希筛选时**短路**其它全部筛选（该处原注释："hashes should be shown,
+        // no matter if they match other filters or not"），且匹配的是「完整哈希以该前缀开头的**所有**提交」
+        // （同文件 `:323-335` 的 `iterateCommitsWithPrefix`）。
+        // 界面的「文本或哈希」会同时送出文本与哈希两种筛选（`TextFilterModel.setFilterText`，
+        // `platform/vcs-log/impl/src/com/intellij/vcs/log/ui/filter/TextFilterModel.kt:96-103`），
+        // 因此这里必须先判哈希：否则 `--grep=<哈希>` 会把命中的提交也筛掉。
+        string[] hashPrefixes = ParseHashPrefixes(filter.Hash);
+        List<string> hashRevisions = hashPrefixes.Length > 0
+            ? await ExpandHashPrefixesAsync(repositoryRoot!, hashPrefixes, cancellationToken).ConfigureAwait(false)
+            : [];
+        // 权威 `applyHashFilter()` 在前缀**一条都没命中**时 `return null`（同文件 `:336-341`），
+        // 于是落回普通筛选路径 —— 此时同一个文本还带着文本筛选（`--grep`）在起作用。
+        // 只有"命中非空"才短路其它筛选。
+        bool hashMode = hashRevisions.Count > 0;
+        List<string> arguments;
+        if (hashMode)
         {
-            arguments.Add("--fixed-strings");
-            arguments.Add("--regexp-ignore-case");
-            arguments.Add($"--grep={filter.Message}");
+            arguments =
+            [
+                "log",
+                // `--no-walk=unsorted`：只列给定提交、不遍历祖先。
+                //
+                // **不能带 `--max-count`**：实测（Windows Git 2.45.1 与 Linux Git 2.43.0 同样）
+                // 它会让 `--no-walk` 失效并沿祖先继续遍历——只给 a 与 c 两条会把中间的 b 也列出来；
+                // `--skip` 无此问题。**也不能用 `--no-walk=sorted`**（同样是遍历行为）。
+                // 数量上限与分页因此都放在宿主侧：见下面的排序与 `MaximumHashMatches`。
+                "--no-walk=unsorted",
+                // `--ignore-missing`：`--disambiguate` 也会给出树/blob，非提交对象由 Git 忽略。
+                "--ignore-missing",
+                "--decorate=full",
+                $"--format={HistoryFormat}",
+            ];
+            arguments.AddRange(hashRevisions);
         }
-
-        if (!string.IsNullOrWhiteSpace(filter.Author))
+        else
         {
-            arguments.Add("--regexp-ignore-case");
-            arguments.Add($"--author={Regex.Escape(filter.Author)}");
-        }
+            // 起始修订集合（权威：分支筛选给出的是**一组**起点，`--all` 是"没有任何筛选"时的全集）。
+            List<string> startingRevisions = [];
+            // 范围筛选（权威 `VcsLogRangeFilter`，`VcsLogFilterObject.fromRange(exclusiveRef, inclusiveRef)`）：
+            // 取从 inclusive 可达、但不从 exclusive 可达的提交，即 `git log <exclusive>..<inclusive>`。
+            // 两端必须同时给出（权威的 `RefRange` 天生是一对）。
+            bool hasRange = !string.IsNullOrWhiteSpace(filter.RangeExclusive)
+                || !string.IsNullOrWhiteSpace(filter.RangeInclusive);
+            if (hasRange)
+            {
+                if (string.IsNullOrWhiteSpace(filter.RangeExclusive)
+                    || string.IsNullOrWhiteSpace(filter.RangeInclusive))
+                {
+                    return GitHistoryResult.Failure(
+                        GitOperationFailureKind.InvalidRequest,
+                        "范围筛选需要同时给出两端引用。");
+                }
 
-        if (filter.Since is not null)
-        {
-            arguments.Add($"--since={filter.Since.Value.ToString("O", CultureInfo.InvariantCulture)}");
-        }
+                string? exclusiveRevision = await ResolveRevisionAsync(
+                    repositoryRoot!,
+                    filter.RangeExclusive!,
+                    cancellationToken).ConfigureAwait(false);
+                string? inclusiveRevision = await ResolveRevisionAsync(
+                    repositoryRoot!,
+                    filter.RangeInclusive!,
+                    cancellationToken).ConfigureAwait(false);
+                if (exclusiveRevision is null || inclusiveRevision is null)
+                {
+                    return EmptyPage(request);
+                }
 
-        if (filter.Until is not null)
-        {
-            arguments.Add($"--until={filter.Until.Value.ToString("O", CultureInfo.InvariantCulture)}");
-        }
+                // 解析成完整哈希再拼范围，避免短名在 `A..B` 里的歧义。
+                startingRevisions.Add($"{exclusiveRevision}..{inclusiveRevision}");
+            }
+            else
+            {
+                // 分支筛选：权威 `VcsLogFilterObject.fromBranches(branchNames)` —— 取从**任一**匹配分支
+                // 可达的提交（并集），对应 `git log b1 b2 …`；`Branches` 优先于单值 `Branch`。
+                IReadOnlyList<string> branchNames = filter.Branches is { Count: > 0 }
+                    ? filter.Branches
+                    : string.IsNullOrWhiteSpace(filter.Branch) ? [] : [filter.Branch!];
+                foreach (string branchName in branchNames)
+                {
+                    string? resolved = await ResolveRevisionAsync(
+                        repositoryRoot!,
+                        branchName,
+                        cancellationToken).ConfigureAwait(false);
+                    if (resolved is not null)
+                    {
+                        startingRevisions.Add(resolved);
+                    }
+                }
 
-        arguments.Add(startingRevision ?? "--all");
-        if (normalizedPath is not null)
-        {
-            arguments.Add("--");
-            arguments.Add(normalizedPath);
+                if (branchNames.Count > 0 && startingRevisions.Count == 0)
+                {
+                    // 一个都解析不出来（含"引用存在但解析失败"）：如实返回空页，不退化成整仓历史。
+                    return EmptyPage(request);
+                }
+            }
+
+            arguments =
+            [
+                "log",
+                // 请求拓扑序：界面按 %P 返回的父子关系推导泳道，
+                // 必须保证「父提交不会出现在其子提交之前」，否则推导会画出回边。
+                //
+                // git log 的默认顺序是按提交时间排，父的时间戳可能晚于子
+                // （rebase、cherry-pick、合并都会造成这种偏斜），
+                // 此时默认顺序会违反上述前提——实测构造偏斜时间戳后出现回边。
+                // 代价是 Git 需要遍历完整历史：10 万提交仓库实测 31 ms -> 271 ms。
+                // 提交图正确性优先于这 240 毫秒，因此保留该开关。
+                "--topo-order",
+                // 不请求 --graph：界面自行推导泳道，entry.Graph 没有消费方，
+                // 而该开关在 10 万提交仓库上额外增加约 250 毫秒。
+                "--decorate=full",
+                $"--max-count={(request.PageSize + 1).ToString(CultureInfo.InvariantCulture)}",
+                $"--skip={checked(request.Page * request.PageSize).ToString(CultureInfo.InvariantCulture)}",
+                $"--format={HistoryFormat}",
+            ];
+            if (!string.IsNullOrWhiteSpace(filter.Message))
+            {
+                arguments.Add("--fixed-strings");
+                arguments.Add("--regexp-ignore-case");
+                arguments.Add($"--grep={filter.Message}");
+            }
+
+            // 用户筛选（权威 `VcsLogFilterObject.fromUserNames(values)`：一组用户）。
+            // `Authors` 优先于单值 `Author`；git 的多个 `--author` 是**或**关系（与"任一选中用户提交的提交"一致）。
+            IReadOnlyList<string> authors = filter.Authors is { Count: > 0 }
+                ? filter.Authors
+                : string.IsNullOrWhiteSpace(filter.Author) ? [] : [filter.Author!];
+            if (authors.Count > 0)
+            {
+                arguments.Add("--regexp-ignore-case");
+                foreach (string author in authors)
+                {
+                    arguments.Add($"--author={Regex.Escape(author)}");
+                }
+            }
+
+            if (filter.Since is not null)
+            {
+                arguments.Add($"--since={filter.Since.Value.ToString("O", CultureInfo.InvariantCulture)}");
+            }
+
+            if (filter.Until is not null)
+            {
+                arguments.Add($"--until={filter.Until.Value.ToString("O", CultureInfo.InvariantCulture)}");
+            }
+
+            if (startingRevisions.Count == 0)
+            {
+                arguments.Add("--all");
+            }
+            else
+            {
+                arguments.AddRange(startingRevisions);
+            }
+            if (normalizedPaths.Count > 0)
+            {
+                // 多路径就是多个 pathspec：`git log … -- p1 p2`，与权威把整组 `FilePath`
+                // 交给 Git 的做法一致（任一命中即算命中）。
+                arguments.Add("--");
+                arguments.AddRange(normalizedPaths);
+            }
         }
 
         GitCommandResult result = await RunQueryAsync(
@@ -193,8 +354,27 @@ public sealed class GitHistoryService : IGitHistoryService
                 "无法解析 Git 提交历史。");
         }
 
-        bool hasNextPage = !exactHash && parsed!.Count > request.PageSize;
-        GitHistoryEntry[] entries = parsed!.Take(request.PageSize).ToArray();
+        bool hasNextPage;
+        GitHistoryEntry[] entries;
+        if (hashMode)
+        {
+            // 权威按提交时间倒序展示命中的提交（日志的常规顺序）。哈希模式既不能用
+            // `--no-walk=sorted` 也不能带 `--max-count`（都会让它沿祖先遍历，见上面的注释），
+            // 因此排序、上限与分页都在宿主侧做。
+            int skip = checked(request.Page * request.PageSize);
+            GitHistoryEntry[] sorted = parsed!
+                .OrderByDescending(entry => entry.AuthorDate)
+                .Take(MaximumHashMatches)
+                .ToArray();
+            hasNextPage = sorted.Length > skip + request.PageSize;
+            entries = sorted.Skip(skip).Take(request.PageSize).ToArray();
+        }
+        else
+        {
+            hasNextPage = parsed!.Count > request.PageSize;
+            entries = parsed!.Take(request.PageSize).ToArray();
+        }
+
         return GitHistoryResult.Success(new(
             request.Page,
             request.PageSize,
@@ -202,6 +382,81 @@ public sealed class GitHistoryService : IGitHistoryService
             hasNextPage,
             entries));
     }
+
+    /// <summary>
+    /// 解析「文本或哈希」里的哈希前缀，照权威 `VcsLogFilterObject.fromHash`
+    /// （`platform/vcs-log/impl/src/com/intellij/vcs/log/visible/filters/VcsLogFilters.kt:149-160`
+    /// ＋ 同文件 `:310-315` 的 `HashSeparatorCharFilter`）：按逗号、分号与空白切词，
+    /// **只要有一个词不匹配** `VcsLogUtil.GIT_HASH_REGEX` = `[a-fA-F0-9]{7,64}`
+    /// （`platform/vcs-log/impl/src/com/intellij/vcs/log/util/VcsLogUtil.java:92`）就整体不成立，
+    /// 退回普通文本筛选；一个词都没有（空串）同样不成立。
+    /// </summary>
+    private static string[] ParseHashPrefixes(string? hash)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return [];
+        }
+
+        string[] words = hash.Split(
+            [' ', '\t', '\r', '\n', ',', ';'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length == 0)
+        {
+            return [];
+        }
+
+        foreach (string word in words)
+        {
+            if (!Regex.IsMatch(word, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
+            {
+                return [];
+            }
+        }
+
+        return words;
+    }
+
+    /// <summary>
+    /// 把哈希前缀展开成完整对象名（去重）。权威按前缀遍历日志索引
+    /// （`VcsLogFiltererImpl.kt:323-335` 的 `iterateCommitsWithPrefix`），
+    /// 这里用 `rev-parse --disambiguate` 让 Git 做同一件事；命中的树/blob
+    /// 由调用处的 `git log --no-walk --ignore-missing` 忽略。
+    /// </summary>
+    private async Task<List<string>> ExpandHashPrefixesAsync(
+        string repositoryRoot,
+        IReadOnlyList<string> prefixes,
+        CancellationToken cancellationToken)
+    {
+        List<string> arguments = ["rev-parse"];
+        foreach (string prefix in prefixes)
+        {
+            arguments.Add($"--disambiguate={prefix}");
+        }
+
+        GitCommandResult result = await RunQueryAsync(
+            repositoryRoot,
+            arguments,
+            _queryRunner,
+            cancellationToken).ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return [];
+        }
+
+        return result.StandardOutput
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static GitHistoryResult EmptyPage(GitHistoryRequest request) =>
+        GitHistoryResult.Success(new(
+            request.Page,
+            request.PageSize,
+            request.Page > 0,
+            false,
+            []));
 
     /// <summary>
     /// 读取本地上游尚未包含的提交（规格 §7.12 的 Push 预览）。
@@ -240,7 +495,9 @@ public sealed class GitHistoryService : IGitHistoryService
             "log",
             "--topo-order",
             $"--max-count={Math.Clamp(maximum, 1, 500)}",
-            $"--format={RecordSeparator}%H{FieldSeparator}%h{FieldSeparator}%P{FieldSeparator}%an{FieldSeparator}%ae{FieldSeparator}%aI{FieldSeparator}%s{FieldSeparator}%D",
+            // 与分页历史共用同一格式串：解析器只认一种字段布局（含提交者两组），
+            // 两处各写一份一旦漏改就会静默解析失败。
+            $"--format={HistoryFormat}",
             "@{u}..HEAD",
         ];
         GitCommandResult result = await RunQueryAsync(
@@ -293,7 +550,7 @@ public sealed class GitHistoryService : IGitHistoryService
                 "-s",
                 "--decorate=full",
                 "--date=iso-strict",
-                "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%s%x00%D%x00%B",
+                "--format=%H%x00%h%x00%P%x00%an%x00%ae%x00%cn%x00%ce%x00%aI%x00%s%x00%D%x00%B",
                 resolved,
             ],
             _detailsRunner,
@@ -616,9 +873,9 @@ public sealed class GitHistoryService : IGitHistoryService
 
             string graph = line[..recordIndex].TrimEnd();
             string[] fields = line[(recordIndex + 1)..].Split(FieldSeparator);
-            if (fields.Length != 8
+            if (fields.Length != 10
                 || !DateTimeOffset.TryParse(
-                    fields[5],
+                    fields[7],
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind,
                     out DateTimeOffset date))
@@ -633,9 +890,11 @@ public sealed class GitHistoryService : IGitHistoryService
                 SplitParents(fields[2]),
                 fields[3],
                 fields[4],
-                date,
+                fields[5],
                 fields[6],
-                ParseReferences(fields[7])));
+                date,
+                fields[8],
+                ParseReferences(fields[9])));
         }
 
         entries = parsed;
@@ -707,6 +966,8 @@ public sealed class GitHistoryService : IGitHistoryService
             TimeSpan offset = TimeSpan.Zero;
             string summary = string.Empty;
             string filePath = string.Empty;
+            // `previous <sha> <file>`：该行在更早的修订里已存在时才有 ⇒ 空串表示"没有上一修订"。
+            string previousRevision = string.Empty;
             string? content = null;
             index++;
             while (index < rawLines.Length)
@@ -741,6 +1002,11 @@ public sealed class GitHistoryService : IGitHistoryService
                     case "filename":
                         filePath = NormalizePath(value);
                         break;
+                    case "previous":
+                        // 值是 `<sha> <file>`，只取哈希；带空格的文件名不影响（只切第一个空格）。
+                        int previousSeparator = value.IndexOf(' ');
+                        previousRevision = previousSeparator < 0 ? value : value[..previousSeparator];
+                        break;
                 }
             }
 
@@ -750,7 +1016,7 @@ public sealed class GitHistoryService : IGitHistoryService
             }
 
             DateTimeOffset date = DateTimeOffset.FromUnixTimeSeconds(authorTime).ToOffset(offset);
-            parsed.Add(new(lineNumber, hash, author, email, date, summary, filePath, content));
+            parsed.Add(new(lineNumber, hash, author, email, date, summary, filePath, content, previousRevision));
         }
 
         lines = parsed;
@@ -831,10 +1097,10 @@ public sealed class GitHistoryService : IGitHistoryService
     {
         entry = null;
         body = null;
-        string[] fields = output.Split('\0', 9);
-        if (fields.Length != 9
+        string[] fields = output.Split('\0', 11);
+        if (fields.Length != 11
             || !DateTimeOffset.TryParse(
-                fields[5],
+                fields[7],
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.RoundtripKind,
                 out DateTimeOffset date))
@@ -849,10 +1115,12 @@ public sealed class GitHistoryService : IGitHistoryService
             SplitParents(fields[2]),
             fields[3],
             fields[4],
-            date,
+            fields[5],
             fields[6],
-            ParseReferences(fields[7]));
-        body = fields[8].TrimEnd('\r', '\n');
+            date,
+            fields[8],
+            ParseReferences(fields[9]));
+        body = fields[10].TrimEnd('\r', '\n');
         return true;
     }
 

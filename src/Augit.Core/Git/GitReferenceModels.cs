@@ -43,6 +43,38 @@ public sealed record GitReferenceResult(
     }
 }
 
+/// <summary>
+/// 「我的分支」的查询结果（权威 `BranchesDashboardUtil.checkIsMyBranchesSynchronously`，
+/// `plugins/git4idea/backend/src/ui/branch/dashboard/BranchesDashboardUtil.kt:85-132`）：
+/// 分支的**独占提交**非空、且**全部**由当前 Git 用户提交，才算"我的分支"。
+/// <see cref="Author"/> 是判定用的当前用户（`user.email`，缺失时 `user.name`），
+/// <see cref="Mine"/> 是命中的分支名（与 `git/references` 同名）。
+/// </summary>
+public sealed record GitMyBranchesResult(
+    bool IsSuccess,
+    GitOperationFailureKind FailureKind,
+    string? ErrorMessage,
+    string? Author,
+    IReadOnlyList<string> Mine)
+{
+    public static GitMyBranchesResult Success(string? author, IReadOnlyList<string> mine)
+    {
+        ArgumentNullException.ThrowIfNull(mine);
+        return new(true, GitOperationFailureKind.None, null, author, mine);
+    }
+
+    public static GitMyBranchesResult Failure(GitOperationFailureKind failureKind, string errorMessage)
+    {
+        if (failureKind == GitOperationFailureKind.None)
+        {
+            throw new ArgumentOutOfRangeException(nameof(failureKind));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorMessage);
+        return new(false, failureKind, errorMessage, null, []);
+    }
+}
+
 public sealed record GitActionResult(
     bool IsSuccess,
     GitOperationFailureKind FailureKind,

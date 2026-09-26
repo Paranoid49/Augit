@@ -45,6 +45,30 @@ public sealed class SettingsStoreTests
     }
 
     [TestMethod]
+    public async Task 分支面板按目录分组默认开启且可持久化()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("settings.json");
+        SettingsStore store = new(path);
+
+        // 权威 `DvcsBranchSettings.groupingKeyIds` 的默认值就是 `GROUPING_BY_DIRECTORY`
+        // （`platform/dvcs-impl/shared/src/com/intellij/dvcs/branch/DvcsBranchSettings.kt:22-23,26-28`）
+        // ⇒ 新配置按目录分组是**开启**的。
+        ApplicationSettings fresh = await store.LoadAsync();
+        Assert.IsTrue(fresh.GroupBranchesByDirectory);
+
+        // 关掉后要写进设置文件并能读回来。
+        await store.SaveAsync(fresh with { GroupBranchesByDirectory = false });
+        ApplicationSettings updated = await store.LoadAsync();
+        Assert.IsFalse(updated.GroupBranchesByDirectory);
+
+        // 旧配置里没有这个键 ⇒ 回到权威默认（开启），不会因为缺键被当成关闭。
+        await File.WriteAllTextAsync(path, "{\"theme\":\"Dark\"}");
+        ApplicationSettings legacy = await new SettingsStore(path).LoadAsync();
+        Assert.IsTrue(legacy.GroupBranchesByDirectory);
+    }
+
+    [TestMethod]
     public async Task 设置仅写入指定本地目录并可恢复()
     {
         using TemporaryDirectory temporary = new();

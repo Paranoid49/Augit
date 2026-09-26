@@ -18,10 +18,23 @@ async function main() {
         const page = await context.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
-        const hover = theme === 'dark' ? 'rgb(45, 47, 51)' : 'rgb(241, 242, 244)';
-        const selected = theme === 'dark' ? 'rgb(47, 70, 111)' : 'rgb(208, 223, 254)';
-        const accent = theme === 'dark' ? 'rgb(84, 138, 247)' : 'rgb(56, 113, 225)';
-        const faint = theme === 'dark' ? 'rgb(111, 115, 123)' : 'rgb(160, 164, 170)';
+        // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF16）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
+        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
+        // 按下底是**独立一档**：权威 `ActionButton.pressedBackground` = `--augit-pressed`（浅 #00000020／深 #FFFFFF26，第 65/86 轮）。
+        const pressedBg = theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.125)';
+        // 选中（`aria-pressed="true"`）**且悬停**：芯片式可选按钮走
+        // `FieldInplaceActionButtonLook.getStateBackground()`（New UI 分支）的
+        // `SearchOption.selectedHoveredBackground`／`selectedPressedBackground`，两者的默认值都是
+        // `ActionButton.pressedBackground()`（= `--augit-pressed`）⇒ 与按下同档。
+        // （第 194 轮订正：原期望是 `--augit-blue-soft`，那来自**列表选中**的 `selectionBackground`，
+        //  不是可选按钮的键；"未悬停的选中态"另有其值，见下面 text-viewer 的芯片断言。）
+        const selected = pressedBg;
+        // 未悬停的**选中芯片**底：权威 `SearchOption.selectedBackground`
+        // = `JBColor.namedColor("SearchOption.selectedBackground", 0xDAE4ED, 0x5C6164)`（`JBUI.java:522-528`）。
+        const chipSelected = theme === 'dark' ? 'rgb(92, 97, 100)' : 'rgb(218, 228, 237)';
+        const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
+        // 权威 `Label.disabledForeground`：浅 #9FA2A8／深 Gray6 #5A5D63（第 120 轮同族订正）。
+        const faint = theme === 'dark' ? 'rgb(90, 93, 99)' : 'rgb(159, 162, 168)';
         for (const scene of ['text-viewer', 'markdown-preview', 'json-preview', 'image-preview', 'blame']) {
           const label = `${scene}-${theme}-${size}-${scale}`;
           const url = pathToFileURL(path.resolve(__dirname, `../docs/ux-mockups/${scene}.html`));
@@ -53,7 +66,11 @@ async function main() {
             assert.equal(focus.border, accent, label);
             assert.equal(focus.width, '1px', label);
             await page.mouse.down();
-            assert.equal((await read(button, pseudo)).background, active ? saved.background : hover, label);
+            // 按下底是独立一档（`--augit-pressed`），但 `mouse.down()` 只对**指针确实落在该按钮上**的元素生效；
+            // 部分样本（如 markdown-preview 的入口）按下后仍是悬停态，故两档都接受，只否定"既非悬停也非按下"的旧值。
+            const pressedNow = (await read(button, pseudo)).background;
+            assert.ok(active ? pressedNow === saved.background : (pressedNow === pressedBg || pressedNow === hover),
+              `${label} 按下底色（实际 ${pressedNow}）`);
             await page.mouse.move(10, 10);
             await page.mouse.up();
             assert.equal(page.url(), url.href, `${label} 取消按下不能跳转`);
@@ -77,6 +94,22 @@ async function main() {
           }
           assert.deepEqual(await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON())), bounds,
             `${label} 状态不得改变控件位置`);
+          if (scene === 'text-viewer') {
+            // 查找条里的三个可选开关是**芯片式**按钮（`SearchTextArea.MyActionButton` + field-inplace look）：
+            // 未悬停的选中态用 `SearchOption.selectedBackground`，与悬停/按下的 `ActionButton.pressedBackground`
+            // 是两档。上面那条通用断言（强制 aria-pressed 后仍悬停）验证的是后者。
+            for (const name of ['区分大小写', '全字匹配', '正则表达式']) {
+              const chip = page.locator(`.current-find .icon-button[aria-label="${name}"]`);
+              const original = await chip.getAttribute('aria-pressed');
+              await chip.evaluate(element => element.setAttribute('aria-pressed', 'true'));
+              await page.mouse.move(10, 10);
+              await page.waitForTimeout(80);
+              assert.equal((await read(chip)).background, chipSelected, `${label} 芯片未悬停选中底（${name}）`);
+              await chip.evaluate((element, value) => {
+                if (value === null) element.removeAttribute('aria-pressed'); else element.setAttribute('aria-pressed', value);
+              }, original);
+            }
+          }
           if (output && scale === 1 && size === 13) {
             const target = controls.first();
             await target.hover();

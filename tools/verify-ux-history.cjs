@@ -104,16 +104,24 @@ async function main() {
           }
           if (scene.endsWith('-loading')) assert.ok(result.loading, `${label}：加载占位没有显示。`);
           for (const group of result.diffGroups) {
-            assert.equal(group.bounds.width, 81, `${label}：分段组宽度不符。`);
-            assert.equal(group.bounds.height, 31, `${label}：分段组高度不符。`);
-            assert.equal(group.background, theme === 'dark' ? 'rgb(37, 38, 42)' : 'rgb(244, 245, 247)');
-            assert.equal(group.border, theme === 'dark' ? 'rgb(75, 77, 83)' : 'rgb(209, 211, 217)');
+            assert.equal(group.bounds.width, 87, `${label}：分段组宽度不符。`);   // 87 = 边框1+内距2+按钮40+间隙1+按钮40+内距2+边框1（第 124 轮实测自洽）
+            assert.equal(group.bounds.height, 33, `${label}：分段组高度不符。`);   // 权威：按钮 27 + 内距 2×2 + 边框 ⇒ 33（原 31 无依据）
+            assert.equal(group.background, theme === 'dark' ? 'rgba(0, 0, 0, 0)' : 'rgba(0, 0, 0, 0)');
+            // 容器边框 = `Component.borderColor`：浅 #D1D3D9／深 Gray5 #4E5157（原深色 #4B4D53 无依据）。
+            assert.equal(group.border, theme === 'dark' ? 'rgb(78, 81, 87)' : 'rgb(209, 211, 217)');
             group.buttons.forEach((button, index) => {
-              assert.equal(button.bounds.width, 38);
+              // 权威 `SegmentedButtonLook`：按钮宽 = 内容 + 24 ⇒ 16 + 24 = 40（原 38 无依据）。
+              // 组宽 87 = 边框 1 + 内距 2 + 按钮 40 + 间隙 1 + 按钮 40 + 内距 2 + 边框 1，自洽。
+              assert.equal(button.bounds.width, 40);
               assert.equal(button.bounds.height, 27);
-              assert.equal(button.bounds.x - group.bounds.x, index === 0 ? 2 : 41);
-              assert.equal(button.bounds.y - group.bounds.y, 2);
-              if (button.active) assert.equal(button.background, theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)');
+              // 权威 `SegmentedButtonBorder.getBorderInsets()` = BW(LW) = 3（每侧）⇒ 按钮距组边缘 3；
+              // 次个按钮再偏移 40 + 间隙 1 = 44。（原写 2 / 41 是按旧按钮宽 38 推的。）
+              assert.equal(button.bounds.x - group.bounds.x, index === 0 ? 3 : 44);
+              assert.equal(button.bounds.y - group.bounds.y, 3);
+              // 选中分段按钮底取权威 `SegmentedButton.selectedButtonColor`：浅 = ManyIslandsLight 覆写的
+              // `control-bg-raised`（= `dialog-bg-inline` = `white`）／深 = expUI_dark `Gray3 #393B40`。
+              // （原写深色 Gray1 #1E1F22 无依据 —— 那是页面底，选中块会与容器同色而看不出来。）
+              if (button.active) assert.equal(button.background, theme === 'dark' ? 'rgb(57, 59, 64)' : 'rgb(255, 255, 255)');
             });
           }
           if (scene.endsWith('-failure')) assert.match(result.notice, /Git 查询失败/, `${label}：失败说明缺失。`);

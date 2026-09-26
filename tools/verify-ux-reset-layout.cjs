@@ -41,17 +41,19 @@ async function main() {
               clipped: [...node.querySelectorAll('input,select,button')].some(field => field.clientHeight < parseFloat(getComputedStyle(field).fontSize)) };
           }), { fits: true, horizontal: false, overlap: false, clipped: false });
           const footer = await dialog.locator('.dialog-footer').boundingBox();
-          await dialog.locator('#reset-mode').selectOption({ index: 0 });
+          // 按 `value` 选模式，不按索引：选项**顺序**是对齐对象（权威 `GitResetDialog.java:157-159`
+          // 为 MIXED → SOFT → HARD，默认落在 MIXED），索引会随权威改动而变。
+          await dialog.locator('#reset-mode').selectOption('soft');
           assert.equal(await dialog.locator('.reset-impact strong').textContent(), '仅移动 HEAD，索引和工作区保持不变');
           assert.equal(await dialog.locator('.reset-run').textContent(), '执行 Reset');
-          await dialog.locator('#reset-mode').selectOption({ index: 2 });
+          await dialog.locator('#reset-mode').selectOption('hard');
           await dialog.locator('#reset-target').fill('main~2');
           if (dpi === 1) await page.screenshot({ path: path.join(output, `reset-initial-${theme}-${size}.png`) });
           await dialog.locator('.reset-run').click();
           assert.equal(await dialog.locator('#reset-target').isDisabled(), true);
           await page.waitForSelector('.reset-dialog[data-state="failure"]');
           assert.equal(await dialog.locator('#reset-target').inputValue(), 'main~2');
-          assert.equal(await dialog.locator('#reset-mode').evaluate(node => node.selectedIndex), 2);
+          assert.equal(await dialog.locator('#reset-mode').evaluate(node => node.value), 'hard');
           assert.deepEqual(await dialog.locator('.dialog-footer').boundingBox(), footer);
           assert.equal(await body.evaluate(node => node.scrollHeight > node.clientHeight), true);
           await dialog.locator('#reset-target').focus();

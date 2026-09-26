@@ -29,11 +29,31 @@ async function main() {
           const preview = page.locator('.history-detail-pane .diff-layout');
           await preview.waitFor();
           const historyRow = page.locator('.history-row.selected');
+          // 列集合与顺序按权威 `FileHistoryPanelImpl.createColumnList`（:292-306）：版本 → 日期 → 作者 → 提交信息；
+          // 「版本」是短修订（`VcsUtil.getShortRevisionString`，`:657-666`），样例里该提交的显示值为 `commit-4`。
           assert.deepEqual(await historyRow.locator('span').allTextContents(), [
-            'I49', '2026/8/28 8:25', 'feat: 实现 Augit 阶段零至五功能',
+            'commit-4', '2026/8/28 8:25', 'I49', 'feat: 实现 Augit 阶段零至五功能',
           ]);
-          assert.deepEqual(await historyRow.evaluate(row => [...row.children].slice(0, 2)
-            .map(column => column.getBoundingClientRect().width)), [130, 90]);
+          assert.deepEqual(await historyRow.evaluate(row => [...row.children].slice(0, 3)
+            .map(column => column.getBoundingClientRect().width)), [62, 108, 90]);
+          // 作者列的值与 tooltip 按权威 `FileHistoryPanelImpl.AuthorColumnInfo`（`:751-799`）：
+          // 作者＝提交者 ⇒ 值就是作者；作者≠提交者 ⇒ 值加 `*`、tooltip 追加 `, via {提交者} <{邮箱}>`。
+          const authorCells = await page.locator('.history-row').evaluateAll(rows => rows.map(row => {
+            const cell = row.children[2];
+            return { value: cell.textContent, title: cell.getAttribute('title') };
+          }));
+          assert.deepEqual(authorCells, [
+            { value: 'I49', title: 'I49 <i49@example.com>' },
+            { value: 'I49*', title: 'I49 <i49@example.com>, via build-bot <build@example.invalid>' },
+          ]);
+          // 表头由 `DualView(ColumnInfo[])` 自带（`FileHistoryPanelImpl.java:184-200`），列名取各 `ColumnInfo.getName()`；
+          // 表头与数据行必须共用同一套列宽，否则列会错位。
+          const historyColumns = page.locator('.history-columns');
+          assert.deepEqual(await historyColumns.locator('span').allTextContents(), ['版本', '日期', '作者', '提交信息']);
+          assert.deepEqual(await historyColumns.evaluate(row => [...row.children]
+            .map(column => Math.round(column.getBoundingClientRect().width))),
+          await historyRow.evaluate(row => [...row.children]
+            .map(column => Math.round(column.getBoundingClientRect().width))));
           assert.ok(await historyRow.evaluate(row => row.getBoundingClientRect().width >= 360));
           assert.equal(await preview.locator('.reference-path').textContent(), 'docs/product-spec.md');
           assert.equal(await preview.locator('.diff-toolbar button').count(), 7);

@@ -60,7 +60,7 @@ async function main() {
                     activeBorder: rootStyle.getPropertyValue('--augit-border-strong').trim(),
                     activeBackground: rootStyle.getPropertyValue('--augit-panel-muted').trim(),
                   },
-                  text: [...document.querySelectorAll('.bottom-header .tool-tab, .history-search input, .commit-row, .history-row, .log-ref-panel .tree-row, .changed-files .tree-row')]
+                  text: [...document.querySelectorAll('.bottom-header .tool-tab, .history-search input, .commit-row, .history-row, .history-columns, .log-ref-panel .tree-row, .changed-files .tree-row')]
                     .map(element => ({ box: rect(element), textHeight: height(element) })),
                   rows: [...document.querySelectorAll('.commit-row')].map(row => ({
                     box: rect(row), graph: rect(row.querySelector('svg')),

@@ -58,9 +58,17 @@ async function main() {
           assert.equal(await input.inputValue(), state === 'hook-failure' ? 'fix: 保留失败草稿' : '');
           if (state === 'normal') {
             await page.locator('.commit-actions > .primary-button').click();
-            assert.equal(page.url(), url.href, '空提交不能跳转其他页面。');
-            assert.equal(await feedback.textContent(), '提交信息不能为空。');
-            assert.ok(await input.evaluate(element => document.activeElement === element));
+            // 空提交信息**不是阻断**：权威 `SingleChangeListCommitWorkflowHandler.kt:117-122`
+            // 要求先确认（`confirmCommitWithEmptyMessage()`），确认后才照常提交。
+            // 见 docs/nui-behavior/12-commit-changes.md §7。旧断言"点击即报错且焦点留在输入框"
+            // 编码的是旧交互，第 136 轮按权威改正。
+            await page.waitForSelector('[data-commit-empty-message]', { timeout: 3000 });
+            assert.equal(page.url(), url.href, '空提交在确认前不能跳转其他页面。');
+            assert.equal(await feedback.textContent(), '提交信息', '确认阶段不得再写"提交信息不能为空。"');
+            await page.locator('[data-commit-empty-cancel]').click();
+            await page.waitForSelector('[data-commit-empty-message]', { state: 'detached' });
+            assert.ok(await input.evaluate(element => document.activeElement === element), '取消后焦点回到提交信息栏');
+            assert.equal(page.url(), url.href, '取消后不跳转。');
             assert.deepEqual(await box.boundingBox(), original);
             assert.deepEqual(await page.locator('.changes-layout > .changes-list').boundingBox(), listBounds);
             assert.deepEqual(await page.locator('.commit-actions').boundingBox(), actionBounds);

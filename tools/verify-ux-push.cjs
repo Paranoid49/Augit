@@ -41,7 +41,8 @@ async function main() {
           await row.click(); await page.locator('.management-detail').focus();
           const selection = await row.evaluate(node => getComputedStyle(node).backgroundColor);
           await second.hover();
-          assert.equal(await second.evaluate(node => getComputedStyle(node).backgroundColor), theme === 'dark' ? 'rgb(45, 47, 51)' : 'rgb(241, 242, 244)');
+        // 悬停色按 权威 `List/Tree.hoverBackground` = `selection-bg-hovered`（浅 #00000008／深代码默认 #464A4D）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
+          assert.equal(await second.evaluate(node => getComputedStyle(node).backgroundColor), theme === 'dark' ? 'rgb(70, 74, 77)' : 'rgba(0, 0, 0, 0.03)');
           await row.hover(); assert.equal(await row.evaluate(node => getComputedStyle(node).backgroundColor), selection);
         }
         if (dpi === 96 && size === 13) await page.screenshot({ path: path.join(outputPath, `${scene}-${theme}.png`) });
@@ -68,7 +69,7 @@ async function main() {
         } else if (result === 'error,success') {
           await page.waitForFunction(() => document.querySelector('.push-dialog')?.dataset.state === 'error');
           assert.deepEqual(await push.boundingBox(), before);
-          assert.equal(await page.locator('.push-notice').evaluate(node => getComputedStyle(node).color), 'rgb(199, 68, 64)');
+          assert.equal(await page.locator('.push-notice').evaluate(node => getComputedStyle(node).color), 'rgb(197, 78, 88)');
           await page.locator('.management-detail').evaluate(node => node.scrollTop = node.scrollHeight);
           assert.ok(await page.locator('.management-detail').evaluate(node => node.scrollTop > 0));
           assert.deepEqual(await push.boundingBox(), before);

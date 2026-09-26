@@ -35,7 +35,7 @@ public sealed class RipgrepSearchServiceTests
     }
 
     [TestMethod]
-    public async Task 文件搜索最多返回一百项()
+    public async Task 文件搜索最多返回三十项()
     {
         using TemporaryDirectory temporary = new();
         Directory.CreateDirectory(temporary.GetPath(".git"));
@@ -48,12 +48,12 @@ public sealed class RipgrepSearchServiceTests
             .SearchFilesAsync(temporary.FullPath, "target");
 
         Assert.HasCount(SearchOptions.MaximumFileResults, results);
-        CollectionAssert.AreEqual(Enumerable.Range(0, 100).Select(index => $"target-{index:D3}.txt").ToArray(),
+        CollectionAssert.AreEqual(Enumerable.Range(0, 30).Select(index => $"target-{index:D3}.txt").ToArray(),
             results.Select(result => result.RelativePath).ToArray());
     }
 
     [TestMethod]
-    public async Task 文件名搜索只匹配文件名且保留最佳一百项顺序()
+    public async Task 文件名搜索只匹配文件名且保留最佳三十项顺序()
     {
         using TemporaryDirectory temporary = new();
         Directory.CreateDirectory(temporary.GetPath("target-directory"));
@@ -63,7 +63,7 @@ public sealed class RipgrepSearchServiceTests
         foreach (string name in names.AsEnumerable().Reverse()) File.WriteAllText(temporary.GetPath(name), string.Empty);
         IReadOnlyList<FileSearchResult> actual = await new RipgrepSearchService(RipgrepPath).SearchFilesAsync(temporary.FullPath, "target");
         string[] expected = names.OrderBy(name => name == "target" ? 0 : name.StartsWith("target", StringComparison.Ordinal) ? 1 : 2)
-            .ThenBy(name => name.Length).ThenBy(name => name, StringComparer.OrdinalIgnoreCase).Take(100).ToArray();
+            .ThenBy(name => name.Length).ThenBy(name => name, StringComparer.OrdinalIgnoreCase).Take(30).ToArray();
         CollectionAssert.AreEqual(expected, actual.Select(result => result.RelativePath).ToArray());
         Assert.IsFalse(actual.Any(result => result.RelativePath.Contains("unrelated", StringComparison.Ordinal)));
     }

@@ -164,7 +164,9 @@ internal sealed class ShellBridge : IDisposable
             "document/read" => await ReadDocumentAsync(parameters, cancellationToken),
             "git/status" => await ReadStatusAsync(cancellationToken),
             "git/detect" => await ReadGitDetectionAsync(cancellationToken),
-            "git/history" => await ReadHistoryAsync(cancellationToken),
+            // 创建仓库是写操作（权威 `GitInit` 也走后台任务），因此并入写操作通道。
+            "git/init" => await RunWriteAsync(ct => InitRepositoryAsync(parameters, ct), cancellationToken),
+            "git/history" => await ReadHistoryAsync(parameters, cancellationToken),
             "git/last-commit-message" => await ReadLastCommitMessageBridgeAsync(cancellationToken),
             "git/blame" => await ReadBlameAsync(parameters, cancellationToken),
             "git/file-history" => await ReadFileHistoryAsync(parameters, cancellationToken),
@@ -172,7 +174,10 @@ internal sealed class ShellBridge : IDisposable
             "git/commit-create" => await CreateCommitAsync(parameters, cancellationToken),
             "git/push" => await RunWriteAsync(ct => PushAsync(parameters, ct), cancellationToken),
             "git/checkout" => await RunWriteAsync(ct => CheckoutAsync(parameters, ct), cancellationToken),
+            // Smart Checkout 同样是写操作（临时 stash → 检出 → 恢复），并入同一通道。
+            "git/checkout-smart" => await RunWriteAsync(ct => SmartCheckoutAsync(parameters, ct), cancellationToken),
             "git/branch" => await RunWriteAsync(ct => BranchAsync(parameters, ct), cancellationToken),
+            "git/tag" => await RunWriteAsync(ct => TagAsync(parameters, ct), cancellationToken),
             "git/fetch" => await FetchAsync(parameters, cancellationToken),
             "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
             "git/remote-write" => await RunWriteAsync(ct => WriteRemoteAsync(parameters, ct), cancellationToken),
@@ -181,6 +186,8 @@ internal sealed class ShellBridge : IDisposable
             "git/reset" => await RunWriteAsync(ct => ResetAsync(parameters, ct), cancellationToken),
             "git/remotes" => await ReadRemotesAsync(cancellationToken),
             "git/references" => await ReadReferencesAsync(cancellationToken),
+            "git/branches-mine" => await ReadMyBranchesAsync(cancellationToken),
+            "git/authors" => await ReadAuthorsAsync(cancellationToken),
             "git/stashes" => await ReadStashesAsync(cancellationToken),
             "git/stash" => await CreateStashAsync(parameters, cancellationToken),
             "git/stash-write" => await WriteStashAsync(parameters, cancellationToken),
@@ -404,10 +411,15 @@ internal sealed class ShellBridge : IDisposable
             pixelWidth = result.PixelWidth,
             pixelHeight = result.PixelHeight,
             message = result.Message,
-            // 只有成功读取的普通文本才有编码与磁盘换行事实；图片、过大与
-            // 非法 UTF-8 等状态不显示编码，避免让用户以为文件是文本。
-            encoding = result.Status == DocumentReadStatus.TextReady ? TextEncodingName : null,
-            lineEndings = result.Status == DocumentReadStatus.TextReady
+            // 只读预览读了前多少字节（权威警告里的 `{1}` = `getPreviewLimit(extension)`）。
+            previewBytes = result.PreviewBytes,
+            // 只有文本视图才有编码与磁盘换行事实；图片与非法 UTF-8 等状态不显示编码，
+            // 避免让用户以为文件是文本。只读预览**仍是文本视图**（权威的大文件编辑器照样显示编码），
+            // 因此它与正常文本同样带上这两项。
+            encoding = result.Status is DocumentReadStatus.TextReady or DocumentReadStatus.TextPreview
+                ? TextEncodingName
+                : null,
+            lineEndings = result.Status is DocumentReadStatus.TextReady or DocumentReadStatus.TextPreview
                 ? DescribeLineEndings(result.LineEndings)
                 : null,
             dataUrl,
@@ -602,7 +614,74 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
-    private async Task<object?> ReadHistoryAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// 创建 Git 仓库（权威 `GitInit`，`plugins/git4idea/backend/src/actions/GitInit.java`）。
+    ///
+    /// 确认时机照权威 `:66-74`：**只有目标已在 Git 下**才需要问一次
+    /// （`GitUtil.isUnderGit(root)` ＋ Yes/No ＋ 警告图标，文案 `init.warning.already.under.git` 带目标目录）；
+    /// 不是仓库时**没有任何确认**，直接初始化。因此：
+    /// - 目标不是仓库 ⇒ 直接 `git init`；
+    /// - 目标是仓库且未带 `confirm` ⇒ 回 `requiresConfirmation`，界面问过之后带 `confirm:true` 再调用；
+    ///   此时不再重复执行（`git init` 对已有仓库本就是空操作，结论等同"已初始化"）。
+    ///
+    /// 成败都走既有写操作通道：失败回可读原因（权威给的是带 Git 错误输出的错误通知），
+    /// 成功后让 Git 解析与状态缓存失效——缓存里还存着"这个目录不是仓库"。
+    /// </summary>
+    private async Task<object?> InitRepositoryAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string path = (GetString(parameters, "path") ?? _workspaceRoot).Trim();
+        if (path.Length == 0)
+        {
+            throw new ArgumentException("git/init 的 path 不能为空。");
+        }
+
+        bool confirmed = GetBool(parameters, "confirm") ?? false;
+        (GitRuntimeInfo runtime, _) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable)
+        {
+            return new { available = false, reason = runtime.UnavailableReason };
+        }
+
+        if (!Directory.Exists(path))
+        {
+            return new { available = false, reason = $"目标目录不存在：{path}" };
+        }
+
+        GitRepositoryService repositories = new(runtime);
+        GitRepositoryOperationResult inspection = await repositories.InspectAsync(path, cancellationToken);
+        if (!inspection.IsSuccess || inspection.Repository is null)
+        {
+            return new { available = false, reason = inspection.ErrorMessage ?? "无法检查目标目录。" };
+        }
+
+        if (inspection.Repository.IsRepository)
+        {
+            return confirmed
+                ? new { available = true, initialized = true, alreadyUnderGit = true, path }
+                : new { available = true, initialized = false, requiresConfirmation = true, path };
+        }
+
+        GitRepositoryOperationResult result = await repositories.InitializeAsync(path, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return new { available = false, reason = result.ErrorMessage };
+        }
+
+        // 新仓库出现后，缓存里的解析结果（"不是仓库"）与状态都必须作废。
+        _gitResolution = null;
+        InvalidateStatusCache();
+        return new { available = true, initialized = true, alreadyUnderGit = false, path };
+    }
+
+    /// <summary>
+    /// 读取提交历史（规格 §7.8）。
+    ///
+    /// 可选筛选与权威的日志筛选一一对应：`message`（提交信息子串）、`hash`（哈希前缀，
+    /// 命中即短路其余筛选）、`author`、`since`/`until`（ISO-8601 时间）、`branch`（引用名，
+    /// `HEAD` 亦可）、`path`（仓库内相对路径）、`rangeExclusive`/`rangeInclusive`（范围筛选，
+    /// 即 `git log <exclusive>..<inclusive>`，两端必须同时给出）。界面只送它真正设置了的项，未设置即不过滤。
+    /// </summary>
+    private async Task<object?> ReadHistoryAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable)
@@ -618,7 +697,26 @@ internal sealed class ShellBridge : IDisposable
         GitHistoryService history = new(runtime);
         GitHistoryResult result = await history.ReadPageAsync(
             repository,
-            new GitHistoryRequest(Page: 0, PageSize: 100),
+            new GitHistoryRequest(Page: 0, PageSize: 100, Filter: new GitHistoryFilter(
+                Message: GetString(parameters, "message"),
+                Hash: GetString(parameters, "hash"),
+                Author: GetString(parameters, "author"),
+                Since: GetDate(parameters, "since"),
+                Until: GetDate(parameters, "until"),
+                Branch: GetString(parameters, "branch"),
+                FilePath: GetString(parameters, "path"),
+                RangeExclusive: GetString(parameters, "rangeExclusive"),
+                RangeInclusive: GetString(parameters, "rangeInclusive"),
+                Branches: GetStringList(parameters, "branches") is { Count: > 0 } multipleBranches
+                    ? multipleBranches
+                    : null,
+                Authors: GetStringList(parameters, "authors") is { Count: > 0 } multipleAuthors
+                    ? multipleAuthors
+                    : null,
+                // 「按路径筛选」可以同时给出多个路径（权威 `VcsLogStructureFilter` 就是一组文件）。
+                Paths: GetStringList(parameters, "paths") is { Count: > 0 } multiplePaths
+                    ? multiplePaths
+                    : null)),
             cancellationToken);
         if (!result.IsSuccess || result.Page is not { } page)
         {
@@ -641,6 +739,12 @@ internal sealed class ShellBridge : IDisposable
                 fullHash = entry.FullHash,
                 subject = entry.Subject,
                 author = entry.AuthorName,
+                // 「与当前分支比较」复用**文件历史列表**的行渲染（同一套 `history-columns`／`history-rows`），
+                // 因此这里与 `git/file-history` 一样带上作者列需要的两组身份（权威
+                // `FileHistoryPanelImpl.AuthorColumnInfo` 的 `*` 与 `, via …`）。
+                authorEmail = entry.AuthorEmail,
+                committerName = entry.CommitterName,
+                committerEmail = entry.CommitterEmail,
                 date = entry.AuthorDate.ToLocalTime()
                     .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
                 graph = entry.Graph,
@@ -840,7 +944,17 @@ internal sealed class ShellBridge : IDisposable
             GetBool(parameters, "matchCase") ?? false,
             GetBool(parameters, "matchWholeWord") ?? false,
             GetBool(parameters, "useRegularExpression") ?? false,
-            GetBool(parameters, "includeIgnoredFiles") ?? false);
+            GetBool(parameters, "includeIgnoredFiles") ?? false)
+        {
+            // 「继续搜索」用分页表达（权威 `UsageViewManagerImpl.showTooManyUsagesWarningLater` 的 Continue
+            // 是让同一次搜索继续跑完）：一页仍然最多 `MaximumTextResults` 条 ——
+            // 单次桥接响应必须保持在 WebView2 可靠传输的规模内，未在这里放开的更大页没有任何好处。
+            SkipResults = Math.Max(0, GetInt(parameters, "offset") ?? 0),
+            MaximumResults = Math.Clamp(
+                GetInt(parameters, "limit") ?? SearchOptions.MaximumTextResults,
+                1,
+                SearchOptions.MaximumTextResults),
+        };
         RipgrepSearchService search = new(RipgrepPath);
         TextSearchResult result = await search.SearchTextAsync(_workspaceRoot, options, cancellationToken);
         return new
@@ -1106,6 +1220,12 @@ internal sealed class ShellBridge : IDisposable
             gitExecutablePath = settings.GitExecutablePath,
             terminalShell = settings.TerminalShell,
             terminalCustomCommand = settings.TerminalCustomCommand,
+            // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true）。
+            showGitBranchesTags = settings.ShowGitBranchesTags,
+            // 分支面板「按目录分组」（权威 `git.branches.group.by.directory`，默认 true）。
+            groupBranchesByDirectory = settings.GroupBranchesByDirectory,
+            // 大文件只读预览的警告横幅「不再显示」（权威 `PropertiesComponent` 的应用级开关）。
+            hideLargeFileWarning = settings.HideLargeFileWarning,
             recentWorkspaces = settings.RecentWorkspaces,
             // 已保存的面板尺寸：只在该尺寸属于当前工作区时下发，
             // 否则会把另一个工作区的布局套到今天打开的目录上。
@@ -1222,6 +1342,12 @@ internal sealed class ShellBridge : IDisposable
             // （例如主题存成 "Purple"，界面照存，运行时却按深色回退）。
             TerminalShell = NormalizeTerminalShell(GetString(parameters, "terminalShell")) ?? current.TerminalShell,
             TerminalCustomCommand = GetString(parameters, "terminalCustomCommand") ?? current.TerminalCustomCommand,
+            // 分支面板「显示标签」：来自分支面板设置弹层的复选行，不给值时保留原值。
+            ShowGitBranchesTags = GetBool(parameters, "showGitBranchesTags") ?? current.ShowGitBranchesTags,
+            // 分支面板「按目录分组」：同一个设置弹层的复选行，不给值时保留原值。
+            GroupBranchesByDirectory = GetBool(parameters, "groupBranchesByDirectory") ?? current.GroupBranchesByDirectory,
+            // 大文件只读预览的「不再显示」：来自预览横幅的动作，不给值时保留原值。
+            HideLargeFileWarning = GetBool(parameters, "hideLargeFileWarning") ?? current.HideLargeFileWarning,
         };
         await store.SaveAsync(updated, cancellationToken);
         // 设置写入后让 Git 解析缓存与状态缓存失效：
@@ -1533,32 +1659,40 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>操作会话的对外形状；宿主判定可用动作，界面只显示真实可用的那些。</summary>
     private static object OperationPayload(GitAdvancedOperationResult result)
     {
-        GitOperationSession? session = result.Session;
         return new
         {
             available = true,
             ok = result.IsSuccess,
             reason = result.ErrorMessage,
-            session = session is null ? null : new
+            session = SessionPayload(result.Session),
+        };
+    }
+
+    /// <summary>
+    /// 操作会话本身的投影（`git/operation`、`git/operation-action` 与 Smart Checkout 共用）：
+    /// 界面据此显示会话类型、可用动作与冲突文件。
+    /// </summary>
+    private static object? SessionPayload(GitOperationSession? session)
+    {
+        return session is null ? null : new
+        {
+            kind = session.Kind.ToString(),
+            inProgress = session.IsInProgress,
+            hasConflicts = session.HasConflicts,
+            branch = session.CurrentBranch,
+            canContinue = session.CanContinue,
+            canSkip = session.CanSkip,
+            canAbort = session.CanAbort,
+            supportsContinue = session.SupportsContinue,
+            currentStep = session.CurrentStep,
+            totalSteps = session.TotalSteps,
+            conflicts = session.ConflictFiles.Select(file => new
             {
-                kind = session.Kind.ToString(),
-                inProgress = session.IsInProgress,
-                hasConflicts = session.HasConflicts,
-                branch = session.CurrentBranch,
-                canContinue = session.CanContinue,
-                canSkip = session.CanSkip,
-                canAbort = session.CanAbort,
-                supportsContinue = session.SupportsContinue,
-                currentStep = session.CurrentStep,
-                totalSteps = session.TotalSteps,
-                conflicts = session.ConflictFiles.Select(file => new
-                {
-                    path = file.RelativePath,
-                    hasAncestor = file.HasAncestor,
-                    hasYours = file.HasYours,
-                    hasTheirs = file.HasTheirs,
-                }).ToArray(),
-            },
+                path = file.RelativePath,
+                hasAncestor = file.HasAncestor,
+                hasYours = file.HasYours,
+                hasTheirs = file.HasTheirs,
+            }).ToArray(),
         };
     }
 
@@ -1944,6 +2078,70 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
+    /// <summary>
+    /// 「我的分支」的判据数据（权威 `ShowMyBranchesAction` → `BranchesDashboardUtil`：
+    /// 分支的独占提交非空且全部由当前 Git 用户提交）。
+    ///
+    /// 只在用户打开该开关时调用（权威的 `showOnlyMy` 是 `observable(false)` 的会话状态，
+    /// 不持久化；这里同样只回结果、不写任何设置）。
+    /// </summary>
+    private async Task<object?> ReadMyBranchesAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, author = (string?)null, mine = Array.Empty<string>() };
+        }
+
+        GitMyBranchesResult result = await new GitReferenceService(runtime)
+            .ReadMyBranchesAsync(repository!, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return new
+            {
+                available = false,
+                reason = result.ErrorMessage,
+                author = (string?)null,
+                mine = Array.Empty<string>(),
+            };
+        }
+
+        return new
+        {
+            available = true,
+            author = result.Author,
+            mine = result.Mine,
+        };
+    }
+
+    /// <summary>
+    /// 提交历史里的作者集合（权威 `VcsLogUserResolver`／`GitUserRegistry`）：供「按用户筛选」的弹层列表。
+    /// 只在用户打开该弹层时调用；只回历史里出现过的人。
+    /// </summary>
+    private async Task<object?> ReadAuthorsAsync(CancellationToken cancellationToken)
+    {
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!IsUsable(repository, runtime))
+        {
+            return new { available = false, authors = Array.Empty<object>() };
+        }
+
+        GitAuthorsResult result = await new GitHistoryService(runtime)
+            .ReadAuthorsAsync(repository!, cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsSuccess)
+        {
+            return new { available = false, reason = result.ErrorMessage, authors = Array.Empty<object>() };
+        }
+
+        return new
+        {
+            available = true,
+            authors = result.Authors.Select(author => new { name = author.Name, email = author.Email }),
+        };
+    }
+
     /// <summary>读取 Stash 列表。</summary>
     private async Task<object?> ReadStashesAsync(CancellationToken cancellationToken)
     {
@@ -1959,15 +2157,15 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>
     /// 创建 Stash（规格 §5.3：支持 stash；视觉稿的对话框给"消息"与"保留索引状态"）。
     ///
-    /// 未跟踪文件默认一并暂存：产品规格把未跟踪文件视为工作区改动的一部分
-    /// （Smart Checkout 的影响说明也是"已跟踪文件和未跟踪文件"），视觉稿的对话框没有
-    /// 关闭这个行为的开关，因此不给界面一个"看起来可以选、实际没有第二种结果"的控件。
+    /// 「包含未跟踪文件」照权威 `GitStashDialog.kt` 的 `Include &untracked` 复选处理：
+    /// **默认不勾选**（`JBCheckBox` 未选中、且不持久化上次选择），界面把勾选状态显式送进来；
+    /// 缺省（没有该参数）同样按**不包含**处理，与对话框的默认值保持一致。
     /// </summary>
     private async Task<object?> CreateStashAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string? message = GetString(parameters, "message");
         bool keepIndex = GetBool(parameters, "keepIndex") ?? false;
-        bool includeUntracked = GetBool(parameters, "includeUntracked") ?? true;
+        bool includeUntracked = GetBool(parameters, "includeUntracked") ?? false;
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!IsUsable(repository, runtime))
         {
@@ -2326,7 +2524,19 @@ internal sealed class ShellBridge : IDisposable
         InvalidateStatusCache();
         if (!result.IsSuccess)
         {
-            return new { available = true, switched = false, reason = result.ErrorMessage };
+            IReadOnlyList<string> overwritePaths = ParseCheckoutOverwritePaths(result.ErrorMessage);
+            return new
+            {
+                available = true,
+                switched = false,
+                reason = result.ErrorMessage,
+                // 权威的 Smart Checkout 对话框就建立在 git 的这条错误上
+                // （`GitCheckoutOperation.smartCheckoutOrNotify`，`GitCheckoutOperation.java:367-395`），
+                // 受影响文件由 `GitLocalChangesWouldBeOverwrittenDetector` 解析同一份文本得到
+                // （`GitMessageWithFilesDetector.java:45-60`）。界面据此决定是否给出 Smart Checkout。
+                overwriteRisk = overwritePaths.Count > 0,
+                overwritePaths,
+            };
         }
 
         return new
@@ -2335,6 +2545,104 @@ internal sealed class ShellBridge : IDisposable
             switched = true,
             detached = result.ActualStatus?.IsDetached ?? false,
             branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 解析 git 的"本地改动／未跟踪文件会被检出覆盖"错误，取出受影响文件。
+    ///
+    /// 与权威 `GitLocalChangesWouldBeOverwrittenDetector` 同一口径（`:37-44,88-105`）：
+    /// 起始行是 "Your local changes to the following files would be overwritten by …" 或
+    /// "The following untracked working tree files would be overwritten by …"；
+    /// 文件是随后的**缩进行**（以制表符或两个空格开头），列表在第一个非缩进行（"Please …"／"Aborting"）结束；
+    /// 老格式把多个文件挤在一行并以两个空格开头 ⇒ 按空白拆开（权威 `getRelativeFilePaths()` 的同名处理）。
+    /// </summary>
+    internal static IReadOnlyList<string> ParseCheckoutOverwritePaths(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return [];
+        }
+
+        List<string> paths = [];
+        bool collecting = false;
+        foreach (string line in message.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            if (!collecting)
+            {
+                collecting = line.Contains("would be overwritten by", StringComparison.Ordinal)
+                    && (line.Contains("Your local changes to the following files", StringComparison.Ordinal)
+                        || line.Contains("The following untracked working tree files", StringComparison.Ordinal));
+                continue;
+            }
+
+            bool indented = line.StartsWith('\t') || line.StartsWith("  ", StringComparison.Ordinal);
+            if (!indented)
+            {
+                break;
+            }
+
+            string trimmed = line.Trim();
+            if (trimmed.Length == 0)
+            {
+                continue;
+            }
+
+            if (line.StartsWith('\t'))
+            {
+                // 新格式：一行一个文件，文件名里的空格原样保留。
+                paths.Add(trimmed);
+            }
+            else
+            {
+                // 老格式："  file1 dir/file2 dir/sub/file3"。
+                paths.AddRange(trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            }
+        }
+
+        return paths.Distinct(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// Smart Checkout（权威 `GitBrancher.checkout` 的 "smart checkout" 分支：
+    /// `GitCheckoutOperation.smartCheckoutOrNotify` → `smartCheckout()` → `GitPreservingProcess`，
+    /// `GitCheckoutOperation.java:367-395,505-524`）。
+    ///
+    /// 语义是 **stash → 检出 → 恢复**（`GitPreservingProcess` 保存改动、执行检出、再恢复），
+    /// 服务层已完整实现（含临时 stash 的标记与冲突后的续做，`GitOperationService.SmartCheckoutAsync`）。
+    /// 这里只做接线，并把**同一套会话投影**（`SessionPayload`）回给界面：恢复失败即冲突会话，
+    /// 临时 stash 保留，界面据此说明"改动还在、可从冲突会话继续"。
+    ///
+    /// 界面契约（权威 `GitSmartOperationDialog`，`GitSmartOperationDialog.java:36-125`，
+    /// 文案 `GitBundle.properties:426-433,1356-1357`）：写入被拒时给出的三个选择是
+    /// **Smart Checkout**（`smart.operation.dialog.smart.operation.name`）、
+    /// **Force Checkout**（`checkout.operation.force.checkout`）与 **Don't Checkout**
+    /// （`smart.operation.dialog.don.t.operation.name`，且是默认焦点）。Augit 的产品规格只定义了
+    /// Smart Checkout（`product-spec.md:122`）与"取消"（`ux-spec.md:830`），Force Checkout 会丢弃
+    /// 本地改动、属**新增能力**，按边界不实现 ⇒ 登记差异。
+    /// </summary>
+    private async Task<object?> SmartCheckoutAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string name = GetString(parameters, "name")
+            ?? throw new ArgumentException("git/checkout-smart 需要 name 参数。");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitAdvancedOperationResult result = await new GitOperationService(runtime)
+            .SmartCheckoutAsync(repository, name, cancellationToken)
+            .ConfigureAwait(false);
+        // 改动已 stash／恢复、HEAD 可能已换：状态缓存必须作废，界面随后读取真实状态。
+        InvalidateStatusCache();
+        return new
+        {
+            available = true,
+            switched = result.IsSuccess,
+            ok = result.IsSuccess,
+            reason = result.ErrorMessage,
+            session = SessionPayload(result.Session),
         };
     }
 
@@ -2396,19 +2704,56 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>
     /// 拉取远端引用（规格 §7.11「更新项目」）。
     /// 网络操作不设自动超时，只响应用户主动取消；不后台定时 fetch。
+    ///
+    /// 带 `branch`／`branches` 时改为**只取这些分支**（分支面板的「更新选中分支」）：
+    /// 权威 `UpdateSelectedBranchAction` → `GitBranchActionsUtil.updateBranches()`
+    /// （`plugins/git4idea/backend/src/ui/branch/GitBranchActionsUtil.kt:62-101`）对**选中的每个**
+    /// 非当前分支用 `"$remoteBranchName:$localBranchName"` 这个 refspec 直接快进本地分支；
+    /// 远端与远端分支由宿主从该分支自己的跟踪配置读，不采信界面传来的推断值。
+    /// 多选时逐个取，第一个失败即返回并把分支名带进原因。
     /// </summary>
     private async Task<object?> FetchAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string? remoteName = GetString(parameters, "remote");
+        string? branchName = GetString(parameters, "branch");
+        List<string> branches = GetStringList(parameters, "branches");
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
         {
             return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
         }
 
-        GitRemoteOperationResult result = await new GitRemoteService(runtime)
-            .FetchAsync(repository, remoteName, cancellationToken)
-            .ConfigureAwait(false);
+        GitRemoteService remoteService = new(runtime);
+        if (branches.Count > 0)
+        {
+            foreach (string name in branches)
+            {
+                GitRemoteOperationResult one = await remoteService
+                    .FetchBranchAsync(repository, name, cancellationToken)
+                    .ConfigureAwait(false);
+                InvalidateStatusCache();
+                if (!one.IsSuccess)
+                {
+                    return new
+                    {
+                        available = true,
+                        fetched = false,
+                        reason = $"{name}：{one.ErrorMessage}",
+                    };
+                }
+            }
+
+            return new
+            {
+                available = true,
+                fetched = true,
+                branches,
+            };
+        }
+
+        GitRemoteOperationResult result = string.IsNullOrWhiteSpace(branchName)
+            ? await remoteService.FetchAsync(repository, remoteName, cancellationToken).ConfigureAwait(false)
+            : await remoteService.FetchBranchAsync(repository, branchName.Trim(), cancellationToken).ConfigureAwait(false);
         InvalidateStatusCache();
         if (!result.IsSuccess)
         {
@@ -2431,8 +2776,125 @@ internal sealed class ShellBridge : IDisposable
     {
         string action = GetString(parameters, "action")
             ?? throw new ArgumentException("git/branch 需要 action 参数。");
+        string? name = GetString(parameters, "name");
+        List<string> names = GetStringList(parameters, "names");
+        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
+        if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
+        {
+            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
+        }
+
+        GitReferenceService references = new(runtime);
+        if (action == "delete")
+        {
+            // 引用树多选（权威 `DeleteBranchAction.delete()`：对选中集逐个走 `GitDeleteBranchOperation`）：
+            // `names`（数组）优先，兼容单值 `name`；返回被删掉与被拒的分支，界面据此说明影响。
+            List<string> targets = names.Count > 0
+                ? [.. names]
+                : string.IsNullOrWhiteSpace(name) ? [] : [name];
+            if (targets.Count == 0)
+            {
+                throw new ArgumentException("git/branch 的 delete 需要 name 或 names 参数。");
+            }
+
+            return await DeleteBranchesAsync(
+                references,
+                repository,
+                targets,
+                GetBool(parameters, "force") ?? false,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("git/branch 需要 name 参数。");
+        }
+
+        GitActionResult result = action switch
+        {
+            // 权威 `Git.CreateNewBranch.FromCommit`（`GitCreateNewBranchFromCommitAction`）：日志右键菜单
+            // 是从**选中的那个提交**起分支，而不是 HEAD ⇒ `startPoint` 由界面传入（留空仍取当前引用）。
+            "create" => await references.CreateBranchAsync(
+                repository,
+                name,
+                GetString(parameters, "startPoint"),
+                cancellationToken).ConfigureAwait(false),
+            "rename" => await references.RenameBranchAsync(
+                repository,
+                GetString(parameters, "from") ?? string.Empty,
+                name,
+                cancellationToken).ConfigureAwait(false),
+            // delete 在方法开头单独处理（多选时逐个删并把被拒的分支带回界面，见 DeleteBranchesAsync）。
+            _ => throw new BridgeValidationException($"未知的分支动作：{action}"),
+        };
+        InvalidateStatusCache();
+        if (!result.IsSuccess)
+        {
+            return new { available = true, changed = false, reason = result.ErrorMessage };
+        }
+
+        return new
+        {
+            available = true,
+            changed = true,
+            branch = result.ActualStatus?.CurrentBranch,
+        };
+    }
+
+    /// <summary>
+    /// 逐个删除分支（权威 `DeleteBranchAction.delete()`：对选中集里的每个本地分支走同一套
+    /// `GitDeleteBranchOperation` —— 先 `git branch -d` 由 Git 拒绝未完全合并并给出原因，
+    /// 用户确认丢弃后再 `-D`）。
+    ///
+    /// 返回被删掉与被拒的分支：界面据此说明影响、决定是否再问一次，并在部分失败时如实报告。
+    /// </summary>
+    private async Task<object?> DeleteBranchesAsync(
+        GitReferenceService references,
+        GitRepositorySnapshot repository,
+        IReadOnlyList<string> names,
+        bool force,
+        CancellationToken cancellationToken)
+    {
+        List<string> deleted = [];
+        List<(string Name, string Reason)> refused = [];
+        foreach (string name in names)
+        {
+            GitActionResult result = await references
+                .DeleteBranchAsync(repository, name, force, cancellationToken)
+                .ConfigureAwait(false);
+            if (result.IsSuccess)
+            {
+                deleted.Add(name);
+            }
+            else
+            {
+                refused.Add((name, result.ErrorMessage ?? "删除失败。"));
+            }
+        }
+
+        InvalidateStatusCache();
+        return new
+        {
+            available = true,
+            changed = deleted.Count > 0,
+            deleted,
+            refused = refused.Select(item => new { name = item.Name, reason = item.Reason }),
+            reason = refused.Count > 0 ? refused[0].Reason : null,
+        };
+    }
+
+    /// <summary>
+    /// 标签的创建与删除（权威 `GitTagDialog` / `GitDeleteTagOperation`）。
+    ///
+    /// 创建只支持"指向某个版本"这一种形态：`target` 为空时由 Git 取当前 HEAD；
+    /// `message` 非空即建附注标签（`-a`），与权威对话框的"标签信息"字段对应。
+    /// </summary>
+    private async Task<object?> TagAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        string action = GetString(parameters, "action")
+            ?? throw new ArgumentException("git/tag 需要 action 参数。");
         string name = GetString(parameters, "name")
-            ?? throw new ArgumentException("git/branch 需要 name 参数。");
+            ?? throw new ArgumentException("git/tag 需要 name 参数。");
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
         {
@@ -2442,14 +2904,14 @@ internal sealed class ShellBridge : IDisposable
         GitReferenceService references = new(runtime);
         GitActionResult result = action switch
         {
-            // 从当前 HEAD 新建；startPoint 留空即由 Git 取当前引用。
-            "create" => await references.CreateBranchAsync(repository, name, null, cancellationToken).ConfigureAwait(false),
-            "rename" => await references.RenameBranchAsync(
+            "create" => await references.CreateTagAsync(
                 repository,
-                GetString(parameters, "from") ?? string.Empty,
                 name,
+                GetString(parameters, "target"),
+                GetString(parameters, "message"),
                 cancellationToken).ConfigureAwait(false),
-            _ => throw new BridgeValidationException($"未知的分支动作：{action}"),
+            "delete" => await references.DeleteLocalTagAsync(repository, name, cancellationToken).ConfigureAwait(false),
+            _ => throw new BridgeValidationException($"未知的标签动作：{action}"),
         };
         InvalidateStatusCache();
         if (!result.IsSuccess)
@@ -2526,8 +2988,12 @@ internal sealed class ShellBridge : IDisposable
             return new { available = false, lines = Array.Empty<object>() };
         }
 
+        // 可选 `revision`：在**上一修订**上重新标注（权威 `AnnotatePreviousRevisionAction`
+        // → `PreviousFileRevisionProvider.getPreviousRevision(lineNumber)`）。服务层本来就支持该参数，
+        // 此前桥接把它硬编码成 null ⇒ 界面只能标当前工作区。
+        string? revision = GetString(parameters, "revision");
         GitHistoryService history = new(runtime);
-        GitBlameResult result = await history.ReadBlameAsync(repository, relative, null, cancellationToken);
+        GitBlameResult result = await history.ReadBlameAsync(repository, relative, revision, cancellationToken);
         if (!result.IsSuccess || result.Lines is not { } lines)
         {
             return new { available = false, reason = result.ErrorMessage, lines = Array.Empty<object>() };
@@ -2537,15 +3003,24 @@ internal sealed class ShellBridge : IDisposable
         {
             available = true,
             path = relative,
+            revision,
             lines = lines.Select(line => new
             {
                 number = line.LineNumber,
                 hash = line.CommitHash[..Math.Min(7, line.CommitHash.Length)],
                 fullHash = line.CommitHash,
                 author = line.AuthorName,
+                // 槽位里显示的是**短日期**（权威注释栏就是短日期），而悬停提示里的 `Date:` 用
+                // `DateFormatUtil.formatDateTime`（日期 **＋ 时间**，`DateFormatUtil.java:120-124`；
+                // `GitFileAnnotation.java:193` 的 `commit.description.tooltip.date`）⇒ 这里多回一个
+                // 日期时间字段给提示用。格式与仓库里其它日期时间串一致（`yyyy/M/d H:mm`，本地时区）。
                 date = line.AuthorDate.ToLocalTime().ToString("yyyy/M/d", CultureInfo.InvariantCulture),
+                dateTime = line.AuthorDate.ToLocalTime().ToString("yyyy/M/d H:mm", CultureInfo.InvariantCulture),
                 summary = line.Summary,
                 content = line.Content,
+                // 「标注上一修订」用的上一修订（`git blame --line-porcelain` 的 `previous` 头）；
+                // 空串表示该行在更早的修订里不存在（权威此时把该动作隐藏）。
+                previousRevision = line.PreviousRevision,
             }),
         };
     }
@@ -2581,6 +3056,11 @@ internal sealed class ShellBridge : IDisposable
                 fullHash = entry.FullHash,
                 subject = entry.Subject,
                 author = entry.AuthorName,
+                // 作者列的值与 tooltip 需要邮箱与提交者：权威 `FileHistoryPanelImpl.AuthorColumnInfo`
+                // 用「作者 ≠ 提交者」决定值后的 `*`，tooltip 追加 `, via {提交者} <{邮箱}>`。
+                authorEmail = entry.AuthorEmail,
+                committerName = entry.CommitterName,
+                committerEmail = entry.CommitterEmail,
                 date = entry.AuthorDate.ToLocalTime()
                     .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
             }),
@@ -2692,6 +3172,71 @@ internal sealed class ShellBridge : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 读取"字符串或字符串数组"形式的参数（引用树多选后的多目标动作）。
+    /// 数组里只取非空字符串项；缺失或类型不对时返回空表（调用方据此区分"没给"与"给了空表"）。
+    /// </summary>
+    private static List<string> GetStringList(JsonElement parameters, string name)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object
+            || !parameters.TryGetProperty(name, out JsonElement element))
+        {
+            return [];
+        }
+
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            string? single = element.GetString();
+            return string.IsNullOrWhiteSpace(single) ? [] : [single];
+        }
+
+        if (element.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        List<string> values = [];
+        foreach (JsonElement item in element.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                string? value = item.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    values.Add(value);
+                }
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>
+    /// 读取可选的 ISO-8601 时间参数（`git/history` 的 `since`/`until`）。
+    ///
+    /// 给了值但解析不出来时**报错**而不是当作"没有这个筛选"：静默忽略会让界面显示
+    /// 一份看起来正常、实际没有按时间筛过的历史。
+    /// </summary>
+    private static DateTimeOffset? GetDate(JsonElement parameters, string name)
+    {
+        string? text = GetString(parameters, name);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        if (!DateTimeOffset.TryParse(
+                text,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out DateTimeOffset value))
+        {
+            throw new ArgumentException($"git/history 的 {name} 参数不是有效的时间。");
+        }
+
+        return value;
     }
 
     private static string Serialize(long id, object? result, string? error)

@@ -67,9 +67,11 @@ const WORKSPACE = {
     available: true, isRepository: true, head: 'aaa1111bbbb2222cccc3333dddd4444eeee5555', hasNextPage: false,
     commits: [
       // 用一次合并提交产生多条泳道，覆盖真实历史中常见的分叉与汇合。
-      { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222', 'full-bbb2222'], references: ['HEAD', 'dsh'] },
-      { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', date: '2026/9/14 09:00', graph: '*', parents: ['full-ccc3333'], references: [] },
-      { hash: 'ccc3333', fullHash: 'full-ccc3333', subject: 'feat: 真实提交三', author: 'l49', date: '2026/9/13 08:00', graph: '*', parents: [], references: [] },
+      // `authorEmail`／`committerName`／`committerEmail` 与 `git/file-history` 同源：
+      // 「与当前分支比较」复用文件历史列表的作者列（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）。
+      { hash: 'aaa1111', fullHash: 'full-head-hash', subject: 'feat: 真实提交一', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/15 10:00', graph: '*', parents: ['bbb2222', 'full-bbb2222'], references: ['HEAD', 'dsh'] },
+      { hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 真实提交二', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/14 09:00', graph: '*', parents: ['full-ccc3333'], references: [] },
+      { hash: 'ccc3333', fullHash: 'full-ccc3333', subject: 'feat: 真实提交三', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/13 08:00', graph: '*', parents: [], references: [] },
     ],
   },
   searchFiles: {
@@ -101,6 +103,10 @@ const WORKSPACE = {
     theme: 'Dark', textFontFamily: 'Microsoft YaHei UI', monospaceFontFamily: 'Cascadia Mono',
     fontSize: 13, codeFontSize: 13, gitExecutablePath: 'C:\\Program Files\\Git\\cmd\\git.exe',
     terminalShell: 'PowerShell7', terminalCustomCommand: null,
+    // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true；第 181 轮起持久化）。
+    showGitBranchesTags: true,
+    // 分支面板「按目录分组」（权威 `git.branches.group.by.directory`，默认 true；第 192 轮起持久化）。
+    groupBranchesByDirectory: true,
     recentWorkspaces: ['D:\\ws', 'D:\\ws-other'],
     projectPanelWidth: 330, bottomPanelHeight: 240,
   },
@@ -123,6 +129,10 @@ const WORKSPACE = {
     available: true,
     branches: [
       { name: 'dsh', isRemote: false, isCurrent: true, upstream: 'origin/dsh', commitHash: 'full-head-hash', subject: 'feat: 真实提交一' },
+      // 第 171 轮：需要一个**非当前**的本地分支，才能验证"每个引用一组动作"与两步删除。
+      { name: 'feature/ux', isRemote: false, isCurrent: false, upstream: null, commitHash: 'full-bbb2222', subject: 'fix: 真实提交二' },
+      // 第 178 轮：竖条「更新选中分支」需要**受跟踪的非当前**本地分支（权威 `isTrackingInfosExist`）。
+      { name: 'feature/tracked', isRemote: false, isCurrent: false, upstream: 'origin/feature/tracked', commitHash: 'full-bbb2222', subject: 'fix: 真实提交二' },
       { name: 'origin/dsh', isRemote: true, isCurrent: false, upstream: null, commitHash: 'full-bbb2222', subject: 'fix: 真实提交二' },
     ],
     tags: [
@@ -149,17 +159,19 @@ const WORKSPACE = {
   },
   fileHistory: {
     available: true, path: 'docs/notes.txt',
+    // 作者列的值与 tooltip 需要两组身份（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
+    // 第一条作者＝提交者（值不加 `*`），第二条提交者不同名（值加 `*`，tooltip 追加 `, via …`）。
     commits: [
-      { hash: 'bbb2222', fullHash: 'full-bbb', subject: 'fix: 文件历史一', author: 'l49', date: '2026/9/14 09:00' },
-      { hash: 'aaa1111', fullHash: 'full-aaa', subject: 'feat: 文件历史二', author: 'l49', date: '2026/9/13 08:00' },
+      { hash: 'bbb2222', fullHash: 'full-bbb', subject: 'fix: 文件历史一', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/14 09:00' },
+      { hash: 'aaa1111', fullHash: 'full-aaa', subject: 'feat: 文件历史二', author: 'l49', authorEmail: 'l49@example.com', committerName: 'build-bot', committerEmail: 'build@example.invalid', date: '2026/9/13 08:00' },
     ],
   },
   blame: {
     available: true, path: 'docs/notes.txt',
     lines: [
-      { number: 1, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', summary: 'feat: 一', content: '第一行' },
-      { number: 2, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', summary: 'feat: 一', content: '第二行' },
-      { number: 3, hash: 'bbb2222', fullHash: 'full-bbb', author: 'l49', date: '2026/9/14', summary: 'fix: 二', content: '第三行' },
+      { number: 1, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第一行' },
+      { number: 2, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第二行' },
+      { number: 3, hash: 'bbb2222', fullHash: 'full-bbb', author: 'l49', date: '2026/9/14', dateTime: '2026/9/14 9:00', summary: 'fix: 二', content: '第三行', previousRevision: '1111111111111111111111111111111111111111' },
     ],
   },
   documents: {
@@ -302,6 +314,26 @@ async function main() {
           files,
         };
       }
+      if (method === 'git/init') {
+        // 第 205 轮：仓库初始化的完整通道。`__initConfirmNeeded` 模拟"目标已在 Git 下"
+        // （权威 `GitInit.java:66-74` 唯一需要确认的情形：不带 `confirm` 先要求确认），
+        // `__initFails` 注入失败（权威 `action.Git.Init.error` ＋ Git 的错误输出）。
+        window.__initCalls = (window.__initCalls || []).concat([params || {}]);
+        if (window.__initFails) {
+          return { available: false, reason: "fatal: unable to create 'D:/github/Picked/.git/': Permission denied" };
+        }
+        if (window.__initConfirmNeeded && !(params && params.confirm)) {
+          return { available: true, initialized: false, requiresConfirmation: true, path: params.path };
+        }
+        // 成功后该目录**才**成为仓库：后续 `git/status` 起按仓库回话（界面据此刷新）。
+        window.__notARepository = false;
+        return {
+          available: true,
+          initialized: true,
+          alreadyUnderGit: !!(params && params.confirm),
+          path: params.path,
+        };
+      }
       if (method === 'git/rollback') {
         // 回滚（规格 §10.4）：记录调用与目标路径，支持注入失败。
         window.__rollbackCalls = (window.__rollbackCalls || []).concat([params.path]);
@@ -312,14 +344,90 @@ async function main() {
         return { available: true, rolledBack: true, path: params.path, recycled: !!window.__rollbackRecycled };
       }
       if (method === 'git/history') {
+        // 第 162 轮：补上计数器 —— 此前 `__historyCalls` 只在 §154 的 INFO 里被**读**、从来没有被写过，
+        // 那条信息因此恒为 0（空洞测量）。补断言"空日志往返不重复查询"必须先有它。
+        window.__historyCalls = (window.__historyCalls || 0) + 1;
+        // 第 179 轮：记录参数，验证界面真的把筛选交给了宿主（而不是只改占位符）。
+        window.__historyParams = (window.__historyParams || []).concat([params]);
         // 历史常比首屏慢十余秒：支持注入延迟，用于验证"数据到达不得打断用户输入"。
         const historyDelay = window.__historyDelayMs || 0;
         if (historyDelay) await new Promise((r) => setTimeout(r, historyDelay));
         if (window.__emptyHistory) return { available: true, isRepository: true, head: null, hasNextPage: false, commits: [] };
-        return data.history;
+        // 按参数真的筛一遍（与宿主 `GitHistoryService` 同口径）：分支 → 起始修订（可达提交）、
+        // message → `--grep` 子串、hash → **完整哈希以该前缀开头的所有提交**。
+        // 哈希筛选照权威 `VcsLogFiltererImpl.applyHashFilter()`：命中非空即**短路**其它筛选；
+        // 一条都没命中则 `return null` 落回普通筛选（此时同一个文本的 message 筛选仍生效）。
+        let commits = data.history.commits;
+        const hashMatched = params.hash
+          ? commits.filter((c) => c.hash.startsWith(params.hash) || c.fullHash.startsWith(params.hash))
+          : [];
+        if (hashMatched.length > 0) {
+          commits = hashMatched;
+        }
+        else {
+          // 范围筛选（第 180 轮：权威 `VcsLogRangeFilter`／`fromRange(exclusiveRef, inclusiveRef)`）：
+          // 取从 inclusive 可达、但不从 exclusive 可达的提交。夹具的提交图很小，这里按
+          // `references`／`parents` **真的**算一遍可达集，让"两个引用之间没有独有提交"不是平凡为真；
+          // 需要非空结果的用例用 `window.__compareRange` 注入（与 `__emptyHistory`／`__failAllDiffs` 同类旋钮）。
+          if (params.rangeExclusive || params.rangeInclusive) {
+            if (Array.isArray(window.__compareRange)) {
+              return { ...data.history, commits: window.__compareRange };
+            }
+            const byId = new Map();
+            for (const commit of data.history.commits) {
+              byId.set(commit.fullHash, commit);
+              byId.set(commit.hash, commit);
+            }
+            const reachableFrom = (ref) => {
+              const seen = new Set();
+              const stack = data.history.commits
+                .filter((commit) => (commit.references || []).includes(ref)
+                  || (ref === 'HEAD' && commit.fullHash === data.history.head))
+                .map((commit) => commit.fullHash);
+              while (stack.length > 0) {
+                const id = stack.pop();
+                if (seen.has(id)) continue;
+                seen.add(id);
+                const commit = byId.get(id);
+                for (const parent of (commit && commit.parents) || []) stack.push(parent);
+              }
+              return seen;
+            };
+            const inclusive = reachableFrom(params.rangeInclusive);
+            const exclusive = reachableFrom(params.rangeExclusive);
+            commits = commits.filter((commit) => inclusive.has(commit.fullHash) && !exclusive.has(commit.fullHash));
+          }
+          if (params.branch) commits = commits.filter((c) => (c.references || []).includes(params.branch));
+          if (params.message) {
+            const needle = String(params.message).toLowerCase();
+            commits = commits.filter((c) => String(c.subject).toLowerCase().includes(needle));
+          }
+        }
+        return { ...data.history, commits };
       }
       if (method === 'git/blame') {
         window.__blameCalls = (window.__blameCalls || 0) + 1;
+        window.__blameParams = window.__blameParams || [];
+        window.__blameParams.push(params || {});
+        // 按 `revision` 标注 ⇒ 返回**更早的一版**（全行归到上一修订），供「标注上一修订」验证。
+        if (params && params.revision) {
+          return {
+            available: true,
+            path: data.blame.path,
+            revision: params.revision,
+            lines: data.blame.lines.map((line) => ({
+              number: line.number,
+              hash: 'old0001',
+              fullHash: '1111111111111111111111111111111111111111',
+              author: 'older',
+              date: '2026/9/1',
+              dateTime: '2026/9/1 8:00',
+              summary: 'feat: 更早',
+              content: line.content,
+              previousRevision: '',
+            })),
+          };
+        }
         if (window.__malformed) return { available: true, lines: [{ number: 1, hash: 'x' }] };  // 缺 path
         return data.blame;
       }
@@ -328,8 +436,33 @@ async function main() {
         if (window.__malformed) return { available: true, commits: [] };  // 缺 path
         return data.fileHistory;
       }
-      if (method === 'search/files') { window.__searchFilesCalls = (window.__searchFilesCalls || 0) + 1; return data.searchFiles; }
+      if (method === 'search/files') {
+        window.__searchFilesCalls = (window.__searchFilesCalls || 0) + 1;
+        // 第 153 轮：本地按文件名的搜索太快，观察不到"查询进行中"的中间态，故支持注入延迟。
+        const searchDelay = window.__searchFilesDelay || 0;
+        if (searchDelay) await new Promise((r) => setTimeout(r, searchDelay));
+        return data.searchFiles;
+      }
       if (method === 'search/text') {
+        // 第 210 轮：「结果过多」的 Continue 用分页表达（`offset` + `limit`）。
+        // `__searchPages` 按 offset 给页，`truncated` 表示还有下一页。
+        if (window.__searchPages) {
+          const offset = params && typeof params.offset === 'number' ? params.offset : 0;
+          window.__searchCalls = (window.__searchCalls || []).concat([{
+            query: params.query,
+            offset,
+            limit: params && params.limit !== undefined ? params.limit : '<未传>',
+          }]);
+          const page = window.__searchPages[String(offset)] || { matches: [], truncated: false };
+          return {
+            available: true,
+            truncated: !!page.truncated,
+            timedOut: false,
+            cancelled: false,
+            notice: '',
+            matches: page.matches,
+          };
+        }
         if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
         return data.searchText;
       }
@@ -533,6 +666,20 @@ async function main() {
         return { available: true, changed: true, remotes: next };
       }
       if (method === 'git/references') return data.references;
+      if (method === 'git/authors') {
+        // 第 188 轮：「按用户筛选」的列表（权威 `GitUserRegistry` 从日志收集用户）。
+        window.__authorsCalls = (window.__authorsCalls || 0) + 1;
+        return { available: true, authors: Array.isArray(window.__authors) ? window.__authors : [
+          { name: 'l49', email: 'l49@example.invalid' },
+          { name: 'm22', email: 'm22@example.invalid' },
+        ] };
+      }
+      if (method === 'git/branches-mine') {
+        // 第 181 轮：「我的分支」判据（权威 `BranchesDashboardUtil.checkIsMyBranchesSynchronously`）。
+        // 默认按夹具给一个确定结果；用例可用 `window.__myBranches` 换成任意集合（含空集）。
+        window.__myBranchesCalls = (window.__myBranchesCalls || 0) + 1;
+        return { available: true, author: 'l49', mine: Array.isArray(window.__myBranches) ? window.__myBranches : ['feature/ux'] };
+      }
       if (method === 'git/stashes') {
         window.__stashesReads = (window.__stashesReads || 0) + 1;
         return window.__stashesState || data.stashes;
@@ -620,18 +767,64 @@ async function main() {
       }
       if (method === 'git/fetch') {
         window.__fetchCalls = (window.__fetchCalls || 0) + 1;
+        // 第 178 轮：参数要能被断言看到（「更新选中分支」必须带 branch），并支持注入延迟，
+        // 才能观察到权威 `GitFetchSupport.isFetchRunning` 对应的"获取进行中"禁用态。
+        window.__fetchParams = (window.__fetchParams || []).concat([params]);
+        const fetchDelay = window.__fetchDelayMs || 0;
+        if (fetchDelay) await new Promise((r) => setTimeout(r, fetchDelay));
         if (window.__fetchFails) return { available: true, fetched: false, reason: '没有配置远端。' };
         return { available: true, fetched: true, branch: 'dsh' };
       }
       if (method === 'git/branch') {
         window.__branchCalls = (window.__branchCalls || []).concat([params]);
         if (window.__branchFails) return { available: true, changed: false, reason: '分支名已存在。' };
-        return { available: true, changed: true, branch: params.name };
+        // 第 171 轮：删除分支的"未完全合并"注入 —— 与真实 git 一致：不带 force 时拒绝，
+        // 带上 force 才删除（界面据此走"先说明影响、确认后再强制"两步）。
+        if (params.action === 'delete' && window.__branchDeleteUnmerged && params.force !== true) {
+          return { available: true, changed: false,
+            reason: "error: the branch '" + params.name + "' is not fully merged." };
+        }
+        return { available: true, changed: true, branch: params.action === 'delete' ? null : params.name };
+      }
+      if (method === 'git/tag') {
+        window.__tagCalls = (window.__tagCalls || []).concat([params]);
+        if (window.__tagFails) return { available: true, changed: false, reason: '标签已存在。' };
+        return { available: true, changed: true };
       }
       if (method === 'git/checkout') {
         window.__checkoutCalls = (window.__checkoutCalls || []).concat([{ name: params.name, kind: params.kind }]);
+        // 第 207 轮：git 的"本地改动会被检出覆盖"错误形态（宿主解析成 overwriteRisk/overwritePaths，
+        // 权威 `GitLocalChangesWouldBeOverwrittenDetector` 解析同一份文本）。
+        if (window.__checkoutOverwrite && window.__checkoutOverwrite.length > 0) {
+          return {
+            available: true,
+            switched: false,
+            reason: 'error: Your local changes to the following files would be overwritten by checkout:\n\t'
+              + window.__checkoutOverwrite.join('\n\t')
+              + '\nPlease commit your changes or stash them before you switch branches.\nAborting',
+            overwriteRisk: true,
+            overwritePaths: window.__checkoutOverwrite,
+          };
+        }
         if (window.__checkoutFails) return { available: true, switched: false, reason: '工作区有未提交的改动，无法切换分支。' };
         return { available: true, switched: true, detached: params.kind === 'tag', branch: params.name };
+      }
+      if (method === 'git/checkout-smart') {
+        window.__smartCalls = (window.__smartCalls || []).concat([{ name: params.name }]);
+        if (window.__smartConflict) {
+          // 恢复改动失败 ⇒ `SmartCheckout` 冲突会话（临时 stash 保留）。
+          return {
+            available: true, switched: false, ok: false, reason: 'error: could not apply 1111111... 本地改动',
+            session: {
+              kind: 'SmartCheckout', inProgress: true, hasConflicts: true, branch: 'feature/ux',
+              canContinue: false, canSkip: false, canAbort: false, supportsContinue: true,
+              currentStep: null, totalSteps: null,
+              conflicts: [{ path: 'docs/notes.txt', hasAncestor: true, hasYours: true, hasTheirs: true }],
+            },
+          };
+        }
+        if (window.__smartFails) return { available: true, switched: false, ok: false, reason: '临时 stash 失败。', session: null };
+        return { available: true, switched: true, ok: true, reason: null, session: { kind: 'None', inProgress: false, hasConflicts: false, branch: params.name, canContinue: false, canSkip: false, canAbort: false, supportsContinue: false, currentStep: null, totalSteps: null, conflicts: [] } };
       }
       if (method === 'git/push') {
         window.__pushCalls = (window.__pushCalls || 0) + 1;
@@ -915,6 +1108,62 @@ async function main() {
     const blameBody = await blame.page.locator('.blame-document .code-view').innerText();
     check('Blame 正文为真实文件内容', blameBody.includes('第一行') && blameBody.includes('第三行'));
     check('Blame 不残留样例归属', !blameText.includes('2026/8/28'));
+    // 归属行悬停提示按权威 GitFileAnnotation.getToolTip 拼装：完整修订 / Author: / Date: + 空行 + 提交信息。
+    const blameTips = await blame.page.locator('.blame-document .blame-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')));
+    // `Date:` 是**日期时间**（权威 `DateFormatUtil.formatDateTime`，`GitFileAnnotation.java:193` 的
+    // `commit.description.tooltip.date`），而槽位显示的是短日期 —— 两者都来自宿主载荷。
+    check('Blame 悬停提示含完整修订、作者、日期时间与提交信息: ' + JSON.stringify(blameTips[0]),
+      blameTips[0] === 'commit full-aaa\nAuthor: l49\nDate: 2026/9/15 10:00\n\nfeat: 一'
+      && blameTips[2] === 'commit full-bbb\nAuthor: l49\nDate: 2026/9/14 9:00\n\nfix: 二');
+    check('Blame 悬停提示用完整修订而非归属列旁的短修订',
+      blameTips.every(tip => !tip.startsWith('commit aaa') && !tip.startsWith('commit bbb')));
+    // ---- 「标注上一修订」（权威 `AnnotatePreviousRevisionAction`）----
+    // 第 3 行带 `previousRevision` ⇒ 右键给出该动作；第 1 行没有 ⇒ 不给入口。
+    const openRowMenu = async (index) => {
+      await blame.page.evaluate((position) => {
+        const row = document.querySelectorAll('.blame-document .blame-row')[position];
+        const rect = row.getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: Math.round(rect.left + 8), clientY: Math.round(rect.bottom),
+        }));
+      }, index);
+      await blame.page.waitForTimeout(400);
+      return await blame.page.evaluate(() => {
+        const layer = document.querySelector('.blame-row-menu');
+        return {
+          open: !!layer,
+          revision: layer ? layer.dataset.blameRevision : null,
+          items: layer ? [...layer.querySelectorAll('[data-blame-action]')].map((node) => node.dataset.blameAction) : [],
+        };
+      });
+    };
+    const rootRowMenu = await openRowMenu(0);
+    await blame.page.keyboard.press('Escape');
+    await blame.page.waitForTimeout(200);
+    const previousRowMenu = await openRowMenu(2);
+    await blame.page.evaluate(() => { window.__blameParams = []; });
+    await blame.page.evaluate(() => {
+      const item = document.querySelector('.blame-row-menu [data-blame-action="annotate-previous"]');
+      if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await blame.page.waitForTimeout(1000);
+    const previousAnnotated = await blame.page.evaluate(() => ({
+      params: (window.__blameParams || []).slice(-1)[0] || null,
+      toolbar: document.querySelector('.blame-document .document-toolbar').textContent,
+      gutter: document.querySelector('.blame-document .blame-gutter').innerText,
+    }));
+    check('§7.9 「标注上一修订」只对有上一修订的行给出，并按该修订重新标注: '
+      + JSON.stringify([rootRowMenu, previousRowMenu, previousAnnotated]),
+      rootRowMenu.open === false
+        && previousRowMenu.open === true
+        && previousRowMenu.revision === '1111111111111111111111111111111111111111'
+        && previousRowMenu.items.join(',') === 'annotate-previous'
+        && previousAnnotated.params
+        && previousAnnotated.params.revision === '1111111111111111111111111111111111111111'
+        // 标注结果换成了更早那一版：作者与摘要都变，且工具栏写明依据的修订（短哈希）。
+        && previousAnnotated.gutter.includes('older') && previousAnnotated.gutter.includes('2026/9/1')
+        && previousAnnotated.toolbar.includes('上一修订 1111111'));
     await blame.page.close();
 
     // ---- 文件历史 ----
@@ -927,6 +1176,29 @@ async function main() {
     const historyTab = await fileHistory.page.locator('.tool-tab.active').innerText();
     check('文件历史标签显示真实路径: ' + historyTab, historyTab.includes('docs/notes.txt'));
     check('文件历史不残留样例', !firstRow.includes('feat: 实现 Augit 阶段零至五功能'));
+    // 列集合与顺序按权威 `FileHistoryPanelImpl.createColumnList`（FileHistoryPanelImpl.java:292-306）：
+    // 版本（短修订）→ 日期 → 作者 → 提交信息；表头由 `DualView(ColumnInfo[])` 自带、列名取 `ColumnInfo.getName()`。
+    const historyColumns = await fileHistory.page.evaluate(() => ({
+      header: [...document.querySelectorAll('.history-columns > span')].map(node => node.textContent),
+      rows: [...document.querySelectorAll('.history-row')].map(row => [...row.children].map(cell => cell.textContent)),
+    }));
+    check('文件历史表头为 版本→日期→作者→提交信息: ' + JSON.stringify(historyColumns.header),
+      JSON.stringify(historyColumns.header) === JSON.stringify(['版本', '日期', '作者', '提交信息']));
+    check('文件历史行按权威列序填真实数据: ' + JSON.stringify(historyColumns.rows[0]),
+      JSON.stringify(historyColumns.rows[0]) === JSON.stringify(['bbb2222', '2026/9/14 09:00', 'l49', 'fix: 文件历史一']));
+    // 作者列的值与单元格 tooltip（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
+    // 作者 ≠ 提交者 ⇒ 值后加 `*`、tooltip 追加 `, via {提交者} <{邮箱}>`；同名则都不加。
+    const historyAuthors = await fileHistory.page.evaluate(() => [...document.querySelectorAll('.history-row')]
+      .map(row => {
+        const cell = row.children[2];
+        return { value: cell.textContent, title: cell.getAttribute('title') };
+      }));
+    check('文件历史作者列按权威在作者≠提交者时加 * 并写 via 提示: ' + JSON.stringify(historyAuthors),
+      historyAuthors.length === 2
+        && historyAuthors[0].value === 'l49'
+        && historyAuthors[0].title === 'l49 <l49@example.com>'
+        && historyAuthors[1].value === 'l49*'
+        && historyAuthors[1].title === 'l49 <l49@example.com>, via build-bot <build@example.invalid>');
     await fileHistory.page.close();
 
     // ---- 提交详情 ----
@@ -991,6 +1263,18 @@ async function main() {
     const pushDetail = await push.page.locator('.management-detail').innerText();
     check('Push 详情显示目标与提交数', pushDetail.includes('目标：origin/dsh') && pushDetail.includes('1 个提交'));
     check('Push 不残留样例提交', !pushRows.some((text) => text.includes('避免强制更新')));
+    // 权威 `DvcsBundle.properties:54-55`：单仓库标题 = `push.dialog.push.commits.to.title`
+    // = "Push Commits to {0}"，{0} 是**仓库短名**（`VcsPushDialog.java:134-137`）。Augit 一个工作区=一个仓库
+    // ⇒ 取工作区名。原实现把产品名"Augit"硬编码进标题（推送目标是远端，不是产品名）—— 第 140 轮改正。
+    // 断言里带上"桩环境的工作区名不是 Augit"，避免旧实现也能通过（空洞通过）。
+    const pushTitleState = await push.page.evaluate(() => ({
+      title: (document.querySelector('.dialog.push-dialog .dialog-header span') || {}).innerText || null,
+      workspaceName: window.__augitLive.workspaceName,
+    }));
+    check('Push 标题用工作区名而不是产品名: ' + JSON.stringify(pushTitleState),
+      typeof pushTitleState.workspaceName === 'string' && pushTitleState.workspaceName.length > 0
+      && pushTitleState.workspaceName !== 'Augit'
+      && pushTitleState.title === `推送提交到 ${pushTitleState.workspaceName}`);
     await push.page.close();
 
     // ---- 三栏冲突解决器 ----
@@ -1375,6 +1659,18 @@ async function main() {
     await goto.page.waitForFunction('!!document.querySelector("[data-compact-dialog]")', null, { timeout: 8000 });
     await goto.page.evaluate(() => { window.__branchCalls = []; });
     await goto.page.locator('[data-compact-field]').fill('3');
+    // 权威 `EditorGotoLineNumberDialog.doOKAction()`：`scrollToCaret(ScrollType.CENTER)` —— 目标行滚到
+    // **可视区中部**（Augit 原为 `block:"nearest"`，第 152 轮按权威改正）。夹具里的正文都不足一屏、
+    // 无法几何测量，故记录调用参数来锁定该契约（`window.__scrollCalls` 同时进入失败信息）。
+    await goto.page.evaluate(() => {
+      window.__scrollCalls = [];
+      const original = Element.prototype.scrollIntoView;
+      window.__restoreScrollIntoView = () => { Element.prototype.scrollIntoView = original; };
+      Element.prototype.scrollIntoView = function (options) {
+        window.__scrollCalls.push(options || null);
+        return original.call(this, options);
+      };
+    });
     await goto.page.locator('[data-compact-action="confirm"]').click();
     await goto.page.waitForTimeout(600);
     const gotoDone = await goto.page.evaluate(() => {
@@ -1386,13 +1682,17 @@ async function main() {
           ? document.querySelector('.editor-content .code-line.active').dataset.line : null,
         focusInEditor: !!(active && active.closest && active.closest('.editor-content')),
         scrollTop: (document.querySelector('.editor-content .code-view') || {}).scrollTop || 0,
+        scrollCalls: window.__scrollCalls || [],
       };
     });
+    await goto.page.evaluate(() => window.__restoreScrollIntoView && window.__restoreScrollIntoView());
     check('跳转行确认后不创建分支: ' + JSON.stringify(gotoDone.branchCalls), gotoDone.branchCalls.length === 0);
     check('跳转行确认后标出目标行并关闭窗口: ' + JSON.stringify([gotoDone.dialog, gotoDone.activeLine]),
       gotoDone.dialog === false && gotoDone.activeLine === '3');
     check('跳转行确认后焦点进入正文（结果区域）: ' + JSON.stringify([gotoDone.focusInEditor, gotoDone.scrollTop]),
       gotoDone.focusInEditor === true);
+    check('跳转行按权威把目标行滚到可视区中部: ' + JSON.stringify(gotoDone.scrollCalls),
+      gotoDone.scrollCalls.some((options) => options && options.block === 'center'));
 
     // 非法行号：窗口不关闭、给出原因，并且同样不写 Git。
     for (const bad of ['abc', '0', '999999']) {
@@ -1779,6 +2079,9 @@ async function main() {
         branch: dialog.querySelector('.stash-branch') ? dialog.querySelector('.stash-branch').textContent.trim() : null,
         hasMessage: !!dialog.querySelector('#stash-message'),
         hasKeep: !!dialog.querySelector('#stash-keep'),
+        hasInclude: !!dialog.querySelector('#stash-include-untracked'),
+        includeChecked: dialog.querySelector('#stash-include-untracked')
+          ? dialog.querySelector('#stash-include-untracked').checked : null,
         focused: active === dialog.querySelector('#stash-message'),
         actions: [...dialog.querySelectorAll('[data-stash-create-action]')].map((node) => node.textContent.trim()),
       };
@@ -1787,12 +2090,15 @@ async function main() {
       stashDialogShape !== null && stashDialogShape.root && stashDialogShape.root.length > 0
         && typeof stashDialogShape.branch === 'string' && stashDialogShape.branch.length > 0
         && stashDialogShape.hasMessage === true && stashDialogShape.hasKeep === true
+        && stashDialogShape.hasInclude === true
+        // 权威 `GitStashDialog.kt:30-36`：`Include untracked` 默认**不勾选**。
+        && stashDialogShape.includeChecked === false
         && stashDialogShape.focused === true
         && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['取消', '创建 Stash']));
 
-    // Tab 顺序：消息 → 保留索引 → 取消 → 创建（视觉稿的字段顺序）。
+    // Tab 顺序：消息 → 保留索引 → 包含未跟踪文件 → 取消 → 创建（权威字段顺序）。
     const stashTabOrder = [];
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       await stashCreate.page.keyboard.press('Tab');
       await stashCreate.page.waitForTimeout(120);
       stashTabOrder.push(await stashCreate.page.evaluate(() => {
@@ -1801,7 +2107,7 @@ async function main() {
       }));
     }
     sdCheck('Stash 对话框内 Tab 按字段顺序循环: ' + JSON.stringify(stashTabOrder),
-      stashTabOrder.join(',') === 'keep,cancel,create');
+      stashTabOrder.join(',') === 'keep,includeUntracked,cancel,create');
 
     // 组词中的 Esc/Enter 不关闭也不提交。
     await stashCreate.page.evaluate(() => {
@@ -1831,6 +2137,9 @@ async function main() {
       window.__stashCreateDelays = 1200;
       document.querySelector('#stash-message').value = '准备切换分支';
       document.querySelector('#stash-keep').checked = true;
+      // 勾上「包含未跟踪文件」：提交载荷必须为 true（默认不勾选那一半已在形状断言里验过）。
+      const includeBox = document.querySelector('#stash-include-untracked');
+      if (includeBox) includeBox.checked = true;
       const create = document.querySelector('[data-stash-create-action="create"]');
       create.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
@@ -1852,7 +2161,7 @@ async function main() {
       stashRunning.createText === '正在创建 Stash…' && stashRunning.cancelText === '取消操作'
         && stashRunning.fieldsDisabled === true && stashRunning.createDisabled === true
         && stashRunning.creates.length === 1);
-    sdCheck('提交带上消息、保留索引与未跟踪文件: ' + JSON.stringify(stashRunning.creates[0]),
+    sdCheck('提交带上消息、保留索引与（勾选后的）未跟踪文件: ' + JSON.stringify(stashRunning.creates[0]),
       stashRunning.creates[0].message === '准备切换分支' && stashRunning.creates[0].keepIndex === true
         && stashRunning.creates[0].includeUntracked === true);
 
@@ -1997,6 +2306,55 @@ async function main() {
     await wtm.page.waitForTimeout(500);
     wtmCheck('新建 Worktree 复用既有表单',
       (await wtm.page.evaluate(() => !!document.querySelector('.worktree-window'))) === true);
+    // 「新分支」：权威 `GitWorkingTreeDialog.kt:185-198`（复选 + 分支名；`createNewBranch` 默认 false，
+    // 不勾时分支名不参与）。宿主能力**早已存在**（`ShellBridge.cs:507` 的 `newBranch` →
+    // `GitWorktreeService.cs:103-122` 用 `check-ref-format --branch` 校验后加 `-b`），
+    // 第 146 轮把界面接上；**不勾时行为与改动前完全一致**（不传该参数）。
+    // 字段顺序也按权威改成 分支 → 新分支 → 目录（原为"目录 → 分支"，与权威相反）。
+    const newBranchForm = await wtm.page.evaluate(() => {
+      const ids = [...document.querySelectorAll('.worktree-window [data-worktree-field]')]
+        .map((node) => node.getAttribute('data-worktree-field'));
+      const toggle = document.querySelector('.worktree-window [data-worktree-field="newBranchEnabled"]');
+      const name = document.querySelector('.worktree-window [data-worktree-field="newBranch"]');
+      return { ids, checked: !!(toggle && toggle.checked), nameDisabled: name ? name.disabled : null };
+    });
+    wtmCheck('新建 Worktree 字段顺序为 分支→新分支→目录: ' + JSON.stringify(newBranchForm.ids),
+      JSON.stringify(newBranchForm.ids) === JSON.stringify(['branch', 'newBranchEnabled', 'newBranch', 'destination']));
+    wtmCheck('「新分支」默认不勾且分支名禁用: '
+      + JSON.stringify([newBranchForm.checked, newBranchForm.nameDisabled]),
+    newBranchForm.checked === false && newBranchForm.nameDisabled === true);
+    await wtm.page.evaluate(() => {
+      window.__worktreeWrites = [];
+      const toggle = document.querySelector('.worktree-window [data-worktree-field="newBranchEnabled"]');
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    wtmCheck('勾选「新分支」后分支名启用',
+      (await wtm.page.evaluate(
+        () => document.querySelector('.worktree-window [data-worktree-field="newBranch"]').disabled)) === false);
+    await wtm.page.evaluate(() => {
+      const node = document.querySelector('.worktree-window [data-worktree-action="create"]');
+      node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(300);
+    const blankNewBranch = await wtm.page.evaluate(() => ({
+      notice: (document.querySelector('.worktree-window .worktree-notice') || {}).textContent || null,
+      writes: (window.__worktreeWrites || []).length,
+    }));
+    wtmCheck('新分支名为空时不调用宿主并提示: ' + JSON.stringify(blankNewBranch),
+      blankNewBranch.writes === 0 && blankNewBranch.notice === '请填写新分支名。');
+    await wtm.page.evaluate(() => {
+      document.querySelector('.worktree-window [data-worktree-field="newBranch"]').value = 'feature/wt';
+      document.querySelector('.worktree-window [data-worktree-field="destination"]').value = 'D:\\ws-new';
+      const node = document.querySelector('.worktree-window [data-worktree-action="create"]');
+      node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await wtm.page.waitForTimeout(700);
+    const newBranchSent = await wtm.page.evaluate(
+      () => (window.__worktreeWrites || []).slice(-1)[0] || null);
+    wtmCheck('创建时把新分支名传给宿主: ' + JSON.stringify(newBranchSent),
+      !!newBranchSent && newBranchSent.newBranch === 'feature/wt'
+      && newBranchSent.destination === 'D:\\ws-new');
     await wtm.page.keyboard.press('Escape');
     await wtm.page.waitForTimeout(400);
 
@@ -3984,15 +4342,25 @@ async function main() {
     check('Clone 深度默认禁用', await clone.page.locator('#clone-depth').isDisabled());
     await clone.page.locator('#clone-shallow').check();
     check('勾选浅克隆后深度启用', !(await clone.page.locator('#clone-depth').isDisabled()));
-    // 必填缺失：不调用 Git，提示原因并把焦点移到缺失字段
+    // 必填缺失：**URL 为空时克隆按钮直接禁用**（权威 `DvcsCloneDialogComponent.kt:127`：
+    // `isOkActionEnabled() = getUrl().isNotBlank()`）⇒ 这里断言禁用 + 未调用 Git。
+    // 旧断言是"点击后提示原因并聚焦 URL"，编码的是旧交互（第 145 轮按权威改正）。
+    // "提示原因并聚焦缺失字段"改由**目录**这一档验证（Augit 的目录初始为空；权威是随 URL 自动派生）。
+    const destValue = await clone.page.locator('#clone-destination').inputValue();
     await clone.page.locator('#clone-source').fill('');
+    await clone.page.waitForTimeout(150);
+    check('缺少 URL 时克隆按钮禁用', await clone.page.locator('.dialog-footer .primary-button').isDisabled());
+    check('缺少 URL 时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
+    await clone.page.locator('#clone-source').fill('https://example.com/team/repo.git');
+    await clone.page.locator('#clone-destination').fill('');
     await clone.page.locator('.dialog-footer .primary-button').click();
     await clone.page.waitForTimeout(300);
-    check('缺少 URL 时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
-    check('缺少 URL 时聚焦该输入', await clone.page.evaluate('document.activeElement && document.activeElement.id') === 'clone-source');
+    check('缺少目录时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
+    check('缺少目录时聚焦该输入',
+      await clone.page.evaluate('document.activeElement && document.activeElement.id') === 'clone-destination');
+    await clone.page.locator('#clone-destination').fill(destValue);
     // 深度非法：不调用 Git
     await clone.page.locator('#clone-depth').fill('0');
-    await clone.page.locator('#clone-source').fill('https://example.com/team/repo.git');
     await clone.page.locator('.dialog-footer .primary-button').click();
     await clone.page.waitForTimeout(300);
     check('深度非正整数时不调用 Git', !(await clone.page.evaluate('!!window.__cloneCall')));
@@ -4039,7 +4407,7 @@ async function main() {
     check('合并提交产生多条泳道配色: ' + graphInfo.colors, graphInfo.colors >= 2);
     await graphPage.page.close();
 
-    // ---- 快速打开：只搜文件名，最多 100 项 ----
+    // ---- 快速打开：只搜文件名，上限 30 项（权威 `SearchEverywhereUI.SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT`）----
     const quick = await openScene('scene=quick-open&theme=dark');
     await quick.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
     check('快速打开浮层默认聚焦输入框', await quick.page.evaluate('document.activeElement && document.activeElement.classList.contains("search-field")'));
@@ -4053,6 +4421,34 @@ async function main() {
     const quickText = await quick.page.locator('.search-overlay').innerText();
     check('快速打开显示文件名与路径: ' + quickText.replace(/\n/g, ' '), quickText.includes('product-spec.md') && quickText.includes('docs'));
     check('快速打开不残留样例', !quickText.includes('NativeGitPanel.cs'));
+    // 权威 `SearchEverywhereUI.rebuildList()`（SearchEverywhereUI.java:932-936）：每次搜索开始先清空上一个查询的
+    // 结果，列表空态设为 `label.choosebyname.searching` = "Searching…"（IdeBundle.properties:675），结果到达才替换。
+    // 宿主 mock 加延迟以观察该中间态（否则本地搜索一闪而过）。
+    await quick.page.evaluate(() => { window.__searchFilesDelay = 700; window.__searchFilesCalls = 0; });
+    await quick.page.locator('.search-overlay .search-field').fill('product');
+    await quick.page.waitForTimeout(400);
+    const quickSearching = await quick.page.evaluate(() => ({
+      rows: document.querySelectorAll('.search-result').length,
+      text: (document.querySelector('.search-overlay .search-results') || {}).textContent || '',
+    }));
+    check('查询进行中先清空上一个查询的结果并显示正在搜索: ' + JSON.stringify(quickSearching),
+      quickSearching.rows === 0 && quickSearching.text.includes('正在搜索'));
+    // 查询在途时继续输入：结果到达不得把输入框重置回已发出的那个 query（权威的搜索框内容从不由结果回写）。
+    await quick.page.keyboard.type('-spec');
+    await quick.page.waitForTimeout(1500);
+    const quickTyped = await quick.page.evaluate(() => ({
+      value: document.querySelector('.search-overlay .search-field').value,
+      calls: window.__searchFilesCalls || 0,
+    }));
+    check('结果到达不覆盖用户继续输入的内容: ' + JSON.stringify(quickTyped),
+      quickTyped.value === 'product-spec' && quickTyped.calls >= 2);
+    // 还原：等 'product' 这一次真正落地，再继续后面的选中/打开断言。
+    await quick.page.evaluate(() => { window.__searchFilesDelay = 0; });
+    await quick.page.locator('.search-overlay .search-field').fill('product');
+    await quick.page.waitForFunction(
+      "window.__augitLive.search && window.__augitLive.search.pending === false && window.__augitLive.search.query === 'product'",
+      null, { timeout: 10000 });
+    check('查询落地后回到结果列表', await quick.page.locator('.search-result').count() === 2);
     // 方向键移动选择
     await quick.page.locator('.search-overlay .search-field').press('ArrowDown');
     check('方向键移动选择', await quick.page.evaluate('document.querySelectorAll(".search-result")[1].classList.contains("selected")'));
@@ -4100,6 +4496,78 @@ async function main() {
     const repoText = await repo.page.locator('.search-overlay').innerText();
     check('全仓搜索显示命中行号与内容: ' + repoText.replace(/\n/g, ' ').slice(0, 90), repoText.includes('12:') && repoText.includes('轻量优先'));
     check('全仓搜索不残留样例', !repoText.includes('Git 状态已刷新'));
+
+    // ---- 「结果过多」（权威 `UsageLimitUtil.showTooManyUsagesWarning`，`:26-34`）----
+    // 到限先问 Continue／Abort；Continue 让同一查询继续跑完且不再提示，Abort 保留已有结果并停止。
+    await repo.page.evaluate(() => {
+      window.__searchPages = {
+        0: {
+          matches: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src', line: 1, column: 1, text: '第一页命中' }],
+          truncated: true,
+        },
+        1: {
+          matches: [{ path: 'src/App.cs', name: 'App.cs', directory: 'src', line: 2, column: 1, text: '第二页命中' }],
+          truncated: true,
+        },
+        2: {
+          matches: [{ path: 'docs/spec.md', name: 'spec.md', directory: 'docs', line: 3, column: 1, text: '最后一页命中' }],
+          truncated: false,
+        },
+      };
+      window.__searchCalls = [];
+    });
+    await repo.page.locator('.search-overlay .search-field').fill('过多');
+    await repo.page.waitForSelector('.search-limit-dialog', { timeout: 10000 });
+    const limitPrompt = await repo.page.evaluate(() => {
+      const dialog = document.querySelector('.search-limit-dialog');
+      return {
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        text: dialog ? dialog.innerText : null,
+        buttons: dialog ? [...dialog.querySelectorAll('[data-search-limit-action]')].map((n) => n.textContent.trim()) : [],
+        focused: document.activeElement ? document.activeElement.dataset.searchLimitAction || document.activeElement.textContent.trim() : null,
+        calls: (window.__searchCalls || []).length,
+        results: document.querySelectorAll('.search-result').length,
+      };
+    });
+    check('结果到限给出权威的「结果过多」对话框: ' + JSON.stringify([limitPrompt.title, limitPrompt.buttons, limitPrompt.focused, limitPrompt.calls, limitPrompt.results]),
+      limitPrompt.title === '结果过多'
+        && typeof limitPrompt.text === 'string' && limitPrompt.text.includes('确定要继续搜索吗')
+        && JSON.stringify(limitPrompt.buttons) === JSON.stringify(['中止', '继续'])
+        // 权威 `MessageDialogBuilder.okCancel` 的默认按钮是 Continue（焦点落在它的动作节点上）。
+        && limitPrompt.focused === 'continue'
+        && limitPrompt.calls === 1 && limitPrompt.results === 1);
+
+    // 中止：保留已有结果，说明是谁停止了搜索。
+    await repo.page.locator('[data-search-limit-action="abort"]').click();
+    await repo.page.waitForTimeout(400);
+    const aborted = await repo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.search-limit-dialog'),
+      notice: document.querySelector('.search-notice') ? document.querySelector('.search-notice').innerText : null,
+      results: document.querySelectorAll('.search-result').length,
+      calls: (window.__searchCalls || []).length,
+    }));
+    check('中止继续搜索保留已有结果并说明: ' + JSON.stringify([aborted.dialog, aborted.results, aborted.calls, (aborted.notice || '').slice(0, 18)]),
+      aborted.dialog === false && aborted.results === 1 && aborted.calls === 1
+        && typeof aborted.notice === 'string' && aborted.notice.includes('中止继续搜索'));
+
+    // 继续：按 offset 分页取回余下结果并追加，且不再重复提示。
+    await repo.page.evaluate(() => { window.__searchCalls = []; });
+    await repo.page.locator('.search-overlay .search-field').fill('过多二');
+    await repo.page.waitForSelector('.search-limit-dialog', { timeout: 10000 });
+    await repo.page.locator('[data-search-limit-action="continue"]').click();
+    await repo.page.waitForFunction('document.querySelectorAll(".search-result").length === 3', null, { timeout: 10000 });
+    const continued = await repo.page.evaluate(() => ({
+      dialog: !!document.querySelector('.search-limit-dialog'),
+      results: [...document.querySelectorAll('.search-result')].map((n) => n.innerText.replace(/\n/g, ' ').trim()),
+      calls: window.__searchCalls || [],
+    }));
+    check('继续搜索按分页取完余下结果且不再提示: ' + JSON.stringify([continued.dialog, continued.calls, continued.results.length]),
+      continued.dialog === false
+        && continued.results.length === 3
+        // 第一条是本次查询的首页（界面不传 limit），随后两条才是"继续"的分页。
+        && continued.calls.length === 3 && continued.calls[0].offset === 0
+        && JSON.stringify(continued.calls.slice(1).map((call) => [call.offset, call.limit]))
+          === JSON.stringify([[1, 1000], [2, 1000]]));
     await repo.page.close();
 
     // ---- 分支与标签弹层：引用来自宿主，按本地/远程/标签分组 ----
@@ -4548,7 +5016,15 @@ async function main() {
     const baseline = {
       '显示提交详情': { w: 24, h: 28 },
       '搜索提交': { w: 24, h: 28 },
-      'toolbar-button history-filter': { w: 52, h: 25 },
+      // 第 173 轮：横向筛选行右角新增「刷新」（权威 `Vcs.Log.Toolbar.RightCorner` 的 Refresh），
+      // 与上面两个同属纯图标工具 ⇒ 实测同为 24×28。
+      '刷新': { w: 24, h: 28 },
+      // 第 179 轮：四个筛选控件按权威 `FilterComponent` 加了可访问名（`aria-label` = 名称），
+      // 命中区域基线改用各自的名称记录（实测仍为 52×25，与加 aria-label 之前一致）。
+      '分支': { w: 52, h: 25 },
+      '用户': { w: 52, h: 25 },
+      '日期': { w: 52, h: 25 },
+      '路径': { w: 52, h: 25 },
     };
     const tooSmallToolbar = hitAreas.toolbar.filter(r => {
       const min = baseline[r.label] ?? { w: 28, h: 28 };
@@ -4767,12 +5243,117 @@ async function main() {
     check('非 Git 目录不显示 Git 不可用提示: ' + JSON.stringify(plainState.toast), plainState.toast === null);
     check('非 Git 目录保留项目树: ' + plainState.treeRows, plainState.treeRows > 0);
     check('非 Git 目录不注入 Git 状态', plainState.hasStatus === false);
+
+    // 权威 `GitInit`：入口在 VCS 菜单（`action.Git.Init.text` = "Create Git Repository…"，
+    // `GitBundle.properties:774`），目标来自**单目录选择器**（起点是当前选中目录、取不到则项目根，
+    // `GitInit.java:45-64`），而且**不是仓库时没有任何确认**（`:66-74` 只在"目标已在 Git 下"才弹 Yes/No）
+    // ⇒ 这里打开非 Git 工作区只弹一次入口，且入口里没有"确认初始化"这类二次询问。
+    const initEntry = await plain.evaluate(() => {
+      const dialog = document.querySelector('.repository-init-window .dialog');
+      return {
+        open: !!dialog,
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        target: dialog ? dialog.querySelector('[data-repo-init-path]').value : null,
+        buttons: dialog ? [...dialog.querySelectorAll('[data-repo-init-action]')].map((n) => n.textContent.trim()) : [],
+        root: window.__augitLive ? window.__augitLive.root : null,
+        shownOnce: window.__augitLive ? window.__augitLive.repositoryInitShown === true : null,
+      };
+    });
+    check('非 Git 目录给出「创建 Git 仓库」入口（非仓库无二次确认）: ' + JSON.stringify(initEntry),
+      initEntry.open === true && initEntry.title === '创建 Git 仓库'
+        && initEntry.target === initEntry.root && initEntry.shownOnce === true
+        && JSON.stringify(initEntry.buttons) === JSON.stringify(['选择目录…', '取消', '创建']));
+
+    // 「取消」＝继续仅浏览：入口关掉，文件浏览照旧（ux-spec §8 的"保持不变的状态"）。
+    await plain.locator('.repository-init-window [data-repo-init-action="cancel"]').click();
+    await plain.waitForTimeout(300);
+    const afterCancelInitEntry = await plain.evaluate(() => ({
+      dialog: !!document.querySelector('.repository-init-window'),
+      tree: document.querySelectorAll('.side-content.tree .tree-row').length,
+    }));
+    check('非 Git 目录取消入口后只保留浏览: ' + JSON.stringify(afterCancelInitEntry),
+      afterCancelInitEntry.dialog === false && afterCancelInitEntry.tree > 0);
     // 文件浏览仍然可用
     await plain.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
     await plain.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 8000 });
     await plain.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await plain.waitForFunction('window.__augitLive && window.__augitLive.document', null, { timeout: 10000 });
     check('非 Git 目录仍可打开文件', (await plain.evaluate('window.__augitLive.document.path')) === 'docs/product-spec.md');
+
+    // 关掉自动入口后仍可从 Git 菜单重开；「选择目录…」用系统目录选择器改写目标。
+    await plain.evaluate(() => { window.__initConfirmNeeded = true; });
+    // 主菜单是两段式：先点标题栏的「主菜单」按钮切出菜单栏，再点「Git」打开动作菜单。
+    await plain.locator('.titlebar .top-button[data-action="menu"]').click();
+    await plain.locator('.titlebar .main-menu-entry', { hasText: 'Git' }).click();
+    await plain.locator('.main-menu-popover [data-main-menu-action="git-init"]').click();
+    await plain.locator('.repository-init-window [data-repo-init-action="pick"]').click();
+    await plain.waitForTimeout(400);
+    const initPicked = await plain.evaluate(() => ({
+      target: document.querySelector('.repository-init-window [data-repo-init-path]').value,
+      picks: window.__workspacePicks || 0,
+    }));
+    check('「创建 Git 仓库」的「选择目录…」走系统选择器改写目标: ' + JSON.stringify(initPicked),
+      initPicked.picks === 1 && initPicked.target === 'D:\\github\\Picked');
+
+    // 目标已在 Git 下 ⇒ 唯一需要确认的情形：先问一次，此时**没有**调过带 confirm 的初始化。
+    await plain.locator('.repository-init-window [data-repo-init-action="create"]').click();
+    await plain.waitForTimeout(600);
+    const initWarning = await plain.evaluate(() => {
+      const dialog = document.querySelector('.repository-init-window .dialog');
+      return {
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        text: dialog ? dialog.innerText : null,
+        buttons: dialog ? [...dialog.querySelectorAll('[data-repo-init-action]')].map((n) => n.textContent.trim()) : [],
+        calls: (window.__initCalls || []).map((call) => ({ path: call.path, confirm: call.confirm === undefined ? null : call.confirm })),
+      };
+    });
+    check('目标已在 Git 下时按权威先弹 Yes/No 警告: ' + JSON.stringify(initWarning),
+      initWarning.title === '初始化 Git'
+        && typeof initWarning.text === 'string' && initWarning.text.includes('D:\\github\\Picked')
+        && initWarning.text.includes('已在 Git 下')
+        && JSON.stringify(initWarning.buttons) === JSON.stringify(['取消', '继续'])
+        && JSON.stringify(initWarning.calls) === JSON.stringify([{ path: 'D:\\github\\Picked', confirm: null }]));
+
+    // 「继续」＝ 权威的 Yes：带 `confirm` 再调一次；成功后关窗并按 ux-spec §8 刷新出 Git 状态与历史。
+    await plain.locator('.repository-init-window [data-repo-init-action="confirm"]').click();
+    await plain.waitForFunction('!document.querySelector(".repository-init-window")', null, { timeout: 10000 });
+    await plain.waitForTimeout(800);
+    const initDone = await plain.evaluate(() => ({
+      dialog: !!document.querySelector('.repository-init-window'),
+      calls: (window.__initCalls || []).map((call) => ({ path: call.path, confirm: call.confirm === undefined ? null : call.confirm })),
+      isRepository: !!(window.__augitLive && window.__augitLive.status),
+      history: !!(window.__augitLive && window.__augitLive.history),
+    }));
+    check('确认后创建仓库、关窗并启用 Git 工具窗口: ' + JSON.stringify(initDone),
+      initDone.dialog === false
+        && JSON.stringify(initDone.calls) === JSON.stringify([
+          { path: 'D:\\github\\Picked', confirm: null },
+          { path: 'D:\\github\\Picked', confirm: true },
+        ])
+        && initDone.isRepository === true && initDone.history === true);
+
+    // 失败：窗口内写明原因且不锁死重试（权威 `action.Git.Init.error` = "Git init failed" + Git 的错误输出）。
+    await plain.evaluate(() => { window.__initFails = true; });
+    await plain.locator('.titlebar .top-button[data-action="menu"]').click();
+    await plain.locator('.titlebar .main-menu-entry', { hasText: 'Git' }).click();
+    await plain.locator('.main-menu-popover [data-main-menu-action="git-init"]').click();
+    await plain.locator('.repository-init-window [data-repo-init-action="create"]').click();
+    await plain.waitForTimeout(600);
+    const initFailed = await plain.evaluate(() => {
+      const dialog = document.querySelector('.repository-init-window .dialog');
+      const notice = dialog ? dialog.querySelector('[data-repo-init-notice]') : null;
+      const create = dialog ? dialog.querySelector('[data-repo-init-action="create"]') : null;
+      return {
+        open: !!dialog,
+        notice: notice && !notice.hidden ? notice.textContent : null,
+        createDisabled: create ? create.disabled : null,
+      };
+    });
+    check('初始化失败在窗口内说明原因且可重试: ' + JSON.stringify(initFailed),
+      initFailed.open === true
+        && typeof initFailed.notice === 'string'
+        && initFailed.notice.includes('Git 初始化失败') && initFailed.notice.includes('Permission denied')
+        && initFailed.createDisabled === false);
     await plain.close();
 
     // ---- 文档读取失败：不得留下半截文档，也不得让界面进入异常状态 ----
@@ -4981,37 +5562,95 @@ async function main() {
     const limitCases = await limits.page.evaluate(async () => {
       window.__limitDocs = {
         'binary.bin': { path: 'binary.bin', name: 'binary.bin', fullPath: 'D:\\w\\binary.bin', workspaceName: 'w', status: 'BinarySummary', kind: 'Binary', typeName: '二进制文件', fileSize: 4096, message: '此文件只提供二进制摘要，可使用系统默认程序打开。' },
-        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextTooLarge', kind: 'Text', typeName: '文本文件', fileSize: 16778240, message: '文本文件超过 10 MB，已停止读取正文。' },
+        // 第 209 轮：超过**内容加载上限**的文本按权威给"前 N 的只读预览"＋警告横幅
+        // （`DocumentReadStatus.TextPreview`），不再是整页拒绝。
+        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextPreview', kind: 'Text', typeName: '文本文件', fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024, text: '第一行\n第二行\n', encoding: 'UTF-8', lineEndings: 'LF', message: '文件过大（21.0 MB）。这里显示前 2.4 MB 的只读预览。' },
       };
       const out = [];
       for (const path of ['binary.bin', 'oversize.txt']) {
         await window.__augitOpenDocument(path);
-        // 打开文档后的刷新被延后到事件派发结束，等摘要真正渲染出来。
+        // 打开文档后的刷新被延后到事件派发结束，等横幅/摘要真正渲染出来。
         const deadline = Date.now() + 3000;
         while (Date.now() < deadline
-          && !document.querySelector('.editor-content').innerText.includes('10 MB')
+          && !document.querySelector('.editor-content [data-large-file-banner]')
           && path === 'oversize.txt') {
           await new Promise((r) => setTimeout(r, 50));
         }
+        const banner = document.querySelector('.editor-content [data-large-file-banner]');
         out.push({
           path,
           editor: window.__augitLive.editor,
           hasText: !!(window.__augitLive.document && window.__augitLive.document.text),
           status: window.__augitLive.document ? window.__augitLive.document.status : null,
+          readOnlyPreview: !!(window.__augitLive.document && window.__augitLive.document.readOnlyPreview),
+          banner: banner ? banner.innerText : null,
+          actions: banner ? [...banner.querySelectorAll('[data-large-file-action]')].map((n) => n.textContent.trim()) : [],
+          // 横幅在**正文之上**：它必须排在 `.code-view` 前面。
+          bannerBeforeContent: !!banner && !!banner.parentElement
+            && !!banner.parentElement.querySelector('.code-view'),
         });
       }
       return {
         cases: out,
-        // 超限与二进制都不得产生可编辑控件
+        // 只读预览与二进制摘要都不得产生可编辑控件
         editable: document.querySelectorAll('.editor-content [contenteditable="true"], .editor-content textarea, .editor-content input').length,
-        text: document.querySelector('.editor-content').innerText,
       };
     });
-    check('二进制与超限文件都进入只读摘要态: ' + JSON.stringify(limitCases.cases.map((c) => [c.path, c.editor])),
-      limitCases.cases.every((c) => c.editor === 'file-limit'));
-    check('超限文件不加载正文', limitCases.cases.every((c) => c.hasText === false));
+    const limitByPath = Object.fromEntries(limitCases.cases.map((item) => [item.path, item]));
+    check('二进制文件仍进入只读摘要态: ' + JSON.stringify([limitByPath['binary.bin'].editor, limitByPath['binary.bin'].hasText]),
+      limitByPath['binary.bin'].editor === 'file-limit' && limitByPath['binary.bin'].hasText === false);
+    check('超限文本按权威给只读预览而不是整页拒绝: ' + JSON.stringify([limitByPath['oversize.txt'].editor, limitByPath['oversize.txt'].status, limitByPath['oversize.txt'].readOnlyPreview]),
+      limitByPath['oversize.txt'].editor === 'text'
+        && limitByPath['oversize.txt'].status === 'TextPreview'
+        && limitByPath['oversize.txt'].readOnlyPreview === true
+        && limitByPath['oversize.txt'].hasText === true);
+    check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),
+      typeof limitByPath['oversize.txt'].banner === 'string'
+        && limitByPath['oversize.txt'].banner.includes('文件过大（21.0 MB）')
+        && limitByPath['oversize.txt'].banner.includes('前 2.4 MB 的只读预览')
+        && JSON.stringify(limitByPath['oversize.txt'].actions) === JSON.stringify(['隐藏通知', '不再显示'])
+        && limitByPath['oversize.txt'].bannerBeforeContent === true);
     check('边界文件不创建可编辑控件: ' + limitCases.editable, limitCases.editable === 0);
-    check('界面显示超限原因: ' + JSON.stringify(limitCases.text.slice(0, 40)), limitCases.text.includes('10 MB'));
+
+    // 「隐藏通知」只隐藏本次会话（权威 `HIDDEN_KEY` 记在编辑器上）。
+    await limits.page.locator('.editor-content [data-large-file-action="hide"]').click();
+    await limits.page.waitForTimeout(400);
+    const afterHide = await limits.page.evaluate(() => ({
+      banner: !!document.querySelector('.editor-content [data-large-file-banner]'),
+      text: !!document.querySelector('.editor-content .code-view'),
+    }));
+    check('「隐藏通知」只隐藏横幅并保留正文: ' + JSON.stringify(afterHide),
+      afterHide.banner === false && afterHide.text === true);
+    await limits.page.evaluate(() => { window.__augitOpenDocument('binary.bin'); });
+    await limits.page.waitForTimeout(300);
+    await limits.page.evaluate(() => { window.__augitOpenDocument('oversize.txt'); });
+    await limits.page.waitForTimeout(500);
+    check('重新打开同一文件仍保持已隐藏', await limits.page.evaluate(() => !document.querySelector('.editor-content [data-large-file-banner]')));
+
+    // 「不再显示」写进设置（权威 `DISABLE_KEY`）并永久生效。
+    await limits.page.evaluate(() => {
+      delete window.__augitLive.hiddenLargeFileWarnings;
+      window.__settingsWritten = {};
+      window.__limitDocs['other-oversize.txt'] = Object.assign({}, window.__limitDocs['oversize.txt'], {
+        path: 'other-oversize.txt',
+        name: 'other-oversize.txt',
+      });
+    });
+    await limits.page.evaluate(() => { window.__augitOpenDocument('other-oversize.txt'); });
+    await limits.page.waitForTimeout(500);
+    await limits.page.locator('.editor-content [data-large-file-action="disable"]').click();
+    await limits.page.waitForTimeout(400);
+    const afterDisable = await limits.page.evaluate(() => ({
+      banner: !!document.querySelector('.editor-content [data-large-file-banner]'),
+      written: window.__settingsWritten || {},
+      flag: !!(window.__augitLive && window.__augitLive.hideLargeFileWarning),
+    }));
+    check('「不再显示」写设置并隐藏横幅: ' + JSON.stringify([afterDisable.banner, afterDisable.written.hideLargeFileWarning, afterDisable.flag]),
+      afterDisable.banner === false && afterDisable.written.hideLargeFileWarning === true && afterDisable.flag === true);
+    await limits.page.evaluate(() => { window.__augitOpenDocument('oversize.txt'); });
+    await limits.page.waitForTimeout(500);
+    check('「不再显示」后其它大文件也不再出现横幅',
+      await limits.page.evaluate(() => !document.querySelector('.editor-content [data-large-file-banner]')));
 
     // 视觉稿的"不可预览文件"页有 `名称 · 类型 · 大小` 与「使用系统默认程序打开」，
     // 实时外壳此前两样都缺（大小根本没格式化过，按钮也不存在）。
@@ -6100,15 +6739,35 @@ async function main() {
       result: window.__augitCommitResult || null,
     }));
 
-    // 未写提交信息就提交：必须被拒绝并给出原因
+    // 空提交信息：**不是拒绝**，而是先确认、确认后照常提交（权威）。
+    // 权威 platform/vcs-impl/src/com/intellij/vcs/commit/SingleChangeListCommitWorkflowHandler.kt:117-122
+    //   checkCommit = super.checkCommit(...) && (
+    //     getCommitMessage().isNotEmpty() || ui.confirmCommitWithEmptyMessage())
+    // 文案（本地化）取 VcsBundle.properties:35-37：`No Commit Message` /
+    // `Add a summary of your changes in the commit message field` / `… Anyway`。
+    // 落地与采集记录见 docs/nui-behavior/12-commit-changes.md。
+    // 原断言编码的是"点击即拒绝"的旧交互，第 136 轮按权威改正。
     await commitPage.page.locator('.commit-actions .primary-button').first().click();
-    await commitPage.page.waitForTimeout(500);
+    await commitPage.page.waitForSelector('[data-commit-empty-message]', { timeout: 5000 });
     const noMessage = await commitState();
-    check('空提交信息被拒绝: ' + JSON.stringify([noMessage.written, noMessage.error]),
-      noMessage.written === null && noMessage.error.includes('提交信息不能为空。'));
-    check('拒绝原因写回反馈位: ' + JSON.stringify(noMessage.feedback),
-      typeof noMessage.feedback === 'string' && noMessage.feedback.includes('提交信息不能为空。')
-      && noMessage.isError === true);
+    check('空提交信息先弹确认、未直接写入: ' + JSON.stringify([noMessage.written, noMessage.error]),
+      noMessage.written === null && noMessage.error === null);
+    // 取消：关闭确认并保持不写入
+    await commitPage.page.locator('[data-commit-empty-cancel]').click();
+    await commitPage.page.waitForSelector('[data-commit-empty-message]', { state: 'detached' });
+    const emptyCancelled = await commitState();
+    check('取消确认后仍未写入: ' + JSON.stringify(emptyCancelled.written), emptyCancelled.written === null);
+    // 确认「仍然提交」：照常走提交流程 ⇒ 宿主按自己的规则拒绝并给出原因
+    await commitPage.page.locator('.commit-actions .primary-button').first().click();
+    await commitPage.page.waitForSelector('[data-commit-empty-message]', { timeout: 5000 });
+    await commitPage.page.locator('[data-commit-empty-anyway]').click();
+    await commitPage.page.waitForTimeout(500);
+    const noMessageConfirmed = await commitState();
+    check('确认后照常提交（宿主拒绝空信息并给出原因）: ' + JSON.stringify(noMessageConfirmed.error),
+      typeof noMessageConfirmed.error === 'string' && noMessageConfirmed.error.includes('提交信息不能为空。'));
+    check('拒绝原因写回反馈位: ' + JSON.stringify(noMessageConfirmed.feedback),
+      typeof noMessageConfirmed.feedback === 'string' && noMessageConfirmed.feedback.includes('提交信息不能为空。')
+      && noMessageConfirmed.isError === true);
 
     // 填写信息后提交：只提交勾选的文件
     await commitPage.page.locator('.commit-box .message-field').fill('feat: 只提交勾选项');
@@ -6228,6 +6887,80 @@ async function main() {
     check('检出失败保留弹层: ' + JSON.stringify(coAfterFail.overlay), coAfterFail.overlay === true);
     check('检出失败显示 Git 给出的原因: ' + JSON.stringify(coAfterFail.alert),
       typeof coAfterFail.alert === 'string' && coAfterFail.alert.includes('未提交的改动'));
+
+    // ---- Smart Checkout（权威 `GitSmartOperationDialog` / `GitCheckoutOperation.smartCheckoutOrNotify`）----
+    await co.page.evaluate(() => {
+      document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+      window.__checkoutFails = false;
+      window.__checkoutOverwrite = ['docs/notes.txt', 'src/App.cs'];
+      window.__smartCalls = [];
+      window.__checkoutCalls = [];
+    });
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refLocal.name}"]`).click();
+    await co.page.waitForTimeout(600);
+    const smartDialog = await co.page.evaluate(() => {
+      const dialog = document.querySelector('.smart-checkout-window .dialog');
+      return {
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        text: dialog ? dialog.innerText : null,
+        paths: dialog ? [...dialog.querySelectorAll('.smart-checkout-path')].map((node) => node.textContent) : [],
+        buttons: dialog ? [...dialog.querySelectorAll('[data-smart-action]')].map((node) => node.textContent.trim()) : [],
+        focused: document.activeElement ? document.activeElement.dataset.smartAction || null : null,
+        branchPopover: !!document.querySelector('[data-augit-overlay] .popover'),
+      };
+    });
+    check('检出被本地改动挡住时给出权威形态的 Smart Checkout 对话框: ' + JSON.stringify(smartDialog),
+      smartDialog.title === 'Git 检出问题'
+        && typeof smartDialog.text === 'string' && smartDialog.text.includes('会被检出覆盖')
+        && JSON.stringify(smartDialog.paths) === JSON.stringify(['docs/notes.txt', 'src/App.cs'])
+        && JSON.stringify(smartDialog.buttons) === JSON.stringify(['不检出', 'Smart Checkout'])
+        && smartDialog.focused === 'cancel'
+        && smartDialog.branchPopover === false);
+
+    // 取消绝不执行 Git（ux-spec §830；权威把默认焦点也设在取消上）。
+    await co.page.locator('[data-smart-action="cancel"]').click();
+    await co.page.waitForTimeout(300);
+    const smartCancelled = await co.page.evaluate(() => ({
+      dialog: !!document.querySelector('.smart-checkout-window'),
+      smart: (window.__smartCalls || []).length,
+    }));
+    check('Smart Checkout 取消不执行任何 Git 操作: ' + JSON.stringify(smartCancelled),
+      smartCancelled.dialog === false && smartCancelled.smart === 0);
+
+    // 确认 ⇒ `git/checkout-smart`（stash → 检出 → 恢复），成功后关窗。
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refLocal.name}"]`).click();
+    await co.page.waitForTimeout(400);
+    await co.page.locator('[data-smart-action="smart"]').click();
+    await co.page.waitForTimeout(900);
+    const smartDone = await co.page.evaluate(() => ({
+      dialog: !!document.querySelector('.smart-checkout-window'),
+      calls: window.__smartCalls || [],
+    }));
+    check('Smart Checkout 交给宿主执行后关窗: ' + JSON.stringify(smartDone),
+      smartDone.dialog === false
+        && JSON.stringify(smartDone.calls) === JSON.stringify([{ name: refLocal.name }]));
+
+    // 恢复冲突：改动不丢（临时 stash 保留），界面说明并交由操作会话继续。
+    await co.page.evaluate(() => { window.__smartConflict = true; });
+    await co.page.locator('.top-chip.branch-chip').click();
+    await co.page.waitForTimeout(600);
+    await co.page.locator(`[data-augit-overlay] [data-branch="${refLocal.name}"]`).click();
+    await co.page.waitForTimeout(400);
+    await co.page.locator('[data-smart-action="smart"]').click();
+    await co.page.waitForTimeout(1200);
+    const smartConflict = await co.page.evaluate(() => ({
+      dialog: !!document.querySelector('.smart-checkout-window'),
+      toast: document.querySelector('.toast') ? document.querySelector('.toast').innerText : null,
+      calls: (window.__smartCalls || []).length,
+    }));
+    check('恢复冲突时保留改动并说明可从会话继续: '
+      + JSON.stringify([smartConflict.dialog, smartConflict.calls, (smartConflict.toast || '').slice(0, 20)]),
+      smartConflict.dialog === false && smartConflict.calls === 2
+        && typeof smartConflict.toast === 'string' && smartConflict.toast.includes('临时 stash'));
     await co.page.close();
 
     // ---- 规格 §5.3：新建 / 重命名使用紧凑单行输入窗口 ----
@@ -6757,11 +7490,13 @@ async function main() {
 
     // 点「文件历史」：读取该路径历史并切到底部文件历史工具窗口
     await ctx.page.evaluate(() => { window.__fileHistoryCalls = 0; });
-    // 菜单项顺序固定：显示 Diff=0、回滚=1、文件历史=2、Blame=3、复制路径=4、定位=5。
+    // 菜单项顺序按权威 `ChangesViewPopupMenu`（`VcsActions.xml:186-219` + `Git.FileActions`）：
+    // 回滚=0、显示 Diff=1、Blame=2、文件历史=3、复制路径=4、定位=5（第 138 轮改正；
+    // 原顺序"显示 Diff=0、回滚=1、文件历史=2、Blame=3"与权威相反）。
     // 用派发点击：弹层为绝对定位，Playwright 的可点击性检查会超时；
     // 事件仍由真实的 document 委托处理器接收，因此行为路径未变。
     await ctx.page.evaluate(() => {
-      document.querySelectorAll('.changes-menu .menu-item')[2].dispatchEvent(
+      document.querySelectorAll('.changes-menu .menu-item')[3].dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     // 等真实状态出现，而不是靠固定延时。
@@ -6791,7 +7526,7 @@ async function main() {
     await ctx.page.waitForTimeout(500);
     await ctx.page.waitForTimeout(500);
     await ctx.page.evaluate(() => {
-      document.querySelectorAll('.changes-menu .menu-item')[3].dispatchEvent(
+      document.querySelectorAll('.changes-menu .menu-item')[2].dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await ctx.page.waitForTimeout(1200);
@@ -6829,9 +7564,9 @@ async function main() {
         row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 90 }));
       }, group);
       await rb.page.waitForSelector('.changes-menu', { timeout: 8000 });
-      // 菜单项顺序固定：显示 Diff=0、回滚=1、文件历史=2、Blame=3…
+      // 菜单项顺序按权威（见上）：回滚=0、显示 Diff=1、Blame=2、文件历史=3…
       await rb.page.evaluate(() => {
-        document.querySelectorAll('.changes-menu .menu-item')[1].dispatchEvent(
+        document.querySelectorAll('.changes-menu .menu-item')[0].dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await rb.page.waitForSelector('.dialog.rollback-dialog', { timeout: 8000 });
@@ -6965,8 +7700,11 @@ async function main() {
         ? document.activeElement.dataset.worktreeField : null,
     }));
     check('新建 Worktree 打开表单: ' + JSON.stringify(wtOpened.dialog), wtOpened.dialog === true);
-    check('表单提供目录与分支两个字段: ' + JSON.stringify(wtOpened.fields),
-      wtOpened.fields.join(',') === 'destination,branch');
+    // 字段与顺序取权威 `GitWorkingTreeDialog.kt:175-230`：来源引用 → 「新分支」复选+分支名 → 名称 → 位置。
+    // Augit 没有独立的"名称"字段（`destination` 就是完整路径），故为 **分支 → 新分支 → 目录**。
+    // 原断言是"目录与分支两个字段"（旧表单，第 146 轮按权威改正）。
+    check('表单字段与顺序为 分支→新分支→目录: ' + JSON.stringify(wtOpened.fields),
+      wtOpened.fields.join(',') === 'branch,newBranchEnabled,newBranch,destination');
     check('目录默认留空、分支预填当前分支: ' + JSON.stringify([wtOpened.destination, wtOpened.branch]),
       wtOpened.destination === '' && wtOpened.branch === 'dsh');
     check('打开后焦点在目录输入框', wtOpened.focused === 'destination');
@@ -7046,11 +7784,81 @@ async function main() {
     check('设置对话框标题正确: ' + JSON.stringify(seOpened.title),
       typeof seOpened.title === 'string' && seOpened.title.includes('设置'));
     check('设置对话框含可编辑字段: ' + seOpened.fields, seOpened.fields > 0);
-    check('设置对话框提供取消与保存: ' + JSON.stringify(seOpened.actions),
-      seOpened.actions.join(',') === 'cancel,save');
-    check('点击提交设置不跳转页面: ' + seOpened.url, !seOpened.url.includes('settings.html'));
+    // 底栏照权威 `SettingsDialog.createActions()`：OK ＋ Cancel ＋ Apply（主设置对话框
+    // `isApplyButtonNeeded = true`）⇒ Augit 是「取消 / 应用 / 确定」，与视觉稿同一组
+    //（第 197 轮订正：实时外壳此前只画了「取消 / 保存」）。
+    check('设置对话框提供取消、应用与确定: ' + JSON.stringify(seOpened.actions),
+      seOpened.actions.join(',') === 'cancel,apply,save');
+    check('点击提交设置不跳转页面: ' + seOpened.url, !seOpened.url.includes('settings.html'));    
+    // ---- 第 134 轮补断言：设置对话框的**生命周期**（取消 ⇒ 不生效 + 关窗；保存 ⇒ 生效 + 关窗）----
+    // 不依赖具体字段名：运行时挑一个"能改成不同合法值"的字段（select 换一项 / 文本框加一），
+    // 用 `live.settings` 快照做前后对照 ⇒ 判据只看"快照变没变"，与字段语义无关。
+    const settingsLifecycle = await (async () => {
+      const snapshot = () => se.page.evaluate(() => JSON.stringify(window.__augitLive.settings || {}));
+      const pick = () => se.page.evaluate(() => {
+        const fields = [...document.querySelectorAll('.settings-window [data-setting]')];
+        const select = fields.find((el) => el.tagName === 'SELECT' && el.options.length > 1);
+        const text = fields.find((el) => el.tagName === 'INPUT' && el.type !== 'checkbox');
+        const target = select || text || fields[0];
+        if (!target) return null;
+        const key = target.dataset.setting;
+        const current = target.value;
+        let next = current;
+        if (target.tagName === 'SELECT') {
+          const other = [...target.options].map((o) => o.value).find((v) => v !== current);
+          if (other !== undefined) next = other;
+        } else if (text) {
+          next = String(Number(current || '0') + 1);
+        }
+        return { key, current, next, changed: next !== current, tag: target.tagName };
+      });
+      // Playwright 的 `page.evaluate` **不接受第二个参数**（`Too many arguments`）⇒ 用单对象载荷传参。
+      const apply = (key, value) => se.page.evaluate(({ setting, next }) => {
+        const el = [...document.querySelectorAll('.settings-window [data-setting]')].find((x) => x.dataset.setting === setting);
+        if (!el) return false;
+        el.value = next;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      }, { setting: key, next: value });
+      const before = await snapshot();
+      const field = await pick();
+      const applied = field ? await apply(field.key, field.next) : false;
+      await se.page.locator('[data-settings-action="cancel"]').click();
+      await se.page.waitForTimeout(700);
+      const afterCancel = { dialog: await se.page.locator('.settings-window').count(), value: await snapshot() };
+      // 取消后用**合成的单击**重开设置：取消与重开之间隔着遮罩层的移除，真实 click 会偶发落在
+      // 正在移除的层上而什么都没发生（实测一次整轮 30s 超时中断）。套件其它处也用同一种合成派发，
+      // 事件照样走产品自己的委托处理者；随后**等**对话框真的出现再继续。
+      await se.page.evaluate(() => {
+        const entry = document.querySelector('[aria-label="提交设置"]');
+        if (entry) entry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await se.page.waitForSelector('.settings-window [data-settings-action="save"]', { timeout: 8000 });
+      const field2 = await pick();
+      const applied2 = field2 ? await apply(field2.key, field2.next) : false;
+      await se.page.locator('[data-settings-action="save"]').click();
+      await se.page.waitForTimeout(900);
+      const afterSave = { dialog: await se.page.locator('.settings-window').count(), value: await snapshot() };
+      return { before, field, applied, afterCancel, field2, applied2, afterSave };
+    })();
+    console.log('INFO 设置生命周期=' + JSON.stringify(settingsLifecycle));
+    check('§7.17 设置对话框生命周期：取消不生效、保存生效、两者都关窗: ' + JSON.stringify(settingsLifecycle),
+      settingsLifecycle.field !== null && settingsLifecycle.field.changed === true
+        && settingsLifecycle.applied === true && settingsLifecycle.applied2 === true
+        && settingsLifecycle.afterCancel.dialog === 0
+        && settingsLifecycle.afterCancel.value === settingsLifecycle.before
+        && settingsLifecycle.afterSave.dialog === 0
+        && settingsLifecycle.afterSave.value !== settingsLifecycle.before);
 
-    // 保存：写入设置并关闭对话框
+    // 保存：写入设置并关闭对话框。
+    // 上面的生命周期块结束时对话框是**关着**的（保存与取消都会关窗），所以这里先重开一次；
+    // 同样用合成单击 + 显式等待，避免与遮罩移除抢时序。
+    await se.page.evaluate(() => {
+      const entry = document.querySelector('[aria-label="提交设置"]');
+      if (entry) entry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await se.page.waitForSelector('.settings-window [data-settings-action="save"]', { timeout: 8000 });
     await se.page.evaluate(() => { window.__settingsWritten = null; });
     await se.page.locator('[data-settings-action="save"]').click();
     await se.page.waitForTimeout(1000);
@@ -9716,8 +10524,26 @@ async function main() {
           writes: (window.__terminalWrites || []).join(''),
         }));
       })();
+      // 权威 `TerminalEscapeKeyListener`（platform/execution-impl/src/com/intellij/terminal/
+      // TerminalEscapeKeyListener.java:34-72）：终端里按 **Esc**（`Terminal.SwitchFocusToEditor` 的快捷键）
+      // 把焦点交给编辑器组件并 `consume()` 掉该键 —— **ESC 不送给 Shell**。Augit 原来所有按键都原样转发。
+      const bodyEscape = await (async () => {
+        if (!textarea) return { missing: true };
+        await page.page.evaluate(() => { window.__terminalWrites = []; });
+        await textarea.focus();
+        await page.page.keyboard.press('Escape');
+        await page.page.waitForTimeout(300);
+        return await page.page.evaluate(() => {
+          const active = document.activeElement;
+          return {
+            focusInTerminal: !!(active && active.closest('.terminal-tool')),
+            focusInEditor: !!(active && active.closest('.editor-content')),
+            writes: (window.__terminalWrites || []).join(''),
+          };
+        });
+      })();
       await page.page.close();
-      return { shape, seen, reverse, bodyTab };
+      return { shape, seen, reverse, bodyTab, bodyEscape };
     })();
     check('§7.16 终端标题栏动作按可见顺序、当前 Shell 标签不入 Tab 顺序: '
       + JSON.stringify([termTab.shape.buttons, termTab.shape.sessionTabindex, termTab.seen]),
@@ -9740,6 +10566,10 @@ async function main() {
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
+    // 与 Tab 相反：Esc 是**终端的退出键**（权威 `TerminalEscapeKeyListener`）—— 焦点回到正文，且 ESC 不送给 pty。
+    check('§7.16 终端里 Esc 把焦点交回正文且不送给 Shell: ' + JSON.stringify(termTab.bodyEscape),
+      termTab.bodyEscape.focusInTerminal === false && termTab.bodyEscape.focusInEditor === true
+      && !termTab.bodyEscape.writes.includes('\u001b'));
     // ---- 第 73 轮：把分支弹层的**实测几何**钉成可复跑证据（供 §1.3 的 L 行与 PyCharm 对照）----
     // 动机：PyCharm 侧已量到 Branches 弹出层 763x699 物理 = 436.0x399.4 CSS（按边框/阴影定位，3 行 3 列一致）；
     // 要对照就必须有 Augit 侧的**实测 DOM 尺寸**，而不是令牌名（`--augit-popover` 之类在 mockup.css 里根本不存在）。
@@ -10495,6 +11325,8 @@ async function main() {
     // 公式来自 mockup.js:72-80（`h` = **界面字体**实测行高）：
     //   title-height=max(44,h+18) / tab-height=max(42,h+14) / project-header-height=max(39,h+10) /
     //   tree-height=ceil(max(27,h+8)/2)*2 / document-toolbar-height=max(36,h+8) / status-height=max(22,h+2)
+    // 这三处（tab/tree/status）的取值由**用户裁决**钉在规格名义值上（`design-system.md` §6.1 末：
+    // "三处高度：名义值即运行时值"，第 116 轮）⇒ 断言按名义值写，不再跟随家族兜底公式。
     // 这条规格此前**在 §2 里没有对应行**（穷举漏了一条），本轮把断言与行一起补上。
     const frameAt = async (uiSize) => {
       const scene = await openScene('scene=main-project&theme=dark&ui-font-size=' + uiSize);
@@ -10812,16 +11644,27 @@ async function main() {
         await scene.page.waitForTimeout(1200);
         checked = await scene.page.evaluate(() => {
           const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
+          const actions = document.querySelector('.commit-box .commit-actions');
+          const primary = actions && actions.querySelector('.primary-button');
+          const secondary = actions && actions.querySelector('.secondary-button');
           return {
             value: field ? field.value : null,
             calls: window.__lastCommitCalls || 0,
+            primary: primary ? primary.textContent : null,
+            secondary: secondary ? secondary.textContent : null,
+            focused: !!field && document.activeElement === field,
           };
         });
         await scene.page.locator('.commit-box [aria-label="Amend"]').click();
         await scene.page.waitForTimeout(700);
         unchecked = await scene.page.evaluate(() => {
           const field = document.querySelector('.commit-box .message-field, .commit-box textarea');
-          return { value: field ? field.value : null };
+          const actions = document.querySelector('.commit-box .commit-actions');
+          const primary = actions && actions.querySelector('.primary-button');
+          const secondary = actions && actions.querySelector('.secondary-button');
+          return { value: field ? field.value : null,
+            primary: primary ? primary.textContent : null,
+            secondary: secondary ? secondary.textContent : null };
         });
       }
       await scene.page.close();
@@ -10836,6 +11679,16 @@ async function main() {
         && amendFlow.checked.calls >= 1
         && typeof amendFlow.checked.value === 'string' && amendFlow.checked.value.includes('上一次提交标题')
         && amendFlow.unchecked.value === amendFlow.draft);
+    // 权威 `AmendCommitHandlerImpl.kt:50-52` 的 `updateDefaultCommitActionName()`：勾选 Amend 后
+    // **提交动作改名**（`amend.action.name` = "Amend {0}"，`VcsBundle.properties:38`；
+    // `action.amend.commit.and.push.text` = "Amend Commit and Push…"，`DvcsBundle.properties:128`），
+    // 且载入上次信息后**聚焦信息栏**（`setCommitMessageAndFocus()`，`:117-119`）。
+    check('Amend 勾选后动作改名、载入后聚焦信息栏、取消后恢复原名: '
+      + JSON.stringify([amendFlow.checked.primary, amendFlow.checked.secondary,
+        amendFlow.checked.focused, amendFlow.unchecked.primary, amendFlow.unchecked.secondary]),
+      amendFlow.checked.primary === '修改提交' && amendFlow.checked.secondary === '修改提交并推送…'
+      && amendFlow.checked.focused === true
+      && amendFlow.unchecked.primary === '提交' && amendFlow.unchecked.secondary === '提交并推送…');
 
     // ---- 第 99 轮补断言：比较工具栏「上一处/下一处差异」（此前是死入口，按规格实现）----
     // 规格要点：差异按**连续变更块**计（同一次替换的删除+新增算一处）；定位后**保留触发按钮焦点**。
@@ -10903,6 +11756,30 @@ async function main() {
     check('§7.8 提交历史「搜索提交」把焦点交给日志搜索框: ' + JSON.stringify(historySearch),
       historySearch.before.entry === true && historySearch.after.activeTag === 'INPUT');
 
+    // ---- 第 160 轮补断言：§7.9「进入文件历史时保存日志上下文，包括**尚未执行的筛选输入**」----
+    // 该输入框在实现里是"未执行"的（没有过滤行为，只有草稿），所以这条规则的对象就是**草稿本身**：
+    // 底部工具窗口整块重绘（进入/离开文件历史都会触发）不得把它冲成空值
+    // —— 与搜索浮层第 153 轮修过的那类缺陷同源。
+    const filterDraft = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForSelector('.log-filterbar.history-filters [aria-label="文本或哈希"]', { timeout: 10000 });
+      await scene.page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]').fill('未执行的草稿');
+      await scene.page.evaluate(() => { window.__augitRender(); });
+      await scene.page.waitForTimeout(400);
+      const after = await scene.page.evaluate(() => {
+        const node = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+        return {
+          value: node ? node.value : null,
+          live: (window.__augitLive && window.__augitLive.historyFilterDraft) || null,
+        };
+      });
+      await scene.page.close();
+      console.log('INFO 日志筛选草稿=' + JSON.stringify(after));
+      return after;
+    })();
+    check('§7.9 日志筛选草稿在重绘后保留: ' + JSON.stringify(filterDraft),
+      filterDraft.value === '未执行的草稿' && filterDraft.live === '未执行的草稿');
+
     // ---- 第 97 轮补断言：§7.9 文件历史的「清除路径筛选」入口（第 96 轮尝试失败后重做）----
     // 第 96 轮的教训：该状态的工具条**不是** `.log-filterbar.history-filters`，而是
     // `.history-tool-content .history-toolbar`（视觉稿里那儿本就有个 × 图标按钮，只是没标签没绑定）。
@@ -10928,6 +11805,9 @@ async function main() {
           label: (document.querySelector('.history-tool-content .history-toolbar .icon-button') || {}).getAttribute
             ? document.querySelector('.history-tool-content .history-toolbar .icon-button').getAttribute('aria-label')
             : null,
+          // 第 161 轮补：清掉之后**不能**再出现文件历史行 —— 此前 `clearHistoryPathFilter()` 没把
+          // 布局标成"用户驱动"，`shell()` 继续用场景参数渲染出**样例**文件历史（实测剩余 1 行）。
+          rows: document.querySelectorAll('.history-row').length,
         }));
       }
       await scene.page.close();
@@ -10937,7 +11817,2325 @@ async function main() {
     check('§7.9 文件历史清除入口有标签且点击后清掉路径筛选: ' + JSON.stringify(fhClear),
       fhClear.before.hasButton === true && fhClear.before.label === '清除路径筛选'
         && fhClear.before.path !== null && fhClear.before.rows > 0
-        && fhClear.after && fhClear.after.path === null);
+        && fhClear.after && fhClear.after.path === null && fhClear.after.rows === 0);
+
+    // ---- 第 161 轮补断言：§7.9「点击底部『日志』标签…均恢复进入前的日志上下文」----
+    // 该标签在视觉稿里是 `<a class="tool-tab" href="git-history.html">日志</a>`；
+    // 实时外壳里此前**没有任何处理者**：点下去要么整页跳到视觉稿页、要么被未接线兜底拦成死入口。
+    const logTab = await (async () => {
+      const scene = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');
+      await scene.page.waitForSelector('.history-row', { timeout: 15000 });
+      await scene.page.waitForTimeout(600);
+      const before = await scene.page.evaluate(() => ({
+        href: location.href,
+        fileHistory: !!(window.__augitLive && window.__augitLive.fileHistory),
+        rows: document.querySelectorAll('.history-row').length,
+        tab: !!document.querySelector('.bottom-header .tool-tab[href$="git-history.html"]'),
+      }));
+      await scene.page.locator('.bottom-header .tool-tab[href$="git-history.html"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const after = await scene.page.evaluate(() => {
+        const row = document.querySelector('.history-row');
+        return {
+          href: location.href,
+          bottom: window.__augitLive && window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+          fileHistory: !!(window.__augitLive && window.__augitLive.fileHistory),
+          rows: document.querySelectorAll('.history-row').length,
+          // 诊断：残留的 `.history-row`（若还有）在哪个容器里、底部区域现在是什么
+          rowParent: row && row.parentElement ? row.parentElement.className : null,
+          commitRows: document.querySelectorAll('.commit-row').length,
+          bottomTool: !!document.querySelector('.bottom-tool'),
+        };
+      });
+      await scene.page.close();
+      console.log('INFO 日志标签返回=' + JSON.stringify({ before, after }));
+      return { before, after };
+    })();
+    check('§7.9 点底部「日志」标签回到日志且不整页跳转: ' + JSON.stringify([logTab.after.href === logTab.before.href, logTab.after.fileHistory, logTab.after.rows]),
+      logTab.before.tab === true && logTab.before.fileHistory === true && logTab.before.rows > 0
+        && logTab.after.href === logTab.before.href
+        && logTab.after.fileHistory === false && logTab.after.rows === 0);
+
+    // ---- 第 162 轮补断言：§7.9「已加载的空日志直接恢复，**不因没有提交而重复查询**」----
+    // 走一次真实往返：空日志 → 项目树右键「文件历史」→ 点底部「日志」标签回来。
+    // 判据是宿主收到的 `git/history` 次数（本轮才把该计数器补进宿主桩，见 mock 处注释）。
+    const emptyRoundTrip = await (async () => {
+      const page = await context.newPage();
+      await page.addInitScript(() => { window.__emptyHistory = true; });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.log-filterbar.history-filters', { timeout: 10000 });
+      await page.waitForTimeout(600);
+      const before = await page.evaluate(() => ({
+        calls: window.__historyCalls || 0,
+        empty: !!document.querySelector('.bottom-tool .empty-tool-state'),
+      }));
+      // 项目树右键 → 文件历史（树菜单项顺序：复制路径 0／定位 1／外部终端 2／刷新 3／文件历史 4／Blame 5）。
+      // 用**派发事件**而不是 Playwright 的 click：树的右键菜单是 document 级委托，
+      // 派发同样走真实处理路径，且不受元素可见性/遮盖影响（这一条此前就是被 click 的超时卡住的）。
+      const treeOpened = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        // 首屏 `docs` 是**折叠**的（实测树行只有 ["", "docs", "src", "README.md"]），
+        // 所以取一个真实存在的**文件**行（README.md），工作区根行不会打开树菜单。
+        const row = rows.find((r) => /\.(md|txt|cs)$/.test(r.dataset.treePath || '')) || rows[1] || rows[0];
+        if (!row) return { opened: false, paths: [] };
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 120 }));
+        return { opened: true, paths: rows.map((r) => r.dataset.treePath) };
+      });
+      console.log('INFO 树行=' + JSON.stringify(treeOpened));
+      await page.waitForSelector('.project-menu', { state: 'attached', timeout: 8000 });
+      await page.evaluate(() => {
+        document.querySelectorAll('.project-menu .menu-item')[4].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('!!(window.__augitLive && window.__augitLive.fileHistory)', null, { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      const inHistory = await page.evaluate(() => ({
+        fileHistory: !!(window.__augitLive && window.__augitLive.fileHistory),
+        rows: document.querySelectorAll('.history-row').length,
+        // 诊断：进入时记下的"进入前上下文"
+        back: window.__augitLive ? window.__augitLive.fileHistoryReturn : null,
+      }));
+      const logTabBack = await page.evaluate(() => {
+        const tab = document.querySelector('.bottom-header .tool-tab[href$="git-history.html"]');
+        if (!tab) return false;
+        tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return true;
+      });
+      await page.waitForTimeout(900);
+      const after = await page.evaluate(() => ({
+        calls: window.__historyCalls || 0,
+        empty: !!document.querySelector('.bottom-tool .empty-tool-state'),
+        bottomTool: !!document.querySelector('.bottom-tool'),
+        bottom: window.__augitLive && window.__augitLive.layout ? window.__augitLive.layout.bottom : null,
+      }));
+      await page.close();
+      console.log('INFO 空日志往返=' + JSON.stringify({ before, inHistory, logTabBack, after }));
+      return { before, inHistory, logTabBack, after };
+    })();
+    // 两半一起钉：① 不重复查询（第 162 轮修）；② **回到日志**（第 163 轮修 —— 此前从场景进入时
+    // `live.layout.bottom` 是空串、日志只是**场景参数**渲染的，`runChangesContextAction` 记下的
+    // "进入前上下文"因此也是空串，回来时底部被折叠而不是回到日志）。
+    check('§7.9 空日志往返：不重复查询且回到日志: ' + JSON.stringify([emptyRoundTrip.before.calls, emptyRoundTrip.after.calls, emptyRoundTrip.after]),
+      emptyRoundTrip.before.calls === 1 && emptyRoundTrip.before.empty === true
+        && emptyRoundTrip.inHistory.fileHistory === true
+        && emptyRoundTrip.after.calls === 1
+        && emptyRoundTrip.after.bottom === 'git' && emptyRoundTrip.after.empty === true);
+
+    // ---- 第 167 轮：日志提交行的右键菜单（此前实时外壳里没有任何 contextmenu 处理者）----
+    const logMenu = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const target = await scene.page.evaluate(() => {
+        const row = document.querySelector('.commit-row');
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 120 }));
+        return { hash: row.dataset.hash, fullHash: row.dataset.fullHash };
+      });
+      await scene.page.waitForSelector('.log-menu', { state: 'attached', timeout: 8000 });
+      const menu = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.log-menu');
+        const items = [...layer.querySelectorAll('.menu-item')].map((el) => ({
+          text: el.textContent.trim(),
+          action: el.dataset.logAction || null,
+          disabled: el.getAttribute('aria-disabled') === 'true',
+          reason: el.getAttribute('title') || '',
+        }));
+        return { hash: layer.dataset.commitHash, fullHash: layer.dataset.commitFullHash, items };
+      });
+      await scene.page.evaluate(() => {
+        window.__clipboardWrites = [];
+        document.querySelector('.log-menu [data-log-action="copy-hash"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(400);
+      const copied = await scene.page.evaluate(() => ({
+        writes: window.__clipboardWrites || [],
+        marker: window.__augitCopiedHash || null,
+        menuClosed: document.querySelectorAll('.log-menu').length,
+      }));
+      await scene.page.evaluate(() => {
+        document.querySelector('.commit-row').dispatchEvent(
+          new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 120 }));
+      });
+      await scene.page.waitForSelector('.log-menu', { state: 'attached', timeout: 8000 });
+      await scene.page.evaluate(() => {
+        document.querySelector('.log-menu [data-log-action="new-branch"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(600);
+      const branch = await scene.page.evaluate(() => {
+        const dialog = document.querySelector('[data-compact-dialog]');
+        return {
+          dialog: !!dialog,
+          text: dialog ? dialog.textContent.slice(0, 40) : null,
+          menuClosed: document.querySelectorAll('.log-menu').length,
+        };
+      });
+
+      // ---- 第 172 轮：日志菜单的「新建分支…」/「新建标签…」都从**选中的提交**起，而不是 HEAD ----
+      // 权威：`Git.CreateNewBranch.FromCommit`（`GitCreateNewBranchFromCommitAction.kt:19`，单提交才可用）
+      // 与 `Git.CreateNewTag`（`GitCreateTagAction.java:31`，`Messages.showInputDialog` 单字段）。
+      await scene.page.evaluate(() => { window.__branchCalls = []; window.__tagCalls = []; });
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('[data-compact-dialog] [data-compact-field]');
+        if (field) field.value = 'feat/from-commit';
+        const confirm = document.querySelector('[data-compact-dialog] [data-compact-action="confirm"]');
+        if (confirm) confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(700);
+      const branchCreate = await scene.page.evaluate(() => ({
+        calls: (window.__branchCalls || []).filter((c) => c.action === 'create'),
+        dialog: !!document.querySelector('[data-compact-dialog]'),
+      }));
+
+      const openLogMenu = async () => {
+        await scene.page.evaluate(() => {
+          document.querySelector('.commit-row').dispatchEvent(
+            new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 120 }));
+        });
+        await scene.page.waitForSelector('.log-menu', { state: 'attached', timeout: 8000 });
+      };
+      await openLogMenu();
+      await scene.page.evaluate(() => {
+        document.querySelector('.log-menu [data-log-action="new-tag"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(500);
+      const tagDialog = await scene.page.evaluate(() => {
+        const layer = document.querySelector('[data-compact-dialog]');
+        const field = layer ? layer.querySelector('[data-compact-field]') : null;
+        const label = layer ? layer.querySelector('label') : null;
+        return {
+          open: !!layer,
+          title: layer ? layer.querySelector('.dialog-header span').innerText : null,
+          label: label ? label.textContent.trim() : null,
+          fieldLabel: field ? field.getAttribute('aria-label') : null,
+          value: field ? field.value : null,
+          menuClosed: document.querySelectorAll('.log-menu').length,
+        };
+      });
+      // 空白字符：权威 `GitCreateTagAction.checkInput/canClose` = 非空**且不含空白字符** ⇒ 不调宿主、窗口留着说明原因。
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('[data-compact-dialog] [data-compact-field]');
+        if (field) field.value = 'bad tag';
+        const confirm = document.querySelector('[data-compact-dialog] [data-compact-action="confirm"]');
+        if (confirm) confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(400);
+      const tagInvalid = await scene.page.evaluate(() => ({
+        calls: (window.__tagCalls || []).length,
+        error: window.__augitCheckoutError || null,
+        dialog: !!document.querySelector('[data-compact-dialog]'),
+      }));
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('[data-compact-dialog] [data-compact-field]');
+        if (field) field.value = 'v9.9.9';
+        const confirm = document.querySelector('[data-compact-dialog] [data-compact-action="confirm"]');
+        if (confirm) confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(700);
+      const tagCreate = await scene.page.evaluate(() => ({
+        calls: window.__tagCalls || [],
+        dialog: !!document.querySelector('[data-compact-dialog]'),
+      }));
+      await scene.page.close();
+      console.log('INFO 日志右键菜单=' + JSON.stringify({ target, menu, copied, branch, branchCreate, tagDialog, tagInvalid, tagCreate }));
+      return { target, menu, copied, branch, branchCreate, tagDialog, tagInvalid, tagCreate };
+    })();
+    check('§7.8 右键提交行打开日志菜单并带上该提交: ' + JSON.stringify([logMenu.menu.hash, logMenu.menu.fullHash]),
+      logMenu.menu.hash === logMenu.target.hash && logMenu.menu.fullHash === logMenu.target.fullHash);
+    check('§7.8 日志菜单把没有能力的项标成禁用并写明原因: ' + JSON.stringify(logMenu.menu.items),
+      logMenu.menu.items.filter((i) => i.disabled && i.reason.length > 0).length === 4
+        && logMenu.menu.items.filter((i) => i.action).length === 3);
+    check('§7.8 日志菜单「复制提交哈希」写入完整哈希并关掉菜单: ' + JSON.stringify(logMenu.copied),
+      logMenu.copied.writes.length === 1 && logMenu.copied.writes[0] === logMenu.target.fullHash
+        && logMenu.copied.marker === logMenu.target.fullHash && logMenu.copied.menuClosed === 0);
+    check('§7.8 日志菜单「新建分支…」打开紧凑输入窗口: ' + JSON.stringify(logMenu.branch),
+      logMenu.branch.dialog === true && typeof logMenu.branch.text === 'string'
+        && logMenu.branch.text.includes('分支') && logMenu.branch.menuClosed === 0);
+    check('§7.8 日志菜单「新建分支…」以选中提交为起点: ' + JSON.stringify(logMenu.branchCreate),
+      logMenu.branchCreate.calls.length === 1
+        && logMenu.branchCreate.calls[0].name === 'feat/from-commit'
+        && logMenu.branchCreate.calls[0].startPoint === logMenu.target.fullHash
+        && logMenu.branchCreate.dialog === false);
+    check('§7.8 日志菜单「新建标签…」是单字段窗口且标题带该提交（权威 `Git.CreateNewTag`）: ' + JSON.stringify(logMenu.tagDialog),
+      logMenu.tagDialog.open === true
+        && typeof logMenu.tagDialog.title === 'string' && logMenu.tagDialog.title.includes(logMenu.target.fullHash)
+        && logMenu.tagDialog.label === '新标签名称' && logMenu.tagDialog.value === ''
+        && logMenu.tagDialog.menuClosed === 0);
+    check('§7.8 标签名含空白字符时不调用宿主并保留窗口: ' + JSON.stringify(logMenu.tagInvalid),
+      logMenu.tagInvalid.calls === 0 && /空白/.test(logMenu.tagInvalid.error || '')
+        && logMenu.tagInvalid.dialog === true);
+    check('§7.8 确认后把标签打在选中的提交上: ' + JSON.stringify(logMenu.tagCreate),
+      logMenu.tagCreate.calls.length === 1 && logMenu.tagCreate.calls[0].action === 'create'
+        && logMenu.tagCreate.calls[0].name === 'v9.9.9'
+        && logMenu.tagCreate.calls[0].target === logMenu.target.fullHash
+        && logMenu.tagCreate.dialog === false);
+
+    // ---- 第 171 轮：分支/标签行的动作菜单与"两步删除" ----
+    // 权威：`GitBranchPopupActions.LocalBranchActions.getChildren()` → `getSingleBranchActions()`（每个引用一组动作）；
+    // 删除语义照 `GitDeleteBranchOperation`（未完全合并时先说明影响，确认后再删）。
+    const refMenu = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+      const openPopover = async () => {
+        // 上一次的行菜单可能还开着（它自己就是一层 overlay），先按 Esc 收掉再点芯片；
+        // 点击用派发事件，避免被 overlay 挡住时的可点击性等待。
+        await scene.page.keyboard.press('Escape');
+        await scene.page.waitForTimeout(150);
+        await scene.page.evaluate(() => {
+          const chip = document.querySelector('.top-chip.branch-chip');
+          if (chip) chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await scene.page.waitForSelector('.branches-popover [data-branch]', { state: 'attached', timeout: 8000 });
+        await scene.page.waitForTimeout(300);
+      };
+      await openPopover();
+      const rows = await scene.page.evaluate(() => [...document.querySelectorAll('.branches-popover [data-branch]')]
+        .map((el) => ({ name: el.dataset.branch, kind: el.dataset.branchKind, current: el.dataset.branchCurrent === 'true' })));
+      const nonCurrent = rows.find((r) => r.kind === 'branch' && r.current !== true);
+      const current = rows.find((r) => r.current === true);
+      const tag = rows.find((r) => r.kind === 'tag');
+      const openMenu = async (name) => {
+        await openPopover();
+        await scene.page.evaluate((n) => {
+          const row = [...document.querySelectorAll('.branches-popover [data-branch]')]
+            .find((el) => el.dataset.branch === n);
+          if (row) row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 140 }));
+        }, name);
+        await scene.page.waitForSelector('.ref-menu', { state: 'attached', timeout: 8000 });
+        return await scene.page.evaluate(() => {
+          const layer = document.querySelector('.ref-menu');
+          return {
+            name: layer.dataset.refName,
+            kind: layer.dataset.refKind,
+            items: [...layer.querySelectorAll('.menu-item')].map((el) => ({
+              text: el.textContent.trim(),
+              action: el.dataset.refAction || null,
+              disabled: el.getAttribute('aria-disabled') === 'true',
+              reason: el.getAttribute('title') || '',
+            })),
+          };
+        });
+      };
+      const nonCurrentMenu = await openMenu(nonCurrent.name);
+      const currentMenu = current ? await openMenu(current.name) : null;
+      const tagMenu = tag ? await openMenu(tag.name) : null;
+
+      // 重命名（权威 `GitRenameBranchAction`：`refClass = GitBranch`、`disabledForRemote = true` ⇒ 只有本地分支显示）：
+      // 非当前分支行也必须以**该行自己的名字**作为 `from`，而不是像旧实现那样只认"当前分支"。
+      await scene.page.evaluate(() => { window.__branchCalls = []; });
+      await openMenu(nonCurrent.name);
+      await scene.page.evaluate(() => {
+        document.querySelector('.ref-menu [data-ref-action="rename"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForSelector('[data-compact-dialog]', { state: 'attached', timeout: 8000 });
+      const renameDialog = await scene.page.evaluate(() => {
+        const field = document.querySelector('[data-compact-dialog] [data-compact-field]');
+        return { title: document.querySelector('[data-compact-dialog]').dataset.compactDialog, value: field ? field.value : null };
+      });
+      await scene.page.evaluate((next) => {
+        const field = document.querySelector('[data-compact-dialog] [data-compact-field]');
+        if (field) field.value = next;
+        const confirm = document.querySelector('[data-compact-dialog] [data-compact-action="confirm"]');
+        if (confirm) confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }, nonCurrent.name + '-renamed');
+      await scene.page.waitForTimeout(600);
+      const renameCall = await scene.page.evaluate(() => (window.__branchCalls || []).find((c) => c.action === 'rename') || null);
+
+      // 两步删除：注入"未完全合并" ⇒ 第一次 force=false 被拒、弹第二次确认、再 force=true。
+      await scene.page.evaluate(() => { window.__branchCalls = []; window.__branchDeleteUnmerged = true; });
+      await openMenu(nonCurrent.name);
+      await scene.page.evaluate(() => {
+        document.querySelector('.ref-menu [data-ref-action="delete"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForSelector('.ref-delete-window', { state: 'attached', timeout: 8000 });
+      const firstConfirm = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.ref-delete-window');
+        return { name: layer.dataset.refName, kind: layer.dataset.refKind, text: layer.textContent.slice(0, 60) };
+      });
+      await scene.page.evaluate(() => {
+        document.querySelector('.ref-delete-window [data-ref-delete-confirm="plain"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(800);
+      const secondWindow = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.ref-delete-window');
+        const button = layer ? layer.querySelector('[data-ref-delete-confirm]') : null;
+        return {
+          open: !!layer,
+          force: button ? button.dataset.refDeleteConfirm : null,
+          text: layer ? layer.textContent.slice(0, 80) : null,
+          calls: window.__branchCalls || [],
+        };
+      });
+      await scene.page.evaluate(() => {
+        const button = document.querySelector('.ref-delete-window [data-ref-delete-confirm="force"]');
+        if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(800);
+      const after = await scene.page.evaluate(() => ({
+        calls: window.__branchCalls || [],
+        deleted: window.__augitReferenceDeleted || null,
+        window: !!document.querySelector('.ref-delete-window'),
+      }));
+      await scene.page.close();
+      console.log('INFO 引用菜单=' + JSON.stringify({ rows, nonCurrentMenu, currentMenu, tagMenu, renameDialog, renameCall, firstConfirm, secondWindow, after }));
+      return { rows, nonCurrent, nonCurrentMenu, currentMenu, tagMenu, renameDialog, renameCall, firstConfirm, secondWindow, after };
+    })();
+    check('§5.2 非当前分支的行菜单给出检出、重命名与删除: ' + JSON.stringify(refMenu.nonCurrentMenu),
+      refMenu.nonCurrentMenu.name === refMenu.nonCurrent.name
+        && refMenu.nonCurrentMenu.kind === 'branch'
+        && refMenu.nonCurrentMenu.items.filter((i) => i.action).length === 3
+        && ['checkout', 'rename', 'delete'].every((a) => refMenu.nonCurrentMenu.items.some((i) => i.action === a)));
+    check('§5.2 当前分支行不显示检出/删除（权威 `isEnabledAndVisible=false` 即不出现，只有一个本地分支时 `diverged()` 为假）: '
+      + JSON.stringify(refMenu.currentMenu ? refMenu.currentMenu.items : null),
+      !!refMenu.currentMenu
+        && refMenu.currentMenu.items.every((i) => !['checkout', 'delete'].includes(i.action))
+        && refMenu.currentMenu.items.some((i) => i.action === 'rename'));
+    check('§5.2 标签行菜单可删除: ' + JSON.stringify(refMenu.tagMenu ? refMenu.tagMenu.items : null),
+      !!refMenu.tagMenu && refMenu.tagMenu.items.some((i) => i.action === 'delete'));
+    check('§5.2 非当前分支的「重命名…」以该行自己的名字为 from: ' + JSON.stringify([refMenu.renameDialog, refMenu.renameCall]),
+      !!refMenu.renameDialog && refMenu.renameDialog.title === '重命名分支'
+        && refMenu.renameDialog.value === refMenu.nonCurrent.name
+        && !!refMenu.renameCall && refMenu.renameCall.from === refMenu.nonCurrent.name
+        && refMenu.renameCall.name === refMenu.nonCurrent.name + '-renamed');
+    check('§10.4 删除引用先确认影响: ' + JSON.stringify(refMenu.firstConfirm),
+      refMenu.firstConfirm.name === refMenu.nonCurrent.name && refMenu.firstConfirm.kind === 'branch'
+        && typeof refMenu.firstConfirm.text === 'string' && refMenu.firstConfirm.text.includes('删除'));
+    check('§5.2 未完全合并时再问一次并强制删除: ' + JSON.stringify([refMenu.secondWindow, refMenu.after]),
+      refMenu.secondWindow.force === 'force'
+        && typeof refMenu.secondWindow.text === 'string' && refMenu.secondWindow.text.includes('未合并')
+        && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === false)
+        && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === true)
+        && !!refMenu.after.deleted && refMenu.after.window === false);
+
+    // ---- 第 169 轮：第 168 轮扫描出的四个死入口（跳转行按钮／最小化／定位当前文件／折叠项目树）----
+    const deadEntries = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark&open=docs%2Fnotes.txt');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(900);
+      // ① 跳转行按钮：与 Ctrl+G 同一语义（打开紧凑输入窗口）。
+      await scene.page.evaluate(() => {
+        document.querySelector('[aria-label="跳转行"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(400);
+      const jump = await scene.page.evaluate(() => {
+        const dialog = document.querySelector('[data-compact-dialog]');
+        return { dialog: !!dialog, text: dialog ? dialog.textContent.slice(0, 30) : null };
+      });
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(200);
+      // ② 展开 docs 目录后点「定位当前文件」：应选中当前文档所在行。
+      await scene.page.evaluate(() => {
+        const row = [...document.querySelectorAll('.side-content.tree .tree-row')]
+          .find((r) => r.dataset.treePath === 'docs');
+        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(800);
+      await scene.page.evaluate(() => {
+        document.querySelector('.side-tool .tool-header [aria-label="定位当前文件"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(400);
+      const located = await scene.page.evaluate(() => {
+        const selected = document.querySelector('.side-content.tree .tree-row[aria-selected="true"]');
+        return { path: selected ? selected.dataset.treePath : null };
+      });
+      // ③ 折叠项目树：展开状态清空 ⇒ `docs/notes.txt` 行不再出现。
+      await scene.page.evaluate(() => {
+        document.querySelector('.side-tool .tool-header [aria-label="折叠项目树"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(600);
+      const collapsed = await scene.page.evaluate(() => ({
+        paths: [...document.querySelectorAll('.side-content.tree .tree-row')].map((r) => r.dataset.treePath),
+      }));
+      // ④ 侧栏「最小化」：布局转入 collapsed=side 且侧栏不再渲染。
+      await scene.page.evaluate(() => {
+        document.querySelector('.side-tool .tool-header [aria-label="最小化"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(600);
+      const minimized = await scene.page.evaluate(() => ({
+        collapsed: window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
+        side: !!document.querySelector('.side-tool'),
+      }));
+      await scene.page.close();
+      console.log('INFO 死入口=' + JSON.stringify({ jump, located, collapsed, minimized }));
+      return { jump, located, collapsed, minimized };
+    })();
+    check('§3.3 文档工具栏「跳转行」按钮打开紧凑输入窗口: ' + JSON.stringify(deadEntries.jump),
+      deadEntries.jump.dialog === true && typeof deadEntries.jump.text === 'string'
+        && deadEntries.jump.text.includes('行号'));
+    check('§6.7 项目树「定位当前文件」选中当前文档所在行: ' + JSON.stringify(deadEntries.located),
+      deadEntries.located.path === 'docs/notes.txt');
+    check('§6.7 项目树「折叠项目树」收起全部目录: ' + JSON.stringify(deadEntries.collapsed.paths),
+      !deadEntries.collapsed.paths.includes('docs/notes.txt'));
+    check('§5.1 侧栏「最小化」把工具窗收进侧栏: ' + JSON.stringify(deadEntries.minimized),
+      deadEntries.minimized.collapsed === 'side' && deadEntries.minimized.side === false);
+
+    // ---- 第 168 轮扫描：编辑器工具栏与提交侧栏的入口（行为实测，先只打 INFO）----
+    const sweep = await (async () => {
+      const targets = [
+        { name: '文本工具栏', url: 'scene=main-project&theme=dark&open=docs%2Fnotes.txt',
+          labels: ['自动换行', '显示空白', '当前文件搜索', '跳转行', '关闭文件'] },
+        { name: '提交侧栏', url: 'scene=commit-changes&theme=dark',
+          labels: ['刷新', '回滚', '显示 Diff', '更多', '最小化'] },
+      ];
+      const out = {};
+      for (const target of targets) {
+        const scene = await openScene(target.url);
+        await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+        await scene.page.waitForTimeout(900);
+        const sig = () => scene.page.evaluate(() => ({
+          pressed: [...document.querySelectorAll('[aria-pressed]')].map((el) => el.getAttribute('aria-pressed')).join(','),
+          markdown: (document.querySelector('[data-markdown-mode]') || { dataset: {} }).dataset.markdownMode || null,
+          editorClass: (document.querySelector('.editor-content') || {}).className || null,
+          overlays: document.querySelectorAll('[data-augit-overlay]').length,
+          focus: document.activeElement
+            ? (document.activeElement.getAttribute('aria-label') || document.activeElement.tagName) : null,
+          calls: [window.__statusCalls || 0, window.__historyCalls || 0, window.__fileHistoryCalls || 0,
+            (window.__clipboardWrites || []).length, window.__readCalls || 0].join('/'),
+          unwired: window.__augitUnwiredLabel || null,
+        }));
+        const results = {};
+        for (const label of target.labels) {
+          const before = await sig();
+          const clicked = await scene.page.evaluate((text) => {
+            const node = document.querySelector(`[aria-label="${text}"]`);
+            if (!node) return false;
+            node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return true;
+          }, label);
+          await scene.page.waitForTimeout(400);
+          const after = await sig();
+          results[label] = { clicked, changed: JSON.stringify(before) !== JSON.stringify(after), after };
+          // 点开的东西关掉，避免影响下一个入口的判据。
+          await scene.page.keyboard.press('Escape').catch(() => {});
+          await scene.page.waitForTimeout(150);
+        }
+        out[target.name] = results;
+        await scene.page.close();
+      }
+      console.log('INFO 入口扫描=' + JSON.stringify(out));
+      return out;
+    })();
+
+    // ---- 第 166／173 轮：日志工具条各入口是否真的接线 ----
+    // 第 173 轮按权威改结构：左竖条是**分支面板自己的动作组**（`Git.Log.Hide.Branches` ＋ 分隔 ＋
+    // `BranchesDashboardTreeComponent.createActionGroup()` 的子集），日志级的「刷新」在横向工具条右角
+    // （`Vcs.Log.Toolbar.RightCorner`）。因此同时核对"竖条里没有日志级动作"这条负向事实。
+    const logTools = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.git-side-toolbar [data-ref-stripe]', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const labels = await scene.page.evaluate(() => [...document.querySelectorAll('.git-side-toolbar [data-ref-stripe]')]
+        .map((b) => b.getAttribute('aria-label')));
+      // 引用树结构：HEAD 行 ＋ 本地/远程/标签 分组（权威 `BranchesDashboardTreeModelBase`）。
+      const tree = await scene.page.evaluate(() => ({
+        head: [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-kind="head"]')].map((n) => n.textContent.trim()),
+        groups: [...document.querySelectorAll('.log-ref-panel .tree-row.group-row')].map((n) => n.textContent.trim()),
+        refs: [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-name]')].map((n) => ({
+          name: n.dataset.refName, kind: n.dataset.refKind, current: n.dataset.refCurrent === 'true',
+          commit: n.dataset.refCommit || '', selected: n.getAttribute('aria-selected') === 'true',
+        })),
+      }));
+      const clickStripe = async (action) => {
+        await scene.page.evaluate((name) => {
+          const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${name}"]`);
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, action);
+        await scene.page.waitForTimeout(600);
+      };
+      // ---- 引用树选中（第 174 轮）----
+      const selectRow = async (kind, name) => {
+        await scene.page.evaluate(({ k, n }) => {
+          const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+          if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, { k: kind, n: name });
+        await scene.page.waitForTimeout(250);
+      };
+      const stripeState = async (action) => await scene.page.evaluate((a) => {
+        const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${a}"]`);
+        return button ? { disabled: button.disabled === true, reason: button.getAttribute('title') || '' } : null;
+      }, action);
+      const beforeSelect = await stripeState('delete-branch');
+      const nonCurrent = (tree.refs.find((r) => r.kind === 'branch' && !r.current) || {}).name;
+      const current = (tree.refs.find((r) => r.kind === 'branch' && r.current) || {}).name;
+      await selectRow('branch', nonCurrent);
+      const afterNonCurrent = await scene.page.evaluate(() => {
+        const row = document.querySelector('.log-ref-panel .tree-row.selected');
+        const button = document.querySelector('.git-side-toolbar [data-ref-stripe="delete-branch"]');
+        return {
+          selected: row ? row.dataset.refName : null,
+          selectedKind: row ? row.dataset.refKind : null,
+          deleteDisabled: button ? button.disabled : null,
+          locateDisabled: document.querySelector('.git-side-toolbar [data-ref-stripe="locate-branch"]').disabled,
+        };
+      });
+      await selectRow('branch', current);
+      const afterCurrent = await stripeState('delete-branch');
+      // 键盘：上下键在可见行之间移动选择并把焦点交给新行。
+      await scene.page.evaluate((n) => {
+        const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="branch"][data-ref-name="${CSS.escape(n)}"]`);
+        if (row) row.focus();
+      }, nonCurrent);
+      await scene.page.keyboard.press('ArrowDown');
+      await scene.page.waitForTimeout(200);
+      const keyboard = await scene.page.evaluate(() => {
+        const active = document.activeElement;
+        const selected = document.querySelector('.log-ref-panel .tree-row.selected');
+        return {
+          focus: active ? active.dataset.refName || null : null,
+          selected: selected ? selected.dataset.refName : null,
+        };
+      });
+      // 搜索：按子串过滤行与空分组，输入焦点不丢。
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        if (field) {
+          field.focus();
+          field.value = 'feature';
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      });
+      await scene.page.waitForTimeout(250);
+      const search = await scene.page.evaluate(() => ({
+        visible: [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-name]')].filter((n) => !n.hidden)
+          .map((n) => ({ name: n.dataset.refName, kind: n.dataset.refKind })),
+        groups: [...document.querySelectorAll('.log-ref-panel .tree-row.group-row')].filter((n) => !n.hidden).length,
+        focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+      }));
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      await scene.page.waitForTimeout(200);
+      // ---- 第 176 轮：分支面板设置弹层（权威 `Git.Log.Branches.Settings`）----
+      await clickStripe('settings');
+      const settingsMenu = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.ref-settings-menu');
+        return {
+          open: !!layer,
+          items: layer ? [...layer.querySelectorAll('.menu-item')].map((n) => ({
+            text: n.textContent.trim(),
+            action: n.dataset.refSetting || null,
+            disabled: n.getAttribute('aria-disabled') === 'true',
+            reason: n.getAttribute('title') || '',
+            checked: n.getAttribute('aria-checked'),
+          })) : [],
+        };
+      });
+      const tagGroupVisible = async () => await scene.page.evaluate(() =>
+        !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="标签"]'));
+      const tagsBefore = await tagGroupVisible();
+      await scene.page.evaluate(() => {
+        const item = document.querySelector('.ref-settings-menu [data-ref-setting="show-tags"]');
+        if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(500);
+      const tagsAfterOff = await tagGroupVisible();
+      // 会话内状态：区域刷新后仍然生效。
+      await scene.page.evaluate(() => { if (window.__augitRenderRegions) window.__augitRenderRegions('bottomTool'); });
+      await scene.page.waitForTimeout(400);
+      const tagsAfterRefresh = await tagGroupVisible();
+      await clickStripe('settings');
+      await scene.page.evaluate(() => {
+        const item = document.querySelector('.ref-settings-menu [data-ref-setting="show-tags"]');
+        if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(500);
+      const tagsRestored = await tagGroupVisible();
+
+      // ---- 第 175 轮：分组折叠/展开（权威标准 JTree）＋ 竖条的「全部展开／全部折叠」----
+      const groupState = async () => await scene.page.evaluate(() => {
+        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="本地"]');
+        const owned = [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-group-owner="本地"]')];
+        return {
+          expanded: header ? header.getAttribute('aria-expanded') : null,
+          collapsedClass: !!(header && header.classList.contains('collapsed')),
+          hidden: owned.filter((n) => n.hidden).length,
+          total: owned.length,
+        };
+      });
+      const clickGroup = async (label) => {
+        await scene.page.evaluate((name) => {
+          const header = document.querySelector(`.log-ref-panel .tree-row.group-row[data-ref-group="${name}"]`);
+          if (header) header.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, label);
+        await scene.page.waitForTimeout(250);
+      };
+      await clickGroup('本地');
+      const groupCollapsed = await groupState();
+      await clickGroup('本地');
+      const groupRestored = await groupState();
+      // 键盘：左右键照 JTree 约定折叠/展开（组头先拿到焦点）。
+      await scene.page.evaluate(() => {
+        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="本地"]');
+        if (header) header.focus();
+      });
+      await scene.page.keyboard.press('ArrowLeft');
+      await scene.page.waitForTimeout(200);
+      const keyCollapsed = await groupState();
+      await scene.page.keyboard.press('ArrowRight');
+      await scene.page.waitForTimeout(200);
+      const keyExpanded = await groupState();
+      // 竖条的「全部折叠／全部展开」作用在**所有**分组上。
+      await clickStripe('collapse-all');
+      const allCollapsed = await scene.page.evaluate(() => [...document.querySelectorAll('.log-ref-panel .tree-row.group-row')]
+        .map((n) => n.getAttribute('aria-expanded')));
+      await clickStripe('expand-all');
+      const allExpanded = await scene.page.evaluate(() => [...document.querySelectorAll('.log-ref-panel .tree-row.group-row')]
+        .map((n) => n.getAttribute('aria-expanded')));
+      // 折叠状态下搜索：过滤期间忽略折叠（权威 `FilteringTree.java:137-139`）；清空后回到折叠状态。
+      await clickGroup('本地');
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        if (field) { field.value = 'feature'; field.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      await scene.page.waitForTimeout(250);
+      const searchInCollapsed = await scene.page.evaluate(() => {
+        const row = document.querySelector('.log-ref-panel .tree-row[data-ref-name="feature/ux"]');
+        return { visible: !!row && !row.hidden };
+      });
+      await scene.page.evaluate(() => {
+        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
+      });
+      await scene.page.waitForTimeout(250);
+      const afterClearFilter = await groupState();
+      // ---- 第 192 轮：「按目录分组」（权威 `git.branches.group.by.directory`，默认**开启**）----
+      // 权威 `LazyRefsSubtreeHolder.buildSubTree()`（`GitBranchesTreeModelUtil.kt:255-289`）：
+      // 引用名按 `/` 逐段构树，**组节点落在第一个成员的位置**；组内的子节点再按 `getSubTreeComparator()`
+      // （`:154-160`）稳定排序，类型层（本地／远程／标签）不重排（`GitBranchesTreeSingleRepoModel.kt:49-53`）。
+      const directoryGrouping = await (async () => {
+        const structure = async () => await scene.page.evaluate(() => ({
+          nodes: [...document.querySelectorAll('.log-ref-panel .tree-row')].map((n) => ({
+            group: n.dataset.refGroup || null,
+            prefix: n.dataset.refPrefixGroup || null,
+            key: n.dataset.refCollapseKey || null,
+            name: n.dataset.refName || null,
+            kind: n.dataset.refKind || null,
+            depth: (n.className.match(/depth-(\d)/) || [])[1] || null,
+            ancestors: n.dataset.refAncestors || '',
+            hidden: n.hidden === true,
+          })),
+        }));
+        const clickPrefix = async (path) => {
+          await scene.page.evaluate((p) => {
+            const node = document.querySelector(`.log-ref-panel .tree-row[data-ref-prefix-group="${p}"]`);
+            if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }, path);
+          await scene.page.waitForTimeout(250);
+        };
+        const prefixState = async (path) => await scene.page.evaluate((p) => {
+          const header = document.querySelector(`.log-ref-panel .tree-row[data-ref-prefix-group="${p}"]`);
+          const owned = [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-name]')]
+            .filter((n) => (n.dataset.refAncestors || '').split('|').includes(p));
+          return {
+            expanded: header ? header.getAttribute('aria-expanded') : null,
+            collapsedClass: !!(header && header.classList.contains('collapsed')),
+            hidden: owned.filter((n) => n.hidden).length,
+            total: owned.length,
+          };
+        }, path);
+        const toggleSetting = async () => {
+          await clickStripe('settings');
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.ref-settings-menu [data-ref-setting="group-by-directory"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(600);
+        };
+        // 前面的折叠用例把「本地」留在折叠态：先展开全部，观察自然结构（权威 `ExpandAllAction`）。
+        await scene.page.evaluate(() => {
+          window.__augitLive.logRefCollapsed = {};
+          window.__augitApplyRefTreeFilter();
+        });
+        await scene.page.waitForTimeout(250);
+        const before = await structure();
+        let collapsed = null;
+        let restored = null;
+        // 前缀分组也照 JTree 折叠/展开（与类型分组同一套交互）。
+        await clickPrefix('本地/feature');
+        collapsed = await prefixState('本地/feature');
+        await clickPrefix('本地/feature');
+        restored = await structure();
+        // 设置里关掉 ⇒ 回到扁平列表，并把开关写回设置文件。
+        await scene.page.evaluate(() => { window.__settingsWritten = {}; });
+        await toggleSetting();
+        const flat = await structure();
+        const written = await scene.page.evaluate(() => window.__settingsWritten || {});
+        // 会话状态跨区域刷新保留。
+        await scene.page.evaluate(() => { if (window.__augitRenderRegions) window.__augitRenderRegions('bottomTool'); });
+        await scene.page.waitForTimeout(400);
+        const flatAfterRefresh = await structure();
+        // 恢复默认（开启），免得影响后面的场景。
+        await scene.page.evaluate(() => { window.__settingsWritten = {}; });
+        await toggleSetting();
+        const regrouped = await structure();
+        const writtenRestore = await scene.page.evaluate(() => window.__settingsWritten || {});
+        return { before, collapsed, restored, flat, written, flatAfterRefresh, regrouped, writtenRestore };
+      })();
+      // 「定位到选中分支」：选中一个非当前分支后，日志应选到它的提交（夹具里两个分支都指向已加载的提交）。
+      await selectRow('branch', nonCurrent);
+      await scene.page.evaluate(() => {
+        const rows = document.querySelectorAll('.commit-row');
+        if (rows.length > 1) rows[rows.length - 1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await clickStripe('locate-branch');
+      const locate = await scene.page.evaluate(() => {
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return {
+          hash: selected ? (selected.getAttribute('data-full-hash') || selected.getAttribute('data-hash')) : null,
+          rowSelected: !!selected,
+        };
+      });
+      // HEAD 行（权威 `BranchNodeDescriptor.Head` 可选中、可导航）也要能定位：先选第二行再选 HEAD 行。
+      await scene.page.evaluate(() => {
+        const rows = document.querySelectorAll('.commit-row');
+        if (rows.length > 1) rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await selectRow('head', current);
+      await clickStripe('locate-branch');
+      const locateHead = await scene.page.evaluate(() => {
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return {
+          hash: selected ? (selected.getAttribute('data-full-hash') || selected.getAttribute('data-hash')) : null,
+          headRowCommit: (document.querySelector('.log-ref-panel .tree-row[data-ref-kind="head"]') || {}).dataset?.refCommit || null,
+        };
+      });
+      // 「删除分支…」走与引用行菜单同一套两步确认（这里只验第一步的影响说明）。
+      await selectRow('branch', nonCurrent);
+      await clickStripe('delete-branch');
+      const deleteConfirm = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.ref-delete-window');
+        return {
+          open: !!layer,
+          name: layer ? layer.dataset.refName : null,
+          text: layer ? layer.textContent.slice(0, 40) : null,
+        };
+      });
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      // 「获取」：走 git/fetch。
+      await scene.page.evaluate(() => { window.__fetchCalls = 0; window.__augitUnwiredLabel = null; });
+      await clickStripe('fetch');
+      const fetch = await scene.page.evaluate(() => ({
+        calls: window.__fetchCalls || 0, unwired: window.__augitUnwiredLabel || null,
+      }));
+      // 「新建分支…」：打开紧凑输入窗口。
+      await clickStripe('new-branch');
+      const newBranch = await scene.page.evaluate(() => {
+        const dialog = document.querySelector('[data-compact-dialog]');
+        return { dialog: !!dialog, title: dialog ? dialog.dataset.compactDialog : null };
+      });
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      // 「刷新」：横向工具条右角。
+      await scene.page.evaluate(() => { window.__historyCalls = 0; });
+      await scene.page.evaluate(() => {
+        const button = document.querySelector('.history-filters [aria-label="刷新"]');
+        if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(600);
+      const refresh = await scene.page.evaluate(() => ({ historyCalls: window.__historyCalls || 0 }));
+      // 「隐藏分支」⇒ 竖条换成折叠卡片（竖排「显示分支」），引用树面板消失。
+      await clickStripe('hide-branches');
+      const collapsed = await scene.page.evaluate(() => {
+        const stripe = document.querySelector('.git-side-toolbar.collapsed');
+        const button = stripe ? stripe.querySelector('[data-ref-stripe="show-branches"]') : null;
+        const text = stripe ? stripe.querySelector('.stripe-expand-label') : null;
+        return {
+          collapsed: !!stripe,
+          refPanel: document.querySelectorAll('.log-ref-panel').length,
+          button: button ? button.getAttribute('aria-label') : null,
+          writingMode: text ? getComputedStyle(text).writingMode : null,
+        };
+      });
+      await clickStripe('show-branches');
+      const restored = await scene.page.evaluate(() => ({
+        refPanel: document.querySelectorAll('.log-ref-panel').length,
+        stripeButtons: document.querySelectorAll('.git-side-toolbar [data-ref-stripe]').length,
+        collapsed: !!document.querySelector('.git-side-toolbar.collapsed'),
+      }));
+      await scene.page.close();
+      console.log('INFO 日志工具栏=' + JSON.stringify({ labels, tree, settingsMenu, tagsBefore, tagsAfterOff, tagsAfterRefresh, tagsRestored, locateHead, beforeSelect, nonCurrent, current, afterNonCurrent, afterCurrent, keyboard, search, groupCollapsed, groupRestored, keyCollapsed, keyExpanded, allCollapsed, allExpanded, searchInCollapsed, afterClearFilter, directoryGrouping, locate, deleteConfirm, fetch, newBranch, refresh, collapsed, restored }));
+      return { labels, tree, settingsMenu, tagsBefore, tagsAfterOff, tagsAfterRefresh, tagsRestored, locateHead, beforeSelect, nonCurrent, current, afterNonCurrent, afterCurrent, keyboard, search, groupCollapsed, groupRestored, keyCollapsed, keyExpanded, allCollapsed, allExpanded, searchInCollapsed, afterClearFilter, directoryGrouping, locate, deleteConfirm, fetch, newBranch, refresh, collapsed, restored };
+    })();
+    check('§7.8 日志左竖条＝分支面板的动作组（顺序照权威）: ' + JSON.stringify(logTools.labels),
+      logTools.labels.join(',') === '隐藏分支,新建分支…,更新选中分支,删除分支…,与当前分支比较,我的分支,获取,标记为收藏,定位到选中分支,分支面板设置,全部展开,全部折叠');
+    // 权威 `BranchesDashboardTreeModelBase`：HEAD/当前分支 ＋ 本地/远程/标签 分组，引用来自真实 `git/references`。
+    check('§7.8 引用树＝HEAD ＋ 本地/远程/标签 分组（本地/远程再按目录分组）且来自真实引用: ' + JSON.stringify(logTools.tree),
+      logTools.tree.head.length === 1 && logTools.tree.head[0].includes('HEAD')
+        // 第 192 轮：权威 `git.branches.group.by.directory` **默认开启**
+        // （`DvcsBranchSettings.groupingKeyIds` 的默认值就是 `directory`），因此 `feature/*` 归入前缀分组
+        // `feature`、远端 `origin/dsh` 归入 `origin`（`LazyRefsSubtreeHolder.buildSubTree()`）。
+        && logTools.tree.groups.join(',') === '本地,feature,远程,origin,标签'
+        && logTools.tree.refs.some((r) => r.kind === 'branch' && r.current)
+        && logTools.tree.refs.some((r) => r.kind === 'tag')
+        && logTools.tree.refs.every((r) => r.kind !== 'branch' || r.commit.length > 0));
+    // 权威 `LazyRefsSubtreeHolder.buildSubTree()`：组节点落在第一个成员的位置，子节点深度 +1；
+    // 无 `/` 的引用名不分组（夹具里 `v1.0.0` 直接挂在「标签」下）。
+    check('§7.8 「按目录分组」默认开启：前缀分组结构、缩进与祖先链照权威: '
+      + JSON.stringify(logTools.directoryGrouping.before.nodes),
+      // DOM 顺序＝权威 `getRefComparator()`：当前分支 `dsh` 先（HEAD 行与「本地」里的那一行），
+      // 然后名字含 `/` 的 `feature/*`（归入前缀分组 `feature`），远端 `origin/dsh` 归入 `origin`，
+      // 无 `/` 的标签不分组。
+      logTools.directoryGrouping.before.nodes.map((n) => n.group || n.prefix || n.name).join(',')
+        === 'dsh,本地,dsh,本地/feature,feature/tracked,feature/ux,远程,远程/origin,origin/dsh,标签,v1.0.0'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.prefix === '本地/feature').depth === '1'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'feature/tracked').ancestors === '本地|本地/feature'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'feature/tracked').depth === '2'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'origin/dsh').ancestors === '远程|远程/origin'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'v1.0.0').ancestors === '标签');
+    check('§7.8 前缀分组同样可折叠/展开（与类型分组同一套 JTree 交互）: '
+      + JSON.stringify([logTools.directoryGrouping.collapsed, logTools.directoryGrouping.restored.nodes.filter((n) => n.hidden).length]),
+      logTools.directoryGrouping.collapsed.expanded === 'false'
+        && logTools.directoryGrouping.collapsed.collapsedClass === true
+        && logTools.directoryGrouping.collapsed.hidden === logTools.directoryGrouping.collapsed.total
+        && logTools.directoryGrouping.collapsed.total === 2
+        && logTools.directoryGrouping.restored.nodes.filter((n) => n.hidden).length === 0);
+    // 权威 `GitGroupBranchByDirectoryAction`：`setBranchGroupingSettings(GROUPING_BY_DIRECTORY, state)`
+    // ＋ `saveSettingsForRemoteDevelopment` ⇒ 关掉后是**扁平**列表并持久化；再打开恢复分组。
+    check('§7.8 关掉「按目录分组」＝扁平列表 ＋ 写回设置 ＋ 跨刷新保持，再打开恢复分组: '
+      + JSON.stringify([logTools.directoryGrouping.flat.nodes, logTools.directoryGrouping.written,
+        logTools.directoryGrouping.writtenRestore]),
+      logTools.directoryGrouping.flat.nodes.filter((n) => n.prefix).length === 0
+        && logTools.directoryGrouping.flat.nodes.map((n) => n.name).filter(Boolean).join(',')
+          === 'dsh,dsh,feature/tracked,feature/ux,origin/dsh,v1.0.0'
+        && logTools.directoryGrouping.written.groupBranchesByDirectory === false
+        && logTools.directoryGrouping.flatAfterRefresh.nodes.filter((n) => n.prefix).length === 0
+        && logTools.directoryGrouping.regrouped.nodes.filter((n) => n.prefix).length === 2
+        && logTools.directoryGrouping.writtenRestore.groupBranchesByDirectory === true);
+    // 权威 `BranchesActionBase.update()`：没有选中引用时"需要选择"的动作禁用；选中非当前分支后「删除分支」可用。
+    check('§7.8 未选中引用时「删除分支…」禁用并写明原因: ' + JSON.stringify(logTools.beforeSelect),
+      !!logTools.beforeSelect && logTools.beforeSelect.disabled === true && logTools.beforeSelect.reason.includes('选中'));
+    check('§7.8 选中非当前分支后「删除分支…」可用、选当前分支时禁用（权威 `refs.none { it.isCurrent }`）: '
+      + JSON.stringify([logTools.afterNonCurrent, logTools.afterCurrent]),
+      logTools.afterNonCurrent.selected === logTools.nonCurrent && logTools.afterNonCurrent.selectedKind === 'branch'
+        && logTools.afterNonCurrent.deleteDisabled === false
+        && logTools.afterCurrent.disabled === true && logTools.afterCurrent.reason.includes('当前'));
+    check('§7.8 引用树上下键移动选择并把焦点交给新行: ' + JSON.stringify(logTools.keyboard),
+      !!logTools.keyboard.focus && logTools.keyboard.focus === logTools.keyboard.selected
+        && logTools.keyboard.focus !== logTools.nonCurrent);
+    // 权威 `BranchesTree.kt:210-217`：按**引用名**匹配；HEAD 节点的匹配文本是 null ⇒ 任何搜索词都保留它。
+    check('§7.8 「分支或标签」搜索按引用名过滤、保留 HEAD 行且不丢焦点: ' + JSON.stringify(logTools.search),
+      logTools.search.visible.some((r) => r.name === 'feature/ux' && r.kind === 'branch')
+        && logTools.search.visible.some((r) => r.kind === 'head')
+        && !logTools.search.visible.some((r) => r.kind === 'remote' || r.kind === 'tag')
+        // 第 192 轮：「按目录分组」默认开启 ⇒ 命中两行都落在前缀分组 `feature` 里，
+        // 可见的分组行是「本地」与「feature」两层（搜索期间忽略折叠，`FilteringTree.java:137-139`）。
+        && logTools.search.groups === 2 && logTools.search.focused === '分支或标签');
+    // 第 179 轮：设置里「单击时」的两项（更新分支筛选／导航到分支头）随历史筛选落地而**可用**
+    // （权威 `SelectionHandlingModeAction`：互斥、默认都不生效），因此禁用项由 4 项减为 2 项
+    // （只剩按目录分组／按仓库分组）；这两项自身的状态断言见本轮 `§7.8 设置里「单击时」是互斥单选…`。
+    check('§7.8 竖条齿轮打开分支面板设置弹层（条目与顺序照权威）: ' + JSON.stringify(logTools.settingsMenu),
+      logTools.settingsMenu.open === true
+        && logTools.settingsMenu.items.map((i) => i.text).join(',') === '单击时,更新分支筛选,导航到分支头,按目录分组,按仓库分组,显示标签'
+        // 第 192 轮：「按目录分组」接线后只剩「按仓库分组」一项禁用（权威里它要求多仓库，Augit 单仓库）。
+        && logTools.settingsMenu.items.filter((i) => i.disabled && i.reason.length > 0).length === 1
+        && logTools.settingsMenu.items.some((i) => i.action === 'group-by-directory' && i.checked === 'true')
+        && logTools.settingsMenu.items.some((i) => i.action === 'show-tags' && i.checked === 'true'));
+    check('§7.8 「显示标签」开关隐藏/恢复标签组且跨区域刷新生效: '
+      + JSON.stringify([logTools.tagsBefore, logTools.tagsAfterOff, logTools.tagsAfterRefresh, logTools.tagsRestored]),
+      logTools.tagsBefore === true && logTools.tagsAfterOff === false
+        && logTools.tagsAfterRefresh === false && logTools.tagsRestored === true);
+    check('§7.8 单击分组头折叠该组、再点恢复（权威标准 JTree）: ' + JSON.stringify([logTools.groupCollapsed, logTools.groupRestored]),
+      logTools.groupCollapsed.expanded === 'false' && logTools.groupCollapsed.collapsedClass === true
+        && logTools.groupCollapsed.hidden === logTools.groupCollapsed.total && logTools.groupCollapsed.total > 0
+        && logTools.groupRestored.expanded === 'true' && logTools.groupRestored.hidden === 0);
+    check('§7.8 组头的左右键折叠/展开（JTree 约定）: ' + JSON.stringify([logTools.keyCollapsed, logTools.keyExpanded]),
+      logTools.keyCollapsed.expanded === 'false' && logTools.keyExpanded.expanded === 'true');
+    check('§7.8 竖条「全部折叠／全部展开」作用在所有分组上: ' + JSON.stringify([logTools.allCollapsed, logTools.allExpanded]),
+      // 第 192 轮：分组从 3 个（本地/远程/标签）增加到 5 个（＋ feature、origin 两个前缀分组）。
+      logTools.allCollapsed.length === 5 && logTools.allCollapsed.every((v) => v === 'false')
+        && logTools.allExpanded.length === 5 && logTools.allExpanded.every((v) => v === 'true'));
+    check('§7.8 折叠状态下搜索仍显示命中行、清空后回到折叠状态: ' + JSON.stringify([logTools.searchInCollapsed, logTools.afterClearFilter]),
+      logTools.searchInCollapsed.visible === true && logTools.afterClearFilter.expanded === 'false'
+        && logTools.afterClearFilter.hidden === logTools.afterClearFilter.total);
+    check('§7.8 竖条「删除分支…」走与引用行菜单同一套影响确认: ' + JSON.stringify(logTools.deleteConfirm),
+      logTools.deleteConfirm.open === true && logTools.deleteConfirm.name === logTools.nonCurrent
+        && typeof logTools.deleteConfirm.text === 'string' && logTools.deleteConfirm.text.includes('删除'));
+    check('§7.8 竖条里不再有日志级动作（返回/删除引用/刷新/搜索/比较/定位 HEAD）: ' + JSON.stringify(logTools.labels),
+      logTools.labels.every((l) => !['返回', '删除引用', '刷新', '搜索', '比较', '定位 HEAD'].includes(l)));
+    check('§7.8 HEAD 行也能被定位（权威里 HEAD 节点可选中、可导航）: ' + JSON.stringify(logTools.locateHead),
+      !!logTools.locateHead.hash && logTools.locateHead.hash === logTools.locateHead.headRowCommit);
+    check('§7.8 竖条「定位到选中分支」把日志选到该分支的提交: ' + JSON.stringify([logTools.locate, logTools.tree.refs]),
+      logTools.locate.rowSelected === true
+        && logTools.locate.hash === (logTools.tree.refs.find((r) => r.name === logTools.nonCurrent) || {}).commit);
+    check('§7.8 竖条「获取」走 git/fetch: ' + JSON.stringify(logTools.fetch),
+      logTools.fetch.calls > 0 && logTools.fetch.unwired === null);
+    check('§7.8 竖条「新建分支…」打开紧凑输入窗口: ' + JSON.stringify(logTools.newBranch),
+      logTools.newBranch.dialog === true && logTools.newBranch.title === '新建分支');
+    check('§7.8 横向工具条右角「刷新」重新读取历史: ' + JSON.stringify(logTools.refresh),
+      logTools.refresh.historyCalls > 0);
+    check('§7.8 竖条「隐藏分支」折叠引用树并换成竖排「显示分支」: ' + JSON.stringify(logTools.collapsed),
+      logTools.collapsed.collapsed === true && logTools.collapsed.refPanel === 0
+        && logTools.collapsed.button === '显示分支' && logTools.collapsed.writingMode === 'vertical-rl');
+    check('§7.8 折叠卡片「显示分支」恢复引用树与竖条: ' + JSON.stringify(logTools.restored),
+      logTools.restored.refPanel === 1 && logTools.restored.stripeButtons === 12
+        && logTools.restored.collapsed === false);
+
+    // ---- 第 178 轮：竖条「更新选中分支」＝按该分支的 refspec 取（权威 `UpdateSelectedBranchAction`
+    //      → `GitBranchActionsUtil.updateBranches()`，`plugins/git4idea/backend/src/ui/branch/GitBranchActionsUtil.kt:62-101`）。
+    //      启用判据照 `update()`：非 fetch 进行中（`GitFetchSupport.isFetchRunning`）＋ 选中的本地分支有跟踪的远端分支
+    //      （`isTrackingInfosExist`，同文件 :191-194）；当前分支在权威里改走"更新方式"合并，Augit 无该通道故禁用。
+    const updateSelected = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.git-side-toolbar [data-ref-stripe="update-selected"]', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const stateOf = async (action) => await scene.page.evaluate((a) => {
+        const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${a}"]`);
+        return button ? { disabled: button.disabled === true, reason: button.getAttribute('title') || '' } : null;
+      }, action);
+      const selectRow = async (kind, name) => {
+        await scene.page.evaluate(({ k, n }) => {
+          const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+          if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, { k: kind, n: name });
+        await scene.page.waitForTimeout(250);
+      };
+      const clickStripe = async (action) => {
+        await scene.page.evaluate((name) => {
+          const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${name}"]`);
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, action);
+        await scene.page.waitForTimeout(600);
+      };
+      await scene.page.evaluate(() => {
+        if (window.__augitLive) window.__augitLive.logRefSelection = null;
+        if (typeof window.__augitApplyRefSelection === 'function') window.__augitApplyRefSelection();
+      });
+      const noSelection = await stateOf('update-selected');
+      await selectRow('branch', 'feature/tracked');
+      const tracked = await stateOf('update-selected');
+      await scene.page.evaluate(() => { window.__fetchParams = []; });
+      await clickStripe('update-selected');
+      const invoked = await scene.page.evaluate(() => ({
+        params: window.__fetchParams || [],
+        selection: (window.__augitLive && window.__augitLive.logRefSelection) || null,
+        selectedRow: (document.querySelector('.log-ref-panel .tree-row.selected') || {}).dataset?.refName || null,
+      }));
+      await selectRow('branch', 'dsh');
+      const current = await stateOf('update-selected');
+      await selectRow('branch', 'feature/ux');
+      const untrackedLocal = await stateOf('update-selected');
+      await selectRow('remote', 'origin/dsh');
+      const remoteOnly = await stateOf('update-selected');
+      // 获取进行中：注入延迟，观察两个入口都被禁用（权威 `isFetchRunning`），结束后恢复。
+      await selectRow('branch', 'feature/tracked');
+      await scene.page.evaluate(() => { window.__fetchDelayMs = 900; });
+      await clickStripe('fetch');
+      const duringFetch = { update: await stateOf('update-selected'), fetch: await stateOf('fetch') };
+      await scene.page.waitForTimeout(1800);
+      const afterFetch = { update: await stateOf('update-selected'), fetch: await stateOf('fetch') };
+      await scene.page.evaluate(() => { window.__fetchDelayMs = 0; });
+      await scene.page.close();
+      console.log('INFO 更新选中分支=' + JSON.stringify({ noSelection, tracked, invoked, current, untrackedLocal, remoteOnly, duringFetch, afterFetch }));
+      return { noSelection, tracked, invoked, current, untrackedLocal, remoteOnly, duringFetch, afterFetch };
+    })();
+    check('§7.8 未选中引用时「更新选中分支」禁用并写明原因: ' + JSON.stringify(updateSelected.noSelection),
+      !!updateSelected.noSelection && updateSelected.noSelection.disabled === true
+        && updateSelected.noSelection.reason.includes('选中'));
+    check('§7.8 选中受跟踪的非当前分支后「更新选中分支」可用且只带该分支请求宿主: '
+      + JSON.stringify([updateSelected.tracked, updateSelected.invoked.params]),
+      updateSelected.tracked.disabled === false
+        && updateSelected.invoked.params.length === 1
+        && updateSelected.invoked.params[0].branch === 'feature/tracked'
+        && updateSelected.invoked.params[0].remote === undefined);
+    check('§7.8 按分支更新成功后引用树仍选中该分支: ' + JSON.stringify(updateSelected.invoked),
+      // 前置"确实发生了按分支更新"（否则点禁用按钮也会留下选中态，这条会平凡为真——负向验证抓到过）。
+      updateSelected.invoked.params.length === 1
+        // 第 183 轮把引用树改成多选（权威 `DISCONTIGUOUS_TREE_SELECTION`）：选中集是**数组**，
+        // 这里断言"选中集恰好只含该分支"（旧断言读的是单选对象 `.name`）。
+        && Array.isArray(updateSelected.invoked.selection)
+        && updateSelected.invoked.selection.length === 1
+        && updateSelected.invoked.selection[0].name === 'feature/tracked'
+        && updateSelected.invoked.selectedRow === 'feature/tracked');
+    check('§7.8 选中当前分支时「更新选中分支」禁用并写明原因: ' + JSON.stringify(updateSelected.current),
+      updateSelected.current.disabled === true && updateSelected.current.reason.includes('更新方式'));
+    check('§7.8 选中没有跟踪配置的引用时「更新选中分支」禁用并写明原因: '
+      + JSON.stringify([updateSelected.untrackedLocal, updateSelected.remoteOnly]),
+      updateSelected.untrackedLocal.disabled === true && updateSelected.untrackedLocal.reason.includes('跟踪')
+        && updateSelected.remoteOnly.disabled === true && updateSelected.remoteOnly.reason.includes('跟踪'));
+    check('§7.8 获取进行中时「获取」与「更新选中分支」都禁用、结束后恢复（权威 `isFetchRunning`）: '
+      + JSON.stringify([updateSelected.duringFetch, updateSelected.afterFetch]),
+      updateSelected.duringFetch.update.disabled === true
+        && updateSelected.duringFetch.update.reason.includes('进行中')
+        && updateSelected.duringFetch.fetch.disabled === true
+        && updateSelected.duringFetch.fetch.reason.includes('进行中')
+        && updateSelected.afterFetch.update.disabled === false
+        && updateSelected.afterFetch.fetch.disabled === false);
+
+    // ---- 第 179 轮：日志筛选栏 —— New UI 的 `FilterComponent` ＋ 宿主侧筛选
+    //      （`20-branches-host-batch.md` §7 第 2 步：分支筛选解锁「更新分支筛选」与「双击/回车筛选日志」）。
+    //      权威：`VcsLogClassicFilterUi`（筛选控件构成）、`FilterComponent`（值/关闭叉/键盘）、
+    //      `BranchesTreeSelection.selectedBranchFilters`（哪些行产生筛选）、
+    //      `GitLogProvider.getGitLogParameters()`（筛选 → git 参数）。----
+    const historyFilters = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.history-filters > button[data-filter-key="branch"]', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const controlState = async (key) => await scene.page.evaluate((k) => {
+        const button = document.querySelector(`.history-filters > button[data-filter-key="${k}"]`);
+        if (!button) return null;
+        const svg = button.querySelector('svg');
+        return {
+          text: button.textContent.trim(),
+          disabled: button.disabled === true,
+          reason: button.getAttribute('title') || '',
+          icon: svg ? svg.getAttribute('data-augit-icon') : null,
+        };
+      }, key);
+      const subjects = async () => await scene.page.evaluate(() =>
+        [...document.querySelectorAll('.commit-row .commit-subject')].map((n) => n.textContent.trim()));
+      const lastParams = async () => await scene.page.evaluate(() =>
+        (window.__historyParams || [])[window.__historyParams.length - 1] || null);
+      const resetParams = async () => await scene.page.evaluate(() => { window.__historyParams = []; return true; });
+      // 选择器必须在**页面里**拼（`CSS.escape` 是浏览器全局，Node 侧没有）。
+      const clickRow = async (kind, name) => {
+        await scene.page.evaluate(({ k, n }) => {
+          const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+          if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, { k: kind, n: name });
+        await scene.page.waitForTimeout(700);
+      };
+      const doubleClickRow = async (kind, name) => {
+        await scene.page.evaluate(({ k, n }) => {
+          const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+          if (row) row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        }, { k: kind, n: name });
+        await scene.page.waitForTimeout(800);
+      };
+      const enterRow = async (kind, name) => {
+        await scene.page.evaluate(({ k, n }) => {
+          const row = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+          if (row) row.focus();
+        }, { k: kind, n: name });
+        await scene.page.keyboard.press('Enter');
+        await scene.page.waitForTimeout(800);
+      };
+      const clickControl = async (key) => {
+        await scene.page.evaluate((k) => {
+          const button = document.querySelector(`.history-filters > button[data-filter-key="${k}"]`);
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, key);
+        await scene.page.waitForTimeout(700);
+      };
+
+      // ① 四个筛选控件的初始状态（权威：未设值时是名称 ＋ 向下箭头；未接线项禁用并写明原因）。
+      const controls = {
+        branch: await controlState('branch'),
+        user: await controlState('user'),
+        date: await controlState('date'),
+        path: await controlState('path'),
+      };
+      const initialSubjects = await subjects();
+
+      // ② 双击分支行 ⇒ 分支筛选（`Git.Log.Branches.Change.Branch.Filter` 的 button1 doubleClick）。
+      await resetParams();
+      await doubleClickRow('branch', 'feature/ux');
+      const afterDoubleClick = { params: await lastParams(), subjects: await subjects(), control: await controlState('branch') };
+
+      // ③ 文本或哈希：回车执行（权威 `TextFilterField` 的 ActionListener）。先点关闭叉清掉分支筛选。
+      await clickControl('branch');
+      await resetParams();
+      const field = scene.page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+      await field.fill('真实提交二');
+      await field.press('Enter');
+      await scene.page.waitForTimeout(800);
+      const afterText = { params: await lastParams(), subjects: await subjects() };
+      await resetParams();
+      await field.fill('bbb2222');
+      await field.press('Enter');
+      await scene.page.waitForTimeout(800);
+      const afterHash = { params: await lastParams(), subjects: await subjects() };
+      await resetParams();
+      await field.fill('');
+      await field.press('Enter');
+      await scene.page.waitForTimeout(800);
+      const afterClearText = { params: await lastParams(), subjects: await subjects() };
+
+      // ④ 用「分支」控件自己的弹层设筛选（权威 `BranchFilterPopupComponent`：All ＋ 分支列表），
+      //    再走"筛不到任何提交"的空态与「重置筛选」。
+      await clickControl('branch');
+      const branchMenu = await scene.page.evaluate(() => {
+        const layer = document.querySelector('.history-branch-filter-menu');
+        return {
+          open: !!layer,
+          items: layer ? [...layer.querySelectorAll('[data-history-branch]')].map((n) => ({
+            value: n.dataset.historyBranch, text: n.textContent.trim(),
+            checked: n.getAttribute('aria-checked') === 'true',
+          })) : [],
+        };
+      });
+      // 夹具里 `feature/ux` 是**真实存在但没有任何历史提交引用它**的分支（② 已实测筛出 0 条），
+      // 正好用来走"筛不到任何提交"的空态；HEAD 会命中一条提交（`references` 里有 HEAD），
+      // 用它就构造不出空态（第 179 轮首次跑通时踩到）。
+      await scene.page.evaluate(() => {
+        const item = document.querySelector('.history-branch-filter-menu [data-history-branch="feature/ux"]');
+        if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(900);
+      const afterBranchPick = { params: await lastParams(), control: await controlState('branch'), subjects: await subjects() };
+      const emptyState = await scene.page.evaluate(() => {
+        const box = document.querySelector('.commit-list .empty-tool-state');
+        return {
+          text: box ? box.textContent.trim() : null,
+          resetButton: !!document.querySelector('[data-history-action="reset-filters"]'),
+        };
+      });
+      await scene.page.evaluate(() => {
+        const button = document.querySelector('[data-history-action="reset-filters"]');
+        if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await scene.page.waitForTimeout(900);
+      const afterReset = { params: await lastParams(), control: await controlState('branch'), subjects: await subjects() };
+
+      // ⑤ 回车与双击同义；标签行**不**产生分支筛选（权威 `selectedBranchFilters` 只收分支与 HEAD）。
+      await resetParams();
+      await enterRow('branch', 'feature/ux');
+      const afterEnter = { params: await lastParams(), subjects: await subjects() };
+      await clickControl('branch');
+      await resetParams();
+      await doubleClickRow('tag', 'v1.0.0');
+      const afterTagDoubleClick = { params: await lastParams(), subjects: await subjects() };
+
+      // ⑥ 设置里的「单击时」两项是互斥单选：打开「更新分支筛选」后，**单击**分支即筛选；
+      //    换成「导航到分支头」后单击改为定位（且不再改筛选）；再点一次回到"单击只选中"。
+      const selectionModes = await (async () => {
+        const openSettings = async () => {
+          await scene.page.evaluate(() => {
+            const button = document.querySelector('.git-side-toolbar [data-ref-stripe="settings"]');
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(600);
+        };
+        const pick = async (key) => {
+          await scene.page.evaluate((k) => {
+            const item = document.querySelector(`.ref-settings-menu [data-ref-selection-action="${k}"]`);
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }, key);
+          await scene.page.waitForTimeout(700);
+        };
+        await openSettings();
+        const menuItems = await scene.page.evaluate(() =>
+          [...document.querySelectorAll('.ref-settings-menu [data-ref-selection-action]')].map((n) => ({
+            key: n.dataset.refSelectionAction, text: n.textContent.trim(), checked: n.getAttribute('aria-checked') === 'true',
+          })));
+        await pick('filter');
+        await resetParams();
+        await clickRow('branch', 'feature/ux');
+        const filterMode = { params: await lastParams() };
+        await openSettings();
+        await pick('navigate');
+        const navigateMode = await scene.page.evaluate(() => ({
+          action: (window.__augitLive && window.__augitLive.logRefSelectionAction) || null,
+        }));
+        await openSettings();
+        await pick('navigate');
+        const toggledOff = await scene.page.evaluate(() => ({
+          action: (window.__augitLive && window.__augitLive.logRefSelectionAction) || null,
+        }));
+        return { menuItems, filterMode, navigateMode, toggledOff };
+      })();
+      // ⑦ 「与当前分支比较」（权威 `ShowBranchDiffAction` → `GitBrancher.compare` →
+      //    `GitBranchesUIHandler.compareWithCurrent`）：打开的是**按范围过滤的日志**
+      //    （`fromRange(currentRef, branchName)`，范围文本 `<currentRef>..<branchName>`），不是文件差异。
+      //    夹具里 `feature/ux` 没有独有提交，非空结果用 `window.__compareRange` 注入。
+      const branchComparison = await (async () => {
+        const stripeState = async () => await scene.page.evaluate(() => {
+          const button = document.querySelector('.git-side-toolbar [data-ref-stripe="show-diff"]');
+          return button ? { disabled: button.disabled === true, title: button.getAttribute('title') || '' } : null;
+        });
+        const clickStripe = async (action) => {
+          await scene.page.evaluate((name) => {
+            const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${name}"]`);
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }, action);
+          await scene.page.waitForTimeout(900);
+        };
+        // 选中的是**当前**分支时禁用（权威要求选中集里至少有一个不是当前分支）。
+        await clickRow('branch', 'dsh');
+        const currentSelected = await stripeState();
+        // 换成非当前分支 ⇒ 可用。
+        await clickRow('branch', 'feature/ux');
+        const nonCurrentSelected = await stripeState();
+        await scene.page.evaluate(() => {
+          window.__compareRange = [
+            { hash: 'ddd4444', fullHash: 'full-ddd4444', subject: 'feat: 分支独有一', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/16 11:00', graph: '*', parents: [], references: ['feature/ux'] },
+            { hash: 'eee5555', fullHash: 'full-eee5555', subject: 'fix: 分支独有二', author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com', date: '2026/9/15 12:00', graph: '*', parents: [], references: ['feature/ux'] },
+          ];
+        });
+        await resetParams();
+        await clickStripe('show-diff');
+        const opened = await scene.page.evaluate(() => {
+          const toolbar = document.querySelector('.bottom-tool .history-toolbar');
+          return {
+            tabs: [...document.querySelectorAll('.bottom-header .tool-tab')].map((n) => n.textContent.trim()),
+            range: toolbar ? toolbar.textContent.trim() : null,
+            rows: [...document.querySelectorAll('.bottom-tool .history-row')].map((n) => n.textContent.trim()),
+            logVisible: !!document.querySelector('.log-filterbar.history-filters'),
+            bottom: (window.__augitLive.layout || {}).bottom,
+          };
+        });
+        const params = await lastParams();
+        // 空范围：清掉注入后点刷新 ⇒ 如实说明"两个引用之间没有独有提交"。
+        await scene.page.evaluate(() => { window.__compareRange = []; });
+        await scene.page.evaluate(() => {
+          const button = document.querySelector('[data-branch-compare-refresh]');
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await scene.page.waitForTimeout(900);
+        const empty = await scene.page.evaluate(() => {
+          const pane = document.querySelector('.bottom-tool .history-list-pane');
+          return pane ? pane.textContent.trim() : null;
+        });
+        // 关闭比较（点「日志」标签）⇒ 回到进入前的底部上下文。
+        await scene.page.evaluate(() => {
+          const tab = [...document.querySelectorAll('.bottom-header .tool-tab')]
+            .find((n) => n.textContent.trim() === '日志');
+          if (tab) tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await scene.page.waitForTimeout(900);
+        const closed = await scene.page.evaluate(() => ({
+          logVisible: !!document.querySelector('.log-filterbar.history-filters'),
+          compare: (window.__augitLive && window.__augitLive.branchComparison) || null,
+          bottom: (window.__augitLive.layout || {}).bottom,
+        }));
+        await scene.page.evaluate(() => { delete window.__compareRange; });
+        return { currentSelected, nonCurrentSelected, opened, params, empty, closed };
+      })();
+      // ⑧ 「我的分支」（权威 `ShowMyBranchesAction` → `BranchesDashboardUtil`）与「显示标签」持久化
+      //    （权威 `git.branches.show.tags` → `GitVcsSettings`，第 181 轮写回设置文件）。
+      const myBranches = await (async () => {
+        const tree = async () => await scene.page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-name]')];
+          return {
+            branchNames: rows.filter((n) => n.dataset.refKind === 'branch' || n.dataset.refKind === 'remote')
+              .map((n) => n.dataset.refName),
+            headKept: rows.some((n) => n.dataset.refKind === 'head'),
+            tags: !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="标签"]'),
+            text: (document.querySelector('.log-ref-panel .tree') || {}).textContent || '',
+          };
+        });
+        const stripe = async () => await scene.page.evaluate(() => {
+          const button = document.querySelector('.git-side-toolbar [data-ref-stripe="my-branches"]');
+          return button ? {
+            disabled: button.disabled === true,
+            pressed: button.getAttribute('aria-pressed'),
+            title: button.getAttribute('title') || '',
+            // 选中态（ToggleAction 按下）底：权威 `ActionButton.getPopState()` 把选中的 toggle 算作
+            // PUSHED ⇒ `ActionButton.pressedBackground()`（= `--augit-pressed`，深色 #FFFFFF26）。
+            background: getComputedStyle(button).backgroundColor,
+          } : null;
+        });
+        const clickStripe = async (action) => {
+          await scene.page.evaluate((name) => {
+            const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${name}"]`);
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }, action);
+          await scene.page.waitForTimeout(900);
+        };
+        const clickRefSetting = async (setting) => {
+          await scene.page.evaluate((name) => {
+            const button = document.querySelector('.git-side-toolbar [data-ref-stripe="settings"]');
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(500);
+          await scene.page.evaluate((name) => {
+            const item = document.querySelector(`.ref-settings-menu [data-ref-setting="${name}"]`);
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }, setting);
+          await scene.page.waitForTimeout(700);
+        };
+        // 前面的小节可能留下筛选/折叠，先恢复成完整引用树。
+        await scene.page.evaluate(() => {
+          const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+          if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
+          if (window.__augitLive) window.__augitLive.logRefCollapsed = {};
+          if (typeof window.__augitApplyRefTreeFilter === 'function') window.__augitApplyRefTreeFilter('');
+        });
+        await scene.page.waitForTimeout(400);
+        const before = { state: await stripe(), tree: await tree() };
+        await scene.page.evaluate(() => { window.__myBranchesCalls = 0; });
+        await clickStripe('my-branches');
+        const on = {
+          state: await stripe(),
+          tree: await tree(),
+          calls: await scene.page.evaluate(() => window.__myBranchesCalls || 0),
+        };
+        await clickStripe('my-branches');
+        const off = { state: await stripe(), tree: await tree() };
+        // 一个都不是"我的"时如实说明，HEAD 行仍在（权威 `buildTreeNodes` 无条件加 Head）。
+        await scene.page.evaluate(() => { window.__myBranches = []; });
+        await clickStripe('my-branches');
+        const empty = { tree: await tree() };
+        await clickStripe('my-branches');
+        await scene.page.evaluate(() => { delete window.__myBranches; });
+        // 「显示标签」写回设置文件（`settings/write` 的入参由桩记录在 `__settingsWritten`）。
+        await scene.page.evaluate(() => { window.__settingsWritten = {}; });
+        await clickRefSetting('show-tags');
+        const tagsOff = await scene.page.evaluate(() => window.__settingsWritten && window.__settingsWritten.showGitBranchesTags);
+        await scene.page.evaluate(() => { window.__settingsWritten = {}; });
+        await clickRefSetting('show-tags');
+        const tagsOn = await scene.page.evaluate(() => window.__settingsWritten && window.__settingsWritten.showGitBranchesTags);
+        return { before, on, off, empty, tagsOff, tagsOn };
+      })();
+
+      // ⑨ 引用树多选（权威 `Tree.java:141,291` 的 `DISCONTIGUOUS_TREE_SELECTION` ＋
+      //    `BranchesTreeSelection` 的选中集判据；第 183 轮）。
+      const multiSelect = await (async () => {
+        // 选择器必须在**页面里**拼（`CSS.escape` 是浏览器全局，Node 侧没有）。
+        const click = async (kind, name, modifiers = {}) => {
+          await scene.page.evaluate(({ k, n, ctrl, shift }) => {
+            const node = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+            if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: ctrl, shiftKey: shift }));
+          }, { k: kind, n: name, ctrl: !!modifiers.ctrl, shift: !!modifiers.shift });
+          await scene.page.waitForTimeout(350);
+        };
+        const focusRow = async (kind, name) => {
+          await scene.page.evaluate(({ k, n }) => {
+            const node = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+            if (node) node.focus();
+          }, { k: kind, n: name });
+        };
+        const picked = async () => await scene.page.evaluate(() =>
+          [...document.querySelectorAll('.log-ref-panel .tree-row[aria-selected="true"]')]
+            .map((n) => `${n.dataset.refKind}:${n.dataset.refName}`));
+        const stripe = async (action) => await scene.page.evaluate((name) => {
+          const button = document.querySelector(`.git-side-toolbar [data-ref-stripe="${name}"]`);
+          return button ? {
+            disabled: button.disabled === true,
+            label: button.getAttribute('aria-label'),
+            title: button.getAttribute('title') || '',
+          } : null;
+        }, action);
+        const clearSelection = async () => {
+          await scene.page.evaluate(() => {
+            if (window.__augitLive) window.__augitLive.logRefSelection = [];
+            if (typeof window.__augitApplyRefSelection === 'function') window.__augitApplyRefSelection();
+          });
+          await scene.page.waitForTimeout(200);
+        };
+
+        await clearSelection();
+        const none = { picked: await picked(), del: await stripe('delete-branch') };
+
+        // ① 普通单击**替换**选中集（不是追加）。
+        await click('branch', 'feature/ux');
+        const single = { picked: await picked() };
+        await click('branch', 'feature/tracked');
+        const replaced = { picked: await picked(), del: await stripe('delete-branch') };
+
+        // ② Ctrl+单击**切换**该行：加上去、再点掉。
+        await click('branch', 'feature/ux', { ctrl: true });
+        const added = { picked: await picked(), update: await stripe('update-selected'), diff: await stripe('show-diff') };
+        await click('branch', 'feature/ux', { ctrl: true });
+        const removed = { picked: await picked() };
+
+        // ③ 混进**标签** ⇒ 文案从 `action.Git.Delete.Branch.title` 换成 `button.delete`（`allRefsAreBranches` 不成立）。
+        await click('tag', 'v1.0.0', { ctrl: true });
+        const withTag = { picked: await picked(), del: await stripe('delete-branch') };
+        // ④ 再混进**当前分支** ⇒ 整个删除动作禁用（权威 `refs.none { it.isCurrent }`）。
+        await click('branch', 'dsh', { ctrl: true });
+        const withCurrent = { picked: await picked(), del: await stripe('delete-branch') };
+
+        // ⑤ Shift+单击从**锚点**区间扩展；Shift+方向键同义。
+        await clearSelection();
+        await click('branch', 'feature/ux');
+        await click('remote', 'origin/dsh', { shift: true });
+        const range = { picked: await picked() };
+        await clearSelection();
+        await click('branch', 'feature/ux');
+        await focusRow('branch', 'feature/ux');
+        await scene.page.keyboard.press('Shift+ArrowDown');
+        await scene.page.waitForTimeout(300);
+        const keyRange = { picked: await picked() };
+        // ⑥ 空格 = 切换该行（键盘的多选入口）。
+        await scene.page.keyboard.press('Space');
+        await scene.page.waitForTimeout(300);
+        const spaceToggled = { picked: await picked() };
+
+        // ⑦ ENTER 把**整个选中集**交给日志筛选（权威 `selectedBranchFilters`）。
+        await clearSelection();
+        await click('branch', 'feature/ux');
+        await click('branch', 'feature/tracked', { ctrl: true });
+        await scene.page.evaluate(() => { window.__historyParams = []; });
+        await focusRow('branch', 'feature/ux');
+        await scene.page.keyboard.press('Enter');
+        await scene.page.waitForTimeout(800);
+        const enterBranches = await scene.page.evaluate(() =>
+          (window.__historyParams || [])[window.__historyParams.length - 1] || null);
+
+        // ⑧ 竖条删除：整个选中集一次交给 `git/branch` 的 `names`。
+        await clearSelection();
+        await click('branch', 'feature/ux');
+        await click('branch', 'feature/tracked', { ctrl: true });
+        await scene.page.evaluate(() => { window.__branchCalls = []; });
+        await scene.page.evaluate(() => {
+          const button = document.querySelector('.git-side-toolbar [data-ref-stripe="delete-branch"]');
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await scene.page.waitForTimeout(500);
+        const confirm = await scene.page.evaluate(() => {
+          const layer = document.querySelector('.ref-delete-window');
+          return layer ? { open: true, targets: JSON.parse(layer.dataset.refTargets || '[]') } : { open: false, targets: [] };
+        });
+        await scene.page.evaluate(() => {
+          const button = document.querySelector('.ref-delete-window [data-ref-delete-confirm]');
+          if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await scene.page.waitForTimeout(800);
+        const deleteCall = await scene.page.evaluate(() =>
+          (window.__branchCalls || []).filter((call) => call.action === 'delete').slice(-1)[0] || null);
+
+        // ⑨ 引用树行的右键菜单（权威 `BranchesTree.kt:272` 的弹出组 ＋
+        //    `Tree.java:1112-1130` 的右键选择规则：右键落到未选中行时替换选中集）。
+        const contextMenu = await (async () => {
+          const rightClick = async (kind, name) => {
+            await scene.page.evaluate(({ k, n }) => {
+              const node = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+              if (!node) return;
+              const rect = node.getBoundingClientRect();
+              node.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true,
+                clientX: Math.round(rect.left + 10), clientY: Math.round(rect.bottom),
+              }));
+            }, { k: kind, n: name });
+            await scene.page.waitForTimeout(500);
+          };
+          const menuItems = async () => await scene.page.evaluate(() =>
+            [...document.querySelectorAll('.ref-menu [data-ref-action]')].map((n) => n.dataset.refAction));
+
+          // 单引用：右键**另一行** ⇒ 选中集被替换成该行，菜单是该引用自己的动作组。
+          await clearSelection();
+          await click('branch', 'feature/tracked');
+          await rightClick('branch', 'feature/ux');
+          const single = { picked: await picked(), items: await menuItems() };
+          // `closeLiveOverlay` 是模块作用域的函数（不在 window 上），这里用 Esc 走应用自己的关闭路径。
+          await scene.page.keyboard.press('Escape');
+          await scene.page.waitForTimeout(250);
+
+          // 多选：右键**已在选中集里**的行 ⇒ 保持整个多选，菜单换成多选构成。
+          await clearSelection();
+          await click('branch', 'feature/ux');
+          await click('branch', 'feature/tracked', { ctrl: true });
+          await rightClick('branch', 'feature/ux');
+          const multiple = { picked: await picked(), items: await menuItems() };
+
+          // 多选菜单里的「更新选中分支」⇒ 把选中的受跟踪分支交给宿主。
+          await scene.page.evaluate(() => { window.__fetchParams = []; });
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.ref-menu [data-ref-action="update-selected"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(1200);
+          const fetched = await scene.page.evaluate(() => (window.__fetchParams || []).slice(-1)[0] || null);
+          return { single, multiple, fetched };
+        })();
+
+        // ⑨bis 「比较分支」（权威 `ShowArbitraryBranchesDiffAction`，`BranchesDashboardActions.kt:378-392`）：
+        // 配对来自 `BranchesTreeSelection.selectedBranches`（顺序＝选中顺序）⇒ `compareAny(b1, b2)` →
+        // `GitCompareBranchesUi` 的 `fromRange(b2, b1)`，即范围 **`b2..b1`**。
+        const pairCompare = await (async () => {
+          const rightClick = async (kind, name) => {
+            await scene.page.evaluate(({ k, n }) => {
+              const node = document.querySelector(`.log-ref-panel .tree-row[data-ref-kind="${k}"][data-ref-name="${CSS.escape(n)}"]`);
+              if (!node) return;
+              const rect = node.getBoundingClientRect();
+              node.dispatchEvent(new MouseEvent('contextmenu', {
+                bubbles: true, cancelable: true,
+                clientX: Math.round(rect.left + 10), clientY: Math.round(rect.bottom),
+              }));
+            }, { k: kind, n: name });
+            await scene.page.waitForTimeout(500);
+          };
+          const menu = async () => await scene.page.evaluate(() => {
+            const layer = document.querySelector('.ref-menu');
+            return {
+              items: layer ? [...layer.querySelectorAll('[data-ref-action]')].map((n) => n.dataset.refAction) : [],
+              disabled: layer ? [...layer.querySelectorAll('[data-ref-action-disabled]')].map((n) => ({
+                action: n.dataset.refActionDisabled, reason: n.getAttribute('title') || '',
+              })) : [],
+            };
+          });
+          const closeMenu = async () => { await scene.page.keyboard.press('Escape'); await scene.page.waitForTimeout(250); };
+          const compareView = async () => await scene.page.evaluate(() => {
+            const tab = [...document.querySelectorAll('.bottom-header .tool-tab')]
+              .find((n) => n.classList.contains('active'));
+            const toolbar = document.querySelector('.bottom-tool .history-toolbar');
+            return {
+              title: tab ? tab.textContent.trim() : null,
+              range: toolbar ? (toolbar.querySelector('span') || {}).textContent || null : null,
+            };
+          });
+          const closeCompare = async () => {
+            await scene.page.evaluate(() => {
+              const button = document.querySelector('[data-branch-compare-close="true"]');
+              if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(700);
+          };
+
+          // ① 单选分支：菜单是 `GitSingleRefActions`，**没有**「比较分支」。
+          await clearSelection();
+          await click('branch', 'feature/ux');
+          await rightClick('branch', 'feature/ux');
+          const singleMenu = await menu();
+          await closeMenu();
+
+          // ② 三个分支：`getBranchPair()` 返回 null ⇒「比较分支」**隐藏**（连禁用项都没有）。
+          await clearSelection();
+          await click('branch', 'feature/ux');
+          await click('branch', 'feature/tracked', { ctrl: true });
+          await click('remote', 'origin/dsh', { ctrl: true });
+          await rightClick('branch', 'feature/ux');
+          const threeMenu = await menu();
+          await closeMenu();
+
+          // ③ 两个分支（选中顺序：feature/ux → feature/tracked）⇒ 范围 `feature/tracked..feature/ux`。
+          await clearSelection();
+          await click('branch', 'feature/ux');
+          await click('branch', 'feature/tracked', { ctrl: true });
+          await rightClick('branch', 'feature/ux');
+          const twoMenu = await menu();
+          await resetParams();
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.ref-menu [data-ref-action="compare-branches"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(1200);
+          const pairParams = await lastParams();
+          const pairView = await compareView();
+          await closeCompare();
+
+          // ④ HEAD ＋ 非当前分支（`HeadAndBranchActions`，配对＝该分支与当前分支）⇒ 范围 `dsh..feature/ux`。
+          await clearSelection();
+          await click('head', 'dsh');
+          await click('branch', 'feature/ux', { ctrl: true });
+          await rightClick('branch', 'feature/ux');
+          const headBranchMenu = await menu();
+          await resetParams();
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.ref-menu [data-ref-action="compare-branches"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(1200);
+          const headParams = await lastParams();
+          const headView = await compareView();
+          await closeCompare();
+
+          // ⑤ HEAD ＋ **当前**分支：两个名字相同 ⇒ 禁用并写明原因，且这一组没有「更新选中分支」「删除」。
+          await clearSelection();
+          await click('head', 'dsh');
+          await click('branch', 'dsh', { ctrl: true });
+          await rightClick('branch', 'dsh');
+          const sameMenu = await menu();
+          await closeMenu();
+          await clearSelection();
+          return { singleMenu, threeMenu, twoMenu, pairParams, pairView, headBranchMenu, headParams, headView, sameMenu };
+        })();
+
+        // ⑩ 日期筛选弹层（权威 `DateFilterPopupComponent`：选择期间…／最近 24 小时／最近 7 天）。
+        const dateFilter = await (async () => {
+          const controlState = async () => await scene.page.evaluate(() => {
+            const button = document.querySelector('.history-filters > button[data-filter-key="date"]');
+            return button ? {
+              text: button.textContent.trim(),
+              disabled: button.disabled === true,
+              icon: (button.querySelector('svg') || {}).getAttribute
+                ? button.querySelector('svg').getAttribute('data-augit-icon') : null,
+            } : null;
+          });
+          const menuItems = async () => await scene.page.evaluate(() =>
+            [...document.querySelectorAll('.history-date-menu .menu-item')].map((n) => ({
+              text: n.textContent.trim(),
+              action: n.dataset.historyDate || null,
+              disabled: n.getAttribute('aria-disabled') === 'true',
+              reason: n.getAttribute('title') || '',
+            })));
+          const resetFilter = async () => {
+            await scene.page.evaluate(() => {
+              if (window.__augitLive) window.__augitLive.historyFilter = {};
+            });
+            await scene.page.waitForTimeout(200);
+          };
+
+          await resetFilter();
+          const before = await controlState();
+          await resetParams();
+          await clickControl('date');
+          const opened = { items: await menuItems() };
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.history-date-menu [data-history-date="last-week"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(900);
+          const applied = { params: await lastParams(), control: await controlState() };
+          // 关闭叉复位（权威 `FilterComponent.createResetAction()`）。
+          await resetParams();
+          await clickControl('date');
+          const cleared = { params: await lastParams(), control: await controlState() };
+          // 「选择期间…」对话框（权威 `DateFilterComponent`：起始/结束 ＋ 确定 → `fromDates(after, before)`）。
+          const range = await (async () => {
+            await scene.page.evaluate(() => { if (window.__augitLive) window.__augitLive.historyFilter = {}; });
+            await clickControl('date');
+            await scene.page.waitForTimeout(400);
+            await scene.page.evaluate(() => {
+              const item = document.querySelector('.history-date-menu [data-history-date="select"]');
+              if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(600);
+            const opened = await scene.page.evaluate(() => {
+              const layer = document.querySelector('.history-date-range-window');
+              return layer ? {
+                open: true,
+                title: (layer.querySelector('.dialog') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
+                fields: [...layer.querySelectorAll('[data-history-date-field]')].map((n) => n.dataset.historyDateField),
+              } : { open: false, title: '', fields: [] };
+            });
+            // 两端都空 ⇒ 不设筛选（权威 `if (after != null || before != null)`）。
+            await resetParams();
+            await scene.page.evaluate(() => {
+              const button = document.querySelector('.history-date-range-window [data-history-date-range="confirm"]');
+              if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(700);
+            const emptyConfirm = { params: await lastParams(), dialogOpen: await scene.page.evaluate(() => !!document.querySelector('.history-date-range-window')) };
+            // 填两端 ⇒ since/until 都送宿主，控件显示区间。
+            await clickControl('date');
+            await scene.page.waitForTimeout(400);
+            await scene.page.evaluate(() => {
+              const item = document.querySelector('.history-date-menu [data-history-date="select"]');
+              if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(600);
+            await scene.page.evaluate(() => {
+              const set = (name, value) => {
+                const input = document.querySelector(`.history-date-range-window [data-history-date-field="${name}"]`);
+                if (input) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+              };
+              set('since', '2026-09-01');
+              set('until', '2026-09-30');
+            });
+            await resetParams();
+            await scene.page.evaluate(() => {
+              const button = document.querySelector('.history-date-range-window [data-history-date-range="confirm"]');
+              if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(900);
+            const applied = { params: await lastParams(), control: await controlState() };
+            await scene.page.evaluate(() => { if (window.__augitLive) window.__augitLive.historyFilter = {}; });
+            return { opened, emptyConfirm, applied };
+          })();
+
+          await resetFilter();
+          return { before, opened, applied, cleared, range };
+        })();
+
+        // ⑪ 用户弹层（权威 `UserFilterPopupComponent`：复选列表 ＋ 全选/全不选）。
+        const userFilter = await (async () => {
+          await scene.page.evaluate(() => {
+            if (window.__augitLive) { window.__augitLive.historyFilter = {}; window.__augitLive.historyAuthors = null; }
+          });
+          await scene.page.waitForTimeout(200);
+          const userControl = async () => await scene.page.evaluate(() => {
+            const button = document.querySelector('.history-filters > button[data-filter-key="user"]');
+            return button ? { text: button.textContent.trim(), disabled: button.disabled === true,
+              icon: (button.querySelector('svg') || {}).getAttribute ? button.querySelector('svg').getAttribute('data-augit-icon') : null } : null;
+          });
+          const before = await userControl();
+          await scene.page.evaluate(() => { window.__authorsCalls = 0; });
+          await clickControl('user');
+          await scene.page.waitForTimeout(900);
+          const opened = await scene.page.evaluate(() => ({
+            calls: window.__authorsCalls || 0,
+            items: [...document.querySelectorAll('.history-user-filter-menu .menu-item')].map((n) => ({
+              text: n.textContent.trim(),
+              action: n.dataset.historyUser || null,
+              checked: n.getAttribute('aria-checked') === 'true',
+            })),
+          }));
+          // 搜索框（权威 `MultipleValueFilterPopupComponent` 列表顶部的搜索框）：就地过滤列表行。
+          const search = await (async () => {
+            const field = scene.page.locator('.history-user-filter-menu [aria-label="搜索用户"]');
+            const visible = async () => await scene.page.evaluate(() =>
+              [...document.querySelectorAll('.history-user-filter-menu [data-history-user]')]
+                .filter((node) => !node.hidden).map((node) => node.dataset.historyUser));
+            const initial = await scene.page.evaluate(() => {
+              const input = document.querySelector('.history-user-filter-menu [aria-label="搜索用户"]');
+              return input ? input.value : null;
+            });
+            await field.fill('m22');
+            await scene.page.waitForTimeout(400);
+            const filtered = await visible();
+            await field.fill('');
+            await scene.page.waitForTimeout(300);
+            const restored = await visible();
+            return { present: initial !== null, initial, filtered, restored };
+          })();
+          await resetParams();
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.history-user-filter-menu [data-history-user="l49@example.invalid"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(900);
+          const picked = { params: await lastParams(), control: await userControl() };
+          await resetParams();
+          await clickControl('user');
+          await scene.page.waitForTimeout(600);
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.history-user-filter-menu [data-history-user-none]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(900);
+          const cleared = { params: await lastParams(), control: await userControl() };
+          await scene.page.evaluate(() => { if (window.__augitLive) window.__augitLive.historyFilter = {}; });
+          return { before, opened, search, picked, cleared };
+        })();
+
+        // ⑫ 路径弹层（权威 `StructureFilterPopupComponent`：选择…／在树中选择…／最近）。
+        const pathFilter = await (async () => {
+          const pathControl = async () => await scene.page.evaluate(() => {
+            const button = document.querySelector('.history-filters > button[data-filter-key="path"]');
+            return button ? {
+              text: button.textContent.trim(),
+              disabled: button.disabled === true,
+              title: button.getAttribute('title') || '',
+              icon: (button.querySelector('svg') || {}).getAttribute
+                ? button.querySelector('svg').getAttribute('data-augit-icon') : null,
+            } : null;
+          });
+          const menuItems = async () => await scene.page.evaluate(() =>
+            [...document.querySelectorAll('.history-path-menu .menu-item')].map((n) => ({
+              text: n.textContent.trim(),
+              action: n.dataset.logPathAction || null,
+              recent: n.dataset.logPathRecent || null,
+              checked: n.getAttribute('aria-checked') === 'true',
+            })));
+          const resetFilter = async () => {
+            await scene.page.evaluate(() => { if (window.__augitLive) window.__augitLive.historyFilter = {}; });
+            await scene.page.waitForTimeout(200);
+          };
+
+          await resetFilter();
+          const before = await pathControl();
+
+          // 「选择…」＝权威 `EditPathsAction` 的多行文本框（`\n` 分隔）。
+          await resetParams();
+          await clickControl('path');
+          const opened = { items: await menuItems() };
+          await scene.page.evaluate(() => {
+            const item = document.querySelector('.history-path-menu [data-log-path-action="select"]');
+            if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(500);
+          const textDialog = await scene.page.evaluate(() => {
+            const layer = document.querySelector('.history-path-text-window');
+            return layer ? {
+              open: true,
+              title: (layer.querySelector('.dialog') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
+              field: !!layer.querySelector('[data-log-path-field]'),
+              help: (layer.querySelector('.footer-help') || {}).textContent || '',
+            } : { open: false, title: '', field: false, help: '' };
+          });
+          await scene.page.evaluate(() => {
+            const field = document.querySelector('.history-path-text-window [data-log-path-field]');
+            if (field) { field.value = 'docs\nREADME.md'; field.dispatchEvent(new Event('input', { bubbles: true })); }
+          });
+          await resetParams();
+          await scene.page.evaluate(() => {
+            const button = document.querySelector('.history-path-text-window [data-log-path-text="confirm"]');
+            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          });
+          await scene.page.waitForTimeout(900);
+          const applied = { params: await lastParams(), control: await pathControl() };
+
+          // 关闭叉复位（权威 `FilterComponent.createResetAction()`：设了值时点控件即复位，弹层不会打开）。
+          await resetParams();
+          await clickControl('path');
+          const cleared = { params: await lastParams(), control: await pathControl() };
+
+          // 复位后再点开弹层：「最近」里出现刚用过的整组（权威 `SelectFromHistoryAction`，勾选态＝当前筛选）。
+          await clickControl('path');
+          const recent = await menuItems();
+          await scene.page.keyboard.press('Escape');
+          await scene.page.waitForTimeout(250);
+
+          // 「在树中选择…」＝权威 `SelectPathsInTreeAction` → `VcsStructureChooser`：
+          // 标题 "Select Paths to Filter by"、复选行、底栏 "Selected: {0}"、没勾时确定禁用。
+          const tree = await (async () => {
+            await scene.page.evaluate(() => { if (window.__augitLive) window.__augitLive.historyFilter = {}; });
+            await clickControl('path');
+            await scene.page.waitForTimeout(400);
+            await scene.page.evaluate(() => {
+              const item = document.querySelector('.history-path-menu [data-log-path-action="tree"]');
+              if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(600);
+            const readDialog = async () => await scene.page.evaluate(() => {
+              const layer = document.querySelector('.history-path-tree-window');
+              if (!layer) return { open: false };
+              const confirm = layer.querySelector('[data-log-path-tree="confirm"]');
+              return {
+                open: true,
+                title: (layer.querySelector('.dialog') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
+                rows: [...layer.querySelectorAll('[data-log-path-row]')].map((n) => n.dataset.logPathRow),
+                help: (layer.querySelector('.footer-help') || {}).textContent || '',
+                confirmDisabled: confirm ? confirm.disabled === true : null,
+              };
+            });
+            const opened = await readDialog();
+            // 勾两行 ⇒ 底栏计数变化、确定解禁。
+            await scene.page.evaluate(() => {
+              for (const path of ['docs', 'src']) {
+                const row = document.querySelector(`.history-path-tree-window [data-log-path-row="${path}"]`);
+                if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+              }
+            });
+            await scene.page.waitForTimeout(300);
+            const checked = await readDialog();
+            await resetParams();
+            await scene.page.evaluate(() => {
+              const button = document.querySelector('.history-path-tree-window [data-log-path-tree="confirm"]');
+              if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            });
+            await scene.page.waitForTimeout(900);
+            const applied = { params: await lastParams(), control: await pathControl() };
+            await resetFilter();
+            return { opened, checked, applied };
+          })();
+
+          // 值文本的长度规则：权威 `FILTER_LABEL_LENGTH` = 30（`shortenPathWithEllipsis`：前 6 ＋ "..." ＋ 后 21），
+          // 且**不**再套用户/分支弹层的 `MAX_FILTER_VALUE_LENGTH` = 20 二次截断。
+          const longValue = await (async () => {
+            await scene.page.evaluate(() => {
+              window.__augitLive.historyFilter = { paths: ['docs/very/long/directory/name/deep/nested/file-name.txt'] };
+              window.__augitRender();
+            });
+            await scene.page.waitForTimeout(300);
+            const text = await scene.page.evaluate(() => {
+              const button = document.querySelector('.history-filters > button[data-filter-key="path"]');
+              return button ? button.textContent.trim() : null;
+            });
+            await resetFilter();
+            return text;
+          })();
+
+          await resetFilter();
+          return { before, opened, textDialog, applied, recent, cleared, tree, longValue };
+        })();
+
+        await clearSelection();
+        return { none, single, replaced, added, removed, withCurrent, withTag, range, keyRange, spaceToggled, enterBranches, confirm, deleteCall, contextMenu, pairCompare, dateFilter, userFilter, pathFilter };
+      })();
+
+      await scene.page.close();
+      console.log('INFO 日志筛选=' + JSON.stringify({ controls, initialSubjects, afterDoubleClick, afterText, afterHash, afterClearText, branchMenu, afterBranchPick, emptyState, afterReset, afterEnter, afterTagDoubleClick, selectionModes, branchComparison, myBranches, multiSelect }));
+      return { controls, initialSubjects, afterDoubleClick, afterText, afterHash, afterClearText, branchMenu, afterBranchPick, emptyState, afterReset, afterEnter, afterTagDoubleClick, selectionModes, branchComparison, myBranches, multiSelect };
+    })();
+    // 权威 `FilterComponent.initUi()`：未设值时是"名称 ＋ 向下箭头"，设了值换成"名称: 值 ＋ 关闭叉"。
+    // Augit 侧只有「分支」已接线，其余三项按 ux-spec §7.8 的口径**禁用并写明原因**（不再保留"改占位符"的假交互）。
+    // 第 185 轮把**日期**也接上了（权威 `DateFilterPopupComponent`）⇒ 仍未接线的是用户与路径两项。
+    check('§7.8 筛选栏四项全部接线：＝名称＋向下箭头（未接线项清零，第 191 轮）: ' + JSON.stringify(historyFilters.controls),
+      historyFilters.controls.branch.disabled === false && historyFilters.controls.branch.text === '分支'
+        && historyFilters.controls.branch.icon === 'chevron-down'
+        && historyFilters.controls.date.disabled === false && historyFilters.controls.date.text === '日期'
+        && historyFilters.controls.user.disabled === false && historyFilters.controls.user.text === '用户'
+        && historyFilters.controls.path.disabled === false && historyFilters.controls.path.text === '路径'
+        && historyFilters.controls.path.icon === 'chevron-down');
+    check('§7.8 双击分支行把日志筛选到该分支（宿主收到 branch 且提交列表只剩它的提交）: '
+      + JSON.stringify([historyFilters.afterDoubleClick.params, historyFilters.afterDoubleClick.subjects]),
+      historyFilters.afterDoubleClick.params && historyFilters.afterDoubleClick.params.branch === 'feature/ux'
+        && historyFilters.afterDoubleClick.subjects.length === 0
+        && historyFilters.initialSubjects.length === 3);
+    check('§7.8 设了值的筛选控件显示"名称: 值"并把右侧换成关闭叉，点它复位: '
+      + JSON.stringify([historyFilters.afterDoubleClick.control, historyFilters.afterReset.control]),
+      historyFilters.afterDoubleClick.control.text === '分支: feature/ux'
+        && historyFilters.afterDoubleClick.control.icon === 'x'
+        && historyFilters.afterReset.control.text === '分支'
+        && historyFilters.afterReset.control.icon === 'chevron-down'
+        && historyFilters.afterReset.subjects.length === 3);
+    // 权威 `TextFilterModel.setFilterText()`（`TextFilterModel.kt:96-103`）在像哈希时**同时**挂上
+    // 文本筛选与哈希筛选（`collection(createTextFilter(text), fromHash(text))`）：哈希命中就短路，
+    // 一条没命中则落回文本筛选，所以 `message` 必须与 `hash` 一起送（第 179 轮按权威改。
+    // 旧断言只允许 `hash`，是"哈希 ⇒ 只当 revision 用"的旧口径）。
+    check('§7.8 文本或哈希输入回车执行：文本走 message、像哈希时 message 与 hash 一起送、清空则两者都清掉: '
+      + JSON.stringify([historyFilters.afterText, historyFilters.afterHash, historyFilters.afterClearText]),
+      historyFilters.afterText.params.message === '真实提交二' && historyFilters.afterText.params.hash === undefined
+        && historyFilters.afterText.subjects.length === 1
+        && historyFilters.afterHash.params.hash === 'bbb2222' && historyFilters.afterHash.params.message === 'bbb2222'
+        && historyFilters.afterHash.subjects.length === 1
+        && historyFilters.afterClearText.params.message === undefined
+        && historyFilters.afterClearText.params.hash === undefined
+        && historyFilters.afterClearText.subjects.length === 3);
+    check('§7.8 「分支」控件的弹层＝All ＋ HEAD ＋ 本地/远程，选中项打勾: ' + JSON.stringify(historyFilters.branchMenu),
+      historyFilters.branchMenu.open === true
+        && historyFilters.branchMenu.items.some((i) => i.value === '' && i.text.includes('全部'))
+        && historyFilters.branchMenu.items.some((i) => i.value === 'HEAD')
+        && historyFilters.branchMenu.items.some((i) => i.value === 'feature/ux')
+        && historyFilters.branchMenu.items.filter((i) => i.checked).length === 1);
+    check('§7.8 筛不到提交时显示"没有匹配筛选的提交"并能就地重置（权威 vcs.log.no.commits.matching.status）: '
+      + JSON.stringify([historyFilters.emptyState, historyFilters.afterReset.params]),
+      historyFilters.emptyState.text !== null && historyFilters.emptyState.text.includes('没有匹配筛选的提交')
+        && historyFilters.emptyState.resetButton === true
+        && historyFilters.afterReset.params.branch === undefined);
+    check('§7.8 回车与双击同义；标签行不产生分支筛选（权威 selectedBranchFilters 只收分支与 HEAD）: '
+      + JSON.stringify([historyFilters.afterEnter.params, historyFilters.afterTagDoubleClick.params]),
+      historyFilters.afterEnter.params && historyFilters.afterEnter.params.branch === 'feature/ux'
+        // 标签行给不出筛选值 ⇒ 权威里 `UpdateBranchFilterInLogAction` 此刻是禁用的，
+        // 因此双击标签**一次 `git/history` 都不该发起**（清空计数后仍为空 ⇒ lastParams() 为 null）。
+        && historyFilters.afterTagDoubleClick.params === null
+        && historyFilters.afterTagDoubleClick.subjects.length === historyFilters.initialSubjects.length);
+    check('§7.8 设置里「单击时」是互斥单选：开「更新分支筛选」后单击即筛选，换「导航到分支头」后单击不再改筛选: '
+      + JSON.stringify(historyFilters.selectionModes),
+      historyFilters.selectionModes.menuItems.map((i) => i.key).join(',') === 'filter,navigate'
+        && historyFilters.selectionModes.menuItems.every((i) => i.checked === false)
+        && historyFilters.selectionModes.filterMode.params
+        && historyFilters.selectionModes.filterMode.params.branch === 'feature/ux'
+        && historyFilters.selectionModes.navigateMode.action === 'navigate'
+        && historyFilters.selectionModes.toggledOff.action === null);
+
+    // ---- 第 180 轮：「与当前分支比较」= 按范围过滤的日志（`20-branches-host-batch.md` §7 第 3 步）----
+    check('§7.8 「与当前分支比较」按权威启停：选当前分支禁用、选非当前分支可用: '
+      + JSON.stringify([historyFilters.branchComparison.currentSelected, historyFilters.branchComparison.nonCurrentSelected]),
+      historyFilters.branchComparison.currentSelected.disabled === true
+        && historyFilters.branchComparison.currentSelected.title.includes('当前分支')
+        && historyFilters.branchComparison.nonCurrentSelected.disabled === false);
+    check('§7.8 「与当前分支比较」打开的是**范围过滤的日志**：标签"比较: <分支> 与 <当前>"、范围文本 <当前>..<分支>、宿主收到 rangeExclusive/rangeInclusive: '
+      + JSON.stringify([historyFilters.branchComparison.opened, historyFilters.branchComparison.params]),
+      historyFilters.branchComparison.opened.tabs.join(',') === '日志,比较: feature/ux 与 dsh'
+        && historyFilters.branchComparison.opened.range.includes('dsh..feature/ux')
+        && historyFilters.branchComparison.opened.rows.length === 2
+        && historyFilters.branchComparison.opened.rows[0].includes('feat: 分支独有一')
+        && historyFilters.branchComparison.opened.logVisible === false
+        && historyFilters.branchComparison.opened.bottom === 'branch-compare'
+        && historyFilters.branchComparison.params
+        && historyFilters.branchComparison.params.rangeExclusive === 'dsh'
+        && historyFilters.branchComparison.params.rangeInclusive === 'feature/ux');
+    check('§7.8 比较范围内没有独有提交时如实说明，点「日志」标签回到进入前的底部上下文: '
+      + JSON.stringify([historyFilters.branchComparison.empty, historyFilters.branchComparison.closed]),
+      typeof historyFilters.branchComparison.empty === 'string'
+        && historyFilters.branchComparison.empty.includes('没有独有提交')
+        && historyFilters.branchComparison.closed.logVisible === true
+        && historyFilters.branchComparison.closed.compare === null
+        && historyFilters.branchComparison.closed.bottom === 'git');
+
+    // ---- 第 181 轮：「我的分支」（会话内过滤）与「显示标签」持久化（`20-branches-host-batch.md` §7 第 4 步）----
+    check('§7.8 「我的分支」是会话内开关：按下后引用树只剩我的分支＋HEAD 行、标签一并过滤（权威 showOnlyMy）: '
+      + JSON.stringify([historyFilters.myBranches.before, historyFilters.myBranches.on]),
+      historyFilters.myBranches.before.state.pressed === null
+        && historyFilters.myBranches.on.state.disabled === false
+        && historyFilters.myBranches.on.state.pressed === 'true'
+        && historyFilters.myBranches.on.calls === 1
+        && historyFilters.myBranches.on.tree.branchNames.join(',') === 'feature/ux'
+        && historyFilters.myBranches.on.tree.headKept === true
+        && historyFilters.myBranches.on.tree.tags === false);
+    // 第 194 轮：ToggleAction 的**选中**态底 = `ActionButton.pressedBackground`（`--augit-pressed`）。
+    // 权威 `ActionButton.getPopState()`：`return getPopState(isSelected())`，而 `isPushed` 为真就直接返回
+    // PUSHED（`ActionButton.java:221-222,626-639`）；`ActionButtonLook.getStateBackground()` 的 PUSHED 分支
+    // 取 `ActionButton.pressedBackground()`（ManyIslands 的 `toolbar-bg-pressed` = `#00000020`／`#ffffff26`）。
+    // 悬停不改色：`getPopState` 的第一个条件就是选中态。未选中（NORMAL）不画底。
+    check('§7.8 竖条 ToggleAction 选中态底取 ActionButton.pressedBackground（未选中不画底）: '
+      + JSON.stringify([historyFilters.myBranches.before.state, historyFilters.myBranches.on.state,
+        historyFilters.myBranches.off.state]),
+      historyFilters.myBranches.before.state.background === 'rgba(0, 0, 0, 0)'
+        && historyFilters.myBranches.on.state.background === 'rgba(255, 255, 255, 0.15)'
+        && historyFilters.myBranches.off.state.background === 'rgba(0, 0, 0, 0)');
+    check('§7.8 关掉「我的分支」恢复完整引用树与标签组: '
+      + JSON.stringify([historyFilters.myBranches.off.state, historyFilters.myBranches.off.tree]),
+      historyFilters.myBranches.off.state.pressed === null
+        && historyFilters.myBranches.off.tree.branchNames.join(',') === 'dsh,feature/tracked,feature/ux,origin/dsh'
+        && historyFilters.myBranches.off.tree.tags === true);
+    check('§7.8 没有任何"我的分支"时如实说明且 HEAD 行仍在: '
+      + JSON.stringify(historyFilters.myBranches.empty.tree),
+      historyFilters.myBranches.empty.tree.branchNames.length === 0
+        && historyFilters.myBranches.empty.tree.headKept === true
+        && historyFilters.myBranches.empty.tree.text.includes('没有只属于'));
+    check('§7.8 「显示标签」写回设置文件（权威 GitVcsSettings；Augit 为应用级设置文件，登记差异）: '
+      + JSON.stringify([historyFilters.myBranches.tagsOff, historyFilters.myBranches.tagsOn]),
+      historyFilters.myBranches.tagsOff === false && historyFilters.myBranches.tagsOn === true);
+
+    // ---- 第 183 轮：引用树多选（权威 `Tree.java:141,291` 的 `DISCONTIGUOUS_TREE_SELECTION`）----
+    check('§7.8 普通单击**替换**选中集（不是追加），清空后删除禁用: '
+      + JSON.stringify([historyFilters.multiSelect.none, historyFilters.multiSelect.single, historyFilters.multiSelect.replaced]),
+      historyFilters.multiSelect.none.picked.length === 0
+        && historyFilters.multiSelect.none.del.disabled === true
+        && historyFilters.multiSelect.single.picked.join(',') === 'branch:feature/ux'
+        && historyFilters.multiSelect.replaced.picked.join(',') === 'branch:feature/tracked');
+    check('§7.8 Ctrl+单击**切换**该行：加上去再点掉，且动作按整个选中集启停: '
+      + JSON.stringify([historyFilters.multiSelect.added, historyFilters.multiSelect.removed]),
+      historyFilters.multiSelect.added.picked.join(',') === 'branch:feature/tracked,branch:feature/ux'
+        && historyFilters.multiSelect.added.update.disabled === false
+        && historyFilters.multiSelect.added.diff.disabled === false
+        && historyFilters.multiSelect.removed.picked.join(',') === 'branch:feature/tracked');
+    check('§7.8 选中集里混进**当前分支** ⇒ 删除整体禁用并写明原因（权威 refs.none { it.isCurrent }）: '
+      + JSON.stringify(historyFilters.multiSelect.withCurrent),
+      historyFilters.multiSelect.withCurrent.picked.length === 3
+        && historyFilters.multiSelect.withCurrent.del.disabled === true
+        && historyFilters.multiSelect.withCurrent.del.title.includes('当前'));
+    check('§7.8 删除文案随选中集：全是分支＝「删除分支…」，混进标签＝「删除」（权威 allRefsAreBranches）: '
+      + JSON.stringify([historyFilters.multiSelect.replaced.del, historyFilters.multiSelect.withTag.del]),
+      historyFilters.multiSelect.replaced.del.label === '删除分支…'
+        && historyFilters.multiSelect.withTag.del.label === '删除'
+        && historyFilters.multiSelect.withTag.del.disabled === false
+        && historyFilters.multiSelect.withTag.picked.length === 2);
+    check('§7.8 Shift+单击与 Shift+方向键都从锚点**扩展区间**；空格切换该行: '
+      + JSON.stringify([historyFilters.multiSelect.range, historyFilters.multiSelect.keyRange, historyFilters.multiSelect.spaceToggled]),
+      historyFilters.multiSelect.range.picked.join(',') === 'branch:feature/ux,remote:origin/dsh'
+        && historyFilters.multiSelect.keyRange.picked.join(',') === 'branch:feature/ux,remote:origin/dsh'
+        && historyFilters.multiSelect.spaceToggled.picked.join(',') === 'branch:feature/ux');
+    check('§7.8 ENTER 把**整个选中集**交给日志筛选（宿主收到 branches 数组）: '
+      + JSON.stringify(historyFilters.multiSelect.enterBranches),
+      !!historyFilters.multiSelect.enterBranches
+        && historyFilters.multiSelect.enterBranches.branch === undefined
+        && Array.isArray(historyFilters.multiSelect.enterBranches.branches)
+        && historyFilters.multiSelect.enterBranches.branches.join(',') === 'feature/tracked,feature/ux');
+    check('§7.8 竖条删除把整个选中集一次交给 git/branch 的 names: '
+      + JSON.stringify([historyFilters.multiSelect.confirm, historyFilters.multiSelect.deleteCall]),
+      historyFilters.multiSelect.confirm.open === true
+        && historyFilters.multiSelect.confirm.targets.map((item) => item.name).join(',') === 'feature/ux,feature/tracked'
+        && !!historyFilters.multiSelect.deleteCall
+        && historyFilters.multiSelect.deleteCall.action === 'delete'
+        && historyFilters.multiSelect.deleteCall.force === false
+        && Array.isArray(historyFilters.multiSelect.deleteCall.names)
+        && historyFilters.multiSelect.deleteCall.names.join(',') === 'feature/ux,feature/tracked');
+
+    check('§7.8 引用树行右键：右键未选中的行先把选中集**替换**成它，并弹出该引用自己的菜单: '
+      + JSON.stringify(historyFilters.multiSelect.contextMenu.single),
+      historyFilters.multiSelect.contextMenu.single.picked.join(',') === 'branch:feature/ux'
+        && ['checkout', 'compare', 'rename', 'delete']
+          .every((action) => historyFilters.multiSelect.contextMenu.single.items.includes(action)));
+    check('§7.8 多选时右键已在选中集里的行保持整个多选，菜单换成多选构成（无检出/重命名）: '
+      + JSON.stringify(historyFilters.multiSelect.contextMenu.multiple),
+      historyFilters.multiSelect.contextMenu.multiple.picked.join(',') === 'branch:feature/tracked,branch:feature/ux'
+        // 第 193 轮照权威 `MultipleLocalBranchActions` 改成「比较分支／显示文件差异／更新选中分支／删除分支」
+        // 的顺序（Augit 没有整树变更对话框 ⇒ 跳过「显示文件差异」；权威这一组里**没有**「与当前分支比较」）。
+        && historyFilters.multiSelect.contextMenu.multiple.items.join(',') === 'compare-branches,update-selected,delete');
+    check('§7.8 多选菜单的「更新选中分支」把选中的受跟踪分支交给宿主: '
+      + JSON.stringify(historyFilters.multiSelect.contextMenu.fetched),
+      !!historyFilters.multiSelect.contextMenu.fetched
+        && historyFilters.multiSelect.contextMenu.fetched.branch === 'feature/tracked');
+
+    // ---- 第 193 轮：「比较分支」（权威 `ShowArbitraryBranchesDiffAction`）----
+    // 选中集构成决定动作组（`BranchActionsBuilder.build()`，`BranchesDashboardActions.kt:100-121`）：
+    // 单选 ⇒ `GitSingleRefActions`（没有「比较分支」）；3 个及以上分支 ⇒ `getBranchPair()` 返回 null（隐藏）；
+    // 恰好两个 ⇒ 出现；1 分支 + HEAD ⇒ 只有两个比较动作、且配对是（该分支, 当前分支）。
+    check('§7.8 「比较分支」只在恰好两个分支（或 1 分支＋HEAD）时出现：单选与三选都没有: '
+      + JSON.stringify([historyFilters.multiSelect.pairCompare.singleMenu, historyFilters.multiSelect.pairCompare.threeMenu,
+        historyFilters.multiSelect.pairCompare.twoMenu]),
+      historyFilters.multiSelect.pairCompare.singleMenu.items.includes('compare')
+        && !historyFilters.multiSelect.pairCompare.singleMenu.items.includes('compare-branches')
+        && historyFilters.multiSelect.pairCompare.threeMenu.items.join(',') === 'update-selected,delete'
+        && historyFilters.multiSelect.pairCompare.threeMenu.disabled.length === 0
+        && historyFilters.multiSelect.pairCompare.twoMenu.items.join(',') === 'compare-branches,update-selected,delete');
+    // 权威 `compareAny(b1, b2)` → `GitCompareBranchesUi` 的 `fromRange(b2, b1)`：范围 `b2..b1`（顺序＝选中顺序）。
+    check('§7.8 「比较分支」按选中顺序比较：宿主收到 rangeExclusive=第二个、rangeInclusive=第一个: '
+      + JSON.stringify([historyFilters.multiSelect.pairCompare.pairParams, historyFilters.multiSelect.pairCompare.pairView]),
+      !!historyFilters.multiSelect.pairCompare.pairParams
+        && historyFilters.multiSelect.pairCompare.pairParams.rangeExclusive === 'feature/tracked'
+        && historyFilters.multiSelect.pairCompare.pairParams.rangeInclusive === 'feature/ux'
+        && historyFilters.multiSelect.pairCompare.pairView.title === '比较: feature/ux 与 feature/tracked'
+        && historyFilters.multiSelect.pairCompare.pairView.range === 'feature/tracked..feature/ux');
+    check('§7.8 HEAD＋分支：这一组只有比较动作，配对是（该分支, 当前分支），HEAD＋当前分支时禁用并写明原因: '
+      + JSON.stringify([historyFilters.multiSelect.pairCompare.headBranchMenu, historyFilters.multiSelect.pairCompare.headParams,
+        historyFilters.multiSelect.pairCompare.sameMenu]),
+      historyFilters.multiSelect.pairCompare.headBranchMenu.items.join(',') === 'compare-branches'
+        && historyFilters.multiSelect.pairCompare.headBranchMenu.disabled.length === 0
+        && !!historyFilters.multiSelect.pairCompare.headParams
+        && historyFilters.multiSelect.pairCompare.headParams.rangeExclusive === 'dsh'
+        && historyFilters.multiSelect.pairCompare.headParams.rangeInclusive === 'feature/ux'
+        && historyFilters.multiSelect.pairCompare.sameMenu.items.length === 0
+        && historyFilters.multiSelect.pairCompare.sameMenu.disabled.some((item) => item.action === 'compare-branches' && item.reason.length > 0));
+
+    check('§7.8 日期筛选已接线：未设值时是名称＋箭头，弹层三项都可点（选择期间…／最近 24 小时／最近 7 天）: '
+      + JSON.stringify([historyFilters.multiSelect.dateFilter.before, historyFilters.multiSelect.dateFilter.opened]),
+      historyFilters.multiSelect.dateFilter.before.disabled === false
+        && historyFilters.multiSelect.dateFilter.before.text === '日期'
+        && historyFilters.multiSelect.dateFilter.before.icon === 'chevron-down'
+        && historyFilters.multiSelect.dateFilter.opened.items.map((item) => item.action).join(',') === 'select,last-day,last-week'
+        && historyFilters.multiSelect.dateFilter.opened.items[0].disabled === false
+        && historyFilters.multiSelect.dateFilter.opened.items[1].disabled === false
+        && historyFilters.multiSelect.dateFilter.opened.items[2].disabled === false);
+    check('§7.8 选「最近 7 天」⇒ 宿主收到 since（无 until），控件显示「日期: 自从 …」: '
+      + JSON.stringify(historyFilters.multiSelect.dateFilter.applied),
+      !!historyFilters.multiSelect.dateFilter.applied.params
+        && typeof historyFilters.multiSelect.dateFilter.applied.params.since === 'string'
+        && historyFilters.multiSelect.dateFilter.applied.params.until === undefined
+        && Math.abs(Date.now() - Date.parse(historyFilters.multiSelect.dateFilter.applied.params.since) - 7 * 24 * 60 * 60 * 1000) < 120000
+        && historyFilters.multiSelect.dateFilter.applied.control.text.startsWith('日期: 自从')
+        && historyFilters.multiSelect.dateFilter.applied.control.icon === 'x');
+    check('§7.8 日期控件的关闭叉清掉 since/until: '
+      + JSON.stringify(historyFilters.multiSelect.dateFilter.cleared),
+      historyFilters.multiSelect.dateFilter.cleared.params
+        && historyFilters.multiSelect.dateFilter.cleared.params.since === undefined
+        && historyFilters.multiSelect.dateFilter.cleared.params.until === undefined
+        && historyFilters.multiSelect.dateFilter.cleared.control.text === '日期');
+    check('§7.8 「选择期间…」打开期间对话框（起始/结束两字段），两端都空时确定不设筛选: '
+      + JSON.stringify([historyFilters.multiSelect.dateFilter.range.opened, historyFilters.multiSelect.dateFilter.range.emptyConfirm]),
+      historyFilters.multiSelect.dateFilter.range.opened.open === true
+        && historyFilters.multiSelect.dateFilter.range.opened.title.includes('选择期间')
+        && historyFilters.multiSelect.dateFilter.range.opened.fields.join(',') === 'since,until'
+        && (!historyFilters.multiSelect.dateFilter.range.emptyConfirm.params
+          || (historyFilters.multiSelect.dateFilter.range.emptyConfirm.params.since === undefined
+            && historyFilters.multiSelect.dateFilter.range.emptyConfirm.params.until === undefined))
+        && historyFilters.multiSelect.dateFilter.range.emptyConfirm.dialogOpen === false);
+    check('§7.8 期间对话框填两端 ⇒ 宿主收到 since/until，控件显示「日期: <起>-<止>」: '
+      + JSON.stringify(historyFilters.multiSelect.dateFilter.range.applied),
+      !!historyFilters.multiSelect.dateFilter.range.applied.params
+        && typeof historyFilters.multiSelect.dateFilter.range.applied.params.since === 'string'
+        && typeof historyFilters.multiSelect.dateFilter.range.applied.params.until === 'string'
+        && historyFilters.multiSelect.dateFilter.range.applied.control.text.startsWith('日期: 2026/09/01'));
+    check('§7.8 用户筛选已接线：点开读 git/authors，弹层＝全选／全不选＋作者复选行: '
+      + JSON.stringify([historyFilters.multiSelect.userFilter.before, historyFilters.multiSelect.userFilter.opened]),
+      historyFilters.multiSelect.userFilter.before.disabled === false
+        && historyFilters.multiSelect.userFilter.before.text === '用户'
+        && historyFilters.multiSelect.userFilter.opened.calls === 1
+        && historyFilters.multiSelect.userFilter.opened.items.length === 4
+        && historyFilters.multiSelect.userFilter.opened.items.some((item) => item.action === 'l49@example.invalid' && item.checked === false));
+    check('§7.8 勾选一个用户 ⇒ 宿主收到 authors 数组，控件显示已选用户: '
+      + JSON.stringify(historyFilters.multiSelect.userFilter.picked),
+      !!historyFilters.multiSelect.userFilter.picked.params
+        && Array.isArray(historyFilters.multiSelect.userFilter.picked.params.authors)
+        && historyFilters.multiSelect.userFilter.picked.params.authors.join(',') === 'l49@example.invalid'
+        && historyFilters.multiSelect.userFilter.picked.control.text === '用户: l49@example.invalid'
+        && historyFilters.multiSelect.userFilter.picked.control.icon === 'x');
+    check('§7.8 「全不选」清掉 authors，控件回到「用户」: '
+      + JSON.stringify(historyFilters.multiSelect.userFilter.cleared),
+      historyFilters.multiSelect.userFilter.cleared.params
+        && historyFilters.multiSelect.userFilter.cleared.params.authors === undefined
+        && historyFilters.multiSelect.userFilter.cleared.control.text === '用户');
+    check('§7.8 用户弹层的搜索框就地过滤列表行（权威 MultipleValueFilterPopupComponent 的搜索框）: '
+      + JSON.stringify(historyFilters.multiSelect.userFilter.search),
+      historyFilters.multiSelect.userFilter.search.present === true
+        && historyFilters.multiSelect.userFilter.search.initial === ''
+        && historyFilters.multiSelect.userFilter.search.filtered.join(',') === 'm22@example.invalid'
+        && historyFilters.multiSelect.userFilter.search.restored.length === 2);
+    // 权威 `StructureFilterPopupComponent.createActionGroup()`：选择…（`EditPathsAction`）、
+    // 在树中选择…（`SelectPathsInTreeAction`）、以及「最近」分组（`SelectFromHistoryAction`）。
+    check('§7.8 路径弹层＝选择… ＋ 在树中选择… ＋ 最近（权威 StructureFilterPopupComponent 的动作组）: '
+      + JSON.stringify([historyFilters.multiSelect.pathFilter.before, historyFilters.multiSelect.pathFilter.opened]),
+      historyFilters.multiSelect.pathFilter.before.disabled === false
+        && historyFilters.multiSelect.pathFilter.before.text === '路径'
+        && historyFilters.multiSelect.pathFilter.before.icon === 'chevron-down'
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'select' && item.text.includes('选择…'))
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'tree' && item.text.includes('在树中选择…'))
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.text.includes('最近')));
+    // 值文本：权威 `getTextFromFilePaths`（排序后第一条 ＋ " + N"，`FILTER_LABEL_LENGTH` = 30 中间省略）。
+    check('§7.8 「选择…」多行文本框按行成组应用路径筛选，控件显示"第一条 + N": '
+      + JSON.stringify([historyFilters.multiSelect.pathFilter.textDialog, historyFilters.multiSelect.pathFilter.applied,
+        historyFilters.multiSelect.pathFilter.recent, historyFilters.multiSelect.pathFilter.cleared]),
+      historyFilters.multiSelect.pathFilter.textDialog.open === true
+        && historyFilters.multiSelect.pathFilter.textDialog.title === '按路径筛选'
+        && historyFilters.multiSelect.pathFilter.textDialog.field === true
+        && historyFilters.multiSelect.pathFilter.applied.params
+        && (historyFilters.multiSelect.pathFilter.applied.params.paths || []).join(',') === 'docs,README.md'
+        && historyFilters.multiSelect.pathFilter.applied.control.text === '路径: README.md + 1'
+        && historyFilters.multiSelect.pathFilter.applied.control.icon === 'x'
+        // 「最近」按权威 `SelectFromHistoryAction` 记住**整组**（`getTextFromFilePaths` 同一条值文本规则）；
+        // 复位之后当前筛选为空，因此这一行不带勾（勾选态 = 与当前筛选相等）。
+        && historyFilters.multiSelect.pathFilter.recent.some((item) => item.recent === '0'
+          && item.text === 'README.md + 1' && item.checked === false)
+        && historyFilters.multiSelect.pathFilter.cleared.params.paths === undefined
+        && historyFilters.multiSelect.pathFilter.cleared.control.text === '路径');
+    // 权威 `VcsStructureChooser`：标题 "Select Paths to Filter by"、底栏 "Selected: {0}"、
+    // 没勾任何路径时确定禁用（`setOKActionEnabled(!mySelectedFiles.isEmpty())`）。
+    check('§7.8 「在树中选择…」对话框勾选路径后确定：确定按钮随勾选数启用，值进宿主的 paths: '
+      + JSON.stringify(historyFilters.multiSelect.pathFilter.tree),
+      historyFilters.multiSelect.pathFilter.tree.opened.open === true
+        && historyFilters.multiSelect.pathFilter.tree.opened.title === '选择要筛选的路径'
+        && historyFilters.multiSelect.pathFilter.tree.opened.rows.join(',') === 'docs,src,README.md'
+        && historyFilters.multiSelect.pathFilter.tree.opened.help === '已选择: 0'
+        && historyFilters.multiSelect.pathFilter.tree.opened.confirmDisabled === true
+        && historyFilters.multiSelect.pathFilter.tree.checked.help === '已选择: 2'
+        && historyFilters.multiSelect.pathFilter.tree.checked.confirmDisabled === false
+        && (historyFilters.multiSelect.pathFilter.tree.applied.params.paths || []).join(',') === 'docs,src'
+        && historyFilters.multiSelect.pathFilter.tree.applied.control.text === '路径: docs + 1');
+    // 权威 `shortenPathWithEllipsis(path, FILTER_LABEL_LENGTH)`（`StringUtil.java:2841-2848`）：
+    // 30 个字符、中间省略；Augit 侧不叠加用户/分支弹层的 20 字符上限。
+    check('§7.8 长路径按权威 FILTER_LABEL_LENGTH=30 中间省略，不叠加 20 字符上限: '
+      + JSON.stringify(historyFilters.multiSelect.pathFilter.longValue),
+      historyFilters.multiSelect.pathFilter.longValue === '路径: docs/v.../nested/file-name.txt');
+
+    // ---- 第 164 轮补断言：§7.9「进入文件历史时保存日志上下文…详情显隐与**正文位置**」----
+    // 走同一条往返：日志（选中第二个提交、正文可滚动）→ 项目树右键「文件历史」→ 点「日志」标签回来。
+    const detailPosition = await (async () => {
+      const page = await context.newPage();
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.commit-row', { timeout: 10000 });
+      // 第二个提交的正文足够长（宿主桩里 30 行），详情区才**真的**可滚动 ——
+      // 否则"位置保持"会平凡为真（第 122 轮踩过这个坑：不构造滚动就断言 scrollTop 差，必然成立）。
+      await page.evaluate(() => {
+        document.querySelectorAll('.commit-row')[1].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        return !!host && host.innerText.includes('补充说明第 30 行');
+      }, null, { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const before = await page.evaluate(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        if (!host) return { missing: true };
+        host.scrollTop = 200;
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return {
+          scrollable: host.scrollHeight - host.clientHeight > 40,
+          scrollTop: Math.round(host.scrollTop),
+          hash: selected ? selected.dataset.hash : null,
+        };
+      });
+      await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        const row = rows.find((r) => /\.(md|txt|cs)$/.test(r.dataset.treePath || '')) || rows[1] || rows[0];
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 120 }));
+      });
+      await page.waitForSelector('.project-menu', { state: 'attached', timeout: 8000 });
+      await page.evaluate(() => {
+        document.querySelectorAll('.project-menu .menu-item')[4].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('!!(window.__augitLive && window.__augitLive.fileHistory)', null, { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      await page.evaluate(() => {
+        const tab = document.querySelector('.bottom-header .tool-tab[href$="git-history.html"]');
+        if (tab) tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(1000);
+      const after = await page.evaluate(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return {
+          scrollTop: host ? Math.round(host.scrollTop) : null,
+          hash: selected ? selected.dataset.hash : null,
+          scrollHeight: host ? host.scrollHeight : null,
+          clientHeight: host ? host.clientHeight : null,
+          pending: window.__augitLive ? (window.__augitLive.commitDetailScrollRestore ?? null) : null,
+          back: window.__augitLive ? window.__augitLive.fileHistoryReturn : null,
+        };
+      });
+      await page.close();
+      console.log('INFO 详情正文位置=' + JSON.stringify({ before, after }));
+      return { before, after };
+    })();
+    check('§7.9 往返后详情正文位置与提交选择保持: ' + JSON.stringify([detailPosition.before, detailPosition.after]),
+      detailPosition.before.scrollable === true && detailPosition.before.scrollTop > 0
+        && detailPosition.after.hash === detailPosition.before.hash
+        && typeof detailPosition.after.scrollTop === 'number'
+        && Math.abs(detailPosition.after.scrollTop - detailPosition.before.scrollTop) <= 4);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
@@ -13403,21 +16601,37 @@ async function main() {
     await esSearch.close();
 
     // ---- 规格 §10.2：错误必须说明「发生了什么 / 哪些状态未改变 / 可以做什么」----
+    // 注意：空提交信息**不是错误**（权威要求先确认，见本文件前文与
+    // docs/nui-behavior/12-commit-changes.md）。因此这里走「确认后由宿主拒绝」这一
+    // **真实错误路径**来验证 §10.2 的三要素，而不是再断言"点击即报错"。
     const fm = await openScene('scene=commit-changes&theme=dark');
     await fm.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await fm.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await fm.page.locator('.commit-actions .primary-button').first().click();
+    await fm.page.waitForSelector('[data-commit-empty-message]', { timeout: 5000 });
+    await fm.page.locator('[data-commit-empty-anyway]').click();
     await fm.page.waitForTimeout(600);
     const fmEmpty = await fm.page.evaluate(() => window.__augitCommitError || '');
     check('§10.2 提交错误说明发生了什么: ' + JSON.stringify(fmEmpty.slice(0, 16)),
       fmEmpty.includes('提交信息不能为空'));
     check('§10.2 提交错误说明哪些状态未改变: ' + JSON.stringify(fmEmpty),
-      fmEmpty.includes('勾选保持不变'));
+      fmEmpty.includes('改动列表、勾选与提交信息都没有变化'));
     check('§10.2 提交错误说明可以做什么: ' + JSON.stringify(fmEmpty),
-      fmEmpty.includes('填写提交信息后重试'));
+      fmEmpty.includes('修正后可直接重试'));
+    // 错误归属到发生区域而非全局消息框：提交错误出现在提交侧栏的反馈位
+    const fmRegion = await fm.page.evaluate(() => ({
+      feedback: (document.querySelector('.commit-box .commit-feedback') || {}).textContent || null,
+      globalDialog: document.querySelectorAll('.dialog[role="alert"], .modal-error').length,
+    }));
+    check('§10.2 错误归属到发生区域: ' + JSON.stringify([fmRegion.feedback, fmRegion.globalDialog]),
+      typeof fmRegion.feedback === 'string' && fmRegion.feedback.includes('提交信息不能为空')
+      && fmRegion.globalDialog === 0);
 
-    // 未勾选时：错误同样具备三要素。
-    // 先填好提交信息（否则会先被「信息为空」拦下），再取消全部勾选。
+    // 未勾选时：**提交动作直接禁用**。
+    // 权威 `CommitChangeListDialog.java:602-604,616-618`：
+    //   enabled = hasDiffs() && !isExecuting()，hasDiffs() 数的是**已勾选**项。
+    // 旧断言编码的是"点了再报错"的旧交互（并断言错误三要素），第 136 轮按权威改正；
+    // §10.2 的三要素改由上面「确认后由宿主拒绝」这条**真实错误路径**验证。
     await fm.page.locator('.commit-box .message-field').fill('feat: 三要素');
     await fm.page.waitForTimeout(200);
     await fm.page.evaluate(() => {
@@ -13429,23 +16643,21 @@ async function main() {
     await fm.page.waitForTimeout(500);
     const fmChecked = await fm.page.evaluate(
       () => (window.__augitLive.status.files || []).filter((f) => f.checked).length);
-    check('§10.2 前置：已取消全部勾选: ' + fmChecked, fmChecked === 0);
+    check('前置：已取消全部勾选: ' + fmChecked, fmChecked === 0);
     await fm.page.evaluate(() => { window.__augitCommitError = null; });
-    await fm.page.locator('.commit-actions .primary-button').first().click();
-    await fm.page.waitForTimeout(700);
+    const fmDisabled = await fm.page.evaluate(() => {
+      const action = document.querySelector('.commit-actions .primary-button');
+      return { aria: action.getAttribute('aria-disabled'), cls: action.classList.contains('disabled'),
+        title: action.getAttribute('title') };
+    });
+    check('无勾选时提交动作禁用: ' + JSON.stringify(fmDisabled),
+      fmDisabled.aria === 'true' && fmDisabled.cls === true);
+    // `force: true`：Playwright 默认拒绝点击"未启用"的元素，而这里要验的正是
+    // **禁用态下强点也不产生错误**（`isControlDisabled()` 会拦下它）。
+    await fm.page.locator('.commit-actions .primary-button').first().click({ force: true });
+    await fm.page.waitForTimeout(400);
     const fmNoSelection = await fm.page.evaluate(() => window.__augitCommitError || '');
-    check('§10.2 未勾选错误具备三要素: ' + JSON.stringify(fmNoSelection),
-      fmNoSelection.includes('至少选择一个') && fmNoSelection.includes('工作区没有变化')
-      && fmNoSelection.includes('勾选'));
-
-    // 错误归属到发生区域而非全局消息框：提交错误出现在提交侧栏的反馈位
-    const fmRegion = await fm.page.evaluate(() => ({
-      feedback: (document.querySelector('.commit-box .commit-feedback') || {}).textContent || null,
-      globalDialog: document.querySelectorAll('.dialog[role="alert"], .modal-error').length,
-    }));
-    check('§10.2 错误归属到发生区域: ' + JSON.stringify([fmRegion.feedback, fmRegion.globalDialog]),
-      typeof fmRegion.feedback === 'string' && fmRegion.feedback.length > 0
-      && fmRegion.globalDialog === 0);
+    check('禁用时点击不产生错误: ' + JSON.stringify(fmNoSelection), fmNoSelection === '');
 
     // §10.2 第 3 条：不提供 Git Console 或持久化日志入口（脱敏与截断由宿主侧负责：
     // `GitOutputSanitizer` 有单测，超限时命令结果会追加"已截断"说明）。
@@ -13545,6 +16757,11 @@ async function main() {
       const page = await openScene('scene=reset&theme=dark');
       await page.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
       await page.page.waitForTimeout(900);
+      // §10.4 说的是**危险**确认：先按 `value` 选中 Hard 再断言。
+      // 权威里 reset 对话框默认落在 MIXED（`GitResetDialog.java:157-159`），因此**不能**靠"打开态"来验危险样式
+      // —— 原实现默认 Hard，这条断言才恰好成立（第 143 轮按权威改正默认后暴露）。
+      await page.page.selectOption('#reset-mode', 'hard');
+      await page.page.waitForTimeout(200);
       const state = await page.page.evaluate(() => ({
         confirmText: (function () {
           const el = [...document.querySelectorAll('.dialog-footer .danger-button, .dialog-footer .primary-button')]
@@ -13680,6 +16897,21 @@ async function main() {
         && typeof wmCancelling.reason === 'string' && wmCancelling.reason.includes('取消中'));
     check('§9.3 取消期间不提前重读状态: ' + JSON.stringify(wmCancelling.statusCalls),
       wmCancelling.statusCalls === 0);
+    // 权威 `ProgressDialogUI.initCancellation()`（ProgressDialogUI.kt:136-152）：
+    // `ActionListener { cancelAction(); cancelButton.isEnabled = false }` —— 取消是**一次性**动作。
+    // 宿主确认之前按钮必须已禁用，再按一次不得发出第二次 `write/cancel`。
+    const wmCancelSecond = await wm.page.evaluate(() => {
+      const cancel = document.querySelector('[data-write-cancel]');
+      const before = window.__writeCancels || 0;
+      const disabled = cancel ? (cancel.disabled || cancel.getAttribute('aria-disabled') === 'true') : null;
+      if (cancel) cancel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return { disabled, before };
+    });
+    await wm.page.waitForTimeout(250);
+    const wmCancelAfterSecond = await wm.page.evaluate(() => window.__writeCancels || 0);
+    check('§9.3 取消是一次性动作（按过即禁用、不再发第二次请求）: '
+      + JSON.stringify([wmCancelSecond.disabled, wmCancelSecond.before, wmCancelAfterSecond]),
+    wmCancelSecond.disabled === true && wmCancelSecond.before === 1 && wmCancelAfterSecond === 1);
     await wm.page.waitForTimeout(1200);
     const wmCancelled = await wm.page.evaluate(() => ({
       operation: window.__augitLive.writeOperation || null,
@@ -13957,6 +17189,61 @@ async function main() {
         .filter((row) => !row.hidden).length);
       check('§7.17 清空搜索后分类恢复: ' + JSON.stringify(cleared), cleared === 4);
 
+      // 第 196 轮：搜索按**选项**匹配（权威 `SearchableOptionsRegistrar.getConfigurables()` 的
+      // nameHits／contentHits ＋ `SettingsFilter.shouldBeShowing()`：含命中项的分类保持可见），
+      // 文字变化后 100 ms 去抖（`SettingsFilter.update()`），无命中时输入框变红
+      // （`SearchField.errorBackground` = 浅 #ffcccc／深 #743a3a），命中项按 spotlight 边框色标出。
+      const searchState = () => st.page.evaluate(() => {
+        const field = document.querySelector('.settings-window [data-settings-filter]');
+        const body = document.querySelector('.settings-window .settings-page');
+        return {
+          query: field ? field.value : null,
+          noHits: field ? field.classList.contains('no-hits') : null,
+          background: field ? getComputedStyle(field).backgroundColor : null,
+          pages: [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+            .filter((row) => !row.hidden).map((row) => row.dataset.settingsPage),
+          active: body ? body.dataset.settingsPageBody : null,
+          hits: [...document.querySelectorAll('.settings-window [data-settings-hit="true"]')]
+            .map((node) => node.dataset.setting || (node.textContent || '').trim()),
+          focused: document.activeElement === field,
+        };
+      });
+      // 选项名命中：'等宽' 只出现在「文件查看」的选项标签里 ⇒ 该分类可见，且**切到**它并标出命中项。
+      await st.page.fill('.settings-window [data-settings-filter]', '等宽');
+      await st.page.waitForFunction(
+        'document.querySelector(".settings-window .settings-page").dataset.settingsPageBody === "file-view"',
+        null, { timeout: 8000 });
+      await st.page.waitForTimeout(300);
+      const optionHit = await searchState();
+      check('§7.17 搜索按选项名命中并切到命中分类（权威 SearchableOptionsRegistrar）: '
+        + JSON.stringify(optionHit),
+        optionHit.query === '等宽' && optionHit.pages.join(',') === 'file-view' && optionHit.active === 'file-view'
+          && optionHit.hits.includes('monospaceFontFamily') && optionHit.hits.includes('等宽字体')
+          && optionHit.noHits === false && optionHit.focused === true);
+      // 多个分类命中：'字号' 同时是「外观」与「文件查看」的选项标签 ⇒ 两个分类都保留。
+      await st.page.fill('.settings-window [data-settings-filter]', '字号');
+      await st.page.waitForTimeout(400);
+      const multiHit = await searchState();
+      check('§7.17 一个搜索词可命中多个分类（命中项所在分类都保留）: ' + JSON.stringify(multiHit),
+        multiHit.pages.join(',') === 'appearance,file-view' && multiHit.hits.includes('codeFontSize')
+          && multiHit.noHits === false);
+      // 无命中：分类全部隐藏且输入框底色变红（深色 SearchField.errorBackground = #743a3a）。
+      await st.page.fill('.settings-window [data-settings-filter]', 'zzz-不存在');
+      await st.page.waitForTimeout(400);
+      const noHit = await searchState();
+      check('§7.17 无命中时输入框按 SearchField.errorBackground 变红: ' + JSON.stringify(noHit),
+        noHit.pages.length === 0 && noHit.noHits === true && noHit.background === 'rgb(116, 58, 58)'
+          && noHit.hits.length === 0);
+      // ESC 在输入框有内容时清空过滤（权威 `SettingsSearch.preprocessEventForTextField`）。
+      await st.page.keyboard.press('Escape');
+      await st.page.waitForTimeout(300);
+      const escCleared = await searchState();
+      check('§7.17 ESC 清空设置搜索并恢复全部分类: ' + JSON.stringify(escCleared),
+        escCleared.query === '' && escCleared.pages.length === 4 && escCleared.noHits === false
+          && escCleared.background !== 'rgb(116, 58, 58)');
+      await st.page.fill('.settings-window [data-settings-filter]', '');
+      await st.page.waitForTimeout(200);
+
       // Git 分类：检测结果取宿主（路径+版本）+ 最低版本说明
       await st.page.locator('.settings-window [data-settings-page="git"]').click();
       await st.page.waitForFunction(
@@ -14034,6 +17321,85 @@ async function main() {
       const writtenTerminal = await st.page.evaluate(() => window.__settingsWritten);
       check('§7.17 终端自定义命令写入宿主: ' + JSON.stringify(writtenTerminal),
         writtenTerminal.terminalShell === 'Custom' && writtenTerminal.terminalCustomCommand === 'wsl.exe -d Ubuntu');
+      // ---- 第 197 轮：设置底栏的权威三键（取消／应用／确定）与三条快捷键 ----
+      await openSettings();
+      const settingsFooter = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window [data-settings-action]')]
+        .map((node) => ({ action: node.dataset.settingsAction, text: node.textContent.trim(), disabled: node.disabled === true })));
+      check('§7.17 设置底栏＝取消／应用／确定，「应用」无改动时禁用: ' + JSON.stringify(settingsFooter),
+        settingsFooter.map((item) => item.action).join(',') === 'cancel,apply,save'
+          && settingsFooter.map((item) => item.text).join(',') === '取消,应用,确定'
+          && settingsFooter.find((item) => item.action === 'apply').disabled === true);
+      // 「应用」= 写回设置但**不关窗**（权威 Apply 只调 `editor.apply()`；关窗是 OK 的 `applyAndClose()`）
+      await st.page.locator('.settings-window [data-settings-page="terminal"]').click();
+      await st.page.waitForSelector('.settings-window [data-setting="terminalShell"]', { timeout: 8000 });
+      await st.page.selectOption('.settings-window [data-setting="terminalShell"]', 'CommandPrompt');
+      await st.page.waitForTimeout(250);
+      const applyReady = await st.page.evaluate(() => ({
+        disabled: document.querySelector('.settings-window [data-settings-action="apply"]').disabled === true,
+        markers: document.querySelectorAll('.settings-window .settings-nav .settings-dirty').length,
+      }));
+      await st.page.evaluate(() => { window.__settingsWritten = {}; });
+      await st.page.locator('.settings-window [data-settings-action="apply"]').click();
+      await st.page.waitForFunction(
+        'window.__settingsWritten && window.__settingsWritten.terminalShell === "CommandPrompt"',
+        null, { timeout: 8000 });
+      await st.page.waitForTimeout(400);
+      const applied = await st.page.evaluate(() => ({
+        written: window.__settingsWritten,
+        dialog: !!document.querySelector('.settings-window'),
+        stored: (window.__augitLive.settings || {}).terminalShell,
+        applyDisabled: document.querySelector('.settings-window [data-settings-action="apply"]').disabled === true,
+        markers: document.querySelectorAll('.settings-window .settings-nav .settings-dirty').length,
+      }));
+      check('§7.17 「应用」写回设置但不关窗，应用后标记与禁用态复位: ' + JSON.stringify([applyReady, applied]),
+        applyReady.disabled === false && applyReady.markers >= 1
+          && applied.written.terminalShell === 'CommandPrompt' && applied.dialog === true
+          && applied.stored === 'CommandPrompt' && applied.applyDisabled === true && applied.markers === 0);
+      // Ctrl+F = 聚焦并全选设置搜索框（权威 `SettingsDialog.init()` 注册 `SearchTextField.FindAction`：
+      // `selectText()` ＋ `requestFocus()`），且**不能**顺带打开文档的"当前文件查找"。
+      await st.page.evaluate(() => {
+        const field = document.querySelector('.settings-window [data-settings-filter]');
+        field.value = '字号';
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      });
+      await st.page.waitForTimeout(300);
+      await st.page.keyboard.press('Control+f');
+      await st.page.waitForTimeout(250);
+      const findShortcut = await st.page.evaluate(() => {
+        const field = document.querySelector('.settings-window [data-settings-filter]');
+        return {
+          focused: document.activeElement === field,
+          selection: field.selectionStart === 0 && field.selectionEnd === field.value.length,
+          value: field.value,
+          documentFindBar: !!document.querySelector('.current-find'),
+        };
+      });
+      check('§7.17 Ctrl+F 聚焦并全选设置搜索框、不触发文档查找: ' + JSON.stringify(findShortcut),
+        findShortcut.focused === true && findShortcut.selection === true
+          && findShortcut.value === '字号' && findShortcut.documentFindBar === false);
+      // 搜索框里的 ↑/↓ = 移动分类选择（权威 `SettingsSearch.preprocessEventForTextField()` 把无修饰键的
+      // 上下键委托给分类树），焦点仍留在搜索框。
+      const beforeArrow = await st.page.evaluate(() => ({
+        page: document.querySelector('.settings-window .settings-page').dataset.settingsPageBody,
+        pages: [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+          .filter((row) => !row.hidden).map((row) => row.dataset.settingsPage),
+      }));
+      await st.page.keyboard.press('ArrowDown');
+      await st.page.waitForTimeout(400);
+      const afterArrow = await st.page.evaluate(() => ({
+        page: document.querySelector('.settings-window .settings-page').dataset.settingsPageBody,
+        focused: document.activeElement === document.querySelector('.settings-window [data-settings-filter]'),
+      }));
+      check('§7.17 搜索框里 ↑/↓ 移动分类选择且焦点仍在搜索框: ' + JSON.stringify([beforeArrow, afterArrow]),
+        beforeArrow.pages.length === 2 && beforeArrow.page !== afterArrow.page && afterArrow.focused === true);
+      // Enter = 默认按钮「确定」（权威 `DialogWrapper` 把 OK 动作的按钮设成 default button）
+      await st.page.evaluate(() => { window.__settingsWritten = {}; });
+      await st.page.keyboard.press('Enter');
+      await st.page.waitForFunction('!document.querySelector(".settings-window")', null, { timeout: 8000 });
+      const enterSave = await st.page.evaluate(() => ({ written: window.__settingsWritten }));
+      check('§7.17 Enter = 确定（写回设置并关窗）: ' + JSON.stringify(enterSave), !!enterSave.written);
+
       await st.page.close();
     }
 
@@ -14245,23 +17611,32 @@ async function main() {
         rsOpen.open === true && rsOpen.backgroundInert === true);
       check('§7.11 Reset 目标取真实 HEAD: ' + JSON.stringify(rsOpen.target),
         typeof rsOpen.target === 'string' && /^[0-9a-f]{7}$/.test(rsOpen.target));
-      check('§10.4 Hard 使用危险确认样式且按钮写动作名: '
-        + JSON.stringify([rsOpen.modeValue, rsOpen.danger, rsOpen.runText]),
-      rsOpen.modeValue === 2 && rsOpen.danger === true && rsOpen.runText.includes('确认 Reset Hard'));
+      // 默认模式取权威 `GitResetDialog.java:157-159`：下拉按 **MIXED → SOFT → HARD** 添加 ⇒ 默认落在 MIXED，
+      // 即非破坏性的那一档（`GitBundle.properties:1205-1206`："Files won't change, differences won't be staged."）。
+      // 原断言编码的是"打开即 Hard ＋ 红色确认"的旧默认，第 143 轮按权威改正。
+      check('§7.11 默认模式为 Mixed（权威顺序 MIXED→SOFT→HARD）: '
+        + JSON.stringify([rsOpen.modeValue, rsOpen.danger, rsOpen.runText, rsOpen.impact]),
+      rsOpen.modeValue === 0 && rsOpen.danger === false && rsOpen.runText.includes('执行 Reset')
+      && rsOpen.impact.includes('重置索引'));
 
-      // 影响说明必须按**当前**已跟踪改动数（5）显示，而不是样例的 35。
-      check('§10.4 影响说明使用真实已跟踪改动数: ' + JSON.stringify([rsOpen.impact, rsOpen.impactDetail]),
-        rsOpen.impact.includes('5 个已跟踪文件') && rsOpen.impactDetail.length > 0);
-
-      // 模式切换：说明与按钮文字同步变化，且非 Hard 不再使用危险样式。
-      await rs.page.selectOption('#reset-mode', { index: 0 });
+      // 模式切换：说明与按钮文字同步变化，且非 Hard 不使用危险样式。
+      // 按 `value` 选而不是按索引 —— **顺序本身就是对齐对象**，索引会随权威改动而变。
+      await rs.page.selectOption('#reset-mode', 'soft');
       await rs.page.waitForTimeout(150);
       const rsSoft = await resetState();
       check('§7.11 切换到 Soft 同步说明与按钮: '
         + JSON.stringify([rsSoft.impact, rsSoft.runText, rsSoft.danger]),
       rsSoft.impact.includes('仅移动 HEAD') && rsSoft.runText.includes('执行 Reset') && rsSoft.danger === false);
-      await rs.page.selectOption('#reset-mode', { index: 2 });
+
+      await rs.page.selectOption('#reset-mode', 'hard');
       await rs.page.waitForTimeout(150);
+      const rsHard = await resetState();
+      check('§10.4 Hard 使用危险确认样式且按钮写动作名: '
+        + JSON.stringify([rsHard.danger, rsHard.runText]),
+      rsHard.danger === true && rsHard.runText.includes('确认 Reset Hard'));
+      // 影响说明必须按**当前**已跟踪改动数（5）显示，而不是样例的 35。
+      check('§10.4 影响说明使用真实已跟踪改动数: ' + JSON.stringify([rsHard.impact, rsHard.impactDetail]),
+        rsHard.impact.includes('5 个已跟踪文件') && rsHard.impactDetail.length > 0);
 
       // 进行中：禁用重复触发、出现取消入口；完成一次请求后关闭并重读真实状态。
       await rs.page.evaluate(() => { window.__resetDelays = 800; window.__resetCalls = []; });
@@ -14729,6 +18104,150 @@ async function main() {
       await rp.page.close();
     }
 
+    // ---- 第 198 轮：主题只换色不换几何（`design-system.md` §10；`07-theme-dpi-dialogs.md` §1.3 明确建议
+    //      加一条"同一界面在浅/深主题下逐元素比对 `getBoundingClientRect()`"的回归校验）----
+    // 参考实现靠"两套主题几何一致 ＋ `patchHiDPI` 归一化"间接保证这一点，本身没有断言 ⇒ 这里显式钉住：
+    // 同一场景在浅/深两套主题下，关键元素的矩形必须**逐一相同**，而底色必须不同（否则等于没换主题）。
+    const themeInvariance = await (async () => {
+      const probe = async (theme) => {
+        const scene = await openScene(`scene=git-history&theme=${theme}`);
+        await scene.page.waitForFunction(
+          'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+        await scene.page.waitForTimeout(600);
+        const out = await scene.page.evaluate(() => {
+          const selectors = ['.titlebar', '.tool-rail', '.git-log', '.log-ref-panel', '.log-list-panel',
+            '.log-detail-panel', '.bottom-tool', '.commit-row',
+            '.history-filters > button[data-filter-key="branch"]',
+            '.log-ref-panel .tree-row[data-ref-kind="head"]'];
+          return {
+            // 浅色主题没有 `data-theme` 属性（`body[data-theme="dark"]` 才加深色块）⇒ 归一成 dark/light。
+            theme: document.body.dataset.theme === 'dark' ? 'dark' : 'light',
+            chrome: getComputedStyle(document.body).backgroundColor,
+            rects: selectors.map((selector) => {
+              const node = document.querySelector(selector);
+              if (!node) return null;
+              const rect = node.getBoundingClientRect();
+              return [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)];
+            }),
+          };
+        });
+        await scene.page.close();
+        return out;
+      };
+      return { dark: await probe('dark'), light: await probe('light') };
+    })();
+    check('§10 主题只换色不换几何：浅/深两套主题下关键元素矩形逐一相同、底色不同: '
+      + JSON.stringify(themeInvariance),
+      themeInvariance.dark.theme === 'dark' && themeInvariance.light.theme === 'light'
+        && themeInvariance.dark.chrome !== themeInvariance.light.chrome
+        && themeInvariance.dark.rects.every((rect) => rect !== null)
+        && themeInvariance.dark.rects.join(',') === themeInvariance.light.rects.join(','));
+
+    // ---- 第 199 轮：DPI 传递链的网页侧契约（`07-theme-dpi-dialogs.md` §2）----
+    // 外壳在 `--dpi` 路径上把 WebView2 的 `RasterizationScale` 固定成 dpi/96（`ApplyRasterizationScale()`），
+    // 于是网页层拿到 `devicePixelRatio = dpi/96`，而 **CSS 像素仍是逻辑像素**；`07` §2 的映射要求
+    // "CSS 里所有间距用 px、让 WebView2 处理 devicePixelRatio"，等价于：2× 下的布局矩形必须与 1× **逐一相同**，
+    // 唯一允许随 DPR 变的是"吸附到整设备像素"的自绘尺寸（行高按 `Math.round(x * dpr) / dpr`，见 mockup.js:59,899,1386）。
+    const dpiContract = await (async () => {
+      const probe = async (scale) => {
+        const emulated = await browser.newContext({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: scale });
+        await emulated.addInitScript(stubHost);
+        await emulated.addInitScript(stubData, WORKSPACE);
+        const page = await emulated.newPage();
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+        await page.waitForFunction(
+          'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+        await page.waitForTimeout(600);
+        const out = await page.evaluate(() => {
+          const selectors = ['.titlebar', '.tool-rail', '.git-log', '.log-ref-panel', '.log-list-panel',
+            '.log-detail-panel', '.bottom-tool', '.commit-row',
+            '.history-filters > button[data-filter-key="branch"]',
+            '.log-ref-panel .tree-row[data-ref-kind="head"]'];
+          const lineHeight = getComputedStyle(document.documentElement).getPropertyValue('--code-line-height').trim();
+          return {
+            dpr: window.devicePixelRatio,
+            rects: selectors.map((selector) => {
+              const node = document.querySelector(selector);
+              if (!node) return null;
+              const rect = node.getBoundingClientRect();
+              return [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)];
+            }),
+            lineHeight,
+            // 行高必须落在**整设备像素**上：`值 × dpr` 是整数（非 0.25 倍数缩放下 07 §2.4 的
+            // `alignIntToInt` 在 CSS 侧的等价约束）。
+            lineHeightDevicePixels: Number((parseFloat(lineHeight) * window.devicePixelRatio).toFixed(4)),
+          };
+        });
+        await emulated.close();
+        return out;
+      };
+      return { one: await probe(1), two: await probe(2) };
+    })();
+    check('§2 DPI：2× 下 CSS 像素仍是逻辑像素（十个关键矩形与 1× 逐一相同）且行高吸附到整设备像素: '
+      + JSON.stringify(dpiContract),
+      dpiContract.one.dpr === 1 && dpiContract.two.dpr === 2
+        && dpiContract.one.rects.every((rect) => rect !== null)
+        && dpiContract.one.rects.join(',') === dpiContract.two.rects.join(',')
+        && dpiContract.one.lineHeight.endsWith('px') && dpiContract.two.lineHeight.endsWith('px')
+        && Number.isInteger(dpiContract.one.lineHeightDevicePixels)
+        && Number.isInteger(dpiContract.two.lineHeightDevicePixels));
+
+    // ---- 第 200 轮：细线（1 单位分隔线）按 DPI 落到整设备像素（`07-theme-dpi-dialogs.md` §2）----
+    // 权威把"1 单位的线"按 `JBUIScale.scale(1) = round(userScaleFactor)` 取整到整设备像素
+    // （`JBValue.get()` 同义）。CSS 侧等价写法是 `round(dpr) / dpr` px：1× 下仍是 1px，1.5× 下是
+    // **2/1.5 ≈ 1.3333px**。**引擎限制（登记差异）**：Chromium 会把 `border-*`／`outline` 的宽度取整到
+    // 整数 CSS 像素（实测 1.33333px 的计算值就是 1px），因此细线令牌只在 `height`/`width` 画出来的分隔线
+    // 与 `box-shadow` 描边这类"能表达小数"的属性上生效；边框仍等于改动前的 1px（不变差），
+    // 参考实现的 `scale(1)` 对边框的那点影响在 CSS 里无法表达。
+    const hairline = await (async () => {
+      const probe = async (scale) => {
+        const emulated = await browser.newContext({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: scale });
+        await emulated.addInitScript(stubHost);
+        await emulated.addInitScript(stubData, WORKSPACE);
+        const page = await emulated.newPage();
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+        await page.waitForTimeout(500);
+        const out = await page.evaluate(() => {
+          const root = getComputedStyle(document.documentElement);
+          const panel = getComputedStyle(document.querySelector('.log-list-panel'));
+          const railSeparator = document.querySelector('.git-side-toolbar .rail-separator');
+          // box-shadow 的 spread/偏移也接受小数：用一个临时探针把令牌喂进去，读**解析后**的像素值。
+          const probeNode = document.createElement('div');
+          probeNode.style.cssText = 'position:absolute;left:-9999px;top:0;width:10px;height:10px;'
+            + 'box-shadow: 0 0 0 var(--augit-hairline) rgb(255, 0, 0);';
+          document.body.appendChild(probeNode);
+          const shadow = getComputedStyle(probeNode).boxShadow;
+          probeNode.remove();
+          const spread = /(-?[0-9.]+)px/g;
+          const numbers = [...shadow.matchAll(spread)].map((match) => Number.parseFloat(match[1]));
+          return {
+            dpr: window.devicePixelRatio,
+            dprToken: root.getPropertyValue('--augit-dpr').trim(),
+            deviceToken: root.getPropertyValue('--augit-hairline-device').trim(),
+            // 边框（引擎取整到整数 CSS 像素）
+            borderRight: Number.parseFloat(panel.borderRightWidth),
+            // 显式分隔线元素与 box-shadow 描边（能表达小数）
+            railHeight: railSeparator ? Number.parseFloat(getComputedStyle(railSeparator).height) : null,
+            shadowSpread: numbers.length >= 4 ? numbers[3] : null,
+          };
+        });
+        await emulated.close();
+        return out;
+      };
+      return { one: await probe(1), oneAndHalf: await probe(1.5) };
+    })();
+    check('§2 细线按 DPI 取整到整设备像素（分隔线与 box-shadow 描边 1× 1px、1.5× 2/1.5px；'
+      + '边框受 Chromium 取整限制仍为 1px）: ' + JSON.stringify(hairline),
+      hairline.one.dpr === 1 && hairline.one.dprToken === '1' && hairline.one.deviceToken === '1'
+        && Math.abs(hairline.one.railHeight - 1) < 0.001
+        && Math.abs(hairline.one.shadowSpread - 1) < 0.001
+        && hairline.oneAndHalf.dpr === 1.5 && hairline.oneAndHalf.dprToken === '1.5'
+        && hairline.oneAndHalf.deviceToken === '2'
+        && Math.abs(hairline.oneAndHalf.railHeight - (2 / 1.5)) < 0.01
+        && Math.abs(hairline.oneAndHalf.shadowSpread - (2 / 1.5)) < 0.01
+        && hairline.oneAndHalf.borderRight === 1);
+
     // ---- 规格 §154：调整界面字号时保持原文档控件、树选择与首个可见节点、正文选择与滚动 ----
     // 标定阶段：先如实记录各项测量，再据实收紧为断言。
     {
@@ -14841,8 +18360,10 @@ async function main() {
         await f154.page.evaluate((value) => {
           const field = document.querySelector('[data-setting="fontSize"]');
           field.value = String(value);
-          [...document.querySelectorAll('.settings-window .dialog-footer button')]
-            .find((node) => node.textContent.includes('保存')).click();
+          // 按**动作属性**找按钮，不按文案：底栏文案照权威改成「取消／应用／确定」后，
+          // 旧的"找含『保存』的按钮"会取到 undefined（第 197 轮实测整轮 TypeError）。
+          const save = document.querySelector('.settings-window .dialog-footer [data-settings-action="save"]');
+          if (save) save.click();
         }, size);
         await f154.page.waitForFunction(
           `getComputedStyle(document.documentElement).fontSize === "${size}px"`
@@ -14867,6 +18388,7 @@ async function main() {
           && f154After.selectedCount === 1);
       check('§154 字号变化保持树的第一个可见节点: '
         + JSON.stringify([f154Base.firstVisible, f154After.firstVisible, f154After.treeScrollTop]),
+      // 行高按用户裁决取规格名义值（tree-height = max(27, h+8) 取偶），此断言只保证"同一个可见起点被保持"。
       f154Base.firstVisible === 'docs/bulk-006.txt' && f154After.firstVisible === f154Base.firstVisible);
       check('§154 首个可见节点仍在原视口位置: '
         + JSON.stringify([f154Base.firstVisibleTop, f154After.firstVisibleTop]),

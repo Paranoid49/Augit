@@ -17,7 +17,10 @@ internal static class Program
             // 设置只读一次：主题与窗口摆放共用同一份快照，避免启动时读两遍文件。
             ApplicationSettings settings = LoadSettings();
             // 未显式指定 --theme 时按设置解析主题；设置里的 System 跟随 Windows。
-            options = options with { Theme = ResolveTheme(options.Theme, settings) };
+            // 另外单独保留"是否跟随系统"这一事实：Theme 此时已是解析结果，分辨不出它来自
+            // 显式选择还是跟随系统，而系统主题变化时只有后者才应该被覆盖。
+            string themeMode = options.Theme is { Length: > 0 } ? options.Theme : settings.Theme;
+            options = options with { Theme = ResolveTheme(options.Theme, settings), ThemeMode = themeMode };
             // 未显式指定 --workspace 时恢复设置里上次打开的目录（产品规格 §3）。
             options = ShellStartup.ResolveWorkspace(options, settings);
 
@@ -80,23 +83,7 @@ internal static class Program
             return "Light";
         }
 
-        return IsWindowsDark() ? "Dark" : "Light";
-    }
-
-    /// <summary>读取 Windows 的「应用模式」设置（个性化 → 颜色）。</summary>
-    private static bool IsWindowsDark()
-    {
-        try
-        {
-            using Microsoft.Win32.RegistryKey? key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                writable: false);
-            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
-        }
-        catch (System.Security.SecurityException)
-        {
-            return true;
-        }
+        return ShellTheme.FromSystemDark(ShellSystemTheme.DetectDark());
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]

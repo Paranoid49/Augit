@@ -98,7 +98,7 @@ async function main() {
                 primary: node.classList.contains('primary-button') };
             });
             assert.equal(focus.width, '1px', `${label} 按钮焦点边框缺失`);
-            assert.equal(focus.color, theme === 'dark' ? 'rgb(84, 138, 247)' : 'rgb(56, 113, 225)');
+            assert.equal(focus.color, theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)');
             assert.equal(focus.top, '2px');
             if (focus.primary) {
               assert.equal(focus.neutralWidth, '1px');
@@ -116,7 +116,7 @@ async function main() {
           const hovered = page.locator('.conflict-header button').first();
           await hovered.hover();
           assert.equal(await hovered.evaluate(node => getComputedStyle(node).backgroundColor),
-            theme === 'dark' ? 'rgb(45, 47, 51)' : 'rgb(241, 242, 244)', `${label} 导航悬停底色`);
+            theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)', `${label} 导航悬停底色`);
           assert.equal(await page.locator('.conflict-columns').innerHTML(), beforeActions, `${label} 动作焦点与悬停不能重建正文`);
           await page.mouse.move(1, 1);
           await page.locator('.conflict-column.result .conflict-block').focus();

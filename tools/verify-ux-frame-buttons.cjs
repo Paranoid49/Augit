@@ -26,11 +26,17 @@ async function main() {
         assert.equal(await page.locator('.terminal-session').textContent(),
           `Windows PowerShell${state === 'loading' ? ' · 正在启动…' : ''}`);
         if (state === 'loading') assert.equal(await page.locator('.terminal-view').textContent(), '');
-        const hover = theme === 'dark' ? 'rgb(45, 47, 51)' : 'rgb(241, 242, 244)';
-        const accent = theme === 'dark' ? 'rgb(84, 138, 247)' : 'rgb(56, 113, 225)';
+        // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF16）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
+        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
+        const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
         const panel = theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)';
-        const mutedPanel = theme === 'dark' ? 'rgb(37, 38, 42)' : 'rgb(245, 248, 254)';
-        const faint = theme === 'dark' ? 'rgb(111, 115, 123)' : 'rgb(160, 164, 170)';
+        // 禁用态底取 `--augit-panel-muted`：浅 = Islands `*.disabledBackground` = `dialog-bg` = `gray-160`
+        // `#F7F8F9`（第 131 轮订正；原 `#F7F8FA` = **未被采用**的 expUI_light `Gray13`，更早的 #F5F8FE 无依据）；
+        // 深 = expUI_dark `*.disabledBackground` = `Gray2` `#2B2D30`（原 #25262A 无依据）。
+        const mutedPanel = theme === 'dark' ? 'rgb(43, 45, 48)' : 'rgb(247, 248, 249)';
+        const faint = theme === 'dark' ? 'rgb(90, 93, 99)' : 'rgb(159, 162, 168)';
+        // 轨道按钮的悬停底：权威 `ToolWindow.Button.hoverBackground` 代码默认 = #55555528／#0f0f0f28（第 79 轮）。
+        const railHover = theme === 'dark' ? 'rgba(15, 15, 15, 0.157)' : 'rgba(85, 85, 85, 0.157)';
         const controls = page.locator('.rail-button, .side-tool:has(.side-content.tree) > .tool-header .icon-button, .terminal-header .icon-button');
         assert.equal(await controls.count(), 12);
         const bounds = await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));
@@ -44,7 +50,9 @@ async function main() {
           const close = await button.evaluate(element => element.classList.contains('terminal-session-close'));
           const rail = await button.evaluate(element => element.classList.contains('rail-button'));
           await button.hover();
-          assert.equal((await read(button, close ? '::before' : null)).background, active ? accent : hover);
+          // 权威 `SquareStripeButtonLook.getBackgroundColor()`：轨道按钮**只有自身聚焦**时才用 accent，
+          // 选中但未聚焦时用普通前景 + 透明底（悬停时给 `--augit-rail-hover`）。第 84 轮已据此实现，此处同步期望。
+          assert.equal((await read(button, close ? '::before' : null)).background, rail && active ? railHover : active ? accent : hover);
           await button.focus();
           assert.equal((await read(button, '::after')).border, accent);
           if (active) assert.equal((await read(button, '::before')).border, panel);

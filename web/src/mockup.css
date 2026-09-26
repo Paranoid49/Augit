@@ -4,27 +4,131 @@
   --augit-font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
   font-family: var(--augit-font);
   font-size: 13px;
+  /* New UI 浅色一律取 ManyIslands 家族语义别名（参考主题 "Light with Light Header"，见 design-system §6.1）：
+     chrome = main-window-bg = layer-0-bg = gray-150 = #E9EAEE，
+     panel-muted = *.background 与 *.disabledBackground = dialog-bg = gray-160 = #F7F8F9，
+     border-strong = Component.borderColor = control-border = gray-130 = #D1D3D9。
+     注：此处原先写"chrome/panel-muted=Gray13，border=Gray12，border-strong=Gray9"，那是**未被采用**的
+     expUI_light 的灰阶；chrome／border／border-strong 已先后按 Islands 订正，panel-muted 于第 131 轮订正
+     （`#F7F8FA` = expUI_light Gray13 → `#F7F8F9` = Islands dialog-bg = gray-160）。
+     出处见 docs/intellij-platform-ui-reference.md §4、§5。 */
   --augit-chrome: #e9eaee;
   --augit-panel: #ffffff;
-  --augit-panel-muted: #f5f8fe;
-  --augit-border: #e3e3e3;
+  --augit-panel-muted: #f7f8f9;
+  /* 浅色权威取 ManyIslands 家族（参考主题 "Light with Light Header"）：
+     ui.*.borderColor = dialog-border = layer-1-border-inline = gray-150 = #E9EAEE，
+     ui.Component.borderColor = control-border = gray-130 = #D1D3D9。
+     （原来的 #ebecf0／#c9ccd6 是未被采用的 expUI_light 的 Gray12／Gray9。）深色侧本来就等于 expUI_dark 的 Gray1／Gray5。 */
+  --augit-border: #e9eaee;
+  /* 文档工具条底边：权威 `Editor.Toolbar.borderColor` = `editor-border-inline`（浅 = #E9EAEE）。 */
+  --augit-toolbar-border: #e9eaee;
   --augit-border-strong: #d1d3d9;
-  --augit-text: #202124;
-  --augit-muted: #646870;
-  --augit-faint: #a0a4aa;
-  --augit-blue: #3871e1;
+  --augit-text: #000000;
+  --augit-muted: #5f6269;
+  --augit-line-number: #aeb3c2;
+  /* 对话框标题图标：官方 `general/questionDialog.svg` 的填充色（浅 #4682FA／深 #548AF7，白色问号）。 */
+  --augit-dialog-icon-bg: #4682fa;
+  --augit-scrollbar-thumb: #73737333;
+  /* 标签卡片（Islands 渲染）权威：ui.EditorTabs.underlinedTabBackground = tab-selected-bg-active、inactiveUnderlinedTabBackground = tab-selected-bg-inactive、underlinedBorderColor = tab-selected-border-active、inactiveUnderlinedTabBorderColor = tab-selected-border-inactive、underTabsBorderColor = editor-border。 */
+  --augit-tabs-border: #e9eaee;
+  --augit-tab-selected-bg: #e9eaee;
+  --augit-tab-selected-border: #d1d3d9;
+  --augit-tab-selected-bg-active: #e3ebfe;
+  --augit-tab-selected-border-active: #a7c5ff;
+  /* 分段控件（权威 ui.SegmentedButton）：选中按钮底 = control-bg-raised、两端描边 = control-border-raised、
+     聚焦选中 = toolbar-selected-bg。浅色取 ManyIslandsLight：白／gray-110／blue-140。 */
+  --augit-segment-active-bg: #ffffff;
+  --augit-segment-active-border: #b5b7bd;
+  --augit-segment-active-bg-focus: #d0dffe;
+  --augit-icon: #6c707e;
+  /* 禁用文字与弱提示：权威 `Label.disabledForeground`（ManyIslandsLight 指向 `text-disabled` = `gray-100` = #9FA2A8）。
+     原 #A8ADBD 是 `ParameterInfo.disabledForeground` 这个**特定组件**的值（也等于未被采用的 expUI_light 的 Gray8）。 */
+  --augit-faint: #9fa2a8;
+  --augit-blue: #3574f0;
+  /* 选中/强调底：权威参考家族 ManyIslandsLight 的 `selection-bg-active` = `blue-140` = #D0DFFE；
+     原 #D4E2FF 是**未被采用的** expUI_light 的 Blue11（深色侧 #2E436E = expUI_dark Blue2，本来就对）。 */
   --augit-blue-soft: #d0dffe;
+  /* 「芯片式可选按钮」选中底（搜索框里的区分大小写／全字匹配／正则表达式）：权威
+     `SearchOption.selectedBackground` = `JBColor.namedColor("SearchOption.selectedBackground", 0xDAE4ED, 0x5C6164)`
+     （`platform/util/ui/src/com/intellij/util/ui/JBUI.java:522-528`；主题侧只有 `intellijlaf.theme.json` 定义该键
+     ⇒ New UI 的 expUI／ManyIslands 都走 JBColor 兜底）。它与列表选中底 `selectionBackground` 不是同一个键，
+     因此**不复用** `--augit-blue-soft`（第 194 轮订正）。 */
+  --augit-search-option-selected: #dae4ed;
+  /* 设置搜索**无命中**时的输入框底色：权威 `SettingsEditor` 把编辑器背景设成 `LightColors.RED`
+     = `JBColor.namedColor("SearchField.errorBackground", 0xffcccc, 0x743A3A)`（主题侧只有
+     `intellijlaf` 定义该键 ⇒ New UI 走 JBColor 兜底）。 */
+  --augit-search-error-bg: #ffcccc;
+  /* 细线厚度（分隔线、组件描边、焦点环）：权威把"1 单位线"按 `JBUIScale.scale(1) =
+     round(userScaleFactor)` 取整到**整设备像素**（`JBValue.get()` 也是 `scale(...)`，
+     见 `JBValue.java:65-78`；`07-theme-dpi-dialogs.md` §2 明说"分隔线粗细"必须按 DPI 缩放，
+     §2.4 的 `alignIntToInt()` 同义）。CSS 侧的等价写法是 `round(dpr) / dpr` px ——
+     `--augit-dpr`／`--augit-hairline-device` 由 JS 写（`applyDeviceScale()`），
+     未运行 JS 或缩放宽高为 1 时回落成 1px，与改动前逐值相同。
+     登记差异：参考实现的 `patchLafFonts` 还会把**界面字号**折进 `userScaleFactor`
+     （`LafManagerImpl.kt:857-885`），这里只按 DPI 取整 —— Augit 的长度模型把字号影响烘进
+     各自公式（`07` §2 的映射里已接受），再叠一次会重复计算。 */
+  --augit-dpr: 1;
+  --augit-hairline-device: 1;
+  --augit-hairline: calc(var(--augit-hairline-device) * 1px / var(--augit-dpr));
+  /* 设置搜索的 spotlight 边框：权威 `GlassPanel` 的 `Settings.Spotlight.borderColor` 兜底
+     `ColorPalette.Orange6`（浅 `0xE08855`）／`Orange4`（深 `0xA36B4E`），线宽 2、外扩 1。
+     登记差异：权威还会用 glass panel 把**命中之外**的区域压暗，那层底色是从目标背景现算的
+     （`background.darker()` + alpha 100）而不是常量，Augit 只用边框色标出命中项。 */
+  --augit-spotlight-border: #e08855;
+  /* Git 日志里"当前分支所指提交"那一行的底色：权威 ColorKey `VersionControl.Log.Commit.currentBranchBackground`
+     的默认值 #EDF3FF（深色 #283044），参考图日志首行实测同值。 */
+  --augit-log-current-branch: #edf3ff;
+  --augit-accent-brand: #3871e1;
+  /* 未选中轨道按钮的前景：权威 `ToolWindow.Button.foreground`（ManyIslandsLight）= `gray-70` = #5F6269。 */
+  --augit-rail-fg: #5f6269;
+  /* 轨道分隔线：权威 `ToolWindow.Stripe.separatorColor`（ManyIslandsLight）= `core-border-transparent`
+     = `transparent-black-30` = #00000020，是很淡的叠加而不是实色灰。 */
+  --augit-rail-separator: #00000020;
+  /* 轨道按钮悬停底：权威 `ToolWindow.Button.hoverBackground` 的代码默认
+     `JBColor(Gray.x55.withAlpha(40), Gray.x0F.withAlpha(40))`，即 #555555 的 40/255 ≈ 15.7% 叠加。 */
+  --augit-rail-hover: #55555528;
+  /* 弹层边框：权威 `ui.Popup.borderColor` = #D1D3D9（`Popup.borderWidth` = 1）。 */
+  --augit-popup-border: #d1d3d9;
+  /* 编辑器查找框底色：权威 `Editor.SearchField.background` = `editor-bg-inline` = #F7F8F9（深色 = `Gray1` #1E1F22）。 */
+  --augit-search-field-bg: #f7f8f9;
+  /* 对话框底：权威 `dialog-bg` = `layer-1-bg` = `gray-160` = #F7F8F9；
+     2026 参考图 Confirm Exit 实测同值 ✓（弹层/搜索浮层仍是 `popup-bg` = #FFFFFF，故只给 .dialog 覆盖）。 */
+  /* 弹层/菜单底：权威 `PopupMenu.background` = `popup-bg`；浅 = `layer-2-bg` = #FFFFFF（比对话框的 layer-1 亮一层），
+     深 = `layer-1-bg`（ManyIslandsDark 里 = gray-30 #26282C）⇒ 取 expUI_dark 灰阶里最接近的 Gray2 #2B2D30。 */
+  --augit-popup-bg: #ffffff;
+  --augit-dialog-bg: #f7f8f9;
   --augit-selection-inactive: #e9eaee;
-  --augit-history-selection-inactive: #e9eaec;
-  --augit-blue-hover: #f1f2f4;
-  --augit-hover: #f1f2f4;
-  --augit-green: #388558;
-  --augit-green-soft: #c9eecf;
-  --augit-red: #c74440;
-  --augit-red-soft: #f7d7d7;
+  /* 权威 `selection-bg-inactive` = `gray-150` = #E9EAEE（与 `--augit-selection-inactive` 同值）；
+     原 #dfe1e5 是 `--augit-text` 的深色值，属复制串行。 */
+  --augit-history-selection-inactive: #e9eaee;
+  /* 悬停是**半透明覆盖**而非实色：权威 `ui.MainMenu.selectionBackground` = `toolbar-bg-hovered`
+     = `core-bg-transparent-hovered` = `transparent-black-20` = `#00000012`，同一令牌在 chrome、
+     panel、选中行上都能正确合成。 */
+  --augit-hover: #00000012;
+  /* 按下态：权威 `ui.ActionButton.pressedBackground`（ManyIslandsLight 指向 `core-bg-transparent-pressed` = `transparent-black-30` = #00000020）。 */
+  --augit-pressed: #00000020;
+  /* 标题栏按钮按下底：浅色与 `MainToolbar.Icon.pressedBackground` = #00000020 同值，深色另有 Gray3。 */
+  --title-button-pressed: #00000020;
+  /* 标题栏悬停：权威 `HeaderToolbarButtonLook.getHeaderBackgroundColor()`——
+     图标/按钮走 `MainToolbar.Icon.hoverBackground`（浅 = `toolbar-bg-hovered` = #00000012），
+     下拉的"透明"变体走 `MainToolbar.Dropdown.transparentHoverBackground`（浅同为 #00000012）。 */
+  --title-chip-hover: #00000012;
+  --title-context-hover: #00000012;
+  /* 主菜单条目（菜单项）：`MainMenu.transparentSelectionBackground`（浅 #00000012）。 */
+  --title-menu-hover: #00000012;
+  --title-button-hover: #00000012;
+  /* 动作按钮（图标按钮、分段按钮）悬停：权威 `ActionButton.hoverBackground`；
+     编辑器工具条走 `EditorToolbarButtonLook`（同一个键），分段按钮的 POPPED 态也用它。 */
+  --augit-action-button-hover: #00000012;
+  /* 语义色权威：浅色取 `Label.successForeground` = `text-success` = green-80。原 #388558 是 expUI_light 的 Green6。 */
+  /* 成功提示条底：`Banner.successBackground` = `feedback-success-bg` = green-160。 */
+  /* `Label.errorForeground` = `text-error` = red-80。 */
+  --augit-red: #c54e58;
+  /* `Banner.errorBackground` = red-160。 */
+  --augit-red-soft: #fff6f5;
   --augit-conflict-side: #f7d7d7;
   --augit-conflict-result: #dce9fc;
-  --augit-orange: #e9a11b;
+  /* `Label.warningForeground` = `text-warning` = yellow-80。 */
   --augit-graph: #47a1b3;
   --augit-graph-secondary: #9767b1;
   --augit-graph-third: #609349;
@@ -33,18 +137,80 @@
   --augit-folder-fill: #ebecf0;
   --augit-root-outline: #3574f0;
   --augit-root-fill: #e7effd;
-  --augit-reference: #ffaf0f;
-  --augit-yellow-soft: #fff0c2;
+  /* Git 引用标签分组色：权威 `GitRefManager.kt:264-269` → `VcsLogStandardColors.Refs`
+     （HEAD=TIP、本地分支=BRANCH、远程=BRANCH_REF、标签=TAG）。 */
+  --augit-ref-head: #ffd100;
+  --augit-ref-branch: #3cb45c;
+  --augit-ref-remote: #9f79b5;
+  --augit-ref-tag: #7a7a7a;
+  /* `Banner.warningBackground` = yellow-160。 */
+  --augit-yellow-soft: #fff6e9;
+  /* New UI 项目配色（RecentProject.Color{1..9}.MainToolbarGradientStart，浅色头部变体）。
+     仅用于主工具栏项目配色渐变，见本文件“主工具栏项目配色渐变”一节。 */
+  --augit-project-1: #f5d4c1;
+  --augit-project-2: #eee2bd;
+  --augit-project-3: #dbe7c9;
+  --augit-project-4: #cadfea;
+  --augit-project-5: #dbd8ef;
+  --augit-project-6: #eed7f5;
+  --augit-project-7: #dfccf4;
+  --augit-project-8: #bee4e1;
+  --augit-project-9: #ccebd1;
+  /* New UI Diff 行底与文件状态配色（docs/nui-behavior/08-diff-merge.md §2、数值参考 §5.7）。
+     Diff 行底用配色方案里已经合成好的柔和底色，不需要再叠 alpha。
+     注意：这些与 --augit-red 不是同一套——后者服务冲突解决器与危险动作等非 Diff 场景。
+     （原来的 --augit-green / --augit-green-soft 从未被引用，第 98 轮已删除。） */
+  --augit-diff-added: #edfced;
+  --augit-diff-deleted: #f4f7f9;
+  /* 当前差异块高亮：2026 参考图 diff-viewer-ctrlD-file（按 Ctrl+D 后）实测整块使用强色 ——
+     增 #BEE6BE／改 #C2D8F2（即换用软底后空出来的旧值）；删行参考图未量到，用配色方案原值 #767A8A。 */
+  --augit-diff-current-added: #bee6be;
+  --augit-diff-current-deleted: #767a8a;
+  --augit-diff-current-modified: #c2d8f2;
+  --augit-diff-modified: #e7effa;
+  --augit-diff-whitespace: #f7e2cb;
+  --augit-diff-separator: #e4e6eb;
+  --augit-file-added: #067d17;
+  --augit-file-modified: #0033b3;
+  --augit-file-deleted: #6c707e;
+  --augit-file-conflict: #de1b2e;
+  /* 无冲突/干净状态（VersionControl.Merge.Status.NoConflicts.foreground = Green2）。 */
+  --augit-status-clean: #1f7536;
+  /* New UI 未选中编辑器标签的减弱参数（EditorTabs.unselectedBlend / unselectedAlpha）。
+     标签不做"变灰"：把前景色按 blend 混向标签底色，图标另取 alpha；悬停或选中时取消减弱。 */
+  --augit-tab-unselected-blend: 90%;
+  --augit-tab-unselected-alpha: 0.75;
+  /* 表格类列表的行悬停（Table/List/Tree.hoverBackground 的同一个默认值）：
+     获焦 #EDF5FC、失焦 #F5F5F5。树不开悬停，见 .commit-row:hover 处的说明。 */
+  /* 表格类行悬停：权威 `ui.Table.hoverBackground`／`ui.List.hoverBackground`（ManyIslandsLight 里两者都指向
+     `selection-bg-hovered` = `transparent-black-10` = #00000008），是**半透明覆盖**；
+     原 #EDF5FC／#F5F5F5 是 `JBUI.java:2379` 的代码默认值，但参考家族把它覆盖掉了。 */
+  --augit-row-hover: #00000008;
+  --augit-row-hover-inactive: #00000008;
+  /* 树展开箭头的固定描边色：权威 chevronRight/Down.svg 硬编码 #818594（Gray7），
+     不随行状态换色（forceFocusedSelectionForeground = false，选中态复用同一文件）。 */
+  --augit-tree-arrow: #818594;
+  /* 分支图标的固定填充色：经典集 vcs/branch.svg 用 #6E6E6E，不是 currentColor。 */
+  --augit-branch-icon: #6e6e6e;
+  /* 渐变中心（项目部件图标中心到标题栏左缘的距离），由 JS 量测后覆盖。 */
+  --augit-title-glow-center: 78px;
+  /* 渐变起始色；未设置项目配色时等于 chrome，即不可见。 */
+  --augit-title-glow: var(--augit-chrome);
   --augit-code: "Cascadia Mono", Consolas, monospace;
   /* 正文等宽字号与界面字号相互独立（规格 §7.14：正文独立等宽字号保持不变）。 */
   --augit-code-size: 13px;
   --augit-title-height: 44px;
   --augit-title-text-height: 30px;
-  --augit-tab-height: 42px;
+  /* 标签栏高 = 标签内容 28 + 上下各 6（权威 `ui.EditorTabs.tabInsets = -6,8,-6,8`），即 40。
+     2026 参考图实测标签条白底 + 下沿边线共 70 物理px，按卡片 28 逻辑px 定标（≈1.79）得 39.2，吻合。 */
+  --augit-tab-height: 42px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
   --augit-project-header-height: 39px;
-  --augit-tree-height: 27px;
+  /* New UI：Tree.rowHeight = 24（参考图实测 23.5）。 */
+  --augit-tree-height: 27px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
   --augit-document-toolbar-height: 36px;
-  --augit-status-height: 22px;
+  /* 状态栏高 = max(scale(20), 文本高 + widget 边框高)。New UI 下 `StatusBar.Widget.border` 是
+     `insets(6, 8)`（高 12），故 28；参考图实测状态栏底 `#E9EAEE` 区间 51 物理px，同一定标得 28.5，吻合。 */
+  --augit-status-height: 22px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
   --augit-find-height: 42px;
   --augit-find-edit-height: 30px;
   --augit-side-width: clamp(300px, 22vw, 360px);
@@ -64,41 +230,143 @@ body {
   overflow: hidden;
   background: var(--augit-chrome);
   color: var(--augit-text);
+  /* `scrollbar-color` 是**可继承**属性：设在这里即可覆盖全部滚动容器，不必逐个声明。
+     权威取值在代码里：`ScrollBarPainter.java:113` 的 `ScrollBar.Transparent.thumbColor`
+     = `key(0x33737373, 0x47A6A6A6, …)`，即**浅 `#73737333`／深 `#A6A6A647`**
+     （Java 字面量是 ARGB：前两位是 alpha）。第 101 轮订正：早先记的"深浅同值"不成立，
+     两个 New UI 家族虽然都不覆写该键，但代码默认本身带深色一半。
+     相关键默认值（同文件 88-122 行，非 Mac 分支）：
+       hoverThumbColor        = 浅 `#73737347`／深 `#A6A6A659`
+       hoverThumbBorderColor  = 浅 `#59595947`／深 `#38383859`
+       Transparent.thumbBorderColor = 浅 `#59595933`／深 `#38383847`
+     悬停档**未实现**：`scrollbar-color` 表达不了 hover，而 `::-webkit-scrollbar` 与标准属性
+     混用时 Chromium 优先采用标准属性，需整体改用 webkit 方案才行。 */
+  scrollbar-color: var(--augit-scrollbar-thumb) transparent;
 }
 
 body[data-theme="dark"] {
   color-scheme: dark;
+  /* New UI（expUI）深色：panel-muted=Gray2，border=Gray1，border-strong=Gray5，
+     muted=Gray9，faint=Gray6，blue=Blue4，blue-soft=Blue2。 */
   --augit-chrome: #2b2d30;
   --augit-panel: #1e1f22;
-  --augit-panel-muted: #25262a;
-  --augit-border: #393b40;
-  --augit-border-strong: #4b4d53;
+  --augit-panel-muted: #2b2d30;
+  --augit-border: #1e1f22;
+  /* 深色 `Editor.Toolbar.borderColor` = Gray3 #393B40——深色下这是比表面更亮的线。 */
+  --augit-toolbar-border: #393b40;
+  --augit-border-strong: #4e5157;
   --augit-text: #dfe1e5;
-  --augit-muted: #9da1aa;
-  --augit-faint: #6f737b;
-  --augit-blue: #548af7;
-  --augit-blue-soft: #2f466f;
+  --augit-muted: #9da0a8;
+  --augit-line-number: #4b5059;
+  /* 权威 `ScrollBar.Transparent.thumbColor` 的深色一半（`0x47A6A6A6`）。 */
+  --augit-dialog-icon-bg: #548af7;
+  --augit-scrollbar-thumb: #a6a6a647;
+  /* expUI_dark：underlinedTabBackground = Gray1、underTabsBorderColor = Gray3；两个边框键未定义，走 painter 默认 #7F99C3／#7F99C380。 */
+  --augit-tabs-border: #393b40;
+  --augit-tab-selected-bg: #1e1f22;
+  --augit-tab-selected-border: #7f99c380;
+  --augit-tab-selected-bg-active: #1e1f22;
+  --augit-tab-selected-border-active: #7f99c3;
+  /* 深色权威是 expUI_dark：选中 Gray3／两端 Gray7／聚焦 Blue3。 */
+  --augit-segment-active-bg: #393b40;
+  --augit-segment-active-border: #6f737a;
+  --augit-segment-active-bg-focus: #35538f;
+  --augit-icon: #ced0d6;
+  --augit-faint: #5a5d63;
+  --augit-blue: #3574f0;
+  --augit-blue-soft: #2e436e;
+  /* 深色 `SearchOption.selectedBackground` = 0x5C6164（同上）。 */
+  --augit-search-option-selected: #5c6164;
+  --augit-search-error-bg: #743a3a;
+  --augit-spotlight-border: #a36b4e;
+  --augit-log-current-branch: #283044;
+  --augit-accent-brand: #3574f0;
+  /* 深色 `ToolWindow.Button.foreground` = #9DA0A8。 */
+  --augit-rail-fg: #9da0a8;
+  /* 深色 `ToolWindow.Stripe.separatorColor` = #43454A。 */
+  --augit-rail-separator: #43454a;
+  /* 深色同理：#0F0F0F 的 40/255 叠加。 */
+  --augit-rail-hover: #0f0f0f28;
+  /* 深色 `ui.Popup.borderColor` = #43454A。 */
+  --augit-popup-border: #43454a;
+  --augit-search-field-bg: #1e1f22;
+  /* 深色无 layer 定义；按"深色层级反向"layer-1 即 Gray1 = #1E1F22，与 `--augit-panel` 现值一致。 */
+  --augit-popup-bg: #2b2d30;
+  --augit-dialog-bg: #1e1f22;
   --augit-selection-inactive: #43454a;
   --augit-history-selection-inactive: #43454a;
-  --augit-blue-hover: #293a59;
-  --augit-hover: #2d2f33;
-  --augit-green: #57965c;
-  --augit-green-soft: #294330;
-  --augit-red: #f05f5f;
-  --augit-red-soft: #4b2d2d;
+  --augit-hover: #393b40;
+  /* 按下态：`ui.ActionButton.pressedBackground` = #FFFFFF26（与深色悬停取自 MainMenu.selectionBackground 的来源不同，见文档记录）。 */
+  --augit-pressed: #ffffff26;
+  --title-button-pressed: #393b40;
+  /* 深色：下拉的透明悬停 = #FFFFFF1A；图标/按钮回落 `ActionButton.hoverBackground` = #FFFFFF16。 */
+  --title-chip-hover: #ffffff1a;
+  --title-context-hover: #ffffff1a;
+  --title-menu-hover: #ffffff1a;
+  --title-button-hover: #ffffff16;
+  --augit-action-button-hover: #ffffff16;
+  /* 深色无 successForeground 键，取调色板 Green6。 */
+  /* 深色无 Banner 键，取调色板 Green2。 */
+  /* expUI_dark 的 `Label.errorForeground` = Red7。 */
+  --augit-red: #db5c5c;
+  /* 深色取调色板 Red2。 */
+  --augit-red-soft: #472b2b;
   --augit-conflict-side: #523234;
   --augit-conflict-result: #2b3f59;
-  --augit-orange: #c77d20;
+  /* expUI_dark 的 `Label.warningForeground` = Yellow5。 */
   --augit-graph: #5bb5ca;
   --augit-graph-secondary: #b88ad1;
   --augit-graph-third: #87b772;
   --augit-graph-fourth: #de8f81;
-  --augit-folder-outline: #868a91;
+  /* 文件夹描边：权威 expui/nodes/folder_dark.svg 的 stroke = #CED0D6（浅色侧 folder.svg 的 #6C707E 本来就对）。
+     原 #868a91 只是深色调色板里的某个灰，不是该图标文件的值。 */
+  --augit-folder-outline: #ced0d6;
   --augit-folder-fill: #43454a;
   --augit-root-outline: #548af7;
-  --augit-root-fill: #253f61;
-  --augit-reference: #f2b846;
-  --augit-yellow-soft: #4d4527;
+  /* 工作区根徽标取自 expui/nodes/sourceRoot.svg：浅色 fill #E7EFFD／stroke #3574F0，深色 fill #25324D／stroke #548AF7。
+     原来深色 fill 写成 #253f61，与权威不符。 */
+  --augit-root-fill: #25324d;
+  --augit-ref-head: #e1c731;
+  --augit-ref-branch: #3cb45c;
+  --augit-ref-remote: #9f79b5;
+  --augit-ref-tag: #999999;
+  /* 深色取调色板 Yellow2。 */
+  --augit-yellow-soft: #5e4d33;
+  /* New UI 项目配色（深色）。第 3 套与浅色不同，是 expUI_dark 与浅色暗头部变体的唯一差异。 */
+  --augit-project-1: #654b40;
+  --augit-project-2: #534c33;
+  --augit-project-3: #455038;
+  --augit-project-4: #31515f;
+  --augit-project-5: #344c7d;
+  --augit-project-6: #5d354a;
+  --augit-project-7: #4f3e65;
+  --augit-project-8: #1d4744;
+  --augit-project-9: #3e5540;
+  /* New UI Diff 行底与文件状态配色（深色）。 */
+  --augit-diff-added: #294436;
+  --augit-diff-deleted: #484a4a;
+  /* 深色无参考图，取配色方案 ADDED/DELETED/MODIFIED_LINES_COLOR 原值。 */
+  --augit-diff-current-added: #549159;
+  --augit-diff-current-deleted: #868a91;
+  --augit-diff-current-modified: #375fad;
+  --augit-diff-modified: #385570;
+  --augit-diff-whitespace: #52433d;
+  --augit-diff-separator: #2b2d30;
+  --augit-file-added: #73bd79;
+  --augit-file-modified: #70aeff;
+  --augit-file-deleted: #6f737a;
+  --augit-file-conflict: #de6a66;
+  --augit-status-clean: #57965c;
+  /* 深色的标签减弱混色比是 0.7（浅色 0.9），图标 alpha 两主题同为 0.75。 */
+  --augit-tab-unselected-blend: 70%;
+  --augit-tab-unselected-alpha: 0.75;
+  /* 深色下获焦与失焦的悬停底色相同，都是 #464A4D。 */
+  --augit-row-hover: #464a4d;
+  --augit-row-hover-inactive: #464a4d;
+  /* 深色箭头用 chevronRight_dark.svg 的 #B4B8BF（Gray10）。 */
+  --augit-tree-arrow: #b4b8bf;
+  /* 分支图标用经典集 vcs/branch.svg 的固定填充色（不是 currentColor）。 */
+  --augit-branch-icon: #afb1b3;
 }
 
 button,
@@ -130,7 +398,7 @@ button {
      （实测 942x588 的窗口里 .augit-window 被撑到 1220，状态栏落到视口外）。 */
   height: 100vh;
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr) 23px;
+  /* 与后面生效的规则保持一致（原先这里写死 44px/23px，与令牌及规范值不符）。 */
   background: var(--augit-chrome);
 }
 
@@ -144,11 +412,9 @@ button {
 }
 
 .brand-mark {
-  width: 23px;
-  height: 23px;
+  /* 尺寸与圆角由后面的 `.top-button, .brand-mark` 组规则给出（第 97 轮删除此处的死值 23px/5px）。 */
   display: grid;
   place-items: center;
-  border-radius: 5px;
   color: #ffffff;
   background: var(--augit-blue);
   font-weight: 600;
@@ -160,23 +426,18 @@ button {
 .toolbar-button {
   display: inline-grid;
   place-items: center;
-  color: var(--augit-muted);
+  color: var(--augit-icon);
   background: transparent;
   cursor: default;
 }
 
-.top-button {
-  width: 30px;
-  height: 30px;
-  border-radius: 6px;
-}
 
 .top-button:hover,
 .icon-button:hover,
-.toolbar-button:hover,
-.rail-button:hover {
+.toolbar-button:hover {
   color: var(--augit-text);
-  background: color-mix(in srgb, var(--augit-text) 8%, transparent);
+  /* 权威 `ActionButton.hoverBackground`（`EditorToolbarButtonLook` 也读同一个键）。 */
+  background: var(--augit-action-button-hover);
 }
 
 .top-chip {
@@ -185,7 +446,7 @@ button {
   align-items: center;
   gap: 7px;
   padding: 0 10px;
-  border-radius: 7px;
+  /* 标题栏按钮圆角 6：权威 `MainToolbar.Button.arc` = 12（HeaderToolbarButtonLook 用它），arc 是直径 ⇒ 半径 6。 */
   color: var(--augit-text);
   background: color-mix(in srgb, var(--augit-blue) 7%, transparent);
   text-decoration: none;
@@ -219,8 +480,6 @@ button {
 .app-main {
   min-height: 0;
   display: grid;
-  grid-template-columns: 42px var(--augit-side-width) minmax(0, 1fr);
-  gap: 4px;
   padding: 0 8px 0 7px;
 }
 
@@ -237,23 +496,45 @@ button {
 }
 
 .rail-button {
-  width: 32px;
-  height: 32px;
-  margin-bottom: 4px;
-  border-radius: 6px;
+  /* 圆角：权威 `IdeaActionButtonLook.getButtonArc()` = `DarculaUIUtil.BUTTON_ARC`(=6)，
+     Java2D 的 arc 是弧宽高 ⇒ 半径 3。（第 58 轮曾记"权威里没有轨道按钮圆角键"，那是错的。） */
   text-decoration: none;
 }
 
 .rail-button.active {
+  /* 权威 `SquareStripeButtonLook.getBackgroundColor()/paintIcon()`：只有 `button.isFocused()` 时，
+     选中按钮才用 `ToolWindow.Button.selectedBackground`（浅 #3871E1／深 #3574F0）与 `selectedForeground`（白）；
+     否则用普通底色与 `ToolWindow.Button.foreground`。两张 2026 参考图正好各呈现一态
+     （pycharm-toolbar-overflow 里是灰色=未聚焦，pycharm-history-normal 里是蓝色=聚焦）。 */
+  color: var(--augit-rail-fg);
+  background: transparent;
+}
+
+/* 未选中轨道按钮的前景按 `ToolWindow.Button.foreground` 取（浅 `gray-70` #5F6269／深 #9DA0A8），
+   与通用 `.icon-button` 的 `--augit-icon` 区分开；悬停仍按后面的规则提亮到 `--augit-text`，禁用态与 muted 变体不覆盖。 */
+.rail-button:not(.active):not(.muted-action):not([aria-disabled="true"]) {
+  color: var(--augit-rail-fg);
+}
+
+/* 选中且按钮自身获得焦点：权威 `SquareStripeButtonLook` 里只有此时才用
+   `ToolWindow.Button.selectedBackground`（浅 #3871E1／深 #3574F0）与白色前景。 */
+.rail-button.active:focus:not([aria-disabled="true"]) {
   color: #ffffff;
-  background: var(--augit-blue);
+  background: var(--augit-accent-brand);
+}
+
+/* 轨道按钮悬停（权威 `ToolWindow.Button.hoverBackground`）。放在 `.rail-button.active` 之后，
+   使"选中但未聚焦"时悬停也能生效；而 `.rail-button.active:focus` 特异性更高，聚焦态仍压过悬停。 */
+.rail-button:hover:not([aria-disabled="true"]) {
+  color: var(--augit-text);
+  background: var(--augit-rail-hover);
 }
 
 .rail-separator {
   width: 24px;
-  height: 1px;
+  height: var(--augit-hairline);
   margin: 4px 0 8px;
-  background: var(--augit-border-strong);
+  background: var(--augit-rail-separator);
 }
 
 .tool-window,
@@ -268,19 +549,43 @@ button {
 
 .side-tool {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
 }
 
 .tool-header,
 .bottom-header,
+/* 编辑器标签栏的唯一规则。历史上这里有三处同名块（另两处已被删除）——同优先级的后一处会
+   静默覆盖前一处，导致改这一处不生效。新增标签栏样式必须写在本块内。 */
 .editor-tabs {
   display: flex;
   align-items: center;
-  min-height: 38px;
-  border-bottom: 1px solid var(--augit-border);
+  min-height: var(--augit-tab-height);
+  padding: 0 7px;
+  /* 标签之间没有间隙：相邻标签靠 margin-right: -1px 重叠 1px，见 .editor-tab。 */
+  gap: 0;
+  border-bottom: var(--augit-hairline) solid var(--augit-tabs-border);
+  /* 标签栏底色与编辑区一致（EditorTabs.background）。
+     底色若沿用 chrome 会在标签栏与正文之间留一道接缝，参考实现没有这道缝。 */
+  background: var(--augit-panel);
   /* 标签放不下时横向滚动，而不是把标签压缩到看不见名字；标签条本身不显示滚动条。 */
   overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
   scrollbar-width: none;
+  /* 标签被滚动到部分移出可见区时，在可见边缘做 10px 渐隐
+     （ide.editor.tabs.fadeout.width = 10）。注意语义：渐隐不是"内容被压缩时替代省略号"，
+     而是滚动到边缘时才出现的特性——左端只在已滚动时出现，右端只在还有未显示内容时出现。
+     两端宽度由脚本按实际滚动位置写入；渐隐只影响绘制，不影响命中与布局。 */
+  --tab-fade-start: 0px;
+  --tab-fade-end: 0px;
+  --tab-fade-mask: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 var(--tab-fade-start),
+    #000 calc(100% - var(--tab-fade-end)),
+    transparent 100%
+  );
+  mask-image: var(--tab-fade-mask);
+  -webkit-mask-image: var(--tab-fade-mask);
 }
 
 .editor-tabs::-webkit-scrollbar { display: none; }
@@ -288,7 +593,6 @@ button {
 .tool-header {
   padding: 0 10px;
   gap: 8px;
-  font-weight: 600;
 }
 
 .tool-header .grow,
@@ -299,7 +603,6 @@ button {
 .side-content {
   min-height: 0;
   overflow: auto;
-  scrollbar-color: var(--augit-border-strong) transparent;
 }
 
 .workspace {
@@ -316,49 +619,72 @@ button {
 
 .editor-area {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
-}
-
-.editor-tabs {
-  padding: 0 8px;
-  gap: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap;
 }
 
 .editor-tab {
-  height: 31px;
-  max-width: 220px;
-  /* 标签只受上限约束、不参与收缩：没有这一条时，打开的文档一多（实测 32 个），
-     flex 会把每个标签压到 20 像素左右，标签名整个消失、只剩关闭叉；
-     标签条改为横向滚动（见 .editor-tabs）。 */
+  /* 标签内容高 = 标签栏高 − 上下各 6px（EditorTabs.tabInsets 的 −6 上下分量）。 */
+  height: calc(var(--augit-tab-height) - 12px);
+  /* 未固定标签**没有最大宽度**：IntelliJ 对未固定标签不设上限，超出由标签条横向滚动承担
+     （固定标签另有 2000px 上限，对应 ide.editor.max.pinned.tab.width）。
+     标签不参与收缩：没有这一条时，打开的文档一多（实测 32 个），flex 会把每个标签压到
+     20 像素左右、标签名整个消失只剩关闭叉；标签条改为横向滚动（见 .editor-tabs）。 */
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: var(--augit-muted);
+  /* 图标与文字间距 4px（EditorTabbedContainer 的 iconTextGap）。 */
+  gap: 4px;
+  /* 标签左右内距 8px（EditorTabs.tabInsets 的左右分量）。 */
+  padding: 0 8px;
+  /* 编辑器标签最小宽度 50px（SingleRowLayoutStrategy.MIN_TAB_WIDTH）。 */
+  min-width: 50px;
+  /* 相邻标签重叠 1px（tabHGap = -tabBorder.thickness），是重叠而不是间隙。 */
+  margin-right: -1px;
+  /* 被拉伸到最小宽度时文字居中，而不是贴左。 */
+  justify-content: center;
+  border: var(--augit-hairline) solid transparent;
+  /* Islands 卡片渲染：选中标签是圆角卡片（见 .editor-tab.active），未选中标签无底色。 */
+  /* 未选中标签不做"变灰"，而是把前景色按 unselectedBlend 混向标签底色：
+     浅色 90% 前景 + 10% 底色，深色 70% + 30%（EditorTabs.unselectedBlend）。 */
+  color: color-mix(in srgb, var(--augit-text) var(--augit-tab-unselected-blend), var(--augit-panel));
   text-decoration: none;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.editor-tab.active {
-  color: var(--augit-text);
-  border-color: var(--augit-border);
-  background: var(--augit-panel-muted);
+/* 未选中标签的图标额外取 unselectedAlpha = 0.75。 */
+.editor-tab > svg {
+  opacity: var(--augit-tab-unselected-alpha);
 }
+
+/* 悬停或选中时取消减弱。参考实现里标签的悬停底色是**透明**的
+   （EditorTabs.hoverBackground = #FFFFFF00），所以悬停不改变底色，只取消减弱。 */
+.editor-tab:is(:hover, .active) {
+  color: var(--augit-text);
+}
+
+.editor-tab:is(:hover, .active) > svg {
+  opacity: 1;
+}
+
+/* 选中标签的样式只在本文件后半段定义一处（用底部下划线，不用底色方块）。 */
 
 .file-status-modified {
-  color: var(--augit-blue);
+  color: var(--augit-file-modified);
   font-weight: 600;
 }
 
+.file-status-deleted {
+  color: var(--augit-file-deleted);
+  font-weight: 600;
+}
+
+.file-status-added {
+  color: var(--augit-file-added);
+  font-weight: 600;
+}
+
+/* 注意：file-status-new 不是文件状态，它是 Worktree 面板“干净，可安全移除”这类正向状态文字。 */
 .file-status-new {
-  color: var(--augit-green);
+  color: var(--augit-status-clean);
   font-weight: 600;
 }
 
@@ -376,9 +702,6 @@ button {
   color: var(--augit-muted);
 }
 
-.tree {
-  padding: 6px 7px 12px;
-}
 
 .tree-row {
   height: 27px;
@@ -386,15 +709,40 @@ button {
   align-items: center;
   gap: 6px;
   padding: 0 7px;
-  border-radius: 5px;
+  /* 选中行圆角 4：权威 `Tree.Selection.arc` = 8，Jewel 桥 `CornerSize(Tree.ARC.dp / 2)`（arc 是直径）。 */
+  border-radius: 4px;
   color: var(--augit-text);
   text-decoration: none;
   white-space: nowrap;
 }
 
+/* 行悬停的**有无**按参考实现的安装差异决定：
+   表格（提交列表、文件历史）由 `JBTable` 构造时默认安装 `TableHoverListener` ⇒ 有行悬停；
+   树（项目树、Changes、引用树）不安装 `TreeHoverListener`、列表也不默认装 `ListHoverListener` ⇒ 参考实现里没有。
+   不过平台元数据把三个键都记成 "a background of a hovered row … **if hover is allowed**"
+   （`List/Tree/Table.hoverBackground`，since 2020.3），即平台**支持**、由组件决定是否启用。
+   第 100 轮据用户裁决（验收套件 `真实悬停改变行背景` 要求行有悬停底，平台也支持该行为）**保留树的悬停**，
+   并把取值从 `--augit-hover`（浅 #00000012）改为权威 `--augit-row-hover`
+   （浅 = `selection-bg-hovered` = `transparent-black-10` = #00000008；深 = 代码默认 #464A4D）。
+   这是**有意偏离**参考实现（参考实现没给树装监听），已在 design-system 注明。 */
 .tree-row:hover {
-  background: var(--augit-hover);
-  --augit-row-background: var(--augit-hover);
+  background: var(--augit-row-hover);
+  --augit-row-background: var(--augit-row-hover);
+}
+
+/* 表格类行的悬停底色：浅色是半透明覆盖 #00000008（获焦/失焦同值），深色两者同为代码默认 #464A4D。
+   本规则必须排在选中态规则之前——两者特异性相同，靠顺序让选中态覆盖悬停态，
+   与参考实现"先判选中、再判悬停"的次序一致。 */
+.commit-row:hover,
+.history-row:hover {
+  background: var(--augit-row-hover-inactive);
+  --augit-row-background: var(--augit-row-hover-inactive);
+}
+
+.commit-list:focus .commit-row:hover,
+.history-rows:focus-within .history-row:hover {
+  background: var(--augit-row-hover);
+  --augit-row-background: var(--augit-row-hover);
 }
 
 .tree-row.selected {
@@ -406,6 +754,10 @@ button {
   background: var(--augit-selection-inactive);
   --augit-row-background: var(--augit-selection-inactive);
 }
+
+/* 当前分支所指提交行：权威 `VersionControl.Log.Commit.currentBranchBackground`。
+   放在 .commit-row.selected 规则之前，选中时仍显示选中底色。 */
+.commit-row.current-branch { background: var(--augit-log-current-branch); }
 
 .commit-row.selected.inactive,
 .history-row.selected.inactive {
@@ -436,9 +788,10 @@ button {
   text-overflow: ellipsis;
 }
 
+/* 树展开箭头：权威取固定的 Gray7/Gray10，不是行文字色，也不是 muted（Gray6）。 */
 .chevron {
   width: 11px;
-  color: var(--augit-muted);
+  color: var(--augit-tree-arrow);
 }
 
 .folder-icon {
@@ -448,7 +801,7 @@ button {
 .file-icon {
   width: 16px;
   text-align: center;
-  color: var(--augit-muted);
+  color: var(--augit-icon);
 }
 
 .augit-toolbar-icon,
@@ -462,17 +815,31 @@ button {
 }
 
 .file-type-icon {
-  color: var(--augit-muted);
+  color: var(--augit-icon);
 }
 
-.file-type-markdown, .file-type-image { color: #3574f0; }
-.file-type-csharp, .file-type-markup { color: #369a5c; }
-.file-type-structured { color: #b88e2b; }
-body[data-theme="dark"] .file-type-markdown,
-body[data-theme="dark"] .file-type-image { color: #6a9fff; }
-body[data-theme="dark"] .file-type-csharp,
-body[data-theme="dark"] .file-type-markup { color: #6aab73; }
-body[data-theme="dark"] .file-type-structured { color: #ebc051; }
+/* 文件类型图标的自有颜色。design-system 要求"类型色不能被 Git 状态或选中态覆盖"，
+   所以颜色写在图标自身的 class 上，而不是继承行文字色。权威 expui/fileTypes/*.svg（深色取 *_dark.svg）：
+   markdown #3574F0/#548AF7、Csharp #208A3C/#5FAD65、json #834DF0/#B589EC、xml #E66D17/#C77D55、
+   html #369650/#57965C、image 描边 #3574F0/#548AF7；text/unknown/ignored 用标准图标色（= --augit-icon）。 */
+.file-type-markdown { color: #3574f0; }
+.file-type-csharp { color: #208a3c; }
+.file-type-json { color: #834df0; }
+.file-type-yaml { color: #db3b4b; }
+.file-type-html { color: #369650; }
+.file-type-xml { color: #e66d17; }
+.file-type-image { color: #3574f0; }
+/* .gitignore：权威 expui/fileTypes/gitignore.svg 的 #F34E29（该图标无 _dark 变体）。 */
+.file-type-gitignore { color: #f34e29; }
+body[data-theme="dark"] .file-type-markdown { color: #548af7; }
+body[data-theme="dark"] .file-type-csharp { color: #5fad65; }
+body[data-theme="dark"] .file-type-json { color: #b589ec; }
+body[data-theme="dark"] .file-type-yaml { color: #db5c5c; }
+body[data-theme="dark"] .file-type-html { color: #57965c; }
+body[data-theme="dark"] .file-type-xml { color: #c77d55; }
+body[data-theme="dark"] .file-type-image { color: #548af7; }
+/* 旧的、Augit 自定的三类颜色（#369a5c／#b88e2b／#6a9fff／#6aab73／#ebc051）已删除：
+   上面的完整调色板按权威 expui/fileTypes/*.svg 逐类型取色，两者会互相覆盖。 */
 
 .tree-name.file-status-modified { font-weight: 400; }
 
@@ -482,18 +849,18 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   align-items: center;
   gap: 3px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
 }
 
 .toolbar-button,
 .icon-button {
   width: 28px;
   height: 28px;
-  border-radius: 5px;
+  /* 权威 `IntUiBridgeIconButton.kt`：圆角 = `CornerSize(DarculaUIUtil.BUTTON_ARC.dp / 2)` = 3。 */
 }
 
 .toolbar-separator {
-  width: 1px;
+  width: var(--augit-hairline);
   height: 18px;
   margin: 0 4px;
   background: var(--augit-border);
@@ -503,7 +870,7 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 .text-field,
 .select-field {
   height: 30px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 5px;
   outline: none;
   background: var(--augit-panel);
@@ -518,8 +885,8 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 .text-field:focus,
 .select-field:focus,
 .message-field:focus {
-  border-color: var(--augit-blue);
-  box-shadow: 0 0 0 1px var(--augit-blue);
+  border-color: var(--augit-accent-brand);
+  box-shadow: 0 0 0 var(--augit-hairline) var(--augit-blue);
 }
 
 .select-field {
@@ -540,29 +907,30 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   justify-content: flex-end;
   gap: 4px;
   padding: 0 8px 0 9px;
-  box-shadow: inset 0 -1px var(--augit-border);
+  box-shadow: inset 0 calc(-1 * var(--augit-hairline)) var(--augit-toolbar-border);
 }
 
 .segmented {
   display: inline-flex;
   align-items: center;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--augit-panel-muted);
+  /* 权威 `IntUiBridgeSegmentedControl.kt`：容器圆角 = `CornerSize(DarculaUIUtil.BUTTON_ARC.dp / 2)` = 3。 */
+  border-radius: 3px;
+  /* 容器没有专门底色：权威 `SegmentedButtonComponent.paint()` 只调 `super.paint()`（未设背景）再画子按钮描边，
+     即透出父容器底色（Jewel 侧的 `SegmentedControlColors` 同样没有 background 字段）。选中按钮靠自身的
+     白底 + `#B5B7BD` 整圈描边区分，不依赖容器底。 */
 }
 
 .segment {
-  height: 27px;
-  padding: 0 10px;
-  border-radius: 5px;
-  color: var(--augit-muted);
+  /* 权威 `IntUiBridgeSegmentedControlButton.kt`：按钮圆角同为 `BUTTON_ARC / 2` = 3。 */
+  border-radius: 3px;
+  color: var(--augit-icon);
   background: transparent;
 }
 
 .segment.active {
   color: var(--augit-text);
   background: var(--augit-panel);
-  box-shadow: 0 0 0 1px var(--augit-border);
+  box-shadow: 0 0 0 var(--augit-hairline) var(--augit-border);
 }
 
 
@@ -585,7 +953,9 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   font-family: var(--augit-code);
   font-size: 13px;
   line-height: var(--code-line-height, 22px);
-  background: linear-gradient(to right, var(--augit-panel-muted) var(--code-gutter-width, 51px), var(--augit-panel) 0);
+  /* 行号栏底色 = 编辑区底色：浅色方案 GUTTER_BACKGROUND=ffffff，深色方案未设该键、回落编辑区底色。
+     参考截图行号栏区域中位色实测 #FFFFFF。 */
+  background: var(--augit-panel);
 }
 
 .code-view:focus { outline: none; }
@@ -603,8 +973,10 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   position: sticky;
   left: 0;
   padding-right: 3px;
-  color: var(--augit-muted);
-  background: var(--augit-panel-muted);
+  /* 行号文字色取配色方案 LINE_NUMBERS_COLOR（浅 aeb3c2 / 深 4b5059），不是 muted；
+     参考截图行号区实测 #AEB3C2。 */
+  color: var(--augit-line-number);
+  background: var(--augit-panel);
   text-align: right;
   user-select: none;
 }
@@ -626,7 +998,7 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 }
 
 .markdown-source {
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .markdown-panes { min-height: 0; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -637,15 +1009,15 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 .markdown-document .markdown-source { overflow: auto; min-height: 0; border: 0; }
 .markdown-preview-region { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
 .markdown-preview-region > .markdown-preview { height: 100%; }
-.markdown-divider { cursor: col-resize; background: var(--augit-panel-muted); border-inline: 1px solid var(--augit-border); }
-.markdown-divider:focus-visible { outline: 1px solid var(--augit-blue); outline-offset: -1px; }
+.markdown-divider { cursor: col-resize; background: var(--augit-panel-muted); border-inline: var(--augit-hairline) solid var(--augit-border); }
+.markdown-divider:focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: calc(-1 * var(--augit-hairline)); }
 .markdown-document:not([data-markdown-mode="split"]) .markdown-divider,
 .markdown-document[data-markdown-mode="preview"] .markdown-source,
 .markdown-document[data-markdown-mode="source"] .markdown-preview-region { display: none; }
-.markdown-feedback { position: absolute; inset: 0 0 auto; padding: 8px 12px; min-height: 36px; background: var(--augit-panel); border-bottom: 1px solid var(--augit-border); overflow-wrap: anywhere; }
+.markdown-feedback { position: absolute; inset: 0 0 auto; padding: 8px 12px; min-height: 36px; background: var(--augit-panel); border-bottom: var(--augit-hairline) solid var(--augit-border); overflow-wrap: anywhere; }
 .markdown-feedback:empty { display: none; }
 .markdown-document[data-markdown-state="loading"] .markdown-feedback { text-align: center; color: var(--augit-muted); }
-.markdown-blocked { color: var(--augit-muted); border: 1px dashed var(--augit-border); padding: 4px 8px; overflow-wrap: anywhere; }
+.markdown-blocked { color: var(--augit-muted); border: var(--augit-hairline) dashed var(--augit-border); padding: 4px 8px; overflow-wrap: anywhere; }
 
 .markdown-preview {
   padding: 24px 34px;
@@ -655,7 +1027,6 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
 
 .markdown-preview h1 {
   margin: 0 0 24px;
-  font-size: 29px;
   font-weight: 600;
 }
 
@@ -676,7 +1047,7 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   min-height: 32px;
   padding: 8px;
   border: 0;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
   border-radius: 0;
   background: var(--augit-panel);
   color: var(--augit-red);
@@ -684,9 +1055,8 @@ body[data-theme="dark"] .file-type-structured { color: #ebc051; }
   white-space: normal;
   font: inherit;
 }
-.json-error:focus-visible { outline: 1px solid var(--augit-blue); outline-offset: -1px; }
-body[data-theme="dark"] .json-error { color: #e37a7a; }
-.document-target { padding: 8px; min-width: 0; min-height: 32px; overflow-wrap: anywhere; background: var(--augit-panel-muted); box-shadow: inset 0 -1px var(--augit-border); }
+.json-error:focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: calc(-1 * var(--augit-hairline)); }
+.document-target { padding: 8px; min-width: 0; min-height: 32px; overflow-wrap: anywhere; background: var(--augit-panel-muted); box-shadow: inset 0 calc(-1 * var(--augit-hairline)) var(--augit-border); }
 .document-view.has-target { grid-template-rows: var(--augit-document-toolbar-height) auto minmax(0, 1fr); }
 .json-document.json-invalid.has-target { grid-template-rows: var(--augit-document-toolbar-height) auto auto minmax(0, 1fr); }
 .image-size-label { min-width: 0; padding: 0 4px; overflow: hidden; color: var(--augit-muted); }
@@ -711,7 +1081,7 @@ body[data-theme="dark"] .json-error { color: #e37a7a; }
   background: var(--augit-panel);
 }
 .image-stage:focus { outline: none; }
-.image-stage img { position: absolute; max-width: none; max-height: none; user-select: none; outline: 1px solid var(--augit-border-strong); outline-offset: -1px; background-image: conic-gradient(var(--augit-panel) 25%, var(--augit-panel-muted) 0 50%, var(--augit-panel) 0 75%, var(--augit-panel-muted) 0); background-position: 8px 0; background-size: 16px 16px; }
+.image-stage img { position: absolute; max-width: none; max-height: none; user-select: none; outline: var(--augit-hairline) solid var(--augit-border-strong); outline-offset: calc(-1 * var(--augit-hairline)); background-image: conic-gradient(var(--augit-panel) 25%, var(--augit-panel-muted) 0 50%, var(--augit-panel) 0 75%, var(--augit-panel-muted) 0); background-position: 8px 0; background-size: 16px 16px; }
 .image-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 100%; padding: 12px; border-radius: 3px; background: var(--augit-panel); color: var(--augit-text); white-space: nowrap; pointer-events: none; }
 
 .info-state {
@@ -740,24 +1110,25 @@ body[data-theme="dark"] .json-error { color: #e37a7a; }
 .primary-button,
 .secondary-button,
 .danger-button {
-  height: 31px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 14px;
-  border-radius: 5px;
+  /* 权威 `IntUiBridgeButton.kt`：内距 `PaddingValues(horizontal = 14.dp)`（= DarculaButtonUI.HORIZONTAL_PADDING）、
+     圆角 `buttonCornerSize()` = `BUTTON_ARC / 2` = 3。 */
   text-decoration: none;
 }
 
 .primary-button {
   color: #ffffff;
-  background: var(--augit-blue);
+  /* 权威 `Button.default.startBackground`/`endBackground`：浅色 `control-brand-bg`(= accent-brand-bg, blue-80 #3871E1)、
+     深色 `Blue6` #3574F0 —— 正好是 `--augit-accent-brand` 的浅/深两值；参考图 Confirm Exit 的主按钮实测 #3871E1 ✓。 */
+  background: var(--augit-accent-brand);
 }
 
 .secondary-button {
   color: var(--augit-text);
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   background: var(--augit-panel);
 }
 
@@ -768,13 +1139,17 @@ body[data-theme="dark"] .json-error { color: #e37a7a; }
 
 /* Reset 与回滚的动作状态只作用于当前模态，不移动按钮或背景布局。 */
 body[data-theme="dark"]:is([data-scene="reset"], [data-scene="rollback"]) .dialog .danger-button:not([aria-disabled="true"]) {
-  background: #e37a7a;
+  background: var(--augit-red);
 }
 body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.secondary-button, .dialog-header .icon-button):is(:hover, :active) {
-  background: var(--augit-hover);
+  background: var(--augit-action-button-hover);
+}
+
+body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.secondary-button, .dialog-header .icon-button):active {
+  background: var(--augit-pressed);
 }
 body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.primary-button, .secondary-button, .danger-button, .dialog-header .icon-button):focus:not([aria-disabled="true"]) {
-  outline: 1px solid var(--augit-blue);
+  outline: var(--augit-hairline) solid var(--augit-accent-brand);
   outline-offset: -3px;
 }
 body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .primary-button:focus:not([aria-disabled="true"]) {
@@ -827,8 +1202,12 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   background: var(--augit-blue-soft);
 }
 
+/* Changes 是树（`ChangesTreeImpl extends ChangesTree`，Augit 侧也标了 role="tree"）。
+   与 .tree-row:hover 同一裁决（第 100 轮）：参考实现不给树/列表装悬停监听，
+   但平台支持（元数据 "if hover is allowed"）、验收套件也要求，故保留悬停，
+   取值同样改用权威 `--augit-row-hover`。详见上方 .tree-row:hover 的说明。 */
 .changes-list .check-row:not(.selected):hover {
-  background: var(--augit-hover);
+  background: var(--augit-row-hover);
 }
 
 .fake-check {
@@ -839,8 +1218,9 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   width: 15px;
   height: 15px;
   flex: 0 0 15px;
-  border: 1px solid var(--augit-border-strong);
-  border-radius: 3px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  /* 方框圆角 2.5px：权威图标为 x=4.5 y=4.5 w=15 h=15 rx=2.5 的 15×15 方框。 */
+  border-radius: 2.5px;
   background: var(--augit-panel);
   cursor: pointer;
   padding: 0;
@@ -866,7 +1246,9 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   border: 0;
   padding: 0;
   background: transparent;
-  color: inherit;
+  /* Changes 也是树（ChangesTree），展开箭头同用固定的 Gray7/Gray10。
+     注意不能写 color: inherit——行文字色是 --augit-text，会比参考深得多。 */
+  color: var(--augit-tree-arrow);
 }
 
 .change-chevron[aria-expanded="false"] svg { transform: rotate(-90deg); }
@@ -889,18 +1271,12 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
 
 .change-file-row:focus-visible,
 .fake-check:focus-visible {
-  outline: 2px solid var(--augit-blue);
-  outline-offset: -1px;
+  outline: 2px solid var(--augit-accent-brand);
+  outline-offset: calc(-1 * var(--augit-hairline));
 }
 
 .fake-check.checked,
 .fake-check.mixed {
-  border-color: #3574f0;
-  background: #3574f0;
-}
-
-body[data-theme="dark"] .fake-check.checked,
-body[data-theme="dark"] .fake-check.mixed {
   border-color: var(--augit-blue);
   background: var(--augit-blue);
 }
@@ -910,11 +1286,11 @@ body[data-theme="dark"] .fake-check.mixed {
   content: "";
   position: absolute;
   inset: -1px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Cpath d='m3 7.5 3 3 6-7' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Cpath d='M3.5 8L6.5 11 12 4.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 15px 15px no-repeat;
 }
 
 .fake-check.mixed::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Cpath d='M4 7.5h7' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 15 15'%3E%3Crect x='2' y='6.5' width='11' height='2' rx='1' fill='white'/%3E%3C/svg%3E");
 }
 
 .commit-box {
@@ -922,7 +1298,7 @@ body[data-theme="dark"] .fake-check.mixed {
   display: grid;
   grid-template-rows: 35px minmax(80px, 1fr) 43px;
   padding: 0 9px;
-  border-top: 1px solid var(--augit-border);
+  border-top: var(--augit-hairline) solid var(--augit-border);
 }
 
 .commit-options {
@@ -935,8 +1311,7 @@ body[data-theme="dark"] .fake-check.mixed {
   min-height: 0;
   resize: none;
   padding: 8px;
-  border: 1px solid var(--augit-border-strong);
-  border-radius: 5px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   outline: none;
   background: var(--augit-panel);
 }
@@ -952,7 +1327,7 @@ body[data-theme="dark"] .fake-check.mixed {
   display: grid;
   grid-template-rows: max(20px, calc(1em + 4px)) minmax(0, 1fr);
   padding-top: 3px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 5px;
   overflow: hidden;
 }
@@ -1004,7 +1379,7 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
 }
 
 .diff-filebar {
@@ -1039,8 +1414,8 @@ body[data-theme="dark"] .fake-check.mixed {
   display: grid;
   grid-template-columns: 1fr 1fr;
   color: var(--augit-faint);
-  border-left: 1px solid var(--augit-border);
-  border-right: 1px solid var(--augit-border);
+  border-left: var(--augit-hairline) solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .diff-gutter > div {
@@ -1049,22 +1424,26 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .diff-code-line {
-  height: var(--code-line-height, 22px);
   padding: 0 12px;
   white-space: pre;
 }
 
 .diff-code-line.added {
-  background: var(--augit-green-soft);
+  background: var(--augit-diff-added);
 }
 
 .diff-code-line.removed {
-  background: var(--augit-red-soft);
+  background: var(--augit-diff-deleted);
 }
 
 .diff-code-line.changed {
-  background: var(--augit-yellow-soft);
+  background: var(--augit-diff-modified);
 }
+
+/* 当前差异块（`live-data.js` 的 moveDiffChange 施加 .diff-current）：整块用强色，与软行底区分。 */
+.diff-code-line.added.diff-current { background: var(--augit-diff-current-added); }
+.diff-code-line.removed.diff-current { background: var(--augit-diff-current-deleted); }
+.diff-code-line.changed.diff-current { background: var(--augit-diff-current-modified); }
 
 .bottom-tool {
   display: grid;
@@ -1074,7 +1453,6 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .bottom-header {
   gap: 4px;
-  padding: 0 10px 0 12px;
 }
 
 .bottom-title {
@@ -1083,9 +1461,7 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .tool-tab {
-  height: 29px;
-  padding: 0 10px;
-  border: 1px solid transparent;
+  border: var(--augit-hairline) solid transparent;
   border-radius: 5px;
   color: var(--augit-text);
   background: transparent;
@@ -1112,7 +1488,7 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .log-ref-panel,
 .log-list-panel {
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .log-filterbar {
@@ -1121,7 +1497,7 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
 }
 
 .history-search {
@@ -1135,7 +1511,7 @@ body[data-theme="dark"] .fake-check.mixed {
   left: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--augit-muted);
+  color: var(--augit-icon);
 }
 
 .history-search .search-field {
@@ -1186,7 +1562,7 @@ body[data-theme="dark"] .fake-check.mixed {
   z-index: 20;
   width: 180px;
   padding: 6px 0;
-  border: 1px solid var(--augit-border);
+  border: var(--augit-hairline) solid var(--augit-border);
   border-radius: 6px;
   background: var(--augit-panel);
 }
@@ -1248,9 +1624,7 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .commit-row {
   position: relative;
-  height: var(--augit-history-row-height, 26px);
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0;
   padding: 0 8px 0 0;
@@ -1397,7 +1771,7 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .commit-detail {
-  border-top: 1px solid var(--augit-border);
+  border-top: var(--augit-hairline) solid var(--augit-border);
   line-height: 1.55;
 }
 
@@ -1420,7 +1794,7 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 2px;
   padding-top: 5px;
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .git-side-toolbar > .toolbar-button {
@@ -1428,6 +1802,17 @@ body[data-theme="dark"] .fake-check.mixed {
   left: 5px;
   width: 28px;
   height: 28px;
+}
+
+/* 竖条上的 ToggleAction（「我的分支」）选中态：权威 `ActionButton.getPopState()` 把**选中的 toggle**
+   当作 PUSHED（`ActionButtonLook.getStateBackground()` 的 PUSHED 分支）⇒ 底取
+   `ActionButton.pressedBackground()`；悬停时仍是 PUSHED（`getPopState` 的第一个分支
+   `isPushed || rollover && mouseDown`，而 `isPushed` 就是选中态）⇒ 悬停不改色。
+   New UI 主题把 `pressedBorderColor` 设成透明（`ManyIslands*.theme.json` 的 `ActionButton` 块），
+   所以这里只画底、不画边。 */
+.git-side-toolbar > .toolbar-button[aria-pressed="true"]:not(:disabled) {
+  background: var(--augit-pressed);
+  color: var(--augit-text);
 }
 
 .git-side-toolbar > .rail-separator {
@@ -1445,7 +1830,7 @@ body[data-theme="dark"] .fake-check.mixed {
 .history-filter-overflow > summary:focus-visible,
 .history-tools-popup > button:focus-visible,
 .bottom-header > button:focus-visible {
-  outline: 1px solid var(--augit-blue);
+  outline: var(--augit-hairline) solid var(--augit-accent-brand);
   outline-offset: -3px;
 }
 
@@ -1454,7 +1839,7 @@ body[data-theme="dark"] .fake-check.mixed {
   inset: auto;
   margin: 0;
   padding: 4px 6px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 8px;
   color: var(--augit-text);
   background: var(--augit-panel);
@@ -1492,8 +1877,8 @@ body[data-theme="dark"] .fake-check.mixed {
 .search-overlay {
   position: absolute;
   z-index: 20;
-  border: 1px solid var(--augit-border-strong);
-  background: var(--augit-panel);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  background: var(--augit-popup-bg);
   box-shadow: 0 12px 38px color-mix(in srgb, #000000 22%, transparent);
 }
 
@@ -1502,7 +1887,6 @@ body[data-theme="dark"] .fake-check.mixed {
   left: 168px;
   width: 330px;
   padding: 8px;
-  border-radius: 8px;
 }
 
 .popover .search-field {
@@ -1511,12 +1895,12 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .menu-item {
-  min-height: 29px;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
-  border-radius: 5px;
+  /* 横向内距取权威 `PopupMenu.Selection.innerInsets` = insets(0, 6)。 */
+  /* 菜单项选中圆角 4：权威 `PopupMenu.Selection.arc` = 8 ⇒ 半径 4（`IntUiBridgeMenu.kt` 同除 2）。 */
+  border-radius: 4px;
   color: var(--augit-text);
   text-decoration: none;
 }
@@ -1535,8 +1919,11 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .menu-separator {
-  height: 1px;
-  margin: 6px 0;
+  /* 权威 `DarculaMenuSeparatorUI.java:15-17`：`PopupMenuSeparator.height` = 3（整条区域高）、
+     `stripeWidth` = 1（线本身）、`stripeIndent` = 1（左缩进）；两套 New UI 主题都未覆盖。
+     线本身是 `JBValue.UIInteger` ⇒ `get()` 走 `JBUI.scale` ⇒ 用细线令牌落到整设备像素。 */
+  height: var(--augit-hairline);
+  margin: 1px 0 1px 1px;
   background: var(--augit-border);
 }
 
@@ -1546,7 +1933,6 @@ body[data-theme="dark"] .fake-check.mixed {
   width: min(760px, calc(100% - 160px));
   min-height: 410px;
   transform: translateX(-50%);
-  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -1565,12 +1951,11 @@ body[data-theme="dark"] .fake-check.mixed {
 .search-query .search-field {
   width: 100%;
   border-color: var(--augit-blue);
-  box-shadow: 0 0 0 1px var(--augit-blue);
+  box-shadow: 0 0 0 var(--augit-hairline) var(--augit-blue);
 }
 
 .search-results {
-  border-top: 1px solid var(--augit-border);
-  padding: 5px 8px;
+  border-top: var(--augit-hairline) solid var(--augit-border);
 }
 
 .search-result {
@@ -1580,7 +1965,8 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 8px;
   padding: 0 8px;
-  border-radius: 5px;
+  /* 权威 `Popup.Selection.arc` = 8 ⇒ 半径 4。 */
+  border-radius: 4px;
   text-decoration: none;
   color: var(--augit-text);
 }
@@ -1615,8 +2001,7 @@ body[data-theme="dark"] .fake-check.mixed {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
   font-weight: 600;
 }
 
@@ -1626,7 +2011,6 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .dialog-body {
   min-height: 230px;
-  padding: 16px;
   overflow: auto;
 }
 
@@ -1636,8 +2020,8 @@ body[data-theme="dark"] .fake-check.mixed {
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding: 9px 12px;
-  border-top: 1px solid var(--augit-border);
+  /* 权威 `DialogWrapper.java:838-845`：只有 `DialogStyle.COMPACT` 的 south panel 才画 1px 分隔线，
+     普通对话框只有 `JBUI.Borders.emptyTop(8)` 的空隙（2026 参考图 Confirm Exit 实测确实没有分隔线），故删除本行。 */
 }
 
 .font-setting {
@@ -1664,6 +2048,49 @@ body[data-theme="dark"] .fake-check.mixed {
   width: 100%;
 }
 
+/* Smart Checkout 对话框的受影响文件列表（权威中部是改动浏览器，无 diff 时退化为路径列表）。 */
+.smart-checkout-dialog .smart-checkout-paths {
+  max-height: 176px;
+  overflow: auto;
+  border: var(--augit-hairline) solid var(--augit-border);
+  border-radius: 4px;
+  margin-bottom: 10px;
+  background: var(--augit-field);
+}
+
+.smart-checkout-dialog .smart-checkout-path {
+  padding: 4px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.smart-checkout-dialog .smart-checkout-path + .smart-checkout-path {
+  border-top: var(--augit-hairline) solid var(--augit-border);
+}
+
+.smart-checkout-dialog .smart-checkout-path:hover {
+  background: var(--augit-hover);
+}
+
+/* 「创建 Git 仓库」对话框的目录行：只读路径 ＋ 「选择目录…」（权威的单目录选择器）。 */
+.repository-init-dialog .path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.repository-init-dialog .path-row .text-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.repository-init-dialog .path-row .secondary-button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .settings-layout {
   height: 520px;
   display: grid;
@@ -1672,7 +2099,7 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .settings-nav {
   padding: 9px;
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .settings-page {
@@ -1707,6 +2134,18 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 /* 设置保存失败：原因写在底栏帮助位，用语义红色（规格 §9.3 / §10.2）。 */
+/* 设置搜索：无命中时输入框底色变红（权威 `SearchField.errorBackground`）。
+   命中项按 spotlight 边框色标出（权威 `GlassPanel`：线宽 2、外扩 1）；压暗层见令牌注释里的登记差异。 */
+.settings-nav .search-field.no-hits {
+  background: var(--augit-search-error-bg);
+}
+
+.settings-page [data-settings-hit="true"] {
+  outline: 2px solid var(--augit-spotlight-border);
+  outline-offset: var(--augit-hairline);
+  border-radius: 4px;
+}
+
 /* 设置分类的"未保存修改"标记（规格 §7.17 的适配，依据 PyCharm 实测的实心圆点）。
    复用 --augit-blue，不新增视觉语言；只占一个小圆点，不改变行高与文字基线。 */
 .settings-nav .tree-row .settings-dirty {
@@ -1727,7 +2166,7 @@ body[data-theme="dark"] .fake-check.mixed {
 .settings-group h3 {
   margin: 0 0 11px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
   font-size: 13px;
 }
 
@@ -1736,7 +2175,8 @@ body[data-theme="dark"] .fake-check.mixed {
   min-height: 30px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* 图标与文字的间距取权威 `ui.CheckBox.textIconGap` / `ui.RadioButton.iconTextGap` = 4（两套 New UI 家族一致）。 */
+  gap: 4px;
 }
 
 .history-page,
@@ -1754,7 +2194,7 @@ body[data-theme="dark"] .fake-check.mixed {
 
 .management-list {
   padding: 8px;
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .management-detail {
@@ -1774,7 +2214,7 @@ body[data-theme="dark"] .fake-check.mixed {
 .data-table th,
 .data-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
   text-align: left;
 }
 
@@ -1794,7 +2234,7 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
 }
 
 .conflict-header .grow {
@@ -1804,13 +2244,15 @@ body[data-theme="dark"] .fake-check.mixed {
 .conflict-columns {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr) minmax(0, 1fr);
+  /* 三栏等分：权威 `ThreeDiffSplitter.resetProportions()` 就是 `myProportion1 = myProportion2 = 1f / 3`，
+     原 `1 : 1.08 : 1`（中栏略宽）是 Augit 自定值，按"冲突一律以 New UI 为准"改回严格等分。 */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .conflict-column {
   min-width: 0;
   overflow: hidden;
-  border-right: 1px solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .conflict-column:last-child {
@@ -1822,7 +2264,7 @@ body[data-theme="dark"] .fake-check.mixed {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
   color: var(--augit-muted);
   font-weight: 400;
 }
@@ -1862,7 +2304,7 @@ body[data-theme="dark"] .fake-check.mixed {
   align-items: center;
   gap: 8px;
   padding: 0 10px;
-  border-top: 1px solid var(--augit-border);
+  border-top: var(--augit-hairline) solid var(--augit-border);
 }
 
 .conflict-footer .grow {
@@ -1870,19 +2312,23 @@ body[data-theme="dark"] .fake-check.mixed {
 }
 
 .dialog:has(.conflict-page) {
-  max-height: calc(100% - 40px);
+  /* 适屏取权威 `ScreenUtil.fitToScreen()` → `moveToFit(rect, screen, padding = null, crop = true)`：
+     **没有外边距**，超出屏幕时直接裁到屏幕边界（`ScreenUtil.java:371-393`）。这里原先的
+     `calc(100% - 40px)` 是自定边距；第 132 轮实测它在 1024×640、ui-size=40 下把三栏正文压到 76px。
+     基类 `.dialog` 的 `calc(100% - 120px)` 对普通对话框仍是"内容驱动 + 上限"，不在本轮范围。 */
+  max-height: 100%;
   min-width: 0;
   overflow: hidden;
   display: grid;
   grid-template-rows: var(--conflict-header, 45px) minmax(0, 1fr) var(--conflict-footer, 53px);
 }
 .dialog:has(.conflict-page) .dialog-header { height: auto; }
-.dialog:has(.conflict-page) .dialog-body { min-width: 0; min-height: 0; padding: 0 16px; overflow: hidden; }
-.dialog:has(.conflict-page) .dialog-footer { min-height: 0; padding: 0 16px; }
-.dialog:has(.conflict-page) .dialog-footer > a { height: var(--conflict-button, 28px); flex: none; padding: 0; white-space: nowrap; }
+.dialog:has(.conflict-page) .dialog-body { min-width: 0; min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
+.dialog:has(.conflict-page) .dialog-footer { min-height: 0; padding: 0 12px; }
+.dialog:has(.conflict-page) .dialog-footer > a { height: var(--conflict-button, 37px); flex: none; padding: 0; white-space: nowrap; }
 .dialog:has(.conflict-page) .footer-help { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--augit-muted); }
 .conflict-page { width: 100%; min-width: 0; min-height: 0; grid-template-rows: var(--conflict-content-header, 42px) minmax(0, 1fr) var(--conflict-actions, 48px); }
-.conflict-page .secondary-button, .conflict-page .primary-button { height: var(--conflict-button, 28px); flex: none; padding: 0; }
+.conflict-page .secondary-button, .conflict-page .primary-button { height: var(--conflict-button, 37px); flex: none; padding: 0; }
 .conflict-page button, .conflict-page a { white-space: nowrap; }
 .conflict-header, .conflict-footer { min-width: 0; padding: 0; }
 .conflict-header strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -1906,14 +2352,15 @@ body[data-theme="dark"] .fake-check.mixed {
 .wrap-actions .conflict-footer { flex-wrap: wrap; }
 .wrap-actions .conflict-save-actions { margin-left: auto; }
 .dialog:has(.conflict-page) :is(button, a) { position: relative; }
-.dialog:has(.conflict-page) .secondary-button:is(:hover, :active):not(:disabled) { background: var(--augit-hover); }
+.dialog:has(.conflict-page) .secondary-button:is(:hover, :active):not(:disabled) { background: var(--augit-action-button-hover); }
+.dialog:has(.conflict-page) .secondary-button:active:not(:disabled) { background: var(--augit-pressed); }
 .dialog:has(.conflict-page) .dialog-header .icon-button:disabled { background: var(--augit-panel); }
 .dialog:has(.conflict-page) :is(button, a):focus { outline: none; }
 .dialog:has(.conflict-page) :is(button, a):focus:not(:disabled):not([disabled])::after {
-  content: ""; position: absolute; inset: 2px 3px 3px 2px; border: 1px solid var(--augit-blue); pointer-events: none;
+  content: ""; position: absolute; inset: 2px 3px 3px 2px; border: var(--augit-hairline) solid var(--augit-accent-brand); pointer-events: none;
 }
 .dialog:has(.conflict-page) .primary-button:focus:not([disabled])::before {
-  content: ""; position: absolute; inset: 1px 2px 2px 1px; border: 1px solid var(--augit-panel); pointer-events: none;
+  content: ""; position: absolute; inset: var(--augit-hairline) 2px 2px var(--augit-hairline); border: var(--augit-hairline) solid var(--augit-panel); pointer-events: none;
 }
 
 /* 外壳 chrome 不参与文本选择。
@@ -1954,12 +2401,11 @@ textarea,
 
 .toast {
   position: absolute;
-  right: 18px;
   bottom: 34px;
   z-index: 30;
   width: min(420px, calc(100% - 36px));
   padding: 12px 14px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 7px;
   background: var(--augit-panel);
   box-shadow: 0 8px 28px color-mix(in srgb, #000000 20%, transparent);
@@ -2027,7 +2473,7 @@ textarea,
 .catalog-link {
   min-height: 86px;
   padding: 15px;
-  border: 1px solid #d9dde5;
+  border: var(--augit-hairline) solid #d9dde5;
   border-radius: 7px;
   color: #1f2329;
   background: #ffffff;
@@ -2085,7 +2531,7 @@ textarea,
   align-items: center;
   gap: 3px;
   padding: 5px 6px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 0;
   background: var(--augit-panel);
   box-shadow: none;
@@ -2099,13 +2545,14 @@ textarea,
   height: var(--augit-find-edit-height);
   padding: 0 7px;
   border-color: var(--augit-border);
+  background: var(--augit-search-field-bg);
 }
 
-.current-find .search-field:focus { border-color: var(--augit-blue); box-shadow: none; }
+.current-find .search-field:focus { border-color: var(--augit-accent-brand); box-shadow: none; }
 .current-find .icon-button { width: 28px; height: 28px; }
 .current-find .find-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--augit-muted); }
 .current-find [aria-pressed="true"] { background: var(--augit-blue-soft); }
-.find-current { color: inherit; background: var(--augit-blue-soft); outline: 1px solid var(--augit-blue); }
+.find-current { color: inherit; background: var(--augit-blue-soft); outline: var(--augit-hairline) solid var(--augit-blue); }
 .find-current:empty { display: inline-block; width: 0; height: 1em; vertical-align: text-bottom; }
 .document-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--augit-muted); }
 .document-toolbar > .icon-button { flex: 0 0 28px; width: 28px; height: 28px; }
@@ -2120,7 +2567,7 @@ textarea,
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  box-shadow: inset -1px 0 var(--augit-border);
+  box-shadow: inset calc(-1 * var(--augit-hairline)) 0 var(--augit-border);
   font-family: var(--augit-code);
 }
 
@@ -2160,29 +2607,12 @@ button:disabled,
   }
 }
 
-/* 第二轮视觉基线：按 PyCharm 2026.2.1 New UI 的逻辑尺寸与密度重新校准。 */
+/* 第二轮视觉基线：按 PyCharm 2026.2.1 New UI 的逻辑尺寸与密度重新校准。
+   令牌的唯一权威是文件顶部的 `:root` 与 `body[data-theme="dark"]`（见 docs/design-system.md §11.1）。
+   此处只保留本基线真正需要偏离的尺寸项；曾经重复声明的颜色令牌已移除——
+   后出现的同优先级 `:root` 会静默覆盖先出现的，导致改色不生效且难以察觉。 */
 :root {
-  font-family: var(--augit-font);
-  font-size: 13px;
-  --augit-chrome: #e9eaee;
-  --augit-panel: #ffffff;
-  --augit-panel-muted: #f5f8fe;
-  --augit-border: #e3e3e3;
-  --augit-border-strong: #d1d3d9;
-  --augit-text: #202124;
-  --augit-muted: #646870;
-  --augit-faint: #a0a4aa;
-  --augit-blue: #3871e1;
-  --augit-blue-soft: #d0dffe;
-  --augit-blue-hover: #f1f2f4;
-  --augit-green: #388558;
-  --augit-green-soft: #c9eecf;
-  --augit-red: #c74440;
-  --augit-red-soft: #f7d7d7;
-  --augit-orange: #e9a11b;
-  --augit-yellow-soft: #fff0c2;
   --augit-side-width: clamp(318px, 22vw, 360px);
-  --augit-bottom-height: clamp(180px, 31vh, 305px);
 }
 
 .augit-window {
@@ -2197,24 +2627,31 @@ button:disabled,
 }
 
 .brand-mark {
-  width: 17px;
-  height: 17px;
+  /* 徽标尺寸取权威 `recentProjectAvatarIconSize()` = 20（与 `.workspace-chip > .brand-mark` 一致）。 */
+  width: 20px;
+  height: 20px;
   border-radius: 3px;
   font-size: 10px;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ffffff 34%, transparent);
+  box-shadow: inset 0 0 0 var(--augit-hairline) color-mix(in srgb, #ffffff 34%, transparent);
 }
 
 .top-button {
-  width: 31px;
+  /* 权威 `MainToolbar.Button.size` = 30×30（JBUI.java:1274-1278）。 */
+  width: 30px;
   height: 30px;
-  border-radius: 7px;
+  /* 标题栏按钮圆角 6：权威 `MainToolbar.Button.arc` = 12（HeaderToolbarButtonLook 用它），arc 是直径 ⇒ 半径 6。 */
+  border-radius: 6px;
 }
 
 .top-chip {
   height: var(--augit-title-text-height);
   gap: 8px;
-  padding: 0 8px;
-  border-radius: 7px;
+  /* 权威 `MainToolbar.Dropdown.maxWidth` = 350（两套 New UI 家族一致）。 */
+  max-width: 350px;
+  /* 左右内距取权威 `MainToolbar.Dropdown.borderInsets` = New UI 下的 insets(5, 10, 5, 6)。 */
+  padding: 0 6px 0 10px;
+  /* 标题栏按钮圆角 6：权威 `MainToolbar.Button.arc` = 12（HeaderToolbarButtonLook 用它），arc 是直径 ⇒ 半径 6。 */
+  border-radius: 6px;
   background: transparent;
 }
 
@@ -2223,7 +2660,13 @@ button:disabled,
 }
 
 .top-chip.branch-chip {
-  padding-left: 8px;
+  padding-left: 10px;
+}
+
+/* 分支图标用经典集 vcs/branch.svg 的固定填充色，不随芯片文字色走。
+   参考里它是单色文件 + `_dark` 变体，没有悬停/激活变体。 */
+.top-chip.branch-chip [data-augit-icon="git-branch"] {
+  color: var(--augit-branch-icon);
 }
 
 .titlebar-context {
@@ -2233,15 +2676,35 @@ button:disabled,
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* 权威 `MainToolbar.Dropdown.maxWidth` = 350。 */
+  max-width: 350px;
   height: var(--augit-title-text-height);
-  padding: 0 8px;
-  border-radius: 7px;
+  /* 同为标题栏下拉：左右内距取 `MainToolbar.Dropdown.borderInsets` = insets(5, 10, 5, 6)。 */
+  padding: 0 6px 0 10px;
+  /* 标题栏按钮圆角 6：权威 `MainToolbar.Button.arc` = 12（HeaderToolbarButtonLook 用它），arc 是直径 ⇒ 半径 6。 */
+  border-radius: 6px;
   color: var(--augit-text);
   text-decoration: none;
 }
 
 .titlebar-context:hover {
   background: color-mix(in srgb, var(--augit-text) 7%, transparent);
+}
+
+/* 标题栏工具条按钮：内距与图标尺寸取权威 `MainToolbar.Icon.insets` = 6,5,4,5 与 `MainToolbar.Button.iconSize` = 20
+   （`JBUI.java:1286-1299` 默认 20，主题未覆盖）；30 − 20 = 左右各 5。 */
+.titlebar .top-button {
+  padding: 0 5px;
+}
+
+/* 主菜单条目是**下拉**，取权威 `MainToolbar.Dropdown.borderInsets` = insets(5, 10, 5, 6)：
+   左 10 + 右 6 = 16px —— 与 `verify-ux-typography` 的「文字完整」判据（≥ 文字宽 + 15.9）一致；
+   原与 `.top-button` 共用 `0 5px`，合计只有 10px。 */
+.titlebar .main-menu-entry { padding: 5px 6px 5px 10px; }
+
+.titlebar :is(.top-button, .main-menu-entry) svg {
+  width: 20px;
+  height: 20px;
 }
 
 .top-chip > [data-augit-icon="chevron-down"] {
@@ -2283,7 +2746,9 @@ button:disabled,
   width: 32px;
   height: 32px;
   margin-bottom: 4px;
-  border-radius: 7px;
+  /* 圆角：权威 `IdeaActionButtonLook.getButtonArc()` = `DarculaUIUtil.BUTTON_ARC`(=6)，
+     Java2D 的 arc 是弧宽高 ⇒ 半径 3。（第 58 轮曾记"权威里没有轨道按钮圆角键"，那是错的。） */
+  border-radius: 3px;
 }
 
 .rail-button.muted-action {
@@ -2294,7 +2759,7 @@ button:disabled,
 .editor-area,
 .bottom-tool {
   border-radius: 9px 9px 0 0;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--augit-border) 80%, transparent);
+  box-shadow: inset 0 0 0 var(--augit-hairline) color-mix(in srgb, var(--augit-border) 80%, transparent);
 }
 
 .side-tool {
@@ -2302,8 +2767,7 @@ button:disabled,
 }
 
 .tool-header,
-.bottom-header,
-.editor-tabs {
+.bottom-header {
   min-height: 39px;
 }
 
@@ -2327,23 +2791,33 @@ button:disabled,
   grid-template-rows: var(--augit-tab-height) minmax(0, 1fr);
 }
 
-.editor-tabs {
-  min-height: var(--augit-tab-height);
-  padding: 0 7px;
-  gap: 3px;
-}
-
-.editor-tab {
-  height: calc(var(--augit-tab-height) - 14px);
-  max-width: 230px;
-  gap: 8px;
-  padding: 0 8px;
-  border-radius: 6px;
-}
-
+/* 选中标签用底部 4px 圆角下划线表达，不用底色方块——expUI 经典渲染的标签是平铺矩形，
+   底色方块与圆角只属于 Islands 卡片渲染。下划线几何：贴标签底边、通铺整宽、高 4px、
+   端部圆角 4px（EditorTabs.underlineHeight / underlineArc）；颜色用焦点色
+   （*.underlineColor，浅色 Blue4 / 深色 Blue6）。 */
 .editor-tab.active {
-  border-color: #d5d9e0;
-  background: #f0f2f5;
+  color: var(--augit-text);
+  /* Islands 卡片用 ::before 画：卡片横向内缩 hOffset = 4（IslandsTabPainter.paintTab 的
+     x = rect.x + hOffset、width = rect.width − 2·hOffset），因此不能用标签自身的底色/边框。
+     isolation 让 z-index:-1 只退到标签内容之后、仍画在标签栏底色之上。 */
+  position: relative;
+  isolation: isolate;
+}
+
+.editor-tab.active::before {
+  content: "";
+  position: absolute;
+  inset: 0 4px;
+  z-index: -1;
+  /* 圆角半径 6（arc = 12 视为直径）；没有下划线——IslandsTabPainter.paintUnderline() 是空实现。 */
+  border: var(--augit-hairline) solid var(--augit-tab-selected-border);
+  border-radius: 6px;
+  background: var(--augit-tab-selected-bg);
+}
+
+.editor-tabs:focus-within .editor-tab.active::before {
+  background: var(--augit-tab-selected-bg-active);
+  border-color: var(--augit-tab-selected-border-active);
 }
 
 .editor-tab.comparison-tab {
@@ -2393,7 +2867,7 @@ button:disabled,
 .diff-columns.diff-unified-body { display: block; }
 .diff-layout:has(> .comparison-toolbar) .diff-unified-body { padding-top: 8px; }
 .unified-diff-line { display: grid; grid-template-columns: 28px 28px 18px minmax(0, 1fr); }
-.unified-number { text-align: right; padding-right: 6px; color: var(--augit-muted); }
+.unified-number { text-align: right; padding-right: 6px; color: var(--augit-line-number); }
 .unified-marker { text-align: center; }
 
 .comparison-notice {
@@ -2417,8 +2891,13 @@ button:disabled,
 .check-row,
 .commit-row {
   height: 27px;
-  border-radius: 5px;
 }
+
+/* 树选中圆角 4：权威 `Tree.Selection.arc` = 8（arc 是直径，Jewel 桥 `CornerSize(Tree.ARC.dp / 2)`）。
+   改动列表与 Git 日志表的行是 Swing 列表/表格，本 checkout 里查不到对应的选中圆角键，暂留 5 并在文档记档。 */
+.tree-row { border-radius: 4px; }
+.check-row,
+.commit-row { border-radius: 5px; }
 
 .tree-row.selected,
 .check-row.selected,
@@ -2489,40 +2968,52 @@ button:disabled,
 .icon-button {
   width: 27px;
   height: 27px;
-  border-radius: 5px;
+  /* 同上：`BUTTON_ARC / 2` = 3。尺寸差异（权威 minSize 24×24）另记待核。 */
+  border-radius: 3px;
 }
 
 .segmented {
   gap: 1px;
-  padding: 1px;
-  border: 1px solid var(--augit-border-strong);
-  background: #f4f5f7;
+  /* 容器边框内距取权威 `SegmentedButtonBorder.getBorderInsets()` = `DarculaUIUtil.BW + LW`
+     = `Component.focusWidth`(2) + 1 = 3；其中 1 是可见边框（下方 `border: var(--augit-hairline)`），故 padding 取 2。 */
+  padding: 2px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  /* 统一取令牌：原先这里写死 #f4f5f7，与同一选择器的另一处 `--augit-panel-muted`（#f7f8f9）分歧。 */
+  /* 容器没有专门底色：权威 `SegmentedButtonComponent.paint()` 只调 `super.paint()`（未设背景）再画子按钮描边，
+     即透出父容器底色（Jewel 侧的 `SegmentedControlColors` 同样没有 background 字段）。选中按钮靠自身的
+     白底 + `#B5B7BD` 整圈描边区分，不依赖容器底。 */
+  background: transparent;
 }
 
 .segment {
   height: 27px;
   min-width: 38px;
-  padding: 0 9px;
+  /* 横向内距取权威 `IntelliJSpacingConfiguration.segmentedButtonHorizontalGap` = 12
+     （该键注释即"文字与按钮边框之间的间距"）；按钮高度公式 `max(内容 + 3×2, Button.minimumSize().height − 2)`
+     在 13px 字号下即 27，与现值一致。 */
+  padding: 0 12px;
 }
 
 .segment.active {
-  background: #ffffff;
-  box-shadow: none;
+  /* 权威 `SegmentedButtonToolbar.getSegmentedButtonBorderPaint()` + `paintBorder()`：选中按钮画的是
+     **内外两条圆角矩形**（even-odd ⇒ 四边各 1px 的整圈描边），而 start/end 两个边框色在两套 New UI
+     家族里**同值**（浅 #B5B7BD／深 #6F737A），那个"渐变"退化为实色。原先只画左右两边是错的。*/
+  background: var(--augit-segment-active-bg);
+  border-left: 0;
+  border-right: 0;
+  box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-segment-active-border);
 }
 
-body[data-theme="dark"] .editor-tab.active {
-  border-color: var(--augit-border-strong);
-  background: var(--augit-panel-muted);
+/* 聚焦选中：New UI 用 focusedSelectedButtonColor 换底色（不是焦点环）。 */
+.segmented:focus-within .segment.active {
+  background: var(--augit-segment-active-bg-focus);
 }
 
-body[data-theme="dark"] .segmented {
-  background: var(--augit-panel-muted);
-}
-
-body[data-theme="dark"] .segment.active {
-  background: var(--augit-panel);
-}
-
+/* 第 125 轮删除：此处原有一条**深色专用**的 `background: var(--augit-panel-muted)`，
+   与基类注释记录的权威矛盾（`SegmentedButtonComponent.paint()` 未设背景、Jewel 的
+   `SegmentedControlColors` 也没有 background 字段）⇒ 容器两个主题都应透出父容器底色。 */
+/* 深色选中底色已由 --augit-segment-active-bg 令牌承担（New UI 是 Gray3），
+   原先这条 `background: var(--augit-panel)` 的特异性高于 .segment.active，会把新值盖掉，故删除。 */
 .diff-toolbar .segmented {
   flex: none;
   margin: 0 3px;
@@ -2538,7 +3029,8 @@ body[data-theme="dark"] .segment.active {
 body[data-theme="dark"] .popover,
 body[data-theme="dark"] .dialog,
 body[data-theme="dark"] .search-overlay {
-  border-color: var(--augit-border-strong);
+  /* 深色弹层边框：权威 `ui.Popup.borderColor` = #43454A（原用 `--augit-border-strong` = Gray5 #4E5157，偏亮）。 */
+  border-color: var(--augit-popup-border);
 }
 
 body[data-theme="dark"] .scrim {
@@ -2595,9 +3087,9 @@ body[data-theme="dark"] .scrim {
 .primary-button,
 .secondary-button,
 .danger-button {
-  height: 30px;
-  padding: 0 13px;
-  border-radius: 5px;
+  height: 37px;
+  padding: 0 14px;
+  border-radius: 3px;
   font-weight: 400;
 }
 
@@ -2689,6 +3181,47 @@ body[data-theme="dark"] .scrim {
   grid-template-columns: clamp(230px, 20%, 285px) minmax(0, 1fr) clamp(280px, 29%, 390px);
 }
 
+/* 竖条折叠（权威 `ExpandablePanelController.toggleExpand`：`expandablePanel.isVisible = expand`，
+   `expandablePanel` 就是引用树面板）⇒ 树列从三栏网格里去掉，空间还给提交列表与详情。 */
+.git-log.branches-collapsed {
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 29%, 390px);
+}
+
+/* 折叠卡片（权威 `ExpandStripeButton`）：一个竖排的分支面板入口，可见文字 "Branches"
+   （`action.Git.Log.Show.Branches.text`），文字旋转 90° 绘制（`g2.rotate(-Math.PI / 2)`），
+   悬停底色取 `ToolWindow.Button.hoverBackground`。
+   权威给该按钮的首选/最小/最大尺寸都是 22×22（`DEFAULT_MINIMUM_BUTTON_SIZE`）；Augit 的竖条按钮实测 28，
+   28 ≥ 22 不冲突，且两种状态用同一宽度可避免折叠/展开时跳变。 */
+.git-side-toolbar.collapsed {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+
+.git-side-toolbar > .stripe-expand {
+  position: static;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 28px;
+  height: auto;
+  padding: 4px 0;
+  border-radius: 3px;
+}
+
+.git-side-toolbar > .stripe-expand:hover {
+  /* 权威 `ExpandStripeButton.HOVER_BACKGROUND_COLOR` = `ToolWindow.Button.hoverBackground`，
+     该命名色在本 checkout 的 expUI 主题里**没有取值** ⇒ 走代码里的兜底 `Gray.x55.withAlpha(40)`／
+     `Gray.x0F.withAlpha(40)`，正是既有令牌 `--augit-rail-hover`（浅 #55555528／深 #0f0f0f28）。 */
+  background: var(--augit-rail-hover);
+}
+
+.stripe-expand-label {
+  writing-mode: vertical-rl;
+  font-size: var(--augit-ui-font-size, 13px);
+  line-height: 1;
+}
+
 .log-detail-panel {
   padding-top: var(--augit-history-filter-height, 36px);
   grid-template-rows: minmax(0, 56%) var(--detail-actions-height, 0px) minmax(0, 1fr);
@@ -2745,7 +3278,8 @@ body[data-theme="dark"] .scrim {
 .popover,
 .dialog,
 .search-overlay {
-  border-color: #c8cdd5;
+  /* 弹层边框色取权威 `ui.Popup.borderColor`（原 `#c8cdd5` 是旧值）。 */
+  border-color: var(--augit-popup-border);
   box-shadow: 0 12px 34px color-mix(in srgb, #000000 20%, transparent);
 }
 
@@ -2756,6 +3290,9 @@ body[data-theme="dark"] .scrim {
   padding: 7px;
   border-radius: 8px;
 }
+
+/* 对话框底与弹层不同：`dialog-bg`(#F7F8F9) vs `popup-bg`(#FFFFFF)。单独覆盖，保留分组规则里的定位/边框/阴影。 */
+.dialog { background: var(--augit-dialog-bg); }
 
 .popover.branch-actions {
   top: 292px;
@@ -2769,12 +3306,14 @@ body[data-theme="dark"] .scrim {
   width: max-content;
   min-width: 200px;
   max-width: min(420px, calc(100vw - 32px));
-  padding: 7px 3px;
+  /* 左右内距取权威 `PopupMenu.Selection.outerInsets` = insets(1, 7)：选中底相对弹层左右各缩 7；
+     2026 参考图（vcs-operations-popup，1.5x）实测选中色带距弹层左缘约 7 逻辑px，与之吻合。 */
+  padding: 7px 7px;
 }
 
 .context-menu .menu-item {
-  min-height: 30px;
-  padding: 0 8px;
+  min-height: 28px;
+  padding: 0 6px;
   border-radius: 4px;
   white-space: nowrap;
 }
@@ -2791,7 +3330,7 @@ body[data-theme="dark"] .scrim {
 }
 
 .context-menu .menu-separator {
-  margin: 6px 4px;
+  margin: 1px 0 1px 1px;
 }
 
 .popover.changes-context {
@@ -2826,7 +3365,8 @@ body[data-theme="dark"] .scrim {
   max-width: calc(100% - 16px);
   min-height: 32px;
   padding: 6px 12px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  /* 边界提示的圆角直径 6px（design-system §9.4）⇒ 半径 3px。 */
   border-radius: 3px;
   background: var(--augit-panel);
   color: var(--augit-text);
@@ -2849,8 +3389,8 @@ body[data-theme="dark"] .scrim {
   gap: 12px 14px;
   padding: 65px 12px 12px;
   background: var(--augit-panel-muted);
-  border-left: 1px solid var(--augit-border);
-  border-right: 1px solid var(--augit-border);
+  border-left: var(--augit-hairline) solid var(--augit-border);
+  border-right: var(--augit-hairline) solid var(--augit-border);
 }
 
 .diff-loading-line {
@@ -2896,8 +3436,8 @@ body[data-theme="dark"] .scrim {
 }
 
 .menu-item {
-  min-height: 29px;
-  padding: 4px 8px;
+  min-height: 28px;
+  padding: 4px 6px;
 }
 
 .search-overlay {
@@ -2905,7 +3445,9 @@ body[data-theme="dark"] .scrim {
   width: min(730px, calc(100% - 150px));
   min-height: 0;
   max-height: calc(100% - 215px);
-  border-radius: 9px;
+  /* 浮层按 popup 取圆角 8：权威 `PopupMenu.borderCornerRadius` = 8（名字即半径，桥接不除 2）；
+     参考图里工具栏溢出菜单面板的角实测 ≈13.5 物理px ÷ 1.79 ≈ 7.5，吻合。 */
+  border-radius: 8px;
 }
 
 .search-overlay.repository-mode {
@@ -2927,9 +3469,15 @@ body[data-theme="dark"] .scrim {
 .search-overlay .menu-shortcut,
 .search-overlay .commit-meta { font-size: inherit; }
 .search-query { flex: none; padding: 0 10px 8px; }
-.search-query .search-field { height: var(--search-field, 31px); box-shadow: none; border: 2px solid var(--augit-blue); }
-.search-option[aria-pressed="true"] { background: var(--augit-blue-soft); color: var(--augit-blue); }
-.search-option:focus-visible { outline: 1px solid var(--augit-blue); outline-offset: -2px; }
+.search-query .search-field { height: var(--search-field, 3var(--augit-hairline)); box-shadow: none; border: 2px solid var(--augit-blue); }
+/* 芯片式可选按钮：未悬停的**选中**态 → `SearchOption.selectedBackground`；选中时的悬停/按下 →
+   `SearchOption.selectedHoveredBackground`／`selectedPressedBackground`，两者的默认值都是
+   `ActionButton.pressedBackground()`（`FieldInplaceActionButtonLook.getStateBackground()`，:52-64；
+   选中态由 `SearchTextArea.MyActionButton.getPopState()` 映射成 SELECTED，:464-467）。
+   图标用强调色：权威给选中态`Presentation.getSelectedIcon()`（`:470-478`），HTML 侧以 `color` 近似。 */
+.search-option[aria-pressed="true"] { background: var(--augit-search-option-selected); color: var(--augit-blue); }
+.search-option[aria-pressed="true"]:is(:hover, :active) { background: var(--augit-pressed); }
+.search-option:focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -2px; }
 .search-ignored { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
 .search-ignored input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--augit-blue); }
 .search-overlay { display: flex; flex-direction: column; }
@@ -2937,7 +3485,8 @@ body[data-theme="dark"] .scrim {
   min-height: var(--search-row, 32px);
   max-height: calc(10 * var(--search-row, 32px) + 5px);
   border: 0;
-  padding: 5px 10px;
+  /* 权威 `Popup.Selection.leftRightInset` = 8。 */
+  padding: 5px 8px;
   overflow: auto;
 }
 .search-result {
@@ -2961,9 +3510,15 @@ body[data-theme="dark"] .scrim {
   color: var(--augit-muted);
 }
 
+/* 模态与弹层的点击承接层。参考实现**不给对话框做背景变暗**：
+   `IdeGlassPaneImpl.kt` 只注册了 namedPainters、windowShadowPainter 与 loadingIndicator，
+   没有任何变暗绘制；参考截图（pycharm-branches-dialog.png，2880×1800）在对话框之外的
+   六个区域仍是精确的 `#FFFFFF`（55–90%）与 `#E9EAEE`——若施加 32% 的 `#EEF1F6` 洗白，
+   纯白应变成 `#FAFBFC` 一类值，不可能保持精确纯白。
+   因此这里只保留承接点击的透明层，不画底色、也不做背景滤镜。
+   元素本身仍必须存在：它承担「点击外部关闭」并且验收套件要求它出现。 */
 .scrim {
-  background: color-mix(in srgb, #eef1f6 32%, transparent);
-  backdrop-filter: saturate(75%);
+  background: transparent;
 }
 
 .dialog {
@@ -2982,17 +3537,17 @@ body[data-theme="dark"] .scrim {
 
 .dialog-header {
   height: 45px;
-  padding: 0 13px;
+  padding: 0 12px; /* 权威 getRegularPanelInsets() 左右 12 */
 }
 
 .dialog-body {
   min-height: 190px;
-  padding: 15px 17px;
+  padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */
 }
 
 .dialog-footer {
   min-height: 53px;
-  padding: 9px 13px;
+  padding: 8px 12px; /* 权威 `JBUI.Borders.empty(8, 12)` */
 }
 
 .dialog-footer .footer-help {
@@ -3005,7 +3560,7 @@ body[data-theme="dark"] .scrim {
   max-height: calc(100% - 40px);
   display: grid;
   grid-template-rows: var(--stash-header, 45px) minmax(0, 1fr) var(--stash-footer, 53px);
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
 }
 
 .reset-dialog {
@@ -3014,22 +3569,41 @@ body[data-theme="dark"] .scrim {
   max-height: calc(100% - 40px);
   display: grid;
   grid-template-rows: var(--reset-header, 45px) minmax(0, 1fr) var(--reset-footer, 53px);
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
 }
-.reset-dialog .dialog-header { height: auto; padding: 0 13px 0 25px; }
+.reset-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
+/* 破坏性确认框的标题图标（2026 参考图 Confirm Exit 实测：标题前一个 27.3 逻辑px 的蓝底白问号图标，
+   左边距 16 逻辑px；官方 `general/questionDialog.svg` 浅 #4682FA／深 #548AF7）。
+   用 `::before` 实现——`.dialog-header` 本身已是 flex 容器，伪元素即第一个 flex 项，无需改 DOM 或 JS。 */
+.reset-dialog .dialog-header::before,
+.rollback-dialog .dialog-header::before {
+  content: "?";
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--augit-dialog-icon-bg);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  font-weight: 600; /* 规格只允许 400/600 两档（check-doc-claims.cjs 机械守卫）；图标问号用半粗。 */
+  line-height: 1;
+}
+
 .reset-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
-.reset-dialog .dialog-body { min-height: 0; overflow: auto; padding: 15px 17px 17px; }
+.reset-dialog .dialog-body { min-height: 0; overflow: auto; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ }
 .reset-dialog .form-grid { grid-template-columns: var(--reset-label, 110px) minmax(0, 1fr); gap: 13px 10px; }
 .reset-dialog .form-grid > label { white-space: nowrap; }
-.reset-dialog .text-field, .reset-dialog .select-field { width: 100%; height: var(--reset-button, 30px); font: inherit; }
+.reset-dialog .text-field, .reset-dialog .select-field { width: 100%; /* 高度必须随字号缩放（第 119 轮）：大字号下固定 30px 会被判为裁剪；`--reset-field` 由 mockup.js 计算。 */ height: var(--reset-field, 30px); font: inherit; }
 .reset-dialog .reset-impact { margin-top: 16px; min-height: 62px; padding: 6px 12px; background: var(--augit-blue-soft); }
 .reset-dialog .reset-impact.danger { background: var(--augit-red-soft); }
 .reset-dialog .reset-impact strong { display: block; line-height: var(--reset-line, 18px); }
 .reset-dialog .reset-impact p { margin: 4px 0 0; font-size: inherit; line-height: var(--reset-line, 18px); }
 .reset-dialog .reset-impact :is(strong, p) { white-space: normal; overflow-wrap: anywhere; }
 .reset-dialog .reset-notice { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.reset-dialog .dialog-footer { min-height: 0; padding: 0 16px; }
-.reset-dialog .dialog-footer button { height: var(--reset-button, 30px); flex: none; white-space: nowrap; padding: 0; }
+.reset-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
+.reset-dialog .dialog-footer button { height: var(--reset-button, 37px); flex: none; white-space: nowrap; padding: 0; }
 .reset-dialog .secondary-button { width: var(--reset-cancel, 78px); }
 .reset-dialog .reset-run { width: var(--reset-run, 116px); }
 .reset-dialog .text-field:disabled, .reset-dialog .select-field:disabled { color: var(--augit-faint); }
@@ -3039,24 +3613,24 @@ body[data-theme="dark"] .scrim {
   max-height: calc(100% - 40px);
   display: grid;
   grid-template-rows: var(--rollback-header, 45px) minmax(0, 1fr) var(--rollback-footer, 53px);
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
 }
-.rollback-dialog .dialog-header { height: auto; min-width: 0; padding: 0 13px 0 25px; }
+.rollback-dialog .dialog-header { height: auto; min-width: 0; padding: 0 12px 0 16px; }
 .rollback-dialog .dialog-header > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rollback-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
-.rollback-dialog .dialog-body { min-height: 0; padding: 15px 17px 8px; overflow: auto; }
+.rollback-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }
 .rollback-dialog .rollback-impact { min-height: 81px; padding: 6px 12px; }
 .rollback-dialog .rollback-impact :is(strong, p) { white-space: normal; overflow-wrap: anywhere; line-height: var(--rollback-line, 18px); font-size: inherit; }
 .rollback-dialog .rollback-impact strong { display: block; }
 .rollback-dialog .rollback-impact p { margin: 4px 0 0; }
 .rollback-dialog .rollback-comparison { margin-top: 14px; height: var(--rollback-comparison, 214px); overflow: hidden; }
-.rollback-dialog .dialog-footer { min-height: 0; padding: 0 16px; }
-.rollback-dialog .dialog-footer a { flex: none; height: var(--rollback-button, 30px); padding: 0; white-space: nowrap; }
+.rollback-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
+.rollback-dialog .dialog-footer a { flex: none; height: var(--rollback-button, 37px); padding: 0; white-space: nowrap; }
 .rollback-dialog .secondary-button { width: var(--rollback-cancel, 78px); }
 .rollback-dialog .danger-button { width: var(--rollback-run, 116px); }
-.stash-dialog .dialog-header { height: auto; padding: 0 13px 0 25px; }
+.stash-dialog .dialog-header { height: auto; padding: 0 12px; /* 无图标，保持原预留值 */ }
 .stash-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
-.stash-dialog .dialog-body { min-height: 0; padding: 15px 17px; overflow: auto; }
+.stash-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }
 .stash-dialog .form-grid { grid-template-columns: var(--stash-label, 110px) minmax(0, 1fr); gap: 0 10px; }
 .stash-dialog .form-grid > label { white-space: nowrap; }
 .stash-dialog .select-field { height: var(--stash-field, 30px); padding: 0 8px; }
@@ -3064,16 +3638,16 @@ body[data-theme="dark"] .scrim {
 .stash-dialog .form-grid > :nth-child(3), .stash-dialog .form-grid > :nth-child(4) { margin-top: 13px; }
 .stash-dialog .form-grid > :nth-child(5), .stash-dialog .form-grid > :nth-child(6) { margin-top: 5px; }
 .stash-dialog .message-field { width: 100%; height: var(--stash-message, 78px); font: inherit; padding: 6px 8px; }
-.stash-dialog .check-line { margin-top: 13px; height: var(--stash-button, 30px); gap: 8px; }
-.stash-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: 1px solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
+.stash-dialog .check-line { margin-top: 13px; height: 30px; gap: 4px; }
+.stash-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: var(--augit-hairline) solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
 .stash-dialog input[type=checkbox]:checked { background: #3574f0; border-color: #3574f0; }
 .stash-dialog input[type=checkbox]:checked::after { content: ""; display: block; width: 8px; height: 4px; margin: 3px 2px; border-left: 1.5px solid white; border-bottom: 1.5px solid white; transform: rotate(-45deg); }
 .stash-dialog input[type=checkbox]:disabled { background: var(--augit-panel-muted); border-color: var(--augit-faint); }
 .stash-dialog input[type=checkbox]:disabled::after { border-color: var(--augit-faint); }
-.stash-dialog :focus-visible { outline: 1px solid var(--augit-blue); outline-offset: -3px; }
+.stash-dialog :focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -3px; }
 .stash-dialog .stash-notice { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.stash-dialog .dialog-footer { min-height: 0; padding: 0 17px; }
-.stash-dialog .dialog-footer button { height: var(--stash-button, 30px); padding: 0; flex: none; white-space: nowrap; }
+.stash-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
+.stash-dialog .dialog-footer button { height: var(--stash-button, 37px); padding: 0; flex: none; white-space: nowrap; }
 .stash-dialog .secondary-button { width: var(--stash-cancel, 80px); }
 .stash-dialog .primary-button { width: var(--stash-create, 136px); }
 .stash-dialog button:disabled { background: var(--augit-panel-muted); color: var(--augit-faint); }
@@ -3084,18 +3658,18 @@ body[data-theme="dark"] .scrim {
   max-height: calc(100% - 40px);
   display: grid;
   grid-template-rows: var(--clone-header, 45px) minmax(0, 1fr) calc(var(--clone-footer, 53px) - 1px);
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
 }
 .clone-dialog .dialog-header { height: auto; padding: 0 12px; }
 .clone-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
-.clone-dialog .dialog-body { min-height: 0; padding: 15px 17px; overflow: auto; }
+.clone-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }
 .clone-dialog .form-grid { grid-template-columns: var(--clone-label, 110px) minmax(0, 1fr); gap: 13px 10px; }
 .clone-dialog .form-grid > label { white-space: nowrap; }
 .clone-dialog .text-field, .clone-dialog .select-field { height: var(--clone-field, 30px); }
 .clone-dialog .select-field, .clone-dialog .text-field { width: 100%; }
 .clone-dialog .clone-shallow-row { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; min-height: var(--clone-field, 30px); gap: 8px 10px; margin-top: 1px; }
-.clone-dialog .clone-shallow-row .check-line { flex: none; width: var(--clone-shallow, 180px); max-width: 100%; min-height: var(--clone-field, 30px); white-space: nowrap; gap: 8px; }
-.clone-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: 1px solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
+.clone-dialog .clone-shallow-row .check-line { flex: none; width: var(--clone-shallow, 180px); max-width: 100%; min-height: var(--clone-field, 30px); white-space: nowrap; gap: 4px; }
+.clone-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: var(--augit-hairline) solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
 .clone-dialog input[type=checkbox]:checked { background: #3574f0; border-color: #3574f0; }
 .clone-dialog input[type=checkbox]:checked::after { content: ""; display: block; width: 8px; height: 4px; margin: 3px 2px; border-left: 1.5px solid white; border-bottom: 1.5px solid white; transform: rotate(-45deg); }
 .clone-dialog .clone-depth-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -3105,15 +3679,15 @@ body[data-theme="dark"] .scrim {
 .clone-dialog .text-field:disabled, .clone-dialog .select-field:disabled { background: var(--augit-panel); color: var(--augit-faint); }
 .clone-dialog .clone-notice { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .clone-dialog .dialog-footer { min-height: 0; padding: 0 13px; }
-.clone-dialog .dialog-footer button { height: var(--clone-field, 30px); padding: 0; flex: none; white-space: nowrap; }
+.clone-dialog .dialog-footer button { height: var(--clone-button, 37px); padding: 0; flex: none; white-space: nowrap; }
 .clone-dialog .secondary-button { width: var(--clone-cancel, 80px); }
 .clone-dialog .primary-button { width: var(--clone-create, 90px); }
 .clone-dialog button:disabled { background: var(--augit-panel-muted); color: var(--augit-faint); }
-.clone-dialog :focus-visible { outline: 1px solid var(--augit-blue); outline-offset: -3px; }
+.clone-dialog :focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -3px; }
 
 .dialog.compact-input {
   width: 400px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
 }
 
 .compact-input .dialog-header {
@@ -3180,9 +3754,9 @@ body[data-theme="dark"] .scrim {
   display: grid;
   grid-template-rows: var(--push-header, 45px) minmax(0, 1fr) var(--push-footer, 53px);
 }
-.push-dialog .dialog-header { height: auto; padding: 0 13px 0 26px; }
-.push-dialog .dialog-header a { width: 32px; height: var(--push-button, 28px); flex: none; }
-.push-dialog .dialog-body { min-height: 0; display: grid; grid-template-rows: minmax(0, 365px) var(--push-tags, 0px); padding: 15px 17px; overflow: hidden; }
+.push-dialog .dialog-header { height: auto; padding: 0 12px; }
+.push-dialog .dialog-header a { width: 32px; height: var(--push-button, 37px); flex: none; }
+.push-dialog .dialog-body { min-height: 0; display: grid; grid-template-rows: minmax(0, 365px) var(--push-tags, 0px); padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
 .push-dialog .management-content { min-height: 0; grid-template-columns: var(--push-sidebar, 260px) minmax(0, 1fr); }
 .push-dialog .management-list { min-width: 0; min-height: 0; display: grid; grid-template-rows: var(--push-row, 27px) minmax(0, 1fr); padding: 8px; }
 .push-dialog .push-summary { height: auto; min-width: 0; padding: 0 8px; border-radius: 5px; gap: 8px; }
@@ -3191,9 +3765,9 @@ body[data-theme="dark"] .scrim {
 .push-commits { min-height: 0; overflow: auto; outline: none; }
 .push-commit { height: var(--push-row, 27px); display: flex; align-items: center; gap: 6px; padding: 0 7px 0 20px; border-radius: 5px; }
 .push-commit[hidden] { display: none; }
-.push-commit svg { flex: none; color: var(--augit-muted); }
+.push-commit svg { flex: none; color: var(--augit-icon); }
 .push-commit span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.push-commits:not([aria-disabled="true"]) .push-commit:not(.selected):hover { background: var(--augit-hover); }
+.push-commits:not([aria-disabled="true"]) .push-commit:not(.selected):hover { background: var(--augit-row-hover); }
 .push-commit.selected { background: var(--augit-selection-inactive); }
 .push-commits:focus .push-commit.selected { background: var(--augit-blue-soft); }
 .push-dialog .management-detail { min-height: 0; overflow: auto; padding: 18px; outline: none; }
@@ -3203,11 +3777,11 @@ body[data-theme="dark"] .scrim {
 .push-notice { color: var(--augit-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .push-notice.error { color: var(--augit-red); }
 .push-empty { min-height: 100%; display: grid; place-items: center; text-align: center; color: var(--augit-muted); }
-.push-tags { align-self: start; margin-top: 5px; height: var(--push-button, 28px); gap: 7px; }
+.push-tags { align-self: start; margin-top: 5px; height: var(--push-button, 37px); gap: 7px; }
 .push-tags input { width: 15px; height: 15px; margin: 0; }
-.push-tags .select-field { height: var(--push-button, 28px); width: auto; min-width: 96px; }
-.push-dialog .dialog-footer { min-height: 0; padding: 12px 17px 0; align-items: flex-start; gap: 8px; }
-.push-dialog .dialog-footer button { height: var(--push-button, 28px); padding: 0; flex: none; white-space: nowrap; }
+.push-tags .select-field { height: var(--push-button, 37px); width: auto; min-width: 96px; }
+.push-dialog .dialog-footer { min-height: 0; padding: 12px 12px 0; align-items: flex-start; gap: 8px; }
+.push-dialog .dialog-footer button { height: var(--push-button, 37px); padding: 0; flex: none; white-space: nowrap; }
 .push-dialog .secondary-button { width: var(--push-cancel, 78px); }
 .push-dialog .primary-button { width: var(--push-push, 84px); }
 
@@ -3217,9 +3791,9 @@ body[data-theme="dark"] .scrim {
   display: grid;
   grid-template-rows: var(--remote-header, 45px) minmax(0, 1fr) var(--remote-footer, 53px);
 }
-.remote-dialog .dialog-header { height: auto; padding-left: 26px; }
-.remote-dialog .dialog-body { min-height: 0; padding: 0 16px; overflow: hidden; }
-.remote-dialog .dialog-footer { min-height: 0; padding: 0 22px; }
+.remote-dialog .dialog-header { height: auto; }
+.remote-dialog .dialog-body { min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
+.remote-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
 .remote-dialog .history-page { grid-template-rows: var(--remote-toolbar, 61px) minmax(0, 1fr); }
 .remote-dialog .toolbar { height: auto; padding: 0; }
 .remote-dialog .management-list { min-width: 0; overflow: auto; padding: 0 8px 4px 0; }
@@ -3229,7 +3803,7 @@ body[data-theme="dark"] .scrim {
 .remote-dialog .form-grid label { white-space: nowrap; }
 .remote-dialog .text-field { height: var(--remote-field, 30px); min-width: 0; padding: 0 8px; }
 .remote-dialog .button-row { margin-top: 16px; }
-.remote-dialog .secondary-button, .remote-dialog .primary-button { min-width: 78px; height: var(--remote-button, 28px); padding: 0 12px; flex-shrink: 0; }
+.remote-dialog .secondary-button, .remote-dialog .primary-button { min-width: 78px; height: var(--remote-button, 37px); padding: 0 12px; flex-shrink: 0; }
 
 /* Worktree 与远端共用双栏信息密度；状态和详情不因字号放大而推移底栏。 */
 .dialog.worktree-dialog {
@@ -3238,9 +3812,9 @@ body[data-theme="dark"] .scrim {
   display: grid;
   grid-template-rows: var(--worktree-header, 45px) minmax(0, 1fr) var(--worktree-footer, 53px);
 }
-.worktree-dialog .dialog-header { height: auto; padding-left: 26px; }
-.worktree-dialog .dialog-body { min-height: 0; padding: 0 16px; overflow: hidden; }
-.worktree-dialog .dialog-footer { min-height: 0; padding: 0 22px; }
+.worktree-dialog .dialog-header { height: auto; }
+.worktree-dialog .dialog-body { min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
+.worktree-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
 .worktree-dialog .history-page { grid-template-rows: var(--worktree-toolbar, 61px) minmax(0, 1fr); }
 .worktree-dialog .toolbar { height: auto; padding: 0; }
 .worktree-dialog .management-list { min-width: 0; overflow: auto; padding: 0 8px 4px 0; }
@@ -3249,7 +3823,7 @@ body[data-theme="dark"] .scrim {
 .worktree-dialog .form-grid { grid-template-columns: var(--worktree-label, 110px) minmax(0, 1fr); gap: 6px 10px; }
 .worktree-dialog .management-detail .form-grid > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-dialog .button-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
-.worktree-dialog .secondary-button, .worktree-dialog .primary-button, .worktree-dialog .danger-button { min-width: 78px; height: var(--worktree-button, 31px); padding: 0 12px; flex-shrink: 0; }
+.worktree-dialog .secondary-button, .worktree-dialog .primary-button, .worktree-dialog .danger-button { min-width: 78px; height: var(--worktree-button, 37px); padding: 0 12px; flex-shrink: 0; }
 
 /* Stash 管理：列表固定在左侧，详情和失败说明只在右侧正文滚动。 */
 .dialog.stash-manager-dialog {
@@ -3258,16 +3832,16 @@ body[data-theme="dark"] .scrim {
   display: grid;
   grid-template-rows: var(--stash-manager-header, 45px) minmax(0, 1fr) var(--stash-manager-footer, 53px);
 }
-.stash-manager-dialog .dialog-header { height: auto; padding-left: 26px; }
-.stash-manager-dialog .dialog-body { min-height: 0; padding: 0 16px; overflow: hidden; }
-.stash-manager-dialog .dialog-footer { min-height: 0; padding: 0 22px; }
+.stash-manager-dialog .dialog-header { height: auto; }
+.stash-manager-dialog .dialog-body { min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
+.stash-manager-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
 .stash-manager-dialog .history-page { grid-template-rows: var(--stash-manager-toolbar, 61px) minmax(0, 1fr); }
 .stash-manager-dialog .toolbar { height: auto; padding: 0; }
 .stash-manager-dialog .management-list { min-width: 0; min-height: 0; overflow: auto; padding: 0 8px 4px 0; }
 .stash-manager-dialog .management-detail { min-width: 0; min-height: 0; overflow: auto; padding: 14px 18px 16px; }
-.stash-manager-dialog .management-detail h2 { min-height: var(--stash-manager-button, 28px); margin: 0 0 6px; font-size: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stash-manager-dialog .management-detail h2 { min-height: var(--stash-manager-button, 37px); margin: 0 0 6px; font-size: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stash-manager-dialog .button-row { margin: 12px 0 14px; gap: 8px; flex-wrap: wrap; }
-.stash-manager-dialog .button-row button { min-width: 78px; height: var(--stash-manager-button, 28px); padding: 0 12px; flex: none; white-space: nowrap; }
+.stash-manager-dialog .button-row button { min-width: 78px; height: var(--stash-manager-button, 37px); padding: 0 12px; flex: none; white-space: nowrap; }
 .stash-manager-dialog .management-detail .tree-row { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .history-tool-content {
@@ -3279,8 +3853,8 @@ body[data-theme="dark"] .scrim {
 .history-list-pane {
   min-width: 0;
   display: grid;
-  grid-template-rows: var(--augit-history-toolbar-height, 39px) minmax(0, 1fr);
-  border-right: 1px solid var(--augit-border);
+  grid-template-rows: var(--augit-history-toolbar-height, 39px) var(--augit-history-columns-height, 25px) minmax(0, 1fr);
+  border-right: var(--augit-hairline) solid var(--augit-border);
   overflow: hidden;
 }
 
@@ -3311,7 +3885,7 @@ body[data-theme="dark"] .scrim {
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  border-bottom: 1px solid var(--augit-border);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
 }
 
 .history-toolbar > span:first-child:not(.grow) {
@@ -3327,19 +3901,36 @@ body[data-theme="dark"] .scrim {
   flex-shrink: 0;
 }
 
-.history-row > span {
+.history-row > span,
+.history-columns > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.history-row {
-  height: var(--augit-history-row-height, 26px);
+/* 列宽沿用本视图原有的 px 比例（权威只给 Swing 的 preferred 字符数：版本 10、作者 14、提交信息 80 个 m），
+   四列顺序与权威一致：版本 → 日期 → 作者 → 提交信息。 */
+.history-row,
+.history-columns {
   display: grid;
-  grid-template-columns: 130px 90px minmax(0, 1fr);
+  grid-template-columns: 62px 108px 90px minmax(0, 1fr);
   align-items: center;
   padding: 0 10px;
   min-width: 360px;
+}
+
+/* 列表表头：行高取权威的表头默认高度 25（`TableHeader.height`，
+   platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/DarculaTableHeaderUI.java:115），
+   文字用次级前景，底边沿用本视图的分隔色。 */
+.history-columns {
+  height: var(--augit-history-columns-height, 25px);
+  color: var(--augit-muted);
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
+  user-select: none;
+}
+
+.history-row {
+  height: var(--augit-history-row-height, 26px);
 }
 
 .history-list-pane > .history-rows {
@@ -3348,6 +3939,49 @@ body[data-theme="dark"] .scrim {
 
 .history-row.selected {
   background: var(--augit-blue-soft);
+}
+
+/* 编辑器顶部的通知面板（权威 `EditorNotificationPanel` 的 Warning 状态，
+   platform/platform-impl/src/com/intellij/openapi/fileEditor/impl/text/LargeFileNotificationProvider.java:44-58）：
+   大文件只读预览的警告 ＋ 「隐藏通知」/「不再显示」两个动作标签。 */
+.editor-notification {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
+  font-size: inherit;
+}
+
+.editor-notification.warning {
+  background: var(--augit-yellow-soft);
+}
+
+.editor-notification-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.editor-notification-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-notification-action {
+  flex: none;
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--augit-blue);
+  font: inherit;
+  cursor: pointer;
+}
+
+.editor-notification-action:hover {
+  text-decoration: underline;
 }
 
 .inline-alert {
@@ -3392,29 +4026,60 @@ body[data-theme="dark"] .scrim {
 }
 
 .main-menu-entry:hover {
-  background: color-mix(in srgb, var(--augit-text) 8%, transparent);
+  /* 与标题栏其它按钮同一权威：`HeaderToolbarButtonLook` → `MainToolbar.Icon.hoverBackground`（浅 #00000012／深回落 ActionButton = #FFFFFF16）。 */
+  /* 主菜单条目是菜单项而非工具条按钮：权威 `MainMenu.transparentSelectionBackground`
+     （浅 = `toolbar-bg-hovered` = #00000012／深 = #FFFFFF1A）。 */
+  background: var(--title-menu-hover);
 }
 
 /* 标题栏状态使用不透明合成色，与原生 Chrome 底上的混色一致。 */
 .titlebar {
-  --title-workspace: color-mix(in srgb, var(--augit-blue) 8%, var(--augit-chrome));
-  --title-chip-hover: color-mix(in srgb, var(--augit-blue) 12%, var(--augit-chrome));
-  --title-context-hover: color-mix(in srgb, var(--augit-text) 7%, var(--augit-chrome));
-  --title-button-hover: color-mix(in srgb, var(--augit-text) 8%, var(--augit-chrome));
+  /* 权威里浅色 `MainToolbar.background` = `main-window-bg` = `layer-0-bg` = `gray-150` = #E9EAEE，
+     与 `Icon.background`／`Dropdown.background` **同值**，即工作区 chip 没有独立底色；深色同理（Gray2）。 */
+  --title-workspace: transparent;
+  /* 权威 `MainToolbar.Dropdown.hoverBackground`（ManyIslandsLight）= #00000012，是中性黑叠加而非蓝色混合。 */
   --title-close-pressed: #c42b1c;
 }
+/* 主工具栏项目配色渐变（docs/design-system.md §6.5）。
+   参考实现的规则：以项目部件图标中心为圆心，向右 300px、向左 min(圆心, 300px)；
+   起始色 = 项目配色按 85% 混入 chrome 底；渐变的另一端是纯 chrome。
+   左端用 max(..., 0px) 夹紧——否则负的停止点会让左边缘直接带上 74% 的起始色，
+   与参考实现“左端只延伸 圆心 距离”的行为不符。 */
+.titlebar {
+  background-image: linear-gradient(
+    90deg,
+    transparent max(calc(var(--augit-title-glow-center) - 300px), 0px),
+    var(--augit-title-glow) var(--augit-title-glow-center),
+    transparent calc(var(--augit-title-glow-center) + 300px)
+  );
+}
+.titlebar[data-project-color="1"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-1) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="2"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-2) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="3"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-3) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="4"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-4) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="5"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-5) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="6"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-6) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="7"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-7) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="8"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-8) 85%, var(--augit-chrome)); }
+.titlebar[data-project-color="9"] { --augit-title-glow: color-mix(in srgb, var(--augit-project-9) 85%, var(--augit-chrome)); }
 .titlebar .workspace-chip { background: var(--title-workspace); }
 .titlebar :is(.workspace-chip, .branch-chip):is(:hover, :active) { background: var(--title-chip-hover); }
+.titlebar :is(.workspace-chip, .branch-chip):active { background: var(--title-button-pressed); }
 .titlebar .titlebar-context:is(:hover, :active) { background: var(--title-context-hover); }
-.titlebar :is(.top-button, .main-menu-entry, .window-dot):is(:hover, :active) {
+.titlebar .titlebar-context:active { background: var(--title-button-pressed); }
+.titlebar :is(.top-button, .window-dot):is(:hover, :active) {
   background: var(--title-button-hover);
   color: var(--augit-text);
+}
+
+.titlebar :is(.top-button, .main-menu-entry, .window-dot):active {
+  background: var(--title-button-pressed);
 }
 .titlebar .window-dot { border-radius: 7px; }
 .titlebar .window-dot:last-child:active { background: var(--title-close-pressed); color: #ffffff; }
 .titlebar :is(.top-button, .top-chip, .titlebar-context, .main-menu-entry):focus {
-  outline: 1px solid var(--augit-blue);
-  outline-offset: -1px;
+  outline: var(--augit-hairline) solid var(--augit-accent-brand);
+  outline-offset: calc(-1 * var(--augit-hairline));
 }
 .titlebar :is(.top-button, .top-chip, .titlebar-context, .main-menu-entry):is(:disabled, [aria-disabled="true"]) {
   color: var(--augit-faint);
@@ -3519,22 +4184,35 @@ body[data-typography-preview] .main-menu-bar { grid-column: 3 / 8; }
 body[data-theme="dark"] .document-modes .segment { color: #ced0d6; }
 body[data-theme="dark"] .document-modes .segment.active::before { background: #43454a; }
 body[data-theme="dark"] .document-modes.segmented { background: var(--augit-panel); }
+/* 文档模式组保留参考图校准的内缩选中面（design-system §7.2），不跟随分段控件的聚焦底色。 */
+.document-modes.segmented:focus-within .segment.active { background: transparent; }
 
 /* 文档、图片与查找按钮共用状态；模式组保留参考图的内缩选中面。 */
 :is(.document-toolbar, .current-find) .icon-button { position: relative; }
 :is(.document-toolbar, .current-find) .icon-button:is(:hover, :active):not(:disabled) {
-  background: var(--augit-hover);
+  background: var(--augit-action-button-hover);
   color: var(--augit-text);
 }
+
+:is(.document-toolbar, .current-find) .icon-button:active:not(:disabled) {
+  background: var(--augit-pressed);
+}
+/* 查找条里的可选开关与仓库搜索同为芯片式（`SearchTextArea` 的 `MyActionButton` + field-inplace look）：
+   未悬停的选中态取 `SearchOption.selectedBackground`，悬停/按下取 `selectedHovered/PressedBackground`
+   （默认即 `ActionButton.pressedBackground`）。 */
 :is(.document-toolbar, .current-find) .icon-button[aria-pressed="true"]:not(:disabled) {
-  background: var(--augit-blue-soft);
+  background: var(--augit-search-option-selected);
+  color: var(--augit-blue);
+}
+:is(.document-toolbar, .current-find) .icon-button[aria-pressed="true"]:is(:hover, :active):not(:disabled) {
+  background: var(--augit-pressed);
 }
 .document-modes .segment:is(:hover, :active):not(:disabled):not(.active)::before {
   content: "";
   position: absolute;
   inset: 2px;
   border-radius: 5px;
-  background: var(--augit-hover);
+  background: var(--augit-action-button-hover);
   z-index: -1;
 }
 :is(.document-toolbar, .current-find) :is(.icon-button, .segment):focus { outline: none; }
@@ -3542,7 +4220,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   content: "";
   position: absolute;
   inset: 2px 3px 3px 2px;
-  border: 1px solid var(--augit-blue);
+  border: var(--augit-hairline) solid var(--augit-accent-brand);
   pointer-events: none;
 }
 :is(.document-toolbar, .current-find) .icon-button:disabled {
@@ -3558,7 +4236,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .rail-button:is(:hover, :active):not(.active):not([aria-disabled="true"]),
 .side-tool:has(.side-content.tree) > .tool-header .icon-button:is(:hover, :active):not(:disabled),
 .terminal-header .icon-button:is(:hover, :active):not(:disabled):not(.terminal-session-close) {
-  background: var(--augit-hover);
+  background: var(--augit-action-button-hover);
   color: var(--augit-text);
 }
 .rail-button:focus:not(.active):not([aria-disabled="true"]),
@@ -3573,14 +4251,14 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   content: "";
   position: absolute;
   inset: 2px 3px 3px 2px;
-  border: 1px solid var(--augit-blue);
+  border: var(--augit-hairline) solid var(--augit-accent-brand);
   pointer-events: none;
 }
 .rail-button.active:focus:not([aria-disabled="true"])::before {
   content: "";
   position: absolute;
   inset: 1px 2px 2px 1px;
-  border: 1px solid var(--augit-panel);
+  border: var(--augit-hairline) solid var(--augit-panel);
   pointer-events: none;
 }
 .rail-button[aria-disabled="true"],
@@ -3608,7 +4286,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   width: var(--terminal-session-width, 124px);
   padding: 0 8px;
   justify-content: center;
-  box-shadow: inset 0 0 0 1px var(--augit-panel), inset 0 0 0 2px var(--augit-border-strong);
+  box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-panel), inset 0 0 0 2px var(--augit-border-strong);
   background: var(--augit-panel-muted);
   border-radius: 3px;
   text-overflow: ellipsis;
@@ -3618,7 +4296,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   top: calc((var(--terminal-header-height, 38px) - 24px) / 2);
   width: 28px;
   height: 24px;
-  border-radius: 5px;
+  border-radius: 3px;
 }
 .terminal-header .terminal-session-close {
   left: calc(var(--terminal-title-width, 54px) + 12px + var(--terminal-session-width, 124px) + 2px);
@@ -3630,13 +4308,13 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   content: "";
   position: absolute;
   inset: 1px;
-  border: 1px solid var(--augit-border-strong);
+  border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 2.5px;
   background: var(--augit-panel-muted);
   z-index: -1;
 }
 .terminal-header .terminal-session-close { isolation: isolate; }
-.terminal-header .terminal-session-close:is(:hover, :active):not(:disabled)::before { background: var(--augit-hover); }
+.terminal-header .terminal-session-close:is(:hover, :active):not(:disabled)::before { background: var(--augit-action-button-hover); }
 .terminal-header .terminal-more { right: 40px; }
 .terminal-header .terminal-hide { right: 8px; }
 

@@ -32,7 +32,9 @@ async function verifyHover(browser, outputPath) {
         }));
         const before = await snapshot();
         const color = row => row.evaluate(element => getComputedStyle(element).backgroundColor);
-        const hover = theme === "dark" ? "rgb(45, 47, 51)" : "rgb(241, 242, 244)";
+        // 悬停色按 权威 `List/Tree.hoverBackground` = `selection-bg-hovered`（浅 `#00000008`／深代码默认 `#464A4D`）（第 100 轮按用户裁决更正 §8.3 的旧表述；原值 rgb(241,242,244)/rgb(45,47,51)
+        // 属已删除的 `--augit-blue-hover`，无权威依据）。
+        const hover = theme === "dark" ? "rgb(70, 74, 77)" : "rgba(0, 0, 0, 0.03)";
         const selectedColor = await color(first);
         await second.hover();
         assert.equal(await color(second), hover);

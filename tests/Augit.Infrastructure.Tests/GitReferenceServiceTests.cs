@@ -184,6 +184,72 @@ public sealed class GitReferenceServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task 我的分支要求独占提交非空且全部由当前用户提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            // 基线提交（作者 = 我）。三条分支都从这里出发，决定"独占提交"归属。
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: base");
+            GitReferenceResult initial = await new GitReferenceService(runtime).ReadAsync(repository);
+            Assert.IsTrue(initial.IsSuccess, initial.ErrorMessage);
+            string defaultBranch = initial.Snapshot!.Branches.Single(branch => branch.IsCurrent).Name;
+
+            // their 提交：作者是别人，制造"不完全属于我"的独占提交。
+            // 注意不能用 `CommitFileAsync`：它固定带 `-c user.email=augit-tests@…`，会把作者强行改回我。
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "their");
+            await File.WriteAllTextAsync(Path.Combine(temporary.FullPath, "their.txt"), "their\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "their.txt");
+            await GitTestEnvironment.RunAsync(
+                runtime,
+                temporary.FullPath,
+                "-c",
+                "user.name=Other Person",
+                "-c",
+                "user.email=other@example.invalid",
+                "commit",
+                "-m",
+                "feat: 别人的独占提交");
+
+            // mine 提交：我的独占提交；twin 指向同一个提交（权威 `exclusiveNodes` 对"同一提交的两个分支头"
+            // 各自都算独占：该提交没有其它**子提交**分担，见 `GraphUtil.kt:142-158` 的
+            // `upNodes.all { result.contains(it) }` 条件）。
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", defaultBranch);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "mine");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "mine.txt", "mine\n", "feat: 我的独占提交");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "branch", "twin", "mine");
+
+            GitMyBranchesResult result = await new GitReferenceService(runtime).ReadMyBranchesAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual("augit-tests@example.invalid", result.Author);
+            Assert.Contains("mine", result.Mine);
+            Assert.Contains("twin", result.Mine);
+            Assert.DoesNotContain("their", result.Mine);
+            // 默认分支的 tip 是别人分支的祖先 ⇒ 它没有任何"只从自己可达"的提交 ⇒ 不算我的分支。
+            Assert.DoesNotContain(defaultBranch, result.Mine);
+        }
+    }
+
+    [TestMethod]
+    public async Task 没有配置Git用户时我的分支给出可读原因()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: base");
+            // 置成空串而不是 --unset：`git config --get` 会继续读到全局配置，空串才能确定性地表达"没有配置"。
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "user.email", "");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "user.name", "");
+
+            GitMyBranchesResult result = await new GitReferenceService(runtime).ReadMyBranchesAsync(repository);
+
+            Assert.IsFalse(result.IsSuccess);
+            StringAssert.Contains(result.ErrorMessage, "Git 用户");
+        }
+    }
+
     private static async Task<(TemporaryDirectory Temporary, GitRuntimeInfo Runtime, GitRepositorySnapshot Repository)>
         CreateRepositoryAsync()
     {

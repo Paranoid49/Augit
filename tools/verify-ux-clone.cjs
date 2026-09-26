@@ -43,10 +43,17 @@ async function main() {
           const footerBefore = await dialog.locator('.dialog-footer').boundingBox(), dialogBefore = await dialog.boundingBox();
           if (dpi === 1 && width === 1024) await page.screenshot({ path: path.join(output, `clone-initial-${theme}-${size}.png`) });
           assert.equal(await dialog.locator('#clone-depth').isDisabled(), true);
+          // 权威 `DvcsCloneDialogComponent.kt:127`：`isOkActionEnabled() = getUrl().isNotBlank()`
+          // ⇒ **URL 为空时克隆按钮直接禁用**（原断言编码的是"点击后提示"的旧交互，第 144 轮按权威改正）。
+          assert.equal(await dialog.getByRole('button', { name: '克隆', exact: true }).isDisabled(), true);
+          assert.equal(await dialog.locator('.clone-notice').textContent(), '');
+          await dialog.locator('#clone-source').fill('https://example.invalid/team/repo.git');
+          assert.equal(await dialog.getByRole('button', { name: '克隆', exact: true }).isDisabled(), false);
+          // 目录为空仍走点击时校验（`ux-spec:541`：提示原因并聚焦对应输入）——
+          // 权威的目录是随 URL 自动派生的，Augit 的目录初始为空，因此这一档必须保留。
           await dialog.getByRole('button', { name: '克隆', exact: true }).click();
           assert.equal(await dialog.locator('.clone-notice').textContent(), '请输入仓库地址和目标目录。');
-          assert.equal(await dialog.locator('#clone-source').evaluate(node => node === document.activeElement), true);
-          await dialog.locator('#clone-source').fill('https://example.invalid/team/repo.git');
+          assert.equal(await dialog.locator('#clone-destination').evaluate(node => node === document.activeElement), true);
           await dialog.locator('#clone-destination').fill('D:\\clone-result');
           await dialog.locator('#clone-shallow').check();
           assert.equal(await dialog.locator('#clone-depth').isDisabled(), false);
@@ -96,6 +103,10 @@ async function main() {
     const pending = new URL(file); pending.searchParams.set('clone-result', 'pending'); pending.searchParams.set('ui-size', '13');
     await page.goto(pending.href); await page.waitForSelector('body[data-typography-preview="ready"]');
     const dialog = page.locator('.clone-dialog');
+    await dialog.locator('#clone-version').focus();
+    // 权威 `DvcsCloneDialogComponent.kt:127` 规定 URL 为空时克隆按钮**禁用** ⇒ 禁用的控件不进入 Tab 环
+    //（与本检查器对"启用的深度"的既有处理同一条规则）。因此先填 URL 再验环。
+    await dialog.locator('#clone-source').fill('https://example.invalid/team/repo.git');
     await dialog.locator('#clone-version').focus();
     for (const selector of ['#clone-source', '#clone-destination', '#clone-shallow', '.secondary-button', '.primary-button', '.dialog-header a', '#clone-version']) {
       await page.keyboard.press('Tab'); assert.equal(await dialog.locator(selector).evaluate(node => node === document.activeElement), true);

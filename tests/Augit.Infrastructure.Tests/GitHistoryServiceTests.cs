@@ -61,6 +61,291 @@ public sealed class GitHistoryServiceTests
     }
 
     [TestMethod]
+    public async Task 哈希筛选命中前缀全部提交并短路其它筛选()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "test: 最早");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "b.txt", "b\n", "feat: 可检索");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "c.txt", "c\n", "fix: 最新");
+            GitHistoryService service = new(runtime);
+            GitHistoryResult all = await service.ReadPageAsync(repository, new());
+            Assert.IsTrue(all.IsSuccess, all.ErrorMessage);
+            string newestFull = all.Page!.Entries[0].FullHash;
+            string oldestFull = all.Page.Entries[^1].FullHash;
+            string oldestShort = all.Page.Entries[^1].ShortHash;
+            string newestShort = all.Page.Entries[0].ShortHash;
+
+            // ① 前缀命中"最早那条"：同时给一段不可能命中的文本筛选，仍必须返回该提交 ——
+            //    权威的哈希筛选短路其它筛选（`VcsLogFiltererImpl.kt:88-101`），
+            //    且显示的是提交本身而不是"从它往前看"（本例若按 revision 解释会返回 3 条）。
+            GitHistoryResult shortCircuited = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Hash: oldestShort, Message: "不会有任何提交命中这段文字")));
+            Assert.IsTrue(shortCircuited.IsSuccess, shortCircuited.ErrorMessage);
+            Assert.HasCount(1, shortCircuited.Page!.Entries);
+            Assert.AreEqual(oldestFull, shortCircuited.Page.Entries[0].FullHash);
+
+            // ② 逗号分隔的多个前缀 → 命中各自的提交（权威按前缀逐个展开）。
+            GitHistoryResult multiple = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Hash: $"{oldestShort},{newestShort}")));
+            Assert.IsTrue(multiple.IsSuccess, multiple.ErrorMessage);
+            Assert.HasCount(2, multiple.Page!.Entries);
+            Assert.IsTrue(multiple.Page.Entries.Any(entry => entry.FullHash == oldestFull));
+            Assert.IsTrue(multiple.Page.Entries.Any(entry => entry.FullHash == newestFull));
+
+            // ③ 不足 7 位的十六进制串不算哈希前缀（权威 `fromHash` 要求 `[a-fA-F0-9]{7,64}`）：
+            //    整串退回文本筛选，命中"可检索"那条，而不是被当成 revision 解析。
+            GitHistoryResult fallback = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Hash: "abc12", Message: "可检索")));
+            Assert.IsTrue(fallback.IsSuccess, fallback.ErrorMessage);
+            Assert.HasCount(1, fallback.Page!.Entries);
+            Assert.Contains("可检索", fallback.Page.Entries[0].Subject, StringComparison.Ordinal);
+
+            // ④ 只要有一个词不像哈希，整串都不成立（权威 `fromHash` 对每个词都要求匹配）。
+            GitHistoryResult mixed = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Hash: $"{oldestShort},zzz", Message: "可检索")));
+            Assert.IsTrue(mixed.IsSuccess, mixed.ErrorMessage);
+            Assert.HasCount(1, mixed.Page!.Entries);
+            Assert.Contains("可检索", mixed.Page.Entries[0].Subject, StringComparison.Ordinal);
+
+            // ⑤ 前缀合法但**一条都没命中**时，权威 `applyHashFilter()` 返回 null 落回普通筛选
+            //    （`VcsLogFiltererImpl.kt:336-341`）⇒ 同一个文本的文本筛选仍要生效，而不是空页。
+            GitHistoryResult noMatch = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Hash: "deadbee", Message: "可检索")));
+            Assert.IsTrue(noMatch.IsSuccess, noMatch.ErrorMessage);
+            Assert.HasCount(1, noMatch.Page!.Entries);
+            Assert.Contains("可检索", noMatch.Page.Entries[0].Subject, StringComparison.Ordinal);
+        }
+    }
+
+    [TestMethod]
+    public async Task 范围筛选只取从inclusive可达而不从exclusive可达的提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "test: 基线");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "b.txt", "b\n", "test: 第二个");
+            string current = (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "branch", "--show-current"))
+                .StandardOutput.Trim();
+            // 分支停在当前提交，再往前加一条：于是 `current..feature/ux` 恰好是这一条。
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "feature/ux");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "c.txt", "c\n", "feat: 分支独有");
+            GitHistoryService service = new(runtime);
+
+            // 权威 `fromRange(exclusiveRef, inclusiveRef)` / `VcsLogRangeFilterImpl` 的文本 `"$before..$after"`：
+            // 即 `git log <exclusive>..<inclusive>`。这正是「与当前分支比较」要看的提交集
+            // （`GitCompareBranchesUi` 用 `fromRange(otherBranchName, branchName)`）。
+            GitHistoryResult ahead = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(RangeExclusive: current, RangeInclusive: "feature/ux")));
+            Assert.IsTrue(ahead.IsSuccess, ahead.ErrorMessage);
+            Assert.HasCount(1, ahead.Page!.Entries);
+            Assert.AreEqual("feat: 分支独有", ahead.Page.Entries[0].Subject);
+
+            // 反向范围没有任何提交（当前分支没有 feature/ux 之外的提交）。
+            GitHistoryResult behind = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(RangeExclusive: "feature/ux", RangeInclusive: current)));
+            Assert.IsTrue(behind.IsSuccess, behind.ErrorMessage);
+            Assert.IsEmpty(behind.Page!.Entries);
+
+            // 只给一端时必须明确失败，而不是悄悄退化成整仓历史。
+            GitHistoryResult halfRange = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(RangeInclusive: "feature/ux")));
+            Assert.IsFalse(halfRange.IsSuccess);
+            StringAssert.Contains(halfRange.ErrorMessage, "两端");
+        }
+    }
+
+    [TestMethod]
+    public async Task 多用户筛选取任一选中用户的提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "test: 我的提交");
+            await File.WriteAllTextAsync(Path.Combine(temporary.FullPath, "b.txt"), "b\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "b.txt");
+            await GitTestEnvironment.RunAsync(
+                runtime, temporary.FullPath,
+                "-c", "user.name=Other Person", "-c", "user.email=other@example.invalid",
+                "commit", "-m", "feat: 别人的提交");
+            GitHistoryService service = new(runtime);
+
+            // 权威 `fromUserNames(listOf(me, other))` ⇒ 两个人的提交都要（git 的多个 `--author` 是"或"）。
+            GitHistoryResult both = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Authors: ["augit-tests@example.invalid", "other@example.invalid"])));
+            Assert.IsTrue(both.IsSuccess, both.ErrorMessage);
+            Assert.HasCount(2, both.Page!.Entries);
+
+            // 只选一个人 ⇒ 只有他的提交。
+            GitHistoryResult onlyOther = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Authors: ["other@example.invalid"])));
+            Assert.IsTrue(onlyOther.IsSuccess, onlyOther.ErrorMessage);
+            Assert.HasCount(1, onlyOther.Page!.Entries);
+            Assert.AreEqual("feat: 别人的提交", onlyOther.Page.Entries[0].Subject);
+        }
+    }
+
+    [TestMethod]
+    public async Task 作者集合去重并覆盖所有分支上的作者()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: 我的提交");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "other");
+            await File.WriteAllTextAsync(Path.Combine(temporary.FullPath, "other.txt"), "other\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "other.txt");
+            await GitTestEnvironment.RunAsync(
+                runtime, temporary.FullPath,
+                "-c", "user.name=Other Person", "-c", "user.email=other@example.invalid",
+                "commit", "-m", "feat: 别人的提交");
+            // 同一个人换过显示名：应只出现一次（按"名字 ＋ 邮箱"去重）。
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-");
+
+            GitAuthorsResult result = await new GitHistoryService(runtime).ReadAuthorsAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.HasCount(2, result.Authors);
+            Assert.IsTrue(result.Authors.Any(author => author.Email == "augit-tests@example.invalid"));
+            Assert.IsTrue(result.Authors.Any(author => author.Email == "other@example.invalid"));
+        }
+    }
+
+    [TestMethod]
+    public async Task 历史条目带回作者与提交者两组身份()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            // 作者用 `--author` 指定、提交者取仓库配置：两者不同名，
+            // 正是文件历史作者列加 `*` 与 tooltip 追加 `, via {提交者}` 的条件
+            // （权威 `FileHistoryPanelImpl.AuthorColumnInfo.valueOf`／`getCustomizedRenderer`，`:751-799`）。
+            await File.WriteAllTextAsync(Path.Combine(temporary.FullPath, "mixed.txt"), "mixed\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "mixed.txt");
+            await GitTestEnvironment.RunAsync(
+                runtime, temporary.FullPath,
+                "-c", "user.name=Committer Person", "-c", "user.email=committer@example.invalid",
+                "commit", "--author=Author Person <author@example.invalid>", "-m", "feat: 身份两组");
+
+            GitHistoryResult result = await new GitHistoryService(runtime).ReadPageAsync(repository, new(PageSize: 10));
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            GitHistoryEntry entry = result.Page!.Entries[0];
+            Assert.AreEqual("Author Person", entry.AuthorName);
+            Assert.AreEqual("author@example.invalid", entry.AuthorEmail);
+            Assert.AreEqual("Committer Person", entry.CommitterName);
+            Assert.AreEqual("committer@example.invalid", entry.CommitterEmail);
+        }
+    }
+
+    [TestMethod]
+    public async Task 多分支筛选取各分支可达提交的并集()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "base.txt", "base\n", "test: 基线");
+            string main = (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "branch", "--show-current"))
+                .StandardOutput.Trim();
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "feature/a");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "a.txt", "a\n", "feat: A 独有");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", main);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "switch", "-c", "feature/b");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "b.txt", "b\n", "feat: B 独有");
+            GitHistoryService service = new(runtime);
+
+            // 权威 `VcsLogFilterObject.fromBranches(branchNames)`：从**任一**匹配分支可达的提交（并集）。
+            GitHistoryResult both = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Branches: ["feature/a", "feature/b"])));
+            Assert.IsTrue(both.IsSuccess, both.ErrorMessage);
+            // 并集 = 基线 ＋ A 独有 ＋ B 独有 = 3 条（两条分支各自只有一条提交）。
+            Assert.HasCount(3, both.Page!.Entries);
+            Assert.IsTrue(both.Page.Entries.Any(entry => entry.Subject == "feat: A 独有"));
+            Assert.IsTrue(both.Page.Entries.Any(entry => entry.Subject == "feat: B 独有"));
+
+            // 单个分支只有它自己的那条 ＋ 基线。
+            GitHistoryResult single = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Branches: ["feature/a"])));
+            Assert.IsTrue(single.IsSuccess, single.ErrorMessage);
+            Assert.HasCount(2, single.Page!.Entries);
+            Assert.IsTrue(single.Page.Entries.Any(entry => entry.Subject == "feat: A 独有"));
+            Assert.IsFalse(single.Page.Entries.Any(entry => entry.Subject == "feat: B 独有"));
+
+            // 一个都解析不出来时如实返回空页（不退化成整仓历史）。
+            GitHistoryResult missing = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Branches: ["feature/a", "no-such-branch"])));
+            Assert.IsTrue(missing.IsSuccess, missing.ErrorMessage);
+            Assert.HasCount(2, missing.Page!.Entries);
+        }
+    }
+
+    [TestMethod]
+    public async Task 多路径筛选取任一命中路径的提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "shared.txt", "shared\n", "test: 基线");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "one.txt", "one\n", "feat: 一号");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "two.txt", "two\n", "feat: 二号");
+            Directory.CreateDirectory(temporary.GetPath("nested"));
+            await File.WriteAllTextAsync(temporary.GetPath("nested/three.txt"), "three\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "nested");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-m", "feat: 目录里的三号");
+            GitHistoryService service = new(runtime);
+
+            // 权威 `VcsLogFilterObject.fromPaths(...)`：一组路径交给 Git，任一命中即算命中
+            // （`git log … -- a b`）。
+            GitHistoryResult both = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Paths: ["one.txt", "two.txt"])));
+            Assert.IsTrue(both.IsSuccess, both.ErrorMessage);
+            Assert.HasCount(2, both.Page!.Entries);
+            Assert.IsTrue(both.Page.Entries.Any(entry => entry.Subject == "feat: 一号"));
+            Assert.IsTrue(both.Page.Entries.Any(entry => entry.Subject == "feat: 二号"));
+            Assert.IsFalse(both.Page.Entries.Any(entry => entry.Subject == "feat: 目录里的三号"));
+
+            // 目录路径本身也是合法 pathspec（树里勾选目录就是这种形态）。
+            GitHistoryResult directory = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Paths: ["nested"])));
+            Assert.IsTrue(directory.IsSuccess, directory.ErrorMessage);
+            Assert.HasCount(1, directory.Page!.Entries);
+            Assert.AreEqual("feat: 目录里的三号", directory.Page.Entries[0].Subject);
+
+            // 多值优先于单值，并去掉重复项（同一个路径给两次不会把它算成两个筛选）。
+            GitHistoryResult deduplicated = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(FilePath: "shared.txt", Paths: ["one.txt", "one.txt"])));
+            Assert.IsTrue(deduplicated.IsSuccess, deduplicated.ErrorMessage);
+            Assert.HasCount(1, deduplicated.Page!.Entries);
+            Assert.AreEqual("feat: 一号", deduplicated.Page.Entries[0].Subject);
+
+            // 其中一个路径越界 ⇒ 整个请求失败，不静默丢掉这一项。
+            GitHistoryResult escaped = await service.ReadPageAsync(
+                repository,
+                new(Filter: new(Paths: ["one.txt", "../outside.txt"])));
+            Assert.IsFalse(escaped.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.InvalidRequest, escaped.FailureKind);
+        }
+    }
+
+    [TestMethod]
     public async Task 提交图包含分支合并线和本地远端标签装饰()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

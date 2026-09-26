@@ -36,11 +36,15 @@ async function main() {
           const footerBefore = await dialog.locator('.dialog-footer').boundingBox();
           await dialog.locator('#stash-message').fill('第一行\n第二行');
           await dialog.locator('#stash-keep').check();
+          // 权威 `GitStashDialog.kt:30-36`：`Include untracked` 默认**不勾选**（第 168 轮补上这个复选）。
+          assert.equal(await dialog.locator('#stash-include-untracked').isChecked(), false);
+          await dialog.locator('#stash-include-untracked').check();
           await dialog.getByRole('button', { name: '创建 Stash', exact: true }).click();
           assert.equal(await dialog.locator('#stash-message').isDisabled(), true);
           await page.waitForSelector('.stash-dialog[data-state="failure"]');
           assert.equal(await dialog.locator('#stash-message').inputValue(), '第一行\n第二行');
           assert.equal(await dialog.locator('#stash-keep').isChecked(), true);
+          assert.equal(await dialog.locator('#stash-include-untracked').isChecked(), true);
           assert.deepEqual(await dialog.locator('.dialog-footer').boundingBox(), footerBefore);
           assert.equal(await body.evaluate(node => node.scrollHeight > node.clientHeight), true);
           await dialog.locator('#stash-message').focus();
@@ -58,7 +62,7 @@ async function main() {
         url.searchParams.set('stash-result', 'pending');
         await page.goto(url.href); await page.waitForSelector('body[data-typography-preview="ready"]');
         await page.locator('#stash-root').focus();
-        for (const selector of ['#stash-message', '#stash-keep', '.stash-dialog .secondary-button', '.stash-dialog .primary-button', '.stash-dialog .dialog-header a', '#stash-root']) {
+        for (const selector of ['#stash-message', '#stash-keep', '#stash-include-untracked', '.stash-dialog .secondary-button', '.stash-dialog .primary-button', '.stash-dialog .dialog-header a', '#stash-root']) {
           await page.keyboard.press('Tab'); assert.equal(await page.locator(selector).evaluate(node => node === document.activeElement), true);
         }
         await page.locator('.stash-dialog .primary-button').click();

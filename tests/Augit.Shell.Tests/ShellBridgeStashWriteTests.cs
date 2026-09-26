@@ -46,6 +46,39 @@ public sealed class ShellBridgeStashWriteTests
     }
 
     [TestMethod]
+    public async Task 创建Stash默认不包含未跟踪文件而勾选后才包含()
+    {
+        using TemporaryDirectory temporary = new();
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        await CreateRepositoryAsync(runtime, temporary.FullPath);
+        // 一处已跟踪改动 ＋ 一个未跟踪文件：默认（不传 includeUntracked）只暂存已跟踪的那部分，
+        // 未跟踪文件必须留在工作区（权威 `GitStashDialog.kt:41-53` 的复选默认不勾）。
+        await File.WriteAllTextAsync(temporary.GetPath("base.txt"), "已跟踪改动\n");
+        await File.WriteAllTextAsync(temporary.GetPath("untracked.txt"), "未跟踪\n");
+
+        using ShellBridge bridge = new(temporary.FullPath);
+        JsonElement created = await InvokeAsync(
+            bridge,
+            """{"id":11,"method":"git/stash","params":{"message":"默认"}}""");
+
+        Assert.IsTrue(created.GetProperty("ok").GetBoolean(), created.GetRawText());
+        GitCall status = await GitTestEnvironment.RunRawAsync(
+            runtime, temporary.FullPath, "status", "--porcelain");
+        StringAssert.Contains(status.StandardOutput, "untracked.txt");
+        Assert.IsFalse(status.StandardOutput.Contains("base.txt", StringComparison.Ordinal));
+
+        // 勾选后（显式 true）未跟踪文件才一起进 Stash。
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "stash", "clear");
+        JsonElement included = await InvokeAsync(
+            bridge,
+            """{"id":12,"method":"git/stash","params":{"message":"包含","includeUntracked":true}}""");
+        Assert.IsTrue(included.GetProperty("ok").GetBoolean(), included.GetRawText());
+        GitCall after = await GitTestEnvironment.RunRawAsync(
+            runtime, temporary.FullPath, "status", "--porcelain");
+        Assert.IsFalse(after.StandardOutput.Contains("untracked.txt", StringComparison.Ordinal), after.StandardOutput);
+    }
+
+    [TestMethod]
     public async Task 没有改动时创建Stash按失败返回原因()
     {
         using TemporaryDirectory temporary = new();

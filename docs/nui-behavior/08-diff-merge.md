@@ -1,0 +1,311 @@
+# 08 · Diff 与合并的渲染规则
+
+本节要点：
+
+1. **变更类型的颜色键映射是唯一的**：`LineStatusMarkerColorScheme.getColor()` 把 `Range.INSERTED/DELETED/MODIFIED/EQUAL` 分别映射到 `ADDED_LINES_COLOR` / `DELETED_LINES_COLOR` / `MODIFIED_LINES_COLOR` / `WHITESPACES_MODIFIED_LINES_COLOR`（来源：`platform/diff-impl/src/com/intellij/openapi/diff/LineStatusMarkerColorScheme.kt:23-31`）。
+2. **gutter 变更标记是不透明填充**，不做 alpha 混合；alpha 只出现在未变更区域的分隔条图案上（来源：`platform/diff-impl/src/com/intellij/openapi/diff/LineStatusMarkerDrawUtil.java:195`、`platform/diff-impl/src/com/intellij/diff/util/DiffLineSeparatorRenderer.java:263`）。
+3. **`DIFF_SEPARATORS_BACKGROUND` 是废弃键**，只做向后兼容；分隔条图案真正的颜色键是 `DIFF_SEPARATOR_WAVE`，回落链为 `DIFF_SEPARATOR_WAVE` → `DIFF_SEPARATORS_BACKGROUND` → `Gray._128`（来源：`DiffLineSeparatorRenderer.java:317-322`、`:351-357`）。
+4. 分隔条图案是**正弦样折线**：每 4 个 step 一个周期，step = `max(scale(diff.divider.width) / 6, 2)`，半高 `scale(3)`，上下各留 1px 抗锯齿间隙（来源：`DiffLineSeparatorRenderer.java:326-349`）。
+5. `DIFF_INSERTED` / `DIFF_DELETED` 在 expUI 配色方案中**没有 BACKGROUND**，只有 `DIFF_MODIFIED` 有；词级高亮的底色因此不是由方案文件给出的（见 §5、§8）。
+
+## 1. 数据模型与颜色键映射
+
+变更块以 `Range` 表示，类型是四个常量之一：`INSERTED`、`DELETED`、`MODIFIED`、`EQUAL`。
+
+| 变更类型 | 颜色键 | 用途 |
+| --- | --- | --- |
+| `INSERTED` | `EditorColors.ADDED_LINES_COLOR` | 新增行 |
+| `DELETED` | `EditorColors.DELETED_LINES_COLOR` | 删除行 |
+| `MODIFIED` | `EditorColors.MODIFIED_LINES_COLOR` | 修改行 |
+| `EQUAL` | `EditorColors.WHITESPACES_MODIFIED_LINES_COLOR` | 仅空白差异的修改行 |
+
+（来源：`LineStatusMarkerColorScheme.kt:23-31`）
+
+另有三个独立键：
+
+| 键 | 作用 | 取值来源 |
+| --- | --- | --- |
+| `EditorColors.BORDER_LINES_COLOR` | 变更块边框颜色 | expUI 深浅两套方案**均未定义**，`ColorKey` 也无代码默认值 ⇒ `getColor` 返回 null（来源：`platform/editor-ui-api/src/com/intellij/openapi/editor/colors/EditorColors.java:82`，`createColorKey` 不带默认值） |
+| `EditorColors.IGNORED_ADDED_LINES_BORDER_COLOR` 等三个 | 忽略空白差异时的行边框 | 方案文件已定义，见 §2 |
+| `DiffColors.DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED` | 词级与错误条纹的属性键 | `TextAttributesKey`，见 §5 |
+
+## 2. 颜色取值（expUI，两主题）
+
+| 键 | 浅色 | 深色 |
+| --- | --- | --- |
+| `ADDED_LINES_COLOR` | `#7FC784` | `#549159` |
+| `DELETED_LINES_COLOR` | `#767A8A` | `#868A91` |
+| `MODIFIED_LINES_COLOR` | `#88ADF7` | `#375FAD` |
+| `WHITESPACES_MODIFIED_LINES_COLOR` | `#F7E2CB` | `#52433D` |
+| `DIFF_SEPARATORS_BACKGROUND`（废弃） | `#E4E6EB` | `#2B2D30` |
+| `WHITESPACES`（空白字符色） | 未定义 | `#6F737A` |
+| `IGNORED_ADDED_LINES_BORDER_COLOR` | `#7FC784` | `#549159` |
+| `IGNORED_DELETED_LINES_BORDER_COLOR` | `#767A8A` | `#868A91` |
+| `IGNORED_MODIFIED_LINES_BORDER_COLOR` | `#88ADF7` | `#375FAD` |
+| `DIFF_MODIFIED` 属性 | `BACKGROUND=#C2D8F2`、`ERROR_STRIPE_COLOR=#B6D2F2` | 未定义 |
+
+（来源：`platform/platform-resources/src/themes/expUI/expUI_lightScheme.xml:12,16,17,21-23,31,44,260`；`expUI_darkScheme.xml:12,18,19,25-27,37,52`）
+
+### 2.1 正文行底色的有效值（方案覆盖 + 默认回落）
+
+上表是"线条颜色"，**不是正文行的底色**。~~正文行底色来自 `DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED` 这三个 `TextAttributesKey` 的 `BACKGROUND` 属性~~ —— **第 133 轮的像素实测推翻了这句（见 §2.2）：这三个键的 `BACKGROUND` 是行内（词级）高亮的取色，整行底色是另一层更浅的色。** `DIFF_*` 的 `BACKGROUND` 取值仍如下（expUI 只覆盖了其中的 `DIFF_MODIFIED`（浅色），其余走默认值）。默认值在 `platform/platform-resources/src/DefaultColorSchemesManager.xml`：
+
+| 属性 | 浅色 BACKGROUND | 深色 BACKGROUND | 有效来源 |
+| --- | --- | --- | --- |
+| `DIFF_INSERTED` | `#BEE6BE` | `#294436` | 默认值（expUI 未覆盖） |
+| `DIFF_DELETED` | `#D6D6D6` | `#484A4A` | 默认值（expUI 未覆盖） |
+| `DIFF_MODIFIED` | `#C2D8F2` | `#385570` | 浅色由 expUI 覆盖（原默认 `#CAD9FA`）；深色走默认值 |
+| `DIFF_CONFLICT` | `#FFD5CC` | `#45302B` | 默认值 |
+
+（来源：`platform/platform-resources/src/DefaultColorSchemesManager.xml:507,2267` 起两套方案；`expUI/expUI_lightScheme.xml:260`）
+
+**这些就是最终底色，不需要再叠 alpha。** 因此 `ADDED_LINES_COLOR`（`#7FC784`）与 `DIFF_INSERTED.BACKGROUND`（`#BEE6BE`）是**两个不同用途的值**：前者用于 gutter 标记等实心部件，后者用于**行内词级高亮**（第 133 轮修正：§2.1 原写"正文行底"，实测证明是行内层）。实现时不要混用。
+
+### 2.2 三层归属的实测裁决（第 133 轮：像素直方图 + 裁剪取证）
+
+§2.1 把 `DIFF_*.BACKGROUND` 记成"正文行底色"**不完整**。第 133 轮直接测参考图 `artifacts/pycharm-16-final/diff-viewer-ctrlD-file.png`（2898×1734）：
+
+**方法**（可复用）：用无头 Chromium 把 PNG 读成 `data:` URL 画进 canvas，再 `getImageData` 统计**精确 RGB 直方图**，并对目标颜色输出**包围盒**与**逐行 x 分段**；必要时用 `drawImage` 裁出局部放大目视。`data:` URL 不会污染 canvas，因此不需要起服务器。
+
+| 参考图里的层 | 浅色实测值 | 像素数 | 几何 | 对应权威键 |
+| --- | --- | --- | --- | --- |
+| **整行软底** | `#EDFCED`（增）／`#E7EFFA`（改）／`#F4F7F9`（删） | 213160／122390／21133 | **整行满宽**（最宽行 w1625–1697） | **未找到**——`Default` 与 expUI 两套方案里都没有这三个值（`EDFCED` 只命中无关的 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`） |
+| **行内（词/段级）高亮** | `#BEE6BE`（增）／`#C2D8F2`（改） | 36323／63788 | **局部段**：`#C2D8F2` 在 y700 分为 `887-1026(140)`、`1678-1794(117)`、`1796-1836(41)`、`1838-1925(88)`、`1973-2817(845)` 五段；`#BEE6BE` 在 y623–625 为 `1932-2817(886)` | **`DIFF_*.BACKGROUND`** ✓ |
+| 行号槽实心标记 | `#7FC784`／`#767A8A`／`#88ADF7` | —— | 窄条 | `*_LINES_COLOR` ✓ |
+
+裁剪目视（`x840-1840,y600-800` 与 `x1840-2898,y600-800`）：蓝带里**只有 `powershell` 这个词**被 `#C2D8F2` 覆盖，该行行底是更浅的 `#E7EFFA`；绿带（`dotnet restore/build/test`）是整行 `#EDFCED` 且**没有**行内高亮。
+
+**结论**（与 §7bis.4 的代码路径完全自洽）：`createInlineHighlighter` → `getTextAttributes(type, editor, BackgroundType.DEFAULT)` → `DiffTextAttributes.getBackgroundColor()` → `TextDiffTypeImpl.getColor()` → `getAttributes(DIFF_*).getBackgroundColor()`，所以 **`DIFF_*.BACKGROUND` = 行内词级高亮**；**整行底色是另一层更浅的色，权威里没有对应键**，浅色只能取参考实测值。
+
+**因此 Augit 现行的层归属是错位的**（第 133 轮实测）：
+
+| Augit 令牌 | 实际值（浅/深） | 用在 | 应属的层 |
+| --- | --- | --- | --- |
+| `--augit-diff-*` | `#EDFCED`/`#F4F7F9`/`#E7EFFA` ／ `#294436`/`#484A4A`/`#385570` | `.diff-code-line.*` 整行底 | 浅色 ✓ 对（参考实测）；**深色 ✗** —— `#294436` 等是 `DIFF_*.BACKGROUND`，属**行内**层 |
+| `--augit-diff-current-*` | `#BEE6BE`/`#767A8A`/`#C2D8F2` ／ `#549159`/`#868A91`/`#375FAD` | `.diff-current` 整行"当前差异" | 浅色的 `#BEE6BE`/`#C2D8F2` 是**行内**层色；深色三个是 `*_LINES_COLOR`（**行号槽**色）。**权威里没有"当前差异"这一层**（`PaintMode` 只有 `DEFAULT`/`IGNORED`/`RESOLVED`(无底+点线边框)/`EXCLUDED_*`） |
+
+**待裁决（不自行选择解释）**：`.diff-current` 这一层在 New UI 里没有对应物。三条出路各有代价，需要产品口径：① 删掉它（导航差异只滚动不染色）；② 改为**行内词级高亮**（需要宿主提供词级差异范围，属新数据通道）；③ 保留整行染色，但换用**行号槽**色族（深色已是如此）——这与浅色现状又不一致。改动前不动色值。
+
+
+## 3. 变更标记的绘制规则
+
+**【可直接实现】**
+
+- **块外框**：`framingBorder > 0` 且块的起止行不同时，先用 **gutter 背景色**填充 `(x - framingBorder, y - framingBorder, 宽 + framingBorder, 高 + framingBorder*2)` 的矩形，即用背景色在标记外扩出一圈"留白框"，而不是画一条有颜色的边。（来源：`LineStatusMarkerDrawUtil.java:180-190`）
+- **填充**：对每个 `y1 != y2` 且未标记为 ignored 的变更，用该类型的颜色填充 `(x1, start, endX, end)` 矩形，**不透明、无 alpha**；x1 在悬停时额外向左加宽 `getHoveredMarkerExtraWidth()`。（来源：`LineStatusMarkerDrawUtil.java:192-203`）
+- **边框色**：`LineStatusMarkerColorScheme.getBorderColor()` 取 `BORDER_LINES_COLOR`；expUI 下该键未定义 ⇒ 取到 null。因此**在 expUI 主题下变更块不画有颜色的边框**，"边框"效果来自上一条的背景色外扩。（来源：`LineStatusMarkerColorScheme.kt:36-38`）
+- **错误条纹**（编辑器右侧色条）取 `DiffColors.DIFF_*` 属性的 `errorStripeColor`。（来源：`LineStatusMarkerColorScheme.kt:41-48`）
+
+## 4. 未变更区域的分隔条（wave 图案）
+
+**【可直接实现】**
+
+| 参数 | 规则 | 来源 |
+| --- | --- | --- |
+| 颜色键 | `DIFF_SEPARATOR_WAVE`（常量名 `FOREGROUND`），回落 `DIFF_SEPARATORS_BACKGROUND`，再回落 `Gray._128` | `DiffLineSeparatorRenderer.java:317-322, 351-357` |
+| step（四分之一周期） | `max(JBUIScale.scale(Registry.intValue("diff.divider.width")) / 6, 2)`，**每个波 4 个 step** | `:326-329` |
+| 半高 | `JBUI.scale(3)` | `:334-336` |
+| 垂直偏移 | `(lineHeight - 2 × 半高 - 2 × 1) / 2` | `:338-341` |
+| 抗锯齿间隙 | `getAAGap() = 1`（常量） | `:347-349` |
+| 起始相位 | `getStepSize()`，注释说明是为了以 45° 向下跨过分隔条、留出更小的转折肩部 | `:343-346` |
+| 绘制周期 | 沿 x 循环 `index`，仅当 `index % 4 == 0` 时绘制图案 ⇒ **每 4 个 step 出现一次** | `:260-266` |
+| 合成方式 | 图案先画进缓存位图，再用 `AlphaComposite.SrcOver` 贴到目标上 | `:258-266` |
+| 描边 | `getStroke(isHovered)` + `GraphicsUtil.setupAAPainting`，开抗锯齿 | `:300-303` |
+
+分隔条宽度本身（两栏/三栏视图的分隔器）取同一个注册表项：`DiffSplitter` 与 `ThreeDiffSplitter` 都用 `JBUIScale.scale(Registry.intValue("diff.divider.width"))`。（来源：`platform/diff-impl/src/com/intellij/diff/tools/util/DiffSplitter.java:47`、`ThreeDiffSplitter.java:145`）
+
+> `diff.divider.width` 的**注册表默认值**未在本次范围内取到（见 §8）。因此上式中除该值以外的所有量都已确定；只要拿到它的默认值即可算出 step。
+
+## 5. 词级差异的机制
+
+**【需推断】**
+
+`TextDiffTypeFactory` 把 `DiffColors.DIFF_INSERTED` / `DIFF_DELETED` / `DIFF_MODIFIED` 注册为三种 `TextDiffType`，供差异查看器标注字词级变化。（来源：`platform/diff-impl/src/com/intellij/diff/util/TextDiffTypeFactory.java:24-26`）
+
+行级底色~~已在 §2.1 取到~~ → **第 133 轮已由 §2.2 的像素实测区分开**：`DIFF_*.BACKGROUND` 是**行内**层；整行软底是另一层、权威无键。因此**行内高亮与整行底色确实不是同一个值**（原判断正确），且行内层不需要再叠 alpha（§2.1 末句）。
+
+## 6. 与 Augit 现状的差异
+
+| 项 | Augit 现状 | New UI 权威 | 处理 |
+| --- | --- | --- | --- |
+| 新增行 | `success` 绿 | `ADDED_LINES_COLOR` 绿 | 值接近但需换成权威色 |
+| 删除行 | `danger` 红 | `DELETED_LINES_COLOR` **灰** | 色相不同，须改 |
+| 修改行 | `warning` 黄 | `MODIFIED_LINES_COLOR` **蓝** | 色相不同，须改 |
+| 仅空白差异 | 无独立令牌 | `WHITESPACES_MODIFIED_LINES_COLOR` | 需新增 |
+| 未变更折叠分隔底 | 无独立令牌 | `DIFF_SEPARATORS_BACKGROUND`（浅 `#E4E6EB` / 深 `#2B2D30`） | 需新增 |
+| 忽略空白时的行边框 | 未区分 | `IGNORED_*_BORDER_COLOR`（三色，与行色同值） | 需新增 |
+| 文件状态色 | 无独立令牌 | `FILESTATUS_*`（见数值参考 §5.7） | 需新增 |
+| 变更块边框 | 无 | expUI 下 `BORDER_LINES_COLOR` 未定义 ⇒ **不画彩色边框**，用背景色外扩 framing | 实现为背景色外扩，不要画边框线 |
+
+**实现建议**：在 `mockup.css` 顶部两个令牌块中新增 `--augit-diff-added`、`--augit-diff-deleted`、`--augit-diff-modified`、`--augit-diff-whitespace`、`--augit-diff-separator`、`--augit-file-added`、`--augit-file-modified`、`--augit-file-deleted`、`--augit-file-conflict`，浅深各一套，再把现有用 `success`／`danger`／`warning` 近似的 Diff 与 Changes 样式改到这些令牌上。**注意不要改动 `--augit-green`／`--augit-red`／`--augit-orange` 的语义**——它们服务于非 Diff 场景（例如冲突解决器、危险动作），与 Diff 行色不是同一个色板。
+
+## 7. 未收集
+
+| 缺口 | 说明 |
+| --- | --- |
+| 并排视图的行对齐与空白填充区颜色 | 未收集 |
+| 差异查看器工具栏与文件信息行的几何 | 未收集；Augit 现有实现见 design-system.md §8.4 |
+| `MergeConflictType.Type` 的完整枚举值 | 本次未定位到定义文件；`MergeThreesideViewer.java:384` 可见其中至少有两种（`MODIFIED_DELETED`、`DELETED_MODIFIED`） |
+| 行内差异的最终着色 | ~~未定死~~ → **第 133 轮已定**：行内层取 `DIFF_*.BACKGROUND`（不叠 alpha），与整行软底是**两层**（见 §2.2 像素实测） |
+
+## 7bis. 三栏合并与冲突解决的渲染规则
+
+本节把原先列在"未收集"里的三栏合并规则补齐，取值与出处如下。
+
+### 7bis.1 分隔条宽度与 wave 的 step（补齐 §4 的缺口）
+
+| 项 | 值 | 出处 |
+| --- | --- | --- |
+| `diff.divider.width` 注册表默认值 | **`24`** | `platform/util/resources/misc/registry.properties:1073` |
+| 由它推出的 step | `max(scale(24) / 6, 2)` = **`4`**（100% 缩放） | `platform/diff-impl/src/com/intellij/diff/util/DiffLineSeparatorRenderer.java:326-329` |
+
+即 §4 里"分隔条图案每 4 个 step 一个周期"在默认缩放下周期为 16px。
+
+### 7bis.2 三栏的行标记：**操作不存在就等于不显示**
+
+这是"不显示无效动作"的权威实现方式——不是把动作禁用，而是**根本不创建它**。
+
+`ThreesideMergeHighlighters.installOperations()` 按固定顺序安装 6 个 gutter 操作（来源：`platform/diff-impl/src/com/intellij/diff/merge/ThreesideMergeHighlighters.kt:44-56`）：
+
+1. `createResolveOperation()`（挂在 `ThreeSide.BASE`）
+2. `createAcceptOperation(LEFT, APPLY)`
+3. `createAcceptOperation(LEFT, IGNORE)`
+4. `createAcceptOperation(RIGHT, APPLY)`
+5. `createAcceptOperation(RIGHT, IGNORE)`
+6. `createResetOperation()`
+
+隐藏条件（同一文件）：
+
+| 规则 | 条件 | 出处 |
+| --- | --- | --- |
+| 该侧已解决就不创建操作 | `createOperation` 在 `change.isResolved(side)` 时 `return null` | `:58-66` |
+| 该侧不是变更就不显示应用/忽略箭头 | `createAcceptOperation` 的渲染器里 `if (!change.isChange(versionSide)) return null` | `:80-83` |
+| 应用箭头再查一次是否已解决 | `createApplyRenderer` 里 `if (change.isResolved(side)) return null` | `:132` |
+| 重置操作**只在 AI 已解决时**出现 | `if (!change.isResolved \|\| !change.isResolvedWithAI) return null` | `:95-97` |
+
+最后一条对 Augit 有直接含义：**产品规格明确不接入 AI，所以"重置变化"这个动作在 Augit 里永不出现**——与规格"不显示无效动作"一致，不需要移植。
+
+合并视图的 gutter 标记外框宽度是 `JBUIScale.scale(2)`（`MergeThreesideLineStatusMarkerRenderer.kt:57`），比两侧 diff 视图更宽。
+
+### 7bis.3 每侧高亮器的安装规则与状态
+
+`DiffViewerHighlighters` 按"基准栏始终、左右两栏仅在该侧确有变更时"安装（来源：`platform/diff-impl/src/com/intellij/diff/tools/simple/DiffViewerHighlighters.kt:34-46,113-129`）：
+
+| 项 | 规则 |
+| --- | --- |
+| 安装范围 | `BASE` 恒装；`LEFT` 仅当 `change.isChange(Side.LEFT)`；`RIGHT` 同理 |
+| 行内高亮器 | 同样的安装范围 |
+| `resolved` | `change.isResolved(side)` |
+| `ignored` | `!resolved && innerFragments != null`——**"忽略"的判据是"未解决且存在行内差异"，不是另一个独立状态** |
+| 隐藏条纹标记 | `withHideStripeMarkers(side == ThreeSide.BASE)` |
+| 无行号时的特殊隐藏 | `side == BASE && !isChange(LEFT) && isChange(RIGHT)` |
+
+### 7bis.4 行内（词级）差异
+
+- 数据：`MergeInnerDifferences` 按 side 保存三组 `TextRange`（left/base/right），`get(side)` 取对应一组（`platform/diff-impl/src/com/intellij/diff/tools/util/text/MergeInnerDifferences.java`）。
+- 绘制：对每组范围调用 `DiffDrawUtil.createInlineHighlighter(editor, innerStart, innerEnd, change.diffType)`，偏移基于该侧变更块的起始行（`DiffViewerHighlighters.kt:100-108`）。
+- 着色来源：`InlineHighlighterBuilder.done()` 取 `getTextAttributes(type, editor, BackgroundType.DEFAULT)`，即**沿用该变更类型自己的背景属性**，不是另设一套色（`platform/diff-impl/src/com/intellij/diff/util/DiffDrawUtil.java:668-669`）。
+- **仍未定死**：行内色与行底色的深浅关系（是否叠加 alpha）需继续读 `getTextAttributes` 的 `BackgroundType` 分支才能确认，见 §7。
+
+### 7bis.5 合并动作组与文案
+
+`MergeThreesideViewer` 的动作组构成（来源：`platform/diff-impl/src/com/intellij/diff/merge/MergeThreesideViewer.java:229-238`）：
+
+1. `ShowDiffWithBaseAction` × 3（分别对应 LEFT / BASE / RIGHT，即"与基准比较"）
+2. 分隔线
+3. `ApplyNonConflictsAction` × 3，文案 key 分别为 `action.merge.apply.non.conflicts.left.text`、`...all.text`、`...right.text`（"应用非冲突变更到左／全部／右"）
+
+接受动作的按钮文案 key：`button.merge.resolve.accept.left` / `button.merge.resolve.accept.right`（同文件 `:335-336`）。
+
+动作启用判据（来源：`platform/diff-impl/src/com/intellij/diff/merge/MergeThreesideViewerActions.kt`）：
+
+| 动作 | 判据 | 出处 |
+| --- | --- | --- |
+| 接受某一侧 | `!change.isResolved(side)` | `:180` |
+| 忽略某一侧 | `!change.isResolved(side)` | `:112` |
+| 忽略整块 | `!change.isResolved` | `:124` |
+| 重置（AI） | `change.isResolvedWithAI` | `:156` |
+
+即：**每一侧的可用性只由「该侧是否已解决」决定**，不含其它条件。
+
+### 7bis.6 对 Augit 的实现含义
+
+- Augit 的三栏冲突解决器应把"接受本侧／接受对方"实现为**按侧独立解析**（`isResolved(side)`），而不是一个整体状态；这直接决定箭头/动作的显示与隐藏。
+- "不显示无效动作"应实现为**不渲染**，与参考实现一致（而非渲染成禁用态）。
+- 基准栏（BASE）不显示条纹标记；左右两栏只在实际有变更时才有相应高亮与动作。
+- 不移植"重置变化"（仅 AI 场景）。
+- 行内词级差异按侧独立提供范围，复用该侧变更类型的颜色。
+
+### 7bis.8 补齐 `MergeConflictType`（本轮收集）
+
+`MergeConflictType.Type` 的定义文件已定位：`platform/util/diff/src/com/intellij/diff/util/MergeConflictType.kt:33`，完整枚举是**四个值**（不是先前推测的 `MODIFIED_DELETED`／`DELETED_MODIFIED` 这类复合名）：
+
+| 项 | 值 | 出处 |
+| --- | --- | --- |
+| `Type` | `INSERTED`、`DELETED`、`MODIFIED`、`CONFLICT` | `MergeConflictType.kt:33-35` |
+| `resolutionStrategy` | `MergeConflictResolutionStrategy?`，默认 `DEFAULT`；构造重载 `canBeResolved: Boolean` 映射为 `DEFAULT` 或 `null` | `:12-15` |
+| `canBeResolved()` | `resolutionStrategy != null` | `:17-19` |
+| `isChange(side: Side)` | 返回该侧的变更标志（左/右各一个） | `:21-23` |
+| `isChange(side: ThreeSide)` | `LEFT`／`RIGHT` 取各自的标志，**`BASE` 恒为 `true`** | `:25-31` |
+
+`MergeConflictResolutionStrategy`（`platform/util/diff/src/com/intellij/diff/util/MergeConflictResolutionStrategy.kt`）是三个值，且**注释即语义**：
+
+- `DEFAULT` —— *"Only available when there is no conflict"*，即只在无冲突时可用；
+- `TEXT` —— 用词级不重叠来化解冲突（`ComparisonMergeUtil`）；
+- `SEMANTIC` —— 用文件结构化解（`LangSpecificMergeConflictResolver`）。
+
+**对 Augit 的含义**：`TEXT`／`SEMANTIC` 是参考实现的智能化解能力，Augit 不接入 AI、只做按侧接受，因此**两者都不移植**；`DEFAULT` 这条"无冲突才可用"也只是解释了参考实现里动作可用性的来源。真正可照搬的是 `isChange(side)` 这个**门控**——它正是 §7bis.2 里"该侧不是变更就不创建应用/忽略箭头"的判据（`:80-83`），而 `BASE` 恒 `true` 也解释了基准栏为什么总有动作位。
+
+### 7bis.9 本节新增的两处待定映射（不自行选择解释）
+
+| 冲突 | 权威 | 现行规范/实现 | 待定原因 |
+| --- | --- | --- | --- |
+| `isChange(side)` 的门控怎么落到 Augit 的底部按钮 | 参考实现按侧**不创建**"应用/忽略"箭头（`ThreesideMergeHighlighters.kt:80-83`）；`isChange(ThreeSide.BASE)` 恒 `true` | 规范 `design-system.md:571` 写"提供接受左侧、两侧或右侧的动作"，未规定按侧隐藏；Augit 的 `live.conflict` 模型也**没有暴露每侧是否变更** | 落地需要模型新增每侧变更标志，且要先定"左侧未变更时是否隐藏『接受左侧』"，属产品行为 |
+| 三栏初始比例 | `ThreeDiffSplitter.resetProportions()`：`myProportion1 = myProportion2 = 1f / 3`，即**严格等分**（`platform/diff-impl/src/com/intellij/diff/tools/util/ThreeDiffSplitter.java:66-67`） | 规范 `design-system.md:584` 明确登记"三栏可用宽度按 `1 : 1.08 : 1`"（`.conflict-page` 的 `grid-template-columns` 同值） | 规范条文与权威相冲突；且这是已登记的布局值，按项目规则不由本轮自决 |
+
+### 7bis.7 本节仍未覆盖
+
+| 缺口 | 说明 |
+| --- | --- |
+| 冲突块在三栏之间的**连线/对应关系绘制** | 未收集 |
+| CONTINUE / SKIP / ABORT 三动作的文案与状态判据 | 参考实现里这三个词无硬编码来源（走 `MERGE_ACTION_CAPTIONS` 钩子，见分册 04），须由 Augit 产品规格定义；可照搬的只有"按 Git 操作状态决定可用性"的机制 |
+| 三栏视图的分隔条**拖动**行为 | 初始比例已收（见 §7bis.9），拖动时的夹紧与持久化仍未收集 |
+
+## 8. 已落地实现（模块 5）
+
+`web/src/mockup.css` 已按本册取值新增令牌并接线：
+
+| 令牌 | 浅色 | 深色 | 来源 |
+| --- | --- | --- | --- |
+| `--augit-diff-added` | `#EDFCED` | `#294436` | 浅色＝参考实测（§2.2 整行软底，**权威无键**）；深色＝`DIFF_INSERTED.BACKGROUND` ⇒ **层归属不一致**，见 §2.2 |
+| `--augit-diff-deleted` | `#F4F7F9` | `#484A4A` | 同上（深色为 `DIFF_DELETED.BACKGROUND`） |
+| `--augit-diff-modified` | `#E7EFFA` | `#385570` | 同上（深色为 `DIFF_MODIFIED.BACKGROUND`） |
+| `--augit-diff-whitespace` | `#F7E2CB` | `#52433D` | `WHITESPACES_MODIFIED_LINES_COLOR` |
+| `--augit-diff-separator` | `#E4E6EB` | `#2B2D30` | `DIFF_SEPARATORS_BACKGROUND`（废弃回退键，见 §4） |
+| `--augit-file-added` | `#067D17` | `#73BD79` | `FILESTATUS_ADDED` |
+| `--augit-file-modified` | `#0033B3` | `#70AEFF` | `FILESTATUS_MODIFIED` |
+| `--augit-file-deleted` | `#6C707E` | `#6F737A` | `FILESTATUS_DELETED` |
+| `--augit-file-conflict` | `#DE1B2E` | `#DE6A66` | `FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS` |
+| `--augit-status-clean` | `#1F7536` | `#57965C` | `VersionControl.Merge.Status.NoConflicts.foreground`（Green2 / Green6） |
+
+接线：`.diff-code-line.added/.removed/.changed` 与 `.file-status-added/.file-status-modified/.file-status-deleted`。**新增了此前缺失的 `.file-status-added` 与 `.file-status-deleted` 两条规则**——这两个类名由 JS 产出（各 6 处）但原先没有颜色规则，靠继承。
+
+`--augit-green` / `--augit-red` / `--augit-orange` **保持不变**：它们服务冲突解决器、内联告警与危险动作等非 Diff 场景，与 Diff 色板不是同一套。
+
+**注意** `.file-status-new` 不是文件状态，而是 Worktree 面板"干净，可安全移除"这类正向状态文字，因此映射到 `NoConflicts.foreground` 的绿，而不是 `FILESTATUS_UNKNOWN`。
+
+浏览器实测（`docs/ux-mockups/commit-diff.html`）：
+
+| 元素 | 浅色 | 深色 |
+| --- | --- | --- |
+| `.diff-code-line.added` | `rgb(190,230,190)` = `#BEE6BE` | `rgb(41,68,54)` = `#294436` |
+| `.diff-code-line.removed` | `rgb(214,214,214)` = `#D6D6D6` | `rgb(72,74,74)` = `#484A4A` |
+| `.file-status-modified` | `rgb(0,51,179)` = `#0033B3` | `rgb(112,174,255)` = `#70AEFF` |
+
+`.diff-code-line.changed` 在该视觉稿中没有对应数据行（`commit-diff.html` 无 Modified 行），但 `mockup.js` 的 `cssKind()` 会把 `Modified` 映射为 `changed`，规则可达。
+
+## 8. 标注说明
+
+- **【可直接实现】**：§3、§4 的规则是几何与常量，HTML/CSS 可表达。
+- **【Swing 特有】**：`Graphics2D` 的 `AlphaComposite`、`getStroke`、`GraphicsUtil.setupAAPainting` 是 Swing 绘制细节；在 HTML 侧等价物是 `opacity`／`color-mix` 与 SVG/canvas 描边。
+- **【需推断】**：§5 的词级高亮底色。

@@ -216,6 +216,59 @@ public sealed class GitRemoteService : IGitRemoteService
         return await RunNetworkOperationAsync(repository, arguments, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<GitRemoteOperationResult> FetchBranchAsync(
+        GitRepositorySnapshot repository,
+        string localBranch,
+        CancellationToken cancellationToken = default)
+    {
+        string? validationError = ValidateRemoteRequest(repository, null, allowEmptyName: true)
+            ?? ValidateName(localBranch, "分支名称");
+        if (validationError is not null)
+        {
+            return GitRemoteOperationResult.Failure(GitOperationFailureKind.InvalidRequest, validationError);
+        }
+
+        // 跟踪配置由 Git 自己给出（`%(upstream:short)`，形如 `origin/dsh`），不依赖界面传来的推断值。
+        // 权威 `GitBranchActionsUtil.updateBranches()`（`plugins/git4idea/backend/src/ui/branch/GitBranchActionsUtil.kt:93-96`）
+        // 对非当前分支用的 refspec 正是 `"$remoteBranchName:$localBranchName"`，
+        // 其中 `remoteBranchName` 就是 `nameForRemoteOperations`（即这里的 upstream 全名）。
+        GitCommandResult upstreamResult = await RunAsync(
+            repository.RepositoryRoot!,
+            ["for-each-ref", "--format=%(upstream:short)", $"refs/heads/{localBranch}"],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        string upstream = upstreamResult.IsSuccess ? upstreamResult.StandardOutput.Trim() : string.Empty;
+        if (!upstreamResult.IsSuccess || upstream.Length == 0)
+        {
+            return GitRemoteOperationResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                $"分支 {localBranch} 没有配置跟踪的远端分支。");
+        }
+
+        int separator = upstream.IndexOf('/');
+        if (separator <= 0 || separator == upstream.Length - 1)
+        {
+            return GitRemoteOperationResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                $"无法从跟踪引用 {upstream} 解析远端与远端分支。");
+        }
+
+        string remoteName = upstream[..separator];
+        string remoteBranch = upstream[(separator + 1)..];
+        string? remoteError = ValidateName(remoteName, "远端名称")
+            ?? ValidateName(remoteBranch, "远端分支名称");
+        if (remoteError is not null)
+        {
+            return GitRemoteOperationResult.Failure(GitOperationFailureKind.InvalidRequest, remoteError);
+        }
+
+        // 写全 `refs/heads/...` 两端：源在远端命名空间、目标在本地命名空间，避免短名在不同 refspec 下的歧义。
+        // 不带 `+`：与权威一致，非快进由 Git 拒绝并把原因回给界面。
+        string refspec = $"refs/heads/{remoteBranch}:refs/heads/{localBranch}";
+        return await RunNetworkOperationAsync(repository, ["fetch", remoteName, refspec], cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public Task<GitRemoteOperationResult> PullAsync(
         GitRepositorySnapshot repository,
         GitPullMode mode = GitPullMode.RepositoryConfigured,

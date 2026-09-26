@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Augit.Core.Git;
 
 namespace Augit.Infrastructure.Git;
@@ -89,6 +91,117 @@ public sealed class GitReferenceService : IGitReferenceService
         }
 
         return GitReferenceResult.Success(new(branches!, tags!));
+    }
+
+    /// <summary>
+    /// 读取"我的分支"（权威 `BranchesDashboardUtil.checkIsMyBranchesSynchronously`
+    /// ＋ `isMyBranch`／`findExclusiveCommits`，`BranchesDashboardUtil.kt:85-160`）：
+    /// 分支的**独占提交**非空、且**全部**由当前 Git 用户提交才算"我的"。
+    ///
+    /// 独占提交的语义照权威 `VcsLogGraphData.exclusiveCommits`
+    /// （`platform/vcs-log/impl/src/com/intellij/vcs/log/util/DataPackUtil.kt:54-64` ＋
+    /// `graph/utils/GraphUtil.kt:142-158` 的 `exclusiveNodes` 注释
+    /// "nodes reachable only from the specified head node and not from others"）：
+    /// **只从该分支头可达、不从其它分支头可达**的提交；标签不算分支头（`isBranchHead` 只认 `type.isBranch`）。
+    /// 对应 `git rev-list --count <tip> --not <其它分支头的哈希>`。
+    /// 权威对 headNode 自身永远算独占（`it == headNode || !isHead(it)`），因此这里把
+    /// **与自身 tip 相同**的其它分支头从 `--not` 里排除，使"两个分支指向同一提交"时两者都算有独占提交。
+    ///
+    /// 成本：每个分支两次 `rev-list --count`（总数／我的数）。只在用户打开「我的分支」时调用一次。
+    /// </summary>
+    public async Task<GitMyBranchesResult> ReadMyBranchesAsync(
+        GitRepositorySnapshot repository,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? error))
+        {
+            return GitMyBranchesResult.Failure(GitOperationFailureKind.InvalidRequest, error!);
+        }
+
+        // 当前用户：权威 `VcsLogFilterObject.ME` 由日志的用户解析器解析成当前 Git 用户
+        // （`VcsLogFilterObject.fromUserNames(listOf(ME))`）。这里取仓库配置的 `user.email`，
+        // 缺失时退回 `user.name`。
+        string? email = await ReadConfigAsync(repositoryRoot!, "user.email", cancellationToken).ConfigureAwait(false);
+        string? name = await ReadConfigAsync(repositoryRoot!, "user.name", cancellationToken).ConfigureAwait(false);
+        string? me = string.IsNullOrWhiteSpace(email) ? NullIfEmpty(name ?? string.Empty) : email;
+        if (string.IsNullOrWhiteSpace(me))
+        {
+            return GitMyBranchesResult.Failure(
+                GitOperationFailureKind.InvalidRequest,
+                "没有配置 Git 用户（user.email／user.name），无法判断哪些分支属于你。");
+        }
+
+        GitReferenceResult references = await ReadAsync(repository, cancellationToken).ConfigureAwait(false);
+        if (!references.IsSuccess || references.Snapshot is not { } snapshot)
+        {
+            return GitMyBranchesResult.Failure(
+                references.FailureKind == GitOperationFailureKind.None
+                    ? GitOperationFailureKind.CommandFailed
+                    : references.FailureKind,
+                references.ErrorMessage ?? "无法读取分支列表。");
+        }
+
+        string authorFilter = $"--author={Regex.Escape(me)}";
+        List<string> mine = [];
+        foreach (GitBranchInfo branch in snapshot.Branches)
+        {
+            List<string> arguments = ["rev-list", "--count", branch.CommitHash];
+            List<string> others = snapshot.Branches
+                .Where(other => !string.Equals(other.Name, branch.Name, StringComparison.Ordinal))
+                .Where(other => !string.Equals(other.CommitHash, branch.CommitHash, StringComparison.Ordinal))
+                .Select(other => other.CommitHash)
+                .ToList();
+            if (others.Count > 0)
+            {
+                arguments.Add("--not");
+                arguments.AddRange(others);
+            }
+
+            long? total = await CountRevisionsAsync(repositoryRoot!, arguments, cancellationToken).ConfigureAwait(false);
+            if (total is null || total <= 0)
+            {
+                // 没有独占提交 ⇒ 权威 `isMyBranch` 直接判否（`exclusiveCommits.isEmpty() -> false`）。
+                continue;
+            }
+
+            List<string> mineArguments = [.. arguments, authorFilter];
+            long? byMe = await CountRevisionsAsync(repositoryRoot!, mineArguments, cancellationToken).ConfigureAwait(false);
+            if (byMe == total)
+            {
+                mine.Add(branch.Name);
+            }
+        }
+
+        return GitMyBranchesResult.Success(me, mine);
+    }
+
+    private async Task<string?> ReadConfigAsync(
+        string repositoryRoot,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        GitCommandResult result = await RunAsync(
+            repositoryRoot,
+            ["config", "--get", key],
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess ? NullIfEmpty(result.StandardOutput.TrimEnd('\r', '\n')) : null;
+    }
+
+    private async Task<long?> CountRevisionsAsync(
+        string repositoryRoot,
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        GitCommandResult result = await RunAsync(
+            repositoryRoot,
+            arguments,
+            GitCommandMode.LocalQuery,
+            cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess
+            && long.TryParse(result.StandardOutput.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long count)
+                ? count
+                : null;
     }
 
     public async Task<GitActionResult> CreateBranchAsync(

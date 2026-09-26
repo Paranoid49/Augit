@@ -13,7 +13,8 @@ async function inspect(page) {
     const icons = [...document.querySelectorAll('svg[data-augit-icon]')];
     return {
       unresolved: document.querySelectorAll('[data-lucide], svg.lucide').length,
-      empty: icons.filter(element => !element.querySelector('path, circle, rect, ellipse')).map(element => element.dataset.augitIcon),
+      // `polygon` 也算画出了形状：第 174 轮加入的收藏星形照权威 `nodes/favorite.svg` 是五角星多边形。
+      empty: icons.filter(element => !element.querySelector('path, circle, rect, ellipse, polygon')).map(element => element.dataset.augitIcon),
       grids: icons.filter(element => !['0 0 16 16', '0 0 12 12', '0 0 18 18'].includes(element.getAttribute('viewBox'))).map(element => element.dataset.augitIcon),
       inaccessible: icons.filter(element => element.getAttribute('aria-hidden') !== 'true').length,
       pending: [...document.querySelectorAll('[data-pending-icon]')].map(element => ({

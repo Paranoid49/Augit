@@ -26,18 +26,23 @@ async function main() {
           const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
           const toolbar = page.locator('.git-side-toolbar');
           const resize = async height => { await toolbar.evaluate((e, h) => { e.style.height = `${h}px`; }, height); await settle(); };
-          const locate = page.locator('.git-side-toolbar > button[aria-label="定位 HEAD"]');
+          // 第 173／174 轮：左竖条＝分支面板的权威动作组（12 项，多数在短窗口里收进溢出弹层）。
+          // 这里不认某个固定按钮，改用「当前可见的最后一个竖条按钮」，对条目数变化免疫。
+          const lastVisible = page.locator('.git-side-toolbar > button:not([hidden])').last();
           const trigger = page.locator('.history-tools-more');
           const popup = page.locator('.history-tools-popup');
           const focused = target => target.evaluate(e => e === document.activeElement);
           await resize(360);
-          await locate.focus();
+          await lastVisible.focus();
           await resize(100);
           assert.ok(await focused(trigger), `${label} 收起时焦点没有交给箭头`);
           const focusStyle = await trigger.evaluate(e => {
             const style = getComputedStyle(e);
             const probe = document.createElement('span');
-            probe.style.color = 'var(--augit-blue)';
+            // 焦点环的权威是 **accent**（design-system："焦点使用命中区内侧 1px accent 圆角边框"）。
+            // 第 117 轮已把 14 条焦点态规则由 `--augit-blue` 改为 `--augit-accent-brand`；此处探针原先
+            // 读的是 `--augit-blue`，浅色下两者不同（`#3871E1` vs `#3574F0`）故失败，深色下同值所以一直没暴露。
+            probe.style.color = 'var(--augit-accent-brand)';
             e.append(probe);
             const accent = getComputedStyle(probe).color;
             probe.remove();
@@ -62,22 +67,35 @@ async function main() {
           await page.keyboard.press('Escape');
           assert.ok(await focused(trigger), `${label} Esc 必须返回入口`);
           await page.keyboard.press('Enter');
-          await popup.getByRole('button', { name: '搜索', exact: true }).focus();
+          // 弹层里的条目执行后要收起弹层并把焦点交回入口（`bindHistoryToolbar` 的复制点击处理）。
+          await popup.getByRole('button', { name: '新建分支…', exact: true }).focus();
           await page.keyboard.press('Enter');
-          assert.ok(await focused(page.getByRole('textbox', { name: '文本或哈希', exact: true })), label);
+          assert.ok(await focused(trigger), `${label} 弹层动作执行后焦点回到入口`);
           await trigger.focus();
           await resize(360);
-          assert.ok(await focused(locate), `${label} 展开后不能遗留隐藏焦点`);
+          // 展开后焦点必须落在**可见且可用**的竖条按钮上（不能留在隐藏按钮或已消失的箭头上）。
+          assert.ok(await page.evaluate(() => {
+            const el = document.activeElement;
+            return !!el && el.classList && el.classList.contains('toolbar-button')
+              && !el.hidden && !el.disabled && !!el.closest('.git-side-toolbar');
+          }), `${label} 展开后不能遗留隐藏焦点`);
 
           const panel = page.locator('.log-list-panel');
           const widen = async width => { await panel.evaluate((e, w) => { e.style.width = `${w}px`; }, width); await settle(); };
-          const fileFilter = page.locator('.history-filters > button[data-history-filter="3"]');
+          // 第 179 轮按 New UI 对齐：筛选栏四项里只有「分支」已接线（用户／日期／路径当时是**禁用**入口，
+          // 禁用项不参与焦点循环），因此用「分支」控件验证"收进溢出菜单后焦点转移"。
+          // 第 185 轮把**日期**接上（权威 `DateFilterPopupComponent`）、第 191 轮把**路径**接上
+          // （权威 `StructureFilterPopupComponent`）⇒ 四项全部可用，收纳关闭时焦点按 Augit 既有规则
+          // 交给同组**最后一个可见可用**的动作，即路径控件。
+          const branchFilter = page.locator('.history-filters > button[data-filter-key="branch"]');
           await widen(1200);
-          await fileFilter.focus();
+          await branchFilter.focus();
           await widen(260);
           assert.ok(await focused(page.locator('.history-filter-overflow > summary')), `${label} 筛选收纳丢失焦点`);
           await widen(1200);
-          assert.ok(await focused(fileFilter), `${label} 筛选展开丢失焦点`);
+          assert.ok(
+            await focused(page.locator('.history-filters > button[data-filter-key="path"]')),
+            `${label} 筛选展开丢失焦点`);
           await toolbar.evaluate(e => e.style.removeProperty('height'));
           await panel.evaluate(e => e.style.removeProperty('width'));
           await settle();

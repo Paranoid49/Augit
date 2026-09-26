@@ -33,6 +33,13 @@
 
 `mockup.js`、`mockup.css`、`current-find.js`、`image-preview.js` 四个文件在两处各存一份且内容完全相同，由 `tools/audit/verify-ui-assets.ps1` 强制校验。**改界面时同步复制，否则校验失败。修改视觉稿以迁就实现属于违规。**
 
+**New UI 取值来源：** 复原 PyCharm 2026.2.1 New UI 所需的信息分两层，出处与取证方式见下列两份文档（均从 IntelliJ 开源仓库提取）：
+
+- `docs/intellij-platform-ui-reference.md` —— **静态取值**：命名色板、结构尺寸、提交图几何与缩放公式、Diff 与文件状态配色、主工具栏项目配色渐变机制。
+- `docs/intellij-platform-ui-behavior.md` —— **交互与页面逻辑**：工具窗口状态机、树/列表选择与键盘导航、编辑器标签与只读正文、动作可用性、查找、提交图算法、主题/DPI/弹层，并汇总已裁决的规范冲突与待实施模块；分册在 `docs/nui-behavior/`。
+
+两者只是推导令牌与行为时的**上游输入**，令牌权威仍是 `web/src/mockup.css`。
+
 ### 2.1 消息桥接
 
 - 网页 → 外壳：`chrome.webview.postMessage` 发 `{ id, method, params }`
@@ -142,9 +149,16 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 
 ---
 
-## 7. 验证基线（当前实测）
+## 7. 验证基线
 
-| 项目 | 数值 |
+> **本表是早期轮次的历史快照，不是当前实测值**（第 178 轮标注）。当前基线以
+> `docs/intellij-platform-ui-behavior.md` §2.3 为准（那里同时登记了四个运行时文件的 md5 与 `live-shell` 断言数）；
+> 下表里的 `236（Core 86 + Infrastructure 150）`／`验收套件断言 261` 等数字已被后续轮次取代
+> （第 177 轮实测：单元测试 **Core 86 ＋ Shell 91 ＋ Infrastructure 175**、`live-shell` **1136 项断言**，
+> 资源一致性 PASS、构建 0 警告 0 错误）。视觉稿场景渲染数、像素差异与冷启动耗时未在本轮复测，
+> 因此**不把旧值写成当前值**。
+
+| 项目 | 数值（历史快照） |
 |---|---|
 | 单元测试 | 236（Core 86 + Infrastructure 150） |
 | 验收套件断言 | 261 |
