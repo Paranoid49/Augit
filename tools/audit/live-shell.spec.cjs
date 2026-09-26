@@ -946,6 +946,10 @@ async function main() {
       if (method === 'git/commit') {
         const delay = (window.__commitDelays || {})[params.revision];
         if (delay) await new Promise((r) => setTimeout(r, delay));
+        // 第 234 轮：按提交注入"详情读取失败"（规格 §7.8：提交信息超 20 MB 要说明原因）。
+        // 真实宿主（`GitHistoryService.ReadCommitAsync`）会给这两条固定文案，桩照抄同一形状。
+        const failure = (window.__commitDetailFailures || {})[params.revision];
+        if (failure) return { available: false, reason: failure };
         if (params.revision === data.commit.fullHash) return data.commit;
         // 第二个提交返回可区分的详情
         // 第二个提交也给出变化文件：历史比较需要"改选提交后跟随到同一路径"的场景，
@@ -15188,6 +15192,157 @@ async function main() {
         && detailPosition.after.hash === detailPosition.before.hash
         && typeof detailPosition.after.scrollTop === 'number'
         && Math.abs(detailPosition.after.scrollTop - detailPosition.before.scrollTop) <= 4);
+    // ---- 第 234 轮补断言（收 §7.8 第 3 条）：提交详情的独立滚动、键位只动详情、位置保持、
+    // 切换提交回顶部、只读与"超 20 MB 说明原因" ----
+    // 实现位置：`mockup.js` 的 `bindHistoryDetails()`（详情 `tabindex=0` + Home/End/PageUp·Down/方向键滚动）
+    // 与 `select()`（切换提交时 `detail.scrollTo({top:0})`、重复选择同一行直接 return），
+    // `live-data.js` 的 `loadCommitDetails()`（异步填充 + 失败原因）。
+    const detailScroll = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      const selectRow = async (index) => {
+        await scene.page.evaluate((i) => {
+          document.querySelectorAll('.commit-row')[i].dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, index);
+        await scene.page.waitForTimeout(600);
+      };
+      // 第二个提交的正文 30 行 ⇒ 详情区**真的**可滚动；否则"位置保持/回顶部"都会平凡为真。
+      await selectRow(1);
+      await scene.page.waitForFunction(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        return !!host && host.innerText.includes('补充说明第 30 行');
+      }, null, { timeout: 15000 }).catch(() => {});
+      const read = () => scene.page.evaluate(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        if (!host) return { missing: true };
+        return {
+          top: Math.round(host.scrollTop),
+          max: Math.round(host.scrollHeight - host.clientHeight),
+          label: host.getAttribute('aria-label'),
+          editable: host.isContentEditable,
+          hash: selected ? selected.dataset.hash : null,
+          full: selected ? selected.dataset.fullHash : null,
+          tail: host.innerText.includes('补充说明第 30 行'),
+        };
+      });
+      const layout = await read();
+      // ① 真实鼠标滚轮：只移动详情，不切换提交
+      const box = await scene.page.locator('[data-live-commit-detail]').boundingBox();
+      await scene.page.evaluate(() => { document.querySelector('[data-live-commit-detail]').scrollTop = 0; });
+      await scene.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await scene.page.mouse.wheel(0, 160);
+      await scene.page.waitForTimeout(250);
+      const afterWheel = await read();
+      // ② 真实按键：Home/End/PageUp·Down/方向键只移动详情
+      await scene.page.evaluate(() => {
+        const host = document.querySelector('[data-live-commit-detail]');
+        host.focus();
+        host.scrollTop = 100;
+      });
+      const beforeKeys = await read();
+      const keys = {};
+      for (const key of ['ArrowDown', 'PageDown', 'End', 'Home', 'ArrowUp']) {
+        await scene.page.keyboard.press(key);
+        await scene.page.waitForTimeout(150);
+        keys[key] = await read();
+      }
+      // ③ 重复选择同一提交：阅读位置保持（`select()` 对已选中行直接 return）
+      await scene.page.evaluate(() => { document.querySelector('[data-live-commit-detail]').scrollTop = 150; });
+      const beforeRepeat = await read();
+      await selectRow(1);
+      const afterRepeat = await read();
+      // ④ 收放详情区：阅读位置保持
+      const toggle = '.git-log .log-filterbar [aria-label="显示提交详情"], .git-log .log-filterbar [aria-label="隐藏提交详情"]';
+      await scene.page.evaluate((selector) => { document.querySelector(selector).click(); }, toggle);
+      await scene.page.waitForTimeout(250);
+      const collapsed = await scene.page.evaluate((selector) => ({
+        display: getComputedStyle(document.querySelector('.log-detail-panel')).display,
+        label: document.querySelector(selector).getAttribute('aria-label'),
+      }), toggle);
+      await scene.page.evaluate((selector) => { document.querySelector(selector).click(); }, toggle);
+      await scene.page.waitForTimeout(250);
+      const afterExpand = await read();
+      // ⑤ 切换提交回到新详情顶部。往返一次让目标详情同样可滚动 ⇒ `top === 0` 不是平凡真。
+      await scene.page.evaluate(() => { document.querySelector('[data-live-commit-detail]').scrollTop = 200; });
+      const beforeSwitch = await read();
+      await selectRow(0);
+      const afterSwitchAway = await read();
+      await selectRow(1);
+      const afterSwitchBack = await read();
+      // ⑥ 提交信息超 20 MB：宿主给原因，详情栏必须说明原因（而不是退回占位模板里的**第一个**提交主题）
+      const failure = await scene.page.evaluate(async () => {
+        window.__commitDetailFailures = { 'full-ccc3333': '提交信息超过 20 MB，已停止读取。' };
+        document.querySelectorAll('.commit-row')[2].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const detail = document.querySelector('[data-live-commit-detail]');
+        const files = document.querySelector('[data-live-changed-files]');
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return {
+          detailText: detail ? detail.innerText : null,
+          filesText: files ? files.innerText : null,
+          selected: selected ? selected.dataset.fullHash : null,
+        };
+      });
+      // 整块重绘后原因仍在（状态里带着失败原因，重绘不会退回占位模板）
+      await scene.page.evaluate(() => {
+        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+      });
+      await scene.page.waitForTimeout(1200);
+      const afterRefresh = await scene.page.evaluate(() => {
+        const detail = document.querySelector('[data-live-commit-detail]');
+        const selected = document.querySelector('.commit-row[aria-selected="true"]');
+        return { text: detail ? detail.innerText : null, selected: selected ? selected.dataset.fullHash : null };
+      });
+      await scene.page.close();
+      console.log('INFO 提交详情滚动=' + JSON.stringify({
+        layout, afterWheel, beforeKeys, keys, afterRepeat, collapsed, afterExpand,
+        afterSwitchAway, afterSwitchBack, failure, afterRefresh,
+      }));
+      return { layout, afterWheel, beforeKeys, keys, beforeRepeat, afterRepeat, collapsed, afterExpand,
+        beforeSwitch, afterSwitchAway, afterSwitchBack, failure, afterRefresh };
+    })();
+    const refusedHint = '提交信息超过 20 MB';
+    check('§7.8 提交详情独立滚动、滚轮与键位只移动详情不切换提交: '
+      + JSON.stringify([detailScroll.layout, detailScroll.afterWheel, detailScroll.keys]),
+    detailScroll.layout.max > 40 && detailScroll.layout.tail === true
+      && detailScroll.layout.label === '提交详情' && detailScroll.layout.editable === false
+      && detailScroll.layout.hash === 'bbb2222'
+      && detailScroll.afterWheel.top > 0 && detailScroll.afterWheel.hash === 'bbb2222'
+      && detailScroll.keys.ArrowDown.top > detailScroll.beforeKeys.top
+      && detailScroll.keys.ArrowDown.hash === 'bbb2222'
+      && detailScroll.keys.PageDown.top > detailScroll.keys.ArrowDown.top
+      && detailScroll.keys.PageDown.hash === 'bbb2222'
+      && detailScroll.keys.End.top >= detailScroll.keys.End.max - 1
+      && detailScroll.keys.End.hash === 'bbb2222'
+      && detailScroll.keys.Home.top === 0 && detailScroll.keys.Home.hash === 'bbb2222'
+      && detailScroll.keys.ArrowUp.top === 0 && detailScroll.keys.ArrowUp.hash === 'bbb2222');
+    check('§7.8 重复选择与收放详情保持阅读位置；切换提交回到新详情顶部: '
+      + JSON.stringify([detailScroll.beforeRepeat, detailScroll.afterRepeat, detailScroll.collapsed,
+        detailScroll.afterExpand, detailScroll.afterSwitchAway, detailScroll.afterSwitchBack]),
+    detailScroll.beforeRepeat.top === 150
+      && detailScroll.afterRepeat.top === 150 && detailScroll.afterRepeat.hash === 'bbb2222'
+      && detailScroll.collapsed.display === 'none' && detailScroll.collapsed.label === '隐藏提交详情'
+      && detailScroll.afterExpand.top === 150
+      && detailScroll.beforeSwitch.top === 200
+      && detailScroll.afterSwitchAway.full === 'full-head-hash' && detailScroll.afterSwitchAway.top === 0
+      && detailScroll.afterSwitchBack.full === 'full-bbb2222' && detailScroll.afterSwitchBack.top === 0
+      && detailScroll.afterSwitchBack.max > 40);
+    check('§7.8 提交信息超 20 MB 时说明原因，且不退回占位模板里的第一个提交主题: '
+      + JSON.stringify([detailScroll.failure, detailScroll.afterRefresh]),
+    detailScroll.failure.selected === 'full-ccc3333'
+      && typeof detailScroll.failure.detailText === 'string'
+      && detailScroll.failure.detailText.includes(refusedHint)
+      && detailScroll.failure.filesText.includes(refusedHint)
+      && !detailScroll.failure.detailText.includes('feat: 真实提交一')
+      && detailScroll.afterRefresh.selected === 'full-ccc3333'
+      && typeof detailScroll.afterRefresh.text === 'string'
+      && detailScroll.afterRefresh.text.includes(refusedHint)
+      && !detailScroll.afterRefresh.text.includes('feat: 真实提交一'));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

@@ -10723,8 +10723,15 @@ async function loadCommitDetails(revision) {
     }
     if (!commit || !commit.available) {
       const reasonHtml = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
-      if (live) live.commitDetails = { revision, filesHtml: reasonHtml, detailHtml: "" };
+      // 规格 §7.8：「提交信息读取超过既有 20 MB 输出边界时明确说明原因」。
+      // 原因必须**同时**进详情栏：此前只写左栏（变化文件），右栏就只剩行头（主题/哈希/作者/日期），
+      // 读者看不出正文为什么不见了；而且 `detailHtml` 留空时，任何区域重绘都会退回占位模板 ——
+      // 那个模板固定取 `history.commits[0]`，选中别的提交就会把**第一个提交的主题**画进详情栏。
+      // 桥接把「提交信息超限」与「变化文件列表超限」折叠成同一条 `reason`（`GitCommitDetailsResult`
+      // 只有一个错误消息），因此两栏都如实写这条原因，不猜是哪一侧读失败。
+      if (live) live.commitDetails = { revision, filesHtml: reasonHtml, detailHtml: reasonHtml };
       filesHost.innerHTML = reasonHtml;
+      detailHost.innerHTML = reasonHtml;
       return;
     }
 
