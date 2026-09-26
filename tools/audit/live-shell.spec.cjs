@@ -584,6 +584,20 @@ async function main() {
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
+        // 第 250 轮：Markdown 文件的**真实文本 diff**（规格 §7.7 第 14 条「Markdown 与 JSON 的默认 Git 页面
+        // 仍显示磁盘真实文本 diff，可从工具栏打开修改后预览」）。行内容与 `document/read` 的 Markdown 载荷同源：
+        // 正文里保留 `**加粗**` 的源标记，渲染后的预览则是 `<strong>加粗</strong>` —— 两者可区分。
+        if (params.path === 'docs/product-spec.md') {
+          return {
+            available: true, path: 'docs/product-spec.md', status: 'Ready', oldSize: 120, newSize: 132,
+            truncated: false, lines: [],
+            rows: [
+              { oldLine: 1, oldText: '# 旧标题', oldChanges: [], newLine: 1, newText: '# 真实标题', newChanges: [{ start: 2, length: 4 }], kind: 'Modified' },
+              { oldLine: 2, oldText: '', oldChanges: [], newLine: 2, newText: '', newChanges: [], kind: 'Context' },
+              { oldLine: 3, oldText: '第一段**加粗**与`代码`。', oldChanges: [], newLine: 3, newText: '第一段**加粗**与`代码`。', newChanges: [], kind: 'Context' },
+            ],
+          };
+        }
         // 第 223／224 轮：**纯修改型** Diff（解析器把成对的删/增合成一行 `Modified`，
         // `GitUnifiedDiffParser.AppendChangedRows`），两块之间用上下文字隔开 ——
         // 用于验证「上一处/下一处差异」认 `changed` 类、按**连续变更块**计数（不按两栏算两次），
@@ -17959,6 +17973,170 @@ async function main() {
       && refBlocks.split && refBlocks.split.blocks === 2 && refBlocks.split.summary === '2 处差异'
       && refBlocks.navigated.total === '2'
       && refBlocks.unified && refBlocks.unified.blocks === 2 && refBlocks.unified.summary === '2 处差异');
+
+    // ---- 第 250 轮补断言（收 §7.7 第 12、14 条）：改等宽字号只重排正文与行号；
+    // Markdown/JSON 默认显示真实文本 diff、预览从工具栏打开 ----
+    const codeFontRelayout = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(400);
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+      await scene.page.waitForTimeout(400);
+      await scene.page.locator('.commit-box .message-field').fill('字号变化前的草稿');
+      await scene.page.locator('.changes-list .change-file-row').nth(1).click();
+      await scene.page.waitForTimeout(300);
+      const snap = () => scene.page.evaluate(() => {
+        const view = document.querySelector('.editor-content .diff-columns');
+        const line = view ? view.querySelector('.diff-code-line') : null;
+        const cell = view ? view.querySelector('.diff-gutter > div') : null;
+        const style = view ? getComputedStyle(view) : null;
+        const tracks = style ? style.gridTemplateColumns.split(' ').map((value) => parseFloat(value)) : [];
+        let expectedGutter = null, digits = null;
+        if (view) {
+          // 与 `mockup.js` 的 `measureCodeViews()` 同一公式复算：max(84, 最长行号文本宽 + 14)
+          const context = document.createElement('canvas').getContext('2d');
+          context.font = `${style.fontSize} ${style.fontFamily}`;
+          const columns = [...view.querySelectorAll('.diff-gutter > div')];
+          digits = Math.max(3, ...columns.flatMap((column) => [...column.childNodes]
+            .filter((node) => node.nodeType === Node.TEXT_NODE)
+            .map((node) => node.textContent.trim().length)));
+          const dpr = window.devicePixelRatio || 1;
+          expectedGutter = Math.max(84,
+            Math.ceil(context.measureText(`${'9'.repeat(digits)}    ${'9'.repeat(digits)}`).width * dpr) / dpr + 14);
+        }
+        const live = window.__augitLive;
+        return {
+          font: style ? style.fontSize : null,
+          codeLineHeight: getComputedStyle(document.documentElement).getPropertyValue('--code-line-height').trim(),
+          rowHeight: line ? Math.round(line.getBoundingClientRect().height) : null,
+          gutter: tracks[1] ?? null, expectedGutter, digits,
+          linePad: line ? [getComputedStyle(line).paddingLeft, getComputedStyle(line).paddingRight] : null,
+          cellPad: cell ? [getComputedStyle(cell).paddingLeft, getComputedStyle(cell).paddingRight] : null,
+          calls: (window.__diffCalls || []).length,
+          reads: window.__readCalls || 0,
+          draft: live.commitDraft || null,
+          field: (() => { const el = document.querySelector('.commit-box .message-field'); return el ? el.value : null; })(),
+          selected: live.selectedChangePath || null,
+          checks: (live.status && live.status.files ? live.status.files : []).map((f) => [f.path, !!f.checked]),
+          path: live.diff ? live.diff.path : null,
+          lineCount: document.querySelectorAll('.editor-content .diff-code-line').length,
+        };
+      });
+      const before = await snap();
+      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 20 }); });
+      await scene.page.waitForTimeout(700);
+      const after20 = await snap();
+      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 13 }); });
+      await scene.page.waitForTimeout(700);
+      const restored = await snap();
+      await scene.page.close();
+      console.log('INFO 等宽字号重排=' + JSON.stringify({ before, after20, restored }));
+      return { before, after20, restored };
+    })();
+    check('§7.7 改变等宽字号只重排正文与行号，不重新请求 Git、不清空草稿与文件选择: '
+      + JSON.stringify([codeFontRelayout.before, codeFontRelayout.after20, codeFontRelayout.restored]),
+    // 字号确实变了：行高按 codeSize × 1.7、正文行盒跟着变、中栏按**新字体**重新度量
+    codeFontRelayout.after20.font === '20px'
+      && codeFontRelayout.after20.codeLineHeight === '34px'
+      && codeFontRelayout.before.codeLineHeight === '22px'
+      && codeFontRelayout.after20.rowHeight === 34 && codeFontRelayout.before.rowHeight === 22
+      && codeFontRelayout.after20.gutter !== codeFontRelayout.before.gutter
+      && codeFontRelayout.after20.gutter === codeFontRelayout.after20.expectedGutter
+      && codeFontRelayout.before.gutter === codeFontRelayout.before.expectedGutter
+      // 留白与槽内距是设计常量，不随字号变
+      && JSON.stringify(codeFontRelayout.after20.linePad) === JSON.stringify(['13px', '13px'])
+      && JSON.stringify(codeFontRelayout.after20.cellPad) === JSON.stringify(['7px', '7px'])
+      // 排版维度：不重查 Git、不重读文件
+      && codeFontRelayout.after20.calls === codeFontRelayout.before.calls
+      && codeFontRelayout.after20.reads === codeFontRelayout.before.reads
+      // 用户状态不丢：草稿、选中、勾选、当前正文与行数
+      && codeFontRelayout.after20.draft === '字号变化前的草稿'
+      && codeFontRelayout.after20.field === '字号变化前的草稿'
+      && codeFontRelayout.after20.selected === codeFontRelayout.before.selected
+      && JSON.stringify(codeFontRelayout.after20.checks) === JSON.stringify(codeFontRelayout.before.checks)
+      && codeFontRelayout.after20.path === codeFontRelayout.before.path
+      && codeFontRelayout.after20.lineCount === codeFontRelayout.before.lineCount
+      // 还原字号后几何回到基线
+      && codeFontRelayout.restored.gutter === codeFontRelayout.before.gutter
+      && codeFontRelayout.restored.codeLineHeight === '22px'
+      && codeFontRelayout.restored.calls === codeFontRelayout.before.calls);
+    const markdownPreviewEntry = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(400);
+      // 改动列表里放一个**真有文档载荷**的 Markdown 文件（桩的 `document/read` 里有 docs/product-spec.md）
+      await scene.page.evaluate(() => {
+        window.__liveFiles = [
+          { path: 'docs/product-spec.md', name: 'product-spec.md', directory: 'docs', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+          { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
+        ];
+        window.__hostPush('workspace-changed', { files: ['docs/product-spec.md'], gitMetadata: false });
+      });
+      await scene.page.waitForTimeout(1300);
+      await scene.page.evaluate(() => { window.__diffCalls = []; window.__readCalls = 0; window.__augitUnwiredAction = null; });
+      await scene.page.locator('.changes-list .change-file-row[data-path="docs/product-spec.md"]').click();
+      await scene.page.waitForTimeout(200);
+      await scene.page.evaluate(() => { window.__augitOpenChangeDiff('docs/product-spec.md'); });
+      await scene.page.waitForFunction(
+        "window.__augitLive.diff && window.__augitLive.diff.path === 'docs/product-spec.md'", null, { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const defaultPage = await scene.page.evaluate(() => ({
+        editor: window.__augitLive.editor,
+        path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        codeLines: document.querySelectorAll('.editor-content .diff-code-line').length,
+        changedText: (() => { const el = document.querySelector('.editor-content .diff-code-line.changed'); return el ? el.textContent.trim() : null; })(),
+        sourceMarker: document.querySelector('.editor-content').innerText.includes('**加粗**'),
+        renderedStrong: !!document.querySelector('.editor-content .markdown-preview strong'),
+        markdownPreview: !!document.querySelector('.editor-content .markdown-preview'),
+        previewButton: (() => { const el = document.querySelector('.changes-layout .toolbar [aria-label="预览"]'); return el ? { present: true, disabled: !!el.disabled } : null; })(),
+        unwired: window.__augitUnwiredAction || null,
+        reads: window.__readCalls || 0,
+      }));
+      await scene.page.evaluate(() => { window.__augitUnwiredAction = null; });
+      await scene.page.locator('.changes-layout .toolbar [aria-label="预览"]').click();
+      await scene.page.waitForTimeout(1200);
+      const afterPreview = await scene.page.evaluate(() => ({
+        editor: window.__augitLive.editor,
+        documentPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+        markdown: !!document.querySelector('.editor-content .markdown-document'),
+        mode: (() => { const el = document.querySelector('.editor-content .markdown-document'); return el ? el.dataset.markdownMode || null : null; })(),
+        renderedStrong: !!document.querySelector('.editor-content .markdown-preview strong'),
+        previewText: (() => { const el = document.querySelector('.editor-content .markdown-preview'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null; })(),
+        reads: window.__readCalls || 0,
+        unwired: window.__augitUnwiredAction || null,
+        error: window.__augitError || null,
+      }));
+      await scene.page.close();
+      console.log('INFO Markdown预览入口=' + JSON.stringify({ defaultPage, afterPreview }));
+      return { defaultPage, afterPreview };
+    })();
+    check('§7.7 Markdown/JSON 的默认 Git 页面显示磁盘真实文本 diff、预览从工具栏打开: '
+      + JSON.stringify([markdownPreviewEntry.defaultPage, markdownPreviewEntry.afterPreview]),
+    // 默认页是**文本 diff**：正文是补丁行、显示的是 Markdown 源标记（不是渲染后的 HTML）
+    markdownPreviewEntry.defaultPage.editor === 'diff'
+      && markdownPreviewEntry.defaultPage.path === 'docs/product-spec.md'
+      && markdownPreviewEntry.defaultPage.codeLines > 0
+      && typeof markdownPreviewEntry.defaultPage.changedText === 'string'
+      && markdownPreviewEntry.defaultPage.sourceMarker === true
+      && markdownPreviewEntry.defaultPage.renderedStrong === false
+      && markdownPreviewEntry.defaultPage.markdownPreview === false
+      // 工具栏的「预览」入口可用、且点击前不算未接线
+      && markdownPreviewEntry.defaultPage.previewButton
+      && markdownPreviewEntry.defaultPage.previewButton.disabled === false
+      && markdownPreviewEntry.defaultPage.unwired === null
+      // 点它打开**修改后预览**：Markdown 文档处于预览模式、内容是渲染后的真实文本
+      && markdownPreviewEntry.afterPreview.editor === 'markdown'
+      && markdownPreviewEntry.afterPreview.documentPath === 'docs/product-spec.md'
+      && markdownPreviewEntry.afterPreview.markdown === true
+      && markdownPreviewEntry.afterPreview.mode === 'preview'
+      && markdownPreviewEntry.afterPreview.renderedStrong === true
+      && String(markdownPreviewEntry.afterPreview.previewText).includes('真实标题')
+      && markdownPreviewEntry.afterPreview.reads === 1
+      && markdownPreviewEntry.afterPreview.unwired === null
+      && markdownPreviewEntry.afterPreview.error === null);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

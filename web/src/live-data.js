@@ -11415,6 +11415,35 @@ document.addEventListener("click", (event) => {
   else void openChangeDiff(path);
 }, true);
 
+// 改动工具窗工具栏的「预览」（规格 §7.7 第 14 条）：Markdown 与 JSON 的默认 Git 页面仍是**磁盘真实文本 diff**，
+// 修改后的**预览**从工具栏打开。此前这个按钮在 live 里**没有任何处理者**（第 250 轮实测：点下去编辑区仍是差异、
+// 读取次数 0、连"未接线"都不记录）⇒ 现在把选中的改动文件按只读文档打开。
+// Markdown 显式切到**预览**模式（与文档工具栏的原文／对照／预览同一套模式状态）；
+// JSON 不用额外设置——`liveJsonDocument()` 的默认就是格式化视图（无效 JSON 时才回落原文）。
+document.addEventListener("click", (event) => {
+  const live = window.__augitLive;
+  if (!live) return;
+  const button = event.target.closest
+    && event.target.closest('.side-tool .changes-layout > .toolbar [aria-label="预览"]');
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const path = live.selectedChangePath
+    || ((live.status && live.status.files && live.status.files[0]) ? live.status.files[0].path : null);
+  if (!path) {
+    window.__augitError = "preview:no-selection";
+    return;
+  }
+  void openDocument(path).then(() => {
+    if (!/\.(md|markdown)$/i.test(path)) return;
+    const liveNow = window.__augitLive;
+    if (!liveNow) return;
+    const tab = (liveNow.tabs || []).find((item) => item.id === liveNow.activeTabId);
+    if (tab && tab.kind === "document") tab.documentMode = "preview";
+    refresh("editorContent", "editorTabs");
+  }).catch(() => null);
+}, true);
+
 // 点击改动文件时打开它的差异视图。与项目树用同一套委托思路：
 // 捕获阶段 + closest，既不受整页重绘影响，也不依赖内联处理器。
 document.addEventListener("click", (event) => {
