@@ -41,11 +41,45 @@ Augit 侧有两处对应物：**提交侧栏的进行态**（`reflectWriteOperat
 | 结果提示不自动消失 | `setFadeoutTime(0)`（`ProcessBalloon.kt:115`） | `live.toast` 常驻，只有显式 `clearToast()`（重试成功等流程）才清除，没有自动隐藏计时器 | **本来就对齐** ✓ |
 | 提示的读屏语义 | 通知/气泡 | `liveToast()` 用 `role="alert"` | **本来就对齐** ✓ |
 
-## 3. 登记未做
+## 3. 进度条的结论（第 226 轮重新评估；**待用户认可**）
+
+`10-backlog.md` §三·补 第 2 项曾把进度条挂在"Smart Checkout 桥接缺失"上；第 206–207 轮已接线 ⇒
+前提消失，本节按权威重新评估。
+
+**权威（第 226 轮补读 `ProgressDialogUI.kt` 全文）**：
+
+| 项 | 权威 | 出处 |
+| --- | --- | --- |
+| 进度条是**模态进度窗口**的构成 | `progressPanel` = 文本行 ＋ 细节行 ＋ `progressBar`（跨两列）＋ 右侧 `cancelButton`／`backgroundButton` 的按钮列 | `ProgressDialogUI.kt:56-108` |
+| 无进度数据时是**不定式** | `updateProgress(fraction, text, details)`：`fraction == null` ⇒ `progressBar.isIndeterminate = true`，否则 `value = (fraction * 100).toInt()`（`maximum = 100`） | `ProgressDialogUI.kt:66-68,163-181` |
+| 进度条的取色键 | `ProgressBar.trackColor` / `progressColor` / `indeterminateStartColor` / `indeterminateEndColor`（另有 passed／failed 两族） | `ManyIslandsLight.theme.json:945-953` |
+
+**Augit 的对应面**：写操作的进行态只有**提交侧栏**的一行状态文字 ＋ 取消入口
+（`reflectWriteOperation()`；第 154 轮已断言"取消一次性"），**没有模态进度窗口**——
+那是本册 §2 与 `10-backlog` 已登记的**有意差异**（"Augit 的写操作本就不阻塞查看，没有模态卡住需要转后台的场景"）。
+
+**结论（建议登记为「有意产品差异」）**：不给写操作补进度条。理由三条，都可复验：
+
+1. 进度条在权威里是**模态 `ProgressWindow`** 的构成；Augit 不实现该窗口（写操作非阻塞、可继续浏览），
+   把它的子元素搬到侧栏状态行上属于**新增界面元素**，而 `ux-spec.md:699-701` 对"进行中"的要求只有
+   "**进行中禁用重复触发，显示取消和当前动作**"——这三条**都已实现并断言**（§2 表 ＋ 第 154 轮）。
+2. 写操作没有任何**进度分数**（宿主 `git/commit-create`／`git/push`／`git/checkout-smart` 等都是单请求，桥接无
+   `progress` 事件），权威在这种情况下正是**不定式**进度条 ⇒ 即使画也只能画一条永远在动的条，
+   信息量为零；要画确定式进度就必须新增进度通道（触碰"不新增能力"边界）。
+3. 视觉稿里的 68% 是**样例值**（`.progress-value { width: 68% }`），不是实测进度；`ux-spec.md:842`
+   对该场景的要求是"重复动作不可触发；取消进入等待停止而不是立即报告成功"，同样不含进度百分比。
+
+**若用户希望保留该元素**，最小权威对齐做法是：在侧栏状态行插入 `.progress-track` ＋
+`data-progress="indeterminate"` 的 `.progress-value`，取色用 `trackColor` = `control-bg-small`
+（浅 `#DDDFE4`／深 `#40434A`）与 `progressColor` = `control-brand-bg`（= 现有 `--augit-accent-brand`），
+并按 `indeterminateStartColor`→`indeterminateEndColor`（`#A7C5FF`→品牌色）做渐变扫动；几何沿用视觉稿的 4px 高。
+
+## 3bis. 另两项登记（第 154/225 轮，维持原结论）
 
 | 项 | 理由 |
 | --- | --- |
-| **进度条**（`.progress-track`／`.progress-value`）只出现在 `operation-progress` 视觉稿里，实时侧不渲染 | 该场景写的是"正在执行 **Smart Checkout**…"，而 Smart Checkout 是**宿主能力已实现、桥接与界面缺失**的项（`10-backlog.md` §三·补 第 2 项）。给一个尚未接线的操作补进度条没有意义；等接线时连同进度呈现一起做 |
+| "在后台运行"按钮（`shouldShowBackground`，`ProgressWindow.java:99-110`） | Augit 的写操作本就不阻塞查看（提交后仍可浏览、可取消），没有"模态卡住需要转后台"的场景 ⇒ **不新增**（不适用） |
+| 取消按钮文案可被任务覆盖（`TaskCancellation.buttonText`） | Augit 的取消入口只有"取消"一种文案，没有需要改写文案的任务 ⇒ **不需要该机制**（不适用） |
 | "在后台运行"按钮（`shouldShowBackground`，`ProgressWindow.java:99-110`） | Augit 的写操作本就不阻塞查看（提交后仍可浏览、可取消），没有"模态卡住需要转后台"的场景 ⇒ 不新增 |
 | 取消按钮文案可被任务覆盖（`TaskCancellation.buttonText`） | Augit 的取消入口只有"取消"一种文案，没有需要改写文案的任务 ⇒ 不需要该机制 |
 

@@ -7113,7 +7113,54 @@ Shell 谁都不再引用（不会被 `terminal/stop` 释放）。这正是第 3 
 A 78／B 3／C **2**／D 16／E 1；随后 §7.3 第 6/12 条两行也由 `未覆盖` 转 **是**（各有新断言，见下"验证"）⇒ **C 类 0、分母 100 → 98**；同时删掉 §2.0 摘要里手写的旧分类计数（99/4/10/25）——
 它们在第 224 轮改 §7.7 注记后已经漂移，而第 101 轮就定过"数字只在 §2.10 给"的口径。
 
+## ducentum-viginti-sex. 第二百二十六轮：T3／T10 的权威补齐与建议结论（**待用户认可**）
+
+本轮不按"改代码"推进，而是把 §7 剩下两项的**取证补到能下结论**：T3 读完 `ProgressDialogUI.kt` 全文，
+T10 找回了上一轮**未定位到**的那一半绘制者。两项都给出建议结论与可复验依据，等用户口径。
+
+### T3：操作进度条（建议：有意产品差异，不补）
+
+`10-backlog.md` §三·补 第 2 项把进度条挂在"Smart Checkout 桥接缺失"上；第 206–207 轮已接线 ⇒ 前提消失。
+补读权威后：
+
+- 进度条是**模态 `ProgressWindow` 的构成**（`ProgressDialogUI.kt:56-108`：文本行＋细节行＋`progressBar`
+  跨两列，右侧是取消／"在后台运行"按钮列）；
+- 无进度数据时是**不定式**：`updateProgress(fraction, …)` 里 `fraction == null ⇒ isIndeterminate = true`，
+  否则 `value = (fraction*100)`（`maximum = 100`）（`:66-68,163-181`）；
+- 取色键：`ProgressBar.trackColor`／`progressColor`／`indeterminateStartColor`／`indeterminateEndColor`
+  （`ManyIslandsLight.theme.json:945-953`）。
+
+Augit 侧写操作的进行态只有**提交侧栏**的一行状态文字＋取消入口，没有模态进度窗口（本册 §2 与
+`10-backlog` 早已把"模态/在后台运行"登记为有意差异）；写操作也**没有任何进度分数**（都是单请求，桥接无
+`progress` 事件）。而 `ux-spec.md:699-701` 对"进行中"的要求只有"禁用重复触发＋显示取消与当前动作"——
+三者都已实现并断言（第 154 轮）。⇒ **建议登记为"有意产品差异"（不补进度条）**，
+并把"若用户要保留该元素时的最小权威做法"（不定式＋`control-bg-small`／品牌色渐变）写进
+`16-operation-progress.md` §3，便于一次决定即可落地。
+
+### T10：中间栏槽底与变更连接区（权威补齐，仍待口径）
+
+第 223 轮把"参考图里行号列自身也被同色填充"记为**未定位到绘制者**；本轮找到：
+**`DiffLineMarkerRenderer.paint()` / `drawMarker()`**（`platform/diff-impl/.../DiffLineMarkerRenderer.kt:34-104`）——
+
+- `x1 = 0`、`x2 = gutter.width`，y 范围来自 `getGutterMarkerPaintRange(editor, startLine, endLine)`；
+- `BackgroundType.DEFAULT ⇒ backgroundColor = diffType.getColor(editor)` = **全强度 `DIFF_*.BACKGROUND`**
+  ⇒ **槽底永远是全强度色，与"该行的整行底是否柔和（ignored）"无关**；
+- `editorMode != gutterMode` 时先画 `whitespaceSeparatorOffset..gutter.width`（用 `editorMode` 的**柔和**值），
+  再画左侧大部分（全强度）——这正好解释参考图里 `1927-1972` 是 `#E7EFFA`、`1838-1925` 是 `#C2D8F2`；
+- 单行增删（`y2 - y1 <= 2`）不填充，改画 2px 的类型色线；`alignedSides` 时两栏之间不画边界。
+
+连同第 223 轮已读的 `DiffDividerDrawUtil.DividerPolygon`（梯形：全强度色、无边框、`withAlignedHeight()` 对齐），
+T10 两半的权威都齐了。Augit 的行号槽是**逐行两个 `<div>`**（`liveDiffView()`），逐行填充可以直接落单元格背景；
+但**梯形**需要新的绘制面（Augit 中栏是两个相邻行号列，没有独立分隔器），且静态视觉稿的槽是 `<br>` 两列结构——
+若要落地应同时把基线改成逐行（与实时侧同构）。⇒ 仍建议**先取口径**：实现（含基线同构）或登记有意差异。
+
+### 验证
+
+- 本轮只改文档（`16-operation-progress.md` §3 重写并新增 §3bis 保留原有两条登记、`08-diff-merge.md` §2.3
+  补齐三档权威、`ui-classification.md` 的 T3／T10 行与 §9 修订记录）⇒ **四个运行时哈希与断言数不变**，
+  不需要重跑套件；`check-doc-claims` **DOC_CLAIMS_OK**、`git diff --check` 干净。
+
 ### 下一轮
 
-归类总表 §7 剩余：T3（操作进度条）、T10（中间栏"变更连接区"：权威 `DiffDividerDrawUtil` 的取色/几何已读到，
-但"行号列自身被填充"那一半未定位到绘制者 ⇒ 需产品口径：实现或登记有意差异）。
+归类总表 §7 剩余：T3 与 T10**两条都只等用户口径**（建议结论已写明）。用户认可后：把对应行从 §7 移除、
+改标归类总表 §5/§6 或 §2/§3 的相应行；若选择"实现"，则 T10 拆成"逐行槽底（含基线同构）"与"变更连接区梯形"两步做。

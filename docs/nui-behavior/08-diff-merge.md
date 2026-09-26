@@ -118,11 +118,25 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 
 第 113 轮曾把参考图里 `#BEE6BE` 的一段"整栏宽 590.7"读成"按 Ctrl+D 后当前差异被整块选中"，**第 223 轮复测推翻**：那段是**一行**（`y623–661` ≈ 26 逻辑px，其余同宽行同属这一行），且颜色恰是"无行内差异的纯新增块"的全强度 `DIFF_INSERTED.BACKGROUND`。据此删除该层：`live-data.js` 的 `moveDiffChange` 只做定位，`mockup.css` 删除 3 条规则与 6 处令牌定义。
 
-### 2.3 仍未逐值核对（第 223 轮登记）
+### 2.3 中间栏（行号槽 ＋ 变更连接区）的权威（第 223 轮登记 → 第 226 轮补齐）
 
-| 缺口 | 现象 | 出处 |
+参考图里修改块的左右行号槽（`x1678-1794`／`x1838-1925`）被 `#C2D8F2` 填充，两槽之间还有连接两侧行范围的
+**梯形**（`»` 图标在其中）。第 226 轮把两半都读到了，各自出处如下：
+
+| 半 | 权威 | 取值／几何 |
 | --- | --- | --- |
-| 差异视图中间行号槽的着色 | 参考图里修改块的左右行号槽（`x1678-1794`／`x1838-1925`）被 `#C2D8F2` 填充，两槽之间还有连接两侧行范围的**梯形**（`»` 图标在其中）；Augit 的 `.diff-gutter` 只有行号文字、无填充与梯形 | `DiffDividerDrawUtil` 的多边形绘制未逐值读；登记为待处理 T10 |
+| **行号槽填充** | `DiffLineMarkerRenderer.paint()` ＋ `drawMarker()`：`x1 = 0`、`x2 = gutter.width`，用 `getGutterMarkerPaintRange(editor, startLine, endLine)` 求 y 范围，`BackgroundType.DEFAULT` ⇒ `backgroundColor = diffType.getColor(editor)`（`DiffLineMarkerRenderer.kt:34-104`） | **全强度 `DIFF_*.BACKGROUND`**，与"该行是否 ignored（柔和底）"**无关**——柔和/全强度只影响正文行与"槽与正文之间那条窄带" |
+| 槽与正文之间的窄带 | 同一函数：`editorMode != gutterMode` 时先画 `whitespaceSeparatorOffset..gutter.width`（用 `editorMode`，即 IGNORED ⇒ `getIgnoredColor()` 的柔和值），再画 `x1..whitespaceSeparatorOffset`（用 `gutterMode` 的全强度） | 这就解释了参考图里 `1927-1972` 是柔和 `#E7EFFA`、而 `1838-1925` 与正文各是 `#C2D8F2` |
+| **变更连接区（梯形）** | `DiffDividerDrawUtil.DividerPolygon.paint()` → `drawTrapezium(g, 0, dividerWidth, …)`，`DefaultPainter.getFillColor()` = `correctType(...).getColor(editor)`、`getBorderColor()` = `null`（`DiffDividerDrawUtil.java:305-320,439-535`） | 全强度 `DIFF_*.BACKGROUND`、**无边框**；几何由两侧行范围 `startY1..endY1`／`startY2..endY2` 构成，不等长时按 `withAlignedHeight()` 对齐 |
+| 单行增删（空范围） | 同一 `drawMarker()`：`y2 - y1 <= 2` 时不填充，改画 2px 的 `drawChunkBorderLine`（类型色）；`alignedSides` 时不画 | 与"整块填充"是两档 |
+
+**Augit 现状**：`.diff-gutter` 是**两个相邻行号列**（宽 `--comparison-gutter-width`，默认 84），既没有逐行填充，
+也没有独立分隔器与梯形；`liveDiffView()` 的行号槽是**逐行的两个 `<div>`**（静态样例用的是
+`<div>` ＋ `<br>` 的两列结构）⇒ 逐行填充可直接落在这两个单元格的背景上。
+
+**待用户定（T10）**：① 按权威补"逐行槽底（全强度色）＋ 每块梯形（分隔器或 `clip-path` 近似）"，
+其中梯形需要新的绘制面（Augit 中栏没有独立分隔器元素）；② 或登记为**有意产品差异**
+（Augit 中栏即两个行号列，不画连接区）。**未获口径前不动实现。**
 
 
 ## 3. 变更标记的绘制规则
