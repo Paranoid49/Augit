@@ -23,6 +23,23 @@ async function main() {
           await page.goto(url.href); await page.waitForSelector('body[data-typography-preview="ready"]');
           const dialog = page.locator('.reset-dialog'), body = dialog.locator('.dialog-body');
           assert.equal(await dialog.locator('.footer-help').count(), 0);
+          // 模态遮罩是**透明点击承接层**、不做背景变暗（`07-theme-dpi-dialogs.md` §1 的代码证据 +
+          // `pycharm-branches-dialog.png` 的像素证据）。深色下曾有一条特异性更高的
+          // `body[data-theme="dark"] .scrim`（44% 混色）把背景压暗，与结论相反 —— 第 229 轮删除并在此守断言。
+          const scrim = page.locator('.scrim').first();
+          assert.equal(await scrim.count(), 1, `缺少模态遮罩（theme=${theme} size=${size}）`);
+          const scrimBox = await scrim.boundingBox();
+          const viewport = page.viewportSize();
+          assert.ok(scrimBox.width >= viewport.width - 0.5 && scrimBox.height >= viewport.height - 0.5,
+            `模态遮罩没有铺满可视区（theme=${theme} size=${size}）：${JSON.stringify(scrimBox)}`);
+          const scrimStyle = await scrim.evaluate(node => {
+            const style = getComputedStyle(node);
+            return { background: style.backgroundColor, pointerEvents: style.pointerEvents };
+          });
+          assert.equal(scrimStyle.background, 'rgba(0, 0, 0, 0)',
+            `模态遮罩必须透明、不做背景变暗（theme=${theme} size=${size}）：${scrimStyle.background}`);
+          assert.notEqual(scrimStyle.pointerEvents, 'none',
+            `模态遮罩必须承接点击（theme=${theme} size=${size}）`);
           if (await body.evaluate(node => node.scrollWidth > node.clientWidth)) {
             console.log(JSON.stringify({ theme, size, dpi, bounds: await body.evaluate(node => ({
               width: node.clientWidth, scroll: node.scrollWidth,

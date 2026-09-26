@@ -7256,8 +7256,31 @@ T10 两半的权威都齐了。Augit 的行号槽是**逐行两个 `<div>`**（`
 - `performance-report.md` 新增 §13；归类总表 §8 的该项改标"均已达当前技术基线的地板（第 228／229 轮，附实测）"，
   并写明**无剩余可执行项** ⇒ 建议按该结论结案（待用户认可）。
 
+### 同轮补：1.13 模态遮罩拿到 E1，并修掉与结论相反的深色残留
+
+扫归类总表"已按 New UI 对齐但没有 E1/E2/E3"的行时只剩 1.13（模态遮罩）。核对发现实现与它自己的
+登记结论**相反**：
+
+| 主题 | 修复前 `.scrim` 计算样式 | 说明 |
+| --- | --- | --- |
+| 浅色 | `rgba(0, 0, 0, 0)` | 文件末尾的 `background: transparent` 覆盖了早先那句 22% 混色（死值） |
+| **深色** | **`color(srgb … / 0.44)`** | `body[data-theme="dark"] .scrim` 的**特异性更高** ⇒ 实际把背景压暗 |
+
+而登记结论（`07-theme-dpi-dialogs.md` §1、`intellij-platform-ui-behavior.md` §11）是"参考实现**不做**背景变暗"，
+证据是代码（`IdeGlassPaneImpl.kt` 只注册 namedPainters／windowShadowPainter／loadingIndicator，无变暗绘制）
+与像素（参考截图 `pycharm-branches-dialog.png` 对话框外仍是精确 `#FFFFFF`／`#E9EAEE`）。
+
+**落地**：删除深色那条 44% 覆盖与浅色那条死值，只保留末尾唯一的 `background: transparent`；
+在 `tools/verify-ux-reset-layout.cjs` 的 `dpi × theme × size` 循环里新增断言：遮罩存在、铺满可视区、
+计算背景为 `rgba(0, 0, 0, 0)`、`pointer-events` 非 `none`（仍是点击承接层）。独立复测：
+浅/深两主题计算样式均 `rgba(0, 0, 0, 0)`、`z-index: 15`、铺满、`pointer-events: auto`。
+
+验证：`verify-ux-reset-layout`（PASS=12）、`mockup-scenes` 55/55、`verify-ux-reset-rollback`（12 组）、
+`verify-ux-frame-buttons`（24/24）、`verify-ui-assets.ps1`、`live-shell` **1240 项**、`check-doc-claims` 全绿。
+登记哈希：`mockup.css` `b30cda95…` → **`2adf065bbe9e8f92c2f8d62a3bb805ba`**（其余四个运行时文件未变）。
+
 ### 下一轮
 
 归类总表 §7 剩余：T3 与 T10**两条都只等用户口径**（建议结论已写明）。§8 的三类场景性能项
-（启动 §10／§12、响应 §10、内存 §13）都已到可取证的地板 ⇒ 下轮若仍无口径，转回界面模块做
-"归类总表里证据等级偏弱的行"（E5 只有实现位置、缺可复跑依据的那些）。
+（启动 §10／§12、响应 §10、内存 §13）都已到可取证的地板；§1–§4 里"已对齐但缺 E1/E2/E3"的行已清零
+⇒ 下轮若仍无口径，转向补 A 类队列里与界面行为有关的项（`ui-compliance.md` §2.10 的 78 行，按"证据最弱"排序挑）。

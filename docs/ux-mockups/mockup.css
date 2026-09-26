@@ -1995,7 +1995,9 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   position: absolute;
   inset: 0;
   z-index: 15;
-  background: color-mix(in srgb, var(--augit-chrome) 22%, transparent);
+  /* 底色由文件末尾那条规则统一给成 transparent（见"模态与弹层的点击承接层"注释）：
+     这里曾各写一层浅色 22%／深色 44% 的 `--augit-chrome` 混色，与"参考实现不变暗"的结论矛盾，
+     且浅色那条本来就被后面覆盖成死值（第 229 轮删除）。 */
 }
 
 .dialog {
@@ -3052,10 +3054,6 @@ body[data-theme="dark"] .dialog,
 body[data-theme="dark"] .search-overlay {
   /* 深色弹层边框：权威 `ui.Popup.borderColor` = #43454A（原用 `--augit-border-strong` = Gray5 #4E5157，偏亮）。 */
   border-color: var(--augit-popup-border);
-}
-
-body[data-theme="dark"] .scrim {
-  background: color-mix(in srgb, var(--augit-chrome) 44%, transparent);
 }
 
 .code-view,
