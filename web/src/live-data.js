@@ -427,7 +427,18 @@ function bindHistoryScroll() {
     if (!live) return;
     // 持续记录位置：区域刷新会重建列表，`restoreHistoryScroll()` 用它还原
     //（规格 §7.8「加载下一页时现有 100 条保持可见」与 §6.4 的滚动保持）。
-    live.historyScrollTop = list.scrollTop;
+    // 恢复窗口内的滚动事件**不是用户动作**：渲染之后 `applyTypography()` 还会按"改字号前捕获的锚点"
+    // 回填一次 `.commit-list`（它捕获时列表刚重建、位置还是 0），第 239 轮实测这一步会把刚恢复好的
+    // `scrollTop` 冲成 0，并顺着这个监听把状态也写成 0。窗口很短，窗口内的滚动一律不记录。
+    if (pendingHistoryScroll) return;
+    // 只在**该轴当前真的可滚动**时记录：渲染与"文件历史往返"期间会有一段列表还没有可滚高度的窗口，
+    // 那时读到的 0 同样会冲掉上一次的真实位置。列表不可滚动时该轴本来就是 0，不记录不会丢信息。
+    if (list.scrollHeight > list.clientHeight) live.historyScrollTop = list.scrollTop;
+    // 横向位置同样要记：多轨窄栏下 `.commit-list` 会**局部横向滚动**（行宽 > 列表宽），
+    // 区域刷新重建列表会把 `scrollLeft` 归零。规格 §7.8 第 22 条明确要求
+    //「改变选择、重复点击和相同快照刷新保留横向位置」，因此它与 `scrollTop` 一起记、
+    // 但**不随** `loadHistory()` 的重读清零（只有新列表上下文才归零纵向）。
+    if (list.scrollWidth > list.clientWidth) live.historyScrollLeft = list.scrollLeft;
     const vertical = list.scrollTop > lastTop;
     lastTop = list.scrollTop;
     if (!vertical || !live.historyHasNextPage || live.historyLoadingMore) return;
@@ -436,12 +447,46 @@ function bindHistoryScroll() {
   }, { passive: true });
 }
 
-/** 渲染后还原历史列表的滚动位置（`historyScrollTop` 由滚动监听持续记录）。 */
+/**
+ * 渲染后还原历史列表的滚动位置（纵横向都由滚动监听持续记录）。
+ *
+ * 两组位置都直接赋给容器：**超出当前范围的赋值会被浏览器夹回**，这正好实现规格 §7.8
+ * 「缩小内容范围时将超出部分归位」——例如去掉长作者名后行宽回落到列表宽，横向位置自动回到 0。
+ */
+/**
+ * 待恢复的历史列表滚动位置。渲染之后**不止一条路径**会写 `.commit-list`：
+ * `applyTypography()` 应用完字体会按"改前捕获的锚点"回填一次，而它捕获时列表刚重建、位置还是 0
+ *（第 239 轮实测栈：`restoreScrollAnchors()` → `.commit-list.scrollTop = 0`），于是刚恢复好的位置又被冲掉。
+ * 因此把"要恢复到哪里"留在本地变量里、跨越几帧再对齐，窗口内也不把滚动事件当成用户动作记录。
+ */
+let pendingHistoryScroll = null;
+let pendingHistoryScrollTimer = 0;
+
+/** 把待恢复的纵/横向位置写给当前列表；越界值由浏览器夹回（即"缩小内容范围时归位"）。 */
+function applyPendingHistoryScroll() {
+  if (!pendingHistoryScroll) return;
+  const list = document.querySelector(".log-list-panel .commit-list");
+  if (!list) return;
+  if (typeof pendingHistoryScroll.top === "number") list.scrollTop = pendingHistoryScroll.top;
+  if (typeof pendingHistoryScroll.left === "number") list.scrollLeft = pendingHistoryScroll.left;
+}
+
 function restoreHistoryScroll() {
   const live = window.__augitLive;
-  if (!live || typeof live.historyScrollTop !== "number") return;
-  const list = document.querySelector(".log-list-panel .commit-list");
-  if (list) list.scrollTop = live.historyScrollTop;
+  if (!live) return;
+  if (typeof live.historyScrollTop !== "number" && typeof live.historyScrollLeft !== "number") return;
+  pendingHistoryScroll = { top: live.historyScrollTop, left: live.historyScrollLeft };
+  applyPendingHistoryScroll();
+  // 行宽/行高由 `bindHistoryLayout()` 的 `layout()` 在 ResizeObserver 回调里再确定一次，
+  // 首次赋值可能被当时还不足的范围夹住 ⇒ 下一帧再对齐；
+  // 字体与锚点回填更晚（`applyTypography()` 是异步的）⇒ 窗口结束时再对齐一次，
+  // 之后才允许滚动事件重新记录位置（规格 §7.8 第 22 条：往返后恢复纵横滚动）。
+  requestAnimationFrame(applyPendingHistoryScroll);
+  window.clearTimeout(pendingHistoryScrollTimer);
+  pendingHistoryScrollTimer = window.setTimeout(() => {
+    applyPendingHistoryScroll();
+    pendingHistoryScroll = null;
+  }, 200);
 }
 
 /**

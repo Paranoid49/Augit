@@ -16030,6 +16030,140 @@ async function main() {
     logColumns.wide.rows[0].label === 'dsh'
       && logColumns.longWide.rows[0].label === 'feature/very-long-branch-name-for-testing'
       && logColumns.longWide.activeLabel === '刷新');
+    // ---- 第 239 轮补断言（收 §7.8 第 22 条）：多轨窄栏的局部横向滚动、
+    // 改变选择/重复点击/相同快照刷新保留横向位置、往返恢复与缩小内容时归位 ----
+    // 实现位置：`mockup.js` 的 `bindHistoryLayout()`（行宽 = `max(列表宽, 图形宽 + 120 + 8 + 作者 + 8 +
+    // 短日期 + 8)`，超出列表就是在 `.commit-list` 内部横向滚动）＋ `live-data.js` 的 `bindHistoryScroll()`／
+    // `restoreHistoryScroll()`（纵横向位置都持续记录、渲染后还原，越界赋值由浏览器夹回）。
+    const historyScroll = await (async () => {
+      // 需要"纵向也能滚"的长列表（120 条）＋ 超长作者名（让行宽超过列表宽 ⇒ 真的出现横向溢出），
+      // 所以按分页用例的写法手工建页、在首帧之前注入。
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        window.__historyPages = [Array.from({ length: 120 }, (_, i) => ({
+          hash: `h-${i}`, fullHash: `h-full-${i}`, subject: `feat: 横向滚动样本 ${i}`,
+          author: 'a-very-long-author-name-beyond-the-cap', authorEmail: 'l49@example.com',
+          committerName: 'l49', committerEmail: 'l49@example.com',
+          date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
+        }))];
+      });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.commit-row', { timeout: 10000 });
+      await page.setViewportSize({ width: 1024, height: 760 });
+      await page.waitForTimeout(800);
+      const read = () => page.evaluate(() => {
+        const list = document.querySelector('.log-list-panel .commit-list');
+        const row = document.querySelector('.commit-row');
+        const listStyle = getComputedStyle(list);
+        const context = document.createElement('canvas').getContext('2d');
+        context.font = `${listStyle.fontSize} ${listStyle.fontFamily}`;
+        const measure = (text) => Math.ceil(context.measureText(text).width);
+        const rows = [...document.querySelectorAll('.commit-row')];
+        const compact = Math.max(...rows.map((node) => measure(node.querySelector('time').dataset.compact)));
+        const author = Math.min(96, Math.max(...rows.map((node) => measure(node.querySelector('.commit-author').textContent.trim()))));
+        const graph = (() => { const svg = document.querySelector('.commit-graph-svg'); return svg ? Number(svg.viewBox.baseVal.width) : 29; })();
+        return {
+          client: Math.round(list.clientWidth),
+          scrollW: Math.round(list.scrollWidth),
+          left: Math.round(list.scrollLeft),
+          top: Math.round(list.scrollTop),
+          maxLeft: Math.round(list.scrollWidth - list.clientWidth),
+          maxTop: Math.round(list.scrollHeight - list.clientHeight),
+          rowW: row ? Math.round(row.getBoundingClientRect().width) : null,
+          subjectW: row ? Math.round(row.querySelector('.commit-subject').getBoundingClientRect().width) : null,
+          expectedRow: Math.max(Math.round(list.clientWidth),
+            graph + 120 + 8 + (author > 0 ? Math.min(author, 48) + 8 : 0) + (compact > 0 ? compact + 8 : 0)),
+          selectedHash: (document.querySelector('.commit-row[aria-selected="true"]') || { dataset: {} }).dataset.hash || null,
+          firstRowSame: row === document.querySelector('.commit-row'),
+        };
+      });
+      const scrollTo = (left, top) => page.evaluate(([x, y]) => {
+        const list = document.querySelector('.log-list-panel .commit-list');
+        list.scrollTop = y;
+        list.scrollLeft = x;
+      }, [left, top]);
+      const clickRow = (index) => page.evaluate((i) => {
+        document.querySelectorAll('.commit-row')[i].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }, index);
+      const refresh = () => page.evaluate(() => {
+        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+      });
+      const layout = await read();
+      // ① 局部横向滚动：行宽 = 图形 + 120 + 8 + 作者 + 8 + 短日期 + 8，超出列表宽 ⇒ 可横向滚动
+      await scrollTo(999, 300);   // 超出上限 ⇒ 浏览器夹到 maxLeft
+      await page.waitForTimeout(300);
+      const scrolled = await read();
+      // ② 改变选择 / 重复点击同一行：横向位置必须保持
+      await clickRow(20);
+      await page.waitForTimeout(600);
+      const afterSelect = await read();
+      await clickRow(20);
+      await page.waitForTimeout(600);
+      const afterRepeat = await read();
+      // ③ 相同快照刷新：横向保持，纵向按既有规则回到顶部（也证明区域真的重建过）
+      await refresh();
+      await page.waitForTimeout(1200);
+      const afterRefresh = await read();
+      // ④ 往返文件历史：纵横都恢复（走项目树右键 → 文件历史 → 点「日志」标签）
+      await scrollTo(999, 300);
+      await page.waitForTimeout(200);
+      const beforeTrip = await read();
+      await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        const row = rows.find((node) => /\.(md|txt|cs)$/.test(node.dataset.treePath || '')) || rows[1] || rows[0];
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 120 }));
+      });
+      await page.waitForSelector('.project-menu', { state: 'attached', timeout: 8000 });
+      await page.evaluate(() => {
+        document.querySelectorAll('.project-menu .menu-item')[4].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('!!(window.__augitLive && window.__augitLive.fileHistory)', null, { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(700);
+      await page.evaluate(() => {
+        const tab = document.querySelector('.bottom-header .tool-tab[href$="git-history.html"]');
+        if (tab) tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(1200);
+      const afterTrip = await read();
+      // ⑤ 缩小内容范围（列表变宽 ⇒ 行不再溢出）：横向位置必须夹回 0
+      await page.setViewportSize({ width: 1500, height: 760 });
+      await page.waitForTimeout(900);
+      const afterWiden = await read();
+      await page.close();
+      const payload = { layout, scrolled, afterSelect, afterRepeat, afterRefresh, beforeTrip, afterTrip, afterWiden };
+      console.log('INFO 历史横向滚动=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.8 多轨窄栏保留可读宽度并在列表内局部横向滚动: '
+      + JSON.stringify([historyScroll.layout, historyScroll.scrolled]),
+    historyScroll.layout.maxTop > 40
+      && historyScroll.layout.maxLeft > 0
+      && historyScroll.layout.rowW === historyScroll.layout.expectedRow
+      && historyScroll.layout.subjectW >= 120
+      && historyScroll.scrolled.left > 0
+      && historyScroll.scrolled.left === historyScroll.layout.maxLeft
+      && historyScroll.scrolled.maxLeft === historyScroll.layout.maxLeft);
+    check('§7.8 改变选择/重复点击/相同快照刷新保留横向位置: '
+      + JSON.stringify([historyScroll.scrolled, historyScroll.afterSelect, historyScroll.afterRepeat, historyScroll.afterRefresh]),
+    historyScroll.scrolled.left > 0
+      && historyScroll.afterSelect.left === historyScroll.scrolled.left
+      && historyScroll.afterSelect.selectedHash !== historyScroll.scrolled.selectedHash
+      && historyScroll.afterRepeat.left === historyScroll.scrolled.left
+      && historyScroll.afterRefresh.left === historyScroll.scrolled.left
+      // 刷新真的重建过区域：纵向按既有规则回到顶部，节点也换了
+      && historyScroll.afterRefresh.top === 0
+      && historyScroll.afterRefresh.firstRowSame === true
+      && historyScroll.scrolled.top > 0);
+    check('§7.8 往返文件历史恢复纵横滚动，列表变宽后横向位置归位: '
+      + JSON.stringify([historyScroll.beforeTrip, historyScroll.afterTrip, historyScroll.afterWiden]),
+    historyScroll.beforeTrip.left > 0 && historyScroll.beforeTrip.top > 0
+      && historyScroll.afterTrip.left === historyScroll.beforeTrip.left
+      && historyScroll.afterTrip.top === historyScroll.beforeTrip.top
+      && historyScroll.afterWiden.maxLeft === 0 && historyScroll.afterWiden.left === 0
+      && historyScroll.afterWiden.maxTop > 40);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
