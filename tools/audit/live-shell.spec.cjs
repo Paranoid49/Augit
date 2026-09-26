@@ -16394,6 +16394,124 @@ async function main() {
       && darkRows['draft.txt'].status === 'file-status-untracked'
       && iconReuse.mainDark.changedLabels.map((row) => row.label).sort().join('|') === 'A notes.txt|M App.cs'
       && iconReuse.mainDark.changedLabels.every((row) => row.label.endsWith(String(row.path).split('/').pop())));
+    // ---- 第 241 轮补断言（收 §7.8 第 2 条）：外观应用（改界面字号）时提交列表按字高扩展、
+    // 图标不变、文字不重叠，且保持顶部锚点/横向偏移/选择、不触发 Git 查询、不重建列表 ----
+    // 实现位置：`mockup.js` 的 `applyTypography()`（改字号后重排 + `captureScrollAnchors()`／
+    // `restoreScrollAnchors()` 按"同一节点"回填滚动位置，并重画每行提交图的纵向连线以跟随行高）
+    // 与 `bindHistoryLayout()`（列宽按同一套 canvas 度量随字号重算）。
+    const fontMetrics = await (async () => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        window.__historyPages = [Array.from({ length: 120 }, (_, i) => ({
+          hash: `h-${i}`, fullHash: `h-full-${i}`, subject: `feat: 字号样本 ${i}`,
+          author: 'a-very-long-author-name-beyond-the-cap', authorEmail: 'l49@example.com',
+          committerName: 'l49', committerEmail: 'l49@example.com',
+          date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
+        }))];
+      });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.commit-row', { timeout: 10000 });
+      await page.setViewportSize({ width: 1024, height: 760 });
+      await page.waitForTimeout(800);
+      const probe = () => page.evaluate(() => {
+        const list = document.querySelector('.log-list-panel .commit-list');
+        const rows = [...document.querySelectorAll('.commit-row')];
+        const listRect = list.getBoundingClientRect();
+        const first = rows.find((row) => row.getBoundingClientRect().bottom > listRect.top + 1);
+        const graph = document.querySelector('.commit-graph-svg');
+        const railIcon = document.querySelector('.tool-rail svg');
+        const overlap = (() => {
+          const row = first || rows[0];
+          if (!row) return null;
+          const parts = ['.commit-subject', '.branch-label', '.commit-author', '.commit-date']
+            .map((selector) => row.querySelector(selector))
+            .filter((node) => node && !node.hidden)
+            .map((node) => ({ cls: node.className.split(' ')[0], left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right }));
+          for (let i = 1; i < parts.length; i += 1) {
+            if (parts[i].left < parts[i - 1].right - 1) return `${parts[i - 1].cls}>${parts[i].cls}`;
+          }
+          return null;
+        })();
+        return {
+          fontSize: getComputedStyle(document.documentElement).fontSize,
+          rowHeight: rows[0] ? Math.round(rows[0].getBoundingClientRect().height) : null,
+          listTop: Math.round(list.scrollTop), listLeft: Math.round(list.scrollLeft),
+          firstHash: first ? first.dataset.hash : null,
+          firstOffset: first ? Math.round(first.getBoundingClientRect().top - listRect.top) : null,
+          selectedHash: (document.querySelector('.commit-row[aria-selected="true"]') || { dataset: {} }).dataset.hash || null,
+          graphW: graph ? Math.round(graph.getBoundingClientRect().width) : null,
+          graphH: graph ? Math.round(graph.getBoundingClientRect().height) : null,
+          railIcon: railIcon ? Math.round(railIcon.getBoundingClientRect().width) : null,
+          overlap,
+          rows: rows.length,
+          historyCalls: window.__historyCalls || 0,
+          statusCalls: window.__statusCalls || 0,
+        };
+      });
+      const applyFontSize = async (size) => {
+        await page.locator('.titlebar [data-action="menu"]').click();
+        await page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+        await page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+        await page.evaluate((value) => {
+          const field = document.querySelector('[data-setting="fontSize"]');
+          field.value = String(value);
+          const save = document.querySelector('.settings-window .dialog-footer [data-settings-action="save"]');
+          if (save) save.click();
+        }, size);
+        await page.waitForFunction(
+          `getComputedStyle(document.documentElement).fontSize === "${size}px"`, null, { timeout: 10000 });
+        await page.waitForTimeout(400);
+      };
+      // 滚到中段（纵向）并推到横向上限，选中一行后改字号
+      await page.evaluate(() => {
+        const list = document.querySelector('.log-list-panel .commit-list');
+        list.scrollTop = 400;
+        list.scrollLeft = 15;
+      });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        document.querySelectorAll('.commit-row')[15].dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(700);
+      const before = await probe();
+      await page.evaluate(() => {
+        document.querySelector('.commit-row').dataset.probe241 = 'row';
+      });
+      await applyFontSize(20);
+      const after = await probe();
+      const identity = await page.evaluate(() => ({
+        sameRow: !!document.querySelector('.commit-row[data-probe241="row"]'),
+        rows: document.querySelectorAll('.commit-row').length,
+      }));
+      await page.close();
+      const payload = { before, after, identity };
+      console.log('INFO 字号与提交列表=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.8 字号增大时提交列表按字高扩展、图标尺寸不变、文字不重叠: '
+      + JSON.stringify([fontMetrics.before, fontMetrics.after]),
+    fontMetrics.before.fontSize === '13px' && fontMetrics.after.fontSize === '20px'
+      && fontMetrics.after.rowHeight > fontMetrics.before.rowHeight
+      && fontMetrics.after.graphH === fontMetrics.after.rowHeight
+      && fontMetrics.before.graphH === fontMetrics.before.rowHeight
+      && fontMetrics.after.graphW === fontMetrics.before.graphW
+      && fontMetrics.after.railIcon === 16 && fontMetrics.before.railIcon === 16
+      && fontMetrics.before.overlap === null && fontMetrics.after.overlap === null);
+    check('§7.8 外观应用保持顶部锚点/横向偏移/选择，不触发 Git 查询、不重建提交列表: '
+      + JSON.stringify([fontMetrics.before, fontMetrics.after, fontMetrics.identity]),
+    fontMetrics.before.firstHash !== null
+      && fontMetrics.after.firstHash === fontMetrics.before.firstHash
+      && fontMetrics.after.firstOffset === fontMetrics.before.firstOffset
+      && fontMetrics.after.listTop !== fontMetrics.before.listTop
+      && fontMetrics.after.listLeft === fontMetrics.before.listLeft
+      && fontMetrics.before.selectedHash !== null
+      && fontMetrics.after.selectedHash === fontMetrics.before.selectedHash
+      && fontMetrics.after.historyCalls === fontMetrics.before.historyCalls
+      && fontMetrics.after.statusCalls === fontMetrics.before.statusCalls
+      && fontMetrics.identity.sameRow === true && fontMetrics.identity.rows === fontMetrics.before.rows);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
