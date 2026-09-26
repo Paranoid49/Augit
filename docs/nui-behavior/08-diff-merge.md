@@ -388,3 +388,28 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 真实 Tab 序列 `下一处差异 → 上一个文件 → 下一个文件 → 忽略空白 → 双栏 → 单栏 → 设置`；
 差异摘要 `src/App.cs` 1 处、`src/Modified.cs` 2 处（与 `data-diff-total` 一致）；
 加载态同序并追加「取消比较」，差异箭头与「查找」禁用。
+
+## 13. 跨文件查询的加载态与显示模式切换（第 249 轮）
+
+两条规格条款（`ux-spec` §7.7 第 9、6 条）暴露了三处实现落差：
+
+1. **加载分支禁用错了箭头**。§7.7 第 9 条要求「跨文件查询/排版期间**禁用差异箭头**，
+   **文件箭头和 Changes 仍允许改选**」，而 `liveDiffView` 的加载分支用的是 `fileNavBusy`（文件箭头 `disabled`）、
+   差异箭头反而可用。现改为只把 `arrowsDisabled` 交给上一处/下一处，`fileNav` 原样保留。
+2. **文件切换路径没有加载反馈**。`moveDiffFile()`（「上一个文件／下一个文件」）直接 `loadDiff(path)`，
+   从不 `scheduleDiffLoadingMarker()` ⇒ `live.diffLoading` 永远为假，加载分支在工作区 Diff 的文件切换上不可达。
+   现在切换前后调度/清除标记（超过 §6.5 的 150ms 阈值才显示，短查询不闪）。
+3. **显示模式切换丢掉比较上下文**。`switchDiffMode()` 只传 `mode` 重新 `loadDiff()`，
+   丢掉 revision／commit／ignoreWhitespace／version ⇒ **历史比较切单栏后 `live.diff` 变成 null、
+   编辑区退回视觉稿样例数据**（实测工具条出现 `1/42 个文件` 与 `1 处差异，0 个已包含`、正文是样例 XML，
+   再切回双栏也回不来）。现在 `loadDiff()` 记住 `live.diffParts`，`switchDiffMode()` 带上它 ——
+   单双栏命中同一份补丁缓存（`diffPatchKey` 不含 mode），既不重查 Git 也不丢上下文。
+
+实测（`diff-boundary` 场景把切相邻文件的查询拖到 2.5 秒）：在途时差异箭头禁用并写明原因、
+文件箭头与忽略空白/双栏/单栏/设置仍可用、Changes 仍可勾选与改选；查询结束后落到相邻文件、
+计数 `2/3 个文件`、勾选保留、标签数不变、正文区/轨道/侧栏/标签条矩形逐值不变、不恢复旧定位
+（新正文 `data-diff-index` 为空）。
+
+历史与引用比较的块规则用两个桩旋钮（`__historyCompareBlocks`、`__refCompareBlocks`）返回
+"两处被上下文隔开的 `Modified`"来核对：测试独立复算 DOM 里的连续变更块数（分栏取最后一栏、
+单栏取 `.diff-columns` 的直接子行），两条视图都是 2 块＝摘要 `2 处差异`、导航 `data-diff-total === "2"`。

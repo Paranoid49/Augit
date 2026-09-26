@@ -2335,15 +2335,13 @@ function liveDiffView() {
     ? '<button class="toolbar-button" aria-label="上一个文件">' + icon("arrow-left") + '</button>' + fileNavCount
       + '<button class="toolbar-button" aria-label="下一个文件">' + icon("arrow-right") + '</button>'
     : "";
-  const fileNavBusy = hasFileNav
-    ? '<button class="toolbar-button" disabled aria-label="上一个文件">' + icon("arrow-left") + '</button>' + fileNavCount
-      + '<button class="toolbar-button" disabled aria-label="下一个文件">' + icon("arrow-right") + '</button>'
-    : "";
   // 加载中优先显示加载提示：此时 rows 可能是上一轮的空值，
   // 直接走"没有文本差异"会把加载中的文件误报成无差异。
   if (live.diffLoading) {
     return `<div class="diff-layout" data-augit-loading="true">${liveDiffToolbar({
-      fileNav: fileNavBusy, arrowsDisabled: true, busy: true,
+      // 规格 §7.7 第 9 条：「跨文件查询/排版期间禁用差异箭头，文件箭头和 Changes 仍允许改选」
+      // ⇒ 文件箭头（`fileNav`）**不**禁用，只有上一处/下一处交给 `arrowsDisabled`。
+      fileNav, arrowsDisabled: true, busy: true,
       summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
     })}${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }

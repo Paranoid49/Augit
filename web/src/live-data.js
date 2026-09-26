@@ -1641,6 +1641,11 @@ async function loadDiff(path, options = {}) {
     version: options.version,
   };
   const requestKey = diffRequestKey(parts);
+  // 记住"当前正文"的完整请求上下文：切换显示模式要**只重新排版**（规格 §6.3），
+  // 必须复用同一次请求的 revision／commit／ignoreWhitespace／version，否则历史比较与引用比较
+  // 切单双栏会退化成"这条路径的工作区差异"（第 249 轮实测：历史比较切单栏后 `live.diff` 变成 null、
+  // 编辑区退回视觉稿样例数据，且再切回双栏也回不来）。
+  if (live0) live0.diffParts = parts;
   const existing = diffRequests.get(requestKey);
   if (existing) return existing;
 
@@ -1738,7 +1743,9 @@ async function switchDiffMode(mode) {
   if (!live || !live.diff) return null;
   const path = live.diff.path;
   live.diffMode = mode;
-  const diff = await loadDiff(path, { mode });
+  // 显示模式是**排版维度**：带上当前正文的请求上下文，单双栏因此命中同一份补丁缓存
+  // （`diffPatchKey` 不含 mode）——既不重新查 Git，也不会把历史/引用比较降级成工作区差异。
+  const diff = await loadDiff(path, { ...(live.diffParts || {}), mode });
   refresh("editorContent", "editorTabs");
   return diff;
 }
@@ -11640,9 +11647,13 @@ function moveDiffFile(direction) {
   // 现在 `liveDiffView` 自己渲染计数（`live.status.files` + `diff.path`），这里只切换装载目标。
   live.followChanges = true;
   live.selectedChangePath = path;
+  // 跨文件查询也要有加载反馈（规格 §6.5 的 150ms 阈值 / §7.7 第 9 条"查询期间禁用差异箭头"）：
+  // 此前这条路径**不设**加载标记 ⇒ `live.diffLoading` 永远为假，`liveDiffView` 的加载分支
+  // （禁用差异箭头 + 标题行提示）在工作区 Diff 的文件切换上根本不可达（第 248 轮实测）。
+  scheduleDiffLoadingMarker();
   void loadDiff(path)
-    .then(() => refreshAfterEvent("editorContent", "statusbar"))
-    .catch(() => null);
+    .then(() => { clearDiffLoadingMarker(); refreshAfterEvent("editorContent", "statusbar"); })
+    .catch(() => { clearDiffLoadingMarker(); refreshAfterEvent("editorContent", "statusbar"); });
   return { path, index: next, total: files.length };
 }
 

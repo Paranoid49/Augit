@@ -541,6 +541,35 @@ async function main() {
         }
         // 历史比较（§7.8）传入 commit：返回可区分的内容，用于证明请求确实换成了
         // 「两个版本之间」而不是工作区比较。两版本的请求键不同，内容也构造得不同。
+        // 第 249 轮旋钮：让**历史比较**返回"两处被上下文隔开的 Modified"的补丁，
+        // 用于核对"历史和引用比较沿用同一变更块规则"（默认载荷只有一处差异，判据不具区分度）。
+        if (window.__historyCompareBlocks && params.commit) {
+          return {
+            available: true, path: params.path, status: 'Ready', oldSize: 34, newSize: 34,
+            truncated: false, lines: [],
+            rows: [
+              { oldLine: 1, oldText: '// keep', oldChanges: [], newLine: 1, newText: '// keep', newChanges: [], kind: 'Context' },
+              { oldLine: 2, oldText: 'alpha beta', oldChanges: [{ start: 0, length: 5 }], newLine: 2, newText: 'alpha gamma', newChanges: [{ start: 6, length: 5 }], kind: 'Modified' },
+              { oldLine: 3, oldText: '// tail', oldChanges: [], newLine: 3, newText: '// tail', newChanges: [], kind: 'Context' },
+              { oldLine: 4, oldText: 'delta one', oldChanges: [{ start: 6, length: 3 }], newLine: 4, newText: 'delta two', newChanges: [{ start: 6, length: 3 }], kind: 'Modified' },
+              { oldLine: 5, oldText: '// end', oldChanges: [], newLine: 5, newText: '// end', newChanges: [], kind: 'Context' },
+            ],
+          };
+        }
+        // 第 249 轮旋钮：同上，但给**引用比较**（带 revision 的请求）。
+        if (window.__refCompareBlocks && !params.commit) {
+          return {
+            available: true, path: params.path, status: 'Ready', oldSize: 34, newSize: 34,
+            truncated: false, lines: [],
+            rows: [
+              { oldLine: 1, oldText: '// keep', oldChanges: [], newLine: 1, newText: '// keep', newChanges: [], kind: 'Context' },
+              { oldLine: 2, oldText: 'alpha beta', oldChanges: [{ start: 0, length: 5 }], newLine: 2, newText: 'alpha gamma', newChanges: [{ start: 6, length: 5 }], kind: 'Modified' },
+              { oldLine: 3, oldText: '// tail', oldChanges: [], newLine: 3, newText: '// tail', newChanges: [], kind: 'Context' },
+              { oldLine: 4, oldText: 'delta one', oldChanges: [{ start: 6, length: 3 }], newLine: 4, newText: 'delta two', newChanges: [{ start: 6, length: 3 }], kind: 'Modified' },
+              { oldLine: 5, oldText: '// end', oldChanges: [], newLine: 5, newText: '// end', newChanges: [], kind: 'Context' },
+            ],
+          };
+        }
         if (params.commit) {
           return {
             ...data.diff,
@@ -17742,6 +17771,194 @@ async function main() {
       && sameRect(diffToolbar.beforeLoad.side, diffToolbar.afterLoad.side)
       && sameRect(diffToolbar.beforeLoad.tabs, diffToolbar.afterLoad.tabs)
       && sameRect(diffToolbar.beforeLoad.statusbar, diffToolbar.afterLoad.statusbar));
+
+    // ---- 第 249 轮补断言（收 §7.7 第 6、9 条）：跨文件查询的禁用矩阵与用户状态；
+    // 历史/引用比较沿用同一变更块规则（含单双栏一致）----
+    const crossFile = await (async () => {
+      const rects = (page) => page.evaluate(() => {
+        const rect = (selector) => {
+          const el = document.querySelector(selector);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+        };
+        return { rail: rect('.tool-rail'), side: rect('.side-tool'), tabs: rect('.editor-tabs'), content: rect('.editor-content') };
+      });
+      const state = (page) => page.evaluate(() => {
+        const live = window.__augitLive || {};
+        return {
+          path: live.diff ? live.diff.path : null,
+          loading: !!live.diffLoading,
+          loadingLabel: (() => { const el = document.querySelector('.comparison-loading-label'); return el ? el.textContent.trim() : null; })(),
+          count: (() => { const el = document.querySelector('.diff-toolbar .file-status-modified'); return el ? el.textContent.trim() : null; })(),
+          buttons: [...document.querySelectorAll('.editor-content .diff-toolbar button[aria-label]')].map((b) => ({
+            label: b.getAttribute('aria-label'), disabled: !!b.disabled, title: b.getAttribute('title'),
+          })),
+          checks: (live.status && live.status.files ? live.status.files : []).map((f) => [f.path, !!f.checked]),
+          selected: live.selectedChangePath || null,
+          tabs: (live.tabs || []).length,
+          diffIndex: (() => { const el = document.querySelector('.editor-content .diff-layout'); return el ? el.dataset.diffIndex || null : null; })(),
+          rows: document.querySelectorAll('.changes-list .change-file-row').length,
+        };
+      });
+      const scene = await openScene('scene=diff-boundary&theme=dark&diff=src%2FApp.cs');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForTimeout(1200);
+      const before = await state(scene.page);
+      const geometryBefore = await rects(scene.page);
+      const files = await scene.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path));
+      // 让"切到相邻文件"的查询慢下来，覆盖整个取样区间
+      await scene.page.evaluate((list) => { window.__diffDelays = { [list[1]]: 2500 }; }, files);
+      await scene.page.locator('.diff-toolbar [aria-label="下一个文件"]').first().click();
+      await scene.page.waitForFunction('window.__augitLive.diffLoading === true', null, { timeout: 8000 }).catch(() => null);
+      await scene.page.waitForTimeout(150);
+      const during = await state(scene.page);
+      const geometryDuring = await rects(scene.page);
+      // 查询在途：勾选与改选都必须仍然可用（规格 §7.7 第 9 条「Changes 仍允许改选」）
+      await scene.page.evaluate(() => {
+        const boxes = [...document.querySelectorAll('.changes-list .change-file-row .fake-check')];
+        if (boxes.length) boxes[boxes.length - 1].click();
+      });
+      await scene.page.waitForTimeout(150);
+      await scene.page.locator('.changes-list .change-file-row').first().click();
+      await scene.page.waitForTimeout(150);
+      const interacting = await state(scene.page);
+      await scene.page.waitForTimeout(3200);
+      const after = await state(scene.page);
+      const geometryAfter = await rects(scene.page);
+      await scene.page.close();
+      const payload = { before, during, interacting, after, files, geometryBefore, geometryDuring, geometryAfter,
+        expectedNext: files[1] || null, hit: null };
+      console.log('INFO 跨文件查询=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const buttonOf = (snapshot, label) => snapshot.buttons.find((b) => b.label === label) || null;
+    check('§7.7 跨文件查询期间禁用差异箭头、文件箭头与 Changes 仍可改选: '
+      + JSON.stringify([crossFile.during.buttons, crossFile.during.loadingLabel, crossFile.during.rows]),
+    // 查询确实在途（否则下面的禁用矩阵什么都没验证）
+    crossFile.during.loading === true && crossFile.during.loadingLabel === '正在生成 diff…'
+      // 差异箭头：禁用并写明原因（规格：跨文件查询期间禁用差异箭头）
+      && ['上一处差异', '下一处差异'].every((label) => {
+        const button = buttonOf(crossFile.during, label);
+        return button && button.disabled === true && typeof button.title === 'string' && button.title.length > 0;
+      })
+      // 文件箭头：**仍可用**（规格：文件箭头和 Changes 仍允许改选）
+      && ['上一个文件', '下一个文件'].every((label) => {
+        const button = buttonOf(crossFile.during, label);
+        return button && button.disabled === false;
+      })
+      // 显示模式、忽略空白、设置也不因查询被禁用
+      && ['忽略空白', '双栏', '单栏', '设置'].every((label) => {
+        const button = buttonOf(crossFile.during, label);
+        return button && button.disabled === false;
+      })
+      // Changes 列表在途仍可勾选与改选
+      && crossFile.interacting.checks.some(([, checked], index) => checked !== crossFile.before.checks[index][1])
+      && crossFile.interacting.selected !== crossFile.before.selected
+      // 查询结束后落到相邻文件，且用户状态/标签/几何都不丢
+      && crossFile.after.path === crossFile.expectedNext
+      && crossFile.after.loading === false
+      && crossFile.after.count === '2/' + crossFile.files.length + ' 个文件'
+      && JSON.stringify(crossFile.after.checks) === JSON.stringify(crossFile.interacting.checks)
+      && crossFile.after.tabs === crossFile.before.tabs
+      // 旧定位不恢复：新正文没有沿用上一份内容的导航索引
+      && crossFile.after.diffIndex === null
+      && JSON.stringify(crossFile.geometryBefore) === JSON.stringify(crossFile.geometryDuring)
+      && JSON.stringify(crossFile.geometryAfter) === JSON.stringify(crossFile.geometryBefore));
+    // 变更块计数：分栏取最后一栏、单栏取 `.diff-columns` 的直接子行（第 249 轮实测的两种形态）
+    const domBlockCount = (page) => page.evaluate(() => {
+      const root = document.querySelector('.editor-content .diff-layout');
+      if (!root) return null;
+      const sides = root.querySelectorAll('.diff-columns > .diff-side');
+      const container = sides.length ? sides[sides.length - 1] : root.querySelector('.diff-columns');
+      if (!container) return null;
+      const lines = [...container.querySelectorAll(':scope > .diff-code-line')];
+      const changed = (el) => /(^|\s)(added|removed|changed|conflict\S*)(\s|$)/.test(el.className || '');
+      let blocks = 0;
+      lines.forEach((el, index) => {
+        if (changed(el) && (index === 0 || !changed(lines[index - 1]))) blocks += 1;
+      });
+      return { blocks, lines: lines.length, summary: (() => { const el = document.querySelector('.editor-content .diff-summary'); return el ? el.textContent.trim() : null; })() };
+    });
+    const historyBlocks = await (async () => {
+      const scene = await openScene('scene=git-history&theme=dark');
+      await scene.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 10000 });
+      await scene.page.evaluate(() => { window.__historyCompareBlocks = true; });
+      await scene.page.evaluate(() => {
+        const row = document.querySelector('[data-live-changed-files] [data-history-path]');
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+      });
+      await scene.page.waitForFunction('!!(window.__augitLive.historyComparison && window.__augitLive.historyComparison.status === "ready")', null, { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const split = await domBlockCount(scene.page);
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.waitForTimeout(400);
+      const navigated = await scene.page.evaluate(() => {
+        const el = document.querySelector('.editor-content .diff-layout');
+        return { total: el ? el.dataset.diffTotal || null : null, reachable: !!window.__augitLive.diff };
+      });
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const unified = await domBlockCount(scene.page);
+      const unifiedState = await scene.page.evaluate(() => ({
+        path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        mode: window.__augitLive.diffMode,
+      }));
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="双栏"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const backToSplit = await domBlockCount(scene.page);
+      await scene.page.close();
+      console.log('INFO 历史比较块=' + JSON.stringify({ split, navigated, unified, unifiedState, backToSplit }));
+      return { split, navigated, unified, unifiedState, backToSplit };
+    })();
+    check('§7.7 历史比较沿用同一变更块规则（摘要＝块数、导航计数、单双栏一致）: '
+      + JSON.stringify([historyBlocks.split, historyBlocks.navigated, historyBlocks.unified, historyBlocks.unifiedState, historyBlocks.backToSplit]),
+    // 分栏：两处被上下文隔开的 Modified ⇒ 摘要与独立复算的块数都必须是 2
+    historyBlocks.split && historyBlocks.split.blocks === 2 && historyBlocks.split.summary === '2 处差异'
+      // 导航沿用同一规则（data-diff-total = 块数），且正文没被打包丢掉
+      && historyBlocks.navigated.total === '2' && historyBlocks.navigated.reachable === true
+      // 单栏：同一份内容只重新排版 ⇒ 块数与摘要不变、正文仍在（第 249 轮实测的缺陷正是这里退回样例数据）
+      && historyBlocks.unifiedState.mode === 'unified'
+      && historyBlocks.unifiedState.path !== null
+      && historyBlocks.unified && historyBlocks.unified.blocks === 2 && historyBlocks.unified.summary === '2 处差异'
+      // 切回双栏同样保持
+      && historyBlocks.backToSplit && historyBlocks.backToSplit.blocks === 2 && historyBlocks.backToSplit.summary === '2 处差异');
+    const refBlocks = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await scene.page.evaluate(() => { window.__refCompareBlocks = true; });
+      await scene.page.locator('.changes-list .change-file-row').first().dblclick();
+      await scene.page.waitForFunction('window.__augitGitReady === true && !!window.__augitLive.references', null, { timeout: 15000 });
+      await scene.page.locator('.top-chip.branch-chip').click();
+      await scene.page.waitForTimeout(600);
+      await scene.page.locator('[data-popover-action="compare-workspace"]').click();
+      await scene.page.waitForTimeout(1500);
+      const split = await domBlockCount(scene.page);
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.waitForTimeout(400);
+      const navigated = await scene.page.evaluate(() => {
+        const el = document.querySelector('.editor-content .diff-layout');
+        return {
+          total: el ? el.dataset.diffTotal || null : null,
+          editor: window.__augitLive.editor,
+          path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        };
+      });
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.waitForTimeout(900);
+      const unified = await domBlockCount(scene.page);
+      await scene.page.close();
+      console.log('INFO 引用比较块=' + JSON.stringify({ split, navigated, unified }));
+      return { split, navigated, unified };
+    })();
+    check('§7.7 引用比较沿用同一变更块规则（摘要＝块数、导航计数、单栏一致）: '
+      + JSON.stringify([refBlocks.split, refBlocks.navigated, refBlocks.unified]),
+    refBlocks.navigated.editor === 'diff' && refBlocks.navigated.path !== null
+      && refBlocks.split && refBlocks.split.blocks === 2 && refBlocks.split.summary === '2 处差异'
+      && refBlocks.navigated.total === '2'
+      && refBlocks.unified && refBlocks.unified.blocks === 2 && refBlocks.unified.summary === '2 处差异');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
