@@ -197,6 +197,16 @@ const WORKSPACE = {
       fileSize: 120, text: '# 真实标题\n\n第一段**加粗**与`代码`。\n\n## 二级\n\n- 甲\n- 乙\n',
       lineEndings: 'LF', encoding: 'UTF-8',
     },
+    // 第 231 轮：查找计数用例的样本（计数可精确预期，且四个组合互不相同、都不等于视觉稿的固定 12/3）：
+    //   忽略大小写子串 git = 8（Git／Augit／Git／Github／git／git／legit／digit）
+    //   再加全字匹配     = 4（两处 Git ＋ 两处 git）
+    //   再加区分大小写   = 2（只余行首小写 git 两处）
+    'docs/search-sample.txt': {
+      path: 'docs/search-sample.txt', name: 'search-sample.txt', fullPath: 'D:\\ws\\docs\\search-sample.txt',
+      workspaceName: 'ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
+      fileSize: 84, text: 'Git is a VCS.\nAugit uses Git.\nGithub and git differ.\ngit is a tool; legit digit.\n',
+      lineEndings: 'LF', encoding: 'UTF-8',
+    },
     'docs/notes.txt': {
       path: 'docs/notes.txt', name: 'notes.txt', fullPath: 'D:\\ws\\docs\\notes.txt',
       workspaceName: 'ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
@@ -8584,6 +8594,52 @@ async function main() {
     await ks.page.keyboard.press('Control+f');
     await ks.page.waitForTimeout(700);
     const ksF = await ksState();
+    // ---- 第 231 轮：查找计数由**真实正文**算出（§7.2 第 11 条；视觉稿的 12/3 不能写死）----
+    const findCounts = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/search-sample.txt'));
+      await scene.page.waitForSelector('.editor-content .code-view .code-line', { timeout: 10000 });
+      await scene.page.waitForTimeout(300);
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.fill('.current-find .search-field', 'git');
+      const read = () => scene.page.evaluate(() => {
+        const status = document.querySelector('.current-find .find-status');
+        const code = document.querySelector('.editor-content');
+        return {
+          status: status ? status.textContent : null,
+          matches: code ? code.querySelectorAll('mark.find-match').length : -1,
+          current: code ? code.querySelectorAll('mark.find-current').length : -1,
+          body: code ? code.innerText.length : 0,
+        };
+      });
+      const waitForCount = async (expected) => {
+        for (let i = 0; i < 40; i += 1) {
+          const state = await read();
+          if (state.status === expected) return state;
+          await scene.page.waitForTimeout(100);
+        }
+        return read();
+      };
+      const insensitive = await waitForCount('1/8');
+      await scene.page.locator('.current-find [aria-label="全字匹配"]').click();
+      const wholeWord = await waitForCount('1/4');
+      await scene.page.locator('.current-find [aria-label="区分大小写"]').click();
+      const wholeWordCase = await waitForCount('1/2');
+      await scene.page.close();
+      console.log('INFO 查找计数=' + JSON.stringify({ insensitive, wholeWord, wholeWordCase }));
+      return { insensitive, wholeWord, wholeWordCase };
+    })();
+    check('§7.2 查找计数由真实正文与开关组合算出（不是视觉稿的固定 12/3）: ' + JSON.stringify(findCounts),
+      findCounts.insensitive.status === '1/8' && findCounts.insensitive.matches === 7
+        && findCounts.insensitive.current === 1
+        && findCounts.wholeWord.status === '1/4' && findCounts.wholeWord.matches === 3
+        && findCounts.wholeWordCase.status === '1/2' && findCounts.wholeWordCase.matches === 1
+        // 正文里根本没有 12 个匹配 ⇒ 任何一步出现 "12" 都说明计数被写死或算错。
+        && !JSON.stringify(findCounts).includes('/12')
+        && findCounts.insensitive.body > 0);
+
     // ---- §7.2（8/9）：查找条的 Tab 循环 + 输入法组词期间的键位抢占与"不扫描" ----
     // 实现契约（current-find.js）：Tab 在 `input, button` 之间循环；
     // `compositionstart` 置 composing 并停掉未完成查询，`oninput` 在 composing/isComposing 时只清状态不扫描，
