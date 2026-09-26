@@ -432,6 +432,16 @@ async function main() {
             commits = commits.filter((c) => String(c.subject).toLowerCase().includes(needle));
           }
         }
+        // 第 238 轮：给第一行注入**长引用名**，用于验证"长引用不吞掉作者/日期列"（规格 §7.8 第 13 条）。
+        if (window.__historyLongRef) {
+          commits = commits.map((commit, index) => index === 0
+            ? { ...commit, references: [window.__historyLongRef] } : commit);
+        }
+        // 同轮：作者列也注入一个**超长名字**（超过 96 的上限）⇒ 列宽应停在 96+8，证明宽度来自真实文字度量。
+        if (window.__historyLongAuthor) {
+          commits = commits.map((commit, index) => index === 0
+            ? { ...commit, author: window.__historyLongAuthor } : commit);
+        }
         return pageSlice({ ...data.history, commits });
       }
       if (method === 'git/blame') {
@@ -15887,6 +15897,139 @@ async function main() {
       && filterMenu.focusedSelected === true
       && filterMenu.reset.dateItems.length === 0
       && !filterMenu.reset.filter.since && !filterMenu.reset.filter.until);
+    // ---- 第 238 轮补断言（收 §7.8 第 13 条）：引用/作者/日期分别成列、共享文字度量、
+    // 常规宽度用完整日期/窄栏用短日期、长引用不吞掉后续列 ----
+    // 实现位置：`mockup.js` 的 `bindHistoryLayout()` —— 作者/引用/日期宽度全部来自**同一套 canvas 文字度量**
+    // （作者 `min(96, max 实测宽)`、引用 `min(128, max 实测宽 + 20)`、日期取完整或短格式的实测宽），
+    // 再用剩余预算决定"引用列要不要让位"（拿不到 64px 就整列隐藏，作者与日期保持各自宽度）。
+    const logColumns = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const read = () => scene.page.evaluate(() => {
+        const list = document.querySelector('.commit-list');
+        const style = getComputedStyle(list);
+        const context = document.createElement('canvas').getContext('2d');
+        context.font = `${style.fontSize} ${style.fontFamily}`;
+        const measure = (text) => Math.ceil(context.measureText(text).width);
+        const rows = [...document.querySelectorAll('.commit-row')];
+        const cells = rows.map((row) => ({
+          // 作者与日期都带 `commit-meta`（取值类名在第二个），所以按**具体列类**取名字，不能取 `className` 首段。
+          order: [...row.children].map((node) => (
+            node.classList.contains('commit-subject') ? 'subject'
+              : node.classList.contains('branch-label') ? 'label'
+                : node.classList.contains('commit-author') ? 'author'
+                  : node.classList.contains('commit-date') ? 'date' : null)).filter(Boolean),
+          tracks: row.style.gridTemplateColumns.match(/minmax\([^)]*\)|\S+/g) || [],
+          label: row.querySelector('.branch-label').textContent.trim(),
+          labelHidden: row.querySelector('.branch-label').hidden,
+          labelW: Math.round(row.querySelector('.branch-label').getBoundingClientRect().width),
+          author: row.querySelector('.commit-author').textContent.trim(),
+          authorHidden: row.querySelector('.commit-author').hidden,
+          authorW: Math.round(row.querySelector('.commit-author').getBoundingClientRect().width),
+          dateHidden: row.querySelector('.commit-date').hidden,
+          dateW: Math.round(row.querySelector('.commit-date').getBoundingClientRect().width),
+          dateText: row.querySelector('time').textContent,
+          full: row.querySelector('time').dataset.full,
+          compact: row.querySelector('time').dataset.compact,
+          labelSvgs: row.querySelectorAll('.branch-label svg').length,
+        }));
+        return {
+          listWidth: Math.round(list.clientWidth),
+          rows: cells,
+          // 与实现同一套度量（含同样的上限）：用来核对列宽不是常量
+          expected: {
+            label: Math.min(128, Math.max(...rows.map(
+              (row) => measure(row.querySelector('.branch-label').textContent.trim()) + 20))),
+            author: Math.min(96, Math.max(...rows.map(
+              (row) => measure(row.querySelector('.commit-author').textContent.trim())))),
+            full: Math.max(...rows.map((row) => measure(row.querySelector('time').dataset.full))),
+            compact: Math.max(...rows.map((row) => measure(row.querySelector('time').dataset.compact))),
+          },
+          activeLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+        };
+      });
+      const reload = () => scene.page.evaluate(() => {
+        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+      });
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const wide = await read();
+      await scene.page.setViewportSize({ width: 1024, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const narrow = await read();
+      // 长引用：宽栏停在 128 的上限，窄栏整列让位（作者/日期保持各自宽度）
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(500);
+      await scene.page.evaluate(() => { window.__historyLongRef = 'feature/very-long-branch-name-for-testing'; });
+      await reload();
+      await scene.page.waitForTimeout(1200);
+      const longWide = await read();
+      await scene.page.setViewportSize({ width: 1180, height: 760 });
+      await scene.page.waitForTimeout(800);
+      const longNarrow = await read();
+      // 超长作者名：列宽停在 96 的上限（宽度来自真实文字度量，不是常量）
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(500);
+      await scene.page.evaluate(() => { window.__historyLongAuthor = 'a-very-long-author-name-beyond-the-cap'; });
+      await reload();
+      await scene.page.waitForTimeout(1200);
+      const longAuthor = await read();
+      await scene.page.close();
+      const payload = { wide, narrow, longWide, longNarrow, longAuthor };
+      console.log('INFO 提交行列=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const logColumn = (snapshot, index) => snapshot.rows[index];
+    check('§7.8 引用/作者/日期分别成列且列宽来自同一套文字度量（常规宽度用完整日期与时间）: '
+      + JSON.stringify([logColumns.wide.expected, logColumn(logColumns.wide, 0),
+        logColumn(logColumns.wide, 1)]),
+    logColumns.wide.listWidth > 300
+      && logColumns.wide.rows.every((row) => row.order.join('|') === 'subject|label|author|date')
+      && logColumns.wide.rows.every((row) => row.tracks.length === 5)
+      && logColumns.wide.rows.every((row) => row.tracks[2] === `${logColumns.wide.expected.label + 8}px`
+        && row.tracks[3] === `${logColumns.wide.expected.author + 8}px`
+        && row.tracks[4] === `${logColumns.wide.expected.full + 8}px`)
+      && logColumns.wide.rows[0].label === 'dsh'
+      && logColumns.wide.rows[0].labelSvgs === 1
+      && logColumns.wide.rows[1].labelSvgs === 0
+      && logColumns.wide.rows.every((row) => !row.dateHidden && !row.authorHidden
+        && row.dateText === row.full && row.dateText.includes('2026/9/15 10:00') === (row === logColumns.wide.rows[0])));
+    check('§7.8 窄栏换成短日期并把引用列整列让位，作者与日期仍成列可见: '
+      + JSON.stringify([logColumns.narrow.expected, logColumn(logColumns.narrow, 0)]),
+    logColumns.narrow.rows.every((row) => row.tracks.length === 4)
+      && logColumns.narrow.rows.every((row) => row.labelHidden === true && row.labelW === 0)
+      && logColumns.narrow.rows.every((row) => row.dateText === row.compact)
+      && logColumns.narrow.rows.every((row) => row.tracks[2] === `${logColumns.narrow.expected.author + 8}px`
+        && row.tracks[3] === `${logColumns.narrow.expected.compact + 8}px`)
+      && logColumns.narrow.rows.every((row) => !row.authorHidden && !row.dateHidden
+        && row.authorW > 0 && row.dateW > 0));
+    check('§7.8 长引用停在 128 上限、让位时也不吞掉作者/日期；超长作者停在 96 上限: '
+      + JSON.stringify([logColumn(logColumns.longWide, 0), logColumn(logColumns.longNarrow, 0),
+        logColumn(logColumns.longAuthor, 0)]),
+    logColumns.longWide.rows[0].labelHidden === false
+      && logColumns.longWide.rows[0].labelW === 128
+      && logColumns.longWide.rows[0].tracks[2] === '136px'
+      && logColumns.longWide.rows[0].authorW === logColumns.longWide.expected.author
+      && logColumns.longWide.rows[0].dateW === logColumns.longWide.expected.full
+      && logColumns.longNarrow.rows.every((row) => row.labelHidden === true && row.labelW === 0)
+      && logColumns.longNarrow.rows.every((row) => !row.authorHidden && !row.dateHidden
+        && row.authorW > 0 && row.dateW > 0)
+      // 1180 的预算仍够放完整日期（紧凑只发生在更窄的档，见上一条），所以按**实际用的格式**核对列宽。
+      && logColumns.longNarrow.rows.every((row) => row.dateW === (row.dateText === row.full
+        ? logColumns.longNarrow.expected.full : logColumns.longNarrow.expected.compact))
+      && logColumns.longAuthor.rows[0].authorW === 96
+      && logColumns.longAuthor.rows[0].author.length > 20
+      && logColumns.longAuthor.rows[0].tracks[3] === '104px'
+      && logColumns.longAuthor.rows[0].dateW === logColumns.longAuthor.expected.full);
+    check('§7.8 右角「刷新」重新读取并重画历史（改前只写状态、DOM 一动不动）: '
+      + JSON.stringify([logColumns.wide.rows[0].label, logColumns.longWide.rows[0].label,
+        logColumns.longWide.activeLabel]),
+    logColumns.wide.rows[0].label === 'dsh'
+      && logColumns.longWide.rows[0].label === 'feature/very-long-branch-name-for-testing'
+      && logColumns.longWide.activeLabel === '刷新');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

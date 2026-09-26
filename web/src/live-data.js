@@ -5385,7 +5385,16 @@ function guardUnwiredNavigation() {
       const label = logToolbarEntry.getAttribute('aria-label');
       if (label === '刷新') {
         event.preventDefault();
-        void loadHistory().catch(() => null);
+        // 规格 §7.8：右角的「刷新」要**重新读取并重画**历史。此前只 `loadHistory()`（只写状态、
+        // 不刷新区域），列表继续显示旧内容 —— 宿主已经返回了新的引用名/新提交，DOM 却一动不动
+        //（第 238 轮实测：给第一行注入长引用后点刷新，`__historyCalls` 2 → 3，标签仍是旧值）。
+        // 与筛选路径的 `reloadHistoryKeepingFocus()`（读完 `refresh("bottomTool")`）也不一致。
+        // 刷新按钮自己会被区域替换掉，因此读完再按同一个无障碍名把焦点放回新节点。
+        void reloadHistoryKeepingFocus().then(() => {
+          const next = document.querySelector(
+            `.history-filters .toolbar-button[aria-label="${CSS.escape(label)}"]`);
+          if (next && typeof next.focus === 'function') next.focus({ preventScroll: true });
+        });
         return;
       }
     }
