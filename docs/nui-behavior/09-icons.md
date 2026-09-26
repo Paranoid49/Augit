@@ -6882,3 +6882,46 @@ T6（§2.10 C 类 **6** 条：`§7.3` Markdown 加载态（2 条）、`§7.16` �
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T6（§2.10 C 类 **5** 条：`§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、
 "产品面不可达" 1 条）。
+
+## ducentum-viginti-duo. 第二百二十二轮：终端启动时序（§7.16 第 3／6 条，两条 C 类闭环）
+
+`ui-compliance.md` §7.16 的两条 C 类：
+① 第 3 条"加载期间关闭或切工作区 → 旧请求失效（不启动旧 Shell、不重新显示、不覆盖新工作区提示）；
+关闭后立即重开建立新请求"；
+② 第 6 条"WebView2 首次导航期间 Shell 可并行启动；ready 前的提示符/输出在终端显示后保留"。
+两者都需要**时序构造**，此前只有"轮询并发上限"的断言。
+
+### 定位到的真实缺陷
+
+`startTerminal()` 没有任何代际/令牌：`terminal/start` 是异步的（宿主真正拉起 Shell），
+若用户在这段在途时间里关闭终端，晚到的成功仍会执行 `terminalReady = true`、设
+`__augitTerminalShell` 并 `pollTerminal()` —— **把已关闭的终端复活**，而且宿主里那个刚启动的
+Shell 谁都不再引用（不会被 `terminal/stop` 释放）。这正是第 3 条要禁止的"晚到完成接管界面"。
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/live-data.js` | 新增模块级 `terminalGeneration`；`closeTerminalNow()` 先 `terminalGeneration += 1`；`startTerminal()` 进入时捕获代际，`terminal/start` 返回后若代际已变则 `await invoke('terminal/stop')` **释放刚启动的 Shell** 并 `return null`（不设 ready、不开始轮询、不报错） |
+| `tools/audit/live-shell.spec.cjs`（桩） | `terminal/start` 支持 `__terminalStartDelayMs`（注入启动延迟）与 `__terminalBootOutput`（模拟"页面 ready 前宿主已产出的提示符/输出"） |
+
+**范围说明**：代际只覆盖"同一页面内关闭再打开/关闭期间晚到"。**切工作区**在 Augit 里走新窗口或重载，
+不在同一页面内发生 ⇒ 该半条按"不适用"登记（写进 §2.6 该行）。
+
+### 验证
+
+- `live-shell` **`通过 1235 项断言`**（1232 → **+3**）：
+  ① `§7.16 启动中关闭：晚到的启动作废并释放刚启动的 Shell`（700ms 启动延迟，在途时关闭 →
+  `starts=1`、`stops=2`（关闭一次 + 释放孤立的 Shell 一次）、`ready=false`、面板已收起）；
+  ② `§7.16 关闭后立即重开建立新请求`（`starts=1`、`ready=true`）；
+  ③ `§7.16 ready 前的提示符/输出在终端显示后保留`（`__terminalBootOutput` 的内容出现在正文且 ready）。
+- `ui-compliance.md` §7.16 第 3/6 条由"未覆盖"转"是"；§2.10 重生成 → 非"是" 102 → **100**、C 类 5 → **3**。
+- `check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 222 轮）：`live-data.js` → **`246c2f1fae527b6e6f7f85ba5840c663`**、
+  `live-shell.spec.cjs` → `2c84041e99266ac9f66b971a0b25867d`；`mockup.css`（`55634f2a…`）／
+  `mockup.js`（`eaf45b2e…`）／`bridge.js`（`8d2d3173…`）未变。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 **3** 条：`§7.3` Markdown 加载态（2 条）、"产品面不可达" 1 条）。

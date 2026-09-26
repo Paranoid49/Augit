@@ -830,6 +830,9 @@ let terminalTimer = 0;
 let terminalReady = false;
 // 同一时刻只允许一个在途的 terminal/read（见 pollTerminal）。
 let terminalPolling = false;
+// 终端启动代际（规格 §7.16）：关闭/切换时递增，使在途的 terminal/start 收尾失效 ——
+// 晚到的启动不得接管界面，也不能把已经启动的 Shell 留在宿主里（要发 terminal/stop 释放）。
+let terminalGeneration = 0;
 
 /**
  * 整页重绘会替换终端宿主元素，但 xterm 实例与会话必须保留，
@@ -907,6 +910,9 @@ async function startTerminal() {
   const host = document.querySelector('.terminal-view');
   if (!host || typeof window.Terminal !== 'function') return null;
   if (terminalInstance && terminalReady) return terminalInstance;
+  // 启动期间的代际：`terminal/start` 是异步的（宿主真正拉起 Shell），期间用户可能关闭终端。
+  // 晚到的成功若继续设置 ready/轮询，就把已关闭的终端"复活"了（规格 §7.16 第 3 条）。
+  const generation = terminalGeneration;
 
   // 终端与只读文本、diff、冲突用同一套等宽字体与字号（规格：字体设置只改变显示）。
   const typography = terminalTypography();
@@ -948,6 +954,11 @@ async function startTerminal() {
     columns: terminalInstance.cols,
     rows: terminalInstance.rows,
   }, 30000);
+  if (generation !== terminalGeneration) {
+    // 启动期间终端已被关闭：释放刚启动的 Shell，旧请求不得重新显示或接管界面。
+    if (started && started.available) await invoke('terminal/stop', {}, 15000).catch(() => {});
+    return null;
+  }
   if (!started || !started.available) {
     window.__augitError = 'terminal-start:' + String(started && started.reason ? started.reason : 'unavailable');
     return null;
@@ -1470,6 +1481,8 @@ async function requestCloseTerminal() {
 
 /** 真正结束会话并收起底部工具窗口。 */
 async function closeTerminalNow() {
+  // 先推进代际：在途的 `terminal/start` 收尾据此作废（规格 §7.16 第 3 条）。
+  terminalGeneration += 1;
   await stopTerminal();
   const live = window.__augitLive;
   if (terminalInstance) {

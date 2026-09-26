@@ -971,7 +971,10 @@ async function main() {
         // status 报告前台进程、stop 结束；并统计在途 read 的并发峰值。
         window.__terminalCalls = (window.__terminalCalls || []).concat([method]);
         if (method === 'terminal/start') {
-          window.__terminalSession = { running: true, buffer: '', exitCode: 0 };
+          // 规格 §7.16：宿主真正拉起 Shell 是异步的。可注入启动延迟，用于验证
+          // "启动中关闭 ⇒ 晚到成功不得复活终端，且要释放刚启动的 Shell"。
+          if (window.__terminalStartDelayMs) await new Promise((r) => setTimeout(r, window.__terminalStartDelayMs));
+          window.__terminalSession = { running: true, buffer: window.__terminalBootOutput || '', exitCode: 0 };
           window.__terminalForeground = false;
           window.__terminalInFlight = 0;
           window.__terminalMaxInFlight = 0;
@@ -17909,6 +17912,62 @@ async function main() {
       check('§7.16 隐藏只收起面板、同一会话与正文保留: ' + JSON.stringify([hidden.stops, startsBeforeHide, restored]),
         hidden.stops === 0 && restored.stops === 0 && restored.starts === startsBeforeHide && restored.text === true);
       await tm.page.evaluate(() => { window.__terminalReadDelays = 0; });
+
+      // ---- §7.16 第 6 条：宿主在页面 ready 前就产出的提示符/输出，终端显示后必须保留 ----
+      await tm.page.evaluate(() => { window.__terminalForeground = false; });
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
+      await tm.page.evaluate(() => {
+        window.__terminalBootOutput = 'BOOT-PROMPT-BEFORE-READY\r\n';
+        window.__terminalCalls = [];
+      });
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('ready 前的输出在终端显示', 'document.querySelector(".terminal-view").textContent.includes("BOOT-PROMPT-BEFORE-READY")');
+      const bootOutput = await tm.page.evaluate(() => ({
+        shown: document.querySelector('.terminal-view').textContent.includes('BOOT-PROMPT-BEFORE-READY'),
+        ready: !!window.__augitTerminalReady,
+      }));
+      check('§7.16 ready 前的提示符/输出在终端显示后保留: ' + JSON.stringify(bootOutput),
+        bootOutput.shown === true && bootOutput.ready === true);
+      await tm.page.evaluate(() => { window.__terminalBootOutput = ''; });
+
+      // ---- §7.16 第 3 条：启动中关闭 ⇒ 晚到成功不得复活终端，且要释放刚启动的 Shell ----
+      await tm.page.evaluate(() => {
+        window.__terminalForeground = false;
+        window.__terminalStops = 0;
+        window.__terminalStartDelayMs = 700;   // 让 terminal/start 处于在途
+        window.__augitError = null;
+      });
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
+      await tm.page.evaluate(() => { window.__terminalStops = 0; window.__terminalCalls = []; });
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.waitForTimeout(150);       // 启动在途，先不完成
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.waitForTimeout(1400);      // 等晚到的 terminal/start 收尾
+      const lateStart = await tm.page.evaluate(() => ({
+        stops: window.__terminalStops || 0,
+        starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+        ready: !!window.__augitTerminalReady,
+        tool: !!document.querySelector('.terminal-tool'),
+        bottom: window.__augitLive.layout.bottom,
+        err: window.__augitError || null,
+      }));
+      check('§7.16 启动中关闭：晚到的启动作废并释放刚启动的 Shell: ' + JSON.stringify(lateStart),
+        lateStart.starts === 1 && lateStart.stops === 2 && lateStart.ready === false
+          && lateStart.tool === false && lateStart.bottom === '');
+      await tm.page.evaluate(() => { window.__terminalStartDelayMs = 0; window.__terminalCalls = []; });
+      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tryWait('重开后建立新请求', 'window.__augitTerminalShell === "Windows PowerShell" && !!document.querySelector(".terminal-view .xterm")');
+      const reopenedAfterCancel = await tm.page.evaluate(() => ({
+        starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+        ready: !!window.__augitTerminalReady,
+      }));
+      check('§7.16 关闭后立即重开建立新请求: ' + JSON.stringify(reopenedAfterCancel),
+        reopenedAfterCancel.starts === 1 && reopenedAfterCancel.ready === true);
+      await tm.page.evaluate(() => { window.__terminalForeground = false; });
+      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tryWait('收尾关闭终端', '!document.querySelector(".terminal-tool")');
       await tm.page.close();
     }
 
