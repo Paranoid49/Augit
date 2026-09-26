@@ -312,3 +312,74 @@ JIT，不是磁盘）、窗口创建 ≈ 32 ms、`CoreWebView2Environment.Create
 - 临时宿主埋点（`StartupTrace`）与内联脚本试验都已**从产品代码移除**；本轮产品代码零改动，
   唯一保留的脚本改动是 `tools/audit/measure-performance.ps1` 的新增字段（BOM-less ASCII，`verify-script-encoding` PASS）。
 - 大仓库/空仓库 fixture 仍需保留到性能模块收尾。
+
+## 12. 页面 boot 的细分与两次被否的优化（第 228 轮）
+
+§11 把可优化面收窄到"**页面 boot ≈ 250 ms**"。本轮把它再拆一层，并按两个候选各做一次实验；
+**两次都因实测不成立而回退，产品代码零改动**（本节只留数据与方法，便于下轮直接从这里继续）。
+
+### 12.1 方法（可复用）
+
+在 `live-data.js` 的 `boot()`（`b1_loadDocument`／`b2_mockupLoaded`／`b3_requestedDone`／`b4_rebind`）
+与 `mockup.js` 的末尾（`p0_mockupEval`／`p1_renderScene`／`p2_bindInteractions`／`p3_typography`）
+临时写 `window.__augitMarks[名字] = Math.round(performance.now())` —— 该对象**本来就是审计埋点**
+（`info`／`root`／`status`／`open`），测量脚本的 `marks` 字段直接带出来，不需要改脚本。
+取证后这些埋点已移除。
+
+### 12.2 一次典型的页面 boot（空仓库；页面时钟 ms）
+
+| 段 | 值 | 归属 |
+| --- | ---: | --- |
+| `loadDocument` 之前 | ~56 | 模块求值 + `boot()` 进入（与文档 `load` 事件几乎同时） |
+| `loadDocument()` | **38** | 宿主往返：`workspace/info` + `workspace/list`（两者并行） |
+| → mockup 脚本求值开始 | 17 | 动态插入 `<script>` + 取回（缓存命中 2 ms） |
+| **`renderScene()` + `innerHTML`** | **4** | 整页标记构建与解析 —— 比预期小得多 |
+| **`bindInteractions()`** | **63** | 约 25 个 `bind*` 逐个 `querySelectorAll` + 挂监听 |
+| mockup 求值收尾 | ~11 | `load` 事件与 Promise 收尾 |
+| `rebindAfterRender()` | 3 | 重绘后的绑定补齐 |
+| 页面就绪 | ~195 | `__augitReady = true` |
+
+即：**页面 boot 里最大的一项是 `bindInteractions`（~63 ms）**，其次是宿主往返（38 ms）；
+"整页渲染"本身只有 4 ms —— 之前猜的"渲染太重"不成立。
+
+### 12.3 候选一：设置读写的源生成序列化（**否掉**）
+
+**动机**：宿主探针实测 `LoadSettings` **首次 73 ms、同进程第二次 1 ms**（文件只有 1.2 KB）⇒
+成本是**反射式 `JsonSerializer` 的首次预热**（构造类型元数据与属性访问器），而它必须发生在建窗之前。
+
+**做法**：为 `ApplicationSettings` 加 `[JsonSerializable]` 源生成上下文
+（`JsonSourceGenerationOptions(PropertyNamingPolicy = CamelCase, PropertyNameCaseInsensitive = true, WriteIndented = true)`，
+与原先的 `JsonSerializerOptions` 逐项一致），`SettingsStore` 的两处调用改走上下文。
+
+**结果**：`Augit.Infrastructure.Tests` **188 项里 3 项失败** —— 都是"文件里缺少某个键"的用例：
+
+| 失败用例 | 期望 | 实测 |
+| --- | --- | --- |
+| `新配置使用中文界面字体而旧字体选择继续保留` | 读 `{"textFontFamily":"…"}` 得到该值 | 属性停在旧默认值 |
+| `字体字号分别保存且旧配置保持原有字号` | 读 `{"fontSize":17}` 得到 17 | 0 |
+| `分支面板按目录分组默认开启且可持久化` | 读 `{"theme":"Dark"}` 后分组仍为默认开启 | **false** |
+
+**根因**（读生成代码确认）：生成器把 `record` 的 **init-only 属性当成"构造参数"**
+（`ObjectWithParameterizedConstructorCreator` + `IsMemberInitializer`），创建对象时**逐个赋默认值**，
+于是 JSON 里缺键的属性会**覆盖属性初始化器**（`= true`／`"Microsoft YaHei UI"`／`= 13` 全部丢失）。
+反射路径是"先 `new()` 跑初始化器、再按存在的键覆盖"，语义不同 —— 这是**静默的默认值回归**，
+被测试逮住。⇒ **回退**。要做成必须先改 `ApplicationSettings` 的成员形状（去掉 init-only / 改构造方式），
+那是设置契约变更，须单独一批并逐条验证。
+
+### 12.4 候选二：把 `bindInteractions` 的一部分延后到首帧之后（**本轮不做**）
+
+63 ms 是当前最大的单项。可行的方向是把"需要先有交互才能碰到"的绑定（各对话框、设置页、草稿、
+日志筛选草稿、详情滚动意图等）挪到 `__augitReady` 之后执行，只留"首屏就可能被点"的那些同步跑。
+**不做的原因**是风险面已经有过先例：`bindInteractions` 里包含 `guardUnwiredNavigation`
+（守卫未接线链接）与窗口/轨道/标签等入口，历史上正是"可交互但无绑定"的那段窗口里
+点击未接线链接会把界面导航离开应用（`live-data.js` 的 `boot()` 注释记录了那一次实测）。
+因此这一项需要：先给"哪些绑定属于首屏必须"定一份可复验清单，再让延后集合在
+`__augitReady` 之后立刻补齐，并补一条断言（首帧后 N ms 内延后集合已绑定）。留给下一轮。
+
+### 12.5 清理记录
+
+- 两次实验的临时改动（`boot()`／`mockup.js` 埋点、`SettingsJsonContext` 与 `SettingsStore` 改动）
+  都已从产品代码移除；`git status` 干净。
+- 回退后复跑 `dotnet test tests/Augit.Infrastructure.Tests -c Release`：**188/188 通过**
+  （也证明 12.3 的 3 项失败确由源生成改动引起）。
+- `obj/generated`（为读生成代码而产出的中间目录）已删除。

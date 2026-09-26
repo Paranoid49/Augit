@@ -227,7 +227,7 @@
 | 项 | 状态 |
 | --- | --- |
 | 三类场景性能基线（空仓库/已有仓库/大仓库） | **已建立**（第 213 轮，`performance-report.md` §10，`measure-performance.ps1`）；后续为持续优化 |
-| 首屏链路与 WebView2 内存基数优化 | **进行中**：第 227 轮把"窗口 → 首屏"的 ~680 ms 拆成 窗口 ~300 ms ／ 环境＋控制器 ~360 ms ／ 页面载入 ~40 ms ／ 页面 boot ~250 ms（`performance-report.md` §11），并否掉一次"去掉导航前 await"的尝试（导航提前 60 ms 但页面侧后移 40 ms，首屏无净收益）。下一步：给页面 boot 加 `performance.mark` 再决定改什么 |
+| 首屏链路与 WebView2 内存基数优化 | **进行中**：第 227 轮把"窗口 → 首屏"的 ~680 ms 拆成 窗口 ~300 ms ／ 环境＋控制器 ~360 ms ／ 页面载入 ~40 ms ／ 页面 boot ~250 ms（`performance-report.md` §11），并否掉一次"去掉导航前 await"的尝试（导航提前 60 ms 但页面侧后移 40 ms，首屏无净收益）。下一步已由第 228 轮执行：页面 boot 细分为 `loadDocument` 38 ms／mockup 求值 ~17 ms／**`renderScene` 4 ms**／**`bindInteractions` 63 ms**／`rebindAfterRender` 3 ms；两个候选（设置读写源生成序列化、把 `bindInteractions` 延后）分别**因默认值语义回归**与**"可交互但无绑定"先例**被否/缓做（见 §12）。当前目标锁定 `bindInteractions` 63 ms |
 | 十万提交历史性能 | 缺 fixture（本机无法快速生成），沿用第 0 节早期抽样并标注非本轮实测 |
 | Windows 10 22H2 实机兼容性 | 未验证，无实机条件 |
 
