@@ -1632,7 +1632,11 @@ async function loadDiff(path, options = {}) {
     // 它必须进入请求键，否则同一文件的"工作区 Diff"与"历史比较"会互相复用结果。
     commit: options.commit,
     mode: options.mode || (live0 && live0.diffMode) || "split",
-    ignoreWhitespace: !!options.ignoreWhitespace,
+    // 「忽略空白」是**会话选项**（规格 §7.7 第 5 条的工具条开关）：调用方没显式传时沿用当前状态，
+    // 否则切显示模式、切相邻文件、外部刷新这三条重载路径都会把它悄悄丢掉（状态在 live.diffOptions）。
+    ignoreWhitespace: options.ignoreWhitespace === undefined
+      ? !!(live0 && live0.diffOptions && live0.diffOptions.ignoreWhitespace)
+      : !!options.ignoreWhitespace,
     detectRenames: !!options.detectRenames,
     version: options.version,
   };
@@ -11649,6 +11653,34 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   window.__diffFileHit = (window.__diffFileHit || 0) + 1;
   moveDiffFile(button.getAttribute("aria-label") === "下一个文件" ? 1 : -1);
+}, true);
+
+// 比较工具栏「忽略空白」（规格 §7.7 第 5 条）：这是**真实的差异选项**——宿主 `git/diff` 收
+// `ignoreWhitespace`（`ShellBridge.cs`），请求键与补丁缓存键都已含它，因此切换后必须**重查**，
+// 不能只改按钮外观。没有正文（加载/空差异）时只改状态，下一次装载自然生效。
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="忽略空白"]');
+  if (!button) return;
+  event.preventDefault();
+  const live = window.__augitLive;
+  if (!live) return;
+  live.diffOptions = live.diffOptions || {};
+  live.diffOptions.ignoreWhitespace = !live.diffOptions.ignoreWhitespace;
+  button.setAttribute("aria-pressed", live.diffOptions.ignoreWhitespace ? "true" : "false");
+  button.classList.toggle("active", live.diffOptions.ignoreWhitespace);
+  const path = live.diff && live.diff.path;
+  if (!path) return;
+  void loadDiff(path, { force: true })
+    .then(() => refreshAfterEvent("editorContent", "statusbar"))
+    .catch(() => null);
+}, true);
+
+// 比较工具栏「设置」：按应用既有约定打开设置对话框（与提交框的「提交设置」同一入口）。
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="设置"]');
+  if (!button) return;
+  event.preventDefault();
+  openSettingsDialog();
 }, true);
 
 // 比较工具栏「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。

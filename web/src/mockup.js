@@ -2277,6 +2277,44 @@ function liveRollbackBody() {
   return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
 }
 
+/**
+ * 实时 Diff 工具栏（规格 `ux-spec.md:439`）。
+ *
+ * 左侧依次为上一处、下一处、搜索、上一个文件、文件计数、下一个文件；右侧为差异摘要、
+ * 忽略空白、双栏/单栏、设置。文件箭头围绕文件计数分组（`fileNav` 由调用方给出），
+ * DOM 顺序即视觉顺序，键盘 Tab 顺序随之（验收套件按真实 Tab 核对）。
+ *
+ * 视觉稿里「搜索 / 忽略空白 / 设置」是静态控件；实时外壳里「忽略空白」有真实行为
+ * （宿主 `git/diff` 收 `ignoreWhitespace`）、「设置」沿用应用既有约定打开设置对话框，
+ * 而 **Diff 正文内的查找尚未实现**（共享查找条只服务 `.document-view > .code-view`）
+ * ⇒ 按「未接线先禁用并写明原因」的既有做法渲染，不留死入口。
+ */
+function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", busy = false } = {}) {
+  const live = window.__augitLive || {};
+  const disabled = arrowsDisabled || busy;
+  const arrow = (label, name) => disabled
+    ? `<button class="toolbar-button" disabled title="正在生成差异，稍后可用。" aria-label="${label}">${icon(name)}</button>`
+    : `<button class="toolbar-button" aria-label="${label}">${icon(name)}</button>`;
+  const ignoreWhitespace = !!(live.diffOptions && live.diffOptions.ignoreWhitespace);
+  const unified = live.diffMode === "unified";
+  const segment = (label, name, active) =>
+    `<button class="segment${active ? " active" : ""}" aria-label="${label}">${icon(name)}</button>`;
+  return `<div class="diff-toolbar">`
+    + arrow("上一处差异", "arrow-up") + arrow("下一处差异", "arrow-down")
+    + '<span class="toolbar-separator"></span>'
+    + `<button class="toolbar-button" disabled title="当前版本暂不支持在 Diff 正文中查找" aria-label="查找">${icon("search")}</button>`
+    + fileNav
+    + '<span class="grow"></span>'
+    + summary
+    + `<button class="toolbar-button${ignoreWhitespace ? " active" : ""}" aria-pressed="${ignoreWhitespace ? "true" : "false"}" aria-label="忽略空白">${icon("diff-ignore-whitespace")}</button>`
+    + '<div class="segmented">'
+    + segment("双栏", "diff-side-by-side", !unified) + segment("单栏", "diff-unified", unified)
+    + '</div>'
+    + `<button class="icon-button" aria-label="设置">${icon("settings")}</button>`
+    + (busy ? '<button class="toolbar-button" aria-label="取消比较">取消比较</button>' : "")
+    + '</div>';
+}
+
 // 外壳注入真实差异时使用：按「旧行 / 行号槽 / 新行」三列渲染结构化行。
 function liveDiffView() {
   const live = window.__augitLive || {};
@@ -2304,7 +2342,10 @@ function liveDiffView() {
   // 加载中优先显示加载提示：此时 rows 可能是上一轮的空值，
   // 直接走"没有文本差异"会把加载中的文件误报成无差异。
   if (live.diffLoading) {
-    return `<div class="diff-layout" data-augit-loading="true"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button>${fileNavBusy}<button class="toolbar-button" aria-label="取消比较">取消比较</button><span class="grow"></span><span>正在生成 diff…</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+    return `<div class="diff-layout" data-augit-loading="true">${liveDiffToolbar({
+      fileNav: fileNavBusy, arrowsDisabled: true, busy: true,
+      summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
+    })}${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
 
   // 文件栏的双方引用（规格 §7.8/§7.9）：
@@ -2322,7 +2363,7 @@ function liveDiffView() {
     const emptyNotice = historyActive && (!diff.status || diff.status === "Ready")
       ? comparisonSummaryNotice()
       : diffStatusNotice(diff.status && diff.status !== "Ready" ? diff.status : "Ready");
-    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button>${fileNav}<span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${emptyNotice}</div>`;
+    return `<div class="diff-layout">${liveDiffToolbar({ fileNav, arrowsDisabled: true })}${barFilebar}${emptyNotice}</div>`;
   }
 
   // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
@@ -2377,7 +2418,15 @@ function liveDiffView() {
     return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
   }).join("");
   const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml(diff.path)}</div>${unified}</template>`;
-  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button>${fileNav}<span class="grow"></span><span>${content.length} 行</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${barFilebar}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+  // 差异摘要（规格 §7.7 第 5 条「右侧为差异摘要」）：数量按**连续变更块**计算，
+  // 与 `live-data.js` 的 `diffChangeBlocks()`（导航用、同一口径）一致 —— 一次替换的删除与新增
+  // 在解析后合成一行 `Modified`，因此"连续的非上下文内容行"就是一块。
+  const isChangedKind = (row) => !!row && (row.kind === "Added" || row.kind === "Removed" || row.kind === "Modified");
+  let diffBlocks = 0;
+  for (let index = 0; index < content.length; index += 1) {
+    if (isChangedKind(content[index]) && (index === 0 || !isChangedKind(content[index - 1]))) diffBlocks += 1;
+  }
+  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: `<span class="diff-summary">${diffBlocks} 处差异</span>` })}${barFilebar}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
 }
 
 // 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。

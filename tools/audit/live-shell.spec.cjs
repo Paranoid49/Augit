@@ -516,6 +516,8 @@ async function main() {
         window.__diffCommits = (window.__diffCommits || []).concat([params.commit === undefined ? '<未传>' : params.commit]);
         window.__diffCalls = window.__diffCalls || [];
         window.__diffRevisions = (window.__diffRevisions || []).concat([params.revision === undefined ? '<未传>' : params.revision]);
+        // 第 248 轮：「忽略空白」是真实差异选项 ⇒ 记录每次请求携带的取值（验收核对切换后确实重查）。
+        window.__diffWhitespace = (window.__diffWhitespace || []).concat([params.ignoreWhitespace === true]);
         window.__diffCalls.push(params.path);
         // 支持注入延迟：用于验证加载期间主框架与其它区域的位置不变（§6.1）。
         // 延迟必须作用于**所有**返回分支：否则注入的最终状态会立即返回，
@@ -17467,6 +17469,279 @@ async function main() {
       && commitLayout.afterSecond.bottom === 'git'
       && commitLayout.afterSecond.collapsed === null
       && commitLayout.afterSecond.hasLog === true);
+
+    // ---- 第 248 轮补断言（收 §7.7 第 4、5 条）：加载时保留旧正文的时序；
+    // Diff 工具栏的顺序、Tab 顺序、忽略空白、差异摘要 ----
+    const diffToolbar = await (async () => {
+      const barSnapshot = (page) => page.evaluate(() => {
+        const bar = document.querySelector('.editor-content .diff-toolbar');
+        if (!bar) return { missing: true };
+        const rect = (el) => {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { left: Math.round(r.left), right: Math.round(r.right), top: Math.round(r.top), bottom: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) };
+        };
+        const buttons = [...bar.querySelectorAll('button[aria-label]')].map((el) => ({
+          label: el.getAttribute('aria-label'),
+          enabled: !el.disabled && el.getAttribute('aria-disabled') !== 'true',
+          title: el.getAttribute('title'),
+          pressed: el.getAttribute('aria-pressed'),
+          active: el.classList.contains('active'),
+          box: rect(el),
+        }));
+        const summary = bar.querySelector('.diff-summary');
+        const count = bar.querySelector('.commit-count, .file-status-modified');
+        return {
+          labels: buttons.map((b) => b.label),
+          enabledLabels: buttons.filter((b) => b.enabled).map((b) => b.label),
+          visualOrder: [...buttons.filter((b) => b.enabled)].sort((a, b) => (a.box.top - b.box.top) || (a.box.left - b.box.left)).map((b) => b.label),
+          buttons,
+          summary: summary ? { text: summary.textContent.trim(), box: rect(summary) } : null,
+          loadingLabel: (() => { const el = bar.querySelector('.comparison-loading-label'); return el ? el.textContent.trim() : null; })(),
+          count: count ? { text: count.textContent.trim(), box: rect(count) } : null,
+          verifyNav: (() => {
+            const prev = bar.querySelector('[aria-label="上一个文件"]');
+            const next = bar.querySelector('[aria-label="下一个文件"]');
+            const label = count;
+            if (!prev || !next || !label) return null;
+            const a = prev.getBoundingClientRect(), b = label.getBoundingClientRect(), c = next.getBoundingClientRect();
+            return { grouped: a.right <= b.left + 1 && b.right <= c.left + 1 };
+          })(),
+          settingsBox: rect(bar.querySelector('[aria-label="设置"]')),
+          ignoreBox: rect(bar.querySelector('[aria-label="忽略空白"]')),
+          loadingAttr: !!document.querySelector('.editor-content .diff-layout[data-augit-loading]'),
+          mode: window.__augitLive.diffMode,
+          calls: (window.__diffCalls || []).length,
+          whitespace: (window.__diffWhitespace || []).slice(-3),
+        };
+      });
+      // ① 工作区 Diff 的工具栏顺序 + 真实 Tab 序列
+      const wd = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      await wd.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await wd.page.waitForTimeout(500);
+      const order = await barSnapshot(wd.page);
+      await wd.page.evaluate(() => { document.querySelector('.editor-content .diff-toolbar button').focus(); });
+      const tabSeq = [];
+      for (let i = 0; i < 8; i += 1) {
+        await wd.page.keyboard.press('Tab');
+        await wd.page.waitForTimeout(70);
+        tabSeq.push(await wd.page.evaluate(() => {
+          const el = document.activeElement;
+          const bar = document.querySelector('.editor-content .diff-toolbar');
+          if (!el) return null;
+          return { label: el.getAttribute('aria-label') || el.tagName, inToolbar: !!(bar && bar.contains(el)) };
+        }));
+      }
+      const tabLabels = tabSeq.filter((step) => step && step.inToolbar).map((step) => step.label);
+      const tabLeaves = tabSeq.some((step) => step && !step.inToolbar);
+      await wd.page.close();
+      // ② 忽略空白：真实点击 → 重查并带回选项；再点还原
+      const ig = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      await ig.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await ig.page.waitForTimeout(500);
+      const ignoreBase = await barSnapshot(ig.page);
+      await ig.page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').first().click();
+      await ig.page.waitForTimeout(800);
+      const ignoreOn = await barSnapshot(ig.page);
+      await ig.page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').first().click();
+      await ig.page.waitForTimeout(800);
+      const ignoreOff = await barSnapshot(ig.page);
+      await ig.page.close();
+      // ③ 差异摘要：一处与两处（与导航的 data-diff-total 同一口径）
+      const one = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      await one.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await one.page.waitForTimeout(500);
+      const summaryOne = (await barSnapshot(one.page)).summary;
+      await one.page.close();
+      const two = await openScene('scene=commit-diff&theme=dark&diff=src%2FModified.cs');
+      await two.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await two.page.waitForTimeout(500);
+      const summaryTwo = (await barSnapshot(two.page)).summary;
+      await two.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await two.page.waitForTimeout(400);
+      const navTotal = await two.page.evaluate(() => {
+        const layout = document.querySelector('.editor-content .diff-layout');
+        return layout ? layout.dataset.diffTotal : null;
+      });
+      await two.page.close();
+      // ④ 设置入口 + 加载态：同一顺序、变更导航禁用、查找禁用并写明原因
+      const st = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      await st.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await st.page.waitForTimeout(400);
+      await st.page.evaluate(() => { window.__augitUnwiredAction = null; });
+      await st.page.locator('.editor-content .diff-toolbar [aria-label="设置"]').first().click();
+      await st.page.waitForTimeout(600);
+      const settingsOpen = await st.page.evaluate(() => ({
+        dialog: !!document.querySelector('.settings-window, .dialog-xl'),
+        unwired: window.__augitUnwiredAction || null,
+      }));
+      await st.page.keyboard.press('Escape');
+      await st.page.waitForTimeout(400);
+      await st.page.close();
+      const ld = await openScene('scene=commit-changes&theme=dark');
+      await ld.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await ld.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await ld.page.waitForTimeout(400);
+      await ld.page.locator('.changes-list .change-file-row').first().dblclick();
+      await ld.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+      await ld.page.waitForTimeout(300);
+      await ld.page.evaluate(() => {
+        window.__diffDelays = { 'README.md': 2500 };
+        window.__augitOpenChangeDiff('README.md');
+      });
+      await ld.page.waitForFunction('window.__augitLive.diffLoading === true', null, { timeout: 8000 });
+      await ld.page.waitForTimeout(200);
+      const loadingBar = await barSnapshot(ld.page);
+      await ld.page.close();
+      // ⑤ 加载时保留旧正文的时序（第二次请求，指针无关）
+      // 旧正文取 `src/Modified.cs` 的差异（桩对 `README.md` 与 `src/App.cs` 返回**同一份 rows**，
+      // 只差 path ⇒ 拿它当"旧正文"就分不出"结果换成了另一份内容"）。
+      const tl = await openScene('scene=commit-diff&theme=dark&diff=src%2FModified.cs');
+      await tl.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await tl.page.waitForTimeout(400);
+      const geometryOf = () => tl.page.evaluate(() => {
+        const rect = (selector) => {
+          const el = document.querySelector(selector);
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+        };
+        return {
+          content: rect('.editor-content'), rail: rect('.tool-rail'), side: rect('.side-tool'),
+          tabs: rect('.editor-tabs'), statusbar: rect('.statusbar'),
+          oldBody: (() => { const el = document.querySelector('.editor-content .diff-columns'); return el ? el.innerText.replace(/\s+/g, '').length : 0; })(),
+          // 只比字符数不够：两个小差异可能凑巧等长（本轮实测 src/App.cs 与 README.md 都是 54）
+          // ⇒ 再取正文前 60 字符当"换的是不是另一份内容"的判据。
+          bodyHead: (() => { const el = document.querySelector('.editor-content .diff-columns'); return el ? el.innerText.replace(/\s+/g, ' ').trim().slice(0, 60) : null; })(),
+          filebar: (() => { const el = document.querySelector('.editor-content .diff-filebar'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null; })(),
+        };
+      });
+      const beforeLoad = await geometryOf();
+      const timeline = await tl.page.evaluate(async () => {
+        window.__diffDelays = { 'README.md': 4000 };
+        const started = performance.now();
+        window.__augitOpenChangeDiff('README.md');
+        const frames = [];
+        while (performance.now() - started < 900) {
+          const layout = document.querySelector('.editor-content .diff-layout');
+          frames.push({
+            t: Math.round(performance.now() - started),
+            loading: !!window.__augitLive.diffLoading,
+            loadingAttr: !!(layout && layout.dataset.augitLoading === 'true') || !!document.querySelector('.editor-content .diff-layout[data-augit-loading]'),
+            bodyChars: (() => { const el = document.querySelector('.editor-content .diff-columns'); return el ? el.innerText.replace(/\s+/g, '').length : 0; })(),
+            hint: !!document.querySelector('.editor-content .diff-filebar .diff-loading-status'),
+          });
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        return {
+          frames,
+          markerDelay: window.__augitLoadingMarkerShownAt && window.__augitLoadingMarkerScheduledAt
+            ? Math.round(window.__augitLoadingMarkerShownAt - window.__augitLoadingMarkerScheduledAt) : null,
+        };
+      });
+      // `__augitDiffReady` 是**首载**的全局标记，第二次请求仍在途时它已是 true ⇒ 必须按目标文件等。
+      await tl.page.waitForFunction(
+        "window.__augitLive.diff && window.__augitLive.diff.path === 'README.md' && !window.__augitLive.diffLoading",
+        null, { timeout: 15000 });
+      await tl.page.waitForTimeout(400);
+      const afterLoad = await geometryOf();
+      await tl.page.close();
+      const payload = {
+        order, tabLabels, tabLeaves, ignoreBase, ignoreOn, ignoreOff,
+        summaryOne, summaryTwo, navTotal, settingsOpen, loadingBar,
+        beforeLoad, afterLoad,
+        timeline: {
+          markerDelay: timeline.markerDelay,
+          early: timeline.frames.filter((f) => f.t <= 140).map((f) => [f.t, f.bodyChars, f.loading]),
+          loadingFrames: timeline.frames.filter((f) => f.loading).length,
+          firstLoading: timeline.frames.find((f) => f.loading) || null,
+          lastLoading: [...timeline.frames].reverse().find((f) => f.loading) || null,
+          hintFrames: timeline.frames.filter((f) => f.hint).length,
+          backToOld: timeline.frames.some((f) => f.loading && f.bodyChars === beforeLoad.oldBody && f.bodyChars > 0),
+        },
+      };
+      console.log('INFO Diff工具栏=' + JSON.stringify(payload));
+      return payload;
+    })();
+    const toolbarLabels = ['上一处差异', '下一处差异', '查找', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'];
+    check('§7.7 Diff 工具栏按规格顺序排列、Tab 顺序与视觉顺序一致: '
+      + JSON.stringify([diffToolbar.order.labels, diffToolbar.tabLabels, diffToolbar.order.count && diffToolbar.order.count.text, diffToolbar.order.verifyNav]),
+    // 左侧：上一处、下一处、搜索、上一个文件、文件计数、下一个文件；右侧：差异摘要、忽略空白、双栏/单栏、设置
+    JSON.stringify(diffToolbar.order.labels) === JSON.stringify(toolbarLabels)
+      && diffToolbar.order.count && diffToolbar.order.count.text === '1/3 个文件'
+      // 文件箭头围绕文件计数分组
+      && diffToolbar.order.verifyNav && diffToolbar.order.verifyNav.grouped === true
+      // 右侧控件在文件计数右侧
+      && diffToolbar.order.summary.box.left > diffToolbar.order.count.box.right
+      && diffToolbar.order.ignoreBox.left > diffToolbar.order.summary.box.right
+      && diffToolbar.order.settingsBox.left > diffToolbar.order.ignoreBox.right
+      // 真实 Tab 顺序 = 视觉顺序（禁用的「查找」不进入 Tab 循环）
+      && JSON.stringify(diffToolbar.tabLabels) === JSON.stringify(['下一处差异', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'])
+      && diffToolbar.tabLeaves === true
+      && JSON.stringify(diffToolbar.order.visualOrder) === JSON.stringify(diffToolbar.order.enabledLabels));
+    const ignoreButton = (snapshot) => snapshot.buttons.find((b) => b.label === '忽略空白');
+    check('§7.7 忽略空白是真实差异选项：切换后重查并如实标记、再点还原: '
+      + JSON.stringify([ignoreButton(diffToolbar.ignoreBase), ignoreButton(diffToolbar.ignoreOn), ignoreButton(diffToolbar.ignoreOff),
+        diffToolbar.ignoreBase.whitespace, diffToolbar.ignoreOn.whitespace, diffToolbar.ignoreOff.whitespace,
+        diffToolbar.ignoreBase.calls, diffToolbar.ignoreOn.calls, diffToolbar.ignoreOff.calls]),
+    // 初始未忽略
+    ignoreButton(diffToolbar.ignoreBase).pressed === 'false' && ignoreButton(diffToolbar.ignoreBase).active === false
+      // 点击后标记为按下，并且确实带 ignoreWhitespace=true 重新查了一次
+      && ignoreButton(diffToolbar.ignoreOn).pressed === 'true' && ignoreButton(diffToolbar.ignoreOn).active === true
+      && diffToolbar.ignoreOn.calls === diffToolbar.ignoreBase.calls + 1
+      && diffToolbar.ignoreOn.whitespace[diffToolbar.ignoreOn.whitespace.length - 1] === true
+      // 再点一次：状态还原并再查一次（不是只改外观）
+      && ignoreButton(diffToolbar.ignoreOff).pressed === 'false' && ignoreButton(diffToolbar.ignoreOff).active === false
+      && diffToolbar.ignoreOff.calls === diffToolbar.ignoreOn.calls + 1
+      && diffToolbar.ignoreOff.whitespace[diffToolbar.ignoreOff.whitespace.length - 1] === false);
+    check('§7.7 差异摘要按连续变更块计数、与导航同一口径: '
+      + JSON.stringify([diffToolbar.summaryOne, diffToolbar.summaryTwo, diffToolbar.navTotal]),
+    diffToolbar.summaryOne && diffToolbar.summaryOne.text === '1 处差异'
+      && diffToolbar.summaryTwo && diffToolbar.summaryTwo.text === '2 处差异'
+      && diffToolbar.navTotal === '2');
+    check('§7.7 差异设置入口打开设置对话框；加载态保持同一顺序并禁用变更导航: '
+      + JSON.stringify([diffToolbar.settingsOpen, diffToolbar.loadingBar.labels, diffToolbar.loadingBar.loadingLabel,
+        diffToolbar.loadingBar.buttons.filter((b) => ['上一处差异', '下一处差异', '查找'].includes(b.label))]),
+    // 设置入口按应用既有约定打开设置对话框，且不算"未接线"
+    diffToolbar.settingsOpen.dialog === true && diffToolbar.settingsOpen.unwired === null
+      // 加载态：同一套控件与顺序（追加"取消比较"），差异箭头与查找禁用并写明原因
+      && JSON.stringify(diffToolbar.loadingBar.labels) === JSON.stringify(['上一处差异', '下一处差异', '查找', '忽略空白', '双栏', '单栏', '设置', '取消比较'])
+      && diffToolbar.loadingBar.loadingLabel === '正在生成 diff…'
+      && diffToolbar.loadingBar.loadingAttr === true
+      && ['上一处差异', '下一处差异', '查找'].every((label) => {
+        const button = diffToolbar.loadingBar.buttons.find((b) => b.label === label);
+        return button && button.enabled === false && typeof button.title === 'string' && button.title.length > 0;
+      })
+      // 正文没实现查找时如实禁用（不留死入口），忽略空白与显示模式仍可用
+      && diffToolbar.loadingBar.buttons.find((b) => b.label === '忽略空白').enabled === true
+      && diffToolbar.loadingBar.buttons.filter((b) => ['双栏', '单栏', '设置'].includes(b.label)).every((b) => b.enabled === true));
+    const sameRect = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    check('§7.7 第一次请求加载时保留旧正文、随后在同一正文区域替换为加载状态与新结果: '
+      + JSON.stringify([diffToolbar.timeline.markerDelay, diffToolbar.timeline.early, diffToolbar.timeline.loadingFrames,
+        diffToolbar.timeline.firstLoading, diffToolbar.timeline.hintFrames, diffToolbar.beforeLoad.filebar, diffToolbar.afterLoad.filebar]),
+    // 阈值之前：旧正文一直在（同一字符数）、没有加载态
+    diffToolbar.timeline.early.length >= 3
+      && diffToolbar.timeline.early.every(([, chars, loading]) => chars === diffToolbar.beforeLoad.oldBody && loading === false)
+      && diffToolbar.beforeLoad.oldBody > 20
+      // 阈值之后：同一正文区域换成加载状态（正文被替换，不是叠加），文件标题行给出提示
+      && diffToolbar.timeline.markerDelay !== null && diffToolbar.timeline.markerDelay >= 140
+      && diffToolbar.timeline.firstLoading !== null && diffToolbar.timeline.firstLoading.t >= 140
+      && diffToolbar.timeline.firstLoading.loadingAttr === true
+      && diffToolbar.timeline.firstLoading.bodyChars !== diffToolbar.beforeLoad.oldBody
+      && diffToolbar.timeline.hintFrames > 0
+      // 加载窗口内不会又退回旧正文
+      && diffToolbar.timeline.backToOld === false
+      // 结果落地：同一正文区域换成新文件的新正文
+      && String(diffToolbar.afterLoad.filebar).includes('README.md')
+      && !String(diffToolbar.afterLoad.filebar).includes('正在生成')
+      && diffToolbar.afterLoad.oldBody > 0
+      && diffToolbar.afterLoad.bodyHead !== diffToolbar.beforeLoad.bodyHead
+      // 其他区域不变化（正文区与主框架几何逐值相同）
+      && sameRect(diffToolbar.beforeLoad.content, diffToolbar.afterLoad.content)
+      && sameRect(diffToolbar.beforeLoad.rail, diffToolbar.afterLoad.rail)
+      && sameRect(diffToolbar.beforeLoad.side, diffToolbar.afterLoad.side)
+      && sameRect(diffToolbar.beforeLoad.tabs, diffToolbar.afterLoad.tabs)
+      && sameRect(diffToolbar.beforeLoad.statusbar, diffToolbar.afterLoad.statusbar));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

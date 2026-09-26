@@ -363,3 +363,28 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 - **【可直接实现】**：§3、§4 的规则是几何与常量，HTML/CSS 可表达。
 - **【Swing 特有】**：`Graphics2D` 的 `AlphaComposite`、`getStroke`、`GraphicsUtil.setupAAPainting` 是 Swing 绘制细节；在 HTML 侧等价物是 `opacity`／`color-mix` 与 SVG/canvas 描边。
 - **【需推断】**：§5 的词级高亮底色。
+
+## 12. Diff 工具栏的顺序与「忽略空白」（第 248 轮）
+
+`ux-spec` §7.7 第 5 条要求工具栏「左侧依次为上一处、下一处、搜索、上一个文件、文件计数和下一个文件；
+右侧为差异摘要、忽略空白、双栏/单栏和设置。文件箭头围绕文件计数分组，键盘 Tab 顺序与视觉顺序一致」。
+第 248 轮核对时发现**实时外壳与规格是两套工具条**：live 的模板只有
+`上一处差异／下一处差异／{文件箭头与计数}／N 行／双栏·单栏` —— 缺「查找」「忽略空白」「设置」，右侧还是正文行数。
+
+**落地**：
+
+- `web/src/mockup.js` 新增 `liveDiffToolbar({ fileNav, arrowsDisabled, summary, busy })`，
+  就绪／加载／空差异三态共用同一份规格顺序；差异摘要在渲染时按「连续变更行算一块」从 `diff.rows` 现算
+  （与 `live-data.js` 的 `diffChangeBlocks()` 同一口径，双栏不重复计数）；
+- `web/src/live-data.js`：`loadDiff()` 的 `ignoreWhitespace` 改成"调用方没显式传时沿用 `live.diffOptions`"
+  （否则切显示模式／切相邻文件／外部刷新三条重载路径都会丢掉这个会话选项）；
+  新增「忽略空白」点击处理（切换 `live.diffOptions.ignoreWhitespace`、写 `aria-pressed`/`active`、强制重查）
+  与「设置」点击处理（按应用既有约定打开设置对话框，与提交框的「提交设置」同一入口）；
+- **「查找」在 Diff 正文上尚未实现**：共享查找条 `current-find.js` 只服务 `.document-view > .code-view`，
+  因此按项目既有做法把它渲染在规格位置但**禁用并写明原因**（`title="当前版本暂不支持在 Diff 正文中查找"`），
+  不留死入口；视觉稿里该按钮同样没有行为。是否投入 Diff 正文查找待用户口径。
+
+实测（dark，工作区 Diff `src/App.cs`）：按钮 DOM 顺序 = 规格九项；文件计数 `1/3 个文件` 夹在两个文件箭头之间；
+真实 Tab 序列 `下一处差异 → 上一个文件 → 下一个文件 → 忽略空白 → 双栏 → 单栏 → 设置`；
+差异摘要 `src/App.cs` 1 处、`src/Modified.cs` 2 处（与 `data-diff-total` 一致）；
+加载态同序并追加「取消比较」，差异箭头与「查找」禁用。
