@@ -6800,3 +6800,49 @@ T6（§2.10 C 类 9 条：`§7.13` 外部解决冲突后的会话列表增量更
 归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
 T6（§2.10 C 类 **8** 条：`§7.9` Blame 点提交定位历史（2 条）、`§7.3` Markdown 加载态（2 条）、
 `§7.16` 终端启动时序（2 条）、`§6` 关闭比较后的占位 1 条、"产品面不可达" 1 条）。
+
+## ducentum-viginti. 第二百二十轮：点击 Blame 提交定位 Git 历史（§7.9 两条 C 类闭环）
+
+`ui-compliance.md` §2.10 的两条 C 类缺口：
+`ux-spec` §7.9 第 497 行"点击 Blame 提交定位 Git 历史并选择对应提交"与第 498 行
+"从文件历史中的 Blame 定位提交时恢复日志布局，并解除旧文件路径限定和预览请求；
+异步完成不再次抢焦点，不恢复旧文件历史页"。界面侧此前**都没有实现也没有断言**
+（归属行只有 `href="#blame-commit"` 的空锚点 + 右键"标注上一修订"）。
+
+### 权威
+
+| 项 | 权威 | 出处 |
+| --- | --- | --- |
+| 点击行为 | 注释槽的每个 aspect 都是 `EditorGutterAction`：`doAction(lineNum)` → `showAffectedPaths(lineNum)` | `platform/vcs-api/src/com/intellij/openapi/vcs/annotate/LineAnnotationAspectAdapter.java:52-58` |
+| 跳转到日志 | `showAffectedPaths()`：非模态且 registry 开时 `VcsLogNavigationUtil.jumpToRevisionAsync(project, root, hash, filePath)` | `plugins/git4idea/backend/src/annotate/GitFileAnnotation.java:253-271`；`platform/vcs-log/impl/src/com/intellij/vcs/log/impl/VcsLogNavigationUtil.kt:43-44` |
+| registry 默认 | `vcs.blame.show.affected.files.in.log=true`，描述即"Jump to the corresponding commit in the 'Log' view when clicking an entry…" | `platform/util/resources/misc/registry.properties:772-773` |
+| 兜底 | 跳转失败（`shownInLog` 非 true）时退回"显示受影响文件"的对话框 | `GitFileAnnotation.java:266-270` |
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/mockup.js` | 归属行新增 `data-blame-full`（完整哈希；`ux-spec.md:493` 要求映射始终用完整哈希），与既有的 `data-blame-commit`（短哈希）并列；样例页同步 |
+| `web/src/live-data.js` | 新增 `locateBlameCommit(fullHash)` 与归属行左键处理：① `live.fileHistory` 存在时先 `clearHistoryPathFilter()`（恢复日志布局、解除路径限定与预览请求）；② 确保底部日志可见并已加载 —— **日志已可见时不重绘**（区域刷新会按 `live.historySelectedHash` 重排选中，而日志单击选中此前只写在 DOM 上）；③ 按 `data-full-hash` 找提交行，命中即派发 `click`（复用 mockup 的 `history-commit-selected` 链路）并滚入可视区；没命中就地提示"该提交不在当前加载的历史里。"（对应权威的兜底分支） |
+| `web/src/live-data.js`（顺带修复） | `history-commit-selected` 监听把选中写进 `live.historySelectedHash`（**短**哈希，与渲染器 `isCommitSelected` 一致）——此前只写在 DOM 上，任何区域刷新都会把选中重置成首行（规格 §6.4「刷新后提交选择不变」） |
+
+**不是新增能力**：这是"归属行点击"这一既有入口接上既有的日志视图，宿主与桥接都未改动。
+
+### 验证
+
+- `live-shell` **`通过 1231 项断言`**（1228 → **+3**）：
+  ① `§7.9 点击 Blame 提交定位 Git 历史并选中该提交`（点击第 3 行 → 底部日志选中 `fix: 真实提交二`）；
+  ② `§7.9 未加载的提交给出现场说明而不是静默无反应`（把 `data-blame-full` 改成未加载的哈希 → `.toast.error` 含"不在当前加载的历史里"、日志仍在）；
+  ③ `§7.9 从文件历史打开的 Blame 点击提交恢复日志布局并解除路径限定`（构造 `live.fileHistory` + 返回上下文 → 点击后 `fileHistory` 清空、日志出现、选中目标提交、活动标签是"日志"）。
+- **顺带修正验收夹具的一处不一致**：`blame` 夹具的 `fullHash` 原来是 `full-aaa`／`full-bbb`，与同一工作区 `history` 夹具的 `full-head-hash`／`full-bbb2222` 不同（同一提交在两处应当是同一个完整哈希）；已对齐并同步更新悬停提示断言。
+- `ui-compliance.md` §7.9 第 12/13 条由"未覆盖"转"是"；§2.10 重生成 → 非"是" 105 → **103**、C 类 8 → **6**。
+- `verify-ui-assets.ps1` **PASS**；`check-doc-claims` **DOC_CLAIMS_OK**；`git diff --check` 干净。
+- 登记哈希（第 220 轮）：`mockup.js` → **`716d57e47f7d34069c396e23ca3a4033`**、
+  `live-data.js` → **`cadcac3bd5e0287c2885d0e138c723a7`**、`live-shell.spec.cjs` → `053e70820752ee2d4f9134e7d233caf0`；
+  `mockup.css`（`55634f2a…`）／`bridge.js`（`8d2d3173…`）未变。
+
+### 下一轮
+
+归类总表 §7 剩余：T1/T2（`.diff-current` 与行内词级高亮，需产品口径）、T3（操作进度条）、
+T6（§2.10 C 类 **6** 条：`§7.3` Markdown 加载态（2 条）、`§7.16` 终端启动时序（2 条）、
+`§6` 关闭比较后的占位 1 条、"产品面不可达" 1 条）。

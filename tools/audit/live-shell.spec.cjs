@@ -169,9 +169,9 @@ const WORKSPACE = {
   blame: {
     available: true, path: 'docs/notes.txt',
     lines: [
-      { number: 1, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第一行' },
-      { number: 2, hash: 'aaa1111', fullHash: 'full-aaa', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第二行' },
-      { number: 3, hash: 'bbb2222', fullHash: 'full-bbb', author: 'l49', date: '2026/9/14', dateTime: '2026/9/14 9:00', summary: 'fix: 二', content: '第三行', previousRevision: '1111111111111111111111111111111111111111' },
+      { number: 1, hash: 'aaa1111', fullHash: 'full-head-hash', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第一行' },
+      { number: 2, hash: 'aaa1111', fullHash: 'full-head-hash', author: 'l49', date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一', content: '第二行' },
+      { number: 3, hash: 'bbb2222', fullHash: 'full-bbb2222', author: 'l49', date: '2026/9/14', dateTime: '2026/9/14 9:00', summary: 'fix: 二', content: '第三行', previousRevision: '1111111111111111111111111111111111111111' },
     ],
   },
   documents: {
@@ -1144,8 +1144,8 @@ async function main() {
     // `Date:` 是**日期时间**（权威 `DateFormatUtil.formatDateTime`，`GitFileAnnotation.java:193` 的
     // `commit.description.tooltip.date`），而槽位显示的是短日期 —— 两者都来自宿主载荷。
     check('Blame 悬停提示含完整修订、作者、日期时间与提交信息: ' + JSON.stringify(blameTips[0]),
-      blameTips[0] === 'commit full-aaa\nAuthor: l49\nDate: 2026/9/15 10:00\n\nfeat: 一'
-      && blameTips[2] === 'commit full-bbb\nAuthor: l49\nDate: 2026/9/14 9:00\n\nfix: 二');
+      blameTips[0] === 'commit full-head-hash\nAuthor: l49\nDate: 2026/9/15 10:00\n\nfeat: 一'
+      && blameTips[2] === 'commit full-bbb2222\nAuthor: l49\nDate: 2026/9/14 9:00\n\nfix: 二');
     check('Blame 悬停提示用完整修订而非归属列旁的短修订',
       blameTips.every(tip => !tip.startsWith('commit aaa') && !tip.startsWith('commit bbb')));
     // ---- 「标注上一修订」（权威 `AnnotatePreviousRevisionAction`）----
@@ -1196,6 +1196,83 @@ async function main() {
         && previousAnnotated.gutter.includes('older') && previousAnnotated.gutter.includes('2026/9/1')
         && previousAnnotated.toolbar.includes('上一修订 1111111'));
     await blame.page.close();
+
+    // ---- §7.9：点击归属行的提交 → 定位 Git 历史并选中该提交 ----
+    // 权威 `GitFileAnnotation.showAffectedPaths()`（`GitFileAnnotation.java:253-271`）：注释槽的
+    // 每个 aspect 都是 `EditorGutterAction`，点击时 registry `vcs.blame.show.affected.files.in.log`
+    // 默认 true ⇒ `VcsLogNavigationUtil.jumpToRevisionAsync(...)` 在日志里跳到该修订。
+    const blameJump = await openScene('scene=blame&theme=dark&blame=docs%2Fnotes.txt');
+    await blameJump.page.waitForSelector('.blame-document .blame-row', { timeout: 10000 });
+    await blameJump.page.evaluate(() => {
+      const row = document.querySelectorAll('.blame-document .blame-row')[2];
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await blameJump.page.waitForFunction(
+      "() => !!document.querySelector('.log-list-panel .commit-row[aria-selected=\"true\"]')", null, { timeout: 10000 }).catch(() => {});
+    const jumped = await blameJump.page.evaluate(() => {
+      const selected = document.querySelector('.commit-row[aria-selected="true"]');
+      return {
+        hasLog: !!document.querySelector('.log-list-panel .commit-row'),
+        selected: selected ? selected.dataset.fullHash : null,
+        subject: selected ? (selected.querySelector('.commit-subject') || {}).textContent : null,
+        toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+      };
+    });
+    check('§7.9 点击 Blame 提交定位 Git 历史并选中该提交: ' + JSON.stringify(jumped),
+      jumped.hasLog === true && jumped.selected === 'full-bbb2222'
+        && jumped.subject === 'fix: 真实提交二' && jumped.toast === null);
+    // 未加载的提交：就地说明而不是静默无反应（权威在此退回"受影响文件"对话框，Augit 用提示表达同一事实）。
+    await blameJump.page.evaluate(() => {
+      const row = document.querySelectorAll('.blame-document .blame-row')[0];
+      row.dataset.blameFull = 'ffffffffffffffffffffffffffffffffffffffff';
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await blameJump.page.waitForTimeout(600);
+    const unknownCommit = await blameJump.page.evaluate(() => ({
+      toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+      selected: (document.querySelector('.commit-row[aria-selected="true"]') || {}).dataset
+        ? document.querySelector('.commit-row[aria-selected="true"]').dataset.fullHash : null,
+      stateHash: window.__augitLive ? window.__augitLive.historySelectedHash || null : null,
+      hasLog: !!document.querySelector('.log-list-panel .commit-row'),
+    }));
+    check('§7.9 未加载的提交给出现场说明而不是静默无反应: ' + JSON.stringify(unknownCommit),
+      typeof unknownCommit.toast === 'string' && unknownCommit.toast.includes('不在当前加载的历史里')
+        && unknownCommit.hasLog === true);
+    await blameJump.page.close();
+
+    // ---- §7.9：从文件历史打开的 Blame，点击提交要恢复日志布局并解除旧文件路径限定 ----
+    // 场景用 `scene=blame`（编辑器由场景参数进入 blame 视图），再构造"来自文件历史"的上下文
+    // （`live.fileHistory` + 返回日志上下文），点击归属行后核对上下文被解除、日志恢复并选中目标提交。
+    const fhBlame = await openScene('scene=blame&theme=dark&blame=docs%2Fnotes.txt');
+    await fhBlame.page.waitForSelector('.blame-document .blame-row', { timeout: 10000 });
+    await fhBlame.page.evaluate(() => {
+      const live = window.__augitLive;
+      live.fileHistory = { path: 'docs/notes.txt' };
+      live.fileHistoryReturn = { hash: 'aaa1111', bottom: 'git', detailScroll: 0 };
+    });
+    const blameFhBefore = await fhBlame.page.evaluate(() => ({
+      fileHistory: !!(window.__augitLive && window.__augitLive.fileHistory),
+      path: window.__augitLive && window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
+    }));
+    await fhBlame.page.evaluate(() => {
+      const row = document.querySelectorAll('.blame-document .blame-row')[2];
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await fhBlame.page.waitForTimeout(900);
+    const blameFhAfter = await fhBlame.page.evaluate(() => {
+      const selected = document.querySelector('.commit-row[aria-selected="true"]');
+      return {
+        fileHistory: !!(window.__augitLive && window.__augitLive.fileHistory),
+        hasLog: !!document.querySelector('.log-list-panel .commit-row'),
+        selected: selected ? selected.dataset.fullHash : null,
+        activeTab: (document.querySelector('.bottom-tool .tool-tab.active') || {}).textContent || null,
+      };
+    });
+    check('§7.9 从文件历史打开的 Blame 点击提交恢复日志布局并解除路径限定: ' + JSON.stringify([blameFhBefore, blameFhAfter]),
+      blameFhBefore.fileHistory === true && blameFhBefore.path === 'docs/notes.txt'
+        && blameFhAfter.fileHistory === false && blameFhAfter.hasLog === true
+        && blameFhAfter.selected === 'full-bbb2222' && blameFhAfter.activeTab.includes('日志'));
+    await fhBlame.page.close();
 
     // ---- 文件历史 ----
     const fileHistory = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');

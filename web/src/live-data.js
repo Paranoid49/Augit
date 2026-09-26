@@ -2565,6 +2565,63 @@ document.addEventListener("click", (event) => {
 }, true);
 
 /**
+ * 点击归属行的提交 → 定位 Git 历史并选择对应提交（`ux-spec` §7.9）。
+ *
+ * 权威 `GitFileAnnotation.showAffectedPaths()`（`plugins/git4idea/backend/src/annotate/GitFileAnnotation.java:253-271`）：
+ * 注释槽的每个 aspect 都实现 `EditorGutterAction.doAction()` ⇒ 点击时若处于非模态且
+ * registry `vcs.blame.show.affected.files.in.log`（默认 **true**，`registry.properties:772`）为真，
+ * 就 `VcsLogNavigationUtil.jumpToRevisionAsync(project, root, hash, info.getFilePath())`
+ * —— 在日志里跳到该修订；否则退回"显示受影响文件"的对话框。Augit 采用前者。
+ *
+ * 映射用**完整提交哈希**（`ux-spec.md:493`）。日志里没有该提交时按权威"跳转失败"的同类口径
+ * 就地说明，而不是静默无反应。
+ */
+async function locateBlameCommit(fullHash) {
+  const live = window.__augitLive;
+  if (!live || typeof fullHash !== "string" || fullHash.length === 0) return false;
+  if (live.fileHistory) {
+    // 从文件历史进入的 Blame：恢复日志布局、解除旧文件路径限定与预览请求（`ux-spec.md:498`）。
+    // `clearHistoryPathFilter()` 会重绘整页；选中在它之后进行，且不主动聚焦（不抢焦点）。
+    await clearHistoryPathFilter();
+  }
+  // 点击提交的目标就是日志视图。**日志已经可见时不重绘**：区域刷新会按 `live.historySelectedHash`
+  // 重排选中态，而日志的单击选中只写在 DOM 上（`historySelectedHash` 只由文件历史返回上下文写），
+  // 因此在"目标提交不存在、只给提示"的路径上重绘会把用户当前的选中行重置成首行。
+  const layout = live.layout || {};
+  const logVisible = layout.bottom === "git" && layout.collapsed !== "bottom"
+    && !!document.querySelector(".log-list-panel .commit-list");
+  if (!logVisible || !live.history) {
+    live.layout = layout;
+    live.layout.userDriven = true;
+    live.layout.bottom = "git";
+    live.layout.collapsed = null;
+    if (!live.history) await loadHistory().catch(() => null);
+    refresh("bottomTool", "statusbar");
+  }
+  const commit = document.querySelector(`.commit-row[data-full-hash="${CSS.escape(fullHash)}"]`);
+  if (!commit) {
+    showToast({
+      title: "无法定位到该提交",
+      text: "该提交不在当前加载的历史里。",
+      kind: "error",
+    });
+    return false;
+  }
+  // 提交选择由 mockup 的既有绑定派发 `history-commit-selected`（与"定位到选中分支"同一入口）。
+  commit.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  commit.scrollIntoView({ block: "nearest" });
+  return true;
+}
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest && event.target.closest("[data-blame-action]")) return;
+  const row = event.target.closest && event.target.closest(".blame-document .blame-row");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  void locateBlameCommit(row.dataset.blameFull || row.dataset.blameCommit || "");
+}, true);
+
+/**
  * 文件系统变化轮询。
  * 宿主不主动推送，界面按固定间隔读取累积的变化并做局部刷新：
  * - `.git` 变化 -> 刷新 Git 状态与历史（对应 §12.2「外部改变当前文件后在
@@ -10960,6 +11017,11 @@ async function boot() {
       const selected = selectedCommitRow();
       const revision = selected && selected.dataset.fullHash ? selected.dataset.fullHash : null;
       if (!revision) return;
+      // 选中要写进状态：区域刷新会重建列表，只写在 DOM 上的选中会被重置成首行
+      //（规格 §6.4「刷新后提交选择不变」）。渲染按**短**哈希比较（`liveGitLog` 的 `isCommitSelected`），
+      // 提交详情仍按完整哈希读取。
+      const live = window.__augitLive;
+      if (live && selected.dataset.hash) live.historySelectedHash = selected.dataset.hash;
       // 提交详情是异步填充的，变化文件行要等它写进去之后才能跟随（规格 §7.8），
       // 因此只在同一次加载完成后触发跟随，不重复发起查询。
       void loadCommitDetails(revision)
