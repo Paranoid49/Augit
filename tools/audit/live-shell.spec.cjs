@@ -15343,6 +15343,179 @@ async function main() {
       && typeof detailScroll.afterRefresh.text === 'string'
       && detailScroll.afterRefresh.text.includes(refusedHint)
       && !detailScroll.afterRefresh.text.includes('feat: 真实提交一'));
+    // ---- 第 235 轮补断言（收 §7.8 第 5 条）：详情操作行的紧凑隐藏与焦点交接、
+    // 变化文件右键菜单的键盘入口与 Esc 焦点恢复 ----
+    // 实现位置：`mockup.js` 的 `bindHistoryDetails()` —— `arrange()` 用 canvas 真实度量算 `required`
+    // （`max(280, 提交详情 + 文件历史 + Blame + 30)`），`panel.clientWidth < required || panel.clientHeight < 150`
+    // 即隐藏操作行并把焦点交给变化文件列表；`files` 的 keydown 认 `ContextMenu`／`Shift+F10`。
+    const detailActions = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction(
+        'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
+      await scene.page.waitForFunction(() => {
+        const files = document.querySelector('.log-detail-panel .changed-files');
+        return !!files && !!files.querySelector('.file-status-modified, .file-status-added, .file-status-deleted');
+      }, null, { timeout: 15000 }).catch(() => {});
+      await scene.page.waitForTimeout(300);
+      const readActions = () => scene.page.evaluate(() => {
+        const panel = document.querySelector('.log-detail-panel');
+        const actions = document.querySelector('.history-detail-actions');
+        return {
+          width: Math.round(panel.clientWidth),
+          height: Math.round(panel.clientHeight),
+          hidden: actions ? actions.hidden : null,
+          reserved: panel.style.getPropertyValue('--detail-actions-height').trim() || null,
+          labels: actions ? [...actions.children].map((el) => el.textContent.trim()) : [],
+        };
+      });
+      const setBottom = (value) => scene.page.evaluate((size) => {
+        const root = document.documentElement;
+        if (size) root.style.setProperty('--augit-bottom-height', size);
+        else root.style.removeProperty('--augit-bottom-height');
+      }, value);
+      // 基线用**宽窗口**：`@media (max-width: 1180px)` 会把详情栏压到 190–210px（< required 280），
+      // 默认 1180 宽度下操作行本来就是收起的，拿它当"可见"基线会测反。
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(600);
+      const wide = await readActions();
+      // ① 高度不足（`--augit-bottom-height` 是真实拖拽写的同一个旋钮）
+      await setBottom('140px');
+      await scene.page.waitForTimeout(600);
+      const short = await readActions();
+      await setBottom(null);
+      await scene.page.waitForTimeout(600);
+      // ② 宽度不足：收窄到窄栏档
+      await scene.page.setViewportSize({ width: 1180, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const narrow = await readActions();
+      await scene.page.setViewportSize({ width: 1500, height: 760 });
+      await scene.page.waitForTimeout(700);
+      const restored = await readActions();
+      // ③ 焦点在操作行里时被收起 ⇒ 交接给变化文件列表
+      const focusedBefore = await scene.page.evaluate(() => {
+        const link = document.querySelectorAll('.history-detail-actions a')[1];
+        link.focus();
+        return document.activeElement === link;
+      });
+      await setBottom('140px');
+      await scene.page.waitForTimeout(700);
+      const handoff = await scene.page.evaluate(() => ({
+        inFiles: document.activeElement === document.querySelector('.log-detail-panel .changed-files'),
+        hidden: document.querySelector('.history-detail-actions').hidden,
+        active: document.activeElement ? (document.activeElement.className || document.activeElement.tagName) : null,
+      }));
+      await setBottom(null);
+      await scene.page.waitForTimeout(700);
+
+      // ④ 变化文件右键菜单的键盘入口（Shift+F10 与菜单键）、Esc 焦点恢复、只对文件行提供
+      const selectFirstFile = () => scene.page.evaluate(() => {
+        const files = document.querySelector('.log-detail-panel .changed-files');
+        const row = files.querySelector('.file-status-modified, .file-status-added, .file-status-deleted');
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        return {
+          selected: row.dataset.historyPath,
+          focused: document.activeElement === files,
+          comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+          // "打开菜单不打开比较"要落在**可观察的界面状态**上：活动底部工具标签与提交行数
+          //（`window.__augitLive.editor` 在日志场景里是 undefined，拿它比对会两边都 undefined 而空过）。
+          activeTab: (document.querySelector('.bottom-header .tool-tab.active') || {}).textContent || null,
+          logRows: document.querySelectorAll('.commit-row').length,
+        };
+      });
+      const beforeMenu = await selectFirstFile();
+      await scene.page.keyboard.press('Shift+F10');
+      await scene.page.waitForTimeout(400);
+      const viaShiftF10 = await scene.page.evaluate(() => {
+        const menu = document.querySelector('.history-files-menu');
+        return {
+          menus: document.querySelectorAll('.history-files-menu').length,
+          items: menu ? [...menu.querySelectorAll('.menu-item')].map((el) => el.textContent.trim()) : [],
+          focused: document.activeElement ? document.activeElement.textContent.trim() : null,
+          comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
+          activeTab: (document.querySelector('.bottom-header .tool-tab.active') || {}).textContent || null,
+          logRows: document.querySelectorAll('.commit-row').length,
+        };
+      });
+      await scene.page.keyboard.press('ArrowDown');
+      await scene.page.waitForTimeout(150);
+      const secondItem = await scene.page.evaluate(
+        () => (document.activeElement ? document.activeElement.textContent.trim() : null));
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      const afterEsc = await scene.page.evaluate(() => ({
+        menus: document.querySelectorAll('.history-files-menu').length,
+        inFiles: document.activeElement === document.querySelector('.log-detail-panel .changed-files'),
+      }));
+      // 菜单键（ContextMenu）走同一条路径
+      await scene.page.keyboard.press('ContextMenu');
+      await scene.page.waitForTimeout(400);
+      const viaContextMenu = await scene.page.evaluate(() => {
+        const menu = document.querySelector('.history-files-menu');
+        return {
+          menus: document.querySelectorAll('.history-files-menu').length,
+          items: menu ? [...menu.querySelectorAll('.menu-item')].map((el) => el.textContent.trim()) : [],
+          focused: document.activeElement ? document.activeElement.textContent.trim() : null,
+        };
+      });
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(250);
+      // 只对文件行提供：目录行右键不得出现菜单，也不得改动文件行选中
+      const folderMenu = await scene.page.evaluate(async () => {
+        const files = document.querySelector('.log-detail-panel .changed-files');
+        const selectedBefore = [...files.querySelectorAll('[data-history-path].selected')]
+          .map((row) => row.dataset.historyPath);
+        const folder = [...files.querySelectorAll('.tree-row')].find(
+          (row) => !row.dataset.historyPath && row.className.includes('depth-'));
+        if (!folder) return { missing: true };
+        folder.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 120,
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {
+          menus: document.querySelectorAll('.history-files-menu').length,
+          selectedBefore,
+          selectedAfter: [...files.querySelectorAll('[data-history-path].selected')]
+            .map((row) => row.dataset.historyPath),
+        };
+      });
+      await scene.page.close();
+      const payload = { wide, short, narrow, restored, focusedBefore, handoff, beforeMenu, viaShiftF10, secondItem,
+        afterEsc, viaContextMenu, folderMenu };
+      console.log('INFO 详情操作行与变化文件菜单=' + JSON.stringify(payload));
+      return payload;
+    })();
+    check('§7.8 详情操作行按字宽/高度分配，放不下时紧凑隐藏该行: '
+      + JSON.stringify([detailActions.wide, detailActions.short, detailActions.narrow, detailActions.restored]),
+    detailActions.wide.width >= 280 && detailActions.wide.hidden === false
+      && detailActions.wide.labels.join('|') === '提交详情|文件历史|Blame'
+      && detailActions.wide.reserved === 'var(--augit-history-tab-height, 24px)'
+      && detailActions.short.height < 150 && detailActions.short.hidden === true
+      && detailActions.short.reserved === '0px'
+      && detailActions.narrow.width < 280 && detailActions.narrow.hidden === true
+      && detailActions.restored.hidden === false && detailActions.restored.width >= 280);
+    check('§7.8 操作行被收起时焦点交给变化文件列表: '
+      + JSON.stringify([detailActions.focusedBefore, detailActions.handoff]),
+    detailActions.focusedBefore === true && detailActions.handoff.hidden === true
+      && detailActions.handoff.inFiles === true);
+    check('§7.8 变化文件菜单支持 Shift+F10 与菜单键、Esc 关菜单并恢复列表焦点、只对文件行提供: '
+      + JSON.stringify([detailActions.beforeMenu, detailActions.viaShiftF10, detailActions.secondItem,
+        detailActions.afterEsc, detailActions.viaContextMenu, detailActions.folderMenu]),
+    detailActions.beforeMenu.focused === true
+      && typeof detailActions.beforeMenu.selected === 'string' && detailActions.beforeMenu.selected.length > 0
+      && detailActions.viaShiftF10.menus === 1
+      && detailActions.viaShiftF10.items.join('|') === '显示 Diff|文件历史|Blame'
+      && detailActions.viaShiftF10.focused === '显示 Diff'
+      && detailActions.viaShiftF10.comparisons === detailActions.beforeMenu.comparisons
+      && detailActions.viaShiftF10.activeTab === detailActions.beforeMenu.activeTab
+      && typeof detailActions.viaShiftF10.activeTab === 'string'
+      && detailActions.viaShiftF10.logRows === detailActions.beforeMenu.logRows
+      && detailActions.secondItem === '文件历史'
+      && detailActions.afterEsc.menus === 0 && detailActions.afterEsc.inFiles === true
+      && detailActions.viaContextMenu.menus === 1 && detailActions.viaContextMenu.focused === '显示 Diff'
+      && detailActions.folderMenu.menus === 0
+      && detailActions.folderMenu.selectedBefore.length > 0
+      && detailActions.folderMenu.selectedAfter.join('|') === detailActions.folderMenu.selectedBefore.join('|'));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
