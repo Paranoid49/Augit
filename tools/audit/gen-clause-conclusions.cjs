@@ -43,11 +43,14 @@ for (let i = 0; i < secs.length - 1; i++) {
   const body = doc.slice(secs[i].at, secs[i + 1].at);
   for (const line of body.split('\n')) {
     const t = line.trim();
-    const r = /^\| (?:\d+ \| )?(§[\d.]+) \| (.*?) \| (是|部分|未覆盖) \| (.*) \|$/.exec(t);
+    const r = /^\| (?:\d+ \| )?(§[\d.]+) \| (.*?) \| (是|部分|未覆盖|不适用) \| (.*) \|$/.exec(t);
     if (!r || r[3] === '是') continue;
     const missing = r[4];
     let kind, next;
-    if (r[3] === '未覆盖') { kind = 'C 未覆盖（无断言也无观察）'; next = '补断言或明确不做（需用户裁决）'; }
+    // 第 225 轮起允许"不适用"：权威里有、Augit 按产品边界不实现的界面/能力。
+    // 它既不是"待补断言"，也不能悄悄从分母里消失，因此单列一类。
+    if (r[3] === '不适用') { kind = 'E 不适用（Augit 无该界面/能力，按产品边界不实现）'; next = '已在归类总表 §6 登记，不需补断言（需用户认可）'; }
+    else if (r[3] === '未覆盖') { kind = 'C 未覆盖（无断言也无观察）'; next = '补断言或明确不做（需用户裁决）'; }
     else if (/没有断言|未单独断言|没有单独断言/.test(missing)) { kind = 'A 实现已有、仅缺断言'; next = '补 harness 断言 → 可转"是"'; }
     else if (/像素|间接/.test(missing)) { kind = 'B 只有像素或间接证据'; next = '把像素/间接证据升级为可复跑断言'; }
     else { kind = 'D 其它部分覆盖'; next = '定位子条件后补断言'; }

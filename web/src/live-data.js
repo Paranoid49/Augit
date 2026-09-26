@@ -4683,6 +4683,13 @@ function syncActiveTab() {
   scheduleSessionPersist();
   const tab = live.tabs.find((item) => item.id === live.activeTabId) || null;
   live.activeTab = tab;
+  // Markdown 预览的加载/失败提示只属于"当时显示的那个文档"：切到别的标签（或没有标签）就清掉，
+  // 否则提示与「点预览重试」的入口会跟到另一个文件的预览上（规格 §7.3 的提示只对当前预览）。
+  const previewState = live.markdownPreview;
+  if (previewState && previewState.path
+      && (!tab || tab.kind !== "document" || tab.path !== previewState.path)) {
+    live.markdownPreview = null;
+  }
   if (tab && tab.kind === "document") {
     live.document = tab.document;
     live.editor = tab.editor;
@@ -11575,6 +11582,27 @@ document.addEventListener("keydown", (event) => {
   activateTreeRow(row);
 }, true);
 
+/**
+ * 预览失败后"再次点击预览重试"（规格 §7.3）。预览区里的 `<article class="markdown-preview">`
+ * 本身可聚焦（`tabindex="0"`），因此同时接受点击与 Enter/Space —— 键盘用户与鼠标用户走同一条路径。
+ */
+function retryMarkdownPreview(event) {
+  const live = window.__augitLive;
+  if (!live || !live.markdownPreview || live.markdownPreview.state !== "failure") return;
+  const preview = event.target && event.target.closest && event.target.closest(".markdown-preview");
+  if (!preview) return;
+  const path = live.markdownPreview.retryPath;
+  if (!path) return;
+  event.preventDefault();
+  void openDocument(path);
+}
+
+document.addEventListener("click", retryMarkdownPreview, true);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  retryMarkdownPreview(event);
+}, true);
+
 /** 把宿主返回的文档结果整理成界面需要的形状。 */
 function toLiveDocument(payload) {
   const kind = payload.kind || "Text";
@@ -11630,6 +11658,51 @@ function toLiveDocument(payload) {
 }
 
 /**
+ * Markdown 预览的局部状态（规格 §7.3）：`live.markdownPreview` = `{state, reason, retryPath}`。
+ * 只服务**已经显示着 Markdown 文档**时的两种状态：
+ *   `loading` —— 下一次读取仍在途且已超过 `LoadingFeedbackDelay`（150ms）；
+ *   `failure` —— 读取失败：保留原文与旧预览，在预览区顶部给出原因，点预览重试。
+ * 状态是会话数据（`live`），DOM 只按它渲染；`syncMarkdownPreviewState()` 是**不重绘正文**的局部同步，
+ * 这样 150ms 提示不会把原文滚动位置与对照比例冲掉。
+ */
+let markdownPreviewHintTimer = null;
+
+function isMarkdownDocumentVisible() {
+  const live = window.__augitLive;
+  return !!(live && live.document && live.document.editor === "markdown");
+}
+
+function syncMarkdownPreviewState() {
+  const view = document.querySelector(".markdown-document");
+  if (!view) return;
+  const state = window.__augitLive && window.__augitLive.markdownPreview;
+  const value = state && (state.state === "loading" || state.state === "failure") ? state.state : "ready";
+  view.dataset.markdownState = value;
+  view.dataset.markdownReason = value === "failure" ? String(state.reason || "") : "";
+  // 只重跑 Markdown 绑定（`mockup.js` 的 `bindMarkdownModes` 会先释放上一次绑定）：
+  // 反馈文案与"失败时可点预览重试"的语义都由它统一处理，不在这里复制一份文案。
+  if (typeof window.__augitBindMarkdown === "function") window.__augitBindMarkdown();
+}
+
+/** 读取在途超过 150ms 才给提示（规格 §7.3）；读取结束时由 `openDocument` 取消。 */
+function scheduleMarkdownPreviewHint(token) {
+  clearTimeout(markdownPreviewHintTimer);
+  markdownPreviewHintTimer = null;
+  if (!isMarkdownDocumentVisible()) return;
+  markdownPreviewHintTimer = setTimeout(() => {
+    markdownPreviewHintTimer = null;
+    if (token !== documentToken) return;
+    if (!isMarkdownDocumentVisible()) return;
+    const live = window.__augitLive;
+    if (!live || !live.pendingDocument) return;
+    // 记下"提示属于哪个文档"：切到别的标签时由 `syncActiveTab()` 清掉，
+    // 否则提示（以及失败态的重试入口）会跟到另一个文件的预览上。
+    live.markdownPreview = { state: "loading", path: live.document ? live.document.path : null };
+    syncMarkdownPreviewState();
+  }, LoadingFeedbackDelay);
+}
+
+/**
  * 大文件只读预览的警告是否已隐藏。
  *
  * 权威的两个动作用两处状态：`HIDDEN_KEY` 记在**编辑器**上（本次打开内隐藏）、
@@ -11662,6 +11735,9 @@ async function openDocument(path, options = {}) {
   // 规格 §4.1 第 121/123 行：读取尚未完成时状态栏要显示"本次打开的路径"并给"只读"标识。
   live.pendingDocument = path;
   applyPendingDocumentStatus();
+  // 规格 §7.3：预览加载期间保留原文或上一次预览，**只在预览侧**显示局部加载状态；
+  // 短读取（<150ms）不闪提示。
+  scheduleMarkdownPreviewHint(token);
   try {
     const payload = await fetchDocument(path);
     // 令牌检查必须在写入任何状态之前：快速连续打开时，
@@ -11681,6 +11757,9 @@ async function openDocument(path, options = {}) {
       open: Math.round(performance.now() - started),
     });
     live.pendingDocument = null;
+    clearTimeout(markdownPreviewHintTimer);
+    markdownPreviewHintTimer = null;
+    live.markdownPreview = null;
     refresh("statusbar");
   } catch (error) {
     // 失败路径也必须清掉"读取中"状态，否则状态栏会**卡在**"只读 + 待打开路径"上（成功路径已清）。
@@ -11701,9 +11780,26 @@ async function openDocument(path, options = {}) {
       return;
     }
 
-    // 其它读取失败：不留下半截文档，清空并记录原因，界面回退到「无文档」状态。
+    clearTimeout(markdownPreviewHintTimer);
+    markdownPreviewHintTimer = null;
+    // 规格 §7.3：失败提示给出**当前原因**，且"原文或旧预览继续可见，用户可再次点击预览重试"。
+    // 这一条只对**已经显示着 Markdown 文档**的正文成立（提示挂在预览区顶部）；其它情况保持
+    // 原有行为：不留下半截文档，清空并记录原因，界面回退到「无文档」状态。
+    if (isMarkdownDocumentVisible()) {
+      live.markdownPreview = {
+        state: "failure",
+        // `path` 是**当时显示的那个文档**（提示与旧预览属于它）；`retryPath` 是失败的那次读取。
+        path: live.document ? live.document.path : null,
+        reason: String((error && error.message) || error || "文件读取失败。"),
+        retryPath: path,
+      };
+      window.__augitError = "open-document:" + String((error && error.message) || error);
+      syncMarkdownPreviewState();
+      return;
+    }
     window.__augitError = "open-document:" + String(error && error.message || error);
     live.document = null;
+    live.markdownPreview = null;
     refresh("editorContent", "editorTabs", "statusbar", "titlebar");
     return;
   }

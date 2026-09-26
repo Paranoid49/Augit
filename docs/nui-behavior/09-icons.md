@@ -7063,8 +7063,57 @@ Shell 谁都不再引用（不会被 `terminal/stop` 释放）。这正是第 3 
   `live-shell.spec.cjs` `95253c84…` → **`31c74cc80b3cda807ce2ca33df027c01`**；
   `mockup.css`（`b30cda95…`）与 `bridge.js`（`8d2d3173…`）本轮未变。
 
+## ducentum-viginti-quinque. 第二百二十五轮：Markdown 预览的加载/失败状态（T6 的两条 §7.3 项关闭）
+
+`ui-compliance.md` §2.10 的 C 类剩 3 条，本轮处理其中两条（`§7.3` 第 6/12 条）：
+预览加载期间保留原文或上一次预览、只在预览侧显示局部加载状态；加载超 150ms 给紧凑提示；
+失败给原因且"用户可再次点击预览重试"。
+
+### 落地前的现状
+
+- 实时侧的 Markdown 预览是**同步**的：`toLiveDocument()` 里 `renderMarkdown(payload.text)` 与文档读取同帧完成，
+  因此参考实现里"预览渲染"的异步阶段在 Augit 没有对应物；异步的是**文档读取**（`openDocument()`）。
+- 视觉稿早就有这两个状态：`markdownDocument()`（静态）从 `?markdown-state=` 渲染
+  `data-markdown-state`，`bindMarkdownModes()` 按它写 `.markdown-feedback` 文案；
+  但实时侧 `liveMarkdownDocument()` 把它**硬编码成 `ready`**，从不驱动。
+- `openDocument()` 成功时**不提前清空** `live.document` ⇒ "原文或上一次预览继续可见"这一半本来已经成立。
+
+### 落地
+
+| 位置 | 改动 |
+| --- | --- |
+| `web/src/live-data.js` | 新增会话状态 `live.markdownPreview = {state, reason, retryPath}`；`openDocument()` 挂表时按 `LoadingFeedbackDelay`（150ms，与差异/搜索同一常量）排一个提示计时器，读取结束（成功/失败/代际失效）即取消；失败且**当前显示着 Markdown 文档**时保留原文与旧预览、把宿主原因写进状态并 `syncMarkdownPreviewState()`；点预览或 Enter/Space 触发 `retryMarkdownPreview()` 重试读取 |
+| `web/src/mockup.js` | `liveMarkdownDocument()` 按 `live.markdownPreview` 渲染 `data-markdown-state`／`data-markdown-reason`；`bindMarkdownModes()` 的失败文案在有原因时写 `预览失败：<原因> 点击预览重试。`，没有原因（静态视觉稿）时沿用基线文案；导出 `window.__augitBindMarkdown` 供实时侧做**局部同步** |
+| `tools/audit/live-shell.spec.cjs` | 新增 2 条断言（`§7.3 预览读取超 150ms 才在预览区给提示且原文/旧预览保留`、`§7.3 预览失败给原因、原文/旧预览保留且可点预览重试`） |
+
+局部同步刻意**不重绘正文**：`refresh("editorContent")` 会换掉节点、冲掉原文滚动位置与对照比例
+（`bindMarkdownModes` 的 `positions` 也随绑定重建），与 §7.3"模式切换不丢失各自滚动位置"相冲突。
+
+### 验证
+
+- `live-shell` **`通过 1239 项断言`**（1237 → **+2**，退出码 0）：80ms 时 `state=ready` 且无提示、
+  约 340ms 时 `state=loading` 且提示为「正在生成 Markdown 预览…」而**上一个文档的预览仍在**、
+  读取完成后新文档就绪且提示清空；失败时状态为 `failure`、提示为
+  `预览失败：not found: docs/spec.md 点击预览重试。`、**文档不切换**且无可编辑控件，
+  点预览后重试成功切到目标文档。
+- `verify-ux-markdown`（6 组三模式 + 2 组拖动边界）、`mockup-scenes` **55/55 场景**、`check-diff-inline`、
+  `verify-ui-assets.ps1`、`check-doc-claims` 全绿。
+- 登记哈希（第 225 轮）：`mockup.js` `53bff6e9…` → **`4265f7be1430494dd41c4c98102ba31f`**、
+  `live-data.js` `e4e42c96…` → **`fa143e529bb664cfca3aa616b20bd3d1`**、
+  `live-shell.spec.cjs` `31c74cc8…` → **`cdacdc6ecfe74e8370a38f9a0d45c766`**；
+  `mockup.css`（`b30cda95…`）与 `bridge.js`（`8d2d3173…`）本轮未变。
+
+### 同轮：§7.9 #23 改标"不适用"，生成器新增 E 类
+
+`ui-compliance.md` §2.6 第 23 条（"比较对话框只列出分支、标签和提交，不显示平台 API 对象"）
+此前记 `未覆盖`、理由写明"该对话框本身未实现（§3.2 已记为当前产品面不可达）"。本轮按**产品边界**改标
+**不适用**：Augit 选比较目标用引用树（「与当前分支比较」/「比较分支」）＋日志筛选，不提供该对话框
+（与 §3.10"产品无能力，按边界不新增"同口径）。`gen-clause-conclusions.cjs` 随之新增
+**E 不适用（Augit 无该界面/能力，按产品边界不实现）** 类别，§2.10 重算为
+A 78／B 3／C **2**／D 16／E 1；随后 §7.3 第 6/12 条两行也由 `未覆盖` 转 **是**（各有新断言，见下"验证"）⇒ **C 类 0、分母 100 → 98**；同时删掉 §2.0 摘要里手写的旧分类计数（99/4/10/25）——
+它们在第 224 轮改 §7.7 注记后已经漂移，而第 101 轮就定过"数字只在 §2.10 给"的口径。
+
 ### 下一轮
 
-归类总表 §7 剩余：T3（操作进度条）、T6（§2.10 C 类 **3** 条：`§7.3` Markdown 加载态 2 条 +
-"产品面不可达" 1 条）、T10（中间栏"变更连接区"：权威 `DiffDividerDrawUtil` 的取色/几何已读到，
+归类总表 §7 剩余：T3（操作进度条）、T10（中间栏"变更连接区"：权威 `DiffDividerDrawUtil` 的取色/几何已读到，
 但"行号列自身被填充"那一半未定位到绘制者 ⇒ 需产品口径：实现或登记有意差异）。

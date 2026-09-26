@@ -3948,6 +3948,95 @@ async function main() {
         && mdRelativeOpen.hash === '');
     await mdScene.page.close();
 
+    // ---- §7.3 第 6/12 条：预览加载态（>150ms 才在预览区给提示、旧预览保留）与失败给原因可点重试 ----
+    // 规格：预览加载期间保留原文或上一次预览、只在预览侧显示局部加载状态；加载超过 150ms 才给紧凑提示；
+    // 失败提示给出当前原因、用户可再次点击预览重试。
+    const mdPreviewState = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      const read = () => scene.page.evaluate(() => {
+        const view = document.querySelector('.markdown-document');
+        const feedback = document.querySelector('.markdown-document .markdown-feedback');
+        const preview = document.querySelector('.markdown-document .markdown-preview');
+        const source = document.querySelector('.markdown-document .markdown-source');
+        const text = preview ? preview.textContent : '';
+        return {
+          docPath: window.__augitLive.document ? window.__augitLive.document.path : null,
+          state: view ? view.dataset.markdownState : null,
+          hint: feedback ? feedback.textContent : null,
+          pending: !!window.__augitLive.pendingDocument,
+          previewHasSpec: text.includes('规格标题'),
+          previewHasGuide: text.includes('指南标题'),
+          // "原文或旧预览继续可见"：原文区与预览区都还在（不是无文档空态）。
+          sourceVisible: !!source && source.textContent.includes('规格段落') || !!source && source.textContent.includes('指南段落'),
+          editable: document.querySelectorAll('.markdown-document [contenteditable="true"], .markdown-document textarea').length,
+        };
+      });
+      await scene.page.evaluate(async () => {
+        window.__limitDocs = {
+          'docs/spec.md': {
+            path: 'docs/spec.md', name: 'spec.md', fullPath: 'D:\\live-ws\\docs\\spec.md',
+            workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+            fileSize: 24, text: '# 规格标题\n\n规格段落。\n', lineEndings: 'LF', encoding: 'UTF-8',
+          },
+          'docs/guide.md': {
+            path: 'docs/guide.md', name: 'guide.md', fullPath: 'D:\\live-ws\\docs\\guide.md',
+            workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+            fileSize: 24, text: '# 指南标题\n\n指南段落。\n', lineEndings: 'LF', encoding: 'UTF-8',
+          },
+        };
+        await window.__augitOpenDocument('docs/spec.md');
+        window.__augitRender();
+        await new Promise((r) => setTimeout(r, 300));
+      });
+      const before = await read();
+      // 慢读另一个 Markdown：150ms 之前不闪提示，之后在预览区顶部给提示而**旧预览继续可见**。
+      await scene.page.evaluate(() => { window.__readDelays = { 'docs/guide.md': 900 }; });
+      const slow = scene.page.evaluate(() => window.__augitOpenDocument('docs/guide.md'));
+      await scene.page.waitForTimeout(80);
+      const early = await read();
+      await scene.page.waitForTimeout(260);
+      const during = await read();
+      await slow;
+      await scene.page.waitForTimeout(500);
+      const loaded = await read();
+      // 失败：读另一个 Markdown 失败 —— 保留当前原文与旧预览、在预览区给出原因与重试入口。
+      await scene.page.evaluate(() => { window.__readDelays = {}; window.__failReads = { 'docs/spec.md': true }; });
+      await scene.page.evaluate(() => window.__augitOpenDocument('docs/spec.md'));
+      await scene.page.waitForTimeout(300);
+      const failed = await read();
+      // 点预览重试（先解除注入的失败）。
+      await scene.page.evaluate(() => { window.__failReads = {}; });
+      await scene.page.locator('.markdown-document .markdown-preview').click();
+      await scene.page.waitForTimeout(600);
+      const retried = await read();
+      await scene.page.close();
+      console.log('INFO Markdown 预览状态=' + JSON.stringify({ before, early, during, loaded, failed, retried }));
+      return { before, early, during, loaded, failed, retried };
+    })();
+    check('§7.3 预览读取超 150ms 才在预览区给提示且原文/旧预览保留: ' + JSON.stringify({
+      before: mdPreviewState.before.state, early: mdPreviewState.early, during: mdPreviewState.during,
+    }),
+    mdPreviewState.before.state === 'ready' && mdPreviewState.before.previewHasSpec === true
+      && mdPreviewState.early.state === 'ready' && mdPreviewState.early.pending === true
+      && mdPreviewState.early.hint === ''
+      && mdPreviewState.during.state === 'loading'
+      && mdPreviewState.during.hint === '正在生成 Markdown 预览…'
+      // "只在预览侧显示局部加载状态"：提示挂在预览区顶部，原文与旧预览都还在、且仍只读。
+      && mdPreviewState.during.previewHasSpec === true && mdPreviewState.during.previewHasGuide === false
+      && mdPreviewState.during.sourceVisible === true && mdPreviewState.during.editable === 0
+      && mdPreviewState.loaded.state === 'ready' && mdPreviewState.loaded.hint === ''
+      && mdPreviewState.loaded.docPath === 'docs/guide.md' && mdPreviewState.loaded.previewHasGuide === true);
+    check('§7.3 预览失败给原因、原文/旧预览保留且可点预览重试: ' + JSON.stringify(mdPreviewState.failed),
+    mdPreviewState.failed.state === 'failure'
+      && typeof mdPreviewState.failed.hint === 'string' && mdPreviewState.failed.hint.startsWith('预览失败：')
+      && mdPreviewState.failed.hint.includes('not found: docs/spec.md') && mdPreviewState.failed.hint.includes('点击预览重试')
+      // 失败不换文档：README/指南 的正文与预览都还在，且没有变成可编辑控件。
+      && mdPreviewState.failed.docPath === 'docs/guide.md' && mdPreviewState.failed.previewHasGuide === true
+      && mdPreviewState.failed.editable === 0
+      && mdPreviewState.retried.state === 'ready' && mdPreviewState.retried.hint === ''
+      && mdPreviewState.retried.docPath === 'docs/spec.md' && mdPreviewState.retried.previewHasSpec === true);
+
     // ---- 显式文档参数优先于会话恢复（第 229 轮修复的防回归断言）----
     // restoreSession 是 fire-and-forget，会晚于 --open/--blame/... 落地并激活恢复集合里的文件；
     // 实测 `--blame docs/product-spec.md` 时 blame 标签排在首位却不是活动标签。

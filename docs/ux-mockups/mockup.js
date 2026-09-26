@@ -2798,7 +2798,13 @@ function bindMarkdownModes() {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { setRatio(ratio + (event.key === 'ArrowLeft' ? -.02 : .02)); event.preventDefault(); }
   });
   const feedback = view.querySelector('.markdown-feedback');
-  feedback.textContent = view.dataset.markdownState === 'loading' ? '正在生成 Markdown 预览…' : view.dataset.markdownState === 'failure' ? '预览失败：文件读取失败。' : '';
+  // 规格 §7.3：失败提示给出**当前原因**并可点击预览重试；原因由实时外壳写在
+  // `data-markdown-reason` 上，没有它（静态视觉稿）时沿用基线文案。
+  const failureReason = (view.dataset.markdownReason || '').trim();
+  feedback.textContent = view.dataset.markdownState === 'loading' ? '正在生成 Markdown 预览…'
+    : view.dataset.markdownState === 'failure'
+      ? (failureReason ? `预览失败：${failureReason} 点击预览重试。` : '预览失败：文件读取失败。')
+      : '';
   on(view.querySelector('.markdown-preview a[href^="#"]'), 'click', event => {
     event.preventDefault();
     preview.scrollTo(0, preview.querySelector('#section-0').offsetTop - preview.offsetTop - 24);
@@ -2901,12 +2907,26 @@ function currentFindBox() {
   return `<div class="current-find"><input class="search-field" value="" aria-label="当前文件查找" placeholder="查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式">${icon("regex")}</button><span class="find-status"></span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>`;
 }
 
+/**
+ * Markdown 预览状态（规格 §7.3）：实时外壳把"读取在途 >150ms"与"读取失败"记在
+ * `live.markdownPreview` 上；没有该状态时（静态视觉稿、正常态）是 `ready`。
+ * 只读、不写 DOM —— 渲染与"局部更新"两条路径都取同一份状态。
+ */
+function readMarkdownPreviewState() {
+  const state = window.__augitLive && window.__augitLive.markdownPreview;
+  const value = state && (state.state === "loading" || state.state === "failure") ? state.state : "ready";
+  return { state: value, reason: value === "failure" ? String(state.reason || "") : "" };
+}
+
 function liveMarkdownDocument(mode) {
   const document_ = liveDocument();
   const toolbar = `<div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes">${[['source','原文','document-source'],['split','左右对照','document-split'],['preview','预览','document-preview']].map(([value,label,glyph]) => `<button class="segment" data-markdown-mode="${value}" aria-label="${label}">${icon(glyph)}</button>`).join('')}</div><button class="icon-button" aria-label="更多">${icon('ellipsis-vertical')}</button></div>`;
   const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Markdown 只读原文">${liveLineViews(document_.text)}</div>`;
   const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown 预览正文">${document_.preview || ""}</article>`;
-  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="ready">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
+  // 预览状态（规格 §7.3：加载超 150ms 在预览区顶部给紧凑提示、失败给原因并可点预览重试）：
+  // 状态放在 `live.markdownPreview`，这里只按状态渲染，避免"把状态写进 DOM 再读回来"。
+  const markdownState = readMarkdownPreviewState();
+  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="${markdownState.state}" data-markdown-reason="${escapeHtml(markdownState.reason)}">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
 }
 
 function liveJsonDocument() {
@@ -5794,6 +5814,9 @@ window.__augitFolderIcon = treeFolderIcon;
 window.__augitFileIcon = fileTypeIcon;
 window.__augitHistoryFiles = historyFilesHtml;
 window.__augitBind = bindInteractions;
+// 只重跑 Markdown 绑定（它自己会先释放上一次绑定）：实时侧在**不重绘正文**的前提下更新
+// 预览区顶部的提示文案时用它，避免 150ms 提示把原文滚动位置与对照比例冲掉（规格 §7.3）。
+window.__augitBindMarkdown = bindMarkdownModes;
 
 if (app) {
   app.innerHTML = renderScene();
