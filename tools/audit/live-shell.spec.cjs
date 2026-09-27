@@ -5948,6 +5948,131 @@ async function main() {
       && conflictKeepAfter.anchorOffset === conflictKeepBefore.anchorOffset);
     await conflictKeepPage.page.close();
 
+    // ---- 规格 §7.16 第 2、5 条：启动中标题与入口可用、启动完成不覆盖用户选择、调整面板不重建 Shell ----
+    const terminalBoot = await openScene('scene=main-project&theme=dark');
+    await terminalBoot.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await terminalBoot.page.waitForTimeout(500);
+    await terminalBoot.page.evaluate(() => {
+      window.__terminalCalls = [];
+      window.__terminalStartDelayMs = 900;   // 让 terminal/start 处于在途，才看得到"正在启动…"
+    });
+    await terminalBoot.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    // 等标题出现"正在启动…"（而不是直接等 ready）。
+    await terminalBoot.page.waitForFunction(
+      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('正在启动'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    const terminalStarting = await terminalBoot.page.evaluate(() => {
+      const label = document.querySelector('.terminal-session');
+      const hide = document.querySelector('.terminal-tool [aria-label="隐藏终端"]');
+      const close = document.querySelector('.terminal-tool [aria-label="关闭终端"]');
+      return {
+        title: label ? label.textContent.trim() : null,
+        titleAttr: label ? label.getAttribute('title') : null,
+        // 加载期间隐藏/关闭入口必须可用（不是禁用态）
+        hideDisabled: hide ? (hide.disabled || hide.getAttribute('aria-disabled') === 'true') : null,
+        closeDisabled: close ? (close.disabled || close.getAttribute('aria-disabled') === 'true') : null,
+        ready: !!window.__augitTerminalReady,
+      };
+    });
+    await terminalBoot.page.waitForFunction('window.__augitTerminalReady === true', null, { timeout: 15000 });
+    await terminalBoot.page.waitForTimeout(400);
+    const terminalReadyState = await terminalBoot.page.evaluate(() => {
+      const label = document.querySelector('.terminal-session');
+      return {
+        title: label ? label.textContent.trim() : null,
+        shell: window.__augitTerminalShell || null,
+        suffix: label ? label.textContent.includes('正在启动') : null,
+      };
+    });
+    check('§7.16 打开后立即显示"Shell 名称 · 正在启动…"且加载期间隐藏/关闭可用: '
+      + JSON.stringify([terminalStarting, terminalReadyState]),
+    // 启动中：标题带后缀、提示属性同步、隐藏/关闭都可用、尚未 ready
+    terminalStarting.ready === false
+      && terminalStarting.title === 'Windows PowerShell · 正在启动…'
+      && terminalStarting.titleAttr === terminalStarting.title
+      && terminalStarting.hideDisabled === false && terminalStarting.closeDisabled === false
+      // 就绪后：后缀去掉，标题是宿主返回的真实 Shell 名
+      && terminalReadyState.suffix === false && terminalReadyState.title === terminalReadyState.shell);
+    await terminalBoot.page.close();
+
+    // 启动完成不覆盖用户选择：启动期间隐藏终端 → 完成后仍保持收起、不重新显示，会话照常建立。
+    const terminalHide = await openScene('scene=main-project&theme=dark');
+    await terminalHide.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await terminalHide.page.waitForTimeout(500);
+    await terminalHide.page.evaluate(() => {
+      window.__terminalCalls = [];
+      window.__terminalStartDelayMs = 900;
+    });
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await terminalHide.page.waitForFunction(
+      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('正在启动'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    await terminalHide.page.locator('.terminal-tool [aria-label="隐藏终端"]').click();
+    await terminalHide.page.waitForTimeout(1800);
+    const terminalHidden = await terminalHide.page.evaluate(() => ({
+      ready: !!window.__augitTerminalReady,
+      collapsed: window.__augitLive.layout.collapsed,
+      bottom: window.__augitLive.layout.bottom,
+      toolInDom: !!document.querySelector('.terminal-tool'),
+      starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+    }));
+    check('§7.16 启动期间隐藏终端后完成不重新显示（会话仍建立）: ' + JSON.stringify(terminalHidden),
+      terminalHidden.ready === true && terminalHidden.collapsed === 'bottom'
+        && terminalHidden.bottom === 'terminal' && terminalHidden.toolInDom === false
+        && terminalHidden.starts === 1);
+    // 启动期间切到 Git 历史：完成后也不得抢回底部区域。
+    await terminalHide.page.evaluate(() => {
+      window.__terminalCalls = [];
+      window.__terminalStartDelayMs = 900;
+    });
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();   // 恢复终端面板
+    await terminalHide.page.waitForFunction(
+      "() => { const n = document.querySelector('.terminal-session'); return !!n; }",
+      null, { timeout: 10000 }).catch(() => {});
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await terminalHide.page.waitForTimeout(1800);
+    const terminalSwitched = await terminalHide.page.evaluate(() => ({
+      bottom: window.__augitLive.layout.bottom,
+      collapsed: window.__augitLive.layout.collapsed,
+      terminalToolInDom: !!document.querySelector('.terminal-tool'),
+      ready: !!window.__augitTerminalReady,
+    }));
+    check('§7.16 启动期间切到 Git 历史后完成不抢回底部区域: ' + JSON.stringify(terminalSwitched),
+      terminalSwitched.bottom === 'git' && terminalSwitched.terminalToolInDom === false);
+    await terminalHide.page.close();
+
+    // 调整面板大小不重新创建 Shell：同一个 xterm 节点、terminal/start 仍只有 1 次。
+    const terminalResize = await openScene('scene=main-project&theme=dark');
+    await terminalResize.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await terminalResize.page.waitForTimeout(500);
+    await terminalResize.page.evaluate(() => { window.__terminalCalls = []; });
+    await terminalResize.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await terminalResize.page.waitForFunction('window.__augitTerminalReady === true', null, { timeout: 15000 });
+    await terminalResize.page.waitForTimeout(500);
+    await terminalResize.page.evaluate(() => {
+      window.__xtermNode = document.querySelector('.terminal-view .xterm');
+      window.__terminalStartsBefore = (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length;
+    });
+    await terminalResize.page.setViewportSize({ width: 900, height: 600 });
+    await terminalResize.page.waitForTimeout(700);
+    const terminalResizedOnce = await terminalResize.page.evaluate(() => ({
+      sameNode: window.__xtermNode === document.querySelector('.terminal-view .xterm'),
+      starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+      startsBefore: window.__terminalStartsBefore,
+      bottom: window.__augitLive.layout.bottom,
+    }));
+    await terminalResize.page.setViewportSize({ width: 1180, height: 760 });
+    await terminalResize.page.waitForTimeout(700);
+    const terminalResizedTwice = await terminalResize.page.evaluate(() => ({
+      sameNode: window.__xtermNode === document.querySelector('.terminal-view .xterm'),
+      starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
+    }));
+    check('§7.16 调整面板大小不重新创建 Shell: ' + JSON.stringify([terminalResizedOnce, terminalResizedTwice]),
+      terminalResizedOnce.startsBefore === 1 && terminalResizedOnce.bottom === 'terminal'
+        && terminalResizedOnce.sameNode === true && terminalResizedOnce.starts === 1
+        && terminalResizedTwice.sameNode === true && terminalResizedTwice.starts === 1);
+    await terminalResize.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

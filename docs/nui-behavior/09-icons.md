@@ -10011,3 +10011,59 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 **§7.14 全节 11 行已无"部分"**；转 §7.16（终端）与其它 §7 模块。
+
+## octoginta. 第二百八十轮：终端的"正在启动…"标题、启动完成不覆盖用户选择、调整面板不重建 Shell（§7.16 第 2、5、11 条收口）
+
+### 第 2 条：启动中标题（修掉一处真实缺口）
+
+实时终端标题由 `terminalTool()` 静态渲染成固定的 `Windows PowerShell`，**启动期间没有**
+" · 正在启动…"后缀（实测 `during.sessionText === "Windows PowerShell"` 而 `ready:false`），
+与规格"打开后立即显示标题与'Shell 名称 · 正在启动…'"不符。
+
+修法：新增 `live.terminalStarting` 状态 + `applyTerminalStartState()` —— 只改 `.terminal-session`
+的文本/`title` 并重新量一次会话名宽度，**不刷新 bottomTool 区域**（区域刷新会重建 `.terminal-view`，
+把正在启动的 xterm 宿主换掉）；`startTerminal()` 开始时置真，就绪/不可用/停止时置假，
+`rebindAfterRender()` 按状态补回。为重量宽度，`mockup.js` 导出 `window.__augitMeasureTerminalHeaders`。
+
+断言（3 条）：启动中标题为 `Windows PowerShell · 正在启动…`（`title` 同步）、隐藏与关闭入口都可用、
+尚未 ready；就绪后后缀消失且标题等于宿主返回的 `__augitTerminalShell`；启动期间隐藏终端 ⇒ 完成后
+仍 `collapsed: 'bottom'`、`.terminal-tool` 不在 DOM、会话照常建立且 `terminal/start` 仍 1 次；
+启动期间切到 Git 历史 ⇒ 完成后 `bottom` 仍是 `git`、终端不抢回底部区域。
+
+### 第 5 条：调整面板大小不重新创建 Shell（补断言）
+
+连续两次改窗口尺寸（1180×760 → 900×600 → 1180×760）⇒ `.terminal-view .xterm` **节点身份不变**、
+`terminal/start` 仍只有 1 次、底部仍是终端。前三半（自动提示符、首帧不截断、隐藏保留输出）
+由既有断言覆盖。
+
+### 第 11 条：核对后转"是"（原登记不准确）
+
+原登记说"宿主侧 `TerminalSessionRegistry` 有实现，但没有断言或单测引用它"——**不准确**：
+`tests/Augit.Infrastructure.Tests/TerminalSessionRegistryTests.cs` 就在测"会话锁跨实例阻止并在释放后清理"
+（`TerminalSessionLease.Dispose()` 删 `.lock` 文件并断言 `IsActive` 转假）；进程回收由
+`ConPtyTerminalSessionTests.WinExe宿主可以收发并回收完整ConPty进程树` 覆盖（`Dispose()` 释放
+process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收起/恢复的断言也在。
+故按既有断言与单测登记为 **是**。
+
+### 新增断言（`live-shell`，4 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.16 打开后立即显示"Shell 名称 · 正在启动…"且加载期间隐藏/关闭可用` |
+| 2 | `§7.16 启动期间隐藏终端后完成不重新显示（会话仍建立）` |
+| 3 | `§7.16 启动期间切到 Git 历史后完成不抢回底部区域` |
+| 4 | `§7.16 调整面板大小不重新创建 Shell` |
+
+### 验证
+
+- `live-shell` **`通过 1399 项断言`**（1395 → **+4**），退出码 0。
+- 登记哈希：`mockup.js` `db92e596…` → **`fe8f18b1430c2b62717e21428c7d65f8`**（共享视觉稿同步）、
+  `live-data.js` `cd3452bc…` → **`abe2d92e5b7df491b9e7f023f83177c7`**、
+  `live-shell.spec.cjs` `69508120…` → **`151127eef640956ec457e35a410f1d85`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 279 轮逐个相同。
+- §7.16 第 2、5、11 条转 **是**（§2.10：分母 34 → **31**、A 20 → **17**）。
+- 同批：`mockup-scenes` 55/55、`verify-ux-typography` 16 场景、`verify-ui-assets` PASS。
+
+### 下一轮
+
+**§7.16 全节 11 行已无"部分"**；转 §7.1／§7.2／§7.3／§7.4／§7.15／§9 的 A 类队列。

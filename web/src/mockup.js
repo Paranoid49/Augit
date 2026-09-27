@@ -2589,6 +2589,8 @@ function measureTabFade() {
 }
 
 window.__augitMeasureTabFade = measureTabFade;
+// 终端会话名宽度按实际字宽推导；实时层改标题文案（" · 正在启动…"）后要重新量一次。
+window.__augitMeasureTerminalHeaders = measureTerminalHeaders;
 
 function titlebar() {
   return `

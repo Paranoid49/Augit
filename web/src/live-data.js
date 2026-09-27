@@ -955,6 +955,13 @@ async function startTerminal() {
   const host = document.querySelector('.terminal-view');
   if (!host || typeof window.Terminal !== 'function') return null;
   if (terminalInstance && terminalReady) return terminalInstance;
+  // 规格 §7.16 第 2 条：打开后到 Shell 就绪之间，标题要显示"Shell 名称 · 正在启动…"。
+  // 状态进 `live`（不只写在 DOM 上），这样区域重绘后 `rebindAfterRender()` 能按状态补回。
+  const live = window.__augitLive;
+  if (live) {
+    live.terminalStarting = true;
+    applyTerminalStartState();
+  }
   // 启动期间的代际：`terminal/start` 是异步的（宿主真正拉起 Shell），期间用户可能关闭终端。
   // 晚到的成功若继续设置 ready/轮询，就把已关闭的终端"复活"了（规格 §7.16 第 3 条）。
   const generation = terminalGeneration;
@@ -1005,14 +1012,41 @@ async function startTerminal() {
     return null;
   }
   if (!started || !started.available) {
+    if (live) {
+      live.terminalStarting = false;
+      applyTerminalStartState();
+    }
     window.__augitError = 'terminal-start:' + String(started && started.reason ? started.reason : 'unavailable');
     return null;
   }
 
   terminalReady = true;
   window.__augitTerminalShell = started.displayName;
+  if (live) {
+    live.terminalStarting = false;
+    applyTerminalStartState();
+  }
   pollTerminal();
   return terminalInstance;
+}
+
+/**
+ * 终端标题按"是否仍在启动"写回（规格 §7.16 第 2 条）。
+ *
+ * 只改标题节点、**不刷新 bottomTool 区域**：区域刷新会重建 `.terminal-view`，把正在启动的
+ * xterm 宿主换掉。标题变长/变短要重新量一次会话名宽度，否则长文案会被旧的列宽省略。
+ */
+function applyTerminalStartState() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const label = document.querySelector('.terminal-tool .terminal-session');
+  if (!label) return;
+  const rendered = String(label.textContent || '').replace(/ · 正在启动…$/, '') || 'Windows PowerShell';
+  const base = window.__augitTerminalShell || rendered;
+  const text = live.terminalStarting ? `${base} · 正在启动…` : base;
+  if (label.textContent !== text) label.textContent = text;
+  label.title = text;
+  if (typeof window.__augitMeasureTerminalHeaders === 'function') window.__augitMeasureTerminalHeaders();
 }
 
 /**
@@ -1511,6 +1545,12 @@ async function stopTerminal() {
   }
   terminalReady = false;
   terminalPolling = false;
+  // 关闭/停止后不再处于"正在启动"（规格 §7.16 第 2 条）。
+  const live = window.__augitLive;
+  if (live) {
+    live.terminalStarting = false;
+    applyTerminalStartState();
+  }
   await invoke('terminal/stop', {}, 15000).catch(() => {});
 }
 
@@ -5307,6 +5347,9 @@ function rebindAfterRender() {
   ensureComparisonReadonlyMarker();
   applyDisplayOptionMarkers();
   applyPendingDocumentStatus();
+  // 终端标题的"正在启动…"后缀是状态：区域重绘会按 `terminalTool()` 的静态文案重建标题，
+  // 这里按 `live.terminalStarting` 补回（规格 §7.16 第 2 条）。
+  applyTerminalStartState();
   restoreAmendDraft();
   // 重绘路径先按状态对齐一次（不消费）：详情可能是**缓存重绘**，不会再走异步收尾；
   // 随后的定点刷新还可能再替换一次详情，所以再排一次短延时对齐。
