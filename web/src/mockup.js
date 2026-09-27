@@ -519,7 +519,14 @@ function bindCloneDialog() {
     if (cancelling) return;
     cancelling = true; dialog.dataset.state = "cancelling";
     clearTimeout(timer);
-    // 模拟 Git 确认结束前继续冻结表单，不能把请求取消立即当成已取消。
+    // 真实外壳：取消必须**先请求宿主结束 Git**（规格 §7.12 第 5 条），然后继续冻结表单，
+    // 等 `__augitCloneRequest` 的 promise 收尾 —— 不能用模拟计时器把取消直接当完成，
+    // 否则宿主里的 Git 进程还在跑而界面已经解除冻结（第 273 轮接线）。
+    if (typeof window.__augitCloneRequest === "function") {
+      if (typeof window.__augitCloneCancel === "function") void window.__augitCloneCancel();
+      return;
+    }
+    // 视觉稿：模拟 Git 确认结束前继续冻结表单，不能把请求取消立即当成已取消。
     timer = setTimeout(() => finish("cancelled", request), 180);
   };
   const start = () => {

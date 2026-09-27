@@ -11890,6 +11890,10 @@ async function boot() {
     // 把真实克隆交给视觉稿的 Clone 对话框调用：校验、焦点与冻结逻辑已在其中实现。
     // 不再只对场景页生效——「打开工作区」页的「克隆仓库…」也要用同一个对话框。
     window.__augitCloneRequest = (request) => invoke("git/clone", request, 600000);
+    // 规格 §7.12 第 5 条「取消先请求 Git 结束」：宿主把 `git/clone` 与其它写操作放在同一个
+    // 写队列里，`write/cancel` 会取消正在运行的 Git。对话框的「取消」/Esc 因此必须先调它，
+    // 再等 `__augitCloneRequest` 的 promise 收尾（不能像视觉稿那样用模拟计时器把取消当完成）。
+    window.__augitCloneCancel = () => invoke("write/cancel", {}, 30000);
     // Reset 同理：模式说明、影响预览、进行态冻结与 Tab/Enter/Esc 循环都在视觉稿的对话框里，
     // 实时外壳只把"执行"与"取消"接到宿主，并在结果后重读真实状态（规格 §7.11 / §9.3）。
     window.__augitResetRequest = async (request) => {

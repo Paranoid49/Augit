@@ -9656,3 +9656,63 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 §6 逐条展开 40 行已无"部分"；转 §7 的 A 类条目与 §2.10 队列。
+
+## septuaginta-tres. 第二百七十三轮：Clone 的 Tab/Enter/Esc 与"取消先请求 Git 结束"（§7.12 第 4、5 条收口）
+
+### 第 4 条：键盘路径（纯补断言，7 条）
+
+视觉稿 `bindCloneDialog()` 早已实现完整键盘逻辑，此前只有字段校验被断言。本轮实测并把判据钉死：
+
+- 初始焦点在 `#clone-source`；
+- Tab 环（URL 填好使「克隆」可用、勾选浅克隆使深度入环）实测
+  `clone-source → clone-destination → clone-shallow → clone-depth → cancel → create → close → clone-version → clone-source`，
+  与规格列出的"版本控制、URL、目录、浅克隆勾选、启用的深度、取消、启用的克隆、关闭"一致；
+- 未勾选浅克隆时深度被禁用，**从环里消失**（`clone-shallow → cancel`）；
+- 焦点在版本控制下拉框上按 Enter 不触发克隆（保留下拉自身语义）；
+- 输入中按 Enter 确实发出 `git/clone`（`__cloneCalls === 1`）；
+- 组词期间（`compositionstart` 未结束）按 Enter 不触发；
+- Esc 关闭对话框。
+
+### 第 5 条：取消先请求 Git 结束（接线 + 4 条断言，**修掉一处真实缺口**）
+
+宿主本就把 `git/clone` 与其它写操作放进同一个写队列（`ShellBridge.cs` 的 `RunWriteAsync`），
+`write/cancel` 会取消正在运行的 Git —— 但**实时外壳从来没有请求过它**：`cancelOrClose()` 只把
+`cancelling` 置真、清掉计时器，等克隆的 promise 自己回来；对真实 Git 而言，界面已经"取消"而进程还在跑。
+本轮：`live-data.js` 新增 `window.__augitCloneCancel = () => invoke("write/cancel")`；共享视觉稿的
+`cancelOrClose()` 在 `__augitCloneRequest` 存在时**先调它**再返回（继续冻结，等 promise 收尾）；
+180ms 的模拟计时器只留给无宿主的视觉稿场景。
+
+断言：进行中表单/确认冻结且文案「正在克隆…」；点「取消」后 `write/cancel` 调用 1 次而 `git/clone`
+仍是 1 次（不重复提交）、状态 `cancelling`、表单仍冻结、按钮文案不含「取消」（不把取消显示为完成）；
+取消等待期间按 Enter 不再提交；宿主确认后状态 `cancelled`、提示「操作已取消」、URL/目录/浅克隆勾选/深度
+逐值保留、表单解除冻结可重试。
+
+### 新增断言（`live-shell`，11 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.12 Clone 初始焦点在 URL` |
+| 2 | `§7.12 Clone 的 Tab 环按规格顺序且禁用的深度会进入环` |
+| 3 | `§7.12 Clone 浅克隆未勾选时禁用的深度不进入 Tab 环` |
+| 4 | `§7.12 Clone 下拉框上按 Enter 不触发克隆并保留自身语义` |
+| 5 | `§7.12 Clone 输入中按 Enter 执行克隆` |
+| 6 | `§7.12 Clone 组词期间不抢占 Enter` |
+| 7 | `§7.12 Clone Esc 关闭对话框` |
+| 8 | `§7.12 Clone 进行中冻结表单与确认按钮` |
+| 9 | `§7.12 Clone 取消先请求宿主结束 Git，结束前保持冻结且可重新提交被拦下` |
+| 10 | `§7.12 Clone 取消等待期间按 Enter 不再提交` |
+| 11 | `§7.12 Clone 确认取消后保留输入与勾选并允许重试` |
+
+### 验证
+
+- `live-shell` **`通过 1367 项断言`**（1356 → **+11**），退出码 0。
+- 登记哈希：`mockup.js` `b55e5703…` → **`ce0f85b552773e483065f9585d4e7df3`**（共享视觉稿同步）、
+  `live-data.js` `d34e2670…` → **`b90ea54d4405fb43ddd9dbbe07aacdcc`**、
+  `live-shell.spec.cjs` `2f42befc…` → **`6b8a2d59967332a543192c8e9ce5b80a`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 272 轮逐个相同。
+- §7.12 第 4、5 条转 **是**（§2.10：分母 49 → **47**、A 34 → **32**）。
+- 同批：`mockup-scenes` 55/55、`verify-ux-clone` 26 项通过（含"取消等待、重试与成功流程"）、`verify-ui-assets` PASS。
+
+### 下一轮
+
+继续 §7.12 余下 A 类（第 3、7、8、9、14 条）与其它 §7 模块。

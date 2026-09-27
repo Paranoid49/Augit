@@ -283,6 +283,8 @@
 
 **第 272 轮**一次收口 §6 余下四条（第 15、34、35、40 条），全部转 **是**（§2.10：分母 53 → **49**、A 37 → **34**、D 11 → **10**）。第 35 条**挂出并修掉一处真实缺陷**：`openDocument()` 收尾无条件按请求时的 `activate` 调用 `openDocumentTab()`，于是后台重读一个**已有**标签期间，用户切到另一个已有标签（切标签不发起新读取 ⇒ 递增令牌拦不下收尾）后，读取落地会把显示**夺回**被重读的文件（三标签实测：活动标签由 `docs/product-spec.md` 跳回 `docs/notes.txt`）；修法是在读取开始时记 `activeAtStart`，收尾与当前活动标签对账：只有"当前活动标签非空且不同于 `activeAtStart`"（用户切到另一个仍然存在的标签）才不显示，结果仍进它自己的标签；**第一版写成"只要不同就不显示"，全量复跑当场挂出回归** —— 用户在读取期间把原标签**关掉**时 `closeTab()` 把活动标签置空，`null` 也被判成"切走"，标签建出来却没人显示（`docPath:null`、`editor:"empty"`，破坏 §6 第 38 条），改成三方对账后 §6 第 37/38/35 条的三条断言同时成立。第 34 条：`cancelWriteOperation()` 本就在宿主确认后重读 `loadStatus()`／`loadHistory()`，本轮把"**显示**最新事实"补成断言（取消前换掉桩的 `git/status` 应答，取消后列表必须显示新清单）。第 40 条：恢复闸门 `sessionRestoreGeneration` 早已有，补断言覆盖"用户改树选择 + 焦点"后收尾不重激活正文、不重选项目树、不抢焦点。第 15 条是**许可**类口径（可以不显示"最后检查时间"），钉成负向断言：一次真实刷新让 `git/status` +1，而界面没有任何时间戳字样或标记节点。共 5 条新断言（1351 → **1356**）。
 
+**第 273 轮**转 §7.12（Clone/Push 与本地 Git 操作反馈），收口第 4、5 条（§2.10：分母 49 → **47**、A 34 → **32**）。第 4 条纯补断言（7 条）：初始焦点、Tab 环顺序（实测 `clone-source → clone-destination → clone-shallow → clone-depth → cancel → create → close → clone-version`）、未勾选浅克隆时禁用的深度从环里消失、下拉框上按 Enter 保留自身语义、输入中 Enter 发出 `git/clone`、组词期间不抢 Enter、Esc 关闭。第 5 条**挂出并修掉一处真实缺口**：宿主早把 `git/clone` 放进写队列（`RunWriteAsync`），`write/cancel` 能取消正在运行的 Git，但实时外壳**从未请求过它** —— `bindCloneDialog()` 的 `cancelOrClose()` 只置 `cancelling` 并清计时器，界面已"取消"而宿主进程还在跑；本轮新增 `window.__augitCloneCancel`（`live-data.js`）并让共享视觉稿在真实克隆路径先调它、再等 promise 收尾（180ms 模拟计时器只留给无宿主场景）。4 条断言覆盖冻结、`write/cancel` 调用 1 次而 `git/clone` 仍 1 次、取消等待期间 Enter 不再提交、确认取消后保留输入与勾选并可重试。共 11 条新断言（1356 → **1367**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

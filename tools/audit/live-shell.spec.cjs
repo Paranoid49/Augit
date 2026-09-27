@@ -520,7 +520,22 @@ async function main() {
         if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
         return data.searchText;
       }
-      if (method === 'git/clone') { window.__cloneCall = params; return data.clone; }
+      if (method === 'git/clone') {
+        window.__cloneCall = params;
+        window.__cloneCalls = (window.__cloneCalls || 0) + 1;
+        // 慢克隆 + 取消通道（规格 §7.12 第 5 条）：宿主把 `git/clone` 与其它写操作放在同一个
+        // 写队列里，`write/cancel` 会取消正在运行的 Git ⇒ 桩在等待期间检测到取消请求就按
+        // "已取消"回话（与 `git/reset` 的桩同一口径）。
+        if (window.__cloneDelays) {
+          const cancelsBefore = window.__writeCancels || 0;
+          await new Promise((r) => setTimeout(r, window.__cloneDelays));
+          if ((window.__writeCancels || 0) > cancelsBefore) {
+            return { available: true, cancelled: true, reason: '操作已取消。' };
+          }
+        }
+        if (window.__cloneFails) throw new Error('克隆失败：无法连接远端。');
+        return data.clone;
+      }
       if (method === 'git/diff') {
         // 第 130 轮：**确定性**失败注入（不必猜应用查哪条路径）——验证"失败保留标签可重试"用。
         if (window.__failAllDiffs) return { available: false, reason: '读取失败（注入）' };
@@ -4752,6 +4767,157 @@ async function main() {
     check('校验通过后按输入调用 Git: ' + JSON.stringify(sent), sent.source === 'https://example.com/team/repo.git' && sent.depth === 5);
     check('失败原因显示在对话框内', (await clone.page.locator('.clone-notice').innerText()).includes('目标目录不为空'));
     await clone.page.close();
+    // ---- 规格 §7.12 第 4 条：Clone 的初始焦点、Tab 环、Enter 执行与 Esc 关闭 ----
+    const cloneKeys = await openScene('scene=clone&theme=dark');
+    await cloneKeys.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await cloneKeys.page.waitForSelector('.clone-dialog #clone-source', { timeout: 10000 });
+    const cloneActiveLabel = () => cloneKeys.page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el) return null;
+      if (el.id) return el.id;
+      if (el.classList.contains('secondary-button')) return 'cancel';
+      if (el.classList.contains('primary-button')) return 'create';
+      if (el.closest && el.closest('.dialog-header')) return 'close';
+      return el.tagName;
+    });
+    check('§7.12 Clone 初始焦点在 URL', await cloneActiveLabel() === 'clone-source');
+    // 填 URL 让「克隆」进入可用集合；勾选浅克隆让深度进入 Tab 环。
+    await cloneKeys.page.locator('#clone-source').fill('https://example.com/team/repo.git');
+    await cloneKeys.page.locator('#clone-shallow').check();
+    await cloneKeys.page.locator('#clone-source').focus();
+    const cloneCycle = [];
+    for (let i = 0; i < 8; i += 1) {
+      await cloneKeys.page.keyboard.press('Tab');
+      cloneCycle.push(await cloneActiveLabel());
+    }
+    check('§7.12 Clone 的 Tab 环按规格顺序且禁用的深度会进入环: ' + JSON.stringify(cloneCycle),
+      JSON.stringify(cloneCycle) === JSON.stringify(['clone-destination', 'clone-shallow', 'clone-depth',
+        'cancel', 'create', 'close', 'clone-version', 'clone-source']));
+    // 未勾选浅克隆时深度被禁用，必须从环里消失（浅克隆 → 取消）。
+    await cloneKeys.page.locator('#clone-shallow').uncheck();
+    await cloneKeys.page.locator('#clone-shallow').focus();
+    await cloneKeys.page.keyboard.press('Tab');
+    check('§7.12 Clone 浅克隆未勾选时禁用的深度不进入 Tab 环', await cloneActiveLabel() === 'cancel');
+    await cloneKeys.page.locator('#clone-shallow').check();
+    // 下拉框保留自身确认语义：焦点在版本控制上按 Enter 不触发克隆。
+    await cloneKeys.page.locator('#clone-destination').fill('D:\\projects\\repo');
+    await cloneKeys.page.evaluate(() => { window.__cloneCalls = 0; });
+    await cloneKeys.page.locator('#clone-version').focus();
+    await cloneKeys.page.keyboard.press('Enter');
+    await cloneKeys.page.waitForTimeout(250);
+    check('§7.12 Clone 下拉框上按 Enter 不触发克隆并保留自身语义',
+      await cloneKeys.page.evaluate(() => window.__cloneCalls || 0) === 0
+        && await cloneKeys.page.locator('.clone-dialog').count() === 1);
+    // 输入中的 Enter 执行克隆。
+    await cloneKeys.page.locator('#clone-destination').focus();
+    await cloneKeys.page.keyboard.press('Enter');
+    await cloneKeys.page.waitForFunction('(window.__cloneCalls || 0) > 0', null, { timeout: 8000 }).catch(() => {});
+    check('§7.12 Clone 输入中按 Enter 执行克隆: ' + JSON.stringify(await cloneKeys.page.evaluate(() => ({
+      calls: window.__cloneCalls || 0, sent: window.__cloneCall || null,
+    }))),
+    await cloneKeys.page.evaluate(() => window.__cloneCalls || 0) === 1
+      && (await cloneKeys.page.evaluate(() => (window.__cloneCall || {}).source)) === 'https://example.com/team/repo.git');
+    // 组词期间不抢占 Enter（组词中的回车属于输入法）。
+    await cloneKeys.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      window.__cloneCalls = 0;
+      dialog.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      dialog.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    });
+    await cloneKeys.page.waitForTimeout(250);
+    check('§7.12 Clone 组词期间不抢占 Enter',
+      await cloneKeys.page.evaluate(() => window.__cloneCalls || 0) === 0);
+    // Esc 关闭对话框（未进行中时直接关闭）。
+    await cloneKeys.page.keyboard.press('Escape');
+    await cloneKeys.page.waitForTimeout(250);
+    check('§7.12 Clone Esc 关闭对话框', await cloneKeys.page.locator('.clone-dialog').count() === 0);
+    await cloneKeys.page.close();
+
+    // ---- 规格 §7.12 第 5 条：Clone 进行中冻结；取消**先请求宿主结束 Git**，结束前不能重新提交 ----
+    const cloneCancel = await openScene('scene=clone&theme=dark');
+    await cloneCancel.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await cloneCancel.page.waitForSelector('.clone-dialog #clone-source', { timeout: 10000 });
+    await cloneCancel.page.locator('#clone-source').fill('https://example.com/team/repo.git');
+    await cloneCancel.page.locator('#clone-destination').fill('D:\\projects\\repo');
+    await cloneCancel.page.locator('#clone-shallow').check();
+    await cloneCancel.page.locator('#clone-depth').fill('7');
+    await cloneCancel.page.evaluate(() => { window.__cloneDelays = 1600; window.__cloneCalls = 0; window.__writeCancels = 0; });
+    await cloneCancel.page.locator('.clone-dialog .primary-button').click();
+    await cloneCancel.page.waitForFunction(
+      'document.querySelector(".clone-dialog") && document.querySelector(".clone-dialog").dataset.state === "running"',
+      null, { timeout: 8000 });
+    const cloneBusy = await cloneCancel.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      const create = dialog.querySelector('.primary-button'), cancel = dialog.querySelector('.secondary-button');
+      return {
+        state: dialog.dataset.state || null,
+        createDisabled: create.disabled || create.getAttribute('aria-disabled') === 'true',
+        createText: create.textContent.trim(),
+        cancelText: cancel.textContent.trim(),
+        sourceDisabled: dialog.querySelector('#clone-source').disabled,
+        destinationDisabled: dialog.querySelector('#clone-destination').disabled,
+        calls: window.__cloneCalls || 0,
+      };
+    });
+    check('§7.12 Clone 进行中冻结表单与确认按钮: ' + JSON.stringify(cloneBusy),
+      cloneBusy.state === 'running' && cloneBusy.createDisabled === true
+        && cloneBusy.sourceDisabled === true && cloneBusy.destinationDisabled === true
+        && cloneBusy.createText.includes('正在克隆') && cloneBusy.calls === 1);
+    // 取消：必须**先**请求宿主结束 Git（`write/cancel`），并且结束前不能重新提交。
+    await cloneCancel.page.locator('.clone-dialog .secondary-button').click();
+    await cloneCancel.page.waitForTimeout(300);
+    const cloneCancelling = await cloneCancel.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      const create = dialog.querySelector('.primary-button');
+      return {
+        state: dialog.dataset.state || null,
+        cancels: window.__writeCancels || 0,
+        calls: window.__cloneCalls || 0,
+        createDisabled: create.disabled || create.getAttribute('aria-disabled') === 'true',
+        createText: create.textContent.trim(),
+        sourceDisabled: dialog.querySelector('#clone-source').disabled,
+      };
+    });
+    check('§7.12 Clone 取消先请求宿主结束 Git，结束前保持冻结且可重新提交被拦下: ' + JSON.stringify(cloneCancelling),
+      cloneCancelling.state === 'cancelling' && cloneCancelling.cancels === 1
+        && cloneCancelling.calls === 1 && cloneCancelling.createDisabled === true
+        && cloneCancelling.sourceDisabled === true && !cloneCancelling.createText.includes('取消'));
+    // 结束前按 Enter 也不得再发一次克隆。
+    await cloneCancel.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    });
+    await cloneCancel.page.waitForTimeout(200);
+    check('§7.12 Clone 取消等待期间按 Enter 不再提交',
+      await cloneCancel.page.evaluate(() => window.__cloneCalls || 0) === 1);
+    await cloneCancel.page.waitForFunction(
+      'document.querySelector(".clone-dialog") && document.querySelector(".clone-dialog").dataset.state === "cancelled"',
+      null, { timeout: 8000 });
+    const cloneCancelled = await cloneCancel.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      return {
+        open: !!dialog,
+        notice: (dialog.querySelector('.clone-notice') || {}).textContent || '',
+        source: dialog.querySelector('#clone-source').value,
+        destination: dialog.querySelector('#clone-destination').value,
+        shallow: dialog.querySelector('#clone-shallow').checked,
+        depth: dialog.querySelector('#clone-depth').value,
+        sourceDisabled: dialog.querySelector('#clone-source').disabled,
+        createDisabled: dialog.querySelector('.primary-button').disabled,
+        createText: dialog.querySelector('.primary-button').textContent.trim(),
+      };
+    });
+    check('§7.12 Clone 确认取消后保留输入与勾选并允许重试: ' + JSON.stringify(cloneCancelled),
+      cloneCancelled.open === true && cloneCancelled.notice.includes('操作已取消')
+        && cloneCancelled.source === 'https://example.com/team/repo.git'
+        && cloneCancelled.destination === 'D:\\projects\\repo'
+        && cloneCancelled.shallow === true && cloneCancelled.depth === '7'
+        && cloneCancelled.sourceDisabled === false && cloneCancelled.createDisabled === false
+        && cloneCancelled.createText === '克隆');
+    await cloneCancel.page.evaluate(() => { window.__cloneDelays = 0; });
+    await cloneCancel.page.close();
+
 
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
