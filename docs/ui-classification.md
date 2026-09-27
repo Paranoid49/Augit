@@ -305,6 +305,8 @@
 
 **第 283 轮**收口 §7.3 第 9 条的图片侧，该条转 **是**（§2.10：分母 29 → **28**、A 15 → **14**）。实测缺口：只有远程图片被阻止，工作区相对 `assets/missing.png`、越界 `../../secret.png`、协议 `file:///…` 都渲染成 `<img>` —— WebView 没有工作区文件服务，三者全部加载失败、只剩**没有原因的破图**（`naturalWidth: 0`），越界图片还发了一次工作区外请求。实现：`markdown.js` 把远程/绝对/盘符/UNC/其它协议就地换成 `.markdown-blocked`（保留 `alt` 与原因，与链接侧同格式；`data:image/` 仍内联），相对候选渲染成 `<img data-markdown-image hidden>` 不发请求；`live-data.js` 新增 `resolveMarkdownImages()`（`rebindAfterRender()` 调用）按当前文档目录解析、`workspace/list` 校验、`document/read` 取位图，越界/不存在/目录/无位图各有原因并就地替换，成功则写入 `data:` 位图（带代次与 `isConnected` 校验）。实测六类：远程/缺失/越界/协议各自在原段落带原因，`assets/logo.png` 真的解码（`naturalWidth 400`），`notes.txt` 给「不是可预览的图片。」，预览其余正文与标题完好。共 2 条新断言（1404 → **1406**）。
 
+**第 284 轮**转 §7.15（搜索浮层），收口第 9、10 条（§2.10：分母 28 → **26**、A 14 → **12**）。第 9 条把三个字高下限公式钉成断言：`measureSearchOverlay()` 按当前字体量 `--search-line`（`h`）后算标题 `max(41,h+20)`／输入框 `max(31,h+8)`／结果行 `max(32,h+8)`，实测字号 13（h=16）→41/31/32、字号 32（h=41）→61/49/49，令牌逐值等于公式、输入框实测高度等于 `--search-field`、字号变大三个下限都长。第 10 条补三半：三个开关图形在字号 13/32 × 宽 1180/320 下都是 16×16；`包含忽略文件` 宽度 = 同字体 `measureText+22`（13px→100、32px→214）；320px 宽时三个开关同一行且 x 递增、`包含忽略文件` 换到下一行（`--search-header` 41→113）；并注入长文案 + `timedOut`（新桩旋钮 `__searchNotice`／`__searchTimedOut`）断言 `.search-notice`（`role=status`）在结果区下方、高度 > 1.5 行、`scrollWidth === clientWidth`、输入框不动。共 3 条新断言（1406 → **1409**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

@@ -518,6 +518,16 @@ async function main() {
           };
         }
         if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
+        // 结果区下方的状态/错误说明（规格 §7.15 第 10 条）：`__searchNotice` 注入长文案，
+        // `__searchTimedOut`／`__searchCancelled` 标记状态来源。
+        if (window.__searchNotice !== undefined) {
+          return {
+            ...data.searchText,
+            notice: window.__searchNotice,
+            timedOut: !!window.__searchTimedOut,
+            cancelled: !!window.__searchCancelled,
+          };
+        }
         return data.searchText;
       }
       if (method === 'git/clone') {
@@ -6470,6 +6480,133 @@ async function main() {
         // `notes.txt` 不是图片：在原位置给出原因
         && mdImgBlockedText.includes('非图片') && mdImgBlockedText.includes('不是可预览的图片'));
     await mdImages.page.close();
+
+    // ---- 规格 §7.15 第 9、10 条：搜索浮层的字高下限公式、开关图形固定 16px、
+    //      忽略文件按字宽、窄宽度按原顺序换行、状态说明在结果区下方换行 ----
+    const searchOverlayAt = async (scene, size, width) => {
+      const scene_ = await openScene(`scene=${scene}&theme=dark&ui-size=${size}`);
+      const page = scene_.page;
+      await page.setViewportSize({ width, height: 760 });
+      await page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+      await page.waitForTimeout(450);
+      const state = await page.evaluate(() => {
+        const overlay = document.querySelector('.search-overlay');
+        const style = getComputedStyle(overlay);
+        const line = Number.parseFloat(style.getPropertyValue('--search-line')) || 0;
+        const canvas = document.createElement('canvas').getContext('2d');
+        canvas.font = `${style.fontSize} ${style.fontFamily}`;
+        const ignored = overlay.querySelector('.search-ignored');
+        const field = overlay.querySelector('.search-field');
+        const options = [...overlay.querySelectorAll('.search-option')];
+        return {
+          line,
+          header: Number.parseFloat(style.getPropertyValue('--search-header')) || 0,
+          fieldToken: Number.parseFloat(style.getPropertyValue('--search-field')) || 0,
+          rowToken: Number.parseFloat(style.getPropertyValue('--search-row')) || 0,
+          headerFormula: Math.max(41, line + 20),
+          fieldFormula: Math.max(31, line + 8),
+          rowFormula: Math.max(32, line + 8),
+          fieldHeight: field ? Math.round(field.getBoundingClientRect().height) : null,
+          ignoredWidth: ignored ? Math.round(ignored.getBoundingClientRect().width) : null,
+          ignoredFormula: ignored
+            ? Math.min(overlay.clientWidth - 20, Math.ceil(canvas.measureText('包含忽略文件').width) + 22)
+            : null,
+          icons: options.map((option) => {
+            const svg = option.querySelector('svg');
+            const rect = svg ? svg.getBoundingClientRect() : null;
+            return rect ? [Math.round(rect.width), Math.round(rect.height)] : null;
+          }),
+          optionGeometry: options.map((option) => {
+            const rect = option.getBoundingClientRect();
+            return { x: Math.round(rect.left), y: Math.round(rect.top) };
+          }),
+          ignoredTop: ignored ? Math.round(ignored.getBoundingClientRect().top) : null,
+        };
+      });
+      await page.close();
+      return state;
+    };
+    const seQuickSmall = await searchOverlayAt('quick-open', 13, 1180);
+    const seQuickBig = await searchOverlayAt('quick-open', 32, 1180);
+    const seRepoSmall = await searchOverlayAt('repository-search', 13, 1180);
+    const seRepoBig = await searchOverlayAt('repository-search', 32, 1180);
+    check('§7.15 搜索浮层按实际字高布局（标题/输入框/结果行三个下限公式）: '
+      + JSON.stringify([seQuickSmall, seQuickBig, seRepoSmall, seRepoBig]),
+    [[seQuickSmall, seQuickBig], [seRepoSmall, seRepoBig]].every(([small, big]) =>
+      // 三个下限公式逐值成立（两组场景 × 两档字号）
+      small.header === small.headerFormula && small.fieldToken === small.fieldFormula
+        && small.rowToken === small.rowFormula
+        && big.header === big.headerFormula && big.fieldToken === big.fieldFormula
+        && big.rowToken === big.rowFormula
+        // 令牌真的落到控件上（输入框实测高度 = `--search-field`）
+        && small.fieldHeight === small.fieldToken && big.fieldHeight === big.fieldToken
+        // 字号变大时三个下限都跟着长（不是固定值）
+        && big.header > small.header && big.fieldToken > small.fieldToken && big.rowToken > small.rowToken));
+
+    const seNarrow = await searchOverlayAt('repository-search', 13, 320);
+    const seNarrowBig = await searchOverlayAt('repository-search', 32, 320);
+    check('§7.15 搜索开关固定 16px、忽略文件按字宽、窄宽度按原顺序换行: '
+      + JSON.stringify([seRepoSmall, seRepoBig, seNarrow, seNarrowBig]),
+    // 三个开关图形始终 16×16（字号 13 与 32、宽 1180 与 320 都不变）
+    seRepoSmall.icons.length === 3 && seRepoSmall.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
+      && seRepoBig.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
+      && seNarrow.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
+      // "包含忽略文件"宽度 = 文案宽度 + 22（随字号变化），不是固定值
+      && seRepoSmall.ignoredWidth === seRepoSmall.ignoredFormula
+      && seRepoBig.ignoredWidth === seRepoBig.ignoredFormula
+      && seRepoBig.ignoredWidth > seRepoSmall.ignoredWidth
+      // 窄宽度：三个开关仍在同一行且保持原顺序（x 递增），"包含忽略文件"换到下一行
+      && seNarrow.optionGeometry.length === 3
+      && seNarrow.optionGeometry[0].y === seNarrow.optionGeometry[1].y
+      && seNarrow.optionGeometry[1].y === seNarrow.optionGeometry[2].y
+      && seNarrow.optionGeometry[0].x < seNarrow.optionGeometry[1].x
+      && seNarrow.optionGeometry[1].x < seNarrow.optionGeometry[2].x
+      && seNarrow.ignoredTop > seNarrow.optionGeometry[0].y
+      // 换行后标题区（`--search-header`）跟着变高
+      && seNarrow.header > seNarrow.headerFormula
+      && seNarrowBig.ignoredTop > seNarrowBig.optionGeometry[0].y);
+    await Promise.resolve();
+
+    // 状态/错误说明在结果区下方换行，且不动输入框。
+    const seNotice = await openScene('scene=repository-search&theme=dark');
+    await seNotice.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+    await seNotice.page.evaluate(() => {
+      window.__searchNotice = '搜索超时，已保留完成的结果。' + '这是一段很长的说明文字，用来验证它在结果区下方换行而不是把浮层撑出横向滚动。'.repeat(3);
+      window.__searchTimedOut = true;
+    });
+    await seNotice.page.fill('.search-overlay .search-field', 'Git');
+    await seNotice.page.waitForFunction(
+      "() => !!document.querySelector('.search-overlay .search-notice')", null, { timeout: 10000 }).catch(() => {});
+    await seNotice.page.waitForTimeout(400);
+    const seNoticeState = await seNotice.page.evaluate(() => {
+      const overlay = document.querySelector('.search-overlay');
+      const field = overlay.querySelector('.search-field');
+      const results = overlay.querySelector('.search-results');
+      const notice = overlay.querySelector('.search-notice');
+      if (!notice) return { missing: true };
+      const line = Number.parseFloat(getComputedStyle(overlay).lineHeight) || 20;
+      return {
+        fieldBottom: Math.round(field.getBoundingClientRect().bottom),
+        resultsBottom: results ? Math.round(results.getBoundingClientRect().bottom) : null,
+        noticeTop: Math.round(notice.getBoundingClientRect().top),
+        noticeHeight: Math.round(notice.getBoundingClientRect().height),
+        horizontalOverflow: notice.scrollWidth > notice.clientWidth + 1,
+        role: notice.getAttribute('role'),
+        text: notice.textContent.slice(0, 18),
+        line,
+      };
+    });
+    check('§7.15 搜索状态与错误在结果区下方换行、不动输入框: ' + JSON.stringify(seNoticeState),
+      seNoticeState.missing !== true
+        // 说明在结果区下方（结果为空时紧随输入框）
+        && seNoticeState.noticeTop >= (seNoticeState.resultsBottom || seNoticeState.fieldBottom)
+        // 长说明换行而不是横向溢出，且确实是"只读"的状态输出
+        && seNoticeState.horizontalOverflow === false
+        && seNoticeState.noticeHeight > seNoticeState.line * 1.5
+        && seNoticeState.role === 'status'
+        && seNoticeState.text.includes('搜索超时'));
+    await seNotice.page.evaluate(() => { window.__searchNotice = undefined; window.__searchTimedOut = false; });
+    await seNotice.page.close();
 
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
