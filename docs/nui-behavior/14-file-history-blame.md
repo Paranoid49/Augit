@@ -309,3 +309,15 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
     （`fileHistoryPreviewOptions`），未完成的那份被丢弃后补查仍沿用它们（实测键仍是 `…|ws`）。
   - **仍未完成**：隐藏用 `display:none`，其子树重新显示后 `scrollTop` 归零 ⇒ **阅读位置**要保存/恢复；
     右侧比较视图的 Tab 顺序也没有断言。
+
+## 预览正文的阅读位置与工具窗口内的 Tab 顺序（第 259 轮）
+
+- **阅读位置**：隐藏用的是 `display:none`，而**隐藏期间的任何区域重绘都会换掉正文节点** ⇒ 重新显示时
+  `scrollTop` 归零（实测 300 → 0）。因此显式保存/恢复：`fileHistoryPreviewScroller()` 按
+  `diffScrollSync` 的同一口径找到真正滚动的祖先，隐藏前 `rememberFileHistoryPreviewScroll()` 记下
+  `{内容键, scrollTop}`，重显、正文重建与每次渲染后 `restoreFileHistoryPreviewScroll()` 只在**同一内容键**上恢复
+  （换提交/换选项后不沿用旧位置）；`releaseFileHistoryPreview()` 一并清掉记忆值。
+- **Tab 顺序**：从列表工具条的清除入口起连按 Tab，前 12 个落点全在 `.history-tool-content` 内
+  （列表工具条四个 → 详情显隐 → 比较工具条六项 → 两条提交行），全程不进入上方文档正文（`.editor-content`）。
+- **仍未完成**：比较区正文**不是 Tab 停靠点**（`.diff-layout` 无 `tabindex`）—— 规格第七条说"经过工具按钮与正文"、
+  第十九条要求"保留一个正文焦点位置"，两处都要改，且需与 §7.7 工作区 Diff 的既有 Tab 序列断言一起动。

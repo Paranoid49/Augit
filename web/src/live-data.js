@@ -2267,7 +2267,10 @@ function releaseFileHistoryPreview() {
   fileHistoryPreviewToken += 1;
   fileHistoryPreviewRequests.clear();
   fileHistoryPreviewPatches.clear();
-  if (live) live.fileHistoryPreview = null;
+  if (live) {
+    live.fileHistoryPreview = null;
+    live.fileHistoryPreviewScroll = null;
+  }
 }
 
 /**
@@ -2294,6 +2297,8 @@ function applyFileHistoryPreview() {
   }
   pane.innerHTML = window.__augitFileHistoryPreviewView();
   if (typeof window.__augitBindDiffModes === "function") window.__augitBindDiffModes(pane);
+  // 正文被重建后回到同一份内容的阅读位置（规格 §7.9 第七条）。
+  restoreFileHistoryPreviewScroll();
 }
 
 /**
@@ -2386,6 +2391,49 @@ function ensureFileHistoryPreview() {
   if (live.fileHistoryDetailsHidden) return;
   if (!document.querySelector("[data-live-file-history-pane]")) return;
   void loadFileHistoryPreview();
+}
+
+/**
+ * 预览正文的滚动容器（与 `diffScrollSync` 同一口径：从正文行往上找第一个真的可滚动的祖先）。
+ *
+ * 隐藏用的是 `display:none`，其子树重新显示后 `scrollTop` 会归零 ⇒ 阅读位置必须显式保存/恢复
+ *（规格 §7.9 第七条"已经完成的比较保留正文、显示模式和阅读位置"）。
+ */
+function fileHistoryPreviewScroller() {
+  const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+  if (!pane) return null;
+  const line = pane.querySelector(".diff-code-line") || pane.firstElementChild;
+  let node = line ? line.parentElement : pane;
+  while (node && node !== document.body && node !== document.documentElement) {
+    if (node.scrollHeight > node.clientHeight + 1) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+/** 隐藏前记住当前正文的阅读位置（连同内容键 —— 内容或选项变了就不该沿用旧位置）。 */
+function rememberFileHistoryPreviewScroll() {
+  const live = window.__augitLive;
+  const preview = live && live.fileHistoryPreview;
+  const scroller = fileHistoryPreviewScroller();
+  if (!live || !preview || !scroller) return;
+  live.fileHistoryPreviewScroll = { key: preview.key, top: scroller.scrollTop };
+}
+
+/** 重显后恢复同一份正文的阅读位置（内容或选项变了、或那一份还没就绪 ⇒ 不恢复）。 */
+function restoreFileHistoryPreviewScroll() {
+  const live = window.__augitLive;
+  const saved = live && live.fileHistoryPreviewScroll;
+  const preview = live && live.fileHistoryPreview;
+  if (!live || !saved || !preview || !preview.ready || preview.key !== saved.key) return;
+  if (live.fileHistoryDetailsHidden) return;
+  const apply = () => {
+    const scroller = fileHistoryPreviewScroller();
+    if (scroller && saved.top > 0) scroller.scrollTop = saved.top;
+  };
+  apply();
+  // `display` 从 none 切回来的同一帧里，浏览器可能还没恢复布局 ⇒ 下一帧再对齐一次。
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(apply);
 }
 
 /**
@@ -5138,6 +5186,7 @@ function rebindAfterRender() {
   applyHistoryDetailsState();
   // 文件历史右侧详情的显隐同理（规格 §7.9 第七条）：重绘后按 `live.fileHistoryDetailsHidden` 落地。
   applyFileHistoryDetailsState();
+  restoreFileHistoryPreviewScroll();
   bindEditorTabs?.();
   // 标签栏是区域刷新的产物，重建后滚动位置归零，边缘渐隐要按新状态重量一次。
   if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
@@ -6557,10 +6606,12 @@ function guardUnwiredNavigation() {
       const liveFileHistory = window.__augitLive;
       if (!liveFileHistory) return;
       const hidden = !liveFileHistory.fileHistoryDetailsHidden;
+      // 隐藏前先记下阅读位置（display:none 会让子树重新显示后 scrollTop 归零）。
+      if (hidden) rememberFileHistoryPreviewScroll();
       liveFileHistory.fileHistoryDetailsHidden = hidden;
       applyFileHistoryDetailsState();
       if (hidden) cancelFileHistoryPreviewRender();
-      else ensureFileHistoryPreview();
+      else { ensureFileHistoryPreview(); restoreFileHistoryPreviewScroll(); }
       return;
     }
     if (historyDetails) {

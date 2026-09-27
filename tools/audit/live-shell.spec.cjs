@@ -580,10 +580,13 @@ async function main() {
           };
         }
         if (params.commit) {
+          // 第 259 轮：按需注入**长**提交差异（默认载荷只有几行 ⇒ 文件历史预览的正文滚不动，
+          // "隐藏/重显后保留阅读位置"的判据会平凡为真）。行文本仍带提交前缀，便于区分不同提交。
+          const commitRows = Array.isArray(window.__commitDiffRows) ? window.__commitDiffRows : data.diff.rows;
           return {
             ...data.diff,
             path: params.path,
-            rows: data.diff.rows.map((row) => Object.assign({}, row, {
+            rows: commitRows.map((row) => Object.assign({}, row, {
               oldText: row.oldText === null || row.oldText === undefined ? row.oldText : '历史左值 ' + params.commit.slice(0, 6) + ' ' + row.oldText,
               newText: row.newText === null || row.newText === undefined ? row.newText : '历史右值 ' + params.commit.slice(0, 6) + ' ' + row.newText,
             })),
@@ -19699,6 +19702,148 @@ async function main() {
       // 负向二：状态被改成"显示"而 DOM 仍隐藏 ⇒ "两面一致"的判据会失败
       && fhDetails.negConsistency.detailsAttribute === 'true'
       && fhDetails.negConsistency.detailsHiddenState === false);
+
+    // ---- 第 259 轮：预览正文的阅读位置在隐藏/重显后保留 + 工具窗口内的 Tab 顺序 ----
+    const fhScroll = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.addInitScript(() => {
+        // 长提交差异：120 行上下文 + 一处修改 ⇒ 预览正文真的能滚（默认载荷只有几行）
+        const rows = [{ oldLine: 1, oldText: '// head', oldChanges: [], newLine: 1, newText: '// head', newChanges: [], kind: 'Context' }];
+        for (let i = 2; i <= 120; i += 1) {
+          rows.push({ oldLine: i, oldText: 'line ' + i, oldChanges: [], newLine: i, newText: 'line ' + i, newChanges: [], kind: 'Context' });
+        }
+        rows.push({ oldLine: 121, oldText: 'old tail', oldChanges: [{ start: 0, length: 3 }], newLine: 121, newText: 'new tail', newChanges: [{ start: 0, length: 3 }], kind: 'Modified' });
+        window.__commitDiffRows = rows;
+      });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
+      await page.waitForTimeout(700);
+      const scrollerState = () => page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const line = pane ? pane.querySelector('.diff-code-line') : null;
+        let node = line ? line.parentElement : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+          if (node.scrollHeight > node.clientHeight + 1) break;
+          node = node.parentElement;
+        }
+        const saved = window.__augitLive.fileHistoryPreviewScroll || null;
+        return {
+          found: !!node,
+          cls: node ? (node.className || node.tagName) : null,
+          top: node ? Math.round(node.scrollTop) : null,
+          max: node ? node.scrollHeight - node.clientHeight : null,
+          saved: saved ? { key: saved.key, top: Math.round(saved.top) } : null,
+          lines: pane ? pane.querySelectorAll('.diff-code-line').length : 0,
+          paneDisplay: pane ? getComputedStyle(pane).display : null,
+        };
+      });
+      const base = await scrollerState();
+      // ① 滚到 300（正文确实可滚）
+      const scrolled = await page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const line = pane.querySelector('.diff-code-line');
+        let node = line.parentElement;
+        while (node && node !== document.body && node !== document.documentElement) {
+          if (node.scrollHeight > node.clientHeight + 1) break;
+          node = node.parentElement;
+        }
+        node.scrollTop = 300;
+        return { wanted: 300, actual: Math.round(node.scrollTop), max: node.scrollHeight - node.clientHeight };
+      });
+      await page.waitForTimeout(200);
+      // ② 隐藏再重显：阅读位置必须保留。
+      // 隐藏期间**强制一次底部区域重绘**（外部刷新就是这条路径）—— 否则浏览器自己会保住子树滚动位置，
+      // 判据就变成平凡为真；重绘换掉正文节点后，只有显式保存/恢复才回得来。
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(250);
+      const hidden = await scrollerState();
+      await page.evaluate(() => { window.__augitRenderRegions('bottomTool'); });
+      await page.waitForTimeout(300);
+      const hiddenRedrawn = await scrollerState();
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(500);
+      const reshown = await scrollerState();
+      // ③ 负向验证：把记住的位置抹掉 ⇒ 重显后回到顶部
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(250);
+      await page.evaluate(() => {
+        window.__augitLive.fileHistoryPreviewScroll = null;
+        window.__augitRenderRegions('bottomTool');
+      });
+      await page.waitForTimeout(300);
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(500);
+      const negNoMemory = await scrollerState();
+      // ④ Tab 顺序：从文件历史列表的第一个工具按钮开始连按 18 次，记录落点
+      const tabOrder = await (() => null)();
+      const focusTrail = await (async () => {
+        await page.evaluate(() => {
+          const first = document.querySelector('.history-tool-content .history-toolbar .icon-button');
+          if (first) first.focus();
+        });
+        const trail = [];
+        for (let i = 0; i < 18; i += 1) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(60);
+          trail.push(await page.evaluate(() => {
+            const active = document.activeElement;
+            if (!active) return null;
+            const label = active.getAttribute('aria-label') || (active.className || active.tagName);
+            const region = active.closest('.editor-content') ? 'editor'
+              : active.closest('.history-tool-content') ? 'file-history'
+                : active.closest('.side-tool') ? 'side'
+                  : active.closest('.titlebar') ? 'titlebar'
+                    : active.closest('.tool-rail') ? 'rail'
+                      : active.closest('.statusbar') ? 'statusbar'
+                        : active.closest('.bottom-tool') ? 'bottom' : 'other';
+            return { label, region };
+          }));
+        }
+        return trail;
+      })();
+      await page.close();
+      console.log('INFO 阅读位置=' + JSON.stringify({ base, scrolled, hidden, hiddenRedrawn, reshown, negNoMemory, focusTrail, errors }));
+      return { base, scrolled, hidden, hiddenRedrawn, reshown, negNoMemory, focusTrail, errors };
+    })();
+    const fhTrailLabels = fhScroll.focusTrail.map((item) => (item ? item.label : null));
+    const fhTrailRegions = fhScroll.focusTrail.map((item) => (item ? item.region : null));
+    check('§7.9 隐藏/重显文件历史右侧详情后保留同一份正文的阅读位置（含隐藏期间的区域重绘）: '
+      + JSON.stringify([fhScroll.base, fhScroll.scrolled, fhScroll.hiddenRedrawn, fhScroll.reshown, fhScroll.negNoMemory]),
+    fhScroll.errors.length === 0
+      // 前置：长提交差异让正文真的能滚（默认载荷只有几行 ⇒ 判据平凡为真）
+      && fhScroll.base.found === true && fhScroll.base.max > 1000 && fhScroll.base.lines === 242
+      && fhScroll.scrolled.actual === 300 && fhScroll.scrolled.max === fhScroll.base.max
+      // 隐藏：面板不显示，阅读位置连同**内容键**被记下
+      && fhScroll.hidden.paneDisplay === 'none'
+      && fhScroll.hidden.saved && fhScroll.hidden.saved.key === 'docs/notes.txt|full-bbb|nows'
+      && fhScroll.hidden.saved.top === 300
+      // 隐藏期间的区域重绘会换掉正文节点：记忆值仍在（下面重显要靠它回来）
+      && fhScroll.hiddenRedrawn.paneDisplay === 'none'
+      && fhScroll.hiddenRedrawn.saved && fhScroll.hiddenRedrawn.saved.top === 300
+      // 重显：回到同一位置
+      && fhScroll.reshown.paneDisplay === 'block' && fhScroll.reshown.top === 300
+      && fhScroll.reshown.max === fhScroll.base.max
+      // 负向验证：抹掉记住的位置后再走同一条路径 ⇒ 回到顶部（正面判据因此不是平凡为真）
+      && fhScroll.negNoMemory.saved === null && fhScroll.negNoMemory.top === 0);
+    check('§7.9 文件历史工具窗口内的 Tab 顺序经过工具按钮与提交行，不进入上方文档正文: '
+      + JSON.stringify([fhTrailRegions, fhTrailLabels]),
+    fhScroll.errors.length === 0
+      // 前 12 个 Tab 落点都在文件历史工具窗口内：列表工具条四个 + 详情显隐 + 比较工具条六项 + 提交行
+      && fhTrailRegions.slice(0, 12).every((region) => region === 'file-history')
+      && fhTrailLabels[3] === '显示提交详情'
+      && fhTrailLabels.slice(4, 10).join(',') === '上一处差异,下一处差异,忽略空白,双栏,单栏,设置'
+      && fhTrailLabels.slice(10, 12).every((label) => typeof label === 'string' && label.startsWith('history-row'))
+      // 全程不进入上方文档正文（`.editor-content`）
+      && fhTrailRegions.every((region) => region !== 'editor'));
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
