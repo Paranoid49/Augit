@@ -2240,7 +2240,146 @@ function selectFileHistoryCommit(fullHash, options = {}) {
   const changed = fileHistory.selectedFull !== commit.fullHash;
   fileHistory.selectedFull = commit.fullHash;
   syncFileHistorySelection(commit, options);
+  // 换选提交立即取消旧预览并装载新的（规格 §7.9 第五条）：同一提交重复选择时
+  // `loadFileHistoryPreview()` 命中"相同快照"分支，不重查也不重写正文。
+  void loadFileHistoryPreview({ commit: commit.fullHash });
   return changed;
+}
+
+// ---- 文件历史预览（规格 §7.9 第五条/第六条）----
+// 右侧的只读比较视图由"提交 + 路径"驱动：请求按内容维度复用（同一项重复选择不重复查询），
+// 换选提交立即取消旧预览（令牌 + 请求键双保险，晚到成功或失败都不回写）。
+const fileHistoryPreviewRequests = new Map();  // 内容键 -> 进行中的查询（同一项重复选择复用同一次请求）
+const fileHistoryPreviewPatches = new Map();   // 内容键 -> 已完成的补丁（**不含**显示模式 ⇒ 单双栏共用）
+let fileHistoryPreviewToken = 0;
+
+/** 预览的内容键：路径 + 提交 + 忽略空白（显示模式不参与 —— 它只是排版维度，规格 §6.3）。 */
+function fileHistoryPreviewKey(parts) {
+  return [parts.path, parts.commit, parts.ignoreWhitespace ? "ws" : "nows"].join("|");
+}
+
+/** 释放预览：取消未完成查询并丢掉已完成的补丁（清除文件历史、折叠工具窗口、销毁窗口）。 */
+function releaseFileHistoryPreview() {
+  const live = window.__augitLive;
+  fileHistoryPreviewToken += 1;
+  fileHistoryPreviewRequests.clear();
+  fileHistoryPreviewPatches.clear();
+  if (live) live.fileHistoryPreview = null;
+}
+
+/**
+ * 把预览状态落到 DOM。
+ *
+ * **只替换右侧详情面板**（定点更新）：文件历史列表的方向键导航依赖行上的焦点，
+ * 整区重绘会把焦点丢掉（第 256 轮刚接上的选择）。替换后单独重挂差异模式按钮。
+ */
+function applyFileHistoryPreview() {
+  if (typeof window.__augitFileHistoryPreviewView !== "function") return;
+  const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+  if (!pane) {
+    // 右侧还是提交信息面板（首次进入时预览状态才建立，渲染已经跑过）⇒ 让渲染路径按状态换一次。
+    // 用定点区域重绘而不是整页：底部之外的部分不该被牵动。
+    if (!document.querySelector("[data-live-file-history-pane]")) return;
+    if (typeof window.__augitRenderRegions === "function") {
+      window.__augitRenderRegions("bottomTool");
+      // 区域重绘换掉了整个底部工具窗 ⇒ 必须走一次渲染后的重挂（工具条的既有标签、
+      // 变化文件树的滚动监听等都挂在被替换掉的节点上）。`ensureFileHistoryPreview()` 此时
+      // 已有预览状态 ⇒ 直接返回，不会递归。
+      rebindAfterRender();
+    }
+    return;
+  }
+  pane.innerHTML = window.__augitFileHistoryPreviewView();
+  if (typeof window.__augitBindDiffModes === "function") window.__augitBindDiffModes(pane);
+}
+
+/**
+ * 加载/更新文件历史右侧的预览（规格 §7.9 第五、六条）。
+ *
+ * 三条规则与编辑器的 `loadDiff()` 同构：
+ * - **按提交与路径复用**：内容键相同且已就绪时不重查、不重写正文（相同快照刷新不重写、不改位置）；
+ * - **显示模式只是排版维度**：补丁缓存不含模式 ⇒ 单双栏切换复用同一份补丁，不重新调用 Git；
+ * - **改选立即取消旧预览**：令牌在每次装载（含换选、清除、隐藏）时前进，旧响应即使成功也不回写。
+ */
+async function loadFileHistoryPreview(options = {}) {
+  const live = window.__augitLive;
+  const fileHistory = live && live.fileHistory;
+  if (!live || !fileHistory) return null;
+  const commit = options.commit || (selectedFileHistoryCommit() || {}).fullHash || null;
+  if (!commit) return null;
+  const previous = live.fileHistoryPreview;
+  const parts = {
+    path: fileHistory.path,
+    commit,
+    mode: options.mode || (previous && previous.mode) || "split",
+    ignoreWhitespace: options.ignoreWhitespace === undefined
+      ? !!(previous && previous.ignoreWhitespace)
+      : !!options.ignoreWhitespace,
+  };
+  const key = fileHistoryPreviewKey(parts);
+  // 相同快照（提交 + 路径 + 忽略空白 + 显示模式）：不重查、不重写正文、不改阅读位置。
+  if (!options.force && previous && previous.key === key && previous.mode === parts.mode && previous.ready) {
+    return previous.diff;
+  }
+
+  // 命中已完成的同一内容（显示模式切换、选项来回切换且未要求强制重查）：只重新排版，不查询 Git
+  // （规格 §6.3／§7.9 第六条：单双栏共用同一份补丁）。
+  const cached = options.force ? null : fileHistoryPreviewPatches.get(key);
+  if (cached) {
+    live.fileHistoryPreview = { ...parts, key, loading: false, ready: true, diff: cached };
+    applyFileHistoryPreview();
+    return cached;
+  }
+
+  const token = ++fileHistoryPreviewToken;
+  live.fileHistoryPreview = { ...parts, key, loading: true, ready: false, diff: null };
+  applyFileHistoryPreview();
+
+  let pending = fileHistoryPreviewRequests.get(key);
+  if (!pending) {
+    pending = invoke("git/diff", {
+      path: parts.path,
+      commit: parts.commit,
+      ignoreWhitespace: parts.ignoreWhitespace,
+    }, 30000).finally(() => fileHistoryPreviewRequests.delete(key));
+    fileHistoryPreviewRequests.set(key, pending);
+  }
+  let diff = null;
+  try {
+    diff = await pending;
+  } catch (error) {
+    if (token === fileHistoryPreviewToken) {
+      window.__augitError = "load-file-history-preview:" + String(error && error.message || error);
+    }
+  }
+  // 晚到响应一律作废：令牌或请求键不匹配即丢弃（改选提交、清除文件历史、折叠工具窗都会推进令牌）。
+  if (token !== fileHistoryPreviewToken) return null;
+  const current = live.fileHistoryPreview;
+  if (!current || current.key !== key) return null;
+  const valid = diff && diff.available
+    && typeof diff.path === "string" && diff.path.length > 0
+    && Array.isArray(diff.rows);
+  const value = valid ? diff : null;
+  if (value) fileHistoryPreviewPatches.set(key, value);
+  live.fileHistoryPreview = { ...parts, key, loading: false, ready: true, diff: value };
+  applyFileHistoryPreview();
+  return value;
+}
+
+/** 文件历史预览的显示模式（规格 §6.3：相同内容只重新排版，不重新查询 Git）。 */
+async function switchFileHistoryPreviewMode(mode) {
+  const live = window.__augitLive;
+  if (!live || !live.fileHistoryPreview) return null;
+  return loadFileHistoryPreview({ mode });
+}
+window.__augitLoadFileHistoryPreviewMode = switchFileHistoryPreviewMode;
+
+/** 文件历史可见但没有预览（首次进入、重新展开工具窗）时按当前选择补查（规格 §7.9 第七条）。 */
+function ensureFileHistoryPreview() {
+  const live = window.__augitLive;
+  if (!live || !live.fileHistory || live.fileHistoryPreview) return;
+  if (!document.querySelector("[data-live-file-history-pane]")) return;
+  void loadFileHistoryPreview();
 }
 
 // 文件历史列表的行选择：单击只选择（双击打开比较由归属行/变化文件那一套链路负责；
@@ -4427,8 +4566,10 @@ function refresh(...regions) {
  * 箭头定位正文后**保留触发按钮焦点**，可继续按 Enter/Space。
  * 核实：该按钮（`.diff-toolbar .toolbar-button`）此前在 live 代码里**没有任何处理** ⇒ 死入口。
  */
-function diffChangeBlocks() {
-  const root = document.querySelector(".diff-layout, .document-view");
+function diffChangeBlocks(scope = null) {
+  const root = scope
+    ? (scope.matches && scope.matches(".diff-layout, .document-view") ? scope : scope.querySelector(".diff-layout, .document-view"))
+    : document.querySelector(".diff-layout, .document-view");
   if (!root) return [];
   // 规格 `ux-spec.md:441`「差异数量按连续变更块计算」：双栏视图里**每一栏都是同一份变更块的
   // 完整行列表**（`.diff-side` 各含全部行），按整份 DOM 计块会把每一处差异算两次 ——
@@ -4670,14 +4811,16 @@ function applyDiffBoundaryHint() {
   layout.appendChild(node);
 }
 
-function moveDiffChange(direction) {
-  const blocks = diffChangeBlocks();
+function moveDiffChange(direction, scope = null) {
+  const blocks = diffChangeBlocks(scope);
   if (!blocks.length) return null;
   // 导航状态（当前块索引/总数）挂在**布局根**上：每次正文重绘都会换一个新的 `.diff-layout`，
   // 内容变了就自然回到"首次点击"（规格 `ux-spec.md:441`：首次点下一处定位第一块）。
   // 此前挂在**滚动容器**上，而滚动容器会跨重绘存活 —— 切单双栏或换了文件之后，第一次点同方向
   // 箭头会拿上一个内容的索引去判"已在边界"，从而**直接切到相邻文件**（第 224 轮修正）。
-  const root = document.querySelector(".diff-layout, .document-view");
+  const root = scope
+    ? (scope.querySelector(".diff-layout, .document-view") || scope)
+    : document.querySelector(".diff-layout, .document-view");
   const stateHost = root || diffScrollableAncestor(blocks[0].first);
   const total = blocks.length;
   let index = Number(stateHost.dataset.diffIndex);
@@ -4695,7 +4838,9 @@ function moveDiffChange(direction) {
   stateHost.dataset.diffTotal = String(total);
   const live = window.__augitLive;
   const atEdge = direction > 0 ? (index === total - 1) : (index === 0);
-  if (wasAtEdge && atEdge && live && live.workspaceDiff) {
+  // 两段式边界提示与"再按进入相邻文件"只属于工作区 Diff（规格 §7.7 第 8 条）：
+  // 文件历史预览是**比较视图**，同方向到底就停在最后一块（`scope` 非空即跳过整段）。
+  if (wasAtEdge && atEdge && !scope && live && live.workspaceDiff) {
     const hint = live.diffBoundaryHint;
     if (!hint || hint.direction !== direction) {
       live.diffBoundaryHint = { direction };
@@ -4713,8 +4858,8 @@ function moveDiffChange(direction) {
     applyDiffBoundaryHint();
     return { index, total, atEnd: true };
   }
-  if (live) live.diffBoundaryHint = null;
-  applyDiffBoundaryHint();
+  if (live && !scope) live.diffBoundaryHint = null;
+  if (!scope) applyDiffBoundaryHint();
   // 规格 `ux-spec.md:438/439/502` 只要求"上一处/下一处差异"能**定位**到变更块并保持触发按钮焦点，
   // **没有**"当前差异块整块染色"这一层：权威 `DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／
   // `RESOLVED`／`EXCLUDED_*`，不存在"当前差异"模式（第 223 轮据此删除 `.diff-current` 层）。
@@ -4750,6 +4895,8 @@ async function clearHistoryPathFilter() {
   // 于是刚清掉的文件历史会被渲染成**样例行**（实测：清掉后底部仍有一条 `feat: 实现 Augit 阶段零至五功能`）——
   // 第 161 轮由"点日志标签后数 `.history-row`"的断言抓出来。
   live.layout.userDriven = true;
+  // 清除文件历史 = 释放右侧预览正文与未完成查询（规格 §7.9 第五条："清除文件历史后释放隐藏预览正文"）。
+  releaseFileHistoryPreview();
   // 从 URL 直接进文件历史时没有"进入前上下文"，此时按"折叠底部区域"处理。
   live.layout.bottom = back.bottom || "";
   live.layout.collapsed = null;
@@ -4959,6 +5106,8 @@ function rebindAfterRender() {
   // 这里只需重挂滚动监听并按状态回到原来的顶部位置（规格 §7.9 条目三）。
   bindCommitFilesScroll();
   restoreCommitFilesScroll();
+  // 文件历史右侧的预览同样是"状态 → DOM"：状态缺失时按当前选择补查（首次进入、重新展开工具窗）。
+  ensureFileHistoryPreview();
   // 图片画布中心的加载提示是"状态 → DOM"：区域重绘会抹掉追加的节点，重绘后按状态补回
   //（规格 §7.5：提示只属于当时那张图，读取完成或切标签时由 `clearImagePreviewState()` 撤去）。
   syncImagePreviewState();
@@ -5289,6 +5438,8 @@ function applyRailAction(name) {
 
     // 再次点击同一入口：折叠 / 恢复该区域。
     layout.collapsed = layout.collapsed === (inSide ? "side" : "bottom") ? null : (inSide ? "side" : "bottom");
+    // 折叠底部工具窗等于隐藏承载预览的工具窗口：取消未完成查询并丢掉预览正文（规格 §7.9 第五条）。
+    if (!inSide && layout.collapsed === "bottom") releaseFileHistoryPreview();
   } else {
     layout.activeRail = name;
     layout.collapsed = null;
@@ -12028,6 +12179,16 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   const live = window.__augitLive;
   if (!live) return;
+  // 文件历史预览有自己的忽略空白选项（与编辑器正文互不影响）：它是真实差异选项 ⇒ 重查。
+  if (button.closest("[data-live-file-history-preview]")) {
+    const preview = live.fileHistoryPreview;
+    if (!preview) return;
+    const next = !preview.ignoreWhitespace;
+    button.setAttribute("aria-pressed", next ? "true" : "false");
+    button.classList.toggle("active", next);
+    void loadFileHistoryPreview({ ignoreWhitespace: next, force: true });
+    return;
+  }
   live.diffOptions = live.diffOptions || {};
   live.diffOptions.ignoreWhitespace = !live.diffOptions.ignoreWhitespace;
   button.setAttribute("aria-pressed", live.diffOptions.ignoreWhitespace ? "true" : "false");
@@ -12057,7 +12218,9 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   window.__diffNavHit = (window.__diffNavHit || 0) + 1;
   event.preventDefault();
-  moveDiffChange(button.getAttribute("aria-label") === "下一处差异" ? 1 : -1);
+  // 同一套箭头服务两份正文：点在预览工具条上时只在**预览**里定位（作用域交给 `moveDiffChange`）。
+  moveDiffChange(button.getAttribute("aria-label") === "下一处差异" ? 1 : -1,
+    button.closest("[data-live-file-history-preview]"));
 }, true);
 
 // 项目树右键打开上下文菜单（规格 §5.4）。

@@ -1539,11 +1539,16 @@ function bindJsonModes() {
   update(view.dataset.jsonMode);
 }
 
-function diffFileHeader(source, target, title, path = "src/Augit.App/app.manifest") {
+function diffFileHeader(source, target, title, path = "src/Augit.App/app.manifest", options = {}) {
   // 加载提示挂在**文件标题行**（规格 §6.5：有旧正文时在该 Diff 的文件标题行提示加载）。
   // 由 live.diffLoading 驱动：区域刷新会重建正文，注入的节点会被抹掉，
   // 只有随渲染一起产生才能在整个加载窗口内保持可见。
-  const loading = window.__augitLive && window.__augitLive.diffLoading
+  // 文件历史预览有自己的加载态（工具条摘要 + 空栏），调用方传 `loading: false` 关掉这里的提示，
+  // 否则编辑器正文在加载时会把"正在生成 diff…"画到预览的文件栏上（两份正文可以同时开着）。
+  const showLoading = options.loading === undefined
+    ? !!(window.__augitLive && window.__augitLive.diffLoading)
+    : !!options.loading;
+  const loading = showLoading
     ? `<span class="diff-loading-status diff-filebar-loading" role="status"><span class="loading-mark"></span>正在生成 diff…</span>`
     : "";
   return `<div class="diff-filebar reference-filebar" title="${escapeHtml(title)} · ${escapeHtml(path)}"><div class="reference-before"><span class="reference-lock">${icon("lock")}</span><span class="reference-source">${source}</span><span class="reference-path">${escapeHtml(path)}</span></div>${loading}<div class="reference-after"><span class="reference-lock">${icon("lock")}</span><span class="reference-target">${target}</span></div></div>`;
@@ -2289,14 +2294,16 @@ function liveRollbackBody() {
  * 而 **Diff 正文内的查找尚未实现**（共享查找条只服务 `.document-view > .code-view`）
  * ⇒ 按「未接线先禁用并写明原因」的既有做法渲染，不留死入口。
  */
-function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", busy = false } = {}) {
+function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", busy = false, ignoreWhitespace: ignoreOption, unified: unifiedOption } = {}) {
   const live = window.__augitLive || {};
   const disabled = arrowsDisabled || busy;
   const arrow = (label, name) => disabled
     ? `<button class="toolbar-button" disabled title="正在生成差异，稍后可用。" aria-label="${label}">${icon(name)}</button>`
     : `<button class="toolbar-button" aria-label="${label}">${icon(name)}</button>`;
-  const ignoreWhitespace = !!(live.diffOptions && live.diffOptions.ignoreWhitespace);
-  const unified = live.diffMode === "unified";
+  // 这两个选项默认取编辑器正文的会话状态；文件历史预览显式传入 —— 两边可以同时开着、
+  // 各自处于不同的显示模式与忽略空白选项，不能互相污染。
+  const ignoreWhitespace = ignoreOption === undefined ? !!(live.diffOptions && live.diffOptions.ignoreWhitespace) : !!ignoreOption;
+  const unified = unifiedOption === undefined ? live.diffMode === "unified" : !!unifiedOption;
   const segment = (label, name, active) =>
     `<button class="segment${active ? " active" : ""}" aria-label="${label}">${icon(name)}</button>`;
   return `<div class="diff-toolbar">`
@@ -2364,6 +2371,22 @@ function liveDiffView() {
     return `<div class="diff-layout">${liveDiffToolbar({ fileNav, arrowsDisabled: true })}${barFilebar}${emptyNotice}</div>`;
   }
 
+  const body = diffBodyParts(diff);
+  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: body.summary })}${barFilebar}${body.unifiedTemplate}${body.columns}</div>`;
+}
+
+/**
+ * 由一份补丁构造差异**正文**与摘要（工具栏与文件栏由调用方各自拼装）。
+ *
+ * 提取出来的原因：文件历史右侧的只读比较视图（规格 §7.9 第六条「正文与引用比较同构」）
+ * 必须与编辑器里的历史/引用比较使用**同一份**排版实现 —— 两份实现迟早会漂移
+ *（行号、变更高亮、单栏模板、摘要块数都各有口径）。`liveDiffView()` 仍是编辑器正文的唯一入口。
+ *
+ * 输入形状与 `live.diff` 一致：`{ path, status, rows }`，行是宿主给的
+ * `{ kind: Context|Added|Removed|Modified|HunkHeader|Metadata, oldLine, newLine, oldText, newText, oldChanges, newChanges }`。
+ */
+function diffBodyParts(diff) {
+  const rows = (diff && diff.rows) || [];
   // 差异行内的字符级高亮：把 span 区间切成普通片段与标记片段。
   const marked = (text, spans) => {
     const source = String(text ?? "");
@@ -2415,7 +2438,7 @@ function liveDiffView() {
     const text = newCells[index].content !== "&nbsp;" ? newCells[index].content : oldCells[index].content;
     return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
   }).join("");
-  const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml(diff.path)}</div>${unified}</template>`;
+  const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml((diff && diff.path) || "")}</div>${unified}</template>`;
   // 差异摘要（规格 §7.7 第 5 条「右侧为差异摘要」）：数量按**连续变更块**计算，
   // 与 `live-data.js` 的 `diffChangeBlocks()`（导航用、同一口径）一致 —— 一次替换的删除与新增
   // 在解析后合成一行 `Modified`，因此"连续的非上下文内容行"就是一块。
@@ -2424,7 +2447,47 @@ function liveDiffView() {
   for (let index = 0; index < content.length; index += 1) {
     if (isChangedKind(content[index]) && (index === 0 || !isChangedKind(content[index - 1]))) diffBlocks += 1;
   }
-  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: `<span class="diff-summary">${diffBlocks} 处差异</span>` })}${barFilebar}${unifiedTemplate}<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div></div>`;
+  return {
+    columns: `<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div>`,
+    unifiedTemplate,
+    summary: `<span class="diff-summary">${diffBlocks} 处差异</span>`,
+    blockCount: diffBlocks,
+  };
+}
+
+/**
+ * 文件历史右侧的**只读比较视图**（规格 §7.9 第五条/第六条）。
+ *
+ * 数据来自 `live.fileHistoryPreview`（按"提交 + 路径"加载的补丁），排版与编辑器里的
+ * 历史/引用比较共用 `diffBodyParts()` 与 `liveDiffToolbar()`：工具栏顺序、文件栏的
+ * 父版本·提交版本·路径、行号与变更高亮因此逐项同构。文件栏与正文都**不**进入 Tab 顺序
+ * （规格 §7.9 第十七条：文件栏不进入 Tab 顺序）。
+ */
+function liveFileHistoryPreviewView() {
+  const live = window.__augitLive || {};
+  const preview = live.fileHistoryPreview;
+  const path = (preview && preview.path) || (live.fileHistory && live.fileHistory.path) || "";
+  const short = (value) => String(value || "").slice(0, 8);
+  // 文件栏：父版本（提交^）· 提交版本 · 相对路径 —— 与历史比较的编辑器正文同一口径。
+  const filebar = diffFileHeader(`${short(preview && preview.commit)}^`, short(preview && preview.commit), path, path, { loading: false });
+  // 工具条的显示模式与忽略空白取**预览自己的状态**（不是编辑器正文的）：两边可以同时开着。
+  const options = {
+    ignoreWhitespace: !!(preview && preview.ignoreWhitespace),
+    unified: !!(preview && preview.mode === "unified"),
+  };
+  if (!preview || preview.loading) {
+    return `<div class="diff-layout" data-augit-loading="true" data-live-file-history-preview>${liveDiffToolbar({
+      ...options, arrowsDisabled: true,
+      summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
+    })}${filebar}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+  }
+  const rows = (preview.diff && preview.diff.rows) || [];
+  if (rows.length === 0) {
+    const notice = diffStatusNotice(preview.diff && preview.diff.status && preview.diff.status !== "Ready" ? preview.diff.status : "Ready");
+    return `<div class="diff-layout" data-live-file-history-preview>${liveDiffToolbar({ ...options, arrowsDisabled: true })}${filebar}${notice}</div>`;
+  }
+  const body = diffBodyParts(preview.diff);
+  return `<div class="diff-layout" data-live-file-history-preview data-diff-total="${body.blockCount}">${liveDiffToolbar({ ...options, summary: body.summary })}${filebar}${body.unifiedTemplate}${body.columns}</div>`;
 }
 
 // 外壳注入真实设置时的 Clone 表单：目标目录用最近目录预填，浅克隆默认不勾选且深度禁用。
@@ -4238,7 +4301,12 @@ function liveFileHistoryTool() {
       return `<div class="history-row${active ? " selected" : ""}" role="option" aria-selected="${active ? "true" : "false"}" data-history-hash="${escapeHtml(commit.hash)}" data-history-full="${escapeHtml(commit.fullHash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`;
     }).join("");
   const head = selected;
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail" data-live-file-history-detail>${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+  // 右侧详情：规格 §7.9 第六条要求这里是**完整只读比较视图**（工具栏九项、文件栏父版本·提交版本·路径、
+  // 与引用比较同构的正文）。预览状态还没建立时（首帧）退回提交信息，避免闪出一个空面板。
+  const pane = window.__augitLive.fileHistoryPreview
+    ? `<div class="history-detail-pane" data-live-file-history-pane="preview">${liveFileHistoryPreviewView()}</div>`
+    : `<div class="history-detail-pane" data-live-file-history-pane="commit"><div class="commit-detail" data-live-file-history-detail>${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div>${pane}</div></section>`;
 }
 
 /**
@@ -5390,18 +5458,25 @@ function bindDiffModes(root = document) {
         if (boundaryDismissed) body.querySelector(".diff-boundary-hint")?.remove();
       }
     };
+    // 文件历史右侧的预览是**另一份**正文（与编辑器正文可以同时开着、各自处于不同模式）：
+    // 它的显示模式回调走预览自己的入口，绝不能再调 `__augitLoadDiffMode`（那会去改编辑器正文）。
+    const previewPane = !!layout.closest("[data-live-file-history-preview]");
     buttons.forEach(button => button.addEventListener("click", () => {
       const unified = button.getAttribute("aria-label") === "单栏";
       update(unified);
       // 外壳存在时同步显示模式：相同内容只重新排版，不重新查询 Git（§6.3）。
-      if (window.__augitLive && window.__augitLive.diff && typeof window.__augitLoadDiffMode === "function") {
-        window.__augitLoadDiffMode(unified ? "unified" : "side-by-side");
-      }
+      const hook = previewPane ? window.__augitLoadFileHistoryPreviewMode : window.__augitLoadDiffMode;
+      const hasBody = previewPane
+        ? !!(window.__augitLive && window.__augitLive.fileHistoryPreview)
+        : !!(window.__augitLive && window.__augitLive.diff);
+      if (hasBody && typeof hook === "function") hook(unified ? "unified" : "side-by-side");
     }));
     // 实时外壳下显示模式是**会话状态**（`live.diffMode`，由 `loadDiff()`／`switchDiffMode()` 维护）：
     // 正文重绘会换掉整个布局元素，不再按状态回填的话，切到单栏后一次刷新就退回双栏（第 224 轮修正）。
     // 这里只改 DOM、不回调宿主（回调只在点击监听器里），所以不会与重绘互相触发。
-    const liveMode = window.__augitLive && window.__augitLive.diffMode;
+    const liveMode = previewPane
+      ? (window.__augitLive && window.__augitLive.fileHistoryPreview && window.__augitLive.fileHistoryPreview.mode)
+      : (window.__augitLive && window.__augitLive.diffMode);
     update(liveMode
       ? liveMode === "unified"
       : new URLSearchParams(window.location.search).get("diffMode") === "unified");
@@ -5956,6 +6031,10 @@ window.__augitBind = bindInteractions;
 // 只重跑 Markdown 绑定（它自己会先释放上一次绑定）：实时侧在**不重绘正文**的前提下更新
 // 预览区顶部的提示文案时用它，避免 150ms 提示把原文滚动位置与对照比例冲掉（规格 §7.3）。
 window.__augitBindMarkdown = bindMarkdownModes;
+// 文件历史预览的正文由实时层**定点替换**（不整页/整区重绘，避免丢掉列表焦点）⇒ 替换后要能单独重挂差异模式按钮。
+window.__augitBindDiffModes = bindDiffModes;
+// 文件历史右侧的只读比较视图（实时层定点替换详情面板时按状态重建它）。
+window.__augitFileHistoryPreviewView = liveFileHistoryPreviewView;
 
 if (app) {
   app.innerHTML = renderScene();

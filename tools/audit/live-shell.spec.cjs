@@ -533,6 +533,10 @@ async function main() {
         }
         const diffDelay = (window.__diffDelays || {})[params.path];
         if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
+        // 第 257 轮：按**提交**注入延迟。文件历史预览要验证"改选提交时立即取消旧预览、晚到不得回写"，
+        // 而按路径注入会让新旧两个请求一样慢 ⇒ 旧响应反而先到，"晚到覆盖"根本观察不到。
+        const commitDiffDelay = (window.__diffCommitDelays || {})[params.commit];
+        if (commitDiffDelay) await new Promise((r) => setTimeout(r, commitDiffDelay));
         // 支持注入"最终说明"类结果（规格 §6.5：二进制、超限、无文本差异和错误的
         // 最终说明必须持续可见，不能被加载指示的收尾隐藏）。
         if (window.__diffStatusOverride) {
@@ -19162,8 +19166,13 @@ async function main() {
           detail: detail ? detail.textContent.replace(/\s+/g, ' ').trim().slice(0, 90) : null,
           detailKey: detail ? (detail.dataset.historyDetail || null) : null,
           detailInPane: !!document.querySelector('.history-detail-pane [data-live-file-history-detail]'),
+          // 右侧现在是**只读比较视图**（第 257 轮接上）：跟随判据看预览的提交与文件栏来源
+          previewCommit: (window.__augitLive.fileHistoryPreview || {}).commit || null,
+          previewSource: (() => { const n = document.querySelector('[data-live-file-history-pane="preview"] .reference-source'); return n ? n.textContent.trim() : null; })(),
+          previewPane: !!document.querySelector('[data-live-file-history-pane="preview"]'),
           fileHistoryCalls: window.__fileHistoryCalls || 0,
-          diffCalls: window.__diffCalls || 0,
+          // 桩的 `__diffCalls` 是**路径数组**（第 257 轮起文件历史右侧的预览也会查 diff）⇒ 统一取长度。
+          diffCalls: (window.__diffCalls || []).length,
           focused: document.activeElement ? (document.activeElement.dataset.historyFull || null) : null,
         };
       });
@@ -19171,25 +19180,28 @@ async function main() {
       await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
       await scene.page.waitForTimeout(300);
       const clicked = await snap();
-      // 记下详情**子节点**身份：重复选择同一条提交时不重建（`innerHTML` 重写会换掉子节点，
-      // 只看宿主节点身份是无效判据 —— 宿主永远不变，见下面的负向验证 N2）。
+      // 记下右侧正文的**布局节点**身份：重复选择同一条提交时不重建（`innerHTML` 重写会换掉节点，
+      // 只看宿主面板身份是无效判据 —— 面板永远不变，见下面的负向验证 N2）。
       await scene.page.evaluate(() => {
-        const detail = document.querySelector('[data-live-file-history-detail]');
-        window.__fhDetailNode256 = detail;
-        window.__fhDetailChild256 = detail.firstElementChild;
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        window.__fhPaneNode256 = pane;
+        window.__fhPaneChild256 = pane ? pane.querySelector('.diff-layout') : null;
       });
+      await scene.page.waitForTimeout(300);
       await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
       await scene.page.waitForTimeout(300);
       const repeated = await scene.page.evaluate(() => {
         const rows = [...document.querySelectorAll('.history-rows .history-row[data-history-full]')];
         const detail = document.querySelector('[data-live-file-history-detail]');
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
         return {
-          sameNode: window.__fhDetailNode256 === detail,
-          sameChild: window.__fhDetailChild256 === detail.firstElementChild,
+          sameNode: window.__fhPaneNode256 === pane,
+          sameChild: !!pane && window.__fhPaneChild256 === pane.querySelector('.diff-layout'),
           aria: rows.map((row) => row.getAttribute('aria-selected')),
-          detail: detail.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
+          previewCommit: (window.__augitLive.fileHistoryPreview || {}).commit || null,
+          detail: detail ? detail.textContent.replace(/\s+/g, ' ').trim().slice(0, 90) : null,
           fileHistoryCalls: window.__fileHistoryCalls || 0,
-          diffCalls: window.__diffCalls || 0,
+          diffCalls: (window.__diffCalls || []).length,
         };
       });
       // 上下键：焦点在第二行按 ArrowUp ⇒ 选回第一行并把焦点带过去
@@ -19220,16 +19232,18 @@ async function main() {
         await scene.page.evaluate(() => {
           document.querySelectorAll('.history-rows .history-row')[0].setAttribute('data-history-full', window.__fhRow0Full256);
         });
-        // N2：把"同一提交重复选择不重建"的守卫抹掉 ⇒ 重复选择会重写详情（子节点被换掉）
+        // N2：把预览的"已就绪"标记抹掉 ⇒ 重复选择会重写右侧正文（布局节点被换掉）
         await scene.page.evaluate(() => {
-          window.__fhDetailChild256b = document.querySelector('[data-live-file-history-detail]').firstElementChild;
-          document.querySelector('[data-live-file-history-detail]').dataset.historyDetail = '';
+          const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+          window.__fhPaneChild256b = pane.querySelector('.diff-layout');
+          window.__augitLive.fileHistoryPreview.ready = false;
         });
         await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
-        await scene.page.waitForTimeout(250);
-        const n2 = await scene.page.evaluate(() => ({
-          sameChild: window.__fhDetailChild256b === document.querySelector('[data-live-file-history-detail]').firstElementChild,
-        }));
+        await scene.page.waitForTimeout(400);
+        const n2 = await scene.page.evaluate(() => {
+          const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+          return { sameChild: !!pane && window.__fhPaneChild256b === pane.querySelector('.diff-layout') };
+        });
         // N3：把选择状态抹空 ⇒ 区域重绘退回第一条（证明渲染读的确实是状态）
         await scene.page.evaluate(() => {
           window.__augitLive.fileHistory.selectedFull = null;
@@ -19239,7 +19253,7 @@ async function main() {
         const n3 = await scene.page.evaluate(() => ({
           selectedFull: window.__augitLive.fileHistory.selectedFull || null,
           aria: [...document.querySelectorAll('.history-rows .history-row[data-history-full]')].map((row) => row.getAttribute('aria-selected')),
-          detail: document.querySelector('[data-live-file-history-detail]').textContent.replace(/\s+/g, ' ').trim().slice(0, 40),
+          previewCommit: (window.__augitLive.fileHistoryPreview || {}).commit || null,
         }));
         return { n1, n2, n3 };
       })();
@@ -19255,33 +19269,36 @@ async function main() {
       && fileHistorySelect.base.rows[0].full === 'full-bbb' && fileHistorySelect.base.rows[0].aria === 'true'
       && fileHistorySelect.base.rows[1].full === 'full-aaa' && fileHistorySelect.base.rows[1].aria === 'false'
       && fileHistorySelect.base.selectedFull === 'full-bbb'
-      && fileHistorySelect.base.detail.includes('fix: 文件历史一') && fileHistorySelect.base.detail.includes('bbb2222')
+      && fileHistorySelect.base.previewCommit === 'full-bbb' && fileHistorySelect.base.previewSource === 'full-bbb^'
+      && fileHistorySelect.base.previewPane === true
       && fileHistorySelect.base.rows.every((row) => row.role === 'option')
       // 单击第二行：唯一选中 + 详情跟随该提交 + 状态键跟随
       && fileHistorySelect.clicked.rows[1].selected === true && fileHistorySelect.clicked.rows[1].aria === 'true'
       && fileHistorySelect.clicked.rows[0].selected === false && fileHistorySelect.clicked.rows[0].aria === 'false'
       && fileHistorySelect.clicked.selectedFull === 'full-aaa'
-      && fileHistorySelect.clicked.detail.includes('feat: 文件历史二')
-      && fileHistorySelect.clicked.detail.includes('aaa1111')
-      && fileHistorySelect.clicked.detailInPane === true
+      && fileHistorySelect.clicked.previewCommit === 'full-aaa'
+      && fileHistorySelect.clicked.previewSource === 'full-aaa^'
+      && fileHistorySelect.clicked.previewPane === true
       // 上下键：ArrowUp 回到第一条，焦点跟着走
       && fileHistorySelect.keyed.selectedFull === 'full-bbb'
       && fileHistorySelect.keyed.rows[0].aria === 'true' && fileHistorySelect.keyed.rows[1].aria === 'false'
-      && fileHistorySelect.keyed.detail.includes('fix: 文件历史一')
+      && fileHistorySelect.keyed.previewCommit === 'full-bbb' && fileHistorySelect.keyed.previewSource === 'full-bbb^'
       && fileHistorySelect.keyed.focused === 'full-bbb');
     check('§7.9 文件历史选择在区域重绘后保持，重复选择同一提交不重建详情也不重查: '
       + JSON.stringify([fileHistorySelect.repeated, fileHistorySelect.redrawn]),
     // 重复选择同一条：详情节点身份不变、选中态不变、`git/file-history` 与 `git/diff` 调用数都不增
     fileHistorySelect.repeated.sameNode === true && fileHistorySelect.repeated.sameChild === true
       && fileHistorySelect.repeated.aria[1] === 'true'
-      && fileHistorySelect.repeated.detail.includes('feat: 文件历史二')
+      && fileHistorySelect.repeated.previewCommit === 'full-aaa'
       && fileHistorySelect.repeated.fileHistoryCalls === fileHistorySelect.base.fileHistoryCalls
-      && fileHistorySelect.repeated.diffCalls === fileHistorySelect.base.diffCalls
+      // 与**换选后**的调用数比：第 257 轮起右侧预览会按提交查询一次，重复选择不得再增
+      && fileHistorySelect.repeated.diffCalls === fileHistorySelect.clicked.diffCalls
       // 区域重绘：渲染按状态回填，选中的仍是换选后的那一条（而不是退回第一条）
       && fileHistorySelect.redrawn.selectedFull === 'full-bbb'
       && fileHistorySelect.redrawn.rows[0].aria === 'true'
       && fileHistorySelect.redrawn.rows[1].aria === 'false'
-      && fileHistorySelect.redrawn.detail.includes('fix: 文件历史一'));
+      && fileHistorySelect.redrawn.previewCommit === 'full-bbb'
+      && fileHistorySelect.redrawn.previewSource === 'full-bbb^');
     check('负向验证：行不匹配选择器 / 抹掉同一提交守卫 / 抹空选择状态 三种扰动分别让对应判据失败: '
       + JSON.stringify(fileHistorySelect.negative),
     // N1：点击不匹配选择器的行 ⇒ 选择不变（正面判据要求点击换选）
@@ -19292,7 +19309,229 @@ async function main() {
       // N3：抹空状态后重绘退回第一条（正面判据要求重绘后仍停在换选后的那一条）
       && fileHistorySelect.negative.n3.selectedFull === null
       && fileHistorySelect.negative.n3.aria[0] === 'true' && fileHistorySelect.negative.n3.aria[1] === 'false'
-      && fileHistorySelect.negative.n3.detail.includes('fix: 文件历史一'));
+      && fileHistorySelect.negative.n3.aria[0] === 'true' && fileHistorySelect.negative.n3.aria[1] === 'false');
+
+    // ---- 第 257 轮补断言：文件历史右侧的只读比较视图与预览生命周期（§7.9 第五/六条）----
+    // 此前右侧只有提交信息详情、列表也没有点击处理（第 256 轮接上选择），
+    // 视觉稿与规格要求的"完整只读比较视图"在实时侧不存在。本轮按"提交 + 路径"装载预览正文。
+    const fhPreview = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      // 走**真实入口**（项目树右键 →「文件历史」）：URL 直达那条路不会给工具条的清除入口贴标签，
+      // 而"清除文件历史"正是本轮要验证的取消路径之一。
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      const snap = () => page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const layout = pane ? pane.querySelector('.diff-layout') : null;
+        const preview = window.__augitLive.fileHistoryPreview || null;
+        const bar = pane ? pane.querySelector('.diff-filebar') : null;
+        const text = (node) => (node ? node.textContent.replace(/\s+/g, ' ').trim() : null);
+        return {
+          paneKind: (() => { const p = document.querySelector('[data-live-file-history-pane]'); return p ? p.dataset.liveFileHistoryPane : null; })(),
+          toolbar: pane ? [...pane.querySelectorAll('.diff-toolbar [aria-label]')].map((n) => n.getAttribute('aria-label')) : null,
+          disabled: pane ? [...pane.querySelectorAll('.diff-toolbar button[disabled]')].map((n) => n.getAttribute('aria-label')) : null,
+          mode: layout ? layout.dataset.diffMode : null,
+          total: layout ? layout.dataset.diffTotal : null,
+          lines: pane ? pane.querySelectorAll('.diff-code-line').length : 0,
+          marks: pane ? pane.querySelectorAll('.diff-code-line mark').length : 0,
+          sides: pane ? pane.querySelectorAll('.diff-columns > .diff-side').length : 0,
+          gutters: pane ? pane.querySelectorAll('.diff-columns > .diff-gutter').length : 0,
+          source: bar ? text(bar.querySelector('.reference-source')) : null,
+          target: bar ? text(bar.querySelector('.reference-target')) : null,
+          path: bar ? text(bar.querySelector('.reference-path')) : null,
+          commit: preview ? preview.commit : null,
+          previewMode: preview ? preview.mode : null,
+          ignoreWhitespace: preview ? !!preview.ignoreWhitespace : null,
+          loading: preview ? !!preview.loading : null,
+          bodyText: pane && pane.querySelector('.diff-columns') ? text(pane.querySelector('.diff-columns')).slice(0, 60) : null,
+          detailPane: !!document.querySelector('[data-live-file-history-detail]'),
+          diffCalls: (window.__diffCalls || []).length,
+          diffCommits: (window.__diffCommits || []).slice(),
+          whitespace: (window.__diffWhitespace || []).slice(),
+          selectedFull: (window.__augitLive.fileHistory || {}).selectedFull || null,
+          editorDiff: !!window.__augitLive.diff,
+          collapsed: (window.__augitLive.layout || {}).collapsed || null,
+        };
+      });
+      const base = await snap();
+      // 说明：本场景的底部分区来自视觉稿场景值，切换 rail 会改布局 ⇒ 隐藏/重显走**清除入口**这一条真实路径。
+      // ① 同一提交重复选择：不重查、不重写正文（布局节点身份不变）
+      await page.evaluate(() => { window.__paneLayout257 = document.querySelector('[data-live-file-history-pane="preview"] .diff-layout'); });
+      await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+      await page.waitForTimeout(400);
+      const repeated = await page.evaluate(() => ({
+        sameLayout: window.__paneLayout257 === document.querySelector('[data-live-file-history-pane="preview"] .diff-layout'),
+        diffCalls: (window.__diffCalls || []).length,
+      }));
+      // ② 换选第二条提交：预览跟随（文件栏与正文都换），编辑器正文不受影响
+      await page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+      await page.waitForFunction("() => (window.__augitLive.fileHistoryPreview || {}).commit === 'full-aaa'", null, { timeout: 10000 });
+      await page.waitForTimeout(400);
+      const switched = await snap();
+      // ③ 显示模式：单栏复用同一份补丁（不查 Git），预览状态与正文一起换
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+      await page.waitForTimeout(500);
+      const unified = await snap();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="双栏"]').click();
+      await page.waitForTimeout(400);
+      const backToSplit = await snap();
+      // ④ 忽略空白是**真实差异选项**：重查一次、最后一次选项生效
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.waitForFunction("() => !!(window.__augitLive.fileHistoryPreview || {}).ignoreWhitespace", null, { timeout: 10000 });
+      await page.waitForTimeout(400);
+      const ignored = await snap();
+      // ⑤ 与编辑器里的比较视图**逐字同构**：同一份补丁在两处必须产出同一段正文
+      const parity = await page.evaluate(async () => {
+        await window.__augitLoadDiff('docs/notes.txt', { commit: 'full-aaa' });
+        // 只重绘编辑区（而不是整页）：整页重绘会让底部工具窗的既有绑定（清除入口的标签等）
+        // 需要 live-data 的渲染后重挂，而验收钩子里没有这一步。
+        window.__augitRenderRegions('editorContent');
+        await new Promise((r) => setTimeout(r, 400));
+        const paneColumns = document.querySelector('[data-live-file-history-pane="preview"] .diff-columns');
+        const editorColumns = document.querySelector('.editor-content .diff-columns');
+        return {
+          paneLength: paneColumns ? paneColumns.outerHTML.length : 0,
+          editorLength: editorColumns ? editorColumns.outerHTML.length : 0,
+          same: !!(paneColumns && editorColumns) && paneColumns.outerHTML === editorColumns.outerHTML,
+        };
+      });
+      // ⑥ 改选提交立即取消旧预览：第一条提交的响应故意慢，换选后旧内容不得出现、晚到也不得回写
+      const race = await (async () => {
+        await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1500 }; });
+        await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+        await page.waitForTimeout(150);
+        await page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+        await page.waitForFunction("() => (window.__augitLive.fileHistoryPreview || {}).commit === 'full-aaa' && !(window.__augitLive.fileHistoryPreview || {}).loading", null, { timeout: 10000 });
+        const early = await snap();
+        await page.waitForTimeout(1700);
+        const late = await snap();
+        await page.evaluate(() => { window.__diffCommitDelays = {}; });
+        return { early, late };
+      })();
+      // ⑧ 负向验证：两种扰动分别打掉"相同快照不重写"与"显示模式走预览自己的入口"
+      const negative = await (async () => {
+        // N1：抹掉"已就绪"标记 ⇒ 重复选择会重新查询并重写正文（正面判据要求节点身份不变、不重查）
+        await page.evaluate(() => {
+          window.__paneLayout257b = document.querySelector('[data-live-file-history-pane="preview"] .diff-layout');
+          window.__augitLive.fileHistoryPreview.ready = false;
+        });
+        await page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+        await page.waitForTimeout(500);
+        const n1 = await page.evaluate(() => ({
+          sameLayout: window.__paneLayout257b === document.querySelector('[data-live-file-history-pane="preview"] .diff-layout'),
+          calls: (window.__diffCalls || []).length,
+        }));
+        // N2：把预览的显示模式入口换成编辑器那一个 ⇒ 预览状态不再跟随（正面判据要求 preview.mode 跟随）
+        await page.evaluate(() => {
+          window.__origPreviewMode257 = window.__augitLoadFileHistoryPreviewMode;
+          window.__augitLoadFileHistoryPreviewMode = window.__augitLoadDiffMode;
+        });
+        await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+        await page.waitForTimeout(400);
+        const n2 = await page.evaluate(() => ({
+          previewMode: (window.__augitLive.fileHistoryPreview || {}).mode || null,
+        }));
+        await page.evaluate(() => { window.__augitLoadFileHistoryPreviewMode = window.__origPreviewMode257; });
+        return { n1, n2 };
+      })();
+      // ⑦ 清除文件历史：取消在途查询并释放预览正文，晚到响应不得回写（规格 §7.9 第五/七条）
+      const cleared = await (async () => {
+        await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1200 }; });
+        await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+        await page.waitForTimeout(150);
+        const beforeClear = await page.evaluate(() => ({
+          loading: !!(window.__augitLive.fileHistoryPreview || {}).loading,
+          commit: (window.__augitLive.fileHistoryPreview || {}).commit || null,
+          calls: (window.__diffCalls || []).length,
+        }));
+        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await page.waitForTimeout(200);
+        const justCleared = await page.evaluate(() => ({
+          preview: window.__augitLive.fileHistoryPreview,
+          fileHistory: !!window.__augitLive.fileHistory,
+          pane: !!document.querySelector('[data-live-file-history-pane]'),
+        }));
+        await page.waitForTimeout(1500);
+        const late = await page.evaluate(() => ({
+          preview: window.__augitLive.fileHistoryPreview,
+          pane: !!document.querySelector('[data-live-file-history-pane]'),
+          calls: (window.__diffCalls || []).length,
+        }));
+        await page.evaluate(() => { window.__diffCommitDelays = {}; });
+        return { beforeClear, justCleared, late };
+      })();
+      await page.close();
+      console.log('INFO 文件历史预览=' + JSON.stringify({ base, repeated, switched, unified, backToSplit, ignored, parity, race, cleared, negative, errors }));
+      return { base, repeated, switched, unified, backToSplit, ignored, parity, race, cleared, negative, errors };
+    })();
+    check('§7.9 文件历史右侧复用完整只读比较视图（工具栏顺序、文件栏父版本·提交版本·路径、与引用比较逐字同构）: '
+      + JSON.stringify([fhPreview.base, fhPreview.switched, fhPreview.unified, fhPreview.backToSplit, fhPreview.parity]),
+    fhPreview.errors.length === 0
+      // 右侧是预览面板（不再是提交信息面板）
+      && fhPreview.base.paneKind === 'preview' && fhPreview.base.detailPane === false
+      // 工具栏顺序 = 比较视图的九项（查找按既有口径禁用；比较视图没有文件导航）
+      && fhPreview.base.toolbar.join(',') === '上一处差异,下一处差异,查找,忽略空白,双栏,单栏,设置'
+      && fhPreview.base.disabled.join(',') === '查找'
+      // 文件栏 = 父版本 · 提交版本 · 相对路径
+      && fhPreview.base.source === 'full-bbb^' && fhPreview.base.target === 'full-bbb'
+      && fhPreview.base.path === 'docs/notes.txt'
+      // 正文结构与词级高亮：两栏 + 行号栏、8 行、2 处 mark、差异块数 1
+      && fhPreview.base.sides === 2 && fhPreview.base.gutters === 1
+      && fhPreview.base.lines === 8 && fhPreview.base.marks === 2 && fhPreview.base.total === '1'
+      // 单双栏只是排版维度：切到单栏（正文换成统一行、栏消失）再切回，`git/diff` 调用数不增
+      && fhPreview.unified.mode === 'unified' && fhPreview.unified.previewMode === 'unified'
+      && fhPreview.unified.sides === 0 && fhPreview.unified.lines === 5
+      && fhPreview.backToSplit.mode === 'side-by-side' && fhPreview.backToSplit.previewMode === 'side-by-side'
+      && fhPreview.backToSplit.diffCalls === fhPreview.unified.diffCalls
+      && fhPreview.unified.diffCalls === fhPreview.switched.diffCalls
+      // 与编辑器里的比较视图**逐字同构**（同一份 builder 产出的正文）
+      && fhPreview.parity.same === true && fhPreview.parity.paneLength > 400
+      // 预览不触碰编辑器正文（两份正文可以同时开着）
+      && fhPreview.base.editorDiff === false && fhPreview.switched.editorDiff === false);
+    check('§7.9 文件历史预览按提交与路径复用查询，改选立即取消旧预览，忽略空白是真实差异选项: '
+      + JSON.stringify([fhPreview.repeated, fhPreview.switched, fhPreview.ignored, fhPreview.race.early, fhPreview.race.late]),
+    // 同一提交重复选择：不重查、不重写正文（布局节点身份不变）
+    fhPreview.repeated.sameLayout === true && fhPreview.repeated.diffCalls === fhPreview.base.diffCalls
+      // 换选提交：文件栏与正文一起换成该提交的补丁，且确实发起了新请求
+      && fhPreview.switched.commit === 'full-aaa' && fhPreview.switched.selectedFull === 'full-aaa'
+      && fhPreview.switched.source === 'full-aaa^' && fhPreview.switched.target === 'full-aaa'
+      && fhPreview.switched.bodyText.includes('full-a')
+      && fhPreview.switched.diffCalls === fhPreview.base.diffCalls + 1
+      // 忽略空白是真实差异选项：重查一次并带上新取值（不是只改按钮外观）
+      && fhPreview.ignored.ignoreWhitespace === true
+      && fhPreview.ignored.diffCalls === fhPreview.switched.diffCalls + 1
+      && fhPreview.ignored.whitespace[fhPreview.ignored.whitespace.length - 1] === true
+      // 改选提交时旧预览立即取消：旧提交（full-bbb）的响应慢了 1.5s，换选后与晚到之后都只有新提交的内容
+      && fhPreview.race.early.commit === 'full-aaa' && fhPreview.race.early.bodyText.includes('full-a')
+      && fhPreview.race.late.commit === 'full-aaa' && fhPreview.race.late.bodyText.includes('full-a')
+      && !fhPreview.race.late.bodyText.includes('full-b')
+      && fhPreview.race.late.diffCalls === fhPreview.race.early.diffCalls);
+    check('§7.9 清除文件历史取消未完成的预览查询，晚到响应不得回写: ' + JSON.stringify(fhPreview.cleared),
+    // 前置：清除时确实有一个 full-bbb 的请求在途中
+    fhPreview.cleared.beforeClear.loading === true && fhPreview.cleared.beforeClear.commit === 'full-bbb'
+      // 清除后：文件历史与预览正文一起释放，右侧面板消失
+      && fhPreview.cleared.justCleared.fileHistory === false && fhPreview.cleared.justCleared.preview === null
+      && fhPreview.cleared.justCleared.pane === false
+      // 晚到（越过注入的 1.2s 延迟）也不得回写：状态仍为空、面板不复现、没有多余请求
+      && fhPreview.cleared.late.preview === null && fhPreview.cleared.late.pane === false
+      && fhPreview.cleared.late.calls === fhPreview.cleared.beforeClear.calls);
+    check('负向验证：抹掉"已就绪"标记 / 换掉预览的显示模式入口 两种扰动分别让对应判据失败: '
+      + JSON.stringify(fhPreview.negative),
+    // N1：把预览状态的"已就绪"抹掉 ⇒ 重复选择同一提交会重写右侧正文（节点身份改变）⇒ 正面判据会失败
+    fhPreview.negative.n1.sameLayout === false
+      // N2：把预览的显示模式入口换成编辑器那一个 ⇒ 预览状态不再跟随（仍停在双栏）⇒ 正面判据会失败
+      && fhPreview.negative.n2.previewMode === 'side-by-side');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

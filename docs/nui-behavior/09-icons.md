@@ -8874,3 +8874,58 @@ A 类队列继续 §7.9。第 252 轮把文件历史列表的列布局与窄栏�
 
 接 §7.9 第五条与第六条：把右侧改成规格要求的"完整只读比较视图"（工具栏九项、文件栏父版本·提交版本·路径），
 并按选择键做"按提交与路径复用查询、改选立即取消旧预览、隐藏/清除时取消未完成查询、晚到不覆盖"。
+
+## quinquaginta-septem. 第二百五十七轮：文件历史右侧的只读比较视图与预览生命周期（§7.9 第五/六条）
+
+A 类队列继续 §7.9。第 256 轮把列表选择做成状态后，右侧仍是提交信息详情 —— 视觉稿与规格第六条要求的
+"完整只读比较视图"在实时侧不存在。本轮按"提交 + 路径"装载预览正文，并把编辑器的比较正文与它**合并到同一份实现**。
+
+### 实现
+
+| 位置 | 内容 |
+| --- | --- |
+| `mockup.js` | 抽出 `diffBodyParts(diff)`（行号／词级高亮／单栏模板／差异块摘要），`liveDiffView()` 与新增 `liveFileHistoryPreviewView()` 共用；`bindDiffModes()` 按作用域区分预览（回调走 `__augitLoadFileHistoryPreviewMode`）；`diffFileHeader()` 支持关掉编辑器那侧的加载提示；导出 `__augitFileHistoryPreviewView`／`__augitBindDiffModes` |
+| `live-data.js` | `live.fileHistoryPreview` 状态与 `loadFileHistoryPreview()`（请求键 = `路径|提交|忽略空白`，补丁缓存不含显示模式）、令牌化取消、`applyFileHistoryPreview()`（定点替换右侧面板；首帧走一次区域重绘 + `rebindAfterRender()`）、`ensureFileHistoryPreview()`、`releaseFileHistoryPreview()`、`diffChangeBlocks(scope)`／`moveDiffChange(direction, scope)`、忽略空白与导航的预览分支 |
+
+### 判据（真实入口：项目树右键 →「文件历史」）
+
+| 项 | 实测 |
+| --- | --- |
+| 工具栏顺序 | `上一处差异`／`下一处差异`／`查找`（禁用）／`忽略空白`／`双栏`／`单栏`／`设置`（比较视图没有文件导航） |
+| 文件栏 | 父版本 `full-bbb^` · 提交版本 `full-bbb` · 相对路径 `docs/notes.txt` |
+| 正文 | 两栏 + 行号栏、8 行、2 处词级 `<mark>`、差异块数 1 |
+| 与引用比较同构 | 编辑器里同一份补丁的 `.diff-columns` outerHTML 与预览的**逐字相同**（827 字节） |
+| 显示模式 | 切单栏（正文换成 5 行统一行、栏消失）再切回，`git/diff` 调用数**不增** |
+| 同一提交重复选择 | 不重查、不重写正文（布局节点身份不变、调用数不变） |
+| 改选提交 | 新旋钮 `__diffCommitDelays` 让旧提交（`full-bbb`）响应慢 1.5s ⇒ 换选后与晚到之后都只有新提交内容 |
+| 忽略空白 | 真实差异选项：重查一次且宿主收到 `ignoreWhitespace=true` |
+| 清除文件历史 | 在途请求被取消（清除时 `loading=true`）、预览状态与右侧面板一起释放，越过延迟后仍为空、无多余请求 |
+
+### 新增断言（`live-shell`，4 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.9 文件历史右侧复用完整只读比较视图（工具栏顺序、文件栏父版本·提交版本·路径、与引用比较逐字同构）` |
+| 2 | `§7.9 文件历史预览按提交与路径复用查询，改选立即取消旧预览，忽略空白是真实差异选项` |
+| 3 | `§7.9 清除文件历史取消未完成的预览查询，晚到响应不得回写` |
+| 4 | `负向验证：抹掉"已就绪"标记 / 换掉预览的显示模式入口 两种扰动分别让对应判据失败` |
+
+同时把第 256 轮的两条断言改成"以右侧**预览**为跟随判据"（右侧不再是提交信息面板），并修掉两处随之暴露的探针缺陷：
+`__diffCalls` 是**路径数组**（此前该场景里文件历史不查 diff，写作 `|| 0` 恰好成立）、`dataset` 的键名是
+`liveFileHistoryPane` 而不是 `fileHistoryPane`。
+
+### 验证
+
+- `live-shell` **`通过 1324 项断言`**（1320 → **+4**），退出码 0。
+- 共享视觉稿改了 `mockup.js`（两副本字节一致）⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、
+  `mockup-scenes` **55/55**、`verify-ux-file-history`（26 组）与 `verify-ux-history-follow` 通过。
+- 登记哈希：`mockup.js` `7e110f61d954eabbb45cf09b5af1aaf6` → **`2c8964fe1c9739b269a6bf33f9cc7b94`**；
+  `live-data.js` `979861575c4760a926393e5c19c35a8a` → **`db68d1c5ebbec860d562c2523764c6e3`**；
+  `live-shell.spec.cjs` `27b17e52780248949e50b525a94cd46a` → **`dc6e03b182e7d0d556ad5159ceb7fd91`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 256 轮逐个相同。
+- §2.10 口径不变（分母 66／A 48／D 13／B 4／E 1）；§7.9 第五/六条登记本轮进度与仍缺的断言。
+
+### 下一轮
+
+补 §7.9 第六条剩下的"预览工具条差异块导航"断言，并接第七条：文件历史工具条 `eye` 的"显示/隐藏提交详情"
+（隐藏时取消在途查询与排版、重显按当前选择补查、已完成比较保留正文与阅读位置）与右侧比较视图的 Tab 顺序。
