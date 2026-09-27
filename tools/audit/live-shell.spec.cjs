@@ -19138,6 +19138,162 @@ async function main() {
       && negBlame.pinned.pinnedDate !== negBlame.pinned.expectedDate
       && negBlame.pinned.pinnedNumber !== negBlame.pinned.expectedNumber);
 
+    // ---- 第 256 轮补断言：§7.9 文件历史列表的选中（单击/上下键）与状态化 ----
+    // 此前这条列表**没有任何点击处理**：行上的 `.selected` 恒是第一条（第 252 轮只断言了列布局），
+    // "换选提交"在界面上做不到；右侧详情也恒取 `commits[0]`。本轮把选择进状态并按状态渲染。
+    const fileHistorySelect = await (async () => {
+      const scene = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.history-rows .history-row[data-history-full]', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const snap = () => scene.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.history-rows .history-row[data-history-full]')];
+        const detail = document.querySelector('[data-live-file-history-detail]');
+        return {
+          rowCount: rows.length,
+          rows: rows.map((row) => ({
+            full: row.dataset.historyFull,
+            short: row.dataset.historyHash,
+            selected: row.classList.contains('selected'),
+            aria: row.getAttribute('aria-selected'),
+            role: row.getAttribute('role'),
+          })),
+          selectedFull: (window.__augitLive.fileHistory || {}).selectedFull || null,
+          detail: detail ? detail.textContent.replace(/\s+/g, ' ').trim().slice(0, 90) : null,
+          detailKey: detail ? (detail.dataset.historyDetail || null) : null,
+          detailInPane: !!document.querySelector('.history-detail-pane [data-live-file-history-detail]'),
+          fileHistoryCalls: window.__fileHistoryCalls || 0,
+          diffCalls: window.__diffCalls || 0,
+          focused: document.activeElement ? (document.activeElement.dataset.historyFull || null) : null,
+        };
+      });
+      const base = await snap();
+      await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+      await scene.page.waitForTimeout(300);
+      const clicked = await snap();
+      // 记下详情**子节点**身份：重复选择同一条提交时不重建（`innerHTML` 重写会换掉子节点，
+      // 只看宿主节点身份是无效判据 —— 宿主永远不变，见下面的负向验证 N2）。
+      await scene.page.evaluate(() => {
+        const detail = document.querySelector('[data-live-file-history-detail]');
+        window.__fhDetailNode256 = detail;
+        window.__fhDetailChild256 = detail.firstElementChild;
+      });
+      await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+      await scene.page.waitForTimeout(300);
+      const repeated = await scene.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.history-rows .history-row[data-history-full]')];
+        const detail = document.querySelector('[data-live-file-history-detail]');
+        return {
+          sameNode: window.__fhDetailNode256 === detail,
+          sameChild: window.__fhDetailChild256 === detail.firstElementChild,
+          aria: rows.map((row) => row.getAttribute('aria-selected')),
+          detail: detail.textContent.replace(/\s+/g, ' ').trim().slice(0, 90),
+          fileHistoryCalls: window.__fileHistoryCalls || 0,
+          diffCalls: window.__diffCalls || 0,
+        };
+      });
+      // 上下键：焦点在第二行按 ArrowUp ⇒ 选回第一行并把焦点带过去
+      await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).focus();
+      await scene.page.keyboard.press('ArrowUp');
+      await scene.page.waitForTimeout(300);
+      const keyed = await snap();
+      // 区域重绘后选择保持（渲染按 `live.fileHistory.selectedFull` 回填）
+      await scene.page.evaluate(() => { window.__augitRender(); });
+      await scene.page.waitForTimeout(400);
+      const redrawn = await snap();
+      // 负向验证：三种扰动分别打掉一条正面判据
+      const negative = await (async () => {
+        // N1：选到第二行后，让第一行不再匹配选择器（等价于"没有点击处理"）⇒ 点它不该改变选择
+        await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+        await scene.page.waitForTimeout(250);
+        await scene.page.evaluate(() => {
+          const row = document.querySelectorAll('.history-rows .history-row')[0];
+          window.__fhRow0Full256 = row.dataset.historyFull;
+          row.removeAttribute('data-history-full');
+        });
+        await scene.page.locator('.history-rows .history-row').nth(0).click();
+        await scene.page.waitForTimeout(250);
+        const n1 = await scene.page.evaluate(() => ({
+          selectedFull: window.__augitLive.fileHistory.selectedFull || null,
+          aria: [...document.querySelectorAll('.history-rows .history-row')].map((row) => row.getAttribute('aria-selected')),
+        }));
+        await scene.page.evaluate(() => {
+          document.querySelectorAll('.history-rows .history-row')[0].setAttribute('data-history-full', window.__fhRow0Full256);
+        });
+        // N2：把"同一提交重复选择不重建"的守卫抹掉 ⇒ 重复选择会重写详情（子节点被换掉）
+        await scene.page.evaluate(() => {
+          window.__fhDetailChild256b = document.querySelector('[data-live-file-history-detail]').firstElementChild;
+          document.querySelector('[data-live-file-history-detail]').dataset.historyDetail = '';
+        });
+        await scene.page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+        await scene.page.waitForTimeout(250);
+        const n2 = await scene.page.evaluate(() => ({
+          sameChild: window.__fhDetailChild256b === document.querySelector('[data-live-file-history-detail]').firstElementChild,
+        }));
+        // N3：把选择状态抹空 ⇒ 区域重绘退回第一条（证明渲染读的确实是状态）
+        await scene.page.evaluate(() => {
+          window.__augitLive.fileHistory.selectedFull = null;
+          window.__augitRender();
+        });
+        await scene.page.waitForTimeout(400);
+        const n3 = await scene.page.evaluate(() => ({
+          selectedFull: window.__augitLive.fileHistory.selectedFull || null,
+          aria: [...document.querySelectorAll('.history-rows .history-row[data-history-full]')].map((row) => row.getAttribute('aria-selected')),
+          detail: document.querySelector('[data-live-file-history-detail]').textContent.replace(/\s+/g, ' ').trim().slice(0, 40),
+        }));
+        return { n1, n2, n3 };
+      })();
+      await scene.page.close();
+      console.log('INFO 文件历史选择=' + JSON.stringify({ base, clicked, repeated, keyed, redrawn, negative, errors: scene.errors }));
+      return { base, clicked, repeated, keyed, redrawn, negative, errors: scene.errors };
+    })();
+    check('§7.9 文件历史列表可选中：单击与上下键切换选中行，右侧详情跟随该提交并进状态: '
+      + JSON.stringify([fileHistorySelect.base, fileHistorySelect.clicked, fileHistorySelect.keyed]),
+    fileHistorySelect.errors.length === 0
+      // 前置：夹具确实是两条可区分的提交（短哈希与完整哈希都不同），默认选中第一条
+      && fileHistorySelect.base.rowCount === 2
+      && fileHistorySelect.base.rows[0].full === 'full-bbb' && fileHistorySelect.base.rows[0].aria === 'true'
+      && fileHistorySelect.base.rows[1].full === 'full-aaa' && fileHistorySelect.base.rows[1].aria === 'false'
+      && fileHistorySelect.base.selectedFull === 'full-bbb'
+      && fileHistorySelect.base.detail.includes('fix: 文件历史一') && fileHistorySelect.base.detail.includes('bbb2222')
+      && fileHistorySelect.base.rows.every((row) => row.role === 'option')
+      // 单击第二行：唯一选中 + 详情跟随该提交 + 状态键跟随
+      && fileHistorySelect.clicked.rows[1].selected === true && fileHistorySelect.clicked.rows[1].aria === 'true'
+      && fileHistorySelect.clicked.rows[0].selected === false && fileHistorySelect.clicked.rows[0].aria === 'false'
+      && fileHistorySelect.clicked.selectedFull === 'full-aaa'
+      && fileHistorySelect.clicked.detail.includes('feat: 文件历史二')
+      && fileHistorySelect.clicked.detail.includes('aaa1111')
+      && fileHistorySelect.clicked.detailInPane === true
+      // 上下键：ArrowUp 回到第一条，焦点跟着走
+      && fileHistorySelect.keyed.selectedFull === 'full-bbb'
+      && fileHistorySelect.keyed.rows[0].aria === 'true' && fileHistorySelect.keyed.rows[1].aria === 'false'
+      && fileHistorySelect.keyed.detail.includes('fix: 文件历史一')
+      && fileHistorySelect.keyed.focused === 'full-bbb');
+    check('§7.9 文件历史选择在区域重绘后保持，重复选择同一提交不重建详情也不重查: '
+      + JSON.stringify([fileHistorySelect.repeated, fileHistorySelect.redrawn]),
+    // 重复选择同一条：详情节点身份不变、选中态不变、`git/file-history` 与 `git/diff` 调用数都不增
+    fileHistorySelect.repeated.sameNode === true && fileHistorySelect.repeated.sameChild === true
+      && fileHistorySelect.repeated.aria[1] === 'true'
+      && fileHistorySelect.repeated.detail.includes('feat: 文件历史二')
+      && fileHistorySelect.repeated.fileHistoryCalls === fileHistorySelect.base.fileHistoryCalls
+      && fileHistorySelect.repeated.diffCalls === fileHistorySelect.base.diffCalls
+      // 区域重绘：渲染按状态回填，选中的仍是换选后的那一条（而不是退回第一条）
+      && fileHistorySelect.redrawn.selectedFull === 'full-bbb'
+      && fileHistorySelect.redrawn.rows[0].aria === 'true'
+      && fileHistorySelect.redrawn.rows[1].aria === 'false'
+      && fileHistorySelect.redrawn.detail.includes('fix: 文件历史一'));
+    check('负向验证：行不匹配选择器 / 抹掉同一提交守卫 / 抹空选择状态 三种扰动分别让对应判据失败: '
+      + JSON.stringify(fileHistorySelect.negative),
+    // N1：点击不匹配选择器的行 ⇒ 选择不变（正面判据要求点击换选）
+    fileHistorySelect.negative.n1.selectedFull === 'full-aaa'
+      && fileHistorySelect.negative.n1.aria[1] === 'true' && fileHistorySelect.negative.n1.aria[0] === 'false'
+      // N2：抹掉守卫后重复选择会重写详情，子节点被换掉（正面判据要求子节点身份不变）
+      && fileHistorySelect.negative.n2.sameChild === false
+      // N3：抹空状态后重绘退回第一条（正面判据要求重绘后仍停在换选后的那一条）
+      && fileHistorySelect.negative.n3.selectedFull === null
+      && fileHistorySelect.negative.n3.aria[0] === 'true' && fileHistorySelect.negative.n3.aria[1] === 'false'
+      && fileHistorySelect.negative.n3.detail.includes('fix: 文件历史一'));
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

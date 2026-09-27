@@ -2180,6 +2180,93 @@ function historyFileRows() {
   return [...document.querySelectorAll("[data-live-changed-files] [data-history-path]")];
 }
 
+/** 文件历史列表（底部的"历史: <路径>"工具窗）里的提交行。 */
+function fileHistoryRows() {
+  return [...document.querySelectorAll(".history-rows .history-row[data-history-full]")];
+}
+
+/** 当前选中的文件历史提交（优先完整哈希）。 */
+function selectedFileHistoryCommit() {
+  const live = window.__augitLive;
+  const fileHistory = live && live.fileHistory;
+  if (!fileHistory || !Array.isArray(fileHistory.commits)) return null;
+  const full = fileHistory.selectedFull || (fileHistory.commits[0] && fileHistory.commits[0].fullHash) || null;
+  return fileHistory.commits.find((commit) => commit.fullHash === full) || null;
+}
+
+/**
+ * 把文件历史列表的选择落到 DOM（行选中态 + 右侧详情）。
+ *
+ * 只做定点更新、不整页重绘：列表与右侧详情在同一个工具窗里，重绘会丢掉行的焦点。
+ * 同一提交重复选择时**不重建详情节点**（规格 §6.3「相同快照不重新排版」的同一口径），
+ * 因此节点身份与阅读位置都保持。
+ */
+function syncFileHistorySelection(commit, options = {}) {
+  if (!commit) return;
+  const rows = fileHistoryRows();
+  for (const row of rows) {
+    const active = row.dataset.historyFull === commit.fullHash;
+    row.classList.toggle("selected", active);
+    row.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  const detail = document.querySelector("[data-live-file-history-detail]");
+  if (detail && detail.dataset.historyDetail !== commit.fullHash) {
+    detail.dataset.historyDetail = commit.fullHash;
+    detail.innerHTML = `<h3>${escapeText(commit.subject)}</h3>`
+      + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`;
+  }
+  if (options.focus === true) {
+    const row = rows.find((item) => item.dataset.historyFull === commit.fullHash);
+    if (row) {
+      row.focus({ preventScroll: true });
+      row.scrollIntoView({ block: "nearest" });
+    }
+  }
+}
+
+/**
+ * 选中文件历史里的某条提交（规格 §7.9 第二条「选择…继续使用同一提交身份」）。
+ *
+ * 选择进 `live.fileHistory.selectedFull`：区域重绘由 `liveFileHistoryTool()` 按状态回填，
+ * 因此重建后仍选中同一条提交；返回 `true` 表示**换选**（同一提交重复选择返回 false，
+ * 调用方可据此跳过重建）。
+ */
+function selectFileHistoryCommit(fullHash, options = {}) {
+  const live = window.__augitLive;
+  const fileHistory = live && live.fileHistory;
+  if (!fileHistory || !Array.isArray(fileHistory.commits) || !fullHash) return false;
+  const commit = fileHistory.commits.find((item) => item.fullHash === fullHash) || null;
+  if (!commit) return false;
+  const changed = fileHistory.selectedFull !== commit.fullHash;
+  fileHistory.selectedFull = commit.fullHash;
+  syncFileHistorySelection(commit, options);
+  return changed;
+}
+
+// 文件历史列表的行选择：单击只选择（双击打开比较由归属行/变化文件那一套链路负责；
+// 预览与取消语义在后续轮次按规格 §7.9 第五条接线）。此前这条列表**没有任何点击处理**：
+// 行上的 `.selected` 恒是第一条，"换选提交"在界面上做不到。
+document.addEventListener("click", (event) => {
+  const row = event.target.closest && event.target.closest(".history-rows .history-row[data-history-full]");
+  if (!row || !window.__augitLive) return;
+  event.preventDefault();
+  selectFileHistoryCommit(row.dataset.historyFull);
+}, true);
+
+// 文件历史列表的方向键选择（与项目树/日志列表同一交互口径）。
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const row = event.target.closest && event.target.closest(".history-rows .history-row[data-history-full]");
+  if (!row || !window.__augitLive) return;
+  const rows = fileHistoryRows();
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const next = rows[index + (event.key === "ArrowDown" ? 1 : -1)];
+  if (!next) return;
+  event.preventDefault();
+  selectFileHistoryCommit(next.dataset.historyFull, { focus: true });
+}, true);
+
 async function openHistoryComparison(row) {
   const live = window.__augitLive;
   if (!live || !row) return;
@@ -11241,20 +11328,24 @@ async function loadFileHistory(path) {
     if (typeof history.path !== "string" || history.path.length === 0) return null;
     const live = window.__augitLive;
     if (live) {
+      const commits = history.commits.map((commit) => ({
+        hash: commit.hash,
+        fullHash: commit.fullHash,
+        subject: commit.subject,
+        author: commit.author,
+        // 作者列的值与 tooltip（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
+        // `*` 看作者是否等于提交者，tooltip 还要两组邮箱。
+        authorEmail: commit.authorEmail,
+        committerName: commit.committerName,
+        committerEmail: commit.committerEmail,
+        date: commit.date,
+      }));
       live.fileHistory = {
         path: history.path,
-        commits: history.commits.map((commit) => ({
-          hash: commit.hash,
-          fullHash: commit.fullHash,
-          subject: commit.subject,
-          author: commit.author,
-          // 作者列的值与 tooltip（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
-          // `*` 看作者是否等于提交者，tooltip 还要两组邮箱。
-          authorEmail: commit.authorEmail,
-          committerName: commit.committerName,
-          committerEmail: commit.committerEmail,
-          date: commit.date,
-        })),
+        commits,
+        // 选择是**状态**（规格 §7.9 第二条）：默认落在最新一条，与视觉稿"首行选中"一致。
+        // 在状态层初始化（而不是留给渲染兜底），返回上下文、预览取消与重绘三条路径才都读到同一个键。
+        selectedFull: (commits[0] && commits[0].fullHash) || null,
       };
     }
     return live ? live.fileHistory : null;

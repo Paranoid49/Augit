@@ -4222,13 +4222,23 @@ function historyAuthorCell(commit) {
 function liveFileHistoryTool() {
   const fileHistory = window.__augitLive.fileHistory;
   const commits = fileHistory.commits || [];
+  // 选择进状态（规格 §7.9 第二条「选择…继续使用同一提交身份」）：此前行上没有任何选中状态、
+  // 右侧详情恒取 `commits[0]` —— 换选提交后详情不跟随，区域重绘也留不住选择。
+  // 状态键 `fileHistory.selectedFull` 默认落在第一条（与视觉稿「首行选中」一致）。
+  const selectedFull = fileHistory.selectedFull || (commits[0] && commits[0].fullHash) || null;
+  const selected = commits.find((commit) => commit.fullHash === selectedFull) || commits[0] || null;
   // 「版本」列取短修订：权威 `RevisionColumnInfo` 的值过 `VcsUtil.getShortRevisionString`
   // （FileHistoryPanelImpl.java:657-666、platform/vcs-api/src/com/intellij/vcsUtil/VcsUtil.java:402-406）。
   const rows = commits.length === 0
     ? `<p class="commit-meta">没有历史</p>`
-    : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
-  const head = commits[0];
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+    : commits.map((commit) => {
+      // 行的角色与提交标注沿用日志列表那一套（`role="option"` + `aria-selected` + 短/完整哈希）；
+      // `data-history-full` 同时是选择与"打开比较"的身份键（规格 §7.9：始终用完整提交哈希）。
+      const active = commit.fullHash === selectedFull;
+      return `<div class="history-row${active ? " selected" : ""}" role="option" aria-selected="${active ? "true" : "false"}" data-history-hash="${escapeHtml(commit.hash)}" data-history-full="${escapeHtml(commit.fullHash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`;
+    }).join("");
+  const head = selected;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail" data-live-file-history-detail>${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
 }
 
 /**
