@@ -6191,6 +6191,200 @@ async function main() {
         && !md10Closed.tabs.includes('docs/long.md'));
     await md10Scene.page.close();
 
+    // ---- 规格 §7.3 第 11 条：外部更新复用原文控件、保留选择/滚动/比例/模式/查找；
+    //      预览只应用最后一次有效渲染；后台标签不因更新创建预览 ----
+    const mdExt = await openScene('scene=main-project&theme=dark');
+    await mdExt.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await mdExt.page.waitForTimeout(500);
+    const mdDocText = (tag, sections) => `# 文档 ${tag}\n\n`
+      + Array.from({ length: sections }, (_, i) => '## 段 ' + (i + 1) + '\n\n' + tag + ' 第 ' + (i + 1) + ' 段正文。').join('\n\n');
+    await mdExt.page.evaluate(async (text) => {
+      window.__limitDocs = window.__limitDocs || {};
+      window.__limitDocs['docs/long.md'] = {
+        path: 'docs/long.md', name: 'long.md', fullPath: 'D:\\live-ws\\docs\\long.md',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+        fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+      };
+      await window.__augitOpenDocument('docs/long.md');
+      await new Promise((r) => setTimeout(r, 400));
+    }, mdDocText('第一版', 60));
+    await mdExt.page.waitForSelector('.markdown-document', { timeout: 10000 });
+    await mdExt.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await mdExt.page.waitForTimeout(250);
+    // 造出用户状态：比例、两侧滚动、原文选区、查找条。
+    await mdExt.page.evaluate(() => {
+      const panes = document.querySelector('.markdown-panes');
+      panes.style.setProperty('--markdown-source-ratio', '0.7');
+      window.__mdPanesNode = panes;
+      window.__mdSourceNode = document.querySelector('.markdown-source');
+      window.__mdPreviewNode = document.querySelector('.markdown-preview');
+      document.querySelector('.markdown-source').scrollTop = 260;
+      document.querySelector('.markdown-preview').scrollTop = 180;
+      const line = document.querySelectorAll('.markdown-source .code-line')[12];
+      if (line) {
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    });
+    await mdExt.page.locator('.markdown-document .markdown-preview').click();
+    await mdExt.page.keyboard.press('Control+f');
+    await mdExt.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+    await mdExt.page.fill('.current-find .search-field', '第一版');
+    await mdExt.page.waitForTimeout(400);
+    // 选区可能被焦点移动清掉：重新放一次（查找条保持打开）。
+    await mdExt.page.evaluate(() => {
+      document.querySelector('.markdown-source').scrollTop = 260;
+      document.querySelector('.markdown-preview').scrollTop = 180;
+      const line = document.querySelectorAll('.markdown-source .code-line')[12];
+      if (line) {
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    });
+    await mdExt.page.waitForTimeout(200);
+    const mdExtRead = () => mdExt.page.evaluate(() => {
+      const selection = window.getSelection();
+      const node = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+      const line = element && element.closest ? element.closest('.code-line') : null;
+      const view = document.querySelector('.markdown-document');
+      const preview = document.querySelector('.markdown-preview');
+      return {
+        mode: view ? view.dataset.markdownMode : null,
+        ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
+        source: Math.round(document.querySelector('.markdown-source').scrollTop),
+        preview: Math.round(preview.scrollTop),
+        anchorLine: line ? Number(line.dataset.line) : null,
+        samePanes: window.__mdPanesNode === document.querySelector('.markdown-panes'),
+        sameSource: window.__mdSourceNode === document.querySelector('.markdown-source'),
+        samePreview: window.__mdPreviewNode === document.querySelector('.markdown-preview'),
+        hasV1: preview.innerHTML.includes('第一版'),
+        findOpen: document.querySelectorAll('.current-find').length,
+        findQuery: (document.querySelector('.current-find .search-field') || {}).value || null,
+        findFocused: !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('.current-find')),
+      };
+    });
+    const mdExtBefore = await mdExtRead();
+    await mdExt.page.evaluate((text) => {
+      window.__limitDocs['docs/long.md'] = Object.assign({}, window.__limitDocs['docs/long.md'], { text, fileSize: text.length });
+      window.__mdSnapshots = [];
+      const preview = document.querySelector('.markdown-preview');
+      new MutationObserver(() => {
+        const html = preview.innerHTML;
+        window.__mdSnapshots.push(html.includes('第三版') ? 'v3' : html.includes('第二版') ? 'v2' : html.includes('第一版') ? 'v1' : 'other');
+      }).observe(preview, { childList: true, subtree: true, characterData: true });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\long.md'], gitMetadata: false });
+    }, mdDocText('第二版', 60));
+    await mdExt.page.waitForTimeout(1500);
+    const mdExtAfter = await mdExtRead();
+    const mdExtContent = await mdExt.page.evaluate(() => {
+      const preview = document.querySelector('.markdown-preview');
+      return {
+        hasV2: preview.innerHTML.includes('第二版'),
+        sourceHasV2: document.querySelector('.markdown-source').innerHTML.includes('第二版'),
+        ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
+      };
+    });
+    check('§7.3 外部更新复用原文控件并保留选择/滚动/比例/模式/查找: '
+      + JSON.stringify([mdExtBefore, mdExtAfter, mdExtContent]),
+    // 前置：用户状态确实已经建立
+    mdExtBefore.mode === 'split' && mdExtBefore.ratio === '0.7' && mdExtBefore.anchorLine === 13
+      && mdExtBefore.source > 0 && mdExtBefore.preview > 0 && mdExtBefore.findOpen === 1
+      && mdExtBefore.hasV1 === true
+      // 更新后：同一批控件节点仍在，比例/两侧滚动/选区/模式逐值保持
+      && mdExtAfter.samePanes === true && mdExtAfter.sameSource === true && mdExtAfter.samePreview === true
+      && mdExtAfter.ratio === mdExtBefore.ratio
+      && mdExtAfter.source === mdExtBefore.source && mdExtAfter.preview === mdExtBefore.preview
+      && mdExtAfter.anchorLine === mdExtBefore.anchorLine && mdExtAfter.mode === mdExtBefore.mode
+      // 查找条仍在、查询词与焦点保留
+      && mdExtAfter.findOpen === 1 && mdExtAfter.findQuery === mdExtBefore.findQuery && mdExtAfter.findFocused === true
+      // 正文确实换成了新版本（原文与预览都更新）
+      && mdExtAfter.hasV1 === false && mdExtContent.hasV2 === true && mdExtContent.sourceHasV2 === true
+      && mdExtContent.ratio === mdExtBefore.ratio);
+
+    // 晚到的旧渲染不得覆盖新版本：先发慢读（第二版）、再发快读（第三版），最终只显示第三版。
+    await mdExt.page.evaluate(() => { window.__readDelays = { 'docs/long.md': 700 }; });
+    await mdExt.page.evaluate((text) => {
+      window.__limitDocs['docs/long.md'] = Object.assign({}, window.__limitDocs['docs/long.md'], { text, fileSize: text.length });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\long.md'], gitMetadata: false });
+    }, mdDocText('第二版', 60));
+    await mdExt.page.waitForTimeout(120);
+    await mdExt.page.evaluate((text) => {
+      window.__limitDocs['docs/long.md'] = Object.assign({}, window.__limitDocs['docs/long.md'], { text, fileSize: text.length });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\long.md'], gitMetadata: false });
+    }, mdDocText('第三版', 60));
+    await mdExt.page.waitForTimeout(2400);
+    const mdLate = await mdExt.page.evaluate(() => {
+      const html = document.querySelector('.markdown-preview').innerHTML;
+      return {
+        snapshots: window.__mdSnapshots || [],
+        hasV2: html.includes('第二版'),
+        hasV3: html.includes('第三版'),
+        ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
+      };
+    });
+    // 判据：版本序列必须**单调不降**（一旦显示过更新的版本，旧版本绝不能再覆盖它），
+    // 且最终停在最后一次请求的版本。仅看"有没有出现过 v2"会把"两次更新依次落地"误判成缺陷。
+    const mdLateOrder = { v1: 1, v2: 2, v3: 3, other: 0 };
+    const mdLateSeq = (mdLate.snapshots || []).map((tag) => mdLateOrder[tag] || 0);
+    const mdLateMonotonic = mdLateSeq.every((value, index) => index === 0 || value >= mdLateSeq[index - 1]);
+    check('§7.3 预览只应用最后一次有效渲染: ' + JSON.stringify([mdLate, mdLateSeq]),
+      mdLateMonotonic === true && mdLate.hasV3 === true
+        && mdLateSeq.length > 0 && mdLateSeq[mdLateSeq.length - 1] === 3
+      // 就地更新路径同样不破坏用户比例
+      && mdLate.ratio === mdExtBefore.ratio);
+    await mdExt.page.evaluate(() => { window.__readDelays = {}; });
+    await mdExt.page.close();
+
+    // 后台标签不因更新创建预览：隐藏的 Markdown 标签不会被重读，也不产生正文。
+    const mdBackground = await openScene('scene=main-project&theme=dark');
+    await mdBackground.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await mdBackground.page.waitForTimeout(500);
+    await mdBackground.page.evaluate(async (text) => {
+      window.__limitDocs = window.__limitDocs || {};
+      window.__limitDocs['docs/long.md'] = {
+        path: 'docs/long.md', name: 'long.md', fullPath: 'D:\\live-ws\\docs\\long.md',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+        fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+      };
+      await window.__augitOpenDocument('docs/long.md');
+      await new Promise((r) => setTimeout(r, 400));
+      await window.__augitOpenDocument('docs/notes.txt');
+      await new Promise((r) => setTimeout(r, 400));
+    }, mdDocText('第一版', 40));
+    const mdBackgroundBefore = await mdBackground.page.evaluate(() => ({
+      reads: window.__readCalls || 0,
+      doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+    }));
+    await mdBackground.page.evaluate((text) => {
+      window.__limitDocs['docs/long.md'] = Object.assign({}, window.__limitDocs['docs/long.md'], { text, fileSize: text.length });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\long.md'], gitMetadata: false });
+    }, mdDocText('第二版', 40));
+    await mdBackground.page.waitForTimeout(1200);
+    const mdBackgroundAfter = await mdBackground.page.evaluate(() => {
+      const tab = (window.__augitLive.tabs || []).find((item) => item.path === 'docs/long.md');
+      return {
+        reads: window.__readCalls || 0,
+        doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+        markdownInDom: !!document.querySelector('.markdown-document'),
+        tabStillV1: tab && tab.document ? String(tab.document.preview || '').includes('第一版') : null,
+      };
+    });
+    check('§7.3 后台标签不因更新创建预览: ' + JSON.stringify([mdBackgroundBefore, mdBackgroundAfter]),
+      // 隐藏的 Markdown 标签没有被重读（读取次数不变）、前台文档不变、正文里没有 Markdown 视图
+      mdBackgroundAfter.reads === mdBackgroundBefore.reads
+        && mdBackgroundAfter.doc === mdBackgroundBefore.doc
+        && mdBackgroundAfter.markdownInDom === false
+        // 它自己的内容也还是旧版本（没有在后台悄悄重建预览）
+        && mdBackgroundAfter.tabStillV1 === true);
+    await mdBackground.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

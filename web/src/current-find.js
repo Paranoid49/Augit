@@ -199,7 +199,9 @@ function bindCurrentFind() {
     }
     code.focus({ preventScroll: true });
   };
-  const wire = () => {
+  // `preservePosition`：**重绑定**（区域重绘后由 `bindCurrentFind()` 再挂一次）不得把"当前匹配"
+  // 当成一次导航去滚动正文，否则外部更新/状态刷新会把用户的阅读位置拽回匹配处（第 282 轮实测）。
+  const wire = (preservePosition = false) => {
     const input = label('当前文件查找');
     compositionEvents?.abort();
     compositionEvents = new AbortController();
@@ -246,10 +248,12 @@ function bindCurrentFind() {
       }
     };
     if (completed) {
-      // 重新打开相同查询恢复原匹配，不将第一次导航提前消耗。
-      if (matches.length) { current--; select(false); }
+      // 重新打开相同查询**恢复原匹配**（高亮与当前项），但不把它当成一次导航去滚动正文：
+      // 重绑定发生在任意区域重绘之后（外部更新、状态刷新…），滚动会直接把用户的阅读位置拽走
+      //（第 282 轮实测：外部更新 Markdown 时原文滚动 260 被查找条拉回匹配所在的第 3 行）。
+      if (matches.length) { current--; select(false, true); }
       else status(statusText);
-    } else search();
+    } else search(preservePosition);
     input.focus({ preventScroll: true });
   };
   const open = () => {
@@ -278,6 +282,6 @@ function bindCurrentFind() {
     if (document.hidden) { composing = false; stop(); }
     else if (bar && (!completed || label('当前文件查找').value !== savedQuery)) search();
   }, { signal: lifetime.signal });
-  if (bar) wire();
+  if (bar) wire(true);
   else if (initialState) open();
 }

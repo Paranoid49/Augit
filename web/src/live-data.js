@@ -4710,14 +4710,147 @@ function refresh(...regions) {
   // 项目树的滚动位置与树内焦点同理（规格 §6 第 37 条）：`refreshAfterEvent("side")` 会把整棵
   // `.side-content.tree` 换掉，新节点的 `scrollTop` 是 0、原来聚焦的行也不存在了。
   rememberTreeStateBeforeRender();
+  // 规格 §7.3：Markdown 原文的选区同样属于用户状态，跨（就地或区域）刷新保留。
+  rememberMarkdownCaretBeforeRender();
+  // 规格 §7.3：Markdown 的**外部更新**要复用原文控件，保留选择、滚动、查找与当前模式。
+  // 同一个文档、同一种编辑器、同一个路径时不再整块替换编辑区，只把原文与预览的正文换掉。
+  let effective = regions;
+  if (regions.includes("editorContent") && reuseMarkdownViewInPlace()) {
+    effective = regions.filter((name) => name !== "editorContent");
+  }
+  if (typeof window.__augitRenderRegions === "function" && effective.length > 0) {
+    window.__augitRenderRegions(...effective);
+    rebindAfterRender();
+    return;
+  }
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
-    window.__augitRenderRegions(...regions);
+    // 只剩"被就地更新吸收掉"的区域：不需要任何区域替换，但收尾工作照常。
     rebindAfterRender();
     return;
   }
 
   window.__augitRender();
   rebindAfterRender();
+}
+
+/**
+ * 就地更新当前 Markdown 文档的正文（规格 §7.3「外部更新时复用原文控件」）。
+ *
+ * 只替换 `.markdown-source` 与 `.markdown-preview` 的**内容**：控件本体（`.markdown-panes`、
+ * 分隔条、模式按钮）与用户状态（对照比例、原文/预览滚动、原文选区、查找条、当前模式）都留在原地，
+ * 因此不需要任何"记住-恢复"补偿。返回 true 表示已吸收这次更新，调用方可跳过 `editorContent` 替换。
+ *
+ * 只在该文档仍然显示、且类型与编辑器都没变时生效：切标签、编辑器从 markdown 变成别的
+ * （例如读取失败退化成不可预览页）都必须走正常的区域替换。
+ */
+function reuseMarkdownViewInPlace() {
+  const live = window.__augitLive;
+  if (!live || !live.document) return false;
+  if (live.document.kind !== "Markdown" || live.editor !== "markdown") return false;
+  const view = document.querySelector(".editor-content .markdown-document");
+  if (!view) return false;
+  if (view.dataset.documentPath !== live.document.path) return false;
+  const source = view.querySelector(".markdown-source");
+  const preview = view.querySelector(".markdown-preview");
+  if (!source || !preview) return false;
+  // 选区先记下来：替换 `innerHTML` 会把原文里的选区一起丢掉（规格 §7.3「保留选择」）。
+  // 选区由 `live.markdownCaret` 跨刷新保留：先记（`rememberMarkdownCaretBeforeRender()`），
+  // 渲染后由 `restoreMarkdownCaretAfterRender()` 复原 —— 在这里直接抓会因为 `innerHTML`
+  // 替换后选区已落到容器上而丢掉（第 282 轮实测）。
+  // 原文容器**自己**是滚动容器：替换它的 `innerHTML` 会把滚动位置归零，必须显式写回
+  //（预览的滚动容器是外层 `.markdown-preview-region`，替换内层节点不影响它）。
+  const sourceScroll = [source.scrollLeft, source.scrollTop];
+  preview.innerHTML = live.document.preview || "";
+  source.innerHTML = typeof liveLineViews === "function" ? liveLineViews(live.document.text) : source.innerHTML;
+  source.scrollLeft = sourceScroll[0];
+  source.scrollTop = sourceScroll[1];
+  return true;
+}
+
+/** 把选区端点描述成「行号 + 该行文本偏移」，跨 innerHTML 替换仍可复原。 */
+function describeMarkdownPoint(source, node, offset) {
+  if (!node) return null;
+  const element = node.nodeType === 1 ? node : node.parentElement;
+  const line = element && element.closest ? element.closest(".code-line") : null;
+  if (!line || !source.contains(line)) return null;
+  return { line: Number(line.dataset.line), offset: Number(offset) || 0 };
+}
+
+/** 代码行的可放文本节点（与既有测试同一取法：行内最后一个 `span` 的文本节点）。 */
+function markdownPointNode(line) {
+  const span = line.querySelector("span:last-child");
+  return (span && span.firstChild) || line.firstChild;
+}
+
+function captureMarkdownCaret(source) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const anchor = describeMarkdownPoint(source, selection.anchorNode, selection.anchorOffset);
+  const focus = describeMarkdownPoint(source, selection.focusNode, selection.focusOffset);
+  return anchor && focus ? { anchor, focus } : null;
+}
+
+function restoreMarkdownCaret(source, caret) {
+  if (!caret) return;
+  const anchorLine = source.querySelector(`.code-line[data-line="${caret.anchor.line}"]`);
+  const focusLine = source.querySelector(`.code-line[data-line="${caret.focus.line}"]`);
+  if (!anchorLine || !focusLine) return;
+  const point = (line, offset) => {
+    const node = markdownPointNode(line);
+    const length = node && typeof node.textContent === "string" ? node.textContent.length : 0;
+    return [node, Math.max(0, Math.min(offset, length))];
+  };
+  const [anchorNode, anchorOffset] = point(anchorLine, caret.anchor.offset);
+  const [focusNode, focusOffset] = point(focusLine, caret.focus.offset);
+  if (!anchorNode || !focusNode) return;
+  const range = document.createRange();
+  try {
+    range.setStart(anchorNode, anchorOffset);
+    range.setEnd(focusNode, focusOffset);
+  } catch {
+    return;
+  }
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+/**
+ * 渲染前记下 Markdown 原文的选区与滚动位置（规格 §7.3「保留选择、滚动」）。
+ *
+ * 只记有效选区：选区已经落在容器上（`innerHTML` 替换后的中间态）时不覆盖上一次的有效值。
+ * 滚动位置必须记：区域重绘会重挂查找条，而 `current-find.js` 在重绑定时会把"当前匹配"滚进视口，
+ * 从而把用户的滚动位置拽走（第 282 轮实测：外部更新时原文滚动 260 被查找条拉回匹配所在的第 3 行）。
+ */
+function rememberMarkdownCaretBeforeRender() {
+  const live = window.__augitLive;
+  if (!live || !live.document || live.document.kind !== "Markdown" || live.editor !== "markdown") return;
+  const source = document.querySelector(".editor-content .markdown-source");
+  if (!source) return;
+  const caret = captureMarkdownCaret(source);
+  if (caret) live.markdownCaret = { path: live.document.path, ...caret };
+  live.markdownScroll = { path: live.document.path, left: source.scrollLeft, top: source.scrollTop };
+}
+
+/** 渲染后把 Markdown 原文的选区与滚动位置交还给用户；用户已自己放了新选区时不打扰。 */
+function restoreMarkdownCaretAfterRender() {
+  const live = window.__augitLive;
+  if (!live || !live.document || live.document.kind !== "Markdown" || live.editor !== "markdown") return;
+  const source = document.querySelector(".editor-content .markdown-source");
+  if (!source) return;
+  // 滚动位置：按路径对账后写回（内容更新时行数会变，超界值由浏览器夹回）。
+  const scroll = live.markdownScroll;
+  if (scroll && scroll.path === live.document.path) {
+    if (Math.abs(source.scrollLeft - scroll.left) > 0.5) source.scrollLeft = scroll.left;
+    if (Math.abs(source.scrollTop - scroll.top) > 0.5) source.scrollTop = scroll.top;
+  }
+  if (!live.markdownCaret) return;
+  if (live.markdownCaret.path !== live.document.path) {
+    live.markdownCaret = null;
+    return;
+  }
+  if (captureMarkdownCaret(source)) return;
+  restoreMarkdownCaret(source, live.markdownCaret);
 }
 
 /**
@@ -5350,6 +5483,8 @@ function rebindAfterRender() {
   // 终端标题的"正在启动…"后缀是状态：区域重绘会按 `terminalTool()` 的静态文案重建标题，
   // 这里按 `live.terminalStarting` 补回（规格 §7.16 第 2 条）。
   applyTerminalStartState();
+  // Markdown 原文的选区跨刷新保留（规格 §7.3：外部更新复用原文控件、保留选择）。
+  restoreMarkdownCaretAfterRender();
   restoreAmendDraft();
   // 重绘路径先按状态对齐一次（不消费）：详情可能是**缓存重绘**，不会再走异步收尾；
   // 随后的定点刷新还可能再替换一次详情，所以再排一次短延时对齐。

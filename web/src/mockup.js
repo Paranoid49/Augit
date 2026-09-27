@@ -3004,7 +3004,10 @@ function bindMarkdownModes() {
       if (result && result.opened === false) blocked(result.reason || '无法打开该链接。');
     }).catch(() => blocked('无法打开该链接。'));
   });
-  setRatio(ratio);
+  // 已有比例时不再重算：`setRatio()` 按当前可用宽度四舍五入，把 0.7 写成 0.6927。
+  // 重新绑定（外部更新、区域刷新）必须**逐值**保留用户的比例，因此只在没有比例时才初始化
+  //（第 282 轮实测：就地更新 Markdown 后比例由 0.7 漂到 0.6927）。
+  if (!panes.style.getPropertyValue('--markdown-source-ratio')) setRatio(ratio);
   setMode(view.dataset.markdownMode);
 }
 
@@ -3091,7 +3094,9 @@ function liveMarkdownDocument(mode) {
   // 预览状态（规格 §7.3：加载超 150ms 在预览区顶部给紧凑提示、失败给原因并可点预览重试）：
   // 状态放在 `live.markdownPreview`，这里只按状态渲染，避免"把状态写进 DOM 再读回来"。
   const markdownState = readMarkdownPreviewState();
-  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="${markdownState.state}" data-markdown-reason="${escapeHtml(markdownState.reason)}">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
+  // `data-document-path`：实时层靠它判断"这次刷新是该文档的内容更新"，从而**就地**更新原文与预览
+  //（规格 §7.3：外部更新复用原文控件，保留滚动/选区/比例/模式），而不是整块替换编辑区。
+  return `<div class="document-view markdown-document" data-document-path="${escapeHtml(document_.path)}" data-markdown-mode="${mode}" data-markdown-state="${markdownState.state}" data-markdown-reason="${escapeHtml(markdownState.reason)}">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
 }
 
 function liveJsonDocument() {

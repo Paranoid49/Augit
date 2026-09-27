@@ -301,6 +301,8 @@
 
 **第 281 轮**转 §7.3（Markdown），收口第 10 条、确认第 11 条缺口（§2.10：分母 31 → **30**、A 17 → **15**、D 9 → **10**）。第 10 条纯补断言：拖分隔条把比例从 0.5006 改到 0.6799（`aria-valuenow: 68`）后做 对照 → 预览 → 对照 往返 ⇒ 比例逐值不变、`.markdown-panes`／`.markdown-preview`／`.markdown-source` 节点身份全同、预览 HTML 不变、两侧滚动（300/200）逐值保持；重复点当前模式时 `setProperty` 写入数 0（`setMode()` 提前返回）；关闭标签后 `.markdown-document` 消失、`live.document` 为 null。第 11 条**实测确认缺口**：外部更新当前 Markdown 文件时 `refreshAfterEvent` 整块替换编辑区 ⇒ `.markdown-source` 节点被重建、原文滚动 260→0、预览滚动 180→0、选区 anchorLine 13→null，只有模式（split）保住；规格要求"复用原文控件，保留选择、滚动、查找和当前模式"，故该条保留 **部分** 并登记为"需 markdown 视图原地更新 + 状态化保留"的待实现项（"后台不建预览"因 `applyWorkspaceChanges` 只处理当前文档而天然成立，也待补负向断言）。共 2 条新断言（1399 → **1401**）。
 
+**第 282 轮**实现 §7.3 第 11 条并断言三半，该条转 **是**（§2.10：分母 30 → **29**、D 10 → **9**）。实现：`liveMarkdownDocument()` 加 `data-document-path`；`refresh()` 在替换 `editorContent` 前调 `reuseMarkdownViewInPlace()` —— 同一 Markdown 文档/路径/编辑器时只换 `.markdown-source` 与 `.markdown-preview` 的**内容**，控件本体留在原地，成功则把 `editorContent` 从区域列表去掉；选区进 `live.markdownCaret`（行号+偏移，渲染后按行复原）；原文滚动在替换 `innerHTML` 前后显式写回。**三处连带修正**：① `bindMarkdownModes()` 末尾原无条件 `setRatio()`，把 0.7 四舍五入成 0.6927，改为已有比例不重算；② `current-find.js` 重绑定时新闭包走 `search()`→`select(false)` 会把原文滚动拽回当前匹配（260→第 3 行），`wire(preservePosition)` 在重绑时传 true（恢复高亮但不滚动）；③ 直接在就地更新里抓选区无效（`innerHTML` 替换后选区已落到容器），改用状态化复原。断言：节点身份全同 + 比例 0.7/原文滚动 260/预览滚动 180/选区第 13 行/模式 split/查找条（查询词与焦点）全部保持且内容换成新版本；两次连续更新的版本序列单调不降且最终停最后一次；隐藏标签不重读、不建正文、内容仍旧。共 3 条新断言（1401 → **1404**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

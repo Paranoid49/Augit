@@ -10109,3 +10109,56 @@ process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收�
 
 实现 §7.3 第 11 条的 markdown 视图状态化保留（模式/比例/原文与预览滚动/选区/查找），
 再补"晚到渲染只取最后一次"与"后台不建预览"的断言。
+
+## octoginta-duo. 第二百八十二轮：Markdown 外部更新就地复用原文控件（§7.3 第 11 条收口）
+
+### 缺口回顾与实现
+
+第 281 轮实测：外部更新当前 Markdown 文件时 `refreshAfterEvent` 整块替换编辑区 ⇒ `.markdown-source`
+节点被重建、原文滚动 260 → 0、预览滚动 180 → 0、选区丢空。本轮把它做成**就地更新**：
+
+- `mockup.js` 的 `liveMarkdownDocument()` 给根节点加 `data-document-path`；
+- `refresh()` 在替换 `editorContent` 之前调用 `reuseMarkdownViewInPlace()`：同一个 Markdown 文档、
+  同一路径、同一编辑器时只替换 `.markdown-source` 与 `.markdown-preview` 的**内容**，
+  控件本体（`.markdown-panes`、分隔条、模式按钮）留在原地，成功时把 `editorContent` 从区域列表里去掉；
+- 选区走 `live.markdownCaret`（渲染前记「行号 + 行内偏移」，`rebindAfterRender()` 里按行复原）；
+  原文容器的滚动位置在替换 `innerHTML` 前后显式写回（它是**自身**的滚动容器）。
+
+### 三处连带修正（都是实测撞出来的）
+
+1. **比例漂移**：`bindMarkdownModes()` 末尾原本无条件 `setRatio(ratio)`，按当前可用宽度四舍五入把
+   0.7 写成 0.6927。改为"已有 `--markdown-source-ratio` 就不重算"。
+2. **查找条重绑定把当前匹配当导航滚动**：`current-find.js` 的 `wire()` 在重绑时用新闭包（`completed`
+   为假）走 `search()` ⇒ `select(false)` 会 `code.scrollTop -= …`，把原文滚动从 260 拽回匹配所在的
+   第 3 行。`wire(preservePosition)` 在**重绑定**时传 `true`：恢复匹配高亮但不滚动；
+   首次打开仍照常滚到首个匹配。
+3. **选区丢失**：直接在就地更新里抓选区没用（`innerHTML` 替换后选区已落到容器上），改为
+   `live.markdownCaret` 状态 + 渲染后按行复原。
+
+### 新增断言（`live-shell`，3 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.3 外部更新复用原文控件并保留选择/滚动/比例/模式/查找` |
+| 2 | `§7.3 预览只应用最后一次有效渲染` |
+| 3 | `§7.3 后台标签不因更新创建预览` |
+
+第 2 条的判据是**版本序列单调不降**（一旦显示过更新的版本，旧版本绝不能再覆盖）且最终停在最后一次
+请求的版本 —— 只看"有没有出现过 v2"会把"两次更新依次落地"误判成缺陷。
+
+### 验证
+
+- `live-shell` **`通过 1404 项断言`**（1401 → **+3**），退出码 0。
+- 登记哈希：`mockup.js` `fe8f18b1…` → **`21c7bd3ead2ca4320dd05959ce9929b4`**、
+  `live-data.js` `abe2d92e…` → **`059bff3e4865fed3149e10f647ef26f6`**、
+  `current-find.js` `fbd3785d…` → **`ced6f4a46aa91935db59b8ff04438ef4`**、
+  `live-shell.spec.cjs` `4839b995…` → **`6fc8f87136b418f8f9664f311ac7ad08`**；
+  `mockup.css`／`bridge.js`／`image-preview.js` 与第 281 轮逐个相同。
+- §7.3 第 11 条转 **是**（§2.10：分母 30 → **29**、D 10 → **9**）。
+- 同批：`verify-ux-markdown` 6 组三模式 + 2 组拖动边界、`verify-ux-find` 48 个布局状态 +
+  连续输入/双向导航/跨行匹配/键盘循环/关闭重开/旧请求失效/真实超时/资源释放 + 5 组输入法、
+  `verify-ux-find-documents`、`mockup-scenes` 55/55、`verify-ui-assets` PASS。
+
+### 下一轮
+
+§7.3 剩第 3、13 条（B 类：像素/间接证据）与第 9 条（阻止图片的紧凑错误）；转其它 §7 模块。
