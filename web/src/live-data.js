@@ -1593,23 +1593,28 @@ const diffPatches = new Map();
  * 忽略空白与重命名选项组成。
  * 前五项之外还带内容版本，用于判断外部变化后是否需要重新计算。
  */
-function diffRequestKey({ path, revision, commit, mode, ignoreWhitespace, detectRenames, version }) {
+function diffRequestKey({ path, revision, commit, ignoreWhitespace, detectRenames, version }) {
   const live = window.__augitLive;
   return [
     live ? live.root : "",
     path,
     revision || "工作区",
     commit || "",
-    mode || "split",
     ignoreWhitespace ? "ignore-ws" : "keep-ws",
     detectRenames ? "renames" : "no-renames",
     version === undefined || version === null ? "" : String(version),
   ].join("\u0000");
 }
 
-/** 补丁键：与请求键相同，但不含显示模式（单双栏共用同一份补丁）。 */
+/**
+ * 补丁键：与请求键**同口径**（单双栏共用同一份补丁）。
+ *
+ * 显示模式本来就不该进这两个键：规格 §6.3 要求"查询期间切换显示模式只改变最终呈现方式"——
+ * 同一份内容无论单栏还是双栏都是**同一次查询**（单双栏只决定排版）。此前 mode 进了请求键，
+ * 于是加载期间切模式会并发发出第二次请求、补丁缓存也按模式各存一份（第 265 轮实测）。
+ */
 function diffPatchKey(parts) {
-  return diffRequestKey({ ...parts, mode: "" });
+  return diffRequestKey(parts);
 }
 
 // 并发请求去重：键为请求键。
@@ -1664,7 +1669,9 @@ async function loadDiff(path, options = {}) {
     if (live0) {
       live0.diff = cached;
       live0.diffRequestKey = requestKey;
-      live0.diffMode = parts.mode;
+      // **不写 `live.diffMode`**：显示模式是用户状态，不是响应的属性。加载期间切模式时，
+      // 响应里带的还是发起时的模式，写回就会把用户最后的选择吞掉（第 265 轮实测：
+      // 加载中切到单栏，响应落地后又变回双栏）。调用方（`switchDiffMode()`）自己设这个键。
     }
 
     return cached;
@@ -1690,7 +1697,7 @@ async function loadDiff(path, options = {}) {
           && Array.isArray(diff.rows);
         live.diff = validDiff ? diff : null;
         live.diffRequestKey = requestKey;
-        live.diffMode = parts.mode;
+        // 同上：不把响应里记的模式写回 `live.diffMode`（规格 §6.3"查询期间切换显示模式只改变最终呈现方式"）。
         // 有差异时切到差异视图；无差异时保留当前文档视图。
         // 但**只有比较标签在前台时才允许切换视图**：跟随 Changes 选择时的后台更新
         // 不得改变前台正文（规格 §5.2「只后台更新，不抢占焦点」）。

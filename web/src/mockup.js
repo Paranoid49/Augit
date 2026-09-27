@@ -5474,6 +5474,9 @@ function bindDiffModes(root = document) {
     const previewPane = !!layout.closest("[data-live-file-history-preview]");
     buttons.forEach(button => button.addEventListener("click", () => {
       const unified = button.getAttribute("aria-label") === "单栏";
+      // 重复点击当前显示模式：不排版、不查询（规格 §6.3）。`update()` 本身对同一模式是空操作，
+      // 但下面还会回调外壳的 `loadDiff()`（它会刷新编辑区 = 白排一次版）—— 因此这里直接返回。
+      if (layout.dataset.diffMode === (unified ? "unified" : "side-by-side")) return;
       update(unified);
       // 外壳存在时同步显示模式：相同内容只重新排版，不重新查询 Git（§6.3）。
       const hook = previewPane ? window.__augitLoadFileHistoryPreviewMode : window.__augitLoadDiffMode;

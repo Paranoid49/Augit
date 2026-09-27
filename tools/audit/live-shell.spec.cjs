@@ -537,6 +537,13 @@ async function main() {
         }
         const diffDelay = (window.__diffDelays || {})[params.path];
         if (diffDelay) await new Promise((r) => setTimeout(r, diffDelay));
+        // 第 265 轮：按**调用序**注入延迟（数组按次 shift）。用于验证"连续切换忽略空白时以最后选项为准、
+        // 旧查询成功或失败都不得覆盖新的比较"—— 按路径注入会让新旧请求一样慢，旧响应反而先到，
+        // "晚到覆盖"根本观察不到。
+        if (Array.isArray(window.__diffCallDelays) && window.__diffCallDelays.length > 0) {
+          const callDelay = window.__diffCallDelays.shift();
+          if (callDelay) await new Promise((r) => setTimeout(r, callDelay));
+        }
         // 第 257 轮：按**提交**注入延迟。文件历史预览要验证"改选提交时立即取消旧预览、晚到不得回写"，
         // 而按路径注入会让新旧两个请求一样慢 ⇒ 旧响应反而先到，"晚到覆盖"根本观察不到。
         const commitDiffDelay = (window.__diffCommitDelays || {})[params.commit];
@@ -20360,6 +20367,95 @@ async function main() {
       && diffRowHeights.narrow.out.toolbar.w < diffRowHeights.small.out.toolbar.w
       && diffRowHeights.narrow.out.button.w === diffRowHeights.small.out.button.w
       && diffRowHeights.narrow.out.icon.w === diffRowHeights.small.out.icon.w);
+
+    // ---- 第 265 轮：比较加载规则（重复点击不排版不查询、加载中切模式只改呈现、忽略空白以最后为准）----
+    const diffLoadRules = await (async () => {
+      const read = () => (async () => null)();
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-diff&theme=dark&diff=src%2FApp.cs`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.editor-content .diff-columns .diff-code-line', { timeout: 10000 });
+      await page.waitForTimeout(500);
+      const snap = () => page.evaluate(() => {
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const live = window.__augitLive || {};
+        return {
+          mode: layout ? layout.dataset.diffMode : null,
+          columns: layout ? !!layout.querySelector('.diff-columns') : false,
+          sides: document.querySelectorAll('.editor-content .diff-columns > .diff-side').length,
+          lines: document.querySelectorAll('.editor-content .diff-code-line').length,
+          calls: (window.__diffCalls || []).length,
+          whitespace: (window.__diffWhitespace || []).slice(),
+          requestKey: live.diffRequestKey || null,
+          options: live.diffOptions ? { ...live.diffOptions } : null,
+          diffMode: live.diffMode || null,
+          ignorePressed: (() => { const b = document.querySelector('.editor-content .diff-toolbar [aria-label="忽略空白"]'); return b ? b.getAttribute('aria-pressed') : null; })(),
+          editor: live.editor || null,
+        };
+      });
+      const base = await snap();
+      // ① 重复点击当前显示模式：不排版（正文节点身份不变）、不查询
+      await page.evaluate(() => { window.__columns265 = document.querySelector('.editor-content .diff-columns'); });
+      await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+      await page.waitForTimeout(400);
+      const repeatMode = await page.evaluate(() => ({
+        sameColumns: window.__columns265 === document.querySelector('.editor-content .diff-columns'),
+        calls: (window.__diffCalls || []).length,
+      }));
+      // ② 查询期间切换显示模式：只改变最终呈现方式（不并发第二次查询）
+      await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1200 }; });
+      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.waitForFunction("() => { const l = window.__augitLive; return l.diffLoading === true || !!(document.querySelector('.editor-content .diff-layout[data-augit-loading]')); }", null, { timeout: 10000 }).catch(() => null);
+      await page.waitForTimeout(200);
+      const loading = await snap();
+      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.waitForTimeout(1500);
+      const afterLoad = await snap();
+      await page.evaluate(() => { window.__diffDelays = {}; });
+      // ③ 连续切换忽略空白：以最后选项为准，晚到的旧响应不得覆盖
+      await page.evaluate(() => {
+        window.__diffCallDelays = [1200, 120];
+        window.__diffCalls = [];
+        window.__diffWhitespace = [];
+      });
+      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.waitForTimeout(120);
+      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.waitForTimeout(1800);
+      const lastWins = await snap();
+      await page.evaluate(() => { window.__diffCallDelays = []; window.__diffWhitespace = []; });
+      await page.close();
+      console.log('INFO 比较加载规则=' + JSON.stringify({ base, repeatMode, loading, afterLoad, lastWins, errors }));
+      return { base, repeatMode, loading, afterLoad, lastWins, errors };
+    })();
+    check('§7.9 比较的加载规则：重复点击当前显示模式不排版不查询，加载期间切模式只改变最终呈现: '
+      + JSON.stringify([diffLoadRules.base, diffLoadRules.repeatMode, diffLoadRules.loading, diffLoadRules.afterLoad]),
+    diffLoadRules.errors.length === 0
+      // 前置：初次加载完成（1 次查询、两栏 8 行）
+      && diffLoadRules.base.mode === 'side-by-side' && diffLoadRules.base.sides === 2
+      && diffLoadRules.base.calls === 1
+      // ① 重复点击当前显示模式：正文节点身份不变（没重排）、查询数不变
+      && diffLoadRules.repeatMode.sameColumns === true
+      && diffLoadRules.repeatMode.calls === diffLoadRules.base.calls
+      // ② 加载期间（忽略空白查询在途）切到单栏：当时仍是双栏，落地后是单栏且**没有并发第二次查询**
+      && diffLoadRules.loading.mode === 'side-by-side'
+      && diffLoadRules.loading.calls === diffLoadRules.base.calls + 1
+      && diffLoadRules.loading.ignorePressed === 'true'
+      && diffLoadRules.afterLoad.mode === 'unified' && diffLoadRules.afterLoad.sides === 0
+      && diffLoadRules.afterLoad.lines === 5 && diffLoadRules.afterLoad.diffMode === 'unified'
+      && diffLoadRules.afterLoad.calls === diffLoadRules.loading.calls);
+    check('§7.9 连续切换忽略空白以最后选项为准，晚到的旧响应不得覆盖新的比较: '
+      + JSON.stringify([diffLoadRules.lastWins]),
+    // 两次切换各发一次请求（先 false 后 true）；第二次（最后选项）先落地、第一次晚到
+    diffLoadRules.lastWins.calls === 2
+      && diffLoadRules.lastWins.whitespace.join(',') === 'false,true'
+      // 最终生效的是**最后选项**：请求键与工具条按下态都是 ignore-ws，晚到的旧响应没有回写
+      && diffLoadRules.lastWins.requestKey.includes('ignore-ws')
+      && diffLoadRules.lastWins.options && diffLoadRules.lastWins.options.ignoreWhitespace === true
+      && diffLoadRules.lastWins.ignorePressed === 'true'
+      && diffLoadRules.lastWins.editor === 'diff');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
