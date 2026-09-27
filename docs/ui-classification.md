@@ -293,6 +293,8 @@
 
 **第 277 轮**转 §7.11（Stash 与本地操作对话框），收口第 1、2 条（§2.10：分母 42 → **40**、A 27 → **25**）。第 1 条纯补断言：按 DOM 顺序钉住「Git 根目录 → `#stash-root` → 当前分支 → `.stash-branch` → 消息 → `#stash-message` → 空槽 → 保留索引状态 → 包含未跟踪文件」、对话框宽 620px、创建按钮在底栏内且位于取消右侧/右半边、两个复选默认不勾选。第 2 条：`#stash-message` 是 textarea，Enter 换行（值 `第一行\n第二行`、`git/stash` 调用 0、对话框仍在）；字号 13→20 时 `--stash-field`/`--stash-message`/`--stash-button` 30/78/37 → 35/87/42px 且实测高度逐值相等；420px 高窗口里只滚 `.dialog-body`（`scrollTop` 0→22）、标题与底栏 `top` 不变。**挂出并修掉一处真实缺陷**：`--stash-field` 原来只作用在 `.select-field`（静态根目录是 `<select>`），实时对话框的根目录是只读 `<input class="text-field">` ⇒ 大字号下同框消息/按钮都长大而根目录输入框停在 30px；`mockup.css` 补 `.stash-dialog .text-field`。共 4 条新断言（1382 → **1386**）。
 
+**第 278 轮**继续 §7.11，收口第 7、11 条（§2.10：分母 40 → **38**、A 25 → **23**）。第 7 条（Reset）纯补断言：字号 13→20 时 `--reset-field`/`--reset-line`/`--reset-button`/`--reset-height` 30/16/37/288 → 35/25/42/301px 且字段与按钮实测高度逐值等于令牌；220px 高窗口里只滚 `.dialog-body`（0→60）、标题与底栏 `top` 不变；聚焦 `#reset-mode` 时正文滚入（0→1 且完整入视口）；清空目标提交触发校验错误时提示出现而对话框/标题/底栏矩形逐值不变。第 11 条（远端管理）**挂出并修掉一处真实缺口**：`measureRemoteDialog()` 只在 `applyTypography` 里跑到，而实时窗口由 `renderRemoteManager()` 在最后一次渲染之后新建 ⇒ `--remote-*` 全为空、字号 20 时字段仍 30px；改为挂载后立即调用（与 Push/Clone 同一处理）。断言：420px 高窗口里右栏 `.management-detail` 溢出滚动（0→60）而左栏 `.management-list` 不溢出，滚右侧不移动工具栏/列表/底栏/关闭按钮；字号 13→20 时 `--remote-field`/`--remote-button` 30/37 → 37/42px 且实测高度相等；底部动作行滚动前被裁切（`top+20 > clientHeight`、`scrollTop===0`），焦点落到「保存」后详情滚到 106 且按钮完整入视口。共 6 条新断言（1386 → **1392**）。**§7.11 全节 11 行已无"部分"**。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

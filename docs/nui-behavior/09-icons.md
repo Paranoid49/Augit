@@ -9912,3 +9912,55 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 继续 §7.11 余下 A 类（第 3、7、11 条）与其它 §7 模块。
+
+## septuaginta-octo. 第二百七十八轮：Reset 的字高/限高/聚焦/错误，远端管理的字高与只滚右栏（§7.11 第 7、11 条收口）
+
+### 第 7 条：Reset 对话框（纯补断言，4 条）
+
+- **按字高量**：字号 13 → 20 时 `--reset-field` 30 → 35px、`--reset-line` 16 → 25px、
+  `--reset-button` 37 → 42px、`--reset-height` 288 → 301px；`#reset-target` 与 `.reset-run` 的
+  **实测高度**逐值等于对应令牌（否则"量了但没落到控件上"）。
+- **限高只滚表单**：220px 高窗口里对话框完整落在视口内、`.dialog-body` 溢出并从 0 滚到 60，
+  滚动前后标题与底栏 `top` 逐值不变。
+- **聚焦自动滚入**：聚焦 `#reset-mode` 时正文 `scrollTop` 0 → 1 且该字段完整落进视口
+  （Chromium 原生 focus 滚动；Reset 没有单独的 focusin 处理器）。
+- **错误不移动整窗**：清空目标提交后点「执行」⇒ `.reset-notice` 显示「请输入 Reset 目标提交。」，
+  而对话框、标题、底栏矩形逐值不变。
+
+### 第 11 条：远端管理（补断言 + 修掉一处真实缺口）
+
+**缺口**：`measureRemoteDialog()` 只在 `applyTypography` 里跑到，而实时远端管理窗口由
+`renderRemoteManager()` 在最后一次渲染**之后**新建 ⇒ 拿不到任何 `--remote-*` 令牌
+（字号 20 时 `--remote-field` 为空、字段高度停在 30px，与"按字高排布"不符）。像 Push/Clone 一样
+在挂载后立即调用它。
+
+断言：420px 高窗口里右侧 `.management-detail` 溢出并滚动（`scrollTop` 0 → 60）而左侧
+`.management-list` 不溢出，滚动右侧不移动工具栏/列表/底栏/关闭按钮的 `top`；字号 13 → 20 时
+`--remote-field` 30 → 37px、`--remote-button` 37 → 42px 且实测高度逐值相等；底部动作行滚动前
+确实被裁切（`top + 20 > clientHeight`、`scrollTop === 0`），焦点落到「保存」后详情 `scrollTop`
+→ 106 且按钮完整入视口（"Tab 滚入被裁切字段"）。
+
+### 新增断言（`live-shell`，6 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.11 Reset 对话框按字高量字段/说明/按钮` |
+| 2 | `§7.11 Reset 限高只滚表单、标题与底栏固定` |
+| 3 | `§7.11 Reset 聚焦自动滚入视口` |
+| 4 | `§7.11 Reset 错误出现不移动整窗与底栏` |
+| 5 | `§7.11 远端限高只滚右侧详情、工具栏/列表/关闭固定` |
+| 6 | `§7.11 远端按字高排布且 Tab 到被裁切字段时详情滚入视口` |
+
+### 验证
+
+- `live-shell` **`通过 1392 项断言`**（1386 → **+6**），退出码 0。
+- 登记哈希：`live-data.js` `6c8e92ae…` → **`cd3452bcfc8456c07f25a13cf8974438`**、
+  `live-shell.spec.cjs` `1debe4a2…` → **`70761c76c9cb0accdc98eb79163ce4e8`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 277 轮逐个相同。
+- §7.11 第 7、11 条转 **是**（§2.10：分母 40 → **38**、A 25 → **23**）。
+- 同批：`verify-ux-reset-layout` 12 项、`verify-ux-remote` 12 项、`mockup-scenes` 55/55、
+  `verify-ui-assets` PASS。
+
+### 下一轮
+
+**§7.11 全节 11 行已无"部分"**；转 §7.14（冲突解决）与其它 §7 模块。

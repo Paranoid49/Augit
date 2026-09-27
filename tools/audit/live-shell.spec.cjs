@@ -5551,6 +5551,227 @@ async function main() {
         && stashLimitState.after.footerTop === stashLimitState.before.footerTop);
     await stashLimitPage.page.close();
 
+    // ---- 规格 §7.11 第 7 条：Reset 对话框的字高、限高只滚表单、聚焦滚入与错误不移动整窗 ----
+    const resetGeo = await (async () => {
+      const small = await openScene('scene=reset&theme=dark');
+      await small.page.waitForSelector('.dialog.reset-dialog #reset-target', { timeout: 10000 });
+      await small.page.waitForTimeout(400);
+      const base = await small.page.evaluate(() => {
+        const dialog = document.querySelector('.reset-dialog');
+        const cs = getComputedStyle(dialog);
+        return {
+          field: cs.getPropertyValue('--reset-field').trim(),
+          line: cs.getPropertyValue('--reset-line').trim(),
+          button: cs.getPropertyValue('--reset-button').trim(),
+          height: cs.getPropertyValue('--reset-height').trim(),
+          fieldHeight: Math.round(dialog.querySelector('#reset-target').getBoundingClientRect().height),
+          buttonHeight: Math.round(dialog.querySelector('.reset-run').getBoundingClientRect().height),
+        };
+      });
+      await small.page.close();
+      const big = await openScene('scene=reset&theme=dark&ui-size=20');
+      await big.page.waitForSelector('.dialog.reset-dialog #reset-target', { timeout: 10000 });
+      await big.page.waitForTimeout(400);
+      const large = await big.page.evaluate(() => {
+        const dialog = document.querySelector('.reset-dialog');
+        const cs = getComputedStyle(dialog);
+        return {
+          field: cs.getPropertyValue('--reset-field').trim(),
+          line: cs.getPropertyValue('--reset-line').trim(),
+          button: cs.getPropertyValue('--reset-button').trim(),
+          height: cs.getPropertyValue('--reset-height').trim(),
+          fieldHeight: Math.round(dialog.querySelector('#reset-target').getBoundingClientRect().height),
+          buttonHeight: Math.round(dialog.querySelector('.reset-run').getBoundingClientRect().height),
+        };
+      });
+      await big.page.close();
+      return { base, large };
+    })();
+    check('§7.11 Reset 对话框按字高量字段/说明/按钮: ' + JSON.stringify(resetGeo),
+      Number.parseInt(resetGeo.large.field, 10) > Number.parseInt(resetGeo.base.field, 10)
+        && Number.parseInt(resetGeo.large.line, 10) > Number.parseInt(resetGeo.base.line, 10)
+        && Number.parseInt(resetGeo.large.button, 10) > Number.parseInt(resetGeo.base.button, 10)
+        && Number.parseInt(resetGeo.large.height, 10) > Number.parseInt(resetGeo.base.height, 10)
+        // 字段与按钮的实测高度逐值等于令牌（否则"量了但没落到控件上"）
+        && resetGeo.base.fieldHeight === Number.parseInt(resetGeo.base.field, 10)
+        && resetGeo.base.buttonHeight === Number.parseInt(resetGeo.base.button, 10)
+        && resetGeo.large.fieldHeight === Number.parseInt(resetGeo.large.field, 10)
+        && resetGeo.large.buttonHeight === Number.parseInt(resetGeo.large.button, 10));
+
+    const resetLimit = await openScene('scene=reset&theme=dark');
+    await resetLimit.page.setViewportSize({ width: 1180, height: 220 });
+    await resetLimit.page.waitForSelector('.dialog.reset-dialog #reset-target', { timeout: 10000 });
+    await resetLimit.page.waitForTimeout(400);
+    const resetLimitState = await resetLimit.page.evaluate(() => {
+      const dialog = document.querySelector('.reset-dialog');
+      const body = dialog.querySelector('.dialog-body');
+      const dr = dialog.getBoundingClientRect();
+      const snap = () => ({
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+      });
+      body.scrollTop = 0;
+      const before = snap();
+      body.scrollTop = 60;
+      const after = snap();
+      return {
+        dialogTop: Math.round(dr.top), dialogBottom: Math.round(dr.bottom), viewportHeight: window.innerHeight,
+        scrollable: body.scrollHeight > body.clientHeight + 1,
+        scrollTop: Math.round(body.scrollTop),
+        before, after,
+      };
+    });
+    check('§7.11 Reset 限高只滚表单、标题与底栏固定: ' + JSON.stringify(resetLimitState),
+      resetLimitState.dialogTop >= 0 && resetLimitState.dialogBottom <= resetLimitState.viewportHeight
+        && resetLimitState.scrollable === true && resetLimitState.scrollTop > 0
+        && resetLimitState.after.headerTop === resetLimitState.before.headerTop
+        && resetLimitState.after.footerTop === resetLimitState.before.footerTop);
+
+    // 聚焦较低字段自动滚入视口。
+    await resetLimit.page.evaluate(() => { document.querySelector('.reset-dialog .dialog-body').scrollTop = 0; });
+    await resetLimit.page.locator('#reset-mode').focus();
+    await resetLimit.page.waitForTimeout(250);
+    const resetFocus = await resetLimit.page.evaluate(() => {
+      const body = document.querySelector('.reset-dialog .dialog-body');
+      const field = document.querySelector('#reset-mode').getBoundingClientRect();
+      const box = body.getBoundingClientRect();
+      return {
+        scrollTop: Math.round(body.scrollTop),
+        inView: field.top >= box.top - 1 && field.bottom <= box.bottom + 1,
+      };
+    });
+    check('§7.11 Reset 聚焦自动滚入视口: ' + JSON.stringify(resetFocus),
+      resetFocus.scrollTop > 0 && resetFocus.inView === true);
+
+    // 错误出现/消失不能移动整窗与底栏按钮。
+    const resetError = await resetLimit.page.evaluate(() => {
+      const dialog = document.querySelector('.reset-dialog');
+      const rect = () => ({
+        dialogTop: Math.round(dialog.getBoundingClientRect().top),
+        dialogBottom: Math.round(dialog.getBoundingClientRect().bottom),
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+      });
+      return rect();
+    });
+    await resetLimit.page.locator('#reset-target').fill('');
+    await resetLimit.page.locator('.reset-run').click();
+    await resetLimit.page.waitForTimeout(300);
+    const resetErrorAfter = await resetLimit.page.evaluate(() => {
+      const dialog = document.querySelector('.reset-dialog');
+      const notice = dialog.querySelector('.reset-notice');
+      return {
+        dialogTop: Math.round(dialog.getBoundingClientRect().top),
+        dialogBottom: Math.round(dialog.getBoundingClientRect().bottom),
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+        notice: notice.hidden ? null : notice.textContent,
+      };
+    });
+    check('§7.11 Reset 错误出现不移动整窗与底栏: ' + JSON.stringify([resetError, resetErrorAfter]),
+      typeof resetErrorAfter.notice === 'string' && resetErrorAfter.notice.length > 0
+        && resetErrorAfter.dialogTop === resetError.dialogTop
+        && resetErrorAfter.dialogBottom === resetError.dialogBottom
+        && resetErrorAfter.headerTop === resetError.headerTop
+        && resetErrorAfter.footerTop === resetError.footerTop);
+    await resetLimit.page.close();
+
+    // ---- 规格 §7.11 第 11 条：远端管理的字高、只滚右侧详情、Tab 滚入被裁切字段 ----
+    const remoteOpen = async (page) => {
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.__augitOpenRemoteManager());
+      await page.waitForSelector('.remote-window', { timeout: 8000 });
+      await page.waitForTimeout(400);
+    };
+    const remoteSmall = await openScene('scene=main-project&theme=dark');
+    // 限高窗口才会让右侧详情溢出（默认 760px 下详情内容放得下，"只滚右侧"无从取证）。
+    await remoteSmall.page.setViewportSize({ width: 1180, height: 420 });
+    await remoteOpen(remoteSmall.page);
+    const remoteBase = await remoteSmall.page.evaluate(() => {
+      const dialog = document.querySelector('.remote-dialog');
+      const cs = getComputedStyle(dialog);
+      const detail = dialog.querySelector('.management-detail');
+      const list = dialog.querySelector('.management-list');
+      const snap = () => ({
+        toolbarTop: Math.round(dialog.querySelector('.toolbar').getBoundingClientRect().top),
+        listTop: Math.round(list.getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+        closeTop: Math.round(dialog.querySelector('.dialog-header a').getBoundingClientRect().top),
+      });
+      detail.scrollTop = 0;
+      const before = snap();
+      detail.scrollTop = 60;
+      const after = snap();
+      return {
+        field: cs.getPropertyValue('--remote-field').trim(),
+        button: cs.getPropertyValue('--remote-button').trim(),
+        fieldHeight: Math.round(dialog.querySelector('[data-remote-field="name"]').getBoundingClientRect().height),
+        buttonHeight: Math.round(dialog.querySelector('[data-remote-action="save"]').getBoundingClientRect().height),
+        detailScrollable: detail.scrollHeight > detail.clientHeight + 1,
+        listScrollable: list.scrollHeight > list.clientHeight + 1,
+        detailScrollTop: Math.round(detail.scrollTop),
+        before, after,
+      };
+    });
+    check('§7.11 远端限高只滚右侧详情、工具栏/列表/关闭固定: ' + JSON.stringify(remoteBase),
+      // 右栏真的溢出并滚动了，而左栏不溢出（"只滚右侧"）
+      remoteBase.detailScrollable === true && remoteBase.detailScrollTop > 0
+        && remoteBase.listScrollable === false
+        // 滚动右侧不移动工具栏、列表与关闭按钮
+        && remoteBase.after.toolbarTop === remoteBase.before.toolbarTop
+        && remoteBase.after.listTop === remoteBase.before.listTop
+        && remoteBase.after.footerTop === remoteBase.before.footerTop
+        && remoteBase.after.closeTop === remoteBase.before.closeTop);
+    await remoteSmall.page.close();
+
+    const remoteBig = await openScene('scene=main-project&theme=dark&ui-size=20');
+    await remoteBig.page.setViewportSize({ width: 1180, height: 420 });
+    await remoteOpen(remoteBig.page);
+    const remoteBigState = await remoteBig.page.evaluate(() => {
+      const dialog = document.querySelector('.remote-dialog');
+      const cs = getComputedStyle(dialog);
+      const detail = dialog.querySelector('.management-detail');
+      detail.scrollTop = 0;
+      const save = dialog.querySelector('[data-remote-action="save"]');
+      const before = {
+        top: Math.round(save.getBoundingClientRect().top - detail.getBoundingClientRect().top),
+        clientHeight: detail.clientHeight,
+        scrollTop: Math.round(detail.scrollTop),
+      };
+      save.focus();
+      return {
+        field: cs.getPropertyValue('--remote-field').trim(),
+        button: cs.getPropertyValue('--remote-button').trim(),
+        fieldHeight: Math.round(dialog.querySelector('[data-remote-field="name"]').getBoundingClientRect().height),
+        before,
+        active: document.activeElement.dataset ? document.activeElement.dataset.remoteAction : null,
+      };
+    });
+    await remoteBig.page.waitForTimeout(250);
+    const remoteBigScroll = await remoteBig.page.evaluate(() => {
+      const detail = document.querySelector('.remote-dialog .management-detail');
+      const save = document.querySelector('.remote-dialog [data-remote-action="save"]').getBoundingClientRect();
+      const box = detail.getBoundingClientRect();
+      return {
+        scrollTop: Math.round(detail.scrollTop),
+        inView: save.top >= box.top - 1 && save.bottom <= box.bottom + 1,
+      };
+    });
+    check('§7.11 远端按字高排布且 Tab 到被裁切字段时详情滚入视口: '
+      + JSON.stringify([remoteBase.field, remoteBigState, remoteBigScroll]),
+    // 字号 13 → 20：字段与按钮令牌增长并落到控件上
+    Number.parseInt(remoteBigState.field, 10) > Number.parseInt(remoteBase.field, 10)
+      && Number.parseInt(remoteBigState.button, 10) > Number.parseInt(remoteBase.button, 10)
+      && remoteBigState.fieldHeight === Number.parseInt(remoteBigState.field, 10)
+      // 前置：底部动作行在滚动前确实被裁切（否则"滚入"无从谈起）
+      && remoteBigState.before.top + 20 > remoteBigState.before.clientHeight
+      && remoteBigState.before.scrollTop === 0
+      // 焦点落在被裁切的字段上，详情自动滚入
+      && remoteBigState.active === 'save'
+      && remoteBigScroll.scrollTop > 0 && remoteBigScroll.inView === true);
+    await remoteBig.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

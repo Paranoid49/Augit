@@ -8418,6 +8418,11 @@ function renderRemoteManager() {
     true,
     "remote-dialog");
   host.appendChild(layer);
+  // 视觉稿的度量函数（字号→`--remote-field`／`--remote-button`／`--remote-title`／`--remote-height`）
+  // 此前只在静态页与后续区域重绘时跑到，实时远端管理窗口因此拿不到任何 `--remote-*` 令牌：
+  // 字段/按钮停在 CSS 默认值、不随界面字号排布（第 278 轮实测字号 20 时 `--remote-field` 为空、
+  // `#remote-field=name` 高度仍 30px）。挂载后立即量一次（与 Push/Clone 同一处理）。
+  if (typeof measureRemoteDialog === "function") measureRemoteDialog();
   setRemoteNotice("");
 }
 
