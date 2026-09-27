@@ -9490,3 +9490,52 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 继续 §6 余下 6 行（第 15、34、35、37、38、40 条）与 §7.12 Push／§7.3 Markdown 等 A 类条目。
+
+## septuaginta. 第二百七十轮：异步读取收尾不重选树行与关闭前面的后台标签（§6 第 37、38 条）
+
+### 第 37 条：读取期间的用户操作不被抢（"不重选树行"这一半）
+
+`docs/notes.txt` 慢读在途（`__readDelays` 1200ms）时，用户在树里改选 `docs/product-spec.md`、
+把树滚到 60、把焦点放进提交信息框。收尾落地后：
+
+- 选中仍是 `docs/product-spec.md`（**修前会跳回 `docs/notes.txt`**）；
+- 文件确实完成显示：`docPath=docs/notes.txt`、`editor=text`、标签建立、`pending` 清空、正文 29 字符。
+
+**缺陷**：树选中态取自"当前文档**文件名**"（`live.document.name`），任何一次读取落地重绘侧栏都会把
+选中跳回刚打开的那一行，用户在读取期间点过的行被覆盖。修法：选中态改成**用户状态**
+`live.treeSelectedPath`（`selectTreeRow()` 写入），渲染时"用户点过的路径 > 当前文档路径"；树行比较由
+`entry.name === selected` 改为按**路径**（重名文件分布在多级目录时按名字会选错行）。按名字的回退保留：
+实时外壳既没有用户选择也没有已打开文档时 `selected` 是视觉稿的默认**文件名**，去掉回退会让启动瞬间
+整棵树没有选中行（§4.4 复跑实测：整行高亮断言拿不到选中节点）。
+
+### 第 38 条：关闭前面的后台标签不使当前读取失效
+
+`docs/product-spec.md` 读取在途时关闭**更早建立**的 `docs/notes.txt` 标签：`pending` 保持、notes 标签
+消失；读取照常完成（新标签建立、`docPath=docs/product-spec.md`、`editor=markdown`、正文就位）。前半
+"关闭尚在读取的标签"在 Augit **不适用**：标签由**读取结果**建立，读取在途时还没有该标签；被取代的旧
+读取由递增令牌丢弃。
+
+### 仍未完成的两半（同条留待下一轮）
+
+读取收尾会重绘侧栏、换掉整棵树（实测 `sameTree:false`），于是 ① 树滚动位置 60 → 0、② 焦点由树行掉到
+`BODY`。两半都需要**状态化恢复**（同 `.commit-list` 的待恢复窗口做法），下一轮做。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§6 异步读取收尾不重选树行，已打开文件仍完成显示` |
+| 2 | `§6 关闭前面的后台标签不使当前读取失效` |
+
+### 验证
+
+- `live-shell` **`通过 1350 项断言`**（1348 → **+2**），退出码 0。
+- 登记哈希：`mockup.js` `82bc7a1b…` → **`b55e57036867c4c8c6334fd41fefa0d9`**（树选中改按路径 + 用户状态优先）、
+  `live-data.js` `be183118…` → **`a2f48f5f2c991a856032f5be8d03ee9d`**（`selectTreeRow()` 写 `live.treeSelectedPath`）、
+  `live-shell.spec.cjs` `2a3aa82f…` → **`f88a38c11ab6d9e8de18567f3a2e5a40`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 269 轮逐个相同。
+- 同批：`mockup-scenes` 55/55、`verify-ux-project-tree` 12/12、`verify-ui-assets` PASS。
+
+### 下一轮
+
+继续 §6 余下 5 行（第 15、34、35、第 37 条的滚动/焦点两半、第 40 条）与 §7 的 A 类条目。

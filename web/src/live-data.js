@@ -12047,6 +12047,9 @@ function selectTreeRow(row) {
 
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
+  // 选中态进状态（规格 §6 第 37 条）：异步读取收尾重绘侧栏时不得把选中跳回刚打开的文件行。
+  const liveSelection = window.__augitLive;
+  if (liveSelection) liveSelection.treeSelectedPath = row.dataset.treePath || null;
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
   // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
   const path = row.dataset.treePath;

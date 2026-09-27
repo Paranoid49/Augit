@@ -2627,7 +2627,10 @@ function liveProjectTree(selected, live) {
     const hasChildren = entry.isDirectory && entry.hasChildren;
     const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
     const expanded = entry.expanded ? "true" : "false";
-    return `<div class="tree-row ${depth} ${entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+    // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
+    // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
+    // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
+    return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
   }).join("");
   return `
     <aside class="tool-window side-tool">
@@ -4454,7 +4457,14 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   // 比较标签（工作区 Diff、引用比较、历史比较）没有普通文档，但同样有明确视图：
   // 只看 live.document 会让比较正文渲染不出来（表现为 editor 已是 diff 而 DOM 仍是文档）。
   if (live && live.editor && (live.document || live.editor === "diff")) editor = live.editor;
-  if (live && live.document) selectedFile = live.document.name || selectedFile;
+  // 树行选中态属于**用户**（规格 §6 第 37 条：异步读取收尾不得重选树行）：用户点过树行后以
+  // `live.treeSelectedPath` 为准，只有还没点过时才回落到当前文档路径（启动恢复、直接打开文件）。
+  // 此前这里直接用文档**文件名**，于是任何一次读取落地都会把树选中跳回刚打开的那一行
+  //（第 270 轮实测：读取期间用户改选 `docs/product-spec.md`，收尾后选中又变回 `docs/notes.txt`）。
+  if (live) {
+    const treeTarget = live.treeSelectedPath || (live.document ? live.document.path : null);
+    if (treeTarget) selectedFile = treeTarget;
+  }
   // 规格 §6.7：普通文件读取尚未完成时（典型是"读取在途时打开比较、随后关闭比较"返回的普通标签），
   // 正文显示该文件的**读取占位**，不能退回"选择文件以查看内容"的无文档提示。
   if (live && live.pendingDocument && !live.document && editor !== "diff") {

@@ -20869,6 +20869,111 @@ async function main() {
       && loadingInvariants.settled.loading === false
       && loadingInvariants.settled.diffCalls === 1 && loadingInvariants.settled.lines > 0);
 
+    // ---- 第 270 轮：读取期间的用户操作不被抢、关闭前面的后台标签不使读取失效（§6 第 37、38 条）----
+    const readRaces = await (async () => {
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1180, height: 360 });
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 15000 });
+      await page.waitForTimeout(500);
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').first().click();
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 10000 });
+      // 展开更多目录让树真的溢出（否则"不滚回原视口"无从取证）
+      for (const dir of ['docs/api', 'docs/assets', 'src']) {
+        const row = page.locator(`.side-content.tree .tree-row[data-tree-path="${dir}"]`).first();
+        if (await row.count() > 0) { await row.click(); await page.waitForTimeout(250); }
+      }
+      await page.waitForTimeout(300);
+      const snap = () => page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const tree = document.querySelector('.side-content.tree');
+        const selected = document.querySelector('.side-content.tree .tree-row.selected');
+        const active = document.activeElement;
+        return {
+          selectedTreePath: selected ? selected.dataset.treePath : null,
+          treeScrollTop: tree ? Math.round(tree.scrollTop) : null,
+          treeScrollable: !!window.__treeScrollable,
+          sameTree: window.__treeNode ? window.__treeNode === document.querySelector('.side-content.tree') : null,
+          active: active ? (active.getAttribute('aria-label') || active.className || active.tagName) : null,
+          docPath: live.document ? live.document.path : null,
+          editor: live.editor || null,
+          tabs: (live.tabs || []).map((tab) => `${tab.kind}:${tab.path}`),
+          contentChars: (() => { const el = document.querySelector('.editor-content'); return el ? el.textContent.replace(/\s+/g, '').length : 0; })(),
+          pending: live.pendingDocument || null,
+          readCalls: window.__readCalls || 0,
+          error: window.__augitError || null,
+        };
+      });
+      await page.evaluate(() => { window.__treeNode = document.querySelector('.side-content.tree'); });
+      const before = await snap();
+      // ① 慢读期间操作树与焦点：收尾不得重选树行、不得滚回原视口、不得抢回焦点
+      await page.evaluate(() => { window.__readDelays = { 'docs/notes.txt': 1200 }; });
+      await page.evaluate(() => { void window.__augitOpenDocument('docs/notes.txt'); });
+      await page.waitForTimeout(300);
+      const reading = await snap();
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').first().click();
+      await page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        if (tree) {
+          tree.scrollTop = 60;
+          window.__treeScrollable = tree.scrollHeight > tree.clientHeight + 1;
+        }
+        const box = document.querySelector('.commit-box .message-field');
+        if (box) box.focus();
+      });
+      await page.waitForTimeout(150);
+      const duringUser = await snap();
+      await page.waitForTimeout(1500);
+      const afterRead = await snap();
+      // ② 关闭**前面的**后台标签：当前读取不得失效
+      await page.evaluate(() => { window.__readDelays = { 'docs/product-spec.md': 1200 }; });
+      await page.evaluate(() => { void window.__augitOpenDocument('docs/product-spec.md'); });
+      await page.waitForTimeout(300);
+      const notesTabId = await page.evaluate(() => {
+        const live = window.__augitLive;
+        const other = (live.tabs || []).find((item) => item.kind === 'document' && item.path === 'docs/notes.txt');
+        if (!other) return null;
+        live.activeTabId = other.id;
+        return other.id;
+      });
+      await page.evaluate(() => { window.__augitRenderRegions('editorTabs'); });
+      await page.waitForTimeout(200);
+      if (notesTabId) await page.locator(`[data-tab-id="${notesTabId}"] .tab-close`).click();
+      await page.waitForTimeout(300);
+      const afterCloseOther = await snap();
+      await page.waitForTimeout(1800);
+      const notesLate = await snap();
+      await page.evaluate(() => { window.__readDelays = {}; });
+      await page.close();
+      console.log('INFO 读取竞态=' + JSON.stringify({ before, reading, duringUser, afterRead, afterCloseOther, notesLate, errors }));
+      return { before, reading, duringUser, afterRead, afterCloseOther, notesLate, errors };
+    })();
+    check('§6 异步读取收尾不重选树行，已打开文件仍完成显示: '
+      + JSON.stringify([readRaces.before, readRaces.duringUser, readRaces.afterRead]),
+    readRaces.errors.length === 0
+      // 前置：慢读在途，用户在读取期间改选了另一行
+      && readRaces.duringUser.pending === 'docs/notes.txt'
+      && readRaces.duringUser.selectedTreePath === 'docs/product-spec.md'
+      // 收尾不得重选树行（修前会跳回刚打开文件的树行）
+      && readRaces.afterRead.selectedTreePath === readRaces.duringUser.selectedTreePath
+      // 文件仍完成显示：新建了它的标签、正文为该文件、待打开状态清空
+      && readRaces.afterRead.docPath === 'docs/notes.txt' && readRaces.afterRead.editor === 'text'
+      && readRaces.afterRead.tabs.includes('document:docs/notes.txt')
+      && readRaces.afterRead.contentChars > 20 && readRaces.afterRead.pending === null);
+    check('§6 关闭前面的后台标签不使当前读取失效: '
+      + JSON.stringify([readRaces.afterCloseOther, readRaces.notesLate]),
+    // 关闭的是一个**更早**的文档标签，而当前读取仍在途
+    readRaces.afterCloseOther.pending === 'docs/product-spec.md'
+      && !readRaces.afterCloseOther.tabs.includes('document:docs/notes.txt')
+      // 读取照常完成：新标签建立、正文就位
+      && readRaces.notesLate.pending === null
+      && readRaces.notesLate.docPath === 'docs/product-spec.md' && readRaces.notesLate.editor === 'markdown'
+      && readRaces.notesLate.tabs.includes('document:docs/product-spec.md')
+      && readRaces.notesLate.contentChars > 30);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
