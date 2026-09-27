@@ -20778,6 +20778,97 @@ async function main() {
       && filebarLayout.afterLoad.mode === 'unified' && filebarStacked(filebarLayout.afterLoad)
       && filebarLayout.afterLoad.lines === 5 && filebarLayout.afterLoad.notice === false);
 
+    // ---- 第 269 轮：加载指示不循环触发布局/不大面积白屏 + 无变化状态通知复用在途请求（§6 第 21/33 条）----
+    const loadingInvariants = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.changes-list .change-file-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      const snap = () => page.evaluate(() => {
+        const content = document.querySelector('.editor-content');
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
+        const bodyBg = getComputedStyle(document.body).backgroundColor;
+        return {
+          loading: !!window.__augitLive.diffLoading,
+          loadingAttr: !!(layout && layout.dataset.augitLoading === 'true'),
+          contentRect: rect(content),
+          contentChars: content ? content.textContent.replace(/\s+/g, '').length : 0,
+          bodyBg,
+          emptyState: document.querySelectorAll('.editor-content .empty-state').length,
+          diffCalls: (window.__diffCalls || []).length,
+          renders: window.__renderCount || 0,
+          regionRenders: window.__regionCount || 0,
+          statusCalls: window.__statusCalls || 0,
+          historyCalls: window.__historyCalls || 0,
+          lines: document.querySelectorAll('.editor-content .diff-code-line').length,
+          mutations: window.__mutationCount || 0,
+        };
+      });
+      // 计数钩子：渲染入口 + 正文子树的 DOM 变更
+      await page.evaluate(() => {
+        window.__renderCount = 0;
+        window.__regionCount = 0;
+        window.__mutationCount = 0;
+        const origRender = window.__augitRender;
+        window.__augitRender = () => { window.__renderCount += 1; return origRender(); };
+        const origRegions = window.__augitRenderRegions;
+        window.__augitRenderRegions = (...names) => { window.__regionCount += 1; return origRegions(...names); };
+        const target = document.querySelector('.editor-content');
+        if (target) {
+          new MutationObserver((records) => { window.__mutationCount += records.length; }).observe(target, { childList: true, subtree: true, attributes: true });
+        }
+      });
+      const beforeLoad = await snap();
+      // ① 慢差异：观察加载窗口内是否循环重绘/白屏
+      await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 2500 }; });
+      await page.locator('.changes-list .change-file-row').first().dblclick();
+      await page.waitForFunction("() => window.__augitLive.diffLoading === true", null, { timeout: 10000 });
+      await page.waitForTimeout(400);
+      const early = await snap();
+      await page.waitForTimeout(700);
+      const late = await snap();
+      // ② 无变化的状态通知：在途请求必须被复用（不新增 git/diff 请求）
+      await page.evaluate(() => { window.__hostPush('workspace-changed', { files: [], gitMetadata: true }); });
+      await page.waitForTimeout(250);
+      const afterPush = await snap();
+      // 落地：注入的延迟是 2.5s，固定等过它（不依赖 loading 标志的瞬时翻转）
+      await page.waitForTimeout(2800);
+      const settled = await snap();
+      await page.evaluate(() => { window.__diffDelays = {}; });
+      await page.close();
+      console.log('INFO 加载不变量=' + JSON.stringify({ beforeLoad, early, late, afterPush, settled, errors }));
+      return { beforeLoad, early, late, afterPush, settled, errors };
+    })();
+    check('§6 加载指示不循环触发布局、不大面积白屏（有旧正文时保留正文）: '
+      + JSON.stringify([loadingInvariants.beforeLoad, loadingInvariants.early, loadingInvariants.late]),
+    loadingInvariants.errors.length === 0
+      // 加载窗口内渲染次数与正文 DOM 变更都冻结（没有循环重绘）
+      && loadingInvariants.early.regionRenders === loadingInvariants.late.regionRenders
+      && loadingInvariants.early.mutations === loadingInvariants.late.mutations
+      && loadingInvariants.early.loading === true && loadingInvariants.late.loading === true
+      // 主框架位置不变、没有大面积白屏（深色底 + 无空态铺满 + 旧正文仍在）
+      && JSON.stringify(loadingInvariants.early.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
+      && JSON.stringify(loadingInvariants.late.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
+      && loadingInvariants.early.bodyBg === 'rgb(43, 45, 48)'
+      && loadingInvariants.early.emptyState === 0 && loadingInvariants.late.emptyState === 0
+      && loadingInvariants.early.contentChars > 500 && loadingInvariants.early.lines > 0
+      && loadingInvariants.early.diffCalls === 1);
+    check('§6 无变化的 Git 状态通知复用进行中的 diff 请求: '
+      + JSON.stringify([loadingInvariants.early, loadingInvariants.afterPush, loadingInvariants.settled]),
+    // 前置：慢差异在途（1 次请求）
+    loadingInvariants.early.loading === true && loadingInvariants.early.diffCalls === 1
+      // 状态通知确实被处理（status 重读一次）但在途请求被复用 ⇒ git/diff 调用数不变
+      && loadingInvariants.afterPush.statusCalls === loadingInvariants.early.statusCalls + 1
+      && loadingInvariants.afterPush.diffCalls === loadingInvariants.early.diffCalls
+      && loadingInvariants.afterPush.loading === true
+      // 落地后仍是同一次请求，正文就位
+      && loadingInvariants.settled.loading === false
+      && loadingInvariants.settled.diffCalls === 1 && loadingInvariants.settled.lines > 0);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
