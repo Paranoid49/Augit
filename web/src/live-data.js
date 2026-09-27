@@ -4392,6 +4392,28 @@ document.addEventListener("keydown", (event) => {
 }, true);
 
 /**
+ * 把"提交详情显隐"落到 DOM（规格 §7.9 条目三的"详情显隐"）。
+ *
+ * 此前这个状态**只写在 DOM 上**（`panel.style.display`）⇒ 底部工具窗一重绘（进入/离开文件历史、
+ * 外部刷新、切筛选都会重绘）就丢，用户"隐藏详情"的选择在返回后变回显示（第 253 轮实测）。
+ * 状态进 `live.historyDetailsHidden`，这里在每次渲染后按状态落地；打开/关闭入口只改状态再调它。
+ */
+function applyHistoryDetailsState() {
+  const live = window.__augitLive;
+  const panel = document.querySelector(".log-detail-panel");
+  const button = document.querySelector('.log-filterbar.history-filters [aria-label="显示提交详情"], .log-filterbar.history-filters [aria-label="隐藏提交详情"]')
+    || document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+  const hidden = !!(live && live.historyDetailsHidden);
+  if (panel) panel.style.display = hidden ? "none" : "";
+  if (button) {
+    // 标签与 `aria-pressed` 沿用既有语义（第 68 轮的断言钉住的取值：隐藏后标签是"隐藏提交详情"、
+    // `aria-pressed` 为 "true"）—— 本轮只把"显隐"从 DOM 搬进状态，不顺手改标签语义。
+    button.setAttribute("aria-label", hidden ? "隐藏提交详情" : "显示提交详情");
+    button.setAttribute("aria-pressed", hidden ? "true" : "false");
+  }
+}
+
+/**
  * 撤销"待跨文件"状态与边界提示（规格 §7.7 第 10 条）。
  *
  * 规格要求 `Esc`、改变方向、选择文件、切换显示模式、隐藏/关闭 Diff、重新加载、改变窗口布局
@@ -4524,12 +4546,16 @@ async function clearHistoryPathFilter() {
   // 已加载（含"已确认是空"）的日志**直接恢复**，不重复查询（规格 §7.9：已加载的空日志
   // 仍直接恢复，不因没有提交而重复查询）。只有从未查过历史的入口才补一次查询。
   if (!live.history) await loadHistory().catch(() => null);
+  // 详情显隐同样属于"进入前的上下文"：写回状态后由 `applyHistoryDetailsState()` 落到 DOM。
+  if (typeof back.detailsHidden === "boolean") live.historyDetailsHidden = back.detailsHidden;
   if (typeof window.__augitRender === "function") {
     window.__augitRender();
     rebindAfterRender();
+    applyHistoryDetailsState();
     return;
   }
   refresh("bottomTool", "statusbar");
+  applyHistoryDetailsState();
 }
 
 /**
@@ -4709,6 +4735,8 @@ document.addEventListener("click", (event) => {
 function rebindAfterRender() {
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
+  // 提交详情的显隐是**状态**：重绘后按 `live.historyDetailsHidden` 重新落地（规格 §7.9 条目三）。
+  applyHistoryDetailsState();
   bindEditorTabs?.();
   // 标签栏是区域刷新的产物，重建后滚动位置归零，边缘渐隐要按新状态重量一次。
   if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
@@ -6115,14 +6143,19 @@ function guardUnwiredNavigation() {
       && event.target.closest('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
     if (historyDetails) {
       event.preventDefault();
+      const liveNow = window.__augitLive;
       const panel = document.querySelector(".log-detail-panel");
-      if (panel) {
-        const collapsed = panel.style.display === "none";
-        panel.style.display = collapsed ? "" : "none";
-        // 展开后按钮应变成"隐藏提交详情"（此前我把三元写反，实测：面板隐藏了、标签却仍是"显示提交详情"）。
-        historyDetails.setAttribute("aria-label", collapsed ? "显示提交详情" : "隐藏提交详情");
-        historyDetails.setAttribute("aria-pressed", collapsed ? "false" : "true");
+      // 以**状态**为准（DOM 只读用来兜底没有 live 的场景）：隐藏 ⇄ 显示的意图写进 `live`，
+      // 这样底部工具窗重绘后仍然成立（规格 §7.9 条目三"详情显隐"）。
+      if (liveNow) {
+        liveNow.historyDetailsHidden = panel ? panel.style.display !== "none" : !liveNow.historyDetailsHidden;
+      } else if (panel) {
+        panel.style.display = panel.style.display === "none" ? "" : "none";
+        historyDetails.setAttribute("aria-label", panel.style.display === "none" ? "显示提交详情" : "隐藏提交详情");
+        historyDetails.setAttribute("aria-pressed", panel.style.display === "none" ? "true" : "false");
+        return;
       }
+      applyHistoryDetailsState();
       return;
     }
 
@@ -9849,10 +9882,13 @@ async function runChangesContextAction(action, options = {}) {
       hadBottom = !!layout.bottom;
       const detailHost = document.querySelector("[data-live-commit-detail]");
       const selectedRow = selectedCommitRow();
+      const detailPanel = document.querySelector(".log-detail-panel");
       liveBefore.fileHistoryReturn = {
         bottom: hadBottom ? layout.bottom : "",
         hash: selectedRow ? selectedRow.dataset.hash : null,
         detailScroll: detailHost ? Math.round(detailHost.scrollTop) : 0,
+        // 详情显隐（规格 §7.9 条目三）：DOM 上读一次当前值，返回时按它恢复。
+        detailsHidden: !!(liveBefore.historyDetailsHidden || (detailPanel && detailPanel.style.display === "none")),
       };
     }
 

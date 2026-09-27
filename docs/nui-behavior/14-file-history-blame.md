@@ -153,3 +153,21 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
 
 > 断言教训：用"把容器 `scrollLeft` 写成 100"验证"能滚"是无效判据 —— `overflow: hidden` 的元素
 > 仍可被**程序**滚动，断言分不出"能滚"与"被裁掉"。必须用真实横向滚轮（`mouse.wheel(deltaX, 0)`）。
+
+## 文件历史往返的日志上下文与补查规则（第 253 轮）
+
+进入文件历史前记下的"返回上下文"（`live.fileHistoryReturn`）与返回时的恢复：
+
+- **已实现并断言**：底部工具窗状态、提交选择（`historySelectedHash`）、详情正文位置（`commitDetailScrollRestore`）、
+  详情显隐（本轮新增 `live.historyDetailsHidden`）。已生效的组合筛选、页码、提交列表纵横滚动都因为存在 `live` 里
+  而自然跨过往返（断言逐项核对）。
+- **本轮修掉的缺陷**：
+  1. 详情显隐此前只写在 DOM（`panel.style.display`）⇒ 底部工具窗一重绘就丢；现状态化，`applyHistoryDetailsState()`
+     在每次渲染后落地，开关入口只改状态。
+  2. 提交详情为空时，占位 `.empty-state`（`position: absolute; inset: 0`）的宿主 `.changed-files` 没有定位上下文
+     ⇒ 空态铺满整窗（实测 `0,0,1180,760`）并吞掉**所有**点击（`elementFromPoint` 在工具入口上命中的是空态）。
+     修法：`.changed-files`／`.commit-detail` 补 `position: relative`。
+- **尚未实现（登记）**：变化文件树的折叠/选择/顶部位置没有状态键（树由 `live.commitDetails.filesHtml` 预渲染、
+  交互只改 DOM）⇒ 任何重绘（包括切筛选）都会丢。
+- **返回日志的补查规则**：日志**从未查询**过时返回必须补一次查询（实测调用数 1 → 2、数据落地）；
+  已加载的日志（含**空**日志）直接恢复、不重复查询（调用数不变、空态文案逐字相同）。

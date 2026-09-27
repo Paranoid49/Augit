@@ -18486,6 +18486,240 @@ async function main() {
       && fileHistoryColumns.backWide.selectedHash === fileHistoryColumns.wide.selectedHash
       && fileHistoryColumns.backWide.tabs === fileHistoryColumns.wide.tabs);
 
+    // ---- 第 253 轮补断言（收 §7.9 条目三、四）：进入文件历史再返回后的日志上下文逐项保持；
+    // 返回日志的补查规则（未查过的补查、已加载含空的直接恢复）----
+    const logContextKept = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(700);
+      // ① 应用一个筛选（真实 Enter）并选中一个提交；等提交详情（变化文件树）就绪
+      const search = page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+      await search.click();
+      await search.fill('fix');
+      await search.press('Enter');
+      await page.waitForTimeout(800);
+      await page.locator('.commit-list .commit-row').first().click();
+      await page.waitForFunction(
+        "() => document.querySelectorAll('[data-live-changed-files] [data-history-path]').length > 0",
+        null, { timeout: 15000 }).catch(() => null);
+      await page.waitForTimeout(500);
+      // ② 详情正文滚一段（"正文位置"这一项的入口快照），再隐藏详情（"详情显隐"）
+      await page.evaluate(() => {
+        const detail = document.querySelector('[data-live-commit-detail]');
+        if (detail) detail.scrollTop = 90;
+      });
+      await page.waitForTimeout(300);
+      const entryDetailScroll = await page.evaluate(() => {
+        const detail = document.querySelector('[data-live-commit-detail]');
+        return detail ? Math.round(detail.scrollTop) : null;
+      });
+      await page.locator('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').first().click();
+      await page.waitForTimeout(400);
+      // ③ 页码与列表纵横滚动：状态层注入（真实分页/滚动行为分别由第 218／239 轮的用例覆盖）
+      await page.evaluate(() => {
+        const live = window.__augitLive;
+        live.historyScrollTop = 40;
+        live.historyScrollLeft = 12;
+      });
+      // 注：「尚未执行的筛选输入」刻意**不放进这个场景**：按既有设计，输入框失焦（往返途中必然发生）
+      // 会把草稿应用成筛选，那会让列表重查并清空选中/滚动 —— 与同一场景里的列表状态项互相吞。
+      // 该条已由「§7.9 日志筛选草稿在重绘后保留」覆盖（草稿存在 `live.historyFilterDraft`，往返只是重绘）。
+      const snap = () => page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const filterField = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+        const detail = document.querySelector('.log-detail-panel');
+        const selectedCommit = document.querySelector('.commit-list .commit-row[aria-selected="true"]');
+        return {
+          filter: live.historyFilter ? JSON.parse(JSON.stringify(live.historyFilter)) : null,
+          draft: filterField ? filterField.value : null,
+          page: typeof live.historyPage === 'number' ? live.historyPage : null,
+          hasNext: !!live.historyHasNextPage,
+          selectedRow: selectedCommit ? selectedCommit.dataset.hash : null,
+          selectedLive: live.historySelectedHash || null,
+          scrollTop: live.historyScrollTop || 0,
+          scrollLeft: live.historyScrollLeft || 0,
+          detailsHidden: detail ? detail.style.display === 'none' : null,
+          detailState: !!live.historyDetailsHidden,
+          historyCalls: window.__historyCalls || 0,
+          fileHistory: live.fileHistory ? live.fileHistory.path : null,
+        };
+      });
+      const before = await snap();
+      // ④ 真实入口：项目树右键 → 「文件历史」
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('.history-rows .history-row', { timeout: 10000 });
+      await page.waitForTimeout(600);
+      const inFileHistory = await snap();
+      // ⑤ 返回：点文件历史工具条的「清除路径筛选」
+      await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+      await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForTimeout(900);
+      const after = await snap();
+      await page.close();
+      // ⑦ 页码单独一个场景：不输草稿（否则失焦应用会按设计把页码归零，两件事在同一场景里互相吞）
+      const pageKept = await (async () => {
+        const p2 = await context.newPage();
+        await p2.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+        await p2.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+        await p2.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+        await p2.waitForTimeout(700);
+        await p2.evaluate(() => {
+          window.__augitLive.historyPage = 1;
+          window.__augitLive.historyHasNextPage = true;
+        });
+        const readPage = () => p2.evaluate(() => ({
+          page: window.__augitLive.historyPage,
+          hasNext: !!window.__augitLive.historyHasNextPage,
+          calls: window.__historyCalls || 0,
+        }));
+        const beforePage = await readPage();
+        await p2.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+        await p2.waitForTimeout(500);
+        await p2.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+        await p2.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await p2.waitForSelector('.history-rows .history-row', { timeout: 10000 });
+        await p2.waitForTimeout(500);
+        await p2.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await p2.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await p2.waitForTimeout(800);
+        const afterPage = await readPage();
+        await p2.close();
+        return { before: beforePage, after: afterPage };
+      })();
+      console.log('INFO 日志上下文保持=' + JSON.stringify({ before, inFileHistory, after, entryDetailScroll, pageKept, errors: errors.slice(0, 2) }));
+      return { before, inFileHistory, after, entryDetailScroll, pageKept, errors };
+    })();
+    check('§7.9 进入文件历史再返回后日志上下文逐项保持（筛选/页码/选择/纵横滚动/详情显隐/正文位置）: '
+      + JSON.stringify([logContextKept.before, logContextKept.inFileHistory, logContextKept.after]),
+    // 前置：确实进了文件历史（否则下面的"保持"什么都没验证）
+    logContextKept.inFileHistory.fileHistory !== null && logContextKept.after.fileHistory === null
+      // 已生效的组合筛选逐项保持
+      && JSON.stringify(logContextKept.after.filter) === JSON.stringify(logContextKept.before.filter)
+      && logContextKept.before.filter && logContextKept.before.filter.message === 'fix'
+      // 页码（含 hasNextPage）在"没有待应用草稿"的场景里原样保持
+      && logContextKept.pageKept.before.page === 1 && logContextKept.pageKept.before.hasNext === true
+      && logContextKept.pageKept.after.page === 1 && logContextKept.pageKept.after.hasNext === true
+      && logContextKept.pageKept.after.calls === logContextKept.pageKept.before.calls
+      // 提交选择（DOM 选中行与状态键）保持
+      && logContextKept.after.selectedRow === logContextKept.before.selectedRow
+      && logContextKept.after.selectedRow !== null
+      && logContextKept.after.selectedLive === logContextKept.after.selectedRow
+      // 提交列表的纵横滚动位置（状态层）保持
+      && logContextKept.after.scrollTop === logContextKept.before.scrollTop && logContextKept.after.scrollTop === 40
+      && logContextKept.after.scrollLeft === logContextKept.before.scrollLeft && logContextKept.after.scrollLeft === 12
+      // 详情显隐：进入前已隐藏 ⇒ 返回后仍然隐藏（DOM 与状态一致）
+      && logContextKept.before.detailsHidden === true && logContextKept.before.detailState === true
+      && logContextKept.after.detailsHidden === true && logContextKept.after.detailState === true
+      // 正文位置：入口处确实记下了非 0 的快照（这里实测 31 —— 详情正文只有那么高、scrollTop 被夹住；
+      // 返回后的落地行为由第 164 轮的往返用例覆盖）
+      && logContextKept.entryDetailScroll > 0
+      // 返回日志本身不重复查询（已加载的日志直接恢复）
+      && logContextKept.after.historyCalls === logContextKept.before.historyCalls);
+    const logRefetch = await (async () => {
+      // ① 未查过日志就进文件历史（URL 直达）⇒ 返回时必须按补一次查询
+      const direct = await (async () => {
+        const page = await context.newPage();
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=file-history&theme=dark&file-history=docs%2Fnotes.txt`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 20000 });
+        await page.waitForSelector('.history-rows .history-row', { timeout: 15000 });
+        await page.waitForTimeout(700);
+        // 规格 §7.9 条目四的前半："从文件树首次进入文件历史时，普通日志可能尚未完成任何查询"。
+        // 启动路径会先把日志查一次（实测 calls=1），这里把"日志尚未查询"的状态**确定性地**摆出来：
+        // 清掉 `live.history`（数据未落地的状态）后再返回，返回路径就必须补一次查询。
+        const before = await page.evaluate(() => {
+          window.__augitLive.history = null;
+          return { historyLoaded: !!window.__augitLive.history, calls: window.__historyCalls || 0 };
+        });
+        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await page.waitForTimeout(900);
+        const after = await page.evaluate(() => ({
+          historyLoaded: !!window.__augitLive.history,
+          rows: document.querySelectorAll('.commit-list .commit-row').length,
+          calls: window.__historyCalls || 0,
+          filter: window.__augitLive.historyFilter ? JSON.parse(JSON.stringify(window.__augitLive.historyFilter)) : null,
+          empty: !!document.querySelector('.empty-state, .empty-tool-state'),
+        }));
+        await page.close();
+        return { before, after };
+      })();
+      // ② 已加载的**空**日志：进文件历史再返回，不得重复查询
+      const empty = await (async () => {
+        const page = await context.newPage();
+        await page.addInitScript(() => { window.__emptyHistory = true; });
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
+        await page.waitForTimeout(800);
+        const before = await page.evaluate(() => ({
+          loaded: !!window.__augitLive.history,
+          rows: document.querySelectorAll('.commit-list .commit-row').length,
+          calls: window.__historyCalls || 0,
+          text: (document.querySelector('.log-list-panel') || {}).textContent ? document.querySelector('.log-list-panel').textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null,
+        }));
+        // 入口走项目树右键菜单（空历史时树仍可用；此前它点不动正是因为空态铺满整窗，本轮已修）
+        await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+        await page.waitForTimeout(500);
+        await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+        await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await page.waitForSelector('.history-rows .history-row', { timeout: 10000 }).catch(() => null);
+        await page.waitForTimeout(500);
+        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+        await page.waitForTimeout(900);
+        const after = await page.evaluate(() => ({
+          loaded: !!window.__augitLive.history,
+          rows: document.querySelectorAll('.commit-list .commit-row').length,
+          calls: window.__historyCalls || 0,
+          text: (document.querySelector('.log-list-panel') || {}).textContent ? document.querySelector('.log-list-panel').textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null,
+          // 详情为空时的占位（`.empty-state` 是 `position: absolute; inset: 0`）：必须留在宿主里、
+          // 不得铺满整窗拦截工具入口的点击（第 253 轮实测：宿主没有定位上下文时会盖住整屏）。
+          emptyStateInsideHost: (() => {
+            const host = document.querySelector('.changed-files');
+            const state = host ? host.querySelector('.empty-state') : null;
+            if (!host || !state) return null;
+            const h = host.getBoundingClientRect(), r = state.getBoundingClientRect();
+            return r.left >= h.left - 1 && r.right <= h.right + 1 && r.top >= h.top - 1 && r.bottom <= h.bottom + 1;
+          })(),
+          railHittable: (() => {
+            const rail = document.querySelector('.tool-rail .rail-button[aria-label="提交"]');
+            if (!rail) return null;
+            const r = rail.getBoundingClientRect();
+            const at = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
+            return !!(at && (at === rail || rail.contains(at)));
+          })(),
+        }));
+        await page.close();
+        return { before, after };
+      })();
+      console.log('INFO 返回补查=' + JSON.stringify({ direct, empty }));
+      return { direct, empty };
+    })();
+    check('§7.9 返回日志：未查过的按补一次查询、已加载（含空）的日志不重复查询: '
+      + JSON.stringify([logRefetch.direct, logRefetch.empty]),
+    // ① URL 直达文件历史（日志从未查过）⇒ 返回后补查：请求数 +1、日志落地有行、筛选按当时的（空）筛选
+    logRefetch.direct.before.historyLoaded === false
+      && logRefetch.direct.after.calls === logRefetch.direct.before.calls + 1
+      && logRefetch.direct.after.historyLoaded === true
+      // 该场景的日志夹具本身是空的（rows 0）⇒ 只断言"补查真的发生且数据落地"，
+      // 不拿行数当补查的判据（那会把场景夹具的空当成本次的缺陷）。
+      && logRefetch.direct.after.filter === null
+      // ② 已加载的空日志：往返后不重复查询，且空态文案不变
+      && logRefetch.empty.before.loaded === true && logRefetch.empty.before.rows === 0
+      && logRefetch.empty.after.calls === logRefetch.empty.before.calls
+      && logRefetch.empty.after.loaded === true
+      && logRefetch.empty.after.rows === 0
+      && logRefetch.empty.after.text === logRefetch.empty.before.text
+      // 空详情的占位留在宿主内、且工具入口仍可点（第 253 轮修掉的整屏拦截）
+      && logRefetch.empty.after.emptyStateInsideHost === true
+      && logRefetch.empty.after.railHittable === true);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

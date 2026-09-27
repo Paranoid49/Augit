@@ -1772,6 +1772,11 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
 
 .changed-files,
 .commit-detail {
+  /* 定位上下文：它们的空态用 `.empty-state`（`position: absolute; inset: 0`），
+     宿主若没有定位上下文，空态会按最近的可定位祖先（工作区/窗口）铺满整屏 ——
+     实测（第 253 轮）提交详情为空时 `.empty-state` 的矩形是 **0,0,1180,760**，
+     `elementFromPoint` 在工具入口上是它 ⇒ 整个界面点不动。 */
+  position: relative;
   padding: 10px 12px;
   overflow: auto;
 }
