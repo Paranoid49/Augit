@@ -10343,3 +10343,68 @@ process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收�
 实现 **T12**（`reuseTextViewInPlace()`：就地替换正文、保住 `.code-view` 与 `.current-find`，
 把选区/滚动/焦点/开关记进 `live`，并按 `document-content-changed` 重挂查找、从原匹配位置继续）
 并补 §7.2 第 16 条的断言；其余转 §7.1／§7.4／§7.17／§9 的 A 类队列。
+
+## octoginta-septima. 第二百八十七轮：普通文本外部更新就地复用正文控件（§7.2 第 16 条收口，关闭 T12）
+
+### 实现
+
+`live-data.js` 新增 `reuseTextViewInPlace()`，在 `refresh()` 里与 Markdown 侧并列吸收 `editorContent`：
+
+- 只换 `.code-view` 的行内容；工具栏、大文件只读横幅与**运行时查找条** `.current-find` 留在原地。
+- 选区按「行号 + 行内偏移」跨 `innerHTML` 替换复原，并改用 `selection.setBaseAndExtent()` 保住**方向**
+  （`addRange` 只有"起点 → 终点"一个方向，反向选择会被 `setEnd` 早于 `setStart` 静默折叠成一点 ——
+  Markdown 侧同一缺陷一并修掉）。
+- 端点用新增的 `clampCharacterBoundary()` 夹到字符边界：偏移落在高/低代理项之间时退到该码位之前。
+- 横纵滚动写回（变短时由浏览器夹回有效范围）；焦点原本在正文上时交还正文。
+- `measureCodeViews()` 按新行数重算行号列宽；派发 `document-content-changed{preserveMatch:true}`。
+- 相同内容的重复通知直接返回，不重写正文。
+
+`current-find.js`（共享文件，两份同步）：
+
+- 当前匹配位置 `{path, query, start}` 记进 `live.currentFind`（用户状态进 `live` 而非闭包/DOM），
+  重绑定与外部更新后据此复原"当前项"。
+- `search(preservePosition, anchor)`：带锚点时选第一条起点不早于锚点的匹配，且不当作导航去滚动正文。
+- `document-content-changed` 与 document 级 `keydown` 监听改挂区域的 `lifetime`。
+
+### 挂出并修掉的两处真实缺陷
+
+1. 上述两个监听原本没挂 `lifetime`，而 `.document-view` 会被就地复用 ⇒ 每次区域刷新都会多留一个旧闭包，
+   同一个 `document-content-changed` 被处理多次，旧闭包手里的 `rows`/`sourceLines` 指向已被替换掉的行。
+   实测：命中行的正文被写成 `undefined`，正文被清空（`textContent=undefined` ×3）。
+2. 当前匹配位置只活在闭包里 ⇒ 任何区域刷新（含 `openDocument` 里的 statusbar 刷新）都会把"当前项"
+   重置成第一项，"下一项"因此不是从原位置继续。
+
+### 实测（`docs/row16.txt`：61 行、第 2 行 `AB😀CD`、第 40 行 400 字符长行）
+
+- 横向/纵向都可滚（`maxTop 970`／`maxLeft 2430`）；更新成 `A😀BCD` 后正文控件本体不变、
+  `scrollTop 120`／`scrollLeft 60` 逐值保持、焦点仍在正文、空白符开关仍按下且 60 个标记仍在。
+- 反向选择由 `[2,4] → [2,2]`（`😀`）变为 `[2,4] → [2,1]`（`😀B`），**焦点端点不在代理对内部**
+  （同一偏移 2 在新正文里本会落进 emoji 中间）。
+- 查找：更新前 `2/2` 停在第 5 行，正文变成 3 处匹配后仍是 `2/3`、当前项仍在第 5 行；
+  `Enter` 到 `3/3`／第 30 行（若位置被重置会退回第 5 行的 `2/3`）。
+- 相同内容的重复通知：`document-content-changed` 事件数 **0**、61 个行节点身份逐个不变、
+  查找数量与当前项不动。
+
+### 新增断言（`live-shell`，3 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.2 普通文本外部更新复用正文控件：保留选择方向、横纵滚动、焦点与空白符开关，端点不落在代理对内部` |
+| 2 | `§7.2 普通文本外部更新后查找保持并继续：输入/开关不动、结果数更新、下一项从原位置继续` |
+| 3 | `§7.2 相同内容的重复通知不重写正文、也不打断查找` |
+
+### 验证
+
+- `live-shell` **`通过 1418 项断言`**（1415 → **+3**），退出码 0。
+- 登记哈希：`live-data.js` `54b03f0b…` → **`4ceb4e6fd8643da69c7d3c65a3ff534a`**；
+  `current-find.js` `ced6f4a4…` → **`82cb248ea011ce5d432d546edc529618`**（两份副本字节一致）；
+  `live-shell.spec.cjs` `d39330b5…` → **`7239ed6afe5951d23f20f088e5a2ae58`**。
+- §7.2 第 16 条转 **是**，T12 关闭（§2.10：分母 22 → **21**、D 9 → **8**）。
+- 同批：`verify-ux-find` 48 个布局状态 + 输入法场景通过、`verify-ux-text-layout` 126 组合通过、
+  `mockup-scenes` 55/55、`verify-ui-assets` PASS。
+
+### 下一轮
+
+回到 A 类队列：§7.17 第 3（外观立即预览/取消恢复）、§7.1 第 4、7（树悬停与增量刷新）、
+§7.4（模式切换后的查找刷新与焦点规则）、§9（未选择时保持当前文件或稳定空态）；
+§7.15 只剩第 8（结束 ripgrep 进程）。

@@ -4714,8 +4714,10 @@ function refresh(...regions) {
   rememberMarkdownCaretBeforeRender();
   // 规格 §7.3：Markdown 的**外部更新**要复用原文控件，保留选择、滚动、查找与当前模式。
   // 同一个文档、同一种编辑器、同一个路径时不再整块替换编辑区，只把原文与预览的正文换掉。
+  // 规格 §7.2：普通文本的同类型外部更新同理（`reuseTextViewInPlace()`）——只换行内容，
+  // 保住 `.code-view` 与它外面的运行时查找条。
   let effective = regions;
-  if (regions.includes("editorContent") && reuseMarkdownViewInPlace()) {
+  if (regions.includes("editorContent") && (reuseMarkdownViewInPlace() || reuseTextViewInPlace())) {
     effective = regions.filter((name) => name !== "editorContent");
   }
   if (typeof window.__augitRenderRegions === "function" && effective.length > 0) {
@@ -4767,6 +4769,74 @@ function reuseMarkdownViewInPlace() {
   return true;
 }
 
+/** 正文行容器里**当前显示**的文本（与 `liveLineViews()` 的渲染结果对账）。 */
+function renderedTextViewText(code) {
+  return [...code.querySelectorAll(".code-line")]
+    .map((row) => {
+      const span = row.querySelector("span:last-child");
+      return span ? span.textContent : "";
+    })
+    // `liveLineViews()` 把空行写成单个空格（`escapeHtml(line) || " "`），这里映射回空串：
+    // 这个方向只会把"看起来与查找起来都相同"的正文判成相同，不会把真变了的内容当成没变。
+    .map((value) => (value === " " ? "" : value))
+    .join("\n");
+}
+
+/**
+ * 就地更新当前普通文本文档的正文（规格 §7.2「同类型外部更新复用现有正文控件」）。
+ *
+ * 与 Markdown 侧同款：只换 `.code-view` 里的行内容，控件本体（工具栏、大文件横幅与**运行时
+ * 查找条** `.current-find`）留在原地，因此
+ * ① 选区（含方向）按「行号 + 行内偏移」跨 `innerHTML` 替换复原，端点夹在字符边界上；
+ * ② 横向与纵向滚动写回（正文变短时由浏览器夹回有效范围）；
+ * ③ 焦点原本在正文上时交还正文（在查找框上则原样留在查找框）；
+ * ④ 换行与空白符开关是 `.code-view` 上的类，节点没换即原样保留（空白符标记由
+ *   `rebindAfterRender()` 的 `applyWhitespaceMarkers()` 按状态补回）；
+ * ⑤ 派发 `document-content-changed`（带上"从原匹配继续"的意图）：查找条按新正文重算数量，
+ *   并从原匹配位置继续。相同内容的重复通知直接返回、不重写正文。
+ *
+ * 返回 true 表示这次更新已被就地吸收，调用方可跳过 `editorContent` 替换。
+ */
+function reuseTextViewInPlace() {
+  const live = window.__augitLive;
+  if (!live || !live.document) return false;
+  // 只有普通文本编辑器走这条：Markdown/JSON/图片/比较/Blame 各有自己的正文与状态。
+  if (live.editor !== "text") return false;
+  const view = document.querySelector(".editor-content .document-view");
+  if (!view || view.classList.contains("blame-document") || view.classList.contains("json-document")) return false;
+  if (view.querySelector(".markdown-panes")) return false;
+  const code = view.querySelector(":scope > .code-view");
+  if (!code) return false;
+  // 正身对账：工具栏显示的路径必须是本文档。换文件（或读取失败退化）时交给正常的区域替换。
+  const pathLabel = view.querySelector(".document-path");
+  if (!pathLabel || !pathLabel.textContent.startsWith(live.document.path)) return false;
+  // 大文件只读预览横幅在正文之外：它的有无会变时不做就地复用。
+  const banner = view.querySelector("[data-large-file-banner]");
+  const bannerWanted = !!(live.document.readOnlyPreview
+    && !(typeof window.__augitLargeFileWarningHidden === "function"
+      && window.__augitLargeFileWarningHidden(live.document)));
+  if (!!banner !== bannerWanted) return false;
+  // 相同内容的重复通知不重写正文（规格 §7.2 末句）。
+  const next = String(live.document.text ?? "").replace(/\r\n?/g, "\n");
+  if (renderedTextViewText(code) === next) return true;
+  const caret = captureMarkdownCaret(code);
+  const scroll = [code.scrollLeft, code.scrollTop];
+  const hadFocus = document.activeElement === code || code.contains(document.activeElement);
+  code.innerHTML = typeof liveLineViews === "function" ? liveLineViews(live.document.text) : code.innerHTML;
+  // 行号列的宽度按行数的位数度量：行数跨位数（99 → 100 行）时要重新量一次。
+  if (typeof measureCodeViews === "function") measureCodeViews();
+  code.scrollLeft = scroll[0];
+  code.scrollTop = scroll[1];
+  restoreMarkdownCaret(code, caret);
+  if (hadFocus) code.focus({ preventScroll: true });
+  view.dispatchEvent(new CustomEvent("document-content-changed", {
+    bubbles: true,
+    cancelable: true,
+    detail: { preserveMatch: true },
+  }));
+  return true;
+}
+
 /** 把选区端点描述成「行号 + 该行文本偏移」，跨 innerHTML 替换仍可复原。 */
 function describeMarkdownPoint(source, node, offset) {
   if (!node) return null;
@@ -4780,6 +4850,23 @@ function describeMarkdownPoint(source, node, offset) {
 function markdownPointNode(line) {
   const span = line.querySelector("span:last-child");
   return (span && span.firstChild) || line.firstChild;
+}
+
+/**
+ * 把行内偏移夹进合法范围，且**不停在代理对内部**（规格 §7.2「选择端点不得停在 UTF-8 字符内部」）。
+ *
+ * 偏移落在高代理项与低代理项之间时退到该码位之前；ASCII 与 BMP 字符不受影响。
+ * 例：`AB😀CD` 的行内偏移 2 本身合法（😀 之前），正文变成 `A😀BCD` 后同一偏移 2 就落进了
+ * 代理对内部 —— 直接写回会让端点停在一个字符中间。
+ */
+function clampCharacterBoundary(text, offset, length) {
+  let value = Math.max(0, Math.min(Number(offset) || 0, length));
+  if (value > 0 && value < length && text) {
+    const previous = text.charCodeAt(value - 1);
+    const current = text.charCodeAt(value);
+    if (previous >= 0xd800 && previous <= 0xdbff && current >= 0xdc00 && current <= 0xdfff) value -= 1;
+  }
+  return value;
 }
 
 function captureMarkdownCaret(source) {
@@ -4797,8 +4884,8 @@ function restoreMarkdownCaret(source, caret) {
   if (!anchorLine || !focusLine) return;
   const point = (line, offset) => {
     const node = markdownPointNode(line);
-    const length = node && typeof node.textContent === "string" ? node.textContent.length : 0;
-    return [node, Math.max(0, Math.min(offset, length))];
+    const text = node && typeof node.textContent === "string" ? node.textContent : "";
+    return [node, clampCharacterBoundary(text, offset, text.length)];
   };
   const [anchorNode, anchorOffset] = point(anchorLine, caret.anchor.offset);
   const [focusNode, focusOffset] = point(focusLine, caret.focus.offset);
@@ -4812,6 +4899,12 @@ function restoreMarkdownCaret(source, caret) {
   }
   const selection = window.getSelection();
   selection.removeAllRanges();
+  if (typeof selection.setBaseAndExtent === "function") {
+    // 规格 §7.2/§7.3 要求保留**选择方向**：`addRange` 只有"起点 → 终点"一个方向，
+    // 反向选择（锚点在焦点之后）会在 `setEnd` 早于 `setStart` 时被静默折叠成一点。
+    selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+    return;
+  }
   selection.addRange(range);
 }
 

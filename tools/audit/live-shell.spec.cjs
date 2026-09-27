@@ -6793,6 +6793,213 @@ async function main() {
       await hs3.page.close();
     }
 
+    // ---- 第 287 轮补断言（收 §7.2 第 16 条）：普通文本外部更新复用正文控件 ----
+    // 规格 §7.2：「同类型外部更新复用现有正文控件，保留选择方向、横纵滚动、焦点与换行和空白符开关；
+    // 新内容变短时将位置限制在有效范围，选择端点不得停在 UTF-8 字符内部。查找输入及开关保持，
+    // 结果数更新，下一项从原查找位置继续；相同内容的重复通知不重写正文。」
+    // 重点在**代理对**：第 2 行原文 `AB😀CD`（行内偏移 2 是 emoji 之前，合法），更新后变成
+    // `A😀BCD`（同一偏移 2 落进了代理对内部）—— 端点不夹到字符边界就会停在半个字符上。
+    {
+      const rt16Body = (line2, line30) => {
+        const lines = ['标记 一', line2, '填充 03', '填充 04', '标记 二'];
+        for (let i = 6; i <= 60; i += 1) lines.push('填充 ' + String(i).padStart(2, '0'));
+        if (line30) lines[29] = line30;
+        // 第 40 行放一行超长文本：正文真的能横向滚动，横向位置才有可断言的意义。
+        lines[39] = '长行 ' + 'x'.repeat(400);
+        return lines.join('\n') + '\n';
+      };
+      const rt16V1 = rt16Body('AB😀CD');
+      const rt16V2 = rt16Body('A😀BCD', '标记 三');
+      const rt16Inject = (text) => ({
+        path: 'docs/row16.txt', name: 'row16.txt', fullPath: 'D:\\live-ws\\docs\\row16.txt',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
+        fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+      });
+      const rt16Push = (target, text) => target.page.evaluate((value) => {
+        window.__limitDocs['docs/row16.txt'] = Object.assign({}, window.__limitDocs['docs/row16.txt'], { text: value, fileSize: value.length });
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\row16.txt'], gitMetadata: false });
+      }, text);
+
+      // 第一段：不开查找条 —— 选择方向、横纵滚动、焦点、空白符开关
+      const rt16A = await openScene('scene=main-project&theme=dark');
+      await rt16A.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await rt16A.page.waitForTimeout(500);
+      await rt16A.page.evaluate(async (payload) => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/row16.txt'] = payload;
+        await window.__augitOpenDocument('docs/row16.txt');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }, rt16Inject(rt16V1));
+      await rt16A.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+      await rt16A.page.waitForTimeout(200);
+      await rt16A.page.evaluate(() => {
+        const code = document.querySelector('.editor-content .code-view');
+        // 标记正文控件本体：外部更新后仍在，即"复用了现有控件"。
+        code.__rt16SameNode = true;
+        const lines = code.querySelectorAll('.code-line');
+        const textNode = (row) => {
+          const span = row.querySelector('span:last-child');
+          return (span && span.firstChild) || row.firstChild;
+        };
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        // 反向选择（锚点在后、焦点在前）：保留"选择方向"才算合格。
+        selection.setBaseAndExtent(textNode(lines[1]), 4, textNode(lines[1]), 2);
+        code.focus();
+        code.scrollTop = 120;
+        code.scrollLeft = 60;
+      });
+      await rt16A.page.waitForTimeout(200);
+      const rt16Read = () => rt16A.page.evaluate(() => {
+        const view = document.querySelector('.editor-content .document-view');
+        const code = view ? view.querySelector(':scope > .code-view') : null;
+        const selection = window.getSelection();
+        const lineOf = (node) => {
+          const element = node && (node.nodeType === 1 ? node : node.parentElement);
+          const row = element && element.closest ? element.closest('.code-line') : null;
+          return row ? row.dataset.line : null;
+        };
+        const focusInsideSurrogate = (() => {
+          if (!selection || !selection.rangeCount || !selection.focusNode || selection.focusNode.nodeType !== 3) return null;
+          const text = selection.focusNode.nodeValue || '';
+          const at = selection.focusOffset;
+          const previous = text.charCodeAt(at - 1), current = text.charCodeAt(at);
+          return !!(previous >= 0xd800 && previous <= 0xdbff && current >= 0xdc00 && current <= 0xdfff);
+        })();
+        return {
+          reused: !!(code && code.__rt16SameNode),
+          wrap: !!(code && code.classList.contains('wrap')),
+          whitespaceMarks: code ? code.querySelectorAll('span.ws').length : -1,
+          whitespacePressed: (() => { const button = view && view.querySelector('[aria-label="显示空白"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
+          scrollTop: code ? Math.round(code.scrollTop) : -1,
+          scrollLeft: code ? Math.round(code.scrollLeft) : -1,
+          maxTop: code ? code.scrollHeight - code.clientHeight : -1,
+          maxLeft: code ? code.scrollWidth - code.clientWidth : -1,
+          focused: code ? document.activeElement === code : false,
+          selText: selection ? String(selection) : null,
+          anchor: selection && selection.rangeCount ? [lineOf(selection.anchorNode), selection.anchorOffset] : null,
+          focus: selection && selection.rangeCount ? [lineOf(selection.focusNode), selection.focusOffset] : null,
+          focusInsideSurrogate,
+          findOpen: view ? view.querySelectorAll('.current-find').length : -1,
+          line2: (() => { const row = code && code.querySelector('.code-line[data-line="2"]'); return row ? row.lastElementChild.textContent : null; })(),
+        };
+      });
+      const rt16SelBefore = await rt16Read();
+      await rt16Push(rt16A, rt16V2);
+      await rt16A.page.waitForTimeout(1500);
+      const rt16SelAfter = await rt16Read();
+      check('§7.2 普通文本外部更新复用正文控件：保留选择方向、横纵滚动、焦点与空白符开关，端点不落在代理对内部: '
+        + JSON.stringify({ rt16SelBefore, rt16SelAfter }),
+      // 前置：用户状态确实已经建立（正文真的能横纵滚动、选择是反向的、查找条没开）
+      rt16SelBefore.reused === true && rt16SelBefore.maxTop > 0 && rt16SelBefore.maxLeft > 0
+        && rt16SelBefore.scrollTop === 120 && rt16SelBefore.scrollLeft === 60
+        && rt16SelBefore.selText === '😀' && rt16SelBefore.focusInsideSurrogate === false
+        && JSON.stringify(rt16SelBefore.anchor) === JSON.stringify(['2', 4])
+        && rt16SelBefore.findOpen === 0 && rt16SelBefore.line2 === 'AB😀CD'
+        // 更新后：同一个正文控件、滚动与焦点逐值保持、空白符开关仍按下且标记仍在
+        && rt16SelAfter.reused === true && rt16SelAfter.line2 === 'A😀BCD'
+        && rt16SelAfter.scrollTop === rt16SelBefore.scrollTop && rt16SelAfter.scrollLeft === rt16SelBefore.scrollLeft
+        && rt16SelAfter.focused === true && rt16SelAfter.wrap === false
+        && rt16SelAfter.whitespaceMarks === rt16SelBefore.whitespaceMarks && rt16SelAfter.whitespacePressed === 'true'
+        // 选择按"行号 + 行内偏移"复原、方向未变，且焦点端点被夹到 emoji 之前（不在代理对内部）
+        && JSON.stringify(rt16SelAfter.anchor) === JSON.stringify(['2', 4])
+        && JSON.stringify(rt16SelAfter.focus) === JSON.stringify(['2', 1])
+        && rt16SelAfter.selText === '😀B' && rt16SelAfter.focusInsideSurrogate === false);
+      await rt16A.page.close();
+
+      // 第二段：开着查找条 —— 输入与开关保持、结果数更新、下一项从原查找位置继续
+      const rt16B = await openScene('scene=main-project&theme=dark');
+      await rt16B.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await rt16B.page.waitForTimeout(500);
+      await rt16B.page.evaluate(async (payload) => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/row16.txt'] = payload;
+        await window.__augitOpenDocument('docs/row16.txt');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }, rt16Inject(rt16V1));
+      await rt16B.page.locator('.document-toolbar [aria-label="自动换行"]').click();
+      await rt16B.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+      await rt16B.page.keyboard.press('Control+f');
+      await rt16B.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await rt16B.page.fill('.current-find .search-field', '标记');
+      await rt16B.page.waitForTimeout(400);
+      // 走到第 2 个匹配（第 5 行）：更新后"下一项"必须从它继续，而不是退回第一项。
+      await rt16B.page.keyboard.press('Enter');
+      await rt16B.page.waitForTimeout(400);
+      await rt16B.page.evaluate(() => { document.querySelector('.editor-content .code-view').__rt16SameNode = true; });
+      const rt16FindRead = () => rt16B.page.evaluate(() => {
+        const view = document.querySelector('.editor-content .document-view');
+        const code = view ? view.querySelector(':scope > .code-view') : null;
+        const bar = view ? view.querySelector('.current-find') : null;
+        const current = code ? code.querySelector('mark.find-current') : null;
+        const row = current && current.closest('.code-line');
+        return {
+          reused: !!(code && code.__rt16SameNode),
+          wrap: !!(code && code.classList.contains('wrap')),
+          whitespaceMarks: code ? code.querySelectorAll('span.ws').length : -1,
+          wrapPressed: (() => { const button = view && view.querySelector('[aria-label="自动换行"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
+          findOpen: bar ? 1 : 0,
+          findQuery: bar ? bar.querySelector('.search-field').value : null,
+          findStatus: bar ? bar.querySelector('.find-status').textContent : null,
+          findInputFocused: !!(bar && document.activeElement === bar.querySelector('.search-field')),
+          marks: code ? code.querySelectorAll('mark.find-match').length : -1,
+          currentLine: row ? row.dataset.line : null,
+          line1: (() => { const el = code && code.querySelector('.code-line[data-line="1"]'); return el ? el.lastElementChild.textContent : null; })(),
+          line5: (() => { const el = code && code.querySelector('.code-line[data-line="5"]'); return el ? el.lastElementChild.textContent : null; })(),
+          line30: (() => { const el = code && code.querySelector('.code-line[data-line="30"]'); return el ? el.lastElementChild.textContent : null; })(),
+        };
+      });
+      const rt16FindBefore = await rt16FindRead();
+      await rt16Push(rt16B, rt16V2);
+      await rt16B.page.waitForTimeout(1500);
+      const rt16FindAfter = await rt16FindRead();
+      await rt16B.page.keyboard.press('Enter');
+      await rt16B.page.waitForTimeout(400);
+      const rt16FindNext = await rt16FindRead();
+      check('§7.2 普通文本外部更新后查找保持并继续：输入/开关不动、结果数更新、下一项从原位置继续: '
+        + JSON.stringify({ rt16FindBefore, rt16FindAfter, rt16FindNext }),
+      rt16FindBefore.reused === true && rt16FindBefore.wrap === true && rt16FindBefore.wrapPressed === 'true'
+        && rt16FindBefore.findOpen === 1 && rt16FindBefore.findQuery === '标记'
+        && rt16FindBefore.findStatus === '2/2' && rt16FindBefore.currentLine === '5'
+        // 更新后：查找条、查询、焦点、换行/空白符开关都在，结果数按新正文更新（2 → 3）
+        && rt16FindAfter.reused === true && rt16FindAfter.findOpen === 1 && rt16FindAfter.findQuery === '标记'
+        && rt16FindAfter.findInputFocused === true && rt16FindAfter.findStatus === '2/3'
+        && rt16FindAfter.currentLine === '5' && rt16FindAfter.marks === 2
+        && rt16FindAfter.wrap === true && rt16FindAfter.wrapPressed === 'true'
+        && rt16FindAfter.whitespaceMarks === rt16FindBefore.whitespaceMarks
+        && rt16FindAfter.line1 === '标记 一' && rt16FindAfter.line5 === '标记 二' && rt16FindAfter.line30 === '标记 三'
+        // "下一项"从原位置继续：下一页是第 30 行的第 3 项（若被重置会退到第 5 行的 2/3）
+        && rt16FindNext.findStatus === '3/3' && rt16FindNext.currentLine === '30');
+
+      // 相同内容的重复通知不重写正文：所有行节点身份不变，查找位置与数量也不动
+      const rt16Repeat = await rt16B.page.evaluate(async () => {
+        const view = document.querySelector('.editor-content .document-view');
+        const code = view.querySelector(':scope > .code-view');
+        window.__rt16Events = 0;
+        view.addEventListener('document-content-changed', () => { window.__rt16Events += 1; });
+        const rowsBefore = [...code.querySelectorAll('.code-line')];
+        const statusBefore = view.querySelector('.find-status').textContent;
+        const currentBefore = (() => { const el = code.querySelector('mark.find-current'); const row = el && el.closest('.code-line'); return row ? row.dataset.line : null; })();
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\row16.txt'], gitMetadata: false });
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+        const rowsAfter = [...code.querySelectorAll('.code-line')];
+        const currentAfter = (() => { const el = code.querySelector('mark.find-current'); const row = el && el.closest('.code-line'); return row ? row.dataset.line : null; })();
+        return {
+          events: window.__rt16Events,
+          sameRows: rowsBefore.length === rowsAfter.length && rowsBefore.every((row, index) => row === rowsAfter[index]),
+          status: [statusBefore, view.querySelector('.find-status').textContent],
+          current: [currentBefore, currentAfter],
+          line30: code.querySelector('.code-line[data-line="30"]').lastElementChild.textContent,
+        };
+      });
+      check('§7.2 相同内容的重复通知不重写正文、也不打断查找: ' + JSON.stringify(rt16Repeat),
+        rt16Repeat.events === 0 && rt16Repeat.sameRows === true
+          && rt16Repeat.status[0] === '3/3' && rt16Repeat.status[1] === '3/3'
+          && JSON.stringify(rt16Repeat.current) === JSON.stringify(['30', '30'])
+          && rt16Repeat.line30 === '标记 三');
+      await rt16B.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

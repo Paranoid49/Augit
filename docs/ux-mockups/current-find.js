@@ -38,6 +38,20 @@ function bindCurrentFind() {
   let compositionEvents = null;
 
   const label = name => bar.querySelector(`[aria-label="${name}"]`);
+  // 当前匹配的位置属于**用户状态**，进 `live` 而不是只活在闭包里（规格 §7.2 第 16 条）：
+  // 区域刷新会重新绑定查找条（新闭包手里没有"当前匹配"），不记住位置的话"下一项"
+  // 会从第一项重新开始；正文被外部更新时也要靠它算出"从原查找位置继续"的锚点。
+  const savedPosition = () => {
+    const live = window.__augitLive;
+    if (!live || !live.document || !live.currentFind) return -1;
+    const saved = live.currentFind;
+    return saved.path === live.document.path && saved.query === savedQuery ? saved.start : -1;
+  };
+  const rememberPosition = start => {
+    const live = window.__augitLive;
+    if (!live || !live.document) return;
+    live.currentFind = { path: live.document.path, query: savedQuery, start };
+  };
   const status = text => {
     statusText = text;
     const output = bar?.querySelector('.find-status');
@@ -84,6 +98,7 @@ function bindCurrentFind() {
       offset += line.length + 1;
     }
     status(`${current + 1}/${matches.length}`);
+    if (matches[current]) rememberPosition(matches[current].start);
     if (!firstMark || preservePosition) return;
     // 只滚动正文容器，不调用会移动外层页面或抢焦点的 scrollIntoView。
     const bounds = firstMark.getBoundingClientRect(), viewport = code.getBoundingClientRect();
@@ -112,7 +127,9 @@ function bindCurrentFind() {
     }
     return results;
   };
-  const search = (preservePosition = false) => {
+  // `anchor`：正文被外部更新后就地重算时，**原当前匹配的字符起点**。给了锚点时选第一条
+  // 起点不早于它的匹配，并且不把这次定位当成一次导航去滚动正文（用户正在读的位置属于用户）。
+  const search = (preservePosition = false, anchor = -1) => {
     if (composing || !bar) return;
     stop(); completed = false; current = -1; matches = []; clearHighlight();
     savedQuery = label('当前文件查找').value;
@@ -123,7 +140,17 @@ function bindCurrentFind() {
     const accept = result => {
       busy = false; completed = true; clearTimeout(timeout); clearTimeout(progress);
       matches = result; status(`0/${matches.length}`);
-      if (matches.length) select(false, preservePosition);
+      if (matches.length) {
+        if (anchor >= 0) {
+          // 规格 §7.2：正文外部更新后"下一项从原查找位置继续"。锚点之后没有匹配时绕回第一项
+          // （与既有循环导航同一口径）。
+          const index = matches.findIndex(item => item.start >= anchor);
+          current = (index < 0 ? 0 : index) - 1;
+          select(false, true);
+        } else {
+          select(false, preservePosition);
+        }
+      }
       for (const backwards of queue.splice(0)) select(backwards);
     };
     if (!options.regex) {
@@ -253,7 +280,7 @@ function bindCurrentFind() {
       //（第 282 轮实测：外部更新 Markdown 时原文滚动 260 被查找条拉回匹配所在的第 3 行）。
       if (matches.length) { current--; select(false, true); }
       else status(statusText);
-    } else search(preservePosition);
+    } else search(preservePosition, savedPosition());
     input.focus({ preventScroll: true });
   };
   const open = () => {
@@ -264,19 +291,30 @@ function bindCurrentFind() {
   };
   const searchButton = view.querySelector('[aria-label="当前文件搜索"]');
   if (searchButton) searchButton.onclick = open;
-  view.addEventListener('document-content-changed', () => {
+  view.addEventListener('document-content-changed', event => {
+    // 就地更新正文（外部变化）时会带 `preserveMatch`：先把**原当前匹配的字符起点**记下来，
+    // 重算后从它继续，而不是跳回第一项（规格 §7.2：下一项从原查找位置继续）。
+    const keepMatch = !!(event && event.detail && event.detail.preserveMatch);
+    const anchor = keepMatch
+      ? (current >= 0 && matches[current] ? matches[current].start : savedPosition())
+      : -1;
     if (bar) savedQuery = label('当前文件查找').value;
     stop(); clearHighlight(); readSource(); matches = []; current = -1; completed = false;
-    if (bar && view.dataset.markdownMode !== 'preview') { preset = null; search(); }
+    if (bar && view.dataset.markdownMode !== 'preview') { preset = null; search(false, anchor); }
     else if (bar) { bar.remove(); bar = null; }
-  });
+    // 必须挂在本区域的 `lifetime` 上：区域刷新会清掉 `dataset.findBound` 并重新绑定，
+    // 而**节点本体**（`.document-view`）可能被就地复用 ⇒ 不进 `lifetime` 的监听会一次次累积，
+    // 每次事件被多个旧闭包各处理一遍，旧闭包手里的 `rows`/`sourceLines` 已经指向被替换掉的旧行
+    //（第 287 轮实测：普通文本外部更新后第二次处理把命中行的正文写成 undefined，正文被清空）。
+  }, { signal: lifetime.signal });
   document.addEventListener('keydown', event => {
     if (!view.isConnected || view.closest('[hidden]') || !view.getClientRects().length
         || event.isComposing || event.keyCode === 229) return;
     if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
       event.preventDefault(); open();
     }
-  });
+    // 同上：document 级监听也归本区域释放，否则每次重绑定都会多一个 Ctrl+F 处理器。
+  }, { signal: lifetime.signal });
   window.addEventListener('pagehide', stop, { signal: lifetime.signal });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { composing = false; stop(); }
