@@ -19963,6 +19963,91 @@ async function main() {
       && diffBodyFocus.emptyFocus.role === 'status' && diffBodyFocus.emptyFocus.status === 'Binary'
       && diffBodyFocus.emptyFocus.lines === 0);
 
+    // ---- 第 261 轮：从比较区按 Tab 回到标签栏 + 差异总数只在比较工具栏（§7.9 第十九条收口）----
+    const diffTabReturn = await (async () => {
+      const errors = [];
+      const scene = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      scene.page.on('pageerror', (error) => errors.push(error.message));
+      await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.editor-content .diff-columns .diff-code-line', { timeout: 10000 });
+      await scene.page.waitForTimeout(500);
+      const readBar = () => scene.page.evaluate(() => {
+        const bar = document.querySelector('.statusbar');
+        const summary = document.querySelector('.editor-content .diff-summary');
+        const live = window.__augitLive || {};
+        return {
+          status: bar ? bar.textContent.replace(/\s+/g, ' ').trim().slice(0, 120) : null,
+          summary: summary ? summary.textContent.trim() : null,
+          activeTab: live.activeTabId || null,
+          editor: live.editor || null,
+        };
+      });
+      const barBefore = await readBar();
+      // ① 导航两次：差异总数只在比较工具栏，不得写进全局状态栏
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.waitForTimeout(300);
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.waitForTimeout(300);
+      const barAfterNav = await readBar();
+      // ② 从正文按 Tab：沿可见顺序走出比较区，最终回到标签栏
+      await scene.page.evaluate(() => {
+        const body = document.querySelector('.editor-content .diff-columns');
+        if (body) body.focus();
+      });
+      const start = await scene.page.evaluate(() => {
+        const el = document.activeElement;
+        return { label: el ? (el.getAttribute('aria-label') || el.className) : null, isBody: !!(el && el.classList && el.classList.contains('diff-columns')) };
+      });
+      const trail = [];
+      let reached = null;
+      // 正文是编辑器内容区里的**最后一个**可聚焦项 ⇒ 正向 Tab 会先进入下方的底部工具窗（参考实现里
+      // 底部工具窗的引用树有上百行，走完才回到标签栏）；"回到标签栏"在**反向**方向上是相邻的：
+      // 沿可见顺序倒着走经过比较工具栏后即到标签栏。这里按 Shift+Tab 取证。
+      for (let i = 0; i < 20; i += 1) {
+        await scene.page.keyboard.press('Shift+Tab');
+        await scene.page.waitForTimeout(35);
+        const step = await scene.page.evaluate(() => {
+          const el = document.activeElement;
+          if (!el) return null;
+          return {
+            label: (el.getAttribute('aria-label') || el.className || el.tagName).slice(0, 28),
+            inTabs: !!el.closest('.editor-tabs'),
+            inEditor: !!el.closest('.editor-content'),
+            region: el.closest('.bottom-tool') ? 'bottom'
+              : el.closest('.side-tool') ? 'side'
+                : el.closest('.editor-tabs') ? 'tabs'
+                  : el.closest('.titlebar') ? 'titlebar'
+                    : el.closest('.tool-rail') ? 'rail'
+                      : el.closest('.statusbar') ? 'statusbar' : 'other',
+          };
+        });
+        trail.push(step);
+        if (step && step.inTabs) { reached = i; break; }
+      }
+      await scene.page.close();
+      console.log('INFO Tab回标签栏=' + JSON.stringify({ start, barBefore, barAfterNav, reached, trailLen: trail.length, regions: trail.map((s) => (s ? s.region : null)), labels: trail.map((s) => (s ? s.label : null)), errors }));
+      return { start, barBefore, barAfterNav, reached, trail, regions: trail.map((step) => (step ? step.region : null)), labels: trail.map((step) => (step ? step.label : null)), errors };
+    })();
+    const trailSteps = diffTabReturn.trail.filter(Boolean);
+    check('§7.9 从比较区沿可见顺序回到标签栏（Shift+Tab 经过比较工具栏后到达标签选项）: '
+      + JSON.stringify([diffTabReturn.start, diffTabReturn.regions, diffTabReturn.labels]),
+    diffTabReturn.errors.length === 0
+      // 起点确实是比较区正文（第 260 轮加的可聚焦正文位置）
+      && diffTabReturn.start.isBody === true
+      // 反向沿可见顺序：先比较工具栏（设置→单栏→双栏→忽略空白 …），再到达标签栏
+      && diffTabReturn.reached !== null && diffTabReturn.reached <= 19
+      && diffTabReturn.labels.slice(0, 4).join(',') === '设置,单栏,双栏,忽略空白'
+      && trailSteps.slice(0, diffTabReturn.reached).every((step) => step.inEditor === true)
+      && diffTabReturn.regions[diffTabReturn.reached] === 'tabs'
+      && diffTabReturn.trail[diffTabReturn.reached].inTabs === true);
+    check('§7.9 差异总数只在比较工具栏显示，导航不写全局状态栏: '
+      + JSON.stringify([diffTabReturn.barBefore, diffTabReturn.barAfterNav]),
+    // 摘要仍是"N 处差异"，且两次导航前后全局状态栏文本完全一致（导航没有往状态栏写东西）
+    /\d+ 处差异/.test(diffTabReturn.barAfterNav.summary || '')
+      && diffTabReturn.barAfterNav.summary === diffTabReturn.barBefore.summary
+      && diffTabReturn.barAfterNav.status === diffTabReturn.barBefore.status
+      && diffTabReturn.barAfterNav.status === 'live-ws只读');
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
