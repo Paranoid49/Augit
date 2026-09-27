@@ -5417,6 +5417,140 @@ async function main() {
     await interactive.page.evaluate(() => { window.__pushFails = false; window.__pushFailReason = null; });
     await interactive.page.close();
 
+    // ---- 规格 §7.11 第 1、2 条：Stash 创建框的字段顺序、紧凑尺寸、右下角按钮、字高与限高 ----
+    const openStashCreate = async (page) => {
+      await page.locator('.top-button[aria-label="主菜单"]').click();
+      await page.waitForTimeout(350);
+      await page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
+      await page.waitForTimeout(350);
+      await page.locator('.main-menu-popover .menu-item', { hasText: '创建 Stash' }).click();
+      await page.waitForSelector('.dialog.stash-dialog', { timeout: 8000 });
+      await page.waitForTimeout(300);
+    };
+    const stashShapePage = await openScene('scene=main-project&theme=dark');
+    await stashShapePage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stashShapePage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
+    await stashShapePage.page.evaluate(() => { window.__stashCreates = []; });
+    await openStashCreate(stashShapePage.page);
+    const stashShapeState = await stashShapePage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      const grid = dialog.querySelector('.form-grid');
+      // 按 DOM 顺序列出"标签 + 字段"：钉住根目录 → 当前分支 → 消息 → 保留索引 → 包含未跟踪。
+      const order = [];
+      for (const node of grid.children) {
+        if (node.id) order.push(node.id);
+        else if (node.classList.contains('stash-branch')) order.push('stash-branch');
+        else if (node.classList.contains('check-line')) order.push(node.textContent.trim());
+        else if (node.tagName === 'LABEL') order.push('label:' + node.textContent.trim());
+        else order.push(node.tagName.toLowerCase());
+      }
+      const create = dialog.querySelector('[data-stash-create-action="create"]');
+      const cancel = dialog.querySelector('[data-stash-create-action="cancel"]');
+      const footer = dialog.querySelector('.dialog-footer');
+      const dr = dialog.getBoundingClientRect();
+      const cr = create.getBoundingClientRect();
+      const fr = footer.getBoundingClientRect();
+      return {
+        order,
+        width: Math.round(dr.width),
+        // 创建按钮在底栏里、位于取消右侧、贴右下角（与底栏内距一致）
+        inFooter: footer.contains(create),
+        rightOfCancel: cr.left > cancel.getBoundingClientRect().left,
+        rightGap: Math.round(dr.right - cr.right),
+        bottomGap: Math.round(dr.bottom - cr.bottom),
+        footerRightGap: Math.round(dr.right - fr.right),
+        footerBottomGap: Math.round(dr.bottom - fr.bottom),
+        inRightHalf: cr.left > dr.left + dr.width / 2,
+        keepChecked: dialog.querySelector('#stash-keep').checked,
+        includeChecked: dialog.querySelector('#stash-include-untracked').checked,
+      };
+    });
+    check('§7.11 Stash 创建框的字段顺序、紧凑宽度与右下角创建按钮: ' + JSON.stringify(stashShapeState),
+      JSON.stringify(stashShapeState.order) === JSON.stringify(['label:Git 根目录', 'stash-root', 'label:当前分支',
+        'stash-branch', 'label:消息', 'stash-message', 'span', '保留索引状态', '包含未跟踪文件'])
+        && stashShapeState.width === 620
+        && stashShapeState.inFooter === true && stashShapeState.rightOfCancel === true
+        && stashShapeState.inRightHalf === true
+        && stashShapeState.rightGap >= stashShapeState.footerRightGap
+        && stashShapeState.rightGap - stashShapeState.footerRightGap <= 20
+        && stashShapeState.bottomGap - stashShapeState.footerBottomGap <= 20
+        && stashShapeState.keepChecked === false && stashShapeState.includeChecked === false);
+
+    // 消息是 textarea：Enter 换行而不是提交；创建框按字高容纳输入与动作。
+    await stashShapePage.page.locator('#stash-message').fill('第一行');
+    await stashShapePage.page.locator('#stash-message').press('Enter');
+    await stashShapePage.page.keyboard.type('第二行');
+    await stashShapePage.page.waitForTimeout(200);
+    const stashEnter = await stashShapePage.page.evaluate(() => ({
+      value: document.querySelector('#stash-message').value,
+      creates: (window.__stashCreates || []).length,
+      open: !!document.querySelector('.dialog.stash-dialog'),
+    }));
+    check('§7.11 Stash 消息 Enter 换行而不是提交: ' + JSON.stringify(stashEnter),
+      stashEnter.value === '第一行\n第二行' && stashEnter.creates === 0 && stashEnter.open === true);
+    await stashShapePage.page.close();
+
+    const stashBigPage = await openScene('scene=main-project&theme=dark&ui-size=20');
+    await stashBigPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stashBigPage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
+    await stashBigPage.page.waitForTimeout(500);
+    await openStashCreate(stashBigPage.page);
+    const stashBigState = await stashBigPage.page.evaluate(() => {
+      const cs = getComputedStyle(document.querySelector('.dialog.stash-dialog'));
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      return {
+        field: cs.getPropertyValue('--stash-field').trim(),
+        message: cs.getPropertyValue('--stash-message').trim(),
+        button: cs.getPropertyValue('--stash-button').trim(),
+        messageHeight: Math.round(dialog.querySelector('#stash-message').getBoundingClientRect().height),
+        fieldHeight: Math.round(dialog.querySelector('#stash-root').getBoundingClientRect().height),
+        buttonHeight: Math.round(dialog.querySelector('[data-stash-create-action="create"]').getBoundingClientRect().height),
+      };
+    });
+    check('§7.11 Stash 创建框按字高容纳输入与动作: ' + JSON.stringify(stashBigState),
+      Number.parseInt(stashBigState.field, 10) > 30 && Number.parseInt(stashBigState.message, 10) > 78
+        && Number.parseInt(stashBigState.button, 10) > 37
+        && stashBigState.messageHeight === Number.parseInt(stashBigState.message, 10)
+        && stashBigState.fieldHeight === Number.parseInt(stashBigState.field, 10)
+        && stashBigState.buttonHeight === Number.parseInt(stashBigState.button, 10));
+    await stashBigPage.page.close();
+
+    // 窗口限高：只有表单滚动，标题与底栏固定。
+    const stashLimitPage = await openScene('scene=main-project&theme=dark');
+    await stashLimitPage.page.setViewportSize({ width: 1180, height: 420 });
+    await stashLimitPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await stashLimitPage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
+    await stashLimitPage.page.waitForTimeout(400);
+    await openStashCreate(stashLimitPage.page);
+    const stashLimitState = await stashLimitPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.stash-dialog');
+      const header = dialog.querySelector('.dialog-header').getBoundingClientRect();
+      const footer = dialog.querySelector('.dialog-footer').getBoundingClientRect();
+      const body = dialog.querySelector('.dialog-body');
+      const dr = dialog.getBoundingClientRect();
+      const before = { headerTop: Math.round(header.top), footerTop: Math.round(footer.top) };
+      body.scrollTop = 40;
+      const after = {
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+      };
+      return {
+        dialogTop: Math.round(dr.top), dialogBottom: Math.round(dr.bottom),
+        viewportHeight: window.innerHeight,
+        bodyScrollable: body.scrollHeight > body.clientHeight + 1,
+        bodyScrollTop: Math.round(body.scrollTop),
+        before, after,
+      };
+    });
+    check('§7.11 Stash 创建框限高时只滚表单、标题与底栏固定: ' + JSON.stringify(stashLimitState),
+      // 对话框完整落在视口内
+      stashLimitState.dialogTop >= 0 && stashLimitState.dialogBottom <= stashLimitState.viewportHeight
+        // 表单真的溢出并滚动了，而滚动前后标题与底栏位置逐值不变
+        && stashLimitState.bodyScrollable === true && stashLimitState.bodyScrollTop > 0
+        && stashLimitState.after.headerTop === stashLimitState.before.headerTop
+        && stashLimitState.after.footerTop === stashLimitState.before.footerTop);
+    await stashLimitPage.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

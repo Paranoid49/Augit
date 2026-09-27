@@ -3670,7 +3670,12 @@ body[data-theme="dark"] .search-overlay {
 .stash-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }
 .stash-dialog .form-grid { grid-template-columns: var(--stash-label, 110px) minmax(0, 1fr); gap: 0 10px; }
 .stash-dialog .form-grid > label { white-space: nowrap; }
-.stash-dialog .select-field { height: var(--stash-field, 30px); padding: 0 8px; }
+/* 高度必须随字号缩放（`--stash-field` 由 `measureStashDialog()` 按字高算）。
+   静态视觉稿的根目录是 `<select class="select-field">`，而**实时**对话框用的是只读
+   `<input class="text-field">`（根目录是数据、不是选项）⇒ 旧规则只覆盖 `.select-field`，
+   实时根目录输入框在大字号下停在 30px、与同框的消息/按钮不一致（第 277 轮实测：
+   字号 20 时 `--stash-field` 35px 而 `#stash-root` 高度仍 30px）。 */
+.stash-dialog .select-field, .stash-dialog .text-field { height: var(--stash-field, 30px); padding: 0 8px; }
 .stash-dialog .stash-branch { height: var(--stash-branch, 24px); display: flex; align-items: center; overflow: hidden; }
 .stash-dialog .form-grid > :nth-child(3), .stash-dialog .form-grid > :nth-child(4) { margin-top: 13px; }
 .stash-dialog .form-grid > :nth-child(5), .stash-dialog .form-grid > :nth-child(6) { margin-top: 5px; }

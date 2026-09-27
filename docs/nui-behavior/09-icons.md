@@ -9867,3 +9867,48 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 **§7.12 全节 14 行已无"部分"**；转其它 §7 模块与 §2.10 队列。
+
+## septuaginta-septem. 第二百七十七轮：Stash 创建框的字段顺序、右下角按钮、字高与限高（§7.11 第 1、2 条收口）
+
+### 第 1 条：字段顺序与右下角按钮（纯补断言）
+
+按 DOM 顺序实测「标签 Git 根目录 → `#stash-root` → 标签 当前分支 → `.stash-branch` → 标签 消息 →
+`#stash-message` → 空槽 → 保留索引状态 → 包含未跟踪文件」；对话框宽度 **620px**（紧凑）；
+创建按钮在 `.dialog-footer` 内、位于取消右侧、落在右半边，右/下留白与底栏内距一致（差 ≤20px）；
+两个复选默认都不勾选。
+
+### 第 2 条：Enter 换行、按字高容纳、限高只滚表单（补断言 + 修掉一处真实缺陷）
+
+- **消息 Enter 换行**：`#stash-message` 是 `<textarea>`，输入「第一行」后按 Enter 再输入「第二行」
+  ⇒ 值 `第一行\n第二行`、`git/stash` 调用 0 次、对话框仍打开（Tab 顺序由既有断言覆盖）。
+- **按字高容纳**：字号 13 → 20 时 `--stash-field` 30 → 35px、`--stash-message` 78 → 87px、
+  `--stash-button` 37 → 42px，三个控件的**实测高度**逐值等于对应令牌。
+  **缺陷**：`--stash-field` 原来只作用在 `.select-field` —— 静态视觉稿的根目录是 `<select>`，
+  而**实时**对话框的根目录是只读 `<input class="text-field">`（根目录是数据不是选项）⇒ 大字号下
+  同框的消息/按钮都长到 87/42px 而根目录输入框仍停在 30px，与"按字高容纳输入"不符。
+  `mockup.css` 的高度规则补上 `.stash-dialog .text-field`（两个副本同步）。
+- **限高只滚表单**：420px 高窗口里对话框完整落在视口内、`.dialog-body` 溢出并滚动
+  （`scrollTop` 0 → 22），滚动前后标题与底栏 `top` 逐值不变。
+
+### 新增断言（`live-shell`，4 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.11 Stash 创建框的字段顺序、紧凑宽度与右下角创建按钮` |
+| 2 | `§7.11 Stash 消息 Enter 换行而不是提交` |
+| 3 | `§7.11 Stash 创建框按字高容纳输入与动作` |
+| 4 | `§7.11 Stash 创建框限高时只滚表单、标题与底栏固定` |
+
+### 验证
+
+- `live-shell` **`通过 1386 项断言`**（1382 → **+4**），退出码 0。
+- 登记哈希：`mockup.css` `e2c6c816…` → **`dc46d7e358da1b5e8cf893d045a20b4c`**（共享视觉稿同步）、
+  `live-shell.spec.cjs` `11f846e3…` → **`1debe4a24a88cfb22509e74bc203ee42`**；
+  `mockup.js`／`live-data.js`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 276 轮逐个相同。
+- §7.11 第 1、2 条转 **是**（§2.10：分母 42 → **40**、A 27 → **25**）。
+- 同批：`mockup-scenes` 55/55、`verify-ux-stash` 12 项、`verify-ux-typography` 16 场景、
+  `verify-ui-assets` PASS、`verify-css-balance` PASS。
+
+### 下一轮
+
+继续 §7.11 余下 A 类（第 3、7、11 条）与其它 §7 模块。
