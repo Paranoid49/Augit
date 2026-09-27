@@ -7170,6 +7170,120 @@ async function main() {
       await un9b.page.close();
     }
 
+    // ---- 第 290 轮补断言（收 §7.3 第 7 条）：隐藏的 Markdown 标签不预热预览 ----
+    // 规格 §7.3：「隐藏的 Markdown 标签不预热或并发创建预览；切回标签后才恢复该标签上次选择的模式」。
+    // 两半分开断言：① **视图**只有活动标签的一份（隐藏标签在 DOM 里没有 `.markdown-document`/
+    // `.markdown-preview`）；② **预览正文**在标签被显示时才生成（`ensureMarkdownPreview()` 按需渲染并
+    // 缓存在标签的文档上）—— 启动恢复出来的隐藏标签 `document.preview` 必须是空串，切回后才非空。
+    {
+      const md7 = await openScene('scene=main-project&theme=dark');
+      await md7.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await md7.page.waitForTimeout(400);
+      const md7Text = (tag) => `# ${tag} 文档\n\n`
+        + Array.from({ length: 20 }, (_, i) => `${tag} 段 ${i + 1} 正文。`).join('\n\n');
+      await md7.page.evaluate((texts) => {
+        window.__limitDocs = window.__limitDocs || {};
+        for (const [path, name, text] of texts) {
+          window.__limitDocs[path] = {
+            path, name, fullPath: 'D:\\live-ws\\' + path.split('/').join('\\'),
+            workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+            fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+          };
+        }
+      }, [['docs/md-a.md', 'md-a.md', md7Text('A')], ['docs/md-b.md', 'md-b.md', md7Text('B')], ['docs/md-c.md', 'md-c.md', md7Text('C')]]);
+      const md7Read = () => md7.page.evaluate(() => {
+        const view = document.querySelector('.markdown-document');
+        const preview = document.querySelector('.markdown-preview');
+        const source = document.querySelector('.markdown-source');
+        const live = window.__augitLive || {};
+        return {
+          path: view ? view.dataset.documentPath : null,
+          mode: view ? view.dataset.markdownMode : null,
+          documentNodes: document.querySelectorAll('.markdown-document').length,
+          previewNodes: document.querySelectorAll('.markdown-preview').length,
+          sourceNodes: document.querySelectorAll('.markdown-source').length,
+          previewLength: preview ? preview.innerHTML.length : -1,
+          previewHasA: preview ? preview.innerHTML.includes('A 段 1 正文') : null,
+          previewHasB: preview ? preview.innerHTML.includes('B 段 1 正文') : null,
+          previewHasC: preview ? preview.innerHTML.includes('C 段 1 正文') : null,
+          sourceNodes_: source ? 1 : 0,
+          remembered: typeof window.__augitRememberedDocumentMode === 'function' ? window.__augitRememberedDocumentMode() : null,
+          tabs: (live.tabs || []).filter((tab) => tab.kind === 'document').map((tab) => ({
+            path: tab.path, mode: tab.documentMode || null,
+            previewLength: tab.document && typeof tab.document.preview === 'string' ? tab.document.preview.length : -1,
+          })),
+        };
+      });
+      await md7.page.evaluate(async () => { await window.__augitOpenDocument('docs/md-a.md'); await new Promise((resolve) => setTimeout(resolve, 700)); });
+      const md7A = await md7Read();
+      await md7.page.locator('.markdown-document button[data-markdown-mode="source"]').click();
+      await md7.page.waitForTimeout(300);
+      await md7.page.evaluate(async () => { await window.__augitOpenDocument('docs/md-b.md'); await new Promise((resolve) => setTimeout(resolve, 700)); });
+      const md7B = await md7Read();
+      await md7.page.evaluate(async () => { await window.__augitOpenDocument('docs/md-c.md'); await new Promise((resolve) => setTimeout(resolve, 700)); });
+      const md7C = await md7Read();
+      await md7.page.locator('.editor-tabs .editor-tab').filter({ hasText: 'md-a.md' }).first().click();
+      await md7.page.waitForTimeout(700);
+      const md7Back = await md7Read();
+      check('§7.3 隐藏的 Markdown 标签不预热预览视图：正文里始终只有活动标签的一份，且内容是活动文件的: '
+        + JSON.stringify({ md7A, md7B, md7C, md7Back }),
+      // 前置：活动标签 A 有自己的视图与预览
+      md7A.path === 'docs/md-a.md' && md7A.mode === 'preview' && md7A.previewHasA === true
+        && md7A.previewHasB === false
+        && md7A.documentNodes === 1 && md7A.previewNodes === 1
+        // 切到 B：视图仍只有一份且换成 B 的内容，A 的正文不在 DOM 里
+        && md7B.path === 'docs/md-b.md' && md7B.previewHasB === true && md7B.previewHasA === false
+        && md7B.documentNodes === 1 && md7B.previewNodes === 1 && md7B.sourceNodes === 1
+        && md7B.tabs.find((tab) => tab.path === 'docs/md-a.md').mode === 'source'
+        // 再开 C：仍然只有一份（"并发创建预览"不成立）
+        && md7C.path === 'docs/md-c.md' && md7C.previewHasC === true && md7C.previewHasA === false
+        && md7C.documentNodes === 1 && md7C.previewNodes === 1
+        // 切回 A：恢复离开时的模式（原文），视图换成 A、仍只有一份
+        && md7Back.path === 'docs/md-a.md' && md7Back.mode === 'source' && md7Back.remembered === 'source'
+        && md7Back.documentNodes === 1 && md7Back.previewNodes === 1
+        && md7Back.previewHasA === true && md7Back.previewHasC === false);
+      await md7.page.close();
+
+      // 启动恢复出来的隐藏 Markdown 标签：预览正文在标签被显示前不得生成。
+      const md7r = await openScene('scene=main-project&theme=dark&restore=1');
+      await md7r.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await md7r.page.waitForSelector('.editor-tabs .editor-tab', { timeout: 10000 });
+      await md7r.page.waitForTimeout(700);
+      const md7rRead = () => md7r.page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const view = document.querySelector('.markdown-document');
+        const preview = document.querySelector('.markdown-preview');
+        const spec = (live.tabs || []).find((tab) => tab.path === 'docs/product-spec.md');
+        return {
+          active: live.document ? live.document.path : null,
+          documentNodes: document.querySelectorAll('.markdown-document').length,
+          previewNodes: document.querySelectorAll('.markdown-preview').length,
+          documentViews: document.querySelectorAll('.editor-content .document-view').length,
+          specHasDocument: !!(spec && spec.document),
+          specPreviewLength: spec && spec.document && typeof spec.document.preview === 'string' ? spec.document.preview.length : -1,
+          viewPath: view ? view.dataset.documentPath : null,
+          viewMode: view ? view.dataset.markdownMode : null,
+          viewPreviewLength: preview ? preview.innerHTML.length : -1,
+        };
+      });
+      const md7rHidden = await md7rRead();
+      await md7r.page.locator('.editor-tabs .editor-tab').filter({ hasText: 'product-spec.md' }).first().click();
+      await md7r.page.waitForTimeout(800);
+      const md7rShown = await md7rRead();
+      check('§7.3 启动恢复出来的隐藏 Markdown 标签不预热预览，切回时才生成并沿用默认模式: '
+        + JSON.stringify({ md7rHidden, md7rShown }),
+      // 隐藏时：标签的文档已读取（hasDocument），但**预览正文没有生成**，DOM 里也没有任何 Markdown 视图
+      md7rHidden.active === 'docs/notes.txt' && md7rHidden.specHasDocument === true
+        && md7rHidden.specPreviewLength === 0
+        && md7rHidden.documentNodes === 0 && md7rHidden.previewNodes === 0 && md7rHidden.documentViews === 1
+        // 显示时：视图建立、预览正文这时才生成
+        && md7rShown.active === 'docs/product-spec.md' && md7rShown.viewPath === 'docs/product-spec.md'
+        && md7rShown.viewMode === 'preview' && md7rShown.specPreviewLength > 0
+        && md7rShown.viewPreviewLength > 0
+        && md7rShown.documentNodes === 1 && md7rShown.previewNodes === 1);
+      await md7r.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

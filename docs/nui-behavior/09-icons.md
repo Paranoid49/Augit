@@ -10520,3 +10520,63 @@ A 类队列剩 §7.1 第 4、7（树悬停与增量刷新）、§7.4（模式切
 A 类队列剩 §7.1 第 4（树悬停的移出/隐藏清除与滚动后重新命中）、§7.1 第 7（节点身份保持／分批应用／
 旧任务不向新工作区插节点）、§7.3 第 7（隐藏标签不预热预览）、§7.4 两条（切模式后结果数立即更新并从新起点继续、
 变无效时转交原文的焦点规则）、§7.15 第 8（结束 ripgrep 进程）；B 类 §7.3 第 3、13。
+
+## nonaginta. 第二百九十轮：隐藏的 Markdown 标签不预热预览（§7.3 第 7 条收口）
+
+### 规格与缺口
+
+`ux-spec.md:366`：「隐藏的 Markdown 标签不预热或并发创建预览；切回标签后才恢复该标签上次选择的模式」。
+"切回恢复模式"此前已被 `§7.3 会话内记住文档模式、三段式切换不创建标签` 覆盖；缺的是**不预热**：
+`toLiveDocument()` 在**读取**时就 `renderMarkdown(payload.text)`，因此启动恢复出来的隐藏标签
+（以及后台打开的标签）也会先算一遍预览正文 —— 实测 `restore=1` 时隐藏的 `docs/product-spec.md`
+`document.preview.length === 102`，而它根本还没被显示过。
+
+### 实现
+
+- `toLiveDocument()`：Markdown 的 `preview` 改为空串，读取阶段不再渲染。
+- 新增 `ensureMarkdownPreview(document_)`：只在文档**被显示**时生成一次并缓存在该标签的文档对象上；
+  在 `syncActiveTab()`（所有激活路径的公共收尾）里对当前活动文档调用。
+- 模式记忆不变（`tab.documentMode` + `window.__augitRememberedDocumentMode()`）。
+
+### 实测
+
+① **三个 Markdown 文档轮流打开**（A → B → C → 切回 A）：
+
+| 状态 | `.markdown-document` | `.markdown-preview` | `.markdown-source` | `data-document-path` | 预览内容 |
+| --- | ---: | ---: | ---: | --- | --- |
+| A（原文模式后） | 1 | 1 | 1 | `docs/md-a.md` | 含 A、不含 B |
+| B | 1 | 1 | 1 | `docs/md-b.md` | 含 B、不含 A |
+| C | 1 | 1 | 1 | `docs/md-c.md` | 含 C、不含 A |
+| 切回 A | 1 | 1 | 1 | `docs/md-a.md` | 含 A、不含 C，模式 = `source` |
+
+隐藏的 A 标签 `documentMode` 始终是 `source`，切回后 DOM 的 `data-markdown-mode` 与
+`__augitRememberedDocumentMode()` 都是 `source` —— 视图与预览都不在隐藏标签上创建，也没有并发第二份。
+
+② **启动恢复**（`restore=1`：`docs/product-spec.md` 隐藏、`docs/notes.txt` 活动）：
+
+- 切换前：隐藏标签 `hasDocument === true` 但 `document.preview.length === 0`；
+  DOM 里 `.markdown-document`／`.markdown-preview` 各 **0**，`.document-view` 只有 1（活动那个）。
+- 点击该标签后：`data-document-path === docs/product-spec.md`、`mode === preview`、
+  `document.preview.length > 0`、渲染区长度 > 0 —— 预览**这时才生成**。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.3 隐藏的 Markdown 标签不预热预览视图：正文里始终只有活动标签的一份，且内容是活动文件的` |
+| 2 | `§7.3 启动恢复出来的隐藏 Markdown 标签不预热预览，切回时才生成并沿用默认模式` |
+
+### 验证
+
+- `live-shell` **`通过 1426 项断言`**（1424 → **+2**），退出码 0。
+- 登记哈希：`live-data.js` `0b8b0596…` → **`1e8faf396e6ab6711c1a5d2ef9c15ba3`**；
+  `live-shell.spec.cjs` `0ea3d353…` → **`1dab5e2bfbcc8325ba8ee6b2325dac10`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`markdown.js`／`image-preview.js` 未变。
+- §7.3 第 7 条转 **是**（§2.10：分母 19 → **18**、A 6 → **5**）。
+- 同批：`verify-ux-markdown` 通过、`mockup-scenes` 55/55、`verify-ui-assets` PASS、`git diff --check` 通过。
+
+### 下一轮
+
+A 类队列剩 §7.1 第 4（树悬停的移出/隐藏清除与滚动后重新命中）、§7.1 第 7（节点身份保持／分批应用／
+旧任务不向新工作区插节点）、§7.4 两条（切模式后结果数立即更新并从新起点继续、变无效时转交原文的焦点规则）、
+§7.15 第 8（结束 ripgrep 进程）；B 类 §7.3 第 3、13。

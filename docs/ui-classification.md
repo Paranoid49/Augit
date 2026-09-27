@@ -321,6 +321,8 @@
 
 **第 289 轮**收口 §9.1 第 1 条（`未选择`：编辑区保持当前正式文件或稳定空状态），该条转 **是**（§2.10：分母 20 → **19**、A 7 → **6**）。两半都补成断言：① 产品默认场景 `main-project` 什么都没打开时，正文是 1 个 `.empty-state` 且文案逐字「选择文件以查看内容」，`live.document`／`live.diff` 均为 null、`.document-view` 与 `.diff-columns` 各 0 个、无任何加载标记、正文不含样例痕迹（`产品规格`／`app.manifest`），`__diffCalls` 为 0；② 打开 `docs/notes.txt` 后（改动列表仍 0 选中）正文仍是该文件、`.empty-state` 0 个、`live.diff` null、`__diffCalls` 仍 0；③ 对照场景 `commit-diff`（改动列表 3 行、选中 0）打开正式文件前后`__diffCalls` 都是 0、正文不是样例 `app.manifest` 差异。纯补断言，运行时未改。共 3 条新断言（1421 → **1424**）。
 
+**第 290 轮**收口 §7.3 第 7 条（隐藏的 Markdown 标签不预热或并发创建预览），该条转 **是**（§2.10：分母 19 → **18**、A 6 → **5**）。**实现**：`toLiveDocument()` 不再在读取时 `renderMarkdown(...)`，新增 `ensureMarkdownPreview()` 在 `syncActiveTab()` 里只给**当前活动文档**按需生成一次并缓存在标签文档上 —— 启动恢复/后台打开的隐藏标签不再先算一遍预览。**断言两条**：① 三个 Markdown 文档轮流打开并切回时，`.markdown-document`／`.markdown-preview`／`.markdown-source` 每次恰好 1 份、`data-document-path` 与内容始终是活动文件（A→B→C 时 `previewHasA === false`），隐藏的 A 保持 `documentMode === 'source'`，切回后 DOM 模式与 `__augitRememberedDocumentMode()` 都是 `source`；② `restore=1` 恢复出的隐藏 `docs/product-spec.md`：切换前 `document.preview.length === 0`、DOM 里 Markdown 视图 0 份、`.document-view` 只有活动那 1 个；点击后视图建立且预览正文这时才非空。共 2 条新断言（1424 → **1426**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

@@ -5683,6 +5683,21 @@ function nextTabId() {
   return `tab-${tabSequence}`;
 }
 
+/**
+ * 按需生成 Markdown 预览正文（规格 §7.3 第 7 条）。
+ *
+ * 预览只在文档**被显示**时生成一次，结果缓存在该标签的文档对象上，切回标签直接复用；
+ * 隐藏的标签（启动恢复、后台打开）不预热。失败/重试路径（`live.markdownPreview`）不在这里处理。
+ */
+function ensureMarkdownPreview(document_) {
+  if (!document_ || document_.kind !== "Markdown") return document_;
+  if (typeof document_.preview === "string" && document_.preview.length > 0) return document_;
+  const text = typeof document_.text === "string" ? document_.text : "";
+  if (!text || typeof renderMarkdown !== "function") return document_;
+  document_.preview = renderMarkdown(text);
+  return document_;
+}
+
 /** 让 live.document / live.editor 反映当前标签。 */
 function syncActiveTab() {
   const live = tabState();
@@ -5705,6 +5720,9 @@ function syncActiveTab() {
     clearImagePreviewState();
   }
   if (tab && tab.kind === "document") {
+    // 规格 §7.3 第 7 条：隐藏的 Markdown 标签**不预热预览** —— 预览正文在标签**被显示**时才生成
+    //（生成一次后缓存在标签的文档上，切回直接复用），因此恢复/后台打开的标签不会先算一遍。
+    ensureMarkdownPreview(tab.document);
     live.document = tab.document;
     live.editor = tab.editor;
     return;
@@ -13274,7 +13292,11 @@ function toLiveDocument(payload) {
     dataUrl: payload.dataUrl || null,
     fileSize: payload.fileSize,
     text: payload.text,
-    preview: kind === "Markdown" && payload.text ? renderMarkdown(payload.text) : "",
+    // Markdown 预览正文**按需生成**（规格 §7.3 第 7 条「隐藏的 Markdown 标签不预热…创建预览」）：
+    // 这里只留空串，等标签真正被显示时由 `ensureMarkdownPreview()` 生成一次并缓存在本文档上。
+    // 此前在这里直接 `renderMarkdown(payload.text)` ⇒ 启动恢复出来的隐藏标签（以及后台打开的
+    // 标签）也会先算一遍预览，隐藏标签越多白做的事越多。
+    preview: "",
     // 宿主的 JSON 结果（规格 §7.4）：格式有效时给重新序列化的正文，
     // 无效时给从 1 开始的行号与按 Unicode 标量计的列号。
     // toLiveDocument 是白名单映射，不搬运的话渲染层永远读到 undefined（同 dataUrl 的教训）。
