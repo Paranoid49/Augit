@@ -321,3 +321,20 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
   （列表工具条四个 → 详情显隐 → 比较工具条六项 → 两条提交行），全程不进入上方文档正文（`.editor-content`）。
 - **仍未完成**：比较区正文**不是 Tab 停靠点**（`.diff-layout` 无 `tabindex`）—— 规格第七条说"经过工具按钮与正文"、
   第十九条要求"保留一个正文焦点位置"，两处都要改，且需与 §7.7 工作区 Diff 的既有 Tab 序列断言一起动。
+
+## 比较区正文成为可聚焦的正文位置（第 260 轮）
+
+规格第七条要求 Tab"经过工具按钮**与正文**"，第十九条还要求"加载、失败及取消说明保留一个正文焦点位置"
+（用户据此能从比较区回到标签栏）。此前 `.diff-layout`／`.diff-columns` 都没有 `tabindex` ⇒ 正文不在 Tab 链上。
+现在：`diffBodyParts()` 的正文容器、编辑器/预览**加载态**的空栏、以及 `diffStatusNotice()`／`comparisonSummaryNotice()`
+的最终说明根元素都带 `tabindex="0"` 与 `aria-label="差异正文"`；`.diff-columns:focus`／`.comparison-notice:focus`
+不画焦点框（与 `.commit-list:focus`、`.code-view:focus` 同口径）。实测：
+
+| 场景 | Tab 链 |
+| --- | --- |
+| 编辑器工作区 Diff | 工具栏七项 → `差异正文` → 离开 `.editor-content` |
+| 文件历史预览 | 工具栏 → 提交行 → `差异正文` → 提交行 → 项目树（不进入 `.editor-content`） |
+| 加载态 | 空栏 `tabIndex === 0`、`aria-label="差异正文"` |
+| 失败/空差异 | `.comparison-notice` `tabIndex === 0`、`role="status"`、状态 `Binary`、0 行差异行 |
+
+工具窗口内的 Tab 落点因此从 12 个变成 **13** 个（多出"差异正文"），第 259 轮的轨迹断言随之一并更新。

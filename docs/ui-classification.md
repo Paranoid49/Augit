@@ -257,6 +257,8 @@
 
 **第 259 轮**补 §7.9 第七条余下两半（阅读位置、Tab 顺序）：补 **2 条断言**，§2.10 口径不变（本条仍标"部分"：比较区正文不是 Tab 停靠点）。阅读位置：隐藏用 `display:none`，而**隐藏期间的区域重绘会换掉正文节点** ⇒ 实测不显式保存时 `scrollTop` 300 → 0；现在隐藏前把 `{内容键, scrollTop}` 记进 `live.fileHistoryPreviewScroll`、重显与正文重建后按同一内容键恢复（换提交/换选项不沿用），夹具用新旋钮 `__commitDiffRows` 注入 242 行长差异，实测 300 → 隐藏（记忆值 300）→ 隐藏期间 `__augitRenderRegions("bottomTool")` 重绘 → 重显仍是 300，负向抹掉记忆值则回到 0。Tab 顺序：从列表工具条清除入口起连按 Tab，前 12 个落点全在 `.history-tool-content` 内（列表工具条四个 → 详情显隐 → 比较工具条六项 → 两条提交行），全程不进入 `.editor-content`。**新登记一处实现落差**：规格说"经过工具按钮与正文"，而 `.diff-layout` 没有 `tabindex` ⇒ 比较区正文不是 Tab 停靠点（与第十九条"保留一个正文焦点位置"同一处），需与 §7.7 的 Tab 序列断言一起改。
 
+**第 260 轮**补 §7.9 第七条最后一项与第十九条的正文焦点位置：补 **2 条断言**，§2.6 §7.9 第七条转 **是**（§2.10：分母 65 → **64**、A 47 → **46**）。实现：`diffBodyParts()` 的正文容器、编辑器/预览**加载态**的空栏、`diffStatusNotice()`／`comparisonSummaryNotice()` 的最终说明根元素都加 `tabindex="0"` + `aria-label="差异正文"`，`mockup.css` 加 `.diff-columns:focus, .comparison-notice:focus { outline: none }`（与 `.commit-list:focus`、`.code-view:focus` 同口径）。实测：编辑器里工具栏七项之后落到 `差异正文`、再按 Tab 离开 `.editor-content`；文件历史预览里工具栏 → 提交行 → `差异正文` → 提交行 → 项目树，全程不进入 `.editor-content`；加载态空栏与空/失败时的 `.comparison-notice`（`role="status"`、状态 `Binary`、0 行差异行）都 `tabIndex === 0`。同时更新第 259 轮的轨迹断言（工具窗口内落点 12 → 13，多出"差异正文"）。§7.9 第十九条登记"再回标签栏"仍未直接断言（第 259 轮轨迹里观察到焦点最终落到编辑器标签，但未写成判据）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

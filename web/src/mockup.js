@@ -1625,7 +1625,7 @@ function diffStatusNotice(status) {
     ? "可以关闭这个比较标签，或用系统默认程序打开该文件。"
     : "改动文件后重新双击该行即可刷新。";
   const tone = status === "Failed" ? " failure" : "";
-  return `<div class="comparison-notice diff-status-notice${tone}" role="status">`
+  return `<div tabindex="0" class="comparison-notice diff-status-notice${tone}" role="status">`
     + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
     + `<div><strong>${escapeHtml(reason)}</strong>`
     + `<p class="commit-meta">${escapeHtml(unchanged)}</p>`
@@ -1659,7 +1659,7 @@ function comparisonSummaryNotice() {
   const reason = "这两个引用在这个文件上没有文本差异。";
   const unchanged = "文件内容、改动列表、其它标签和当前选择都没有被修改。";
   const action = "可以选择另一个提交或文件再比较，或关闭这个比较标签。";
-  return `<div class="comparison-notice diff-status-notice" role="status">`
+  return `<div tabindex="0" class="comparison-notice diff-status-notice" role="status">`
     + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
     + `<div><strong>${escapeHtml(reason)}</strong>`
     + `<p class="commit-meta">${escapeHtml(unchanged)}</p>`
@@ -2350,7 +2350,7 @@ function liveDiffView() {
       // ⇒ 文件箭头（`fileNav`）**不**禁用，只有上一处/下一处交给 `arrowsDisabled`。
       fileNav, arrowsDisabled: true, busy: true,
       summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
-    })}${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+    })}${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
 
   // 文件栏的双方引用（规格 §7.8/§7.9）：
@@ -2448,7 +2448,9 @@ function diffBodyParts(diff) {
     if (isChangedKind(content[index]) && (index === 0 || !isChangedKind(content[index - 1]))) diffBlocks += 1;
   }
   return {
-    columns: `<div class="diff-columns"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div>`,
+    // 正文是**可聚焦的正文位置**（规格 §7.9 第七/十九条：Tab 从工具条进入正文；加载/失败也保留一个正文位置，
+    // 用户可据此从比较区回到标签栏）。编辑器正文与文件历史预览共用这一段 ⇒ 两处都有。
+    columns: `<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div>`,
     unifiedTemplate,
     summary: `<span class="diff-summary">${diffBlocks} 处差异</span>`,
     blockCount: diffBlocks,
@@ -2479,7 +2481,7 @@ function liveFileHistoryPreviewView() {
     return `<div class="diff-layout" data-augit-loading="true" data-live-file-history-preview>${liveDiffToolbar({
       ...options, arrowsDisabled: true,
       summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
-    })}${filebar}<div class="diff-columns"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+    })}${filebar}<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
   const rows = (preview.diff && preview.diff.rows) || [];
   if (rows.length === 0) {

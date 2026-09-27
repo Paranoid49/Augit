@@ -9047,3 +9047,54 @@ A 类队列继续 §7.9。第 256 轮把列表选择做成状态后，右侧仍�
 
 把比较区正文做成可聚焦的正文位置（并与 §7.7 的工作区 Diff Tab 序列断言一起改），随后继续 §7.9 的
 Blame 旧请求失效、比较视图的字号/窄宽度适配与失败摘要按模式显示身份。
+
+## sexaginta. 第二百六十轮：比较区正文成为可聚焦的正文位置（§7.9 第七/十九条）
+
+第七条最后一项（"Tab 顺序经过工具按钮**与正文**"）与第十九条（"加载、失败及取消说明保留一个正文焦点位置"）
+都要同一个东西：比较区正文得是 Tab 链上的一站。此前 `.diff-layout`／`.diff-columns` 都没有 `tabindex`。
+
+### 实现
+
+| 位置 | 内容 |
+| --- | --- |
+| `diffBodyParts()` 的 `columns` | `<div class="diff-columns" tabindex="0" aria-label="差异正文">` —— 编辑器正文与文件历史预览**共用**这一段 ⇒ 两处一起具备 |
+| 加载态 | 编辑器与预览的加载布局里的空 `.diff-columns` 同样 `tabindex="0"`（"加载中"也有正文位置） |
+| 最终说明 | `diffStatusNotice()`／`comparisonSummaryNotice()` 的根元素加 `tabindex="0"`（失败/空差异/取消时正文位置仍在，`role="status"` 不变） |
+| `mockup.css` | `.diff-columns:focus, .comparison-notice:focus { outline: none }` —— 与 `.commit-list:focus`、`.code-view:focus` 同口径：聚焦只改变键盘落点，不画额外焦点框 |
+
+### 判据（实测）
+
+| 场景 | Tab 链 |
+| --- | --- |
+| 编辑器工作区 Diff | 工具栏七项（`下一处差异/上一个文件/下一个文件/忽略空白/双栏/单栏/设置`）→ **`差异正文`** → 离开 `.editor-content` |
+| 文件历史预览 | 工具栏 → 提交行 → **`差异正文`** → 提交行 → 项目树（全程不进入 `.editor-content`） |
+| 加载态 | `[data-augit-loading]` 布局里的 `.diff-columns` `tabIndex === 0`、`aria-label="差异正文"` |
+| 失败/空差异 | `.comparison-notice` `tabIndex === 0`、`role="status"`、状态 `Binary`、0 行差异行（没有把补丁当文本显示） |
+
+同时更新第 259 轮那条 Tab 断言：正文成为 Tab 停靠点后，文件历史工具窗口内的落点从 12 个变成 13 个
+（多出"差异正文"这一站），断言改为"前 13 个落点全在工具窗口内、其中包含 `差异正文` 与提交行" ——
+这正是第七条"经过工具按钮**与正文**"要的形状。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.9 比较区正文是可聚焦的正文位置：编辑器与文件历史预览的 Tab 都经过正文` |
+| 2 | `§7.9 加载与失败/空差异也保留一个正文焦点位置（规格第七/十九条）` |
+
+### 验证
+
+- `live-shell` **`通过 1331 项断言`**（1329 → **+2**），退出码 0。
+- 共享视觉稿改了 `mockup.js`／`mockup.css`（两副本字节一致）⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、
+  `mockup-scenes` **55/55**、`verify-ux-history`（42 组）、`verify-ux-file-history`（26 组）、
+  `verify-ux-find-documents` 通过、`verify-css-balance` **PASS**。
+- 登记哈希：`mockup.js` `705b676d0cd14cb4807f91479f4d3681` → **`2249d659cf9ffd6fceafeb4774bee761`**；
+  `mockup.css` `a5f6c2bb1a63d34fcc2387f337b4a31e` → **`e2c6c816aeff3e918a8c432af9bd542e`**；
+  `live-shell.spec.cjs` `098a776398790f382b09200492a59e8c` → **`052e4999a4ffe17fe057a7fe18fb663c`**；
+  `live-data.js` 与第 259 轮相同。
+- §2.6 §7.9 第七条转 **是**；§2.10 重算：分母 65 → **64**、A **47 → 46**（D 13／B 4／E 1 不变）。
+
+### 下一轮
+
+继续 §7.9 余下条目：Blame 未完成查询的失效与"只接纳最后一次"、比较视图的字号/窄宽度适配、
+失败与摘要按模式显示双方身份、比较标签的三段独立省略与前 8 位截断等。

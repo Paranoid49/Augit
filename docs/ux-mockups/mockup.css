@@ -2893,6 +2893,13 @@ button:disabled,
 .diff-layout[data-diff-mode="unified"] { grid-template-rows: var(--augit-diff-toolbar-height, 39px) var(--augit-diff-unified-filebar-height, 55px) minmax(0, 1fr); }
 .diff-layout[data-diff-mode="unified"] .reference-filebar { grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--augit-diff-unified-row-height, 24px) var(--augit-diff-unified-row-height, 24px); padding: 3px 0; }
 .diff-layout[data-diff-mode="unified"] .reference-after { grid-column: 1; grid-row: 2; }
+/* 差异正文是可聚焦的正文位置（规格 §7.9 第七/十九条）：与 `.commit-list:focus`、`.code-view:focus` 同口径 ——
+   聚焦只改变键盘落点，不画额外的焦点框。 */
+.diff-columns:focus,
+.comparison-notice:focus {
+  outline: none;
+}
+
 .diff-columns.diff-unified-body { display: block; }
 .diff-layout:has(> .comparison-toolbar) .diff-unified-body { padding-top: 8px; }
 .unified-diff-line { display: grid; grid-template-columns: 28px 28px 18px minmax(0, 1fr); }

@@ -19837,13 +19837,131 @@ async function main() {
     check('§7.9 文件历史工具窗口内的 Tab 顺序经过工具按钮与提交行，不进入上方文档正文: '
       + JSON.stringify([fhTrailRegions, fhTrailLabels]),
     fhScroll.errors.length === 0
-      // 前 12 个 Tab 落点都在文件历史工具窗口内：列表工具条四个 + 详情显隐 + 比较工具条六项 + 提交行
-      && fhTrailRegions.slice(0, 12).every((region) => region === 'file-history')
+      // 前 13 个 Tab 落点都在文件历史工具窗口内：列表工具条四个 + 详情显隐 + 比较工具条六项
+      // + 一条提交行 + **比较区正文** + 另一条提交行（第 260 轮把正文做成可聚焦的正文位置后，
+      // Tab 链上多了"差异正文"这一站 —— 这正是第七条"经过工具按钮**与正文**"要的形状）。
+      && fhTrailRegions.slice(0, 13).every((region) => region === 'file-history')
       && fhTrailLabels[3] === '显示提交详情'
       && fhTrailLabels.slice(4, 10).join(',') === '上一处差异,下一处差异,忽略空白,双栏,单栏,设置'
-      && fhTrailLabels.slice(10, 12).every((label) => typeof label === 'string' && label.startsWith('history-row'))
+      && fhTrailLabels.slice(10, 13).includes('差异正文')
+      && fhTrailLabels.slice(10, 13).some((label) => typeof label === 'string' && label.startsWith('history-row'))
       // 全程不进入上方文档正文（`.editor-content`）
       && fhTrailRegions.every((region) => region !== 'editor'));
+
+    // ---- 第 260 轮：比较区正文是可聚焦的正文位置（§7.9 第七/十九条）----
+    const diffBodyFocus = await (async () => {
+      const trailFrom = async (page, firstSelector, steps, scopeSelector) => {
+        await page.evaluate((selector) => { const el = document.querySelector(selector); if (el) el.focus(); }, firstSelector);
+        const trail = [];
+        for (let i = 0; i < steps; i += 1) {
+          await page.keyboard.press('Tab');
+          await page.waitForTimeout(70);
+          trail.push(await page.evaluate((scope) => {
+            const el = document.activeElement;
+            if (!el) return null;
+            const scopeEl = scope ? document.querySelector(scope) : null;
+            return {
+              label: el.getAttribute('aria-label') || el.className || el.tagName,
+              inToolbar: !!el.closest('.diff-toolbar'),
+              isBody: el.classList && el.classList.contains('diff-columns'),
+              isNotice: el.classList && el.classList.contains('comparison-notice'),
+              inScope: !!(scopeEl && scopeEl.contains(el)),
+              inEditorContent: !!el.closest('.editor-content'),
+            };
+          }, scopeSelector));
+        }
+        return trail;
+      };
+      // ① 编辑器里的工作区 Diff：从工具栏首项连按 Tab，正文应出现在工具条之后
+      const editor = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
+      await editor.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await editor.page.waitForTimeout(500);
+      const editorTrail = await trailFrom(editor.page, '.editor-content .diff-toolbar button', 9, '.editor-content');
+      const editorBody = await editor.page.evaluate(() => {
+        const body = document.querySelector('.editor-content .diff-columns');
+        return body ? { tabIndex: body.tabIndex, label: body.getAttribute('aria-label'), focusable: body.tabIndex === 0 } : null;
+      });
+      await editor.page.close();
+      // ② 文件历史预览：同一条链路，且正文仍在工具窗口内
+      const preview = await context.newPage();
+      const errors = [];
+      preview.on('pageerror', (error) => errors.push(error.message));
+      await preview.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await preview.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await preview.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await preview.waitForTimeout(600);
+      await preview.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await preview.waitForTimeout(500);
+      await preview.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await preview.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await preview.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
+      await preview.waitForTimeout(600);
+      const previewTrail = await trailFrom(preview, '[data-live-file-history-pane="preview"] .diff-toolbar button', 9, '.history-tool-content');
+      // ③ 加载态与失败/空态同样保留一个正文位置
+      const loadingFocus = await preview.evaluate(async () => {
+        window.__diffCommitDelays = { 'full-aaa': 1500 };
+        document.querySelectorAll('.history-rows .history-row[data-history-full]')[1].click();
+        await new Promise((r) => setTimeout(r, 250));
+        const layout = document.querySelector('[data-live-file-history-pane="preview"] .diff-layout[data-augit-loading]');
+        const body = layout ? layout.querySelector('.diff-columns') : null;
+        return { loadingLayout: !!layout, tabIndex: body ? body.tabIndex : null, label: body ? body.getAttribute('aria-label') : null };
+      });
+      await preview.waitForTimeout(1700);
+      const emptyFocus = await (async () => {
+        // 先撤掉上一步注入的提交级延迟并等在途请求落地（否则下面的切换会停在加载态）
+        await preview.evaluate(() => { window.__diffCommitDelays = {}; });
+        await preview.waitForTimeout(1300);
+        await preview.evaluate(() => { window.__diffStatusOverride = 'Binary'; });
+        // 切「忽略空白」会**强制重查**（绕过补丁缓存）⇒ 结果是"无文本差异/二进制"的最终说明
+        await preview.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+        await preview.waitForTimeout(700);
+        const out = await preview.evaluate(() => {
+          const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+          const notice = pane ? pane.querySelector('.comparison-notice') : null;
+          const preview = window.__augitLive.fileHistoryPreview || null;
+          window.__diffStatusOverride = null;
+          return {
+            notice: !!notice,
+            tabIndex: notice ? notice.tabIndex : null,
+            role: notice ? notice.getAttribute('role') : null,
+            status: preview && preview.diff ? preview.diff.status : null,
+            lines: pane ? pane.querySelectorAll('.diff-code-line').length : 0,
+          };
+        });
+        return out;
+      })();
+      await preview.close();
+      console.log('INFO 正文焦点=' + JSON.stringify({ editorTrail, editorBody, previewTrail, loadingFocus, emptyFocus, errors }));
+      return { editorTrail, editorBody, previewTrail, loadingFocus, emptyFocus, errors };
+    })();
+    const editorTrailLabels = fhScrollTrailLabels => null;
+    check('§7.9 比较区正文是可聚焦的正文位置：编辑器与文件历史预览的 Tab 都经过正文: '
+      + JSON.stringify([
+        diffBodyFocus.editorBody,
+        diffBodyFocus.editorTrail.map((step) => [step.label.slice(0, 12), step.inToolbar, step.isBody, step.inEditorContent]),
+        diffBodyFocus.previewTrail.map((step) => [step.label.slice(0, 12), step.isBody, step.inScope, step.inEditorContent]),
+      ]),
+    diffBodyFocus.errors.length === 0
+      // 正文本身可聚焦且有无障碍名
+      && diffBodyFocus.editorBody.tabIndex === 0 && diffBodyFocus.editorBody.label === '差异正文'
+      // 编辑器：工具条末项之后落到正文，再按 Tab 离开编辑器正文区
+      && diffBodyFocus.editorTrail.slice(0, 7).every((step) => step.inToolbar === true)
+      && diffBodyFocus.editorTrail.slice(0, 7).map((step) => step.label).join(',')
+        === '下一处差异,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
+      && diffBodyFocus.editorTrail[7].isBody === true && diffBodyFocus.editorTrail[7].inEditorContent === true
+      && diffBodyFocus.editorTrail[8].inEditorContent === false
+      // 文件历史预览：正文同样在 Tab 链上，且落在工具窗口内；全程不进入上方文档正文
+      && diffBodyFocus.previewTrail.some((step) => step.isBody === true && step.inScope === true)
+      && diffBodyFocus.previewTrail.every((step) => step.inEditorContent === false));
+    check('§7.9 加载与失败/空差异也保留一个正文焦点位置（规格第七/十九条）: '
+      + JSON.stringify([diffBodyFocus.loadingFocus, diffBodyFocus.emptyFocus]),
+    // 加载态：正文容器仍在、可聚焦、有无障碍名
+    diffBodyFocus.loadingFocus.loadingLayout === true && diffBodyFocus.loadingFocus.tabIndex === 0
+      && diffBodyFocus.loadingFocus.label === '差异正文'
+      // 失败/空差异：最终说明本身就是正文位置（role=status + 可聚焦），并且不是"把补丁当文本显示"
+      && diffBodyFocus.emptyFocus.notice === true && diffBodyFocus.emptyFocus.tabIndex === 0
+      && diffBodyFocus.emptyFocus.role === 'status' && diffBodyFocus.emptyFocus.status === 'Binary'
+      && diffBodyFocus.emptyFocus.lines === 0);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
