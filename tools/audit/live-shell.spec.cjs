@@ -5772,6 +5772,182 @@ async function main() {
       && remoteBigScroll.scrollTop > 0 && remoteBigScroll.inView === true);
     await remoteBig.page.close();
 
+    // ---- 规格 §7.14 第 4、5、10 条：计数/导航固定、紧凑标题行文件名位置、保留时不重写选区与滚动 ----
+    const conflictFixture = (extra = {}) => {
+      const long = Array.from({ length: 80 }, (_, i) => '填充第 ' + (i + 1) + ' 行').join('\n');
+      return Object.assign({
+        available: true, path: 'src/App.cs', contentKind: 'Text',
+        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+        yoursText: '第一行\n左方改动\n第三行', theirsText: '第一行\n右方改动\n第三行',
+        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行\n' + long,
+        operation: 'Merge',
+        version: { length: 42, sha256: 'n1', lastWriteUtc: '2026-09-15T00:00:00Z' },
+        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+      }, extra);
+    };
+    const conflictSession = {
+      kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
+      canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
+      currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
+    };
+    const openConflictResolver = async (page, fixture) => {
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.evaluate((payload) => {
+        window.__conflictFixture = payload.fixture;
+        window.__operationSession = payload.session;
+        window.__statusOperation = 'Merge';
+        window.__statusConflicts = true;
+        window.__nextChanges = { files: [], gitMetadata: true };
+        void window.__augitLoadOperation();
+      }, { fixture, session: conflictSession });
+      await page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
+      await page.evaluate(() => {
+        const row = document.querySelector('[data-conflict-path="src/App.cs"]');
+        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(350);
+    };
+
+    const conflictNavPage = await openScene('scene=commit-changes&theme=dark');
+    await openConflictResolver(conflictNavPage.page, conflictFixture());
+    const conflictNavState = await conflictNavPage.page.evaluate(() => {
+      const page = document.querySelector('.conflict-page');
+      const header = page.querySelector('.conflict-header');
+      const block = page.querySelector('.conflict-column.result .conflict-block');
+      const count = page.querySelector('[data-conflict-count]');
+      const prev = page.querySelector('[data-conflict-nav="prev"]');
+      const next = page.querySelector('[data-conflict-nav="next"]');
+      const snap = () => ({
+        headerTop: Math.round(header.getBoundingClientRect().top),
+        countTop: Math.round(count.getBoundingClientRect().top),
+        prevTop: Math.round(prev.getBoundingClientRect().top),
+        nextTop: Math.round(next.getBoundingClientRect().top),
+      });
+      block.scrollTop = 0;
+      const before = snap();
+      block.scrollTop = 200;
+      const after = snap();
+      return {
+        before, after,
+        scrollable: block.scrollHeight > block.clientHeight + 1,
+        scrollTop: Math.round(block.scrollTop),
+        countInHeader: header.contains(count),
+        navInHeader: header.contains(prev) && header.contains(next),
+      };
+    });
+    check('§7.14 未处理数量与上一处/下一处固定在顶部: ' + JSON.stringify(conflictNavState),
+      // 计数与两个导航按钮都在固定的内容表头里（不在可滚动的正文块内）
+      conflictNavState.countInHeader === true && conflictNavState.navInHeader === true
+        // 正文块真的滚动了，而表头、计数、上一处、下一处的纵坐标逐值不变
+        && conflictNavState.scrollable === true && conflictNavState.scrollTop === 200
+        && conflictNavState.after.headerTop === conflictNavState.before.headerTop
+        && conflictNavState.after.countTop === conflictNavState.before.countTop
+        && conflictNavState.after.prevTop === conflictNavState.before.prevTop
+        && conflictNavState.after.nextTop === conflictNavState.before.nextTop);
+
+    // 大字号 + 窄窗口：文件名放到窗口顶部"解决冲突"右侧。
+    await conflictNavPage.page.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
+    await conflictNavPage.page.setViewportSize({ width: 620, height: 760 });
+    await conflictNavPage.page.waitForFunction(
+      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
+      null, { timeout: 10000 }).catch(() => {});
+    await conflictNavPage.page.waitForTimeout(300);
+    const conflictCompact = await conflictNavPage.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.conflict-session-dialog');
+      const header = dialog.querySelector('.dialog-header');
+      const label = header.querySelector('span');
+      const title = header.querySelector('.conflict-file-title');
+      const contentHeader = dialog.querySelector('.conflict-page .conflict-header');
+      if (!label || !title) return { missing: true };
+      const lr = label.getBoundingClientRect(), tr = title.getBoundingClientRect();
+      return {
+        label: label.textContent.trim(), title: title.textContent.trim(),
+        labelRight: Math.round(lr.right), titleLeft: Math.round(tr.left),
+        // 文件名在"解决冲突"右侧（同一行、左边缘不小于标签右边缘）
+        rightOfLabel: tr.left >= lr.right - 1,
+        sameRow: Math.abs(tr.top - lr.top) < 4,
+        titlePath: title.getAttribute('title'),
+        // 计数与导航仍留在独立一行的内容表头里
+        countInContentHeader: !!contentHeader.querySelector('[data-conflict-count]'),
+        navInContentHeader: contentHeader.querySelectorAll('[data-conflict-nav]').length,
+      };
+    });
+    check('§7.14 紧凑标题行把文件名放到"解决冲突"右侧: ' + JSON.stringify(conflictCompact),
+      conflictCompact.missing !== true && conflictCompact.label === '解决冲突' && conflictCompact.title === 'App.cs'
+        && conflictCompact.rightOfLabel === true && conflictCompact.sameRow === true
+        && conflictCompact.titlePath === 'src/App.cs'
+        && conflictCompact.countInContentHeader === true && conflictCompact.navInContentHeader === 2);
+    await conflictNavPage.page.close();
+
+    // 「保留当前内容」：正文、选区与滚动位置都不重写。
+    const conflictKeepPage = await openScene('scene=commit-changes&theme=dark');
+    await openConflictResolver(conflictKeepPage.page, conflictFixture());
+    // 先制造未保存内容（接受左侧 = 结果区的一次编辑）。
+    await conflictKeepPage.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-side="yours"]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await conflictKeepPage.page.waitForTimeout(300);
+    const readConflictCaret = () => conflictKeepPage.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      const selection = window.getSelection();
+      const node = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
+      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+      const line = element && element.closest ? element.closest('.conflict-line') : null;
+      return {
+        scrollTop: Math.round(block.scrollTop),
+        anchorLine: line ? Number(line.dataset.line) : null,
+        anchorOffset: selection && selection.rangeCount > 0 ? selection.anchorOffset : null,
+        dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
+        text: block.innerText.replace(/\s+/g, ''),
+      };
+    });
+    // 滚动正文并放一个选区（第 46 行行尾）。
+    await conflictKeepPage.page.evaluate(() => {
+      const block = document.querySelector('.conflict-column.result .conflict-block');
+      block.scrollTop = 200;
+      const lines = block.querySelectorAll('.conflict-line');
+      const line = lines[40] || lines[lines.length - 1];
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await conflictKeepPage.page.waitForTimeout(200);
+    const conflictKeepBefore = await readConflictCaret();
+    // 外部新版本：有未保存内容 ⇒ 询问。
+    await conflictKeepPage.page.evaluate(() => {
+      const long = Array.from({ length: 80 }, (_, i) => '填充第 ' + (i + 1) + ' 行').join('\n');
+      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
+        resultText: '外部新版本\n' + long,
+        version: { length: 99, sha256: 'n2', lastWriteUtc: '2026-09-15T00:05:00Z' },
+        blocks: [],
+      });
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
+    });
+    await conflictKeepPage.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
+    await conflictKeepPage.page.evaluate(() => {
+      const node = document.querySelector('[data-conflict-keep]');
+      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await conflictKeepPage.page.waitForTimeout(400);
+    const conflictKeepAfter = await readConflictCaret();
+    const conflictPromptGone = await conflictKeepPage.page.evaluate(() => !document.querySelector('.dialog.conflict-external-dialog'));
+    check('§7.14 保留当前内容不重写正文、选区与滚动位置: '
+      + JSON.stringify([conflictKeepBefore, conflictKeepAfter, conflictPromptGone]),
+    conflictKeepBefore.dirty === true && conflictKeepBefore.scrollTop > 0 && conflictKeepBefore.anchorLine !== null
+      // 询问收起、未保存状态保留、正文一字未改
+      && conflictPromptGone === true && conflictKeepAfter.dirty === true
+      && conflictKeepAfter.text === conflictKeepBefore.text
+      // 滚动位置与选区（行号 + 偏移）逐值不变
+      && conflictKeepAfter.scrollTop === conflictKeepBefore.scrollTop
+      && conflictKeepAfter.anchorLine === conflictKeepBefore.anchorLine
+      && conflictKeepAfter.anchorOffset === conflictKeepBefore.anchorOffset);
+    await conflictKeepPage.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
