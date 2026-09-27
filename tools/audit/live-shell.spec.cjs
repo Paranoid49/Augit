@@ -20669,6 +20669,115 @@ async function main() {
       // 悬停说明是完整的双方引用 + 相对路径
       && comparisonLabel17.reference.barTitle === 'dsh → 工作区 · src/App.cs');
 
+    // ---- 第 268 轮：文件信息区的双栏左右/单栏上下与失败态按模式显示（§7.9 第十五条）----
+    const filebarLayout = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-diff&theme=dark&diff=src%2FApp.cs`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.editor-content .diff-columns .diff-code-line', { timeout: 10000 });
+      await page.waitForTimeout(500);
+      const read = () => page.evaluate(() => {
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const bar = document.querySelector('.editor-content .diff-filebar');
+        const before = bar ? bar.querySelector('.reference-before') : null;
+        const after = bar ? bar.querySelector('.reference-after') : null;
+        const source = bar ? bar.querySelector('.reference-source') : null;
+        const target = bar ? bar.querySelector('.reference-target') : null;
+        const path = bar ? bar.querySelector('.reference-path') : null;
+        const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
+        const focusables = bar
+          ? [...bar.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
+            .filter((n) => n.tabIndex >= 0).length
+          : null;
+        return {
+          mode: layout ? layout.dataset.diffMode : null,
+          bar: rect(bar), before: rect(before), after: rect(after),
+          source: source ? source.textContent.trim() : null,
+          target: target ? target.textContent.trim() : null,
+          path: path ? path.textContent.trim() : null,
+          focusables,
+          notice: !!document.querySelector('.editor-content .comparison-notice'),
+          lines: document.querySelectorAll('.editor-content .diff-code-line').length,
+        };
+      });
+      const split = await read();
+      // Tab 轨迹：从工具栏首项连按 12 次，任何一步都不得落在文件栏里
+      await page.evaluate(() => { document.querySelector('.editor-content .diff-toolbar button').focus(); });
+      const trail = [];
+      for (let i = 0; i < 12; i += 1) {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(50);
+        trail.push(await page.evaluate(() => {
+          const el = document.activeElement;
+          return {
+            label: el ? (el.getAttribute('aria-label') || el.className || el.tagName) : null,
+            inFilebar: !!(el && el.closest && el.closest('.diff-filebar')),
+          };
+        }));
+      }
+      // 单栏：文件栏应变上下两行
+      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.waitForTimeout(500);
+      const unified = await read();
+      // 失败/摘要态：仍在当前模式下显示双方身份
+      await page.evaluate(() => { window.__diffStatusOverride = 'Binary'; });
+      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.waitForTimeout(700);
+      const unifiedFailure = await read();
+      await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+      await page.waitForTimeout(500);
+      const splitFailure = await read();
+      await page.evaluate(() => { window.__diffStatusOverride = null; });
+      // 查询/排版期间：布局与模式始终一致（不会半切）
+      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.waitForTimeout(400);
+      await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1200 }; });
+      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.waitForTimeout(250);
+      const loading = await read();
+      await page.waitForTimeout(1400);
+      const afterLoad = await read();
+      await page.evaluate(() => { window.__diffDelays = {}; });
+      await page.close();
+      console.log('INFO 文件栏布局=' + JSON.stringify({ split, trail, unified, unifiedFailure, splitFailure, loading, afterLoad, errors }));
+      return { split, trail, unified, unifiedFailure, splitFailure, loading, afterLoad, errors };
+    })();
+    const filebarStacked = (snap) => snap.before.left === snap.after.left
+      && snap.after.top > snap.before.top && snap.before.w === snap.after.w;
+    const filebarSideBySide = (snap) => snap.before.top === snap.after.top
+      && snap.after.left > snap.before.left;
+    check('§7.9 文件信息区双栏左右、单栏上下（顶部一行来源与路径、单栏第二行目标），且不进入 Tab 顺序: '
+      + JSON.stringify([filebarLayout.split, filebarLayout.unified, filebarLayout.trail.map((step) => step.inFilebar)]),
+    filebarLayout.errors.length === 0
+      // 双栏：来源与目标左右并列，来源那侧显示来源 + 相对路径
+      && filebarLayout.split.mode === 'side-by-side'
+      && filebarSideBySide(filebarLayout.split)
+      && filebarLayout.split.source === 'HEAD' && filebarLayout.split.target === '工作区'
+      && filebarLayout.split.path === 'src/App.cs'
+      // 单栏：来源与目标上下两行（同一左边缘、整宽），文件栏整体变高
+      && filebarLayout.unified.mode === 'unified'
+      && filebarStacked(filebarLayout.unified)
+      && filebarLayout.unified.bar.h > filebarLayout.split.bar.h
+      // 文件栏不进入 Tab 顺序：它没有可聚焦元素，Tab 轨迹 12 步也没有一步落在里面
+      && filebarLayout.split.focusables === 0 && filebarLayout.unified.focusables === 0
+      && filebarLayout.trail.every((step) => step.inFilebar === false));
+    check('§7.9 失败/摘要按当前所选模式显示双方身份，查询与排版期间布局与模式始终一致: '
+      + JSON.stringify([filebarLayout.unifiedFailure, filebarLayout.splitFailure, filebarLayout.loading, filebarLayout.afterLoad]),
+    // 失败态（0 行差异 + 摘要说明）在两种模式下都保留双方身份与路径，且布局随模式
+    filebarLayout.unifiedFailure.notice === true && filebarLayout.unifiedFailure.mode === 'unified'
+      && filebarStacked(filebarLayout.unifiedFailure) && filebarLayout.unifiedFailure.lines === 0
+      && filebarLayout.unifiedFailure.source === 'HEAD' && filebarLayout.unifiedFailure.target === '工作区'
+      && filebarLayout.unifiedFailure.path === 'src/App.cs'
+      && filebarLayout.splitFailure.notice === true && filebarLayout.splitFailure.mode === 'side-by-side'
+      && filebarSideBySide(filebarLayout.splitFailure) && filebarLayout.splitFailure.lines === 0
+      && filebarLayout.splitFailure.source === 'HEAD' && filebarLayout.splitFailure.target === '工作区'
+      // 查询/排版期间与落地后：模式与文件栏布局始终一致（不会半切）
+      && filebarLayout.loading.mode === 'unified' && filebarStacked(filebarLayout.loading)
+      && filebarLayout.afterLoad.mode === 'unified' && filebarStacked(filebarLayout.afterLoad)
+      && filebarLayout.afterLoad.lines === 5 && filebarLayout.afterLoad.notice === false);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
