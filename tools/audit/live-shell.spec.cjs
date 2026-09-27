@@ -20999,6 +20999,222 @@ async function main() {
       && readRaces.notesLate.tabs.includes('document:docs/product-spec.md')
       && readRaces.notesLate.contentChars > 30);
 
+    // ---- 第 272 轮：读取结果属于原文件标签、取消后显示最新事实、恢复收尾不夺权（§6 第 34、35、40 条）----
+    // (A) 后台重读不得夺回显示（§6 第 35 条「是否显示必须重新核对…当前活动标签」）：
+    // 读取开始时活动标签是 A，收尾前用户切到另一个**已有**标签 B（不发起新读取 ⇒ 递增令牌不会
+    // 拦下这次收尾），结果只能进它自己的标签，不能把显示从 B 夺回被重读的文件。
+    const lateActivate = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      const page = scene.page;
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      const openPath = async (path) => {
+        await page.evaluate((p) => { void window.__augitOpenDocument(p); }, path);
+        await page.waitForFunction(
+          `window.__augitLive.document && window.__augitLive.document.path === ${JSON.stringify(path)}`,
+          null, { timeout: 15000 });
+      };
+      await openPath('docs/notes.txt');
+      await openPath('docs/product-spec.md');
+      await openPath('docs/assets/logo.png');
+      await page.waitForTimeout(300);
+      const ids = await page.evaluate(() => {
+        const live = window.__augitLive;
+        const find = (p) => (live.tabs || []).find((t) => t.kind === 'document' && t.path === p);
+        return { notes: (find('docs/notes.txt') || {}).id || null, spec: (find('docs/product-spec.md') || {}).id || null };
+      });
+      await page.evaluate(() => { window.__readDelays = { 'docs/notes.txt': 900 }; });
+      await page.evaluate(() => { void window.__augitOpenDocument('docs/notes.txt'); });
+      await page.waitForTimeout(200);
+      const reading = await page.evaluate(() => ({
+        pending: window.__augitLive.pendingDocument || null,
+        active: (window.__augitLive.tabs.find((t) => t.id === window.__augitLive.activeTabId) || {}).path || null,
+      }));
+      await page.locator(`.editor-tabs [data-tab-id="${ids.spec}"]`).first().click();
+      await page.waitForTimeout(200);
+      const switched = await page.evaluate(() => (window.__augitLive.tabs.find((t) => t.id === window.__augitLive.activeTabId) || {}).path || null);
+      await page.waitForTimeout(1400);
+      const landed = await page.evaluate(() => {
+        const live = window.__augitLive;
+        const active = live.tabs.find((t) => t.id === live.activeTabId) || null;
+        const notes = live.tabs.find((t) => t.kind === 'document' && t.path === 'docs/notes.txt') || null;
+        return {
+          activePath: active ? active.path : null,
+          docPath: live.document ? live.document.path : null,
+          pending: live.pendingDocument || null,
+          notesDocumentPath: notes && notes.document ? notes.document.path : null,
+        };
+      });
+      await page.evaluate(() => { window.__readDelays = {}; });
+      await page.close();
+      return { reading, switched, landed };
+    })();
+    check('§6 后台重读结果属于原文件标签，收尾按当前活动标签决定是否显示: '
+      + JSON.stringify(lateActivate),
+    lateActivate.reading.pending === 'docs/notes.txt' && lateActivate.reading.active === 'docs/assets/logo.png'
+      && lateActivate.switched === 'docs/product-spec.md'
+      // 收尾不得把显示夺回被重读的文件（修前会跳回 docs/notes.txt）
+      && lateActivate.landed.activePath === 'docs/product-spec.md'
+      && lateActivate.landed.docPath === 'docs/product-spec.md' && lateActivate.landed.pending === null
+      // 结果仍然落进**它自己的**标签
+      && lateActivate.landed.notesDocumentPath === 'docs/notes.txt');
+
+    // (B) §6 第 35/38 条的"标签仍存在"重核：正在重读的标签被关闭后，晚到结果不得把它恢复出来。
+    const closedWhileRereading = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      const page = scene.page;
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      const openPath = async (path) => {
+        await page.evaluate((p) => { void window.__augitOpenDocument(p); }, path);
+        await page.waitForFunction(
+          `window.__augitLive.document && window.__augitLive.document.path === ${JSON.stringify(path)}`,
+          null, { timeout: 15000 });
+      };
+      await openPath('docs/notes.txt');
+      await openPath('docs/product-spec.md');
+      const notesId = await page.evaluate(() => (window.__augitLive.tabs.find((t) => t.path === 'docs/notes.txt') || {}).id);
+      await page.evaluate(() => { window.__readDelays = { 'docs/notes.txt': 900 }; });
+      await page.evaluate(() => { void window.__augitOpenDocument('docs/notes.txt'); });
+      await page.waitForTimeout(200);
+      await page.locator(`.editor-tabs [data-tab-id="${notesId}"] .tab-close`).click();
+      await page.waitForTimeout(250);
+      const justClosed = await page.evaluate(() => ({
+        tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+        pending: window.__augitLive.pendingDocument || null,
+      }));
+      await page.waitForTimeout(1400);
+      const late = await page.evaluate(() => ({
+        tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+        pending: window.__augitLive.pendingDocument || null,
+        doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+      }));
+      await page.evaluate(() => { window.__readDelays = {}; });
+      await page.close();
+      return { justClosed, late };
+    })();
+    check('§6 关闭正在重读的标签后晚到结果不恢复标签: ' + JSON.stringify(closedWhileRereading),
+    closedWhileRereading.justClosed.pending === null
+      && JSON.stringify(closedWhileRereading.justClosed.tabs) === JSON.stringify(['docs/product-spec.md'])
+      // 晚到结果不得把刚关掉的标签恢复出来，也不得夺回正文
+      && JSON.stringify(closedWhileRereading.late.tabs) === JSON.stringify(['docs/product-spec.md'])
+      && closedWhileRereading.late.doc === 'docs/product-spec.md'
+      && closedWhileRereading.late.pending === null);
+
+    // (C) §6 第 40 条：恢复期间用户改树选择并把焦点放在树行上，收尾不得重新激活正文、
+    // 重选项目树或抢焦点。慢读用启动参数 `slowread` 注入（恢复发生在 boot 期间，测试来不及写 __readDelays）。
+    const restoreUserAction = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark&restore=1&slowread=docs/notes.txt:3000');
+      const page = scene.page;
+      await page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await page.waitForFunction("window.__slowReadStarted === 'docs/notes.txt'", null, { timeout: 10000 }).catch(() => {});
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 10000 });
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
+      await page.waitForTimeout(200);
+      const snap = () => page.evaluate(() => {
+        const live = window.__augitLive;
+        const selected = document.querySelector('.side-content.tree .tree-row.selected');
+        const active = document.activeElement;
+        const activeRow = active && active.closest ? active.closest('.side-content.tree .tree-row') : null;
+        const activeTab = (live.tabs || []).find((t) => t.id === live.activeTabId) || null;
+        return {
+          selectedTreePath: selected ? selected.dataset.treePath : null,
+          activeTreePath: activeRow ? activeRow.dataset.treePath : null,
+          activeTabPath: activeTab ? activeTab.path : null,
+          doc: live.document ? live.document.path : null,
+          tabs: (live.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+          restoring: !!live.sessionRestoring,
+        };
+      });
+      const before = await snap();
+      await page.waitForTimeout(4200);
+      const after = await snap();
+      await page.close();
+      return { before, after };
+    })();
+    check('§6 恢复期间用户改树选择后收尾不重激活正文、不重选项目树、不抢焦点: '
+      + JSON.stringify(restoreUserAction),
+    // 前置：用户交互发生在恢复仍在途时，且已把树选中与焦点放在同一行
+    restoreUserAction.before.restoring === true
+      && restoreUserAction.before.selectedTreePath === 'docs/product-spec.md'
+      && restoreUserAction.before.activeTreePath === 'docs/product-spec.md'
+      && restoreUserAction.before.activeTabPath === null && restoreUserAction.before.doc === null
+      // 收尾：仍然没有激活正文，选中与焦点都不变（且恢复确实读完了两个文件）
+      && restoreUserAction.after.activeTabPath === null && restoreUserAction.after.doc === null
+      && restoreUserAction.after.selectedTreePath === 'docs/product-spec.md'
+      && restoreUserAction.after.activeTreePath === 'docs/product-spec.md'
+      && JSON.stringify(restoreUserAction.after.tabs) === JSON.stringify(['docs/product-spec.md', 'docs/notes.txt']));
+
+    // (D) §6 第 34 条：取消写操作后**重新读取并显示**最新磁盘事实，而不只是发一次请求。
+    // 判据：取消前把桩的 `git/status` 应答换成一份新文件清单（只是换数据、不触发任何刷新），
+    // 取消落地后改动列表必须显示这份**新**清单 —— 不重读就不可能看到它。
+    const cancelRedisplay = await (async () => {
+      const scene = await openScene('scene=commit-changes&theme=dark');
+      const page = scene.page;
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await page.locator('.commit-box .message-field').fill('feat: 取消后重读');
+      await page.waitForTimeout(200);
+      const before = await page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.path));
+      await page.evaluate(() => { window.__commitDelays = 1500; });
+      await page.locator('.commit-actions .primary-button').first().click();
+      await page.waitForTimeout(400);
+      await page.evaluate(() => {
+        window.__statusCalls = 0;
+        window.__writeCancels = 0;
+        window.__liveFiles = [
+          { path: 'src/AfterCancel.cs', name: 'AfterCancel.cs', directory: 'src', group: 'Changes', kind: 'Added', staged: false, workingTree: true },
+        ];
+      });
+      await page.evaluate(() => {
+        document.querySelector('[data-write-cancel]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('!window.__augitLive.writeOperation', null, { timeout: 10000 });
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => ({
+        rows: [...document.querySelectorAll('.changes-list .change-file-row')].map((r) => r.dataset.path),
+        statusCalls: window.__statusCalls || 0,
+        cancels: window.__writeCancels || 0,
+      }));
+      await page.evaluate(() => { window.__commitDelays = 0; });
+      await page.close();
+      return { before, after };
+    })();
+    check('§6 取消写操作后重新读取并显示最新磁盘事实: ' + JSON.stringify(cancelRedisplay),
+    // 前置：取消前显示的是旧清单，且它确实被取消了一次
+    cancelRedisplay.before.includes('src/App.cs') && !cancelRedisplay.before.includes('src/AfterCancel.cs')
+      && cancelRedisplay.after.cancels === 1 && cancelRedisplay.after.statusCalls >= 1
+      // 取消后显示的是新读到的磁盘事实（不是旧清单）
+      && cancelRedisplay.after.rows.includes('src/AfterCancel.cs')
+      && !cancelRedisplay.after.rows.includes('src/App.cs'));
+
+    // (E) §6 第 15 条："可以更新最后检查时间等非布局状态，但首版没有必要显示该信息"。
+    // 本条是**许可**（可以不显示），Augit 选择不显示；断言钉住这个选择：刷新确实更新了状态
+    //（`git/status` 调用数 +1），但界面里没有任何"最后检查时间"字样或对应标记节点。
+    const lastCheckedInfo = await (async () => {
+      const scene = await openScene('scene=main-project&theme=dark');
+      const page = scene.page;
+      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.waitForTimeout(400);
+      const before = await page.evaluate(() => window.__statusCalls || 0);
+      await page.evaluate(() => window.__hostPush('workspace-changed', { files: [], gitMetadata: true }));
+      await page.waitForTimeout(600);
+      const after = await page.evaluate(() => {
+        const text = document.body.innerText || '';
+        return {
+          statusCalls: window.__statusCalls || 0,
+          timestampLabels: (text.match(/最后检查|上次检查|最后刷新|检查时间|最后更新/g) || []).length,
+          markerNodes: document.querySelectorAll('[data-last-checked], .last-checked, [class*="last-checked"]').length,
+        };
+      });
+      await page.close();
+      return { before, after };
+    })();
+    check('§6 不显示"最后检查时间"等非布局信息（刷新只更新状态）: ' + JSON.stringify(lastCheckedInfo),
+    // 前置：这次刷新确实重新读了状态（否则"没有显示"可能只是因为什么都没发生）
+    lastCheckedInfo.after.statusCalls > lastCheckedInfo.before
+      && lastCheckedInfo.after.timestampLabels === 0 && lastCheckedInfo.after.markerNodes === 0);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

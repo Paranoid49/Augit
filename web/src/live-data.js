@@ -12868,6 +12868,16 @@ async function openDocument(path, options = {}) {
   // 已经是激活标签且不要求转为正式标签：无需重复读取。
   const current = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
   if (current && activate && live.activeTabId === current.id && !preview) return;
+  // 规格 §6.7 第一条：读取完成时"是否显示必须**重新核对**…当前活动标签"。
+  // 这里记下读取开始时用户正看着哪个标签；收尾时若当前活动标签变成了**另一个仍然存在的**标签，
+  // 说明用户在读取期间自己切走了（切到标签栏里已有的标签不会发起新的读取，因此不会被递增令牌
+  // 拦下），此时结果仍要放进它自己的标签，但**不得夺回显示**——否则用户最后选择的文件会被一次
+  // 后台读取覆盖（第 272 轮实测：后台重读 `docs/notes.txt` 期间切到 `docs/product-spec.md`，
+  // 读取落地后活动标签又变回 `docs/notes.txt`）。
+  // 只在"当前活动标签非空且不同于开始时"才判定为切走：读取期间用户把原来的标签**关掉**时
+  // `closeTab()` 会把活动标签让给邻居或置空，那不是"切到别处看"，读取结果理应显示出来
+  //（否则 §6 第 38 条"关闭它前面的后台标签不使当前读取失效"会被破坏：标签建出来却没人显示）。
+  const activeAtStart = live.activeTabId ?? null;
   const started = performance.now();
   // 快速连续打开时只接纳最后一次选择：晚到的旧响应不得覆盖新文档。
   const token = ++documentToken;
@@ -12891,8 +12901,15 @@ async function openDocument(path, options = {}) {
     }
 
     // 打开为标签；openDocumentTab 同步写入 live.document / live.editor。
+    // `activate` 必须与"读取开始时的活动标签"对账：用户在读取期间切到**另一个仍然存在**的标签就
+    // 不再显示这个结果；原来的标签被关掉（活动标签置空或让给邻居）不算切走，仍要显示。
+    const activeNow = live.activeTabId ?? null;
+    const switchedAway = activeNow !== null && activeNow !== activeAtStart;
     live.tabs ??= [];
-    openDocumentTab(path, payload, { preview, activate });
+    openDocumentTab(path, payload, {
+      preview,
+      activate: activate && !switchedAway,
+    });
     window.__augitMarks = Object.assign(window.__augitMarks || {}, {
       open: Math.round(performance.now() - started),
     });
