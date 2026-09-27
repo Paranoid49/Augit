@@ -6385,6 +6385,92 @@ async function main() {
         && mdBackgroundAfter.tabStillV1 === true);
     await mdBackground.page.close();
 
+    // ---- 规格 §7.3 第 9 条：阻止的图片在原位置显示紧凑错误、不使整个预览失败；
+    //      工作区相对图片按文档目录解析并加载 ----
+    const mdImages = await openScene('scene=main-project&theme=dark');
+    await mdImages.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await mdImages.page.waitForTimeout(500);
+    await mdImages.page.evaluate(async () => {
+      const source = [
+        '# 图片用例',
+        '',
+        '![远程图片](https://example.com/remote.png)',
+        '',
+        '![缺失图片](assets/missing.png)',
+        '',
+        '![越界图片](../../secret.png)',
+        '',
+        '![协议图片](file:///C:/Windows/x.png)',
+        '',
+        '![有效图片](assets/logo.png)',
+        '',
+        '![非图片](notes.txt)',
+        '',
+        '## 正文',
+        '',
+        '后面这段正文必须完好。',
+      ].join('\n');
+      window.__limitDocs = window.__limitDocs || {};
+      window.__limitDocs['docs/img.md'] = {
+        path: 'docs/img.md', name: 'img.md', fullPath: 'D:\\live-ws\\docs\\img.md',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+        fileSize: source.length, text: source, lineEndings: 'LF', encoding: 'UTF-8',
+      };
+      await window.__augitOpenDocument('docs/img.md');
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    await mdImages.page.waitForSelector('.markdown-document', { timeout: 10000 });
+    await mdImages.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+    // 等有效图片真的解码出来（`resolveMarkdownImages()` 是异步的）。
+    await mdImages.page.waitForFunction(
+      "() => [...document.querySelectorAll('.markdown-preview img')].some((img) => img.naturalWidth > 0)",
+      null, { timeout: 10000 }).catch(() => {});
+    await mdImages.page.waitForTimeout(300);
+    const mdImageState = await mdImages.page.evaluate(() => {
+      const preview = document.querySelector('.markdown-preview');
+      const paragraphs = [...preview.querySelectorAll('p')].map((item) => ({
+        text: item.textContent.trim(),
+        blocked: !!item.querySelector('.markdown-blocked'),
+        hasImage: !!item.querySelector('img'),
+        // "在原位置"= 阻止说明仍在该图片自己的段落里（不是被挪到预览顶部或整体失败页）
+        inPlace: !!item.querySelector('.markdown-blocked'),
+        title: (item.querySelector('.markdown-blocked') || {}).title || null,
+      }));
+      const images = [...preview.querySelectorAll('img')].map((img) => ({
+        alt: img.getAttribute('alt'),
+        dataUrl: String(img.getAttribute('src') || '').startsWith('data:'),
+        hidden: img.hidden,
+        naturalWidth: img.naturalWidth,
+      }));
+      return {
+        paragraphs,
+        images,
+        intact: preview.textContent.includes('后面这段正文必须完好'),
+        headings: [...preview.querySelectorAll('h2')].map((h) => h.textContent.trim()),
+      };
+    });
+    const mdImgBlockedText = mdImageState.paragraphs.filter((item) => item.blocked).map((item) => item.text).join(' | ');
+    const mdImgBlockedTitles = mdImageState.paragraphs.filter((item) => item.blocked).map((item) => item.title).join(' | ');
+    check('§7.3 阻止的图片在原位置显示紧凑错误且不破坏预览: ' + JSON.stringify(mdImageState),
+      // 远程 / 缺失 / 越界 / 协议不支持 四类各自在自己的段落里给出紧凑说明与原因
+      mdImgBlockedText.includes('远程图片') && mdImgBlockedText.includes('远程图片已阻止')
+        && mdImgBlockedText.includes('缺失图片') && mdImgBlockedText.includes('路径不存在')
+        && mdImgBlockedText.includes('越界图片') && mdImgBlockedText.includes('目标越出工作区')
+        && mdImgBlockedText.includes('协议图片') && mdImgBlockedText.includes('不支持该地址或协议')
+        && mdImgBlockedTitles.includes('https://example.com/remote.png')
+        && mdImgBlockedTitles.includes('路径不存在。') && mdImgBlockedTitles.includes('目标越出工作区。')
+        // 阻止都发生在**原段落**里，且预览其余部分（正文段落与标题）完好
+        && mdImageState.paragraphs.filter((item) => item.blocked).every((item) => item.inPlace === true)
+        && mdImageState.intact === true && mdImageState.headings.includes('正文'));
+    check('§7.3 工作区相对图片按文档目录解析并加载、非图片给原因: ' + JSON.stringify(mdImageState.images),
+      // `assets/logo.png` 相对 `docs/img.md` 解析成 `docs/assets/logo.png`，宿主位图真的解码了
+      mdImageState.images.length === 1
+        && mdImageState.images[0].alt === '有效图片' && mdImageState.images[0].dataUrl === true
+        && mdImageState.images[0].hidden === false && mdImageState.images[0].naturalWidth > 0
+        // `notes.txt` 不是图片：在原位置给出原因
+        && mdImgBlockedText.includes('非图片') && mdImgBlockedText.includes('不是可预览的图片'));
+    await mdImages.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

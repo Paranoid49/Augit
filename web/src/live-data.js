@@ -4853,6 +4853,73 @@ function restoreMarkdownCaretAfterRender() {
   restoreMarkdownCaret(source, live.markdownCaret);
 }
 
+/** 解析 Markdown 预览里工作区相对图片的代次：文档/正文换代后不再回写。 */
+let markdownImageToken = 0;
+
+/**
+ * 解析并加载 Markdown 预览里的**工作区相对图片**（规格 §7.3「阻止的图片在原位置显示紧凑错误」）。
+ *
+ * 渲染器只把"不可能是工作区相对路径"的地址（远程、绝对路径/盘符/UNC、其它协议）就地阻止；
+ * 相对候选在这里按**当前文档目录**解析：越界、不存在、目录、宿主读不出位图都在原位置换成紧凑错误
+ * （保留 `alt` 文字与原因），成功则把宿主返回的 `data:` 位图写进 `<img>`。
+ * WebView 没有工作区文件服务，直接用相对地址必然加载失败、只剩一张破图且没有任何原因。
+ */
+async function resolveMarkdownImages() {
+  const live = window.__augitLive;
+  if (!live || !live.document || live.document.kind !== "Markdown") return;
+  const preview = document.querySelector(".editor-content .markdown-preview");
+  if (!preview) return;
+  const pending = [...preview.querySelectorAll("img[data-markdown-image]")];
+  if (pending.length === 0) return;
+  const documentPath = live.document.path;
+  const token = ++markdownImageToken;
+  for (const image of pending) {
+    const raw = image.getAttribute("data-markdown-image") || "";
+    // 只处理一次：就地更新会重建预览节点，新节点会重新带上这个属性。
+    image.removeAttribute("data-markdown-image");
+    const blocked = (reason) => {
+      const replacement = document.createElement("span");
+      replacement.className = "markdown-blocked";
+      replacement.setAttribute("title", reason);
+      replacement.textContent = `${image.getAttribute("alt") || raw}（图片已阻止：${reason}）`;
+      image.replaceWith(replacement);
+    };
+    let decoded = raw;
+    try { decoded = decodeURIComponent(raw); } catch { /* 保留原文 */ }
+    const resolved = resolveMarkdownTarget(decoded.split("#")[0].split("?")[0], documentPath);
+    if (!resolved) { blocked("目标越出工作区。"); continue; }
+    const parent = resolved.split("/").slice(0, -1).join("/");
+    const name = resolved.split("/").at(-1);
+    let entry = null;
+    try {
+      const listing = await invoke("workspace/list", { path: parent }, 15000);
+      entry = ((listing && listing.entries) || []).find((item) => item && item.name === name) || null;
+    } catch {
+      blocked("无法确认目标是否存在。");
+      continue;
+    }
+    if (token !== markdownImageToken) return;
+    if (!image.isConnected) continue;
+    if (!entry) { blocked("路径不存在。"); continue; }
+    if (entry.isDirectory) { blocked("目标是目录，不是图片。"); continue; }
+    let payload = null;
+    try {
+      payload = await invoke("document/read", { path: entry.path || resolved }, 30000);
+    } catch (error) {
+      blocked(String((error && error.message) || error || "无法读取图片。"));
+      continue;
+    }
+    if (token !== markdownImageToken) return;
+    if (!image.isConnected) continue;
+    if (payload && payload.dataUrl) {
+      image.src = payload.dataUrl;
+      image.hidden = false;
+    } else {
+      blocked((payload && payload.reason) || "该文件不是可预览的图片。");
+    }
+  }
+}
+
 /**
  * 每次渲染后重新挂上动作与恢复状态。
  *
@@ -5485,6 +5552,8 @@ function rebindAfterRender() {
   applyTerminalStartState();
   // Markdown 原文的选区跨刷新保留（规格 §7.3：外部更新复用原文控件、保留选择）。
   restoreMarkdownCaretAfterRender();
+  // Markdown 预览里工作区相对图片的解析/阻止（规格 §7.3：阻止的图片在原位置显示紧凑错误）。
+  void resolveMarkdownImages();
   restoreAmendDraft();
   // 重绘路径先按状态对齐一次（不消费）：详情可能是**缓存重绘**，不会再走异步收尾；
   // 随后的定点刷新还可能再替换一次详情，所以再排一次短延时对齐。

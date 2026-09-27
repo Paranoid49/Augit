@@ -19,13 +19,23 @@ function renderInline(text) {
   output = output.replace(/~~([^~]+)~~/g, "<del>$1</del>");
   output = output.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   output = output.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
-  // 图片：仅相对路径与 data: 直接呈现，远程地址给出去网络请求的占位说明。
+  // 图片（规格 §7.3）：远程地址、绝对路径/盘符/UNC 与其它协议**一律阻止**，在原位置给出紧凑说明；
+  // 剩下的工作区相对候选交给实时层按当前文档目录解析、校验并加载（渲染器没有宿主，静态场景下
+  // 这些候选会停在未加载状态，不会发任何请求）。
   output = output.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, source) => {
-    const remote = /^(https?:)?\/\//i.test(source);
-    if (remote) {
-      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">远程图片已阻止：${escapeHtml(alt || source)}</span>`;
+    const label = escapeHtml(alt || source);
+    if (/^data:image\//i.test(source)) {
+      return `<img src="${escapeAttribute(source)}" alt="${escapeAttribute(alt)}">`;
     }
-    return `<img src="${escapeAttribute(source)}" alt="${escapeAttribute(alt)}">`;
+    if (/^(https?:)?\/\//i.test(source)) {
+      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">远程图片已阻止：${label}</span>`;
+    }
+    if (/^[\\/]/.test(source) || /^[a-zA-Z]:/.test(source)
+        || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(source)) {
+      // 与链接侧同一格式：**保留原标签文字**并附上原因。
+      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">${label}（图片已阻止：不支持该地址或协议。）</span>`;
+    }
+    return `<img data-markdown-image="${escapeAttribute(source)}" alt="${escapeAttribute(alt)}" hidden>`;
   });
   output = output.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, target) => {
     const external = /^(https?:)?\/\//i.test(target) || /^mailto:/i.test(target);

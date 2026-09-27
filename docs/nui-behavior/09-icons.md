@@ -10162,3 +10162,49 @@ process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收�
 ### 下一轮
 
 §7.3 剩第 3、13 条（B 类：像素/间接证据）与第 9 条（阻止图片的紧凑错误）；转其它 §7 模块。
+
+## octoginta-tres. 第二百八十三轮：Markdown 预览里的图片阻止与相对图片加载（§7.3 第 9 条收口）
+
+### 缺口
+
+第 283 轮实测：只有**远程**图片被就地阻止；工作区相对图片（`assets/missing.png`）、越界图片
+（`../../secret.png`）与协议图片（`file:///…`）都渲染成 `<img>` —— WebView 没有工作区文件服务，
+三者全部加载失败、只剩**没有原因的破图**（`naturalWidth: 0`），越界图片甚至还发了一次工作区外请求。
+
+### 实现
+
+- `markdown.js`：图片分支改成三档 —— `data:image/` 仍内联；远程地址换成「远程图片已阻止：<alt>」；
+  **绝对路径/盘符/UNC 与其它协议**换成「<alt>（图片已阻止：不支持该地址或协议。）」（与链接侧同一格式，
+  保留原标签文字）；其余工作区相对候选渲染成 `<img data-markdown-image="…" hidden>`，**不发任何请求**。
+- `live-data.js`：新增 `resolveMarkdownImages()`（`rebindAfterRender()` 里调用）。按**当前文档目录**
+  用 `resolveMarkdownTarget()` 解析，然后 `workspace/list` 查存在性、`document/read` 取位图：
+  越界→「目标越出工作区。」、查不到→「路径不存在。」、目录→「目标是目录，不是图片。」、
+  没有位图→宿主原因；成功则把 `data:` 位图写进 `<img>` 并取消 `hidden`。异步收尾带代次与
+  `isConnected` 校验，晚到结果不会写进已换代的视图。
+
+### 实测
+
+`docs/img.md`：六个图片各自的行为都正确 —— 远程/缺失/越界/协议四类都在**自己的段落**里带原因，
+`assets/logo.png` 解析成 `docs/assets/logo.png` 并真的解码（`dataUrl`、`naturalWidth 400`），
+`notes.txt` 给「不是可预览的图片。」；预览其余正文段落与 `## 正文` 标题完好。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.3 阻止的图片在原位置显示紧凑错误且不破坏预览` |
+| 2 | `§7.3 工作区相对图片按文档目录解析并加载、非图片给原因` |
+
+### 验证
+
+- `live-shell` **`通过 1406 项断言`**（1404 → **+2**），退出码 0。
+- 登记哈希：`markdown.js`（第 283 轮加入哈希表）→ **`192c3443bbe1a28bba7459160c3d35b4`**、
+  `live-data.js` `059bff3e…` → **`54b03f0bca18a0a8cd8747b9fafe5b8d`**、
+  `live-shell.spec.cjs` `6fc8f871…` → **`5120afd2828b35e5730c4bd2e68c89c8`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 282 轮逐个相同。
+- §7.3 第 9 条转 **是**（§2.10：分母 29 → **28**、A 15 → **14**）。
+- 同批：`verify-ux-markdown` 6 组三模式 + 2 组拖动边界、`mockup-scenes` 55/55、`verify-ui-assets` PASS。
+
+### 下一轮
+
+§7.3 只剩第 3、13 两条 B 类（像素/间接证据）；转 §7.1／§7.2／§7.4／§7.15／§7.17／§9 的 A 类队列。

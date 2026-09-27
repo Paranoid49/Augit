@@ -303,6 +303,8 @@
 
 **第 282 轮**实现 §7.3 第 11 条并断言三半，该条转 **是**（§2.10：分母 30 → **29**、D 10 → **9**）。实现：`liveMarkdownDocument()` 加 `data-document-path`；`refresh()` 在替换 `editorContent` 前调 `reuseMarkdownViewInPlace()` —— 同一 Markdown 文档/路径/编辑器时只换 `.markdown-source` 与 `.markdown-preview` 的**内容**，控件本体留在原地，成功则把 `editorContent` 从区域列表去掉；选区进 `live.markdownCaret`（行号+偏移，渲染后按行复原）；原文滚动在替换 `innerHTML` 前后显式写回。**三处连带修正**：① `bindMarkdownModes()` 末尾原无条件 `setRatio()`，把 0.7 四舍五入成 0.6927，改为已有比例不重算；② `current-find.js` 重绑定时新闭包走 `search()`→`select(false)` 会把原文滚动拽回当前匹配（260→第 3 行），`wire(preservePosition)` 在重绑时传 true（恢复高亮但不滚动）；③ 直接在就地更新里抓选区无效（`innerHTML` 替换后选区已落到容器），改用状态化复原。断言：节点身份全同 + 比例 0.7/原文滚动 260/预览滚动 180/选区第 13 行/模式 split/查找条（查询词与焦点）全部保持且内容换成新版本；两次连续更新的版本序列单调不降且最终停最后一次；隐藏标签不重读、不建正文、内容仍旧。共 3 条新断言（1401 → **1404**）。
 
+**第 283 轮**收口 §7.3 第 9 条的图片侧，该条转 **是**（§2.10：分母 29 → **28**、A 15 → **14**）。实测缺口：只有远程图片被阻止，工作区相对 `assets/missing.png`、越界 `../../secret.png`、协议 `file:///…` 都渲染成 `<img>` —— WebView 没有工作区文件服务，三者全部加载失败、只剩**没有原因的破图**（`naturalWidth: 0`），越界图片还发了一次工作区外请求。实现：`markdown.js` 把远程/绝对/盘符/UNC/其它协议就地换成 `.markdown-blocked`（保留 `alt` 与原因，与链接侧同格式；`data:image/` 仍内联），相对候选渲染成 `<img data-markdown-image hidden>` 不发请求；`live-data.js` 新增 `resolveMarkdownImages()`（`rebindAfterRender()` 调用）按当前文档目录解析、`workspace/list` 校验、`document/read` 取位图，越界/不存在/目录/无位图各有原因并就地替换，成功则写入 `data:` 位图（带代次与 `isConnected` 校验）。实测六类：远程/缺失/越界/协议各自在原段落带原因，`assets/logo.png` 真的解码（`naturalWidth 400`），`notes.txt` 给「不是可预览的图片。」，预览其余正文与标题完好。共 2 条新断言（1404 → **1406**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
