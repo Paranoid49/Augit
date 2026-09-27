@@ -20457,6 +20457,92 @@ async function main() {
       && diffLoadRules.lastWins.ignorePressed === 'true'
       && diffLoadRules.lastWins.editor === 'diff');
 
+    // ---- 第 266 轮：引用查询在自身区域给出"取消比较"（§7.9 第二十条）----
+    const branchCancel = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForTimeout(700);
+      // 让引用查询慢下来（桩的 __historyDelayMs 作用于 git/history）
+      await page.evaluate(() => {
+        window.__compareRange = [{
+          hash: 'ccc3333', fullHash: 'full-compare-1', subject: 'feat: 比较范围一', author: 'l49',
+          date: '2026/9/16 10:00', references: [], parents: [],
+        }];
+        window.__historyDelayMs = 1200;
+      });
+      // 真实入口：引用树选中非当前分支 → 竖条「与当前分支比较」
+      await page.evaluate(() => {
+        const row = document.querySelector('.log-ref-panel .tree-row[data-ref-kind="branch"][data-ref-name="feature/ux"]');
+        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(700);
+      await page.evaluate(() => {
+        const stripe = document.querySelector('.git-side-toolbar [data-ref-stripe="show-diff"]');
+        if (stripe) stripe.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('!!(window.__augitLive.branchComparison || {}).loading', null, { timeout: 10000 });
+      await page.waitForTimeout(250);
+      const snap = () => page.evaluate(() => {
+        const compare = window.__augitLive.branchComparison || null;
+        const header = document.querySelector('.bottom-tool .bottom-header');
+        const cancel = document.querySelector('[data-branch-compare-cancel="true"]');
+        return {
+          loading: compare ? !!compare.loading : null,
+          cancelled: compare ? !!compare.cancelled : null,
+          branch: compare ? compare.branch : null,
+          commits: compare && compare.commits ? compare.commits.length : null,
+          headerCancel: !!cancel,
+          headerCancelLabel: cancel ? cancel.getAttribute('aria-label') : null,
+          headerText: header ? header.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) : null,
+          panelText: (() => { const el = document.querySelector('.history-list-pane'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : null; })(),
+          toast: document.querySelector('.toast, .toast.error') ? document.querySelector('.toast, .toast.error').textContent.trim() : null,
+          editorLoading: !!document.querySelector('.editor-content .diff-layout[data-augit-loading]'),
+          statusbar: (() => { const el = document.querySelector('.statusbar'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : null; })(),
+          historyCalls: window.__historyCalls || 0,
+          bottomKind: (() => {
+            const tab = document.querySelector('.bottom-tool .tool-tab.active');
+            return tab ? tab.textContent.trim().slice(0, 30) : null;
+          })(),
+        };
+      });
+      const loading = await snap();
+      // 取消：点自身区域的「取消比较」
+      await page.locator('[data-branch-compare-cancel="true"]').click();
+      await page.waitForTimeout(300);
+      const cancelled = await snap();
+      // 越过注入延迟：晚到的响应不得把已取消的比较填回来
+      await page.waitForTimeout(1400);
+      const afterLate = await snap();
+      await page.evaluate(() => { window.__historyDelayMs = 0; window.__compareRange = null; });
+      await page.close();
+      console.log('INFO 引用取消=' + JSON.stringify({ loading, cancelled, afterLate, errors }));
+      return { loading, cancelled, afterLate, errors };
+    })();
+    check('§7.9 引用查询在历史面板自身区域显示「取消比较」、不写全局提示，完成后隐藏入口且晚到响应不回填: '
+      + JSON.stringify([branchCancel.loading, branchCancel.cancelled, branchCancel.afterLate]),
+    branchCancel.errors.length === 0
+      // 查询期间：面板自身区域出现「取消比较」，面板给出自己的加载文案，比较标签保持在前台
+      && branchCancel.loading.loading === true && branchCancel.loading.headerCancel === true
+      && branchCancel.loading.headerCancelLabel === '取消比较'
+      && branchCancel.loading.panelText.includes('正在读取差异提交')
+      && branchCancel.loading.bottomKind.includes('比较: feature/ux')
+      // 不写全局提示：没有 toast、状态栏不变（也没有编辑区加载态）
+      && branchCancel.loading.toast === null && branchCancel.loading.statusbar === 'live-ws'
+      && branchCancel.loading.editorLoading === false
+      // 取消后：入口隐藏、面板说明改为"比较已取消。"、仍然没有全局提示、比较标签不被关掉（可重试）
+      && branchCancel.cancelled.loading === false && branchCancel.cancelled.cancelled === true
+      && branchCancel.cancelled.headerCancel === false
+      && branchCancel.cancelled.panelText.includes('比较已取消')
+      && branchCancel.cancelled.toast === null
+      && branchCancel.cancelled.bottomKind.includes('比较: feature/ux')
+      // 越过注入延迟：晚到的响应不得把已取消的比较填回来
+      && branchCancel.afterLate.cancelled === true && branchCancel.afterLate.commits === 0
+      && branchCancel.afterLate.headerCancel === false
+      && branchCancel.afterLate.panelText.includes('比较已取消'));
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

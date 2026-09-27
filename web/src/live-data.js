@@ -7814,9 +7814,15 @@ async function updateSelectedBranch(names) {
  *   ⇒ `branchName = b1`（选中集里的**第一个**）、`otherBranchName = b2`（第二个），范围 `b2..b1`
  *   —— 方向按 `BranchesTreeSelection.selectedBranches` 的顺序，与权威逐字一致。
  */
+// 引用比较的代际：取消或换分支时前进，旧响应据此作废（规格 §7.9 第二十条/第二十一条）。
+let branchComparisonToken = 0;
+
 async function openBranchComparison(branchName, otherBranchName = null) {
   const live = window.__augitLive;
   if (!live || !branchName) return null;
+  // 引用查询的代际（规格 §7.9 第二十条/第二十一条）：用户点"取消比较"或又比较了别的分支时，
+  // 旧响应一律作废，不得把已取消的比较重新填回来。
+  const token = ++branchComparisonToken;
   const base = otherBranchName || currentBranchName() || "HEAD";
   // 进入前的底部上下文：与文件历史同一套往返规则（点「日志」标签或关闭比较即恢复）。
   const layout = (typeof currentLayout === "function" ? currentLayout() : null) || live.layout || {};
@@ -7843,7 +7849,8 @@ async function openBranchComparison(branchName, otherBranchName = null) {
   }, 60000).catch(() => null);
   const liveNow = window.__augitLive;
   if (!liveNow || !liveNow.branchComparison) return null;
-  // 期间又比较了别的分支（或已经关闭）：只接纳最新一次的结果。
+  // 用户取消（或期间又比较了别的分支/已经关闭）：只接纳最新一次的结果。
+  if (token !== branchComparisonToken) return liveNow.branchComparison;
   if (liveNow.branchComparison.branch !== branchName || liveNow.branchComparison.base !== base) {
     return liveNow.branchComparison;
   }
@@ -11499,6 +11506,16 @@ document.addEventListener("click", (event) => {
   if (!cancel) return;
   event.preventDefault();
   const live = window.__augitLive;
+  // 引用比较的**自身区域**入口（规格 §7.9 第二十条）：取消这次引用查询并隐藏该入口，
+  // 晚到的响应由代际令牌拦掉（不关面板、不写全局提示）。
+  if (cancel.dataset && cancel.dataset.branchCompareCancel === "true") {
+    branchComparisonToken += 1;
+    if (live && live.branchComparison) {
+      live.branchComparison = { ...live.branchComparison, loading: false, cancelled: true, commits: [] };
+    }
+    refreshAfterEvent("bottomTool", "statusbar");
+    return;
+  }
   comparisonGeneration += 1;          // 在途请求的收尾据此失效（同一套代际机制）
   clearDiffLoadingMarker();
   if (live) live.diffLoading = false;

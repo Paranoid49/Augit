@@ -4344,12 +4344,19 @@ function liveBranchCompareTool() {
   const compare = window.__augitLive.branchComparison || {};
   const commits = compare.commits || [];
   const rows = commits.length === 0
-    ? `<p class="commit-meta">${compare.loading ? "正在读取差异提交…" : escapeHtml(compare.reason || "两个引用之间没有独有提交")}</p>`
+    ? `<p class="commit-meta">${compare.loading ? "正在读取差异提交…"
+      : compare.cancelled ? "比较已取消。"
+        : escapeHtml(compare.reason || "两个引用之间没有独有提交")}</p>`
     : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
   const head = commits[0];
   const base = compare.base || "HEAD";
   const branch = compare.branch || "HEAD";
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">比较: ${escapeHtml(branch)} 与 ${escapeHtml(base)}</button><span class="grow"></span><button class="icon-button" aria-label="关闭比较" data-branch-compare-close="true">${icon("x")}</button><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>${escapeHtml(`${base}..${branch}`)}</span><span class="toolbar-separator"></span><span class="commit-meta">${commits.length} 个提交</span><span class="grow"></span><button class="icon-button" aria-label="刷新" data-branch-compare-refresh="true">${icon("refresh-cw")}</button><button class="icon-button" aria-label="显示提交详情">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+  // 规格 §7.9 第二十条：历史面板发起引用查询时**在自身区域**显示"取消比较"（不是全局"正在生成 diff"提示），
+  // 查询完成后隐藏该入口。
+  const cancelEntry = compare.loading
+    ? '<button class="toolbar-button" data-branch-compare-cancel="true" aria-label="取消比较">取消比较</button>'
+    : "";
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">比较: ${escapeHtml(branch)} 与 ${escapeHtml(base)}</button><span class="grow"></span>${cancelEntry}<button class="icon-button" aria-label="关闭比较" data-branch-compare-close="true">${icon("x")}</button><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>${escapeHtml(`${base}..${branch}`)}</span><span class="toolbar-separator"></span><span class="commit-meta">${commits.length} 个提交</span><span class="grow"></span><button class="icon-button" aria-label="刷新" data-branch-compare-refresh="true">${icon("refresh-cw")}</button><button class="icon-button" aria-label="显示提交详情">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
 }
 
 function fileHistoryTool() {

@@ -469,3 +469,12 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 - **响应不回写 `live.diffMode`**：显示模式是用户状态，由 `switchDiffMode()` 设置；响应只提供内容。
   此前 `loadDiff()` 写回 `parts.mode`，加载期间切模式会被响应吞掉（实测切完仍是双栏）。
 - **重复点击当前模式不排版不查询**：视觉稿的模式按钮处理器此前在"模式没变"时仍回调外壳刷新 ⇒ 白排一次版。
+
+## 引用比较的「取消比较」入口（第 266 轮）
+
+规格 §7.9 第二十条：历史面板发起引用查询时"在自身区域显示'取消比较'、不写全局'正在生成 diff'提示、完成后隐藏入口"。
+实时侧此前没有这个入口（视觉稿样例里那个 `<a href="history-diff-cancelled.html">` 点了会离开应用）。
+现在 `liveBranchCompareTool()` 在 `compare.loading` 时于底部面板头部渲染 `取消比较`
+（`data-branch-compare-cancel` + `aria-label`），列表区三态各有文案（正在读取／比较已取消／无独有提交）；
+`live-data.js` 新增代际令牌 `branchComparisonToken`：取消时前进令牌并把状态置为
+`{ loading: false, cancelled: true, commits: [] }`，晚到的响应据此作废（不关面板、可重试、不写全局提示）。
