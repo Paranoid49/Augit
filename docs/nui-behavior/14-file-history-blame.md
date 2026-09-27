@@ -338,3 +338,21 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
 | 失败/空差异 | `.comparison-notice` `tabIndex === 0`、`role="status"`、状态 `Binary`、0 行差异行 |
 
 工具窗口内的 Tab 落点因此从 12 个变成 **13** 个（多出"差异正文"），第 259 轮的轨迹断言随之一并更新。
+
+## Blame 的关闭入口与"切换文件使在途归属失效"（第 262 轮）
+
+两处真实缺陷：
+
+1. **实时模式里"关闭 Blame"换进视觉稿样例文档**：`mockup.js` 的 `bindBlame()` 给静态视觉稿实现的关闭链路
+   会把正文换成 `markdownView("source")` 的样例 Markdown。实时外壳也加载 `mockup.js` ⇒ 实测关闭后正文变成
+   "Augit › docs › product-spec.md … Augit 产品概要"，而 `live.blame` 仍在、`live.editor` 仍是 `blame`。
+   修法：`window.__augitLive.blame` 存在时样例分支直接返回，实时链路由 `closeBlameView()` 独占。
+2. **切换普通文件时在途的归属把视图抢回 Blame**：`loadBlame()` 用 `detailViewToken` 做"只接纳最后一次"，
+   但打开普通文档不会前进令牌 ⇒ 晚到的归属把 `live.editor` 改回 `blame`（而 `live.document` 已是新文档）。
+   修法：`openDocument()` 开头 `detailViewToken += 1`。
+
+`closeBlameView()`（规格第十一条）：前进令牌使在途归属失效 → 清 `live.blame` → `openDocument(path)` 恢复该文件的
+只读文档视图 → **在 `openDocument()` 之后**按 `live.document` 定 `live.editor`（同路径标签已激活时它会直接返回）
+→ `refresh()` 之后把焦点交回正文（立刻 + 60ms 各对齐一次：区域重绘后还有异步排版收尾会再动正文节点）。
+实测：关闭后 `editor=text`、正文是 stub 的真实内容（`第一行…第三行`）、无 `.markdown-document`、焦点在
+`notes.txt 只读正文`；关闭/切换时在途的归属越过注入延迟后都不再改视图。

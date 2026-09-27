@@ -4710,6 +4710,44 @@ document.addEventListener("keydown", (event) => {
 }, true);
 
 /**
+ * 关闭 Blame 视图（规格 §7.9 第十一条）。
+ *
+ * 关闭入口要把"对应文件类型的工具栏 + 当前原文"还给用户：复用同路径的普通标签，没有就按只读文档打开。
+ * 同时**使在途查询失效**（规格第十条：关闭目标文件使旧请求失效）—— 令牌前进后晚到的归属不得回写，
+ * 否则关闭后正文会被重新换成 Blame。
+ */
+async function closeBlameView() {
+  const live = window.__augitLive;
+  if (!live || !live.blame) return false;
+  const path = live.blame.path;
+  detailViewToken += 1;
+  live.blame = null;
+  if (path) await openDocument(path).catch(() => null);
+  // 视图类型必须在 `openDocument()` 之后按 `live.document` 定：同路径标签已激活时它直接返回，
+  // 不会替我们改 `live.editor`（第 262 轮实测：不补这一步会留下"标签是活动文档、正文却是空态"）。
+  live.editor = live.document ? live.document.editor : "empty";
+  // 正文节点也要在重绘之后才存在 ⇒ 先刷新，再把焦点交回正文（规格第十一条）。
+  refresh("editorContent", "editorTabs", "statusbar");
+  // 区域重绘之后还有**异步的排版收尾**（`applyTypographyPreview()` 等）会再动一次正文节点，
+  // 因此对齐两次：立刻一次、下一个任务再一次（第 262 轮实测：只对齐一次时 `activeElement` 会掉回 body）。
+  const focusBody = () => {
+    const body = document.querySelector(".editor-content .code-view");
+    if (body) body.focus({ preventScroll: true });
+  };
+  focusBody();
+  if (typeof setTimeout === "function") setTimeout(focusBody, 60);
+  return true;
+}
+
+// Blame 头部的关闭入口（规格 §7.9 第十一条）：实时模式下由这里接管样例链路。
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest('[aria-label="关闭 Blame"]');
+  if (!button || !window.__augitLive || !window.__augitLive.blame) return;
+  event.preventDefault();
+  void closeBlameView();
+}, true);
+
+/**
  * 把"提交详情显隐"落到 DOM（规格 §7.9 条目三的"详情显隐"）。
  *
  * 此前这个状态**只写在 DOM 上**（`panel.style.display`）⇒ 底部工具窗一重绘（进入/离开文件历史、
@@ -12664,6 +12702,10 @@ async function openDocument(path, options = {}) {
   const { preview = false, activate = true } = options;
   const live = window.__augitLive;
   if (!live) return;
+  // 切换普通文件使**在途的 Blame／文件历史详情**失效（规格 §7.9 第十条）：它们与文档区共用
+  // `detailViewToken`，旧响应晚到时不得把视图抢回 Blame（第 262 轮实测：不前进令牌时，
+  // 打开另一个文档后晚到的归属会把编辑区换回 Blame，而 `live.document` 仍是新文档）。
+  detailViewToken += 1;
   live.tabs ??= [];
   // 已经是激活标签且不要求转为正式标签：无需重复读取。
   const current = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);

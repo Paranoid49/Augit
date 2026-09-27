@@ -9131,3 +9131,61 @@ Blame 旧请求失效、比较视图的字号/窄宽度适配与失败摘要按�
 
 继续 §7.9 余下条目：Blame 未完成查询失效与"只接纳最后一次"、比较视图的字号/窄宽度适配、
 失败与摘要按模式显示双方身份、比较标签三段独立省略与前 8 位截断等。
+
+## sexaginta-duo. 第二百六十二轮：Blame 的关闭与"切换文件使旧请求失效"（§7.9 第十/十一条）
+
+这一轮从 Blame 关闭入口实测起，直接挂出**两处真实缺陷**：关闭 Blame 会把视觉稿的样例 Markdown 文档换进实时界面；
+切换普通文件时在途的归属会把视图抢回 Blame。两处都修掉并补断言。
+
+### 缺陷一：实时模式里"关闭 Blame"换进视觉稿样例文档
+
+`mockup.js` 的 `bindBlame()` 为静态视觉稿实现了一条关闭链路（把正文换成 `markdownView("source")` 的**样例**
+Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正文变成"Augit › docs › product-spec.md 只读 … Augit 产品概要"，
+而 `live.blame` 仍然存在、`live.editor` 仍是 `blame` —— 视图与状态互相矛盾。
+修法：`window.__augitLive.blame` 存在时该样例分支直接返回，实时链路由 `live-data.js` 的 `closeBlameView()` 独占。
+
+### 缺陷二：切换普通文件时在途的归属把视图抢回 Blame
+
+`loadBlame()` 用 `detailViewToken` 做"只接纳最后一次"，但**打开普通文档不会前进令牌** ⇒ 实测在途归属晚到时
+`live.editor` 被改回 `blame`、编辑区换成旧归属（而 `live.document` 已是新文档）。修法：`openDocument()` 开头
+`detailViewToken += 1`（与 `loadBlame`／`loadFileHistory` 共用同一令牌），旧响应随即作废。
+
+### `closeBlameView()`（规格第十一条）
+
+- 前进令牌使在途归属失效；
+- 清 `live.blame`，并**在 `openDocument()` 之后**按 `live.document` 定 `live.editor`
+  （同路径标签已激活时 `openDocument()` 会直接返回、不替我们改这个键 —— 实测漏掉这一步会留下"标签是活动文档、正文却是空态"）；
+- `refresh()` 后再把焦点交回正文：区域重绘之后还有异步排版收尾会再动一次正文节点，因此对齐两次
+  （立刻 + 60ms；实测只对齐一次时 `activeElement` 掉回 `body`）。
+
+### 判据（实测）
+
+| 步骤 | 结果 |
+| --- | --- |
+| 关闭前 | `editor=blame`、3 行归属、`blameCalls=1`、`readCalls=0` |
+| 关闭后 | 焦点在 `.editor-content .code-view`（`aria-label` = `notes.txt 只读正文`）；`editor=text`、`blame=false`、`docPath=docs/notes.txt`、正文是 stub 的真实内容（`第一行…第三行`）、**没有** `.markdown-document`、0 行归属、`readCalls=1` |
+| 关闭时在途（「标注上一修订」慢 1.2s） | 越过延迟后仍是文档视图（`editor=text`、0 行归属）—— 未修前会被换回 Blame |
+| 切换文件时在途 | 打开 `docs/product-spec.md` 后：`editor=markdown`、正文是**真实 Markdown 原文**（`# 真实标题`）、0 行归属 —— 未修前视图被抢回 Blame |
+
+### 新增断言（`live-shell`，2 条）+ 桩旋钮
+
+- `§7.9 实时外壳里关闭 Blame 恢复该文件的真实只读文档视图、交回焦点并使在途归属失效`
+- `§7.9 切换普通文件使在途的 Blame 失效，旧归属不得抢回视图`
+- 新桩旋钮 `__blameDelays`（按路径注入归属查询延迟；与 `__diffCommitDelays` 同一用途）。
+
+### 验证
+
+- `live-shell` **`通过 1335 项断言`**（1333 → **+2**），退出码 0。
+- 共享视觉稿改了 `mockup.js`（两副本字节一致）⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、
+  `mockup-scenes` **55/55**、`verify-ux-blame` **PASS=24**（静态视觉稿的关闭链路仍按原样工作）。
+- 登记哈希：`mockup.js` `2249d659cf9ffd6fceafeb4774bee761` → **`0c8c9e8ff253847d13d51c19af2d8c41`**；
+  `live-data.js` `f24b9deede593ad52b088275780a1794` → **`74c1c5afceee0c3be099723871648f06`**；
+  `live-shell.spec.cjs` `fbdfaeb589fb3aaabd8e4092b94b0a31` → **`7eb7e08d3032f50e89a61b379382988a`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 未变。
+- §2.10 口径不变（分母 63／A 46／D 12／B 4／E 1）：第十条登记"关闭目标文件""切换普通文件"两半已断言，
+  **比较标签／隐藏工具窗口／切换工作区**三半仍未断言；第十一条补上"关闭后恢复工具栏与原文、交回焦点"。
+
+### 下一轮
+
+补 §7.9 第十条余下三半（切换比较标签、隐藏工具窗口、切换工作区使在途归属失效），
+随后接比较视图的字号/窄宽度适配与失败摘要按模式显示身份。

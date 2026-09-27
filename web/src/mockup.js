@@ -3247,6 +3247,10 @@ function bindBlame() {
       sync();
     }, { passive: false });
     documentView.querySelector('[aria-label="关闭 Blame"]').addEventListener("click", () => {
+      // 实时外壳里"关闭 Blame"由实时层负责（`closeBlameView()`：使在途查询失效、清状态、
+      // 恢复该文件的普通只读文档视图并把焦点交回正文）。样例分支会把**视觉稿的样例 Markdown 文档**
+      // 换进实时界面 —— 第 262 轮实测关闭后正文变成"Augit 产品概要"样例、而 `live.blame` 仍然存在。
+      if (window.__augitLive && window.__augitLive.blame) return;
       const top = body.scrollTop, left = body.scrollLeft;
       const template = document.createElement("template");
       template.innerHTML = markdownView("source");

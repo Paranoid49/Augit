@@ -448,6 +448,10 @@ async function main() {
         window.__blameCalls = (window.__blameCalls || 0) + 1;
         window.__blameParams = window.__blameParams || [];
         window.__blameParams.push(params || {});
+        // 第 262 轮：按路径注入延迟 —— 验证"未完成的 Blame 被关闭/切换文件时旧请求失效、
+        // 只接纳最后一次"。记录必须发生在延迟**之前**（同上：`__blameCalls` 表示请求已发出）。
+        const blameDelay = (window.__blameDelays || {})[params.path];
+        if (blameDelay) await new Promise((r) => setTimeout(r, blameDelay));
         // 按 `revision` 标注 ⇒ 返回**更早的一版**（全行归到上一修订），供「标注上一修订」验证。
         if (params && params.revision) {
           return {
@@ -20047,6 +20051,132 @@ async function main() {
       && diffTabReturn.barAfterNav.summary === diffTabReturn.barBefore.summary
       && diffTabReturn.barAfterNav.status === diffTabReturn.barBefore.status
       && diffTabReturn.barAfterNav.status === 'live-ws只读');
+
+    // ---- 第 262 轮：Blame 关闭入口在实时模式恢复真实文档，并使在途查询失效（§7.9 第十/十一条）----
+    const blameLive = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=blame&theme=dark&blame=docs%2Fnotes.txt`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.blame-document .blame-row', { timeout: 15000 });
+      await page.waitForTimeout(500);
+      const snap = () => page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const content = document.querySelector('.editor-content');
+        return {
+          editor: live.editor || null,
+          blame: !!live.blame,
+          blamePath: live.blame ? live.blame.path : null,
+          docPath: live.document ? live.document.path : null,
+          toolbarPath: (document.querySelector('.document-path') || {}).textContent || null,
+          markdown: !!document.querySelector('.markdown-document, .markdown-source'),
+          blameRows: document.querySelectorAll('.blame-document .blame-row').length,
+          bodyText: content ? content.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : null,
+          focused: document.activeElement ? (document.activeElement.getAttribute('aria-label') || document.activeElement.className || document.activeElement.tagName) : null,
+          readCalls: window.__readCalls || 0,
+          blameCalls: window.__blameCalls || 0,
+        };
+      });
+      const before = await snap();
+      // ① 关闭：恢复该文件的**真实**只读文档视图（不是视觉稿的样例 Markdown），焦点交回正文
+      await page.locator('[aria-label="关闭 Blame"]').first().click();
+      await page.waitForFunction("() => window.__augitLive.editor !== 'blame'", null, { timeout: 10000 }).catch(() => null);
+      await page.waitForTimeout(250);
+      const focusNow = await page.evaluate(() => {
+        const el = document.activeElement;
+        return {
+          tag: el ? el.tagName : null,
+          cls: el ? (el.className || null) : null,
+          isCodeView: !!(el && el.classList && el.classList.contains('code-view')),
+          inEditor: !!(el && el.closest && el.closest('.editor-content')),
+        };
+      });
+      await page.waitForTimeout(450);
+      const closed = await snap();
+      // ② 在途查询失效（关闭目标文件）：让「标注上一修订」的查询变慢，在途时关闭 Blame
+      await page.evaluate(async () => {
+        await window.__augitLoadBlame('docs/notes.txt');
+        window.__augitRenderRegions('editorContent', 'editorTabs', 'statusbar');
+      });
+      await page.waitForSelector('.blame-document .blame-row', { timeout: 10000 });
+      await page.waitForTimeout(400);
+      await page.evaluate(() => { window.__blameDelays = { 'docs/notes.txt': 1200 }; });
+      await page.evaluate(() => {
+        const row = document.querySelectorAll('.blame-document .blame-row')[2];
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 300 }));
+      });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        const item = document.querySelector('.blame-row-menu [data-blame-action="annotate-previous"]');
+        if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('window.__blameCalls >= 3', null, { timeout: 10000 }).catch(() => null);
+      const inFlight = await snap();
+      await page.locator('[aria-label="关闭 Blame"]').first().click();
+      await page.waitForTimeout(1700);
+      const afterLate = await snap();
+      // ③ 在途查询失效（切换普通文件）：同样让查询变慢，在途时打开另一个文档
+      await page.evaluate(async () => {
+        window.__blameDelays = {};
+        await window.__augitLoadBlame('docs/notes.txt');
+        window.__augitRenderRegions('editorContent', 'editorTabs', 'statusbar');
+      });
+      await page.waitForSelector('.blame-document .blame-row', { timeout: 10000 });
+      await page.waitForTimeout(400);
+      await page.evaluate(() => { window.__blameDelays = { 'docs/notes.txt': 1200 }; });
+      await page.evaluate(() => {
+        const row = document.querySelectorAll('.blame-document .blame-row')[2];
+        row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 300 }));
+      });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        const item = document.querySelector('.blame-row-menu [data-blame-action="annotate-previous"]');
+        if (item) item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForFunction('window.__blameCalls >= 5', null, { timeout: 10000 }).catch(() => null);
+      const switching = await snap();
+      await page.evaluate(() => { void window.__augitOpenDocument('docs/product-spec.md'); });
+      await page.waitForFunction("() => window.__augitLive.document && window.__augitLive.document.path === 'docs/product-spec.md'", null, { timeout: 10000 }).catch(() => null);
+      await page.waitForTimeout(1700);
+      const switched = await snap();
+      await page.evaluate(() => { window.__blameDelays = {}; });
+      await page.close();
+      console.log('INFO Blame关闭=' + JSON.stringify({ before, focusNow, closed, inFlight, afterLate, switching, switched, errors }));
+      return { before, focusNow, closed, inFlight, afterLate, switching, switched, errors };
+    })();
+    check('§7.9 实时外壳里关闭 Blame 恢复该文件的真实只读文档视图、交回焦点并使在途归属失效: '
+      + JSON.stringify([blameLive.before, blameLive.focusNow, blameLive.closed, blameLive.inFlight, blameLive.afterLate]),
+    blameLive.errors.length === 0
+      // 起点：真实的 Blame 视图（3 行归属、还没读过文档）
+      && blameLive.before.editor === 'blame' && blameLive.before.blame === true
+      && blameLive.before.blameRows === 3 && blameLive.before.blameCalls === 1 && blameLive.before.readCalls === 0
+      // 关闭后焦点交回正文（规格第十一条）
+      && blameLive.focusNow.isCodeView === true && blameLive.focusNow.inEditor === true
+      // 关闭后恢复**该文件类型的只读文档视图**：真实正文（stub 的 docs/notes.txt）、不是视觉稿样例 Markdown、
+      // 没有残留归属行；工具栏路径仍是该文件
+      && blameLive.closed.editor === 'text' && blameLive.closed.blame === false
+      && blameLive.closed.docPath === 'docs/notes.txt' && blameLive.closed.markdown === false
+      && blameLive.closed.blameRows === 0 && blameLive.closed.readCalls === 1
+      && blameLive.closed.bodyText.includes('第一行') && blameLive.closed.bodyText.includes('第三行')
+      && blameLive.closed.toolbarPath.includes('docs/notes.txt')
+      // 前置：关闭时确实有一次「标注上一修订」的归属查询在途（3 次调用）
+      && blameLive.inFlight.editor === 'blame' && blameLive.inFlight.blameRows === 3 && blameLive.inFlight.blameCalls === 3
+      // 晚到的归属不得把视图抢回 Blame（规格第十条：关闭目标文件使旧请求失效）
+      && blameLive.afterLate.editor === 'text' && blameLive.afterLate.blame === false
+      && blameLive.afterLate.blameRows === 0
+      && blameLive.afterLate.bodyText.includes('第二行'));
+    check('§7.9 切换普通文件使在途的 Blame 失效，旧归属不得抢回视图: '
+      + JSON.stringify([blameLive.switching, blameLive.switched]),
+    blameLive.errors.length === 0
+      // 前置：切换时 Blame 视图仍在屏幕上是旧数据，新的归属查询在途（5 次调用）
+      && blameLive.switching.editor === 'blame' && blameLive.switching.blameRows === 3 && blameLive.switching.blameCalls === 5
+      // 打开另一个文档后：视图是**该文档**（真实 Markdown 原文），晚到的归属没有把视图换回 Blame
+      && blameLive.switched.editor === 'markdown' && blameLive.switched.docPath === 'docs/product-spec.md'
+      && blameLive.switched.markdown === true && blameLive.switched.blameRows === 0
+      && blameLive.switched.bodyText.includes('# 真实标题')
+      && blameLive.switched.toolbarPath.includes('docs/product-spec.md')
+      && blameLive.switched.readCalls === 2);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
