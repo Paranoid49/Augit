@@ -6608,6 +6608,72 @@ async function main() {
     await seNotice.page.evaluate(() => { window.__searchNotice = undefined; window.__searchTimedOut = false; });
     await seNotice.page.close();
 
+    // ---- 规格 §7.1 第 2、9 条：恢复标签只为活动标签建文件视图；打开 Git 历史时树与正文保持可见 ----
+    const restoreTabs = await openScene('scene=main-project&theme=dark&restore=1');
+    await restoreTabs.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+    await restoreTabs.page.waitForFunction('window.__augitSessionRestored === true', null, { timeout: 15000 }).catch(() => {});
+    await restoreTabs.page.waitForTimeout(800);
+    const restoreTabsState = await restoreTabs.page.evaluate(() => {
+      const tabs = [...document.querySelectorAll('.editor-tabs [data-tab-id]')].map((el) => ({
+        id: el.dataset.tabId,
+        text: el.textContent.trim(),
+        active: el.getAttribute('aria-selected') === 'true' || el.classList.contains('active'),
+      }));
+      const active = (window.__augitLive.tabs || []).find((item) => item.id === window.__augitLive.activeTabId) || null;
+      return {
+        liveTabs: (window.__augitLive.tabs || []).filter((item) => item.kind === 'document').map((item) => item.path),
+        activePath: active ? active.path : null,
+        domTabs: tabs,
+        documentViews: document.querySelectorAll('.editor-content .document-view').length,
+        codeViews: document.querySelectorAll('.editor-content .code-view').length,
+      };
+    });
+    check('§7.1 恢复标签只为活动标签建文件视图、其他标签只显示名称: ' + JSON.stringify(restoreTabsState),
+      // 两个标签都恢复了，但正文里**只有**活动标签那一个文件视图
+      JSON.stringify(restoreTabsState.liveTabs) === JSON.stringify(['docs/product-spec.md', 'docs/notes.txt'])
+        && restoreTabsState.activePath === 'docs/notes.txt'
+        && restoreTabsState.documentViews === 1 && restoreTabsState.codeViews === 1
+        // 非活动标签仍在标签条里显示名称、且不是活动标签
+        && restoreTabsState.domTabs.length === 2
+        && restoreTabsState.domTabs[0].text === 'product-spec.md' && restoreTabsState.domTabs[0].active === false
+        && restoreTabsState.domTabs[1].text === 'notes.txt' && restoreTabsState.domTabs[1].active === true);
+    await restoreTabs.page.close();
+
+    const historyVisible = await openScene('scene=main-project&theme=dark');
+    await historyVisible.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await historyVisible.page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 10000 });
+    await historyVisible.page.waitForTimeout(600);
+    const historyRects = () => historyVisible.page.evaluate(() => {
+      const box = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) };
+      };
+      const editor = document.querySelector('.editor-content');
+      return {
+        side: box('.side-content.tree'),
+        editor: box('.editor-content'),
+        bottom: box('.bottom-tool'),
+        rows: document.querySelectorAll('.side-content.tree .tree-row').length,
+        editorText: editor ? editor.textContent.replace(/\s+/g, '').slice(0, 16) : null,
+      };
+    });
+    const historyBefore = await historyRects();
+    await historyVisible.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await historyVisible.page.waitForTimeout(1200);
+    const historyAfter = await historyRects();
+    check('§7.1 打开底部 Git 历史时项目树与正文保持可见: ' + JSON.stringify([historyBefore, historyAfter]),
+      // 前置：树与正文本来就在
+      historyBefore.side !== null && historyBefore.editor !== null && historyBefore.rows > 0
+        // 打开 Git 历史后两者仍在，且矩形逐值不变（底部工具窗替换不影响它们）
+        && historyAfter.side !== null && historyAfter.editor !== null
+        && historyAfter.rows === historyBefore.rows
+        && JSON.stringify(historyAfter.side) === JSON.stringify(historyBefore.side)
+        && JSON.stringify(historyAfter.editor) === JSON.stringify(historyBefore.editor)
+        && historyAfter.editorText === historyBefore.editorText);
+    await historyVisible.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
@@ -11948,6 +12014,13 @@ async function main() {
       treeMenuOpen.open === true && treeMenuOpen.target === 'docs');
     check('项目树菜单条目非空且不是未接线兜底: ' + JSON.stringify(treeMenuOpen.items.slice(0, 6)),
       treeMenuOpen.items.length > 0 && treeMenuOpen.unwired === null);
+    // 规格 §7.1「文件树右键菜单只显示产品规格已经实现的动作」：条目集合**恰好**是已实现的六项
+    //（复制路径 / 在资源管理器中定位 / 在外部终端打开 / 刷新 / 文件历史 / Blame）——
+    // 只断言"非空"无法发现悄悄多出来的占位项（§10.3 同款清单式写法）。
+    check('§7.1 项目树右键菜单只显示已实现的动作: ' + JSON.stringify(treeMenuOpen.items),
+      JSON.stringify(treeMenuOpen.items) === JSON.stringify([
+        '复制路径', '在资源管理器中定位', '在外部终端打开', '刷新', '文件历史', 'Blame',
+      ]));
 
     // 菜单必须夹在窗口内：贴近窗口右下角打开也不例外（共用定位 helper 的职责）。
     await treeMenu.page.evaluate(() => {
