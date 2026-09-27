@@ -6073,6 +6073,124 @@ async function main() {
         && terminalResizedTwice.sameNode === true && terminalResizedTwice.starts === 1);
     await terminalResize.page.close();
 
+    // ---- 规格 §7.3 第 10 条：对照比例跨模式保持、重复点当前模式不重新加载、关闭标签才结束会话 ----
+    const md10Scene = await openScene('scene=main-project&theme=dark');
+    await md10Scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await md10Scene.page.waitForTimeout(500);
+    await md10Scene.page.evaluate(async () => {
+      const source = '# 长文档\n\n'
+        + Array.from({ length: 120 }, (_, i) => '## 段落 ' + (i + 1) + '\n\n这是第 ' + (i + 1) + ' 段用于滚动与比例验证的正文。').join('\n\n');
+      window.__limitDocs = window.__limitDocs || {};
+      window.__limitDocs['docs/long.md'] = {
+        path: 'docs/long.md', name: 'long.md', fullPath: 'D:\\live-ws\\docs\\long.md',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
+        fileSize: source.length, text: source, lineEndings: 'LF', encoding: 'UTF-8',
+      };
+      await window.__augitOpenDocument('docs/long.md');
+      await new Promise((r) => setTimeout(r, 400));
+    });
+    await md10Scene.page.waitForSelector('.markdown-document', { timeout: 10000 });
+    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.waitForTimeout(250);
+    const md10Split = await md10Scene.page.evaluate(() => {
+      const panes = document.querySelector('.markdown-panes');
+      const divider = document.querySelector('.markdown-divider');
+      const rect = divider.getBoundingClientRect();
+      // 计数包装：重复点当前模式不应触达 style.setProperty（提前返回）。
+      const original = panes.style.setProperty.bind(panes.style);
+      window.__md10RatioWrites = 0;
+      panes.style.setProperty = (...args) => { window.__md10RatioWrites += 1; return original(...args); };
+      window.__md10Panes = panes;
+      window.__md10Preview = document.querySelector('.markdown-preview');
+      window.__md10Source = document.querySelector('.markdown-source');
+      return {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        ratio: panes.style.getPropertyValue('--markdown-source-ratio'),
+      };
+    });
+    await md10Scene.page.mouse.move(md10Split.x, md10Split.y);
+    await md10Scene.page.mouse.down();
+    await md10Scene.page.mouse.move(md10Split.x + 140, md10Split.y, { steps: 5 });
+    await md10Scene.page.mouse.up();
+    await md10Scene.page.waitForTimeout(200);
+    const md10Dragged = await md10Scene.page.evaluate(() => {
+      const panes = document.querySelector('.markdown-panes');
+      return {
+        ratio: panes.style.getPropertyValue('--markdown-source-ratio'),
+        aria: document.querySelector('.markdown-divider').getAttribute('aria-valuenow'),
+        html: document.querySelector('.markdown-preview').innerHTML,
+      };
+    });
+    // 造出原文/预览滚动位置，再做 对照 → 预览 → 对照 往返。
+    await md10Scene.page.evaluate(() => {
+      document.querySelector('.markdown-source').scrollTop = 300;
+      document.querySelector('.markdown-preview').scrollTop = 200;
+    });
+    await md10Scene.page.waitForTimeout(150);
+    const md10Scroll = await md10Scene.page.evaluate(() => ({
+      source: Math.round(document.querySelector('.markdown-source').scrollTop),
+      preview: Math.round(document.querySelector('.markdown-preview').scrollTop),
+    }));
+    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+    await md10Scene.page.waitForTimeout(200);
+    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.waitForTimeout(250);
+    const md10RoundTrip = await md10Scene.page.evaluate(() => ({
+      ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
+      samePanes: window.__md10Panes === document.querySelector('.markdown-panes'),
+      samePreview: window.__md10Preview === document.querySelector('.markdown-preview'),
+      sameSource: window.__md10Source === document.querySelector('.markdown-source'),
+      sameHtml: window.__md10DraggedHtml === undefined
+        || window.__md10DraggedHtml === document.querySelector('.markdown-preview').innerHTML,
+      source: Math.round(document.querySelector('.markdown-source').scrollTop),
+      preview: Math.round(document.querySelector('.markdown-preview').scrollTop),
+    }));
+    await md10Scene.page.evaluate(() => { window.__md10DraggedHtml = document.querySelector('.markdown-preview').innerHTML; });
+    check('§7.3 对照比例跨模式保持、往返复用同一控件与滚动位置: '
+      + JSON.stringify([md10Split.ratio, md10Dragged.ratio, md10Dragged.aria, md10Scroll, md10RoundTrip]),
+    // 拖动确实改变了比例
+    md10Dragged.ratio !== md10Split.ratio && md10Dragged.aria === String(Math.round(Number(md10Dragged.ratio) * 100))
+      // 往返后比例逐值不变，原文/预览节点与正文 HTML 都是同一个
+      && md10RoundTrip.ratio === md10Dragged.ratio
+      && md10RoundTrip.samePanes === true && md10RoundTrip.samePreview === true && md10RoundTrip.sameSource === true
+      && md10RoundTrip.sameHtml === true
+      // 两侧滚动位置逐值保持
+      && md10RoundTrip.source === md10Scroll.source && md10RoundTrip.preview === md10Scroll.preview);
+
+    // 重复点击当前模式：不重排、不重载、不动滚动；关闭标签才结束预览会话。
+    await md10Scene.page.evaluate(() => {
+      window.__md10RatioWrites = 0;
+      window.__md10RepeatHtml = document.querySelector('.markdown-preview').innerHTML;
+      window.__md10RepeatTabId = (window.__augitLive.tabs.find((t) => t.kind === 'document' && t.path === 'docs/long.md') || {}).id || null;
+    });
+    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.waitForTimeout(250);
+    const md10Repeat = await md10Scene.page.evaluate(() => ({
+      ratioWrites: window.__md10RatioWrites,
+      ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
+      sameHtml: window.__md10RepeatHtml === document.querySelector('.markdown-preview').innerHTML,
+      samePanes: window.__md10Panes === document.querySelector('.markdown-panes'),
+      source: Math.round(document.querySelector('.markdown-source').scrollTop),
+      preview: Math.round(document.querySelector('.markdown-preview').scrollTop),
+    }));
+    // 关闭该标签：预览会话随之结束（正文里不再有 markdown 文档）。
+    const md10TabId = await md10Scene.page.evaluate(() => window.__md10RepeatTabId);
+    await md10Scene.page.locator(`.editor-tabs [data-tab-id="${md10TabId}"] .tab-close`).click();
+    await md10Scene.page.waitForTimeout(400);
+    const md10Closed = await md10Scene.page.evaluate(() => ({
+      markdown: !!document.querySelector('.markdown-document'),
+      document: window.__augitLive.document ? window.__augitLive.document.path : null,
+      tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'document').map((t) => t.path),
+    }));
+    check('§7.3 重复点当前模式不重新加载、关闭标签才结束预览会话: ' + JSON.stringify([md10Repeat, md10Closed]),
+      md10Repeat.ratioWrites === 0 && md10Repeat.ratio === md10Dragged.ratio
+        && md10Repeat.sameHtml === true && md10Repeat.samePanes === true
+        && md10Repeat.source === md10Scroll.source && md10Repeat.preview === md10Scroll.preview
+        && md10Closed.markdown === false && md10Closed.document === null
+        && !md10Closed.tabs.includes('docs/long.md'));
+    await md10Scene.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

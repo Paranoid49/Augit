@@ -299,6 +299,8 @@
 
 **第 280 轮**收口 §7.16（内置终端）第 2、5、11 条（§2.10：分母 34 → **31**、A 20 → **17**）。第 2 条**修掉一处真实缺口**：实时终端标题由 `terminalTool()` 静态渲染成固定 `Windows PowerShell`，启动期间没有" · 正在启动…"后缀（实测 `during.sessionText` 无后缀而 `ready:false`）；新增 `live.terminalStarting` + `applyTerminalStartState()`（只改标题节点与 `title` 并重量会话名宽度，**不刷新 bottomTool 区域**以免换掉正在启动的 xterm 宿主），`startTerminal()` 起始置真、就绪/不可用/停止置假，`rebindAfterRender()` 补回；`mockup.js` 导出 `__augitMeasureTerminalHeaders`。断言：启动中标题带后缀且隐藏/关闭可用、就绪后后缀消失且标题等于 `__augitTerminalShell`、启动期间隐藏或切到 Git 历史后完成都不覆盖用户选择。第 5 条补"调整面板大小不重建 Shell"：两次改窗口尺寸后 `.xterm` 节点身份不变、`terminal/start` 仍 1 次。第 11 条**核对后转"是"**：原登记"宿主侧没有断言或单测引用"不准确 —— `TerminalSessionRegistryTests.会话锁跨实例阻止并在释放后清理` 与 `ConPtyTerminalSessionTests.WinExe宿主可以收发并回收完整ConPty进程树` 都在。共 4 条新断言（1395 → **1399**）。**§7.16 全节 11 行已无"部分"**。
 
+**第 281 轮**转 §7.3（Markdown），收口第 10 条、确认第 11 条缺口（§2.10：分母 31 → **30**、A 17 → **15**、D 9 → **10**）。第 10 条纯补断言：拖分隔条把比例从 0.5006 改到 0.6799（`aria-valuenow: 68`）后做 对照 → 预览 → 对照 往返 ⇒ 比例逐值不变、`.markdown-panes`／`.markdown-preview`／`.markdown-source` 节点身份全同、预览 HTML 不变、两侧滚动（300/200）逐值保持；重复点当前模式时 `setProperty` 写入数 0（`setMode()` 提前返回）；关闭标签后 `.markdown-document` 消失、`live.document` 为 null。第 11 条**实测确认缺口**：外部更新当前 Markdown 文件时 `refreshAfterEvent` 整块替换编辑区 ⇒ `.markdown-source` 节点被重建、原文滚动 260→0、预览滚动 180→0、选区 anchorLine 13→null，只有模式（split）保住；规格要求"复用原文控件，保留选择、滚动、查找和当前模式"，故该条保留 **部分** 并登记为"需 markdown 视图原地更新 + 状态化保留"的待实现项（"后台不建预览"因 `applyWorkspaceChanges` 只处理当前文档而天然成立，也待补负向断言）。共 2 条新断言（1399 → **1401**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
