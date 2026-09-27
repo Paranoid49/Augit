@@ -20178,6 +20178,101 @@ async function main() {
       && blameLive.switched.toolbarPath.includes('docs/product-spec.md')
       && blameLive.switched.readCalls === 2);
 
+    // ---- 第 263 轮：切换比较标签 / 隐藏工具窗口 使在途的详情请求失效（§7.9 第十条余下）----
+    const detailInvalidation = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      // 进入文件历史（真实入口）
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      // ① 隐藏工具窗口（再次点击当前 rail 入口折叠底部）：取消在途的文件历史预览查询
+      await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1200 }; });
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.waitForFunction("() => { const p = window.__augitLive.fileHistoryPreview; return !!p && p.loading; }", null, { timeout: 10000 });
+      const previewInFlight = await page.evaluate(() => ({
+        loading: !!(window.__augitLive.fileHistoryPreview || {}).loading,
+        calls: (window.__diffCalls || []).length,
+        collapsed: (window.__augitLive.layout || {}).collapsed || null,
+      }));
+      await page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').first().click();
+      await page.waitForTimeout(400);
+      const hidden = await page.evaluate(() => ({
+        collapsed: (window.__augitLive.layout || {}).collapsed || null,
+        preview: window.__augitLive.fileHistoryPreview,
+        fileHistory: !!window.__augitLive.fileHistory,
+        pane: !!document.querySelector('[data-live-file-history-pane]'),
+      }));
+      await page.waitForTimeout(1500);
+      const hiddenLate = await page.evaluate(() => ({
+        preview: window.__augitLive.fileHistoryPreview,
+        calls: (window.__diffCalls || []).length,
+      }));
+      await page.evaluate(() => { window.__diffCommitDelays = {}; });
+      // 恢复底部（再点一次同一 rail 入口），回到日志视图并让提交详情加载出变化文件树
+      await page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').first().click();
+      await page.waitForTimeout(900);
+      await page.locator('.bottom-tool .tool-tab').filter({ hasText: '日志' }).first().click();
+      await page.waitForTimeout(900);
+      await page.locator('.commit-list .commit-row').first().click();
+      await page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 15000 });
+      // ② 切换到比较标签：在途的归属不得把视图抢回 Blame
+      await page.evaluate(() => { window.__blameDelays = { 'docs/notes.txt': 1200 }; });
+      await page.evaluate(() => { void window.__augitLoadBlame('docs/notes.txt'); });
+      await page.waitForTimeout(150);
+      const blameInFlight = await page.evaluate(() => ({
+        blameCalls: window.__blameCalls || 0,
+        editor: window.__augitLive.editor,
+      }));
+      await page.locator('[data-live-changed-files] [data-history-path]').first().dblclick();
+      await page.waitForFunction("() => window.__augitLive.editor === 'diff'", null, { timeout: 10000 }).catch(() => null);
+      await page.waitForTimeout(1700);
+      const compared = await page.evaluate(() => ({
+        editor: window.__augitLive.editor,
+        blame: !!window.__augitLive.blame,
+        diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
+        diffLines: document.querySelectorAll('.editor-content .diff-code-line').length,
+        comparison: window.__augitLive.historyComparison ? window.__augitLive.historyComparison.status : null,
+        blameCalls: window.__blameCalls || 0,
+      }));
+      await page.evaluate(() => { window.__blameDelays = {}; });
+      await page.close();
+      console.log('INFO 详情失效=' + JSON.stringify({ previewInFlight, hidden, hiddenLate, blameInFlight, compared, errors }));
+      return { previewInFlight, hidden, hiddenLate, blameInFlight, compared, errors };
+    })();
+    check('§7.9 隐藏承载详情的工具窗口使在途查询失效：折叠底部工具窗后状态为空、晚到不回写: '
+      + JSON.stringify([detailInvalidation.previewInFlight, detailInvalidation.hidden, detailInvalidation.hiddenLate]),
+    detailInvalidation.errors.length === 0
+      // 前置：折叠时确实有一个**缓存外**的预览查询在途
+      && detailInvalidation.previewInFlight.loading === true && detailInvalidation.previewInFlight.collapsed === null
+      // 点击当前激活的「Git 历史」rail 入口 = 折叠底部工具窗（承载文件历史预览的工具窗口）
+      && detailInvalidation.hidden.collapsed === 'bottom'
+      // 在途的那一份被取消、预览状态与面板一起释放（文件历史本身还在状态里，展开后可补查）
+      && detailInvalidation.hidden.preview === null && detailInvalidation.hidden.pane === false
+      && detailInvalidation.hidden.fileHistory === true
+      // 越过注入延迟：晚到的响应不得回写、也不产生多余请求
+      && detailInvalidation.hiddenLate.preview === null
+      && detailInvalidation.hiddenLate.calls === detailInvalidation.previewInFlight.calls);
+    check('§7.9 切换比较标签使在途的归属失效，旧归属不得抢回视图: '
+      + JSON.stringify([detailInvalidation.blameInFlight, detailInvalidation.compared]),
+    detailInvalidation.errors.length === 0
+      // 前置：归属查询确实已发出且被拖慢（在途）
+      && detailInvalidation.blameInFlight.blameCalls === 1
+      // 打开历史比较后：视图是比较正文，晚到的归属没有写回状态
+      && detailInvalidation.compared.editor === 'diff' && detailInvalidation.compared.blame === false
+      && detailInvalidation.compared.comparison === 'ready'
+      && detailInvalidation.compared.diffPath === 'docs/notes.txt'
+      && detailInvalidation.compared.diffLines === 8
+      && detailInvalidation.compared.blameCalls === 1);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

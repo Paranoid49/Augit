@@ -2563,6 +2563,10 @@ async function applyHistoryComparison(path, commit, options = {}) {
 function activateComparisonTab(tab) {
   const live = window.__augitLive;
   if (!live || !tab) return;
+  // 切换到比较标签使**在途的 Blame／文件历史详情**失效（规格 §7.9 第十条）：
+  // 详情与比较正文共用 `detailViewToken` 的"只接纳最后一次"约束 —— 第 262 轮给普通文档补上了，
+  // 这里补比较标签这条路径（否则晚到的归属会把视图从比较正文抢回 Blame）。
+  detailViewToken += 1;
   live.activeTabId = tab.id;
   live.document = null;
   live.editor = "diff";
