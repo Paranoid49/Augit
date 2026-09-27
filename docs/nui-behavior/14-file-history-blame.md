@@ -292,3 +292,20 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
   `ensureFileHistoryPreview()` 在每次渲染后按当前选择补查（首次进入、重新展开）。
 - **仍未做**：预览工具条上的「上一处/下一处差异」还没有断言；"隐藏右侧详情"（工具条那个 `eye`）还没有标签与绑定；
   "失败后再次选择同一提交可以重试"、"相同快照不改变阅读位置"未断言。
+
+## 预览工具条的差异块导航与右侧详情的显隐（第 258 轮）
+
+第 257 轮接上右侧只读比较视图后，还剩两件事，本轮做完：
+
+- **差异块导航**：`diffChangeBlocks(scope)`／`moveDiffChange(direction, scope)` 让同一套「上一处/下一处差异」
+  服务两份正文。作用域非空（预览）时跳过只属于工作区 Diff 的两段式边界提示与"再按进入相邻文件" ——
+  实测在尾块同方向再按不出提示、不切文件、不重查，`data-diff-index` 停在最后一块。
+- **「显示/隐藏提交详情」**：文件历史工具条的 `eye` 此前没有标签、也没有绑定，现在与日志详情同一套语义
+  （标签 `显示提交详情`/`隐藏提交详情` + `aria-pressed`；状态 `live.fileHistoryDetailsHidden`，
+  `applyFileHistoryDetailsState()` 在每次渲染后落地；隐藏时容器收成单列 ⇒ 列表占满整宽）。
+  - **隐藏**：`cancelFileHistoryPreviewRender()` 推进令牌（在途响应作废）并丢弃**未就绪**的那一份；
+    已完成的比较原样保留 ⇒ 正文、显示模式、正文节点身份都不变。
+  - **重显**：`ensureFileHistoryPreview()` 按当前选择补查；显示模式与忽略空白是**会话选项**
+    （`fileHistoryPreviewOptions`），未完成的那份被丢弃后补查仍沿用它们（实测键仍是 `…|ws`）。
+  - **仍未完成**：隐藏用 `display:none`，其子树重新显示后 `scrollTop` 归零 ⇒ **阅读位置**要保存/恢复；
+    右侧比较视图的 Tab 顺序也没有断言。

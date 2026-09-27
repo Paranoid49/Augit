@@ -19533,6 +19533,173 @@ async function main() {
       // N2：把预览的显示模式入口换成编辑器那一个 ⇒ 预览状态不再跟随（仍停在双栏）⇒ 正面判据会失败
       && fhPreview.negative.n2.previewMode === 'side-by-side');
 
+    // ---- 第 258 轮：预览工具条差异块导航 + 「显示/隐藏提交详情」（§7.9 第六/七条）----
+    const fhDetails = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      // 让提交 diff 返回两处被上下文隔开的变更块（默认载荷只有一处，"按块导航"的判据不具区分度）
+      await page.addInitScript(() => { window.__historyCompareBlocks = true; });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      const snap = () => page.evaluate(() => {
+        const content = document.querySelector('.history-tool-content');
+        const pane = document.querySelector('[data-live-file-history-pane]');
+        const layout = pane ? pane.querySelector('.diff-layout') : null;
+        const list = document.querySelector('.history-list-pane');
+        const button = document.querySelector('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]');
+        const preview = window.__augitLive.fileHistoryPreview || null;
+        const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
+        return {
+          detailsAttribute: content ? content.dataset.detailsHidden : null,
+          detailsHiddenState: !!window.__augitLive.fileHistoryDetailsHidden,
+          paneDisplay: pane ? getComputedStyle(pane).display : null,
+          paneSize: rect(pane),
+          contentColumns: content ? getComputedStyle(content).gridTemplateColumns : null,
+          listSize: rect(list),
+          buttonLabel: button ? button.getAttribute('aria-label') : null,
+          buttonPressed: button ? button.getAttribute('aria-pressed') : null,
+          preview: preview ? { commit: preview.commit, mode: preview.mode, loading: !!preview.loading, ready: !!preview.ready, key: preview.key } : null,
+          previewIndex: layout ? (layout.dataset.diffIndex || null) : null,
+          previewTotal: layout ? (layout.dataset.diffTotal || null) : null,
+          previewLines: pane ? pane.querySelectorAll('.diff-code-line').length : 0,
+          hint: !!document.querySelector('.diff-boundary-hint'),
+          path: (window.__augitLive.fileHistory || {}).path || null,
+          selectedFull: (window.__augitLive.fileHistory || {}).selectedFull || null,
+          calls: (window.__diffCalls || []).length,
+          commits: (window.__diffCommits || []).slice(),
+          editorDiff: !!window.__augitLive.diff,
+        };
+      });
+      const base = await snap();
+      // ① 差异块导航：两份正文共用一套箭头，但作用域在预览里
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.waitForTimeout(250);
+      const navFirst = await snap();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.waitForTimeout(250);
+      const navSecond = await snap();
+      // 已在尾块再按同方向：不得出现"再次点击可进入下一个文件"、不得切文件、不得重查
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.waitForTimeout(300);
+      const navEdge = await snap();
+      // ② 隐藏右侧详情：制造一个**缓存外**的在途查询 —— 重复点同一条提交会命中补丁缓存（不产生请求），
+      // 因此这里切「忽略空白」（真实差异选项 ⇒ 强制重查）并把该提交的响应拖慢。
+      await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1200 }; });
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.waitForFunction("() => { const p = window.__augitLive.fileHistoryPreview; return !!p && p.loading; }", null, { timeout: 10000 });
+      const beforeHide = await snap();
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(250);
+      const hiddenNow = await snap();
+      await page.waitForTimeout(1400);
+      const hiddenLate = await snap();
+      // ③ 重显：按当前选择补查
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      // 补查是真实请求（该提交的响应被拖慢 1.2s）⇒ 等过注入延迟再取快照
+      await page.waitForTimeout(1700);
+      const reshown = await snap();
+      // ④ 已完成的比较：切单栏后隐藏再显示 ⇒ 正文与阅读位置保留、不重查
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+      await page.waitForTimeout(400);
+      const unified = await snap();
+      await page.evaluate(() => { window.__paneLayout258 = document.querySelector('[data-live-file-history-pane="preview"] .diff-layout'); });
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(250);
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(400);
+      const kept = await page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const layout = pane ? pane.querySelector('.diff-layout') : null;
+        const preview = window.__augitLive.fileHistoryPreview || null;
+        return {
+          previewMode: preview ? preview.mode : null,
+          sameLayout: !!layout && window.__paneLayout258 === layout,
+          lines: pane ? pane.querySelectorAll('.diff-code-line').length : 0,
+          calls: (window.__diffCalls || []).length,
+        };
+      });
+      // ⑤ 负向验证一：把"隐藏"的容器属性抹掉 ⇒ 列表不再占满整宽（正面判据要求收成单列）
+      await page.evaluate(() => {
+        document.querySelector('.history-tool-content').dataset.detailsHidden = 'false';
+        const pane = document.querySelector('[data-live-file-history-pane]');
+        if (pane) pane.style.display = '';
+      });
+      await page.waitForTimeout(200);
+      const negAttribute = await page.evaluate(() => {
+        const content = document.querySelector('.history-tool-content');
+        const list = document.querySelector('.history-list-pane');
+        return { columns: getComputedStyle(content).gridTemplateColumns, listWidth: Math.round(list.getBoundingClientRect().width) };
+      });
+      // 复位：再隐藏一次，供下一条负向验证
+      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.waitForTimeout(250);
+      // ⑥ 负向验证二：状态与 DOM 两面不一致（状态改成"显示"但 DOM 仍隐藏）⇒ 一致性判据会失败
+      await page.evaluate(() => { window.__augitLive.fileHistoryDetailsHidden = false; });
+      const negConsistency = await snap();
+      await page.evaluate(() => { window.__augitLive.fileHistoryDetailsHidden = true; });
+      await page.close();
+      console.log('INFO 文件历史详情=' + JSON.stringify({ base, navFirst, navSecond, navEdge, beforeHide, hiddenNow, hiddenLate, reshown, unified, kept, negAttribute, negConsistency, errors }));
+      return { base, navFirst, navSecond, navEdge, beforeHide, hiddenNow, hiddenLate, reshown, unified, kept, negAttribute, negConsistency, errors };
+    })();
+    check('§7.9 文件历史预览工具条的差异块导航按连续变更块移动，且不触发工作区 Diff 的跨文件提示: '
+      + JSON.stringify([fhDetails.base, fhDetails.navFirst, fhDetails.navSecond, fhDetails.navEdge]),
+    fhDetails.errors.length === 0
+      // 前置：夹具确实是两处被上下文隔开的变更块（默认载荷只有一处，判据不具区分度）
+      && fhDetails.base.previewTotal === '2' && fhDetails.base.previewIndex === null
+      && fhDetails.base.previewLines === 10 && fhDetails.base.preview.commit === 'full-bbb'
+      // 两次「下一处差异」依次定位到两块；第三次停在尾块：不出提示、不切文件、不重查
+      && fhDetails.navFirst.previewIndex === '0' && fhDetails.navSecond.previewIndex === '1'
+      && fhDetails.navEdge.previewIndex === '1' && fhDetails.navEdge.hint === false
+      && fhDetails.navEdge.path === fhDetails.base.path
+      && fhDetails.navEdge.calls === fhDetails.base.calls
+      && fhDetails.navEdge.previewLines === fhDetails.base.previewLines
+      // 预览的正文是独立的：编辑器正文始终没被卷入
+      && fhDetails.base.editorDiff === false && fhDetails.navEdge.editorDiff === false);
+    check('§7.9 隐藏右侧详情取消在途查询与排版，重显按当前选择补查: '
+      + JSON.stringify([fhDetails.beforeHide, fhDetails.hiddenNow, fhDetails.hiddenLate, fhDetails.reshown]),
+    // 前置：隐藏时确实有一个**缓存外**的查询在途（切「忽略空白」强制重查，并拖慢该提交的响应）
+    fhDetails.beforeHide.preview && fhDetails.beforeHide.preview.loading === true
+      && fhDetails.beforeHide.preview.key.endsWith('|ws')
+      && fhDetails.beforeHide.detailsAttribute === 'false'
+      // 隐藏：容器收成单列（列表占满整宽）、右侧面板不显示、按钮切到"隐藏提交详情"
+      && fhDetails.hiddenNow.detailsAttribute === 'true' && fhDetails.hiddenNow.detailsHiddenState === true
+      && fhDetails.hiddenNow.paneDisplay === 'none'
+      && fhDetails.hiddenNow.paneSize[0] === 0 && fhDetails.hiddenNow.paneSize[1] === 0
+      && fhDetails.hiddenNow.contentColumns === '787px'
+      && fhDetails.hiddenNow.listSize[0] === 787
+      && fhDetails.hiddenNow.buttonLabel === '隐藏提交详情' && fhDetails.hiddenNow.buttonPressed === 'true'
+      // 在途的那一份被取消：状态为空，且越过注入延迟后仍为空、没有多余请求
+      && fhDetails.hiddenNow.preview === null
+      && fhDetails.hiddenLate.preview === null
+      && fhDetails.hiddenLate.calls === fhDetails.hiddenNow.calls
+      // 重显：按当前选择补查，并沿用会话里的显示模式与忽略空白（键仍是 `…|ws`）
+      && fhDetails.reshown.detailsAttribute === 'false' && fhDetails.reshown.paneDisplay === 'block'
+      && fhDetails.reshown.buttonLabel === '显示提交详情' && fhDetails.reshown.buttonPressed === 'false'
+      && fhDetails.reshown.preview && fhDetails.reshown.preview.ready === true
+      && fhDetails.reshown.preview.commit === 'full-bbb'
+      && fhDetails.reshown.preview.key.endsWith('|ws')
+      && fhDetails.reshown.calls === fhDetails.beforeHide.calls + 1);
+    check('§7.9 已完成的比较在隐藏/重显后保留正文、显示模式与阅读位置（负向扰动各打掉一条判据）: '
+      + JSON.stringify([fhDetails.unified, fhDetails.kept, fhDetails.negAttribute, fhDetails.negConsistency]),
+    // 已完成：切单栏后隐藏再重显 ⇒ 模式仍是单栏、正文节点身份不变、行数不变、不再查 Git
+    fhDetails.unified.preview.mode === 'unified' && fhDetails.unified.previewLines === 6
+      && fhDetails.kept.previewMode === 'unified' && fhDetails.kept.sameLayout === true
+      && fhDetails.kept.lines === 6 && fhDetails.kept.calls === fhDetails.unified.calls
+      // 负向一：抹掉容器上的隐藏属性 ⇒ 列表不再占满整宽（正面判据要求收成单列）
+      && fhDetails.negAttribute.columns === '427px 360px' && fhDetails.negAttribute.listWidth === 427
+      // 负向二：状态被改成"显示"而 DOM 仍隐藏 ⇒ "两面一致"的判据会失败
+      && fhDetails.negConsistency.detailsAttribute === 'true'
+      && fhDetails.negConsistency.detailsHiddenState === false);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

@@ -3894,6 +3894,16 @@ body[data-theme="dark"] .search-overlay {
   overflow-y: hidden;
 }
 
+/* 「显示/隐藏提交详情」（规格 §7.9 第七条）：隐藏后列表区占满整宽 —— 只把右侧面板 `display:none`
+   的话，网格第二列（`clamp(360px, 42%, 520px)`）仍然占位，右侧留下一条空白带。 */
+.history-tool-content[data-details-hidden="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.history-tool-content[data-details-hidden="true"] .history-detail-pane {
+  display: none;
+}
+
 .history-detail-pane {
   min-width: 0;
   display: grid;

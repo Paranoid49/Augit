@@ -2252,6 +2252,9 @@ function selectFileHistoryCommit(fullHash, options = {}) {
 const fileHistoryPreviewRequests = new Map();  // 内容键 -> 进行中的查询（同一项重复选择复用同一次请求）
 const fileHistoryPreviewPatches = new Map();   // 内容键 -> 已完成的补丁（**不含**显示模式 ⇒ 单双栏共用）
 let fileHistoryPreviewToken = 0;
+// 预览的**会话选项**（显示模式、忽略空白）与"当前这一份正文"分开保存：未完成的正文被丢弃后，
+// 重显时的补查仍沿用用户选的模式与选项（规格 §7.9 第七条"保留显示模式"）。
+let fileHistoryPreviewOptions = { mode: "split", ignoreWhitespace: false };
 
 /** 预览的内容键：路径 + 提交 + 忽略空白（显示模式不参与 —— 它只是排版维度，规格 §6.3）。 */
 function fileHistoryPreviewKey(parts) {
@@ -2311,11 +2314,12 @@ async function loadFileHistoryPreview(options = {}) {
   const parts = {
     path: fileHistory.path,
     commit,
-    mode: options.mode || (previous && previous.mode) || "split",
+    mode: options.mode || (previous && previous.mode) || fileHistoryPreviewOptions.mode,
     ignoreWhitespace: options.ignoreWhitespace === undefined
-      ? !!(previous && previous.ignoreWhitespace)
+      ? (previous ? !!previous.ignoreWhitespace : fileHistoryPreviewOptions.ignoreWhitespace)
       : !!options.ignoreWhitespace,
   };
+  fileHistoryPreviewOptions = { mode: parts.mode, ignoreWhitespace: parts.ignoreWhitespace };
   const key = fileHistoryPreviewKey(parts);
   // 相同快照（提交 + 路径 + 忽略空白 + 显示模式）：不重查、不重写正文、不改阅读位置。
   if (!options.force && previous && previous.key === key && previous.mode === parts.mode && previous.ready) {
@@ -2378,8 +2382,46 @@ window.__augitLoadFileHistoryPreviewMode = switchFileHistoryPreviewMode;
 function ensureFileHistoryPreview() {
   const live = window.__augitLive;
   if (!live || !live.fileHistory || live.fileHistoryPreview) return;
+  // 右侧详情被隐藏时不预查：重显那一次才按当前选择补查（规格第七条）。
+  if (live.fileHistoryDetailsHidden) return;
   if (!document.querySelector("[data-live-file-history-pane]")) return;
   void loadFileHistoryPreview();
+}
+
+/**
+ * 隐藏右侧详情时取消**在途查询与排版**（规格 §7.9 第七条）。
+ *
+ * 已完成的比较不动：正文、显示模式与阅读位置都留着（第七条"已经完成的比较保留正文、显示模式和阅读位置"）；
+ * 只有还没就绪的那一份被丢弃，重显时按当前选择补查。
+ */
+function cancelFileHistoryPreviewRender() {
+  const live = window.__augitLive;
+  if (!live) return;
+  fileHistoryPreviewToken += 1;      // 在途响应作废（晚到不得回写）
+  fileHistoryPreviewRequests.clear();
+  const preview = live.fileHistoryPreview;
+  if (preview && !preview.ready) live.fileHistoryPreview = null;
+  // 会话选项（模式/忽略空白）已经在 `fileHistoryPreviewOptions` 里，重显时的补查自动沿用。
+}
+
+/**
+ * 把"文件历史右侧详情显隐"落到 DOM（规格 §7.9 第七条）。
+ *
+ * 与日志详情同一套语义：隐藏时容器收成单列、右侧面板不显示；按钮标签/`aria-pressed` 沿用既有口径
+ *（隐藏时标签是"隐藏提交详情"、`aria-pressed` 为 "true"）。区域重绘由 `liveFileHistoryTool()` 按状态回填。
+ */
+function applyFileHistoryDetailsState() {
+  const live = window.__augitLive;
+  const hidden = !!(live && live.fileHistoryDetailsHidden);
+  const content = document.querySelector(".history-tool-content");
+  if (content) content.dataset.detailsHidden = hidden ? "true" : "false";
+  const pane = document.querySelector("[data-live-file-history-pane]");
+  if (pane) pane.style.display = hidden ? "none" : "";
+  const button = document.querySelector('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]');
+  if (button) {
+    button.setAttribute("aria-label", hidden ? "隐藏提交详情" : "显示提交详情");
+    button.setAttribute("aria-pressed", hidden ? "true" : "false");
+  }
 }
 
 // 文件历史列表的行选择：单击只选择（双击打开比较由归属行/变化文件那一套链路负责；
@@ -5094,6 +5136,8 @@ function rebindAfterRender() {
   bindToolRail?.();
   // 提交详情的显隐是**状态**：重绘后按 `live.historyDetailsHidden` 重新落地（规格 §7.9 条目三）。
   applyHistoryDetailsState();
+  // 文件历史右侧详情的显隐同理（规格 §7.9 第七条）：重绘后按 `live.fileHistoryDetailsHidden` 落地。
+  applyFileHistoryDetailsState();
   bindEditorTabs?.();
   // 标签栏是区域刷新的产物，重建后滚动位置归零，边缘渐隐要按新状态重量一次。
   if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
@@ -6506,6 +6550,19 @@ function guardUnwiredNavigation() {
     // 此前该入口有 aria-label、有图形，却没有绑定（点击无任何效果）。
     const historyDetails = event.target.closest
       && event.target.closest('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+    if (historyDetails && historyDetails.closest(".history-tool-content")) {
+      // 文件历史右侧详情（规格 §7.9 第七条）：隐藏时取消在途查询与排版，重显按当前选择补查，
+      // 已经完成的比较保留正文、显示模式与阅读位置。
+      event.preventDefault();
+      const liveFileHistory = window.__augitLive;
+      if (!liveFileHistory) return;
+      const hidden = !liveFileHistory.fileHistoryDetailsHidden;
+      liveFileHistory.fileHistoryDetailsHidden = hidden;
+      applyFileHistoryDetailsState();
+      if (hidden) cancelFileHistoryPreviewRender();
+      else ensureFileHistoryPreview();
+      return;
+    }
     if (historyDetails) {
       event.preventDefault();
       const liveNow = window.__augitLive;
