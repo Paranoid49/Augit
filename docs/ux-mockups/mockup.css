@@ -1791,6 +1791,12 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   text-overflow: ellipsis;
 }
 
+/* 折叠起来的子树：行本身是 `display: flex`，会盖掉 `[hidden]` 的 UA 规则（`display: none`），
+   必须显式写一条，否则"折叠"只换箭头、行还在（规格 §7.9 条目三的折叠状态）。 */
+.changed-files .tree-row[hidden] {
+  display: none;
+}
+
 .commit-detail {
   border-top: var(--augit-hairline) solid var(--augit-border);
   line-height: 1.55;

@@ -4135,8 +4135,16 @@ function historySampleFilesHtml(subject) {
 // 提交详情的变更文件树：视觉稿样例与实时外壳的真实 Git 数据共用这一份实现。
 // 实时层此前自己拼了一版扁平列表（类名还是无人定义的 live-file-status-*），
 // 没有目录分组、没有折叠箭头、也没有状态色，与视觉稿的树形结构完全不同。
-function historyFilesHtml(files) {
-  const render = (items, prefix = "", depth = 1) => {
+// `ui` 是调用方（实时层）持有的**状态**：`{ collapsed: { 组键: true }, selectedPath }`。
+// 折叠与选中此前只写在 DOM 上（箭头纯装饰、选中类名点完就丢），任何区域重绘都会把用户的选择
+// 抹掉（规格 §7.9 条目三要求"变化文件树"的选择/折叠/顶部位置在重绘与往返后保持）。
+// 树本身仍是状态预渲染出的 HTML，因此这里必须能**按状态**重建：组行的 `data-history-group`
+// 是折叠状态的键（与项目树行同一个约定），叶行按 `selectedPath` 回填 `selected`。
+function historyFilesHtml(files, ui) {
+  const state = ui || {};
+  const collapsed = state.collapsed || {};
+  const selectedPath = state.selectedPath || null;
+  const render = (items, prefix = "", depth = 1, hidden = false) => {
     const groups = new Map(), leaves = [];
     items.forEach(item => {
       const relative = item.path.slice(prefix.length), slash = relative.indexOf("/");
@@ -4149,14 +4157,23 @@ function historyFilesHtml(files) {
     });
     // 缩进用视觉稿的 depth-N 类（mockup.css: .tree-row.depth-1..4 = 20/38/56/74px），
     // 不再写内联 padding——内联会盖住样式表，量出来的缩进与视觉稿相差 6 像素。
-    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, children]) =>
-      `<div class="tree-row depth-${depth}"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} 个文件</span></div>${render(children, `${prefix}${name}/`, depth + 1)}`).join("")
+    return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, children]) => {
+      const folded = !!collapsed[`${prefix}${name}`];
+      // 祖先折叠时子树整体隐藏：`hidden` 属性逐个行加，不引入包裹容器
+      //（包裹会改掉既有的扁平层级与按 `.changed-files > .tree-row` 量出来的结构）。
+      return `<div class="tree-row depth-${depth}${folded ? " collapsed" : ""}" data-history-group="${escapeHtml(`${prefix}${name}`)}" aria-expanded="${folded ? "false" : "true"}"${hidden ? " hidden" : ""}>`
+        + `<span>${icon(folded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} 个文件</span></div>`
+        + render(children, `${prefix}${name}/`, depth + 1, hidden || folded);
+    }).join("")
       + leaves.sort((a, b) => a.path.localeCompare(b.path)).map(file => {
         const label = `${file.path.slice(prefix.length)}${file.original ? ` ← ${file.original.split("/").at(-1)}` : ""}`;
-        return `<div class="tree-row depth-${depth} file-status-${file.status}" data-history-path="${escapeHtml(file.path)}" aria-label="${escapeHtml(changeAccessibleName(file.status, label))}">${fileTypeIcon(file.path)}${label}</div>`;
+        const selected = file.path === selectedPath ? " selected" : "";
+        return `<div class="tree-row depth-${depth} file-status-${file.status}${selected}" data-history-path="${escapeHtml(file.path)}" aria-label="${escapeHtml(changeAccessibleName(file.status, label))}"${hidden ? " hidden" : ""}>${fileTypeIcon(file.path)}${label}</div>`;
       }).join("");
   };
-  return `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files)}`;
+  // 根行同样可折叠（键为空串），与组行共用一套点击处理。
+  const rootFolded = !!collapsed[""];
+  return `<div class="tree-row${rootFolded ? " collapsed" : ""}" data-history-group="" aria-expanded="${rootFolded ? "false" : "true"}"><span>${icon(rootFolded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files, "", 1, rootFolded)}`;
 }
 
 // 文件历史列表的四列表头。权威 `FileHistoryPanelImpl.createColumnList`（platform/vcs-impl/src/com/intellij/

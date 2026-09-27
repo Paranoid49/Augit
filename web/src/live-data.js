@@ -4414,6 +4414,129 @@ function applyHistoryDetailsState() {
 }
 
 /**
+ * 提交详情里"变化文件树"的用户状态（规格 §7.9 条目三）。
+ *
+ * 三项都曾**只写在 DOM 上**：折叠箭头没有绑定（点了不动）、叶行的 `.selected` 点完就丢、
+ * 顶部位置随 `innerHTML` 替换归零 ⇒ 任何包含 bottomTool 的区域刷新（切筛选、外部变化重载、
+ * 进入/离开文件历史）都会把用户的选择抹掉。这里把三项收进 `live.commitDetailsUi`，
+ * 树的 HTML 由这份状态重建（`historyFilesHtml(files, ui)`），重绘后自然一致。
+ * 状态按 `revision` 归属：换了提交（或详情不可用）就整体重置 —— 选择与折叠属于那一条提交。
+ */
+function commitDetailsUi(revision) {
+  const live = window.__augitLive;
+  if (!live) return { revision, selectedPath: null, collapsed: {}, scrollTop: 0 };
+  const current = live.commitDetailsUi;
+  if (!current || current.revision !== revision) {
+    live.commitDetailsUi = { revision, selectedPath: null, collapsed: {}, scrollTop: 0 };
+  }
+  return live.commitDetailsUi;
+}
+
+/** 按状态重建变化文件树的 HTML（唯一构建入口，实时层与重绘路径共用）。 */
+function commitFilesHtml(files, revision) {
+  if (typeof window.__augitHistoryFiles !== "function") {
+    return `<p class="commit-meta">该提交没有变更文件</p>`;
+  }
+  return window.__augitHistoryFiles(files, commitDetailsUi(revision));
+}
+
+/**
+ * 只重建状态里的变化文件树 HTML（**不动 DOM**）。
+ *
+ * 那两份 HTML 必须跟着状态走：区域重绘与文件历史往返读的都是 `live.commitDetails.filesHtml`，
+ * 只在折叠时重建、选择时不重建的话，返回后渲染出来的是"折叠了但没选中"的旧快照
+ *（第 254 轮实测：`stateSelected === 'src/App.cs'` 而 DOM 里没有 `.selected`）。
+ */
+function rebuildCommitFilesHtml() {
+  const live = window.__augitLive;
+  if (!live || !live.commitDetails || !Array.isArray(live.commitDetails.files)) return;
+  live.commitDetails.filesHtml = commitFilesHtml(live.commitDetails.files, live.commitDetails.revision);
+}
+
+/**
+ * 待恢复的变化文件树顶部位置 + 恢复窗口。
+ *
+ * 与 `.commit-list`（`pendingHistoryScroll`）同一处理：`innerHTML` 替换、区域重绘都会把
+ * `scrollTop` 清零，清零本身会派发滚动事件；若照单记录，用户的位置会被"程序造成的 0"冲掉
+ *（第 254 轮实测：往返后状态与界面都变成 0）。窗口内的滚动一律不当用户动作。
+ */
+let pendingCommitFilesScroll = null;
+let pendingCommitFilesScrollTimer = 0;
+
+function applyPendingCommitFilesScroll() {
+  if (pendingCommitFilesScroll === null) return;
+  const host = document.querySelector("[data-live-changed-files]");
+  if (!host) return;
+  host.scrollTop = pendingCommitFilesScroll;
+}
+
+/** 渲染后按状态恢复变化文件树的顶部位置；越界值由浏览器夹回（内容变短即"归位"）。 */
+function restoreCommitFilesScroll() {
+  const live = window.__augitLive;
+  const ui = live && live.commitDetailsUi;
+  const host = document.querySelector("[data-live-changed-files]");
+  if (!ui || !host || !ui.scrollTop) return;
+  pendingCommitFilesScroll = ui.scrollTop;
+  applyPendingCommitFilesScroll();
+  requestAnimationFrame(applyPendingCommitFilesScroll);
+  window.clearTimeout(pendingCommitFilesScrollTimer);
+  pendingCommitFilesScrollTimer = window.setTimeout(() => {
+    applyPendingCommitFilesScroll();
+    pendingCommitFilesScroll = null;
+    // 窗口结束后按**实际**位置回写：内容变短时浏览器会把越界位置夹回，
+    // 状态要落到夹回后的真实值，否则状态与界面会长期不一致。
+    const liveNow = window.__augitLive;
+    const hostNow = document.querySelector("[data-live-changed-files]");
+    if (liveNow && liveNow.commitDetailsUi && hostNow && hostNow.isConnected) {
+      liveNow.commitDetailsUi.scrollTop = hostNow.scrollTop;
+    }
+  }, 200);
+}
+
+/** 滚动事件写状态：用户滚到哪，重绘后就回到哪（规格 §7.9 条目三的"顶部位置"）。 */
+function bindCommitFilesScroll() {
+  const host = document.querySelector("[data-live-changed-files]");
+  if (!host || host.dataset.commitFilesScrollBound === "true") return;
+  host.dataset.commitFilesScrollBound = "true";
+  host.addEventListener("scroll", () => {
+    const live = window.__augitLive;
+    if (!live || !live.commitDetailsUi) return;
+    // 恢复窗口内的滚动不是用户动作。
+    if (pendingCommitFilesScroll !== null) return;
+    // 被替换下来的旧宿主的 `scrollTop` 会归零并派发滚动事件（区域重绘后它已脱离文档）：
+    // 照单记录就会把用户的位置写成 0。
+    if (!host.isConnected) return;
+    // 只在**真的可滚动**时记录：渲染期间存在"宿主还没有可滚高度"的窗口，那时读到的 0
+    // 同样会冲掉上一次的真实位置（与 `.commit-list` 同一处理）。
+    if (host.scrollHeight <= host.clientHeight) return;
+    live.commitDetailsUi.scrollTop = host.scrollTop;
+  }, { passive: true });
+}
+
+/** 折叠状态变化后用同一份状态重建变化文件树并重写 DOM（状态是唯一事实来源）。 */
+function syncCommitFilesTree() {
+  const live = window.__augitLive;
+  const host = document.querySelector("[data-live-changed-files]");
+  if (!live || !host || !live.commitDetails || !Array.isArray(live.commitDetails.files)) return;
+  rebuildCommitFilesHtml();
+  host.innerHTML = live.commitDetails.filesHtml;
+  bindCommitFilesScroll();
+  // `innerHTML` 替换会把滚动位置清零：重写后立刻按状态回填（这次回填不算用户动作）。
+  restoreCommitFilesScroll();
+}
+
+/** 记录变化文件树里被选中的行（单击与 Enter 都算选择，规格 §7.8/§7.9）。 */
+function rememberHistoryFileSelection(row) {
+  const live = window.__augitLive;
+  const path = row && row.dataset ? row.dataset.historyPath : null;
+  if (!live || !live.commitDetailsUi || !path) return;
+  live.commitDetailsUi.selectedPath = path;
+  // DOM 侧的 `.selected` 由调用方已经落好；这里只把**状态里的 HTML** 同步重建，
+  // 让随后的区域重绘/文件历史往返渲染出同一份选择（不重写 DOM，避免把刚点的行拆下来）。
+  rebuildCommitFilesHtml();
+}
+
+/**
  * 撤销"待跨文件"状态与边界提示（规格 §7.7 第 10 条）。
  *
  * 规格要求 `Esc`、改变方向、选择文件、切换显示模式、隐藏/关闭 Diff、重新加载、改变窗口布局
@@ -4745,6 +4868,10 @@ function rebindAfterRender() {
   // 规格 §7.8：历史列表滚动触底加载下一页；追加后的滚动位置在新节点上还原。
   bindHistoryScroll();
   restoreHistoryScroll();
+  // 提交详情里的变化文件树同样是"状态 → DOM"：折叠与选择已由 `historyFilesHtml()` 按状态渲染，
+  // 这里只需重挂滚动监听并按状态回到原来的顶部位置（规格 §7.9 条目三）。
+  bindCommitFilesScroll();
+  restoreCommitFilesScroll();
   // 图片画布中心的加载提示是"状态 → DOM"：区域重绘会抹掉追加的节点，重绘后按状态补回
   //（规格 §7.5：提示只属于当时那张图，读取完成或切标签时由 `clearImagePreviewState()` 撤去）。
   syncImagePreviewState();
@@ -11040,17 +11167,16 @@ async function loadCommitDetails(revision) {
       status: String(file.kind || "modified").toLowerCase(),
       original: file.original || null,
     }));
-    const filesHtml = typeof window.__augitHistoryFiles === "function"
-      ? window.__augitHistoryFiles(files)
-      : `<p class="commit-meta">该提交没有变更文件</p>`;
+    const filesHtml = commitFilesHtml(files, revision);
     const detailHtml = `<h3>${escapeText(commit.subject)}</h3>`
       + `<div>${escapeText(commit.hash)} · ${escapeText(commit.author)} · ${escapeText(commit.date)}</div>`
       + (commit.body ? `<p class="commit-meta">${escapeText(commit.body)}</p>` : "");
     // 详情内容必须进状态：mockup 的 Git 日志详情区只从状态渲染占位，真实内容由这里写进 DOM，
     // 因此任何包含 bottomTool 的区域刷新（打开历史比较、外部变化重载等）都会把占位写回去，
-    // 只放在 DOM 里的内容会被静默丢弃（handoff 第 3 节第 5 条）。
+    // 只放在 DOM 里的内容会被静默丢弃（handoff 第 3 节第 5 条）。变化文件的**原始列表**同样进状态：
+    // 折叠/选择变化后要用它按新状态重建树（`syncCommitFilesTree()`）。
     if (live) {
-      live.commitDetails = { revision, filesHtml, detailHtml };
+      live.commitDetails = { revision, files, filesHtml, detailHtml };
     }
 
     // ① 先呈现**首段**（主题/元信息 + 正文第一段），让用户尽快看到内容；
@@ -11061,6 +11187,10 @@ async function loadCommitDetails(revision) {
       + (firstParagraph ? `<p class="commit-meta">${escapeText(firstParagraph)}</p>` : "");
     filesHost.innerHTML = filesHtml;
     detailHost.innerHTML = firstStageHtml;
+    // 变化文件树的滚动监听要在每次写入后重挂（宿主节点是区域渲染的产物）；
+    // 同一个提交被重新读取时（缓存重绘、返回日志）按状态回到用户原来的顶部位置。
+    bindCommitFilesScroll();
+    restoreCommitFilesScroll();
     window.__commitDetailStages = 1;
     // ② 下一帧再渲染完整正文：滚动范围在此时更新（首段阶段的范围与完整阶段不同）。
     await new Promise((resolve) => {
@@ -11073,6 +11203,9 @@ async function loadCommitDetails(revision) {
     }
     detailHost.innerHTML = detailHtml;
     window.__commitDetailStages = 2;
+    // 变化文件树可能是**缓存重绘**（`refreshCommitDetails()` 直接返回、不重新请求）之后
+    // 由渲染路径写回来的 ⇒ 收尾处再对齐一次顶部位置（与详情正文位置同一处理）。
+    restoreCommitFilesScroll();
     // ③ 读盘期间按过 End ⇒ 完成后执行"定位末尾"的意图。
     if (live && live.commitDetailScrollIntent === "end") {
       detailHost.scrollTop = detailHost.scrollHeight;
@@ -11563,6 +11696,21 @@ document.addEventListener("click", (event) => {
   activateTreeRow(row, { open: event.detail >= 2 });
 }, true);
 
+// 变化文件树的**目录行**：点箭头（或整行）折叠/展开（规格 §7.9 条目三）。
+// 此前这里的箭头只是装饰：`historyFilesHtml()` 画了 chevron-down，却没有任何绑定，
+// 点了不动、也没有可折叠的语义。折叠状态进 `live.commitDetailsUi.collapsed`，再按状态重建树。
+document.addEventListener("click", (event) => {
+  const group = event.target.closest && event.target.closest("[data-live-changed-files] [data-history-group]");
+  const live = window.__augitLive;
+  if (!group || !live || !live.commitDetailsUi) return;
+  event.preventDefault();
+  const key = group.dataset.historyGroup || "";
+  const collapsed = live.commitDetailsUi.collapsed;
+  if (collapsed[key]) delete collapsed[key];
+  else collapsed[key] = true;
+  syncCommitFilesTree();
+}, true);
+
 // 历史提交里的变化文件：双击或 Enter 打开历史比较，单击只选择并跟随（规格 §7.8）。
 // 与 mockup 里既有的历史比较实现保持同一套交互契约。
 document.addEventListener("click", (event) => {
@@ -11571,6 +11719,8 @@ document.addEventListener("click", (event) => {
   event.preventDefault();
   for (const other of historyFileRows()) other.classList.remove("selected");
   row.classList.add("selected");
+  // 选择同样进状态：区域重绘后 `historyFilesHtml()` 按它回填 `.selected`（规格 §7.9 条目三）。
+  rememberHistoryFileSelection(row);
   if (event.detail >= 2) {
     void openHistoryComparison(row);
     return;
@@ -11585,6 +11735,7 @@ document.addEventListener("keydown", (event) => {
   const row = event.target.closest && event.target.closest("[data-live-changed-files] [data-history-path]");
   if (!row) return;
   event.preventDefault();
+  rememberHistoryFileSelection(row);
   void openHistoryComparison(row);
 }, true);
 

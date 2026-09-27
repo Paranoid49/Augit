@@ -171,3 +171,34 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
   交互只改 DOM）⇒ 任何重绘（包括切筛选）都会丢。
 - **返回日志的补查规则**：日志**从未查询**过时返回必须补一次查询（实测调用数 1 → 2、数据落地）；
   已加载的日志（含**空**日志）直接恢复、不重复查询（调用数不变、空态文案逐字相同）。
+
+## 提交详情里变化文件树的状态化（第 254 轮）
+
+规格 §7.9 条目三把"折叠/选择/顶部位置"与筛选、页码、详情显隐并列为**进入文件历史前要保存的日志上下文**。
+第 253 轮登记时这三项**都只写在 DOM 上**，本轮收口：
+
+- **折叠此前根本没有实现**：`historyFilesHtml()` 给组行画了 `chevron-down`，却没有任何点击绑定 —— 点了不动、
+  也没有可折叠的语义。现在组行带 `data-history-group="<相对路径前缀>"`（根行的键是空串），点击把
+  `live.commitDetailsUi.collapsed[key]` 取反，整棵树由 `historyFilesHtml(files, ui)` **按状态重建**：
+  折叠组换 `chevron-right`、写 `aria-expanded="false"`、子树逐行加 `hidden`。
+  `hidden` 必须配一条样式规则（`.changed-files .tree-row[hidden] { display: none }`）—— 行是 `display: flex`，
+  会盖掉 `[hidden]` 的 UA 规则，只写属性的话"折叠"只换箭头、行还在。
+- **选择**：叶行点击/Enter 把 `selectedPath` 写进同一份状态，构建器按它回填 `.selected`（此前只改 DOM 类名，
+  区域重绘就丢）。
+- **顶部位置**：宿主 `[data-live-changed-files]` 的 `scroll` 事件写 `scrollTop`，`rebindAfterRender()` 与
+  `loadCommitDetails()` 收尾按状态回填。两处守卫缺一不可：
+  1. 被区域重绘替换下来的**旧宿主** `scrollTop` 会归零并派发 `scroll` 事件 ⇒ 必须 `host.isConnected` 才记录；
+  2. 渲染期间存在"宿主还没有可滚高度"的窗口，那时读到的 0 同样会冲掉真实位置 ⇒ 只在 `scrollHeight > clientHeight`
+     时记录，并照 `.commit-list` 的 `pendingHistoryScroll` 加 `pendingCommitFilesScroll` 恢复窗口
+     （窗口内的滚动一律不当用户动作），窗口结束后按实际位置回写状态（内容变短时浏览器夹回的值才是真实值）。
+- **状态按 `revision` 归属**：`commitDetailsUi(revision)` 在修订变化时整体重置 —— 折叠、选择与位置都属于那一条提交，
+  改选提交后不得残留。
+- **`filesHtml` 必须跟着状态走**：区域重绘与文件历史往返读的都是 `live.commitDetails.filesHtml`。
+  第 254 轮实测的缺陷是**只在折叠时重建**：选择后没有重建 ⇒ 往返后渲染出"折叠了但没选中"的旧快照
+  （`stateSelected === 'src/App.cs'` 而 DOM 里没有 `.selected`）。现在折叠走 `syncCommitFilesTree()`（重建 + 重写 DOM +
+  恢复滚动），选择走 `rebuildCommitFilesHtml()`（只重建状态里的 HTML，不重写 DOM，避免把刚点的行拆下来）。
+- **断言与负向验证**：`§7.9 提交详情「变化文件树」的折叠/选择/顶部位置在重绘与文件历史往返后保持`
+  用**两面判据**（DOM 与状态同时相等，折叠另有计算样式 `display: none`），前置断言宿主真的可滚动
+  （`scrollHeight - clientHeight = 167 > 0`，滚动位置 60 非平凡）；负向对照在运行时把 `window.__augitHistoryFiles`
+  包一层丢掉 `ui`，此时状态照记而 DOM 不跟随 ⇒ 判据失败。第二条断言
+  `§7.9 变化文件树状态按提交归属：改选提交后不残留上一条的折叠/选择/位置` 覆盖状态重置。

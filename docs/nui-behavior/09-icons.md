@@ -8684,3 +8684,80 @@ A 类队列继续 §7.9，挑条目三（进入文件历史时保存日志上下
 
 先把本轮登记的"变化文件树折叠/选择/顶部位置状态化"做完（条目三收口），
 再继续 §7.9 余下条目（文件历史的隐藏/恢复与 Tab 顺序、Blame 的字号与完整哈希点击、比较视图的失败/摘要按模式显示身份等）。
+
+## quinquaginta-quattuor. 第二百五十四轮：提交详情里变化文件树的状态化（§7.9 条目三收口）
+
+A 类队列继续 §7.9，把第 253 轮登记的"变化文件树的**折叠/选择/顶部位置**"做完 —— 条目三至此**逐项都有断言**，
+由"部分"转"是"。调查时发现折叠**根本没有实现**，另挂出并修掉两处真实缺陷（返回后渲染旧快照、程序造成的 0 冲掉用户位置）。
+
+### 折叠此前没有任何绑定
+
+`historyFilesHtml()` 给组行画了 `chevron-down`，但实时侧对 `[data-live-changed-files]` 只绑了叶行的选择／双击／Enter，
+**组行没有任何处理** ⇒ 点了不动、也没有可折叠语义（箭头纯装饰）。修法：组行带 `data-history-group="<相对路径前缀>"`
+（根行的键是空串），点击把 `live.commitDetailsUi.collapsed[key]` 取反，整棵树由 `historyFilesHtml(files, ui)` 按状态重建
+（折叠组换 `chevron-right`、写 `aria-expanded="false"`、子树逐行加 `hidden`）。
+
+`hidden` 还必须配一条样式规则 `.changed-files .tree-row[hidden] { display: none }`：行是 `display: flex`
+（基线实测未折叠叶行 `getComputedStyle(display) === "flex"`），会盖掉 `[hidden]` 的 UA 规则 ——
+只写属性的话"折叠"只换箭头、行还在。修后实测折叠组下 12 个叶行 `hidden` 且计算样式为 `none`。
+
+### 缺陷一：`filesHtml` 只在折叠时重建 ⇒ 返回后是"折叠了但没选中"的旧快照
+
+`live.commitDetails.filesHtml` 是区域重绘与文件历史往返**唯一**的树来源。折叠走了 `syncCommitFilesTree()`（重建 + 重写 DOM），
+但**选择只写了状态键、没有重建这份 HTML** ⇒ 往返后渲染出的是选择发生之前的快照：实测
+`live.commitDetailsUi.selectedPath === 'src/App.cs'` 而 DOM 里一个 `.selected` 都没有。修法：选择走
+`rebuildCommitFilesHtml()`（只重建状态里的 HTML、不重写 DOM，避免把刚点的行拆下来）。
+
+### 缺陷二：把"程序造成的 0"当成用户动作
+
+区域重绘会替换宿主节点，**被替换下来的旧宿主** `scrollTop` 归零并派发 `scroll` 事件；照单记录就把用户的
+位置冲成 0（实测往返后 DOM 与状态都是 0）。修法照 `.commit-list` 的 `pendingHistoryScroll`：加
+`pendingCommitFilesScroll` 恢复窗口（窗口内的滚动一律不当用户动作），并加 `host.isConnected`（旧宿主已脱离文档）
+与"该轴真的可滚动"（渲染期间存在还没有可滚高度的窗口）两条守卫；窗口结束后按**实际**位置回写状态
+（内容变短时浏览器夹回的值才是真实值）。
+
+### 实测：三项在往返与重绘后逐项保持
+
+真实入口（项目树右键 →「文件历史」→ 清除路径筛选）往返；变化文件集合用桩旋钮 `__commitFiles` 注入
+17 个文件、三层目录（默认夹具只有 2 个文件，树不滚 ⇒"顶部位置"会**平凡为真**）：
+
+| 项 | 设置时（DOM / 状态） | 往返后（DOM / 状态） | 纯区域重绘后 |
+| --- | --- | --- | --- |
+| 折叠 `docs`（12 个叶行隐藏） | `aria-expanded=false`、`display:none` / `collapsed=['docs']` | 相同 | 相同 |
+| 选择 `src/App.cs` | 唯一 `.selected` / `selectedPath='src/App.cs'` | 相同 | 相同 |
+| 顶部位置 | 60 / 60（宿主 `scrollHeight-clientHeight = 167 > 0`） | 60 / 60 | 0 / 60（`__augitRender()` 不带 rebind，真实刷新路径总会 rebind 回填） |
+
+`live.commitDetails.revision === live.commitDetailsUi.revision` 在往返后仍成立；改选另一个提交
+（`full-bbb2222`）后折叠／选择／位置都重置（状态按 `revision` 归属，不残留上一条提交）。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 | 判据要点 |
+| --- | --- | --- |
+| 1 | `§7.9 提交详情「变化文件树」的折叠/选择/顶部位置在重绘与文件历史往返后保持` | **两面判据**（DOM 与状态同时相等）＋折叠的计算样式 `none`＋宿主真的可滚动（非平凡前置）＋往返逐项保持＋负向对照 |
+| 2 | `§7.9 变化文件树状态按提交归属：改选提交后不残留上一条的折叠/选择/位置` | `commitDetailsUi.revision` 跟随 `commitDetails.revision`，三项归零 |
+
+**负向验证**：在运行时把 `window.__augitHistoryFiles` 包一层**丢掉 `ui` 参数**（= 回到第 253 轮的行为），
+再折叠一次 —— 状态照样记下 `collapsed=['docs']`、`selectedPath='src/App.cs'`，而 DOM 回到全展开、0 个隐藏行、
+`.selected` 丢失 ⇒ 断言 1 的"DOM 与状态一致"判据失败（证明它不是空洞的；也证明 patch 真的生效）。
+桩新增旋钮 `__commitFiles`（`git/commit` 的载荷注入）。
+
+### 验证
+
+- `live-shell` **`通过 1314 项断言`**（1312 → **+2**），退出码 0。
+- 共享视觉稿改了 `mockup.js`／`mockup.css`（两副本字节一致）、运行时改了 `live-data.js` ⇒ 按范围重跑：
+  `verify-ui-assets.ps1` **PASS**、`mockup-scenes` **55/55**、`verify-ux-file-history`／`verify-ux-history-details`／
+  `verify-ux-history`／`verify-ux-history-follow`／`verify-ux-history-toolbar` 通过、`verify-css-balance` **PASS**、
+  `check-doc-claims` **DOC_CLAIMS_OK**。
+- 登记哈希：`mockup.js` `74b08a57db381f3af893a96f4f09bc8c` → **`2cd4934f68a8fb54b244ac0235011635`**；
+  `mockup.css` `9a80f34b9f019eefb7d2076dea50a8aa` → **`d8d1a7f6851781bdd51aa060fc6ba418`**；
+  `live-data.js` `0867939c92df12ebdeaad2005f23a69d` → **`4641d57a374f7e99f422e3d2a3441e2e`**；
+  `live-shell.spec.cjs` `467de12214de90485fc76910fd2cdf38` → **`7efb0a5cda3b7cd60e6a40a4528afb27`**；
+  `bridge.js`／`current-find.js`／`image-preview.js` 与第 253 轮逐个相同。
+- §2.6 §7.9 条目三转 **是**（**§7.9 的 1–4、8、12–14、21–23 已"是"**）；§2.10 重算：分母 68 → **67**、D **14 → 13**
+  （A 49／B 4／E 1 不变）。
+
+### 下一轮
+
+继续 §7.9 余下条目（文件历史的隐藏/恢复与 Tab 顺序、Blame 的字号扩展/横向不动/完整哈希点击、比较视图的
+失败与摘要按模式显示身份、文件历史预览的取消语义等）。

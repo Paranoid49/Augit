@@ -1011,19 +1011,23 @@ async function main() {
         // 真实宿主（`GitHistoryService.ReadCommitAsync`）会给这两条固定文案，桩照抄同一形状。
         const failure = (window.__commitDetailFailures || {})[params.revision];
         if (failure) return { available: false, reason: failure };
-        if (params.revision === data.commit.fullHash) return data.commit;
+        // 第 254 轮：注入变化文件集合（默认夹具只有 2 个文件，变化文件树不产生滚动，
+        // "顶部位置"的判据会**平凡为真** —— 与第 252 轮"不可滚的容器写 scrollLeft 也照做"同一教训）。
+        const withFiles = (payload) => (Array.isArray(window.__commitFiles)
+          ? Object.assign({}, payload, { files: window.__commitFiles }) : payload);
+        if (params.revision === data.commit.fullHash) return withFiles(data.commit);
         // 第二个提交返回可区分的详情
         // 第二个提交也给出变化文件：历史比较需要"改选提交后跟随到同一路径"的场景，
         // 空文件列表会让该场景无法构造。
         if (params.revision === 'full-bbb2222') {
-          return Object.assign({}, data.commit, {
+          return withFiles(Object.assign({}, data.commit, {
             hash: 'bbb2222', fullHash: 'full-bbb2222', subject: 'fix: 第二个提交',
             // 第 122 轮：给第二个提交一条**足够长的正文**，否则详情区不产生滚动，
             // "End 记录末尾意图"的判据会**平凡为真**（上一轮的教训）。
             body: '修复第二个提交的正文首段。\n\n' + Array.from({ length: 30 }, (_, i) => '补充说明第 ' + (i + 1) + ' 行：用于让详情区可以滚动。').join('\n'),
             // 变更文件集合与第一个提交**保持一致**：变更文件列表在视觉稿里是按目录排序的
             // 树，「改选提交后历史比较跟随同一路径」只有在两个提交都含该路径时才有意义。
-          });
+          }));
         }
         return { available: false, reason: 'unknown' };
       }
@@ -18719,6 +18723,171 @@ async function main() {
       // 空详情的占位留在宿主内、且工具入口仍可点（第 253 轮修掉的整屏拦截）
       && logRefetch.empty.after.emptyStateInsideHost === true
       && logRefetch.empty.after.railHittable === true);
+
+    // ---- 第 254 轮补断言：§7.9 条目三「提交详情里变化文件树」的选择/折叠/顶部位置状态化 ----
+    // 规格要求这三项在重绘与"进入文件历史再返回"后保持；实现侧此前三项**都只写在 DOM 上**：
+    // 组行箭头没有任何绑定（折叠根本没实现）、叶行 `.selected` 点完就丢、`innerHTML` 替换把
+    // `scrollTop` 清零。判据必须**两面都看**：只看 DOM 分不清"按状态渲染"与"恰好还在"，
+    // 只看状态则发现不了"状态写了但界面没落地" ⇒ 每条都断言 DOM 与状态一致。
+    const filesTree = await (async () => {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        // 默认夹具只有 2 个文件，树不产生滚动 —— "顶部位置"的判据会**平凡为真**
+        //（与第 252 轮"不可滚的容器写 scrollLeft 也照做"同一教训）。这里给足行数并分三层目录。
+        const note = (i) => ({
+          path: `docs/notes-${String(i).padStart(2, '0')}.txt`, name: `notes-${String(i).padStart(2, '0')}.txt`,
+          directory: 'docs', kind: 'Modified', original: null,
+        });
+        window.__commitFiles = [
+          ...Array.from({ length: 12 }, (_, i) => note(i)),
+          { path: 'src/App.cs', name: 'App.cs', directory: 'src', kind: 'Modified', original: null },
+          { path: 'src/Program.cs', name: 'Program.cs', directory: 'src', kind: 'Modified', original: null },
+          { path: 'tools/audit/run.cjs', name: 'run.cjs', directory: 'tools/audit', kind: 'Added', original: null },
+          { path: 'tools/audit/probe.cjs', name: 'probe.cjs', directory: 'tools/audit', kind: 'Added', original: null },
+          { path: 'README.md', name: 'README.md', directory: '', kind: 'Modified', original: null },
+        ];
+      });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(800);
+      await page.locator('.commit-list .commit-row').first().click();
+      await page.waitForFunction("() => document.querySelectorAll('[data-live-changed-files] [data-history-path]').length >= 17", null, { timeout: 15000 });
+      await page.waitForTimeout(500);
+      const snapshot = () => page.evaluate(() => {
+        const host = document.querySelector('[data-live-changed-files]');
+        const live = window.__augitLive || {};
+        const ui = live.commitDetailsUi || null;
+        const leaves = [...document.querySelectorAll('[data-live-changed-files] [data-history-path]')];
+        const groups = [...document.querySelectorAll('[data-live-changed-files] [data-history-group]')];
+        const groupOf = (key) => groups.find((g) => (g.dataset.historyGroup || '') === key) || null;
+        const docsGroup = groupOf('docs');
+        const docsLeaf = leaves.find((r) => r.dataset.historyPath === 'docs/notes-00.txt');
+        return {
+          leafCount: leaves.length,
+          groupKeys: groups.map((g) => g.dataset.historyGroup),
+          // 折叠是否真的落地：`aria-expanded`、`hidden` 属性与**实测计算样式**三者都看
+          //（`.tree-row` 是 display:flex，会盖掉 `[hidden]` 的 UA 规则 —— 只写属性不写样式表规则时行还在）。
+          docsExpanded: docsGroup ? docsGroup.getAttribute('aria-expanded') : null,
+          docsCollapsedClass: docsGroup ? docsGroup.classList.contains('collapsed') : null,
+          docsLeafHidden: docsLeaf ? docsLeaf.hasAttribute('hidden') : null,
+          docsLeafDisplay: docsLeaf ? getComputedStyle(docsLeaf).display : null,
+          hiddenLeaves: leaves.filter((r) => r.hasAttribute('hidden')).length,
+          srcExpanded: groupOf('src') ? groupOf('src').getAttribute('aria-expanded') : null,
+          selected: leaves.filter((r) => r.classList.contains('selected')).map((r) => r.dataset.historyPath),
+          stateSelected: ui ? ui.selectedPath : null,
+          stateCollapsed: ui ? Object.keys(ui.collapsed).filter((k) => ui.collapsed[k]).sort() : null,
+          scrollTop: host ? Math.round(host.scrollTop) : null,
+          stateScrollTop: ui ? Math.round(ui.scrollTop) : null,
+          scrollLimit: host ? host.scrollHeight - host.clientHeight : null,
+          revisionMatches: !!(live.commitDetails && ui && live.commitDetails.revision === ui.revision),
+        };
+      });
+      const base = await snapshot();
+      // ① 折叠 `docs` 组（点组行 = 箭头所在行）
+      await page.locator('[data-live-changed-files] [data-history-group="docs"]').first().click();
+      await page.waitForTimeout(250);
+      // ② 选中 `src/App.cs`（单击只选择；比较未打开时不产生别的副作用）
+      await page.locator('[data-live-changed-files] [data-history-path="src/App.cs"]').first().click();
+      await page.waitForTimeout(250);
+      // ③ 树滚到 60，并**读回**确认真的滚动了（写进不可滚的容器是无效判据）
+      const scrolled = await page.evaluate(() => {
+        const host = document.querySelector('[data-live-changed-files]');
+        host.scrollTop = 60;
+        return { wanted: 60, actual: Math.round(host.scrollTop), limit: host.scrollHeight - host.clientHeight };
+      });
+      await page.waitForTimeout(400);
+      const decorated = await snapshot();
+      // ④ 真实往返：项目树右键 → 文件历史 → 清除路径筛选（`clearHistoryPathFilter()` 走 refresh 的
+      //    render + rebind 路径，与用户的返回动作完全一致）
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForTimeout(500);
+      const away = await page.evaluate(() => ({
+        fileHistory: window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
+        treeRows: document.querySelectorAll('[data-live-changed-files] [data-history-path]').length,
+      }));
+      await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+      await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForTimeout(900);
+      const after = await snapshot();
+      // ⑤ 纯区域重绘（`__augitRender()`）：变化文件树的 HTML 由状态重建 ⇒ 折叠与选择仍在
+      await page.evaluate(() => { window.__augitRender(); });
+      await page.waitForTimeout(400);
+      const redrawn = await snapshot();
+      // ⑥ 负向对照：把"按状态渲染"**在运行时关掉**（丢掉 `ui` 参数 = 回到第 253 轮的行为），
+      //    再折叠一次 —— 状态照样记下折叠与选择，但 DOM 不再跟随 ⇒ 上面的判据必须失败。
+      await page.locator('[data-live-changed-files] [data-history-group="docs"]').first().click();
+      await page.waitForTimeout(300);
+      const negBase = await snapshot();
+      await page.evaluate(() => {
+        window.__origHistoryFiles254 = window.__augitHistoryFiles;
+        window.__augitHistoryFiles = (files) => window.__origHistoryFiles254(files);
+      });
+      await page.locator('[data-live-changed-files] [data-history-group="docs"]').first().click();
+      await page.waitForTimeout(300);
+      const neg = await snapshot();
+      await page.evaluate(() => { window.__augitHistoryFiles = window.__origHistoryFiles254; });
+      // ⑦ 状态按 `revision` 归属：改选另一个提交后，上一条提交的折叠/选择/位置都不得残留
+      await page.locator('.commit-list .commit-row').nth(1).click();
+      await page.waitForFunction("() => (window.__augitLive.commitDetails || {}).revision === 'full-bbb2222'", null, { timeout: 15000 });
+      await page.waitForFunction("() => document.querySelectorAll('[data-live-changed-files] [data-history-path]').length >= 17", null, { timeout: 15000 });
+      await page.waitForTimeout(700);
+      const other = await snapshot();
+      const otherRevision = await page.evaluate(() => ({
+        detail: window.__augitLive.commitDetails ? window.__augitLive.commitDetails.revision : null,
+        ui: window.__augitLive.commitDetailsUi ? window.__augitLive.commitDetailsUi.revision : null,
+      }));
+      await page.close();
+      console.log('INFO 变化文件树状态=' + JSON.stringify({ base, scrolled, decorated, away, after, redrawn, negBase, neg, other, otherRevision }));
+      return { base, scrolled, decorated, away, after, redrawn, negBase, neg, other, otherRevision };
+    })();
+    check('§7.9 提交详情「变化文件树」的折叠/选择/顶部位置在重绘与文件历史往返后保持: '
+      + JSON.stringify([filesTree.base, filesTree.scrolled, filesTree.decorated, filesTree.after, filesTree.redrawn, filesTree.neg]),
+    // 前置：确实构造出"多组 + 根叶"的树，且宿主**真的可以滚动**（否则"顶部位置"平凡为真）
+    filesTree.base.leafCount >= 17 && filesTree.base.groupKeys.join(',') === ',docs,src,tools,tools/audit'
+      && filesTree.scrolled.limit > 0 && filesTree.scrolled.actual > 0
+      // ① 折叠：状态与 DOM 两面一致，且行**真的**不显示（计算样式 display: none）
+      && filesTree.decorated.stateCollapsed.join(',') === 'docs'
+      && filesTree.decorated.docsExpanded === 'false' && filesTree.decorated.docsCollapsedClass === true
+      && filesTree.decorated.docsLeafHidden === true && filesTree.decorated.docsLeafDisplay === 'none'
+      && filesTree.decorated.hiddenLeaves === 12
+      // 兄弟组不受影响
+      && filesTree.decorated.srcExpanded === 'true'
+      // ② 选择：唯一选中行与状态键一致
+      && filesTree.decorated.selected.join(',') === 'src/App.cs'
+      && filesTree.decorated.stateSelected === 'src/App.cs'
+      // ③ 顶部位置：滚动事件把实际位置写进状态
+      && filesTree.decorated.stateScrollTop === filesTree.scrolled.actual
+      // ④ 往返后三项逐项保持（DOM 与状态两面都保持）
+      //（桩的 `git/file-history` 不按参数而按固定夹具返回，路径是 `docs/notes.txt`）
+      && filesTree.away.fileHistory === 'docs/notes.txt'
+      && filesTree.after.stateCollapsed.join(',') === 'docs'
+      && filesTree.after.docsExpanded === 'false' && filesTree.after.docsLeafHidden === true
+      && filesTree.after.docsLeafDisplay === 'none' && filesTree.after.hiddenLeaves === 12
+      && filesTree.after.selected.join(',') === 'src/App.cs' && filesTree.after.stateSelected === 'src/App.cs'
+      && filesTree.after.scrollTop === filesTree.decorated.scrollTop
+      && filesTree.after.stateScrollTop === filesTree.decorated.stateScrollTop
+      && filesTree.after.revisionMatches === true
+      // ⑤ 纯区域重绘后同样保持（HTML 由状态重建）
+      && filesTree.redrawn.docsExpanded === 'false' && filesTree.redrawn.hiddenLeaves === 12
+      && filesTree.redrawn.selected.join(',') === 'src/App.cs'
+      // ⑥ 负向对照：丢掉状态后 DOM 不再跟随（展开、无隐藏行、选中丢失），而状态照样记着 ⇒
+      //    "DOM 与状态一致"这条判据不是空洞的（第 253 轮的教训：patch 必须真的生效）
+      && filesTree.neg.stateCollapsed.join(',') === 'docs' && filesTree.neg.docsExpanded === 'true'
+      && filesTree.neg.hiddenLeaves === 0
+      && filesTree.neg.stateSelected === 'src/App.cs' && filesTree.neg.selected.length === 0);
+    check('§7.9 变化文件树状态按提交归属：改选提交后不残留上一条的折叠/选择/位置: '
+      + JSON.stringify([filesTree.otherRevision, filesTree.other]),
+    filesTree.otherRevision.detail === 'full-bbb2222' && filesTree.otherRevision.ui === 'full-bbb2222'
+      // 上一条提交折叠了 `docs`、选中了 `src/App.cs`、滚到 60：都不许带过来
+      && filesTree.other.stateCollapsed.length === 0 && filesTree.other.stateSelected === null
+      && filesTree.other.stateScrollTop === 0
+      // DOM 侧同样回到全展开、无选中
+      && filesTree.other.docsExpanded === 'true' && filesTree.other.hiddenLeaves === 0
+      && filesTree.other.selected.length === 0);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
