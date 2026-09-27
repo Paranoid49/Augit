@@ -20273,6 +20273,94 @@ async function main() {
       && detailInvalidation.compared.diffLines === 8
       && detailInvalidation.compared.blameCalls === 1);
 
+    // ---- 第 264 轮：比较工具栏与文件信息区按实际行高扩展（§7.9 第十六条）----
+    const diffRowHeights = await (async () => {
+      const read = async (query, size, width) => {
+        const page = await context.newPage();
+        const errors = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        if (width) await page.setViewportSize({ width, height: 760 });
+        await page.goto(`http://127.0.0.1:${port}/index.html?${query}&ui-font-size=${size}`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
+        await page.waitForSelector('.editor-content .diff-columns .diff-code-line', { timeout: 10000 });
+        await page.waitForTimeout(500);
+        const out = await page.evaluate(() => {
+          const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: Math.round(r.height), w: Math.round(r.width) }; };
+          const layout = document.querySelector('.editor-content .diff-layout');
+          const bar = document.querySelector('.editor-content .diff-toolbar');
+          const filebar = document.querySelector('.editor-content .diff-filebar');
+          const body = document.querySelector('.editor-content .diff-columns');
+          const button = document.querySelector('.editor-content .diff-toolbar [aria-label="下一处差异"]');
+          const icon = button ? button.querySelector('svg') : null;
+          const root = getComputedStyle(document.documentElement);
+          return {
+            uiFont: root.getPropertyValue('--augit-ui-font-size').trim() || getComputedStyle(document.documentElement).fontSize,
+            toolbarVar: root.getPropertyValue('--augit-diff-toolbar-height').trim(),
+            filebarVar: root.getPropertyValue('--augit-diff-filebar-height').trim(),
+            layout: rect(layout), toolbar: rect(bar), filebar: rect(filebar), body: rect(body),
+            button: rect(button), icon: rect(icon),
+            labels: [...document.querySelectorAll('.editor-content .diff-toolbar button[aria-label]')].map((n) => n.getAttribute('aria-label')),
+            summary: (() => { const el = document.querySelector('.editor-content .diff-summary'); return el ? el.textContent.trim() : null; })(),
+            summaryClip: (() => {
+              const el = document.querySelector('.editor-content .diff-summary');
+              return el ? { scroll: el.scrollWidth, client: el.clientWidth } : null;
+            })(),
+            overlap: (() => {
+              const boxes = [...document.querySelectorAll('.editor-content .diff-toolbar button[aria-label]')]
+                .map((n) => n.getBoundingClientRect()).sort((a, b) => a.left - b.left);
+              for (let index = 1; index < boxes.length; index += 1) {
+                if (boxes[index].left < boxes[index - 1].right - 1) return true;
+              }
+              return false;
+            })(),
+            rowSum: (() => {
+              const l = document.querySelector('.editor-content .diff-layout').getBoundingClientRect();
+              const t = document.querySelector('.editor-content .diff-toolbar').getBoundingClientRect();
+              const f = document.querySelector('.editor-content .diff-filebar').getBoundingClientRect();
+              const b = document.querySelector('.editor-content .diff-columns').getBoundingClientRect();
+              return { layoutTop: Math.round(l.top), toolbarH: Math.round(t.height), filebarH: Math.round(f.height), bodyDelta: Math.round(b.top - l.top) };
+            })(),
+          };
+        });
+        await page.close();
+        return { out, errors };
+      };
+      const small = await read('scene=commit-diff&theme=dark&diff=src%2FApp.cs', 13);
+      const large = await read('scene=commit-diff&theme=dark&diff=src%2FApp.cs', 26);
+      const huge = await read('scene=commit-diff&theme=dark&diff=src%2FApp.cs', 40);
+      const narrow = await read('scene=commit-diff&theme=dark&diff=src%2FApp.cs', 13, 900);
+      console.log('INFO 比较行高=' + JSON.stringify({ small, large, huge, narrow }));
+      return { small, large, huge, narrow };
+    })();
+    const sizes = [diffRowHeights.small, diffRowHeights.large, diffRowHeights.huge];
+    check('§7.9 比较工具栏与文件信息区按实际行高扩展：只增高这两行并同步下移正文，图标与命中区不变: '
+      + JSON.stringify(sizes.map((item) => item.out.rowSum).concat([sizes.map((item) => [item.out.button, item.out.icon])])),
+    sizes.every((item) => item.errors.length === 0)
+      // 正文顶边 = 布局顶边 + 工具栏高 + 文件栏高（三档字号都成立 ⇒ "只增高这两行"）
+      && sizes.every((item) => item.out.rowSum.bodyDelta === item.out.rowSum.toolbarH + item.out.rowSum.filebarH)
+      // 两行随字号增高（39/31 → 45/45 → 63/63），CSS 变量与实测高度一致
+      && sizes[0].out.toolbar.h === 39 && sizes[0].out.filebar.h === 31
+      && sizes[1].out.toolbar.h === 45 && sizes[1].out.filebar.h === 45
+      && sizes[2].out.toolbar.h === 63 && sizes[2].out.filebar.h === 63
+      && sizes.every((item) => parseFloat(item.out.toolbarVar) === item.out.toolbar.h
+        && parseFloat(item.out.filebarVar) === item.out.filebar.h)
+      // 图标 16×16、按钮命中区 27×27 逐值不变；文字不被裁切、按钮不重叠
+      && sizes.every((item) => item.out.button.w === 27 && item.out.button.h === 27
+        && item.out.icon.w === 16 && item.out.icon.h === 16)
+      && sizes.every((item) => item.out.overlap === false)
+      && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1));
+    check('§7.9 窄宽度下比较工具栏保留既定按钮顺序与局部提示: '
+      + JSON.stringify([diffRowHeights.small.out.labels, diffRowHeights.narrow.out.labels, diffRowHeights.narrow.out.toolbar]),
+    diffRowHeights.narrow.errors.length === 0
+      // 窄到 900px（编辑区 507px）后按钮顺序与宽栏逐字相同、摘要提示仍在、按钮不重叠
+      && diffRowHeights.narrow.out.labels.join(',') === diffRowHeights.small.out.labels.join(',')
+      && diffRowHeights.narrow.out.labels.join(',') === '上一处差异,下一处差异,查找,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
+      && diffRowHeights.narrow.out.summary === diffRowHeights.small.out.summary
+      && diffRowHeights.narrow.out.overlap === false
+      && diffRowHeights.narrow.out.toolbar.w < diffRowHeights.small.out.toolbar.w
+      && diffRowHeights.narrow.out.button.w === diffRowHeights.small.out.button.w
+      && diffRowHeights.narrow.out.icon.w === diffRowHeights.small.out.icon.w);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {
