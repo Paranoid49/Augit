@@ -7284,6 +7284,109 @@ async function main() {
       await md7r.page.close();
     }
 
+    // ---- 第 291 轮补断言（收 §7.4 第 8 条）：切换模式后查找立即更新并从新文本起点继续 ----
+    // 规格 §7.4：「查找基于当前可见的原文或格式化文本。切换模式保留查找词与开关，立即更新结果数，
+    // 并从新显示文本的起点继续查找；重复点击当前模式不重置查找位置。同一格式化内容的连续查找复用
+    // 显示结果，不重复格式化全文。」
+    // 夹具：压缩原文 `{"b":1,...}`（没有「冒号+空格」）、宿主格式化正文（每个 `": "` 都带空格）——
+    // 两边的匹配数天然不同（0 与 4），因此"结果数立即更新"与"从新文本起点继续"都能被区分出来。
+    {
+      const j8 = await openScene('scene=main-project&theme=dark');
+      await j8.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await j8.page.waitForTimeout(400);
+      await j8.page.evaluate(async () => {
+        const source = '{"b":1,"a":{"c":2,"d":[1,2]}}';
+        const formatted = '{\n  "b": 1,\n  "a": {\n    "c": 2,\n    "d": [\n      1,\n      2\n    ]\n  }\n}';
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['global.json'] = {
+          path: 'global.json', name: 'global.json', fullPath: 'D:\\ws\\global.json', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Json', typeName: 'JSON', fileSize: source.length,
+          text: source, formatted, lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        await window.__augitOpenDocument('global.json');
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+      await j8.page.keyboard.press('Control+f');
+      await j8.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await j8.page.fill('.current-find .search-field', ': ');
+      await j8.page.waitForTimeout(400);
+      const j8Read = () => j8.page.evaluate(() => {
+        const view = document.querySelector('.json-document');
+        const bar = document.querySelector('.current-find');
+        const current = document.querySelector('.code-view mark.find-current');
+        const row = current && current.closest('.code-line');
+        const caseButton = bar ? bar.querySelector('[aria-label="区分大小写"]') : null;
+        return {
+          mode: view ? view.dataset.jsonMode : null,
+          status: bar ? bar.querySelector('.find-status').textContent : null,
+          query: bar ? bar.querySelector('.search-field').value : null,
+          casePressed: caseButton ? caseButton.getAttribute('aria-pressed') : null,
+          marks: document.querySelectorAll('.code-view mark.find-match').length,
+          currentLine: row ? row.dataset.line : null,
+        };
+      });
+      const j8Wait = (ms) => j8.page.waitForTimeout(ms);
+      const j8Pick = async (mode) => {
+        await j8.page.locator(`.json-document button[data-json-mode="${mode}"]`).click();
+        await j8Wait(300);
+      };
+      const j8Next = async () => {
+        await j8.page.locator('.current-find [aria-label="下一项"]').click();
+        await j8Wait(300);
+      };
+      const j8Formatted = await j8Read();
+      await j8.page.locator('.current-find [aria-label="区分大小写"]').click();
+      await j8Wait(200);
+      const j8CaseOn = await j8Read();
+      await j8Next();
+      const j8Second = await j8Read();
+      await j8Pick('source');
+      const j8Source = await j8Read();
+      await j8Pick('formatted');
+      const j8Back = await j8Read();
+      await j8Next();
+      const j8Third = await j8Read();
+      await j8Next();
+      const j8Fourth = await j8Read();
+      // 重复点击当前模式：不重排正文（首行节点身份不变）、不重置查找位置。
+      const j8Repeat = await j8.page.evaluate(async () => {
+        const code = document.querySelector('.code-view');
+        const first = code.querySelector('.code-line');
+        const statusBefore = document.querySelector('.find-status').textContent;
+        document.querySelector('.json-document button[data-json-mode="formatted"]').click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const current = document.querySelector('.code-view mark.find-current');
+        const row = current && current.closest('.code-line');
+        return {
+          sameFirstLine: first === code.querySelector('.code-line'),
+          statusBefore,
+          statusAfter: document.querySelector('.find-status').textContent,
+          currentLine: row ? row.dataset.line : null,
+        };
+      });
+      check('§7.4 切换模式立即更新查找结果数并从新文本起点继续；保留查找词与开关、重复点当前模式不重置: '
+        + JSON.stringify({ j8Formatted, j8CaseOn, j8Second, j8Source, j8Back, j8Third, j8Fourth, j8Repeat }),
+      // 前置：格式化正文里 `": "` 有 4 处（压缩原文里 0 处 ⇒ 两边结果数天然不同）
+      j8Formatted.mode === 'formatted' && j8Formatted.status === '1/4' && j8Formatted.currentLine === '2'
+        && j8Formatted.marks === 3 && j8Formatted.query === ': ' && j8Formatted.casePressed === 'false'
+        // 开关：打开"区分大小写"后结果数不变（该查询不含字母），开关状态被保留
+        && j8CaseOn.casePressed === 'true' && j8CaseOn.status === '1/4'
+        // 已选择第 2 项，证明后面的"回到 1/4"不是没动过
+        && j8Second.status === '2/4' && j8Second.currentLine === '3'
+        // 切到原文：结果数**立即**变成 0/0，查找词与开关都还在
+        && j8Source.mode === 'source' && j8Source.status === '0/0' && j8Source.marks === 0
+        && j8Source.query === ': ' && j8Source.casePressed === 'true'
+        // 切回格式化：从新文本的**起点**继续（1/4 第 2 行，而不是停在第 2 项 3 行）
+        && j8Back.mode === 'formatted' && j8Back.status === '1/4' && j8Back.currentLine === '2'
+        // 继续前进：2/4 第 3 行、3/4 第 4 行
+        && j8Third.status === '2/4' && j8Third.currentLine === '3'
+        && j8Fourth.status === '3/4' && j8Fourth.currentLine === '4'
+        // 重复点击当前模式：正文节点身份不变、查找位置保持 3/4 第 4 行
+        && j8Repeat.sameFirstLine === true && j8Repeat.statusBefore === '3/4'
+        && j8Repeat.statusAfter === '3/4' && j8Repeat.currentLine === '4');
+      await j8.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
