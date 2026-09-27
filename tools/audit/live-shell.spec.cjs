@@ -534,6 +534,11 @@ async function main() {
           }
         }
         if (window.__cloneFails) throw new Error('克隆失败：无法连接远端。');
+        // 长原因（规格 §7.12 第 3 条"错误在正文换行并可滚动查看"）：一个没有空格的超长原因，
+        // 只有 `overflow-wrap: anywhere` 才能不撑出横向滚动条。
+        if (window.__cloneLongError) {
+          return { available: false, field: 'destination', reason: '目标目录不为空：' + 'A'.repeat(240) + '请换一个目录。' };
+        }
         return data.clone;
       }
       if (method === 'git/diff') {
@@ -1006,7 +1011,8 @@ async function main() {
             return { available: true, cancelled: true, reason: '操作已取消。' };
           }
         }
-        if (window.__pushFails) return { available: true, pushed: false, reason: '没有配置推送远端。' };
+        // 失败原因可注入：验证「需要交互输入」这类宿主稳定原因被原样显示（规格 §7.12 第 14 条）。
+        if (window.__pushFails) return { available: true, pushed: false, reason: window.__pushFailReason || '没有配置推送远端。' };
         return { available: true, pushed: true, branch: 'main', remotes: 1 };
       }
       if (method === 'git/commit-create') {
@@ -5264,6 +5270,152 @@ async function main() {
         && pushLateState.calls === 1 && pushLateState.cancels === 1 && pushLateState.result === null);
     await pushLate.page.evaluate(() => { window.__pushDelays = 0; window.__pushIgnoresCancel = false; });
     await pushLate.page.close();
+
+    // ---- 规格 §7.12 第 3 条：Clone 的字号排布、浅克隆行换行、错误换行与聚焦滚入 ----
+    const cloneGeoAt = async (width, height, size) => {
+      const scene = await openScene(`scene=clone&theme=dark&ui-size=${size}`);
+      const page = scene.page;
+      await page.setViewportSize({ width, height });
+      await page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+      await page.waitForSelector('.clone-dialog #clone-source', { timeout: 10000 });
+      await page.waitForTimeout(500);
+      const state = await page.evaluate(() => {
+        const dialog = document.querySelector('.clone-dialog');
+        const cs = getComputedStyle(dialog);
+        const label = dialog.querySelector('.clone-shallow-row .check-line').getBoundingClientRect();
+        const depth = dialog.querySelector('.clone-depth-group').getBoundingClientRect();
+        return {
+          width: cs.getPropertyValue('--clone-width').trim(),
+          height: cs.getPropertyValue('--clone-height').trim(),
+          field: cs.getPropertyValue('--clone-field').trim(),
+          header: cs.getPropertyValue('--clone-header').trim(),
+          sameLine: Math.abs(depth.top - label.top) < 3,
+          wrapped: depth.top > label.top + 2,
+        };
+      });
+      await page.close();
+      return state;
+    };
+    const cloneWide = await cloneGeoAt(1600, 800, 13);
+    const cloneNarrow = await cloneGeoAt(560, 800, 13);
+    const cloneNarrowBig = await cloneGeoAt(560, 800, 20);
+    check('§7.12 Clone 浅克隆行放不下时深度与单位换行、字号放大按字宽字高排布: '
+      + JSON.stringify([cloneWide, cloneNarrow, cloneNarrowBig]),
+    // 宽窗口：标签与深度组同一行；窄窗口：深度组换到下一行。
+    cloneWide.sameLine === true && cloneWide.wrapped === false
+      && cloneNarrow.wrapped === true && cloneNarrow.sameLine === false
+      // 字号放大：字段高度按实际字高增长、整窗高度随之增长（名义宽度仍受窗口限制）。
+      // 标题高度有 45px 下限，字号 20 时仍在名义值上，因此只断言字段与整窗。
+      && Number.parseInt(cloneNarrowBig.field, 10) > Number.parseInt(cloneNarrow.field, 10)
+      && Number.parseInt(cloneNarrowBig.height, 10) > Number.parseInt(cloneNarrow.height, 10));
+
+    // 长原因在正文里换行，且错误出现/消失不移动标题与底栏；聚焦较低字段时自动滚入视口。
+    const cloneLong = await openScene('scene=clone&theme=dark');
+    await cloneLong.page.setViewportSize({ width: 900, height: 280 });
+    await cloneLong.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
+    await cloneLong.page.waitForSelector('.clone-dialog #clone-source', { timeout: 10000 });
+    await cloneLong.page.waitForTimeout(400);
+    const cloneHeaderBefore = await cloneLong.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      return {
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+      };
+    });
+    // 聚焦较低字段：正文自动滚入视口。
+    await cloneLong.page.evaluate(() => { document.querySelector('.clone-dialog .dialog-body').scrollTop = 0; });
+    await cloneLong.page.locator('#clone-shallow').focus();
+    await cloneLong.page.waitForTimeout(200);
+    const cloneFocusScroll = await cloneLong.page.evaluate(() => {
+      const body = document.querySelector('.clone-dialog .dialog-body');
+      const target = document.querySelector('#clone-shallow').getBoundingClientRect();
+      const box = body.getBoundingClientRect();
+      return {
+        scrollTop: Math.round(body.scrollTop),
+        scrollable: body.scrollHeight > body.clientHeight + 1,
+        inView: target.top >= box.top - 1 && target.bottom <= box.bottom + 1,
+      };
+    });
+    check('§7.12 Clone 聚焦字段自动滚入视口: ' + JSON.stringify(cloneFocusScroll),
+      cloneFocusScroll.scrollable === true && cloneFocusScroll.scrollTop > 0 && cloneFocusScroll.inView === true);
+
+    await cloneLong.page.evaluate(() => { window.__cloneLongError = true; });
+    await cloneLong.page.locator('#clone-source').fill('https://example.com/team/repo.git');
+    await cloneLong.page.locator('#clone-destination').fill('D:\\projects\\repo');
+    await cloneLong.page.locator('.clone-dialog .primary-button').click();
+    await cloneLong.page.waitForSelector('.clone-dialog .clone-notice:not([hidden])', { timeout: 8000 });
+    await cloneLong.page.waitForTimeout(300);
+    const cloneLongState = await cloneLong.page.evaluate(() => {
+      const dialog = document.querySelector('.clone-dialog');
+      const notice = dialog.querySelector('.clone-notice');
+      const line = Number.parseFloat(getComputedStyle(notice).lineHeight) || 20;
+      const body = dialog.querySelector('.dialog-body');
+      return {
+        length: notice.textContent.length,
+        // 换行后不应再有横向溢出（超长无空格原因必须 overflow-wrap: anywhere）
+        horizontalOverflow: notice.scrollWidth > notice.clientWidth + 1,
+        height: Math.round(notice.getBoundingClientRect().height),
+        line,
+        bodyScrollable: body.scrollHeight > body.clientHeight + 1,
+        headerTop: Math.round(dialog.querySelector('.dialog-header').getBoundingClientRect().top),
+        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
+      };
+    });
+    check('§7.12 Clone 错误在正文换行且不移动标题与底栏: ' + JSON.stringify([cloneHeaderBefore, cloneLongState]),
+      cloneLongState.length > 200 && cloneLongState.horizontalOverflow === false
+        && cloneLongState.height > cloneLongState.line * 1.5
+        && cloneLongState.bodyScrollable === true
+        // 错误出现前后标题与底栏位置逐值不变
+        && cloneLongState.headerTop === cloneHeaderBefore.headerTop
+        && cloneLongState.footerTop === cloneHeaderBefore.footerTop);
+    await cloneLong.page.evaluate(() => { window.__cloneLongError = false; });
+    await cloneLong.page.close();
+
+    // ---- 规格 §7.12 第 14 条：需要交互输入的图形 Git 命令直接失败并说明原因，不给复制/终端重试 ----
+    const interactive = await openScene('scene=main-project&theme=dark');
+    await interactive.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await interactive.page.waitForTimeout(500);
+    await interactive.page.evaluate(() => {
+      window.__unpushedSubjects = ['feat: 真实提交一'];
+      window.__pushFails = true;
+      // 宿主 `GitCommandRunner` 的稳定原因（不暴露原命令）；宿主侧已有单测。
+      window.__pushFailReason = 'Git 需要交互输入，图形操作已停止。';
+    });
+    await interactive.page.evaluate(() => {
+      document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+    });
+    await interactive.page.locator('.top-chip.branch-chip').click();
+    await interactive.page.waitForTimeout(450);
+    await interactive.page.locator('[data-popover-action="push"]').click();
+    await interactive.page.waitForTimeout(1300);
+    await interactive.page.locator('[data-push-action="confirm"]').click();
+    await interactive.page.waitForTimeout(600);
+    const interactiveState = await interactive.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const notice = dialog.querySelector('.push-notice');
+      const text = dialog.innerText || '';
+      const all = document.body.innerText || '';
+      const banned = ['复制命令', '复制原命令', '在终端重试', '重新输入', '重试命令', '打开终端', 'Git 控制台', 'Git Console'];
+      return {
+        open: !!dialog,
+        notice: notice.textContent || '',
+        // 界面不得提供"复制原命令/在终端重试"这类入口
+        bannedInDialog: banned.filter((word) => text.includes(word)),
+        bannedInPage: banned.filter((word) => all.includes(word)),
+        // 失败后保留引用与列表，允许重试
+        summary: (dialog.querySelector('.push-summary') || {}).innerText || null,
+        rows: dialog.querySelectorAll('.push-commit').length,
+        confirmDisabled: dialog.querySelector('[data-push-action="confirm"]').disabled,
+      };
+    });
+    check('§7.12 需要交互输入的图形 Git 命令直接失败并说明原因、不提供复制或终端重试: '
+      + JSON.stringify(interactiveState),
+    interactiveState.open === true
+      && interactiveState.notice === 'Git 需要交互输入，图形操作已停止。'
+      && interactiveState.bannedInDialog.length === 0 && interactiveState.bannedInPage.length === 0
+      && interactiveState.rows === 1 && interactiveState.confirmDisabled === false);
+    await interactive.page.evaluate(() => { window.__pushFails = false; window.__pushFailReason = null; });
+    await interactive.page.close();
 
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
