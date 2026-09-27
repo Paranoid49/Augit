@@ -135,3 +135,21 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
 - 新增/改写断言：`tools/verify-ux-file-history.cjs` 断言四列文本（`commit-4`／日期／`I49`／标题）、前三列宽度 62/108/90、**表头列名与顺序**、以及**表头与数据行逐列同宽**；`tools/verify-ux-history-typography.cjs` 把 `.history-columns` 纳入"文字不被固定高度裁切"的检查对象；`live-shell` 新增 `文件历史表头为 版本→日期→作者→提交信息`、`文件历史行按权威列序填真实数据` 两条。
 - 哈希：`web/src/mockup.js` `4071c7fa509a7f3b1c4bdeb0587e5086` → **`76bef20ed5d82a5ba76112f9289321b5`**；`web/src/mockup.css` `9ebdb35f0182369a6bab826657038640` → **`6da20a85fc685d0560d05db902c86692`**；`live-data.js`／`bridge.js` 未变。`docs/ux-mockups/` 两个同名文件字节一致。
 - 未改 C#（`hash`／`shortHash` 已在 `git/file-history` 载荷里）⇒ 同样不需要构建。
+
+## 文件历史列表的窄栏横向滚动（第 252 轮）
+
+`ux-spec` §7.9 要求"窄栏在自身区域横向滚动"，而 `.history-list-pane` 原先是 `overflow: hidden`，
+四列 `min-width` 又是 360px ⇒ 窗口收窄时内容**既不滚也不缩、直接被裁掉**
+（实测 900px 窗口下列表区只剩 146px，行容器仍宽 360px、`scrollWidth === clientWidth`，右侧列完全看不到）。
+
+修法：`.history-list-pane { overflow-x: auto; overflow-y: hidden }`。横向滚动放在**列表区**上
+（而不是只把 `.history-rows` 变成滚动容器）——否则表头留在原地、与滚动的数据行错位。
+实测：900px 窗口下列表区 `scrollWidth 360 > clientWidth 146`，真实横向滚轮滚动后表头与数据行
+**一起**左移同样的像素数且逐列仍对齐；放宽后回到无滚动。
+
+配套断言：表头与数据行共用同一套列宽（实测 `grid-template-columns` 逐值相同、四列左边缘与宽度相等）、
+行内无提交图与右置元信息、宽→窄→宽三次布局变化中 `git/file-history`／`git/diff` 调用数、
+选中提交与标签数都不变（沿用同一提交身份、不重建主窗口）。
+
+> 断言教训：用"把容器 `scrollLeft` 写成 100"验证"能滚"是无效判据 —— `overflow: hidden` 的元素
+> 仍可被**程序**滚动，断言分不出"能滚"与"被裁掉"。必须用真实横向滚轮（`mouse.wheel(deltaX, 0)`）。

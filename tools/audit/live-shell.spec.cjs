@@ -18395,6 +18395,97 @@ async function main() {
       && boundaryQuiet.hinted.path === boundaryQuiet.positioned.path
       && boundaryQuiet.hint === '再次点击可进入下一个文件');
 
+    // ---- 第 252 轮补断言（收 §7.9 条目二）：文件历史列表四列布局、窄栏横向滚动（表头与数据行一起走）、
+    // 改变列布局不重查比较 ----
+    const fileHistoryColumns = await (async () => {
+      const scene = await openScene('scene=file-history&theme=dark&file-history=docs%2Fnotes.txt');
+      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await scene.page.waitForSelector('.history-rows .history-row', { timeout: 10000 });
+      await scene.page.waitForTimeout(600);
+      const snap = () => scene.page.evaluate(() => {
+        const pane = document.querySelector('.history-list-pane');
+        const header = document.querySelector('.history-columns');
+        const rows = document.querySelector('.history-rows');
+        const first = rows ? rows.querySelector('.history-row') : null;
+        const cells = (el) => el ? [...el.children].map((c) => ({
+          text: c.textContent.trim().slice(0, 16), left: Math.round(c.getBoundingClientRect().left), w: Math.round(c.getBoundingClientRect().width),
+        })) : null;
+        return {
+          headerTracks: header ? getComputedStyle(header).gridTemplateColumns : null,
+          rowTracks: first ? getComputedStyle(first).gridTemplateColumns : null,
+          headerTexts: header ? [...header.children].map((c) => c.textContent.trim()) : null,
+          headerCells: cells(header),
+          rowCells: cells(first),
+          rowCellCount: first ? first.children.length : null,
+          graphNodes: document.querySelectorAll('.history-list-pane .commit-graph, .history-row .commit-graph').length,
+          metaInRow: document.querySelectorAll('.history-row .commit-meta').length,
+          pane: pane ? { client: pane.clientWidth, scroll: pane.scrollWidth, left: Math.round(pane.scrollLeft) } : null,
+          rows: rows ? { client: rows.clientWidth, scroll: rows.scrollWidth } : null,
+          fileHistoryCalls: window.__fileHistoryCalls || 0,
+          diffCalls: (window.__diffCalls || []).length,
+          selectedHash: (() => { const el = document.querySelector('.history-row.selected'); return el ? el.dataset.historyHash : null; })(),
+          tabs: document.querySelectorAll('.bottom-header .tool-tab').length,
+        };
+      });
+      const wide = await snap();
+      await scene.page.setViewportSize({ width: 900, height: 700 });
+      await scene.page.waitForTimeout(600);
+      const narrow = await snap();
+      // 用**真实横向滚轮**验证"能滚"：只把 `scrollLeft` 写成 100 的话，`overflow: hidden` 也会照做
+      // （隐藏溢出的元素仍可被**程序**滚动），断言就分不出"能滚"与"被裁掉"。
+      const paneCenter = await scene.page.evaluate(() => {
+        const el = document.querySelector('.history-list-pane');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      });
+      if (paneCenter) {
+        await scene.page.mouse.move(paneCenter.x, paneCenter.y);
+        await scene.page.mouse.wheel(120, 0);
+        await scene.page.waitForTimeout(400);
+      }
+      const scrolled = await snap();
+      await scene.page.setViewportSize({ width: 1180, height: 760 });
+      await scene.page.waitForTimeout(600);
+      const backWide = await snap();
+      await scene.page.close();
+      console.log('INFO 文件历史列=' + JSON.stringify({ wide, narrow, scrolled, backWide }));
+      return { wide, narrow, scrolled, backWide };
+    })();
+    const cellsAligned = (snapshot) => !!snapshot.headerCells && !!snapshot.rowCells
+      && snapshot.headerCells.length === snapshot.rowCells.length
+      && snapshot.headerCells.every((cell, index) => cell.left === snapshot.rowCells[index].left
+        && cell.w === snapshot.rowCells[index].w);
+    check('§7.9 文件历史列表四列布局、窄栏在自身区域横向滚动且表头随行一起走、改变列布局不重查: '
+      + JSON.stringify([fileHistoryColumns.wide, fileHistoryColumns.narrow.pane, fileHistoryColumns.scrolled, fileHistoryColumns.backWide.pane]),
+    // 四列顺序与表头文字（权威列集合：版本 → 日期 → 作者 → 提交信息），表头与数据行**共用同一套列宽**
+    JSON.stringify(fileHistoryColumns.wide.headerTexts) === JSON.stringify(['版本', '日期', '作者', '提交信息'])
+      && fileHistoryColumns.wide.rowCellCount === 4
+      && fileHistoryColumns.wide.headerTracks === fileHistoryColumns.wide.rowTracks
+      && cellsAligned(fileHistoryColumns.wide)
+      // 不沿用 Git 日志的提交图与右置元信息
+      && fileHistoryColumns.wide.graphNodes === 0 && fileHistoryColumns.wide.metaInRow === 0
+      // 宽栏：内容放得下 ⇒ 列表区没有横向滚动
+      && fileHistoryColumns.wide.pane.client === fileHistoryColumns.wide.pane.scroll
+      // 窄栏：列表区自身出现横向滚动（内容 min-width 360）
+      && fileHistoryColumns.narrow.pane.scroll === 360
+      && fileHistoryColumns.narrow.pane.client < fileHistoryColumns.narrow.pane.scroll
+      // 真实横向滚轮确实滚动了列表区（而不是被裁掉），且表头与数据行**一起**移动、仍然逐列对齐
+      && fileHistoryColumns.scrolled.pane.left > 0
+      && cellsAligned(fileHistoryColumns.scrolled)
+      && fileHistoryColumns.narrow.headerCells[0].left - fileHistoryColumns.scrolled.headerCells[0].left === fileHistoryColumns.scrolled.pane.left
+      && fileHistoryColumns.narrow.rowCells[0].left - fileHistoryColumns.scrolled.rowCells[0].left === fileHistoryColumns.scrolled.pane.left
+      // 放宽后回到无滚动、列宽恢复（提交信息列吸收多余宽度）
+      && fileHistoryColumns.backWide.pane.client === fileHistoryColumns.backWide.pane.scroll
+      && fileHistoryColumns.backWide.headerTracks === fileHistoryColumns.wide.headerTracks
+      && cellsAligned(fileHistoryColumns.backWide)
+      // 列布局变化不重查、不改变提交身份、不动工窗口结构
+      && fileHistoryColumns.narrow.fileHistoryCalls === fileHistoryColumns.wide.fileHistoryCalls
+      && fileHistoryColumns.backWide.fileHistoryCalls === fileHistoryColumns.wide.fileHistoryCalls
+      && fileHistoryColumns.backWide.diffCalls === fileHistoryColumns.wide.diffCalls
+      && fileHistoryColumns.backWide.selectedHash === fileHistoryColumns.wide.selectedHash
+      && fileHistoryColumns.backWide.tabs === fileHistoryColumns.wide.tabs);
+
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。
     const escFocus = await (async () => {

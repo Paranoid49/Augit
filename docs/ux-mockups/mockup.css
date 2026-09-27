@@ -3874,7 +3874,13 @@ body[data-theme="dark"] .search-overlay {
   display: grid;
   grid-template-rows: var(--augit-history-toolbar-height, 39px) var(--augit-history-columns-height, 25px) minmax(0, 1fr);
   border-right: var(--augit-hairline) solid var(--augit-border);
-  overflow: hidden;
+  /* 窄栏在**自身区域**横向滚动（规格 §7.9：提交列表"窄栏在自身区域横向滚动"）：
+     行与表头各有 `min-width: 360px`（四列 62/108/90 + 提交信息≥0），窄于此就必须能横向滚动；
+     此前这里是 `overflow: hidden` ⇒ 内容既不滚也不缩，直接被裁掉（实测窗口 900px 时列表区只剩 146px，
+     行容器仍宽 360px，`scrollWidth === clientWidth` ⇒ 既没有横向滚动条、也看不到右侧列）。
+     放在列表区（而不是只放在行容器）上还保证**表头与数据行一起滚动、始终对齐**。 */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .history-detail-pane {
