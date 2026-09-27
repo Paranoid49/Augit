@@ -997,6 +997,15 @@ async function main() {
       }
       if (method === 'git/push') {
         window.__pushCalls = (window.__pushCalls || 0) + 1;
+        // 慢推送 + 取消通道（规格 §7.12 第 9 条）：`git/push` 与其它写操作共用写队列，
+        // `write/cancel` 会取消它 ⇒ 桩在等待期间检测到取消就按"已取消"回话。
+        if (window.__pushDelays) {
+          const cancelsBefore = window.__writeCancels || 0;
+          await new Promise((r) => setTimeout(r, window.__pushDelays));
+          if (!window.__pushIgnoresCancel && (window.__writeCancels || 0) > cancelsBefore) {
+            return { available: true, cancelled: true, reason: '操作已取消。' };
+          }
+        }
         if (window.__pushFails) return { available: true, pushed: false, reason: '没有配置推送远端。' };
         return { available: true, pushed: true, branch: 'main', remotes: 1 };
       }
@@ -5115,6 +5124,146 @@ async function main() {
         && Number.parseInt(pushNoRemoteState.tagsToken, 10) > 0
         && pushNoRemoteState.tagsVisible === true && pushNoRemoteState.tagsInside === true);
     await pushNoRemote.page.close();
+
+    // ---- 规格 §7.12 第 9 条：Push 预览未就绪不许推送、进行中冻结、取消等待与晚到不覆盖 ----
+    const openPushDialogFor = async (page) => {
+      await page.evaluate(() => {
+        document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+      });
+      await page.locator('.top-chip.branch-chip').click();
+      await page.waitForTimeout(450);
+      await page.locator('[data-popover-action="push"]').click();
+      await page.waitForTimeout(1300);
+    };
+
+    // 预览没有待推送提交：按钮禁用，点击也不调用 Git（规格 §7.12 第 9 条第一半）。
+    const pushEmpty = await openScene('scene=main-project&theme=dark');
+    await pushEmpty.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushEmpty.page.waitForTimeout(500);
+    await pushEmpty.page.evaluate(() => { window.__unpushedSubjects = []; });
+    await openPushDialogFor(pushEmpty.page);
+    const pushEmptyState = await pushEmpty.page.evaluate(() => {
+      const confirm = document.querySelector('[data-push-action="confirm"]');
+      window.__pushCalls = 0;
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return { disabled: confirm.disabled, rows: document.querySelectorAll('.push-commit').length };
+    });
+    await pushEmpty.page.waitForTimeout(400);
+    const pushEmptyCalls = await pushEmpty.page.evaluate(() => window.__pushCalls || 0);
+    check('§7.12 Push 预览没有待推送提交时不许推送: ' + JSON.stringify([pushEmptyState, pushEmptyCalls]),
+      pushEmptyState.disabled === true && pushEmptyState.rows === 0 && pushEmptyCalls === 0);
+    await pushEmpty.page.close();
+
+    // 进行中：冻结列表与确认、阻止重复提交；取消先请求宿主结束 Git，结束前保持冻结；
+    // 确认取消后保留引用/列表/焦点并允许重试。
+    const pushRun = await openScene('scene=main-project&theme=dark');
+    await pushRun.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushRun.page.waitForTimeout(500);
+    await pushRun.page.evaluate(() => {
+      window.__unpushedSubjects = ['feat: 真实提交一', 'fix: 真实提交二'];
+      window.__pushDelays = 1500;
+      window.__writeCancels = 0;
+    });
+    await openPushDialogFor(pushRun.page);
+    const pushSummary = await pushRun.page.evaluate(() => (document.querySelector('.push-summary') || {}).innerText || null);
+    await pushRun.page.locator('[data-push-action="confirm"]').click();
+    await pushRun.page.waitForTimeout(250);
+    const pushRunning = await pushRun.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const confirm = document.querySelector('[data-push-action="confirm"]');
+      const cancel = document.querySelector('[data-push-action="cancel"]');
+      const list = document.querySelector('.push-commits');
+      // 进行中再触发一次确认：必须被拦下（不发第二次 git/push）。
+      confirm.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return {
+        confirmDisabled: confirm.disabled,
+        confirmText: confirm.textContent.trim(),
+        cancelText: cancel.textContent.trim(),
+        listDisabled: list.getAttribute('aria-disabled'),
+        notice: (dialog.querySelector('.push-notice') || {}).textContent || '',
+      };
+    });
+    await pushRun.page.waitForTimeout(200);
+    const pushDupCalls = await pushRun.page.evaluate(() => window.__pushCalls || 0);
+    check('§7.12 Push 进行中冻结列表与确认并阻止重复提交: ' + JSON.stringify([pushRunning, pushDupCalls]),
+      pushRunning.confirmDisabled === true && pushRunning.confirmText.includes('正在推送')
+        && pushRunning.cancelText.includes('取消操作') && pushRunning.listDisabled === 'true'
+        && pushRunning.notice.includes('正在推送') && pushDupCalls === 1);
+
+    await pushRun.page.locator('[data-push-action="cancel"]').click();
+    await pushRun.page.waitForTimeout(300);
+    const pushCancelling = await pushRun.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const confirm = document.querySelector('[data-push-action="confirm"]');
+      return {
+        open: !!dialog,
+        cancels: window.__writeCancels || 0,
+        calls: window.__pushCalls || 0,
+        confirmDisabled: confirm.disabled,
+        notice: (dialog.querySelector('.push-notice') || {}).textContent || '',
+      };
+    });
+    // 宿主确认之前必须保持"取消中"：已请求结束 Git、按钮仍禁用、文案说明在等 Git 停止。
+    check('§7.12 Push 取消先请求宿主结束 Git 且结束前保持冻结: ' + JSON.stringify(pushCancelling),
+      pushCancelling.open === true && pushCancelling.cancels === 1 && pushCancelling.calls === 1
+        && pushCancelling.confirmDisabled === true && pushCancelling.notice.includes('等待 Git 停止'));
+    await pushRun.page.waitForTimeout(1800);
+    const pushCancelled = await pushRun.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const confirm = dialog.querySelector('[data-push-action="confirm"]');
+      const list = dialog.querySelector('.push-commits');
+      const active = document.activeElement;
+      return {
+        open: !!dialog,
+        summary: (dialog.querySelector('.push-summary') || {}).innerText || null,
+        notice: (dialog.querySelector('.push-notice') || {}).textContent || '',
+        confirmDisabled: confirm.disabled,
+        confirmText: confirm.textContent.trim(),
+        rows: list.querySelectorAll('.push-commit').length,
+        listDisabled: list.getAttribute('aria-disabled'),
+        focusInDialog: !!(active && dialog.contains(active)),
+        calls: window.__pushCalls || 0,
+      };
+    });
+    check('§7.12 Push 确认取消后保留引用、列表与焦点并允许重试: ' + JSON.stringify(pushCancelled),
+      pushCancelled.open === true && pushCancelled.notice.includes('操作已取消')
+        && pushCancelled.summary === pushSummary && pushCancelled.rows === 2
+        && pushCancelled.listDisabled === 'false'
+        && pushCancelled.confirmDisabled === false && pushCancelled.confirmText === '推送'
+        && pushCancelled.focusInDialog === true && pushCancelled.calls === 1);
+    await pushRun.page.evaluate(() => { window.__pushDelays = 0; });
+    await pushRun.page.close();
+
+    // 晚到成功不覆盖取消：宿主无视取消照常成功，也不得关窗或把取消显示成完成。
+    const pushLate = await openScene('scene=main-project&theme=dark');
+    await pushLate.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushLate.page.waitForTimeout(500);
+    await pushLate.page.evaluate(() => {
+      window.__unpushedSubjects = ['feat: 真实提交一'];
+      window.__pushDelays = 1200;
+      window.__pushIgnoresCancel = true;
+      window.__writeCancels = 0;
+    });
+    await openPushDialogFor(pushLate.page);
+    await pushLate.page.locator('[data-push-action="confirm"]').click();
+    await pushLate.page.waitForTimeout(250);
+    await pushLate.page.locator('[data-push-action="cancel"]').click();
+    await pushLate.page.waitForTimeout(1800);
+    const pushLateState = await pushLate.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      return {
+        open: !!dialog,
+        notice: dialog ? (dialog.querySelector('.push-notice') || {}).textContent || '' : null,
+        calls: window.__pushCalls || 0,
+        cancels: window.__writeCancels || 0,
+        result: window.__augitCommitResult || null,
+      };
+    });
+    check('§7.12 Push 晚到成功不覆盖用户的取消: ' + JSON.stringify(pushLateState),
+      pushLateState.open === true && pushLateState.notice.includes('操作已取消')
+        && pushLateState.calls === 1 && pushLateState.cancels === 1 && pushLateState.result === null);
+    await pushLate.page.evaluate(() => { window.__pushDelays = 0; window.__pushIgnoresCancel = false; });
+    await pushLate.page.close();
 
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');

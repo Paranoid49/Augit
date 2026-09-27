@@ -7162,7 +7162,8 @@ function guardUnwiredNavigation() {
     if (pushAction) {
       event.preventDefault();
       if (pushAction.dataset.pushAction === "confirm") void confirmPushDialog();
-      else closePushDialog();
+      // 取消：进行中要先请求宿主结束 Git（规格 §7.12 第 9 条），不在进行中才直接关闭。
+      else void cancelPushDialog();
       return;
     }
 
@@ -8083,7 +8084,35 @@ async function compareWithWorkspace() {
  *
  * 推送前先读取待推送提交并显示；未配置上游或读取失败时**禁用推送**并给出原因，
  * 同时保留「定义远端」入口。预览未就绪或没有待推送提交时不允许推送。
+ *
+ * 进行态与取消（规格 §7.12 第 9 条）：`pushDialogRun` 记进行/取消中与**会话代次**；
+ * 代次在关闭/销毁时前进，让在途推送的收尾丢弃晚到结果（取消或关窗后的一次成功推送，
+ * 不得关掉对话框、覆盖用户的取消）。
  */
+const pushDialogRun = { running: false, cancelling: false, token: 0 };
+
+/** 切换实时 Push 对话框的进行态：冻结列表/详情/确认，按需换按钮文案与提示。 */
+function setPushDialogRunning(dialog, running, notice = null) {
+  if (!dialog) return;
+  const list = dialog.querySelector(".push-commits");
+  const detail = dialog.querySelector(".management-detail");
+  const confirm = dialog.querySelector('[data-push-action="confirm"]');
+  const cancel = dialog.querySelector('[data-push-action="cancel"]');
+  if (list) list.setAttribute("aria-disabled", String(running));
+  if (detail) detail.setAttribute("aria-disabled", String(running));
+  if (confirm) {
+    // 结束时只在"预览本来就可推送"的前提下解禁（规格 §7.12 第 9 条）。
+    confirm.disabled = running || dialog.dataset.pushReady !== "true";
+    if (confirm.tagName === "A") confirm.setAttribute("aria-disabled", String(confirm.disabled));
+    confirm.textContent = running ? "正在推送…" : "推送";
+  }
+  if (cancel) cancel.textContent = running ? "取消操作" : "取消";
+  if (notice !== null) {
+    const box = dialog.querySelector(".push-notice");
+    if (box) { box.textContent = notice; box.hidden = !notice; }
+  }
+}
+
 async function openPushDialog() {
   const live = window.__augitLive;
   if (!live) return;
@@ -8113,6 +8142,9 @@ function renderPushDialog() {
     owner.remove();
   });
   const canPush = push.ready === true && (push.commits || []).length > 0;
+  // 新的对话框会话：进行态清零，代次留给 `closePushDialog()` 前进。
+  pushDialogRun.running = false;
+  pushDialogRun.cancelling = false;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
@@ -8123,6 +8155,12 @@ function renderPushDialog() {
       + `<button type="button" class="primary-button" data-push-action="confirm"${canPush ? "" : " disabled"}>推送</button>`,
     true,
     "push-dialog");
+  // 预览是否可推送要留在**对话框自身**上（不是外层覆盖层）：进行态收尾时据此恢复「推送」按钮的
+  // 可用性，而不是一律解禁（规格 §7.12 第 9 条"预览未完成或无待推送提交时不许推送"）。
+  // 第 275 轮踩过一次：写在覆盖层上，`setPushDialogRunning()` 读 `.push-dialog` 的 dataset 恒为
+  // undefined ⇒ 取消/失败后「推送」永远停在禁用态。
+  const pushDialogNode = layer.querySelector(".push-dialog");
+  if (pushDialogNode) pushDialogNode.dataset.pushReady = String(canPush);
   host.appendChild(layer);
   // 视觉稿的度量函数（字号→`--push-row`／`--push-tags`／`--push-height` 等）此前只在静态页与
   // 后续区域重绘时跑到，从弹层打开的实时 Push 对话框因此拿不到任何 `--push-*` 令牌：
@@ -8183,11 +8221,40 @@ function bindPushCommitSelection(list) {
   });
 }
 
-/** 关闭推送对话框。 */
+/**
+ * 关闭推送对话框。
+ *
+ * 前进会话代次（规格 §7.12 第 9 条"对话框关闭或销毁后拒绝晚到结果"）：在途推送的收尾
+ * 看到代次变化就整体丢弃，不关窗、不刷新、不覆盖用户已经做出的取消/关闭。
+ */
 function closePushDialog() {
+  pushDialogRun.token += 1;
+  pushDialogRun.running = false;
+  pushDialogRun.cancelling = false;
   window.__augitPushDialogOpen = false;
   closeLiveOverlay();
   restoreDialogFocus();
+}
+
+/**
+ * 取消推送 / 关闭对话框（规格 §7.12 第 9 条）。
+ *
+ * 不在进行中：直接关闭。进行中：**先请求宿主结束 Git**（`git/push` 与其它写操作共用写队列，
+ * `write/cancel` 会取消它），并保持冻结，等推送请求自己收尾 —— 由 `confirmPushDialog()` 的
+ * await 回来时看到 `cancelling` 给出「操作已取消。」并保留列表与焦点允许重试。
+ */
+async function cancelPushDialog() {
+  const dialog = document.querySelector("[data-augit-overlay] .push-dialog");
+  if (!dialog) { closePushDialog(); return; }
+  if (!pushDialogRun.running) { closePushDialog(); return; }
+  if (pushDialogRun.cancelling) return;
+  pushDialogRun.cancelling = true;
+  setPushDialogRunning(dialog, true, "正在取消推送，等待 Git 停止…");
+  try {
+    await invoke("write/cancel", {}, 30000);
+  } catch (error) {
+    // 结果以推送请求自己的收尾为准：宿主说没有可取消的操作时，推送照常失败/成功。
+  }
 }
 
 /**
@@ -8561,18 +8628,42 @@ function showRemoteNotice(message) {
   notice.hidden = false;
 }
 
-/** 执行推送并关闭对话框；失败时保留对话框并显示原因。 */
+/**
+ * 执行推送（规格 §7.12 第 9 条）。
+ *
+ * 进行中冻结列表与确认按钮（阻止重复提交）；成功关闭并恢复主窗口原焦点；失败保留引用、
+ * 提交列表与焦点并允许重试；用户取消后晚到的成功结果被代次丢弃。
+ */
 async function confirmPushDialog() {
   const live = window.__augitLive;
+  const dialog = document.querySelector("[data-augit-overlay] .push-dialog");
+  if (!dialog) return;
+  const confirm = dialog.querySelector('[data-push-action="confirm"]');
+  // 预览未完成/没有待推送提交时按钮本就是禁用的，这里再挡一次；进行中阻止重复提交。
+  if (!confirm || confirm.disabled || pushDialogRun.running) return;
+
+  const token = ++pushDialogRun.token;
+  pushDialogRun.running = true;
+  pushDialogRun.cancelling = false;
+  setPushDialogRunning(dialog, true, "正在推送…");
+
   const result = await pushCurrentBranch();
+  // 关闭/销毁后退拒绝晚到结果（代次已前进）。
+  if (token !== pushDialogRun.token || !dialog.isConnected) return;
+  pushDialogRun.running = false;
+
+  // 用户取消过：保持对话框、列表与焦点，给出取消说明并允许重试，
+  // 即使这次推送晚到的是成功结果也不关窗（规格 §7.12 第 9 条）。
+  if (pushDialogRun.cancelling) {
+    pushDialogRun.cancelling = false;
+    window.__augitPushError = null;
+    setPushDialogRunning(dialog, false, "操作已取消。");
+    return;
+  }
+
   if (!result || !result.pushed) {
     window.__augitPushError = (result && result.reason) || "推送失败。";
-    const notice = document.querySelector("[data-augit-overlay] .push-notice");
-    if (notice) {
-      notice.textContent = window.__augitPushError;
-      notice.hidden = false;
-    }
-
+    setPushDialogRunning(dialog, false, window.__augitPushError);
     return;
   }
 
@@ -11077,10 +11168,10 @@ function bindOverlayEscape() {
     // 组词中的 Esc 交给输入法（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
 
-    // 推送对话框与其它实时弹层优先关闭。
+    // 推送对话框与其它实时弹层优先关闭。进行中时 Esc 等同「取消」：先请求宿主结束 Git。
     if (document.querySelector("[data-push-action]")) {
       event.preventDefault();
-      closePushDialog();
+      void cancelPushDialog();
       return;
     }
 

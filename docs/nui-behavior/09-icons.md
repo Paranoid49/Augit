@@ -9772,3 +9772,52 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 继续 §7.12 余下 A 类（第 3、9、14 条）与其它 §7 模块。
+
+## septuaginta-quinque. 第二百七十五轮：实时 Push 的进行态、取消等待与晚到不覆盖（§7.12 第 9 条收口）
+
+### 缺口：实时 Push 完全没有进行态
+
+`confirmPushDialog()` 原先只是 `await pushCurrentBranch()`：确认按钮不冻结（可重复点发多次
+`git/push`）、取消走 `closePushDialog()` 直接关窗（**不请求宿主结束 Git** —— 但宿主把 `git/push`
+和别的写操作放在同一个写队列里，`write/cancel` 本就能取消它）、也没有任何代次保护晚到结果。
+静态视觉稿的 `bindPushDialog()` 有这套 `running/cancelling/finish`，但实时层不能整段复用它
+（会与 `[data-push-action]` 的执行链同时生效，一次点击发两次推送，第 274 轮已记）。
+
+### 实现（只改 `live-data.js`）
+
+- `pushDialogRun = { running, cancelling, token }`：进行态、取消中与**会话代次**。
+- `setPushDialogRunning(dialog, running, notice)`：冻结/解冻列表与详情、换确认/取消文案、
+  写提示。解冻时按 `dialog.dataset.pushReady` 决定确认是否可用（预览不可推送时保持禁用）。
+- `confirmPushDialog()`：入口挡重复提交；置进行态并记代次；`await pushCurrentBranch()` 返回后
+  若代次已变（关闭/销毁）整体丢弃；若 `cancelling` 则显示「操作已取消。」并**保留对话框、列表
+  与焦点允许重试**（晚到成功也不关窗）；成功才关窗并重读引用/状态。
+- `cancelPushDialog()`：不在进行中直接关闭；进行中先 `invoke("write/cancel")` 并保持冻结，
+  等推送请求自己收尾。按钮「取消」与 Esc 都走它。
+- `closePushDialog()` 前进代次（关窗/销毁后拒绝晚到结果）。
+
+**踩到并修掉自己的一处 bug**：`pushReady` 最初写在**外层覆盖层**上，而 `setPushDialogRunning()`
+读的是 `.push-dialog` 的 dataset（恒为 undefined）⇒ 取消/失败后「推送」永远停在禁用态。
+改写到对话框自身后归位（探针里 `confirmDisabled` 由 `true` 变回 `false`）。
+
+### 新增断言（`live-shell`，5 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.12 Push 预览没有待推送提交时不许推送` |
+| 2 | `§7.12 Push 进行中冻结列表与确认并阻止重复提交` |
+| 3 | `§7.12 Push 取消先请求宿主结束 Git 且结束前保持冻结` |
+| 4 | `§7.12 Push 确认取消后保留引用、列表与焦点并允许重试` |
+| 5 | `§7.12 Push 晚到成功不覆盖用户的取消` |
+
+### 验证
+
+- `live-shell` **`通过 1378 项断言`**（1373 → **+5**），退出码 0。
+- 登记哈希：`live-data.js` `ffd3878b…` → **`6c8e92ae280a83582a53e8764565b0ad`**、
+  `live-shell.spec.cjs` `8aba2af8…` → **`5fcedd63403370368470026ed55259d2`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 274 轮逐个相同。
+- §7.12 第 9 条转 **是**（§2.10：分母 45 → **44**、A 30 → **29**）。
+- 同批：`mockup-scenes` 55/55、`verify-ux-push` 24 组布局 + 3 组连续状态通过、`verify-ui-assets` PASS。
+
+### 下一轮
+
+继续 §7.12 余下 A 类（第 3、14 条）与其它 §7 模块。

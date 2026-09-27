@@ -287,6 +287,8 @@
 
 **第 274 轮**继续 §7.12，收口第 7、8 条（§2.10：分母 47 → **45**、A 32 → **30**）。第 7 条修掉两处真实缺口：① 从分支弹层打开的**实时** Push 对话框由 `renderPushDialog()` 新建、没绑定视觉稿的 `bindPushDialog()`，提交行点了不动（实测 `selected:[false]`）；又不能整段复用（它同时接管推送/取消，会和实时层的 `[data-push-action]` 执行链一起响应 ⇒ 一次点击发两次 `git/push`），故新增 `bindPushCommitSelection()` 只接选中（单击 + 方向键/Home/End）。② 实时对话框拿不到 `--push-*` 令牌（未调度量函数）⇒ 行高固定 27px 不随字号扩展，改为挂载后调用 `measurePushDialog()`（字号 13→20 时 27px→33px）。第 8 条：独立滚动实测通过（滚左不动右、滚右不动左、标题与底栏矩形不变）；**挂出并修掉一处真实缺陷** —— `measurePushDialog()` 的标签预留判据是类名 `push-no-remote`，而实时「无上游」对话框只有 `push-dialog` 类 ⇒ `--push-tags` 算成 0px、标签行压到底栏之下，判据改为"对话框里真的有 `.push-tags`"。共 6 条新断言（1367 → **1373**）。
 
+**第 275 轮**继续 §7.12，收口第 9 条（§2.10：分母 45 → **44**、A 30 → **29**）。实时 Push 此前**完全没有进行态**：`confirmPushDialog()` 只 `await pushCurrentBranch()`（确认不冻结 ⇒ 可重复点发多次 `git/push`）、取消直接 `closePushDialog()`（不请求宿主结束 Git，尽管宿主把 `git/push` 放进同一写队列、`write/cancel` 本就能取消它）、也没有代次保护晚到结果；静态 `bindPushDialog()` 的这套逻辑又不能整段复用（会与 `[data-push-action]` 执行链同时生效，第 274 轮已记）。本轮加 `pushDialogRun{running,cancelling,token}`＋`setPushDialogRunning()`＋`cancelPushDialog()`：进行中冻结列表/详情/确认并阻止重复；取消（按钮与 Esc）先 `write/cancel` 并保持冻结，等推送请求收尾；收尾见 `cancelling` 就显示「操作已取消。」、保留列表与焦点允许重试（晚到成功也不关窗）；关窗/销毁前进代次拒绝晚到。**自己踩到并修掉一处 bug**：`pushReady` 最初写在外层覆盖层上，而冻结逻辑读 `.push-dialog` 的 dataset（恒 undefined）⇒ 取消后确认永远禁用；写到对话框自身后归位。共 5 条新断言（1373 → **1378**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
