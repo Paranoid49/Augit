@@ -468,6 +468,11 @@ async function main() {
           };
         }
         if (window.__malformed) return { available: true, lines: [{ number: 1, hash: 'x' }] };  // 缺 path
+        // 第 255 轮：注入归属行夹具。默认夹具只有 3 行短内容 ⇒ 归属栏既不纵向滚、正文也不横向溢出，
+        // "纵向同步""横向滚不动归属列"的判据会**平凡为真**（第 252 轮的教训：不可滚的容器写 scrollTop 也照做）。
+        if (Array.isArray(window.__blameLines)) {
+          return { available: true, path: data.blame.path, revision: null, lines: window.__blameLines };
+        }
         return data.blame;
       }
       if (method === 'git/file-history') {
@@ -18888,6 +18893,250 @@ async function main() {
       // DOM 侧同样回到全展开、无选中
       && filesTree.other.docsExpanded === 'true' && filesTree.other.hiddenLeaves === 0
       && filesTree.other.selected.length === 0);
+
+    // ---- 第 255 轮补断言：§7.9 归属边栏的同行高/纵向同步/横向不动、字号按字宽扩展与完整哈希 ----
+    // 同时挂出并修掉一处真实缺陷（`bindBlame()` 的**样例**分支在实时外壳里也跑，把样例日志写进实时界面）。
+    const blameLayout = await (async () => {
+      // 归属行夹具：60 行（正文真的能纵向滚）、第 4 行超长（正文真的能横向溢出）、
+      // 第 6 行超长作者名（验证作者在**自身列内**省略、不撑开归属栏）。
+      // 默认夹具只有 3 行短内容 ⇒ 这两条判据都会**平凡为真**（第 252 轮的教训）。
+      const lines = Array.from({ length: 60 }, (_, i) => ({
+        number: i + 1,
+        // 第 6 行故意指向**第二个**提交：日志默认选中首行，若实现退回短哈希就会定位失败，
+        // 判据因此能区分"真的按完整哈希定位"与"恰好默认选中首行"。
+        hash: i === 5 ? 'bbb2222' : 'aaa1111',
+        fullHash: i === 5 ? 'full-bbb2222' : 'full-head-hash',
+        author: i === 5 ? 'very-long-author-name-that-must-elide' : 'l49',
+        date: '2026/9/15',
+        dateTime: '2026/9/15 10:00',
+        summary: 'feat: 一',
+        content: i === 3 ? 'X'.repeat(400) : `第 ${i + 1} 行内容`,
+      }));
+      const open = async (codeSize) => {
+        const page = await context.newPage();
+        await page.addInitScript((payload) => { window.__blameLines = payload; }, lines);
+        const errors = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=blame&theme=dark&blame=docs%2Fnotes.txt&code-font-size=${codeSize}`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+        await page.waitForSelector('.blame-document .blame-row', { timeout: 15000 });
+        await page.waitForTimeout(700);
+        return { page, errors };
+      };
+      // 列宽/行高独立复算：用 canvas 按**正文的实测字体**重新量一遍（与 `applyTypography()` 同口径），
+      // 因此断言的是"宽度来自真实字宽"，而不是"宽度是某个恰好成立的常数"。
+      const measureColumns = () => {
+        const doc = document.querySelector('.blame-document');
+        const layout = doc.querySelector('.blame-layout');
+        const gutter = doc.querySelector('.blame-gutter');
+        const body = doc.querySelector('.code-view');
+        const rows = [...gutter.querySelectorAll('.blame-row')];
+        const bodyStyle = getComputedStyle(body);
+        const gutterStyle = getComputedStyle(gutter);
+        const canvas = document.createElement('canvas').getContext('2d');
+        canvas.font = `${bodyStyle.fontSize} ${bodyStyle.fontFamily}`;
+        const cell = (row, index) => row.children[index].textContent;
+        const dateDigits = Math.max(9, ...rows.map((row) => cell(row, 0).length));
+        const numberDigits = Math.max(3, ...rows.map((row) => cell(row, 2).length));
+        const authorCell = rows[5].children[1];
+        const authorStyle = getComputedStyle(authorCell);
+        return {
+          rows: rows.length,
+          codeFont: bodyStyle.fontSize,
+          gutterFont: gutterStyle.fontSize,
+          fontFamilyMatches: gutterStyle.fontFamily === bodyStyle.fontFamily,
+          rowHeightGutter: Math.round(rows[0].getBoundingClientRect().height),
+          rowHeightBody: Math.round(body.querySelector('.code-line').getBoundingClientRect().height),
+          dateWidth: parseFloat(getComputedStyle(layout).getPropertyValue('--blame-date-width')),
+          numberWidth: parseFloat(getComputedStyle(layout).getPropertyValue('--blame-number-width')),
+          blameWidth: parseFloat(getComputedStyle(layout).getPropertyValue('--blame-width')),
+          expectedDate: Math.max(72, Math.ceil(canvas.measureText('8'.repeat(dateDigits)).width)),
+          expectedNumber: Math.max(24, Math.ceil(canvas.measureText('8'.repeat(numberDigits)).width)),
+          expectedAuthor: Math.max(24, Math.ceil(canvas.measureText('I49').width)),
+          authorElided: authorCell.scrollWidth > authorCell.clientWidth,
+          authorWhiteSpace: authorStyle.whiteSpace,
+          authorOverflow: authorStyle.textOverflow,
+          authorText: authorCell.textContent,
+          fullHash: rows[5].dataset.blameFull,
+          shortHash: rows[5].dataset.blameCommit,
+          verticalMax: body.scrollHeight - body.clientHeight,
+          horizontalMax: body.scrollWidth - body.clientWidth,
+        };
+      };
+      const scrollColumns = () => {
+        const doc = document.querySelector('.blame-document');
+        const gutter = doc.querySelector('.blame-gutter');
+        const body = doc.querySelector('.code-view');
+        const before = {
+          gutterLeft: Math.round(gutter.getBoundingClientRect().left),
+          firstRowLeft: Math.round(doc.querySelector('.blame-row').getBoundingClientRect().left),
+          gutterScrollLeft: Math.round(gutter.scrollLeft),
+        };
+        body.scrollTop = 120;
+        body.scrollLeft = 60;
+        return { before, appliedTop: Math.round(body.scrollTop), appliedLeft: Math.round(body.scrollLeft) };
+      };
+      const readScrolled = () => {
+        const doc = document.querySelector('.blame-document');
+        const gutter = doc.querySelector('.blame-gutter');
+        const body = doc.querySelector('.code-view');
+        return {
+          gutterTop: Math.round(gutter.scrollTop),
+          bodyTop: Math.round(body.scrollTop),
+          gutterLeft: Math.round(gutter.getBoundingClientRect().left),
+          firstRowLeft: Math.round(doc.querySelector('.blame-row').getBoundingClientRect().left),
+          gutterScrollLeft: Math.round(gutter.scrollLeft),
+          logRows: document.querySelectorAll('.log-list-panel .commit-row').length,
+        };
+      };
+      const small = await open(13);
+      const smallColumns = await small.page.evaluate(measureColumns);
+      const scrolled = await small.page.evaluate(scrollColumns);
+      await small.page.waitForTimeout(350);
+      const afterScroll = await small.page.evaluate(readScrolled);
+      // 点击映射必须用**完整**哈希：夹具里短哈希（`aaa1111`）与完整哈希（`full-head-hash`）不同，
+      // 而日志行的 `data-full-hash` 只有完整值 ⇒ 若实现退回短哈希，定位必然失败并弹"无法定位"。
+      await small.page.evaluate(() => {
+        const row = document.querySelectorAll('.blame-document .blame-row')[5];
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await small.page.waitForFunction("() => !!document.querySelector('.log-list-panel .commit-row[aria-selected=\"true\"]')", null, { timeout: 10000 }).catch(() => {});
+      await small.page.waitForTimeout(500);
+      const clicked = await small.page.evaluate(() => {
+        const selected = document.querySelector('.log-list-panel .commit-row[aria-selected="true"]');
+        return {
+          selectedFull: selected ? selected.dataset.fullHash : null,
+          selectedShort: selected ? selected.dataset.hash : null,
+          graphRows: document.querySelectorAll('.log-list-panel .commit-row .commit-graph-svg').length,
+          toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null,
+        };
+      });
+      const smallErrors = small.errors.slice();
+      await small.page.close();
+      const large = await open(20);
+      const largeColumns = await large.page.evaluate(measureColumns);
+      const largeErrors = large.errors.slice();
+      await large.page.close();
+      console.log('INFO 归属边栏=' + JSON.stringify({ smallColumns, scrolled, afterScroll, clicked, largeColumns, errors: smallErrors.concat(largeErrors) }));
+      return { smallColumns, scrolled, afterScroll, clicked, largeColumns, errors: smallErrors.concat(largeErrors) };
+    })();
+    check('§7.9 归属边栏与正文同行高、纵向同步、横向滚动不动归属列，列宽按实际字宽扩展: '
+      + JSON.stringify([blameLayout.smallColumns, blameLayout.scrolled, blameLayout.afterScroll, blameLayout.largeColumns]),
+    // 前置：夹具真的构造出"可纵向滚 + 可横向溢出"的场景（否则下面前提平凡为真）
+    blameLayout.smallColumns.rows === 60 && blameLayout.smallColumns.verticalMax >= 120
+      && blameLayout.smallColumns.horizontalMax > 100
+      && blameLayout.errors.length === 0
+      // 与正文同行高、同字体（字号变化时一起变）
+      && blameLayout.smallColumns.gutterFont === blameLayout.smallColumns.codeFont
+      && blameLayout.smallColumns.fontFamilyMatches === true
+      && blameLayout.smallColumns.rowHeightGutter === blameLayout.smallColumns.rowHeightBody
+      && blameLayout.largeColumns.rowHeightGutter === blameLayout.largeColumns.rowHeightBody
+      && blameLayout.largeColumns.rowHeightGutter > blameLayout.smallColumns.rowHeightGutter
+      // 日期/行号列宽 = 该字体下实测数字宽度（独立复算），并随字号增长
+      && blameLayout.smallColumns.dateWidth === blameLayout.smallColumns.expectedDate
+      && blameLayout.smallColumns.numberWidth === blameLayout.smallColumns.expectedNumber
+      && blameLayout.largeColumns.dateWidth === blameLayout.largeColumns.expectedDate
+      && blameLayout.largeColumns.numberWidth === blameLayout.largeColumns.expectedNumber
+      && blameLayout.largeColumns.dateWidth > blameLayout.smallColumns.dateWidth
+      && blameLayout.largeColumns.numberWidth > blameLayout.smallColumns.numberWidth
+      // 纵向同步：正文滚到 120，归属列跟着到 120
+      && blameLayout.scrolled.appliedTop === 120 && blameLayout.afterScroll.bodyTop === 120
+      && blameLayout.afterScroll.gutterTop === 120
+      // 横向不动：正文横向滚 60（真的滚动了），归属列左边缘与自身 scrollLeft 都不动
+      && blameLayout.scrolled.appliedLeft === 60
+      && blameLayout.afterScroll.gutterLeft === blameLayout.scrolled.before.gutterLeft
+      && blameLayout.afterScroll.firstRowLeft === blameLayout.scrolled.before.firstRowLeft
+      && blameLayout.afterScroll.gutterScrollLeft === 0);
+    check('§7.9 归属边栏作者列内省略不撑开列，点击用完整提交哈希定位且不把样例日志写进实时界面: '
+      + JSON.stringify([blameLayout.smallColumns.authorText, blameLayout.smallColumns.blameWidth, blameLayout.clicked]),
+    // 作者在自身列内省略：真实作者文本比列宽长（真的被省略），且**不**参与列宽 → 归属栏总宽仍按样本测量
+    blameLayout.smallColumns.authorText === 'very-long-author-name-that-must-elide'
+      && blameLayout.smallColumns.authorElided === true
+      && blameLayout.smallColumns.authorWhiteSpace === 'nowrap'
+      && blameLayout.smallColumns.authorOverflow === 'ellipsis'
+      && blameLayout.smallColumns.blameWidth === blameLayout.smallColumns.dateWidth
+        + blameLayout.smallColumns.expectedAuthor + blameLayout.smallColumns.numberWidth + 22
+      && blameLayout.largeColumns.blameWidth === blameLayout.largeColumns.dateWidth
+        + blameLayout.largeColumns.expectedAuthor + blameLayout.largeColumns.numberWidth + 22
+      // 完整哈希：短哈希 ≠ 完整哈希，点它仍定位到 data-full-hash 等于完整值的那一行
+      && blameLayout.smallColumns.shortHash === 'bbb2222'
+      && blameLayout.smallColumns.fullHash === 'full-bbb2222'
+      && blameLayout.clicked.selectedFull === 'full-bbb2222'
+      && blameLayout.clicked.selectedShort === 'bbb2222'
+      && blameLayout.clicked.toast === null
+      // 实时日志不被样例替换：全部 3 行与 3 个提交图都还在（修前只剩 1 行、0 个图）
+      && blameLayout.clicked.graphRows === 3);
+
+    // 第 255 轮负向验证：三种扰动分别让对应的正面判据失败（证明判据不是空洞的）
+    const negBlame = await (async () => {
+      const lines = Array.from({ length: 60 }, (_, i) => ({
+        number: i + 1, hash: i === 5 ? 'bbb2222' : 'aaa1111', fullHash: i === 5 ? 'full-bbb2222' : 'full-head-hash',
+        author: i === 5 ? 'very-long-author-name-that-must-elide' : 'l49',
+        date: '2026/9/15', dateTime: '2026/9/15 10:00', summary: 'feat: 一',
+        content: i === 3 ? 'X'.repeat(400) : `第 ${i + 1} 行内容`,
+      }));
+      const open = async (codeSize) => {
+        const page = await context.newPage();
+        await page.addInitScript((payload) => { window.__blameLines = payload; }, lines);
+        await page.goto(`http://127.0.0.1:${port}/index.html?scene=blame&theme=dark&blame=docs%2Fnotes.txt&code-font-size=${codeSize}`, { waitUntil: 'load' });
+        await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+        await page.waitForSelector('.blame-document .blame-row', { timeout: 15000 });
+        await page.waitForTimeout(700);
+        return page;
+      };
+      const small = await open(13);
+      // 扰动 1：让归属列的 scrollTop 永远为 0（等价于"没有纵向同步"）
+      const syncBroken = await small.evaluate(() => {
+        const doc = document.querySelector('.blame-document');
+        const gutter = doc.querySelector('.blame-gutter');
+        const body = doc.querySelector('.code-view');
+        Object.defineProperty(gutter, 'scrollTop', { get: () => 0, set: () => {}, configurable: true });
+        body.scrollTop = 120;
+        return { appliedTop: body.scrollTop, gutterTop: gutter.scrollTop };
+      });
+      // 扰动 2：点击时把完整哈希抹掉 ⇒ 实现退回短哈希 ⇒ 定位不到（弹"无法定位到该提交"）
+      await small.evaluate(() => {
+        const row = document.querySelectorAll('.blame-document .blame-row')[5];
+        row.dataset.blameFull = '';
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await small.waitForTimeout(800);
+      const shortHashFallback = await small.evaluate(() => {
+        const selected = document.querySelector('.log-list-panel .commit-row[aria-selected="true"]');
+        return { selectedFull: selected ? selected.dataset.fullHash : null,
+          toast: document.querySelector('.toast.error') ? document.querySelector('.toast.error').innerText : null };
+      });
+      await small.close();
+      // 扰动 3：字号变大但列宽钉死成 13px 下的取值（等价于"列宽不来自字宽测量"）
+      const large = await open(20);
+      const pinned = await large.evaluate(() => {
+        const doc = document.querySelector('.blame-document');
+        const layout = doc.querySelector('.blame-layout');
+        layout.style.setProperty('--blame-date-width', '72px');
+        layout.style.setProperty('--blame-number-width', '24px');
+        const body = doc.querySelector('.code-view');
+        const canvas = document.createElement('canvas').getContext('2d');
+        const style = getComputedStyle(body);
+        canvas.font = `${style.fontSize} ${style.fontFamily}`;
+        return { pinnedDate: parseFloat(getComputedStyle(layout).getPropertyValue('--blame-date-width')),
+          expectedDate: Math.max(72, Math.ceil(canvas.measureText('888888888').width)),
+          pinnedNumber: parseFloat(getComputedStyle(layout).getPropertyValue('--blame-number-width')),
+          expectedNumber: Math.max(24, Math.ceil(canvas.measureText('888').width)) };
+      });
+      await large.close();
+      console.log('INFO 负向验证(归属边栏)=' + JSON.stringify({ syncBroken, shortHashFallback, pinned }));
+      return { syncBroken, shortHashFallback, pinned };
+    })();
+    check('负向验证：移除纵向同步 / 退回短哈希 / 钉死列宽 三种扰动分别让对应判据失败: '
+      + JSON.stringify(negBlame),
+      // 扰动 1：正文确实滚到 120，而归属列停在 0（正面判据要求 120 ⇒ 会失败）
+      negBlame.syncBroken.appliedTop === 120 && negBlame.syncBroken.gutterTop !== 120
+      // 扰动 2：只剩短哈希 ⇒ 定位失败并给出"无法定位"提示（日志停在默认选中的首行，而不是被点的那一行）
+      && negBlame.shortHashFallback.toast !== null
+      && negBlame.shortHashFallback.selectedFull !== 'full-bbb2222'
+      // 扰动 3：20px 下把列宽钉回 13px 的取值 ⇒ 与独立复算的期望值不符（正面判据要求相等）
+      && negBlame.pinned.pinnedDate !== negBlame.pinned.expectedDate
+      && negBlame.pinned.pinnedNumber !== negBlame.pinned.expectedNumber);
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

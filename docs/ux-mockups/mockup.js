@@ -3145,6 +3145,14 @@ function bindBlame() {
       if (!row) return;
       event.preventDefault();
       gutter.querySelectorAll(".blame-row").forEach(item => item.classList.toggle("selected", item === row));
+      // 实时外壳里这段链路属于实时层：`live-data.js` 的捕获阶段监听调 `locateBlameCommit()`
+      // （用**完整**哈希、文件历史存在时先恢复日志布局、提交不在已加载历史里则就地说明）。
+      // 这里若继续跑下面的**样例**分支，就会把样例日志写进实时界面 —— 第 255 轮实测：
+      // 日志已可见时点一次归属行，实时提交列表被换成"只有命中那一行"的样例列表（其余提交与
+      // 提交图都没了），随后实时层再点另一行时列表里已找不到目标 ⇒ 误报"无法定位到该提交"。
+      // 因此样例分支只服务静态视觉稿（`blame.html`）；实时模式保留上面的选中反馈与下面的
+      // 纵向同步（`sync()` 是真实行为，不属于样例）。
+      if (window.__augitLive && window.__augitLive.blame) { sync(); return; }
       const workspace = documentView.closest(".workspace");
       let bottom = workspace.querySelector(".bottom-tool");
       // 固定样本来自文件历史中的根提交；定位只更新底部日志，正文和标签保持原位。
