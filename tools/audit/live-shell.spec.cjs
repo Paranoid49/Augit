@@ -6674,6 +6674,125 @@ async function main() {
         && historyAfter.editorText === historyBefore.editorText);
     await historyVisible.page.close();
 
+    // ---- 第 286 轮补断言（收 §7.2 第 3 条）：横向范围按内容与字号重新度量，旧偏移收回 ----
+    // 规格 §7.2：「短文件不保留空白横向范围；长行扩展范围；内容或字体变化重新度量并收回旧偏移」。
+    // 前两句是"可横向滚动的范围由真实内容决定"，第三句是"变短/变小后旧的水平偏移必须被收回，
+    // 而不是把保存下来的旧值再写回去"——因此收回一档延迟 1.4 秒再读（写完状态、重绘都已完成）。
+    {
+      const hs3 = await openScene('scene=main-project&theme=dark');
+      await hs3.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await hs3.page.waitForTimeout(500);
+      const hs3Read = () => hs3.page.evaluate(() => {
+        const view = document.querySelector('.editor-content .code-view');
+        if (!view) return null;
+        return {
+          clientWidth: view.clientWidth,
+          scrollWidth: view.scrollWidth,
+          scrollLeft: Math.round(view.scrollLeft),
+          horizontal: view.scrollWidth > view.clientWidth + 1,
+          lines: view.querySelectorAll('.code-line').length,
+          mono: getComputedStyle(document.documentElement).getPropertyValue('--augit-code-size').trim(),
+        };
+      });
+      await hs3.page.evaluate(async () => {
+        const long = 'L' + 'x'.repeat(600) + 'END';
+        const source = ['# 长行', '', long, '', '短行'].join('\n');
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/long-line.md'] = {
+          path: 'docs/long-line.md', name: 'long-line.md', fullPath: 'D:\\live-ws\\docs\\long-line.md',
+          workspaceName: 'live-ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
+          fileSize: source.length, text: source, lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        await window.__augitOpenDocument('docs/long-line.md');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+      const hs3LongView = await hs3Read();
+      await hs3.page.evaluate(() => { document.querySelector('.editor-content .code-view').scrollLeft = 220; });
+      await hs3.page.waitForTimeout(200);
+      const hs3Scrolled = await hs3Read();
+      // 短文件（真实夹具）：一行都不超过视口宽度 ⇒ 不允许存在可横向滚动的空白范围
+      await hs3.page.evaluate(async () => { await window.__augitOpenDocument('docs/notes.txt'); await new Promise((resolve) => setTimeout(resolve, 500)); });
+      const hs3Short = await hs3Read();
+      check('§7.2 短文件不保留空白横向范围、长行扩展横向范围: '
+        + JSON.stringify({ hs3LongView, hs3Scrolled, hs3Short }),
+      hs3LongView !== null && hs3Short !== null
+        && hs3LongView.horizontal === true && hs3LongView.scrollWidth > hs3LongView.clientWidth
+        && hs3Scrolled.scrollLeft === 220 && hs3Scrolled.scrollWidth === hs3LongView.scrollWidth
+        && hs3Short.horizontal === false && hs3Short.scrollWidth === hs3Short.clientWidth
+        && hs3Short.scrollLeft === 0);
+
+      // 长行文件被外部更新成短内容：重新度量后旧偏移收回（延迟读，证明不是"最后又把旧值写回"）
+      await hs3.page.evaluate(async () => { await window.__augitOpenDocument('docs/long-line.md'); await new Promise((resolve) => setTimeout(resolve, 500)); });
+      await hs3.page.evaluate(() => { document.querySelector('.editor-content .code-view').scrollLeft = 220; });
+      await hs3.page.waitForTimeout(200);
+      const hs3BeforeShrink = await hs3Read();
+      await hs3.page.evaluate(() => {
+        const source = '短内容\n第二行';
+        window.__limitDocs['docs/long-line.md'] = Object.assign({}, window.__limitDocs['docs/long-line.md'], { text: source, fileSize: source.length });
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\long-line.md'], gitMetadata: false });
+      });
+      await hs3.page.waitForTimeout(1400);
+      const hs3AfterShrink = await hs3Read();
+      check('§7.2 内容变短后重新度量横向范围并收回旧偏移: '
+        + JSON.stringify({ hs3BeforeShrink, hs3AfterShrink }),
+      hs3BeforeShrink.scrollLeft === 220 && hs3BeforeShrink.horizontal === true
+        && hs3AfterShrink.horizontal === false && hs3AfterShrink.scrollLeft === 0
+        && hs3AfterShrink.scrollWidth === hs3AfterShrink.clientWidth
+        && hs3AfterShrink.lines === 2);
+
+      // 字号变化同样要重新度量：120 个字符的行在 24px 等宽字号下溢出、在 9px 下不再溢出。
+      // 用真实设置路径（标题栏主菜单 → 设置 → 文件查看 → 等宽字号）改字号，不直接改 CSS 变量。
+      await hs3.page.evaluate(async () => {
+        const line = 'M'.repeat(120);
+        const text = [line, '短行'].join('\n') + '\n';
+        window.__limitDocs['docs/font-line.md'] = {
+          path: 'docs/font-line.md', name: 'font-line.md', fullPath: 'D:\\live-ws\\docs\\font-line.md',
+          workspaceName: 'live-ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
+          fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        await window.__augitOpenDocument('docs/font-line.md');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+      const hs3OpenSettings = async () => {
+        await hs3.page.locator('.titlebar [data-action="menu"]').click();
+        await hs3.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+        await hs3.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await hs3.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
+        // 等宽字号在"文件查看"分页，设置窗口默认停在"外观"。
+        await hs3.page.locator('.settings-window [data-settings-page="file-view"]').click();
+        await hs3.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
+      };
+      const hs3ApplyCodeFont = async (size) => {
+        await hs3.page.evaluate((value) => {
+          const field = document.querySelector('[data-setting="codeFontSize"]');
+          field.value = String(value);
+          document.querySelector('.settings-window .dialog-footer [data-settings-action="save"]').click();
+        }, size);
+        await hs3.page.waitForFunction(
+          `getComputedStyle(document.documentElement).getPropertyValue("--augit-code-size").trim() === "${size}px"`,
+          null,
+          { timeout: 10000 },
+        );
+        await hs3.page.waitForTimeout(300);
+      };
+      await hs3OpenSettings();
+      await hs3ApplyCodeFont(24);
+      const hs3Font24 = await hs3Read();
+      await hs3.page.evaluate(() => { document.querySelector('.editor-content .code-view').scrollLeft = 220; });
+      await hs3.page.waitForTimeout(200);
+      const hs3FontScrolled = await hs3Read();
+      await hs3OpenSettings();
+      await hs3ApplyCodeFont(9);
+      const hs3Font9 = await hs3Read();
+      check('§7.2 正文字号变化后重新度量横向范围并收回旧偏移: '
+        + JSON.stringify({ hs3Font24, hs3FontScrolled, hs3Font9 }),
+      hs3Font24.mono === '24px' && hs3Font24.horizontal === true
+        && hs3FontScrolled.scrollLeft === 220
+        && hs3Font9.mono === '9px' && hs3Font9.horizontal === false
+        && hs3Font9.scrollWidth === hs3Font9.clientWidth && hs3Font9.scrollLeft === 0);
+      await hs3.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

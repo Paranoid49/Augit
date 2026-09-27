@@ -10290,3 +10290,56 @@ process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收�
 ### 下一轮
 
 §7.1 只剩第 4、7 条（树悬停与增量刷新）；转 §7.2／§7.4／§7.17／§9 的 A 类队列。
+
+## octoginta-sexta. 第二百八十六轮：普通文本横向范围的重新度量与"外部更新复用控件"的口径订正（§7.2 第 3 条收口、第 16 条登记为缺实现）
+
+### 第 3 条：短文件无空白横向范围、长行扩展、内容/字号变化后收回旧偏移（纯补断言）
+
+实测（`scene=main-project` 桩）：
+
+- **长行扩展**：一行 600+ 字符 ⇒ `clientWidth 787`、`scrollWidth 4779`（`horizontal:true`），
+  设 `scrollLeft=220` 后读回 **220**。
+- **短文件不留空白范围**：真实夹具 `docs/notes.txt` ⇒ `scrollWidth === clientWidth === 787`、
+  `scrollLeft 0`、`horizontal:false`。
+- **内容变化**：长行文件滚到 220 后走真实 `workspace-changed` 通道更新成两行短内容，
+  **1.4 秒后**再读 ⇒ `scrollWidth` 回到 787、`scrollLeft` 回到 **0**、行数 2。延迟读是有意的：
+  它排除"收回之后再被保存的旧值写回"。
+- **字号变化**：走真实设置路径（标题栏主菜单 → 设置 → 文件查看 → 等宽字号）。120 字符的行在
+  `24px` 下 `scrollWidth 1806 > 787` 且 `scrollLeft` 可置 220；改到 `9px` 后
+  `scrollWidth === clientWidth === 787`、`scrollLeft 0`、`horizontal:false`。
+
+### 第 16 条：口径订正（此前的"缺断言"是错的，实际缺实现）
+
+旧证据写的"滚动/焦点保持有断言"指的是 **Markdown**（§7.3 第 11 条的就地复用），不是 §7.2 的普通文本。
+本轮用 `docs/row16.txt`（61 行、第 2 行 `AB😀CD`、`scrollTop 120`、反向选区 `😀`）走真实
+`workspace-changed` 通道实测：`.code-view` 节点被**替换**（`data-probe-mark` 不存活）、
+`document.activeElement` 落到 `BODY`、`scrollTop 120 → 0`、选区清空、查找条连**输入框**一起消失。
+
+根因：`applyWorkspaceChanges()` 命中当前文档时把 `editorContent` 放进区域替换列表，而
+`reuseMarkdownViewInPlace()` 只对 `kind === "Markdown"` 生效。规格 `ux-spec.md:352` 要求普通文本
+"复用现有正文控件、保留选择方向/横纵滚动/输入焦点/换行与空白符开关、变短时限制范围、
+选择端点不停在 UTF-8 字符内部、查找保持并继续" ⇒ 这些**尚未实现**，已登记为 `ui-classification.md` 的
+**T12**（§2.10 分类随之由 A 改 D），下一轮实现并补断言。
+
+### 新增断言（`live-shell`，3 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.2 短文件不保留空白横向范围、长行扩展横向范围` |
+| 2 | `§7.2 内容变短后重新度量横向范围并收回旧偏移` |
+| 3 | `§7.2 正文字号变化后重新度量横向范围并收回旧偏移` |
+
+### 验证
+
+- `live-shell` **`通过 1415 项断言`**（1412 → **+3**），退出码 0。
+- 登记哈希：`live-shell.spec.cjs` `5970e7be…` → **`d39330b5184cbcd01f64a878027418ff`**；
+  本轮**只改 harness**，运行时与共享视觉稿哈希与第 285 轮逐个相同。
+- §7.2 第 3 条转 **是**；第 16 条保留"部分"并把结论从"缺断言"订正为"缺实现"（新增 T12）。
+  §2.10 重算：分母 23 → **22**、A 10 → **8**、D 8 → **9**。
+- 同批：`verify-ux-text-layout` 126 组合通过（48 个横向滚动、24 个纵向滚动场景）、`verify-ui-assets` PASS。
+
+### 下一轮
+
+实现 **T12**（`reuseTextViewInPlace()`：就地替换正文、保住 `.code-view` 与 `.current-find`，
+把选区/滚动/焦点/开关记进 `live`，并按 `document-content-changed` 重挂查找、从原匹配位置继续）
+并补 §7.2 第 16 条的断言；其余转 §7.1／§7.4／§7.17／§9 的 A 类队列。
