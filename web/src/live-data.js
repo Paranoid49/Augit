@@ -4667,6 +4667,9 @@ function bindConflictSave() {
 function refresh(...regions) {
   // 区域替换连焦点一起丢（`__augitRenderRegions` 不保留焦点）：在替换前先记下焦点意图。
   rememberCommitFocusBeforeRender();
+  // 项目树的滚动位置与树内焦点同理（规格 §6 第 37 条）：`refreshAfterEvent("side")` 会把整棵
+  // `.side-content.tree` 换掉，新节点的 `scrollTop` 是 0、原来聚焦的行也不存在了。
+  rememberTreeStateBeforeRender();
   if (typeof window.__augitRenderRegions === "function" && regions.length > 0) {
     window.__augitRenderRegions(...regions);
     rebindAfterRender();
@@ -5278,6 +5281,8 @@ function rebindAfterRender() {
   //（规格 §7.5：提示只属于当时那张图，读取完成或切标签时由 `clearImagePreviewState()` 撤去）。
   syncImagePreviewState();
   restoreChangesState();
+  // 项目树的位置与树内焦点同样跨重绘保留（规格 §6 第 37 条）。
+  restoreTreeState();
   bindOverlayEscape();
   bindTitlebarMenuEscape();
   bindWindowChrome();
@@ -5726,6 +5731,30 @@ function rememberCommitFocusBeforeRender() {
 }
 
 /**
+ * 在区域替换**之前**记下项目树的滚动位置与"焦点是否在树内"（规格 §6 第 37 条）。
+ *
+ * 条文：读取期间用户"单击其他项目树行、滚动项目树或把焦点移到其他控件"时，已打开的文件
+ * 可以完成显示，但**不得重选树行、滚回原视口或抢回焦点**。选中树行那一半由
+ * `live.treeSelectedPath` 负责；这里负责另外两半 —— 位置与焦点。
+ *
+ * 必须在替换之前读：替换之后旧节点已经脱离文档，读到的只能是新节点的 0 与 `document.body`，
+ * 再无法区分"被这次重绘弄丢"与"用户本来就没滚/没把焦点放在这里"。
+ * 只在该轴**真的可滚动**时记录纵向位置：树还没展开、还没溢出的窗口里读到 0 会冲掉上一次的
+ * 真实位置（与 `.changes-list`／日志列表同一坑）。
+ */
+function rememberTreeStateBeforeRender() {
+  const live = window.__augitLive;
+  if (!live) return;
+  const tree = document.querySelector(".side-content.tree");
+  if (!tree) return;
+  if (tree.scrollHeight > tree.clientHeight) live.treeScrollTop = tree.scrollTop;
+  const active = document.activeElement;
+  const row = active && active.closest ? active.closest(".side-content.tree .tree-row") : null;
+  live.treeFocusPath = row ? (row.dataset.treePath || null) : null;
+  live.treeFocusInside = !!(active && active !== document.body && tree.contains(active));
+}
+
+/**
  * 把草稿与滚动位置写回改动列表。
  * 区域替换会新建 textarea 与列表容器，草稿与滚动位置都只存在于旧节点上，
  * 因此每次刷新后都要恢复（规格 §5.2：关闭比较保留草稿与滚动）。
@@ -5804,6 +5833,76 @@ function bindChangesScroll() {
     const live = window.__augitLive;
     if (live) live.changesScrollTop = list.scrollTop;
   }, { passive: true });
+}
+
+/**
+ * 项目树的滚动位置与树内焦点（规格 §6 第 37 条）。
+ *
+ * 读取收尾的 `refreshAfterEvent("side", …)`（`openDocument` 末尾）会把整个 `.side-tool` 换成
+ * `renderScene()` 产出的新片段 —— 注释里写的"保留项目树的展开状态与滚动位置"对**展开状态**成立
+ * （它是状态、按状态渲染），但 `.side-content.tree` 这个**节点**确实是新的：新节点 `scrollTop` 为 0、
+ * 原来聚焦的树行也不存在了（第 271 轮实测 `sameTree:false`、`treeScrollTop` 60 → 0、焦点掉到 BODY）。
+ * 两者都属于用户状态，必须跨越重绘保留，否则"读取期间滚动项目树 / 把焦点放在树行上"这两个动作
+ * 会在文件读完的瞬间被抹掉。
+ */
+let pendingTreeScroll = null;
+let pendingTreeScrollTimer = 0;
+
+/**
+ * 把待恢复的纵向位置写给当前树；越界值由浏览器夹回（即"内容变短时归位"）。
+ *
+ * 只在位置仍处于**我们已知的三种状态**时对齐：刚替换/被锚点回填的 `0`、目标值本身、
+ * 或我们上一次写下的值。出现第四种值说明用户在窗口内自己滚动过 —— 立刻放弃，
+ * 绝不把用户的新位置拉回去（第 271 轮全量复跑实测：§154 在"读取收尾刷新"之后把树滚到 260，
+ * 200ms 窗口把旧的 0 又写了回去，`§154 字号变化保持树的第一个可见节点` 因此失败）。
+ */
+function applyPendingTreeScroll() {
+  if (!pendingTreeScroll) return;
+  const tree = document.querySelector(".side-content.tree");
+  if (!tree) return;
+  const target = pendingTreeScroll.top;
+  if (typeof target !== "number") return;
+  const current = tree.scrollTop;
+  const ours = current === 0 || current === target || current === pendingTreeScroll.lastApplied;
+  if (!ours) { pendingTreeScroll = null; return; }
+  if (current !== target) tree.scrollTop = target;
+  pendingTreeScroll.lastApplied = target;
+}
+
+/**
+ * 渲染后把项目树的位置与树内焦点交还给用户。
+ *
+ * 与日志列表（`pendingHistoryScroll`）同一处理：`applyTypography()` 在区域替换之后异步运行，
+ * 它按"替换刚发生时捕获的锚点"（那时树的位置已经是 0）回填一次 ⇒ 同步恢复会被冲掉，
+ * 因此把目标位置留在本地变量里，下一帧与窗口末各对齐一次。
+ * 焦点按**路径**交还给新节点上的同一行；重绘前焦点不在树内时绝不移动焦点。
+ */
+function restoreTreeState() {
+  const live = window.__augitLive;
+  if (!live) return;
+  if (typeof live.treeScrollTop === "number") {
+    pendingTreeScroll = { top: live.treeScrollTop };
+    applyPendingTreeScroll();
+    requestAnimationFrame(applyPendingTreeScroll);
+    window.clearTimeout(pendingTreeScrollTimer);
+    pendingTreeScrollTimer = window.setTimeout(() => {
+      applyPendingTreeScroll();
+      pendingTreeScroll = null;
+    }, 200);
+  }
+
+  const focusPath = live.treeFocusPath;
+  const focusInside = !!live.treeFocusInside;
+  live.treeFocusPath = null;
+  live.treeFocusInside = false;
+  if (!focusInside) return;
+  const tree = document.querySelector(".side-content.tree");
+  if (!tree) return;
+  const row = focusPath
+    ? [...tree.querySelectorAll(".tree-row[data-tree-path]")].find((item) => item.dataset.treePath === focusPath)
+    : null;
+  const target = row || tree;
+  if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
 }
 
 /** 绑定勾选、分组勾选与草稿输入（挂在 document 上，不受区域刷新影响）。 */

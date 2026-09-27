@@ -20898,6 +20898,11 @@ async function main() {
           treeScrollable: !!window.__treeScrollable,
           sameTree: window.__treeNode ? window.__treeNode === document.querySelector('.side-content.tree') : null,
           active: active ? (active.getAttribute('aria-label') || active.className || active.tagName) : null,
+          activeTreePath: (() => {
+            const row = active && active.closest ? active.closest('.side-content.tree .tree-row') : null;
+            return row ? row.dataset.treePath : null;
+          })(),
+          treeCanScroll: !!(tree && tree.scrollHeight > tree.clientHeight),
           docPath: live.document ? live.document.path : null,
           editor: live.editor || null,
           tabs: (live.tabs || []).map((tab) => `${tab.kind}:${tab.path}`),
@@ -20929,7 +20934,10 @@ async function main() {
       await page.waitForTimeout(1500);
       const afterRead = await snap();
       // ② 关闭**前面的**后台标签：当前读取不得失效
-      await page.evaluate(() => { window.__readDelays = { 'docs/product-spec.md': 1200 }; });
+      // 延迟取 2500ms 而不是 1200ms：`afterCloseOther` 要在"读取仍在途"的窗口内取证，
+      // 而它前面还有若干 `evaluate`/`click` 往返，机器一忙就可能吃掉几百毫秒 ——
+      // 第 271 轮全量复跑实测 1200ms 会在断言前读完（读到的 `pending` 已是 null）。
+      await page.evaluate(() => { window.__readDelays = { 'docs/product-spec.md': 2500 }; });
       await page.evaluate(() => { void window.__augitOpenDocument('docs/product-spec.md'); });
       await page.waitForTimeout(300);
       const notesTabId = await page.evaluate(() => {
@@ -20944,7 +20952,7 @@ async function main() {
       if (notesTabId) await page.locator(`[data-tab-id="${notesTabId}"] .tab-close`).click();
       await page.waitForTimeout(300);
       const afterCloseOther = await snap();
-      await page.waitForTimeout(1800);
+      await page.waitForTimeout(2600);
       const notesLate = await snap();
       await page.evaluate(() => { window.__readDelays = {}; });
       await page.close();
@@ -20963,6 +20971,23 @@ async function main() {
       && readRaces.afterRead.docPath === 'docs/notes.txt' && readRaces.afterRead.editor === 'text'
       && readRaces.afterRead.tabs.includes('document:docs/notes.txt')
       && readRaces.afterRead.contentChars > 20 && readRaces.afterRead.pending === null);
+    // §6 第 37 条余下两半（第 271 轮）：收尾**换了整棵树**（`sameTree:false`），但滚动位置与
+    // 树内焦点都必须跨越重绘保留。`sameTree === false` 是必要条件：否则"位置没变"可能只是因为
+    // 根本没发生重绘，断言就成了空断言。
+    check('§6 异步读取收尾保持项目树滚动位置与树内焦点: '
+      + JSON.stringify([readRaces.duringUser.treeCanScroll, readRaces.duringUser.treeScrollTop,
+        readRaces.afterRead.treeScrollTop, readRaces.duringUser.activeTreePath,
+        readRaces.afterRead.activeTreePath, readRaces.afterRead.sameTree]),
+    readRaces.errors.length === 0
+      // 前置：树真的溢出、用户真的滚动到了非零位置，且把焦点放在选中的树行上
+      && readRaces.duringUser.treeCanScroll === true && readRaces.duringUser.treeScrollTop > 0
+      && readRaces.duringUser.activeTreePath === readRaces.duringUser.selectedTreePath
+      // 收尾确实替换了整棵树（否则下面的"保持"无从谈起）
+      && readRaces.afterRead.sameTree === false
+      // 滚动位置保持（修前 60 → 0）
+      && readRaces.afterRead.treeScrollTop === readRaces.duringUser.treeScrollTop
+      // 焦点回到同一行（修前掉到 BODY）
+      && readRaces.afterRead.activeTreePath === readRaces.duringUser.selectedTreePath);
     check('§6 关闭前面的后台标签不使当前读取失效: '
       + JSON.stringify([readRaces.afterCloseOther, readRaces.notesLate]),
     // 关闭的是一个**更早**的文档标签，而当前读取仍在途

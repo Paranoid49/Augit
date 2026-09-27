@@ -9539,3 +9539,61 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 继续 §6 余下 5 行（第 15、34、35、第 37 条的滚动/焦点两半、第 40 条）与 §7 的 A 类条目。
+
+## septuaginta-unus. 第二百七十一轮：项目树滚动位置与树内焦点跨读取收尾保留（§6 第 37 条收口）
+
+### 定位：收尾确实换掉了整棵树
+
+用包装 `window.__augitRenderRegions`／`window.__augitRender` 抓调用栈，读取收尾共有两次区域刷新：
+
+1. `openDocument()` 成功分支的 `refresh("statusbar")`；
+2. 末尾的 `refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar", "titlebar")`。
+
+第 2 次命中的正是 `.side-tool` —— 它的注释写着"只做区域刷新以保留项目树的展开状态与**滚动位置**"，
+但 `REGION_SELECTORS.side = ".side-tool"`、替换源是 `renderScene()` 重新产出的片段，
+`.side-content.tree` 这个**节点**是新的：实测 `sameTree:false`、`treeScrollTop` 60 → 0、
+原来聚焦的树行消失、焦点掉到 `document.body`。展开状态是状态、按状态渲染所以保住了，
+位置与焦点只存在于旧节点上，因此被抹掉。
+
+### 实现（只改 `live-data.js`）
+
+- `rememberTreeStateBeforeRender()`：在区域替换**之前**读 `.side-content.tree` 的真实 `scrollTop`
+  （只在该轴真的可滚动时记录，避免树还没溢出时的 0 冲掉上一次的真实位置）与"焦点是否在树内/在哪一行"；
+  由 `refresh()` 与 `rememberCommitFocusBeforeRender()` 一起调用。
+- `restoreTreeState()`：在 `rebindAfterRender()` 里按状态写回。位置用 `pendingTreeScroll` 待恢复窗口
+  （渲染后 + 下一帧 + 200ms 末各对齐一次）—— 因为 `applyTypography()` 是异步的，它按"替换刚发生时捕获的
+  锚点"（那时位置已经是 0）回填一次，同步恢复会被冲掉（与日志列表 `pendingHistoryScroll` 同一坑，第 239 轮）。
+  **窗口只在位置仍处于"我们已知的三种状态"时对齐**（0／目标值／我们上一次写下的值）：出现第四种值说明用户
+  在窗口内自己滚动过，立刻放弃、绝不回拉 —— 第一版没有这条守卫，全量复跑时 §154 在"读取收尾刷新"之后把树
+  滚到 260，200ms 窗口把旧的 0 又写了回去，`§154 字号变化保持树的第一个可见节点` 因此失败（`["docs","docs",0]`），
+  这是**测试抓到的真实回拉缺陷**，不是测试问题。焦点按**路径**交还给新节点上的同一行，
+  `focus({ preventScroll: true })` 避免顺带滚动；重绘前焦点不在树内时只清信号、绝不移动焦点。
+
+### 验证
+
+- 慢读 `docs/notes.txt`（1200ms）在途时改选 `docs/product-spec.md`、把树滚到 60、焦点留在该行：
+  收尾后 `sameTree:false` 而 `selectedTreePath`／`treeScrollTop`／`activeTreePath` 三者全部保持，
+  文件仍完成显示（`docPath=docs/notes.txt`、`editor=text`、`pending` 清空、正文 29 字符）。
+- 新增断言 `§6 异步读取收尾保持项目树滚动位置与树内焦点`（把"确实换了整棵树 `sameTree:false`"
+  写进判据作为非空断言的前置）。
+- 同批把 §6 第 38 条用例的读取延迟由 1200ms 放大到 2500ms：全量复跑实测 1200ms 时
+  `afterCloseOther` 会在断言前读到已完成的读取（`pending` 已是 null），属测试时序抖动而非产品缺陷。
+
+### 新增断言（`live-shell`，1 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§6 异步读取收尾保持项目树滚动位置与树内焦点` |
+
+### 验证（全量）
+
+- `live-shell` **`通过 1351 项断言`**（1350 → **+1**），退出码 0。
+- 登记哈希：`live-data.js` `a2f48f5f…` → **`356c42c8539fb6ed3cb78e648f615c8f`**、
+  `live-shell.spec.cjs` `f88a38c1…` → **`c67716736d3da3ca3a0be7b6eb9962f2`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 270 轮逐个相同。
+- 同批：`mockup-scenes` 55/55、`verify-ux-project-tree` 12/12、`verify-ui-assets` PASS。
+- §6 第 37 条三半全部有断言 ⇒ 转 **是**（§2.10：分母 54 → **53**、D 12 → **11**）。
+
+### 下一轮
+
+继续 §6 余下 4 行（第 15、34、35、40 条）与 §7 的 A 类条目。
