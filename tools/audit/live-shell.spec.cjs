@@ -4919,6 +4919,203 @@ async function main() {
     await cloneCancel.page.close();
 
 
+    // ---- 规格 §7.12 第 7 条：Push 提交行的自绘勾形、行高、选择与悬停 ----
+    const openLivePush = async (page) => {
+      await page.evaluate(() => {
+        document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+      });
+      await page.locator('.top-chip.branch-chip').click();
+      await page.waitForTimeout(450);
+      await page.locator('[data-popover-action="push"]').click();
+      await page.waitForTimeout(1300);
+    };
+    const pushR = await openScene('scene=main-project&theme=dark');
+    await pushR.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushR.page.waitForTimeout(500);
+    await pushR.page.evaluate(() => { window.__unpushedSubjects = ['feat: 真实提交一', 'fix: 真实提交二']; });
+    await openLivePush(pushR.page);
+    await pushR.page.waitForSelector('.push-commit', { timeout: 10000 });
+    const pushShape = await pushR.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const rows = [...document.querySelectorAll('.push-commit')];
+      const first = rows[0];
+      const svg = first.querySelector('svg');
+      const text = first.querySelector('span') ? first.querySelector('span').textContent : '';
+      window.__pushRowNode = first;
+      return {
+        rows: rows.length,
+        everyRowHasSvgPath: rows.every((row) => !!row.querySelector('svg path')),
+        // 不许用文字字形充当图标：行文本不能以勾/叉等符号开头
+        textStartsWithGlyph: /^[\u2713\u2714\u221A\u221B\u2717\u2718]/.test(text.trim()),
+        rowHeight: Math.round(first.getBoundingClientRect().height),
+        rowToken: getComputedStyle(dialog).getPropertyValue('--push-row').trim(),
+      };
+    });
+    check('§7.12 Push 提交行用统一自绘勾形且行高来自字号令牌: ' + JSON.stringify(pushShape),
+      pushShape.rows >= 2 && pushShape.everyRowHasSvgPath === true && pushShape.textStartsWithGlyph === false
+        && pushShape.rowToken === '27px' && pushShape.rowHeight === 27);
+
+    // 单击只选中提交：引用范围（摘要与提交数）不变、不请求 Git、不重建行节点。
+    const pushSummaryBefore = await pushR.page.evaluate(() => (document.querySelector('.push-summary') || {}).innerText || null);
+    await pushR.page.locator('.push-commit').first().click();
+    await pushR.page.waitForTimeout(250);
+    const pushSelected = await pushR.page.evaluate(() => {
+      const list = document.querySelector('.push-commits');
+      const selected = [...document.querySelectorAll('.push-commit')].map((row) => row.classList.contains('selected'));
+      return {
+        selected,
+        aria: [...document.querySelectorAll('.push-commit')].map((row) => row.getAttribute('aria-selected')),
+        activeDescendant: list.getAttribute('aria-activedescendant'),
+        summary: (document.querySelector('.push-summary') || {}).innerText || null,
+        rowCount: document.querySelectorAll('.push-commit').length,
+        sameNode: window.__pushRowNode === document.querySelector('.push-commit'),
+        pushCalls: window.__pushCalls || 0,
+      };
+    });
+    check('§7.12 Push 单击只选中提交，不改变引用范围、不请求 Git、不重建内容: ' + JSON.stringify(pushSelected),
+      pushSelected.selected[0] === true && pushSelected.selected[1] === false
+        && pushSelected.aria[0] === 'true' && pushSelected.aria[1] === 'false'
+        && pushSelected.activeDescendant === 'push-commit-0'
+        && pushSelected.summary === pushSummaryBefore && pushSelected.rowCount === 2
+        && pushSelected.sameNode === true && pushSelected.pushCalls === 0);
+
+    // 选中优先悬停、失焦保留中性选中；悬停不请求 Git 也不重建。
+    const pushTokens = await pushR.page.evaluate(() => {
+      const style = getComputedStyle(document.querySelector('.push-dialog'));
+      const rgb = (value) => {
+        const probe = document.createElement('span');
+        probe.style.color = value.trim();
+        document.body.appendChild(probe);
+        const computed = getComputedStyle(probe).color;
+        probe.remove();
+        return computed;
+      };
+      return {
+        rowHover: rgb(style.getPropertyValue('--augit-row-hover')),
+        selectionInactive: rgb(style.getPropertyValue('--augit-selection-inactive')),
+        blueSoft: rgb(style.getPropertyValue('--augit-blue-soft')),
+      };
+    });
+    await pushR.page.hover('.push-commit:nth-child(2)');
+    await pushR.page.waitForTimeout(200);
+    const hoverPlain = await pushR.page.evaluate(() => getComputedStyle(document.querySelectorAll('.push-commit')[1]).backgroundColor);
+    await pushR.page.hover('.push-commit:nth-child(1)');
+    await pushR.page.waitForTimeout(200);
+    const hoverSelected = await pushR.page.evaluate(() => ({
+      background: getComputedStyle(document.querySelector('.push-commit')).backgroundColor,
+      pushCalls: window.__pushCalls || 0,
+      sameNode: window.__pushRowNode === document.querySelector('.push-commit'),
+    }));
+    await pushR.page.locator('.push-dialog .dialog-header a').focus();
+    await pushR.page.waitForTimeout(200);
+    const pushBlurred = await pushR.page.evaluate(() => getComputedStyle(document.querySelector('.push-commit')).backgroundColor);
+    check('§7.12 Push 选中优先悬停、失焦保留中性选中（悬停不请求 Git 不重建）: '
+      + JSON.stringify([hoverPlain, hoverSelected, pushBlurred, pushTokens]),
+    // 未选中行的悬停底色
+    hoverPlain === pushTokens.rowHover
+      // 选中行被悬停仍是选中色（列表聚焦时是强调蓝）
+      && hoverSelected.background === pushTokens.blueSoft
+      && hoverSelected.pushCalls === 0 && hoverSelected.sameNode === true
+      // 焦点离开列表后选中保持中性灰，不因仍被指针悬停而改变
+      && pushBlurred === pushTokens.selectionInactive);
+    await pushR.page.close();
+
+    // 行高随界面字号扩展（同一套令牌）。
+    const pushBig = await openScene('scene=main-project&theme=dark&ui-size=20');
+    await pushBig.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushBig.page.waitForTimeout(700);
+    await openLivePush(pushBig.page);
+    await pushBig.page.waitForSelector('.push-commit', { timeout: 10000 });
+    const pushBigShape = await pushBig.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const row = document.querySelector('.push-commit');
+      return {
+        rowToken: getComputedStyle(dialog).getPropertyValue('--push-row').trim(),
+        rowHeight: Math.round(row.getBoundingClientRect().height),
+      };
+    });
+    check('§7.12 Push 提交行高随界面字号扩展: ' + JSON.stringify(pushBigShape),
+      Number.parseInt(pushBigShape.rowToken, 10) > 27 && pushBigShape.rowHeight === Number.parseInt(pushBigShape.rowToken, 10));
+    await pushBig.page.close();
+
+    // ---- 规格 §7.12 第 8 条：标题与底栏固定、左右两栏独立滚动；无远端时预留标签选项空间 ----
+    const pushScroll = await openScene('scene=main-project&theme=dark');
+    await pushScroll.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushScroll.page.waitForTimeout(500);
+    await pushScroll.page.evaluate(() => { window.__unpushedSubjects = ['feat: 真实提交一']; });
+    await openLivePush(pushScroll.page);
+    await pushScroll.page.waitForSelector('.push-commit', { timeout: 10000 });
+    const pushScrollState = await pushScroll.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const list = dialog.querySelector('.push-commits');
+      const detail = dialog.querySelector('.management-detail');
+      const header = dialog.querySelector('.dialog-header');
+      const footer = dialog.querySelector('.dialog-footer');
+      const row = list.querySelector('.push-commit');
+      // 造出两侧都溢出的上下文（只改 DOM 内容，不触碰产品逻辑）。
+      for (let i = 0; i < 40; i += 1) {
+        const clone = row.cloneNode(true);
+        clone.id = 'push-commit-filler-' + i;
+        clone.classList.remove('selected');
+        list.appendChild(clone);
+      }
+      detail.insertAdjacentHTML('beforeend', '<p class="probe-push-filler">'
+        + Array(400).fill('填充文本用于验证左右两栏独立滚动').join(' ') + '</p>');
+      const headerTop = header.getBoundingClientRect().top;
+      const footerTop = footer.getBoundingClientRect().top;
+      list.scrollTop = 60;
+      const listScrolled = list.scrollTop;
+      const detailAfterList = detail.scrollTop;
+      detail.scrollTop = 120;
+      const detailScrolled = detail.scrollTop;
+      const listAfterDetail = list.scrollTop;
+      return {
+        listScrollable: list.scrollHeight > list.clientHeight + 1,
+        detailScrollable: detail.scrollHeight > detail.clientHeight + 1,
+        listScrolled, detailAfterList, detailScrolled, listAfterDetail,
+        headerFixed: Math.abs(header.getBoundingClientRect().top - headerTop) < 1,
+        footerFixed: Math.abs(footer.getBoundingClientRect().top - footerTop) < 1,
+      };
+    });
+    check('§7.12 Push 标题与底栏固定、左右两栏独立滚动: ' + JSON.stringify(pushScrollState),
+      pushScrollState.listScrollable === true && pushScrollState.detailScrollable === true
+        // 滚动左侧不带动右侧
+        && pushScrollState.listScrolled === 60 && pushScrollState.detailAfterList === 0
+        // 滚动右侧不带动左侧
+        && pushScrollState.detailScrolled === 120 && pushScrollState.listAfterDetail === 60
+        // 两侧滚动都不移动标题与底栏
+        && pushScrollState.headerFixed === true && pushScrollState.footerFixed === true);
+    await pushScroll.page.close();
+
+    const pushNoRemote = await openScene('scene=main-project&theme=dark');
+    await pushNoRemote.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await pushNoRemote.page.waitForTimeout(500);
+    await pushNoRemote.page.evaluate(() => { window.__unpushedFails = true; });
+    await openLivePush(pushNoRemote.page);
+    await pushNoRemote.page.waitForSelector('.push-tags', { timeout: 10000 });
+    const pushNoRemoteState = await pushNoRemote.page.evaluate(() => {
+      const dialog = document.querySelector('.push-dialog');
+      const tags = dialog.querySelector('.push-tags');
+      const footer = dialog.querySelector('.dialog-footer');
+      const tagsRect = tags.getBoundingClientRect();
+      return {
+        define: !!dialog.querySelector('.push-summary a'),
+        pushDisabled: dialog.querySelector('[data-push-action="confirm"]').disabled === true,
+        tagsDisabled: tags.querySelector('input[type="checkbox"]').disabled === true
+          && tags.querySelector('select').disabled === true,
+        tagsToken: getComputedStyle(dialog).getPropertyValue('--push-tags').trim(),
+        tagsVisible: tagsRect.height > 0,
+        // 预留的空间必须真的把标签行放在底栏之上，不能压住底栏
+        tagsInside: tagsRect.bottom <= footer.getBoundingClientRect().top + 1,
+      };
+    });
+    check('§7.12 Push 无远端时保留定义远端与禁用的推送、并为标签选项预留空间: ' + JSON.stringify(pushNoRemoteState),
+      pushNoRemoteState.define === true && pushNoRemoteState.pushDisabled === true
+        && pushNoRemoteState.tagsDisabled === true
+        && Number.parseInt(pushNoRemoteState.tagsToken, 10) > 0
+        && pushNoRemoteState.tagsVisible === true && pushNoRemoteState.tagsInside === true);
+    await pushNoRemote.page.close();
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

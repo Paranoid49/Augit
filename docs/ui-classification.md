@@ -285,6 +285,8 @@
 
 **第 273 轮**转 §7.12（Clone/Push 与本地 Git 操作反馈），收口第 4、5 条（§2.10：分母 49 → **47**、A 34 → **32**）。第 4 条纯补断言（7 条）：初始焦点、Tab 环顺序（实测 `clone-source → clone-destination → clone-shallow → clone-depth → cancel → create → close → clone-version`）、未勾选浅克隆时禁用的深度从环里消失、下拉框上按 Enter 保留自身语义、输入中 Enter 发出 `git/clone`、组词期间不抢 Enter、Esc 关闭。第 5 条**挂出并修掉一处真实缺口**：宿主早把 `git/clone` 放进写队列（`RunWriteAsync`），`write/cancel` 能取消正在运行的 Git，但实时外壳**从未请求过它** —— `bindCloneDialog()` 的 `cancelOrClose()` 只置 `cancelling` 并清计时器，界面已"取消"而宿主进程还在跑；本轮新增 `window.__augitCloneCancel`（`live-data.js`）并让共享视觉稿在真实克隆路径先调它、再等 promise 收尾（180ms 模拟计时器只留给无宿主场景）。4 条断言覆盖冻结、`write/cancel` 调用 1 次而 `git/clone` 仍 1 次、取消等待期间 Enter 不再提交、确认取消后保留输入与勾选并可重试。共 11 条新断言（1356 → **1367**）。
 
+**第 274 轮**继续 §7.12，收口第 7、8 条（§2.10：分母 47 → **45**、A 32 → **30**）。第 7 条修掉两处真实缺口：① 从分支弹层打开的**实时** Push 对话框由 `renderPushDialog()` 新建、没绑定视觉稿的 `bindPushDialog()`，提交行点了不动（实测 `selected:[false]`）；又不能整段复用（它同时接管推送/取消，会和实时层的 `[data-push-action]` 执行链一起响应 ⇒ 一次点击发两次 `git/push`），故新增 `bindPushCommitSelection()` 只接选中（单击 + 方向键/Home/End）。② 实时对话框拿不到 `--push-*` 令牌（未调度量函数）⇒ 行高固定 27px 不随字号扩展，改为挂载后调用 `measurePushDialog()`（字号 13→20 时 27px→33px）。第 8 条：独立滚动实测通过（滚左不动右、滚右不动左、标题与底栏矩形不变）；**挂出并修掉一处真实缺陷** —— `measurePushDialog()` 的标签预留判据是类名 `push-no-remote`，而实时「无上游」对话框只有 `push-dialog` 类 ⇒ `--push-tags` 算成 0px、标签行压到底栏之下，判据改为"对话框里真的有 `.push-tags`"。共 6 条新断言（1367 → **1373**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |

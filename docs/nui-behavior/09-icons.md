@@ -9716,3 +9716,59 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 继续 §7.12 余下 A 类（第 3、7、8、9、14 条）与其它 §7 模块。
+
+## septuaginta-quattuor. 第二百七十四轮：实时 Push 对话框的提交行选择、字号令牌与标签预留（§7.12 第 7、8 条收口）
+
+### 第 7 条：提交行的勾形、行高、选择与悬停（修掉两处真实缺口）
+
+**① 实时对话框的提交行点了不动**。从分支弹层打开的 Push 对话框由 `renderPushDialog()` 新建，
+它没有绑定视觉稿的 `bindPushDialog()`；实测点击 `.push-commit` 后 `selected:[false]`、`aria:["false"]`。
+但**不能整段复用** `bindPushDialog()`：它同时接管推送/取消的执行链，而实时层已经用
+`[data-push-action]` 接了同一条链，两段一起生效会让一次点击发出两次 `git/push`。
+新增 `bindPushCommitSelection(list)` 只接"选中"这一件事（单击 + ArrowUp/Down/Home/End，
+写 `.selected` / `aria-selected` / `aria-activedescendant`，`aria-disabled` 时整体不响应）。
+
+**② 实时对话框拿不到 `--push-*` 令牌**。`measurePushDialog()` 只在静态页绑定与后续区域重绘时跑到，
+新建的实时对话框因此 `--push-row` 为空 ⇒ 行高固定 27px、不随界面字号扩展。
+像 `openCloneDialog()` 一样在挂载后立即 `measurePushDialog()`；字号 13 → 20 时令牌 27px → 33px、行高跟随。
+
+断言还钉住：每行都有 `<svg><path>` 勾形且行文本不以勾/叉字形开头；单击只改该行选中
+（引用摘要、提交数、行节点身份都不变，`git/push` 调用 0）；未选中行悬停 = `--augit-row-hover`，
+选中行悬停仍是强调蓝（选中优先），焦点离开列表后回到中性 `--augit-selection-inactive`。
+
+### 第 8 条：独立滚动与无远端时的标签预留（修掉一处真实缺陷）
+
+独立滚动实测：造出两侧都溢出的上下文后，`list.scrollTop = 60` 不影响 `detail`（仍 0），
+`detail.scrollTop = 120` 不影响 `list`（仍 60），两次滚动都不移动标题与底栏矩形。
+
+**缺陷**：`measurePushDialog()` 的标签预留判据是 `dialog.classList.contains('push-no-remote')`，
+而**实时**「无上游」对话框用的是同一个 `push-dialog` 类、没有这个类 ⇒ `--push-tags` 算成 **0px**，
+标签行不占网格行、底边直接落到底栏之下（实测 `tagsInside:false`）。判据改为
+`dialog.querySelector('.push-tags') ? max(30, row + 3) : 0` —— "对话框里真的有标签选项行"才预留；
+静态 `push-no-remote` 场景两种判据一致，改后行为不变。断言：实时无上游时保留「定义远端」、
+推送禁用、标签复选框与范围下拉都禁用、`--push-tags` > 0、标签行可见且底边在底栏之上。
+
+### 新增断言（`live-shell`，6 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.12 Push 提交行用统一自绘勾形且行高来自字号令牌` |
+| 2 | `§7.12 Push 单击只选中提交，不改变引用范围、不请求 Git、不重建内容` |
+| 3 | `§7.12 Push 选中优先悬停、失焦保留中性选中（悬停不请求 Git 不重建）` |
+| 4 | `§7.12 Push 提交行高随界面字号扩展` |
+| 5 | `§7.12 Push 标题与底栏固定、左右两栏独立滚动` |
+| 6 | `§7.12 Push 无远端时保留定义远端与禁用的推送、并为标签选项预留空间` |
+
+### 验证
+
+- `live-shell` **`通过 1373 项断言`**（1367 → **+6**），退出码 0。
+- 登记哈希：`live-data.js` `b90ea54d…` → **`ffd3878b4a4428c956f4260d17f17951`**、
+  `mockup.js` `ce0f85b5…` → **`db92e596adcff711e39780752494bbb2`**（共享视觉稿同步）、
+  `live-shell.spec.cjs` `6b8a2d59…` → **`8aba2af8bd0b3d496e5e77c1d256decc`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 与第 273 轮逐个相同。
+- §7.12 第 7、8 条转 **是**（§2.10：分母 47 → **45**、A 32 → **30**）。
+- 同批：`mockup-scenes` 55/55、`verify-ux-push` 24 组布局 + 3 组连续状态通过、`verify-ui-assets` PASS。
+
+### 下一轮
+
+继续 §7.12 余下 A 类（第 3、9、14 条）与其它 §7 模块。

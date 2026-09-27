@@ -327,7 +327,12 @@ function measurePushDialog() {
     footer = Math.max(53, line + 29), row = Math.max(27, line + 8),
     // 按钮高度：权威 `Button.minimumSize` = 72×28 是下限；2026 参考图实测 37（该图缩放已复核为 1.5x），故下限取 37。
     button = Math.max(37, line + 17);
-  const tags = dialog.classList.contains('push-no-remote') ? Math.max(30, row + 3) : 0;
+  // 判据取"对话框里真的有标签选项行"，而不是 `push-no-remote` 这个类名：从分支弹层打开的
+  // **实时** Push 对话框用的是同一个 `push-dialog` 类，无上游时同样渲染 `.push-tags`，
+  // 但它没有 `push-no-remote` 类 ⇒ 旧判据给它 0px，标签行不占网格行、直接压到底栏上
+  //（第 274 轮实测：`--push-tags: 0px`、标签行底边在底栏之下）。静态 `push-no-remote` 场景
+  // 两种判据一致，改后行为不变。
+  const tags = dialog.querySelector('.push-tags') ? Math.max(30, row + 3) : 0;
   const width = Math.min(930, innerWidth - 80), define = Math.max(72, text('定义远端') + 16);
   const sidebar = tags ? Math.min(Math.max(260, 16 + text('main →') + 8 + define + 8), Math.max(260, (width - 34) / 2)) : 260;
   const values = { header, footer, row, button, tags, sidebar, height: header + 30 + 365 + footer + 1 + tags,

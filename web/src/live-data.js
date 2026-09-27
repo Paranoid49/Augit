@@ -8124,8 +8124,63 @@ function renderPushDialog() {
     true,
     "push-dialog");
   host.appendChild(layer);
+  // 视觉稿的度量函数（字号→`--push-row`／`--push-tags`／`--push-height` 等）此前只在静态页与
+  // 后续区域重绘时跑到，从弹层打开的实时 Push 对话框因此拿不到任何 `--push-*` 令牌：
+  // 提交行高固定 27px（不随界面字号扩展）、无远端时也不为标签选项预留空间（第 274 轮实测
+  // `--push-row` 为空）。这里像 `openCloneDialog()` 一样在挂载后立即量一次。
+  if (typeof measurePushDialog === "function") measurePushDialog();
   const list = layer.querySelector(".push-commits");
-  if (list) list.focus();
+  if (list) {
+    bindPushCommitSelection(list);
+    list.focus();
+  }
+}
+
+/**
+ * Push 提交行的选择（规格 §7.12 第 7 条：单击只选中提交，不改变整个引用的推送范围）。
+ *
+ * 为什么不能整段复用视觉稿的 `bindPushDialog()`：它同时接管推送/取消的执行链，而实时层
+ * 已经用 `[data-push-action]` 接了同一条链（`live-data.js` 的处理器），两段一起生效会让
+ * 一次点击发出两次 `git/push`。这里只接"选中"这一件事：单击与方向键都只改 `.selected` /
+ * `aria-selected` / `aria-activedescendant`，不请求 Git、不重建内容。
+ *
+ * 此前只有 `scene=push` 静态页绑定了它，从分支弹层打开的真实 Push 对话框（`renderPushDialog()`）
+ * 行点了不动（第 274 轮实测：`sel:[false]`、`aria:["false"]`）。
+ */
+function bindPushCommitSelection(list) {
+  if (!list || list.__augitPushSelectionBound) return;
+  list.__augitPushSelectionBound = true;
+  const items = () => [...list.querySelectorAll(".push-commit:not([hidden])")];
+  const select = (index) => {
+    const rows = items();
+    rows.forEach((row, candidate) => {
+      const active = candidate === index;
+      row.classList.toggle("selected", active);
+      row.setAttribute("aria-selected", String(active));
+    });
+    list.setAttribute("aria-activedescendant", rows[index] ? rows[index].id : "");
+  };
+  const disabled = () => list.getAttribute("aria-disabled") === "true";
+  list.addEventListener("click", (event) => {
+    const row = event.target.closest && event.target.closest(".push-commit");
+    if (!row || disabled()) return;
+    list.focus({ preventScroll: true });
+    select(items().indexOf(row));
+  });
+  list.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) || disabled()) return;
+    const rows = items();
+    if (rows.length === 0) return;
+    event.preventDefault();
+    const current = rows.findIndex((row) => row.classList.contains("selected"));
+    let next = current;
+    if (event.key === "ArrowDown") next = Math.min(rows.length - 1, (current < 0 ? -1 : current) + 1);
+    else if (event.key === "ArrowUp") next = Math.max(0, (current < 0 ? rows.length : current) - 1);
+    else if (event.key === "Home") next = 0;
+    else next = rows.length - 1;
+    select(next);
+    rows[next].scrollIntoView({ block: "nearest" });
+  });
 }
 
 /** 关闭推送对话框。 */
