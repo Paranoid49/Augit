@@ -7081,6 +7081,95 @@ async function main() {
       await tp17.page.close();
     }
 
+    // ---- 第 289 轮补断言（收 §9.1 第 1 条）：`未选择` 的编辑区 —— 稳定空态／保持当前正式文件 ----
+    // 规格 §9.1 的状态机第一档：「`未选择`：编辑区保持当前正式文件或稳定空状态」。
+    // 两半都要断言：**没有打开文件**时是稳定空态（不是样例文档、不是差异、不进入加载），
+    // **已经打开正式文件**时正文保持该文件（不因为改动列表的"未选择"而换掉）。
+    {
+      const un9 = await openScene('scene=main-project&theme=dark');
+      await un9.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await un9.page.waitForTimeout(700);
+      const un9Read = () => un9.page.evaluate(() => {
+        const live = window.__augitLive || {};
+        const content = document.querySelector('.editor-content');
+        const empty = content ? content.querySelector('.empty-state') : null;
+        return {
+          rows: document.querySelectorAll('.changes-list .change-file-row').length,
+          selected: document.querySelectorAll('.changes-list .change-file-row.selected').length,
+          editor: live.editor || null,
+          documentPath: live.document ? live.document.path : null,
+          diff: live.diff ? (live.diff.path || true) : null,
+          emptyCount: content ? content.querySelectorAll('.empty-state').length : -1,
+          emptyText: empty ? empty.textContent.trim() : null,
+          diffColumns: content ? content.querySelectorAll('.diff-columns').length : -1,
+          documentViews: content ? content.querySelectorAll('.document-view').length : -1,
+          loading: content ? content.querySelectorAll('[data-diff-loading], .diff-loading, .markdown-preview-loading').length : -1,
+          // 样本文档/样例差异的痕迹：空态下一条都不该出现。
+          sample: content ? /产品规格|app\.manifest/.test(content.textContent) : null,
+          diffCalls: (window.__diffCalls || []).length,
+          text: content ? content.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : null,
+        };
+      });
+      const un9Empty = await un9Read();
+      check('§9.1 未选择且没有打开文件时编辑区是稳定空态（不是样例文档/差异，也不加载）: '
+        + JSON.stringify(un9Empty),
+      un9Empty.selected === 0 && un9Empty.documentPath === null && un9Empty.diff === null
+        && un9Empty.emptyCount === 1 && un9Empty.emptyText === '选择文件以查看内容'
+        && un9Empty.diffColumns === 0 && un9Empty.documentViews === 0 && un9Empty.loading === 0
+        && un9Empty.sample === false && un9Empty.diffCalls === 0);
+
+      // 已经打开一个正式文件后：改动列表仍然一个都没选中，正文必须还是那个文件。
+      await un9.page.evaluate(async () => {
+        await window.__augitOpenDocument('docs/notes.txt');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      });
+      const un9Opened = await un9Read();
+      check('§9.1 未选择时编辑区保持当前正式文件（不换成差异、不进入加载、不发差异请求）: '
+        + JSON.stringify(un9Opened),
+      un9Opened.selected === 0 && un9Opened.diff === null
+        && un9Opened.documentPath === 'docs/notes.txt'
+        && un9Opened.documentViews === 1 && un9Opened.emptyCount === 0
+        && un9Opened.diffColumns === 0 && un9Opened.loading === 0
+        && un9Opened.diffCalls === 0 && un9Opened.text.includes('docs/notes.txt'));
+      await un9.page.close();
+
+      // 对照场景：改动列表在场且一个都没选中（`commit-diff` 的 3 行），打开正式文件后正文仍是它。
+      const un9b = await openScene('scene=commit-diff&theme=dark');
+      await un9b.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await un9b.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      await un9b.page.waitForTimeout(500);
+      const un9bBefore = await un9b.page.evaluate(() => ({
+        rows: document.querySelectorAll('.changes-list .change-file-row').length,
+        selected: document.querySelectorAll('.changes-list .change-file-row.selected').length,
+        diffCalls: (window.__diffCalls || []).length,
+      }));
+      await un9b.page.evaluate(async () => {
+        await window.__augitOpenDocument('docs/notes.txt');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      });
+      const un9bAfter = await un9b.page.evaluate(() => {
+        const content = document.querySelector('.editor-content');
+        const live = window.__augitLive || {};
+        return {
+          rows: document.querySelectorAll('.changes-list .change-file-row').length,
+          selected: document.querySelectorAll('.changes-list .change-file-row.selected').length,
+          documentPath: live.document ? live.document.path : null,
+          diff: live.diff ? (live.diff.path || true) : null,
+          diffColumns: content.querySelectorAll('.diff-columns').length,
+          documentViews: content.querySelectorAll('.document-view').length,
+          diffCalls: (window.__diffCalls || []).length,
+          sample: /app\.manifest/.test(content.textContent),
+        };
+      });
+      check('§9.1 改动列表在场但未选择时打开正式文件，正文不是差异也不发差异请求: '
+        + JSON.stringify({ un9bBefore, un9bAfter }),
+      un9bBefore.rows === 3 && un9bBefore.selected === 0 && un9bBefore.diffCalls === 0
+        && un9bAfter.selected === 0 && un9bAfter.diff === null && un9bAfter.documentPath === 'docs/notes.txt'
+        && un9bAfter.documentViews === 1 && un9bAfter.diffColumns === 0
+        && un9bAfter.diffCalls === 0 && un9bAfter.sample === false);
+      await un9b.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });

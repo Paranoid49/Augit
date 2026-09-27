@@ -319,6 +319,8 @@
 
 **第 288 轮**收口 §7.17 第 3 条（外观的主题**立即预览**、取消恢复原设置），该条转 **是**（§2.10：分母 21 → **20**、A 8 → **7**）。实现上补的正是缺的那两半：`live-data.js` 的 `bindSettingsPages()` 在 `[data-setting="theme"]` 变化时立即 `applyPageTheme(previewThemeName(...))`（设置对话框自身也跟着换色），`beginThemePreview()` 记下预览前的生效主题、`closeSettingsDialog()`／`closeLiveOverlay()` 用 `revertThemePreview()` 退回、`saveSettings()` 成功后 `commitThemePreview()`；**预览期间不调用 `settings/write`**。权威：`AppearanceConfigurable.kt:213-220` 的外观下拉框 `afterChange` → `QuickChangeLookAndFeel.switchLafAndUpdateUI(...)`（选中即切；`nui-behavior/07-theme-dpi-dialogs.md` §7.1），设置窗口自身同时换色（同文档 §7.3 的 `updateComponentTreeUI` 全窗口遍历）。`System`（跟随 Windows）用 `prefers-color-scheme` 解析（外壳未设置 WebView2 的 `PreferredColorScheme`、默认 Auto 即跟随系统应用模式），因此三种取值都能预览。实测（浅色页面 + 浏览器报告系统偏好深色、桩设置持久值 `Dark`）：选「深色」当场变深且设置对话框底色 `rgb(247,248,249)` → `rgb(30,31,34)`、`__settingsWritten` 仍空；选「浅色」回到初始；选「跟随 Windows」切深色（与"浅色"可区分）；取消后面色与"未写入"都恢复，重开选项仍是 `Dark`；重开改「浅色」点确定才写 `theme: 'Light'`。共 3 条新断言（1418 → **1421**）。
 
+**第 289 轮**收口 §9.1 第 1 条（`未选择`：编辑区保持当前正式文件或稳定空状态），该条转 **是**（§2.10：分母 20 → **19**、A 7 → **6**）。两半都补成断言：① 产品默认场景 `main-project` 什么都没打开时，正文是 1 个 `.empty-state` 且文案逐字「选择文件以查看内容」，`live.document`／`live.diff` 均为 null、`.document-view` 与 `.diff-columns` 各 0 个、无任何加载标记、正文不含样例痕迹（`产品规格`／`app.manifest`），`__diffCalls` 为 0；② 打开 `docs/notes.txt` 后（改动列表仍 0 选中）正文仍是该文件、`.empty-state` 0 个、`live.diff` null、`__diffCalls` 仍 0；③ 对照场景 `commit-diff`（改动列表 3 行、选中 0）打开正式文件前后`__diffCalls` 都是 0、正文不是样例 `app.manifest` 差异。纯补断言，运行时未改。共 3 条新断言（1421 → **1424**）。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
