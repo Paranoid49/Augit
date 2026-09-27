@@ -478,3 +478,13 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 （`data-branch-compare-cancel` + `aria-label`），列表区三态各有文案（正在读取／比较已取消／无独有提交）；
 `live-data.js` 新增代际令牌 `branchComparisonToken`：取消时前进令牌并把状态置为
 `{ loading: false, cancelled: true, commits: [] }`，晚到的响应据此作废（不关面板、可重试、不写全局提示）。
+
+## 比较标签的三部分与文件栏的完整引用（第 267 轮）
+
+- **标签三部分**（规格 §7.9 第十七条）：文件名 / 来源引用 / 目标引用各自一个 span，各自
+  `overflow:hidden` + `text-overflow:ellipsis`。实时标签条此前把整串标题当纯文本渲染 ⇒ 长文件名会把两侧引用一起挤掉；
+  现在 `live-data.js` 建结构化部件（`comparisonParts()`、`shortReference()`），`mockup.js` 按部件渲染。
+- **前 8 位与祖先后缀**：40/64 位哈希显示前 8 位并保留 `[~^]` 后缀；命名引用保持原名（`dsh` 不截断）。
+- **文件栏的双方引用**：`live.referenceComparison` 记下"与工作区比较"实际查询用的修订 —— 此前文件栏写死
+  `HEAD → 工作区`，与查询不符。悬停说明保留**完整**引用 + 相对路径（显示值仍可只取前 8 位），
+  实际 `git/diff` 查询始终用完整原值。

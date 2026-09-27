@@ -1732,6 +1732,7 @@ async function loadDiff(path, options = {}) {
 /** 关闭工作区 Diff：释放补丁与正文，并取消尚未完成的请求（规格 §6.3）。 */
 function closeDiff() {
   const live = window.__augitLive;
+  if (live) live.referenceComparison = null;
   diffPatches.clear();
   diffRequests.clear();
   // 使在途请求的结果失效：令牌前进后，旧结果不会再写回。
@@ -2126,15 +2127,18 @@ function renderDiffErrorNotice() {
 }
 
 /** 取得或建立唯一的比较标签；已存在则复用。 */
-function ensureComparisonTab(path, title) {
+function ensureComparisonTab(path, title, parts) {
   const live = window.__augitLive;
   live.tabs ??= [];
   // 标题可覆盖：工作区 Diff 用默认的「提交: 路径」，历史比较传入双方引用。
   // 复用分支也同步标题与目标——否则标签会一直显示上一个比较的名字。
+  // `parts` 是标签的**三部分结构化标签**（文件名 / 来源 / 目标）：实时标签条按它渲染三个独立省略的 span
+  //（规格 §7.9 第十七条），没有它才退回整串文本。
   const resolvedTitle = title || `提交: ${path}`;
   const existing = findComparisonTab();
   if (existing) {
     syncComparisonTab(existing, path, resolvedTitle);
+    existing.comparison = parts || null;
     return existing;
   }
 
@@ -2143,6 +2147,7 @@ function ensureComparisonTab(path, title) {
     kind: "comparison",
     path,
     title: resolvedTitle,
+    comparison: parts || null,
     editor: "diff",
     preview: false,
   };
@@ -2163,10 +2168,28 @@ function ensureComparisonTab(path, title) {
  *   记录当前目标，人工切换标签时不会被 Changes 的跟随改写。
  * - 父版本用 Git 的祖先后缀 `^` 表示（规格要求保留该后缀），由宿主解析真实父提交。
  */
-function historyComparisonLabel(path, hash) {
+/**
+ * 比较标签的三部分（规格 §7.9 第十七条）：**先文件名，再来源与目标引用**，三部分各自独立省略。
+ *
+ * 展示值：完整 40/64 位提交哈希只显示前 8 位、保留 `^`/`~` 祖先后缀；命名引用保持原名。
+ * 完整值另存在部件的 `title` 上（悬停说明），实际 Git 查询始终用完整原值（调用方传的就是完整值）。
+ */
+function comparisonParts(path, source, target) {
   const name = String(path || "").split("/").at(-1) || "选择文件";
-  const short = String(hash || "").slice(0, 8);
-  return `比较: ${name} · ${short}^ → ${short}`;
+  return { file: `比较: ${name}`, source: String(source || ""), target: String(target || "") };
+}
+
+/** 提交/引用的展示形式：完整哈希截前 8 位并保留祖先后缀；命名引用保持原名。 */
+function shortReference(value) {
+  const text = String(value || "");
+  if (!/^[0-9a-fA-F]{40}([~^].*)?$/.test(text) && !/^[0-9a-fA-F]{64}([~^].*)?$/.test(text)) return text;
+  const suffix = /([~^].*)$/.exec(text);
+  return text.slice(0, 8) + (suffix ? suffix[1] : "");
+}
+
+function historyComparisonLabel(path, hash) {
+  const parts = comparisonParts(path, `${shortReference(hash)}^`, shortReference(hash));
+  return `${parts.file} · ${parts.source} → ${parts.target}`;
 }
 
 /**
@@ -2526,8 +2549,9 @@ async function applyHistoryComparison(path, commit, options = {}) {
   const generation = comparisonGeneration;
   // 标签立即建立并显示双方引用，正文随后填充（规格 §7.8：激活时立即打开并显示
   // 双方引用及文件路径，Git 查询完成后只填充正文，不再次激活标签）。
-  const tab = ensureComparisonTab(path, label);
-  live.historyComparison = { path, commit, label, status: "loading" };
+  const parts = comparisonParts(path, `${shortReference(commit)}^`, shortReference(commit));
+  const tab = ensureComparisonTab(path, label, parts);
+  live.historyComparison = { path, commit, label, parts, status: "loading" };
   if (activate) activateComparisonTab(tab);
   // 比较在前台时才重绘编辑区并显示加载提示；后台跟随时编辑区属于前台文档，
   // 重绘会把它打断（规格 §5.2「不抢占编辑区」、§6.1 最小更新区域）。
@@ -2547,12 +2571,12 @@ async function applyHistoryComparison(path, commit, options = {}) {
   if (token !== historyComparisonToken || !comparisonStillCurrent(tab, generation)) return diff;
   clearDiffLoadingMarker();
   if (!diff) {
-    live.historyComparison = { path, commit, label, status: "unavailable" };
+    live.historyComparison = { path, commit, label, parts, status: "unavailable" };
     repaint();
     return null;
   }
 
-  live.historyComparison = { path, commit, label, status: "ready" };
+  live.historyComparison = { path, commit, label, parts, status: "ready" };
   if (activate) activateComparisonTab(tab);
 
   repaint();
@@ -7911,10 +7935,14 @@ async function compareWithWorkspace() {
   // 不是当前选中的某个改动文件，因此必须解除跟随，否则后续单击改动行会把它改写成工作区 Diff。
   live.followChanges = false;
   const title = `比较: ${branch}`;
+  // 引用比较的双方引用要同时出现在**标签**和**文件栏**（规格 §7.9 第十四/十七条）：
+  // 状态记下实际查询用的修订（完整命名引用），标签拿到结构化三部件。
+  live.referenceComparison = { path: target.path, revision: branch };
+  const referenceParts = comparisonParts(target.path, branch, "工作区");
   // 与工作区 Diff 同一处理：标签与视图必须在**发请求之前**就位，并调度加载提示。
   // 否则查询期间编辑区还停在上一个视图、也没有加载指示
   // （规格 §7.9 要求"激活时立即打开并显示双方引用及文件路径，查询完成后只填充正文"）。
-  const tab = ensureComparisonTab(target.path, title);
+  const tab = ensureComparisonTab(target.path, title, referenceParts);
   activateComparisonTab(tab);
   const generation = comparisonGeneration;
   scheduleDiffLoadingMarker();

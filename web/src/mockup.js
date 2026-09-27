@@ -2358,9 +2358,17 @@ function liveDiffView() {
   const comparison = live.historyComparison;
   const historyActive = comparison && comparison.status !== "closed"
     && comparison.path === diff.path && comparison.commit;
-  const barSource = historyActive ? `${String(comparison.commit).slice(0, 8)}^` : "HEAD";
+  // 引用比较（与工作区比较）同样要在文件栏显示**双方引用**：来源是实际查询用的修订（命名引用保持原名），
+  // 目标是工作区。此前这两种比较之外一律写 HEAD → 工作区，引用比较的文件栏因此与查询不符。
+  const reference = live.referenceComparison;
+  const referenceActive = !historyActive && reference && reference.path === diff.path && reference.revision;
+  const barSource = historyActive ? `${String(comparison.commit).slice(0, 8)}^`
+    : referenceActive ? String(reference.revision) : "HEAD";
   const barTarget = historyActive ? String(comparison.commit).slice(0, 8) : "工作区";
-  const barFilebar = diffFileHeader(barSource, barTarget, diff.path, diff.path);
+  // 悬停说明保留**完整**引用与相对路径（规格 §7.9 第十七条）：显示值可以是前 8 位，查询与悬停用完整值。
+  const hoverSource = historyActive ? `${comparison.commit}^` : referenceActive ? String(reference.revision) : "HEAD";
+  const hoverTarget = historyActive ? String(comparison.commit) : "工作区";
+  const barFilebar = diffFileHeader(barSource, barTarget, `${hoverSource} → ${hoverTarget}`, diff.path);
   if (rows.length === 0) {
     // 最终说明放到正文区（§6.5：持续可见；§10.2：三要素齐备），工具栏只留显示模式。
     // 历史/引用比较要按比较语义措辞（§7.9 摘要页）：工作区那句"改动文件后重新双击该行"
@@ -2796,7 +2804,12 @@ function editorTabs(active, extra = "") {
       if (tab.kind === "comparison") cls.push("comparison-tab");
       const label = tab.title || tab.path || "未命名";
       const glyph = tab.kind === "comparison" ? icon("git-compare-arrows") : fileTypeIcon(label);
-      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${escapeHtml(label)}<span class="tab-close" role="button" aria-label="关闭标签">${icon("x")}</span></a>`;
+      // 比较标签按**三部分**渲染（文件名 / 来源 / 目标），每部分独立省略 —— 长文件名不会挤掉
+      // 另外两部分（规格 §7.9 第十七条）；没有部件时退回整串文本。
+      const caption = tab.kind === "comparison" && tab.comparison
+        ? `<span class="comparison-caption"><span class="comparison-file">${escapeHtml(tab.comparison.file)}</span><span> · </span><span class="comparison-revision">${escapeHtml(tab.comparison.source)}</span><span> → </span><span class="comparison-revision">${escapeHtml(tab.comparison.target)}</span></span>`
+        : `<span class="change-tab-caption">${escapeHtml(label)}</span>`;
+      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${caption}<span class="tab-close" role="button" aria-label="关闭标签">${icon("x")}</span></a>`;
     }).join("");
     return `
     <div class="editor-tabs">

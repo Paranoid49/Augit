@@ -432,6 +432,12 @@ async function main() {
             commits = commits.filter((c) => String(c.subject).toLowerCase().includes(needle));
           }
         }
+        // 第 267 轮：给第一行注入**完整 40 位哈希**，用于验证比较标签/文件栏只显示前 8 位、
+        // 悬停说明保留完整引用、而实际查询仍用完整值（规格 §7.9 第十七条）。
+        if (window.__historyLongHash) {
+          commits = commits.map((commit, index) => index === 0
+            ? { ...commit, fullHash: window.__historyLongHash } : commit);
+        }
         // 第 238 轮：给第一行注入**长引用名**，用于验证"长引用不吞掉作者/日期列"（规格 §7.8 第 13 条）。
         if (window.__historyLongRef) {
           commits = commits.map((commit, index) => index === 0
@@ -1039,6 +1045,8 @@ async function main() {
         const withFiles = (payload) => (Array.isArray(window.__commitFiles)
           ? Object.assign({}, payload, { files: window.__commitFiles }) : payload);
         if (params.revision === data.commit.fullHash) return withFiles(data.commit);
+        // 第 267 轮：日志首行的完整哈希被换成 40 位注入值时，详情读取也要认这个值（同一提交）。
+        if (window.__historyLongHash && params.revision === window.__historyLongHash) return withFiles(data.commit);
         // 第二个提交返回可区分的详情
         // 第二个提交也给出变化文件：历史比较需要"改选提交后跟随到同一路径"的场景，
         // 空文件列表会让该场景无法构造。
@@ -20542,6 +20550,124 @@ async function main() {
       && branchCancel.afterLate.cancelled === true && branchCancel.afterLate.commits === 0
       && branchCancel.afterLate.headerCancel === false
       && branchCancel.afterLate.panelText.includes('比较已取消'));
+
+    // ---- 第 267 轮：比较标签三部分独立省略、前 8 位截断与文件栏完整引用（§7.9 第十七条）----
+    const comparisonLabel17 = await (async () => {
+      const longHash = 'a'.repeat(8) + 'b'.repeat(32);
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.addInitScript((hash) => { window.__historyLongHash = hash; }, longHash);
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(700);
+      // 打开历史比较（双击变化文件）
+      await page.locator('.commit-list .commit-row').first().click();
+      await page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 15000 });
+      await page.waitForTimeout(400);
+      await page.locator('[data-live-changed-files] [data-history-path]').first().dblclick();
+      await page.waitForFunction("() => window.__augitLive.editor === 'diff' && !!window.__augitLive.historyComparison", null, { timeout: 15000 });
+      await page.waitForTimeout(700);
+      const read = () => page.evaluate(() => {
+        const tab = document.querySelector('.editor-tabs .comparison-tab');
+        const caption = tab ? tab.querySelector('.comparison-caption') : null;
+        const fileSpan = caption ? caption.querySelector('.comparison-file') : null;
+        const revisionSpans = caption ? [...caption.querySelectorAll('.comparison-revision')] : [];
+        const bar = document.querySelector('.editor-content .diff-filebar');
+        const source = bar ? bar.querySelector('.reference-source') : null;
+        const target = bar ? bar.querySelector('.reference-target') : null;
+        const path = bar ? bar.querySelector('.reference-path') : null;
+        const style = (node) => {
+          if (!node) return null;
+          const cs = getComputedStyle(node);
+          return { overflow: cs.overflow, ellipsis: cs.textOverflow, scroll: node.scrollWidth, client: node.clientWidth };
+        };
+        return {
+          tabText: tab ? tab.textContent.replace(/\s+/g, ' ').trim() : null,
+          tabTitle: tab ? tab.getAttribute('title') : null,
+          hasCaption: !!caption,
+          fileText: fileSpan ? fileSpan.textContent.trim() : null,
+          fileStyle: style(fileSpan),
+          revisions: revisionSpans.map((n) => n.textContent.trim()),
+          revisionStyles: revisionSpans.map(style),
+          barSource: source ? source.textContent.trim() : null,
+          barTarget: target ? target.textContent.trim() : null,
+          barPath: path ? path.textContent.trim() : null,
+          barTitle: bar ? bar.getAttribute('title') : null,
+          diffCommits: (window.__diffCommits || []).slice(-2),
+          longHash: 'a'.repeat(8) + 'b'.repeat(32),
+        };
+      });
+      const history = await read();
+      // ② 长文件名：文件部分独立省略，两侧引用仍完整显示（不被挤掉）
+      await page.evaluate(async () => {
+        window.__commitFiles = [
+          { path: `docs/${'very-long-file-name-'.repeat(4)}notes.txt`, name: 'notes.txt', directory: 'docs', kind: 'Modified', original: null },
+        ];
+        await window.__augitLoadCommitDetails(window.__augitLive.history.commits[0].fullHash);
+        window.__augitRenderRegions('bottomTool');
+      });
+      await page.waitForTimeout(700);
+      await page.locator('[data-live-changed-files] [data-history-path]').first().dblclick();
+      await page.waitForTimeout(900);
+      const longName = await read();
+      await page.evaluate(() => { window.__commitFiles = null; });
+      // 引用比较（与工作区比较）：命名引用保持原名、目标为工作区
+      await page.evaluate(() => { window.__augitRender(); });
+      await page.waitForTimeout(200);
+      await page.evaluate(() => {
+        const chip = document.querySelector('.branch-chip, .statusbar .branch-chip, [data-branch-chip]');
+        if (chip) chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await page.waitForTimeout(400);
+      const menuItem = page.locator('.popover .menu-item, .branch-popover .menu-item').filter({ hasText: '与工作区比较' }).first();
+      let reference = null;
+      if (await menuItem.count() > 0) {
+        await menuItem.click();
+        await page.waitForTimeout(1200);
+        reference = await read();
+      }
+      await page.close();
+      console.log('INFO 比较标签=' + JSON.stringify({ history, longName, reference, errors }));
+      return { history, longName, reference, errors };
+    })();
+    check('§7.9 比较标签三部分独立省略：完整哈希只显示前 8 位并保留 ^ 后缀、长文件名不挤掉两侧引用: '
+      + JSON.stringify([comparisonLabel17.history, comparisonLabel17.longName]),
+    comparisonLabel17.errors.length === 0
+      // 历史比较：标签是「文件名 · 前 8 位^ → 前 8 位」，三部分各有自己的省略
+      && comparisonLabel17.history.hasCaption === true
+      && comparisonLabel17.history.revisions.join(',') === 'aaaaaaaa^,aaaaaaaa'
+      && comparisonLabel17.history.fileText === '比较: notes.txt'
+      && [comparisonLabel17.history.fileStyle, ...comparisonLabel17.history.revisionStyles]
+        .every((style) => style && style.overflow === 'hidden' && style.ellipsis === 'ellipsis')
+      && comparisonLabel17.history.tabText === '比较: notes.txt · aaaaaaaa^ → aaaaaaaa'
+      // 长文件名：文件部分被省略（scroll > client），两侧引用仍占位且文本未被改写
+      && comparisonLabel17.longName.fileText.length > 40
+      && comparisonLabel17.longName.fileStyle.scroll > comparisonLabel17.longName.fileStyle.client
+      && comparisonLabel17.longName.revisions.join(',') === 'aaaaaaaa^,aaaaaaaa'
+      && comparisonLabel17.longName.revisionStyles.every((style) => style.client >= 24)
+      // 悬停说明保留**完整**引用与相对路径
+      && comparisonLabel17.history.barTitle
+        === `${comparisonLabel17.history.longHash}^ → ${comparisonLabel17.history.longHash} · docs/notes.txt`
+      && comparisonLabel17.longName.barTitle.includes(comparisonLabel17.longName.longHash)
+      && comparisonLabel17.longName.barTitle.includes('very-long-file-name-')
+      // 实际查询始终用完整原值
+      && comparisonLabel17.history.diffCommits[0] === comparisonLabel17.history.longHash
+      && comparisonLabel17.longName.diffCommits[comparisonLabel17.longName.diffCommits.length - 1]
+        === comparisonLabel17.longName.longHash);
+    check('§7.9 引用比较的标签与文件栏显示双方引用（命名引用保持原名，目标是工作区）: '
+      + JSON.stringify([comparisonLabel17.reference]),
+    comparisonLabel17.reference !== null
+      && comparisonLabel17.errors.length === 0
+      // 命名引用保持原名（不按哈希截断）、三部分结构仍在
+      && comparisonLabel17.reference.tabText === '比较: App.cs · dsh → 工作区'
+      && comparisonLabel17.reference.revisions.join(',') === 'dsh,工作区'
+      && comparisonLabel17.reference.barSource === 'dsh'
+      && comparisonLabel17.reference.barTarget === '工作区'
+      && comparisonLabel17.reference.barPath === 'src/App.cs'
+      // 悬停说明是完整的双方引用 + 相对路径
+      && comparisonLabel17.reference.barTitle === 'dsh → 工作区 · src/App.cs');
 
     // ---- 第 94 轮补断言：§7.15 第三半「Esc 取消并恢复原焦点」（快速打开覆层）----
     // 实现侧有多处 restoreDialogFocus()，且分支芯片/树行/Worktree 都已有同类断言；只差快速打开这一处。

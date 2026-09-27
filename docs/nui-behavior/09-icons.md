@@ -9364,3 +9364,54 @@ Markdown 文档）。实时外壳也加载 `mockup.js` ⇒ 点关闭后实测正
 ### 下一轮
 
 §7.9 余下：失败与摘要按当前模式显示双方身份（第十五条）、比较标签三段独立省略与前 8 位截断/`^`、`~` 后缀（第十七条）。
+
+## sexaginta-septem. 第二百六十七轮：比较标签的三部分、前 8 位截断与文件栏完整引用（§7.9 第十七条）
+
+第十七条此前只有"标签文字有断言（`复用比较标签时同步标签文字`）"。本轮实现并断言三半，该条由"部分"转**是**
+（§2.10：分母 59 → **58**、A 42 → **41**，D 12／B 4／E 1 不变）。
+
+### 缺陷一：实时比较标签把整串标题当纯文本渲染
+
+视觉稿里比较标签早就是三段结构（`.comparison-file` + 两个 `.comparison-revision`），
+但实时标签条走的是 `live.tabs` 的**纯文本标题** ⇒ 没有独立省略，长文件名会把两侧引用一起挤掉。
+现在 `live-data.js` 把标签建成结构化部件（`comparisonParts(path, source, target)`、
+`shortReference(value)`：40/64 位哈希截前 8 位并保留 `[~^]` 后缀、命名引用保持原名），
+`mockup.js` 的实时标签按部件渲染三个各自 `overflow:hidden` + `text-overflow:ellipsis` 的 span。
+
+### 缺陷二：引用比较的文件栏写死 `HEAD → 工作区`
+
+`liveDiffView()` 的文件栏只在**历史比较**时显示双方引用，其余一律 `HEAD → 工作区` ——
+而"与工作区比较"的查询用的是分支修订（`loadDiff(path, { revision: branch })`），界面却没显示它。
+现在 `compareWithWorkspace()` 记 `live.referenceComparison = { path, revision }`，文件栏与标签据此显示
+`dsh → 工作区`；悬停说明改为**完整的**双方引用 + 相对路径（显示值仍可只取前 8 位）。
+
+### 判据（实测）
+
+| 场景 | 结果 |
+| --- | --- |
+| 注入 40 位完整哈希后打开历史比较 | 标签 `比较: notes.txt · aaaaaaaa^ → aaaaaaaa`；文件栏来源/目标 `aaaaaaaa^`/`aaaaaaaa`；三部分各自 `overflow:hidden`+`ellipsis` |
+| 再注入超长文件名 | 文件部分 `scroll 610 > client 294`（真的被省略），两侧引用仍各占 ≥24px 且文本未被改写 |
+| 悬停说明 | `<40 位>^ → <40 位> · docs/notes.txt`（完整值与相对路径） |
+| 实际查询 | `__diffCommits` 里是完整 40 位值 |
+| 与工作区比较（命名引用 `dsh`） | 标签 `比较: App.cs · dsh → 工作区`、文件栏 `dsh`/`工作区`、悬停 `dsh → 工作区 · src/App.cs`；命名引用不截断 |
+
+### 新增断言（`live-shell`，2 条）+ 桩旋钮
+
+- `§7.9 比较标签三部分独立省略：完整哈希只显示前 8 位并保留 ^ 后缀、长文件名不挤掉两侧引用`
+- `§7.9 引用比较的标签与文件栏显示双方引用（命名引用保持原名，目标是工作区）`
+- 新桩旋钮 `__historyLongHash`（把日志首行的完整哈希换成 40 位值；`git/commit` 详情读取认这个值）。
+
+### 验证
+
+- `live-shell` **`通过 1344 项断言`**（1342 → **+2**），退出码 0。
+- 共享视觉稿改了 `mockup.js`（两副本字节一致）⇒ 按范围重跑：`verify-ui-assets.ps1` **PASS**、
+  `mockup-scenes` **55/55**、`verify-ux-history`（42 组）通过。
+- 登记哈希：`mockup.js` `e3ea2ba43605de54572a1c59a468af64` → **`82bc7a1b12642965901b5042158f3f1a`**；
+  `live-data.js` `6bc17375f68f1a82ea049337906f2ebe` → **`be183118524425f7c195b069a77b3429`**；
+  `live-shell.spec.cjs` `50592dc5c3001198ad20841cd0863739` → **`d285a67237d00a08c0c7010a321b24b8`**；
+  `mockup.css`／`bridge.js`／`current-find.js`／`image-preview.js` 未变。
+
+### 下一轮
+
+§7.9 只剩第十五条（失败与摘要按当前模式显示双方身份），随后转 §7.9 之外的 A 类队列
+（§6 异步刷新不变量、§7.12 Push、§7.3 Markdown、§7.1/§7.2 等）。
