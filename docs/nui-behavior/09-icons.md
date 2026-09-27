@@ -10408,3 +10408,68 @@ process/job/pseudo-console）；前端 `terminal/stop`（`stops === 1`）与收�
 回到 A 类队列：§7.17 第 3（外观立即预览/取消恢复）、§7.1 第 4、7（树悬停与增量刷新）、
 §7.4（模式切换后的查找刷新与焦点规则）、§9（未选择时保持当前文件或稳定空态）；
 §7.15 只剩第 8（结束 ripgrep 进程）。
+
+## octoginta-octava. 第二百八十八轮：设置里的主题立即预览与取消恢复（§7.17 第 3 条收口）
+
+### 权威
+
+- `AppearanceConfigurable.kt:213-220`：外观下拉框的 `lafProperty.afterChange` 直接
+  `QuickChangeLookAndFeel.switchLafAndUpdateUI(lafManager, lafManager.findLaf(it.themeId), true)`
+  ⇒ **选中即切**（`nui-behavior/07-theme-dpi-dialogs.md` §7.1 的"立即生效 vs 点应用后生效"清单）。
+- 设置窗口**自身**也立即换色：同一份文档 §7.3 记录 `LafManagerImpl` 对 `Frame.getFrames()` 的每个窗口
+  （含设置对话框这个模态子窗口）执行 `updateComponentTreeUI`。
+- 取消按 `SettingsEditor.cancel()` 语义：关窗并让各 configurable 回滚，不带写回。
+  状态表（`ux-spec.md:297`）另有一条「当前设置预览 …… 未点击确定前不得持久化」。
+
+### 实现（`live-data.js`）
+
+- `bindSettingsPages()` 新增 `change` 捕获监听：`[data-setting="theme"]` 一变就
+  `applyPageTheme(previewThemeName(value))`（`applyPageTheme()` 只切 `body[data-theme]` 并
+  `refreshTerminalTypography()`，与 `theme/changed` 同一条）。
+- `previewThemeName(mode)`：`Dark`／`Light` 直接映射；`System`（跟随 Windows）用
+  `window.matchMedia('(prefers-color-scheme: dark)')` 解析 —— 外壳没有设置过 WebView2 的
+  `PreferredColorScheme`（默认 Auto ⇒ 跟随系统应用模式），而系统应用模式正是外壳
+  `ShellTheme` 解析生效主题时读的同一个 Windows 设置；拿不到该能力时保持当前生效主题。
+- `beginThemePreview()` 记下本次设置会话第一次预览前的生效主题；`closeSettingsDialog()` 与
+  `closeLiveOverlay()`（Esc／遮罩点击那条）调 `revertThemePreview()` 退回；`saveSettings()`
+  成功后 `commitThemePreview()` 清掉记忆。
+- 预览期间**不调用 `settings/write`**：持久化只在「应用/确定」。
+
+### 实测（`scene=main-project&theme=light` + `emulateMedia({colorScheme:'dark'})`）
+
+桩设置的持久值是 `Dark`，页面当前生效主题是浅色，系统偏好是深色 —— 三者互不相同，
+"跟随 Windows"因此与"浅色"可区分：
+
+| 动作 | `body[data-theme]` | 设置对话框底色 | `__settingsWritten` |
+| --- | --- | --- | --- |
+| 打开设置 | 无（浅色） | `rgb(247, 248, 249)` | 空 |
+| 选「深色」 | `dark` | `rgb(30, 31, 34)` | 空 |
+| 选「浅色」 | 无 | `rgb(247, 248, 249)` | 空 |
+| 选「跟随 Windows」 | `dark`（按系统偏好） | `rgb(30, 31, 34)` | 空 |
+| 点「取消」 | 无（回到预览前） | 对话框已关闭 | 空 |
+| 重开设置 | 无 | `rgb(247, 248, 249)` | 空（选项仍是持久值 `Dark`） |
+| 重开改「浅色」→「确定」 | 无 | 对话框已关闭 | `theme: 'Light'` |
+
+### 新增断言（`live-shell`，3 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.17 主题立即预览：三种取值当场作用到界面与设置对话框，且未点确定前不写入设置` |
+| 2 | `§7.17 取消设置恢复预览前的主题，预览值不进入持久化` |
+| 3 | `§7.17 确定设置才持久化，并保留预览后的主题` |
+
+### 验证
+
+- `live-shell` **`通过 1421 项断言`**（1418 → **+3**），退出码 0。
+- 登记哈希：`live-data.js` `4ceb4e6f…` → **`0b8b0596d0ba83343dd7c5807b11079c`**；
+  `live-shell.spec.cjs` `7239ed6a…` → **`01b5865d3618f89a75195572f8afd2b7`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`markdown.js`／`image-preview.js` 未变。
+- §7.17 第 3 条转 **是**（§2.10：分母 21 → **20**、A 8 → **7**）。
+- 同批：`verify-ui-assets` PASS、`git diff --check` 通过。
+- **未验证项**：真实 WebView2 的 `prefers-color-scheme` 是否随 Windows 应用模式变化（本机没有该实机条件）
+  —— 判据用浏览器媒体特性复现，运行时的契约依据是 WebView2 `PreferredColorScheme` 默认 Auto。
+
+### 下一轮
+
+A 类队列剩 §7.1 第 4、7（树悬停与增量刷新）、§7.4（模式切换后的查找刷新与焦点规则）、
+§9（未选择时保持当前文件或稳定空态）；B 类 §7.3 第 3、13；§7.15 只剩第 8（结束 ripgrep 进程）。

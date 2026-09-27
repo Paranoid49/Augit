@@ -2878,6 +2878,8 @@ async function saveSettings() {
     throw new Error(saved && saved.reason ? saved.reason : "设置未能保存");
   }
   window.__augitSettingsSaved = true;
+  // 预览过的主题至此已是持久值："取消恢复"的记忆不再需要（规格 §7.17 第 3 条）。
+  commitThemePreview();
   // 宿主会忽略越界字号并保留未知枚举，因此重新读取一次真实值再应用字体与面板尺寸。
   await loadSettings();
   return saved;
@@ -9219,6 +9221,15 @@ function bindSettingsPages() {
     if (command) command.disabled = select.value !== "Custom";
   }, true);
 
+  // 主题**立即预览**（规格 §7.17 第 3 条）：改选项就当场换色（含设置对话框自身），
+  // 但**不写设置** —— 持久化只发生在「应用/确定」（同一小节的状态表：未点击确定前不得持久化）。
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest && event.target.closest('.settings-layout [data-setting="theme"]');
+    if (!select) return;
+    beginThemePreview();
+    applyPageTheme(previewThemeName(select.value));
+  }, true);
+
   for (const type of ["input", "change"]) {
     document.addEventListener(type, (event) => {
       if (event.target.closest && event.target.closest(".settings-window .settings-page")) syncSettingsDirtyMarkers();
@@ -9434,8 +9445,64 @@ function renderSettingsDialog() {
 
 /** 关闭设置对话框。 */
 function closeSettingsDialog() {
+  // 取消（含 Esc／右上角关闭）要把预览过的主题退回原设置（规格 §7.17 第 3 条）。
+  revertThemePreview();
   document.querySelectorAll(".settings-window").forEach((node) => node.remove());
   restoreDialogFocus();
+}
+
+/** 当前**生效**主题：浅色不写 `data-theme`（与视觉稿、外壳 URL 参数的约定一致）。 */
+function currentThemeName() {
+  return document.body.dataset.theme === "dark" ? "dark" : "light";
+}
+
+/** 把主题作用到页面（`design-system.md` §10：只换颜色与资源，不改尺寸、间距与交互状态）。 */
+function applyPageTheme(name) {
+  if (name === "dark") document.body.dataset.theme = "dark";
+  else delete document.body.dataset.theme;
+  // 终端正文画在 canvas 上，CSS 规则管不到它，主题变化要单独重排一次（与 `theme/changed` 同一条）。
+  refreshTerminalTypography();
+}
+
+/**
+ * 设置里选的模式 → 要预览的**生效主题**（规格 §7.17 第 3 条「主题立即预览」）。
+ *
+ * `System`（跟随 Windows）用浏览器报告的 `prefers-color-scheme` 解析：外壳没有设置过
+ * WebView2 的 `PreferredColorScheme`（默认 Auto ⇒ 跟随系统应用模式），而系统应用模式正是
+ * 外壳在 `ShellTheme` 里解析生效主题时读的同一个 Windows 设置。
+ */
+function previewThemeName(mode) {
+  const value = String(mode || "").trim().toLowerCase();
+  if (value === "dark") return "dark";
+  if (value === "light") return "light";
+  if (typeof window.matchMedia === "function") {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    if (query && typeof query.matches === "boolean") return query.matches ? "dark" : "light";
+  }
+  // 拿不到系统偏好时保持当前生效主题，不擅自改色。
+  return currentThemeName();
+}
+
+/** 记住预览前的生效主题（只在本次设置会话的第一次预览时记）。 */
+function beginThemePreview() {
+  const live = window.__augitLive;
+  if (!live || live.themePreview) return;
+  live.themePreview = { original: currentThemeName() };
+}
+
+/** 取消设置：把主题退回预览前（规格 §7.17 第 3 条「取消后恢复原设置」）。 */
+function revertThemePreview() {
+  const live = window.__augitLive;
+  if (!live || !live.themePreview) return;
+  const original = live.themePreview.original;
+  live.themePreview = null;
+  if (currentThemeName() !== original) applyPageTheme(original);
+}
+
+/** 应用/确定：预览的主题已成为持久值，不再需要"取消时恢复"的记忆。 */
+function commitThemePreview() {
+  const live = window.__augitLive;
+  if (live) live.themePreview = null;
 }
 
 /**
@@ -11490,6 +11557,10 @@ function closeLiveOverlay() {
   }
   const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
   if (layers.length === 0) return false;
+  // Esc／遮罩点击关掉设置对话框时同样要退回预览前的主题（取消按钮那条走 closeSettingsDialog）。
+  if ([...layers].some((node) => node.classList.contains("settings-window") || node.querySelector(".settings-layout"))) {
+    revertThemePreview();
+  }
   layers.forEach((node) => node.remove());
   // 通用弹层关闭路径（Esc、遮罩点击、菜单选择）也要交回焦点（规格 §5.3）。
   // 各打开函数都在调用本函数**之前**记录焦点，因此这里恢复的是打开前的元素。

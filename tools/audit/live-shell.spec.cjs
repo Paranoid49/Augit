@@ -7000,6 +7000,87 @@ async function main() {
       await rt16B.page.close();
     }
 
+    // ---- 第 288 轮补断言（收 §7.17 第 3 条）：主题立即预览、取消恢复、未确定不持久化 ----
+    // 规格 §7.17 第 3 条：「外观支持跟随 Windows／浅色／深色；主题**立即预览**，取消后恢复原设置」，
+    // 以及状态表「当前设置预览 …… 未点击确定前不得持久化」。
+    // 页面用浅色、浏览器报告的系统偏好用**深色**：这样"跟随 Windows"与"浅色"才区分得开
+    // （两者若都落到浅色，判据会是空的）。
+    {
+      const tp17 = await openScene('scene=main-project&theme=light');
+      await tp17.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await tp17.page.waitForTimeout(400);
+      await tp17.page.emulateMedia({ colorScheme: 'dark' });
+      const tp17Open = async () => {
+        await tp17.page.locator('.titlebar [data-action="menu"]').click();
+        await tp17.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
+        await tp17.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await tp17.page.waitForSelector('.settings-window [data-setting="theme"]', { timeout: 8000 });
+      };
+      const tp17Read = () => tp17.page.evaluate(() => {
+        const dialog = document.querySelector('.settings-window .dialog');
+        const select = document.querySelector('.settings-window [data-setting="theme"]');
+        return {
+          bodyTheme: document.body.dataset.theme || null,
+          // 设置对话框自身的底色：预览必须作用到**对话框本体**，而不只是背景页面。
+          dialogBackground: dialog ? getComputedStyle(dialog).backgroundColor : null,
+          selectValue: select ? select.value : null,
+          dialogOpen: !!document.querySelector('.settings-window'),
+          writtenTheme: window.__settingsWritten ? window.__settingsWritten.theme : null,
+          preferDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+        };
+      });
+      await tp17Open();
+      const tp17Initial = await tp17Read();
+      const tp17Pick = async (value) => {
+        await tp17.page.selectOption('.settings-window [data-setting="theme"]', value);
+        await tp17.page.waitForTimeout(300);
+        return tp17Read();
+      };
+      const tp17Dark = await tp17Pick('Dark');
+      const tp17Light = await tp17Pick('Light');
+      const tp17System = await tp17Pick('System');
+      check('§7.17 主题立即预览：三种取值当场作用到界面与设置对话框，且未点确定前不写入设置: '
+        + JSON.stringify({ tp17Initial, tp17Dark, tp17Light, tp17System }),
+      // 前置：页面是浅色、系统偏好是深色、对话框开着、还没写过设置
+      tp17Initial.bodyTheme === null && tp17Initial.preferDark === true && tp17Initial.dialogOpen === true
+        && tp17Initial.dialogBackground !== null && tp17Initial.writtenTheme === null
+        // 深色：当场换色（对话框本体也跟着换），但没有持久化
+        && tp17Dark.bodyTheme === 'dark' && tp17Dark.dialogBackground !== tp17Initial.dialogBackground
+        && tp17Dark.writtenTheme === null
+        // 浅色：回到浅色，对话框底色与初始逐值相同
+        && tp17Light.bodyTheme === null && tp17Light.dialogBackground === tp17Initial.dialogBackground
+        // 跟随 Windows：按系统偏好（深色）解析 —— 与"浅色"不同，证明它真的读了系统偏好
+        && tp17System.bodyTheme === 'dark' && tp17System.dialogBackground !== tp17Initial.dialogBackground
+        && tp17System.selectValue === 'System' && tp17System.writtenTheme === null);
+
+      // 取消：恢复预览前的主题、不写设置；重开后选项仍是**持久值**而不是刚刚预览的值
+      await tp17.page.locator('.settings-window [data-settings-action="cancel"]').click();
+      await tp17.page.waitForTimeout(400);
+      const tp17Cancelled = await tp17Read();
+      await tp17Open();
+      const tp17Reopened = await tp17Read();
+      check('§7.17 取消设置恢复预览前的主题，预览值不进入持久化: '
+        + JSON.stringify({ tp17Cancelled, tp17Reopened }),
+      tp17Cancelled.dialogOpen === false && tp17Cancelled.bodyTheme === null
+        && tp17Cancelled.writtenTheme === null
+        && tp17Reopened.dialogOpen === true && tp17Reopened.selectValue === 'Dark'
+        && tp17Reopened.bodyTheme === null);
+
+      // 确定：这时才写设置，并保留预览后的主题
+      await tp17.page.selectOption('.settings-window [data-setting="theme"]', 'Light');
+      await tp17.page.waitForTimeout(300);
+      const tp17BeforeSave = await tp17Read();
+      await tp17.page.locator('.settings-window [data-settings-action="save"]').click();
+      await tp17.page.waitForFunction('!document.querySelector(".settings-window")', null, { timeout: 8000 });
+      await tp17.page.waitForTimeout(400);
+      const tp17Saved = await tp17Read();
+      check('§7.17 确定设置才持久化，并保留预览后的主题: '
+        + JSON.stringify({ tp17BeforeSave, tp17Saved }),
+      tp17BeforeSave.writtenTheme === null && tp17BeforeSave.bodyTheme === null
+        && tp17Saved.writtenTheme === 'Light' && tp17Saved.dialogOpen === false && tp17Saved.bodyTheme === null);
+      await tp17.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
