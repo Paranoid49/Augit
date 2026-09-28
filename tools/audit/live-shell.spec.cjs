@@ -23591,6 +23591,90 @@ async function main() {
       && fhLifecycle.negative.ready === true && fhLifecycle.negative.hasDiff === false
       && fhLifecycle.negative.diffCalls === fhLifecycle.callsBeforeNegative);
 
+    // ---- 第 307 轮补断言（收 backlog「对话框标题图标」项）：哪些对话框画图标、画哪一个，由权威定性 ----
+    // 权威：`Messages` 系的确认/输入对话框用 `getQuestionIcon()`（删除 Stash `GitStashUtils.kt:86`、
+    // 删除引用 `GitBranchUiHandlerImpl.java:179`、移除 Worktree `GitCheckoutInOtherWorktreeDialogs.kt:54`、
+    // Reset/Rollback 由参考图 Confirm Exit 实测）；`GitInit.java:72` 的"已在 Git 下"警告用 `getWarningIcon()`；
+    // 自定义 `DialogWrapper`（GitStashDialog／GitCloneDialog／GitPushDialog／GitNewBranchDialog）都没有 `setIcon`。
+    const dialogIcons = await (async () => {
+      const readIcon = (page, selector) => page.evaluate((sel) => {
+        const node = document.querySelector(sel);
+        if (!node) return null;
+        const style = getComputedStyle(node, '::before');
+        return {
+          content: style.content,
+          background: style.backgroundColor,
+          width: style.width,
+          height: style.height,
+          radius: style.borderRadius,
+          clip: style.clipPath,
+        };
+      }, selector);
+      const scenes = {};
+      for (const [key, url, selector] of [
+        ['resetLight', `http://127.0.0.1:${port}/index.html?scene=reset&theme=light`, '.reset-dialog .dialog-header'],
+        ['resetDark', `http://127.0.0.1:${port}/index.html?scene=reset&theme=dark`, '.reset-dialog .dialog-header'],
+        ['stashDrop', `http://127.0.0.1:${port}/index.html?scene=stash-drop-confirm&theme=light`, '.stash-drop-dialog .dialog-header'],
+        ['initWarningLight', `http://127.0.0.1:${port}/index.html?scene=repository-init&init-state=under-git&theme=light`, '.repository-init-warning .dialog-header'],
+        ['initWarningDark', `http://127.0.0.1:${port}/index.html?scene=repository-init&init-state=under-git&theme=dark`, '.repository-init-warning .dialog-header'],
+        ['cloneCustom', `http://127.0.0.1:${port}/index.html?scene=clone&theme=light`, '.clone-dialog .dialog-header'],
+      ]) {
+        const page = await context.newPage();
+        await page.goto(url, { waitUntil: 'load' });
+        await page.waitForSelector(selector, { timeout: 15000 });
+        await page.waitForTimeout(300);
+        scenes[key] = await readIcon(page, selector);
+        await page.close();
+      }
+      // 实时侧"删除分支/标签"的两步确认：走真实入口（分支弹层 → 右键行 → 删除引用）
+      const live = await context.newPage();
+      await live.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=light`, { waitUntil: 'load' });
+      await live.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await live.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+      await live.evaluate(() => {
+        const chip = document.querySelector('.top-chip.branch-chip');
+        if (chip) chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await live.waitForSelector('.branches-popover [data-branch]', { state: 'attached', timeout: 8000 });
+      await live.waitForTimeout(300);
+      const branch = await live.evaluate(() => {
+        const rows = [...document.querySelectorAll('.branches-popover [data-branch]')]
+          .map((el) => ({ name: el.dataset.branch, kind: el.dataset.branchKind, current: el.dataset.branchCurrent === 'true' }));
+        const row = rows.find((item) => item.kind === 'branch' && item.current !== true);
+        return row ? row.name : null;
+      });
+      await live.evaluate((name) => {
+        const row = [...document.querySelectorAll('.branches-popover [data-branch]')]
+          .find((el) => el.dataset.branch === name);
+        if (row) row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 80, clientY: 140 }));
+      }, branch);
+      await live.waitForSelector('.ref-menu', { state: 'attached', timeout: 8000 });
+      await live.evaluate(() => {
+        document.querySelector('.ref-menu [data-ref-action="delete"]').dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      await live.waitForSelector('.ref-delete-window .dialog', { state: 'attached', timeout: 8000 });
+      await live.waitForTimeout(200);
+      scenes.refDeleteLive = await readIcon(live, '.ref-delete-dialog .dialog-header');
+      await live.close();
+      return scenes;
+    })();
+    const questionIcon = (icon) => !!icon && icon.content === '"?"' && icon.width === '28px' && icon.height === '28px'
+      && icon.radius === '50%' && icon.clip === 'none';
+    const warningIcon = (icon) => !!icon && icon.content === '"!"' && icon.width === '28px' && icon.height === '28px'
+      && /polygon/.test(icon.clip || '');
+    check('§10.4 破坏性确认对话框的标题图标按权威取蓝底白问号（实时删除引用、静态基线、浅深色取值一致）: '
+      + JSON.stringify(dialogIcons),
+    questionIcon(dialogIcons.resetLight) && dialogIcons.resetLight.background === 'rgb(70, 130, 250)'
+      && questionIcon(dialogIcons.resetDark) && dialogIcons.resetDark.background === 'rgb(84, 138, 247)'
+      && questionIcon(dialogIcons.stashDrop)
+      && questionIcon(dialogIcons.refDeleteLive));
+    check('§7.18 「目标已在 Git 下」的警告用橙底白叹号，自定义对话框（Clone）没有标题图标: '
+      + JSON.stringify({ initWarningLight: dialogIcons.initWarningLight, initWarningDark: dialogIcons.initWarningDark, cloneCustom: dialogIcons.cloneCustom }),
+    warningIcon(dialogIcons.initWarningLight) && dialogIcons.initWarningLight.background === 'rgb(255, 175, 15)'
+      && warningIcon(dialogIcons.initWarningDark) && dialogIcons.initWarningDark.background === 'rgb(242, 197, 92)'
+      && !!dialogIcons.cloneCustom && dialogIcons.cloneCustom.content === 'none');
+
     // ---- 第 306 轮实现并断言（收 §7.7 第 11 条 / T10）：中栏逐行槽底 + 变更连接区 ----
     // 规格 §7.7：「双栏 diff 中间行号与变更连接区固定，左右正文同步垂直滚动。」
     // 权威：`DiffLineMarkerRenderer.drawMarker()` 用**变更块类型色**的全强度 `DIFF_*.BACKGROUND`

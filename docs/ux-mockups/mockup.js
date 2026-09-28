@@ -4840,7 +4840,9 @@ function repositoryInitScene() {
       '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
         + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
       false,
-      "repository-init-dialog");
+      // 权威 `GitInit.java:66-74`：只有"目标已在 Git 下"这一档是 `Messages.showYesNoDialog(...,
+      // getWarningIcon())` ⇒ 标题画警告图标（橙底白叹号）；其余初始化状态没有权威对话框。
+      "repository-init-dialog repository-init-warning");
   }
   const busy = state === "busy";
   const notice = busy

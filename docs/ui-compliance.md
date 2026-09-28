@@ -1679,6 +1679,9 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 35. **Diff 首次加载阈值 —— 取 150ms（用户裁决 2026-09-28）** —— 三方数值：本条规格"约 200 毫秒"、Augit 全应用 150ms（§6.5）、权威 `ProgressUIUtil.DEFAULT_PROGRESS_DELAY_MILLIS = 300L`。裁决：**保持 150ms**，把 `ux-spec.md:438` 的"约 200 毫秒"改成"约 150 毫秒"，不采用 300L（全应用只保留一个加载阈值）。行为（旧正文保留 → 同区替换 → 结果落地）已由 `§7.7 第一次请求加载时保留旧正文、随后在同一正文区域替换为加载状态与新结果` 断言（实测标记 **152ms** 出现）。
 
+36. **对话框标题图标：哪些对话框画、画哪一个，按权威定性并补齐（第 307 轮，backlog §二·补四(b) 结案）** —— 权威 `Messages` 系的确认框用 `getQuestionIcon()`：删除 Stash（`GitStashUtils.kt:86`）、删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree（`GitCheckoutInOtherWorktreeDialogs.kt:54`），加上 reset／rollback（第 102 轮按参考图 Confirm Exit 落地）⇒ 统一 28px **蓝底白问号**（浅 `#4682FA`／深 `#548AF7`）；`GitInit.java:72` 的「目标已在 Git 下」警告用 `getWarningIcon()` ⇒ **橙底白叹号**（浅 `#FFAF0F`／深 `#F2C55C`，新增令牌 `--augit-dialog-warning-bg`）；自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）都没有 `setIcon` ⇒ **不画图标**；紧凑输入窗口对应权威的常规 `Messages.showInputDialog`，Augit 是紧凑适配 ⇒ 不画图标。断言 `§10.4 破坏性确认对话框的标题图标按权威取蓝底白问号（实时删除引用、静态基线、浅深色取值一致）` 与 `§7.18 「目标已在 Git 下」的警告用橙底白叹号，自定义对话框（Clone）没有标题图标`；负向验证：把问号/叹号规则改成 `content: none` ⇒ 两条断言分别失败。
+
+
 ### 3.4 待用户裁决 / 待口径确认清单（2026-09-21，按发现顺序）
 
 > **注意（2026-09-28 订正）**：本表已**过时**：其中 #20／#21／#23 已在第 435 轮实现并断言（见 §3.2），#19 的最终口径与下表不同，保留原文只为追溯。当前仍在等待用户口径的项以 §2.10 与 `ui-classification.md` §7 的 T 表为准。

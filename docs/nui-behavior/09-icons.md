@@ -11459,3 +11459,59 @@ D 类只剩 2 项、B 类 1 项、E 类 1 项，**全部需要用户裁决**：�
 §2.10 只剩 §7.9 #23「比较对话框」这一行**已获用户认可的"不适用"**，§7 待处理表已清零。
 下一轮做一次目标完成前的全量核查：逐项确认 §5 无法取证／§6 不适用清单都有用户认可的结论、
 没有未解释的遗留项、性能与资源清理基线仍在，然后判定目标是否达成。
+
+## nonaginta-septimum. 第三百零七轮：目标完成前的全量核查 + 对话框标题图标（backlog 清零）
+
+### 核查发现并处理的三项
+
+| 项 | 核查结论 | 处置 |
+| --- | --- | --- |
+| backlog §二·补四(b) 对话框标题图标 | **仍是缺口**：只有 reset／rollback 有图标，其余项"等素材" | 按权威逐个定性并补齐（见下） |
+| backlog §三·补 #9 创建标签 | **过时**：剩余两半（日志右键「新建标签…」单字段窗口、引用动作组）第 172／173／174 轮已落地 | 标结案，剩项删除 |
+| backlog §四 #1 `gen-coverage-table.cjs --write` 删手写内容 | **仍会**（实测 §1.4 现在含手写像素记录） | 给生成器加**生成标记 + 守卫**：§1.4 没有标记时 `--write` 直接失败（exit 1、不改文档），只有 `--force` 才覆盖 |
+
+其它登记处（`10-backlog.md` §一/§二 两表为空、§三/§三·前 已按用户裁决结案、§五 已解决；
+`ui-classification.md` §5/§6/§7；`11-surface-audit.md` 的轮次估计）逐项看过，没有新的未决项。
+
+### 对话框标题图标的权威定性
+
+用户 2026-09-28 的裁决是「完全参考 intellij-community」，因此"哪些对话框有标题图标"不再等参考图，
+直接读权威调用点：
+
+| 类 | 权威 | 图标 |
+| --- | --- | --- |
+| `Messages` 系确认框：删除 Stash、删除引用、移除 Worktree、Reset／Rollback | `GitStashUtils.kt:86`、`GitBranchUiHandlerImpl.java:179`、`GitCheckoutInOtherWorktreeDialogs.kt:54`、参考图 Confirm Exit | 28px **蓝底白问号**（浅 `#4682FA`／深 `#548AF7`） |
+| 「目标已在 Git 下」的初始化警告 | `GitInit.java:72` `showYesNoDialog(…, getWarningIcon())` | 28px **橙底白叹号**（浅 `#FFAF0F`／深 `#F2C55C`） |
+| 自定义 `DialogWrapper`：Stash 创建／Clone／Push／新建分支 | `GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog` 都没有 `setIcon` | **无图标** |
+| 紧凑输入窗口（新建标签／重命名／跳转行） | 权威是常规 `Messages.showInputDialog`，Augit 是紧凑适配 | **无图标** |
+
+实现与第 102 轮同款：`.dialog-header::before` 伪元素（`.dialog-header` 已是 flex 容器，伪元素即第一个
+flex 项，无需改 DOM/JS）；问号＝圆底 + 文本 `?`，叹号＝`clip-path` 三角近似 + 文本 `!`
+（官方 `warningDialog.svg` 是圆角三角，圆角差异与问号图标同一档近似）。新增令牌
+`--augit-dialog-warning-bg`。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 | 判据 |
+| --- | --- | --- |
+| 1 | `§10.4 破坏性确认对话框的标题图标按权威取蓝底白问号（实时删除引用、静态基线、浅深色取值一致）` | 实时删除引用弹层、`scene=reset`（浅/深）、`scene=stash-drop-confirm` 的 `::before` 都是 `content:"?"`、28×28、`border-radius:50%`、浅 `rgb(70,130,250)`／深 `rgb(84,138,247)` |
+| 2 | `§7.18 「目标已在 Git 下」的警告用橙底白叹号，自定义对话框（Clone）没有标题图标` | 该警告弹层 `content:"!"`、`clip-path` 含 `polygon`、浅 `rgb(255,175,15)`／深 `rgb(242,197,92)`；`scene=clone` 的 `::before` `content:none`（负向对照） |
+
+### 负向验证
+
+把问号/叹号规则的 `content` 改成 `none` ⇒ 第 1 条断言失败（第 2 条同理）。
+
+### 验证
+
+- `live-shell` **`通过 1453 项断言`**（1451 → **+2**），退出码 0。
+- 登记哈希：`mockup.js` `50336f09…`、`mockup.css` `65f954c8…`、`live-data.js` `46e3d4c5…`、
+  `live-shell.spec.cjs` `78526f1e…`；共享资产两副本字节一致。
+- 同批：`verify-ux-stash-manager` 3、`verify-ux-reset-layout` 12、`verify-ux-rollback-layout` 12、
+  `verify-ux-clone` 26、`mockup-scenes` 55/55、`verify-ui-assets` PASS、`verify-css-balance` PASS、
+  `check-doc-claims` OK、`gen-clause-conclusions` 幂等、`git diff --check` 通过。
+- `gen-coverage-table.cjs --write`（不带 `--force`）实测 **exit 1 且文档无改动**。
+
+### 下一轮
+
+目标完成前的最后一步：把 §5 无法取证／§6 不适用清单与用户裁决逐条对照（应有尽有）、
+确认 §2.10 只剩已认可的「不适用」、三类性能基线与资源清理仍成立，然后判定目标完成。

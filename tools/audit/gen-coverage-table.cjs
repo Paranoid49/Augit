@@ -14,7 +14,13 @@
 //
 // 用法：node tools/audit/gen-coverage-table.cjs            # 打印生成的 §1.4 正文
 //       node tools/audit/gen-coverage-table.cjs --write    # 写回 docs/ui-compliance.md
-// 退出码：0 = 成功；1 = 上游数据缺失（宁可失败也不要生成一张空表）。
+//       node tools/audit/gen-coverage-table.cjs --write --force  # 覆盖含手写内容的 §1.4（危险）
+// 退出码：0 = 成功；1 = 上游数据缺失或 §1.4 含手写内容（宁可失败也不要生成一张空表）。
+//
+// **第 307 轮加的手写内容守卫**：§1.4 里除了本脚本生成的行，还有轮次手写的像素复核记录
+// （例如"逐条展开 316 条 = §5 29 + …"那一段）。原实现无条件整段覆盖 ⇒ `--write` 会静默删掉它们
+// （backlog §四 第 1 项）。现在只有 §1.4 已带生成标记（即上一次就是本脚本写的）或显式 `--force`
+// 时才写回；否则打印失败原因并退出，**不会改动文档**。
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -25,6 +31,10 @@ const doc = fs.readFileSync(docPath, 'utf8');
 const acceptance = fs.readFileSync(acceptancePath, 'utf8');
 
 const fail = (message) => { console.error('GEN_COVERAGE_TABLE_FAILED ' + message); process.exit(1); };
+
+// 生成标记（第 307 轮）：只有 §1.4 里已有它（说明上一次就是本脚本写的）或显式 --force 才允许覆盖，
+// 否则拒绝写回 —— 见文件头的"手写内容守卫"。
+const GENERATED_MARKER = '<!-- generated:gen-coverage-table；本段由脚本生成，手写内容请放到别的小节 -->';
 
 // ---- 1) 场景分母：verify-acceptance.ps1 的 $DefaultScenes ----
 const listStart = acceptance.indexOf('$DefaultScenes = @(');
@@ -80,6 +90,9 @@ const bCell = (scene) => {
 const out = [];
 out.push('### 1.4 逐页覆盖表（⑪：页面 × 检查层级 × 判读）');
 out.push('');
+// 生成标记：未来的 --write 依据它判断"这一段上次就是本脚本写的"，从而不必再要 --force。
+out.push(GENERATED_MARKER);
+out.push('');
 out.push('**口径**：本表的数字由 `tools/audit/gen-coverage-table.cjs` 从 §1.1 的像素行与');
 out.push('`tools/audit/verify-acceptance.ps1` 的场景列表**直接生成**（不手写数字；重跑即可消除漂移）。');
 out.push('四层的分母如下：');
@@ -116,6 +129,12 @@ const headingAt = doc.indexOf('### 1.4 ');
 if (headingAt < 0) fail('交付文档里找不到 §1.4');
 const nextHeading = doc.indexOf('\n### ', headingAt + 1);
 if (nextHeading < 0) fail('§1.4 之后没有下一个标题，无法确定替换边界');
+// 手写内容守卫（第 307 轮）：整段覆盖会连同轮次手写的像素复核记录一起删掉，必须显式确认。
+const section = doc.slice(headingAt, nextHeading);
+if (!process.argv.includes('--force') && !section.includes(GENERATED_MARKER)) {
+  fail('§1.4 含手写内容（没有生成标记）：--write 会整段覆盖并删掉它们。'
+    + '确认要覆盖时加 --force；只想核对差异请不带 --write 运行并与 §1.4 手工比对。');
+}
 const replaced = doc.slice(0, headingAt) + generated.replace(/\n$/, '') + '\n' + doc.slice(nextHeading + 1);
 fs.writeFileSync(docPath, replaced);
 console.log(`WROTE §1.4 rows=${rows.length} scenes=${acceptanceScenes.length} clauses=${totalClauses} caseRows=${totalCaseRows}`);

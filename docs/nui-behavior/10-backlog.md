@@ -1,5 +1,7 @@
 # New UI 对齐：未决项清单（backlog）
 
+> **状态（2026-09-28，第 307 轮全量核查后）**：**本清单已清零** —— §一、§二 两张表为空；§二·补四(b)（对话框标题图标）与 §三·补 #9（创建标签）在本轮按权威结案并实现；§四 #1（`gen-coverage-table.cjs --write` 会删手写内容）本轮加了守卫（无生成标记时必须 `--force` 才写回，见该脚本文件头）。§三、§三·前 的裁决项早前已按用户裁决结案。下文保留历史条目与依据，供追溯。
+
 本文件把 `docs/design-system.md` 与 `docs/nui-behavior/0*.md` 里所有**尚未解决**的项集中到一处，作为后续轮次的作业面。
 每一项都注明：现象、权威依据、为什么当时没做、以及需要什么才能做。
 
@@ -39,7 +41,22 @@
 
 **(b) 对话框标题前的图标**：2026 参考图 `confirm-exit-dialog.png` 里，标题左侧有一个**蓝色问号图标**；而 Augit 全库**没有** `.dialog-icon` 一类规则，却有 7 个对话框的标题行写着非对称左内距（`padding: 0 13px 0 25px`／`padding-left: 26px`）——**恰好是给图标预留的位置**，很可能是早期实现删掉图标后留下的。
 
-**未实施**：新增图标属于可见的界面元素，需要先定"哪些对话框用哪种图标"（参考图只给了 Confirm Exit 的问号；reset/rollback 等破坏性操作按 IntelliJ 惯例应是警告类图标，候选在 `platform/icons/src/expui/general/`：`warning`／`question`／`info`）。等有了更多对话框参考图或产品侧口径再动。
+**(b) 对话框标题前的图标 —— 第 307 轮按权威结案并实现**：用户 2026-09-28 裁决的"完全参考 intellij-community"给出了判定规则，逐个对话框按**权威调用点**定性：
+
+| Augit 对话框 | 权威 | 图标 |
+| --- | --- | --- |
+| 删除 Stash（`stash-drop-dialog`） | `GitStashUtils.kt:86` `.icon(Messages.getQuestionIcon())` | 蓝底白问号 |
+| 删除引用（`ref-delete-dialog`，含未合并的二次确认） | `GitBranchUiHandlerImpl.java:179` `showOkCancelDialog(…, getQuestionIcon())` | 同上 |
+| 移除 Worktree（`worktree-remove-dialog`） | `GitCheckoutInOtherWorktreeDialogs.kt:54` `.icon(getQuestionIcon())` | 同上 |
+| Reset／Rollback | 参考图 Confirm Exit 实测（同类确认框） | 同上（第 102 轮已实现） |
+| 「目标已在 Git 下」的初始化警告（`repository-init-warning`） | `GitInit.java:72` `showYesNoDialog(…, getWarningIcon())` | 橙底白叹号 |
+| Stash 创建／Clone／Push／新建分支（自定义 `DialogWrapper`） | `GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog` 都没有 `setIcon` | **无图标** |
+| 紧凑输入窗口（新建标签／重命名／跳转行） | 权威是 `Messages.showInputDialog` 的**常规**对话框（Augit 用紧凑适配，形状不同） | 无图标（适配，见 `design-system.md` §8.5 的对话框条目） |
+
+实现：`.dialog-header::before` 伪元素（问号＝圆底 + `"?"`，叹号＝`clip-path` 三角 + `"!"`），
+色值取官方 SVG（`questionDialog.svg` 浅 `#4682FA`／深 `#548AF7`；`warningDialog.svg` 浅 `#FFAF0F`／深 `#F2C55C`）。
+断言：`live-shell` 的 `§10.4 破坏性确认对话框的标题图标按权威取蓝底白问号（实时删除引用、静态基线、浅深色取值一致）`
+与 `§7.18 「目标已在 Git 下」的警告用橙底白叹号，自定义对话框（Clone）没有标题图标`（负向验证见 `09-icons.md` 的 `nonaginta-septimum`）。
 
 ## 二·补五、Diff 三层颜色的归属（**第 133 轮结案**）
 
@@ -333,7 +350,7 @@ const invalidSource = view.classList.contains("json-invalid") && hasLiveSource ?
 | 6 | ~~**快速打开的结果上限 100 → 30**（第 153 轮）~~ **第 201 轮已落地**：`SearchOptions.MaximumFileResults = 30`（权威 `SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT`），两个宿主单测与 `ux-spec.md:587` 同步 | `RipgrepSearchService` 已实现 100 项上限（并有宿主单测 `文件搜索最多返回一百项`） | 权威的"单贡献者"搜索上限是 **30**（`SearchEverywhereUI.java:217` `SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT`，`:951-958` 按贡献者数取 30／15；`GotoFileAction` 正是单贡献者的 Files 档）。改它要同步 **C# 服务常量 + 宿主单测 + `ux-spec.md:587`**，故与 C# 批次一起做 | 1 |
 | 7 | ~~**全仓搜索到 1000 条后"是否继续"**（第 155 轮）~~ **第 210 轮已落地** | ripgrep 搜索已实现 1000 项截断 | 权威阈值同样是 **1000**（高级设置 `ide.find.result.count.warning.limit` 默认值，`intellij.platform.ide.impl.xml:1491`），但到限后**弹警告问是否继续**（`find.excessive.usages.title` = "Too Many Results"、`Continue`／`Abort`，`UsageLimitUtil.java:26-34`），Augit 直接停止并提示缩小范围。**第 210 轮已完成**：宿主 `search/text` 支持 `offset`／`limit` 分页；界面到限弹权威的「结果过多」（标题／正文／Continue／Abort、Continue 为默认按钮），继续即用 `offset` 分页取回并追加、不再提示，中止保留已有结果并写明原因（`09-icons.md` 第 210 轮）。 | 0 |
 | 8 | ~~**大文件阈值与"只读预览"**~~ **第 208–209 轮已落地** | `ReadOnlyDocumentService` 已能按 `DocumentLimits` 判定超限并回状态 | 权威是**三档按扩展名的限制**（`FileSizeLimit.kt:14-19`：内容加载 20 MB／`idea.max.content.load.filesize`、智能感知 2500 KB、预览 2500 KB，且**按扩展名只能放大**）＋超限后**仍显示"前 N 的只读预览"**并给可隐藏/不再显示的警告（`LargeFileNotificationProvider.java:49-58`、"The file is too large ({0}). Showing a read-only preview of the first {1}."）。**第 208 轮宿主侧已完成**：`DocumentLimits` 改成权威三档（20 MB／2500 KB／2500 KB，扩展名只能放大），`ReadOnlyDocumentService` 超过内容加载上限时按完整 UTF-8 字符边界返回前 `PreviewLimit` 字节的 `TextPreview` ＋ `previewBytes`，`document/read` 带上该字段（+3 条单测）。界面第 209 轮：`TextPreview` 走纯文本只读视图 ＋ 编辑器顶部的 Warning 横幅（「隐藏通知」只记会话、「不再显示」写 `HideLargeFileWarning` 设置），并改写三处编码"整页拒绝"的旧断言（`09-icons.md` 第 209 轮）。 | 0 |
-| 9 | **创建标签**（第 167 轮） | `IGitServices.CreateTagAsync`（`IGitServices.cs:205`；另有 `DeleteLocalTagAsync`／`PushTagAsync`／`DeleteRemoteTagAsync`） | **桥接已实现（第 170 轮）**：`ShellBridge` 新增 `git/tag`（`create` 轻量/附注、`delete`）＋ 宿主测试。**删除的界面入口已实现（第 171 轮）**（引用行自己的动作菜单）。剩：日志右键菜单的「新建标签…」按 `GitCreateTagAction` 的**单字段**对话框接线（见 §三·前 第 7 项，纯界面）；日志工具栏「删除引用」见 §三·前 第 6 项 | 1 |
+| 9 | ~~**创建标签**（第 167 轮）~~ **第 307 轮核查结案：剩余两半都已落地** | `IGitServices.CreateTagAsync`（`IGitServices.cs:205`；另有 `DeleteLocalTagAsync`／`PushTagAsync`／`DeleteRemoteTagAsync`） | **桥接已实现（第 170 轮）**：`ShellBridge` 新增 `git/tag`（`create` 轻量/附注、`delete`）＋ 宿主测试。**删除的界面入口已实现（第 171 轮）**（引用行自己的动作菜单）。**已落地**：日志右键菜单的「新建标签…」第 172 轮按 `GitCreateTagAction` 的单字段对话框接线（`live-data.js` 的 `showCompactInput('在 <hash> 上新建标签', …)` ＋ harness 断言 `§7.8 日志菜单「新建标签…」是单字段窗口且标题带该提交`、`§7.8 确认后把标签打在选中的提交上`）；日志工具栏的引用动作组第 173／174 轮落地（见 §三·前 第 6 项） | — |
 
 **为什么本轮没做**：`src/Augit.Shell/` 下**并行会话正在编辑** `Program.cs`／`ShellOptions.cs`／`ShellWindow.cs` 并新增主题相关文件；`dotnet build`／`dotnet test` 会把他们的在途改动一起编译，失败时无法归因。等其收尾，或明确"允许在共享 shell 上并行构建"后再做。
 
@@ -373,7 +390,7 @@ Augit 原为 **作者 → 日期 → 提交信息** 三列、无表头 ⇒ 已�
 
 | # | 项 | 说明 |
 | --- | --- | --- |
-| 1 | **`gen-coverage-table.cjs --write` 会删掉手写内容（第 180 轮实测，必须先修再跑）** | 它重写的区块里包含轮次手写的像素复核记录：在 `docs/ui-compliance.md` 上跑一次 `--write` 实测 **删掉 128 行**（第 86–93 轮那串 `> **第 N 轮补测（④，判据 = layoutPercent）**` 全部消失），且**第二次跑结果相同**（不是"跑两次才稳定"，而是每次都删）。恢复方式：`git show HEAD:docs/ui-compliance.md > docs/ui-compliance.md` 后重放本轮的行内改动 ＋ 重跑 `gen-clause-conclusions.cjs --write`（后者只动 §2.10，是安全的）。**结论：在把该生成器的重写区间收缩到手写块之外之前，不要再对它用 `--write`**；只需打印时直接 `node tools/audit/gen-coverage-table.cjs` |
+| 1 | ~~**`gen-coverage-table.cjs --write` 会删掉手写内容（第 180 轮实测，必须先修再跑）**~~ **第 307 轮加了守卫** | 它重写的区块里包含轮次手写的像素复核记录：在 `docs/ui-compliance.md` 上跑一次 `--write` 实测 **删掉 128 行**（第 86–93 轮那串 `> **第 N 轮补测（④，判据 = layoutPercent）**` 全部消失），且**第二次跑结果相同**（不是"跑两次才稳定"，而是每次都删）。恢复方式：`git show HEAD:docs/ui-compliance.md > docs/ui-compliance.md` 后重放本轮的行内改动 ＋ 重跑 `gen-clause-conclusions.cjs --write`（后者只动 §2.10，是安全的）。**结论：在把该生成器的重写区间收缩到手写块之外之前，不要再对它用 `--write`**；只需打印时直接 `node tools/audit/gen-coverage-table.cjs` | **第 307 轮**：脚本加了生成标记与守卫 —— §1.4 没有生成标记时 `--write` 直接失败退出（exit 1、不改文档），只有显式 `--force` 才覆盖；手写内容不再可能被静默删除。
 | 1 | ~~`docs/handoff.md` §7「验证基线（当前实测）」整表过期~~ **第 178 轮已处理**：该节改名为「验证基线」并整表标注为**历史快照**，同时写明当前基线以 `intellij-platform-ui-behavior.md` §2.3 为准（含第 177 轮实测的 352 个单元测试与 1136 项断言）；未复测的像素/冷启动数字保持原值但不再声称"当前"。 | 表里仍写"单元测试 236（Core 86 + Infrastructure 150）／验收套件断言 261"，而第 172 轮实测是 **Core 86 ＋ Shell 91 ＋ Infrastructure 175**、`live-shell` **1120 项断言**；`视觉稿场景渲染 41/41`、`冷启动 94–158 ms` 等行也无法用当前工具复算。该表是早期轮次的快照，所属文档不在 `AGENTS.md` 的当前规范清单里 ⇒ **本轮只登记不改**（改它等于替一份历史快照背书，且 `handoff.md` 同时有并行会话在改）。建议：要么整表标"历史快照（第 N 轮）"，要么按当前实测重算后只在 `intellij-platform-ui-behavior.md` 保留一份 |
 
 

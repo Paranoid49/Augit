@@ -3722,7 +3722,8 @@ function openRepositoryInitWarning(target) {
     '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
       + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
     false,
-    "repository-init-dialog");
+    // 权威 `GitInit.java:66-74` 的警告档 ⇒ 标题画警告图标（与静态场景同一类名）。
+    "repository-init-dialog repository-init-warning");
   host.appendChild(layer);
 }
 

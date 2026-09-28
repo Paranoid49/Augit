@@ -26,8 +26,10 @@
   --augit-text: #000000;
   --augit-muted: #5f6269;
   --augit-line-number: #aeb3c2;
-  /* 对话框标题图标：官方 `general/questionDialog.svg` 的填充色（浅 #4682FA／深 #548AF7，白色问号）。 */
+  /* 对话框标题图标：官方 `general/questionDialog.svg`（浅 #4682FA／深 #548AF7 蓝底白问号）与
+     `general/warningDialog.svg`（浅 #FFAF0F／深 #F2C55C 橙底白叹号）。 */
   --augit-dialog-icon-bg: #4682fa;
+  --augit-dialog-warning-bg: #ffaf0f;
   --augit-scrollbar-thumb: #73737333;
   /* 标签卡片（Islands 渲染）权威：ui.EditorTabs.underlinedTabBackground = tab-selected-bg-active、inactiveUnderlinedTabBackground = tab-selected-bg-inactive、underlinedBorderColor = tab-selected-border-active、inactiveUnderlinedTabBorderColor = tab-selected-border-inactive、underTabsBorderColor = editor-border。 */
   --augit-tabs-border: #e9eaee;
@@ -268,6 +270,7 @@ body[data-theme="dark"] {
   --augit-line-number: #4b5059;
   /* 权威 `ScrollBar.Transparent.thumbColor` 的深色一半（`0x47A6A6A6`）。 */
   --augit-dialog-icon-bg: #548af7;
+  --augit-dialog-warning-bg: #f2c55c;
   --augit-scrollbar-thumb: #a6a6a647;
   /* expUI_dark：underlinedTabBackground = Gray1、underTabsBorderColor = Gray3；两个边框键未定义，走 painter 默认 #7F99C3／#7F99C380。 */
   --augit-tabs-border: #393b40;
@@ -3646,12 +3649,26 @@ body[data-theme="dark"] .search-overlay {
   grid-template-rows: var(--reset-header, 45px) minmax(0, 1fr) var(--reset-footer, 53px);
   border: var(--augit-hairline) solid var(--augit-border-strong);
 }
-.reset-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
 /* 破坏性确认框的标题图标（2026 参考图 Confirm Exit 实测：标题前一个 27.3 逻辑px 的蓝底白问号图标，
    左边距 16 逻辑px；官方 `general/questionDialog.svg` 浅 #4682FA／深 #548AF7）。
-   用 `::before` 实现——`.dialog-header` 本身已是 flex 容器，伪元素即第一个 flex 项，无需改 DOM 或 JS。 */
+   用 `::before` 实现——`.dialog-header` 本身已是 flex 容器，伪元素即第一个 flex 项，无需改 DOM 或 JS。
+   **哪些对话框有图标由权威定性**（第 307 轮，用户裁决"完全参考 intellij-community"）：
+   · `Messages` 系的确认/输入对话框用 `getQuestionIcon()` —— 删除 Stash（`GitStashUtils.kt:86`）、
+     删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree
+     （`GitCheckoutInOtherWorktreeDialogs.kt:54`）、Reset／Rollback（参考图 Confirm Exit 实测）；
+   · 自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）
+     都没有 `setIcon` ⇒ 不画标题图标；
+   · `GitInit.java:72` 的"已在 Git 下"警告用 `getWarningIcon()` ⇒ 见下面的三角叹号规则。 */
+.reset-dialog .dialog-header,
+.rollback-dialog .dialog-header,
+.stash-drop-dialog .dialog-header,
+.ref-delete-dialog .dialog-header,
+.worktree-remove-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
 .reset-dialog .dialog-header::before,
-.rollback-dialog .dialog-header::before {
+.rollback-dialog .dialog-header::before,
+.stash-drop-dialog .dialog-header::before,
+.ref-delete-dialog .dialog-header::before,
+.worktree-remove-dialog .dialog-header::before {
   content: "?";
   flex: none;
   width: 28px;
@@ -3663,6 +3680,25 @@ body[data-theme="dark"] .search-overlay {
   place-items: center;
   font-size: 19px;
   font-weight: 600; /* 规格只允许 400/600 两档（check-doc-claims.cjs 机械守卫）；图标问号用半粗。 */
+  line-height: 1;
+}
+
+/* 警告图标（权威 `general/warningDialog.svg`：橙底白色叹号，浅 #FFAF0F／深 #F2C55C；
+   官方图形是圆角三角，这里用 `clip-path` 三角近似 + 文本叹号，与问号图标的做法一致）。 */
+.repository-init-warning .dialog-header { height: auto; padding: 0 12px 0 16px; }
+.repository-init-warning .dialog-header::before {
+  content: "!";
+  flex: none;
+  width: 28px;
+  height: 28px;
+  background: var(--augit-dialog-warning-bg);
+  clip-path: polygon(50% 3%, 97% 93%, 3% 93%);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  padding-top: 3px;
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1;
 }
 
