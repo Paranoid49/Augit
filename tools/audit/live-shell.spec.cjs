@@ -7528,6 +7528,177 @@ async function main() {
       await t13.page.close();
     }
 
+    // ---- 第 293 轮补断言（收 §7.1 第 4 条）：项目树悬停只改外观、移出/隐藏清除、滚动后重新命中 ----
+    // 规格 §7.1（`ux-spec.md:322`）：「项目树悬停由树控件独立维护，只重绘原悬停行与新悬停行，
+    // 不改变选择、焦点、标签或触发 Git 查询；同一行内移动不重复重绘。移出或隐藏项目窗口时清除悬停，
+    // 滚动及目录更新后按指针所在位置重新命中。选中态优先于悬停态，不能把失焦选中行的中性背景改成悬停色。」
+    // 树用的是 CSS `:hover`（第 100 轮的用户裁决：保留树的悬停、取值用权威 `--augit-row-hover`），
+    // 因此"只重绘命中行"表现为**DOM 与区域渲染都不动**，只由合成器重画背景。
+    {
+      const th = await openScene('scene=main-project&theme=dark');
+      await th.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await th.page.waitForTimeout(400);
+      // 让 docs 展开出足够多的一层子项：只有列表真的能滚动，"滚动后重新命中"才有可测的前提。
+      await th.page.evaluate(() => {
+        const entries = [{ name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false }];
+        for (let i = 0; i < 60; i += 1) {
+          const name = 'bulk-' + String(i).padStart(3, '0') + '.txt';
+          entries.push({ name, path: 'docs/' + name, isDirectory: false, canExpand: false });
+        }
+        window.__treeOverrides = { docs: entries };
+      });
+      await th.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await th.page.waitForFunction('document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/bulk-"]\').length === 60', null, { timeout: 10000 });
+      await th.page.waitForTimeout(300);
+      const thRows = () => th.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')];
+        const live = window.__augitLive || {};
+        return {
+          rows: rows.length,
+          selected: live.treeSelectedPath || null,
+          documentPath: live.document ? live.document.path : null,
+          activeTab: live.activeTabId || null,
+          statusCalls: window.__statusCalls || 0,
+          readCalls: window.__readCalls || 0,
+          diffCalls: (window.__diffCalls || []).length,
+          treeNodeSame: window.__treeNode === (document.querySelector('.side-content.tree') || null),
+        };
+      });
+      const thRect = (path) => th.page.evaluate((wanted) => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + wanted + '"]');
+        if (!row) return null;
+        const rect = row.getBoundingClientRect();
+        return { x: Math.round(rect.left + 10), y: Math.round(rect.top + rect.height / 2), path: wanted, bg: getComputedStyle(row).backgroundColor };
+      }, path);
+      const thBg = (path) => th.page.evaluate((wanted) => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + wanted + '"]');
+        return row ? { selected: row.classList.contains('selected'), bg: getComputedStyle(row).backgroundColor } : null;
+      }, path);
+      const thMove = async (point) => { await th.page.mouse.move(point.x, point.y); await th.page.waitForTimeout(180); };
+      await th.page.evaluate(() => { window.__treeNode = document.querySelector('.side-content.tree'); });
+      const thBase = await thRows();
+      const thTarget = await thRect('docs/bulk-010.txt');
+      await thMove(thTarget);
+      const thHover = await thRows();
+      const thHoverBg = await thBg('docs/bulk-010.txt');
+      // 同一行内移动：DOM 与区域渲染都不许发生
+      const thSameRow = await th.page.evaluate(async () => {
+        const tree = document.querySelector('.side-content.tree');
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/bulk-010.txt"]');
+        const rect = row.getBoundingClientRect();
+        window.__mut = 0;
+        const observer = new MutationObserver((records) => { window.__mut += records.length; });
+        observer.observe(tree.parentElement, { childList: true, subtree: true, attributes: true, characterData: true });
+        row.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: rect.left + 4, clientY: rect.top + 4 }));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        observer.disconnect();
+        return { mutations: window.__mut, sameNode: window.__treeNode === document.querySelector('.side-content.tree') };
+      });
+      check('§7.1 项目树悬停只改外观：只重绘命中行、不改选择/焦点/标签、不触发 Git 查询（含同一行内移动）: '
+        + JSON.stringify({ thBase, thTarget, thHoverBg, thHover, thSameRow }),
+      thTarget !== null && thTarget.bg === 'rgba(0, 0, 0, 0)'
+        // 悬停后：命中行换成权威悬停色（深色 #464A4D），而列表、选择、正文标签、宿主调用与树节点都不动
+        && thHoverBg !== null && thHoverBg.bg === 'rgb(70, 74, 77)' && thHoverBg.selected === false
+        && thHover.rows === thBase.rows && thHover.treeNodeSame === true
+        && thHover.selected === thBase.selected && thHover.documentPath === thBase.documentPath
+        && thHover.activeTab === thBase.activeTab
+        && thHover.statusCalls === thBase.statusCalls && thHover.readCalls === thBase.readCalls
+        && thHover.diffCalls === thBase.diffCalls
+        // 同一行内移动：DOM 一个节点/属性都没动，树节点还是同一个
+        && thSameRow.mutations === 0 && thSameRow.sameNode === true);
+
+      // 选中态优先于悬停：选中一行后再悬停它，背景保持选中色
+      await th.page.locator('.side-content.tree .tree-row[data-tree-path="docs/bulk-011.txt"]').click();
+      await th.page.waitForTimeout(250);
+      const thSelected = await thBg('docs/bulk-011.txt');
+      await thMove({ x: 900, y: 400 });
+      await thMove(await thRect('docs/bulk-011.txt'));
+      const thSelectedHovered = await thBg('docs/bulk-011.txt');
+      const thSelectedLive = await th.page.evaluate(() => (window.__augitLive || {}).treeSelectedPath || null);
+      // 移出后清除悬停（选中行保持自己的底色）
+      await thMove({ x: 900, y: 400 });
+      const thAfterLeave = await th.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')];
+        return {
+          hovered: rows.filter((row) => getComputedStyle(row).backgroundColor === 'rgb(70, 74, 77)').map((row) => row.dataset.treePath),
+          plainAfterLeave: getComputedStyle(document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/bulk-011.txt"]')).backgroundColor,
+        };
+      });
+
+      // 滚动后按指针位置重新命中：指针停在树中间，滚轮改变可见内容
+      const thMid = await th.page.evaluate(() => {
+        const tree = document.querySelector('.side-content.tree');
+        const rect = tree.getBoundingClientRect();
+        return { x: Math.round(rect.left + 10), y: Math.round(rect.top + 220) };
+      });
+      await thMove(thMid);
+      const thBeforeScroll = await th.page.evaluate(({ x, y }) => {
+        const tree = document.querySelector('.side-content.tree');
+        const under = document.elementFromPoint(x, y);
+        const row = under && under.closest ? under.closest('.tree-row') : null;
+        return {
+          scrollTop: Math.round(tree.scrollTop),
+          under: row ? row.dataset.treePath : null,
+          hovered: [...document.querySelectorAll('.side-content.tree .tree-row')]
+            .filter((r) => getComputedStyle(r).backgroundColor === 'rgb(70, 74, 77)').map((r) => r.dataset.treePath),
+        };
+      }, thMid);
+      await th.page.mouse.wheel(0, 220);
+      await th.page.waitForTimeout(400);
+      const thAfterScroll = await th.page.evaluate(({ x, y, oldUnder }) => {
+        const tree = document.querySelector('.side-content.tree');
+        const under = document.elementFromPoint(x, y);
+        const row = under && under.closest ? under.closest('.tree-row') : null;
+        const oldRow = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + oldUnder + '"]');
+        return {
+          scrollTop: Math.round(tree.scrollTop),
+          under: row ? row.dataset.treePath : null,
+          hovered: [...document.querySelectorAll('.side-content.tree .tree-row')]
+            .filter((r) => getComputedStyle(r).backgroundColor === 'rgb(70, 74, 77)').map((r) => r.dataset.treePath),
+          oldBg: oldRow ? getComputedStyle(oldRow).backgroundColor : null,
+        };
+      }, { x: thMid.x, y: thMid.y, oldUnder: thBeforeScroll.under });
+
+      // 隐藏项目窗口：清除悬停；重新显示不恢复旧状态
+      await th.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await th.page.waitForTimeout(400);
+      const thHidden = await th.page.evaluate(() => ({
+        treeNodes: document.querySelectorAll('.side-content.tree').length,
+        selected: (window.__augitLive || {}).treeSelectedPath || null,
+      }));
+      await th.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await th.page.waitForTimeout(400);
+      await th.page.mouse.move(900, 400);
+      await th.page.waitForTimeout(250);
+      const thRestored = await th.page.evaluate(() => ({
+        rows: document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]').length,
+        hovered: [...document.querySelectorAll('.side-content.tree .tree-row')]
+          .filter((row) => getComputedStyle(row).backgroundColor === 'rgb(70, 74, 77)').length,
+        selected: (window.__augitLive || {}).treeSelectedPath || null,
+      }));
+      check('§7.1 项目树移出/隐藏清除悬停、滚动后按指针位置重新命中，选中态优先于悬停: '
+        + JSON.stringify({ thSelected, thSelectedHovered, thSelectedLive, thAfterLeave, thBeforeScroll, thAfterScroll, thHidden, thRestored }),
+      // 选中：蓝底；再悬停它仍是蓝底（选中态优先于悬停），标签里的选择路径也对上
+      thSelected !== null && thSelected.selected === true && thSelected.bg === 'rgb(46, 67, 110)'
+        && thSelectedLive === 'docs/bulk-011.txt'
+        && thSelectedHovered !== null && thSelectedHovered.selected === true
+        && thSelectedHovered.bg === thSelected.bg
+        // 移出：没有任何行停在悬停色；选中行保持自己的底色
+        && thAfterLeave.hovered.length === 0 && thAfterLeave.plainAfterLeave === 'rgb(46, 67, 110)'
+        // 滚动前：指针所在行就是悬停行
+        && thBeforeScroll.under !== null
+        && JSON.stringify(thBeforeScroll.hovered) === JSON.stringify([thBeforeScroll.under])
+        // 滚动后（指针不动）：列表真的滚了，悬停**重新命中**到新的指针所在行，旧行不再悬停
+        && thAfterScroll.scrollTop > thBeforeScroll.scrollTop
+        && thAfterScroll.under !== null && thAfterScroll.under !== thBeforeScroll.under
+        && JSON.stringify(thAfterScroll.hovered) === JSON.stringify([thAfterScroll.under])
+        && thAfterScroll.oldBg === 'rgba(0, 0, 0, 0)'
+        // 隐藏：项目窗口收起（树节点不在 DOM），选择仍在会话状态里；重新显示后没有残留悬停
+        && thHidden.treeNodes === 0 && thHidden.selected === 'docs/bulk-011.txt'
+        && thRestored.rows === 65 && thRestored.hovered === 0 && thRestored.selected === 'docs/bulk-011.txt');
+      await th.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
