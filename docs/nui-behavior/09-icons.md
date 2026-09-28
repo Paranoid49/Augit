@@ -10948,3 +10948,43 @@ Core 新增 `SearchStatusTextTests`（3 条），其中一条**直接读 `web/sr
 
 继续 B 类：§7.3 第 13（跨框架不判逐像素相等的口径 + 位置保持/异步时序）、§7.10 Smart Checkout、§7.5 剩余项；
 以及 D 类里可执行的部分。
+
+## nonaginta-octo. 第二百九十八轮：Smart Checkout 的"停止普通切换"补断言与一处过时证据订正（§7.10 第 6 条收口）
+
+### 规格
+
+`ux-spec.md`（§7.10 第六条）：「工作区可能被覆盖时**停止普通切换**，并提供 Smart Checkout 的影响说明和确认。」
+权威：`GitCheckoutOperation.smartCheckoutOrNotify`（`plugins/git4idea/backend/src/GitCheckoutOperation.java:367-395`）
+与 `GitSmartOperationDialog`（`.../branch/GitSmartOperationDialog.java:36-125`，`FOCUSED_ACTION` 默认设在取消上）。
+
+### 过时证据订正
+
+该行原写「界面侧的影响说明与确认弹层仍无断言」—— **不成立**：harness 早有 4 条断言
+（对话框形态 + 默认焦点在取消、取消不执行 Git、确认走 `git/checkout-smart` 并关窗、恢复冲突时改动不丢），
+另有 `verify-ux-smart-checkout` 18 组像素状态与宿主两个单测。缺的只是"**停止**"这一半。
+
+### 新断言：用对照组钉住"停止"
+
+| 组 | 点击分支行后的实测 | 结论 |
+| --- | --- | --- |
+| 对照组（无覆盖风险） | 弹层关闭、无对话框、`__augitCheckoutError` null、`__statusCalls` 1 → 2 | 普通切换走**成功收尾**（重读状态） |
+| 实验组（`overwriteRisk` + 2 个受影响文件） | 发出 `git/checkout`（name `dsh`／kind `branch`）恰好一次；`__statusCalls` **2 → 2**、`__historyCalls` 1 → 1、`live.branch` 不变、`error` 仍 null；分支弹层关而 `.smart-checkout-window` 弹出；`git/checkout-smart` **尚未**调用 | 普通切换**被停止**、不报笼统"失败"，改弹影响说明与确认 |
+
+### 新增断言（`live-shell`，1 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.10 有覆盖风险时停止普通切换：不重读状态、不报通用失败，改弹 Smart Checkout 影响说明` |
+
+### 验证
+
+- `live-shell` **`通过 1439 项断言`**（1438 → **+1**），退出码 0。
+- 登记哈希：`live-shell.spec.cjs` `a901256d…` → **`88dcafc99487246663a40376425deb09`**；
+  本轮**只改 harness**，运行时与共享视觉稿哈希与第 297 轮逐个相同。
+- §7.10 第 6 条转 **是**（§2.10：分母 12 → **11**、B 3 → **2**）。
+- 同批：`verify-ux-smart-checkout` 18 组、`verify-ui-assets` PASS、`git diff --check` 通过。
+
+### 下一轮
+
+B 类只剩 §7.3 第 13（跨框架不逐像素相等的口径 + 位置保持/异步时序）与 §7.5 第 8（平滑图后台生成，
+已登记"无法取证"待用户口径）；其余为 D 类 8 项（T10、T3 等需产品口径）与 E 类 1 项。

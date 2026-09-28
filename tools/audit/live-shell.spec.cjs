@@ -10826,6 +10826,80 @@ async function main() {
         && typeof smartConflict.toast === 'string' && smartConflict.toast.includes('临时 stash'));
     await co.page.close();
 
+    // ---- 第 298 轮补断言（收 §7.10 第 6 条）：有覆盖风险时**停止普通切换**，改弹影响说明 ----
+    // 规格 §7.10 第六条：「工作区可能被覆盖时停止普通切换，并提供 Smart Checkout 的影响说明和确认。」
+    // 上一条块已经断言了"影响说明与确认"（对话框形态、默认焦点在取消、取消不执行 Git、确认走
+    // `git/checkout-smart`、恢复冲突时改动不丢）；缺的是"**停止**普通切换"这一半：
+    // 用对照组证明——无覆盖风险时切换会走成功收尾（重读状态），有覆盖风险时**不重读**、
+    // 不报通用"失败"，而是把弹层换成 Smart Checkout 对话框。
+    {
+      const co2 = await openScene('scene=main-project&theme=dark');
+      await co2.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await co2.page.waitForFunction('!!window.__augitLive.references', null, { timeout: 10000 });
+      await co2.page.locator('.top-chip.branch-chip').click();
+      await co2.page.waitForTimeout(600);
+      const coRefs = await co2.page.evaluate(() => [...document.querySelectorAll('[data-augit-overlay] [data-branch]')]
+        .map((el) => ({ name: el.dataset.branch, kind: el.dataset.branchKind })));
+      const coLocal = coRefs.find((row) => row.kind === 'branch');
+      const coRead = () => co2.page.evaluate(() => ({
+        branch: window.__augitLive.branch,
+        statusCalls: window.__statusCalls || 0,
+        historyCalls: window.__historyCalls || 0,
+        error: window.__augitCheckoutError || null,
+        dialog: !!document.querySelector('.smart-checkout-window .dialog'),
+        popover: !!document.querySelector('[data-augit-overlay] .popover'),
+      }));
+      const coPick = async () => {
+        await co2.page.locator('.top-chip.branch-chip').click();
+        await co2.page.waitForTimeout(600);
+        await co2.page.locator(`[data-augit-overlay] [data-branch="${coLocal.name}"]`).click();
+        await co2.page.waitForTimeout(950);
+      };
+      // 对照组：无覆盖风险 ⇒ 普通切换走成功收尾（重读状态、关弹层、无对话框）
+      await co2.page.evaluate(() => {
+        document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+        window.__checkoutOverwrite = null;
+        window.__smartCalls = [];
+        window.__checkoutCalls = [];
+      });
+      await co2.page.waitForTimeout(200);
+      const coOkBefore = await coRead();
+      await coPick();
+      const coOkAfter = await coRead();
+      // 实验组：有覆盖风险 ⇒ 停止普通切换
+      await co2.page.evaluate(() => {
+        document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+        window.__checkoutOverwrite = ['docs/notes.txt', 'src/App.cs'];
+        window.__smartCalls = [];
+        window.__checkoutCalls = [];
+      });
+      await co2.page.waitForTimeout(200);
+      const coStopBefore = await coRead();
+      await coPick();
+      const coStopAfter = await coRead();
+      const coStopCalls = await co2.page.evaluate(() => ({
+        checkout: window.__checkoutCalls || [],
+        smart: window.__smartCalls || [],
+        // 承载层自己就同时是 `[data-augit-overlay]` 与 `.smart-checkout-window`（不是后代关系）
+        overlayKind: document.querySelector('[data-augit-overlay].smart-checkout-window') ? 'smart' : null,
+      }));
+      check('§7.10 有覆盖风险时停止普通切换：不重读状态、不报通用失败，改弹 Smart Checkout 影响说明: '
+        + JSON.stringify({ coOkBefore, coOkAfter, coStopBefore, coStopAfter, coStopCalls }),
+      // 前置与对照：普通切换成功时会重读状态并关掉弹层（否则"不重读"可能是空断言）
+      coOkBefore.dialog === false && coOkAfter.dialog === false && coOkAfter.error === null
+        && coOkAfter.popover === false && coOkAfter.statusCalls > coOkBefore.statusCalls
+        // 实验组：同一次点击走了普通 `git/checkout`，但**成功收尾没有发生**
+        && coStopCalls.checkout.length === 1 && coStopCalls.checkout[0].name === coLocal.name
+        && coStopCalls.checkout[0].kind === 'branch'
+        && coStopCalls.smart.length === 0 && coStopCalls.overlayKind === 'smart'
+        && coStopAfter.statusCalls === coStopBefore.statusCalls
+        && coStopAfter.historyCalls === coStopBefore.historyCalls
+        // 分支与错误提示都保持原样：不给"检出失败"这种笼统措辞
+        && coStopAfter.branch === coStopBefore.branch
+        && coStopAfter.error === null && coStopAfter.dialog === true && coStopAfter.popover === false);
+      await co2.page.close();
+    }
+
     // ---- 规格 §5.3：新建 / 重命名使用紧凑单行输入窗口 ----
     const cd = await openScene('scene=main-project&theme=dark');
     await cd.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
