@@ -149,7 +149,7 @@ public sealed class RipgrepSearchService
             cancelled = cancellationToken.IsCancellationRequested;
         }
 
-        return new(matches, truncated, timedOut, cancelled, timedOut ? "搜索超过 15 秒，已停止。" : error);
+        return new(matches, truncated, timedOut, cancelled, timedOut ? SearchOptions.SearchTimedOutMessage : error);
     }
 
     private static void AddCommonFileArguments(ProcessStartInfo startInfo)
@@ -217,12 +217,33 @@ public sealed class RipgrepSearchService
     {
         cancellationToken.ThrowIfCancellationRequested();
         startInfo.FileName = _executablePath;
+        return await RunConfiguredAsync(startInfo, handleLine, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 启动并读取一个**已完整配置**的进程，直到它结束、提前停止或被取消；取消、提前停止与异常退出
+    /// 都会结束进程（含子进程树 `Kill(true)`）并等它真正退出后再返回。
+    /// </summary>
+    /// <remarks>
+    /// 单独拆出这一层，是为了让「超时和取消后结束 ripgrep 进程」（`ux-spec.md:595`）这条规格
+    /// **可确定性复验**：真实 ripgrep 往往在毫秒级跑完，无法稳定地在"进行中"取消它；测试可以注入一个
+    /// 会阻塞的命令，走**同一套**启动/读行/收尾逻辑，再断言进程（与子进程树）确实已经结束。
+    /// <paramref name="started"/> 是测试用的观察点（进程刚启动时回调其 pid）。
+    /// </remarks>
+    internal static async Task<ProcessRunResult> RunConfiguredAsync(
+        ProcessStartInfo startInfo,
+        Func<string, bool> handleLine,
+        CancellationToken cancellationToken,
+        Action<int>? started = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         using Process process = new() { StartInfo = startInfo };
         if (!process.Start())
         {
             throw new InvalidOperationException("无法启动随程序附带的 ripgrep。");
         }
 
+        started?.Invoke(process.Id);
         Task<string> errorTask = ReadBoundedErrorAsync(process.StandardError);
         using CancellationTokenRegistration registration = cancellationToken.Register(
             static state => KillProcess((Process)state!),
@@ -361,5 +382,5 @@ public sealed class RipgrepSearchService
             : path;
     }
 
-    private sealed record ProcessRunResult(int ExitCode, string Error);
+    internal sealed record ProcessRunResult(int ExitCode, string Error);
 }

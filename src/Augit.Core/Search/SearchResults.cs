@@ -8,7 +8,7 @@ public sealed record FileSearchResultSet(
     bool IsCancelled,
     string? ErrorMessage)
 {
-    public string? Notice => IsTimedOut ? "搜索超过 15 秒，已停止。"
+    public string? Notice => IsTimedOut ? SearchOptions.SearchTimedOutMessage
         : IsCancelled ? "搜索已取消。" : ErrorMessage;
 }
 

@@ -6608,6 +6608,71 @@ async function main() {
     await seNotice.page.evaluate(() => { window.__searchNotice = undefined; window.__searchTimedOut = false; });
     await seNotice.page.close();
 
+    // ---- 第 296 轮补断言（收 §7.15 第 8 条）：超时/取消后结果区保留已完成结果并标记状态 ----
+    // 规格 §7.15：「超时和取消后结束 ripgrep 进程，结果区域保留已完成结果并标记状态。」
+    // 宿主侧"结束进程（含子进程树）"由 `Augit.Infrastructure.Tests` 的
+    // `取消或超时结束进行中的搜索时进程与子进程树都被结束` 覆盖（注入阻塞进程走同一套收尾逻辑）；
+    // 这里覆盖**界面侧**：说明出现在结果区下方，而已经拿到的匹配**一条都不少**。
+    const seKeep = await openScene('scene=repository-search&theme=dark');
+    await seKeep.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
+    // 等首屏最后几次区域刷新落定：启动期间的重绘会把输入框按 `live.search.query`（空串）回写，
+    // 过早 `fill` 的字符会被那次重绘抹掉（第 296 轮探针实测：读到的 rows/matches 全为 0）。
+    await seKeep.page.waitForTimeout(600);
+    const seKeepRead = () => seKeep.page.evaluate(() => {
+      const overlay = document.querySelector('.search-overlay');
+      const notice = overlay.querySelector('.search-notice');
+      const search = (window.__augitLive || {}).search || {};
+      return {
+        rows: overlay.querySelectorAll('.search-result').length,
+        matches: (search.matches || []).length,
+        notice: notice ? notice.textContent : null,
+        timedOut: search.timedOut === true,
+        cancelled: search.cancelled === true,
+      };
+    });
+    await seKeep.page.evaluate(() => {
+      window.__searchNotice = '搜索超时，已保留完成的结果。';
+      window.__searchTimedOut = true;
+      window.__searchCancelled = false;
+    });
+    await seKeep.page.fill('.search-overlay .search-field', 'Git');
+    await seKeep.page.waitForFunction(
+      // 字符串形式是**表达式**（写成 `() => …` 会被当成一个函数对象，恒真、等于没等）。
+      "document.querySelectorAll('.search-overlay .search-result').length > 0 && !!document.querySelector('.search-overlay .search-notice')",
+      null,
+      { timeout: 10000 },
+    ).catch(() => {});
+    const seKeepTimeout = await seKeepRead();
+    // 取消：换一个查询让宿主按"已取消"回话，已完成结果同样要留着
+    await seKeep.page.evaluate(() => {
+      window.__searchNotice = '搜索已取消。';
+      window.__searchTimedOut = false;
+      window.__searchCancelled = true;
+    });
+    await seKeep.page.fill('.search-overlay .search-field', 'Gi');
+    await seKeep.page.waitForFunction(
+      "!!document.querySelector('.search-overlay .search-notice') && document.querySelector('.search-overlay .search-notice').textContent.indexOf('取消') >= 0",
+      null,
+      { timeout: 10000 },
+    ).catch(() => {});
+    const seKeepCancelled = await seKeepRead();
+    check('§7.15 超时/取消后结果区保留已完成结果并标记状态: '
+      + JSON.stringify({ seKeepTimeout, seKeepCancelled }),
+    // 超时：说明写的是"已保留完成的结果"，结果行与状态里的匹配数都还在，状态标记为 timedOut
+    seKeepTimeout.rows > 0 && seKeepTimeout.matches === seKeepTimeout.rows
+      && /已保留完成的结果/.test(seKeepTimeout.notice || '')
+      && seKeepTimeout.timedOut === true && seKeepTimeout.cancelled === false
+      // 取消：换成取消说明后结果**一条都没少**，状态标记切成 cancelled（与超时可区分）
+      && seKeepCancelled.rows === seKeepTimeout.rows && seKeepCancelled.matches === seKeepTimeout.matches
+      && seKeepCancelled.notice === '搜索已取消。'
+      && seKeepCancelled.cancelled === true && seKeepCancelled.timedOut === false);
+    await seKeep.page.evaluate(() => {
+      window.__searchNotice = undefined;
+      window.__searchTimedOut = false;
+      window.__searchCancelled = false;
+    });
+    await seKeep.page.close();
+
     // ---- 规格 §7.1 第 2、9 条：恢复标签只为活动标签建文件视图；打开 Git 历史时树与正文保持可见 ----
     const restoreTabs = await openScene('scene=main-project&theme=dark&restore=1');
     await restoreTabs.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });

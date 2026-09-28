@@ -10849,3 +10849,54 @@ B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。
 ### 下一轮
 
 A 类队列只剩 §7.15 第 8（结束 ripgrep 进程，宿主侧）；B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。
+
+## nonaginta-sex. 第二百九十六轮：ripgrep 进程回收与结果区状态标记（§7.15 第 8 条收口，A 类队列清零）
+
+### 规格
+
+`ux-spec.md:595`：「超时和取消后结束 ripgrep 进程，结果区域保留已完成结果并标记状态。」
+
+### 宿主侧：结束进程（含子进程树）
+
+- `RipgrepSearchService` 原本已在取消/超时/提前结束/异常退出时 `KillProcess()`（`Process.Kill(true)`
+  结束整棵进程树）并 `WaitForExitAsync`，但只有"**预先**取消不启动进程"的用例。
+- 本轮把"启动 → 读行 → 收尾"抽成 `RunConfiguredAsync()`（`internal static`，带测试观察点 `started`），
+  让"进行中取消"可以**确定性**复验：真实 ripgrep 往往毫秒级跑完，无法稳定地在跑动中取消它。
+- 新 Infrastructure 测试 `取消或超时结束进行中的搜索时进程与子进程树都被结束` 注入阻塞命令
+  `cmd.exe /c "ping -n 3 127.0.0.1 >nul & echo done> marker"` 走**同一套**逻辑：
+  ① 外部取消、② 超时（无外部取消、只有时限）两条通道各跑一次，每次断言进程已结束（按 pid 复查），
+  并在 2.5 秒后确认**子进程树**也没跑完（marker 未出现）—— 只 `Kill()` 顶层进程时 `ping` 会写出 marker。
+
+### 文案对齐（"标记状态"）
+
+宿主原来的超时文案「搜索超过 15 秒，已停止。」既与视觉基线
+`ux-mockups/repository-search.html?search-state=timeout` 的「搜索超时，已保留完成的结果。」不一致，
+也没有说出"结果保留"。现抽成 `SearchOptions.SearchTimedOutMessage` 常量，供
+`FileSearchResultSet.Notice` 与全文搜索（`RipgrepSearchService`）共用（与 `ResultsTruncatedMessage` 同一口径）。
+Core 新增 `SearchStatusTextTests`（3 条），其中一条**直接读 `web/src/mockup.js`** 核对宿主常量与视觉基线逐字一致。
+
+### 界面侧：保留已完成结果 + 标记状态
+
+`live-data.js` 此前只把 `matches`/`notice`/`truncated` 映射进 `live.search`，宿主的
+`timedOut`／`cancelled` 被丢掉；现已带上。harness 断言
+`§7.15 超时/取消后结果区保留已完成结果并标记状态` 实测（`scene=repository-search`）：
+
+| 状态 | 结果行 | `live.search.matches` | 说明文案 | `timedOut` | `cancelled` |
+| --- | ---: | ---: | --- | --- | --- |
+| 超时 | 2 | 2 | 搜索超时，已保留完成的结果。 | true | false |
+| 取消（改查询触发新请求） | 2 | 2 | 搜索已取消。 | false | true |
+
+### 验证
+
+- `live-shell` **`通过 1435 项断言`**（1434 → **+1**），退出码 0。
+- `Augit.Infrastructure.Tests` **189/189**（188 → +1）、`Augit.Core.Tests` **91/91**（88 → +3）、
+  `Augit.Shell.Tests` **117/117**。
+- 登记哈希：`live-data.js` `9c0322e2…` → **`9434add1a0db21265c03cea66b5f61d9`**；
+  `live-shell.spec.cjs` `7bbfc47f…` → **`751ab8d78dad13a57de78de62ffb84cd`**。
+- §7.15 第 8 条转 **是**；§2.10：分母 14 → **13**、**A 1 → 0（A 类队列清零）**，只剩 B 4／D 8／E 1。
+- 同批：`verify-ui-assets` PASS、`git diff --check` 通过。
+
+### 下一轮
+
+进入 B 类（把像素/间接证据升级为可复跑断言）：§7.3 第 3（模式控件三个图形与选中底色）、
+§7.3 第 13（跨框架不判逐像素相等的位置口径）；以及 D 类里可执行的部分。

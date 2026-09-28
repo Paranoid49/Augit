@@ -620,6 +620,10 @@ async function runSearch(kind, query, options) {
       options: options || {},
       matches,
       notice: result && result.notice ? result.notice : "",
+      // 规格 §7.15 第八条：超时/取消要在**状态**上可区分（界面用说明文案表达，
+      // "保留已完成结果"由 `matches` 原样带过来体现）。
+      timedOut: !!(result && result.timedOut),
+      cancelled: !!(result && result.cancelled),
       truncated,
       pending: false,
       // 权威 `UsageLimitUtil.USAGES_LIMIT`：到限先问一句 Continue／Abort

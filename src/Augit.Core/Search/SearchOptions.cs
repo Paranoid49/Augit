@@ -43,5 +43,12 @@ public sealed record SearchOptions(
     /// </summary>
     public const string ResultsTruncatedMessage = "结果超过 1000 条，可以继续搜索，或缩小范围与关键词。";
 
+    /// <summary>
+    /// 搜索超时后的状态文案（规格 §7.15 第八条：结果区域**保留已完成结果**并标记状态）。
+    /// 文案与视觉基线 `ux-mockups/repository-search.html?search-state=timeout` 逐字一致
+    /// （与 `ResultsTruncatedMessage` 同一口径：视觉稿里的产品文案就是宿主文案）。
+    /// </summary>
+    public const string SearchTimedOutMessage = "搜索超时，已保留完成的结果。";
+
     public bool IsEmpty => string.IsNullOrEmpty(Query);
 }
