@@ -27832,6 +27832,62 @@ async function main() {
       fileView.active === 'file-view' && fileView.heading === '文件查看'
         && fileView.hasUiFontSize === false && fileView.hasCodeFontSize === true);
 
+      // ---- 第 301 轮补断言（收 §7.17 第 4、7 条）：设置页的字体字段与"不显示的能力"清单 ----
+      // 规格 §7.17：「文件查看提供正文字体、等宽字体、字号和默认换行等产品规格内设置。」
+      // （第 4 条）与「不显示插件、市场、键位、解释器、构建、调试和 AI 设置。」（第 7 条）。
+      // 逐页取"分类行 + 标题 + 全部可见文本 + `data-setting` 路径"：
+      //   · 第 7 条用**词清单扫描**（与 §10.3 同款）+ 一份字段路径白名单做结构闸门 ——
+      //     任何这类设置都要新增 `data-setting`，白名单之外即失败；
+      //   · 第 4 条按 `product-spec.md:165` 的四项字体模型对账（界面字体/字号在「外观」、
+      //     等宽字体/字号在「文件查看」，互不覆盖），并钉死"默认换行"这一行**按用户裁决不存在**
+      //     （2026-09-19 裁决，见 `ui-compliance.md` §3.2 第 2 条；正文的「自动换行」按钮由
+      //     §7.2 第 4/5 条的既有断言覆盖）。
+      const collectSettingsPages = async () => {
+        const pages = {};
+        for (const key of ['appearance', 'file-view', 'git', 'terminal']) {
+          await st.page.locator(`.settings-window [data-settings-page="${key}"]`).click();
+          await st.page.waitForTimeout(150);
+          pages[key] = await st.page.evaluate(() => {
+            const body = document.querySelector('.settings-window .settings-page');
+            return {
+              heading: body && body.querySelector('h2') ? body.querySelector('h2').textContent.trim() : null,
+              text: body ? body.textContent.replace(/\s+/g, ' ').trim() : '',
+              paths: [...document.querySelectorAll('.settings-window .settings-page [data-setting]')]
+                .map((el) => el.dataset.setting).sort(),
+            };
+          });
+        }
+        const navRows = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+          .map((row) => row.textContent.trim()));
+        return { pages, navRows };
+      };
+      const settingsPages = await collectSettingsPages();
+      const settingsText = settingsPages.navRows.join(' ')
+        + ' ' + Object.values(settingsPages.pages).map((page) => `${page.heading || ''} ${page.text}`).join(' ');
+      const settingsPaths = [...new Set(Object.values(settingsPages.pages).flatMap((page) => page.paths))].sort();
+      const forbiddenHits = ['插件', '市场', '键位', '解释器', '构建', '调试'].filter((word) => settingsText.includes(word));
+      // `AI` 是英文缩写，必须按**独立词**判定 —— 否则会撞上 `Augit`／`Git Bash` 之类。
+      const hasAiWord = /(^|[^A-Za-z])AI([^A-Za-z]|$)/.test(settingsText);
+      check('§7.17 不显示插件/市场/键位/解释器/构建/调试和 AI 设置（全页文本词扫描 + 字段路径白名单）: '
+        + JSON.stringify({ forbiddenHits, hasAiWord, settingsPaths, navRows: settingsPages.navRows, settingsText }),
+      forbiddenHits.length === 0 && hasAiWord === false
+        && JSON.stringify(settingsPages.navRows) === JSON.stringify(['外观', '文件查看', 'Git', '终端'])
+        // 结构闸门：这类设置只能以新增 `data-setting` 的形式出现，白名单之外即失败
+        && settingsPaths.every((path) => [
+          'theme', 'textFontFamily', 'fontSize', 'monospaceFontFamily', 'codeFontSize',
+          'gitExecutablePath', 'terminalShell', 'terminalCustomCommand',
+        ].includes(path)));
+      check('§7.17 文件查看只提供等宽字体/字号（界面字体/字号在"外观"）；按用户裁决不提供"默认换行"持久化字段: '
+        + JSON.stringify({ fileView: settingsPages.pages['file-view'], appearance: settingsPages.pages.appearance, hasDefaultWrap: /默认换行/.test(settingsText) }),
+      JSON.stringify(settingsPages.pages['file-view'].paths) === JSON.stringify(['codeFontSize', 'monospaceFontFamily'])
+        && /等宽字体/.test(settingsPages.pages['file-view'].text)
+        && /字号/.test(settingsPages.pages['file-view'].text)
+        // 四项字体模型（product-spec.md:165）：界面字体/字号归「外观」，与等宽互不覆盖
+        && JSON.stringify(settingsPages.pages.appearance.paths) === JSON.stringify(['fontSize', 'textFontFamily', 'theme'])
+        && /界面字体/.test(settingsPages.pages.appearance.text)
+        // 用户 2026-09-19 裁决：设置页不出现"默认换行"这一行（只保留正文工具栏的「自动换行」）
+        && /默认换行/.test(settingsText) === false);
+
       // 切页保留未保存编辑：在外观改界面字号、在文件查看改等宽字号，来回切一遍再看
       await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
       await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
