@@ -3255,6 +3255,9 @@ async function applyWorkspaceChanges(changes) {
   }
 
   if (!touchedCurrent && !touchedNothing) return;
+  // 规格 §7.1 第 7 条：外部目录变化也要**增量更新当前已加载的目录** —— 重列展开集合里的每一层
+  //（未展开的目录不递归读取），晚到的旧批次由代际丢弃。
+  if (relative.length > 0) await refreshLoadedDirectories().catch(() => null);
   // 正文区域只在这一批**真的碰到当前文档/比较**时才替换（见 editorTouched 注释）。
   // 其余情况仍然刷新列表、状态栏与标题栏：外部变化的提示与列表收敛必须照常发生
   // （§6.4/§6.5），第 295/296 轮证明"整批跳过刷新"会破坏这条规格要求。
@@ -4730,6 +4733,11 @@ function refresh(...regions) {
     && (reuseMarkdownViewInPlace() || reuseTextViewInPlace() || reuseJsonViewInPlace());
   if (reusedEditorContent) {
     effective = regions.filter((name) => name !== "editorContent");
+  }
+  // 规格 §7.1 第 7 条：项目树刷新**就地套用** —— 未变化的行保留原节点（身份保持），
+  // 只有新增/删除才做结构变动；大目录分批应用。套用成功就不再整块替换侧栏。
+  if (effective.includes("side") && patchProjectTree()) {
+    effective = effective.filter((name) => name !== "side");
   }
   if (typeof window.__augitRenderRegions === "function" && effective.length > 0) {
     window.__augitRenderRegions(...effective);
@@ -12286,12 +12294,174 @@ function openGoToLineDialog() {
   }
 }
 
-/** F5：刷新文件树；保留展开状态，不重载页面。 */
+/** F5：增量刷新文件树；保留展开状态，不重载页面。 */
 async function refreshFileTree() {
   const live = window.__augitLive;
   if (!live) return;
   await loadStatus().catch(() => null);
+  // 规格 §7.1 第 7 条：F5 要**增量更新当前已加载的目录** —— 重新列举展开集合里的每一层（含根），
+  // 未展开的目录不递归读取。请求带代际：晚到的旧响应不得覆盖新结果。
+  await refreshLoadedDirectories().catch(() => null);
   refreshAfterEvent("side", "statusbar");
+}
+
+// 目录清单请求的代际（规格 §7.1 第 7 条「旧任务不能恢复先前的展开和选择」）：
+// F5／外部变化／展开各发起一批重列，晚到的旧批次整批丢弃。
+let treeListingGeneration = 0;
+
+/**
+ * 重新列举**当前已加载**的目录（根 + `expandedPaths` 里的每一层），更新缓存并重建可见树。
+ *
+ * 只列已展开的路径：尚未展开的目录不因 F5 递归读取（规格 §7.1 第 7 条）。
+ * 晚到的旧批次（代际已变）不写缓存、不重建树 —— 写入就会用过期结果覆盖当前展开与选择。
+ */
+async function refreshLoadedDirectories() {
+  const live = window.__augitLive;
+  if (!live) return false;
+  const generation = ++treeListingGeneration;
+  const targets = ["", ...[...expandedPaths].filter((path) => path !== "")];
+  const results = await Promise.all(targets.map(async (path) => {
+    try {
+      return { path, listing: await invoke("workspace/list", { path }, 30000) };
+    } catch {
+      return { path, listing: null };
+    }
+  }));
+  if (generation !== treeListingGeneration) return false;
+  const present = new Map();
+  for (const { path, listing } of results) {
+    if (!listing) continue;
+    const entries = (listing.entries || []).filter(isVisibleEntry);
+    const directories = entries.filter((entry) => entry.isDirectory);
+    const files = entries.filter((entry) => !entry.isDirectory);
+    const depth = path === "" ? 1 : path.split("/").length + 1;
+    childrenByPath.set(path, [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY).map((entry) => ({
+      name: entry.name,
+      path: entry.path,
+      depth,
+      isDirectory: entry.isDirectory,
+      hasChildren: entry.isDirectory,
+      expanded: false,
+    })));
+    present.set(path, new Set(entries.map((entry) => entry.path)));
+  }
+  // 已展开但已经不存在的目录：从展开集合里清掉，否则树里会留下一个不存在的层级。
+  for (const path of [...expandedPaths]) {
+    if (path === "") continue;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const siblings = present.get(parent);
+    if (siblings && !siblings.has(path)) expandedPaths.delete(path);
+  }
+  live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+  return true;
+}
+
+// 大目录分批应用：每帧最多套用这么多行（规格 §7.1 第 7 条）。
+const TREE_PATCH_CHUNK = 60;
+// 就地套用的代际：新的套用请求让未插完的旧批次立即作废（过期行不会插进新树）。
+let treePatchGeneration = 0;
+
+/**
+ * 当前侧栏是不是"项目树"这一档（规格 §7.1 第 7 条的就地套用只对它成立）。
+ *
+ * 侧栏视图由 `live.layout.side` 决定（`mockup.js` 的 `shell()`：`collapsed === "side"` 时整块收起，
+ * 否则用 `layout.side` 选项目树或 Changes）。不先问这一句，切到 Changes 时旧的项目树还在 DOM 里，
+ * 就地套用会"成功地"把侧栏刷新吸收掉 —— Changes 列表永远换不出来（第 295 轮全量实测踩到）。
+ */
+function layersAllowProjectTree(live) {
+  const layout = live && live.layout;
+  if (!layout) return true;
+  if (layout.collapsed === "side") return false;
+  return !layout.side || layout.side === "project";
+}
+
+/** 造一行项目树节点（模板取自 `mockup.js` 的 `liveTreeRowHtml()`，两处不会漂移）。 */
+function buildTreeRow(entry, selected, live) {
+  if (typeof liveTreeRowHtml !== "function") return null;
+  const template = document.createElement("template");
+  template.innerHTML = liveTreeRowHtml(entry, selected, live);
+  return template.content.firstElementChild || null;
+}
+
+/** 行是否需要重建（只有路径、名称、类型、层级、展开箭头或选中态真的变了才重建）。 */
+function needsTreeRowUpdate(node, entry, selected) {
+  if (node.dataset.treePath !== entry.path) return true;
+  if (node.dataset.treeDirectory !== String(entry.isDirectory)) return true;
+  if (node.getAttribute("aria-level") !== String(entry.depth + 1)) return true;
+  if ((node.style.getPropertyValue("--tree-depth") || "") !== String(entry.depth)) return true;
+  const name = node.querySelector(".tree-name");
+  if (!name || name.textContent !== entry.name) return true;
+  // 选中态**不参与**重建判据：它由 `selectTreeRow()` 直接维护（规格 §6 第 37 条：收尾不得重选树行），
+  // 拿状态值去纠正 DOM 只会把默认选中行擦掉。
+  if (entry.isDirectory && (node.getAttribute("aria-expanded") === "true") !== !!entry.expanded) return true;
+  return false;
+}
+
+/**
+ * 就地把项目树套用到 `live.tree`（规格 §7.1 第 7 条）。
+ *
+ * 未变化的行**保留原节点**（身份保持）：只有路径不存在的行才整行移除、新出现的行才新建，
+ * 顺序变化也只用 `insertBefore` 搬动原节点。大目录分批应用：每帧最多 `TREE_PATCH_CHUNK` 行，
+ * 期间列表已经可点、可滚、可折叠；新的套用请求递增代际，未插完的旧批次立即作废。
+ * 返回 true 表示这次刷新已由就地套用吸收（调用方跳过 `side` 的区域替换）。
+ */
+function patchProjectTree() {
+  const live = window.__augitLive;
+  if (!live || !layersAllowProjectTree(live)) return false;
+  const host = document.querySelector(".side-tool .side-content.tree");
+  if (!host || !Array.isArray(live.tree) || live.tree.length === 0) return false;
+  const desired = live.tree;
+  const existing = new Map();
+  for (const row of host.querySelectorAll(":scope > .tree-row")) {
+    existing.set(row.dataset.treePath, row);
+  }
+  // 形态校验：路径集合完全对不上（换过工作区、换了视图）时交给区域替换更安全。
+  if (existing.size > 0 && !desired.some((entry) => existing.has(entry.path))) return false;
+  const generation = ++treePatchGeneration;
+  // 选中判据必须与渲染层**同源**（`window.__augitTreeSelection` 由 `mockup.js` 的 `shell()` 公布）：
+  // 用户点过树行以 `live.treeSelectedPath` 为准，否则回落到当前文档路径，再回落到场景默认值。
+  // 已有行的选中态本来就由 `selectTreeRow()` 直接写在 DOM 上（这里不再比较/纠正它），
+  // 这个值只用于**新建/重建行**时补上选中类（第 295 轮全量实测：判据不一致会把默认选中行擦掉）。
+  const selected = live.treeSelectedPath
+    || (live.document ? live.document.path : null)
+    || window.__augitTreeSelection
+    || null;
+  const step = (offset) => {
+    if (generation !== treePatchGeneration) return;
+    const end = Math.min(offset + TREE_PATCH_CHUNK, desired.length);
+    for (let index = offset; index < end; index += 1) {
+      const entry = desired[index];
+      const reused = existing.get(entry.path) || null;
+      let node = reused;
+      if (reused) {
+        existing.delete(entry.path);
+        if (needsTreeRowUpdate(reused, entry, selected)) {
+          const fresh = buildTreeRow(entry, selected, live);
+          if (fresh) {
+            // 重建的行要把原来的选中态带过去（选中态不参与重建判据）。
+            if (reused.classList.contains("selected") && !fresh.classList.contains("selected")) {
+              fresh.classList.add("selected");
+              fresh.setAttribute("aria-selected", "true");
+            }
+            reused.replaceWith(fresh);
+            node = fresh;
+          }
+        }
+      } else {
+        node = buildTreeRow(entry, selected, live);
+      }
+      if (node && host.children[index] !== node) host.insertBefore(node, host.children[index] || null);
+    }
+    if (end < desired.length) {
+      requestAnimationFrame(() => step(end));
+      return;
+    }
+    // 收尾批：删掉不再存在的行 —— 只有新增/删除才做结构变动。
+    for (const node of existing.values()) node.remove();
+    if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
+  };
+  step(0);
+  return true;
 }
 
 /** 转义为可安全插入 HTML 的文本。 */

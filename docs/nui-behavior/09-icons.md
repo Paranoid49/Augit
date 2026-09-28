@@ -10797,3 +10797,55 @@ B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。
 
 实现 **T14**（树增量刷新：就地套用 + 重列已加载目录 + 分批插入）并把缺口断言反过来；
 其余 A 类队列只剩 §7.15 第 8（结束 ripgrep 进程）；B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。
+
+## nonaginta-quinquies. 第二百九十五轮：项目树增量刷新与就地套用（§7.1 第 7 条收口，关闭 T14）
+
+### 实现
+
+- `live-data.js` 新增 `refreshLoadedDirectories()`：只重列**展开集合**里的每一层（根 + `expandedPaths`，
+  未展开目录不递归读取），请求带代际 `treeListingGeneration`（晚到的旧批次整批丢弃、不写缓存不重建树），
+  并把已不存在的目录从展开集合里清掉。F5（`refreshFileTree()`）与外部目录变化
+  （`applyWorkspaceChanges`，`relative.length > 0`）都调它。
+- 新增 `patchProjectTree()`：按 `data-tree-path` **就地套用** `live.tree` ——
+  未变化的行保留原节点；只在名称/类型/层级/展开箭头/选中态真的变了时，才用同一份行模板重建该行；
+  顺序变化用 `insertBefore` 搬原节点；**只有新增/删除才做结构变动**（收尾批删多余行）。
+  每帧最多 `TREE_PATCH_CHUNK = 60` 行，未插完的下一帧继续；新的套用请求递增 `treePatchGeneration`
+  让未插完的旧批次立即作废。`refresh()` 里套用成功即跳过 `side` 的区域替换。
+- `mockup.js` 把行模板抽成 `liveTreeRowHtml(entry, selected, live)`，`liveProjectTree()` 与
+  `patchProjectTree()` 共用（两份副本字节一致）。
+
+### 实测（`scene=main-project` + `__treeOverrides`，展开 `docs`／`docs/api` 并选中 `docs/product-spec.md`）
+
+| 步骤 | 行数 | 新增/删除行 | 未变化行身份 | 展开/选择 |
+| --- | ---: | --- | --- | --- |
+| 前置 | 8 | — | — | `docs/api` 展开、选中 `docs/product-spec.md` |
+| F5（清单追加 `added-later.txt`） | 9 | 出现 | `sameSpec`／`sameApi`／`sameTree` 全 true | 保持 |
+| 推 `workspace-changed`（再追加 `added-external.txt`） | 10 | 出现 | 全 true | 保持 |
+| F5（清单删掉 `notes.txt`） | 9 | 消失 | 全 true | 保持 |
+
+`__statusCalls` 1 → 2 → 3 → 4（四次刷新都真的重读了 Git 状态）；三次刷新后都不出现 `big/**`、`src/**`
+（未展开目录不递归读取）。
+
+大目录：展开 200 项的 `big` 时 MutationObserver 记录 **4 批**（每帧 +60），点开后的**下一个宏任务里
+行数仍小于最终值**（这次套用没有独占主线程 ⇒ 期间可改选/滚动/折叠），最终 200 行全部就位且点一行
+就能选中（`live.treeSelectedPath` 落在 `big/bulk-*`）。
+
+### 新增断言（`live-shell`，2 条；第 294 轮的缺口钉住断言已按承诺反过来）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.1 F5 与外部目录变化增量更新已加载目录：新增/删除行随之出现或消失，未变化行与树节点保持身份，且不递归读取未展开目录` |
+| 2 | `§7.1 大目录分批应用：插入跨多帧推进，期间列表保持可交互` |
+
+### 验证
+
+- `live-shell` **`通过 1434 项断言`**（第 294 轮两条缺口断言被替换成本轮两条正式断言，总数不变），退出码 0。
+- 登记哈希：`live-data.js` `a48949e4…` → **`9c0322e2c499202abee9df8a5dab693e`**；
+  `mockup.js` `6008e272…` → **`7529feb7d60ab7b07111a6bf277c69e2`**；
+  `live-shell.spec.cjs` `de908ce0…` → **`7bbfc47f62942c56e5c68c301ed4fd06`**（同时把 §6 读取竞态的树断言按就地套用改判据）。
+- §7.1 第 7 条转 **是**，T14 关闭（§2.10：分母 15 → **14**、D 9 → **8**）。
+- 同批：`verify-ux-project-tree` 12/12、`mockup-scenes` 55/55、`verify-ui-assets` PASS、`git diff --check` 通过。
+
+### 下一轮
+
+A 类队列只剩 §7.15 第 8（结束 ripgrep 进程，宿主侧）；B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。

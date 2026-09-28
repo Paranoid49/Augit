@@ -2655,18 +2655,26 @@ function rail(active, gitUnavailableReason = "") {
     </nav>`;
 }
 
+/**
+ * 项目树一行的 HTML（实时树与"就地套用"共用同一份模板）。
+ *
+ * `live-data.js` 的 `patchProjectTree()` 需要单独造新行（只增删变化行、保留未变化行的节点），
+ * 因此把行模板抽成函数，避免两处各写一份后漂移。
+ */
+function liveTreeRowHtml(entry, selected, live) {
+  const depth = entry.depth === 0 ? "root-row" : `depth-${entry.depth}`;
+  const hasChildren = entry.isDirectory && entry.hasChildren;
+  const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
+  const expanded = entry.expanded ? "true" : "false";
+  // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
+  // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
+  // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
+  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+}
+
 // 外壳注入真实工作区数据时使用：结构与样例树一致，保证同一套 CSS 与交互绑定。
 function liveProjectTree(selected, live) {
-  const rows = live.tree.map((entry) => {
-    const depth = entry.depth === 0 ? "root-row" : `depth-${entry.depth}`;
-    const hasChildren = entry.isDirectory && entry.hasChildren;
-    const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
-    const expanded = entry.expanded ? "true" : "false";
-    // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
-    // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
-    // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
-    return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
-  }).join("");
+  const rows = live.tree.map((entry) => liveTreeRowHtml(entry, selected, live)).join("");
   return `
     <aside class="tool-window side-tool">
       <div class="tool-header"><span>项目</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="定位当前文件">${icon("locate-fixed")}</button><button class="icon-button" aria-label="折叠项目树">${icon("fold-vertical")}</button><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
@@ -4510,6 +4518,10 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (live) {
     const treeTarget = live.treeSelectedPath || (live.document ? live.document.path : null);
     if (treeTarget) selectedFile = treeTarget;
+    // 实时层的"就地套用"（`live-data.js` 的 `patchProjectTree()`）必须与渲染层用**同一个**选中判据，
+    // 否则新插入的行会少掉默认选中（`main-project` 的场景默认是 `product-spec.md`）。这里把最终值
+    // 公布出去，避免两边各写一份默认值后漂移（第 295 轮全量实测踩到）。
+    window.__augitTreeSelection = selectedFile;
   }
   // 规格 §6.7：普通文件读取尚未完成时（典型是"读取在途时打开比较、随后关闭比较"返回的普通标签），
   // 正文显示该文件的**读取占位**，不能退回"选择文件以查看内容"的无文档提示。

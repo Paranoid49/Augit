@@ -7699,35 +7699,45 @@ async function main() {
       await th.page.close();
     }
 
-    // ---- 第 294 轮：§7.1 第 7 条的"已实现的一半"补断言 + 缺口钉住（增量更新尚未实现，T14） ----
+    // ---- 第 294／295 轮（收 §7.1 第 7 条，关闭 T14）：项目树增量刷新 ----
     // 规格 §7.1：「F5 和外部目录变化都增量更新当前已加载的目录；未变化项及其展开子树保持身份，
-    // 只在新增或删除的行上做结构变动。大目录分批应用…旧任务不能恢复先前的展开和选择，也不能向
-    // 新工作区插入节点。尚未展开的目录不因 F5 递归读取。」
-    // 第 294 轮实测：**展开与选择按路径保留、Git 状态确实重读**这两半成立；但目录清单**从不重列**
-    //（`childrenByPath` 只在首屏与展开时写入，F5/外部变化都只重渲染缓存），行元素也在每次区域替换时
-    // 全部重建 ⇒ "增量更新""未变化项保持身份""大目录分批"三半**尚未实现**，登记 T14。
-    // 下面第二条断言**钉住缺口**（不是通过项）：实现 T14 时必须把它反过来写。
+    // 只在新增或删除的行上做结构变动。大目录分批应用，期间仍可改选、滚动、收起目录或切换工作区；
+    // 旧任务不能恢复先前的展开和选择，也不能向新工作区插入节点。尚未展开的目录不因 F5 递归读取。」
+    // 第 294 轮先实测出缺口（重列/身份/分批都没有）并登记 T14；第 295 轮按
+    // `refreshLoadedDirectories()`（只重列展开集合、带请求代际）＋ `patchProjectTree()`
+    //（按 `data-tree-path` 就地套用、每帧最多 60 行）实现，下面三条断言把每一半都钉住。
     {
       const t7 = await openScene('scene=main-project&theme=dark');
       await t7.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await t7.page.waitForTimeout(500);
-      await t7.page.evaluate(() => {
+      const t7Big = (count) => Array.from({ length: count }, (_, i) => ({
+        name: 'bulk-' + String(i).padStart(3, '0') + '.txt',
+        path: 'big/bulk-' + String(i).padStart(3, '0') + '.txt',
+        isDirectory: false,
+        canExpand: false,
+      }));
+      await t7.page.evaluate((big) => {
         window.__treeOverrides = {
+          '': [
+            { name: 'docs', path: 'docs', isDirectory: true, canExpand: true },
+            { name: 'big', path: 'big', isDirectory: true, canExpand: true },
+            { name: 'README.md', path: 'README.md', isDirectory: false, canExpand: false },
+          ],
           docs: [
             { name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false },
             { name: 'api', path: 'docs/api', isDirectory: true, canExpand: true },
             { name: 'notes.txt', path: 'docs/notes.txt', isDirectory: false, canExpand: false },
           ],
+          'docs/api': [{ name: 'schema.md', path: 'docs/api/schema.md', isDirectory: false, canExpand: false }],
+          big,
         };
-      });
+      }, t7Big(200));
       await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
       await t7.page.waitForFunction('document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/"]\').length === 3', null, { timeout: 10000 });
-      await t7.page.waitForTimeout(300);
-      // 展开一层子目录，再选中一个文件：刷新后展开与选择都要按路径保留
       await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/api"]').click();
-      await t7.page.waitForTimeout(400);
+      await t7.page.waitForFunction('!!document.querySelector(\'.side-content.tree .tree-row[data-tree-path="docs/api/schema.md"]\')', null, { timeout: 10000 });
       await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
-      await t7.page.waitForTimeout(250);
+      await t7.page.waitForTimeout(300);
       const t7Snap = () => t7.page.evaluate(() => {
         const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
         const byPath = {};
@@ -7740,8 +7750,8 @@ async function main() {
           sameApi: window.__apiRow === (byPath['docs/api'] || null),
           sameTree: window.__treeEl === (document.querySelector('.side-content.tree') || null),
           expandedApi: !!byPath['docs/api'],
+          nextAfterApi: rows.map((row) => row.dataset.treePath || null)[rows.indexOf(byPath['docs/api']) + 1] || null,
           selected: live.treeSelectedPath || null,
-          nextAfterApi: rows.map((row) => row.dataset.treePath || null).slice(rows.indexOf(byPath['docs/api']) + 1, rows.indexOf(byPath['docs/api']) + 2)[0] || null,
           statusCalls: window.__statusCalls || 0,
         };
       });
@@ -7752,44 +7762,94 @@ async function main() {
         window.__treeEl = document.querySelector('.side-content.tree');
       });
       const t7Before = await t7Snap();
+      // ① F5：目录内容变化被重列（新增行出现），未变化行保持节点身份
       await t7.page.evaluate(() => {
         window.__treeOverrides.docs = window.__treeOverrides.docs.concat([
           { name: 'added-later.txt', path: 'docs/added-later.txt', isDirectory: false, canExpand: false },
         ]);
       });
       await t7.page.keyboard.press('F5');
-      await t7.page.waitForTimeout(900);
+      await t7.page.waitForTimeout(1000);
       const t7AfterF5 = await t7Snap();
+      // ② 外部目录变化：同样重列
       await t7.page.evaluate(() => {
         window.__treeOverrides.docs = window.__treeOverrides.docs.concat([
           { name: 'added-external.txt', path: 'docs/added-external.txt', isDirectory: false, canExpand: false },
         ]);
         window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\added-external.txt'], gitMetadata: false });
       });
-      await t7.page.waitForTimeout(1200);
+      await t7.page.waitForTimeout(1400);
       const t7AfterPush = await t7Snap();
-      check('§7.1 F5 与外部目录变化保留展开与选择（按路径）、重读 Git 状态且不递归读取未展开目录: '
-        + JSON.stringify({ t7Before, t7AfterF5, t7AfterPush }),
+      // ③ 删除：行被移除，其余行身份保持
+      await t7.page.evaluate(() => {
+        window.__treeOverrides.docs = window.__treeOverrides.docs.filter((entry) => entry.path !== 'docs/notes.txt');
+      });
+      await t7.page.keyboard.press('F5');
+      await t7.page.waitForTimeout(1000);
+      const t7AfterRemove = await t7Snap();
+      check('§7.1 F5 与外部目录变化增量更新已加载目录：新增/删除行随之出现或消失，未变化行与树节点保持身份，且不递归读取未展开目录: '
+        + JSON.stringify({ t7Before, t7AfterF5, t7AfterPush, t7AfterRemove }),
       // 前置：docs/api 已展开（紧接着是它的子项）、选中了一个文件
       t7Before.expandedApi === true && t7Before.nextAfterApi === 'docs/api/schema.md'
         && t7Before.selected === 'docs/product-spec.md'
-        // F5 与外部变化后：展开层级、选择、行集合与"未展开目录不递归读取"都保持
-        && t7AfterF5.expandedApi === true && t7AfterF5.selected === 'docs/product-spec.md'
-        && JSON.stringify(t7AfterF5.paths) === JSON.stringify(t7Before.paths)
-        && !t7AfterF5.paths.includes('src/main.cs')
+        // F5 后：新增行出现、未变化行与树容器**身份未变**、展开与选择保持、未展开目录没有子行冒出来
+        && t7AfterF5.paths.includes('docs/added-later.txt') && t7AfterF5.rows === t7Before.rows + 1
+        && t7AfterF5.sameSpec === true && t7AfterF5.sameApi === true && t7AfterF5.sameTree === true
+        && t7AfterF5.expandedApi === true && t7AfterF5.nextAfterApi === 'docs/api/schema.md'
+        && t7AfterF5.selected === 'docs/product-spec.md'
+        && !t7AfterF5.paths.some((path) => path.startsWith('big/') || path.startsWith('src/'))
+        // 外部变化后：第二个新增行出现，身份仍然保持
+        && t7AfterPush.paths.includes('docs/added-external.txt') && t7AfterPush.rows === t7Before.rows + 2
+        && t7AfterPush.sameSpec === true && t7AfterPush.sameApi === true && t7AfterPush.sameTree === true
         && t7AfterPush.expandedApi === true && t7AfterPush.selected === 'docs/product-spec.md'
-        && JSON.stringify(t7AfterPush.paths) === JSON.stringify(t7Before.paths)
-        // 两次刷新都真的重读了 Git 状态（F5 的刷新语义没有整条失效）
-        && t7AfterF5.statusCalls > t7Before.statusCalls && t7AfterPush.statusCalls > t7AfterF5.statusCalls);
-      check('§7.1 缺口钉住：F5 与外部目录变化目前不会重新列举已加载目录，行元素也在刷新时全部重建（T14）: '
-        + JSON.stringify({ t7AfterF5, t7AfterPush }),
-      // **缺口**：新增文件没出现（目录清单来自 `childrenByPath` 缓存，从不重列）
-      !t7AfterF5.paths.includes('docs/added-later.txt')
-        && !t7AfterPush.paths.includes('docs/added-external.txt')
-        // **缺口**：未变化项与树容器都换了新节点（没有增量套用/身份保持）
-        && t7AfterF5.sameSpec === false && t7AfterF5.sameApi === false && t7AfterF5.sameTree === false
-        // 对照：同一份内容在两次刷新之间确实被重新渲染过（不是"什么都没发生"空过）
-        && t7AfterF5.rows === t7Before.rows && t7AfterPush.rows === t7Before.rows);
+        // 删除后：行消失、其余行身份保持、展开与选择不受影响
+        && !t7AfterRemove.paths.includes('docs/notes.txt') && t7AfterRemove.rows === t7Before.rows + 1
+        && t7AfterRemove.sameSpec === true && t7AfterRemove.sameApi === true && t7AfterRemove.sameTree === true
+        && t7AfterRemove.expandedApi === true && t7AfterRemove.selected === 'docs/product-spec.md'
+        // 四次刷新都真的重读了 Git 状态
+        && t7AfterF5.statusCalls > t7Before.statusCalls && t7AfterPush.statusCalls > t7AfterF5.statusCalls
+        && t7AfterRemove.statusCalls > t7AfterPush.statusCalls);
+
+      // ④ 大目录分批应用：展开 200 项，插入跨多帧推进，期间列表可交互
+      const t7Batching = await t7.page.evaluate(async () => {
+        const tree = document.querySelector('.side-content.tree');
+        const preRows = tree.querySelectorAll(':scope > .tree-row').length;
+        const batches = [];
+        const observer = new MutationObserver(() => {
+          batches.push(tree.querySelectorAll(':scope > .tree-row').length);
+        });
+        observer.observe(tree, { childList: true });
+        const row = tree.querySelector('.tree-row[data-tree-path="big"]');
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        // 下一个宏任务时列表还没插完 ⇒ 主线程没有被这一次应用独占（期间可改选/滚动/折叠）
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const rowsAtNextTask = tree.querySelectorAll(':scope > .tree-row').length;
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        observer.disconnect();
+        const finalRows = tree.querySelectorAll(':scope > .tree-row').length;
+        // 分批期间/之后列表都能用：点一行就选中
+        const anyBulk = tree.querySelector('.tree-row[data-tree-path^="big/bulk-"]');
+        if (anyBulk) anyBulk.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return {
+          batches,
+          preRows,
+          batchCount: batches.length,
+          firstBatchRows: batches[0] || 0,
+          rowsAtNextTask,
+          finalRows,
+          bulkRows: tree.querySelectorAll('.tree-row[data-tree-path^="big/bulk-"]').length,
+          selected: (window.__augitLive || {}).treeSelectedPath || null,
+        };
+      });
+      check('§7.1 大目录分批应用：插入跨多帧推进，期间列表保持可交互: ' + JSON.stringify(t7Batching),
+      // 200 项分 4 帧插入（每帧 60 行），第一批明显小于最终行数
+      t7Batching.batchCount >= 2 && t7Batching.firstBatchRows < t7Batching.finalRows
+        // 点开后的下一个宏任务里还没插完 ⇒ 这次套用没有独占主线程
+        && t7Batching.rowsAtNextTask < t7Batching.finalRows
+        // 最终 200 行全部就位，且分批后的行仍可用（点一行就选中）
+        && t7Batching.bulkRows === 200 && t7Batching.finalRows === t7Batching.preRows + 200
+        && (t7Batching.selected || '').startsWith('big/bulk-'));
       await t7.page.close();
     }
 
@@ -23944,6 +24004,7 @@ async function main() {
           treeScrollTop: tree ? Math.round(tree.scrollTop) : null,
           treeScrollable: !!window.__treeScrollable,
           sameTree: window.__treeNode ? window.__treeNode === document.querySelector('.side-content.tree') : null,
+          sameSelectedRow: window.__selectedRow ? window.__selectedRow === selected : null,
           active: active ? (active.getAttribute('aria-label') || active.className || active.tagName) : null,
           activeTreePath: (() => {
             const row = active && active.closest ? active.closest('.side-content.tree .tree-row') : null;
@@ -23968,6 +24029,7 @@ async function main() {
       const reading = await snap();
       await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').first().click();
       await page.evaluate(() => {
+        window.__selectedRow = document.querySelector('.side-content.tree .tree-row.selected');
         const tree = document.querySelector('.side-content.tree');
         if (tree) {
           tree.scrollTop = 60;
@@ -24018,19 +24080,22 @@ async function main() {
       && readRaces.afterRead.docPath === 'docs/notes.txt' && readRaces.afterRead.editor === 'text'
       && readRaces.afterRead.tabs.includes('document:docs/notes.txt')
       && readRaces.afterRead.contentChars > 20 && readRaces.afterRead.pending === null);
-    // §6 第 37 条余下两半（第 271 轮）：收尾**换了整棵树**（`sameTree:false`），但滚动位置与
-    // 树内焦点都必须跨越重绘保留。`sameTree === false` 是必要条件：否则"位置没变"可能只是因为
-    // 根本没发生重绘，断言就成了空断言。
+    // §6 第 37 条余下两半（第 271 轮立，第 295 轮改判据）：收尾时滚动位置与树内焦点都必须保留。
+    // 第 271 轮当时收尾会**换掉整棵树**（`sameTree:false`），那是最难的形态；第 295 轮起项目树
+    // 改为**就地套用**（规格 §7.1 第 7 条），树与未变化的行都不再换节点 ⇒ 判据改成"树与选中行
+    // 都保持身份、滚动与焦点也保持"，比原来更强；"收尾确实发生过"由同一批里的读完成事实
+    // （`afterRead.docPath`／`editor`／`tabs`）保证，不是空断言。
     check('§6 异步读取收尾保持项目树滚动位置与树内焦点: '
       + JSON.stringify([readRaces.duringUser.treeCanScroll, readRaces.duringUser.treeScrollTop,
         readRaces.afterRead.treeScrollTop, readRaces.duringUser.activeTreePath,
-        readRaces.afterRead.activeTreePath, readRaces.afterRead.sameTree]),
+        readRaces.afterRead.activeTreePath, readRaces.afterRead.sameTree, readRaces.afterRead.sameSelectedRow]),
     readRaces.errors.length === 0
       // 前置：树真的溢出、用户真的滚动到了非零位置，且把焦点放在选中的树行上
       && readRaces.duringUser.treeCanScroll === true && readRaces.duringUser.treeScrollTop > 0
       && readRaces.duringUser.activeTreePath === readRaces.duringUser.selectedTreePath
-      // 收尾确实替换了整棵树（否则下面的"保持"无从谈起）
-      && readRaces.afterRead.sameTree === false
+      // 收尾确实跑过（文件读完成并显示），且树与选中行**都是原节点**（就地套用）
+      && readRaces.afterRead.docPath === 'docs/notes.txt' && readRaces.afterRead.editor === 'text'
+      && readRaces.afterRead.sameTree === true && readRaces.afterRead.sameSelectedRow === true
       // 滚动位置保持（修前 60 → 0）
       && readRaces.afterRead.treeScrollTop === readRaces.duringUser.treeScrollTop
       // 焦点回到同一行（修前掉到 BODY）
