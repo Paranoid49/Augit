@@ -584,6 +584,10 @@ async function main() {
         // 而按路径注入会让新旧两个请求一样慢 ⇒ 旧响应反而先到，"晚到覆盖"根本观察不到。
         const commitDiffDelay = (window.__diffCommitDelays || {})[params.commit];
         if (commitDiffDelay) await new Promise((r) => setTimeout(r, commitDiffDelay));
+        // 第 302 轮：让指定提交的 `git/diff` **直接失败**，用于验证"预览失败后再次选择同一提交
+        // 可以重试"（键可以是提交哈希，值 `true` 用默认文案）。
+        const commitDiffFailure = (window.__diffFailCommits || {})[params.commit];
+        if (commitDiffFailure) throw new Error(commitDiffFailure === true ? '注入的 git/diff 失败' : String(commitDiffFailure));
         // 支持注入"最终说明"类结果（规格 §6.5：二进制、超限、无文本差异和错误的
         // 最终说明必须持续可见，不能被加载指示的收尾隐藏）。
         if (window.__diffStatusOverride) {
@@ -23417,6 +23421,170 @@ async function main() {
       && fhTrailLabels.slice(10, 13).some((label) => typeof label === 'string' && label.startsWith('history-row'))
       // 全程不进入上方文档正文（`.editor-content`）
       && fhTrailRegions.every((region) => region !== 'editor'));
+
+    // ---- 第 302 轮补断言（收 §7.9 第 5 条余下三半）：折叠取消与重显补查、失败可重试、相同快照不改位置 ----
+    // 规格 §7.9 第五条：「文件历史预览按提交与路径复用查询；相同快照不重写正文/不改位置；
+    // 改选立即取消旧预览；隐藏/清除/销毁取消未完成查询且晚到不覆盖」。
+    // 第 257 轮已断言"复用查询／改选立即取消／清除释放"，第 259 轮已断言详情隐藏的阅读位置；
+    // 本轮补余下三半，并**先测出缺陷再改**：请求抛错（预览失败）此前也会把 `ready` 置真，
+    // 于是"再次选择同一提交"命中"相同快照"分支直接返回，永远无法重试。
+    const fhLifecycle = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.addInitScript(() => {
+        const rows = [{ oldLine: 1, oldText: '// head', oldChanges: [], newLine: 1, newText: '// head', newChanges: [], kind: 'Context' }];
+        for (let i = 2; i <= 120; i += 1) {
+          rows.push({ oldLine: i, oldText: 'line ' + i, oldChanges: [], newLine: i, newText: 'line ' + i, newChanges: [], kind: 'Context' });
+        }
+        rows.push({ oldLine: 121, oldText: 'old tail', oldChanges: [{ start: 0, length: 3 }], newLine: 121, newText: 'new tail', newChanges: [{ start: 0, length: 3 }], kind: 'Modified' });
+        window.__commitDiffRows = rows;
+      });
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
+      await page.waitForTimeout(600);
+      await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
+      await page.waitForTimeout(500);
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-code-line', { timeout: 15000 });
+      await page.waitForTimeout(700);
+      const readPreview = () => page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const line = pane ? pane.querySelector('.diff-code-line') : null;
+        let node = line ? line.parentElement : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+          if (node.scrollHeight > node.clientHeight + 1) break;
+          node = node.parentElement;
+        }
+        const preview = window.__augitLive.fileHistoryPreview || null;
+        return {
+          found: !!node,
+          top: node ? Math.round(node.scrollTop) : null,
+          max: node ? node.scrollHeight - node.clientHeight : null,
+          commit: preview ? preview.commit : null,
+          loading: preview ? !!preview.loading : null,
+          ready: preview ? !!preview.ready : null,
+          hasDiff: !!(preview && preview.diff),
+          diffCalls: (window.__diffCalls || []).length,
+          collapsed: (window.__augitLive.layout || {}).collapsed || null,
+          bottomTool: !!document.querySelector('.bottom-tool'),
+          paneDisplay: pane ? getComputedStyle(pane).display : null,
+          error: window.__augitError || null,
+        };
+      });
+      const railButton = page.locator('.tool-rail .rail-button[aria-label="Git 历史"]');
+      // ① 相同快照重复选择：不重写正文（节点身份）、不改阅读位置、不重查
+      await page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const line = pane.querySelector('.diff-code-line');
+        let node = line.parentElement;
+        while (node && node !== document.body && node !== document.documentElement) {
+          if (node.scrollHeight > node.clientHeight + 1) break;
+          node = node.parentElement;
+        }
+        node.scrollTop = 260;
+        window.__paneNode302 = node;
+        window.__paneLayout302 = pane.querySelector('.diff-layout');
+      });
+      await page.waitForTimeout(200);
+      const scrolled = await readPreview();
+      await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+      await page.waitForTimeout(450);
+      const sameSnapshot = await page.evaluate(() => {
+        const pane = document.querySelector('[data-live-file-history-pane="preview"]');
+        const line = pane ? pane.querySelector('.diff-code-line') : null;
+        let node = line ? line.parentElement : null;
+        while (node && node !== document.body && node !== document.documentElement) {
+          if (node.scrollHeight > node.clientHeight + 1) break;
+          node = node.parentElement;
+        }
+        return {
+          sameNode: window.__paneNode302 === node,
+          sameLayout: window.__paneLayout302 === pane.querySelector('.diff-layout'),
+          top: node ? Math.round(node.scrollTop) : null,
+          diffCalls: (window.__diffCalls || []).length,
+        };
+      });
+      // ② 折叠底部工具窗：在途查询被取消、晚到不回写；重新展开按当前选择补查
+      await page.evaluate(() => { window.__diffCommitDelays = { 'full-aaa': 1500 }; });
+      await page.locator('.history-rows .history-row[data-history-full]').nth(1).click();
+      await page.waitForFunction("(() => { const p = window.__augitLive.fileHistoryPreview || {}; return p.commit === 'full-aaa' && p.loading === true; })()", null, { timeout: 8000 });
+      const inFlight = await readPreview();
+      await railButton.click();
+      await page.waitForTimeout(400);
+      const collapsed = await readPreview();
+      await page.evaluate(() => { window.__diffCommitDelays = {}; });
+      await page.waitForTimeout(1700);
+      const afterLate = await readPreview();
+      const callsBeforeReopen = afterLate.diffCalls;
+      await railButton.click();
+      await page.waitForFunction("(() => { const p = window.__augitLive.fileHistoryPreview || {}; return p.commit === 'full-aaa' && p.ready === true && !!p.diff; })()", null, { timeout: 10000 });
+      await page.waitForTimeout(400);
+      const reopened = await readPreview();
+      // ③ 失败后再次选择同一提交可以重试（失败不得被当成就绪）
+      await page.evaluate(() => { window.__diffFailCommits = { 'full-bbb': '注入的 git/diff 失败' }; });
+      await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+      await page.waitForFunction("(() => { const p = window.__augitLive.fileHistoryPreview || {}; return p.commit === 'full-bbb' && p.loading === false; })()", null, { timeout: 10000 });
+      await page.waitForTimeout(300);
+      const failed = await readPreview();
+      await page.evaluate(() => { window.__diffFailCommits = {}; });
+      // **直接再次选择同一条**（不切走）：失败态不得被当成就绪，否则会命中"相同快照"提前返回
+      const callsBeforeRetry = await page.evaluate(() => (window.__diffCalls || []).length);
+      await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+      await page.waitForTimeout(1200);
+      const retried = await readPreview();
+      // 负向验证：把失败态手工标成"已就绪"（= 修复前的语义）⇒ 再次选择同一提交不再重查
+      const callsBeforeNegative = await page.evaluate(() => (window.__diffCalls || []).length);
+      await page.evaluate(() => {
+        const preview = window.__augitLive.fileHistoryPreview;
+        window.__augitLive.fileHistoryPreview = Object.assign({}, preview, { ready: true, diff: null, loading: false });
+      });
+      await page.locator('.history-rows .history-row[data-history-full]').nth(0).click();
+      await page.waitForTimeout(600);
+      const negative = await readPreview();
+      await page.close();
+      console.log('INFO 文件历史生命周期=' + JSON.stringify({ scrolled, sameSnapshot, inFlight, collapsed, afterLate, reopened, failed, retried, callsBeforeRetry, negative, errors }));
+      return { scrolled, sameSnapshot, inFlight, collapsed, afterLate, callsBeforeReopen, reopened, failed, callsBeforeRetry, retried, callsBeforeNegative, negative, errors };
+    })();
+    check('§7.9 相同快照重复选择不重写正文也不改变阅读位置: '
+      + JSON.stringify([fhLifecycle.scrolled, fhLifecycle.sameSnapshot]),
+    fhLifecycle.errors.length === 0
+      // 前置：正文真的能滚、真的滚到了 260
+      && fhLifecycle.scrolled.found === true && fhLifecycle.scrolled.max > 260 && fhLifecycle.scrolled.top === 260
+      // 重复选择同一提交：同一个滚动容器与同一份正文（节点身份不变）、位置逐值保持、不重查
+      && fhLifecycle.sameSnapshot.sameNode === true && fhLifecycle.sameSnapshot.sameLayout === true
+      && fhLifecycle.sameSnapshot.top === 260
+      && fhLifecycle.sameSnapshot.diffCalls === fhLifecycle.scrolled.diffCalls);
+    check('§7.9 折叠工具窗口取消未完成的预览查询、晚到不回写；重新展开按当前选择补查: '
+      + JSON.stringify({ inFlight: fhLifecycle.inFlight, collapsed: fhLifecycle.collapsed, afterLate: fhLifecycle.afterLate, reopened: fhLifecycle.reopened, callsBeforeReopen: fhLifecycle.callsBeforeReopen }),
+    // 前置：真的有一个在途查询（否则"取消"是空断言）
+    fhLifecycle.inFlight.loading === true && fhLifecycle.inFlight.commit === 'full-aaa'
+      && fhLifecycle.inFlight.hasDiff === false
+      // 折叠：底部工具窗收起、预览状态被释放
+      && fhLifecycle.collapsed.collapsed === 'bottom' && fhLifecycle.collapsed.bottomTool === false
+      && fhLifecycle.collapsed.commit === null
+      // 越过注入延迟：晚到响应不得回写（状态仍是释放后的 null）
+      && fhLifecycle.afterLate.commit === null
+      // 重新展开：按当前选择（full-aaa）真的补查一次并重新就绪
+      && fhLifecycle.reopened.commit === 'full-aaa' && fhLifecycle.reopened.ready === true
+      && fhLifecycle.reopened.hasDiff === true
+      && fhLifecycle.reopened.diffCalls > fhLifecycle.callsBeforeReopen
+      && fhLifecycle.reopened.collapsed === null && fhLifecycle.reopened.bottomTool === true);
+    check('§7.9 预览失败后再次选择同一提交可以重试（失败不得被当成就绪）: '
+      + JSON.stringify({ failed: fhLifecycle.failed, retried: fhLifecycle.retried, callsBeforeRetry: fhLifecycle.callsBeforeRetry, callsBeforeNegative: fhLifecycle.callsBeforeNegative, negative: fhLifecycle.negative }),
+    // 失败态如实记录：不就绪、无补丁、原因写进状态
+    fhLifecycle.failed.commit === 'full-bbb' && fhLifecycle.failed.loading === false
+      && fhLifecycle.failed.ready === false && fhLifecycle.failed.hasDiff === false
+      && /load-file-history-preview/.test(fhLifecycle.failed.error || '')
+      // 再次选择同一提交：真的重查并成功就绪
+      && fhLifecycle.retried.commit === 'full-bbb' && fhLifecycle.retried.ready === true
+      && fhLifecycle.retried.hasDiff === true
+      && fhLifecycle.retried.diffCalls > fhLifecycle.callsBeforeRetry
+      // 负向验证：把失败态标成"已就绪"（修复前的语义）⇒ 同一提交不再重查
+      && fhLifecycle.negative.ready === true && fhLifecycle.negative.hasDiff === false
+      && fhLifecycle.negative.diffCalls === fhLifecycle.callsBeforeNegative);
 
     // ---- 第 260 轮：比较区正文是可聚焦的正文位置（§7.9 第七/十九条）----
     const diffBodyFocus = await (async () => {

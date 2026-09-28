@@ -2428,9 +2428,11 @@ async function loadFileHistoryPreview(options = {}) {
     fileHistoryPreviewRequests.set(key, pending);
   }
   let diff = null;
+  let failed = false;
   try {
     diff = await pending;
   } catch (error) {
+    failed = true;
     if (token === fileHistoryPreviewToken) {
       window.__augitError = "load-file-history-preview:" + String(error && error.message || error);
     }
@@ -2444,7 +2446,10 @@ async function loadFileHistoryPreview(options = {}) {
     && Array.isArray(diff.rows);
   const value = valid ? diff : null;
   if (value) fileHistoryPreviewPatches.set(key, value);
-  live.fileHistoryPreview = { ...parts, key, loading: false, ready: true, diff: value };
+  // 请求**抛错**时不标记就绪：否则再次选择同一提交会命中上面的"相同快照"提前返回，
+  // 永远无法重试（规格 §7.9 第五条要求失败后可重试）。拿到应答（含 `available:false`
+  // 这类带状态说明的结果）仍算就绪 —— 那一份不必重复查询。
+  live.fileHistoryPreview = { ...parts, key, loading: false, ready: !failed, diff: value };
   applyFileHistoryPreview();
   return value;
 }

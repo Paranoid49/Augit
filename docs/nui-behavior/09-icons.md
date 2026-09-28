@@ -11166,3 +11166,64 @@ B 类只剩 §7.5 第 8（已登记"无法取证"待用户口径）；D 类 7 �
 B 类只剩 §7.5 第 8（待用户口径）；D 类 5 项里 §7.4 第 2 条（JSON 双段式的原文图形有权威
 `general/editorOnly.svg`、"格式化"图形无同场景权威）可先把有权威的一半钉死，无权威的一半
 按纪律登记为"无法取证（需用户认可）"。
+
+## nonaginta-secundum. 第三百零二轮：文件历史预览的隐藏取消、重显补查与失败重试（§7.9 第 5 条收口）
+
+### 规格
+
+`ux-spec.md`（§7.9 第五条）：「文件历史预览按提交与路径复用查询；相同快照不重写正文/不改位置；
+改选立即取消旧预览；隐藏/清除/销毁取消未完成查询且晚到不覆盖。」
+
+第 257 轮已断言"复用查询／改选立即取消／清除释放"，第 259 轮已断言详情隐藏的阅读位置；
+本轮补余下三半。
+
+### 缺陷：失败被当成就绪 ⇒ 永远无法重试
+
+`loadFileHistoryPreview()` 的收尾原先无条件写 `ready: true`：
+
+```js
+try { diff = await pending; } catch (error) { window.__augitError = '…'; }
+…
+live.fileHistoryPreview = { ...parts, key, loading: false, ready: true, diff: value };
+```
+
+而"相同快照"的提前返回判据是 `previous.ready` ⇒ 请求抛错后 `ready` 仍为真，再次点击同一条提交
+直接返回，**不重发查询**。负向实测：手工把失败态标成已就绪后 `git/diff` 调用数不再增长。
+
+修法：把"请求抛错"与"拿到应答"分开（拿到 `available:false` 这类带状态说明的结果仍算就绪，
+不必重复查询）：
+
+```js
+let failed = false;
+try { diff = await pending; } catch (error) { failed = true; … }
+…
+live.fileHistoryPreview = { ...parts, key, loading: false, ready: !failed, diff: value };
+```
+
+### 覆盖的三半与判据
+
+| # | 断言 | 关键实测 |
+| --- | --- | --- |
+| 1 | `§7.9 相同快照重复选择不重写正文也不改变阅读位置` | 长提交差异（121 行，`max 4466`）滚到 260 后重复点同一条：滚动容器与 `.diff-layout` 节点身份不变、`scrollTop` 仍 260、`git/diff` 调用数不变 |
+| 2 | `§7.9 折叠工具窗口取消未完成的预览查询、晚到不回写；重新展开按当前选择补查` | 改选慢提交（`__diffCommitDelays` 1.5s）确认在途（`loading:true`、`hasDiff:false`）→ 真实点击 rail 的「Git 历史」折叠（`collapsed:'bottom'`、`.bottom-tool` 消失、状态被 `releaseFileHistoryPreview()` 释放为 null）→ 越过延迟仍是 null → 再次点击重新展开 ⇒ 补查一次（调用数 +1）并重新就绪 |
+| 3 | `§7.9 预览失败后再次选择同一提交可以重试（失败不得被当成就绪）` | 新桩旋钮 `__diffFailCommits` 让 `full-bbb` 的 `git/diff` 抛错：失败态 `ready:false`／`diff:null`／`__augitError` 含 `load-file-history-preview:`；清掉旋钮后**直接再点同一条**真的重查（调用数 +1）并成功就绪 |
+
+### 负向验证
+
+把 `ready: !failed` 改回 `ready: true`（其余不动）⇒ 第 3 条断言失败（`failed.ready === true`）；
+块内另有一处负向：手工把失败态标成已就绪 ⇒ 同一提交不再重查（`diffCalls` 不变、`hasDiff:false`）。
+
+### 验证
+
+- `live-shell` **`通过 1447 项断言`**（1444 → **+3**），退出码 0。
+- 登记哈希：`live-data.js` `b58ccc99…` → **`a1a88a0b1eac1acb3592e86024eb7015`**；
+  `live-shell.spec.cjs` `fe6c2430…` → **`9e219764dfc09f73500414e7ee479b06`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`markdown.js`／`image-preview.js` 未变。
+- §7.9 第 5 条转 **是**（§2.10：分母 7 → **6**、D 5 → **4**）。
+- 同批：`verify-ux-file-history` 26 组、`verify-ux-history-details` 16 组、`mockup-scenes` 55/55、
+  `verify-ui-assets` PASS、`check-doc-claims` OK、`gen-clause-conclusions` 幂等、`git diff --check` 通过。
+
+### 下一轮
+
+D 类 4 项：§7.4 第 2 条（图形，剩"格式化"无权威半条）、§7.7 第 11 条（T10 中间栏连接区，需产品口径）、
+§9 事件合并成一次查询、§9 等待 Git 停止后再读真实状态。后两项不需要产品裁决，可先收口。
