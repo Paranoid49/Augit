@@ -3791,6 +3791,167 @@ async function main() {
     check('§7.4 JSON 用例无脚本错误: ' + JSON.stringify(jsonMode.errors.slice(0, 2)), jsonMode.errors.length === 0);
     await jsonMode.page.close();
 
+    // ---- 第 297 轮补断言（收 §7.3 第 3 条）：模式控件三个图形的形状复原 + 只有当前按钮的内缩选中底 ----
+    // 规格 §7.3（`ux-spec.md:362`）：「原文为四条横线，对照为左侧短横线加右侧窄圆角框，预览为圆角图片框。
+    // 只有当前按钮显示内缩选中底色，整组不增加外框。」`design-system.md:513` 把内缩量写成 2px、圆角约 5px。
+    // 此前的证据只有像素基线（`markdown-preview` 1.42），本轮把"图形形状"与"选中底样式取值"都变成可复跑断言。
+    {
+      const mg = await openScene('scene=main-project&theme=dark');
+      await mg.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await mg.page.waitForTimeout(400);
+      await mg.page.evaluate(async () => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/geom.md'] = {
+          path: 'docs/geom.md', name: 'geom.md', fullPath: 'D:\ws\docs\geom.md', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Markdown', typeName: 'Markdown', fileSize: 12,
+          text: '# 几何\n\n正文。', lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        window.__limitDocs['geom.json'] = {
+          path: 'geom.json', name: 'geom.json', fullPath: 'D:\ws\geom.json', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Json', typeName: 'JSON', fileSize: 8,
+          text: '{"a":1}', formatted: '{\n  "a": 1\n}', lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        await window.__augitOpenDocument('docs/geom.md');
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+      const mgRead = (selector) => mg.page.evaluate((sel) => {
+        const view = document.querySelector(sel);
+        const group = view.querySelector('.document-modes');
+        const segments = [...group.querySelectorAll('.segment')];
+        const glyphs = segments.map((segment) => {
+          const svg = segment.querySelector('svg');
+          return {
+            label: segment.getAttribute('aria-label'),
+            active: segment.classList.contains('active'),
+            paths: [...(svg ? svg.querySelectorAll('path') : [])].map((node) => node.getAttribute('d')),
+            rects: [...(svg ? svg.querySelectorAll('rect') : [])].map((node) => ({
+              x: Number(node.getAttribute('x')), y: Number(node.getAttribute('y')),
+              w: Number(node.getAttribute('width')), h: Number(node.getAttribute('height')),
+              rx: Number(node.getAttribute('rx')),
+            })),
+            circles: [...(svg ? svg.querySelectorAll('circle') : [])].map((node) => ({
+              cx: Number(node.getAttribute('cx')), cy: Number(node.getAttribute('cy')), r: Number(node.getAttribute('r')),
+            })),
+          };
+        });
+        const surface = segments.map((segment) => {
+          const style = getComputedStyle(segment, '::before');
+          return {
+            label: segment.getAttribute('aria-label'),
+            active: segment.classList.contains('active'),
+            drawn: style.content !== 'none',
+            background: style.backgroundColor,
+            top: style.top,
+            left: style.left,
+            radius: style.borderRadius,
+          };
+        });
+        const groupStyle = getComputedStyle(group);
+        return {
+          group: {
+            borderWidths: [groupStyle.borderTopWidth, groupStyle.borderRightWidth, groupStyle.borderBottomWidth, groupStyle.borderLeftWidth],
+            borderStyle: groupStyle.borderTopStyle,
+            boxShadow: groupStyle.boxShadow,
+          },
+          glyphs,
+          surface,
+        };
+      }, selector);
+      const mgSource = await mgRead('.markdown-document');
+      await mg.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+      await mg.page.waitForTimeout(250);
+      const mgSplit = await mgRead('.markdown-document');
+      await mg.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+      await mg.page.waitForTimeout(250);
+      const mgPreview = await mgRead('.markdown-document');
+
+      // 图形的"语义"判据（而不是逐字比对 markdown 字符串）：横线条数、左右分布、圆角与圆点/山形。
+      const horizontalLines = (d, maxX) => (d.match(new RegExp(`M[\\d.]+ [\\d.]+[hH]${maxX}`, 'g')) || []).length;
+      const mgSourceGlyph = mgSource.glyphs.find((glyph) => glyph.label === '原文');
+      const mgSplitGlyph = mgSplit.glyphs.find((glyph) => glyph.label === '左右对照');
+      const mgPreviewGlyph = mgPreview.glyphs.find((glyph) => glyph.label === '预览');
+      const mgSourceYs = (mgSourceGlyph.paths[0].match(/M3 ([\d.]+)/g) || []).map((token) => token.slice(3));
+      check('§7.3 模式控件三个图形按规格描述复原（四条横线／左横线+右窄圆角框／圆角框+圆点+山形）: '
+        + JSON.stringify({ mgSourceGlyph, mgSplitGlyph, mgPreviewGlyph }),
+      // 原文：一条路径、四条**等长**横线（x 3→13），y 等距递增，没有矩形/圆
+      mgSourceGlyph.paths.length === 1 && mgSourceGlyph.rects.length === 0 && mgSourceGlyph.circles.length === 0
+        && horizontalLines(mgSourceGlyph.paths[0], 10) === 4
+        && mgSourceYs.length === 4 && mgSourceYs.join(',') === '3.5,6.5,9.5,12.5'
+        // 对照：左侧四条**短**横线（长度 4.5）＋右侧一个窄的圆角框（rx > 0），框在横线右边
+        && mgSplitGlyph.rects.length === 1 && mgSplitGlyph.circles.length === 0
+        && horizontalLines(mgSplitGlyph.paths[0], 6) === 4
+        && mgSplitGlyph.rects[0].rx > 0 && mgSplitGlyph.rects[0].h > mgSplitGlyph.rects[0].w
+        && mgSplitGlyph.rects[0].x >= 6
+        // 预览：一个圆角框＋一个圆点（右下在框内）＋一条两点折线当"山形"
+        && mgPreviewGlyph.rects.length === 1 && mgPreviewGlyph.rects[0].rx > 0
+        && mgPreviewGlyph.circles.length === 1 && mgPreviewGlyph.paths.length === 1
+        && (mgPreviewGlyph.paths[0].match(/-?[\d.]+/g) || []).length >= 4);
+
+      // 选中底：只有当前按钮画内缩 2px、圆角 5px 的面；整组四个方向的边框都是 0、无阴影
+      const mgSurfaceStates = [mgSource, mgSplit, mgPreview];
+      const mgSurfaceOk = (state) => {
+        const drawn = state.surface.filter((item) => item.drawn);
+        const activeSurface = state.surface.find((item) => item.active);
+        return state.group.borderWidths.every((width) => width === '0px') && state.group.borderStyle === 'none'
+          && state.group.boxShadow === 'none'
+          && drawn.length === 1 && activeSurface && activeSurface.drawn === true
+          && activeSurface.top === '2px' && activeSurface.left === '2px' && activeSurface.radius === '5px'
+          && activeSurface.background !== 'rgba(0, 0, 0, 0)';
+      };
+      check('§7.3 只有当前模式按钮画内缩 2px／圆角 5px 的选中底，整组不增加外框: '
+        + JSON.stringify(mgSurfaceStates.map((state) => ({ group: state.group, surface: state.surface }))),
+      mgSurfaceStates.every(mgSurfaceOk)
+        // 三段式的三档选中底是同一个颜色（换模式只挪面，不改色）
+        && new Set(mgSurfaceStates.map((state) => state.surface.find((item) => item.active).background)).size === 1);
+
+      // JSON 双段式沿用同一套"只有当前项有底"的规则；浅色主题下底色换成 @design-system §7.2 的浅色值
+      await mg.page.evaluate(async () => { await window.__augitOpenDocument('geom.json'); await new Promise((resolve) => setTimeout(resolve, 600)); });
+      const mgJson = await mgRead('.json-document');
+      await mg.page.locator('.json-document button[data-json-mode="source"]').click();
+      await mg.page.waitForTimeout(250);
+      const mgJsonSwitched = await mgRead('.json-document');
+      const mgLight = await openScene('scene=main-project&theme=light');
+      await mgLight.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await mgLight.page.waitForTimeout(300);
+      await mgLight.page.evaluate(async () => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/geom.md'] = {
+          path: 'docs/geom.md', name: 'geom.md', fullPath: 'D:\ws\docs\geom.md', workspaceName: 'ws',
+          status: 'TextReady', kind: 'Markdown', typeName: 'Markdown', fileSize: 12,
+          text: '# 几何\n\n正文。', lineEndings: 'LF', encoding: 'UTF-8',
+        };
+        await window.__augitOpenDocument('docs/geom.md');
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      });
+      const mgLightRead = await mgLight.page.evaluate(() => {
+        const group = document.querySelector('.markdown-document .document-modes');
+        const active = group.querySelector('.segment.active');
+        const inactive = [...group.querySelectorAll('.segment')].find((segment) => segment !== active);
+        const groupStyle = getComputedStyle(group);
+        return {
+          activeBackground: getComputedStyle(active, '::before').backgroundColor,
+          inactiveContent: getComputedStyle(inactive, '::before').content,
+          groupBorderWidths: [groupStyle.borderTopWidth, groupStyle.borderRightWidth, groupStyle.borderBottomWidth, groupStyle.borderLeftWidth],
+          boxShadow: groupStyle.boxShadow,
+        };
+      });
+      check('§7.3 JSON 双段式沿用同一选中底规则；浅色主题用浅色内缩底且整组同样无外框: '
+        + JSON.stringify({ mgJson: mgJson.surface, mgJsonSwitched: mgJsonSwitched.surface, mgLightRead }),
+      mgSurfaceOk(mgJson) && mgSurfaceOk(mgJsonSwitched)
+        // 切换后"有底"的那一项跟着换（原文档的旧选中项不再有底）
+        && mgJson.surface.find((item) => item.active).label === '格式化'
+        && mgJsonSwitched.surface.find((item) => item.active).label === '原文'
+        && mgJson.surface.filter((item) => item.drawn).length === 1
+        && mgJsonSwitched.surface.filter((item) => item.drawn).length === 1
+        // 浅色：内缩底是浅色值（#dfdfdf），未选中项不画面，整组四边 0 边框、无阴影
+        && mgLightRead.activeBackground === 'rgb(223, 223, 223)'
+        && mgLightRead.inactiveContent === 'none'
+        && mgLightRead.groupBorderWidths.every((width) => width === '0px')
+        && mgLightRead.boxShadow === 'none');
+      await mgLight.page.close();
+      await mg.page.close();
+    }
+
     // ---- §7.3 Markdown：受控链接、分隔条拖动、模式切换保留滚动（本轮补断言）----
     // 背景：`renderMarkdown` 把链接渲染成 href="#" + data-external-link / data-document-link，
     // 但**没有任何代码读这两个属性** —— 点外部链接会让 WebView 自己导航，点相对链接会跳到页首，
