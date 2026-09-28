@@ -2468,7 +2468,62 @@ function diffBodyParts(diff) {
   const newCells = content.map(row => cellOf(row, "new"));
   const oldSide = content.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
   const newSide = content.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
-  const gutter = content.map((row, index) => `<div>${oldCells[index].lineNumber ?? ""}</div><div>${newCells[index].lineNumber ?? ""}</div>`).join("");
+  // ---- 中栏（行号槽 ＋ 变更连接区，规格 §7.7 第 11 条）----
+  // 权威：`DiffLineMarkerRenderer.drawMarker()` 用**该变更块的类型色**（全强度 `DIFF_*.BACKGROUND`）
+  // 填充行号槽，`DiffDividerDrawUtil.DividerPolygon` 用同色、**无边框**画连接两侧行范围的梯形。
+  // 块类型由块内两侧是否都有行决定：只有新增行 ⇒ INSERTED、只有删除行 ⇒ DELETED、两侧都有 ⇒ MODIFIED
+  //（一次替换在解析后可能是相邻的 Removed+Added 两行，参考图里这种块的**两个槽都是修改色**）。
+  const isChangedKind = (row) => !!row && (row.kind === "Added" || row.kind === "Removed" || row.kind === "Modified");
+  const changedBlocks = [];
+  for (let index = 0; index < content.length; index += 1) {
+    if (!isChangedKind(content[index])) continue;
+    const last = changedBlocks[changedBlocks.length - 1];
+    if (last && last.end === index - 1) last.end = index;
+    else changedBlocks.push({ start: index, end: index });
+  }
+  const hasOldLine = (row) => row.oldLine !== null && row.oldLine !== undefined;
+  const hasNewLine = (row) => row.newLine !== null && row.newLine !== undefined;
+  const rowBlockKind = new Array(content.length).fill("");
+  const blockShapes = changedBlocks.map((block) => {
+    const oldRows = [];
+    const newRows = [];
+    for (let index = block.start; index <= block.end; index += 1) {
+      if (hasOldLine(content[index])) oldRows.push(index - block.start);
+      if (hasNewLine(content[index])) newRows.push(index - block.start);
+    }
+    const kind = oldRows.length && newRows.length ? "changed" : newRows.length ? "added" : "removed";
+    for (let index = block.start; index <= block.end; index += 1) rowBlockKind[index] = kind;
+    return { ...block, kind, oldRows, newRows, rows: block.end - block.start + 1 };
+  });
+  const slotClass = (row, index, side) => {
+    if (!rowBlockKind[index]) return "";
+    return (side === "old" ? hasOldLine(row) : hasNewLine(row)) ? rowBlockKind[index] : "";
+  };
+  // 逐行两格（旧侧／新侧）＋中间连接区列；行高由 `grid-auto-rows` 对齐正文（此前是每格 8px 内距的
+  // 自动行 ⇒ 实时差异的行号与正文差了一倍多，见第 306 轮）。
+  const gutter = content.map((row, index) => {
+    const oldNumber = oldCells[index].lineNumber ?? "";
+    const newNumber = newCells[index].lineNumber ?? "";
+    return `<div class="diff-gutter-cell old ${slotClass(row, index, "old")}" data-line="${oldNumber}">${oldNumber}</div>`
+      + '<div class="diff-gutter-gap"></div>'
+      + `<div class="diff-gutter-cell new ${slotClass(row, index, "new")}" data-line="${newNumber}">${newNumber}</div>`;
+  }).join("");
+  // 连接区：每个变更块一个梯形，左边缘 = 旧侧行范围、右边缘 = 新侧行范围；某一侧没有行时那一侧收成尖角
+  //（几何来自权威的 `startY1..endY1`／`startY2..endY2`）。纵向用百分比表达 ⇒ 与字号/DPI 无关。
+  const percent = (value, total) => `${Math.round((value / Math.max(1, total)) * 10000) / 100}%`;
+  const edge = (rows, total, fallbackRows) => {
+    if (rows.length) return [percent(rows[0], total), percent(rows[rows.length - 1] + 1, total)];
+    const anchor = fallbackRows.length ? (fallbackRows[0] + fallbackRows[fallbackRows.length - 1] + 1) / 2 : total / 2;
+    const single = percent(anchor, total);
+    return [single, single];
+  };
+  const connectors = blockShapes.map((block, index) => {
+    const [leftTop, leftBottom] = edge(block.oldRows, block.rows, block.newRows);
+    const [rightTop, rightBottom] = edge(block.newRows, block.rows, block.oldRows);
+    return `<div class="diff-gutter-connector ${block.kind}" data-block="${index}"`
+      + ` style="top:${percent(block.start, content.length)};height:${percent(block.rows, content.length)};`
+      + `clip-path:polygon(0 ${leftTop},100% ${rightTop},100% ${rightBottom},0 ${leftBottom})"></div>`;
+  }).join("");
   // 单栏视图：同一份补丁的另一种排版，切换时不查询 Git（规格 §6.3）。
   const unified = content.map((row, index) => {
     const kind = row.kind === "HunkHeader" ? "hunk"
@@ -2480,21 +2535,15 @@ function diffBodyParts(diff) {
     return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
   }).join("");
   const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml((diff && diff.path) || "")}</div>${unified}</template>`;
-  // 差异摘要（规格 §7.7 第 5 条「右侧为差异摘要」）：数量按**连续变更块**计算，
-  // 与 `live-data.js` 的 `diffChangeBlocks()`（导航用、同一口径）一致 —— 一次替换的删除与新增
-  // 在解析后合成一行 `Modified`，因此"连续的非上下文内容行"就是一块。
-  const isChangedKind = (row) => !!row && (row.kind === "Added" || row.kind === "Removed" || row.kind === "Modified");
-  let diffBlocks = 0;
-  for (let index = 0; index < content.length; index += 1) {
-    if (isChangedKind(content[index]) && (index === 0 || !isChangedKind(content[index - 1]))) diffBlocks += 1;
-  }
   return {
     // 正文是**可聚焦的正文位置**（规格 §7.9 第七/十九条：Tab 从工具条进入正文；加载/失败也保留一个正文位置，
     // 用户可据此从比较区回到标签栏）。编辑器正文与文件历史预览共用这一段 ⇒ 两处都有。
-    columns: `<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side">${oldSide}</div><div class="diff-gutter">${gutter}</div><div class="diff-side">${newSide}</div></div>`,
+    columns: `<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side">${oldSide}</div>`
+      + `<div class="diff-gutter diff-gutter-live"><div class="diff-gutter-connectors" aria-hidden="true">${connectors}</div>${gutter}</div>`
+      + `<div class="diff-side">${newSide}</div></div>`,
     unifiedTemplate,
-    summary: `<span class="diff-summary">${diffBlocks} 处差异</span>`,
-    blockCount: diffBlocks,
+    summary: `<span class="diff-summary">${changedBlocks.length} 处差异</span>`,
+    blockCount: changedBlocks.length,
   };
 }
 

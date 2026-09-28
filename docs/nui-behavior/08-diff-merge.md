@@ -130,13 +130,17 @@ val ignored = !resolved && innerFragments != null      // platform/diff-impl/...
 | **变更连接区（梯形）** | `DiffDividerDrawUtil.DividerPolygon.paint()` → `drawTrapezium(g, 0, dividerWidth, …)`，`DefaultPainter.getFillColor()` = `correctType(...).getColor(editor)`、`getBorderColor()` = `null`（`DiffDividerDrawUtil.java:305-320,439-535`） | 全强度 `DIFF_*.BACKGROUND`、**无边框**；几何由两侧行范围 `startY1..endY1`／`startY2..endY2` 构成，不等长时按 `withAlignedHeight()` 对齐 |
 | 单行增删（空范围） | 同一 `drawMarker()`：`y2 - y1 <= 2` 时不填充，改画 2px 的 `drawChunkBorderLine`（类型色）；`alignedSides` 时不画 | 与"整块填充"是两档 |
 
-**Augit 现状**：`.diff-gutter` 是**两个相邻行号列**（宽 `--comparison-gutter-width`，默认 84），既没有逐行填充，
-也没有独立分隔器与梯形；`liveDiffView()` 的行号槽是**逐行的两个 `<div>`**（静态样例用的是
-`<div>` ＋ `<br>` 的两列结构）⇒ 逐行填充可直接落在这两个单元格的背景上。
+**Augit 现状（第 306 轮已实现）**：`.diff-gutter` 在**实时差异**里改为三列 —— 旧行号 ｜ 变更连接区 ｜ 新行号
+（`diff-gutter-live`）：逐行两格按**块类型色的全强度** `DIFF_*.BACKGROUND` 填充（块内两侧是否都有行决定
+INSERTED／DELETED／MODIFIED），连接区列 14px、用 `clip-path: polygon(...)` 画同色无边框的梯形/尖角；
+行高锁定为正文行高并与正文的 8px 内距对齐。**第 306 轮同时修掉一个真实缺陷**：此前实时差异的行号槽
+是逐行两个 `<div>` ＋ 每格 8px 内距的自动行，实测行高 85px、与正文 22px 完全错位（静态样例用
+`<div>` ＋ `<br>` 的两列结构，靠行内文本流对齐，因此没暴露）。静态样例（`liveDiffView()`）保持原来的
+简化两列结构，只有实时差异渲染槽底与连接区。
 
-**待用户定（T10）**：① 按权威补"逐行槽底（全强度色）＋ 每块梯形（分隔器或 `clip-path` 近似）"，
-其中梯形需要新的绘制面（Augit 中栏没有独立分隔器元素）；② 或登记为**有意产品差异**
-（Augit 中栏即两个行号列，不画连接区）。**未获口径前不动实现。**
+**用户裁决 2026-09-28（T10）**：取方案 ①「按权威补逐行槽底 + 每块梯形」，第 306 轮实现并断言
+（`live-shell` 通过 1451 项断言，其中两条新断言核对槽底色/对齐与连接区几何；负向验证见 `09-icons.md`
+的 `nonaginta-sextum`）。
 
 
 ## 3. 变更标记的绘制规则

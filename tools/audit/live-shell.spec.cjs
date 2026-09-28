@@ -645,6 +645,11 @@ async function main() {
         }
 
         // 第二个文件也被视为有差异，便于验证快速连选的结果归属。
+        // 第 306 轮：注入工作区差异的行，用于核对中栏"逐行槽底 + 变更连接区"的几何
+        //（默认夹具只有一处 Removed+Added 的替换，覆盖不到"单侧空范围"与"多行块"两种形状）。
+        if (Array.isArray(window.__workspaceDiffRows) && !params.commit) {
+          return { ...data.diff, path: params.path, rows: window.__workspaceDiffRows };
+        }
         if (params.path === data.diff.path) return data.diff;
         if (params.path === 'README.md') return { ...data.diff, path: 'README.md' };
         // 第 251 轮：改动列表的**最后一个**文件也要有差异载荷，才能核对"已到列表末尾"的局部说明。
@@ -23585,6 +23590,133 @@ async function main() {
       // 负向验证：把失败态标成"已就绪"（修复前的语义）⇒ 同一提交不再重查
       && fhLifecycle.negative.ready === true && fhLifecycle.negative.hasDiff === false
       && fhLifecycle.negative.diffCalls === fhLifecycle.callsBeforeNegative);
+
+    // ---- 第 306 轮实现并断言（收 §7.7 第 11 条 / T10）：中栏逐行槽底 + 变更连接区 ----
+    // 规格 §7.7：「双栏 diff 中间行号与变更连接区固定，左右正文同步垂直滚动。」
+    // 权威：`DiffLineMarkerRenderer.drawMarker()` 用**变更块类型色**的全强度 `DIFF_*.BACKGROUND`
+    // 填充行号槽；`DiffDividerDrawUtil.DividerPolygon` 用同色、**无边框**画连接两侧行范围的梯形。
+    // 三种形状都用注入的载荷覆盖：纯删除（旧 2 行）、纯新增（新 1 行）、一次替换（旧 1 行 + 新 1 行）。
+    const gutter306 = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const rows = [
+        { oldLine: 1, oldText: 'keep', oldChanges: [], newLine: 1, newText: 'keep', newChanges: [], kind: 'Context' },
+        { oldLine: 2, oldText: 'old a', oldChanges: [], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
+        { oldLine: 3, oldText: 'old b', oldChanges: [], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
+        { oldLine: 4, oldText: 'mid', oldChanges: [], newLine: 2, newText: 'mid', newChanges: [], kind: 'Context' },
+        { oldLine: null, oldText: null, oldChanges: [], newLine: 3, newText: 'new c', newChanges: [], kind: 'Added' },
+        { oldLine: 5, oldText: 'tail', oldChanges: [], newLine: 4, newText: 'tail', newChanges: [], kind: 'Context' },
+        { oldLine: 6, oldText: 'old d', oldChanges: [], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
+        { oldLine: null, oldText: null, oldChanges: [], newLine: 5, newText: 'new e', newChanges: [], kind: 'Added' },
+        { oldLine: 7, oldText: 'end', oldChanges: [], newLine: 6, newText: 'end', newChanges: [], kind: 'Context' },
+      ];
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=diff-boundary&theme=light`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.changes-list .change-file-row[data-path]', { timeout: 15000 });
+      await page.evaluate((injected) => { window.__workspaceDiffRows = injected; }, rows);
+      await page.locator('.changes-list .change-file-row').first().dblclick();
+      await page.waitForSelector('.diff-columns .diff-gutter-cell', { timeout: 15000 });
+      await page.waitForTimeout(800);
+      const read = () => page.evaluate(() => {
+        const cols = document.querySelector('.diff-columns');
+        const gutter = cols.querySelector('.diff-gutter');
+        const sides = [...cols.querySelectorAll(':scope > .diff-side')];
+        const cellList = (side) => [...gutter.querySelectorAll(`:scope > .diff-gutter-cell.${side}`)].map((el) => {
+          const style = getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          return {
+            line: el.dataset.line,
+            background: style.backgroundColor,
+            top: Math.round(rect.top * 100) / 100,
+            height: Math.round(rect.height * 100) / 100,
+          };
+        });
+        const connectors = [...gutter.querySelectorAll('.diff-gutter-connector')].map((el) => {
+          const style = getComputedStyle(el);
+          return {
+            kind: el.classList.contains('added') ? 'added' : el.classList.contains('removed') ? 'removed' : 'changed',
+            background: style.backgroundColor,
+            border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth].join(','),
+            top: el.style.top,
+            height: el.style.height,
+            points: [...style.clipPath.matchAll(/([-\d.]+)(?:px|%)\s+([-\d.]+)%/g)].map((match) => ({ x: parseFloat(match[1]), y: parseFloat(match[2]) })),
+          };
+        });
+        const lineTops = (side) => [...side.querySelectorAll('.diff-code-line')].map((el) => Math.round(el.getBoundingClientRect().top * 100) / 100);
+        const firstLine = sides[0].querySelector('.diff-code-line');
+        return {
+          gutterLive: gutter.classList.contains('diff-gutter-live'),
+          oldCells: cellList('old'),
+          newCells: cellList('new'),
+          oldLines: lineTops(sides[0]),
+          newLines: lineTops(sides[1]),
+          lineHeight: firstLine ? Math.round(firstLine.getBoundingClientRect().height * 100) / 100 : null,
+          connectors,
+        };
+      });
+      const split = await read();
+      await page.locator('.diff-toolbar [aria-label="单栏"]').click();
+      await page.waitForTimeout(400);
+      const unified = await page.evaluate(() => ({
+        connectors: document.querySelectorAll('.diff-gutter-connector').length,
+        slots: document.querySelectorAll('.diff-gutter-cell.added, .diff-gutter-cell.removed, .diff-gutter-cell.changed').length,
+      }));
+      await page.close();
+      return { split, unified, errors };
+    })();
+    const gutterCell = (cells, line) => cells.find((cell) => cell.line === String(line));
+    const sameTops = (cells, tops) => cells.length === tops.length && cells.every((cell, index) => cell.top === tops[index]);
+    const split306 = gutter306.split;
+    check('§7.7 中栏逐行槽底按变更块类型取全强度 DIFF_* 色、只填有行的那一侧，且行号与正文逐行对齐: '
+      + JSON.stringify({ gutterLive: split306.gutterLive, lineHeight: split306.lineHeight, cells: [...split306.oldCells, ...split306.newCells], connectors: split306.connectors.length }),
+    gutter306.errors.length === 0 && split306.gutterLive === true
+      // 行高与正文一致、每一行的两个格子都与对应正文行同顶（此前实时差异是 85px 一行）
+      && split306.lineHeight === 22
+      && split306.oldCells.every((cell) => cell.height === split306.lineHeight)
+      && split306.newCells.every((cell) => cell.height === split306.lineHeight)
+      && sameTops(split306.oldCells, split306.oldLines) && sameTops(split306.newCells, split306.newLines)
+      // 纯删除块：旧侧两格取删除全强度色（#D6D6D6），新侧没有行 ⇒ 不着色
+      && gutterCell(split306.oldCells, 2).background === 'rgb(214, 214, 214)'
+      && gutterCell(split306.oldCells, 3).background === 'rgb(214, 214, 214)'
+      && split306.newCells.filter((cell) => cell.line === '').every((cell) => cell.background === 'rgba(0, 0, 0, 0)')
+      // 纯新增块：新侧取新增全强度色（#BEE6BE），旧侧空格子
+      && gutterCell(split306.newCells, 3).background === 'rgb(190, 230, 190)'
+      // 一次替换（同一块里旧 1 行 + 新 1 行）：两侧都用修改全强度色（#C2D8F2）
+      && gutterCell(split306.oldCells, 6).background === 'rgb(194, 216, 242)'
+      && gutterCell(split306.newCells, 5).background === 'rgb(194, 216, 242)'
+      // 上下文行不着色（槽底只属于变更块）
+      && [1, 4, 7].every((line) => gutterCell(split306.oldCells, line).background === 'rgba(0, 0, 0, 0)')
+      && [1, 2, 4, 6].every((line) => gutterCell(split306.newCells, line).background === 'rgba(0, 0, 0, 0)'));
+    const connectors306 = split306.connectors;
+    check('§7.7 中栏变更连接区：每块一个无边框梯形，按两侧行范围收放，单侧空范围收成尖角；单栏不画: '
+      + JSON.stringify({ connectors: connectors306, unified: gutter306.unified }),
+    gutter306.errors.length === 0 && connectors306.length === 3
+      && connectors306.map((item) => item.kind).join(',') === 'removed,added,changed'
+      // 无边框（权威 getBorderColor() = null）
+      && connectors306.every((item) => item.border === '0px,0px,0px,0px')
+      // 颜色 = 同一组全强度 DIFF_* 色
+      && connectors306[0].background === 'rgb(214, 214, 214)'
+      && connectors306[1].background === 'rgb(190, 230, 190)'
+      && connectors306[2].background === 'rgb(194, 216, 242)'
+      // 覆盖范围 = 该块的行区间（9 行里的第 2-3 行、第 5 行、第 7-8 行）
+      && connectors306[0].top === '11.11%' && connectors306[0].height === '22.22%'
+      && connectors306[1].top === '44.44%' && connectors306[1].height === '11.11%'
+      && connectors306[2].top === '66.67%' && connectors306[2].height === '22.22%'
+      // 几何：纯删除块右边缘收成一点（50%）、左边缘占满；纯新增块反之；替换块左右各占一半形成斜边
+      && connectors306[0].points.length === 4
+      && connectors306[0].points[0].x === 0 && connectors306[0].points[0].y === 0
+      && connectors306[0].points[3].x === 0 && connectors306[0].points[3].y === 100
+      && connectors306[0].points[1].x === 100 && connectors306[0].points[2].x === 100
+      && connectors306[0].points[1].y === 50 && connectors306[0].points[2].y === 50
+      && connectors306[1].points.length === 4
+      && connectors306[1].points[0].y === 50 && connectors306[1].points[3].y === 50
+      && connectors306[1].points[1].y === 0 && connectors306[1].points[2].y === 100
+      && connectors306[2].points.length === 4
+      && connectors306[2].points[0].y === 0 && connectors306[2].points[3].y === 50
+      && connectors306[2].points[1].y === 50 && connectors306[2].points[2].y === 100
+      // 单栏：同一份补丁的另一种排版，不画槽底也不画连接区
+      && gutter306.unified.connectors === 0 && gutter306.unified.slots === 0);
 
     // ---- 第 260 轮：比较区正文是可聚焦的正文位置（§7.9 第七/十九条）----
     const diffBodyFocus = await (async () => {

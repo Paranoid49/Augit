@@ -1433,6 +1433,44 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   text-align: right;
 }
 
+/* 实时差异的行号槽（规格 §7.7 第 11 条）：三列 = 旧行号 ｜ 变更连接区 ｜ 新行号。
+   行高用 `grid-auto-rows` 锁定为正文行高、顶部与 `.diff-side` 的 8px 内距对齐 ——
+   此前每格 8px 内距走自动行，实时差异的行号与正文差了一倍多（第 306 轮实测 85px vs 22px）。 */
+.diff-gutter-live {
+  position: relative;
+  grid-template-columns: 1fr 14px 1fr;
+  grid-auto-rows: var(--code-line-height, 22px);
+  align-content: start;
+  padding-top: 8px;
+}
+
+.diff-gutter-live > .diff-gutter-cell { padding: 0 7px; }
+
+.diff-gutter-live > .diff-gutter-gap { padding: 0; }
+
+/* 槽底取全强度 `DIFF_*.BACKGROUND`（与行内高亮同一组令牌）。权威 `DiffLineMarkerRenderer.drawMarker()`
+   用**变更块的类型色**填充行号槽：一次替换的两个槽都是修改色，纯新增只看新侧、纯删除只看旧侧。 */
+.diff-gutter-live > .diff-gutter-cell.added { background: var(--augit-diff-inline-added); }
+.diff-gutter-live > .diff-gutter-cell.removed { background: var(--augit-diff-inline-deleted); }
+.diff-gutter-live > .diff-gutter-cell.changed { background: var(--augit-diff-inline-modified); }
+
+/* 变更连接区（权威 `DiffDividerDrawUtil.DividerPolygon`）：同色、**无边框**，几何靠 `clip-path`
+   梯形表达；某一侧没有行范围时那一侧收成尖角。图层只覆盖中间那一列，不遮挡两侧行号。 */
+.diff-gutter-connectors {
+  position: absolute;
+  z-index: 1;
+  top: 8px;
+  bottom: 0;
+  left: calc(50% - 7px);
+  width: 14px;
+  pointer-events: none;
+}
+
+.diff-gutter-connector { position: absolute; left: 0; right: 0; }
+.diff-gutter-connector.added { background: var(--augit-diff-inline-added); }
+.diff-gutter-connector.removed { background: var(--augit-diff-inline-deleted); }
+.diff-gutter-connector.changed { background: var(--augit-diff-inline-modified); }
+
 .diff-code-line {
   padding: 0 12px;
   white-space: pre;
