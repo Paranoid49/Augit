@@ -4714,12 +4714,21 @@ function refresh(...regions) {
   rememberTreeStateBeforeRender();
   // 规格 §7.3：Markdown 原文的选区同样属于用户状态，跨（就地或区域）刷新保留。
   rememberMarkdownCaretBeforeRender();
+  // 规格 §7.4：JSON 的焦点意图 —— 只有"焦点原在格式化正文"才在变无效时转交原文。
+  rememberJsonFocusBeforeRender();
+  // 规格 §7.2：区域替换会重建查找条的绑定，这里先记下"焦点是否在查找条里"，
+  // 免得无条件聚焦把焦点从正文（或任何别处）抢进查找框。
+  rememberFindFocusBeforeRender();
   // 规格 §7.3：Markdown 的**外部更新**要复用原文控件，保留选择、滚动、查找与当前模式。
   // 同一个文档、同一种编辑器、同一个路径时不再整块替换编辑区，只把原文与预览的正文换掉。
   // 规格 §7.2：普通文本的同类型外部更新同理（`reuseTextViewInPlace()`）——只换行内容，
   // 保住 `.code-view` 与它外面的运行时查找条。
+  // 规格 §7.4：JSON 的同类型外部更新同理（`reuseJsonViewInPlace()`）——保住原文/格式化正文控件、
+  // 查找条、阅读位置与当前模式，并按规格处理"变无效／恢复有效"的模式与焦点。
   let effective = regions;
-  if (regions.includes("editorContent") && (reuseMarkdownViewInPlace() || reuseTextViewInPlace())) {
+  const reusedEditorContent = regions.includes("editorContent")
+    && (reuseMarkdownViewInPlace() || reuseTextViewInPlace() || reuseJsonViewInPlace());
+  if (reusedEditorContent) {
     effective = regions.filter((name) => name !== "editorContent");
   }
   if (typeof window.__augitRenderRegions === "function" && effective.length > 0) {
@@ -4839,6 +4848,104 @@ function reuseTextViewInPlace() {
   return true;
 }
 
+/**
+ * 就地更新当前 JSON 文档的正文（规格 §7.4「同类型外部更新复用原文与格式化正文」）。
+ *
+ * 与普通文本/Markdown 侧同款，但 JSON 的正文、错误条与"格式化"按钮状态都由
+ * `liveJsonDocument()` 生成，因此这里**保住同一个 `.json-document` 与 `.code-view` 节点**
+ *（`.code-view` 必须留住：运行时查找条闭包持有它的引用，换掉就会对着游离节点搜索），
+ * 只替换行内容、数据集与错误条，然后按规格处理模式与焦点：
+ *
+ * ① **模式**：变无效时强制原文；恢复有效后继续保留用户离开时的模式（标签记忆 `tab.jsonMode`，
+ *   由 `syncActiveTab()` 在变无效时写成 `source`），不会自己跳回"格式化"；
+ * ② **阅读位置**：`update` 的按模式滚动记忆之外，这里显式把当前滚动写回（同模式时逐值保持）；
+ * ③ **焦点**：正文元素没换 ⇒ 焦点原在格式化正文时它自然留在同一个元素上（现在显示原文），
+ *   焦点在查找框/其它地方时也不被抢走 —— 这正是规格要求的"只有焦点原在格式化正文时才转交原文"；
+ * ④ **查找**：查找条留在原地，派发 `document-content-changed` 让数量按新正文更新；
+ *   模式没变（同类型外部更新）时带 `preserveMatch` 从原匹配继续，模式变了则按 §7.4 第八条从新文本起点继续；
+ * ⑤ 相同内容的重复通知直接返回，不重写正文。
+ */
+function reuseJsonViewInPlace() {
+  const live = window.__augitLive;
+  if (!live || !live.document) return false;
+  if (live.editor !== "json" || live.document.kind !== "Json") return false;
+  const view = document.querySelector(".editor-content .json-document");
+  if (!view) return false;
+  const code = view.querySelector(":scope > .code-view");
+  if (!code) return false;
+  // 正身对账（同普通文本侧）：工具栏显示的路径必须还是本文档。
+  const pathLabel = view.querySelector(".document-path");
+  if (!pathLabel || !pathLabel.textContent.startsWith(live.document.path)) return false;
+
+  const error = live.document.jsonError || null;
+  const invalid = !!error;
+  const previousMode = view.dataset.jsonMode || null;
+  const remembered = typeof window.__augitRememberedJsonMode === "function"
+    ? window.__augitRememberedJsonMode()
+    : null;
+  const mode = invalid ? "source" : remembered === "source" ? "source" : "formatted";
+  const source = String(live.document.text ?? "");
+  const formatted = invalid ? "" : String(live.document.formatted ?? "");
+  const text = mode === "source" ? source : (formatted || source);
+  const signature = JSON.stringify([mode, text, invalid, error ? [error.line, error.column] : null]);
+  if (view.dataset.jsonSignature === signature) return true;
+
+  const caret = captureMarkdownCaret(code);
+  const scroll = [code.scrollLeft, code.scrollTop];
+  const hadFocus = document.activeElement === code || code.contains(document.activeElement);
+  live.jsonFocusIntent = null;
+
+  view.classList.toggle("json-invalid", invalid);
+  view.dataset.jsonMode = mode;
+  view.dataset.jsonSignature = signature;
+  code.dataset.jsonSource = source;
+  code.dataset.jsonFormatted = formatted;
+  code.dataset.jsonErrorLine = invalid ? String(error.line) : "";
+  // 正文
+  code.innerHTML = typeof liveLineViews === "function" ? liveLineViews(text) : code.innerHTML;
+  if (typeof measureCodeViews === "function") measureCodeViews();
+  // 错误条与"格式化"按钮：整块从 `liveJsonDocument()` 的新渲染里取，避免两处各写一份文案。
+  if (typeof liveJsonDocument === "function") {
+    const holder = document.createElement("template");
+    holder.innerHTML = liveJsonDocument();
+    const fresh = holder.content.firstElementChild;
+    const freshError = fresh ? fresh.querySelector(":scope > .json-error") : null;
+    const currentError = view.querySelector(":scope > .json-error");
+    // 内容与行列都没变时**保留原节点**：就地换节点会连带丢掉挂在它身上的监听（错误条现在用委托，
+    // 但少一次无谓的节点替换也少一次重排）。
+    const errorChanged = !!freshError !== !!currentError
+      || (freshError && currentError && freshError.outerHTML !== currentError.outerHTML);
+    if (errorChanged) {
+      if (currentError) currentError.remove();
+      if (freshError) {
+        // 错误条排在工具栏之后、运行时查找条之前（与首次渲染后的 DOM 顺序一致）。
+        const anchor = view.querySelector(":scope > .current-find") || code;
+        view.insertBefore(freshError, anchor);
+      }
+    }
+    const freshButton = fresh ? fresh.querySelector('button[data-json-mode="formatted"]') : null;
+    const currentButton = view.querySelector('button[data-json-mode="formatted"]');
+    if (freshButton && currentButton) {
+      currentButton.disabled = !!freshButton.disabled;
+      if (freshButton.disabled) currentButton.setAttribute("title", freshButton.getAttribute("title") || "");
+      else currentButton.removeAttribute("title");
+    }
+  }
+  code.scrollLeft = scroll[0];
+  code.scrollTop = scroll[1];
+  restoreMarkdownCaret(code, caret);
+  if (hadFocus) code.focus({ preventScroll: true });
+  // 让渲染层的模式闭包与新 DOM 对齐（否则下一次点"原文/格式化"会被它自己的旧 `current` 挡掉）。
+  if (typeof view.__augitJsonSync === "function") view.__augitJsonSync();
+  view.dispatchEvent(new CustomEvent("document-content-changed", {
+    bubbles: true,
+    cancelable: true,
+    // 模式没变 ⇒ 这是同类型外部更新：查找从原匹配位置继续（规格 §7.4「保留查找状态」）。
+    detail: { preserveMatch: mode === previousMode },
+  }));
+  return true;
+}
+
 /** 把选区端点描述成「行号 + 该行文本偏移」，跨 innerHTML 替换仍可复原。 */
 function describeMarkdownPoint(source, node, offset) {
   if (!node) return null;
@@ -4946,6 +5053,47 @@ function restoreMarkdownCaretAfterRender() {
   }
   if (captureMarkdownCaret(source)) return;
   restoreMarkdownCaret(source, live.markdownCaret);
+}
+
+/**
+ * 渲染前记下"焦点是否在 JSON 的**格式化正文**里"（规格 §7.4）。
+ *
+ * 变无效时要把焦点转交给原文，但**只有**焦点原本在格式化正文里才转：后台文件变化、查找输入、
+ * 项目树等其它焦点位置都不许被抢走。渲染（区域替换）会把焦点连同节点一起丢掉，因此意图必须
+ * 在替换前记下来。就地复用路径（`reuseJsonViewInPlace()`）保住正文节点、焦点自然落在原文上，
+ * 这里主要覆盖"不得不走区域替换"的兜底路径（首次显示、路径不符等）。
+ */
+function rememberJsonFocusBeforeRender() {
+  const live = window.__augitLive;
+  if (!live || !live.document || live.document.kind !== "Json") return;
+  const view = document.querySelector(".editor-content .json-document");
+  if (!view || view.dataset.jsonMode !== "formatted") return;
+  const code = view.querySelector(":scope > .code-view");
+  const active = document.activeElement;
+  if (code && (active === code || code.contains(active))) live.jsonFocusIntent = "source";
+}
+
+/** 渲染后按上面的意图交接焦点：只在"现在确实变无效了"时转交到原文，其它情况一律不动。 */
+function applyJsonFocusAfterRender() {
+  const live = window.__augitLive;
+  if (!live || live.jsonFocusIntent !== "source") return;
+  live.jsonFocusIntent = null;
+  const document_ = live.document;
+  if (!document_ || document_.kind !== "Json" || !document_.jsonError) return;
+  const code = document.querySelector(".editor-content .json-document :scope > .code-view");
+  if (code) code.focus({ preventScroll: true });
+}
+
+/**
+ * 渲染前记下"焦点是否在查找条里"（规格 §7.2「保留当前输入焦点」）。
+ *
+ * 区域替换会清掉 `dataset.findBound` 并重新绑定查找条，`wire()` 结尾那句无条件
+ * `input.focus()` 会把焦点从正文抢进查找框（第 292 轮实测：JSON 变无效时要求把焦点转交原文，
+ * 结果被查找框抢走）。意图由 `current-find.js` 的 `wire()` 消费。
+ */
+function rememberFindFocusBeforeRender() {
+  const active = document.activeElement;
+  window.__augitFindFocusIntent = !!(active && active.closest && active.closest(".current-find"));
 }
 
 /** 解析 Markdown 预览里工作区相对图片的代次：文档/正文换代后不再回写。 */
@@ -5647,6 +5795,8 @@ function rebindAfterRender() {
   applyTerminalStartState();
   // Markdown 原文的选区跨刷新保留（规格 §7.3：外部更新复用原文控件、保留选择）。
   restoreMarkdownCaretAfterRender();
+  // JSON 变无效时的焦点交接（规格 §7.4：只有焦点原在格式化正文才转交原文）。
+  applyJsonFocusAfterRender();
   // Markdown 预览里工作区相对图片的解析/阻止（规格 §7.3：阻止的图片在原位置显示紧凑错误）。
   void resolveMarkdownImages();
   restoreAmendDraft();
@@ -5723,6 +5873,10 @@ function syncActiveTab() {
     // 规格 §7.3 第 7 条：隐藏的 Markdown 标签**不预热预览** —— 预览正文在标签**被显示**时才生成
     //（生成一次后缓存在标签的文档上，切回直接复用），因此恢复/后台打开的标签不会先算一遍。
     ensureMarkdownPreview(tab.document);
+    // 规格 §7.4：JSON 变无效时显示原文，**恢复有效后继续保留原文模式**，直到用户主动切换
+    // ⇒ 变无效时把"原文"写进标签的模式记忆。渲染层的 `liveJsonDocument()` 是按有效性推导模式的，
+    // 不写这一笔，文件一恢复有效就会自己跳回"格式化"（第 291 轮实测）。
+    if (tab.document.kind === "Json" && tab.document.jsonError) tab.jsonMode = "source";
     live.document = tab.document;
     live.editor = tab.editor;
     return;
@@ -5772,6 +5926,9 @@ function openDocumentTab(path, payload, options = {}) {
     // 当前会话记住的文档模式（规格 §7.3：切换原文/对照/预览后在会话内记忆）。
     // 之前模式只存在 DOM 的 data 属性上，任何一次区域重绘都会把它重置成默认"预览"。
     documentMode: null,
+    // JSON 的双段式模式记忆（规格 §7.4）：与 Markdown 的 `documentMode` 同款，
+    // 外部更新与标签往返后都保留用户的选择；变无效时由 `syncActiveTab()` 写成 `source`。
+    jsonMode: null,
   };
   // 临时预览标签只保留一个：新的预览顶替旧的，位置不变。
   // 标签集合变化后写回会话数据（防抖；内容没变时不会真的写盘）。
@@ -11537,9 +11694,10 @@ function bindRegionTabOrder() {
 }
 
 /**
- * 文档模式记忆（规格 §7.3）：用户切换原文/对照/预览后，在**当前会话**里记住这个选择，
- * 切到别的标签再回来仍是离开时的模式。模式本身由渲染层的 `setMode` 产生并派发事件，
- * 这里只负责把它写到活动文档标签上（不写文件、不写设置）。
+ * 文档模式记忆（规格 §7.3／§7.4）：用户切换 Markdown 的原文/对照/预览或 JSON 的原文/格式化后，
+ * 在**当前会话**里记住这个选择，切到别的标签再回来、以及同类型外部更新后仍是离开时的模式。
+ * 模式本身由渲染层的 `setMode`／`update` 产生并派发事件，这里只负责写回活动文档标签
+ *（不写文件、不写设置）。
  */
 function bindDocumentModeMemory() {
   if (!window.__augitLive || window.__augitDocumentModeBound) return;
@@ -11550,6 +11708,18 @@ function bindDocumentModeMemory() {
     const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
     if (!tab || tab.kind !== "document") return;
     tab.documentMode = event.detail.mode;
+  });
+  // JSON 的双段式切换：按钮自己的处理器把 `data-json-mode` 写好（目标阶段），
+  // 这里在**冒泡阶段**读回真实结果再记到标签上 —— 不在捕获阶段抢先跑（那时属性还没变）。
+  document.addEventListener("click", (event) => {
+    const button = event.target && event.target.closest && event.target.closest("button[data-json-mode]");
+    if (!button) return;
+    const view = button.closest(".json-document");
+    const live = window.__augitLive;
+    if (!view || !live) return;
+    const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
+    if (!tab || tab.kind !== "document" || !tab.document || tab.document.kind !== "Json") return;
+    tab.jsonMode = view.dataset.jsonMode || button.dataset.jsonMode;
   });
 }
 
@@ -11562,6 +11732,14 @@ window.__augitRememberedDocumentMode = () => {
   if (!live) return null;
   const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
   return tab && tab.kind === "document" && typeof tab.documentMode === "string" ? tab.documentMode : null;
+};
+
+/** 当前活动 JSON 标签记住的模式（`source`／`formatted`）；没有记住时返回 null（回落到"格式化"）。 */
+window.__augitRememberedJsonMode = () => {
+  const live = window.__augitLive;
+  if (!live) return null;
+  const tab = (live.tabs || []).find((item) => item.id === live.activeTabId);
+  return tab && tab.kind === "document" && typeof tab.jsonMode === "string" ? tab.jsonMode : null;
 };
 
 /** 关闭所有实时弹层。 */

@@ -1499,54 +1499,75 @@ function jsonView() {
 function bindJsonModes() {
   const view = document.querySelector(".json-document");
   if (!view) return;
+  // 实时层会**就地**复用同一个 `.json-document`（规格 §7.4：外部更新复用原文与格式化正文），
+  // 因此按节点做一次绑定守卫：`bindInteractions()` 每次区域刷新都会跑，没有守卫会在同一批按钮上
+  // 叠加多个闭包（各自的"当前模式"还会互相打架）。
+  if (view.dataset.jsonBound === "true") return;
+  view.dataset.jsonBound = "true";
   const sampleSource = '{"sdk":{"version":"10.0.201","rollForward":"latestPatch","allowPrerelease":false}}\n';
   const sampleInvalidSource = '{\n  "sdk": {\n    "version": "10.0.201",\n    "rollForward":}\n}\n';
-  // 实时外壳把**真实原文**放在 `.code-view[data-json-source]` 上（liveJsonDocument 渲染时写入）。
-  // 之前这里恒用样例：真机上点"原文"会把正文换成样例 JSON —— 实测缺陷。
-  const codeView = view.querySelector(".code-view");
-  const liveSource = codeView && codeView.dataset ? codeView.dataset.jsonSource : null;
-  const hasLiveSource = typeof liveSource === "string" && liveSource.length > 0;
-  const source = hasLiveSource ? liveSource : sampleSource;
-  // 宿主给出的"格式化后正文"（规格 §7.4）：实时文档直接用它，视觉稿页面没有该属性时
-  // 才用 JSON.stringify 重新序列化样例。两条路径都必须两空格缩进并保持属性顺序。
-  const liveFormatted = codeView && codeView.dataset ? codeView.dataset.jsonFormatted : null;
-  const formattedSource = typeof liveFormatted === "string" && liveFormatted.length > 0 ? liveFormatted : null;
+  const code = view.querySelector(".code-view");
+  // 正文来源**每次现读**：实时层就地更新后会改写 `data-json-source`／`data-json-formatted`／
+  // `data-json-error-line`，闭包捕获的旧值会让"原文"退回上一版本（第 292 轮实测踩到）。
+  // 实时外壳把真实原文放在 `.code-view[data-json-source]` 上（`liveJsonDocument()` 渲染时写入）；
+  // 视觉稿页面没有该属性时退回样例。只有实时文档的原文才可能是那份无效文本：视觉稿场景
+  // `json-preview.html?json-state=invalid` 的 `source` 是回退后的**有效**样例（单行），
+  // 用它渲染后根本没有第 4 行，"定位 JSON 错误"会退化成选中第一行（`verify-ux-json` 实测 `'1' !== '4'`）。
+  const liveSource = () => (code && code.dataset ? code.dataset.jsonSource : null);
+  const hasLiveSource = () => typeof liveSource() === "string" && liveSource().length > 0;
+  const source = () => (hasLiveSource() ? liveSource() : sampleSource);
+  // 宿主给出的"格式化后正文"（规格 §7.4）：实时文档直接用它，视觉稿页面没有该属性时才用
+  // `JSON.stringify` 重新序列化样例。两条路径都必须两空格缩进并保持属性顺序。
+  const formattedSource = () => {
+    const value = code && code.dataset ? code.dataset.jsonFormatted : null;
+    return typeof value === "string" && value.length > 0 ? value : null;
+  };
   // 出错行来自渲染时写入的 `data-json-error-line`（宿主按 Unicode 标量计列的行号）；
   // 视觉稿样例没有该属性，退回样例里固定的第 4 行。
-  const errorLine = Number(codeView && codeView.dataset ? codeView.dataset.jsonErrorLine : NaN) || 4;
-  // 只有**实时文档**（`data-json-source` 由 `liveJsonDocument()` 写入）的原文才可能是那份无效文本。
-  // 视觉稿场景 `json-preview.html?json-state=invalid` 同样带 `json-invalid`，但它的 `source` 是回退后的
-  // **有效**样例 `sampleSource`（单行）；用它渲染后根本没有第 4 行，"定位 JSON 错误"会退化成选中第一行
-  // ——`verify-ux-json` 实测 `'1' !== '4'`（HEAD 即已失败，与后续改动无关）。故按"有没有实时原文"分流。
-  const invalidSource = view.classList.contains("json-invalid") && hasLiveSource ? source : sampleInvalidSource;
-  const code = view.querySelector(".code-view");
+  const errorLine = () => Number(code && code.dataset ? code.dataset.jsonErrorLine : NaN) || 4;
   const positions = new Map();
   let current;
-  const update = mode => {
-    if (mode === current || (mode === "formatted" && view.classList.contains("json-invalid"))) return;
-    if (current) positions.set(current, [code.scrollLeft, code.scrollTop]);
-    current = view.dataset.jsonMode = mode;
+  const syncButtons = () => {
     view.querySelectorAll("button[data-json-mode]").forEach(button => {
-      const active = button.dataset.jsonMode === mode;
+      const active = button.dataset.jsonMode === current;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    const text = view.classList.contains("json-invalid") ? invalidSource
-      : mode === "source" ? source : formattedSource != null ? formattedSource : JSON.stringify(JSON.parse(source), null, 2);
+  };
+  const update = (mode, options = {}) => {
+    if (mode === current || (mode === "formatted" && view.classList.contains("json-invalid"))) return;
+    if (current) positions.set(current, [code.scrollLeft, code.scrollTop]);
+    current = view.dataset.jsonMode = mode;
+    syncButtons();
+    const invalid = view.classList.contains("json-invalid");
+    const text = invalid ? (hasLiveSource() ? source() : sampleInvalidSource)
+      : mode === "source" ? source() : formattedSource() != null ? formattedSource() : JSON.stringify(JSON.parse(source()), null, 2);
     code.innerHTML = text.split("\n").map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line)}</span></div>`).join("");
     measureCodeViews();
     const [left, top] = positions.get(mode) || [0, 0];
     code.scrollTo(left, top);
-    view.dispatchEvent(new Event('document-content-changed'));
+    // `preserveMatch`：正文被**外部更新**时就地重算时，查找从原匹配位置继续（规格 §7.4：保留查找状态）；
+    // 用户主动切换模式时按规格 §7.4 第八条"从新显示文本的起点继续"，不带这个意图。
+    view.dispatchEvent(new CustomEvent('document-content-changed', {
+      bubbles: true,
+      detail: { preserveMatch: !!options.preserveMatch },
+    }));
   };
+  // 实时层就地更新正文后用它把闭包里"当前模式"与按钮状态对齐（不重排正文、不触发查找重算）。
+  view.__augitJsonSync = () => { current = view.dataset.jsonMode; syncButtons(); };
   view.querySelectorAll("button[data-json-mode]").forEach(button => button.addEventListener("click", () => update(button.dataset.jsonMode)));
-  view.querySelector(".json-error")?.addEventListener("click", () => {
-    const row = code.querySelector(`[data-line="${errorLine}"]`) || code.querySelector(".code-line");
+  // 错误条用**委托**挂在本视图上：实时层就地更新时会按最新行列重建错误条节点，
+  // 挂在节点自己的监听会随着被替换掉而失效（第 292 轮实测：点击不再定位）。
+  view.addEventListener("click", event => {
+    const error = event.target && event.target.closest ? event.target.closest(".json-error") : null;
+    if (!error || !view.contains(error)) return;
+    const body = view.querySelector(":scope > .code-view") || code;
+    const row = body.querySelector(`[data-line="${errorLine()}"]`) || body.querySelector(".code-line");
     if (!row) return;
     row.classList.add("active");
     row.scrollIntoView({ block: "nearest" });
     // 定位后焦点进正文（规格 §7.4）；错误条是原生 button，因此 Enter/Space 与单击同效。
-    code.focus({ preventScroll: true });
+    body.focus({ preventScroll: true });
   });
   update(view.dataset.jsonMode);
 }
@@ -3106,7 +3127,13 @@ function liveJsonDocument() {
   const error = document_.jsonError || null;
   const invalid = !!error;
   const formatted = invalid ? (document_.text || "") : (document_.formatted || document_.text || "");
-  const mode = invalid ? "source" : "formatted";
+  // 规格 §7.4：外部更新后要**保留当前模式**；文件恢复有效后继续保留原文模式，直到用户主动切换
+  // ⇒ 模式来自标签记忆（`live-data.js` 的 `__augitRememberedJsonMode()`，与 Markdown 的模式记忆同款），
+  // 只有"变无效"这一档强制原文。视觉稿页面没有该函数 ⇒ 退回原来的"有效即格式化"。
+  const remembered = typeof window.__augitRememberedJsonMode === "function"
+    ? window.__augitRememberedJsonMode()
+    : null;
+  const mode = invalid ? "source" : remembered === "source" ? "source" : "formatted";
   const errorBar = invalid
     ? `<button class="json-error" data-json-error-line="${escapeHtml(String(error.line))}" aria-label="定位 JSON 错误">JSON 格式错误：第 ${escapeHtml(String(error.line))} 行，第 ${escapeHtml(String(error.column))} 列。 点击定位。</button>`
     : "";

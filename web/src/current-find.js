@@ -281,7 +281,14 @@ function bindCurrentFind() {
       if (matches.length) { current--; select(false, true); }
       else status(statusText);
     } else search(preservePosition, savedPosition());
-    input.focus({ preventScroll: true });
+    // 只有"首次建立/打开查找条"（`preservePosition` 为假）或"区域替换前焦点就在查找条里"时
+    // 才把焦点交给输入框：区域替换会重建绑定，无条件聚焦会把焦点从正文（或任何别处）抢进查找框。
+    // `window.__augitFindFocusIntent` 由实时层在替换区域之前记下（布尔）；**没有**这个意图时
+    // （静态视觉稿页面、或直接调区域替换的路径）保持原来的行为 —— 绑定后聚焦输入框。
+    const intent = window.__augitFindFocusIntent;
+    delete window.__augitFindFocusIntent;
+    const restoreFocus = preservePosition !== true || intent === undefined || intent === true;
+    if (restoreFocus) input.focus({ preventScroll: true });
   };
   const open = () => {
     if (view.dataset.markdownMode === 'preview') view.querySelector('[data-markdown-mode="source"]').click();

@@ -7387,6 +7387,147 @@ async function main() {
       await j8.page.close();
     }
 
+    // ---- 第 292 轮实现并断言（收 §7.4 第 9 条，关闭 T13）：JSON 外部更新复用正文 + 模式/焦点规则 ----
+    // 规格 §7.4：「JSON 同类型外部更新复用原文与格式化正文，保留当前模式、阅读位置和查找状态。
+    // 文件变为无效 JSON 时显示最新原文并更新错误原因；只有焦点原在格式化正文时才转交原文，
+    // 后台文件或查找输入不抢焦点。恢复有效后继续保留原文模式，直到用户主动切换。」
+    // 实现：`reuseJsonViewInPlace()` 保住 `.json-document` 与 `.code-view`（查找条闭包持有后者），
+    // 只换行内容/数据集/错误条/按钮状态；模式进 `tab.jsonMode`（变无效时写成 `source`）。
+    {
+      const t13 = await openScene('scene=main-project&theme=dark');
+      await t13.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await t13.page.waitForTimeout(400);
+      const t13Entries = (prefix, count) => Array.from({ length: count }, (_, i) => `"${prefix}${i + 1}":${i + 1}`);
+      const t13V1 = {
+        text: '{' + t13Entries('k', 40).join(',') + '}',
+        formatted: '{\n' + t13Entries('k', 40).map((entry, index) => '  ' + entry + (index === 39 ? '' : ',')).join('\n') + '\n}',
+      };
+      const t13V2 = {
+        text: '{' + t13Entries('k', 41).join(',') + ',"extra":true}',
+        formatted: '{\n' + t13Entries('k', 41).map((entry) => '  ' + entry + ',').join('\n') + '\n  "extra": true\n}',
+      };
+      const t13Broken = { text: '{\n  "k1": 1,\n  "k2": ,\n  "k3": 3\n}', jsonError: { line: 3, column: 10 } };
+      const t13Doc = (payload) => Object.assign({}, payload, {
+        path: 'docs/t13.json', name: 't13.json', fullPath: 'D:\\live-ws\\docs\\t13.json',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Json', typeName: 'JSON',
+        fileSize: String(payload.text).length, lineEndings: 'LF', encoding: 'UTF-8',
+      });
+      await t13.page.evaluate(async (payload) => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/t13.json'] = payload;
+        await window.__augitOpenDocument('docs/t13.json');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }, t13Doc(t13V1));
+      await t13.page.keyboard.press('Control+f');
+      await t13.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await t13.page.fill('.current-find .search-field', 'k2');
+      await t13.page.waitForTimeout(400);
+      const t13Read = () => t13.page.evaluate(() => {
+        const view = document.querySelector('.json-document');
+        const code = view ? view.querySelector(':scope > .code-view') : null;
+        const bar = view ? view.querySelector('.current-find') : null;
+        const error = view ? view.querySelector(':scope > .json-error') : null;
+        const button = view ? view.querySelector('button[data-json-mode="formatted"]') : null;
+        const active = document.activeElement;
+        const current = code ? code.querySelector('mark.find-current') : null;
+        const row = current && current.closest('.code-line');
+        const live = window.__augitLive || {};
+        const tab = (live.tabs || []).find((item) => item.path === 'docs/t13.json');
+        return {
+          mode: view ? view.dataset.jsonMode : null,
+          invalid: view ? view.classList.contains('json-invalid') : null,
+          errorText: error ? error.textContent.trim().slice(0, 40) : null,
+          errorLine: error ? error.dataset.jsonErrorLine : null,
+          formattedDisabled: button ? button.disabled : null,
+          findOpen: bar ? 1 : 0,
+          findQuery: bar ? bar.querySelector('.search-field').value : null,
+          findStatus: bar ? bar.querySelector('.find-status').textContent : null,
+          currentLine: row ? row.dataset.line : null,
+          focusInCode: !!(code && active === code),
+          focusInFind: !!(active && active.closest && active.closest('.current-find')),
+          scrollTop: code ? Math.round(code.scrollTop) : -1,
+          maxTop: code ? code.scrollHeight - code.clientHeight : -1,
+          lines: code ? code.querySelectorAll('.code-line').length : -1,
+          tabJsonMode: tab ? (tab.jsonMode || null) : null,
+        };
+      });
+      const t13Push = (payload) => t13.page.evaluate((data) => {
+        window.__limitDocs['docs/t13.json'] = Object.assign({}, window.__limitDocs['docs/t13.json'], data);
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\t13.json'], gitMetadata: false });
+      }, payload);
+
+      // 阶段 A：焦点在格式化正文里、正文滚到中间 → 外部更新让它变无效
+      await t13.page.evaluate(() => {
+        const code = document.querySelector('.json-document > .code-view');
+        code.focus();
+        code.scrollTop = 200;
+      });
+      await t13.page.waitForTimeout(200);
+      const t13Before = await t13Read();
+      await t13Push(t13Broken);
+      await t13.page.waitForTimeout(1400);
+      const t13Invalid = await t13Read();
+      check('§7.4 JSON 外部更新复用正文：变无效时显示最新原文与原因，保留查找与焦点（焦点原在格式化正文 ⇒ 留在原文）: '
+        + JSON.stringify({ t13Before, t13Invalid }),
+      // 前置：默认格式化、正文真的能滚、焦点在正文里、查找已建立
+      t13Before.mode === 'formatted' && t13Before.invalid === false && t13Before.maxTop > 0
+        && t13Before.scrollTop === 200 && t13Before.focusInCode === true
+        && t13Before.findOpen === 1 && t13Before.findQuery === 'k2' && t13Before.findStatus === '1/11'
+        && t13Before.currentLine === '3' && t13Before.tabJsonMode === null
+        // 变无效：强制原文、给出新行列与错误文字、"格式化"禁用
+        && t13Invalid.mode === 'source' && t13Invalid.invalid === true
+        && t13Invalid.errorLine === '3' && /第 3 行，第 10 列/.test(t13Invalid.errorText || '')
+        && t13Invalid.formattedDisabled === true && t13Invalid.lines === 5
+        // 查找条与查询保留、数量按新正文更新；焦点没有被抢走，仍在正文（现在显示原文）
+        && t13Invalid.findOpen === 1 && t13Invalid.findQuery === 'k2'
+        && t13Invalid.findStatus === '1/1' && t13Invalid.currentLine === '3'
+        && t13Invalid.focusInCode === true && t13Invalid.focusInFind === false
+        && t13Invalid.tabJsonMode === 'source');
+
+      // 阶段 B／C：恢复有效 ⇒ 模式仍是原文；用户主动切回格式化 ⇒ 才回到格式化
+      await t13Push(Object.assign({ jsonError: null }, t13V2));
+      await t13.page.waitForTimeout(1400);
+      const t13Valid = await t13Read();
+      await t13.page.locator('.json-document button[data-json-mode="formatted"]').click();
+      await t13.page.waitForTimeout(400);
+      const t13Switched = await t13Read();
+      check('§7.4 JSON 恢复有效后继续保留原文模式，直到用户主动切换: '
+        + JSON.stringify({ t13Valid, t13Switched }),
+      t13Valid.mode === 'source' && t13Valid.invalid === false && t13Valid.errorLine === null
+        && t13Valid.formattedDisabled === false && t13Valid.tabJsonMode === 'source'
+        && t13Valid.findOpen === 1 && t13Valid.findQuery === 'k2'
+        // 同类型外部更新（模式没变）保留查找位置：仍是同一处匹配所在的第 1 行、数量按新正文更新
+        && t13Valid.findStatus === '2/11' && t13Valid.currentLine === '1'
+        && t13Valid.focusInCode === true
+        // 用户主动切换：模式回到格式化、正文换成宿主的格式化结果（44 行）、模式写进标签记忆
+        && t13Switched.mode === 'formatted' && t13Switched.lines === 44
+        && t13Switched.tabJsonMode === 'formatted'
+        && t13Switched.findOpen === 1 && t13Switched.findStatus === '1/11'
+        && t13Switched.currentLine === '3');
+
+      // 阶段 D：焦点在查找框里时变无效 ⇒ 不许抢焦点；恢复有效后模式仍保留原文
+      await t13.page.locator('.current-find .search-field').focus();
+      await t13.page.waitForTimeout(150);
+      const t13FocusFind = await t13Read();
+      await t13Push(t13Broken);
+      await t13.page.waitForTimeout(1400);
+      const t13Invalid2 = await t13Read();
+      await t13Push(Object.assign({ jsonError: null }, t13V1));
+      await t13.page.waitForTimeout(1400);
+      const t13Valid2 = await t13Read();
+      check('§7.4 焦点在查找框时变无效不被抢走，恢复有效后仍保留原文模式: '
+        + JSON.stringify({ t13FocusFind, t13Invalid2, t13Valid2 }),
+      t13FocusFind.mode === 'formatted' && t13FocusFind.focusInFind === true
+        && t13Invalid2.mode === 'source' && t13Invalid2.invalid === true
+        && t13Invalid2.focusInFind === true && t13Invalid2.focusInCode === false
+        && t13Invalid2.findOpen === 1 && t13Invalid2.findQuery === 'k2'
+        && t13Invalid2.formattedDisabled === true
+        && t13Valid2.mode === 'source' && t13Valid2.invalid === false
+        && t13Valid2.formattedDisabled === false
+        && t13Valid2.focusInFind === true && t13Valid2.tabJsonMode === 'source');
+      await t13.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
