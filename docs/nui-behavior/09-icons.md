@@ -10750,3 +10750,50 @@ Git 查询；同一行内移动不重复重绘。移出或隐藏项目窗口时�
 
 A 类队列剩 §7.1 第 7（节点身份保持／分批应用／旧任务不向新工作区插节点）、§7.15 第 8（结束 ripgrep 进程）；
 B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。
+
+## nonaginta-quattuor. 第二百九十四轮：项目树增量刷新的逐半实测（§7.1 第 7 条：三半已有断言、三半登记 T14）
+
+### 规格
+
+`ux-spec.md:325`：「F5 和外部目录变化都增量更新当前已加载的目录；未变化项及其展开子树保持身份，
+只在新增或删除的行上做结构变动。大目录分批应用，期间仍可改选、滚动、收起目录或切换工作区；
+旧任务不能恢复先前的展开和选择，也不能向新工作区插入节点。尚未展开的目录不因 F5 递归读取。」
+
+### 实测（`scene=main-project` + `__treeOverrides` 注入 `docs` 三项清单，展开 `docs/api` 并选中 `docs/product-spec.md`）
+
+| 半 | 结论 | 证据 |
+| --- | --- | --- |
+| 展开与选择按路径保留 | **已实现** | F5 与外部变化后 `docs/api` 仍展开（紧邻 `docs/api/schema.md`）、`live.treeSelectedPath` 不变 |
+| F5/外部变化重读 Git 状态 | **已实现** | `__statusCalls` 1 → 2 → 3 |
+| 未展开目录不因 F5 递归读取 | **已实现** | 行集合逐项不变、不出现 `src/**` |
+| **增量更新已加载目录** | **未实现** | 追加 `docs/added-later.txt` 后按 F5、追加 `docs/added-external.txt` 后推 `workspace-changed`，两者都**没有出现**（`childrenByPath` 只在首屏与展开时写入，刷新只重渲染缓存） |
+| **未变化项保持身份** | **未实现** | 刷新后 `docs/product-spec.md`、`docs/api` 与整个 `.side-content.tree` 都换成新节点（`sameSpec`／`sameApi`／`sameTree` 全 false；区域替换整块重建） |
+| **大目录分批应用** | **未实现** | `loadChildren()` 是"一次 `workspace/list` + `slice(0, MAX_ENTRIES_PER_DIRECTORY)` + 一次渲染"，无分批、无代际 |
+| 不向新工作区插节点 | **不适用** | Augit 打开其它目录一律**新开窗口**（`openWorkspacePath()` 只回报 `current`／`activated`／`new`），窗口内不存在"切换工作区"事件（与 §7.9 第十条同口径） |
+
+### 登记
+
+三条未实现半登记为 **T14**（`ui-classification.md`），§7.1 第 7 条的结论类别由 A 改 **D**
+（§2.10：A 2 → **1**、D 8 → **9**，分母 15 不变；该行仍为"部分"）。
+出路：`patchProjectTree()`（按 `data-tree-path` 就地套用：未变化行保留节点、只增删变化行）
+＋ `refreshLoadedDirectories()`（F5/外部变化只重列 `expandedPaths` 里的目录，带请求代际）
+＋ 大目录分批插入（`requestAnimationFrame` 分块，期间保持可交互）。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.1 F5 与外部目录变化保留展开与选择（按路径）、重读 Git 状态且不递归读取未展开目录` |
+| 2 | `§7.1 缺口钉住：F5 与外部目录变化目前不会重新列举已加载目录，行元素也在刷新时全部重建（T14）`（**实现 T14 时必须反过来写**） |
+
+### 验证
+
+- `live-shell` **`通过 1434 项断言`**（1432 → **+2**），退出码 0。
+- 登记哈希：`live-shell.spec.cjs` `de5ab692…` → **`de908ce00a65d9ed1a7c679a47a1d9dc`**；
+  本轮**只改 harness**，运行时与共享视觉稿哈希与第 293 轮逐个相同。
+- 同批：`verify-ui-assets` PASS、`git diff --check` 通过。
+
+### 下一轮
+
+实现 **T14**（树增量刷新：就地套用 + 重列已加载目录 + 分批插入）并把缺口断言反过来；
+其余 A 类队列只剩 §7.15 第 8（结束 ripgrep 进程）；B 类 §7.3 第 3、13；D 类含 T10、T3 等需用户口径项。

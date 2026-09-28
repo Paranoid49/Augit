@@ -7699,6 +7699,100 @@ async function main() {
       await th.page.close();
     }
 
+    // ---- 第 294 轮：§7.1 第 7 条的"已实现的一半"补断言 + 缺口钉住（增量更新尚未实现，T14） ----
+    // 规格 §7.1：「F5 和外部目录变化都增量更新当前已加载的目录；未变化项及其展开子树保持身份，
+    // 只在新增或删除的行上做结构变动。大目录分批应用…旧任务不能恢复先前的展开和选择，也不能向
+    // 新工作区插入节点。尚未展开的目录不因 F5 递归读取。」
+    // 第 294 轮实测：**展开与选择按路径保留、Git 状态确实重读**这两半成立；但目录清单**从不重列**
+    //（`childrenByPath` 只在首屏与展开时写入，F5/外部变化都只重渲染缓存），行元素也在每次区域替换时
+    // 全部重建 ⇒ "增量更新""未变化项保持身份""大目录分批"三半**尚未实现**，登记 T14。
+    // 下面第二条断言**钉住缺口**（不是通过项）：实现 T14 时必须把它反过来写。
+    {
+      const t7 = await openScene('scene=main-project&theme=dark');
+      await t7.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await t7.page.waitForTimeout(500);
+      await t7.page.evaluate(() => {
+        window.__treeOverrides = {
+          docs: [
+            { name: 'product-spec.md', path: 'docs/product-spec.md', isDirectory: false, canExpand: false },
+            { name: 'api', path: 'docs/api', isDirectory: true, canExpand: true },
+            { name: 'notes.txt', path: 'docs/notes.txt', isDirectory: false, canExpand: false },
+          ],
+        };
+      });
+      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await t7.page.waitForFunction('document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/"]\').length === 3', null, { timeout: 10000 });
+      await t7.page.waitForTimeout(300);
+      // 展开一层子目录，再选中一个文件：刷新后展开与选择都要按路径保留
+      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/api"]').click();
+      await t7.page.waitForTimeout(400);
+      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
+      await t7.page.waitForTimeout(250);
+      const t7Snap = () => t7.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        const byPath = {};
+        for (const row of rows) if (row.dataset.treePath) byPath[row.dataset.treePath] = row;
+        const live = window.__augitLive || {};
+        return {
+          rows: rows.length,
+          paths: Object.keys(byPath),
+          sameSpec: window.__specRow === (byPath['docs/product-spec.md'] || null),
+          sameApi: window.__apiRow === (byPath['docs/api'] || null),
+          sameTree: window.__treeEl === (document.querySelector('.side-content.tree') || null),
+          expandedApi: !!byPath['docs/api'],
+          selected: live.treeSelectedPath || null,
+          nextAfterApi: rows.map((row) => row.dataset.treePath || null).slice(rows.indexOf(byPath['docs/api']) + 1, rows.indexOf(byPath['docs/api']) + 2)[0] || null,
+          statusCalls: window.__statusCalls || 0,
+        };
+      });
+      await t7.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        window.__specRow = rows.find((row) => row.dataset.treePath === 'docs/product-spec.md') || null;
+        window.__apiRow = rows.find((row) => row.dataset.treePath === 'docs/api') || null;
+        window.__treeEl = document.querySelector('.side-content.tree');
+      });
+      const t7Before = await t7Snap();
+      await t7.page.evaluate(() => {
+        window.__treeOverrides.docs = window.__treeOverrides.docs.concat([
+          { name: 'added-later.txt', path: 'docs/added-later.txt', isDirectory: false, canExpand: false },
+        ]);
+      });
+      await t7.page.keyboard.press('F5');
+      await t7.page.waitForTimeout(900);
+      const t7AfterF5 = await t7Snap();
+      await t7.page.evaluate(() => {
+        window.__treeOverrides.docs = window.__treeOverrides.docs.concat([
+          { name: 'added-external.txt', path: 'docs/added-external.txt', isDirectory: false, canExpand: false },
+        ]);
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\added-external.txt'], gitMetadata: false });
+      });
+      await t7.page.waitForTimeout(1200);
+      const t7AfterPush = await t7Snap();
+      check('§7.1 F5 与外部目录变化保留展开与选择（按路径）、重读 Git 状态且不递归读取未展开目录: '
+        + JSON.stringify({ t7Before, t7AfterF5, t7AfterPush }),
+      // 前置：docs/api 已展开（紧接着是它的子项）、选中了一个文件
+      t7Before.expandedApi === true && t7Before.nextAfterApi === 'docs/api/schema.md'
+        && t7Before.selected === 'docs/product-spec.md'
+        // F5 与外部变化后：展开层级、选择、行集合与"未展开目录不递归读取"都保持
+        && t7AfterF5.expandedApi === true && t7AfterF5.selected === 'docs/product-spec.md'
+        && JSON.stringify(t7AfterF5.paths) === JSON.stringify(t7Before.paths)
+        && !t7AfterF5.paths.includes('src/main.cs')
+        && t7AfterPush.expandedApi === true && t7AfterPush.selected === 'docs/product-spec.md'
+        && JSON.stringify(t7AfterPush.paths) === JSON.stringify(t7Before.paths)
+        // 两次刷新都真的重读了 Git 状态（F5 的刷新语义没有整条失效）
+        && t7AfterF5.statusCalls > t7Before.statusCalls && t7AfterPush.statusCalls > t7AfterF5.statusCalls);
+      check('§7.1 缺口钉住：F5 与外部目录变化目前不会重新列举已加载目录，行元素也在刷新时全部重建（T14）: '
+        + JSON.stringify({ t7AfterF5, t7AfterPush }),
+      // **缺口**：新增文件没出现（目录清单来自 `childrenByPath` 缓存，从不重列）
+      !t7AfterF5.paths.includes('docs/added-later.txt')
+        && !t7AfterPush.paths.includes('docs/added-external.txt')
+        // **缺口**：未变化项与树容器都换了新节点（没有增量套用/身份保持）
+        && t7AfterF5.sameSpec === false && t7AfterF5.sameApi === false && t7AfterF5.sameTree === false
+        // 对照：同一份内容在两次刷新之间确实被重新渲染过（不是"什么都没发生"空过）
+        && t7AfterF5.rows === t7Before.rows && t7AfterPush.rows === t7Before.rows);
+      await t7.page.close();
+    }
+
     // ---- 提交图：泳道由真实父子关系推导（历史来自宿主，不是样例） ----
     const graphPage = await openScene('scene=git-history-graph&theme=dark');
     await graphPage.page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
