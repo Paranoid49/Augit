@@ -3952,6 +3952,56 @@ async function main() {
       await mg.page.close();
     }
 
+    // ---- 第 299 轮补断言（收 §7.3 第 13 条）：三模式切换的参考记录与"不冒充 PyCharm 实测细节"口径 ----
+    // 规格 §7.3（`ux-spec.md:372`）：「三模式正常切换的参考记录见 `PY-MARKDOWN-MODES-01`；
+    // 精确位置保持与异步时序是 Augit 验收约束，不能标记为 PyCharm 已实测细节。」
+    // 本条是**口径声明**而不是行为，所以判据也只能落在文档上；反过来若把它写成
+    // "PyCharm 会精确保留滚动"一类的行为断言，恰好就是本条禁止的说法。三条判据：
+    //   ① 条文与实测记录都在；② 记录带诚实限定并明确把不预热/复用预览/资源错误
+    //   局部显示归为 **Augit 约束**；③ 全仓文档里凡出现"精确保持/精确保留"的句子都必须
+    //   是否定句 —— 任何一处把它当既成事实的写法都会让这条失败（可负向验证）。
+    // 至于"位置保持/异步时序"这两半，它们在 Augit 侧各有独立断言（正式条款第 10/11 条：
+    // `§7.3 模式切换不丢失各自滚动位置`、`§7.3 预览只应用最后一次有效渲染`、
+    // `§7.3 预览读取超 150ms 才在预览区给提示…`、`§7.3 隐藏的 Markdown 标签不预热预览视图…`），
+    // 本条**不重复**那些行为判据，只保证口径没被写歪。
+    {
+      const docsDir = path.resolve(__dirname, '../../docs');
+      const docFiles = fs.readdirSync(docsDir, { recursive: true })
+        .filter((file) => typeof file === 'string' && file.endsWith('.md'));
+      const readDoc = (file) => fs.readFileSync(path.join(docsDir, file), 'utf8');
+
+      // ① 条文与实测记录都在（记录标题是可检索的锚点，不是散落在别处的顺带提及）。
+      const clauseRecorded = readDoc('ux-spec.md').includes('三模式正常切换的参考记录见 `PY-MARKDOWN-MODES-01`')
+        && readDoc('ux-spec.md').includes('精确位置保持与异步时序是 Augit 验收约束，不能标记为 PyCharm 已实测细节');
+      const recordRecorded = readDoc('pycharm-blackbox-reference.md').includes('### 补充实测：`PY-MARKDOWN-MODES-01`');
+      // ② 诚实限定：实测样本不得被描述为"精确保持"，加载帧不得被当成 PyCharm 内部机制的证据，
+      //    并且记录要把"隐藏视图不预热/复用预览/后台解析/资源错误局部显示"明确归为 Augit 约束。
+      const recorded = readDoc('pycharm-blackbox-reference.md');
+      const honestLimits = recorded.includes('不能将本次样本描述为预览滚动精确保持')
+        && recorded.includes('不能从加载帧推断 PyCharm 创建或销毁了浏览器')
+        && recorded.includes('属于 Augit 约束，不宣称为 PyCharm 内部机制')
+        && readDoc('visual-refinement-status.md').includes('不能宣称 PyCharm 精确保留所有滚动');
+      // 跨框架口径：设计系统 §1 与对照记录 §1.3 都写了"不判逐像素相等/不作整体完成条件"。
+      const crossFramework = readDoc('design-system.md').includes('不以所有平台渲染像素绝对相等作为整体完成条件')
+        && readDoc('ui-compliance.md').includes('Swing↔Chromium 不判逐像素相等');
+      // ③ 全仓扫描：把"精确保持/精确保留"当既成事实的行（同句没有否定词）必须为 0。
+      //    否定词集合固定为 `不能／不宣称／未／无／否`（字面扫描，不做语义判断）——
+      //    本仓库当前的 2 处命中都是"不能宣称…精确保留"这类否定句；任何一处新写的
+      //    肯定句（例如"PyCharm 精确保持滚动位置"）都会进来并让断言失败。
+      const positiveClaims = [];
+      for (const file of docFiles) {
+        readDoc(file).split('\n').forEach((line, index) => {
+          if (/精确(保持|保留)/.test(line) && !/不能|不宣称|未|无|否/.test(line)) {
+            positiveClaims.push(`${file}:${index + 1}`);
+          }
+        });
+      }
+
+      check('§7.3 三模式切换参考 `PY-MARKDOWN-MODES-01` 并带诚实限定；位置保持/异步时序归为 Augit 验收约束、全仓无"PyCharm 精确保持"的既成事实写法: '
+        + JSON.stringify({ clauseRecorded, recordRecorded, honestLimits, crossFramework, positiveClaims, docCount: docFiles.length }),
+      clauseRecorded && recordRecorded && honestLimits && crossFramework && positiveClaims.length === 0);
+    }
+
     // ---- §7.3 Markdown：受控链接、分隔条拖动、模式切换保留滚动（本轮补断言）----
     // 背景：`renderMarkdown` 把链接渲染成 href="#" + data-external-link / data-document-link，
     // 但**没有任何代码读这两个属性** —— 点外部链接会让 WebView 自己导航，点相对链接会跳到页首，
