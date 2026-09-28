@@ -4904,7 +4904,12 @@ function reuseJsonViewInPlace() {
 
   const caret = captureMarkdownCaret(code);
   const scroll = [code.scrollLeft, code.scrollTop];
-  const hadFocus = document.activeElement === code || code.contains(document.activeElement);
+  const active = document.activeElement;
+  const hadFocus = active === code || code.contains(active);
+  // 规格 §7.4 第六条：「错误条自身获得焦点时被外部修复隐藏，焦点回原文；其他焦点不变。」
+  // 错误条是**按需重建的节点**（内容或行列变了就整块换新），因此焦点在它身上时必须显式接走，
+  // 否则节点被移除后焦点会掉到 `BODY`。这里先记下"焦点是否在错误条里"，收尾处再决定交给谁。
+  const hadErrorFocus = !!(active && active.closest && active.closest(".json-error"));
   live.jsonFocusIntent = null;
 
   view.classList.toggle("json-invalid", invalid);
@@ -4946,7 +4951,15 @@ function reuseJsonViewInPlace() {
   code.scrollLeft = scroll[0];
   code.scrollTop = scroll[1];
   restoreMarkdownCaret(code, caret);
-  if (hadFocus) code.focus({ preventScroll: true });
+  if (hadErrorFocus) {
+    // 错误条还在（仍是无效 JSON，只是行列或文字变了）⇒ 焦点留在错误条上；
+    // 被外部修复隐藏 ⇒ 按规格把焦点交给原文（`.code-view` 现在显示的就是原文）。
+    const nextError = view.querySelector(":scope > .json-error");
+    if (nextError) nextError.focus({ preventScroll: true });
+    else code.focus({ preventScroll: true });
+  } else if (hadFocus) {
+    code.focus({ preventScroll: true });
+  }
   // 让渲染层的模式闭包与新 DOM 对齐（否则下一次点"原文/格式化"会被它自己的旧 `current` 挡掉）。
   if (typeof view.__augitJsonSync === "function") view.__augitJsonSync();
   view.dispatchEvent(new CustomEvent("document-content-changed", {

@@ -7804,6 +7804,100 @@ async function main() {
       await t13.page.close();
     }
 
+    // ---- 第 300 轮补断言（收 §7.4 第 6 条）：错误条获得焦点时被外部修复隐藏 ⇒ 焦点回原文 ----
+    // 规格 §7.4（`ux-spec.md:385`）：「格式错误时保留"格式化"按钮的位置并禁用，不能把原文当作
+    // 格式化结果；修复后恢复可用。错误条自身获得焦点时被外部修复隐藏，焦点回原文；其他焦点不变。」
+    // 前半已有断言（同一工具栏内保留按钮位置 + `disabled` + `title`；"修复后恢复可用"由第 292 轮的
+    // `§7.4 JSON 恢复有效后继续保留原文模式…` 里的 `formattedDisabled === false` 覆盖）。
+    // 缺的是最后一句的**焦点交接**：错误条是按需重建的节点（行列或文字变了就整块换新），
+    // 焦点在它身上时若不显式接走，节点被移除后焦点会掉到 `BODY`。
+    {
+      const jf = await openScene('scene=main-project&theme=dark');
+      await jf.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await jf.page.waitForTimeout(300);
+      const jfDoc = (payload) => Object.assign({}, payload, {
+        path: 'docs/focus.json', name: 'focus.json', fullPath: 'D:\\live-ws\\docs\\focus.json',
+        workspaceName: 'live-ws', status: 'TextReady', kind: 'Json', typeName: 'JSON',
+        fileSize: String(payload.text).length, lineEndings: 'LF', encoding: 'UTF-8',
+      });
+      const jfBroken = { text: '{\n  "a": 1,\n  "b": ,\n  "c": 3\n}', jsonError: { line: 3, column: 8 } };
+      const jfValid = { text: '{\n  "a": 1,\n  "b": 2\n}', formatted: '{\n  "a": 1,\n  "b": 2\n}' };
+      await jf.page.evaluate(async (payload) => {
+        window.__limitDocs = window.__limitDocs || {};
+        window.__limitDocs['docs/focus.json'] = payload;
+        await window.__augitOpenDocument('docs/focus.json');
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }, jfDoc(jfBroken));
+      const jfRead = () => jf.page.evaluate(() => {
+        const view = document.querySelector('.json-document');
+        const code = view ? view.querySelector(':scope > .code-view') : null;
+        const error = view ? view.querySelector(':scope > .json-error') : null;
+        const button = view ? view.querySelector('button[data-json-mode="formatted"]') : null;
+        const more = view ? view.querySelector('.document-toolbar .icon-button[aria-label="更多"]') : null;
+        const active = document.activeElement;
+        return {
+          mode: view ? view.dataset.jsonMode : null,
+          invalid: view ? view.classList.contains('json-invalid') : null,
+          hasError: !!error,
+          errorLine: error ? error.dataset.jsonErrorLine : null,
+          formattedDisabled: button ? button.disabled : null,
+          focusOnError: !!(active && active.classList && active.classList.contains('json-error')),
+          focusInCode: !!(code && (active === code || code.contains(active))),
+          focusOnMore: !!(more && active === more),
+          focusTag: active ? active.tagName : null,
+        };
+      });
+      const jfPush = (payload) => jf.page.evaluate((data) => {
+        window.__limitDocs['docs/focus.json'] = Object.assign({}, window.__limitDocs['docs/focus.json'], data);
+        window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\focus.json'], gitMetadata: false });
+      }, payload);
+
+      // 阶段 A：焦点在错误条上 → 外部修复 ⇒ 焦点回原文、按钮恢复可用、模式仍保留原文
+      await jf.page.locator('.json-document > .json-error').focus();
+      await jf.page.waitForTimeout(200);
+      const jfOnError = await jfRead();
+      await jfPush(Object.assign({ jsonError: null }, jfValid));
+      await jf.page.waitForTimeout(1400);
+      const jfRepaired = await jfRead();
+      check('§7.4 错误条获得焦点时被外部修复隐藏：焦点回原文、按钮恢复可用、模式保留原文: '
+        + JSON.stringify({ jfOnError, jfRepaired }),
+      // 前置：真的处于无效态、焦点真的在错误条上、按钮真的禁用（否则"焦点回原文"可能是空断言）
+      jfOnError.invalid === true && jfOnError.hasError === true && jfOnError.focusOnError === true
+        && jfOnError.formattedDisabled === true && jfOnError.mode === 'source'
+        // 修复后：错误条消失、按钮可用、焦点落在原文正文（而不是 `BODY`）、模式仍保留原文
+        && jfRepaired.invalid === false && jfRepaired.hasError === false
+        && jfRepaired.formattedDisabled === false && jfRepaired.focusInCode === true
+        && jfRepaired.focusOnError === false && jfRepaired.focusTag !== 'BODY'
+        && jfRepaired.mode === 'source');
+
+      // 阶段 B：其它焦点不变，且错误条仍在（只是行列变了）时焦点留在错误条上、不掉到 `BODY`
+      await jfPush(jfBroken);
+      await jf.page.waitForTimeout(1400);
+      await jf.page.locator('.json-document .document-toolbar .icon-button[aria-label="更多"]').focus();
+      await jf.page.waitForTimeout(150);
+      const jfOnMore = await jfRead();
+      await jfPush(Object.assign({ jsonError: null }, jfValid));
+      await jf.page.waitForTimeout(1400);
+      const jfMoreKept = await jfRead();
+      await jfPush(jfBroken);
+      await jf.page.waitForTimeout(1400);
+      await jf.page.locator('.json-document > .json-error').focus();
+      await jf.page.waitForTimeout(150);
+      await jfPush({ jsonError: { line: 4, column: 3 } });
+      await jf.page.waitForTimeout(1400);
+      const jfErrorKept = await jfRead();
+      check('§7.4 外部更新时焦点不在错误条上则不被抢走；错误条仍在（行列变化）时焦点留在错误条而不掉到 body: '
+        + JSON.stringify({ jfOnMore, jfMoreKept, jfErrorKept }),
+      // "其他焦点不变"：焦点在工具栏按钮上时，修复不得把它抢到正文
+      jfOnMore.focusOnMore === true && jfMoreKept.focusOnMore === true
+        && jfMoreKept.focusInCode === false && jfMoreKept.invalid === false
+        // 错误条仍在但整块换新（第 3 行 → 第 4 行）⇒ 焦点接给新节点而不是 `BODY`
+        && jfErrorKept.invalid === true && jfErrorKept.hasError === true
+        && jfErrorKept.errorLine === '4'
+        && jfErrorKept.focusOnError === true && jfErrorKept.focusTag === 'BUTTON');
+      await jf.page.close();
+    }
+
     // ---- 第 293 轮补断言（收 §7.1 第 4 条）：项目树悬停只改外观、移出/隐藏清除、滚动后重新命中 ----
     // 规格 §7.1（`ux-spec.md:322`）：「项目树悬停由树控件独立维护，只重绘原悬停行与新悬停行，
     // 不改变选择、焦点、标签或触发 Git 查询；同一行内移动不重复重绘。移出或隐藏项目窗口时清除悬停，

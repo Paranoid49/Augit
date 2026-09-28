@@ -11039,3 +11039,64 @@ B 类只剩 §7.3 第 13（跨框架不逐像素相等的口径 + 位置保持/�
 ### 下一轮
 
 B 类只剩 §7.5 第 8（平滑图后台生成，已登记"无法取证"待用户口径）；其余为 D 类 8 项（T10、T3 等需产品口径）与 E 类 1 项。
+
+## nonaginta-centum. 第三百轮：JSON 错误条的焦点交接（§7.4 第 6 条收口）
+
+### 规格
+
+`ux-spec.md`（§7.4 第六条，`:385`）：「格式错误时保留"格式化"按钮的位置并禁用，不能把原文当作
+格式化结果；修复后恢复可用。**错误条自身获得焦点时被外部修复隐藏，焦点回原文；其他焦点不变。**」
+
+### 缺陷：错误条是按需重建的节点
+
+错误条由 `liveJsonDocument()` 生成，`reuseJsonViewInPlace()` 在外部更新时按 `outerHTML` 比对，
+**行列或文字一变就整块换新**（`currentError.remove()` + `insertBefore(freshError, …)`）。
+收尾处的焦点逻辑只认正文：
+
+```js
+const hadFocus = active === code || code.contains(active);
+…
+if (hadFocus) code.focus({ preventScroll: true });
+```
+
+焦点在 `.json-error` 上时 `hadFocus` 为假 ⇒ 节点被移除后焦点掉到 `BODY`。
+负向实测（把实现改回旧写法）：`jfRepaired.focusTag:"BODY"`。
+
+### 修法
+
+替换前记下"焦点是否在错误条里"，收尾时按三种情况交接（`web/src/live-data.js`）：
+
+| 更新前的焦点 | 收尾动作 |
+| --- | --- |
+| 在 `.json-error` 里，更新后错误条**仍在** | `focus()` 新错误条（行列/文字变化会换节点，不接就丢焦点） |
+| 在 `.json-error` 里，更新后错误条**被隐藏**（外部修复） | `focus()` 原文 `.code-view`（规格明写的那一半） |
+| 在正文里 | 原有行为不变（正文节点没换，自然留着） |
+| 在其他任何地方（工具栏、查找框、树…） | 一律不动 —— "其他焦点不变" |
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 |
+| --- | --- |
+| 1 | `§7.4 错误条获得焦点时被外部修复隐藏：焦点回原文、按钮恢复可用、模式保留原文` |
+| 2 | `§7.4 外部更新时焦点不在错误条上则不被抢走；错误条仍在（行列变化）时焦点留在错误条而不掉到 body` |
+
+### 负向验证
+
+把收尾改回 `if (hadFocus) code.focus({ preventScroll: true });`（其余不动）⇒ 第 1 条断言失败，
+`jfOnError` 侧五项前置仍全真、`jfRepaired.focusInCode:false`、`focusTag:"BODY"` —— 说明这条断言
+测的确实是"焦点交接"而不是别的副作用。
+
+### 验证
+
+- `live-shell` **`通过 1442 项断言`**（1440 → **+2**），退出码 0。
+- 登记哈希：`live-data.js` `9434add1…` → **`b58ccc99ffe0840ce5879b886c6b09f7`**；
+  `live-shell.spec.cjs` `756db102…` → **`5679c07a00e632aeb8ef9fb9fc4591bf`**；
+  `mockup.js`／`mockup.css`／`bridge.js`／`current-find.js`／`markdown.js`／`image-preview.js` 未变。
+- §7.4 第 6 条转 **是**（§2.10：分母 10 → **9**、D 8 → **7**）。
+- 同批：`verify-ux-json` 24 个状态 PASS、`mockup-scenes` 55/55、`verify-ui-assets` PASS、
+  `check-doc-claims` OK、`gen-clause-conclusions` 幂等、`git diff --check` 通过。
+
+### 下一轮
+
+B 类只剩 §7.5 第 8（已登记"无法取证"待用户口径）；D 类 7 项里 §7.4 第 2 条（JSON 双段式图形逐项复原）
+与 §7.17 第 2 条（分类清单式断言）不需要产品裁决，可继续收口。
