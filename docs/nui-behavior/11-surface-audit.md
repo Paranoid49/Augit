@@ -1,5 +1,7 @@
 # 11 · 界面表面审计：Augit 现有功能 ↔ New UI 权威
 
+> **状态（第 307 轮，2026-09-28）：本审计的作业面已全部收口。** 下表的"估轮"是第 133 轮的历史估计，**不再代表当前进度**：§3 的 11 个区已逐区采集并落地（修订记录里有每一轮的收口条目），`10-backlog.md` 已清零、`ui-classification.md` §7 待处理表已清零、§2.10 只剩一行**已获用户认可的「不适用」**（§7.9 #23 比较对话框）。本文件此后只作历史审计记录。
+
 本文件回答一个此前一直模糊的问题：**「还要多少轮」**。做法是把 Augit**现有的界面表面**逐个摊开，对每个表面问三件事，然后把"没有权威依据"和"有权威但未采集"的格子数出来。
 
 ## 0. 口径
@@ -58,7 +60,7 @@
 | 10 | **冲突列表**（第 158 轮**收口**） | `conflict-list` | `08-diff-merge.md` §7bis（渲染侧）＋§7bis.2／§7bis.7（可用性判据） | — | **已采完**：三动作的可用性由 Git 操作状态决定；`live-shell` 已断言"Continue 保留并禁用且说明原因"与"`supportsContinue=false && canAbort/canSkip=false` ⇒ 三者都不渲染"（等于权威的"操作不存在就不显示"） | **0** |
 | 11 | **C# 外壳侧** | 无对应 html | `07` 覆盖平台级主题/DPI | 窗口 chrome、`ShellTheme.cs`/`ShellSystemTheme.cs` 的落地 | 外壳与网页层的职责边界、DPI 传递、主题事件时序 | **1**（第 198 轮已落地主题边界：WebView2 表面色随主题（导航前设定＋`theme/changed` 同步）＋按 `07` §1.3 建议补浅/深几何不变性断言；**已落地**：第 199 轮钉住 DPI 契约（2× 下逻辑像素不变 ＋ 行高吸附整设备像素）、第 200 轮落地细线令牌 `--augit-hairline`（`round(dpr)/dpr`，92 处；**登记差异**：Chromium 把 `border-*`/`outline` 宽度取整到整数 CSS 像素，令牌只对 `height`/`width` 与 `box-shadow` 生效）） |
 
-**合计：约 12–21 轮**（每个区的"估轮"含：定位权威 → 采集进 `0*.md` → 按权威改实现/断言 → 分模块验证）。
+**合计：约 12–21 轮**（第 133 轮的历史估计；每个区的"估轮"含：定位权威 → 采集进 `0*.md` → 按权威改实现/断言 → 分模块验证）。**第 307 轮核查时该估计已用尽并结清**，见文件头状态说明。
 
 > **进展（第 135 轮）：第 1 区首片已采集 → `12-commit-changes.md`。**
 > 已定死的权威：启用判据 `hasDiffs() && !isExecuting()`（`CommitChangeListDialog.java:602-604,616-624`）、**空提交信息走"确认"而非阻断**（`SingleChangeListCommitWorkflowHandler.kt:117-122`）、重算时机（inclusion 监听 `:351`、执行开始/结束 `:292/:295`、300ms 去抖 `:622`）、executor 判据（`:115`、`:799-803`）。
@@ -138,3 +140,4 @@ rg -l "class VcsPushDialog" --glob '*.java' platform plugins
 - 第 157 轮：第 5 区（内置终端）—— 权威侧采全并落地 **Esc 语义**（终端里不带修饰键的 Esc 把焦点交回编辑器正文并消费、**不送给 Shell**；Tab 仍进 Shell，两条相反且都由断言钉住）→ `19-terminal.md`；标签生命周期/关闭确认/重命名**无本地权威**（权威自己写明已搬到未包含的 Terminal 插件），以 Augit 规格与实现为准。
 - 第 158 轮：**第 9 区的最后一项分辨清楚了**（`Ctrl+Shift+F` 走 UsageView ⇒ 结果**按文件分组**，`UsageViewSettings.kt:21` 默认 `isGroupByFileStructure = true`；Augit 是扁平行）→ 记入 `10-backlog.md` §三·补三，下一轮落地；**第 10 区收口**（三动作可用性判据见 `08-diff-merge.md` §7bis，`live-shell` 早有断言）。
 - 第 159 轮：**撤销上一轮的一条结论**。第 158 轮据"Find in Files 与 Search Everywhere 文本页签都用到 UsageView presentation"判定"结果都按文件分组"，把"Augit 扁平行"记成待落地差异；第 159 轮钉住**表面**后推翻：**弹层**用的是自己的**行**模型（`FindPopupItem`，`FindPopupResultsAutoloadHandler.kt:69-80,145-147,349`），**扁平行 + 按文件路径排序**（且当前结果所在文件置顶），Augit 的浮层正是弹层 ⇒ **结构与排序都已对齐**，§三·补三 结案为"不是差异"。
+- 第 307 轮：**全量核查并结清本审计** —— `10-backlog.md` 清零（对话框标题图标按权威定性并实现、创建标签条目订正为已落地、`gen-coverage-table.cjs` 加手写内容守卫）；`ui-classification.md` §7 待处理表清零、§2.10 只剩已认可的一行「不适用」；三类场景性能基线与资源回收记录（`performance-report.md` §10–§13）复核仍在。

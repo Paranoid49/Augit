@@ -362,6 +362,8 @@
 
 **第 306 轮**实现并收口 §7.7 第 11 条（双栏中栏的"变更连接区"与逐行槽底，关闭 **T10**，§2.10：分母 3 → **1**、D 1 → **0**）。按权威 `DiffLineMarkerRenderer.drawMarker()`（用**变更块类型色**的全强度 `DIFF_*.BACKGROUND` 填充槽底）与 `DiffDividerDrawUtil.DividerPolygon`（同色、**无边框**、连两侧行范围的梯形）：实时差异的中栏改为**三列**（旧行号 ｜ 14px 连接区 ｜ 新行号），逐行两格按块类型着色（块内两侧都有行 ⇒ 修改色；只有新增 ⇒ 新增色；只有删除 ⇒ 删除色），连接区用 `clip-path: polygon(...)` 按块高占比画梯形，某一侧没有行时那一侧在两范围中点收成尖角。**同轮修掉一个真实缺陷**：实时差异的行号槽此前是"逐行两格 + 每格 8px 内距"的自动行，实测行高 **85px**、与正文 22px 完全错位（静态样例用 `<div>`＋`<br>` 的行内文本流对齐，因此一直没暴露）；新增 `.diff-gutter-live`（三列 + `grid-auto-rows` + 顶部 8px 内距、格子内距归零）后逐行同顶。新断言两条（`§7.7 中栏逐行槽底…` 与 `§7.7 中栏变更连接区…`，含单栏不画的反向对照），负向验证两处：整块 CSS 规则移除 ⇒ 第一条失败；连接区图层清空 ⇒ 第二条失败。共享资产两副本字节一致；`live-shell` 1449 → **1451**、`verify-ux-diff-typography` PASS=72、`verify-ux-file-history` 26 组、`verify-ux-text-layout` 126 组合、`mockup-scenes` 55/55、`verify-ui-assets` PASS。**至此 §7 待处理表为空**，§2.10 只剩 §7.9 #23「比较对话框」这一行**已获用户认可的"不适用"**。
 
+**第 307 轮（目标完成前全量核查）**：逐处核对登记表并处理三项遗留。① `10-backlog.md` **清零** —— 对话框标题图标（§二·补四(b)）按权威逐个定性并实现：`Messages` 系确认框（删除 Stash `GitStashUtils.kt:86`／删除引用 `GitBranchUiHandlerImpl.java:179`／移除 Worktree `GitCheckoutInOtherWorktreeDialogs.kt:54`，以及原有 reset／rollback）统一 28px 蓝底白问号，`GitInit.java:72` 的「已在 Git 下」警告用橙底白叹号（新增 `--augit-dialog-warning-bg`），自定义 `DialogWrapper`（stash 创建／clone／push／新建分支）与紧凑输入窗口**不画**图标；「创建标签」条目订正为"第 172／173／174 轮已落地"（过时条目）；`gen-coverage-table.cjs` 加**生成标记 + 守卫**（§1.4 没有标记时 `--write` 直接失败、不改文档）。② `11-surface-audit.md` 标注为"作业面已全部收口"（第 133 轮的 12–21 轮估计是历史值）。③ 性能与资源：`performance-report.md` §10–§13 的三类场景基线与"开关 10 次不线性增长"的回收记录复核仍在（§8 未完成项只有 Windows 10 实机，与目标口径一致）。**至此**：§7 待处理表空、§5 无法取证与 §6 不适用清单每一项都有用户认可的处理结论、§2.10 只剩一行「§7.9 #23 比较对话框 = 不适用（用户已认可）」。
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
