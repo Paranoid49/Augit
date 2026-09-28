@@ -11227,3 +11227,58 @@ live.fileHistoryPreview = { ...parts, key, loading: false, ready: !failed, diff:
 
 D 类 4 项：§7.4 第 2 条（图形，剩"格式化"无权威半条）、§7.7 第 11 条（T10 中间栏连接区，需产品口径）、
 §9 事件合并成一次查询、§9 等待 Git 停止后再读真实状态。后两项不需要产品裁决，可先收口。
+
+## nonaginta-tertium. 第三百零三轮：文件系统与 `.git` 事件的合并（§9 第 9 条收口）
+
+### 规格
+
+`ux-spec.md` §9.2 的 Git 刷新状态机：「`空闲 → 合并事件 → 查询快照 → 比较快照 → 无变化/增量应用 → 空闲`」，
+第一条就是「多个文件系统与 `.git` 事件必须合并」。
+
+### 实现
+
+| 层 | 位置 | 合并方式 |
+| --- | --- | --- |
+| 文件系统 | `WorkspaceFileWatcher` | `MergeDelay` 50ms 的 `Timer` + `HashSet`（忽略大小写）去重；`.git` 路径被显式排除 |
+| `.git` | `GitMetadataWatcher` | 同样是 50ms `Timer` + 单个 `_changePending` 标志（只看"有没有变"，不看变了哪些） |
+| 跨来源 | `ShellBridge._pendingWorkspaceChanges`／`_pendingGitMetadataChange` | 两侧批次各自累积，**一次** `workspace/changes` 同时取走并清空（读取即消费） |
+
+### 缺陷：`.git` 观察器只在冲突场景建立
+
+`EnsureGitWatcher()` 此前只被 `ReadConflictsAsync()`（`git/conflicts`）调用，而页面只在**冲突场景**
+才读冲突（`loadConflicts()` 仅由 `requestedConflict` 触发）⇒ 没打开过冲突文件的工作区里
+`.git` 观察器根本不存在。外部 `git commit`／`checkout` 这类只改 `.git` 的变化因此永远不推
+`gitMetadata`，而 `WorkspaceFileWatcher` 又显式排除 `.git` 路径 —— 界面收不到任何刷新信号。
+
+修法：在默认轮询路径 `ReadStatusAsync()` 的状态读取成功之后同样调用
+`EnsureGitWatcher(repository!)`（幂等；构造异常已捕获并置 null）。
+
+### 新增断言（C#，3 条）
+
+| # | 断言 | 判据 |
+| --- | --- | --- |
+| 1 | `WorkspaceFileWatcherTests.多个文件事件合并成一批且同路径去重` | 三文件同时写 + `a.txt` 写两次 ⇒ **首批恰好 3 条**不同路径；每个批次内部无重复路径 |
+| 2 | `GitMetadataWatcherTests.连续多次元数据改动只合并通知一次` | 5 次快速改写 `HEAD` ⇒ 通知数 > 0 且 < 5 |
+| 3 | `ShellBridgeWorkspaceChangesTests.文件系统与git元数据事件合并成一次查询且只消费一次` | `git/status` 建立监视 → 写三文件 + 改写 `.git/HEAD` → 等 600ms 越过合并窗口 ⇒ **一次** `workspace/changes` 同时返回 3 个文件路径与 `gitMetadata:true`；紧接着第二次读取两者皆空 |
+
+页面侧（`files` + `gitMetadata` 一次载荷 ⇒ 状态与历史各重读一次、局部刷新）由既有断言族覆盖，
+不再重复。
+
+### 负向验证
+
+- 修 `EnsureGitWatcher` 调用点之前，第 3 条断言实测失败并报
+  `merged.GetProperty("gitMetadata").GetBoolean()` 为 false（`git/status` 已建立监视的假设不成立）。
+- 把 `EnsureGitWatcher` 只留在冲突路径 ⇒ 第 3 条继续失败。
+
+### 验证
+
+- `Augit.Shell.Tests` **118 通过**（+1）、`Augit.Infrastructure.Tests` **191 通过**（+2）。
+- Release 构建 `Augit.slnx`：**0 警告 0 错误**。
+- harness 与 web 运行时未改：`live-shell` 仍 **1447**，spec 哈希 `9e219764…`、`live-data.js`
+  `a1a88a0b…` 与第 302 轮相同。
+- §9 第 9 条转 **是**（§2.10：分母 6 → **5**、D 4 → **3**）。
+
+### 下一轮
+
+D 类 3 项：§7.4 第 2 条（图形，剩"格式化"无权威半条，需用户认可）、§7.7 第 11 条（T10，需产品口径）、
+§9 第 18 条（取消后等待本机 Git 停止再读真实状态——不需要产品裁决，可先收口）。

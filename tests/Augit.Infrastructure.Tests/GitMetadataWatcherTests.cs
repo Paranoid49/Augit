@@ -51,4 +51,39 @@ public sealed class GitMetadataWatcherTests
             elapsed,
             $"观察器合并通知耗时 {elapsed} 毫秒，超出合并延迟加调度余量。");
     }
+
+    /// <summary>
+    /// 规格 §9.2「多个文件系统与 `.git` 事件必须合并」的 `.git` 一侧：
+    /// 合并窗口内的多次元数据改动只产生**一次**通知（通知数必须远少于改动次数）。
+    /// </summary>
+    [TestMethod]
+    public async Task 连续多次元数据改动只合并通知一次()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        GitRepositoryOperationResult initialized = await new GitRepositoryService(runtime)
+            .InitializeAsync(temporary.FullPath);
+        Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
+        string gitDirectory = initialized.Repository!.GitDirectory!;
+        string headPath = Path.Combine(gitDirectory, "HEAD");
+        using GitMetadataWatcher watcher = new(initialized.Repository!);
+        int notifications = 0;
+        watcher.Changed += (_, _) => Interlocked.Increment(ref notifications);
+
+        // 让 FileSystemWatcher 完成内部注册，再连做五次快速改动（远多于一次通知）。
+        await Task.Delay(DebounceMilliseconds * 2);
+        const int changes = 5;
+        for (int index = 0; index < changes; index += 1)
+        {
+            await File.AppendAllTextAsync(headPath, Environment.NewLine);
+        }
+
+        await Task.Delay((DebounceMilliseconds * 4) + SchedulingAllowanceMilliseconds);
+
+        Assert.IsGreaterThan(0, notifications, "应收到合并通知。");
+        Assert.IsLessThan(
+            changes,
+            notifications,
+            $"{changes} 次快速改动应被合并，实际通知 {notifications} 次。");
+    }
 }

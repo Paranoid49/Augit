@@ -481,6 +481,12 @@ internal sealed class ShellBridge : IDisposable
             return new { available = true, isRepository = true, reason = status.ErrorMessage };
         }
 
+        // 仓库已确认可用，此时建立元数据监视（`.git` 变化触发状态与历史刷新）。
+        // 必须放在**默认的轮询路径**上：此前只有冲突读取（`git/conflicts`）会建立它，
+        // 于是没打开过冲突文件的工作区里，外部 `git commit`／`checkout` 这类只改 `.git`
+        // 的变化不会推送 `gitMetadata`，界面只能等文件系统事件（`.git` 被排除）—— 等于收不到。
+        EnsureGitWatcher(repository!);
+
         return new
         {
             available = true,
