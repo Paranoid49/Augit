@@ -210,7 +210,7 @@ internal sealed class ShellBridge : IDisposable
             "terminal/stop" => await StopTerminalAsync(),
             "git/clone" => await RunWriteAsync(ct => CloneAsync(parameters, ct), cancellationToken),
             "workspace/open" => OpenWorkspace(parameters),
-            "write/cancel" => CancelWrite(),
+            "write/cancel" => await CancelWriteAsync(),
             "workspace/pick" => PickWorkspace(),
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
@@ -272,10 +272,14 @@ internal sealed class ShellBridge : IDisposable
             : result;
     }
 
-    /// <summary>取消进行中的写操作（规格 §9.3）。没有在途操作时明确回话，界面据此说明。</summary>
-    private object CancelWrite()
+    /// <summary>
+    /// 取消进行中的写操作（规格 §9.3）：先触发取消，再**等命令自己返回**（本机 Git 停稳）
+    /// 才回话；应答即"已经停稳"的信号，网页层据此解除"取消中"并重读真实状态。
+    /// 没有在途操作时明确回话，界面据此说明。
+    /// </summary>
+    private async Task<object?> CancelWriteAsync()
     {
-        bool cancelled = _writes.Cancel();
+        bool cancelled = await _writes.CancelAsync().ConfigureAwait(false);
         return new
         {
             available = true,

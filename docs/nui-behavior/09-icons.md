@@ -11282,3 +11282,76 @@ D 类 4 项：§7.4 第 2 条（图形，剩"格式化"无权威半条）、§7.
 
 D 类 3 项：§7.4 第 2 条（图形，剩"格式化"无权威半条，需用户认可）、§7.7 第 11 条（T10，需产品口径）、
 §9 第 18 条（取消后等待本机 Git 停止再读真实状态——不需要产品裁决，可先收口）。
+
+## nonaginta-quartum. 第三百零四轮：取消后等待本机 Git 停稳（§9 第 18 条收口）
+
+### 规格
+
+`ux-spec.md` §9.3：「取消是一次性动作：按下后取消入口立即禁用，进入"取消中"并保持进行态，
+**等待本机 Git 停止后再按最新事实恢复**；取消中不得再次发出取消请求。」
+
+### 页面侧早有断言，宿主侧却对不上
+
+Changes 提交框的 §9.3 断言块早已覆盖取消的六件事（取消先通知宿主／宿主确认前保持取消中／
+取消期间不提前重读状态／一次性／取消后清除标记／取消后重新读取真实状态）。但这些断言成立的前提是
+"宿主停稳才回话"，而**宿主并不是**：
+
+```csharp
+// 修复前
+public bool Cancel()
+{
+    source.Cancel();   // 只触发令牌
+    return true;       // 立刻回话 —— 进程可能还在跑
+}
+```
+
+`write/cancel` 的应答因此只代表"取消已受理"，页面据此就解除"取消中"并重读状态 —— 真实运行里
+可能读到 Git 还在收尾时的中间状态（harness 里靠桩的 `__writeCancelDelays` 才显得正确）。
+
+### 修法
+
+跟踪器登记在途操作的完成信号，取消分两步、等命令自己返回才回话：
+
+```csharp
+public async Task<bool> CancelAsync()
+{
+    lock (_gate) { source = _current; finished = _currentFinished?.Task; }
+    if (source is null) return false;
+    source.Cancel();
+    if (finished is not null) await finished;   // 命令返回（本机 Git 停稳）才继续
+    return true;
+}
+```
+
+完成信号在 `RunAsync` 的 `finally` 里置位（`_current` 清空之后）；`ShellBridge` 的调度臂改成
+`"write/cancel" => await CancelWriteAsync()`。于是 `write/cancel` 的应答本身就是"已停稳"的信号，
+页面侧**无需改动**。
+
+### 新增断言（3 条）
+
+| 侧 | 断言 | 判据 |
+| --- | --- | --- |
+| C# | `WriteOperationTrackerTests.取消后保持进行态直到命令自己返回` | 命令吞掉取消令牌后继续跑 ⇒ `CancelAsync()` 在命令返回前不得完成、`IsRunning` 仍为真；释放后回话为真、命令已抛 `OperationCanceledException` |
+| harness | `§9.3 Reset 取消期间不提前重读状态` | `__writeCancelDelays=900` 模拟停稳回话；取消请求已发出 1 次、`statusCalls` 仍为 0、运行按钮仍禁用 |
+| harness | `§9.3 Reset 取消停稳后重新读取真实状态` | 停稳后 `statusCalls > 0` |
+
+### 负向验证
+
+把 `CancelAsync()` 改回"不等待完成信号"⇒ 新 C# 测试失败：
+`Assert.IsFalse 失败。'condition'表达式:'cancelling.IsCompleted'`。
+
+### 验证
+
+- `Augit.Shell.Tests` **119 通过**（+1）；`Augit.Infrastructure.Tests` 191 通过（未改）。
+- Release 构建 `Augit.slnx`：**0 警告 0 错误**。
+- `live-shell` **`通过 1449 项断言`**（1447 → **+2**），退出码 0。
+- 登记哈希：`live-shell.spec.cjs` `9e219764…` → **`1ed0a30d0c6276fbef12b9b025ee37d1`**；
+  `live-data.js` `a1a88a0b…` 与其余 web 运行时哈希未变。
+- §9 第 18 条转 **是**（§2.10：分母 5 → **4**、D 3 → **2**）。
+- 同批：`check-doc-claims` OK、`gen-clause-conclusions` 幂等、`git diff --check` 通过。
+
+### 下一轮
+
+D 类只剩 2 项、B 类 1 项、E 类 1 项，**全部需要用户裁决**：§7.4 第 2 条（JSON「格式化」图形无同场景权威）、
+§7.7 第 11 条（T10 中间栏变更连接区）、§7.5 第 8 条（两段式平滑重采样，无法取证）、
+§7.9 #23（比较对话框，不适用）。下一轮把这些整理成一份带权威出处与建议结论的清单交用户一次性裁决。

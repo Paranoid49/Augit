@@ -28562,6 +28562,8 @@ async function main() {
           focusInDialog: !!(document.activeElement && dialog && dialog.contains(document.activeElement)),
           notice: dialog && !dialog.querySelector('.reset-notice').hidden
             ? dialog.querySelector('.reset-notice').textContent : null,
+          statusCalls: window.__statusCalls || 0,
+          writeCancels: window.__writeCancels || 0,
         };
       });
 
@@ -28656,7 +28658,15 @@ async function main() {
         rsCancel.open === false && rsCancel.calls.length === 0);
 
       // 进行中取消：先请求宿主停止，再按真实结果给出说明。
-      await rs.page.evaluate(() => { window.__resetDelays = 1500; window.__resetCalls = []; window.__writeCancels = 0; });
+      // 桩把 `write/cancel` 的应答延迟 900ms —— 对应宿主"等本机 Git 停稳才回话"的语义
+      // （规格 §9.3）：在应答回来之前界面不得重读状态，回来之后必须重读。
+      await rs.page.evaluate(() => {
+        window.__resetDelays = 1500;
+        window.__resetCalls = [];
+        window.__writeCancels = 0;
+        window.__writeCancelDelays = 900;
+        window.__statusCalls = 0;
+      });
       await openViaMenu();
       await rs.page.locator('.dialog.reset-dialog .reset-run').click();
       await rs.page.waitForTimeout(250);
@@ -28666,9 +28676,15 @@ async function main() {
       check('§9.3 Reset 进行中取消先通知宿主: '
         + JSON.stringify([rsCancelling.cancelText, rsCancelling.notice]),
       typeof rsCancelling.notice === 'string' && rsCancelling.notice.includes('取消'));
+      // 宿主确认（本机 Git 停稳）之前：取消请求已发出，但**不得**重读真实状态。
+      check('§9.3 Reset 取消期间不提前重读状态: '
+        + JSON.stringify([rsCancelling.writeCancels, rsCancelling.statusCalls, rsCancelling.runDisabled]),
+      rsCancelling.writeCancels === 1 && rsCancelling.statusCalls === 0
+        && rsCancelling.runDisabled === true);
       await rs.page.waitForTimeout(2200);
       const rsCancelled = await rs.page.evaluate(() => ({
         cancels: window.__writeCancels || 0,
+        statusCalls: window.__statusCalls || 0,
         notice: (function () {
           const dialog = document.querySelector('.dialog.reset-dialog');
           return dialog ? dialog.querySelector('.reset-notice').textContent : null;
@@ -28676,7 +28692,10 @@ async function main() {
       }));
       check('§9.3 Reset 取消请求发到宿主并给出结果: ' + JSON.stringify(rsCancelled),
         rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && rsCancelled.notice.includes('取消'));
-      await rs.page.evaluate(() => { window.__resetDelays = 0; });
+      // 停稳之后必须按最新事实恢复：重新读取真实仓库状态。
+      check('§9.3 Reset 取消停稳后重新读取真实状态: ' + JSON.stringify(rsCancelled.statusCalls),
+        rsCancelled.statusCalls > 0);
+      await rs.page.evaluate(() => { window.__resetDelays = 0; window.__writeCancelDelays = 0; });
       await rs.page.close();
     }
 
