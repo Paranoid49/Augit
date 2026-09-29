@@ -367,6 +367,8 @@
 
 **第 308 轮**实现并收口 **T15**（Diff 正文查找，§7.7 第 5 条的工具栏「查找」），§7 待处理表再次清零。**权威**：差异查看器的两侧都是编辑器，查找就是**标准编辑器查找**（`IdeActions.ACTION_FIND`）⇒ Augit 复用与文档正文同一条查找条（大小写/全字/正则、计数、上一项/下一项、Esc 关闭）。**实现**（`current-find.js` 新增 `bindDiffFind()`）：把匹配规则 `computeFindMatches()` 从 `bindCurrentFind()` 的闭包提到模块级供两处共用；差异正文按**逻辑行取并集**（双栏下同一逻辑行左右各一份，新侧有内容取新侧、纯删除行取旧侧）⇒ 单栏与双栏命中数一致；高亮用**文本节点切分**包 `<span class="find-hit">`，不重写行内容，行内词级差异 `<mark>` 全程保留；查找条插在文件栏与正文之间（`.diff-layout:has(> .current-find)` 多一行）；"打开/查询词/三个开关/当前项"进 `live.diffFind`（跨区域重绘恢复，符合"用户状态进 live"的硬约束）；加载态下「查找」与差异箭头一样禁用并写明原因。**同时**：文件历史预览的「查找」也随之可用（同一条 binder），两条既有断言按新口径更新（预览工具栏 `disabled` 由 `查找` 改为空、两处 Tab 轨迹各多一站）。新断言两条（`§7.7 Diff 正文查找：工具栏「查找」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致`、`§7.7 Diff 正文查找沿用三个开关，双栏与单栏命中数一致，关闭后高亮清空且焦点回到差异正文`）；负向验证：把 `bindDiffFind()` 短路 ⇒ 第一条断言以 JSON 明细失败。`live-shell` 1453 → **1455**；`verify-ux-find` 48 个布局状态（含输入法连续场景）、`verify-ux-find-documents`、`verify-ux-document-toolbar` 60、`verify-ux-diff-typography` 72、`mockup-scenes` 55/55、`verify-ui-assets` PASS。
 
+**第 309 轮（目标完成判定 · 终审）**：逐条对照目标文本复核 —— §7 待处理表**空**（T1–T15 全关闭）、`10-backlog.md` 清零、`11-surface-audit.md` 结清；§5 无法取证（4 项）与 §6 不适用（6 项）每一项都有具体原因与用户认可结论；§2.10 仅剩「§7.9 #23 比较对话框 = 不适用（已认可）」；性能与资源（`performance-report.md` §10–§13 三类场景 + 回收记录）在册；Windows 10 实机按目标口径不宣称完成。终审顺带订正一处过时文档：`ux-spec.md:464` 的「历史筛选尚未实现」已改为现状（第 179 轮接线 + 两条断言）。终审验证：`live-shell` **1455**、C# Core **91**／Infrastructure **191**／Shell **119**、Release 构建 0 警告 0 错误、`mockup-scenes` 55/55、`verify-ui-assets` PASS、`check-doc-claims` OK。**结论：目标可判定为完成。**
+
 ## 8. 非界面目标项（不计入上面的功能归类）
 
 | 项 | 状态 |
