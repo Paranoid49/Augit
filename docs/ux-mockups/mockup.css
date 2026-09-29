@@ -2624,6 +2624,23 @@ textarea,
 .current-find [aria-pressed="true"] { background: var(--augit-blue-soft); }
 .find-current { color: inherit; background: var(--augit-blue-soft); outline: var(--augit-hairline) solid var(--augit-blue); }
 .find-current:empty { display: inline-block; width: 0; height: 1em; vertical-align: text-bottom; }
+
+/* Diff 正文查找的高亮（第 307 轮）：与文档正文同一套观感，但用 `<span>` 包裹 ——
+   Diff 行内可能已经有词级差异的 `<mark>`，查找高亮不能整体重写行内容。 */
+.diff-columns .find-hit {
+  color: inherit;
+  background: color-mix(in srgb, var(--augit-blue) 20%, transparent);
+}
+
+.diff-columns .find-hit.find-current {
+  background: var(--augit-blue-soft);
+  outline: var(--augit-hairline) solid var(--augit-blue);
+}
+
+/* 查找条插在 Diff 文件栏与正文之间：多出一行时正文那一行仍是弹性行。 */
+.diff-layout:has(> .current-find) {
+  grid-template-rows: var(--augit-diff-toolbar-height, 39px) var(--augit-diff-filebar-height, 31px) auto minmax(0, 1fr);
+}
 .document-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--augit-muted); }
 .document-toolbar > .icon-button { flex: 0 0 28px; width: 28px; height: 28px; }
 

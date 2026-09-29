@@ -11514,7 +11514,58 @@ flex 项，无需改 DOM/JS）；问号＝圆底 + 文本 `?`，叹号＝`clip-p
 ### 下一轮
 
 **第 307 轮末新增裁决**：核查中挂出的最后一个实现落差「**Diff 正文查找**」（工具栏「查找」已按规格位置渲染，
-但功能未实现、按钮禁用并写明原因）—— 用户裁决 **按权威实现**，登记为 `ui-classification.md` §7 的 **T15**。
-下一轮先定位权威（`platform/diff-impl` 的差异查看器查找会话/工具栏接线），再把 `current-find.js` 的查找条接到
-`.diff-code-line`（高亮 + 导航 + 三个开关），补断言与 `verify-ux-diff-typography` 验证后关闭 T15；
-之后再做目标完成判定（§5/§6 逐条对照 + 性能与资源复核）。
+但功能未实现、按钮禁用并写明原因）—— 用户裁决 **按权威实现**，登记为 `ui-classification.md` §7 的 **T15**（已于第 308 轮实现并关闭，见下节）。
+
+## nonaginta-octavum. 第三百零八轮：Diff 正文查找（T15 实现并关闭）
+
+### 权威
+
+差异查看器里**两侧都是编辑器**，查找就是**标准编辑器查找**（`IdeActions.ACTION_FIND` 作用于聚焦的编辑器），
+因此 Augit 的做法是**复用与文档正文同一条查找条**（`.current-find`：查询框 + 区分大小写/全字/正则 +
+计数 + 上一项/下一项 + 关闭），而不是另造一套。
+
+### 实现（`web/src/current-find.js` 新增 `bindDiffFind()`）
+
+| 点 | 做法 |
+| --- | --- |
+| 匹配规则 | 把 `computeMatches` 从 `bindCurrentFind()` 的闭包提到模块级 **`computeFindMatches()`**，两处共用（Worker 里内嵌的是这个函数本体，不是包装函数） |
+| 源 | 差异正文按**逻辑行取并集**：双栏下同一逻辑行左右各一份，新侧有内容取新侧、纯删除行取旧侧；单栏的可见行本就一行一份 ⇒ **两种模式命中数一致** |
+| 高亮 | 用**文本节点切分**包 `<span class="find-hit">`（当前项再加 `.find-current`），**不重写行内容** ⇒ 行内词级差异 `<mark>` 全程保留；关闭时逐个解包 |
+| 位置 | 查找条插在**文件栏与正文之间**：`.diff-layout:has(> .current-find)` 多一行、正文仍是弹性行 |
+| 状态 | "打开/查询词/三个开关/当前项"进 **`live.diffFind`**（预览面另存一份），区域重绘（切单双栏、外部更新）后按它恢复；`teardown()` 只拆 DOM 与在途查询，**不动**这些用户状态 |
+| 入口 | 工具栏「查找」（`aria-label="查找"`）打开/关闭；编辑器正文里也支持 `Ctrl+F`（预览面只用按钮，避免与文档正文抢快捷键）；加载态下与差异箭头一样 `disabled` + 写明原因 |
+
+顺带：文件历史预览的「查找」也随之可用（同一条 binder），三处既有断言按新口径顺移
+（预览工具栏 `disabled` 由 `查找` 改为空、文件历史 Tab 轨迹与比较区 Tab 轨迹各多一站）。
+
+### 新增断言（`live-shell`，2 条）
+
+| # | 断言 | 判据 |
+| --- | --- | --- |
+| 1 | `§7.7 Diff 正文查找：工具栏「查找」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致` | 按钮可用、查找条在文件栏与正文之间且输入框获焦；`value` → `1/2`、2 个 `find-hit`、恰好 1 个 `find-current`（旧侧那行）；下一项 → `2/2`（新侧那行）、上一项 → 回到 `1/2`；全程行内 `<mark>` 仍是 2 个 |
+| 2 | `§7.7 Diff 正文查找沿用三个开关，双栏与单栏命中数一致，关闭后高亮清空且焦点回到差异正文` | `VALUE` 默认 `1/2`、开启区分大小写后 `0/0`；正则 `\b\w{5}\b` → `1/4`；双栏 2 ＝ 单栏 2；关闭后无查找条、无高亮、焦点回 `.diff-columns`（差异正文）、行内 `<mark>` 仍在 |
+
+### 负向验证
+
+把 `bindDiffFind()` 短路（`if (window.__negDisableDiffFind) return;`）⇒ 第 1 条断言失败
+（`opened.hasBar === false`；探针里的交互按 `hasBar` 短路，因此给的是 JSON 明细而不是超时）。
+
+### 验证
+
+- `live-shell` **`通过 1455 项断言`**（1453 → **+2**），退出码 0。
+- 登记哈希：`mockup.js` `50336f09…` → **`01da56955d2c7200e6b27a1a8d044519`**；
+  `mockup.css` `65f954c8…` → **`1f6e9d1a8106dd4b15fc5ee09cddb4af`**；
+  `current-find.js` `bfddc7c5…` → **`b1eb196d34c82f838dd52bafa58c29c3`**；
+  `live-data.js` `46e3d4c5…` → **`05f15aef9550d5438b44cd96a5d39d8d`**；
+  `live-shell.spec.cjs` `78526f1e…` → **`73e4287ca97ef5f62fd673b5c04dc056`**。
+- 同批：`verify-ux-find` 48 个布局状态（含 5 组输入法连续场景）、`verify-ux-find-documents`、
+  `verify-ux-document-toolbar` PASS=60、`verify-ux-diff-typography` PASS=72、`mockup-scenes` 55/55、
+  `verify-ui-assets` PASS、`verify-css-balance` PASS、`check-doc-claims` OK、
+  `gen-clause-conclusions` 幂等、`git diff --check` 通过。
+- **T15 关闭**：`ui-classification.md` §7 待处理表**再次清零**；§2.10 仍只剩
+  「§7.9 #23 比较对话框 = 不适用（已认可）」一行。
+
+### 下一轮
+
+目标完成判定：§5 无法取证／§6 不适用逐条与用户裁决对照、确认 §7 表空、三类性能基线与资源回收记录仍在，
+然后按目标文本判定是否达成。

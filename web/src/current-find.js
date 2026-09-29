@@ -3,6 +3,290 @@ function currentFindBar() {
   return `<div class="current-find"><input class="search-field" value="" aria-label="当前文件查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式">${icon("regex")}</button><span class="find-status" title=""></span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>`;
 }
 
+/**
+ * 匹配规则（文档正文与 Diff 正文**共用同一份**，避免两处语义漂移）：
+ * 普通文本不走正则、`全字` 按 `\p{L}\p{N}_` 边界判定；正则按 `u` 语义、可关闭大小写。
+ * 第 307 轮把它从 `bindCurrentFind()` 的闭包里提到模块级，Diff 侧直接复用。
+ */
+function computeFindMatches(data) {
+  const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = data.regex ? data.query : escape(data.query);
+  // 普通文本不采用正则 Unicode 折叠（例如 K/k）；视觉稿仅验证共享样本，不声明与 .NET 全语法等价。
+  const expression = new RegExp(data.regex && data.whole ? `(?<![\\p{L}\\p{N}_])(?:${pattern})(?![\\p{L}\\p{N}_])` : pattern,
+    `g${data.regex ? 'u' : ''}${data.case ? '' : 'i'}`);
+  const word = character => character !== undefined && /[\p{L}\p{N}_]/u.test(character);
+  const results = [];
+  for (let match; (match = expression.exec(data.source)) !== null;) {
+    if (!data.regex && data.whole && (word(data.source[match.index - 1]) || word(data.source[expression.lastIndex]))) {
+      expression.lastIndex = match.index + 1;
+      continue;
+    }
+    results.push({ start: match.index, length: match[0].length });
+    if (!match[0].length) expression.lastIndex += data.source.codePointAt(expression.lastIndex) > 0xffff ? 2 : 1;
+  }
+  return results;
+}
+
+/** 把行内的一段字符包成 `<span class="…">`：按文本节点切分，**保留行内的词级 `<mark>`**。 */
+function wrapFindRange(row, start, length, className) {
+  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  let offset = 0;
+  const end = start + length;
+  for (const node of nodes) {
+    const text = node.textContent || '';
+    const nodeStart = offset;
+    const nodeEnd = offset + text.length;
+    offset = nodeEnd;
+    if (nodeEnd <= start || nodeStart >= end) continue;
+    const from = Math.max(0, start - nodeStart);
+    const to = Math.min(text.length, end - nodeStart);
+    if (from >= to) continue;
+    const target = from > 0 ? node.splitText(from) : node;
+    if (to - from < (target.textContent || '').length) target.splitText(to - from);
+    const span = document.createElement('span');
+    span.className = className;
+    target.replaceWith(span);
+    span.append(target);
+  }
+}
+
+/** 撤销 `wrapFindRange()` 的包裹（保持行内其它标记不变）。 */
+function unwrapFindHits(root) {
+  root.querySelectorAll('span.find-hit').forEach(span => {
+    const parent = span.parentNode;
+    if (!parent) return;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+    parent.normalize();
+  });
+}
+
+/**
+ * Diff 正文查找（规格 §7.7 第 5 条的工具栏「查找」；第 307 轮用户裁决按权威实现）。
+ *
+ * 权威：差异查看器的两侧都是编辑器，查找就是**标准编辑器查找**（`IdeActions.ACTION_FIND`），
+ * 因此 Augit 复用与文档正文同一条查找条（大小写/全字/正则、计数、上一项/下一项、Esc 关闭）。
+ * 与文档正文的差别只有"源"：双栏下同一逻辑行左右各有一份正文，按**行取并集**
+ *（新侧有内容取新侧、纯删除行取旧侧），单栏的可见行本就一行一份 ⇒ 两种模式命中数一致。
+ * 高亮用文本节点切分的方式包 `<span class="find-hit">`，不重写行内容 ⇒ 行内词级差异标记保留。
+ * 差异正文是单个文件的补丁（规模有界），匹配在页面内**同步**计算；文档侧的正则 Worker／
+ * 150ms 提示／超时语义仍只服务 `.code-view` 正文。
+ */
+function bindDiffFind() {
+  document.querySelectorAll('.diff-layout').forEach(layout => {
+    if (layout.dataset.diffFindBound) return;
+    layout.dataset.diffFindBound = 'true';
+    const lifetime = new AbortController();
+    const scroller = () => layout.querySelector(':scope > .diff-columns');
+    // 逻辑行：双栏取左右并集（新侧优先），单栏的正文里本来就只有一份。
+    const readRows = () => {
+      const columns = scroller();
+      if (!columns) return [];
+      if (columns.classList.contains('diff-unified-body')) {
+        return [...columns.querySelectorAll(':scope > .diff-code-line')].map(row => ({ row, text: row.textContent || '' }));
+      }
+      const sides = [...columns.querySelectorAll(':scope > .diff-side')];
+      const oldRows = sides[0] ? [...sides[0].querySelectorAll('.diff-code-line')] : [];
+      const newRows = sides[1] ? [...sides[1].querySelectorAll('.diff-code-line')] : [];
+      const entries = [];
+      for (let index = 0; index < Math.max(oldRows.length, newRows.length); index++) {
+        const oldRow = oldRows[index] || null;
+        const newRow = newRows[index] || null;
+        const picked = newRow && (newRow.textContent || '').trim().length ? newRow : oldRow || newRow;
+        if (picked) entries.push({ row: picked, text: picked.textContent || '' });
+      }
+      return entries;
+    };
+    let bar = null;
+    let entries = [], sourceLines = [], source = '', matches = [], current = -1, savedQuery = '', composing = false;
+    // 查找状态（打开标记/查询词/三个开关/当前项）属于**用户状态**，进 `live` 而不是只活在闭包里：
+    // 切单双栏、外部更新都会整块换掉编辑区，闭包连同节点一起消失（规格 §7.2 第 16 条同一口径）。
+    const surface = layout.closest('[data-live-file-history-preview]') ? 'preview' : 'editor';
+    const state = () => {
+      const live = window.__augitLive;
+      if (live) {
+        live.diffFind = live.diffFind || {};
+        live.diffFind[surface] = live.diffFind[surface] || { open: false, query: '', options: { case: false, whole: false, regex: false }, current: -1 };
+        return live.diffFind[surface];
+      }
+      window.__augitDiffFindState = window.__augitDiffFindState || {};
+      window.__augitDiffFindState[surface] = window.__augitDiffFindState[surface] || { open: false, query: '', options: { case: false, whole: false, regex: false }, current: -1 };
+      return window.__augitDiffFindState[surface];
+    };
+    const options = (state().options = state().options || { case: false, whole: false, regex: false });
+    const label = name => bar && bar.querySelector(`[aria-label="${name}"]`);
+    const status = text => {
+      const output = bar && bar.querySelector('.find-status');
+      if (!output) return;
+      output.textContent = output.title = text;
+      measureCurrentFind();
+    };
+    const readSource = () => {
+      entries = readRows();
+      sourceLines = entries.map(entry => entry.text);
+      source = sourceLines.join('\n');
+    };
+    const clearHighlight = () => unwrapFindHits(layout);
+    const highlight = () => {
+      clearHighlight();
+      // 每个匹配落到它起点所在的行（跨行的匹配按该行裁剪），行内偏移从后往前包。
+      const perRow = entries.map((entry, index) => {
+        const lineStart = sourceLines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0);
+        const line = sourceLines[index];
+        return matches.map((match, matchIndex) => {
+          if (match.start < lineStart || match.start > lineStart + line.length) return null;
+          const start = match.start - lineStart;
+          const length = Math.min(match.length, line.length - start);
+          return length > 0 ? { start, length, matchIndex } : null;
+        }).filter(Boolean);
+      });
+      for (let index = entries.length - 1; index >= 0; index--) {
+        for (const item of [...perRow[index]].reverse()) {
+          wrapFindRange(entries[index].row, item.start, item.length,
+            item.matchIndex === current ? 'find-hit find-current' : 'find-hit');
+        }
+      }
+    };
+    const scrollToCurrent = () => {
+      const hit = layout.querySelector('.find-current');
+      const viewport = scroller();
+      if (!hit || !viewport) return;
+      const bounds = hit.getBoundingClientRect();
+      const box = viewport.getBoundingClientRect();
+      const coveredTop = bar && !bar.hidden ? Math.max(box.top, bar.getBoundingClientRect().bottom + 4) : box.top;
+      if (bounds.top < coveredTop) viewport.scrollTop -= coveredTop - bounds.top;
+      else if (bounds.bottom > box.bottom) viewport.scrollTop += bounds.bottom - box.bottom;
+      if (bounds.right > box.right) viewport.scrollLeft += bounds.right - box.right + 8;
+      else if (bounds.left < box.left) viewport.scrollLeft -= box.left - bounds.left + 8;
+    };
+    const count = () => status(matches.length ? `${current + 1}/${matches.length}` : '0/0');
+    const select = (backwards, preserveScroll = false) => {
+      if (!matches.length) { count(); return; }
+      current = current < 0 ? (backwards ? matches.length - 1 : 0)
+        : (current + (backwards ? -1 : 1) + matches.length) % matches.length;
+      state().current = current;
+      highlight();
+      count();
+      if (!preserveScroll) scrollToCurrent();
+    };
+    const search = (restoreCurrent = false) => {
+      savedQuery = label('当前文件查找') ? label('当前文件查找').value : '';
+      const live = state();
+      live.query = savedQuery;
+      clearHighlight();
+      matches = []; current = -1;
+      if (!savedQuery) { live.current = -1; count(); return; }
+      readSource();
+      try {
+        matches = computeFindMatches({ source, query: savedQuery, ...options });
+      } catch {
+        matches = [];
+        live.current = -1;
+        status('正则表达式无效');
+        return;
+      }
+      if (matches.length && restoreCurrent && live.current >= 0) {
+        // 区域重绘后恢复原当前项：重算高亮但**不滚动**（用户的阅读位置属于用户）。
+        current = Math.min(live.current, matches.length - 1);
+        highlight();
+        count();
+        return;
+      }
+      if (matches.length) select(false);
+      else count();
+    };
+    const navigate = backwards => { if (!composing) select(backwards); };
+    // `teardown` 只拆 DOM 与在途查询，**不动**"打开/查询/当前项"这些用户状态：
+    // 区域重绘（切换单双栏、外部更新）走这条路，重绑后据此把查找条恢复回原位。
+    const teardown = () => {
+      composing = false;
+      clearHighlight();
+      if (bar) bar.remove();
+      bar = null; matches = []; current = -1; entries = [];
+    };
+    const close = () => {
+      teardown();
+      const live = state();
+      live.open = false; live.current = -1;
+      const viewport = scroller();
+      if (viewport) viewport.focus({ preventScroll: true });
+    };
+    const open = (restore = false) => {
+      readSource();
+      state().open = true;
+      if (!bar) {
+        const template = document.createElement('template');
+        template.innerHTML = currentFindBar();
+        bar = template.content.firstElementChild;
+        const columns = scroller();
+        if (columns) layout.insertBefore(bar, columns);
+        else layout.append(bar);
+        const input = label('当前文件查找');
+        input.value = savedQuery;
+        bar.querySelectorAll('button[aria-label]').forEach(button => { button.title = button.getAttribute('aria-label'); });
+        for (const [name, key] of [['区分大小写', 'case'], ['全字匹配', 'whole'], ['正则表达式', 'regex']]) {
+          const button = label(name);
+          button.setAttribute('aria-pressed', String(options[key]));
+          button.onclick = () => {
+            options[key] = !options[key];
+            button.setAttribute('aria-pressed', String(options[key]));
+            search();
+          };
+        }
+        label('上一项').onclick = () => navigate(true);
+        label('下一项').onclick = () => navigate(false);
+        label('关闭查找').onclick = close;
+        input.addEventListener('compositionstart', () => { composing = true; }, { signal: lifetime.signal });
+        input.addEventListener('compositionend', () => { composing = false; search(); }, { signal: lifetime.signal });
+        input.oninput = event => { if (!composing && !event.isComposing) search(); };
+        bar.onkeydown = event => {
+          if (event.key === 'Escape') { event.preventDefault(); close(); }
+          else if (event.key === 'Enter' && event.target === input) { event.preventDefault(); navigate(event.shiftKey); }
+          else if (event.key === 'Tab') {
+            event.preventDefault();
+            const controls = [...bar.querySelectorAll('input, button')];
+            const index = controls.indexOf(document.activeElement);
+            controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus();
+          }
+        };
+      }
+      label('当前文件查找').focus({ preventScroll: true });
+      const remembered = state();
+      if (remembered.query && !savedQuery) {
+        savedQuery = remembered.query;
+        const input = label('当前文件查找');
+        if (input) input.value = savedQuery;
+      }
+      if (savedQuery) search(restore);
+    };
+    // 工具栏「查找」：打开/关闭本区域的查找条（规格 §7.7 第 5 条的工具栏顺序不变）。
+    const button = layout.querySelector('.diff-toolbar [aria-label="查找"]');
+    if (button) button.onclick = () => { if (bar) close(); else open(); };
+    // 编辑器正文里的差异也支持 Ctrl+F（预览面只用工具栏按钮，避免与文档正文的查找抢同一个快捷键）。
+    if (!layout.closest('[data-live-file-history-preview]')) {
+      document.addEventListener('keydown', event => {
+        if (!layout.isConnected || !layout.getClientRects().length) return;
+        if (document.querySelector('.document-view .current-find')) return;
+        if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+          event.preventDefault();
+          open();
+        }
+      }, { signal: lifetime.signal });
+    }
+    if (typeof registerRegionDisposer === 'function') {
+      registerRegionDisposer(() => {
+        teardown();
+        lifetime.abort();
+        layout.dataset.diffFindBound = '';
+      });
+    }
+    if (state().open) open(true);
+    window.__augitDiffFind = { open: () => open(false), close, isOpen: () => !!bar };
+  });
+}
+
 function bindCurrentFind() {
   const view = document.querySelector('.document-view:has(.code-view):not(.blame-document)');
   if (!view || view.dataset.findBound) return;
@@ -109,24 +393,8 @@ function bindCurrentFind() {
     else if (bounds.left < viewport.left) code.scrollLeft -= viewport.left - bounds.left + 8;
   };
   const navigate = backwards => { if (composing) return; if (busy) queue.push(backwards); else select(backwards); };
-  const computeMatches = data => {
-    const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = data.regex ? data.query : escape(data.query);
-    // 普通文本不采用正则 Unicode 折叠（例如 K/k）；视觉稿仅验证共享样本，不声明与 .NET 全语法等价。
-    const expression = new RegExp(data.regex && data.whole ? `(?<![\\p{L}\\p{N}_])(?:${pattern})(?![\\p{L}\\p{N}_])` : pattern,
-      `g${data.regex ? 'u' : ''}${data.case ? '' : 'i'}`);
-    const word = character => character !== undefined && /[\p{L}\p{N}_]/u.test(character);
-    const results = [];
-    for (let match; (match = expression.exec(data.source)) !== null;) {
-      if (!data.regex && data.whole && (word(data.source[match.index - 1]) || word(data.source[expression.lastIndex]))) {
-        expression.lastIndex = match.index + 1;
-        continue;
-      }
-      results.push({ start: match.index, length: match[0].length });
-      if (!match[0].length) expression.lastIndex += data.source.codePointAt(expression.lastIndex) > 0xffff ? 2 : 1;
-    }
-    return results;
-  };
+  // 匹配规则是**模块级**的 `computeFindMatches()`（Diff 正文查找共用同一份，见文件头）。
+  const computeMatches = data => computeFindMatches(data);
   // `anchor`：正文被外部更新后就地重算时，**原当前匹配的字符起点**。给了锚点时选第一条
   // 起点不早于它的匹配，并且不把这次定位当成一次导航去滚动正文（用户正在读的位置属于用户）。
   const search = (preservePosition = false, anchor = -1) => {
@@ -179,7 +447,9 @@ function bindCurrentFind() {
     const startup = Number(window.__augitFindResultDelay || 0) || 0;
     const readyPost = startup > 0 ? `setTimeout(()=>postMessage({ready:true}),${startup});` : 'postMessage({ready:true});';
     workerUrl = URL.createObjectURL(new Blob([
-      `const compute=${computeMatches.toString()};onmessage=event=>{try{postMessage({matches:compute(event.data)})}catch{postMessage({error:true})}};${readyPost}`
+      // Worker 里必须内嵌**真正的**匹配函数本体（`computeMatches` 只是模块级函数的薄包装，
+      // 它的 `toString()` 在 Worker 作用域里找不到 `computeFindMatches`）。
+      `const compute=${computeFindMatches.toString()};onmessage=event=>{try{postMessage({matches:compute(event.data)})}catch{postMessage({error:true})}};${readyPost}`
     ], { type: 'text/javascript' }));
     worker = new Worker(workerUrl);
     worker.onmessage = async event => {

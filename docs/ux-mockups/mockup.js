@@ -2342,7 +2342,10 @@ function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", b
   return `<div class="diff-toolbar">`
     + arrow("上一处差异", "arrow-up") + arrow("下一处差异", "arrow-down")
     + '<span class="toolbar-separator"></span>'
-    + `<button class="toolbar-button" disabled title="当前版本暂不支持在 Diff 正文中查找" aria-label="查找">${icon("search")}</button>`
+    // 查找：Diff 正文查找按权威实现（第 308 轮）。加载态下正文是占位块 ⇒ 与差异箭头一样禁用并写明原因。
+    + (disabled
+      ? `<button class="toolbar-button" disabled title="正在生成差异，稍后可用。" aria-label="查找">${icon("search")}</button>`
+      : `<button class="toolbar-button" aria-label="查找">${icon("search")}</button>`)
     + fileNav
     + '<span class="grow"></span>'
     + summary
@@ -3382,6 +3385,7 @@ function bindBlame() {
       body.removeEventListener("scroll", sync);
       bindMarkdownModes();
       if (typeof bindCurrentFind === 'function') bindCurrentFind();
+      if (typeof bindDiffFind === 'function') bindDiffFind();
       measureCodeViews();
       measureDocumentToolbar();
       body.scrollTo(left, top);
@@ -6023,6 +6027,7 @@ function bindInteractions() {
   bindJsonModes();
   bindMarkdownModes();
   if (typeof bindCurrentFind === 'function') bindCurrentFind();
+  if (typeof bindDiffFind === 'function') bindDiffFind();
   bindBlame();
   if (typeof bindImagePreview === "function") bindImagePreview();
   measureCodeViews();

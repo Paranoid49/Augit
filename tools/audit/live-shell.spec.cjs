@@ -21162,7 +21162,8 @@ async function main() {
       const order = await barSnapshot(wd.page);
       await wd.page.evaluate(() => { document.querySelector('.editor-content .diff-toolbar button').focus(); });
       const tabSeq = [];
-      for (let i = 0; i < 8; i += 1) {
+      // 第 308 轮起「查找」也可用 ⇒ 工具条里有 9 个可用按钮，按 10 次才能确认"离开了工具条"。
+      for (let i = 0; i < 10; i += 1) {
         await wd.page.keyboard.press('Tab');
         await wd.page.waitForTimeout(70);
         tabSeq.push(await wd.page.evaluate(() => {
@@ -21315,8 +21316,8 @@ async function main() {
       && diffToolbar.order.summary.box.left > diffToolbar.order.count.box.right
       && diffToolbar.order.ignoreBox.left > diffToolbar.order.summary.box.right
       && diffToolbar.order.settingsBox.left > diffToolbar.order.ignoreBox.right
-      // 真实 Tab 顺序 = 视觉顺序（禁用的「查找」不进入 Tab 循环）
-      && JSON.stringify(diffToolbar.tabLabels) === JSON.stringify(['下一处差异', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'])
+      // 真实 Tab 顺序 = 视觉顺序。第 308 轮起「查找」也可用（Diff 正文查找按权威实现）⇒ 进入 Tab 循环
+      && JSON.stringify(diffToolbar.tabLabels) === JSON.stringify(['下一处差异', '查找', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'])
       && diffToolbar.tabLeaves === true
       && JSON.stringify(diffToolbar.order.visualOrder) === JSON.stringify(diffToolbar.order.enabledLabels));
     const ignoreButton = (snapshot) => snapshot.buttons.find((b) => b.label === '忽略空白');
@@ -21352,7 +21353,7 @@ async function main() {
         const button = diffToolbar.loadingBar.buttons.find((b) => b.label === label);
         return button && button.enabled === false && typeof button.title === 'string' && button.title.length > 0;
       })
-      // 正文没实现查找时如实禁用（不留死入口），忽略空白与显示模式仍可用
+      // 加载态禁用「查找」（正文是占位块），忽略空白与显示模式仍可用
       && diffToolbar.loadingBar.buttons.find((b) => b.label === '忽略空白').enabled === true
       && diffToolbar.loadingBar.buttons.filter((b) => ['双栏', '单栏', '设置'].includes(b.label)).every((b) => b.enabled === true));
     const sameRect = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -23062,9 +23063,10 @@ async function main() {
     fhPreview.errors.length === 0
       // 右侧是预览面板（不再是提交信息面板）
       && fhPreview.base.paneKind === 'preview' && fhPreview.base.detailPane === false
-      // 工具栏顺序 = 比较视图的九项（查找按既有口径禁用；比较视图没有文件导航）
+      // 工具栏顺序 = 比较视图的九项（第 308 轮起「查找」也可用：Diff 正文查找按权威实现；
+      // 比较视图没有文件导航）
       && fhPreview.base.toolbar.join(',') === '上一处差异,下一处差异,查找,忽略空白,双栏,单栏,设置'
-      && fhPreview.base.disabled.join(',') === '查找'
+      && fhPreview.base.disabled.length === 0
       // 文件栏 = 父版本 · 提交版本 · 相对路径
       && fhPreview.base.source === 'full-bbb^' && fhPreview.base.target === 'full-bbb'
       && fhPreview.base.path === 'docs/notes.txt'
@@ -23416,14 +23418,14 @@ async function main() {
     check('§7.9 文件历史工具窗口内的 Tab 顺序经过工具按钮与提交行，不进入上方文档正文: '
       + JSON.stringify([fhTrailRegions, fhTrailLabels]),
     fhScroll.errors.length === 0
-      // 前 13 个 Tab 落点都在文件历史工具窗口内：列表工具条四个 + 详情显隐 + 比较工具条六项
+      // 前 14 个 Tab 落点都在文件历史工具窗口内：列表工具条四个 + 详情显隐 + 比较工具条七项
       // + 一条提交行 + **比较区正文** + 另一条提交行（第 260 轮把正文做成可聚焦的正文位置后，
-      // Tab 链上多了"差异正文"这一站 —— 这正是第七条"经过工具按钮**与正文**"要的形状）。
-      && fhTrailRegions.slice(0, 13).every((region) => region === 'file-history')
+      // Tab 链上多了"差异正文"这一站；第 308 轮起「查找」也可用 ⇒ 比较工具条由六项变七项）。
+      && fhTrailRegions.slice(0, 14).every((region) => region === 'file-history')
       && fhTrailLabels[3] === '显示提交详情'
-      && fhTrailLabels.slice(4, 10).join(',') === '上一处差异,下一处差异,忽略空白,双栏,单栏,设置'
-      && fhTrailLabels.slice(10, 13).includes('差异正文')
-      && fhTrailLabels.slice(10, 13).some((label) => typeof label === 'string' && label.startsWith('history-row'))
+      && fhTrailLabels.slice(4, 11).join(',') === '上一处差异,下一处差异,查找,忽略空白,双栏,单栏,设置'
+      && fhTrailLabels.slice(11, 14).includes('差异正文')
+      && fhTrailLabels.slice(11, 14).some((label) => typeof label === 'string' && label.startsWith('history-row'))
       // 全程不进入上方文档正文（`.editor-content`）
       && fhTrailRegions.every((region) => region !== 'editor'));
 
@@ -23590,6 +23592,120 @@ async function main() {
       // 负向验证：把失败态标成"已就绪"（修复前的语义）⇒ 同一提交不再重查
       && fhLifecycle.negative.ready === true && fhLifecycle.negative.hasDiff === false
       && fhLifecycle.negative.diffCalls === fhLifecycle.callsBeforeNegative);
+
+    // ---- 第 308 轮实现并断言（收 T15）：Diff 正文查找（§7.7 第 5 条的工具栏「查找」）----
+    // 权威：差异查看器的两侧都是编辑器，查找就是**标准编辑器查找**（`IdeActions.ACTION_FIND`）
+    // ⇒ Augit 复用与文档正文同一条查找条。双栏下同一逻辑行左右各一份正文，按**行取并集**
+    //（新侧优先、纯删除行取旧侧），因此单栏与双栏的命中数必须一致。
+    const diffFind308 = await (async () => {
+      const rows = [
+        { oldLine: 1, oldText: 'alpha keep', oldChanges: [], newLine: 1, newText: 'alpha keep', newChanges: [], kind: 'Context' },
+        { oldLine: 2, oldText: 'old value here', oldChanges: [{ start: 0, length: 3 }], newLine: null, newText: null, newChanges: [], kind: 'Removed' },
+        { oldLine: null, oldText: null, oldChanges: [], newLine: 2, newText: 'new value here', newChanges: [{ start: 0, length: 3 }], kind: 'Added' },
+        { oldLine: 3, oldText: 'gamma tail', oldChanges: [], newLine: 3, newText: 'gamma tail', newChanges: [], kind: 'Context' },
+      ];
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=diff-boundary&theme=dark`, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
+      await page.waitForSelector('.changes-list .change-file-row[data-path]', { timeout: 15000 });
+      await page.evaluate((injected) => { window.__workspaceDiffRows = injected; }, rows);
+      await page.locator('.changes-list .change-file-row').first().dblclick();
+      await page.waitForSelector('.diff-columns .diff-gutter-cell', { timeout: 15000 });
+      await page.waitForTimeout(800);
+      const read = () => page.evaluate(() => {
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const bar = layout ? layout.querySelector(':scope > .current-find') : null;
+        const current = layout ? layout.querySelector('.find-current') : null;
+        const button = layout ? layout.querySelector('.diff-toolbar [aria-label="查找"]') : null;
+        return {
+          buttonDisabled: button ? button.disabled : null,
+          hasBar: !!bar,
+          barBeforeBody: !!(bar && bar.nextElementSibling && bar.nextElementSibling.classList.contains('diff-columns')),
+          status: bar ? bar.querySelector('.find-status').textContent : null,
+          hits: layout ? layout.querySelectorAll('.find-hit').length : 0,
+          currents: layout ? layout.querySelectorAll('.find-current').length : 0,
+          currentLine: current ? (current.closest('.diff-code-line') || {}).textContent : null,
+          inlineMarks: layout ? layout.querySelectorAll('.diff-code-line mark').length : 0,
+          focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
+          mode: layout ? layout.dataset.diffMode : null,
+        };
+      });
+      const type = async (value) => {
+        await page.fill('.editor-content .diff-layout > .current-find .search-field', value);
+        await page.waitForTimeout(250);
+      };
+      await page.locator('.editor-content .diff-toolbar [aria-label="查找"]').click();
+      await page.waitForTimeout(300);
+      const opened = await read();
+      // 查找条没开出来时**跳过交互**（负向验证就是这一档），让断言以 JSON 明细失败而不是超时。
+      let first = opened, next = opened, previous = opened, caseOff = opened, caseOn = opened;
+      let regex = opened, split = opened, unified = opened, closed = opened;
+      if (opened.hasBar) {
+        await type('value');
+        first = await read();
+        await page.locator('.editor-content .current-find [aria-label="下一项"]').click();
+        await page.waitForTimeout(200);
+        next = await read();
+        await page.locator('.editor-content .current-find [aria-label="上一项"]').click();
+        await page.waitForTimeout(200);
+        previous = await read();
+        await type('VALUE');
+        caseOff = await read();
+        await page.locator('.editor-content .current-find [aria-label="区分大小写"]').click();
+        await page.waitForTimeout(250);
+        caseOn = await read();
+        await page.locator('.editor-content .current-find [aria-label="区分大小写"]').click();
+        await page.waitForTimeout(200);
+        await type('\\b\\w{5}\\b');
+        await page.locator('.editor-content .current-find [aria-label="正则表达式"]').click();
+        await page.waitForTimeout(300);
+        regex = await read();
+        await page.locator('.editor-content .current-find [aria-label="正则表达式"]').click();
+        await page.waitForTimeout(200);
+        await type('value');
+        split = await read();
+        await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+        await page.waitForTimeout(400);
+        unified = await read();
+        await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+        await page.waitForTimeout(400);
+        await page.locator('.editor-content .current-find [aria-label="关闭查找"]').click();
+        await page.waitForTimeout(250);
+        closed = await read();
+      }
+      await page.close();
+      return { opened, first, next, previous, caseOff, caseOn, regex, split, unified, closed, errors };
+    })();
+    check('§7.7 Diff 正文查找：工具栏「查找」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致: '
+      + JSON.stringify({ opened: diffFind308.opened, first: diffFind308.first, next: diffFind308.next, previous: diffFind308.previous }),
+    diffFind308.errors.length === 0
+      // 工具栏按钮可用（此前是 disabled + "暂不支持"），点击后查找条插在文件栏与正文之间并聚焦输入框
+      && diffFind308.opened.buttonDisabled === false && diffFind308.opened.hasBar === true
+      && diffFind308.opened.barBeforeBody === true && diffFind308.opened.focused === '当前文件查找'
+      // 查询命中：计数、全量高亮（`find-hit`）、恰好一个当前项（`find-current`）
+      && diffFind308.first.status === '1/2' && diffFind308.first.hits === 2 && diffFind308.first.currents === 1
+      && diffFind308.first.currentLine === 'old value here'
+      // 下一项/上一项循环移动当前项（不新增高亮、不改行的正文）
+      && diffFind308.next.status === '2/2' && diffFind308.next.currentLine === 'new value here'
+      && diffFind308.next.hits === 2
+      && diffFind308.previous.status === '1/2' && diffFind308.previous.currentLine === 'old value here'
+      // 查找不重写行内容：行内词级差异的两个 `<mark>` 全程保留
+      && diffFind308.first.inlineMarks === 2 && diffFind308.next.inlineMarks === 2 && diffFind308.previous.inlineMarks === 2);
+    check('§7.7 Diff 正文查找沿用三个开关，双栏与单栏命中数一致，关闭后高亮清空且焦点回到差异正文: '
+      + JSON.stringify({ caseOff: diffFind308.caseOff, caseOn: diffFind308.caseOn, regex: diffFind308.regex, split: diffFind308.split, unified: diffFind308.unified, closed: diffFind308.closed }),
+    diffFind308.errors.length === 0
+      // 区分大小写：`VALUE` 默认命中（不区分），开启后 0 命中
+      && diffFind308.caseOff.status === '1/2' && diffFind308.caseOn.status === '0/0' && diffFind308.caseOn.hits === 0
+      // 正则：`\b\w{5}\b` 命中 4 个词（alpha/value/value/gamma），当前项是第一个
+      && diffFind308.regex.status === '1/4' && diffFind308.regex.hits === 4
+      // 双栏（行取并集）与单栏（可见行）命中数一致
+      && diffFind308.split.status === '1/2' && diffFind308.unified.status === '1/2'
+      && diffFind308.unified.hits === 2 && diffFind308.unified.mode === 'unified'
+      // 关闭：查找条移除、高亮清空、焦点回到差异正文、行内 `<mark>` 仍在
+      && diffFind308.closed.hasBar === false && diffFind308.closed.hits === 0
+      && diffFind308.closed.focused === '差异正文' && diffFind308.closed.inlineMarks === 2);
 
     // ---- 第 307 轮补断言（收 backlog「对话框标题图标」项）：哪些对话框画图标、画哪一个，由权威定性 ----
     // 权威：`Messages` 系的确认/输入对话框用 `getQuestionIcon()`（删除 Stash `GitStashUtils.kt:86`、
@@ -23830,7 +23946,8 @@ async function main() {
       const editor = await openScene('scene=commit-diff&theme=dark&diff=src%2FApp.cs');
       await editor.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
       await editor.page.waitForTimeout(500);
-      const editorTrail = await trailFrom(editor.page, '.editor-content .diff-toolbar button', 9, '.editor-content');
+      // 第 308 轮起「查找」可用 ⇒ 工具条 8 站 + 正文 1 站 + 离开 1 站。
+      const editorTrail = await trailFrom(editor.page, '.editor-content .diff-toolbar button', 10, '.editor-content');
       const editorBody = await editor.page.evaluate(() => {
         const body = document.querySelector('.editor-content .diff-columns');
         return body ? { tabIndex: body.tabIndex, label: body.getAttribute('aria-label'), focusable: body.tabIndex === 0 } : null;
@@ -23850,7 +23967,7 @@ async function main() {
       await preview.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await preview.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await preview.waitForTimeout(600);
-      const previewTrail = await trailFrom(preview, '[data-live-file-history-pane="preview"] .diff-toolbar button', 9, '.history-tool-content');
+      const previewTrail = await trailFrom(preview, '[data-live-file-history-pane="preview"] .diff-toolbar button', 10, '.history-tool-content');
       // ③ 加载态与失败/空态同样保留一个正文位置
       const loadingFocus = await preview.evaluate(async () => {
         window.__diffCommitDelays = { 'full-aaa': 1500 };
@@ -23899,11 +24016,11 @@ async function main() {
       // 正文本身可聚焦且有无障碍名
       && diffBodyFocus.editorBody.tabIndex === 0 && diffBodyFocus.editorBody.label === '差异正文'
       // 编辑器：工具条末项之后落到正文，再按 Tab 离开编辑器正文区
-      && diffBodyFocus.editorTrail.slice(0, 7).every((step) => step.inToolbar === true)
-      && diffBodyFocus.editorTrail.slice(0, 7).map((step) => step.label).join(',')
-        === '下一处差异,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
-      && diffBodyFocus.editorTrail[7].isBody === true && diffBodyFocus.editorTrail[7].inEditorContent === true
-      && diffBodyFocus.editorTrail[8].inEditorContent === false
+      && diffBodyFocus.editorTrail.slice(0, 8).every((step) => step.inToolbar === true)
+      && diffBodyFocus.editorTrail.slice(0, 8).map((step) => step.label).join(',')
+        === '下一处差异,查找,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
+      && diffBodyFocus.editorTrail[8].isBody === true && diffBodyFocus.editorTrail[8].inEditorContent === true
+      && diffBodyFocus.editorTrail[9].inEditorContent === false
       // 文件历史预览：正文同样在 Tab 链上，且落在工具窗口内；全程不进入上方文档正文
       && diffBodyFocus.previewTrail.some((step) => step.isBody === true && step.inScope === true)
       && diffBodyFocus.previewTrail.every((step) => step.inEditorContent === false));

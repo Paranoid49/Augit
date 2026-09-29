@@ -12291,6 +12291,10 @@ function openCurrentFileFind() {
   if (typeof bindCurrentFind === "function") {
     bindCurrentFind();
   }
+  // 规格 §7.7 第 5 条的工具栏「查找」：Diff 正文查找（第 307 轮用户裁决按权威实现）。
+  if (typeof bindDiffFind === "function") {
+    bindDiffFind();
+  }
 
   const message = { bubbles: true, cancelable: true };
   view.dispatchEvent(new CustomEvent("document-content-changed", message));
