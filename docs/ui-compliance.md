@@ -651,7 +651,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `history-diff-failure` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `history-diff-loading` | **面级已对照** | G（Diff 视图）——见 §1.3 逐面表的实测值与判读 |
 | `image-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
-| `image-error` | 未对照（RECOVERABLE） | 需先造一张损坏图片样本（可做：在临时副本里造），再看 PyCharm 图片查看器的报错呈现 |
+| `image-error` | 未对照（RECOVERABLE） | 需先造一张损坏图片样本（可做：在临时副本里造），再看 PyCharm 图片查看器的报错呈现；**注意**：用户裁决（第 211 轮）认定图像查看器**无本地权威**、Augit 侧只按内部一致性维护（`ui-classification.md` 归为"无法取证"），本行只记"PyCharm 侧的面未采"，不代表要据此做对齐 |
 | `json-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `main-project` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |
 | `markdown-preview` | **面级已对照** | A+B（主窗口 chrome / 编辑器标签行）——见 §1.3 逐面表的实测值与判读 |

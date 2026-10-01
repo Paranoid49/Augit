@@ -80,7 +80,7 @@ const UNCOVERED = new Map(Object.entries({
   'file-history': ['MEDIUM_BLOCKED', '同上：`Show History` 能让弹出菜单过滤到该条目，但条目激活在合成输入下不可达'],
   'repository-search': ['MEDIUM_BLOCKED', '`Find in Path` 弹层同理：能打开/输入，弹层内确认动作不可达'],
   'workspace-open': ['MEDIUM_BLOCKED', '本轮试了：点 File 菜单栏位置无效（同因），未能到达 `File | Open`'],
-  'image-error': ['RECOVERABLE', '需先造一张损坏图片样本（可做：在临时副本里造），再看 PyCharm 图片查看器的报错呈现'],
+  'image-error': ['RECOVERABLE', '需先造一张损坏图片样本（可做：在临时副本里造），再看 PyCharm 图片查看器的报错呈现；**注意**：用户裁决（第 211 轮）认定图像查看器**无本地权威**、Augit 侧只按内部一致性维护（`ui-classification.md` 归为"无法取证"），本行只记"PyCharm 侧的面未采"，不代表要据此做对齐'],
   'changes-context-menu': ['RECOVERABLE', 'Git 工具窗里对改动文件的右键菜单；需要工作区先有改动（临时副本可造）'],
   'operation-progress': ['MEDIUM_BLOCKED', '同上介质限制：需要一次真实操作触发；且其入口多在弹层/菜单内，条目激活不可达'],
   'operation-result': ['MEDIUM_BLOCKED', '同上介质限制：通知/结果多在弹层内，条目激活不可达'],
