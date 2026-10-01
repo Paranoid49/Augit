@@ -64,8 +64,17 @@ async function main() {
                     .map(element => ({ box: rect(element), textHeight: height(element) })),
                   rows: [...document.querySelectorAll('.commit-row')].map(row => ({
                     box: rect(row), graph: rect(row.querySelector('svg')),
-                    node: rect(row.querySelector('circle:last-child')),
+                    // 提交图节点圆（HEAD 行是三个同心圆）：按权威几何随行高缩放，
+                    // 因此这里取每个圆的实测直径与 `r`，期望值在 Node 侧独立复算。
+                    circles: [...row.querySelectorAll('svg.commit-graph-svg circle')].map(circle => {
+                      const box = circle.getBoundingClientRect();
+                      return { r: Number(circle.getAttribute('r')), width: box.width, height: box.height };
+                    }),
                   })),
+                  // 提交图几何的输入：实际行高与设备像素比（`PaintParameters` 按 `行高 ÷ 22` 缩放，
+                  // 再按 `PaintUtil.alignToInt(…, FLOOR, ODD)` 在设备空间对齐到奇数）。
+                  rowHeight: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--augit-history-row-height')) || 26,
+                  dpr: window.devicePixelRatio || 1,
                   icons: [...document.querySelectorAll('.bottom-tool .icon-button svg, .log-filterbar svg:not(.commit-graph-svg)')].map(rect),
                   toolbars: [...document.querySelectorAll('.bottom-header, .history-toolbar')].map(bar => ({
                     bounds: rect(bar), children: [...bar.children].map(rect),
@@ -109,9 +118,33 @@ async function main() {
               }
               assert.ok(state.text.length > 0);
               for (const item of state.text) assert.ok(item.box.height >= item.textHeight, `${label}：文字被固定高度裁切。`);
+              // 提交图几何：节点随行高等比缩放（权威 `PaintParameters.scaleWithRowHeight` +
+              // `PaintUtil.alignToInt(…, FLOOR, ODD)` 的设备空间对齐）。此前这里断言"节点 ≤ 8px 不变"，
+              // 对应的是已被 §8.3.2 推翻的"节点不随字号缩放"旧规则。
+              const alignOut = (value, odd) => {
+                let device = Math.floor(value * state.dpr);
+                if (odd && device % 2 === 0) device -= 1;
+                return device / state.dpr;
+              };
+              const ratio = state.rowHeight / 22;
               for (const row of state.rows) {
                 assert.equal(row.graph.height, row.box.height, `${label}：提交图未适配行高。`);
-                assert.ok(row.node.height <= 8.01 && row.node.width <= 8.01, `${label}：节点随字体被拉伸。`);
+                if (row.circles.length === 1) {
+                  const diameter = alignOut(8 * ratio, true);
+                  assert.ok(Math.abs(row.circles[0].width - diameter) < 0.02 && Math.abs(row.circles[0].height - diameter) < 0.02,
+                    `${label}：普通节点直径应为按行高缩放的 ${diameter}px（实测 ${row.circles[0].width}）。`);
+                } else if (row.circles.length === 3) {
+                  // HEAD = 外圆 12×ratio、中圆 −2δ、内圆 −4δ（`HeadNodePainter.kt:22-29,41-59`）。
+                  const outer = alignOut(12 * ratio, true);
+                  const delta = alignOut(2 * ratio, false);
+                  const expected = [outer, outer - 2 * delta, outer - 4 * delta];
+                  row.circles.forEach((circle, index) => {
+                    assert.ok(Math.abs(circle.width - expected[index]) < 0.02 && Math.abs(circle.height - expected[index]) < 0.02,
+                      `${label}：HEAD 第 ${index + 1} 个同心圆直径应为 ${expected[index]}px（实测 ${circle.width}）。`);
+                  });
+                } else {
+                  assert.fail(`${label}：提交行的节点圆个数异常（${row.circles.length}）。`);
+                }
               }
               for (const icon of state.icons) assert.ok(icon.width <= 16.01 && icon.height <= 16.01, `${label}：图标随字体变大。`);
               for (const bar of state.toolbars) {

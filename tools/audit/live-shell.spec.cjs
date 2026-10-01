@@ -7366,6 +7366,70 @@ async function main() {
       await tp17.page.close();
     }
 
+    // ---- 第 310 轮补断言（收 `intellij-platform-ui-behavior.md` §8.1／§8.3 的"待补常驻断言"）：
+    // 主题链路的大小写契约与事件通道 ----
+    // 权威行为：设置里的模式是首字母大写（`System`/`Light`/`Dark`），但**下发给网页层的契约是小写**
+    // `theme=dark`；外壳解析出生效主题后原样拼进 URL，早期因此让"深色"永远落在浅色（§8.1 的真实缺陷）。
+    // 修复是两侧各做一半：外壳 `ShellTheme.QueryValue` 归一化为小写（`ShellThemeTests` 已覆盖）、
+    // 网页层对查询值与事件载荷都大小写不敏感。这里补的正是**网页层**那一半，两条都要求必须是常驻断言。
+    {
+      const themeRead = (target) => target.evaluate(() => {
+        // `.titlebar` 自身是透明底（颜色来自祖先），因此按套件惯例**探针取令牌计算值**：
+        // `--augit-chrome` 就是标题栏/全局 chrome 的表面色（浅 `#E9EAEE`／深 `#2B2D30`）。
+        const probe = document.createElement('span');
+        probe.style.background = 'var(--augit-chrome)';
+        document.body.append(probe);
+        const chrome = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return { bodyTheme: document.body.dataset.theme || null, chrome };
+      });
+      const themeContract = await (async () => {
+        const capitalDark = await openScene('scene=main-project&theme=Dark');
+        await capitalDark.page.waitForTimeout(300);
+        const darkRead = await themeRead(capitalDark.page);
+        await capitalDark.page.close();
+        const capitalLight = await openScene('scene=main-project&theme=LIGHT');
+        await capitalLight.page.waitForTimeout(300);
+        const lightRead = await themeRead(capitalLight.page);
+        await capitalLight.page.close();
+        // 事件通道：页面用浅色启动，宿主推送 `theme/changed`（外壳在 WM_SETTINGCHANGE 时下发）。
+        const pushed = await openScene('scene=main-project&theme=light');
+        await pushed.page.waitForTimeout(300);
+        const initial = await themeRead(pushed.page);
+        const push = async (value) => {
+          await pushed.page.evaluate((theme) => window.__hostPush('theme/changed', { theme }), value);
+          await pushed.page.waitForTimeout(300);
+          return themeRead(pushed.page);
+        };
+        const toDark = await push('dark');
+        const capitalPayload = await push('DARK');
+        const toLight = await push('Light');
+        const invalid = await push('purple');
+        const errors = pushed.errors.slice();
+        await pushed.page.close();
+        return { darkRead, lightRead, initial, toDark, capitalPayload, toLight, invalid, errors };
+      })();
+      console.log('INFO 主题契约=' + JSON.stringify(themeContract));
+      check('§8.1 查询参数大小写不敏感：theme=Dark 落深色、theme=LIGHT 落浅色: '
+        + JSON.stringify([themeContract.darkRead, themeContract.lightRead]),
+      themeContract.darkRead.bodyTheme === 'dark'
+        && themeContract.lightRead.bodyTheme === null
+        && themeContract.darkRead.chrome !== themeContract.lightRead.chrome);
+      check('§8.3 theme/changed 切换主题：大写 Dark 同样生效、Light 去掉属性、非法值忽略且无脚本错误: '
+        + JSON.stringify([themeContract.initial, themeContract.toDark, themeContract.capitalPayload,
+          themeContract.toLight, themeContract.invalid]),
+      themeContract.initial.bodyTheme === null
+        && themeContract.toDark.bodyTheme === 'dark'
+        && themeContract.toDark.chrome !== themeContract.initial.chrome
+        // 大小写不敏感：`Dark`（设置里的取值形态）与 `dark` 必须落到同一状态
+        && themeContract.capitalPayload.bodyTheme === 'dark'
+        && themeContract.capitalPayload.chrome === themeContract.toDark.chrome
+        && themeContract.toLight.bodyTheme === null
+        && themeContract.toLight.chrome === themeContract.initial.chrome
+        && themeContract.invalid.bodyTheme === null
+        && themeContract.errors.length === 0);
+    }
+
     // ---- 第 289 轮补断言（收 §9.1 第 1 条）：`未选择` 的编辑区 —— 稳定空态／保持当前正式文件 ----
     // 规格 §9.1 的状态机第一档：「`未选择`：编辑区保持当前正式文件或稳定空状态」。
     // 两半都要断言：**没有打开文件**时是稳定空态（不是样例文档、不是差异、不进入加载），
@@ -19680,9 +19744,15 @@ async function main() {
       && logColumns.longWide.rows[0].tracks[2] === '136px'
       && logColumns.longWide.rows[0].authorW === logColumns.longWide.expected.author
       && logColumns.longWide.rows[0].dateW === logColumns.longWide.expected.full
-      && logColumns.longNarrow.rows.every((row) => row.labelHidden === true && row.labelW === 0)
       && logColumns.longNarrow.rows.every((row) => !row.authorHidden && !row.dateHidden
         && row.authorW > 0 && row.dateW > 0)
+      // 第 310 轮：提交图按权威公式缩放后，单轨历史的图形区由 29px 变 **20px**
+      //（`floor(1 × 16 × 26 ÷ 22) + floor(2 × 26 ÷ 22)`），1180 档的预算因此多出 9px，
+      // 引用列刚好越过 64px 的最小辨认宽度 ⇒ 它**可以**保留（不是被吞掉）。
+      // 严格"整列让位"的那一档是上面 1024 的 `narrow`（`labelHidden === true && labelW === 0`）。
+      // 这里改为断言实现自己的规则：要么整列让位，要么不小于最小辨认宽度。
+      && logColumns.longNarrow.rows.every((row) => (row.labelHidden === true && row.labelW === 0)
+        || (row.labelHidden === false && row.labelW >= 64))
       // 1180 的预算仍够放完整日期（紧凑只发生在更窄的档，见上一条），所以按**实际用的格式**核对列宽。
       && logColumns.longNarrow.rows.every((row) => row.dateW === (row.dateText === row.full
         ? logColumns.longNarrow.expected.full : logColumns.longNarrow.expected.compact))
@@ -20065,6 +20135,35 @@ async function main() {
     // 实现位置：`mockup.js` 的 `applyTypography()`（改字号后重排 + `captureScrollAnchors()`／
     // `restoreScrollAnchors()` 按"同一节点"回填滚动位置，并重画每行提交图的纵向连线以跟随行高）
     // 与 `bindHistoryLayout()`（列宽按同一套 canvas 度量随字号重算）。
+    // 第 310 轮补充：图形区宽度也随行高等比缩放（权威 `PaintParameters.scaleWithRowHeight`），
+    // 下面按权威公式**独立复算**它，不再断言"字号变化前后宽度相同"。
+    const expectedGraphWidth = (rowHeight, dpr, columns) => {
+      const ratio = rowHeight / 22;
+      return Math.floor(columns * 16 * ratio) + Math.floor(2 * ratio);
+    };
+    const expectedGraphNode = (rowHeight, dpr) => {
+      const ratio = rowHeight / 22;
+      const align = (value, odd) => {
+        let device = Math.floor(value * dpr);
+        if (odd && device % 2 === 0) device -= 1;
+        return device / dpr;
+      };
+      const nodeDiameter = align(8 * ratio, true);
+      return {
+        nodeRadius: nodeDiameter / 2,
+        rowCenter: align(rowHeight / 2, true),
+        nodeOffset: align(nodeDiameter / 2, false) - nodeDiameter / 2,
+        lineThickness: Math.max(align(1.5 * ratio, true), 1 / dpr),
+        elementWidth: align(16 * ratio, true),
+        elementCenter: align(8 * ratio, false),
+      };
+    };
+    // 节点圆心必须落在"第 n 轨中心"上（n 为非负整数、取整后的半径作定位偏移）。
+    const onLaneCenter = (nodeGeometry, geometry) => {
+      if (!nodeGeometry) return false;
+      const lane = (nodeGeometry[0] - geometry.nodeOffset - geometry.elementCenter) / geometry.elementWidth;
+      return lane >= -1e-9 && Math.abs(lane - Math.round(lane)) < 1e-6;
+    };
     const fontMetrics = await (async () => {
       const page = await context.newPage();
       await page.addInitScript(() => {
@@ -20108,6 +20207,27 @@ async function main() {
           selectedHash: (document.querySelector('.commit-row[aria-selected="true"]') || { dataset: {} }).dataset.hash || null,
           graphW: graph ? Math.round(graph.getBoundingClientRect().width) : null,
           graphH: graph ? Math.round(graph.getBoundingClientRect().height) : null,
+          // 提交图几何（权威 `PaintParameters` / `PaintUtil.alignToInt` / `GraphCommitCellUtil`）：
+          // 行高变了，轨距、节点半径与线宽都必须跟着变；宽度由 Node 侧按公式独立复算。
+          graphColumns: graph ? Number(graph.dataset.graphColumns) : null,
+          graphViewBox: graph ? [graph.viewBox.baseVal.width, graph.viewBox.baseVal.height] : null,
+          graphRowHeight: Number.parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--augit-history-row-height')) || null,
+          dpr: window.devicePixelRatio || 1,
+          nodeGeometry: (() => {
+            const svg = [...document.querySelectorAll('.commit-graph-svg')]
+              .find((item) => item.querySelectorAll('circle').length === 1);
+            const circle = svg && svg.querySelector('circle');
+            return circle ? [Number(circle.getAttribute('cx')), Number(circle.getAttribute('cy')), Number(circle.getAttribute('r'))] : null;
+          })(),
+          lineThickness: (() => {
+            const line = document.querySelector('.commit-list-graph .graph-line');
+            return line ? Number.parseFloat(getComputedStyle(line).strokeWidth) : null;
+          })(),
+          vectorEffect: (() => {
+            const line = document.querySelector('.commit-list-graph .graph-line');
+            return line ? getComputedStyle(line).vectorEffect : null;
+          })(),
           railIcon: railIcon ? Math.round(railIcon.getBoundingClientRect().width) : null,
           overlap,
           rows: rows.length,
@@ -20163,9 +20283,67 @@ async function main() {
       && fontMetrics.after.rowHeight > fontMetrics.before.rowHeight
       && fontMetrics.after.graphH === fontMetrics.after.rowHeight
       && fontMetrics.before.graphH === fontMetrics.before.rowHeight
-      && fontMetrics.after.graphW === fontMetrics.before.graphW
       && fontMetrics.after.railIcon === 16 && fontMetrics.before.railIcon === 16
       && fontMetrics.before.overlap === null && fontMetrics.after.overlap === null);
+    // 图形区宽度随行高等比缩放（第 310 轮）：权威 `GraphCommitCellUtil.getGraphWidth` 的
+    // `floor(列数 × 16 × 行高 ÷ 22) + floor(2 × 行高 ÷ 22)`，期望值在这里独立复算。
+    // 此前断言的是"前后宽度相同"，那对应的是已被推翻的"轨距不随字号缩放"旧口径。
+    check('§8.3.2 提交图几何随行高等比缩放（图形区宽度/节点半径/线宽按权威公式）: '
+      + JSON.stringify([fontMetrics.before, fontMetrics.after]),
+    fontMetrics.before.graphColumns === fontMetrics.after.graphColumns
+      && fontMetrics.before.graphColumns >= 1
+      && fontMetrics.before.graphViewBox[0] === expectedGraphWidth(fontMetrics.before.graphRowHeight, fontMetrics.before.dpr, fontMetrics.before.graphColumns)
+      && fontMetrics.after.graphViewBox[0] === expectedGraphWidth(fontMetrics.after.graphRowHeight, fontMetrics.after.dpr, fontMetrics.after.graphColumns)
+      && fontMetrics.after.graphViewBox[0] > fontMetrics.before.graphViewBox[0]
+      && fontMetrics.after.graphW === fontMetrics.after.graphViewBox[0]
+      && fontMetrics.before.graphW === fontMetrics.before.graphViewBox[0]
+      && fontMetrics.after.nodeGeometry[2] > fontMetrics.before.nodeGeometry[2]
+      && onLaneCenter(fontMetrics.before.nodeGeometry, expectedGraphNode(fontMetrics.before.graphRowHeight, fontMetrics.before.dpr))
+      && onLaneCenter(fontMetrics.after.nodeGeometry, expectedGraphNode(fontMetrics.after.graphRowHeight, fontMetrics.after.dpr))
+      && Math.abs(fontMetrics.before.nodeGeometry[1]
+        - (expectedGraphNode(fontMetrics.before.graphRowHeight, fontMetrics.before.dpr).rowCenter
+          + expectedGraphNode(fontMetrics.before.graphRowHeight, fontMetrics.before.dpr).nodeOffset)) < 0.011
+      && Math.abs(fontMetrics.after.nodeGeometry[1]
+        - (expectedGraphNode(fontMetrics.after.graphRowHeight, fontMetrics.after.dpr).rowCenter
+          + expectedGraphNode(fontMetrics.after.graphRowHeight, fontMetrics.after.dpr).nodeOffset)) < 0.011
+      && Math.abs(fontMetrics.after.nodeGeometry[2]
+        - expectedGraphNode(fontMetrics.after.graphRowHeight, fontMetrics.after.dpr).nodeRadius) < 0.011
+      // 本夹具的 120 条提交都没有父提交 ⇒ 图里没有任何连线（`lineThickness` 为 null）。
+      // 连线的线宽与 `vector-effect` 由下面那条**有边**的 `git-history-graph` 探针断言，
+      // 不在这里用 null 空过。
+      && fontMetrics.before.lineThickness === null && fontMetrics.after.lineThickness === null);
+    // 连线：线宽按 `getLineThickness(行高)` 缩放并在设备空间对齐到奇数，且不能再用
+    // `vector-effect: non-scaling-stroke`（它把线宽钉死在视口坐标系，与 DPI 契约相反）。
+    // 用 **字号 40**（行高 57）取景：那时对齐后的线宽是 3px，与"基准行高 22 的对齐值 1px"
+    // 和旧实现的固定 1.5px 都不同 ⇒ 这条判据能区分"实现了缩放"与"没实现"。
+    const graphLine = await (async () => {
+      const scene = await openScene('scene=git-history-graph&theme=dark&ui-font-size=40');
+      // `state: 'attached'`：SVG 连线的包围盒宽度可能为 0（纯竖直段），Playwright 的"可见"判据会判它不可见，
+      // 但这里要的只是**存在**。
+      await scene.page.waitForSelector('.commit-list-graph .graph-line', { state: 'attached', timeout: 10000 });
+      const read = await scene.page.evaluate(() => {
+        const line = document.querySelector('.commit-list-graph .graph-line');
+        return {
+          rowHeight: Number.parseFloat(getComputedStyle(document.documentElement)
+            .getPropertyValue('--augit-history-row-height')) || 26,
+          dpr: window.devicePixelRatio || 1,
+          strokeWidth: Number.parseFloat(getComputedStyle(line).strokeWidth),
+          vectorEffect: getComputedStyle(line).vectorEffect,
+          lineCount: document.querySelectorAll('.commit-list-graph .graph-line').length,
+        };
+      });
+      await scene.page.close();
+      return read;
+    })();
+    const expectedLine = expectedGraphNode(graphLine.rowHeight, graphLine.dpr);
+    check('§8.3.2 提交图连线线宽按行高与 DPI 对齐、不使用 non-scaling-stroke: ' + JSON.stringify(graphLine),
+    graphLine.lineCount > 0
+      && graphLine.rowHeight > 26
+      && Math.abs(graphLine.strokeWidth - expectedLine.lineThickness) < 0.011
+      // 排除两种"没缩放"的实现：旧实现的固定 1.5px 与"按基准行高 22 算出来的 1px"。
+      && graphLine.strokeWidth !== 1.5
+      && graphLine.strokeWidth !== expectedGraphNode(22, graphLine.dpr).lineThickness
+      && graphLine.vectorEffect === 'none');
     check('§7.8 外观应用保持顶部锚点/横向偏移/选择，不触发 Git 查询、不重建提交列表: '
       + JSON.stringify([fontMetrics.before, fontMetrics.after, fontMetrics.identity]),
     fontMetrics.before.firstHash !== null

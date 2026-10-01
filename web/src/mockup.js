@@ -114,10 +114,10 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   if (!(Number.isFinite(savedBottom) && savedBottom > 0)) {
     root.setProperty("--augit-bottom-height", `clamp(${bottomMinimum}px, 31vh, ${Math.max(305, bottomMinimum)}px)`);
   }
-  // 只延长轨道的纵向连线，节点半径、横向轨距和笔画不随字号拉伸。
-  document.querySelectorAll(".commit-graph-svg").forEach(svg => {
-    svg.outerHTML = commitGraphSvg({ width: svg.viewBox.baseVal.width, rows: [JSON.parse(svg.dataset.graphRow)] }, 0, Math.max(26, height + 6));
-  });
+  // 提交图的几何按**实际行高**重算：权威 `PaintParameters.scaleWithRowHeight` 让节点半径、轨距、
+  // 线宽与图形文字间距都跟着行高走（design-system.md §8.3.2）。行高本身由上面的
+  // `history-row-height` 写入 `:root`，因此这里只需按新行高重绘一次。
+  refreshCommitGraphGeometry();
   measureCurrentFind();
   measureCodeViews();
   measureDocumentToolbar();
@@ -253,6 +253,9 @@ function applyDeviceScale() {
 
 applyDeviceScale();
 window.addEventListener('resize', applyDeviceScale);
+// 提交图几何按 DPI 在设备空间对齐（权威 `PaintUtil.alignToInt`）：跨屏拖动改变
+// `devicePixelRatio` 后线宽与节点尺寸都要重算，否则整条图形比设计值粗/细半个设备像素。
+window.addEventListener('resize', refreshCommitGraphGeometry);
 window.addEventListener('DOMContentLoaded', applyDeviceScale);
 window.addEventListener('resize', measureTabFade);
 // 标签栏的滚动事件不冒泡，用捕获阶段在 document 上收；只处理标签栏自身的滚动。
@@ -3394,6 +3397,124 @@ function bindBlame() {
   });
 }
 
+// ---- 提交图几何 ----------------------------------------------------------------
+// 权威出处：`platform/vcs-log/impl/src/com/intellij/vcs/log/paint/PaintParameters.java:9-15`
+// （单轨宽 16、节点半径 4、普通线宽 1.5、选中线宽 2.5、图形文字间距 2、基准行高 22）、
+// 同文件 `:17-43` 的 `scaleWithRowHeight(value, h) = value * h / 22`，
+// `SimpleGraphCellPainter.kt:79-99`（行中心／轨宽／轨中心／线宽／节点直径的取整），
+// `HeadNodePainter.kt:22-29`（HEAD 三个同心圆与 `RADIUS_DELTA`），
+// `GraphCommitCellUtil.kt:17-33`（图形区宽度公式）。
+//
+// 绘制尺寸不是常量本身：`PaintUtil.alignToInt(value, ctx, FLOOR, ODD)`
+// （`platform/util/ui/src/com/intellij/ui/paint/PaintUtil.java:163-172`）先把值换算到**设备空间**向下取整，
+// 再对齐到最近的奇数，最后换算回用户空间。100% 缩放下因此各少 1（16→15、直径 8→7、线宽 1.5→1）。
+const GRAPH_BASE_ROW_HEIGHT = 22;
+const GRAPH_WIDTH_NODE = 16;
+const GRAPH_CIRCLE_RADIUS = 4;
+const GRAPH_THICK_LINE = 1.5;
+const GRAPH_SELECT_THICK_LINE = 2.5;
+const GRAPH_TEXT_GAP = 2;
+const GRAPH_RADIUS_DELTA = 2;
+
+let graphGeometryCache = { key: "", value: null };
+
+/** 历史行高：与 `applyTypography()` 写入 `:root` 的 `--augit-history-row-height` 同源；未写入时回落 26。 */
+function historyRowHeight() {
+  const raw = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--augit-history-row-height"));
+  return Number.isFinite(raw) && raw > 0 ? raw : 26;
+}
+
+/** 当前行高与设备像素比下的几何；同一组输入只推导一次（每行渲染都要用）。 */
+function currentGraphGeometry() {
+  const rowHeight = historyRowHeight();
+  const deviceScale = window.devicePixelRatio || 1;
+  const key = `${rowHeight}|${deviceScale}`;
+  if (graphGeometryCache.key !== key) graphGeometryCache = { key, value: graphGeometryFor(rowHeight, deviceScale) };
+  return graphGeometryCache.value;
+}
+
+/** 基准常量按行高等比缩放，再按 `alignToInt(…, FLOOR, ODD)` 在设备空间对齐。 */
+function graphGeometryFor(rowHeight, deviceScale) {
+  const ratio = rowHeight / GRAPH_BASE_ROW_HEIGHT;
+  const align = (value, odd) => {
+    let device = Math.floor(value * deviceScale);
+    if (odd && device % 2 === 0) device -= 1;
+    return device / deviceScale;
+  };
+  const pixel = 1 / deviceScale;
+  const lineThickness = Math.max(align(GRAPH_THICK_LINE * ratio, true), pixel);
+  const nodeDiameter = align(2 * GRAPH_CIRCLE_RADIUS * ratio, true);
+  const headOuterDiameter = align(2 * (GRAPH_CIRCLE_RADIUS + GRAPH_RADIUS_DELTA) * ratio, true);
+  const nodeRadius = align(nodeDiameter / 2, false);
+  const headOuterRadius = align(headOuterDiameter / 2, false);
+  return {
+    rowHeight,
+    deviceScale,
+    // 行中心 `alignToInt(rowHeight / 2, FLOOR, ODD)`（`SimpleGraphCellPainter.kt:81`）。
+    rowCenter: align(rowHeight / 2, true),
+    // 轨宽 `alignToInt(scaleWithRowHeight(16), FLOOR, ODD)`、轨中心 `alignToInt(…/2, FLOOR, null)`（`:83-84`）：
+    // 第 position 轨中心 x = elementWidth * position + elementCenter。
+    elementWidth: align(GRAPH_WIDTH_NODE * ratio, true),
+    elementCenter: align(GRAPH_WIDTH_NODE * ratio / 2, false),
+    lineThickness,
+    // 选中线宽只服务**图元素选中**（悬停箭头、折叠片段高亮），Augit 没有这类动作
+    // （`06-commit-graph.md`：选中集合只由图动作写入，表格行选中不进入该集合）⇒ 只登记缩放值、不绘制。
+    selectedThickness: Math.max(align(GRAPH_SELECT_THICK_LINE * ratio, true), lineThickness + 2 * pixel),
+    nodeDiameter,
+    nodeRadius,
+    headOuterDiameter,
+    headOuterRadius,
+    headDelta: align(GRAPH_RADIUS_DELTA * ratio, false),
+    // 权威用**取整后的半径**做定位偏移、用**取整后的奇数直径**做尺寸（`SimpleGraphCellPainter.kt:172-178`），
+    // 于是画出的圆心比轨中心偏 (radius - diameter / 2)（基准下 -0.5px）。照此复现，不"顺手居中"。
+    nodeOffset: nodeRadius - nodeDiameter / 2,
+    headOffset: headOuterRadius - headOuterDiameter / 2,
+  };
+}
+
+/**
+ * 图形区宽度：权威 `GraphCommitCellUtil.getGraphWidth`（`:32`）＝
+ * `floor(列数 × elementWidth_原始) + floor(图形文字间距_原始)`。
+ * 注意它用的是**未对齐的**原始轨宽（`PaintParameters.getElementWidth`），与绘制用的对齐值不同。
+ */
+function commitGraphWidth(columns, rowHeight) {
+  const ratio = rowHeight / GRAPH_BASE_ROW_HEIGHT;
+  return Math.floor(columns * GRAPH_WIDTH_NODE * ratio) + Math.floor(GRAPH_TEXT_GAP * ratio);
+}
+
+/**
+ * 提交列表容器上的图形几何：列数留给重算用，宽度按权威公式当场写入
+ * （不再使用固定值；CSS 里保留同式的 calc 作为未运行脚本时的回落）。
+ */
+function commitGraphListAttributes(graph) {
+  const rowHeight = historyRowHeight();
+  const width = commitGraphWidth(graph.columns, rowHeight);
+  return `data-graph-columns="${graph.columns}" style="--augit-graph-columns:${graph.columns};--augit-graph-width:${width}px"`;
+}
+
+/** 字形或 DPI 变化后重算图形区宽度并重绘已有 SVG（几何变了才重绘，避免 resize 期间反复建节点）。 */
+let appliedGraphKey = "";
+function refreshCommitGraphGeometry() {
+  const metrics = currentGraphGeometry();
+  const key = `${metrics.rowHeight}|${metrics.deviceScale}`;
+  const changed = key !== appliedGraphKey;
+  appliedGraphKey = key;
+  document.querySelectorAll(".commit-list.commit-list-graph").forEach(list => {
+    const columns = Number(list.dataset.graphColumns) || 1;
+    list.style.setProperty("--augit-graph-width", `${commitGraphWidth(columns, metrics.rowHeight)}px`);
+  });
+  if (changed) {
+    document.querySelectorAll(".commit-graph-svg").forEach(svg => {
+      svg.outerHTML = commitGraphSvg({ columns: Number(svg.dataset.graphColumns) || 1, rows: [JSON.parse(svg.dataset.graphRow)] }, 0);
+    });
+  }
+  // 行宽与作者/日期列宽都是按当前字体度量算出来的（`bindHistoryLayout()`），
+  // 图形区宽度变了就必须重排一次，否则标题会停在旧图形区右边。
+  document.querySelectorAll(".log-list-panel").forEach(panel => {
+    panel.dispatchEvent(new CustomEvent("history-geometry-changed"));
+  });
+}
+
 function buildCommitGraph(entries) {
   const positions = new Map(entries.map((entry, index) => [entry.hash, index]));
   const lanes = [], rows = [];
@@ -3436,23 +3557,43 @@ function buildCommitGraph(entries) {
     columnCount = Math.max(columnCount, before.length, lanes.length);
     rows.push({ column, color: node.color, head: !!entry.head, segments });
   });
-  return { rows, width: 29 + (columnCount - 1) * 16 };
+  return { rows, columns: columnCount };
 }
 
-function commitGraphSvg(graph, index, rowHeight = 26) {
+/**
+ * HEAD 节点：权威 `HeadNodePainter.kt:31-60` 画的是**三个同心实心圆**
+ * （外圆节点色 → 中圆行背景 → 内圆节点色），不是"描边环 + 圆点"。
+ * 中圆与内圆各按 `RADIUS_DELTA`（缩放后单独取整，`:29`）从外圆直径里收进，环厚因此等于 delta。
+ */
+function commitGraphHeadNode(x, color, metrics) {
+  const cx = x + metrics.headOffset, cy = metrics.rowCenter + metrics.headOffset;
+  const outer = metrics.headOuterDiameter / 2;
+  return `<circle fill="${color}" cx="${cx}" cy="${cy}" r="${outer}"/>`
+    + `<circle fill="var(--augit-row-background, var(--augit-panel))" cx="${cx}" cy="${cy}" r="${outer - metrics.headDelta}"/>`
+    + `<circle fill="${color}" cx="${cx}" cy="${cy}" r="${outer - 2 * metrics.headDelta}"/>`;
+}
+
+function commitGraphSvg(graph, index, geometry = null) {
+  const metrics = geometry || currentGraphGeometry();
   const row = graph.rows[index];
   const colors = ["var(--augit-graph)", "var(--augit-graph-secondary)", "var(--augit-graph-third)", "var(--augit-graph-fourth)"];
+  // 纵向：0 = 上一行中心、0.5 = 本行中心、1 = 下一行中心。权威的相邻两行中心正好相距一个行高
+  //（`SimpleGraphCellPainter.kt:115,156-168`：本行 y1 = rowCenter，另一端 = rowCenter ± rowHeight）。
+  const trackY = (fraction) => metrics.rowCenter + (fraction - 0.5) * metrics.rowHeight;
+  const trackX = (column) => metrics.elementCenter + column * metrics.elementWidth;
   const paths = row.segments.map(([fromColumn, fromY, toColumn, toY, color, dashed]) => {
-    const x1 = 15 + fromColumn * 16, x2 = 15 + toColumn * 16;
-    const y1 = fromY * rowHeight, y2 = toY * rowHeight;
+    const x1 = trackX(fromColumn), x2 = trackX(toColumn);
+    const y1 = trackY(fromY), y2 = trackY(toY);
     const d = dashed
       ? `M${x1} ${y1}L${x1 + (x2 - x1) * 0.42} ${y1 + (y2 - y1) * 0.42}M${x1 + (x2 - x1) * 0.68} ${y1 + (y2 - y1) * 0.68}L${x2} ${y2}`
       : `M${x1} ${y1}L${x2} ${y2}`;
     return `<path class="graph-line" stroke="${colors[color % 4]}" d="${d}"/>`;
   }).join("");
-  const x = 15 + row.column * 16, color = colors[row.color % 4];
-  const node = `${row.head ? `<circle class="graph-head-ring" style="stroke:${color}" cx="${x}" cy="${rowHeight / 2}" r="5.5"/>` : ""}<circle fill="${color}" cx="${x}" cy="${rowHeight / 2}" r="${row.head ? 2 : 4}"/>`;
-  return `<svg class="commit-graph-svg" data-graph-row='${JSON.stringify(row)}' viewBox="0 0 ${graph.width} ${rowHeight}" aria-hidden="true">${paths}${node}</svg>`;
+  const x = trackX(row.column), color = colors[row.color % 4];
+  const node = row.head
+    ? commitGraphHeadNode(x, color, metrics)
+    : `<circle fill="${color}" cx="${x + metrics.nodeOffset}" cy="${metrics.rowCenter + metrics.nodeOffset}" r="${metrics.nodeDiameter / 2}"/>`;
+  return `<svg class="commit-graph-svg" data-graph-row='${JSON.stringify(row)}' data-graph-columns="${graph.columns}" style="--augit-graph-line-thickness:${metrics.lineThickness}px" viewBox="0 0 ${commitGraphWidth(graph.columns, metrics.rowHeight)} ${metrics.rowHeight}" aria-hidden="true">${paths}${node}</svg>`;
 }
 
 // 当前分支的提交范围：权威 `CurrentBranchHighlighter` 用 "contained in current branch" 判定，
@@ -4204,7 +4345,7 @@ function liveGitLog(history, selected, cancelComparison, loading = false) {
             <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
             <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${loading ? loadingRow : history.commits.length === 0 ? (history.filterActive ? filterEmptyRow : emptyRow) : history.commits.map((commit, index) => `<div class="commit-row ${isCommitSelected(commit, index) ? "selected" : ""}${currentBranchCommits.has(commit.hash) ? " current-branch" : ""}" role="option" aria-selected="${isCommitSelected(commit, index)}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${refDisplayName(commit.references) ? `${gitReferenceIcon(refKindOf(commit.references))} ${escapeHtml(refDisplayName(commit.references))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
+          <div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${loading ? loadingRow : history.commits.length === 0 ? (history.filterActive ? filterEmptyRow : emptyRow) : history.commits.map((commit, index) => `<div class="commit-row ${isCommitSelected(commit, index) ? "selected" : ""}${currentBranchCommits.has(commit.hash) ? " current-branch" : ""}" role="option" aria-selected="${isCommitSelected(commit, index)}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${refDisplayName(commit.references) ? `${gitReferenceIcon(refKindOf(commit.references))} ${escapeHtml(refDisplayName(commit.references))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
         </div>
         <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${live && live.commitDetails && history.commits.length > 0 ? live.commitDetails.filesHtml : (loading ? `<p class="commit-meta">正在读取变更…</p>` : history.commits.length === 0 ? `<div class="empty-state">没有可显示的变更</div>` : `<p class="commit-meta">正在读取变更…</p>`)}</div><div class="commit-detail" data-live-commit-detail>${live && live.commitDetails && live.commitDetails.detailHtml ? live.commitDetails.detailHtml : `<h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div>`}</div></div>
       </div>
@@ -4292,7 +4433,7 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
             <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
             <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" style="--augit-graph-width:${graph.width}px">${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}${currentBranchCommits.has(entries[index].hash) ? " current-branch" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${refDisplayName(item[1]) ? `${gitReferenceIcon(refKindOf(item[1]))} ${escapeHtml(refDisplayName(item[1]))}` : ""}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
+          <div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}${currentBranchCommits.has(entries[index].hash) ? " current-branch" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${refDisplayName(item[1]) ? `${gitReferenceIcon(refKindOf(item[1]))} ${escapeHtml(refDisplayName(item[1]))}` : ""}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
         </div>
         <div class="log-detail-panel"><div class="changed-files">${selected ? complexGraph ? '<div class="tree-row">0 个文件</div>' : `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>6 个文件</strong></div><div class="tree-row depth-1"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span> docs <span class="commit-meta">4 个文件</span></div>${["architecture.md", "performance-report.md", "roadmap.md", "runtime-dependencies.md"].map(name => `<div class="tree-row depth-2 file-status-modified" data-history-path="docs/${name}">${fileTypeIcon(name)}${name}</div>`).join("")}` : `<div class="empty-state">选择提交以查看变更</div>`}</div><div class="commit-detail">${selected ? `<h3>${detailTitle}</h3><div>${detailMeta}</div>${detailBody}` : `<div class="empty-state">提交详情</div>`}</div></div>
       </div>
@@ -5288,7 +5429,8 @@ function bindHistoryLayout(root = document) {
       const compactWidth = Math.max(...rows.map(row => measure(row.querySelector("time").dataset.compact)));
       // 复杂提交图占用完整的多轨宽度，不能沿用单轨圆点宽度而让连线覆盖标题。
       const graph = panel.querySelector(".commit-graph-svg");
-      const graphWidth = graph ? Number(graph.viewBox.baseVal.width) : 29;
+      // 没有图形时的回落也按单轨公式推导，不再使用固定的 29px。
+      const graphWidth = graph ? Number(graph.viewBox.baseVal.width) : commitGraphWidth(1, historyRowHeight());
       const rowWidth = Math.max(list.clientWidth, graphWidth + 120 + 8
         + (authorWidth > 0 ? Math.min(authorWidth, 48) + 8 : 0) + (compactWidth > 0 ? compactWidth + 8 : 0));
       const contentWidth = Math.max(0, rowWidth - graphWidth - 8);
@@ -5313,6 +5455,9 @@ function bindHistoryLayout(root = document) {
     const observer = new ResizeObserver(layout);
     observer.observe(panel);
     observer.observe(list);
+    // 字号或 DPI 变化 → 图形区几何变化（`refreshCommitGraphGeometry()`）后必须重排：
+    // 行宽、作者与日期列宽都按当前字体度量算，只换 CSS 变量不够。
+    panel.addEventListener("history-geometry-changed", layout, { signal });
     layout();
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", "提交历史");

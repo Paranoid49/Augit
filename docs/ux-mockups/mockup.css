@@ -769,8 +769,14 @@ button {
 }
 
 /* 当前分支所指提交行：权威 `VersionControl.Log.Commit.currentBranchBackground`。
-   放在 .commit-row.selected 规则之前，选中时仍显示选中底色。 */
-.commit-row.current-branch { background: var(--augit-log-current-branch); }
+   放在 .commit-row.selected 规则之前，选中时仍显示选中底色。
+   `--augit-row-background` 必须跟着一起写：HEAD 节点是"节点色外圆 + **行背景**中圆 + 节点色内圆"
+   三个同心实心圆（`HeadNodePainter.kt:31-60`），中圆取不到行背景就会在带色行上留下一个色块
+   （design-system.md §8.3.2「HEAD 环内使用所在行的实际背景」）。 */
+.commit-row.current-branch {
+  background: var(--augit-log-current-branch);
+  --augit-row-background: var(--augit-log-current-branch);
+}
 
 .commit-row.selected.inactive,
 .history-row.selected.inactive {
@@ -1673,8 +1679,15 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   overflow: auto;
 }
 
+/* 图形区宽度按权威 `GraphCommitCellUtil.getGraphWidth` 推导：
+   `floor(列数 × 16 × 行高 ÷ 22) + floor(2 × 行高 ÷ 22)`（轨宽与图形文字间距都随行高等比缩放，
+   基准行高 22，见 intellij-platform-ui-reference.md §6）。实现由 `mockup.js` 的
+   `commitGraphListAttributes()` 逐列写入 `--augit-graph-width`；这里保留同式的 calc 作为
+   未运行脚本时的回落，不再使用固定值（原 45px 是待重算值，已按公式替换）。 */
 .commit-list.commit-list-graph {
-  --augit-graph-width: 45px;
+  --augit-graph-width: calc(
+    var(--augit-graph-columns, 1) * 16 * var(--augit-history-row-height, 26px) / 22
+    + 2 * var(--augit-history-row-height, 26px) / 22);
 }
 
 .commit-list:focus { outline: none; }
@@ -1700,36 +1713,17 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   overflow: visible;
 }
 
-.commit-graph-svg .graph-primary,
-.commit-graph-svg .graph-secondary,
+/* 连线：线宽由 `mockup.js` 按权威 `PaintParameters.getLineThickness(行高)` 逐 SVG 写入
+   （基准 1.5 按行高等比缩放，再按 `PaintUtil.alignToInt(…, FLOOR, ODD)` 在设备空间取整到奇数），
+   所以这里不再有固定 `stroke-width`，也**不再用 `vector-effect: non-scaling-stroke`** ——
+   那个属性把线宽钉死在 SVG 视口坐标系里，与"按 DPI 换算到设备像素再回到用户空间"的契约相反
+   （见 intellij-platform-ui-reference.md §7.3 第 1 条的疑点结论、design-system.md §4.2/§10）。
+   线型端点是圆端 + 圆角（权威 `BasicStroke(lineThickness, CAP_ROUND, JOIN_ROUND)`）。 */
 .commit-graph-svg .graph-line {
   fill: none;
-  stroke-width: 1.5;
+  stroke-width: var(--augit-graph-line-thickness, 1px);
   stroke-linecap: round;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.commit-graph-svg .graph-primary {
-  stroke: var(--augit-graph);
-}
-
-.commit-graph-svg .graph-secondary {
-  stroke: var(--augit-graph-secondary);
-}
-
-.commit-graph-svg .graph-node-primary {
-  fill: var(--augit-graph);
-}
-
-.commit-graph-svg .graph-node-secondary {
-  fill: var(--augit-graph-secondary);
-}
-
-.commit-graph-svg .graph-head-ring {
-  fill: var(--augit-row-background, var(--augit-panel));
-  stroke: var(--augit-graph);
-  stroke-width: 2;
 }
 
 .commit-list-graph .commit-row::before,
