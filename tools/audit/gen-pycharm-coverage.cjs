@@ -1,6 +1,7 @@
 // ⑦⑧ 逐页对照的"有分母"表：对 §1.1 的每个场景给出 PyCharm 侧对照状态。
 // 为什么按"面"而不是硬凑页面：PyCharm 并没有 Augit 的 diff/冲突/stash/远端等页面形态，
-// 强行"逐页对照"会造出不存在的一一对应。本表因此如实分三类，并指明"已对照"的那些页
+// 强行"逐页对照"会造出不存在的一一对应。本表因此如实分档：**面级已对照** / **仅入口级证据** /
+// **未对照**（未对照再分 MEDIUM_BLOCKED / RECOVERABLE / PRECONDITION / AUGIT_ONLY），并指明"已对照"的那些页
 // 用的是 §1.3 里哪些实测面（chrome/编辑器标签/状态栏/设置对话框）。
 // 用法：node tools/audit/gen-pycharm-coverage.cjs [--write]
 const fs = require('node:fs');
@@ -46,9 +47,9 @@ const BRANCHES_POPUP = ['branches', 'smart-checkout'];
 for (const s of ['push', 'push-no-remote', 'rollback', 'stash', 'worktrees']) {
   ENTRY_LEVEL.set(s, 'J 入口级（VCS Operations 弹出菜单：命名 + 快捷键）');
 }
-for (const s of ['terminal-close']) {
-  ENTRY_LEVEL.set(s, 'K 确认框级（Confirm Exit：danger 默认 + 次按钮 + 不再询问）');
-}
+// 注：`terminal-close` 曾经只有 K 确认框级证据；它现在落在 TERMINAL_TW（面级已对照），
+// 而下面的循环先查 `covered`，所以再保留一条 ENTRY_LEVEL 记录只会是**取不到的死数据**
+// 并把分档小计的口径弄混（第 311 轮发现）。K 的证据由 §1.3 的逐面表承载，不在这里重复。
 const covered = new Map();
 for (const s of CHROME_EDITOR) covered.set(s, 'A+B（主窗口 chrome / 编辑器标签行）');
 for (const s of SETTINGS) covered.set(s, 'C（设置对话框）');
@@ -122,7 +123,7 @@ for (const scene of scenes) {
   else if (ENTRY_LEVEL.has(scene)) { entryCount++; out.push(`| \`${scene}\` | 仅入口级证据 | ${ENTRY_LEVEL.get(scene)}；**对话框本体未采集，不计入面级已对照**${ENV_BLOCKED.has(scene) ? '；**环境前提**：' + ENV_BLOCKED.get(scene) : ''} |`); }
   else if (UNCOVERED.has(scene)) { uncoveredCount++; const [kind, note] = UNCOVERED.get(scene);
     out.push(`| \`${scene}\` | 未对照（${kind}） | ${note} |`); }
-  else { out.push(`| \`${scene}\` | 未对照 | ${reason(scene)} |`); }
+  else { uncoveredCount++; out.push(`| \`${scene}\` | 未对照 | ${reason(scene)} |`); }
 }
 out.push('');
 out.push(`> 本轮读数：**${coveredCount}/${scenes.length} 个页面**落在已实测的面上；`
@@ -143,4 +144,4 @@ if (at >= 0) {
   if (pos < 0) { console.error('GEN_PYCHARM_COVERAGE_FAILED no anchor'); process.exit(1); }
   fs.writeFileSync(docPath, doc.slice(0, pos) + generated + doc.slice(pos));
 }
-console.log(`WROTE 1.6 scenes=${scenes.length} covered=${coveredCount} uncovered=${scenes.length - coveredCount}`);
+console.log(`WROTE 1.6 scenes=${scenes.length} covered=${coveredCount} entry=${entryCount} uncovered=${uncoveredCount}`);

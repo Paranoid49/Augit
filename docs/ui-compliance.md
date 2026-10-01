@@ -28,7 +28,7 @@
 | B 线：条文 → 用例 → 证据 | §2.1–§2.9 |
 | ⑩ 未执行/环境不可达项 | §3.1 |
 | ⑪ 差异清单（规范/实现/基线差异） | §3.2–§3.3 |
-| 第 311 轮的只读环境观测（⑦⑧ 采集前置事实） | §3.6 |
+| 第 311 轮环境观测的不可复现订正（含本轮 PID/窗口复查） | §3.6 |
 | ⑦⑧ 的 17 页未对照：分档小计与标签沿革 | §3.7 |
 
 ## 0. 验证基线与复跑命令
@@ -36,7 +36,7 @@
 | 检查 | 命令（在本仓库根目录执行） | 当前结果 |
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
-| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（12 个 `.ps1` 全部 BOM-less 且 ASCII-only） |
+| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（14 个 `.ps1` 全部满足 BOM/ASCII 规则） |
 | 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1070/1070（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
@@ -44,6 +44,7 @@
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-21 复跑，终端/JSON/Markdown 等改动之后）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |；**`diff-boundary` 在"含改动的工作区"上单独验收 OK（第 371 轮）**
 | 交付文档数字自洽 | `node tools/audit/check-doc-claims.cjs` | **DOC_CLAIMS_OK**（§2.0 分节之和 = 合计、当前事实加数与缺口自洽、§2.8 行数/状态与 §2.0 一致、§1.1 像素行数 = §1.4 A 线分母；需跑套件才能得的数字只打印并标注"未机械核对"） |
+| 覆盖表生成器一致性 + 环境断言守卫 | `node tools/audit/coverage-generator.test.cjs` | **PASS**（§1.1/§1.4 像素值、§1.6 页表与分档、C 线模板和写回摘要一致；并钉住不可复现的"当前无 PyCharm 进程/窗口"旧断言，要求 §3.6 保留 PID/窗口/最小化复查事实） |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=6 jumps=4 feedback=8 sequences=6 gaps=4`（`CHECKED 18`：pass 9 / diff 2 / gap 1 / other 6），逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-21 复跑）**：`Augit-0.1.0-win-x64-portable.zip` **2,795,619 B（2026-09-21 重打包）**、`Augit-0.1.0-win-x64-setup.exe` **4,386,825 B（2026-09-21 复跑）**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
 
@@ -57,7 +58,7 @@
 **闸门（离开时的实测值）**：`live-shell` **1039/1039（未执行 0 项）**、`Augit.Shell.Tests` 74/74、
 `Augit.Core.Tests` 86/86、真机巡检 54/54（干净仓库）+ `diff-boundary` 1/1（含改动工作区）、
 打包 zip 2,795,619 B / setup 4,386,825 B（`sha256sum -c` 两项 OK、32 条目 0 可疑、包内 `live-data.js` 与仓库逐字节相同）、
-`verify-ui-assets` PASS、`verify-script-encoding` PASS（13 个脚本）、
+`verify-ui-assets` PASS、`verify-script-encoding` PASS（14 个脚本）、
 `check-interactions` `surfaces=7 jumps=4 feedback=8 sequences=6 gaps=4`、`check-doc-claims` `DOC_CLAIMS_OK`。
 
 **覆盖率口径（全部带分母）**：
@@ -71,7 +72,8 @@
   > 是第 427 轮口径的**过时摘要**：第 427 轮先把 3 页（`blame`/`file-history`/`repository-search`）、
   > 第 442 轮再把其余 6 个入口型页面改标 `MEDIUM_BLOCKED`（两轮合计 **9 页**），
   > 但只改了 §1.6 的表、没同步本摘要。当前分类以 §1.6 的表与生成器输出为准（沿革见 §3.7）。
-  > 四类小计**目前靠人工转录**，`check-doc-claims.cjs` 未覆盖，属于待补的机械守卫（见 §3.6）。
+  > 四类小计（9/2/5/1）与 33/5/17 已由 `tools/audit/coverage-generator.test.cjs` 从 §1.6 逐行机械核对
+  > （本摘要的数字必须与 §1.6 的表一致）；`check-doc-claims.cjs` 仍只管 §2.0／§2.8／§1.1 的分母。
 - **④ 同引擎像素对照**：**55/55 场景**已有本轮口径（`layoutPercent`）的实测证据；7 个场景两次独立运行 **Δ ≤ 0.01**；
   全量 > 2.0 的只有 2 个（`quick-open` 2.30、`repository-search` 2.08），均归因 live 数据状态、非布局错位。
 - **⑨⑩ 条文穷举**：**非"是"行的权威数字与分类直接见 §2.10**（由生成器 `tools/audit/gen-clause-conclusions.cjs` 逐行产出，并带"畸形表格行"守卫）—— 本摘要**不再复写数字**：第 101 轮发现摘要里手写的数字与脚本口径不一致（原因见下），且当时有 **7 行表格缺尾管符**被解析器静默跳过，导致分母偏小。
@@ -86,11 +88,15 @@
 **下一步（照实回填，2026-10-01 第 311 轮）**：
 - ④ 的 13 个场景**早已补齐、§1.1 已是 55/55**（本行原写"继续补 13 个场景"，属第 92 轮的过时摘要）；
   §2.10 的 A 类各行按"严格匹配 + 读断言源码"逐条核实（已有 5 行因此转"是"）。
-- ⑦⑧ 的 17 个未对照页**本次会话不具备采集条件**：本机当前**没有 PyCharm 进程**，
-  只读 UI Automation 能读到桌面（18 个顶层窗口）但**没有任何 PyCharm 窗口**（观测记录见 §3.6／§3.7）。
+- ⑦⑧ 的 17 个未对照页**第 311 轮没有完成取证**：该轮探针的"`Get-Process` 零命中""顶层无 PyCharm 窗口"
+  只是**那一次会话的观测**，既没有真实前台输入，也没有采到任何一页（原始记录与**不可复现的订正**见 §3.6）。
+  **本轮复查已推翻"本机没有 PyCharm"这一旧断言**：PyCharm 2026.2.1 `pycharm64.exe` **PID 20504 正在运行**，
+  顶层窗口 `SunAwtFrame` 标题 `Augit – verify-ux-blame.cjs`（项目根 `D:\github\Augit`），窗口复查读数为**最小化**
+  （窗口状态是瞬时读数，会变化，以 §3.6 的可复跑命令为准）、前台是其它应用；**窗口存在/最小化不等于完成取证**，本轮同样**未向 IDE 发送任何真实前台输入**，
+  因此 33 面级 + 5 入口级 + 17 未对照的分档与页名集合**一个都没变**（复查命令见 §3.6）。
   其中 9 页 `MEDIUM_BLOCKED` 的"确认动作不可达"是**工具面**的限制（不是入口不存在）：
   一旦 PyCharm 在前台且允许一次人工/真实输入，`Annotate` / `Show History` / `Find in Path` 等就能按配方继续采；
-  2 页 `RECOVERABLE` 的配方已写明；6 页 `PRECONDITION` 需要先造前提（真实冲突/本地改动/stash）。
+  2 页 `RECOVERABLE` 的配方已写明；5 页 `PRECONDITION` 需要先造前提（真实冲突/本地改动/stash）。
 
 ## 1. A 线：静态界面复原
 
@@ -148,7 +154,7 @@
 | `conflict-list` | 0.00 | 0.00 | 0.01 | 数据差异（字体已等化） |
 | `conflict-resolver` | 0.00 | 0.00 | 0.00 | **等化后 0.00**（等化前 0.60） |
 | `diff-boundary` | 0.00 | 0.00 | 1.60 | 数据差异；**等化前 4.09**（差值主要为字体） |
-| `diff-status` | 0.00 | 0.00 | 1.36 | **新增最终说明页**（⑭ 第 2 项）：二进制/超限/无差异/失败共用同一说明块；实时侧用真·二进制改动仓库实测（`status=Binary`） ；2026-09-22 重测（原记录 1.29） |
+| `diff-status` | 0.00 | 0.00 | 1.36 | **新增最终说明页**（⑭ 第 2 项）：二进制/超限/无差异/失败共用同一说明块；实时侧用真·二进制改动仓库实测（`status=Binary`）；2026-09-22 重测（原记录 1.29） |
 | `diff-loading` | 0.00 | 0.00 | 1.47 | 数据差异（字体已等化） |
 | `file-history` | 0.00 | 0.00 | 0.63 | 数据差异（字体已等化） |
 | `file-limit` | 0.00 | 0.00 | 0.01 | 两侧都是"不可预览"页（数据不同） |
@@ -431,14 +437,10 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 > 例如"工具窗口互斥"同时覆盖终端与 Git 历史），硬按页面拆会造出虚假的逐页分母。
 > 因此这里只给"条文维度"的分母，逐页行为覆盖请对照 §2 的小节标题。
 
-> **注意（2026-10-01 第 311 轮，脚本与文档的已知分叉）**：上表 C 线那一行是**手工订正过的当前值**，
-> 而 `tools/audit/gen-coverage-table.cjs` 的模板里仍是旧值 `| C 线：PyCharm 对照 | 见 §1.3 | 2 个面（主窗口 chrome、设置对话框） | … |`
-> （第 71 轮之前的过时摘要）。更重要的两点实测事实：① 本节**没有**脚本要求的
-> `<!-- generated:gen-coverage-table -->` 生成标记，所以不带 `--force` 跑 `--write` 会被守卫挡住
-> （脚本会报"§1.4 含手写内容"）；② 该脚本的 stdout 只有 80 行，而本节是 199 行 ——
-> 它**落后于**本节（本节含第 86–93 轮等手写像素复核记录与已更新的行为断言行）。
-> 因此：**不要**对 §1.4 跑 `--write`（就算加 `--force` 也会把这些记录删掉）；要收口就得先把脚本模板
-> 与本节的差异逐项同步。本轮依用户限定**只改文档、未改脚本**，细节与逐项差异见 §3.6。
+> **维护口径（2026-10-01 第 311 轮复核）**：§1.4 同时包含生成器可重建的覆盖表和人工维护的像素复核证据；
+> `gen-coverage-table.cjs` 只输出覆盖表，不包含本节后续证据段。本节不含脚本要求的生成标记，
+> 因此 `--write` 会被守卫挡住；不得用 `--force` 整段覆盖。已把脚本 C 线模板同步到当前 55 场景口径，
+> A 线像素值以 §1.1 为准，并由 `tools/audit/coverage-generator.test.cjs` 检查两表数值一致。
 
 | 页面（场景） | A 线 titlebar | A 线 statusbar | A 线 content | B 线真机巡检 | A 线判读 |
 | --- | ---: | ---: | ---: | --- | --- |
@@ -447,16 +449,16 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | `changes-context-menu` | 0.00 | 0.00 | 1.25 | PASS（54/54 那一轮） | 数据差异；**等化前 3.80**（差值主要为字体） |
 | `clone` | 0.00 | 0.00 | 0.09 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
 | `commit-changes` | 0.00 | 0.00 | 0.26 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
-| `commit-diff` | 0.00 | 0.00 | 1.59 | PASS（54/54 那一轮） | 数据差异；**等化前 3.71**（差值主要为字体） |
+| `commit-diff` | 0.00 | 0.00 | 1.69 | PASS（54/54 那一轮） | 数据差异；**等化前 3.71**（差值主要为字体）；2026-09-22 重测（原记录 1.59） |
 | `commit-empty` | 0.00 | 0.00 | 0.00 | PASS（54/54 那一轮） | 空态骨架，两侧逐像素一致（0.00） |
 | `conflict-list` | 0.00 | 0.00 | 0.01 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
 | `conflict-resolver` | 0.00 | 0.00 | 0.00 | PASS（54/54 那一轮） | **等化后 0.00**（等化前 0.60） |
 | `diff-boundary` | 0.00 | 0.00 | 1.60 | **OK**（含改动的工作区，第 371 轮） | 数据差异；**等化前 4.09**（差值主要为字体） |
 | `diff-loading` | 0.00 | 0.00 | 1.47 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
-| `diff-status` | 0.00 | 0.00 | 1.29 | PASS（54/54 那一轮） | **新增最终说明页**（⑭ 第 2 项）：二进制/超限/无差异/失败共用同一说明块；实时侧用真·二进制改动仓库实测（`status=Binary`） |
+| `diff-status` | 0.00 | 0.00 | 1.36 | PASS（54/54 那一轮） | **新增最终说明页**（⑭ 第 2 项）：二进制/超限/无差异/失败共用同一说明块；实时侧用真·二进制改动仓库实测（`status=Binary`）；2026-09-22 重测（原记录 1.29） |
 | `file-history` | 0.00 | 0.00 | 0.63 | PASS（54/54 那一轮） | 数据差异（字体已等化） |
 | `file-limit` | 0.00 | 0.00 | 0.01 | PASS（54/54 那一轮） | 两侧都是"不可预览"页（数据不同） |
-| `git-compare` | 0.00 | 0.00 | 1.71 | PASS（54/54 那一轮） | 数据差异；**等化前 4.08**（差值主要为字体） |
+| `git-compare` | 0.00 | 0.00 | 1.72 | PASS（54/54 那一轮） | 数据差异；**等化前 4.08**（差值主要为字体）；2026-09-22 重测（原记录 1.71） |
 | `git-compare-empty` | 0.00 | 0.00 | 1.41 | PASS（54/54 那一轮） | **新增引用比较无差异页**（⑭ 第 4 项）：文件栏保留双方引用、变更导航禁用但保留入口、正文只留比较语义的摘要说明；实时侧同一条规则由 harness 正/负向两条断言覆盖（见第 316 轮） |
 | `git-history` | 0.00 | 0.00 | 1.37 | PASS（54/54 那一轮） | 数据差异；**等化前 1.73**（差值主要为字体） |
 | `git-history-empty` | 0.00 | 0.00 | 0.64 | PASS（54/54 那一轮） | **新增空态页**（⑭ 第 1 项）：实时侧用空仓库实测，提交区显示"仓库还没有提交"，引用树/筛选栏保留 |
@@ -681,7 +683,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
 > 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
-> **17 页的分档小计（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）、标签沿革与本生成器的口径残留，见 §3.6／§3.7。**
+> **17 页的分档小计（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）、标签沿革与环境观测记录，见 §3.6／§3.7。**
 ### 2.0 条文穷举进度（⑨，如实带分母）
 
 **口径（两件事分开说，避免把"行数"当"已覆盖条数"）**：
@@ -1373,7 +1375,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | --- | --- | --- |
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
 | Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
-| **⑦⑧ 的 17 个未对照 PyCharm 页面（跨 IDE 采集）** | **本次会话（2026-10-01 第 311 轮）未执行**：本机当前**没有 PyCharm / JetBrains 进程**，只读 UI Automation 探针能读到桌面（18 个顶层窗口：浏览器、ChatGPT、ToDesk、Augit 另一个实例等）但**没有任何 PyCharm 窗口**；因此 §1.6 的 17 页一行都没有新取证。逐页分档与原因见 §1.6（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）；只读观测的完整记录见 §3.6 | 需要 PyCharm 在前台：`RECOVERABLE` 2 页按既有配方可采；`MEDIUM_BLOCKED` 9 页需要一次**真实（非合成）激活通道**（人工点击或真实输入驱动）才能过"`Annotate` / `Show History` / `Find in Path` 条目激活"这一步；`PRECONDITION` 6 页需先在临时副本里造真实冲突/本地改动/stash。**这 17 页的最终归类属产品口径，需用户确认**；其中 9 页的 `MEDIUM_BLOCKED` 是跟踪标签、**不等于** `ui-classification.md` §0 的"无法取证"（本地权威 checkout 存在，缺的是前台输入通道） |
+| **⑦⑧ 的 17 个未对照 PyCharm 页面（跨 IDE 采集）** | **第 311 轮（2026-10-01）未执行，本轮复查后仍未取证**：第 311 轮当次探针 `Get-Process` 按 `charm\|jetbrains\|jbr` 匹配零命中、只读 UI Automation 顶层窗口里没读到 PyCharm，该轮据此**一页未采**；**这两个"零命中"本轮复查不可复现** —— `pycharm64.exe` **PID 20504 正在运行**、顶层窗口 `SunAwtFrame` 标题 `Augit – verify-ux-blame.cjs`（项目根 `D:\github\Augit`），复查读数为窗口**最小化**、前台是其它应用（窗口状态会变化，可复跑命令见 §3.6）。**运行/最小化 ≠ 已完成取证**：本轮未发送任何真实前台输入，§1.6 的 17 页一行都没有新证据。逐页分档与原因见 §1.6（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）；只读观测与订正的完整记录见 §3.6 | 需要 PyCharm 在前台：`RECOVERABLE` 2 页按既有配方可采；`MEDIUM_BLOCKED` 9 页需要一次**真实（非合成）激活通道**（人工点击或真实输入驱动）才能过"`Annotate` / `Show History` / `Find in Path` 条目激活"这一步；`PRECONDITION` 5 页需先在临时副本里造真实冲突/本地改动/stash。**这 17 页的最终归类属产品口径，需用户确认**；其中 9 页的 `MEDIUM_BLOCKED` 是跟踪标签、**不等于** `ui-classification.md` §0 的"无法取证"（本地权威 checkout 存在，缺的是前台输入通道） |
 | ~~终端输入与大输出真机验证~~ | **全部验成（第 364–367 轮）**：输入链路在真机通过（`INPUT-PROBE-OK` 的输入→回显→输出→新提示符）；~4.8 MB 洪泛后的永久冻结**已定位并修好**（见 §3.2 第 15 条：根因是逐次裁剪的二次成本，改成摊销后同一探针 **6 秒**内读回 `AFTER-TRIM-SENTINEL` 与新提示符） | 无剩余计划项 |
 | ~~Editor › Font 页面正文未抓到~~ | **已抓到（第 391 轮）**：`artifacts/pycharm-16-final/editor-font.png`（面包屑 `Editor › Font`：Font `JetBrains Mono`、Size `13.0`、Line height `1.2`、☐ Enable ligatures、▸ Typography Settings、实时预览；**本页没有 Fallback font 字段**）、`console-font.png`（`Editor › Color Scheme › Console Font`：Font `JetBrains Mono`、Fallback `<None>`、Size `13.0`、Line height `1.2`、☑ Show only monospaced fonts）、`color-scheme-font.png`（同构）、`tree-bottom.png`（树底：Tools → Backup and Sync → **Advanced Settings**，树到此为止） | 采集方法已写进基线 `navigationRecipe`：**搜索 `font` → 点树 → Home → Down×10（Font）/×13（Console Font）**；不要用坐标点击（树随选中滚动）也不要从"当前选中"起算（搜索后的选中项随状态变化）。此前记的 7 项（System Settings / File Colors / Scopes / Notifications / Data Editor and Viewer / Quick Lists / Required Plugins）**在本版本树里不存在**（树底已到 Advanced Settings） |
 
@@ -1766,21 +1768,65 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 三份副本的失败断言与上表逐条对应，说明这几条新断言都不是"恰好通过"；仓库文件全程未被改动（副本方案因此也不需要"还原"步骤，实测结束后 `web/src/mockup.js`／`live-data.js` 的 md5 与基线逐字节相同）。
 
-### 3.6 第 311 轮的只读环境观测（⑦⑧ 采集前置事实；未改动任何应用与仓库文件）
+### 3.6 第 311 轮的只读环境观测与不可复现的订正（⑦⑧ 采集前置事实；未改动任何应用与仓库文件）
 
-本次会话（2026-10-01 第 311 轮）对"当前能否给 §1.6 的 17 个未对照页取证"做了只读核查，结论与依据如下；
-本节只记录观测事实与未执行项，**不把它写成"已验证"或"已无法取证"**：
+#### 3.6.1 第 311 轮（2026-10-01）当时的观测（只代表那一次会话，现已不可复现）
 
-1. **进程**：`Get-Process` 按 `charm|jetbrains|jbr` 匹配**零命中** —— 本机当前没有 PyCharm 进程；
+第 311 轮对"当时能否给 §1.6 的 17 个未对照页取证"做了只读核查。下面照录当时的结论与依据；
+它只记录当时的观测事实与未执行项，**不写成"已验证"或"已无法取证"**：
+
+1. **进程**：`Get-Process` 按 `charm|jetbrains|jbr` 匹配**零命中**（当时的结论：本机没有 PyCharm 进程）；
    `Get-CimInstance Win32_Process` 因权限被拒（拒绝访问），因此改用 `Get-Process` 取证。
 2. **桌面（只读 UI Automation）**：`UIAutomationClient` / `UIAutomationTypes` 在 GAC 可用；
-   探针（纯 ASCII、只读、只枚举顶层窗口；用后即删，方法即下面两条命令：
-   `powershell -NoProfile -Command "Add-Type -AssemblyName UIAutomationClient; [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children,[System.Windows.Automation.Condition]::TrueCondition)"`
-   读顶层窗口）实测 `ROOT_NAME=`（空）、`TOP_LEVEL_WINDOWS=18`，窗口标题里含浏览器、`ChatGPT`、`ToDesk`、
-   `Clash for Windows`、`Augit – verify-ux-blame.cjs`（来自**另一个 agent 的工作树**
-   `C:/Users/wl024/.codex/worktrees/codex6astra-work/Augit`）等，**没有任何 PyCharm 窗口**。
+   探针（只读、只枚举顶层窗口；用后即删）实测 `ROOT_NAME=`（空）、`TOP_LEVEL_WINDOWS=18`，
+   窗口标题里含浏览器、`ChatGPT`、`ToDesk`、`Clash for Windows`、`Augit – verify-ux-blame.cjs` 等；
+   当时按标题判断**顶层没有 PyCharm 窗口**。
 3. **处置**：**未启动、未重启、未关闭任何应用**（符合"不启动软件、不关闭用户 PyCharm"的限定），
-   也**未向 IDE 发送任何按键**；因此本轮没有新增截图/证据文件，§1.6 的 17 页一行都没有新取证。
+   也**未向 IDE 发送任何按键**；因此第 311 轮没有新增截图/证据文件，§1.6 的 17 页一行都没有新取证。
+
+#### 3.6.2 本轮复查（2026-10-01，同一台机器）：第 311 轮的"零命中"不可复现
+
+**结论**：第 311 轮"没有 PyCharm 进程／窗口"的结论是**过时且不可复现的断言**，
+本节按当前事实订正；`33 面级 + 5 入口级 + 17 未对照` 与 `9/2/5/1` 的分档数字**不变**。
+
+- **进程**：同一台机器按同一模式复查 `Get-Process` 实测 **3 个命中** ——
+  `pycharm64`（**PID 20504**，启动于 2026-09-21 23:20）、`jetbrainsd`、`JetBrains.Etw.Collector.Host`。
+- **窗口**：只读 UI Automation 实测 `TOP_LEVEL_WINDOWS=16`；其中 `SunAwtFrame` 窗口
+  **PID 正是 20504**、标题 `Augit – verify-ux-blame.cjs`（项目根 `D:\github\Augit`）、
+  `WindowVisualState=Minimized` 且 `IsIconic=True`（**复查读数为最小化**），前台是其它应用。
+  窗口状态是**瞬时读数**：复查期间重复运行同一命令也读到过 `Maximized`/`IsIconic=False`，
+  所以本节记录复查时点的读数并给出可复跑命令，**不把某一刻的窗口状态当常数**。
+- **误记订正**：第 311 轮把 `Augit – verify-ux-blame.cjs` 当成别的 agent 工作树里的另一个 Augit，
+  复查证明**它就是 PyCharm 自己的顶层窗口**；当时没有按 PID/类名把窗口归属到进程，所以漏判了 PyCharm。
+- **可激活通道复核（本轮新增，只读）**：对 `SunAwtFrame` 做只读 UI Automation **后代**枚举，实测
+  `DESCENDANTS=1`、唯一元素是 `ControlType.Pane`／类名 `JBRCustomTitleBarControls`、`MENUBARS=0` ——
+  Swing 的菜单栏与弹层条目**没有暴露成 UIA 元素**，因此也不存在"用 UIAutomation `InvokePattern`
+  绕过合成输入去激活条目"这条通道。这与第 441/442 轮记的"合成输入对 Swing 弹层的限制"是**同一根因**：
+  9 页 `MEDIUM_BLOCKED` 卡在**输入/可访问性通道**，不是"本机没有 PyCharm"。
+- **边界**：窗口存在、只是最小化，**都不等于**完成取证。本轮**未做任何真实前台输入**：没有激活窗口、
+  没有发送按键、没有改动 PyCharm 设置或仓库文件。因此 §1.6 的 17 页**一行都没有新证据**，
+  这 17 页仍按 §3.7 的分档保留在"未对照"。
+
+**可复跑命令（只读；不启动、不关闭、不激活任何应用）**：
+
+```powershell
+# 1) 进程：第 311 轮曾零命中，本轮应命中 pycharm64 / jetbrainsd 等
+Get-Process | Where-Object { $_.ProcessName -match 'charm|jetbrains|jbr' } |
+  Select-Object Id, ProcessName, MainWindowTitle, StartTime
+
+# 2) 顶层窗口 + 最小化状态（SunAwtFrame 即 PyCharm 主窗口）
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$all = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+"TOP_LEVEL_WINDOWS=$($all.Count)"
+$sun = $all | Where-Object { $_.Current.ClassName -eq 'SunAwtFrame' }
+foreach ($w in $sun) {
+  $wp = $w.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern)
+  "SUNWT pid=$($w.Current.ProcessId) title=$($w.Current.Name) state=$($wp.Current.WindowVisualState) hwnd=$($w.Current.NativeWindowHandle)"
+}
+Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsIconic(System.IntPtr hWnd);'
+foreach ($w in $sun) { "ISICONIC=$([W.U]::IsIconic([System.IntPtr]$w.Current.NativeWindowHandle))" }
+```
 
 ### 3.7 ⑦⑧ 的 17 页未对照：分档小计与标签沿革（第 311 轮如实记录）
 
@@ -1814,23 +1860,14 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 `MEDIUM_BLOCKED` 是第 427/442 轮引入的**跟踪标签**，不在 `ui-classification.md` §0 的五个归类内，
 因此这 9 页（以及其余 8 页）的最终归类**留给用户拍板**，本文档不代裁。
 
-**仍缺的机械守卫（本轮只改文档、未动脚本）**：
-- `check-doc-claims.cjs` 目前不核对 §1.6 的行数与分档小计（它只管 §2.0／§2.8／§1.1 像素行），
-  所以"33/5/17 + 9/2/5/1"这类数字**仍靠人工转录**，是漂移风险点。
-  本轮用的核对方式（可复跑，不需要新工具）：从 `§1.6` 到 `§2.0` 之间逐行匹配"反引号页名 + `未对照（分档）`"
-  的表格行，按分档计数与页名集合，再与 §0.2／§3.1／§3.7 的声明逐项比对；
-  本轮实测结果：**17 行 = 9 + 2 + 5 + 1**，页名集合在 §1.6 与 §3.7 之间**逐项一致**。
-- 生成器 `tools/audit/gen-pycharm-coverage.cjs` 的口径残留（供下一轮收口）：
-  它的 `UNCOVERED` 表有 **17** 条、与 §1.6 的 17 行逐项吻合，但**末行自报的 `uncovered=scenes-covered`（=22）
-  没有减去 5 个入口级页**，与它同一段打印的 `33/5/17` 不是同一口径（第 311 轮实测）。
-  本轮**未改脚本**（用户限定只改文档），§1.6 仍由该生成器产出、且逐行内容与生成器输出一致
-  （第 311 轮实测：§1.6 的 66 行与 `node tools/audit/gen-pycharm-coverage.cjs` 的 66 行**逐行相同**，
-  只多一行指向本节的指针；因此 `--write` 重生成不会丢证据）。
-- 生成器 `tools/audit/gen-coverage-table.cjs`（§1.4）与文档**已经分叉**，本轮顺带记录：
-  ① 该脚本 stdout 只有 **80** 行，而 §1.4 实际是 **199** 行（含第 86–93 轮等手写像素复核记录、
-  以及已订正过的"B 线：行为断言 351 条 / 422 条用例行"格），即**脚本落后于文档**；
-  ② §1.4 里**没有**该脚本要求的 `<!-- generated:gen-coverage-table -->` 标记，所以不带 `--force` 跑
-  `--write` 会被守卫挡下（脚本会报"§1.4 含手写内容"）；③ 它的 C 线模板仍是"2 个面"的旧值，
-  与本节订正后的口径不一致。**处置：不要对 §1.4 跑 `--write`，更不要加 `--force` 覆盖**（会删掉手写记录）；
-  收口方式是先把脚本模板与 §1.4 的差异逐项同步，再加标记。本轮依用户限定**只改文档**。
+**本轮收口记录**：
+- `check-doc-claims.cjs` 仍聚焦 §2.0／§2.8／§1.1 的分母检查；新增的定向测试重生成 §1.6 临时副本、
+  排除唯一手写指针后逐行比较，并核对分类小计。结果为 **17 行 = 9 + 2 + 5 + 1**。`tools/audit/gen-pycharm-coverage.cjs` 的写回摘要已改为分别打印
+  `covered`、`entry`、`uncovered`，避免把 5 个入口级页面重复算入未对照数；生成器输出在临时副本中的自动化断言见
+  `tools/audit/coverage-generator.test.cjs`。
+- §1.4 的 A 线三项（`commit-diff`、`diff-status`、`git-compare`）此前落后于 §1.1 的 2026-09-22 重测值，本轮已订正到与 §1.1 一致
+  （`gen-coverage-table.cjs` 本就从 §1.1 解析这三列，所以这里只改文档、常量无需同步）；C 线模板已更新为
+  **33 面级 + 5 入口级 + 17 未对照**；§1.1／§1.4 的像素值与逐页行由定向测试逐场景机械比较。
+  §1.4 的生成覆盖表之外还保留人工复核证据；生成标记仍缺失，
+  所以 `--write` 被守卫拒绝。不得用 `--force` 丢弃人工证据；当前差异是有意保留的内容边界，不是未解释的待办。
 

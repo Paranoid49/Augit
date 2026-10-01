@@ -103,7 +103,7 @@ out.push(`| A 线：同引擎像素对照 | ${rows.length} 场景 | ${rows.lengt
 out.push(`| B 线：真机巡检 | ${B_LINE.cleanRepo.scenes} 场景（干净仓库） | **${B_LINE.cleanRepo.scenes}/${B_LINE.cleanRepo.scenes} PASS** | 分母 = 场景总数 − ${separateScenes.join('、')}（需含改动的工作区） |`);
 out.push(`| B 线：含改动工作区的场景 | ${B_LINE.separate.length} 场景 | ${B_LINE.separate.map((item) => `**${item.verdict} 1/1**（\`${item.scene}\`，第 ${item.round} 轮）`).join('、')} | 单独一次真机验收；与干净仓库那一轮**分开计**，不合并成一个数字 |`);
 out.push(`| B 线：行为断言 | ${totalClauses} 条规格条文 | ${totalCaseRows} 条用例行（其中 ${clauseRows} 条有逐条行） | **按条文归属，不按页面**；逐页行为覆盖请查 §2 对应小节 |`);
-out.push('| C 线：PyCharm 对照 | 见 §1.3 | 2 个面（主窗口 chrome、设置对话框） | 判据是"声明容差内地标等价"，不做逐像素相等 |');
+out.push('| C 线：PyCharm 对照 | 55 个视觉稿场景 | 33 页面级已对照 + 5 页仅入口级证据 + 17 页未对照 | 判据是"声明容差内地标等价"，不做逐像素相等 |');
 out.push('');
 out.push('> **为什么行为断言不按页面列**：Harness 的断言是按"规格条文/状态转换"组织的（一个断言常跨多页，');
 out.push('> 例如"工具窗口互斥"同时覆盖终端与 Git 历史），硬按页面拆会造出虚假的逐页分母。');

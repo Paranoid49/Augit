@@ -53,6 +53,7 @@ dotnet test tests/Augit.Infrastructure.Tests --no-build --no-restore
 powershell -NoProfile -File tools/audit/verify-ui-assets.ps1
 powershell -NoProfile -File tools/audit/verify-script-encoding.ps1
 node tools/audit/check-doc-claims.cjs
+node tools/audit/coverage-generator.test.cjs
 node tools/audit/live-shell.spec.cjs <Windows 下可解析的 Playwright 模块路径>
 git diff --check
 ```
