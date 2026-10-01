@@ -218,7 +218,7 @@ New UI 下编辑器标签由主题键 `Islands` 选择两套互斥渲染，实�
 
 选中标签底色取主题别名：`tab-selected-bg-active` = `blue-150` = `#E3EBFE`（聚焦档）、`tab-selected-bg-inactive` = `gray-150` = `#E9EAEE`（未聚焦档）。两份参考截到的都是**未聚焦档**（`#E9EAEE`），聚焦档尚无截图。
 
-**实现待办**：Augit 现行实现与本判定相反，需改为卡片渲染；卡片高度、圆角半径、内外边距与描边色要先按参考图定标（该截图的 DPI 缩放尚未确定，不能直接把像素数当逻辑值），因此单独一轮实施。
+**实现状态（2026-10-01 第 310 轮订正）**：Augit 已在**第十六轮**按本判定改为卡片渲染，不再是"待办"——`web/src/mockup.css` 的 `.editor-tab.active::before` 用 `inset: 0 4px`（对应 `IslandsTabPainter.paintTab` 的 `hOffset = 4`）、`border-radius: 6px`（`arc` = 12 视为直径）、`1px` 描边与 `tab-selected-bg`（聚焦档 `tab-selected-bg-active`）画卡片，并删掉了旧的下划线与旧覆盖规则；卡片高度沿用 28px 内容盒（`ui.EditorTabs.tabInsets = -6,8,-6,8`，标签栏 40px）。取值与出处见 `design-system.md` §8.4 第 1 条。
 
 | `Tree.rowHeight` | `24` | 文件树行高 |
 | `Tree.border` | `4,12,4,12` | 树上下 4、左右 12 |
@@ -344,7 +344,7 @@ Diff 行底色与文件状态色**不在主题文件里**，而在 `platform/pla
 
 **与现有规范的冲突：** design-system.md §6.2 规定"Diff 使用 `success` 的低对比度背景表示新增，`danger` 的低对比度背景表示删除，`warning` 的低对比度背景表示修改"。权威方案是**新增绿、删除灰、修改蓝**——删除与修改的色相与现有规定不同。既然已确认完全按 New UI 对齐，此处改为按上表取值。**第 223 轮补充**：上表前三个 `*_LINES_COLOR` 是**行号槽实心标记**色族，差异正文的行底/行内层用 `DIFF_*.BACKGROUND`（见该行说明）。
 
-**待补充：** 上表是"线条颜色"，IntelliJ 会以某个 alpha 与编辑区底色混合后作为行背景，另有独立的变更块边框与折叠分隔绘制规则。alpha 值与块边框规则尚未提取（见 §8）。
+**行背景的合成方式（第 223 轮定案，取代此前的"待补充"）：** 上表是"线条颜色"（行号槽实心标记、忽略空白边框等）；差异**正文**的整行底与行内层直接用配色方案里**已经合成好的** `DIFF_*` 属性背景（`getTextAttributes(type, editor, BackgroundType.DEFAULT)` → `DiffTextAttributes.getBackgroundColor()`），**不额外叠加 alpha**——无行内差异的块取全强度，有行内差异的 `Modified` 块取 `mix(该底色, 编辑器底, 0.6)`（见 [分册 08](nui-behavior/08-diff-merge.md) §2.1／§7bis.4）。变更块边框在 expUI 深浅两套里都取不到键（上表 `BORDER_LINES_COLOR` 行）⇒ 不画彩色边框。分隔条与三栏规则见下一段。
 
 **并排/三栏视图的分隔条宽度：** 注册表 `diff.divider.width` 默认 **`24`**（`platform/util/resources/misc/registry.properties:1073`），`DiffSplitter` 与 `ThreeDiffSplitter` 都取 `JBUIScale.scale(该值)`；未变更区分隔条的 wave 图案 step = `max(scale(24) / 6, 2)` = **4**（100% 缩放）。三栏合并的规则见 [分册 08](nui-behavior/08-diff-merge.md) §7bis。
 
@@ -471,10 +471,10 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
 | `control-height` | 30–31 | `Button` / `TextField` / `ComboBox` `minimumSize` 高 28 |
 | `window-title-height` | 44 | `TitlePane.Button.preferredSize` = 40,40 |
 | 树/列表行悬停 | 单一 `hover` 令牌，树与 Changes 都有悬停 | 悬停的**有无**按参考实现的**安装差异**决定，不是统一的：`JBTable` 构造时即 `TableHoverListener.DEFAULT.addTo(this)`，所以**表格一定有行悬停**；`TreeHoverListener` 与 `ListHoverListener` 都**不默认安装**（全仓只在协作工具的代码评审树、活动列表与 Switcher 等少数处显式 `addTo`），所以**树与列表默认没有行悬停**。`DefaultTreeUI.getBackground` 的悬停分支要求 `row == TreeHoverListener.getHoveredRow(tree)`，而该属性无人写入时恒为 −1，因此树的悬停分支永不触发。悬停底色三处共用同一个默认值：`JBColor(0xEDF5FC, 0x464A4D)`，失焦变体 `JBColor(0xF5F5F5, 0x464A4D)`（出处：`platform/util/ui/src/com/intellij/util/ui/JBUI.java:2379-2380,2442,2490,2553`、`platform/platform-api/src/com/intellij/ui/table/JBTable.java:194`、`platform/platform-impl/src/com/intellij/ui/tree/ui/DefaultTreeUI.java:132`） |
-| 提交图单轨宽 | 29 | `WIDTH_NODE` = 16（按行高缩放） |
-| 提交图节点中心 | 左侧 15px | `elementWidth / 2` = 8（基准行高 22） |
-| 提交图选中线宽 | 未登记 | `SELECT_THICK_LINE` = 2.5 |
-| 提交图图形文字间距 | 未登记 | `GRAPH_TEXT_GAP` = 2 |
+| 提交图单轨宽 | 29（旧）→ 按公式 `floor(列数 × 16 × h ÷ 22) + floor(2 × h ÷ 22)`（第 310 轮） | `WIDTH_NODE` = 16（按行高缩放）＋ `GraphCommitCellUtil.getGraphWidth` |
+| 提交图节点中心 | 左侧 15px（旧）→ `elementCenter + 轨号 × elementWidth`（第 310 轮） | `elementWidth / 2` = 8（基准行高 22） |
+| 提交图选中线宽 | 不绘制（Augit 无图元素选中动作，只登记缩放值） | `SELECT_THICK_LINE` = 2.5 |
+| 提交图图形文字间距 | 计入图形区宽度（第 310 轮） | `GRAPH_TEXT_GAP` = 2 |
 | 提交图轨道色 | 主轨 `#47A1B3` 等固定值 | 由 `saturation` / `brightness` 派生，非固定值 |
 | 深色分支标签 | `#F2B846` | 深色 Yellow 家族中最近为 `Yellow7` = `#F2C55C` |
 
@@ -482,26 +482,29 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
 
 **已确认（2026-09-21）：** 提交图几何按权威规则**等比缩放**。design-system.md §8.3.1 与 §8.3.2 已同步改为"以基准行高 22px 为准，按 `实际行高 ÷ 22` 等比缩放节点半径、轨距、普通线宽、选中线宽与图形文字间距"，并登记基准常量与对齐规则。
 
-实现侧尚未跟随，属于待办（见下）。其余 3 项仍待确认。
+**实现已跟随（2026-10-01 第 310 轮）：** 实现落差与那处独立疑点都已结案，见下。其余 3 项（基础间距刻度、`chrome` 粒度、深色选中态色阶）仍待确认。
 
 ---
 
-1. **提交图几何是否随行高缩放 —— 已确认采用权威规则。**
+1. **提交图几何是否随行高缩放 —— 已确认采用权威规则，且已落地（第 310 轮）。**
    design-system.md §8.3.1 原规定"图形节点直径、轨距和笔画**不随字号扩大**，只延长行内纵向连线"，与 IntelliJ 的 `PaintParameters.scaleWithRowHeight`（按 `rowHeight / 22` 等比缩放）结论相反。已按权威规则改为等比缩放。
 
-   **实现落差（未完成）：** 当前实现仍是不缩放的固定值，需要改动的是：
+   **实现落点（`web/src/mockup.js`，与 `docs/ux-mockups/` 字节一致）：**
 
-   | 位置 | 现状 | 需要的改动 |
+   | 位置 | 改前 | 改后 |
    | --- | --- | --- |
-   | `web/src/mockup.css` `.commit-graph-svg .graph-primary/secondary/line` | `stroke-width: 1.5` 固定 | 改为按 `实际行高 ÷ 22` 计算 |
-   | `web/src/mockup.css` `.graph-head-ring` | `stroke-width: 2` 固定 | 同上 |
-   | `web/src/mockup.css` `--augit-graph-width` | 固定 `45px` | 随行高缩放 |
-   | `web/src/mockup.js` | SVG 节点半径与轨道偏移为固定值 | 由基准常量与缩放公式推导 |
-   | `tools/audit/live-shell.spec.cjs` | 30 处 graph 相关断言 | 补"字号变化后几何等比缩放"的断言与负向验证 |
+   | `graphGeometryFor(rowHeight, deviceScale)`（新增） | 无（散落的固定值） | 按 `scaleWithRowHeight` 推导轨宽／轨中心／行中心／节点直径／HEAD 外圆与 `RADIUS_DELTA`／线宽，全部经 `alignToInt(…, FLOOR, ODD)` 在**设备空间**对齐到奇数 |
+   | `commitGraphWidth(columns, rowHeight)`（新增） | `29 + (列数 − 1) × 16` | `floor(列数 × 16 × h ÷ 22) + floor(2 × h ÷ 22)`（权威 `GraphCommitCellUtil:32` 的原始轨宽与图形文字间距） |
+   | `commitGraphSvg()` | 节点 `x = 15 + 轨号 × 16`、固定半径/线宽 | 轨道 x = `elementCenter + 轨号 × elementWidth`；`y` 以 `rowCenter ± 行高` 定义；尺寸来自几何对象 |
+   | HEAD 节点 | `stroke-width: 2` 的"描边环 + 圆点" | `HeadNodePainter` 的**三个同心实心圆**（外圆节点色／中圆行背景／内圆节点色，环厚 = 对齐后的 `RADIUS_DELTA`） |
+   | `mockup.css` `.commit-list.commit-list-graph` | `--augit-graph-width: 45px`（固定） | 由 JS 按公式逐列写入，CSS 保留同式的 `calc` 回落 |
+   | `mockup.css` `.commit-graph-svg .graph-line` | `stroke-width: 1.5` ＋ `vector-effect: non-scaling-stroke` | `stroke-width: var(--augit-graph-line-thickness)`（JS 写入对齐值），**删除** `non-scaling-stroke` |
+   | `mockup.css` `.commit-row.current-branch` | 只设 `background` | 同时设 `--augit-row-background`，HEAD 中圆才能取到所在行的真实背景 |
 
-   改动必须同步 `docs/ux-mockups/mockup.css`（与 `web/src/` 字节一致，由 `verify-ui-assets.ps1` 校验），并按 design-system.md §8.3.2 的待重算值一并处理 `单轨图形区宽 29px` / `节点中心 15px`。
+   断言与复验：`tools/verify-ux-commit-graph.cjs` 新增几何段（图形区宽度／普通节点圆心与半径／HEAD 三同心圆半径与圆心／线宽／`vector-effect: none`，并在字号 13 → 20 下各跑一遍；期望值在脚本里按权威公式**独立复算**）；`live-shell` 的 `§8.3.2 提交图几何随行高等比缩放` 与更新后的 `§7.8 字号增大时…`（原先断言的"前后图形区宽度相同"正是已被推翻的旧口径）。负向验证：把 `graphGeometryFor` 的缩放比固定为 1（还原旧的固定几何）⇒ 几何段失败。
 
-   **另发现一处独立疑点（未确认，未改动）：** `.commit-graph-svg` 上的 `vector-effect: non-scaling-stroke` 会让 `stroke-width` 在**设备空间**固定，即不随 DPI 缩放。这与 design-system.md §4.2"所有值通过统一缩放函数转换，禁止直接按物理像素绘制"和 §10"96/120/144 DPI 必须保持相同的对齐关系"存在冲突：在 175% 缩放下线宽会显得比设计值细。IntelliJ 的做法相反——`PaintUtil.alignToInt` 先在设备空间对齐再换算回用户空间，是 DPI 感知的。此项需单独确认后再改。
+   **那处独立疑点（`vector-effect: non-scaling-stroke`）已结案 —— 结论是删除它。**
+   该属性把描边宽度固定在 SVG **视口坐标系**里，与"在设备空间取整、再换算回用户空间"的权威做法（`PaintUtil.alignToInt`）不是同一条规则：前者让线宽与 DPI 无关，后者让它恰好落在整数个设备像素上。在本实现里它还是**空操作**——SVG 的 `viewBox`（`commitGraphWidth × 行高`）与元素 CSS 尺寸逐值相同，`preserveAspectRatio` 的缩放是恒等变换。因此它既无收益、又与 design-system.md §4.2/§10 的 DPI 契约冲突，第 310 轮删除；线宽改由 `graphGeometryFor()` 按下式给出：`max(alignToInt(1.5 × h ÷ 22, FLOOR, ODD), 1 设备像素)`。
 
 2. **基础间距刻度。**
    design-system.md §4.1 规定基础间距优先使用 4px 刻度。

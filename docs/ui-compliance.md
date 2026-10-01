@@ -1470,7 +1470,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
     共 5 个 rect **逐个**等于 26×26、相邻间距 0、两种文档的工具栏高度都是 36px、且控件垂直中心一致
     （JSON"复用 Markdown 控件"的直接证据）。图形形状本身（图标逐项复原）仍只有像素基线。
 
-15. **终端在约 4.8 MB 输出后永久停止更新（§7.16 / §3.1 遗留，**已复现，待修**）** ——
+15. **终端在约 4.8 MB 输出后永久停止更新（§7.16 / §3.1 遗留；**第 367 轮已定位并修好**，依据见本条末尾）** ——
     真机探针 `D:\tmp-augit-cap\term-io-probe.ps1`（启动真实外壳 + CDP，**先等
     `.xterm-helper-textarea` 存在**再输入，这正是此前两次尝试缺的前置条件）读数如下：
 
@@ -1618,7 +1618,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 21. ~~两个"入口在但点了没反应"的按钮~~ **【第 435 轮已实现并断言】**（原记：§7.8 / §7.16） —— 第 68 轮补断言时抓到：① 提交历史工具栏的 `显示提交详情` 点击**无任何效果**（`grep` 证实 `live-data.js` 只有 `commitDetails` 状态、没有它的点击绑定）；② 终端标题栏的 `更多操作` 点击前后 **DOM 签名逐字不变**，与条文"「更多」菜单提供切换配置与外部终端入口"不符。两者都**保留钉住断言**；修复要先确认各自应有的菜单/面板内容，故本轮只记录、不动手。
 
-22. **§7.8「字号增大时各部位按字高扩展、图标不变」本轮未断言（**采集受阻，非实现结论**）** —— 两次等待实时 `scene=git-history` 的 `.history-toolbar` 都超时（先只等选择器；再先等 `__augitGitReady`），说明该场景下工具条要么尚未渲染、要么不可见。**不为凑数改别的选择器**，如实记为未断言；下一步换场景（如 `commit-changes` 的 `.git-side-toolbar`）再试。
+22. **§7.8「字号增大时各部位按字高扩展、图标不变」——【第 241 轮已补断言并结案】**（原记：本轮采集受阻、未断言） —— 两次等待实时 `scene=git-history` 的 `.history-toolbar` 都超时（先只等选择器；再先等 `__augitGitReady`），当时如实记为未断言、未改选择器凑数。**第 241 轮**换到「改界面字号后重新探测」的路子落地：`§7.8 字号增大时提交列表按字高扩展、图标尺寸不变、文字不重叠`（13px → 20px，行高与图形区高度增长、工具图标恒为 16、各列不重叠）与 `§7.8 外观应用保持顶部锚点/横向偏移/选择，不触发 Git 查询、不重建提交列表`。第 310 轮起其中的图形区宽度改为按权威缩放公式复算（见 `§8.3.2 提交图几何随行高等比缩放`），不再断言"宽度不变"。
 
 23. ~~项目树 Enter 不执行默认动作~~ **【第 435 轮已实现并断言】**（原记：§5） —— 第 81 轮补断言时抓到：在文件树行上按 Enter，行仍持有焦点、`window.__augitLive.document` 仍为 `null`（没有打开文件），也没有落进"未接线兜底"（它既不是 `.html` 链接、又不是无绑定的 `<button>`，兜底的两条路都不覆盖它）。条文要求"方向键移动、右键/菜单键开菜单、**Enter 执行默认动作**"，前 3 项早有断言、只有 Enter 没实现。已加**钉住断言** `§5 缺口钉住：树 Enter 当前不执行默认动作`（`live-shell` 1038/1038 通过，不把缺口写成红灯、也不写成通过）。修复需要确认"默认动作"对目录行/文件行分别是什么，故本轮只记录。
 
@@ -1684,10 +1684,11 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 36. **对话框标题图标：哪些对话框画、画哪一个，按权威定性并补齐（第 307 轮，backlog §二·补四(b) 结案）** —— 权威 `Messages` 系的确认框用 `getQuestionIcon()`：删除 Stash（`GitStashUtils.kt:86`）、删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree（`GitCheckoutInOtherWorktreeDialogs.kt:54`），加上 reset／rollback（第 102 轮按参考图 Confirm Exit 落地）⇒ 统一 28px **蓝底白问号**（浅 `#4682FA`／深 `#548AF7`）；`GitInit.java:72` 的「目标已在 Git 下」警告用 `getWarningIcon()` ⇒ **橙底白叹号**（浅 `#FFAF0F`／深 `#F2C55C`，新增令牌 `--augit-dialog-warning-bg`）；自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）都没有 `setIcon` ⇒ **不画图标**；紧凑输入窗口对应权威的常规 `Messages.showInputDialog`，Augit 是紧凑适配 ⇒ 不画图标。断言 `§10.4 破坏性确认对话框的标题图标按权威取蓝底白问号（实时删除引用、静态基线、浅深色取值一致）` 与 `§7.18 「目标已在 Git 下」的警告用橙底白叹号，自定义对话框（Clone）没有标题图标`；负向验证：把问号/叹号规则改成 `content: none` ⇒ 两条断言分别失败。
 
+37. **提交图几何按行高等比缩放、HEAD 改为三同心圆（第 310 轮，按审查结果整改）** —— 审查指出「提交图几何未按行高缩放、归类自相矛盾」：`mockup.js` 硬编码 `29 + (列数 − 1) × 16` 与固定节点半径/轨距、`mockup.css` 固定 `--augit-graph-width: 45px`／`stroke-width: 1.5`／`vector-effect: non-scaling-stroke`，而 `design-system.md` §8.3.2 自己写着"单轨图形区宽 29px、节点中心 15px……修正前视为待重算值"，同一项在 `ui-classification.md` 却标成"已按 New UI 对齐"。**整改**：`mockup.js` 新增 `graphGeometryFor(rowHeight, deviceScale)`（按 `PaintParameters.scaleWithRowHeight` 缩放轨宽 16／节点半径 4／线宽 1.5／选中线宽 2.5／图形文字间距 2／`RADIUS_DELTA` 2，再按 `PaintUtil.alignToInt(…, FLOOR, ODD)` 在**设备空间**对齐到奇数）与 `commitGraphWidth(columns, rowHeight)`（`floor(列数 × 16 × h ÷ 22) + floor(2 × h ÷ 22)`，权威 `GraphCommitCellUtil.kt:32`）；`commitGraphSvg()` 的轨道 x/y 与尺寸全部来自几何对象，HEAD 节点改为权威 `HeadNodePainter.kt:31-60` 的**三个同心实心圆**（外圆节点色／中圆行背景／内圆节点色），`mockup.css` 删除固定 `--augit-graph-width`（改为同式 `calc` 回落）与 `vector-effect: non-scaling-stroke`（**该独立疑点据此结案**：它与"在设备空间对齐再换算回用户空间"的 DPI 契约相反，且在本实现里因 viewBox 与元素尺寸逐值相同而是空操作），`.commit-row.current-branch` 补 `--augit-row-background` 让中圆取到真实行背景；`refreshCommitGraphGeometry()` 在字号与 DPI 变化时重算宽度并重绘 SVG，再派发 `history-geometry-changed` 让 `bindHistoryLayout()` 重排行宽（首轨由 29px 变 20px 后必须重排）。**断言**：`verify-ux-commit-graph.cjs` 新增几何段（宽度／节点圆心与半径／HEAD 三圆半径与圆心／线宽／`vector-effect: none`；字号 13 与 20 各一遍；期望值按权威公式**独立复算**并校验对齐后的设备值是奇数；16 → **18** 组）；`live-shell` 新增 `§8.1 查询参数大小写不敏感`、`§8.3 theme/changed 切换主题`、`§8.3.2 提交图几何随行高等比缩放`、`§8.3.2 提交图连线线宽按行高与 DPI 对齐、不使用 non-scaling-stroke` 四条（1455 → **1459**），并把 `§7.8 字号增大时…` 里"前后图宽相同"的旧口径改为按公式复算；`verify-ux-history-typography.cjs` 里"节点 ≤ 8px 不变"的旧口径同样改为按公式复算（**48** 组 × dpr 1／1.25／1.5）。**负向验证**：在三个独立副本上分别移除修复（A 查询参数不再 `toLowerCase`、B 事件载荷不再 `toLowerCase`、C 把 `graphGeometryFor` 的缩放比固定为 1），三份 `live-shell` 都必须以对应断言失败告终 —— 见 §3.5。复跑：`live-shell` **1459**、`verify-ux-commit-graph` **18 组**、`verify-ux-history-typography` **48 组**、`mockup-scenes` 55/55 ×2 主题、`verify-ui-assets` PASS、`check-doc-claims` `DOC_CLAIMS_OK`、`gen-clause-conclusions` 幂等、`verify-css-balance` PASS、`verify-ux-offline-icons` 通过。
 
-### 3.4 待用户裁决 / 待口径确认清单（2026-09-21，按发现顺序）
+### 3.4 早期待裁决 / 待口径确认清单（2026-09-21 记录，**已全部结案**；标题于 2026-10-01 第 310 轮订正）
 
-> **注意（2026-09-28 订正）**：本表已**过时**：其中 #20／#21／#23 已在第 435 轮实现并断言（见 §3.2），#19 的最终口径与下表不同，保留原文只为追溯。当前仍在等待用户口径的项以 §2.10 与 `ui-classification.md` §7 的 T 表为准。
+> **注意（2026-09-28 订正，2026-10-01 复核）**：本表已**过时且全部结案**，不再有任何"等待用户口径"的项：其中 #20／#21／#23 已在第 435 轮实现并断言（见 §3.2），#19 的最终口径与下表不同（第 91 轮撤回），#22 已由第 241 轮补断言结案，#24 已不再阻塞。保留原文只为追溯；当前口径以 §2.10 的条款结论表与 `ui-classification.md` §7（待处理表已清零）为准。
 
 
 > 这一节只收**我停下不动手**的问题：规格与基线冲突、或条文要求但实现没有、且**修复方式取决于产品意图**。
@@ -1706,4 +1707,16 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 **另外两条"已裁决但需保持"的口径**（供对照，不需再答）：
 - **§7.17 设置冲突**：按规格 + PyCharm 结构落地（外观=主题+界面字体/字号；文件查看=正文字体+等宽字体/字号+默认换行；Git；终端；导航真正切页、保留草稿、搜索过滤）—— 已实施。
 - **对照主题 = A（Islands Light）**：不修改你的 IDE 设置；dark 对照从未做，已如实标"未覆盖"。
+
+### 3.5 第 310 轮修订的负向验证（临时移除修复）
+
+承 §3.2 第 37 条：新断言必须能区分「实现对」与「实现错」，因此逐条做了**临时移除修复**的负向验证。做法是**不动仓库** —— 把 `web/`、`tools/audit/live-shell.spec.cjs` 复制到三份独立副本（`docs/` 用符号链接指向真实目录，因为套件还要扫它做文档声明核对），各打一处补丁，再各自跑一遍 `live-shell`：
+
+| 副本 | 临时移除的修复 | 失败断言 |
+| --- | --- | --- |
+| A | `mockup.js` 查询参数不再做 `.toLowerCase()`（还原"大写 `Dark` 落浅色"的缺陷） | `§8.1 查询参数大小写不敏感：theme=Dark 落深色、theme=LIGHT 落浅色`（实测两次读数都是浅色 `rgb(233, 234, 238)`、`body[data-theme]` 为 null） |
+| B | `live-data.js` 的 `theme/changed` 载荷不再做 `.toLowerCase()` | `§8.3 theme/changed 切换主题：大写 Dark 同样生效、Light 去掉属性、非法值忽略且无脚本错误`（推 `Light` 后仍停在深色） |
+| C | `graphGeometryFor()` 的缩放比固定为 1（还原"几何不随行高缩放"） | `§8.3.2 提交图几何随行高等比缩放（图形区宽度/节点半径/线宽按权威公式）`（字号 13 → 20 时节点几何都是 `[7.5, 12.5, 3.5]`，不随行高变化） |
+
+三份副本的失败断言与上表逐条对应，说明这几条新断言都不是"恰好通过"；仓库文件全程未被改动（副本方案因此也不需要"还原"步骤，实测结束后 `web/src/mockup.js`／`live-data.js` 的 md5 与基线逐字节相同）。
 

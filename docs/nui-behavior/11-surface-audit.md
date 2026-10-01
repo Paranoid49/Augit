@@ -21,7 +21,7 @@
 | 资产 | 数量 | 位置 |
 | --- | --- | --- |
 | 界面场景（视觉稿＝运行时来源） | **56** | `docs/ux-mockups/*.html` |
-| 分模块检查器 | **35**（全绿） | `tools/verify-ux-*.cjs` |
+| 分模块检查器 | **39**（全绿；第 310 轮按 `tools/verify-ux-*.cjs` 实际文件数订正，第 133 轮的 35 是当时的数量） | `tools/verify-ux-*.cjs` |
 | 行为文档 | **8** + 图标 + backlog | `docs/nui-behavior/0[1-8]*.md` |
 | 状态覆盖矩阵（默认/空/错/加载/禁用/危险） | 5 组，§5 补图清单基本结案 | `docs/baselines/state-coverage-matrix.md` |
 | 三方覆盖清单（PyCharm × 视觉稿 × 规格） | 设置 + 主窗口 | `docs/baselines/mockup-gap-inventory.md` |
