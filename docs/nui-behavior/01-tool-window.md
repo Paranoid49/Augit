@@ -229,7 +229,7 @@ V1 = Classic UI 默认布局，V2 = New UI 默认布局；两者由不同的扩�
 - **【可直接实现】** More 按钮使用同一尺寸函数（`getStripeToolbarButtonSize(moreButton=true)`）（来源：platform/platform-impl/src/com/intellij/toolWindow/MoreSquareStripeButton.kt:39-42）。
 - **【可直接实现】** 显示名称时按钮高度增加“图标与文字间隙 3 + 字号 TINY 的单行高度 × 行数”；名称按**第一个空格拆成最多 2 行**，取 `stripeShortTitleProvider`（若有）否则 `stripeTitleProvider`（来源：SquareStripeButton.kt:217-222、:315-329）。
 - **【可直接实现】** 名称超出可用宽度时右侧叠一条宽 3 的渐隐（来源：SquareStripeButton.kt:274-305）。
-- **【可直接实现·Augit 对照】** Augit 当前 `.rail-button` 为 32×32、圆角 7、下间距 4、rail 列宽 42（来源：web/src/mockup.css:2278-2293）。这与 IntelliJ 的 **compact** 档（32×32、圆角 8）接近，而不是默认 40×40/圆角 12；若要 100% 复原，按钮应为 40×40、图标 20、圆角 12。**【需推断】**
+- **【可直接实现·Augit 对照】** Augit 当前 `.rail-button` 为 32×32、圆角 **3**、下间距 4、rail 列宽 42（来源：web/src/mockup.css:2840-2848；圆角 3 与权威 `DarculaUIUtil.BUTTON_ARC` = 6 一致，**第 314 轮订正：旧文写"圆角 7"是残留旧值**）。这与 IntelliJ 的 **compact** 档（32×32、圆角 8）接近，而不是默认 40×40/圆角 12；若要 100% 复原，按钮应为 40×40、图标 20、圆角 12。**【需推断】**
 
 ### 3.3 按钮状态与配色
 
@@ -237,25 +237,38 @@ V1 = Classic UI 默认布局，V2 = New UI 默认布局；两者由不同的扩�
 
 | 条件 | 状态 |
 | --- | --- |
-| 工具窗口**激活**（`toolWindow.isActive`） | `SELECTED` |
+| **工具窗口激活**（`button.isFocused()`，实现是 `toolWindow.isActive`，见下） | `SELECTED` |
 | 否则窗口**可见** | `PUSHED` |
 | 否则**未悬停** | `NORMAL` |
 | 否则（悬停/按下） | 回落 `button.popState`（悬停 = `POPPED`，按下 = `PUSHED`；来源：platform/platform-impl/src/com/intellij/openapi/actionSystem/ex/ActionButtonLook.java:130-133、:166-186） |
+
+> ⚠️ **第 314 轮订正**：`SquareStripeButton.isFocused()` 的实现是 `toolWindow.isActive`
+> （来源：platform/platform-impl/src/com/intellij/openapi/wm/impl/SquareStripeButton.kt:120），
+> 而 `ToolWindowImpl.isActive()` = `windowInfo.isVisible && decorator != null
+> && toolWindowManager.activeToolWindowId == id`（来源：ToolWindowImpl.kt:470-472）。
+> 所以"聚焦"= **该工具窗口当前是激活窗口**，与按钮自身的 DOM 键盘焦点无关。
+> 本条此前按"按钮自身获得焦点（`:focus`）"落地，属把 `isFocused()` 误读成 DOM 焦点：
+> 实测在浏览器里点击工具窗口入口后焦点立即回到正文/文件树，激活窗口的入口又变回灰色。
+> 由 `isFocused()` 直接决定的两处也一并按此读：
+> `getState()` 在激活时提前返回 `SELECTED`（不看悬停），
+> `getBackgroundColor()`/`paintIcon()` 也只在激活时给 `selectedBackground` 与白字描边图标。
+> 注意这与 §4.3 的"同侧同锚点最多一个可见窗口"不冲突：激活的是可见窗口之一。
 
 背景（来源：SquareStripeButtonLook.kt:104-109、:89-99、ActionButtonLook.java:96-99）：
 
 | 状态 | 背景 |
 | --- | --- |
-| 激活/聚焦 | `ToolWindow.Button.selectedBackground` |
-| 可见（PUSHED） | `ActionButton.pressedBackground` |
-| 悬停（POPPED） | `ActionButton.hoverBackground` |
+| 激活/聚焦（`SELECTED`） | `ToolWindow.Button.selectedBackground`（浅 `#3871E1`／深 `#3574F0`），前景 `selectedForeground`（白） |
+| 激活**并且**悬停/按下 | 仍是 `selectedBackground` —— `getState()` 在 `isFocused()` 处提前返回，`popState` 不参与 |
+| 可见但窗口未激活（`PUSHED`） | `ActionButton.pressedBackground` |
+| 可见但窗口未激活**且**悬停（`POPPED`，由回落态给出） | `ActionButton.hoverBackground` |
 | NORMAL | 组件背景色（未显式设置则**不绘制背景**） |
 
 描边（来源：SquareStripeButtonLook.kt:87-102）：
 
 - 激活/聚焦态**不画**描边；
 - NORMAL 且未设置背景色**不画**描边；
-- PUSHED → `ActionButton.pressedBorder`；其他 → `ActionButton.hoverBorder`。
+- PUSHED → `ActionButton.pressedBorder`；其他（含 `POPPED` 悬停） → `ActionButton.hoverBorder`。
 
 图标着色（来源：SquareStripeButtonLook.kt:132-140、SquareStripeButton.kt:239-241）：
 
@@ -518,7 +531,26 @@ V1 = Classic UI 默认布局，V2 = New UI 默认布局；两者由不同的扩�
 - **【可直接实现】** 动画形式：把被显示/隐藏的组件先画到“上层图像”，把背景画到“下层图像”，再用一个临时 Surface 移动；`dirtyMode`（批量布局中）禁用动画（来源：ToolWindowPane.kt:794-837、:844-875）。
 - **【Swing 特有】** `rootPane.isAboutToBeMaximized` / `extendedState` 参与权重推迟判定（来源：ToolWindowPane.kt:341-346）。
 
+### 5.4 Augit 实现记录：底部分隔条的拖动方向（第 313 轮）
+
+§5.2 的权威语义是"分隔条以**按下时的实际尺寸**为基准、把指针增量加到**分隔条所在那一侧**上"
+（`setFirstSize/setLastSize`、`setProportion(1 - delta/高度)`，来源 ToolWindowContentUi.java:555-620）。
+Augit 的两条分隔条都在"尾组件"侧，但增量方向相反，此前用同一个表达式套了两者：
+
+| 分隔条 | 位置 | 尺寸语义 | 正确的增量 | 修前 |
+| --- | --- | --- | --- | --- |
+| 侧栏（`.side-tool`） | 面板**右缘** | 宽 | `startSize + delta`（指针右移即变宽） | 正确 |
+| 底部工具窗（`.bottom-tool`） | 面板**上缘** | 高 | `startSize − delta`（指针上移即变高） | **反了**：指针上移变矮、下移变高 |
+
+- 用户实测（截图）：拖动底部 Git 工具窗的分隔条时"往上怎么是缩小，往下是变大" —— 分隔条相对指针反向跑。
+- 实现：`web/src/live-data.js` 的 `bindPanelDividers()` 把增量按 `kind` 取向（`const grown = kind === 'side' ? delta : -delta`），
+  边界仍走同一套 `bottomBounds()`（180–305，字号大时按 `4h + 80` 扩展），持久化与 Esc／失焦结束拖动的规则不变（规格 §4.2）。
+- 断言（`live-shell.spec.cjs`）：`向上拖动底部分隔条后面板变高且上缘跟随指针`（高度变大**且** `top` 上移）、
+  `向下拖动底部分隔条后面板变矮且上缘跟随指针`、`底部分隔条拖动结果落在 180–305 的尺寸区间内`。
+- 负向验证：临时改回 `const grown = delta;` 后，同一条断言如实失败（向上拖 42px：240 → **200**、`top` 反而由 498 变 538）。
+
 ---
+
 
 ## 6. 标题、图标与 `contentUiType`
 
@@ -574,11 +606,19 @@ V1 = Classic UI 默认布局，V2 = New UI 默认布局；两者由不同的扩�
 
 1. **【可直接实现】** 左侧栏是"工具窗口容器"：同时最多显示一个上部窗口（项目/提交）与一个下部分组窗口（终端/Git 历史），两者关系等价于 IntelliJ 的 `isSplit=false/true` 分组。
 2. **【可直接实现】** 上/下两组之间放 24×1 的分隔线，整段占位 32×11，空出时隐藏（对应 `StripeButtonSeparator`）。
-3. **【可直接实现】** 按钮选中态 = 蓝底白图标；可见但未选中 = pressed 背景 + pressed 描边；悬停 = hover 背景 + hover 描边；普通 = 无底色（对应 §3.3）。
+3. **【可直接实现】** 按钮选中态 = 蓝底白图标；可见但未选中 = pressed 背景 + pressed 描边；悬停 = hover 背景 + hover 描边；普通 = 无底色（对应 §3.3）。左侧上部与底部是独立工具窗口组，可以同时显示各自的面板；全局活动窗口只有一个，活动判据按工具窗口的真实焦点状态计算，不能让两个组分别维持活动入口。
+   - 判据是**该工具窗口是否激活**（`SquareStripeButton.isFocused()` = `toolWindow.isActive`），不是按钮自己的 DOM 键盘焦点；激活态被悬停时底色 **仍是蓝**（`getState()` 提前返回，`popState` 不参与）。
+   - Augit 落地（第 314 轮）：`web/src/mockup.css` 的 `.rail-button.active` 直接给白字 + `--augit-accent-brand`，并保留 `.rail-button.active:hover` 的蓝底；`docs/ux-mockups/mockup.css` 必须字节一致（`tools/audit/verify-ui-assets.ps1`）。
 4. **【可直接实现】** header 高度 41；标题左内距 12、右内距 16；动作按钮区左内距 12、右内距 8；header 动作按钮默认只在悬停/窗口激活时出现。
-5. **【可直接实现】** 侧栏宽度：Augit 现为 300–360（来源：web/src/mockup.css:44）→ 若要贴合 IntelliJ，宽度应由 `weight × 框架宽` 得出，并允许拖动（范围 40–100 逻辑像素、最小 33）；注意 V2 默认布局给 `Project`/`Commit`/`Structure` 的 weight 是 **0.25**（而通用默认值是 0.33），开启"显示工具窗口名称"时宽度固定为 59。
+5. **【可直接实现】** 侧栏宽度：Augit 的运行期取值来自 `--augit-side-width`（来源：web/src/mockup.css:226 与 :2710 两条声明，**后写的 `clamp(318px, 22vw, 360px)` 生效**；`@media (max-width: 1180px)` 内另有 :2577／:4305 两条同值覆盖为 `300px`）→ 即 1181–约1637px 视口区间里实际下限是 **318px**，不是 300。若要贴合 IntelliJ，宽度应由 `weight × 框架宽` 得出，并允许拖动（范围 40–100 逻辑像素、最小 33）；注意 V2 默认布局给 `Project`/`Commit`/`Structure` 的 weight 是 **0.25**（而通用默认值是 0.33），开启"显示工具窗口名称"时宽度固定为 59。
 6. **【可直接实现】** 侧栏显示/隐藏必须成组：隐藏整侧就是"隐藏该侧全部窗口"（对应 `hideSide=true`），`HideAll` 需要能一键隐藏并一键恢复快照。
-7. **【需推断】** 底部区域高度：Augit 用 `clamp(180px, 31vh, 305px)`（来源：web/src/mockup.css:46），IntelliJ 用 weight（默认 0.33×窗口高）。两者语义不同，需按 PyCharm 观感二选一后固化。
+7. **【需推断】** 底部区域高度：Augit 用 `clamp(180px, 31vh, 305px)`（来源：web/src/mockup.css:227，另有 :2578／:4306 两条同值覆盖；运行期由 `mockup.js` 的 `bottomMinimum = max(180, 4h+80)` 覆写，见 [21](21-markdown-preview-fonts.md) 与 `design-system.md` §4.2），IntelliJ 用 weight（默认 0.33×窗口高）。两者语义不同，需按 PyCharm 观感二选一后固化。
+8. **【第 314 轮·字号】** 收起侧栏后的竖排「展开」标签（`.stripe-expand-label`）原先写
+   `font-size: var(--augit-ui-font-size, 13px)`，而该令牌**全仓没有声明** ⇒ 回退值恒定生效、界面字号调到 40 仍停在 13px。
+   已改为 `font-size: 1rem`（与 `.current-find`、`.commit-detail h3` 同口径，由 `:root { font-size }` 驱动）。
+   同类死引用与 Markdown 字号归属一并登记在 [21 · Markdown 预览字号归属与死令牌](21-markdown-preview-fonts.md)。
+   ⚠️ `tools/audit/live-shell.spec.cjs:24634` 以 `... || getComputedStyle(...).fontSize` 读该令牌，
+   因属性恒为空而永远走回退 ⇒ 那条断言对令牌本身是空洞的；该文件当时已有在途改动，本轮未改。
 
 ---
 

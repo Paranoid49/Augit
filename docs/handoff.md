@@ -2,7 +2,7 @@
 
 本文供下一个接手本项目的执行者（AI 或人）快速建立准确上下文。先读 `AGENTS.md`，再按 `docs/development-validation.md` 的顺序读取规格、模块文档和当前基线；本文其余内容是当前实现与历史交接信息。
 
-更新日期与状态：**2026-10-01（第 310 轮）**；当前状态见 §5「已完成 / 已结案」。
+更新日期与状态：**2026-10-01（第 310 轮 ＋ 本轮收口）**；当前状态见 §5「已完成 / 已结案」。
 
 ---
 
@@ -33,7 +33,7 @@ Augit 主要服务 Git 操作、文件查看、代码搜索和差异处理，不
 | 外壳 | C# / .NET 10 原生 Win32 窗口 + WebView2 | `src/Augit.Shell/`（4 个 .cs，约 2.4k 行） |
 | 业务 | 文件、Git、搜索、终端、设置 | `src/Augit.Infrastructure/`（约 9.4k 行）、`src/Augit.Core/`（约 2.6k 行） |
 | 界面 | HTML / CSS / JavaScript | `web/`（约 9.3k 行） |
-| 设计基线 | 视觉稿 = 运行时代码来源 | `docs/ux-mockups/`（49 个场景页） |
+| 设计基线 | 视觉稿 = 运行时代码来源 | `docs/ux-mockups/`（56 个 html，除 `index.html` 外 55 个场景页） |
 
 **关键约束：`docs/ux-mockups/` 与 `web/src/` 必须字节一致。**
 
@@ -42,7 +42,7 @@ Augit 主要服务 Git 操作、文件查看、代码搜索和差异处理，不
 **New UI 取值来源：** 复原 PyCharm 2026.2.1 New UI 所需的信息分两层，出处与取证方式见下列两份文档（均从 IntelliJ 开源仓库提取）：
 
 - `docs/intellij-platform-ui-reference.md` —— **静态取值**：命名色板、结构尺寸、提交图几何与缩放公式、Diff 与文件状态配色、主工具栏项目配色渐变机制。
-- `docs/intellij-platform-ui-behavior.md` —— **交互与页面逻辑**：工具窗口状态机、树/列表选择与键盘导航、编辑器标签与只读正文、动作可用性、查找、提交图算法、主题/DPI/弹层，并汇总已裁决的规范冲突与待实施模块；分册在 `docs/nui-behavior/`。
+- `docs/intellij-platform-ui-behavior.md` —— **交互与页面逻辑**：工具窗口状态机、树/列表选择与键盘导航、编辑器标签与只读正文、动作可用性、查找、提交图算法、主题/DPI/弹层，并汇总已裁决的规范冲突与实现模块的逐项状态（每项都已归类，不是待办队列）；分册在 `docs/nui-behavior/`。
 
 两者只是推导令牌与行为时的**上游输入**，令牌权威仍是 `web/src/mockup.css`。
 
@@ -96,7 +96,7 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 | 单元测试 | `dotnet test Augit.slnx -c Release` | Core + Infrastructure | 约 55 s |
 | 验收套件 | `node tools/audit/live-shell.spec.cjs` | 界面逻辑与交互（桩宿主） | 约 60 s |
 | 资源一致性 | `powershell -File tools\audit\verify-ui-assets.ps1` | 视觉稿 ↔ 运行时字节一致 | 约 3 s |
-| 场景渲染 | 逐场景打开 `docs/ux-mockups/*.html` | 41 场景可渲染、无页面错误 | 约 60 s |
+| 场景渲染 | 逐场景打开 `docs/ux-mockups/*.html` | 55 个场景可渲染、无页面错误（`index.html` 是索引页，不计） | 约 60 s |
 | 真实外壳截图 | `powershell -File tools\audit\shell-capture.ps1 -Scene X -Theme dark` | 保真度、启动、内存 | 视场景 |
 | 三类场景性能基线 | `powershell -File tools\audit\measure-performance.ps1 -Exe <exe> -Workspace <ws> -Scenario <n>` | 启动／操作响应／内存／关闭／清理 | 约 25 s/次 |
 | 视觉稿像素比对 | 截图与视觉稿逐像素差 | 目标 0.000 | 约 20 s |
@@ -110,14 +110,14 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 
 ---
 
-## 5. 已完成 / 未完成
+## 5. 已完成 / 已结案
 
 ### 已完成并有断言覆盖
 
 - 技术栈迁移 WebView2 完成，原生自绘已从解决方案移除。
 - 规格 §5.1 工具窗口切换与折叠、§5.2 标签集合（六阶段）、§5.3 弹层 Esc、§5.4 树键盘导航与焦点。
 - §7.x 各功能模块、§12.1/§12.2/§12.4/§12.5 验收项。
-- 视觉稿 41 场景渲染正常，像素差 0.000，资源字节一致。
+- 视觉稿 55 个场景渲染正常（`mockup-scenes.spec.cjs` 55/55 ×2 主题；`index.html` 是索引页，不计），运行时资源与视觉稿字节一致；**像素差异不是当前判据** —— `docs/ui-compliance.md` §1.1 用边缘掩膜的 `layoutPercent`，现行读数见该节（不再有"0.000"这种整体结论）。
 - 文档已按实际技术方案全面更新（`architecture.md` 整体重写）。
 
 ### 已结案（原「尚未完成 / 需要继续」清单，2026-10-01 第 310 轮订正）
@@ -126,6 +126,7 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 > 下面按**当前事实**逐条登记并给出可复验出处；不再保留任何"剩余工作"表述。
 
 - **归类总表已建立并清零**：`docs/ui-classification.md`（第 214 轮建立）把当前每个功能/界面归入「已按 New UI 对齐／有意产品差异／不适用／无法取证／待处理」五类，并给出权威出处、实现位置与可复验依据；其 **§7 是待处理清单（T1–T15），已全部关闭**（T15「Diff 正文查找」第 308 轮实现；T3「操作进度条」第 305 轮经用户裁决转为**有意产品差异**）。规范冲突（树悬停、行高、正文行高、模态遮罩、行为索引 §3/§4 的旧状态）已在同轮按已记录的用户裁决改标。
+- **⑦⑧ PyCharm 逐页对照有一块"未完成真实前台取证"要如实交接**：55 个场景里 **33 页面级已对照 ＋ 5 页仅入口级证据 ＋ 17 页未对照**；这 17 页**一律没有完成真实前台取证**（9 页卡合成输入/可访问性通道、2 页只是没去采、5 页缺真实冲突/本地改动/stash 前提、1 页 PyCharm 无对应页面），原因逐行见 `ui-compliance.md` §1.6 与 §3.6。**它们的五类最终归类已按本地权威源码 + 实现位置 + 自动化证据收口**（§3.7；与 `ui-classification.md` 各行一致），但**不得**读成"已完成 PyCharm 对照"，`MEDIUM_BLOCKED` 等分档标签也不是五类归类。机械守卫：`tools/audit/coverage-generator.test.cjs`（§3.7 逐页一致与五类归类）＋ `tools/audit/check-doc-claims.cjs`（§2.3 登记值／脚本数／§0 说明计数）＋ `tools/audit/check-interactions.cjs`（交互基线计数）。
 - **§5.2 收尾项**：Git 历史结果的预览语义、比较标签关闭叉的完整取消语义、引用比较的独立跟随 —— `ui-compliance.md` §2 的 §5.2 各行**均为「是」**。
 - **§5.3 剩余项**：对话框取消后恢复打开前焦点、确认后焦点回触发区域；紧凑输入窗口的 `Tab`/`Shift+Tab` 循环与输入法组词规则 —— §5.3 各行**均为「是」**。
 - **§5.4 剩余项**：`Tab` 在当前区域内按视觉顺序移动焦点、固定快捷键与产品规格的一致性 —— §5.4 各行**均为「是」**。

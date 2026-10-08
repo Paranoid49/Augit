@@ -74,7 +74,7 @@ Augit 的跳转行入口是 `Ctrl+G` 与正文工具栏的「跳转行」按钮�
 | 首项选中 | **本来就对齐**：`liveSearchOverlay()` 给 0 号结果加 `.selected` ✓ |
 | 上下键到端点**是否**回绕 | **第 155 轮修正**：当时写"权威不回绕"过于绝对。权威只把 Up／Down 从输入框转发给结果列表（`SearchEverywhereUI.java:906-907`），而转发动作的 `cycleScrolling` 取 **`UISettings.getInstance().getCycleScrolling()`**（`ScrollingUtil.java:328-338`）⇒ **是否回绕取决于用户的"循环滚动"设置**。Augit 用 `Math.max(0, Math.min(len - 1, index ± 1))` 钳制，且**没有这个设置**（新增设置＝新增功能）⇒ 记为"已知且有意保留的差异" |
 | 单击选择、双击/`Enter` 打开预览标签 | **本来就对齐**（规格 §5.2 与权威"有 preview provider 时单击不打开"一致）✓ |
-| 结果上限 **30** vs Augit 的 **100** | **未落地，转 C# 项**：权威单贡献者上限是 30，而 Augit 的 100 写在规范（`ux-spec.md:587`）并由宿主单测钉住（`RipgrepSearchServiceTests` 的"文件搜索最多返回一百项"）⇒ 要动 C# 服务与宿主单测，且受并行会话占用的 shell 阻塞。已记入 `10-backlog.md` §三·补 第 6 项（连同"落地时同步改规范与既有单测"） |
+| 结果上限 **30** vs Augit 的 **100** | **第 201 轮已落地**：结果上限按权威改为 **30**（宿主服务、`ux-spec.md:587` 与既有宿主单测同步；`11-surface-audit.md` 第 7 区记录同此）。当时的"转 C# 项 / 受并行会话阻塞"状态已随该轮结束。 |
 | "同一页签的上次选中项"记忆 | **登记不实施**：权威会记住并在结果到达时恢复上次选中项（`:1846-1860`）。对 Augit 的快速打开而言，这要求跨"打开/关闭浮层"保留一份选择状态，属于**状态机的新增分支**（且与预览标签的复用规则纠缠）⇒ 先登记，等与真机对照后再定 |
 | 6 个分类页签、`Type /` 命令、`Include non-project items` | **不新增**：那是 Search Everywhere 的多贡献者能力，Augit 的快速打开按产品规格只搜文件名（`ui-compliance.md:291` 已如实记录该差异） |
 

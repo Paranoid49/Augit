@@ -29,7 +29,7 @@
 | ⑩ 未执行/环境不可达项 | §3.1 |
 | ⑪ 差异清单（规范/实现/基线差异） | §3.2–§3.3 |
 | 第 311 轮环境观测的不可复现订正（含本轮 PID/窗口复查） | §3.6 |
-| ⑦⑧ 的 17 页未对照：分档小计与标签沿革 | §3.7 |
+| ⑦⑧ 的 17 页未对照：分档小计、未取证事实与五类归类 | §3.7 |
 
 ## 0. 验证基线与复跑命令
 
@@ -37,25 +37,26 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（14 个 `.ps1` 全部满足 BOM/ASCII 规则） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **1070/1070（未执行 0 项）**（见 §2 说明；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600） |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **2373/2373（未执行 0 项）**（当前登记值取自 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"，当前复核；历史沿革见该表；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600），并机械核对本行与 §2.3 的登记值 |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **55/55 ×2 主题**（`docs/ux-mockups/*.html` 共 56 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
 | C# 外壳单元测试 | `dotnet test tests/Augit.Shell.Tests` | **74/74**（含终端缓冲裁剪 4 条 + 裁剪摊销阈值 1 条） |
 | 真机全场景巡检 | `powershell -File tools/audit/verify-acceptance.ps1 -Exe <exe> -OutDir <dir> -Workspace <dir>` | **54/54 PASS（2026-09-21 复跑，终端/JSON/Markdown 等改动之后）**：默认列表 42 → **54**——先补入 7 个状态页（`git-history-empty`、`diff-status`、`settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`），第 345 轮又发现 `git-history-graph`、`go-to-line`、`history-diff-cancelled/failure/loading` 这 **5 条只在像素表里、没进巡检列表**并补入；`SUMMARY total=54 passed=54 failed=0`、`ACCEPTANCE_OK`；截图在 `artifacts/acceptance-20260920b/`。**唯一未进列表的是 `diff-boundary`**：它需要"工作区里有一个被改动的文件"（`--diff <path>`），而巡检跑在干净的仓库上，实测 `PAGE_CHECK_FAILED no CDP page target`（原因写在脚本注释里，不写成通过） |；**`diff-boundary` 在"含改动的工作区"上单独验收 OK（第 371 轮）**
-| 交付文档数字自洽 | `node tools/audit/check-doc-claims.cjs` | **DOC_CLAIMS_OK**（§2.0 分节之和 = 合计、当前事实加数与缺口自洽、§2.8 行数/状态与 §2.0 一致、§1.1 像素行数 = §1.4 A 线分母；需跑套件才能得的数字只打印并标注"未机械核对"） |
-| 覆盖表生成器一致性 + 环境断言守卫 | `node tools/audit/coverage-generator.test.cjs` | **PASS**（§1.1/§1.4 像素值、§1.6 页表与分档、C 线模板和写回摘要一致；并钉住不可复现的"当前无 PyCharm 进程/窗口"旧断言，要求 §3.6 保留 PID/窗口/最小化复查事实） |
-| 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=6 jumps=4 feedback=8 sequences=6 gaps=4`（`CHECKED 18`：pass 9 / diff 2 / gap 1 / other 6），逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
+| 交付文档数字自洽 | `node tools/audit/check-doc-claims.cjs` | **DOC_CLAIMS_OK**（§2.0 分节之和 = 合计、当前事实加数与缺口自洽、§2.8 行数/状态与 §2.0 一致、§1.1 像素行数 = §1.4 A 线分母；§2.3 的"已验证快照"作为可挂钩登记值机械核对断言数与受登记文件 md5、脚本编码个数、§0 说明里的 `check()` 调用点数与 `csCheck` 条数；需跑套件才能得的数字只打印并标注"未机械核对"） |
+| 覆盖表生成器一致性 + 环境断言守卫 | `node tools/audit/coverage-generator.test.cjs` | **PASS**（§1.1/§1.4 像素值、§1.6 页表与分档、§3.7 的"分档 → 五类最终归类"逐页一致、C 线模板和写回摘要一致；并钉住不可复现的"当前无 PyCharm 进程/窗口"旧断言，要求 §3.6 保留 PID/窗口/最小化复查事实） |
+| 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=7 jumps=4 feedback=8 sequences=6 gaps=4`（`CHECKED 18`：pass 9 / diff 2 / gap 1 / other 6），逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-21 复跑）**：`Augit-0.1.0-win-x64-portable.zip` **2,795,619 B（2026-09-21 重打包）**、`Augit-0.1.0-win-x64-setup.exe` **4,386,825 B（2026-09-21 复跑）**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 745 个 `check(...)` 调用点（另有 `csCheck` 包裹的 2 条会话断言，不计入该调用点数），
-> 其中一部分在场景/主题循环里重复执行，因此实际断言数（942）大于调用点数。
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 1257 个 `check(...)` 调用点（另有 `csCheck` 包裹的 8 条会话断言，不计入该调用点数），
+> 其中一部分在场景/主题循环里重复执行，因此**当前登记的**实际断言数（2373，见 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"）大于调用点数。
+> 这三个数由 `tools/audit/check-doc-claims.cjs` 机械核对（前者与 `csCheck` 条数对规格实测，后者对 §2.3 登记值）；本说明原先写 745／2／942，是旧值。
 
 ### 0.2 交接摘要（2026-09-21，第 89 轮收敛时写；**第 311 轮：按当前事实回填了 ⑦⑧ 的覆盖率与"下一步"**）
 
-**闸门（离开时的实测值）**：`live-shell` **1039/1039（未执行 0 项）**、`Augit.Shell.Tests` 74/74、
+**闸门（当前复核的实测值）**：`live-shell` **2373/2373（未执行 0 项）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本节其余数字是第 89 轮离开时的历史读数）、`Augit.Shell.Tests` 119/119、
 `Augit.Core.Tests` 86/86、真机巡检 54/54（干净仓库）+ `diff-boundary` 1/1（含改动工作区）、
 打包 zip 2,795,619 B / setup 4,386,825 B（`sha256sum -c` 两项 OK、32 条目 0 可疑、包内 `live-data.js` 与仓库逐字节相同）、
 `verify-ui-assets` PASS、`verify-script-encoding` PASS（14 个脚本）、
@@ -73,7 +74,7 @@
   > 第 442 轮再把其余 6 个入口型页面改标 `MEDIUM_BLOCKED`（两轮合计 **9 页**），
   > 但只改了 §1.6 的表、没同步本摘要。当前分类以 §1.6 的表与生成器输出为准（沿革见 §3.7）。
   > 四类小计（9/2/5/1）与 33/5/17 已由 `tools/audit/coverage-generator.test.cjs` 从 §1.6 逐行机械核对
-  > （本摘要的数字必须与 §1.6 的表一致）；`check-doc-claims.cjs` 仍只管 §2.0／§2.8／§1.1 的分母。
+  > （本摘要的数字必须与 §1.6 的表一致）；`check-doc-claims.cjs` 管 §2.0／§2.8／§1.1 的分母，并核对 §2.3 的断言数与受登记文件 md5、脚本编码个数、§0 说明里的 `check()` 调用点数与 `csCheck` 条数；`check-interactions.cjs` 核对本文件的 `surfaces/jumps/feedback/sequences/gaps` 与 `CHECKED` 计数。
 - **④ 同引擎像素对照**：**55/55 场景**已有本轮口径（`layoutPercent`）的实测证据；7 个场景两次独立运行 **Δ ≤ 0.01**；
   全量 > 2.0 的只有 2 个（`quick-open` 2.30、`repository-search` 2.08），均归因 live 数据状态、非布局错位。
 - **⑨⑩ 条文穷举**：**非"是"行的权威数字与分类直接见 §2.10**（由生成器 `tools/audit/gen-clause-conclusions.cjs` 逐行产出，并带"畸形表格行"守卫）—— 本摘要**不再复写数字**：第 101 轮发现摘要里手写的数字与脚本口径不一致（原因见下），且当时有 **7 行表格缺尾管符**被解析器静默跳过，导致分母偏小。
@@ -399,7 +400,7 @@ Augit 侧 `artifacts/pycharm-compare-20260919/augit-settings-geometry.json`（8 
 | 对话框外框 | 900.0 × 700.0 | 1004.9 × 650.0 | +105 / −50 | 尺寸来源不同（PyCharm 用自己的默认/记忆尺寸，Augit 用 CSS 尺寸）→ 记录，不作为缺陷 |
 | 左侧导航宽 | 241.7（12..435 物理） | 245 | 3.3 | 等价 |
 | 搜索框高 | ≈33（白底框 y≈76..134 物理的粗测） | 30 | ≈3 | 量法是粗测，仅作量级核对 |
-| 分类行高 | 未单独测（需前台精测） | 27 | — | 记未覆盖 |
+| 分类行高 | 未单独测（需前台精测） | 27 | — | 记未覆盖 ⇒ **无法取证**（需 PyCharm 前台精测，本机不可采；`ui-classification.md` §5），不写成已对照 |
 | 选中行底色 | `#d0dffe`（早前实测） | `rgb(208,223,254)` = `#d0dffe` | 0 | **逐值相同** |
 | 主按钮底色 | `#3871e1` | `rgb(56,113,225)` = `#3871e1` | 0 | **逐值相同** |
 | 输入框底色/描边 | 白底 + 浅灰描边 | `#ffffff` + `rgb(209,211,217)` | — | 量级一致 |
@@ -412,8 +413,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 **口径**：判据是"声明容差内地标等价"，**不做逐像素相等**（PyCharm 是 Swing、Augit 是 Chromium；
 字形与行高来自不同排版引擎）。证据：`artifacts/pycharm-interactions-16/p16-main-idle.png`（2904×1740）、
 `artifacts/pycharm-compare-20260919/augit-light-1659x994.png`（2881×1717）。
-**未覆盖**：逐页逐状态全量对照（当前只覆盖主窗口 chrome 与设置对话框的配色/几何量级）、PyCharm dark 口径、
-编辑器标签栏与底部工具窗口的 PyCharm 实测（需要前台）。
+**未覆盖项与归类**（不是待办）：① 逐页逐状态全量对照 —— 逐页状态见 §1.6、最终归类见 §3.7；② PyCharm dark 口径与 ③ 编辑器标签栏／底部工具窗口的 PyCharm 实测 —— 两者都需要 PyCharm 前台，归**无法取证**（`ui-classification.md` §5），不写成已对照。
 
 > **量测方法限制（第 76 轮，主窗口顶部）**：主窗口**菜单栏 + 工具栏 + 编辑器标签行是连成一片的非白区域**，所以"沿扫描线找第一个非背景像素"这种**通用边缘法无法切出标签带**：在 x=1400 上从 y=34 起就已经是非背景，把起点一路提前也只会得到"整片高度"（工具已能识别这种情形并打印 `WARN CLIPPED_AT_START`）。标签带的可用值仍来自**颜色跃变法**（`227,233,240 → 213,218,224` 在 y=76/77、标签底 ≈145/147）→ **≈38.9 CSS**（`--augit-tab-height: 42`，Δ **+3.1**）。Commit 工具窗的上边缘本轮在 y 1300–1450、3 条竖线里 2 条 `NO_EDGE`，**不重新发布**，仍沿用单方法得到的 **172 CSS** 并保留其"单方法"备注。
 
@@ -431,7 +431,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | B 线：真机巡检 | 54 场景（干净仓库） | **54/54 PASS** | 分母 = 场景总数 − diff-boundary（需含改动的工作区） |
 | B 线：含改动工作区的场景 | 1 场景 | **OK 1/1**（`diff-boundary`，第 371 轮） | 单独一次真机验收；与干净仓库那一轮**分开计**，不合并成一个数字 |
 | B 线：行为断言 | 351 条规格条文 | 422 条用例行（其中**逐条展开** 316 条 = §5 29 + §6 40 + §7 210 + §9 22 + §10 15；§4 的 35 条在 §1.2 **按维度主题式核销**，非逐条一一对应） | **按条文归属，不按页面**；逐页行为覆盖请查 §2 对应小节 |
-| C 线：PyCharm 对照 | 55 个视觉稿场景 | **33 页面级已对照 + 5 页仅入口级证据 + 17 页未对照**（逐页状态见 §1.6；分档小计见 §3.6） | 判据是"声明容差内地标等价"，不做逐像素相等；对照按**面**做（§1.3 的 A–I 九面 + J 入口级 + L 弹出层），**不按页面硬凑一一对应**（第 311 轮订正：本行原先只写"2 个面"，那是第 71 轮之前的过时摘要） |
+| C 线：PyCharm 对照 | 55 个视觉稿场景 | **33 页面级已对照 + 5 页仅入口级证据 + 17 页未对照**（逐页状态见 §1.6；17 页一律**未完成真实前台取证**，分档小计与五类最终归类见 §3.7） | 判据是"声明容差内地标等价"，不做逐像素相等；对照按**面**做（§1.3 的 A–I 九面 + J 入口级 + L 弹出层），**不按页面硬凑一一对应**（第 311 轮订正：本行原先只写"2 个面"，那是第 71 轮之前的过时摘要） |
 
 > **为什么行为断言不按页面列**：Harness 的断言是按"规格条文/状态转换"组织的（一个断言常跨多页，
 > 例如"工具窗口互斥"同时覆盖终端与 Git 历史），硬按页面拆会造出虚假的逐页分母。
@@ -683,7 +683,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 > 本轮读数：**33/55 个页面**落在已实测的面上；另有 **5 页**只有**入口级/确认框级**证据（不计入面级已对照）；其余 17 个页面
 > 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**
-> **17 页的分档小计（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）、标签沿革与环境观测记录，见 §3.6／§3.7。**
+> **这 17 页一律未完成真实前台取证**（分档就是原因分类）；它们的**最终归类**（已按 New UI 对齐／有意产品差异／不适用／无法取证）由 §3.7 按本地权威源码、实现位置与自动化证据逐页给出，不来自 PyCharm 面级取证 —— 不要把"未对照"读成"已对齐"，也不要把分档标签当成五类归类。
 ### 2.0 条文穷举进度（⑨，如实带分母）
 
 **口径（两件事分开说，避免把"行数"当"已覆盖条数"）**：
@@ -1046,7 +1046,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 11 | §7.8 | 筛选栏右侧"显示/隐藏提交详情"与"搜索提交历史"两个图标入口，各自只做一件事 | 是 | **第 435 轮实现并断言**：`§7.8 显示提交详情入口切换详情面板显隐`（点一下 → `.log-detail-panel` `display:none`、`aria-label` 翻成"隐藏提交详情"）+ **负向验证** `§7.8 再次点击还原详情面板`（面板恢复、标签翻回）；同节的 `搜索提交` 入口独立（不打开搜索框）；**第 98 轮再补**：`§7.8 提交历史「搜索提交」把焦点交给日志搜索框` —— 核实 `history-utility`（该按钮的类）在 `live-data.js` 里**从未出现**（死入口），现实现为"把焦点交给 `.history-search input`"；实测 `activeElement: null → INPUT(文本或哈希)`。两个入口因此都各自只做一件事 |
 | 12 | §7.8 | 窄栏按原顺序把放不下的筛选项收入右箭头菜单，不压细输入框、不移除能力；菜单调用已有筛选动作并交接焦点 | 是 | **第 237 轮补齐**：`§7.8 窄栏按原顺序把放不下的筛选项收进收纳菜单，键盘可达且不压细输入框` —— 1500 宽时四项控件都在栏上、收纳箭头隐藏、菜单里四项全 `hidden`；1280 宽时栏上只剩 `branch|user`、箭头出现，菜单里四项**仍是原顺序** `branch|user|date|path`且恰好 `date|path` 可见 ⇒ **可见 2 ＋ 收纳 2 = 4**，能力不丢；搜索框仍有 **114px**（未被压成细条）；从箭头按 Tab 依次落到 `date`、`path`（此前区域 Tab 顺序处理器把焦点带出菜单，键盘够不到收纳项 —— 同轮修掉）。`§7.8 收纳菜单调用同一套筛选动作并把焦点交给打开的弹层（与可见控件逐项一致）` —— 可见「日期」控件与收纳菜单的「日期」项打开的是**同一个**弹层（`选择期间…|最近 24 小时|最近 7 天` 逐项相同），两条路径的焦点都落在弹层首项（`focusInDate`）；再经该入口选「最近 7 天」⇒ `historyFilter.since` 落地、菜单项文本变成 `日期: 自从 …`；第二次激活同一项走**关闭叉复位**（`since`/`until` 清空、弹层不再出现） |
 | 13 | §7.8 | 引用、作者和日期分别成列、共享文字度量；常规宽度显示本地完整日期与时间，引用含标签图形；窄栏短日期与省略为同构推导 | 是 | **第 238 轮补齐**：`§7.8 引用/作者/日期分别成列且列宽来自同一套文字度量（常规宽度用完整日期与时间）` —— 行的四列顺序固定为 `subject|label|author|date`，宽栏 5 条网格轨道且第 3/4/5 条**逐值等于**用同一 canvas 度量复算的 `min(128, 最长引用宽+20)+8` / `min(96, 最长作者宽)+8` / `最长完整日期宽+8`（实测 51/27/110px）；有引用的行带 1 个引用图形、无引用行 0 个；日期文本 = `dataset.full`（含 `2026/9/15 10:00`）。`§7.8 窄栏换成短日期并把引用列整列让位，作者与日期仍成列可见` —— 窄栏只剩 4 条轨道、引用列整列隐藏（宽 0）、日期文本 = `dataset.compact`（`9/15`）且列宽 = `短日期实测宽+8`（41px），作者/日期仍非零可见。`§7.8 长引用停在 128 上限、让位时也不吞掉作者/日期；超长作者停在 96 上限` —— 注入长引用后宽栏列宽正好停在 **128**（136px 轨道），窄栏该列整列让位而作者 19px／日期 102px 保持；注入超长作者名后作者列停在 **96**（104px 轨道）、日期不变。`§7.8 右角「刷新」重新读取并重画历史（改前只写状态、DOM 一动不动）` —— 见该轮日志的同名缺陷修复 |
-| 14 | §7.8 | 变化文件与项目树/标签/Changes/搜索结果共用文件类型图标；类型色不被 Git 状态色覆盖；辅助技术名称保留状态符号与文件名 | 是 | **第 240 轮补齐三半**：`§7.8 变化文件/项目树/标签/Changes/搜索结果共用同一套文件类型图标` —— 五个上下文都非空，**4 个同名文件跨 ≥2 个上下文**且图标的 class 与内部路径数据**逐字节相同**（覆盖 markdown／csharp／file 三类，例如 README.md 同时出现在项目树与 Changes 列表、App.cs 同时出现在日志变化文件与 Changes 列表、notes.txt 同时出现在日志变化文件与快速打开结果）；`§7.8 文件名用 Git 状态色、文件类型图标保持类型色（两套主题逐值核对）` —— 深色 Csharp `rgb(95,173,101)`=#5FAD65、markdown `rgb(84,138,247)`=#548AF7，浅色 `rgb(32,138,60)`=#208A3C／`rgb(53,116,240)`=#3574F0，而文件名的文字色等于该主题下 `--augit-file-modified`（与图标色**不同值**）⇒ 状态色没有盖掉类型色；`§7.8 变更行的辅助技术名称同时保留状态符号与文件名` —— 行的 `aria-label` = `<符号> <文件名>`，符号取自权威 `GitChangeType`（`plugins/git4idea/backend/src/history/GitChangeType.java:11-18` 的 M/A/C/D/R/U/T），实测 Changes 列表 `M App.cs`／`M README.md`／未跟踪 `draft.txt`（该枚举无未跟踪字母，按分组语义不造符号）、日志变化文件 `A notes.txt`／`M App.cs`，符号与行的 `file-status-*` 逐项对应 |
+| 14 | §7.8 | 变化文件与项目树/标签/Changes/搜索结果共用文件类型图标；类型色不被 Git 状态色覆盖；辅助技术名称保留状态符号与文件名；项目树文件名按 Git 状态着色并显示状态标记 | 是 | **当前复核覆盖四半**：类型图标五上下文逐值复用；Changes/历史文件名状态色与类型图标分离；项目树的实时文件行从 `live.status.files` 映射到 `data-git-status`、`tree-name.file-status-*` 和辅助状态标记，状态变化触发行级重建；`UNKNOWN` 未跟踪色取权威浅 `#B23247`／深 `#E88F89`，不误用新增绿色。历史变化文件事件按通用 `data-history-path` 接受 renamed/copied/typechanged/unmerged 等状态。暂存后修改的双状态是否增加第二个可见标记仍属规范未定义，不在本轮猜测。 |
 | 15 | §7.8 | 提交图用真实排序与父哈希绘制；普通节点实心圆、HEAD 外环加中心点；分叉合流按父关系展开收敛；缺父提交用短虚线；复杂多轨须单独场景验收 | 是 | `提交图按真实历史行数绘制`、`提交图主题来自宿主`、`提交图哈希来自宿主`、`合并提交产生多条泳道配色` + 独立场景 `git-history-graph`（像素行） |
 | 16 | §7.8 | 单击提交立即高亮并异步更新右侧；已有历史比较时提交与文件选择同步更新该比较标签 | 是 | `提交详情显示真实提交信息`、`历史比较标签标注双方引用`、§5.2 的跟随断言族 |
 | 17 | §7.8 | 双击变化文件或 Enter 打开并激活提交 diff；已有比较标签沿用；普通文档前台不抢占 | 是 | §5.2/§7.8 块（`双击变化文件建立历史比较标签`、`普通文档前台时只后台更新`、`显式打开可重新创建比较标签`） |
@@ -1101,7 +1101,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 5 | §7.7 | 工具栏左侧依次上一处/下一处/搜索/上一文件/文件计数/下一文件，右侧差异摘要/忽略空白/双栏单栏/设置；Tab 顺序与视觉顺序一致 | 是 | **第 248 轮补齐并挂出一处实现落差**：实时外壳此前用的是**另一套工具条**（`上一处/下一处/{文件箭头}/N 行/显示模式`）——没有「查找」「忽略空白」「设置」，且右侧是"N 行"而不是差异摘要。现由 `mockup.js` 的 `liveDiffToolbar()` 统一产出规格顺序（就绪/加载/空差异三态共用），并补 4 条断言：① `§7.7 Diff 工具栏按规格顺序排列、Tab 顺序与视觉顺序一致`——按钮 DOM 顺序 = 规格九项（`上一处差异/下一处差异/查找/上一个文件/下一个文件/忽略空白/双栏/单栏/设置`），文件计数（实测 `1/3 个文件`）夹在两个文件箭头之间（几何上分组），差异摘要/忽略空白/设置依次在计数右侧；真实 Tab 序列 = `下一处差异 → 上一个文件 → 下一个文件 → 忽略空白 → 双栏 → 单栏 → 设置`（与视觉顺序一致，禁用的「查找」不进入循环，随后离开工具条）；② `§7.7 忽略空白是真实差异选项：切换后重查并如实标记、再点还原`——点击后 `aria-pressed=true` + `active`，并且宿主 `git/diff` 确实收到 `ignoreWhitespace=true` 的新请求（`__diffCalls` +1），再点回到 false 并再查一次；③ `§7.7 差异摘要按连续变更块计数、与导航同一口径`——`src/App.cs` ⇒ `1 处差异`、`src/Modified.cs`（两处被上下文隔开的 `Modified`）⇒ `2 处差异`，点一次「下一处差异」后 `data-diff-total === "2"`（摘要与导航同口径）；④ `§7.7 差异设置入口打开设置对话框；加载态保持同一顺序并禁用变更导航`——「设置」按应用既有约定打开设置对话框且不算未接线；加载态仍是同一顺序（比较视图追加「取消比较」）、差异箭头禁用并写明原因。**第 308 轮实现并断言**（关闭 T15）：`查找` 此前只渲染在规格位置、功能未实现（共享查找条只服务 `.document-view > .code-view`），用户 2026-09-28 裁决按权威实现 ⇒ `current-find.js` 新增 `bindDiffFind()`：权威是标准编辑器查找（`IdeActions.ACTION_FIND`），因此复用同一条查找条（大小写/全字/正则、计数、上一项/下一项、Esc 关闭），正文按**逻辑行取并集**（单栏/双栏命中数一致），高亮包 `<span class="find-hit">` 且不重写行内容（行内词级 `<mark>` 保留），查找条插在文件栏与正文之间，"打开/查询/开关/当前项"进 `live.diffFind` 跨重绘恢复；加载态下与差异箭头一样禁用并写明原因。断言 `§7.7 Diff 正文查找：工具栏「查找」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致`、`§7.7 Diff 正文查找沿用三个开关，双栏与单栏命中数一致，关闭后高亮清空且焦点回到差异正文` |
 | 6 | §7.7 | 差异数量按连续变更块计算；单双栏一致；前后定位到块首行；历史与引用比较沿用同一规则 | 是 | 已断言**按变更块计数**（一次替换＝**1** 处：`§7.9 差异导航按连续变更块移动且保留按钮焦点`）与**单双栏一致**（`src/Modified.cs`：两处被上下文隔开的 `Modified`，切单栏后总数仍为 2 而 `changed` 行只有 2）。**第 249 轮补齐"历史与引用比较沿用同一规则"并挂出并修掉一处真实缺陷**：`§7.7 历史比较沿用同一变更块规则（摘要＝块数、导航计数、单双栏一致）` 与 `§7.7 引用比较沿用同一变更块规则（摘要＝块数、导航计数、单栏一致）`——用新桩旋钮让历史比较（`__historyCompareBlocks`）与引用比较（`__refCompareBlocks`）返回"两处被上下文隔开的 Modified"，测试**独立复算** DOM 里的连续变更块数（分栏取最后一栏、单栏取 `.diff-columns` 的直接子行）：历史比较分栏 2 块＝摘要 `2 处差异`、点一次「下一处差异」后 `data-diff-total === "2"`，切单栏后块数与摘要不变、切回双栏同样保持；引用比较（标题栏分支芯片 →「与工作区比较」）分栏 2 块＝摘要 `2 处差异`、导航计数 `2`、单栏一致。**缺陷**：`switchDiffMode()` 只传 `mode` 重新 `loadDiff()`，丢掉了当前正文的请求上下文（revision／commit／ignoreWhitespace／version）⇒ **历史比较切单栏后 `live.diff` 变成 null、编辑区退回视觉稿样例数据**（实测工具条出现 `1/42 个文件` 与 `1 处差异，0 个已包含`、正文是样例 XML，且再切回双栏也回不来）；修法：`loadDiff()` 记住 `live.diffParts`，`switchDiffMode()` 带上它——单双栏因此命中同一份补丁缓存（`diffPatchKey` 不含 mode），既不重查 Git 也不丢比较上下文 |
 | 7 | §7.7 | 双栏文件栏标注基准与当前版本并对齐正文起点；单栏上下排列；只读身份与完整路径悬停；仅重排文件信息与正文 | 是 | 已断言**只读身份（两个锁图标）＋悬停说明含完整路径＋切单双栏不动工具栏**＋**文件栏中栏与行号中栏同宽**（`§7.7 比较视图明确只读身份、文件栏悬停含完整路径、切单双栏不移动工具栏`，第 230 轮）。**第 250 轮补齐"单栏上下排列"**（`§7.7 单栏文件栏把来源与目标上下排列、路径跟随来源；双栏并排且都标只读`）：双栏（实测 `side-by-side`）来源 386–733、目标 826–1173 并排同高，文件栏中栏 93 与正文行号中栏逐值相同；单栏（`unified`）两者左边缘同为 386、目标顶边（152）≥ 来源底边（152）、宽度同为 787，文件栏变成**两行**（`grid-template-rows` 两轨）；两种模式下来源文字含 `HEAD`（基准）、目标含 `工作区`（当前）、路径节点都在来源一侧、两侧各一个只读锁；切回双栏几何与初始**逐值相同**（只重排文件信息与正文） |
-| 8 | §7.7 | 到达首/尾变更块后再按同方向只显示"再次点击可进入上一个/下一个文件"，再按才切换；首次提示不查询、不移动正文、不循环 | 是 | 已断言**两段式**（`src/Modified.cs`：到尾部块后再按同方向才出提示、`path` 不变）与**再按才切换 + Enter/Space 继续定位**（`§7.9 首/尾边界两段式…`，`diff-boundary` 场景）。**第 251 轮补齐"首次提示不查询、不移动正文"**：`§7.7 首次边界提示不查询 Git、不移动正文（首次提示与已定位后都如此）`——在**长差异**（`src/LongDiff.cs`，120 行上下文）先把正文滚到 40px，再按两次「下一处差异」：第一次定位到块首（`scrollTop` 40 → 2490、索引 0、**不查 Git**），第二次出提示时 `git/diff`／`status`／`history` 调用数与文件读取数**一个都没增加**，滚动位置、首行文本、正文区矩形、导航索引与路径逐值不变，提示文案为「再次点击可进入下一个文件」；末尾方向不循环（见第 10 行的首/尾局部说明）。**一处观察登记（待用户口径）**：提示按视觉稿的 `position: absolute` 贴在正文**内容**顶部（`top: clamp(8px, 292px, …)`、偏移父级是滚动容器 `.diff-boundary-columns`）⇒ 长差异滚到边界块后提示可能落在可视区之外（视觉稿的 `diff-boundary` 场景是短差异，没有覆盖这一情形）。是否改为吸附在可视区需用户定 |
+| 8 | §7.7 | 到达首/尾变更块后再按同方向只显示"再次点击可进入上一个/下一个文件"，再按才切换；首次提示不查询、不移动正文、不循环 | 是 | 已断言**两段式**（`src/Modified.cs`：到尾部块后再按同方向才出提示、`path` 不变）与**再按才切换 + Enter/Space 继续定位**（`§7.9 首/尾边界两段式…`，`diff-boundary` 场景）。**第 251 轮补齐"首次提示不查询、不移动正文"**：`§7.7 首次边界提示不查询 Git、不移动正文（首次提示与已定位后都如此）`——在**长差异**（`src/LongDiff.cs`，120 行上下文）先把正文滚到 40px，再按两次「下一处差异」：第一次定位到块首（`scrollTop` 40 → 2490、索引 0、**不查 Git**），第二次出提示时 `git/diff`／`status`／`history` 调用数与文件读取数**一个都没增加**，滚动位置、首行文本、正文区矩形、导航索引与路径逐值不变，提示文案为「再次点击可进入下一个文件」；末尾方向不循环（见第 10 行的首/尾局部说明）。**一处观察已结案（不适用，无待决口径）**：提示按视觉稿的 `position: absolute` 贴在正文**内容**顶部（`top: clamp(8px, 292px, …)`、偏移父级是滚动容器 `.diff-boundary-columns`）⇒ 长差异滚到边界块后提示可能落在可视区之外（视觉稿的 `diff-boundary` 场景是短差异，没有覆盖这一情形）。该提示是 Augit 自有表面：权威没有"到边界给局部提示"的等价物，规格与视觉稿基线就是"贴在内容顶部" ⇒ 归**不适用**（`ui-classification.md` §6），**不引入吸附行为** |
 | 9 | §7.7 | 跨文件同步 Changes 选中路径、标签身份与文件计数，保留复选/草稿/其他标签/几何；查询期间禁用差异箭头而文件箭头仍可用；旧结果不覆盖新选择 | 是 | `④ 只提交勾选…` 不适用；有 `跨文件` 相关块覆盖标签身份与计数。**第 249 轮补齐查询期间的禁用矩阵并挂出并修掉两处真实缺陷**：`§7.7 跨文件查询期间禁用差异箭头、文件箭头与 Changes 仍可改选`——把切相邻文件的差异查询拖到 2.5 秒后取样：「上一处差异／下一处差异」**禁用且写明原因**、「上一个文件／下一个文件」**仍可用**、忽略空白/双栏/单栏/设置也不禁用；在途时 Changes 列表仍可勾选（`notes/draft.txt` false → true）与改选（选中路径变化）；查询结束后落到相邻文件（`2/3 个文件`），用户勾选、标签数与正文区/轨道/侧栏/标签条几何逐值不变，且**不恢复旧定位**（新正文 `data-diff-index` 为空）。**缺陷一**：`liveDiffView` 的加载分支原先把**文件箭头也禁用**（`fileNavBusy`），与规格"文件箭头和 Changes 仍允许改选"相反 ⇒ 改成只禁用差异箭头；**缺陷二**：`moveDiffFile()` 这条路径**不设加载标记** ⇒ `live.diffLoading` 永远为假，加载分支（禁用差异箭头＋文件标题行提示）在工作区 Diff 的文件切换上根本不可达 ⇒ 现在切换前后 `scheduleDiffLoadingMarker()`／`clearDiffLoadingMarker()` |
 | 10 | §7.7 | `Esc` 关闭边界提示并撤销待跨文件状态；改方向/选文件/切模式/隐藏/关闭/重载/改布局同样撤销；首尾不循环 | 是 | **第 251 轮补齐整张撤销矩阵并挂出并修掉三处真实缺陷**：`§7.7 边界提示的撤销矩阵：Esc/改方向/选文件/切模式/重载/布局/关闭都撤销待跨文件状态`（每条路径各开一个全新场景：先按两次同方向做出提示，再施加撤销动作，然后**再按一次同方向**核对行为）——正对照：不改任何东西时第二次同方向点击切到相邻文件（`2/3 个文件`）；`Esc`／选择文件／重新加载后 `live.diffBoundaryHint` 为 null、提示节点为 0，且下一次同方向点击**重新给提示**（不直接跨文件）；切显示模式／改变窗口布局（工具窗口入口）后状态与节点同样清掉，下一次点击至多重新定位、绝不跨文件；关闭 Diff 后状态清掉且正文回到无文档态；改方向时不沿用旧方向（待跨文件方向跟着最新一次走，且绝不因此跨文件）。**§7.7 列表首尾没有相邻文件时只显示已到首/尾的局部说明、不循环整个列表`**：首个文件上按「上一处」到边界后再按一次 ⇒ `atEnd` 局部说明「已到改动列表的首个文件」、路径仍是 `src/App.cs`（没有回卷到末尾）；末尾文件对称 ⇒ 「已到改动列表的最后一个文件」、路径仍是 `notes/draft.txt`。**缺陷一**：撤销矩阵此前**只覆盖"再按同方向"一条路径**——`Esc`、选文件、切模式、重载、改布局、关闭都不清 `live.diffBoundaryHint`（DOM 会被重绘抹掉，状态却留着 ⇒ 再次同方向点击**直接跨文件**）；现加 `clearDiffBoundaryHint()` 并接到 `Esc`（只在真有提示时消费）、`loadDiff`、`selectChangeRow`、`applyRailAction`、窗口 resize、`activateTab`、`closeDiff`。**缺陷二**：列表首/尾没有相邻文件时只是静默清掉提示，没有规格要求的"已到首/尾"局部说明；现复用同一提示位显示「已到改动列表的首个/最后一个文件」。**缺陷三**：`diff-boundary` 场景的**样例**提示节点被注入了**实时**正文（`live.diffBoundaryHint` 为 null 时 DOM 里仍有一条「再次点击可进入下一个文件」，直到第一次交互才被清掉）⇒ 样例标记只在静态视觉稿注入（`&& !live`） |
 | 11 | §7.7 | 双栏行号与变更连接区固定，左右正文同步垂直滚动 | 是 | **第 306 轮实现并断言（关闭 T10）**。① **同步垂直滚动**：长差异场景（新增桩 `src/LongDiff.cs`，120 行上下文）滚 60px 后左右正文与中栏行号的位移逐值相同（`§7.7 双栏左右正文与中栏行号在同一滚动容器中同步位移`，第 230 轮）；② **逐行槽底**（新断言 `§7.7 中栏逐行槽底按变更块类型取全强度 DIFF_* 色、只填有行的那一侧，且行号与正文逐行对齐`）：注入三种块形状（纯删除 2 行／纯新增 1 行／一次替换）后，删除块旧侧两格 `rgb(214,214,214)`、新增块新侧 `rgb(190,230,190)`、替换块两侧 `rgb(194,216,242)`（浅色主题下的 `#D6D6D6`／`#BEE6BE`／`#C2D8F2` 全强度），上下文行与"该侧没有行"的格子透明；中栏每格高 22px 且与对应正文行同顶；③ **变更连接区**（新断言 `§7.7 中栏变更连接区：每块一个无边框梯形，按两侧行范围收放，单侧空范围收成尖角；单栏不画`）：三个块各一个 `clip-path` 梯形、`border` 四边 0、颜色同槽底，覆盖范围 = 各自行区间（9 行中的 11.11%/22.22% 等），纯删除块右边缘收成 50% 尖角、纯新增块左边缘收成尖角、替换块左右各占一半形成斜边，单栏模式下连接区与槽底都为 0。**同轮修掉一个真实缺陷**：实时差异的行号槽此前是"逐行两格 + 每格 8px 内距"的自动行 ⇒ 实测行高 85px、与正文 22px 完全错位（静态样例靠 `<div>`＋`<br>` 的行内文本流对齐，因此一直没暴露）；新增 `.diff-gutter-live`（三列 + `grid-auto-rows` + 顶部 8px、格子内距归零）后逐行对齐。权威 `DiffLineMarkerRenderer.drawMarker()`／`DiffDividerDrawUtil.DividerPolygon`（`nui-behavior/08-diff-merge.md` §2.3），用户裁决 2026-09-28 取"按权威实现" |
@@ -1283,7 +1283,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 ## 3. 差异与未覆盖（逐条）
 
-### 0.1 本轮验证汇总与剩余未闭环项（2026-09-21，最后一批改动之后重跑）
+### 0.1 验证汇总与未执行项（2026-09-21 第 89 轮历史快照；当前口径见 §0／§2.3／§3.7）
 
 | 闸门 | 命令 | 本轮读数 |
 | --- | --- | --- |
@@ -1291,18 +1291,18 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 外壳单测 | `dotnet test tests/Augit.Shell.Tests` | **74/74** |
 | 核心单测 | `dotnet test tests/Augit.Core.Tests` | **86/86** |
 | C# 单测（基础设施：搜索/Git/终端/设置） | `dotnet test tests/Augit.Infrastructure.Tests` | **175/175**（第 90 轮补录） |
-| 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **1014/1014（未执行 0 项）**（2026-09-21 本轮重跑，摘要行 `live-shell 通过 1014 项断言`） |
+| 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **2373/2373（未执行 0 项）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本行原记 1014/1014，是 2026-09-21 第 89 轮的历史读数） |
 | 真机全场景巡检 | `verify-acceptance.ps1` | **54/54 PASS（干净仓库）** + `diff-boundary` **1/1**（含改动工作区） |
 | 打包 | `tools/release.ps1` | zip **2,795,619 B** / setup **4,386,825 B** / `sha256sum -c` **两项 OK** / 包内 32 条目 0 可疑 / 包内 `live-data.js` 与仓库**逐字节相同** |
-| 交互基线 | `check-interactions.cjs` | `INTERACTIONS_BASELINE_OK`（surfaces 6 / jumps 4 / feedback 8 / sequences 6 / gaps 4；CHECKED 18） |
-| 文档数字自洽 | `check-doc-claims.cjs` | `DOC_CLAIMS_OK`（§2.0 分节之和 = 合计、逐块计数一致） |
+| 交互基线 | `check-interactions.cjs` | `INTERACTIONS_BASELINE_OK`（surfaces **7** / jumps 4 / feedback 8 / sequences 6 / gaps 4；CHECKED 18。本行原记 `surfaces` 为 6，是 2026-09-21 的旧读数，现按 `docs/baselines/pycharm-interactions.json` 实测订正） |
+| 文档数字自洽 | `check-doc-claims.cjs` | `DOC_CLAIMS_OK`（§2.0 分节之和 = 合计、逐块计数一致、§2.3 登记值与脚本/规格计数一致） |
 | 共享资源一致 | `verify-ui-assets.ps1` | **PASS** |
-| 脚本编码 | `verify-script-encoding.ps1` | **PASS（12 个脚本）** |
+| 脚本编码 | `verify-script-encoding.ps1` | **PASS（14 个脚本）**（本行原记 12 个，是 2026-09-21 的旧读数；现按同口径实测订正） |
 | 像素逐页表 | `gen-coverage-table.cjs` | 55 行，生成幂等；偏高项复核样例 `repository-search`（heatmap 入仓） |
 
-**明确未闭环（不在上表"通过"之列）**：
+**未执行项与真实边界（不在上表"通过"之列；全部已归类，不是待办）**：
 
-1. **⑦⑧ 逐页 PyCharm 对照：33/55 面级 + 5 页入口级 + 17 页未对照**（本次会话**未完成**，数字与逐页原因见 §1.6）——
+1. **⑦⑧ 逐页 PyCharm 对照：33/55 面级 + 5 页入口级 + 17 页未对照**（该次会话未完成；**这 17 页一律未完成真实前台取证**，逐页原因与五类最终归类见 §1.6／§3.7，本项不读成"已完成对照"）——
    **订正**：原句为"目前只有 2 个面（主窗口 chrome、设置对话框）与设置对话框内部几何；48 个视觉稿页面的逐页对照表尚未产出"，
    属**第 71 轮之前的过时摘要**：主窗口 chrome 与设置对话框之外，§1.3 自身的逐面表已有 A–I 九个带实测值的面，
    55 行逐页对照表也已由 `tools/audit/gen-pycharm-coverage.cjs` 产出（第 311 轮复核：生成器重跑与 §1.6 **逐行相同**、
@@ -1361,21 +1361,21 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 
 | 结论类别 | 行数 | 含义与下一步 |
 | --- | ---: | --- |
-| E 不适用（Augit 无该界面/能力，按产品边界不实现） | 1 | 已在归类总表 §6 登记，不需补断言（需用户认可） |
+| E 不适用（Augit 无该界面/能力，按产品边界不实现） | 1 | 已在归类总表 §6 登记，不需补断言（**用户裁决 2026-09-28 已认可"不适用"**） |
 
 | 小节 | 条文 | 状态 | 结论类别 | 缺什么（原文摘录） |
 | --- | --- | --- | --- | --- |
 | §2.6 | §7.9 | 不适用 | E 不适用（Augit 无该界面/能力，按产品边界不实现） | 该对话框 Augit **不实现**：选择比较目标用引用树（「与当前分支比较」/「比较分支」）＋日志筛选，没有"列出分支/标签/提交"的对话框。与 §3.10 同一口径（产品边界内不新增界面），第 225 轮按此登记；**用户裁决 2026 |
 
-> **口径**：本表**只做归类**，不改写任何条文的状态；"实现已有、仅缺断言"这一类是下一步补断言的队列，
-> "未覆盖"那一类要么补断言、要么按纪律交用户裁决，**不写成通过**。
-### 3.1 尚未执行的验证（不是已知缺陷）
+> **口径**：本表**只做归类**，不改写任何条文的状态。**当前分母 1 行已收口**（唯一一行是已获用户认可的"不适用"）；
+> 历史轮次里"要么补断言、要么按纪律交用户裁决"的队列已在本表与 `ui-classification.md` §7／§9 逐条关闭，不再有需要用户裁决的项。
+### 3.1 未执行的验证与真实边界（不是已知缺陷；每一项都有最终归类）
 
 | 项 | 现状 | 计划 |
 | --- | --- | --- |
 | 系统取消 / 捕获转移 / DPI 变化结束拖动 | 未自动化（只覆盖 Esc / 鼠标松开） | 需要真机 DPI 变化与捕获转移注入，ROI 低；真机 chrome 脚本已覆盖窗口级缩放 |
-| Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 |
-| **⑦⑧ 的 17 个未对照 PyCharm 页面（跨 IDE 采集）** | **第 311 轮（2026-10-01）未执行，本轮复查后仍未取证**：第 311 轮当次探针 `Get-Process` 按 `charm\|jetbrains\|jbr` 匹配零命中、只读 UI Automation 顶层窗口里没读到 PyCharm，该轮据此**一页未采**；**这两个"零命中"本轮复查不可复现** —— `pycharm64.exe` **PID 20504 正在运行**、顶层窗口 `SunAwtFrame` 标题 `Augit – verify-ux-blame.cjs`（项目根 `D:\github\Augit`），复查读数为窗口**最小化**、前台是其它应用（窗口状态会变化，可复跑命令见 §3.6）。**运行/最小化 ≠ 已完成取证**：本轮未发送任何真实前台输入，§1.6 的 17 页一行都没有新证据。逐页分档与原因见 §1.6（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）；只读观测与订正的完整记录见 §3.6 | 需要 PyCharm 在前台：`RECOVERABLE` 2 页按既有配方可采；`MEDIUM_BLOCKED` 9 页需要一次**真实（非合成）激活通道**（人工点击或真实输入驱动）才能过"`Annotate` / `Show History` / `Find in Path` 条目激活"这一步；`PRECONDITION` 5 页需先在临时副本里造真实冲突/本地改动/stash。**这 17 页的最终归类属产品口径，需用户确认**；其中 9 页的 `MEDIUM_BLOCKED` 是跟踪标签、**不等于** `ui-classification.md` §0 的"无法取证"（本地权威 checkout 存在，缺的是前台输入通道） |
+| Windows 10 22H2 实机 | 未覆盖（本机为 Windows 11） | 需要第二台环境 ⇒ 归**无法取证**（无实机条件；`ui-classification.md` §5），只登记 Windows 11 x64 结果，**不宣称完成 Windows 10 验证** |
+| **⑦⑧ 的 17 个未对照 PyCharm 页面（跨 IDE 采集）** | **第 311 轮（2026-10-01）未执行，本轮复查后仍未取证**：第 311 轮当次探针 `Get-Process` 按 `charm\|jetbrains\|jbr` 匹配零命中、只读 UI Automation 顶层窗口里没读到 PyCharm，该轮据此**一页未采**；**这两个"零命中"本轮复查不可复现** —— `pycharm64.exe` **PID 20504 正在运行**、顶层窗口 `SunAwtFrame` 标题 `Augit – verify-ux-blame.cjs`（项目根 `D:\github\Augit`），复查读数为窗口**最小化**、前台是其它应用（窗口状态会变化，可复跑命令见 §3.6）。**运行/最小化 ≠ 已完成取证**：本轮未发送任何真实前台输入，§1.6 的 17 页一行都没有新证据。逐页分档与原因见 §1.6（MEDIUM_BLOCKED 9 / RECOVERABLE 2 / PRECONDITION 5 / AUGIT_ONLY 1）；只读观测与订正的完整记录见 §3.6 | 需要 PyCharm 在前台：`RECOVERABLE` 2 页按既有配方可采；`MEDIUM_BLOCKED` 9 页需要一次**真实（非合成）激活通道**（人工点击或真实输入驱动）才能过"`Annotate` / `Show History` / `Find in Path` 条目激活"这一步；`PRECONDITION` 5 页需先在临时副本里造真实冲突/本地改动/stash。**这 17 页的最终归类已按 §3.7 收口**：其中 9 页的 `MEDIUM_BLOCKED` 是跟踪标签、**不等于** `ui-classification.md` §0 的"无法取证"（本地权威 checkout 存在，缺的是前台输入通道）；归类依据是本地权威源码 + 实现位置 + 自动化证据，**这 17 页仍一律未完成真实前台取证**（逐页原因与五类归类见 §3.7） |
 | ~~终端输入与大输出真机验证~~ | **全部验成（第 364–367 轮）**：输入链路在真机通过（`INPUT-PROBE-OK` 的输入→回显→输出→新提示符）；~4.8 MB 洪泛后的永久冻结**已定位并修好**（见 §3.2 第 15 条：根因是逐次裁剪的二次成本，改成摊销后同一探针 **6 秒**内读回 `AFTER-TRIM-SENTINEL` 与新提示符） | 无剩余计划项 |
 | ~~Editor › Font 页面正文未抓到~~ | **已抓到（第 391 轮）**：`artifacts/pycharm-16-final/editor-font.png`（面包屑 `Editor › Font`：Font `JetBrains Mono`、Size `13.0`、Line height `1.2`、☐ Enable ligatures、▸ Typography Settings、实时预览；**本页没有 Fallback font 字段**）、`console-font.png`（`Editor › Color Scheme › Console Font`：Font `JetBrains Mono`、Fallback `<None>`、Size `13.0`、Line height `1.2`、☑ Show only monospaced fonts）、`color-scheme-font.png`（同构）、`tree-bottom.png`（树底：Tools → Backup and Sync → **Advanced Settings**，树到此为止） | 采集方法已写进基线 `navigationRecipe`：**搜索 `font` → 点树 → Home → Down×10（Font）/×13（Console Font）**；不要用坐标点击（树随选中滚动）也不要从"当前选中"起算（搜索后的选中项随状态变化）。此前记的 7 项（System Settings / File Colors / Scopes / Notifications / Data Editor and Viewer / Quick Lists / Required Plugins）**在本版本树里不存在**（树底已到 Advanced Settings） |
 
@@ -1389,7 +1389,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
    宿主 `ApplicationSettings` 也没有对应字段。用户 2026-09-19 裁决：**从设置页去掉这一行，
    只保留正文查看时的自动换行**（即维持现状）。核对结果：实现里本来就没有这一行
    （`settingsPageHtml("file-view")` 只有等宽字体/字号，正文工具栏上是「自动换行」按钮），
-   因此**无需改代码**，只需把该条从"待裁决"改为"已裁决 + 不实现"，并同步
+   因此**无需改代码**：该条已从"待裁决"改为"已裁决 + 不实现"，并已同步
    `pycharm-interactions.json` 的 `decisions.default_wrap_conflict`。
 3. **设置页"未保存修改"标记与分组折叠（PyCharm 实测差异，已裁决）** —— 用户 2026-09-19 裁决：
    **只补未保存标记，不做分组折叠**。标记已实现（分类行上的实心圆点，复用 `--augit-blue`；
@@ -1805,7 +1805,8 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
   9 页 `MEDIUM_BLOCKED` 卡在**输入/可访问性通道**，不是"本机没有 PyCharm"。
 - **边界**：窗口存在、只是最小化，**都不等于**完成取证。本轮**未做任何真实前台输入**：没有激活窗口、
   没有发送按键、没有改动 PyCharm 设置或仓库文件。因此 §1.6 的 17 页**一行都没有新证据**，
-  这 17 页仍按 §3.7 的分档保留在"未对照"。
+  **这 17 页一律未完成真实前台取证**（9 页卡合成输入/可访问性通道、2 页没去采、5 页缺前置状态、
+  1 页 PyCharm 无对应页面），仍按 §3.7 的分档保留在"未对照"。
 
 **可复跑命令（只读；不启动、不关闭、不激活任何应用）**：
 
@@ -1828,7 +1829,7 @@ Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] publi
 foreach ($w in $sun) { "ISICONIC=$([W.U]::IsIconic([System.IntPtr]$w.Current.NativeWindowHandle))" }
 ```
 
-### 3.7 ⑦⑧ 的 17 页未对照：分档小计与标签沿革（第 311 轮如实记录）
+### 3.7 ⑦⑧ 的 17 页未对照：分档小计、未取证事实与五类归类（第 312 轮收口）
 
 **分档小计**（第 311 轮按 §1.6 的表逐行**机械核对**，与 §0.2 的摘要同步；55 = 33 面级 + 5 入口级 + 17 未对照）：
 
@@ -1853,15 +1854,33 @@ foreach ($w in $sun) { "ISICONIC=$([W.U]::IsIconic([System.IntPtr]$w.Current.Nat
 但那两轮**只改了表、没同步 §0.2 的摘要**，摘要一直停在"三分类（RECOVERABLE 10 / PRECONDITION 6 / AUGIT_ONLY 1）"。
 第 311 轮据此订正 §0.2 与 §1.4 的 C 线行。**分档只回答"为什么没采"，不改变 33/55 的面级覆盖数。**
 
-**`MEDIUM_BLOCKED` 不等于"无法取证"（需用户确认归类）**：
+**`MEDIUM_BLOCKED` 是取证过程标签，不是最终归类**：
 `ui-classification.md` §0 的"无法取证"定义是"权威材料不在本地 checkout、或权威自己写明已搬迁"；
 而本地权威 checkout `D:\github\intellij-community` **存在**（`Test-Path` 实测 True），
 这 9 页缺的是"IDE 在前台 + 真实（非合成）输入通道"，属**工具/环境**限制。
-`MEDIUM_BLOCKED` 是第 427/442 轮引入的**跟踪标签**，不在 `ui-classification.md` §0 的五个归类内，
-因此这 9 页（以及其余 8 页）的最终归类**留给用户拍板**，本文档不代裁。
+`MEDIUM_BLOCKED` 是第 427/442 轮引入的**跟踪标签**，不在 `ui-classification.md` §0 的五个归类内。
+**这 17 页一律没有完成真实前台取证**：`MEDIUM_BLOCKED` 9 页的前台证据是零（窗口只是存在/最小化，§3.6 未发任何真实输入）、
+`RECOVERABLE` 2 页只是配方明确但没去采、`PRECONDITION` 5 页缺真实冲突/本地改动/stash 前提、`AUGIT_ONLY` 1 页在 PyCharm 里没有对应页面。
+**没有截图就是没有截图**：下表的最终归类**不来自**PyCharm 面级取证，而来自本地权威源码、
+Augit 实现位置与自动化证据；不得把本表读成"已完成 17 页对照"。
+
+**17 页分档到五类最终归类（第 312 轮收口）**：下表把"为什么没有完成 PyCharm 面级采集"和"按本地权威源码 + 实现位置 + 自动化证据应如何归类"明确分开；“已按 New UI 对齐”**只表示**该归类已由本地权威源码、实现位置和自动化证据闭合，等于 `ui-classification.md` 的对应行，**不宣称**本轮取得了未完成的真实前台交互截图。
+
+| 取证分档 | 页面 | 真实前台取证 | 最终归类（与 `ui-classification.md` 一致） | 结论依据 |
+| --- | --- | --- | --- | --- |
+| `MEDIUM_BLOCKED` | `blame`、`clone`、`file-history`、`operation-result`、`remote`、`repository-init`、`repository-search`、`workspace-open` | **未完成真实前台取证**（窗口在运行但已最小化，合成输入对 Swing 菜单/弹层条目不可达，本轮未发真实输入；见 §3.6） | **已按 New UI 对齐** | 本地 `intellij-community@576e328` 对应源码已定位；Augit 有实现位置和 E1/E2/E5 证据（分别见 `ui-classification.md` §2.14/§2.15/§2.23/§2.25/§2.26/§2.31、`14-file-history-blame.md`、`17-repository-init-search.md`）。这里**只登记归类**，不等于完成了 PyCharm 面级取证。 |
+| `MEDIUM_BLOCKED` | `operation-progress` | **未完成真实前台取证**（同因：需一次真实操作触发，入口多在弹层内） | **有意产品差异** | 用户 2026-09-28 裁决：Augit 不实现权威模态 `ProgressWindow` 的进度条，只实现规格要求的进行中禁用、取消和结果提示；依据 `16-operation-progress.md` §3、`ui-compliance.md` §3.2 第 34 条。 |
+| `RECOVERABLE` | `changes-context-menu` | **未完成真实前台取证**（入口与配方明确，只是没采；需工作区先有改动） | **已按 New UI 对齐** | 权威菜单顺序和启用条件已由 `check-changes-context-menu.test.cjs` 与 E1 断言闭合（`ui-classification.md` §2.8）；本轮只未重复执行真实 PyCharm 菜单点击。 |
+| `RECOVERABLE` | `image-error` | **未完成真实前台取证**（需先造损坏图片样本；且权威侧无本地材料） | **无法取证** | 用户第 211 轮裁决：本地 checkout 没有图像查看器权威，只按视觉稿＝运行时内部一致性维护；不得声称与 PyCharm 对齐（`ui-classification.md` §2.5）。 |
+| `PRECONDITION` | `conflict-list`、`conflict-resolver`、`reset`、`stash-drop-confirm`、`stash-manager` | **未完成真实前台取证**（真实前置状态——冲突、本地改动、stash——本轮未在用户工作区制造） | **已按 New UI 对齐** | 本地权威行为、Augit 实现和 E1/E4 证据已闭合，具体入口与安全前提见 `ui-classification.md` §2.19/§2.20/§2.28/§2.29、`13-git-dialogs.md`、`08-diff-merge.md`。 |
+| `AUGIT_ONLY` | `git-unavailable` | **未完成真实前台取证**（PyCharm 里没有这个显式降级页面，"未对照"是概念差异而非欠采） | **不适用** | PyCharm 只是隐藏/禁用 VCS 入口；Augit 的显式 Git 不可用页面是产品自身状态表达，入口禁用与原因提示已有 E1 证据（`ui-classification.md` §2.32）。 |
 
 **本轮收口记录**：
-- `check-doc-claims.cjs` 仍聚焦 §2.0／§2.8／§1.1 的分母检查；新增的定向测试重生成 §1.6 临时副本、
+- 上述归类**不来自 PyCharm 面级取证**：17 页的真实前台取证一律未完成（逐行原因见表），
+  归类依据是本地权威源码（`intellij-community@576e328`）＋ Augit 实现位置 ＋ E1/E2/E5 自动化证据，
+  与 `ui-classification.md` 的对应行一致；`coverage-generator.test.cjs` 机械核对本表页名/分档与 §1.6 逐页一致、
+  每行都写明"未完成真实前台取证"、归类名取自 `ui-classification.md` §0.1 的五类。
+- `check-doc-claims.cjs` 除 §2.0／§2.8／§1.1 的分母外，还核对 §2.3 已验证快照的断言数与受登记文件 md5、脚本编码个数、§0 说明的 `check()` 调用点数与 `csCheck` 条数；`check-interactions.cjs` 核对 §0 的 `surfaces/jumps/feedback/sequences/gaps` 与 `CHECKED` 分解（本轮补，负向验证见 `ui-classification.md` §9 第 312 轮）；新增的定向测试重生成 §1.6 临时副本、
   排除唯一手写指针后逐行比较，并核对分类小计。结果为 **17 行 = 9 + 2 + 5 + 1**。`tools/audit/gen-pycharm-coverage.cjs` 的写回摘要已改为分别打印
   `covered`、`entry`、`uncovered`，避免把 5 个入口级页面重复算入未对照数；生成器输出在临时副本中的自动化断言见
   `tools/audit/coverage-generator.test.cjs`。
@@ -1870,4 +1889,3 @@ foreach ($w in $sun) { "ISICONIC=$([W.U]::IsIconic([System.IntPtr]$w.Current.Nat
   **33 面级 + 5 入口级 + 17 未对照**；§1.1／§1.4 的像素值与逐页行由定向测试逐场景机械比较。
   §1.4 的生成覆盖表之外还保留人工复核证据；生成标记仍缺失，
   所以 `--write` 被守卫拒绝。不得用 `--force` 丢弃人工证据；当前差异是有意保留的内容边界，不是未解释的待办。
-

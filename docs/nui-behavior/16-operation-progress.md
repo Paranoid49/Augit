@@ -41,7 +41,7 @@ Augit 侧有两处对应物：**提交侧栏的进行态**（`reflectWriteOperat
 | 结果提示不自动消失 | `setFadeoutTime(0)`（`ProcessBalloon.kt:115`） | `live.toast` 常驻，只有显式 `clearToast()`（重试成功等流程）才清除，没有自动隐藏计时器 | **本来就对齐** ✓ |
 | 提示的读屏语义 | 通知/气泡 | `liveToast()` 用 `role="alert"` | **本来就对齐** ✓ |
 
-## 3. 进度条的结论（第 226 轮重新评估；**待用户认可**）
+## 3. 进度条的结论（第 226 轮重新评估；用户 2026-09-28 已认可「有意产品差异」）
 
 `10-backlog.md` §三·补 第 2 项曾把进度条挂在"Smart Checkout 桥接缺失"上；第 206–207 轮已接线 ⇒
 前提消失，本节按权威重新评估。
@@ -58,7 +58,7 @@ Augit 侧有两处对应物：**提交侧栏的进行态**（`reflectWriteOperat
 （`reflectWriteOperation()`；第 154 轮已断言"取消一次性"），**没有模态进度窗口**——
 那是本册 §2 与 `10-backlog` 已登记的**有意差异**（"Augit 的写操作本就不阻塞查看，没有模态卡住需要转后台的场景"）。
 
-**结论（建议登记为「有意产品差异」）**：不给写操作补进度条。理由三条，都可复验：
+**结论（用户 2026-09-28 已认可登记为「有意产品差异」，T3 随之关闭）**：不给写操作补进度条。理由三条，都可复验：
 
 1. 进度条在权威里是**模态 `ProgressWindow`** 的构成；Augit 不实现该窗口（写操作非阻塞、可继续浏览），
    把它的子元素搬到侧栏状态行上属于**新增界面元素**，而 `ux-spec.md:699-701` 对"进行中"的要求只有
@@ -69,10 +69,10 @@ Augit 侧有两处对应物：**提交侧栏的进行态**（`reflectWriteOperat
 3. 视觉稿里的 68% 是**样例值**（`.progress-value { width: 68% }`），不是实测进度；`ux-spec.md:842`
    对该场景的要求是"重复动作不可触发；取消进入等待停止而不是立即报告成功"，同样不含进度百分比。
 
-**若用户希望保留该元素**，最小权威对齐做法是：在侧栏状态行插入 `.progress-track` ＋
+**（未采用的备选）若用户改判要保留该元素**，最小权威对齐做法是：在侧栏状态行插入 `.progress-track` ＋
 `data-progress="indeterminate"` 的 `.progress-value`，取色用 `trackColor` = `control-bg-small`
 （浅 `#DDDFE4`／深 `#40434A`）与 `progressColor` = `control-brand-bg`（= 现有 `--augit-accent-brand`），
-并按 `indeterminateStartColor`→`indeterminateEndColor`（`#A7C5FF`→品牌色）做渐变扫动；几何沿用视觉稿的 4px 高。
+并按 `indeterminateStartColor`→`indeterminateEndColor`（`#A7C5FF`→品牌色）做渐变扫动；几何沿用视觉稿的 4px 高。该备选**不在当前范围内**（用户已认可"有意产品差异"），仅在改判时启用。
 
 ## 3bis. 另两项登记（第 154/225 轮，维持原结论）
 

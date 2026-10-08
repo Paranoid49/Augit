@@ -343,6 +343,7 @@ INSERTED／DELETED／MODIFIED），连接区列 14px、用 `clip-path: polygon(.
 | `--augit-file-modified` | `#0033B3` | `#70AEFF` | `FILESTATUS_MODIFIED` |
 | `--augit-file-deleted` | `#6C707E` | `#6F737A` | `FILESTATUS_DELETED` |
 | `--augit-file-conflict` | `#DE1B2E` | `#DE6A66` | `FILESTATUS_IDEA_FILESTATUS_MERGED_WITH_CONFLICTS` |
+| `--augit-file-unknown` | `#B23247` | `#E88F89` | `FILESTATUS_UNKNOWN`（未跟踪/未知） |
 | `--augit-status-clean` | `#1F7536` | `#57965C` | `VersionControl.Merge.Status.NoConflicts.foreground`（Green2 / Green6） |
 
 接线：`.diff-code-line.added/.removed/.changed`（整行底）、`.diff-code-line.<kind> mark`（行内层，`mockup.js` 的 `marked()` 用宿主 `oldChanges`／`newChanges` 包 `<mark>`）与 `.file-status-added/.file-status-modified/.file-status-deleted`。**新增了此前缺失的 `.file-status-added` 与 `.file-status-deleted` 两条规则**——这两个类名由 JS 产出（各 6 处）但原先没有颜色规则，靠继承。
@@ -384,9 +385,7 @@ INSERTED／DELETED／MODIFIED），连接区列 14px、用 `clip-path: polygon(.
   （否则切显示模式／切相邻文件／外部刷新三条重载路径都会丢掉这个会话选项）；
   新增「忽略空白」点击处理（切换 `live.diffOptions.ignoreWhitespace`、写 `aria-pressed`/`active`、强制重查）
   与「设置」点击处理（按应用既有约定打开设置对话框，与提交框的「提交设置」同一入口）；
-- **「查找」在 Diff 正文上尚未实现**：共享查找条 `current-find.js` 只服务 `.document-view > .code-view`，
-  因此按项目既有做法把它渲染在规格位置但**禁用并写明原因**（`title="当前版本暂不支持在 Diff 正文中查找"`），
-  不留死入口；视觉稿里该按钮同样没有行为。是否投入 Diff 正文查找待用户口径。
+- **「查找」在 Diff 正文上已实现**（第 308 轮，T15 关闭）：共享查找条 `current-find.js` 的 `bindDiffFind()` 把匹配规则与开关接到差异正文，工具栏「查找」不再是禁用入口（当时按项目既有做法渲染在规格位置但禁用并写明原因的做法**已作废**）；归类见 `ui-classification.md` §2.9 与 `ui-compliance.md` §7.7 第 5 条。
 
 实测（dark，工作区 Diff `src/App.cs`）：按钮 DOM 顺序 = 规格九项；文件计数 `1/3 个文件` 夹在两个文件箭头之间；
 真实 Tab 序列 `下一处差异 → 上一个文件 → 下一个文件 → 忽略空白 → 双栏 → 单栏 → 设置`；

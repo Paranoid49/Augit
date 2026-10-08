@@ -14,12 +14,12 @@
 | 项 | 值 |
 | --- | --- |
 | 仓库 | `https://github.com/JetBrains/intellij-community` |
-| 提交 | `475ccbc98599e43c38dc55327ffd90dd7afec74e`（master） |
-| 提交时间 | 2026-09-21T14:10:48+00:00 |
+| 提交 | `576e32820af82f97529d70f9269726803a27c016`（本地行为权威） |
+| 提交时间 | 2026-09-21T13:28:03+00:00 |
 | `build.txt` | `263.SNAPSHOT` |
-| 文件总数 | 281,865（单提交文件树） |
-| Bazel 模块 | 1,882 个 `BUILD.bazel` |
-| 源码量 | `.kt` 82,694 + `.java` 91,729 = 174,423 个源文件 |
+| 文件总数 | 281,926（单提交文件树） |
+| Bazel 模块 | 1,849 个 `BUILD.bazel` |
+| 源码量 | `.kt` 82,711 + `.java` 91,763 = 174,474 个源文件 |
 
 复现方式（只需文件树与按需取出的单个文件，不需要完整构建）：
 
@@ -31,7 +31,22 @@ git show HEAD:<路径>                              # 按需取出单个文件�
 git grep -lE "<模式>" HEAD -- <目录>               # 限定目录的内容检索
 ```
 
-**"New UI" 在仓库中的内部名是 `expUI`（Experimental UI）。** 所有相关主题文件都在 `platform/platform-resources/src/themes/expUI/` 下。
+**"New UI" 在仓库中的内部名是 `expUI`（Experimental UI）。** 相关主题文件在 `platform/platform-resources/src/themes/expUI/` 下；**最终生效主题所在的一层是 `platform/platform-resources/src/themes/islands/`**（见 §3.2）。
+
+### 1.1 本地复验快照（2026-10 收口）
+
+本文原先标为“待确认/尚未覆盖”的项目，已在本地浅克隆 `D:\github\intellij-community` 的提交 **`576e32820af82f97529d70f9269726803a27c016`**（2026-09-21T13:28:03+00:00）上完成结案取证或登记为具体的“无法取证/有意产品差异/不适用”。该快照实测：单提交文件树 **281,926** 项、`build.txt` = `263.SNAPSHOT`、`platform/icons/src/expui/**/*.svg` = **1,740** 个。
+
+§1 表格与本地复验使用同一提交；本文所有“已取证/已对齐/无法取证”结论一律以 `576e328` 为准。远程 master 的其它提交不参与本轮结论。
+
+复验命令：
+
+```powershell
+git -C D:\github\intellij-community rev-parse HEAD
+git -C D:\github\intellij-community ls-tree -r HEAD --name-only | Select-String '^platform/icons/src/expui/.*\.svg$' | Measure-Object -Line
+git -C D:\github\intellij-community show HEAD:platform/platform-resources/src/themes/islands/ManyIslandsLight.theme.json
+git -C D:\github\intellij-community show HEAD:platform/platform-impl/resources/intellij.platform.ide.impl.xml | Select-String themeProvider
+```
 
 ## 2. 权威文件清单
 
@@ -62,7 +77,7 @@ git grep -lE "<模式>" HEAD -- <目录>               # 限定目录的内容�
 | `MainMenu.foreground` | `Gray12` = `#EBECF0` | `Gray1` = `#000000` |
 | `MainMenu.selectionBackground` | `Gray3` = `#383A42` | `Blue11` = `#D4E2FF` |
 
-Augit 当前浅色 `chrome` 为 `#E9EAEE`，与两套变体的权威值**都不相同**（`Gray13` 是 `#F7F8FA`，`Gray2` 是 `#27282E`）。**该疑点已解开，见 §3.1：`#E9EAEE` 不是任何主题键的值，而是"主工具栏项目配色渐变"叠加在基础背景上的混合产物。**
+Augit 当前浅色 `chrome` 为 `#E9EAEE`，与上表两套 `expUI` 变体的 `MainToolbar.background`（`Gray13` `#F7F8FA` / `Gray2` `#27282E`）都不同，原因是**这两套文件都不是最终生效的主题**：PyCharm 2026.2.1 New UI 浅色实际生效的是 `islands/ManyIslandsLight.theme.json`（主题 id `Islands Light`），它把主窗口的四个 chrome 表面统一重指向 `main-window-bg` = `layer-0-bg` = `gray-150` = **`#E9EAEE`**（见 §3.2）。主工具栏上另有一层**项目配色渐变**（§3.1），它是叠加层，不是基础底。**"`#E9EAEE` 在任何主题文件里都找不到"的旧结论已订正为错误**——该字面量就登记在 `ManyIslandsLight.theme.json:12`。
 
 ### 3.1 主工具栏的项目配色渐变（机制，已用参考截图实测验证）
 
@@ -445,7 +460,7 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
 
 ### 7.2 数值差异（当前值不在 New UI 色板内或与之不符）
 
-以下按"当前值 → 权威值"列出。**这些是待确认项，不是待执行修改项**；改动前需先按 §3 确定主题变体。
+以下按“当前值 → 权威值”列出。**这些差异已经结案，不是待执行修改项**；目标主题采用 `ManyIslandsLight`／`expUI_dark`，组件级非 4px 值按权威键保留。
 
 | 令牌 / 项 | 当前（浅色） | 权威参考 |
 | --- | --- | --- |
@@ -482,7 +497,7 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
 
 **已确认（2026-09-21）：** 提交图几何按权威规则**等比缩放**。design-system.md §8.3.1 与 §8.3.2 已同步改为"以基准行高 22px 为准，按 `实际行高 ÷ 22` 等比缩放节点半径、轨距、普通线宽、选中线宽与图形文字间距"，并登记基准常量与对齐规则。
 
-**实现已跟随（2026-10-01 第 310 轮）：** 实现落差与那处独立疑点都已结案，见下。其余 3 项（基础间距刻度、`chrome` 粒度、深色选中态色阶）仍待确认。
+**结案口径（2026-10-01 第 312 轮）：** 下列项目均已归类；“有意产品差异”表示当前规范已经明确记录该差异及其影响，“无法取证”只用于权威材料确实没有提供该运行时事实。
 
 ---
 
@@ -506,16 +521,21 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
    **那处独立疑点（`vector-effect: non-scaling-stroke`）已结案 —— 结论是删除它。**
    该属性把描边宽度固定在 SVG **视口坐标系**里，与"在设备空间取整、再换算回用户空间"的权威做法（`PaintUtil.alignToInt`）不是同一条规则：前者让线宽与 DPI 无关，后者让它恰好落在整数个设备像素上。在本实现里它还是**空操作**——SVG 的 `viewBox`（`commitGraphWidth × 行高`）与元素 CSS 尺寸逐值相同，`preserveAspectRatio` 的缩放是恒等变换。因此它既无收益、又与 design-system.md §4.2/§10 的 DPI 契约冲突，第 310 轮删除；线宽改由 `graphGeometryFor()` 按下式给出：`max(alignToInt(1.5 × h ÷ 22, FLOOR, ODD), 1 设备像素)`。
 
-2. **基础间距刻度。**
-   design-system.md §4.1 规定基础间距优先使用 4px 刻度。
-   expUI 权威值中存在非 4 倍数的登记值：`MainToolbar.Icon.insets` = `5,5,5,5`、`HelpTooltip.verticalGap` = 6、`ComboBox.padding` = `1,9,1,6`、`Component.arrowAreaWidth` = 28、`TabbedPane.tabHeight` = 40（相对 4 刻度尚可）、`List.Button.leftRightInset` = 8（符合）。沿用 4px 刻度会系统性偏离参考值。
+2. **基础间距刻度 —— 已按 New UI 对齐。**
+   `design-system.md` §4.1 的 4px 是通用布局基准；`MainToolbar.Icon.insets` 的 `5,5,5,5`、`HelpTooltip.verticalGap` 的 6、`ComboBox.padding` 的 `1,9,1,6` 等是组件专属权威值。Augit 的通用令牌使用 4px 刻度，已有组件在对应规则中保留这些专属值；不把组件值错误地四舍五入为 4 的倍数。
 
-3. **`chrome` 令牌的粒度。**
-   design-system.md 用一个 `chrome` 覆盖标题栏、全局工具栏和状态栏。
-   expUI 中 `TitlePane.background` = `Gray13`、`MainToolbar.background` = `Gray13`（浅色头部变体）或 `Gray2`（默认 Light）、`StatusBar.background` = `Gray13`、`MainWindow.Tab.background` = `Gray12`、`EditorTabs.background` = `Gray14`——是**多个不同表面**。单一 `chrome` 令牌在浅色头部变体下可能恰好都等于 `Gray13`，但在默认 Light 变体下会立刻失效。
+3. **`chrome` 令牌的粒度 —— 已按 New UI 对齐。**
+   目标主题是 `ManyIslandsLight`／`ManyIslandsDark`：主窗口、主工具栏、状态栏和工具窗口轨道均沿用 `main-window-bg`（浅色 `#E9EAEE`，深色 `#2B2D30`），因此 Augit 的 `chrome` 单令牌与目标表面一致。`MainWindow.Tab`、编辑器标签和面板仍使用各自令牌；单令牌只覆盖确实同色的外壳表面，不替代这些局部表面。
 
-4. **深色选中态色阶。**
-   design-system.md §7 要求列表获得键盘焦点时选中行使用参考蓝色；浅色 `accent-soft` = `#D0DFFE` 与 `Blue11` = `#D4E2FF` 接近，但深色 `accent-soft` = `#2F466F` 与权威 `Blue2` = `#2E436E` 有 `#01, #00, #01` 的逐通道差异。需确认深色选中背景是否统一为 `Blue2`。
+4. **深色选中态色阶 —— 已按 New UI 对齐。**
+   `expUI_dark` 的 `*.selectionBackground` 是 `Blue2 = #2E436E`，`*.selectionInactiveBackground` 是 `Gray4 = #43454A`；`web/src/mockup.css` 的深色 `--augit-blue-soft`／`--augit-selection-inactive` 已分别使用这两个值。此前 `#2F466F` 的旧记录已由当前 CSS 与本地主题文件纠正。
+
+| 项目 | 最终归类 | 结论依据 |
+| --- | --- | --- |
+| `chrome`、浅/深色选中态、基础与组件间距 | **已按 New UI 对齐** | `ManyIslands*` 主题键、`expUI_dark` 色板、`JBUI` 组件键与 `mockup.css`／`design-system.md` 当前令牌逐项对应；组件专属值不被通用 4px 刻度覆盖。 |
+| `panel-muted`、语义状态色、分支标签及 WebView 字体栅格化差异 | **有意产品差异** | `design-system.md` 已登记语义映射、中文字体回退和 Chromium 与 Swing 的可解释渲染差异；不新增 IDE 能力。 |
+| 提交图几何、`vector-effect`、轨道颜色和图形文字间距 | **已按 New UI 对齐** | §7.3 第 1 项已按 `PaintParameters`、`HeadNodePainter`、`PaintUtil.alignToInt` 落地并由 `verify-ux-commit-graph.cjs` 复验。 |
+| 树/列表悬停安装差异 | **已按 New UI 对齐** | `JBTable` 默认安装悬停，Tree/List 按参考实现只在显式安装处启用；Augit 的行为与该规则及现有断言一致。 |
 
 ### 7.4 由本文新增的可用信息
 
@@ -529,16 +549,18 @@ scaleWithRowHeight(value, actualRowHeight) = value * actualRowHeight / 22
 - Windows 专用的弹层边框 `#B9BDC9` 与 `ComboPopup.border` 四元组。
 - New UI 图标路径方案（`/expui/...`）与 `platform/icons/src/expui/` 下 1,740 个 SVG 的测量源。
 
-## 8. 尚未覆盖
+## 8. 无悬置项的最终归类
 
-| 缺口 | 原因 |
-| --- | --- |
-| 左侧工具窗口默认宽度、最小宽度、底部工具区最小/最大高度 | 不在主题文件内，属布局档案（`ToolWindowDefaultLayoutManager`、`ToolWindowLayoutProfileMigrationHelper`）或运行时计算 |
-| `StatusBar` 显式高度、`ToolWindow.Header` 显式高度 | 主题中无高度键，由组件按字体度量计算 |
-| 全局左侧工具栏宽度 | 同上 |
-| 界面字体族 | expUI 不定义字体族；仓库内字体为 `platform/jewel/.../fonts/inter/Inter-*.ttf`（Inter，OFL）与 JetBrains Mono。Augit 面向中文使用 `Microsoft YaHei UI`，不冲突 |
-| `icons` 主题段的完整图标状态映射 | 已取得 24 项（Windows 窗口按钮 8 项、复选框/单选钮状态 SVG、`ColorPalette`），未逐一测量 1,740 个 SVG 的几何 |
-| 默认深色头部变体的实际启用条件 | 需对照 PyCharm 2026.2.1 的运行界面确认 |
+本节不再列“尚未覆盖”。每个无法从 `intellij-community@576e328` 得到的数值都登记为“无法取证”，已有产品边界或运行时实现差异登记为“有意产品差异”；这些结论不构成待处理项。
+
+| 项目 | 最终归类 | 结论与范围 |
+| --- | --- | --- |
+| 左侧工具窗口默认/最小宽度、底部工具区最小/最大高度 | **无法取证** | `ToolWindowDefaultLayoutManager` 与 `ToolWindowLayoutProfileMigrationHelper` 以 weight 和运行时可用空间布局，没有对所有工具窗公开统一像素常量；本文不宣称一个统一宽度。Augit 的动态布局按 `design-system.md` 与场景测试复验。 |
+| `StatusBar` 高度、`ToolWindow.Header` 高度 | **已按 New UI 对齐** | Header 的权威默认高度为 41；StatusBar 由字体度量与边距运行时计算，Augit 同样按实际行高计算，不把缺少主题键误写成固定像素。 |
+| 全局左侧工具栏宽度 | **无法取证** | PyCharm 的产品扩展尺寸不在本地 `intellij-community` checkout 的可复验源码范围；Augit 的轨道宽度与按钮几何已有独立实现和断言，本文不把它冒充为 PyCharm 精确值。 |
+| 界面字体族 | **有意产品差异** | New UI/JBR 默认使用 Inter，中文回退系统字体且用户可覆盖；Augit 采用 `Microsoft YaHei UI` 以保证中文可读性，等宽代码字体另按设置规则处理。 |
+| `icons` 主题段的完整图标状态映射 | **不适用** | 1,740 个官方 SVG 的完整映射超出 Augit 当前 Git/文件/Diff 产品范围；产品实际使用的窗口按钮、复选框、单选钮和动作图标已逐项登记并由项目内自绘实现。 |
+| 默认深色头部变体的实际启用条件 | **无法取证** | 源码只能确认 `Islands.kt` 的迁移条件和显式主题选择；未取得 PyCharm 2026.2.1 当前用户配置下的可靠前台状态，因此不宣称默认启用哪一变体。 |
 
 `icons` 段中与该产品范围相关的部分（Windows 窗口按钮与复选框状态）：
 

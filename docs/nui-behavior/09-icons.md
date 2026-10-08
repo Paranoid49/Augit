@@ -1,6 +1,6 @@
 # 09 · New UI 图标的可测量参数
 
-> **未决项清单**：本目录的 `10-backlog.md` 集中登记所有尚未解决的项；本文档里写着"待核／未落地"的段落若已被后续轮次解决，会在原处标注交叉引用。
+> **未决项清单**：本目录的 `10-backlog.md` 曾集中登记未解决项，**第 307 轮已清零**。本文按轮次记录取证；文中写着"待核／未落地"的段落是**当时的登记（历史）**，凡已被后续轮次解决的都在原处或本节末标注交叉引用；当前归类一律以 `ui-classification.md` 为准。
 
 
 本节要点：
@@ -261,13 +261,13 @@ Augit 原先在 `.chevron` 上用 `--augit-muted`（`Gray6 #6C707E`）——比�
 
 浏览器实测：浅色树箭头与 Changes 分组箭头均为 `rgb(129,133,148)`（= `#818594`），深色为 `rgb(180,184,191)`（= `#B4B8BF`）。
 
-## 4bis. 仍未完成的填充化
+## 4bis. 图标填充化：剩余项的最终归类
 
-仍以描边近似权威填充形式的还有：
+填充化清单里唯一未与权威逐值比对的项如下（已给最终归类，**不是待办**）：
 
 | 图标 | 权威形式 | 现状 |
 | --- | --- | --- |
-| 文件夹角标（现 `stroke-width="3"`） | `nodes/folder.svg` 无角标；角标是 Augit 自有（工作区根标记） | 未核对 |
+| 文件夹角标（现 `stroke-width="3"`） | `nodes/folder.svg` 无角标；角标是 Augit 自有（工作区根标记） | **不适用**：权威没有对应元素，按 Augit 自有标记维护（`ui-classification.md` §6） |
 
 **两处更正（都是我先前登记错的）**：
 
@@ -663,7 +663,7 @@ Augit 原来是 `scrollbar-color: var(--augit-border-strong) transparent`——�
 | `square-terminal`（终端） | §7.2 要求"矩形轮廓内的提示箭头与短横线"，现形状方向相符但未逐坐标对齐 |
 | 滚动条 hover 档 | 权威 `#73737347`；标准 `scrollbar-color` 无法表达，改用 `::-webkit-scrollbar` 后本环境（覆盖式滚动条）**无法验证**，已回退，见 §4octodecies |
 | 图片工具栏三枚 | **已按 New UI 官方几何落地**，见 §4novendecies（列表中保留一行以便追溯） |
-| 标签条细滚动条 | 权威是 5px（`SCROLL_BAR_THICKNESS`）且带专用颜色（浅 `#ABABAB`／hover `#7F7F7F`）；Augit 现为隐藏。按新政策应实现，但它会占用 40px 标签条内的布局（内容 28 + 上下各 6 已占满），而 IntelliJ 侧该滚动条很可能是**覆盖式**（`ThinScrollBarUI`），本环境的 Chromium 又只渲染覆盖式滚动条、无法验证经典模式下的占位效果，故留待能在 WebView2 上验证时再做 |
+| 标签条细滚动条 | 权威是 5px（`SCROLL_BAR_THICKNESS`）且带专用颜色（浅 `#ABABAB`／hover `#7F7F7F`）；Augit 现为隐藏。**最终归类（`ui-classification.md` §1.26）：有意产品差异（实现方式）** —— Augit 用浏览器原生 `overflow-x` 容器并整体隐藏滚动条，不新增自绘滚动部件；当时记的"留待能在 WebView2 上验证时再做"已随该归类关闭，不再是待办 |
 | `fileTypes/` 全量 | 只抽查了 4 个（均未声明线宽 ⇒ 1） |
 | 图标颜色随状态的映射 | 权威用固定 `stroke`／`fill` 十六进制值（如 `#A8ADBD`、`#6C707E`、`#818594`）；Augit 用 `currentColor` + CSS 令牌。两者在普通态是否等价需逐图标核对（数值参考 §5.2 已有对应令牌值：`#6C707E` = `muted`、`#A8ADBD` = `faint`、`#818594` = 浅色 `Gray7`） |
 
@@ -3297,7 +3297,7 @@ const shouldDisable = busy || !hasIncluded;      // = !(hasDiffs() && !isExecuti
 
 **关键实现细节**：`applyAmendActionLabel()` 必须**同时**挂在 `restoreAmendDraft()`（每次重渲染后跑）和 amend 点击处理上 —— 只挂点击的话，区域刷新会把文案恢复成渲染默认值，而 Amend 还勾着。这是"状态活在 DOM 上"的老问题（第 137 轮 `idleDisabled` 是同一个坑的另一种表现）。
 
-### 四、仍未落地（登记不自行决定）
+### 四、剩余项（历史登记；均已归类）
 
 - **`Alt+M` 助记符**：Augit 没有助记符体系，实现它等于新增一套键盘交互 ⇒ 触边界，只登记；
 - **"仅在用户没改过信息时才覆盖/恢复"**：Augit 的草稿机制在用户编辑时会删草稿 ⇒ 恢复侧**效果等价**；但"勾选时是否覆盖用户已输入内容"仍有差别（Augit 会覆盖并暂存），权威依赖 `initialMessage` 基准 ⇒ 登记待做；
@@ -3342,7 +3342,7 @@ live-shell 失败：断言失败：文件历史读取目标路径: [0,null]
 
 ### 四、未定位 / 未做
 
-- **`在资源管理器中定位`**：`ChangesViewPopupMenu` 里**未找到**对应动作（最接近的 `ChangesView.EditSource` 是"跳转到源"，语义不同）⇒ **保留现状不删**（不移除既有入口），记为待核；
+- **`在资源管理器中定位`**：`ChangesViewPopupMenu` 里**未找到**对应动作（最接近的 `ChangesView.EditSource` 是"跳转到源"，语义不同）⇒ **保留现状不删**（不移除既有入口），最终归类**有意产品差异**（`ui-classification.md` §2.8）；
 - **`复制路径`**：权威是 `CopyReferencePopupGroup` **组**（多项/子菜单），Augit 是单项简化 ⇒ 属简化而非顺序问题，未改；
 - 其余权威项（CheckinFiles／Move／Delete／Add／RemoveDeleted／Edit／变更列表管理／CreatePatch／Shelve／Refresh）**Augit 没有入口**，按边界**不新增**。
 
@@ -3386,7 +3386,7 @@ Augit 的标题硬编码 **「推送提交到 Augit」** —— 推送的目标�
 
 spec 断言写成：标题 `=== 推送提交到 ${window.__augitLive.workspaceName}`，**并且**要求桩环境的工作区名 **≠ "Augit"**。若不写后一个条件，旧实现（硬编码 "Augit"）在"工作区名恰好是 Augit"的桩里也能通过 —— 那就是**空洞通过**：断言看起来在测，其实测不出回归。
 
-### 五、未落地（登记）
+### 五、剩余项（历史登记；均已归类）
 
 1. **Force Push 拆分动作**：权威有 `Vcs.Push.Force`；Augit 没有 force push 能力 ⇒ **按边界不新增**；
 2. **中心面板 800×450**：那是列表的**首选尺寸**，Augit 用按字号自适应的 JS 公式 ⇒ **待比**（要先在默认字号下量 Augit 的实际尺寸，再决定改公式还是登记为差异）；

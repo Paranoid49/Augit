@@ -362,7 +362,7 @@ visibleInRow(e, r):
   （来源：platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/GraphCommitCellUtil.kt:14-33）
 - **【可实现】** `GRAPH_TEXT_GAP = 2`（按行高等比缩放），它是**唯一**把图形区宽度换算到文字起点的项；它在这里被计入 `graphWidth`，而不是在画线时使用。（来源：platform/vcs-log/impl/src/com/intellij/vcs/log/paint/PaintParameters.java:13,41-43；platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/GraphCommitCellUtil.kt:31-32）
 - **【可实现】** 提交文本通过 `appendTextPadding(graphWidth)` 被推到该行的图形区右侧；这个 padding 是「把文本游标至少推进到 graphWidth」，**不会把文本往左拉**，所以文本起点 = max(自然起点, graphWidth)。（来源：platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/GraphCommitCellRenderer.kt:230-246；platform/platform-api/src/com/intellij/ui/SimpleColoredComponent.java:285-292,541-544）
-- **【需推断】** 因为 `graphWidth` 逐行计算，「标题是否始终从同一 x 开始」取决于每行 `maxIndex` 是否相同：当全图 `recommendedWidth ≥ 6` 时每行至少 6 条泳道，多数行会得到同一个宽度；泳道很少的孤行会得到更小的 `graphWidth`，标题因此略微左移。Augit 若要严格对齐，需要额外取全局最大宽度（属于对 IntelliJ 行为的收严，需用户确认）。
+- **【需推断】** 因为 `graphWidth` 逐行计算，「标题是否始终从同一 x 开始」取决于每行 `maxIndex` 是否相同：当全图 `recommendedWidth ≥ 6` 时每行至少 6 条泳道，多数行会得到同一个宽度；泳道很少的孤行会得到更小的 `graphWidth`，标题因此略微左移。**Augit 的最终处置（第 310 轮）**：不取权威的逐行宽度，改用**整份列表的最大轨数**（等价于全图最大宽度）作为列数，保证标题从整个图形区右侧开始；这属**已登记的收严／有意产品差异**（`ui-classification.md` §2.12、`design-system.md` §8.3.2），已实现并由 `verify-ux-commit-graph.cjs` 逐值复算，**不再待用户确认**。
 - **【可实现】** `recommendedWidth` 只作为「最少泳道数」的下界参与上式，不是列宽；Commit 列宽由表格剩余宽度决定（见 §6）。（来源：platform/vcs-log/graph/src/com/intellij/vcs/log/graph/impl/print/PrintElementGeneratorImpl.kt:42,53-124；platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogGraphTable.java:484-507）
 - **【可实现】** 绘制顺序：先画单元格文本内容，再画引用标签，最后画图形（图形在最上层）。（来源：platform/vcs-log/impl/src/com/intellij/vcs/log/ui/render/GraphCommitCellRenderer.kt:192-204）
 
@@ -392,3 +392,35 @@ visibleInRow(e, r):
 | 选中/悬停 | 三类悬停高亮语义、黑描边画法、多选集合判定、行底色/悬停混色、整行高亮器 | 表格选中与图内选中互不驱动 | 无 |
 | 筛选/分页 | 隐藏即删+`DOTTED` 直连、四档分页、整图重建、选中恢复 | `fireTableDataChanged` 流程 | 虚线扫描的两处不对称、增量拼接（IntelliJ 无此行为） |
 | 间距 | `graphWidth` 公式与 `GRAPH_TEXT_GAP` 用法 | `appendTextPadding` 的游标语义 | 标题是否全局对齐 |
+
+---
+
+## 详情操作行「提交详情 / 文件历史 / Blame」只在每个面板插一次（第 313 轮）
+
+§9 的「详情是表格下方的独立面板」在 Augit 落成 `.log-detail-panel` 的三行网格：
+`minmax(0, 56%)`（变化文件）／`var(--detail-actions-height, 0px)`（操作行）／`minmax(0, 1fr)`（详情正文）。
+操作行不是视觉稿 HTML 的一部分，而是 `bindHistoryDetails()` 在运行时 `insertBefore` 进去的。
+
+- **缺陷**：该函数没有幂等判断，而实时外壳**每次区域刷新**都会整体重新绑定
+  （`__augitRenderRegions()` → `bindInteractions()`），并且用 `document.querySelectorAll('.log-detail-panel')`
+  取**所有**面板 —— 包括这次刷新根本没有被替换的那些。于是每刷新一次**别的**区域就多插一行：
+  多余的行落进网格的隐式行，行高被压到 8px 左右、文字互相重叠（用户截图里是一团糊字），
+  同时把变化文件区与详情正文挤到几乎为零。同一处重复绑定还叠了 `detail` 的 keydown、
+  `normalize` 的 `MutationObserver` 与 `arrange` 的 `ResizeObserver`（前者表现为按一次 `ArrowDown` 滚 N 行）。
+- **复现与修后实测**（静态视觉稿 `git-history.html`，`__augitRenderRegions('statusbar')` × 19）：
+
+  | 指标 | 修前 | 修后 |
+  | --- | --- | --- |
+  | `.history-detail-actions` 个数 | **20** | **1** |
+  | `.log-detail-panel` 网格轨道数 | **22**（19 条隐式行） | **3** |
+  | `.changed-files` 高 | 20px | 115px |
+  | `.commit-detail` 高 | 25px | 67px |
+
+- **修复**：`bindHistoryDetails()` 用 `panel.dataset.historyDetailsBound` 做幂等守卫 ——
+  同一个面板只允许有一组操作行，与 `bindHistoryToolbar()` 的「更多」入口同一处理（后者在第 199 轮修过同类缺陷）。
+- **断言**（`live-shell.spec.cjs`）：`前置条件：日志详情面板初始只有一组操作行`、
+  `刷新其他区域不会给提交详情再堆一行操作行`、`重复绑定不会给提交详情再堆一行操作行`、
+  `提交详情操作行仍然存在且详情正文保留`（配对对照，避免"干脆不插"通过）。断言前把窗口放宽到 1500：
+  默认 1180 宽时详情栏 < `required`（280）、操作行是 `display: none`，多余的行既不显示也不产生隐式轨道，
+  只量得到计数那一半。
+- **负向验证**：临时移除守卫后同一组断言如实失败（`actions` 4 → 6、`tracks` 6 → 8）。

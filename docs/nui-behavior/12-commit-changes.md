@@ -103,12 +103,12 @@ public void updateEnabled(boolean hasDiffs) {
 
 **自动化测试**：`tools/audit/check-commit-empty-message.test.cjs`（16 条）——覆盖①接线（两处都不再硬拦、都调用共享助手）②视觉稿行为（点提交→出现确认层、标题/正文/两个按钮齐备、**不再出现旧报错**）③取消→关闭且焦点回到信息栏④仍然提交→链接照常放行（进入 `operation-result.html`）。
 
-## 8. 仍未落地 / 待核
+## 8. 历史待办与最终归类（已全部收口）
 
 1. ~~空信息改为确认~~ ✓ 第 135 轮已落地（见 §7）；
 2. ~~"无勾选即按钮禁用"~~ ✓ **第 136 轮已落地**（见 §7.2）：实时侧此前**没有任何地方**按勾选数同步按钮可用性 —— `reflectWriteOperation()` 只处理"进行中"，把空闲禁用态寄存在 `dataset.idleDisabled` 里**等别处设置，而别处没人设置**。现按权威判据重算。
 3. **登记为差异（不照搬）**：300 ms 去抖/轮询是 Swing 侧为吸收后台刷新而设，Augit 的改动列表由宿主事件驱动，无对应需求 ⇒ 写进 `design-system` 的差异表，不实现；
-4. **本区剩余采集**：Amend 交互、提交信息校验的呈现、右键菜单项启用/隐藏规则、提交设置入口、"提交并推送"的后续切换（见 §6）。
+4. ~~**本区剩余采集**~~ **已收口（历史）**：Amend 交互、提交信息校验的呈现、右键菜单项启用/隐藏规则、提交设置入口与「提交并推送」的后续切换均已在后续轮次落地并断言（当前归类见 `ui-classification.md` §2.7／§2.8／§2.38，本册 §7／§10）；本项不再是当前待办。
 
 ### 7.2 提交动作的可用性按权威 `hasDiffs()`（第 136 轮）
 
@@ -192,7 +192,7 @@ Augit 的菜单是 6 项简化版，**相对顺序有两处与权威相反**：
 
 | 项 | 说明 |
 | --- | --- |
-| `在资源管理器中定位` | `ChangesViewPopupMenu` 里**未找到**对应动作（该组里最接近的是 `ChangesView.EditSource` = 跳转到源，语义不同）⇒ **保留现状不删**（不移除既有入口），记为待核 |
+| `在资源管理器中定位` | `ChangesViewPopupMenu` 里**未找到**对应动作（该组里最接近的是 `ChangesView.EditSource` = 跳转到源，语义不同）⇒ **保留现状不删**（不移除既有入口），最终归类**有意产品差异**（`ui-classification.md` §2.8） |
 | `复制路径` | 权威是 **`CopyReferencePopupGroup` 组**（多项/子菜单）；Augit 是单项简化。未改（属"Augit 的简化"，不是顺序问题） |
 | 其余项 | CheckinFiles / Move / Delete / Add / RemoveDeleted / Edit / 变更列表管理 / CreatePatch / Shelve / Refresh —— **Augit 没有这些入口**，按边界**不新增** |
 
@@ -237,11 +237,11 @@ Augit **已经**实现了"勾选→调宿主 `git/last-commit-message` 回填；
 
 **入字点选得对**：`applyAmendActionLabel()` 同时被 `restoreAmendDraft()`（每次重渲染后跑）与 amend 点击处理调用 —— 否则区域刷新会把文案恢复成渲染默认值，而 Amend 还勾着。
 
-### 9.3 仍未落地（记录，不自行决定）
+### 9.3 剩余项与最终归类（不是待办）
 
-1. **助记符 `Alt+M`**：Augit 的界面没有助记符体系（中文界面 + 非 Swing 菜单），实现它等于**新增一套键盘交互**，触及"不新增功能"的边界 ⇒ 只登记。
-2. ~~**"仅在用户没改过信息时才覆盖/恢复"**~~ **第 216 轮已落地**：Augit 的草稿机制在用户编辑时会删除草稿（`input` 监听），因此"取消后恢复"**效果等价**于"改过就不恢复"；差别在"**勾选时是否覆盖用户已输入的内容**"——权威 `AmendCommitHandlerImpl.kt:82` 的条件依赖 `initialMessage`（**面板激活时**的信息，`SingleChangeListCommitWorkflowHandler.kt:75` 在 `activate()` 里 `initialMessage = getCommitMessage()`）。落地：新增 `amendInitialMessages` 基线（每个提交框第一次渲染时记录字段值，提交成功后清空），勾选时只有"当前值 == 基线"才调用 `git/last-commit-message` 并载入；载入与恢复同时写 `live.commitDraft`（字段值跨重渲染由它保持），恢复条件照权威 `:112` 改成"字段仍等于载入的 amend 信息"；忽略空白相等则不动字段（`:99`）。
-3. **载入失败的呈现**：Augit 目前只写 `window.__augitError`；权威是带标题的错误对话框。
+1. **助记符 `Alt+M`** ⇒ **有意产品差异**：Augit 的界面没有助记符体系（中文界面 + 非 Swing 菜单），实现它等于**新增一套键盘交互**，触及"不新增功能"的边界 ⇒ 只登记、不实现（`ui-classification.md` §2.38）。
+2. ~~**"仅在用户没改过信息时才覆盖/恢复"**~~ **第 216 轮已落地**（下条同）：Augit 的草稿机制在用户编辑时会删除草稿（`input` 监听），因此"取消后恢复"**效果等价**于"改过就不恢复"；差别在"**勾选时是否覆盖用户已输入的内容**"——权威 `AmendCommitHandlerImpl.kt:82` 的条件依赖 `initialMessage`（**面板激活时**的信息，`SingleChangeListCommitWorkflowHandler.kt:75` 在 `activate()` 里 `initialMessage = getCommitMessage()`）。落地：新增 `amendInitialMessages` 基线（每个提交框第一次渲染时记录字段值，提交成功后清空），勾选时只有"当前值 == 基线"才调用 `git/last-commit-message` 并载入；载入与恢复同时写 `live.commitDraft`（字段值跨重渲染由它保持），恢复条件照权威 `:112` 改成"字段仍等于载入的 amend 信息"；忽略空白相等则不动字段（`:99`）。
+3. **载入失败的呈现** ⇒ **有意产品差异（实现方式）**：Augit 把失败写进既有 `window.__augitError` 通道，不新增权威的错误对话框（产品规格未要求该对话框）⇒ 登记、不改。
 
 ### 9.4 验证
 

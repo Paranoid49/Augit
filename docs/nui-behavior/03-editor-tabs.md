@@ -476,7 +476,7 @@
 - `lineSpacing` 的运行时基线默认是 `FontPreferences.DEFAULT_LINE_SPACING = 1.2f`；设置对话框的默认值是 `1f`，允许范围 **0.6–3.0**，写入时被夹取。（来源：platform/editor-ui-api/src/com/intellij/openapi/editor/colors/FontPreferences.java:23；platform/editor-ui-ex/src/com/intellij/application/options/EditorFontsConstants.java:23）【可直接实现】
 - 字体基线在行高内**居中**：`descent = 字体 descent + (行高 − 字体度量高) / 2`，`ascent = 行高 − descent`；行号绘制用 `y + ascent` 对齐，所以行号与正文共享同一条基线。（来源：platform/platform-impl/src/com/intellij/openapi/editor/impl/view/EditorView.java:853；platform/platform-impl/src/com/intellij/openapi/editor/impl/EditorGutterComponentImpl.java:976）【可直接实现】
 - 默认编辑器字号：Windows = **13**（`DEFAULT_FONT_SIZE`）。（来源：platform/editor-ui-api/src/com/intellij/openapi/editor/colors/FontPreferences.java:21）【可直接实现】
-- ⚠ **Augit 偏离**：Augit 用「等宽字号 × 1.7」是自有规格，**不是** IntelliJ 取值（IntelliJ 运行时基线为 1.2）。若目标是「100% 复原 PyCharm」，行高应按 `ceil(字体度量高 × 1.2)` 实现；若保留 1.7，必须在 ux-spec 中登记为有意偏离。（需推断，需用户确认）
+- ⚠ **Augit 偏离**：Augit 用「等宽字号 × 1.7」是自有规格，**不是** IntelliJ 取值（IntelliJ 运行时基线为 1.2）。**已裁决为有意产品差异**（第 116 轮用户裁决保留 1.7×；`design-system.md` §4.3 与 `ui-classification.md` §1.17 已登记），不再待确认。（需推断）
 
 ### 8.4 当前行高亮
 
@@ -585,7 +585,9 @@
 - `JBTabsImpl.getVisibleInfos()` 里对 pinned 先分组、再按字母序排序（`sortTabsAlphabetically`）。
 - 编辑器正文的全部绘制（`EditorPainter` / gutter 组件树 / 折叠 / inlay）。
 
-### 9.3 需推断 / 待确认
+### 9.3 需推断项与最终归类（下列条目只作取证记录，不是当前待办）
+
+> 凡已由后续轮次收口的条目都在原处标注；当前归类以 `ui-classification.md` 为准。
 
 1. **PyCharm 2026.2.1 默认主题是 expUI 还是 Islands** —— 决定下划线方案（4px 圆角下划线 vs 圆角卡片无下划线）。（§0）
 2. `EditorTabs.tabInsets = -7,8,-7,8` 的负内距在 1x 缩放下的最终标签高（本文件按公式推为 41/42px，未在源码写死）。（§1.3）
@@ -593,8 +595,8 @@
 4. 标签标题是否真的不做省略号（`fileEditor/impl` 与 `ui/tabs` 内检索不到省略号代码；但没有逐层确认 `SimpleColoredComponent` 的截断策略）。已核对：Augit 的普通标签也没用省略号，但**缺 10px 渐隐层**；比较标签仍在用省略号。（§1.6）
 5. 「关闭后回退到上一个选中标签」的实际生效时序（`previousSelection` 在按下时写入、释放时清空）。（§3.2）
 6. **Augit 行高用 1.7 与 IntelliJ 的 1.2 不一致**：应确认是「有意偏离」还是「需要修正」。（§8.3）
-7. 标签宽度公式里的右内距在「关闭按钮可见」与「不可见」两态之间会跳动，是否需要预留占位以避免标签宽度抖动 —— IntelliJ 用渐隐+压缩规避，Augit 需自行决定。（需用户确认）
-8. Augit `.editor-tab` 的 `max-width: 230px` 与 `border-radius: 6px` 在 IntelliJ 都没有对应（未固定标签无最大宽度；经典 expUI 标签无圆角），需按 §0 结论决定保留或删除。（§1.6）
+7. 标签宽度公式里的右内距在「关闭按钮可见」与「不可见」两态之间会跳动 —— 该疑问**已按 §1.25 归类关闭**：Augit 的关闭叉常显（有意产品差异），不存在两态跳动，无需预留占位。
+8. Augit `.editor-tab` 的 `max-width: 230px` 与 `border-radius: 6px` 在 IntelliJ 都没有对应（未固定标签无最大宽度；经典 expUI 标签无圆角）⇒ **已按 §9.2 收口**：`max-width: none`、`border-radius: 0`（标签条 42px、卡片渲染见 `design-system.md` §8.4）。（§1.6）
 9. **需复核实**：「`getComposite` 首次访问才创建 composite」的旧说法在本 commit 不成立（改成了「先建空面板 + 按需填充 model」）。（§7.1）
 10. **需复核实**：`EditorGutter.background` / `EditorGutter.foreground` / `Editor.LineNumber` 等 UI 键在本 commit 不存在，等价的 `ColorKey` 见 §8.2。
 11. **需复核实**：`lineSpacing` 有两处默认值（运行时 `FontPreferences.DEFAULT_LINE_SPACING = 1.2f` 与设置 UI 的 `1f`），实现时应以配色方案的实际值为准。（§8.3）

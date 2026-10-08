@@ -128,4 +128,91 @@ assert.match(envSection, /JBRCustomTitleBarControls/, '§3.6 应保留只读 UIA
 assert.match(envSection, /MENUBARS=0/, '§3.6 应写明 Swing 菜单栏没有暴露成 UIA 元素');
 assert.match(envSection, /InvokePattern/, '§3.6 应写明不存在用 UIAutomation 激活条目的通道');
 
-console.log('PASS: 覆盖表生成器、PyCharm 分档摘要、§1.1/§1.4 像素值及 §3.6 环境断言一致。');
+// ---- §3.7：17 页的"分档 → 五类最终归类"必须逐页闭合，且不得把未取证写成已取证 ----
+// 这段守卫的口径全部来自文档自己：
+//   a) 五类归类的名字取自 `ui-classification.md` §0.1 的表（不在这里另抄一份字面量）；
+//   b) §3.7 的最终归类表必须覆盖 §1.6 里"未对照"的那 17 页，逐页一一对应、不重不漏；
+//   c) 每一行都必须写明"未完成真实前台取证"（含原因），且不得出现"已完成/已取证/已对照"式的伪结论——
+//      否则"按本地权威源码与自动化证据归类"会被读成"PyCharm 面级取证已完成"；
+//   d) 分档小计的 9/2/5/1 必须与表内逐行一致（§1.6 的机械核对已在上面）。
+const classificationDoc = fs.readFileSync(path.join(root, 'docs/ui-classification.md'), 'utf8');
+const classificationSection = sectionOf(classificationDoc, '### 0.1 ');
+assert.ok(classificationSection, '应能找到 `ui-classification.md` §0.1 五个归类');
+const categories = [...classificationSection.matchAll(/\| \*\*([^|*]+)\*\* \|/g)]
+  .map((match) => match[1].trim());
+assert.equal(categories.length, 5,
+  '§0.1 应恰好定义五个归类（已按 New UI 对齐／有意产品差异／不适用／无法取证／待处理）');
+assert.ok(categories.includes('已按 New UI 对齐') && categories.includes('待处理'),
+  `§0.1 的归类名集合异常：${categories.join('、')}`);
+
+const section37 = sectionOf(doc, '### 3.7 ');
+assert.ok(section37, '应能找到 §3.7 的 17 页分档与最终归类');
+const uncoveredScenes = sectionOf(doc, '### 1.6 ').split('\n')
+  .map((line) => (/^\| `([^`]+)` \| 未对照（([A-Z_]+)） \|/.exec(line.trim()) || null))
+  .filter(Boolean)
+  .map((match) => ({ scene: match[1], bucket: match[2] }));
+assert.equal(uncoveredScenes.length, 17, '§1.6 的"未对照"页应为 17 页');
+
+// 最终归类表：5 列——分档 / 页面 / 真实前台取证 / 最终归类 / 结论依据。
+// §3.7 里另有一张 4 列的"分档小计"表（`| 分档 | 页数 | 页面 | 含义 |`），靠列数区分并把两者都钉住。
+const rows37 = section37.split('\n')
+  .map((line) => line.trim())
+  .filter((line) => /^\| `[A-Z_]+` \|/.test(line))
+  .map((line) => line.split('|').map((cell) => cell.trim())
+    .filter((cell, index, cells) => index > 0 && index < cells.length - 1));
+const bucketRows = rows37.filter((cells) => cells.length === 4);
+const finalRows = rows37.filter((cells) => cells.length === 5);
+assert.equal(bucketRows.length, 4, '§3.7 的分档小计表应有 4 行');
+assert.deepEqual(bucketRows.map((cells) => Number(cells[1].replace(/[^0-9]/g, ''))), [9, 2, 5, 1],
+  '§3.7 分档小计表的页数应为 9／2／5／1');
+assert.equal(finalRows.length, 6,
+  '§3.7 的最终归类表应把 17 页分成 6 行（MEDIUM_BLOCKED 8 页 + MEDIUM_BLOCKED 1 页 + RECOVERABLE 2 行 + PRECONDITION 1 行 + AUGIT_ONLY 1 行）');
+const listedScenes = [];
+for (const cells of finalRows) {
+  assert.equal(cells.length, 5, `§3.7 最终归类行的列数应为 5：${cells.join(' / ')}`);
+  const [bucket, pages, forensics, categoryRaw, reason] = cells;
+  const category = categoryRaw.replace(/[*`]/g, '').trim();
+  assert.ok(categories.includes(category),
+    `§3.7 的最终归类"${category}"不在 §0.1 的五类内（不得把 MEDIUM_BLOCKED 等分档标签当归类）`);
+  assert.match(forensics, /未完成真实前台取证/,
+    `§3.7 的 "${pages}" 行必须写明"未完成真实前台取证"`);
+  assert.ok(!/已完成真实前台取证|已取证|已对照/.test(forensics),
+    `§3.7 的 "${pages}" 行不得把未取证写成已取证：${forensics}`);
+  assert.ok(reason.length > 20, `§3.7 的 "${pages}" 行缺少可核对的结论依据`);
+  for (const page of pages.split('、').map((name) => name.replace(/`/g, '').trim()).filter(Boolean)) {
+    listedScenes.push({ scene: page, bucket: bucket.replace(/[`*]/g, '').trim() });
+  }
+}
+assert.equal(listedScenes.length, 17, '§3.7 的最终归类表应覆盖 17 页');
+const byBucketThenScene = (a, b) => (a.bucket === b.bucket ? a.scene.localeCompare(b.scene) : a.bucket.localeCompare(b.bucket));
+assert.deepEqual([...listedScenes].sort(byBucketThenScene), [...uncoveredScenes].sort(byBucketThenScene),
+  '§3.7 的页名与分档必须与 §1.6 的 17 个"未对照"页一一对应');
+for (const claim of ['MEDIUM_BLOCKED', 'RECOVERABLE', 'PRECONDITION', 'AUGIT_ONLY',
+  '未完成真实前台取证', '不来自 PyCharm 面级取证']) {
+  assert.ok(section37.includes(claim), `§3.7 应声明"${claim}"`);
+}
+
+// ---- 8) 收口口径守卫：交付文档的小节标题不得再写成"当前未完成/待核/未决" ----
+// 背景（第 313 轮外审收口）：第 311／312 轮已把归类与数字收口，但只要标题或口径句重新写成
+// "尚未完成／待实施／未决／未执行"，读者就会把它读成"目标未完成"。这里只钉住**小节标题**
+// 这一处最容易被读成当前状态的表述（历史正文里的"当时／原／已结案"式记录仍允许保留）。
+const headingLine = (text, heading) => (text.split('\n').find((line) => line.startsWith(heading)) || '');
+const titleGuards = [
+  ['docs/performance-report.md', '## 8. ', /未纳入验收的范围与最终归类/, /尚未完成/, '§8 已收口为"最终归类"口径'],
+  ['docs/ui-classification.md', '## 7. ', /已全部关闭/, /必须清零/, '§7 已写明待处理清单全部关闭'],
+  ['docs/intellij-platform-ui-behavior.md', '## 4. ', /每一项都已归类/, /待实施/, '§4 已写明逐项归类、不是待办队列'],
+  ['docs/intellij-platform-ui-behavior.md', '### 9.4 ', /最终归类/, /未实施/, '§9.4 已写明剩余项最终归类'],
+  ['docs/intellij-platform-ui-behavior.md', '### 11.5 ', /结论与边界/, /未决/, '§11.5 已写明结论与边界'],
+  ['docs/ui-compliance.md', '### 3.1 ', /未执行的验证与真实边界/, /尚未执行/, '§3.1 已写明"未执行"是真实边界'],
+  ['docs/ui-compliance.md', '### 0.1 ', /历史快照/, /未闭环/, '§0.1 已标明历史快照'],
+  ['docs/nui-behavior/11-surface-audit.md', '## 3. ', /已全部收口/, /未覆盖区/, '§3 已标明历史审计产出、全部收口'],
+];
+for (const [file, heading, expected, forbidden, message] of titleGuards) {
+  const text = fs.readFileSync(path.join(root, file), 'utf8');
+  const line = headingLine(text, heading);
+  assert.ok(line, `${file} 应能找到小节标题 ${heading}`);
+  assert.match(line, expected, `${file} ${message}：${line}`);
+  assert.ok(!forbidden.test(line), `${file} ${message}（标题里仍有 ${forbidden}）：${line}`);
+}
+
+console.log('PASS: 覆盖表生成器、PyCharm 分档摘要、§1.1/§1.4 像素值、§3.6 环境断言、§3.7 五类归类与收口口径标题一致。');
