@@ -4,6 +4,23 @@ namespace Augit.Infrastructure.Settings;
 
 public sealed record ApplicationSettings
 {
+    /// <summary>
+    /// 全新配置的界面字号初值：12px。
+    ///
+    /// 12px 取自本次对照用的 PyCharm 2026.2 Islands Light 前台配置
+    /// （Microsoft YaHei UI、175% DPI；见 `docs/ux-spec.md` §4.3 与 `docs/product-spec.md` 第 165 行），
+    /// 是**本次对照基线**，不是对所有用户强制生效的值：
+    /// 已经有 `settings.json` 的用户由 <see cref="SettingsStore"/> 沿用自己保存的字号
+    /// （旧配置只有一个共用字号时沿用该值，见 `docs/design-system.md` §5.3 末），
+    /// 只有全新配置才落到这个初值。
+    ///
+    /// 权威对照：平台只在用户勾选「覆盖默认字体」时使用 `UISettings.fontSize2D`，否则回退到系统字体度量
+    /// （`platform/platform-impl/src/com/intellij/ide/ui/laf/LafManagerImpl.kt:857-872`；
+    /// 见 `docs/nui-behavior/07-theme-dpi-dialogs.md` §3）；编辑器等宽字号是另一套独立设置
+    /// （`EditorColorsScheme` / `editor-font.xml`），与界面字号互不覆盖，对应下面的 <see cref="FontSize"/>。
+    /// </summary>
+    public const double DefaultUiFontSize = 12;
+
     public int Version { get; init; } = 1;
 
     public string? LastWorkspace { get; init; }
@@ -14,11 +31,17 @@ public sealed record ApplicationSettings
 
     public string MonospaceFontFamily { get; init; } = "Cascadia Mono";
 
+    /// <summary>等宽字号；独立于界面字号，默认 13px（`docs/design-system.md` §5.4）。</summary>
     public double FontSize { get; init; } = 13;
 
-    public double? TextFontSize { get; init; }
+    /// <summary>
+    /// 独立保存的界面字号。null 表示旧配置（文件里没有 `textFontSize` 键）：
+    /// 两类文字先沿用共用的 <see cref="FontSize"/>，避免升级后现有用户的字号被改动
+    /// （`docs/design-system.md` §5.3 末）。全新配置的初值是 <see cref="DefaultUiFontSize"/>。
+    /// </summary>
+    public double? TextFontSize { get; init; } = DefaultUiFontSize;
 
-    // 旧配置只有共用字号，首次分开调整前沿用该值，避免升级后文字突然变小。
+    /// <summary>界面字号；旧配置没有独立值时沿用共用字号。</summary>
     [JsonIgnore]
     public double UiFontSize => TextFontSize ?? FontSize;
 
