@@ -63,7 +63,7 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   await document.fonts.ready;
   const context = document.createElement("canvas").getContext("2d");
   const family = getComputedStyle(document.documentElement).fontFamily;
-  const uiPixels = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 13;
+  const uiPixels = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 12;
   let height = 0;
   for (const role of ["normal", "600", "italic"]) {
     context.font = `${role} ${uiPixels}px ${family}`;
@@ -73,25 +73,22 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   const length = (name, pixels) => root.setProperty(`--augit-${name}`, `${pixels}px`);
   length("title-height", Math.max(44, height + 18));
   length("title-text-height", Math.max(30, height + 4));
-  // 标签栏 = 卡片高 + 上下各 6（权威 ui.EditorTabs.tabInsets = -6,8,-6,8）。默认字号下卡片为 28，
-  // 故 28 + 12 = 40（2026 参考图实测 39.2，吻合）；其余字号按文本高同步增长。
-  // 规格（design-system.md:385/392「全局工具栏 42px」）名义值：默认字号下应得 42。
-  length("tab-height", Math.max(42, height + 14));
+  // IntelliJ TabbedPane.tabHeight=40 是默认下限；EditorTabs 上下 insets 各 6px，
+  // 放大字号时容器按字高加 12px，保持标签正文两侧留白对称。
+  length("tab-height", Math.max(40, height + 12));
   length("project-header-height", Math.max(39, height + 10));
   // 文件树行高 = max(24, 文本高 + 8)：权威 `Tree.rowHeight = 24`／`JBUIScale.scale(24)`（doc 02 已收），
   // 2026 参考图实测选中行色带与行距均为 42 物理px，按卡片 28 逻辑px 定标（≈1.79）得 23.5，吻合。
   // 官方按整数缩放而不取偶数，故去掉原先的向上取偶。
   // 规格（§8.3「行高使用 28px 基准，允许在 27–30px 内随 DPI 四舍五入」）：取偶数并保底 27。
-  length("tree-height", Math.ceil(Math.max(27, height + 8) / 2) * 2);
+  length("tree-height", Math.max(24, height + 8));
   length("document-toolbar-height", Math.max(36, height + 8));
   length("diff-toolbar-height", Math.max(39, height + 12));
   length("diff-filebar-height", Math.max(31, height + 12));
   length("diff-unified-row-height", Math.max(24, height + 4));
   length("diff-unified-filebar-height", Math.max(55, Math.max(24, height + 4) * 2 + 7));
-  // 状态栏 = max(scale(20), 文本高 + widget 边框高)；New UI 的 StatusBar.Widget.border 是 insets(6, 8)
-  // （高 12），默认字号下即 max(20, 16 + 12) = 28（参考图实测 28.5，吻合）。
-  // 规格名义值 22（design-system.md 状态栏）。
-  length("status-height", Math.max(22, height + 2));
+  // 状态栏的 New UI Widget.border 垂直 insets 共 12px；默认高度 28，大字号时随文本高度扩展。
+  length("status-height", Math.max(28, height + 12));
   length("find-height", Math.max(42, height + 16));
   length("find-edit-height", Math.max(30, height + 4));
   length("history-header-height", Math.max(38, height + 14));
@@ -114,6 +111,8 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   if (!(Number.isFinite(savedBottom) && savedBottom > 0)) {
     root.setProperty("--augit-bottom-height", `clamp(${bottomMinimum}px, 31vh, ${Math.max(305, bottomMinimum)}px)`);
   }
+  // 字号改变后重新把保存尺寸映射到当前视口；不覆盖磁盘中的首选尺寸。
+  if (typeof window.__augitApplyPanelSizes === 'function') window.__augitApplyPanelSizes(settings || {});
   // 提交图的几何按**实际行高**重算：权威 `PaintParameters.scaleWithRowHeight` 让节点半径、轨距、
   // 线宽与图形文字间距都跟着行高走（design-system.md §8.3.2）。行高本身由上面的
   // `history-row-height` 写入 `:root`，因此这里只需按新行高重绘一次。
@@ -1072,7 +1071,7 @@ if (requestedTheme === "dark") {
 // Stash/Shelve 托盘箭头：`platform/vcs-impl/resources/icons/new/stash.svg` 与
 // `platform/icons/src/expui/vcs/shelve.svg` 属于同一份几何。提交工具栏托盘按钮与
 // Stash 管理列表共用该图形但语义不同，因此分别登记、共用同一份几何以免漂移。
-const trayArrowShape = '<path d="M1 8h3l1 3h6l1-3h3v6H1Z M8 1v7M5 5l3 3 3-3"/>';
+const trayArrowShape = '<g fill="currentColor" stroke="none"><path d="M4.64645 5.14645C4.45118 5.34171 4.45118 5.65829 4.64645 5.85355L7.64645 8.85355C7.84171 9.04882 8.15829 9.04882 8.35355 8.85355L11.3536 5.85355C11.5488 5.65829 11.5488 5.34171 11.3536 5.14645C11.1583 4.95118 10.8417 4.95118 10.6464 5.14645L8.5 7.29289V1.5C8.5 1.22386 8.27614 1 8 1C7.72386 1 7.5 1.22386 7.5 1.5V7.29289L5.35355 5.14645C5.15829 4.95118 4.84171 4.95118 4.64645 5.14645Z"/><path fill-rule="evenodd" clip-rule="evenodd" d="M4.77639 8.55279L5.5 10H10.5L11.2236 8.55279C11.393 8.214 11.7393 8 12.118 8H14C14.5523 8 15 8.44772 15 9V13C15 13.5523 14.5523 14 14 14H2C1.44772 14 1 13.5523 1 13V9C1 8.44772 1.44772 8 2 8H3.88197C4.26074 8 4.607 8.214 4.77639 8.55279ZM3.88197 9L4.88197 11H11.118L12.118 9H14V13H2V9H3.88197Z"/></g>';
 
 const toolbarIconShapes = {
   // 菜单（汉堡）：权威 expui/general/menu.svg 是 3 条实心条，中线 y=3.5/7.5/11.5、x2..14（平头）。
@@ -1081,11 +1080,13 @@ const toolbarIconShapes = {
   "window-maximize": '<rect x="3.5" y="3.5" width="9" height="9" fill="none"/>',
   "window-restore": '<g fill="currentColor" stroke="none"><path fill-rule="evenodd" d="M5 3H13V11H5ZM6 4V10H12V4Z"/><path fill-rule="evenodd" d="M3 5H11V13H3ZM4 6V12H10V6Z"/></g>',
   "window-close": '<g fill="currentColor" stroke="none"><rect x="1.5" y="7.5" width="13" height="1" transform="rotate(45 8 8)"/><rect x="1.5" y="7.5" width="13" height="1" transform="rotate(-45 8 8)"/></g>',
-  "folder": '<path d="M1 2h5l2 3h7v9H1Z"/>',
+  // 工具窗口项目图标复用 expui/toolwindows/project.svg 的折角与圆角路径。
+  "folder": '<path d="M8.15132 4.35836 8.29689 4.5H8.5h4.5c.8284 0 1.5.67157 1.5 1.5v6.1333c0 .7857-.5896 1.3667-1.25 1.3667H2.75c-.66045 0-1.25-.581-1.25-1.3667V3.86667C1.5 3.08099 2.08955 2.5 2.75 2.5h3.28823c.13024 0 .25534.05082.34868.14164z"/>',
   "git-commit-horizontal": '<g fill="currentColor" stroke="none"><path fill-rule="evenodd" d="M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM8 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/><rect x="0" y="7.5" width="5.5" height="1" rx="0.5"/><rect x="10.5" y="7.5" width="5.5" height="1" rx="0.5"/></g>',
   "git-branch": '<g fill="currentColor" stroke="none"><circle cx="5.05" cy="2.75" r="1.75"/><circle cx="10.88" cy="3.92" r="1.75"/><circle cx="5.05" cy="13.25" r="1.75"/></g><path d="M5.05 4.5V11.5M5.9 11.5C6.3 10.9 6.9 10.3 7.85 9.94C9.4 9.35 11.76 8.1 11.76 5.43" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round"/>',
-  "search": '<circle cx="7" cy="7" r="5"/><path d="m11 11 3 3"/>',
-  "history-search": '<circle cx="6.5" cy="6.5" r="4.5"/><path d="m10 10 5 5"/>',
+  "search": '<circle cx="7" cy="7" r="4.5"/><path d="M10.1992 10.2002 13.4992 13.4961"/>',
+  // expui/inline/searchHistory.svg：空心环、斜向手柄和右上小三角。
+  "history-search": '<g fill="currentColor" stroke="none"><path d="M8.85355 10.1432c-.19526-.19531-.51184-.19531-.7071 0-.19527.1953-.19527.5118 0 .7071l2.99925 2.9992c.1952.1953.5118.1953.7071 0 .1952-.1952.1952-.5118 0-.7071zM9 7c0 2.20914-1.79086 4-4 4v1c2.76142 0 5-2.23858 5-5zm-4 4c-2.20914 0-4-1.79086-4-4H0c0 2.76142 2.23858 5 5 5zm-4-4c0-2.20914 1.79086-4 4-4V2C2.23858 2 0 4.23858 0 7zm4-4c2.20914 0 4 1.79086 4 4h1c0-2.76142-2.23858-5-5-5z"/><path d="M11 7l2.5 2.5L16 7z"/></g>',
   "history-back": '<path d="m12 2-6 6 6 6"/>',
   "arrow-up": '<path d="M8 14V3.9M3.65 6.35 8 2l4.35 4.35"/>',
   "arrow-down": '<path d="M8 2v10.1M3.65 9.65 8 14l4.35-4.35"/>',
@@ -1130,13 +1131,13 @@ const toolbarIconShapes = {
   "document-preview": '<g stroke-width="1"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><circle cx="10" cy="6" r="1.5"/><path d="M2.36 9.5 4.18 7.67 12 13.5"/></g>',
   "document-formatted": '<g fill="none" stroke-width="1"><path d="M6.5 2.5C4.5 2.5 4.5 4.5 4.5 6c0 1.2-1 1.2-1 2s1 0.8 1 2c0 1.5 0 3.5 2 3.5M9.5 2.5c2 0 2 2 2 3.5 0 1.2 1 1.2 1 2s-1 .8-1 2c0 1.5 0 3.5-2 3.5"/></g>',
   // 缩小：同圆，只有减号（横条 y=8 跨 x4..12）。
-  "zoom-out": '<g stroke-width="1"><circle cx="8" cy="8" r="6.5"/><path d="M4.5 8h7"/></g>',
+  "zoom-out": '<circle cx="8" cy="8" r="6.5"/><rect x="4" y="7.5" width="8" height="1" rx="0.5" fill="currentColor" stroke="none"/>',
   // 放大：权威 expui/image/zoomIn.svg = **无手柄的圆**（中心 8,8、r6.5）+ 贯穿圆心的加号
   // （竖条 x=8 跨 y4..12、横条 y=8 跨 x4..12，官方是 rx0.5 的实心条，这里用圆头 1px 线等效）。
-  "zoom-in": '<g stroke-width="1"><circle cx="8" cy="8" r="6.5"/><path d="M8 4.5v7M4.5 8h7"/></g>',
+  "zoom-in": '<circle cx="8" cy="8" r="6.5"/><g fill="currentColor" stroke="none"><rect x="7.5" y="4" width="1" height="8" rx="0.5"/><rect class="image-zoom-crossbar" x="12" y="7.5" width="1" height="8" rx="0.5" transform="rotate(90 12 7.5)"/></g>',
   // 适应区域：权威 expui/image/fitContent.svg = 圆角外框（1.5,2.5 13×11 rx1.5）+ 两组内角线
   // （左上：竖 x4.5 跨 y5..9、横 y5.5 跨 x4..8；右下：竖 x11.5 跨 y7..11、横 y10.5 跨 x8..12）。
-  "image-fit": '<g stroke-width="1"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 5v4M4 5.5h4M11.5 7v4M8 10.5h4"/></g>',
+  "image-fit": '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><g fill="currentColor" stroke="none"><rect x="11" y="7" width="1" height="4" rx="0.5"/><rect x="12" y="10" width="1" height="4" rx="0.5" transform="rotate(90 12 10)"/><rect x="4" y="5" width="1" height="4" rx="0.5"/><rect x="8" y="5" width="1" height="4" rx="0.5" transform="rotate(90 8 5)"/></g>',
   // 单栏：权威 expui/diff/unified.svg —— 外缘 2..14、外圆角 2／内圆角 1 ⇒ 中心线圆角 1.5。
   "diff-unified": '<rect stroke-width="1" x="2.5" y="2.5" width="11" height="11" rx="1.5"/>',
   // 双栏：同一外框（中心线圆角 1.5）+ 中缝。官方两栏内缘在 y3..13，故中缝取 `M8 3v10`，
@@ -1145,7 +1146,8 @@ const toolbarIconShapes = {
   "diff-ignore-whitespace": '<path stroke-width="1" d="M9 2.5v11M12 2.5v11M14 2.5H6a3.5 3.5 0 0 0 0 7h3"/>',
   "ellipsis-vertical": '<g fill="currentColor" stroke="none"><circle cx="8" cy="3" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="8" cy="13" r="1"/></g>',
 
-  "copy": '<path stroke-width="1" d="M5 2h7a2 2 0 0 1 2 2v7 M4 4h5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2 M5 7h3M5 9.5h3M5 12h3"/>',
+  // expui/general/copy.svg：前页为 9×10、1.5 圆角，后页保留完整右侧轮廓与三条横线。
+  "copy": '<rect x="2.5" y="3.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1"/><g fill="currentColor" stroke="none"><rect x="5" y="6" width="4" height="1" rx="0.5"/><rect x="5" y="8" width="4" height="1" rx="0.5"/><rect x="5" y="10" width="4" height="1" rx="0.5"/><path fill-rule="evenodd" clip-rule="evenodd" d="M11.0017 2H11.5998C12.373 2 12.9998 2.6268 12.9998 3.4V3.91081C13.0011 3.94038 13.0017 3.97011 13.0017 4V11.5482C13.6063 11.1124 13.9998 10.4021 13.9998 9.6V3.4C13.9998 2.07452 12.9253 1 11.5998 1H6.39978C5.59677 1 4.88587 1.39437 4.4502 2H6.39978H11.0017Z"/></g>',
   "cherry": '<circle cx="3.5" cy="11.5" r="2.5"/><circle cx="11.5" cy="12.5" r="2.5"/><path d="M3.5 9C4 6 10 6 10 2 M11.5 10C13 6 10 5 10 2 M10 2C7 2 6 3 6 5"/>',
   "git-branch-plus": '<circle cx="4" cy="3" r="2"/><circle cx="4" cy="13" r="2"/><circle cx="12" cy="3" r="2"/><path d="M4 5v6M4 10C4 6 12 9 12 5M12 9v6M9 12h6"/>',
   "tag": '<path d="M1 3h7l7 7-6 5-8-7Z"/><circle cx="4.5" cy="6.5" r="1"/>',
@@ -1166,7 +1168,8 @@ const toolbarIconShapes = {
   "eye": '<circle cx="8" cy="8" r="1.5"/><path d="M8 11.5C5.62351 11.5 3.2737 9.94494 2.53088 8C3.2737 6.05506 5.62351 4.5 8 4.5C10.3765 4.5 12.7263 6.05506 13.4691 8C12.7263 9.94494 10.3765 11.5 8 11.5Z"/>',
   "locate-fixed": '<circle cx="8" cy="8" r="6.5"/><path d="M8 2V5.5M8 10.5V14M2 8H5.5M10.5 8H14"/>',
   "fold-vertical": '<path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/>',
-  "square-terminal": '<rect x="1" y="2" width="14" height="12"/><path d="m4 5 3 3-3 3m5 0h3"/>',
+  // expui/fileTypes/shell.svg 的圆角外框与 1.2px 提示符/下划线几何。
+  "square-terminal": '<g stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none"/><path d="M4 6 6 8 4 10M7.5 10.5h4"/></g>',
   // 历史与 Git 历史是两个不同图形：前者是「时钟」（general/history.svg），后者是 VCS 工具窗口的「两空心节点分支图」
   // （toolwindows/vcs.svg，design-system §7.2 的「Git 历史」一行）；标题栏分支芯片用的是 vcs/branch.svg 的三实心圆盘。
   "history": '<circle cx="8" cy="8" r="6.5"/><path d="M8 5V8L10.5 9.5"/>',
@@ -1201,7 +1204,8 @@ function windowActionIcons() {
 
 // 目录和引用是树节点图形，不套用工具栏的粗线空心文件夹或菜单标签。
 function treeFolderIcon(workspaceRoot = false) {
-  const folder = '<path d="M3 2.5h2.5C6 2.5 6.3 2.7 6.6 3L7.9 4.3C8.2 4.6 8.5 4.5 9 4.5h4c.83 0 1.5.67 1.5 1.5v6c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5V4c0-.83.67-1.5 1.5-1.5Z" fill="var(--augit-folder-fill)" stroke="var(--augit-folder-outline)" stroke-width="1"/>';
+  // expui/nodes/folder.svg 的 13×11 外框，圆角只由原生路径体现，不用直角简化图形。
+  const folder = '<path d="M8.10584 4.34613 8.25344 4.5H8.46667H13c.8284 0 1.5.67157 1.5 1.5v6.1333c0 .8196-.568 1.3667-1.1333 1.3667H2.63333C2.06804 13.5 1.5 12.9529 1.5 12.1333V3.86667C1.5 3.04707 2.06804 2.5 2.63333 2.5H6.1217c.13622 0 .26654.05557.36083.15387z" fill="var(--augit-folder-fill)" stroke="var(--augit-folder-outline)" stroke-width="1"/>';
   const badge = workspaceRoot ? '<rect x="9" y="9" width="7" height="7" rx="2" fill="var(--augit-root-fill)" stroke="var(--augit-row-background, var(--augit-panel))" stroke-width="3"/><rect x="9.5" y="9.5" width="6" height="6" rx="1.5" fill="var(--augit-root-fill)" stroke="var(--augit-root-outline)"/>' : '';
   return `<svg class="tree-folder-icon" viewBox="0 0 16 16" aria-hidden="true">${folder}${badge}</svg>`;
 }
@@ -1254,9 +1258,12 @@ const changeStatusSymbols = {
  * 规格 §7.8：**原生列表的辅助技术名称同时保留状态符号与文件名**——视觉上状态只由文件名颜色表达，
  * 读屏拿不到颜色，因此把符号写进名称。
  */
-function changeAccessibleName(kind, text) {
+function changeAccessibleName(kind, text, file = null) {
   const symbol = changeStatusSymbols[String(kind || "").toLowerCase()] || "";
-  return `${symbol ? `${symbol} ` : ""}${text}`;
+  const composite = file && file.indexStatus === "D" && file.workTreeStatus === "?"
+    ? "，已暂存删除，工作区同路径存在未跟踪内容"
+    : "";
+  return `${symbol ? `${symbol} ` : ""}${text}${composite}`;
 }
 
 function fileTypeIcon(name) {
@@ -1278,7 +1285,7 @@ function fileTypeIcon(name) {
     shape = '<path d="M2 4h11 M2 8h11 M2 12h11"/>';
   } else if (["md", "markdown"].includes(extension)) {
     kind = "markdown";
-    shape = '<path fill="currentColor" stroke="none" d="M1 4h2l2 4 2-4h2v8H7V7.5L5 11 3 7.5V12H1Z"/><path d="M13 4v8m-2-2 2 2 2-2"/>';
+    shape = '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M0.5 4.70001h2.44558l1.70827 4.44462.10903.45692.09347-.45692 1.65634-4.44462h2.47154v7.26919H7.14096V7.59732l.03116-.4725-1.8277 4.84442H4.08269L2.31212 7.17155l.03115.42577v4.37188H0.5zM12.5929 9.9438V4.70001h1.2v5.24378l1.2834-1.28342.8485.84853-2.7319 2.732-2.7319-2.732.8486-.84853z"/>';
   } else if (["cs", "csproj"].includes(extension)) {
     kind = "csharp";
     shape = '<path d="M7.47 10.83A3.5 4 0 1 1 7.47 5.17 M11.5 4.5l-1 7 M14.5 4.5l-1 7 M9.5 6.5H15 M9 9.5h5.5"/>';
@@ -1290,10 +1297,11 @@ function fileTypeIcon(name) {
     shape = '<path d="m8 4-3 4 3 4m2-8 3 4-3 4"/>';
   } else if (extension === "json") {
     kind = "json";
-    shape = '<path d="m7 4-2 2v4l2 2m4-8 2 2v4l-2 2"/>';
+    shape = '<g fill="currentColor" stroke="none"><path d="M3.98755 9.77751C3.99755 9.39251 3.87005 9.08501 3.60505 8.85501C3.34005 8.62501 2.98255 8.51001 2.53255 8.51001H2V7.43001H2.53255C2.98255 7.43001 3.34005 7.31501 3.60505 7.08501C3.87005 6.85501 3.99755 6.54751 3.98755 6.16251L3.95755 4.58C3.94755 4.06 4.05505 3.605 4.28005 3.215C4.51005 2.825 4.83755 2.525 5.26255 2.315C5.68755 2.105 6.18755 2 6.76255 2H7.5V3.005H6.77005C6.25005 3.005 5.83755 3.15 5.53255 3.44C5.23255 3.725 5.08505 4.1125 5.09005 4.6025L5.12005 6.17001C5.13005 6.68001 4.99255 7.09751 4.70755 7.42251C4.42255 7.74251 4.03755 7.92001 3.55255 7.95501C4.03755 8.04501 4.42255 8.25501 4.70755 8.58501C4.99255 8.91001 5.13005 9.30501 5.12005 9.77001L5.09005 11.5475C5.08005 11.9875 5.21255 12.3375 5.48755 12.5975C5.76755 12.8625 6.14505 12.995 6.62005 12.995H7.5V14H6.61255C6.07755 14 5.60755 13.9 5.20255 13.7C4.80255 13.505 4.49255 13.2225 4.27255 12.8525C4.05755 12.4875 3.95255 12.06 3.95755 11.57L3.98755 9.77751Z"/><path d="M12.0145 9.77751C12.0045 9.39251 12.132 9.08501 12.397 8.85501C12.662 8.62501 13.0195 8.51001 13.4695 8.51001H14V7.43001H13.4695C13.0195 7.43001 12.662 7.31501 12.397 7.08501C12.132 6.85501 12.0045 6.54751 12.0145 6.16251L12.0445 4.58C12.0545 4.06 11.9445 3.605 11.7145 3.215C11.4895 2.825 11.1645 2.525 10.7395 2.315C10.3145 2.105 9.81455 2 9.23955 2H8.5V3.005H9.23205C9.75205 3.005 10.162 3.15 10.462 3.44C10.767 3.725 10.917 4.1125 10.912 4.6025L10.882 6.17001C10.872 6.68001 11.0095 7.09751 11.2945 7.42251C11.5795 7.74251 11.9645 7.92001 12.4495 7.95501C11.9645 8.04501 11.5795 8.25501 11.2945 8.58501C11.0095 8.91001 10.872 9.30501 10.882 9.77001L10.912 11.5475C10.922 11.9875 10.787 12.3375 10.507 12.5975C10.232 12.8625 9.85705 12.995 9.38205 12.995H8.5V14H9.38955C9.92455 14 10.392 13.9 10.792 13.7C11.197 13.505 11.507 13.2225 11.722 12.8525C11.942 12.4875 12.0495 12.06 12.0445 11.57L12.0145 9.77751Z"/></g>';
   } else if (["yaml", "yml"].includes(extension)) {
     kind = "yaml";
-    shape = '<path d="m7 4-2 2v4l2 2m4-8 2 2v4l-2 2"/>';
+    // expui/fileTypes/yaml.svg：纸张、轮廓与 Y 分色，轮廓保留折角挖孔。
+    shape = '<g stroke="none"><path d="M11 2C11.5523 2 12 2.44772 12 3V9H11C10.4477 9 10 9.44772 10 10V14H5C4.44772 14 4 13.5523 4 13V6H6C7.10457 6 8 5.10457 8 4V2H11Z" fill="var(--augit-yaml-paper)"/><path d="M7 4C7 4.06893 6.99277 4.13617 6.97949 4.20117C6.88625 4.65686 6.48325 5 6 5H4.41406L7 2.41406V4Z" fill="var(--augit-yaml-paper)"/><path fill-rule="evenodd" clip-rule="evenodd" d="M11 1C12.1046 1 13 1.89543 13 3V9H12V3C12 2.44772 11.5523 2 11 2H8V4C8 5.10457 7.10457 6 6 6H4V13C4 13.5523 4.44772 14 5 14H10V15H5C3.89543 15 3 14.1046 3 13V5.41406C3.00004 5.1489 3.10547 4.89453 3.29297 4.70703L6.70703 1.29297C6.89453 1.10547 7.1489 1.00004 7.41406 1H11ZM4.41406 5H6C6.55228 5 7 4.55228 7 4V2.41406L4.41406 5Z" fill="currentColor"/><path d="M12.4018 16V13.827L10.647 10.014H11.7212L12.656 12.0886C12.727 12.2526 12.7872 12.4139 12.8364 12.5724C12.8856 12.7309 12.9184 12.8539 12.9348 12.9414C12.9566 12.8539 12.9894 12.7309 13.0332 12.5724C13.0824 12.4139 13.1425 12.2526 13.2136 12.0886L14.1238 10.014H15.1898L13.435 13.827V16H12.4018Z" fill="var(--augit-icon)"/></g>';
   } else if (["png", "jpg", "jpeg", "bmp"].includes(extension)) {
     kind = "image";
     shape = '<rect x="2" y="2" width="12" height="12"/><circle cx="10.5" cy="5.5" r="1"/><path d="m2 11 4-4 8 7"/>';
@@ -2027,7 +2035,7 @@ function liveConflictWholeSide(document_) {
       ? "该文件超出可合并的大小上限。"
       : "该文件不是有效的 UTF-8 文本，Augit 无法安全地改写它。";
   const side = (value, label) => `<button class="secondary-button" type="button" data-conflict-whole="${value}">接受${escapeHtml(label)}</button>`;
-  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
+  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
 }
 
 function liveConflictResolver() {
@@ -2191,7 +2199,7 @@ function settingsPageHtml(page, values, live) {
   return `<section class="settings-group"><div class="form-grid">`
     + `<label>主题</label><select class="select-field"${attr("theme")}>${themeOption("System", "跟随 Windows")}${themeOption("Light", "浅色")}${themeOption("Dark", "深色")}</select>`
     + `<label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span>`
-    + `<label>界面字体</label><div class="font-setting"><input class="text-field"${attr("textFontFamily")} value="${value("textFontFamily", "Microsoft YaHei UI")}"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 13)}"></div>`
+      + `<label>界面字体</label><div class="font-setting"><input class="text-field"${attr("textFontFamily")} value="${value("textFontFamily", "Microsoft YaHei UI")}"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 12)}"></div>`
     + `<label></label><span class="commit-meta">界面设置作用于文件树、标签、工具窗口、菜单、按钮和状态栏；Markdown 预览正文跟随界面设置。</span>`
     + `<label></label><span class="commit-meta">启动时恢复上次打开的目录和标签。</span>`
     + `</div></section>`;
@@ -2311,7 +2319,7 @@ function liveRollbackBody() {
   // Windows 回收站。两种身份的后果不同，不能共用一句笼统说明：
   // 已跟踪文件是恢复到 HEAD，未跟踪/新增文件没有可恢复版本、只是被移出工作区。
   const kind = String(file.kind || "");
-  const recycled = file.group !== "Changes" || kind === "Untracked" || kind === "Added";
+  const recycled = file.group !== "Changes" || kind === "Untracked" || kind === "Added" || file.workTreeStatus === "?";
   const impact = recycled
     ? `<strong>该文件将被移出工作区</strong><p class="commit-meta">这是未跟踪或新增文件，没有可恢复的 HEAD 版本。</p>`
     : `<strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p>`;
@@ -2691,13 +2699,18 @@ function titlebar() {
  * 禁用并给出悬停原因（权威在缺 Git 时隐藏/禁用 VCS 入口，Augit 用显式降级页表达该状态）。
  * 项目树、搜索（ripgrep）与终端都不依赖 Git，保持可用。
  */
-function rail(active, gitUnavailableReason = "") {
+function rail(active, gitUnavailableReason = "", activeBottom = "", activeRail = "") {
   const disabled = typeof gitUnavailableReason === "string" && gitUnavailableReason.length > 0;
   const button = (railName, label, href, iconName) => {
     if (disabled && (railName === "commit" || railName === "history")) {
       return `<a class="rail-button" href="${href}" aria-label="${label}" aria-disabled="true" title="${escapeHtml(gitUnavailableReason)}">${icon(iconName)}</a>`;
     }
-    return `<a class="rail-button ${active === railName ? "active" : ""}" href="${href}" aria-label="${label}">${icon(iconName)}</a>`;
+    const visible = railName === active
+      || (railName === "terminal" && activeBottom === "terminal")
+      || (railName === "history" && ["git", "file-history", "branch-compare"].includes(activeBottom));
+    // 可见工具窗可以有两个，但活动归属还要覆盖已收起的工具窗；入口键盘焦点不改变活动归属。
+    const isActive = railName === activeRail;
+    return `<a class="rail-button ${visible ? "visible" : ""} ${isActive ? "active" : ""}" href="${href}" aria-label="${label}">${icon(iconName)}</a>`;
   };
   return `
     <nav class="tool-rail" aria-label="工具窗口">
@@ -2721,10 +2734,47 @@ function liveTreeRowHtml(entry, selected, live) {
   const hasChildren = entry.isDirectory && entry.hasChildren;
   const chevron = hasChildren ? (entry.expanded ? "chevron-down" : "chevron-right") : "";
   const expanded = entry.expanded ? "true" : "false";
+  const status = !entry.isDirectory ? treeGitStatus(entry.path, live) : null;
+  const statusClass = status ? ` file-status-${status.className}` : "";
+  const statusLabel = status ? `，Git 状态：${status.label}` : "";
+  const statusMarker = status
+    ? `<span class="tree-status file-status-${status.className}" aria-hidden="true">${status.marker}</span>`
+    : "";
   // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
   // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
   // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
-  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}" role="treeitem" aria-level="${entry.depth + 1}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+  const gitAttrs = status
+    ? ` data-git-status="${status.className}" data-index-status="${escapeHtml(status.indexStatus)}" data-worktree-status="${escapeHtml(status.workTreeStatus)}"`
+    : "";
+  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}"${gitAttrs} role="treeitem" aria-label="${escapeHtml(entry.name + statusLabel)}" aria-level="${entry.depth + 1}" aria-selected="${entry.path === selected || entry.name === selected ? "true" : "false"}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name${statusClass}">${escapeHtml(entry.name)}</span>${statusMarker}${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+}
+
+/** 项目树文件的状态只影响文件名与辅助标记，不能覆盖文件类型图标的颜色。 */
+function treeGitStatus(path, live) {
+  const file = (live && live.status && Array.isArray(live.status.files) ? live.status.files : [])
+    .find((item) => item && item.path === path);
+  if (!file) return null;
+  const kind = String(file.kind || "Modified");
+  const status = {
+    Added: { className: "added", marker: "A", label: "新增" },
+    Untracked: { className: "unknown", marker: "?", label: "未跟踪" },
+    Modified: { className: "modified", marker: "M", label: "修改" },
+    Deleted: { className: "deleted", marker: "D", label: "删除" },
+    Renamed: { className: "modified", marker: "R", label: "重命名" },
+    Copied: { className: "added", marker: "C", label: "复制" },
+    TypeChanged: { className: "modified", marker: "T", label: "类型变化" },
+    Unmerged: { className: "conflict", marker: "!", label: "冲突" },
+  }[kind];
+  if (!status) return null;
+  const composite = file.indexStatus === "D" && file.workTreeStatus === "?"
+    ? "已暂存删除，工作区同路径存在未跟踪内容"
+    : "";
+  return {
+    ...status,
+    label: composite ? `${status.label}；${composite}` : status.label,
+    indexStatus: typeof file.indexStatus === "string" ? file.indexStatus : " ",
+    workTreeStatus: typeof file.workTreeStatus === "string" ? file.workTreeStatus : " ",
+  };
 }
 
 // 外壳注入真实工作区数据时使用：结构与样例树一致，保证同一套 CSS 与交互绑定。
@@ -2802,7 +2852,7 @@ function statusRefreshNotice() {
 function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
   const isSelected = selectedName === file.name;
   return `
-      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" role="treeitem" aria-level="2" aria-selected="${isSelected}" aria-label="${escapeHtml(changeAccessibleName(file.kind, file.name))}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
+      <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" data-index-status="${escapeHtml(file.indexStatus || " ")}" data-worktree-status="${escapeHtml(file.workTreeStatus || " ")}" role="treeitem" aria-level="2" aria-selected="${isSelected}" aria-label="${escapeHtml(changeAccessibleName(file.kind, file.name, file))}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
         <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
         <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
       </div>`;
@@ -3268,7 +3318,7 @@ function liveUnavailableDocument(overrideMessage = null) {
     .filter((part) => part && String(part).length > 0)
     .map((part) => escapeHtml(part))
     .join(" · ");
-  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(overrideMessage || document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
+  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(overrideMessage || document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
 }
 
 function textView(find = false) {
@@ -3343,8 +3393,9 @@ function bindBlame() {
       // 因此样例分支只服务静态视觉稿（`blame.html`）；实时模式保留上面的选中反馈与下面的
       // 纵向同步（`sync()` 是真实行为，不属于样例）。
       if (window.__augitLive && window.__augitLive.blame) { sync(); return; }
-      const workspace = documentView.closest(".workspace");
-      let bottom = workspace.querySelector(".bottom-tool");
+      // 底部工具窗是主内容区第二行的直接子节点，不再嵌套在编辑器 workspace 中。
+      let bottom = document.querySelector(".app-main > .bottom-tool");
+      if (!bottom) return;
       // 固定样本来自文件历史中的根提交；定位只更新底部日志，正文和标签保持原位。
       const hash = row.dataset.blameCommit;
       if (bottom.dataset.blameCommit !== hash) {
@@ -4685,10 +4736,14 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   // 场景可以省略 activeRail/side/bottom 而依赖 shell() 的默认参数，
   // 若一开始就用 DOM 读出的值覆盖，会把场景依赖的默认值抹掉。
   if (live && live.layout && live.layout.userDriven) {
-    if (live.layout.activeRail) activeRail = live.layout.activeRail;
-    side = live.layout.collapsed === "side" ? "" : live.layout.side;
-    bottom = live.layout.collapsed === "bottom" ? "" : live.layout.bottom;
+    activeRail = live.layout.activeRail || "";
+    side = (live.layout.sideHidden ?? live.layout.collapsed === "side") ? "" : live.layout.side;
+    bottom = (live.layout.bottomHidden ?? live.layout.collapsed === "bottom") ? "" : live.layout.bottom;
   }
+
+  // 可见区域与活动归属分别保存；左侧和底部可同时显示，活动入口由 activeRail 决定。
+  const activeSide = side;
+  const activeBottom = bottom;
 
   // 实时外壳下由用户操作打开的弹层覆盖场景自带的那个（规格 §5.3）。
   // 只在确有实时弹层时覆盖，否则保留场景值，逐场景静态浏览与既有场景行为不变。
@@ -4758,8 +4813,8 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (editor === "file-limit" && liveDocument()) editorBody = liveUnavailableDocument();
   // 图片解码失败（宿主 ImageDecodeFailed / ImageTooLarge）：与实时侧 liveUnavailableDocument()
   // 同构，只有原因那行不同。此前视觉稿只覆盖了"GIF/WebP 不支持"，解码失败没有基线。
-  else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>corrupt.png · PNG 图像 · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>无法读取图片尺寸，已停止预览。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
-  else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-orange)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
+  else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>corrupt.png · PNG 图像 · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>无法读取图片尺寸，已停止预览。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
+  else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   // 规格 §6.7 的读取占位（见上方 editor 覆盖处）。
   if (editor === "document-loading") editorBody = documentLoadingView(live && live.pendingDocument);
@@ -4810,7 +4865,8 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
   const tabs = live ? editorTabs("", editorExtra) : staticTabs;
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
-  return `<div class="augit-window">${titlebar()}<main class="app-main">${rail(activeRail, railGitReason)}${sideHtml}<section class="workspace ${bottom ? "with-bottom" : ""}"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article>${bottomHtml}</section></main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
+  const mainClasses = ["app-main", side ? "" : "side-collapsed", bottom ? "bottom-open" : ""].filter(Boolean).join(" ");
+  return `<div class="augit-window">${titlebar()}<main class="${mainClasses}" data-side="${side}" data-bottom="${bottom}">${rail(activeSide, railGitReason, activeBottom, activeRail)}${sideHtml}<section class="workspace"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article></section>${bottomHtml}</main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
 }
 
 // 状态栏描述活动视图；比较补丁不提供源文件编码与换行事实。
@@ -5435,11 +5491,15 @@ function bindHistoryLayout(root = document) {
         + (authorWidth > 0 ? Math.min(authorWidth, 48) + 8 : 0) + (compactWidth > 0 ? compactWidth + 8 : 0));
       const contentWidth = Math.max(0, rowWidth - graphWidth - 8);
       const budget = Math.max(0, contentWidth - Math.min(contentWidth, 120) - 8);
-      const compact = fullWidth + Math.min(authorWidth, 48) + 8 > budget;
+      // 窄栏时优先保留作者与日期列：完整日期还要为引用列保留至少 64px 的辨认空间，
+      // 放不下就切换短日期，并整列隐藏引用。否则先保留完整日期，引用列再按实际文字宽度让位。
+      const referenceMinimum = referenceWidth > 0 ? 64 : 0;
+      const compact = fullWidth + Math.min(authorWidth, 48) + 8 + referenceMinimum + 8 > budget;
       const date = Math.min(budget, compact ? compactWidth : fullWidth);
       const author = Math.min(authorWidth, Math.max(0, budget - date - 8));
       const referenceBudget = Math.max(0, budget - date - (author ? author + 8 : 0) - 8);
-      const reference = referenceBudget >= Math.min(referenceWidth, 64) ? Math.min(referenceWidth, referenceBudget) : 0;
+      const reference = !compact && referenceBudget >= referenceMinimum
+        ? Math.min(referenceWidth, referenceBudget) : 0;
       rows.forEach(row => {
         const columns = [`${graphWidth}px`, "minmax(0, 1fr)"];
         [[".branch-label", reference], [".commit-author", author], [".commit-date", date]].forEach(([selector, width]) => {
@@ -5530,6 +5590,14 @@ function bindHistoryLayout(root = document) {
 
 function bindHistoryDetails(root = document) {
   root.querySelectorAll(".log-detail-panel").forEach(panel => {
+    // 幂等：这里 insertBefore 的是「提交详情 / 文件历史 / Blame」操作行。静态视觉稿只绑定一次，
+    // 实时外壳每次区域刷新都会整体重新绑定（`__augitRenderRegions()` → `bindInteractions()`），
+    // 而且是对 document 下**所有**面板重新绑定 —— 包括没有被替换的那些。没有幂等判断时，
+    // 每刷新一次别的区域就多插一行：多余的行落进网格的隐式行里，行高被压到几像素后互相重叠
+    //（用户实测："右下角的提交详情叠了一堆"），同时把变化文件区与详情正文挤到几乎为零。
+    // 同一个面板只允许有一组操作行（与 `bindHistoryToolbar()` 的「更多」入口同一处理）。
+    if (panel.dataset.historyDetailsBound === "true") return;
+    panel.dataset.historyDetailsBound = "true";
     const detail = panel.querySelector(".commit-detail");
     const files = panel.querySelector(".changed-files");
     detail.tabIndex = 0;
@@ -5583,12 +5651,12 @@ function bindHistoryDetails(root = document) {
       files.focus({ preventScroll: true });
     };
     files.addEventListener("click", event => {
-      const row = event.target.closest(".file-status-modified, .file-status-added, .file-status-deleted");
+      const row = event.target.closest("[data-history-path]");
       if (row) selectFile(row);
     });
     files.addEventListener("keydown", event => {
       if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return;
-      const row = files.querySelector(".selected") || files.querySelector(".file-status-modified, .file-status-added, .file-status-deleted");
+      const row = files.querySelector(".selected") || files.querySelector("[data-history-path]");
       if (!row) return;
       event.preventDefault();
       row.scrollIntoView({ block: "nearest" });
@@ -5597,7 +5665,7 @@ function bindHistoryDetails(root = document) {
         clientX: bounds.left, clientY: bounds.bottom }));
     });
     files.addEventListener("contextmenu", event => {
-      const row = event.target.closest(".file-status-modified, .file-status-added, .file-status-deleted");
+      const row = event.target.closest("[data-history-path]");
       if (!row) return;
       event.preventDefault();
       selectFile(row);
@@ -5718,16 +5786,20 @@ function bindHistoryComparisonFollow(root = document) {
 
 function bindSelectionFocus(root = document) {
   // 与原生工具列表一致：焦点只改变选中背景，不取消选择或执行链接。
-  root.querySelectorAll(".side-content.tree, .changes-layout > .changes-list, .log-ref-panel > .tree, .commit-list, .log-detail-panel > .changed-files, .history-row").forEach(region => {
+  root.querySelectorAll(".side-content.tree, .changes-layout > .changes-list, .log-ref-panel > .tree, .commit-list, .log-detail-panel > .changed-files, .history-row, .settings-nav, .management-list, .branches-popover").forEach(region => {
+    if (region.dataset.selectionFocusBound) return;
+    region.dataset.selectionFocusBound = "true";
     region.tabIndex = 0;
     region.dataset.selectionRegion = "true";
     const update = () => {
-      const inactive = !region.contains(document.activeElement);
+      const focused = document.activeElement;
+      const inactive = !region.contains(focused) || focused.matches('input, button, select, textarea, [role="button"]');
       const rows = region.matches(".selected") ? [region] : region.querySelectorAll(".selected");
       rows.forEach(row => row.classList.toggle("inactive", inactive));
     };
     region.addEventListener("focusin", update);
     region.addEventListener("focusout", () => queueMicrotask(update));
+    region.addEventListener("click", () => queueMicrotask(update));
     update();
   });
 }
@@ -6265,6 +6337,30 @@ window.__augitRender = () => {
   void applyTypographyPreview();
 };
 
+// 工具窗出现/消失只改变主网格的工具区域，保留编辑器节点、原生选区和滚动容器。
+// 切换底部区域时也保留未变化的侧栏，避免项目树滚动与选中上下文被重建。
+window.__augitRenderToolLayout = () => {
+  const main = app?.querySelector('.app-main');
+  const fragment = renderRegions();
+  const next = fragment.querySelector('.app-main');
+  if (!main || !next) return;
+  disposeRegionBindings();
+  for (const [key, selector] of [['side', '.side-tool'], ['bottom', '.bottom-tool']]) {
+    if (main.dataset[key] === next.dataset[key]) continue;
+    const current = main.querySelector(`:scope > ${selector}`);
+    const replacement = next.querySelector(`:scope > ${selector}`);
+    if (current && replacement) current.replaceWith(replacement);
+    else if (current) current.remove();
+    else if (replacement) main.appendChild(replacement);
+  }
+  main.className = next.className;
+  main.dataset.side = next.dataset.side;
+  main.dataset.bottom = next.dataset.bottom;
+  main.querySelector('.tool-rail')?.replaceWith(next.querySelector('.tool-rail'));
+  bindInteractions();
+  void applyTypographyPreview();
+};
+
 // 各区域模板的取法：把整页 HTML 解析一次，再按类名取回对应片段。
 function renderRegions() {
   const template = document.createElement("template");
@@ -6306,6 +6402,15 @@ const REGION_SOURCES = {
  */
 window.__augitRenderRegions = (...names) => {
   if (!app || names.length === 0) return;
+  // 区域入口也可能被宿主或测试直接调用；替换项目树前保留树行焦点，
+  // 根行路径为空字符串时必须按“存在”处理，不能用真假判断。
+  const active = document.activeElement;
+  const activeTreeRow = active && active.closest
+    ? active.closest(".side-content.tree .tree-row[data-tree-path]")
+    : null;
+  const focusedTreePath = names.includes("side") && activeTreeRow
+    ? activeTreeRow.dataset.treePath
+    : null;
   // 先释放由即将被替换的节点持有的 document/window 监听，避免累积。
   disposeRegionBindings();
   const fragment = renderRegions();
@@ -6323,6 +6428,11 @@ window.__augitRenderRegions = (...names) => {
   }
 
   bindInteractions();
+  if (focusedTreePath !== null) {
+    const replacementRow = [...document.querySelectorAll(".side-content.tree .tree-row[data-tree-path]")]
+      .find((row) => row.dataset.treePath === focusedTreePath);
+    replacementRow?.focus({ preventScroll: true });
+  }
   void applyTypographyPreview();
 };
 window.__augitScene = () => scene;

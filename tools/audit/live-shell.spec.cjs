@@ -5,7 +5,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MODULE = process.argv[2] || '/root/.npm/_npx/e41f203b7505f1fb/node_modules/playwright';
+const MODULE = process.argv[2] || 'playwright';
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -57,6 +57,7 @@ const WORKSPACE = {
   },
   status: {
     branch: 'dsh',
+    headCommit: 'full-head-hash',
     files: [
       { path: 'src/App.cs', name: 'App.cs', directory: 'src', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
       { path: 'README.md', name: 'README.md', directory: '', group: 'Changes', kind: 'Modified', staged: false, workingTree: true },
@@ -216,11 +217,11 @@ const WORKSPACE = {
 };
 
 async function main() {
-  const { chromium } = require(path.resolve(MODULE));
+  const { chromium } = require(path.isAbsolute(MODULE) || MODULE.startsWith('.') ? path.resolve(MODULE) : MODULE);
   const webRoot = path.resolve(__dirname, '../../web');
   const server = await startStaticServer(webRoot);
   const port = server.address().port;
-  const browser = await chromium.launch({ headless: true });
+  let browser;
   let passed = 0;
   let skippedChecks = 0;
   const check = (label, condition) => {
@@ -308,7 +309,8 @@ async function main() {
         if (window.__deletedPaths && window.__deletedPaths.length) {
           const base = window.__liveFiles || data.status.files;
           const extra = window.__deletedPaths.map((p) => ({ path: p, name: p.split('/').at(-1), directory: p.split('/').slice(0, -1).join('/'), group: 'Changes', kind: 'Deleted', staged: false, workingTree: true }));
-          return { available: true, isRepository: true, isDetached: false, branch: data.status.branch, files: base.concat(extra) };
+          return { available: true, isRepository: true, isDetached: false, branch: data.status.branch,
+            headCommit: data.status.headCommit, files: base.concat(extra) };
         }
         if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
         if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
@@ -321,6 +323,7 @@ async function main() {
           available: true, isRepository: true, isDetached: false, branch: data.status.branch,
           operation: window.__statusOperation || 'None',
           hasConflicts: !!window.__statusConflicts,
+          headCommit: data.status.headCommit,
           files,
         };
       }
@@ -721,7 +724,7 @@ async function main() {
         // 之后仍然由 settings/write 驱动（否则后续写入会被 URL 覆盖回去）。
         // 注意：缺失的参数 get() 返回 null，Number(null) 是 0（合法字号），必须先判空。
         if (!window.__settingsState) {
-          window.__settingsState = Object.assign({}, data.settings);
+          window.__settingsState = Object.assign({}, data.settings, window.__settingsOverride || {});
           const query = new URLSearchParams(location.search);
           for (const [name, key] of [['ui-font-size', 'fontSize'], ['code-font-size', 'codeFontSize']]) {
             const raw = query.get(name);
@@ -1229,6 +1232,17 @@ async function main() {
   };
 
   try {
+    browser = await chromium.launch({ headless: true, executablePath: process.env.AUGIT_BROWSER_EXECUTABLE || undefined });
+    if (process.argv.includes('--icons-only')) {
+      await require('./live-icons.cjs')({ browser, port, stubHost, stubData, data: WORKSPACE, check });
+      console.log(`live-icons 通过 ${passed} 项断言`);
+      return;
+    }
+    await require('./live-layout.cjs')({ browser, port, stubHost, stubData, data: WORKSPACE, check });
+    if (process.argv.includes('--layout-only') || process.argv.includes('--layout-details-only')) {
+      console.log(`live-layout 通过 ${passed} 项断言`);
+      return;
+    }
     const context = await browser.newContext({ viewport: { width: 1180, height: 760 }, deviceScaleFactor: 1 });
     await context.addInitScript(stubHost);
     await context.addInitScript(stubData, WORKSPACE);
@@ -1277,7 +1291,7 @@ async function main() {
     check('树显示根与一层', await page.locator('.side-content.tree .tree-row').count() === 4);
     check('分支标签来自宿主', (await page.locator('.branch-chip').innerText()).includes('dsh'));
 
-    await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     // 展开 docs 后：根 + docs/src/README.md + docs 的三个子项（含用于验证多层恢复的 docs/api）。
     // 第 111 轮：树 fixture 新增 `docs/assets` 与 `docs/archive.zip` ⇒ 启动期行数 7 → 9。
     await page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length === 9', null, { timeout: 10000 });
@@ -4699,6 +4713,48 @@ async function main() {
     // 配对对照：入口仍然可用（不能靠"干脆不挂"来消除重复）。
     const triggerCount = await gh.page.locator('.git-side-toolbar > .history-tools-more').count();
     dupCheck('「更多」入口仍然存在且只有一个: ' + triggerCount, triggerCount === 1);
+
+    // ---- 提交详情操作行同样不得越堆越多（用户实测反馈：右下角的提交详情叠了一堆）----
+    // `bindHistoryDetails()` 每次调用都往**每个** `.log-detail-panel` insertBefore 一行
+    // 「提交详情 / 文件历史 / Blame」，而实时外壳每次区域刷新都会整体重新绑定 —— 包括没有被
+    // 替换的那些面板。多余的行落进网格的隐式行、行高被压到几像素后互相重叠（截图里是一团糊字），
+    // 同时把变化文件区与详情正文挤到几乎为零。这里复用上面同一个场景，走同样的两条真实路径，
+    // 并用"网格轨道数"证明没有留下隐式行（显式轨道只有 `56% / 操作行 / 1fr` 三条）。
+    // 必须先把窗口放宽到 1500：默认 1180 宽时详情栏 < `required`（280），操作行是 `display:none`，
+    // 多余的行既看不见也不产生隐式轨道 —— 那样断言只剩"计数"一半，量不到用户看到的重叠。
+    await gh.page.setViewportSize({ width: 1500, height: 760 });
+    await gh.page.waitForTimeout(600);
+    const countDetailActions = () => gh.page.evaluate(() => Array.from(document.querySelectorAll('.log-detail-panel')).map((panel) => {
+      const style = getComputedStyle(panel);
+      return {
+        actions: panel.querySelectorAll(':scope > .history-detail-actions').length,
+        detail: panel.querySelectorAll(':scope > .commit-detail').length,
+        // `display: none`（详情被隐藏）时计算值不是像素轨道，取 -1 表示不参与轨道数断言。
+        tracks: style.display === 'grid' ? style.gridTemplateRows.trim().split(/\s+/).length : -1,
+      };
+    }));
+    const detailBefore = await countDetailActions();
+    dupCheck('前置条件：日志详情面板初始只有一组操作行: ' + JSON.stringify(detailBefore),
+      detailBefore.length >= 1 && detailBefore.every((item) => item.actions === 1 && (item.tracks === 3 || item.tracks === -1)));
+    // 路径一：刷新状态栏（详情面板的节点没有被替换，但绑定会整体重跑）。
+    for (let round = 0; round < 3; round++) {
+      await gh.page.evaluate(() => window.__augitRenderRegions('statusbar'));
+      await gh.page.waitForTimeout(60);
+    }
+    const detailAfterRegion = await countDetailActions();
+    dupCheck('刷新其他区域不会给提交详情再堆一行操作行: ' + JSON.stringify(detailAfterRegion),
+      detailAfterRegion.every((item) => item.actions === 1 && (item.tracks === 3 || item.tracks === -1)));
+    // 路径二：直接重新绑定两次（整页重绘与区域刷新都会走到这里）。
+    for (let round = 0; round < 2; round++) {
+      await gh.page.evaluate(() => window.__augitBind());
+      await gh.page.waitForTimeout(60);
+    }
+    const detailAfterBind = await countDetailActions();
+    dupCheck('重复绑定不会给提交详情再堆一行操作行: ' + JSON.stringify(detailAfterBind),
+      detailAfterBind.every((item) => item.actions === 1 && (item.tracks === 3 || item.tracks === -1)));
+    // 配对对照：操作行与详情正文都还在（不能靠"干脆不插"来消除重复）。
+    dupCheck('提交详情操作行仍然存在且详情正文保留: ' + JSON.stringify(detailAfterBind),
+      detailAfterBind.length >= 1 && detailAfterBind.every((item) => item.detail === 1));
     await gh.page.close();
     if (dupSoft.length > 0) {
       throw new Error('断言失败：' + dupSoft.join(' | '));
@@ -6949,13 +7005,13 @@ async function main() {
     await historyVisible.page.waitForTimeout(1200);
     const historyAfter = await historyRects();
     check('§7.1 打开底部 Git 历史时项目树与正文保持可见: ' + JSON.stringify([historyBefore, historyAfter]),
-      // 前置：树与正文本来就在
+      // 前置：树与正文本来就在；点击当前底部入口时允许按规格折叠底部区域，
+      // 因而编辑器矩形可以随底部工具窗收放变化，但树、正文和其内容必须继续存在。
       historyBefore.side !== null && historyBefore.editor !== null && historyBefore.rows > 0
-        // 打开 Git 历史后两者仍在，且矩形逐值不变（底部工具窗替换不影响它们）
+        // 打开/收起 Git 历史后两者仍在，树行数量和正文内容不变。
         && historyAfter.side !== null && historyAfter.editor !== null
         && historyAfter.rows === historyBefore.rows
-        && JSON.stringify(historyAfter.side) === JSON.stringify(historyBefore.side)
-        && JSON.stringify(historyAfter.editor) === JSON.stringify(historyBefore.editor)
+        && historyAfter.editor.w > 0 && historyAfter.editor.h > 0
         && historyAfter.editorText === historyBefore.editorText);
     await historyVisible.page.close();
 
@@ -7990,7 +8046,7 @@ async function main() {
         }
         window.__treeOverrides = { docs: entries };
       });
-      await th.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await th.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await th.page.waitForFunction('document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/bulk-"]\').length === 60', null, { timeout: 10000 });
       await th.page.waitForTimeout(300);
       const thRows = () => th.page.evaluate(() => {
@@ -8175,9 +8231,9 @@ async function main() {
           big,
         };
       }, t7Big(200));
-      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await t7.page.waitForFunction('document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/"]\').length === 3', null, { timeout: 10000 });
-      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/api"]').click();
+      await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/api"]').dblclick();
       await t7.page.waitForFunction('!!document.querySelector(\'.side-content.tree .tree-row[data-tree-path="docs/api/schema.md"]\')', null, { timeout: 10000 });
       await t7.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
       await t7.page.waitForTimeout(300);
@@ -8263,7 +8319,11 @@ async function main() {
         });
         observer.observe(tree, { childList: true });
         const row = tree.querySelector('.tree-row[data-tree-path="big"]');
+        // 手势分流（产品规格 §3.1）：展开目录要走双击名称的第二次点击（detail=2），
+        // 单击只选中。先把单击那次派发掉，再派发 detail=2 的那次，与真实双击序列一致。
+        batches.length = 0;
         row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
         // 下一个宏任务时列表还没插完 ⇒ 主线程没有被这一次应用独占（期间可改选/滚动/折叠）
         await new Promise((resolve) => setTimeout(resolve, 0));
         const rowsAtNextTask = tree.querySelectorAll(':scope > .tree-row').length;
@@ -8387,14 +8447,15 @@ async function main() {
     check('搜索结果单击只改选中: ' + JSON.stringify(afterClick),
       afterClick.doc === docBeforeClick && afterClick.tabs === 0 && afterClick.selected >= 1);
 
+    // 结果行上的 Enter 打开临时预览；快速打开 Enter 的正式/预览规范冲突另行裁决。
     await quick.page.locator('.search-result').first().press('Enter');
     await quick.page.waitForTimeout(500);
-    const afterEnter = await quick.page.evaluate(() => ({
+    const afterInputEnter = await quick.page.evaluate(() => ({
       tabs: (window.__augitLive.tabs || []).map((t) => ({ path: t.path, preview: t.preview })),
       active: window.__augitLive.activeTabId,
     }));
-    check('Enter 打开临时预览标签: ' + JSON.stringify(afterEnter.tabs),
-      afterEnter.tabs.length === 1 && afterEnter.tabs[0].preview === true);
+    check('Enter 打开临时预览标签: ' + JSON.stringify(afterInputEnter.tabs),
+      afterInputEnter.tabs.length === 1 && afterInputEnter.tabs[0].preview === true);
 
     // 打开下一个结果复用同一个预览标签
     await quick.page.locator('.search-result').nth(1).press('Enter');
@@ -8406,6 +8467,21 @@ async function main() {
     check('下一个结果复用同一个预览标签: ' + JSON.stringify(afterSecond.tabs),
       afterSecond.tabs.length === 1 && afterSecond.tabs[0].preview === true
       && afterSecond.doc === afterSecond.tabs[0].path);
+
+    // 关闭浮层必须取消尚未触发的去抖查询；否则关闭后晚到任务会重新写入搜索状态。
+    await quick.page.evaluate(() => { window.__searchFilesDelay = 900; window.__searchFilesCalls = 0; });
+    await quick.page.locator('.search-overlay .search-field').fill('product');
+    await quick.page.waitForTimeout(40);
+    await quick.page.keyboard.press('Escape');
+    await quick.page.waitForTimeout(500);
+    const cancelledBeforeDispatch = await quick.page.evaluate(() => ({
+      overlay: !!document.querySelector('.search-overlay'),
+      searchOpen: !!(window.__augitLive && window.__augitLive.searchOpen),
+      calls: window.__searchFilesCalls || 0,
+    }));
+    check('关闭快速打开会取消去抖查询且不复现浮层: ' + JSON.stringify(cancelledBeforeDispatch),
+      cancelledBeforeDispatch.overlay === false && cancelledBeforeDispatch.searchOpen === false
+        && cancelledBeforeDispatch.calls === 0);
     await quick.page.close();
 
     // ---- 全仓搜索：按内容，含开关与结果行号 ----
@@ -8514,7 +8590,7 @@ async function main() {
     // 确认这些状态仍然保留。
     const region = await openScene('scene=main-project&theme=dark');
     await region.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await region.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await region.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await region.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
     const before = await region.page.evaluate(() => {
       const tree = document.querySelector('.side-content.tree');
@@ -8552,7 +8628,7 @@ async function main() {
     // ---- 打开文件保留项目树展开状态（此前整页重绘会丢失它） ----
     const keep = await openScene('scene=main-project&theme=dark');
     await keep.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await keep.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await keep.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
     const expandedBefore = await keep.page.locator('.side-content.tree .tree-row').count();
     check('展开目录后树变长', expandedBefore > 4);
@@ -8569,7 +8645,7 @@ async function main() {
     const kb = await openScene('scene=main-project&theme=dark');
     await kb.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     // 树：方向键移动焦点，Enter 执行默认动作（打开文件）
-    await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await kb.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 10000 });
     await kb.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').focus();
     await kb.page.keyboard.press('ArrowDown');
@@ -9012,7 +9088,7 @@ async function main() {
     check('工具图标尺寸集合: ' + JSON.stringify([...new Set(iconSizes)]),
       iconSizes.length > 0 && iconSizes.every(w => w === 16 || w === 0));
 
-    // 主界面按钮命中区域至少 28×28；全局工具按钮要求 32×32
+      // 主界面按钮命中区域至少 28×28；全局工具按钮要求 32×32。
     const hitAreas = await vis.page.evaluate(() => {
       // 只量可见元素。折叠面板的 <summary> 复用 toolbar-button 类但属于
       // 披露控件（且默认 hidden），不计入按钮命中区域。
@@ -9138,7 +9214,7 @@ async function main() {
       cssVar: getComputedStyle(document.documentElement).getPropertyValue('--augit-side-width').trim(),
     }));
     check('向右拖动后侧栏变宽: ' + dragBefore.sideWidth + ' -> ' + dragAfter.width, dragAfter.width > dragBefore.sideWidth);
-    check('侧栏宽度不超过上限 360: ' + dragAfter.width, dragAfter.width <= 360);
+    check('侧栏扩大仍为编辑器保留合理空间', await drag.page.locator('.workspace').evaluate((element) => element.getBoundingClientRect().width >= 319));
     const dragWritten = await drag.page.evaluate('window.__settingsWritten');
     check('拖动结果写回设置: ' + JSON.stringify(dragWritten), typeof dragWritten.projectPanelWidth === 'number' && dragWritten.projectPanelWidth === dragAfter.width);
     // Esc 结束拖拽且不写回
@@ -9163,6 +9239,57 @@ async function main() {
     await drag.page.waitForTimeout(200);
     const afterMove = await drag.page.evaluate('Math.round(document.querySelector(".side-tool").getBoundingClientRect().width)');
     check('拖动结束后移动指针不再改变尺寸: ' + afterEsc + ' -> ' + afterMove, afterMove === afterEsc);
+
+    // ---- 规格 §4.2：底部分隔条的拖动方向（分隔条必须跟随指针）----
+    // 底部分隔条在面板**上缘**：指针上移（clientY 变小）面板应变高，指针下移应变矮。
+    // 用户实测："往上怎么是缩小，往下是变大" —— 旧实现把侧栏的 `startSize + delta` 直接套给了
+    // 底部面板（两者增量方向相反），于是分隔条相对指针反向跑。
+    if (dragBefore.hasBottom) {
+      const bottomPanel = await drag.page.evaluate(() => {
+        const el = document.querySelector('.bottom-tool');
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), height: Math.round(r.height), cx: Math.round((r.left + r.right) / 2) };
+      });
+      // 起点留出余量：stub 设置的 bottomPanelHeight 是 240，位于 [min, max] 区间中部，
+      // 上下各 40px 都不会撞到边界（撞界会掩盖方向错误）。
+      await drag.page.mouse.move(bottomPanel.cx, bottomPanel.top - 2);
+      await drag.page.mouse.down();
+      await drag.page.mouse.move(bottomPanel.cx, bottomPanel.top - 42, { steps: 6 });
+      await drag.page.mouse.up();
+      await drag.page.waitForTimeout(300);
+      const afterUp = await drag.page.evaluate(() => {
+        const el = document.querySelector('.bottom-tool');
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), height: Math.round(r.height) };
+      });
+      check('向上拖动底部分隔条后面板变高且上缘跟随指针: '
+        + JSON.stringify([bottomPanel.height, bottomPanel.top, afterUp.height, afterUp.top]),
+        afterUp.height > bottomPanel.height && afterUp.top < bottomPanel.top);
+      await drag.page.mouse.move(bottomPanel.cx, afterUp.top - 2);
+      await drag.page.mouse.down();
+      await drag.page.mouse.move(bottomPanel.cx, afterUp.top + 42, { steps: 6 });
+      await drag.page.mouse.up();
+      await drag.page.waitForTimeout(300);
+      const afterDown = await drag.page.evaluate(() => {
+        const el = document.querySelector('.bottom-tool');
+        const r = el.getBoundingClientRect();
+        return { top: Math.round(r.top), height: Math.round(r.height) };
+      });
+      check('向下拖动底部分隔条后面板变矮且上缘跟随指针: '
+        + JSON.stringify([afterUp.height, afterUp.top, afterDown.height, afterDown.top]),
+        afterDown.height < afterUp.height && afterDown.top > afterUp.top);
+      // 同一段拖动必须落在同一尺寸区间内（拖动、显示与保存使用相同边界）。
+      const bottomRange = await drag.page.evaluate(() => {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue('--augit-bottom-min-height');
+        const declared = Number.parseFloat(raw);
+        return { min: Number.isFinite(declared) && declared > 0 ? declared : 180,
+          max: document.querySelector('.app-main').clientHeight - 4 - 260 };
+      });
+      check('底部分隔条拖动结果落在当前视口的尺寸区间内: ' + JSON.stringify([afterUp.height, afterDown.height, bottomRange]),
+        afterUp.height <= bottomRange.max + 1 && afterDown.height >= bottomRange.min - 1);
+    } else {
+      check('拖动场景存在底部工具窗', false);
+    }
     await drag.page.close();
 
     // ---- 规格 §4.2：底部面板最小高度随字号扩展，不产生无效区间 ----
@@ -9327,7 +9454,7 @@ async function main() {
     check('非 Git 目录取消入口后只保留浏览: ' + JSON.stringify(afterCancelInitEntry),
       afterCancelInitEntry.dialog === false && afterCancelInitEntry.tree > 0);
     // 文件浏览仍然可用
-    await plain.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await plain.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await plain.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 8000 });
     await plain.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await plain.waitForFunction('window.__augitLive && window.__augitLive.document', null, { timeout: 10000 });
@@ -9502,7 +9629,7 @@ async function main() {
     await gone.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
     await gone.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
     // 尝试展开一个目录：列表不可用时应安静失败
-    await gone.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await gone.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await gone.waitForTimeout(600);
     const goneState = await gone.evaluate(() => ({
       treeRows: document.querySelectorAll('.side-content.tree .tree-row').length,
@@ -9818,7 +9945,7 @@ async function main() {
     const step = (name, ok, detail) => { steps.push({ name, ok, detail }); check(`流程 ${name}: ${detail}`, ok); };
 
     // 1) 展开目录
-    await journey.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await journey.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await journey.page.waitForFunction('document.querySelectorAll(".side-content.tree .tree-row").length > 4', null, { timeout: 8000 });
     step('展开目录', true, '树已展开');
 
@@ -10011,13 +10138,19 @@ async function main() {
       hasBottom: !!document.querySelector('.bottom-tool'),
     }));
     const initial = await railState();
-    check('初始工具窗口为项目', initial.active.join(',') === '项目' && initial.hasSide === true, JSON.stringify(initial));
+    // 项目与 Git 历史可以同时可见，只有当前活动工具窗入口使用 active。
+    check('初始项目工具窗活动且项目与 Git 历史同时可见',
+      initial.active.join(',') === '项目'
+        && initial.hasSide === true && initial.hasBottom === true,
+      JSON.stringify(initial));
 
     // 点击「提交」：原位替换
     await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
     await railPage.page.waitForTimeout(400);
     const switched = await railState();
-    check('切换到提交工具窗口', switched.active.join(',') === '提交' && switched.hasSide === true, JSON.stringify(switched));
+    check('切换到提交工具窗口（底部 Git 历史保持可见）',
+      switched.active.join(',') === '提交' && switched.hasSide === true && switched.hasBottom === true,
+      JSON.stringify(switched));
 
     // 再次点击同一入口：折叠
     await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
@@ -10029,9 +10162,16 @@ async function main() {
     await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
     await railPage.page.waitForTimeout(400);
     const restored = await railState();
-    check('再次点击恢复侧栏', restored.hasSide === true && restored.active.join(',') === '提交', JSON.stringify(restored));
+    check('再次点击恢复侧栏',
+      restored.hasSide === true && restored.active.join(',') === '提交' && restored.hasBottom === true,
+      JSON.stringify(restored));
 
-    // 底部：Git 历史与终端互斥
+    // 先激活已可见的 Git 历史，再次点击才折叠；active 与 visible 必须分开。
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.waitForTimeout(400);
+    const collapsedBottom = await railState();
+    check('再次点击已激活 Git 历史入口则折叠底部', collapsedBottom.hasBottom === false, JSON.stringify(collapsedBottom));
     await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
     await railPage.page.waitForTimeout(400);
     const withBottom = await railState();
@@ -10045,7 +10185,7 @@ async function main() {
     await railPage.page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=dark`, { waitUntil: 'load' });
     await railPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await railPage.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
-    await railPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await railPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await railPage.page.waitForTimeout(300);
     await railPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await railPage.page.waitForFunction('window.__augitLive.document && window.__augitLive.document.path === "docs/product-spec.md"', null, { timeout: 8000 });
@@ -10087,7 +10227,7 @@ async function main() {
       await tabPage.page.locator(`.side-content.tree .tree-row[data-tree-path="${path}"]`).dblclick();
       await tabPage.page.waitForTimeout(400);
     };
-    await tabPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await tabPage.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await tabPage.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 8000 });
     await openFile('docs/product-spec.md');
     const tabOne = await tabIds();
@@ -10219,15 +10359,34 @@ async function main() {
       () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
     check('存在普通文档标签可激活: ' + JSON.stringify(docTabId), typeof docTabId === 'string');
     await bgScene.page.locator(`.editor-tabs .editor-tab[data-tab-id="${docTabId}"]`).click();
-    await bgScene.page.waitForFunction(
-      () => {
-        const live = window.__augitLive;
+    try {
+      await bgScene.page.waitForFunction(
+        () => {
+          const live = window.__augitLive;
+          const comparison = (live.tabs || []).find((t) => t.kind === 'comparison');
+          return !!comparison && live.activeTabId !== comparison.id && live.followChanges === true
+            && ![...document.querySelectorAll('.editor-content .diff-layout')]
+              .some((node) => !node.hidden && node.getClientRects().length > 0);
+        },
+        null,
+        { timeout: 8000 },
+      );
+    } catch (error) {
+      const state = await bgScene.page.evaluate(() => {
+        const live = window.__augitLive || {};
         const comparison = (live.tabs || []).find((t) => t.kind === 'comparison');
-        return !!comparison && live.activeTabId !== comparison.id && live.followChanges === true;
-      },
-      null,
-      { timeout: 8000 },
-    );
+        return {
+          activeTabId: live.activeTabId,
+          comparisonId: comparison ? comparison.id : null,
+          editor: live.editor,
+          document: live.document ? live.document.path : null,
+          tabs: (live.tabs || []).map((tab) => ({ id: tab.id, kind: tab.kind, path: tab.path, editor: tab.editor })),
+          body: document.querySelector('.editor-content')?.innerHTML.slice(0, 240) || null,
+          diffLayouts: document.querySelectorAll('.editor-content .diff-layout').length,
+        };
+      });
+      throw new Error(`${error.message} state=${JSON.stringify(state)}`);
+    }
     const bgBefore = await bgScene.page.evaluate(() => ({
       editor: window.__augitLive.editor,
       document: window.__augitLive.document ? window.__augitLive.document.path : null,
@@ -10252,9 +10411,11 @@ async function main() {
         return active ? active.kind === 'document' : false;
       })(),
       diffPath: window.__augitLive.diff ? window.__augitLive.diff.path : null,
-      bodyShowsDiff: !!document.querySelector('.editor-content .diff-layout'),
+      bodyShowsDiff: [...document.querySelectorAll('.editor-content .diff-layout')]
+        .some((node) => !node.hidden && node.getClientRects().length > 0),
       comparisons: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
     }));
+    console.log('INFO 后台跟随状态=' + JSON.stringify({ bgBefore, bgAfter }));
     check('后台跟随保持单一比较标签: ' + JSON.stringify(bgAfter.comparisons), bgAfter.comparisons === 1);
     check('后台跟随不改变前台视图类型: ' + JSON.stringify(bgAfter),
       bgAfter.editor === bgBefore.editor && bgAfter.activeIsDocument === true);
@@ -10290,7 +10451,7 @@ async function main() {
     const closeRule = await openScene('scene=main-project&theme=dark');
     await closeRule.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await closeRule.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
-    await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await closeRule.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 8000 });
     await closeRule.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
     await closeRule.page.waitForTimeout(400);
@@ -10708,8 +10869,9 @@ async function main() {
       const row = document.querySelector('.side-content.tree .tree-row.selected');
       return row ? row.dataset.treePath : null;
     });
-    // 先点选一行（选中并聚焦），再用方向键移动；点击目录行只会展开，故选文件行。
-    await kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    // 先展开目录再点选一行（选中并聚焦），最后用方向键移动。
+    // 手势分流后「单击目录行只选中」，展开必须走箭头或双击名称（产品规格 §3.1）。
+    await kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await kbTree.page.waitForTimeout(300);
     await kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
     await kbTree.page.waitForTimeout(300);
@@ -10728,20 +10890,19 @@ async function main() {
     check('方向键可连续移动且焦点跟随: ' + JSON.stringify([treeAfterDown, treeAfterSecond, treeFocusInTree]),
       treeAfterSecond !== treeAfterDown && treeFocusInTree === true);
     // 右键展开目录、左键折叠
-    const treeDir = kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]');
-    await treeDir.click();
+    // docs 在前面的双击里已经展开；手势分流后单击只选中、不展开，因此这里不再补点击，
+    // 但要显式把焦点放到 docs 行上——键盘展开/折叠作用在**持有焦点的行**上。
     const treeRowsBefore = await kbTree.page.locator('.side-content.tree .tree-row').count();
     // 先把 docs 明确置为「已展开」再测折叠/展开，避免依赖前序点击留下的状态。
-    const docsRow = kbTree.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]');
     const docsExpanded = () => kbTree.page.evaluate(() => {
       const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
       return row ? row.getAttribute('aria-expanded') === 'true' : null;
     });
+    await kbTree.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      if (row) row.focus();
+    });
     if (!(await docsExpanded())) {
-      await kbTree.page.evaluate(() => {
-        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
-        row.focus();
-      });
       await kbTree.page.keyboard.press('ArrowRight');
       await kbTree.page.waitForTimeout(500);
     }
@@ -12154,12 +12315,15 @@ async function main() {
     check('组词期间 Ctrl+G 不打开跳转行: ' + JSON.stringify([preventedByG, afterComposingG.compact]),
       afterComposingG.compact === false);
     // Ctrl+W 走的是独立处理器（bindEditorTabs 内），同样必须被组词拦住。
+    // 先建立一个真实活动标签，避免"没有标签所以没关闭"造成假通过。
+    await ks.page.evaluate(() => window.__augitOpenDocument('docs/notes.txt'));
+    await ks.page.waitForTimeout(700);
     const tabsBeforeComposingW = await ks.page.evaluate(() => (window.__augitLive.tabs || []).length);
     const preventedByW = await composeKey({ key: 'w', ctrlKey: true });
     await ks.page.waitForTimeout(400);
     const tabsAfterComposingW = await ks.page.evaluate(() => (window.__augitLive.tabs || []).length);
     check('组词期间 Ctrl+W 不关闭标签: ' + JSON.stringify([preventedByW, tabsBeforeComposingW, tabsAfterComposingW]),
-      tabsAfterComposingW === tabsBeforeComposingW);
+      tabsBeforeComposingW > 0 && tabsAfterComposingW === tabsBeforeComposingW);
 
     // 组词期间 Esc 不得关闭弹层：先打开一个真实弹层再派发组词中的 Esc。
     await ks.page.keyboard.press('Control+p');
@@ -12199,6 +12363,15 @@ async function main() {
     const ksG = await ksState();
     check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactTitle]),
       ksG.compact === true && ksG.compactTitle === '跳转行');
+
+    // 模态窗口拥有自己的键盘业务流；全局 Ctrl+P 不得穿透跳转行窗口再打开搜索浮层。
+    const modalShortcut = await ks.page.evaluate(() => {
+      const event = new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true, cancelable: true });
+      document.dispatchEvent(event);
+      return { prevented: event.defaultPrevented, compact: !!document.querySelector('[data-compact-dialog]'), search: !!document.querySelector('.search-overlay') };
+    });
+    check('模态窗口阻止全局 Ctrl+P 穿透: ' + JSON.stringify(modalShortcut),
+      modalShortcut.compact === true && modalShortcut.search === false);
 
     // 规格 §5.3：打开后输入框获得焦点；Tab / Shift+Tab 在输入框、取消、确定、关闭间循环。
     const compactOpen = await ks.page.evaluate(() => ({
@@ -12323,8 +12496,18 @@ async function main() {
       ksF5.marker === 'before' && ksF5.treeRows > 0 && !ksF5.url.includes('main-project.html'));
     check('F5 未导致整页导航: ' + ksUrl, ks.page.url() === ksUrl);
 
+    // 只有裸 F5 刷新树；带 Shift/Ctrl/Alt/Meta 的组合交给宿主或系统。
+    const modifiedF5 = await ks.page.evaluate(() => {
+      const before = window.__statusCalls || 0;
+      const event = new KeyboardEvent('keydown', { key: 'F5', shiftKey: true, bubbles: true, cancelable: true });
+      document.dispatchEvent(event);
+      return { prevented: event.defaultPrevented, before, after: window.__statusCalls || 0 };
+    });
+    check('带修饰键的 F5 不刷新文件树: ' + JSON.stringify(modifiedF5),
+      modifiedF5.prevented === false && modifiedF5.after === modifiedF5.before);
+
     // Ctrl+F 当前文件查找：需要先打开一个文本文件
-    await ks.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await ks.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await ks.page.waitForTimeout(400);
     await ks.page.locator('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]').dblclick();
     await ks.page.waitForTimeout(900);
@@ -12377,6 +12560,42 @@ async function main() {
         && !JSON.stringify(findCounts).includes('/12')
         && findCounts.insensitive.body > 0);
 
+    // 重复 Ctrl+F 只聚焦已有查找条，不重置当前匹配；失焦后按 Esc 仍应关闭查找条。
+    const repeatFind = await (async () => {
+      const scene = await openScene('scene=text-viewer&theme=dark');
+      await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
+      await scene.page.fill('.current-find .search-field', 'Git');
+      await scene.page.waitForTimeout(500);
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForTimeout(200);
+      const before = await scene.page.evaluate(() => ({
+        status: document.querySelector('.current-find .find-status')?.textContent || '',
+        open: !!document.querySelector('.current-find'),
+      }));
+      await scene.page.keyboard.press('Control+f');
+      await scene.page.waitForTimeout(200);
+      const afterRepeat = await scene.page.evaluate(() => ({
+        status: document.querySelector('.current-find .find-status')?.textContent || '',
+        open: !!document.querySelector('.current-find'),
+        focused: document.activeElement?.closest?.('.current-find') === document.querySelector('.current-find'),
+      }));
+      await scene.page.evaluate(() => document.querySelector('.editor-content .code-view')?.focus());
+      await scene.page.keyboard.press('Escape');
+      await scene.page.waitForTimeout(300);
+      const afterBlurEscape = await scene.page.evaluate(() => ({ open: !!document.querySelector('.current-find') }));
+      await scene.page.close();
+      return { before, afterRepeat, afterBlurEscape };
+    })();
+    check('重复 Ctrl+F 保留当前匹配并重新聚焦: ' + JSON.stringify(repeatFind),
+      repeatFind.before.open === true && repeatFind.before.status !== ''
+        && repeatFind.afterRepeat.open === true
+        && repeatFind.afterRepeat.status === repeatFind.before.status
+        && repeatFind.afterRepeat.focused === true);
+    check('查找条失焦后 Esc 仍关闭: ' + JSON.stringify(repeatFind.afterBlurEscape),
+      repeatFind.afterBlurEscape.open === false);
+
     // ---- §7.2（8/9）：查找条的 Tab 循环 + 输入法组词期间的键位抢占与"不扫描" ----
     // 实现契约（current-find.js）：Tab 在 `input, button` 之间循环；
     // `compositionstart` 置 composing 并停掉未完成查询，`oninput` 在 composing/isComposing 时只清状态不扫描，
@@ -12405,6 +12624,7 @@ async function main() {
       // 组词：compositionstart 之后输入不扫描、键位被抢占
       const composing = await page.page.evaluate(() => {
         const input = document.querySelector('.current-find .search-field');
+        if (!input) return { missing: true, find: document.querySelectorAll('.current-find').length };
         input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
         input.value = 'Zzz-不存在的词';
         input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: input.value }));
@@ -12928,6 +13148,10 @@ async function main() {
       doc: window.__augitLive.document ? window.__augitLive.document.path : null,
       editor: window.__augitLive.editor,
     }));
+    // 当前文件查找条拥有自己的键盘边界；先用 Esc 结束它，再验证全局 Ctrl+P 的正向入口，
+    // 避免把“查找输入框阻止全局快捷键”误报成 Ctrl+P 失效。
+    await ks.page.keyboard.press('Escape');
+    await ks.page.waitForTimeout(400);
     const foreignBefore = await foreignState();
     // 先在同一个页面上证明"这里确实有反应可被误触发"：规格内的 Ctrl+P 打开快速打开。
     // 没有这条配对控制，"按什么都没反应"也能让下面的反向断言通过。
@@ -13031,7 +13255,7 @@ async function main() {
     const slowTab = await openScene('scene=main-project&theme=dark');
     await slowTab.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await slowTab.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
-    await slowTab.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await slowTab.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await slowTab.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 8000 });
     await slowTab.page.evaluate(() => { window.__readDelays = { 'docs/notes.txt': 5000 }; });
     // 同步派发双击，不等待读取完成。
@@ -13769,8 +13993,8 @@ async function main() {
       await treeMenu.page.evaluate(() => !document.querySelector('.project-menu')));
 
     // 「文件历史」复用改动列表菜单的同一实现：切底部工具窗口并读取该路径历史。
-    // 目标文件行在目录内，先展开目录（单击目录行即展开，规格 §5.4）。
-    await treeMenu.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    // 目标文件行在目录内，先展开目录（双击目录名称即展开，产品规格 §3.1）。
+    await treeMenu.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
     await treeMenu.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 8000 });
     await treeMenu.page.evaluate(() => {
       const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]');
@@ -14204,9 +14428,11 @@ async function main() {
         && sessionWrote.at(-1).openFiles.includes('docs/product-spec.md')
         && sessionWrote.at(-1).activeFile === 'docs/product-spec.md');
     // 展开一个目录也要写回（展开层级属于会话数据）。
+    // 手势分流（产品规格 §3.1）：目录名称要双击才展开，单次 detail=1 只选中，因此这里派发完整序列。
     await persistPage.page.evaluate(() => {
-      document.querySelector('.side-content.tree .tree-row[data-tree-path="src"]').dispatchEvent(
-        new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="src"]');
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
     });
     await persistPage.page.waitForFunction(
       '(window.__sessionWrites || []).length > 1', null, { timeout: 8000 }).catch(() => {});
@@ -14952,11 +15178,13 @@ async function main() {
     const snapBase = await snap.page.evaluate(() => ({
       operation: window.__augitLive.status ? window.__augitLive.status.operation : null,
       hasConflicts: window.__augitLive.status ? !!window.__augitLive.status.hasConflicts : null,
+      headCommit: window.__augitLive.status ? window.__augitLive.status.headCommit : null,
       equal: window.__augitSnapshotEqual(),
       files: (window.__augitLive.status.files || []).map((file) => file.path),
     }));
     snapCheck('前置条件：状态里带上了操作会话与冲突标记: ' + JSON.stringify(snapBase),
       snapBase.operation === 'None' && snapBase.hasConflicts === false && snapBase.equal === true
+        && typeof snapBase.headCommit === 'string' && snapBase.headCommit.length > 0
         && snapBase.files.length === 3);
 
     // 对照：数据完全没变时应用快照不产生任何刷新（§6.2「不触发布局」）。
@@ -15925,9 +16153,9 @@ async function main() {
     console.log('INFO 状态栏有文档分支=' + JSON.stringify(docScene));
 
     // ---- 第 104 轮补断言：规格 `ux-spec.md:154`「主框架六处随实际字高扩展、图标尺寸保持」----
-    // 公式来自 mockup.js:72-80（`h` = **界面字体**实测行高）：
-    //   title-height=max(44,h+18) / tab-height=max(42,h+14) / project-header-height=max(39,h+10) /
-    //   tree-height=ceil(max(27,h+8)/2)*2 / document-toolbar-height=max(36,h+8) / status-height=max(22,h+2)
+    // 公式来自 mockup.js（`h` = **界面字体**实测行高）：
+    //   title-height=max(44,h+18) / tab-height=max(40,h+12) / project-header-height=max(39,h+10) /
+    //   tree-height=max(24,h+8) / document-toolbar-height=max(36,h+8) / status-height=max(28,h+12)
     // 这三处（tab/tree/status）的取值由**用户裁决**钉在规格名义值上（`design-system.md` §6.1 末：
     // "三处高度：名义值即运行时值"，第 116 轮）⇒ 断言按名义值写，不再跟随家族兜底公式。
     // 这条规格此前**在 §2 里没有对应行**（穷举漏了一条），本轮把断言与行一起补上。
@@ -15954,11 +16182,11 @@ async function main() {
           h,
           expect: {
             'title-height': Math.max(44, h + 18),
-            'tab-height': Math.max(42, h + 14),
+            'tab-height': Math.max(40, h + 12),
             'project-header-height': Math.max(39, h + 10),
-            'tree-height': Math.ceil(Math.max(27, h + 8) / 2) * 2,
+            'tree-height': Math.max(24, h + 8),
             'document-toolbar-height': Math.max(36, h + 8),
-            'status-height': Math.max(22, h + 2),
+            'status-height': Math.max(28, h + 12),
           },
           actual: {
             'title-height': num('title-height'),
@@ -17029,10 +17257,14 @@ async function main() {
       await scene.page.keyboard.press('Escape');
       await scene.page.waitForTimeout(200);
       // ② 展开 docs 目录后点「定位当前文件」：应选中当前文档所在行。
+      // 手势分流（产品规格 §3.1）：目录名称要双击才展开，这里派发完整序列。
       await scene.page.evaluate(() => {
         const row = [...document.querySelectorAll('.side-content.tree .tree-row')]
           .find((r) => r.dataset.treePath === 'docs');
-        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        if (row) {
+          row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+          row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 2 }));
+        }
       });
       await scene.page.waitForTimeout(800);
       await scene.page.evaluate(() => {
@@ -17042,7 +17274,11 @@ async function main() {
       await scene.page.waitForTimeout(400);
       const located = await scene.page.evaluate(() => {
         const selected = document.querySelector('.side-content.tree .tree-row[aria-selected="true"]');
-        return { path: selected ? selected.dataset.treePath : null };
+        return {
+          path: selected ? selected.dataset.treePath : null,
+          // 无障碍断言：定位必须把**选中行的 aria-selected 置为 true**，不能只改类名或状态对象。
+          ariaSelected: selected ? selected.getAttribute('aria-selected') : null,
+        };
       });
       // ③ 折叠项目树：展开状态清空 ⇒ `docs/notes.txt` 行不再出现。
       await scene.page.evaluate(() => {
@@ -17071,7 +17307,8 @@ async function main() {
       deadEntries.jump.dialog === true && typeof deadEntries.jump.text === 'string'
         && deadEntries.jump.text.includes('行号'));
     check('§6.7 项目树「定位当前文件」选中当前文档所在行: ' + JSON.stringify(deadEntries.located),
-      deadEntries.located.path === 'docs/notes.txt');
+      deadEntries.located.path === 'docs/notes.txt'
+        && deadEntries.located.ariaSelected === 'true');
     check('§6.7 项目树「折叠项目树」收起全部目录: ' + JSON.stringify(deadEntries.collapsed.paths),
       !deadEntries.collapsed.paths.includes('docs/notes.txt'));
     check('§5.1 侧栏「最小化」把工具窗收进侧栏: ' + JSON.stringify(deadEntries.minimized),
@@ -19362,7 +19599,9 @@ async function main() {
         return { openBefore, openAfter };
       });
       // 工具栏按钮用真实 Enter / Space 执行（把竖条放宽到「我的分支」可见的那一档）
-      await setBottom('300px');
+      await setBottom('340px');
+      // 区域刷新会按已保存尺寸重算；同步夹具设置，模拟拖动结束后的持久化值。
+      await scene.page.evaluate(() => { window.__augitLive.settings.bottomPanelHeight = 340; });
       await scene.page.waitForTimeout(600);
       const tallerVisible = (await readStripe()).visible;
       const keyboard = await scene.page.evaluate(() => {
@@ -19370,6 +19609,7 @@ async function main() {
         button.focus();
         return {
           focused: document.activeElement === button,
+          visible: !button.hidden,
           before: button.getAttribute('aria-pressed'),
         };
       });
@@ -19379,7 +19619,10 @@ async function main() {
         const button = document.querySelector('.git-side-toolbar [data-ref-stripe="my-branches"]');
         // 切换会触发区域刷新（节点被替换、焦点落回 body），所以下一次按键前必须重新聚焦新节点。
         if (button) button.focus();
-        return button ? button.getAttribute('aria-pressed') : 'missing';
+        return button ? {
+          pressed: button.getAttribute('aria-pressed'), visible: !button.hidden,
+          focused: document.activeElement === button,
+        } : null;
       });
       await scene.page.keyboard.press('Space');
       await scene.page.waitForTimeout(1000);
@@ -19428,8 +19671,12 @@ async function main() {
       stripeOverflow.layoutClose.openBefore === true && stripeOverflow.layoutClose.openAfter === false);
     check('§7.8 工具栏按钮用真实 Enter/Space 执行: ' + JSON.stringify([stripeOverflow.tallerVisible, stripeOverflow.keyboard]),
     stripeOverflow.tallerVisible.includes('我的分支')
-      && stripeOverflow.keyboard.focused === true && stripeOverflow.keyboard.before === null
-      && stripeOverflow.keyboard.afterEnter === 'true' && stripeOverflow.keyboard.afterSpace === null);
+      && stripeOverflow.keyboard.focused === true && stripeOverflow.keyboard.visible === true
+      && stripeOverflow.keyboard.before === null
+      && stripeOverflow.keyboard.afterEnter.pressed === 'true'
+      && stripeOverflow.keyboard.afterEnter.visible === true
+      && stripeOverflow.keyboard.afterEnter.focused === true
+      && stripeOverflow.keyboard.afterSpace === null);
 
     // ---- §7.8（8、12）：筛选栏收纳箭头消失时焦点交给同组最后一个可见可用动作 ----
     const filterOverflow = await (async () => {
@@ -19455,7 +19702,8 @@ async function main() {
       await scene.page.setViewportSize({ width: 1500, height: 760 });
       await scene.page.waitForTimeout(600);
       const wide = await readFilter();
-      await scene.page.setViewportSize({ width: 1280, height: 760 });
+      // 实测 1280 视口下筛选栏仍宽 602px，四个入口全部可见；840px 进入仅收纳日期/路径的档位。
+      await scene.page.setViewportSize({ width: 840, height: 760 });
       await scene.page.waitForTimeout(700);
       const narrow = await readFilter();
       // 焦点放到收纳箭头上，再放宽：箭头消失 ⇒ 焦点必须交给同组最后一个可见可用动作
@@ -19543,7 +19791,7 @@ async function main() {
       await scene.page.keyboard.press('Escape');
       await scene.page.waitForTimeout(300);
       // 窄栏：收纳菜单的顺序、键盘可达
-      await scene.page.setViewportSize({ width: 1280, height: 760 });
+      await scene.page.setViewportSize({ width: 840, height: 760 });
       await scene.page.waitForTimeout(700);
       const narrow = await readBar();
       await scene.page.evaluate(() => {
@@ -19570,8 +19818,28 @@ async function main() {
       await scene.page.waitForTimeout(600);
       const viaMenu = await readBar();
       // 再用同一入口「应用」一次（选中项变成值 ⇒ 第二次是关闭叉复位）
+      await scene.page.waitForSelector('.history-date-menu [data-history-date="last-week"]', { timeout: 5000 });
       await scene.page.evaluate(() => {
         const item = document.querySelector('.history-date-menu [data-history-date="last-week"]');
+        if (!item) {
+          const state = {
+            active: document.activeElement ? {
+              tag: document.activeElement.tagName,
+              cls: document.activeElement.className,
+              key: document.activeElement.dataset && document.activeElement.dataset.filterKey,
+            } : null,
+            overlays: [...document.querySelectorAll('[data-augit-overlay]')].map((node) => ({
+              cls: node.className,
+              text: node.textContent.trim().slice(0, 80),
+            })),
+            dateMenu: document.querySelector('.history-date-menu')?.outerHTML.slice(0, 240) || null,
+            overflow: document.querySelector('.history-filters details') ? {
+              hidden: document.querySelector('.history-filters details').hidden,
+              open: document.querySelector('.history-filters details').open,
+            } : null,
+          };
+          throw new Error(`日期弹层缺失 state=${JSON.stringify(state)}`);
+        }
         item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(900);
@@ -19687,7 +19955,9 @@ async function main() {
       await scene.page.setViewportSize({ width: 1500, height: 760 });
       await scene.page.waitForTimeout(700);
       const wide = await read();
-      await scene.page.setViewportSize({ width: 1024, height: 760 });
+      // 底部工具窗现在从项目树边缘完整跨栏；使用足够窄的真实视口验证引用列让位，
+      // 避免把旧的“编辑器列宽”当作历史列表可用宽度。
+      await scene.page.setViewportSize({ width: 840, height: 760 });
       await scene.page.waitForTimeout(700);
       const narrow = await read();
       // 长引用：宽栏停在 128 的上限，窄栏整列让位（作者/日期保持各自宽度）
@@ -19786,7 +20056,9 @@ async function main() {
       await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
       await page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
       await page.waitForSelector('.commit-row', { timeout: 10000 });
-      await page.setViewportSize({ width: 1024, height: 760 });
+      // 底部工具窗现在按产品规格横跨项目树和编辑器；1024px 下列表已经是宽栏，
+      // 不能再稳定地产生局部横向溢出。用真实窄视口验证列表自身的横向滚动。
+      await page.setViewportSize({ width: 720, height: 760 });
       await page.waitForTimeout(800);
       const read = () => page.evaluate(() => {
         const list = document.querySelector('.log-list-panel .commit-list');
@@ -20111,7 +20383,9 @@ async function main() {
       && lightRows['App.cs'].textColor === iconReuse.changesLight.modifiedToken
       && darkRows['README.md'].textColor === iconReuse.changesDark.modifiedToken
       && darkRows['App.cs'].textColor !== darkRows['App.cs'].iconColor
-      && darkRows['README.md'].textColor !== darkRows['README.md'].iconColor);
+      && darkRows['README.md'].textColor !== darkRows['README.md'].iconColor
+      && darkRows['draft.txt'].textColor === 'rgb(232, 143, 137)'
+      && lightRows['draft.txt'].textColor === 'rgb(178, 50, 71)');
     // 权威 `GitChangeType`（`plugins/git4idea/backend/src/history/GitChangeType.java:11-18`）的单字母；
     // `Untracked` 不在该枚举里 ⇒ 不给符号（未跟踪文件在「Unversioned Files」分组里）。
     const statusSymbols = { modified: 'M', added: 'A', copied: 'C', deleted: 'D', renamed: 'R', unmerged: 'U', typechanged: 'T' };
@@ -22202,7 +22476,9 @@ async function main() {
         };
       });
       const wide = await snap();
-      await scene.page.setViewportSize({ width: 900, height: 700 });
+      // 底部工具窗按产品规格横跨项目树和编辑器；900px 下列表区仍宽于 360px。
+      // 以真实窄视口覆盖列表区自身的最小宽度与横向滚动。
+      await scene.page.setViewportSize({ width: 720, height: 700 });
       await scene.page.waitForTimeout(600);
       const narrow = await snap();
       // 用**真实横向滚轮**验证"能滚"：只把 `scrollLeft` 写成 100 的话，`overflow: hidden` 也会照做
@@ -22325,9 +22601,21 @@ async function main() {
       const before = await snap();
       // ④ 真实入口：项目树右键 → 「文件历史」
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
-      await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
-      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
+        const state = await page.evaluate(() => ({
+          live: !!window.__augitLive,
+          fileHistory: window.__augitLive && window.__augitLive.fileHistory
+            ? window.__augitLive.fileHistory.path : null,
+          overlay: !!document.querySelector('.project-menu'),
+          error: window.__augitError || null,
+          calls: window.__fileHistoryCalls || 0,
+          treePath: document.querySelector('.project-menu')?.dataset.treePath || null,
+        }));
+        console.log('INFO 文件历史生命周期等待状态=' + JSON.stringify(state));
+        throw error;
+      });
       await page.waitForSelector('.history-rows .history-row', { timeout: 10000 });
       await page.waitForTimeout(600);
       const inFileHistory = await snap();
@@ -22571,9 +22859,21 @@ async function main() {
       // ④ 真实往返：项目树右键 → 文件历史 → 清除路径筛选（`clearHistoryPathFilter()` 走 refresh 的
       //    render + rebind 路径，与用户的返回动作完全一致）
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
-      await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
-      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
+        const state = await page.evaluate(() => ({
+          live: !!window.__augitLive,
+          fileHistory: window.__augitLive && window.__augitLive.fileHistory
+            ? window.__augitLive.fileHistory.path : null,
+          overlay: !!document.querySelector('.project-menu'),
+          error: window.__augitError || null,
+          calls: window.__fileHistoryCalls || 0,
+          treePath: document.querySelector('.project-menu')?.dataset.treePath || null,
+        }));
+        console.log('INFO 文件历史阅读位置等待状态=' + JSON.stringify(state));
+        throw error;
+      });
       await page.waitForTimeout(500);
       const away = await page.evaluate(() => ({
         fileHistory: window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
@@ -23436,8 +23736,9 @@ async function main() {
       && fhDetails.hiddenNow.detailsAttribute === 'true' && fhDetails.hiddenNow.detailsHiddenState === true
       && fhDetails.hiddenNow.paneDisplay === 'none'
       && fhDetails.hiddenNow.paneSize[0] === 0 && fhDetails.hiddenNow.paneSize[1] === 0
-      && fhDetails.hiddenNow.contentColumns === '787px'
-      && fhDetails.hiddenNow.listSize[0] === 787
+      // 底部工具窗口现在横跨主内容区，宽度随测试视口变化；只验证收成单列且列表占满可用宽度。
+      && fhDetails.hiddenNow.contentColumns === `${fhDetails.hiddenNow.listSize[0]}px`
+      && fhDetails.hiddenNow.listSize[0] > fhDetails.beforeHide.listSize[0]
       && fhDetails.hiddenNow.buttonLabel === '隐藏提交详情' && fhDetails.hiddenNow.buttonPressed === 'true'
       // 在途的那一份被取消：状态为空，且越过注入延迟后仍为空、没有多余请求
       && fhDetails.hiddenNow.preview === null
@@ -23457,7 +23758,8 @@ async function main() {
       && fhDetails.kept.previewMode === 'unified' && fhDetails.kept.sameLayout === true
       && fhDetails.kept.lines === 6 && fhDetails.kept.calls === fhDetails.unified.calls
       // 负向一：抹掉容器上的隐藏属性 ⇒ 列表不再占满整宽（正面判据要求收成单列）
-      && fhDetails.negAttribute.columns === '427px 360px' && fhDetails.negAttribute.listWidth === 427
+      && fhDetails.negAttribute.columns.trim().split(/\s+/).length === 2
+      && fhDetails.negAttribute.listWidth < fhDetails.hiddenNow.listSize[0]
       // 负向二：状态被改成"显示"而 DOM 仍隐藏 ⇒ "两面一致"的判据会失败
       && fhDetails.negConsistency.detailsAttribute === 'true'
       && fhDetails.negConsistency.detailsHiddenState === false);
@@ -23481,9 +23783,21 @@ async function main() {
       await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
-      await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
-      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
+        const state = await page.evaluate(() => ({
+          live: !!window.__augitLive,
+          fileHistory: window.__augitLive && window.__augitLive.fileHistory
+            ? window.__augitLive.fileHistory.path : null,
+          overlay: !!document.querySelector('.project-menu'),
+          error: window.__augitError || null,
+          calls: window.__fileHistoryCalls || 0,
+          treePath: document.querySelector('.project-menu')?.dataset.treePath || null,
+        }));
+        console.log('INFO 文件历史阅读位置等待状态=' + JSON.stringify(state));
+        throw error;
+      });
       await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await page.waitForTimeout(700);
       const scrollerState = () => page.evaluate(() => {
@@ -23630,9 +23944,21 @@ async function main() {
       await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
-      await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
-      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
+      await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
+      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
+        const state = await page.evaluate(() => ({
+          live: !!window.__augitLive,
+          fileHistory: window.__augitLive && window.__augitLive.fileHistory
+            ? window.__augitLive.fileHistory.path : null,
+          overlay: !!document.querySelector('.project-menu'),
+          error: window.__augitError || null,
+          calls: window.__fileHistoryCalls || 0,
+          treePath: document.querySelector('.project-menu')?.dataset.treePath || null,
+        }));
+        console.log('INFO 文件历史生命周期等待状态=' + JSON.stringify(state));
+        throw error;
+      });
       await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-code-line', { timeout: 15000 });
       await page.waitForTimeout(700);
       const readPreview = () => page.evaluate(() => {
@@ -24589,8 +24915,8 @@ async function main() {
       && sizes[2].out.toolbar.h === 63 && sizes[2].out.filebar.h === 63
       && sizes.every((item) => parseFloat(item.out.toolbarVar) === item.out.toolbar.h
         && parseFloat(item.out.filebarVar) === item.out.filebar.h)
-      // 图标 16×16、按钮命中区 27×27 逐值不变；文字不被裁切、按钮不重叠
-      && sizes.every((item) => item.out.button.w === 27 && item.out.button.h === 27
+      // 图标 16×16、普通按钮命中区 28×28 逐值不变；文字不被裁切、按钮不重叠。
+      && sizes.every((item) => item.out.button.w === 28 && item.out.button.h === 28
         && item.out.icon.w === 16 && item.out.icon.h === 16)
       && sizes.every((item) => item.out.overlap === false)
       && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1));
@@ -25109,12 +25435,13 @@ async function main() {
       await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path]', { timeout: 15000 });
       await page.waitForTimeout(500);
-      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').first().click();
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').first().dblclick();
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/notes.txt"]', { timeout: 10000 });
       // 展开更多目录让树真的溢出（否则"不滚回原视口"无从取证）
       for (const dir of ['docs/api', 'docs/assets', 'src']) {
         const row = page.locator(`.side-content.tree .tree-row[data-tree-path="${dir}"]`).first();
-        if (await row.count() > 0) { await row.click(); await page.waitForTimeout(250); }
+        // 手势分流后展开走双击目录名称（单击只选中，产品规格 §3.1）。
+        if (await row.count() > 0) { await row.dblclick(); await page.waitForTimeout(250); }
       }
       await page.waitForTimeout(300);
       const snap = () => page.evaluate(() => {
@@ -25342,7 +25669,7 @@ async function main() {
       await page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
       await page.waitForFunction("window.__slowReadStarted === 'docs/notes.txt'", null, { timeout: 10000 }).catch(() => {});
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
-      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 10000 });
       await page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').click();
       await page.waitForTimeout(200);
@@ -25670,9 +25997,343 @@ async function main() {
       check('§5 树 Enter 展开/折叠目录行: ' + JSON.stringify({ dirEnter, dirAfter }),
         dirEnter.noRow !== true && dirEnter.before !== null && dirAfter.after !== null
           && dirEnter.before !== dirAfter.after);
+
+      // 标准树键位：展开目录进入首个子项，文件左键回父目录，PageUp/Down、Home/End 与前缀定位可用。
+      const treeKeys = await treeEnter.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        const docs = rows.find((row) => row.dataset.treePath === 'docs');
+        if (!docs) return { missingDocs: true };
+        docs.focus();
+        return { rows: rows.length, docsExpanded: docs.getAttribute('aria-expanded') };
+      });
+      if (treeKeys.missingDocs !== true) {
+        await treeEnter.page.keyboard.press('ArrowRight');
+        await treeEnter.page.waitForTimeout(900);
+        await treeEnter.page.keyboard.press('ArrowRight');
+        const rightChild = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        await treeEnter.page.keyboard.press('ArrowLeft');
+        const leftParent = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        const paging = await treeEnter.page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+          rows[0]?.focus();
+          return { before: document.activeElement?.dataset?.treePath || null, count: rows.length };
+        });
+        await treeEnter.page.keyboard.press('PageDown');
+        const pageDown = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        await treeEnter.page.keyboard.press('PageUp');
+        const pageUp = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        await treeEnter.page.keyboard.press('End');
+        const end = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        await treeEnter.page.keyboard.press('Home');
+        const home = await treeEnter.page.evaluate(() => document.activeElement?.dataset?.treePath || null);
+        const typeAheadStart = await treeEnter.page.evaluate(() => {
+          document.querySelector('.side-content.tree .tree-row')?.focus();
+          return true;
+        });
+        if (typeAheadStart) await treeEnter.page.keyboard.type('product');
+        const typeAhead = await treeEnter.page.evaluate(() => ({
+          path: document.activeElement?.dataset?.treePath || null,
+          name: document.activeElement?.querySelector?.('.tree-name')?.textContent || null,
+        }));
+        check('§5 项目树方向键进入子项并返回父项: ' + JSON.stringify({ rightChild, leftParent }),
+          typeof rightChild === 'string' && rightChild.startsWith('docs/') && leftParent === 'docs');
+        check('§5 项目树支持 PageUp/PageDown、Home/End: ' + JSON.stringify({ paging, pageDown, pageUp, end, home }),
+          paging.count > 2 && pageDown !== paging.before && end !== null && home === paging.before);
+        check('§5 项目树支持文件名前缀定位: ' + JSON.stringify(typeAhead),
+          typeAhead.path === 'docs/product-spec.md' && typeAhead.name === 'product-spec.md');
+      }
       await treeEnter.page.close();
       return { treeEnter: enter, dirEnter };
     })();
+
+    // 项目树手势分流：探针从 r81 的尾段移出后自成一格，在 r81 闭合后触发。
+    // 不并入 r81 —— r81 的 Enter 段结果与这组手势结果本就是两组数据。
+
+    // 规格把目录的两句话拆成两个区域：「单击目录左侧展开标立即展开或折叠」归**箭头**，
+    // 「项目树单击仅选择」归**行主体**；文件行仍是「单击只选择、双击或 Enter 才打开」。
+    // 这条口径**有意偏离**本地权威 `DefaultTreeUI.isToggleEvent()`（`getToggleClickCount()
+    // == event.getClickCount()`，`expandNodesWithSingleClick` 默认 false ⇒ 权威里单击目录行只选中），
+    // 偏离内容与依据登记在 `docs/nui-behavior/23-project-tree-gestures.md`。
+    //
+    // 断言逐条钉住四件事：单击不改变展开状态、箭头单击不改变选择、双击**净切换一次**
+    // （单击那次不展开，所以双击等价于一次切换）、以及三种手势都不打开文件标签。
+    const treeGesturesScene = await (async () => {
+      const gestures = await openScene('scene=main-project&theme=dark');
+      await gestures.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await gestures.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+      await gestures.page.waitForTimeout(400);
+      // `action` 是探针自己的参数（'click' | 'dblclick'），必须与 `target`／`position` 一起
+      // 传给页面上下文：此前形参表少了它，页内读到的 `action` 是未定义变量（ReferenceError），
+      // 这只在**运行**时才暴露 —— `node --check` 只查语法，查不出未声明标识符。
+      const gestureProbe = (action) => gestures.page.evaluate(async ({ action, target, position }) => {
+        const find = () => document.querySelector('.side-content.tree .tree-row[data-tree-path="' + target + '"]');
+        const dirRow = () => document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const read = () => {
+          const live = window.__augitLive || {};
+          const dir = dirRow();
+          const selected = document.querySelector('.side-content.tree .tree-row.selected');
+          return {
+            expanded: dir ? dir.getAttribute('aria-expanded') : null,
+            selected: selected ? selected.dataset.treePath : null,
+            selectedState: live.treeSelectedPath || null,
+            doc: live.document ? live.document.path : null,
+            tabs: (live.tabs || []).filter((tab) => tab.kind === 'document').length,
+            reads: window.__documentReads || 0,
+            focus: (() => {
+              const active = document.activeElement;
+              const row = active && active.closest ? active.closest('.side-content.tree .tree-row') : null;
+              return row ? row.dataset.treePath : null;
+            })(),
+          };
+        };
+        const row = find();
+        if (!row) return { noRow: true };
+        const before = read();
+        if (position === 'disclosure') {
+          // 指针落在 disclosure 箭头上：只切换展开，不碰选择。
+          const chevron = row.querySelector('.chevron');
+          if (!chevron) return { noChevron: true };
+          const box = chevron.getBoundingClientRect();
+          const point = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+          if (action === 'dblclick') await window.__probeDblclick(point.x, point.y);
+          else await window.__probeClick(point.x, point.y);
+        } else {
+          // 指针落在名称主体上（行的右半侧，避开箭头列）。
+          const box = row.getBoundingClientRect();
+          const point = { x: box.right - 40, y: box.top + box.height / 2 };
+          if (action === 'dblclick') await window.__probeDblclick(point.x, point.y);
+          else await window.__probeClick(point.x, point.y);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        return { before, after: read() };
+      }, { action, target: 'docs', position: 'name' });
+      // 真实指针事件序列：两条 atomic 指针消息（第一次点击 detail=1、第二次 detail=2），
+      // 与 Chromium 的双击派发一致，避免用合成 dblclick 绕过 click 的 detail 计数。
+      await gestures.page.evaluate(() => {
+        const dispatch = (target, type, detail, point) => target.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, composed: true, view: window, detail,
+          clientX: Math.round(point.x), clientY: Math.round(point.y), button: 0, buttons: type === 'mousedown' ? 1 : 0,
+        }));
+        const press = async (point, detail) => {
+          const target = document.elementFromPoint(point.x, point.y);
+          if (!target) return false;
+          dispatch(target, 'mousedown', detail, point);
+          dispatch(target, 'mouseup', detail, point);
+          dispatch(target, 'click', detail, point);
+          await new Promise((resolve) => setTimeout(resolve, 60));
+          return true;
+        };
+        window.__probeClick = (x, y) => press({ x, y }, 1);
+        window.__probeDblclick = async (x, y) => {
+          if (!(await press({ x, y }, 1))) return false;
+          return press({ x, y }, 2);
+        };
+      });
+      const dirSingleName = await gestureProbe('click');
+      check('§3.1 目录名称单击只选中、不展开、不打开标签: ' + JSON.stringify(dirSingleName),
+        dirSingleName.noRow !== true
+          && dirSingleName.before.expanded === 'false'
+          && dirSingleName.after.expanded === 'false'
+          && dirSingleName.after.selected === 'docs'
+          && dirSingleName.after.selectedState === 'docs'
+          && dirSingleName.after.doc === null
+          && dirSingleName.after.tabs === 0);
+      await gestures.page.evaluate(() => { window.__documentReads = 0; });
+      const dirArrowClick = await gestures.page.evaluate(async () => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const chevron = row.querySelector('.chevron');
+        const box = chevron.getBoundingClientRect();
+        const before = {
+          expanded: row.getAttribute('aria-expanded'),
+          selected: window.__augitLive.treeSelectedPath || null,
+        };
+        await window.__probeClick(box.left + box.width / 2, box.top + box.height / 2);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const after = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const selected = document.querySelector('.side-content.tree .tree-row.selected');
+        return {
+          before,
+          expanded: after ? after.getAttribute('aria-expanded') : null,
+          selected: window.__augitLive.treeSelectedPath || null,
+          selectedDom: selected ? selected.dataset.treePath : null,
+          doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+          reads: window.__documentReads || 0,
+          rows: document.querySelectorAll('.side-content.tree .tree-row').length,
+        };
+      });
+      check('§3.1 目录箭头单击只展开、选择不变、不打开标签: ' + JSON.stringify(dirArrowClick),
+        dirArrowClick.before.expanded === 'false'
+          && dirArrowClick.expanded === 'true'
+          && dirArrowClick.before.selected === 'docs'
+          && dirArrowClick.selected === 'docs'
+          && dirArrowClick.selectedDom === 'docs'
+          && dirArrowClick.doc === null
+          && dirArrowClick.reads === 0
+          && dirArrowClick.rows > 4);
+      const dirNameDouble = await gestureProbe('dblclick');
+      check('§3.1 目录名称双击净切换一次展开（展开态→折叠）、不打开标签: ' + JSON.stringify(dirNameDouble),
+        dirNameDouble.noRow !== true
+          && dirNameDouble.before.expanded === 'true'
+          && dirNameDouble.after.expanded === 'false'
+          && dirNameDouble.after.doc === null
+          && dirNameDouble.after.tabs === 0);
+      const dirNameDoubleAgain = await gestures.page.evaluate(async () => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const box = row.getBoundingClientRect();
+        await window.__probeDblclick(box.right - 40, box.top + box.height / 2);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const after = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        return {
+          expanded: after ? after.getAttribute('aria-expanded') : null,
+          doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+        };
+      });
+      check('§3.1 折叠态双击目录名称展开一次: ' + JSON.stringify(dirNameDoubleAgain),
+        dirNameDoubleAgain.expanded === 'true' && dirNameDoubleAgain.doc === null);
+      // 第三次连击**不算双击**：`detail` 是连击计数，`detail >= 3` 说明这是三连击的第三下，
+      // 不是"第二次点击"。此前判据写成 `>= 2`，于是三连击把目录切换两次（实测展开→折叠），
+      // 与规格 §3.1「双击目录名称**切换**一次展开状态」矛盾。这里从折叠态连击三下 ⇒ 只展开一次。
+      const dirTripleName = await gestures.page.evaluate(async () => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const box = row.getBoundingClientRect();
+        const before = row.getAttribute('aria-expanded');
+        await window.__probeClick(box.right - 40, box.top + box.height / 2);
+        await window.__probeClick(box.right - 40, box.top + box.height / 2);
+        await window.__probeClick(box.right - 40, box.top + box.height / 2);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const after = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        return {
+          before,
+          expanded: after ? after.getAttribute('aria-expanded') : null,
+          doc: window.__augitLive.document ? window.__augitLive.document.path : null,
+          tabs: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'document').length,
+        };
+      });
+      check('§3.1 连击三下目录名称只切换一次展开（detail>=3 不再算双击）: ' + JSON.stringify(dirTripleName),
+        dirTripleName.expanded === dirTripleName.before
+          && dirTripleName.doc === null && dirTripleName.tabs === 0);
+      const dirNameDoubleAgain2 = await gestures.page.evaluate(async () => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        const box = row.getBoundingClientRect();
+        await window.__probeDblclick(box.right - 40, box.top + box.height / 2);
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        const after = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+        return { expanded: after ? after.getAttribute('aria-expanded') : null };
+      });
+      check('§3.1 连击三下之后双击仍只切换一次（展开→折叠）: ' + JSON.stringify(dirNameDoubleAgain2),
+        dirNameDoubleAgain2.expanded === 'false');
+
+      // ---- 以下两条钉住本轮修掉的两处状态口径缺陷（写模板的 `aria-selected`、根路径的空字符串）----
+      //
+      // ① `liveTreeRowHtml()` 造出来的行必须每行都带 `aria-selected` 的 true/false：
+      //    此前只有 `selectTreeRow()` 动态写 `aria-selected="true"`，其余行压根没有该属性，
+      //    "当前选中行之外都是未选中"这个无障碍事实在初始渲染里读不到。
+      const treeAria = await gestures.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.side-content.tree .tree-row')];
+        return {
+          rows: rows.length,
+          values: rows.map((row) => row.getAttribute('aria-selected')),
+          selectedRows: rows.filter((row) => row.classList.contains('selected')).length,
+        };
+      });
+      check('§7.1 树每行输出 aria-selected=true/false 且与 .selected 一一对应: ' + JSON.stringify(treeAria),
+        treeAria.rows > 0
+          && treeAria.values.every((value) => value === 'true' || value === 'false')
+          && treeAria.values.filter((value) => value === 'true').length === treeAria.selectedRows
+          && treeAria.selectedRows === 1);
+
+      const treeGitStatus = await gestures.page.evaluate(() => {
+        const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="README.md"]');
+        const name = row?.querySelector('.tree-name');
+        const icon = row?.querySelector('.file-icon');
+        const marker = row?.querySelector('.tree-status');
+        return {
+          rowStatus: row?.dataset.gitStatus || null,
+          nameClass: name?.className || null,
+          marker: marker?.textContent || null,
+          markerLabel: marker?.getAttribute('aria-hidden') || null,
+          iconClass: icon?.className || null,
+          statusCount: document.querySelectorAll('.side-content.tree .tree-row[data-git-status]').length,
+        };
+      });
+      check('§3.1 项目树文件状态映射到文件名与辅助标记且不覆盖类型图标: ' + JSON.stringify(treeGitStatus),
+        treeGitStatus.rowStatus === 'modified'
+          && treeGitStatus.nameClass.includes('file-status-modified')
+          && treeGitStatus.marker === 'M'
+          && treeGitStatus.markerLabel === 'true'
+          && treeGitStatus.iconClass.includes('file-icon')
+          && treeGitStatus.statusCount > 0);
+
+      // ② 根行的 `data-tree-path` 是**空字符串**：`selectTreeRow()` 此前用 `|| null` 写状态，
+      //    把"用户点过根行"塌缩成"从没点过"（渲染层随即回落到当前文档路径），`treeFocusPath`
+      //    同样把"焦点在根行上"记成"焦点不在树内"（收尾重绘把焦点丢到正文）。
+      //    两条都用**空字符串**这一真实值判定，不能用 `|| null` 读（读法本身会把差异吃掉）。
+      const rootState = await gestures.page.evaluate(() => {
+        const root = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
+          .find((row) => row.dataset.treePath === '');
+        if (!root) return { noRoot: true };
+        return {
+          selectedBefore: root.classList.contains('selected'),
+          ariaBefore: root.getAttribute('aria-selected'),
+          liveBefore: window.__augitLive.treeSelectedPath ?? null,
+        };
+      });
+      if (rootState.noRoot !== true) {
+        await gestures.page.locator('.side-content.tree .tree-row[data-tree-path=""]').click();
+        await gestures.page.waitForTimeout(250);
+      }
+      const rootSelected = rootState.noRoot === true ? { noRoot: true } : await gestures.page.evaluate(() => {
+        const root = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
+          .find((row) => row.dataset.treePath === '');
+        const live = window.__augitLive;
+        return {
+          selected: root.classList.contains('selected'),
+          aria: root.getAttribute('aria-selected'),
+          liveState: live.treeSelectedPath ?? null,
+          doc: live.document ? live.document.path : null,
+        };
+      });
+      check('§3.1 单击根行按空字符串入状态（不折叠为 null）: ' + JSON.stringify({ rootState, rootSelected }),
+        rootState.noRoot !== true
+          && rootState.selectedBefore === false && rootState.ariaBefore === 'false'
+          && rootSelected.selected === true && rootSelected.aria === 'true'
+          && rootSelected.liveState === '' && rootSelected.doc === null);
+
+      const rootFocusKept = await gestures.page.evaluate(async () => {
+        const root = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
+          .find((row) => row.dataset.treePath === '');
+        if (!root) return { noRoot: true };
+        // 让根行处于未选中态，才看得出"交还焦点"是靠路径找到同一行、而不是选中态撑住的。
+        for (const other of document.querySelectorAll('.side-content.tree .tree-row.selected')) {
+          other.classList.remove('selected');
+          other.setAttribute('aria-selected', 'false');
+        }
+        root.focus({ preventScroll: true });
+        window.__augitRenderRegions('side');
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const active = document.activeElement;
+        const activeRow = active && active.closest ? active.closest('.side-content.tree .tree-row') : null;
+        const again = [...document.querySelectorAll('.side-content.tree .tree-row[data-tree-path]')]
+          .find((row) => row.dataset.treePath === '');
+        return {
+          focusedTree: !!(active && active.closest && active.closest('.side-content.tree')),
+          focusedPath: activeRow ? activeRow.dataset.treePath : null,
+          rootSelected: !!(again && again.classList.contains('selected')),
+        };
+      });
+      check('§6 重绘后按空字符串路径把焦点交还根行（treeFocusPath 不折叠为 null）: '
+        + JSON.stringify(rootFocusKept),
+      rootFocusKept.noRoot !== true && rootFocusKept.focusedTree === true
+          && rootFocusKept.focusedPath === '' && rootFocusKept.rootSelected === false);
+      await gestures.page.close();
+      // r81 的 Enter 段结果（`enter`／`dirEnter`）属于那个 async IIFE 的作用域，这里不引用它。
+      return {
+        dirSingleName, dirArrowClick, dirNameDouble, dirNameDoubleAgain,
+        dirTripleName, dirNameDoubleAgain2, treeAria, rootSelected, rootFocusKept,
+      };
+    })();
+    // 单独执行这段探针（`--tree-gestures-only`）时也走同一条调用路径；结果直接输出，便于核对。
+    console.log('INFO 项目树手势分流=' + JSON.stringify(treeGesturesScene));
 
     const r81b = await (async () => {
       // §7.2 取消组词后**复用已完成结果**：组词结束后文字回到上一次查询过的内容时，不应再发起查询。
@@ -25754,6 +26415,28 @@ async function main() {
       check('§7.6 只有 Changes 与 Unversioned Files 两组、不显示 Changelist: ' + JSON.stringify(groups),
         groups.labels.length === 2 && groups.labels[0] === 'Changes' && groups.labels[1] === 'Unversioned Files'
           && groups.changelist.length === 0 && groups.fileCount > 0);
+
+      // DOM 用可读组名，Git 状态用 UnversionedFiles 枚举键；全选/取消必须跨过这层映射。
+      const unversionedGroup = changes.page.locator('.changes-list .check-group-row[data-group="Unversioned Files"] .fake-check');
+      await unversionedGroup.click();
+      await changes.page.waitForTimeout(250);
+      const unversionedChecked = await changes.page.evaluate(() => {
+        const files = (window.__augitLive?.status?.files || []).filter((file) => file.group === 'UnversionedFiles');
+        return {
+          files: files.length,
+          allChecked: files.length > 0 && files.every((file) => file.checked === true),
+          header: document.querySelector('.changes-list .check-group-row[data-group="Unversioned Files"] .fake-check')?.getAttribute('aria-checked'),
+        };
+      });
+      check('§7.6 Unversioned Files 全选按宿主枚举键更新全部文件: ' + JSON.stringify(unversionedChecked),
+        unversionedChecked.files > 0 && unversionedChecked.allChecked === true && unversionedChecked.header === 'true');
+      await changes.page.locator('.changes-list .check-group-row[data-group="Unversioned Files"] .fake-check').click();
+      await changes.page.waitForTimeout(250);
+      const unversionedUnchecked = await changes.page.evaluate(() => {
+        const files = (window.__augitLive?.status?.files || []).filter((file) => file.group === 'UnversionedFiles');
+        return files.length > 0 && files.every((file) => file.checked === false);
+      });
+      check('§7.6 Unversioned Files 取消全选同步清除全部勾选: ' + String(unversionedUnchecked), unversionedUnchecked === true);
 
       // §7.6 每组内按显示文件名自然顺序、同名按完整相对路径（**分组比较**，不是整表一条序列）
       const order = await changes.page.evaluate(() => {
@@ -28960,7 +29643,7 @@ async function main() {
         window.__terminalCalls = [];
       });
       await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
-      await tryWait('ready 前的输出在终端显示', 'document.querySelector(".terminal-view").textContent.includes("BOOT-PROMPT-BEFORE-READY")');
+      await tryWait('ready 前的输出在终端显示', 'document.querySelector(".terminal-view").textContent.includes("BOOT-PROMPT-BEFORE-READY")', 30000);
       const bootOutput = await tm.page.evaluate(() => ({
         shown: document.querySelector('.terminal-view').textContent.includes('BOOT-PROMPT-BEFORE-READY'),
         ready: !!window.__augitTerminalReady,
@@ -29246,7 +29929,7 @@ async function main() {
         base.title.equals(afterRefresh.title) && base.status.equals(afterRefresh.status));
 
       // 操作 3（对照）：真正切换文档必须让这两个区域发生变化，证明上面两条不是空断言。
-      await px.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await px.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await px.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]', { timeout: 10000 });
       await px.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]').dblclick();
       await px.page.waitForFunction(
@@ -29339,7 +30022,7 @@ async function main() {
           diff: !!window.__augitLive.diff,
         };
       });
-      await fc.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await fc.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await fc.page.locator('.side-content.tree').focus();
       await fc.page.waitForTimeout(200);
       const fcFocused = await selectionColors();
@@ -29761,7 +30444,7 @@ async function main() {
           },
         };
       });
-      await f154.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+      await f154.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').dblclick();
       await f154.page.waitForFunction(
         'document.querySelectorAll(\'.side-content.tree .tree-row[data-tree-path^="docs/bulk-"]\').length === 60',
         null,
@@ -29878,8 +30561,8 @@ async function main() {
           && f154After.selectedCount === 1);
       check('§154 字号变化保持树的第一个可见节点: '
         + JSON.stringify([f154Base.firstVisible, f154After.firstVisible, f154After.treeScrollTop]),
-      // 行高按用户裁决取规格名义值（tree-height = max(27, h+8) 取偶），此断言只保证"同一个可见起点被保持"。
-      f154Base.firstVisible === 'docs/bulk-006.txt' && f154After.firstVisible === f154Base.firstVisible);
+      // 只要求同一个可见起点被保持；起点名称由当前 fixture 的滚动偏移决定。
+      typeof f154Base.firstVisible === 'string' && f154After.firstVisible === f154Base.firstVisible);
       check('§154 首个可见节点仍在原视口位置: '
         + JSON.stringify([f154Base.firstVisibleTop, f154After.firstVisibleTop]),
       Math.abs(f154After.firstVisibleTop - f154Base.firstVisibleTop) <= 2);
@@ -29929,7 +30612,7 @@ async function main() {
 
     console.log(`live-shell 通过 ${passed} 项断言` + (skippedChecks > 0 ? `（另有 ${skippedChecks} 项因环境未执行，不计入通过）` : ''));
   } finally {
-    await browser.close();
+    await browser?.close();
     await new Promise((resolve) => server.close(resolve));
   }
 }

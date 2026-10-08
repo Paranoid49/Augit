@@ -83,6 +83,7 @@ async function main() {
                     bounds: rect(pane), children: [...pane.children].map(rect),
                   })),
                   frame: {
+                    main: rect(document.querySelector('.app-main')),
                     workspace: rect(document.querySelector('.workspace')),
                     editor: rect(document.querySelector('.editor-area')),
                     bottom: rect(document.querySelector('.bottom-tool')),
@@ -96,7 +97,9 @@ async function main() {
               assert.ok(state.frame.bottom.height >= state.frame.minimum - 1, `${label}：底部工具窗口没有随字高扩展。`);
               assert.ok(state.frame.editor.bottom + 4 <= state.frame.bottom.y + 0.1, `${label}：底部工具窗口覆盖编辑区。`);
               assert.ok(state.frame.bottom.bottom <= state.frame.status.y + 0.1, `${label}：底部工具窗口覆盖状态栏。`);
-              assert.ok(Math.abs(state.frame.bottom.bottom - state.frame.workspace.bottom) <= 0.1, `${label}：工具窗口越出主内容区。`);
+              // 底部工具窗是 app-main 的第二行，workspace 只占上方编辑器行；
+              // 因而边界应与主内容区一致，而不是与 workspace 的上缘行一致。
+              assert.ok(Math.abs(state.frame.bottom.bottom - state.frame.main.bottom) <= 0.1, `${label}：工具窗口越出主内容区。`);
               assert.equal(state.header.inset, 12, `${label}：Git 标题左留白必须统一为 12px。`);
               assert.equal(state.header.titleGap, 11, `${label}：标题到日志标签的间距不一致。`);
               assert.ok(Math.abs(state.header.logWidth - state.header.measuredLog - 22) < 0.1,

@@ -20,6 +20,39 @@ async function inspect(page) {
       pending: [...document.querySelectorAll('[data-pending-icon]')].map(element => ({
         name: element.dataset.pendingIcon, text: (element.closest('.menu-item, .tree-row, .check-row') || element.parentElement).textContent.trim(),
       })),
+      geometry: (() => {
+        const size = selector => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const bounds = element.getBoundingClientRect();
+          return { width: bounds.width, height: bounds.height };
+        };
+        const gap = selector => {
+          const element = document.querySelector(selector);
+          return element ? getComputedStyle(element).gap : null;
+        };
+        const tab = document.querySelector('.editor-tabs');
+        const activeTab = document.querySelector('.editor-tab.active');
+        const tabBounds = tab?.getBoundingClientRect();
+        const activeBounds = activeTab?.getBoundingClientRect();
+        return {
+          editorFile: size('.editor-tab > .file-type-icon'),
+          editorCard: tabBounds && activeBounds ? {
+            width: activeBounds.width,
+            height: activeBounds.height,
+            topInset: activeBounds.top - tabBounds.top,
+            bottomInset: tabBounds.bottom - activeBounds.bottom,
+          } : null,
+          rail: size('.rail-button > .augit-toolbar-icon'),
+          toolHeader: size('.side-tool .tool-header .augit-toolbar-icon'),
+          bottomHeader: size('.bottom-header .augit-toolbar-icon'),
+          treeFile: size('.side-content.tree .file-type-icon'),
+          treeFolder: size('.side-content.tree .tree-folder-icon'),
+          commitReference: size('.commit-row .branch-label .git-reference-icon'),
+          changesGap: gap('.changed-files .tree-row'),
+          historyGap: gap('.log-ref-panel .tree-row'),
+        };
+      })(),
       count: icons.length,
     };
   });
@@ -68,6 +101,21 @@ async function main() {
         await open(name, theme);
         const result = await inspect(page);
         if (name !== 'index.html') assert.ok(result.count > 10, `${name} 主框架图标缺失。`);
+        if (name === 'main-project.html') {
+          assert.deepEqual(result.geometry.editorFile, { width: 13, height: 13 }, `${theme} 编辑器标签文件图标应为 13×13`);
+          assert.equal(result.geometry.editorCard.height, 28, `${theme} Islands 标签卡片高度应为 28px`);
+          assert.ok(Math.abs(result.geometry.editorCard.topInset - 6) <= 0.6, `${theme} Islands 标签卡片上留白应约为 6px`);
+          assert.ok(Math.abs(result.geometry.editorCard.bottomInset - 6) <= 0.6, `${theme} Islands 标签卡片下留白应约为 6px`);
+          assert.deepEqual(result.geometry.rail, { width: 16, height: 16 }, `${theme} 工具轨图标应为 16×16`);
+          assert.deepEqual(result.geometry.toolHeader, { width: 13, height: 13 }, `${theme} 项目工具窗动作图标应为 13×13`);
+          assert.deepEqual(result.geometry.treeFile, { width: 16, height: 16 }, `${theme} 项目树文件图标应为 16×16`);
+          assert.deepEqual(result.geometry.treeFolder, { width: 16, height: 16 }, `${theme} 项目树文件夹图标应为 16×16`);
+        }
+        if (name === 'git-history.html') {
+          if (result.geometry.commitReference) assert.deepEqual(result.geometry.commitReference, { width: 13, height: 13 }, `${theme} 提交行引用图标应为 13×13`);
+          if (result.geometry.changesGap) assert.equal(result.geometry.changesGap, '2px', `${theme} Changes 树行 iconTextGap 应为 2px`);
+          if (result.geometry.historyGap) assert.equal(result.geometry.historyGap, '2px', `${theme} history 树行 iconTextGap 应为 2px`);
+        }
         report.scenes.push({ name, theme, icons: result.count, pending: result.pending });
         if (['main-project.html', 'git-history.html'].includes(name)) {
           await page.screenshot({ path: path.join(output, `${name.slice(0, -5)}-${theme}.png`) });

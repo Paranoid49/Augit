@@ -242,8 +242,10 @@ function bindDiffFind() {
         input.addEventListener('compositionend', () => { composing = false; search(); }, { signal: lifetime.signal });
         input.oninput = event => { if (!composing && !event.isComposing) search(); };
         bar.onkeydown = event => {
+          // 中文输入法组词期间 Enter/Esc/Tab 交给输入法，不触发查找条业务动作。
+          if (composing || event.isComposing || event.keyCode === 229) return;
           if (event.key === 'Escape') { event.preventDefault(); close(); }
-          else if (event.key === 'Enter' && event.target === input) { event.preventDefault(); navigate(event.shiftKey); }
+          else if (event.key === 'Enter' && event.target === input && !event.repeat) { event.preventDefault(); navigate(event.shiftKey); }
           else if (event.key === 'Tab') {
             event.preventDefault();
             const controls = [...bar.querySelectorAll('input, button')];
@@ -269,7 +271,7 @@ function bindDiffFind() {
       document.addEventListener('keydown', event => {
         if (!layout.isConnected || !layout.getClientRects().length) return;
         if (document.querySelector('.document-view .current-find')) return;
-        if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+        if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && !event.repeat && event.key.toLowerCase() === 'f') {
           event.preventDefault();
           open();
         }
@@ -532,11 +534,14 @@ function bindCurrentFind() {
       preset = null; search();
     };
     input.addEventListener('compositionend', () => finishComposition(false), compositionOptions);
-    input.addEventListener('blur', () => finishComposition(true), compositionOptions);
+    input.addEventListener('blur', () => {
+      // 查找条失焦时先提交最终输入；Esc 随后仍由条自身消费，不能因为失焦而留下旧的在途查询。
+      finishComposition(true);
+    }, compositionOptions);
     bar.onkeydown = event => {
       if (composing || event.isComposing || event.keyCode === 229) return;
       if (event.key === 'Escape') { event.preventDefault(); close(); }
-      else if (event.key === 'Enter' && event.target === input) { event.preventDefault(); navigate(event.shiftKey); }
+      else if (event.key === 'Enter' && event.target === input && !event.repeat) { event.preventDefault(); navigate(event.shiftKey); }
       else if (event.key === 'Tab') {
         event.preventDefault();
         const controls = [...bar.querySelectorAll('input, button')];
@@ -586,8 +591,15 @@ function bindCurrentFind() {
   }, { signal: lifetime.signal });
   document.addEventListener('keydown', event => {
     if (!view.isConnected || view.closest('[hidden]') || !view.getClientRects().length
-        || event.isComposing || event.keyCode === 229) return;
-    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'f') {
+        || event.isComposing || event.keyCode === 229 || event.repeat) return;
+    // 查找条失焦后，Esc 仍属于当前查找业务流；不能依赖 bar.onkeydown（焦点已不在条内）。
+    // 已被更高层弹层消费的 Esc 保持原语义，避免关闭查找条后又关闭模态窗口。
+    if (event.key === 'Escape' && !composing && bar && bar.isConnected && !event.defaultPrevented) {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key.toLowerCase() === 'f') {
       event.preventDefault(); open();
     }
     // 同上：document 级监听也归本区域释放，否则每次重绑定都会多一个 Ctrl+F 处理器。

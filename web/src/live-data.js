@@ -239,6 +239,8 @@ function normalizeStatus(status, previous) {
     kind: file.kind || "Modified",
     staged: !!file.staged,
     workingTree: !!file.workingTree,
+    indexStatus: typeof file.indexStatus === "string" ? file.indexStatus : " ",
+    workTreeStatus: typeof file.workTreeStatus === "string" ? file.workTreeStatus : " ",
     checked: previousChecked.has(file.path)
       ? previousChecked.get(file.path)
       : file.group === "Changes",
@@ -248,6 +250,7 @@ function normalizeStatus(status, previous) {
   return {
     branch: status.branch,
     isDetached: status.isDetached,
+    headCommit: status.headCommit || null,
     // 规格 §6.2 第四条：Git 操作会话类型与冲突状态属于快照。此前这两个字段被整个丢弃，
     // 页面既进不了快照、也不知道仓库正在做操作——一次 rebase 开始/结束可能不改动
     // 文件列表、分支与 HEAD，界面却必须跟着变。
@@ -599,6 +602,17 @@ async function loadUnpushed() {
  * 输入去抖 180 毫秒，避免每敲一个字符都拉起一次 ripgrep。
  */
 let searchToken = 0;
+// 搜索输入的去抖句柄跨区域重绘保存；关闭浮层时必须同步清掉，避免晚到的去抖任务重新启动查询。
+let cancelSearchDebounce = null;
+
+function invalidateSearchRequests() {
+  searchToken += 1;
+  if (cancelSearchDebounce) {
+    cancelSearchDebounce();
+    cancelSearchDebounce = null;
+  }
+}
+
 async function runSearch(kind, query, options) {
   const live = window.__augitLive;
   if (!live) return;
@@ -748,18 +762,26 @@ function bindSearchOverlay(kind) {
   if (!input || input.dataset.searchBound === "true") return;
   input.dataset.searchBound = "true";
   let timer = 0;
-  input.addEventListener("input", () => {
+  // 区域刷新会替换输入框；只保留当前绑定的取消器，关闭浮层时由统一路径调用。
+  cancelSearchDebounce?.();
+  cancelSearchDebounce = () => {
     window.clearTimeout(timer);
+    timer = 0;
+  };
+  input.addEventListener("input", () => {
+    cancelSearchDebounce?.();
     const value = input.value;
     const options = currentSearchOptions();
     timer = window.setTimeout(() => void runSearch(kind, value, options), 180);
   });
   input.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     const results = [...document.querySelectorAll(".search-result")];
     const index = results.findIndex((row) => row.classList.contains("selected"));
     if (event.key === "Escape") {
       event.preventDefault();
-      document.querySelector(".search-overlay")?.remove();
+      // 必须走统一关闭路径，清除 live.searchOpen；只移除节点会在下一次区域刷新时复现浮层。
+      if (!closeLiveOverlay()) document.querySelector(".search-overlay")?.remove();
       return;
     }
 
@@ -772,11 +794,11 @@ function bindSearchOverlay(kind) {
       return;
     }
 
-    if (event.key === "Enter" && results.length > 0) {
+    if (event.key === "Enter" && !event.repeat && results.length > 0) {
       event.preventDefault();
       const row = results[Math.max(0, index)];
-      const path = row.dataset.searchPath;
-      if (path) void openDocument(path);
+      // Enter 复用唯一临时预览标签；正式确认语义与快速打开规范冲突，暂按既有状态保留。
+      openSearchResult(row);
     }
   });
   input.focus();
@@ -806,20 +828,37 @@ function selectSearchResult(row) {
   if (row) row.classList.add("selected");
 }
 
-function openSearchResult(row) {
+function openSearchResult(row, { preview = true } = {}) {
   const path = row && row.dataset.searchPath;
   if (!path) return;
   selectSearchResult(row);
-  void openDocument(path, { preview: true });
+  void openDocument(path, { preview });
 }
 
 document.addEventListener("click", (event) => {
+  const option = event.target.closest && event.target.closest(".search-option");
+  if (option) {
+    const live = window.__augitLive;
+    const field = document.querySelector(".search-overlay .search-field");
+    if (live && live.search && field) {
+      // 延后一轮任务，确保 mockup.js 的冒泡监听先切换 aria-pressed；
+      // 再读取新状态并重绘，避免重绘先于按钮状态落地。
+      window.setTimeout(() => {
+        const current = window.__augitLive;
+        const latestField = document.querySelector(".search-overlay .search-field");
+        if (!current || !current.search || !latestField) return;
+        void runSearch(current.search.kind, latestField.value, currentSearchOptions());
+      }, 0);
+    }
+    return;
+  }
   const row = event.target.closest && event.target.closest(".search-result");
   if (!row || !row.dataset.searchPath) return;
+  if (event.isComposing || event.keyCode === 229) return;
   event.preventDefault();
-  // 双击（detail >= 2）打开；单击只改选中，不抢占编辑区。
+  // 双击将临时预览转为正式标签；单击只更新选择，保留工具栏与编辑器焦点。
   if (event.detail >= 2) {
-    openSearchResult(row);
+    openSearchResult(row, { preview: false });
     return;
   }
 
@@ -827,7 +866,7 @@ document.addEventListener("click", (event) => {
 }, true);
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
+  if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
   const row = event.target.closest && event.target.closest(".search-result");
   if (!row || !row.dataset.searchPath) return;
   event.preventDefault();
@@ -1024,13 +1063,16 @@ async function startTerminal() {
     return null;
   }
 
+  // 新会话从零偏移开始。关闭旧会话时可能仍有一轮异步读取在途，
+  // 其收尾由 pollTerminal 的代际守卫丢弃，不能把旧偏移带进新 Shell。
+  terminalOffset = 0;
   terminalReady = true;
   window.__augitTerminalShell = started.displayName;
   if (live) {
     live.terminalStarting = false;
     applyTerminalStartState();
   }
-  pollTerminal();
+  pollTerminal(generation, terminalInstance);
   return terminalInstance;
 }
 
@@ -1072,7 +1114,7 @@ function bindLogFilterDraft() {
   // 输入框自己的 `ActionListener`（回车）执行筛选并入历史；`onFieldCleared()` 在清空时清掉筛选；
   // `onFocusLost()` 在文本与已应用的不一致时也执行一次（on-the-fly 关闭时即失焦执行）。
   field.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter") return;
+    if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     if (applyHistoryTextFilter(field.value)) void reloadHistoryKeepingFocus();
   });
@@ -1485,10 +1527,10 @@ function focusEditorFromTerminal() {
 }
 
 /** 增量拉取终端输出；会话结束后停止轮询。 */
-function pollTerminal() {
+function pollTerminal(generation, instance) {
   if (terminalTimer !== 0) return;
   terminalTimer = window.setInterval(async () => {
-    if (!terminalInstance) return;
+    if (!terminalInstance || terminalInstance !== instance || generation !== terminalGeneration) return;
     // 上一轮还没回来就跳过这一轮：60ms 的间隔短于一次桥接往返时，
     // 旧写法会不停堆积在途请求（实测每个 tick 都新发一个），把渲染进程和
     // UI 线程一起拖住，表现为"点开终端像卡死"。
@@ -1498,6 +1540,8 @@ function pollTerminal() {
       // 分批读：每轮最多 128 KB。真机实测一次搬最多 4 MB 的积压会让大输出后的终端
       // **永久停止更新**（§3.2 第 15 条）；宿主按返回的 offset 连续轮询即可追平。
       const chunk = await invoke('terminal/read', { offset: terminalOffset, maximumLength: 131072 }, 10000);
+      // 读取返回期间终端可能已经关闭或切换到新会话；旧会话的输出和偏移都必须丢弃。
+      if (terminalInstance !== instance || generation !== terminalGeneration) return;
       if (chunk && typeof chunk.data === 'string' && chunk.data.length > 0) {
         terminalInstance.write(chunk.data);
       }
@@ -1584,7 +1628,7 @@ async function closeTerminalNow() {
   if (live && live.layout && live.layout.bottom === 'terminal') {
     live.layout.userDriven = true;
     live.layout.bottom = '';
-    live.layout.collapsed = null;
+    setToolRegionHidden(live.layout, 'bottom', false);
     // 关闭后入口必须回到侧栏那个入口：否则 activeRail 仍是"终端"，
     // 再次点击会被 applyRailAction 当成"折叠已激活入口"，面板永远打不开
     // （实测：关闭后点入口得到 bottom='' 且 collapsed='bottom'）。
@@ -1970,6 +2014,9 @@ function patchChangesList() {
           if (name.className !== wanted) name.className = wanted;
         }
         row.dataset.group = group.label;
+        row.dataset.indexStatus = file.indexStatus || " ";
+        row.dataset.worktreeStatus = file.workTreeStatus || " ";
+        row.setAttribute("aria-label", changeAccessibleName(file.kind, file.name, file));
       } else {
         // 新增行用与整块渲染**同一份**标记（勾选态来自宿主状态）。
         const holder = document.createElement("template");
@@ -3069,13 +3116,13 @@ async function locateBlameCommit(fullHash) {
   // 重排选中态，而日志的单击选中只写在 DOM 上（`historySelectedHash` 只由文件历史返回上下文写），
   // 因此在"目标提交不存在、只给提示"的路径上重绘会把用户当前的选中行重置成首行。
   const layout = live.layout || {};
-  const logVisible = layout.bottom === "git" && layout.collapsed !== "bottom"
+  const logVisible = layout.bottom === "git" && !toolRegionHidden(layout, 'bottom')
     && !!document.querySelector(".log-list-panel .commit-list");
   if (!logVisible || !live.history) {
     live.layout = layout;
     live.layout.userDriven = true;
     live.layout.bottom = "git";
-    live.layout.collapsed = null;
+    setToolRegionHidden(live.layout, 'bottom', false);
     if (!live.history) await loadHistory().catch(() => null);
     refresh("bottomTool", "statusbar");
   }
@@ -3289,10 +3336,10 @@ function buildSnapshot(status, history) {
     repositoryAvailable: !!(status && status.available),
     branch: status ? status.branch : null,
     isDetached: !!(status && status.isDetached),
-    head: history ? history.head : null,
+    head: status && status.headCommit ? status.headCommit : (history ? history.head : null),
     // 顺序敏感：规格要求「路径、状态和排序」都进入快照。
     files: status && status.files
-      ? status.files.map((file) => `${file.group}|${file.path}|${file.kind}|${file.staged ? 1 : 0}|${file.workingTree ? 1 : 0}`)
+      ? status.files.map((file) => `${file.group}|${file.path}|${file.kind}|${file.staged ? 1 : 0}|${file.workingTree ? 1 : 0}|${file.indexStatus || " "}|${file.workTreeStatus || " "}`)
       : [],
     commits: history && history.commits
       ? history.commits.map((commit) => `${commit.fullHash}|${commit.subject}|${(commit.references || []).join(",")}`)
@@ -3352,14 +3399,14 @@ window.__augitApplyHistorySnapshot = () => {
 function applySavedPanelSizes(settings) {
   const root = document.documentElement;
   if (typeof settings.projectPanelWidth === "number" && settings.projectPanelWidth > 0) {
-    root.style.setProperty("--augit-side-width", `${Math.round(settings.projectPanelWidth)}px`);
+    const bounds = sideBounds();
+    root.style.setProperty("--augit-side-width", `${Math.round(Math.max(bounds.min, Math.min(bounds.max, settings.projectPanelWidth)))}px`);
   }
 
   if (typeof settings.bottomPanelHeight === "number" && settings.bottomPanelHeight > 0) {
     // 与视觉稿同一口径：最小高度随字号扩展，上限在必要时同步扩展。
-    const minimum = bottomMinimum();
-    const ceiling = Math.max(305, minimum);
-    const height = Math.max(minimum, Math.min(ceiling, settings.bottomPanelHeight));
+    const bounds = bottomBounds();
+    const height = Math.max(bounds.min, Math.min(bounds.max, settings.bottomPanelHeight));
     root.style.setProperty("--augit-bottom-height", `${Math.round(height)}px`);
   }
 }
@@ -3367,10 +3414,8 @@ function applySavedPanelSizes(settings) {
 // 分隔条拖拽（规格 §4.2）。视觉稿没有可见的分隔条元素，
 // 命中区域就是面板之间的 4 像素间隙，因此用文档级指针事件 + 命中判定实现。
 const SIDE_DRAG_ZONE = 4;      // app-main 的 column-gap
-const BOTTOM_DRAG_ZONE = 4;    // workspace 的 row-gap
+const BOTTOM_DRAG_ZONE = 4;    // app-main 的 row-gap
 const SIDE_MIN = 300;
-const SIDE_MAX = 360;
-const BOTTOM_MAX = 305;
 
 /**
  * 底部面板的最小高度。规格 §4.2：字号增大时最小高度按 max(180, 4h + 80) 扩展；
@@ -3396,33 +3441,44 @@ function bottomMinimum() {
   return Math.max(180, Math.round(lineHeight * 4 + 80));
 }
 let panelDrag = null;
+let panelResizeFrame = 0;
 
-/** 侧栏宽度下限：规格允许 300–360，但不能把编辑区挤到不足 320。 */
+/** 默认宽度 300–360 不限制用户扩大；拖动上限由本次主内容区和编辑器保底宽度决定。 */
 function sideBounds() {
   const main = document.querySelector('.app-main');
-  const available = (main ? main.clientWidth : window.innerWidth) - 42 - SIDE_DRAG_ZONE;
-  return { min: SIDE_MIN, max: Math.max(SIDE_MIN, Math.min(SIDE_MAX, available - 320)) };
+  const available = main ? main.clientWidth : window.innerWidth;
+  const rail = document.querySelector('.tool-rail');
+  const railWidth = rail ? rail.getBoundingClientRect().width : 42;
+  const style = main ? getComputedStyle(main) : null;
+  const gap = style ? Number.parseFloat(style.columnGap) || SIDE_DRAG_ZONE : SIDE_DRAG_ZONE;
+  const padding = style ? (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0) : 0;
+  const editorMinimum = 320;
+  const max = available - padding - railWidth - gap * 2 - editorMinimum;
+  return { min: Math.min(SIDE_MIN, Math.max(0, max)), max: Math.max(0, max) };
 }
 
-/** 底部面板高度下限：规格允许 180–305，但不能把正文挤到不足 260。 */
+/** 默认高度 180–305 不限制用户扩大；正文保底高度在受限窗口下随剩余空间收缩。 */
 function bottomBounds() {
-  const workspace = document.querySelector('.workspace');
-  const available = workspace ? workspace.clientHeight : window.innerHeight;
-  // 最小高度随字号扩展；上限在最小高度超过 305 时同步扩展，
-  // 不能产生无效尺寸区间（规格 §4.2）。
+  const main = document.querySelector('.app-main');
+  const available = main ? main.clientHeight : window.innerHeight;
+  const rowGap = main ? Number.parseFloat(getComputedStyle(main).rowGap) || BOTTOM_DRAG_ZONE : BOTTOM_DRAG_ZONE;
   const minimum = bottomMinimum();
-  const ceiling = Math.max(BOTTOM_MAX, minimum);
-  return { min: minimum, max: Math.max(minimum, Math.min(ceiling, available - 260)) };
+  const editorMinimum = Math.min(260, Math.max(0, available - rowGap - minimum));
+  const max = Math.max(0, available - rowGap - editorMinimum);
+  return { min: Math.min(minimum, max), max };
 }
 
 /** 命中判定：返回正在拖拽的分隔条类型，或 null。 */
 function hitPanelDivider(event) {
   const main = document.querySelector('.app-main');
+  const style = main ? getComputedStyle(main) : null;
+  const columnGap = style ? Number.parseFloat(style.columnGap) || SIDE_DRAG_ZONE : SIDE_DRAG_ZONE;
+  const rowGap = style ? Number.parseFloat(style.rowGap) || BOTTOM_DRAG_ZONE : BOTTOM_DRAG_ZONE;
   const side = document.querySelector('.side-tool');
   if (main && side) {
     const r = side.getBoundingClientRect();
     if (event.clientY >= r.top && event.clientY <= r.bottom
-        && event.clientX >= r.right && event.clientX <= r.right + SIDE_DRAG_ZONE + 4) {
+        && event.clientX >= r.right && event.clientX <= r.right + columnGap + 4) {
       return 'side';
     }
   }
@@ -3431,7 +3487,7 @@ function hitPanelDivider(event) {
   if (bottom) {
     const r = bottom.getBoundingClientRect();
     if (event.clientX >= r.left && event.clientX <= r.right
-        && event.clientY >= r.top - BOTTOM_DRAG_ZONE - 4 && event.clientY <= r.top) {
+        && event.clientY >= r.top - rowGap - 4 && event.clientY <= r.top) {
       return 'bottom';
     }
   }
@@ -3462,8 +3518,10 @@ function persistPanelSize(kind, size) {
 
 function endPanelDrag() {
   if (!panelDrag) return;
-  const { kind, size, moved } = panelDrag;
+  const { kind, size, moved, captureTarget, pointerId, observer } = panelDrag;
   panelDrag = null;
+  observer?.disconnect();
+  if (captureTarget?.hasPointerCapture(pointerId)) captureTarget.releasePointerCapture(pointerId);
   document.body.style.removeProperty('cursor');
   document.body.style.removeProperty('user-select');
   // 未实际移动的按下不写回设置。
@@ -3489,33 +3547,68 @@ function bindPanelDividers() {
     panelDrag = {
       kind,
       pointerId: event.pointerId,
+      element,
+      captureTarget: document.body,
+      dpr: window.devicePixelRatio,
       // 从按下时的实际显示尺寸计算增量，避免初始跳动（规格 §4.2）。
       startSize: kind === 'side' ? rect.width : rect.height,
-      startPosition: kind === 'side' ? event.clientX : event.clientY,
+      lastPosition: kind === 'side' ? event.clientX : event.clientY,
       size: kind === 'side' ? rect.width : rect.height,
       moved: false,
     };
     document.body.style.cursor = kind === 'side' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
+    document.body.setPointerCapture(event.pointerId);
+    const observer = new MutationObserver(() => {
+      if (panelDrag && (!element.isConnected || element.hidden || element.getAttribute('aria-disabled') === 'true'
+          || getComputedStyle(element).display === 'none')) endPanelDrag();
+    });
+    observer.observe(element, { attributes: true, attributeFilter: ['hidden', 'aria-disabled', 'style', 'class'] });
+    observer.observe(element.parentElement, { childList: true });
+    panelDrag.observer = observer;
   }, true);
 
-  document.addEventListener("pointermove", (event) => {
+  const updateDrag = (event) => {
     if (!panelDrag || event.pointerId !== panelDrag.pointerId) return;
+    if (!panelDrag.element.isConnected || panelDrag.dpr !== window.devicePixelRatio
+        || panelDrag.element.hidden || panelDrag.element.getBoundingClientRect().width === 0) {
+      endPanelDrag();
+      return;
+    }
     event.preventDefault();
     const bounds = panelDrag.kind === 'side' ? sideBounds() : bottomBounds();
     const current = panelDrag.kind === 'side' ? event.clientX : event.clientY;
-    const delta = current - panelDrag.startPosition;
-    const next = Math.max(bounds.min, Math.min(bounds.max, panelDrag.startSize + delta));
-    if (Math.abs(next - panelDrag.size) < 0.5) return;
+    const delta = current - panelDrag.lastPosition;
+    // 每次从实际显示尺寸推进，并消耗边界外的指针位移；越界后反向一步即可恢复调整。
+    panelDrag.lastPosition = current;
+    const rect = panelDrag.element.getBoundingClientRect();
+    const displayedSize = panelDrag.kind === 'side' ? rect.width : rect.height;
+    // 侧栏的分隔条在面板**右缘**：指针右移即变宽，增量与宽度同向。
+    // 底部面板的分隔条在面板**上缘**：指针上移（clientY 变小）才是变高，增量必须取反，
+    // 否则分隔条相对指针反向跑（用户实测：往上拖是缩小、往下拖是变大）。
+    const grown = panelDrag.kind === 'side' ? delta : -delta;
+    // CSS 变量按整数像素显示，保留不足一像素的余量，避免慢速或高 DPI 移动被舍弃。
+    const remainder = Math.abs(displayedSize - Math.round(panelDrag.size)) < 0.5
+      ? panelDrag.size - Math.round(panelDrag.size) : 0;
+    const next = Math.max(bounds.min, Math.min(bounds.max, displayedSize + remainder + grown));
     panelDrag.size = next;
+    if (Math.round(next) === Math.round(displayedSize)) return;
     panelDrag.moved = true;
     applyPanelSize(panelDrag.kind, next);
-  }, true);
+  };
+  document.addEventListener("pointermove", updateDrag, true);
 
   document.addEventListener("pointerup", (event) => {
-    if (panelDrag && event.pointerId === panelDrag.pointerId) endPanelDrag();
+    if (panelDrag && event.pointerId === panelDrag.pointerId) {
+      // 浏览器可能合并最后一帧 move；松开位置也必须计入显示与持久化结果。
+      updateDrag(event);
+      endPanelDrag();
+    }
   }, true);
   document.addEventListener("pointercancel", (event) => {
+    if (panelDrag && event.pointerId === panelDrag.pointerId) endPanelDrag();
+  }, true);
+  document.addEventListener('lostpointercapture', (event) => {
     if (panelDrag && event.pointerId === panelDrag.pointerId) endPanelDrag();
   }, true);
   // Esc 与窗口失焦都要结束拖拽；只结束拖拽，不关闭查找条（规格 §4.2）。
@@ -3527,6 +3620,17 @@ function bindPanelDividers() {
     }
   }, true);
   window.addEventListener("blur", endPanelDrag);
+  // 窗口与 DPI 重排使按下时的几何失效，必须结束当前拖动。
+  window.addEventListener('resize', () => {
+    endPanelDrag();
+    const settings = window.__augitLive?.settings;
+    // 浏览器在 resize 事件中仍可能暴露旧的 CSS grid 几何；延到下一帧再按新客户区映射，
+    // 否则窗口变窄时会把旧窗口的上限写回，造成侧栏撑满而编辑器只剩几十像素。
+    if (settings) {
+      cancelAnimationFrame(panelResizeFrame);
+      panelResizeFrame = requestAnimationFrame(() => applySavedPanelSizes(settings));
+    }
+  });
 }
 
 // 供验收套件在清理测试残留后重新应用面板尺寸。
@@ -5579,7 +5683,7 @@ async function clearHistoryPathFilter() {
   releaseFileHistoryPreview();
   // 从 URL 直接进文件历史时没有"进入前上下文"，此时按"折叠底部区域"处理。
   live.layout.bottom = back.bottom || "";
-  live.layout.collapsed = null;
+  setToolRegionHidden(live.layout, 'bottom', false);
   // 已加载（含"已确认是空"）的日志**直接恢复**，不重复查询（规格 §7.9：已加载的空日志
   // 仍直接恢复，不因没有提交而重复查询）。只有从未查过历史的入口才补一次查询。
   if (!live.history) await loadHistory().catch(() => null);
@@ -6089,19 +6193,35 @@ const RAIL_LABELS = {
 // 底部区域的入口标识与 shell() 的 bottom 取值不同名（Git 历史的取值是 git）。
 const RAIL_BOTTOM_VALUE = { terminal: "terminal", history: "git" };
 
+function toolRegionHidden(layout, region) {
+  return layout[`${region}Hidden`] ?? layout.collapsed === region;
+}
+
+function setToolRegionHidden(layout, region, hidden) {
+  layout.sideHidden = toolRegionHidden(layout, 'side');
+  layout.bottomHidden = toolRegionHidden(layout, 'bottom');
+  layout[`${region}Hidden`] = hidden;
+  // 兼容历史上下文与既有观察字段，同时分别保留两个区域的折叠状态。
+  layout.collapsed = layout.bottomHidden ? 'bottom' : layout.sideHidden ? 'side' : null;
+}
+
 /** 从当前 DOM 读出场景给出的初始布局，作为 live.layout 的起点。 */
 function readInitialLayout() {
+  const main = document.querySelector('.app-main');
   const buttons = [...document.querySelectorAll(".tool-rail .rail-button")];
   const names = buttons.map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null);
-  const activeIndex = buttons.findIndex((b) => b.classList.contains("active"));
-  const activeRail = activeIndex >= 0 ? names[activeIndex] : "project";
+  const activeNames = buttons.filter((b) => b.classList.contains("active"))
+    .map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null).filter(Boolean);
+  const activeSideName = activeNames.find((name) => RAIL_SIDE.includes(name));
+  const activeBottomName = activeNames.find((name) => RAIL_BOTTOM.includes(name));
+  const activeRail = activeSideName || activeBottomName || "project";
   // 搜索入口保持侧栏为项目，搜索界面在浮层里（与视觉稿一致）。
-  const side = RAIL_SIDE.includes(activeRail) ? activeRail : "project";
+  const side = main?.dataset.side || (RAIL_SIDE.includes(activeRail) ? activeRail : "project");
   // 底部工具窗取**实际渲染出来的那个**：场景可以只给 `bottom` 参数、而 `activeRail` 仍是侧栏入口
   // （`main-project` 就是 `bottom: "git"` ＋ `activeRail: "project"`）。只从 activeRail 推导会把
   // "日志正开着"读成空串 ⇒ "进入文件历史前的上下文"记成空串 ⇒ 返回时底部被折叠而不是回到日志
   // （第 162/163 轮实测 `after.bottom === ""`）。
-  let bottom = RAIL_BOTTOM.includes(activeRail) ? (RAIL_BOTTOM_VALUE[activeRail] || "") : "";
+  let bottom = main?.dataset.bottom || (activeBottomName ? (RAIL_BOTTOM_VALUE[activeBottomName] || "") : "");
   const rendered = document.querySelector(".bottom-tool");
   if (rendered) {
     if (rendered.classList.contains("terminal-tool")) bottom = "terminal";
@@ -6138,16 +6258,23 @@ function currentLayout() {
 }
 
 function applyRailAction(name) {
+  endPanelDrag();
   const layout = currentLayout();
   if (!layout) return;
   // 改变窗口布局同样撤销"待跨文件"状态（规格 §7.7 第 10 条）。
   clearDiffBoundaryHint();
   // 标记为「用户已操作」，此后由 live.layout 接管场景值。
   layout.userDriven = true;
-  const previousCollapsed = layout.collapsed;
+  const previousHidden = [toolRegionHidden(layout, 'side'), toolRegionHidden(layout, 'bottom')];
   const previousBottom = layout.bottom;
+  const previousSide = layout.side;
   const inSide = RAIL_SIDE.includes(name);
-  const isActive = layout.activeRail === name;
+  const isVisible = inSide
+    ? !toolRegionHidden(layout, 'side') && layout.side === name
+    : !toolRegionHidden(layout, 'bottom') && name === "history"
+      ? ["git", "file-history", "branch-compare"].includes(layout.bottom)
+      : !toolRegionHidden(layout, 'bottom') && layout.bottom === (RAIL_BOTTOM_VALUE[name] || "");
+  const isActive = isVisible && layout.activeRail === name;
   if (isActive) {
     // 搜索是浮层：已激活时再次点击只是关闭浮层，不折叠侧栏或底部。
     if (name === "search") {
@@ -6156,18 +6283,24 @@ function applyRailAction(name) {
     }
 
     // 再次点击同一入口：折叠 / 恢复该区域。
-    layout.collapsed = layout.collapsed === (inSide ? "side" : "bottom") ? null : (inSide ? "side" : "bottom");
+    setToolRegionHidden(layout, inSide ? 'side' : 'bottom', true);
     // 折叠底部工具窗等于隐藏承载预览的工具窗口：取消未完成查询并丢掉预览正文（规格 §7.9 第五条）。
     if (!inSide && layout.collapsed === "bottom") releaseFileHistoryPreview();
+    // 折叠只隐藏区域，不清除当前入口的活动归属；这样竖条仍能表达
+    // “当前工具窗口只是收起了”，再次点击同一入口即可恢复原区域。
   } else {
     layout.activeRail = name;
-    layout.collapsed = null;
+    setToolRegionHidden(layout, inSide ? 'side' : 'bottom', false);
     if (name === "search") {
       // 搜索打开浮层；侧栏内容保持项目（视觉稿 repository-search 即如此）。
       layout.side = "project";
-      layout.bottom = "";
     } else if (inSide) {
       layout.side = name;
+    } else if (previousHidden[1] && name === "history"
+        && ["file-history", "branch-compare"].includes(layout.bottom)) {
+      // 历史类底部工具窗收起后再次点击同一个入口，恢复原来的历史页；
+      // 不能把文件历史或分支比较误替换成普通 Git 历史，否则预览上下文会丢失。
+      layout.bottom = layout.bottom;
     } else {
       layout.bottom = RAIL_BOTTOM_VALUE[name] || "";
     }
@@ -6180,29 +6313,27 @@ function applyRailAction(name) {
     return;
   }
 
-  // 区域替换只在「两侧都存在」时替换，无法表达节点的出现与消失。
-  // 折叠/恢复会增删 .side-tool 或 .bottom-tool，那一步必须整页重绘；
-  // 仅仅是同区域内切换或跨区域切换时，两个区域节点都在，走定点替换即可，
-  // 这样不会丢掉编辑标签与已建立的组件实例。
-  const needsStructural = previousCollapsed !== layout.collapsed
+  // 工具窗出现/消失改变主网格轨道，保留编辑器与未变化的另一个工具窗节点。
+  const needsStructural = previousHidden[0] !== toolRegionHidden(layout, 'side')
+    || previousHidden[1] !== toolRegionHidden(layout, 'bottom')
     || (previousBottom === "") !== (layout.bottom === "");
-  if (needsStructural && typeof window.__augitRender === "function") {
-    // 整页重绘会换掉工具窗口入口与侧栏内容，必须走**完整的**重绘后处理：
-    // 只重挂工具入口（bindToolRail）会让 restoreChangesState 被跳过，
-    // 于是提交草稿、改动列表选中行、滚动位置全部丢失——实测折叠/展开提交工具窗口后
-    // 草稿输入框为空、选中行为 null（违反规格 §5.2「切换工具窗口不改变当前文件」
-    // 与 §6.6 的「明确禁止变化」列）。
-    window.__augitRender();
+  if (needsStructural && typeof window.__augitRenderToolLayout === "function") {
+    // 对新增的区域补齐数据与交互；恢复 Changes 时同时恢复草稿、选择和滚动。
+    window.__augitRenderToolLayout();
     rebindAfterRender();
   } else {
-    refresh("rail", "side", "bottomTool", "editorContent", "statusbar");
+    // 活动归属变化只更新入口；同一区域换工具时才替换该工具，保留编辑器和另一工具窗。
+    const regions = ['rail'];
+    if (previousSide !== layout.side) regions.push('side');
+    if (previousBottom !== layout.bottom) regions.push('bottomTool');
+    refresh(...regions);
   }
 
   bindToolRail();
 
   // 终端面板刚出现时创建会话（规格 §7.16 按需单会话）。
   // 必须在渲染之后：startTerminal 需要真实的 .terminal-view 宿主节点。
-  if (layout.bottom === "terminal" && layout.collapsed !== "bottom") {
+  if (layout.bottom === "terminal" && !toolRegionHidden(layout, 'bottom')) {
     void ensureTerminal();
   }
 }
@@ -6210,6 +6341,26 @@ function applyRailAction(name) {
 function bindToolRail() {
   if (!window.__augitLive || window.__augitRailBound) return;
   window.__augitRailBound = true;
+  document.addEventListener('focusin', (event) => {
+    const target = event.target;
+    const layout = currentLayout();
+    if (!layout || !target.closest) return;
+    const side = target.closest('.side-tool');
+    const bottom = target.closest('.bottom-tool');
+    const editor = target.closest('.workspace');
+    if (!side && !bottom && !editor) return;
+    // 收起工具窗后焦点会落到编辑区；这次焦点转移不应抹掉被收起入口的活动归属，
+    // 否则竖条无法表达折叠状态，也无法通过再次点击原入口恢复工具窗。
+    if (editor && (toolRegionHidden(layout, 'side') && RAIL_SIDE.includes(layout.activeRail)
+        || toolRegionHidden(layout, 'bottom') && RAIL_BOTTOM.includes(layout.activeRail))) return;
+    // 以工具窗正文、输入或操作区的焦点确定活动归属；单独聚焦 rail 按钮不激活窗口。
+    const name = side ? layout.side : bottom ? (layout.bottom === 'terminal' ? 'terminal' : 'history') : '';
+    layout.activeRail = name;
+    layout.userDriven = true;
+    document.querySelectorAll('.tool-rail .rail-button').forEach((button) => {
+      button.classList.toggle('active', RAIL_LABELS[button.getAttribute('aria-label')] === name);
+    });
+  }, true);
   // 挂在 document 的捕获阶段：工具窗口入口会在整页重绘时被换掉，
   // 挂在节点上的监听会随节点一起消失，导致下一次点击走 <a> 默认跳转离开应用。
   // 放在捕获阶段还能在默认动作之前阻止跳转。
@@ -6224,6 +6375,38 @@ function bindToolRail() {
     if (button.getAttribute("aria-disabled") === "true") return;
     const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
     if (name) applyRailAction(name);
+  }, true);
+}
+
+// 引用竖条动作必须在 WebView2 与浏览器中都支持真实的 Enter/Space 激活。
+// 部分 Chromium 版本在捕获阶段被其它监听器阻止后不会为 Space 合成 click，
+// 因此这里显式复用按钮的 click 分派；按钮自身的 disabled/aria-disabled 语义仍由现有状态更新维护。
+if (!window.__augitRefStripeKeyboardBound) {
+  window.__augitRefStripeKeyboardBound = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " " && event.key !== "Space" && event.key !== "Spacebar") return;
+    const button = event.target.closest && event.target.closest(".git-side-toolbar [data-ref-stripe]");
+    if (!button || button.disabled || button.getAttribute("aria-disabled") === "true") return;
+    event.preventDefault();
+    if (event.key === "Enter") button.click();
+    else button.dataset.augitSpaceActivation = "true";
+  }, true);
+  document.addEventListener("keyup", (event) => {
+    if (event.key !== " " && event.key !== "Space" && event.key !== "Spacebar") return;
+    const button = event.target.closest && event.target.closest(".git-side-toolbar [data-ref-stripe]");
+    if (!button || button.dataset.augitSpaceActivation !== "true") return;
+    event.preventDefault();
+    // 原生按钮 click 可能在 keyup 默认动作后到达；把兜底 click 推迟到该默认动作
+    // 完成后，并由下面的捕获监听在原生 click 到达时清除标记，避免执行两次。
+    window.setTimeout(() => {
+      if (button.dataset.augitSpaceActivation !== "true") return;
+      delete button.dataset.augitSpaceActivation;
+      if (!button.disabled && button.getAttribute("aria-disabled") !== "true") button.click();
+    }, 0);
+  }, true);
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest(".git-side-toolbar [data-ref-stripe]");
+    if (button?.dataset.augitSpaceActivation === "true") delete button.dataset.augitSpaceActivation;
   }, true);
 }
 
@@ -6246,9 +6429,11 @@ function toggleChangeChecked(path, checked) {
 function toggleChangeGroup(group, checked) {
   const live = window.__augitLive;
   if (!live || !live.status) return;
-  const label = group === "UnversionedFiles" ? "Unversioned Files" : group;
+  // DOM 分组值是可读标签，而宿主状态使用枚举键；两者必须在边界处归一化。
+  const groupKey = group === "Unversioned Files" || group === "UnversionedFiles"
+    ? "UnversionedFiles" : group;
   for (const file of live.status.files) {
-    if (file.group === label) file.checked = !!checked;
+    if (file.group === groupKey) file.checked = !!checked;
   }
 
   refreshAfterEvent("side");
@@ -6298,7 +6483,9 @@ function rememberTreeStateBeforeRender() {
   if (tree.scrollHeight > tree.clientHeight) live.treeScrollTop = tree.scrollTop;
   const active = document.activeElement;
   const row = active && active.closest ? active.closest(".side-content.tree .tree-row") : null;
-  live.treeFocusPath = row ? (row.dataset.treePath || null) : null;
+  // 与 `selectTreeRow()` 同一口径：根行的路径是空字符串，`||` 会把它折叠成 null，
+  // 于是"焦点在根行上"被记成"焦点不在树内"，收尾重绘就把焦点丢到正文（保留原值才交还得回去）。
+  live.treeFocusPath = row ? (row.dataset.treePath ?? null) : null;
   live.treeFocusInside = !!(active && active !== document.body && tree.contains(active));
 }
 
@@ -6446,7 +6633,8 @@ function restoreTreeState() {
   if (!focusInside) return;
   const tree = document.querySelector(".side-content.tree");
   if (!tree) return;
-  const row = focusPath
+  // 根行的路径是空字符串，不能用真假判断，否则重绘后会把根行焦点降级到树容器。
+  const row = focusPath !== null && focusPath !== undefined
     ? [...tree.querySelectorAll(".tree-row[data-tree-path]")].find((item) => item.dataset.treePath === focusPath)
     : null;
   const target = row || tree;
@@ -6631,8 +6819,10 @@ function guardUnwiredNavigation() {
       const layout = currentLayout();
       if (layout) {
         layout.userDriven = true;
-        layout.collapsed = "side";
-        window.__augitRender();
+        endPanelDrag();
+        setToolRegionHidden(layout, 'side', true);
+        layout.activeRail = '';
+        window.__augitRenderToolLayout();
         rebindAfterRender();
       }
       return;
@@ -7277,7 +7467,7 @@ function guardUnwiredNavigation() {
       if (liveEntry && entryLayout && !entryVisible) {
         liveEntry.layout.userDriven = true;
         liveEntry.layout.bottom = "git";
-        liveEntry.layout.collapsed = null;
+        setToolRegionHidden(liveEntry.layout, 'bottom', false);
         void (liveEntry.history ? Promise.resolve() : loadHistory().catch(() => null))
           .then(() => refresh("bottomTool", "statusbar"));
       }
@@ -8335,7 +8525,7 @@ async function runPopoverAction(action) {
     live.layout.userDriven = true;
     live.layout.activeRail = "commit";
     live.layout.side = "commit";
-    live.layout.collapsed = null;
+    setToolRegionHidden(live.layout, 'side', false);
     if (typeof window.__augitRender === "function") window.__augitRender();
     rebindAfterRender();
     return;
@@ -8507,7 +8697,7 @@ async function openBranchComparison(branchName, otherBranchName = null) {
   live.layout = live.layout || {};
   live.layout.userDriven = true;
   live.layout.bottom = "branch-compare";
-  live.layout.collapsed = null;
+  setToolRegionHidden(live.layout, 'bottom', false);
   if (!hadBottom && typeof window.__augitRender === "function") {
     window.__augitRender();
     rebindAfterRender();
@@ -8554,7 +8744,7 @@ async function closeBranchComparison() {
   live.layout = live.layout || {};
   live.layout.userDriven = true;
   live.layout.bottom = back.bottom || "git";
-  live.layout.collapsed = null;
+  setToolRegionHidden(live.layout, 'bottom', false);
   // 已加载的日志直接恢复，不重复查询（与文件历史同一口径）。
   if (!live.history) await loadHistory().catch(() => null);
   refreshAfterEvent("bottomTool", "statusbar");
@@ -11319,7 +11509,7 @@ async function runChangesContextAction(action, options = {}) {
       live.layout = live.layout || {};
       live.layout.userDriven = true;
       live.layout.bottom = "file-history";
-      live.layout.collapsed = null;
+      setToolRegionHidden(live.layout, 'bottom', false);
       // 底部区域从无到有是结构性变化：区域替换只在「两侧都存在」时生效，
       // 而该场景没有 .bottom-tool 节点，定点刷新无法把它插进来
       // （实测底部工具窗口始终不出现）。这类变化整页重绘。
@@ -11773,22 +11963,23 @@ window.__augitRememberedJsonMode = () => {
   return tab && tab.kind === "document" && typeof tab.jsonMode === "string" ? tab.jsonMode : null;
 };
 
-/** 关闭所有实时弹层。 */
-function closeLiveOverlay() {
-  // 关掉搜索浮层时必须**同时清状态**：否则下一次区域刷新会按 `live.searchOpen` 把它重新画出来
-  //（第 240 轮：不清理就会"Esc 关掉、一刷新又回来"）。
+/** 显式关闭操作清理实时弹层；Esc 调用时只清理最上层。 */
+function closeLiveOverlay({ topOnly = false } = {}) {
+  // 只关闭最上层覆盖层；搜索结果过多对话框与搜索浮层是兄弟层，Esc 不能把两层一起移除。
   const live = window.__augitLive;
-  if (live) {
+  const layers = [...document.querySelectorAll("[data-augit-overlay].live-overlay")];
+  const targets = topOnly ? layers.slice(-1) : layers;
+  const layer = targets.at(-1);
+  if (!layer) return false;
+  const hadSearch = targets.some((node) => node.matches(".search-overlay") || !!node.querySelector(":scope > .search-overlay"));
+  if (hadSearch) invalidateSearchRequests();
+  if (live && hadSearch) {
     live.searchOpen = false;
-    live.overlay = null;
+    live.search = null;
   }
-  const layers = document.querySelectorAll("[data-augit-overlay].live-overlay");
-  if (layers.length === 0) return false;
-  // Esc／遮罩点击关掉设置对话框时同样要退回预览前的主题（取消按钮那条走 closeSettingsDialog）。
-  if ([...layers].some((node) => node.classList.contains("settings-window") || node.querySelector(".settings-layout"))) {
-    revertThemePreview();
-  }
-  layers.forEach((node) => node.remove());
+  // Esc／遮罩点击关掉设置对话框时同样要退回预览前的主题。
+  if (targets.some((node) => node.classList.contains("settings-window") || node.querySelector(".settings-layout"))) revertThemePreview();
+  targets.forEach((node) => node.remove());
   // 通用弹层关闭路径（Esc、遮罩点击、菜单选择）也要交回焦点（规格 §5.3）。
   // 各打开函数都在调用本函数**之前**记录焦点，因此这里恢复的是打开前的元素。
   restoreDialogFocus();
@@ -11815,19 +12006,22 @@ function bindOverlayEscape() {
     if (document.querySelector("[data-push-action]")) {
       event.preventDefault();
       void cancelPushDialog();
+      event.stopImmediatePropagation();
       return;
     }
 
     // 「结果过多」对话框优先：Esc = 中止继续搜索（权威 `okCancel` 的取消分支），
     // 不把整个搜索浮层关掉。
-    if (document.querySelector('.search-limit-dialog')) {
+    if (document.querySelector('.search-limit-window')) {
       event.preventDefault();
       abortLimitedSearch();
+      event.stopImmediatePropagation();
       return;
     }
 
-    if (closeLiveOverlay()) {
+    if (closeLiveOverlay({ topOnly: true })) {
       event.preventDefault();
+      event.stopImmediatePropagation();
       return;
     }
 
@@ -11841,10 +12035,12 @@ function bindOverlayEscape() {
     const popup = overlay.matches('[popover]') ? overlay : overlay.querySelector(':scope > [popover]');
     if (popup && typeof popup.hidePopover === "function" && popup.matches(":popover-open")) {
       popup.hidePopover();
+      event.stopImmediatePropagation();
       return;
     }
 
     overlay.remove();
+    event.stopImmediatePropagation();
   }, true);
 }
 
@@ -11905,13 +12101,36 @@ function bindEditorTabs() {
   }, true);
 
   document.addEventListener("keydown", (event) => {
-    if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+    // 输入法组词期间 Ctrl+W 也必须交给输入法；仅检查 Ctrl 修饰键会误关当前标签。
+    if (event.isComposing || event.keyCode === 229) return;
+    if (globalShortcutBlocked(event)) return;
+    if (event.repeat || !event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
     if (event.key.toLowerCase() !== "w") return;
     const live = window.__augitLive;
     if (!live || !live.activeTabId) return;
     event.preventDefault();
     closeActiveTab();
   }, true);
+}
+
+/**
+ * 全局快捷键的模态门。
+ *
+ * 输入框、终端和弹层拥有自己的键盘业务流；全局 Ctrl+P/F/G 或 F5 不得越过这些边界，
+ * 否则在设置、分支输入、终端等场景会同时打开另一个窗口或刷新项目树。
+ */
+function globalShortcutBlocked(event) {
+  const target = event.target;
+  const owners = ".terminal-tool, .search-overlay, .main-menu-popover, [data-augit-overlay], [popover]:popover-open, details[open], input, textarea, select, [role='combobox'], [contenteditable='true']";
+  if (target?.closest?.(owners)) {
+    return true;
+  }
+  if (document.activeElement?.closest?.(owners)) {
+    return true;
+  }
+  return !!document.querySelector(
+    "[data-augit-overlay], [popover]:popover-open, details[open], [data-compact-dialog], .settings-window, .stash-dialog, [data-push-action]"
+  );
 }
 
 /**
@@ -11930,16 +12149,18 @@ function bindGlobalShortcuts() {
     if (!window.__augitLive) return;
     // 组词期间不抢占按键（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
+    if (globalShortcutBlocked(event)) return;
+    if (event.repeat) return;
     const key = event.key.toLowerCase();
 
     // F5 刷新文件树；不重载页面。
-    if (event.key === "F5" && !event.ctrlKey && !event.altKey) {
+    if (event.key === "F5" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
       event.preventDefault();
       void refreshFileTree();
       return;
     }
 
-    if (!event.ctrlKey || event.altKey) return;
+    if (!event.ctrlKey || event.altKey || event.metaKey) return;
 
     // Ctrl+Shift+F 全仓搜索（必须先于 Ctrl+F 判断）。
     if (event.shiftKey && key === "f") {
@@ -12296,6 +12517,14 @@ function openCurrentFileFind() {
     bindDiffFind();
   }
 
+  // 重复 Ctrl+F 只把焦点交还给现有查找条；不能重新派发内容变更，
+  // 否则当前匹配会被重算并跳回第一项，破坏 PyCharm 的查找状态机。
+  const existing = view.querySelector(".current-find");
+  if (existing) {
+    existing.querySelector(".search-field")?.focus({ preventScroll: true });
+    return;
+  }
+
   const message = { bubbles: true, cancelable: true };
   view.dispatchEvent(new CustomEvent("document-content-changed", message));
   const field = document.querySelector(".current-find .search-field");
@@ -12398,7 +12627,7 @@ let treePatchGeneration = 0;
 function layersAllowProjectTree(live) {
   const layout = live && live.layout;
   if (!layout) return true;
-  if (layout.collapsed === "side") return false;
+  if (toolRegionHidden(layout, 'side')) return false;
   return !layout.side || layout.side === "project";
 }
 
@@ -12411,13 +12640,17 @@ function buildTreeRow(entry, selected, live) {
 }
 
 /** 行是否需要重建（只有路径、名称、类型、层级、展开箭头或选中态真的变了才重建）。 */
-function needsTreeRowUpdate(node, entry, selected) {
+function needsTreeRowUpdate(node, entry, selected, live) {
   if (node.dataset.treePath !== entry.path) return true;
   if (node.dataset.treeDirectory !== String(entry.isDirectory)) return true;
   if (node.getAttribute("aria-level") !== String(entry.depth + 1)) return true;
   if ((node.style.getPropertyValue("--tree-depth") || "") !== String(entry.depth)) return true;
   const name = node.querySelector(".tree-name");
   if (!name || name.textContent !== entry.name) return true;
+  const status = !entry.isDirectory ? treeGitStatus(entry.path, live) : null;
+  if ((node.dataset.gitStatus || "") !== (status ? status.className : "")) return true;
+  if ((node.dataset.indexStatus || " ") !== (status ? status.indexStatus : " ")) return true;
+  if ((node.dataset.worktreeStatus || " ") !== (status ? status.workTreeStatus : " ")) return true;
   // 选中态**不参与**重建判据：它由 `selectTreeRow()` 直接维护（规格 §6 第 37 条：收尾不得重选树行），
   // 拿状态值去纠正 DOM 只会把默认选中行擦掉。
   if (entry.isDirectory && (node.getAttribute("aria-expanded") === "true") !== !!entry.expanded) return true;
@@ -12462,7 +12695,7 @@ function patchProjectTree() {
       let node = reused;
       if (reused) {
         existing.delete(entry.path);
-        if (needsTreeRowUpdate(reused, entry, selected)) {
+        if (needsTreeRowUpdate(reused, entry, selected, live)) {
           const fresh = buildTreeRow(entry, selected, live);
           if (fresh) {
             // 重建的行要把原来的选中态带过去（选中态不参与重建判据）。
@@ -13076,18 +13309,67 @@ async function toggleDirectory(row) {
   // 展开层级属于会话数据（规格 §6.7）：防抖写回，内容没变不会真的写盘。
   scheduleSessionPersist();
   // 只刷新侧栏：展开/折叠不应影响编辑区、焦点与滚动位置。
+  // 侧栏刷新走 `patchProjectTree()` 就地套用（规格 §7.1 第 7 条），未变化的行保留原节点。
   refresh("side");
 }
 
-// 单击只选择，双击或 Enter 才打开（规格 §12.5 的 main-project 不变量：
-// 「单击只选择，双击或 Enter 才正式打开」）。
-// 目录仍是单击展开/折叠。
-function activateTreeRow(row, { open = true } = {}) {
+/**
+ * 把焦点放到一行树上，**不改选择**。
+ *
+ * 目录 disclosure 箭头只切换展开状态，选择由状态对象 `live.treeSelectedPath` 与 `.selected`
+ * 类共同表达，因此这里不碰它们；区域或就地刷新按 `live.treeFocusPath` 把焦点还给同一路径
+ * （`restoreTreeState()`），行被折叠移除时回退到树容器。
+ */
+function focusTreeRow(row) {
+  if (!row || typeof row.focus !== "function") return;
+  row.focus({ preventScroll: true });
+}
+
+/**
+ * 这次点击是否落在目录的 disclosure 箭头上。
+ *
+ * 只有**目录且真的画出了箭头**才算命中：叶子行的 `.chevron` 是模板为图标列对齐保留的空占位，
+ * 命中它不应产生任何展开语义（权威 `ClassicPainter.paint()` 对 leaf 直接 `return`，不绘制控件）。
+ */
+function hitTreeDisclosure(row, event) {
+  if (!row || row.dataset.treeDirectory !== "true") return false;
+  const target = event.target;
+  const chevron = target && target.closest ? target.closest(".chevron") : null;
+  if (!chevron || !row.contains(chevron)) return false;
+  return !!chevron.querySelector("svg");
+}
+
+/**
+ * 项目树一行的手势语义（产品规格 §3.1 与 UX 规格 §7.1）。
+ *
+ * - 目录名称/行单击：只选中，不展开；箭头单击：只展开/折叠，**不改变选择**；
+ *   目录名称双击：切换一次展开状态（单击那次不展开，因此双击净效果正好是切换一次）。
+ * - 文件单击：只选中；双击或 `Enter` 才打开正式标签。
+ * - 单击与连击都由 click 的 `event.detail` 区分：第一次点击 `detail === 1`、第二次 `detail === 2`，
+ *   不额外挂 dblclick，避免两条处理器对同一次手势各切换一遍；第三次及以后（`detail >= 3`）
+ *   不再算"双击" —— 否则连击三下会切换两次（规格 §3.1：双击目录名称切换一次展开状态）。
+ *
+ * 手势口径依产品规格 §3.1；箭头作为独立命中区与「单击箭头切换展开、不改选择」的权威对照，
+ * 见 `docs/nui-behavior/02-tree-list.md` §4.1。
+ */
+function activateTreeRow(row, { open = true, disclosure = false } = {}) {
   const path = row.dataset.treePath;
   if (path === undefined) return;
   if (row.dataset.treeDirectory === "true") {
-    void toggleDirectory(row);
-    return;
+    // 箭头：只切换展开，选择与文档都不动。
+    if (disclosure) {
+      focusTreeRow(row);
+      return toggleDirectory(row);
+    }
+    // 名称/行单击：只选中（焦点交给行，便于接着用方向键）。
+    if (!open) {
+      selectTreeRow(row);
+      focusTreeRow(row);
+      return;
+    }
+    // 名称双击：切换一次展开状态，不打开文件标签。
+    focusTreeRow(row);
+    return toggleDirectory(row);
   }
 
   selectTreeRow(row);
@@ -13106,8 +13388,10 @@ function selectTreeRow(row) {
   row.classList.add("selected");
   row.setAttribute("aria-selected", "true");
   // 选中态进状态（规格 §6 第 37 条）：异步读取收尾重绘侧栏时不得把选中跳回刚打开的文件行。
+  // 路径按**原值**保存（含根行的空字符串）：`||` 会把根目录的 `""` 折叠成 null，
+  // 于是"点过根行"与"从没点过"变成同一状态，渲染层又回落到当前文档路径。
   const liveSelection = window.__augitLive;
-  if (liveSelection) liveSelection.treeSelectedPath = row.dataset.treePath || null;
+  if (liveSelection) liveSelection.treeSelectedPath = row.dataset.treePath ?? null;
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
   // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
   const path = row.dataset.treePath;
@@ -13184,7 +13468,7 @@ document.addEventListener("click", (event) => {
 
 // 改动文件行上的 Enter 打开差异。
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
+  if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
   const row = event.target.closest && event.target.closest(".changes-list .change-file-row");
   if (!row || !row.dataset.path) return;
   event.preventDefault();
@@ -13193,12 +13477,23 @@ document.addEventListener("keydown", (event) => {
 }, true);
 
 // 用捕获阶段的委托监听：不受内容安全策略对内联处理器的限制，也不受整页重绘影响。
+//
+// 手势分流（产品规格 §3.1、UX 规格 §7.1）：
+// - `event.detail === 2` 是双击的第二次点击 ⇒ 目录名称切换一次展开；文件行打开正式标签。
+//   第三次及以后不算双击（`detail >= 3` 不触发），否则连击三下目录会切换两次。
+// - 单击落在 disclosure 箭头上 ⇒ 只展开/折叠，不改变当前选择（`open:false` 且走箭头分支）。
+// - 其余单击 ⇒ 文件行只选中；目录名称只选中，不展开。
 document.addEventListener("click", (event) => {
   const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
   if (!row) return;
   event.preventDefault();
-  // 双击打开，单击只选择。
-  activateTreeRow(row, { open: event.detail >= 2 });
+  const doubleClick = event.detail === 2;
+  if (hitTreeDisclosure(row, event)) {
+    activateTreeRow(row, { open: false, disclosure: true });
+    return;
+  }
+
+  activateTreeRow(row, { open: doubleClick });
 }, true);
 
 // 变化文件树的**目录行**：点箭头（或整行）折叠/展开（规格 §7.9 条目三）。
@@ -13236,7 +13531,7 @@ document.addEventListener("click", (event) => {
 
 // 历史变化文件行上的 Enter 打开比较。
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
+  if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
   const row = event.target.closest && event.target.closest("[data-live-changed-files] [data-history-path]");
   if (!row) return;
   event.preventDefault();
@@ -13562,9 +13857,46 @@ document.addEventListener("keydown", (event) => {
 }, true);
 
 // 树的键盘导航（规格 §5.4）：方向键移动选择，右键展开、左键折叠。
+//
+// 行内的 Enter 也在这里收口：一次 keydown 只跑一条处理器（此前另有一条 document 级 Enter
+// 处理器，两条都会调 `activateTreeRow`）。目录行按产品规格 §3.1 只切换展开、不打开文件标签；
+// 文件行执行默认动作（打开正式标签）。
+let treeTypeAhead = "";
+let treeTypeAheadTimer = 0;
+
 document.addEventListener("keydown", (event) => {
   const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
   if (!row) return;
+  if (event.isComposing || event.keyCode === 229) return;
+  if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1 && /[^\s]/u.test(event.key)) {
+    const now = Date.now();
+    if (treeTypeAheadTimer && now - treeTypeAheadTimer > 1000) treeTypeAhead = "";
+    const character = event.key.toLocaleLowerCase();
+    const repeatedCharacter = treeTypeAhead.length > 0 && [...treeTypeAhead].every((value) => value === character);
+    treeTypeAhead = repeatedCharacter ? character : treeTypeAhead + character;
+    treeTypeAheadTimer = now;
+    const rows = [...document.querySelectorAll(".side-content.tree .tree-row")];
+    const start = Math.max(0, rows.indexOf(row));
+    const ordered = rows.slice(start + 1).concat(rows.slice(0, start + 1));
+    const query = treeTypeAhead;
+    const match = ordered.find((item) => (item.querySelector(".tree-name")?.textContent || "").toLocaleLowerCase().startsWith(query));
+    if (match) {
+      event.preventDefault();
+      selectTreeRow(match);
+      match.focus({ preventScroll: true });
+      match.scrollIntoView({ block: "nearest" });
+    }
+    return;
+  }
+  if (event.key === "Enter" && !event.repeat) {
+    // 规格 §12.5：「单击只选择，双击或 Enter 才正式打开」；目录行仍是展开/折叠。
+    if (event.repeat || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    window.__treeEnterFired = (window.__treeEnterFired || 0) + 1;
+    void activateTreeRow(row, { open: true });
+    return;
+  }
+
   const rows = [...document.querySelectorAll(".side-content.tree .tree-row")];
   const index = rows.indexOf(row);
   if (index < 0) return;
@@ -13573,13 +13905,17 @@ document.addEventListener("keydown", (event) => {
   let next = null;
   if (event.key === "ArrowDown") next = rows[index + 1] || null;
   else if (event.key === "ArrowUp") next = rows[index - 1] || null;
-  else if ((event.key === "ArrowRight" && isDirectory && !expanded)
-    || (event.key === "ArrowLeft" && isDirectory && expanded)) {
+  else if (event.key === "PageDown" || event.key === "PageUp") {
+    const height = Math.max(1, row.getBoundingClientRect().height || 24);
+    const page = Math.max(1, Math.floor((row.closest(".side-content.tree")?.clientHeight || height) / height) - 1);
+    const delta = event.key === "PageDown" ? page : -page;
+    next = rows[Math.max(0, Math.min(rows.length - 1, index + delta))] || null;
+  } else if (event.key === "ArrowRight" && isDirectory && !expanded) {
     event.preventDefault();
     // 展开/折叠会重绘侧栏并换掉行节点，因此按路径把焦点移回同一行，
     // 否则键盘导航在第一次展开后就断掉了。
     const keepPath = row.dataset.treePath;
-    void Promise.resolve(activateTreeRow(row, { open: false })).then(() => {
+    void Promise.resolve(activateTreeRow(row, { open: false, disclosure: true })).then(() => {
       const again = document.querySelector(`.side-content.tree .tree-row[data-tree-path="${CSS.escape(keepPath)}"]`);
       if (again) {
         selectTreeRow(again);
@@ -13587,13 +13923,27 @@ document.addEventListener("keydown", (event) => {
       }
     });
     return;
-  } else if (event.key === "Enter") {
-    // 规格 §12.5：「单击只选择，双击或 Enter 才正式打开」；目录行仍是展开/折叠。
-    // 此前只接了双击与方向键，Enter 落空（第 81 轮 harness 实测：行保持焦点、document 仍为 null）。
-    event.preventDefault();
-    window.__treeEnterFired = (window.__treeEnterFired || 0) + 1;
-    void activateTreeRow(row, { open: true });
-    return;
+  } else if (event.key === "ArrowRight" && isDirectory && expanded) {
+    // 已展开目录：进入第一个可见子项；没有子项时沿可见顺序前进。
+    next = rows[index + 1] || null;
+  } else if (event.key === "ArrowRight" && !isDirectory) {
+    next = rows[index + 1] || null;
+  } else if (event.key === "ArrowLeft") {
+    if (isDirectory && expanded) {
+      event.preventDefault();
+      const keepPath = row.dataset.treePath;
+      void Promise.resolve(activateTreeRow(row, { open: false, disclosure: true })).then(() => {
+        const again = [...document.querySelectorAll(".side-content.tree .tree-row[data-tree-path]")]
+          .find((item) => item.dataset.treePath === keepPath);
+        if (again) { selectTreeRow(again); again.focus({ preventScroll: true }); }
+      });
+      return;
+    }
+    // 文件或已折叠目录：回到可见父目录。
+    const path = row.dataset.treePath || "";
+    if (!path) return;
+    const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    next = rows.find((item) => (item.dataset.treePath || "") === parent) || null;
   } else if (event.key === "Home") next = rows[0] || null;
   else if (event.key === "End") next = rows.at(-1) || null;
   else return;
@@ -13605,14 +13955,8 @@ document.addEventListener("keydown", (event) => {
   next.scrollIntoView({ block: "nearest" });
 }, true);
 
-// 树行上的 Enter 执行默认动作（打开文件）。
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter") return;
-  const row = event.target.closest && event.target.closest(".side-content.tree .tree-row");
-  if (!row || row.dataset.treeDirectory === "true") return;
-  event.preventDefault();
-  activateTreeRow(row);
-}, true);
+// 树行的 Enter 由上面的键盘导航处理器统一收口（同一次 keydown 只跑一条处理器）；
+// 这里不再另挂第二条，避免目录行被切换两次、文件行被打开两次。
 
 /**
  * 预览失败后"再次点击预览重试"（规格 §7.3）。预览区里的 `<article class="markdown-preview">`
@@ -13631,7 +13975,7 @@ function retryMarkdownPreview(event) {
 
 document.addEventListener("click", retryMarkdownPreview, true);
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
+  if ((event.key !== "Enter" && event.key !== " ") || event.repeat || event.isComposing || event.keyCode === 229) return;
   retryMarkdownPreview(event);
 }, true);
 
@@ -13881,7 +14225,6 @@ async function openDocument(path, options = {}) {
     markdownPreviewHintTimer = null;
     live.markdownPreview = null;
     clearImagePreviewState();
-    refresh("statusbar");
   } catch (error) {
     // 失败路径也必须清掉"读取中"状态，否则状态栏会**卡在**"只读 + 待打开路径"上（成功路径已清）。
     if (live.pendingDocument === path) {
@@ -13930,6 +14273,10 @@ async function openDocument(path, options = {}) {
   // 只做区域刷新以保留项目树的展开状态与滚动位置；
   // 并延后到事件派发结束，避免在捕获阶段就替换掉被点击的行。
   refreshAfterEvent("side", "editorContent", "editorTabs", "statusbar", "titlebar");
+  // `refreshAfterEvent` 用宏任务避开当前事件的冒泡阶段；若这里立即结束 Promise，
+  // 调用方会在重绘前看到已更新的 live 状态和旧 DOM（例如标签仍没有新文件名）。
+  // 重绘任务已经先入队，因此再等待一个宏任务即可保证 openDocument() 返回时各区域一致。
+  await new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 try {

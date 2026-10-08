@@ -3,7 +3,8 @@
   /* 界面字族由字体设置下发（规格：字体设置只改变显示）；默认值与视觉稿一致。 */
   --augit-font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
   font-family: var(--augit-font);
-  font-size: 13px;
+  /* 当前打开的 PyCharm 2026.2 New UI 界面基线为 12px；等宽正文独立保持 13px。 */
+  font-size: 12px;
   /* New UI 浅色一律取 ManyIslands 家族语义别名（参考主题 "Light with Light Header"，见 design-system §6.1）：
      chrome = main-window-bg = layer-0-bg = gray-150 = #E9EAEE，
      panel-muted = *.background 与 *.disabledBackground = dialog-bg = gray-160 = #F7F8F9，
@@ -81,6 +82,7 @@
      的默认值 #EDF3FF（深色 #283044），参考图日志首行实测同值。 */
   --augit-log-current-branch: #edf3ff;
   --augit-accent-brand: #3871e1;
+  --augit-rail-selected-fg: #ffffff;
   /* 未选中轨道按钮的前景：权威 `ToolWindow.Button.foreground`（ManyIslandsLight）= `gray-70` = #5F6269。 */
   --augit-rail-fg: #5f6269;
   /* 轨道分隔线：权威 `ToolWindow.Stripe.separatorColor`（ManyIslandsLight）= `core-border-transparent`
@@ -100,6 +102,7 @@
   --augit-popup-bg: #ffffff;
   --augit-dialog-bg: #f7f8f9;
   --augit-selection-inactive: #e9eaee;
+  --augit-yaml-paper: #fff7f7;
   /* 权威 `selection-bg-inactive` = `gray-150` = #E9EAEE（与 `--augit-selection-inactive` 同值）；
      原 #dfe1e5 是 `--augit-text` 的深色值，属复制串行。 */
   --augit-history-selection-inactive: #e9eaee;
@@ -126,6 +129,7 @@
   /* 成功提示条底：`Banner.successBackground` = `feedback-success-bg` = green-160。 */
   /* `Label.errorForeground` = `text-error` = red-80。 */
   --augit-red: #c54e58;
+  --augit-warning: #a56906;
   /* `Banner.errorBackground` = red-160。 */
   --augit-red-soft: #fff6f5;
   --augit-conflict-side: #f7d7d7;
@@ -149,15 +153,16 @@
   --augit-yellow-soft: #fff6e9;
   /* New UI 项目配色（RecentProject.Color{1..9}.MainToolbarGradientStart，浅色头部变体）。
      仅用于主工具栏项目配色渐变，见本文件“主工具栏项目配色渐变”一节。 */
-  --augit-project-1: #f5d4c1;
-  --augit-project-2: #eee2bd;
-  --augit-project-3: #dbe7c9;
-  --augit-project-4: #cadfea;
-  --augit-project-5: #dbd8ef;
-  --augit-project-6: #eed7f5;
-  --augit-project-7: #dfccf4;
-  --augit-project-8: #bee4e1;
-  --augit-project-9: #ccebd1;
+  /* ManyIslandsLight.theme.json 的 RecentProject.Color{1..9}.MainToolbarGradientStart。 */
+  --augit-project-1: #f7d7cb;
+  --augit-project-2: #f5e6b8;
+  --augit-project-3: #e2f2c9;
+  --augit-project-4: #cbe4f7;
+  --augit-project-5: #d4d2fc;
+  --augit-project-6: #ecd3f5;
+  --augit-project-7: #e4d3f5;
+  --augit-project-8: #cef0e9;
+  --augit-project-9: #ceedd4;
   /* New UI Diff 行底与文件状态配色（docs/nui-behavior/08-diff-merge.md §2、数值参考 §5.7）。
      注意：Diff 行色与 --augit-red 不是同一套——后者服务冲突解决器与危险动作等非 Diff 场景。
      （原来的 --augit-green / --augit-green-soft 从未被引用，第 98 轮已删除。） */
@@ -184,6 +189,7 @@
   --augit-file-modified: #0033b3;
   --augit-file-deleted: #6c707e;
   --augit-file-conflict: #de1b2e;
+  --augit-file-unknown: #b23247;
   /* 无冲突/干净状态（VersionControl.Merge.Status.NoConflicts.foreground = Green2）。 */
   --augit-status-clean: #1f7536;
   /* New UI 未选中编辑器标签的减弱参数（EditorTabs.unselectedBlend / unselectedAlpha）。
@@ -213,14 +219,14 @@
   --augit-title-text-height: 30px;
   /* 标签栏高 = 标签内容 28 + 上下各 6（权威 `ui.EditorTabs.tabInsets = -6,8,-6,8`），即 40。
      2026 参考图实测标签条白底 + 下沿边线共 70 物理px，按卡片 28 逻辑px 定标（≈1.79）得 39.2，吻合。 */
-  --augit-tab-height: 42px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
+  --augit-tab-height: 40px; /* IntelliJ TabbedPane.tabHeight=40；运行时由 mockup.js 按字高覆盖。 */
   --augit-project-header-height: 39px;
   /* New UI：Tree.rowHeight = 24（参考图实测 23.5）。 */
-  --augit-tree-height: 27px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
+  --augit-tree-height: 24px; /* IntelliJ Tree.rowHeight=24；运行时由 mockup.js 按字高覆盖。 */
   --augit-document-toolbar-height: 36px;
   /* 状态栏高 = max(scale(20), 文本高 + widget 边框高)。New UI 下 `StatusBar.Widget.border` 是
      `insets(6, 8)`（高 12），故 28；参考图实测状态栏底 `#E9EAEE` 区间 51 物理px，同一定标得 28.5，吻合。 */
-  --augit-status-height: 22px; /* 兜底值取规格名义值；运行时由 mockup.js 计算覆盖。 */
+  --augit-status-height: 28px; /* PyCharm New UI 状态栏默认 28px；运行时由 mockup.js 按字高覆盖。 */
   --augit-find-height: 42px;
   --augit-find-edit-height: 30px;
   --augit-side-width: clamp(300px, 22vw, 360px);
@@ -292,6 +298,7 @@ body[data-theme="dark"] {
   --augit-spotlight-border: #a36b4e;
   --augit-log-current-branch: #283044;
   --augit-accent-brand: #3574f0;
+  --augit-rail-selected-fg: #ffffff;
   /* 深色 `ToolWindow.Button.foreground` = #9DA0A8。 */
   --augit-rail-fg: #9da0a8;
   /* 深色 `ToolWindow.Stripe.separatorColor` = #43454A。 */
@@ -305,6 +312,7 @@ body[data-theme="dark"] {
   --augit-popup-bg: #2b2d30;
   --augit-dialog-bg: #1e1f22;
   --augit-selection-inactive: #43454a;
+  --augit-yaml-paper: #402929;
   --augit-history-selection-inactive: #43454a;
   --augit-hover: #393b40;
   /* 按下态：`ui.ActionButton.pressedBackground` = #FFFFFF26（与深色悬停取自 MainMenu.selectionBackground 的来源不同，见文档记录）。 */
@@ -320,6 +328,7 @@ body[data-theme="dark"] {
   /* 深色无 Banner 键，取调色板 Green2。 */
   /* expUI_dark 的 `Label.errorForeground` = Red7。 */
   --augit-red: #db5c5c;
+  --augit-warning: #ba9752;
   /* 深色取调色板 Red2。 */
   --augit-red-soft: #472b2b;
   --augit-conflict-side: #523234;
@@ -344,15 +353,16 @@ body[data-theme="dark"] {
   /* 深色取调色板 Yellow2。 */
   --augit-yellow-soft: #5e4d33;
   /* New UI 项目配色（深色）。第 3 套与浅色不同，是 expUI_dark 与浅色暗头部变体的唯一差异。 */
-  --augit-project-1: #654b40;
-  --augit-project-2: #534c33;
-  --augit-project-3: #455038;
-  --augit-project-4: #31515f;
-  --augit-project-5: #344c7d;
-  --augit-project-6: #5d354a;
-  --augit-project-7: #4f3e65;
-  --augit-project-8: #1d4744;
-  --augit-project-9: #3e5540;
+  /* ManyIslandsDarcula.theme.json 的 RecentProject.Color{1..9}.MainToolbarGradientStart。 */
+  --augit-project-1: #664832;
+  --augit-project-2: #5e4724;
+  --augit-project-3: #45522f;
+  --augit-project-4: #335661;
+  --augit-project-5: #394773;
+  --augit-project-6: #613861;
+  --augit-project-7: #503d70;
+  --augit-project-8: #325959;
+  --augit-project-9: #365439;
   /* New UI Diff 配色（深色）。整行底按权威 `getIgnoredColor()` 的同一式推：
      `mix(DIFF_*.BACKGROUND, 编辑器底 #1e1f22, 0.6)`（`TextDiffTypeFactory.java:64-74`、
      `MixedColorProducer.java:52`；编辑器底取 expUI_darkScheme.xml:756-760 的 `TEXT.BACKGROUND`）。 */
@@ -369,6 +379,7 @@ body[data-theme="dark"] {
   --augit-file-modified: #70aeff;
   --augit-file-deleted: #6f737a;
   --augit-file-conflict: #de6a66;
+  --augit-file-unknown: #e88f89;
   --augit-status-clean: #57965c;
   /* 深色的标签减弱混色比是 0.7（浅色 0.9），图标 alpha 两主题同为 0.75。 */
   --augit-tab-unselected-blend: 70%;
@@ -491,6 +502,7 @@ button {
 }
 
 .app-main {
+  min-width: 0;
   min-height: 0;
   display: grid;
   padding: 0 8px 0 7px;
@@ -515,12 +527,19 @@ button {
 }
 
 .rail-button.active {
-  /* 权威 `SquareStripeButtonLook.getBackgroundColor()/paintIcon()`：只有 `button.isFocused()` 时，
-     选中按钮才用 `ToolWindow.Button.selectedBackground`（浅 #3871E1／深 #3574F0）与 `selectedForeground`（白）；
-     否则用普通底色与 `ToolWindow.Button.foreground`。两张 2026 参考图正好各呈现一态
-     （pycharm-toolbar-overflow 里是灰色=未聚焦，pycharm-history-normal 里是蓝色=聚焦）。 */
-  color: var(--augit-rail-fg);
-  background: transparent;
+  /* 权威 `SquareStripeButtonLook.getState()/getBackgroundColor()/paintIcon()`：
+     `SquareStripeButton.isFocused()` 的实现是 `toolWindow.isActive`（`SquareStripeButton.kt:120`）、
+     `ToolWindowImpl.isActive()` = `windowInfo.isVisible && decorator != null &&
+     toolWindowManager.activeToolWindowId == id`（`ToolWindowImpl.kt:470-472`），
+     即"该工具窗口当前是激活窗口"，**不是按钮自身的 DOM 键盘焦点**。
+     因此只要入口代表当前激活的工具窗口，就用 `ToolWindow.Button.selectedBackground`
+     （浅 #3871E1／深 #3574F0）与 `selectedForeground`（白），与焦点落在那一个控件上无关。
+     第 84 轮曾按"只有按钮自身 :focus 才是 accent"落地，那是把 `isFocused()` 误读成 DOM 焦点；
+     实测后果是点击入口后焦点立即回到正文/文件树，激活面板的入口又变回灰色，与规格 §4.4
+     "当前全局工具入口使用蓝色实心底"及本文档 §7 第 3 条的"按钮选中态 = 蓝底白图标"矛盾。
+     2026 参考图也各呈现一态：pycharm-toolbar-overflow 灰=该窗口未激活，pycharm-history-normal 蓝=激活。 */
+  color: var(--augit-rail-selected-fg);
+  background: var(--augit-accent-brand);
 }
 
 /* 未选中轨道按钮的前景按 `ToolWindow.Button.foreground` 取（浅 `gray-70` #5F6269／深 #9DA0A8），
@@ -529,18 +548,27 @@ button {
   color: var(--augit-rail-fg);
 }
 
-/* 选中且按钮自身获得焦点：权威 `SquareStripeButtonLook` 里只有此时才用
-   `ToolWindow.Button.selectedBackground`（浅 #3871E1／深 #3574F0）与白色前景。 */
-.rail-button.active:focus:not([aria-disabled="true"]) {
-  color: #ffffff;
-  background: var(--augit-accent-brand);
+/* 可见但未激活的工具窗口入口对应 IntelliJ `SquareStripeButtonLook` 的 PUSHED 态：
+   使用按下背景；Many Islands 的 pressedBorderColor 为透明，因此用内阴影保留该状态而不改变命中区几何。 */
+.rail-button.visible:not(.active):not(.muted-action):not([aria-disabled="true"]) {
+  background: var(--augit-pressed);
+  box-shadow: inset 0 0 0 var(--augit-hairline) transparent;
 }
 
-/* 轨道按钮悬停（权威 `ToolWindow.Button.hoverBackground`）。放在 `.rail-button.active` 之后，
-   使"选中但未聚焦"时悬停也能生效；而 `.rail-button.active:focus` 特异性更高，聚焦态仍压过悬停。 */
-.rail-button:hover:not([aria-disabled="true"]) {
+/* 轨道按钮悬停（权威 `ToolWindow.Button.hoverBackground`）。可见未激活入口处于 PUSHED，
+   `SquareStripeButtonLook.getState()` 会优先返回该状态，因此悬停不覆盖按下底色。 */
+.rail-button:hover:not(.visible):not([aria-disabled="true"]) {
   color: var(--augit-text);
   background: var(--augit-rail-hover);
+}
+
+/* 激活窗口的入口被悬停/按下时，权威 `getState()` 在开头的 `button.isFocused()` 处就返回 `SELECTED`，
+   于是底色仍是 `selectedBackground`（蓝）—— 悬停不把蓝底换成中性底；
+   可见但窗口未激活的入口（PUSHED）也保持 pressed 底。
+   该规则同时让 `.rail-button.active:focus::before` 的白色内描边保持可见。 */
+.rail-button.active:hover:not([aria-disabled="true"]) {
+  color: var(--augit-rail-selected-fg);
+  background: var(--augit-accent-brand);
 }
 
 .rail-separator {
@@ -626,10 +654,6 @@ button {
   gap: 4px;
 }
 
-.workspace.with-bottom {
-  grid-template-rows: minmax(260px, 1fr) minmax(210px, var(--augit-bottom-height));
-}
-
 .editor-area {
   display: grid;
 }
@@ -637,6 +661,9 @@ button {
 .editor-tab {
   /* 标签内容高 = 标签栏高 − 上下各 6px（EditorTabs.tabInsets 的 −6 上下分量）。 */
   height: calc(var(--augit-tab-height) - 12px);
+  /* IslandsTabPainter 非 compact 模式的卡片在 40px 标签栏中为 28px，
+     由标签栏的 align-items:center 产生上下各 6px 留白。显式居中避免后置 flex 规则改变卡片基线。 */
+  align-self: center;
   /* 未固定标签**没有最大宽度**：IntelliJ 对未固定标签不设上限，超出由标签条横向滚动承担
      （固定标签另有 2000px 上限，对应 ide.editor.max.pinned.tab.width）。
      标签不参与收缩：没有这一条时，打开的文档一多（实测 32 个），flex 会把每个标签压到
@@ -695,6 +722,37 @@ button {
   font-weight: 600;
 }
 
+.file-status-conflict {
+  color: var(--augit-file-conflict);
+  font-weight: 600;
+}
+
+.file-status-untracked,
+.file-status-unknown,
+.file-status-renamed,
+.file-status-copied,
+.file-status-typechanged,
+.file-status-unmerged {
+  font-weight: 600;
+}
+
+.file-status-untracked,
+.file-status-unknown { color: var(--augit-file-unknown); }
+.file-status-copied { color: var(--augit-file-added); }
+.file-status-renamed,
+.file-status-typechanged { color: var(--augit-file-modified); }
+.file-status-unmerged { color: var(--augit-file-conflict); }
+
+/* 项目树的辅助状态标记复用文件名状态色；类型图标保持自己的类型色。 */
+.tree-status {
+  flex: 0 0 14px;
+  width: 14px;
+  margin-left: 2px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* 注意：file-status-new 不是文件状态，它是 Worktree 面板“干净，可安全移除”这类正向状态文字。 */
 .file-status-new {
   color: var(--augit-status-clean);
@@ -717,7 +775,7 @@ button {
 
 
 .tree-row {
-  height: 27px;
+  height: 24px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -763,7 +821,8 @@ button {
 }
 
 .tree-row.selected.inactive,
-.check-row.selected.inactive {
+.check-row.selected.inactive,
+.branches-popover .menu-item.selected.inactive:not(:hover) {
   background: var(--augit-selection-inactive);
   --augit-row-background: var(--augit-selection-inactive);
 }
@@ -831,6 +890,29 @@ button {
   height: 16px;
   flex: 0 0 16px;
   vertical-align: middle;
+}
+
+/* IntelliJ 图标族按组件路径使用不同的绘图盒：编辑器标签、标题栏下拉和工具窗口动作
+   使用 13×13 的紧凑图形；项目树、Changes/history 树和工具轨保留 16×16 命中盒。
+   这些规则只改变可见图形的绘图盒，不改变按钮命中区。 */
+.editor-tab > :is(.file-type-icon, .augit-toolbar-icon, .git-reference-icon),
+.top-chip > .augit-toolbar-icon,
+.titlebar-context > .augit-toolbar-icon,
+.tool-header :is(.augit-toolbar-icon, .file-type-icon, .git-reference-icon),
+.bottom-header :is(.augit-toolbar-icon, .file-type-icon, .git-reference-icon),
+.commit-row > .branch-label > .git-reference-icon {
+  width: 13px;
+  height: 13px;
+  flex-basis: 13px;
+}
+
+.rail-button > :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon),
+.side-content.tree :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon),
+.changed-files .tree-row :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon),
+.log-ref-panel .tree-row :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon) {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
 }
 
 .file-type-icon {
@@ -970,7 +1052,7 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
   min-width: 0;
   overflow: auto;
   font-family: var(--augit-code);
-  font-size: 13px;
+  font-size: var(--augit-code-size, 13px);
   line-height: var(--code-line-height, 22px);
   /* 行号栏底色 = 编辑区底色：浅色方案 GUTTER_BACKGROUND=ffffff，深色方案未设该键、回落编辑区底色。
      参考截图行号栏区域中位色实测 #FFFFFF。 */
@@ -1081,6 +1163,8 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
 .image-size-label { min-width: 0; padding: 0 4px; overflow: hidden; color: var(--augit-muted); }
 .image-size-content { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .image-zoom-label { min-width: 0; flex: 0 0 48px; text-align: center; font-weight: 600; }
+/* expui/image/zoomIn_dark.svg 的横线宽 0.8、圆角 0.4，与浅色资源不同。 */
+body[data-theme="dark"] .image-zoom-crossbar { width: 0.8px; rx: 0.4px; }
 .image-toolbar .image-size-label { margin-left: auto; text-align: right; }
 .document-view:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) var(--augit-find-height) minmax(0, 1fr); }
 .json-document.json-invalid:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) auto var(--augit-find-height) minmax(0, 1fr); }
@@ -1209,7 +1293,7 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   height: 28px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   padding: 0 7px;
   border-radius: 5px;
   text-decoration: none;
@@ -2119,7 +2203,7 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   border: var(--augit-hairline) solid var(--augit-border);
   border-radius: 4px;
   margin-bottom: 10px;
-  background: var(--augit-field);
+  background: var(--augit-panel);
 }
 
 .smart-checkout-dialog .smart-checkout-path {
@@ -2173,7 +2257,10 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
 
 .settings-page h2 {
   margin: 0 0 18px;
-  font-size: 18px;
+  /* 18 / 13 × 界面字号：设置窗口标题要跟界面字号一起放大（design-system §5.3 末「设置窗口执行"应用"后
+     自身的文字和输入控件也必须立即使用新字体」），原写死 18px 时大字号下标题反而不放大。
+     默认界面字号 13px 下仍为 18px，取值不变。 */
+  font-size: calc(18rem / 13);
 }
 
 .settings-group {
@@ -2231,7 +2318,9 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   margin: 0 0 11px;
   padding-bottom: 6px;
   border-bottom: var(--augit-hairline) solid var(--augit-border);
-  font-size: 13px;
+  /* 与 `.markdown-preview p` 同理：`ui-heading` 角色由界面字号设置覆盖，不写死 px。
+     默认界面字号 13px 下取值不变。 */
+  font-size: 1rem;
 }
 
 .radio-line,
@@ -2815,8 +2904,42 @@ button:disabled,
 
 .app-main {
   grid-template-columns: 42px var(--augit-side-width) minmax(0, 1fr);
-  gap: 4px;
+  grid-template-rows: minmax(0, 1fr) 0;
+  column-gap: 4px;
+  row-gap: 0;
   padding: 0 7px 0 6px;
+}
+
+/* 主内容区是两行拓扑：rail 纵跨全高，上方为左侧工具窗与编辑器，
+   下方工具窗从左侧工具窗边缘开始横跨到编辑器右缘。底部工具窗直接属于
+   app-main，不能嵌套在 workspace 中模拟跨栏。 */
+.app-main > .tool-rail {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+
+.app-main > .side-tool {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-main > .workspace {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.app-main.side-collapsed > .workspace {
+  grid-column: 2 / -1;
+}
+
+.app-main.bottom-open {
+  grid-template-rows: minmax(0, 1fr) var(--augit-bottom-height);
+  row-gap: 4px;
+}
+
+.app-main > .bottom-tool {
+  grid-column: 2 / -1;
+  grid-row: 2;
 }
 
 .tool-rail {
@@ -2826,7 +2949,7 @@ button:disabled,
 .rail-button {
   width: 32px;
   height: 32px;
-  margin-bottom: 4px;
+  /* 工具轨按钮中心按 32px 步长排列；间距由固定命中区承载，不额外叠加外边距。 */
   /* 圆角：权威 `IdeaActionButtonLook.getButtonArc()` = `DarculaUIUtil.BUTTON_ARC`(=6)，
      Java2D 的 arc 是弧宽高 ⇒ 半径 3。（第 58 轮曾记"权威里没有轨道按钮圆角键"，那是错的。） */
   border-radius: 3px;
@@ -2862,10 +2985,6 @@ button:disabled,
   display: inline-flex;
   align-items: center;
   gap: 1px;
-}
-
-.workspace.with-bottom {
-  grid-template-rows: minmax(0, 1fr) var(--augit-bottom-height);
 }
 
 .editor-area {
@@ -2975,11 +3094,9 @@ button:disabled,
   padding: 6px 7px 12px;
 }
 
-.tree-row,
+.tree-row { height: 24px; }
 .check-row,
-.commit-row {
-  height: 27px;
-}
+.commit-row { height: 27px; }
 
 /* 树选中圆角 4：权威 `Tree.Selection.arc` = 8（arc 是直径，Jewel 桥 `CornerSize(Tree.ARC.dp / 2)`）。
    改动列表与 Git 日志表的行是 Swing 列表/表格，本 checkout 里查不到对应的选中圆角键，暂留 5 并在文档记档。 */
@@ -2999,7 +3116,7 @@ button:disabled,
   font-weight: 600;
 }
 
-/* 项目树按 8px 箭头、4px 间距、16px 图标、8px 间距排列。 */
+/* 项目树按 8px 箭头、4px 箭头间距、16px 图标和2px图标文字间距排列。 */
 .side-content.tree {
   padding: 6px 0 12px;
 }
@@ -3034,7 +3151,7 @@ button:disabled,
 .side-content.tree .folder-icon,
 .side-content.tree .file-icon {
   flex: 0 0 16px;
-  margin-right: 8px;
+  margin-right: 2px;
 }
 
 .side-content.tree .root-row .tree-name {
@@ -3059,9 +3176,9 @@ button:disabled,
 
 .toolbar-button,
 .icon-button {
-  width: 27px;
-  height: 27px;
-  /* 同上：`BUTTON_ARC / 2` = 3。尺寸差异（权威 minSize 24×24）另记待核。 */
+  width: 28px;
+  height: 28px;
+  /* 普通工具按钮命中区按设计系统统一为 28×28；圆角仍为 `BUTTON_ARC / 2` = 3。 */
   border-radius: 3px;
 }
 
@@ -3110,6 +3227,11 @@ button:disabled,
 .diff-toolbar .segmented {
   flex: none;
   margin: 0 3px;
+  order: 2;
+}
+
+.diff-toolbar > .icon-button[aria-label="设置"] {
+  order: 3;
 }
 
 .diff-toolbar .segmented .segment {
@@ -3117,6 +3239,7 @@ button:disabled,
   align-items: center;
   justify-content: center;
   line-height: 1;
+  height: 28px;
 }
 
 body[data-theme="dark"] .popover,
@@ -3150,9 +3273,31 @@ body[data-theme="dark"] .search-overlay {
   font-size: 21px;
 }
 
+/* Markdown 代码块与行内代码跟随**等宽**设置（design-system §5.3 末："Markdown 预览正文跟随界面字号，
+   代码块跟随等宽字号"）。`markdown.js:18/:85` 生成 `<code>` / `<pre><code>`，
+   而全表此前没有 `pre`/`code` 规则 ⇒ 代码块用浏览器 UA 的等宽字体、字号继承界面字号，
+   两半都与规格相反。这里显式取与 `.code-view` 同一组令牌。 */
+.markdown-preview pre,
+.markdown-preview code {
+  font-family: var(--augit-code);
+  font-size: var(--augit-code-size);
+}
+
+.markdown-preview pre {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--augit-panel-muted);
+  overflow: auto;
+}
+
 .markdown-preview p,
 .markdown-preview li {
-  font-size: 13px;
+  /* 不写死字号：规格要求「Markdown 预览正文跟随界面字号」（design-system §5.3 末、
+     §5.4 作用范围行、ux-spec §4.3），而界面字号是 `:root { font-size }`。
+     原为 `13px`，界面字号调到 40 时预览正文仍是 13px；同表里 `h1/h2` 是相对标题的角色字号、
+     不在本次改动范围内。默认 13px 下取值不变。 */
+  font-size: inherit;
 }
 
 .changes-layout {
@@ -3237,6 +3382,8 @@ body[data-theme="dark"] .search-overlay {
 .changed-files .tree-row {
   height: var(--augit-history-file-row-height, 24px);
   min-height: var(--augit-history-file-row-height, 24px);
+  /* ChangesTree 与引用树的 iconTextGap = 2px；项目树的专用规则不应被全局 gap:6 覆盖。 */
+  gap: 2px;
   white-space: nowrap;
 }
 
@@ -3307,7 +3454,13 @@ body[data-theme="dark"] .search-overlay {
 
 .stripe-expand-label {
   writing-mode: vertical-rl;
-  font-size: var(--augit-ui-font-size, 13px);
+  /* `1rem` 跟随界面字号（`:root { font-size }` 由 `applyTypography()` 写）。
+     原写法是 `var(--augit-ui-font-size, 13px)`，而 `--augit-ui-font-size` **全仓没有任何写入点**
+     （只有这一处引用）⇒ 回退值 13px 恒定生效，界面字号调到 40 时该竖排标签仍停在 13px，
+     与 design-system §4.3「调整界面字体或字号时……按设计系统第 4.2 节实际字高扩展」不符。
+     同一份 CSS 里 `.current-find`（`:2602`）、`.commit-detail h3`（`:3258`）用的是 `font-size: 1rem`，
+     这里统一到同一口径。 */
+  font-size: 1rem;
   line-height: 1;
 }
 
@@ -3348,7 +3501,7 @@ body[data-theme="dark"] .search-overlay {
 }
 .commit-detail-body {
   margin: 8px 0 0;
-  font: 13px / normal var(--augit-code);
+  font: var(--augit-code-size, 13px) / normal var(--augit-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--augit-text);
@@ -3379,6 +3532,11 @@ body[data-theme="dark"] .search-overlay {
   padding: 7px;
   border-radius: 8px;
 }
+
+/* 分支弹层按当前 PyCharm 前台实测收敛，避免引用行横向留白过大。 */
+.branches-popover { width: 434px; }
+.branches-popover > .search-field { height: 25px; }
+.branches-popover .menu-item { min-height: 24px; padding-top: 0; padding-bottom: 0; }
 
 /* 对话框底与弹层不同：`dialog-bg`(#F7F8F9) vs `popup-bg`(#FFFFFF)。单独覆盖，保留分组规则里的定位/边框/阴影。 */
 .dialog { background: var(--augit-dialog-bg); }
@@ -3459,7 +3617,7 @@ body[data-theme="dark"] .search-overlay {
   border-radius: 3px;
   background: var(--augit-panel);
   color: var(--augit-text);
-  font: 13px/18px var(--augit-font);
+  font: 1rem/normal var(--augit-font);
   white-space: nowrap;
 }
 
@@ -3558,7 +3716,12 @@ body[data-theme="dark"] .search-overlay {
 .search-overlay .menu-shortcut,
 .search-overlay .commit-meta { font-size: inherit; }
 .search-query { flex: none; padding: 0 10px 8px; }
-.search-query .search-field { height: var(--search-field, 3var(--augit-hairline)); box-shadow: none; border: 2px solid var(--augit-blue); }
+.search-query .search-field {
+  /* 运行时按实际字高写入 --search-field；静态打开或首帧未量字时回落到 31px。 */
+  height: var(--search-field, 31px);
+  box-shadow: none;
+  border: 2px solid var(--augit-blue);
+}
 /* 芯片式可选按钮：未悬停的**选中**态 → `SearchOption.selectedBackground`；选中时的悬停/按下 →
    `SearchOption.selectedHoveredBackground`／`selectedPressedBackground`，两者的默认值都是
    `ActionButton.pressedBackground()`（`FieldInplaceActionButtonLook.getStateBackground()`，:52-64；
@@ -3856,6 +4019,8 @@ body[data-theme="dark"] .search-overlay {
 .settings-nav {
   padding: 10px;
 }
+
+.settings-nav > .search-field { height: 25px; }
 
 .settings-page {
   padding: 22px 28px;
@@ -4376,7 +4541,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .rail-button,
 .side-tool:has(.side-content.tree) > .tool-header .icon-button,
 .terminal-header .icon-button { position: relative; }
-.rail-button:is(:hover, :active):not(.active):not([aria-disabled="true"]),
+.rail-button:is(:hover, :active):not(.active):not(.visible):not([aria-disabled="true"]),
 .side-tool:has(.side-content.tree) > .tool-header .icon-button:is(:hover, :active):not(:disabled),
 .terminal-header .icon-button:is(:hover, :active):not(:disabled):not(.terminal-session-close) {
   background: var(--augit-action-button-hover);
@@ -4476,7 +4641,7 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 }
 /* 实时差异视图：区块头行单独着色，与内容行区分。 */
 .diff-code-line.hunk {
-  background: var(--augit-surface-2);
+  background: var(--augit-diff-separator);
   color: var(--augit-faint);
 }
 

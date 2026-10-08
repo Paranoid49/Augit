@@ -113,6 +113,19 @@ async function main() {
       const view = page.locator('.markdown-document');
       const source = view.locator('.markdown-source');
       const preview = view.locator('.markdown-preview');
+      if (state === 'ready') {
+        // 用与默认值不同的两组字号验证归属：普通正文继承界面字号，代码块使用等宽字号。
+        await page.evaluate(() => {
+          document.documentElement.style.fontSize = '20px';
+          document.documentElement.style.setProperty('--augit-code-size', '17px');
+          const probe = document.createElement('div');
+          probe.innerHTML = '<p data-font-probe="body">正文探针</p><pre data-font-probe="code"><code>const probe = true;</code></pre>';
+          document.querySelector('.markdown-preview').append(probe);
+        });
+        assert.equal(await preview.locator('[data-font-probe="body"]').evaluate(element => getComputedStyle(element).fontSize), '20px');
+        assert.equal(await preview.locator('[data-font-probe="code"]').evaluate(element => getComputedStyle(element).fontSize), '17px');
+        assert.equal(await preview.locator('[data-font-probe="code"] code').evaluate(element => getComputedStyle(element).fontFamily), '"Cascadia Mono", Consolas, monospace');
+      }
       assert.equal(await view.getAttribute('data-markdown-mode'), 'preview');
       const originalText = await preview.innerText();
       await preview.evaluate(element => element.scrollTop = 350);

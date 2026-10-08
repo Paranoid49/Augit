@@ -16,7 +16,7 @@ async function main() {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     if (outputPath) await fs.mkdir(outputPath, { recursive: true });
-    for (const size of [9, 13, 19, 40]) {
+    for (const size of [9, 12, 13, 19, 40]) {
       for (const theme of ['light', 'dark']) {
         for (const width of [1024, 1180]) {
           const label = `${theme}-${size}-${width}`;
@@ -37,12 +37,26 @@ async function main() {
               path: rect('.document-toolbar'), status: rect('.statusbar'), rail: rect('.rail-button'),
               codeSize: getComputedStyle(document.querySelector('.code-view')).fontSize,
               bodySize: getComputedStyle(document.body).fontSize,
+              metrics: (() => {
+                const style = getComputedStyle(document.documentElement);
+                const canvas = document.createElement('canvas').getContext('2d');
+                const h = Math.max(...['normal', '600', 'italic'].map(weight => {
+                  canvas.font = `${weight} ${style.fontSize} ${style.fontFamily}`;
+                  const m = canvas.measureText('国Ag');
+                  return Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
+                }));
+                const read = name => Number.parseFloat(style.getPropertyValue(`--augit-${name}`));
+                return { h, tab: read('tab-height'), tree: read('tree-height'), status: read('status-height') };
+              })(),
               workspace: rect('.workspace-chip'), branch: rect('.branch-chip'), context: rect('.titlebar-context'),
               actions: rect('.window-actions'), rootWidth: document.documentElement.scrollWidth,
             };
           });
           assert.equal(result.bodySize, `${size}px`, label);
           assert.equal(result.codeSize, '13px', `${label} 等宽字号保持独立`);
+          assert.equal(result.metrics.tab, Math.max(40, result.metrics.h + 12), `${label} 标签栏字号适配公式`);
+          assert.equal(result.metrics.tree, Math.max(24, result.metrics.h + 8), `${label} 树行字号适配公式`);
+          assert.equal(result.metrics.status, Math.max(28, result.metrics.h + 12), `${label} 状态栏字号适配公式`);
           assert.equal(result.rail.height, 32, label);
           assert.equal(result.rail.width, 32, label);
           assert.equal(result.rootWidth, width, `${label} 不产生横向溢出`);
@@ -50,16 +64,17 @@ async function main() {
           assert.ok(result.branch.right <= result.context.left, `${label} 分支与当前文件不重叠`);
           assert.ok(result.context.right <= result.actions.left, `${label} 当前文件不遮盖窗口操作`);
           assert.ok(result.tabs.bottom <= result.path.top, `${label} 标签与路径区域不重叠`);
-          if (size === 13) {
+          if (size === 12) {
             assert.equal(result.title.height, 44, label);
-            assert.equal(result.tabs.height, 42, label);
-            assert.equal(result.status.height, 22, label);
+            assert.equal(result.tabs.height, 40, label);
+            assert.equal(result.row.height, 24, label);
+            assert.equal(result.status.height, 28, label);
           }
           if (size === 40) {
             for (const area of ['title', 'tab', 'row', 'header', 'path', 'status'])
               assert.ok(result[area].height >= size, `${label} ${area} 容纳放大文字`);
           }
-          if (outputPath && (size === 13 || size === 40) && width === 1024)
+          if (outputPath && (size === 12 || size === 40) && width === 1024)
             await page.screenshot({ path: path.join(outputPath, `mockup-${label}.png`) });
           await page.getByRole('button', { name: '主菜单', exact: true }).click();
           const menu = await page.evaluate(() => {

@@ -28,6 +28,7 @@ async function main() {
         if (state === 'loading') assert.equal(await page.locator('.terminal-view').textContent(), '');
         // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF16）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
         const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
+        const pushed = theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.125)';
         const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
         const panel = theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)';
         // 禁用态底取 `--augit-panel-muted`：浅 = Islands `*.disabledBackground` = `dialog-bg` = `gray-160`
@@ -35,8 +36,6 @@ async function main() {
         // 深 = expUI_dark `*.disabledBackground` = `Gray2` `#2B2D30`（原 #25262A 无依据）。
         const mutedPanel = theme === 'dark' ? 'rgb(43, 45, 48)' : 'rgb(247, 248, 249)';
         const faint = theme === 'dark' ? 'rgb(90, 93, 99)' : 'rgb(159, 162, 168)';
-        // 轨道按钮的悬停底：权威 `ToolWindow.Button.hoverBackground` 代码默认 = #55555528／#0f0f0f28（第 79 轮）。
-        const railHover = theme === 'dark' ? 'rgba(15, 15, 15, 0.157)' : 'rgba(85, 85, 85, 0.157)';
         const controls = page.locator('.rail-button, .side-tool:has(.side-content.tree) > .tool-header .icon-button, .terminal-header .icon-button');
         assert.equal(await controls.count(), 12);
         const bounds = await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));
@@ -44,15 +43,57 @@ async function main() {
           const style = getComputedStyle(element, pseudo);
           return { color: style.color, background: style.backgroundColor, border: style.borderTopColor, content: style.content };
         }, pseudo);
+        // 指针是否停在该控件上。取"未悬停档"前必须**逐个实测**，不能假设把指针挪到某个固定坐标
+        // 就一定离开了控件（控件会随 `.hover()` 自动滚入视口）。
+        const isHovered = (button) => button.evaluate(element => element.matches(':hover'));
+        const restingReads = [];
         for (let index = 0; index < await controls.count(); index++) {
           const button = controls.nth(index);
           const active = await button.evaluate(element => element.classList.contains('active'));
+          const visible = await button.evaluate(element => element.classList.contains('visible'));
           const close = await button.evaluate(element => element.classList.contains('terminal-session-close'));
           const rail = await button.evaluate(element => element.classList.contains('rail-button'));
+          // 未悬停档：把指针移到**由该控件矩形算出的死区**（视口中心，落在控件外时用它），
+          // 并实测确认指针确实不在控件上，然后才取样。
+          // 不能固定写 `page.mouse.move(0, 0)`：控件会随 `.hover()` 滚入视口，角落坐标未必在控件外，
+          // 那样这一档会静默退化成"悬停档"，负向验证也就测不出回归（第 314 轮实测踩到过）。
+          await page.evaluate(() => {
+            if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur();
+          });
+          const away = await button.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const inside = (x, y) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+            const centre = { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) };
+            if (!inside(centre.x, centre.y)) return centre;
+            const below = { x: centre.x, y: Math.min(window.innerHeight - 1, Math.round(rect.bottom) + 40) };
+            if (!inside(below.x, below.y)) return below;
+            return { x: Math.max(1, Math.round(rect.left) - 40), y: below.y };
+          });
+          await page.mouse.move(away.x, away.y);
+          const hovering = await isHovered(button);
+          const resting = await read(button, close ? '::before' : null);
+          // 权威 `SquareStripeButtonLook.getState()/getBackgroundColor()`：
+          // `SquareStripeButton.isFocused()` 的实现是 `toolWindow.isActive`（`SquareStripeButton.kt:120`；
+          // `ToolWindowImpl.isActive()` = 窗口可见、有装饰器且 `activeToolWindowId == id`，`ToolWindowImpl.kt:470-472`），
+          // 即"该工具窗口当前是激活窗口"，与按钮自身的 DOM 键盘焦点无关。
+          // 因此窗口激活的入口在任何指针状态下都取 `ToolWindow.Button.selectedBackground`（白字 + accent），
+          // 可见但未激活的入口取 `PUSHED`，悬停只改变仍未激活且不可见的入口。
+          // 终端会话关闭按钮的 `::before` 是它自己的提示底（恒定不透明），沿用下面的既有期望，不参与本档判定。
+          if (rail && active && !hovering) {
+            assert.equal(resting.background, accent,
+              `窗口激活入口在未悬停时应为 accent（${theme}/${size}/scale ${scale}，index ${index}）`);
+            assert.equal(resting.color, 'rgb(255, 255, 255)');
+          }
+          if (!close && !hovering) {
+            assert.equal(resting.background, rail ? (active ? accent : visible ? pushed : 'rgba(0, 0, 0, 0)') : 'rgba(0, 0, 0, 0)',
+              `未悬停档底色（${theme}/${size}/scale ${scale}，index ${index}）`);
+          }
+          restingReads.push({ index, rail, active, hovering, background: resting.background });
           await button.hover();
-          // 权威 `SquareStripeButtonLook.getBackgroundColor()`：轨道按钮**只有自身聚焦**时才用 accent，
-          // 选中但未聚焦时用普通前景 + 透明底（悬停时给 `--augit-rail-hover`）。第 84 轮已据此实现，此处同步期望。
-          assert.equal((await read(button, close ? '::before' : null)).background, rail && active ? railHover : active ? accent : hover);
+          // 悬停档：激活入口的底色**不换**（`getState()` 在 `isFocused()` 处提前返回 `SELECTED`，`popState` 不参与）；
+          // 非激活入口才给 `--augit-rail-hover`。第 314 轮按权威订正。
+          assert.equal((await read(button, close ? '::before' : null)).background,
+            rail ? (active ? accent : visible ? pushed : hover) : hover);
           await button.focus();
           assert.equal((await read(button, '::after')).border, accent);
           if (active) assert.equal((await read(button, '::before')).border, panel);
@@ -62,6 +103,10 @@ async function main() {
           assert.equal((await read(button, '::after')).content, 'none');
           await button.evaluate(element => { element.removeAttribute('aria-disabled'); element.disabled = false; element.blur(); });
         }
+        // 断言不能是空的：必须至少有一个"激活且指针不在其上"的轨道入口被真正判过，
+        // 否则"未悬停档"会因为取样条件从未成立而静默通过（负向验证也测不出回归）。
+        assert.ok(restingReads.some(entry => entry.rail && entry.active && !entry.hovering),
+          `未悬停档一个"激活轨道入口"样本都没取到：${JSON.stringify(restingReads)}`);
         assert.deepEqual(await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON())), bounds);
         assert.deepEqual(await page.locator('.terminal-header button').evaluateAll(elements => elements.map(e => e.getAttribute('aria-label'))),
           ['关闭终端', '更多操作', '隐藏终端']);
