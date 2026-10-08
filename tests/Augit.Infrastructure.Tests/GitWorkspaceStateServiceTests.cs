@@ -192,6 +192,73 @@ public sealed class GitWorkspaceStateServiceTests
     }
 
     [TestMethod]
+    public async Task Rollback暂存删除后重建文件先回收工作区副本再恢复HEAD()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "recreated.txt", "base\n", "test: base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rm", "--cached", "--", "recreated.txt");
+            await File.WriteAllTextAsync(temporary.GetPath("recreated.txt"), "recreated\n");
+
+            GitStatusService statusService = new(runtime);
+            GitChangedFile changed = (await statusService.ReadAsync(repository)).Snapshot!.Files.Single();
+            List<string> recycled = [];
+            GitWorkspaceStateService service = new(
+                runtime,
+                new GitCommandRunner(TimeSpan.FromSeconds(30), 8 * 1024 * 1024),
+                new GitCommandRunner(TimeSpan.FromSeconds(30), 20 * 1024 * 1024),
+                statusService,
+                path =>
+                {
+                    recycled.Add(path);
+                    if (File.Exists(path)) File.Delete(path);
+                    return new RecycleBinResult(true, null);
+                });
+
+            GitActionResult result = await service.RollbackAsync(repository, changed);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            CollectionAssert.AreEqual(new[] { temporary.GetPath("recreated.txt") }, recycled);
+            Assert.AreEqual("base\n", (await File.ReadAllTextAsync(temporary.GetPath("recreated.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.IsEmpty((await statusService.ReadAsync(repository)).Snapshot!.Files);
+        }
+    }
+
+    [TestMethod]
+    public async Task Rollback复合状态回收失败时不恢复HEAD也不删除工作区文件()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "recreated.txt", "base\n", "test: base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rm", "--cached", "--", "recreated.txt");
+            await File.WriteAllTextAsync(temporary.GetPath("recreated.txt"), "recreated\n");
+
+            GitStatusService statusService = new(runtime);
+            GitChangedFile changed = (await statusService.ReadAsync(repository)).Snapshot!.Files.Single();
+            GitWorkspaceStateService service = new(
+                runtime,
+                new GitCommandRunner(TimeSpan.FromSeconds(30), 8 * 1024 * 1024),
+                new GitCommandRunner(TimeSpan.FromSeconds(30), 20 * 1024 * 1024),
+                statusService,
+                _ => new RecycleBinResult(false, "回收站不可用"));
+
+            GitActionResult result = await service.RollbackAsync(repository, changed);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.Contains("回收站不可用", result.ErrorMessage!);
+            Assert.AreEqual("recreated\n", (await File.ReadAllTextAsync(temporary.GetPath("recreated.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            GitStatusSnapshot actual = (await statusService.ReadAsync(repository)).Snapshot!;
+            GitChangedFile actualFile = actual.Files.Single();
+            Assert.AreEqual('D', actualFile.IndexStatus);
+            Assert.AreEqual('?', actualFile.WorkTreeStatus);
+        }
+    }
+
+    [TestMethod]
     public async Task Stash内容超限时不保留正文且非法引用被拒绝()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

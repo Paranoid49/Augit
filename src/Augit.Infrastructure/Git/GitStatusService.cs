@@ -142,16 +142,57 @@ public sealed class GitStatusService : IGitStatusService
                 group,
                 GetChangeKind(indexState, workTreeState),
                 group == GitChangeGroup.Changes && indexState != ' ',
-                group == GitChangeGroup.UnversionedFiles || workTreeState != ' '));
+                group == GitChangeGroup.UnversionedFiles || workTreeState != ' ',
+                indexState,
+                workTreeState));
         }
 
-        files = parsed
-            .DistinctBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
+        files = MergeSamePathStatuses(parsed)
             .OrderBy(file => file.Group)
             .ThenBy(file => Path.GetFileName(file.RelativePath), NaturalNameComparer.Instance)
             .ThenBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         return true;
+    }
+
+    private static Dictionary<string, GitChangedFile>.ValueCollection MergeSamePathStatuses(
+        IEnumerable<GitChangedFile> files)
+    {
+        Dictionary<string, GitChangedFile> merged = new(StringComparer.OrdinalIgnoreCase);
+        foreach (GitChangedFile file in files)
+        {
+            if (!merged.TryGetValue(file.RelativePath, out GitChangedFile? existing))
+            {
+                merged.Add(file.RelativePath, file);
+                continue;
+            }
+
+            // `git rm --cached path` 后磁盘文件仍存在时，porcelain 会为同一路径输出
+            // `D  path` 与 `?? path`。产品列表仍只显示一行，但必须保留索引和工作区两侧状态。
+            GitChangedFile primary = existing.Group == GitChangeGroup.Changes ? existing : file;
+            GitChangedFile secondary = ReferenceEquals(primary, existing) ? file : existing;
+            merged[file.RelativePath] = primary with
+            {
+                Group = GitChangeGroup.Changes,
+                OriginalRelativePath = primary.OriginalRelativePath ?? secondary.OriginalRelativePath,
+                HasStagedChanges = existing.HasStagedChanges || file.HasStagedChanges,
+                HasWorkingTreeChanges = existing.HasWorkingTreeChanges || file.HasWorkingTreeChanges,
+                IndexStatus = MergeStatusColumn(primary.IndexStatus, secondary.IndexStatus),
+                WorkTreeStatus = MergeStatusColumn(primary.WorkTreeStatus, secondary.WorkTreeStatus),
+            };
+        }
+
+        return merged.Values;
+    }
+
+    private static char MergeStatusColumn(char primary, char secondary)
+    {
+        if (primary is not (' ' or '?'))
+        {
+            return primary;
+        }
+
+        return secondary != ' ' ? secondary : primary;
     }
 
     private Task<GitCommandResult> RunQueryAsync(

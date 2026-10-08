@@ -18,13 +18,17 @@ public enum GitChangeKind
     Untracked,
 }
 
+/// <param name="IndexStatus">Porcelain v1 的 X 列原始状态字符；空格表示索引侧无改动。</param>
+/// <param name="WorkTreeStatus">Porcelain v1 的 Y 列原始状态字符；空格表示工作区侧无改动。</param>
 public sealed record GitChangedFile(
     string RelativePath,
     string? OriginalRelativePath,
     GitChangeGroup Group,
     GitChangeKind Kind,
     bool HasStagedChanges,
-    bool HasWorkingTreeChanges);
+    bool HasWorkingTreeChanges,
+    char IndexStatus = ' ',
+    char WorkTreeStatus = ' ');
 
 public sealed record GitStatusSnapshot(
     string? CurrentBranch,

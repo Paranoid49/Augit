@@ -69,13 +69,15 @@ public sealed class WorkspaceFileWatcherTests
             temporary.GetPath("c.txt"),
         ];
 
-        // 三个文件同时写（事件几乎同时到达），其中 `a.txt` 同时写两次 ⇒ 同一条路径出现两个事件。
+        // 三个文件一起写（事件几乎同时到达），其中 `a.txt` 写两次 ⇒ 同一条路径出现两个事件。
+        // `a.txt` 的两次写必须**串行**：`File.WriteAllTextAsync` 以 `FileShare.Read` 打开文件，
+        // 同一路径并发写会抛 `IOException: because it is being used by another process`
+        // （全量套件并行执行时必现）。三个写入者仍互相并发，因此四个事件都落在同一个合并窗口内。
         Task[] writes =
         [
-            File.WriteAllTextAsync(expected[0], "变化"),
+            WriteTwiceAsync(expected[0]),
             File.WriteAllTextAsync(expected[1], "变化"),
             File.WriteAllTextAsync(expected[2], "变化"),
-            File.WriteAllTextAsync(expected[0], "再改"),
         ];
         await Task.WhenAll(writes);
         await Task.Delay(700);
@@ -102,5 +104,15 @@ public sealed class WorkspaceFileWatcherTests
                 Assert.HasCount(batch.Distinct(StringComparer.OrdinalIgnoreCase).Count(), batch);
             }
         }
+    }
+
+    /// <summary>
+    /// 对同一路径连续写两次，制造"同一路径的两个文件系统事件"。
+    /// 两次写**串行**执行：同一路径并发写会因文件句柄独占而失败，串行仍能在合并窗口内产生两个事件。
+    /// </summary>
+    private static async Task WriteTwiceAsync(string path)
+    {
+        await File.WriteAllTextAsync(path, "变化");
+        await File.WriteAllTextAsync(path, "再改");
     }
 }

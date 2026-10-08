@@ -62,6 +62,26 @@ public sealed class GitCommitServiceTests
     }
 
     [TestMethod]
+    public async Task 暂存删除后重建的文件按完整工作区内容提交()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "recreated.txt", "base\n", "test: base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rm", "--cached", "--", "recreated.txt");
+            await File.WriteAllTextAsync(temporary.GetPath("recreated.txt"), "recreated\n");
+
+            GitCommitResult result = await new GitCommitService(runtime).CommitAsync(
+                repository,
+                new(["recreated.txt"], "fix: commit recreated file"));
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual("recreated", (await ReadHeadFileAsync(runtime, temporary.FullPath, "recreated.txt")).Trim());
+            Assert.IsEmpty(result.ActualStatus!.Files);
+        }
+    }
+
+    [TestMethod]
     public async Task Amend可只修改提交信息且不带入当前暂存内容()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

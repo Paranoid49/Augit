@@ -359,12 +359,19 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
                 "Rollback 原文件路径越过了仓库边界。");
         }
 
-        if (changedFile.Group == GitChangeGroup.UnversionedFiles)
+        bool hasUntrackedWorkTreeFile = changedFile.WorkTreeStatus == '?';
+        if (changedFile.Group == GitChangeGroup.UnversionedFiles || hasUntrackedWorkTreeFile)
         {
             RecycleBinResult recycle = _moveToRecycleBin(fullPath!);
-            return recycle.IsSuccess
-                ? await ReadActualStatusAsync(repository).ConfigureAwait(false)
-                : await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
+            if (!recycle.IsSuccess)
+            {
+                return await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
+            }
+
+            if (changedFile.Group == GitChangeGroup.UnversionedFiles)
+            {
+                return await ReadActualStatusAsync(repository).ConfigureAwait(false);
+            }
         }
 
         if (changedFile.Kind is GitChangeKind.Added or GitChangeKind.Copied)

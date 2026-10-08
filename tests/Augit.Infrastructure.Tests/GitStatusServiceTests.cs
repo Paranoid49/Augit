@@ -44,6 +44,8 @@ public sealed class GitStatusServiceTests
             Assert.AreEqual(GitChangeGroup.Changes, tracked.Group);
             Assert.IsTrue(tracked.HasStagedChanges);
             Assert.IsTrue(tracked.HasWorkingTreeChanges);
+            Assert.AreEqual('M', tracked.IndexStatus);
+            Assert.AreEqual('M', tracked.WorkTreeStatus);
             GitChangedFile untracked = result.Snapshot.Files.Single(file => file.RelativePath == "untracked.txt");
             Assert.AreEqual(GitChangeGroup.UnversionedFiles, untracked.Group);
             Assert.AreEqual(GitChangeKind.Untracked, untracked.Kind);
@@ -115,6 +117,30 @@ public sealed class GitStatusServiceTests
     }
 
     [TestMethod]
+    public async Task 暂存删除后同路径重建只返回一行并保留两侧状态()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "recreated.txt", "base\n", "test: base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "rm", "--cached", "--", "recreated.txt");
+            await File.WriteAllTextAsync(temporary.GetPath("recreated.txt"), "recreated\n");
+
+            GitStatusResult result = await new GitStatusService(runtime).ReadAsync(repository);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            GitChangedFile file = result.Snapshot!.Files.Single();
+            Assert.AreEqual("recreated.txt", file.RelativePath);
+            Assert.AreEqual(GitChangeGroup.Changes, file.Group);
+            Assert.AreEqual(GitChangeKind.Deleted, file.Kind);
+            Assert.IsTrue(file.HasStagedChanges);
+            Assert.IsTrue(file.HasWorkingTreeChanges);
+            Assert.AreEqual('D', file.IndexStatus);
+            Assert.AreEqual('?', file.WorkTreeStatus);
+        }
+    }
+
+    [TestMethod]
     public void 全部未合并状态都识别为冲突()
     {
         // 覆盖 git status --porcelain=v1 的全部未合并代码：
@@ -147,6 +173,53 @@ public sealed class GitStatusServiceTests
         Assert.IsTrue(
             files.All(file => file.HasStagedChanges && file.HasWorkingTreeChanges),
             "未合并文件的 staged 与 workingTree 标记都应为真。");
+    }
+
+    [TestMethod]
+    public void XY状态矩阵保留索引与工作区两个维度()
+    {
+        // porcelain v1 的 XY 两列分别表示索引与工作区；同一文件可能同时有两侧变化。
+        // 这里用 NUL 分隔的原始记录锁定桥接前的语义，避免 UI 只看 kind 时丢失另一侧状态。
+        bool parsed = GitStatusService.TryParseStatus(
+            " M work-modified.txt\0"
+            + "M  staged-modified.txt\0"
+            + " D work-deleted.txt\0"
+            + "D  staged-deleted.txt\0"
+            + "A  staged-added.txt\0"
+            + " T work-typechanged.txt\0"
+            + "T  staged-typechanged.txt\0"
+            + "RM renamed-and-modified.txt\0renamed-old.txt\0"
+            + "?? untracked.txt\0",
+            out IReadOnlyList<GitChangedFile>? files);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNotNull(files);
+        Assert.HasCount(9, files!);
+
+        AssertStatus(files!, "work-modified.txt", GitChangeKind.Modified, false, true);
+        AssertStatus(files!, "staged-modified.txt", GitChangeKind.Modified, true, false);
+        AssertStatus(files!, "work-deleted.txt", GitChangeKind.Deleted, false, true);
+        AssertStatus(files!, "staged-deleted.txt", GitChangeKind.Deleted, true, false);
+        AssertStatus(files!, "staged-added.txt", GitChangeKind.Added, true, false);
+        AssertStatus(files!, "work-typechanged.txt", GitChangeKind.TypeChanged, false, true);
+        AssertStatus(files!, "staged-typechanged.txt", GitChangeKind.TypeChanged, true, false);
+        AssertStatus(files!, "renamed-and-modified.txt", GitChangeKind.Renamed, true, true);
+        AssertStatus(files!, "untracked.txt", GitChangeKind.Untracked, false, true, GitChangeGroup.UnversionedFiles);
+
+        GitChangedFile renamed = files!.Single(file => file.RelativePath == "renamed-and-modified.txt");
+        Assert.AreEqual("renamed-old.txt", renamed.OriginalRelativePath);
+        Assert.AreEqual('R', renamed.IndexStatus);
+        Assert.AreEqual('M', renamed.WorkTreeStatus);
+    }
+
+    [TestMethod]
+    public void 空状态输出表示干净工作区()
+    {
+        bool parsed = GitStatusService.TryParseStatus(string.Empty, out IReadOnlyList<GitChangedFile>? files);
+
+        Assert.IsTrue(parsed);
+        Assert.IsNotNull(files);
+        Assert.IsEmpty(files!);
     }
 
     [TestMethod]
@@ -201,5 +274,20 @@ public sealed class GitStatusServiceTests
             .InitializeAsync(temporary.FullPath);
         Assert.IsTrue(initialized.IsSuccess, initialized.ErrorMessage);
         return (temporary, runtime, initialized.Repository!);
+    }
+
+    private static void AssertStatus(
+        IReadOnlyList<GitChangedFile> files,
+        string path,
+        GitChangeKind kind,
+        bool staged,
+        bool workingTree,
+        GitChangeGroup group = GitChangeGroup.Changes)
+    {
+        GitChangedFile file = files.Single(item => item.RelativePath == path);
+        Assert.AreEqual(group, file.Group, path);
+        Assert.AreEqual(kind, file.Kind, path);
+        Assert.AreEqual(staged, file.HasStagedChanges, path);
+        Assert.AreEqual(workingTree, file.HasWorkingTreeChanges, path);
     }
 }

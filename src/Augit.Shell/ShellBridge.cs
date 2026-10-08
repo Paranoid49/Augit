@@ -512,6 +512,8 @@ internal sealed class ShellBridge : IDisposable
                 original = file.OriginalRelativePath,
                 staged = file.HasStagedChanges,
                 workingTree = file.HasWorkingTreeChanges,
+                indexStatus = file.IndexStatus.ToString(),
+                workTreeStatus = file.WorkTreeStatus.ToString(),
             }),
         };
     }
@@ -879,9 +881,16 @@ internal sealed class ShellBridge : IDisposable
             rolledBack = true,
             path = file.RelativePath,
             // 未跟踪或新增文件是被移入回收站，不是从 HEAD 恢复：界面据此给出准确说明。
-            recycled = file.Group == GitChangeGroup.UnversionedFiles
-                || file.Kind is GitChangeKind.Untracked or GitChangeKind.Added,
+            recycled = WasRollbackFileRecycled(file),
         };
+    }
+
+    internal static bool WasRollbackFileRecycled(GitChangedFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        return file.Group == GitChangeGroup.UnversionedFiles
+            || file.Kind is GitChangeKind.Untracked or GitChangeKind.Added
+            || file.WorkTreeStatus == '?';
     }
 
     /// <summary>

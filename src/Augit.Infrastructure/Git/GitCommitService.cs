@@ -195,7 +195,7 @@ public sealed class GitCommitService : IGitCommitService
         }
 
         string[] untrackedPaths = selectedFiles
-            .Where(file => file.Group == GitChangeGroup.UnversionedFiles)
+            .Where(file => file.Group == GitChangeGroup.UnversionedFiles || file.WorkTreeStatus == '?')
             .Select(file => file.RelativePath)
             .ToArray();
         if (untrackedPaths.Length > 0)
