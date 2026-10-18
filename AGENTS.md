@@ -5,7 +5,7 @@
 - 严禁盲目执行指令。修改前必须核对产品规格、架构边界、影响范围和已有改动。
 - 开始修改前，按 `docs/development-validation.md` §1 的顺序读取项目规范、当前模块文档、工作区状态和权威参考。
 - 当前产品支持 Windows 10 22H2 x64 和 Windows 11 x64；没有对应实机条件时不得宣称已完成该平台验证。
-- 普通文件查看器不提供编辑和保存。用户主动执行 Git 操作时，允许本机 Git 修改工作区；三栏冲突解决器的结果区是 Augit 唯一允许用户直接编辑并保存文本的地方。
+- Augit 不提供任何内置文本编辑和保存功能。用户主动执行 Git 操作时，允许本机 Git 修改工作区。2026-10-17 用户批准移除内置三栏冲突编辑器：冲突文件只提供冲突状态、文件列表、普通只读 Diff 和外部工具处理后的状态同步，冲突文本由用户已有的外部编辑器或终端修改。
 - Augit 不接入 AI。不得覆盖、删除或回滚用户或其他 agent 已有改动。
 - 技术基线是 C# / .NET 10 原生 Win32 外壳 + WebView2，界面本体是 `web/` 下的 HTML、CSS 和 JavaScript。主界面不得重新引入 WPF、WinForms 或原生控件自绘正文。
 - `docs/ux-mockups/` 既是设计基线也是运行时界面代码来源：`mockup.js`、`mockup.css`、`current-find.js`、`image-preview.js` 在 `docs/ux-mockups/` 与 `web/src/` 之间必须字节一致，改动后运行 `tools/audit/verify-ui-assets.ps1`。不得修改视觉稿以迁就实现。

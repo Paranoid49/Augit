@@ -21,9 +21,9 @@ public sealed class ShellThemeTests
     public void 窗口表面色按主题取网页层body的底色()
     {
         // 取值就是 `web/src/mockup.css` 里 `body` 的 `--augit-chrome`
-        //（`docs/design-system.md` §6.1 浅色 `#E9EAEE`／§6.2 深色 `#2B2D30`）。
+        //（`docs/design-system.md` §6.1 浅色 `#E9EAEE`／§6.2 深色 `#26282C`）。
         // 外壳必须在导航前把它交给 WebView2，否则深色下会先用默认白底画一帧（白闪）。
-        Assert.AreEqual((0x2B, 0x2D, 0x30), ShellTheme.SurfaceColor("Dark"));
+        Assert.AreEqual((0x26, 0x28, 0x2C), ShellTheme.SurfaceColor("Dark"));
         Assert.AreEqual((0xE9, 0xEA, 0xEE), ShellTheme.SurfaceColor("Light"));
         Assert.AreEqual((0xE9, 0xEA, 0xEE), ShellTheme.SurfaceColor("system"),
             "未知/空主题按浅色处理（外壳在 Program 里已解析成具体主题，这里只是兜底）");
@@ -35,7 +35,7 @@ public sealed class ShellThemeTests
         // 反向核对：外壳里的常量必须等于网页层真正用的令牌，避免两边各写一份后漂移。
         string css = File.ReadAllText(FindRepositoryFile("web/src/mockup.css"));
         StringAssert.Contains(css, "--augit-chrome: #e9eaee;");
-        StringAssert.Contains(css, "--augit-chrome: #2b2d30;");
+        StringAssert.Contains(css, "--augit-chrome: #26282c;");
     }
 
     private static string FindRepositoryFile(string relativePath)

@@ -45,6 +45,11 @@ public sealed class ShellBridgeBlameTests
         // 日期时间必须以短日期开头（同一次本地时区换算，不是两次独立取时间）。
         Assert.StartsWith(date!, dateTime!, StringComparison.Ordinal);
         Assert.AreNotEqual(date, dateTime);
+        // 背景序列按提交者时间分组，不能误用作者时间。
+        string committed = (await GitTestEnvironment.RunRawAsync(runtime, temporary.FullPath, "show", "-s", "--format=%ct", "HEAD")).StandardOutput.Trim();
+        Assert.AreEqual(long.Parse(committed, System.Globalization.CultureInfo.InvariantCulture) * 1000, line.GetProperty("committerTimestamp").GetInt64());
+        Assert.IsGreaterThan(0L, line.GetProperty("timestamp").GetInt64());
+        Assert.AreEqual("lines.txt", line.GetProperty("path").GetString());
     }
 
     /// <summary>

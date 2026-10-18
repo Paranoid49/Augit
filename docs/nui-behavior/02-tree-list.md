@@ -1,11 +1,13 @@
 # 02 树与列表的交互与选择状态机
 
+2026-10-13像素整改的当前几何、用户裁决、前后哈希、验证与保留边界见[本批次记录](../pixel-restoration-2026-10-13.md)及[25分册](25-pixel-restoration.md)。旧独立15px复选框、Amend中性图标和Windows按钮右主动作按本批次订正。
+
 本节要点：
 
 1. IntelliJ 的「失焦保留选中项」不是靠状态快照实现的，而是**每次绘制时用 `hasFocus()` 现算颜色**：`RenderingUtil.isFocused()` → `CurrentTheme.{Tree,List,Table}.Selection.background(focused)`。焦点变化只触发重绘，不触发任何选择事件，因此「不取消选择、不打开文件、不请求 Diff、不改勾选」是结构上成立的，不需要额外的守卫代码。
 2. 键盘导航由 `TreeAction` 全量接管（Home/End/↑/↓/←/→/PageUp/PageDown，Shift 扩展选择，Ctrl 只移动 lead），每次选中后固定调用 `TreeUtil.scrollToVisible(..., false)`；滚动时把可视矩形扩为 5 倍行高并上移 2 倍行高，即目标行上方、下方各留 2 行上下文。
 3. 类型选择（speed search）用 `MinusculeMatcher`：**大小写不敏感 + 驼峰词首匹配**；树默认 `(shouldMatchFromTheBeginning=false, shouldMatchCamelCase=true)`，没有「输入超时重置」机制，Esc、Enter、方向键或焦点丢失即关闭。
-4. 行高 24px（`Tree.rowHeight` / `List.rowHeight`，expUI）；树每级缩进 = `leftChildIndent(7) + rightChildIndent(11)`，首级渲染偏移 = `max(箭头宽/2, 7)`；New UI 的选中高亮左右各缩进 12px、圆角 8px，多行连选时相邻边不圆角。
+4. 行高24px；树一级缩进为`max(展开画布整数半宽, scale(7)) + scale(11)`，New UI默认16px画布得到19px。Changes左右12px树边框加首级19px renderer偏移，展开16px画布独立置于其前；第二级renderer偏移38px。2026-10-14局部原始PNG双方相对缩进33物理px、行步长42px、框28×28px；整窗尚未配准，见[接续记录](../pixel-font-followup-2026-10-13.md)。
 5. Changes / Unversioned 列表用 Tree 实现；复选框命中区只有左侧 `JCheckBox 首选宽度 × 行高`，点击复选框会**先把该行设为选中**，再对所有已选中项统一切换勾选状态。
 
 ---
@@ -226,6 +228,8 @@
 
 ## 5. 行高、内距、缩进、箭头与图标间距
 
+2026-10-10 当前实现：项目树和路径选择树的左右子缩进分别按7/11的字号档位缩放；项目树箭头槽、槽间距和文件图标槽同时缩放，图标墨迹保留16px。引用树采用真实深度，不再把超过4层的前缀组压在第4层。默认12px保持原密度，当前矩阵与限制见 [筛选弹层整改](../filter-popup-remediation-2026-10-10.md)。
+
 ### 5.1 行高
 
 - `Tree.rowHeight()`：默认 `JBUIScale.scale(24)`，键为 `Tree.rowHeight`；值 ≤ 0 时回落到默认值（来源：`platform/util/ui/src/com/intellij/util/ui/JBUI.java:2515`、`platform/util/ui/src/com/intellij/util/ui/JBUI.java:2526`）。
@@ -432,7 +436,7 @@
 
 同时去掉了原先"向上取偶数物理像素"的做法：官方按整数缩放（`JBUIScale.scale(24)`），不取偶；该做法只影响大字号（32px 字号下 50 → 49）。
 
-**树的缩进步长（第 217 轮订正）**：`Tree.leftChildIndent` / `rightChildIndent` 的权威取值是 **7 / 11**（`ManyIslandsDarcula.theme.json:415,418`、`intellijlaf.theme.json:1001,1003`、`darcula.theme.json:724,727`；Jewel 桥接的回落也是 `7.dp` / `11.dp`，`IntUiBridgeLazyTree.kt:37-38`），实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`（`platform/platform-impl/src/com/intellij/ui/tree/ui/ClassicPainter.java:37-45`），即每级 **18px**；2026 参考图三个层级的最左墨迹 x 为 145 / 178 / 211 物理px（**步长 33 物理px ≈ 18.4 逻辑px**），与 18 一致。**第 217 轮订正了一处回归**：本仓库曾在 `.side-content.tree` 下写过四条固定规则 `depth-1..4 = 22/38/54/70`（**16px 步长**，且超过 `depth-4` 会退回 6px 而丢掉缩进），与本节的 18 结论相反；现已改为按行上的 `--tree-depth` 计算 —— `padding-left: calc(4px + 18px * var(--tree-depth))`（首级 22px，任意深度按 18 递增），并由 `tools/verify-ux-project-tree.cjs` 在 dpi 96/120/144 × 字号 13/40 的每一步断言步长与 depth-7=130px。`Tree.border = 4,12,4,12` 是 Swing 树的外内距，Augit 用行内距表达，不逐值套用。
+**树缩进接续订正（2026-10-13）**：主题键仍为7/11，但`ClassicPainter.java:40,95`通过`getLeftIndent(controlWidth/2)`设置图标半宽下限。Islands/expUI使用16px chevron画布，故实际默认一级步长为max(7,8)+11=19，而非18。档位公式`max(round(7s),floor(round(16s)/2))+round(11s)`，UI12/14/40得到19/24/62。项目树任意深度用`--tree-depth`计算，默认首级23、第7级137；项目树12组及引用树实时19项通过。原始PyCharm PNG分组/子框为[135,222,28,28]/[168,264,28,28]，相对33物理px；Augit同DPR最新相对33px，行步长均42、框均28×28；双方框绝对x仍相差−2px，整窗未配准，不能据局部一致结案。见[接续记录](../pixel-font-followup-2026-10-13.md)。第217轮固定深度修复保留；该轮18px解读被本次绘制路径订正。
 
 **验收套件里有两处与行高耦合的期望，必须同步**（否则出现"实现对了、套件红了"的假失败）：
 

@@ -29,44 +29,23 @@ public sealed class SettingsStore
         {
             if (!File.Exists(_settingsPath))
             {
-                return new();
+                return AlignAppearance(new());
             }
 
             string json = await File.ReadAllTextAsync(_settingsPath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
             ApplicationSettings settings = JsonSerializer.Deserialize<ApplicationSettings>(json, SerializerOptions) ?? new();
-            return ApplyLegacyFontSizeFallback(settings, json);
+            using JsonDocument document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && !document.RootElement.EnumerateObject().Any(property => property.Name.Equals("appearanceVersion", StringComparison.OrdinalIgnoreCase)))
+            {
+                settings = settings with { AppearanceVersion = 0 };
+            }
+            return AlignAppearance(settings);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new();
+            return AlignAppearance(new());
         }
-    }
-
-    /// <summary>
-    /// 字号迁移：只有设置文件里**真的存在** `textFontSize` 键，才算「界面字号与等宽字号已经分开保存」；
-    /// 其余既有配置一律按旧配置处理——<see cref="ApplicationSettings.TextFontSize"/> 置空，
-    /// <see cref="ApplicationSettings.UiFontSize"/> 回退到共用的 <see cref="ApplicationSettings.FontSize"/>，
-    /// 保持用户升级前的实际字号（`docs/design-system.md` §5.3 末：「旧版本只保存一个字号时，两类文字先沿用旧值」）。
-    ///
-    /// 这里刻意不按 `fontSize` 是否存在来判定：只保存过主题、字体名等字段的旧配置同样属于「用户已有配置」，
-    /// 不能因为缺 `fontSize` 就把新配置的 12px 对照基线
-    /// （<see cref="ApplicationSettings.DefaultUiFontSize"/>）套到它身上，那等于替用户改了设置。
-    /// 全新配置（文件不存在）不会进入本方法，由记录默认值给出 12px。
-    ///
-    /// 顶层不是对象时（例如文件内容就是 `null`）不枚举属性，避免 `InvalidOperationException`
-    /// 逃出 <see cref="LoadAsync"/> 的异常处理；这类内容按默认配置处理（此时 <paramref name="settings"/> 已是默认值）。
-    /// </summary>
-    private static ApplicationSettings ApplyLegacyFontSizeFallback(ApplicationSettings settings, string json)
-    {
-        using JsonDocument document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Object
-            || document.RootElement.EnumerateObject()
-                .Any(property => property.Name.Equals("textFontSize", StringComparison.OrdinalIgnoreCase)))
-        {
-            return settings;
-        }
-
-        return settings with { TextFontSize = null };
     }
 
     public async Task SaveAsync(ApplicationSettings settings, CancellationToken cancellationToken = default)
@@ -97,8 +76,26 @@ public sealed class SettingsStore
         }
     }
 
+    /// <summary>旧外观仅迁移一次；正文按用户裁决固定字体及字号，其他会话数据不变。</summary>
+    private static ApplicationSettings AlignAppearance(ApplicationSettings settings)
+    {
+        if (settings.AppearanceVersion < 1)
+        {
+            settings = settings with
+            {
+                AppearanceVersion = 1,
+                Theme = "Light",
+                TextFontFamily = "Microsoft YaHei UI",
+                TextFontSize = ApplicationSettings.DefaultUiFontSize,
+            };
+        }
+
+        return settings with { MonospaceFontFamily = "JetBrains Mono", FontSize = 13 };
+    }
+
     private static ApplicationSettings Normalize(ApplicationSettings settings)
     {
+        settings = AlignAppearance(settings);
         string[] openFiles = settings.OpenFiles
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -138,6 +135,7 @@ public sealed class SettingsStore
             },
             ToolWindows = new()
             {
+                WorkspaceRoot = toolWindows.WorkspaceRoot is { Length: > 0 } owner ? TryGetFullPath(owner) : null,
                 ProjectPanelWidth = NormalizeDimension(toolWindows.ProjectPanelWidth, 240, 1600),
                 BottomPanelHeight = NormalizeDimension(toolWindows.BottomPanelHeight, 180, 1200),
             },

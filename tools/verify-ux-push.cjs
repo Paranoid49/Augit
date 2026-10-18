@@ -42,7 +42,7 @@ async function main() {
           const selection = await row.evaluate(node => getComputedStyle(node).backgroundColor);
           await second.hover();
         // 悬停色按 权威 `List/Tree.hoverBackground` = `selection-bg-hovered`（浅 #00000008／深代码默认 #464A4D）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
-          assert.equal(await second.evaluate(node => getComputedStyle(node).backgroundColor), theme === 'dark' ? 'rgb(70, 74, 77)' : 'rgba(0, 0, 0, 0.03)');
+          assert.equal(await second.evaluate(node => getComputedStyle(node).backgroundColor), theme === 'dark' ? 'rgba(255, 255, 255, 0.063)' : 'rgba(0, 0, 0, 0.03)');
           await row.hover(); assert.equal(await row.evaluate(node => getComputedStyle(node).backgroundColor), selection);
         }
         if (dpi === 96 && size === 13) await page.screenshot({ path: path.join(outputPath, `${scene}-${theme}.png`) });
@@ -62,9 +62,9 @@ async function main() {
         const before = await push.boundingBox();
         await push.click(); assert.equal(await push.isDisabled(), true);
         if (result === 'pending') {
-          await cancel.click(); assert.match(await page.locator('.push-notice').textContent(), /正在取消推送/);
+          await cancel.click(); assert.match(await page.locator('.push-notice').textContent(), /Cancelling push/);
           await page.waitForFunction(() => document.querySelector('.push-dialog')?.dataset.state === 'cancelled');
-          assert.equal(await push.isDisabled(), false); assert.equal(await page.locator('.push-notice').textContent(), '操作已取消。');
+          assert.equal(await push.isDisabled(), false); assert.equal(await page.locator('.push-notice').textContent(), 'Operation cancelled.');
           await cancel.click();
         } else if (result === 'error,success') {
           await page.waitForFunction(() => document.querySelector('.push-dialog')?.dataset.state === 'error');

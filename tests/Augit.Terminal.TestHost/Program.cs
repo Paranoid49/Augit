@@ -11,14 +11,15 @@ internal static partial class Program
 {
     private static async Task<int> Main(string[] arguments)
     {
-        if (arguments.Length is < 2 or > 3)
+        if (arguments.Length is < 2 or > 4)
         {
             return 2;
         }
 
         string resultPath = Path.GetFullPath(arguments[0]);
         string workingDirectory = Path.GetFullPath(arguments[1]);
-        string shellId = arguments.Length == 3 ? arguments[2] : TerminalShellIds.CommandPrompt;
+        string shellId = arguments.Length >= 3 ? arguments[2] : TerminalShellIds.CommandPrompt;
+        bool earlyFocusOut = arguments.Length == 4 && arguments[3] == "early-focus-out";
         try
         {
             TerminalLaunchResult launchResult = TerminalShellResolver.Resolve(
@@ -40,6 +41,11 @@ internal static partial class Program
                 30);
             session.OutputReceived += (_, text) =>
             {
+                // 真实网页在启动协商后即可能失焦，不等横幅和提示符。
+                if (earlyFocusOut && text.Contains("\u001b[?1004h", StringComparison.Ordinal))
+                {
+                    _ = session.WriteAsync("\u001b[O");
+                }
                 lock (output)
                 {
                     output.Append(text);

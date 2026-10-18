@@ -1,4 +1,4 @@
-# Capture an Augit visual-audit scene as REAL on-screen pixels (CopyFromScreen),
+﻿# Capture an Augit visual-audit scene as REAL on-screen pixels (CopyFromScreen),
 # which is the evidence class the design-system doc requires for font/AA checks.
 # Retries until the captured frame is not occluded (occlusion heuristic: mostly-white frame).
 param(
@@ -36,21 +36,16 @@ $ErrorActionPreference = "Stop"
 if ($WorkDir -eq "") { $WorkDir = Split-Path -Parent $Exe }
 Set-Location -LiteralPath $WorkDir
 
-# The shell loads its UI from the 'web' folder NEXT TO THE EXE, not from the repo sources
-# (ShellOptions.FindDefaultWebRoot prefers the copy in the output directory). A stale copy
-# silently produces evidence for an older UI: observed once, a capture labelled
-# "git-history" actually showed a mockup.js from five hours earlier. Refuse to capture
-# when any repo source is newer than the copied tree. NOTE: keep this file ASCII-only.
+# 启动前核对完整相对文件集合与 SHA256，阻止删除资源残留或同时间内容差异造成错误取证。
+$repoWeb = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'web'
 $exeWeb = Join-Path (Split-Path -Parent $Exe) 'web'
-$repoWeb = Join-Path $WorkDir 'web'
-if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
-  $copied = (Get-ChildItem -LiteralPath $exeWeb -Recurse -File |
-      Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  $source = (Get-ChildItem -LiteralPath $repoWeb -Recurse -File |
-      Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  if ($source -gt $copied) {
-    Write-Output "STALE_WEB_ASSETS source=$($source.ToString('s')) copied=$($copied.ToString('s'))"
-    Write-Output "Rebuild the shell so the web copy beside the executable is refreshed."
+if (Test-Path -LiteralPath $repoWeb) {
+  try {
+    & (Join-Path $PSScriptRoot 'verify-web-assets-mirror.ps1') -SourceDirectory $repoWeb -OutputDirectory $exeWeb
+  } catch {
+    Write-Output $_.Exception.Message
+    Write-Output "WEB_ASSETS_MIRROR_FAILED source=$repoWeb output=$exeWeb"
+    Write-Output "Rebuild the shell so the web copy beside the executable is a complete mirror."
     exit 6
   }
 }
@@ -132,7 +127,11 @@ if ($Arguments.Count -gt 0) {
   if ($ExtraArguments.Count -gt 0) { $a += $ExtraArguments }
   if (-not $SkipPageCheck) { $a += @("--browser-args", "--remote-debugging-port=$Port") }
 }
+if ($a -notcontains '--scene') { $a += @('--scene', 'main-project') }
 $p = Start-Process -FilePath $Exe -ArgumentList $a -PassThru -WorkingDirectory $WorkDir
+# 只清理本脚本启动的进程句柄，异常及提前退出都进入 finally。
+$socket = $null
+try {
 $deadline = (Get-Date).AddSeconds($TimeoutSec)
 $h = [IntPtr]::Zero
 while ((Get-Date) -lt $deadline -and $h -eq [IntPtr]::Zero) {
@@ -169,7 +168,7 @@ while ((Get-Date) -lt $deadline -and $h -eq [IntPtr]::Zero) {
   if ($h -eq [IntPtr]::Zero) { $h = [WinScreen]::MainFor([uint32]$p.Id, 600, 400) }
   if ($h -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 250 }
 }
-if ($h -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW pid=$($p.Id)"; try { $p.Kill() } catch {}; exit 2 }
+if ($h -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW pid=$($p.Id)"; exit 2 }
 Write-Output "WINDOW class=$([WinScreen]::ClassOf($h)) pid=$($p.Id)"
 # Verify the page actually rendered this scene before treating the pixels as evidence.
 if (-not $SkipPageCheck) {
@@ -188,11 +187,10 @@ if (-not $SkipPageCheck) {
       Start-Sleep -Milliseconds 1000
     }
     Write-Output ("PAGE " + $state)
-    if (-not $parsed.window -or -not $parsed.ready) { Write-Output "PAGE_NOT_READY"; try { $p.Kill() } catch {}; exit 7 }
-    if ($parsed.errors -and $parsed.errors.Count -gt 0) { Write-Output ("PAGE_ERRORS " + $state); try { $p.Kill() } catch {}; exit 8 }
+    if (-not $parsed.window -or -not $parsed.ready) { Write-Output "PAGE_NOT_READY"; exit 7 }
+    if ($parsed.errors -and $parsed.errors.Count -gt 0) { Write-Output ("PAGE_ERRORS " + $state); exit 8 }
   } catch {
     Write-Output ("PAGE_CHECK_FAILED " + $_.Exception.Message)
-    try { $p.Kill() } catch {}
     exit 9
   }
 }
@@ -277,8 +275,13 @@ for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
   $g.Dispose(); $bmp.Dispose()
   Start-Sleep -Milliseconds 1200
 }
-try { if (-not $p.HasExited) { $p.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 900; if (-not $p.HasExited) { $p.Kill() } } } catch {}
-Start-Sleep -Milliseconds 300
 if (-not $saved) { Write-Output "OCCLUDED_OR_BLANK"; exit 4 }
 Write-Output "SAVED $outAbs via=$savedSource"
 Write-Output "DONE"
+} finally {
+  if ($p -and -not $p.HasExited) {
+    try { $p.CloseMainWindow() | Out-Null; if (!$p.WaitForExit(3000)) { $p.Kill(); $p.WaitForExit(10000) | Out-Null } } catch { }
+  }
+  if ($p) { $p.Dispose() }
+  Start-Sleep -Milliseconds 300
+}

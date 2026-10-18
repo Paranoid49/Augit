@@ -963,6 +963,7 @@ public sealed class GitHistoryService : IGitHistoryService
             string author = string.Empty;
             string email = string.Empty;
             long authorTime = 0;
+            long? committerTime = null;
             TimeSpan offset = TimeSpan.Zero;
             string summary = string.Empty;
             string filePath = string.Empty;
@@ -996,6 +997,13 @@ public sealed class GitHistoryService : IGitHistoryService
                     case "author-tz":
                         offset = ParseGitOffset(value);
                         break;
+                    case "committer-time":
+                        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long committed))
+                        {
+                            committerTime = committed;
+                        }
+
+                        break;
                     case "summary":
                         summary = value;
                         break;
@@ -1016,7 +1024,8 @@ public sealed class GitHistoryService : IGitHistoryService
             }
 
             DateTimeOffset date = DateTimeOffset.FromUnixTimeSeconds(authorTime).ToOffset(offset);
-            parsed.Add(new(lineNumber, hash, author, email, date, summary, filePath, content, previousRevision));
+            parsed.Add(new(lineNumber, hash, author, email, date, summary, filePath, content, previousRevision,
+                committerTime is { } seconds ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null));
         }
 
         lines = parsed;

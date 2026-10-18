@@ -29,7 +29,26 @@ public sealed class ConPtyTerminalSessionTests
         Assert.IsTrue(result.ChildExited);
     }
 
-    private static async Task<TerminalTestResult> RunTerminalHostAsync(string shellId)
+    [TestMethod]
+    public async Task WindowsPowerShell启动协商期间失焦仍显示提示符()
+    {
+        TerminalTestResult result = await RunTerminalHostAsync(TerminalShellIds.WindowsPowerShell, "early-focus-out");
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.IsTrue(result.ShellExited);
+        Assert.IsTrue(result.ChildExited);
+    }
+
+    [TestMethod]
+    public async Task 宿主标准句柄重定向时Shell仍只通过ConPty收发()
+    {
+        TerminalTestResult result = await RunTerminalHostAsync(TerminalShellIds.WindowsPowerShell, redirectHandles: true);
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.IsTrue(result.ForegroundDetected);
+        Assert.IsTrue(result.ShellExited);
+        Assert.IsTrue(result.ChildExited);
+    }
+
+    private static async Task<TerminalTestResult> RunTerminalHostAsync(string shellId, string? mode = null, bool redirectHandles = false)
     {
         using TemporaryDirectory temporary = new();
         string resultPath = temporary.GetPath("result.json");
@@ -38,11 +57,15 @@ public sealed class ConPtyTerminalSessionTests
         {
             FileName = executable,
             UseShellExecute = false,
-            CreateNoWindow = true,
+            CreateNoWindow = !redirectHandles,
+            RedirectStandardInput = redirectHandles,
+            RedirectStandardOutput = redirectHandles,
+            RedirectStandardError = redirectHandles,
         };
         startInfo.ArgumentList.Add(resultPath);
         startInfo.ArgumentList.Add(temporary.FullPath);
         startInfo.ArgumentList.Add(shellId);
+        if (mode is not null) startInfo.ArgumentList.Add(mode);
         using Process process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("无法启动 ConPTY 测试宿主。");
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));

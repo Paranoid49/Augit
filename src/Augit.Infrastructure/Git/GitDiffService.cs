@@ -1,4 +1,5 @@
 using System.Globalization;
+using Augit.Core.Documents;
 using Augit.Core.Files;
 using Augit.Core.Git;
 
@@ -150,7 +151,15 @@ public sealed class GitDiffService : IGitDiffService
             changedFile.OriginalRelativePath,
             oldSize,
             newSize,
-            result.StandardOutput));
+            result.StandardOutput)
+        {
+            OldLineEndings = status == GitDiffContentStatus.Ready && hasOldSide
+                ? await ReadBlobEndingsAsync(repository.RepositoryRoot, options.BaseRevision, changedFile.OriginalRelativePath ?? changedFile.RelativePath, cancellationToken).ConfigureAwait(false)
+                : DocumentLineEndings.Unknown,
+            NewLineEndings = status == GitDiffContentStatus.Ready && File.Exists(currentPath)
+                ? await ReadFileEndingsAsync(currentPath!, cancellationToken).ConfigureAwait(false)
+                : DocumentLineEndings.Unknown,
+        });
     }
 
     /// <summary>
@@ -273,7 +282,38 @@ public sealed class GitDiffService : IGitDiffService
             changedFile.OriginalRelativePath,
             oldSize,
             newSize,
-            result.StandardOutput));
+            result.StandardOutput)
+        {
+            OldLineEndings = status == GitDiffContentStatus.Ready && hasOldSide
+                ? await ReadBlobEndingsAsync(repositoryRoot, baseRevision, path, cancellationToken).ConfigureAwait(false)
+                : DocumentLineEndings.Unknown,
+            NewLineEndings = status == GitDiffContentStatus.Ready && hasNewSide
+                ? await ReadBlobEndingsAsync(repositoryRoot, targetRevision, path, cancellationToken).ConfigureAwait(false)
+                : DocumentLineEndings.Unknown,
+        });
+    }
+
+    // 只检测完整的原始内容，补丁可能被Git规范化，不能用作换行格式来源。
+    private async Task<DocumentLineEndings> ReadBlobEndingsAsync(string root, string revision, string path, CancellationToken cancellationToken)
+    {
+        GitCommandResult result = await _diffRunner.RunWithRawOutputAsync(_runtime.ExecutablePath!, root,
+            ["cat-file", "blob", $"{revision}:{path}"], GitCommandMode.LocalQuery, cancellationToken).ConfigureAwait(false);
+        return result.IsSuccess && !result.IsOutputTruncated && result.RawStandardOutput is { } bytes && bytes.Length <= MaximumSideBytes
+            ? DocumentLineEndingDetector.Detect(bytes) : DocumentLineEndings.Unknown;
+    }
+
+    private static async Task<DocumentLineEndings> ReadFileEndingsAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            if (stream.Length > MaximumSideBytes) return DocumentLineEndings.Unknown;
+            byte[] bytes = new byte[checked((int)stream.Length)];
+            await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
+            return stream.ReadByte() == -1 ? DocumentLineEndingDetector.Detect(bytes) : DocumentLineEndings.Unknown;
+        }
+        catch (IOException) { return DocumentLineEndings.Unknown; }
+        catch (UnauthorizedAccessException) { return DocumentLineEndings.Unknown; }
     }
 
     /// <summary>解析单个版本为提交哈希；解析失败返回 <c>null</c>。</summary>

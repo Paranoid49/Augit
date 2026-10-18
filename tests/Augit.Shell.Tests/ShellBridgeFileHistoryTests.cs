@@ -48,6 +48,8 @@ public sealed class ShellBridgeFileHistoryTests
         Assert.AreEqual("author@example.invalid", newest.GetProperty("authorEmail").GetString());
         Assert.AreEqual("Committer Person", newest.GetProperty("committerName").GetString());
         Assert.AreEqual("committer@example.invalid", newest.GetProperty("committerEmail").GetString());
+        Assert.AreEqual("Moments ago", newest.GetProperty("date").GetString());
+        Assert.IsTrue(System.Text.RegularExpressions.Regex.IsMatch(newest.GetProperty("dateTime").GetString()!, @"^\d{4}/\d{1,2}/\d{1,2} \d{1,2}:\d{2}$"));
         // 基线那条的作者与提交者同名：界面据此**不**加 `*`。
         JsonElement oldest = result.GetProperty("commits")[1];
         Assert.AreEqual(oldest.GetProperty("author").GetString(), oldest.GetProperty("committerName").GetString());

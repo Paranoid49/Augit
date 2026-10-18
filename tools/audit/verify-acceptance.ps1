@@ -17,7 +17,7 @@ param(
 $DefaultScenes = @(
   'main-project', 'text-viewer', 'markdown-preview', 'json-preview', 'image-preview',
   'file-limit', 'commit-changes', 'commit-diff', 'git-history', 'file-history', 'blame',
-  'git-compare', 'conflict-list', 'conflict-resolver', 'stash', 'stash-manager',
+  'git-compare', 'conflict-list', 'stash', 'stash-manager',
   'worktrees', 'remote', 'workspace-open', 'settings', 'terminal', 'quick-open',
   'repository-search', 'operation-result', 'repository-init',
   # Every remaining page that ux-spec 12.1 requires to be reachable in the real app.

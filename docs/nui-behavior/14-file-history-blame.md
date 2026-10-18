@@ -16,7 +16,7 @@
 | 日期列的**值** | `FileAnnotation.formatDate(date)` = `DateFormatUtil.formatPrettyDate(date)`（"今天/昨天"这类相对日期，取不到时退回 `formatDate`） | `GitFileAnnotation.java:88-91`；`platform/vcs-api/src/com/intellij/openapi/vcs/annotate/FileAnnotation.java:284-286`；`platform/platform-api/src/com/intellij/util/text/DateFormatUtil.java:111-118` |
 | 作者列的**值** | `VcsUserUtil.toExactString(lineInfo.getAuthorUser())` | `GitFileAnnotation.java:105-107` |
 | 修订列的**值** | `lineInfo.getRevisionNumber().getShortRev()`（**短**哈希） | `GitFileAnnotation.java:96-98` |
-| 归属行的**悬停提示** | `FileAnnotation.getToolTip(lineNumber)` 取**纯文本**变体（`getToolTip(line, false)`），逐行拼：`commit {修订}` → `Author: {作者}` → `Date: {日期时间}` → [`Path: {路径}`] → **空行** → 提交信息 | `GitFileAnnotation.java:175-176`、`:184-206` |
+| 归属行的**悬停提示** | `FileAnnotation.getHtmlToolTip(lineNumber)` 取**HTML**变体（`getToolTip(line, true)`），逐行拼：`commit {修订}` → `Author: {作者}` → `Date: {日期时间}` → [`Path: {路径}`] → **空行** → 提交信息 | `GitFileAnnotation.java:175-176`、`:179-206` |
 | 提示里修订的形态 | `revisionNumber.asString()` = **完整哈希**（与列里显示的短哈希不同） | `GitFileAnnotation.java:191`；`plugins/git4idea/backend/src/GitRevisionNumber.java:48-50` |
 | 提示里其他两行 | `commit.description.tooltip.author` = **"Author: {0}"**、`commit.description.tooltip.date` = **"Date: {0}"**（日期用 `DateFormatUtil.formatDateTime`，即**日期 + 时间**）、`commit.description.tooltip.commit` = **"commit {0}"** | `GitFileAnnotation.java:191-193`；`platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties:975-977`；`DateFormatUtil.java:120-122` |
 | `Path:` 行的出现条件 | 仅当 `!myFilePath.equals(lineInfo.getFilePath())`（归属跨文件，例如全仓归属） | `GitFileAnnotation.java:195-197`；文案 `VcsBundle.properties:978` |
@@ -371,3 +371,9 @@ Augit 原先的文件历史行是 `<span>作者</span><span>日期</span><span>�
 | 隐藏工具窗口 | 承载"详情"的工具窗口只有文件历史预览那一个：折叠底部工具窗（点当前激活的「Git 历史」rail 入口）会 `releaseFileHistoryPreview()`（第 263 轮断言）；Blame 本身不在工具窗口内 ⇒ 等价路径是关闭视图 |
 | 切换工作区 | **不适用**：`openWorkspacePath()` 只回报 `current`／`activated`／`new`，切换一律新开窗口，当前窗口的工作区不变 |
 | 销毁窗口 | **不适用**：页面卸载即在途请求随文档销毁，没有可回写的状态 |
+
+## 2026-10-10当前查找、归属与日期整改
+
+用户已裁决Blame提示按PyCharm富文本行为复原；上文第150/201轮的原生纯文本实现仅作为历史记录。当前使用应用内HTML提示，修订链接复用日志定位、完整消息按需从git/commit读取，所有作者/路径/消息按文本转义，关闭或区域重建不接受旧提示响应。默认配色按AnnotateToggleAction.computeBgColors、AnnotationsSettings及GitRevisionsOrderProvider：提交者时间倒序分组、同时间同色、21色索引floor(21×组索引/组数)。提交者时间来自porcelain的committer-time，不能由作者时间替代。
+
+文件历史date按DateFormatUtil.formatPrettyDateTime的分钟边界（0到61分钟、Math.rint）、Today和Yesterday显示；dateTime保留完整本地日期时间用于提示。完整测试命令、哈希和实机范围见 [本批次记录](../find-blame-remediation-2026-10-10.md)。

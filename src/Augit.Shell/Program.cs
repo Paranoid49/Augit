@@ -15,7 +15,8 @@ internal static class Program
         {
             ShellOptions options = ShellOptions.Parse(arguments);
             // 设置只读一次：主题与窗口摆放共用同一份快照，避免启动时读两遍文件。
-            ApplicationSettings settings = LoadSettings();
+            // 审计可显式指定设置文件，隔离运行不得读写用户设置。
+            ApplicationSettings settings = LoadSettings(options.SettingsFile);
             // 未显式指定 --theme 时按设置解析主题；设置里的 System 跟随 Windows。
             // 另外单独保留"是否跟随系统"这一事实：Theme 此时已是解析结果，分辨不出它来自
             // 显式选择还是跟随系统，而系统主题变化时只有后者才应该被覆盖。
@@ -26,20 +27,26 @@ internal static class Program
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：
             // 「再次打开同一目录时，在 1 秒内激活已有窗口并退出新进程」）。
-            // 审计与多场景对照需要并发实例，因此显式场景参数会跳过该行为。
-            if (options.Scene is null or { Length: 0 } && WorkspaceWindowRegistry.TryActivate(options.WorkspaceRoot))
+            // 显式场景跳过复用；隔离实例不激活或覆盖用户窗口登记。
+            bool reuseWorkspaceWindow = options.ShouldReuseWorkspaceWindow;
+            if (reuseWorkspaceWindow && WorkspaceWindowRegistry.TryActivate(options.WorkspaceRoot))
             {
                 return 0;
             }
+
             using ShellWindow window = new(options, settings.Window);
             window.Show();
             // 登记窗口句柄，供后续同工作区实例激活本窗口。
-            _ = WorkspaceWindowRegistry.Register(window.Handle, options.WorkspaceRoot);
+            if (!options.HasIsolatedState)
+            {
+                _ = WorkspaceWindowRegistry.Register(window.Handle, options.WorkspaceRoot);
+            }
+
             return ShellWindow.RunMessageLoop();
         }
         catch (Exception exception)
         {
-            _ = MessageBox(0, exception.ToString(), "Augit", 0x00000010);
+            _ = MessageBox(0, ShellFailureText.Startup(exception), "Augit", 0x00000010);
             return 1;
         }
     }
@@ -47,12 +54,13 @@ internal static class Program
     /// <summary>
     /// 读取用户设置。读取失败（文件损坏、无权限）时返回默认设置：
     /// 启动不能因为设置文件而失败，此时窗口用默认尺寸与位置。
+    /// <paramref name="settingsFile"/> 为审计指定的设置文件，null 时用默认设置。
     /// </summary>
-    private static ApplicationSettings LoadSettings()
+    internal static ApplicationSettings LoadSettings(string? settingsFile)
     {
         try
         {
-            SettingsStore store = new();
+            SettingsStore store = new(settingsFile);
             return store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)

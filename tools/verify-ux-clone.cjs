@@ -45,24 +45,24 @@ async function main() {
           assert.equal(await dialog.locator('#clone-depth').isDisabled(), true);
           // 权威 `DvcsCloneDialogComponent.kt:127`：`isOkActionEnabled() = getUrl().isNotBlank()`
           // ⇒ **URL 为空时克隆按钮直接禁用**（原断言编码的是"点击后提示"的旧交互，第 144 轮按权威改正）。
-          assert.equal(await dialog.getByRole('button', { name: '克隆', exact: true }).isDisabled(), true);
+          assert.equal(await dialog.getByRole('button', { name: 'Clone', exact: true }).isDisabled(), true);
           assert.equal(await dialog.locator('.clone-notice').textContent(), '');
           await dialog.locator('#clone-source').fill('https://example.invalid/team/repo.git');
-          assert.equal(await dialog.getByRole('button', { name: '克隆', exact: true }).isDisabled(), false);
+          assert.equal(await dialog.getByRole('button', { name: 'Clone', exact: true }).isDisabled(), false);
           // 目录为空仍走点击时校验（`ux-spec:541`：提示原因并聚焦对应输入）——
           // 权威的目录是随 URL 自动派生的，Augit 的目录初始为空，因此这一档必须保留。
-          await dialog.getByRole('button', { name: '克隆', exact: true }).click();
-          assert.equal(await dialog.locator('.clone-notice').textContent(), '请输入仓库地址和目标目录。');
+          await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
+          assert.equal(await dialog.locator('.clone-notice').textContent(), 'Enter a repository URL and destination.');
           assert.equal(await dialog.locator('#clone-destination').evaluate(node => node === document.activeElement), true);
           await dialog.locator('#clone-destination').fill('D:\\clone-result');
           await dialog.locator('#clone-shallow').check();
           assert.equal(await dialog.locator('#clone-depth').isDisabled(), false);
           await dialog.locator('#clone-depth').fill('0');
-          await dialog.getByRole('button', { name: '克隆', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
           assert.equal(await dialog.locator('#clone-source').isDisabled(), false);
-          assert.equal(await dialog.locator('.clone-notice').textContent(), '浅克隆深度必须是正整数。');
+          assert.equal(await dialog.locator('.clone-notice').textContent(), 'Shallow clone depth must be a positive integer.');
           await dialog.locator('#clone-depth').fill('7');
-          await dialog.getByRole('button', { name: '克隆', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
           assert.equal(await dialog.locator('#clone-source').isDisabled(), true);
           await page.waitForSelector('.clone-dialog[data-state="failure"]');
           assert.equal(await dialog.locator('#clone-source').inputValue(), 'https://example.invalid/team/repo.git');
@@ -80,15 +80,15 @@ async function main() {
             const bounds = node.getBoundingClientRect(), viewport = node.closest('.dialog-body').getBoundingClientRect();
             return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
           }), true);
-          await dialog.getByRole('button', { name: '克隆', exact: true }).click();
-          await dialog.getByRole('button', { name: '取消操作', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
           assert.equal(await dialog.getAttribute('data-state'), 'cancelling');
           assert.equal(await dialog.locator('#clone-source').isDisabled(), true);
           await page.waitForSelector('.clone-dialog[data-state="cancelled"]');
-          assert.equal(await dialog.locator('.clone-notice').textContent(), '操作已取消。');
+          assert.equal(await dialog.locator('.clone-notice').textContent(), 'Operation cancelled.');
           assert.equal(await dialog.locator('#clone-depth').inputValue(), '7');
           assert.deepEqual(await dialog.locator('.dialog-footer').boundingBox(), footerBefore);
-          await dialog.getByRole('button', { name: '克隆', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
           await page.waitForSelector('.clone-dialog', { state: 'detached' });
           assert.equal(await dialog.count(), 0);
           assert.equal(await page.locator('.scrim').count(), 0);
@@ -124,16 +124,16 @@ async function main() {
     await page.keyboard.press('Enter'); await page.keyboard.press('Escape');
     assert.equal(await dialog.count(), 1); assert.equal(await dialog.locator('#clone-source').isDisabled(), false);
     await dialog.locator('#clone-source').dispatchEvent('compositionend'); await page.keyboard.press('Enter');
-    await dialog.getByRole('button', { name: '取消操作', exact: true }).click();
-    assert.equal(await dialog.getByRole('button', { name: '取消操作', exact: true }).count(), 1);
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(await dialog.getByRole('button', { name: 'Cancel', exact: true }).count(), 1);
     await page.waitForSelector('.clone-dialog[data-state="cancelled"]');
-    assert.equal(await dialog.locator('.clone-notice').textContent(), '操作已取消。');
+    assert.equal(await dialog.locator('.clone-notice').textContent(), 'Operation cancelled.');
     await page.keyboard.press('Escape'); assert.equal(await dialog.count(), 0);
     const success = new URL(file); success.searchParams.set('clone-result', 'success');
     await page.goto(success.href); await page.waitForSelector('body[data-typography-preview="ready"]');
     await page.locator('#clone-source').fill('https://example.invalid/team/repo.git');
     await page.locator('#clone-destination').fill('D:\\clone-result');
-    await page.getByRole('button', { name: '克隆', exact: true }).click();
+    await page.getByRole('button', { name: 'Clone', exact: true }).click();
     await page.waitForSelector('.clone-dialog', { state: 'detached' });
     assert.equal(await page.locator('.scrim').count(), 0);
     assert.deepEqual(pageErrors, []);

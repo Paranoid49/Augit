@@ -1,5 +1,13 @@
 # 12 · Commit / Changes 的交互与启用条件
 
+2026-10-17状态三路并行：status、branch、HEAD同时启动并等待全部退出，失败顺序保持。正常入口状态查询约143–154ms降至87–94ms；单次写入最后撤盖578/480/460/487ms，连续写入652/485/474/486ms，最终内容及批次串行通过。首次仍超500ms，1212/1262完整帧仍265/187变化像素，不计无闪。20项Infrastructure及2项桥接覆盖、格式/共享资产通过；两批PID/端口/临时目录独立清理。Infrastructure映射SHA256=A08EB839…2C27964B，Shell及网页未变。见[本批记录](../refresh-status-three-parallel-2026-10-17.md)，整体未完成。
+
+2026-10-14本批次按Tree.border与ClassicPainter重整Changes起点，展开画布恢复16px；局部原始PNG相对缩进33px、行步长42px、蓝框28×28px与参考一致。最新48组合、9项实时回归及6组Changes连续工作流通过；四文件MD5为3EEACB9FE4AA6B29CBE0F3495E426CC5／5C1D95FC4479C3DC8BB22D5869324890／F9F6922B29C334F35C9884A536BA3A35／F297BF8769E249CA0D804F4F4EEEF5A9，前后哈希与整窗−2px保留边界见[接续记录](../pixel-font-followup-2026-10-13.md)§4／§6。
+
+2026-10-13像素整改的当前几何、用户裁决、前后哈希、验证与保留边界见[本批次记录](../pixel-restoration-2026-10-13.md)及[25分册](25-pixel-restoration.md)。旧独立15px复选框、Amend中性图标和Windows按钮右主动作按本批次订正。
+
+2026-10-10 当前规则：Changes 分组/文件行的 12px 基线为24px，随字号按 `max(round(24s), h)` 扩展；输入栏显示“Amend last commit”与相邻历史图标，数量由列表分组呈现。复选提交、Amend 草稿保护和历史入口命令保持独立。当前场景验证见 [场景整改](../scene-alignment-2026-10-10.md)；本册旧 27px 行高和独立蓝色 Last Commit 文字布局不再作为现行外观。
+
 本册是 `11-surface-audit.md` 第 1 区的采集结果，按区域分批补齐。**采集口径**：每条都带 checkout 里的文件:行号；实现在 Next 轮按此改。
 
 ## 1. 提交按钮的启用判据（权威）

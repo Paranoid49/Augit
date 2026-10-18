@@ -17,9 +17,12 @@ public sealed class SearchStatusTextTests
     [TestMethod]
     public void 超时文案说明已保留完成的结果且与视觉稿逐字一致()
     {
-        // 宿主文案必须与视觉基线里的产品文案逐字一致（共享文件与运行时同源的那一份）。
+        // 宿主中文说明经现行英文文案层转换，转换结果须与共享视觉基线逐字一致。
         string mockup = File.ReadAllText(FindRepositoryFile("web/src/mockup.js"));
-        StringAssert.Contains(mockup, SearchOptions.SearchTimedOutMessage);
+        string translations = File.ReadAllText(FindRepositoryFile("web/src/ui-text.js"));
+        const string expected = "Search timed out; completed results are preserved.";
+        Assert.IsTrue(translations.Contains($"\"{SearchOptions.SearchTimedOutMessage}\": \"{expected}\"", StringComparison.Ordinal), "宿主超时说明须有明确的英文映射。");
+        Assert.IsTrue(mockup.Contains(expected, StringComparison.Ordinal), "视觉基线须使用相同超时说明。");
         // 结果集在超时标记下给出的说明就是这句话（经辅助方法构造，避免分析器把断言折叠成常量）。
         Assert.AreEqual(SearchOptions.SearchTimedOutMessage, NoticeOf(timedOut: true, cancelled: false));
     }

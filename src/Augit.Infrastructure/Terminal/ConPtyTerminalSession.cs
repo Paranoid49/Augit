@@ -430,6 +430,8 @@ public sealed class ConPtyTerminalSession : IDisposable
             StartupInfo = new()
             {
                 Size = checked((uint)Marshal.SizeOf<ConPtyNativeMethods.StartupInfoEx>()),
+                // 显式清空父进程重定向句柄，由伪控制台提供标准输入输出。
+                Flags = ConPtyNativeMethods.StartfUseStdHandles,
             },
             AttributeList = attributeList,
         };

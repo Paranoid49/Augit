@@ -1,6 +1,29 @@
 // 当前文件查找的可交互视觉稿；只搜索页面内的固定样本，不读取或修改工作区文件。
-function currentFindBar() {
-  return `<div class="current-find"><input class="search-field" value="" aria-label="当前文件查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式">${icon("regex")}</button><span class="find-status" title=""></span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>`;
+function currentFindBar(query = '', status = '', regex = false) {
+  return `<div class="current-find"><div class="find-input-shell"><span class="find-search-icon">${icon('search')}</span><input class="search-field" value="${escapeHtml(query)}" placeholder="Search" aria-label="Find in File"><div class="find-options"><button class="icon-button" aria-label="Match case" aria-pressed="false">${icon("case-sensitive")}</button><button class="icon-button" aria-label="Words" aria-pressed="false">${icon("whole-word")}</button><button class="icon-button" aria-label="Regex" aria-pressed="${regex}">${icon("regex")}</button></div></div><span class="find-status" title="${escapeHtml(status)}">${escapeHtml(status)}</span><button class="icon-button" aria-label="Previous Match" disabled aria-disabled="true">${icon("arrow-up")}</button><button class="icon-button" aria-label="Next Match" disabled aria-disabled="true">${icon("arrow-down")}</button><span class="find-space"></span><button class="icon-button" aria-label="Close Find">${icon("x")}</button></div>`;
+}
+
+/** 导航可用性与参考hasMatches()/isSearchInProgress一致，禁用项不进入Tab循环。 */
+function updateFindNavigation(bar, enabled) {
+  bar?.querySelectorAll('[aria-label="Previous Match"],[aria-label="Next Match"]').forEach(button => {
+    button.disabled = !enabled;
+    button.setAttribute('aria-disabled', String(!enabled));
+  });
+}
+
+/** 正文与 Diff 共用的快捷键归属：模态、其它输入区和输入法优先处理按键。 */
+function bindFindShortcutGuard(owner, signal) {
+  let composing = false;
+  document.addEventListener('compositionstart', () => { composing = true; }, { capture: true, signal });
+  document.addEventListener('compositionend', () => { composing = false; }, { capture: true, signal });
+  return event => {
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat || composing
+        || !owner.isConnected || owner.closest('[hidden], [inert]') || !owner.getClientRects().length) return false;
+    const overlays = document.querySelectorAll('.dialog, .popover, .search-overlay, .live-overlay, [aria-modal="true"]');
+    if ([...overlays].some(node => !owner.contains(node) && !node.closest('[hidden]') && node.getClientRects().length)) return false;
+    const input = event.target?.closest?.('input, textarea, select, [contenteditable="true"]');
+    return !input || !!(owner.contains(input) && input.closest('.current-find'));
+  };
 }
 
 /**
@@ -79,6 +102,7 @@ function bindDiffFind() {
     if (layout.dataset.diffFindBound) return;
     layout.dataset.diffFindBound = 'true';
     const lifetime = new AbortController();
+    const ownsShortcut = bindFindShortcutGuard(layout, lifetime.signal);
     const scroller = () => layout.querySelector(':scope > .diff-columns');
     // 逻辑行：双栏取左右并集（新侧优先），单栏的正文里本来就只有一份。
     const readRows = () => {
@@ -121,6 +145,7 @@ function bindDiffFind() {
       const output = bar && bar.querySelector('.find-status');
       if (!output) return;
       output.textContent = output.title = text;
+      updateFindNavigation(bar, !composing && matches.length > 0);
       measureCurrentFind();
     };
     const readSource = () => {
@@ -172,7 +197,7 @@ function bindDiffFind() {
       if (!preserveScroll) scrollToCurrent();
     };
     const search = (restoreCurrent = false) => {
-      savedQuery = label('当前文件查找') ? label('当前文件查找').value : '';
+      savedQuery = label('Find in File') ? label('Find in File').value : '';
       const live = state();
       live.query = savedQuery;
       clearHighlight();
@@ -184,7 +209,7 @@ function bindDiffFind() {
       } catch {
         matches = [];
         live.current = -1;
-        status('正则表达式无效');
+        status('Invalid regular expression');
         return;
       }
       if (matches.length && restoreCurrent && live.current >= 0) {
@@ -197,7 +222,7 @@ function bindDiffFind() {
       if (matches.length) select(false);
       else count();
     };
-    const navigate = backwards => { if (!composing) select(backwards); };
+    const navigate = backwards => { if (!composing && matches.length) select(backwards); };
     // `teardown` 只拆 DOM 与在途查询，**不动**"打开/查询/当前项"这些用户状态：
     // 区域重绘（切换单双栏、外部更新）走这条路，重绑后据此把查找条恢复回原位。
     const teardown = () => {
@@ -223,10 +248,10 @@ function bindDiffFind() {
         const columns = scroller();
         if (columns) layout.insertBefore(bar, columns);
         else layout.append(bar);
-        const input = label('当前文件查找');
+        const input = label('Find in File');
         input.value = savedQuery;
         bar.querySelectorAll('button[aria-label]').forEach(button => { button.title = button.getAttribute('aria-label'); });
-        for (const [name, key] of [['区分大小写', 'case'], ['全字匹配', 'whole'], ['正则表达式', 'regex']]) {
+        for (const [name, key] of [['Match case', 'case'], ['Words', 'whole'], ['Regex', 'regex']]) {
           const button = label(name);
           button.setAttribute('aria-pressed', String(options[key]));
           button.onclick = () => {
@@ -235,10 +260,10 @@ function bindDiffFind() {
             search();
           };
         }
-        label('上一项').onclick = () => navigate(true);
-        label('下一项').onclick = () => navigate(false);
-        label('关闭查找').onclick = close;
-        input.addEventListener('compositionstart', () => { composing = true; }, { signal: lifetime.signal });
+        label('Previous Match').onclick = () => navigate(true);
+        label('Next Match').onclick = () => navigate(false);
+        label('Close Find').onclick = close;
+        input.addEventListener('compositionstart', () => { composing = true; updateFindNavigation(bar,false); }, { signal: lifetime.signal });
         input.addEventListener('compositionend', () => { composing = false; search(); }, { signal: lifetime.signal });
         input.oninput = event => { if (!composing && !event.isComposing) search(); };
         bar.onkeydown = event => {
@@ -248,28 +273,28 @@ function bindDiffFind() {
           else if (event.key === 'Enter' && event.target === input && !event.repeat) { event.preventDefault(); navigate(event.shiftKey); }
           else if (event.key === 'Tab') {
             event.preventDefault();
-            const controls = [...bar.querySelectorAll('input, button')];
+            const controls = [...bar.querySelectorAll('input, button:not(:disabled)')];
             const index = controls.indexOf(document.activeElement);
             controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus();
           }
         };
       }
-      label('当前文件查找').focus({ preventScroll: true });
+      label('Find in File').focus({ preventScroll: true });
       const remembered = state();
       if (remembered.query && !savedQuery) {
         savedQuery = remembered.query;
-        const input = label('当前文件查找');
+        const input = label('Find in File');
         if (input) input.value = savedQuery;
       }
       if (savedQuery) search(restore);
     };
     // 工具栏「查找」：打开/关闭本区域的查找条（规格 §7.7 第 5 条的工具栏顺序不变）。
-    const button = layout.querySelector('.diff-toolbar [aria-label="查找"]');
+    const button = layout.querySelector('.diff-toolbar [aria-label="Find"]');
     if (button) button.onclick = () => { if (bar) close(); else open(); };
     // 编辑器正文里的差异也支持 Ctrl+F（预览面只用工具栏按钮，避免与文档正文的查找抢同一个快捷键）。
     if (!layout.closest('[data-live-file-history-preview]')) {
       document.addEventListener('keydown', event => {
-        if (!layout.isConnected || !layout.getClientRects().length) return;
+        if (!ownsShortcut(event) || composing) return;
         if (document.querySelector('.document-view .current-find')) return;
         if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && !event.repeat && event.key.toLowerCase() === 'f') {
           event.preventDefault();
@@ -297,6 +322,7 @@ function bindCurrentFind() {
   // 区域刷新会换掉节点，若不释放旧监听就会随刷新次数累积。
   const lifetime = new AbortController();
   const owner = view;
+  const ownsShortcut = bindFindShortcutGuard(owner, lifetime.signal);
   if (typeof registerRegionDisposer === 'function') {
     registerRegionDisposer(() => { lifetime.abort(); owner.dataset.findBound = ''; });
   }
@@ -317,7 +343,7 @@ function bindCurrentFind() {
   const initialState = new URLSearchParams(location.search).get('find-state');
   let savedQuery = bar || initialState ? retainedBar.querySelector('input').value : '';
   let options = { case: false, whole: false, regex: ['invalid', 'timeout'].includes(initialState) };
-  let matches = [], current = -1, queue = [], worker = null, workerUrl = null;
+  let matches = [], current = -1, worker = null, workerUrl = null;
   let timeout = null, progress = null, generation = 0, busy = false, completed = false, statusText = '';
   let preset = ['loading', 'timeout'].includes(initialState) ? initialState : null;
   let composing = false, compositionStatus = '';
@@ -343,6 +369,7 @@ function bindCurrentFind() {
     const output = bar?.querySelector('.find-status');
     if (!output) return;
     output.textContent = output.title = text;
+    updateFindNavigation(bar, !busy && !composing && completed && matches.length > 0);
     measureCurrentFind();
   };
   const stop = () => {
@@ -350,7 +377,8 @@ function bindCurrentFind() {
     clearTimeout(timeout); clearTimeout(progress);
     worker?.terminate(); worker = null;
     if (workerUrl) URL.revokeObjectURL(workerUrl);
-    workerUrl = null; busy = false; queue = [];
+    workerUrl = null; busy = false;
+    updateFindNavigation(bar, false);
   };
   const clearHighlight = () => {
     code.querySelectorAll('[data-find-selected]').forEach(row => {
@@ -394,7 +422,10 @@ function bindCurrentFind() {
     if (bounds.right > viewport.right) code.scrollLeft += bounds.right - viewport.right + 8;
     else if (bounds.left < viewport.left) code.scrollLeft -= viewport.left - bounds.left + 8;
   };
-  const navigate = backwards => { if (composing) return; if (busy) queue.push(backwards); else select(backwards); };
+  const navigate = backwards => {
+    if (composing || busy || !completed || !matches.length) return;
+    select(backwards);
+  };
   // 匹配规则是**模块级**的 `computeFindMatches()`（Diff 正文查找共用同一份，见文件头）。
   const computeMatches = data => computeFindMatches(data);
   // `anchor`：正文被外部更新后就地重算时，**原当前匹配的字符起点**。给了锚点时选第一条
@@ -402,11 +433,11 @@ function bindCurrentFind() {
   const search = (preservePosition = false, anchor = -1) => {
     if (composing || !bar) return;
     stop(); completed = false; current = -1; matches = []; clearHighlight();
-    savedQuery = label('当前文件查找').value;
+    savedQuery = label('Find in File').value;
     status('');
     if (!savedQuery) { completed = true; return; }
     const request = { source, query: savedQuery, ...options };
-    if (preset) { completed = true; status(preset === 'loading' ? '正在搜索…' : '查找超时'); return; }
+    if (preset) { completed = true; status(preset === 'loading' ? 'Searching…' : 'Search timed out'); return; }
     const accept = result => {
       busy = false; completed = true; clearTimeout(timeout); clearTimeout(progress);
       matches = result; status(`0/${matches.length}`);
@@ -421,13 +452,14 @@ function bindCurrentFind() {
           select(false, preservePosition);
         }
       }
-      for (const backwards of queue.splice(0)) select(backwards);
     };
     if (!options.regex) {
       // **同步路径**（非正则）也要有同一个测试注入点：小文档走的就是这条，
       // 只给 Worker 路径加延迟时"在途窗口"根本不存在（第 127 轮第二次跑因此得到 `status: "1/2"`）。
       const injectableSync = Number(window.__augitFindResultDelay || 0) || 0;
       if (injectableSync > 0) {
+        busy = true;
+        updateFindNavigation(bar, false);
         const token = generation;
         setTimeout(() => {
           // 延迟期间用户可能已经开始组词（`compositionstart` 会抬 `generation`）⇒ 必须重新校验。
@@ -442,7 +474,7 @@ function bindCurrentFind() {
     busy = true;
     const version = generation;
     // 测试可注入的**后台启动耗时** `window.__augitFindResultDelay`：让"查询在途"窗口可观测
-    // （规格 §7.2：150ms 后才显示"正在搜索…"、在途期间的上一项/下一项进方向队列、
+    // （规格 §7.2：150ms 后才显示"正在搜索…"、在途期间禁用上一项/下一项、
     // 组词/换查询/隐藏/关闭必须让旧结果失效）。延迟放在 Worker 报告就绪**之前**，
     // 这样页面侧的 150ms 加载阈值与"仍在计算"的语义都与真实大文档一致。
     // 生产环境该值为空 ⇒ 生成的就是原实现逐字相同的 `postMessage({ready:true});`，不产生额外延迟。
@@ -459,25 +491,24 @@ function bindCurrentFind() {
       if (event.data.ready) {
         // 250ms 从 Worker 就绪后开始，避免把进程调度和启动时间误报成正则超时。
         clearTimeout(timeout);
-        timeout = setTimeout(() => { if (generation === version) { stop(); completed = true; status('查找超时'); } }, 250);
+        timeout = setTimeout(() => { if (generation === version) { stop(); completed = true; status('Search timed out'); } }, 250);
         worker.postMessage(request);
         return;
       }
-      const pending = queue;
-      stop(); queue = pending;
-      if (event.data.error) { queue = []; completed = true; status('正则表达式无效'); }
+      stop();
+      if (event.data.error) { completed = true; status('Invalid regular expression'); }
       else accept(event.data.matches);
     };
-    worker.onerror = () => { if (generation === version) { stop(); completed = true; status('查找失败'); } };
-    progress = setTimeout(() => { if (generation === version) status('正在搜索…'); }, 150);
-    timeout = setTimeout(() => { if (generation === version) { stop(); completed = true; status('查找失败'); } }, 5000);
+    worker.onerror = () => { if (generation === version) { stop(); completed = true; status('Search failed'); } };
+    progress = setTimeout(() => { if (generation === version) status('Searching…'); }, 150);
+    timeout = setTimeout(() => { if (generation === version) { stop(); completed = true; status('Search failed'); } }, 5000);
   };
   const close = () => {
     composing = false;
     compositionEvents?.abort(); compositionEvents = null;
     // 组词未确认即关闭时，原匹配只属于旧查询，不能用旧数量冒充新文字的结果。
-    if (savedQuery !== label('当前文件查找').value) completed = false;
-    savedQuery = label('当前文件查找').value;
+    if (savedQuery !== label('Find in File').value) completed = false;
+    savedQuery = label('Find in File').value;
     stop(); clearHighlight(); bar.remove(); bar = null;
     // 高亮只是查找状态；关闭后保留普通正文选区，不能继续涂亮所有匹配。
     if (current >= 0 && matches[current]) {
@@ -501,20 +532,20 @@ function bindCurrentFind() {
   // `preservePosition`：**重绑定**（区域重绘后由 `bindCurrentFind()` 再挂一次）不得把"当前匹配"
   // 当成一次导航去滚动正文，否则外部更新/状态刷新会把用户的阅读位置拽回匹配处（第 282 轮实测）。
   const wire = (preservePosition = false) => {
-    const input = label('当前文件查找');
+    const input = label('Find in File');
     compositionEvents?.abort();
     compositionEvents = new AbortController();
     const compositionOptions = { signal: compositionEvents.signal };
     input.value = savedQuery;
     bar.querySelectorAll('button[aria-label]').forEach(button => { button.title = button.getAttribute('aria-label'); });
-    for (const [name, key] of [['区分大小写', 'case'], ['全字匹配', 'whole'], ['正则表达式', 'regex']]) {
+    for (const [name, key] of [['Match case', 'case'], ['Words', 'whole'], ['Regex', 'regex']]) {
       const button = label(name);
       button.setAttribute('aria-pressed', String(options[key]));
       button.onclick = () => { options[key] = !options[key]; button.setAttribute('aria-pressed', String(options[key])); preset = null; search(); };
     }
-    label('上一项').onclick = () => navigate(true);
-    label('下一项').onclick = () => navigate(false);
-    label('关闭查找').onclick = close;
+    label('Previous Match').onclick = () => navigate(true);
+    label('Next Match').onclick = () => navigate(false);
+    label('Close Find').onclick = close;
     input.addEventListener('compositionstart', () => {
       composing = true;
       compositionStatus = statusText;
@@ -544,7 +575,7 @@ function bindCurrentFind() {
       else if (event.key === 'Enter' && event.target === input && !event.repeat) { event.preventDefault(); navigate(event.shiftKey); }
       else if (event.key === 'Tab') {
         event.preventDefault();
-        const controls = [...bar.querySelectorAll('input, button')];
+        const controls = [...bar.querySelectorAll('input, button:not(:disabled)')];
         const index = controls.indexOf(document.activeElement);
         controls[(index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length].focus();
       }
@@ -566,13 +597,15 @@ function bindCurrentFind() {
     if (restoreFocus) input.focus({ preventScroll: true });
   };
   const open = () => {
-    if (view.dataset.markdownMode === 'preview') view.querySelector('[data-markdown-mode="source"]').click();
+    if (view.dataset.markdownMode === 'preview') document.querySelector('.editor-tabs [data-markdown-mode="source"]')?.click();
     readSource();
     if (!bar) { bar = retainedBar; view.insertBefore(bar, bodyRegion); wire(); }
-    else label('当前文件查找').focus({ preventScroll: true });
+    else label('Find in File').focus({ preventScroll: true });
   };
-  const searchButton = view.querySelector('[aria-label="当前文件搜索"]');
+  const searchButton = view.querySelector('[aria-label="Find in File"]');
   if (searchButton) searchButton.onclick = open;
+  // Markdown 工具条没有单独的 Find 按钮；全局快捷键通过所属视图事件进入同一查找状态机。
+  view.addEventListener('open-current-find', open, { signal: lifetime.signal });
   view.addEventListener('document-content-changed', event => {
     // 就地更新正文（外部变化）时会带 `preserveMatch`：先把**原当前匹配的字符起点**记下来，
     // 重算后从它继续，而不是跳回第一项（规格 §7.2：下一项从原查找位置继续）。
@@ -580,7 +613,7 @@ function bindCurrentFind() {
     const anchor = keepMatch
       ? (current >= 0 && matches[current] ? matches[current].start : savedPosition())
       : -1;
-    if (bar) savedQuery = label('当前文件查找').value;
+    if (bar) savedQuery = label('Find in File').value;
     stop(); clearHighlight(); readSource(); matches = []; current = -1; completed = false;
     if (bar && view.dataset.markdownMode !== 'preview') { preset = null; search(false, anchor); }
     else if (bar) { bar.remove(); bar = null; }
@@ -590,8 +623,7 @@ function bindCurrentFind() {
     //（第 287 轮实测：普通文本外部更新后第二次处理把命中行的正文写成 undefined，正文被清空）。
   }, { signal: lifetime.signal });
   document.addEventListener('keydown', event => {
-    if (!view.isConnected || view.closest('[hidden]') || !view.getClientRects().length
-        || event.isComposing || event.keyCode === 229 || event.repeat) return;
+    if (!ownsShortcut(event) || composing) return;
     // 查找条失焦后，Esc 仍属于当前查找业务流；不能依赖 bar.onkeydown（焦点已不在条内）。
     // 已被更高层弹层消费的 Esc 保持原语义，避免关闭查找条后又关闭模态窗口。
     if (event.key === 'Escape' && !composing && bar && bar.isConnected && !event.defaultPrevented) {
@@ -607,7 +639,7 @@ function bindCurrentFind() {
   window.addEventListener('pagehide', stop, { signal: lifetime.signal });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { composing = false; stop(); }
-    else if (bar && (!completed || label('当前文件查找').value !== savedQuery)) search();
+    else if (bar && (!completed || label('Find in File').value !== savedQuery)) search();
   }, { signal: lifetime.signal });
   if (bar) wire(true);
   else if (initialState) open();

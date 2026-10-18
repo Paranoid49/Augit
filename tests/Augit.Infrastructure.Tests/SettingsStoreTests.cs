@@ -6,90 +6,79 @@ namespace Augit.Infrastructure.Tests;
 public sealed class SettingsStoreTests
 {
     [TestMethod]
-    public async Task 新配置使用中文界面字体而旧字体选择继续保留()
+    public async Task 布局工作区归属保存时规范化且不更改会话工作区()
     {
         using TemporaryDirectory temporary = new();
-        string path = temporary.GetPath("settings.json");
-        SettingsStore store = new(path);
-        ApplicationSettings fresh = await store.LoadAsync();
-        Assert.AreEqual("Microsoft YaHei UI", fresh.TextFontFamily);
-        // 全新配置（文件不存在）采用本次 PyCharm 对照基线：界面 12px、等宽 13px。
-        // 12px 只是新配置的初值，不是覆盖已有用户的强制值（见下面的旧配置用例）。
-        Assert.AreEqual(12d, fresh.UiFontSize);
-        Assert.AreEqual(13d, fresh.FontSize);
-        await File.WriteAllTextAsync(path, "{\"textFontFamily\":\"Segoe UI Variable Text\",\"monospaceFontFamily\":\"Consolas\"}");
-        ApplicationSettings existing = await store.LoadAsync();
-        await store.SaveAsync(existing);
-        ApplicationSettings reloaded = await store.LoadAsync();
-        Assert.AreEqual("Segoe UI Variable Text", reloaded.TextFontFamily);
-        Assert.AreEqual("Consolas", reloaded.MonospaceFontFamily);
-    }
-
-    [TestMethod]
-    public async Task 字体字号分别保存且旧配置保持原有字号()
-    {
-        using TemporaryDirectory temporary = new();
-        string path = temporary.GetPath("settings.json");
-        await File.WriteAllTextAsync(path, "{\"fontSize\":17}");
-        SettingsStore store = new(path);
-        ApplicationSettings legacy = await store.LoadAsync();
-        // 旧配置只保存一个共用字号：两类文字先沿用旧值 17，不被新配置的 12px 对照基线改写
-        // （design-system.md §5.3 末）。
-        Assert.IsNull(legacy.TextFontSize);
-        Assert.AreEqual(17d, legacy.UiFontSize);
-        Assert.AreEqual(17d, legacy.FontSize);
-
-        // 旧配置整体回写后 textFontSize 会以 null 落盘；重新读取仍要沿用共用字号，
-        // 不能在一次保存之后就跳回默认值。
-        await store.SaveAsync(legacy);
-        ApplicationSettings roundTripped = await store.LoadAsync();
-        Assert.IsNull(roundTripped.TextFontSize);
-        Assert.AreEqual(17d, roundTripped.UiFontSize);
-
-        await store.SaveAsync(roundTripped with { TextFontSize = 13, FontSize = 19 });
-        ApplicationSettings updated = await store.LoadAsync();
-        Assert.AreEqual(13d, updated.UiFontSize);
-        Assert.AreEqual(19d, updated.FontSize);
-
-        await store.SaveAsync(updated with { FontSize = 22 });
-        ApplicationSettings codeChanged = await store.LoadAsync();
-        Assert.AreEqual(13d, codeChanged.UiFontSize);
-        Assert.AreEqual(22d, codeChanged.FontSize);
-        Assert.DoesNotContain("uiFontSize", await File.ReadAllTextAsync(path), StringComparison.Ordinal);
-    }
-
-    [TestMethod]
-    public async Task 旧配置缺少共用字号时沿用默认字号而不套用新界面基线()
-    {
-        // 已经存在 settings.json 的用户即使没写过 fontSize，升级前也是按 FontSize 默认值 13 渲染；
-        // 迁移不得把这份既有配置改成新配置才有的 12px 对照基线，否则等于替用户改了设置。
-        using TemporaryDirectory temporary = new();
-        string path = temporary.GetPath("settings.json");
-        await File.WriteAllTextAsync(path, "{\"theme\":\"Dark\"}");
-        SettingsStore store = new(path);
-
-        ApplicationSettings legacy = await store.LoadAsync();
-
-        Assert.AreEqual("Dark", legacy.Theme);
-        Assert.IsNull(legacy.TextFontSize);
-        Assert.AreEqual(13d, legacy.UiFontSize);
-        Assert.AreEqual(13d, legacy.FontSize);
-    }
-
-    [TestMethod]
-    public async Task 新配置保存后界面字号与等宽字号各自独立()
-    {
-        using TemporaryDirectory temporary = new();
-        string path = temporary.GetPath("settings.json");
-        SettingsStore store = new(path);
-        ApplicationSettings fresh = await store.LoadAsync();
-
-        // 新配置首次保存就把两个字号分开落盘，互不覆盖。
-        await store.SaveAsync(fresh with { TextFontSize = 15, FontSize = 18 });
+        SettingsStore store = new(temporary.GetPath("settings.json"));
+        string sessionRoot = temporary.GetPath("session");
+        string layoutRoot = temporary.GetPath("layout/../current");
+        await store.SaveAsync(new()
+        {
+            LastWorkspace = sessionRoot,
+            ToolWindows = new() { WorkspaceRoot = layoutRoot, ProjectPanelWidth = 360 },
+        });
         ApplicationSettings saved = await store.LoadAsync();
+        Assert.AreEqual(Path.GetFullPath(layoutRoot), saved.ToolWindows.WorkspaceRoot);
+        Assert.AreEqual(sessionRoot, saved.LastWorkspace);
+        Assert.AreEqual(360d, saved.ToolWindows.ProjectPanelWidth);
+    }
 
+    [TestMethod]
+    public async Task 旧外观迁移到测试基准且不丢失工作区会话()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("settings.json");
+        const string original = """{"theme":"Dark","textFontFamily":"Segoe UI","textFontSize":14,"monospaceFontFamily":"Consolas","fontSize":17,"lastWorkspace":"D:\\repo","openFiles":["a.cs"],"activeFile":"a.cs","toolWindows":{"projectPanelWidth":327},"gitExecutablePath":"custom-git.exe"}""";
+        await File.WriteAllTextAsync(path, original);
+        SettingsStore store = new(path);
+        ApplicationSettings actual = await store.LoadAsync();
+        Assert.AreEqual("Light", actual.Theme);
+        Assert.AreEqual("Microsoft YaHei UI", actual.TextFontFamily);
+        Assert.AreEqual(12d, actual.UiFontSize);
+        Assert.AreEqual("JetBrains Mono", actual.MonospaceFontFamily);
+        Assert.AreEqual(13d, actual.FontSize);
+        Assert.AreEqual(1, actual.AppearanceVersion);
+        Assert.AreEqual(@"D:\repo", actual.LastWorkspace);
+        Assert.AreEqual("a.cs", actual.ActiveFile);
+        Assert.HasCount(1, actual.OpenFiles);
+        Assert.AreEqual("a.cs", actual.OpenFiles[0]);
+        Assert.AreEqual(327d, actual.ToolWindows.ProjectPanelWidth);
+        Assert.AreEqual("custom-git.exe", actual.GitExecutablePath);
+        Assert.AreEqual(original, await File.ReadAllTextAsync(path));
+    }
+
+    [TestMethod]
+    public async Task 迁移后主题与界面调整可保留而正文固定()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("settings.json");
+        await File.WriteAllTextAsync(path, """{"fontSize":17}""");
+        SettingsStore store = new(path);
+        ApplicationSettings migrated = await store.LoadAsync();
+        await store.SaveAsync(migrated with { Theme = "Dark", TextFontSize = 15, FontSize = 22, MonospaceFontFamily = "Consolas" });
+        ApplicationSettings saved = await store.LoadAsync();
+        Assert.AreEqual("Dark", saved.Theme);
         Assert.AreEqual(15d, saved.UiFontSize);
-        Assert.AreEqual(18d, saved.FontSize);
+        Assert.AreEqual("JetBrains Mono", saved.MonospaceFontFamily);
+        Assert.AreEqual(13d, saved.FontSize);
+        Assert.AreEqual(1, saved.AppearanceVersion);
+    }
+
+    [TestMethod]
+    public async Task 只有旧主题或旧共用字号也会迁移且新配置保持系统主题()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("settings.json");
+        SettingsStore store = new(path);
+        Assert.AreEqual("System", (await store.LoadAsync()).Theme);
+        foreach (string json in new[] { """{"theme":"Dark"}""", """{"fontSize":17}""" })
+        {
+            await File.WriteAllTextAsync(path, json);
+            ApplicationSettings settings = await store.LoadAsync();
+            Assert.AreEqual("Light", settings.Theme);
+            Assert.AreEqual(12d, settings.UiFontSize);
+            Assert.AreEqual(13d, settings.FontSize);
+        }
     }
 
     [TestMethod]
@@ -200,7 +189,8 @@ public sealed class SettingsStoreTests
 
         ApplicationSettings actual = await new SettingsStore(settingsPath).LoadAsync();
 
-        Assert.AreEqual("Dark", actual.Theme);
+        Assert.AreEqual("Light", actual.Theme);
+        Assert.AreEqual(1, actual.AppearanceVersion);
         Assert.AreEqual(@"C:\workspace", actual.LastWorkspace);
     }
 

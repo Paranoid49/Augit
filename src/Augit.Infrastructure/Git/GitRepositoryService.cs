@@ -51,20 +51,24 @@ public sealed class GitRepositoryService : IGitRepositoryService
         }
 
         string gitDirectory = NormalizeOutputPath(gitDirectoryResult.StandardOutput);
-        GitCommandResult bareResult = await RunQueryAsync(
+        // 两项只依赖已确认的仓库目录；并行读取，统一等待后再按原顺序处理失败。
+        Task<GitCommandResult> bareTask = RunQueryAsync(
             fullPath!,
             ["rev-parse", "--is-bare-repository"],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
+        Task<GitCommandResult> commonDirectoryTask = RunQueryAsync(
+            fullPath!,
+            ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cancellationToken);
+        await Task.WhenAll(bareTask, commonDirectoryTask).ConfigureAwait(false);
+        GitCommandResult bareResult = await bareTask.ConfigureAwait(false);
         if (!bareResult.IsSuccess)
         {
             return ToFailure(bareResult);
         }
 
         bool isBare = bareResult.StandardOutput.Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
-        GitCommandResult commonDirectoryResult = await RunQueryAsync(
-            fullPath!,
-            ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cancellationToken).ConfigureAwait(false);
+        GitCommandResult commonDirectoryResult = await commonDirectoryTask.ConfigureAwait(false);
         if (!commonDirectoryResult.IsSuccess)
         {
             return ToFailure(commonDirectoryResult);
@@ -84,19 +88,23 @@ public sealed class GitRepositoryService : IGitRepositoryService
             return GitRepositoryOperationResult.Success(bareRepository);
         }
 
-        GitCommandResult rootResult = await RunQueryAsync(
+        // 根目录和冲突索引互不依赖；完成所有读取再返回，避免失败路径遗留在途进程。
+        Task<GitCommandResult> rootTask = RunQueryAsync(
             fullPath!,
             ["rev-parse", "--path-format=absolute", "--show-toplevel"],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
+        Task<GitCommandResult> conflictsTask = RunQueryAsync(
+            fullPath!,
+            ["ls-files", "--unmerged", "-z"],
+            cancellationToken);
+        await Task.WhenAll(rootTask, conflictsTask).ConfigureAwait(false);
+        GitCommandResult rootResult = await rootTask.ConfigureAwait(false);
         if (!rootResult.IsSuccess)
         {
             return ToFailure(rootResult);
         }
 
-        GitCommandResult conflictsResult = await RunQueryAsync(
-            fullPath!,
-            ["ls-files", "--unmerged", "-z"],
-            cancellationToken).ConfigureAwait(false);
+        GitCommandResult conflictsResult = await conflictsTask.ConfigureAwait(false);
         if (!conflictsResult.IsSuccess)
         {
             return ToFailure(conflictsResult);

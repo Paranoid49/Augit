@@ -352,27 +352,3 @@ public interface IGitOperationService
         string branchName,
         CancellationToken cancellationToken = default);
 }
-
-public interface IGitConflictService
-{
-    Task<GitConflictLoadResult> LoadAsync(
-        GitRepositorySnapshot repository,
-        string relativePath,
-        CancellationToken cancellationToken = default);
-
-    Task<GitConflictLoadResult> ReloadWorkingFileAsync(
-        GitRepositorySnapshot repository,
-        GitConflictDocument previous,
-        CancellationToken cancellationToken = default);
-
-    Task<GitConflictMutationResult> SaveResolvedAsync(
-        GitRepositorySnapshot repository,
-        GitConflictSaveRequest request,
-        CancellationToken cancellationToken = default);
-
-    Task<GitConflictMutationResult> AcceptSideAsync(
-        GitRepositorySnapshot repository,
-        string relativePath,
-        GitConflictSide side,
-        CancellationToken cancellationToken = default);
-}

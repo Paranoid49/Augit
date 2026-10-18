@@ -10,6 +10,9 @@ $pairs = @(
   @{ Name = "current-find.js";  Runtime = "web\src\current-find.js";  Mockup = "docs\ux-mockups\current-find.js" },
   @{ Name = "image-preview.js"; Runtime = "web\src\image-preview.js"; Mockup = "docs\ux-mockups\image-preview.js" }
 )
+foreach ($name in @('JetBrainsMono-Regular.woff2', 'JetBrainsMono-Bold.woff2', 'JetBrainsMono-Italic.woff2', 'JetBrainsMono-BoldItalic.woff2', 'OFL.txt')) {
+  $pairs += @{ Name = $name; Runtime = "web\vendor\jetbrains-mono\$name"; Mockup = "docs\vendor\jetbrains-mono\$name" }
+}
 $failed = 0
 foreach ($pair in $pairs) {
   $runtimePath = Join-Path $repo $pair.Runtime

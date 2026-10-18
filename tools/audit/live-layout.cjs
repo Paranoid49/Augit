@@ -38,18 +38,22 @@ module.exports = async function verifyLayout({ browser, port, stubHost, stubData
         check(`${label} rail 跨两行且底部贴主内容区`, near(frame.rail.bottom, frame.main.bottom) && near(frame.bottom.bottom, frame.main.bottom)
           && near(frame.bottom.bottom, frame.status.y) && !frame.overflow);
         const visibleRail = await page.locator('.rail-button.visible:not(.active)').first().evaluate((element) => ({
-          background: getComputedStyle(element).backgroundColor,
+          background: getComputedStyle(element, '::before').backgroundColor,
           shadow: getComputedStyle(element).boxShadow,
         }));
         check(`${label} 可见未激活工具入口使用 PUSHED 按下态`,
-          visibleRail.background === (theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.125)')
+          visibleRail.background === (theme === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)')
             && visibleRail.shadow.includes('0px 0px 0px'));
+        const userScale = Math.max(.75, Math.round(size / 12 * 4) / 4);
         const railSteps = await page.locator('.rail-button').evaluateAll((buttons) => {
-          const tops = buttons.map((button) => Math.round(button.getBoundingClientRect().top)).sort((a, b) => a - b);
-          return tops.slice(1).map((top, index) => top - tops[index]).filter((step) => step < 50);
+          const groupSteps = names => {
+            const tops = buttons.filter(button => names.includes(button.dataset.tool)).map(button => Math.round(button.getBoundingClientRect().top));
+            return tops.slice(1).map((top, index) => top - tops[index]);
+          };
+          return [...groupSteps(['project','commit','search']), ...groupSteps(['terminal','history'])];
         });
-        check(`${label} 工具轨同组按钮按 32px 中心步长排列: ${JSON.stringify(railSteps)}`,
-          railSteps.length > 0 && railSteps.every((step) => step === 32));
+        check(`${label} 工具轨同组按钮按用户缩放后的40px中心步长排列: ${JSON.stringify(railSteps)}`,
+          railSteps.length > 0 && railSteps.every((step) => step === Math.round(40 * userScale)));
 
         // 按下时不跳动；向右变宽，向左变窄，操作不替换正文节点。
         await page.evaluate(() => window.__layoutEditor = document.querySelector('.editor-content'));
@@ -90,34 +94,34 @@ module.exports = async function verifyLayout({ browser, port, stubHost, stubData
 
         // 活动窗口按内容焦点判定：同屏可见的另一个工具窗保持 visible，失焦列表为灰色。
         await page.locator('.side-content.tree').focus();
-        check(`${label} 项目获焦后只有项目 active`, (await active(page)).join(',') === '项目');
-        await page.locator('.rail-button[aria-label="Git 历史"]').focus();
-        check(`${label} rail 键盘焦点不激活工具窗`, (await active(page)).join(',') === '项目');
+        check(`${label} 项目获焦后只有项目 active`, (await active(page)).join(',') === 'Project');
+        await page.locator('.rail-button[aria-label="Git Log"]').focus();
+        check(`${label} rail 键盘焦点不激活工具窗`, (await active(page)).join(',') === 'Project');
         const row = page.locator('.commit-row').first();
         await row.click();
-        check(`${label} 日志列表获焦后只有历史 active`, (await active(page)).join(',') === 'Git 历史');
+        check(`${label} 日志列表获焦后只有历史 active`, (await active(page)).join(',') === 'Git Log');
         const selection = await row.evaluate((element) => ({ hash: element.dataset.hash, color: getComputedStyle(element).backgroundColor }));
         await page.locator('.history-search input').first().focus();
         const inactive = await row.evaluate((element) => ({ selected: element.classList.contains('selected'), hash: element.dataset.hash,
           color: getComputedStyle(element).backgroundColor }));
         check(`${label} 同工具窗输入框获焦后保留选择并转灰`, inactive.selected && inactive.hash === selection.hash
-          && inactive.color !== selection.color && inactive.color === (theme === 'dark' ? 'rgb(67, 69, 74)' : 'rgb(233, 234, 238)'));
+          && inactive.color !== selection.color && inactive.color === (theme === 'dark' ? 'rgb(51, 53, 59)' : 'rgb(233, 234, 238)'));
 
         // 折叠/重显保留原正文节点；两个区域可以独立折叠与恢复。
-        await page.locator('.rail-button[aria-label="Git 历史"]').click();
+        await page.locator('.rail-button[aria-label="Git Log"]').click();
         check(`${label} 折叠历史保留正文节点`, await page.evaluate(() => !document.querySelector('.bottom-tool')
           && document.querySelector('.editor-content') === window.__layoutEditor));
         await page.locator('.side-content.tree').focus();
-        await page.locator('.rail-button[aria-label="项目"]').click();
+        await page.locator('.rail-button[aria-label="Project"]').click();
         check(`${label} 两个工具区可以同时折叠`, !(await geometry(page)).side && !(await geometry(page)).bottom);
-        await page.locator('.rail-button[aria-label="提交"]').click();
-        check(`${label} 折叠项目后可以直接打开提交`, (await page.locator('.side-tool .tool-header').innerText()).includes('提交')
+        await page.locator('.rail-button[aria-label="Commit"]').click();
+        check(`${label} 折叠项目后可以直接打开提交`, (await page.locator('.side-tool .tool-header').innerText()).includes('Commit')
           && !(await geometry(page)).bottom);
-        await page.locator('.rail-button[aria-label="Git 历史"]').click();
+        await page.locator('.rail-button[aria-label="Git Log"]').click();
         frame = await geometry(page);
         check(`${label} 重显后底部仍跨两列并恢复高度`, frame.side && frame.bottom && near(frame.bottom.height, short.bottom.height)
           && near(frame.bottom.x, frame.side.x));
-        await page.locator('.rail-button[aria-label="终端"]').click();
+        await page.locator('.rail-button[aria-label="Terminal"]').click();
         check(`${label} 终端与历史互斥且完整跨栏`, await page.locator('.bottom-tool').count() === 1
           && await page.locator('.bottom-tool.terminal-tool').count() === 1 && near((await geometry(page)).bottom.x, frame.side.x));
         check(`${label} 过程中没有页面异常`, errors.length === 0);
@@ -150,7 +154,7 @@ module.exports = async function verifyLayout({ browser, port, stubHost, stubData
           else panel.setAttribute('aria-disabled', 'true');
         }, reason);
       } else if (reason === 'resize') await page.setViewportSize({ width: 1190, height: 770 });
-      else await page.locator('.rail-button[aria-label="终端"]').evaluate((element) => element.click());
+      else await page.locator('.rail-button[aria-label="Terminal"]').evaluate((element) => element.click());
       await page.waitForFunction(() => !window.__augitPanelDragActive());
       check(`${reason} 释放拖动与样式`, await page.evaluate(() => !document.body.style.cursor && !document.body.style.userSelect));
       await page.mouse.up();
@@ -217,7 +221,7 @@ module.exports = async function verifyLayout({ browser, port, stubHost, stubData
     check('负向：失焦选中仍蓝色被灰色判定拒绝', await page.locator('.commit-row.selected').first().evaluate((element) =>
       getComputedStyle(element).backgroundColor !== 'rgb(67, 69, 74)'));
     await badSelection.evaluate((element) => element.remove());
-    await page.locator('.rail-button[aria-label="项目"]').evaluate((element) => element.classList.add('active'));
+    await page.locator('.rail-button[aria-label="Project"]').evaluate((element) => element.classList.add('active'));
     check('负向：同时两个 active 被单活动窗口判定拒绝', (await active(page)).length !== 1);
   } finally { await restored.close(); }
 

@@ -1,5 +1,9 @@
 # 21 · Markdown 预览字号归属与死令牌（第 314 轮）
 
+2026-10-14真实六组再次验证JetBrains Mono随包字形、13px行盒22px／基线16px；本次未改变Markdown正文规则。当前共享mockup.js/css MD5为3EEACB9FE4AA6B29CBE0F3495E426CC5／5C1D95FC4479C3DC8BB22D5869324890，前后哈希和命令见[接续记录](../pixel-font-followup-2026-10-13.md)§6；仍不能代替Markdown整页墨迹配对。
+
+2026-10-13字体接续见[字体与窗口记录](../pixel-font-followup-2026-10-13.md)：JetBrains Mono2.304已永久安装并随包分发，Markdown代码用等宽设置且关闭连字，正文仍用界面设置。CDP实际自定义字形及独立JBR行盒/基线通过；完整同态墨迹和终端canvas仍待验收。下文为历史取证，不代表当前缺字体。
+
 权威对照：`/mnt/d/github/intellij-community`（commit `576e32820af82f97529d70f9269726803a27c016`）。
 本轮只动 `web/src/mockup.css`（及其字节一致副本 `docs/ux-mockups/mockup.css`），不动产品能力。
 
@@ -86,3 +90,10 @@ node tools/verify-ux-frame-buttons.cjs <playwright> <edge>      # 24/24 通过
 | `--augit-surface-2`（历史记录） | 已在本轮统一为已登记的 `--augit-diff-separator`（浅 `#E4E6EB`／深 `#2B2D30`），不再是待处理项 |
 | 等宽/界面字体回退链与 `design-system.md:127-128` 不一致（缺 `Microsoft Sans Serif`、`Courier New`；用户设过字体后默认族整体被替换） | 需要先裁决「回退链以文档为准还是以实现为准」，并按 §5.4 补「字体缺失显示实际回退字体」 |
 | 菜单项高度 30（`design-system.md:581`）/ 28（实现与 `10-backlog.md`）/ 26（权威 `List.rowHeight 24 + outerInsets 1+1` 推导）三值并存 | 本机无法复现参考图 1.5x 定标，无法判定真值 |
+
+
+## 2026-10-12 整改接续批次
+
+R05／R06：h1–h6改为相对UI字号2.2／1.8／1.3／1／1／1，正文1.6行距和左右2em，代码保留独立等宽字号与1.45行距；来源为当前PyCharm安装包Markdown专属CSS。三模式动作移到标签右侧，正文移除多余工具栏；三模式及阅读状态专项和6组连续交互／2组拖动边界通过。本文第314轮h1／h2排除范围仅为历史，不是现行固定字号规则。
+
+修改文件、命令、耗时、前后四文件MD5、镜像及资源清理统一登记在[整改实施记录](../ui-restoration-fixes-2026-10-12.md)§3–§7；分支dsh、开始HEAD为3e084a2d，原混合工作区保留。当前结论以R项实施及V01–V10场景矩阵为准，不把历史清零转成当前100%复原。

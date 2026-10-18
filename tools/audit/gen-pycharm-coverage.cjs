@@ -90,7 +90,6 @@ const UNCOVERED = new Map(Object.entries({
   'stash-manager': ['PRECONDITION', 'PyCharm 的 Stash/Unstash 需要先有 stash 内容；当前工作区干净'],
   'stash-drop-confirm': ['PRECONDITION', '同上：没有 stash 就看不到删除确认'],
   'conflict-list': ['PRECONDITION', 'PyCharm 的 Merges/冲突视图需要真实冲突文件；当前树干净'],
-  'conflict-resolver': ['PRECONDITION', 'PyCharm 的三栏合并工具需要真实冲突；当前树干净'],
   reset: ['PRECONDITION', 'PyCharm 的 `Rollback…` 需要本地改动；当前树干净（与 rollback 同因）'],
   'git-unavailable': ['AUGIT_ONLY', 'PyCharm 没有"Git 不可用"降级页：它只是隐藏/禁用 VCS 菜单，Augit 用显式页面表达该状态'],
 }));
@@ -106,13 +105,13 @@ const reason = (scene) => {
 };
 
 const out = [];
-out.push('### 1.6 逐页 × PyCharm 对照状态（⑦⑧，55 行有分母；生成器 `tools/audit/gen-pycharm-coverage.cjs`）');
+out.push(`### 1.6 逐页 × PyCharm 对照状态（⑦⑧，${scenes.length} 行有分母；生成器 \`tools/audit/gen-pycharm-coverage.cjs\`）`);
 out.push('');
 out.push('**口径**：PyCharm 没有 Augit 的 diff/冲突/stash/远端等页面形态，**按面**对照（§1.3 的逐面表）才是可核对的；');
 out.push('本表因此给出**每个 Augit 页面**的 PyCharm 侧状态，而不是硬凑一一对应。');
 out.push('`A` = 主窗口 chrome、`B` = 编辑器标签行/树行高、`C` = 设置对话框、`D` = Git Log 工具窗、`E` = Commit 工具窗、`F` = Terminal 工具窗、`G` = Diff 视图、`H` = Search Everywhere、`I` = 文件/编辑器右键菜单（九面均已在 §1.3 有实测值/证据图）。');
 out.push('');
-out.push('| 场景（§1.1 的 55 行） | PyCharm 侧 | 说明 |');
+out.push(`| 场景（§1.1 的 ${scenes.length} 行） | PyCharm 侧 | 说明 |`);
 out.push('| --- | --- | --- |');
 let coveredCount = 0;
 let entryCount = 0;
@@ -130,7 +129,7 @@ out.push(`> 本轮读数：**${coveredCount}/${scenes.length} 个页面**落在�
   + `另有 **${entryCount} 页**只有**入口级/确认框级**证据（不计入面级已对照）；`
   + `其余 ${scenes.length - coveredCount - entryCount} 个页面`);
 out.push('> 的 PyCharm 同类面**尚未采集**（原因逐行写明）。**不把"未采集"写成"已通过"，也不把它算进对照完成率。**');
-out.push('> **这 17 页一律未完成真实前台取证**（分档就是原因分类）；它们的**最终归类**'
+out.push('> **这 ' + uncoveredCount + ' 页一律未完成真实前台取证**（分档就是原因分类）；它们的**最终归类**'
   + '（已按 New UI 对齐／有意产品差异／不适用／无法取证）由 §3.7 按本地权威源码、实现位置与自动化证据逐页给出，'
   + '不来自 PyCharm 面级取证 —— 不要把"未对照"读成"已对齐"，也不要把分档标签当成五类归类。');
 out.push('');

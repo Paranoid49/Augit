@@ -10,7 +10,7 @@ async function verifySplitterDrag(page) {
   const panes = view.locator('.markdown-panes');
   const source = view.locator('.markdown-source');
   const divider = view.locator('.markdown-divider');
-  await page.getByRole('button', { name: '左右对照', exact: true }).click();
+  await page.getByRole('button', { name: 'Split View', exact: true }).click();
   const width = () => source.evaluate(element => element.getBoundingClientRect().width);
   const captured = () => divider.evaluate(element => element.hasPointerCapture(Number(element.dataset.testPointerId)));
   const initialWidth = await width();
@@ -20,8 +20,8 @@ async function verifySplitterDrag(page) {
     element.testModeChanges = 0;
     element.addEventListener('document-content-changed', () => element.testModeChanges++);
   });
-  await view.locator('button[data-markdown-mode="preview"]').evaluate(element => element.click());
-  await view.locator('button[data-markdown-mode="split"]').evaluate(element => element.click());
+  await page.locator('.editor-tabs button[data-markdown-mode="preview"]').evaluate(element => element.click());
+  await page.locator('.editor-tabs button[data-markdown-mode="split"]').evaluate(element => element.click());
   assert.equal(await view.evaluate(element => element.testModeChanges), 2, '重新绑定必须解除旧监听');
   await divider.evaluate(element => element.addEventListener('pointerdown', event => element.dataset.testPointerId = event.pointerId));
   const begin = async () => {
@@ -64,7 +64,7 @@ async function verifySplitterDrag(page) {
         case 'Esc': await page.keyboard.press('Escape'); break;
         case '取消': await divider.evaluate(element => element.dispatchEvent(new PointerEvent('pointercancel', { pointerId: Number(element.dataset.testPointerId) }))); break;
         case '捕获转移': await divider.evaluate(element => element.parentElement.querySelector('.markdown-source').setPointerCapture(Number(element.dataset.testPointerId))); break;
-        case '切换模式': await view.locator('button[data-markdown-mode="preview"]').evaluate(element => element.click()); break;
+        case '切换模式': await page.locator('.editor-tabs button[data-markdown-mode="preview"]').evaluate(element => element.click()); break;
         case '窗口失焦': await page.evaluate(() => window.dispatchEvent(new Event('blur'))); break;
         case '隐藏': await view.evaluate(element => element.hidden = true); break;
       }
@@ -72,7 +72,7 @@ async function verifySplitterDrag(page) {
       assert.equal(await captured(), false, reason);
       await page.mouse.up();
       await view.evaluate(element => element.hidden = false);
-      await view.locator('button[data-markdown-mode="split"]').evaluate(element => element.click());
+      await page.locator('.editor-tabs button[data-markdown-mode="split"]').evaluate(element => element.click());
       await sameWidth(point.before, `${reason}后保留比例`);
     }
     const point = await begin();
@@ -124,28 +124,28 @@ async function main() {
         });
         assert.equal(await preview.locator('[data-font-probe="body"]').evaluate(element => getComputedStyle(element).fontSize), '20px');
         assert.equal(await preview.locator('[data-font-probe="code"]').evaluate(element => getComputedStyle(element).fontSize), '17px');
-        assert.equal(await preview.locator('[data-font-probe="code"] code').evaluate(element => getComputedStyle(element).fontFamily), '"Cascadia Mono", Consolas, monospace');
+        assert.equal(await preview.locator('[data-font-probe="code"] code').evaluate(element => getComputedStyle(element).fontFamily), '"JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace');
       }
       assert.equal(await view.getAttribute('data-markdown-mode'), 'preview');
       const originalText = await preview.innerText();
       await preview.evaluate(element => element.scrollTop = 350);
       const previewTop = await preview.evaluate(element => element.scrollTop);
       assert.ok(previewTop > 0);
-      await page.getByRole('button', { name: '左右对照', exact: true }).click();
+      await page.getByRole('button', { name: 'Split View', exact: true }).click();
       await source.evaluate(element => element.scrollTop = 200);
       const sourceTop = await source.evaluate(element => element.scrollTop);
-      const divider = page.getByRole('separator', { name: '调整 Markdown 对照宽度' });
+      const divider = page.getByRole('separator', { name: 'Adjust Markdown preview width' });
       await divider.focus();
       await page.keyboard.press('ArrowLeft');
       const ratio = await divider.getAttribute('aria-valuenow');
       assert.equal(ratio, '48');
-      await page.getByRole('button', { name: '原文', exact: true }).click();
+      await page.getByRole('button', { name: 'Raw', exact: true }).click();
       assert.equal(await source.evaluate(element => element.scrollTop), sourceTop);
-      await page.getByRole('button', { name: '左右对照', exact: true }).click();
+      await page.getByRole('button', { name: 'Split View', exact: true }).click();
       assert.equal(await source.evaluate(element => element.scrollTop), sourceTop);
       assert.equal(await preview.evaluate(element => element.scrollTop), previewTop);
       assert.equal(await divider.getAttribute('aria-valuenow'), ratio);
-      await page.getByRole('button', { name: '预览', exact: true }).click();
+      await page.getByRole('button', { name: 'Preview', exact: true }).click();
       assert.equal(await preview.evaluate(element => element.scrollTop), previewTop);
       await preview.focus();
       await page.keyboard.type('must-not-edit');

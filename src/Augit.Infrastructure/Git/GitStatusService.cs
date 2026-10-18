@@ -37,7 +37,8 @@ public sealed class GitStatusService : IGitStatusService
                 "Changes 只适用于具有工作区的 Git 仓库。");
         }
 
-        GitCommandResult statusResult = await RunQueryAsync(
+        // 三项只读查询均只依赖仓库根目录；统一等待结束，失败仍按状态、分支、HEAD顺序处理。
+        Task<GitCommandResult> statusTask = RunQueryAsync(
             repository.RepositoryRoot,
             [
                 "status",
@@ -47,7 +48,17 @@ public sealed class GitStatusService : IGitStatusService
                 "--ignore-submodules=all",
                 "--renames",
             ],
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken);
+        Task<GitCommandResult> branchTask = RunQueryAsync(
+            repository.RepositoryRoot,
+            ["branch", "--show-current"],
+            cancellationToken);
+        Task<GitCommandResult> headTask = RunQueryAsync(
+            repository.RepositoryRoot,
+            ["rev-parse", "--verify", "HEAD"],
+            cancellationToken);
+        await Task.WhenAll(statusTask, branchTask, headTask).ConfigureAwait(false);
+        GitCommandResult statusResult = await statusTask.ConfigureAwait(false);
         if (!statusResult.IsSuccess)
         {
             return Failure(statusResult);
@@ -67,10 +78,7 @@ public sealed class GitStatusService : IGitStatusService
                 "无法解析 Git 状态，Changes 已停止刷新。");
         }
 
-        GitCommandResult branchResult = await RunQueryAsync(
-            repository.RepositoryRoot,
-            ["branch", "--show-current"],
-            cancellationToken).ConfigureAwait(false);
+        GitCommandResult branchResult = await branchTask.ConfigureAwait(false);
         if (!branchResult.IsSuccess)
         {
             return Failure(branchResult);
@@ -78,10 +86,7 @@ public sealed class GitStatusService : IGitStatusService
 
         string? branch = NullIfEmpty(branchResult.StandardOutput);
         bool isDetached = false;
-        GitCommandResult headResult = await RunQueryAsync(
-            repository.RepositoryRoot,
-            ["rev-parse", "--verify", "HEAD"],
-            cancellationToken).ConfigureAwait(false);
+        GitCommandResult headResult = await headTask.ConfigureAwait(false);
         string? headCommit = null;
         if (headResult.IsSuccess)
         {

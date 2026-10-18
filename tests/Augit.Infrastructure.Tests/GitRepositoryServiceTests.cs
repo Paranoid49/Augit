@@ -7,6 +7,69 @@ namespace Augit.Infrastructure.Tests;
 public sealed class GitRepositoryServiceTests
 {
     [TestMethod]
+    public async Task 仓库探测保留独立Git目录和子目录工作区()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string root = temporary.GetPath("工作区 空格"), metadata = temporary.GetPath("独立 元数据");
+        Directory.CreateDirectory(root);
+        Assert.IsTrue((await GitTestEnvironment.RunAsync(runtime, root, "init", "--separate-git-dir", metadata)).IsSuccess);
+        string nested = Path.Combine(root, "子目录");
+        Directory.CreateDirectory(nested);
+        GitRepositoryOperationResult result = await new GitRepositoryService(runtime).InspectAsync(nested);
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.AreEqual(Path.GetFullPath(root), result.Repository!.RepositoryRoot);
+        Assert.AreEqual(Path.GetFullPath(nested), result.Repository.WorkspacePath);
+        Assert.AreEqual(Path.GetFullPath(metadata), result.Repository.GitDirectory);
+        Assert.AreEqual(result.Repository.GitDirectory, result.Repository.GitCommonDirectory);
+    }
+
+    [TestMethod]
+    public async Task 并行探测保留裸仓库目录且不要求工作区根目录()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "init", "--bare");
+        GitRepositoryOperationResult result = await new GitRepositoryService(runtime).InspectAsync(temporary.FullPath);
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.AreEqual(GitRepositoryKind.BareRepository, result.Repository!.Kind);
+        Assert.IsNull(result.Repository.RepositoryRoot);
+        Assert.AreEqual(Path.GetFullPath(temporary.FullPath), result.Repository.GitDirectory);
+        Assert.AreEqual(result.Repository.GitDirectory, result.Repository.GitCommonDirectory);
+    }
+
+    [TestMethod]
+    public async Task 并行探测保留链接工作区独立Git目录与公共目录()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        string primary = temporary.GetPath("primary"), linked = temporary.GetPath("linked");
+        Directory.CreateDirectory(primary);
+        GitRepositoryService service = new(runtime);
+        Assert.IsTrue((await service.InitializeAsync(primary)).IsSuccess);
+        await GitTestEnvironment.CommitFileAsync(runtime, primary, "readme.txt", "内容\n", "test: initial");
+        await GitTestEnvironment.RunAsync(runtime, primary, "worktree", "add", "-b", "linked", linked);
+        GitRepositoryOperationResult result = await service.InspectAsync(linked);
+        Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+        Assert.AreEqual(Path.GetFullPath(linked), result.Repository!.RepositoryRoot);
+        Assert.AreNotEqual(result.Repository.GitDirectory, result.Repository.GitCommonDirectory);
+        Assert.AreEqual(Path.Combine(primary, ".git"), result.Repository.GitCommonDirectory);
+        Assert.IsFalse(result.Repository.HasConflicts);
+    }
+
+    [TestMethod]
+    public async Task 已取消的仓库检查不返回成功快照()
+    {
+        GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();
+        using TemporaryDirectory temporary = new();
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        GitRepositoryOperationResult result = await new GitRepositoryService(runtime).InspectAsync(temporary.FullPath, cancellation.Token);
+        Assert.IsFalse(result.IsSuccess);
+        Assert.AreEqual(GitOperationFailureKind.Cancelled, result.FailureKind);
+    }
+
+    [TestMethod]
     public async Task 普通目录可识别并显式初始化()
     {
         GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();

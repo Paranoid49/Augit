@@ -8,7 +8,7 @@ namespace Augit.Shell.Tests;
 /// <summary>
 /// `workspace/changes` 的事件合并（规格 §9.2「多个文件系统与 `.git` 事件必须合并」）。
 ///
-/// 两个观察器各有 50 毫秒的合并窗口（`WorkspaceFileWatcher.MergeDelay`／`GitMetadataWatcher.MergeDelay`），
+/// 两个观察器各有合并窗口（`WorkspaceFileWatcher.MergeDelay` = 20 毫秒／`GitMetadataWatcher.MergeDelay` = 50 毫秒），
 /// 宿主把它们的批次分别累积在 `_pendingWorkspaceChanges` 与 `_pendingGitMetadataChange` 里，
 /// **一次** `workspace/changes` 读取同时取走两侧 —— 因此多次事件（哪怕跨越多个合并窗口）
 /// 只会变成一次查询；读取即消费，紧接着再读是空的。

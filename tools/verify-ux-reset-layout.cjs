@@ -61,8 +61,8 @@ async function main() {
           // 按 `value` 选模式，不按索引：选项**顺序**是对齐对象（权威 `GitResetDialog.java:157-159`
           // 为 MIXED → SOFT → HARD，默认落在 MIXED），索引会随权威改动而变。
           await dialog.locator('#reset-mode').selectOption('soft');
-          assert.equal(await dialog.locator('.reset-impact strong').textContent(), '仅移动 HEAD，索引和工作区保持不变');
-          assert.equal(await dialog.locator('.reset-run').textContent(), '执行 Reset');
+          assert.equal(await dialog.locator('.reset-impact strong').textContent(), 'Move HEAD only; keep index and working tree changes');
+          assert.equal(await dialog.locator('.reset-run').textContent(), 'Reset');
           await dialog.locator('#reset-mode').selectOption('hard');
           await dialog.locator('#reset-target').fill('main~2');
           if (dpi === 1) await page.screenshot({ path: path.join(output, `reset-initial-${theme}-${size}.png`) });

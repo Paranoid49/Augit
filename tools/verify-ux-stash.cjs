@@ -39,7 +39,7 @@ async function main() {
           // 权威 `GitStashDialog.kt:30-36`：`Include untracked` 默认**不勾选**（第 168 轮补上这个复选）。
           assert.equal(await dialog.locator('#stash-include-untracked').isChecked(), false);
           await dialog.locator('#stash-include-untracked').check();
-          await dialog.getByRole('button', { name: '创建 Stash', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Create Stash', exact: true }).click();
           assert.equal(await dialog.locator('#stash-message').isDisabled(), true);
           await page.waitForSelector('.stash-dialog[data-state="failure"]');
           assert.equal(await dialog.locator('#stash-message').inputValue(), '第一行\n第二行');
@@ -53,7 +53,7 @@ async function main() {
             return bounds.top >= parent.top && bounds.bottom <= parent.bottom;
           }), true);
           if (dpi === 1) await page.screenshot({ path: path.join(output, `stash-${theme}-${size}.png`) });
-          await dialog.getByRole('button', { name: '取消', exact: true }).click();
+          await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
           assert.equal(await dialog.count(), 0);
           assert.equal(await page.locator('.scrim').count(), 0);
           passed++;
@@ -62,12 +62,12 @@ async function main() {
         url.searchParams.set('stash-result', 'pending');
         await page.goto(url.href); await page.waitForSelector('body[data-typography-preview="ready"]');
         await page.locator('#stash-root').focus();
-        for (const selector of ['#stash-message', '#stash-keep', '#stash-include-untracked', '.stash-dialog .secondary-button', '.stash-dialog .primary-button', '.stash-dialog .dialog-header a', '#stash-root']) {
+        for (const selector of ['#stash-message', '#stash-keep', '#stash-include-untracked', '.stash-dialog .primary-button', '.stash-dialog .secondary-button', '.stash-dialog .dialog-header a', '#stash-root']) {
           await page.keyboard.press('Tab'); assert.equal(await page.locator(selector).evaluate(node => node === document.activeElement), true);
         }
         await page.locator('.stash-dialog .primary-button').click();
         await page.locator('.stash-dialog .secondary-button').click();
-        assert.equal(await page.locator('.stash-notice').textContent(), '操作已取消。');
+        assert.equal(await page.locator('.stash-notice').textContent(), 'Operation cancelled.');
         await page.keyboard.press('Escape'); assert.equal(await page.locator('.stash-dialog').count(), 0);
         await page.goto(pathToFileURL(path.resolve(__dirname, '../docs/ux-mockups/stash.html')).href);
         await page.waitForSelector('body[data-typography-preview="ready"]');

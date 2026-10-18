@@ -58,10 +58,15 @@
 
 ## 4. 冲突、搜索、终端、设置、其他
 
+> 2026-10-17 用户批准移除内置三栏冲突编辑器：原 `conflict-resolver` 行从本矩阵移出，登记为经批准移出范围；冲突文件改由普通只读 Diff 查看，冲突列表、Continue/Skip/Abort 与外部处理后的状态同步保留。
+
 | 页面 | 默认 | 空 | 错 | 加载 | 禁用 | 危险 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 冲突操作会话 `conflict-list` | ✅ | ✅（无冲突） | ✅（Continue 冲突未解决时） | ✅ | ✅ Continue 禁用并给原因 | ✅ Abort |
-| 三栏冲突解决 `conflict-resolver` | ✅ | — | ✅（非法 UTF-8/超限只允许整侧接受） | ✅ 应用进行中冻结 | ✅ 进行中禁用 | ✅ 危险接受 |
+| 冲突文件只读 Diff（原三栏，经批准移出） | ✅ | — | ✅（外部读取失败显示原因，不改为已解决） | ✅ | — | — |
+
+2026-10-17 正常入口补充：冲突列表的 **Continue**（merge，外部同步 250ms）、**Skip**（rebase，历史为 feature-second/main/base，冲突提交未进入历史）、**Abort**（外部同步 240ms）均在操作结束后对话框关闭、`CloseMainWindow` 成功、端口/临时目录清理；三栏/保存/可编辑均为 0，`git/conflict-load/save/accept/words` 均为 `Unknown host method`。服务层另有 11 项高级操作动作和 Merge 拒绝 Skip 测试通过。该补充证明语义与正常关闭，不改变本矩阵各视觉状态的既有人工确认结论。
+
 | 快速打开 `quick-open` | ✅ | ✅ `quick-open-empty` 专用页 | ✅（查询失败） | ✅ | — | — |
 | 全仓搜索 `repository-search` | ✅ | ✅ `search-state=empty` | ✅ `search-state=error` | ✅ `search-state=loading` | ✅ `search-state=limited`（截断，专用页 `search-limited`） | — |
 | 内置终端 `terminal` | ✅ 专用页 | ✅（无会话） | ✅（Shell 解析失败明确报错，不静默回退） | ✅（会话启动中） | ✅（关闭确认进行中） | ✅ `terminal-close` 专用页 |

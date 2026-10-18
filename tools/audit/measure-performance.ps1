@@ -1,4 +1,4 @@
-# Measure one Augit cold-start performance scenario against the real Windows shell.
+﻿# Measure one Augit cold-start performance scenario against the real Windows shell.
 #
 # Scenario classes required by the goal: empty repository, existing repository, large repository.
 # Metrics: startup (window / page / first usable), operation response (host round trips and the
@@ -46,18 +46,16 @@ $exeFull = (Resolve-Path -LiteralPath $Exe).Path
 $workspaceFull = (Resolve-Path -LiteralPath $Workspace).Path
 $exeDir = Split-Path -Parent $exeFull
 
-# Stale web assets would silently measure an older UI (same guard as capture-surface.ps1):
-# compare the repository sources against the copy beside the executable, not the DLL timestamp.
+# 完整镜像门禁按相对文件集合与 SHA256 核对，输出缺失也必须拒绝启动。
 $exeWeb = Join-Path $exeDir "web"
 $repoWeb = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "web"
-if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
-  $copied = (Get-ChildItem -LiteralPath $exeWeb -Recurse -File |
-      Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  $source = (Get-ChildItem -LiteralPath $repoWeb -Recurse -File |
-      Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  if ($source -gt $copied) {
-    Write-Output "STALE_WEB_ASSETS source=$($source.ToString('s')) copied=$($copied.ToString('s'))"
-    Write-Output "Rebuild the shell so the web copy beside the executable is refreshed."
+if (Test-Path -LiteralPath $repoWeb) {
+  try {
+    & (Join-Path $PSScriptRoot 'verify-web-assets-mirror.ps1') -SourceDirectory $repoWeb -OutputDirectory $exeWeb
+  } catch {
+    Write-Output $_.Exception.Message
+    Write-Output "WEB_ASSETS_MIRROR_FAILED source=$repoWeb output=$exeWeb"
+    Write-Output "Rebuild the shell so the web copy beside the executable is a complete mirror."
     exit 6
   }
 }
@@ -192,6 +190,7 @@ function Measure-TreeMemory([int]$rootPid) {
 
 # --- launch ----------------------------------------------------------------------------------
 $process = $null
+$ws = $null
 $browserClosed = $false
 $result = [ordered]@{
   scenario = $Scenario
@@ -236,7 +235,7 @@ try {
     $result.error = "no main window"
   }
   else {
-    # Startup: page ready, then Git + history usable.
+    # 页面就绪后等待 Git 和历史可用；外层 finally 负责释放连接。
     $ws = Get-CdpSocket $Port 30
     try {
       $result.pageReadyMs = Wait-CdpTruthy $ws "window.__augitReady === true" $watch $ReadyTimeoutSec
@@ -322,6 +321,7 @@ try {
   } while ($leftover.Count -gt 0 -and (Get-Date) -lt $cleanupDeadline)
   $result.descendantsLeft = $leftover.Count
 } finally {
+  if ($null -ne $ws) { try { $ws.Dispose() } catch { } }
   if ($process -and -not $process.HasExited) {
     try { $process.Kill(); $process.WaitForExit(10000) | Out-Null } catch { }
   }

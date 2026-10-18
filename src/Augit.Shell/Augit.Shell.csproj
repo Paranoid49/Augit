@@ -52,23 +52,49 @@
     界面本体是 web/ 下的 HTML、CSS 和 JavaScript，缺少这些文件产品无法启动。
     Build 与 Publish 是两条独立路径：只挂 Build 时 `dotnet publish -o <独立目录>`
     会跳过复制，产物就是一个没有界面的空壳，因此这里两条路径都必须覆盖。
+
+    这里是“完整镜像”而不是增量复制：先 RemoveDir 清掉本次生成的目标 web，再全量复制。
+    原因：SkipUnchangedFiles 只比较时间戳和长度，源文件删除后目标会残留旧文件，
+    同长度同时间戳的内容变化也不会刷新，两种情形都会让审计证据来自旧界面。
+    路径先归一化为绝对路径，OutDir/PublishDir 按 MSBuildProjectDirectory 解析
+    （publish -o 传入的相对目录因此仍然落在项目目录下，而不是当前工作目录）。
+    删除前拒绝自身与祖先/子目录目标，避免删掉源目录本身。
   -->
   <Target Name="CopyWebAssets" AfterTargets="Build">
+    <PropertyGroup>
+      <!-- 统一绝对路径与尾部分隔符，防护比较遵循 Windows 大小写不敏感规则。 -->
+      <_WebAssetsSourceBase>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'web'))</_WebAssetsSourceBase>
+      <_WebAssetsTarget>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(OutDir)', 'web'))</_WebAssetsTarget>
+      <_WebAssetsSourceCompare>$(_WebAssetsSourceBase.ToUpperInvariant())</_WebAssetsSourceCompare>
+      <_WebAssetsTargetCompare>$(_WebAssetsTarget.ToUpperInvariant())</_WebAssetsTargetCompare>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_WebAssetsSourceBase)')" Text="CopyWebAssets 源目录不存在：$(_WebAssetsSourceBase)。" />
+    <Error Condition="$(_WebAssetsTargetCompare.StartsWith('$(_WebAssetsSourceCompare)')) Or $(_WebAssetsSourceCompare.StartsWith('$(_WebAssetsTargetCompare)'))" Text="CopyWebAssets 拒绝删除目标：源与目标目录不得相同或相互包含 ($(_WebAssetsTarget))。" />
     <ItemGroup>
-      <WebAsset Include="$(MSBuildThisFileDirectory)..\..\web\**\*" />
+      <_WebAsset Include="$(_WebAssetsSourceBase)\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WebAsset)"
-          DestinationFiles="@(WebAsset->'$(OutDir)web\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(_WebAssetsTarget)" />
+    <Copy SourceFiles="@(_WebAsset)"
+          DestinationFiles="@(_WebAsset->'$(_WebAssetsTarget)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
   </Target>
 
   <Target Name="CopyWebAssetsToPublishDirectory" AfterTargets="Publish">
+    <PropertyGroup>
+      <_WebAssetsPublishSourceBase>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', 'web'))</_WebAssetsPublishSourceBase>
+      <_WebAssetsPublishTarget>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(PublishDir)', 'web'))</_WebAssetsPublishTarget>
+      <_WebAssetsPublishSourceCompare>$(_WebAssetsPublishSourceBase.ToUpperInvariant())</_WebAssetsPublishSourceCompare>
+      <_WebAssetsPublishTargetCompare>$(_WebAssetsPublishTarget.ToUpperInvariant())</_WebAssetsPublishTargetCompare>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_WebAssetsPublishSourceBase)')" Text="CopyWebAssetsToPublishDirectory 源目录不存在：$(_WebAssetsPublishSourceBase)。" />
+    <Error Condition="$(_WebAssetsPublishTargetCompare.StartsWith('$(_WebAssetsPublishSourceCompare)')) Or $(_WebAssetsPublishSourceCompare.StartsWith('$(_WebAssetsPublishTargetCompare)'))" Text="CopyWebAssetsToPublishDirectory 拒绝删除目标：源与目标目录不得相同或相互包含 ($(_WebAssetsPublishTarget))。" />
     <ItemGroup>
-      <WebAssetForPublish Include="$(MSBuildThisFileDirectory)..\..\web\**\*" />
+      <_WebAssetForPublish Include="$(_WebAssetsPublishSourceBase)\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WebAssetForPublish)"
-          DestinationFiles="@(WebAssetForPublish->'$(PublishDir)web\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+    <RemoveDir Directories="$(_WebAssetsPublishTarget)" />
+    <Copy SourceFiles="@(_WebAssetForPublish)"
+          DestinationFiles="@(_WebAssetForPublish->'$(_WebAssetsPublishTarget)\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="false" />
   </Target>
 
   <!-- 全仓搜索依赖随包分发的 ripgrep；缺省时从 PATH 查找，因此这里必须一并部署。 -->
@@ -86,6 +112,10 @@
              CopyToOutputDirectory="PreserveNewest"
              CopyToPublishDirectory="PreserveNewest" />
     <!-- 内置终端界面由 web/vendor/xterm 提供，随包分发必须同时附带两个组件的许可证。 -->
+    <Content Include="..\..\web\vendor\jetbrains-mono\OFL.txt"
+             Link="licenses\JetBrainsMono-OFL.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\tools\xterm\xterm-6.0.0\LICENSE"
              Link="licenses\xterm-LICENSE.txt"
              CopyToOutputDirectory="PreserveNewest"

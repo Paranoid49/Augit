@@ -1,4 +1,4 @@
-# Dumps the layout signature of the LIVE shell (WebView2, real data) for one scene and region.
+﻿# Dumps the layout signature of the LIVE shell (WebView2, real data) for one scene and region.
 #
 # The shell exposes the Chrome DevTools Protocol when started with
 #   --browser-args --remote-debugging-port=<port>
@@ -86,24 +86,21 @@ try { [void][LiveDom]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
 
 . (Join-Path $PSScriptRoot 'cdp-eval.ps1')
 
-# --- Stale web assets guard ----------------------------------------------------------------
-# The shell loads its UI from the 'web' folder NEXT TO THE EXE, not from the repository
-# sources. A stale copy silently produces evidence for an older UI (hit twice while building
-# this script: a mockup.js fix looked broken because the copied tree predated it).
+# --- Complete web assets mirror guard ------------------------------------------------------
+# 启动前核对完整相对文件集合与 SHA256，阻止删除资源残留或同时间内容差异造成错误取证。
 $exeWeb = Join-Path (Split-Path -Parent $Exe) "web"
 $repoWeb = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "web"
-if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
-  $copied = (Get-ChildItem -LiteralPath $exeWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  $source = (Get-ChildItem -LiteralPath $repoWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  if ($source -gt $copied) {
-    Write-Output "STALE_WEB_ASSETS source=$($source.ToString('s')) copied=$($copied.ToString('s'))"
-    Write-Output "Rebuild the shell (dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release) so the web copy beside the executable is refreshed."
+if (Test-Path -LiteralPath $repoWeb) {
+  try {
+    & (Join-Path $PSScriptRoot 'verify-web-assets-mirror.ps1') -SourceDirectory $repoWeb -OutputDirectory $exeWeb
+  } catch {
+    Write-Output $_.Exception.Message
+    Write-Output "WEB_ASSETS_MIRROR_FAILED source=$repoWeb output=$exeWeb"
+    Write-Output "Rebuild the shell (dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release) so the web copy beside the executable is a complete mirror."
     exit 6
   }
 }
 
-Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
 $launch = @("--workspace", $Workspace, "--scene", $Scene, "--pixel-exact", "--theme", $Theme, "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")
 if ($Open -ne "") { $launch += @("--open", $Open) }
 if ($Blame -ne "") { $launch += @("--blame", $Blame) }
@@ -111,14 +108,17 @@ if ($FileHistory -ne "") { $launch += @("--file-history", $FileHistory) }
 if ($Diff -ne "") { $launch += @("--diff", $Diff) }
 if ($Conflict -ne "") { $launch += @("--conflict", $Conflict) }
 $process = Start-Process -FilePath $Exe -ArgumentList $launch -PassThru
+$exitCode = 0
 $handle = [IntPtr]::Zero
+# 只清理本脚本启动的进程句柄，异常及提前退出都进入 finally。
+try {
 $deadline = (Get-Date).AddSeconds(30)
 while ((Get-Date) -lt $deadline -and $handle -eq [IntPtr]::Zero) {
   Start-Sleep -Milliseconds 300
   try { $process.Refresh() } catch { }
   if ($process.MainWindowHandle -ne 0) { $handle = $process.MainWindowHandle }
 }
-if ($handle -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW"; exit 2 }
+if ($handle -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW"; $exitCode = 2 } else {
 Add-Type -AssemblyName System.Windows.Forms
 $virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
 [void][LiveDom]::MoveWindow($handle, $virtual.Left + 40, $virtual.Top + 40, $Width, $Height, $true)
@@ -231,5 +231,12 @@ if ($outDir -and -not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Dir
 # Node side then fails with "Unexpected token '\ufeff'".
 [System.IO.File]::WriteAllText($Out, $document, (New-Object System.Text.UTF8Encoding($false)))
 Write-Output ("SAVED " + $Out + " regions=" + $parts.Count + " errors=" + $errors)
-try { if (-not $process.HasExited) { $process.CloseMainWindow() | Out-Null; Start-Sleep -Milliseconds 800; if (-not $process.HasExited) { $process.Kill() } } } catch { }
 Write-Output "DONE"
+}
+} finally {
+  if ($process -and -not $process.HasExited) {
+    try { $process.CloseMainWindow() | Out-Null; if (!$process.WaitForExit(3000)) { $process.Kill(); $process.WaitForExit(10000) | Out-Null } } catch { }
+  }
+  if ($process) { $process.Dispose() }
+}
+exit $exitCode

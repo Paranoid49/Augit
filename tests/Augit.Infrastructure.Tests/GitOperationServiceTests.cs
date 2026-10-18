@@ -49,7 +49,6 @@ public sealed class GitOperationServiceTests
         using (setup.Temporary)
         {
             GitOperationService service = new(setup.Runtime);
-            GitConflictService conflictService = new(setup.Runtime, service);
             GitAdvancedOperationResult started = await service.StartAsync(
                 setup.Repository,
                 new(kind, setup.TargetRevision));
@@ -76,11 +75,7 @@ public sealed class GitOperationServiceTests
 
             if (action == GitOperationAction.Continue)
             {
-                GitConflictMutationResult resolved = await conflictService.AcceptSideAsync(
-                    setup.Repository,
-                    "conflict.txt",
-                    GitConflictSide.Theirs);
-                Assert.IsTrue(resolved.IsSuccess, resolved.ErrorMessage);
+                GitAdvancedOperationResult resolved = await ResolveConflictAsync(setup, "conflict.txt", "resolved\n");
                 Assert.IsTrue(resolved.Session!.CanContinue);
             }
 
@@ -152,7 +147,6 @@ public sealed class GitOperationServiceTests
         using (setup.Temporary)
         {
             GitOperationService service = new(setup.Runtime);
-            GitConflictService conflictService = new(setup.Runtime, service);
 
             GitAdvancedOperationResult started = await service.SmartCheckoutAsync(
                 setup.Repository,
@@ -165,15 +159,11 @@ public sealed class GitOperationServiceTests
             Assert.IsTrue(started.Session.SupportsContinue);
 
             service = new(setup.Runtime);
-            conflictService = new(setup.Runtime, service);
             GitAdvancedOperationResult restoredSession = await service.InspectAsync(setup.Repository);
             Assert.AreEqual(GitOperationKind.SmartCheckout, restoredSession.Session!.Kind);
             Assert.IsTrue(restoredSession.Session.HasConflicts);
 
-            GitConflictMutationResult resolved = await conflictService.AcceptSideAsync(
-                setup.Repository,
-                "shared.txt",
-                GitConflictSide.Theirs);
+            GitAdvancedOperationResult resolved = await ResolveConflictAsync(setup, "shared.txt", "本地修改\n");
             GitAdvancedOperationResult completed = await service.ExecuteActionAsync(
                 setup.Repository,
                 GitOperationAction.Continue);
@@ -183,7 +173,7 @@ public sealed class GitOperationServiceTests
                 "stash",
                 "list")).StandardOutput;
 
-            Assert.IsTrue(resolved.IsSuccess, resolved.ErrorMessage);
+            Assert.IsTrue(resolved.Session!.CanContinue);
             Assert.IsTrue(completed.IsSuccess, completed.ErrorMessage);
             Assert.AreEqual("target", completed.ActualStatus!.CurrentBranch);
             Assert.AreEqual(string.Empty, stashList);
@@ -200,18 +190,31 @@ public sealed class GitOperationServiceTests
         using (setup.Temporary)
         {
             GitOperationService service = new(setup.Runtime);
-            GitConflictService conflictService = new(setup.Runtime, service);
             _ = await service.StartAsync(setup.Repository, new(kind, setup.TargetRevision));
 
-            GitConflictMutationResult resolved = await conflictService.AcceptSideAsync(
-                setup.Repository,
-                "conflict.txt",
-                GitConflictSide.Yours);
+            GitAdvancedOperationResult resolved = await ResolveConflictAsync(setup, "conflict.txt", "current\n");
 
-            Assert.IsTrue(resolved.IsSuccess, resolved.ErrorMessage);
             Assert.IsFalse(resolved.Session!.CanContinue);
             Assert.IsTrue(resolved.Session.CanSkip);
         }
+    }
+
+    /// <summary>
+    /// 以外部工具的语义解决冲突：写回最终文本并执行 `git add`，再读取真实会话状态。
+    /// 2026-10-17 移除内置冲突保存后，测试不再调用产品写入口。
+    /// </summary>
+    private static async Task<GitAdvancedOperationResult> ResolveConflictAsync(
+        OperationRepository setup,
+        string relativePath,
+        string content)
+    {
+        await File.WriteAllTextAsync(setup.Temporary.GetPath(relativePath), content);
+        await GitTestEnvironment.RunAsync(
+            setup.Runtime,
+            setup.Temporary.FullPath,
+            "add",
+            relativePath);
+        return await new GitOperationService(setup.Runtime).InspectAsync(setup.Repository);
     }
 
     private static async Task<OperationRepository> CreateSuccessRepositoryAsync(GitAdvancedOperationKind kind)

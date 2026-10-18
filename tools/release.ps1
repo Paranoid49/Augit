@@ -120,6 +120,11 @@ try {
         'web\vendor\xterm\xterm.js',
         'web\vendor\xterm\xterm.css',
         'web\vendor\xterm\addon-fit.js',
+        'web\vendor\jetbrains-mono\JetBrainsMono-Regular.woff2',
+        'web\vendor\jetbrains-mono\JetBrainsMono-Bold.woff2',
+        'web\vendor\jetbrains-mono\JetBrainsMono-Italic.woff2',
+        'web\vendor\jetbrains-mono\JetBrainsMono-BoldItalic.woff2',
+        'web\vendor\jetbrains-mono\OFL.txt',
         'tools\rg.exe',
         'licenses\ripgrep-LICENSE-MIT.txt',
         'licenses\ripgrep-UNLICENSE.txt',
@@ -127,6 +132,7 @@ try {
         'licenses\Microsoft.Web.WebView2-NOTICE.txt',
         'licenses\xterm-LICENSE.txt',
         'licenses\xterm-addon-fit-LICENSE.txt',
+        'licenses\JetBrainsMono-OFL.txt',
         'THIRD-PARTY-NOTICES.md',
         'README.md'
     )

@@ -29,6 +29,14 @@ internal static class ShellTheme
         return isDark == true ? "Dark" : "Light";
     }
 
+    /// <summary>设置保存、取消和重开统一解析当前模式，避免沿用启动时的主题。</summary>
+    internal static string ResolveMode(string mode, bool? systemIsDark) => mode.Trim().ToLowerInvariant() switch
+    {
+        "dark" => "Dark",
+        "light" => "Light",
+        _ => FromSystemDark(systemIsDark)
+    };
+
     /// <summary>生效主题到 URL 查询值的换算。</summary>
     /// <remarks>
     /// 网页层的主题契约是小写。审计脚本与视觉稿都用小写，因此这里必须归一化到小写，
@@ -45,14 +53,14 @@ internal static class ShellTheme
     /// <param name="theme">生效主题（<c>Dark</c>／<c>Light</c>，大小写不敏感）。</param>
     /// <remarks>
     /// 取值就是网页层 <c>body</c> 的底色 <c>--augit-chrome</c>（`docs/design-system.md` §6.1／§6.2：
-    /// 浅色 <c>#E9EAEE</c>、深色 <c>#2B2D30</c>）。必须在**导航之前**就设好，否则深色下
+    /// 浅色 <c>#E9EAEE</c>、深色 <c>#26282C</c>）。必须在**导航之前**就设好，否则深色下
     /// WebView2 会先用默认白底绘制一帧，出现白闪 —— 参考实现切主题时会重绘全部窗口背景，
     /// 不允许出现与主题不一致的底色（`07-theme-dpi-dialogs.md` §1）。
     /// </remarks>
     internal static (int R, int G, int B) SurfaceColor(string theme)
     {
         return theme.Trim().Equals("Dark", StringComparison.OrdinalIgnoreCase)
-            ? (0x2B, 0x2D, 0x30)
+            ? (0x26, 0x28, 0x2C)
             : (0xE9, 0xEA, 0xEE);
     }
 

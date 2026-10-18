@@ -10,8 +10,8 @@
     {
       "sourcePath": "web/vendor/xterm/xterm.js",
       "publishPath": "web/vendor/xterm/xterm.js",
-      "size": 488663,
-      "sha256": "14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972"
+      "size": 489227,
+      "sha256": "bdee3ebae10716807374a2b385f1803389011dd89562aee33919e8d53623c0d3"
     },
     {
       "sourcePath": "web/vendor/xterm/xterm.css",
@@ -24,6 +24,46 @@
       "publishPath": "web/vendor/xterm/addon-fit.js",
       "size": 1521,
       "sha256": "ba3ea256ce0620a0992a197d6c9baea64823fc93d8da07a9e366ca9943c18527"
+    },
+    {
+      "sourcePath": "web/vendor/jetbrains-mono/JetBrainsMono-Bold.woff2",
+      "publishPath": "web/vendor/jetbrains-mono/JetBrainsMono-Bold.woff2",
+      "version": "2.304",
+      "url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/webfonts/JetBrainsMono-Bold.woff2",
+      "size": 94588,
+      "sha256": "c503cc5ec5f8b2c7666b7ecda1adf44bd45f2e6579b2eba0fc292150416588a2"
+    },
+    {
+      "sourcePath": "web/vendor/jetbrains-mono/JetBrainsMono-BoldItalic.woff2",
+      "publishPath": "web/vendor/jetbrains-mono/JetBrainsMono-BoldItalic.woff2",
+      "version": "2.304",
+      "url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/webfonts/JetBrainsMono-BoldItalic.woff2",
+      "size": 98152,
+      "sha256": "3a013466c0eee979fb9d42c2d7a8887cd3645dc8b897cfc5b71781cf982efc5a"
+    },
+    {
+      "sourcePath": "web/vendor/jetbrains-mono/JetBrainsMono-Italic.woff2",
+      "publishPath": "web/vendor/jetbrains-mono/JetBrainsMono-Italic.woff2",
+      "version": "2.304",
+      "url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/webfonts/JetBrainsMono-Italic.woff2",
+      "size": 95864,
+      "sha256": "cb6a1b246318ed3885d7dffa14a2609297fe80e9b8e500bea33b52fa312a36a4"
+    },
+    {
+      "sourcePath": "web/vendor/jetbrains-mono/JetBrainsMono-Regular.woff2",
+      "publishPath": "web/vendor/jetbrains-mono/JetBrainsMono-Regular.woff2",
+      "version": "2.304",
+      "url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/fonts/webfonts/JetBrainsMono-Regular.woff2",
+      "size": 92164,
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2"
+    },
+    {
+      "sourcePath": "web/vendor/jetbrains-mono/OFL.txt",
+      "publishPath": "web/vendor/jetbrains-mono/OFL.txt",
+      "version": "2.304",
+      "url": "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/OFL.txt",
+      "size": 4399,
+      "sha256": "30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad"
     }
   ]
 }

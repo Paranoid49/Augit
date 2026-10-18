@@ -7,6 +7,23 @@ namespace Augit.Infrastructure.Tests;
 public sealed class GitDiffServiceTests
 {
     [TestMethod]
+    public async Task 换行标识来自原始Blob与磁盘而非补丁()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "core.autocrlf", "false");
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "ending.txt", "old\r\n", "test: endings");
+            await File.WriteAllTextAsync(temporary.GetPath("ending.txt"), "new\n");
+            GitChangedFile changed = await ReadOnlyChangeAsync(runtime, repository);
+            GitDiffResult result = await new GitDiffService(runtime).CreateAsync(repository, changed, new());
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(Augit.Core.Documents.DocumentLineEndings.CrLf, result.Document!.OldLineEndings);
+            Assert.AreEqual(Augit.Core.Documents.DocumentLineEndings.Lf, result.Document.NewLineEndings);
+        }
+    }
+
+    [TestMethod]
     public async Task Diff比较Head与磁盘最新内容而不是暂存快照()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

@@ -46,7 +46,7 @@ public sealed class WorkspaceFileWatcherTests
 
     /// <summary>
     /// 规格 §9.2「多个文件系统与 `.git` 事件必须合并」的文件系统一侧：
-    /// 合并窗口（`WorkspaceFileWatcher.MergeDelay` = 50 毫秒）内的多个文件事件必须落在同一批里，
+    /// 合并窗口（`WorkspaceFileWatcher.MergeDelay` = 20 毫秒）内的多个文件事件必须落在同一批里，
     /// 同一路径的重复事件在批内去重。
     /// </summary>
     [TestMethod]

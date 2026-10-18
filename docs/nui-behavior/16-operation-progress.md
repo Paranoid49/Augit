@@ -1,5 +1,7 @@
 # 16 · 操作进度与结果（第 8 区）
 
+2026-10-12：公共网页桥接统一 Git 写入、网络和 `write/cancel` 的无自动超时契约；宿主结束前不解除忙态，取消保持冻结和草稿。旧入口有限参数不覆盖该契约。可控时钟与真实网页验证见 [接续审计](../goal-audit-2026-10-12.md)，不作为 PyCharm 异常内部机制的直接取证。
+
 本册是 `11-surface-audit.md` 第 8 区的采集结果，场景：`operation-progress`、`operation-result`。
 口径同前：每条都带 checkout（`/mnt/d/github/intellij-community`，commit `576e328`）里的文件:行号。
 

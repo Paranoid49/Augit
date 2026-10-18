@@ -25,7 +25,7 @@ const rowsOf = (section) => {
 const doc = fs.readFileSync(docPath, 'utf8');
 const pixels = rowsOf(sectionOf(doc, '### 1.1 '));
 const coverage = rowsOf(sectionOf(doc, '### 1.4 '));
-assert.equal(pixels.size, 55, '§1.1 应包含 55 个场景');
+assert.equal(pixels.size, 54, '§1.1 应包含 54 个场景（三栏冲突页已移出范围）');
 assert.equal(coverage.size, pixels.size, '§1.4 的 A 线行数应与 §1.1 一致');
 for (const [scene, expected] of pixels) {
   assert.deepEqual(coverage.get(scene), expected, `§1.4 的 ${scene} 像素值应与 §1.1 一致`);
@@ -33,7 +33,7 @@ for (const [scene, expected] of pixels) {
 
 const tableOutput = execFileSync(process.execPath,
   [path.join(__dirname, 'gen-coverage-table.cjs')], { cwd: root, encoding: 'utf8' });
-const cLine = /\| C 线：PyCharm 对照 \| 55 个视觉稿场景 \| (?:\*\*)?33 页面级已对照 \+ 5 页仅入口级证据 \+ 17 页未对照(?:\*\*)?[^|]*\|/;
+const cLine = /\| C 线：PyCharm 对照 \| 54 个视觉稿场景 \| (?:\*\*)?33 页面级已对照 \+ 5 页仅入口级证据 \+ 16 页未对照(?:\*\*)?[^|]*\|/;
 assert.match(tableOutput, cLine, '§1.4 生成器的 C 线模板应使用当前覆盖口径');
 assert.match(sectionOf(doc, '### 1.4 '), cLine, '§1.4 文档 C 线应与生成器模板一致');
 
@@ -62,12 +62,12 @@ const categoryCounts = (text) => {
   return counts;
 };
 assert.deepEqual([...categoryCounts(doc).entries()].sort(),
-  [['AUGIT_ONLY', 1], ['MEDIUM_BLOCKED', 9], ['PRECONDITION', 5], ['RECOVERABLE', 2]],
-  '§1.6 的四类分档应为 AUGIT_ONLY 1 / MEDIUM_BLOCKED 9 / PRECONDITION 5 / RECOVERABLE 2');
+  [['AUGIT_ONLY', 1], ['MEDIUM_BLOCKED', 9], ['PRECONDITION', 4], ['RECOVERABLE', 2]],
+  '§1.6 的四类分档应为 AUGIT_ONLY 1 / MEDIUM_BLOCKED 9 / PRECONDITION 4 / RECOVERABLE 2');
 const summarySection = sectionOf(doc, '### 0.2 ');
 assert.ok(summarySection, '应能找到 §0.2 交接摘要');
-for (const claim of ['33/55 面级已对照', 'MEDIUM_BLOCKED 9 页', 'RECOVERABLE 2 页',
-  'PRECONDITION 5 页', 'AUGIT_ONLY 1 页', '9 + 2 + 5 + 1 = 17']) {
+for (const claim of ['33/54 面级已对照', 'MEDIUM_BLOCKED 9 页', 'RECOVERABLE 2 页',
+  'PRECONDITION 4 页', 'AUGIT_ONLY 1 页', '9 + 2 + 4 + 1 = 16']) {
   assert.ok(summarySection.includes(claim), `§0.2 摘要应声明 "${claim}"（与 §1.6 的表一致）`);
 }
 
@@ -88,17 +88,17 @@ try {
   const result = spawnSync(process.execPath, [tempScript, '--write'], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.error?.message || '生成器写回失败');
   assert.match(result.stdout,
-    /WROTE 1\.6 scenes=55 covered=33 entry=5 uncovered=17/,
+    /WROTE 1\.6 scenes=54 covered=33 entry=5 uncovered=16/,
     '写回摘要应区分面级、入口级和未对照页面');
 
   const regeneratedDoc = fs.readFileSync(tempDoc, 'utf8');
   const regeneratedSection = sectionOf(regeneratedDoc, '### 1.6 ').trimEnd();
   assert.equal(originalCore, regeneratedSection, '§1.6 表体应与生成器一致，手写指针行除外');
   const generatedRows = regeneratedSection.split('\n').filter((line) => /^\| `[^`]+` \|/.test(line));
-  assert.equal(generatedRows.length, 55, '§1.6 应覆盖全部 55 个场景');
+  assert.equal(generatedRows.length, 54, '§1.6 应覆盖全部 54 个场景');
   assert.equal(generatedRows.filter((line) => line.includes('| **面级已对照** |')).length, 33);
   assert.equal(generatedRows.filter((line) => line.includes('| 仅入口级证据 |')).length, 5);
-  assert.equal(generatedRows.filter((line) => line.includes('| 未对照')).length, 17);
+  assert.equal(generatedRows.filter((line) => line.includes('| 未对照')).length, 16);
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
 }
@@ -151,7 +151,7 @@ const uncoveredScenes = sectionOf(doc, '### 1.6 ').split('\n')
   .map((line) => (/^\| `([^`]+)` \| 未对照（([A-Z_]+)） \|/.exec(line.trim()) || null))
   .filter(Boolean)
   .map((match) => ({ scene: match[1], bucket: match[2] }));
-assert.equal(uncoveredScenes.length, 17, '§1.6 的"未对照"页应为 17 页');
+assert.equal(uncoveredScenes.length, 16, '§1.6 的"未对照"页应为 16 页');
 
 // 最终归类表：5 列——分档 / 页面 / 真实前台取证 / 最终归类 / 结论依据。
 // §3.7 里另有一张 4 列的"分档小计"表（`| 分档 | 页数 | 页面 | 含义 |`），靠列数区分并把两者都钉住。
@@ -163,10 +163,10 @@ const rows37 = section37.split('\n')
 const bucketRows = rows37.filter((cells) => cells.length === 4);
 const finalRows = rows37.filter((cells) => cells.length === 5);
 assert.equal(bucketRows.length, 4, '§3.7 的分档小计表应有 4 行');
-assert.deepEqual(bucketRows.map((cells) => Number(cells[1].replace(/[^0-9]/g, ''))), [9, 2, 5, 1],
-  '§3.7 分档小计表的页数应为 9／2／5／1');
+assert.deepEqual(bucketRows.map((cells) => Number(cells[1].replace(/[^0-9]/g, ''))), [9, 2, 4, 1],
+  '§3.7 分档小计表的页数应为 9／2／4／1');
 assert.equal(finalRows.length, 6,
-  '§3.7 的最终归类表应把 17 页分成 6 行（MEDIUM_BLOCKED 8 页 + MEDIUM_BLOCKED 1 页 + RECOVERABLE 2 行 + PRECONDITION 1 行 + AUGIT_ONLY 1 行）');
+  '§3.7 的最终归类表应把 16 页分成 6 行（MEDIUM_BLOCKED 8 页 + MEDIUM_BLOCKED 1 页 + RECOVERABLE 2 行 + PRECONDITION 1 行 + AUGIT_ONLY 1 行）');
 const listedScenes = [];
 for (const cells of finalRows) {
   assert.equal(cells.length, 5, `§3.7 最终归类行的列数应为 5：${cells.join(' / ')}`);
@@ -183,7 +183,7 @@ for (const cells of finalRows) {
     listedScenes.push({ scene: page, bucket: bucket.replace(/[`*]/g, '').trim() });
   }
 }
-assert.equal(listedScenes.length, 17, '§3.7 的最终归类表应覆盖 17 页');
+assert.equal(listedScenes.length, 16, '§3.7 的最终归类表应覆盖 16 页');
 const byBucketThenScene = (a, b) => (a.bucket === b.bucket ? a.scene.localeCompare(b.scene) : a.bucket.localeCompare(b.bucket));
 assert.deepEqual([...listedScenes].sort(byBucketThenScene), [...uncoveredScenes].sort(byBucketThenScene),
   '§3.7 的页名与分档必须与 §1.6 的 17 个"未对照"页一一对应');

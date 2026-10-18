@@ -1,5 +1,6 @@
 const scene = document.body.dataset.scene || "main-project";
 const app = document.getElementById("app");
+
 // 主题查询值大小写不敏感：外壳曾下发首字母大写的 theme=Dark，而这里只认小写，
 // 导致设置里选了“深色”却仍是浅色界面（审计与视觉稿一律用小写参数，掩盖了它）。
 const requestedTheme = (new URLSearchParams(window.location.search).get("theme") || "").trim().toLowerCase();
@@ -9,6 +10,14 @@ const requestedTheme = (new URLSearchParams(window.location.search).get("theme")
 function typographyFamily(name, fallback) {
   const cleaned = String(name ?? "").replace(/["\'\\;{}()]/g, "").replace(/\s+/g, " ").trim();
   return cleaned.length > 0 ? `"${cleaned}", ${fallback}` : null;
+}
+
+// 随包字体是否可用由浏览器实际加载结果判定，不能依赖本机字体枚举冒充加载成功。
+let bundledCodeFontRequest = null;
+function loadBundledCodeFont() {
+  return bundledCodeFontRequest ??= document.fonts.load('13px "JetBrains Mono"', 'Ag 0123456789')
+    .then(faces => faces.length > 0 && document.fonts.check('13px "JetBrains Mono"'))
+    .catch(() => false);
 }
 
 // 规格 §154：调整界面字号时保持"原文档控件、树选择和首个可见节点、正文选择与滚动位置"。
@@ -42,12 +51,14 @@ function restoreScrollAnchors(anchors) {
   }
 }
 
+let typographyGeneration = 0;
 async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null, monospaceFamily = null } = {}) {
+  const generation = ++typographyGeneration;
   const scrollAnchors = captureScrollAnchors();
   const root = document.documentElement.style;
-  const font = typographyFamily(uiFamily, '"Segoe UI", sans-serif');
+  const font = typographyFamily(uiFamily, '"Microsoft YaHei UI", "Segoe UI", sans-serif');
   if (font) root.setProperty("--augit-font", font);
-  const code = typographyFamily(monospaceFamily, "Consolas, monospace");
+  const code = typographyFamily(monospaceFamily, '"Cascadia Mono", Consolas, "Courier New", monospace');
   if (code) root.setProperty("--augit-code", code);
 
   const size = Number(uiSize);
@@ -55,15 +66,29 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   const codePixels = Number(codeSize);
   if (Number.isFinite(codePixels) && codePixels >= 9 && codePixels <= 40) {
     root.setProperty("--augit-code-size", `${codePixels}px`);
-    // 正文行高跟着等宽字号走：界面字号变化不得影响它。
-    const scale = window.devicePixelRatio || 1;
-    root.setProperty("--code-line-height", `${Math.round(codePixels * 1.7 * scale) / scale}px`);
   }
 
+  const codeStyle = getComputedStyle(document.documentElement);
+  const effectiveCodeSize = parseFloat(codeStyle.getPropertyValue('--augit-code-size')) || 13;
+  const effectiveCodeFamily = codeStyle.getPropertyValue('--augit-code');
+  // 损坏或缺失的字体资源走既有回退链，不能阻止整页完成布局。
+  await document.fonts.load(`${effectiveCodeSize}px ${effectiveCodeFamily}`, 'Ag 0123456789').catch(() => []);
   await document.fonts.ready;
+  // 初始化、预览和设置应用可能并发；旧字体的迟到结果不能覆盖最新行高和滚动锚点。
+  if (generation !== typographyGeneration) return;
+  // 静态终端与实时网格使用相同的参考字体基础高度。
+  const terminalFontLoaded = [...document.fonts].some(face => face.family.replaceAll(String.fromCharCode(34), '') === 'JetBrains Mono' && face.style === 'normal' && face.weight === '400' && face.status === 'loaded');
+  const terminalFirstFont = effectiveCodeFamily.split(',')[0].trim().replaceAll(String.fromCharCode(34), '');
+  root.setProperty('--terminal-line-height', terminalFirstFont === 'JetBrains Mono' && terminalFontLoaded ? String(Math.ceil(effectiveCodeSize * 1.02) + Math.ceil(effectiveCodeSize * .3)) + 'px' : 'normal');
+  // 字体加载完成后才测量正文，避免首次布局使用回退字体的字宽和行高。
+  root.setProperty('--code-line-height', `${codeLineHeight(effectiveCodeFamily, effectiveCodeSize)}px`);
   const context = document.createElement("canvas").getContext("2d");
   const family = getComputedStyle(document.documentElement).fontFamily;
   const uiPixels = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 12;
+  // 用户字号缩放先按 0.25 档量化，再应用各组件自己的尺寸；不能把字形框加固定留白
+  // 当作 Tree/List 的行高补丁（JBUIScale.discreteScale、LafManagerImpl.patchRowHeight）。
+  const uiScale = Math.max(0.75, Math.round(uiPixels / 12 * 4) / 4);
+  root.setProperty("--augit-ui-scale", uiScale);
   let height = 0;
   for (const role of ["normal", "600", "italic"]) {
     context.font = `${role} ${uiPixels}px ${family}`;
@@ -71,35 +96,51 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
     height = Math.max(height, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
   }
   const length = (name, pixels) => root.setProperty(`--augit-${name}`, `${pixels}px`);
-  length("title-height", Math.max(44, height + 18));
+  for (const [name, base] of [['icon-size',16], ['compact-icon-size',13], ['rail-icon-size',20], ['icon-hit',28], ['mode-hit',26], ['rail-width',37], ['rail-step',40], ['rail-inset',5], ['rail-right-inset',2], ['rail-radius',6]]) {
+    length(name, Math.round(base * uiScale));
+  }
+  // 复选框画布、外接绘制区和描边分别度量，不能把15px中心路径当作外框。
+  for (const [name, base] of [['check-canvas',24], ['check-visible',16], ['check-focus',18], ['check-selected-focus',22], ['check-stroke',1], ['change-inset',12]]) {
+    length(name, name === 'check-stroke' ? base * uiScale : Math.round(base * uiScale));
+  }
+  length("title-height", Math.max(Math.round(44 * uiScale), height + 18));
   length("title-text-height", Math.max(30, height + 4));
   // IntelliJ TabbedPane.tabHeight=40 是默认下限；EditorTabs 上下 insets 各 6px，
   // 放大字号时容器按字高加 12px，保持标签正文两侧留白对称。
-  length("tab-height", Math.max(40, height + 12));
-  length("project-header-height", Math.max(39, height + 10));
-  // 文件树行高 = max(24, 文本高 + 8)：权威 `Tree.rowHeight = 24`／`JBUIScale.scale(24)`（doc 02 已收），
-  // 2026 参考图实测选中行色带与行距均为 42 物理px，按卡片 28 逻辑px 定标（≈1.79）得 23.5，吻合。
-  // 官方按整数缩放而不取偶数，故去掉原先的向上取偶。
-  // 规格（§8.3「行高使用 28px 基准，允许在 27–30px 内随 DPI 四舍五入」）：取偶数并保底 27。
-  length("tree-height", Math.max(24, height + 8));
-  length("document-toolbar-height", Math.max(36, height + 8));
-  length("diff-toolbar-height", Math.max(39, height + 12));
+  length("tab-height", Math.max(Math.round(40 * uiScale), height + Math.round(12 * uiScale)));
+  length("project-header-height", Math.max(Math.round(39 * uiScale), height + 10));
+  // 文件树行高按24px基准离散缩放，并以实际字形高度保底。
+  length("tree-height", Math.max(Math.round(24 * uiScale), height));
+  // ClassicPainter左缩进不小于16px展开图标画布的一半，整数除法再加右缩进。
+  // 默认为max(7,16/2)+11=19；只相加7+11会比参考少一个逻辑像素。
+  length("tree-indent", Math.max(Math.round(7 * uiScale), Math.floor(Math.round(16 * uiScale) / 2)) + Math.round(11 * uiScale));
+  length("tree-inset", Math.round(4 * uiScale));
+  length("tree-control", Math.round(8 * uiScale));
+  length("tree-control-gap", Math.round(4 * uiScale));
+  length("tree-icon-slot", Math.max(16, Math.round(16 * uiScale)));
+  length("history-date-width", Math.round(504 * uiScale));
+  length("history-date-field-height", Math.max(28, height + 8));
+  length("history-date-title-height", Math.max(34, height + 10));
+  length("document-toolbar-height", Math.max(Math.round(36 * uiScale), height + 8));
+  length("diff-toolbar-height", Math.max(Math.round(39 * uiScale), height + 12));
   length("diff-filebar-height", Math.max(31, height + 12));
   length("diff-unified-row-height", Math.max(24, height + 4));
   length("diff-unified-filebar-height", Math.max(55, Math.max(24, height + 4) * 2 + 7));
   // 状态栏的 New UI Widget.border 垂直 insets 共 12px；默认高度 28，大字号时随文本高度扩展。
-  length("status-height", Math.max(28, height + 12));
-  length("find-height", Math.max(42, height + 16));
-  length("find-edit-height", Math.max(30, height + 4));
+  // 参考默认状态栏为 28px；Chromium 的字体包围盒不包含 AWT leading，
+  // 因此保留实测基准下限，再按组件字号档位与实际字形扩展。
+  length("status-height", Math.max(Math.round(28 * uiScale), height + Math.round(12 * uiScale)));
+  length("find-height", Math.max(42, height + 16, Math.round(28 * uiScale) + 14));
+  length("find-edit-height", Math.max(30, height + 4, Math.round(28 * uiScale) + 2));
   length("history-header-height", Math.max(38, height + 14));
   length("history-tab-height", Math.max(24, height + 4));
   length("history-filter-height", Math.max(36, height + 14));
   length("history-input-height", Math.max(25, height + 2));
-  length("history-row-height", Math.max(26, height + 6));
+  length("history-row-height", Math.max(Math.round(26 * uiScale), height + Math.round(2 * uiScale)));
   // 文件历史列表表头：权威的表头高度默认 25（`TableHeader.height`，DarculaTableHeaderUI.java:115），
   // 字号变大时按文本高同步增长，避免表头文字被固定高度裁切。
   length("history-columns-height", Math.max(25, height + 6));
-  length("history-file-row-height", Math.max(24, height + 4));
+  length("history-file-row-height", Math.max(Math.round(24 * uiScale), height));
   length("history-toolbar-height", Math.max(39, height + 12));
   length("history-detail-title-height", Math.max(40, height * 2));
   length("history-detail-meta-height", Math.max(20, height));
@@ -121,7 +162,7 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   measureCodeViews();
   measureDocumentToolbar();
   measureCommitPanels();
-  measureConflictResolver();
+  measureWorkbenchSpace();
   measureRemoteDialog();
   measureWorktreeDialog();
   measureStashDialog();
@@ -175,7 +216,7 @@ function measureTerminalHeaders() {
       height = Math.max(height, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
     }
     context.font = `600 ${style.fontSize} ${style.fontFamily}`;
-    const titleWidth = Math.max(54, Math.ceil(context.measureText('终端').width) + 8);
+    const titleWidth = Math.max(54, Math.ceil(context.measureText('Terminal').width) + 8);
     context.font = `normal ${style.fontSize} ${style.fontFamily}`;
     const label = tool.querySelector('.terminal-session');
     label.title = label.textContent;
@@ -201,23 +242,29 @@ function measureSearchOverlay() {
     line = Math.max(line, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
   }
   context.font = `normal ${style.fontSize} ${style.fontFamily}`;
-  const content = overlay.clientWidth - 20, header = Math.max(41, line + 20), button = Math.max(28, line + 8);
+  const uiScale = Math.max(.75, Math.round(parseFloat(style.fontSize) / 12 * 4) / 4);
+  const optionWidth = Math.round(28 * uiScale), optionGap = Math.round(4 * uiScale);
+  const content = overlay.clientWidth - 20, button = Math.max(optionWidth, line + 8);
+  const options = overlay.querySelectorAll('.search-option');
+  const header = Math.max(41, line + 20, options.length ? button + 8 : 0);
   const title = overlay.querySelector('.search-tabs strong'), shortcut = overlay.querySelector('.menu-shortcut');
   const titleWidth = context.measureText(title.textContent).width;
   let fieldTop = header;
   title.style.cssText = `left:10px;top:${(header - line) / 2}px;line-height:${line}px`;
-  const options = overlay.querySelectorAll('.search-option');
   if (options.length) {
-    const ignored = overlay.querySelector('.search-ignored'), ignoredWidth = Math.min(content, Math.ceil(context.measureText('包含忽略文件').width) + 22);
-    const optionsWidth = 92 + 8 + ignoredWidth;
+    const ignored = overlay.querySelector('.search-ignored'), ignoredWidth = Math.min(content, Math.ceil(context.measureText('Include ignored files').width) + 22);
+    const groupWidth = options.length * optionWidth + (options.length - 1) * optionGap;
+    const optionsWidth = groupWidth + 8 + ignoredWidth;
     let left = overlay.clientWidth - 10 - optionsWidth, top = (header - button) / 2;
-    let ignoredLeft = left + 100, ignoredTop = top;
+    let ignoredLeft = left + groupWidth + 8, ignoredTop = top;
+    let columns = options.length;
     if (titleWidth + 8 + optionsWidth > content) {
-      left = 10; top = header; ignoredLeft = 110; ignoredTop = top;
-      if (optionsWidth > content) { ignoredLeft = 10; ignoredTop += button + 8; }
+      left = 10; top = header; ignoredLeft = left + groupWidth + 8; ignoredTop = top;
+      columns = Math.max(1, Math.min(options.length, Math.floor((content + optionGap) / (optionWidth + optionGap))));
+      if (optionsWidth > content) { ignoredLeft = 10; ignoredTop += Math.ceil(options.length / columns) * (button + 8); }
       fieldTop = ignoredTop + button + 8;
     }
-    options.forEach((option, index) => { option.style.cssText = `left:${left + index * 32}px;top:${top}px;width:28px;height:${button}px`; });
+    options.forEach((option, index) => { option.style.cssText = `left:${left + index % columns * (optionWidth + optionGap)}px;top:${top + Math.floor(index / columns) * (button + 8)}px;width:${optionWidth}px;height:${button}px`; });
     ignored.style.cssText = `left:${ignoredLeft}px;top:${ignoredTop}px;width:${ignoredWidth}px;height:${button}px`;
   } else if (shortcut) {
     const below = titleWidth + 8 + context.measureText(shortcut.textContent).width > content;
@@ -274,7 +321,7 @@ function livePushDialogBody() {
   const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.25L6 11.75L13.5 4.25"/></svg>';
   const push = (window.__augitLive && window.__augitLive.push) || null;
   if (!push || !push.upstream) {
-    return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">定义远端</a></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读"><h2>无法生成推送预览</h2><p class="commit-meta">${escapeHtml(push && push.reason ? push.reason : "请先定义远端，然后重新打开推送。")}</p><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>`;
+    return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push ? push.branch : "HEAD")}</strong><a class="file-status-modified" href="remote.html">Define remote</a></div><div class="push-commits" role="listbox" aria-label="Commits to push" tabindex="0"></div></div><div class="management-detail" tabindex="0" aria-label="Push details; scroll to read"><h2>Unable to load push preview</h2><p class="commit-meta">${escapeHtml(push && push.reason ? push.reason : "Define a remote, then reopen Push.")}</p><div class="push-notice" role="status" hidden></div></div></div><div class="check-line push-tags"><input type="checkbox" disabled aria-label="Push tags">Push tags <select class="select-field" disabled aria-label="Tag scope"><option>All</option></select></div>`;
   }
 
   const commits = push.commits || [];
@@ -282,12 +329,12 @@ function livePushDialogBody() {
   // 只能说数量未知（规格 §7.12 要求此时禁用推送并保留「定义远端」）。
   const unknown = push.ready === false;
   const rows = commits.length === 0
-    ? `<p class="commit-meta" style="padding:6px">${unknown ? "领先提交超出已加载的历史范围" : "没有待推送的提交"}</p>`
+    ? `<p class="commit-meta" style="padding:6px">${unknown ? "Outgoing commits are outside the loaded history" : "No commits to push"}</p>`
     : commits.map((commit, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}" data-push-hash="${escapeHtml(commit.hash)}">${mark}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
   const detail = unknown
-    ? `<h2>提交数量未知</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta">${escapeHtml(push.reason || "领先提交数量未知。")}</p>`
-    : `<h2>${commits.length} 个提交</h2><p class="push-target">目标：${escapeHtml(push.upstream)}</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>`;
-  return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push.branch)} → ${escapeHtml(push.upstream)}</strong></div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${rows}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${detail}<div class="push-notice" role="status" hidden></div></div></div>`;
+    ? `<h2>Commit count unknown</h2><p class="push-target">Target: ${escapeHtml(push.upstream)}</p><p class="commit-meta">${escapeHtml(push.reason || "The outgoing commit count is unknown.")}</p>`
+    : `<h2>${commits.length} commits</h2><p class="push-target">Target: ${escapeHtml(push.upstream)}</p><p class="commit-meta push-credentials">Credentials are handled by local Git; Augit does not store them.</p>`;
+  return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>${escapeHtml(push.branch)} → ${escapeHtml(push.upstream)}</strong></div><div class="push-commits" role="listbox" aria-label="Commits to push" tabindex="0">${rows}</div></div><div class="management-detail" tabindex="0" aria-label="Push details; scroll to read">${detail}<div class="push-notice" role="status" hidden></div></div></div>`;
 }
 
 /**
@@ -303,12 +350,12 @@ function livePushDialogBody() {
  */
 function pushDialogTitle() {
   const name = (window.__augitLive && window.__augitLive.workspaceName) || "Augit";
-  return `推送提交到 ${name}`;
+  return `Push Commits to ${name}`;
 }
 
 function pushDialogBody(noRemote) {
   const mark = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8.25L6 11.75L13.5 4.25"/></svg>';
-  return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>main →${noRemote ? '' : ' origin/main'}</strong>${noRemote ? '<a class="file-status-modified" href="remote.html">定义远端</a>' : ''}</div><div class="push-commits" role="listbox" aria-label="待推送提交" tabindex="0">${noRemote ? '' : ['fix: 精确恢复系统 PATH', 'fix: 避免强制更新 .NET 10'].map((text, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}">${mark}<span>${text}</span></div>`).join('')}</div></div><div class="management-detail" tabindex="0" aria-label="推送详情，可滚动阅读">${noRemote ? '<div class="push-empty">没有选中的提交</div>' : '<h2>2 个提交</h2><p class="push-target">目标：origin/main</p><p class="commit-meta push-credentials">凭据由本机 Git 环境处理，Augit 不保存凭据。</p>'}<div class="push-notice" role="status" hidden></div></div></div>${noRemote ? '<div class="check-line push-tags"><input type="checkbox" disabled aria-label="推送标签">推送标签 <select class="select-field" disabled aria-label="标签范围"><option>全部</option></select></div>' : ''}`;
+  return `<div class="management-content"><div class="management-list"><div class="tree-row push-summary selected"><strong>main →${noRemote ? '' : ' origin/main'}</strong>${noRemote ? '<a class="file-status-modified" href="remote.html">Define remote</a>' : ''}</div><div class="push-commits" role="listbox" aria-label="Commits to push" tabindex="0">${noRemote ? '' : ['fix: 精确恢复系统 PATH', 'fix: 避免强制更新 .NET 10'].map((text, index) => `<div class="push-commit" role="option" aria-selected="false" id="push-commit-${index}">${mark}<span>${text}</span></div>`).join('')}</div></div><div class="management-detail" tabindex="0" aria-label="Push details; scroll to read">${noRemote ? '<div class="push-empty">No selected commits</div>' : '<h2>2 commits</h2><p class="push-target">Target: origin/main</p><p class="commit-meta push-credentials">Credentials are handled by local Git; Augit does not store them.</p>'}<div class="push-notice" role="status" hidden></div></div></div>${noRemote ? '<div class="check-line push-tags"><input type="checkbox" disabled aria-label="Push tags">Push tags <select class="select-field" disabled aria-label="Tag scope"><option>All</option></select></div>' : ''}`;
 }
 
 function measurePushDialog() {
@@ -328,17 +375,17 @@ function measurePushDialog() {
     // 原 `line + 25` 在大字号下会比按钮矮 4px，导致按钮溢出对话框底边（verify-ux-push 实测 size=40 时溢出 3px）。
     footer = Math.max(53, line + 29), row = Math.max(27, line + 8),
     // 按钮高度：权威 `Button.minimumSize` = 72×28 是下限；2026 参考图实测 37（该图缩放已复核为 1.5x），故下限取 37。
-    button = Math.max(37, line + 17);
+    button = Math.max(34, line + 12);
   // 判据取"对话框里真的有标签选项行"，而不是 `push-no-remote` 这个类名：从分支弹层打开的
   // **实时** Push 对话框用的是同一个 `push-dialog` 类，无上游时同样渲染 `.push-tags`，
   // 但它没有 `push-no-remote` 类 ⇒ 旧判据给它 0px，标签行不占网格行、直接压到底栏上
   //（第 274 轮实测：`--push-tags: 0px`、标签行底边在底栏之下）。静态 `push-no-remote` 场景
   // 两种判据一致，改后行为不变。
   const tags = dialog.querySelector('.push-tags') ? Math.max(30, row + 3) : 0;
-  const width = Math.min(930, innerWidth - 80), define = Math.max(72, text('定义远端') + 16);
+  const width = Math.min(930, innerWidth - 80), define = Math.max(72, text('Define remote') + 16);
   const sidebar = tags ? Math.min(Math.max(260, 16 + text('main →') + 8 + define + 8), Math.max(260, (width - 34) / 2)) : 260;
   const values = { header, footer, row, button, tags, sidebar, height: header + 30 + 365 + footer + 1 + tags,
-    cancel: Math.max(78, text('取消操作') + 24), push: Math.max(84, text('正在推送…') + 24) };
+    cancel: Math.max(78, text('Cancel') + 24), push: Math.max(84, text('Pushing…') + 24) };
   for (const [name, value] of Object.entries(values)) dialog.style.setProperty(`--push-${name}`, `${value}px`);
 }
 
@@ -382,21 +429,21 @@ function bindPushDialog() {
     if (cancelling) result = 'cancelled';
     running = false; cancelling = false; dialog.dataset.state = result;
     if (result === 'success') { dismiss(); return; }
-    update(); cancel.textContent = '取消'; push.textContent = '推送';
-    const error = '远端拒绝推送，请先更新分支。';
-    showNotice(result === 'cancelled' ? '操作已取消。' : query.has('long-error') ? Array(18).fill(error).join('\n') : error, result !== 'cancelled');
+    update(); cancel.textContent = 'Cancel'; push.textContent = 'Push';
+    const error = 'The remote rejected the push; update the branch first.';
+    showNotice(result === 'cancelled' ? 'Operation cancelled.' : query.has('long-error') ? Array(18).fill(error).join('\n') : error, result !== 'cancelled');
   };
   const start = () => {
     if (push.disabled || running) return;
     running = true; dialog.dataset.state = 'running'; update();
-    cancel.textContent = '取消操作'; push.textContent = '正在推送…'; cancel.focus(); showNotice('正在推送…');
+    cancel.textContent = 'Cancel'; push.textContent = 'Pushing…'; cancel.focus(); showNotice('Pushing…');
     const result = results[Math.min(attempt++, results.length - 1)];
     if (result !== 'pending') timer = setTimeout(() => finish(result), 180);
   };
   const cancelOrClose = () => {
     if (!running) { dismiss(); return; }
     if (cancelling) return;
-    cancelling = true; showNotice('正在取消推送，等待 Git 停止…');
+    cancelling = true; showNotice('Cancelling push; waiting for Git…');
     clearTimeout(timer); timer = setTimeout(() => finish('cancelled'), 180);
   };
   push.addEventListener('click', start, options); cancel.addEventListener('click', cancelOrClose, options);
@@ -426,7 +473,7 @@ function bindPushDialog() {
   if (initial === 'error' || initial === 'cancelled') finish(initial);
   if (initial === 'empty' && !define) {
     dialog.dataset.state = 'empty'; rows.forEach(row => row.hidden = true);
-    dialog.querySelector('h2').textContent = '0 个提交'; showNotice('当前引用没有待推送提交。');
+    dialog.querySelector('h2').textContent = '0 commits'; showNotice('No outgoing commits for this reference.');
   }
   update(); list.focus({ preventScroll: true });
   window.addEventListener('resize', measurePushDialog, options);
@@ -447,10 +494,10 @@ function measureCloneDialog() {
   const text = value => Math.ceil(context.measureText(value).width);
   const header = Math.max(45, line + 16), field = Math.max(30, line + 10), footer = field + 23;
   // 按钮此前借用了 `--clone-field`（字段高度），本轮改为独立的 `--clone-button`。
-  const button = Math.max(37, line + 17);
-  const label = Math.max(110, ...["版本控制", "仓库 URL", "目录"].map(text));
-  const cancel = Math.max(53, text("取消操作") + 24), create = Math.max(52, text("正在克隆…") + 24);
-  const shallow = Math.max(180, text("浅克隆，历史截断为") + 23), depth = Math.max(58, text("1000") + 16), suffix = Math.max(80, text("个提交"));
+  const button = Math.max(34, line + 12);
+  const label = Math.max(110, ...["Version control", "Repository URL", "Directory"].map(text));
+  const cancel = Math.max(53, text("Cancel") + 24), create = Math.max(52, text("Cloning…") + 24);
+  const shallow = Math.max(180, text("Shallow clone, history truncated to") + 23), depth = Math.max(58, text("1000") + 16), suffix = Math.max(80, text("commits"));
   const width = Math.min(Math.max(930, label + 44 + shallow), innerWidth - 90);
   const wrapped = shallow + depth + suffix + 20 > width - 46 - label;
   const height = header + 191 + 4 * (field - 30) + (wrapped ? field + 8 : 0) + footer;
@@ -494,7 +541,7 @@ function bindCloneDialog() {
     const hasUrl = !!source.value.trim();
     create.disabled = running || !hasUrl;
     create.setAttribute("aria-disabled", String(create.disabled));
-    if (!running && !hasUrl) create.title = "请先填写仓库地址。";
+    if (!running && !hasUrl) create.title = "Enter a repository URL first.";
     else create.removeAttribute("title");
     close.setAttribute("aria-disabled", String(running));
   };
@@ -516,9 +563,9 @@ function bindCloneDialog() {
     if (cancelling) result = "cancelled";
     running = false; cancelling = false;
     if (result === "success") { dismiss(); return; }
-    updateFields(); cancel.textContent = "取消"; create.textContent = "克隆";
-    const error = "服务器暂时不可达，请检查仓库地址或网络后重试。";
-    showNotice(result === "cancelled" ? "操作已取消。" : query.has("long-error") ? Array(12).fill(error).join("\n") : error);
+    updateFields(); cancel.textContent = "Cancel"; create.textContent = "Clone";
+    const error = "The server is unavailable. Check the repository URL or network and try again.";
+    showNotice(result === "cancelled" ? "Operation cancelled." : query.has("long-error") ? Array(12).fill(error).join("\n") : error);
     dialog.dataset.state = result;
   };
   const cancelOrClose = () => {
@@ -539,15 +586,15 @@ function bindCloneDialog() {
   const start = () => {
     if (running) return;
     if (!source.value.trim() || !destination.value.trim()) {
-      showNotice("请输入仓库地址和目标目录。");
+      showNotice("Enter a repository URL and destination.");
       (!source.value.trim() ? source : destination).focus(); return;
     }
     if (shallow.checked && (!/^[0-9]+$/.test(depth.value.trim()) || Number(depth.value.trim()) < 1 || Number(depth.value.trim()) > 2147483647)) {
-      showNotice("浅克隆深度必须是正整数。"); depth.focus(); return;
+      showNotice("Shallow clone depth must be a positive integer."); depth.focus(); return;
     }
     running = true; cancelling = false; const expected = ++request;
-    updateFields(); create.textContent = "正在克隆…"; cancel.textContent = "取消操作"; cancel.focus();
-    showNotice("正在克隆…"); dialog.dataset.state = "running";
+    updateFields(); create.textContent = "Cloning…"; cancel.textContent = "Cancel"; cancel.focus();
+    showNotice("Cloning…"); dialog.dataset.state = "running";
     // 外壳注入真实克隆函数时执行真实 Git；否则保留视觉稿的模拟结果。
     if (typeof window.__augitCloneRequest === "function") {
       const depthValue = shallow.checked ? Number(depth.value.trim()) : null;
@@ -559,14 +606,14 @@ function bindCloneDialog() {
         if (request !== expected) return;
         if (result && result.available) { finish("success", expected); return; }
         running = false; dialog.dataset.state = "idle"; updateFields();
-        create.textContent = "克隆"; cancel.textContent = "取消";
-        showNotice(result && result.reason ? result.reason : "克隆失败。");
+        create.textContent = "Clone"; cancel.textContent = "Cancel";
+        showNotice(result && result.reason ? result.reason : "Clone failed.");
         const field = result && result.field;
         (field === "source" ? source : field === "depth" ? depth : destination).focus();
       }).catch(error => {
         if (request !== expected) return;
         running = false; dialog.dataset.state = "idle"; updateFields();
-        showNotice("克隆失败：" + String(error && error.message || error));
+        showNotice("Clone failed:" + String(error && error.message || error));
       });
       return;
     }
@@ -615,11 +662,11 @@ function measureStashDialog() {
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
   const header = Math.max(45, line + 16), field = Math.max(30, line + 10), branch = Math.max(24, line);
-  const button = Math.max(37, line + 17), message = Math.max(78, line * 3 + 12), footer = Math.max(53, button + 23);
-  const label = Math.max(110, ...["Git 根目录", "当前分支", "消息"].map(text));
-  const cancel = Math.max(54, text("取消操作") + 24), create = Math.max(90, text("正在创建 Stash…") + 24);
+  const button = Math.max(34, line + 12), message = Math.max(78, line * 3 + 12), footer = Math.max(53, button + 23);
+  const label = Math.max(110, ...["Git root", "Current branch", "Message"].map(text));
+  const cancel = Math.max(54, text("Cancel") + 24), create = Math.max(90, text("Creating Stash…") + 24);
   const body = 16 + field + 13 + branch + 5 + message + 13 + button + 16;
-  const width = Math.max(620, cancel + create + 44, label + 69 + text("保留索引状态"));
+  const width = Math.max(620, cancel + create + 44, label + 69 + text("Keep index"));
   for (const [name, value] of Object.entries({ header, field, branch, button, message, footer, label, cancel, create, body, width,
     height: header + body + footer })) dialog.style.setProperty(`--stash-${name}`, `${value}px`);
 }
@@ -633,7 +680,7 @@ function measureStashManagerDialog() {
   context.font = `600 ${style.fontSize} ${style.fontFamily}`;
   const m = context.measureText('国Ag');
   const line = Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
-  const header = Math.max(45, line + 18), toolbar = Math.max(61, line + 28), button = Math.max(37, line + 17), footer = Math.max(53, button + 25);
+  const header = Math.max(45, line + 18), toolbar = Math.max(61, line + 28), button = Math.max(34, line + 12), footer = Math.max(53, button + 25);
   const height = Math.min(header + toolbar + 220 + footer, innerHeight - 88);
   for (const [name, value] of Object.entries({ header, toolbar, button, footer, height })) dialog.style.setProperty(`--stash-manager-${name}`, `${value}px`);
   dialog.querySelector('.footer-help')?.remove();
@@ -651,7 +698,7 @@ function bindStashDialog() {
   const create = dialog.querySelector(".primary-button"), cancel = dialog.querySelector(".secondary-button"), close = dialog.querySelector(".dialog-header a");
   const notice = dialog.querySelector(".stash-notice"), body = dialog.querySelector(".dialog-body");
   close.innerHTML = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" aria-hidden="true"><path d="M3.5 12.5l9-9m0 9-9-9"/></svg>';
-  const fields = [root, message, keep, include], order = [...fields, cancel, create, close];
+  const fields = [root, message, keep, include], order = [...fields, create, cancel, close];
   const background = document.querySelector(".editor-content");
   let running = false, timer = null, version = 0, composing = false;
   const showNotice = text => {
@@ -663,9 +710,9 @@ function bindStashDialog() {
     clearTimeout(timer); timer = null; running = false;
     if (result === "success") { dismiss(); return; }
     fields.forEach(field => field.disabled = false); create.disabled = false; close.removeAttribute("aria-disabled");
-    cancel.textContent = "取消"; create.textContent = "创建 Stash";
-    const failure = "Git 锁文件被占用，请稍后重试。";
-    showNotice(result === "cancelled" ? "操作已取消。" : new URLSearchParams(location.search).has("long-error") ? Array(12).fill(failure).join("\n") : failure);
+    cancel.textContent = "Cancel"; create.textContent = "Create Stash";
+    const failure = "A Git lock file is in use. Try again later.";
+    showNotice(result === "cancelled" ? "Operation cancelled." : new URLSearchParams(location.search).has("long-error") ? Array(12).fill(failure).join("\n") : failure);
     dialog.dataset.state = result;
   };
   const dismiss = () => {
@@ -678,8 +725,8 @@ function bindStashDialog() {
     if (running) return;
     running = true; const request = ++version;
     fields.forEach(field => field.disabled = true); create.disabled = true; close.setAttribute("aria-disabled", "true");
-    create.textContent = "正在创建 Stash…"; cancel.textContent = "取消操作"; cancel.focus();
-    showNotice("正在创建 Stash…"); dialog.dataset.state = "running";
+    create.textContent = "Creating Stash…"; cancel.textContent = "Cancel"; cancel.focus();
+    showNotice("Creating Stash…"); dialog.dataset.state = "running";
     const result = new URLSearchParams(location.search).get("stash-result") || "success";
     if (result !== "pending") timer = setTimeout(() => finish(result, request), 180);
   });
@@ -712,12 +759,12 @@ function measureResetDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = 53 + button - 37;
+  const header = Math.max(45, line + 16), button = Math.max(34, line + 12), footer = 53 + button - 34;
   // 表单控件高度必须随字号缩放（否则大字号下 clientHeight < fontSize，被判为裁剪）；与 clone/stash 的 field 同式。
   const field = Math.max(30, line + 10);
-  const label = Math.max(110, text('目标提交'), text('模式'));
-  const cancel = Math.max(78, text('取消操作') + 26);
-  const run = Math.max(116, ...['确认 Reset Hard', '执行 Reset', '正在执行 Reset…'].map(value => text(value) + 26));
+  const label = Math.max(110, text('Target commit'), text('Mode'));
+  const cancel = Math.max(78, text('Cancel') + 26);
+  const run = Math.max(116, ...['Reset Hard', 'Reset', 'Resetting…'].map(value => text(value) + 26));
   const mode = Math.max(...[...dialog.querySelector('select').options].map(option => text(option.textContent)));
   const width = Math.max(620, label + mode + 110, cancel + run + 42);
   for (const [name, value] of Object.entries({ header, button, footer, label, cancel, run, width, line, field }))
@@ -740,8 +787,8 @@ function measureRollbackDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = button + 23;
-  const cancel = Math.max(78, text('取消') + 26), run = Math.max(116, text('回滚完整文件') + 26);
+  const header = Math.max(45, line + 16), button = Math.max(34, line + 12), footer = button + 23;
+  const cancel = Math.max(78, text('Cancel') + 26), run = Math.max(116, text('Rollback File') + 26);
   const width = Math.max(930, cancel + run + 42);
   const comparison = Math.max(214, Math.max(39, line + 12) + Math.max(55, 2 * Math.max(24, line + 4) + 7) + 96);
   for (const [name, value] of Object.entries({ header, button, footer, cancel, run, width, line, comparison }))
@@ -804,17 +851,17 @@ function bindResetDialog() {
     // 顺序必须与 `#reset-mode` 的 option 顺序一致（权威 `GitResetDialog.java:157-159`：MIXED → SOFT → HARD），
     // 因为下面用 `mode.selectedIndex` 索引它。危险档仍是索引 2。
     const presentations = [
-      ['移动 HEAD 并重置索引，工作区保持不变', '已暂存改动会回到工作区，本地文件不会删除。'],
-      ['仅移动 HEAD，索引和工作区保持不变', '已暂存和未暂存的本地改动都会保留。'],
-      [`将丢失 ${trackedChangeCount()} 个已跟踪文件的本地改动`, '未跟踪文件不会删除，操作不可由 Augit 自动撤销。'],
+      ['Move HEAD and reset the index; keep working tree changes', 'Staged changes return to the working tree; local files are kept.'],
+      ['Move HEAD only; keep index and working tree changes', 'Staged and unstaged changes are kept.'],
+      [`Discard changes in ${trackedChangeCount()} tracked files`, 'Untracked files are kept. Augit cannot undo this operation automatically.'],
     ];
     impact.querySelector('strong').textContent = presentations[mode.selectedIndex][0];
     impact.querySelector('p').textContent = presentations[mode.selectedIndex][1];
     impact.classList.toggle('danger', mode.selectedIndex === 2);
     run.classList.toggle('danger-button', mode.selectedIndex === 2);
     run.classList.toggle('primary-button', mode.selectedIndex !== 2);
-    run.textContent = running ? '正在执行 Reset…' : mode.selectedIndex === 2 ? '确认 Reset Hard' : '执行 Reset';
-    cancel.textContent = running ? '取消操作' : '取消';
+    run.textContent = running ? 'Resetting…' : mode.selectedIndex === 2 ? 'Reset Hard' : 'Reset';
+    cancel.textContent = running ? 'Cancel' : 'Cancel';
     for (const node of [target, mode, run]) node.disabled = running;
     run.setAttribute('aria-disabled', String(running)); close.setAttribute('aria-disabled', String(running));
   };
@@ -831,20 +878,20 @@ function bindResetDialog() {
     if (!running) { dismiss(); return; }
     // 实时外壳：取消必须真的请求宿主停止写操作，并等宿主确认（规格 §9.3）。
     if (typeof window.__augitResetCancel === 'function') {
-      showNotice('正在取消 Reset，等待 Git 停止…');
+      showNotice('Cancelling Reset; waiting for Git…');
       void window.__augitResetCancel().then(outcome => {
         running = false; update();
-        showNotice(outcome && outcome.stopped ? 'Reset 已取消。' : 'Reset 已结束（没有可取消的操作）。');
+        showNotice(outcome && outcome.stopped ? 'Reset cancelled.' : 'Reset finished; no operation is available to cancel.');
         dialog.dataset.state = 'cancelled';
       });
       return;
     }
-    clearTimeout(timer); running = false; update(); showNotice('操作已取消。'); dialog.dataset.state = 'cancelled';
+    clearTimeout(timer); running = false; update(); showNotice('Operation cancelled.'); dialog.dataset.state = 'cancelled';
   };
   const start = () => {
     if (running) return;
-    if (!target.value.trim()) { showNotice('请输入 Reset 目标提交。'); target.focus(); return; }
-    running = true; update(); cancel.focus(); showNotice('正在执行 Reset…'); dialog.dataset.state = 'running';
+    if (!target.value.trim()) { showNotice('Enter a target commit for Reset.'); target.focus(); return; }
+    running = true; update(); cancel.focus(); showNotice('Resetting…'); dialog.dataset.state = 'running';
     // 实时外壳：交给宿主执行真实 Reset（三种模式与目标由界面收集，宿主讲明失败原因）。
     if (typeof window.__augitResetRequest === 'function') {
       void window.__augitResetRequest({
@@ -853,7 +900,7 @@ function bindResetDialog() {
       }).then(outcome => {
         if (outcome && outcome.ok) { dismiss(); return; }
         running = false; update();
-        showNotice((outcome && outcome.reason) || 'Reset 未完成。');
+        showNotice((outcome && outcome.reason) || 'Reset did not complete.');
         dialog.dataset.state = 'failure';
       });
       return;
@@ -862,7 +909,7 @@ function bindResetDialog() {
     timer = setTimeout(() => {
       running = false; update();
       if (params.get('reset-result') === 'failure') {
-        const reason = '无法解析目标提交，请检查仓库中的引用名称。';
+        const reason = 'Cannot resolve the target commit. Check the reference name.';
         showNotice(params.has('long-error') ? Array(12).fill(reason).join('\n') : reason);
         dialog.dataset.state = 'failure';
       } else dismiss();
@@ -877,7 +924,7 @@ function bindResetDialog() {
   dialog.addEventListener('keydown', event => {
     if (composing || event.isComposing) return;
     if (event.key === 'Tab') {
-      const items = [target, mode, cancel, run, close].filter(node => !node.disabled && node.getAttribute('aria-disabled') !== 'true');
+      const items = [target, mode, run, cancel, close].filter(node => !node.disabled && node.getAttribute('aria-disabled') !== 'true');
       const at = items.indexOf(document.activeElement), direction = event.shiftKey ? -1 : 1;
       event.preventDefault(); items[(at + direction + items.length) % items.length]?.focus();
     } else if (event.key === 'Escape') { event.preventDefault(); cancelAction(); }
@@ -888,26 +935,80 @@ function bindResetDialog() {
   update(); target.focus({ preventScroll: true });
 }
 
-// 远端管理保留双栏，受限高度只滚动详情，字号变化不裁切输入和固定操作栏。
+// 远端管理改为 Name/URL 单列表格（+ Define Remote 次模态）：受限高度只滚动表格正文，
+// 工具条与底栏固定。宽度按权威 `GitConfigureRemotesDialog.updateTableWidth()` 的内容驱动公式
+// （名称列 = max(30, 名称字宽) + REMOTE_PADDING(30) + DEFAULT_HGAP(10)；URL 列最小 250），
+// 默认尺寸按2026-10-17用户批准的原始实机图：Remotes 624×385物理像素（175%）。
+// 本函数只量远端自己的窗口（主表 + Define）。
+function remoteNameColumnWidth(width, name, url) {
+  // JTable无拖动时从preferredWidth分配余量；收缩按各列距minWidth的余量分配。
+  const minimum = 15, maximum = 2147483647;
+  const delta = Math.max(minimum * 2, Math.round(width)) - name - url;
+  const capacity = delta >= 0 ? maximum - name : name - minimum;
+  const total = delta >= 0 ? maximum * 2 - name - url : name + url - minimum * 2;
+  return Math.max(minimum, Math.round(name + delta * capacity / total));
+}
 function measureRemoteDialog() {
-  const dialog = document.querySelector(".remote-dialog");
-  if (!dialog) return;
-  const context = document.createElement("canvas").getContext("2d"), style = getComputedStyle(dialog);
-  let line = 0;
-  for (const weight of ["normal", "600"]) {
+  const context = document.createElement("canvas").getContext("2d");
+  const lineOf = (style, weight) => {
     context.font = `${weight} ${style.fontSize} ${style.fontFamily}`;
     const metrics = context.measureText("国Ag");
-    line = Math.max(line, Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent));
+    return Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
+  };
+  const dialog = document.querySelector(".remote-dialog");
+  if (dialog) {
+    const style = getComputedStyle(dialog);
+    const line = Math.max(lineOf(style, "normal"), lineOf(style, "600"));
+    const header = Math.max(40, line + 18), footer = Math.max(50, line + 25);
+    const toolbar = Math.max(24, line + 4), row = Math.max(24, line + 6), button = Math.max(34, line + 12);
+    const rows = [...dialog.querySelectorAll(".remote-row")];
+    let nameWidth = 30, urlWidth = 250;
+    context.font = `600 ${style.fontSize} ${style.fontFamily}`;
+    for (const node of rows) {
+      const name = node.querySelector(".remote-name"), url = node.querySelector(".remote-url");
+      nameWidth = Math.max(nameWidth, Math.ceil(context.measureText(name ? name.textContent : "").width));
+      // 权威表格按粗体预留URL列宽；正文renderer仍以普通字重显示。
+      urlWidth = Math.max(urlWidth, Math.ceil(context.measureText(url ? url.textContent : "").width));
+    }
+    // 权威 `REMOTE_PADDING = 30`、`DEFAULT_HGAP = 10`；表格首行是表头，`visibleRowCount = min(nodes + 3, 8)`。
+    const nameColumn = nameWidth + 30 + 10;
+    const visibleRows = Math.min(rows.length + 3, 8);
+    const height = Math.max(220, header + toolbar + row * visibleRows + footer + 16);
+    dialog.style.setProperty("--remote-width", `${Math.max(624 / 1.75, nameColumn + urlWidth + 10 + 24)}px`);
+    for (const [name, value] of Object.entries({ header, footer, toolbar, row, button, height })) {
+      dialog.style.setProperty(`--remote-${name}`, `${value}px`);
+    }
+    dialog.querySelector(".footer-help")?.remove();
+    const table = dialog.querySelector('.remote-table');
+    if (table) dialog.style.setProperty('--remote-name-width', `${remoteNameColumnWidth(table.clientWidth, nameColumn, urlWidth)}px`);
   }
-  context.font = `${style.fontSize} ${style.fontFamily}`;
-  const header = Math.max(45, line + 16), field = Math.max(30, line + 12), button = Math.max(37, line + 17);
-  const footer = Math.max(53, button + 25), toolbar = Math.max(61, line + 28), title = Math.max(30, line);
-  const values = { header, field, button, footer, toolbar, title,
-    label: Math.max(110, ...["名称", "获取 URL", "推送 URL"].map(text => Math.ceil(context.measureText(text).width))),
-    height: Math.max(407, header + toolbar + 14 + title + 6 + 3 * field + 28 + 16 + button + 16 + footer) };
-  for (const [name, value] of Object.entries(values)) dialog.style.setProperty(`--remote-${name}`, `${value}px`);
-  dialog.querySelector(".footer-help")?.remove();
+  // Remove Remote 确认复用 Define 的尺寸骨架，但不按三行表单重量。
+  const define = document.querySelector(".remote-define-dialog:not(.remote-confirm-dialog)");
+  if (define) {
+    const style = getComputedStyle(define);
+    const line = Math.max(lineOf(style, "normal"), lineOf(style, "600"));
+    const header = Math.max(40, line + 18), footer = Math.max(50, line + 25), button = Math.max(34, line + 12);
+    const field = Math.max(30, line + 12), row = Math.max(24, line + 6);
+    const label = Math.max(...["Name:", "URL:", "Push URL:"].map((text) => {
+      context.font = `${style.fontSize} ${style.fontFamily}`;
+      return Math.ceil(context.measureText(text).width);
+    }));
+    // 参考 207 高只含 Name/URL 两行与 Fetch 复选框；Push URL 是本产品额外一行，
+    // 按行高追加，因此这里是 207 加一行而不是声称与参考 207 精确相同。
+    for (const [name, value] of Object.entries({ header, footer, button, field, row, label })) {
+      define.style.setProperty(`--remote-${name}`, `${value}px`);
+    }
+    // 量实际表单，包含随字号放大的复选框；border-box的上下边框不能漏算。
+    const bodyStyle = getComputedStyle(define.querySelector('.dialog-body'));
+    const content = define.querySelector('.remote-define-form').getBoundingClientRect().height;
+    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    const padding = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
+    const height = Math.max(207 + row + 8, header + footer + content + padding + borders);
+    define.style.setProperty("--remote-define-height", `${height}px`);
+  }
 }
+
+window.addEventListener('resize', measureRemoteDialog);
 
 // Worktree 沿用远端的双栏骨架，但默认高度保持视觉稿的 365px；右侧详情独立滚动。
 function measureWorktreeDialog() {
@@ -918,77 +1019,13 @@ function measureWorktreeDialog() {
   const sample = context.measureText('国Ag');
   const line = Math.ceil(sample.fontBoundingBoxAscent + sample.fontBoundingBoxDescent);
   const header = Math.max(45, line + 16), footer = Math.max(53, line + 25), toolbar = Math.max(61, line + 28);
-  const button = Math.max(37, line + 17);
+  const button = Math.max(34, line + 12);
   const body = 190 + Math.max(0, line - 31) + 3 * Math.max(0, line - 24) + Math.max(0, button - 31);
   const values = { header, footer, toolbar, title: Math.max(30, line), button,
-    label: Math.max(110, context.measureText('新分支（可选）').width), height: Math.max(365, header + toolbar + body + footer) };
+    label: Math.max(110, context.measureText('New branch (optional)').width), height: Math.max(365, header + toolbar + body + footer) };
   for (const [name, value] of Object.entries(values)) dialog.style.setProperty(`--worktree-${name}`, `${value}px`);
 }
 
-// 三栏来源和操作行按界面字体度量，正文仍只跟随等宽字号。
-function measureConflictResolver() {
-  const page = document.querySelector(".conflict-page");
-  if (!page) return;
-  for (const body of page.querySelectorAll(".conflict-block")) {
-    const codeSize = parseFloat(getComputedStyle(body).fontSize);
-    body.style.setProperty("--conflict-line-height", `${Math.round(codeSize * 1.7 * devicePixelRatio) / devicePixelRatio}px`);
-  }
-  const dialog = page.closest(".dialog"), context = document.createElement("canvas").getContext("2d");
-  const style = getComputedStyle(page);
-  context.font = `${style.fontSize} ${style.fontFamily}`;
-  const metrics = context.measureText("国Ag"), line = Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
-  const button = Math.max(37, line + 17), header = Math.max(45, line + 18);
-  const contentHeader = Math.max(42, button + 14), footer = Math.max(53, button + 25);
-  const measure = (text, minimum) => Math.max(minimum, Math.ceil(context.measureText(text).width) + 24);
-  const accept = measure("接受两侧", 112), cancel = measure("取消", 80), save = measure("应用并标记已解决", 164);
-  const navigation = Math.max(measure("上一处", 78), measure("下一处", 78));
-  const count = Math.ceil(context.measureText(page.querySelector(".conflict-header .commit-meta").textContent).width) + 8;
-  const title = dialog.querySelector(".conflict-file-title") || page.querySelector(".conflict-header strong");
-  title.classList.add("conflict-file-title");
-  const fullTitle = title.dataset.fullTitle ??= title.textContent;
-  const fileName = fullTitle.slice(fullTitle.indexOf(" · ") + 3);
-  context.font = `600 ${style.fontSize} ${style.fontFamily}`;
-  const compact = Math.ceil(context.measureText(fullTitle).width) + 8 + count + 2 * (navigation + 8) > dialog.clientWidth - 34;
-  dialog.classList.toggle("compact-conflict-header", compact);
-  title.textContent = compact ? fileName : fullTitle;
-  if (compact) dialog.querySelector(".dialog-header .grow").before(title);
-  else page.querySelector(".conflict-header").prepend(title);
-  context.font = `${style.fontSize} ${style.fontFamily}`;
-  const titles = [...page.querySelectorAll(".conflict-column-title")];
-  const split = titles.some(node => context.measureText(node.title).width + 12 > node.getBoundingClientRect().width);
-  const column = Math.max(36, line * (split ? 2 : 1) + 12);
-  for (const node of titles) {
-    node.replaceChildren();
-    if (split) for (const part of node.title.split(" · ")) {
-      const label = document.createElement("span");
-      label.textContent = part;
-      label.style.height = `${line}px`;
-      node.append(label);
-    }
-    else node.textContent = node.title;
-  }
-  const wrap = accept * 3 + cancel + save + 40 > dialog.clientWidth - 34;
-  const actions = button * (wrap ? 2 : 1) + (wrap ? 28 : 20);
-  // 适屏取权威 `ScreenUtil.fitToScreen()`：它转调 `moveToFit(rect, screen, padding = null, crop = true)`，
-  // 即**没有外边距**、超出屏幕时直接裁到屏幕边界（`ScreenUtil.java:371-393`）。
-  // 原来的 `innerHeight - 40` 是自定边距，与权威不符；第 132 轮实测：1024×640、ui-size=40 时它把总高截到
-  // 600，而期望高 765 ⇒ 缺口 165 全部由正文承担（三栏 190、列标题 114、正文只剩 76）。去掉自定边距后正文 116。
-  dialog.style.height = `${Math.min(243 + header + contentHeader + column + actions + footer, innerHeight)}px`;
-  for (const [name, value] of Object.entries({ button, header, 'content-header': contentHeader, column, footer, actions, accept, cancel, save }))
-    dialog.style.setProperty(`--conflict-${name}`, `${value}px`);
-  page.classList.toggle("wrap-actions", wrap);
-  page.querySelectorAll(".conflict-header button").forEach(button => { button.style.width = `${navigation}px`; });
-  const notice = dialog.querySelector(".footer-help");
-  // 实时界面里这条提示由 syncConflictCount 按真实计数与当前块填写（样例场景才用固定文本）。
-  if (!(window.__augitLive && window.__augitLive.conflict)) {
-    notice.textContent = notice.title = "未处理冲突块：1，当前位置：1";
-  }
-  // 样例场景的返回入口是链接；实时解决器用的是按钮。度量不能因为控件类型不同就抛错
-  // （抛在这里会打断调用方随后的状态落地：冻结标记、按计数恢复动作）。
-  const back = dialog.querySelector(".dialog-footer > :is(a, button)");
-  if (back) back.style.width = `${measure("返回冲突列表", 126)}px`;
-}
-window.addEventListener("resize", measureConflictResolver);
 
 // 提交区只随尺寸与字体度量布局，反馈和勾选不改变区域分配。
 function measureCommitPanels() {
@@ -1001,47 +1038,81 @@ function measureCommitPanels() {
     context.font = `normal ${style.fontSize} ${style.fontFamily}`;
     const metrics = context.measureText("国Ag");
     const h = Math.ceil(metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
+    const uiScale = Math.max(0.75, Math.round(parseFloat(style.fontSize) / 12 * 4) / 4);
+    const settingsWidth = Math.round(28 * uiScale), settingsHeight = Math.round(30 * uiScale);
     const textWidth = text => Math.ceil(context.measureText(text).width);
     const width = side.clientWidth;
     const actionWidth = Math.max(0, width - 20);
-    const commitWidth = Math.max(53, textWidth("提交") + 26);
-    const pushWidth = Math.max(102, textWidth("提交并推送…") + 26);
-    const wrap = commitWidth + pushWidth + 27 + 14 > actionWidth;
-    const actionHeight = Math.max(30, h + 8);
+    const commitWidth = Math.max(78, textWidth(box.querySelector('.commit-actions > .primary-button').textContent) + 34);
+    const pushWidth = Math.max(102, textWidth(box.querySelector('.commit-actions > .secondary-button').textContent) + 34);
+    const wrap = commitWidth + pushWidth + settingsWidth + 14 > actionWidth;
+    const actionHeight = Math.max(34, settingsHeight, h + 12);
     const actionsHeight = actionHeight * (wrap ? 2 : 1) + (wrap ? 7 : 0);
-    const optionsHeight = Math.max(22, h + 4);
-    const optionsBlock = Math.max(39, optionsHeight + 17);
+    const optionsHeight = Math.max(Math.round(24 * uiScale), h + 4);
+    const lastWidth = Math.min(textWidth('last commit') + 4, actionWidth);
+    const amendWidth = textWidth('Amend') + Math.round(24 * uiScale) + Math.round(4 * uiScale);
+    const wrapAmend = amendWidth + textWidth(' ') + lastWidth > actionWidth;
+    const optionsBlock = Math.max(39, optionsHeight * (wrapAmend ? 2 : 1) + 17);
     const feedback = Math.max(20, h + 4);
     const minimum = optionsBlock + Math.max(80, feedback + h + 12) + 13 + actionsHeight;
-    const header = Math.max(39, h + 10), toolbar = Math.max(36, h + 8);
+    const header = Math.max(Math.round(39 * uiScale), h + 10), toolbar = Math.max(Math.round(36 * uiScale), h + 8);
     const available = side.clientHeight - header;
     const commitHeight = Math.max(minimum, Math.min(Math.max(190, Math.round(available * .42)), available - toolbar - 155));
     side.style.gridTemplateRows = `${header}px minmax(0, 1fr)`;
     layout.style.gridTemplateRows = `${toolbar}px minmax(0, 1fr) ${commitHeight}px`;
-    layout.style.setProperty("--commit-row-height", `${Math.max(27, h + 6)}px`);
+    layout.style.setProperty("--commit-row-height", `${Math.max(Math.round(24 * uiScale), h)}px`);
+    layout.style.setProperty('--commit-minimum', `${minimum}px`);
+    layout.style.setProperty('--commit-toolbar-height', `${toolbar}px`);
     const empty = layout.querySelector(".empty-tool-state");
     if (empty) empty.classList.toggle("compact", available - toolbar - commitHeight < Math.max(24, h + 4) * 2 + 2);
     box.style.gridTemplateRows = `${optionsBlock}px minmax(0, 1fr) ${actionsHeight + 13}px`;
     box.style.setProperty("--commit-feedback-height", `${feedback}px`);
     const setRect = (selector, x, y, w, height) => Object.assign(box.querySelector(selector).style,
       { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${height}px` });
-    const amendWidth = Math.min(Math.max(76, textWidth("Amend") + 25), Math.max(0, width - 50));
-    const remaining = Math.max(0, width - 16 - amendWidth - 7);
-    const countWidth = Math.min(Math.max(86, textWidth("99 modified") + 4), Math.max(0, remaining - 34));
-    const lastWidth = Math.max(0, remaining - countWidth - 7);
-    setRect(".commit-amend", 0, 5, amendWidth, optionsHeight);
-    setRect(".commit-last", amendWidth + 7, 5, lastWidth, optionsHeight);
-    setRect(".commit-count", width - 16 - countWidth, 5, countWidth, optionsHeight);
-    box.querySelector(".commit-last").classList.toggle("icon-only", lastWidth < textWidth("上一次提交") + 22);
-    setRect(".commit-actions > .primary-button", 2, 8, Math.min(commitWidth, actionWidth - 34), actionHeight);
+    setRect(".commit-amend", 0, 5, Math.min(amendWidth, actionWidth), optionsHeight);
+    setRect(".commit-last", wrapAmend ? 0 : amendWidth + textWidth(' '), wrapAmend ? 5 + optionsHeight : 5, lastWidth, optionsHeight);
+    // 文件数量由 Changes/Unversioned 分组呈现，不在消息输入栏重复绘制。
+    box.querySelector('.commit-count').hidden = true;
+    setRect(".commit-actions > .primary-button", 2, 8, Math.min(commitWidth, actionWidth - settingsWidth - 7), actionHeight);
     setRect(".commit-actions > .secondary-button", wrap ? 2 : 2 + commitWidth + 7, wrap ? 8 + actionHeight + 7 : 8,
-      Math.min(pushWidth, wrap ? actionWidth : actionWidth - commitWidth - 41), actionHeight);
-    setRect(".commit-actions > .icon-button", width - 43, 8 + (actionHeight - 30) / 2, 27, 30);
+      Math.min(pushWidth, wrap ? actionWidth : actionWidth - commitWidth - settingsWidth - 14), actionHeight);
+    setRect(".commit-actions > .icon-button", width - settingsWidth - 16, 8 + (actionHeight - settingsHeight) / 2, settingsWidth, settingsHeight);
   });
+  measureWorkbenchSpace();
 }
 window.addEventListener("resize", measureCommitPanels);
 
-// 文档工具栏共享文字度量，图标仍使用固定命中区。
+// 字号与宿主可用空间共同约束上下工具区；受限工具窗在自身内部滚动。
+// 不改变保存的首选尺寸，也不折叠用户已打开的面板。
+function measureWorkbenchSpace() {
+  const main = document.querySelector('.app-main');
+  if (!main) return;
+  const style = getComputedStyle(document.documentElement);
+  const value = (name, fallback) => parseFloat(style.getPropertyValue(`--augit-${name}`)) || fallback;
+  const content = document.querySelector('.editor-content');
+  const view = content?.querySelector(':scope > :not([hidden])');
+  const rows = view && getComputedStyle(view).display === 'grid'
+    ? getComputedStyle(view).gridTemplateRows.split(' ').slice(0, -1).reduce((sum, row) => sum + (parseFloat(row) || 0), 0) : 0;
+  const editorMinimum = value('tab-height', 40) + Math.max(value('document-toolbar-height', 36), rows) + 24;
+  main.style.setProperty('--workbench-editor-minimum', `${editorMinimum}px`);
+  document.documentElement.style.setProperty('--augit-editor-min-height', `${editorMinimum}px`);
+  main.classList.toggle('space-constrained', main.classList.contains('bottom-open')
+    && main.clientHeight < editorMinimum + value('bottom-min-height', 180) + 4);
+  document.querySelectorAll('.changes-layout').forEach(layout => {
+    const side = layout.closest('.side-tool');
+    const available = side.clientHeight - side.querySelector('.tool-header').getBoundingClientRect().height;
+    const cramped = available < parseFloat(layout.style.getPropertyValue('--commit-minimum'))
+      + parseFloat(layout.style.getPropertyValue('--commit-toolbar-height'))
+      + parseFloat(layout.style.getPropertyValue('--commit-row-height')) + 10;
+    layout.classList.toggle('commit-scroll-layout', cramped);
+    side.classList.toggle('commit-scroll-tool', cramped);
+  });
+  const settings = window.__augitLive?.settings;
+  if (settings?.bottomPanelHeight > 0) window.__augitApplyPanelSizes?.(settings);
+}
+window.addEventListener('resize', measureWorkbenchSpace);
+
+// 文档工具栏共享文字度量，图形与命中区按所属UI图标族缩放。
 function measureDocumentToolbar() {
   const context = document.createElement("canvas").getContext("2d");
   document.querySelectorAll(".document-path").forEach(path => { path.title = path.textContent; });
@@ -1055,8 +1126,9 @@ function measureDocumentToolbar() {
   if (documentView && new URLSearchParams(location.search).has("target") && !documentView.querySelector(".document-target")) {
     const target = document.createElement("div");
     target.className = "document-target";
+    target.tabIndex = 0;
     target.textContent = "符号链接目标：D:\\shared\\Augit\\配置与示例文件\\global.json";
-    documentView.querySelector(".document-toolbar").after(target);
+    const toolbar = documentView.querySelector(".document-toolbar"); if (toolbar) toolbar.after(target); else documentView.prepend(target);
     documentView.classList.add("has-target");
     measureDocumentToolbar();
   }
@@ -1083,7 +1155,7 @@ const toolbarIconShapes = {
   // 工具窗口项目图标复用 expui/toolwindows/project.svg 的折角与圆角路径。
   "folder": '<path d="M8.15132 4.35836 8.29689 4.5H8.5h4.5c.8284 0 1.5.67157 1.5 1.5v6.1333c0 .7857-.5896 1.3667-1.25 1.3667H2.75c-.66045 0-1.25-.581-1.25-1.3667V3.86667C1.5 3.08099 2.08955 2.5 2.75 2.5h3.28823c.13024 0 .25534.05082.34868.14164z"/>',
   "git-commit-horizontal": '<g fill="currentColor" stroke="none"><path fill-rule="evenodd" d="M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM8 6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/><rect x="0" y="7.5" width="5.5" height="1" rx="0.5"/><rect x="10.5" y="7.5" width="5.5" height="1" rx="0.5"/></g>',
-  "git-branch": '<g fill="currentColor" stroke="none"><circle cx="5.05" cy="2.75" r="1.75"/><circle cx="10.88" cy="3.92" r="1.75"/><circle cx="5.05" cy="13.25" r="1.75"/></g><path d="M5.05 4.5V11.5M5.9 11.5C6.3 10.9 6.9 10.3 7.85 9.94C9.4 9.35 11.76 8.1 11.76 5.43" stroke="currentColor" stroke-width="1.75" fill="none" stroke-linecap="round"/>',
+  "git-branch": '<path fill="currentColor" stroke="none" fill-rule="evenodd" d="M12.1232 2.67714C11.7828 2.33692 11.3696 2.16676 10.8834 2.16676C10.3975 2.16676 9.98427 2.33682 9.64395 2.67714C9.30375 3.01737 9.13366 3.43051 9.13366 3.91672C9.13366 4.23268 9.21242 4.52588 9.37041 4.79626C9.52838 5.06666 9.74087 5.27787 10.0084 5.42971C10.0084 5.74567 9.98273 6.02377 9.93118 6.26375C9.87939 6.50373 9.79441 6.71478 9.67597 6.8972C9.55721 7.07953 9.43442 7.23436 9.30672 7.36203C9.17899 7.4897 8.99973 7.60961 8.76885 7.72208C8.538 7.83449 8.32366 7.92857 8.12624 8.00464C7.92881 8.08047 7.66288 8.17008 7.32869 8.27342C6.72097 8.46187 6.25317 8.63491 5.92501 8.793V4.26292C6.19238 4.11111 6.40507 3.89993 6.56303 3.62953C6.72097 3.35912 6.79995 3.06589 6.79995 2.74993C6.79995 2.26388 6.62988 1.85064 6.28956 1.51042C5.94937 1.17022 5.53623 1 5.05005 1C4.56383 1 4.15069 1.1701 3.81037 1.51042C3.47018 1.85064 3.29999 2.26388 3.29999 2.74993C3.29999 3.06589 3.37897 3.35912 3.5369 3.62953C3.69487 3.89993 3.90752 4.11111 4.17492 4.26292V11.7371C3.90752 11.8888 3.69487 12.1002 3.5369 12.3705C3.37897 12.641 3.29999 12.9343 3.29999 13.2501C3.29999 13.7362 3.47005 14.1494 3.81037 14.4896C4.15069 14.8298 4.56393 15 5.05005 15C5.53614 15 5.94937 14.8298 6.28956 14.4896C6.62979 14.1494 6.79995 13.7362 6.79995 13.2501C6.79995 12.9343 6.72097 12.641 6.56303 12.3705C6.40504 12.1002 6.19238 11.8888 5.92501 11.7371V11.5001C5.92501 11.0809 6.05109 10.7772 6.30323 10.5888C6.55537 10.4003 7.07035 10.1846 7.84823 9.94163C8.66867 9.68029 9.28553 9.43405 9.6987 9.20307C11.0598 8.43155 11.7464 7.17367 11.7585 5.42968C12.0261 5.27787 12.2386 5.06663 12.3965 4.79622C12.5544 4.52582 12.6335 4.23265 12.6335 3.91669C12.6336 3.4306 12.4634 3.01746 12.1232 2.67714Z"/>',
   "search": '<circle cx="7" cy="7" r="4.5"/><path d="M10.1992 10.2002 13.4992 13.4961"/>',
   // expui/inline/searchHistory.svg：空心环、斜向手柄和右上小三角。
   "history-search": '<g fill="currentColor" stroke="none"><path d="M8.85355 10.1432c-.19526-.19531-.51184-.19531-.7071 0-.19527.1953-.19527.5118 0 .7071l2.99925 2.9992c.1952.1953.5118.1953.7071 0 .1952-.1952.1952-.5118 0-.7071zM9 7c0 2.20914-1.79086 4-4 4v1c2.76142 0 5-2.23858 5-5zm-4 4c-2.20914 0-4-1.79086-4-4H0c0 2.76142 2.23858 5 5 5zm-4-4c0-2.20914 1.79086-4 4-4V2C2.23858 2 0 4.23858 0 7zm4-4c2.20914 0 4 1.79086 4 4h1c0-2.76142-2.23858-5-5-5z"/><path d="M11 7l2.5 2.5L16 7z"/></g>',
@@ -1166,10 +1238,10 @@ const toolbarIconShapes = {
   "undo-2": '<path d="M3 5H10.5a4 4 0 0 1 0 8H5.5M5.5 1.5 1.8 5l3.7 3.5"/>',
   "download": trayArrowShape,
   "eye": '<circle cx="8" cy="8" r="1.5"/><path d="M8 11.5C5.62351 11.5 3.2737 9.94494 2.53088 8C3.2737 6.05506 5.62351 4.5 8 4.5C10.3765 4.5 12.7263 6.05506 13.4691 8C12.7263 9.94494 10.3765 11.5 8 11.5Z"/>',
-  "locate-fixed": '<circle cx="8" cy="8" r="6.5"/><path d="M8 2V5.5M8 10.5V14M2 8H5.5M10.5 8H14"/>',
+  "locate-fixed": '<path fill="currentColor" stroke="none" fill-rule="evenodd" clip-rule="evenodd" d="M8.5 5V2.02054C11.4149 2.26101 13.739 4.5851 13.9795 7.5H11C10.7239 7.5 10.5 7.72386 10.5 8S10.7239 8.5 11 8.5H13.9795C13.739 11.4149 11.4149 13.739 8.5 13.9795V11C8.5 10.7239 8.27614 10.5 8 10.5S7.5 10.7239 7.5 11V13.9795C4.5851 13.739 2.26101 11.4149 2.02054 8.5H5C5.27614 8.5 5.5 8.27614 5.5 8S5.27614 7.5 5 7.5H2.02054C2.26101 4.5851 4.5851 2.26101 7.5 2.02054V5C7.5 5.27614 7.72386 5.5 8 5.5S8.5 5.27614 8.5 5ZM1 8C1 4.13401 4.13401 1 8 1S15 4.13401 15 8 11.866 15 8 15 1 11.866 1 8Z"/>',
   "fold-vertical": '<path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/>',
   // expui/fileTypes/shell.svg 的圆角外框与 1.2px 提示符/下划线几何。
-  "square-terminal": '<g stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none"/><path d="M4 6 6 8 4 10M7.5 10.5h4"/></g>',
+  "square-terminal": '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M7.5 10.5h3M4.5 9.5 6.5 7.5 4.5 5.5"/>',
   // 历史与 Git 历史是两个不同图形：前者是「时钟」（general/history.svg），后者是 VCS 工具窗口的「两空心节点分支图」
   // （toolwindows/vcs.svg，design-system §7.2 的「Git 历史」一行）；标题栏分支芯片用的是 vcs/branch.svg 的三实心圆盘。
   "history": '<circle cx="8" cy="8" r="6.5"/><path d="M8 5V8L10.5 9.5"/>',
@@ -1178,7 +1250,18 @@ const toolbarIconShapes = {
   "clone": '<g stroke-width="1"><path d="M1.5 5h5l1.5 1.5h6.5v7h-13Z"/><circle cx="6" cy="9" r="1.4"/><circle cx="11" cy="11" r="1.4"/><path d="M7.2 9.8 9.8 10.4"/></g>',
   "conflict": '<g stroke-width="1"><path d="M3 1.5h7l3 3v10H3Z M10 1.5v3h3M8 7v4"/><circle cx="8" cy="13" r=".8"/></g>',
 };
-function icon(name) {
+// 工具轨采用独立的 20px 资源几何；不能把 16px 图形放大后当作同一图标。
+const railIconShapes = {
+  "search": '<path fill-rule="evenodd" d="M16 9C16 10.6478 15.4307 12.1625 14.478 13.3584C14.5086 13.3812 14.5379 13.4065 14.5657 13.4343L18.5657 17.4343C18.8781 17.7467 18.8781 18.2533 18.5657 18.5657S17.7467 18.8781 17.4343 18.5657L13.4343 14.5657C13.4065 14.5379 13.3812 14.5086 13.3584 14.478C12.1625 15.4307 10.6478 16 9 16C5.13401 16 2 12.866 2 9S5.13401 2 9 2 16 5.13401 16 9ZM14.5 9C14.5 12.0376 12.0376 14.5 9 14.5S3.5 12.0376 3.5 9 5.96243 3.5 9 3.5 14.5 5.96243 14.5 9Z"/>',
+  "square-terminal": '<rect x="1.75" y="2.75" width="16.5" height="14.5" rx="1.25" fill="none" stroke="currentColor"/><path d="M5.75 11.75 8.5 9 5.75 6.25" fill="none" stroke="currentColor"/><path d="M9 13.2788C9 12.8646 9.33579 12.5288 9.75 12.5288L14.25 12.5a.75.75 0 0 1 0 1.5L9.75 14.0288C9.33579 14.0288 9 13.693 9 13.2788Z"/>',
+  "folder": '<path d="M10.5199 5.57617 10.7285 5.75H17a1.25 1.25 0 0 1 1.25 1.25v8.1667c0 .9004-.697 1.5833-1.5 1.5833H3.25c-.803 0-1.5-.6829-1.5-1.5833V4.83333c0-.90039.69705-1.58333 1.5-1.58333h4.38795c.05848 0 .11512.0205.16005.05794Z" fill="none" stroke="currentColor"/>',
+  "git-commit-horizontal": '<path fill-rule="evenodd" d="M19.25 9.25C19.6642 9.25 20 9.58579 20 10S19.6642 10.75 19.25 10.75H13.9298C13.5787 12.6006 11.9528 14 10 14S6.42125 12.6006 6.0702 10.75H.75C.335787 10.75 0 10.4142 0 10S.335787 9.25 .75 9.25H6.0702C6.42125 7.39935 8.04721 6 10 6S13.5787 7.39935 13.9298 9.25ZM10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/>',
+  "git-history": '<path fill-rule="evenodd" d="M7.5 4.5C7.5 5.60457 6.60457 6.5 5.5 6.5S3.5 5.60457 3.5 4.5 4.39543 2.5 5.5 2.5 7.5 3.39543 7.5 4.5ZM9 4.5C9 6.17556 7.82259 7.57612 6.25 7.91946V13.25H9.5C10.2092 13.25 10.7035 13.2496 11.0904 13.2232 11.4706 13.1973 11.692 13.1487 11.861 13.0787 12.4124 12.8504 12.8504 12.4124 13.0787 11.861 13.1487 11.692 13.1973 11.4706 13.2232 11.0904 13.244 10.7848 13.2487 10.4121 13.2497 9.91939C11.6773 9.57594 10.5 8.17546 10.5 6.5C10.5 4.567 12.067 3 14 3S17.5 4.567 17.5 6.5C17.5 8.17565 16.3225 9.57626 14.7498 9.91951C14.7488 10.4185 14.7439 10.8379 14.7197 11.1925 14.6886 11.6491 14.6229 12.0528 14.4645 12.4351 14.0839 13.3539 13.3539 14.0839 12.4351 14.4645 12.0528 14.6229 11.6491 14.6886 11.1925 14.7197 10.7485 14.75 10.203 14.75 9.52664 14.75H6.25V18a.75.75 0 0 1-1.5 0V7.91946C3.17741 7.57612 2 6.17556 2 4.5C2 2.567 3.567 1 5.5 1S9 2.567 9 4.5ZM16 6.5a2 2 0 1 0-4 0 2 2 0 0 0 4 0Z"/>',
+};
+function icon(name, rail = false) {
+  if (rail && Object.hasOwn(railIconShapes, name)) {
+    return `<svg class="augit-toolbar-icon" viewBox="0 0 20 20" fill="currentColor" stroke="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-augit-icon="${name}">${railIconShapes[name]}</svg>`;
+  }
   if (name === "none") return '<span class="menu-icon-empty" aria-hidden="true"></span>';
   if (name === "folder-open") return treeFolderIcon();
   if (name === "lock") {
@@ -1196,10 +1279,10 @@ function icon(name) {
 // 换成还原图形——这是 Windows 窗口按钮的既有语义，视觉稿只画了还原态。
 function windowActionIcons() {
   const maximized = !!(window.__augitLive && window.__augitLive.windowMaximized);
-  return '<span class="window-dot" data-window-action="minimize" aria-label="最小化" title="最小化">' + icon("window-minimize")
-    + '</span><span class="window-dot" data-window-action="maximize" aria-label="' + (maximized ? "向下还原" : "最大化")
-    + '" title="' + (maximized ? "向下还原" : "最大化") + '">' + icon(maximized ? "window-restore" : "window-maximize")
-    + '</span><span class="window-dot" data-window-action="close" aria-label="关闭窗口" title="关闭窗口">' + icon("window-close") + '</span>';
+  return '<span class="window-dot" data-window-action="minimize" aria-label="Minimize" title="Minimize">' + icon("window-minimize")
+    + '</span><span class="window-dot" data-window-action="maximize" aria-label="' + (maximized ? "Restore Down" : "Maximize")
+    + '" title="' + (maximized ? "Restore Down" : "Maximize") + '">' + icon(maximized ? "window-restore" : "window-maximize")
+    + '</span><span class="window-dot" data-window-action="close" aria-label="Close window" title="Close window">' + icon("window-close") + '</span>';
 }
 
 // 目录和引用是树节点图形，不套用工具栏的粗线空心文件夹或菜单标签。
@@ -1239,6 +1322,24 @@ function gitReferenceIcon(kind = "local") {
   return `<svg class="git-reference-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${outline}" fill="${color}" fill-rule="evenodd" stroke="none"/></svg>`;
 }
 
+/** 日志引用按名称独立保留；HEAD 与同一提交的首个分支用重叠色标表达，不合成单色字符串。 */
+function logReferenceLabels(refs, atHead = false) {
+  const values = (Array.isArray(refs) ? refs : []).filter(name => name && name !== '->');
+  if (atHead && !values.includes('HEAD')) values.unshift('HEAD');
+  const names = values.filter(name => name !== 'HEAD');
+  const hasHead = values.includes('HEAD');
+  if (!names.length && hasHead) names.push('HEAD');
+  const colors = { head: 'var(--augit-ref-head)', local: 'var(--augit-ref-branch)', remote: 'var(--augit-ref-remote)', tag: 'var(--augit-ref-tag)' };
+  const outline = 'M13.4495 7.5001 7.01028 13.9394C6.81502 14.1347 6.49843 14.1347 6.30317 13.9394L2.06053 9.69679C1.86527 9.50152 1.86527 9.18494 2.06053 8.98968L8.49978 2.55035C8.61106 2.43907 8.76824 2.38667 8.92404 2.40893L12.6363 2.93926C12.8563 2.97069 13.0292 3.14354 13.0606 3.36352L13.5909 7.07584C13.6132 7.23163 13.5608 7.38882 13.4495 7.5001Z';
+  return names.map((name, index) => {
+    const kind = name === 'HEAD' ? 'head' : refKindOf([name]);
+    const layers = hasHead && index === 0 && kind !== 'head' ? ['head', kind] : [kind];
+    const width = Math.round(16 + (layers.length - 1) * 5.12);
+    const tags = [...layers].reverse().map((layer, i) => `<g transform="translate(${i * 5.12} 0)"><path d="${outline}" fill="var(--augit-row-background, var(--augit-panel))" stroke="${colors[layer]}"/>${i === layers.length - 1 ? `<circle cx="10.5" cy="5.5" r="1" fill="${colors[layer]}"/>` : ''}</g>`).join('');
+    return `<span class="log-reference-label" data-log-reference="${escapeHtml(name)}" title="${escapeHtml(name)}"><svg class="log-reference-icon" data-reference-layers="${layers.join(' ')}" viewBox="0 0 ${width} 16" style="width:${width}px" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${tags}</svg><span>${escapeHtml(name.replace(/^tag:\s*/, ''))}</span></span>`;
+  }).join('');
+}
+
 // 文件类型图标与原生绘制使用相同的 16px 坐标；Git 状态只改变文件名颜色。
 /**
  * 变更状态符号。权威 `GitChangeType`
@@ -1253,6 +1354,14 @@ const changeStatusSymbols = {
   renamed: "R", unmerged: "U", typechanged: "T",
 };
 
+/** 两列 porcelain 状态保留为说明，不能用一种文件名颜色冒充两个快照。 */
+function gitStatusDescription(file) {
+  if (!file || (typeof file.indexStatus !== "string" && typeof file.workTreeStatus !== "string")) return "";
+  const labels = { " ": "Unchanged", M: "Modified", A: "Added", D: "Deleted", R: "Renamed", C: "Copied", T: "Type Changed", U: "Unmerged", "?": "Unversioned" };
+  const label = value => labels[value || " "] || "Unknown";
+  return `Index: ${label(file.indexStatus)}; Working tree: ${label(file.workTreeStatus)}`;
+}
+
 /**
  * 变更行的辅助技术名称：状态符号（有则加）＋ 文件名。
  * 规格 §7.8：**原生列表的辅助技术名称同时保留状态符号与文件名**——视觉上状态只由文件名颜色表达，
@@ -1261,10 +1370,29 @@ const changeStatusSymbols = {
 function changeAccessibleName(kind, text, file = null) {
   const symbol = changeStatusSymbols[String(kind || "").toLowerCase()] || "";
   const composite = file && file.indexStatus === "D" && file.workTreeStatus === "?"
-    ? "，已暂存删除，工作区同路径存在未跟踪内容"
+    ? ", staged deletion; an untracked file exists at the same path"
     : "";
-  return `${symbol ? `${symbol} ` : ""}${text}${composite}`;
+  const detail = gitStatusDescription(file);
+  return `${symbol ? `${symbol} ` : ""}${text}${composite}${detail ? `, ${detail}` : ""}`;
 }
+
+// 文件类型来自实际 FileType 与 PlatformIconMappings 调用路径；不按图标文件名猜测语义。
+const sceneFileIconShapes = {
+  javascript: '<path d="M14 4C14 2.895 13.105 2 12 2H4C2.895 2 2 2.895 2 4V12C2 13.105 2.895 14 4 14H12C13.105 14 14 13.105 14 12V4Z" fill="currentColor"/><path d="M9.554 11.859C9.882 12.013 10.258 12.09 10.683 12.09C11.105 12.09 11.479 12.012 11.807 11.855C12.135 11.698 12.39 11.483 12.572 11.21C12.755 10.933 12.846 10.624 12.846 10.282C12.846 10 12.783 9.733 12.658 9.482C12.533 9.232 12.354 9.022 12.124 8.854C11.896 8.686 11.635 8.576 11.341 8.525L10.345 8.362C10.143 8.328 9.979 8.241 9.854 8.102C9.728 7.959 9.665 7.791 9.665 7.597C9.665 7.432 9.708 7.286 9.794 7.161C9.879 7.036 9.999 6.939 10.153 6.87C10.307 6.802 10.485 6.768 10.687 6.768C10.89 6.768 11.068 6.803 11.222 6.875C11.376 6.946 11.495 7.047 11.581 7.178C11.666 7.306 11.709 7.452 11.709 7.614H12.722C12.719 7.281 12.631 6.984 12.457 6.725C12.283 6.466 12.041 6.263 11.73 6.118C11.422 5.973 11.07 5.9 10.674 5.9C10.287 5.9 9.939 5.975 9.631 6.126C9.323 6.275 9.083 6.481 8.909 6.746C8.738 7.009 8.652 7.305 8.652 7.636C8.652 7.912 8.709 8.167 8.823 8.401C8.94 8.632 9.105 8.824 9.319 8.978C9.533 9.132 9.785 9.234 10.076 9.286L11.089 9.457C11.311 9.494 11.489 9.594 11.623 9.756C11.757 9.916 11.824 10.107 11.824 10.329C11.824 10.505 11.777 10.662 11.683 10.799C11.592 10.933 11.461 11.037 11.29 11.111C11.119 11.185 10.921 11.222 10.696 11.222C10.465 11.222 10.26 11.182 10.08 11.103C9.903 11.02 9.765 10.905 9.665 10.756C9.566 10.608 9.516 10.44 9.516 10.252H8.503C8.506 10.611 8.6 10.93 8.785 11.21C8.97 11.486 9.227 11.703 9.554 11.859Z" fill="var(--augit-js-ink)"/><path d="M5.222 11H4.213V12H5.32C5.648 12 5.939 11.932 6.192 11.795C6.446 11.655 6.644 11.461 6.786 11.213C6.929 10.965 7 10.68 7 10.358L7 6H6L6 10.222C6 10.376 5.967 10.513 5.902 10.632C5.839 10.749 5.748 10.84 5.628 10.906C5.511 10.969 5.376 11 5.222 11Z" fill="var(--augit-js-ink)"/>',
+  typescript: '<path d="M14 4C14 2.895 13.105 2 12 2H4C2.895 2 2 2.895 2 4V12C2 13.105 2.895 14 4 14H12C13.105 14 14 13.105 14 12V4Z" fill="currentColor"/><path d="M3.135 6H7.872V7H6V12H5V7H3.135V6Z" fill="white"/><path d="M10.683 12.09C10.259 12.09 9.883 12.013 9.555 11.859C9.227 11.703 8.97 11.486 8.785 11.21C8.6 10.93 8.506 10.611 8.503 10.252H9.516C9.516 10.44 9.566 10.608 9.666 10.756C9.766 10.905 9.904 11.02 10.081 11.103C10.26 11.182 10.465 11.222 10.696 11.222C10.921 11.222 11.119 11.185 11.29 11.111C11.461 11.037 11.592 10.933 11.684 10.799C11.778 10.662 11.825 10.506 11.825 10.329C11.825 10.107 11.758 9.916 11.624 9.756C11.49 9.594 11.312 9.494 11.089 9.457L10.076 9.286C9.786 9.235 9.533 9.132 9.32 8.978C9.106 8.824 8.941 8.632 8.824 8.401C8.71 8.167 8.653 7.912 8.653 7.636C8.653 7.305 8.738 7.009 8.909 6.746C9.083 6.481 9.324 6.275 9.632 6.127C9.94 5.976 10.287 5.9 10.675 5.9C11.071 5.9 11.423 5.973 11.731 6.118C12.041 6.263 12.284 6.466 12.457 6.725C12.631 6.984 12.72 7.281 12.723 7.614H11.709C11.709 7.452 11.667 7.306 11.581 7.178C11.496 7.047 11.376 6.946 11.222 6.875C11.068 6.803 10.89 6.768 10.688 6.768C10.485 6.768 10.307 6.802 10.153 6.87C9.999 6.939 9.88 7.036 9.794 7.161C9.709 7.287 9.666 7.432 9.666 7.597C9.666 7.791 9.729 7.959 9.854 8.102C9.979 8.241 10.143 8.328 10.346 8.362L11.342 8.525C11.635 8.576 11.896 8.686 12.124 8.854C12.355 9.022 12.533 9.232 12.658 9.482C12.784 9.733 12.847 10 12.847 10.282C12.847 10.624 12.755 10.933 12.573 11.21C12.39 11.483 12.135 11.698 11.808 11.855C11.48 12.012 11.105 12.09 10.683 12.09Z" fill="white"/>',
+  css: '<path d="M7.992 15L2.941 13.601L1.815 1H14.185L13.058 13.598L7.992 15Z" fill="currentColor"/><path d="M4.257 5.121L4.117 3.576H11.874L11.594 6.704L11.556 7.119L11.169 11.448L8 12.325L7.993 12.327L4.82 11.448L4.604 9.022H6.158L6.268 10.254L7.993 10.719L7.995 10.719L9.722 10.253L9.902 8.249L4.534 8.249L4.396 6.704H10.036L10.177 5.121H4.257Z" fill="white"/>',
+  python: '<path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C11 1 11 2 11 4L11 6.5C11 7.328 10.328 8 9.5 8H6.5C5.119 8 4 9.119 4 10.5V11C2 11 1 11 1 8C1 5 2 5 4 5L7.5 5C7.776 5 8 4.776 8 4.5C8 4.224 7.776 4 7.5 4H5C5 2 5 1 8 1ZM6.5 3C6.776 3 7 2.776 7 2.5C7 2.224 6.776 2 6.5 2C6.224 2 6 2.224 6 2.5C6 2.776 6.224 3 6.5 3Z" fill="var(--augit-python-blue)"/><path fill-rule="evenodd" clip-rule="evenodd" d="M12 5V6.5C12 7.881 10.881 9 9.5 9H6.5C5.672 9 5 9.672 5 10.5L5 12C4.999 14 5 15 8 15C11 15 11 14 11 12L8.5 12C8.224 12 8 11.776 8 11.5C8 11.224 8.224 11 8.5 11L12 11C14 11.001 15 11 15 8C15 5 14 5 12 5ZM9.5 14C9.776 14 10 13.776 10 13.5C10 13.224 9.776 13 9.5 13C9.224 13 9 13.224 9 13.5C9 13.776 9.224 14 9.5 14Z" fill="var(--augit-python-yellow)"/>',
+  editorconfig: '<path fill-rule="evenodd" clip-rule="evenodd" d="M1.549 5.289C1.528 5.338 1.507 5.389 1.487 5.439C1.405 5.649 1.432 5.885 1.547 6.079L2.449 7.604C2.594 7.848 2.594 8.152 2.449 8.396L1.547 9.921C1.432 10.115 1.405 10.351 1.487 10.561C1.507 10.611 1.527 10.661 1.548 10.711M1.549 5.289C1.779 4.742 2.076 4.23 2.431 3.764C2.463 3.721 2.497 3.679 2.53 3.637C2.671 3.46 2.889 3.366 3.114 3.368L4.884 3.388C4.901 3.388 4.919 3.387 4.937 3.386C5.2 3.371 5.439 3.223 5.57 2.991L6.438 1.449C6.438 1.449 6.438 1.449 6.438 1.449C6.549 1.252 6.74 1.11 6.964 1.077C7.017 1.069 7.071 1.061 7.125 1.055C7.413 1.019 7.706 1 8.004 1C8.302 1 8.595 1.019 8.883 1.055C8.883 1.055 8.884 1.055 8.883 1.055C8.937 1.061 8.991 1.069 9.044 1.077C9.268 1.11 9.458 1.251 9.569 1.448C9.569 1.448 9.57 1.448 9.57 1.449L10.438 2.991C10.577 3.239 10.841 3.391 11.124 3.388L12.894 3.368C12.894 3.368 12.894 3.368 12.894 3.368C13.119 3.366 13.337 3.46 13.478 3.637C13.511 3.678 13.544 3.72 13.576 3.763C13.577 3.763 13.577 3.764 13.577 3.764C13.932 4.23 14.229 4.741 14.46 5.288C14.459 5.288 14.46 5.289 14.46 5.288C14.48 5.338 14.501 5.389 14.521 5.439C14.603 5.649 14.576 5.884 14.461 6.079C14.462 6.079 14.461 6.079 14.461 6.079L13.559 7.604C13.414 7.848 13.414 8.152 13.559 8.396L14.461 9.921C14.461 9.921 14.461 9.921 14.461 9.921C14.576 10.115 14.603 10.351 14.521 10.561C14.501 10.611 14.481 10.66 14.461 10.709C14.46 10.71 14.46 10.711 14.46 10.711C14.229 11.259 13.932 11.77 13.577 12.236C13.545 12.279 13.512 12.321 13.478 12.363C13.337 12.54 13.12 12.634 12.894 12.632L11.124 12.612C11.107 12.612 11.089 12.613 11.072 12.614C10.808 12.629 10.569 12.777 10.438 13.008L9.57 14.551C9.57 14.551 9.57 14.552 9.57 14.551C9.459 14.748 9.268 14.89 9.044 14.923C8.991 14.931 8.937 14.939 8.883 14.945C8.595 14.981 8.302 15 8.004 15C7.706 15 7.413 14.981 7.125 14.945C7.124 14.945 7.124 14.945 7.123 14.945C7.07 14.938 7.017 14.931 6.964 14.923C6.74 14.89 6.549 14.748 6.438 14.551L5.57 13.008C5.431 12.761 5.168 12.609 4.884 12.612L3.114 12.632C2.889 12.634 2.671 12.54 2.53 12.363C2.497 12.321 2.463 12.279 2.431 12.236C2.076 11.77 1.778 11.258 1.548 10.711M3.227 4.37C3.21 4.392 3.193 4.414 3.176 4.437C2.894 4.818 2.656 5.234 2.47 5.676L3.31 7.094C3.641 7.653 3.641 8.347 3.31 8.906L2.47 10.324C2.482 10.35 2.493 10.377 2.504 10.403C2.696 10.842 2.94 11.254 3.227 11.63L4.873 11.612C5.522 11.605 6.123 11.952 6.441 12.518L7.249 13.953C7.258 13.954 7.267 13.955 7.276 13.956C7.514 13.985 7.757 14 8.004 14C8.26 14 8.512 13.984 8.759 13.953L9.567 12.518C9.885 11.952 10.486 11.605 11.135 11.612L12.782 11.63C12.799 11.608 12.816 11.585 12.832 11.563C13.114 11.182 13.352 10.766 13.538 10.324L12.698 8.906C12.657 8.836 12.621 8.764 12.59 8.69C12.373 8.176 12.409 7.583 12.698 7.094L13.538 5.676C13.527 5.65 13.515 5.623 13.504 5.597C13.312 5.158 13.069 4.747 12.782 4.37L11.135 4.388C10.486 4.395 9.885 4.048 9.567 3.482L8.759 2.047C8.75 2.046 8.741 2.045 8.733 2.044C8.494 2.015 8.251 2 8.004 2C7.748 2 7.496 2.016 7.249 2.047L6.441 3.482C6.123 4.048 5.522 4.395 4.873 4.388L3.227 4.37ZM8.004 9.651C8.916 9.651 9.655 8.912 9.655 8C9.655 7.088 8.916 6.349 8.004 6.349C7.092 6.349 6.353 7.088 6.353 8C6.353 8.912 7.092 9.651 8.004 9.651ZM10.655 8C10.655 9.464 9.468 10.651 8.004 10.651C6.54 10.651 5.353 9.464 5.353 8C5.353 6.536 6.54 5.349 8.004 5.349C9.468 5.349 10.655 6.536 10.655 8Z" fill="currentColor"/>',
+  gitignore: '<circle cx="8" cy="8" r="6.5" fill="var(--augit-ignore-paper)" stroke="currentColor"/><path d="M3.5 12.5 12.5 3.5" stroke-linecap="butt"/>',
+};
+
+// 分支树状态图形与日志引用色标分开，当前/收藏优先于普通分支或标签。
+const branchTreeIconShapes = {
+  current: '<path fill-rule="evenodd" clip-rule="evenodd" d="M7.707 2.293L1.295 8.705C0.904 9.096 0.904 9.729 1.295 10.119L5.881 14.705C6.271 15.095 6.904 15.095 7.295 14.705L13.707 8.293C13.895 8.105 14 7.851 14 7.586V3C14 2.448 13.552 2 13 2H8.414C8.149 2 7.895 2.105 7.707 2.293ZM2.002 9.412L8.414 3L13 3V7.586L6.588 13.998L2.002 9.412Z" fill="currentColor"/><circle cx="10" cy="6" r="1.5" stroke="currentColor"/>',
+  currentFavorite: '<path fill-rule="evenodd" clip-rule="evenodd" d="M7.707 2.293L1.295 8.705C0.904 9.096 0.904 9.729 1.295 10.119L5.881 14.705C6.271 15.095 6.904 15.095 7.295 14.705L13.707 8.293C13.895 8.105 14 7.851 14 7.586V3C14 2.448 13.552 2 13 2H8.414C8.149 2 7.895 2.105 7.707 2.293ZM10 8C11.105 8 12 7.105 12 6C12 4.895 11.105 4 10 4C8.895 4 8 4.895 8 6C8 7.105 8.895 8 10 8Z" fill="currentColor"/>',
+  tag: '<path fill-rule="evenodd" clip-rule="evenodd" d="M7.707 2.293L1.295 8.705C0.904 9.096 0.904 9.729 1.295 10.119L5.881 14.705C6.271 15.095 6.904 15.095 7.295 14.705L13.707 8.293C13.895 8.105 14 7.851 14 7.586V3C14 2.448 13.552 2 13 2H8.414C8.149 2 7.895 2.105 7.707 2.293ZM2.002 9.412L8.414 3L13 3V7.586L6.588 13.998L2.002 9.412Z" fill="currentColor"/><circle cx="10" cy="6" r="1.5" stroke="currentColor"/>',
+  favorite: '<polygon points="7.998 11.522 3.673 14.311 4.989 9.336 1 6.084 6.138 5.798 7.998 1 9.858 5.798 14.996 6.084 11.007 9.336 12.323 14.311" fill="currentColor"/>',
+};
 
 function fileTypeIcon(name) {
   // 容忍空值：无文档或数据未到达时仍可能渲染标签，缺名称不应导致整页异常。
@@ -1272,14 +1400,16 @@ function fileTypeIcon(name) {
   const extension = safeName.toLowerCase().split(".").pop();
   let kind = "file";
   let shape = '<path d="M2 1h8.5L14 4.5V15H2Z M10.5 1v3.5H14 M4 6h8 M4 9h8 M4 12h6"/>';
-  if (safeName.toLowerCase().split(/[\\/]/).pop() === ".gitignore") {
-    // 权威 `expui/fileTypes/gitignore.svg` 是**橙红圆角菱形 + 挖空的分支图形**（#F34E29），
-    // 与 `fileTypes/ignored.svg`（灰色斜线圆，代表"被忽略的文件"）是两个不同图标。
-    // 这里自绘等效：圆角菱形（用同色描边加圆角）+ 白色分支图形。
-    kind = "gitignore";
-    shape = '<path d="M8 2.2 13.8 8 8 13.8 2.2 8Z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
-      + '<path d="M8 5.4v4.4M8 6.8l1.9 1.9" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>'
-      + '<circle cx="8" cy="4.5" r="1.05" fill="#ffffff"/><circle cx="10.2" cy="8.9" r="1.05" fill="#ffffff"/>';
+  const leafName = safeName.toLowerCase().split(/[\\/]/).pop();
+  const sceneKind = leafName === '.gitignore' ? 'gitignore' : leafName === '.editorconfig' ? 'editorconfig'
+    : ['js', 'mjs', 'cjs', 'jsx'].includes(extension) ? 'javascript'
+      : ['ts', 'mts', 'cts', 'tsx'].includes(extension) ? 'typescript'
+        : extension === 'css' ? 'css' : ['py', 'pyw', 'pyi'].includes(extension) ? 'python' : null;
+  if (sceneKind) {
+    kind = sceneKind;
+    shape = `<g stroke="none" fill="currentColor">${sceneFileIconShapes[sceneKind]}</g>`;
+    // 斜线圆为描边图形，不继承文件徽标的无描边组。
+    if (sceneKind === 'gitignore') shape = sceneFileIconShapes.gitignore;
   } else if (["slnx", "props", "gitattributes"].includes(extension)) {
     kind = "text";
     shape = '<path d="M2 4h11 M2 8h11 M2 12h11"/>';
@@ -1301,12 +1431,28 @@ function fileTypeIcon(name) {
   } else if (["yaml", "yml"].includes(extension)) {
     kind = "yaml";
     // expui/fileTypes/yaml.svg：纸张、轮廓与 Y 分色，轮廓保留折角挖孔。
-    shape = '<g stroke="none"><path d="M11 2C11.5523 2 12 2.44772 12 3V9H11C10.4477 9 10 9.44772 10 10V14H5C4.44772 14 4 13.5523 4 13V6H6C7.10457 6 8 5.10457 8 4V2H11Z" fill="var(--augit-yaml-paper)"/><path d="M7 4C7 4.06893 6.99277 4.13617 6.97949 4.20117C6.88625 4.65686 6.48325 5 6 5H4.41406L7 2.41406V4Z" fill="var(--augit-yaml-paper)"/><path fill-rule="evenodd" clip-rule="evenodd" d="M11 1C12.1046 1 13 1.89543 13 3V9H12V3C12 2.44772 11.5523 2 11 2H8V4C8 5.10457 7.10457 6 6 6H4V13C4 13.5523 4.44772 14 5 14H10V15H5C3.89543 15 3 14.1046 3 13V5.41406C3.00004 5.1489 3.10547 4.89453 3.29297 4.70703L6.70703 1.29297C6.89453 1.10547 7.1489 1.00004 7.41406 1H11ZM4.41406 5H6C6.55228 5 7 4.55228 7 4V2.41406L4.41406 5Z" fill="currentColor"/><path d="M12.4018 16V13.827L10.647 10.014H11.7212L12.656 12.0886C12.727 12.2526 12.7872 12.4139 12.8364 12.5724C12.8856 12.7309 12.9184 12.8539 12.9348 12.9414C12.9566 12.8539 12.9894 12.7309 13.0332 12.5724C13.0824 12.4139 13.1425 12.2526 13.2136 12.0886L14.1238 10.014H15.1898L13.435 13.827V16H12.4018Z" fill="var(--augit-icon)"/></g>';
+    shape = '<g stroke="none"><path d="M11 2C11.5523 2 12 2.44772 12 3V9H11C10.4477 9 10 9.44772 10 10V14H5C4.44772 14 4 13.5523 4 13V6H6C7.10457 6 8 5.10457 8 4V2H11Z" fill="var(--augit-yaml-paper)"/><path d="M7 4C7 4.06893 6.99277 4.13617 6.97949 4.20117C6.88625 4.65686 6.48325 5 6 5H4.41406L7 2.41406V4Z" fill="var(--augit-yaml-paper)"/><path fill-rule="evenodd" clip-rule="evenodd" d="M11 1C12.1046 1 13 1.89543 13 3V9H12V3C12 2.44772 11.5523 2 11 2H8V4C8 5.10457 7.10457 6 6 6H4V13C4 13.5523 4.44772 14 5 14H10V15H5C3.89543 15 3 14.1046 3 13V5.41406C3.00004 5.1489 3.10547 4.89453 3.29297 4.70703L6.70703 1.29297C6.89453 1.10547 7.1489 1.00004 7.41406 1H11ZM4.41406 5H6C6.55228 5 7 4.55228 7 4V2.41406L4.41406 5Z" fill="currentColor"/><path d="M12.4018 16V13.827L10.647 10.014H11.7212L12.656 12.0886C12.727 12.2526 12.7872 12.4139 12.8364 12.5724C12.8856 12.7309 12.9184 12.8539 12.9348 12.9414C12.9566 12.8539 12.9894 12.7309 13.0332 12.5724C13.0824 12.4139 13.1425 12.2526 13.2136 12.0886L14.1238 10.014H15.1898L13.435 13.827V16H12.4018Z" class="yaml-letter" fill="var(--augit-yaml-letter, var(--augit-icon))"/></g>';
   } else if (["png", "jpg", "jpeg", "bmp"].includes(extension)) {
     kind = "image";
     shape = '<rect x="2" y="2" width="12" height="12"/><circle cx="10.5" cy="5.5" r="1"/><path d="m2 11 4-4 8 7"/>';
   }
   return `<svg class="file-type-icon file-type-${kind}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shape}</svg>`;
+}
+
+function branchIsFavorite(item = {}, kind = 'branch') {
+  if (typeof item.isFavorite === 'boolean') return item.isFavorite;
+  // GitBranchManager 的默认收藏名；明确的状态可覆盖默认，不读取其它 IDE 的用户偏好。
+  if (kind === 'tag') return false;
+  return (kind === 'remote' || item.isRemote ? ['origin/main', 'origin/master'] : ['main', 'master']).includes(item.name);
+}
+
+function branchTreeIcon(item = {}, kind = 'branch') {
+  const current = !!item.isCurrent, favorite = branchIsFavorite(item, kind);
+  const state = current ? (favorite ? 'currentFavorite' : 'current') : favorite ? 'favorite' : kind === 'tag' ? 'tag' : 'branch';
+  const color = state === 'favorite' ? 'var(--augit-favorite-icon)' : current ? 'var(--augit-current-branch-icon)' : 'var(--augit-icon)';
+  const darkBranch = '<circle cx="4.5" cy="4" r="2"/><path d="M4.5 11H8.5a2 2 0 0 0 2-2V7.5" stroke-linecap="butt"/><path d="M4.5 6.5V14.5"/><circle cx="10.5" cy="6" r="2"/>';
+  const drawing = state === 'branch' ? (document.body.dataset.theme === 'dark' ? darkBranch : toolbarIconShapes['git-history']) : branchTreeIconShapes[state];
+  return `<svg class="git-branch-tree-icon" data-branch-icon="${state}" viewBox="0 0 16 16" fill="none" stroke="${state === 'branch' ? color : 'none'}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" style="color:${color}" aria-hidden="true">${drawing}</svg>`;
 }
 
 // 容忍 undefined / null：渲染函数可能在数据尚未到达或被拒绝时被调用，
@@ -1333,55 +1479,54 @@ changesSamples.sort((a, b) => a.group.localeCompare(b.group)
   || changesNameOrder.compare(a.name, b.name) || changesNameOrder.compare(a.path, b.path));
 
 const scenePages = {
-  "main-project": ["项目与文件查看", "项目树、标签和只读正文的默认工作区"],
-  "text-viewer": ["普通文本查看", "行号、只读文本、当前文件查找和跳转"],
-  "markdown-preview": ["Markdown 预览", "原文、预览和左右对照模式"],
-  "json-preview": ["JSON 格式化", "原文与只读格式化结果"],
-  "image-preview": ["图片预览", "PNG、JPEG 与 BMP 的受限预览"],
-  "file-limit": ["不可预览文件", "超限、非法 UTF-8、GIF、WebP 与二进制摘要"],
-  "commit-changes": ["提交工具窗", "Changes、Unversioned Files、复选和提交信息"],
-  "commit-diff": ["工作区 Diff", "选择变更文件后的稳定双栏预览"],
-  "diff-status": ["Diff 最终说明", "二进制、超限、无文本差异与失败时的最终说明（发生了什么/未改变什么/可以做什么）"],
-  "diff-boundary": ["Diff 文件边界", "再次同方向操作才进入相邻文件"],
-  "git-history": ["Git 历史", "引用树、提交图、筛选、文件和元数据"],
-  "git-history-empty": ["Git 历史空态", "仓库还没有提交时的稳定空态：保留引用树与筛选栏"],
-  "file-history": ["文件历史与 Blame", "限定当前路径的提交历史与逐行归属"],
-  "git-compare": ["引用比较", "分支、标签、提交和工作区比较"],
-  "history-diff-loading": ["历史 Diff 加载", "延迟加载反馈与原位取消"],
-  "history-diff-failure": ["历史 Diff 失败", "局部原因说明并保留历史上下文"],
-  "history-diff-cancelled": ["历史 Diff 取消", "保留标签与列表选择，允许重新打开"],
-  "branches": ["分支与标签", "搜索、创建、切换、推送、比较与危险操作"],
-  "stash": ["Stash 管理", "创建、查看、应用、弹出和删除"],
-  "reset": ["Reset", "Soft、Mixed、Hard 的影响预览与确认"],
-  "worktrees": ["Worktree 管理", "创建、打开和安全移除"],
-  "remote": ["远端管理", "增删改远端名称与 URL"],
-  "clone": ["克隆仓库", "URL、目标目录和进行状态"],
-  "push": ["Push", "提交列表、目标引用和错误反馈"],
-  "conflict-list": ["冲突操作会话", "冲突文件、Continue、Skip 与 Abort"],
-  "conflict-resolver": ["三栏冲突解决", "当前分支、可编辑结果和合入内容"],
-  "quick-open": ["快速打开文件", "最多 30 项的键盘优先浮层"],
-  "repository-search": ["全仓搜索", "查询开关、结果分组、截断与取消"],
-  "terminal": ["内置终端", "底部按需单会话终端"],
-  "settings": ["设置", "外观、Git、终端和字体"],
-  "settings-save-failure": ["设置保存失败", "原因写在底栏、保留用户输入、可修正后重试"],
-  "git-unavailable": ["Git 不可用", "缺失或版本过低时的降级状态"],
-  "operation-result": ["Git 操作反馈", "进行中、成功、失败和可取消状态"],
-  "workspace-open": ["打开工作区", "最近目录、选择目录和启动降级状态"],
-  "repository-init": ["初始化仓库", "非 Git 目录的显式初始化确认"],
-  "blame": ["Blame", "只读正文旁的逐行提交归属"],
+  "main-project": ["Project and Files", "Project tree, tabs, and read-only content"],
+  "text-viewer": ["Text Viewer", "Line numbers, read-only text, find, and Go to Line"],
+  "markdown-preview": ["Markdown Preview", "Raw, Preview, and Split View"],
+  "json-preview": ["JSON Formatting", "Raw and read-only formatted output"],
+  "image-preview": ["Image Preview", "Constrained PNG, JPEG, and BMP preview"],
+  "file-limit": ["File Not Previewable", "Oversized, invalid UTF-8, GIF, WebP, and binary summaries"],
+  "commit-changes": ["Commit Tool Window", "Changes, Unversioned Files, selection, and commit message"],
+  "commit-diff": ["Workspace Diff", "Stable side-by-side preview after selecting a changed file"],
+  "diff-status": ["Diff Summary", "Final explanations for binary, oversized, unchanged, and failed states"],
+  "diff-boundary": ["Diff File Boundary", "Repeat the action in the same direction to open the adjacent file"],
+  "git-history": ["Git Log", "Reference tree, commit graph, filters, files, and metadata"],
+  "git-history-empty": ["Empty Git Log", "Empty repository state with the reference tree and filters"],
+  "file-history": ["File History and Blame", "History and line attribution for the current path"],
+  "git-compare": ["Reference Comparison", "Branches, tags, commits, and workspace comparison"],
+  "history-diff-loading": ["History Diff Loading", "Local loading feedback and cancellation"],
+  "history-diff-failure": ["History Diff Failed", "Local failure reason while preserving history context"],
+  "history-diff-cancelled": ["History Diff Cancelled", "Preserve tabs and list selection for reopening"],
+  "branches": ["Branches and Tags", "Search, create, checkout, push, compare, and dangerous actions"],
+  "stash": ["Stash", "Create, inspect, apply, pop, and delete"],
+  "reset": ["Reset", "Soft, Mixed, and Hard impact preview and confirmation"],
+  "worktrees": ["Worktrees", "Create, open, and safely remove"],
+  "remote": ["Remotes", "Add, edit, and delete remote names and URLs"],
+  "clone": ["Clone Repository", "URL, destination, and progress states"],
+  "push": ["Push", "Commit list, target reference, and error feedback"],
+  "conflict-list": ["Conflict Session", "Conflicted files, Continue, Skip, and Abort"],
+  "quick-open": ["Open File", "Keyboard-first overlay with up to 30 results"],
+  "repository-search": ["Find in Files", "Query options, grouped results, limits, and cancellation"],
+  "terminal": ["Terminal", "On-demand single-session terminal"],
+  "settings": ["Settings", "Appearance, Git, terminal, and fonts"],
+  "settings-save-failure": ["Settings Save Failed", "Keep user input while showing a local failure reason"],
+  "git-unavailable": ["Git Unavailable", "Degraded state when Git is missing or too old"],
+  "operation-result": ["Git Operation Result", "Running, success, failure, and cancellation states"],
+  "workspace-open": ["Open Workspace", "Recent workspaces, directory selection, and fallback states"],
+  "repository-init": ["Initialize Repository", "Explicit initialization confirmation for non-Git directories"],
+  "blame": ["Blame", "Line attribution beside read-only content"],
   "smart-checkout": ["Smart Checkout", "覆盖风险、临时 Stash 和恢复结果"],
-  "rollback": ["Rollback", "完整文件回滚与将丢失 Diff"],
-  "operation-progress": ["Git 操作进行中", "进度、取消和防止重复触发"],
-  "terminal-close": ["关闭运行中终端", "终止前台命令与子进程树确认"],
-  "search-limited": ["搜索截断与超时", "1000 项上限、停止和已有结果保留"],
-  "commit-empty": ["提交空态", "没有待提交更改时保留完整工具窗骨架"],
-  "diff-loading": ["Diff 局部加载", "只更新临时 Diff 标签正文"],
-  "push-no-remote": ["Push 无远端", "Define remote 与禁用的 Push 动作"],
-  "stash-manager": ["Stash 管理", "已有 Stash 的查看、应用、弹出和删除"],
-  "project-context-menu": ["项目右键菜单", "只保留 Augit 支持的文件操作"],
-  "changes-context-menu": ["Changes 右键菜单", "Diff、回滚、历史和定位操作"],
-  "git-history-menu": ["Git 历史右键菜单", "提交级操作与危险入口"],
-  "quick-open-empty": ["快速打开空态", "弹层按内容高度增长"],
+  "rollback": ["Rollback", "Rollback File and Discarded Diff"],
+  "operation-progress": ["Git Operation in Progress", "进度、取消和防止重复触发"],
+  "terminal-close": ["Close Running Terminal", "终止前台命令与子进程树确认"],
+  "search-limited": ["Search Limit and Timeout", "1000 项上限、停止和已有结果保留"],
+  "commit-empty": ["No Changes", "没有待提交更改时保留完整工具窗骨架"],
+  "diff-loading": ["Diff Loading", "只更新临时 Diff 标签正文"],
+  "push-no-remote": ["Push Without Remote", "Define remote 与禁用的 Push 动作"],
+  "stash-manager": ["Stash", "已有 Stash 的查看、Apply、弹出和删除"],
+  "project-context-menu": ["Project Context Menu", "只保留 Augit 支持的文件操作"],
+  "changes-context-menu": ["Changes Context Menu", "Diff、Rollback、历史和定位操作"],
+  "git-history-menu": ["Git Log Context Menu", "提交级操作与危险入口"],
+  "quick-open-empty": ["Empty Open File", "弹层按内容高度增长"],
 };
 
 const sourceLines = [
@@ -1448,11 +1593,69 @@ function codeLines(lines = sourceLines, active = 12) {
   return lines.map((line, index) => `<div class="code-line ${index + 1 === active ? "active" : ""}"><span class="line-number">${index + 1}</span><span>${line || " "}</span></div>`).join("");
 }
 
+// 编辑器的 1.2 行距乘数作用于字体度量，而不是字号（EditorView.getLineHeight）。
+// 随包JetBrains Mono的hhea度量为1020/-300/0，unitsPerEm=1000。
+// JBR分别向上取整ascent/descent后乘1.2；浏览器先舍入包围盒会把13px正文压到20.57px。
+// 其他字体继续使用浏览器度量；资源失败时不能套用未实际加载的字体常量。
+function codeLineHeight(family, size, scale = window.devicePixelRatio || 1) {
+  const firstFamily = String(family).split(',')[0].trim().replaceAll('"', '').replaceAll("'", '');
+  const bundledLoaded = [...document.fonts].some(face => face.family.replaceAll('"', '') === 'JetBrains Mono' && face.style === 'normal' && face.weight === '400' && face.status === 'loaded');
+  if (firstFamily === 'JetBrains Mono' && bundledLoaded) {
+    // Java float乘法在18/37字号恰好越过整数边界，须保留单精度语义。
+    return Math.ceil(Math.fround((Math.ceil(size * 1.02) + Math.ceil(size * .3)) * Math.fround(1.2)));
+  }
+  const context = document.createElement("canvas").getContext("2d");
+  context.font = `${size}px ${family}`;
+  const metrics = context.measureText("Ag");
+  const height = metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent;
+  return Math.ceil(Math.ceil(height * scale) * 1.2) / scale;
+}
+
+// 对齐JBR的EditorView ascent；仅移动墨迹，不改变行盒、背景、选区或滚动步长。
+function codeBaselineShift(family, size, scale = window.devicePixelRatio || 1) {
+  const firstFamily = String(family).split(',')[0].trim().replaceAll('"', '').replaceAll("'", '');
+  const loaded = [...document.fonts].some(face => face.family.replaceAll('"', '') === 'JetBrains Mono' && face.style === 'normal' && face.weight === '400' && face.status === 'loaded');
+  if (firstFamily !== 'JetBrains Mono' || !loaded) return 0;
+  const height = codeLineHeight(family, size, scale);
+  const ascent = Math.ceil(size * 1.02), descent = Math.ceil(size * .3);
+  const referenceBaseline = height - descent - Math.floor((height - ascent - descent) / 2);
+  // WebView2会在真实DPI下舍入字体leading，Canvas包围盒不足以推导实际行内基线。
+  const row = document.createElement('div'), probe = document.createElement('i');
+  row.style.cssText = 'position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;white-space:pre';
+  Object.assign(row.style, {fontFamily:family,fontSize:`${size}px`,fontWeight:'400',lineHeight:`${height}px`});
+  probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+  row.append('Ag', probe); document.body.append(row);
+  const browserBaseline = probe.getBoundingClientRect().top - row.getBoundingClientRect().top;
+  row.remove();
+  return referenceBaseline - browserBaseline;
+}
+
+// Windows参考Subpixel模式关闭分数度量：先取整设备字号，再取整0.6em字宽。
+// 参考JBR的32字号×8比例独立测量覆盖此规则；仅实际加载的随包字体适用。
+function codeLetterSpacing(family, size, scale = window.devicePixelRatio || 1) {
+  const first = String(family).split(',')[0].trim().replaceAll('"', '').replaceAll("'", '');
+  const loaded = [...document.fonts].some(face => face.family.replaceAll('"', '') === 'JetBrains Mono' && face.style === 'normal' && face.weight === '400' && face.status === 'loaded');
+  if (first !== 'JetBrains Mono' || !loaded) return 0;
+  const context = document.createElement('canvas').getContext('2d');
+  context.font = `${size}px ${family}`;
+  return Math.round(Math.round(size * scale) * .6) / scale - context.measureText('0').width;
+}
+
 function measureCodeViews() {
   const context = document.createElement("canvas").getContext("2d");
   const scale = window.devicePixelRatio || 1;
   document.querySelectorAll(".diff-columns").forEach(view => {
-    view.style.setProperty("--code-line-height", `${Math.round(parseFloat(getComputedStyle(view).fontSize) * 1.7 * scale) / scale}px`);
+    const typography = getComputedStyle(view);
+    const spacing = codeLetterSpacing(typography.fontFamily, parseFloat(typography.fontSize), scale);
+    view.style.setProperty('--code-letter-spacing', `${spacing}px`);
+    view.style.setProperty("--code-line-height", `${codeLineHeight(typography.fontFamily, parseFloat(typography.fontSize), scale)}px`);
+    view.style.setProperty('--code-baseline-shift', `${codeBaselineShift(typography.fontFamily, parseFloat(typography.fontSize), scale)}px`);
+    // 双栏正文/实时单栏保留行级背景，把文字放入独立内联墨迹层。
+    for (const row of view.querySelectorAll('.diff-code-line:not(.unified-diff-line)')) {
+      if (row.firstElementChild?.classList.contains('code-glyph')) continue;
+      const glyph = document.createElement('span'); glyph.className = 'code-glyph';
+      glyph.append(...row.childNodes); row.append(glyph);
+    }
     const layout = view.closest(".diff-layout");
     if (!view.classList.contains("diff-unified-body")) {
       const style = getComputedStyle(view);
@@ -1460,7 +1663,8 @@ function measureCodeViews() {
       const columns = [...view.querySelectorAll(".diff-gutter > div")];
       const digits = Math.max(3, ...columns.flatMap(column => [...column.childNodes]
         .filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent.trim().length)));
-      const width = Math.max(84, Math.ceil(context.measureText(`${'9'.repeat(digits)}    ${'9'.repeat(digits)}`).width * scale) / scale + 14);
+      const sample = `${'9'.repeat(digits)}    ${'9'.repeat(digits)}`;
+      const width = Math.max(84, Math.ceil((context.measureText(sample).width + sample.length * spacing) * scale) / scale + 14);
       layout.style.setProperty("--comparison-gutter-width", `${width}px`);
     }
   });
@@ -1477,18 +1681,23 @@ function measureCodeViews() {
     const style = getComputedStyle(view);
     context.font = `${style.fontSize} ${style.fontFamily}`;
     const digits = Math.max(3, String(rows.length).length);
-    const gutter = Math.round(context.measureText("9".repeat(digits)).width * scale) / scale
+    const spacing = codeLetterSpacing(style.fontFamily, parseFloat(style.fontSize), scale);
+    view.style.setProperty('--code-letter-spacing', `${spacing}px`);
+    const gutter = Math.round((context.measureText("9".repeat(digits)).width + digits * spacing) * scale) / scale
       + Math.round(28 * scale) / scale;
     view.style.setProperty("--code-gutter-width", `${gutter}px`);
-    view.style.setProperty("--code-line-height", `${Math.round(parseFloat(style.fontSize) * 1.7 * scale) / scale}px`);
+    view.style.setProperty("--code-line-height", `${codeLineHeight(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
+    view.style.setProperty('--code-baseline-shift', `${codeBaselineShift(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
     view.closest(".blame-layout")?.style.setProperty("--code-line-height", view.style.getPropertyValue("--code-line-height"));
     const blame = view.closest(".blame-layout")?.querySelector(".blame-gutter");
     if (blame) {
       blame.style.fontSize = style.fontSize;
+      blame.style.letterSpacing = `${spacing}px`;
+      blame.style.setProperty('--code-letter-spacing', `${spacing}px`);
       const cells = [...blame.querySelectorAll(".blame-row")];
       const dateDigits = Math.max(9, ...cells.map(row => row.children[0].textContent.length));
       const numberDigits = Math.max(3, ...cells.map(row => row.children[2].textContent.length));
-      const measure = text => Math.ceil(context.measureText(text).width * scale) / scale;
+      const measure = text => Math.ceil((context.measureText(text).width + text.length * spacing) * scale) / scale;
       const date = Math.max(72, measure("8".repeat(dateDigits)));
       const number = Math.max(24, measure("8".repeat(numberDigits)));
       const author = Math.max(24, measure("I49"));
@@ -1504,7 +1713,7 @@ function jsonView() {
   if (liveDocument()) return liveJsonDocument();
   const state = new URLSearchParams(window.location.search).get("json-state") || "formatted";
   const invalid = state === "invalid";
-  return `<div class="document-view json-document ${invalid ? "json-invalid" : ""}" data-json-mode="${invalid || state === "source" ? "source" : "formatted"}"><div class="document-toolbar"><span class="document-path">Augit › global.json　只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="格式化" data-json-mode="formatted" ${invalid ? 'disabled title="JSON 格式错误，请查看原文中的错误位置"' : ""}>${icon("document-formatted")}</button></div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${invalid ? '<button class="json-error" data-json-error-line="4" aria-label="定位 JSON 错误">JSON 格式错误：第 4 行，第 19 列。 点击定位。</button>' : ""}<div class="code-view" tabindex="0" aria-label="JSON 只读正文"></div></div>`;
+  return `<div class="document-view json-document ${invalid ? "json-invalid" : ""}" data-json-mode="${invalid || state === "source" ? "source" : "formatted"}"><div class="document-toolbar"><span class="document-path">Augit › global.json　Read-only</span><div class="segmented document-modes"><button class="segment" aria-label="Raw" data-json-mode="source">${icon("document-source")}</button><button class="segment" aria-label="Formatted" data-json-mode="formatted" ${invalid ? 'disabled title="Invalid JSON. See the error location in Raw view"' : ""}>${icon("document-formatted")}</button></div><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button></div>${invalid ? '<button class="json-error" data-json-error-line="4" aria-label="Locate JSON Error">Invalid JSON: line 4, column 19. Click to locate.</button>' : ""}<div class="code-view" tabindex="0" aria-label="Read-only JSON"></div></div>`;
 }
 
 function bindJsonModes() {
@@ -1593,9 +1802,14 @@ function diffFileHeader(source, target, title, path = "src/Augit.App/app.manifes
     ? !!(window.__augitLive && window.__augitLive.diffLoading)
     : !!options.loading;
   const loading = showLoading
-    ? `<span class="diff-loading-status diff-filebar-loading" role="status"><span class="loading-mark"></span>正在生成 diff…</span>`
+    ? `<span class="diff-loading-status diff-filebar-loading" role="status"><span class="loading-mark"></span>Generating diff…</span>`
     : "";
-  return `<div class="diff-filebar reference-filebar" title="${escapeHtml(title)} · ${escapeHtml(path)}"><div class="reference-before"><span class="reference-lock">${icon("lock")}</span><span class="reference-source">${source}</span><span class="reference-path">${escapeHtml(path)}</span></div>${loading}<div class="reference-after"><span class="reference-lock">${icon("lock")}</span><span class="reference-target">${target}</span></div></div>`;
+  const ending = value => {
+    const label = ({"LF":"LF","CRLF":"CRLF","CR":"CR","混合换行":"Mixed line endings","Mixed line endings":"Mixed line endings","无换行":"No line endings","No line endings":"No line endings"})[value];
+    const kind = ["LF", "CRLF", "CR"].includes(value) ? value.toLowerCase() : "other";
+    return label ? `<span class="diff-line-ending" data-line-ending="${kind}">${label}</span>` : "";
+  };
+  return `<div class="diff-filebar reference-filebar" title="${escapeHtml(title)} · ${escapeHtml(path)}"><div class="reference-before"><span class="reference-lock">${icon("lock")}</span><span class="reference-source">${source}</span><span class="reference-path">${escapeHtml(path)}</span>${ending(options.oldLineEndings)}</div>${loading}<div class="reference-after"><span class="reference-lock">${icon("lock")}</span><span class="reference-target">${target}</span>${ending(options.newLineEndings)}</div></div>`;
 }
 
 function workspaceSampleOriginal(path) {
@@ -1615,7 +1829,7 @@ function workspaceSampleOriginal(path) {
     "docs/roadmap.md": "# 实施路线\n\n按 UX 规格逐页完成视觉和交互验收。\n",
     "tests/Augit.App.Tests/Augit.App.Tests.csproj": '<Project Sdk="Microsoft.NET.Sdk" />\n',
     "src/Augit.App/AssemblyInfo.cs": 'using System.Runtime.CompilerServices;\n\n[assembly: AssemblyMetadata("Audit", "true")]\n',
-    "tools/xterm/terminal/index.html": "<!doctype html>\n<title>终端</title>\n",
+    "tools/xterm/terminal/index.html": "<!doctype html>\n<title>Terminal</title>\n",
     "tools/xterm/terminal/terminal.js": "export function startTerminal() {}\n",
     "docs/product-spec.md": [
       "# Augit 产品规格", "", "## 1. 产品定位", "", "Augit 是供 100% 外部 AI 协作开发场景使用的轻量桌面工具。", "",
@@ -1643,7 +1857,7 @@ function workspaceSampleOriginal(path) {
     }
   }
   if (original === "src/Augit.App/MainWindow.cs") text += "\n阶段三：刷新窗口状态。\n";
-  if (original === "src/Augit.App/NativeGitPanel.cs") text += "\n阶段三：保持 Changes 选择。\n";
+  if (original === "src/Augit.App/NativeGitPanel.cs") text += "\n阶段三：保持 Changes Choose。\n";
   if (["docs/architecture.md", "docs/performance-report.md", "docs/roadmap.md", "docs/runtime-dependencies.md", "global.json", "Augit.slnx"].includes(original))
     text += "\n阶段四：避免不必要的运行时更新。\n";
   if (original === "docs/product-spec.md") text += "\n阶段五：精确恢复安装前系统 PATH。\n";
@@ -1662,12 +1876,12 @@ function workspaceSampleOriginal(path) {
 function diffStatusNotice(status) {
   const unavailable = Boolean(status) && status !== "Ready";
   const reason = unavailable
-    ? `该文件无法显示文本差异（${status}）。`
-    : "该文件当前没有文本差异。";
-  const unchanged = "文件内容、改动列表、其它标签和当前选择都没有被修改。";
+    ? `Text diff is unavailable for this file (${status}）。`
+    : "This file has no text differences.";
+  const unchanged = "File content, changes, other tabs, and the current selection are unchanged.";
   const action = unavailable
-    ? "可以关闭这个比较标签，或用系统默认程序打开该文件。"
-    : "改动文件后重新双击该行即可刷新。";
+    ? "Close this comparison or open the file in its default application."
+    : "After changing the file, double-click the row to refresh.";
   const tone = status === "Failed" ? " failure" : "";
   return `<div tabindex="0" class="comparison-notice diff-status-notice${tone}" role="status">`
     + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
@@ -1700,9 +1914,9 @@ function dangerConfirmBody(title, lines) {
  * 两者共用 `.comparison-notice` 组件，只是文案按比较语义切换。
  */
 function comparisonSummaryNotice() {
-  const reason = "这两个引用在这个文件上没有文本差异。";
-  const unchanged = "文件内容、改动列表、其它标签和当前选择都没有被修改。";
-  const action = "可以选择另一个提交或文件再比较，或关闭这个比较标签。";
+  const reason = "These references have no text differences in this file.";
+  const unchanged = "File content, changes, other tabs, and the current selection are unchanged.";
+  const action = "Select another commit or file to compare, or close this tab.";
   return `<div tabindex="0" class="comparison-notice diff-status-notice" role="status">`
     + `<svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg>`
     + `<div><strong>${escapeHtml(reason)}</strong>`
@@ -1714,8 +1928,8 @@ function diffView(comparison = false, state = "ready", workspaceComparison = fal
   // 最终说明视觉稿（规格 §6.5/§10.2）：与 liveDiffView 的同一分支**同构**，
   // 否则像素对照比的就不是同一件事（实测漏写这个分支时，视觉稿侧仍在渲染样例 diff 行）。
   if (finalStatus) {
-    const bar = diffFileHeader("HEAD", "工作区", workspacePath, workspacePath);
-    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${bar}${diffStatusNotice(finalStatus)}</div>`;
+    const bar = diffFileHeader("HEAD", "Workspace", workspacePath, workspacePath);
+    return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="grow"></span><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div></div>${bar}${diffStatusNotice(finalStatus)}</div>`;
   }
   let oldLines = [
     "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
@@ -1800,33 +2014,33 @@ function diffView(comparison = false, state = "ready", workspaceComparison = fal
   if (comparison) {
     const hash = "dfe5c25a2e0d6378b44fbac8f4d74c8f3baa2601";
     const source = historyHash ? `${historyHash.slice(0, 8)}^` : workspaceComparison ? "HEAD" : "dfe5c25a^";
-    const target = historyHash ? historyHash.slice(0, 8) : workspaceComparison ? "工作区" : "dfe5c25a";
-    const referenceTitle = workspaceComparison ? "HEAD → 工作区" : `${hash}^ → ${hash}`;
+    const target = historyHash ? historyHash.slice(0, 8) : workspaceComparison ? "Workspace" : "dfe5c25a";
+    const referenceTitle = workspaceComparison ? "HEAD → Working Tree" : `${hash}^ → ${hash}`;
     const disabled = state === "ready" ? "" : "disabled";
     let body = `<div class="diff-columns"><div class="diff-side">${renderLines(alignedOldLines, oldChanged, "removed")}</div><div class="diff-gutter"><div>${oldNumbers.map(number => `${number}<br>`).join("")}</div><div>${newLines.map((_, index) => `${index + 1}<br>`).join("")}</div></div><div class="diff-side">${renderLines(newLines, newChanged, "added")}</div></div>`;
     if (state === "loading") {
       const lines = [72, 46, 87, 61, 78, 39, 69, 54, 82, 48, 64, 43].map(width => `<span class="diff-loading-line" style="width:${width}%"></span>`).join("");
       const gutter = Array.from({ length: 12 }, () => '<span class="diff-loading-gutter-line"></span><span class="diff-loading-gutter-line"></span>').join("");
-      body = `<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>正在生成 diff...</span></div><div class="diff-loading-side">${lines}</div><div class="diff-loading-gutter">${gutter}</div><div class="diff-loading-side">${lines}</div></div>`;
+      body = `<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>Generating diff…</span></div><div class="diff-loading-side">${lines}</div><div class="diff-loading-gutter">${gutter}</div><div class="diff-loading-side">${lines}</div></div>`;
     } else if (state === "summary") {
       // 无文本差异：清空正文变更导航（按钮禁用但保留），正文只留比较语义的摘要说明。
       body = comparisonSummaryNotice();
     } else if (state !== "ready") {
-      body = `<div class="comparison-notice ${state === "failure" ? "failure" : ""}"><svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg><span>${state === "failure" ? "无法读取提交中的文件：Git 查询失败。" : "比较已取消。"}</span></div>`;
+      body = `<div class="comparison-notice ${state === "failure" ? "failure" : ""}"><svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg><span>${state === "failure" ? "Cannot read the file at this commit: Git query failed." : "Comparison cancelled."}</span></div>`;
     }
-    return `<div class="diff-layout"><div class="diff-toolbar comparison-toolbar"><button class="toolbar-button" ${disabled} aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" ${disabled} aria-label="下一处差异">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" ${disabled} aria-label="查找">${icon("search")}</button><span class="grow"></span>${state === "loading" ? '<span class="comparison-loading-label">正在生成 diff...</span>' : state === "ready" ? '<span class="comparison-summary">1 处差异</span>' : ""}<button class="toolbar-button" aria-label="忽略空白">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="设置">${icon("settings")}</button></div>${diffFileHeader(source, target, referenceTitle, fileHistory ? "docs/product-spec.md" : undefined)}${body}${state === "ready" ? unifiedTemplate : ""}</div>`;
+    return `<div class="diff-layout"><div class="diff-toolbar comparison-toolbar"><button class="toolbar-button" ${disabled} aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" ${disabled} aria-label="Next Difference">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" ${disabled} aria-label="Find">${icon("search")}</button><span class="grow"></span>${state === "loading" ? '<span class="comparison-loading-label">Generating diff…</span>' : state === "ready" ? '<span class="comparison-summary">1 difference</span>' : ""}<button class="toolbar-button" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="Settings">${icon("settings")}</button></div>${diffFileHeader(source, target, referenceTitle, fileHistory ? "docs/product-spec.md" : undefined)}${body}${state === "ready" ? unifiedTemplate : ""}</div>`;
   }
-  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" aria-label="查找">${icon("search")}</button><button class="toolbar-button" aria-label="上一个文件">${icon("arrow-left")}</button><span class="file-status-modified">1/42 个文件</span><button class="toolbar-button" aria-label="下一个文件">${icon("arrow-right")}</button><span class="grow"></span><span>1 处差异，0 个已包含</span><button class="toolbar-button" aria-label="忽略空白">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="设置">${icon("settings")}</button></div>${diffFileHeader("HEAD", "当前版本", "HEAD → 当前版本", workspacePath)}<div class="diff-columns"><div class="diff-side">${renderLines(alignedOldLines, oldChanged, "removed")}</div><div class="diff-gutter"><div>${oldNumbers.map(number => `${number}<br>`).join("")}</div><div>${newLines.map((_, index) => `${index + 1}<br>`).join("")}</div></div><div class="diff-side">${renderLines(newLines, newChanged, "added")}</div></div>${unifiedTemplate}</div>`;
+  return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" aria-label="Find">${icon("search")}</button><button class="toolbar-button" aria-label="Previous File">${icon("arrow-left")}</button><span class="file-status-modified">1/42 files</span><button class="toolbar-button" aria-label="Next File">${icon("arrow-right")}</button><span class="grow"></span><span>1 difference, 0 included</span><button class="toolbar-button" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="Settings">${icon("settings")}</button></div>${diffFileHeader("HEAD", "Current Version", "HEAD → Current Version", workspacePath)}<div class="diff-columns"><div class="diff-side">${renderLines(alignedOldLines, oldChanged, "removed")}</div><div class="diff-gutter"><div>${oldNumbers.map(number => `${number}<br>`).join("")}</div><div>${newLines.map((_, index) => `${index + 1}<br>`).join("")}</div></div><div class="diff-side">${renderLines(newLines, newChanged, "added")}</div></div>${unifiedTemplate}</div>`;
 }
 
 function emptyChangesSide() {
-  return `<aside class="tool-window side-tool"><div class="tool-header"><span>提交</span><span class="grow"></span><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></div>
-    <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
+  return `<aside class="tool-window side-tool"><div class="tool-header"><span>Commit</span><span class="grow"></span><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></div>
+    <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="Rollback">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="Show Diff">${icon("git-compare-arrows")}</button></div>
     ${statusRefreshNotice()}
-    <div class="empty-tool-state"><div><strong>没有待提交的更改</strong><p>工作区与 HEAD 一致。</p></div></div>
-    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
+    <div class="empty-tool-state"><div><strong>No changes to commit</strong><p>The working tree matches HEAD.</p></div></div>
+    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="Amend this commit into the previous commit"><span class="fake-check"></span><span>Amend</span></span><a class="commit-last" href="git-history.html" title="View the last commit in Git Log">last commit</a><span class="commit-count" hidden></span></div>
     ${commitMessageBox(true)}
-    <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
+    <div class="commit-actions"><button class="primary-button" disabled>Commit</button><button class="secondary-button" disabled>Commit and Push…</button><a class="icon-button" href="settings.html" aria-label="Commit Settings">${icon("settings")}</a></div></div></div></aside>`;
 }
 
 /**
@@ -1838,20 +2052,20 @@ function emptyChangesSide() {
  * 骨架与空状态保持一致（规格 §6.5 的加载反馈、§10.1 的稳定空状态）。
  */
 function loadingChangesSide() {
-  return `<aside class="tool-window side-tool"><div class="tool-header"><span>提交</span><span class="grow"></span><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></div>
-    <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="显示 Diff">${icon("git-compare-arrows")}</button></div>
-    <div class="empty-tool-state" role="status"><div><strong>正在读取改动…</strong><p>正在从 Git 读取工作区状态。</p></div></div>
-    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><span class="fake-check"></span><span>Amend</span></span><span class="commit-last" hidden></span><span class="commit-count" hidden></span></div>
+  return `<aside class="tool-window side-tool"><div class="tool-header"><span>Commit</span><span class="grow"></span><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></div>
+    <div class="changes-layout"><div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" disabled aria-label="Rollback">${icon("undo-2")}</button><button class="toolbar-button" disabled aria-label="Show Diff">${icon("git-compare-arrows")}</button></div>
+    <div class="empty-tool-state" role="status"><div><strong>Loading changes…</strong><p>Reading working tree status from Git.</p></div></div>
+    <div class="commit-box"><div class="commit-options"><span class="commit-amend" title="Amend this commit into the previous commit"><span class="fake-check"></span><span>Amend</span></span><a class="commit-last" href="git-history.html" title="View the last commit in Git Log">last commit</a><span class="commit-count" hidden></span></div>
     ${commitMessageBox(true)}
-    <div class="commit-actions"><button class="primary-button" disabled>提交</button><button class="secondary-button" disabled>提交并推送…</button><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div></div></div></aside>`;
+    <div class="commit-actions"><button class="primary-button" disabled>Commit</button><button class="secondary-button" disabled>Commit and Push…</button><a class="icon-button" href="settings.html" aria-label="Commit Settings">${icon("settings")}</a></div></div></div></aside>`;
 }
 
 function quickOpenEmpty() {
-  return `<div class="search-overlay"><div class="search-tabs"><strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span></div><div class="search-query"><input class="search-field" value="" placeholder="输入文件名" aria-label="搜索内容"></div></div>`;
+  return `<div class="search-overlay"><div class="search-tabs"><strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span></div><div class="search-query"><input class="search-field" value="" placeholder="Type a file name" aria-label="Search"></div></div>`;
 }
 
 function projectContextMenu() {
-  return `<section class="popover context-menu"><a class="menu-item" href="main-project.html">${icon("copy")} 复制路径</a><a class="menu-item" href="main-project.html">${icon("external-link")} 在资源管理器中定位</a><a class="menu-item" href="terminal.html">${icon("square-terminal")} 在外部终端打开</a><div class="menu-separator"></div><a class="menu-item" href="main-project.html">${icon("refresh-cw")} 刷新</a><a class="menu-item" href="file-history.html">${icon("history")} 文件历史</a><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a></section>`;
+  return `<section class="popover context-menu"><a class="menu-item" href="main-project.html">${icon("copy")} Copy Path</a><a class="menu-item" href="main-project.html">${icon("external-link")} Show in Explorer</a><a class="menu-item" href="terminal.html">${icon("square-terminal")} Open in External Terminal</a><div class="menu-separator"></div><a class="menu-item" href="main-project.html">${icon("refresh-cw")} Refresh</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a></section>`;
 }
 
 function changesContextMenu() {
@@ -1865,7 +2079,7 @@ function changesContextMenu() {
   // 原实现两处都反了（第 138 轮按权威改正）。
   // 注：`在资源管理器中定位` 在 `ChangesViewPopupMenu` 里**未定位到对应动作** ⇒ 保留现状（不删既有入口），
   // 记为待核，见 docs/nui-behavior/12-commit-changes.md §10。
-  return `<section class="popover context-menu changes-context"><a class="menu-item" href="rollback.html">${icon("undo-2")} 回滚…</a><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} 显示 Diff</a><div class="menu-separator"></div><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><a class="menu-item" href="file-history.html">${icon("history")} 文件历史</a><div class="menu-separator"></div><a class="menu-item" href="commit-changes.html">${icon("copy")} 复制路径</a><a class="menu-item" href="commit-changes.html">${icon("external-link")} 在资源管理器中定位</a></section>`;
+  return `<section class="popover context-menu changes-context"><a class="menu-item" href="rollback.html">${icon("undo-2")} Rollback…</a><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} Show Diff</a><div class="menu-separator"></div><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><div class="menu-separator"></div><a class="menu-item" href="commit-changes.html">${icon("copy")} Copy Path</a><a class="menu-item" href="commit-changes.html">${icon("external-link")} Show in Explorer</a></section>`;
 }
 
 /**
@@ -1889,59 +2103,91 @@ function gitLogContextMenu(live = false) {
     return `<a class="menu-item" href="#" data-log-action="${action}">${icon(iconName)} ${label}</a>`;
   };
   return `<section class="popover context-menu log-context">`
-    + entry("copy-hash", "copy", "复制提交哈希")
-    + entry("cherry-pick", "cherry", "Cherry-pick", "Augit 尚未提供 Cherry-pick。")
+    + entry("copy-hash", "copy", "Copy Commit Hash")
+    + entry("cherry-pick", "cherry", "Cherry-pick", "Cherry-pick is unavailable.")
     + `<div class="menu-separator"></div>`
-    + entry("compare-workspace", "none", "与工作区比较", "提交与工作区的整份比较尚未接线。")
-    + entry("reset-here", "undo-2", "Reset 当前分支到此处…", "Augit 的 Reset 只能重置到当前 HEAD。")
-    + entry("revert", "none", "Revert Commit", "Augit 尚未提供 Revert。")
+    + entry("compare-workspace", "none", "Compare with Workspace", "Commit-to-workspace comparison is unavailable.")
+    + entry("reset-here", "undo-2", "Reset Current Branch Here…", "Reset is limited to the current HEAD.")
+    + entry("revert", "none", "Revert Commit", "Revert is unavailable.")
     + `<div class="menu-separator"></div>`
-    + entry("new-branch", "none", "新建分支…")
-    + entry("new-tag", "none", "新建标签…")
+    + entry("new-branch", "none", "New Branch…")
+    + entry("new-tag", "none", "New Tag…")
     + `</section>`;
 }
 
+// 远端管理的 Name/URL 表格骨架：静态视觉稿与实时外壳共用同一份标记（规格 §7.11）。
+// 权威 `GitConfigureRemotesDialog.kt:57-95`：两列表格（Name／URL）、`SINGLE_SELECTION`、
+// `ToolbarDecorator` 只保留 Add/Remove/Edit（上移/下移禁用），双击行进入编辑。
+// 产品额外的 Push URL 不在表格里，放在独立 Define Remote 窗口（差异登记见 ux-spec §7.11）。
+function remoteManagerTable(rows, selectedIndex) {
+  const hasSelection = Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex < rows.length;
+  const toolbar = `<div class="toolbar remote-toolbar">`
+    + `<button class="toolbar-button" type="button" data-remote-action="add" aria-label="Add" title="Add">${icon("plus")}</button>`
+    + `<button class="toolbar-button" type="button" data-remote-action="remove" aria-label="Remove" title="Remove"${hasSelection ? "" : " disabled"}>${icon("minus")}</button>`
+    // ToolbarDecorator 的 Edit 使用 New UI 斜向铅笔；这里只绘制远端动作。
+    + `<button class="toolbar-button" type="button" data-remote-action="edit" aria-label="Edit" title="Edit"${hasSelection ? "" : " disabled"}><svg class="augit-toolbar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" data-augit-icon="remote-edit"><path d="M11.6 7.65 13.69 5.56a1.04 1.04 0 0 0 0-1.47l-1.66-1.78a1.06 1.06 0 0 0-1.49 0L8.39 4.44M11.6 7.65 8.39 4.44M11.6 7.65 5.74 13.5H2.5v-3.18l5.89-5.88"/></svg></button>`
+    + `</div>`;
+  const head = `<div class="remote-table-head" role="presentation"><span>Name</span><span>URL</span></div>`;
+  const body = rows.length === 0
+    ? `<p class="remote-empty commit-meta"><span>Nothing to show</span></p>`
+    : rows.map((remote, index) => {
+      const selected = index === selectedIndex;
+      return `<div class="remote-row${selected ? " selected" : ""}" role="option" aria-selected="${selected}" data-remote-index="${index}" data-remote-entry="${escapeHtml(remote.name)}">`
+        + `<span class="remote-name" title="${escapeHtml(remote.name)}">${escapeHtml(remote.name)}</span>`
+        + `<span class="remote-url" title="${escapeHtml(remote.url)}">${escapeHtml(remote.url)}</span></div>`;
+    }).join("");
+  return `<div class="history-page remote-page">${toolbar}<div class="remote-content"><div class="remote-table" role="listbox" aria-label="Remotes" tabindex="0">${head}${body}</div><p class="remote-notice commit-meta" role="status" hidden></p></div></div>`;
+}
+
+/** 静态 `remote` 场景的样例表格数据（真实形状：名称 + Fetch URL）。 */
+function remoteSampleRows() {
+  return [
+    { name: "origin", url: "https://example.com/team/Augit.git" },
+    { name: "backup", url: "https://example.com/team/Augit-backup.git" },
+  ];
+}
+
+/**
+ * Define Remote 次模态正文（权威 `GitDefineRemoteDialog.kt:69-85`）：
+ * Name／URL 两行 + `Fetch remote` 复选框（参考默认勾选）；Push URL 是本产品额外一行。
+ */
+function remoteDefineBody(draft, { busy = false, error = "" } = {}) {
+  const disabled = busy ? " disabled" : "";
+  return `<div class="remote-define-form"><div class="form-grid">`
+    + `<label for="remote-define-name">Name:</label>`
+    + `<input id="remote-define-name" class="text-field" data-remote-field="name" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.name)}"${disabled}>`
+    + `<label for="remote-define-url">URL:</label>`
+    + `<input id="remote-define-url" class="text-field" data-remote-field="fetchUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.fetchUrl)}"${disabled}>`
+    + `<label for="remote-define-push">Push URL:</label>`
+    + `<input id="remote-define-push" class="text-field" data-remote-field="pushUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.pushUrl || "")}"${disabled}>`
+    + `</div><div class="check-line"><input type="checkbox" id="remote-define-fetch" data-remote-field="fetch"${draft.fetch === false ? "" : " checked"}${disabled}><label for="remote-define-fetch">Fetch remote</label></div>`
+    + `<p class="remote-notice commit-meta" role="status"${error ? "" : " hidden"}>${escapeHtml(error)}</p></div>`;
+}
+
 function managementPage(kind) {
+  if (kind === "remote") return remoteManagerTable(remoteSampleRows(), 0);
   const configs = {
-    stash: ["Stash", ["stash@{0} 工作区切换前", "stash@{1} 调整安装器"], `<h2>stash@{0} · 工作区切换前</h2><p class="commit-meta">main · I49 · 2 分钟前</p><div class="button-row" style="justify-content:flex-start"><button class="primary-button" title="应用后保留该 Stash">应用</button><button class="secondary-button" title="应用后丢弃该 Stash">弹出</button><button class="secondary-button">查看内容</button><button class="danger-button">删除</button></div><h3>包含 3 个文件</h3><div class="tree-row"><span>${fileTypeIcon("NativeGitPanel.cs")}</span> NativeGitPanel.cs</div><div class="tree-row"><span>${fileTypeIcon("product-spec.md")}</span> product-spec.md</div>`],
-    worktrees: ["Worktree", ["main · D:\\github\\Augit", "feature/ux · D:\\github\\Augit-ux"], `<h2>feature/ux</h2><div class="form-grid"><span>路径</span><span>D:\\github\\Augit-ux</span><span>状态</span><span class="file-status-new">干净，可安全移除</span><span>终端会话</span><span>无运行中的内置终端</span></div><div class="button-row" style="justify-content:flex-start"><button class="primary-button">打开窗口</button><button class="secondary-button">新建 Worktree</button><button class="danger-button">移除…</button></div>`],
-    remote: ["远端", ["origin", "backup"], `<h2>origin</h2><div class="form-grid"><label>名称</label><input class="text-field" value="origin"><label>获取 URL</label><input class="text-field" value="https://example.com/team/Augit.git"><label>推送 URL</label><input class="text-field" value="https://example.com/team/Augit.git"></div><div class="button-row"><button class="secondary-button">删除</button><button class="primary-button">保存</button></div>`],
+    stash: ["Stash", ["stash@{0} 工作区切换前", "stash@{1} 调整安装器"], `<h2>stash@{0} · 工作区切换前</h2><p class="commit-meta">main · I49 · 2 分钟前</p><div class="button-row" style="justify-content:flex-start"><button class="primary-button" title="Apply and keep this Stash">Apply</button><button class="secondary-button" title="Apply and pop this Stash">Pop</button><button class="secondary-button">View Content</button><button class="danger-button">Delete</button></div><h3>Contains 3 files</h3><div class="tree-row"><span>${fileTypeIcon("NativeGitPanel.cs")}</span> NativeGitPanel.cs</div><div class="tree-row"><span>${fileTypeIcon("product-spec.md")}</span> product-spec.md</div>`],
+    worktrees: ["Worktree", ["main · D:\\github\\Augit", "feature/ux · D:\\github\\Augit-ux"], `<h2>feature/ux</h2><div class="form-grid"><span>Path</span><span>D:\\github\\Augit-ux</span><span>Status</span><span class="file-status-new">Clean; safe to remove</span><span>Terminal session</span><span>No running embedded terminal</span></div><div class="button-row" style="justify-content:flex-start"><button class="primary-button">Open Window</button><button class="secondary-button">New Worktree</button><button class="danger-button">Remove…</button></div>`],
   };
   const [title, entries, detail] = configs[kind];
   const selectedIndex = kind === "worktrees" ? 1 : 0;
-  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${title} 管理</strong></div><div class="management-content"><div class="management-list">${entries.map((entry, index) => `<div class="tree-row ${index === selectedIndex ? "selected" : ""}">${icon(kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "stash")}<span class="tree-name">${entry}</span></div>`).join("")}</div><div class="management-detail">${detail}</div></div></div>`;
+  const entryIcon = icon(kind === "worktrees" ? "folder-git-2" : "stash");
+  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button">${icon("plus")}</button><button class="toolbar-button">${icon("trash-2")}</button><button class="toolbar-button">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${title} Manager</strong></div><div class="management-content"><div class="management-list">${entries.map((entry, index) => `<div class="tree-row ${index === selectedIndex ? "selected" : ""}">${entryIcon}<span class="tree-name">${entry}</span></div>`).join("")}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
 // 外壳注入真实数据时的管理页：结构、图标与样式与样例版一致。
 function liveManagementPage(kind) {
   const live = window.__augitLive || {};
+  // 远端管理（规格 §7.11）：Name/URL 表格 + 顶端 Add/Remove/Edit；表格骨架与静态稿共用。
+  if (kind === "remote") {
+    const remotes = (live.remotes && live.remotes.remotes) || [];
+    const rows = remotes.map((remote) => ({ name: remote.name, url: remote.fetchUrl || remote.url || "" }));
+    const index = Number.isInteger(live.selectedRemoteIndex) && live.selectedRemoteIndex >= 0 && live.selectedRemoteIndex < rows.length
+      ? live.selectedRemoteIndex : null;
+    return remoteManagerTable(rows, index);
+  }
   const configs = {
-    // 远端管理（视觉稿的 remote）：可编辑的名称与两个 URL，动作行是删除与保存。
-    // 选中项与编辑中的草稿都进状态（区域刷新会重建节点，写在 DOM 上会被丢掉）。
-    remote: () => {
-      const remotes = (live.remotes && live.remotes.remotes) || [];
-      const entries = remotes.map(remote => remote.name);
-      // 没有选中项（正在新建）时不能退回到第一个远端：那会让"删除"看起来可以点。
-      const index = Number.isInteger(live.selectedRemoteIndex) ? live.selectedRemoteIndex
-        : live.remoteDraft ? null : 0;
-      const selected = index === null ? null : remotes[index] || null;
-      const draft = live.remoteDraft
-        || (selected ? { name: selected.name, fetchUrl: selected.fetchUrl, pushUrl: selected.pushUrl || "" } : null);
-      const detail = draft
-        ? `<h2>${escapeHtml(draft.name || "定义远端")}</h2>`
-          + `<div class="form-grid"><label for="remote-name">名称</label>`
-          + `<input id="remote-name" class="text-field" value="${escapeHtml(draft.name)}" data-remote-field="name">`
-          + `<label for="remote-fetch">获取 URL</label>`
-          + `<input id="remote-fetch" class="text-field" value="${escapeHtml(draft.fetchUrl)}" data-remote-field="fetchUrl">`
-          + `<label for="remote-push">推送 URL</label>`
-          + `<input id="remote-push" class="text-field" value="${escapeHtml(draft.pushUrl || draft.fetchUrl)}" data-remote-field="pushUrl"></div>`
-          + '<div class="button-row">'
-          + `<button class="secondary-button" type="button" data-remote-action="delete"${selected ? "" : ' disabled title="先选择一个已有远端。"'}>删除</button>`
-          + '<button class="primary-button" type="button" data-remote-action="save">保存</button></div>'
-          + '<p class="remote-notice commit-meta" role="status" hidden></p>'
-        : `<p class="commit-meta">没有配置远端</p>`;
-      return ["远端", entries, detail];
-    },
     // Worktree 管理（视觉稿的 worktrees）：状态、终端会话与动作行。
     // 「移除…」只有干净且没有运行中的内置终端会话时才可用，禁用时把原因写在悬停说明里（§10.3）。
     worktrees: () => {
@@ -1952,30 +2198,30 @@ function liveManagementPage(kind) {
       const readiness = (live.worktreeRemoval && live.worktreeRemoval.path === (current && current.path))
         ? live.worktreeRemoval : null;
       const status = !current ? ""
-        : current.isMain ? "主工作树，不能移除"
-          : current.isLocked ? "已锁定"
-            : current.isPrunable ? "可清理"
-              : readiness ? (readiness.isClean ? "干净，可安全移除" : (readiness.reason || "存在本地改动或未跟踪文件"))
-                : "检查中…";
-      const terminal = !readiness ? "检查中…"
-        : readiness.hasActiveTerminal ? "有运行中的内置终端" : "无运行中的内置终端";
+        : current.isMain ? "Main worktree; cannot be removed"
+          : current.isLocked ? "Locked"
+            : current.isPrunable ? "Prunable"
+              : readiness ? (readiness.isClean ? "Clean; safe to remove" : (readiness.reason || "Local changes or untracked files exist"))
+                : "Checking…";
+      const terminal = !readiness ? "Checking…"
+        : readiness.hasActiveTerminal ? "Embedded terminal is running" : "No running embedded terminal";
       // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：主工作树不可移除（`!it.isMain`），
       // 因此禁用按钮时优先说明"主工作树"，而不是等 Git 拒绝后报错。
       const canRemove = !!(readiness && readiness.canRemove) && !current.isMain;
       const removeTitle = canRemove ? ""
-        : ` title="${escapeHtml(current.isMain ? "仓库的主工作树不能移除。" : ((readiness && readiness.reason) || "正在检查是否可以安全移除。"))}"`;
+        : ` title="${escapeHtml(current.isMain ? "The main worktree cannot be removed." : ((readiness && readiness.reason) || "Checking whether removal is safe."))}"`;
       const detail = current
         ? `<h2>${escapeHtml(current.branch || "(detached)")}</h2>`
-          + `<div class="form-grid"><span>路径</span><span>${escapeHtml(current.path)}</span>`
-          + `<span>状态</span><span>${escapeHtml(status)}</span>`
-          + `<span>终端会话</span><span>${escapeHtml(terminal)}</span></div>`
+          + `<div class="form-grid"><span>Path</span><span>${escapeHtml(current.path)}</span>`
+          + `<span>Status</span><span>${escapeHtml(status)}</span>`
+          + `<span>Terminal session</span><span>${escapeHtml(terminal)}</span></div>`
           + '<div class="button-row" style="justify-content:flex-start">'
-          + '<button class="primary-button" type="button" data-wtm-action="open">打开窗口</button>'
-          + '<button class="secondary-button" type="button" data-wtm-action="create">新建 Worktree</button>'
-          + `<button class="danger-button" type="button" data-wtm-action="remove"${canRemove ? "" : ` disabled${removeTitle}`}>移除…</button>`
+          + '<button class="primary-button" type="button" data-wtm-action="open">Open Window</button>'
+          + '<button class="secondary-button" type="button" data-wtm-action="create">New Worktree</button>'
+          + `<button class="danger-button" type="button" data-wtm-action="remove"${canRemove ? "" : ` disabled${removeTitle}`}>Remove…</button>`
           + "</div>"
           + '<p class="worktree-notice commit-meta" role="status" hidden></p>'
-        : `<p class="commit-meta">没有 Worktree</p>`;
+        : `<p class="commit-meta">No Worktrees</p>`;
       return ["Worktree", entries, detail];
     },
     // Stash 管理（视觉稿的 stash-manager）：详情带动作行与"包含 N 个文件"。
@@ -1990,85 +2236,34 @@ function liveManagementPage(kind) {
         ? `<h2>${escapeHtml(current.reference)} · ${escapeHtml(current.message)}</h2>`
           + `<p class="commit-meta">${escapeHtml(current.branch)} · ${escapeHtml(current.date)}</p>`
           + '<div class="button-row" style="justify-content:flex-start">'
-          + '<button class="primary-button" type="button" data-stash-action="apply" title="应用后保留该 Stash">应用</button>'
-          + '<button class="secondary-button" type="button" data-stash-action="pop" title="应用后丢弃该 Stash">弹出</button>'
-          + `<button class="secondary-button" type="button" data-stash-action="view"${files.length > 0 ? "" : ' disabled title="这个 Stash 里没有可查看的文件。"'}>查看内容</button>`
-          + '<button class="danger-button" type="button" data-stash-action="drop">删除</button>'
+          + '<button class="primary-button" type="button" data-stash-action="apply" title="Apply and keep this Stash">Apply</button>'
+          + '<button class="secondary-button" type="button" data-stash-action="pop" title="Apply and pop this Stash">Pop</button>'
+          + `<button class="secondary-button" type="button" data-stash-action="view"${files.length > 0 ? "" : ' disabled title="This Stash has no files to view."'}>View Content</button>`
+          + '<button class="danger-button" type="button" data-stash-action="drop">Delete</button>'
           + "</div>"
-          + `<h3>包含 ${files.length} 个文件</h3>`
+          + `<h3>Contains ${files.length} files</h3>`
           + (files.length > 0
             ? files.map(file => `<div class="tree-row" title="${escapeHtml(file.path)}"><span>${fileTypeIcon(file.path.split("/").at(-1))}</span> <span class="tree-name">${escapeHtml(file.path.split("/").at(-1))}</span></div>`).join("")
-            : '<p class="commit-meta">没有文件。</p>')
+            : '<p class="commit-meta">No files.</p>')
           + '<p class="stash-notice commit-meta" role="status" hidden></p>'
-        : `<p class="commit-meta">没有 Stash</p>`;
+        : `<p class="commit-meta">No Stashes</p>`;
       return ["Stash", entries, detail];
     },
   };
   const build = configs[kind];
   if (!build) return managementPage(kind);
   const [title, entries, detail] = build();
-  const iconName = kind === "worktrees" ? "folder-git-2" : kind === "remote" ? "cloud" : "stash";
+  const iconName = kind === "worktrees" ? "folder-git-2" : "stash";
   const selectedIndex = kind === "stash" && Number.isInteger(live.selectedStashIndex) ? live.selectedStashIndex
-    : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex
-      : kind === "remote" && Number.isInteger(live.selectedRemoteIndex) ? live.selectedRemoteIndex : 0;
+    : kind === "worktrees" && Number.isInteger(live.selectedWorktreeIndex) ? live.selectedWorktreeIndex : 0;
   const list = entries.length === 0
-    ? `<p class="commit-meta">空</p>`
+    ? `<p class="commit-meta">Empty</p>`
     : entries.map((entry, index) => {
       const hook = kind === "stash" ? ` data-stash-index="${index}"`
-        : kind === "worktrees" ? ` data-worktree-index="${index}"`
-          : kind === "remote" ? ` data-remote-index="${index}" data-remote-entry="${escapeHtml(entry)}"` : "";
-      return `<div class="tree-row ${index === selectedIndex ? "selected" : ""}"${hook}>${icon(iconName)}<span class="tree-name">${escapeHtml(entry)}</span></div>`;
+        : kind === "worktrees" ? ` data-worktree-index="${index}"` : "";
+      return `<div class="tree-row ${index === selectedIndex ? "selected" : ""}"${hook}>${iconName ? icon(iconName) : ""}<span class="tree-name">${escapeHtml(entry)}</span></div>`;
     }).join("");
-  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button" data-mgmt-action="new" aria-label="新建">${icon("plus")}</button><button class="toolbar-button" data-mgmt-action="delete" aria-label="删除">${icon("trash-2")}</button><button class="toolbar-button" data-mgmt-action="refresh" aria-label="刷新">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} 管理</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
-}
-
-// 外壳注入真实冲突文档时使用；三栏结构与样例版一致，结果栏是唯一可编辑区域。
-/**
- * 规格 §7.14 最后一条：二进制、非法 UTF-8 与超限文件无法逐块合并。
- * 此时三栏没有意义，页面只提供"整侧接受"和"交给外部工具"。
- * 文案与结构沿用 §7.5 文件超限页（info-state / info-block）。
- */
-function liveConflictWholeSide(document_) {
-  const reason = document_.contentKind === "Binary"
-    ? "该文件是二进制文件，Augit 无法把它显示为可合并的文本。"
-    : document_.contentKind === "TooLarge"
-      ? "该文件超出可合并的大小上限。"
-      : "该文件不是有效的 UTF-8 文本，Augit 无法安全地改写它。";
-  const side = (value, label) => `<button class="secondary-button" type="button" data-conflict-whole="${value}">接受${escapeHtml(label)}</button>`;
-  return `<div class="conflict-page"><div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta conflict-notice" role="status" hidden></span></div><div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在三栏中合并此文件</h2><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(reason)}</p><p>整侧接受会用所选一侧的完整内容覆盖该文件，此操作不可撤销。</p><div class="button-row" style="justify-content:center">${side("yours", document_.yoursLabel || "左侧")}${side("theirs", document_.theirsLabel || "右侧")}<button class="secondary-button" type="button" data-conflict-whole="external">使用系统默认程序打开</button></div></div></div></div>`;
-}
-
-function liveConflictResolver() {
-  const live = window.__augitLive || {};
-  const document_ = live.conflict;
-  if (!document_) return conflictResolver();
-  // 三栏只对可合并的文本有意义；无法逐块处理的三种类型走整侧接受页。
-  // Missing（一侧被删除）仍走三栏：它是普通的空侧变体，可以逐块解决。
-  if (["Binary", "InvalidUtf8", "TooLarge"].includes(document_.contentKind)) return liveConflictWholeSide(document_);
-  const lines = (text) => String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
-  const render = (items, extraClass) => items.map((text, index) =>
-    `<span class="conflict-line${extraClass ? ` ${extraClass}` : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join("");
-
-  const yoursLines = lines(document_.yoursText);
-  const theirsLines = lines(document_.theirsText);
-  const resultLines = lines(document_.resultText);
-  // 冲突块在结果正文里的行范围，用于标出「未处理冲突」。
-  const marked = new Set();
-  for (const block of document_.blocks || []) {
-    for (let index = block.start; index < block.start + block.length; index += 1) {
-      marked.add(index);
-    }
-  }
-
-  const column = (title, body, editable = false) => `<section class="conflict-column${editable ? " result" : ""}"><div class="conflict-column-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div><div class="conflict-block"${editable ? ' contenteditable="plaintext-only" role="textbox" aria-label="最终结果" aria-multiline="true" spellcheck="false"' : ""}>${body}</div></section>`;
-  const count = (document_.blocks || []).length;
-  // 表头与视觉稿一致：标题只放**文件名**，完整路径放在 title 里悬停查看。
-  // 窄窗口或大字号时 measureConflictResolver 会把标题移到窗口顶部"解决冲突"右侧。
-  return `<div class="conflict-page">
-    <div class="conflict-header"><strong title="${escapeHtml(document_.path)}">解决冲突 · ${escapeHtml(document_.path.split("/").at(-1))}</strong><span class="grow"></span><span class="commit-meta" data-conflict-count>${count} 个未处理冲突</span><button class="secondary-button" type="button" data-conflict-nav="prev">上一处</button><button class="secondary-button" type="button" data-conflict-nav="next">下一处</button><span class="commit-meta conflict-notice" role="status" hidden></span></div>
-    <div class="conflict-columns">${column(document_.yoursLabel, render(yoursLines, ""))}${column("最终结果 · 可编辑", resultLines.map((text, index) => `<span class="conflict-line${marked.has(index) ? " conflict-result" : ""}" data-line="${index + 1}">${escapeHtml(text) || "&nbsp;"}</span>`).join(""), true)}${column(document_.theirsLabel, render(theirsLines, "conflict-side"))}</div>
-    <div class="conflict-footer"><div class="conflict-accept-actions"><button class="secondary-button" type="button" data-conflict-side="yours">接受左侧</button><button class="secondary-button" type="button" data-conflict-side="both">接受两侧</button><button class="secondary-button" type="button" data-conflict-side="theirs">接受右侧</button></div><div class="conflict-save-actions"><button class="secondary-button">取消</button><button class="primary-button" type="button" data-conflict-save>应用并标记已解决</button></div></div>
-  </div>`;
+  return `<div class="history-page"><div class="toolbar"><button class="toolbar-button" data-mgmt-action="new" aria-label="New">${icon("plus")}</button><button class="toolbar-button" data-mgmt-action="delete" aria-label="Delete">${icon("trash-2")}</button><button class="toolbar-button" data-mgmt-action="refresh" aria-label="Refresh">${icon("refresh-cw")}</button><span class="toolbar-separator"></span><strong>${escapeHtml(title)} Manager</strong></div><div class="management-content"><div class="management-list">${list}</div><div class="management-detail">${detail}</div></div></div>`;
 }
 
 // 外壳注入真实设置时使用；结构与样例版一致，字段值来自设置文件。
@@ -2087,6 +2282,12 @@ const SETTINGS_PAGE_KEYS = {
   "git": ["gitExecutablePath"],
   "terminal": ["terminalShell", "terminalCustomCommand"],
 };
+
+// 参考外观只写入本次设置草稿；用户点击应用或确定之后才持久化。
+const REFERENCE_APPEARANCE = Object.freeze({
+  theme: "Light", textFontFamily: "Microsoft YaHei UI", fontSize: 12,
+  monospaceFontFamily: "JetBrains Mono", codeFontSize: 13,
+});
 
 /**
  * 哪些分类有**未保存的修改**（规格 §7.17 的适配，依据 PyCharm 实测的实心圆点）。
@@ -2119,10 +2320,10 @@ function settingsDirtyPages(live) {
  * 取值来源（样例 vs 设置文件）与是否带 `data-setting`（决定能否保存）。
  */
 const SETTINGS_PAGES = [
-  { id: "appearance", title: "外观", depth: 1 },
-  { id: "file-view", title: "文件查看", depth: 1 },
+  { id: "appearance", title: "Appearance", depth: 1 },
+  { id: "file-view", title: "File View", depth: 1 },
   { id: "git", title: "Git", depth: 0 },
-  { id: "terminal", title: "终端", depth: 0 },
+  { id: "terminal", title: "Terminal", depth: 0 },
 ];
 
 function settingsNavHtml(page, live, dirty) {
@@ -2133,7 +2334,7 @@ function settingsNavHtml(page, live, dirty) {
     const attr = live ? ` data-settings-page="${id}"` : "";
     // 未保存修改标记：复用既有令牌 `--augit-blue`，只加一个点，不新增视觉语言。
     const mark = dirtyPages.has(id)
-      ? `<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>`
+      ? `<span class="settings-dirty" role="status" aria-label="Unsaved changes" title="Unsaved changes"></span>`
       : "";
     return `<div class="tree-row${depthClass}${selected}"${attr}>${escapeHtml(label)}${mark}</div>`;
   };
@@ -2142,13 +2343,13 @@ function settingsNavHtml(page, live, dirty) {
   const filterLive = live ? (window.__augitLive || {}) : {};
   const filterQuery = live ? String(filterLive.settingsFilter || "") : "";
   const noHits = live && filterLive.settingsFilterNoHits ? " no-hits" : "";
-  const filter = live ? ` data-settings-filter="true" aria-label="搜索设置" value="${escapeHtml(filterQuery)}"` : "";
+  const filter = live ? ` data-settings-filter="true" aria-label="Search settings" value="${escapeHtml(filterQuery)}"` : "";
   return `<nav class="settings-nav">`
-    + `<input class="search-field${noHits}" placeholder="搜索设置" style="width:100%;margin-bottom:10px"${filter}>`
-    + `<div class="tree-row settings-nav-group">外观与行为</div>`
+    + `<input class="search-field${noHits}" placeholder="Search settings" style="width:100%;margin-bottom:10px"${filter}>`
+    + `<div class="settings-nav-tree"><div class="tree-row settings-nav-group">Appearance & Behavior</div>`
     + SETTINGS_PAGES.slice(0, 2).map((item) => row(item.id, item.title, item.depth)).join("")
     + SETTINGS_PAGES.slice(2).map((item) => row(item.id, item.title, item.depth)).join("")
-    + `</nav>`;
+    + `</div></nav>`;
 }
 
 /** 单页正文。`live` 为真时带 `data-setting`（可保存），否则是纯展示的视觉稿。 */
@@ -2158,28 +2359,34 @@ function settingsPageHtml(page, values, live) {
     ? values[key] : fallback));
   const themeOption = (option, label) => `<option value="${option}"${values && values.theme === option ? " selected" : ""}>${label}</option>`;
   const shellOption = (option, label) => `<option value="${option}"${values && values.terminalShell === option ? " selected" : ""}>${label}</option>`;
+  const fontSelect=(key,fallback,label)=>{
+    const current=String(values?.[key]??fallback);
+    const catalog=window.__augitLive?.fontFamilies||['JetBrains Mono','Cascadia Mono','Consolas','Courier New','Microsoft YaHei UI','Segoe UI','Tahoma'];
+    const fonts=[...new Set([current,...catalog])].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
+    return `<select class="select-field font-family-select" aria-label="${label}"${attr(key)}>${fonts.map(name=>`<option value="${escapeHtml(name)}"${name===current?' selected':''}>${escapeHtml(name)}</option>`).join('')}</select>`;
+  };
 
   if (page === "file-view") {
     return `<section class="settings-group"><div class="form-grid">`
-      + `<label>等宽字体</label><div class="font-setting"><input class="text-field"${attr("monospaceFontFamily")} value="${value("monospaceFontFamily", "Cascadia Mono")}"><label for="code-font-size">字号</label><input id="code-font-size" type="number" min="9" max="40" class="text-field"${attr("codeFontSize")} value="${value("codeFontSize", 13)}"></div>`
-      + `<label></label><span class="commit-meta">等宽设置作用于只读正文、Diff、冲突三栏和终端；Markdown 代码块跟随等宽设置。</span>`
-      + `<label></label><span class="commit-meta">字体只改变显示，不会修改文件。</span>`
+      + `<label>Monospaced font</label><div class="font-setting"><span data-fixed-code-font>JetBrains Mono</span><label>Size</label><span data-fixed-code-size>13</span></div>`
+      + `<label></label><span class="commit-meta">The monospaced font applies to read-only text, Diff, conflicts, and the terminal; Markdown code blocks follow it.</span>`
+      + `<label></label><span class="commit-meta">Fonts only affect display; files are not modified.</span>`
       + `</div></section>`;
   }
 
   if (page === "git") {
     const detection = values && values.gitDetection;
     const state = !detection
-      ? "正在检测 git.exe…"
+      ? "Detecting git.exe…"
       : detection.available
-        ? `已找到：${detection.path}${detection.version ? `（${detection.version}）` : ""}`
-        : `${detection.reason || "未找到 Git"}`;
+        ? `Detected:${detection.path}${detection.version ? `（${detection.version}）` : ""}`
+        : `${detection.reason || "Git not found"}`;
     const tone = detection && !detection.available ? " error" : "";
     return `<section class="settings-group"><div class="form-grid">`
-      + `<label for="git-path">git.exe</label><input id="git-path" class="text-field"${attr("gitExecutablePath")} value="${value("gitExecutablePath", "")}" placeholder="留空则从系统 PATH 查找">`
-      + `<label></label><span class="commit-meta">设置缺失时 Git 功能不可用，文件浏览仍可使用。</span>`
-      + `<label>检测结果</label><span class="settings-detection${tone}" data-git-detection>${escapeHtml(state)}</span>`
-      + `<label>最低版本</label><span class="commit-meta">Git for Windows ${value("gitMinimum", "2.40")} 或更高；低于该版本时整个 Git 模块禁用。</span>`
+      + `<label for="git-path">git.exe</label><input id="git-path" class="text-field"${attr("gitExecutablePath")} value="${value("gitExecutablePath", "")}" placeholder="Leave empty to search the system PATH">`
+      + `<label></label><span class="commit-meta">Git is unavailable without a valid configuration; file browsing remains available.</span>`
+      + `<label>Detection result</label><span class="settings-detection${tone}" data-git-detection>${escapeHtml(state)}</span>`
+      + `<label>Minimum version</label><span class="commit-meta">Git for Windows ${value("gitMinimum", "2.40")} or newer; older versions disable Git.</span>`
       + `</div></section>`;
   }
 
@@ -2189,31 +2396,31 @@ function settingsPageHtml(page, values, live) {
       + `<label for="terminal-shell">Shell</label><select id="terminal-shell" class="select-field"${attr("terminalShell")}>`
       + shellOption("WindowsPowerShell", "Windows PowerShell") + shellOption("PowerShell7", "PowerShell 7")
       + shellOption("CommandPrompt", "CMD") + shellOption("GitBash", "Git Bash")
-      + shellOption("Wsl", "WSL") + shellOption("Custom", "自定义命令")
-      + `</select><label></label><span class="commit-meta">配置失效时会明确报错，不会静默切换 Shell。</span>`
-      + `<label for="terminal-command">自定义启动命令</label><input id="terminal-command" class="text-field"${attr("terminalCustomCommand")} value="${value("terminalCustomCommand", "")}" placeholder="例如 wsl.exe -d Ubuntu"${live && !custom ? " disabled" : ""}>`
-      + `<label></label><span class="commit-meta">仅在 Shell 选择“自定义命令”时使用；留空会明确报错，不静默回退到默认 Shell。</span>`
+      + shellOption("Wsl", "WSL") + shellOption("Custom", "Custom command")
+      + `</select><label></label><span class="commit-meta">Invalid configuration reports an error; the shell is not changed silently.</span>`
+      + `<label for="terminal-command">Custom startup command</label><input id="terminal-command" class="text-field"${attr("terminalCustomCommand")} value="${value("terminalCustomCommand", "")}" placeholder="For example, wsl.exe -d Ubuntu"${live && !custom ? " disabled" : ""}>`
+      + `<label></label><span class="commit-meta">Used when Custom command is selected; an empty command reports an error.</span>`
       + `</div></section>`;
   }
 
   return `<section class="settings-group"><div class="form-grid">`
-    + `<label>主题</label><select class="select-field"${attr("theme")}>${themeOption("System", "跟随 Windows")}${themeOption("Light", "浅色")}${themeOption("Dark", "深色")}</select>`
-    + `<label></label><span class="commit-meta">主题覆盖主界面和预览；字体设置只改变显示，不会修改文件。</span>`
-      + `<label>界面字体</label><div class="font-setting"><input class="text-field"${attr("textFontFamily")} value="${value("textFontFamily", "Microsoft YaHei UI")}"><label for="ui-font-size">字号</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 12)}"></div>`
-    + `<label></label><span class="commit-meta">界面设置作用于文件树、标签、工具窗口、菜单、按钮和状态栏；Markdown 预览正文跟随界面设置。</span>`
-    + `<label></label><span class="commit-meta">启动时恢复上次打开的目录和标签。</span>`
-    + `</div></section>`;
+    + `<label>Theme</label><select class="select-field"${attr("theme")}>${themeOption("System", "Sync with Windows")}${themeOption("Light", "Light")}${themeOption("Dark", "Dark")}</select>`
+    + `<label></label><span class="commit-meta">The theme covers the main UI and previews; fonts only affect display.</span>`
+      + `<label>UI font</label><div class="font-setting">${fontSelect('textFontFamily','Microsoft YaHei UI','UI font')}<label for="ui-font-size">Size</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 12)}"></div>`
+    + `<label></label><span class="commit-meta">The UI font applies to the tree, tabs, tool windows, menus, buttons, status bar, and Markdown body.</span>`
+    + `<label></label><span class="commit-meta">Restore the last workspace and tabs at startup.</span>`
+    + `</div><div class="button-row"><button type="button" class="secondary-button" data-restore-reference>Restore Reference Appearance</button></div></section>`;
 }
 
 /** 设置窗口的完整正文：左侧分类导航 + 右侧**只显示当前分类**的页面。 */
 function settingsLayoutHtml(page, values, live, dirty) {
   const active = SETTINGS_PAGES.some((item) => item.id === page) ? page : "appearance";
-  const title = (SETTINGS_PAGES.find((item) => item.id === active) || {}).title || "外观";
+  const title = (SETTINGS_PAGES.find((item) => item.id === active) || {}).title || "Appearance";
   return `<div class="settings-layout${live ? " live-settings" : ""}">`
     + settingsNavHtml(active, live, dirty)
     + `<div class="settings-page" data-settings-page-body="${active}">`
-    + `<h2>${escapeHtml(title)}</h2>`
-    + settingsPageHtml(active, values, live)
+    + `<div class="settings-page-header"><nav class="settings-breadcrumbs" aria-label="Settings location">${['appearance','file-view'].includes(active)?'<span>Appearance &amp; Behavior</span><span class="breadcrumb-arrow">'+icon('chevron-right')+'</span>':''}<span>${escapeHtml(title)}</span></nav><div class="settings-navigation"><button type="button" class="icon-button" data-settings-nav="back" aria-label="Back"${!live||!(window.__augitLive?.settingsBack?.length)?' disabled':''}>${icon('arrow-left')}</button><button type="button" class="icon-button" data-settings-nav="forward" aria-label="Forward"${!live||!(window.__augitLive?.settingsForward?.length)?' disabled':''}>${icon('arrow-right')}</button></div></div>`
+    + `<div class="settings-content">${settingsPageHtml(active, values, live)}</div>`
     + `</div></div>`;
 }
 
@@ -2239,12 +2446,12 @@ function liveSettingsBody(page) {
  */
 function liveConflictSessionTitle(session) {
   const kind = session && session.kind && session.kind !== "None" ? session.kind : "Git";
-  return `${kind} 冲突`;
+  return `${kind} Conflicts`;
 }
 
 function liveConflictSessionBody(session) {
   if (!session || !session.inProgress) {
-    return `<div class="empty-tool-state"><div><strong>没有进行中的 Git 操作</strong><p>当前工作区没有需要处理的会话。</p></div></div>`;
+    return `<div class="empty-tool-state"><div><strong>No Git operation in progress</strong><p>No operation session needs attention in this workspace.</p></div></div>`;
   }
 
   const conflicts = session.conflicts || [];
@@ -2252,18 +2459,18 @@ function liveConflictSessionBody(session) {
   const rows = conflicts.map(file => {
     const name = file.path.split("/").at(-1);
     const directory = file.path.split("/").slice(0, -1).join("/");
-    return `<div class="check-row" data-conflict-path="${escapeHtml(file.path)}" role="treeitem" tabindex="-1"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>${escapeHtml(name)}</span><span class="tree-path">${escapeHtml(directory)}</span></div>`;
+    return `<div class="check-row" data-conflict-path="${escapeHtml(file.path)}" role="treeitem" tabindex="-1" title="Open read-only diff"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>${escapeHtml(name)}</span><span class="tree-path">${escapeHtml(directory)}</span></div>`;
   }).join("");
   const step = session.currentStep && session.totalSteps
-    ? `<span class="commit-meta">当前步骤 ${session.currentStep}/${session.totalSteps}</span>`
+    ? `<span class="commit-meta">Current step ${session.currentStep}/${session.totalSteps}</span>`
     : "";
-  const summary = unresolved > 0 ? `${unresolved} 个冲突文件` : "没有未解决的冲突";
+  const summary = unresolved > 0 ? `${unresolved} conflicting file${unresolved === 1 ? "" : "s"}` : "No unresolved conflicts";
   return `<div class="toolbar"><strong>${summary}</strong><span class="grow"></span>${step}</div><div class="changes-list">${rows}</div>`;
 }
 
 function liveConflictSessionFooter(session) {
   if (!session || !session.inProgress) {
-    return `<button type="button" class="secondary-button" data-operation-action="close">关闭</button>`;
+    return `<button type="button" class="secondary-button" data-operation-action="close">Close</button>`;
   }
 
   const kind = session.kind || "Git";
@@ -2282,14 +2489,14 @@ function liveConflictSessionFooter(session) {
   } else if (session.supportsContinue) {
     // 前置条件未满足：保留按钮但禁用，并在附近说明还差什么（规格 §7.13）。
     const reason = unresolved > 0
-      ? `还有 ${unresolved} 个冲突未解决`
-      : "暂存区还没有可提交的内容";
+      ? `Remaining: ${unresolved} unresolved conflict${unresolved === 1 ? "" : "s"}`
+      : "No staged content to commit";
     buttons.push(`<button type="button" class="primary-button" disabled title="${escapeHtml(reason)}。">Continue ${escapeHtml(kind)}</button>`);
     buttons.push(`<span class="commit-meta conflict-blocked">${escapeHtml(reason)}</span>`);
   }
 
   if (buttons.length === 0) {
-    buttons.push(`<button type="button" class="secondary-button" data-operation-action="close">关闭</button>`);
+    buttons.push(`<button type="button" class="secondary-button" data-operation-action="close">Close</button>`);
   }
 
   return buttons.join("");
@@ -2300,7 +2507,7 @@ function liveResetBody() {
   const head = (live.history && live.history.head) ? live.history.head.slice(0, 7) : "HEAD";
   // 目标可编辑：与视觉稿样例一致（`Reset 目标提交` 是一个输入框），
   // 任何不存在的引用由宿主校验并给出原因，界面不自行判断。
-  return `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset 目标提交"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · 同时重置索引</option><option value="soft">Soft · 仅移动 HEAD</option><option value="hard">Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
+  return `<div class="form-grid"><label for="reset-target">Target commit</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset target commit"><label for="reset-mode">Mode</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · Reset index</option><option value="soft">Soft · Move HEAD only</option><option value="hard">Hard · Reset index and working tree</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
 }
 
 // 外壳注入真实改动文件时的回滚对话框：目标是右键选中的那个文件
@@ -2312,7 +2519,7 @@ function liveRollbackBody() {
     ? files.find((item) => item.path === live.rollback.path) || null
     : files.find((item) => item.group === "Changes") || files[0] || null;
   if (!file) {
-    return `<div class="inline-alert danger rollback-impact"><strong>没有可回滚的改动</strong><p class="commit-meta">当前工作区没有已跟踪文件的改动。</p></div><div class="rollback-notice" role="status" hidden></div>`;
+    return `<div class="inline-alert danger rollback-impact"><strong>No changes to roll back</strong><p class="commit-meta">No tracked file changes in this workspace.</p></div><div class="rollback-notice" role="status" hidden></div>`;
   }
 
   // 规格 §10.4：危险操作必须显示**具体影响**，且未跟踪文件删除必须明确说明进入
@@ -2321,9 +2528,9 @@ function liveRollbackBody() {
   const kind = String(file.kind || "");
   const recycled = file.group !== "Changes" || kind === "Untracked" || kind === "Added" || file.workTreeStatus === "?";
   const impact = recycled
-    ? `<strong>该文件将被移出工作区</strong><p class="commit-meta">这是未跟踪或新增文件，没有可恢复的 HEAD 版本。</p>`
-    : `<strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p>`;
-  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="form-grid"><span>文件</span><span>${escapeHtml(file.path)}</span><span>变更</span><span class="file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
+    ? `<strong>This file will be removed from the working tree</strong><p class="commit-meta">This file is untracked or new; no HEAD version can be restored.</p>`
+    : `<strong>All local changes in this file will be discarded</strong><p class="commit-meta">Rollback affects the entire file, including all local changes.</p>`;
+  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>Untracked or new files are moved to the Windows Recycle Bin.</p></div><div class="form-grid"><span>File</span><span>${escapeHtml(file.path)}</span><span>Changes</span><span class="file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
 }
 
 /**
@@ -2342,7 +2549,7 @@ function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", b
   const live = window.__augitLive || {};
   const disabled = arrowsDisabled || busy;
   const arrow = (label, name) => disabled
-    ? `<button class="toolbar-button" disabled title="正在生成差异，稍后可用。" aria-label="${label}">${icon(name)}</button>`
+    ? `<button class="toolbar-button" disabled title="Generating diff; it will be available shortly." aria-label="${label}">${icon(name)}</button>`
     : `<button class="toolbar-button" aria-label="${label}">${icon(name)}</button>`;
   // 这两个选项默认取编辑器正文的会话状态；文件历史预览显式传入 —— 两边可以同时开着、
   // 各自处于不同的显示模式与忽略空白选项，不能互相污染。
@@ -2351,29 +2558,43 @@ function liveDiffToolbar({ fileNav = "", arrowsDisabled = false, summary = "", b
   const segment = (label, name, active) =>
     `<button class="segment${active ? " active" : ""}" aria-label="${label}">${icon(name)}</button>`;
   return `<div class="diff-toolbar">`
-    + arrow("上一处差异", "arrow-up") + arrow("下一处差异", "arrow-down")
+    + arrow("Previous Difference", "arrow-up") + arrow("Next Difference", "arrow-down")
     + '<span class="toolbar-separator"></span>'
     // 查找：Diff 正文查找按权威实现（第 308 轮）。加载态下正文是占位块 ⇒ 与差异箭头一样禁用并写明原因。
     + (disabled
-      ? `<button class="toolbar-button" disabled title="正在生成差异，稍后可用。" aria-label="查找">${icon("search")}</button>`
-      : `<button class="toolbar-button" aria-label="查找">${icon("search")}</button>`)
+      ? `<button class="toolbar-button" disabled title="Generating diff; it will be available shortly." aria-label="Find">${icon("search")}</button>`
+      : `<button class="toolbar-button" aria-label="Find">${icon("search")}</button>`)
     + fileNav
     + '<span class="grow"></span>'
     + summary
-    + `<button class="toolbar-button${ignoreWhitespace ? " active" : ""}" aria-pressed="${ignoreWhitespace ? "true" : "false"}" aria-label="忽略空白">${icon("diff-ignore-whitespace")}</button>`
+    + `<button class="toolbar-button${ignoreWhitespace ? " active" : ""}" aria-pressed="${ignoreWhitespace ? "true" : "false"}" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button>`
     + '<div class="segmented">'
-    + segment("双栏", "diff-side-by-side", !unified) + segment("单栏", "diff-unified", unified)
+    + segment("Side-by-side", "diff-side-by-side", !unified) + segment("Unified", "diff-unified", unified)
     + '</div>'
-    + `<button class="icon-button" aria-label="设置">${icon("settings")}</button>`
-    + (busy ? '<button class="toolbar-button" aria-label="取消比较">取消比较</button>' : "")
+    + `<button class="icon-button" aria-label="Settings">${icon("settings")}</button>`
+    + (busy ? '<button class="toolbar-button" aria-label="Cancel Comparison">Cancel Comparison</button>' : "")
     + '</div>';
 }
 
 // 外壳注入真实差异时使用：按「旧行 / 行号槽 / 新行」三列渲染结构化行。
+// 冲突文件的只读提示（2026-10-17 用户批准移除内置三栏编辑器）。
+// 只在当前 Diff 目标仍是未合并索引项时显示；Augit 不提供编辑、保存或整侧接受。
+function liveConflictNotice(path) {
+  const live = window.__augitLive || {};
+  const file = ((live.status && live.status.files) || []).find((item) => item.path === path);
+  if (!live.status || !live.status.hasConflicts || !file || file.kind !== "Unmerged") return "";
+  return `<div class="inline-alert conflict-readonly-notice" role="status"><strong>Unresolved conflict</strong><p>This file still contains conflict markers. Resolve it with your external editor or terminal; Augit refreshes Git state automatically and does not provide a built-in merge editor.</p><button type="button" class="secondary-button" data-open-conflict-session>Show Conflicts</button></div>`;
+}
+
 function liveDiffView() {
   const live = window.__augitLive || {};
   const diff = live.diff;
-  if (!diff) return diffView();
+  if (!diff) {
+    // 真实请求尚未返回时只显示目标与空正文，不能闪现视觉稿示例文件。
+    const tab = (live.tabs || []).find(item => item.id === live.activeTabId);
+    const path = tab?.path || new URLSearchParams(location.search).get("diff") || "";
+    return `<div class="diff-layout">${liveDiffToolbar({ arrowsDisabled: true, busy: !!live.diffLoading })}${liveConflictNotice(path)}${diffFileHeader("HEAD", "Workspace", path, path)}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div>`;
+  }
   const rows = diff.rows || [];
   // 规格 `ux-spec.md:438/441/442`：工作区 Diff 工具条要含"上一个文件 / 文件计数 / 下一个文件"，
   // 且**跨文件查询期间差异/文件箭头禁用**。静态变体（`diffView(false)`）本来就有；
@@ -2384,10 +2605,10 @@ function liveDiffView() {
   // （上一处/下一处/查找/差异计数/忽略空白/双栏/单栏/设置）。第 115 轮重测暴露：不加这个门控时
   // 文件导航会**泄漏进比较视图**（commit-diff 1.59→1.80、diff-status 1.29→1.45）。
   const hasFileNav = live.workspaceDiff === true && currentFileIndex >= 0 && changedFiles.length > 1;
-  const fileNavCount = '<span class="file-status-modified">' + (currentFileIndex + 1) + '/' + changedFiles.length + ' 个文件</span>';
+  const fileNavCount = '<span class="file-status-modified">' + (currentFileIndex + 1) + '/' + changedFiles.length + ' files</span>';
   const fileNav = hasFileNav
-    ? '<button class="toolbar-button" aria-label="上一个文件">' + icon("arrow-left") + '</button>' + fileNavCount
-      + '<button class="toolbar-button" aria-label="下一个文件">' + icon("arrow-right") + '</button>'
+    ? '<button class="toolbar-button" aria-label="Previous File">' + icon("arrow-left") + '</button>' + fileNavCount
+      + '<button class="toolbar-button" aria-label="Next File">' + icon("arrow-right") + '</button>'
     : "";
   // 加载中优先显示加载提示：此时 rows 可能是上一轮的空值，
   // 直接走"没有文本差异"会把加载中的文件误报成无差异。
@@ -2396,8 +2617,8 @@ function liveDiffView() {
       // 规格 §7.7 第 9 条：「跨文件查询/排版期间禁用差异箭头，文件箭头和 Changes 仍允许改选」
       // ⇒ 文件箭头（`fileNav`）**不**禁用，只有上一处/下一处交给 `arrowsDisabled`。
       fileNav, arrowsDisabled: true, busy: true,
-      summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
-    })}${diffFileHeader("HEAD", "工作区", diff.path, diff.path)}<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+      summary: '<span class="comparison-loading-label">Generating diff…</span>',
+    })}${liveConflictNotice(diff.path)}${diffFileHeader("HEAD", "Workspace", diff.path, diff.path)}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
 
   // 文件栏的双方引用（规格 §7.8/§7.9）：
@@ -2411,11 +2632,11 @@ function liveDiffView() {
   const referenceActive = !historyActive && reference && reference.path === diff.path && reference.revision;
   const barSource = historyActive ? `${String(comparison.commit).slice(0, 8)}^`
     : referenceActive ? String(reference.revision) : "HEAD";
-  const barTarget = historyActive ? String(comparison.commit).slice(0, 8) : "工作区";
+  const barTarget = historyActive ? String(comparison.commit).slice(0, 8) : "Workspace";
   // 悬停说明保留**完整**引用与相对路径（规格 §7.9 第十七条）：显示值可以是前 8 位，查询与悬停用完整值。
   const hoverSource = historyActive ? `${comparison.commit}^` : referenceActive ? String(reference.revision) : "HEAD";
-  const hoverTarget = historyActive ? String(comparison.commit) : "工作区";
-  const barFilebar = diffFileHeader(barSource, barTarget, `${hoverSource} → ${hoverTarget}`, diff.path);
+  const hoverTarget = historyActive ? String(comparison.commit) : "Workspace";
+  const barFilebar = diffFileHeader(barSource, barTarget, `${hoverSource} → ${hoverTarget}`, diff.path, diff);
   if (rows.length === 0) {
     // 最终说明放到正文区（§6.5：持续可见；§10.2：三要素齐备），工具栏只留显示模式。
     // 历史/引用比较要按比较语义措辞（§7.9 摘要页）：工作区那句"改动文件后重新双击该行"
@@ -2423,11 +2644,11 @@ function liveDiffView() {
     const emptyNotice = historyActive && (!diff.status || diff.status === "Ready")
       ? comparisonSummaryNotice()
       : diffStatusNotice(diff.status && diff.status !== "Ready" ? diff.status : "Ready");
-    return `<div class="diff-layout">${liveDiffToolbar({ fileNav, arrowsDisabled: true })}${barFilebar}${emptyNotice}</div>`;
+    return `<div class="diff-layout">${liveDiffToolbar({ fileNav, arrowsDisabled: true })}${liveConflictNotice(diff.path)}${barFilebar}${emptyNotice}</div>`;
   }
 
   const body = diffBodyParts(diff);
-  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: body.summary })}${barFilebar}${body.unifiedTemplate}${body.columns}</div>`;
+  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: body.summary })}${liveConflictNotice(diff.path)}${barFilebar}${body.unifiedTemplate}${body.columns}</div>`;
 }
 
 /**
@@ -2461,8 +2682,9 @@ function diffBodyParts(diff) {
   };
   const cssKind = (kind) => kind === "Added" ? "added" : kind === "Removed" ? "removed" : kind === "Modified" ? "changed" : "";
   const cell = (row, side) => {
-    const kind = row.kind === "Context" ? "" : cssKind(row.kind);
     const lineNumber = side === "old" ? row.oldLine : row.newLine;
+    // 缺失侧只是对齐占位，不能涂成实际变更行；有行号的空文本仍是实际空行。
+    const kind = row.kind === "Context" || lineNumber == null ? "" : cssKind(row.kind);
     const text = side === "old" ? row.oldText : row.newText;
     const spans = side === "old" ? row.oldChanges : row.newChanges;
     const content = text === null || text === undefined
@@ -2473,6 +2695,12 @@ function diffBodyParts(diff) {
   // 元数据行（diff --git / index / --- / +++）是补丁头部，不是内容，必须剔除；
   // 否则差异区看起来像在转储原始补丁，而不是一份差异。
   const content = rows.filter(row => row.kind !== "Metadata");
+  // 从文件开头开始的首个片段没有省略前文，补丁范围头不能占用正文行。
+  // 非首个片段及从中段开始的片段仍保留分隔，避免把省略的上下文拼成连续文本。
+  if (content[0]?.kind === "HunkHeader") {
+    const range = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(content[0].newText || content[0].oldText || "");
+    if (range && Number(range[1]) <= 1 && Number(range[2]) <= 1) content.shift();
+  }
   const isSeparator = (row) => row.kind === "HunkHeader";
   const cellOf = (row, side) => {
     if (isSeparator(row)) return { kind: "hunk", lineNumber: null, content: escapeHtml(row.newText || row.oldText || "") };
@@ -2480,8 +2708,14 @@ function diffBodyParts(diff) {
   };
   const oldCells = content.map(row => cellOf(row, "old"));
   const newCells = content.map(row => cellOf(row, "new"));
-  const oldSide = content.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
-  const newSide = content.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
+  // 空侧在变更块起点画双像素边界，连续占位不重复画线。
+  const emptyBoundary = (index, side) => {
+    const kind = side === "old" ? "Added" : "Removed";
+    return content[index].kind === kind && (index === 0 || content[index - 1].kind !== kind)
+      ? ` empty-${kind.toLowerCase()}` : "";
+  };
+  const oldSide = content.map((row, index) => `<div class="diff-code-line ${oldCells[index].kind}${emptyBoundary(index, "old")}" data-line="${oldCells[index].lineNumber ?? ""}">${oldCells[index].content}</div>`).join("");
+  const newSide = content.map((row, index) => `<div class="diff-code-line ${newCells[index].kind}${emptyBoundary(index, "new")}" data-line="${newCells[index].lineNumber ?? ""}">${newCells[index].content}</div>`).join("");
   // ---- 中栏（行号槽 ＋ 变更连接区，规格 §7.7 第 11 条）----
   // 权威：`DiffLineMarkerRenderer.drawMarker()` 用**该变更块的类型色**（全强度 `DIFF_*.BACKGROUND`）
   // 填充行号槽，`DiffDividerDrawUtil.DividerPolygon` 用同色、**无边框**画连接两侧行范围的梯形。
@@ -2527,7 +2761,7 @@ function diffBodyParts(diff) {
   const percent = (value, total) => `${Math.round((value / Math.max(1, total)) * 10000) / 100}%`;
   const edge = (rows, total, fallbackRows) => {
     if (rows.length) return [percent(rows[0], total), percent(rows[rows.length - 1] + 1, total)];
-    const anchor = fallbackRows.length ? (fallbackRows[0] + fallbackRows[fallbackRows.length - 1] + 1) / 2 : total / 2;
+    const anchor = fallbackRows.length ? fallbackRows[0] : 0;
     const single = percent(anchor, total);
     return [single, single];
   };
@@ -2552,11 +2786,11 @@ function diffBodyParts(diff) {
   return {
     // 正文是**可聚焦的正文位置**（规格 §7.9 第七/十九条：Tab 从工具条进入正文；加载/失败也保留一个正文位置，
     // 用户可据此从比较区回到标签栏）。编辑器正文与文件历史预览共用这一段 ⇒ 两处都有。
-    columns: `<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side">${oldSide}</div>`
-      + `<div class="diff-gutter diff-gutter-live"><div class="diff-gutter-connectors" aria-hidden="true">${connectors}</div>${gutter}</div>`
+    columns: `<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side">${oldSide}</div>`
+      + `<div class="diff-gutter diff-gutter-live"><div class="diff-gutter-connectors" style="height:calc(${content.length} * var(--code-line-height, 22px))" aria-hidden="true">${connectors}</div>${gutter}</div>`
       + `<div class="diff-side">${newSide}</div></div>`,
     unifiedTemplate,
-    summary: `<span class="diff-summary">${changedBlocks.length} 处差异</span>`,
+    summary: `<span class="diff-summary">${changedBlocks.length} ${changedBlocks.length === 1 ? "difference" : "differences"}</span>`,
     blockCount: changedBlocks.length,
   };
 }
@@ -2584,8 +2818,8 @@ function liveFileHistoryPreviewView() {
   if (!preview || preview.loading) {
     return `<div class="diff-layout" data-augit-loading="true" data-live-file-history-preview>${liveDiffToolbar({
       ...options, arrowsDisabled: true,
-      summary: '<span class="comparison-loading-label">正在生成 diff…</span>',
-    })}${filebar}<div class="diff-columns" tabindex="0" aria-label="差异正文"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+      summary: '<span class="comparison-loading-label">Generating diff…</span>',
+    })}${filebar}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
   }
   const rows = (preview.diff && preview.diff.rows) || [];
   if (rows.length === 0) {
@@ -2604,42 +2838,30 @@ function liveFileHistoryPreviewView() {
 function liveCloneBody() {
   const settings = (window.__augitLive && window.__augitLive.settings) || {};
   const recent = (settings.recentWorkspaces || [])[0] || "";
-  return `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git" autofocus><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository" value="${escapeHtml(recent)}"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" title="--depth" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
-}
-
-function conflictResolver() {
-  const code = lines => lines.map(([text, kind]) => kind === "gap"
-    ? `<span class="conflict-spacer" aria-hidden="true" style="height:calc(${text} * var(--conflict-line-height, 1.7em))"></span>`
-    : `<span class="conflict-line${kind ? ` ${kind}` : ""}">${text || "&nbsp;"}</span>`).join("");
-  let left = code([["public async Task RefreshAsync()"], ["{"], ["    var snapshot = await LoadStatusAsync();", "conflict-side"], ["    if (snapshot != _snapshot)", "conflict-side"], ["        ShowSelectedDiff();", "conflict-side"], [2, "gap"], ["}"]]);
-  let result = code([["public async Task RefreshAsync()"], ["{"], ["    var snapshot = await LoadStatusAsync();", "conflict-result"], ["    if (snapshot != _snapshot)", "conflict-result"], ["        ShowSelectedDiff();", "conflict-result"], ["    var status = await LoadStatusAsync();", "conflict-result"], ["    Render(status);", "conflict-result"], ["}"]]);
-  let right = code([["public async Task RefreshAsync()"], ["{"], ["    var status = await LoadStatusAsync();", "conflict-side"], ["    Render(status);", "conflict-side"], [3, "gap"], ["}"]]);
-  const emptySide = new URLSearchParams(location.search).get("empty-side");
-  if (emptySide === "left" || emptySide === "right") {
-    const common = [["public async Task RefreshAsync()"], ["{"], ["    await LoadStatusAsync();"], ["}"]];
-    const inserted = kind => [["// 新增说明一", kind], ["// 新增说明二", kind], ...common];
-    left = code(emptySide === "left" ? [[2, "gap"], ...common] : inserted("conflict-side"));
-    right = code(emptySide === "right" ? [[2, "gap"], ...common] : inserted("conflict-side"));
-    result = code(inserted("conflict-result"));
-  }
-  const column = (title, body, editable = false) => `<section class="conflict-column${editable ? " result" : ""}"><div class="conflict-column-title" title="${title}">${title}</div><div class="conflict-block"${editable ? ' contenteditable="plaintext-only" role="textbox" aria-label="最终结果" aria-multiline="true" spellcheck="false"' : ""}>${body}</div></section>`;
-  return `<div class="conflict-page">
-    <div class="conflict-header"><strong title="src/Augit.App/NativeGitPanel.cs">解决冲突 · NativeGitPanel.cs</strong><span class="grow"></span><span class="commit-meta">1 个未处理冲突</span><button class="secondary-button">上一处</button><button class="secondary-button">下一处</button></div>
-    <div class="conflict-columns">${column("当前分支 · main", left)}${column("最终结果 · 可编辑", result, true)}${column("合入内容", right)}</div>
-    <div class="conflict-footer"><div class="conflict-accept-actions"><button class="secondary-button">接受左侧</button><button class="secondary-button">接受两侧</button><button class="secondary-button">接受右侧</button></div><div class="conflict-save-actions"><button class="secondary-button">取消</button><a class="primary-button" href="conflict-list.html">应用并标记已解决</a></div></div>
-  </div>`;
+  return `<div class="form-grid"><label for="clone-version">Version control</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">Repository URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git" autofocus><label for="clone-destination">Directory</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository" value="${escapeHtml(recent)}"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">Shallow clone, history truncated to</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="Shallow clone depth" title="--depth" disabled><span>commits</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
 }
 
 /* 第二轮共享骨架：只复用 PyCharm 的界面组织与交互语言，不复制品牌资产。 */
-// 项目配色索引：参考实现把配色存在项目元数据里并可人工修改；Augit 不引入“项目配色”这一新能力，
-// 改为按工作区根路径稳定推导，保证“同一工作区永远同一配色”，视觉机制与参考实现一致。
+// 项目配色与参考一样保存索引、按序分配；存入 WebView2 的本地应用数据，不读取或修改 .idea。
+// 首次以本次参考的蓝色开始；切换主题、路径大小写或分隔符不重新分配。
 function projectColorIndex() {
   const live = window.__augitLive || {};
-  const key = String(live.rootPath || live.workspaceName || "");
+  const key = String(live.rootPath || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   if (!key) return 4;
-  let hash = 0;
-  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-  return (Math.abs(hash) % 9) + 1;
+  try {
+    const saved = JSON.parse(localStorage.getItem("augit.project.colors") || "null");
+    const colors = Object.fromEntries(Object.entries(saved?.colors || {}).filter(([path, value]) =>
+      path && Number.isInteger(value) && value >= 1 && value <= 9));
+    if (Object.hasOwn(colors, key)) return colors[key];
+    const last = Number.isInteger(saved?.last) && saved.last >= 1 && saved.last <= 9 ? saved.last : 3;
+    const index = last % 9 + 1;
+    colors[key] = index;
+    localStorage.setItem("augit.project.colors", JSON.stringify({ colors, last: index }));
+    return index;
+  } catch {
+    // 存储不可用时仍提供参考蓝色，不能让标题栏失败或改写其他用户设置。
+    return 4;
+  }
 }
 
 // 渐变中心 = 项目部件图标（工作区入口里的品牌方块）中心到标题栏左缘的距离。
@@ -2653,6 +2875,17 @@ function measureTitlebarGlow() {
   if (!markRect.width) return;
   const center = markRect.left - barRect.left + markRect.width / 2;
   bar.style.setProperty("--augit-title-glow-center", `${Math.round(center)}px`);
+  const current = bar.querySelector('.titlebar-context');
+  const branch = bar.querySelector('.branch-chip');
+  const actions = bar.querySelector('.window-actions');
+  if (current && branch && actions) {
+    const left = branch.getBoundingClientRect().right - barRect.left + 8;
+    const right = actions.getBoundingClientRect().left - barRect.left - 8;
+    const width = Math.max(0, Math.min(350, right - left));
+    current.style.maxWidth = `${width}px`;
+    const actual = current.getBoundingClientRect().width;
+    current.style.left = `${Math.max(left + actual / 2, Math.min(barRect.width / 2, right - actual / 2))}px`;
+  }
 }
 
 // 标签栏边缘渐隐：按实际滚动位置决定两端各留多少渐隐宽度（0 或 10px）。
@@ -2680,15 +2913,15 @@ function titlebar() {
   return `
     <header class="titlebar" data-project-color="${projectColorIndex()}">
       <div class="brand-mark" aria-label="Augit">A</div>
-      <button class="top-button" aria-label="主菜单" data-action="menu">${icon("menu")}</button>
-      <a class="top-chip workspace-chip" href="workspace-open.html" title="切换工作区"><span class="brand-mark">A</span> ${escapeHtml((window.__augitLive && window.__augitLive.workspaceName) || "Augit")} ${icon("chevron-down")}</a>
-      <a class="top-chip branch-chip" href="branches.html" title="分支与标签">${icon("git-branch")} ${escapeHtml((window.__augitLive && window.__augitLive.branch) || "main")} ${icon("chevron-down")}</a>
+      <button class="top-button" aria-label="Main Menu" data-action="menu">${icon("menu")}</button>
+      <a class="top-chip workspace-chip" href="workspace-open.html" title="Switch Workspace"><span class="brand-mark">A</span> ${escapeHtml((window.__augitLive && window.__augitLive.workspaceName) || "Augit")} ${icon("chevron-down")}</a>
+      <a class="top-chip branch-chip" href="branches.html" title="Branches and Tags">${icon("git-branch")} ${escapeHtml((window.__augitLive && window.__augitLive.branch) || "main")} ${icon("chevron-down")}</a>
       <span></span>
-      <a class="titlebar-context" href="quick-open.html" title="快速打开文件">${escapeHtml((window.__augitLive && window.__augitLive.document && window.__augitLive.document.name) || "当前文件")} ${icon("chevron-down")}</a>
+      <a class="titlebar-context" href="quick-open.html" title="Open File"><span class="titlebar-caption">${escapeHtml((window.__augitLive && window.__augitLive.document && window.__augitLive.document.name) || "Current File")}</span> ${icon("chevron-down")}</a>
       <span></span>
-      <nav class="window-actions" aria-label="窗口工具">
-        <a class="top-button" href="quick-open.html" aria-label="搜索">${icon("search")}</a>
-        <a class="top-button" href="settings.html" aria-label="设置">${icon("settings")}</a>
+      <nav class="window-actions" aria-label="Window Tools">
+        <a class="top-button" href="quick-open.html" aria-label="Search">${icon("search")}</a>
+        <a class="top-button" href="settings.html" aria-label="Settings">${icon("settings")}</a>
         ${windowActionIcons()}
       </nav>
     </header>`;
@@ -2703,23 +2936,23 @@ function rail(active, gitUnavailableReason = "", activeBottom = "", activeRail =
   const disabled = typeof gitUnavailableReason === "string" && gitUnavailableReason.length > 0;
   const button = (railName, label, href, iconName) => {
     if (disabled && (railName === "commit" || railName === "history")) {
-      return `<a class="rail-button" href="${href}" aria-label="${label}" aria-disabled="true" title="${escapeHtml(gitUnavailableReason)}">${icon(iconName)}</a>`;
+      return `<a class="rail-button" data-tool="${railName}" href="${href}" aria-label="${label}" aria-disabled="true" data-help-description="${escapeHtml(gitUnavailableReason)}">${icon(iconName, true)}</a>`;
     }
     const visible = railName === active
       || (railName === "terminal" && activeBottom === "terminal")
       || (railName === "history" && ["git", "file-history", "branch-compare"].includes(activeBottom));
     // 可见工具窗可以有两个，但活动归属还要覆盖已收起的工具窗；入口键盘焦点不改变活动归属。
     const isActive = railName === activeRail;
-    return `<a class="rail-button ${visible ? "visible" : ""} ${isActive ? "active" : ""}" href="${href}" aria-label="${label}">${icon(iconName)}</a>`;
+    return `<a class="rail-button ${visible ? "visible" : ""} ${isActive ? "active" : ""}" data-tool="${railName}" data-help-shortcut="${railName === 'search' ? 'Ctrl+Shift+F' : ''}" href="${href}" aria-label="${label}">${icon(iconName, true)}</a>`;
   };
   return `
-    <nav class="tool-rail" aria-label="工具窗口">
-      ${button("project", "项目", "main-project.html", "folder")}
-      ${button("commit", "提交", "commit-changes.html", "git-commit-horizontal")}
-      ${button("search", "搜索", "repository-search.html", "search")}
+    <nav class="tool-rail" aria-label="Tool Window">
+      ${button("project", "Project", "main-project.html", "folder")}
+      ${button("commit", "Commit", "commit-changes.html", "git-commit-horizontal")}
+      ${button("search", "Search", "repository-search.html", "search")}
       <div class="rail-spacer"></div>
-      ${button("terminal", "终端", "terminal.html", "square-terminal")}
-      ${button("history", "Git 历史", "git-history.html", "git-history")}
+      ${button("terminal", "Terminal", "terminal.html", "square-terminal")}
+      ${button("history", "Git Log", "git-history.html", "git-history")}
     </nav>`;
 }
 
@@ -2729,6 +2962,40 @@ function rail(active, gitUnavailableReason = "", activeBottom = "", activeRail =
  * `live-data.js` 的 `patchProjectTree()` 需要单独造新行（只增删变化行、保留未变化行的节点），
  * 因此把行模板抽成函数，避免两处各写一份后漂移。
  */
+/** 工具轨提示按 HelpTooltip 向右定位，快捷键只显示 Augit 已有绑定。 */
+function bindRailHelpTooltip() {
+  if (window.__augitRailHelpBound) return;
+  window.__augitRailHelpBound = true;
+  let owner=null, tip=null;
+  const hide=()=>{owner?.removeAttribute('aria-describedby');tip?.remove();owner=null;tip=null;};
+  const show=button=>{
+    if(!button||button.closest('[inert]')||document.querySelector('[data-augit-overlay]'))return;
+    if(owner===button&&tip?.isConnected)return;
+    hide();owner=button;
+    tip=document.createElement('div');tip.id='augit-rail-help';tip.className='rail-help-tooltip';tip.setAttribute('role','tooltip');
+    const title=document.createElement('span');title.textContent=button.getAttribute('aria-label');tip.append(title);
+    if(button.dataset.helpShortcut&&button.getAttribute('aria-disabled')!=='true') {
+      const key=document.createElement('span');key.className='help-shortcut';key.textContent=button.dataset.helpShortcut;tip.append(key);
+    }
+    if(button.dataset.helpDescription){const text=document.createElement('div');text.className='help-description';text.textContent=button.dataset.helpDescription;tip.append(text);}
+    document.querySelector('.augit-window')?.append(tip);button.setAttribute('aria-describedby',tip.id);
+    const host=tip.parentElement.getBoundingClientRect(),rect=button.getBoundingClientRect(),box=tip.getBoundingClientRect();
+    const anchor=button.closest('.tool-rail')?.dataset.anchor||'left';
+    let x=anchor==='right'?rect.left-host.left-box.width-5:rect.right-host.left+5,y=rect.top-host.top+1;
+    if(anchor==='top'||anchor==='bottom'){x=rect.left-host.left+1;y=anchor==='top'?rect.bottom-host.top+5:rect.top-host.top-box.height-5;}
+    tip.dataset.alignment=anchor==='left'?'right':anchor==='right'?'left':anchor==='top'?'bottom':'top';
+    tip.style.left=`${Math.max(4,Math.min(x,host.width-box.width-4))}px`;tip.style.top=`${Math.max(4,Math.min(y,host.height-box.height-4))}px`;
+  };
+  document.addEventListener('pointerover',event=>show(event.target.closest?.('.rail-button')));
+  document.addEventListener('pointerout',event=>{if(owner&&event.target.closest?.('.rail-button')===owner&&!owner.contains(event.relatedTarget))hide();});
+  document.addEventListener('focusin',event=>show(event.target.closest?.('.rail-button')));
+  document.addEventListener('focusout',event=>{if(event.target===owner)hide();});
+  for(const type of ['pointerdown','keydown','scroll'])document.addEventListener(type,hide,true);
+  window.addEventListener('resize',hide);window.addEventListener('blur',hide);
+  new MutationObserver(()=>{if(owner&&(!owner.isConnected||document.querySelector('[data-augit-overlay]')))hide();}).observe(document.getElementById('app'),{childList:true,subtree:true});
+}
+
+/** 项目树行模板由实时树及增量补丁共用，避免图形与ARIA状态漂移。 */
 function liveTreeRowHtml(entry, selected, live) {
   const depth = entry.depth === 0 ? "root-row" : `depth-${entry.depth}`;
   const hasChildren = entry.isDirectory && entry.hasChildren;
@@ -2736,7 +3003,7 @@ function liveTreeRowHtml(entry, selected, live) {
   const expanded = entry.expanded ? "true" : "false";
   const status = !entry.isDirectory ? treeGitStatus(entry.path, live) : null;
   const statusClass = status ? ` file-status-${status.className}` : "";
-  const statusLabel = status ? `，Git 状态：${status.label}` : "";
+  const statusLabel = status ? `, Git status:${status.label}` : "";
   const statusMarker = status
     ? `<span class="tree-status file-status-${status.className}" aria-hidden="true">${status.marker}</span>`
     : "";
@@ -2756,22 +3023,22 @@ function treeGitStatus(path, live) {
   if (!file) return null;
   const kind = String(file.kind || "Modified");
   const status = {
-    Added: { className: "added", marker: "A", label: "新增" },
-    Untracked: { className: "unknown", marker: "?", label: "未跟踪" },
-    Modified: { className: "modified", marker: "M", label: "修改" },
-    Deleted: { className: "deleted", marker: "D", label: "删除" },
-    Renamed: { className: "modified", marker: "R", label: "重命名" },
-    Copied: { className: "added", marker: "C", label: "复制" },
-    TypeChanged: { className: "modified", marker: "T", label: "类型变化" },
-    Unmerged: { className: "conflict", marker: "!", label: "冲突" },
+    Added: { className: "added", marker: "A", label: "Added" },
+    Untracked: { className: "unknown", marker: "?", label: "Unversioned" },
+    Modified: { className: "modified", marker: "M", label: "Modified" },
+    Deleted: { className: "deleted", marker: "D", label: "Delete" },
+    Renamed: { className: "modified", marker: "R", label: "Rename" },
+    Copied: { className: "added", marker: "C", label: "Copy" },
+    TypeChanged: { className: "modified", marker: "T", label: "Type Changed" },
+    Unmerged: { className: "conflict", marker: "!", label: "Conflicts" },
   }[kind];
   if (!status) return null;
   const composite = file.indexStatus === "D" && file.workTreeStatus === "?"
-    ? "已暂存删除，工作区同路径存在未跟踪内容"
+    ? "Staged deletion; an untracked file exists at the same path"
     : "";
   return {
     ...status,
-    label: composite ? `${status.label}；${composite}` : status.label,
+    label: [status.label, composite, gitStatusDescription(file)].filter(Boolean).join("; "),
     indexStatus: typeof file.indexStatus === "string" ? file.indexStatus : " ",
     workTreeStatus: typeof file.workTreeStatus === "string" ? file.workTreeStatus : " ",
   };
@@ -2782,8 +3049,8 @@ function liveProjectTree(selected, live) {
   const rows = live.tree.map((entry) => liveTreeRowHtml(entry, selected, live)).join("");
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>项目</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="定位当前文件">${icon("locate-fixed")}</button><button class="icon-button" aria-label="折叠项目树">${icon("fold-vertical")}</button><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
-      <div class="side-content tree" role="tree" aria-label="项目文件">
+      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("fold-vertical")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
+      <div class="side-content tree" role="tree" aria-label="Project Files">
         ${rows}
       </div>
     </aside>`;
@@ -2815,7 +3082,7 @@ function projectTree(selected = "product-spec.md", liveRows = null) {
   ];
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>项目</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="定位当前文件">${icon("locate-fixed")}</button><button class="icon-button" aria-label="折叠项目树">${icon("fold-vertical")}</button><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
+      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("fold-vertical")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="side-content tree">
         ${rows.map(([depth, chevron, fileIcon, name, path, href]) => `${href ? `<a href="${href}"` : `<div`} class="tree-row ${depth} ${name === selected ? "selected" : ""}" style="--tree-depth:${depth === "root-row" ? 0 : Number(depth.slice(6))}"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${fileIcon === "folder" ? "folder-icon" : "file-icon"}">${fileIcon === "folder" ? treeFolderIcon(depth === "root-row") : fileTypeIcon(name)}</span><span class="tree-name">${name}</span>${path ? `<span class="tree-path">${path}</span>` : ""}${href ? "</a>" : "</div>"}`).join("")}
       </div>
@@ -2824,9 +3091,9 @@ function projectTree(selected = "product-spec.md", liveRows = null) {
 
 function commitMessageBox(disabled = false) {
   const state = disabled ? null : new URLSearchParams(location.search).get("commit-state");
-  const error = state === "validation" ? "提交信息不能为空。"
-    : state === "hook-failure" ? "commit-msg hook 拒绝提交。请检查仓库提交规则。" : "";
-  return `<div class="commit-message-box"><div class="commit-feedback ${error ? "error" : ""}" role="status" title="${escapeHtml(error || "提交信息")}">${escapeHtml(error || "提交信息")}</div><textarea class="message-field" aria-label="提交信息" ${disabled ? "disabled" : ""}>${state === "hook-failure" ? "fix: 保留失败草稿" : ""}</textarea></div>`;
+  const error = state === "validation" ? "Commit message cannot be empty."
+    : state === "hook-failure" ? "The commit-msg hook rejected the commit. Check repository rules." : "";
+  return `<div class="commit-message-box"><div class="commit-feedback ${error ? "error" : ""}" role="status" title="${escapeHtml(error || "Commit message")}">${escapeHtml(error || "Commit message")}</div><textarea class="message-field" aria-label="Commit message" ${disabled ? "disabled" : ""}>${state === "hook-failure" ? "fix: 保留失败草稿" : ""}</textarea></div>`;
 }
 
 // 外壳注入真实 Git 状态时使用；结构与样例版一致，复用同一套样式与交互绑定。
@@ -2841,7 +3108,7 @@ function statusRefreshNotice() {
   // 原因本身可能已经以句号结尾（宿主文案不定），避免出现「。。」。
   const reason = String(live.statusError);
   const sentence = /[。.！!？?]$/.test(reason) ? reason : reason + "。";
-  return `<div class="inline-alert status-stale" role="status">无法读取最新 Git 状态：${escapeHtml(sentence)}下方列表与分支信息仍是上一次成功读取的结果，改动、勾选与提交输入没有被修改；可点击工具栏的刷新重试。</div>`;
+  return `<div class="inline-alert status-stale" role="status">Cannot read the latest Git status:${escapeHtml(sentence)}The list and branch information show the last successful result. Changes, selection, and the commit message are preserved. Click Refresh to retry.</div>`;
 }
 
 /**
@@ -2849,12 +3116,21 @@ function statusRefreshNotice() {
  * 否则两处标记迟早漂移（规格 §6.4 要求部分变化时复用未变化的行）。
  * `group` 是界面标签（Changes / Unversioned Files），不是宿主的 group 值。
  */
+function changesFileCount(count) {
+  return count === 0 ? "No files" : `${count} ${count === 1 ? "file" : "files"}`;
+}
+
+// 单仓库平铺列表与VcsPresentablePath的forceRelativePath一致：根目录显示仓库名。
+function changeParentPresentation(file) {
+  return file.directory ? file.directory.replaceAll("/", "\\") : (window.__augitLive?.workspaceName || "Augit");
+}
+
 function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
   const isSelected = selectedName === file.name;
   return `
       <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" data-index-status="${escapeHtml(file.indexStatus || " ")}" data-worktree-status="${escapeHtml(file.workTreeStatus || " ")}" role="treeitem" aria-level="2" aria-selected="${isSelected}" aria-label="${escapeHtml(changeAccessibleName(file.kind, file.name, file))}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
-        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
-        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
+        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="Choose ${escapeHtml(file.name)}"></button>
+        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-${escapeHtml(String(file.kind).toLowerCase())}" title="${escapeHtml(gitStatusDescription(file))}">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(changeParentPresentation(file))}</span>
       </div>`;
 }
 
@@ -2864,7 +3140,7 @@ function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
 function liveChangeGroupRow(label, groupFiles, groupIndex = 0) {
   const state = groupFiles.every(file => file.checked) ? "true" : groupFiles.some(file => file.checked) ? "mixed" : "false";
   const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
-  return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false" id="change-group-${groupIndex}"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>`;
+  return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false" id="change-group-${groupIndex}"><button class="change-chevron" type="button" tabindex="-1" aria-label="Collapse ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="Select All ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${changesFileCount(groupFiles.length)}</span></div>`;
 }
 
 function liveChangesSide(selected) {
@@ -2887,17 +3163,17 @@ function liveChangesSide(selected) {
   const changed = status.files.filter(file => file.group === "Changes").length;
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>提交</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
+      <div class="tool-header"><span>Commit</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="changes-layout">
-        <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" data-action="rollback-change" data-disabled-reason="先在改动列表里选择一个文件。" aria-label="回滚"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" data-disabled-reason="先在改动列表里选择一个文件。" aria-label="显示 Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="先在改动列表里选择一个文件。"'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
+        <div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" data-action="rollback-change" data-disabled-reason="Select a file in Changes first." aria-label="Rollback"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="Select a file in Changes first."'}>${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" data-disabled-reason="Select a file in Changes first." aria-label="Show Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="Select a file in Changes first."'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="Expand All">${icon("download")}</button><button class="toolbar-button" aria-label="Preview">${icon("eye")}</button></div>
         ${statusRefreshNotice()}
-        <div class="changes-list" role="tree" aria-label="待提交文件" tabindex="0">
+        <div class="changes-list" role="tree" aria-label="Files to Commit" tabindex="0">
           ${changeRows}
         </div>
         <div class="commit-box">
-          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last file-status-modified" href="git-history.html" title="上一次提交"><span>上一次提交</span>${icon("history")}</a><span class="commit-count file-status-modified" title="${changed} modified">${changed} modified</span></div>
+          <div class="commit-options"><span class="commit-amend" title="Amend this commit into the previous commit"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last" href="git-history.html" title="View the last commit in Git Log">last commit</a><span class="commit-count commit-meta" title="${changed} files">${changed} files</span></div>
           ${commitMessageBox()}
-          <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
+          <div class="commit-actions"><a class="primary-button" href="operation-result.html">Commit</a><a class="secondary-button" href="push.html">Commit and Push…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="Commit Settings">${icon("settings")}</a></div>
         </div>
       </div>
     </aside>`;
@@ -2907,28 +3183,25 @@ function changesSide(selected = "app.manifest") {
   const groups = ["Changes", "Unversioned Files"];
   const changeRows = groups.map(group => {
     const groupFiles = changesSamples.filter(file => file.group === group);
-    const checked = groupFiles.filter(file => file.checked).length;
-    const state = checked === 0 ? "false" : checked === groupFiles.length ? "true" : "mixed";
-    const checkClass = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
     const rows = groupFiles.map(file => `
       <div class="check-row change-file-row ${selected === file.name ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${group}" role="treeitem" aria-level="2" aria-selected="${selected === file.name}" id="change-file-${changesSamples.indexOf(file)}" tabindex="-1">
-        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="选择 ${escapeHtml(file.name)}"></button>
-        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-modified">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(file.directory)}</span>
+        <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="Choose ${escapeHtml(file.name)}"></button>
+        <span class="file-icon">${fileTypeIcon(file.name)}</span><span class="tree-name file-status-modified">${escapeHtml(file.name)}</span><span class="tree-path">${escapeHtml(changeParentPresentation(file))}</span>
       </div>`).join("");
-    return `<div class="check-row check-group-row" data-group="${group}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false" id="change-group-${groups.indexOf(group)}"><button class="change-chevron" type="button" tabindex="-1" aria-label="折叠 ${group}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="选择全部 ${group}"></button><strong>${group}</strong><span class="commit-meta">${groupFiles.length} 个文件</span></div>${rows}`;
+    return liveChangeGroupRow(group, groupFiles, groups.indexOf(group)) + rows;
   }).join("");
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>提交</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="最小化">${icon("minus")}</button></span></div>
+      <div class="tool-header"><span>Commit</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="changes-layout">
-        <div class="toolbar"><button class="toolbar-button" aria-label="刷新">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="回滚">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" aria-label="显示 Diff">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="展开全部">${icon("download")}</button><button class="toolbar-button" aria-label="预览">${icon("eye")}</button></div>
-        <div class="changes-list" role="tree" aria-label="待提交文件" tabindex="0">
+        <div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" aria-label="Rollback">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" aria-label="Show Diff">${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="Expand All">${icon("download")}</button><button class="toolbar-button" aria-label="Preview">${icon("eye")}</button></div>
+        <div class="changes-list" role="tree" aria-label="Files to Commit" tabindex="0">
           ${changeRows}
         </div>
         <div class="commit-box">
-          <div class="commit-options"><span class="commit-amend" title="把这次提交合并到上一次提交"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last file-status-modified" href="git-history.html" title="上一次提交"><span>上一次提交</span>${icon("history")}</a><span class="commit-count file-status-modified" title="${changesSamples.filter(file => file.group === "Changes").length} modified">${changesSamples.filter(file => file.group === "Changes").length} modified</span></div>
+          <div class="commit-options"><span class="commit-amend" title="Amend this commit into the previous commit"><button class="fake-check" type="button" role="checkbox" aria-checked="false" aria-label="Amend"></button><span>Amend</span></span><a class="commit-last" href="git-history.html" title="View the last commit in Git Log">last commit</a><span class="commit-count commit-meta" title="${changesSamples.filter(file => file.group === "Changes").length} files">${changesSamples.filter(file => file.group === "Changes").length} files</span></div>
           ${commitMessageBox()}
-          <div class="commit-actions"><a class="primary-button" href="operation-result.html">提交</a><a class="secondary-button" href="push.html">提交并推送…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="提交设置">${icon("settings")}</a></div>
+          <div class="commit-actions"><a class="primary-button" href="operation-result.html">Commit</a><a class="secondary-button" href="push.html">Commit and Push…</a><span class="grow"></span><a class="icon-button" href="settings.html" aria-label="Commit Settings">${icon("settings")}</a></div>
         </div>
       </div>
     </aside>`;
@@ -2953,19 +3226,19 @@ function editorTabs(active, extra = "") {
       if (tab.id === live.activeTabId || tab.syntheticActive === true) cls.push("active");
       if (tab.preview) cls.push("preview");
       if (tab.kind === "comparison") cls.push("comparison-tab");
-      const label = tab.title || tab.path || "未命名";
+      const label = tab.title || tab.path || "Untitled";
       const glyph = tab.kind === "comparison" ? icon("git-compare-arrows") : fileTypeIcon(label);
       // 比较标签按**三部分**渲染（文件名 / 来源 / 目标），每部分独立省略 —— 长文件名不会挤掉
       // 另外两部分（规格 §7.9 第十七条）；没有部件时退回整串文本。
       const caption = tab.kind === "comparison" && tab.comparison
         ? `<span class="comparison-caption"><span class="comparison-file">${escapeHtml(tab.comparison.file)}</span><span> · </span><span class="comparison-revision">${escapeHtml(tab.comparison.source)}</span><span> → </span><span class="comparison-revision">${escapeHtml(tab.comparison.target)}</span></span>`
         : `<span class="change-tab-caption">${escapeHtml(label)}</span>`;
-      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${caption}<span class="tab-close" role="button" aria-label="关闭标签">${icon("x")}</span></a>`;
+      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${caption}<span class="tab-close" role="button" aria-label="Close File">${icon("x")}</span></a>`;
     }).join("");
     return `
     <div class="editor-tabs">
       ${markup}
-      <span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+      <span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
     </div>`;
   }
 
@@ -2973,18 +3246,25 @@ function editorTabs(active, extra = "") {
     const name = live.document.name || live.document.path;
     return `
     <div class="editor-tabs">
-      <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a>
-      <span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+      <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="Close File">${icon("x")}</span></a>
+      <span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
     </div>`;
   }
+
+  // 实时外壳的空标签集合是真实空态；只有无宿主的视觉稿可以使用样例文件。
+  if (live) return '<div class="editor-tabs"><span class="grow"></span></div>';
 
   return `
     <div class="editor-tabs">
       <a class="editor-tab ${active === "third" ? "active" : ""}" href="text-viewer.html">${fileTypeIcon("THIRD-PARTY-NOTICES.md")} THIRD-PARTY-NOTICES.md</a>
       <a class="editor-tab ${active === "roadmap" ? "active" : ""}" href="markdown-preview.html">${fileTypeIcon("roadmap.md")} roadmap.md</a>
       <a class="editor-tab ${active === "product" ? "active" : ""}" href="markdown-preview.html">${fileTypeIcon("product-spec.md")} product-spec.md</a>
-      ${extra}<span style="flex:1"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button>
+      ${extra}<span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
     </div>`;
+}
+
+function markdownTabActions(mode) {
+  return `<div class="segmented document-modes markdown-tab-actions" role="group" aria-label="Markdown view">${[['source','Raw','document-source'],['split','Split View','document-split'],['preview','Preview','document-preview']].map(([value,label,glyph]) => `<button type="button" class="segment${mode === value ? ' active' : ''}" data-markdown-mode="${value}" aria-label="${label}" aria-pressed="${mode === value}" title="${label}">${icon(glyph)}</button>`).join('')}</div>`;
 }
 
 function markdownView(mode = "preview") {
@@ -2999,15 +3279,14 @@ function markdownView(mode = "preview") {
   const sections = [
     ['1. 产品定位', 'Augit 是供外部 AI 协作开发场景使用的轻量桌面工具。它不接入任何 AI，也不负责生成代码。', '轻量优先是 Augit 的最高产品原则。'],
     ['2. 文件浏览', '在项目树中选择文件，双击或按 Enter 打开只读标签。', '普通文件查看器不提供编辑和保存。'],
-    ['3. 查看变更', 'Changes 展示文件变化与完整文件提交选择。', '打开 Diff 后在比较区域阅读磁盘真实文本变化。'],
+    ['3. 查看变更', 'Changes 展示文件变化与完整文件提交选择。', 'Open Diff 后在比较区域阅读磁盘真实文本变化。'],
     ['4. 阅读 Markdown', '从文件树打开时默认预览，可以切换原文和左右对照。', '切换模式保留阅读位置，文件链接在 Augit 只读标签中打开。'],
     ['5. 轻量与响应', '外部文件和本地 Git 状态变化及时反映。', '后台空闲时不持续扫描仓库，不明显占用 CPU。'],
   ];
   const sourceLines = ['# Augit 产品规格', '', ...sections.flatMap(([title, ...paragraphs]) => [`## ${title}`, '', ...paragraphs.flatMap(p => [p, ''])]), '[返回产品定位](#section-0)', '', '[UX 规格](ux-spec.md)', '', '[不可用资源](missing.md)'];
-  const toolbar = `<div class="document-toolbar"><span class="document-path">Augit › docs › product-spec.md　只读</span><div class="segmented document-modes">${[['source','原文','document-source'],['split','左右对照','document-split'],['preview','预览','document-preview']].map(([value,label,glyph]) => `<button class="segment" data-markdown-mode="${value}" aria-label="${label}">${icon(glyph)}</button>`).join('')}</div><button class="icon-button" aria-label="更多">${icon('ellipsis-vertical')}</button></div>`;
-  const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Markdown 只读原文">${codeLines(sourceLines, 0)}</div>`;
-  const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown 预览正文"><h1>Augit 产品规格</h1>${sections.map(([title,...paragraphs],i) => `<h2 id="section-${i}">${title}</h2>${paragraphs.map(p => `<p>${p}</p>`).join('')}`).join('')}<p><a href="#section-0">返回产品定位</a></p><p><a href="markdown-preview.html">UX 规格</a></p><p><span class="markdown-blocked" title="missing.md">不可用资源（链接已阻止：路径不存在、越出工作区或协议不支持）</span></p></article>`;
-  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="${params.get('markdown-state') === 'failure' ? 'failure' : params.get('markdown-state') === 'loading' ? 'loading' : 'ready'}">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
+  const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Read-only Markdown source">${codeLines(sourceLines, 0)}</div>`;
+  const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown preview body"><h1>Augit 产品规格</h1>${sections.map(([title,...paragraphs],i) => `<h2 id="section-${i}">${title}</h2>${paragraphs.map(p => `<p>${p}</p>`).join('')}`).join('')}<p><a href="#section-0">返回产品定位</a></p><p><a href="markdown-preview.html">UX 规格</a></p><p><span class="markdown-blocked" title="missing.md">不可用资源（链接已阻止：路径不存在、越出工作区或协议不支持）</span></p></article>`;
+  return `<div class="document-view markdown-document" data-markdown-mode="${mode}" data-markdown-state="${params.get('markdown-state') === 'failure' ? 'failure' : params.get('markdown-state') === 'loading' ? 'loading' : 'ready'}"><div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="Adjust Markdown preview width" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
 }
 
 function bindMarkdownModes() {
@@ -3022,7 +3301,7 @@ function bindMarkdownModes() {
   const source = view.querySelector('.markdown-source');
   const preview = view.querySelector('.markdown-preview');
   const divider = view.querySelector('.markdown-divider');
-  const positions = new Map();
+  const positions = view.__augitMarkdownPositions || (view.__augitMarkdownPositions = new Map());
   let ratio = Number(panes.style.getPropertyValue('--markdown-source-ratio')) || .5;
   let drag = null;
   const setRatio = value => {
@@ -3050,7 +3329,7 @@ function bindMarkdownModes() {
     for (const element of [source, preview]) if (element.clientWidth) positions.set(element, [element.scrollLeft, element.scrollTop]);
     view.dataset.markdownMode = mode;
     view.dataset.markdownBound = 'true';
-    view.querySelectorAll('button[data-markdown-mode]').forEach(button => {
+    document.querySelectorAll('.editor-tabs button[data-markdown-mode]').forEach(button => {
       const active = button.dataset.markdownMode === mode;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', String(active));
@@ -3061,7 +3340,16 @@ function bindMarkdownModes() {
     // 注意 `bubbles` 必须显式打开：CustomEvent 默认不冒泡，document 级监听收不到。
     view.dispatchEvent(new CustomEvent('document-mode-changed', { detail: { mode }, bubbles: true }));
   };
-  view.querySelectorAll('button[data-markdown-mode]').forEach(button => on(button, 'click', () => setMode(button.dataset.markdownMode)));
+  // 标签区可独立重建，委托到 document 后仍只作用于当前 Markdown 正文。
+  on(document, 'click', event => {
+    const button = event.target.closest('.editor-tabs button[data-markdown-mode]');
+    if (button && !button.disabled) setMode(button.dataset.markdownMode);
+  });
+  document.querySelectorAll('.editor-tabs button[data-markdown-mode]').forEach(button => {
+    const active = button.dataset.markdownMode === view.dataset.markdownMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
   on(divider, 'pointerdown', event => {
     if (event.button !== 0 || drag || view.dataset.markdownMode !== 'split' || !view.checkVisibility()) return;
     drag = { id: event.pointerId, offset: event.clientX - divider.getBoundingClientRect().left };
@@ -3100,9 +3388,9 @@ function bindMarkdownModes() {
   // 规格 §7.3：失败提示给出**当前原因**并可点击预览重试；原因由实时外壳写在
   // `data-markdown-reason` 上，没有它（静态视觉稿）时沿用基线文案。
   const failureReason = (view.dataset.markdownReason || '').trim();
-  feedback.textContent = view.dataset.markdownState === 'loading' ? '正在生成 Markdown 预览…'
+  feedback.textContent = view.dataset.markdownState === 'loading' ? 'Generating Markdown preview…'
     : view.dataset.markdownState === 'failure'
-      ? (failureReason ? `预览失败：${failureReason} 点击预览重试。` : '预览失败：文件读取失败。')
+      ? (failureReason ? `Preview failed:${failureReason} Click Preview to retry.` : 'Preview failed: the file could not be read.')
       : '';
   on(view.querySelector('.markdown-preview a[href^="#"]'), 'click', event => {
     event.preventDefault();
@@ -3122,21 +3410,21 @@ function bindMarkdownModes() {
       const replacement = document.createElement('span');
       replacement.className = 'markdown-blocked';
       replacement.setAttribute('title', reason);
-      replacement.textContent = `${link.textContent}（链接已阻止：${reason}）`;
+      replacement.textContent = `${link.textContent}(Link blocked:${reason}）`;
       link.replaceWith(replacement);
     };
     // 文档内锚点：留在预览区滚动，不算链接失败。
     if (!external && target.startsWith('#')) {
       const anchor = preview.querySelector(target);
       if (anchor) preview.scrollTo(0, anchor.offsetTop - preview.offsetTop - 24);
-      else blocked('找不到该锚点。');
+      else blocked('Anchor not found.');
       return;
     }
 
     if (typeof window.__augitOpenMarkdownLink !== 'function') return;
     void Promise.resolve(window.__augitOpenMarkdownLink(target)).then(result => {
-      if (result && result.opened === false) blocked(result.reason || '无法打开该链接。');
-    }).catch(() => blocked('无法打开该链接。'));
+      if (result && result.opened === false) blocked(result.reason || 'Cannot open this link.');
+    }).catch(() => blocked('Cannot open this link.'));
   });
   // 已有比例时不再重算：`setRatio()` 按当前可用宽度四舍五入，把 0.7 写成 0.6927。
   // 重新绑定（外部更新、区域刷新）必须**逐值**保留用户的比例，因此只在没有比例时才初始化
@@ -3146,15 +3434,32 @@ function bindMarkdownModes() {
 }
 
 function measureCurrentFind() {
-  const bar = document.querySelector('.current-find');
-  if (!bar) return;
-  const status = bar.querySelector('.find-status');
-  const canvas = document.createElement('canvas').getContext('2d');
-  canvas.font = getComputedStyle(bar).font;
-  const width = Math.max(48, Math.ceil(canvas.measureText(status.textContent).width) + 4);
-  bar.style.setProperty('--find-status-width', `${width}px`);
-  bar.style.setProperty('--find-width', `${471 + width - 48}px`);
+  document.querySelectorAll('.current-find').forEach(bar => {
+    const status = bar.querySelector('.find-status');
+    const canvas = document.createElement('canvas').getContext('2d');
+    canvas.font = getComputedStyle(bar).font;
+    // 参考StatusTextAction的宽度样本，普通计数变化不移动导航按钮。
+    const width = Math.ceil(Math.max(canvas.measureText('9888 results').width, canvas.measureText(status.textContent).width)) + 4;
+    bar.style.setProperty('--find-status-width', `${width}px`);
+    // 最小窗口的大字号无法同时容纳六个缩放动作，保持单行并允许局部横向滚动。
+    // 字段与图形不缩小；Tab聚焦浏览器自动滚入视口。滚动条占高只归属当前正文。
+    const owner = bar.closest('.document-view, .diff-layout');
+    if (owner) {
+      owner.style.removeProperty('--augit-find-height');
+      const base = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--augit-find-height')) || 42;
+      if (bar.scrollWidth > bar.clientWidth) owner.style.setProperty('--augit-find-height', `${base + 10}px`);
+    }
+  });
 }
+window.addEventListener('resize', measureCurrentFind);
+// 浏览器默认focus滚动可能留下数像素裁切；只滚动所属工具条，完整露出当前命中区。
+document.addEventListener('focusin', event => {
+  const bar = event.target.closest('.current-find, .diff-toolbar');
+  if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+  const control = event.target.getBoundingClientRect(), bounds = bar.getBoundingClientRect();
+  if (control.left < bounds.left + 4) bar.scrollLeft -= bounds.left + 4 - control.left;
+  else if (control.right > bounds.right - 4) bar.scrollLeft += control.right - bounds.right + 4;
+});
 
 // 外壳打开真实文档时使用的视图构建器；没有真实文档时继续用视觉稿样例内容。
 function liveDocument() {
@@ -3173,7 +3478,7 @@ function liveTextDocument(find) {
   const document_ = liveDocument();
   const name = document_.name || document_.path;
   const findBox = find ? currentFindBox() : "";
-  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} 只读正文">${liveLineViews(document_.text)}</div></div>`;
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} Read-only content">${liveLineViews(document_.text)}</div></div>`;
 }
 
 /**
@@ -3197,16 +3502,16 @@ function largeFileBanner(document_, hidden = false) {
   const preview = formatFileSize(document_.previewBytes || document_.fileSize);
   return `<div class="editor-notification warning" role="status" data-large-file-banner>`
     + `<span class="editor-notification-icon">${icon("file-warning")}</span>`
-    + `<span class="editor-notification-text">文件过大（${escapeHtml(size)}）。这里显示前 ${escapeHtml(preview)} 的只读预览。</span>`
+    + `<span class="editor-notification-text">Large file (${escapeHtml(size)}). Showing the first ${escapeHtml(preview)} as a read-only preview.</span>`
     + `<span class="grow"></span>`
-    + `<button type="button" class="editor-notification-action" data-large-file-action="hide">隐藏通知</button>`
-    + `<button type="button" class="editor-notification-action" data-large-file-action="disable">不再显示</button>`
+    + `<button type="button" class="editor-notification-action" data-large-file-action="hide">Hide Notification</button>`
+    + `<button type="button" class="editor-notification-action" data-large-file-action="disable">Don't Show Again</button>`
     + `</div>`;
 }
 
 // 当前文件查找条：结构与视觉稿一致，初始为空状态。
 function currentFindBox() {
-  return `<div class="current-find"><input class="search-field" value="" aria-label="当前文件查找" placeholder="查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式">${icon("regex")}</button><span class="find-status"></span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>`;
+  return currentFindBar();
 }
 
 /**
@@ -3222,15 +3527,14 @@ function readMarkdownPreviewState() {
 
 function liveMarkdownDocument(mode) {
   const document_ = liveDocument();
-  const toolbar = `<div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes">${[['source','原文','document-source'],['split','左右对照','document-split'],['preview','预览','document-preview']].map(([value,label,glyph]) => `<button class="segment" data-markdown-mode="${value}" aria-label="${label}">${icon(glyph)}</button>`).join('')}</div><button class="icon-button" aria-label="更多">${icon('ellipsis-vertical')}</button></div>`;
-  const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Markdown 只读原文">${liveLineViews(document_.text)}</div>`;
-  const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown 预览正文">${document_.preview || ""}</article>`;
+  const source = `<div class="markdown-source code-view" tabindex="0" aria-label="Read-only Markdown source">${liveLineViews(document_.text)}</div>`;
+  const preview = `<article class="markdown-preview" tabindex="0" aria-label="Markdown preview body">${document_.preview || ""}</article>`;
   // 预览状态（规格 §7.3：加载超 150ms 在预览区顶部给紧凑提示、失败给原因并可点预览重试）：
   // 状态放在 `live.markdownPreview`，这里只按状态渲染，避免"把状态写进 DOM 再读回来"。
   const markdownState = readMarkdownPreviewState();
   // `data-document-path`：实时层靠它判断"这次刷新是该文档的内容更新"，从而**就地**更新原文与预览
   //（规格 §7.3：外部更新复用原文控件，保留滚动/选区/比例/模式），而不是整块替换编辑区。
-  return `<div class="document-view markdown-document" data-document-path="${escapeHtml(document_.path)}" data-markdown-mode="${mode}" data-markdown-state="${markdownState.state}" data-markdown-reason="${escapeHtml(markdownState.reason)}">${toolbar}<div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="调整 Markdown 对照宽度" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
+  return `<div class="document-view markdown-document" data-document-path="${escapeHtml(document_.path)}" data-markdown-mode="${mode}" data-markdown-state="${markdownState.state}" data-markdown-reason="${escapeHtml(markdownState.reason)}"><div class="markdown-panes">${source}<div class="markdown-divider" role="separator" aria-label="Adjust Markdown preview width" aria-orientation="vertical" tabindex="0"></div><div class="markdown-preview-region">${preview}<div class="markdown-feedback" role="status"></div></div></div></div>`;
 }
 
 function liveJsonDocument() {
@@ -3248,12 +3552,12 @@ function liveJsonDocument() {
     : null;
   const mode = invalid ? "source" : remembered === "source" ? "source" : "formatted";
   const errorBar = invalid
-    ? `<button class="json-error" data-json-error-line="${escapeHtml(String(error.line))}" aria-label="定位 JSON 错误">JSON 格式错误：第 ${escapeHtml(String(error.line))} 行，第 ${escapeHtml(String(error.column))} 列。 点击定位。</button>`
+    ? `<button class="json-error" data-json-error-line="${escapeHtml(String(error.line))}" aria-label="Locate JSON Error">Invalid JSON: line ${escapeHtml(String(error.line))}, column ${escapeHtml(String(error.column))}. Click to locate.</button>`
     : "";
   const formattedButton = invalid
-    ? `<button class="segment" aria-label="格式化" data-json-mode="formatted" disabled title="JSON 格式错误，请查看原文中的错误位置">${icon("document-formatted")}</button>`
-    : `<button class="segment" aria-label="格式化" data-json-mode="formatted">${icon("document-formatted")}</button>`;
-  return `<div class="document-view json-document${invalid ? " json-invalid" : ""}" data-json-mode="${mode}"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000只读</span><div class="segmented document-modes"><button class="segment" aria-label="原文" data-json-mode="source">${icon("document-source")}</button>${formattedButton}</div><button class="icon-button" aria-label="更多">${icon("ellipsis-vertical")}</button></div>${errorBar}<div class="code-view" tabindex="0" aria-label="JSON 只读正文" data-json-source="${escapeHtml(document_.text || "")}" data-json-formatted="${escapeHtml(invalid ? "" : (document_.formatted || ""))}" data-json-error-line="${invalid ? escapeHtml(String(error.line)) : ""}">${liveLineViews(formatted)}</div></div>`;
+    ? `<button class="segment" aria-label="Formatted" data-json-mode="formatted" disabled title="Invalid JSON. See the error location in Raw view">${icon("document-formatted")}</button>`
+    : `<button class="segment" aria-label="Formatted" data-json-mode="formatted">${icon("document-formatted")}</button>`;
+  return `<div class="document-view json-document${invalid ? " json-invalid" : ""}" data-json-mode="${mode}"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><div class="segmented document-modes"><button class="segment" aria-label="Raw" data-json-mode="source">${icon("document-source")}</button>${formattedButton}</div><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button></div>${errorBar}<div class="code-view" tabindex="0" aria-label="Read-only JSON" data-json-source="${escapeHtml(document_.text || "")}" data-json-formatted="${escapeHtml(invalid ? "" : (document_.formatted || ""))}" data-json-error-line="${invalid ? escapeHtml(String(error.line)) : ""}">${liveLineViews(formatted)}</div></div>`;
 }
 
 /** 文件大小标签：与视觉稿一致（`52.5 KB` / `4.8 MB`）。 */
@@ -3270,7 +3574,7 @@ function liveImageDocument() {
   const size = document_.pixelWidth && document_.pixelHeight ? `${document_.pixelWidth} × ${document_.pixelHeight}` : "";
   const bytes = formatFileSize(document_.fileSize);
   const label = [size, document_.typeName, bytes].filter(Boolean).join(" · ");
-  return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片" data-document-path="${escapeHtml(document_.path)}"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
+  return `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="Zoom Out">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="Zoom In">${icon("zoom-in")}</button><button class="icon-button" aria-label="Fit to View">${icon("image-fit")}</button><span class="image-size-label" title="${escapeHtml(label)}"><span class="image-size-content">${escapeHtml(label)}</span></span></div><div class="image-stage" tabindex="0" aria-label="Read-only image" data-document-path="${escapeHtml(document_.path)}"><img src="${escapeHtml(document_.dataUrl || "")}" alt="${escapeHtml(document_.name || "")}" draggable="false"></div></div>`;
 }
 
 /**
@@ -3287,14 +3591,14 @@ function liveWorkspaceOpenBody() {
   const recent = (live.settings && live.settings.recentWorkspaces) || [];
   const name = (path) => String(path).split(/[\\/]/).filter((part) => part.length > 0).at(-1) || path;
   const rows = recent.length === 0
-    ? '<p class="commit-meta">还没有打开过其他目录。</p>'
+    ? '<p class="commit-meta">No other directories have been opened.</p>'
     : recent.map((path) => `<div class="tree-row" data-workspace-path="${escapeHtml(path)}" title="${escapeHtml(path)}"><span>${treeFolderIcon(false)}</span><span class="tree-name">${escapeHtml(name(path))}</span><span class="tree-path">${escapeHtml(path)}</span></div>`).join("");
   return `<div class="management-content" style="height:350px"><div class="management-list">`
-    + `<div class="tree-row selected">${icon("history")} 最近目录</div>`
-    + `<div class="tree-row" data-workspace-action="pick">${icon("folder-open")} 选择目录…</div>`
-    + `<div class="tree-row" data-workspace-action="clone">${icon("clone")} 克隆仓库…</div>`
-    + `</div><div class="management-detail"><h2>最近目录</h2>${rows}`
-    + `<p class="commit-meta">同一目录已经打开时激活原窗口。</p>`
+    + `<div class="tree-row selected">${icon("history")} Recent Workspaces</div>`
+    + `<div class="tree-row" data-workspace-action="pick">${icon("folder-open")} Choose Directory…</div>`
+    + `<div class="tree-row" data-workspace-action="clone">${icon("clone")} Clone Repository…</div>`
+    + `</div><div class="management-detail"><h2>Recent Workspaces</h2>${rows}`
+    + `<p class="commit-meta">Opening the same directory activates its existing window.</p>`
     + `<p class="workspace-notice commit-meta" role="status" hidden></p></div></div>`;
 }
 
@@ -3303,11 +3607,11 @@ function liveStashBody() {
   const status = live.status || {};
   const root = status.root || live.root || "";
   const branch = status.branch || live.branch || "";
-  return `<div class="form-grid"><label for="stash-root">Git 根目录</label>`
+  return `<div class="form-grid"><label for="stash-root">Git root</label>`
     + `<input id="stash-root" class="text-field" value="${escapeHtml(root)}" readonly>`
-    + `<label>当前分支</label><span class="stash-branch">${escapeHtml(branch)}</span>`
-    + `<label for="stash-message">消息</label><textarea id="stash-message" class="message-field" data-stash-field="message"></textarea><span></span>`
-    + `<label class="check-line" title="勾选后，已加入索引的改动会原样保留"><input id="stash-keep" type="checkbox" data-stash-field="keep">保留索引状态</label><label class="check-line" title="勾选后，未跟踪文件也会一起暂存。"><input id="stash-include-untracked" type="checkbox" data-stash-field="includeUntracked">包含未跟踪文件</label></div>`
+    + `<label>Current branch</label><span class="stash-branch">${escapeHtml(branch)}</span>`
+    + `<label for="stash-message">Message</label><textarea id="stash-message" class="message-field" data-stash-field="message"></textarea><span></span>`
+    + `<label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox" data-stash-field="keep">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox" data-stash-field="includeUntracked">Include untracked files</label></div>`
     + `<div class="stash-notice" role="status" hidden></div>`;
 }
 
@@ -3318,37 +3622,39 @@ function liveUnavailableDocument(overrideMessage = null) {
     .filter((part) => part && String(part).length > 0)
     .map((part) => escapeHtml(part))
     .join(" · ");
-  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(overrideMessage || document_.message || "该文件不能以只读文本方式查看。")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>使用系统默认程序打开</button></div></div></div>`;
+  return `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>This file cannot be previewed in Augit</h2><p>${meta}</p><p>${escapeHtml(document_.path)}</p><p>${escapeHtml(overrideMessage || document_.message || "This file cannot be viewed as read-only text.")}</p><div class="button-row" style="justify-content:center"><button class="secondary-button" type="button" data-external-open>Open in Default Application</button></div></div></div>`;
 }
 
 function textView(find = false) {
   if (liveDocument()) return liveTextDocument(find);
   const state = new URLSearchParams(window.location.search).get('find-state');
   const query = state === 'invalid' ? '[' : state === 'timeout' ? '(a+)+$' : state === 'empty' ? '' : state === 'no-match' ? '不存在的文字' : 'Git';
-  const result = state === 'loading' ? '正在搜索…' : state === 'timeout' ? '查找超时' : state === 'invalid' ? '正则表达式无效' : '';
-  const findBox = find ? `<div class="current-find"><input class="search-field" value="${query}" aria-label="当前文件查找"><button class="icon-button" aria-label="区分大小写">${icon("case-sensitive")}</button><button class="icon-button" aria-label="全字匹配">${icon("whole-word")}</button><button class="icon-button" aria-label="正则表达式" aria-pressed="${state === 'invalid' || state === 'timeout'}">${icon("regex")}</button><span class="find-status" title="${result}">${result}</span><button class="icon-button" aria-label="上一项">${icon("chevron-up")}</button><button class="icon-button" aria-label="下一项">${icon("chevron-down")}</button><button class="icon-button" aria-label="关闭查找">${icon("x")}</button></div>` : "";
+  const result = state === 'loading' ? 'Searching…' : state === 'timeout' ? 'Search timed out' : state === 'invalid' ? 'Invalid regular expression' : '';
+  const findBox = find ? currentFindBar(query, result, state === 'invalid' || state === 'timeout') : "";
   // `large-preview=1`／`large-preview=hidden`：大文件只读预览的警告横幅（有／已被隐藏）。
   const largePreview = new URLSearchParams(window.location.search).get("large-preview");
   const largeBanner = largePreview
     ? largeFileBanner({ readOnlyPreview: true, fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024 }, largePreview === "hidden")
     : "";
-  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">Augit › src › Augit.App › MainWindow.cs　只读</span><button class="icon-button" aria-label="自动换行">${icon("wrap-text")}</button><button class="icon-button" aria-label="显示空白">${icon("pilcrow")}</button><button class="icon-button" aria-label="当前文件搜索">${icon("search")}</button><button class="icon-button" aria-label="跳转行">${icon("corner-down-right")}</button></div>${largeBanner}${findBox}<div class="code-view" tabindex="0">${codeLines(textViewerSourceLines, 23)}</div></div>`;
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">Augit › src › Augit.App › MainWindow.cs　Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeBanner}${findBox}<div class="code-view" tabindex="0">${codeLines(textViewerSourceLines, 23)}</div></div>`;
 }
 
-// 归属行的悬停提示按权威 GitFileAnnotation.getToolTip 拼装（plugins/git4idea/backend/src/annotate/
-// GitFileAnnotation.java:175-176 取纯文本变体，:184-206 拼装）：首行 `commit {修订}`，随后
-// `Author: {作者}`、`Date: {日期时间}` 各占一行，提交信息前空一行（换行规则见
-// platform/vcs-impl/src/com/intellij/openapi/vcs/annotate/AnnotationTooltipBuilder.java:35-60；
-// 文案见 platform/vcs-api/vcs-api-core/resources/messages/VcsBundle.properties:975-977）。
-// 修订取其完整哈希（GitRevisionNumber.asString()，plugins/git4idea/backend/src/GitRevisionNumber.java:48-50），
-// 不是归属列旁显示的短哈希。权威的 `Path:` 行只在归属跨文件时追加（GitFileAnnotation.java:195-197），
-// 本视图是按文件归属，故不出现。提交信息取不到完整消息时权威退回“主题 + …”
-// （GitFileAnnotation.java:200-202），Augit 只有主题，同为一行。
-// `Date:` 用 `DateFormatUtil.formatDateTime`（日期 + 时间，platform/platform-api/src/com/intellij/
-// util/text/DateFormatUtil.java:120-124）；外壳 `git/blame` 因此同时回传短日期 `date`（槽位用）与
-// 日期时间 `dateTime`（本提示用），两者都取本地时区。
-function blameRowTooltip(revision, author, date, message) {
-  return `commit ${revision}\nAuthor: ${author}\nDate: ${date}\n\n${message}`;
+// 归属背景与富文本提示参考AnnotateToggleAction.computeBgColors和GitFileAnnotation.getHtmlToolTip。
+/** 按提交者时间倒序分组；同时间的不同提交使用同色，21色索引按参考整数截断。 */
+function blameColorIndexes(lines) {
+  const dates = new Map();
+  for (const line of lines) {
+    const time = Number(line.committerTimestamp ?? line.timestamp ?? Date.parse(line.dateTime || line.date));
+    dates.set(line.fullHash || line.hash, Number.isFinite(time) ? time : 0);
+  }
+  const groups = [...new Set(dates.values())].sort((left, right) => right - left);
+  const indexes = new Map(groups.map((time, index) => [time, Math.floor(21 * index / groups.length)]));
+  return new Map([...dates].map(([hash, time]) => [hash, indexes.get(time)]));
+}
+
+/** 提示元数据只存转义后的文本；提交哈希与消息不作为HTML执行。 */
+function blameRowAttributes(line, colorIndex, path) {
+  return `style="--blame-row-background:var(--augit-blame-color-${colorIndex})" data-blame-author="${escapeHtml(line.author)}" data-blame-date="${escapeHtml(blameTooltipDate(line))}" data-blame-message="${escapeHtml(line.message ?? `${line.summary || ''}\n...`)}" data-blame-path="${escapeHtml(line.path && line.path !== path ? line.path : '')}"`;
 }
 
 /** 归属行悬停提示要用的日期串：优先宿主给的**日期时间**（`dateTime`），退化到短日期。 */
@@ -3360,23 +3666,103 @@ function blameTooltipDate(line) {
 function liveBlameView() {
   const blame = window.__augitLive.blame;
   const lines = blame.lines || [];
+  const colors = blameColorIndexes(lines);
   // 工具栏在按**上一修订**标注时补一行说明（权威在新标签里标注，Augit 就地重标注 ⇒ 至少要能看出依据哪一版）。
   const revisionNote = blame.revision
-    ? `<span class="commit-meta">上一修订 ${escapeHtml(String(blame.revision).slice(0, 7))}</span>`
+    ? `<span class="commit-meta">Previous Revision ${escapeHtml(String(blame.revision).slice(0, 7))}</span>`
     : "";
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000只读</span>${revisionNote}<span class="grow"></span><span class="commit-meta">${lines.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" data-blame-full="${escapeHtml(line.fullHash || line.hash)}" data-blame-previous="${escapeHtml(line.previousRevision || "")}" aria-label="定位第 ${line.number} 行的提交" class="blame-row" title="${escapeHtml(blameRowTooltip(line.fullHash || line.hash, line.author, blameTooltipDate(line), line.summary))}"><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000Read-only</span>${revisionNote}<span class="grow"></span><span class="commit-meta">${lines.length} Line Attribution</span><button class="icon-button" aria-label="Close Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" data-blame-full="${escapeHtml(line.fullHash || line.hash)}" data-blame-previous="${escapeHtml(line.previousRevision || "")}" aria-label="Locate commit for line ${line.number} commit" class="blame-row" ${blameRowAttributes(line, colors.get(line.fullHash || line.hash), blame.path)}><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame Read-only content">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
 }
 
 function blameView() {
   // 样例归属全部指向文件历史的根提交（data-blame-commit="commit-4"），悬停提示取该提交在日志样例里的
   // 同一份数据（主题、作者 I49、2026/8/28 8:25），修订沿用本文件对该提交的既有显示值。
-  const tooltip = blameRowTooltip("commit-4", "I49", "2026/8/28 8:25", "feat: 实现 Augit 阶段零至五功能");
-  const blame = sourceLines.map((_, index) => ({ date: "2026/8/28", author: "I49", number: index + 1 }));
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">docs/product-spec.md　只读</span><span class="commit-meta">${blame.length} 行归属</span><button class="icon-button" aria-label="关闭 Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" data-blame-full="commit-4" aria-label="定位第 ${item.number} 行的提交" class="blame-row ${index === 18 ? "selected" : ""}" title="${escapeHtml(tooltip)}"><span>${item.date}</span><span>${item.author}</span><span>${item.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame 只读正文">${codeLines(sourceLines, 19)}</div></div></div>`;
+  const blame = sourceLines.map((_, index) => ({ hash: "commit-4", date: "2026/8/28", dateTime: "2026/8/28 8:25", author: "I49", number: index + 1, message: "feat: 实现 Augit 阶段零至五功能" }));
+  const colors = blameColorIndexes(blame);
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">docs/product-spec.md　Read-only</span><span class="commit-meta">${blame.length} Line Attribution</span><button class="icon-button" aria-label="Close Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${blame.map((item, index) => `<a href="#blame-commit" data-blame-commit="commit-4" data-blame-full="commit-4" aria-label="Locate commit for line ${item.number} commit" class="blame-row ${index === 18 ? "selected" : ""}" ${blameRowAttributes(item, colors.get(item.hash), "docs/product-spec.md")}><span>${item.date}</span><span>${item.author}</span><span>${item.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame Read-only content">${codeLines(sourceLines, 19)}</div></div></div>`;
+}
+
+/** 富文本提示按getHtmlToolTip呈现；完整消息按需合并，关闭或重绘后丢弃晚到结果。 */
+function bindBlameTooltip(documentView) {
+  const lifetime = new AbortController();
+  const gutter = documentView.querySelector('.blame-gutter');
+  const messages = new Map();
+  let tip = null, owner = null, showTimer = null, hideTimer = null;
+  const hide = () => {
+    clearTimeout(showTimer); clearTimeout(hideTimer);
+    owner?.removeAttribute('aria-describedby');
+    tip?.remove(); tip = null; owner = null;
+  };
+  const laterHide = () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 150); };
+  const show = row => {
+    hide();
+    if (!documentView.isConnected || !row.getClientRects().length) return;
+    owner = row;
+    tip = document.createElement('div');
+    tip.id = 'augit-blame-tooltip'; tip.className = 'blame-tooltip'; tip.setAttribute('role', 'tooltip');
+    const revision = row.dataset.blameFull || row.dataset.blameCommit;
+    tip.innerHTML = `<div>commit <a href="#blame-commit" class="blame-tooltip-revision">${escapeHtml(revision)}</a></div><div>Author: ${escapeHtml(row.dataset.blameAuthor)}</div><div>Date: ${escapeHtml(row.dataset.blameDate)}</div>${row.dataset.blamePath ? `<div>Path: ${escapeHtml(row.dataset.blamePath)}</div>` : ''}<div class="blame-tooltip-message"></div>`;
+    tip.querySelector('.blame-tooltip-message').textContent = row.dataset.blameMessage;
+    row.setAttribute('aria-describedby', tip.id);
+    const currentTip = tip;
+    tip.addEventListener('pointerenter', () => clearTimeout(hideTimer), { signal: lifetime.signal });
+    tip.addEventListener('pointerleave', laterHide, { signal: lifetime.signal });
+    tip.querySelector('a').addEventListener('click', event => {
+      event.preventDefault(); row.focus({ preventScroll: true }); hide(); row.click();
+    }, { signal: lifetime.signal });
+    document.body.append(tip);
+    const box = row.getBoundingClientRect();
+    const position = () => {
+      const bounds = currentTip.getBoundingClientRect();
+      currentTip.style.left = `${Math.max(4, Math.min(innerWidth - bounds.width - 4, box.left))}px`;
+      currentTip.style.top = `${Math.max(4, Math.min(innerHeight - bounds.height - 4, box.bottom + 4))}px`;
+    };
+    position();
+    if (typeof window.__augitReadBlameCommit === 'function') {
+      if (!messages.has(revision)) {
+        if (messages.size >= 64) messages.delete(messages.keys().next().value);
+        messages.set(revision, window.__augitReadBlameCommit(revision).catch(() => null));
+      }
+      void messages.get(revision).then(message => {
+        // 大消息仍完整显示，但不让64项缓存累积到宿主输出上限的数十倍。
+        if (typeof message === 'string' && message.length > 16384) messages.delete(revision);
+        if (tip !== currentTip || owner !== row || !documentView.isConnected || typeof message !== 'string') return;
+        tip.querySelector('.blame-tooltip-message').textContent = message;
+        position();
+      });
+    }
+  };
+  gutter.addEventListener('pointerover', event => {
+    const row = event.target.closest('.blame-row');
+    if (!row || row.contains(event.relatedTarget)) return;
+    hide(); showTimer = setTimeout(() => show(row), 500);
+  }, { signal: lifetime.signal });
+  gutter.addEventListener('pointerout', event => {
+    const row = event.target.closest('.blame-row');
+    if (row && !row.contains(event.relatedTarget)) { clearTimeout(showTimer); laterHide(); }
+  }, { signal: lifetime.signal });
+  gutter.addEventListener('focusin', event => { const row = event.target.closest('.blame-row'); if (row) show(row); }, { signal: lifetime.signal });
+  gutter.addEventListener('focusout', event => { if (!tip?.contains(event.relatedTarget)) laterHide(); }, { signal: lifetime.signal });
+  documentView.querySelector('.code-view').addEventListener('scroll', hide, { signal: lifetime.signal });
+  document.addEventListener('keydown', event => {
+    if (tip && event.key === 'Escape') { event.preventDefault(); hide(); }
+  }, { signal: lifetime.signal, capture: true });
+  document.addEventListener('pointerdown', event => { if (!tip?.contains(event.target)) hide(); }, { signal: lifetime.signal });
+  window.addEventListener('resize', hide, { signal: lifetime.signal });
+  window.addEventListener('pagehide', hide, { signal: lifetime.signal });
+  const dispose = () => { hide(); messages.clear(); lifetime.abort(); delete documentView.dataset.blameTooltipBound; };
+  if (typeof registerRegionDisposer === 'function') registerRegionDisposer(dispose);
+  return dispose;
 }
 
 function bindBlame() {
   document.querySelectorAll(".blame-document").forEach(documentView => {
+    if (!documentView.dataset.blameTooltipBound) {
+      documentView.dataset.blameTooltipBound = 'true';
+      documentView.__disposeBlameTooltip = bindBlameTooltip(documentView);
+    }
+    if (documentView.dataset.blameBound) return;
+    documentView.dataset.blameBound = 'true';
     const body = documentView.querySelector(".code-view"), gutter = documentView.querySelector(".blame-gutter");
     const sync = () => { gutter.scrollTop = body.scrollTop; };
     body.addEventListener("scroll", sync, { passive: true });
@@ -3405,7 +3791,7 @@ function bindBlame() {
         const commit = log.querySelector(`[data-hash="${hash}"]`);
         log.querySelector(".commit-list").replaceChildren(commit);
         commit.querySelector(".commit-graph-svg").outerHTML = commitGraphSvg(buildCommitGraph([{ hash, parents: [] }]), 0);
-        log.querySelector('[aria-label="文本或哈希"]').value = hash;
+        log.querySelector('[aria-label="Text or hash"]').value = hash;
         log.dataset.blameCommit = hash;
         bottom.replaceWith(log);
         bottom = log;
@@ -3422,18 +3808,19 @@ function bindBlame() {
       body.scrollTop += event.deltaY * (event.deltaMode === 1 ? parseFloat(getComputedStyle(body).lineHeight) : event.deltaMode === 2 ? body.clientHeight : 1);
       sync();
     }, { passive: false });
-    documentView.querySelector('[aria-label="关闭 Blame"]').addEventListener("click", () => {
+    documentView.querySelector('[aria-label="Close Blame"]').addEventListener("click", () => {
       // 实时外壳里"关闭 Blame"由实时层负责（`closeBlameView()`：使在途查询失效、清状态、
       // 恢复该文件的普通只读文档视图并把焦点交回正文）。样例分支会把**视觉稿的样例 Markdown 文档**
       // 换进实时界面 —— 第 262 轮实测关闭后正文变成"Augit 产品概要"样例、而 `live.blame` 仍然存在。
       if (window.__augitLive && window.__augitLive.blame) return;
       const top = body.scrollTop, left = body.scrollLeft;
+      documentView.__disposeBlameTooltip?.();
       const template = document.createElement("template");
       template.innerHTML = markdownView("source");
       const replacement = template.content.firstElementChild;
       const source = replacement.querySelector(".markdown-source");
       body.classList.add("markdown-source");
-      body.setAttribute("aria-label", "Markdown 只读原文");
+      body.setAttribute("aria-label", "Read-only Markdown source");
       source.replaceWith(body);
       documentView.replaceWith(replacement);
       body.removeEventListener("scroll", sync);
@@ -3547,7 +3934,7 @@ function commitGraphListAttributes(graph) {
 let appliedGraphKey = "";
 function refreshCommitGraphGeometry() {
   const metrics = currentGraphGeometry();
-  const key = `${metrics.rowHeight}|${metrics.deviceScale}`;
+  const key = `${metrics.rowHeight}|${metrics.deviceScale}|${document.body.dataset.theme || "light"}`;
   const changed = key !== appliedGraphKey;
   appliedGraphKey = key;
   document.querySelectorAll(".commit-list.commit-list-graph").forEach(list => {
@@ -3566,14 +3953,63 @@ function refreshCommitGraphGeometry() {
   });
 }
 
-function buildCommitGraph(entries) {
+let graphColorContext = { key: "", colors: new Map() };
+
+function buildCommitGraph(entries, context = null) {
+  const cacheKey = context?.cacheKey || "";
+  if (cacheKey && graphColorContext.key !== cacheKey) graphColorContext = { key: cacheKey, colors: new Map() };
+  const cachedColors = cacheKey ? graphColorContext.colors : null;
+  const aliases = new Map(entries.flatMap((entry) => [[entry.hash, entry.hash], [entry.fullHash || entry.hash, entry.hash]]));
+  entries = entries.map((entry) => ({ ...entry, parents: [...new Set(entry.parents || [])].map((parent) => aliases.get(parent) || parent) }));
   const positions = new Map(entries.map((entry, index) => [entry.hash, index]));
   const lanes = [], rows = [];
-  let nextColor = 0, columnCount = 1;
+  let fragmentIndex = 1, columnCount = 1;
+  const stringHash = (value) => {
+    let hash = 0;
+    const text = String(value || "");
+    for (let index = 0; index < text.length; index++) hash = (Math.imul(hash, 31) + text.charCodeAt(index)) | 0;
+    return hash;
+  };
+  const remotes = (window.__augitLive?.remotes?.remotes || []).map((remote) => remote.name || remote);
+  const refPriority = (name, entry) => ["origin/master", "origin/main"].includes(name) ? 0
+    : remotes.some((remote) => name.startsWith(`${remote}/`)) || name.startsWith("origin/") ? 1
+      : ["master", "main"].includes(name) ? 2 : name.startsWith("tag:") ? 4
+        : name === "HEAD" ? 6 : name.startsWith("refs/") ? 7 : 3;
+  const bestRef = (entry) => [...(entry.references || [])].sort((left, right) => refPriority(left, entry) - refPriority(right, entry)
+    || (left < right ? -1 : left > right ? 1 : 0))[0] || null;
+  const referencedParents = new Set(entries.flatMap((entry) => entry.parents));
+  const heads = entries.filter((entry) => !referencedParents.has(entry.hash)).sort((left, right) => {
+    const a = bestRef(left), b = bestRef(right);
+    if (a === null || b === null) return a === b ? positions.get(left.hash) - positions.get(right.hash) : a === null ? 1 : -1;
+    return refPriority(a, left) - refPriority(b, right) || (a < b ? -1 : a > b ? 1 : 0);
+  });
+  const fragments = new Map(), colors = new Map();
+  // GraphLayoutBuilder 的显式栈遍历：第一父链继承 head 引用色，合并侧链使用片段号。
+  for (const head of heads) {
+    const headFragment = fragmentIndex;
+    const ref = bestRef(head);
+    const headColor = ref === null ? 0 : stringHash(ref.replace(/^tag:\s*/, ""));
+    const stack = [head];
+    while (stack.length) {
+      const current = stack.at(-1);
+      const firstVisit = !fragments.has(current.hash);
+      if (firstVisit) {
+        fragments.set(current.hash, fragmentIndex);
+        colors.set(current.hash, cachedColors?.get(current.hash)
+          ?? (fragmentIndex === headFragment ? headColor : fragmentIndex));
+      }
+      const parentHash = current.parents.find((parent) => positions.has(parent) && !fragments.has(parent));
+      if (parentHash) stack.push(entries[positions.get(parentHash)]);
+      else { if (firstVisit) fragmentIndex++; stack.pop(); }
+    }
+  }
   entries.forEach((entry, rowIndex) => {
     let column = lanes.findIndex(lane => lane.hash === entry.hash);
     const incoming = column >= 0;
-    if (!incoming) { column = lanes.length; lanes.push({ hash: entry.hash, color: nextColor++ }); }
+    if (!incoming) {
+      column = lanes.length;
+      lanes.push({ hash: entry.hash, color: colors.get(entry.hash) ?? 0 });
+    }
     const node = lanes[column], before = [...lanes];
     lanes.splice(column, 1);
     const parents = [...new Set(entry.parents)];
@@ -3582,7 +4018,7 @@ function buildCommitGraph(entries) {
     let insertion = column;
     parents.forEach((hash, index) => {
       if (lanes.some(lane => lane.hash === hash)) return;
-      const color = index === 0 ? node.color : nextColor++;
+      const color = colors.get(hash) ?? (index === 0 ? node.color : fragmentIndex++);
       if (positions.get(hash) > rowIndex) lanes.splice(Math.min(insertion++, lanes.length), 0, { hash, color });
       else missingColors.push(color);
     });
@@ -3608,6 +4044,18 @@ function buildCommitGraph(entries) {
     columnCount = Math.max(columnCount, before.length, lanes.length);
     rows.push({ column, color: node.color, head: !!entry.head, segments });
   });
+  if (cachedColors) {
+    entries.forEach((entry, index) => {
+      cachedColors.set(entry.hash, rows[index].color);
+      // 页边界未加载的第一父也继承本段颜色；下一页或筛选后出现时保持关联。
+      entry.parents.forEach((parent, parentIndex) => {
+        if (!positions.has(parent) && !cachedColors.has(parent)) {
+          cachedColors.set(parent, parentIndex === 0 ? rows[index].color : fragmentIndex++);
+        }
+      });
+    });
+    while (cachedColors.size > 5000) cachedColors.delete(cachedColors.keys().next().value);
+  }
   return { rows, columns: columnCount };
 }
 
@@ -3627,7 +4075,33 @@ function commitGraphHeadNode(x, color, metrics) {
 function commitGraphSvg(graph, index, geometry = null) {
   const metrics = geometry || currentGraphGeometry();
   const row = graph.rows[index];
-  const colors = ["var(--augit-graph)", "var(--augit-graph-secondary)", "var(--augit-graph-third)", "var(--augit-graph-fourth)"];
+  const colors = (value) => {
+    const colorId = Number(value) || 0;
+    if (colorId === 0) return "var(--augit-graph-default, #000000)";
+    const range = (number) => Math.abs(number % 100) + 70;
+    const r = range((Math.imul(colorId, 200) + 30) | 0) / 255;
+    const g = range((Math.imul(colorId, 130) + 50) | 0) / 255;
+    const b = range((Math.imul(colorId, 90) + 100) | 0) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+    let hue = 0;
+    if (delta > 0) {
+      if (max === r) hue = ((g - b) / delta) % 6;
+      else if (max === g) hue = (b - r) / delta + 2;
+      else hue = (r - g) / delta + 4;
+      hue = (hue * 60 + 360) % 360;
+    }
+    // DefaultColorGenerator 的 HSB 参数由当前 Islands 主题覆盖。
+    const theme = getComputedStyle(document.body);
+    const saturation = Number.parseFloat(theme.getPropertyValue("--augit-graph-saturation")) || 0.6;
+    const brightness = Number.parseFloat(theme.getPropertyValue("--augit-graph-brightness")) || 0.7;
+    const chroma = brightness * saturation;
+    const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+    const match = brightness - chroma;
+    const sector = hue < 60 ? [chroma, x, 0] : hue < 120 ? [x, chroma, 0]
+      : hue < 180 ? [0, chroma, x] : hue < 240 ? [0, x, chroma]
+        : hue < 300 ? [x, 0, chroma] : [chroma, 0, x];
+    return `rgb(${sector.map((channel) => Math.round((channel + match) * 255)).join(",")})`;
+  };
   // 纵向：0 = 上一行中心、0.5 = 本行中心、1 = 下一行中心。权威的相邻两行中心正好相距一个行高
   //（`SimpleGraphCellPainter.kt:115,156-168`：本行 y1 = rowCenter，另一端 = rowCenter ± rowHeight）。
   const trackY = (fraction) => metrics.rowCenter + (fraction - 0.5) * metrics.rowHeight;
@@ -3638,9 +4112,9 @@ function commitGraphSvg(graph, index, geometry = null) {
     const d = dashed
       ? `M${x1} ${y1}L${x1 + (x2 - x1) * 0.42} ${y1 + (y2 - y1) * 0.42}M${x1 + (x2 - x1) * 0.68} ${y1 + (y2 - y1) * 0.68}L${x2} ${y2}`
       : `M${x1} ${y1}L${x2} ${y2}`;
-    return `<path class="graph-line" stroke="${colors[color % 4]}" d="${d}"/>`;
+    return `<path class="graph-line" stroke="${colors(color)}" d="${d}"/>`;
   }).join("");
-  const x = trackX(row.column), color = colors[row.color % 4];
+  const x = trackX(row.column), color = colors(row.color);
   const node = row.head
     ? commitGraphHeadNode(x, color, metrics)
     : `<circle fill="${color}" cx="${x + metrics.nodeOffset}" cy="${metrics.rowCenter + metrics.nodeOffset}" r="${metrics.nodeDiameter / 2}"/>`;
@@ -3718,7 +4192,7 @@ function gitLogStripe(collapsed = false) {
     // 折叠卡片：只留一个竖排的分支面板入口（权威 `ExpandStripeButton`）。
     // 可见文字照权威的 `action.Git.Log.Show.Branches.text` = "Branches"（`GitBundle.properties:724`）；
     // 这是**标签**而不是动作名，所以无障碍名另给"显示分支"。
-    return `<nav class="git-side-toolbar collapsed" aria-label="Git 分支面板"><button class="toolbar-button stripe-expand" type="button" aria-label="显示分支" title="显示分支" data-ref-stripe="show-branches"><span class="stripe-expand-label">分支</span>${icon("chevron-right")}</button></nav>`;
+    return `<nav class="git-side-toolbar collapsed" aria-label="Git Branches Pane"><button class="toolbar-button stripe-expand" type="button" aria-label="Show Branches" title="Show Branches" data-ref-stripe="show-branches"><span class="stripe-expand-label">Branch</span>${icon("chevron-right")}</button></nav>`;
   }
   const state = refStripeState();
   const entry = (action, label, iconName) => {
@@ -3728,25 +4202,25 @@ function gitLogStripe(collapsed = false) {
     const pressed = item.checked === true;
     const cls = `toolbar-button${pressed ? " selected" : ""}`;
     const pressedAttr = pressed ? ' aria-pressed="true"' : "";
-    const title = pressed ? `${text}（已开启）` : text;
+    const title = pressed ? `${text}(enabled)` : text;
     return item.enabled
       ? `<button class="${cls}" type="button" aria-label="${escapeHtml(text)}"${pressedAttr} title="${escapeHtml(title)}" data-ref-stripe="${action}">${icon(iconName)}</button>`
       : `<button class="${cls}" type="button" aria-label="${escapeHtml(text)}"${pressedAttr} title="${escapeHtml(item.reason)}" aria-disabled="true" data-ref-stripe="${action}" disabled>${icon(iconName)}</button>`;
   };
-  return `<nav class="git-side-toolbar" aria-label="Git 分支面板">`
-    + entry("hide-branches", "隐藏分支", "chevron-left")
+  return `<nav class="git-side-toolbar" aria-label="Git Branches Pane">`
+    + entry("hide-branches", "Hide Branches", "chevron-left")
     + `<span class="rail-separator"></span>`
-    + entry("new-branch", "新建分支…", "plus")
-    + entry("update-selected", "更新选中分支", "branch-update")
-    + entry("delete-branch", "删除分支…", "trash-2")
-    + entry("show-diff", "与当前分支比较", "git-compare-arrows")
-    + entry("my-branches", "我的分支", "search")
-    + entry("fetch", "获取", "branch-update")
-    + entry("favorite", "标记为收藏", "star")
-    + entry("locate-branch", "定位到选中分支", "locate-fixed")
-    + entry("settings", "分支面板设置", "settings")
-    + entry("expand-all", "全部展开", "chevron-down")
-    + entry("collapse-all", "全部折叠", "chevron-right")
+    + entry("new-branch", "New Branch…", "plus")
+    + entry("update-selected", "Update Selected", "branch-update")
+    + entry("delete-branch", "Delete Branch…", "trash-2")
+    + entry("show-diff", "Compare with Current", "git-compare-arrows")
+    + entry("my-branches", "My Branches", "search")
+    + entry("fetch", "Fetch", "branch-update")
+    + entry("favorite", "Mark as Favorite", "star")
+    + entry("locate-branch", "Locate Selected Branch", "locate-fixed")
+    + entry("settings", "Branches Pane Settings", "settings")
+    + entry("expand-all", "Expand All", "chevron-down")
+    + entry("collapse-all", "Collapse All", "chevron-right")
     + `</nav>`;
 }
 
@@ -3788,12 +4262,12 @@ function refStripeState() {
   const allBranches = !selectionIncludesTag && !headSelected;
   // 权威 `UpdateSelectedBranchAction.update()`：`GitFetchSupport.fetchSupport(project).isFetchRunning` 为真时禁用。
   const fetchRunning = !!live.logFetchRunning;
-  const selectBranch = "先在引用树中选中一个非当前分支。";
-  const trackingMissing = "选中的分支没有配置跟踪的远端分支。";
+  const selectBranch = "Select a branch other than the current branch.";
+  const trackingMissing = "The selected branch has no upstream branch.";
   return {
-    "new-branch": { enabled: true, reason: "新建分支…" },
-    "fetch": { enabled: !fetchRunning, reason: fetchRunning ? "获取正在进行中。" : "获取" },
-    "hide-branches": { enabled: true, reason: "隐藏分支" },
+    "new-branch": { enabled: true, reason: "New Branch…" },
+    "fetch": { enabled: !fetchRunning, reason: fetchRunning ? "Fetch is in progress." : "Fetch" },
+    "hide-branches": { enabled: true, reason: "Hide Branches" },
     // 权威 `UpdateSelectedBranchAction.update()`：`hasRemotes` ＋ 非 fetch 进行中 ＋ `isTrackingInfosExist`；
     // 动作对**每个**选中的非当前分支按它自己的 refspec 快进（`GitBranchActionsUtil.updateBranches()`），
     // 对当前分支改走"更新方式"（合并或 rebase）—— 那条通道 Augit 尚未提供，故排除在选中集之外。
@@ -3801,19 +4275,19 @@ function refStripeState() {
       enabled: trackedNonCurrent.length > 0 && !fetchRunning,
       reason: !isBranch ? selectBranch
         : currentSelected && nonCurrentBranches.length === 0
-          ? "当前分支的更新在权威里按更新方式合并（或 rebase），Augit 尚未提供该通道。"
+          ? "Updating the current branch is unavailable."
           : nonCurrentBranches.length === 0 ? selectBranch
             : trackedNonCurrent.length === 0 ? trackingMissing
-              : "获取正在进行中。",
+              : "Fetch is in progress.",
     },
     // 权威 `DeleteBranchAction.update()`：`refs.none { it.isCurrent || isRemoteBranchProtected }` ——
     // 选中集里任何一个当前分支都会禁用整个动作（不是只跳过它）。
     "delete-branch": {
       enabled: hasSelection && !currentSelected,
-      label: allBranches ? "删除分支…" : "删除",
+      label: allBranches ? "Delete Branch…" : "Delete",
       reason: currentSelected
-        ? "选中的引用里有当前已检出的分支，不能删除。"
-        : hasSelection ? (selectionIncludesTag ? "删除" : "删除分支…") : "先选中一个引用。",
+        ? "The selection includes the checked-out branch and cannot be deleted."
+        : hasSelection ? (selectionIncludesTag ? "Delete" : "Delete Branch…") : "Select a reference first.",
     },
     // 权威 `ShowBranchDiffAction.update()`（`BranchesDashboardActions.kt:290-313`）：`RefActionBase`
     // 要求有选中的引用，且 `selectedBranches` 里**至少有一个不是当前分支**才可用；
@@ -3821,24 +4295,24 @@ function refStripeState() {
     "show-diff": {
       enabled: nonCurrentBranches.length > 0,
       reason: !isBranch ? selectBranch
-        : nonCurrentBranches.length === 0 ? "选中的分支全是当前分支，与自身比较没有可显示的提交。" : "与当前分支比较",
+        : nonCurrentBranches.length === 0 ? "The selection is the current branch; there are no commits to compare." : "Compare with Current",
     },
     "my-branches": {
       enabled: true,
       checked: !!live.showOnlyMyBranches,
-      reason: live.myBranchesLoading ? "正在计算我的分支…" : "我的分支",
+      reason: live.myBranchesLoading ? "Computing My Branches…" : "My Branches",
     },
     // 权威 `ToggleFavoriteAction`（`BranchesDashboardActions.kt:459-472`）是**新增的持久化状态**
     // （`GitBranchManager.setFavorite` → `GitVcsSettings.branchSettings`，落在 workspace 文件），
     // 且影响行图标与排序。按用户裁决的范围边界（不新增 Augit 没有的功能）**暂不实施**、待产品裁决。
-    "favorite": { enabled: false, reason: "分支收藏是新增的项目级持久化状态，按范围边界待产品裁决。" },
+    "favorite": { enabled: false, reason: "Branch favorites are unavailable." },
     // 权威 `NavigateLogToSelectedBranchAction.update()`：选中节点要有 `logNavigatableNodeDescriptor`。
-    "locate-branch": { enabled: hasSelection, reason: hasSelection ? "定位到选中分支" : "先选中一个引用。" },
+    "locate-branch": { enabled: hasSelection, reason: hasSelection ? "Locate Selected Branch" : "Select a reference first." },
     // 权威 `Git.Log.Branches.Settings`：弹层本身可用；其中只有「显示标签」在 Augit 侧能立即生效。
-    "settings": { enabled: true, reason: "分支面板设置" },
+    "settings": { enabled: true, reason: "Branches Pane Settings" },
     // 权威 `ExpandAllAction`／`CollapseAllAction`：经 `TreeExpander` 作用在分组树上（引用树已有 本地/远程/标签 三组）。
-    "expand-all": { enabled: !!live.references, reason: live.references ? "全部展开" : "引用尚未加载。" },
-    "collapse-all": { enabled: !!live.references, reason: live.references ? "全部折叠" : "引用尚未加载。" },
+    "expand-all": { enabled: !!live.references, reason: live.references ? "Expand All" : "References have not loaded." },
+    "collapse-all": { enabled: !!live.references, reason: live.references ? "Collapse All" : "References have not loaded." },
   };
 }
 
@@ -3866,9 +4340,8 @@ function liveRefTree() {
   // 类型分组的直接子节点是 1（与分组功能落地前一致），每进一层前缀多一级。
   const row = (item, kind, ancestors, depth) => {
     const selected = refSelected(item.name, kind);
-    const iconKind = kind === "tag" ? "tag" : kind === "remote" ? "remote" : "local";
     const tip = kind === "branch" && item.upstream ? `${item.name} → ${item.upstream}` : item.name;
-    return `<div class="tree-row depth-${Math.min(depth, 4)}${selected ? " selected" : ""}" role="treeitem" tabindex="0" aria-selected="${selected ? "true" : "false"}" title="${escapeHtml(tip)}" data-ref-name="${escapeHtml(item.name)}" data-ref-kind="${kind}" data-ref-current="${item.isCurrent ? "true" : "false"}" data-ref-commit="${escapeHtml(item.commitHash || "")}" data-ref-group-owner="${escapeHtml(ancestors[0] || "")}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}">${gitReferenceIcon(iconKind)} ${escapeHtml(item.name)}</div>`;
+    return `<div class="tree-row depth-${depth}${selected ? " selected" : ""}" style="--tree-depth:${depth}" role="treeitem" tabindex="0" aria-selected="${selected ? "true" : "false"}" title="${escapeHtml(tip)}" data-ref-name="${escapeHtml(item.name)}" data-ref-kind="${kind}" data-ref-current="${item.isCurrent ? "true" : "false"}" data-ref-commit="${escapeHtml(item.commitHash || "")}" data-ref-group-owner="${escapeHtml(ancestors[0] || "")}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}">${branchTreeIcon(item, kind)} ${escapeHtml(item.name)}</div>`;
   };
   // 排序照权威 `getRefComparator()`（`GitBranchesTreeModel.kt:141-152`）：
   // 当前分支 → 收藏（Augit 暂无）→ **按目录分组开启时名字含 `/` 的在前**（第三个键
@@ -3880,6 +4353,7 @@ function liveRefTree() {
   // `platform/dvcs-impl/shared/src/com/intellij/dvcs/branch/DvcsBranchSettings.kt:22-23,26-28`）。
   const grouping = live.logRefGroupByDirectory !== false;
   const order = (items) => [...items].sort((a, b) => (b.isCurrent ? 1 : 0) - (a.isCurrent ? 1 : 0)
+    || Number(branchIsFavorite(b, b.isRemote ? 'remote' : 'branch')) - Number(branchIsFavorite(a, a.isRemote ? 'remote' : 'branch'))
     || (grouping ? (b.name.includes("/") ? 1 : 0) - (a.name.includes("/") ? 1 : 0) : 0)
     || byName(a, b));
   // 分组可折叠（权威是标准 JTree：`FilteringTree` + `SmartExpander`，打开时 `TreeUtil.expandAll` 默认全展开）。
@@ -3890,7 +4364,7 @@ function liveRefTree() {
   const collapsedGroups = live.logRefCollapsed || {};
   const groupHeader = (label, key, ancestors, depth) => {
     const collapsed = !!collapsedGroups[key] && !filter;
-    return `<div class="tree-row group-row depth-${Math.min(depth, 4)}${collapsed ? " collapsed" : ""}" role="treeitem" tabindex="0" aria-expanded="${collapsed ? "false" : "true"}" data-ref-collapse-key="${escapeHtml(key)}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}"${label ? ` data-ref-group="${escapeHtml(label)}"` : ` data-ref-prefix-group="${escapeHtml(key)}"`}><span>${icon(collapsed ? "chevron-right" : "chevron-down")}</span><strong>${escapeHtml(label || key.split("/").at(-1))}</strong></div>`;
+    return `<div class="tree-row group-row depth-${depth}${collapsed ? " collapsed" : ""}" style="--tree-depth:${depth}" role="treeitem" tabindex="0" aria-expanded="${collapsed ? "false" : "true"}" data-ref-collapse-key="${escapeHtml(key)}" data-ref-ancestors="${escapeHtml(ancestors.join("|"))}"${label ? ` data-ref-group="${escapeHtml(label)}"` : ` data-ref-prefix-group="${escapeHtml(key)}"`}><span>${icon(collapsed ? "chevron-right" : "chevron-down")}</span><strong>${escapeHtml(label || key.split("/").at(-1))}</strong></div>`;
   };
   /**
    * 按目录分组（权威 `LazyRefsSubtreeHolder.buildSubTree()`，`GitBranchesTreeModelUtil.kt:255-289`）：
@@ -3940,7 +4414,7 @@ function liveRefTree() {
       for (const name of commit.references || []) if (name !== "HEAD" && name !== "origin/HEAD") names.add(name);
     }
     const rows = [...names].sort().filter(visible);
-    return refTreeShell(group("本地", rows.map((name) => ({ name })), "branch"));
+    return refTreeShell(group("Local", rows.map((name) => ({ name })), "branch"));
   }
   const branches = references.branches || [];
   const tags = references.tags || [];
@@ -3956,15 +4430,15 @@ function liveRefTree() {
   // 权威 `BranchesTree.kt:210-217`：`HEAD` 节点的匹配文本是 null ⇒ **任何搜索词都保留它**。
   const headName = current ? current.name : "HEAD";
   const headPicked = refSelected(headName, "head");
-  const headRow = `<div class="tree-row${headPicked ? " selected" : ""}" role="treeitem" tabindex="0" aria-selected="${headPicked ? "true" : "false"}" data-ref-name="${escapeHtml(headName)}" data-ref-kind="head" data-ref-current="true" data-ref-commit="${escapeHtml((current && current.commitHash) || "")}">HEAD（当前分支）</div>`;
+  const headRow = `<div class="tree-row${headPicked ? " selected" : ""}" role="treeitem" tabindex="0" aria-selected="${headPicked ? "true" : "false"}" data-ref-name="${escapeHtml(headName)}" data-ref-kind="head" data-ref-current="true" data-ref-commit="${escapeHtml((current && current.commitHash) || "")}">HEAD (Current Branch)</div>`;
   // 权威 `git.branches.show.tags`（`GitBranchesTreeShowTagsAction`，默认 true，持久化在项目设置里）。
   const showTags = live.logRefShowTags !== false;
-  return refTreeShell(headRow + group("本地", local, "branch")
-    + group("远程", remote, "remote")
-    + (showTags ? group("标签", visibleTags, "tag") : "")
+  return refTreeShell(headRow + group("Local", local, "branch")
+    + group("Remote", remote, "remote")
+    + (showTags ? group("Tags", visibleTags, "tag") : "")
     // 「我的分支」开着却没有命中任何分支时如实说明，不留一个只有 HEAD 行的空树。
     + (mine && local.length === 0 && remote.length === 0
-      ? `<p class="commit-meta">${escapeHtml(live.myBranchesLoading ? "正在计算我的分支…" : (live.myBranchesReason || `没有只属于 ${live.myBranchesAuthor || "你"} 的分支`))}</p>`
+      ? `<p class="commit-meta">${escapeHtml(live.myBranchesLoading ? "Computing My Branches…" : (live.myBranchesReason || `No branches owned only by ${live.myBranchesAuthor || "you"} branches`))}</p>`
       : ""));
 }
 
@@ -3987,14 +4461,14 @@ function refPaneSettingsMenu() {
   const disabled = (label, reason) => `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}">${icon("none")} ${label}</span>`;
   // 互斥的单选项：选中一个即清掉另一个（权威把两个布尔属性互斥地写回日志 UI 属性）。
   const singleClick = (key, label) => `<a class="menu-item" href="#" role="menuitemradio" aria-checked="${selectionAction === key ? "true" : "false"}" data-ref-selection-action="${key}"><span class="fake-check${selectionAction === key ? " checked" : ""}"></span> ${label}</a>`;
-  return `<section class="popover context-menu ref-settings-menu" aria-label="分支面板设置">`
-    + `<div class="menu-item menu-group-label"><strong>单击时</strong></div>`
-    + singleClick("filter", "更新分支筛选")
-    + singleClick("navigate", "导航到分支头")
+  return `<section class="popover context-menu ref-settings-menu" aria-label="Branches Pane Settings">`
+    + `<div class="menu-item menu-group-label"><strong>On click</strong></div>`
+    + singleClick("filter", "Update Branch Filter")
+    + singleClick("navigate", "Navigate to Branch Head")
     + `<div class="menu-separator"></div>`
-    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${groupByDirectory ? "true" : "false"}" data-ref-setting="group-by-directory"><span class="fake-check${groupByDirectory ? " checked" : ""}"></span> 按目录分组</a>`
-    + disabled("按仓库分组", "Augit 只打开一个仓库。")
-    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${showTags ? "true" : "false"}" data-ref-setting="show-tags"><span class="fake-check${showTags ? " checked" : ""}"></span> 显示标签</a>`
+    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${groupByDirectory ? "true" : "false"}" data-ref-setting="group-by-directory"><span class="fake-check${groupByDirectory ? " checked" : ""}"></span> Group by Directory</a>`
+    + disabled("Group by Repository", "Augit opens one repository per window.")
+    + `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${showTags ? "true" : "false"}" data-ref-setting="show-tags"><span class="fake-check${showTags ? " checked" : ""}"></span> Show Tags</a>`
     + `</section>`;
 }
 
@@ -4017,18 +4491,18 @@ function historyBranchFilterMenu() {
   const group = (title, rows) => rows.length === 0 ? "" : `<div class="menu-item menu-group-label"><strong>${title}</strong></div>` + rows.join("");
   const local = branches.filter((entry) => !entry.isRemote).map((entry) => item(entry.name, entry.name));
   const remote = branches.filter((entry) => entry.isRemote).map((entry) => item(entry.name, entry.name));
-  return `<section class="popover context-menu history-branch-menu" aria-label="按分支筛选">`
-    + item("", "全部")
+  return `<section class="popover context-menu history-branch-menu" aria-label="Filter by Branch">`
+    + item("", "All")
     + `<div class="menu-separator"></div>`
-    + item("HEAD", "HEAD（当前分支）")
-    + group("本地", local)
-    + group("远程", remote)
+    + item("HEAD", "HEAD (Current Branch)")
+    + group("Local", local)
+    + group("Remote", remote)
     + `</section>`;
 }
 
 function refTreeShell(inner) {
   const live = window.__augitLive || {};
-  return `<div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签" value="${escapeHtml(live.logRefFilter || "")}"></label></div><div class="tree" role="tree" aria-label="分支或标签">${inner || '<p class="commit-meta">没有引用</p>'}</div></div>`;
+  return `<div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="Branch or tag" aria-label="Branch or tag" value="${escapeHtml(live.logRefFilter || "")}"></label></div><div class="tree" role="tree" aria-label="Branch or tag">${inner || '<p class="commit-meta">No references</p>'}</div></div>`;
 }
 
 /** 引用树选中后**就地**刷新选中态与竖条的启停，不整块重绘（权威的 `update()` 也是按选择刷状态）。 */
@@ -4061,7 +4535,7 @@ window.__augitApplyRefSelection = () => {
     }
     if (item.enabled) {
       button.removeAttribute("aria-disabled");
-      button.title = pressed ? `${text}（已开启）` : text;
+      button.title = pressed ? `${text}(enabled)` : text;
     } else {
       button.setAttribute("aria-disabled", "true");
       button.title = item.reason;
@@ -4176,13 +4650,13 @@ function historyUserFilterMenu() {
     return `<a class="menu-item" href="#" role="menuitemcheckbox"${hidden ? " hidden" : ""} aria-checked="${checked ? "true" : "false"}" data-history-user="${escapeHtml(key)}"><span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(author.name || key)} &lt;${escapeHtml(author.email || "")}&gt;</a>`;
   };
   const all = authors.length > 0 && authors.every((author) => selected.has(keyOf(author)));
-  return `<section class="popover context-menu history-user-menu" aria-label="按用户筛选">`
-    + `<label class="history-search">${icon("search")}<input class="search-field" placeholder="搜索用户" aria-label="搜索用户" value="${escapeHtml(live.historyUserFilter || "")}"></label>`
-    + `<a class="menu-item" href="#" data-history-user-all="true"><span class="fake-check${all ? " checked" : ""}"></span> 全选</a>`
-    + `<a class="menu-item" href="#" data-history-user-none="true">${icon("none")} 全不选</a>`
+  return `<section class="popover context-menu history-user-menu" aria-label="Filter by User">`
+    + `<label class="history-search">${icon("search")}<input class="search-field" placeholder="Search users" aria-label="Search users" value="${escapeHtml(live.historyUserFilter || "")}"></label>`
+    + `<a class="menu-item" href="#" data-history-user-all="true"><span class="fake-check${all ? " checked" : ""}"></span> Select All</a>`
+    + `<a class="menu-item" href="#" data-history-user-none="true">${icon("none")} Select None</a>`
     + `<div class="menu-separator"></div>`
     + (authors.length === 0
-      ? `<span class="menu-item disabled" aria-disabled="true">${icon("none")} ${live.historyAuthorsLoading ? "正在读取作者…" : "没有可选的用户"}</span>`
+      ? `<span class="menu-item disabled" aria-disabled="true">${icon("none")} ${live.historyAuthorsLoading ? "Loading authors…" : "No users available"}</span>`
       : authors.map(row).join(""))
     + `</section>`;
 }
@@ -4221,7 +4695,7 @@ function historyPathFilterTooltip(filter) {
   const paths = (((filter && filter.paths) || [])).map((value) => String(value || "")).filter(Boolean).sort();
   if (paths.length === 0) return "";
   const head = paths.slice(0, 10);
-  return `路径: ${head.join(" ")}${paths.length > 10 ? " ..." : ""}`;
+  return `Path: ${head.join(" ")}${paths.length > 10 ? " ..." : ""}`;
 }
 
 /**
@@ -4250,13 +4724,13 @@ function historyPathFilterMenu() {
       + ` title="${escapeHtml(paths.join(" "))}" data-log-path-recent="${index}">`
       + `<span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(historyPathFilterText({ paths }))}</a>`;
   };
-  return `<section class="popover context-menu history-path-menu" aria-label="按路径筛选">`
-    + `<a class="menu-item" href="#" data-log-path-action="select">${icon("none")} 选择…</a>`
-    + `<a class="menu-item" href="#" data-log-path-action="tree">${icon("none")} 在树中选择…</a>`
+  return `<section class="popover context-menu history-path-menu" aria-label="Filter by Path">`
+    + `<a class="menu-item" href="#" data-log-path-action="select">${icon("none")} Select…</a>`
+    + `<a class="menu-item" href="#" data-log-path-action="tree">${icon("none")} Select in Tree…</a>`
     + `<div class="menu-separator"></div>`
-    + `<span class="menu-item disabled" role="presentation" aria-disabled="true">最近</span>`
+    + `<span class="menu-item disabled" role="presentation" aria-disabled="true">Recent</span>`
     + (recent.length === 0
-      ? `<span class="menu-item disabled" aria-disabled="true">没有最近的路径筛选</span>`
+      ? `<span class="menu-item disabled" aria-disabled="true">No recent path filters</span>`
       : recent.map((paths, index) => recentRow(paths.map(String), index)).join(""))
     + `</section>`;
 }
@@ -4277,8 +4751,8 @@ function historyDateFilterText(filter) {
   const since = filter && filter.since ? short(filter.since) : "";
   const until = filter && filter.until ? short(filter.until) : "";
   if (since && until) return `${since}-${until}`;
-  if (since) return `自从 ${since}`;
-  if (until) return `直到 ${until}`;
+  if (since) return `Since ${since}`;
+  if (until) return `Until ${until}`;
   return "";
 }
 
@@ -4291,10 +4765,10 @@ function historyDateFilterText(filter) {
  * 「选择期间…」打开 `DateFilterComponent` 的期间对话框（见 `openHistoryDateRangeDialog()`）。
  */
 function historyDateFilterMenu() {
-  return `<section class="popover context-menu history-date-menu" aria-label="按日期筛选">`
-    + `<a class="menu-item" href="#" data-history-date="select">${icon("none")} 选择期间…</a>`
-    + `<a class="menu-item" href="#" data-history-date="last-day">${icon("none")} 最近 24 小时</a>`
-    + `<a class="menu-item" href="#" data-history-date="last-week">${icon("none")} 最近 7 天</a>`
+  return `<section class="popover context-menu history-date-menu" aria-label="Filter by Date">`
+    + `<a class="menu-item" href="#" data-history-date="select">Select…</a>`
+    + `<a class="menu-item" href="#" data-history-date="last-day">Last 24 hours</a>`
+    + `<a class="menu-item" href="#" data-history-date="last-week">Last 7 days</a>`
     + `</section>`;
 }
 
@@ -4302,10 +4776,10 @@ function historyFilterOverflowItems() {
   const live = window.__augitLive || {};
   const active = live.historyFilter || {};
   const entries = [
-    { key: "branch", label: "分支", value: active.branch || "" },
-    { key: "user", label: "用户", value: historyAuthorFilterText(active) },
-    { key: "date", label: "日期", value: historyDateFilterText(active) },
-    { key: "path", label: "路径", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
+    { key: "branch", label: "Branch", value: active.branch || "" },
+    { key: "user", label: "User", value: historyAuthorFilterText(active) },
+    { key: "date", label: "Date", value: historyDateFilterText(active) },
+    { key: "path", label: "Path", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
   ];
   return entries.map((entry, index) => {
     const selected = entry.value !== "";
@@ -4316,8 +4790,8 @@ function historyFilterOverflowItems() {
       : entry.label;
     const disabled = !!entry.reason;
     const title = disabled ? entry.reason : selected
-      ? `清除「${entry.label}」筛选${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
-      : `${entry.label}筛选`;
+      ? `Clear${entry.label}filter${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
+      : `${entry.label}Filter`;
     return `<button type="button" data-history-filter="${index}" data-filter-key="${entry.key}"`
       + `${disabled ? ` disabled aria-disabled="true" title="${escapeHtml(entry.reason)}"` : ` title="${escapeHtml(title)}"`}>`
       + `${icon(selected ? "x" : "search")}${escapeHtml(text)}</button>`;
@@ -4328,10 +4802,10 @@ function historyFilterButtons() {
   const live = window.__augitLive || {};
   const active = live.historyFilter || {};
   const entries = [
-    { key: "branch", label: "分支", value: active.branch || "" },
-    { key: "user", label: "用户", value: historyAuthorFilterText(active) },
-    { key: "date", label: "日期", value: historyDateFilterText(active) },
-    { key: "path", label: "路径", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
+    { key: "branch", label: "Branch", value: active.branch || "" },
+    { key: "user", label: "User", value: historyAuthorFilterText(active) },
+    { key: "date", label: "Date", value: historyDateFilterText(active) },
+    { key: "path", label: "Path", value: historyPathFilterText(active), tooltip: historyPathFilterTooltip(active), truncate: false },
   ];
   return entries.map((entry, index) => {
     const selected = entry.value !== "";
@@ -4342,8 +4816,8 @@ function historyFilterButtons() {
       : entry.label;
     const disabled = !!entry.reason;
     const title = disabled ? entry.reason : selected
-      ? `清除「${entry.label}」筛选${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
-      : `${entry.label}筛选`;
+      ? `Clear${entry.label}filter${entry.tooltip ? ` · ${entry.tooltip}` : ""}`
+      : `${entry.label}Filter`;
     return `<button class="toolbar-button history-filter${selected ? " selected" : ""}" type="button"`
       + ` data-history-filter="${index}" data-filter-key="${entry.key}" aria-label="${escapeHtml(entry.label)}"`
       + ` title="${escapeHtml(title)}"${disabled ? ' aria-disabled="true" disabled' : ""}>`
@@ -4360,45 +4834,46 @@ function liveGitLog(history, selected, cancelComparison, loading = false) {
     fullHash: commit.fullHash,
     head: commit.fullHash === history.head,
     parents: commit.parents || [],
+    references: commit.references || [],
   }));
   const fullByShort = new Map(history.commits.map(commit => [commit.hash, commit.fullHash]));
   for (const entry of entries) {
     entry.parents = (entry.parents || []).map(parent => fullByShort.get(parent) || parent);
   }
 
-  const graph = buildCommitGraph(entries);
+  const graph = buildCommitGraph(entries, { cacheKey: JSON.stringify([live.root, history.head, live.references || null]) });
   const currentBranchCommits = currentBranchCommitSet(entries);
-  const filters = ["分支", "用户", "日期", "路径"];
+  const filters = ["Branch", "User", "Date", "Path"];
   const branchLabel = (commit) => (commit.references || []).filter(name => name !== "HEAD").join(" ");
   // 无历史文案（规格 §10.1）：保留引用树与筛选栏，只替换提交列表内容。
-  const emptyRow = `<div class="empty-tool-state"><div><strong>仓库还没有提交</strong><p>提交后会显示在这里。</p></div></div>`;
+  const emptyRow = `<div class="empty-tool-state"><div><strong>No commits in this repository</strong><p>Commits will appear here.</p></div></div>`;
   // 选中的提交由状态决定（规格 §7.9 的"提交选择"要跨重绘保留）：有记录就按哈希选中，
   // 没有（首次渲染）才退回"选中第一行"。此前模板写死 `index === 0`，任何整页重绘都会把选择丢回第一行。
   const historySelectedHash = (window.__augitLive && window.__augitLive.historySelectedHash) || "";
   const isCommitSelected = (commit, index) => historySelectedHash ? commit.hash === historySelectedHash : index === 0;
   // 历史未到达时的占位：不能复用"仓库还没有提交"（那是在断言一个我们尚未知道的事实）。
-  const loadingRow = `<div class="empty-tool-state" role="status"><div><strong>正在读取提交历史…</strong><p>正在从 Git 读取提交。</p></div></div>`;
+  const loadingRow = `<div class="empty-tool-state" role="status"><div><strong>Loading commit history…</strong><p>Reading commits from Git.</p></div></div>`;
   // 空态分两种（权威 `VcsLogBundle.properties:148,151,153`：`vcs.log.no.commits.status` = "No changes committed."、
   // `vcs.log.no.commits.matching.status` = "No commits matching filters"、`vcs.log.reset.filters.status.action` = "Reset filters"）：
   // 「仓库本身没有提交」与「**筛选**把结果筛空了」不是同一件事 —— 后者不能显示成仓库是空的，且要能就地清掉筛选。
-  const filterEmptyRow = `<div class="empty-tool-state"><div><strong>没有匹配筛选的提交</strong><p>调整或清除筛选后再看。</p><button type="button" class="secondary-button" data-history-action="reset-filters">重置筛选</button></div></div>`;
+  const filterEmptyRow = `<div class="empty-tool-state"><div><strong>No commits match the filters</strong><p>Adjust or clear the filters.</p><button type="button" class="secondary-button" data-history-action="reset-filters">Reset Filters</button></div></div>`;
   const branchesCollapsed = !!(live && live.logBranchesCollapsed);
   return `<section class="bottom-tool">
-    <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
+    <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">Log</button><span class="grow"></span>${cancelComparison ? "" : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
       ${gitLogStripe(!!(live && live.logBranchesCollapsed))}
       <div class="git-log${branchesCollapsed ? " branches-collapsed" : ""}">
         ${branchesCollapsed ? "" : liveRefTree()}
         <div class="log-list-panel">
           <div class="log-filterbar history-filters">
-            <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希" value="${escapeHtml((window.__augitLive && window.__augitLive.historyFilterDraft) || "")}"></label>
+            <label class="history-search"><button type="button" class="history-search-trigger" data-history-text-menu aria-label="Recent Text Searches" title="Recent Text Searches" aria-haspopup="menu" aria-expanded="false">${icon("history-search")}</button><input class="search-field" placeholder="Text or hash" aria-label="Text or hash" value="${escapeHtml((window.__augitLive && window.__augitLive.historyFilterDraft) || "")}"></label>
             ${historyFilterButtons()}
-            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
-            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
+            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="More History Filters">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
+            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="Show Commit Details">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="Search Commits">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="Refresh">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${loading ? loadingRow : history.commits.length === 0 ? (history.filterActive ? filterEmptyRow : emptyRow) : history.commits.map((commit, index) => `<div class="commit-row ${isCommitSelected(commit, index) ? "selected" : ""}${currentBranchCommits.has(commit.hash) ? " current-branch" : ""}" role="option" aria-selected="${isCommitSelected(commit, index)}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${refDisplayName(commit.references) ? `${gitReferenceIcon(refKindOf(commit.references))} ${escapeHtml(refDisplayName(commit.references))}` : ""}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
+<div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${loading ? loadingRow : history.commits.length === 0 ? (history.filterActive ? filterEmptyRow : emptyRow) : history.commits.map((commit, index) => `<div class="commit-row ${isCommitSelected(commit, index) ? "selected" : ""}${currentBranchCommits.has(commit.hash) ? " current-branch" : ""}" role="option" aria-selected="${isCommitSelected(commit, index)}" data-hash="${escapeHtml(commit.hash)}" data-full-hash="${escapeHtml(commit.fullHash)}">${commitGraphSvg(graph, index)}<span class="commit-subject">${escapeHtml(commit.subject)}</span><span class="branch-label">${logReferenceLabels(commit.references, commit.fullHash === history.head)}</span><span class="commit-meta commit-author">${escapeHtml(commit.author)}</span><time class="commit-meta commit-date" data-full="${escapeHtml(commit.date)}" data-compact="${escapeHtml(commit.date.slice(5, 10))}">${escapeHtml(commit.date)}</time></div>`).join("")}</div>
         </div>
-        <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${live && live.commitDetails && history.commits.length > 0 ? live.commitDetails.filesHtml : (loading ? `<p class="commit-meta">正在读取变更…</p>` : history.commits.length === 0 ? `<div class="empty-state">没有可显示的变更</div>` : `<p class="commit-meta">正在读取变更…</p>`)}</div><div class="commit-detail" data-live-commit-detail>${live && live.commitDetails && live.commitDetails.detailHtml ? live.commitDetails.detailHtml : `<h3>${history.commits.length === 0 ? "提交详情" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div>`}</div></div>
+        <div class="log-detail-panel"><div class="changed-files" data-live-changed-files>${live && live.commitDetails && history.commits.length > 0 ? live.commitDetails.filesHtml : (loading ? `<p class="commit-meta">Loading changes…</p>` : history.commits.length === 0 ? `<div class="empty-state">No changes to display</div>` : `<p class="commit-meta">Loading changes…</p>`)}</div><div class="commit-detail" data-live-commit-detail>${live && live.commitDetails && live.commitDetails.detailHtml ? live.commitDetails.detailHtml : `<h3>${history.commits.length === 0 ? "Commit Details" : escapeHtml(history.commits[0].subject)}</h3><div>${history.commits.length === 0 ? "" : `${escapeHtml(history.commits[0].hash)} · ${escapeHtml(history.commits[0].author)} · ${escapeHtml(history.commits[0].date)}`}</div>`}</div></div>
       </div>
     </div>
   </section>`;
@@ -4437,7 +4912,7 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
     ["feat: 实现 Augit 阶段零至五功能", "", "I49", "2026/8/28 8:25"],
   ];
   let entries = commits.map((item, index) => ({ hash: `commit-${index}`, head: index === 0,
-    parents: index < commits.length - 1 ? [`commit-${index + 1}`] : [] }));
+    parents: index < commits.length - 1 ? [`commit-${index + 1}`] : [], references: item[1] ? item[1].split(" ") : [] }));
   let wideGraph = false;
   if (complexGraph) {
     entries[0].parents = ["commit-1", "commit-2"];
@@ -4462,31 +4937,31 @@ function gitLog(selected = true, complexGraph = false, cancelComparison = false,
   }
   const graph = buildCommitGraph(entries);
   const currentBranchCommits = currentBranchCommitSet(entries);
-  const filters = ["分支", "用户", "日期", "路径"];
+  const filters = ["Branch", "User", "Date", "Path"];
   const branchRows = wideGraph
     ? `${Array.from({ length: 11 }, (_, index) => `<a class="tree-row depth-1" href="branches.html">${gitReferenceIcon()} feature/branch-${index + 1}</a>`).join("")}<a class="tree-row depth-1 selected" href="branches.html">${gitReferenceIcon()} main</a>`
     : complexGraph
     ? `<a class="tree-row depth-1" href="branches.html">${gitReferenceIcon()} feature/graph</a><a class="tree-row depth-1 selected" href="branches.html">${gitReferenceIcon()} main</a>`
     : `<a class="tree-row depth-1 selected" href="branches.html">${gitReferenceIcon()} main</a>`;
-  const detailTitle = commits[1]?.[0] ?? "提交详情";
+  const detailTitle = commits[1]?.[0] ?? "Commit Details";
   const detailMeta = complexGraph ? "cb20f43 · I49 · 2026/8/29 10:00" : "dfe5c25a · I49 · 2026/8/28 21:32";
   const detailBody = complexGraph ? "" : `<p class="commit-meta">安装器检测到兼容运行时后保持当前环境，不重复更新系统组件。</p>`;
   return `<section class="bottom-tool">
-    <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">日志</button><span class="grow"></span>${cancelComparison ? '<a class="toolbar-button" href="history-diff-cancelled.html">取消比较</a>' : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
+    <div class="bottom-header"><span class="bottom-title">Git</span><button class="tool-tab active">Log</button><span class="grow"></span>${cancelComparison ? '<a class="toolbar-button" href="history-diff-cancelled.html">Cancel Comparison</a>' : ""}<button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div>
     <div class="git-toolbar-layout">
       ${gitLogStripe(false)}
       <div class="git-log">
-        <div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="分支或标签" aria-label="分支或标签"></label></div><div class="tree"><div class="tree-row">HEAD（当前分支）</div><div class="tree-row"><span>${icon("chevron-down")}</span><strong>本地</strong></div>${branchRows}</div></div>
+        <div class="log-ref-panel"><div class="log-filterbar"><label class="history-search">${icon("search")}<input class="search-field" placeholder="Branch or tag" aria-label="Branch or tag"></label></div><div class="tree"><div class="tree-row">HEAD（Current branch）</div><div class="tree-row"><span>${icon("chevron-down")}</span><strong>Local</strong></div>${branchRows}</div></div>
         <div class="log-list-panel">
           <div class="log-filterbar history-filters">
-            <label class="history-search">${icon("search")}<input class="search-field" placeholder="文本或哈希" aria-label="文本或哈希"></label>
+            <label class="history-search"><button type="button" class="history-search-trigger" data-history-text-menu aria-label="Recent Text Searches" title="Recent Text Searches">${icon("history-search")}</button><input class="search-field" placeholder="Text or hash" aria-label="Text or hash"></label>
             ${historyFilterButtons()}
-            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="更多历史筛选">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
-            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="显示提交详情">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="搜索提交">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="刷新">${icon("refresh-cw")}</button>
+            <details class="history-filter-overflow" hidden><summary class="toolbar-button" aria-label="More History Filters">${icon("chevron-right")}</summary><div class="history-filter-menu">${historyFilterOverflowItems()}</div></details>
+            <span class="grow"></span><button class="toolbar-button history-utility" aria-label="Show Commit Details">${icon("eye")}</button><button class="toolbar-button history-utility" aria-label="Search Commits">${icon("search")}</button><button class="toolbar-button history-utility" aria-label="Refresh">${icon("refresh-cw")}</button>
           </div>
-          <div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}${currentBranchCommits.has(entries[index].hash) ? " current-branch" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${refDisplayName(item[1]) ? `${gitReferenceIcon(refKindOf(item[1]))} ${escapeHtml(refDisplayName(item[1]))}` : ""}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
+<div class="commit-list commit-list-graph" ${commitGraphListAttributes(graph)}>${commits.map((item, index) => `<div class="commit-row ${selected && index === 1 ? "selected" : ""}${currentBranchCommits.has(entries[index].hash) ? " current-branch" : ""}" role="option" aria-selected="${selected && index === 1}" data-hash="${entries[index].hash}">${commitGraphSvg(graph, index)}<span class="commit-subject">${item[0]}</span><span class="branch-label">${logReferenceLabels(Array.isArray(item[1]) ? item[1] : item[1].split(" "))}</span><span class="commit-meta commit-author">${item[2]}</span><time class="commit-meta commit-date" data-full="${item[3]}" data-compact="${item[3].includes('8/29') ? '08-29' : '08-28'}">${item[3]}</time></div>`).join("")}</div>
         </div>
-        <div class="log-detail-panel"><div class="changed-files">${selected ? complexGraph ? '<div class="tree-row">0 个文件</div>' : `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>6 个文件</strong></div><div class="tree-row depth-1"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span> docs <span class="commit-meta">4 个文件</span></div>${["architecture.md", "performance-report.md", "roadmap.md", "runtime-dependencies.md"].map(name => `<div class="tree-row depth-2 file-status-modified" data-history-path="docs/${name}">${fileTypeIcon(name)}${name}</div>`).join("")}` : `<div class="empty-state">选择提交以查看变更</div>`}</div><div class="commit-detail">${selected ? `<h3>${detailTitle}</h3><div>${detailMeta}</div>${detailBody}` : `<div class="empty-state">提交详情</div>`}</div></div>
+        <div class="log-detail-panel"><div class="changed-files">${selected ? complexGraph ? '<div class="tree-row">0 files</div>' : `<div class="tree-row"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span><strong>6 files</strong></div><div class="tree-row depth-1"><span>${icon("chevron-down")}</span><span>${treeFolderIcon()}</span> docs <span class="commit-meta">4 files</span></div>${["architecture.md", "performance-report.md", "roadmap.md", "runtime-dependencies.md"].map(name => `<div class="tree-row depth-2 file-status-modified" data-history-path="docs/${name}">${fileTypeIcon(name)}${name}</div>`).join("")}` : `<div class="empty-state">Select a commit to view changes</div>`}</div><div class="commit-detail">${selected ? `<h3>${detailTitle}</h3><div>${detailMeta}</div>${detailBody}` : `<div class="empty-state">Commit Details</div>`}</div></div>
       </div>
     </div>
   </section>`;
@@ -4554,7 +5029,7 @@ function historyFilesHtml(files, ui) {
       // 祖先折叠时子树整体隐藏：`hidden` 属性逐个行加，不引入包裹容器
       //（包裹会改掉既有的扁平层级与按 `.changed-files > .tree-row` 量出来的结构）。
       return `<div class="tree-row depth-${depth}${folded ? " collapsed" : ""}" data-history-group="${escapeHtml(`${prefix}${name}`)}" aria-expanded="${folded ? "false" : "true"}"${hidden ? " hidden" : ""}>`
-        + `<span>${icon(folded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} 个文件</span></div>`
+        + `<span>${icon(folded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span>${name}<span class="commit-meta">${children.length} files</span></div>`
         + render(children, `${prefix}${name}/`, depth + 1, hidden || folded);
     }).join("")
       + leaves.sort((a, b) => a.path.localeCompare(b.path)).map(file => {
@@ -4565,7 +5040,7 @@ function historyFilesHtml(files, ui) {
   };
   // 根行同样可折叠（键为空串），与组行共用一套点击处理。
   const rootFolded = !!collapsed[""];
-  return `<div class="tree-row${rootFolded ? " collapsed" : ""}" data-history-group="" aria-expanded="${rootFolded ? "false" : "true"}"><span>${icon(rootFolded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} 个文件</strong></div>${render(files, "", 1, rootFolded)}`;
+  return `<div class="tree-row${rootFolded ? " collapsed" : ""}" data-history-group="" aria-expanded="${rootFolded ? "false" : "true"}"><span>${icon(rootFolded ? "chevron-right" : "chevron-down")}</span><span>${treeFolderIcon()}</span><strong>${files.length} files</strong></div>${render(files, "", 1, rootFolded)}`;
 }
 
 // 文件历史列表的四列表头。权威 `FileHistoryPanelImpl.createColumnList`（platform/vcs-impl/src/com/intellij/
@@ -4579,7 +5054,7 @@ function historyFilesHtml(files, ui) {
 // 其高度参与布局计算（platform/platform-api/src/com/intellij/ui/dualView/DualView.java:462），
 // 默认高度 25（platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/DarculaTableHeaderUI.java:115）。
 function fileHistoryColumns() {
-  return `<div class="history-columns"><span>版本</span><span>日期</span><span>作者</span><span>提交信息</span></div>`;
+  return `<div class="history-columns"><span>Revision</span><span>Date</span><span>Author</span><span>Commit message</span></div>`;
 }
 
 // 文件历史列表作者列的单元格。权威 `FileHistoryPanelImpl.AuthorColumnInfo`：
@@ -4614,25 +5089,25 @@ function liveFileHistoryTool() {
   // 「版本」列取短修订：权威 `RevisionColumnInfo` 的值过 `VcsUtil.getShortRevisionString`
   // （FileHistoryPanelImpl.java:657-666、platform/vcs-api/src/com/intellij/vcsUtil/VcsUtil.java:402-406）。
   const rows = commits.length === 0
-    ? `<p class="commit-meta">没有历史</p>`
+    ? `<p class="commit-meta">No history</p>`
     : commits.map((commit) => {
       // 行的角色与提交标注沿用日志列表那一套（`role="option"` + `aria-selected` + 短/完整哈希）；
       // `data-history-full` 同时是选择与"打开比较"的身份键（规格 §7.9：始终用完整提交哈希）。
       const active = commit.fullHash === selectedFull;
-      return `<div class="history-row${active ? " selected" : ""}" role="option" aria-selected="${active ? "true" : "false"}" data-history-hash="${escapeHtml(commit.hash)}" data-history-full="${escapeHtml(commit.fullHash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`;
+      return `<div class="history-row${active ? " selected" : ""}" role="option" aria-selected="${active ? "true" : "false"}" data-history-hash="${escapeHtml(commit.hash)}" data-history-full="${escapeHtml(commit.fullHash)}"><span>${escapeHtml(commit.hash)}</span><span title="${escapeHtml(commit.dateTime || commit.date)}">${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`;
     }).join("");
   const head = selected;
   // 右侧详情：规格 §7.9 第六条要求这里是**完整只读比较视图**（工具栏九项、文件栏父版本·提交版本·路径、
   // 与引用比较同构的正文）。预览状态还没建立时（首帧）退回提交信息，避免闪出一个空面板。
   const pane = window.__augitLive.fileHistoryPreview
     ? `<div class="history-detail-pane" data-live-file-history-pane="preview">${liveFileHistoryPreviewView()}</div>`
-    : `<div class="history-detail-pane" data-live-file-history-pane="commit"><div class="commit-detail" data-live-file-history-detail>${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div>`;
+    : `<div class="history-detail-pane" data-live-file-history-pane="commit"><div class="commit-detail" data-live-file-history-detail>${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">Select a commit to view changes</p>`}</div></div>`;
   // 「显示/隐藏提交详情」（规格 §7.9 第七条）：隐藏时容器收成单列（否则被隐藏的那一列仍占
   // `clamp(360px, 42%, 520px)`，右侧留一条空白带）。状态进 `live.fileHistoryDetailsHidden`，
   // 区域重绘按状态回填；标签/`aria-pressed` 沿用日志详情那一套既有语义（隐藏时标签是"隐藏提交详情"）。
   const detailsHidden = !!window.__augitLive.fileHistoryDetailsHidden;
-  const eyeLabel = detailsHidden ? "隐藏提交详情" : "显示提交详情";
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content" data-details-hidden="${detailsHidden ? "true" : "false"}"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button" aria-label="${eyeLabel}" aria-pressed="${detailsHidden ? "true" : "false"}">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div>${pane}</div></section>`;
+  const eyeLabel = detailsHidden ? "Hide Commit Details" : "Show Commit Details";
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content" data-details-hidden="${detailsHidden ? "true" : "false"}"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button" aria-label="${eyeLabel}" aria-pressed="${detailsHidden ? "true" : "false"}">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div>${pane}</div></section>`;
 }
 
 /**
@@ -4659,9 +5134,9 @@ function liveBranchCompareTool() {
   const compare = window.__augitLive.branchComparison || {};
   const commits = compare.commits || [];
   const rows = commits.length === 0
-    ? `<p class="commit-meta">${compare.loading ? "正在读取差异提交…"
-      : compare.cancelled ? "比较已取消。"
-        : escapeHtml(compare.reason || "两个引用之间没有独有提交")}</p>`
+    ? `<p class="commit-meta">${compare.loading ? "Loading commits to compare…"
+      : compare.cancelled ? "Comparison cancelled."
+        : escapeHtml(compare.reason || "No exclusive commits between these references")}</p>`
     : commits.map((commit, index) => `<div class="history-row ${index === 0 ? "selected" : ""}" data-history-hash="${escapeHtml(commit.hash)}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
   const head = commits[0];
   const base = compare.base || "HEAD";
@@ -4669,9 +5144,9 @@ function liveBranchCompareTool() {
   // 规格 §7.9 第二十条：历史面板发起引用查询时**在自身区域**显示"取消比较"（不是全局"正在生成 diff"提示），
   // 查询完成后隐藏该入口。
   const cancelEntry = compare.loading
-    ? '<button class="toolbar-button" data-branch-compare-cancel="true" aria-label="取消比较">取消比较</button>'
+    ? '<button class="toolbar-button" data-branch-compare-cancel="true" aria-label="Cancel Comparison">Cancel Comparison</button>'
     : "";
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">比较: ${escapeHtml(branch)} 与 ${escapeHtml(base)}</button><span class="grow"></span>${cancelEntry}<button class="icon-button" aria-label="关闭比较" data-branch-compare-close="true">${icon("x")}</button><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>${escapeHtml(`${base}..${branch}`)}</span><span class="toolbar-separator"></span><span class="commit-meta">${commits.length} 个提交</span><span class="grow"></span><button class="icon-button" aria-label="刷新" data-branch-compare-refresh="true">${icon("refresh-cw")}</button><button class="icon-button" aria-label="显示提交详情">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">选择提交以查看变更</p>`}</div></div></div></section>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">Compare: ${escapeHtml(branch)} with ${escapeHtml(base)}</button><span class="grow"></span>${cancelEntry}<button class="icon-button" aria-label="Close Comparison" data-branch-compare-close="true">${icon("x")}</button><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>${escapeHtml(`${base}..${branch}`)}</span><span class="toolbar-separator"></span><span class="commit-meta">${commits.length} commits</span><span class="grow"></span><button class="icon-button" aria-label="Refresh" data-branch-compare-refresh="true">${icon("refresh-cw")}</button><button class="icon-button" aria-label="Show Commit Details">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane"><div class="commit-detail">${head ? `<h3>${escapeHtml(head.subject)}</h3><div>${escapeHtml(head.hash)} · ${escapeHtml(head.author)} · ${escapeHtml(head.date)}</div>` : `<p class="commit-meta">Select a commit to view changes</p>`}</div></div></div></section>`;
 }
 
 function fileHistoryTool() {
@@ -4683,14 +5158,14 @@ function fileHistoryTool() {
     { hash: "commit-3", date: "2026/8/27 19:02", subject: "docs: 补阶段五验收记录", author: "I49", authorEmail: "i49@example.com", committerName: "build-bot", committerEmail: "build@example.invalid" },
   ];
   const rows = sampleRows.map((commit, index) => `<div class="history-row${index === 0 ? " selected" : ""}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">日志</a><button class="tool-tab active">历史: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>分支: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
 }
 
 function terminalTool() {
   const loading = new URLSearchParams(location.search).get("terminal-state") === "loading";
-  const name = `Windows PowerShell${loading ? " · 正在启动…" : ""}`;
-  const output = loading ? "" : `<div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">dotnet test Augit.slnx -c Release</span></div><div>已通过! - 失败: 0，通过: 183，跳过: 0，总计: 183</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">git status --short</span></div><div class="file-status-modified"> M docs/product-spec.md</div><div class="file-status-modified"> M src/Augit.App/NativeGitPanel.cs</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">_</span></div>`;
-  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">终端</span><span class="terminal-session" title="${name}">${name}</span><button class="icon-button terminal-session-close" aria-label="关闭终端">${icon("x")}</button><button class="icon-button terminal-more" aria-label="更多操作">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="隐藏终端">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
+  const name = `Windows PowerShell${loading ? " · Starting…" : ""}`;
+  const output = loading ? "" : `<div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">dotnet test Augit.slnx -c Release</span></div><div>Passed! - Failed: 0, Passed: 183, Skipped: 0, Total: 183</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">git status --short</span></div><div class="file-status-modified"> M docs/product-spec.md</div><div class="file-status-modified"> M src/Augit.App/NativeGitPanel.cs</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">_</span></div>`;
+  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${name}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("x")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
 /**
@@ -4718,7 +5193,7 @@ function liveToast() {
 function documentLoadingView(path) {
   const text = typeof path === "string" ? path : "";
   const name = text.split("/").at(-1) || text;
-  return `<div class="empty-tool-state" role="status"><div><strong>正在读取 ${escapeHtml(name)}…</strong><p>${escapeHtml(text)}</p></div></div>`;
+  return `<div class="empty-tool-state" role="status"><div><strong>Loading ${escapeHtml(name)}…</strong><p>${escapeHtml(text)}</p></div></div>`;
 }
 
 function shell({ activeRail = "project", side = "project", editor = "markdown", bottom = "", overlay = "", toast = "", selectedFile = "product-spec.md", complexGraph = false, comparisonState = "ready", workspaceComparison = false, diffBoundary = false, emptyHistory = false, diffStatus = null, imageError = false, gitUnavailable = "" } = {}) {
@@ -4759,37 +5234,30 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
 
   // 比较标签（工作区 Diff、引用比较、历史比较）没有普通文档，但同样有明确视图：
   // 只看 live.document 会让比较正文渲染不出来（表现为 editor 已是 diff 而 DOM 仍是文档）。
-  if (live && live.editor && (live.document || live.editor === "diff")) editor = live.editor;
+  if (live && live.editor && (live.document || live.editor === "diff" || (live.editor === "blame" && live.blame))) editor = live.editor;
   // 树行选中态属于**用户**（规格 §6 第 37 条：异步读取收尾不得重选树行）：用户点过树行后以
   // `live.treeSelectedPath` 为准，只有还没点过时才回落到当前文档路径（启动恢复、直接打开文件）。
   // 此前这里直接用文档**文件名**，于是任何一次读取落地都会把树选中跳回刚打开的那一行
   //（第 270 轮实测：读取期间用户改选 `docs/product-spec.md`，收尾后选中又变回 `docs/notes.txt`）。
   if (live) {
-    const treeTarget = live.treeSelectedPath || (live.document ? live.document.path : null);
-    if (treeTarget) selectedFile = treeTarget;
+    const treeTarget = live.treeSelectedPath ?? (live.document ? live.document.path : null);
+    if (treeTarget !== null && treeTarget !== undefined) selectedFile = treeTarget;
     // 实时层的"就地套用"（`live-data.js` 的 `patchProjectTree()`）必须与渲染层用**同一个**选中判据，
     // 否则新插入的行会少掉默认选中（`main-project` 的场景默认是 `product-spec.md`）。这里把最终值
     // 公布出去，避免两边各写一份默认值后漂移（第 295 轮全量实测踩到）。
     window.__augitTreeSelection = selectedFile;
   }
+  // 比较必须来自真实活动标签或已读取的差异，不能把场景的 editor="diff" 当作已打开文件。
+  const liveComparison = live && live.editor === "diff" && (live.diff
+    || (Array.isArray(live.tabs) && live.tabs.some(tab => tab.id === live.activeTabId && tab.kind === "comparison")));
   // 规格 §6.7：普通文件读取尚未完成时（典型是"读取在途时打开比较、随后关闭比较"返回的普通标签），
   // 正文显示该文件的**读取占位**，不能退回"选择文件以查看内容"的无文档提示。
-  if (live && live.pendingDocument && !live.document && editor !== "diff") {
+  if (live && live.pendingDocument && !live.document && !liveComparison) {
     editor = "document-loading";
   }
-  // 什么都没有打开时，正文必须是**无文档提示**（`editor === "empty"`），不能停在场景的默认值上：
-  // 场景默认是 `editor: "markdown"`，而那个分支会渲染视觉稿的**样例文档**（`markdownView()`：
-  // 标题"Augit 产品规格"、路径 `docs/product-spec.md`）—— 于是刚启动、还没有打开任何文件时，
-  // 界面把一份并不存在的文件当成真实只读文档显示（第 228 轮实测：`live.document` 为 null 而
-  // `.markdown-document .document-path` 仍是 `Augit › docs › product-spec.md`，无任何错误提示）。
-  // 顺带不再为这份样例文档做首次布局（它是 `bindMarkdownModes` 那 37 ms 的主要来源）；
-  // 但首屏耗时**没有**可测的变化（空态自身也要布局，且整页首帧本来就要布局一次），
-  // 因此这次改动只按"显示不存在的文件"这个产品缺陷记，不记性能收益（见 `performance-report.md` §12.5）。
-  // 只在**产品默认场景**（`main-project`）生效：`--scene <名字>` 是审计/视觉稿入口
-  // （`text-viewer`／`json-preview`／`markdown-preview` 等），那些场景本来就靠视觉稿的样例正文
-  // 演示排版与绑定（例如"刷新后查找条不重复打开"用 `text-viewer` 的样例正文验绑定生命周期）。
-  if (scene === "main-project" && live && !live.document && !live.diff && !live.blame
-      && !live.conflict && !live.pendingDocument && editor !== "diff") {
+  // 所有实时场景都依据实际文档状态：空会话、读取失败或关闭最后标签不能显示视觉稿样例。
+  // 冲突弹层也不提供普通文件正文；无宿主视觉稿仍由场景参数呈现样例。
+  if (live && !live.document && !live.blame && !live.pendingDocument && !liveComparison) {
     editor = "empty";
   }
   // 折叠状态（side 为空）不渲染侧栏，把整块宽度还给编辑区。
@@ -4809,12 +5277,12 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   if (editor === "text-find") editorBody = textView(true);
   if (editor === "json") editorBody = jsonView();
   if (editor === "image" && liveDocument()) editorBody = liveImageDocument();
-  else if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="缩小">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="放大">${icon("zoom-in")}</button><button class="icon-button" aria-label="适应区域">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="只读图片"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
+  else if (editor === "image") editorBody = `<div class="document-view"><div class="document-toolbar image-toolbar"><button class="icon-button" aria-label="Zoom Out">${icon("zoom-out")}</button><span class="image-zoom-label">100%</span><button class="icon-button" aria-label="Zoom In">${icon("zoom-in")}</button><button class="icon-button" aria-label="Fit to View">${icon("image-fit")}</button><span class="image-size-label" title="1920 × 1200 · PNG · 52.5 KB"><span class="image-size-content">1920 × 1200 · PNG · 52.5 KB</span></span></div><div class="image-stage" tabindex="0" aria-label="Read-only image"><img src="assets/image-sample.png" alt="带透明边缘的山景样图" draggable="false"></div></div>`;
   if (editor === "file-limit" && liveDocument()) editorBody = liveUnavailableDocument();
   // 图片解码失败（宿主 ImageDecodeFailed / ImageTooLarge）：与实时侧 liveUnavailableDocument()
   // 同构，只有原因那行不同。此前视觉稿只覆盖了"GIF/WebP 不支持"，解码失败没有基线。
-  else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>corrupt.png · PNG 图像 · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>无法读取图片尺寸，已停止预览。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
-  else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>无法在 Augit 中预览此文件</h2><p>animation.webp · WebP 图片 · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>Augit 不支持 GIF、WebP 或其他二进制图片格式。</p><div class="button-row" style="justify-content:center"><button class="secondary-button">使用系统默认程序打开</button></div></div></div>`;
+  else if (editor === "file-limit" && imageError) editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>This file cannot be previewed in Augit</h2><p>corrupt.png · PNG image · 2.0 KB</p><p>D:\\github\\Augit\\docs\\assets\\corrupt.png</p><p>Cannot read image dimensions; preview stopped.</p><div class="button-row" style="justify-content:center"><button class="secondary-button">Open in Default Application</button></div></div></div>`;
+  else if (editor === "file-limit") editorBody = `<div class="info-state"><div class="info-block"><span style="color:var(--augit-warning)">${icon("file-warning")}</span><h2>This file cannot be previewed in Augit</h2><p>animation.webp · WebP image · 4.8 MB</p><p>D:\\github\\Augit\\docs\\assets\\animation.webp</p><p>GIF, WebP, and other binary image formats are not supported.</p><div class="button-row" style="justify-content:center"><button class="secondary-button">Open in Default Application</button></div></div></div>`;
   if (editor === "blame") editorBody = (live && live.blame) ? liveBlameView() : blameView();
   // 规格 §6.7 的读取占位（见上方 editor 覆盖处）。
   if (editor === "document-loading") editorBody = documentLoadingView(live && live.pendingDocument);
@@ -4824,22 +5292,22 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     const diffPath = (live && live.diff && live.diff.path)
       || (new URLSearchParams(location.search).get("diff"))
       || "app.manifest";
-    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">提交: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button></a>`;
-    editorBody = (live && live.diff) ? liveDiffView() : diffView(false, "ready", false, false, undefined, null, diffStatus);
+    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">Commit: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("x")}</button></a>`;
+    editorBody = live ? liveDiffView() : diffView(false, "ready", false, false, undefined, null, diffStatus);
     // `diff-boundary` 场景的**样例**提示只属于静态视觉稿：实时外壳的提示由
     // `live-data.js` 的 `applyDiffBoundaryHint()` 按 `live.diffBoundaryHint` 状态插入，
     // 否则实时页面会凭空显示一条"再次点击可进入下一个文件"（第 251 轮实测：启动后
     // `live.diffBoundaryHint` 为 null，DOM 里却有一个提示节点，直到第一次交互才被清掉）。
     if (diffBoundary && !live) {
-      editorBody = editorBody.replace('<div class="diff-columns">', '<div class="diff-columns diff-boundary-columns"><div class="diff-boundary-hint" role="status">再次点击可进入下一个文件</div>');
+      editorBody = editorBody.replace('<div class="diff-columns">', '<div class="diff-columns diff-boundary-columns"><div class="diff-boundary-hint" role="status">Click again to open the next file</div>');
     }
   }
   if (editor === "comparison") {
-    editorExtra = `<a class="editor-tab active comparison-tab" href="git-compare.html">${icon("git-compare-arrows")}<span class="comparison-caption"><span class="comparison-file">比较: app.manifest</span><span> · </span><span class="comparison-revision">${workspaceComparison ? "HEAD" : "dfe5c25a^"}</span><span> → </span><span class="comparison-revision">${workspaceComparison ? "工作区" : "dfe5c25a"}</span></span><span class="tab-close" aria-label="关闭比较">${icon("x")}</span></a>`;
+    editorExtra = `<a class="editor-tab active comparison-tab" href="git-compare.html">${icon("git-compare-arrows")}<span class="comparison-caption"><span class="comparison-file">Compare: app.manifest</span><span> · </span><span class="comparison-revision">${workspaceComparison ? "HEAD" : "dfe5c25a^"}</span><span> → </span><span class="comparison-revision">${workspaceComparison ? "Workspace" : "dfe5c25a"}</span></span><span class="tab-close" aria-label="Close Comparison">${icon("x")}</span></a>`;
     editorBody = diffView(true, comparisonState, workspaceComparison);
   }
   if (editor === "diff-loading") {
-    editorExtra = `<a class="editor-tab active" href="diff-loading.html">${icon("git-compare-arrows")} 提交: app.manifest</a>`;
+    editorExtra = `<a class="editor-tab active" href="diff-loading.html">${icon("git-compare-arrows")} Commit: app.manifest</a>`;
     const loadingLineWidths = [72, 46, 87, 61, 78, 39, 69, 54, 82, 48, 64, 43];
     const loadingLines = (offset = 0) => loadingLineWidths
       .map((width, index) => `<span class="diff-loading-line" style="width:${loadingLineWidths[(index + offset) % loadingLineWidths.length]}%"></span>`)
@@ -4847,23 +5315,27 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     const loadingGutterLines = loadingLineWidths
       .map(() => `<span class="diff-loading-gutter-line"></span><span class="diff-loading-gutter-line"></span>`)
       .join("");
-    editorBody = `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="上一处差异">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="下一处差异">${icon("arrow-down")}</button><span class="grow"></span><span>正在计算差异…</span><div class="segmented"><button class="segment active" aria-label="双栏">${icon("diff-side-by-side")}</button><button class="segment" aria-label="单栏">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "当前版本", "HEAD → 当前版本")}<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>正在加载 app.manifest 的差异</span></div><div class="diff-loading-side">${loadingLines()}</div><div class="diff-loading-gutter">${loadingGutterLines}</div><div class="diff-loading-side">${loadingLines(3)}</div></div></div>`;
+    editorBody = `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="grow"></span><span>Computing diff…</span><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "Current Version", "HEAD → Current Version")}<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>Loading diff for app.manifest</span></div><div class="diff-loading-side">${loadingLines()}</div><div class="diff-loading-gutter">${loadingGutterLines}</div><div class="diff-loading-side">${loadingLines(3)}</div></div></div>`;
   }
-  if (editor === "empty") editorBody = `<div class="empty-state">选择文件以查看内容</div>`;
+  if (editor === "empty") editorBody = `<div class="empty-state">Select a file to view its content</div>`;
   // 实时外壳下标签条**一律**来自 `live.tabs`（规格 §5.2）。此前 `editor === "image"`／`"json"`
   // 两个分支渲染的是**视觉稿样例标签**：`href="image-preview.html"`（`web/` 下只有 `index.html`，
   // 点它会整页导航到 404），而且没有 `data-tab-id` ⇒ 关闭叉、中键关闭、点击激活全部失效
   //（第 243 轮实测：实时侧打开图片后，标签条上是一个没有 tab-id 的样例标签）。
   const staticTabs = editor === "image"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : editor === "json"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : scene === "go-to-line" || scene === "text-viewer"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="关闭文件">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="标签选项">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
-  const tabs = live ? editorTabs("", editorExtra) : staticTabs;
+  let tabs = live ? editorTabs("", editorExtra) : staticTabs;
+  if (editor === 'markdown') {
+    const mode = editorBody.match(/data-markdown-mode="(source|split|preview)"/)?.[1] || 'preview';
+    tabs = tabs.replace('<button class="icon-button" aria-label="Tab Options">', `${markdownTabActions(mode)}<button class="icon-button" aria-label="Tab Options">`);
+  }
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
   const mainClasses = ["app-main", side ? "" : "side-collapsed", bottom ? "bottom-open" : ""].filter(Boolean).join(" ");
   return `<div class="augit-window">${titlebar()}<main class="${mainClasses}" data-side="${side}" data-bottom="${bottom}">${rail(activeSide, railGitReason, activeBottom, activeRail)}${sideHtml}<section class="workspace"><article class="editor-area">${tabs}<div class="editor-content">${editorBody}</div></article></section>${bottomHtml}</main>${statusBar(editor, selectedFile)}${overlay}<div class="toast-layer">${liveToast() || toast}</div></div>`;
@@ -4876,9 +5348,9 @@ function statusBar(editor, selectedFile) {
     const fields = [];
     if (live.encoding) fields.push(live.encoding);
     if (live.lineEndings) fields.push(live.lineEndings);
-    fields.push("只读");
+    fields.push("Read-only");
     const location = [live.workspaceName || "Augit", ...String(live.path).split("/")].filter(Boolean).join("  ›  ");
-    return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(live.fullPath || live.path)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${escapeHtml(text)}</span>`).join('')}</div></footer>`;
+    return `<footer class="statusbar" aria-label="File Status"><span class="status-path" title="${escapeHtml(live.fullPath || live.path)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${escapeHtml(text)}</span>`).join('')}</div></footer>`;
   }
 
   const comparison = ["diff", "diff-loading", "comparison"].includes(editor);
@@ -4888,9 +5360,9 @@ function statusBar(editor, selectedFile) {
     const workspace = window.__augitLive;
     const rootPath = workspace.root || "";
     const folder = rootPath ? rootPath.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) : null;
-    const name = workspace.workspaceName || folder || "工作区";
+    const name = workspace.workspaceName || folder || "Workspace";
     const title = rootPath ? `${rootPath}\\${workspace.name || folder || ""}` : name;
-    return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(title)}">${escapeHtml(name)}</span><div class="status-fields"></div></footer>`;
+    return `<footer class="statusbar" aria-label="File Status"><span class="status-path" title="${escapeHtml(title)}">${escapeHtml(name)}</span><div class="status-fields"></div></footer>`;
   }
 
   const hasDocument = editor !== "empty";
@@ -4902,9 +5374,9 @@ function statusBar(editor, selectedFile) {
   const fullPath = 'D:\\github\\Augit' + (relative ? '\\' + relative.replaceAll('/', '\\') : '');
   const location = ["Augit", ...relative.split('/').filter(Boolean)].join('  ›  ');
   const requestedEnding = new URLSearchParams(window.location.search).get('eol');
-  const ending = ["LF", "CRLF", "CR", "混合换行", "无换行"].includes(requestedEnding) ? requestedEnding : "LF";
-  const fields = isText ? ["UTF-8", ending, "只读"] : hasDocument ? ["只读"] : [];
-  return `<footer class="statusbar" aria-label="文件状态"><span class="status-path" title="${escapeHtml(fullPath)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${text}</span>`).join('')}</div></footer>`;
+  const ending = ["LF", "CRLF", "CR", "Mixed line endings", "No line endings"].includes(requestedEnding) ? requestedEnding : "LF";
+  const fields = isText ? ["UTF-8", ending, "Read-only"] : hasDocument ? ["Read-only"] : [];
+  return `<footer class="statusbar" aria-label="File Status"><span class="status-path" title="${escapeHtml(fullPath)}">${escapeHtml(location)}</span><div class="status-fields">${fields.map(text => `<span>${text}</span>`).join('')}</div></footer>`;
 }
 
 // 外壳注入真实搜索结果时使用；结构与样例版一致（浮层、开关、结果行、提示）。
@@ -4913,8 +5385,8 @@ function liveSearchOverlay(kind) {
   const search = live.search;
   const repository = kind === "repository";
   const header = repository
-    ? `<strong>全仓搜索</strong>${[['case-sensitive', '区分大小写', 'matchCase'], ['whole-word', '全字匹配', 'matchWholeWord'], ['regex', '正则表达式', 'useRegularExpression']].map(([name, label, key]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="${search && search.options && search.options[key] ? 'true' : 'false'}">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="包含忽略文件"${search && search.options && search.options.includeIgnoredFiles ? ' checked' : ''}>包含忽略文件</label>`
-    : `<strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
+    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case', 'matchCase'], ['whole-word', 'Words', 'matchWholeWord'], ['regex', 'Regex', 'useRegularExpression']].map(([name, label, key]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="${search && search.options && search.options[key] ? 'true' : 'false'}">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="Include ignored files"${search && search.options && search.options.includeIgnoredFiles ? ' checked' : ''}>Include ignored files</label>`
+    : `<strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
   const query = (search && search.query) || "";
   const matches = (search && search.matches) || [];
   const rows = matches.map((match, index) => repository
@@ -4930,8 +5402,8 @@ function liveSearchOverlay(kind) {
   const results = matches.length > 0
     ? `<div class="search-results">${rows}</div>`
     : (pending
-      ? `<div class="search-results"><div class="empty-tool-state"><div><strong>正在搜索…</strong></div></div></div>`
-      : (query.length > 0 ? `<div class="search-results"><div class="empty-tool-state"><div><strong>未找到结果</strong><p>换个关键词或调整筛选。</p></div></div></div>` : ""));
+      ? `<div class="search-results"><div class="empty-tool-state"><div><strong>Searching…</strong></div></div></div>`
+      : (query.length > 0 ? `<div class="search-results"><div class="empty-tool-state"><div><strong>No results found</strong><p>Try another query or adjust the filters.</p></div></div></div>` : ""));
   const noticeText = search && search.notice ? search.notice : "";
   const notice = noticeText
     ? `<div class="search-notice" role="status" tabindex="0">${escapeHtml(noticeText)}</div>`
@@ -4940,21 +5412,21 @@ function liveSearchOverlay(kind) {
   // 在用户选择之前不重复发起搜索（`search.limitPrompt` 由 live-data 设置与清除）。
   // `live-overlay` 是"由实时层打开、可以被 `closeLiveOverlay()` 关掉"的标记；两种渲染路径
   //（首次手动挂载与后续区域替换）都要带，否则 Esc 走不到统一的关闭分支、状态也不会清。
-  return `<div class="search-overlay live-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+  return `<div class="search-overlay live-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${header}</div><div class="search-query"><input class="search-field" value="${escapeHtml(query)}" aria-label="Search"></div>${results}${notice}</div>`;
 }
 
 function searchOverlay(kind) {
   const repository = kind === "repository";
   const searchHeader = repository
-    ? `<strong>全仓搜索</strong>${[['case-sensitive', '区分大小写'], ['whole-word', '全字匹配'], ['regex', '正则表达式']].map(([name, label]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="false">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="包含忽略文件">包含忽略文件</label>`
-    : `<strong>快速打开文件</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
+    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case'], ['whole-word', 'Words'], ['regex', 'Regex']].map(([name, label]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="false">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="Include ignored files">Include ignored files</label>`
+    : `<strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
   const state = new URLSearchParams(location.search).get('search-state') || (scene === 'search-limited' ? 'limited' : 'ready');
-  const notices = { ready: '3 条结果', limited: '结果超过 1000 条，可以继续搜索，或缩小范围与关键词。', timeout: '搜索超时，已保留完成的结果。', error: '搜索表达式无效，请检查括号后重试。\n'.repeat(12).trim(), empty: '' };
-  const rows = repository ? [['NativeGitPanel.cs', 'src/Augit.App', '214: Git 状态已刷新。'], ['architecture.md', 'docs', 'Git 状态以本地事实为准'], ['Win32SmokeTests.cs', 'tests', 'Assert.Contains("Git 状态")']]
+  const notices = { ready: '3 results', limited: 'More than 1000 results. Continue searching or narrow the query.', timeout: 'Search timed out; completed results are preserved.', error: 'Invalid search expression. Check the parentheses and try again.\n'.repeat(12).trim(), empty: '' };
+  const rows = repository ? [['NativeGitPanel.cs', 'src/Augit.App', '214: Git status refreshed.'], ['architecture.md', 'docs', 'Git status reflects local facts'], ['Win32SmokeTests.cs', 'tests', 'Assert.Contains("Git Status")']]
     : [['NativeGitPanel.cs', 'src/Augit.App'], ['NativeGitPanelRenderingTests.cs', 'tests/Augit.App.Tests'], ['product-spec.md', 'docs']];
   const results = state === 'empty' || state === 'error' ? '' : `<div class="search-results">${rows.map(([name, directory, match], index) => `<a class="search-result${index === 0 ? ' selected' : ''}" href="text-viewer.html">${fileTypeIcon(name)}<span>${name}${match ? ` <span class="commit-meta">${match}</span>` : ''}</span><span class="commit-meta">${directory}</span></a>`).join('')}</div>`;
   const notice = repository && notices[state] ? `<div class="search-notice" role="status" tabindex="0">${notices[state]}</div>` : '';
-  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${searchHeader}</div><div class="search-query"><input class="search-field" value="${state === 'empty' ? '' : repository ? 'Git 状态' : 'NativeGitPanel'}" aria-label="搜索内容"></div>${results}${notice}</div>`;
+  return `<div class="search-overlay ${repository ? 'repository-mode' : ''}" data-augit-overlay><div class="search-tabs">${searchHeader}</div><div class="search-query"><input class="search-field" value="${state === 'empty' ? '' : repository ? 'Git Status' : 'NativeGitPanel'}" aria-label="Search"></div>${results}${notice}</div>`;
 }
 
 /**
@@ -4970,8 +5442,8 @@ function searchOverlay(kind) {
  * 选 Abort 则取消搜索并保留已有结果。
  */
 function searchLimitBody() {
-  return `<div class="info-block" style="width:auto;text-align:left"><h2>找到的结果过多</h2>`
-    + `<p>结果已超过 1000 条。确定要继续搜索吗？</p></div>`;
+  return `<div class="info-block" style="width:auto;text-align:left"><h2>Too Many Results</h2>`
+    + `<p>More than 1000 results found. Continue searching?</p></div>`;
 }
 
 function searchLimitDialog() {
@@ -4979,18 +5451,23 @@ function searchLimitDialog() {
   // `[data-augit-overlay]`，这里的兄弟节点因此不会被搜到、也不会在"继续"后留下残影
   // （实时侧由 `openSearchLimitDialog()`/`closeSearchLimitDialog()` 显式增删）。
   return `<div class="overlay-layer live-overlay search-limit-window" data-augit-overlay><div class="scrim search-limit-scrim"></div>`
-    + `<section class="dialog search-limit-dialog" role="dialog" aria-modal="true" aria-label="结果过多">`
-    + `<div class="dialog-header"><span>结果过多</span></div>`
+    + `<section class="dialog search-limit-dialog" role="dialog" aria-modal="true" aria-label="Too many results">`
+    + `<div class="dialog-header"><span>Too many results</span></div>`
     + `<div class="dialog-body">${searchLimitBody()}</div>`
     + `<div class="dialog-footer"><span class="footer-help"></span>`
-    + `<button type="button" class="secondary-button" data-search-limit-action="abort">中止</button>`
-    + `<button type="button" class="primary-button" data-search-limit-action="continue">继续</button>`
+    + `<button type="button" class="secondary-button" data-search-limit-action="abort">Abort</button>`
+    + `<button type="button" class="primary-button" data-search-limit-action="continue">Continue</button>`
     + `</div></section></div>`;
 }
 
 function dialog(title, body, footer, wide = false, extraClass = "") {
   // scrim 与对话框作为同一个覆盖层整体替换，避免局部刷新后残留其一。
-  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header"><span>${title}</span><span class="grow"></span><a class="icon-button" href="main-project.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
+  // 远端使用已批准的实机标题结构，品牌仍为Augit自身标记。
+  const remote = extraClass.split(' ').some(name => name === 'remote-dialog' || name === 'remote-define-dialog');
+  const heading = remote
+    ? `<span class="brand-mark" aria-hidden="true">A</span><span class="remote-title">${title}</span>`
+    : `<span>${title}</span><span class="grow"></span>`;
+  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header">${heading}<a class="icon-button" href="main-project.html" aria-label="Close">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
 }
 
 /**
@@ -5009,10 +5486,10 @@ function dialog(title, body, footer, wide = false, extraClass = "") {
  * 样例页与实时外壳共用本函数（`data-repo-init-action` 的绑定在 `live-data.js`）。
  */
 function repositoryInitBody(target, notice, busy = false) {
-  return `<div class="form-grid"><label for="repo-init-path">目标目录</label>`
-    + `<div class="path-row"><input id="repo-init-path" class="text-field" aria-label="目标目录" value="${escapeHtml(target || "")}" readonly data-repo-init-path>`
-    + `<button type="button" class="secondary-button" data-repo-init-action="pick"${busy ? " disabled" : ""}>选择目录…</button></div></div>`
-    + `<p class="commit-meta">初始化会在该目录创建 .git 元数据，不会提交或修改现有文件。</p>`
+  return `<div class="form-grid"><label for="repo-init-path">Destination</label>`
+    + `<div class="path-row"><input id="repo-init-path" class="text-field" aria-label="Destination" value="${escapeHtml(target || "")}" readonly data-repo-init-path>`
+    + `<button type="button" class="secondary-button" data-repo-init-action="pick"${busy ? " disabled" : ""}>Choose Directory…</button></div></div>`
+    + `<p class="commit-meta">Initialization creates .git metadata in this directory; existing files are kept.</p>`
     + `<div class="stash-notice" role="status" data-repo-init-notice${notice ? "" : " hidden"}>${escapeHtml(notice || "")}</div>`;
 }
 
@@ -5024,9 +5501,9 @@ function repositoryInitBody(target, notice, busy = false) {
  * （`GitBundle.properties:101-103`），带警告图标；两项结果就是 Yes/No。
  */
 function repositoryInitWarningBody(target) {
-  return `<div class="info-block" style="width:auto;text-align:left"><h2>所选目录已在 Git 下</h2>`
+  return `<div class="info-block" style="width:auto;text-align:left"><h2>The selected directory is already under Git</h2>`
     + `<p>${escapeHtml(target || "")}</p>`
-    + `<p>确定要为它创建一个新的 VCS 根吗？</p></div>`
+    + `<p>Create a new VCS root for this directory?</p></div>`
     + `<div class="stash-notice" role="status" data-repo-init-notice hidden></div>`;
 }
 
@@ -5036,10 +5513,10 @@ function repositoryInitScene() {
   const target = "D:\\projects\\notes";
   if (state === "under-git") {
     return dialog(
-      "初始化 Git",
+      "Git Init",
       repositoryInitWarningBody(target),
-      '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
-        + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
+      '<button type="button" class="secondary-button" data-repo-init-action="cancel">Cancel</button>'
+        + '<button type="button" class="primary-button" data-repo-init-action="confirm">Continue</button>',
       false,
       // 权威 `GitInit.java:66-74`：只有"目标已在 Git 下"这一档是 `Messages.showYesNoDialog(...,
       // getWarningIcon())` ⇒ 标题画警告图标（橙底白叹号）；其余初始化状态没有权威对话框。
@@ -5047,15 +5524,15 @@ function repositoryInitScene() {
   }
   const busy = state === "busy";
   const notice = busy
-    ? "正在初始化…"
+    ? "Initializing…"
     : state === "failure"
-      ? "Git 初始化失败：fatal: unable to create 'D:/projects/notes/.git/': Permission denied"
+      ? "Git initialization failed:fatal: unable to create 'D:/projects/notes/.git/': Permission denied"
       : "";
   return dialog(
-    "创建 Git 仓库",
+    "Create Git Repository",
     repositoryInitBody(target, notice, busy),
-    `<button type="button" class="secondary-button" data-repo-init-action="cancel"${busy ? " disabled" : ""}>取消</button>`
-      + `<button type="button" class="primary-button" data-repo-init-action="create"${busy ? " disabled" : ""}>${busy ? "正在初始化…" : "创建"}</button>`,
+    `<button type="button" class="secondary-button" data-repo-init-action="cancel"${busy ? " disabled" : ""}>Cancel</button>`
+      + `<button type="button" class="primary-button" data-repo-init-action="create"${busy ? " disabled" : ""}>${busy ? "Initializing…" : "Create"}</button>`,
     false,
     "repository-init-dialog");
 }
@@ -5083,9 +5560,9 @@ function smartCheckoutBody(paths, notice, busy = false) {
   const list = (paths || []).length > 0
     ? `<div class="smart-checkout-paths" role="list">${paths.map((path) =>
       `<div class="smart-checkout-path" role="listitem" title="${escapeHtml(path)}">${escapeHtml(path)}</div>`).join("")}</div>`
-    : `<p class="commit-meta">本地改动会被目标分支覆盖。</p>`;
+    : `<p class="commit-meta">Local changes would be overwritten by the target branch.</p>`;
   return list
-    + `<p class="commit-meta">以下文件的本地改动会被检出覆盖。Augit 可以暂存这些改动，检出后再恢复。</p>`
+    + `<p class="commit-meta">Local changes to these files would be overwritten by checkout. Augit can stash them, check out, and restore them afterward.</p>`
     + `<div class="stash-notice" role="status" data-smart-notice${notice ? "" : " hidden"}>${escapeHtml(notice || "")}</div>`;
 }
 
@@ -5095,17 +5572,17 @@ function smartCheckoutScene() {
   const paths = ["docs/notes.txt", "src/App.cs"];
   const busy = state === "busy";
   const notice = busy
-    ? "正在暂存改动并切换…"
+    ? "Stashing changes and checking out…"
     : state === "conflict"
-      ? "恢复改动时发生冲突：临时 stash 已保留，解决冲突后可继续。"
+      ? "Restoring changes caused conflicts. The temporary stash is kept; resolve conflicts to continue."
       : state === "restored"
-        ? "已切换到 feature/ux，改动的暂存已删除。"
+        ? "Checked out feature/ux; the temporary stash was removed."
         : "";
   const footer = state === "conflict"
-    ? '<button type="button" class="secondary-button" data-smart-action="cancel">关闭</button>'
-    : `<button type="button" class="secondary-button" data-smart-action="cancel"${busy ? " disabled" : ""}>不检出</button>`
-      + `<button type="button" class="primary-button" data-smart-action="smart"${busy ? " disabled" : ""}>${busy ? "正在切换…" : "Smart Checkout"}</button>`;
-  return dialog("Git 检出问题", smartCheckoutBody(paths, notice, busy), footer, false, "smart-checkout-dialog");
+    ? '<button type="button" class="secondary-button" data-smart-action="cancel">Close</button>'
+    : `<button type="button" class="secondary-button" data-smart-action="cancel"${busy ? " disabled" : ""}>Don't Checkout</button>`
+      + `<button type="button" class="primary-button" data-smart-action="smart"${busy ? " disabled" : ""}>${busy ? "Checking out…" : "Smart Checkout"}</button>`;
+  return dialog("Git Checkout Problem", smartCheckoutBody(paths, notice, busy), footer, false, "smart-checkout-dialog");
 }
 
 /**
@@ -5117,7 +5594,7 @@ function smartCheckoutScene() {
  * 按钮用 type="button" 明确语义，避免被当作链接触发页面跳转。
  */
 function compactInputDialog(title, label, value, confirmLabel) {
-  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog compact-input" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-compact-dialog="${escapeHtml(title)}"><div class="dialog-header"><span>${escapeHtml(title)}</span><span class="grow"></span><button type="button" class="icon-button" data-compact-action="close" aria-label="关闭">${icon("x")}</button></div><div class="dialog-body"><label for="compact-input-field">${escapeHtml(label)}</label><input id="compact-input-field" class="text-field" aria-label="${escapeHtml(label)}" value="${escapeHtml(value || "")}" data-compact-field></div><div class="dialog-footer"><span class="footer-help"></span><button type="button" class="secondary-button" data-compact-action="cancel">取消</button><button type="button" class="primary-button" data-compact-action="confirm">${escapeHtml(confirmLabel)}</button></div></section></div>`;
+  return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog compact-input" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-compact-dialog="${escapeHtml(title)}"><div class="dialog-header"><span>${escapeHtml(title)}</span><span class="grow"></span><button type="button" class="icon-button" data-compact-action="close" aria-label="Close">${icon("x")}</button></div><div class="dialog-body"><label for="compact-input-field">${escapeHtml(label)}</label><input id="compact-input-field" class="text-field" aria-label="${escapeHtml(label)}" value="${escapeHtml(value || "")}" data-compact-field></div><div class="dialog-footer"><span class="footer-help"></span><button type="button" class="secondary-button" data-compact-action="cancel">Cancel</button><button type="button" class="primary-button" data-compact-action="confirm">${escapeHtml(confirmLabel)}</button></div></section></div>`;
 }
 
 // 外壳注入真实引用时使用：分组、当前分支标记与二级动作沿用样例版结构。
@@ -5127,22 +5604,22 @@ function liveBranchesPopover() {
   const tags = references.tags || [];
   const local = branches.filter(branch => !branch.isRemote);
   const remote = branches.filter(branch => branch.isRemote);
-  const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}"${branch.isCurrent ? ' data-branch-current="true"' : ""}>${gitReferenceIcon(branch.isCurrent ? "head" : branch.isRemote ? "remote" : "local")} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">当前</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
+const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}"${branch.isCurrent ? ' data-branch-current="true"' : ""}>${branchTreeIcon(branch, branch.isRemote ? 'remote' : 'branch')} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">Current</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
   const group = (label, items) => items.length === 0
     ? ""
     : `<div class="menu-item"><span>${icon("chevron-down")}</span><strong>${label}</strong></div>${items.join("")}`;
   const checkoutError = window.__augitCheckoutError
     ? `<div class="inline-alert danger" role="alert">${escapeHtml(window.__augitCheckoutError)}</div>`
     : "";
-  const quick = `<input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作">${checkoutError}<a class="menu-item" href="operation-result.html" data-popover-action="fetch">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html" data-popover-action="commit">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html" data-popover-action="push">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html" data-popover-action="create-branch">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html" data-popover-action="checkout-revision">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div>`;
-  const groups = group("本地", local.map(branch => row(branch, branch.isCurrent)))
-    + group("远程", remote.map(branch => row(branch, false)))
-    + group("标签", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon("tag")} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
+  const quick = `<input class="search-field" placeholder="Search branches and actions" aria-label="Search branches and actions">${checkoutError}<a class="menu-item" href="operation-result.html" data-popover-action="fetch">${icon("branch-update")} Update Project…</a><a class="menu-item" href="commit-changes.html" data-popover-action="commit">${icon("git-commit-horizontal")} Commit…</a><a class="menu-item" href="push.html" data-popover-action="push">${icon("branch-push")} Push…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html" data-popover-action="create-branch">${icon("plus")} New Branch…</a><a class="menu-item" href="git-compare.html" data-popover-action="checkout-revision">${icon("git-compare-arrows")} Checkout Tag or Revision…</a><div class="menu-separator"></div>`;
+  const groups = group("Local", local.map(branch => row(branch, branch.isCurrent)))
+    + group("Remote", remote.map(branch => row(branch, false)))
+    + group("Tags", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon("tag")} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
   const current = local.find(branch => branch.isCurrent);
   const actions = current
-    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} 从 ${escapeHtml(current.name)} 新建分支…</a><a class="menu-item" href="git-compare.html" data-popover-action="compare-workspace">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html" data-popover-action="create-worktree">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} 重命名…</a></section>`
+    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} From ${escapeHtml(current.name)} New Branch…</a><a class="menu-item" href="git-compare.html" data-popover-action="compare-workspace">${icon("git-compare-arrows")} Compare with Workspace</a><a class="menu-item" href="worktrees.html" data-popover-action="create-worktree">${icon("folder-git-2")} New Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} Push…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} Rename…</a></section>`
     : "";
-  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">没有引用</p>'}</section>${actions}</div>`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">No references</p>'}</section>${actions}</div>`;
 }
 
 /**
@@ -5162,16 +5639,16 @@ function liveBranchesPopover() {
  * 只有"权威有这个动作、Augit 尚未接线"的项才留成禁用＋原因（例如远端分支的删除）。
  */
 function branchRowMenu({ name, kind, isCurrent }) {
-  const noun = kind === "tag" ? "标签" : "分支";
+  const noun = kind === "tag" ? "Tags" : "Branch";
   const link = (action, iconName, label) => `<a class="menu-item" href="#" data-ref-action="${action}">${icon(iconName)} ${label}</a>`;
   const blocked = (iconName, label, reason) => `<span class="menu-item disabled" aria-disabled="true" title="${escapeHtml(reason)}">${icon(iconName)} ${label}</span>`;
   const checkout = kind === "branch" && isCurrent
     ? ""
-    : link("checkout", "branch-update", `检出${noun}`);
-  const rename = kind === "branch" ? link("rename", "rename", "重命名…") : "";
+    : link("checkout", "branch-update", `Checkout${noun}`);
+  const rename = kind === "branch" ? link("rename", "rename", "Rename…") : "";
   const remove = kind === "remote"
-    ? blocked("trash-2", `删除${noun}`, "Augit 尚未接线删除远端分支。")
-    : isCurrent ? "" : link("delete", "trash-2", `删除${noun}`);
+    ? blocked("trash-2", `Delete${noun}`, "Deleting remote branches is unavailable.")
+    : isCurrent ? "" : link("delete", "trash-2", `Delete${noun}`);
   const tail = rename + remove;
   return `<section class="popover context-menu ref-menu" data-ref-name="${escapeHtml(name)}" data-ref-kind="${escapeHtml(kind)}">`
     + checkout
@@ -5231,20 +5708,20 @@ function refTreeRowMenu({ selections = [], references = { branches: [], tags: []
     .filter(Boolean);
   const headSelected = selections.some((item) => item.kind === "head");
   // 权威 `action.Git.Compare.Selected.title` = "Compare Branches"。
-  const compareLink = link("compare-branches", "git-compare-arrows", "比较分支");
-  const compareDisabled = disabled("compare-branches", "git-compare-arrows", "比较分支", "请选择同一仓库中的两个不同分支。");
+  const compareLink = link("compare-branches", "git-compare-arrows", "Compare Branches");
+  const compareDisabled = disabled("compare-branches", "git-compare-arrows", "Compare Branches", "Select two different branches in the same repository.");
   const items = [];
   if (selections.length === 1 && selections[0].kind === "tag") {
-    items.push(link("delete", "trash-2", "删除标签"));
+    items.push(link("delete", "trash-2", "Delete Tag"));
   } else if (selections.length === 1 && selections[0].kind !== "head" && branches.length === 1) {
     const branch = branches[0];
     if (!branch.isCurrent) {
-      items.push(link("checkout", "branch-update", branch.isRemote ? "检出远端分支" : "检出分支"));
-      items.push(link("compare", "git-compare-arrows", "与当前分支比较"));
+      items.push(link("checkout", "branch-update", branch.isRemote ? "Checkout Remote Branch" : "Checkout Branch"));
+      items.push(link("compare", "git-compare-arrows", "Compare with Current"));
     }
-    items.push(link("rename", "rename", "重命名…"));
+    items.push(link("rename", "rename", "Rename…"));
     if (!branch.isCurrent) {
-      items.push(link("delete", "trash-2", "删除分支…"));
+      items.push(link("delete", "trash-2", "Delete Branch…"));
     }
   } else if (selections.length === 2 && headSelected && branches.length === 1) {
     // `HeadAndBranchActions`：配对是（该分支, 当前分支）；两个名字相同时禁用（`getBranchPair()` 的守卫）。
@@ -5254,8 +5731,8 @@ function refTreeRowMenu({ selections = [], references = { branches: [], tags: []
     if (branches.length === 2) {
       items.push(branches[0].name === branches[1].name ? compareDisabled : compareLink);
     }
-    items.push(link("update-selected", "branch-update", "更新选中分支"));
-    items.push(link("delete", "trash-2", "删除…"));
+    items.push(link("update-selected", "branch-update", "Update Selected"));
+    items.push(link("delete", "trash-2", "Delete…"));
   }
   if (items.length === 0) {
     return "";
@@ -5267,10 +5744,11 @@ function refTreeRowMenu({ selections = [], references = { branches: [], tags: []
 }
 
 function branchesPopover() {
-  return `<div class="overlay-layer" data-augit-overlay><section class="popover"><input class="search-field" placeholder="搜索分支和操作" aria-label="搜索分支和操作"><a class="menu-item" href="operation-result.html">${icon("branch-update")} 更新项目…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} 提交…</a><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 检出标签或版本…</a><div class="menu-separator"></div><div class="menu-item"><span>${icon("chevron-down")}</span><strong>本地</strong></div><div class="menu-item selected">${gitReferenceIcon()} main <span class="grow"></span>${icon("chevron-right")}</div></section><section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} 从 main 新建分支…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} 与工作区比较</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} 新建 Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} 推送…</a><a class="menu-item" href="branches.html">${icon("rename")} 重命名…</a></section></div>`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover"><input class="search-field" placeholder="Search branches and actions" aria-label="Search branches and actions"><a class="menu-item" href="operation-result.html">${icon("branch-update")} Update Project…</a><a class="menu-item" href="commit-changes.html">${icon("git-commit-horizontal")} Commit…</a><a class="menu-item" href="push.html">${icon("branch-push")} Push…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html">${icon("plus")} New Branch…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} Checkout Tag or Revision…</a><div class="menu-separator"></div><div class="menu-item"><span>${icon("chevron-down")}</span><strong>Local</strong></div><div class="menu-item selected">${gitReferenceIcon()} main <span class="grow"></span>${icon("chevron-right")}</div></section><section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html">${icon("plus")} New Branch from main…</a><a class="menu-item" href="git-compare.html">${icon("git-compare-arrows")} Compare with Workspace</a><a class="menu-item" href="worktrees.html">${icon("folder-git-2")} New Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} Push…</a><a class="menu-item" href="branches.html">${icon("rename")} Rename…</a></section></div>`;
 }
 
 function renderScene() {
+  if (window.__augitSettingsSurface) return '<main class="augit-window settings-surface"></main>';
   const settingsBody = settingsBodyFallback();
   // Stash 创建对话框的字段与提示取权威 `GitStashDialog.kt:41-53` + `GitBundle.properties:52-55,437-446`：
   //   字段顺序 根 → 当前分支 → 消息 → 复选；每个字段都带 toolTipText（`common.git.root.tooltip`、
@@ -5280,12 +5758,12 @@ function renderScene() {
   //   （根目录／当前分支／消息／保留索引），而权威有该复选、宿主机 `ShellBridge.cs:1970` 也早已支持
   //   `includeUntracked` 且**默认 true**。加上它等于改变"什么会被 stash"（产品行为，不只是呈现），
   //   已升级为人工裁决，见 docs/nui-behavior/10-backlog.md §三 与 13-git-dialogs.md §2.3。
-  const stashBody = `<div class="form-grid"><label for="stash-root">Git 根目录</label><select id="stash-root" class="select-field" title="选择 Git 仓库根目录"><option>D:\\github\\Augit</option></select><label>当前分支</label><span class="stash-branch" title="当前已检出的分支">main</span><label for="stash-message">消息</label><textarea id="stash-message" class="message-field" title="在此输入 Stash 消息"></textarea><span></span><label class="check-line" title="勾选后，已加入索引的改动会原样保留"><input id="stash-keep" type="checkbox">保留索引状态</label><label class="check-line" title="勾选后，未跟踪文件也会一起暂存。"><input id="stash-include-untracked" type="checkbox">包含未跟踪文件</label></div><div class="stash-notice" role="status" hidden></div>`;
-  const cloneBody = `<div class="form-grid"><label for="clone-version">版本控制</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">仓库 URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">目录</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">浅克隆，历史截断为</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="浅克隆深度" title="--depth" disabled><span>个提交</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
+  const stashBody = `<div class="form-grid"><label for="stash-root">Git root</label><select id="stash-root" class="select-field" title="Choose Git repository root"><option>D:\\github\\Augit</option></select><label>Current branch</label><span class="stash-branch" title="Currently checked out branch">main</span><label for="stash-message">Message</label><textarea id="stash-message" class="message-field" title="Enter Stash Message here"></textarea><span></span><label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox">Include untracked files</label></div><div class="stash-notice" role="status" hidden></div>`;
+  const cloneBody = `<div class="form-grid"><label for="clone-version">Version control</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">Repository URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">Directory</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">Shallow clone, history truncated to</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="Shallow clone depth" title="--depth" disabled><span>commits</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
   switch (scene) {
     case "main-project": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "git" });
     case "text-viewer": return shell({ activeRail: "project", side: "project", editor: "text-find", selectedFile: "MainWindow.cs" });
-    case "go-to-line": return shell({ activeRail: "project", side: "project", editor: "text", selectedFile: "MainWindow.cs", overlay: `<div class="scrim"></div><section class="dialog compact-input" role="dialog" aria-modal="true" aria-label="跳转行"><div class="dialog-header"><span>跳转行</span><span class="grow"></span><a class="icon-button" href="text-viewer.html" aria-label="关闭">${icon("x")}</a></div><div class="dialog-body"><label for="prompt-line">行号</label><input id="prompt-line" class="text-field" inputmode="numeric" aria-label="行号" autofocus></div><div class="dialog-footer"><a class="secondary-button" href="text-viewer.html">取消</a><a class="primary-button" href="text-viewer.html">确定</a></div></section>` });
+    case "go-to-line": return shell({ activeRail: "project", side: "project", editor: "text", selectedFile: "MainWindow.cs", overlay: `<div class="scrim"></div><section class="dialog compact-input goto-line-dialog" role="dialog" aria-modal="true" aria-label="Go to Line"><div class="dialog-header"><span class="brand-mark" aria-hidden="true">A</span><span class="goto-line-title">Go to Line</span><a class="icon-button" href="text-viewer.html" aria-label="Close">${icon("x")}</a></div><div class="dialog-body"><label for="prompt-line">Line number</label><span class="goto-line-field"><input id="prompt-line" class="text-field" inputmode="numeric" aria-label="Line number" autofocus></span></div><div class="dialog-footer"><a class="primary-button" href="text-viewer.html">OK</a><a class="secondary-button" href="text-viewer.html">Cancel</a></div></section>` });
     case "markdown-preview": return shell({ activeRail: "project", side: "project", editor: "markdown" });
     case "json-preview": return shell({ activeRail: "project", side: "project", editor: "json", selectedFile: "global.json" });
     case "image-preview": return shell({ activeRail: "project", side: "project", editor: "image", selectedFile: "image-sample.png" });
@@ -5307,52 +5785,51 @@ function renderScene() {
     case "history-diff-failure":
     case "history-diff-cancelled": return shell({ activeRail: "history", side: "project", editor: "comparison", bottom: "git", selectedFile: "app.manifest", comparisonState: scene.slice("history-diff-".length) });
     case "branches": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: (window.__augitLive && window.__augitLive.references) ? liveBranchesPopover() : branchesPopover(), selectedFile: "app.manifest" });
-    case "stash": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: dialog("Stash", stashBody, `<button class="secondary-button">取消</button><button class="primary-button">创建 Stash</button>`, false, "stash-dialog") });
+    case "stash": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: dialog("Stash", stashBody, `<button class="primary-button">Create Stash</button><button class="secondary-button">Cancel</button>`, false, "stash-dialog") });
     // 危险操作的「影响确认」基线（⑭ 第 7 项）：正文出自实时侧同一函数 `dangerConfirmBody()`，
     // 确认按钮用动作名（规格 §10.4）。删除 Stash / 移除 Worktree / 删除分支或标签共用该结构。
     case "stash-drop-confirm": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", selectedFile: "product-spec.md",
-      overlay: dialog("删除 Stash", dangerConfirmBody("stash@{0} · fix: 待处理的本地改动", [
-        "删除后这个 Stash 及其 2 个文件的改动都会消失，并且无法恢复。",
-        "工作区与其它 Stash 不会被修改。",
-      ]), '<button type="button" class="secondary-button">取消</button><button type="button" class="danger-button">删除 stash@{0}</button>', false, "stash-drop-dialog") });
-    case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktree 管理", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "worktree-dialog") });
-    case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("远端管理", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "remote-dialog") });
-    case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset 当前分支", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">目标提交</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">模式</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · 同时重置索引</option><option value="soft">Soft · 仅移动 HEAD</option><option value="hard">Hard · 重置索引和工作区</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="secondary-button" type="button">取消</button><button class="reset-run danger-button" type="button">确认 Reset Hard</button>`, false, "reset-dialog") });
-    case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("克隆仓库", (window.__augitLive && window.__augitLive.settings) ? liveCloneBody() : cloneBody, `<button class="secondary-button">取消</button><button class="primary-button">克隆</button>`, true, "clone-dialog") });
-    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">取消</button><button class="primary-button">推送</button>`, true, "push-dialog") });
+      overlay: dialog("Delete Stash", dangerConfirmBody("stash@{0} · fix: 待处理的本地改动", [
+        "Deleting this Stash discards changes in its 2 files permanently.",
+        "The working tree and other Stashes are unchanged.",
+      ]), '<button type="button" class="secondary-button">Cancel</button><button type="button" class="danger-button">Delete stash@{0}</button>', false, "stash-drop-dialog") });
+    case "worktrees": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Worktrees", (window.__augitLive && window.__augitLive.worktrees) ? liveManagementPage("worktrees") : managementPage("worktrees"), `<a class="secondary-button" href="git-history.html">Close</a>`, true, "worktree-dialog") });
+    case "remote": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Git Remotes", (window.__augitLive && window.__augitLive.remotes) ? liveManagementPage("remote") : managementPage("remote"), `<button class="primary-button" type="button" data-remote-action="ok">OK</button>`, true, "remote-dialog") });
+    case "reset": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Reset Current Branch", (window.__augitLive && window.__augitLive.history) ? liveResetBody() : `<div class="form-grid"><label for="reset-target">Target commit</label><input id="reset-target" class="text-field" value="dfe5c25a"><label for="reset-mode">Mode</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · Reset index</option><option value="soft">Soft · Move HEAD only</option><option value="hard">Hard · Reset index and working tree</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`, `<button class="reset-run danger-button" type="button">Reset Hard</button><button class="secondary-button" type="button">Cancel</button>`, false, "reset-dialog") });
+    case "clone": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("Clone Repository", (window.__augitLive && window.__augitLive.settings) ? liveCloneBody() : cloneBody, `<button class="secondary-button">Cancel</button><button class="primary-button">Clone</button>`, true, "clone-dialog") });
+    case "push": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), (window.__augitLive && window.__augitLive.push) ? livePushDialogBody() : pushDialogBody(false), `<button class="secondary-button">Cancel</button><button class="primary-button">Push</button>`, true, "push-dialog") });
     case "quick-open": return shell({ activeRail: "project", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("quick") : searchOverlay("quick"), selectedFile: "MainWindow.cs" });
     case "repository-search": return shell({ activeRail: "search", side: "project", editor: "text", overlay: (window.__augitLive && window.__augitLive.search) ? liveSearchOverlay("repository") : searchOverlay("repository"), selectedFile: "NativeGitPanel.cs" });
     case "terminal": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", selectedFile: "app.manifest" });
-    case "settings": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl") });
-    case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">设置没有保存成功：无法访问文件或目录，请检查权限或占用情况。 设置没有被修改，可以修正后重试。</span><a class="secondary-button" href="main-project.html">取消</a><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
+    case "settings": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("Settings — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<button type="button" class="primary-button" data-settings-action="save">OK</button><button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button><button type="button" class="secondary-button" data-settings-action="apply">Apply</button>`, true, "dialog-xl") });
+    case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("Settings — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">Settings were not saved: cannot access the file or directory. Check permissions or file locks and try again.</span><button type="button" class="primary-button" data-settings-action="save">OK</button><button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button><button type="button" class="secondary-button" data-settings-action="apply">Apply</button>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
     // 未保存修改标记（⑭ 第 6 项，PyCharm 实测的实心圆点）：静态基线里直接标"文件查看"有草稿。
-    case "settings-dirty": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("设置 — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsLayoutHtml("appearance", null, false, new Set(["file-view"])), `<a class="secondary-button" href="main-project.html">取消</a><button class="secondary-button">应用</button><a class="primary-button" href="main-project.html">确定</a>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
-    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", gitUnavailable: "未找到 Git for Windows 2.40 或更高版本。", toast: `<div class="toast error"><div class="toast-title">Git 不可用</div><div>未找到 Git for Windows 2.40 或更高版本，文件浏览仍可使用。</div><div class="button-row"><a class="secondary-button" href="settings.html">配置 git.exe</a></div></div>` });
-    case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">推送失败</div><div>当前仓库未配置远端，Git 没有修改本地提交或工作区。</div><div class="commit-meta" style="margin-top:5px">关闭提示后不保留命令输出或操作历史。</div></div>` });
-    case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("打开工作区", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} 最近目录</div><div class="tree-row">${icon("folder-open")} 选择目录…</div><div class="tree-row">${icon("clone")} 克隆仓库…</div></div><div class="management-detail"><h2>最近目录</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">同一目录已经打开时激活原窗口。</p></div></div>`, `<a class="secondary-button" href="main-project.html">取消</a><button class="primary-button">打开</button>`, true) });
+    case "settings-dirty": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("Settings — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsLayoutHtml("appearance", null, false, new Set(["file-view"])), `<button type="button" class="primary-button" data-settings-action="save">OK</button><button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button><button type="button" class="secondary-button" data-settings-action="apply">Apply</button>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
+    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", gitUnavailable: "Git for Windows 2.40 or newer was not found.", toast: `<div class="toast error"><div class="toast-title">Git unavailable</div><div>Git for Windows 2.40 or newer was not found; file browsing remains available.</div><div class="button-row"><a class="secondary-button" href="settings.html">Configure git.exe</a></div></div>` });
+    case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">Push Failed</div><div>No remote is configured. Local commits and the working tree are unchanged.</div><div class="commit-meta" style="margin-top:5px">Command output is discarded when this notification closes.</div></div>` });
+    case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("Open Workspace", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} Recent Workspaces</div><div class="tree-row">${icon("folder-open")} Choose Directory…</div><div class="tree-row">${icon("clone")} Clone Repository…</div></div><div class="management-detail"><h2>Recent Workspaces</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">Opening the same directory activates its existing window.</p></div></div>`, `<a class="secondary-button" href="main-project.html">Cancel</a><button class="primary-button">Open</button>`, true) });
     case "repository-init": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: repositoryInitScene() });
     case "blame": return shell({ activeRail: "history", side: "project", editor: "blame", bottom: "file-history", selectedFile: "product-spec.md" });
     case "smart-checkout": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: smartCheckoutScene() });
     case "rollback": {
       const liveStatus = window.__augitLive && window.__augitLive.status;
       const rollbackFile = liveStatus && liveStatus.files ? (liveStatus.files.find(f => f.group === "Changes") || liveStatus.files[0]) : null;
-      const title = rollbackFile ? `回滚文件 · ${rollbackFile.path}` : "回滚文件 · src/Augit.App/app.manifest";
-      const body = rollbackFile ? liveRollbackBody() : `<div class="inline-alert danger rollback-impact"><strong>将丢失此文件的全部本地改动</strong><p class="commit-meta">回滚完整文件，不能只回滚选中的差异块。</p><p class="rollback-recycle" hidden>未跟踪或新增文件将移入 Windows 回收站。</p></div><div class="rollback-comparison">${diffView(true, "ready", true)}</div>`;
-      return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(title, body, `<a class="secondary-button" href="commit-diff.html">取消</a><a class="danger-button" href="operation-progress.html">回滚完整文件</a>`, true, "rollback-dialog") });
+      const title = rollbackFile ? `Rollback File · ${rollbackFile.path}` : "Rollback File · src/Augit.App/app.manifest";
+      const body = rollbackFile ? liveRollbackBody() : `<div class="inline-alert danger rollback-impact"><strong>All local changes in this file will be discarded</strong><p class="commit-meta">Rollback affects the entire file, including all local changes.</p><p class="rollback-recycle" hidden>Untracked or new files are moved to the Windows Recycle Bin.</p></div><div class="rollback-comparison">${diffView(true, "ready", true)}</div>`;
+      return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(title, body, `<a class="secondary-button" href="commit-diff.html">Cancel</a><a class="danger-button" href="operation-progress.html">Rollback File</a>`, true, "rollback-dialog") });
     }
-    case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast"><div class="toast-title">正在执行 Smart Checkout…</div><div class="commit-meta">正在恢复临时 Stash</div><div class="progress-track"><div class="progress-value"></div></div><div class="button-row"><a class="secondary-button" href="operation-result.html">取消</a></div></div>` });
-    case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("关闭终端", `<div class="info-block" style="width:auto;text-align:left"><h2>终端中仍有命令正在运行</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>继续将结束前台命令、Shell 及其整个子进程树。</p></div>`, `<a class="secondary-button" href="terminal.html">保留终端</a><a class="danger-button" href="main-project.html">结束命令并关闭</a>`) });
+    case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast"><div class="toast-title">Running Smart Checkout…</div><div class="commit-meta">Restoring temporary Stash</div><div class="progress-track"><div class="progress-value"></div></div><div class="button-row"><a class="secondary-button" href="operation-result.html">Cancel</a></div></div>` });
+    case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("Close Terminal", `<div class="info-block" style="width:auto;text-align:left"><h2>A command is still running in the terminal</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>Continuing stops the foreground command, shell, and all child processes.</p></div>`, `<a class="secondary-button" href="terminal.html">Keep Terminal</a><a class="danger-button" href="main-project.html">Stop Command and Close</a>`) });
     case "search-limited": {
       // 到限态叠上权威的「结果过多」；`search-state=timeout` 等其它态只显示浮层自己的说明。
       const limited = (new URLSearchParams(location.search).get('search-state') || 'limited') === 'limited';
       return shell({ activeRail: "search", side: "project", editor: "text", overlay: searchOverlay("repository") + (limited ? searchLimitDialog() : ''), selectedFile: "NativeGitPanel.cs" });
     }
-    case "conflict-list": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("Rebase 冲突", `<div class="toolbar"><strong>2 个冲突文件</strong><span class="grow"></span><span class="commit-meta">当前步骤 2/4</span></div><div class="changes-list"><a class="check-row selected" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>NativeGitPanel.cs</span><span class="tree-path">内容冲突</span></a><a class="check-row" href="conflict-resolver.html"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>MainWindow.cs</span><span class="tree-path">内容冲突</span></a></div>`, `<a class="secondary-button" href="main-project.html">Abort Rebase</a><button class="secondary-button">Skip</button><button class="primary-button" disabled>Continue Rebase</button>`, true) });
-    case "conflict-resolver": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("解决冲突", (window.__augitLive && window.__augitLive.conflict) ? liveConflictResolver() : conflictResolver(), `<a class="secondary-button" href="conflict-list.html">返回冲突列表</a>`, true, "dialog-xl") });
+    case "conflict-list": return shell({ activeRail: "commit", side: "commit", editor: "empty", overlay: dialog("Rebase Conflicts", `<div class="toolbar"><strong>2 conflicting files</strong><span class="grow"></span><span class="commit-meta">Current step 2/4</span></div><div class="changes-list"><div class="check-row selected" title="Open read-only diff"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>NativeGitPanel.cs</span><span class="tree-path">Content conflict</span></div><div class="check-row" title="Open read-only diff"><span style="color:var(--augit-red)">${icon("conflict")}</span><span>MainWindow.cs</span><span class="tree-path">Content conflict</span></div></div>`, `<a class="secondary-button" href="main-project.html">Abort Rebase</a><button class="secondary-button">Skip</button><button class="primary-button" disabled>Continue Rebase</button>`, true) });
     case "commit-empty": return shell({ activeRail: "commit", side: "commit-empty", editor: "markdown" });
     case "diff-loading": return shell({ activeRail: "commit", side: "commit", editor: "diff-loading", bottom: "git", selectedFile: "app.manifest" });
-    case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), pushDialogBody(true), `<button class="secondary-button">取消</button><button class="primary-button" disabled>推送</button>`, true, "push-dialog push-no-remote") });
-    case "stash-manager": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Stash 管理", (window.__augitLive && window.__augitLive.stashes) ? liveManagementPage("stash") : managementPage("stash"), `<a class="secondary-button" href="git-history.html">关闭</a>`, true, "stash-manager-dialog") });
+    case "push-no-remote": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(pushDialogTitle(), pushDialogBody(true), `<button class="secondary-button">Cancel</button><button class="primary-button" disabled>Push</button>`, true, "push-dialog push-no-remote") });
+    case "stash-manager": return shell({ activeRail: "history", side: "project", editor: "text", bottom: "git", overlay: dialog("Stash", (window.__augitLive && window.__augitLive.stashes) ? liveManagementPage("stash") : managementPage("stash"), `<a class="secondary-button" href="git-history.html">Close</a>`, true, "stash-manager-dialog") });
     case "project-context-menu": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "terminal", overlay: projectContextMenu() });
     case "changes-context-menu": return shell({ activeRail: "commit", side: "commit", editor: "diff", bottom: "git", overlay: changesContextMenu(), selectedFile: "app.manifest" });
     case "git-history-menu": return shell({ activeRail: "history", side: "project", editor: "markdown", bottom: "git", overlay: gitLogContextMenu() });
@@ -5370,7 +5847,7 @@ function bindHistoryToolbar(root = document) {
     const buttons = [...toolbar.querySelectorAll("button")];
     const trigger = document.createElement("button");
     trigger.className = "toolbar-button history-tools-more";
-    trigger.setAttribute("aria-label", "更多历史工具");
+    trigger.setAttribute("aria-label", "More History Tools");
     trigger.setAttribute("aria-expanded", "false");
     trigger.innerHTML = icon("chevron-right");
     toolbar.append(trigger);
@@ -5378,7 +5855,7 @@ function bindHistoryToolbar(root = document) {
     popup.className = "history-tools-popup";
     popup.setAttribute("popover", "auto");
     popup.setAttribute("role", "toolbar");
-    popup.setAttribute("aria-label", "历史工具");
+    popup.setAttribute("aria-label", "History Tools");
     toolbar.append(popup);
     const layout = () => {
       let focus = document.activeElement;
@@ -5478,7 +5955,11 @@ function bindHistoryLayout(root = document) {
 
       const authorWidth = Math.min(96, Math.max(...rows.map(row => measure(row.querySelector(".commit-author").textContent))));
       const referenceWidth = Math.min(128, Math.max(...rows.map(row => {
-        const text = row.querySelector(".branch-label").textContent.trim();
+        const host = row.querySelector(".branch-label");
+        const labels = [...host.querySelectorAll('.log-reference-label')];
+        if (labels.length) return labels.reduce((width, label) => width + measure(label.textContent)
+          + Number(label.querySelector('svg').viewBox.baseVal.width) + 2, 0) + (labels.length - 1) * 4;
+        const text = host.textContent.trim();
         return text ? measure(text) + 20 : 0;
       })));
       const fullWidth = Math.max(...rows.map(row => measure(row.querySelector("time").dataset.full)));
@@ -5520,7 +6001,7 @@ function bindHistoryLayout(root = document) {
     panel.addEventListener("history-geometry-changed", layout, { signal });
     layout();
     list.setAttribute("role", "listbox");
-    list.setAttribute("aria-label", "提交历史");
+    list.setAttribute("aria-label", "Commit History");
     const select = index => {
       if (index < 0 || index >= rows.length) return;
       list.focus({ preventScroll: true });
@@ -5554,11 +6035,16 @@ function bindHistoryLayout(root = document) {
       if (live) live.historySelectedHash = row.dataset.hash || null;
     });
     list.addEventListener("keydown", event => {
-      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+      if (!["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)
+          || event.isComposing || event.keyCode === 229 || event.altKey || event.ctrlKey || event.metaKey) return;
       event.preventDefault();
       const current = rows.findIndex(row => row.classList.contains("selected"));
+      // 分页按当前视口与行高计算；窗口、字体或 DPI 改变后不沿用旧步长。
+      const pageRows = Math.max(1, Math.floor(list.clientHeight / (rows[0]?.offsetHeight || 1)));
+      const delta = event.key === "PageUp" ? -pageRows : event.key === "PageDown" ? pageRows
+        : event.key === "ArrowUp" ? -1 : 1;
       select(event.key === "Home" ? 0 : event.key === "End" ? rows.length - 1
-        : Math.max(0, Math.min(rows.length - 1, current + (event.key === "ArrowUp" ? -1 : 1))));
+        : Math.max(0, Math.min(rows.length - 1, current + delta)));
     });
     overflow.addEventListener("toggle", () => {
       if (!overflow.open) return;
@@ -5601,7 +6087,7 @@ function bindHistoryDetails(root = document) {
     const detail = panel.querySelector(".commit-detail");
     const files = panel.querySelector(".changed-files");
     detail.tabIndex = 0;
-    detail.setAttribute("aria-label", "提交详情");
+    detail.setAttribute("aria-label", "Commit Details");
     detail.addEventListener("keydown", event => {
       const line = parseFloat(getComputedStyle(detail).fontSize) * 1.55;
       const page = Math.max(line, detail.clientHeight - line);
@@ -5613,14 +6099,14 @@ function bindHistoryDetails(root = document) {
     });
     const actions = document.createElement("div");
     actions.className = "history-detail-actions";
-    actions.innerHTML = '<strong>提交详情</strong><a class="toolbar-button" href="file-history.html">文件历史</a><a class="toolbar-button" href="blame.html">Blame</a>';
+    actions.innerHTML = '<strong>Commit Details</strong><a class="toolbar-button" href="file-history.html">File History</a><a class="toolbar-button" href="blame.html">Blame</a>';
     panel.insertBefore(actions, detail);
     const arrange = () => {
       const context = document.createElement("canvas").getContext("2d");
       const style = getComputedStyle(panel);
       context.font = `${style.fontSize} ${style.fontFamily}`;
-      const required = Math.max(280, Math.max(84, context.measureText("提交详情").width + 13)
-        + Math.max(82, context.measureText("文件历史").width + 16)
+      const required = Math.max(280, Math.max(84, context.measureText("Commit Details").width + 13)
+        + Math.max(82, context.measureText("File History").width + 16)
         + Math.max(66, context.measureText("Blame").width + 16) + 30);
       const visible = panel.clientWidth >= required && panel.clientHeight >= 150;
       if (!visible && actions.contains(document.activeElement)) files.focus({ preventScroll: true });
@@ -5673,7 +6159,7 @@ function bindHistoryDetails(root = document) {
       const menu = document.createElement("div");
       menu.className = "popover context-menu history-files-menu";
       menu.setAttribute("role", "menu");
-      menu.innerHTML = '<a class="menu-item" href="git-compare.html">显示 Diff</a><a class="menu-item" href="file-history.html">文件历史</a><a class="menu-item" href="blame.html">Blame</a>';
+      menu.innerHTML = '<a class="menu-item" href="git-compare.html">Show Diff</a><a class="menu-item" href="file-history.html">File History</a><a class="menu-item" href="blame.html">Blame</a>';
       document.body.append(menu);
       menu.style.position = "fixed";
       menu.style.left = `${Math.max(0, Math.min(event.clientX, innerWidth - menu.offsetWidth))}px`;
@@ -5736,22 +6222,22 @@ function bindHistoryComparisonFollow(root = document) {
     if (comparison.path === path && comparison.hash === hash) return;
     comparison.path = comparison.tab.dataset.path = path;
     comparison.hash = comparison.tab.dataset.commit = hash;
-    comparison.tab.querySelector(".comparison-caption").textContent = `比较: ${path.split("/").at(-1) || "选择文件"} · ${hash.slice(0, 8)}^ → ${hash.slice(0, 8)}`;
+    comparison.tab.querySelector(".comparison-caption").textContent = `Compare: ${path.split("/").at(-1) || "Select File"} · ${hash.slice(0, 8)}^ → ${hash.slice(0, 8)}`;
     comparison.tab.title = path;
     const mode = comparison.view.querySelector(".diff-layout")?.dataset.diffMode;
     comparison.view.innerHTML = path ? diffView(true, "ready", false, false, path, hash)
-      : '<div class="comparison-notice">选择提交中的文件以查看差异。</div>';
+      : '<div class="comparison-notice">Select a file in this commit to view its diff.</div>';
     const header = comparison.view.querySelector(".diff-filebar");
     if (header) header.outerHTML = diffFileHeader(`${hash.slice(0, 8)}^`, hash.slice(0, 8), `${hash}^ → ${hash}`, path);
     bindDiffModes(comparison.view);
-    if (mode === "unified") comparison.view.querySelector('[aria-label="单栏"]')?.click();
+    if (mode === "unified") comparison.view.querySelector('[aria-label="Unified"]')?.click();
   };
   const open = row => {
     if (!row) return;
     if (!comparison) {
       const tab = document.createElement("a"), view = document.createElement("div");
       tab.className = "editor-tab comparison-tab"; tab.href = "#"; tab.dataset.historyComparison = "true";
-      tab.innerHTML = `${icon("git-compare-arrows")}<span class="comparison-caption"></span><button type="button" class="tab-close" aria-label="关闭比较">${icon("x")}</button>`;
+      tab.innerHTML = `${icon("git-compare-arrows")}<span class="comparison-caption"></span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("x")}</button>`;
       tabs.querySelector(":scope > span").before(tab);
       view.className = "document-view history-follow-view"; view.tabIndex = 0; content.append(view);
       comparison = { tab, view, path: null, hash: null };
@@ -5780,7 +6266,7 @@ function bindHistoryComparisonFollow(root = document) {
   });
   document.addEventListener("click", event => {
     const link = event.target.closest(".history-files-menu .menu-item");
-    if (link?.textContent === "显示 Diff") { event.preventDefault(); link.closest(".history-files-menu").remove(); open(currentFile()); }
+    if (link?.textContent === "Show Diff") { event.preventDefault(); link.closest(".history-files-menu").remove(); open(currentFile()); }
   });
 }
 
@@ -5819,7 +6305,7 @@ function bindDiffModes(root = document) {
       boundaryDismissed ||= !!layout.dataset.diffMode;
       layout.dataset.diffMode = mode;
       buttons.forEach(button => {
-        const active = button.getAttribute("aria-label") === (unified ? "单栏" : "双栏");
+        const active = button.getAttribute("aria-label") === (unified ? "Unified" : "Side-by-side");
         button.classList.toggle("active", active);
         button.setAttribute("aria-pressed", String(active));
       });
@@ -5833,7 +6319,7 @@ function bindDiffModes(root = document) {
     // 它的显示模式回调走预览自己的入口，绝不能再调 `__augitLoadDiffMode`（那会去改编辑器正文）。
     const previewPane = !!layout.closest("[data-live-file-history-preview]");
     buttons.forEach(button => button.addEventListener("click", () => {
-      const unified = button.getAttribute("aria-label") === "单栏";
+      const unified = button.getAttribute("aria-label") === "Unified";
       // 重复点击当前显示模式：不排版、不查询（规格 §6.3）。`update()` 本身对同一模式是空操作，
       // 但下面还会回调外壳的 `loadDiff()`（它会刷新编辑区 = 白排一次版）—— 因此这里直接返回。
       if (layout.dataset.diffMode === (unified ? "unified" : "side-by-side")) return;
@@ -5866,7 +6352,7 @@ function bindChangesWorkflow() {
   const rows = [...list.querySelectorAll(".change-file-row")];
   const groups = [...list.querySelectorAll(".check-group-row")];
   const allRows = [...list.querySelectorAll(".check-row")];
-  const ordinaryTabs = [...tabs.querySelectorAll(".editor-tab")].filter(tab => !tab.textContent.trim().startsWith("提交:"));
+  const ordinaryTabs = [...tabs.querySelectorAll(".editor-tab")].filter(tab => !tab.textContent.trim().startsWith("Commit:"));
   const documents = new Map();
   let documentTab = ordinaryTabs.find(tab => tab.classList.contains("active")) || ordinaryTabs.at(-1);
   let activeComparison = null, preview = null;
@@ -5876,19 +6362,19 @@ function bindChangesWorkflow() {
   const selectedFile = () => list.querySelector(".change-file-row.selected:not([hidden])");
   const updateActions = () => {
     const enabled = !!selectedFile();
-    side.querySelectorAll('[data-action="show-change-diff"], .toolbar [aria-label="回滚"]').forEach(button => {
+    side.querySelectorAll('[data-action="show-change-diff"], .toolbar [aria-label="Rollback"]').forEach(button => {
       button.disabled = !enabled;
       // 禁用原因必须与状态一致（规格 §10.3）：解禁后还挂着"先在改动列表里选择一个文件"
       // 是错的说明，用户悬停会看到与实际状态矛盾的文字。
       if (enabled) button.removeAttribute("title");
-      else button.setAttribute("title", button.dataset.disabledReason || "先在改动列表里选择一个文件。");
+      else button.setAttribute("title", button.dataset.disabledReason || "Select a file in Changes first.");
     });
   };
   const setStatus = (path, comparison) => {
     const label = status.querySelector(".status-path");
     label.textContent = ["Augit", ...path.split("/")].join("  ›  ");
     label.title = "D:\\github\\Augit\\" + path.replaceAll("/", "\\");
-    status.querySelector(".status-fields").innerHTML = (comparison ? ["只读"] : ["UTF-8", "LF", "只读"])
+    status.querySelector(".status-fields").innerHTML = (comparison ? ["Read-only"] : ["UTF-8", "LF", "Read-only"])
       .map(text => "<span>" + text + "</span>").join("");
   };
   const activate = (tab, view) => {
@@ -5904,7 +6390,7 @@ function bindChangesWorkflow() {
       const holder = document.createElement("template");
       holder.innerHTML = name === "product-spec.md" ? markdownView()
         : '<div class="document-view"><div class="document-toolbar"><span class="document-path">'
-          + escapeHtml(name) + '　只读</span></div><div class="code-view" tabindex="0">'
+          + escapeHtml(name) + '　Read-only</span></div><div class="code-view" tabindex="0">'
           + codeLines(name === "roadmap.md" ? ["# 实施路线", "", "按 UX 规格逐页完成视觉和交互验收。"]
             : ["# 第三方组件声明", "", "视觉审计使用本地测试数据。"], 0) + "</div></div>";
       view = holder.content.firstElementChild;
@@ -5919,7 +6405,7 @@ function bindChangesWorkflow() {
   const updateComparison = (comparison, row) => {
     if (comparison.path === row.dataset.path) return;
     comparison.path = comparison.tab.dataset.path = row.dataset.path;
-    comparison.tab.querySelector(".change-tab-caption").textContent = "提交: " + row.dataset.file;
+    comparison.tab.querySelector(".change-tab-caption").textContent = "Commit: " + row.dataset.file;
     comparison.tab.title = comparison.path;
     const holder = document.createElement("template");
     holder.innerHTML = diffView(false, "ready", false, false, comparison.path);
@@ -5929,11 +6415,11 @@ function bindChangesWorkflow() {
     if (previous) previous.replaceWith(view); else content.append(view);
     comparison.view = view;
     bindDiffModes(content);
-    if (mode === "unified") view.querySelector('[aria-label="单栏"]').click();
+    if (mode === "unified") view.querySelector('[aria-label="Unified"]').click();
     view.querySelector(".diff-toolbar > .file-status-modified").textContent =
-      (changesSamples.findIndex(file => file.path === comparison.path) + 1) + "/" + changesSamples.length + " 个文件";
+      (changesSamples.findIndex(file => file.path === comparison.path) + 1) + "/" + changesSamples.length + " files";
     const position = changesSamples.findIndex(file => file.path === comparison.path);
-    for (const [label, offset] of [["上一个文件", -1], ["下一个文件", 1]]) {
+    for (const [label, offset] of [["Previous File", -1], ["Next File", 1]]) {
       const button = view.querySelector('[aria-label="' + label + '"]');
       button.disabled = !changesSamples[position + offset];
       button.addEventListener("click", () => {
@@ -5977,8 +6463,8 @@ function bindChangesWorkflow() {
     tab.className = "editor-tab";
     tab.href = "#";
     tab.dataset.workspaceDiffTab = "true";
-    tab.innerHTML = icon("git-compare-arrows") + '<span class="change-tab-caption">提交: '
-      + escapeHtml(row.dataset.file) + '</span><button type="button" class="tab-close" aria-label="关闭比较">'
+    tab.innerHTML = icon("git-compare-arrows") + '<span class="change-tab-caption">Commit: '
+      + escapeHtml(row.dataset.file) + '</span><button type="button" class="tab-close" aria-label="Close Comparison">'
       + icon("x") + "</button>";
     if (!existingTab) tabs.querySelector(":scope > span").before(tab);
     const comparison = { tab, view: existingView, path: existingView ? row.dataset.path : null };
@@ -6049,12 +6535,12 @@ function bindChangesWorkflow() {
     group.setAttribute("aria-expanded", String(!collapsed));
     const chevron = group.querySelector(".change-chevron");
     chevron.setAttribute("aria-expanded", String(!collapsed));
-    chevron.setAttribute("aria-label", (collapsed ? "展开 " : "折叠 ") + group.dataset.group);
+    chevron.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + group.dataset.group);
     rows.filter(row => row.dataset.group === group.dataset.group).forEach(row => { row.hidden = collapsed; });
     if (collapsed && selected()?.hidden) select(group);
   };
   ordinaryTabs.forEach(tab => tab.addEventListener("click", event => { event.preventDefault(); showDocument(tab); }));
-  const initialTab = [...tabs.querySelectorAll(".editor-tab")].find(tab => tab.textContent.trim().startsWith("提交:"));
+  const initialTab = [...tabs.querySelectorAll(".editor-tab")].find(tab => tab.textContent.trim().startsWith("Commit:"));
   // 已有「提交:」标签但没有选中的文件行时不能建立比较视图：
   // createComparison 需要文件行提供路径。此时保留标签外观，等待用户选择文件。
   const initialRow = selectedFile();
@@ -6101,11 +6587,11 @@ function bindChangesWorkflow() {
     }
   });
   side.querySelector('[data-action="show-change-diff"]').addEventListener("click", () => openDiff(selectedFile()));
-  side.querySelector('[aria-label="展开全部"]').addEventListener("click", () => {
+  side.querySelector('[aria-label="Expand All"]').addEventListener("click", () => {
     groups.filter(group => group.getAttribute("aria-expanded") === "false").forEach(toggleCollapsed);
   });
   // 样本没有后台 Git 查询；无变化刷新不重建任何列表或正文。
-  side.querySelector('[aria-label="刷新"]').addEventListener("click", updateActions);
+  side.querySelector('[aria-label="Refresh"]').addEventListener("click", updateActions);
   const message = side.querySelector(".message-field"), amend = side.querySelector('.commit-amend .fake-check');
   let originalDraft = message.value;
   amend.addEventListener("click", () => {
@@ -6189,10 +6675,10 @@ function confirmCommitWithEmptyMessage(onConfirm, onCancel) {
   document.querySelectorAll("[data-commit-empty-message]").forEach(node => node.remove());
   const host = document.querySelector(".app-frame") || document.body;
   host.insertAdjacentHTML("beforeend", dialog(
-    "无提交信息",
-    '<div class="info-block"><p>请在提交信息栏填写改动摘要。</p></div>',
-    '<button type="button" class="secondary-button" data-commit-empty-cancel="1">取消</button>'
-      + '<button type="button" class="primary-button" data-commit-empty-anyway="1">仍然提交</button>',
+    "No Commit Message",
+    '<div class="info-block"><p>Enter a summary in the commit message field.</p></div>',
+    '<button type="button" class="secondary-button" data-commit-empty-cancel="1">Cancel</button>'
+      + '<button type="button" class="primary-button" data-commit-empty-anyway="1">Commit Anyway</button>',
     false, "commit-empty-message-dialog"));
   const layer = host.lastElementChild;
   if (!layer) return;
@@ -6206,7 +6692,58 @@ function confirmCommitWithEmptyMessage(onConfirm, onCancel) {
   if (anyway) anyway.focus();
 }
 
+// 真宿主将同一会话裁切到独立窗口；浏览器预览沿用宿主内拖动。
+function bindDialogMovement() {
+  if (window.__augitSettingsSurface) return;
+  if (window.__augitDialogMovementBound) return;
+  window.__augitDialogMovementBound = true;
+  let drag = null;
+  const clamp = (dialog, left, top) => {
+    const box = dialog.getBoundingClientRect();
+    Object.assign(dialog.style, { left: `${Math.max(0, Math.min(left, innerWidth - box.width))}px`,
+      top: `${Math.max(0, Math.min(top, innerHeight - box.height))}px`, transform: 'none' });
+    dialog.dataset.moved = 'true';
+  };
+  const finish = () => {
+    if (!drag) return;
+    drag.observer.disconnect();
+    if (drag.header.hasPointerCapture(drag.pointer)) drag.header.releasePointerCapture(drag.pointer);
+    drag = null;
+  };
+  document.addEventListener('pointerdown', event => {
+    const header = event.target.closest('.dialog-header');
+    if (!header || event.button !== 0 || event.target.closest('button, a, input')) return;
+    const dialog = header.closest('.dialog');
+    if (!dialog || dialog.getAttribute('aria-disabled') === 'true') return;
+    if (window.__augitNativeModalActive) {
+      window.__augitNativeModalDrag?.();
+      event.preventDefault();
+      return;
+    }
+    const box = dialog.getBoundingClientRect();
+    finish();
+    const observer = new MutationObserver(() => { if (!dialog.isConnected) finish(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    drag = { dialog, header, observer, pointer: event.pointerId, x: event.clientX, y: event.clientY, left: box.left, top: box.top };
+    header.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  document.addEventListener('pointermove', event => {
+    if (drag && event.pointerId === drag.pointer) clamp(drag.dialog, drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+  });
+  for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) document.addEventListener(event, finish);
+  document.addEventListener('keydown', event => {
+    if (drag && event.key === 'Escape') { finish(); event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  window.addEventListener('resize', () => {
+    finish();
+    document.querySelectorAll('.dialog[data-moved]').forEach(dialog => { const box = dialog.getBoundingClientRect(); clamp(dialog, box.left, box.top); });
+  });
+  window.addEventListener('pagehide', finish);
+}
+
 function bindInteractions() {
+  bindDialogMovement();
   bindStashDialog();
   bindCloneDialog();
   bindResetDialog();
@@ -6216,7 +6753,7 @@ function bindInteractions() {
     const input = box.querySelector("textarea");
     const feedback = box.querySelector(".commit-feedback");
     const showError = error => {
-      feedback.textContent = error || "提交信息";
+      feedback.textContent = error || "Commit message";
       feedback.title = feedback.textContent;
       feedback.classList.toggle("error", !!error);
     };
@@ -6254,10 +6791,11 @@ function bindInteractions() {
   bindHistoryDetails();
   bindHistoryComparisonFollow();
   document.querySelectorAll("[aria-label]").forEach((element) => {
-    if (!element.title && (element.matches("button") || element.matches("a"))) {
+    if (!element.matches('.rail-button, .blame-row') && !element.title && (element.matches("button") || element.matches("a"))) {
       element.title = element.getAttribute("aria-label");
     }
   });
+  bindRailHelpTooltip();
 
   // 汉堡按钮与内嵌菜单的 Esc 都挂在 document 上（标题栏节点会被区域刷新整块替换，
   // 挂节点的监听会随之失效）。但本函数每次渲染都会被调用，所以必须有幂等守卫：
@@ -6273,7 +6811,7 @@ function bindInteractions() {
       if (title.querySelector(".main-menu-bar")) {
         title.outerHTML = titlebar();
       } else {
-        title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><button class="top-button" aria-label="关闭主菜单" data-action="menu">${icon("menu")}</button><nav class="main-menu-bar"><a class="main-menu-entry" href="workspace-open.html">文件</a><a class="main-menu-entry" href="main-project.html">视图</a><a class="main-menu-entry" href="git-history.html">Git</a><a class="main-menu-entry" href="terminal.html">终端</a><a class="main-menu-entry" href="settings.html">设置</a></nav><span></span><span></span><nav class="window-actions" aria-label="窗口工具">${windowActionIcons()}</nav>`;
+        title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><button class="top-button" aria-label="Close Main Menu" data-action="menu">${icon("menu")}</button><nav class="main-menu-bar"><a class="main-menu-entry" href="workspace-open.html">File</a><a class="main-menu-entry" href="main-project.html">View</a><a class="main-menu-entry" href="git-history.html">Git</a><a class="main-menu-entry" href="terminal.html">Terminal</a><a class="main-menu-entry" href="settings.html">Settings</a></nav><span></span><span></span><nav class="window-actions" aria-label="Window Tools">${windowActionIcons()}</nav>`;
       }
     });
 
@@ -6411,6 +6949,8 @@ window.__augitRenderRegions = (...names) => {
   const focusedTreePath = names.includes("side") && activeTreeRow
     ? activeTreeRow.dataset.treePath
     : null;
+  const focusedFilterKey = names.includes('bottomTool')
+    ? active?.closest?.('.history-filters [data-filter-key]')?.dataset.filterKey : null;
   // 先释放由即将被替换的节点持有的 document/window 监听，避免累积。
   disposeRegionBindings();
   const fragment = renderRegions();
@@ -6432,6 +6972,11 @@ window.__augitRenderRegions = (...names) => {
     const replacementRow = [...document.querySelectorAll(".side-content.tree .tree-row[data-tree-path]")]
       .find((row) => row.dataset.treePath === focusedTreePath);
     replacementRow?.focus({ preventScroll: true });
+  }
+  if (focusedFilterKey) {
+    let control=document.querySelector(`.history-filters > [data-filter-key="${CSS.escape(focusedFilterKey)}"]`);
+    if(control?.hidden){const overflow=document.querySelector('.history-filter-overflow');if(overflow){overflow.open=true;control=overflow.querySelector(`[data-filter-key="${CSS.escape(focusedFilterKey)}"]`);}}
+    control?.focus({preventScroll:true});
   }
   void applyTypographyPreview();
 };
@@ -6456,5 +7001,6 @@ if (app) {
   if (scene === "quick-open" || scene === "quick-open-empty") {
     document.querySelector(".search-overlay input")?.focus();
   }
-  void applyTypographyPreview();
+  // 独立设置由启动器装配完整表单后统一度量，不先对空容器重复加载字体。
+  if (!window.__augitSettingsSurface) void applyTypographyPreview();
 }

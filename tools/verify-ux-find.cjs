@@ -12,7 +12,7 @@ async function verifyComposition(page) {
     url.search = new URLSearchParams({ theme, 'ui-size': '13' });
     await page.goto(url.href);
     await page.waitForSelector('body[data-typography-preview="ready"]');
-    const input = page.getByRole('textbox', { name: '当前文件查找' });
+    const input = page.getByRole('textbox', { name: 'Find in File' });
     const waitStatus = async value => {
       try {
         await page.waitForFunction(text => document.querySelector('.find-status')?.textContent === text, value, { timeout: 5000 });
@@ -30,9 +30,9 @@ async function verifyComposition(page) {
       element.value = value;
       element.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true, data: value }));
     }, value);
-    await page.getByRole('button', { name: '当前文件搜索', exact: true }).click();
+    await page.getByRole('button', { name: 'Find in File', exact: true }).click();
     await waitStatus('1/12');
-    if (regex) { await page.getByRole('button', { name: '正则表达式', exact: true }).click(); await waitStatus('1/12'); }
+    if (regex) { await page.getByRole('button', { name: 'Regex', exact: true }).click(); await waitStatus('1/12'); }
     await input.focus();
     await input.press('Enter'); await waitStatus('2/12');
     const before = await selected(), scans = await starts();
@@ -68,10 +68,10 @@ async function verifyComposition(page) {
       '失焦提交组词不抢正文滚动');
     assert.equal(await page.locator('.code-view').evaluate(code => code === document.activeElement), true);
     await input.focus(); await input.dispatchEvent('compositionstart'); await draft('System');
-    await page.getByRole('button', { name: '关闭查找', exact: true }).evaluate(button => button.click());
+    await page.getByRole('button', { name: 'Close Find', exact: true }).evaluate(button => button.click());
     assert.equal(await page.locator('.current-find').count(), 0);
     assert.deepEqual(await page.evaluate(() => window.findResources()), { workers: 0, urls: 0 });
-    await page.getByRole('button', { name: '当前文件搜索', exact: true }).click();
+    await page.getByRole('button', { name: 'Find in File', exact: true }).click();
     await waitStatus(`1/${total}`);
     cases++;
   }
@@ -80,9 +80,9 @@ async function verifyComposition(page) {
   slowUrl.search = 'verify-slow-worker=1';
   await page.goto(slowUrl.href);
   await page.waitForSelector('body[data-typography-preview="ready"]');
-  await page.getByRole('button', { name: '当前文件搜索', exact: true }).click();
-  await page.getByRole('button', { name: '正则表达式', exact: true }).click();
-  const pendingInput = page.getByRole('textbox', { name: '当前文件查找' });
+  await page.getByRole('button', { name: 'Find in File', exact: true }).click();
+  await page.getByRole('button', { name: 'Regex', exact: true }).click();
+  const pendingInput = page.getByRole('textbox', { name: 'Find in File' });
   await pendingInput.focus();
   await pendingInput.press('Enter');
   await pendingInput.dispatchEvent('compositionstart');
@@ -141,7 +141,7 @@ async function main() {
         url.search = new URLSearchParams({ 'ui-size': String(size), theme, 'find-state': state });
         await page.goto(url.href);
         await page.waitForSelector('body[data-typography-preview="ready"]');
-        const expectedStatus = { normal: '1/12', empty: '', 'no-match': '0/0', invalid: '正则表达式无效', loading: '正在搜索…', timeout: '查找超时' }[state];
+        const expectedStatus = { normal: '1/12', empty: '', 'no-match': '0/0', invalid: 'Invalid regular expression', loading: 'Searching…', timeout: 'Search timed out' }[state];
         try {
           await page.waitForFunction(value => document.querySelector('.find-status').textContent === value, expectedStatus, { timeout: 5000 });
         } catch (error) {
@@ -157,7 +157,9 @@ async function main() {
           const status = bar.querySelector('.find-status');
           return {
             bar: rect(bar), parent: rect(document.querySelector('.editor-content')), input: rect(bar.querySelector('input')),
-            controls: [...bar.children].map(rect), status: status.textContent,
+            controls: [...bar.children].map(rect), buttons: [...bar.querySelectorAll('button')].map(rect), status: status.textContent,
+            options: [...bar.querySelectorAll('.find-input-shell button')].map(rect), shell: rect(bar.querySelector('.find-input-shell')),
+            navigationDisabled: [...bar.querySelectorAll('[aria-label="Previous Match"],[aria-label="Next Match"]')].every(button => button.disabled),
             focused: document.activeElement.getAttribute('aria-label'), font: getComputedStyle(bar).fontSize,
             code: rect(document.querySelector('.code-view')), bodySize: getComputedStyle(document.querySelector('.code-view')).fontSize,
             toolbar: rect(document.querySelector('.document-toolbar')),
@@ -166,7 +168,7 @@ async function main() {
             statusPath: document.querySelector('.status-path').textContent,
           };
         });
-        assert.equal(actual.focused, '当前文件查找', label);
+        assert.equal(actual.focused, 'Find in File', label);
         assert.equal(actual.font, `${size}px`, label);
         assert.equal(actual.bodySize, '13px', label);
         assert.ok(actual.input.height >= size + 4, label);
@@ -184,7 +186,22 @@ async function main() {
           assert.ok(control.top >= actual.bar.top && control.bottom <= actual.bar.bottom, `${label} 控件不越出查找条`);
           if (i) assert.ok(actual.controls[i - 1].right <= control.left + .01, `${label} 控件不重叠`);
         }
-        for (const index of [1, 2, 3, 5, 6, 7]) assert.equal(actual.controls[index].width, 28, label);
+        assert.equal(actual.buttons.length, 6, label);
+        for (const button of actual.buttons) assert.equal(button.width, Math.round(28 * Math.max(.75, Math.round(size / 12 * 4) / 4)), label);
+        assert.equal(actual.options.length, 3, label);
+        for (const option of actual.options) assert.ok(option.left >= actual.shell.left && option.right <= actual.shell.right, `${label} 开关须在输入外壳内`);
+        if (size === 40) {
+          for (const button of await page.locator('.current-find button:not(:disabled)').all()) {
+            await button.focus();
+            const visible = await button.evaluate(node => {
+              const a = node.getBoundingClientRect(), b = node.closest('.current-find').getBoundingClientRect();
+              return a.left >= b.left - 1 && a.right <= b.right + 1 && a.top >= b.top && a.bottom <= b.bottom;
+            });
+            assert.ok(visible, `${label} 大字号局部滚动后焦点动作须完整可见`);
+          }
+          await page.locator('.current-find input').focus();
+        }
+        assert.equal(actual.navigationDisabled, state !== 'normal', `${label} 导航状态`);
         assert.equal(actual.status, expectedStatus);
         if (size === 13 && state === 'normal') assert.equal(actual.bar.height, 42, label);
         if (outputPath && width === 1024 && ['normal', 'loading', 'timeout'].includes(state))
@@ -212,7 +229,7 @@ async function main() {
     const original = await page.locator('.code-lines').textContent();
     const source = await page.locator('.code-line > :last-child').allTextContents();
     const expected = [...source.join('\n').matchAll(/Git/gi)].map(match => match.index);
-    const input = page.getByRole('textbox', { name: '当前文件查找' });
+    const input = page.getByRole('textbox', { name: 'Find in File' });
     const waitStatus = value => page.waitForFunction(text => document.querySelector('.find-status')?.textContent === text, value);
     const selectedStart = async () => Number(await page.locator('.find-current').first().getAttribute('data-start'));
     const currentLines = () => page.locator('.code-line:has(.find-current) .line-number').allTextContents();
@@ -223,7 +240,7 @@ async function main() {
     await input.press('Enter'); await waitStatus('3/12'); assert.equal(await selectedStart(), expected[2]);
     await input.press('Shift+Enter'); await waitStatus('2/12'); assert.equal(await selectedStart(), expected[1]);
     assert.equal(await input.evaluate(element => element === document.activeElement), true);
-    for (const name of ['区分大小写', '全字匹配', '正则表达式', '上一项', '下一项', '关闭查找', '当前文件查找']) {
+    for (const name of ['Match case', 'Words', 'Regex', 'Previous Match', 'Next Match', 'Close Find', 'Find in File']) {
       await page.keyboard.press('Tab');
       assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), name);
     }
@@ -231,19 +248,19 @@ async function main() {
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('.find-current, .find-match').count(), 0, '关闭后清除查找专用高亮。');
     assert.equal(await page.evaluate(() => window.getSelection().toString().toLowerCase()), 'git', '关闭后保留当前匹配的正文选择。');
-    await page.getByRole('button', { name: '当前文件搜索', exact: true }).click();
+    await page.getByRole('button', { name: 'Find in File', exact: true }).click();
     assert.equal(await input.inputValue(), 'Git');
     assert.equal(await selectedStart(), closedSelection, '重开保持当前匹配');
     await waitStatus('2/12');
     await input.press('Enter'); await waitStatus('3/12'); assert.equal(await selectedStart(), expected[2]);
     if (outputPath) await page.screenshot({ path: path.join(outputPath, 'mockup-find-continued.png') });
-    await page.getByRole('button', { name: '全字匹配', exact: true }).click(); await waitStatus('1/3');
+    await page.getByRole('button', { name: 'Words', exact: true }).click(); await waitStatus('1/3');
     await input.fill('git');
-    await page.getByRole('button', { name: '区分大小写', exact: true }).click(); await waitStatus('0/0');
-    await page.getByRole('button', { name: '区分大小写', exact: true }).click(); await waitStatus('1/3');
-    await page.getByRole('button', { name: '全字匹配', exact: true }).click(); await waitStatus('1/12');
-    await page.getByRole('button', { name: '正则表达式', exact: true }).click();
-    await input.fill('['); await waitStatus('正则表达式无效');
+    await page.getByRole('button', { name: 'Match case', exact: true }).click(); await waitStatus('0/0');
+    await page.getByRole('button', { name: 'Match case', exact: true }).click(); await waitStatus('1/3');
+    await page.getByRole('button', { name: 'Words', exact: true }).click(); await waitStatus('1/12');
+    await page.getByRole('button', { name: 'Regex', exact: true }).click();
+    await input.fill('['); await waitStatus('Invalid regular expression');
     await input.fill('(?=Git)'); await waitStatus('1/12');
     assert.equal(await page.locator('.find-current').getAttribute('data-length'), '0');
     await input.press('Shift+Enter'); await waitStatus('12/12'); assert.equal(await selectedStart(), expected.at(-1));
@@ -256,7 +273,7 @@ async function main() {
     if (outputPath) await page.screenshot({ path: path.join(outputPath, 'mockup-find-multiline.png') });
     await input.fill('Concurrent;\\n'); await waitStatus('1/1');
     assert.deepEqual(await currentLines(), ['1'], '匹配结束处不能额外标记下一行');
-    await input.fill('(.+)+XYZ_UNMATCHED$'); await waitStatus('查找超时');
+    await input.fill('(.+)+XYZ_UNMATCHED$'); await waitStatus('Search timed out');
     assert.deepEqual(await page.evaluate(() => window.findResources()), { workers: 0, urls: 0 });
     await input.fill('missing'); await waitStatus('0/0');
     assert.equal(await page.locator('.find-current, .find-match').count(), 0);
@@ -268,8 +285,8 @@ async function main() {
     url.search = 'ui-size=13&theme=light&verify-slow-worker=1';
     await page.goto(url.href);
     await page.waitForSelector('body[data-typography-preview="ready"]');
-    await page.getByRole('button', { name: '正则表达式', exact: true }).click();
-    await waitStatus('正在搜索…');
+    await page.getByRole('button', { name: 'Regex', exact: true }).click();
+    await waitStatus('Searching…');
     await waitStatus('1/12');
     assert.deepEqual(await page.evaluate(() => window.findResources()), { workers: 0, urls: 0 }, '慢启动成功后释放资源');
     const compositionCases = await verifyComposition(page);

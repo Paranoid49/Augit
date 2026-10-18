@@ -12,10 +12,12 @@ public sealed class WorkspacePickerTests
     [TestMethod]
     public void 取消时不产生路径()
     {
-        WorkspacePickResult result = WorkspacePicker.Pick(_ => null);
+        string? title = null;
+        WorkspacePickResult result = WorkspacePicker.Pick(value => { title = value; return null; });
 
         Assert.AreEqual(WorkspacePickOutcome.Cancelled, result.Outcome);
         Assert.IsNull(result.Path);
+        Assert.AreEqual("Select Workspace Directory", title);
     }
 
     [TestMethod]
@@ -27,6 +29,7 @@ public sealed class WorkspacePickerTests
         Assert.AreEqual(WorkspacePickOutcome.Invalid, result.Outcome);
         Assert.IsNull(result.Path);
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.Reason));
+        Assert.IsFalse(result.Reason.Any(character => character >= '\u4e00' && character <= '\u9fff'));
     }
 
     [TestMethod]

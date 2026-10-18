@@ -528,6 +528,8 @@ public sealed class GitHistoryServiceTests
             Assert.AreEqual("first changed", blame.Lines![0].Content);
             Assert.AreEqual("second", blame.Lines[1].Content);
             Assert.AreNotEqual(blame.Lines[0].CommitHash, blame.Lines[1].CommitHash);
+            string committed = (await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "show", "-s", "--format=%ct", "HEAD")).StandardOutput.Trim();
+            Assert.AreEqual(long.Parse(committed, System.Globalization.CultureInfo.InvariantCulture), blame.Lines[0].CommitterDate!.Value.ToUnixTimeSeconds());
         }
     }
 

@@ -4,21 +4,10 @@ namespace Augit.Infrastructure.Settings;
 
 public sealed record ApplicationSettings
 {
-    /// <summary>
-    /// 全新配置的界面字号初值：12px。
-    ///
-    /// 12px 取自本次对照用的 PyCharm 2026.2 Islands Light 前台配置
-    /// （Microsoft YaHei UI、175% DPI；见 `docs/ux-spec.md` §4.3 与 `docs/product-spec.md` 第 165 行），
-    /// 是**本次对照基线**，不是对所有用户强制生效的值：
-    /// 已经有 `settings.json` 的用户由 <see cref="SettingsStore"/> 沿用自己保存的字号
-    /// （旧配置只有一个共用字号时沿用该值，见 `docs/design-system.md` §5.3 末），
-    /// 只有全新配置才落到这个初值。
-    ///
-    /// 权威对照：平台只在用户勾选「覆盖默认字体」时使用 `UISettings.fontSize2D`，否则回退到系统字体度量
-    /// （`platform/platform-impl/src/com/intellij/ide/ui/laf/LafManagerImpl.kt:857-872`；
-    /// 见 `docs/nui-behavior/07-theme-dpi-dialogs.md` §3）；编辑器等宽字号是另一套独立设置
-    /// （`EditorColorsScheme` / `editor-font.xml`），与界面字号互不覆盖，对应下面的 <see cref="FontSize"/>。
-    /// </summary>
+    /// <summary>2026-10-15 用户裁决：日常入口迁移到真实外壳测试采用的外观基准。</summary>
+    public int AppearanceVersion { get; init; } = 1;
+
+    /// <summary>测试与日常启动共用的界面字号基准，旧配置由 SettingsStore 一次迁移。</summary>
     public const double DefaultUiFontSize = 12;
 
     public int Version { get; init; } = 1;
@@ -29,16 +18,13 @@ public sealed record ApplicationSettings
 
     public string TextFontFamily { get; init; } = "Microsoft YaHei UI";
 
-    public string MonospaceFontFamily { get; init; } = "Cascadia Mono";
+    /// <summary>正文固定使用随包分发的开源 JetBrains Mono。</summary>
+    public string MonospaceFontFamily { get; init; } = "JetBrains Mono";
 
     /// <summary>等宽字号；独立于界面字号，默认 13px（`docs/design-system.md` §5.4）。</summary>
     public double FontSize { get; init; } = 13;
 
-    /// <summary>
-    /// 独立保存的界面字号。null 表示旧配置（文件里没有 `textFontSize` 键）：
-    /// 两类文字先沿用共用的 <see cref="FontSize"/>，避免升级后现有用户的字号被改动
-    /// （`docs/design-system.md` §5.3 末）。全新配置的初值是 <see cref="DefaultUiFontSize"/>。
-    /// </summary>
+    /// <summary>迁移后独立保存的界面字号，用户后续调整不会被每次启动覆盖。</summary>
     public double? TextFontSize { get; init; } = DefaultUiFontSize;
 
     /// <summary>界面字号；旧配置没有独立值时沿用共用字号。</summary>
@@ -133,6 +119,9 @@ public sealed record WindowPlacementSettings
 
 public sealed record ToolWindowLayoutSettings
 {
+    /// <summary>面板尺寸所属工作区；与标签会话的 LastWorkspace 分开，避免仅拖动时转移旧标签。</summary>
+    public string? WorkspaceRoot { get; init; }
+
     public double? ProjectPanelWidth { get; init; }
 
     public double? BottomPanelHeight { get; init; }

@@ -9,7 +9,7 @@ namespace Augit.Shell;
 /// <summary>
 /// 原生 Win32 外壳窗口：只负责窗口框架、尺寸与 WebView2 控件的承载，界面内容全部由网页层渲染。
 /// </summary>
-internal sealed class ShellWindow : IDisposable
+internal sealed partial class ShellWindow : IDisposable
 {
     private const string WindowClassName = "Augit.Shell.Window";
     private const string DefaultVirtualHost = "augit.local";
@@ -68,6 +68,8 @@ internal sealed class ShellWindow : IDisposable
     private readonly ShellOptions _options;
     private readonly WindowPlacementSettings _savedPlacement;
     private readonly bool _persistPlacement;
+    // 本窗口读写的设置文件；审计可显式指定，普通启动仍是用户默认设置。
+    private readonly SettingsStore _settingsStore;
     private readonly nint _instance;
     private nint _window;
     private int _effectiveDpi;
@@ -86,19 +88,24 @@ internal sealed class ShellWindow : IDisposable
     private readonly ShellBridge _bridge;
     private CoreWebView2Environment? _environment;
     private CoreWebView2Controller? _controller;
+    private ShellModalHost? _modalHost;
+    private const uint ModalDragMessage = 0x0400 + 7;
     private bool _disposed;
     private readonly Queue<string> _pendingReplies = new();
 
-    public ShellWindow(ShellOptions options, WindowPlacementSettings? savedPlacement = null)
+    public ShellWindow(ShellOptions options, WindowPlacementSettings? savedPlacement = null, ShellWindow? settingsOwner = null)
     {
+        _settingsOwner = settingsOwner;
+        TraceSettingsStage("created");
         _options = options;
         _savedPlacement = savedPlacement ?? new();
+        _settingsStore = new SettingsStore(options.SettingsFile);
         // 审计与视觉对照会显式指定场景、DPI 或尺寸；这些运行不得把审计窗口写进用户设置。
-        _persistPlacement = options is
+        _persistPlacement = settingsOwner is null && options is
         { Width: null, Height: null, Dpi: null, PixelExact: false, NoSessionRestore: false, Scene: null or "" };
-        _bridge = new ShellBridge(options.WorkspaceRoot, Notify);
+        _bridge = settingsOwner?._bridge ?? new ShellBridge(options.WorkspaceRoot, Notify, _settingsStore);
         // 窗口命令（自绘窗口按钮、标题栏拖动）只有窗口能做：桥接层不认识 HWND。
-        _bridge.WindowCommandHandler = HandleWindowCommand;
+        if (settingsOwner is null) _bridge.WindowCommandHandler = HandleWindowCommand;
         _instance = GetModuleHandle(null);
         _effectiveDpi = ShellWindowSizing.ResolveEffectiveDpi(
             options.Dpi,
@@ -163,7 +170,17 @@ internal sealed class ShellWindow : IDisposable
         }
 
         _disposed = true;
+        TraceSettingsStage("dispose-start");
+        _settingsStartupTimeout?.Dispose();
+        _settingsChild?.Dispose();
+        _settingsChild = null;
+        _modalHost?.Dispose();
+        _modalHost = null;
+        // 独立设置须先从桌面撤下，再释放控制器，避免异常清理露出空客户区。
+        ReleaseSettingsOwner();
+        TraceSettingsStage("owner-released");
         _controller?.Close();
+        TraceSettingsStage("controller-closed");
         _controller = null;
         if (_window != 0)
         {
@@ -171,6 +188,8 @@ internal sealed class ShellWindow : IDisposable
             DestroyWindow(_window);
             _window = 0;
         }
+        TraceSettingsStage("disposed");
+        ExportSettingsStages();
     }
 
     private static void RegisterWindowClass()
@@ -256,12 +275,12 @@ internal sealed class ShellWindow : IDisposable
             0,
             WindowClassName,
             "Augit",
-            WsFramelessWindow,
+            _settingsOwner is null ? WsFramelessWindow : 0x00C80000,
             placement.X,
             placement.Y,
             placement.Width,
             placement.Height,
-            0,
+            _settingsOwner?._window ?? 0,
             0,
             _instance,
             0);
@@ -548,7 +567,7 @@ internal sealed class ShellWindow : IDisposable
         // 已下发过就以已下发的为准，避免窗口过程被重入时拿不到最新值。
         // Theme 在 Program 里一定已被解析成具体主题，这里的兜底只为满足可空性检查。
         string current = _notifiedTheme ?? _options.Theme ?? "Light";
-        string? next = ShellTheme.NextOnSystemChange(_options.ThemeMode, ShellSystemTheme.DetectDark(), current);
+        string? next = ShellTheme.NextOnSystemChange(_settingsThemeMode ?? _options.ThemeMode, ShellSystemTheme.DetectDark(), current);
         if (next is null)
         {
             return;
@@ -558,6 +577,7 @@ internal sealed class ShellWindow : IDisposable
         // 外壳自己的底色也要跟着换：WebView2 的默认背景在页面重绘前仍然可见（深色下是白闪）。
         ApplySurfaceColor(next);
         Notify("theme/changed", new { theme = ShellTheme.QueryValue(next) });
+        _settingsChild?.Notify("theme/changed", new { theme = ShellTheme.QueryValue(next) });
     }
 
     private int WorkWidth => _hasWorkArea ? _workArea.Right - _workArea.Left : 0;
@@ -580,6 +600,7 @@ internal sealed class ShellWindow : IDisposable
             // 拖动与边缘缩放：窗口没有 caption 后，这些必须由窗口自己判定，
             // 否则标题栏拖不动、边框也拉不动。
             case WmNcHitTest:
+                if (shell._settingsOwner is not null) return 1;
                 return shell.HitTest(lParam);
 
             // 网页层在标题栏空白处按下后投递过来：此时才进入系统移动循环。
@@ -591,14 +612,40 @@ internal sealed class ShellWindow : IDisposable
             case StartResizeMessage:
                 shell.BeginPendingResize();
                 return 0;
+            case ModalDragMessage:
+                shell._modalHost?.BeginDrag();
+                return 0;
 
             case InitializeMessage:
                 _ = shell.InitializeWebViewAsync();
                 return 0;
+            case SettingsPresentMessage:
+                _ = shell.PresentSettingsWindowAsync();
+                return 0;
+            case SettingsPrepareMessage:
+                shell.PrepareSettingsWindow();
+                return 0;
+            case SettingsRevealMessage:
+                shell.RevealSettingsWindow();
+                return 0;
+            case SettingsSurfaceThemeMessage:
+                if (!shell._disposed) shell.ApplySurfaceColor(shell._notifiedTheme);
+                return 0;
+            case SettingsStartupTimeoutMessage:
+                if (!shell._settingsReady && !shell._disposed) shell.FailSettingsInitialization(new TimeoutException());
+                return 0;
             case ReplyMessage:
                 shell.PostBridgeReplies();
                 return 0;
-            case WmSize:
+            // 深色设置窗的 DirectComposition 过渡可能短暂露出原生擦除面；
+            // 仅设置子窗用主题表面色填充，避免出现默认白底。主窗行为不变。
+            case 0x0014: // WM_ERASEBKGND
+                if (shell._settingsOwner is not null)
+                {
+                    shell.PaintSettingsBackground(wParam);
+                    return 1;
+                }
+                return DefWindowProc(window, message, wParam, lParam);            case WmSize:
                 shell.SyncBounds();
                 shell.NotifyWindowState();
                 return 0;
@@ -612,13 +659,38 @@ internal sealed class ShellWindow : IDisposable
                 shell.OnSystemSettingChange(lParam);
                 return 0;
             case WmClose:
+                shell.TraceSettingsStage("close-request");
+                if (shell._settingsOwner is not null && !shell._settingsClosing)
+                {
+                    shell.Notify("settings/cancel", new { });
+                    return 0;
+                }
+                shell.TraceSettingsStage("close-start");
                 shell.SavePlacement();
+                shell._settingsChild?.Dispose();
+                shell._settingsChild = null;
+                shell._modalHost?.Dispose();
+                shell._modalHost = null;
+                // 先恢复所有者再销毁活动子窗，避免系统在两者之间激活其它应用。
+                if (shell._settingsOwner is not null) shell.ReleaseSettingsOwner();
+                shell.TraceSettingsStage("owner-released");
                 DestroyWindow(window);
                 return 0;
             case WmDestroy:
+                shell.TraceSettingsStage("destroy-start");
+                shell._disposed = true;
+                shell._settingsStartupTimeout?.Dispose();
+                shell._modalHost?.Dispose();
+                shell._modalHost = null;
+                shell._controller?.Close();
+                shell.TraceSettingsStage("controller-closed");
+                shell._controller = null;
                 LiveWindows.Remove(window);
-                shell._bridge.Dispose();
+                if (shell._settingsOwner is null) shell._bridge.Dispose();
+                else shell.ReleaseSettingsOwner();
                 shell._window = 0;
+                shell.TraceSettingsStage("destroyed");
+                shell.ExportSettingsStages();
                 if (_messageLoopRunning && LiveWindows.Count == 0)
                 {
                     PostQuitMessage(0);
@@ -659,15 +731,15 @@ internal sealed class ShellWindow : IDisposable
         try
         {
             EnsureLoaderLoaded();
-            string shellDataRoot = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Augit",
-                "WebView2",
-                "Shell");
-            // 固定会话目录：早期实现按进程号建目录，每次运行都新增一份，
-            // 长期使用会堆积成 GB 级的残留（实测 115 个目录 / 1.4 GB）。
-            string userDataFolder = Path.Combine(shellDataRoot, "Session");
-            CleanStaleSessions(shellDataRoot, userDataFolder);
+            // 显式 --user-data-folder 优先（审计隔离浏览器状态）；显式目录的父目录
+            // 可能还存放用户数据，不能按默认规则清理其中的临时会话。
+            string userDataFolder = ShellOptions.ResolveWebViewDataFolder(_options.UserDataFolder);
+            if (_settingsOwner is null && ShellOptions.ShouldCleanDefaultWebViewSessions(_options.UserDataFolder))
+            {
+                // 固定会话目录：早期实现按进程号建目录，每次运行都新增一份，
+                // 长期使用会堆积成 GB 级的残留（实测 115 个目录 / 1.4 GB）。
+                CleanStaleSessions(Path.GetDirectoryName(userDataFolder)!, userDataFolder);
+            }
             CoreWebView2EnvironmentOptions environmentOptions = new();
             if (_options.BrowserArguments is { Length: > 0 } browserArguments)
             {
@@ -677,11 +749,22 @@ internal sealed class ShellWindow : IDisposable
                 environmentOptions.AdditionalBrowserArguments = browserArguments;
             }
 
-            _environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
-            _controller = await _environment.CreateCoreWebView2ControllerAsync(_window);
+            _environment = _settingsOwner?._environment ?? await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
+            // 等待环境期间主窗可能已关闭；不能再用已归零的HWND创建控制器。
+            if (_disposed) return;
+            if (_settingsOwner is not null) _settingsControllerStartedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            TraceSettingsStage("controller-create-start");
+            // 分开记录COM调用返回与异步完成，避免把同步阻塞和回调等待混为一段。
+            Task<CoreWebView2Controller> controllerCreation = _environment.CreateCoreWebView2ControllerAsync(_window);
+            TraceSettingsStage("controller-create-issued");
+            _controller = await controllerCreation;
+            TraceSettingsStage("controller-create-end");
+            if (_settingsOwner is not null) _settingsControllerReadyMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            if (_settingsOwner is not null) _settingsControllerReadyThread = Environment.CurrentManagedThreadId;
             if (_disposed)
             {
                 _controller?.Close();
+                _controller = null;
                 return;
             }
 
@@ -691,10 +774,17 @@ internal sealed class ShellWindow : IDisposable
             webView.Settings.IsStatusBarEnabled = false;
             webView.Settings.AreBrowserAcceleratorKeysEnabled = false;
             webView.Settings.AreDevToolsEnabled = true;
+            if (_settingsOwner is not null) _settingsScriptRegistrationStartedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            TraceSettingsStage("script-register-start");
             await webView.AddScriptToExecuteOnDocumentCreatedAsync(
-                "window.__augitErrors=[];"
+                (_settingsOwner is null ? "window.__augitNativeModalAvailable=true;window.__augitSettingsWindowAvailable=true;" : "window.__augitSettingsSurface=true;") + "window.__augitErrors=[];"
                 + "addEventListener('error',e=>window.__augitErrors.push('error:'+(e.message||'')+' @'+(e.filename||'')+':'+(e.lineno||0)));"
                 + "addEventListener('unhandledrejection',e=>window.__augitErrors.push('reject:'+String(e.reason&&e.reason.message||e.reason)));");
+            if (_settingsOwner is not null) _settingsScriptRegistrationReadyMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            TraceSettingsStage("script-register-end");
+            if (_settingsOwner is not null) _settingsScriptReadyThread = Environment.CurrentManagedThreadId;
+            // 注册脚本也是异步边界，销毁路径已负责释放控制器，迟到续接不得继续映射或导航。
+            if (_disposed) return;
             webView.SetVirtualHostNameToFolderMapping(
                 DefaultVirtualHost,
                 _options.WebRoot,
@@ -702,15 +792,23 @@ internal sealed class ShellWindow : IDisposable
             webView.NavigationCompleted += OnNavigationCompleted;
             webView.ProcessFailed += OnProcessFailed;
             webView.WebMessageReceived += OnWebMessageReceived;
+            if (_settingsOwner is null) _modalHost = new ShellModalHost(_window, _controller, _environment,
+                () => Notify("window/modal-cancel", new { }), () => Notify("window/modal-scale", new { }),
+                _options.Dpi is not null || _options.PixelExact);
             // 网页标题同步到窗口标题，便于任务栏与外部工具识别当前场景。
             webView.DocumentTitleChanged += OnDocumentTitleChanged;
             ApplyRasterizationScale();
             SyncBounds();
-            webView.Navigate($"https://{DefaultVirtualHost}/index.html{BuildQuery()}");
+            if (_settingsOwner is not null) _settingsNavigationStartedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            TraceSettingsStage("navigation-start");
+            webView.Navigate($"https://{DefaultVirtualHost}/{EntryDocument(_settingsOwner is not null)}{BuildQuery()}");
         }
         catch (Exception exception)
         {
-            _ = MessageBox(_window, exception.ToString(), "Augit 界面加载失败", 0x00000010);
+            // 正常关闭导致的迟到COM失败不能恢复窗口、通知旧所有者或弹出无主错误框。
+            if (_disposed) return;
+            if (_settingsOwner is not null) { FailSettingsInitialization(exception); return; }
+            _ = MessageBox(_window, ShellFailureText.Startup(exception, interfaceOnly: true), "Augit UI Failed to Load", 0x00000010);
         }
     }
 
@@ -737,10 +835,11 @@ internal sealed class ShellWindow : IDisposable
         {
             return;
         }
+        if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置导航失败。")); return; }
 
         _ = MessageBox(
             _window,
-            $"界面资源加载失败：{eventArgs.WebErrorStatus}\n资源目录：{_options.WebRoot}",
+            ShellFailureText.Navigation(eventArgs.WebErrorStatus.ToString(), _options.WebRoot),
             "Augit",
             0x00000010);
     }
@@ -751,16 +850,21 @@ internal sealed class ShellWindow : IDisposable
         {
             return;
         }
+        if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置渲染进程失败。")); return; }
 
         _ = MessageBox(
             _window,
-            $"界面渲染进程异常退出：{eventArgs.ProcessFailedKind}（{eventArgs.Reason}）",
+            ShellFailureText.Renderer(eventArgs.ProcessFailedKind.ToString(), eventArgs.Reason.ToString()),
             "Augit",
             0x00000010);
     }
 
+    // 独立设置复用共享表单，但不经过主界面的终端和预览资源入口。
+    internal static string EntryDocument(bool settingsSurface) => settingsSurface ? "settings-surface.html" : "index.html";
+
     private string BuildQuery()
     {
+        if (_settingsOwner is not null) return "?surface=settings&theme=" + ShellTheme.QueryValue(_options.Theme ?? "Light");
         List<string> parts = [];
         if (_options.Scene is { Length: > 0 } scene)
         {
@@ -825,7 +929,43 @@ internal sealed class ShellWindow : IDisposable
             return;
         }
 
-        string response = await _bridge.HandleAsync(eventArgs.WebMessageAsJson, CancellationToken.None);
+        string response;
+        try { if (await TryHandleSettingsMessageAsync(eventArgs.WebMessageAsJson)) return; }
+        catch (JsonException) { } // 格式错误仍走桥接原有的稳定错误响应。
+        if (ShellModalRequest.TryParse(eventArgs.WebMessageAsJson, out ShellModalRequest? request))
+        {
+            long id = request!.Id;
+            string method = request.Method;
+            try
+            {
+                if (_modalHost is null || _controller is null) throw new InvalidOperationException("模态宿主尚未就绪。");
+                ShellModalHost modalHost = _modalHost;
+                if (method == "window/modal-present")
+                {
+                    GetClientRect(_window, out Rect viewport);
+                    if (_modalHost.Active)
+                    {
+                        viewport.Right = _controller.Bounds.Width;
+                        viewport.Bottom = _controller.Bounds.Height;
+                    }
+                    double scale = _controller.RasterizationScale;
+                    ShellModalPresentation presentation = request.Presentation(viewport.Right, viewport.Bottom, scale);
+                    await modalHost.PresentAsync(presentation.Key, presentation.Title, presentation.Ancestors, presentation.Clip, scale, viewport.Right, viewport.Bottom);
+                }
+                else if (method == "window/modal-close") _modalHost.Close();
+                else if (method == "window/modal-refresh") await modalHost.RefreshSnapshotAsync(request.SnapshotDepth());
+                else if (method == "window/modal-cover") await modalHost.CoverCaptureAsync();
+                else if (method == "window/modal-uncover") modalHost.HideCaptureCover();
+                else if (method == "window/modal-drag") _ = PostMessage(_window, ModalDragMessage, 0, 0);
+                if (_disposed || _window == 0) return;
+                response = JsonSerializer.Serialize(new { id, result = modalHost.State() });
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or COMException or Win32Exception)
+            {
+                response = JsonSerializer.Serialize(new { id, error = "无法打开独立模态窗口。" });
+            }
+        }
+        else response = await _bridge.HandleAsync(eventArgs.WebMessageAsJson, CancellationToken.None);
         if (_disposed || _window == 0)
         {
             return;
@@ -990,9 +1130,8 @@ internal sealed class ShellWindow : IDisposable
         try
         {
             // 读改写：设置文件同时存主题、最近工作区、打开的文件，不能整体覆盖。
-            SettingsStore store = new();
-            ApplicationSettings current = store.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
-            store.SaveAsync(current with { Window = saved }, CancellationToken.None).GetAwaiter().GetResult();
+            ApplicationSettings current = _settingsStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
+            _settingsStore.SaveAsync(current with { Window = saved }, CancellationToken.None).GetAwaiter().GetResult();
         }
         catch (Exception)
         {
@@ -1083,7 +1222,8 @@ internal sealed class ShellWindow : IDisposable
 
     private void SyncBounds()
     {
-        if (_controller is null || _window == 0)
+        _modalHost?.SyncOwnerSnapshot();
+        if (_controller is null || _window == 0 || _modalHost?.Active == true)
         {
             return;
         }
@@ -1093,11 +1233,13 @@ internal sealed class ShellWindow : IDisposable
             return;
         }
 
-        _controller.Bounds = new System.Drawing.Rectangle(
+        System.Drawing.Rectangle nextBounds = new(
             0,
             0,
             bounds.Right - bounds.Left,
             bounds.Bottom - bounds.Top);
+        // 相同尺寸无需重新提交；设置首次显现时的重复赋值可能触发一次空白合成。
+        if (_controller.Bounds != nextBounds) _controller.Bounds = nextBounds;
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "RegisterClassExW", SetLastError = true)]
@@ -1107,7 +1249,7 @@ internal sealed class ShellWindow : IDisposable
     private static extern nint CreateWindowEx(int exStyle, string className, string windowName, int style,
         int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "DefWindowProcW")]
     private static extern nint DefWindowProc(nint window, uint message, nint wParam, nint lParam);
 
     [DllImport("user32.dll")]
@@ -1136,6 +1278,12 @@ internal sealed class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(nint window, out Rect rect);
+    [DllImport("gdi32.dll")]
+    private static extern nint CreateSolidBrush(uint color);
+    [DllImport("user32.dll")]
+    private static extern int FillRect(nint hdc, ref Rect rect, nint brush);
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(nint handle);
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint window, out Rect rect);

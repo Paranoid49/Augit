@@ -7,6 +7,54 @@ namespace Augit.Infrastructure.Tests;
 public sealed class GitCommandRunnerTests
 {
     [TestMethod]
+    [DataRow(2)]
+    [DataRow(3)]
+    public async Task 同一读取器并行查询取消后真实进程均已退出(int count)
+    {
+        using TemporaryDirectory temporary = new();
+        using CancellationTokenSource cancellation = new();
+        GitCommandRunner runner = new(TimeSpan.FromSeconds(30), 1024);
+        string[] identities = Enumerable.Range(0, count).Select(index => temporary.GetPath($"query-{index}.pid")).ToArray();
+        Task<GitCommandResult>[] tasks = identities.Select(file => runner.RunAsync(
+            Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+            temporary.FullPath,
+            ["-NoProfile", "-Command", $"[IO.File]::WriteAllText('{file.Replace("'", "''", StringComparison.Ordinal)}', [string]$PID); Start-Sleep -Seconds 20"],
+            GitCommandMode.LocalQuery,
+            cancellation.Token)).ToArray();
+        try
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!identities.All(File.Exists) && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20);
+            }
+
+            Assert.IsTrue(identities.All(File.Exists), "所有查询必须均实际启动后再验证取消。");
+            int[] processIds = identities.Select(file => int.Parse(File.ReadAllText(file), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+            cancellation.Cancel();
+            GitCommandResult[] results = await Task.WhenAll(tasks);
+            Assert.IsTrue(results.All(result => result.FailureKind == GitOperationFailureKind.Cancelled));
+            foreach (int processId in processIds)
+            {
+                try
+                {
+                    using System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId);
+                    Assert.IsTrue(process.HasExited, "返回后不得保留本次查询进程。");
+                }
+                catch (ArgumentException)
+                {
+                    // 进程身份已不存在，符合清理要求。
+                }
+            }
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await Task.WhenAll(tasks);
+        }
+    }
+
+    [TestMethod]
     public async Task 输出超过边界时继续排空但只保留限定长度()
     {
         GitRuntimeInfo runtime = await GitTestEnvironment.GetRuntimeAsync();

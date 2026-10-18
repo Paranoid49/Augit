@@ -34,6 +34,8 @@ public sealed record GitDiffDocument(
     string? UnifiedPatch)
 {
     public bool HasTextDiff => Status == GitDiffContentStatus.Ready && UnifiedPatch is not null;
+    public Augit.Core.Documents.DocumentLineEndings OldLineEndings { get; init; }
+    public Augit.Core.Documents.DocumentLineEndings NewLineEndings { get; init; }
 }
 
 public sealed record GitDiffResult(

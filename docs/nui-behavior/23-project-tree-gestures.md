@@ -25,4 +25,6 @@
 
 ## 验证
 
+2026-10-10 审查回归已补充根空路径选择、根折叠 ARIA、F5 与旧展开响应乱序、启动恢复期间手动折叠，以及 150 行分帧更新中的新选择/焦点。工具轨主网格删除旧 42px 列和 6px 左内距，12px 树行仍为 24px；同尺寸证据和本轮哈希见 [审查整改记录](../review-remediation-2026-10-10.md)。
+
 `tools/audit/live-shell.spec.cjs` 的项目树手势场景覆盖目录名称单击、箭头单击、目录双击、三连击、文件 Enter、`aria-selected`、根路径空字符串焦点恢复和实时 Git 状态标记。没有 Windows 10 22H2 实机条件时，只登记 Windows 11/无头 Chromium 结果，Windows 10 保持未验证。

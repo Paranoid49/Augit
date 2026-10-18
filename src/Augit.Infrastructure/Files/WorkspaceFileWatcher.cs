@@ -2,7 +2,9 @@ namespace Augit.Infrastructure.Files;
 
 public sealed class WorkspaceFileWatcher : IDisposable
 {
-    private static readonly TimeSpan MergeDelay = TimeSpan.FromMilliseconds(50);
+    // 合并窗口只用于吸收同一次保存产生的重复事件；20ms 仍能合并连续事件，
+    // 同时把外部文件变化到状态读取的固定等待从 50ms 降到 20ms（500ms 刷新目标）。
+    private static readonly TimeSpan MergeDelay = TimeSpan.FromMilliseconds(20);
     private readonly object _gate = new();
     private readonly HashSet<string> _pendingPaths = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _gitMetadataRoot;

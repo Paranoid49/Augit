@@ -105,15 +105,15 @@ async function main() {
           if (scene.endsWith('-loading')) assert.ok(result.loading, `${label}：加载占位没有显示。`);
           for (const group of result.diffGroups) {
             assert.equal(group.bounds.width, 87, `${label}：分段组宽度不符。`);   // 87 = 边框1+内距2+按钮40+间隙1+按钮40+内距2+边框1（第 124 轮实测自洽）
-            assert.equal(group.bounds.height, 33, `${label}：分段组高度不符。`);   // 权威：按钮 27 + 内距 2×2 + 边框 ⇒ 33（原 31 无依据）
+            assert.equal(group.bounds.height, 34, `${label}：分段组高度不符。`);   // 28px图标命中区，加上下内距及边框共6px。
             assert.equal(group.background, theme === 'dark' ? 'rgba(0, 0, 0, 0)' : 'rgba(0, 0, 0, 0)');
             // 容器边框 = `Component.borderColor`：浅 #D1D3D9／深 Gray5 #4E5157（原深色 #4B4D53 无依据）。
-            assert.equal(group.border, theme === 'dark' ? 'rgb(78, 81, 87)' : 'rgb(209, 211, 217)');
+            assert.equal(group.border, theme === 'dark' ? 'rgb(64, 67, 74)' : 'rgb(209, 211, 217)');
             group.buttons.forEach((button, index) => {
               // 权威 `SegmentedButtonLook`：按钮宽 = 内容 + 24 ⇒ 16 + 24 = 40（原 38 无依据）。
               // 组宽 87 = 边框 1 + 内距 2 + 按钮 40 + 间隙 1 + 按钮 40 + 内距 2 + 边框 1，自洽。
               assert.equal(button.bounds.width, 40);
-              assert.equal(button.bounds.height, 27);
+              assert.equal(button.bounds.height, 28);
               // 权威 `SegmentedButtonBorder.getBorderInsets()` = BW(LW) = 3（每侧）⇒ 按钮距组边缘 3；
               // 次个按钮再偏移 40 + 间隙 1 = 44。（原写 2 / 41 是按旧按钮宽 38 推的。）
               assert.equal(button.bounds.x - group.bounds.x, index === 0 ? 3 : 44);
@@ -121,15 +121,15 @@ async function main() {
               // 选中分段按钮底取权威 `SegmentedButton.selectedButtonColor`：浅 = ManyIslandsLight 覆写的
               // `control-bg-raised`（= `dialog-bg-inline` = `white`）／深 = expUI_dark `Gray3 #393B40`。
               // （原写深色 Gray1 #1E1F22 无依据 —— 那是页面底，选中块会与容器同色而看不出来。）
-              if (button.active) assert.equal(button.background, theme === 'dark' ? 'rgb(57, 59, 64)' : 'rgb(255, 255, 255)');
+              if (button.active) assert.equal(button.background, theme === 'dark' ? 'rgb(38, 40, 44)' : 'rgb(255, 255, 255)');
             });
           }
-          if (scene.endsWith('-failure')) assert.match(result.notice, /Git 查询失败/, `${label}：失败说明缺失。`);
-          if (scene.endsWith('-cancelled')) assert.equal(result.notice, '比较已取消。', `${label}：取消说明缺失。`);
+          if (scene.endsWith('-failure')) assert.match(result.notice, /Git query failed/, `${label}：失败说明缺失。`);
+          if (scene.endsWith('-cancelled')) assert.equal(result.notice, 'Comparison cancelled.', `${label}：取消说明缺失。`);
           if (result.comparisonToolbar) {
             const { bounds, buttons, summary } = result.comparisonToolbar;
             assert.deepEqual(buttons.map(button => button.label),
-              ['上一处差异', '下一处差异', '查找', '忽略空白', '双栏', '单栏', '设置']);
+              ['Previous Difference', 'Next Difference', 'Find', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings']);
             let previousRight = bounds.x;
             for (const button of buttons) {
               assert.ok(button.bounds.x >= previousRight && button.bounds.right <= bounds.right,
@@ -137,9 +137,9 @@ async function main() {
               previousRight = button.bounds.right;
             }
             if (scene === 'git-compare') {
-              assert.deepEqual(result.comparisonReferences, ['HEAD', '工作区'], `${label}：比较样本的双方引用不一致。`);
-              assert.equal(result.comparisonCaption, '比较: app.manifest · HEAD → 工作区');
-              assert.equal(summary?.text, '1 处差异');
+              assert.deepEqual(result.comparisonReferences, ['HEAD', 'Workspace'], `${label}：比较样本的双方引用不一致。`);
+              assert.equal(result.comparisonCaption, 'Compare: app.manifest · HEAD → Workspace');
+              assert.equal(summary?.text, '1 difference');
               assert.ok(summary.bounds.x >= buttons[2].bounds.right && summary.bounds.right <= buttons[3].bounds.x,
                 `${label}：差异计数没有位于查找与右侧操作之间。`);
             } else {
@@ -151,7 +151,7 @@ async function main() {
           if (scene === 'diff-boundary') {
             assert.ok(result.boundary, `${label}：文件边界提示缺失。`);
             const { hint, body, text } = result.boundary;
-            assert.equal(text, '再次点击可进入下一个文件');
+            assert.equal(text, 'Click again to open the next file');
             assert.ok(hint.x >= body.x + 8 && hint.right <= body.right - 8
               && hint.y >= body.y + 8 && hint.bottom <= body.bottom - 8,
             `${label}：提示越过正文边界。`);

@@ -26,7 +26,7 @@ internal static class WorkspacePicker
     public static WorkspacePickResult Pick(Func<string, string?> dialog)
     {
         ArgumentNullException.ThrowIfNull(dialog);
-        string? picked = dialog("选择工作区目录");
+        string? picked = dialog("Select Workspace Directory");
         if (string.IsNullOrWhiteSpace(picked))
         {
             return new(WorkspacePickOutcome.Cancelled, null, null);
@@ -34,7 +34,7 @@ internal static class WorkspacePicker
 
         if (!WorkspaceDirectoryService.ValidateRoot(picked).IsValid)
         {
-            return new(WorkspacePickOutcome.Invalid, null, "所选目录不存在或不是可访问的本地目录。");
+            return new(WorkspacePickOutcome.Invalid, null, "The selected directory does not exist or is not an accessible local directory.");
         }
 
         // 对话框可能带回结尾分隔符：去掉它，界面与 workspace/open 都拿到同一个规范路径。

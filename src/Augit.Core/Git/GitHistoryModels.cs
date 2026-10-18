@@ -186,7 +186,8 @@ public sealed record GitBlameLine(
     string Summary,
     string RelativePath,
     string Content,
-    string PreviousRevision = "");
+    string PreviousRevision = "",
+    DateTimeOffset? CommitterDate = null);
 
 public sealed record GitBlameResult(
     bool IsSuccess,

@@ -1,5 +1,7 @@
 # 05 查找与搜索：交互与页面逻辑（PyCharm 2026.2.1 New UI）
 
+2026-10-12：Markdown 没有正文 Find 按钮，全局 Ctrl+F 现通过所属视图事件进入共享查找，避免捕获阶段消费后无动作。三模式的重复聚焦、查询保留和 Esc 已补回归；测试、哈希及其余未覆盖项见 [接续审计](../goal-audit-2026-10-12.md)。
+
 ## 本节要点
 
 1. 编辑器内查找条是编辑器面板的 NORTH 组件（整行、正文整体下移），不是浮层；输入框在左、状态计数与按钮在右。
@@ -287,7 +289,7 @@
 - 全仓搜索有明确的加载态：头部 16×16 加载图标 + `{n}+ matches in {m}+ files` 的"未完成"文案（计数带 `+`）。**[可直接实现]**（来源：FindPopupPanel.java:1345-1356；FindPopupHeader.kt:68-70）
 - Search Everywhere 在查询期间把结果列表空文本设为 `Searching…`。**[可直接实现]**（来源：SearchEverywhereUI.java:936）
 - Augit 现有视觉稿的"正在搜索…"（150 ms 后显示）在 IntelliJ 中没有精确对应值，属于 Web 端补充。**[需推断]**（对照：docs/ux-mockups/current-find.js:173；第 233 轮行号重取）
-- **可观测性（Augit 侧，第 233 轮）**：实时查找的在途窗口靠 `window.__augitFindResultDelay` 注入（生产为空 ⇒ 生成的 Worker 源码与原实现**逐字相同**）。注入点必须放在 **"Worker 报告就绪之前"**（`setTimeout(()=>postMessage({ready:true}),N)`），不能放在"结果到达之后" —— 后者那一刻 `stop()` 已经抬过 `generation`，延迟后再比对取消前的代次会恒不相等，结果永远落不了地，页面侧的 150 ms 加载阈值与 `busy` 期间的方向队列也就都观测不到（第 127 轮的 Worker 路径正是这样失效的，第 233 轮订正）。**[可直接实现]**
+- **可观测性（Augit 侧，第 233 轮）**：实时查找的在途窗口靠 `window.__augitFindResultDelay` 注入（生产为空 ⇒ 生成的 Worker 源码与原实现**逐字相同**）。注入点必须放在 **"Worker 报告就绪之前"**（`setTimeout(()=>postMessage({ready:true}),N)`），不能放在"结果到达之后" —— 后者那一刻 `stop()` 已经抬过 `generation`，延迟后再比对取消前的代次会恒不相等，结果永远落不了地，页面侧的 150 ms 加载阈值与 `busy` 期间的禁用导航也就都观测不到（第 127 轮的 Worker 路径正是这样失效的，第 233 轮订正）。**[可直接实现]**
 
 ### 8.2 分块与让出
 
@@ -396,3 +398,7 @@
 6. **需复核实**：`Character.isJavaIdentifierPart` 在实际 JDK/Unicode 版本下的具体字符集合（会影响全字匹配边界），本仓库未锁定 JDK 版本。
 7. **需复核实**：`SearchTextArea` 文本域的上下内距公式是 Swing 字体度量推导，Web 端等价值需按实际字体重新量取。
 8. **需复核实**：`REBUILD_LIST_DELAY = 100` 与 `USER_ACTIVITY_TRIGGERING_DELAY = 30` 是否与本仓库 commit `576e328` 的 PyCharm 2026.2.1 发行版本完全一致（分支差异未逐文件比对）。
+
+## 2026-10-10查找整改
+
+用户裁决搜索期间按PyCharm禁用导航，不再记录方向队列。正文、Markdown/JSON原文和Diff共用输入外壳：搜索图标、文本框及三个开关在壳内，计数/导航在后、关闭右对齐；计数宽度使用StatusTextAction的9888 results样本。无匹配、未完成、非法正则、超时和IME组词均禁用前后导航，Tab跳过禁用项。全局区域Tab捕获对查找条让行，避免一次Tab移动两次。验证和当前哈希见 [查找与归属整改](../find-blame-remediation-2026-10-10.md)。

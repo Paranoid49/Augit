@@ -6,6 +6,60 @@ namespace Augit.Infrastructure.Tests;
 [TestClass]
 public sealed class GitStatusServiceTests
 {
+    [TestMethod]
+    public async Task 并行查询仍优先报告状态输出超限()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await File.WriteAllTextAsync(temporary.GetPath("long-untracked-file.txt"), "内容");
+            GitStatusService service = new(runtime, new GitCommandRunner(TimeSpan.FromSeconds(30), 8));
+            GitStatusResult result = await service.ReadAsync(repository);
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.CommandFailed, result.FailureKind);
+            Assert.IsNotNull(result.ErrorMessage);
+            Assert.IsTrue(result.ErrorMessage.Contains("状态输出", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
+    public async Task 已取消读取不返回部分状态()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        using (CancellationTokenSource cancellation = new())
+        {
+            cancellation.Cancel();
+            GitStatusResult result = await new GitStatusService(runtime).ReadAsync(repository, cancellation.Token);
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual(GitOperationFailureKind.Cancelled, result.FailureKind);
+            Assert.IsNull(result.Snapshot);
+        }
+    }
+
+    [TestMethod]
+    public async Task 并行分支与HEAD查询保留未出生和分离状态()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            GitStatusService service = new(runtime);
+            GitStatusResult unborn = await service.ReadAsync(repository);
+            Assert.IsTrue(unborn.IsSuccess, unborn.ErrorMessage);
+            Assert.IsFalse(unborn.Snapshot!.IsDetached);
+            Assert.IsNull(unborn.Snapshot.HeadCommit);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(unborn.Snapshot.CurrentBranch));
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "readme.txt", "内容\n", "test: initial");
+            string head = await GitTestEnvironment.RevParseAsync(runtime, temporary.FullPath, "HEAD");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "checkout", "--detach", head);
+            GitStatusResult detached = await service.ReadAsync(repository);
+            Assert.IsTrue(detached.IsSuccess, detached.ErrorMessage);
+            Assert.IsTrue(detached.Snapshot!.IsDetached);
+            Assert.AreEqual(head, detached.Snapshot.HeadCommit);
+            Assert.AreEqual(head[..12], detached.Snapshot.CurrentBranch);
+        }
+    }
+
     private static readonly string[] ExpectedChangesDisplayOrder =
     [
         "docs/a2.cs",

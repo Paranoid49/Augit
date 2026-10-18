@@ -1,5 +1,7 @@
 # Augit 功能与界面的 New UI 归类清单
 
+> **当前状态（2026-10-12整改后）**：历史第307／309轮“清零／完成”仅适用于当时登记范围，不作为当前全场景验收结论。R01–R08实施结果见[整改实施记录](ui-restoration-fixes-2026-10-12.md)，V01–V10仍按场景×状态×环境登记验证缺口；本机字体回退、真实跨屏和Windows 10尚未完成验收。原历史条目保留供追溯。
+
 本文件是目标文本要求的**归类总表**：「Augit 当前每个功能和界面都必须明确归类为：已按 New UI 对齐、有意产品差异、不适用、无法取证或待处理，并具备对应的权威出处、实现位置和按场景可复验的依据。」
 
 本文件只做**归类与索引**，不新增产品能力、不改写任何规格条文。行为规则仍以 `docs/product-spec.md`、`docs/architecture.md`、`docs/ux-spec.md`、`docs/design-system.md` 为准；逐条取证的详细过程在 `docs/nui-behavior/*.md`。
@@ -60,7 +62,7 @@
 | 1.21 | Compose/Jewel 专属尺寸（如 Jewel `IconButton` 24×24、`dialogUnscaledGaps` 10/12） | 不适用 | 那属 Compose 栈，Augit 是 Swing 等价物的 HTML 复刻 | —— | E5 `intellij-platform-ui-behavior.md` §2.3、`10-backlog.md` 一/二·补四 |
 | 1.22 | 项目树缩进步长 18px（首级 22px） | 已按 New UI 对齐 | `02`；`Tree.leftChildIndent`(7)+`Tree.rightChildIndent`(11)、`ClassicPainter.getRendererOffset()` | `mockup.css` 的 `--tree-depth` 计算、`mockup.js` 两处树构建 | E3 `verify-ux-project-tree.cjs`（dpi×字号矩阵断言步长与 depth-7=130px） |
 | 1.23 | `Tree.border = 4,12,4,12`（Swing 树外内距） | 有意产品差异（实现方式） | `expUI_light.theme.json:802` 等 | `mockup.css` `.side-content.tree` 的行内距 | Augit 的 DOM 无 Swing border 层，用行内距表达同一边距，不逐值套用 |
-| 1.24 | 自绘复选框的适用范围（Changes／Amend／Diff 自绘，其余对话框沿用系统复选框） | 有意产品差异（实现方式） | `NativeTheme.DrawCheckbox` 的既有实现范围 | `mockup.js` `NativeTheme.DrawCheckbox` 调用点 | E5 `design-system.md` §9；本节只声明这三处自绘，未迁移的系统复选框按系统默认渲染，不写成"全部对话框已视觉验收" |
+| 1.24 | 共享HTML复选框族（Changes／Amend／Diff／Clone／Stash／日期／筛选） | 已实施，逐页同态验收仍有缺口 | ManyIslands画布24px、绘制外框16px；未选聚焦18px、已选/半选聚焦22px | `mockup.css` `.fake-check`与HTML checkbox共享绘制令牌 | E5 [字体与窗口记录](pixel-font-followup-2026-10-13.md)、`design-system.md` §9；共享状态/PNG验证不能外推为所有业务页全部验收 |
 | 1.25 | 编辑器标签关闭叉的显示时机（权威：选中∨悬停∨已修改∨已固定 + 150ms 驻留才绘制） | 有意产品差异 | `03`；`ux-spec.md` §7.1 要求"中键或关闭叉关闭后台普通文件标签" | `mockup.css` `.tab-close` | E5 `intellij-platform-ui-behavior.md` §9.4；关闭叉需常显才能关闭后台标签 |
 | 1.26 | 标签条细滚动条（权威：5px、鼠标在标签区内显示并保留 2000ms） | 有意产品差异（实现方式） | `03`；`EditorTabs` 标签条滚动行为 | `mockup.css` `.editor-tabs` 的原生 `overflow-x` | E5 `intellij-platform-ui-behavior.md` §9.2／§9.4／§9.5（未新增自绘滚动部件） |
 | 1.27 | Git 历史多轨窄栏的列预算与横向滚动 | 有意产品差异 | 权威没有"多轨窄栏"这一 Augit 适配规则的直接样本 | `mockup.js` `bindHistoryLayout()` | E5 `design-system.md` §8.3.2；只按已有可读性规则适配，不登记为 PyCharm 实测 |
@@ -99,7 +101,7 @@
 | 2.26 | 仓库初始化（创建 Git 仓库、确认形态、失败原因） | 已按 New UI 对齐 | `GitInit.java:45-83` | `git/init`、`mockup.js` `repositoryInitBody()` | E1 `verify-ux-repository-init.cjs`、E2 |
 | 2.27 | Smart Checkout（overwriteRisk 对话框、恢复冲突说明） | 已按 New UI 对齐（**差异**：Force Checkout 不提供） | `GitSmartOperationDialog.java:36-125`、`GitBrancher.java:91-92` | `git/checkout-smart`、`live-data.js` | E1 `verify-ux-smart-checkout.cjs`、E2 |
 | 2.28 | 冲突操作会话列表（Continue/Skip/Abort 可用性） | 已按 New UI 对齐 | `08` §7bis；`MergeActionCaptions` | `git/operation`、`live-data.js` | E1 live-shell（第 149 轮） |
-| 2.29 | 三栏冲突解决器（唯一可编辑区、每侧高亮、整侧接受） | 已按 New UI 对齐 | `08` §7bis；`ThreesideMergeHighlighters` | `mockup.js` `conflict-*`、`live-data.js` | E1 `verify-ux-conflict.cjs` 72/72 |
+| 2.29 | ~~三栏冲突解决器（唯一可编辑区、每侧高亮、整侧接受）~~ | 经批准移出范围（2026-10-17） | 用户批准移除内置三栏编辑器；冲突文件改为普通只读 Diff，保留冲突列表、Continue/Skip/Abort 与外部处理后状态同步 | `live-data.js`、`mockup.js` | 历史 E1 证据保留，不再作为当前验收目标；不得改写为通过 |
 | 2.30 | 快速打开 / 跳转行（结果上限 30、进行中状态） | 已按 New UI 对齐 | `15`；`GotoFileAction`、`SearchEverywhereUI.java:217` | `search/files`、`mockup.js` | E1 live-shell（第 152/153/201 轮） |
 | 2.31 | 全仓搜索（浮层扁平行、1000 条上限、Continue/Abort） | 已按 New UI 对齐 | `17`；`UsageLimitUtil.java:26-34`、`FindPopupResultsAutoloadHandler.kt:69-80` | `search/text`、`live-data.js` | E1 `verify-ux-search-limited.cjs`、E2 |
 | 2.32 | Git 不可用（提示一次、配置入口、提交/历史入口禁用） | 已按 New UI 对齐 | `17` §3；`GitExecutable` 检测（权威在缺 Git 时隐藏/禁用 VCS 入口） | `live-data.js` `showGitUnavailable`、`mockup.js` `rail()` 的禁用分支 | E1 live-shell（第 215 轮：禁用标签集、悬停原因、点击不切换） |
@@ -176,7 +178,7 @@
 | `operation-result` | 已按 New UI 对齐 | E1 live-shell（第 154 轮） |
 | `smart-checkout` | 已按 New UI 对齐 | E1 `verify-ux-smart-checkout.cjs` |
 | `conflict-list` | 已按 New UI 对齐 | E1 live-shell（第 149 轮） |
-| `conflict-resolver` | 已按 New UI 对齐 | E1 `verify-ux-conflict.cjs` 72/72 |
+| `conflict-resolver` | 经批准移出范围（2026-10-17） | 页面与三栏编辑已移除；历史测量保留，不得改写为通过 |
 | `repository-init` | 已按 New UI 对齐 | E1 `verify-ux-repository-init.cjs` |
 | `repository-search` | 已按 New UI 对齐 | E1 live-shell |
 | `search-limited` | 已按 New UI 对齐 | E1 `verify-ux-search-limited.cjs` |

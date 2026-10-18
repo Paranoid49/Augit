@@ -43,19 +43,24 @@ async function main() {
             const bounds = el => { const r = el.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
             return { text: code.textContent, count: code.querySelectorAll('.code-line').length,
               label: document.querySelector('.blame-document .commit-meta').textContent,
-              tip: row.getAttribute('title'), tips: [...gutter.querySelectorAll('.blame-row')].map(item => item.getAttribute('title')),
+              nativeTip: row.getAttribute('title'), message: row.dataset.blameMessage,
+              colors: [...gutter.querySelectorAll('.blame-row:not(.selected)')].map(item => getComputedStyle(item).backgroundColor),
               first: bounds(code.querySelector('.code-line')), row: bounds(row),
               columns: [...row.children].map(bounds), gutter: bounds(gutter),
               tab: document.querySelector('.editor-tab.active').textContent.trim(),
               history: document.querySelector('.bottom-tool').innerHTML };
           });
           assert.equal(initial.tab, 'product-spec.md', label);
-          assert.ok(initial.history.includes('历史: product-spec.md'), `${label} 初始保留文件历史`);
-          assert.equal(initial.label, `${initial.count} 行归属`, label);
-          // 悬停提示：权威 GitFileAnnotation.getToolTip（GitFileAnnotation.java:175-206）逐行给出
-          // commit {完整修订} / Author: / Date: 三段 + 空行 + 提交信息；Path: 行只在跨文件归属时出现。
-          assert.equal(initial.tip, 'commit commit-4\nAuthor: I49\nDate: 2026/8/28 8:25\n\nfeat: 实现 Augit 阶段零至五功能', `${label} 归属行悬停提示`);
-          assert.ok(initial.tips.every(tip => tip === initial.tip), `${label} 每行归属都带同一提交的提示`);
+          assert.ok(initial.history.includes('History: product-spec.md'), `${label} 初始保留文件历史`);
+          assert.equal(initial.label, `${initial.count} Line Attribution`, label);
+          assert.equal(initial.nativeTip, null, `${label} 不使用原生提示`);
+          assert.equal(initial.message, 'feat: 实现 Augit 阶段零至五功能');
+          assert.ok(initial.colors.every(color => color === (theme === 'light' ? 'rgb(161, 190, 247)' : 'rgb(47, 81, 148)')));
+          await page.locator('.blame-row').first().hover();
+          await page.waitForSelector('.blame-tooltip');
+          assert.equal(await page.locator('.blame-tooltip-revision').textContent(), 'commit-4');
+          assert.ok((await page.locator('.blame-tooltip').textContent()).includes('Date: 2026/8/28 8:25'));
+          await page.keyboard.press('Escape');
           assert.ok(Math.abs(initial.first[1] - initial.row[1]) < .02, label);
           assert.ok(Math.abs(initial.first[3] - initial.row[3]) < .02, label);
           let right = initial.gutter[0];
@@ -66,7 +71,8 @@ async function main() {
           const code = page.locator('.blame-layout > .code-view');
           await code.focus();
           await code.evaluate(view => { view.scrollTop = 100; });
-          await page.waitForFunction(() => document.querySelector('.blame-gutter').scrollTop === document.querySelector('.blame-layout > .code-view').scrollTop);
+          // 缩放后底部滚动极值可因容器取整相差1个逻辑像素，行高与首行仍独立严格核对。
+          await page.waitForFunction(() => Math.abs(document.querySelector('.blame-gutter').scrollTop - document.querySelector('.blame-layout > .code-view').scrollTop) <= 1);
           const after = await code.evaluate(view => ({ top: view.scrollTop, text: view.textContent }));
           assert.ok(after.top > 0, `${label} 必须实际滚动`);
           assert.equal(after.text, initial.text, label);
@@ -100,7 +106,7 @@ async function main() {
             await logHandle.dispose();
           }
           if (output && scale === 1 && size === 13) await page.screenshot({ path: path.join(output, `blame-${label}.png`) });
-          await page.getByRole('button', { name: '关闭 Blame', exact: true }).focus();
+          await page.getByRole('button', { name: 'Close Blame', exact: true }).focus();
           const historyBeforeClose = await page.evaluate(historyState);
           const bottomHandle = await page.locator('.bottom-tool').elementHandle();
           await page.keyboard.press('Enter');

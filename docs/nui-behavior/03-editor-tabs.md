@@ -1,5 +1,13 @@
 # 03 · 编辑器标签（EditorTabs）与只读正文查看
 
+2026-10-17同值正文刷新：真实相同字节写回仍读磁盘，但纯文本及全部显示字段一致时不再改打开提示或请求正文刷新；正常入口背景捕获由一轮降为零，真实变化仍更新。49项定向通过，最终30项复验通过。四轮真实内容最后撤盖604/467/467/490ms，1200完整帧仍191变化，整体未完成。四批资源独立清理。最终live-data MD5=D5CEB8B2097BD275AA6098A06B850F57、执行SHA256=ECCE4CA5…A5602C5A。见[本批记录](../refresh-same-document-2026-10-17.md)。
+
+2026-10-17刷新切换保护：旧批次等待Git期间切换/关闭/新读取会继续抢占documentToken；现重验身份并仅更新仍存在的后台标签，不干扰前台提示。修前4类失败、最终37项产品定向及8项驱动通过。正常入口最终四次真实点击均命中状态等待，前台保持且后台更新；普通刷新最后撤盖577/458/478/461ms，1244完整帧仍191变化，不计无闪或性能完成。执行live-data SHA256=55F32A4B…E1D25CD、MD5=E6D3B9263497E5B43E444348DAB3DC63；三批资源独立清理。见[竞态整改](../refresh-background-tab-race-2026-10-17.md)，整体未完成。
+
+2026-10-17正文迟到失败保护：旧openDocument失败缺少代次检查，会清空后来成功的新正文或关闭旧标签；修前2项失败，修后17项定向通过。正常入口四轮真实刷新和关闭通过，但未强制竞态；最后撤盖657.7/537.7/545.5/515.2ms，1339完整帧仍265变化像素，不计性能或无闪。执行live-data SHA256=31964BB9…C8A1BFC、MD5=D50C01AF5311343AC7F8E03FA2E2F0FC；Shell未变。本批PID27768/22388/7004、50536及pWpb8n目录独立清理。复杂Git精修暂停，移除未获确认，整体未完成。见[本批记录](../refresh-stale-document-failure-2026-10-17.md)。
+
+2026-10-13像素整改的当前几何、用户裁决、前后哈希、验证与保留边界见[本批次记录](../pixel-restoration-2026-10-13.md)及[25分册](25-pixel-restoration.md)。旧独立15px复选框、Amend中性图标和Windows按钮右主动作按本批次订正。
+
 本节要点：
 
 1. **编辑器标签栏不是 `JTabbedPane`。** `TabbedPane.tabHeight=40`、`TabbedPane.tabSelectionArc=4`、`TabbedPane.tabInsets=0,12,0,12` 这三个键只被设置对话框等 `JTabbedPane` 的 LaF（`DarculaTabbedPaneUI`）与 Jewel Compose 桥读取，**不驱动编辑器标签栏**；编辑器标签栏由 `JBTabsImpl` 自绘，权威高度是「标签栏 42px（= 标签内容 41px + 顶部 1px 分隔线）」，标签左右内距由 `EditorTabs.tabInsets`（New UI 为 `-7,8,-7,8`）与 `EditorTabs.tabContentInsets*`（4/6px）叠加决定。
@@ -196,6 +204,8 @@
 - 带色标签在 Islands 下参与渐隐时需要「合成后的不透明底色」，由 `getEditorTabComposedBgColor` 提供。（来源：platform/platform-impl/src/com/intellij/openapi/application/impl/islands/IslandsTabPainter.kt:209）【Swing 特有】
 
 ### 2.7 焦点提示
+
+2026-10-10：当前 Islands 选中卡片的活动域包含标签与正文（`.editor-area:focus-within`）；项目树/工具窗或设置输入拥有焦点时使用失焦色。未选中项与失焦选中项 hover 使用主题 `tab-bg-hovered`，浅 `#00000012`、深 `#FFFFFF17`；活动选中卡片不被 hover 覆盖。该实现与真实标签交错测试同步登记在 [场景整改](../scene-alignment-2026-10-10.md)，本节前面的经典 painter 默认值不覆盖 Islands 主题。
 
 - 标签只有在「自己是选中标签且组件可聚焦」（屏幕阅读器开启）时才接受焦点；获得焦点时在**文字区域**画一圈点线矩形（不是整标签）。（来源：platform/platform-api/src/com/intellij/ui/tabs/impl/TabLabel.kt:235；platform/platform-api/src/com/intellij/ui/tabs/impl/TabLabel.kt:724）
 - 键盘左右方向键在焦点位于标签上时切换上一个/下一个可用标签，并把焦点移到新选中标签。（来源：platform/platform-api/src/com/intellij/ui/tabs/impl/TabLabel.kt:173）【可直接实现】
@@ -609,3 +619,7 @@
 - 本文只记录**几何参数、颜色键、状态映射与交互时序**，未复制 JetBrains 的图标资源、字体文件、商标或产品标志；文中提到的图标（关闭、固定、文件类型）只记录尺寸与状态映射，Augit 需按 `docs/design-system.md` 自绘等效实现。
 - 已跳过 Augit 范围外内容：调试器标签（`DebuggerTabs`）、构建工具窗口标签、代码补全、语言支持、括号匹配、编辑与保存、拼写检查。
 - 本文不改变任何产品行为；与 `docs/product-spec.md` / `docs/ux-spec.md` / `docs/design-system.md` 冲突时以那三份为准，冲突需先经用户确认。
+
+2026-10-14普通文本取证：取得同夹具、同尺寸双端原始PNG，第二三行墨迹间距均38物理px，但字串宽度与栅格仍不同；JBR分数度量开关已定位为待确认因素。配对门禁补拒绝同文件和复制图，9项定向测试通过。证据、失败尝试、未验收边界与清理见[普通文本记录](../pixel-text-pair-2026-10-14.md)。55页合格同态配对仍未完成；产品四网页哈希不变，未暂存或提交。
+
+2026-10-14正文字符步长整改：参考Subpixel模式与256组独立JBR度量确认整数设备字宽，修正共享正文、Diff、Blame、冲突及嵌套高亮字距。原图两行宽度差从−2/−3降至+1/0物理px，抗锯齿仍不同。48组合、26项查找归属、51项冲突回归通过；失败迭代、当前哈希、启动停止和清理见[普通文本记录](../pixel-text-pair-2026-10-14.md)。完整双端同态配对仍未完成。

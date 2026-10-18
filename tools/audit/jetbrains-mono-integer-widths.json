@@ -1,0 +1,2610 @@
+[
+  {
+    "scale": 1,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.0
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.0
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 7.0
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.0
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.0
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 10.0
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.0
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 11.0
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.0
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 13.0
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.0
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 14.0
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.0
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.0
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 17.0
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.0
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.0
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 19.0
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.0
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.0
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 22.0
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.0
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 23.0
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.0
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 1.25,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.6
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.4
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.4
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.2
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.8
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 8.8
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.6
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.4
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 11.2
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.2
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.8
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.6
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 13.6
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.4
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.2
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.799999
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.6
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.4
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.4
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.200001
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.799999
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 20.799999
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.6
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.4
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 23.200001
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.200001
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 1.5,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.333333
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.0
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.666667
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.333333
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.666667
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.333333
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.333333
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.666667
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 10.666667
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.333333
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.666667
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.333333
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 14.0
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.666667
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.333333
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 15.333333
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.666666
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.666666
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.333334
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.0
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.666666
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.333334
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.666666
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.333334
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.333334
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.666666
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 22.666666
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.333334
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 1.75,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.714286
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.285714
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.285714
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.428571
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.571428
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.142858
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.714286
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.285714
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 10.857142
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.428572
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.571428
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.142858
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 13.714286
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.285714
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 14.857142
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.571428
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.714285
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.285715
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.285715
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.428572
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.571428
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.142857
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.714285
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.285715
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 22.857143
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.428572
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 2,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.5
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.0
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.5
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.0
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.5
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.0
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.5
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.0
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 11.0
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.5
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.5
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.0
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 14.0
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.5
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.0
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 15.5
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.0
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 17.0
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.5
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.0
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.5
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.0
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.5
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.0
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.5
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.0
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 23.0
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.5
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 2.25,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.333333
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.222222
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.666667
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.111111
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 7.555555
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.444445
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 8.888889
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.777778
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.222222
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 11.111111
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.555555
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.444445
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.333333
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 13.777778
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.222222
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.111111
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 15.555555
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.444445
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.888889
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.333334
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.222221
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.666666
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.111111
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 19.555555
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.444445
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 20.888889
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.777779
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.222221
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 23.111111
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.555555
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 2.5,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.6
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.0
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.8
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.2
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 8.0
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.4
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.2
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.6
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.4
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 10.8
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.6
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.8
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.2
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 14.0
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.4
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.2
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 15.6
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.4
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.799999
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.6
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.0
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.799999
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.200001
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 20.0
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.4
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.200001
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.6
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.4
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 22.799999
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.6
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  },
+  {
+    "scale": 3,
+    "rows": [
+      {
+        "size": 9,
+        "ascent": 10,
+        "descent": 3,
+        "leading": 0,
+        "height": 13,
+        "lineHeight": 16,
+        "baseline": 12,
+        "spaceWidth": 5.333333
+      },
+      {
+        "size": 10,
+        "ascent": 11,
+        "descent": 3,
+        "leading": 0,
+        "height": 14,
+        "lineHeight": 17,
+        "baseline": 13,
+        "spaceWidth": 6.0
+      },
+      {
+        "size": 11,
+        "ascent": 12,
+        "descent": 4,
+        "leading": 0,
+        "height": 16,
+        "lineHeight": 20,
+        "baseline": 14,
+        "spaceWidth": 6.666667
+      },
+      {
+        "size": 12,
+        "ascent": 13,
+        "descent": 4,
+        "leading": 0,
+        "height": 17,
+        "lineHeight": 21,
+        "baseline": 15,
+        "spaceWidth": 7.333333
+      },
+      {
+        "size": 13,
+        "ascent": 14,
+        "descent": 4,
+        "leading": 0,
+        "height": 18,
+        "lineHeight": 22,
+        "baseline": 16,
+        "spaceWidth": 7.666667
+      },
+      {
+        "size": 14,
+        "ascent": 15,
+        "descent": 5,
+        "leading": 0,
+        "height": 20,
+        "lineHeight": 24,
+        "baseline": 17,
+        "spaceWidth": 8.333333
+      },
+      {
+        "size": 15,
+        "ascent": 16,
+        "descent": 5,
+        "leading": 0,
+        "height": 21,
+        "lineHeight": 26,
+        "baseline": 19,
+        "spaceWidth": 9.0
+      },
+      {
+        "size": 16,
+        "ascent": 17,
+        "descent": 5,
+        "leading": 0,
+        "height": 22,
+        "lineHeight": 27,
+        "baseline": 20,
+        "spaceWidth": 9.666667
+      },
+      {
+        "size": 17,
+        "ascent": 18,
+        "descent": 6,
+        "leading": 0,
+        "height": 24,
+        "lineHeight": 29,
+        "baseline": 21,
+        "spaceWidth": 10.333333
+      },
+      {
+        "size": 18,
+        "ascent": 19,
+        "descent": 6,
+        "leading": 0,
+        "height": 25,
+        "lineHeight": 31,
+        "baseline": 22,
+        "spaceWidth": 10.666667
+      },
+      {
+        "size": 19,
+        "ascent": 20,
+        "descent": 6,
+        "leading": 0,
+        "height": 26,
+        "lineHeight": 32,
+        "baseline": 23,
+        "spaceWidth": 11.333333
+      },
+      {
+        "size": 20,
+        "ascent": 21,
+        "descent": 6,
+        "leading": 0,
+        "height": 27,
+        "lineHeight": 33,
+        "baseline": 24,
+        "spaceWidth": 12.0
+      },
+      {
+        "size": 21,
+        "ascent": 22,
+        "descent": 7,
+        "leading": 0,
+        "height": 29,
+        "lineHeight": 35,
+        "baseline": 25,
+        "spaceWidth": 12.666667
+      },
+      {
+        "size": 22,
+        "ascent": 23,
+        "descent": 7,
+        "leading": 0,
+        "height": 30,
+        "lineHeight": 36,
+        "baseline": 26,
+        "spaceWidth": 13.333333
+      },
+      {
+        "size": 23,
+        "ascent": 24,
+        "descent": 7,
+        "leading": 0,
+        "height": 31,
+        "lineHeight": 38,
+        "baseline": 28,
+        "spaceWidth": 13.666667
+      },
+      {
+        "size": 24,
+        "ascent": 25,
+        "descent": 8,
+        "leading": 0,
+        "height": 33,
+        "lineHeight": 40,
+        "baseline": 29,
+        "spaceWidth": 14.333333
+      },
+      {
+        "size": 25,
+        "ascent": 26,
+        "descent": 8,
+        "leading": 0,
+        "height": 34,
+        "lineHeight": 41,
+        "baseline": 30,
+        "spaceWidth": 15.0
+      },
+      {
+        "size": 26,
+        "ascent": 27,
+        "descent": 8,
+        "leading": 0,
+        "height": 35,
+        "lineHeight": 42,
+        "baseline": 31,
+        "spaceWidth": 15.666667
+      },
+      {
+        "size": 27,
+        "ascent": 28,
+        "descent": 9,
+        "leading": 0,
+        "height": 37,
+        "lineHeight": 45,
+        "baseline": 32,
+        "spaceWidth": 16.333334
+      },
+      {
+        "size": 28,
+        "ascent": 29,
+        "descent": 9,
+        "leading": 0,
+        "height": 38,
+        "lineHeight": 46,
+        "baseline": 33,
+        "spaceWidth": 16.666666
+      },
+      {
+        "size": 29,
+        "ascent": 30,
+        "descent": 9,
+        "leading": 0,
+        "height": 39,
+        "lineHeight": 47,
+        "baseline": 34,
+        "spaceWidth": 17.333334
+      },
+      {
+        "size": 30,
+        "ascent": 31,
+        "descent": 9,
+        "leading": 0,
+        "height": 40,
+        "lineHeight": 48,
+        "baseline": 35,
+        "spaceWidth": 18.0
+      },
+      {
+        "size": 31,
+        "ascent": 32,
+        "descent": 10,
+        "leading": 0,
+        "height": 42,
+        "lineHeight": 51,
+        "baseline": 37,
+        "spaceWidth": 18.666666
+      },
+      {
+        "size": 32,
+        "ascent": 33,
+        "descent": 10,
+        "leading": 0,
+        "height": 43,
+        "lineHeight": 52,
+        "baseline": 38,
+        "spaceWidth": 19.333334
+      },
+      {
+        "size": 33,
+        "ascent": 34,
+        "descent": 10,
+        "leading": 0,
+        "height": 44,
+        "lineHeight": 53,
+        "baseline": 39,
+        "spaceWidth": 19.666666
+      },
+      {
+        "size": 34,
+        "ascent": 35,
+        "descent": 11,
+        "leading": 0,
+        "height": 46,
+        "lineHeight": 56,
+        "baseline": 40,
+        "spaceWidth": 20.333334
+      },
+      {
+        "size": 35,
+        "ascent": 36,
+        "descent": 11,
+        "leading": 0,
+        "height": 47,
+        "lineHeight": 57,
+        "baseline": 41,
+        "spaceWidth": 21.0
+      },
+      {
+        "size": 36,
+        "ascent": 37,
+        "descent": 11,
+        "leading": 0,
+        "height": 48,
+        "lineHeight": 58,
+        "baseline": 42,
+        "spaceWidth": 21.666666
+      },
+      {
+        "size": 37,
+        "ascent": 38,
+        "descent": 12,
+        "leading": 0,
+        "height": 50,
+        "lineHeight": 61,
+        "baseline": 44,
+        "spaceWidth": 22.333334
+      },
+      {
+        "size": 38,
+        "ascent": 39,
+        "descent": 12,
+        "leading": 0,
+        "height": 51,
+        "lineHeight": 62,
+        "baseline": 45,
+        "spaceWidth": 22.666666
+      },
+      {
+        "size": 39,
+        "ascent": 40,
+        "descent": 12,
+        "leading": 0,
+        "height": 52,
+        "lineHeight": 63,
+        "baseline": 46,
+        "spaceWidth": 23.333334
+      },
+      {
+        "size": 40,
+        "ascent": 41,
+        "descent": 12,
+        "leading": 0,
+        "height": 53,
+        "lineHeight": 64,
+        "baseline": 47,
+        "spaceWidth": 24.0
+      }
+    ],
+    "formulaMismatches": []
+  }
+]

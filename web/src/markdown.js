@@ -28,12 +28,12 @@ function renderInline(text) {
       return `<img src="${escapeAttribute(source)}" alt="${escapeAttribute(alt)}">`;
     }
     if (/^(https?:)?\/\//i.test(source)) {
-      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">远程图片已阻止：${label}</span>`;
+      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">Remote image blocked: ${label}</span>`;
     }
     if (/^[\\/]/.test(source) || /^[a-zA-Z]:/.test(source)
         || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(source)) {
       // 与链接侧同一格式：**保留原标签文字**并附上原因。
-      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">${label}（图片已阻止：不支持该地址或协议。）</span>`;
+      return `<span class="markdown-blocked" title="${escapeAttribute(source)}">${label} (Image blocked: unsupported address or protocol.)</span>`;
     }
     return `<img data-markdown-image="${escapeAttribute(source)}" alt="${escapeAttribute(alt)}" hidden>`;
   });

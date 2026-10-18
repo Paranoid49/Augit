@@ -4,15 +4,15 @@ function bindImagePreview() {
   if (!stage) return;
   let picture = stage.querySelector('img');
   const label = document.querySelector('.image-zoom-label');
-  const smaller = document.querySelector('[aria-label="缩小"]');
-  const larger = document.querySelector('[aria-label="放大"]');
-  const fitButton = document.querySelector('[aria-label="适应区域"]');
+  const smaller = document.querySelector('[aria-label="Zoom Out"]');
+  const larger = document.querySelector('[aria-label="Zoom In"]');
+  const fitButton = document.querySelector('[aria-label="Fit to View"]');
   const steps = [.1, .25, .5, .75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
   if (new URLSearchParams(location.search).get('image-state') === 'loading') {
     const status = document.createElement('div');
     status.className = 'image-loading';
     status.setAttribute('role', 'status');
-    status.textContent = '正在读取文件…';
+    status.textContent = 'Reading file…';
     stage.append(status);
   }
   // 视图状态（适应/比例/平移）要跨越**区域重绘**存活：外部更新会重建整个图片正文，

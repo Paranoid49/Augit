@@ -6,7 +6,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MODULE = process.argv[2] || '/root/.npm/_npx/e41f203b7505f1fb/node_modules/playwright';
+const MODULE = process.argv[2] || 'playwright';
 const THEME = process.argv[3] || 'dark';
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -22,6 +22,11 @@ const SKIP = new Set(['index.html']);
 function startStaticServer(root) {
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
+    if (url.pathname === '/favicon.ico') {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     const relative = decodeURIComponent(url.pathname).replace(/^\//, '') || 'index.html';
     const target = path.join(root, relative);
     if (!target.startsWith(root) || !fs.existsSync(target) || fs.statSync(target).isDirectory()) {
@@ -37,13 +42,14 @@ function startStaticServer(root) {
 
 async function main() {
   const { chromium } = require(path.resolve(MODULE));
-  const root = path.resolve(__dirname, '../../docs/ux-mockups');
-  const scenes = fs.readdirSync(root).filter((name) => name.endsWith('.html') && !SKIP.has(name)).sort();
+  // 共享CSS的../vendor必须仍指向docs/vendor，服务根不能截掉这层资产目录。
+  const root = path.resolve(__dirname, '../../docs');
+  const scenes = fs.readdirSync(path.join(root, 'ux-mockups')).filter((name) => name.endsWith('.html') && !SKIP.has(name)).sort();
   if (scenes.length === 0) throw new Error('没有找到场景页。');
 
   const server = await startStaticServer(root);
   const port = server.address().port;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, executablePath: process.env.AUGIT_BROWSER_EXECUTABLE || undefined });
   const failures = [];
   let passed = 0;
   try {
@@ -56,7 +62,7 @@ async function main() {
         if (message.type() === 'error') errors.push('console: ' + message.text());
       });
       try {
-        await page.goto(`http://127.0.0.1:${port}/${scene}?theme=${THEME}`, { waitUntil: 'load' });
+        await page.goto(`http://127.0.0.1:${port}/ux-mockups/${scene}?theme=${THEME}`, { waitUntil: 'load' });
         await page.waitForTimeout(120);
         const state = await page.evaluate(() => {
           const shell = document.querySelector('.augit-window, .window-shell, body > *');

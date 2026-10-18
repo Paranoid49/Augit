@@ -36,7 +36,11 @@ Get-FileHash -Algorithm MD5 web/src/mockup.js,web/src/mockup.css,web/src/live-da
 
 ## 3. 分批测试
 
+恢复试验前源码时，复制可能保留早于试验DLL的修改时间。恢复后必须使用 dotnet build --no-restore --no-incremental /nodeReuse:false 重新编译，再核对产物；源码哈希恢复和增量构建成功都不能证明旧试验已从DLL移除。日常启动器及日常入口审计共用此构建路径。显式 -SkipBuild 仅供已独立确认产物的定向测试使用。
+
 小批次只运行受影响范围的验证。连续小批次可以合并，完成一个大模块后必须运行该模块完整测试并验证跨模块接口、状态和页面跳转。
+
+涉及桥接应答的异步状态等待使用tools/audit/wait-async-condition.cjs，在Node侧显式await最终布尔结果。不得把async条件直接传给page.waitForFunction：当前本机驱动会将Promise对象视作真值，最终false也提前返回。普通同步DOM条件仍可使用waitForFunction。原生就绪计时须验证与宿主单调时钟的先后关系；原始反例及历史证据边界见[设置等待纠正记录](settings-awaited-state-2026-10-17.md)。
 
 - 网页、CSS 或视觉稿：`verify-ui-assets`、相关 `tools/verify-ux-*.cjs`、相关实时场景、JavaScript 语法检查和 `git diff --check`。
 - Core 或 Infrastructure：受影响项目的 `dotnet test`、直接依赖的 bridge 测试和必要构建。

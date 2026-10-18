@@ -1,4 +1,4 @@
-# Verifies the real window chrome of the shell (goal 1: no duplicated window buttons).
+﻿# Verifies the real window chrome of the shell (goal 1: no duplicated window buttons).
 #
 # The visual mockup draws its own window buttons in the titlebar, so the native window must
 # not carry a Win32 caption. With a caption both sets appear at the same corner. A caption
@@ -77,25 +77,28 @@ function Get-Rect($handle, [string]$kind) {
 }
 
 # --- Chrome DevTools Protocol: evaluate JS in the live WebView2 page -------------------------
-function Get-CdpTarget([int]$port) {
+
+# 本脚本持有 CDP 连接，并在 finally 中释放。
+function Get-CdpSocket([int]$port) {
   $deadline = (Get-Date).AddSeconds(20)
   while ((Get-Date) -lt $deadline) {
     try {
       $targets = Invoke-RestMethod -Uri "http://127.0.0.1:$port/json/list" -TimeoutSec 3
       $page = $targets | Where-Object { $_.url -like "*index.html*" } | Select-Object -First 1
-      if ($page) { return $page.webSocketDebuggerUrl }
-    } catch { }
+      if ($page) {
+        $ws = New-Object System.Net.WebSockets.ClientWebSocket
+        $token = [System.Threading.CancellationToken]::None
+        [void]$ws.ConnectAsync([Uri]$page.webSocketDebuggerUrl, $token).GetAwaiter().GetResult()
+        return $ws
+      }
+    } catch { if ($ws) { $ws.Dispose(); $ws = $null } }
     Start-Sleep -Milliseconds 400
   }
   throw "no CDP page target on port $port"
 }
 
-function Invoke-CdpEval([string]$socketUrl, [string]$expression, [int]$id) {
-  $ws = New-Object System.Net.WebSockets.ClientWebSocket
+function Invoke-CdpEval([System.Net.WebSockets.ClientWebSocket]$ws, [string]$expression, [int]$id) {
   $token = [System.Threading.CancellationToken]::None
-  # Void-returning await calls emit a VoidTaskResult object into the pipeline, which would be
-  # returned alongside the evaluated value; cast them away.
-  [void]$ws.ConnectAsync([Uri]$socketUrl, $token).GetAwaiter().GetResult()
   $payload = @{ id = $id; method = "Runtime.evaluate"; params = @{ expression = $expression; returnByValue = $true; awaitPromise = $true } } | ConvertTo-Json -Compress -Depth 6
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
   $segment = New-Object System.ArraySegment[byte] -ArgumentList @(,$bytes)
@@ -113,11 +116,9 @@ function Invoke-CdpEval([string]$socketUrl, [string]$expression, [int]$id) {
     $message = $null
     try { $message = $text | ConvertFrom-Json } catch { continue }
     if ($message.id -eq $id) {
-      [void]$ws.Dispose()
       return $message.result.result.value
     }
   }
-  [void]$ws.Dispose()
   throw "CDP evaluate timed out"
 }
 
@@ -180,25 +181,28 @@ function Save-Corner([IntPtr]$handle, [string]$path, [int]$w, [int]$ht) {
 }
 
 # --- Launch --------------------------------------------------------------------------------
-# --- Stale web assets guard ----------------------------------------------------------------
-# The shell loads its UI from the 'web' folder NEXT TO THE EXE, not from the repository
-# sources. A stale copy silently produces evidence for an older UI (hit twice while building
-# this script: a mockup.js fix looked broken because the copied tree predated it).
+# --- Complete web assets mirror guard --------------------------------------------------------
+# 启动前核对完整相对文件集合与 SHA256，阻止删除资源残留或同时间内容差异造成错误取证。
 $exeWeb = Join-Path (Split-Path -Parent $Exe) "web"
 $repoWeb = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "web"
-if ((Test-Path -LiteralPath $exeWeb) -and (Test-Path -LiteralPath $repoWeb)) {
-  $copied = (Get-ChildItem -LiteralPath $exeWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  $source = (Get-ChildItem -LiteralPath $repoWeb -Recurse -File | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  if ($source -gt $copied) {
-    Write-Output "STALE_WEB_ASSETS source=$($source.ToString('s')) copied=$($copied.ToString('s'))"
-    Write-Output "Rebuild the shell (dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release) so the web copy beside the executable is refreshed."
+if (Test-Path -LiteralPath $repoWeb) {
+  try {
+    & (Join-Path $PSScriptRoot 'verify-web-assets-mirror.ps1') -SourceDirectory $repoWeb -OutputDirectory $exeWeb
+  } catch {
+    Write-Output $_.Exception.Message
+    Write-Output "WEB_ASSETS_MIRROR_FAILED source=$repoWeb output=$exeWeb"
+    Write-Output "Rebuild the shell (dotnet build src/Augit.Shell/Augit.Shell.csproj -c Release) so the web copy beside the executable is a complete mirror."
     exit 6
   }
 }
 
-Get-Process Augit -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-$launchArgs = @("--workspace", $Workspace, "--pixel-exact", "--theme", "dark", "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")
+# 审计场景允许独立实例，不激活或关闭用户同仓库窗口。
+$launchArgs = @("--workspace", $Workspace, "--scene", "main-project", "--pixel-exact", "--theme", "dark", "--width", "$Width", "--height", "$Height", "--browser-args", "--remote-debugging-port=$Port")
+$process = $null
+$ws = $null
+$exitCode = 0
+# 只清理本脚本启动的进程句柄，异常及提前退出都进入 finally。
+try {
 $process = Start-Process -FilePath $Exe -ArgumentList $launchArgs -PassThru
 $handle = [IntPtr]::Zero
 $deadline = (Get-Date).AddSeconds(30)
@@ -207,7 +211,8 @@ while ((Get-Date) -lt $deadline -and $handle -eq [IntPtr]::Zero) {
   try { $process.Refresh() } catch { }
   if ($process.MainWindowHandle -ne 0) { $handle = $process.MainWindowHandle }
 }
-if ($handle -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW"; exit 2 }
+if ($handle -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW"; $exitCode = 2 }
+if ($exitCode -eq 0) {
 Start-Sleep -Milliseconds $SettleMs
 
 # Move into the visible screen and raise: click coordinates are screen coordinates.
@@ -232,8 +237,8 @@ Assert-Chrome "window-has-no-native-frame" `
   "clientOrigin=$($origin.X),$($origin.Y) windowOrigin=$($windowRect.L),$($windowRect.T) client=${clientW}x${clientH} window=$($windowRect.R - $windowRect.L)x$($windowRect.B - $windowRect.T)"
 
 # A2: the three self-drawn buttons live inside the client area, top-right.
-$socket = Get-CdpTarget $Port
-$dots = Invoke-CdpEval $socket "JSON.stringify(Array.from(document.querySelectorAll('.window-dot')).map(function(d){var r=d.getBoundingClientRect();return {a:d.dataset.windowAction,x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),icon:(d.querySelector('svg')||{dataset:{}}).dataset.augitIcon};}))" 1
+$ws = Get-CdpSocket $Port
+$dots = Invoke-CdpEval $ws "JSON.stringify(Array.from(document.querySelectorAll('.window-dot')).map(function(d){var r=d.getBoundingClientRect();return {a:d.dataset.windowAction,x:Math.round(r.x),y:Math.round(r.y),w:Math.round(r.width),h:Math.round(r.height),icon:(d.querySelector('svg')||{dataset:{}}).dataset.augitIcon};}))" 1
 # ConvertFrom-Json emits a JSON array as ONE pipeline object, so wrapping it in @() would
 # produce a single-element array holding the real array (the first version of this script
 # did exactly that and every index lookup returned an array instead of a dot).
@@ -261,7 +266,7 @@ function Dot-Centre([string]$action) {
 # whole work area), so coordinates sampled before a state change are stale and would click the
 # editor instead of the button (that mistake made three assertions fail once).
 function Get-DotCentre([string]$action, [int]$cdpId) {
-  $json = Invoke-CdpEval $socket "JSON.stringify(Array.from(document.querySelectorAll('.window-dot')).map(function(d){var r=d.getBoundingClientRect();return {a:d.dataset.windowAction,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};}))" $cdpId
+  $json = Invoke-CdpEval $ws "JSON.stringify(Array.from(document.querySelectorAll('.window-dot')).map(function(d){var r=d.getBoundingClientRect();return {a:d.dataset.windowAction,x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};}))" $cdpId
   $list = $json | ConvertFrom-Json
   $dot = $list | Where-Object { $_.a -eq $action } | Select-Object -First 1
   $point = New-Object WinChrome+POINT
@@ -286,7 +291,7 @@ Invoke-RealClick $max[0] $max[1]
 Start-Sleep -Milliseconds 900
 $zoomed = [WinChrome]::IsZoomed($handle)
 # Index 1 is the maximize dot (order: minimize, maximize, close) - avoids nested quotes.
-$iconAfterMax = Invoke-CdpEval $socket "JSON.stringify({icon:document.querySelectorAll('.window-dot')[1].querySelector('svg').dataset.augitIcon,live:!!(window.__augitLive&&window.__augitLive.windowMaximized)})" 12
+$iconAfterMax = Invoke-CdpEval $ws "JSON.stringify({icon:document.querySelectorAll('.window-dot')[1].querySelector('svg').dataset.augitIcon,live:!!(window.__augitLive&&window.__augitLive.windowMaximized)})" 12
 Assert-Chrome "maximize-button-maximizes" $zoomed "IsZoomed=$zoomed at $($max[0]),$($max[1]) icon=$iconAfterMax"
 
 # A5: a maximized window must fill the work area exactly - a frame-width overflow would push
@@ -308,7 +313,7 @@ Invoke-RealClick $maxAgain[0] $maxAgain[1]
 Start-Sleep -Milliseconds 900
 $restoredRect = Get-Rect $handle "window"
 $restored = -not [WinChrome]::IsZoomed($handle)
-$iconAfterRestore = Invoke-CdpEval $socket "document.querySelectorAll('.window-dot')[1].querySelector('svg').dataset.augitIcon" 14
+$iconAfterRestore = Invoke-CdpEval $ws "document.querySelectorAll('.window-dot')[1].querySelector('svg').dataset.augitIcon" 14
 Assert-Chrome "maximize-button-restores" ($restored -and ($iconAfterRestore -eq "window-maximize") -and (($restoredRect.R - $restoredRect.L) -eq $Width)) `
   "restored=$restored icon=$iconAfterRestore size=$($restoredRect.R - $restoredRect.L)x$($restoredRect.B - $restoredRect.T) at $($maxAgain[0]),$($maxAgain[1])"
 
@@ -317,7 +322,7 @@ Assert-Chrome "maximize-button-restores" ($restored -and ($iconAfterRestore -eq 
 # control (the first version of this script pressed the centred quick-open link and the window
 # correctly did not move - the script was wrong, not the app).
 function Get-BlankTitlebarPoint([int]$cdpId) {
-  $json = Invoke-CdpEval $socket "(()=>{const CONTROLS='.window-dot, .top-button, .top-chip, .titlebar-context, .main-menu-bar, .main-menu-entry, a, button, input, select, textarea';const bar=document.querySelector('.titlebar');const r=bar.getBoundingClientRect();for(let x=Math.round(r.width*0.15);x<r.width*0.9;x+=4){const el=document.elementFromPoint(x,Math.round(r.height/2));if(el&&bar.contains(el)&&!el.closest(CONTROLS))return JSON.stringify({x:x,y:Math.round(r.height/2),tag:el.tagName});}return 'none';})()" $cdpId
+  $json = Invoke-CdpEval $ws "(()=>{const CONTROLS='.window-dot, .top-button, .top-chip, .titlebar-context, .main-menu-bar, .main-menu-entry, a, button, input, select, textarea';const bar=document.querySelector('.titlebar');const r=bar.getBoundingClientRect();for(let x=Math.round(r.width*0.15);x<r.width*0.9;x+=4){const el=document.elementFromPoint(x,Math.round(r.height/2));if(el&&bar.contains(el)&&!el.closest(CONTROLS))return JSON.stringify({x:x,y:Math.round(r.height/2),tag:el.tagName});}return 'none';})()" $cdpId
   return $json | ConvertFrom-Json
 }
 
@@ -374,16 +379,23 @@ $movedEdge = ($resizeBefore.L - $resizeAfter.L) -ge 50
 Assert-Chrome "border-drag-resizes-window" ($grewWidth -and $movedEdge) "zoomed=$([WinChrome]::IsZoomed($handle)) left $($resizeBefore.L) -> $($resizeAfter.L) width $($resizeBefore.R - $resizeBefore.L) -> $($resizeAfter.R - $resizeAfter.L)"
 
 # A10: the close button closes the application.
-$errors = Invoke-CdpEval $socket "JSON.stringify(window.__augitErrors||[])" 16
+$errors = Invoke-CdpEval $ws "JSON.stringify(window.__augitErrors||[])" 16
 Assert-Chrome "no-page-errors" (($errors -eq "[]") -or ($errors -eq $null)) "errors=$errors"
 $close = Get-DotCentre "close" 17
 Invoke-RealClick $close[0] $close[1]
 Start-Sleep -Milliseconds 1500
 $exited = $process.HasExited
 Assert-Chrome "close-button-closes-app" $exited "HasExited=$exited at $($close[0]),$($close[1])"
-if (-not $exited) { try { $process.Kill() } catch { } }
 
 Write-Output ("SUMMARY failures=" + $failures.Count)
-if ($failures.Count -gt 0) { Write-Output ("FAILED: " + ($failures -join ", ")); exit 1 }
-Write-Output "WINDOW_CHROME_OK"
-exit 0
+if ($failures.Count -gt 0) { Write-Output ("FAILED: " + ($failures -join ", ")); $exitCode = 1 }
+else { Write-Output "WINDOW_CHROME_OK" }
+}
+} finally {
+  if ($process -and -not $process.HasExited) {
+    try { $process.CloseMainWindow() | Out-Null; if (!$process.WaitForExit(3000)) { $process.Kill(); $process.WaitForExit(10000) | Out-Null } } catch { }
+  }
+  if ($null -ne $ws) { try { $ws.Dispose() } catch { } }
+  if ($process) { $process.Dispose() }
+}
+exit $exitCode

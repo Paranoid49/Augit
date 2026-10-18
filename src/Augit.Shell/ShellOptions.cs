@@ -25,6 +25,21 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
     /// </remarks>
     public string ThemeMode { get; init; } = "System";
 
+    /// <summary>
+    /// 审计用的显式设置文件；未指定时使用用户默认配置。
+    /// </summary>
+    public string? SettingsFile { get; init; }
+
+    /// <summary>审计隔离用的显式 WebView2 用户数据目录（<c>--user-data-folder</c>）。</summary>
+    public string? UserDataFolder { get; init; }
+
+    /// <summary>
+    /// 是否显式使用隔离状态；这些实例不得激活或覆盖用户窗口登记。
+    /// </summary>
+    public bool HasIsolatedState => SettingsFile is not null || UserDataFolder is not null;
+
+    public bool ShouldReuseWorkspaceWindow => Scene is null or { Length: 0 } && !HasIsolatedState;
+
     public static ShellOptions Parse(string[] arguments)
     {
         string? webRoot = null;
@@ -45,6 +60,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
         string? diffDocument = null;
         int? dpi = null;
         string? browserArguments = null;
+        string? settingsFile = null;
+        string? userDataFolder = null;
 
         for (int index = 0; index < arguments.Length; index++)
         {
@@ -102,6 +119,13 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                 case "--browser-args":
                     browserArguments = Next(arguments, ref index, argument);
                     break;
+                // 审计隔离：显式设置文件与 WebView2 用户数据目录，只接受完全绝对路径。
+                case "--settings-file":
+                    settingsFile = ParseAbsolutePath(arguments, ref index, argument);
+                    break;
+                case "--user-data-folder":
+                    userDataFolder = ParseAbsolutePath(arguments, ref index, argument);
+                    break;
                 case "--dpi":
                     string dpiText = Next(arguments, ref index, argument);
                     if (!int.TryParse(dpiText, out int dpiValue) || dpiValue is < 72 or > 480)
@@ -140,6 +164,8 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             browserArguments)
         {
             WorkspaceExplicit = workspaceExplicit,
+            SettingsFile = settingsFile,
+            UserDataFolder = userDataFolder,
         };
     }
 
@@ -152,6 +178,44 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
 
         return arguments[++index];
     }
+
+    /// <summary>
+    /// 隔离路径必须是完全绝对路径：相对、驱动器相对或根相对路径会随进程当前目录漂移，
+    /// 读写的可能不是审计指定的那份状态。
+    /// </summary>
+    private static string ParseAbsolutePath(string[] arguments, ref int index, string name)
+    {
+        string value = Next(arguments, ref index, name);
+        if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value))
+        {
+            throw new ArgumentException($"{name} 必须是完全绝对路径。");
+        }
+
+        return Path.GetFullPath(value);
+    }
+
+    /// <summary>解析 WebView2 用户数据目录：显式目录优先，否则用固定的默认会话目录。</summary>
+    internal static string ResolveWebViewDataFolder(string? explicitUserDataFolder)
+    {
+        if (explicitUserDataFolder is { Length: > 0 } folder)
+        {
+            return Path.GetFullPath(folder);
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Augit",
+            "WebView2",
+            "Shell",
+            "Session");
+    }
+
+    /// <summary>
+    /// 是否按默认规则清理历史会话目录。显式目录的父目录可能同时存放用户数据，
+    /// 无法推断其中临时文件的归属，因此一律不清理。
+    /// </summary>
+    internal static bool ShouldCleanDefaultWebViewSessions(string? explicitUserDataFolder)
+        => string.IsNullOrEmpty(explicitUserDataFolder);
 
     /// <summary>
     /// 解析窗口尺寸覆盖。未传时返回 null——调用方需要区分"用户没指定"与"用户指定了默认值"：

@@ -25,6 +25,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { roleWeights } = require('./css-role-weights.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const docPath = path.join(root, 'docs/ui-compliance.md');
@@ -149,8 +150,7 @@ if (!twoSeven || !twoSix || !oneTwo || !twoEight || !five || !six) {
   // 已按角色改掉；这里加一条机械守卫，防止第三档字重再悄悄回来。
   try {
     const css = fs.readFileSync(path.join(root, 'web', 'src', 'mockup.css'), 'utf8');
-    const weights = new Set();
-    for (const m of css.matchAll(/font-weight:\s*([0-9]+|normal|bold|bolder|lighter)/g)) weights.add(m[1]);
+    const weights = roleWeights(css);
     const allowed = new Set(['400', '600', 'normal']);
     const bad = [...weights].filter((w) => !allowed.has(w));
     if (bad.length) problems.push('mockup.css 出现规格未允许的字重：' + bad.join(', '));

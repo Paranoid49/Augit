@@ -1,12 +1,24 @@
 // 以指定 IntelliJ checkout 的 SVG 为几何与颜色基准，在浏览器内比较栅格结果。
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 module.exports = async function verifyIcons({ browser, port, stubHost, stubData, data, check }) {
   const referenceRoot = process.env.AUGIT_INTELLIJ_ROOT || 'D:/github/intellij-community';
   const entries = [
     ['yaml', 'fileTypes/yaml.svg', 'file', 'sample.yaml'],
     ['json', 'fileTypes/json.svg', 'file', 'sample.json'],
     ['markdown', 'fileTypes/markdown.svg', 'file', 'sample.md'],
+    ['javascript', 'fileTypes/javaScript.svg', 'file', 'bridge.js'],
+    ['typescript', 'fileTypes/typeScript.svg', 'file', 'index.ts'],
+    ['css', 'fileTypes/css.svg', 'file', 'mockup.css'],
+    ['python', 'platform/icons/src/language/python.svg', 'file', 'main.py'],
+    ['editorconfig', 'fileTypes/editorConfig.svg', 'file', '.editorconfig'],
+    ['gitignore', 'fileTypes/ignored.svg', 'file', '.gitignore'],
+    ['treeBranch', 'general/vcs.svg', 'tree', 'branch'],
+    ['treeCurrent', 'platform/dvcs-impl/shared/resources/icons/new/currentBranchLabel.svg', 'tree', 'current'],
+    ['treeFavorite', 'platform/icons/src/nodes/favorite.svg', 'tree', 'favorite'],
+    ['treeCurrentFavorite', 'platform/dvcs-impl/shared/resources/icons/new/currentBranchFavoriteLabel.svg', 'tree', 'currentFavorite'],
+    ['treeTag', 'platform/dvcs-impl/shared/resources/icons/new/branchLabel.svg', 'tree', 'tag'],
     ['folder', 'nodes/folder.svg', 'folder', ''],
     ['copy', 'general/copy.svg', 'icon', 'copy'],
     ['search', 'general/search.svg', 'icon', 'search'],
@@ -15,6 +27,16 @@ module.exports = async function verifyIcons({ browser, port, stubHost, stubData,
     ['zoomOut', 'image/zoomOut.svg', 'icon', 'zoom-out'],
     ['fitContent', 'image/fitContent.svg', 'icon', 'image-fit'],
     ['stash', 'vcs/shelve.svg', 'icon', 'stash'],
+    ['projectRail', 'toolwindows/project@20x20.svg', 'rail', 'folder'],
+    ['commitRail', 'toolwindows/commit@20x20.svg', 'rail', 'git-commit-horizontal'],
+    ['gitRail', 'toolwindows/vcs@20x20.svg', 'rail', 'git-history'],
+    ['locate', 'general/locate.svg', 'icon', 'locate-fixed'],
+    ['collapse', 'general/collapseAll.svg', 'icon', 'fold-vertical'],
+    ['history', 'general/history.svg', 'icon', 'history'],
+    ['terminalRail', 'plugins/terminal/resources/icons/expui/toolwindow/terminal@20x20.svg', 'rail', 'square-terminal'],
+    ['terminal', 'plugins/terminal/resources/icons/expui/toolwindow/terminal.svg', 'icon', 'square-terminal'],
+    ['searchRail', 'toolwindows/find@20x20.svg', 'rail', 'search'],
+    ['branch', 'platform/icons/src/vcs/branch.svg', 'branch', 'git-branch'],
   ];
   const context = await browser.newContext();
   try {
@@ -24,17 +46,31 @@ module.exports = async function verifyIcons({ browser, port, stubHost, stubData,
       await page.goto(`http://127.0.0.1:${port}/index.html?scene=main-project&theme=${theme}`);
       await page.waitForFunction(() => window.__augitReady);
       for (const [name, resource, kind, value] of entries) {
-        const base = path.join(referenceRoot, 'platform/icons/src/expui', resource);
+        const relative = /^(plugins|platform)\//.test(resource) ? resource : 'platform/icons/src/expui/' + resource;
+        const base = path.join(referenceRoot, relative);
         const dark = base.replace(/\.svg$/, '_dark.svg');
-        const reference = fs.readFileSync(theme === 'dark' && fs.existsSync(dark) ? dark : base, 'utf8');
+        const reference = resource.startsWith('plugins/')
+          ? execFileSync('git', ['-C', referenceRoot, 'show', 'HEAD:' + (theme === 'dark' ? relative.replace(/\.svg$/, '_dark.svg') : relative)], { encoding: 'utf8' })
+          : fs.readFileSync(theme === 'dark' && fs.existsSync(dark) ? dark : base, 'utf8');
         const result = await page.evaluate(async ({ reference, kind, value, name }) => {
           const container = document.createElement('div');
-          container.style.cssText = 'position:fixed;left:-1000px;top:0;color:var(--augit-icon)';
-          const markup = kind === 'file' ? fileTypeIcon(value) : kind === 'folder' ? treeFolderIcon() : icon(value);
+          container.style.cssText = `position:fixed;left:-1000px;top:0;color:var(${kind === 'branch' ? '--augit-branch-icon' : '--augit-icon'})`;
+          const markup = kind === 'file' ? fileTypeIcon(value) : kind === 'folder' ? treeFolderIcon()
+            : kind === 'tree' ? branchTreeIcon({ isCurrent: value.startsWith('current'), isFavorite: value === 'favorite' || value === 'currentFavorite' }, value === 'tag' ? 'tag' : 'branch')
+              : icon(value, kind === 'rail');
           container.innerHTML = markup + reference;
           document.body.append(container);
           try {
             const [actual, expected] = container.querySelectorAll('svg');
+            // Islands Dark 的 ColorPalette 在 SVG 加载后替换默认轮廓色，原始 _dark.svg 不是最终颜色。
+            if (document.body.dataset.theme === 'dark') {
+              const patched = '#C3C5CB';
+              expected.querySelectorAll('[fill], [stroke]').forEach((element) => {
+                for (const key of ['fill', 'stroke']) {
+                  if (element.getAttribute(key)?.toLowerCase() === '#ced0d6') element.setAttribute(key, patched);
+                }
+              });
+            }
             const raster = async (svg) => {
               const clone = svg.cloneNode(true);
               const originals = [svg, ...svg.querySelectorAll('*')];
@@ -74,7 +110,8 @@ module.exports = async function verifyIcons({ browser, port, stubHost, stubData,
             return result;
           } finally { container.remove(); }
         }, { reference, kind, value, name });
-        check(`${theme}/${name} 绘图网格为 16×16`, result.viewBox === '0 0 16 16');
+        const grid = kind === 'rail' ? 20 : 16;
+        check(`${theme}/${name} 绘图网格为 ${grid}×${grid}`, result.viewBox === `0 0 ${grid} ${grid}`);
         console.log(`INFO 图标 ${theme}/${name}: ${JSON.stringify(result)}`);
         check(`${theme}/${name} 几何与主题色符合本地权威（差异像素 ${result.pixels}/16384）`, result.pixels <= 32);
         if (name === 'copy') check(`${theme}/copy 负向短横线被同一判定拒绝`, result.negativePixels > 32);

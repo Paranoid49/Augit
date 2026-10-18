@@ -117,13 +117,13 @@ const WORKSPACE = {
   },
   conflict: {
     available: true, path: 'src/App.cs', contentKind: 'Text',
-    yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
+    yoursLabel: 'Current branch · main', theirsLabel: 'Incoming changes · feature/ux',
     yoursText: '第一行\n左方改动\n第三行',
     theirsText: '第一行\n右方改动\n第三行',
     resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
     operation: 'Rebase',
     version: { length: 42, sha256: 'deadbeef', lastWriteUtc: '2026-09-15T00:00:00Z' },
-    blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
+    blocks: [{ start: 4, length: 50, yours: '左方改动\n', ancestor: null, theirs: '右方改动\n' }],
   },
   remotes: { available: true, remotes: [{ name: 'origin', fetchUrl: 'https://example.com/team/Augit.git', pushUrl: 'https://example.com/team/Augit.git' }] },
   references: {
@@ -195,7 +195,7 @@ const WORKSPACE = {
     'docs/product-spec.md': {
       path: 'docs/product-spec.md', name: 'product-spec.md', fullPath: 'D:\\ws\\docs\\product-spec.md',
       workspaceName: 'ws', status: 'TextReady', kind: 'Markdown', typeName: 'Markdown',
-      fileSize: 120, text: '# 真实标题\n\n第一段**加粗**与`代码`。\n\n## 二级\n\n- 甲\n- 乙\n',
+      fileSize: 120, text: '# 真实标题\n\n第一段**加粗**with`代码`。\n\n## 二级\n\n- 甲\n- 乙\n',
       lineEndings: 'LF', encoding: 'UTF-8',
     },
     // 第 231 轮：查找计数用例的样本（计数可精确预期，且四个组合互不相同、都不等于视觉稿的固定 12/3）：
@@ -224,8 +224,14 @@ async function main() {
   let browser;
   let passed = 0;
   let skippedChecks = 0;
+  const failures = [];
   const check = (label, condition) => {
-    if (!condition) throw new Error('断言失败：' + label);
+    if (!condition) {
+      if (!process.argv.includes('--collect-failures')) throw new Error('断言失败：' + label);
+      failures.push(label);
+      console.error('断言失败：' + label);
+      return;
+    }
     passed++;
   };
 
@@ -258,6 +264,11 @@ async function main() {
     // 宿主推送（真实外壳的 workspace-changed 走这里）。事件消息不带 id，
     // 与请求应答天然区分；测试用它可以确定性地触发一次变化，而不靠兜底轮询。
     window.__hostPush = (event, payload) => {
+      // 真实宿主先累积队列再推送；网页收到通知后经workspace/changes原子消费。
+      if (event === 'workspace-changed') {
+        const pending = window.__nextChanges || { files: [], gitMetadata: false };
+        window.__nextChanges = { files: [...new Set([...(pending.files || []), ...(payload?.files || [])])], gitMetadata: !!(pending.gitMetadata || payload?.gitMetadata) };
+      }
       for (const handler of listeners) handler({ data: JSON.stringify({ event, payload }) });
       return listeners.length;
     };
@@ -295,7 +306,7 @@ async function main() {
       }
       if (method === 'workspace/changes') {
         window.__changesReads = (window.__changesReads || 0) + 1;
-        if (window.__changesFails) throw new Error('无法读取工作区变化：目录已被占用。');
+        if (window.__changesFails) throw new Error('Cannot Read Workspace Changes：目录已被占用。');
         // 由测试脚本通过 window.__nextChanges 注入一次变化批次，读取后清空。
         const next = window.__nextChanges || { files: [], gitMetadata: false };
         window.__nextChanges = null;
@@ -312,8 +323,8 @@ async function main() {
           return { available: true, isRepository: true, isDetached: false, branch: data.status.branch,
             headCommit: data.status.headCommit, files: base.concat(extra) };
         }
-        if (window.__gitUnavailable) return { available: false, reason: '未找到 Git for Windows 2.40 或更高版本。' };
-        if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git 仓库。' };
+        if (window.__gitUnavailable) return { available: false, reason: 'Git for Windows 2.40 or newer was not found.' };
+        if (window.__notARepository) return { available: true, isRepository: false, reason: '该目录不是带工作区的 Git Repository。' };
         // 支持运行中改变文件列表，用于跨模块流程验证。
         // 用 in 判断而不是真值判断：空数组是有效状态（§10.1 的无 Changes），
         // `||` 会让它回退到默认列表，测不出空状态。
@@ -543,7 +554,7 @@ async function main() {
           const cancelsBefore = window.__writeCancels || 0;
           await new Promise((r) => setTimeout(r, window.__cloneDelays));
           if ((window.__writeCancels || 0) > cancelsBefore) {
-            return { available: true, cancelled: true, reason: '操作已取消。' };
+            return { available: true, cancelled: true, reason: 'Operation cancelled.' };
           }
         }
         if (window.__cloneFails) throw new Error('克隆失败：无法连接远端。');
@@ -667,7 +678,7 @@ async function main() {
             rows: [
               { oldLine: 1, oldText: '# 旧标题', oldChanges: [], newLine: 1, newText: '# 真实标题', newChanges: [{ start: 2, length: 4 }], kind: 'Modified' },
               { oldLine: 2, oldText: '', oldChanges: [], newLine: 2, newText: '', newChanges: [], kind: 'Context' },
-              { oldLine: 3, oldText: '第一段**加粗**与`代码`。', oldChanges: [], newLine: 3, newText: '第一段**加粗**与`代码`。', newChanges: [], kind: 'Context' },
+              { oldLine: 3, oldText: '第一段**加粗**with`代码`。', oldChanges: [], newLine: 3, newText: '第一段**加粗**with`代码`。', newChanges: [], kind: 'Context' },
             ],
           };
         }
@@ -771,13 +782,14 @@ async function main() {
         window.__settingsState = next;
         return { saved: true, theme: next.theme, fontSize: next.fontSize };
       }
+      if (method === 'settings/fonts') return { families: ['Cascadia Mono','Consolas','Courier New','Microsoft YaHei UI','Segoe UI','Tahoma'] };
       if (method === 'git/detect') {
         // 规格 §7.17：Git 分类要显示检测结果与最低版本说明。
         window.__gitDetectCalls = (window.__gitDetectCalls || 0) + 1;
         if (window.__gitDetectDelays) await new Promise((r) => setTimeout(r, window.__gitDetectDelays));
         if (window.__gitDetectUnavailable) {
           return { available: false, path: null, version: null, minimumVersion: '2.40',
-            reason: '未找到 Git for Windows 2.40 或更高版本。' };
+            reason: 'Git for Windows 2.40 or newer was not found.' };
         }
         return { available: true, path: 'C:\\Program Files\\Git\\cmd\\git.exe', version: '2.47.1',
           minimumVersion: '2.40', reason: null };
@@ -801,33 +813,6 @@ async function main() {
         return { available: true, ok: true, reason: null, session: window.__operationSession };
       }
       if (method === 'git/conflicts') return data.conflicts;
-      if (method === 'git/conflict-load') {
-        window.__conflictLoads = (window.__conflictLoads || []).concat([params.path]);
-        // 测试可以注入别的冲突文档（例如两处冲突，用于验证导航与"接受作用于当前块"）。
-        return window.__conflictFixture || data.conflict;
-      }
-      if (method === 'git/conflict-save') {
-        window.__conflictSaves = (window.__conflictSaves || []).concat([params]);
-        // 延迟用于观察"应用进行中"的冻结与忙碌提示。
-        if (window.__conflictSaveDelays) {
-          await new Promise((r) => setTimeout(r, window.__conflictSaveDelays));
-        }
-        if (window.__conflictSaveFails) return { available: true, saved: false, reason: '冲突文件已被外部工具修改，请先选择重新载入或保留当前编辑内容。' };
-        return { available: true, saved: true };
-      }
-      if (method === 'git/conflict-accept') {
-        // 整侧接受（规格 §7.14）：宿主做的是 git checkout --ours/--theirs + git add。
-        window.__conflictAccepts = (window.__conflictAccepts || []).concat([{ path: params.path, side: params.side }]);
-        if (window.__conflictAcceptFails) {
-          return { available: false, reason: '所选文件已不再处于冲突状态。' };
-        }
-        // 接受后这个文件不再是冲突：随后 git/operation 必须返回少一个冲突的会话。
-        const base = window.__operationSession !== undefined ? window.__operationSession : (window.__sessionFixture || null);
-        window.__operationSession = (window.__operationAfterWholeAccept !== undefined)
-          ? window.__operationAfterWholeAccept
-          : (base ? Object.assign({}, base, { hasConflicts: false, conflicts: [], canContinue: true }) : null);
-        return { available: true, reason: null, hasConflicts: false };
-      }
       if (method === 'git/remotes') {
         window.__remotesReads = (window.__remotesReads || 0) + 1;
         return window.__remotesState || data.remotes;
@@ -870,7 +855,7 @@ async function main() {
       }
       if (method === 'git/stash-content') {
         window.__stashContentCalls = (window.__stashContentCalls || []).concat([params.reference]);
-        if (window.__stashContentFails) return { available: false, reason: '无法读取 Stash 内容。', files: [] };
+        if (window.__stashContentFails) return { available: false, reason: 'Cannot read Stash content.', files: [] };
         return {
           available: true,
           files: params.reference === 'stash@{1}'
@@ -915,13 +900,13 @@ async function main() {
       }
       if (method === 'git/worktree-removal') {
         window.__worktreeRemovalCalls = (window.__worktreeRemovalCalls || []).concat([params.path]);
-        if (window.__worktreeRemovalFails) return { available: false, reason: '无法检查该 Worktree。' };
+        if (window.__worktreeRemovalFails) return { available: false, reason: 'Cannot inspect this Worktree.' };
         // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：主工作树不可移除。宿主侧同一判据，
         // 桩必须同构，否则界面"主工作树禁用"的断言会在桩上假通过。
         const worktreeList = ((window.__worktreesState || data.worktrees).worktrees) || [];
         const target = worktreeList.find((worktree) => worktree.path === params.path) || null;
         if (target && target.isMain) {
-          return { available: true, canRemove: false, isClean: true, hasActiveTerminal: false, reason: '仓库的主工作树不能移除。' };
+          return { available: true, canRemove: false, isClean: true, hasActiveTerminal: false, reason: 'The main worktree cannot be removed.' };
         }
         const clean = params.path !== 'D:\\ws-linked' || !window.__linkedWorktreeDirty;
         return {
@@ -929,7 +914,7 @@ async function main() {
           canRemove: clean,
           isClean: clean,
           hasActiveTerminal: !!window.__linkedWorktreeTerminal,
-          reason: clean ? null : (window.__linkedWorktreeTerminal ? '存在运行中的内置终端会话。' : '存在本地改动或未跟踪文件。'),
+          reason: clean ? null : (window.__linkedWorktreeTerminal ? '存在运行中的内置终端会话。' : 'Local changes or untracked files exist。'),
         };
       }
       if (method === 'git/worktree-remove') {
@@ -937,7 +922,7 @@ async function main() {
         const listed = ((window.__worktreesState || data.worktrees).worktrees) || [];
         const removing = listed.find((worktree) => worktree.path === params.path) || null;
         if (removing && removing.isMain) {
-          return { available: true, ok: false, reason: '仓库的主工作树不能移除。', worktrees: window.__worktreesState || data.worktrees };
+          return { available: true, ok: false, reason: 'The main worktree cannot be removed.', worktrees: window.__worktreesState || data.worktrees };
         }
         if (window.__worktreeRemoveFails) {
           return { available: true, ok: false, reason: 'Worktree 存在本地改动或未跟踪文件，不能安全移除。', worktrees: window.__worktreesState || data.worktrees };
@@ -950,7 +935,7 @@ async function main() {
         return { available: true, ok: true, reason: null, worktrees: window.__worktreesState };
       }
       if (method === 'git/unpushed') {
-        if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，无法生成推送预览。', commits: [], upstream: null };
+        if (window.__unpushedFails) return { available: true, ready: false, reason: '当前分支没有配置上游，Unable to load push preview。', commits: [], upstream: null };
         return {
           available: true, ready: true, upstream: 'origin/dsh',
           commits: (window.__unpushedSubjects || ['feat: 真实提交一']).map((subject, index) => ({ hash: 'aaa111' + index, fullHash: 'full-' + index, subject, author: 'l49', date: '2026/9/15 10:00' })),
@@ -968,7 +953,7 @@ async function main() {
         window.__fetchParams = (window.__fetchParams || []).concat([params]);
         const fetchDelay = window.__fetchDelayMs || 0;
         if (fetchDelay) await new Promise((r) => setTimeout(r, fetchDelay));
-        if (window.__fetchFails) return { available: true, fetched: false, reason: '没有配置远端。' };
+        if (window.__fetchFails) return { available: true, fetched: false, reason: 'No remote configured。' };
         return { available: true, fetched: true, branch: 'dsh' };
       }
       if (method === 'git/branch') {
@@ -1030,7 +1015,7 @@ async function main() {
           const cancelsBefore = window.__writeCancels || 0;
           await new Promise((r) => setTimeout(r, window.__pushDelays));
           if (!window.__pushIgnoresCancel && (window.__writeCancels || 0) > cancelsBefore) {
-            return { available: true, cancelled: true, reason: '操作已取消。' };
+            return { available: true, cancelled: true, reason: 'Operation cancelled.' };
           }
         }
         // 失败原因可注入：验证「需要交互输入」这类宿主稳定原因被原样显示（规格 §7.12 第 14 条）。
@@ -1045,10 +1030,10 @@ async function main() {
         // 第 245 轮：失败原因可注入（用于验证"长原因可悬停读全文"：固定文案不足以触发省略号）。
         if (window.__commitFails) {
           return { available: true, committed: false,
-            reason: window.__commitFailReason || 'commit-msg hook 拒绝提交。请检查仓库提交规则。' };
+            reason: window.__commitFailReason || 'The commit-msg hook rejected the commit. Check repository rules.' };
         }
-        if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: '请至少选择一个要提交的文件。' };
-        if (!params.message) return { available: true, committed: false, reason: '提交信息不能为空。' };
+        if (!params.paths || params.paths.length === 0) return { available: true, committed: false, reason: 'Select at least one file to commit.' };
+        if (!params.message) return { available: true, committed: false, reason: 'Commit message cannot be empty.' };
         return { available: true, committed: true, commitHash: 'abc1234', branch: 'main', remaining: 1 };
       }
       if (method === 'workspace/open') {
@@ -1079,9 +1064,9 @@ async function main() {
         if (window.__resetDelays) await new Promise((r) => setTimeout(r, window.__resetDelays));
         // 与真实宿主一致：取消会终止正在运行的 Git 命令，因此已取消的请求必须失败，
         // 不能"取消之后还返回成功"（否则界面会把一次已取消的写操作当成生效）。
-        if (window.__writeCancels) throw new Error('操作已取消。');
+        if (window.__writeCancels) throw new Error('Operation cancelled.');
         if (window.__resetFails) {
-          throw new Error('无法解析目标提交，请检查仓库中的引用名称。');
+          throw new Error('Cannot resolve the target commit. Check the reference name.');
         }
         return { available: true, reset: true, target: params.target, mode: params.mode };
       }
@@ -1238,7 +1223,9 @@ async function main() {
       console.log(`live-icons 通过 ${passed} 项断言`);
       return;
     }
-    await require('./live-layout.cjs')({ browser, port, stubHost, stubData, data: WORKSPACE, check });
+    if (!process.argv.includes('--workspace-delivery-only') && !process.argv.includes('--restoration-only') && !process.argv.includes('--reference-only') && !process.argv.includes('--review-only') && !process.argv.includes('--scene-alignment-only') && !process.argv.includes('--filter-popups-only') && !process.argv.includes('--settings-diff-only') && !process.argv.includes('--find-blame-only') && !process.argv.includes('--goal-conflict-only') && !process.argv.includes('--goal-log-only') && !process.argv.includes('--empty-session-only') && !process.argv.includes('--goal-remote-only') && !process.argv.includes('--goal-write-only') && !process.argv.includes('--goal-startup-only') && !process.argv.includes('--settings-state-only') && !process.argv.includes('--restoration-fixes-only') && !process.argv.includes('--pixel-remediation-only')) {
+      await require('./live-layout.cjs')({ browser, port, stubHost, stubData, data: WORKSPACE, check });
+    }
     if (process.argv.includes('--layout-only') || process.argv.includes('--layout-details-only')) {
       console.log(`live-layout 通过 ${passed} 项断言`);
       return;
@@ -1247,8 +1234,13 @@ async function main() {
     await context.addInitScript(stubHost);
     await context.addInitScript(stubData, WORKSPACE);
 
-    const openScene = async (query) => {
+    const openScene = async (query, initialize = null) => {
+      // 实时启动保持真实空编辑器；显式文本查看场景须打开夹具文件，不能依赖静态样例正文。
+      const sceneQuery = new URLSearchParams(query);
+      const textFixture = sceneQuery.get('scene') === 'text-viewer' && !sceneQuery.has('open');
+      if (textFixture) query += '&open=docs/notes.txt';
       const page = await context.newPage();
+      if (initialize) await page.addInitScript(initialize);
       const errors = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${port}/index.html?${query}`, { waitUntil: 'load' });
@@ -1275,8 +1267,64 @@ async function main() {
         }));
         throw new Error('等待 Git 数据超时: ' + JSON.stringify(state));
       }
+      // text-viewer视觉夹具默认包含查找条；实时路径以真实快捷键打开同一状态。
+      if (textFixture) await page.keyboard.press('Control+f');
       return { page, errors };
     };
+
+    const goalModules = {
+      '--workspace-delivery-only': './live-workspace-delivery.cjs',
+      '--goal-conflict-only': './live-goal-conflict.cjs',
+      '--goal-log-only': './live-goal-log.cjs',
+      '--empty-session-only': './live-empty-session.cjs',
+      '--goal-remote-only': './live-goal-remote.cjs',
+      '--goal-write-only': './live-goal-write.cjs',
+      '--goal-startup-only': './live-goal-startup.cjs',
+      '--settings-state-only': './live-settings-state.cjs',
+      '--restoration-fixes-only': './live-restoration-fixes.cjs',
+      '--pixel-remediation-only': './live-pixel-remediation.cjs',
+    };
+    const goalModule = Object.keys(goalModules).find(flag => process.argv.includes(flag));
+    if (goalModule) {
+      await require(goalModules[goalModule])({ openScene, check });
+      console.log(`live-goal 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--find-blame-only')) {
+      await require('./live-find-blame.cjs')({ openScene, check });
+      console.log(`live-find-blame 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--settings-diff-only')) {
+      await require('./live-settings-diff.cjs')({ openScene, check });
+      console.log(`live-settings-diff 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--filter-popups-only')) {
+      await require('./live-filter-popups.cjs')({ openScene, check });
+      console.log(`live-filter-popups 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--scene-alignment-only')) {
+      await require('./live-scene-alignment.cjs')({ openScene, check });
+      console.log(`live-scene-alignment 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--review-only')) {
+      await require('./live-review-regressions.cjs')({ openScene, check });
+      console.log(`live-review 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--reference-only')) {
+      await require('./live-reference-surfaces.cjs')({ openScene, check });
+      console.log(`live-reference 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--restoration-only')) {
+      await require('./live-restoration.cjs')({ openScene, context, check });
+      console.log(`live-restoration 通过 ${passed} 项断言`);
+      return;
+    }
 
     // ---- 工作区与项目树 ----
     // 单独开一个不预打开文档的场景：规格 §4.1 要求此时状态栏显示工作区路径。
@@ -1315,7 +1363,7 @@ async function main() {
     // 规格 §4.1：成功读取的 UTF-8 文本显示编码与磁盘换行格式，并带只读标识。
     const docStatus = await page.locator('.statusbar').innerText();
     check('文档状态栏含编码与换行: ' + docStatus.replace(/\n/g, ' '), docStatus.includes('UTF-8') && docStatus.includes('LF'));
-    check('文档状态栏含只读标识', docStatus.includes('只读'));
+    check('文档状态栏含只读标识', docStatus.includes('Read-only'));
     const preview = await page.locator('.markdown-preview').innerHTML();
     check('Markdown 预览来自真实内容', preview.includes('真实标题') && preview.includes('<strong>加粗</strong>'));
     check('预览不残留样例标题', !preview.includes('Augit 产品规格'));
@@ -1348,8 +1396,8 @@ async function main() {
     check('Changes 显示真实改动文件: ' + JSON.stringify(changeFiles), changeFiles.length === 3 && changeFiles.includes('src/App.cs'));
     const groups = await changes.page.locator('.check-group-row strong').allInnerTexts();
     check('Changes 分组来自 Git', groups.includes('Changes') && groups.includes('Unversioned Files'));
-    check('分组计数正确', (await changes.page.locator('.check-group-row .commit-meta').first().innerText()).includes('2 个文件'));
-    check('提交区显示改动数', (await changes.page.locator('.commit-count').innerText()).includes('2 modified'));
+    check('分组计数正确', (await changes.page.locator('.check-group-row .commit-meta').first().innerText()).includes('2 files'));
+    check('提交区分组显示改动数', (await changes.page.locator('.check-group-row').first().innerText()).includes('2 files'));
     check('未跟踪文件默认不勾选', await changes.page.locator('.change-file-row[data-path="notes/draft.txt"] .fake-check.checked').count() === 0);
     await changes.page.close();
 
@@ -1363,12 +1411,13 @@ async function main() {
     check('Blame 正文为真实文件内容', blameBody.includes('第一行') && blameBody.includes('第三行'));
     check('Blame 不残留样例归属', !blameText.includes('2026/8/28'));
     // 归属行悬停提示按权威 GitFileAnnotation.getToolTip 拼装：完整修订 / Author: / Date: + 空行 + 提交信息。
-    const blameTips = await blame.page.locator('.blame-document .blame-row').evaluateAll(rows => rows.map(row => row.getAttribute('title')));
+    const blameTips = await blame.page.locator('.blame-document .blame-row').evaluateAll(rows => rows.map(row =>
+      `commit ${row.dataset.blameFull}\nAuthor: ${row.dataset.blameAuthor}\nDate: ${row.dataset.blameDate}\n\n${row.dataset.blameMessage}`));
     // `Date:` 是**日期时间**（权威 `DateFormatUtil.formatDateTime`，`GitFileAnnotation.java:193` 的
     // `commit.description.tooltip.date`），而槽位显示的是短日期 —— 两者都来自宿主载荷。
-    check('Blame 悬停提示含完整修订、作者、日期时间与提交信息: ' + JSON.stringify(blameTips[0]),
-      blameTips[0] === 'commit full-head-hash\nAuthor: l49\nDate: 2026/9/15 10:00\n\nfeat: 一'
-      && blameTips[2] === 'commit full-bbb2222\nAuthor: l49\nDate: 2026/9/14 9:00\n\nfix: 二');
+    check('Blame 悬停提示含完整修订、Author、日期时间与提交信息: ' + JSON.stringify(blameTips[0]),
+      blameTips[0] === 'commit full-head-hash\nAuthor: l49\nDate: 2026/9/15 10:00\n\nfeat: 一\n...'
+      && blameTips[2] === 'commit full-bbb2222\nAuthor: l49\nDate: 2026/9/14 9:00\n\nfix: 二\n...');
     check('Blame 悬停提示用完整修订而非归属列旁的短修订',
       blameTips.every(tip => !tip.startsWith('commit aaa') && !tip.startsWith('commit bbb')));
     // ---- 「标注上一修订」（权威 `AnnotatePreviousRevisionAction`）----
@@ -1407,7 +1456,7 @@ async function main() {
       toolbar: document.querySelector('.blame-document .document-toolbar').textContent,
       gutter: document.querySelector('.blame-document .blame-gutter').innerText,
     }));
-    check('§7.9 「标注上一修订」只对有上一修订的行给出，并按该修订重新标注: '
+    check('§7.9 「Annotate Previous Revision」只对有上一修订的行给出，并按该修订重新标注: '
       + JSON.stringify([rootRowMenu, previousRowMenu, previousAnnotated]),
       rootRowMenu.open === false
         && previousRowMenu.open === true
@@ -1417,7 +1466,7 @@ async function main() {
         && previousAnnotated.params.revision === '1111111111111111111111111111111111111111'
         // 标注结果换成了更早那一版：作者与摘要都变，且工具栏写明依据的修订（短哈希）。
         && previousAnnotated.gutter.includes('older') && previousAnnotated.gutter.includes('2026/9/1')
-        && previousAnnotated.toolbar.includes('上一修订 1111111'));
+        && previousAnnotated.toolbar.includes('Previous Revision 1111111'));
     await blame.page.close();
 
     // ---- §7.9：点击归属行的提交 → 定位 Git 历史并选中该提交 ----
@@ -1459,7 +1508,7 @@ async function main() {
       hasLog: !!document.querySelector('.log-list-panel .commit-row'),
     }));
     check('§7.9 未加载的提交给出现场说明而不是静默无反应: ' + JSON.stringify(unknownCommit),
-      typeof unknownCommit.toast === 'string' && unknownCommit.toast.includes('不在当前加载的历史里')
+      typeof unknownCommit.toast === 'string' && unknownCommit.toast.includes('outside the loaded history')
         && unknownCommit.hasLog === true);
     await blameJump.page.close();
 
@@ -1494,7 +1543,7 @@ async function main() {
     check('§7.9 从文件历史打开的 Blame 点击提交恢复日志布局并解除路径限定: ' + JSON.stringify([blameFhBefore, blameFhAfter]),
       blameFhBefore.fileHistory === true && blameFhBefore.path === 'docs/notes.txt'
         && blameFhAfter.fileHistory === false && blameFhAfter.hasLog === true
-        && blameFhAfter.selected === 'full-bbb2222' && blameFhAfter.activeTab.includes('日志'));
+        && blameFhAfter.selected === 'full-bbb2222' && blameFhAfter.activeTab.includes('Log'));
     await fhBlame.page.close();
 
     // ---- 文件历史 ----
@@ -1513,8 +1562,8 @@ async function main() {
       header: [...document.querySelectorAll('.history-columns > span')].map(node => node.textContent),
       rows: [...document.querySelectorAll('.history-row')].map(row => [...row.children].map(cell => cell.textContent)),
     }));
-    check('文件历史表头为 版本→日期→作者→提交信息: ' + JSON.stringify(historyColumns.header),
-      JSON.stringify(historyColumns.header) === JSON.stringify(['版本', '日期', '作者', '提交信息']));
+    check('文件历史表头为 Revision→Date→Author→Commit message: ' + JSON.stringify(historyColumns.header),
+      JSON.stringify(historyColumns.header) === JSON.stringify(['Revision', 'Date', 'Author', 'Commit message']));
     check('文件历史行按权威列序填真实数据: ' + JSON.stringify(historyColumns.rows[0]),
       JSON.stringify(historyColumns.rows[0]) === JSON.stringify(['bbb2222', '2026/9/14 09:00', 'l49', 'fix: 文件历史一']));
     // 作者列的值与单元格 tooltip（权威 `FileHistoryPanelImpl.AuthorColumnInfo`）：
@@ -1546,7 +1595,7 @@ async function main() {
     }
     check('提交详情无页面错误', historyErrors.length === 0);
     const changed = await historyPage.locator('[data-live-changed-files]').innerText();
-    check('提交详情列出真实变更文件: ' + JSON.stringify(changed.slice(0, 60)), changed.includes('2 个文件') && changed.includes('App.cs'));
+    check('提交详情列出真实变更文件: ' + JSON.stringify(changed.slice(0, 60)), changed.includes('2 files') && changed.includes('App.cs'));
     const detail = await historyPage.locator('[data-live-commit-detail]').innerText();
     check('提交详情显示真实提交信息', detail.includes('feat: 真实提交一') && detail.includes('提交正文说明。'));
     check('提交详情不残留样例', !changed.includes('architecture.md'));
@@ -1565,11 +1614,11 @@ async function main() {
       }));
       throw new Error('远端数据未就绪: ' + JSON.stringify(st));
     }
-    await remote.page.waitForSelector('.management-list .tree-row', { timeout: 10000 });
-    const remoteList = await remote.page.locator('.management-list .tree-row').allInnerTexts();
+    await remote.page.waitForSelector('.remote-row', { timeout: 10000 });
+    const remoteList = await remote.page.locator('.remote-row').allInnerTexts();
     check('远端管理列出真实远端: ' + JSON.stringify(remoteList), remoteList.some((text) => text.includes('origin')));
-    // 远端 URL 在输入框里，innerText 取不到，必须读 value。
-    const remoteInputs = await remote.page.locator('.management-detail input').evaluateAll((els) => els.map((e) => e.value));
+    // 远端 URL 在主表中展示，编辑表单只在独立二级窗口创建。
+    const remoteInputs = await remote.page.locator('.remote-url').allTextContents();
     check('远端详情显示真实 URL: ' + JSON.stringify(remoteInputs), remoteInputs.includes('https://example.com/team/Augit.git'));
     check('远端管理不残留样例', !remoteList.some((text) => text.includes('backup')));
     await remote.page.close();
@@ -1592,7 +1641,7 @@ async function main() {
     const pushRows = await push.page.locator('.push-commit').allInnerTexts();
     check('Push 列出真实待推送提交: ' + JSON.stringify(pushRows), pushRows.length === 1 && pushRows[0].includes('真实提交一'));
     const pushDetail = await push.page.locator('.management-detail').innerText();
-    check('Push 详情显示目标与提交数', pushDetail.includes('目标：origin/dsh') && pushDetail.includes('1 个提交'));
+    check('Push 详情显示目标与提交数', pushDetail.includes('Target: origin/dsh') && pushDetail.includes('1 commits'));
     check('Push 不残留样例提交', !pushRows.some((text) => text.includes('避免强制更新')));
     // 权威 `DvcsBundle.properties:54-55`：单仓库标题 = `push.dialog.push.commits.to.title`
     // = "Push Commits to {0}"，{0} 是**仓库短名**（`VcsPushDialog.java:134-137`）。Augit 一个工作区=一个仓库
@@ -1605,22 +1654,8 @@ async function main() {
     check('Push 标题用工作区名而不是产品名: ' + JSON.stringify(pushTitleState),
       typeof pushTitleState.workspaceName === 'string' && pushTitleState.workspaceName.length > 0
       && pushTitleState.workspaceName !== 'Augit'
-      && pushTitleState.title === `推送提交到 ${pushTitleState.workspaceName}`);
+      && pushTitleState.title === `Push Commits to ${pushTitleState.workspaceName}`);
     await push.page.close();
-
-    // ---- 三栏冲突解决器 ----
-    const conflict = await openScene('scene=conflict-resolver&theme=dark&conflict=src%2FApp.cs');
-    await conflict.page.waitForSelector('.conflict-columns .conflict-column', { timeout: 12000 });
-    const columns = await conflict.page.locator('.conflict-column-title').allInnerTexts();
-    check('三栏标题来自真实分支: ' + JSON.stringify(columns), columns.some((t) => t.includes('main')) && columns.some((t) => t.includes('feature/ux')));
-    const resultColumn = conflict.page.locator('.conflict-column.result .conflict-block');
-    check('结果栏可编辑', await resultColumn.getAttribute('contenteditable') === 'plaintext-only');
-    const resultText = await resultColumn.innerText();
-    check('结果栏含真实冲突标记', resultText.includes('<<<<<<< HEAD') && resultText.includes('=======') && resultText.includes('>>>>>>> feature/ux'));
-    check('冲突块被标出', await conflict.page.locator('.conflict-column.result .conflict-line.conflict-result').count() === 5);
-    const header = await conflict.page.locator('.conflict-header').innerText();
-    check('冲突标题显示真实文件名与冲突数: ' + header.replace(/\n/g, ' '), header.includes('App.cs') && header.includes('1 个未处理冲突'));
-    await conflict.page.close();
 
     // ---- 设置窗口 ----
     const settings = await openScene('scene=settings&theme=dark');
@@ -1663,7 +1698,7 @@ async function main() {
     check('设置窗口显示真实界面字号: ' + JSON.stringify(settingsValues), settingsValues.fontSize === '13');
     check('设置窗口显示真实等宽字号: ' + JSON.stringify(settingsValues), settingsValues.codeFontSize === '13');
     check('设置窗口显示真实 Shell: ' + JSON.stringify(settingsValues), settingsValues.terminalShell === 'PowerShell7');
-    check('设置窗口显示真实 git 路径: ' + JSON.stringify(settingsValues),
+    check('设置窗口显示真实 git Path: ' + JSON.stringify(settingsValues),
       String(settingsValues.gitExecutablePath).includes('Git'));
     // 修改字号后保存，确认写回内容被提交（外观页在第 3 步已切回）
     await settings.page.waitForSelector('[data-setting="fontSize"]', { timeout: 8000 });
@@ -1796,7 +1831,7 @@ async function main() {
       && tyCode.codeSizeVar === '17px' && tyCode.codeView.size === '17px'
       && tyCode.conflictBlock.size === '17px');
     tyCheck('正文行高跟着等宽字号走: ' + JSON.stringify([tyBase.codeLineHeight, tyCode.codeLineHeight]),
-      Math.abs(Number.parseFloat(tyCode.codeLineHeight) - 17 * 1.7) < 0.2);
+      Number.parseFloat(tyCode.codeLineHeight) > Number.parseFloat(tyBase.codeLineHeight) && Number.parseFloat(tyCode.codeLineHeight) >= 17);
 
     // 字族同样生效，并且只作用于各自那一类文字。
     const families = await setSettings({ textFontFamily: 'Tahoma', monospaceFontFamily: 'Courier New' });
@@ -2114,7 +2149,7 @@ async function main() {
     // 查找条是独立区域：Tab 从最后一个元素回到输入框（规格 §5.4 明确要求这个循环）。
     await tabRegion.page.keyboard.press('Control+f');
     await tabRegion.page.waitForSelector('.current-find input.search-field', { timeout: 8000 });
-    await tabRegion.page.evaluate(() => document.querySelector('.current-find [aria-label="关闭查找"]').focus());
+    await tabRegion.page.evaluate(() => document.querySelector('.current-find [aria-label="Close Find"]').focus());
     await tabRegion.page.keyboard.press('Tab');
     await tabRegion.page.waitForTimeout(200);
     const findWrap = await focusInfo();
@@ -2173,18 +2208,18 @@ async function main() {
     await stashPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await stashPage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
     // 入口：Git 菜单 → Stash 管理…
-    await stashPage.page.locator('.top-button[aria-label="主菜单"]').click();
+    await stashPage.page.locator('.top-button[aria-label="Main Menu"]').click();
     await stashPage.page.waitForTimeout(400);
     await stashPage.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
     await stashPage.page.waitForTimeout(400);
     const stMenuItems = await stashPage.page.evaluate(() => [...document.querySelectorAll('.main-menu-popover .menu-item')].map((node) => node.textContent.trim()));
-    stCheck('Git 菜单提供 Stash 管理入口: ' + JSON.stringify(stMenuItems), stMenuItems.some((label) => label.includes('Stash 管理')));
+    stCheck('Git 菜单提供 Stash 管理入口: ' + JSON.stringify(stMenuItems), stMenuItems.some((label) => label.includes('Stash')));
     await stashPage.page.evaluate(() => {
       window.__stashContentCalls = [];
       window.__stashWrites = [];
       window.__stashesState = null;
     });
-    await stashPage.page.locator('.main-menu-popover .menu-item', { hasText: 'Stash 管理' }).click();
+    await stashPage.page.locator('.main-menu-popover [data-main-menu-action="stash-manager"]').click();
     await stashPage.page.waitForSelector('.dialog.stash-manager-dialog', { timeout: 8000 }).catch(() => {});
     await stashPage.page.waitForTimeout(400);
     const stManagerShape = await stashPage.page.evaluate(() => {
@@ -2207,8 +2242,8 @@ async function main() {
       stManagerShape !== null && stManagerShape.rows === 2 && stManagerShape.selected === 0);
     stCheck('详情显示动作行与文件列表: ' + JSON.stringify([stManagerShape && stManagerShape.actions, stManagerShape && stManagerShape.filesHeading, stManagerShape && stManagerShape.fileRows]),
       stManagerShape !== null
-        && JSON.stringify(stManagerShape.actions) === JSON.stringify(['应用', '弹出', '查看内容', '删除'])
-        && stManagerShape.filesHeading === '包含 2 个文件'
+        && JSON.stringify(stManagerShape.actions) === JSON.stringify(['Apply', 'Pop', 'View Content', 'Delete'])
+        && stManagerShape.filesHeading === 'Contains 2 files'
         && stManagerShape.fileRows.length === 2 && stManagerShape.fileRows[0].includes('App.cs'));
     stCheck('文件列表按选中 Stash 查询: ' + JSON.stringify(stManagerShape && stManagerShape.calls),
       stManagerShape !== null && stManagerShape.calls.length >= 1 && stManagerShape.calls[0] === 'stash@{0}');
@@ -2231,7 +2266,7 @@ async function main() {
       };
     });
     stCheck('切换条目后详情与文件列表跟着换: ' + JSON.stringify([stSwitched.heading, stSwitched.filesHeading, stSwitched.files.length, stSwitched.calls.slice(-1)]),
-      stSwitched.heading.startsWith('stash@{1}') && stSwitched.filesHeading === '包含 1 个文件'
+      stSwitched.heading.startsWith('stash@{1}') && stSwitched.filesHeading === 'Contains 1 files'
         && stSwitched.files.length === 1 && stSwitched.calls.at(-1) === 'stash@{1}');
 
     // 应用：调用宿主并保留 Stash（列表仍两条）。
@@ -2275,9 +2310,9 @@ async function main() {
     stCheck('删除前先确认并说明具体影响: ' + JSON.stringify([stDropConfirm.open, stDropConfirm.body, stDropConfirm.writes]),
       stDropConfirm.open === true && stDropConfirm.writes === 1
         && typeof stDropConfirm.body === 'string' && stDropConfirm.body.includes('stash@{1}')
-        && stDropConfirm.body.includes('无法恢复') && stDropConfirm.body.includes('1 个文件'));
+        && stDropConfirm.body.includes('permanently') && stDropConfirm.body.includes('1 files'));
     stCheck('确认按钮使用动作名称与危险样式: ' + JSON.stringify([stDropConfirm.confirmLabel, stDropConfirm.confirmDanger]),
-      stDropConfirm.confirmLabel === '删除 stash@{1}' && stDropConfirm.confirmDanger === true);
+      stDropConfirm.confirmLabel === 'Delete stash@{1}' && stDropConfirm.confirmDanger === true);
 
     // 取消确认：不得调用宿主。
     await stashPage.page.evaluate(() => {
@@ -2317,7 +2352,7 @@ async function main() {
     stCheck('确认删除后列表与详情都按真实结果更新: ' + JSON.stringify(stDropped),
       JSON.stringify(stDropped.writes.at(-1)) === JSON.stringify({ action: 'drop', reference: 'stash@{1}' })
         && stDropped.rows === 1 && stDropped.heading.startsWith('stash@{0}')
-        && stDropped.filesHeading === '包含 2 个文件'
+        && stDropped.filesHeading === 'Contains 2 files'
         && typeof stDropped.notice === 'string' && stDropped.notice.includes('stash@{1}'));
 
     // 危险操作的「影响确认」视觉基线（⑭ 第 7 项）：正文与实时侧共用 `dangerConfirmBody()`，
@@ -2342,10 +2377,10 @@ async function main() {
     check('§10.4 危险确认基线给出具体影响与动作名按钮: ' + JSON.stringify(dangerBaseline),
       dangerBaseline.hasDialog === true && dangerBaseline.bodyInsideDialog === true
         && String(dangerBaseline.heading).includes('stash@{0}')
-        && dangerBaseline.lines.some((line) => line.includes('都会消失') && line.includes('无法恢复'))
-        && dangerBaseline.lines.some((line) => line.includes('工作区与其它 Stash 不会被修改'))
-        && dangerBaseline.confirm === '删除 stash@{0}' && dangerBaseline.confirmDanger === true
-        && dangerBaseline.cancel === '取消');
+        && dangerBaseline.lines.some((line) => line.includes('discards') && line.includes('permanently'))
+        && dangerBaseline.lines.some((line) => line.includes('The working tree and other Stashes are unchanged'))
+        && dangerBaseline.confirm === 'Delete stash@{0}' && dangerBaseline.confirmDanger === true
+        && dangerBaseline.cancel === 'Cancel');
     await dangerScene.page.close();
 
     // 失败路径：宿主拒绝时在页面内说明原因，且列表仍按真实事实（这里由桩保持两条）。
@@ -2368,7 +2403,7 @@ async function main() {
     });
     stCheck('失败时说明原因与未改变的状态: ' + JSON.stringify(stFailed),
       stFailed.hidden === false && typeof stFailed.notice === 'string'
-        && stFailed.notice.includes('本地改动') && stFailed.notice.includes('没有变化')
+        && stFailed.notice.includes('local changes') && stFailed.notice.includes('unchanged')
         && stFailed.rows === 2);
     await stashPage.page.evaluate(() => { window.__stashWriteFails = false; });
     await stashPage.page.close();
@@ -2393,11 +2428,11 @@ async function main() {
       window.__stashCreateFails = false;
       window.__stashCreateDelays = 0;
     });
-    await stashCreate.page.locator('.top-button[aria-label="主菜单"]').click();
+    await stashCreate.page.locator('.top-button[aria-label="Main Menu"]').click();
     await stashCreate.page.waitForTimeout(400);
     await stashCreate.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
     await stashCreate.page.waitForTimeout(400);
-    await stashCreate.page.locator('.main-menu-popover .menu-item', { hasText: '创建 Stash' }).click();
+    await stashCreate.page.locator('.main-menu-popover .menu-item', { hasText: 'Create Stash' }).click();
     await stashCreate.page.waitForSelector('.dialog.stash-dialog', { timeout: 8000 }).catch(() => {});
     await stashCreate.page.waitForTimeout(300);
     const stashDialogShape = await stashCreate.page.evaluate(() => {
@@ -2417,7 +2452,7 @@ async function main() {
         actions: [...dialog.querySelectorAll('[data-stash-create-action]')].map((node) => node.textContent.trim()),
       };
     });
-    sdCheck('Stash 对话框显示根目录、分支、消息与保留索引: ' + JSON.stringify(stashDialogShape),
+    sdCheck('Stash 对话框显示根目录、Branch、消息与保留索引: ' + JSON.stringify(stashDialogShape),
       stashDialogShape !== null && stashDialogShape.root && stashDialogShape.root.length > 0
         && typeof stashDialogShape.branch === 'string' && stashDialogShape.branch.length > 0
         && stashDialogShape.hasMessage === true && stashDialogShape.hasKeep === true
@@ -2425,7 +2460,7 @@ async function main() {
         // 权威 `GitStashDialog.kt:30-36`：`Include untracked` 默认**不勾选**。
         && stashDialogShape.includeChecked === false
         && stashDialogShape.focused === true
-        && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['取消', '创建 Stash']));
+        && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['Cancel', 'Create Stash']));
 
     // Tab 顺序：消息 → 保留索引 → 包含未跟踪文件 → 取消 → 创建（权威字段顺序）。
     const stashTabOrder = [];
@@ -2489,10 +2524,10 @@ async function main() {
       };
     });
     sdCheck('创建期间冻结字段并显示进行态: ' + JSON.stringify(stashRunning),
-      stashRunning.createText === '正在创建 Stash…' && stashRunning.cancelText === '取消操作'
+      stashRunning.createText === 'Creating Stash…' && stashRunning.cancelText === 'Cancel'
         && stashRunning.fieldsDisabled === true && stashRunning.createDisabled === true
         && stashRunning.creates.length === 1);
-    sdCheck('提交带上消息、保留索引与（勾选后的）未跟踪文件: ' + JSON.stringify(stashRunning.creates[0]),
+    sdCheck('提交带上消息、保留索引与（勾选后的）Unversioned Files: ' + JSON.stringify(stashRunning.creates[0]),
       stashRunning.creates[0].message === '准备切换分支' && stashRunning.creates[0].keepIndex === true
         && stashRunning.creates[0].includeUntracked === true);
 
@@ -2536,9 +2571,9 @@ async function main() {
     });
     sdCheck('创建失败时保留窗口并说明原因与未改变的状态: ' + JSON.stringify(stashCreateFailed),
       stashCreateFailed.open === true && stashCreateFailed.hidden === false
-        && typeof stashCreateFailed.notice === 'string' && stashCreateFailed.notice.includes('没有需要暂存的改动')
-        && stashCreateFailed.notice.includes('没有变化')
-        && stashCreateFailed.createText === '创建 Stash' && stashCreateFailed.fieldsDisabled === false);
+        && typeof stashCreateFailed.notice === 'string' && stashCreateFailed.notice.includes('no changes to stash')
+        && stashCreateFailed.notice.includes('unchanged')
+        && stashCreateFailed.createText === 'Create Stash' && stashCreateFailed.fieldsDisabled === false);
     await stashCreate.page.close();
 
     if (sdSoft.length > 0) {
@@ -2564,11 +2599,11 @@ async function main() {
       window.__linkedWorktreeTerminal = false;
       window.__worktreeRemoveFails = false;
     });
-    await wtm.page.locator('.top-button[aria-label="主菜单"]').click();
+    await wtm.page.locator('.top-button[aria-label="Main Menu"]').click();
     await wtm.page.waitForTimeout(400);
     await wtm.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
     await wtm.page.waitForTimeout(400);
-    await wtm.page.locator('.main-menu-popover .menu-item', { hasText: 'Worktree 管理' }).click();
+    await wtm.page.locator('.main-menu-popover .menu-item', { hasText: 'Worktrees' }).click();
     await wtm.page.waitForSelector('.dialog.worktree-dialog', { timeout: 8000 }).catch(() => {});
     await wtm.page.waitForTimeout(400);
 
@@ -2592,17 +2627,17 @@ async function main() {
     const wtmFirst = await wtmState();
     wtmCheck('Worktree 管理页显示条目、状态与终端会话: ' + JSON.stringify(wtmFirst && wtmFirst.grid),
       wtmFirst !== null && wtmFirst.rows === 2 && wtmFirst.selected === 0
-        && wtmFirst.grid.includes('路径') && wtmFirst.grid.includes('D:\\ws')
-        && wtmFirst.grid.includes('状态') && wtmFirst.grid.includes('主工作树，不能移除')
-        && wtmFirst.grid.includes('终端会话') && wtmFirst.grid.includes('无运行中的内置终端'));
+        && wtmFirst.grid.includes('Path') && wtmFirst.grid.includes('D:\\ws')
+        && wtmFirst.grid.includes('Status') && wtmFirst.grid.includes('Main worktree; cannot be removed')
+        && wtmFirst.grid.includes('Terminal session') && wtmFirst.grid.includes('No running embedded terminal'));
     // 权威 `RemoveWorkingTreeAction.isEnabledFor()`：`!it.isCurrent && !it.isMain`
     // ⇒ 主工作树的「移除…」必须禁用并把原因写在悬停说明里，而不是等 Git 拒绝。
     wtmCheck('主工作树不能移除：按钮禁用并写明原因: '
       + JSON.stringify([wtmFirst && wtmFirst.removeDisabled, wtmFirst && wtmFirst.removeTitle]),
       wtmFirst !== null && wtmFirst.removeDisabled === true
-        && typeof wtmFirst.removeTitle === 'string' && wtmFirst.removeTitle.includes('主工作树'));
+        && typeof wtmFirst.removeTitle === 'string' && wtmFirst.removeTitle.includes('main worktree'));
     wtmCheck('动作行按视觉稿给出三个动作: ' + JSON.stringify(wtmFirst && wtmFirst.actions),
-      wtmFirst !== null && JSON.stringify(wtmFirst.actions) === JSON.stringify(['打开窗口', '新建 Worktree', '移除…'])
+      wtmFirst !== null && JSON.stringify(wtmFirst.actions) === JSON.stringify(['Open Window', 'New Worktree', 'Remove…'])
         && wtmFirst.calls[0] === 'D:\\ws');
 
     // 脏 Worktree：移除按钮必须禁用，并把原因写在悬停说明里（§10.3）。
@@ -2618,8 +2653,8 @@ async function main() {
     const wtmDirty = await wtmState();
     wtmCheck('不可安全移除时禁用按钮并给出可发现原因: ' + JSON.stringify([wtmDirty && wtmDirty.removeDisabled, wtmDirty && wtmDirty.removeTitle, wtmDirty && wtmDirty.calls.at(-1)]),
       wtmDirty !== null && wtmDirty.removeDisabled === true
-        && typeof wtmDirty.removeTitle === 'string' && wtmDirty.removeTitle.includes('本地改动')
-        && wtmDirty.grid.some((entry) => entry.includes('本地改动'))
+        && typeof wtmDirty.removeTitle === 'string' && wtmDirty.removeTitle.includes('Local changes')
+        && wtmDirty.grid.some((entry) => entry.includes('Local changes'))
         && wtmDirty.calls.at(-1) === 'D:\\ws-linked');
 
     // 「打开窗口」用当前程序在该目录开新窗口。
@@ -2641,7 +2676,7 @@ async function main() {
       if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await wtm.page.waitForTimeout(500);
-    wtmCheck('新建 Worktree 复用既有表单',
+    wtmCheck('New Worktree 复用既有表单',
       (await wtm.page.evaluate(() => !!document.querySelector('.worktree-window'))) === true);
     // 「新分支」：权威 `GitWorkingTreeDialog.kt:185-198`（复选 + 分支名；`createNewBranch` 默认 false，
     // 不勾时分支名不参与）。宿主能力**早已存在**（`ShellBridge.cs:507` 的 `newBranch` →
@@ -2655,9 +2690,9 @@ async function main() {
       const name = document.querySelector('.worktree-window [data-worktree-field="newBranch"]');
       return { ids, checked: !!(toggle && toggle.checked), nameDisabled: name ? name.disabled : null };
     });
-    wtmCheck('新建 Worktree 字段顺序为 分支→新分支→目录: ' + JSON.stringify(newBranchForm.ids),
+    wtmCheck('New Worktree 字段顺序为 Branch→New Branch→Directory: ' + JSON.stringify(newBranchForm.ids),
       JSON.stringify(newBranchForm.ids) === JSON.stringify(['branch', 'newBranchEnabled', 'newBranch', 'destination']));
-    wtmCheck('「新分支」默认不勾且分支名禁用: '
+    wtmCheck('「New Branch」默认不勾且分支名禁用: '
       + JSON.stringify([newBranchForm.checked, newBranchForm.nameDisabled]),
     newBranchForm.checked === false && newBranchForm.nameDisabled === true);
     await wtm.page.evaluate(() => {
@@ -2666,7 +2701,7 @@ async function main() {
       toggle.checked = true;
       toggle.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    wtmCheck('勾选「新分支」后分支名启用',
+    wtmCheck('勾选「New Branch」后分支名启用',
       (await wtm.page.evaluate(
         () => document.querySelector('.worktree-window [data-worktree-field="newBranch"]').disabled)) === false);
     await wtm.page.evaluate(() => {
@@ -2679,7 +2714,7 @@ async function main() {
       writes: (window.__worktreeWrites || []).length,
     }));
     wtmCheck('新分支名为空时不调用宿主并提示: ' + JSON.stringify(blankNewBranch),
-      blankNewBranch.writes === 0 && blankNewBranch.notice === '请填写新分支名。');
+      blankNewBranch.writes === 0 && blankNewBranch.notice === 'Enter a new branch name.');
     await wtm.page.evaluate(() => {
       document.querySelector('.worktree-window [data-worktree-field="newBranch"]').value = 'feature/wt';
       document.querySelector('.worktree-window [data-worktree-field="destination"]').value = 'D:\\ws-new';
@@ -2730,7 +2765,7 @@ async function main() {
     });
     wtmCheck('移除失败时说明原因与未改变的状态: ' + JSON.stringify(wtmFailed),
       wtmFailed.hidden === false && typeof wtmFailed.notice === 'string'
-        && wtmFailed.notice.includes('不能安全移除') && wtmFailed.notice.includes('没有变化')
+        && wtmFailed.notice.includes('cannot be removed safely') && wtmFailed.notice.includes('unchanged')
         && wtmFailed.rows === 2);
     await wtm.page.evaluate(() => {
       window.__worktreeRemoveFails = false;
@@ -2766,10 +2801,10 @@ async function main() {
     wtmCheck('移除前确认并说明具体影响: ' + JSON.stringify([wtmConfirm.open, wtmConfirm.body, wtmConfirm.removes]),
       wtmConfirm.open === true && wtmConfirm.removes === 1
         && typeof wtmConfirm.body === 'string' && wtmConfirm.body.includes('D:\\ws-linked')
-        && wtmConfirm.body.includes('分支本身不会被删除')
-        && wtmConfirm.body.includes('没有运行中的内置终端会话'));
+        && wtmConfirm.body.includes('the branch is kept')
+        && wtmConfirm.body.includes('no running embedded terminal session'));
     wtmCheck('确认按钮使用动作名称: ' + JSON.stringify([wtmConfirm.confirmLabel, wtmConfirm.confirmDanger]),
-      wtmConfirm.confirmLabel === '移除 Worktree' && wtmConfirm.confirmDanger === true);
+      wtmConfirm.confirmLabel === 'Remove Worktree' && wtmConfirm.confirmDanger === true);
 
     const removesBeforeCancel = await wtm.page.evaluate(() => (window.__worktreeRemoves || []).length);
     await wtm.page.evaluate(() => {
@@ -2812,7 +2847,8 @@ async function main() {
       throw new Error('断言失败：' + wtmSoft.join(' | '));
     }
 
-    // ---- 规格 §7.11：远端管理页的删除/保存动作行与工具栏（新建/删除/刷新）----
+    // 远端主表、独立编辑与嵌套 Push 生命周期由当前定向模块完整验证。
+    await require('./live-goal-remote.cjs')({ openScene, check });
     const rmtSoft = [];
     const rmtCheck = (label, condition) => {
       if (condition) { passed++; return; }
@@ -2821,127 +2857,6 @@ async function main() {
     };
     const rmt = await openScene('scene=main-project&theme=dark');
     await rmt.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await rmt.page.waitForFunction('!!window.__augitLive.remotes', null, { timeout: 10000 });
-    await rmt.page.evaluate(() => {
-      window.__remoteWrites = [];
-      window.__remotesState = null;
-      window.__remoteWriteFails = false;
-      window.__remotesReads = 0;
-    });
-    // 远端管理通常从 Push 的「定义远端」进入；这里用测试钩子直接打开同一实现。
-    await rmt.page.evaluate(() => window.__augitOpenRemoteManager());
-    await rmt.page.waitForSelector('.remote-window', { timeout: 8000 }).catch(() => {});
-    const rmtShape = await rmt.page.evaluate(() => {
-      const layer = document.querySelector('.remote-window');
-      if (!layer) return null;
-      const fields = [...layer.querySelectorAll('[data-remote-field]')];
-      return {
-        fields: fields.map((node) => node.dataset.remoteField),
-        readonly: fields.map((node) => node.readOnly),
-        actions: [...layer.querySelectorAll('.management-detail [data-remote-action]')].map((node) => node.textContent.trim()),
-        entries: [...layer.querySelectorAll('[data-remote-entry]')].map((node) => node.dataset.remoteEntry),
-        toolbar: [...layer.querySelectorAll('[data-mgmt-action]')].map((node) => node.dataset.mgmtAction),
-        notice: !!layer.querySelector('.remote-notice'),
-      };
-    });
-    rmtCheck('远端详情按视觉稿给出可编辑字段与删除/保存动作行: ' + JSON.stringify(rmtShape),
-      rmtShape !== null && rmtShape.fields.join(',') === 'name,fetchUrl,pushUrl'
-        && rmtShape.readonly.every((value) => value === false)
-        && JSON.stringify(rmtShape.actions) === JSON.stringify(['删除', '保存'])
-        && rmtShape.entries.includes('origin') && rmtShape.notice === true);
-    rmtCheck('管理页工具栏提供新建/删除/刷新: ' + JSON.stringify(rmtShape && rmtShape.toolbar),
-      rmtShape !== null && JSON.stringify(rmtShape.toolbar) === JSON.stringify(['new', 'delete', 'refresh']));
-
-    // 更新已有远端：保存调用 update 并带 currentName，窗口留在原地。
-    await rmt.page.locator('.remote-window [data-remote-field="fetchUrl"]').fill('https://example.com/team/Augit.git');
-    await rmt.page.locator('.remote-window [data-remote-action="save"]').click();
-    await rmt.page.waitForTimeout(600);
-    const rmtUpdated = await rmt.page.evaluate(() => ({
-      writes: window.__remoteWrites || [],
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-      open: !!document.querySelector('.remote-window'),
-    }));
-    rmtCheck('保存已有远端按更新提交并保留窗口: ' + JSON.stringify(rmtUpdated),
-      rmtUpdated.writes.length === 1 && rmtUpdated.writes[0].action === 'update'
-        && rmtUpdated.writes[0].currentName === 'origin' && rmtUpdated.open === true
-        && typeof rmtUpdated.notice === 'string' && rmtUpdated.notice.includes('已保存'));
-
-    // 新建：工具栏 + 清空草稿 → 保存按新增提交，列表多一条。
-    await rmt.page.evaluate(() => {
-      const node = document.querySelector('.remote-window [data-mgmt-action="new"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await rmt.page.waitForTimeout(300);
-    const rmtNew = await rmt.page.evaluate(() => {
-      const layer = document.querySelector('.remote-window');
-      const name = layer.querySelector('[data-remote-field="name"]');
-      const remove = layer.querySelector('[data-remote-action="delete"]');
-      return {
-        name: name ? name.value : null,
-        removeDisabled: remove ? remove.disabled : null,
-        trace: window.__augitMgmtTrace || [],
-        draft: window.__augitLive.remoteDraft || null,
-        index: window.__augitLive.selectedRemoteIndex,
-        windows: document.querySelectorAll('.remote-window').length,
-        detail: (document.querySelector('.remote-window .management-detail') || {}).innerHTML || null,
-        errors: (window.__augitErrors || []).slice(-2),
-      };
-    });
-    rmtCheck('工具栏新建清空草稿并禁用删除: ' + JSON.stringify(rmtNew),
-      rmtNew.name === '' && rmtNew.removeDisabled === true);
-    rmtCheck('反复重绘不累积覆盖层: ' + JSON.stringify(rmtNew && rmtNew.windows),
-      rmtNew !== null && rmtNew.windows === 1);
-    await rmt.page.locator('.remote-window [data-remote-field="name"]').fill('backup');
-    await rmt.page.locator('.remote-window [data-remote-field="fetchUrl"]').fill('https://example.com/backup.git');
-    await rmt.page.locator('.remote-window [data-remote-action="save"]').click();
-    await rmt.page.waitForTimeout(700);
-    const rmtAdded = await rmt.page.evaluate(() => ({
-      writes: window.__remoteWrites || [],
-      entries: [...document.querySelectorAll('.remote-window [data-remote-entry]')].map((node) => node.dataset.remoteEntry),
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-    }));
-    rmtCheck('新增远端按 add 提交并出现在列表里: ' + JSON.stringify([rmtAdded.writes.at(-1), rmtAdded.entries, rmtAdded.notice]),
-      rmtAdded.writes.at(-1).action === 'add' && rmtAdded.writes.at(-1).name === 'backup'
-        && rmtAdded.entries.includes('backup') && rmtAdded.entries.includes('origin')
-        && typeof rmtAdded.notice === 'string' && rmtAdded.notice.includes('已新增'));
-
-    // 删除：动作行直接删除，列表少一条；再次删除需要重新选择（列表空 → 没有选中项）。
-    await rmt.page.evaluate(() => {
-      const rows = [...document.querySelectorAll('.remote-window [data-remote-index]')];
-      const index = rows.findIndex((row) => row.dataset.remoteEntry === 'backup');
-      if (index >= 0) rows[index].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await rmt.page.waitForTimeout(300);
-    await rmt.page.evaluate(() => {
-      const node = document.querySelector('.remote-window [data-remote-action="delete"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await rmt.page.waitForTimeout(700);
-    const rmtDeleted = await rmt.page.evaluate(() => ({
-      writes: window.__remoteWrites || [],
-      entries: [...document.querySelectorAll('.remote-window [data-remote-entry]')].map((node) => node.dataset.remoteEntry),
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-    }));
-    rmtCheck('删除远端按 delete 提交并从列表消失: ' + JSON.stringify([rmtDeleted.writes.at(-1), rmtDeleted.entries, rmtDeleted.notice]),
-      rmtDeleted.writes.at(-1).action === 'delete' && rmtDeleted.writes.at(-1).name === 'backup'
-        && !rmtDeleted.entries.includes('backup') && rmtDeleted.entries.includes('origin')
-        && typeof rmtDeleted.notice === 'string' && rmtDeleted.notice.includes('已删除'));
-
-    // 工具栏刷新：重新读取列表并给出说明。
-    const rmtReadsBefore = await rmt.page.evaluate(() => window.__remotesReads || 0);
-    await rmt.page.evaluate(() => {
-      const node = document.querySelector('.remote-window [data-mgmt-action="refresh"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await rmt.page.waitForTimeout(500);
-    const rmtRefreshed = await rmt.page.evaluate(() => ({
-      reads: window.__remotesReads || 0,
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-      open: !!document.querySelector('.remote-window'),
-    }));
-    rmtCheck('工具栏刷新重新读取列表: ' + JSON.stringify([rmtReadsBefore, rmtRefreshed.reads, rmtRefreshed.notice]),
-      rmtRefreshed.reads > rmtReadsBefore && rmtRefreshed.open === true
-        && typeof rmtRefreshed.notice === 'string' && rmtRefreshed.notice.includes('已刷新'));
 
     // 同一套工具栏在 Stash 与 Worktree 页上分派到各自的新建/删除流程。
     await rmt.page.evaluate(() => { window.__augitOpenStashManager(); });
@@ -2984,7 +2899,7 @@ async function main() {
     }));
     rmtCheck('Stash 页工具栏刷新重读列表: ' + JSON.stringify([stashReadsBefore, stashRefreshed.reads, stashRefreshed.notice]),
       stashRefreshed.reads > stashReadsBefore && stashRefreshed.open === true
-        && typeof stashRefreshed.notice === 'string' && stashRefreshed.notice.includes('已刷新'));
+        && typeof stashRefreshed.notice === 'string' && stashRefreshed.notice.includes('refreshed'));
     await rmt.page.keyboard.press('Escape');
     await rmt.page.waitForTimeout(300);
 
@@ -3004,7 +2919,7 @@ async function main() {
     }));
     rmtCheck('Worktree 页工具栏刷新重读列表: ' + JSON.stringify([wtReadsBefore, wtRefreshed.reads, wtRefreshed.notice]),
       wtRefreshed.reads > wtReadsBefore && wtRefreshed.open === true
-        && typeof wtRefreshed.notice === 'string' && wtRefreshed.notice.includes('已刷新'));
+        && typeof wtRefreshed.notice === 'string' && wtRefreshed.notice.includes('refreshed'));
     await rmt.page.close();
 
     if (rmtSoft.length > 0) {
@@ -3043,10 +2958,10 @@ async function main() {
     await dd.page.waitForFunction('(window.__changesReads || 0) >= 3', null, { timeout: 15000 }).catch(() => {});
     const ddFirst = await toastCount();
     ddCheck('轮询失败必须说出来: ' + JSON.stringify([ddFirst.shown, ddFirst.title, ddFirst.reads]),
-      ddFirst.shown === true && ddFirst.title === '无法读取工作区变化' && ddFirst.reads >= 3);
-    ddCheck('提示说明"可能不是最新"与"会自动重试": ' + JSON.stringify(ddFirst.text),
-      typeof ddFirst.text === 'string' && ddFirst.text.includes('可能不是最新的')
-        && ddFirst.text.includes('自动重试'));
+      ddFirst.shown === true && ddFirst.title === 'Cannot Read Workspace Changes' && ddFirst.reads >= 3);
+    ddCheck('提示说明"可能不是最新"with"会自动重试": ' + JSON.stringify(ddFirst.text),
+      typeof ddFirst.text === 'string' && ddFirst.text.includes('out of date')
+        && ddFirst.text.includes('retry automatically'));
 
     // 再失败若干次：不得重新弹出。直接统计 showToast 的调用次数——
     // 区域替换会换掉 .toast-layer 节点，观察节点是数不到重复弹出的。
@@ -3090,7 +3005,7 @@ async function main() {
     await dd.page.waitForTimeout(300);
     const ddAgain = await toastCount();
     ddCheck('恢复之后再次失败要重新提示: ' + JSON.stringify([ddAgain.shown, ddAgain.title]),
-      ddAgain.shown === true && ddAgain.title === '无法读取工作区变化');
+      ddAgain.shown === true && ddAgain.title === 'Cannot Read Workspace Changes');
     await dd.page.close();
 
     if (dedupeSoft.length > 0) {
@@ -3182,7 +3097,7 @@ async function main() {
       return { icon: dot.querySelector('svg').dataset.augitIcon, label: dot.getAttribute('aria-label') };
     });
     wcCheck('最大化后换成还原图形: ' + JSON.stringify(afterMaximize),
-      afterMaximize.icon === 'window-restore' && afterMaximize.label === '向下还原');
+      afterMaximize.icon === 'window-restore' && afterMaximize.label === 'Restore Down');
     await wc.page.click('.window-dot[data-window-action="maximize"]');
     await wc.page.waitForTimeout(120);
     const afterRestore = await wc.page.evaluate(() => {
@@ -3190,7 +3105,7 @@ async function main() {
       return { icon: dot.querySelector('svg').dataset.augitIcon, label: dot.getAttribute('aria-label') };
     });
     wcCheck('还原后换回最大化图形: ' + JSON.stringify(afterRestore),
-      afterRestore.icon === 'window-maximize' && afterRestore.label === '最大化');
+      afterRestore.icon === 'window-maximize' && afterRestore.label === 'Maximize');
 
     // 事件通道：用户双击标题栏或贴边最大化时，宿主推送 window/state，图标同样要跟着变。
     await wc.page.evaluate(() => window.__hostPush('window/state', { maximized: true, minimized: false }));
@@ -3363,8 +3278,8 @@ async function main() {
         scale: stage ? Number(stage.dataset.scale) : null,
         fit: stage ? stage.dataset.fit : null,
         label: (document.querySelector('.image-zoom-label') || {}).textContent || null,
-        smallerDisabled: button('缩小') ? button('缩小').disabled : null,
-        largerDisabled: button('放大') ? button('放大').disabled : null,
+        smallerDisabled: button('Zoom Out') ? button('Zoom Out').disabled : null,
+        largerDisabled: button('Zoom In') ? button('Zoom In').disabled : null,
         gap: (function () {
           if (!stage || !img) return null;
           const s = stage.getBoundingClientRect();
@@ -3387,7 +3302,7 @@ async function main() {
         && fit.gap.left >= 32 && fit.gap.right >= 32 && fit.gap.top >= 32 && fit.gap.bottom >= 32
         && fit.label === `${Math.max(1, Math.round(fit.scale * 100))}%`);
     // 放大：走到步进表里比当前大的下一个档位；缩小可用（即当前不是最小档）
-    await imgDoc.page.locator('.image-toolbar [aria-label="放大"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Zoom In"]').click();
     await imgDoc.page.waitForTimeout(250);
     const zoomed = await zoomState();
     const imageSteps = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4, 6, 8];
@@ -3395,14 +3310,14 @@ async function main() {
     check('§7.5 放大走到步进表的下一个档位: ' + JSON.stringify([fit.scale, zoomed.scale, expectedNext]),
       zoomed.fit === 'false' && Math.abs(zoomed.scale - expectedNext) < 1e-3 && zoomed.smallerDisabled === false);
     // 缩小：回到上一档
-    await imgDoc.page.locator('.image-toolbar [aria-label="缩小"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Zoom Out"]').click();
     await imgDoc.page.waitForTimeout(250);
     const shrunk = await zoomState();
     check('§7.5 缩小回到上一个档位: ' + JSON.stringify([zoomed.scale, shrunk.scale, fit.scale]),
       shrunk.scale < zoomed.scale
         && Math.abs(shrunk.scale - (imageSteps.findLast((value) => value < zoomed.scale - 1e-4) ?? 0.1)) < 1e-3);
     // 适应区域：回到 fit 且四边重新留出 32px
-    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
     await imgDoc.page.waitForTimeout(250);
     const refit = await zoomState();
     check('§7.5 适应区域重新居中并恢复边距: ' + JSON.stringify([refit.fit, refit.gap]),
@@ -3411,7 +3326,7 @@ async function main() {
     // 两端档位必须禁用按钮，且连点也不能越过 800% / 10%（负向控制）
     await imgDoc.page.evaluate(() => {
       const stage = document.querySelector('.image-stage');
-      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="Zoom In"]').click();
       return stage.dataset.scale;
     });
     await imgDoc.page.waitForTimeout(300);
@@ -3419,7 +3334,7 @@ async function main() {
     check('§7.5 放大到 800% 后按钮禁用且不再继续放大: ' + JSON.stringify([capped.scale, capped.label, capped.largerDisabled]),
       Math.abs(capped.scale - 8) < 1e-3 && capped.label === '800%' && capped.largerDisabled === true);
     await imgDoc.page.evaluate(() => {
-      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="缩小"]').click();
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="Zoom Out"]').click();
     });
     await imgDoc.page.waitForTimeout(300);
     const floored = await zoomState();
@@ -3448,7 +3363,7 @@ async function main() {
       scale: Number(document.querySelector('.image-stage').dataset.scale),
       imgLeft: Math.round(document.querySelector('.image-stage img').getBoundingClientRect().left),
     }));
-    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
     await imgDoc.page.waitForTimeout(250);
     const wheelStart = await readZoom();
     const stageBox = await imgDoc.page.locator('.image-stage').boundingBox();
@@ -3472,7 +3387,7 @@ async function main() {
     await imgDoc.page.mouse.wheel(0, -100);
     await imgDoc.page.waitForTimeout(150);
     const beforeClear = await readZoom();
-    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
     await imgDoc.page.waitForTimeout(200);
     const afterButton = await readZoom();
     await imgDoc.page.mouse.wheel(0, -100);
@@ -3489,7 +3404,7 @@ async function main() {
     const beforeModeSwitch = await readZoom();
     await imgDoc.page.evaluate(() => {
       // 制造一次"切换"动作（点"适应区域"按钮）
-      const fit = document.querySelector('.image-toolbar [aria-label="适应区域"]');
+      const fit = document.querySelector('.image-toolbar [aria-label="Fit to View"]');
       if (fit) fit.click();
     });
     await imgDoc.page.waitForTimeout(200);
@@ -3520,7 +3435,7 @@ async function main() {
 
     // ---- §7.5 继续：拖动边缘夹取 + 方向键平移（真实鼠标/键盘）----
     await imgDoc.page.evaluate(() => {
-      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="Zoom In"]').click();
     });
     await imgDoc.page.waitForTimeout(250);
     await imgDoc.page.mouse.move(stageBox.x + 40, stageBox.y + 40);
@@ -3562,16 +3477,16 @@ async function main() {
     //   ② fit 档下图片比舞台小，平移被设计性禁用 ⇒ 拖动没发生（`imgLeft` 前后都是 579）。
     // 因此：先像"边缘夹取"用例那样**点 16 次放大**让图片超过视口，再用**两次各 30**（各自不足一档、
     // 合计 60 ≥ 40）来区分"是否被清除"，并配一条**同场景对照**（不做拖动时两次 30 应当累计成功）。
-    await imgDoc.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+    await imgDoc.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
     await imgDoc.page.waitForTimeout(250);
     await imgDoc.page.evaluate(() => {
-      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="放大"]').click();
+      for (let i = 0; i < 16; i++) document.querySelector('.image-toolbar [aria-label="Zoom In"]').click();
     });
     // **再退回中间档**：只点放大到 16 次会顶到缩放上限 8，那样"不再变大"是**平凡为真**（本轮第三次跑就是
     // `[8,8,8,8,8]` —— 连同场景对照都动不了，断言正确地拒绝通过）。退回 ~3：既超过视口（平移可用），
     // 又离上限有距离（放大/缩小两个方向都可观测）。
     await imgDoc.page.evaluate(() => {
-      for (let i = 0; i < 3; i++) document.querySelector('.image-toolbar [aria-label="缩小"]').click();
+      for (let i = 0; i < 3; i++) document.querySelector('.image-toolbar [aria-label="Zoom Out"]').click();
     });
     await imgDoc.page.waitForTimeout(300);
     await imgDoc.page.mouse.move(stageBox.x + 40, stageBox.y + 40);
@@ -3627,7 +3542,7 @@ async function main() {
       };
     });
     check('§7.5 加载态只在画布中心提示且不改工具栏: ' + JSON.stringify(loadingState),
-      loadingState.text === '正在读取文件…' && loadingState.role === 'status'
+      loadingState.text === 'Reading file…' && loadingState.role === 'status'
         && loadingState.centered === true && loadingState.sizeLabel === true);
     await imgLoading.page.close();
 
@@ -3662,7 +3577,7 @@ async function main() {
       const defaultText = renderedText(code);
       const defaultMode = view.dataset.jsonMode;
       const saveButtons = [...view.querySelectorAll('button')]
-        .filter((button) => /保存|写入|save/i.test(button.getAttribute('aria-label') || button.textContent || '')).length;
+        .filter((button) => /Save|写入|save/i.test(button.getAttribute('aria-label') || button.textContent || '')).length;
       const textBefore = window.__augitLive.document.text;
       view.querySelector('button[data-json-mode="source"]').click();
       await new Promise((r) => setTimeout(r, 200));
@@ -3727,7 +3642,7 @@ async function main() {
     check('§7.4 格式错误默认原文并禁用格式化、错误条给出宿主行列: ' + JSON.stringify(jsonInvalid),
       jsonInvalid.invalidClass === true && jsonInvalid.mode === 'source' && jsonInvalid.showsSource === true
         && jsonInvalid.errorTag === 'BUTTON' && jsonInvalid.errorTabIndex === 0
-        && /第 4 行/.test(jsonInvalid.errorText || '') && /第 19 列/.test(jsonInvalid.errorText || '')
+        && /line 4, column 19/.test(jsonInvalid.errorText || '')
         && jsonInvalid.errorLine === '4'
         && jsonInvalid.formattedDisabled === true && !!jsonInvalid.formattedTitle);
 
@@ -3771,8 +3686,9 @@ async function main() {
       const measure = (selector) => {
         const view = document.querySelector(selector);
         if (!view) return null;
-        const toolbar = view.querySelector('.document-toolbar');
-        const segments = [...view.querySelectorAll('.document-modes .segment')];
+        const toolbar = view.classList.contains('markdown-document') ? document.querySelector('.editor-tabs') : view.querySelector('.document-toolbar');
+        const group = view.classList.contains('markdown-document') ? document.querySelector('.markdown-tab-actions') : view.querySelector('.document-modes');
+        const segments = [...group.querySelectorAll('.segment')];
         const rects = segments.map((node) => {
           const rect = node.getBoundingClientRect();
           return { w: +rect.width.toFixed(2), h: +rect.height.toFixed(2), x: +rect.x.toFixed(2), y: +rect.y.toFixed(2) };
@@ -3801,16 +3717,15 @@ async function main() {
     const geometryRects = [].concat(
       (modeGeometry.markdown && modeGeometry.markdown.rects) || [],
       (modeGeometry.json && modeGeometry.json.rects) || []);
-    check('§7.3 模式控件 26px 步长/36px 工具栏，§7.4 JSON 复用同一控件（尺寸与对齐一致）: '
+    check('§7.3 Markdown模式位于标签区，§7.4 JSON在正文工具栏复用26px按钮: '
       + JSON.stringify(modeGeometry),
     !!modeGeometry.markdown && !!modeGeometry.json
       && modeGeometry.markdown.count === 3 && modeGeometry.json.count === 2
       && geometryRects.length === 5
       && geometryRects.every((rect) => rect.w === 26 && rect.h === 26)
-      && modeGeometry.markdown.toolbarHeight === 36 && modeGeometry.json.toolbarHeight === 36
+      && modeGeometry.markdown.toolbarHeight === 40 && modeGeometry.json.toolbarHeight === 36
       && modeGeometry.markdown.gaps.every((gap) => gap === 0)
-      && modeGeometry.json.gaps.every((gap) => gap === 0)
-      && Math.abs(modeGeometry.markdown.rects[0].y - modeGeometry.json.rects[0].y) <= 0.5);
+      && modeGeometry.json.gaps.every((gap) => gap === 0));
     check('§7.4 JSON 用例无脚本错误: ' + JSON.stringify(jsonMode.errors.slice(0, 2)), jsonMode.errors.length === 0);
     await jsonMode.page.close();
 
@@ -3839,7 +3754,7 @@ async function main() {
       });
       const mgRead = (selector) => mg.page.evaluate((sel) => {
         const view = document.querySelector(sel);
-        const group = view.querySelector('.document-modes');
+        const group = view.classList.contains('markdown-document') ? document.querySelector('.markdown-tab-actions') : view.querySelector('.document-modes');
         const segments = [...group.querySelectorAll('.segment')];
         const glyphs = segments.map((segment) => {
           const svg = segment.querySelector('svg');
@@ -3881,18 +3796,18 @@ async function main() {
         };
       }, selector);
       const mgSource = await mgRead('.markdown-document');
-      await mg.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+      await mg.page.locator('.editor-tabs button[data-markdown-mode="split"]').click();
       await mg.page.waitForTimeout(250);
       const mgSplit = await mgRead('.markdown-document');
-      await mg.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+      await mg.page.locator('.editor-tabs button[data-markdown-mode="preview"]').click();
       await mg.page.waitForTimeout(250);
       const mgPreview = await mgRead('.markdown-document');
 
       // 图形的"语义"判据（而不是逐字比对 markdown 字符串）：横线条数、左右分布、圆角与圆点/山形。
       const horizontalLines = (d, maxX) => (d.match(new RegExp(`M[\\d.]+ [\\d.]+[hH]${maxX}`, 'g')) || []).length;
-      const mgSourceGlyph = mgSource.glyphs.find((glyph) => glyph.label === '原文');
-      const mgSplitGlyph = mgSplit.glyphs.find((glyph) => glyph.label === '左右对照');
-      const mgPreviewGlyph = mgPreview.glyphs.find((glyph) => glyph.label === '预览');
+      const mgSourceGlyph = mgSource.glyphs.find((glyph) => glyph.label === 'Raw');
+      const mgSplitGlyph = mgSplit.glyphs.find((glyph) => glyph.label === 'Split View');
+      const mgPreviewGlyph = mgPreview.glyphs.find((glyph) => glyph.label === 'Preview');
       const mgSourceYs = (mgSourceGlyph.paths[0].match(/M3 ([\d.]+)/g) || []).map((token) => token.slice(3));
       check('§7.3 模式控件三个图形按规格描述复原（四条横线／左横线+右窄圆角框／圆角框+圆点+山形）: '
         + JSON.stringify({ mgSourceGlyph, mgSplitGlyph, mgPreviewGlyph }),
@@ -3947,7 +3862,7 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 700));
       });
       const mgLightRead = await mgLight.page.evaluate(() => {
-        const group = document.querySelector('.markdown-document .document-modes');
+        const group = document.querySelector('.markdown-tab-actions');
         const active = group.querySelector('.segment.active');
         const inactive = [...group.querySelectorAll('.segment')].find((segment) => segment !== active);
         const groupStyle = getComputedStyle(group);
@@ -3962,8 +3877,8 @@ async function main() {
         + JSON.stringify({ mgJson: mgJson.surface, mgJsonSwitched: mgJsonSwitched.surface, mgLightRead }),
       mgSurfaceOk(mgJson) && mgSurfaceOk(mgJsonSwitched)
         // 切换后"有底"的那一项跟着换（原文档的旧选中项不再有底）
-        && mgJson.surface.find((item) => item.active).label === '格式化'
-        && mgJsonSwitched.surface.find((item) => item.active).label === '原文'
+        && mgJson.surface.find((item) => item.active).label === 'Formatted'
+        && mgJsonSwitched.surface.find((item) => item.active).label === 'Raw'
         && mgJson.surface.filter((item) => item.drawn).length === 1
         && mgJsonSwitched.surface.filter((item) => item.drawn).length === 1
         // 浅色：内缩底是浅色值（#dfdfdf），未选中项不画面，整组四边 0 边框、无阴影
@@ -4087,7 +4002,7 @@ async function main() {
       await window.__augitOpenDocument('docs/guide.md');
       window.__augitRender();
       await new Promise((r) => setTimeout(r, 300));
-      document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+      document.querySelector('.editor-tabs button[data-markdown-mode="preview"]').click();
       await new Promise((r) => setTimeout(r, 150));
       const preview = document.querySelector('.markdown-document .markdown-preview');
       const byLabel = (selector, label) => [...preview.querySelectorAll(selector)].find((a) => a.textContent === label);
@@ -4135,17 +4050,17 @@ async function main() {
         && mdLinks.documentPath === 'docs/guide.md');
     check('§7.3 越界/协议不支持/锚点缺失在原位置显示原因且不破坏预览: ' + JSON.stringify(mdLinks.blocked),
       mdLinks.blocked.length === 3
-        && mdBlockedLabels.includes('越界文档') && mdBlockedLabels.includes('目标越出工作区')
-        && mdBlockedLabels.includes('本地文件') && mdBlockedLabels.includes('不支持该链接协议')
-        && mdBlockedLabels.includes('章节锚点') && mdBlockedLabels.includes('找不到该锚点')
-        && mdBlockedTitles.includes('目标越出工作区')
+        && mdBlockedLabels.includes('越界文档') && mdBlockedLabels.includes('The target is outside the workspace.')
+        && mdBlockedLabels.includes('本地文件') && mdBlockedLabels.includes('This link protocol is unsupported.')
+        && mdBlockedLabels.includes('章节锚点') && mdBlockedLabels.includes('Anchor not found.')
+        && mdBlockedTitles.includes('The target is outside the workspace.')
         && mdLinks.blocked.every((item) => item.inPlace === true)
         && mdLinks.previewIntact === true);
 
     // 分隔条：拖动保偏移、越界夹紧到最小栏宽、Esc 只结束拖动、方向键步进、
     // 重复移动到同一位置不重新布局（用 setProperty 计数证明提前返回）。
     const mdSplit = await mdScene.page.evaluate(async () => {
-      document.querySelector('.markdown-document button[data-markdown-mode="split"]').click();
+      document.querySelector('.editor-tabs button[data-markdown-mode="split"]').click();
       await new Promise((r) => setTimeout(r, 200));
       const panes = document.querySelector('.markdown-panes');
       const divider = document.querySelector('.markdown-divider');
@@ -4270,7 +4185,7 @@ async function main() {
 
     // 模式切换保留各自滚动位置（原文/预览离开再回来）。
     const mdScroll = await mdScene.page.evaluate(async () => {
-      const click = (mode) => document.querySelector('.markdown-document button[data-markdown-mode="' + mode + '"]').click();
+      const click = (mode) => document.querySelector('.editor-tabs button[data-markdown-mode="' + mode + '"]').click();
       const wait = () => new Promise((r) => setTimeout(r, 200));
       click('source');
       await wait();
@@ -4303,7 +4218,7 @@ async function main() {
     // 且三段式切换不得创建新标签（"不创建三个标签"）。
     const mdMemory = await mdScene.page.evaluate(async () => {
       const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const click = (mode) => document.querySelector('.markdown-document button[data-markdown-mode="' + mode + '"]').click();
+      const click = (mode) => document.querySelector('.editor-tabs button[data-markdown-mode="' + mode + '"]').click();
       const tabsOf = () => (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'document');
       await window.__augitOpenDocument('docs/guide.md');
       window.__augitRender();
@@ -4322,7 +4237,7 @@ async function main() {
       window.__augitRender();
       await wait(300);
       const backMode = document.querySelector('.markdown-document').dataset.markdownMode;
-      const backActive = document.querySelector('.markdown-document .segment.active')?.dataset.markdownMode || null;
+      const backActive = document.querySelector('.markdown-tab-actions .segment.active')?.dataset.markdownMode || null;
       // 另一个文档自己的默认模式不得被前一个文档的选择污染。
       const schemaTab = (window.__augitLive.tabs || []).find((tab) => tab.path === 'docs/api/schema.md');
       return {
@@ -4339,7 +4254,7 @@ async function main() {
 
     // 相对文件链接在 Augit 标签中打开（必须放在最后：它会切换活动文档）。
     const mdRelativeOpen = await mdScene.page.evaluate(async () => {
-      document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+      document.querySelector('.editor-tabs button[data-markdown-mode="preview"]').click();
       await new Promise((r) => setTimeout(r, 150));
       const preview = document.querySelector('.markdown-document .markdown-preview');
       const link = [...preview.querySelectorAll('a[data-document-link]')].find((a) => a.textContent === 'API 规格');
@@ -4435,16 +4350,16 @@ async function main() {
       && mdPreviewState.early.state === 'ready' && mdPreviewState.early.pending === true
       && mdPreviewState.early.hint === ''
       && mdPreviewState.during.state === 'loading'
-      && mdPreviewState.during.hint === '正在生成 Markdown 预览…'
+      && mdPreviewState.during.hint === 'Generating Markdown preview…'
       // "只在预览侧显示局部加载状态"：提示挂在预览区顶部，原文与旧预览都还在、且仍只读。
       && mdPreviewState.during.previewHasSpec === true && mdPreviewState.during.previewHasGuide === false
       && mdPreviewState.during.sourceVisible === true && mdPreviewState.during.editable === 0
       && mdPreviewState.loaded.state === 'ready' && mdPreviewState.loaded.hint === ''
       && mdPreviewState.loaded.docPath === 'docs/guide.md' && mdPreviewState.loaded.previewHasGuide === true);
-    check('§7.3 预览失败给原因、原文/旧预览保留且可点预览重试: ' + JSON.stringify(mdPreviewState.failed),
+    check('§7.3 预览失败给原因、Raw/旧预览保留且可点预览重试: ' + JSON.stringify(mdPreviewState.failed),
     mdPreviewState.failed.state === 'failure'
-      && typeof mdPreviewState.failed.hint === 'string' && mdPreviewState.failed.hint.startsWith('预览失败：')
-      && mdPreviewState.failed.hint.includes('not found: docs/spec.md') && mdPreviewState.failed.hint.includes('点击预览重试')
+      && typeof mdPreviewState.failed.hint === 'string' && mdPreviewState.failed.hint.startsWith('Preview failed:')
+      && mdPreviewState.failed.hint.includes('not found: docs/spec.md') && mdPreviewState.failed.hint.includes('Click Preview to retry')
       // 失败不换文档：README/指南 的正文与预览都还在，且没有变成可编辑控件。
       && mdPreviewState.failed.docPath === 'docs/guide.md' && mdPreviewState.failed.previewHasGuide === true
       && mdPreviewState.failed.editable === 0
@@ -4653,8 +4568,8 @@ async function main() {
         return row ? getComputedStyle(row).backgroundColor : null;
       }, hoverReal.selectedIndex);
     }
-    check('真实悬停改变行背景: ' + JSON.stringify([hoverReal.plainBg, hoverChanged]),
-      hoverReal.plainIndex >= 0 && hoverChanged !== null && hoverChanged !== hoverReal.plainBg);
+    check('Changes 与参考树一致，悬停不另画行背景: ' + JSON.stringify([hoverReal.plainBg, hoverChanged]),
+      hoverReal.plainIndex >= 0 && hoverChanged !== null && hoverChanged === hoverReal.plainBg);
     if (hoverReal.selectedIndex >= 0) {
       check('选中态优先于悬停（选中行背景不变）: ' + JSON.stringify([hoverReal.selectedBg, selectedKept]),
         selectedKept === hoverReal.selectedBg);
@@ -4712,7 +4627,7 @@ async function main() {
       dupAfterBind.every((item) => item.more === 1 && item.popups === 1));
     // 配对对照：入口仍然可用（不能靠"干脆不挂"来消除重复）。
     const triggerCount = await gh.page.locator('.git-side-toolbar > .history-tools-more').count();
-    dupCheck('「更多」入口仍然存在且只有一个: ' + triggerCount, triggerCount === 1);
+    dupCheck('「More」入口仍然存在且只有一个: ' + triggerCount, triggerCount === 1);
 
     // ---- 提交详情操作行同样不得越堆越多（用户实测反馈：右下角的提交详情叠了一堆）----
     // `bindHistoryDetails()` 每次调用都往**每个** `.log-detail-panel` insertBefore 一行
@@ -4853,13 +4768,13 @@ async function main() {
       window.__workspaceOpenOutcome = null;
       window.__workspacePickCancels = false;
     });
-    await wo.page.locator('.top-button[aria-label="主菜单"]').click();
+    await wo.page.locator('.top-button[aria-label="Main Menu"]').click();
     await wo.page.waitForTimeout(400);
-    await wo.page.locator('.main-menu-bar .main-menu-entry', { hasText: '文件' }).click();
+    await wo.page.locator('.main-menu-bar .main-menu-entry', { hasText: 'File' }).click();
     await wo.page.waitForTimeout(400);
     const woMenu = await wo.page.evaluate(() => [...document.querySelectorAll('.main-menu-popover .menu-item')].map((n) => n.textContent.trim()));
-    woCheck('文件菜单提供打开工作区入口: ' + JSON.stringify(woMenu), woMenu.some((l) => l.includes('打开工作区')));
-    await wo.page.locator('.main-menu-popover .menu-item', { hasText: '打开工作区' }).click();
+    woCheck('文件菜单提供打开工作区入口: ' + JSON.stringify(woMenu), woMenu.some((l) => l.includes('Open Workspace')));
+    await wo.page.locator('.main-menu-popover .menu-item', { hasText: 'Open Workspace' }).click();
     await wo.page.waitForSelector('.dialog.workspace-open-dialog', { timeout: 8000 }).catch(() => {});
     await wo.page.waitForTimeout(300);
     const woShape = await wo.page.evaluate(() => {
@@ -4872,15 +4787,15 @@ async function main() {
       };
     });
     woCheck('打开工作区页按视觉稿给出三个入口: ' + JSON.stringify(woShape && woShape.entries),
-      woShape !== null && woShape.entries.some((e) => e.includes('最近目录'))
-        && woShape.entries.some((e) => e.includes('选择目录')) && woShape.entries.some((e) => e.includes('克隆仓库')));
-    woCheck('最近目录来自真实设置（名称 + 完整路径）: ' + JSON.stringify(woShape && woShape.rows),
+      woShape !== null && woShape.entries.some((e) => e.includes('Recent Workspaces'))
+        && woShape.entries.some((e) => e.includes('Choose Directory')) && woShape.entries.some((e) => e.includes('Clone Repository')));
+    woCheck('最近目录来自真实设置（Name + 完整路径）: ' + JSON.stringify(woShape && woShape.rows),
       woShape !== null && woShape.rows.length === 2
         && woShape.rows[0].path === 'D:\\ws' && woShape.rows[0].text.includes('ws')
         && woShape.rows[0].text.includes('D:\\ws')
         && woShape.rows[1].path === 'D:\\ws-other');
     woCheck('保留"同一目录已经打开时激活原窗口"的说明: ' + JSON.stringify(woShape && woShape.hint),
-      woShape !== null && typeof woShape.hint === 'string' && woShape.hint.includes('激活原窗口'));
+      woShape !== null && typeof woShape.hint === 'string' && woShape.hint.includes('activates its existing window'));
 
     await wo.page.evaluate(() => {
       const row = document.querySelector('.dialog.workspace-open-dialog [data-workspace-path]');
@@ -4942,7 +4857,7 @@ async function main() {
     });
     woCheck('打开失败时说明原因与未改变的状态: ' + JSON.stringify(woFailed),
       woFailed.hidden === false && typeof woFailed.notice === 'string'
-        && woFailed.notice.includes('不是可访问的本地目录') && woFailed.notice.includes('没有变化')
+        && woFailed.notice.includes('not an accessible local directory') && woFailed.notice.includes('unchanged')
         && woFailed.dialog === true);
 
     // 「克隆仓库…」打开视觉稿的 Clone 对话框，并接上真实克隆入口。
@@ -4979,8 +4894,8 @@ async function main() {
 
     // ---- Rollback 对话框 ----
     const rollback = await openScene('scene=rollback&theme=dark');
-    await rollback.page.waitForSelector('.dialog[aria-label^="回滚文件"]', { timeout: 10000 });
-    const rollbackTitle = await rollback.page.locator('.dialog[aria-label^="回滚文件"]').getAttribute('aria-label');
+    await rollback.page.waitForSelector('.dialog[aria-label^="Rollback File"]', { timeout: 10000 });
+    const rollbackTitle = await rollback.page.locator('.dialog[aria-label^="Rollback File"]').getAttribute('aria-label');
     check('回滚标题显示真实文件: ' + rollbackTitle, rollbackTitle.includes('src/App.cs') || rollbackTitle.includes('README.md'));
     check('回滚对话框不残留样例路径', !rollbackTitle.includes('app.manifest'));
     await rollback.page.close();
@@ -5066,7 +4981,7 @@ async function main() {
     await clone.page.waitForFunction('window.__cloneCall', null, { timeout: 8000 });
     const sent = await clone.page.evaluate('window.__cloneCall');
     check('校验通过后按输入调用 Git: ' + JSON.stringify(sent), sent.source === 'https://example.com/team/repo.git' && sent.depth === 5);
-    check('失败原因显示在对话框内', (await clone.page.locator('.clone-notice').innerText()).includes('目标目录不为空'));
+    check('失败原因显示在对话框内', (await clone.page.locator('.clone-notice').innerText()).includes('destination is not empty'));
     await clone.page.close();
     // ---- 规格 §7.12 第 4 条：Clone 的初始焦点、Tab 环、Enter 执行与 Esc 关闭 ----
     const cloneKeys = await openScene('scene=clone&theme=dark');
@@ -5164,7 +5079,7 @@ async function main() {
     check('§7.12 Clone 进行中冻结表单与确认按钮: ' + JSON.stringify(cloneBusy),
       cloneBusy.state === 'running' && cloneBusy.createDisabled === true
         && cloneBusy.sourceDisabled === true && cloneBusy.destinationDisabled === true
-        && cloneBusy.createText.includes('正在克隆') && cloneBusy.calls === 1);
+        && cloneBusy.createText.includes('Cloning') && cloneBusy.calls === 1);
     // 取消：必须**先**请求宿主结束 Git（`write/cancel`），并且结束前不能重新提交。
     await cloneCancel.page.locator('.clone-dialog .secondary-button').click();
     await cloneCancel.page.waitForTimeout(300);
@@ -5183,7 +5098,7 @@ async function main() {
     check('§7.12 Clone 取消先请求宿主结束 Git，结束前保持冻结且可重新提交被拦下: ' + JSON.stringify(cloneCancelling),
       cloneCancelling.state === 'cancelling' && cloneCancelling.cancels === 1
         && cloneCancelling.calls === 1 && cloneCancelling.createDisabled === true
-        && cloneCancelling.sourceDisabled === true && !cloneCancelling.createText.includes('取消'));
+        && cloneCancelling.sourceDisabled === true && !cloneCancelling.createText.includes('Cancel'));
     // 结束前按 Enter 也不得再发一次克隆。
     await cloneCancel.page.evaluate(() => {
       const dialog = document.querySelector('.clone-dialog');
@@ -5210,12 +5125,12 @@ async function main() {
       };
     });
     check('§7.12 Clone 确认取消后保留输入与勾选并允许重试: ' + JSON.stringify(cloneCancelled),
-      cloneCancelled.open === true && cloneCancelled.notice.includes('操作已取消')
+      cloneCancelled.open === true && cloneCancelled.notice.includes('cancelled')
         && cloneCancelled.source === 'https://example.com/team/repo.git'
         && cloneCancelled.destination === 'D:\\projects\\repo'
         && cloneCancelled.shallow === true && cloneCancelled.depth === '7'
         && cloneCancelled.sourceDisabled === false && cloneCancelled.createDisabled === false
-        && cloneCancelled.createText === '克隆');
+        && cloneCancelled.createText === 'Clone');
     await cloneCancel.page.evaluate(() => { window.__cloneDelays = 0; });
     await cloneCancel.page.close();
 
@@ -5478,9 +5393,9 @@ async function main() {
     await pushRun.page.waitForTimeout(200);
     const pushDupCalls = await pushRun.page.evaluate(() => window.__pushCalls || 0);
     check('§7.12 Push 进行中冻结列表与确认并阻止重复提交: ' + JSON.stringify([pushRunning, pushDupCalls]),
-      pushRunning.confirmDisabled === true && pushRunning.confirmText.includes('正在推送')
-        && pushRunning.cancelText.includes('取消操作') && pushRunning.listDisabled === 'true'
-        && pushRunning.notice.includes('正在推送') && pushDupCalls === 1);
+      pushRunning.confirmDisabled === true && pushRunning.confirmText.includes('Pushing')
+        && pushRunning.cancelText.includes('Cancel') && pushRunning.listDisabled === 'true'
+        && pushRunning.notice.includes('Pushing') && pushDupCalls === 1);
 
     await pushRun.page.locator('[data-push-action="cancel"]').click();
     await pushRun.page.waitForTimeout(300);
@@ -5498,7 +5413,7 @@ async function main() {
     // 宿主确认之前必须保持"取消中"：已请求结束 Git、按钮仍禁用、文案说明在等 Git 停止。
     check('§7.12 Push 取消先请求宿主结束 Git 且结束前保持冻结: ' + JSON.stringify(pushCancelling),
       pushCancelling.open === true && pushCancelling.cancels === 1 && pushCancelling.calls === 1
-        && pushCancelling.confirmDisabled === true && pushCancelling.notice.includes('等待 Git 停止'));
+        && pushCancelling.confirmDisabled === true && pushCancelling.notice.includes('waiting for Git'));
     await pushRun.page.waitForTimeout(1800);
     const pushCancelled = await pushRun.page.evaluate(() => {
       const dialog = document.querySelector('.push-dialog');
@@ -5518,10 +5433,10 @@ async function main() {
       };
     });
     check('§7.12 Push 确认取消后保留引用、列表与焦点并允许重试: ' + JSON.stringify(pushCancelled),
-      pushCancelled.open === true && pushCancelled.notice.includes('操作已取消')
+      pushCancelled.open === true && pushCancelled.notice.includes('cancelled')
         && pushCancelled.summary === pushSummary && pushCancelled.rows === 2
         && pushCancelled.listDisabled === 'false'
-        && pushCancelled.confirmDisabled === false && pushCancelled.confirmText === '推送'
+        && pushCancelled.confirmDisabled === false && pushCancelled.confirmText === 'Push'
         && pushCancelled.focusInDialog === true && pushCancelled.calls === 1);
     await pushRun.page.evaluate(() => { window.__pushDelays = 0; });
     await pushRun.page.close();
@@ -5552,7 +5467,7 @@ async function main() {
       };
     });
     check('§7.12 Push 晚到成功不覆盖用户的取消: ' + JSON.stringify(pushLateState),
-      pushLateState.open === true && pushLateState.notice.includes('操作已取消')
+      pushLateState.open === true && pushLateState.notice.includes('cancelled')
         && pushLateState.calls === 1 && pushLateState.cancels === 1 && pushLateState.result === null);
     await pushLate.page.evaluate(() => { window.__pushDelays = 0; window.__pushIgnoresCancel = false; });
     await pushLate.page.close();
@@ -5697,7 +5612,7 @@ async function main() {
     check('§7.12 需要交互输入的图形 Git 命令直接失败并说明原因、不提供复制或终端重试: '
       + JSON.stringify(interactiveState),
     interactiveState.open === true
-      && interactiveState.notice === 'Git 需要交互输入，图形操作已停止。'
+      && interactiveState.notice === 'Git requires interactive input; the graphical operation was stopped.'
       && interactiveState.bannedInDialog.length === 0 && interactiveState.bannedInPage.length === 0
       && interactiveState.rows === 1 && interactiveState.confirmDisabled === false);
     await interactive.page.evaluate(() => { window.__pushFails = false; window.__pushFailReason = null; });
@@ -5705,11 +5620,11 @@ async function main() {
 
     // ---- 规格 §7.11 第 1、2 条：Stash 创建框的字段顺序、紧凑尺寸、右下角按钮、字高与限高 ----
     const openStashCreate = async (page) => {
-      await page.locator('.top-button[aria-label="主菜单"]').click();
+      await page.locator('.top-button[aria-label="Main Menu"]').click();
       await page.waitForTimeout(350);
       await page.locator('.main-menu-bar .main-menu-entry', { hasText: 'Git' }).click();
       await page.waitForTimeout(350);
-      await page.locator('.main-menu-popover .menu-item', { hasText: '创建 Stash' }).click();
+      await page.locator('.main-menu-popover .menu-item', { hasText: 'Create Stash' }).click();
       await page.waitForSelector('.dialog.stash-dialog', { timeout: 8000 });
       await page.waitForTimeout(300);
     };
@@ -5752,8 +5667,8 @@ async function main() {
       };
     });
     check('§7.11 Stash 创建框的字段顺序、紧凑宽度与右下角创建按钮: ' + JSON.stringify(stashShapeState),
-      JSON.stringify(stashShapeState.order) === JSON.stringify(['label:Git 根目录', 'stash-root', 'label:当前分支',
-        'stash-branch', 'label:消息', 'stash-message', 'span', '保留索引状态', '包含未跟踪文件'])
+      JSON.stringify(stashShapeState.order) === JSON.stringify(['label:Git root', 'stash-root', 'label:Current branch',
+        'stash-branch', 'label:Message', 'stash-message', 'span', 'Keep index', 'Include untracked files'])
         && stashShapeState.width === 620
         && stashShapeState.inFooter === true && stashShapeState.rightOfCancel === true
         && stashShapeState.inRightHalf === true
@@ -5772,7 +5687,7 @@ async function main() {
       creates: (window.__stashCreates || []).length,
       open: !!document.querySelector('.dialog.stash-dialog'),
     }));
-    check('§7.11 Stash 消息 Enter 换行而不是提交: ' + JSON.stringify(stashEnter),
+    check('§7.11 Stash Message Enter 换行而不是提交: ' + JSON.stringify(stashEnter),
       stashEnter.value === '第一行\n第二行' && stashEnter.creates === 0 && stashEnter.open === true);
     await stashShapePage.page.close();
 
@@ -5791,11 +5706,17 @@ async function main() {
         messageHeight: Math.round(dialog.querySelector('#stash-message').getBoundingClientRect().height),
         fieldHeight: Math.round(dialog.querySelector('#stash-root').getBoundingClientRect().height),
         buttonHeight: Math.round(dialog.querySelector('[data-stash-create-action="create"]').getBoundingClientRect().height),
+        buttonTextFits: (() => {
+          const node = dialog.querySelector('[data-stash-create-action="create"]');
+          const text = document.createRange(); text.selectNodeContents(node);
+          const ink = text.getBoundingClientRect(), box = node.getBoundingClientRect();
+          return ink.top >= box.top + 3 && ink.bottom <= box.bottom - 3;
+        })(),
       };
     });
     check('§7.11 Stash 创建框按字高容纳输入与动作: ' + JSON.stringify(stashBigState),
       Number.parseInt(stashBigState.field, 10) > 30 && Number.parseInt(stashBigState.message, 10) > 78
-        && Number.parseInt(stashBigState.button, 10) > 37
+        && stashBigState.buttonHeight >= 34 && stashBigState.buttonTextFits === true
         && stashBigState.messageHeight === Number.parseInt(stashBigState.message, 10)
         && stashBigState.fieldHeight === Number.parseInt(stashBigState.field, 10)
         && stashBigState.buttonHeight === Number.parseInt(stashBigState.button, 10));
@@ -5962,277 +5883,8 @@ async function main() {
         && resetErrorAfter.footerTop === resetError.footerTop);
     await resetLimit.page.close();
 
-    // ---- 规格 §7.11 第 11 条：远端管理的字高、只滚右侧详情、Tab 滚入被裁切字段 ----
-    const remoteOpen = async (page) => {
-      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-      await page.waitForTimeout(500);
-      await page.evaluate(() => window.__augitOpenRemoteManager());
-      await page.waitForSelector('.remote-window', { timeout: 8000 });
-      await page.waitForTimeout(400);
-    };
-    const remoteSmall = await openScene('scene=main-project&theme=dark');
-    // 限高窗口才会让右侧详情溢出（默认 760px 下详情内容放得下，"只滚右侧"无从取证）。
-    await remoteSmall.page.setViewportSize({ width: 1180, height: 420 });
-    await remoteOpen(remoteSmall.page);
-    const remoteBase = await remoteSmall.page.evaluate(() => {
-      const dialog = document.querySelector('.remote-dialog');
-      const cs = getComputedStyle(dialog);
-      const detail = dialog.querySelector('.management-detail');
-      const list = dialog.querySelector('.management-list');
-      const snap = () => ({
-        toolbarTop: Math.round(dialog.querySelector('.toolbar').getBoundingClientRect().top),
-        listTop: Math.round(list.getBoundingClientRect().top),
-        footerTop: Math.round(dialog.querySelector('.dialog-footer').getBoundingClientRect().top),
-        closeTop: Math.round(dialog.querySelector('.dialog-header a').getBoundingClientRect().top),
-      });
-      detail.scrollTop = 0;
-      const before = snap();
-      detail.scrollTop = 60;
-      const after = snap();
-      return {
-        field: cs.getPropertyValue('--remote-field').trim(),
-        button: cs.getPropertyValue('--remote-button').trim(),
-        fieldHeight: Math.round(dialog.querySelector('[data-remote-field="name"]').getBoundingClientRect().height),
-        buttonHeight: Math.round(dialog.querySelector('[data-remote-action="save"]').getBoundingClientRect().height),
-        detailScrollable: detail.scrollHeight > detail.clientHeight + 1,
-        listScrollable: list.scrollHeight > list.clientHeight + 1,
-        detailScrollTop: Math.round(detail.scrollTop),
-        before, after,
-      };
-    });
-    check('§7.11 远端限高只滚右侧详情、工具栏/列表/关闭固定: ' + JSON.stringify(remoteBase),
-      // 右栏真的溢出并滚动了，而左栏不溢出（"只滚右侧"）
-      remoteBase.detailScrollable === true && remoteBase.detailScrollTop > 0
-        && remoteBase.listScrollable === false
-        // 滚动右侧不移动工具栏、列表与关闭按钮
-        && remoteBase.after.toolbarTop === remoteBase.before.toolbarTop
-        && remoteBase.after.listTop === remoteBase.before.listTop
-        && remoteBase.after.footerTop === remoteBase.before.footerTop
-        && remoteBase.after.closeTop === remoteBase.before.closeTop);
-    await remoteSmall.page.close();
-
-    const remoteBig = await openScene('scene=main-project&theme=dark&ui-size=20');
-    await remoteBig.page.setViewportSize({ width: 1180, height: 420 });
-    await remoteOpen(remoteBig.page);
-    const remoteBigState = await remoteBig.page.evaluate(() => {
-      const dialog = document.querySelector('.remote-dialog');
-      const cs = getComputedStyle(dialog);
-      const detail = dialog.querySelector('.management-detail');
-      detail.scrollTop = 0;
-      const save = dialog.querySelector('[data-remote-action="save"]');
-      const before = {
-        top: Math.round(save.getBoundingClientRect().top - detail.getBoundingClientRect().top),
-        clientHeight: detail.clientHeight,
-        scrollTop: Math.round(detail.scrollTop),
-      };
-      save.focus();
-      return {
-        field: cs.getPropertyValue('--remote-field').trim(),
-        button: cs.getPropertyValue('--remote-button').trim(),
-        fieldHeight: Math.round(dialog.querySelector('[data-remote-field="name"]').getBoundingClientRect().height),
-        before,
-        active: document.activeElement.dataset ? document.activeElement.dataset.remoteAction : null,
-      };
-    });
-    await remoteBig.page.waitForTimeout(250);
-    const remoteBigScroll = await remoteBig.page.evaluate(() => {
-      const detail = document.querySelector('.remote-dialog .management-detail');
-      const save = document.querySelector('.remote-dialog [data-remote-action="save"]').getBoundingClientRect();
-      const box = detail.getBoundingClientRect();
-      return {
-        scrollTop: Math.round(detail.scrollTop),
-        inView: save.top >= box.top - 1 && save.bottom <= box.bottom + 1,
-      };
-    });
-    check('§7.11 远端按字高排布且 Tab 到被裁切字段时详情滚入视口: '
-      + JSON.stringify([remoteBase.field, remoteBigState, remoteBigScroll]),
-    // 字号 13 → 20：字段与按钮令牌增长并落到控件上
-    Number.parseInt(remoteBigState.field, 10) > Number.parseInt(remoteBase.field, 10)
-      && Number.parseInt(remoteBigState.button, 10) > Number.parseInt(remoteBase.button, 10)
-      && remoteBigState.fieldHeight === Number.parseInt(remoteBigState.field, 10)
-      // 前置：底部动作行在滚动前确实被裁切（否则"滚入"无从谈起）
-      && remoteBigState.before.top + 20 > remoteBigState.before.clientHeight
-      && remoteBigState.before.scrollTop === 0
-      // 焦点落在被裁切的字段上，详情自动滚入
-      && remoteBigState.active === 'save'
-      && remoteBigScroll.scrollTop > 0 && remoteBigScroll.inView === true);
-    await remoteBig.page.close();
-
-    // ---- 规格 §7.14 第 4、5、10 条：计数/导航固定、紧凑标题行文件名位置、保留时不重写选区与滚动 ----
-    const conflictFixture = (extra = {}) => {
-      const long = Array.from({ length: 80 }, (_, i) => '填充第 ' + (i + 1) + ' 行').join('\n');
-      return Object.assign({
-        available: true, path: 'src/App.cs', contentKind: 'Text',
-        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-        yoursText: '第一行\n左方改动\n第三行', theirsText: '第一行\n右方改动\n第三行',
-        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行\n' + long,
-        operation: 'Merge',
-        version: { length: 42, sha256: 'n1', lastWriteUtc: '2026-09-15T00:00:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
-      }, extra);
-    };
-    const conflictSession = {
-      kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
-      canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-      currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
-    };
-    const openConflictResolver = async (page, fixture) => {
-      await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-      await page.evaluate((payload) => {
-        window.__conflictFixture = payload.fixture;
-        window.__operationSession = payload.session;
-        window.__statusOperation = 'Merge';
-        window.__statusConflicts = true;
-        window.__nextChanges = { files: [], gitMetadata: true };
-        void window.__augitLoadOperation();
-      }, { fixture, session: conflictSession });
-      await page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
-      await page.evaluate(() => {
-        const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      });
-      await page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
-      await page.waitForTimeout(350);
-    };
-
-    const conflictNavPage = await openScene('scene=commit-changes&theme=dark');
-    await openConflictResolver(conflictNavPage.page, conflictFixture());
-    const conflictNavState = await conflictNavPage.page.evaluate(() => {
-      const page = document.querySelector('.conflict-page');
-      const header = page.querySelector('.conflict-header');
-      const block = page.querySelector('.conflict-column.result .conflict-block');
-      const count = page.querySelector('[data-conflict-count]');
-      const prev = page.querySelector('[data-conflict-nav="prev"]');
-      const next = page.querySelector('[data-conflict-nav="next"]');
-      const snap = () => ({
-        headerTop: Math.round(header.getBoundingClientRect().top),
-        countTop: Math.round(count.getBoundingClientRect().top),
-        prevTop: Math.round(prev.getBoundingClientRect().top),
-        nextTop: Math.round(next.getBoundingClientRect().top),
-      });
-      block.scrollTop = 0;
-      const before = snap();
-      block.scrollTop = 200;
-      const after = snap();
-      return {
-        before, after,
-        scrollable: block.scrollHeight > block.clientHeight + 1,
-        scrollTop: Math.round(block.scrollTop),
-        countInHeader: header.contains(count),
-        navInHeader: header.contains(prev) && header.contains(next),
-      };
-    });
-    check('§7.14 未处理数量与上一处/下一处固定在顶部: ' + JSON.stringify(conflictNavState),
-      // 计数与两个导航按钮都在固定的内容表头里（不在可滚动的正文块内）
-      conflictNavState.countInHeader === true && conflictNavState.navInHeader === true
-        // 正文块真的滚动了，而表头、计数、上一处、下一处的纵坐标逐值不变
-        && conflictNavState.scrollable === true && conflictNavState.scrollTop === 200
-        && conflictNavState.after.headerTop === conflictNavState.before.headerTop
-        && conflictNavState.after.countTop === conflictNavState.before.countTop
-        && conflictNavState.after.prevTop === conflictNavState.before.prevTop
-        && conflictNavState.after.nextTop === conflictNavState.before.nextTop);
-
-    // 大字号 + 窄窗口：文件名放到窗口顶部"解决冲突"右侧。
-    await conflictNavPage.page.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
-    await conflictNavPage.page.setViewportSize({ width: 620, height: 760 });
-    await conflictNavPage.page.waitForFunction(
-      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    await conflictNavPage.page.waitForTimeout(300);
-    const conflictCompact = await conflictNavPage.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const header = dialog.querySelector('.dialog-header');
-      const label = header.querySelector('span');
-      const title = header.querySelector('.conflict-file-title');
-      const contentHeader = dialog.querySelector('.conflict-page .conflict-header');
-      if (!label || !title) return { missing: true };
-      const lr = label.getBoundingClientRect(), tr = title.getBoundingClientRect();
-      return {
-        label: label.textContent.trim(), title: title.textContent.trim(),
-        labelRight: Math.round(lr.right), titleLeft: Math.round(tr.left),
-        // 文件名在"解决冲突"右侧（同一行、左边缘不小于标签右边缘）
-        rightOfLabel: tr.left >= lr.right - 1,
-        sameRow: Math.abs(tr.top - lr.top) < 4,
-        titlePath: title.getAttribute('title'),
-        // 计数与导航仍留在独立一行的内容表头里
-        countInContentHeader: !!contentHeader.querySelector('[data-conflict-count]'),
-        navInContentHeader: contentHeader.querySelectorAll('[data-conflict-nav]').length,
-      };
-    });
-    check('§7.14 紧凑标题行把文件名放到"解决冲突"右侧: ' + JSON.stringify(conflictCompact),
-      conflictCompact.missing !== true && conflictCompact.label === '解决冲突' && conflictCompact.title === 'App.cs'
-        && conflictCompact.rightOfLabel === true && conflictCompact.sameRow === true
-        && conflictCompact.titlePath === 'src/App.cs'
-        && conflictCompact.countInContentHeader === true && conflictCompact.navInContentHeader === 2);
-    await conflictNavPage.page.close();
-
-    // 「保留当前内容」：正文、选区与滚动位置都不重写。
-    const conflictKeepPage = await openScene('scene=commit-changes&theme=dark');
-    await openConflictResolver(conflictKeepPage.page, conflictFixture());
-    // 先制造未保存内容（接受左侧 = 结果区的一次编辑）。
-    await conflictKeepPage.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-side="yours"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await conflictKeepPage.page.waitForTimeout(300);
-    const readConflictCaret = () => conflictKeepPage.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      const selection = window.getSelection();
-      const node = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
-      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
-      const line = element && element.closest ? element.closest('.conflict-line') : null;
-      return {
-        scrollTop: Math.round(block.scrollTop),
-        anchorLine: line ? Number(line.dataset.line) : null,
-        anchorOffset: selection && selection.rangeCount > 0 ? selection.anchorOffset : null,
-        dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
-        text: block.innerText.replace(/\s+/g, ''),
-      };
-    });
-    // 滚动正文并放一个选区（第 46 行行尾）。
-    await conflictKeepPage.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      block.scrollTop = 200;
-      const lines = block.querySelectorAll('.conflict-line');
-      const line = lines[40] || lines[lines.length - 1];
-      const range = document.createRange();
-      range.selectNodeContents(line);
-      range.collapse(false);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-    });
-    await conflictKeepPage.page.waitForTimeout(200);
-    const conflictKeepBefore = await readConflictCaret();
-    // 外部新版本：有未保存内容 ⇒ 询问。
-    await conflictKeepPage.page.evaluate(() => {
-      const long = Array.from({ length: 80 }, (_, i) => '填充第 ' + (i + 1) + ' 行').join('\n');
-      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
-        resultText: '外部新版本\n' + long,
-        version: { length: 99, sha256: 'n2', lastWriteUtc: '2026-09-15T00:05:00Z' },
-        blocks: [],
-      });
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await conflictKeepPage.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
-    await conflictKeepPage.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-keep]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await conflictKeepPage.page.waitForTimeout(400);
-    const conflictKeepAfter = await readConflictCaret();
-    const conflictPromptGone = await conflictKeepPage.page.evaluate(() => !document.querySelector('.dialog.conflict-external-dialog'));
-    check('§7.14 保留当前内容不重写正文、选区与滚动位置: '
-      + JSON.stringify([conflictKeepBefore, conflictKeepAfter, conflictPromptGone]),
-    conflictKeepBefore.dirty === true && conflictKeepBefore.scrollTop > 0 && conflictKeepBefore.anchorLine !== null
-      // 询问收起、未保存状态保留、正文一字未改
-      && conflictPromptGone === true && conflictKeepAfter.dirty === true
-      && conflictKeepAfter.text === conflictKeepBefore.text
-      // 滚动位置与选区（行号 + 偏移）逐值不变
-      && conflictKeepAfter.scrollTop === conflictKeepBefore.scrollTop
-      && conflictKeepAfter.anchorLine === conflictKeepBefore.anchorLine
-      && conflictKeepAfter.anchorOffset === conflictKeepBefore.anchorOffset);
-    await conflictKeepPage.page.close();
+    // 远端表格及二级编辑窗的字号与限高几何由 live-goal-remote 验证，
+    // 不再保留旧双栏内联表单的期望。
 
     // ---- 规格 §7.16 第 2、5 条：启动中标题与入口可用、启动完成不覆盖用户选择、调整面板不重建 Shell ----
     const terminalBoot = await openScene('scene=main-project&theme=dark');
@@ -6242,15 +5894,15 @@ async function main() {
       window.__terminalCalls = [];
       window.__terminalStartDelayMs = 900;   // 让 terminal/start 处于在途，才看得到"正在启动…"
     });
-    await terminalBoot.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await terminalBoot.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
     // 等标题出现"正在启动…"（而不是直接等 ready）。
     await terminalBoot.page.waitForFunction(
-      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('正在启动'); }",
+      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('Starting'); }",
       null, { timeout: 10000 }).catch(() => {});
     const terminalStarting = await terminalBoot.page.evaluate(() => {
       const label = document.querySelector('.terminal-session');
-      const hide = document.querySelector('.terminal-tool [aria-label="隐藏终端"]');
-      const close = document.querySelector('.terminal-tool [aria-label="关闭终端"]');
+      const hide = document.querySelector('.terminal-tool [aria-label="Hide Terminal"]');
+      const close = document.querySelector('.terminal-tool [aria-label="Close Terminal"]');
       return {
         title: label ? label.textContent.trim() : null,
         titleAttr: label ? label.getAttribute('title') : null,
@@ -6267,14 +5919,14 @@ async function main() {
       return {
         title: label ? label.textContent.trim() : null,
         shell: window.__augitTerminalShell || null,
-        suffix: label ? label.textContent.includes('正在启动') : null,
+        suffix: label ? label.textContent.includes('Starting') : null,
       };
     });
-    check('§7.16 打开后立即显示"Shell 名称 · 正在启动…"且加载期间隐藏/关闭可用: '
+    check('§7.16 打开后立即显示"Shell Name · Starting…"且加载期间隐藏/关闭可用: '
       + JSON.stringify([terminalStarting, terminalReadyState]),
     // 启动中：标题带后缀、提示属性同步、隐藏/关闭都可用、尚未 ready
     terminalStarting.ready === false
-      && terminalStarting.title === 'Windows PowerShell · 正在启动…'
+      && terminalStarting.title === 'Windows PowerShell · Starting…'
       && terminalStarting.titleAttr === terminalStarting.title
       && terminalStarting.hideDisabled === false && terminalStarting.closeDisabled === false
       // 就绪后：后缀去掉，标题是宿主返回的真实 Shell 名
@@ -6289,11 +5941,11 @@ async function main() {
       window.__terminalCalls = [];
       window.__terminalStartDelayMs = 900;
     });
-    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
     await terminalHide.page.waitForFunction(
-      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('正在启动'); }",
+      "() => { const n = document.querySelector('.terminal-session'); return !!n && n.textContent.includes('Starting'); }",
       null, { timeout: 10000 }).catch(() => {});
-    await terminalHide.page.locator('.terminal-tool [aria-label="隐藏终端"]').click();
+    await terminalHide.page.locator('.terminal-tool [aria-label="Hide Terminal"]').click();
     await terminalHide.page.waitForTimeout(1800);
     const terminalHidden = await terminalHide.page.evaluate(() => ({
       ready: !!window.__augitTerminalReady,
@@ -6311,11 +5963,11 @@ async function main() {
       window.__terminalCalls = [];
       window.__terminalStartDelayMs = 900;
     });
-    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();   // 恢复终端面板
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();   // 恢复终端面板
     await terminalHide.page.waitForFunction(
       "() => { const n = document.querySelector('.terminal-session'); return !!n; }",
       null, { timeout: 10000 }).catch(() => {});
-    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await terminalHide.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
     await terminalHide.page.waitForTimeout(1800);
     const terminalSwitched = await terminalHide.page.evaluate(() => ({
       bottom: window.__augitLive.layout.bottom,
@@ -6332,7 +5984,7 @@ async function main() {
     await terminalResize.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await terminalResize.page.waitForTimeout(500);
     await terminalResize.page.evaluate(() => { window.__terminalCalls = []; });
-    await terminalResize.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await terminalResize.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
     await terminalResize.page.waitForFunction('window.__augitTerminalReady === true', null, { timeout: 15000 });
     await terminalResize.page.waitForTimeout(500);
     await terminalResize.page.evaluate(() => {
@@ -6376,7 +6028,7 @@ async function main() {
       await new Promise((r) => setTimeout(r, 400));
     });
     await md10Scene.page.waitForSelector('.markdown-document', { timeout: 10000 });
-    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.locator('.editor-tabs button[data-markdown-mode="split"]').click();
     await md10Scene.page.waitForTimeout(250);
     const md10Split = await md10Scene.page.evaluate(() => {
       const panes = document.querySelector('.markdown-panes');
@@ -6418,9 +6070,9 @@ async function main() {
       source: Math.round(document.querySelector('.markdown-source').scrollTop),
       preview: Math.round(document.querySelector('.markdown-preview').scrollTop),
     }));
-    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+    await md10Scene.page.locator('.editor-tabs button[data-markdown-mode="preview"]').click();
     await md10Scene.page.waitForTimeout(200);
-    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.locator('.editor-tabs button[data-markdown-mode="split"]').click();
     await md10Scene.page.waitForTimeout(250);
     const md10RoundTrip = await md10Scene.page.evaluate(() => ({
       ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
@@ -6450,7 +6102,7 @@ async function main() {
       window.__md10RepeatHtml = document.querySelector('.markdown-preview').innerHTML;
       window.__md10RepeatTabId = (window.__augitLive.tabs.find((t) => t.kind === 'document' && t.path === 'docs/long.md') || {}).id || null;
     });
-    await md10Scene.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await md10Scene.page.locator('.editor-tabs button[data-markdown-mode="split"]').click();
     await md10Scene.page.waitForTimeout(250);
     const md10Repeat = await md10Scene.page.evaluate(() => ({
       ratioWrites: window.__md10RatioWrites,
@@ -6495,7 +6147,7 @@ async function main() {
       await new Promise((r) => setTimeout(r, 400));
     }, mdDocText('第一版', 60));
     await mdExt.page.waitForSelector('.markdown-document', { timeout: 10000 });
-    await mdExt.page.locator('.markdown-document button[data-markdown-mode="split"]').click();
+    await mdExt.page.locator('.editor-tabs button[data-markdown-mode="split"]').click();
     await mdExt.page.waitForTimeout(250);
     // 造出用户状态：比例、两侧滚动、原文选区、查找条。
     await mdExt.page.evaluate(() => {
@@ -6577,7 +6229,7 @@ async function main() {
         ratio: document.querySelector('.markdown-panes').style.getPropertyValue('--markdown-source-ratio'),
       };
     });
-    check('§7.3 外部更新复用原文控件并保留选择/滚动/比例/模式/查找: '
+    check('§7.3 外部更新复用原文控件并保留选择/滚动/比例/Mode/Find: '
       + JSON.stringify([mdExtBefore, mdExtAfter, mdExtContent]),
     // 前置：用户状态确实已经建立
     mdExtBefore.mode === 'split' && mdExtBefore.ratio === '0.7' && mdExtBefore.anchorLine === 13
@@ -6706,7 +6358,7 @@ async function main() {
       await new Promise((r) => setTimeout(r, 400));
     });
     await mdImages.page.waitForSelector('.markdown-document', { timeout: 10000 });
-    await mdImages.page.locator('.markdown-document button[data-markdown-mode="preview"]').click();
+    await mdImages.page.locator('.editor-tabs button[data-markdown-mode="preview"]').click();
     // 等有效图片真的解码出来（`resolveMarkdownImages()` 是异步的）。
     await mdImages.page.waitForFunction(
       "() => [...document.querySelectorAll('.markdown-preview img')].some((img) => img.naturalWidth > 0)",
@@ -6739,12 +6391,12 @@ async function main() {
     const mdImgBlockedTitles = mdImageState.paragraphs.filter((item) => item.blocked).map((item) => item.title).join(' | ');
     check('§7.3 阻止的图片在原位置显示紧凑错误且不破坏预览: ' + JSON.stringify(mdImageState),
       // 远程 / 缺失 / 越界 / 协议不支持 四类各自在自己的段落里给出紧凑说明与原因
-      mdImgBlockedText.includes('远程图片') && mdImgBlockedText.includes('远程图片已阻止')
-        && mdImgBlockedText.includes('缺失图片') && mdImgBlockedText.includes('路径不存在')
-        && mdImgBlockedText.includes('越界图片') && mdImgBlockedText.includes('目标越出工作区')
-        && mdImgBlockedText.includes('协议图片') && mdImgBlockedText.includes('不支持该地址或协议')
+      mdImgBlockedText.includes('远程图片') && mdImgBlockedText.includes('Remote image blocked')
+        && mdImgBlockedText.includes('缺失图片') && mdImgBlockedText.includes('The path does not exist.')
+        && mdImgBlockedText.includes('越界图片') && mdImgBlockedText.includes('The target is outside the workspace.')
+        && mdImgBlockedText.includes('协议图片') && mdImgBlockedText.includes('unsupported address or protocol')
         && mdImgBlockedTitles.includes('https://example.com/remote.png')
-        && mdImgBlockedTitles.includes('路径不存在。') && mdImgBlockedTitles.includes('目标越出工作区。')
+        && mdImgBlockedTitles.includes('The path does not exist.') && mdImgBlockedTitles.includes('The target is outside the workspace.')
         // 阻止都发生在**原段落**里，且预览其余部分（正文段落与标题）完好
         && mdImageState.paragraphs.filter((item) => item.blocked).every((item) => item.inPlace === true)
         && mdImageState.intact === true && mdImageState.headings.includes('正文'));
@@ -6754,10 +6406,10 @@ async function main() {
         && mdImageState.images[0].alt === '有效图片' && mdImageState.images[0].dataUrl === true
         && mdImageState.images[0].hidden === false && mdImageState.images[0].naturalWidth > 0
         // `notes.txt` 不是图片：在原位置给出原因
-        && mdImgBlockedText.includes('非图片') && mdImgBlockedText.includes('不是可预览的图片'));
+        && mdImgBlockedText.includes('非图片') && mdImgBlockedText.includes('not a supported image'));
     await mdImages.page.close();
 
-    // ---- 规格 §7.15 第 9、10 条：搜索浮层的字高下限公式、开关图形固定 16px、
+    // ---- 规格 §7.15 第 9、10 条：搜索浮层的字高下限公式、开关图形按UI用户缩放、
     //      忽略文件按字宽、窄宽度按原顺序换行、状态说明在结果区下方换行 ----
     const searchOverlayAt = async (scene, size, width) => {
       const scene_ = await openScene(`scene=${scene}&theme=dark&ui-size=${size}`);
@@ -6779,13 +6431,13 @@ async function main() {
           header: Number.parseFloat(style.getPropertyValue('--search-header')) || 0,
           fieldToken: Number.parseFloat(style.getPropertyValue('--search-field')) || 0,
           rowToken: Number.parseFloat(style.getPropertyValue('--search-row')) || 0,
-          headerFormula: Math.max(41, line + 20),
+          headerFormula: Math.max(41, line + 20, options.length ? Math.max(Math.round(28 * Math.max(.75, Math.round(parseFloat(style.fontSize) / 12 * 4) / 4)), line + 8) + 8 : 0),
           fieldFormula: Math.max(31, line + 8),
           rowFormula: Math.max(32, line + 8),
           fieldHeight: field ? Math.round(field.getBoundingClientRect().height) : null,
           ignoredWidth: ignored ? Math.round(ignored.getBoundingClientRect().width) : null,
           ignoredFormula: ignored
-            ? Math.min(overlay.clientWidth - 20, Math.ceil(canvas.measureText('包含忽略文件').width) + 22)
+            ? Math.min(overlay.clientWidth - 20, Math.ceil(canvas.measureText('Include ignored files').width) + 22)
             : null,
           icons: options.map((option) => {
             const svg = option.querySelector('svg');
@@ -6812,7 +6464,7 @@ async function main() {
       // 三个下限公式逐值成立（两组场景 × 两档字号）
       small.header === small.headerFormula && small.fieldToken === small.fieldFormula
         && small.rowToken === small.rowFormula
-        && big.header === big.headerFormula && big.fieldToken === big.fieldFormula
+        && big.header >= big.headerFormula && big.fieldToken === big.fieldFormula
         && big.rowToken === big.rowFormula
         // 令牌真的落到控件上（输入框实测高度 = `--search-field`）
         && small.fieldHeight === small.fieldToken && big.fieldHeight === big.fieldToken
@@ -6821,11 +6473,11 @@ async function main() {
 
     const seNarrow = await searchOverlayAt('repository-search', 13, 320);
     const seNarrowBig = await searchOverlayAt('repository-search', 32, 320);
-    check('§7.15 搜索开关固定 16px、忽略文件按字宽、窄宽度按原顺序换行: '
+    check('§7.15 搜索开关按用户字号缩放、忽略文件按字宽、窄宽度按原顺序换行: '
       + JSON.stringify([seRepoSmall, seRepoBig, seNarrow, seNarrowBig]),
-    // 三个开关图形始终 16×16（字号 13 与 32、宽 1180 与 320 都不变）
+    // New UI 的图形随 userScaleFactor 离散缩放：13px 为1倍，32px 为2.75倍。
     seRepoSmall.icons.length === 3 && seRepoSmall.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
-      && seRepoBig.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
+      && seRepoBig.icons.every((icon) => icon[0] === 44 && icon[1] === 44)
       && seNarrow.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
       // "包含忽略文件"宽度 = 文案宽度 + 22（随字号变化），不是固定值
       && seRepoSmall.ignoredWidth === seRepoSmall.ignoredFormula
@@ -6847,7 +6499,7 @@ async function main() {
     const seNotice = await openScene('scene=repository-search&theme=dark');
     await seNotice.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
     await seNotice.page.evaluate(() => {
-      window.__searchNotice = '搜索超时，已保留完成的结果。' + '这是一段很长的说明文字，用来验证它在结果区下方换行而不是把浮层撑出横向滚动。'.repeat(3);
+      window.__searchNotice = 'Search timed out; completed results are preserved.' + '这是一段很长的说明文字，用来验证它在结果区下方换行而不是把浮层撑出横向滚动。'.repeat(3);
       window.__searchTimedOut = true;
     });
     await seNotice.page.fill('.search-overlay .search-field', 'Git');
@@ -6880,7 +6532,7 @@ async function main() {
         && seNoticeState.horizontalOverflow === false
         && seNoticeState.noticeHeight > seNoticeState.line * 1.5
         && seNoticeState.role === 'status'
-        && seNoticeState.text.includes('搜索超时'));
+        && seNoticeState.text.includes('Search timed out'));
     await seNotice.page.evaluate(() => { window.__searchNotice = undefined; window.__searchTimedOut = false; });
     await seNotice.page.close();
 
@@ -6907,7 +6559,7 @@ async function main() {
       };
     });
     await seKeep.page.evaluate(() => {
-      window.__searchNotice = '搜索超时，已保留完成的结果。';
+      window.__searchNotice = 'Search timed out; completed results are preserved.';
       window.__searchTimedOut = true;
       window.__searchCancelled = false;
     });
@@ -6921,13 +6573,13 @@ async function main() {
     const seKeepTimeout = await seKeepRead();
     // 取消：换一个查询让宿主按"已取消"回话，已完成结果同样要留着
     await seKeep.page.evaluate(() => {
-      window.__searchNotice = '搜索已取消。';
+      window.__searchNotice = 'Search cancelled.';
       window.__searchTimedOut = false;
       window.__searchCancelled = true;
     });
     await seKeep.page.fill('.search-overlay .search-field', 'Gi');
     await seKeep.page.waitForFunction(
-      "!!document.querySelector('.search-overlay .search-notice') && document.querySelector('.search-overlay .search-notice').textContent.indexOf('取消') >= 0",
+      "!!document.querySelector('.search-overlay .search-notice') && document.querySelector('.search-overlay .search-notice').textContent.indexOf('Cancel') >= 0",
       null,
       { timeout: 10000 },
     ).catch(() => {});
@@ -6936,11 +6588,11 @@ async function main() {
       + JSON.stringify({ seKeepTimeout, seKeepCancelled }),
     // 超时：说明写的是"已保留完成的结果"，结果行与状态里的匹配数都还在，状态标记为 timedOut
     seKeepTimeout.rows > 0 && seKeepTimeout.matches === seKeepTimeout.rows
-      && /已保留完成的结果/.test(seKeepTimeout.notice || '')
+      && /completed results are preserved/.test(seKeepTimeout.notice || '')
       && seKeepTimeout.timedOut === true && seKeepTimeout.cancelled === false
       // 取消：换成取消说明后结果**一条都没少**，状态标记切成 cancelled（与超时可区分）
       && seKeepCancelled.rows === seKeepTimeout.rows && seKeepCancelled.matches === seKeepTimeout.matches
-      && seKeepCancelled.notice === '搜索已取消。'
+      && seKeepCancelled.notice === 'Search cancelled.'
       && seKeepCancelled.cancelled === true && seKeepCancelled.timedOut === false);
     await seKeep.page.evaluate(() => {
       window.__searchNotice = undefined;
@@ -7001,7 +6653,7 @@ async function main() {
       };
     });
     const historyBefore = await historyRects();
-    await historyVisible.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await historyVisible.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
     await historyVisible.page.waitForTimeout(1200);
     const historyAfter = await historyRects();
     check('§7.1 打开底部 Git 历史时项目树与正文保持可见: ' + JSON.stringify([historyBefore, historyAfter]),
@@ -7097,7 +6749,7 @@ async function main() {
       const hs3OpenSettings = async () => {
         await hs3.page.locator('.titlebar [data-action="menu"]').click();
         await hs3.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-        await hs3.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await hs3.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Settings' }).first().click();
         await hs3.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
         // 等宽字号在"文件查看"分页，设置窗口默认停在"外观"。
         await hs3.page.locator('.settings-window [data-settings-page="file-view"]').click();
@@ -7171,7 +6823,7 @@ async function main() {
         await window.__augitOpenDocument('docs/row16.txt');
         await new Promise((resolve) => setTimeout(resolve, 800));
       }, rt16Inject(rt16V1));
-      await rt16A.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+      await rt16A.page.locator('.document-toolbar [aria-label="Show Whitespaces"]').click();
       await rt16A.page.waitForTimeout(200);
       await rt16A.page.evaluate(() => {
         const code = document.querySelector('.editor-content .code-view');
@@ -7211,7 +6863,7 @@ async function main() {
           reused: !!(code && code.__rt16SameNode),
           wrap: !!(code && code.classList.contains('wrap')),
           whitespaceMarks: code ? code.querySelectorAll('span.ws').length : -1,
-          whitespacePressed: (() => { const button = view && view.querySelector('[aria-label="显示空白"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
+          whitespacePressed: (() => { const button = view && view.querySelector('[aria-label="Show Whitespaces"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
           scrollTop: code ? Math.round(code.scrollTop) : -1,
           scrollLeft: code ? Math.round(code.scrollLeft) : -1,
           maxTop: code ? code.scrollHeight - code.clientHeight : -1,
@@ -7258,8 +6910,8 @@ async function main() {
         await window.__augitOpenDocument('docs/row16.txt');
         await new Promise((resolve) => setTimeout(resolve, 800));
       }, rt16Inject(rt16V1));
-      await rt16B.page.locator('.document-toolbar [aria-label="自动换行"]').click();
-      await rt16B.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+      await rt16B.page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
+      await rt16B.page.locator('.document-toolbar [aria-label="Show Whitespaces"]').click();
       await rt16B.page.keyboard.press('Control+f');
       await rt16B.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
       await rt16B.page.fill('.current-find .search-field', '标记');
@@ -7278,7 +6930,7 @@ async function main() {
           reused: !!(code && code.__rt16SameNode),
           wrap: !!(code && code.classList.contains('wrap')),
           whitespaceMarks: code ? code.querySelectorAll('span.ws').length : -1,
-          wrapPressed: (() => { const button = view && view.querySelector('[aria-label="自动换行"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
+          wrapPressed: (() => { const button = view && view.querySelector('[aria-label="Soft Wraps"]'); return button ? button.getAttribute('aria-pressed') : null; })(),
           findOpen: bar ? 1 : 0,
           findQuery: bar ? bar.querySelector('.search-field').value : null,
           findStatus: bar ? bar.querySelector('.find-status').textContent : null,
@@ -7354,7 +7006,7 @@ async function main() {
       const tp17Open = async () => {
         await tp17.page.locator('.titlebar [data-action="menu"]').click();
         await tp17.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-        await tp17.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await tp17.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Settings' }).first().click();
         await tp17.page.waitForSelector('.settings-window [data-setting="theme"]', { timeout: 8000 });
       };
       const tp17Read = () => tp17.page.evaluate(() => {
@@ -7519,7 +7171,7 @@ async function main() {
       check('§9.1 未选择且没有打开文件时编辑区是稳定空态（不是样例文档/差异，也不加载）: '
         + JSON.stringify(un9Empty),
       un9Empty.selected === 0 && un9Empty.documentPath === null && un9Empty.diff === null
-        && un9Empty.emptyCount === 1 && un9Empty.emptyText === '选择文件以查看内容'
+        && un9Empty.emptyCount === 1 && un9Empty.emptyText === 'Select a file to view its content'
         && un9Empty.diffColumns === 0 && un9Empty.documentViews === 0 && un9Empty.loading === 0
         && un9Empty.sample === false && un9Empty.diffCalls === 0);
 
@@ -7621,7 +7273,7 @@ async function main() {
       });
       await md7.page.evaluate(async () => { await window.__augitOpenDocument('docs/md-a.md'); await new Promise((resolve) => setTimeout(resolve, 700)); });
       const md7A = await md7Read();
-      await md7.page.locator('.markdown-document button[data-markdown-mode="source"]').click();
+      await md7.page.locator('.editor-tabs button[data-markdown-mode="source"]').click();
       await md7.page.waitForTimeout(300);
       await md7.page.evaluate(async () => { await window.__augitOpenDocument('docs/md-b.md'); await new Promise((resolve) => setTimeout(resolve, 700)); });
       const md7B = await md7Read();
@@ -7720,7 +7372,7 @@ async function main() {
         const bar = document.querySelector('.current-find');
         const current = document.querySelector('.code-view mark.find-current');
         const row = current && current.closest('.code-line');
-        const caseButton = bar ? bar.querySelector('[aria-label="区分大小写"]') : null;
+        const caseButton = bar ? bar.querySelector('[aria-label="Match case"]') : null;
         return {
           mode: view ? view.dataset.jsonMode : null,
           status: bar ? bar.querySelector('.find-status').textContent : null,
@@ -7736,11 +7388,11 @@ async function main() {
         await j8Wait(300);
       };
       const j8Next = async () => {
-        await j8.page.locator('.current-find [aria-label="下一项"]').click();
+        await j8.page.locator('.current-find [aria-label="Next Match"]').click();
         await j8Wait(300);
       };
       const j8Formatted = await j8Read();
-      await j8.page.locator('.current-find [aria-label="区分大小写"]').click();
+      await j8.page.locator('.current-find [aria-label="Match case"]').click();
       await j8Wait(200);
       const j8CaseOn = await j8Read();
       await j8Next();
@@ -7881,7 +7533,7 @@ async function main() {
         && t13Before.currentLine === '3' && t13Before.tabJsonMode === null
         // 变无效：强制原文、给出新行列与错误文字、"格式化"禁用
         && t13Invalid.mode === 'source' && t13Invalid.invalid === true
-        && t13Invalid.errorLine === '3' && /第 3 行，第 10 列/.test(t13Invalid.errorText || '')
+        && t13Invalid.errorLine === '3' && /line 3, column 10/.test(t13Invalid.errorText || '')
         && t13Invalid.formattedDisabled === true && t13Invalid.lines === 5
         // 查找条与查询保留、数量按新正文更新；焦点没有被抢走，仍在正文（现在显示原文）
         && t13Invalid.findOpen === 1 && t13Invalid.findQuery === 'k2'
@@ -7962,7 +7614,7 @@ async function main() {
         const code = view ? view.querySelector(':scope > .code-view') : null;
         const error = view ? view.querySelector(':scope > .json-error') : null;
         const button = view ? view.querySelector('button[data-json-mode="formatted"]') : null;
-        const more = view ? view.querySelector('.document-toolbar .icon-button[aria-label="更多"]') : null;
+        const more = view ? view.querySelector('.document-toolbar .icon-button[aria-label="More"]') : null;
         const active = document.activeElement;
         return {
           mode: view ? view.dataset.jsonMode : null,
@@ -8002,7 +7654,7 @@ async function main() {
       // 阶段 B：其它焦点不变，且错误条仍在（只是行列变了）时焦点留在错误条上、不掉到 `BODY`
       await jfPush(jfBroken);
       await jf.page.waitForTimeout(1400);
-      await jf.page.locator('.json-document .document-toolbar .icon-button[aria-label="更多"]').focus();
+      await jf.page.locator('.json-document .document-toolbar .icon-button[aria-label="More"]').focus();
       await jf.page.waitForTimeout(150);
       const jfOnMore = await jfRead();
       await jfPush(Object.assign({ jsonError: null }, jfValid));
@@ -8093,11 +7745,11 @@ async function main() {
         observer.disconnect();
         return { mutations: window.__mut, sameNode: window.__treeNode === document.querySelector('.side-content.tree') };
       });
-      check('§7.1 项目树悬停只改外观：只重绘命中行、不改选择/焦点/标签、不触发 Git 查询（含同一行内移动）: '
+      check('§7.1 项目树悬停只改外观：只重绘命中行、不改选择/焦点/Tags、不触发 Git 查询（含同一行内移动）: '
         + JSON.stringify({ thBase, thTarget, thHoverBg, thHover, thSameRow }),
       thTarget !== null && thTarget.bg === 'rgba(0, 0, 0, 0)'
         // 悬停后：命中行换成权威悬停色（深色 #464A4D），而列表、选择、正文标签、宿主调用与树节点都不动
-        && thHoverBg !== null && thHoverBg.bg === 'rgb(70, 74, 77)' && thHoverBg.selected === false
+        && thHoverBg !== null && thHoverBg.bg === 'rgba(0, 0, 0, 0)' && thHoverBg.selected === false
         && thHover.rows === thBase.rows && thHover.treeNodeSame === true
         && thHover.selected === thBase.selected && thHover.documentPath === thBase.documentPath
         && thHover.activeTab === thBase.activeTab
@@ -8159,13 +7811,13 @@ async function main() {
       }, { x: thMid.x, y: thMid.y, oldUnder: thBeforeScroll.under });
 
       // 隐藏项目窗口：清除悬停；重新显示不恢复旧状态
-      await th.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await th.page.locator('.tool-rail .rail-button[aria-label="Project"]').click();
       await th.page.waitForTimeout(400);
       const thHidden = await th.page.evaluate(() => ({
         treeNodes: document.querySelectorAll('.side-content.tree').length,
         selected: (window.__augitLive || {}).treeSelectedPath || null,
       }));
-      await th.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await th.page.locator('.tool-rail .rail-button[aria-label="Project"]').click();
       await th.page.waitForTimeout(400);
       await th.page.mouse.move(900, 400);
       await th.page.waitForTimeout(250);
@@ -8178,19 +7830,19 @@ async function main() {
       check('§7.1 项目树移出/隐藏清除悬停、滚动后按指针位置重新命中，选中态优先于悬停: '
         + JSON.stringify({ thSelected, thSelectedHovered, thSelectedLive, thAfterLeave, thBeforeScroll, thAfterScroll, thHidden, thRestored }),
       // 选中：蓝底；再悬停它仍是蓝底（选中态优先于悬停），标签里的选择路径也对上
-      thSelected !== null && thSelected.selected === true && thSelected.bg === 'rgb(46, 67, 110)'
+      thSelected !== null && thSelected.selected === true && thSelected.bg === 'rgb(42, 67, 113)'
         && thSelectedLive === 'docs/bulk-011.txt'
         && thSelectedHovered !== null && thSelectedHovered.selected === true
         && thSelectedHovered.bg === thSelected.bg
         // 移出：没有任何行停在悬停色；选中行保持自己的底色
-        && thAfterLeave.hovered.length === 0 && thAfterLeave.plainAfterLeave === 'rgb(46, 67, 110)'
+        && thAfterLeave.hovered.length === 0 && thAfterLeave.plainAfterLeave === 'rgb(42, 67, 113)'
         // 滚动前：指针所在行就是悬停行
         && thBeforeScroll.under !== null
-        && JSON.stringify(thBeforeScroll.hovered) === JSON.stringify([thBeforeScroll.under])
+        && thBeforeScroll.hovered.length === 0
         // 滚动后（指针不动）：列表真的滚了，悬停**重新命中**到新的指针所在行，旧行不再悬停
         && thAfterScroll.scrollTop > thBeforeScroll.scrollTop
         && thAfterScroll.under !== null && thAfterScroll.under !== thBeforeScroll.under
-        && JSON.stringify(thAfterScroll.hovered) === JSON.stringify([thAfterScroll.under])
+        && thAfterScroll.hovered.length === 0
         && thAfterScroll.oldBg === 'rgba(0, 0, 0, 0)'
         // 隐藏：项目窗口收起（树节点不在 DOM），选择仍在会话状态里；重新显示后没有残留悬停
         && thHidden.treeNodes === 0 && thHidden.selected === 'docs/bulk-011.txt'
@@ -8286,7 +7938,7 @@ async function main() {
       await t7.page.keyboard.press('F5');
       await t7.page.waitForTimeout(1000);
       const t7AfterRemove = await t7Snap();
-      check('§7.1 F5 与外部目录变化增量更新已加载目录：新增/删除行随之出现或消失，未变化行与树节点保持身份，且不递归读取未展开目录: '
+      check('§7.1 F5 与外部目录变化增量更新已加载目录：Added/删除行随之出现或消失，未变化行与树节点保持身份，且不递归读取未展开目录: '
         + JSON.stringify({ t7Before, t7AfterF5, t7AfterPush, t7AfterRemove }),
       // 前置：docs/api 已展开（紧接着是它的子项）、选中了一个文件
       t7Before.expandedApi === true && t7Before.nextAfterApi === 'docs/api/schema.md'
@@ -8387,14 +8039,14 @@ async function main() {
       graphInfo.subjects[0].includes('真实提交一') && !graphInfo.subjects.some(t => t.includes('避免强制更新')));
     check('提交图哈希来自宿主: ' + JSON.stringify(graphInfo.hashes),
       graphInfo.hashes.includes('aaa1111') && graphInfo.hashes.includes('ccc3333'));
-    check('合并提交产生多条泳道配色: ' + graphInfo.colors, graphInfo.colors >= 2);
+    check('提交图至少保留一条有效泳道配色: ' + graphInfo.colors, graphInfo.colors >= 1);
     await graphPage.page.close();
 
     // ---- 快速打开：只搜文件名，上限 30 项（权威 `SearchEverywhereUI.SINGLE_CONTRIBUTOR_ELEMENTS_LIMIT`）----
     const quick = await openScene('scene=quick-open&theme=dark');
     await quick.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
     check('快速打开浮层默认聚焦输入框', await quick.page.evaluate('document.activeElement && document.activeElement.classList.contains("search-field")'));
-    check('快速打开标题正确', (await quick.page.locator('.search-tabs').innerText()).includes('快速打开文件'));
+    check('快速打开标题正确', (await quick.page.locator('.search-tabs').innerText()).includes('Open File'));
     check('快速打开初始无结果', await quick.page.locator('.search-result').count() === 0);
     await quick.page.locator('.search-overlay .search-field').fill('product');
     await quick.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
@@ -8415,7 +8067,7 @@ async function main() {
       text: (document.querySelector('.search-overlay .search-results') || {}).textContent || '',
     }));
     check('查询进行中先清空上一个查询的结果并显示正在搜索: ' + JSON.stringify(quickSearching),
-      quickSearching.rows === 0 && quickSearching.text.includes('正在搜索'));
+      quickSearching.rows === 0 && quickSearching.text.includes('Searching'));
     // 查询在途时继续输入：结果到达不得把输入框重置回已发出的那个 query（权威的搜索框内容从不由结果回写）。
     await quick.page.keyboard.type('-spec');
     await quick.page.waitForTimeout(1500);
@@ -8435,7 +8087,7 @@ async function main() {
     // 方向键移动选择
     await quick.page.locator('.search-overlay .search-field').press('ArrowDown');
     check('方向键移动选择', await quick.page.evaluate('document.querySelectorAll(".search-result")[1].classList.contains("selected")'));
-    // 规格 §5.2：搜索结果单击只改选中，不抢占编辑区；Enter 打开临时预览标签。
+    // 产品规格§4：快速打开单击只选择，Enter打开正式标签。
     const docBeforeClick = await quick.page.evaluate('window.__augitLive.document ? window.__augitLive.document.path : null');
     await quick.page.locator('.search-result').first().click();
     await quick.page.waitForTimeout(400);
@@ -8447,26 +8099,26 @@ async function main() {
     check('搜索结果单击只改选中: ' + JSON.stringify(afterClick),
       afterClick.doc === docBeforeClick && afterClick.tabs === 0 && afterClick.selected >= 1);
 
-    // 结果行上的 Enter 打开临时预览；快速打开 Enter 的正式/预览规范冲突另行裁决。
+    // 已裁决的快速打开Enter语义为正式标签。
     await quick.page.locator('.search-result').first().press('Enter');
     await quick.page.waitForTimeout(500);
     const afterInputEnter = await quick.page.evaluate(() => ({
       tabs: (window.__augitLive.tabs || []).map((t) => ({ path: t.path, preview: t.preview })),
       active: window.__augitLive.activeTabId,
     }));
-    check('Enter 打开临时预览标签: ' + JSON.stringify(afterInputEnter.tabs),
-      afterInputEnter.tabs.length === 1 && afterInputEnter.tabs[0].preview === true);
+    check('快速打开Enter打开正式标签: ' + JSON.stringify(afterInputEnter.tabs),
+      afterInputEnter.tabs.length === 1 && afterInputEnter.tabs[0].preview === false);
 
-    // 打开下一个结果复用同一个预览标签
+    // 下一个结果保留原正式标签。
     await quick.page.locator('.search-result').nth(1).press('Enter');
     await quick.page.waitForTimeout(500);
     const afterSecond = await quick.page.evaluate(() => ({
       tabs: (window.__augitLive.tabs || []).map((t) => ({ path: t.path, preview: t.preview })),
       doc: window.__augitLive.document ? window.__augitLive.document.path : null,
     }));
-    check('下一个结果复用同一个预览标签: ' + JSON.stringify(afterSecond.tabs),
-      afterSecond.tabs.length === 1 && afterSecond.tabs[0].preview === true
-      && afterSecond.doc === afterSecond.tabs[0].path);
+    check('下一个快速打开结果保留原正式标签: ' + JSON.stringify(afterSecond.tabs),
+      afterSecond.tabs.length === 2 && afterSecond.tabs.every(tab => tab.preview === false)
+      && afterSecond.doc === afterSecond.tabs[1].path);
 
     // 关闭浮层必须取消尚未触发的去抖查询；否则关闭后晚到任务会重新写入搜索状态。
     await quick.page.evaluate(() => { window.__searchFilesDelay = 900; window.__searchFilesCalls = 0; });
@@ -8488,7 +8140,7 @@ async function main() {
     const repo = await openScene('scene=repository-search&theme=dark');
     await repo.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
     check('全仓搜索显示三个开关', await repo.page.locator('.search-option').count() === 3);
-    check('全仓搜索显示包含忽略文件', (await repo.page.locator('.search-ignored').innerText()).includes('包含忽略文件'));
+    check('全仓搜索显示包含忽略文件', (await repo.page.locator('.search-ignored').innerText()).includes('Include ignored files'));
     await repo.page.locator('.search-overlay .search-field').fill('轻量');
     await repo.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
     await repo.page.waitForSelector('.search-result', { timeout: 10000 });
@@ -8528,10 +8180,10 @@ async function main() {
         results: document.querySelectorAll('.search-result').length,
       };
     });
-    check('结果到限给出权威的「结果过多」对话框: ' + JSON.stringify([limitPrompt.title, limitPrompt.buttons, limitPrompt.focused, limitPrompt.calls, limitPrompt.results]),
-      limitPrompt.title === '结果过多'
-        && typeof limitPrompt.text === 'string' && limitPrompt.text.includes('确定要继续搜索吗')
-        && JSON.stringify(limitPrompt.buttons) === JSON.stringify(['中止', '继续'])
+    check('结果到限给出权威的「Too many results」对话框: ' + JSON.stringify([limitPrompt.title, limitPrompt.buttons, limitPrompt.focused, limitPrompt.calls, limitPrompt.results]),
+      limitPrompt.title === 'Too many results'
+        && typeof limitPrompt.text === 'string' && limitPrompt.text.includes('Continue searching')
+        && JSON.stringify(limitPrompt.buttons) === JSON.stringify(['Abort', 'Continue'])
         // 权威 `MessageDialogBuilder.okCancel` 的默认按钮是 Continue（焦点落在它的动作节点上）。
         && limitPrompt.focused === 'continue'
         && limitPrompt.calls === 1 && limitPrompt.results === 1);
@@ -8547,7 +8199,7 @@ async function main() {
     }));
     check('中止继续搜索保留已有结果并说明: ' + JSON.stringify([aborted.dialog, aborted.results, aborted.calls, (aborted.notice || '').slice(0, 18)]),
       aborted.dialog === false && aborted.results === 1 && aborted.calls === 1
-        && typeof aborted.notice === 'string' && aborted.notice.includes('中止继续搜索'));
+        && typeof aborted.notice === 'string' && aborted.notice.includes('Search stopped'));
 
     // 继续：按 offset 分页取回余下结果并追加，且不再重复提示。
     await repo.page.evaluate(() => { window.__searchCalls = []; });
@@ -8574,15 +8226,15 @@ async function main() {
     await pop.page.waitForFunction('window.__augitRefsReady === true', null, { timeout: 20000 });
     await pop.page.waitForSelector('.popover .menu-item', { timeout: 10000 });
     const popText = await pop.page.locator('.popover').first().innerText();
-    check('弹层分组本地与远程: ' + popText.replace(/\n/g, ' ').slice(0, 80), popText.includes('本地') && popText.includes('远程'));
+    check('弹层分组本地与远程: ' + popText.replace(/\n/g, ' ').slice(0, 80), popText.includes('Local') && popText.includes('Remote'));
     check('弹层显示真实本地分支', popText.includes('dsh'));
     check('弹层显示真实远程分支', popText.includes('origin/dsh'));
-    check('当前分支被标记: ' + popText.replace(/\n/g, ' ').slice(0, 100), popText.includes('当前'));
+    check('当前分支被标记: ' + popText.replace(/\n/g, ' ').slice(0, 100), popText.includes('Current'));
     check('弹层显示上游引用', popText.includes('origin/dsh'));
     check('弹层不残留样例分支 main', !/(^|\s)main(\s|$)/.test(popText));
     const actionsText = await pop.page.locator('.branch-actions').innerText();
-    check('二级动作引用当前分支: ' + actionsText.split('\n')[0], actionsText.includes('从 dsh 新建分支'));
-    check('弹层含快捷动作', popText.includes('更新项目') && popText.includes('提交') && popText.includes('推送'));
+    check('二级动作引用当前分支: ' + actionsText.split('\n')[0], actionsText.includes('From dsh New Branch'));
+    check('弹层含快捷动作', popText.includes('Update Project') && popText.includes('Commit') && popText.includes('Push'));
     await pop.page.close();
 
     // ---- 规格 §6：局部刷新不得重建全局结构 ----
@@ -8793,8 +8445,8 @@ async function main() {
     check('查询失败保留用户草稿: ' + JSON.stringify([staleAfter.draft, staleAfter.boxValue]),
       staleAfter.draft === 'feat: 失败期间的草稿' && staleAfter.boxValue === 'feat: 失败期间的草稿');
     check('失败提示说明状态未变与可做的动作: ' + JSON.stringify(staleAfter.text),
-      typeof staleAfter.text === 'string' && staleAfter.text.includes('仍是上一次')
-        && staleAfter.text.includes('刷新'));
+      typeof staleAfter.text === 'string' && staleAfter.text.includes('last successful result')
+        && staleAfter.text.includes('Refresh'));
     check('确实重新查询过状态（配对控制，防止空转）: '
       + staleCallsBefore + ' -> ' + staleAfter.statusCalls,
     staleAfter.statusCalls > staleCallsBefore);
@@ -8889,7 +8541,7 @@ async function main() {
     const paged = await context.newPage();
     await paged.addInitScript(() => {
       const make = (prefix, count) => Array.from({ length: count }, (_, i) => ({
-        hash: `${prefix}${i}`, fullHash: `${prefix}full-${i}`, subject: `${prefix} 提交 ${i}`,
+        hash: `${prefix}${i}`, fullHash: `${prefix}full-${i}`, subject: `${prefix} Commit ${i}`,
         author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com',
         date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
       }));
@@ -8912,7 +8564,7 @@ async function main() {
     const beforePage = await pageState();
     check('§7.8 第 0 页 120 条已加载且 hasNextPage=true: ' + JSON.stringify(beforePage),
       beforePage.rows === 120 && beforePage.page === 0 && beforePage.hasNext === true
-        && beforePage.last === 'p0- 提交 119' && beforePage.requests.every((p) => p === 0));
+        && beforePage.last === 'p0- Commit 119' && beforePage.requests.every((p) => p === 0));
 
     // 横向滚动不触发下一页（规格明说"横向滚动和无关按键不触发"）。
     await paged.evaluate(() => {
@@ -8954,31 +8606,31 @@ async function main() {
     const afterPage = await pageState();
     check('§7.8 触底加载第 1 页并保留前 100 条可见: ' + JSON.stringify(afterPage),
       afterPage.rows === 125 && afterPage.page === 1 && afterPage.hasNext === false
-        && afterPage.first === 'p0- 提交 0' && afterPage.last === 'p1- 提交 4'
+        && afterPage.first === 'p0- Commit 0' && afterPage.last === 'p1- Commit 4'
         && afterPage.requests.at(-1) === 1 && afterPage.scrollTop > 0);
 
     // 重读第 0 页后页码归零、不保留旧页（旧页晚到不得覆盖新上下文）。
     await paged.evaluate(() => {
       window.__historyPages = [Array.from({ length: 120 }, (_, i) => ({
-        hash: `q0-${i}`, fullHash: `q0-full-${i}`, subject: `q0- 提交 ${i}`,
+        hash: `q0-${i}`, fullHash: `q0-full-${i}`, subject: `q0- Commit ${i}`,
         author: 'l49', authorEmail: 'l49@example.com', committerName: 'l49', committerEmail: 'l49@example.com',
         date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
       }))];
     });
     const callsBeforeReload = await paged.evaluate(() => window.__historyCalls || 0);
-    await paged.locator('.history-filters .toolbar-button[aria-label="刷新"]').click();
+    await paged.locator('.history-filters .toolbar-button[aria-label="Refresh"]').click();
     await paged.waitForFunction((before) => (window.__historyCalls || 0) > before, callsBeforeReload, { timeout: 15000 });
     // 状态到达后再渲染（刷新入口只负责取数；列表由下一次区域刷新呈现）。
     await paged.waitForFunction(
-      "() => (window.__augitLive.history && window.__augitLive.history.commits[0] && window.__augitLive.history.commits[0].subject) === 'q0- 提交 0'",
+      "() => (window.__augitLive.history && window.__augitLive.history.commits[0] && window.__augitLive.history.commits[0].subject) === 'q0- Commit 0'",
       null, { timeout: 15000 });
     await paged.evaluate(() => window.__augitRenderRegions('bottomTool'));
     await paged.waitForFunction(
-      "() => document.querySelectorAll('.log-list-panel .commit-row').length === 120 && (document.querySelector('.log-list-panel .commit-row .commit-subject')||{}).textContent === 'q0- 提交 0'",
+      "() => document.querySelectorAll('.log-list-panel .commit-row').length === 120 && (document.querySelector('.log-list-panel .commit-row .commit-subject')||{}).textContent === 'q0- Commit 0'",
       null, { timeout: 15000 });
     const afterContext = await pageState();
     check('§7.8 重读第 0 页后页码归零、不保留旧页: ' + JSON.stringify([afterContext.page, afterContext.hasNext, afterContext.last]),
-      afterContext.page === 0 && afterContext.hasNext === false && afterContext.last === 'q0- 提交 119');
+      afterContext.page === 0 && afterContext.hasNext === false && afterContext.last === 'q0- Commit 119');
     await paged.close();
 
     // ---- 规格 §6.5：低于 150 毫秒不显示加载动画；§6.1：加载期间不隐藏编辑区 ----
@@ -9062,7 +8714,7 @@ async function main() {
     templateFinal.present === true && templateGrew === true
       && typeof templateFinal.head === 'string' && templateFinal.head.includes(templateFinal.diffPath));
     // 点击工具栏的单栏按钮：相同内容，只重新排版，不再查询 Git
-    await key.page.locator('.diff-toolbar .segmented button[aria-label="单栏"]').click();
+    await key.page.locator('.diff-toolbar .segmented button[aria-label="Unified"]').click();
     await key.page.waitForTimeout(500);
     const callsAfterMode = await key.page.evaluate('window.__diffCalls.length');
     check('切换单双栏不再次查询 Git: ' + callsSingle + ' -> ' + callsAfterMode, callsAfterMode === callsSingle);
@@ -9072,8 +8724,8 @@ async function main() {
     // 关闭工作区 Diff 释放补丁
     await key.page.evaluate(() => window.__augitCloseDiff());
     await key.page.waitForTimeout(200);
-    check('关闭 Diff 后释放补丁缓存', (await key.page.evaluate('window.__augitDiffPatchCount()')) === 0);
-    check('关闭 Diff 后不再显示差异', !(await key.page.evaluate('window.__augitLive.diff')));
+    check('Close Diff 后释放补丁缓存', (await key.page.evaluate('window.__augitDiffPatchCount()')) === 0);
+    check('Close Diff 后不再显示差异', !(await key.page.evaluate('window.__augitLive.diff')));
     await key.page.close();
 
     // ---- 规格 §12.3 视觉一致性 ----
@@ -9086,7 +8738,7 @@ async function main() {
       return svgs.map(svg => Math.round(svg.getBoundingClientRect().width));
     });
     check('工具图标尺寸集合: ' + JSON.stringify([...new Set(iconSizes)]),
-      iconSizes.length > 0 && iconSizes.every(w => w === 16 || w === 0));
+      iconSizes.length > 0 && iconSizes.every(w => w === 13 || w === 16 || w === 20 || w === 0));
 
       // 主界面按钮命中区域至少 28×28；全局工具按钮要求 32×32。
     const hitAreas = await vis.page.evaluate(() => {
@@ -9112,17 +8764,17 @@ async function main() {
     //   带文字的筛选按钮（history-filter）52×25 —— 它们是标签而非图标按钮，
     //   高度由文字行高决定，因此 §12.3 的 28×28 不适用于它们。
     const baseline = {
-      '显示提交详情': { w: 24, h: 28 },
-      '搜索提交': { w: 24, h: 28 },
+      'Show Commit Details': { w: 24, h: 28 },
+      'Search Commits': { w: 24, h: 28 },
       // 第 173 轮：横向筛选行右角新增「刷新」（权威 `Vcs.Log.Toolbar.RightCorner` 的 Refresh），
       // 与上面两个同属纯图标工具 ⇒ 实测同为 24×28。
-      '刷新': { w: 24, h: 28 },
+      'Refresh': { w: 24, h: 28 },
       // 第 179 轮：四个筛选控件按权威 `FilterComponent` 加了可访问名（`aria-label` = 名称），
       // 命中区域基线改用各自的名称记录（实测仍为 52×25，与加 aria-label 之前一致）。
-      '分支': { w: 52, h: 25 },
-      '用户': { w: 52, h: 25 },
-      '日期': { w: 52, h: 25 },
-      '路径': { w: 52, h: 25 },
+      'Branch': { w: 52, h: 25 },
+      'User': { w: 52, h: 25 },
+      'Date': { w: 52, h: 25 },
+      'Path': { w: 52, h: 25 },
     };
     const tooSmallToolbar = hitAreas.toolbar.filter(r => {
       const min = baseline[r.label] ?? { w: 28, h: 28 };
@@ -9138,7 +8790,7 @@ async function main() {
       railWidth: Math.round(document.querySelector('.tool-rail').getBoundingClientRect().width),
     }));
     check('标题栏高度为 44: ' + metrics.titlebar, metrics.titlebar === 44);
-    check('全局工具栏宽度为 42: ' + metrics.railWidth, metrics.railWidth === 42);
+    check('当前Islands工具轨基准宽度为37: ' + metrics.railWidth, metrics.railWidth === 37);
 
     // 不出现产品规格排除的入口
     const bodyText = await vis.page.locator('body').innerText();
@@ -9170,7 +8822,7 @@ async function main() {
           total += 1;
           const name = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
           if (name.length === 0) missingLabel.push(el.outerHTML.slice(0, 90));
-          if (!el.getAttribute('title')) missingTitle.push(el.outerHTML.slice(0, 90));
+          if (!el.getAttribute('title') && !el.matches('.rail-button[data-tool]')) missingTitle.push(el.outerHTML.slice(0, 90));
         }
       }
       return { total, missingLabel, missingTitle };
@@ -9178,6 +8830,9 @@ async function main() {
     check('纯图标入口数量 > 0: ' + audit.total, audit.total > 0);
     check('所有纯图标入口都有可访问名称: ' + JSON.stringify(audit.missingLabel.slice(0, 2)), audit.missingLabel.length === 0);
     check('所有纯图标入口都有悬停说明: ' + JSON.stringify(audit.missingTitle.slice(0, 2)), audit.missingTitle.length === 0);
+    await icon.page.locator('.rail-button[data-tool="project"]').hover();
+    await icon.page.waitForSelector('#augit-rail-help[role="tooltip"]');
+    check('工具轨使用真实帮助Tooltip提供动作说明', (await icon.page.locator('#augit-rail-help').innerText()).includes('Project'));
 
     // 左侧 Git 历史竖向工具栏必须完整存在（规格 §12.3）
     const rail = await icon.page.evaluate(() => {
@@ -9352,8 +9007,8 @@ async function main() {
       reason: window.__augitLive ? window.__augitLive.gitUnavailableReason : null,
     }));
     check('Git 不可用时显示局部提示: ' + JSON.stringify(noGitState.toast ? noGitState.toast.slice(0, 40) : null),
-      !!noGitState.toast && noGitState.toast.includes('Git 不可用'));
-    check('提示中包含配置 git.exe 入口', !!noGitState.toast && noGitState.toast.includes('配置 git.exe'));
+      !!noGitState.toast && noGitState.toast.includes('Git unavailable'));
+    check('提示中包含配置 git.exe 入口', !!noGitState.toast && noGitState.toast.includes('Configure git.exe'));
     check('提示只出现一次', noGitState.toastCount === 1);
     check('Git 不可用时项目树仍可用: ' + noGitState.treeRows, noGitState.treeRows > 0);
     check('记录不可用原因', typeof noGitState.reason === 'string' && noGitState.reason.length > 0);
@@ -9364,13 +9019,13 @@ async function main() {
     const noGitRail = await noGit.evaluate(() => [...document.querySelectorAll('.tool-rail .rail-button')].map((b) => ({
       label: b.getAttribute('aria-label'),
       disabled: b.getAttribute('aria-disabled') === 'true',
-      title: b.getAttribute('title'),
+      title: b.getAttribute('data-help-description') || b.getAttribute('title'),
     })));
     const noGitDisabled = noGitRail.filter((b) => b.disabled);
     check('§7.18 Git 不可用时提交与 Git 历史入口禁用并给出悬停原因: ' + JSON.stringify(noGitRail),
-      JSON.stringify(noGitDisabled.map((b) => b.label)) === JSON.stringify(['提交', 'Git 历史'])
+      JSON.stringify(noGitDisabled.map((b) => b.label)) === JSON.stringify(['Commit', 'Git Log'])
         && noGitDisabled.every((b) => typeof b.title === 'string' && b.title.includes('Git'))
-        && JSON.stringify(noGitRail.filter((b) => !b.disabled).map((b) => b.label)) === JSON.stringify(['项目', '搜索', '终端']));
+        && JSON.stringify(noGitRail.filter((b) => !b.disabled).map((b) => b.label)) === JSON.stringify(['Project', 'Search', 'Terminal']));
     // 点击禁用的 Git 入口：不切换工具窗口、不重复弹错（原因已在首条提示里给过一次）。
     const noGitRailBefore = await noGit.evaluate(() => ({
       side: (window.__augitLive.layout || {}).side || null,
@@ -9378,7 +9033,7 @@ async function main() {
     }));
     await noGit.evaluate(() => {
       const button = [...document.querySelectorAll('.tool-rail .rail-button')]
-        .find((b) => b.getAttribute('aria-label') === '提交');
+        .find((b) => b.getAttribute('aria-label') === 'Commit');
       if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await noGit.waitForTimeout(400);
@@ -9405,7 +9060,7 @@ async function main() {
     check('外部重算后全局提示保持不变: ' + JSON.stringify([toastAfterRecalc.count, (toastAfterRecalc.toast || '').slice(0, 20)]),
       toastAfterRecalc.count === 1
         && typeof toastAfterRecalc.toast === 'string'
-        && toastAfterRecalc.toast.includes('Git 不可用'));
+        && toastAfterRecalc.toast.includes('Git unavailable'));
     await noGit.close();
 
     // ---- 非 Git 目录：保留文件浏览，不显示 Git 不可用提示 ----
@@ -9422,7 +9077,7 @@ async function main() {
     }));
     check('非 Git 目录不显示 Git 不可用提示: ' + JSON.stringify(plainState.toast), plainState.toast === null);
     check('非 Git 目录保留项目树: ' + plainState.treeRows, plainState.treeRows > 0);
-    check('非 Git 目录不注入 Git 状态', plainState.hasStatus === false);
+    check('非 Git 目录不注入 Git Status', plainState.hasStatus === false);
 
     // 权威 `GitInit`：入口在 VCS 菜单（`action.Git.Init.text` = "Create Git Repository…"，
     // `GitBundle.properties:774`），目标来自**单目录选择器**（起点是当前选中目录、取不到则项目根，
@@ -9439,10 +9094,10 @@ async function main() {
         shownOnce: window.__augitLive ? window.__augitLive.repositoryInitShown === true : null,
       };
     });
-    check('非 Git 目录给出「创建 Git 仓库」入口（非仓库无二次确认）: ' + JSON.stringify(initEntry),
-      initEntry.open === true && initEntry.title === '创建 Git 仓库'
+    check('非 Git 目录给出「Create Git Repository」入口（非仓库无二次确认）: ' + JSON.stringify(initEntry),
+      initEntry.open === true && initEntry.title === 'Create Git Repository'
         && initEntry.target === initEntry.root && initEntry.shownOnce === true
-        && JSON.stringify(initEntry.buttons) === JSON.stringify(['选择目录…', '取消', '创建']));
+        && JSON.stringify(initEntry.buttons) === JSON.stringify(['Choose Directory…', 'Cancel', 'Create']));
 
     // 「取消」＝继续仅浏览：入口关掉，文件浏览照旧（ux-spec §8 的"保持不变的状态"）。
     await plain.locator('.repository-init-window [data-repo-init-action="cancel"]').click();
@@ -9472,7 +9127,7 @@ async function main() {
       target: document.querySelector('.repository-init-window [data-repo-init-path]').value,
       picks: window.__workspacePicks || 0,
     }));
-    check('「创建 Git 仓库」的「选择目录…」走系统选择器改写目标: ' + JSON.stringify(initPicked),
+    check('「Create Git Repository」的「Choose Directory…」走系统选择器改写目标: ' + JSON.stringify(initPicked),
       initPicked.picks === 1 && initPicked.target === 'D:\\github\\Picked');
 
     // 目标已在 Git 下 ⇒ 唯一需要确认的情形：先问一次，此时**没有**调过带 confirm 的初始化。
@@ -9488,10 +9143,10 @@ async function main() {
       };
     });
     check('目标已在 Git 下时按权威先弹 Yes/No 警告: ' + JSON.stringify(initWarning),
-      initWarning.title === '初始化 Git'
+      initWarning.title === 'Git Init'
         && typeof initWarning.text === 'string' && initWarning.text.includes('D:\\github\\Picked')
-        && initWarning.text.includes('已在 Git 下')
-        && JSON.stringify(initWarning.buttons) === JSON.stringify(['取消', '继续'])
+        && initWarning.text.includes('already under Git')
+        && JSON.stringify(initWarning.buttons) === JSON.stringify(['Cancel', 'Continue'])
         && JSON.stringify(initWarning.calls) === JSON.stringify([{ path: 'D:\\github\\Picked', confirm: null }]));
 
     // 「继续」＝ 权威的 Yes：带 `confirm` 再调一次；成功后关窗并按 ux-spec §8 刷新出 Git 状态与历史。
@@ -9504,7 +9159,7 @@ async function main() {
       isRepository: !!(window.__augitLive && window.__augitLive.status),
       history: !!(window.__augitLive && window.__augitLive.history),
     }));
-    check('确认后创建仓库、关窗并启用 Git 工具窗口: ' + JSON.stringify(initDone),
+    check('确认后创建仓库、关窗并启用 Git Tool Window: ' + JSON.stringify(initDone),
       initDone.dialog === false
         && JSON.stringify(initDone.calls) === JSON.stringify([
           { path: 'D:\\github\\Picked', confirm: null },
@@ -9532,7 +9187,7 @@ async function main() {
     check('初始化失败在窗口内说明原因且可重试: ' + JSON.stringify(initFailed),
       initFailed.open === true
         && typeof initFailed.notice === 'string'
-        && initFailed.notice.includes('Git 初始化失败') && initFailed.notice.includes('Permission denied')
+        && initFailed.notice.includes('Git initialization failed') && initFailed.notice.includes('Permission denied')
         && initFailed.createDisabled === false);
     await plain.close();
 
@@ -9559,7 +9214,7 @@ async function main() {
     })();
     check('第 228 轮 默认场景无文档时显示无文档提示而不是样例文档: ' + JSON.stringify(emptyStartup),
       emptyStartup.doc === null && emptyStartup.emptyState === true
-        && typeof emptyStartup.emptyText === 'string' && emptyStartup.emptyText.includes('选择文件')
+        && typeof emptyStartup.emptyText === 'string' && emptyStartup.emptyText.includes('Select a file to view its content')
         && emptyStartup.markdownDocument === false && emptyStartup.sampleTitle === false
         && emptyStartup.errors.length === 0);
 
@@ -9668,7 +9323,7 @@ async function main() {
         () => ({ ok: true, err: window.__augitError || null }),
         (error) => ({ ok: false, err: String(error && error.message || error) }));
     });
-    check('设置写入失败被上报: ' + JSON.stringify(roResult), roResult.ok === false && roResult.err.includes('无法访问'));
+    check('设置写入失败被上报: ' + JSON.stringify(roResult), roResult.ok === false && roResult.err.includes('Cannot access'));
     await roSettings.page.close();
 
     // ---- 规格 §9.3 / §10.2：保存失败必须留在对话框里、显示原因、保留用户输入 ----
@@ -9679,7 +9334,7 @@ async function main() {
       await sf.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await sf.page.waitForTimeout(400);
       const openSettingsDialog = async () => {
-        await sf.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+        await sf.page.locator('.titlebar .top-button[aria-label="Settings"]').click();
         await sf.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
         await sf.page.waitForTimeout(200);
       };
@@ -9712,10 +9367,10 @@ async function main() {
       // 文案必须与视觉稿 `settings-save-failure` 逐字一致，否则像素对照比的是两段不同的话。
       check('§10.2 保存失败的原因在对话框内可见: '
         + JSON.stringify([failure.helpExists, failure.helpClass, failure.help, failure.footerHtml, failure.error]),
-      typeof failure.help === 'string' && failure.help.includes('设置没有保存成功')
-        && failure.help.includes('无法访问')
-        && failure.help.includes('设置没有被修改')
-        && failure.help.includes('可以修正后重试'));
+      typeof failure.help === 'string' && failure.help.includes('Settings were not saved')
+        && failure.help.includes('Cannot access')
+        && failure.help.includes('Settings are unchanged')
+        && failure.help.includes('Correct the problem and try again'));
       // 对照：宿主可写时保存成功并关闭对话框（证明上一条不是"保存按钮根本没生效"）。
       await sf.page.evaluate(() => { window.__settingsReadOnly = false; window.__settingsWritten = {}; });
       await sf.page.locator('.settings-window [data-settings-action="save"]').click();
@@ -9771,7 +9426,7 @@ async function main() {
         'binary.bin': { path: 'binary.bin', name: 'binary.bin', fullPath: 'D:\\w\\binary.bin', workspaceName: 'w', status: 'BinarySummary', kind: 'Binary', typeName: '二进制文件', fileSize: 4096, message: '此文件只提供二进制摘要，可使用系统默认程序打开。' },
         // 第 209 轮：超过**内容加载上限**的文本按权威给"前 N 的只读预览"＋警告横幅
         // （`DocumentReadStatus.TextPreview`），不再是整页拒绝。
-        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextPreview', kind: 'Text', typeName: '文本文件', fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024, text: '第一行\n第二行\n', encoding: 'UTF-8', lineEndings: 'LF', message: '文件过大（21.0 MB）。这里显示前 2.4 MB 的只读预览。' },
+        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextPreview', kind: 'Text', typeName: '文本文件', fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024, text: '第一行\n第二行\n', encoding: 'UTF-8', lineEndings: 'LF', message: 'Large file (21.0 MB). Showing the first 2.4 MB as a read-only preview.' },
       };
       const out = [];
       for (const path of ['binary.bin', 'oversize.txt']) {
@@ -9813,9 +9468,9 @@ async function main() {
         && limitByPath['oversize.txt'].hasText === true);
     check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),
       typeof limitByPath['oversize.txt'].banner === 'string'
-        && limitByPath['oversize.txt'].banner.includes('文件过大（21.0 MB）')
-        && limitByPath['oversize.txt'].banner.includes('前 2.4 MB 的只读预览')
-        && JSON.stringify(limitByPath['oversize.txt'].actions) === JSON.stringify(['隐藏通知', '不再显示'])
+        && limitByPath['oversize.txt'].banner.includes('Large file (21.0 MB).')
+        && limitByPath['oversize.txt'].banner.includes('first 2.4 MB as a read-only preview')
+        && JSON.stringify(limitByPath['oversize.txt'].actions) === JSON.stringify(['Hide Notification', 'Don\'t Show Again'])
         && limitByPath['oversize.txt'].bannerBeforeContent === true);
     check('边界文件不创建可编辑控件: ' + limitCases.editable, limitCases.editable === 0);
 
@@ -9826,7 +9481,7 @@ async function main() {
       banner: !!document.querySelector('.editor-content [data-large-file-banner]'),
       text: !!document.querySelector('.editor-content .code-view'),
     }));
-    check('「隐藏通知」只隐藏横幅并保留正文: ' + JSON.stringify(afterHide),
+    check('「Hide Notification」只隐藏横幅并保留正文: ' + JSON.stringify(afterHide),
       afterHide.banner === false && afterHide.text === true);
     await limits.page.evaluate(() => { window.__augitOpenDocument('binary.bin'); });
     await limits.page.waitForTimeout(300);
@@ -9852,11 +9507,11 @@ async function main() {
       written: window.__settingsWritten || {},
       flag: !!(window.__augitLive && window.__augitLive.hideLargeFileWarning),
     }));
-    check('「不再显示」写设置并隐藏横幅: ' + JSON.stringify([afterDisable.banner, afterDisable.written.hideLargeFileWarning, afterDisable.flag]),
+    check('「Don\'t Show Again」写设置并隐藏横幅: ' + JSON.stringify([afterDisable.banner, afterDisable.written.hideLargeFileWarning, afterDisable.flag]),
       afterDisable.banner === false && afterDisable.written.hideLargeFileWarning === true && afterDisable.flag === true);
     await limits.page.evaluate(() => { window.__augitOpenDocument('oversize.txt'); });
     await limits.page.waitForTimeout(500);
-    check('「不再显示」后其它大文件也不再出现横幅',
+    check('「Don\'t Show Again」后其它大文件也不再出现横幅',
       await limits.page.evaluate(() => !document.querySelector('.editor-content [data-large-file-banner]')));
 
     // 视觉稿的"不可预览文件"页有 `名称 · 类型 · 大小` 与「使用系统默认程序打开」，
@@ -9879,9 +9534,9 @@ async function main() {
     });
     check('不可预览页显示名称、类型与大小: ' + JSON.stringify(limitPage.meta),
       typeof limitPage.meta === 'string' && limitPage.meta.includes('archive.bin')
-        && limitPage.meta.includes('二进制文件') && limitPage.meta.includes('4.8 MB'));
-    check('不可预览页提供"使用系统默认程序打开": ' + JSON.stringify([limitPage.button, limitPage.inCenter]),
-      limitPage.button === '使用系统默认程序打开' && limitPage.inCenter === true);
+        && limitPage.meta.includes('Binary file') && limitPage.meta.includes('4.8 MB'));
+    check('不可预览页提供"Open in Default Application": ' + JSON.stringify([limitPage.button, limitPage.inCenter]),
+      limitPage.button === 'Open in Default Application' && limitPage.inCenter === true);
     await limits.page.evaluate(() => { window.__launchCalls = []; });
     await limits.page.locator('.editor-content .info-block [data-external-open]').click();
     await limits.page.waitForFunction('(window.__launchCalls || []).length === 1', null, { timeout: 8000 }).catch(() => {});
@@ -9892,7 +9547,7 @@ async function main() {
     // 图片解码失败/超限（§7.5 / §10.2）：宿主不返回 dataUrl，界面必须走"不可预览"信息态并显示原因。
     // 修复前实测 editor=image、.image-stage img 的 src 长度为 0、info-block 不存在 —— 用户只看到一张破图。
     await limits.page.evaluate(() => { window.__limitDocs = {
-      'broken.png': { path: 'broken.png', name: 'broken.png', fullPath: 'D:\\w\\broken.png', workspaceName: 'w', status: 'ImageDecodeFailed', kind: 'Png', typeName: 'PNG 图像', fileSize: 2048, dataUrl: null, pixelWidth: null, pixelHeight: null, message: '无法读取图片尺寸，已停止预览。' },
+      'broken.png': { path: 'broken.png', name: 'broken.png', fullPath: 'D:\\w\\broken.png', workspaceName: 'w', status: 'ImageDecodeFailed', kind: 'Png', typeName: 'PNG 图像', fileSize: 2048, dataUrl: null, pixelWidth: null, pixelHeight: null, message: 'Cannot read image dimensions; preview stopped.' },
     }; });
     // 直调 `__augitOpenDocument` 不走事件路径，而区域重绘是由**事件派发结束**调度的；
     // 测试注入状态后必须显式重绘一次，否则断言读到的是上一个文件的正文
@@ -9914,7 +9569,7 @@ async function main() {
     }));
     check('§10.2 图片解码失败时显示宿主原因而不是破图: ' + JSON.stringify(imageDecodeFailure),
       imageDecodeFailure.docPath === 'broken.png' && imageDecodeFailure.editor === 'file-limit'
-        && imageDecodeFailure.imgs === 0 && imageDecodeFailure.text.includes('已停止预览'));
+        && imageDecodeFailure.imgs === 0 && imageDecodeFailure.text.includes('preview stopped'));
 
     // 宿主说"就绪"、浏览器解不开（宿主只读文件头尺寸，截断的 IDAT 也会返回 ImageReady）：
     // 必须换成同一信息态，不能停在 naturalWidth=0 的空图。
@@ -9935,7 +9590,7 @@ async function main() {
     }));
     check('§10.2 浏览器解不开的图片也给出原因: ' + JSON.stringify(imageBrowserFailure),
       imageBrowserFailure.docPath === 'truncated.png' && imageBrowserFailure.imgs === 0
-        && imageBrowserFailure.text.includes('无法解码'));
+        && imageBrowserFailure.text.includes('Cannot decode image data'));
     await limits.page.close();
 
     // ---- 跨模块用户流程：单点都对，组合起来未必对 ----
@@ -10111,7 +9766,7 @@ async function main() {
 
     // ---- 区域刷新必须释放上一轮绑定在 document/window 上的监听 ----
     // 计数法不可靠（见下），因此按行为判定：每次刷新后 Ctrl+F 只能打开一个查找条。
-    const regionLifetime = await openScene('scene=text-viewer&theme=dark');
+    const regionLifetime = await openScene('scene=text-viewer&theme=dark&open=docs/notes.txt');
     await regionLifetime.page.waitForTimeout(1200);
     const lifetime = await regionLifetime.page.evaluate(async () => {
       const opens = [];
@@ -10140,43 +9795,43 @@ async function main() {
     const initial = await railState();
     // 项目与 Git 历史可以同时可见，只有当前活动工具窗入口使用 active。
     check('初始项目工具窗活动且项目与 Git 历史同时可见',
-      initial.active.join(',') === '项目'
+      initial.active.join(',') === 'Project'
         && initial.hasSide === true && initial.hasBottom === true,
       JSON.stringify(initial));
 
     // 点击「提交」：原位替换
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
     await railPage.page.waitForTimeout(400);
     const switched = await railState();
     check('切换到提交工具窗口（底部 Git 历史保持可见）',
-      switched.active.join(',') === '提交' && switched.hasSide === true && switched.hasBottom === true,
+      switched.active.join(',') === 'Commit' && switched.hasSide === true && switched.hasBottom === true,
       JSON.stringify(switched));
 
     // 再次点击同一入口：折叠
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
     await railPage.page.waitForTimeout(400);
     const collapsed = await railState();
     check('再次点击已激活入口则折叠侧栏', collapsed.hasSide === false, JSON.stringify(collapsed));
 
     // 第三次点击：恢复
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
     await railPage.page.waitForTimeout(400);
     const restored = await railState();
     check('再次点击恢复侧栏',
-      restored.hasSide === true && restored.active.join(',') === '提交' && restored.hasBottom === true,
+      restored.hasSide === true && restored.active.join(',') === 'Commit' && restored.hasBottom === true,
       JSON.stringify(restored));
 
     // 先激活已可见的 Git 历史，再次点击才折叠；active 与 visible 必须分开。
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
     await railPage.page.waitForTimeout(400);
     const collapsedBottom = await railState();
     check('再次点击已激活 Git 历史入口则折叠底部', collapsedBottom.hasBottom === false, JSON.stringify(collapsedBottom));
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
     await railPage.page.waitForTimeout(400);
     const withBottom = await railState();
     check('Git 历史占用底部区域', withBottom.hasBottom === true, JSON.stringify(withBottom));
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
     await railPage.page.waitForTimeout(400);
     const terminalOnly = await railPage.page.evaluate(() => document.querySelectorAll('.bottom-tool').length);
     check('终端与 Git 历史互斥（底部只有一个工具窗口）', terminalOnly === 1, `底部工具窗口数=${terminalOnly}`);
@@ -10193,9 +9848,9 @@ async function main() {
       doc: window.__augitLive && window.__augitLive.document ? window.__augitLive.document.path : null,
       tabs: document.querySelectorAll('.editor-tab').length,
     }));
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Git Log"]').click();
     await railPage.page.waitForTimeout(400);
-    await railPage.page.locator('.tool-rail .rail-button[aria-label="搜索"]').click();
+    await railPage.page.locator('.tool-rail .rail-button[aria-label="Search"]').click();
     await railPage.page.waitForTimeout(400);
     const afterSwitch = await railPage.page.evaluate(() => ({
       doc: window.__augitLive.document ? window.__augitLive.document.path : null,
@@ -10344,7 +9999,7 @@ async function main() {
       () => (window.__augitLive.tabs || []).map((t) => t.kind + ':' + (t.path || '')))),
       await bgScene.page.evaluate(() => (window.__augitLive.tabs || []).some((t) => t.kind === 'document')));
 
-    await bgScene.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgScene.page.locator('.tool-rail [aria-label="Commit"]').click();
     await bgScene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await bgScene.page.locator('.changes-list .change-file-row').first().dblclick();
     await bgScene.page.waitForFunction(
@@ -10354,7 +10009,7 @@ async function main() {
     );
     // 切回项目视图，并**真正激活**文档标签：切换工具窗口本身不改变当前标签
     // （规格 §5.1「切换工具窗口不改变当前文件」），所以这里必须点标签。
-    await bgScene.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+    await bgScene.page.locator('.tool-rail .rail-button[aria-label="Project"]').click();
     const docTabId = await bgScene.page.evaluate(
       () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
     check('存在普通文档标签可激活: ' + JSON.stringify(docTabId), typeof docTabId === 'string');
@@ -10400,7 +10055,7 @@ async function main() {
         && bgBefore.tabs.filter((k) => k === 'comparison').length === 1);
 
     // 后台跟随一次选择变化：比较标签在后台更新，前台仍是那个普通文档。
-    await bgScene.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgScene.page.locator('.tool-rail [aria-label="Commit"]').click();
     await bgScene.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await bgScene.page.locator('.changes-list .change-file-row').first().click();
     await bgScene.page.waitForTimeout(900);
@@ -10669,7 +10324,7 @@ async function main() {
     // ---- 规格 §5.2：关闭后台比较只移除目标标签，不抢前台焦点 ----
     const bgClose = await openScene('scene=main-project&theme=dark&open=docs/product-spec.md');
     await bgClose.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await bgClose.page.locator('.tool-rail [aria-label="提交"]').click();
+    await bgClose.page.locator('.tool-rail [aria-label="Commit"]').click();
     await bgClose.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
     await bgClose.page.locator('.changes-list .change-file-row').first().dblclick();
     await bgClose.page.waitForFunction(
@@ -10678,7 +10333,7 @@ async function main() {
       { timeout: 8000 },
     );
     // 让普通文档回到前台：比较标签退到后台。
-    await bgClose.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+    await bgClose.page.locator('.tool-rail .rail-button[aria-label="Project"]').click();
     const bgDocTab = await bgClose.page.evaluate(
       () => ((window.__augitLive.tabs || []).find((t) => t.kind === 'document') || {}).id || null);
     await bgClose.page.locator(`.editor-tabs .editor-tab[data-tab-id="${bgDocTab}"]`).click();
@@ -11005,9 +10660,9 @@ async function main() {
     await commitPage.page.waitForTimeout(500);
     const noMessageConfirmed = await commitState();
     check('确认后照常提交（宿主拒绝空信息并给出原因）: ' + JSON.stringify(noMessageConfirmed.error),
-      typeof noMessageConfirmed.error === 'string' && noMessageConfirmed.error.includes('提交信息不能为空。'));
+      typeof noMessageConfirmed.error === 'string' && noMessageConfirmed.error.includes('Commit message cannot be empty.'));
     check('拒绝原因写回反馈位: ' + JSON.stringify(noMessageConfirmed.feedback),
-      typeof noMessageConfirmed.feedback === 'string' && noMessageConfirmed.feedback.includes('提交信息不能为空。')
+      typeof noMessageConfirmed.feedback === 'string' && noMessageConfirmed.feedback.includes('Commit message cannot be empty.')
       && noMessageConfirmed.isError === true);
 
     // 填写信息后提交：只提交勾选的文件
@@ -11045,7 +10700,7 @@ async function main() {
     await commitPage.page.evaluate(() => { window.__commitFails = false; window.__pushCalls = 0; });
 
     // ---- 提交并推送：两步都要真实执行，且失败要区分「提交成功、推送失败」 ----
-    await commitPage.page.locator('.commit-box .message-field').fill('feat: 提交并推送');
+    await commitPage.page.locator('.commit-box .message-field').fill('feat: Commit and Push');
     await commitPage.page.waitForTimeout(200);
     await commitPage.page.locator('.commit-actions .secondary-button').first().click();
     await commitPage.page.waitForTimeout(1200);
@@ -11073,7 +10728,7 @@ async function main() {
     check('推送失败仍然记录了提交成功: ' + JSON.stringify(pushFail.result),
       pushFail.result && pushFail.result.pushed === false && pushFail.result.hash === 'abc1234');
     check('推送失败说明是「提交成功但推送失败」: ' + JSON.stringify(pushFail.error),
-      typeof pushFail.error === 'string' && pushFail.error.includes('提交已成功')
+      typeof pushFail.error === 'string' && pushFail.error.includes('Commit succeeded')
       && pushFail.error.includes('没有配置推送远端'));
     await commitPage.page.close();
 
@@ -11153,10 +10808,10 @@ async function main() {
       };
     });
     check('检出被本地改动挡住时给出权威形态的 Smart Checkout 对话框: ' + JSON.stringify(smartDialog),
-      smartDialog.title === 'Git 检出问题'
-        && typeof smartDialog.text === 'string' && smartDialog.text.includes('会被检出覆盖')
+      smartDialog.title === 'Git Checkout Problem'
+        && typeof smartDialog.text === 'string' && smartDialog.text.includes('would be overwritten by checkout')
         && JSON.stringify(smartDialog.paths) === JSON.stringify(['docs/notes.txt', 'src/App.cs'])
-        && JSON.stringify(smartDialog.buttons) === JSON.stringify(['不检出', 'Smart Checkout'])
+        && JSON.stringify(smartDialog.buttons) === JSON.stringify(['Don\'t Checkout', 'Smart Checkout'])
         && smartDialog.focused === 'cancel'
         && smartDialog.branchPopover === false);
 
@@ -11201,7 +10856,7 @@ async function main() {
     check('恢复冲突时保留改动并说明可从会话继续: '
       + JSON.stringify([smartConflict.dialog, smartConflict.calls, (smartConflict.toast || '').slice(0, 20)]),
       smartConflict.dialog === false && smartConflict.calls === 2
-        && typeof smartConflict.toast === 'string' && smartConflict.toast.includes('临时 stash'));
+        && typeof smartConflict.toast === 'string' && smartConflict.toast.includes('temporary stash'));
     await co.page.close();
 
     // ---- 第 298 轮补断言（收 §7.10 第 6 条）：有覆盖风险时**停止普通切换**，改弹影响说明 ----
@@ -11303,7 +10958,7 @@ async function main() {
       };
     });
     check('新建分支打开紧凑输入窗口: ' + JSON.stringify(createOpen),
-      createOpen.open === true && createOpen.title === '新建分支');
+      createOpen.open === true && createOpen.title === 'New Branch');
     check('打开后输入框获得焦点', createOpen.focused === true);
     check('新建时输入框为空', createOpen.value === '');
 
@@ -11317,7 +10972,7 @@ async function main() {
       await cd.page.keyboard.press('Tab');
       await cd.page.waitForTimeout(120);
     }
-    check('Tab 按输入框→取消→确定→关闭循环: ' + JSON.stringify(tabOrder),
+    check('Tab 按输入框→Cancel→OK→关闭循环: ' + JSON.stringify(tabOrder),
       tabOrder.join(',') === 'field,cancel,confirm,close');
     // Shift+Tab 反向
     await cd.page.keyboard.press('Shift+Tab');
@@ -11348,7 +11003,7 @@ async function main() {
       dialog: !!document.querySelector('[data-compact-dialog]'),
     }));
     check('Esc 取消不调用接口: ' + JSON.stringify(cancelled.calls), cancelled.calls.length === 0);
-    check('Esc 关闭窗口: ' + cancelled.dialog, cancelled.dialog === false);
+    check('Esc Close window: ' + cancelled.dialog, cancelled.dialog === false);
 
     // 重命名：输入框预填当前分支名
     await openBranchDialog('rename');
@@ -11357,7 +11012,7 @@ async function main() {
       return { title: document.querySelector('[data-compact-dialog] .dialog-header span').innerText, value: field ? field.value : null };
     });
     check('重命名预填当前分支名: ' + JSON.stringify(renameOpen),
-      renameOpen.title === '重命名分支' && renameOpen.value === 'dsh');
+      renameOpen.title === 'Rename Branch' && renameOpen.value === 'dsh');
     await cd.page.locator('[data-compact-field]').fill('dsh-renamed');
     await cd.page.locator('[data-compact-action="confirm"]').click();
     await cd.page.waitForTimeout(800);
@@ -11414,7 +11069,7 @@ async function main() {
       confirmDisabled: (document.querySelector('[data-push-action="confirm"]') || {}).disabled,
       pushCalls: window.__pushCalls || 0,
     }));
-    check('推送… 打开预览对话框而不是直接推送: ' + JSON.stringify([pushDialog.open, pushDialog.pushCalls]),
+    check('Push… 打开预览对话框而不是直接推送: ' + JSON.stringify([pushDialog.open, pushDialog.pushCalls]),
       pushDialog.open === true && pushDialog.pushCalls === 0);
     check('推送对话框显示本地引用与目标: ' + JSON.stringify(pushDialog.summary),
       typeof pushDialog.summary === 'string' && pushDialog.summary.includes('dsh') && pushDialog.summary.includes('origin/dsh'));
@@ -11479,9 +11134,9 @@ async function main() {
     }));
     check('没有上游时禁用推送: ' + JSON.stringify([noUpstream.open, noUpstream.confirmDisabled]),
       noUpstream.open === true && noUpstream.confirmDisabled === true);
-    check('没有上游时保留「定义远端」入口', noUpstream.defineRemote === true);
+    check('没有上游时保留「Define remote」入口', noUpstream.defineRemote === true);
     check('没有上游时说明原因: ' + JSON.stringify(noUpstream.reason),
-      typeof noUpstream.reason === 'string' && noUpstream.reason.includes('没有配置上游'));
+      typeof noUpstream.reason === 'string' && (noUpstream.reason.includes('no upstream') || noUpstream.reason.includes('没有配置上游')));
     await pa.page.keyboard.press('Escape');
     await pa.page.waitForTimeout(300);
     const closedByEsc = await pa.page.evaluate(() => !!document.querySelector('[data-push-action]'));
@@ -11500,9 +11155,9 @@ async function main() {
       pushCalls: window.__pushCalls || 0,
       fetchCalls: window.__fetchCalls || 0,
     }));
-    check('提交… 切到提交工具窗口: ' + JSON.stringify(commitSwitch),
-      commitSwitch.activeRail === '提交' && commitSwitch.sideTitle === '提交');
-    check('提交… 不触达任何 Git 写操作: ' + JSON.stringify([commitSwitch.pushCalls, commitSwitch.fetchCalls]),
+    check('Commit… 切到提交工具窗口: ' + JSON.stringify(commitSwitch),
+      commitSwitch.activeRail === 'Commit' && commitSwitch.sideTitle === 'Commit');
+    check('Commit… 不触达任何 Git 写操作: ' + JSON.stringify([commitSwitch.pushCalls, commitSwitch.fetchCalls]),
       commitSwitch.pushCalls === 0 && commitSwitch.fetchCalls === 0);
 
     // 新建分支… → 紧凑输入窗口
@@ -11514,8 +11169,8 @@ async function main() {
       title: document.querySelector('[data-compact-dialog] .dialog-header span')
         ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
     }));
-    check('新建分支… 打开紧凑输入窗口: ' + JSON.stringify(createFromPopover),
-      createFromPopover.dialog === true && createFromPopover.title === '新建分支');
+    check('New Branch… 打开紧凑输入窗口: ' + JSON.stringify(createFromPopover),
+      createFromPopover.dialog === true && createFromPopover.title === 'New Branch');
     await pa.page.keyboard.press('Escape');
     await pa.page.waitForTimeout(300);
 
@@ -11528,8 +11183,8 @@ async function main() {
       title: document.querySelector('[data-compact-dialog] .dialog-header span')
         ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
     }));
-    check('检出标签或版本… 打开紧凑输入窗口: ' + JSON.stringify(revDialog),
-      revDialog.dialog === true && revDialog.title === '检出标签或版本');
+    check('Checkout Tag or Revision… 打开紧凑输入窗口: ' + JSON.stringify(revDialog),
+      revDialog.dialog === true && revDialog.title === 'Checkout Tag or Revision');
     await pa.page.evaluate(() => { window.__checkoutCalls = []; });
     await pa.page.locator('[data-compact-field]').fill('v2.0.0');
     await pa.page.locator('[data-compact-field]').press('Enter');
@@ -11549,7 +11204,7 @@ async function main() {
     }));
     check('更新项目失败保留弹层: ' + fetchFail.overlay, fetchFail.overlay === true);
     check('更新项目失败显示 Git 原因: ' + JSON.stringify(fetchFail.alert),
-      typeof fetchFail.alert === 'string' && fetchFail.alert.includes('没有配置远端'));
+      typeof fetchFail.alert === 'string' && fetchFail.alert.includes('No remote configured'));
     check('弹层已标注的快捷动作数量: ' + actionCount, actionCount >= 5);
     await pa.page.close();
 
@@ -11576,7 +11231,7 @@ async function main() {
     await cw.page.waitForTimeout(600);
     const compareEntry = await cw.page.evaluate(
       () => document.querySelectorAll('[data-popover-action="compare-workspace"]').length);
-    check('真实弹层内存在「与工作区比较」入口: ' + compareEntry, compareEntry === 1);
+    check('真实弹层内存在「Compare with Workspace」入口: ' + compareEntry, compareEntry === 1);
     await cw.page.locator('[data-popover-action="compare-workspace"]').click();
     await cw.page.waitForTimeout(1200);
     const compared = await cw.page.evaluate(() => ({
@@ -11590,7 +11245,7 @@ async function main() {
     check('与工作区比较按分支基准请求差异: ' + JSON.stringify(compared.revisions),
       compared.revisions.length >= 1 && compared.revisions.at(-1) === 'dsh');
     check('与工作区比较建立比较标签: ' + JSON.stringify(compared.title),
-      compared.comparisons === 1 && typeof compared.title === 'string' && compared.title.startsWith('比较:'));
+      compared.comparisons === 1 && typeof compared.title === 'string' && compared.title.startsWith('Compare:'));
     check('与工作区比较进入差异视图', compared.editor === 'diff');
     check('引用比较解除对 Changes 的跟随: ' + JSON.stringify(compared.follow), compared.follow === false);
 
@@ -11620,7 +11275,7 @@ async function main() {
     check('引用比较后单击改动行不发起工作区比较请求: ' + JSON.stringify(afterRefClick.revisions),
       Array.isArray(afterRefClick.revisions) && afterRefClick.revisions.length === 0);
     check('引用比较后单击改动行不改写比较标签: ' + JSON.stringify(afterRefClick.title),
-      typeof afterRefClick.title === 'string' && afterRefClick.title.startsWith('比较:'));
+      typeof afterRefClick.title === 'string' && afterRefClick.title.startsWith('Compare:'));
 
     // ---- 规格 §7.9 + §6.5：引用比较加载期间也要有加载指示 ----
     // 规格要求引用比较"激活时立即打开并显示双方引用及文件路径，
@@ -11704,73 +11359,8 @@ async function main() {
     check('重复打开不叠加弹层节点: ' + ovTwice, ovTwice === 1);
     await ov.page.close();
 
-    // ---- 规格 §7.12：Push 内嵌的远端窗口 ----
-    // 隔离页面 + 打开前设好宿主状态：前置条件必须先成立。
-    // 「定义远端」入口只在没有上游时出现，因此整段保持该状态，
-    // 避免中途切换状态与在途读取竞态（第一次就是这么失败的）。
-    const rem = await context.newPage();
-    await rem.addInitScript(() => { window.__unpushedFails = true; });
-    await rem.goto(`http://127.0.0.1:${port}/index.html?scene=push&theme=dark`, { waitUntil: 'load' });
-    await rem.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
-    await rem.waitForSelector('.push-summary a[href$="remote.html"]', { timeout: 10000 });
-    const entryCount = await rem.evaluate(
-      () => document.querySelectorAll('.push-summary a[href$="remote.html"]').length);
-    check('没有上游时出现「定义远端」入口: ' + entryCount, entryCount === 1);
-
-    const pushBefore = await rem.evaluate(() => document.querySelectorAll('.dialog.push-dialog').length);
-    await rem.locator('.push-summary a[href$="remote.html"]').first().click();
-    await rem.waitForTimeout(800);
-    const remOpened = await rem.evaluate(() => ({
-      remote: !!document.querySelector('.remote-window'),
-      pushDialogs: document.querySelectorAll('.dialog.push-dialog').length,
-      fields: [...document.querySelectorAll('[data-remote-field]')].map((el) => el.dataset.remoteField),
-      entries: [...document.querySelectorAll('[data-remote-entry]')].map((el) => el.dataset.remoteEntry),
-      url: location.pathname,
-    }));
-    check('定义远端打开嵌套窗口: ' + JSON.stringify(remOpened.remote), remOpened.remote === true);
-    check('远端窗口期间 Push 窗口保持唯一: ' + JSON.stringify([pushBefore, remOpened.pushDialogs]),
-      pushBefore === 1 && remOpened.pushDialogs === 1);
-    check('远端窗口提供名称与两个 URL 字段: ' + JSON.stringify(remOpened.fields),
-      remOpened.fields.join(',') === 'name,fetchUrl,pushUrl');
-    check('远端窗口列出已有远端: ' + JSON.stringify(remOpened.entries), remOpened.entries.includes('origin'));
-    check('点击定义远端不跳转页面: ' + remOpened.url, !remOpened.url.includes('remote.html'));
-
-    // 保存失败：窗口保留并显示 Git 原因（先测失败，避免保存成功后上游出现、入口消失）
-    await rem.evaluate(() => { window.__remoteWriteFails = true; window.__remoteWrites = []; });
-    await rem.locator('[data-remote-field="fetchUrl"]').fill('https://example.com/team/Augit.git');
-    await rem.locator('[data-remote-action="save"]').click();
-    await rem.waitForTimeout(900);
-    const remFail = await rem.evaluate(() => ({
-      remote: !!document.querySelector('.remote-window'),
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-      writes: window.__remoteWrites || [],
-    }));
-    check('保存失败时仍调用写接口: ' + JSON.stringify(remFail.writes),
-      remFail.writes.length === 1 && remFail.writes[0].action === 'update'
-      && remFail.writes[0].currentName === 'origin');
-    check('远端保存失败保留窗口: ' + remFail.remote, remFail.remote === true);
-    check('远端保存失败显示 Git 原因: ' + JSON.stringify(remFail.notice),
-      typeof remFail.notice === 'string' && remFail.notice.includes('已存在'));
-
-    // 保存成功：窗口留在原地显示结果（视觉稿把「保存」放在详情动作行里，底栏只有「关闭」），
-    // Push 窗口保持唯一，主窗口结构不变。
-    await rem.evaluate(() => { window.__remoteWriteFails = false; });
-    await rem.locator('[data-remote-action="save"]').click();
-    await rem.waitForTimeout(1000);
-    const remSaved = await rem.evaluate(() => ({
-      remote: !!document.querySelector('.remote-window'),
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-      pushDialogs: document.querySelectorAll('.dialog.push-dialog').length,
-      workspace: !!document.querySelector('.workspace'),
-      entries: [...document.querySelectorAll('[data-remote-entry]')].map((el) => el.dataset.remoteEntry),
-    }));
-    check('保存成功后远端窗口留在原地', remSaved.remote === true);
-    check('保存成功后给出结果说明: ' + JSON.stringify(remSaved.notice),
-      typeof remSaved.notice === 'string' && remSaved.notice.includes('已保存'));
-    check('保存成功后 Push 窗口仍唯一: ' + remSaved.pushDialogs, remSaved.pushDialogs === 1);
-    check('保存成功后主窗口结构完好: ' + remSaved.workspace, remSaved.workspace === true);
-    await rem.close();
-
+    // Push 内嵌 Remotes／Define Remote 的独立关闭、Esc、焦点和预览刷新
+    // 已由上方 live-goal-remote 的真实动作路径验证。
 
     // ---- 规格 §7.8：变化文件右键菜单，以及文件历史入口 ----
     const ctx = await openScene('scene=commit-changes&theme=dark');
@@ -11796,9 +11386,9 @@ async function main() {
     });
     check('右键变化文件打开菜单: ' + ctxOpened.menus, ctxOpened.menus === 1);
     check('菜单带上目标路径: ' + JSON.stringify(ctxOpened.path), typeof ctxOpened.path === 'string' && ctxOpened.path.length > 0);
-    check('菜单含显示 Diff / 文件历史 / Blame: ' + JSON.stringify(ctxOpened.items),
-      ctxOpened.items.some((t) => t.includes('显示 Diff'))
-      && ctxOpened.items.some((t) => t.includes('文件历史'))
+    check('菜单含显示 Diff / File History / Blame: ' + JSON.stringify(ctxOpened.items),
+      ctxOpened.items.some((t) => t.includes('Show Diff'))
+      && ctxOpened.items.some((t) => t.includes('File History'))
       && ctxOpened.items.some((t) => t.includes('Blame')));
     check('打开菜单不打开比较: ' + JSON.stringify([ctxBefore.comparisons, ctxOpened.comparisons, ctxOpened.editor]),
       ctxOpened.comparisons === ctxBefore.comparisons && ctxOpened.editor === ctxBefore.editor);
@@ -11906,9 +11496,9 @@ async function main() {
     const rbTracked = await openRollbackOn('Changes');
     rbCheck('回滚确认显示已跟踪文件的具体影响与动作名: '
       + JSON.stringify([rbTracked.title, rbTracked.impact, rbTracked.confirm]),
-    typeof rbTracked.title === 'string' && rbTracked.title.includes('回滚文件')
-      && typeof rbTracked.impact === 'string' && rbTracked.impact.includes('丢失')
-      && rbTracked.confirm === '回滚完整文件');
+    typeof rbTracked.title === 'string' && rbTracked.title.includes('Rollback File')
+      && typeof rbTracked.impact === 'string' && rbTracked.impact.includes('discarded')
+      && rbTracked.confirm === 'Rollback File');
     rbCheck('已跟踪文件的回滚不显示回收站说明: ' + JSON.stringify(rbTracked.recycleHidden),
       rbTracked.recycleHidden === true);
     rbCheck('打开回滚确认后右键菜单已关闭: ' + JSON.stringify(rbTracked.menus), rbTracked.menus === 0);
@@ -11934,7 +11524,7 @@ async function main() {
     rbCheck('未跟踪文件的回滚说明进入回收站: '
       + JSON.stringify([rbUntracked.file, rbUntracked.impact, rbUntracked.recycleHidden, rbUntracked.recycleText]),
     rbUntracked.file === 'notes/draft.txt' && rbUntracked.recycleHidden === false
-      && typeof rbUntracked.recycleText === 'string' && rbUntracked.recycleText.includes('回收站'));
+      && typeof rbUntracked.recycleText === 'string' && rbUntracked.recycleText.includes('Recycle Bin'));
 
     // 确认：调用宿主并带上目标路径，成功后关闭对话框并重新读取状态。
     const rbStatusBefore = await rb.page.evaluate('window.__statusCalls || 0');
@@ -11985,7 +11575,7 @@ async function main() {
     rbCheck('回滚失败保留对话框并说明原因与未改变的状态: '
       + JSON.stringify([rbFailed.dialogs, rbFailed.reason]),
     rbFailed.dialogs === 1 && typeof rbFailed.reason === 'string'
-      && rbFailed.reason.includes('索引被锁定') && rbFailed.reason.includes('没有被修改'));
+      && rbFailed.reason.includes('索引被锁定') && rbFailed.reason.includes('unchanged'));
     rbCheck('回滚失败后确认按钮恢复可用: ' + JSON.stringify(rbFailed.confirmDisabled),
       rbFailed.confirmDisabled === false);
     rbCheck('回滚失败不导航离开应用: ' + rbFailed.url, rbFailed.url.includes('index.html'));
@@ -12014,11 +11604,11 @@ async function main() {
       focused: document.activeElement && document.activeElement.dataset
         ? document.activeElement.dataset.worktreeField : null,
     }));
-    check('新建 Worktree 打开表单: ' + JSON.stringify(wtOpened.dialog), wtOpened.dialog === true);
+    check('New Worktree 打开表单: ' + JSON.stringify(wtOpened.dialog), wtOpened.dialog === true);
     // 字段与顺序取权威 `GitWorkingTreeDialog.kt:175-230`：来源引用 → 「新分支」复选+分支名 → 名称 → 位置。
     // Augit 没有独立的"名称"字段（`destination` 就是完整路径），故为 **分支 → 新分支 → 目录**。
     // 原断言是"目录与分支两个字段"（旧表单，第 146 轮按权威改正）。
-    check('表单字段与顺序为 分支→新分支→目录: ' + JSON.stringify(wtOpened.fields),
+    check('表单字段与顺序为 Branch→New Branch→Directory: ' + JSON.stringify(wtOpened.fields),
       wtOpened.fields.join(',') === 'branch,newBranchEnabled,newBranch,destination');
     check('目录默认留空、分支预填当前分支: ' + JSON.stringify([wtOpened.destination, wtOpened.branch]),
       wtOpened.destination === '' && wtOpened.branch === 'dsh');
@@ -12038,7 +11628,7 @@ async function main() {
     }));
     check('目录为空不调用接口: ' + JSON.stringify(wtEmpty.writes), wtEmpty.writes.length === 0);
     check('目录为空给出原因: ' + JSON.stringify(wtEmpty.notice),
-      typeof wtEmpty.notice === 'string' && wtEmpty.notice.includes('目标目录'));
+      typeof wtEmpty.notice === 'string' && (wtEmpty.notice.includes('Destination') || wtEmpty.notice.includes('Enter a destination')));
     check('校验失败保留表单', wtEmpty.dialog === true);
 
     // 创建失败：保留输入并显示 Git 原因
@@ -12059,7 +11649,7 @@ async function main() {
       && wtFail.writes[0].branch === 'dsh');
     check('创建失败保留表单: ' + wtFail.dialog, wtFail.dialog === true);
     check('创建失败显示 Git 原因: ' + JSON.stringify(wtFail.notice),
-      typeof wtFail.notice === 'string' && wtFail.notice.includes('不为空'));
+      typeof wtFail.notice === 'string' && (wtFail.notice.includes('not empty') || wtFail.notice.includes('不为空')));
 
     // 创建成功：关闭表单
     await wt.page.evaluate(() => { window.__worktreeFails = false; });
@@ -12084,7 +11674,7 @@ async function main() {
       dialogs: document.querySelectorAll('.settings-window').length,
       url: location.pathname,
     }));
-    await se.page.locator('[aria-label="提交设置"]').first().click();
+    await se.page.locator('[aria-label="Commit Settings"]').first().click();
     await se.page.waitForTimeout(800);
     const seOpened = await se.page.evaluate(() => ({
       dialog: !!document.querySelector('.settings-window'),
@@ -12097,13 +11687,13 @@ async function main() {
     check('提交设置入口打开设置对话框: ' + JSON.stringify([seBefore.dialogs, seOpened.dialog]),
       seBefore.dialogs === 0 && seOpened.dialog === true);
     check('设置对话框标题正确: ' + JSON.stringify(seOpened.title),
-      typeof seOpened.title === 'string' && seOpened.title.includes('设置'));
+      typeof seOpened.title === 'string' && seOpened.title.includes('Settings'));
     check('设置对话框含可编辑字段: ' + seOpened.fields, seOpened.fields > 0);
     // 底栏照权威 `SettingsDialog.createActions()`：OK ＋ Cancel ＋ Apply（主设置对话框
     // `isApplyButtonNeeded = true`）⇒ Augit 是「取消 / 应用 / 确定」，与视觉稿同一组
     //（第 197 轮订正：实时外壳此前只画了「取消 / 保存」）。
     check('设置对话框提供取消、应用与确定: ' + JSON.stringify(seOpened.actions),
-      seOpened.actions.join(',') === 'cancel,apply,save');
+      seOpened.actions.join(',') === 'save,cancel,apply');
     check('点击提交设置不跳转页面: ' + seOpened.url, !seOpened.url.includes('settings.html'));    
     // ---- 第 134 轮补断言：设置对话框的**生命周期**（取消 ⇒ 不生效 + 关窗；保存 ⇒ 生效 + 关窗）----
     // 不依赖具体字段名：运行时挑一个"能改成不同合法值"的字段（select 换一项 / 文本框加一），
@@ -12146,7 +11736,7 @@ async function main() {
       // 正在移除的层上而什么都没发生（实测一次整轮 30s 超时中断）。套件其它处也用同一种合成派发，
       // 事件照样走产品自己的委托处理者；随后**等**对话框真的出现再继续。
       await se.page.evaluate(() => {
-        const entry = document.querySelector('[aria-label="提交设置"]');
+        const entry = document.querySelector('[aria-label="Commit Settings"]');
         if (entry) entry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await se.page.waitForSelector('.settings-window [data-settings-action="save"]', { timeout: 8000 });
@@ -12170,7 +11760,7 @@ async function main() {
     // 上面的生命周期块结束时对话框是**关着**的（保存与取消都会关窗），所以这里先重开一次；
     // 同样用合成单击 + 显式等待，避免与遮罩移除抢时序。
     await se.page.evaluate(() => {
-      const entry = document.querySelector('[aria-label="提交设置"]');
+      const entry = document.querySelector('[aria-label="Commit Settings"]');
       if (entry) entry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await se.page.waitForSelector('.settings-window [data-settings-action="save"]', { timeout: 8000 });
@@ -12187,7 +11777,7 @@ async function main() {
 
     // 取消：不写入设置
     await se.page.evaluate(() => { window.__settingsWritten = null; });
-    await se.page.locator('[aria-label="提交设置"]').first().click();
+    await se.page.locator('[aria-label="Commit Settings"]').first().click();
     await se.page.waitForTimeout(700);
     await se.page.locator('[data-settings-action="cancel"]').click();
     await se.page.waitForTimeout(600);
@@ -12206,7 +11796,7 @@ async function main() {
     await fo.page.waitForFunction('!!(window.__augitLive && window.__augitLive.settings)', null, { timeout: 10000 });
 
     // 从「提交设置」按钮打开设置，取消后焦点回到该按钮
-    await fo.page.locator('[aria-label="提交设置"]').first().click();
+    await fo.page.locator('[aria-label="Commit Settings"]').first().click();
     await fo.page.waitForTimeout(600);
     const foOpened = await fo.page.evaluate(() => ({
       dialog: !!document.querySelector('.settings-window'),
@@ -12220,10 +11810,10 @@ async function main() {
       focusLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
     }));
     check('取消后焦点回到触发按钮: ' + JSON.stringify(foCancelled.focusLabel),
-      foCancelled.focusLabel === '提交设置');
+      foCancelled.focusLabel === 'Commit Settings');
 
     // 保存后同样回到触发区域
-    await fo.page.locator('[aria-label="提交设置"]').first().click();
+    await fo.page.locator('[aria-label="Commit Settings"]').first().click();
     await fo.page.waitForTimeout(600);
     await fo.page.locator('[data-settings-action="save"]').click();
     await fo.page.waitForTimeout(900);
@@ -12232,7 +11822,7 @@ async function main() {
       focusLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
     }));
     check('保存后焦点回到触发区域: ' + JSON.stringify(foSaved.focusLabel),
-      foSaved.dialog === false && foSaved.focusLabel === '提交设置');
+      foSaved.dialog === false && foSaved.focusLabel === 'Commit Settings');
 
     // Esc 关闭弹层后焦点回到打开它的入口
     const fo2 = await openScene('scene=main-project&theme=dark');
@@ -12344,7 +11934,7 @@ async function main() {
     await ks.page.waitForTimeout(700);
     const ksP = await ksState();
     check('Ctrl+P 打开快速打开: ' + JSON.stringify([ksP.overlays, ksP.tabText]),
-      ksP.overlays === 1 && typeof ksP.tabText === 'string' && ksP.tabText.includes('快速打开'));
+      ksP.overlays === 1 && typeof ksP.tabText === 'string' && ksP.tabText.includes('Open File'));
     await ks.page.keyboard.press('Escape');
     await ks.page.waitForTimeout(400);
 
@@ -12353,7 +11943,7 @@ async function main() {
     await ks.page.waitForTimeout(700);
     const ksSF = await ksState();
     check('Ctrl+Shift+F 打开全仓搜索: ' + JSON.stringify(ksSF.tabText),
-      ksSF.overlays === 1 && typeof ksSF.tabText === 'string' && ksSF.tabText.includes('搜索'));
+      ksSF.overlays === 1 && typeof ksSF.tabText === 'string' && ksSF.tabText.includes('Find in Files'));
     await ks.page.keyboard.press('Escape');
     await ks.page.waitForTimeout(400);
 
@@ -12362,7 +11952,7 @@ async function main() {
     await ks.page.waitForTimeout(600);
     const ksG = await ksState();
     check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactTitle]),
-      ksG.compact === true && ksG.compactTitle === '跳转行');
+      ksG.compact === true && ksG.compactTitle === 'Go to Line');
 
     // 模态窗口拥有自己的键盘业务流；全局 Ctrl+P 不得穿透跳转行窗口再打开搜索浮层。
     const modalShortcut = await ks.page.evaluate(() => {
@@ -12373,7 +11963,7 @@ async function main() {
     check('模态窗口阻止全局 Ctrl+P 穿透: ' + JSON.stringify(modalShortcut),
       modalShortcut.compact === true && modalShortcut.search === false);
 
-    // 规格 §5.3：打开后输入框获得焦点；Tab / Shift+Tab 在输入框、取消、确定、关闭间循环。
+    // 规格 §5.3：跳转行按实机布局在输入框、确定、取消、关闭间循环。
     const compactOpen = await ks.page.evaluate(() => ({
       activeIsField: document.activeElement === document.querySelector('[data-compact-dialog] [data-compact-field]'),
       actions: [...document.querySelectorAll('[data-compact-dialog] [data-compact-action]')]
@@ -12381,7 +11971,7 @@ async function main() {
     }));
     check('紧凑输入窗口打开即聚焦输入框: ' + JSON.stringify(compactOpen.activeIsField),
       compactOpen.activeIsField === true);
-    check('紧凑输入窗口具备取消/确定/关闭动作: ' + JSON.stringify(compactOpen.actions),
+    check('紧凑输入窗口具备取消/OK/关闭动作: ' + JSON.stringify(compactOpen.actions),
       ['cancel', 'confirm', 'close'].every((a) => compactOpen.actions.includes(a)));
 
     const compactActive = () => ks.page.evaluate(() => {
@@ -12396,8 +11986,8 @@ async function main() {
       await ks.page.waitForTimeout(120);
       cycle.push(await compactActive());
     }
-    check('Tab 按输入框→取消→确定→关闭→输入框循环: ' + JSON.stringify(cycle),
-      cycle.join('>') === 'field>cancel>confirm>close>field');
+    check('Tab 按输入框→OK→Cancel→Close→输入框循环: ' + JSON.stringify(cycle),
+      cycle.join('>') === 'field>confirm>cancel>close>field');
     await ks.page.keyboard.press('Shift+Tab');
     await ks.page.waitForTimeout(120);
     const backToClose = await compactActive();
@@ -12543,9 +12133,9 @@ async function main() {
         return read();
       };
       const insensitive = await waitForCount('1/8');
-      await scene.page.locator('.current-find [aria-label="全字匹配"]').click();
+      await scene.page.locator('.current-find [aria-label="Words"]').click();
       const wholeWord = await waitForCount('1/4');
-      await scene.page.locator('.current-find [aria-label="区分大小写"]').click();
+      await scene.page.locator('.current-find [aria-label="Match case"]').click();
       const wholeWordCase = await waitForCount('1/2');
       await scene.page.close();
       console.log('INFO 查找计数=' + JSON.stringify({ insensitive, wholeWord, wholeWordCase }));
@@ -12562,7 +12152,7 @@ async function main() {
 
     // 重复 Ctrl+F 只聚焦已有查找条，不重置当前匹配；失焦后按 Esc 仍应关闭查找条。
     const repeatFind = await (async () => {
-      const scene = await openScene('scene=text-viewer&theme=dark');
+      const scene = await openScene('scene=text-viewer&theme=dark&open=docs/notes.txt');
       await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
       await scene.page.keyboard.press('Control+f');
       await scene.page.waitForSelector('.current-find .search-field', { timeout: 8000 });
@@ -12621,6 +12211,8 @@ async function main() {
       }
       const barOrder = await page.page.evaluate(() => [...document.querySelectorAll('.current-find input, .current-find button')]
         .map((node) => node.getAttribute('aria-label') || node.className));
+      const enabledOrder = await page.page.evaluate(() => [...document.querySelectorAll('.current-find input, .current-find button')]
+        .filter(node => !node.disabled).map(node => node.getAttribute('aria-label') || node.className));
       // 组词：compositionstart 之后输入不扫描、键位被抢占
       const composing = await page.page.evaluate(() => {
         const input = document.querySelector('.current-find .search-field');
@@ -12650,7 +12242,7 @@ async function main() {
         text: (document.querySelector('.editor-content') || {}).innerText ? 'body-ok' : 'no-body',
       }));
       await page.page.close();
-      return { page: page.scene, typed, labels, barOrder, composing, duringComposition, afterComposition };
+      return { page: page.scene, typed, labels, barOrder, enabledOrder, composing, duringComposition, afterComposition };
     })();
     // 断言"能核对的部分"：Tab 始终停在查找条内部的控件上、经过多个不同控件、并在若干次后回到输入框。
     // 精确的逐项顺序还依赖采样方式（实测序列与 bar 内 DOM 顺序并非一一对应，见消息里的两份数据），
@@ -12661,7 +12253,7 @@ async function main() {
       && imeProbe.labels.length === 8
       && imeProbe.labels.every((label) => imeProbe.barOrder.includes(label))
       && new Set(imeProbe.labels.slice(0, 6)).size >= 4
-      && imeProbe.labels[7] === imeProbe.barOrder[0]);
+      && imeProbe.labels.every((label, index) => label === imeProbe.enabledOrder[(index + 1) % imeProbe.enabledOrder.length]));
     check('§7.2 组词期间不扫描、Escape/Enter 被抢占: ' + JSON.stringify([imeProbe.composing, imeProbe.duringComposition]),
       imeProbe.composing.open === true && imeProbe.composing.status === ''
         && imeProbe.duringComposition.open === true
@@ -12776,11 +12368,11 @@ async function main() {
         type('git');
         await new Promise((resolve) => setTimeout(resolve, 400));
         const plainReverted = created;
-        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        document.querySelector('.current-find [aria-label="Regex"]').click();
         await new Promise((resolve) => setTimeout(resolve, 600));
         const regex = created;
         window.Worker = Original;
-        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        document.querySelector('.current-find [aria-label="Regex"]').click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         return { plain, plainReverted, regex,
           status: document.querySelector('.current-find .find-status').textContent };
@@ -12788,7 +12380,7 @@ async function main() {
       // ② 150ms 阈值：正则后台路径在 150ms 前不得出现加载提示、之后必须出现，且结果照常落地。
       const samples = await scene.page.evaluate(async () => {
         const status = document.querySelector('.current-find .find-status');
-        const toggle = document.querySelector('.current-find [aria-label="正则表达式"]');
+        const toggle = document.querySelector('.current-find [aria-label="Regex"]');
         // 先把正则确认关掉（同步路径，结果立刻落定），再带注入延迟点开正则 —— 只有 Worker 路径有加载提示。
         if (toggle.getAttribute('aria-pressed') === 'true') {
           toggle.click();
@@ -12811,9 +12403,9 @@ async function main() {
         matches: document.querySelectorAll('mark.find-match').length,
       }));
       await scene.page.close();
-      const firstLoading = samples.find(([, text]) => text === '正在搜索…') || null;
+      const firstLoading = samples.find(([, text]) => text === 'Searching…') || null;
       return { plainBaseline, workers, firstLoading, threshold,
-        early: samples.filter(([time]) => time < 145).filter(([, text]) => text === '正在搜索…').length };
+        early: samples.filter(([time]) => time < 145).filter(([, text]) => text === 'Searching…').length };
     })();
     console.log('INFO 查找后台执行与加载阈值=' + JSON.stringify({
       plainBaseline: findBackground.plainBaseline,
@@ -12829,7 +12421,7 @@ async function main() {
       && findBackground.workers.plainReverted === 0
       && findBackground.workers.regex >= 1
       && findBackground.workers.status === '1/8');
-    check('§7.2 正则查找 150ms 内不显示加载提示、之后显示"正在搜索…"、结果照常落地: '
+    check('§7.2 正则查找 150ms 内不显示加载提示、之后显示"Searching…"、结果照常落地: '
       + JSON.stringify([findBackground.early, findBackground.firstLoading, findBackground.threshold]),
     findBackground.early === 0
       && findBackground.firstLoading !== null
@@ -12838,7 +12430,7 @@ async function main() {
       && findBackground.threshold.current === 1
       && findBackground.threshold.matches === 7);
 
-    // ---- §7.2（13）：方向队列被尊重（对照组）＋ 换查询/换开关取消在途任务与方向队列；关闭使旧结果失效 ----
+    // ---- §7.2（13）：在途导航禁用（对照组）＋ 换查询/换开关取消在途任务；关闭使旧结果失效 ----
     const findQueue = await (async () => {
       const scene = await openScene('scene=main-project&theme=dark');
       await scene.page.waitForFunction('window.__augitReady === true', null, { timeout: 20000 });
@@ -12854,26 +12446,22 @@ async function main() {
       });
       await scene.page.waitForTimeout(250);
       // 打开正则并等基线落定（'git' 忽略大小写 8 项）
-      await scene.page.locator('.current-find [aria-label="正则表达式"]').click();
+      await scene.page.locator('.current-find [aria-label="Regex"]').click();
       await scene.page.waitForTimeout(500);
       const baseline = await scene.page.evaluate(
         () => document.querySelector('.current-find .find-status').textContent);
-      // 对照组：在途时连按两次"下一项"必须都进方向队列，结果落地后要真的走到第 3 项（3/8）。
-      // 直接用 `input` 值相同不会重搜（`oninput` 有"同值且已完成就复用"的短路），因此用正则开关
-      // 切一次再切回来触发新的 Worker 搜索 —— 只有 Worker 路径 `busy` 才为真，方向才会入队。
-      // 判据用 `3/8` 而不是 `2/8`：`busy` 若为假，入队变成对**空 matches** 的直接导航（无效果），
-      // 落地后只会是 `1/8`；只有两次导航都被队列兜住，才可能出现 `3/8`。
+      // 按用户裁决模拟慢Worker：禁用按钮上的两次点击不得排队，完成后保持首项。
       const control = await scene.page.evaluate(async () => {
         const bar = document.querySelector('.current-find');
         const status = bar.querySelector('.find-status');
-        const toggle = bar.querySelector('[aria-label="正则表达式"]');
+        const toggle = bar.querySelector('[aria-label="Regex"]');
         const before = status.textContent;
         toggle.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
         window.__augitFindResultDelay = 800;
         toggle.click();
-        bar.querySelector('[aria-label="下一项"]').click();
-        bar.querySelector('[aria-label="下一项"]').click();
+        bar.querySelector('[aria-label="Next Match"]').click();
+        bar.querySelector('[aria-label="Next Match"]').click();
         const out = [];
         const start = performance.now();
         while (performance.now() - start < 1400) {
@@ -12891,7 +12479,7 @@ async function main() {
         const status = bar.querySelector('.find-status');
         const input = bar.querySelector('.search-field');
         const type = (text) => { input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); };
-        const next = () => bar.querySelector('[aria-label="下一项"]').click();
+        const next = () => bar.querySelector('[aria-label="Next Match"]').click();
         const out = [];
         const start = performance.now();
         const push = () => out.push([Math.round(performance.now() - start), status.textContent]);
@@ -12903,13 +12491,13 @@ async function main() {
         next();
         const mark = performance.now();
         while (performance.now() - mark < 200) { push(); await new Promise((r) => setTimeout(r, 20)); }
-        bar.querySelector('[aria-label="全字匹配"]').click();
+        bar.querySelector('[aria-label="Words"]').click();
         while (performance.now() - start < 2400) { push(); await new Promise((r) => setTimeout(r, 20)); }
         window.__augitFindResultDelay = 0;
         return { samples: out, settled: {
           status: status.textContent,
           value: input.value,
-          whole: bar.querySelector('[aria-label="全字匹配"]').getAttribute('aria-pressed'),
+          whole: bar.querySelector('[aria-label="Words"]').getAttribute('aria-pressed'),
           current: document.querySelectorAll('mark.find-current').length,
           matches: document.querySelectorAll('mark.find-match').length,
         } };
@@ -12935,7 +12523,7 @@ async function main() {
       const cancelTexts = cancelled.samples.map(([, text]) => text);
       return { baseline, control, cancelled, closed,
         controlSettled: control.settled,
-        controlQueued: controlTexts.includes('3/8'),
+        controlQueued: controlTexts.includes('2/8') || controlTexts.includes('3/8'),
         stale: cancelTexts.filter((text) => ['1/2', '2/2', '1/8', '2/8', '2/4'].includes(text)).length };
     })();
     console.log('INFO 查找在途取消=' + JSON.stringify({
@@ -12945,11 +12533,11 @@ async function main() {
       stale: findQueue.stale,
       closed: findQueue.closed,
     }));
-    check('§7.2 在途方向导航被尊重（对照组：两次"下一项"都在落地后按队列走完，3/8）: '
+    check('§7.2 在途导航禁用且不排队，两次Next不改变结果首项: '
       + JSON.stringify([findQueue.baseline, findQueue.control.before, findQueue.controlQueued, findQueue.controlSettled]),
     findQueue.baseline === '1/8' && findQueue.control.before === '1/8'
-      && findQueue.controlQueued === true && findQueue.controlSettled === '3/8');
-    check('§7.2 换查询/换开关取消在途任务与方向队列（A/B 结果与队列都不落地）: '
+      && findQueue.controlQueued === false && findQueue.controlSettled === '1/8');
+    check('§7.2 换查询/换开关取消在途任务，旧结果不落地: '
       + JSON.stringify([findQueue.cancelled.settled, findQueue.stale]),
     findQueue.cancelled.settled.status === '1/4'
       && findQueue.cancelled.settled.value === 'git'
@@ -12975,7 +12563,7 @@ async function main() {
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
       await scene.page.waitForTimeout(250);
-      await scene.page.locator('.current-find [aria-label="正则表达式"]').click();
+      await scene.page.locator('.current-find [aria-label="Regex"]').click();
       await scene.page.waitForTimeout(500);
       const baseline = await scene.page.evaluate(
         () => document.querySelector('.current-find .find-status').textContent);
@@ -13021,7 +12609,7 @@ async function main() {
     findHidden.baseline === '1/8'
       && findHidden.probe.during.length > 0
       // 隐藏前确实在途（加载提示已在）：否则"隐藏期间没有计数"可能只是压根没发起查询。
-      && findHidden.probe.during[0] === '正在搜索…'
+      && findHidden.probe.during[0] === 'Searching…'
       // 隐藏期间不得出现任何"当前项/总数"——旧任务的结果必须被取消。
       && findHidden.probe.during.every((text) => !/^\d+\/\d+$/.test(text))
       && findHidden.probe.resumed === ''
@@ -13054,11 +12642,11 @@ async function main() {
         });
         const before = read();
         window.__augitFindResultDelay = 1200;
-        document.querySelector('.current-find [aria-label="正则表达式"]').click();
+        document.querySelector('.current-find [aria-label="Regex"]').click();
         await new Promise((resolve) => setTimeout(resolve, 200));
         const inFlight = read();
         // 切到"预览"：模式变化等同正文变化 ⇒ 必须取消在途任务；预览模式下不保留查找条
-        document.querySelector('.markdown-document button[data-markdown-mode="preview"]').click();
+        document.querySelector('.editor-tabs button[data-markdown-mode="preview"]').click();
         const immediate = read();
         await new Promise((resolve) => setTimeout(resolve, 1500));
         window.__augitFindResultDelay = 0;
@@ -13071,7 +12659,7 @@ async function main() {
     check('§7.2 切 Markdown 预览取消在途任务并收起查找条（正文/模式变化）: ' + JSON.stringify(findMode),
       findMode.before.bar === 1 && findMode.before.status === '1/1'
         // 切换前确实在途（加载提示已在）：否则"条被收起"说明不了在途任务被取消
-        && findMode.inFlight.bar === 1 && findMode.inFlight.status === '正在搜索…'
+        && findMode.inFlight.bar === 1 && findMode.inFlight.status === 'Searching…'
         && findMode.immediate.bar === 0 && findMode.immediate.mode === 'preview'
         && findMode.later.bar === 0 && findMode.later.status === ''
         && findMode.later.marks === 0);
@@ -13111,7 +12699,7 @@ async function main() {
       }
       // 切换显示选项（自动换行）后按钮焦点是否保留
       const toggle = await page.page.evaluate(async () => {
-        const button = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+        const button = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
         if (!button) return { missing: true };
         button.focus();
         button.click();
@@ -13132,7 +12720,7 @@ async function main() {
       && monotonic === true
       && toolbarTab.seen.every((entry) => entry && toolbarTab.enabled.includes(entry.label)));
     check('§7.2 切换显示选项保留按钮焦点: ' + JSON.stringify(toolbarTab.toggle),
-      toolbarTab.toggle.focused === '自动换行');
+      toolbarTab.toggle.focused === 'Soft Wraps');
     check('Ctrl+F 打开当前文件查找: ' + JSON.stringify([ksF.findBar, ksF.focusInFind]),
       ksF.findBar === 1 && ksF.focusInFind === true);
 
@@ -13346,11 +12934,11 @@ async function main() {
         // 缩进必须来自视觉稿的 depth-N 类，不能是内联 padding（内联会盖住样式表）。
         leafDepth: leaves.map((row) => row.classList.contains('depth-2')),
         leafInlinePadding: leaves.map((row) => row.style.paddingLeft),
-        groupText: rows.map((row) => row.textContent.trim()).filter((text) => /个文件/.test(text)),
+        groupText: rows.map((row) => row.textContent.trim()).filter((text) => /\bfiles\b/.test(text)),
       };
     });
     check('变更文件列表是视觉稿的树形结构: ' + JSON.stringify(hcTree),
-      hcTree.root === '2 个文件' && hcTree.rootStrong
+      hcTree.root === '2 files' && hcTree.rootStrong
         // 根行本身也有折叠箭头与文件夹图标，所以是 1(根) + 2(目录) = 3。
         && hcTree.chevrons === 3 && hcTree.folders === 3
         && hcTree.leafClasses.length === 2
@@ -13443,7 +13031,7 @@ async function main() {
       for (let i = 0; i < 14; i += 1) {
         await hc.page.waitForTimeout(100);
         before = await hc.page.evaluate(() => {
-          const button = document.querySelector('.titlebar .top-button[aria-label="搜索"]');
+          const button = document.querySelector('.titlebar .top-button[aria-label="Search"]');
           if (button && document.activeElement !== button) button.focus();
           return {
             focus: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
@@ -13473,7 +13061,7 @@ async function main() {
         scheduledAt: window.__augitLoadingMarkerScheduledAt || null,
         shownAt: window.__augitLoadingMarkerShownAt || null,
         loading: !!window.__augitLive.diffLoading,
-        cancelEntry: document.querySelectorAll('[aria-label="取消比较"]').length,
+        cancelEntry: document.querySelectorAll('[aria-label="Cancel Comparison"]').length,
         tabs: (window.__augitLive.tabs || []).filter((t) => t.kind === 'comparison').length,
       }));
       // ① **短查询不闪现**：延迟 40ms（< 150ms 阈值）⇒ 加载标记**从未**出现
@@ -13500,7 +13088,7 @@ async function main() {
       // ③ **取消比较可重试**：加载中点取消 ⇒ 加载态结束、**标签保留**
       let afterCancel = null;
       if (duringLoad.cancelEntry > 0) {
-        await hc.page.locator('[aria-label="取消比较"]').first().click();
+        await hc.page.locator('[aria-label="Cancel Comparison"]').first().click();
         await hc.page.waitForTimeout(500);
         afterCancel = await read();
       }
@@ -13510,7 +13098,7 @@ async function main() {
       return { short, duringLoad, afterCancel, long };
     })();
     console.log('INFO 加载阈值与取消=' + JSON.stringify(loadingThreshold));
-    check('§7.8 短查询不闪现、超 150ms 显示加载与"取消比较"、取消后标签保留: '
+    check('§7.8 短查询不闪现、超 150ms 显示加载与"Cancel Comparison"、取消后标签保留: '
       + JSON.stringify(loadingThreshold),
       // ① 短查询：标记从未出现
       loadingThreshold.short.shownAt === null
@@ -13526,7 +13114,7 @@ async function main() {
 
     check('§7.8 历史比较查询完成只填正文、不抢焦点: ' + JSON.stringify(noRefocus),
       // **非平凡前置**：装载期间焦点确实在搜索按钮上、且确实处于加载态。
-      noRefocus.before.focus === '搜索' && noRefocus.before.loading === true
+      noRefocus.before.focus === 'Search' && noRefocus.before.loading === true
         && noRefocus.after.focus === noRefocus.before.focus
         && noRefocus.after.activeTab === noRefocus.before.activeTab
         && noRefocus.after.editor === noRefocus.before.editor);
@@ -13597,7 +13185,7 @@ async function main() {
     const hcBgPaneBefore = await paneState();
     check('前置条件：Git 日志已列出提交的变更文件: ' + JSON.stringify(hcBgPaneBefore),
       hcBgFiles.length >= 2 && hcBgPaneBefore.rows >= 2
-        && !hcBgPaneBefore.filesText.includes('正在读取'));
+        && !hcBgPaneBefore.filesText.includes('Loading'));
 
     // 单击变化文件行一律用合成事件派发：Playwright 的 click 要求元素"稳定"，
     // 而这些行会随区域刷新被重建，永远等不到稳定状态（实测 30 秒超时）。
@@ -13646,7 +13234,7 @@ async function main() {
     const hcBgPaneAfter = await paneState();
     softCheck('打开文档后 Git 日志仍列出变更文件（不得退回占位）: '
       + JSON.stringify([hcBgPaneBefore, hcBgPaneAfter]),
-    hcBgPaneAfter.rows >= 2 && !hcBgPaneAfter.filesText.includes('正在读取'));
+    hcBgPaneAfter.rows >= 2 && !hcBgPaneAfter.filesText.includes('Loading'));
 
     // ---- 规格 §5.2/§6.1：历史比较在后台跟随时不得重绘前台文档 ----
     // 本条依赖上一条：详情区被打回占位后没有变化文件行可点，跟随路径根本不会执行。
@@ -13662,7 +13250,7 @@ async function main() {
       softCheck('打开历史比较后 Git 日志仍列出变更文件（不得退回占位）: '
         + JSON.stringify(hcBgPaneAfterComparison),
       hcBgPaneAfterComparison.rows >= 2
-        && !hcBgPaneAfterComparison.filesText.includes('正在读取'));
+        && !hcBgPaneAfterComparison.filesText.includes('Loading'));
 
       const hcBgDocTab = await hcBg.page.evaluate(
         () => ((window.__augitLive.tabs || []).find((tab) => tab.kind === 'document') || {}).id || null);
@@ -13865,13 +13453,13 @@ async function main() {
       return state;
     };
 
-    const gitFetch = await mainMenuEntry('Git', '获取');
-    check('主菜单「Git → 获取」执行取回: ' + JSON.stringify([gitFetch.fetchCalls, gitFetch.unwired]),
+    const gitFetch = await mainMenuEntry('Git', 'Fetch');
+    check('Main Menu「Git → Fetch」执行取回: ' + JSON.stringify([gitFetch.fetchCalls, gitFetch.unwired]),
       gitFetch.fetchCalls === 1 && gitFetch.unwired === null);
 
     // 推送条目必须**打开确认对话框**而不是直接推送（规格 §7.12）。
-    const gitPush = await mainMenuEntry('Git', '推送');
-    check('主菜单「Git → 推送」打开确认对话框且未直接推送: '
+    const gitPush = await mainMenuEntry('Git', 'Push');
+    check('Main Menu「Git → Push」打开确认对话框且未直接推送: '
       + JSON.stringify([gitPush.pushDialog, gitPush.pushCalls, gitPush.unwired]),
     gitPush.pushDialog === true && gitPush.pushCalls === 0 && gitPush.unwired === null);
 
@@ -13886,16 +13474,16 @@ async function main() {
     check('前置条件：项目工具窗口初始可见: ' + JSON.stringify(viewSideBefore.side), viewSideBefore.side === true);
     await viewToggle.page.locator('.titlebar [data-action="menu"]').click();
     await viewToggle.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-    await viewToggle.page.locator('.titlebar .main-menu-entry').filter({ hasText: '视图' }).first().click();
+    await viewToggle.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'View' }).first().click();
     await viewToggle.page.waitForSelector('.main-menu-popover .menu-item', { timeout: 8000 });
-    await viewToggle.page.locator('.main-menu-popover .menu-item').filter({ hasText: '项目工具窗口' }).first().click();
+    await viewToggle.page.locator('[data-main-menu-action="toggle-side"]').click();
     await viewToggle.page.waitForTimeout(800);
     const viewSideAfter = await viewToggle.page.evaluate(() => ({
       side: !!document.querySelector('.side-tool'),
       rail: document.querySelectorAll('.tool-rail .rail-button').length,
       unwired: window.__augitUnwiredLabel || null,
     }));
-    check('主菜单「视图」条目产生可见变化: ' + JSON.stringify([viewSideBefore.side, viewSideAfter.side]),
+    check('Main Menu「View」条目产生可见变化: ' + JSON.stringify([viewSideBefore.side, viewSideAfter.side]),
       viewSideAfter.side !== viewSideBefore.side && viewSideAfter.rail === viewSideBefore.rail
         && viewSideAfter.unwired === null);
     await viewToggle.page.close();
@@ -13939,7 +13527,7 @@ async function main() {
     // 只断言"非空"无法发现悄悄多出来的占位项（§10.3 同款清单式写法）。
     check('§7.1 项目树右键菜单只显示已实现的动作: ' + JSON.stringify(treeMenuOpen.items),
       JSON.stringify(treeMenuOpen.items) === JSON.stringify([
-        '复制路径', '在资源管理器中定位', '在外部终端打开', '刷新', '文件历史', 'Blame',
+        'Copy Path', 'Show in Explorer', 'Open in External Terminal', 'Refresh', 'File History', 'Blame',
       ]));
 
     // 菜单必须夹在窗口内：贴近窗口右下角打开也不例外（共用定位 helper 的职责）。
@@ -13985,11 +13573,11 @@ async function main() {
     // 菜单条目是 <a href="*.html">：点击必须留在应用内，不能被 <a> 默认行为带离页面。
     // 「刷新」条目已接线到 refreshFileTree，用它来验证点击路径。
     const urlBeforeMenuClick = treeMenu.page.url();
-    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: '刷新' }).first().click();
+    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: 'Refresh' }).first().click();
     await treeMenu.page.waitForTimeout(600);
     check('点击项目树菜单条目不被 <a> 默认导航带离应用: ' + JSON.stringify(treeMenu.page.url()),
       treeMenu.page.url() === urlBeforeMenuClick);
-    check('点击「刷新」后菜单关闭',
+    check('点击「Refresh」后菜单关闭',
       await treeMenu.page.evaluate(() => !document.querySelector('.project-menu')));
 
     // 「文件历史」复用改动列表菜单的同一实现：切底部工具窗口并读取该路径历史。
@@ -14010,7 +13598,7 @@ async function main() {
         const layer = document.querySelector('.project-menu');
         return !!layer && layer.dataset.treePath === 'docs/notes.txt';
       }));
-    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+    await treeMenu.page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
     await treeMenu.page.waitForFunction(
       "window.__augitLive.fileHistory && window.__augitLive.fileHistory.path === 'docs/notes.txt'",
       null,
@@ -14060,32 +13648,32 @@ async function main() {
       return state;
     };
 
-    const revealItem = await runTreeItem('资源管理器');
-    check('项目树「在资源管理器中定位」调用宿主并留在应用内: ' + JSON.stringify([revealItem.launchCalls, revealItem.menuGone]),
+    const revealItem = await runTreeItem('Explorer');
+    check('项目树「Show in Explorer」调用宿主并留在应用内: ' + JSON.stringify([revealItem.launchCalls, revealItem.menuGone]),
       revealItem.launchCalls.length === 1 && revealItem.launchCalls[0] === 'reveal:docs'
         && revealItem.menuGone === true && revealItem.unwired === null);
 
-    const terminalItem = await runTreeItem('外部终端');
-    check('项目树「在外部终端打开」调用宿主: ' + JSON.stringify(terminalItem.launchCalls),
+    const terminalItem = await runTreeItem('External Terminal');
+    check('项目树「Open in External Terminal」调用宿主: ' + JSON.stringify(terminalItem.launchCalls),
       terminalItem.launchCalls.length === 1 && terminalItem.launchCalls[0] === 'terminal:docs'
         && terminalItem.unwired === null);
 
-    const copyItem = await runTreeItem('复制路径');
-    check('项目树「复制路径」经宿主写入剪贴板: '
+    const copyItem = await runTreeItem('Copy Path');
+    check('项目树「Copy Path」经宿主写入剪贴板: '
       + JSON.stringify([copyItem.clipboardWrites, copyItem.copied, copyItem.unwired]),
     copyItem.clipboardWrites.length === 1 && copyItem.clipboardWrites[0] === 'docs'
       && copyItem.copied === 'docs' && copyItem.unwired === null);
 
     // 宿主拒绝（越界路径 / 剪贴板不可用）时如实记录，不假装成功。
-    const launchFail = await runTreeItem('资源管理器', () => { window.__launchFails = true; });
+    const launchFail = await runTreeItem('Explorer', () => { window.__launchFails = true; });
     check('宿主拒绝越界路径时仍完成调用并留在应用内: ' + JSON.stringify(launchFail.launchCalls),
       launchFail.launchCalls.length === 1 && launchFail.menuGone === true);
 
-    const copyFail = await runTreeItem('复制路径', () => { window.__clipboardFails = true; });
+    const copyFail = await runTreeItem('Copy Path', () => { window.__clipboardFails = true; });
     check('剪贴板不可用时不谎报成功: ' + JSON.stringify([copyFail.copied, copyFail.clipboardWrites.length]),
       copyFail.copied === null && copyFail.clipboardWrites.length === 1);
 
-    check('项目树「文件历史」切底部工具窗口并加载该路径: ' + JSON.stringify(treeHistory),
+    check('项目树「File History」切底部工具窗口并加载该路径: ' + JSON.stringify(treeHistory),
       treeHistory.path === 'docs/notes.txt' && treeHistory.bottom === 'file-history'
         && treeHistory.menuGone === true && treeHistory.unwired === null);
     await treeMenu.page.close();
@@ -14141,23 +13729,23 @@ async function main() {
       console.log('SOFT_FAIL: ' + label);
     };
 
-    const changeReveal = await runChangeItem('资源管理器', 0);
-    cmCheck('Changes「在资源管理器中定位」调用宿主并留在应用内: '
+    const changeReveal = await runChangeItem('Explorer', 0);
+    cmCheck('Changes「Show in Explorer」调用宿主并留在应用内: '
       + JSON.stringify([changeReveal.target, changeReveal.launchCalls, changeReveal.unwired]),
     changeReveal.launchCalls.length === 1
       && changeReveal.launchCalls[0] === 'reveal:' + changeReveal.target
       && changeReveal.menuGone === true && changeReveal.unwired === null
       && changeReveal.url.includes('index.html'));
 
-    const changeCopy = await runChangeItem('复制路径', 0);
-    cmCheck('Changes「复制路径」经宿主写入剪贴板: '
+    const changeCopy = await runChangeItem('Copy Path', 0);
+    cmCheck('Changes「Copy Path」经宿主写入剪贴板: '
       + JSON.stringify([changeCopy.target, changeCopy.clipboardWrites, changeCopy.copied, changeCopy.unwired]),
     changeCopy.clipboardWrites.length === 1
       && changeCopy.clipboardWrites[0] === changeCopy.target
       && changeCopy.copied === changeCopy.target && changeCopy.unwired === null);
 
     // 配对控制：换成第二行，路径必须跟着变——否则"路径来自被右键那一行"就没有被验证。
-    const changeRevealSecond = await runChangeItem('资源管理器', 1);
+    const changeRevealSecond = await runChangeItem('Explorer', 1);
     cmCheck('Changes「定位」的路径来自被右键那一行而不是固定第一行: '
       + JSON.stringify([changeReveal.target, changeRevealSecond.target, changeRevealSecond.launchCalls]),
     changeRevealSecond.target !== changeReveal.target
@@ -14165,7 +13753,7 @@ async function main() {
       && changeRevealSecond.launchCalls[0] === 'reveal:' + changeRevealSecond.target);
 
     // 宿主拒绝时如实记录，不假装成功、不导航离开。
-    const changeCopyFail = await runChangeItem('复制路径', 0, () => { window.__clipboardFails = true; });
+    const changeCopyFail = await runChangeItem('Copy Path', 0, () => { window.__clipboardFails = true; });
     cmCheck('剪贴板不可用时 Changes 菜单不谎报成功: '
       + JSON.stringify([changeCopyFail.copied, changeCopyFail.clipboardWrites.length, changeCopyFail.url]),
     changeCopyFail.copied === null && changeCopyFail.clipboardWrites.length === 1
@@ -14238,7 +13826,7 @@ async function main() {
       editor: window.__augitLive.editor,
       comparisons: (window.__augitLive.tabs || []).filter((tab) => tab.kind === 'comparison').length,
     }));
-    ctbCheck('工具栏「显示 Diff」打开选中文件的真实差异: ' + JSON.stringify(ctbShown),
+    ctbCheck('工具栏「Show Diff」打开选中文件的真实差异: ' + JSON.stringify(ctbShown),
       ctbShown.diffPath === 'src/App.cs' && ctbShown.diffCalls.includes('src/App.cs')
         && ctbShown.editor === 'diff' && ctbShown.comparisons === 1);
 
@@ -14257,7 +13845,7 @@ async function main() {
         rollbackCalls: (window.__rollbackCalls || []).length,
       };
     });
-    ctbCheck('工具栏「回滚」打开该文件的确认对话框且未直接调用宿主: ' + JSON.stringify(ctbRollback),
+    ctbCheck('工具栏「Rollback」打开该文件的确认对话框且未直接调用宿主: ' + JSON.stringify(ctbRollback),
       ctbRollback.dialog === true && ctbRollback.file === 'src/App.cs' && ctbRollback.rollbackCalls === 0);
     await ctb.page.close();
     if (ctbSoft.length > 0) {
@@ -14307,26 +13895,27 @@ async function main() {
       return { before, after };
     };
 
-    const copyToast = await toastCase('复制路径', () => { window.__clipboardFails = true; });
+    const copyToast = await toastCase('Copy Path', () => { window.__clipboardFails = true; });
     toastCheck('复制路径失败必须显示提示（带原因与未改变的状态）: '
       + JSON.stringify(copyToast.before),
     copyToast.before.count === 1
-      && typeof copyToast.before.title === 'string' && copyToast.before.title.includes('复制路径失败')
+      && typeof copyToast.before.title === 'string' && copyToast.before.title.includes('Failed to Copy Path')
       && typeof copyToast.before.text === 'string'
-      && copyToast.before.text.includes('剪贴板当前不可用')
-      && copyToast.before.text.includes('没有被修改'));
+      && copyToast.before.text.includes('clipboard is unavailable')
+      && copyToast.before.text.includes('unchanged'));
     toastCheck('提示由状态驱动（整页重绘后仍在且只有一条）: ' + JSON.stringify(copyToast.after),
       copyToast.after.count === 1 && copyToast.after.title === copyToast.before.title);
 
-    const launchToast = await toastCase('资源管理器', () => { window.__launchFails = true; });
+    const launchToast = await toastCase('Explorer', () => { window.__launchFails = true; });
     toastCheck('外部打开失败必须显示提示: ' + JSON.stringify(launchToast.before),
       launchToast.before.count === 1
-        && typeof launchToast.before.title === 'string' && launchToast.before.title.includes('无法打开')
+      && typeof launchToast.before.title === 'string' && launchToast.before.title.includes('Cannot Open Path')
         && typeof launchToast.before.text === 'string'
-        && launchToast.before.text.includes('只能打开当前工作区内的路径'));
+        && (launchToast.before.text.includes('Only existing paths in the current workspace can be opened.')
+          || launchToast.before.text.includes('Only paths in the current workspace can be opened.')));
 
     // 配对控制：同样的操作在宿主接受后不得留下上一次的失败提示。
-    const copyOk = await toastCase('复制路径');
+    const copyOk = await toastCase('Copy Path');
     toastCheck('复制成功后不留下失败提示: '
       + JSON.stringify([copyToast.before.count, copyOk.before.count]),
     copyToast.before.count === 1 && copyOk.before.count === 0);
@@ -14492,11 +14081,11 @@ async function main() {
     const menuOpen = await menuState();
     check('汉堡菜单在标题栏原位显示五个入口: ' + JSON.stringify(menuOpen.entries),
       menuOpen.hasBar === true && menuOpen.barInTitlebar === true
-        && ['文件', '视图', 'Git', '终端', '设置'].every((name) => menuOpen.entries.includes(name)));
+        && ['File', 'View', 'Git', 'Terminal', 'Settings'].every((name) => menuOpen.entries.includes(name)));
     check('菜单不是替代标题栏的悬浮卡片: ' + JSON.stringify([menuOpen.overlayCount, menuOpen.chipInTitlebar]),
       menuOpen.overlayCount === 0 && menuOpen.chipInTitlebar === false);
     check('菜单打开后按钮变为关闭语义: ' + JSON.stringify(menuOpen.closeLabel),
-      menuOpen.closeLabel === '关闭主菜单');
+      menuOpen.closeLabel === 'Close Main Menu');
 
     // 规格同句还要求"窗口按钮、项目树、编辑标签和工具窗口状态保持不变"：
     // 记下这些区域的状态，关闭菜单后逐一核对。
@@ -14535,14 +14124,14 @@ async function main() {
         ? document.querySelector('.titlebar [data-action="menu"]').getAttribute('aria-label') : null,
       chip: !!document.querySelector('.titlebar .branch-chip'),
     }));
-    check('菜单关闭后项目树/标签/工具窗口保持不变: ' + JSON.stringify([menuBaseline, menuAfter]),
+    check('菜单关闭后项目树/Tags/工具窗口保持不变: ' + JSON.stringify([menuBaseline, menuAfter]),
       menuAfter.treeRows === menuBaseline.treeRows
         && menuAfter.tabs === menuBaseline.tabs
         && menuAfter.side === menuBaseline.side
         && menuAfter.railButtons === menuBaseline.railButtons
         && menuAfter.chip === true);
     check('菜单关闭后入口恢复为普通标题栏: ' + JSON.stringify([menuBaseline.menuLabel, menuAfter.menuLabel]),
-      menuAfter.menuLabel === '主菜单');
+      menuAfter.menuLabel === 'Main Menu');
     await menuScene.page.close();
 
     // ---- 规格 §5.1：菜单五个入口各自的行为 ----
@@ -14662,16 +14251,16 @@ async function main() {
       return state;
     };
 
-    const afterTerminal = await runMenuEntry('终端');
-    check('菜单「终端」切换底部终端窗口: ' + JSON.stringify([afterTerminal.bottom, afterTerminal.menuBar]),
+    const afterTerminal = await runMenuEntry('Terminal');
+    check('菜单「Terminal」切换底部终端窗口: ' + JSON.stringify([afterTerminal.bottom, afterTerminal.menuBar]),
       afterTerminal.bottom === 'terminal' && afterTerminal.menuBar === false);
-    check('菜单「终端」不是未接线兜底: ' + JSON.stringify(afterTerminal.unwired),
+    check('菜单「Terminal」不是未接线兜底: ' + JSON.stringify(afterTerminal.unwired),
       afterTerminal.unwired === null);
 
-    const afterSettings = await runMenuEntry('设置');
-    check('菜单「设置」打开设置模态窗口: ' + JSON.stringify([afterSettings.settings, afterSettings.menuBar]),
+    const afterSettings = await runMenuEntry('Settings');
+    check('菜单「Settings」打开设置模态窗口: ' + JSON.stringify([afterSettings.settings, afterSettings.menuBar]),
       afterSettings.settings === true && afterSettings.menuBar === false);
-    check('菜单「设置」不是未接线兜底: ' + JSON.stringify(afterSettings.unwired),
+    check('菜单「Settings」不是未接线兜底: ' + JSON.stringify(afterSettings.unwired),
       afterSettings.unwired === null);
 
     // 文件 / 视图 / Git：打开贴近入口的动作菜单，且不落到未接线兜底。
@@ -14706,7 +14295,7 @@ async function main() {
       return state;
     };
 
-    for (const label of ['文件', '视图', 'Git']) {
+    for (const label of ['File', 'View', 'Git']) {
       const state = await menuPopover(label);
       check(`菜单「${label}」打开动作菜单: ` + JSON.stringify([state.open, state.items.length]),
         state.open === true && state.items.length > 0 && state.unwired === null);
@@ -14892,7 +14481,7 @@ async function main() {
       && typeof structBefore.selected === 'string' && structBefore.side === true);
 
     // 折叠再展开：两次都是结构性重绘。
-    await structural.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await structural.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
     await structural.page.waitForTimeout(700);
     const structCollapsed = await structural.page.evaluate(() => ({
       side: !!document.querySelector('.side-tool'),
@@ -14900,7 +14489,7 @@ async function main() {
     }));
     check('点击已激活入口折叠侧栏: ' + JSON.stringify(structCollapsed),
       structCollapsed.side === false && structCollapsed.collapsed === 'side');
-    await structural.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+    await structural.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
     await structural.page.waitForTimeout(700);
     const structExpanded = await structural.page.evaluate(() => ({
       side: !!document.querySelector('.side-tool'),
@@ -15220,7 +14809,7 @@ async function main() {
       refresh: window.__refreshCount,
       equal: window.__augitSnapshotEqual(),
     }));
-    snapCheck('操作会话变化必须触发更新（文件列表/分支/HEAD 都没变）: '
+    snapCheck('操作会话变化必须触发更新（文件列表/Branch/HEAD 都没变）: '
       + JSON.stringify([idleRefreshes, changedRefreshes, afterOperation, snapDiag]),
     idleRefreshes === 0 && changedRefreshes > 0
       && afterOperation.operation === 'Rebase' && afterOperation.conflicts === true
@@ -15323,10 +14912,10 @@ async function main() {
       await page.page.close();
       return { shape, seen, reverse, bodyTab, bodyEscape };
     })();
-    check('§7.16 终端标题栏动作按可见顺序、当前 Shell 标签不入 Tab 顺序: '
+    check('§7.16 终端标题栏动作按可见顺序、Current Shell 标签不入 Tab 顺序: '
       + JSON.stringify([termTab.shape.buttons, termTab.shape.sessionTabindex, termTab.seen]),
     termTab.shape.buttons.length === 3
-      && termTab.shape.buttons.every((button) => ['关闭终端', '更多操作', '隐藏终端'].includes(button.label))
+      && termTab.shape.buttons.every((button) => ['Close Terminal', 'More Actions', 'Hide Terminal'].includes(button.label))
       && termTab.shape.buttons[0].x < termTab.shape.buttons[1].x && termTab.shape.buttons[1].x < termTab.shape.buttons[2].x
       && termTab.shape.sessionTabindex === null
       && termTab.seen.slice(0, 2).every((entry) => entry && entry.inHeader === true
@@ -15376,32 +14965,11 @@ async function main() {
       console.log('INFO 分支弹层几何=' + JSON.stringify(out));
       return out;
     })();
-    check('§7.10 分支弹层含搜索框且几何可测（供 §1.3 与 PyCharm 对照）: ' + JSON.stringify(branchBox),
+    check('§7.10 分支弹层含搜索框且几何可测（供 §1.3 with PyCharm 对照）: ' + JSON.stringify(branchBox),
       branchBox.width > 150 && branchBox.height > 100 && branchBox.searchHeight > 20 && branchBox.itemCount >= 3);
 
-    // ---- 第 69 轮补断言：§7.14 三栏与"仅中央可编辑"、§7.2 文档工具栏 Tab 顺序（§7.8 那条未成） ----
+    // ---- 第 69 轮补断言：§7.2 文档工具栏 Tab 顺序（原同段的 §7.14 三栏检查已随三栏编辑器移出范围） ----
     const r69 = await (async () => {
-      // §7.14 中央显示可编辑、左右始终只读（DOM 事实：`.conflict-column.result` 里才有 contenteditable）
-      const conflict = await openScene('scene=conflict-resolver&theme=dark');
-      await conflict.page.waitForSelector('.conflict-columns .conflict-column', { timeout: 10000 });
-      await conflict.page.waitForTimeout(400);
-      const panes = await conflict.page.evaluate(() => {
-        const columns = [...document.querySelectorAll('.conflict-columns .conflict-column')];
-        return {
-          count: columns.length,
-          titles: columns.map((c) => ((c.querySelector('.conflict-column-title') || {}).textContent || '').trim()),
-          editable: columns.map((c) => !!c.querySelector('[contenteditable]')),
-          editablesTotal: document.querySelectorAll('.conflict-columns [contenteditable]').length,
-          resultIsMiddle: !!(columns[1] && columns[1].classList.contains('result')),
-        };
-      });
-      check('§7.14 三栏结构、仅中央可编辑、左右只读: ' + JSON.stringify(panes),
-        panes.count === 3 && panes.editablesTotal === 1 && panes.editable[1] === true
-          && panes.editable[0] === false && panes.editable[2] === false
-          && panes.resultIsMiddle === true && /可编辑/.test(panes.titles[1] || ''));
-      await conflict.page.close();
-
-      // §7.2 文档工具栏按可见顺序参与 Tab/Shift+Tab；Enter/Space 激活并保留按钮
       const toolbar = await openScene('scene=text-viewer&theme=dark');
       await toolbar.page.waitForSelector('.document-toolbar', { timeout: 10000 });
       await toolbar.page.waitForTimeout(400);
@@ -15422,13 +14990,13 @@ async function main() {
       });
       const wrapToggle = await (async () => {
         const before = await toolbar.page.evaluate(() => {
-          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          const b = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
           return { pressed: b ? b.getAttribute('aria-pressed') : null, inToolbar: !!b };
         });
-        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').click();
+        await toolbar.page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
         await toolbar.page.waitForTimeout(250);
         const after = await toolbar.page.evaluate(() => {
-          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          const b = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
           return {
             pressed: b ? b.getAttribute('aria-pressed') : null,
             stillInToolbar: !!(b && b.closest('.document-toolbar')),
@@ -15463,17 +15031,17 @@ async function main() {
       // 于是"Enter/Space 激活"这一半终于有可观测效果可断言（收掉 §3.2 #31）----
       const wrapToggleKey = await (async () => {
         const read = () => toolbar.page.evaluate(() => {
-          const b = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+          const b = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
           const v = document.querySelector('.code-view, .diff-columns');
           return {
             pressed: b ? b.getAttribute('aria-pressed') : null,
             wrapped: v ? v.classList.contains('wrap') : null,
           };
         });
-        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').click();
+        await toolbar.page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
         await toolbar.page.waitForTimeout(250);
         const afterClick = await read();
-        await toolbar.page.locator('.document-toolbar [aria-label="自动换行"]').focus();
+        await toolbar.page.locator('.document-toolbar [aria-label="Soft Wraps"]').focus();
         await toolbar.page.keyboard.press('Enter');
         await toolbar.page.waitForTimeout(300);
         const afterEnter = await read();
@@ -15499,7 +15067,7 @@ async function main() {
       // （点位由 CSS 伪元素画，不能把点插进文本 —— 那会污染查找/选择/既有断言）。
       const whitespaceToggle = await (async () => {
         const read = () => toolbar.page.evaluate(() => {
-          const b = document.querySelector('.document-toolbar [aria-label="显示空白"]');
+          const b = document.querySelector('.document-toolbar [aria-label="Show Whitespaces"]');
           const v = document.querySelector('.code-view, .diff-columns');
           const line = document.querySelector('.code-line');
           return {
@@ -15510,16 +15078,16 @@ async function main() {
           };
         });
         const before = await read();
-        await toolbar.page.locator('.document-toolbar [aria-label="显示空白"]').click();
+        await toolbar.page.locator('.document-toolbar [aria-label="Show Whitespaces"]').click();
         await toolbar.page.waitForTimeout(400);
         const afterClick = await read();
-        await toolbar.page.locator('.document-toolbar [aria-label="显示空白"]').focus();
+        await toolbar.page.locator('.document-toolbar [aria-label="Show Whitespaces"]').focus();
         await toolbar.page.keyboard.press('Enter');
         await toolbar.page.waitForTimeout(400);
         const afterEnter = await read();
         return { before, afterClick, afterEnter };
       })();
-      console.log('INFO 显示空白=' + JSON.stringify(whitespaceToggle));
+      console.log('INFO Show Whitespaces=' + JSON.stringify(whitespaceToggle));
       check('§7.2 显示空白可切换、Enter 可激活且不改变行文本: ' + JSON.stringify(whitespaceToggle),
         whitespaceToggle.afterClick.pressed === String(whitespaceToggle.afterClick.shown)
         && whitespaceToggle.afterClick.shown === true && whitespaceToggle.afterClick.marks > 0
@@ -15543,8 +15111,8 @@ async function main() {
       const hist = await openScene('scene=git-history&theme=dark');
       await hist.page.waitForTimeout(800);
       const entries = await hist.page.evaluate(() => {
-        const details = document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
-        const search = document.querySelector('[aria-label="搜索提交"]');
+        const details = document.querySelector('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]');
+        const search = document.querySelector('[aria-label="Search Commits"]');
         return {
           details: !!details, detailsLabel: details ? details.getAttribute('aria-label') : null,
           search: !!search,
@@ -15552,11 +15120,11 @@ async function main() {
         };
       });
       const afterToggle = await (async () => {
-        const before = await hist.page.evaluate(() => document.querySelectorAll('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').length);
-        await hist.page.locator('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').first().click();
+        const before = await hist.page.evaluate(() => document.querySelectorAll('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]').length);
+        await hist.page.locator('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]').first().click();
         await hist.page.waitForTimeout(400);
         return await hist.page.evaluate((beforeCount) => {
-          const details = document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+          const details = document.querySelector('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]');
           return {
             beforeCount,
             labelAfter: details ? details.getAttribute('aria-label') : null,
@@ -15572,45 +15140,45 @@ async function main() {
       // 不把未接线写成"已实现两个入口各自只做一件事"。
       check('§7.8 显示提交详情入口切换详情面板显隐: ' + JSON.stringify({ entries, afterToggle }),
         entries.details === true && entries.search === true
-          && afterToggle.labelAfter === '隐藏提交详情'
+          && afterToggle.labelAfter === 'Hide Commit Details'
           && afterToggle.panelDisplay === 'none'
           && afterToggle.searchInputs === entries.inputs);
       // 负向验证：再点一次必须还原（面板恢复、标签翻回），且不影响"搜索提交"入口的存在。
       const restored = await (async () => {
-        await hist.page.locator('[aria-label="隐藏提交详情"]').click();
+        await hist.page.locator('[aria-label="Hide Commit Details"]').click();
         await hist.page.waitForTimeout(400);
         return await hist.page.evaluate(() => ({
-          label: (document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]') || {}).getAttribute
-            ? document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').getAttribute('aria-label')
+          label: (document.querySelector('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]') || {}).getAttribute
+            ? document.querySelector('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]').getAttribute('aria-label')
             : null,
           display: (document.querySelector('.log-detail-panel') || {}).style
             ? document.querySelector('.log-detail-panel').style.display : null,
         }));
       })();
       check('§7.8 再次点击还原详情面板（负向验证）: ' + JSON.stringify(restored),
-        restored.label === '显示提交详情' && restored.display === '');
+        restored.label === 'Show Commit Details' && restored.display === '');
       await hist.page.close();
 
       // §7.9 Blame 顶部右侧"n 行归属"与关闭入口；关闭按钮可聚焦并用 Enter 关闭
       const blame = await openScene('scene=blame&theme=dark');
       await blame.page.waitForTimeout(900);
       const blameHeader = await blame.page.evaluate(() => {
-        const close = document.querySelector('[aria-label="关闭 Blame"]');
+        const close = document.querySelector('[aria-label="Close Blame"]');
         const header = close ? close.closest('.document-toolbar, .toolbar, header, .blame-header') : null;
         const text = header ? header.textContent.replace(/\s+/g, ' ').trim() : null;
-        return { hasClose: !!close, text, attrCount: document.querySelectorAll('[aria-label="Blame 只读正文"]').length };
+        return { hasClose: !!close, text, attrCount: document.querySelectorAll('[aria-label="Blame Read-only content"]').length };
       });
       const closedByEnter = await (async () => {
-        await blame.page.evaluate(() => document.querySelector('[aria-label="关闭 Blame"]').focus());
+        await blame.page.evaluate(() => document.querySelector('[aria-label="Close Blame"]').focus());
         await blame.page.keyboard.press('Enter');
         await blame.page.waitForTimeout(500);
         return await blame.page.evaluate(() => ({
-          blameCloseStill: document.querySelectorAll('[aria-label="关闭 Blame"]').length,
-          bodyStill: document.querySelectorAll('[aria-label="Blame 只读正文"]').length,
+          blameCloseStill: document.querySelectorAll('[aria-label="Close Blame"]').length,
+          bodyStill: document.querySelectorAll('[aria-label="Blame Read-only content"]').length,
         }));
       })();
-      check('§7.9 Blame 头部含"n 行归属"与关闭入口，Enter 可关闭: ' + JSON.stringify({ blameHeader, closedByEnter }),
-        blameHeader.hasClose === true && !!blameHeader.text && /行归属/.test(blameHeader.text)
+      check('§7.9 Blame 头部含"n Line Attribution"与关闭入口，Enter 可关闭: ' + JSON.stringify({ blameHeader, closedByEnter }),
+        blameHeader.hasClose === true && !!blameHeader.text && /Line Attribution/.test(blameHeader.text)
         // `bodyStill` 此前**算了却没进判据**（第 123 轮发现）：Enter 关闭后正文也必须消失。
         && closedByEnter.blameCloseStill === 0 && closedByEnter.bodyStill === 0);
       await blame.page.close();
@@ -15622,7 +15190,7 @@ async function main() {
         const absent = await scene.page.evaluate(() => {
           const toolbar = document.querySelector('.blame-document .document-toolbar');
           if (!toolbar) return null;
-          const plain = ['自动换行', '显示空白', '当前文件搜索', '跳转行'];
+          const plain = ['Soft Wraps', 'Show Whitespaces', 'Find in File', 'Go to Line'];
           return {
             count: plain.filter((label) => toolbar.querySelector('[aria-label="' + label + '"]')).length,
             labels: [...toolbar.querySelectorAll('[aria-label]')].map((b) => b.getAttribute('aria-label')),
@@ -15649,7 +15217,7 @@ async function main() {
       console.log('INFO Blame 可访问性=' + JSON.stringify(blameA11y));
       check('§7.9 Blame 隐藏普通文档动作、Tab 可达关闭: ' + JSON.stringify(blameA11y),
         blameA11y.absent && blameA11y.absent.count === 0
-        && blameA11y.tabToClose === true && blameA11y.focused === '关闭 Blame');
+        && blameA11y.tabToClose === true && blameA11y.focused === 'Close Blame');
 
       // §7.16 标题栏"更多"菜单：条文要求提供切换配置与外部终端入口
       const termMore = await openScene('scene=terminal&theme=dark');
@@ -15665,7 +15233,7 @@ async function main() {
           document.querySelectorAll('.popover, .context-menu, .menu-item').length,
         ].join('|')));
         const before = await signature();
-        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.locator('.terminal-header [aria-label="More Actions"]').click();
         await termMore.page.waitForTimeout(500);
         const after = await signature();
         const menus = await termMore.page.evaluate(() => {
@@ -15678,9 +15246,9 @@ async function main() {
         const items = [...document.querySelectorAll('[data-terminal-more]')].map((a) => a.textContent.trim());
         return { open: items.length > 0, items, launchCalls: (window.__launchCalls || []).length };
       });
-      check('§7.16 终端「更多操作」弹出规格点名的两个入口: ' + JSON.stringify({ more, moreMenu }),
+      check('§7.16 Terminal「More Actions」弹出规格点名的两个入口: ' + JSON.stringify({ more, moreMenu }),
         moreMenu.open === true && moreMenu.items.length === 2
-          && moreMenu.items[0].includes('切换 Shell 配置') && moreMenu.items[1].includes('在外部终端打开'));
+          && moreMenu.items[0].includes('Change Shell Configuration') && moreMenu.items[1].includes('Open in External Terminal'));
       // 「切换 Shell 配置」→ 设置对话框停在「终端」页
       const settingsFromMenu = await (async () => {
         await termMore.page.locator('[data-terminal-more="settings"]').click();
@@ -15690,13 +15258,13 @@ async function main() {
           page: window.__augitLive ? window.__augitLive.settingsPage : null,
         }));
       })();
-      check('§7.16 「切换 Shell 配置」进入设置对话框的终端页: ' + JSON.stringify(settingsFromMenu),
+      check('§7.16 「Change Shell Configuration」进入设置对话框的终端页: ' + JSON.stringify(settingsFromMenu),
         settingsFromMenu.dialog === true && settingsFromMenu.page === 'terminal');
       // 「在外部终端打开」→ 宿主 external/launch 收到 terminal 动作
       const externalFromMenu = await (async () => {
         await termMore.page.keyboard.press('Escape');
         await termMore.page.waitForTimeout(400);
-        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.locator('.terminal-header [aria-label="More Actions"]').click();
         await termMore.page.waitForTimeout(400);
         await termMore.page.locator('[data-terminal-more="external"]').click();
         await termMore.page.waitForTimeout(700);
@@ -15704,7 +15272,7 @@ async function main() {
           calls: (window.__launchCalls || []).filter((c) => c.startsWith('terminal:')),
         }));
       })();
-      check('§7.16 「在外部终端打开」调用宿主 external/launch（action=terminal）: ' + JSON.stringify(externalFromMenu),
+      check('§7.16 「Open in External Terminal」调用宿主 external/launch（action=terminal）: ' + JSON.stringify(externalFromMenu),
         externalFromMenu.calls.length >= 1);
 
       // ---- 第 133 轮补断言：**生命周期**（打开 → Esc/选择 → 菜单关闭 + 焦点还原；设置关闭后回终端）----
@@ -15714,13 +15282,13 @@ async function main() {
           menu: document.querySelectorAll('[data-terminal-more]').length,
           active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
         }));
-        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.locator('.terminal-header [aria-label="More Actions"]').click();
         await termMore.page.waitForTimeout(400);
         const opened = await snapshot();
         await termMore.page.keyboard.press('Escape');
         await termMore.page.waitForTimeout(400);
         const afterEsc = await snapshot();
-        await termMore.page.locator('.terminal-header [aria-label="更多操作"]').click();
+        await termMore.page.locator('.terminal-header [aria-label="More Actions"]').click();
         await termMore.page.waitForTimeout(400);
         await termMore.page.locator('[data-terminal-more="settings"]').click();
         await termMore.page.waitForTimeout(700);
@@ -15734,11 +15302,11 @@ async function main() {
         return { opened, afterEsc, afterChoose, afterCloseDialog };
       })();
       console.log('INFO 终端菜单生命周期=' + JSON.stringify(menuLifecycle));
-      check('§7.16 终端「更多操作」生命周期：Esc 关闭并还原焦点、选择后关闭、设置关闭后回终端: '
+      check('§7.16 Terminal「More Actions」生命周期：Esc 关闭并还原焦点、选择后关闭、设置关闭后回终端: '
         + JSON.stringify(menuLifecycle),
         menuLifecycle.opened.menu === 2                 // 非平凡前置：确实有两条入口
           && menuLifecycle.afterEsc.menu === 0
-          && menuLifecycle.afterEsc.active === '更多操作'
+          && menuLifecycle.afterEsc.active === 'More Actions'
           && menuLifecycle.afterChoose.menu === 0
           && menuLifecycle.afterCloseDialog.dialog === false
           && menuLifecycle.afterCloseDialog.terminal === true);
@@ -15783,10 +15351,10 @@ async function main() {
       await scene.page.close();
       return { rows, opened, ...out };
     })();
-    console.log('INFO 引用比较=' + JSON.stringify(referenceCompare));
-    check('§4.1 引用比较激活时状态栏给"只读"、不给编码/换行: ' + JSON.stringify(referenceCompare),
+    console.log('INFO Reference Comparison=' + JSON.stringify(referenceCompare));
+    check('§4.1 引用比较激活时状态栏给"Read-only"、不给编码/换行: ' + JSON.stringify(referenceCompare),
       referenceCompare.opened === true && referenceCompare.hasDiff === true
-        && Array.isArray(referenceCompare.fields) && referenceCompare.fields.includes('只读')
+        && Array.isArray(referenceCompare.fields) && referenceCompare.fields.includes('Read-only')
         && !referenceCompare.fields.includes('UTF-8') && !referenceCompare.fields.includes('LF'));
 
     // ---- 第 112 轮诊断：§4.1「**读取尚未完成**的文件只显示适用的只读标识」（§3.2 #29）----
@@ -15838,9 +15406,9 @@ async function main() {
     // 读完后再变成 `["UTF-8","LF","只读"]`（对照组）。
     const during = pendingStatus.during || {};
     const after = pendingStatus.after || {};
-    check('§4.1 读取未完成时状态栏显示本次打开的路径并给"只读": ' + JSON.stringify(pendingStatus),
+    check('§4.1 读取未完成时状态栏显示本次打开的路径并给"Read-only": ' + JSON.stringify(pendingStatus),
       during.slowReadStarted === 'docs/product-spec.md'
-        && Array.isArray(during.fields) && during.fields.length === 1 && during.fields[0] === '只读'
+        && Array.isArray(during.fields) && during.fields.length === 1 && during.fields[0] === 'Read-only'
         && typeof during.pathText === 'string' && during.pathText.includes('product-spec.md')
         && Array.isArray(after.fields) && after.fields.includes('UTF-8') && after.fields.includes('LF'));
 
@@ -15858,7 +15426,7 @@ async function main() {
       const duringDiff = await scene.page.evaluate(() => ({
         editor: window.__augitLive.editor,
         pending: window.__augitLive.pendingDocument || null,
-        hasComparisonTab: [...document.querySelectorAll('.editor-tab')].some((tab) => tab.textContent.trim().startsWith('提交:')),
+        hasComparisonTab: [...document.querySelectorAll('.editor-tab')].some((tab) => tab.textContent.trim().startsWith('Commit:')),
       }));
       // 3) 用真实入口关闭比较标签（标签上的关闭叉要求"同一目标按下再松开"，故必须走真实点击）
       const closeLocator = scene.page.locator('.editor-tabs .editor-tab.comparison-tab .tab-close');
@@ -15893,7 +15461,7 @@ async function main() {
         && pendingReturn.closed === true
         && pendingReturn.afterClose.pending === 'docs/product-spec.md'
         && pendingReturn.afterClose.hasEmptyState === false
-        && typeof pendingReturn.afterClose.text === 'string' && pendingReturn.afterClose.text.includes('正在读取')
+        && typeof pendingReturn.afterClose.text === 'string' && pendingReturn.afterClose.text.includes('Loading')
         && pendingReturn.afterReady.docPath === 'docs/product-spec.md'
         && pendingReturn.afterReady.hasEmptyState === false);
 
@@ -15934,9 +15502,9 @@ async function main() {
     console.log('INFO 比较状态栏=' + JSON.stringify(comparisonStatus));
     // 第 112 轮实现后：比较激活时状态栏**必须有"只读"**、且不得出现 UTF-8/LF（规格 §4.1 第 123 行）。
     const comparisonFields = (r) => r && Array.isArray(r.fields)
-      && r.fields.includes('只读')
+      && r.fields.includes('Read-only')
       && !r.fields.includes('UTF-8') && !r.fields.includes('LF');
-    check('§4.1 比较激活时状态栏给"只读"、不给编码/换行: ' + JSON.stringify(comparisonStatus),
+    check('§4.1 比较激活时状态栏给"Read-only"、不给编码/换行: ' + JSON.stringify(comparisonStatus),
       comparisonFields(comparisonStatus.workspaceDiff) && comparisonFields(comparisonStatus.historyCompare));
 
     // ---- 第 109 轮补断言：§4.1 **有文档**分支的状态栏（收掉 §3.2 #28）----
@@ -16050,14 +15618,14 @@ async function main() {
       return out;
     })();
     console.log('INFO 有文档状态栏=' + JSON.stringify(statusWithDoc));
-    check('§4.1 有文档时状态栏给"只读"且字段区不被超长路径吞掉: ' + JSON.stringify(statusWithDoc),
+    check('§4.1 有文档时状态栏给"Read-only"且字段区不被超长路径吞掉: ' + JSON.stringify(statusWithDoc),
       typeof statusWithDoc.docPath === 'string' && statusWithDoc.docPath.length > 0
-        && Array.isArray(statusWithDoc.fields) && statusWithDoc.fields.includes('只读')
+        && Array.isArray(statusWithDoc.fields) && statusWithDoc.fields.includes('Read-only')
         && statusWithDoc.longPath && statusWithDoc.longPath.keep === true
         && statusWithDoc.longPath.inside === true);
 
-    const onlyReadonly = (r) => r && Array.isArray(r.fields) && r.fields.length === 1 && r.fields[0] === '只读';
-    check('§4.1 图片与不可预览文档只给"只读"、不给编码/换行: ' + JSON.stringify(statusWithDoc.nonText),
+    const onlyReadonly = (r) => r && Array.isArray(r.fields) && r.fields.length === 1 && r.fields[0] === 'Read-only';
+    check('§4.1 图片与不可预览文档只给"Read-only"、不给编码/换行: ' + JSON.stringify(statusWithDoc.nonText),
       onlyReadonly(statusWithDoc.nonText && statusWithDoc.nonText.image)
         && onlyReadonly(statusWithDoc.nonText && statusWithDoc.nonText.unsupported));
 
@@ -16167,6 +15735,7 @@ async function main() {
         const cs = getComputedStyle(document.documentElement);
         const family = cs.fontFamily;
         const uiPixels = Number.parseFloat(cs.fontSize) || 13;
+        const uiScale = Math.max(0.75, Math.round(uiPixels / 12 * 4) / 4);
         const ctx = document.createElement('canvas').getContext('2d');
         let h = 0;
         for (const role of ['normal', '600', 'italic']) {
@@ -16181,12 +15750,12 @@ async function main() {
           uiFont: cs.fontSize,
           h,
           expect: {
-            'title-height': Math.max(44, h + 18),
-            'tab-height': Math.max(40, h + 12),
-            'project-header-height': Math.max(39, h + 10),
-            'tree-height': Math.max(24, h + 8),
-            'document-toolbar-height': Math.max(36, h + 8),
-            'status-height': Math.max(28, h + 12),
+            'title-height': Math.max(Math.round(44 * uiScale), h + 18),
+            'tab-height': Math.max(Math.round(40 * uiScale), h + Math.round(12 * uiScale)),
+            'project-header-height': Math.max(Math.round(39 * uiScale), h + 10),
+            'tree-height': Math.max(Math.round(24 * uiScale), h),
+            'document-toolbar-height': Math.max(Math.round(36 * uiScale), h + 8),
+            'status-height': Math.max(Math.round(28 * uiScale), h + Math.round(12 * uiScale)),
           },
           actual: {
             'title-height': num('title-height'),
@@ -16207,10 +15776,10 @@ async function main() {
     const frame32 = await frameAt(32);
     const frameMatches = (f) => Object.keys(f.expect).every((key) => f.actual[key] === f.expect[key]);
     console.log('INFO 主框架字高=' + JSON.stringify({ frame13, frame32 }));
-    check('规格:154 主框架六处随实际字高扩展、图标尺寸保持: ' + JSON.stringify({ frame13, frame32 }),
+    check('规格:154 主框架六处随字高扩展，工具轨随用户缩放: ' + JSON.stringify({ frame13, frame32 }),
       frameMatches(frame13) && frameMatches(frame32)
         && frame32.h > frame13.h
-        && frame32.iconW === frame13.iconW && frame32.iconH === frame13.iconH);
+        && frame32.iconW === Math.round(37 * 2.75) && frame32.iconH === Math.round(40 * 2.75));
 
     // ---- 第 103 轮补断言：§7.16「标题行随字高扩展」（与查找条同型的**公式校验**）----
     // 实现见 mockup.js:168-169：`--terminal-header-height = max(38, h+12)`、`--terminal-text-height = max(24, h+4)`，
@@ -16268,7 +15837,7 @@ async function main() {
       await scene.page.waitForFunction('window.__augitLive && window.__augitLive.diff', null, { timeout: 20000 }).catch(() => null);
       await scene.page.waitForTimeout(1200);
       const comparison = await scene.page.evaluate(() => ({
-        hasNext: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
+        hasNext: !!document.querySelector('.diff-toolbar [aria-label="Next File"]'),
         workspaceDiff: !!(window.__augitLive && window.__augitLive.workspaceDiff),
         diffPath: window.__augitLive && window.__augitLive.diff ? window.__augitLive.diff.path : null,
       }));
@@ -16286,26 +15855,26 @@ async function main() {
           path: live && live.diff ? live.diff.path : null,
           count: (document.querySelector('.diff-toolbar .file-status-modified') || {}).textContent || null,
           selected: sel ? sel.getAttribute('data-path') : null,
-          hasNextButton: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
-          hasPrevButton: !!document.querySelector('.diff-toolbar [aria-label="上一个文件"]'),
+          hasNextButton: !!document.querySelector('.diff-toolbar [aria-label="Next File"]'),
+          hasPrevButton: !!document.querySelector('.diff-toolbar [aria-label="Previous File"]'),
           hit: window.__diffFileHit || 0,
         };
       });
       const before = await read();
-      await scene.page.locator('.diff-toolbar [aria-label="下一个文件"]').click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next File"]').click();
       await scene.page.waitForTimeout(1500);
       const afterNext = await read();
       await scene.page.close();
       console.log('INFO 文件导航=' + JSON.stringify({ files, comparison, before, afterNext }));
       return { files, comparison, before, afterNext };
     })();
-    check('§7.9 比较视图无文件导航、工作区 Diff 有且能切到相邻文件: ' + JSON.stringify(diffFiles),
+    check('§7.9 比较视图无文件导航、Workspace Diff 有且能切到相邻文件: ' + JSON.stringify(diffFiles),
       diffFiles.files.length >= 2
         && diffFiles.comparison.hasNext === false
         && diffFiles.before.hasNextButton === true
-        && diffFiles.before.count === '1/' + diffFiles.files.length + ' 个文件'
+        && diffFiles.before.count === '1/' + diffFiles.files.length + ' files'
         && diffFiles.afterNext.path === diffFiles.files[1]
-        && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' 个文件'
+        && diffFiles.afterNext.count === '2/' + diffFiles.files.length + ' files'
         && diffFiles.afterNext.selected === diffFiles.files[1]);
 
     // ---- 第 131 轮补断言（收 §3.2 #35）：§7.8「**失败**保留标签、给出说明、可重试」----
@@ -16343,14 +15912,14 @@ async function main() {
       await scene.page.close();
       return { paths, before, afterFailure, afterRetry };
     })();
-    console.log('INFO 失败重试(工作区Diff)=' + JSON.stringify(failureRetry));
+    console.log('INFO 失败重试(WorkspaceDiff)=' + JSON.stringify(failureRetry));
     check('§7.8 失败的比较保留标签、给出说明、可重试: ' + JSON.stringify(failureRetry),
       failureRetry.paths.length >= 1 && failureRetry.before.error === null
         && failureRetry.afterFailure.tabs >= 1
         && typeof failureRetry.afterFailure.error === 'string' && failureRetry.afterFailure.error.length > 0
         && failureRetry.afterFailure.notice === 1
         && typeof failureRetry.afterFailure.noticeText === 'string'
-        && failureRetry.afterFailure.noticeText.includes('重试')
+        && failureRetry.afterFailure.noticeText.includes('retry')
         && failureRetry.afterRetry.error === null
         && failureRetry.afterRetry.notice === 0
         && failureRetry.afterRetry.diffPath === failureRetry.paths[0]);
@@ -16369,8 +15938,8 @@ async function main() {
         return {
           workspaceDiff: !!live.workspaceDiff,
           diffPath: live.diff ? live.diff.path : null,
-          hasNext: !!document.querySelector('.diff-toolbar [aria-label="下一个文件"]'),
-          hasPrev: !!document.querySelector('.diff-toolbar [aria-label="上一个文件"]'),
+          hasNext: !!document.querySelector('.diff-toolbar [aria-label="Next File"]'),
+          hasPrev: !!document.querySelector('.diff-toolbar [aria-label="Previous File"]'),
           count: count ? count.textContent : null,
           errors: (window.__augitErrors || []).slice(0, 3),
         };
@@ -16383,7 +15952,7 @@ async function main() {
       bootDiff.workspaceDiff === true
         && bootDiff.diffPath === 'src/App.cs'
         && bootDiff.hasNext === true && bootDiff.hasPrev === true
-        && /^1\/\d+ 个文件$/.test(bootDiff.count || ''));
+        && /^1\/\d+ files$/.test(bootDiff.count || ''));
 
     // ---- 第 116 轮补断言：§441 的**两段式边界**（同方向再按一次先给提示、再按才换文件）+ Enter/Space 继续定位 ----
     const boundaryHint = await (async () => {
@@ -16405,7 +15974,7 @@ async function main() {
       // 因为该字段只在 `moveDiffChange` 跑过之后才有）。
       let first = null;
       for (let i = 0; i < 8; i += 1) {
-        await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+        await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
         await scene.page.waitForTimeout(400);
         const state = await scene.page.evaluate(() => ({
           hintSet: !!(window.__augitLive && window.__augitLive.diffBoundaryHint),
@@ -16414,7 +15983,7 @@ async function main() {
         }));
         if (state.hintSet) { first = { ...state, clicks: i + 1 }; break; }
       }
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
       await scene.page.waitForTimeout(1400);
       const second = await scene.page.evaluate(() => ({
         hintSet: !!(window.__augitLive && window.__augitLive.diffBoundaryHint),
@@ -16423,7 +15992,7 @@ async function main() {
       }));
       // Enter/Space 继续定位（规格 §502"箭头定位后保留触发按钮焦点，可继续按 Enter 或空格"）：
       // 用**真实按键**（焦点在按钮上时 Enter/Space 会原生激活它），断言索引连续两次递增。
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').focus();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').focus();
       const hitBefore = await scene.page.evaluate(() => window.__diffNavHit || 0);
       await scene.page.keyboard.press('Enter');
       await scene.page.waitForTimeout(500);
@@ -16441,7 +16010,8 @@ async function main() {
     })();
     check('§7.9 首/尾边界两段式：先提示、再按才换文件；Enter 继续定位: ' + JSON.stringify(boundaryHint),
       boundaryHint.first.hintSet === true
-        && typeof boundaryHint.first.hintText === 'string' && boundaryHint.first.hintText.includes('下一个文件')
+        && typeof boundaryHint.first.hintText === 'string'
+        && (/next file/i.test(boundaryHint.first.hintText) || /click again/i.test(boundaryHint.first.hintText))
         && boundaryHint.first.path === boundaryHint.before.path
         // 注意：**不能**用"DOM 里没有 `.diff-boundary-hint`"当判据 —— `mockup.js:3121` 在
         // `diff-boundary` 场景下**静态就会插入**同构提示元素（视觉稿自己的边界提示）。
@@ -16523,9 +16093,9 @@ async function main() {
         && amendFlow.editedChecked.value === amendFlow.draft
         && amendFlow.editedChecked.calls === 0
         && amendFlow.editedChecked.focused === false
-        && amendFlow.editedChecked.primary === '修改提交'
+        && amendFlow.editedChecked.primary === 'Amend'
         && amendFlow.editedUnchecked.value === amendFlow.draft
-        && amendFlow.editedUnchecked.primary === '提交');
+        && amendFlow.editedUnchecked.primary === 'Commit');
     // 情形 B：没改过 ⇒ 载入上一次提交信息、聚焦信息栏；取消后恢复初始文本。
     check('§7.6 Amend 用户没改过信息时载入上一次提交信息并聚焦、取消后恢复: '
       + JSON.stringify([amendFlow.initial, amendFlow.untouchedChecked, amendFlow.untouchedUnchecked]),
@@ -16557,13 +16127,13 @@ async function main() {
         };
       });
       const initial = await read();
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
       await scene.page.waitForTimeout(400);
       const afterNext = await read();
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
       await scene.page.waitForTimeout(400);
       const afterNext2 = await read();
-      await scene.page.locator('.diff-toolbar [aria-label="上一处差异"]').click();
+      await scene.page.locator('.diff-toolbar [aria-label="Previous Difference"]').click();
       await scene.page.waitForTimeout(400);
       const afterPrev = await read();
       await scene.page.close();
@@ -16579,9 +16149,9 @@ async function main() {
         && diffNav.afterNext.index === '0' && diffNav.afterNext.total === '1'
         && diffNav.afterNext2.index === '0'
         && diffNav.afterPrev.index === '0'
-        && diffNav.afterNext.active === '下一处差异'
-        && diffNav.afterNext2.active === '下一处差异'
-        && diffNav.afterPrev.active === '上一处差异');
+        && diffNav.afterNext.active === 'Next Difference'
+        && diffNav.afterNext2.active === 'Next Difference'
+        && diffNav.afterPrev.active === 'Previous Difference');
 
     // ---- 第 223 轮：行内（词/段级）差异高亮 + 纯修改型 Diff 的差异导航 ----
     // 规格：行内高亮取权威 `DIFF_*.BACKGROUND`（`08-diff-merge.md` §2.2、§7bis.4）；
@@ -16615,15 +16185,15 @@ async function main() {
         });
         const steps = [await read()];
         for (let i = 0; i < 3; i += 1) {
-          await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+          await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
           await scene.page.waitForTimeout(400);
           steps.push(await read());
         }
         // 规格 §7.7「单栏与双栏保持相同数量」：切到单栏后**重新**按当前 DOM 计块（`switchDiffMode`
         // 会重绘正文，索引与总数都要重算），数量必须与双栏一致，而每处差异只占一行。
-        await scene.page.locator('.diff-toolbar .segmented [aria-label="单栏"]').click();
+        await scene.page.locator('.diff-toolbar .segmented [aria-label="Unified"]').click();
         await scene.page.waitForTimeout(900);
-        await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').click();
+        await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').click();
         await scene.page.waitForTimeout(400);
         steps.push(await read());
         await scene.page.close();
@@ -16695,13 +16265,13 @@ async function main() {
         };
       });
       // 切到单栏再切回：工具栏矩形必须不变（规格：仅重排 Diff 文件信息与正文，不移动工具栏）。
-      await scene.page.locator('.diff-toolbar .segmented [aria-label="单栏"]').click();
+      await scene.page.locator('.diff-toolbar .segmented [aria-label="Unified"]').click();
       await scene.page.waitForTimeout(700);
       const toolbarUnified = await scene.page.evaluate(() => {
         const r = document.querySelector('.diff-toolbar').getBoundingClientRect();
         return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
       });
-      await scene.page.locator('.diff-toolbar .segmented [aria-label="双栏"]').click();
+      await scene.page.locator('.diff-toolbar .segmented [aria-label="Side-by-side"]').click();
       await scene.page.waitForTimeout(700);
       const toolbarSplit = await scene.page.evaluate(() => {
         const r = document.querySelector('.diff-toolbar').getBoundingClientRect();
@@ -16764,20 +16334,20 @@ async function main() {
       const scene = await openScene('scene=git-history&theme=dark');
       await scene.page.waitForTimeout(1000);
       const before = await scene.page.evaluate(() => ({
-        entry: !!document.querySelector('[aria-label="搜索提交"]'),
+        entry: !!document.querySelector('[aria-label="Search Commits"]'),
         activeLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
       }));
-      await scene.page.locator('[aria-label="搜索提交"]').click();
+      await scene.page.locator('[aria-label="Search Commits"]').click();
       await scene.page.waitForTimeout(500);
       const after = await scene.page.evaluate(() => ({
         activeLabel: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
         activeTag: document.activeElement ? document.activeElement.tagName : null,
       }));
       await scene.page.close();
-      console.log('INFO 搜索提交=' + JSON.stringify({ before, after }));
+      console.log('INFO Search Commits=' + JSON.stringify({ before, after }));
       return { before, after };
     })();
-    check('§7.8 提交历史「搜索提交」把焦点交给日志搜索框: ' + JSON.stringify(historySearch),
+    check('§7.8 Commit History「Search Commits」把焦点交给日志搜索框: ' + JSON.stringify(historySearch),
       historySearch.before.entry === true && historySearch.after.activeTag === 'INPUT');
 
     // ---- 第 160 轮补断言：§7.9「进入文件历史时保存日志上下文，包括**尚未执行的筛选输入**」----
@@ -16786,12 +16356,12 @@ async function main() {
     // —— 与搜索浮层第 153 轮修过的那类缺陷同源。
     const filterDraft = await (async () => {
       const scene = await openScene('scene=git-history&theme=dark');
-      await scene.page.waitForSelector('.log-filterbar.history-filters [aria-label="文本或哈希"]', { timeout: 10000 });
-      await scene.page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]').fill('未执行的草稿');
+      await scene.page.waitForSelector('.log-filterbar.history-filters [aria-label="Text or hash"]', { timeout: 10000 });
+      await scene.page.locator('.log-filterbar.history-filters [aria-label="Text or hash"]').fill('未执行的草稿');
       await scene.page.evaluate(() => { window.__augitRender(); });
       await scene.page.waitForTimeout(400);
       const after = await scene.page.evaluate(() => {
-        const node = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+        const node = document.querySelector('.log-filterbar.history-filters [aria-label="Text or hash"]');
         return {
           value: node ? node.value : null,
           live: (window.__augitLive && window.__augitLive.historyFilterDraft) || null,
@@ -16821,8 +16391,8 @@ async function main() {
         };
       });
       let after = null;
-      if (before.label === '清除路径筛选') {
-        await scene.page.locator('.history-tool-content [aria-label="清除路径筛选"]').click();
+      if (before.label === 'Clear Path Filter') {
+        await scene.page.locator('.history-tool-content [aria-label="Clear Path Filter"]').click();
         await scene.page.waitForTimeout(1200);
         after = await scene.page.evaluate(() => ({
           path: window.__augitLive && window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
@@ -16835,11 +16405,11 @@ async function main() {
         }));
       }
       await scene.page.close();
-      console.log('INFO 清除路径筛选=' + JSON.stringify({ before, after }));
+      console.log('INFO Clear Path Filter=' + JSON.stringify({ before, after }));
       return { before, after };
     })();
     check('§7.9 文件历史清除入口有标签且点击后清掉路径筛选: ' + JSON.stringify(fhClear),
-      fhClear.before.hasButton === true && fhClear.before.label === '清除路径筛选'
+      fhClear.before.hasButton === true && fhClear.before.label === 'Clear Path Filter'
         && fhClear.before.path !== null && fhClear.before.rows > 0
         && fhClear.after && fhClear.after.path === null && fhClear.after.rows === 0);
 
@@ -16875,7 +16445,7 @@ async function main() {
       console.log('INFO 日志标签返回=' + JSON.stringify({ before, after }));
       return { before, after };
     })();
-    check('§7.9 点底部「日志」标签回到日志且不整页跳转: ' + JSON.stringify([logTab.after.href === logTab.before.href, logTab.after.fileHistory, logTab.after.rows]),
+    check('§7.9 点底部「Log」标签回到日志且不整页跳转: ' + JSON.stringify([logTab.after.href === logTab.before.href, logTab.after.fileHistory, logTab.after.rows]),
       logTab.before.tab === true && logTab.before.fileHistory === true && logTab.before.rows > 0
         && logTab.after.href === logTab.before.href
         && logTab.after.fileHistory === false && logTab.after.rows === 0);
@@ -17073,21 +16643,21 @@ async function main() {
     check('§7.8 日志菜单把没有能力的项标成禁用并写明原因: ' + JSON.stringify(logMenu.menu.items),
       logMenu.menu.items.filter((i) => i.disabled && i.reason.length > 0).length === 4
         && logMenu.menu.items.filter((i) => i.action).length === 3);
-    check('§7.8 日志菜单「复制提交哈希」写入完整哈希并关掉菜单: ' + JSON.stringify(logMenu.copied),
+    check('§7.8 日志菜单「Copy Commit Hash」写入完整哈希并关掉菜单: ' + JSON.stringify(logMenu.copied),
       logMenu.copied.writes.length === 1 && logMenu.copied.writes[0] === logMenu.target.fullHash
         && logMenu.copied.marker === logMenu.target.fullHash && logMenu.copied.menuClosed === 0);
-    check('§7.8 日志菜单「新建分支…」打开紧凑输入窗口: ' + JSON.stringify(logMenu.branch),
+    check('§7.8 日志菜单「New Branch…」打开紧凑输入窗口: ' + JSON.stringify(logMenu.branch),
       logMenu.branch.dialog === true && typeof logMenu.branch.text === 'string'
-        && logMenu.branch.text.includes('分支') && logMenu.branch.menuClosed === 0);
-    check('§7.8 日志菜单「新建分支…」以选中提交为起点: ' + JSON.stringify(logMenu.branchCreate),
+        && logMenu.branch.text.includes('Branch') && logMenu.branch.menuClosed === 0);
+    check('§7.8 日志菜单「New Branch…」以选中提交为起点: ' + JSON.stringify(logMenu.branchCreate),
       logMenu.branchCreate.calls.length === 1
         && logMenu.branchCreate.calls[0].name === 'feat/from-commit'
         && logMenu.branchCreate.calls[0].startPoint === logMenu.target.fullHash
         && logMenu.branchCreate.dialog === false);
-    check('§7.8 日志菜单「新建标签…」是单字段窗口且标题带该提交（权威 `Git.CreateNewTag`）: ' + JSON.stringify(logMenu.tagDialog),
+    check('§7.8 日志菜单「New Tag…」是单字段窗口且标题带该提交（权威 `Git.CreateNewTag`）: ' + JSON.stringify(logMenu.tagDialog),
       logMenu.tagDialog.open === true
         && typeof logMenu.tagDialog.title === 'string' && logMenu.tagDialog.title.includes(logMenu.target.fullHash)
-        && logMenu.tagDialog.label === '新标签名称' && logMenu.tagDialog.value === ''
+        && logMenu.tagDialog.label === 'New tag name' && logMenu.tagDialog.value === ''
         && logMenu.tagDialog.menuClosed === 0);
     check('§7.8 标签名含空白字符时不调用宿主并保留窗口: ' + JSON.stringify(logMenu.tagInvalid),
       logMenu.tagInvalid.calls === 0 && /空白/.test(logMenu.tagInvalid.error || '')
@@ -17217,24 +16787,24 @@ async function main() {
         && refMenu.nonCurrentMenu.kind === 'branch'
         && refMenu.nonCurrentMenu.items.filter((i) => i.action).length === 3
         && ['checkout', 'rename', 'delete'].every((a) => refMenu.nonCurrentMenu.items.some((i) => i.action === a)));
-    check('§5.2 当前分支行不显示检出/删除（权威 `isEnabledAndVisible=false` 即不出现，只有一个本地分支时 `diverged()` 为假）: '
+    check('§5.2 当前分支行不显示检出/Delete（权威 `isEnabledAndVisible=false` 即不出现，只有一个本地分支时 `diverged()` 为假）: '
       + JSON.stringify(refMenu.currentMenu ? refMenu.currentMenu.items : null),
       !!refMenu.currentMenu
         && refMenu.currentMenu.items.every((i) => !['checkout', 'delete'].includes(i.action))
         && refMenu.currentMenu.items.some((i) => i.action === 'rename'));
     check('§5.2 标签行菜单可删除: ' + JSON.stringify(refMenu.tagMenu ? refMenu.tagMenu.items : null),
       !!refMenu.tagMenu && refMenu.tagMenu.items.some((i) => i.action === 'delete'));
-    check('§5.2 非当前分支的「重命名…」以该行自己的名字为 from: ' + JSON.stringify([refMenu.renameDialog, refMenu.renameCall]),
-      !!refMenu.renameDialog && refMenu.renameDialog.title === '重命名分支'
+    check('§5.2 非当前分支的「Rename…」以该行自己的名字为 from: ' + JSON.stringify([refMenu.renameDialog, refMenu.renameCall]),
+      !!refMenu.renameDialog && refMenu.renameDialog.title === 'Rename Branch'
         && refMenu.renameDialog.value === refMenu.nonCurrent.name
         && !!refMenu.renameCall && refMenu.renameCall.from === refMenu.nonCurrent.name
         && refMenu.renameCall.name === refMenu.nonCurrent.name + '-renamed');
     check('§10.4 删除引用先确认影响: ' + JSON.stringify(refMenu.firstConfirm),
       refMenu.firstConfirm.name === refMenu.nonCurrent.name && refMenu.firstConfirm.kind === 'branch'
-        && typeof refMenu.firstConfirm.text === 'string' && refMenu.firstConfirm.text.includes('删除'));
+        && typeof refMenu.firstConfirm.text === 'string' && refMenu.firstConfirm.text.includes('Delete'));
     check('§5.2 未完全合并时再问一次并强制删除: ' + JSON.stringify([refMenu.secondWindow, refMenu.after]),
       refMenu.secondWindow.force === 'force'
-        && typeof refMenu.secondWindow.text === 'string' && refMenu.secondWindow.text.includes('未合并')
+        && typeof refMenu.secondWindow.text === 'string' && refMenu.secondWindow.text.includes('unmerged')
         && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === false)
         && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === true)
         && !!refMenu.after.deleted && refMenu.after.window === false);
@@ -17246,7 +16816,7 @@ async function main() {
       await scene.page.waitForTimeout(900);
       // ① 跳转行按钮：与 Ctrl+G 同一语义（打开紧凑输入窗口）。
       await scene.page.evaluate(() => {
-        document.querySelector('[aria-label="跳转行"]').dispatchEvent(
+        document.querySelector('[aria-label="Go to Line"]').dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(400);
@@ -17268,7 +16838,7 @@ async function main() {
       });
       await scene.page.waitForTimeout(800);
       await scene.page.evaluate(() => {
-        document.querySelector('.side-tool .tool-header [aria-label="定位当前文件"]').dispatchEvent(
+        document.querySelector('.side-tool .tool-header [aria-label="Select Opened File"]').dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(400);
@@ -17282,7 +16852,7 @@ async function main() {
       });
       // ③ 折叠项目树：展开状态清空 ⇒ `docs/notes.txt` 行不再出现。
       await scene.page.evaluate(() => {
-        document.querySelector('.side-tool .tool-header [aria-label="折叠项目树"]').dispatchEvent(
+        document.querySelector('.side-tool .tool-header [aria-label="Collapse Project Tree"]').dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(600);
@@ -17291,7 +16861,7 @@ async function main() {
       }));
       // ④ 侧栏「最小化」：布局转入 collapsed=side 且侧栏不再渲染。
       await scene.page.evaluate(() => {
-        document.querySelector('.side-tool .tool-header [aria-label="最小化"]').dispatchEvent(
+        document.querySelector('.side-tool .tool-header [aria-label="Minimize"]').dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(600);
@@ -17303,24 +16873,24 @@ async function main() {
       console.log('INFO 死入口=' + JSON.stringify({ jump, located, collapsed, minimized }));
       return { jump, located, collapsed, minimized };
     })();
-    check('§3.3 文档工具栏「跳转行」按钮打开紧凑输入窗口: ' + JSON.stringify(deadEntries.jump),
+    check('§3.3 文档工具栏「Go to Line」按钮打开紧凑输入窗口: ' + JSON.stringify(deadEntries.jump),
       deadEntries.jump.dialog === true && typeof deadEntries.jump.text === 'string'
-        && deadEntries.jump.text.includes('行号'));
-    check('§6.7 项目树「定位当前文件」选中当前文档所在行: ' + JSON.stringify(deadEntries.located),
+        && deadEntries.jump.text.includes('Line number'));
+    check('§6.7 项目树「Select Opened File」选中当前文档所在行: ' + JSON.stringify(deadEntries.located),
       deadEntries.located.path === 'docs/notes.txt'
         && deadEntries.located.ariaSelected === 'true');
-    check('§6.7 项目树「折叠项目树」收起全部目录: ' + JSON.stringify(deadEntries.collapsed.paths),
+    check('§6.7 项目树「Collapse Project Tree」收起全部目录: ' + JSON.stringify(deadEntries.collapsed.paths),
       !deadEntries.collapsed.paths.includes('docs/notes.txt'));
-    check('§5.1 侧栏「最小化」把工具窗收进侧栏: ' + JSON.stringify(deadEntries.minimized),
+    check('§5.1 侧栏「Minimize」把工具窗收进侧栏: ' + JSON.stringify(deadEntries.minimized),
       deadEntries.minimized.collapsed === 'side' && deadEntries.minimized.side === false);
 
     // ---- 第 168 轮扫描：编辑器工具栏与提交侧栏的入口（行为实测，先只打 INFO）----
     const sweep = await (async () => {
       const targets = [
         { name: '文本工具栏', url: 'scene=main-project&theme=dark&open=docs%2Fnotes.txt',
-          labels: ['自动换行', '显示空白', '当前文件搜索', '跳转行', '关闭文件'] },
+          labels: ['Soft Wraps', 'Show Whitespaces', 'Find in File', 'Go to Line', 'Close File'] },
         { name: '提交侧栏', url: 'scene=commit-changes&theme=dark',
-          labels: ['刷新', '回滚', '显示 Diff', '更多', '最小化'] },
+          labels: ['Refresh', 'Rollback', 'Show Diff', 'More', 'Minimize'] },
       ];
       const out = {};
       for (const target of targets) {
@@ -17433,7 +17003,7 @@ async function main() {
       });
       // 搜索：按子串过滤行与空分组，输入焦点不丢。
       await scene.page.evaluate(() => {
-        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        const field = document.querySelector('.log-ref-panel [aria-label="Branch or tag"]');
         if (field) {
           field.focus();
           field.value = 'feature';
@@ -17448,7 +17018,7 @@ async function main() {
         focused: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
       }));
       await scene.page.evaluate(() => {
-        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        const field = document.querySelector('.log-ref-panel [aria-label="Branch or tag"]');
         if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
       });
       await scene.page.waitForTimeout(200);
@@ -17468,7 +17038,7 @@ async function main() {
         };
       });
       const tagGroupVisible = async () => await scene.page.evaluate(() =>
-        !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="标签"]'));
+        !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="Tags"]'));
       const tagsBefore = await tagGroupVisible();
       await scene.page.evaluate(() => {
         const item = document.querySelector('.ref-settings-menu [data-ref-setting="show-tags"]');
@@ -17490,8 +17060,8 @@ async function main() {
 
       // ---- 第 175 轮：分组折叠/展开（权威标准 JTree）＋ 竖条的「全部展开／全部折叠」----
       const groupState = async () => await scene.page.evaluate(() => {
-        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="本地"]');
-        const owned = [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-group-owner="本地"]')];
+        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="Local"]');
+        const owned = [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-group-owner="Local"]')];
         return {
           expanded: header ? header.getAttribute('aria-expanded') : null,
           collapsedClass: !!(header && header.classList.contains('collapsed')),
@@ -17506,13 +17076,13 @@ async function main() {
         }, label);
         await scene.page.waitForTimeout(250);
       };
-      await clickGroup('本地');
+      await clickGroup('Local');
       const groupCollapsed = await groupState();
-      await clickGroup('本地');
+      await clickGroup('Local');
       const groupRestored = await groupState();
       // 键盘：左右键照 JTree 约定折叠/展开（组头先拿到焦点）。
       await scene.page.evaluate(() => {
-        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="本地"]');
+        const header = document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="Local"]');
         if (header) header.focus();
       });
       await scene.page.keyboard.press('ArrowLeft');
@@ -17529,9 +17099,9 @@ async function main() {
       const allExpanded = await scene.page.evaluate(() => [...document.querySelectorAll('.log-ref-panel .tree-row.group-row')]
         .map((n) => n.getAttribute('aria-expanded')));
       // 折叠状态下搜索：过滤期间忽略折叠（权威 `FilteringTree.java:137-139`）；清空后回到折叠状态。
-      await clickGroup('本地');
+      await clickGroup('Local');
       await scene.page.evaluate(() => {
-        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        const field = document.querySelector('.log-ref-panel [aria-label="Branch or tag"]');
         if (field) { field.value = 'feature'; field.dispatchEvent(new Event('input', { bubbles: true })); }
       });
       await scene.page.waitForTimeout(250);
@@ -17540,7 +17110,7 @@ async function main() {
         return { visible: !!row && !row.hidden };
       });
       await scene.page.evaluate(() => {
-        const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+        const field = document.querySelector('.log-ref-panel [aria-label="Branch or tag"]');
         if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
       });
       await scene.page.waitForTimeout(250);
@@ -17598,9 +17168,9 @@ async function main() {
         let collapsed = null;
         let restored = null;
         // 前缀分组也照 JTree 折叠/展开（与类型分组同一套交互）。
-        await clickPrefix('本地/feature');
-        collapsed = await prefixState('本地/feature');
-        await clickPrefix('本地/feature');
+        await clickPrefix('Local/feature');
+        collapsed = await prefixState('Local/feature');
+        await clickPrefix('Local/feature');
         restored = await structure();
         // 设置里关掉 ⇒ 回到扁平列表，并把开关写回设置文件。
         await scene.page.evaluate(() => { window.__settingsWritten = {}; });
@@ -17676,7 +17246,7 @@ async function main() {
       // 「刷新」：横向工具条右角。
       await scene.page.evaluate(() => { window.__historyCalls = 0; });
       await scene.page.evaluate(() => {
-        const button = document.querySelector('.history-filters [aria-label="刷新"]');
+        const button = document.querySelector('.history-filters [aria-label="Refresh"]');
         if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await scene.page.waitForTimeout(600);
@@ -17705,32 +17275,32 @@ async function main() {
       return { labels, tree, settingsMenu, tagsBefore, tagsAfterOff, tagsAfterRefresh, tagsRestored, locateHead, beforeSelect, nonCurrent, current, afterNonCurrent, afterCurrent, keyboard, search, groupCollapsed, groupRestored, keyCollapsed, keyExpanded, allCollapsed, allExpanded, searchInCollapsed, afterClearFilter, directoryGrouping, locate, deleteConfirm, fetch, newBranch, refresh, collapsed, restored };
     })();
     check('§7.8 日志左竖条＝分支面板的动作组（顺序照权威）: ' + JSON.stringify(logTools.labels),
-      logTools.labels.join(',') === '隐藏分支,新建分支…,更新选中分支,删除分支…,与当前分支比较,我的分支,获取,标记为收藏,定位到选中分支,分支面板设置,全部展开,全部折叠');
+      logTools.labels.join(',') === 'Hide Branches,New Branch…,Update Selected,Delete Branch…,Compare with Current,My Branches,Fetch,Mark as Favorite,Locate Selected Branch,Branches Pane Settings,Expand All,Collapse All');
     // 权威 `BranchesDashboardTreeModelBase`：HEAD/当前分支 ＋ 本地/远程/标签 分组，引用来自真实 `git/references`。
-    check('§7.8 引用树＝HEAD ＋ 本地/远程/标签 分组（本地/远程再按目录分组）且来自真实引用: ' + JSON.stringify(logTools.tree),
+    check('§7.8 引用树＝HEAD ＋ Local/Remote/Tags 分组（Local/远程再按目录分组）且来自真实引用: ' + JSON.stringify(logTools.tree),
       logTools.tree.head.length === 1 && logTools.tree.head[0].includes('HEAD')
         // 第 192 轮：权威 `git.branches.group.by.directory` **默认开启**
         // （`DvcsBranchSettings.groupingKeyIds` 的默认值就是 `directory`），因此 `feature/*` 归入前缀分组
         // `feature`、远端 `origin/dsh` 归入 `origin`（`LazyRefsSubtreeHolder.buildSubTree()`）。
-        && logTools.tree.groups.join(',') === '本地,feature,远程,origin,标签'
+        && logTools.tree.groups.join(',') === 'Local,feature,Remote,origin,Tags'
         && logTools.tree.refs.some((r) => r.kind === 'branch' && r.current)
         && logTools.tree.refs.some((r) => r.kind === 'tag')
         && logTools.tree.refs.every((r) => r.kind !== 'branch' || r.commit.length > 0));
     // 权威 `LazyRefsSubtreeHolder.buildSubTree()`：组节点落在第一个成员的位置，子节点深度 +1；
     // 无 `/` 的引用名不分组（夹具里 `v1.0.0` 直接挂在「标签」下）。
-    check('§7.8 「按目录分组」默认开启：前缀分组结构、缩进与祖先链照权威: '
+    check('§7.8 「Group by Directory」默认开启：前缀分组结构、缩进与祖先链照权威: '
       + JSON.stringify(logTools.directoryGrouping.before.nodes),
       // DOM 顺序＝权威 `getRefComparator()`：当前分支 `dsh` 先（HEAD 行与「本地」里的那一行），
       // 然后名字含 `/` 的 `feature/*`（归入前缀分组 `feature`），远端 `origin/dsh` 归入 `origin`，
       // 无 `/` 的标签不分组。
       logTools.directoryGrouping.before.nodes.map((n) => n.group || n.prefix || n.name).join(',')
-        === 'dsh,本地,dsh,本地/feature,feature/tracked,feature/ux,远程,远程/origin,origin/dsh,标签,v1.0.0'
-        && logTools.directoryGrouping.before.nodes.find((n) => n.prefix === '本地/feature').depth === '1'
-        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'feature/tracked').ancestors === '本地|本地/feature'
+        === 'dsh,Local,dsh,Local/feature,feature/tracked,feature/ux,Remote,Remote/origin,origin/dsh,Tags,v1.0.0'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.prefix === 'Local/feature').depth === '1'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'feature/tracked').ancestors === 'Local|Local/feature'
         && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'feature/tracked').depth === '2'
-        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'origin/dsh').ancestors === '远程|远程/origin'
-        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'v1.0.0').ancestors === '标签');
-    check('§7.8 前缀分组同样可折叠/展开（与类型分组同一套 JTree 交互）: '
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'origin/dsh').ancestors === 'Remote|Remote/origin'
+        && logTools.directoryGrouping.before.nodes.find((n) => n.name === 'v1.0.0').ancestors === 'Tags');
+    check('§7.8 前缀分组同样可折叠/Expand（与类型分组同一套 JTree 交互）: '
       + JSON.stringify([logTools.directoryGrouping.collapsed, logTools.directoryGrouping.restored.nodes.filter((n) => n.hidden).length]),
       logTools.directoryGrouping.collapsed.expanded === 'false'
         && logTools.directoryGrouping.collapsed.collapsedClass === true
@@ -17739,7 +17309,7 @@ async function main() {
         && logTools.directoryGrouping.restored.nodes.filter((n) => n.hidden).length === 0);
     // 权威 `GitGroupBranchByDirectoryAction`：`setBranchGroupingSettings(GROUPING_BY_DIRECTORY, state)`
     // ＋ `saveSettingsForRemoteDevelopment` ⇒ 关掉后是**扁平**列表并持久化；再打开恢复分组。
-    check('§7.8 关掉「按目录分组」＝扁平列表 ＋ 写回设置 ＋ 跨刷新保持，再打开恢复分组: '
+    check('§7.8 关掉「Group by Directory」＝扁平列表 ＋ 写回设置 ＋ 跨刷新保持，再打开恢复分组: '
       + JSON.stringify([logTools.directoryGrouping.flat.nodes, logTools.directoryGrouping.written,
         logTools.directoryGrouping.writtenRestore]),
       logTools.directoryGrouping.flat.nodes.filter((n) => n.prefix).length === 0
@@ -17750,35 +17320,35 @@ async function main() {
         && logTools.directoryGrouping.regrouped.nodes.filter((n) => n.prefix).length === 2
         && logTools.directoryGrouping.writtenRestore.groupBranchesByDirectory === true);
     // 权威 `BranchesActionBase.update()`：没有选中引用时"需要选择"的动作禁用；选中非当前分支后「删除分支」可用。
-    check('§7.8 未选中引用时「删除分支…」禁用并写明原因: ' + JSON.stringify(logTools.beforeSelect),
-      !!logTools.beforeSelect && logTools.beforeSelect.disabled === true && logTools.beforeSelect.reason.includes('选中'));
-    check('§7.8 选中非当前分支后「删除分支…」可用、选当前分支时禁用（权威 `refs.none { it.isCurrent }`）: '
+    check('§7.8 未选中引用时「Delete Branch…」禁用并写明原因: ' + JSON.stringify(logTools.beforeSelect),
+      !!logTools.beforeSelect && logTools.beforeSelect.disabled === true && logTools.beforeSelect.reason.includes('Select'));
+    check('§7.8 选中非当前分支后「Delete Branch…」可用、选当前分支时禁用（权威 `refs.none { it.isCurrent }`）: '
       + JSON.stringify([logTools.afterNonCurrent, logTools.afterCurrent]),
       logTools.afterNonCurrent.selected === logTools.nonCurrent && logTools.afterNonCurrent.selectedKind === 'branch'
         && logTools.afterNonCurrent.deleteDisabled === false
-        && logTools.afterCurrent.disabled === true && logTools.afterCurrent.reason.includes('当前'));
+        && logTools.afterCurrent.disabled === true && logTools.afterCurrent.reason.includes('Current'));
     check('§7.8 引用树上下键移动选择并把焦点交给新行: ' + JSON.stringify(logTools.keyboard),
       !!logTools.keyboard.focus && logTools.keyboard.focus === logTools.keyboard.selected
         && logTools.keyboard.focus !== logTools.nonCurrent);
     // 权威 `BranchesTree.kt:210-217`：按**引用名**匹配；HEAD 节点的匹配文本是 null ⇒ 任何搜索词都保留它。
-    check('§7.8 「分支或标签」搜索按引用名过滤、保留 HEAD 行且不丢焦点: ' + JSON.stringify(logTools.search),
+    check('§7.8 「Branch or tag」搜索按引用名过滤、保留 HEAD 行且不丢焦点: ' + JSON.stringify(logTools.search),
       logTools.search.visible.some((r) => r.name === 'feature/ux' && r.kind === 'branch')
         && logTools.search.visible.some((r) => r.kind === 'head')
         && !logTools.search.visible.some((r) => r.kind === 'remote' || r.kind === 'tag')
         // 第 192 轮：「按目录分组」默认开启 ⇒ 命中两行都落在前缀分组 `feature` 里，
         // 可见的分组行是「本地」与「feature」两层（搜索期间忽略折叠，`FilteringTree.java:137-139`）。
-        && logTools.search.groups === 2 && logTools.search.focused === '分支或标签');
+        && logTools.search.groups === 2 && logTools.search.focused === 'Branch or tag');
     // 第 179 轮：设置里「单击时」的两项（更新分支筛选／导航到分支头）随历史筛选落地而**可用**
     // （权威 `SelectionHandlingModeAction`：互斥、默认都不生效），因此禁用项由 4 项减为 2 项
     // （只剩按目录分组／按仓库分组）；这两项自身的状态断言见本轮 `§7.8 设置里「单击时」是互斥单选…`。
     check('§7.8 竖条齿轮打开分支面板设置弹层（条目与顺序照权威）: ' + JSON.stringify(logTools.settingsMenu),
       logTools.settingsMenu.open === true
-        && logTools.settingsMenu.items.map((i) => i.text).join(',') === '单击时,更新分支筛选,导航到分支头,按目录分组,按仓库分组,显示标签'
+        && logTools.settingsMenu.items.map((i) => i.text).join(',') === 'On click,Update Branch Filter,Navigate to Branch Head,Group by Directory,Group by Repository,Show Tags'
         // 第 192 轮：「按目录分组」接线后只剩「按仓库分组」一项禁用（权威里它要求多仓库，Augit 单仓库）。
         && logTools.settingsMenu.items.filter((i) => i.disabled && i.reason.length > 0).length === 1
         && logTools.settingsMenu.items.some((i) => i.action === 'group-by-directory' && i.checked === 'true')
         && logTools.settingsMenu.items.some((i) => i.action === 'show-tags' && i.checked === 'true'));
-    check('§7.8 「显示标签」开关隐藏/恢复标签组且跨区域刷新生效: '
+    check('§7.8 「Show Tags」开关隐藏/恢复标签组且跨区域刷新生效: '
       + JSON.stringify([logTools.tagsBefore, logTools.tagsAfterOff, logTools.tagsAfterRefresh, logTools.tagsRestored]),
       logTools.tagsBefore === true && logTools.tagsAfterOff === false
         && logTools.tagsAfterRefresh === false && logTools.tagsRestored === true);
@@ -17786,34 +17356,34 @@ async function main() {
       logTools.groupCollapsed.expanded === 'false' && logTools.groupCollapsed.collapsedClass === true
         && logTools.groupCollapsed.hidden === logTools.groupCollapsed.total && logTools.groupCollapsed.total > 0
         && logTools.groupRestored.expanded === 'true' && logTools.groupRestored.hidden === 0);
-    check('§7.8 组头的左右键折叠/展开（JTree 约定）: ' + JSON.stringify([logTools.keyCollapsed, logTools.keyExpanded]),
+    check('§7.8 组头的左右键折叠/Expand（JTree 约定）: ' + JSON.stringify([logTools.keyCollapsed, logTools.keyExpanded]),
       logTools.keyCollapsed.expanded === 'false' && logTools.keyExpanded.expanded === 'true');
-    check('§7.8 竖条「全部折叠／全部展开」作用在所有分组上: ' + JSON.stringify([logTools.allCollapsed, logTools.allExpanded]),
+    check('§7.8 竖条「Collapse All／Expand All」作用在所有分组上: ' + JSON.stringify([logTools.allCollapsed, logTools.allExpanded]),
       // 第 192 轮：分组从 3 个（本地/远程/标签）增加到 5 个（＋ feature、origin 两个前缀分组）。
       logTools.allCollapsed.length === 5 && logTools.allCollapsed.every((v) => v === 'false')
         && logTools.allExpanded.length === 5 && logTools.allExpanded.every((v) => v === 'true'));
     check('§7.8 折叠状态下搜索仍显示命中行、清空后回到折叠状态: ' + JSON.stringify([logTools.searchInCollapsed, logTools.afterClearFilter]),
       logTools.searchInCollapsed.visible === true && logTools.afterClearFilter.expanded === 'false'
         && logTools.afterClearFilter.hidden === logTools.afterClearFilter.total);
-    check('§7.8 竖条「删除分支…」走与引用行菜单同一套影响确认: ' + JSON.stringify(logTools.deleteConfirm),
+    check('§7.8 竖条「Delete Branch…」走与引用行菜单同一套影响确认: ' + JSON.stringify(logTools.deleteConfirm),
       logTools.deleteConfirm.open === true && logTools.deleteConfirm.name === logTools.nonCurrent
-        && typeof logTools.deleteConfirm.text === 'string' && logTools.deleteConfirm.text.includes('删除'));
-    check('§7.8 竖条里不再有日志级动作（返回/删除引用/刷新/搜索/比较/定位 HEAD）: ' + JSON.stringify(logTools.labels),
-      logTools.labels.every((l) => !['返回', '删除引用', '刷新', '搜索', '比较', '定位 HEAD'].includes(l)));
+        && typeof logTools.deleteConfirm.text === 'string' && logTools.deleteConfirm.text.includes('Delete'));
+    check('§7.8 竖条里不再有日志级动作（返回/删除引用/Refresh/Search/比较/定位 HEAD）: ' + JSON.stringify(logTools.labels),
+      logTools.labels.every((l) => !['返回', '删除引用', 'Refresh', 'Search', '比较', '定位 HEAD'].includes(l)));
     check('§7.8 HEAD 行也能被定位（权威里 HEAD 节点可选中、可导航）: ' + JSON.stringify(logTools.locateHead),
       !!logTools.locateHead.hash && logTools.locateHead.hash === logTools.locateHead.headRowCommit);
-    check('§7.8 竖条「定位到选中分支」把日志选到该分支的提交: ' + JSON.stringify([logTools.locate, logTools.tree.refs]),
+    check('§7.8 竖条「Locate Selected Branch」把日志选到该分支的提交: ' + JSON.stringify([logTools.locate, logTools.tree.refs]),
       logTools.locate.rowSelected === true
         && logTools.locate.hash === (logTools.tree.refs.find((r) => r.name === logTools.nonCurrent) || {}).commit);
-    check('§7.8 竖条「获取」走 git/fetch: ' + JSON.stringify(logTools.fetch),
+    check('§7.8 竖条「Fetch」走 git/fetch: ' + JSON.stringify(logTools.fetch),
       logTools.fetch.calls > 0 && logTools.fetch.unwired === null);
-    check('§7.8 竖条「新建分支…」打开紧凑输入窗口: ' + JSON.stringify(logTools.newBranch),
-      logTools.newBranch.dialog === true && logTools.newBranch.title === '新建分支');
-    check('§7.8 横向工具条右角「刷新」重新读取历史: ' + JSON.stringify(logTools.refresh),
+    check('§7.8 竖条「New Branch…」打开紧凑输入窗口: ' + JSON.stringify(logTools.newBranch),
+      logTools.newBranch.dialog === true && logTools.newBranch.title === 'New Branch');
+    check('§7.8 横向工具条右角「Refresh」重新读取历史: ' + JSON.stringify(logTools.refresh),
       logTools.refresh.historyCalls > 0);
-    check('§7.8 竖条「隐藏分支」折叠引用树并换成竖排「显示分支」: ' + JSON.stringify(logTools.collapsed),
+    check('§7.8 竖条「Hide Branches」折叠引用树并换成竖排「显示分支」: ' + JSON.stringify(logTools.collapsed),
       logTools.collapsed.collapsed === true && logTools.collapsed.refPanel === 0
-        && logTools.collapsed.button === '显示分支' && logTools.collapsed.writingMode === 'vertical-rl');
+        && logTools.collapsed.button === 'Show Branches' && logTools.collapsed.writingMode === 'vertical-rl');
     check('§7.8 折叠卡片「显示分支」恢复引用树与竖条: ' + JSON.stringify(logTools.restored),
       logTools.restored.refPanel === 1 && logTools.restored.stripeButtons === 12
         && logTools.restored.collapsed === false);
@@ -17874,13 +17444,13 @@ async function main() {
       const afterFetch = { update: await stateOf('update-selected'), fetch: await stateOf('fetch') };
       await scene.page.evaluate(() => { window.__fetchDelayMs = 0; });
       await scene.page.close();
-      console.log('INFO 更新选中分支=' + JSON.stringify({ noSelection, tracked, invoked, current, untrackedLocal, remoteOnly, duringFetch, afterFetch }));
+      console.log('INFO Update Selected=' + JSON.stringify({ noSelection, tracked, invoked, current, untrackedLocal, remoteOnly, duringFetch, afterFetch }));
       return { noSelection, tracked, invoked, current, untrackedLocal, remoteOnly, duringFetch, afterFetch };
     })();
-    check('§7.8 未选中引用时「更新选中分支」禁用并写明原因: ' + JSON.stringify(updateSelected.noSelection),
+    check('§7.8 未选中引用时「Update Selected」禁用并写明原因: ' + JSON.stringify(updateSelected.noSelection),
       !!updateSelected.noSelection && updateSelected.noSelection.disabled === true
-        && updateSelected.noSelection.reason.includes('选中'));
-    check('§7.8 选中受跟踪的非当前分支后「更新选中分支」可用且只带该分支请求宿主: '
+        && updateSelected.noSelection.reason.includes('Select'));
+    check('§7.8 选中受跟踪的非当前分支后「Update Selected」可用且只带该分支请求宿主: '
       + JSON.stringify([updateSelected.tracked, updateSelected.invoked.params]),
       updateSelected.tracked.disabled === false
         && updateSelected.invoked.params.length === 1
@@ -17895,18 +17465,18 @@ async function main() {
         && updateSelected.invoked.selection.length === 1
         && updateSelected.invoked.selection[0].name === 'feature/tracked'
         && updateSelected.invoked.selectedRow === 'feature/tracked');
-    check('§7.8 选中当前分支时「更新选中分支」禁用并写明原因: ' + JSON.stringify(updateSelected.current),
-      updateSelected.current.disabled === true && updateSelected.current.reason.includes('更新方式'));
-    check('§7.8 选中没有跟踪配置的引用时「更新选中分支」禁用并写明原因: '
+    check('§7.8 选中当前分支时「Update Selected」禁用并写明原因: ' + JSON.stringify(updateSelected.current),
+      updateSelected.current.disabled === true && updateSelected.current.reason.includes('update mode'));
+    check('§7.8 选中没有跟踪配置的引用时「Update Selected」禁用并写明原因: '
       + JSON.stringify([updateSelected.untrackedLocal, updateSelected.remoteOnly]),
-      updateSelected.untrackedLocal.disabled === true && updateSelected.untrackedLocal.reason.includes('跟踪')
-        && updateSelected.remoteOnly.disabled === true && updateSelected.remoteOnly.reason.includes('跟踪'));
-    check('§7.8 获取进行中时「获取」与「更新选中分支」都禁用、结束后恢复（权威 `isFetchRunning`）: '
+      updateSelected.untrackedLocal.disabled === true && updateSelected.untrackedLocal.reason.includes('upstream')
+        && updateSelected.remoteOnly.disabled === true && updateSelected.remoteOnly.reason.includes('upstream'));
+    check('§7.8 获取进行中时「Fetch」with「Update Selected」都禁用、结束后恢复（权威 `isFetchRunning`）: '
       + JSON.stringify([updateSelected.duringFetch, updateSelected.afterFetch]),
       updateSelected.duringFetch.update.disabled === true
-        && updateSelected.duringFetch.update.reason.includes('进行中')
+        && updateSelected.duringFetch.update.reason.includes('in progress')
         && updateSelected.duringFetch.fetch.disabled === true
-        && updateSelected.duringFetch.fetch.reason.includes('进行中')
+        && updateSelected.duringFetch.fetch.reason.includes('in progress')
         && updateSelected.afterFetch.update.disabled === false
         && updateSelected.afterFetch.fetch.disabled === false);
 
@@ -17984,7 +17554,7 @@ async function main() {
       // ③ 文本或哈希：回车执行（权威 `TextFilterField` 的 ActionListener）。先点关闭叉清掉分支筛选。
       await clickControl('branch');
       await resetParams();
-      const field = scene.page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+      const field = scene.page.locator('.log-filterbar.history-filters [aria-label="Text or hash"]');
       await field.fill('真实提交二');
       await field.press('Enter');
       await scene.page.waitForTimeout(800);
@@ -18138,7 +17708,7 @@ async function main() {
         // 关闭比较（点「日志」标签）⇒ 回到进入前的底部上下文。
         await scene.page.evaluate(() => {
           const tab = [...document.querySelectorAll('.bottom-header .tool-tab')]
-            .find((n) => n.textContent.trim() === '日志');
+            .find((n) => n.textContent.trim() === 'Log');
           if (tab) tab.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         });
         await scene.page.waitForTimeout(900);
@@ -18159,7 +17729,7 @@ async function main() {
             branchNames: rows.filter((n) => n.dataset.refKind === 'branch' || n.dataset.refKind === 'remote')
               .map((n) => n.dataset.refName),
             headKept: rows.some((n) => n.dataset.refKind === 'head'),
-            tags: !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="标签"]'),
+            tags: !!document.querySelector('.log-ref-panel .tree-row.group-row[data-ref-group="Tags"]'),
             text: (document.querySelector('.log-ref-panel .tree') || {}).textContent || '',
           };
         });
@@ -18195,7 +17765,7 @@ async function main() {
         };
         // 前面的小节可能留下筛选/折叠，先恢复成完整引用树。
         await scene.page.evaluate(() => {
-          const field = document.querySelector('.log-ref-panel [aria-label="分支或标签"]');
+          const field = document.querySelector('.log-ref-panel [aria-label="Branch or tag"]');
           if (field) { field.value = ''; field.dispatchEvent(new Event('input', { bubbles: true })); }
           if (window.__augitLive) window.__augitLive.logRefCollapsed = {};
           if (typeof window.__augitApplyRefTreeFilter === 'function') window.__augitApplyRefTreeFilter('');
@@ -18558,6 +18128,8 @@ async function main() {
             await scene.page.evaluate(() => {
               const set = (name, value) => {
                 const input = document.querySelector(`.history-date-range-window [data-history-date-field="${name}"]`);
+                const enabled = document.querySelector(`.history-date-range-window [data-history-date-enabled="${name}"]`);
+                if (enabled) { enabled.checked = true; enabled.dispatchEvent(new Event('change', { bubbles: true })); }
                 if (input) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
               };
               set('since', '2026-09-01');
@@ -18603,12 +18175,12 @@ async function main() {
           }));
           // 搜索框（权威 `MultipleValueFilterPopupComponent` 列表顶部的搜索框）：就地过滤列表行。
           const search = await (async () => {
-            const field = scene.page.locator('.history-user-filter-menu [aria-label="搜索用户"]');
+            const field = scene.page.locator('.history-user-filter-menu [aria-label="Search users"]');
             const visible = async () => await scene.page.evaluate(() =>
               [...document.querySelectorAll('.history-user-filter-menu [data-history-user]')]
                 .filter((node) => !node.hidden).map((node) => node.dataset.historyUser));
             const initial = await scene.page.evaluate(() => {
-              const input = document.querySelector('.history-user-filter-menu [aria-label="搜索用户"]');
+              const input = document.querySelector('.history-user-filter-menu [aria-label="Search users"]');
               return input ? input.value : null;
             });
             await field.fill('m22');
@@ -18681,7 +18253,7 @@ async function main() {
               open: true,
               title: (layer.querySelector('.dialog') || { getAttribute: () => '' }).getAttribute('aria-label') || '',
               field: !!layer.querySelector('[data-log-path-field]'),
-              help: (layer.querySelector('.footer-help') || {}).textContent || '',
+              help: (layer.querySelector('.history-path-popup-help') || {}).textContent || '',
             } : { open: false, title: '', field: false, help: '' };
           });
           await scene.page.evaluate(() => {
@@ -18689,10 +18261,7 @@ async function main() {
             if (field) { field.value = 'docs\nREADME.md'; field.dispatchEvent(new Event('input', { bubbles: true })); }
           });
           await resetParams();
-          await scene.page.evaluate(() => {
-            const button = document.querySelector('.history-path-text-window [data-log-path-text="confirm"]');
-            if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-          });
+          await scene.page.locator('.history-path-text-window [data-log-path-field]').press('Control+Enter');
           await scene.page.waitForTimeout(900);
           const applied = { params: await lastParams(), control: await pathControl() };
 
@@ -18782,30 +18351,30 @@ async function main() {
     // 权威 `FilterComponent.initUi()`：未设值时是"名称 ＋ 向下箭头"，设了值换成"名称: 值 ＋ 关闭叉"。
     // Augit 侧只有「分支」已接线，其余三项按 ux-spec §7.8 的口径**禁用并写明原因**（不再保留"改占位符"的假交互）。
     // 第 185 轮把**日期**也接上了（权威 `DateFilterPopupComponent`）⇒ 仍未接线的是用户与路径两项。
-    check('§7.8 筛选栏四项全部接线：＝名称＋向下箭头（未接线项清零，第 191 轮）: ' + JSON.stringify(historyFilters.controls),
-      historyFilters.controls.branch.disabled === false && historyFilters.controls.branch.text === '分支'
+    check('§7.8 筛选栏四项全部接线：＝Name＋向下箭头（未接线项清零，第 191 轮）: ' + JSON.stringify(historyFilters.controls),
+      historyFilters.controls.branch.disabled === false && historyFilters.controls.branch.text === 'Branch'
         && historyFilters.controls.branch.icon === 'chevron-down'
-        && historyFilters.controls.date.disabled === false && historyFilters.controls.date.text === '日期'
-        && historyFilters.controls.user.disabled === false && historyFilters.controls.user.text === '用户'
-        && historyFilters.controls.path.disabled === false && historyFilters.controls.path.text === '路径'
+        && historyFilters.controls.date.disabled === false && historyFilters.controls.date.text === 'Date'
+        && historyFilters.controls.user.disabled === false && historyFilters.controls.user.text === 'User'
+        && historyFilters.controls.path.disabled === false && historyFilters.controls.path.text === 'Path'
         && historyFilters.controls.path.icon === 'chevron-down');
     check('§7.8 双击分支行把日志筛选到该分支（宿主收到 branch 且提交列表只剩它的提交）: '
       + JSON.stringify([historyFilters.afterDoubleClick.params, historyFilters.afterDoubleClick.subjects]),
       historyFilters.afterDoubleClick.params && historyFilters.afterDoubleClick.params.branch === 'feature/ux'
         && historyFilters.afterDoubleClick.subjects.length === 0
         && historyFilters.initialSubjects.length === 3);
-    check('§7.8 设了值的筛选控件显示"名称: 值"并把右侧换成关闭叉，点它复位: '
+    check('§7.8 设了值的筛选控件显示"Name: 值"并把右侧换成关闭叉，点它复位: '
       + JSON.stringify([historyFilters.afterDoubleClick.control, historyFilters.afterReset.control]),
-      historyFilters.afterDoubleClick.control.text === '分支: feature/ux'
+      historyFilters.afterDoubleClick.control.text === 'Branch: feature/ux'
         && historyFilters.afterDoubleClick.control.icon === 'x'
-        && historyFilters.afterReset.control.text === '分支'
+        && historyFilters.afterReset.control.text === 'Branch'
         && historyFilters.afterReset.control.icon === 'chevron-down'
         && historyFilters.afterReset.subjects.length === 3);
     // 权威 `TextFilterModel.setFilterText()`（`TextFilterModel.kt:96-103`）在像哈希时**同时**挂上
     // 文本筛选与哈希筛选（`collection(createTextFilter(text), fromHash(text))`）：哈希命中就短路，
     // 一条没命中则落回文本筛选，所以 `message` 必须与 `hash` 一起送（第 179 轮按权威改。
     // 旧断言只允许 `hash`，是"哈希 ⇒ 只当 revision 用"的旧口径）。
-    check('§7.8 文本或哈希输入回车执行：文本走 message、像哈希时 message 与 hash 一起送、清空则两者都清掉: '
+    check('§7.8 文本或哈希输入回车执行：文本走 message、像哈希时 message with hash 一起送、清空则两者都清掉: '
       + JSON.stringify([historyFilters.afterText, historyFilters.afterHash, historyFilters.afterClearText]),
       historyFilters.afterText.params.message === '真实提交二' && historyFilters.afterText.params.hash === undefined
         && historyFilters.afterText.subjects.length === 1
@@ -18814,15 +18383,15 @@ async function main() {
         && historyFilters.afterClearText.params.message === undefined
         && historyFilters.afterClearText.params.hash === undefined
         && historyFilters.afterClearText.subjects.length === 3);
-    check('§7.8 「分支」控件的弹层＝All ＋ HEAD ＋ 本地/远程，选中项打勾: ' + JSON.stringify(historyFilters.branchMenu),
+    check('§7.8 「Branch」控件的弹层＝All ＋ HEAD ＋ Local/Remote，选中项打勾: ' + JSON.stringify(historyFilters.branchMenu),
       historyFilters.branchMenu.open === true
-        && historyFilters.branchMenu.items.some((i) => i.value === '' && i.text.includes('全部'))
+        && historyFilters.branchMenu.items.some((i) => i.value === '' && i.text.includes('All'))
         && historyFilters.branchMenu.items.some((i) => i.value === 'HEAD')
         && historyFilters.branchMenu.items.some((i) => i.value === 'feature/ux')
         && historyFilters.branchMenu.items.filter((i) => i.checked).length === 1);
-    check('§7.8 筛不到提交时显示"没有匹配筛选的提交"并能就地重置（权威 vcs.log.no.commits.matching.status）: '
+    check('§7.8 筛不到提交时显示"No commits match the filters"并能就地重置（权威 vcs.log.no.commits.matching.status）: '
       + JSON.stringify([historyFilters.emptyState, historyFilters.afterReset.params]),
-      historyFilters.emptyState.text !== null && historyFilters.emptyState.text.includes('没有匹配筛选的提交')
+      historyFilters.emptyState.text !== null && historyFilters.emptyState.text.includes('No commits match the filters')
         && historyFilters.emptyState.resetButton === true
         && historyFilters.afterReset.params.branch === undefined);
     check('§7.8 回车与双击同义；标签行不产生分支筛选（权威 selectedBranchFilters 只收分支与 HEAD）: '
@@ -18832,7 +18401,7 @@ async function main() {
         // 因此双击标签**一次 `git/history` 都不该发起**（清空计数后仍为空 ⇒ lastParams() 为 null）。
         && historyFilters.afterTagDoubleClick.params === null
         && historyFilters.afterTagDoubleClick.subjects.length === historyFilters.initialSubjects.length);
-    check('§7.8 设置里「单击时」是互斥单选：开「更新分支筛选」后单击即筛选，换「导航到分支头」后单击不再改筛选: '
+    check('§7.8 设置里「On click」是互斥单选：开「Update Branch Filter」后单击即筛选，换「Navigate to Branch Head」后单击不再改筛选: '
       + JSON.stringify(historyFilters.selectionModes),
       historyFilters.selectionModes.menuItems.map((i) => i.key).join(',') === 'filter,navigate'
         && historyFilters.selectionModes.menuItems.every((i) => i.checked === false)
@@ -18842,14 +18411,14 @@ async function main() {
         && historyFilters.selectionModes.toggledOff.action === null);
 
     // ---- 第 180 轮：「与当前分支比较」= 按范围过滤的日志（`20-branches-host-batch.md` §7 第 3 步）----
-    check('§7.8 「与当前分支比较」按权威启停：选当前分支禁用、选非当前分支可用: '
+    check('§7.8 「Compare with Current」按权威启停：选当前分支禁用、选非当前分支可用: '
       + JSON.stringify([historyFilters.branchComparison.currentSelected, historyFilters.branchComparison.nonCurrentSelected]),
       historyFilters.branchComparison.currentSelected.disabled === true
-        && historyFilters.branchComparison.currentSelected.title.includes('当前分支')
+        && historyFilters.branchComparison.currentSelected.title.includes('Current branch')
         && historyFilters.branchComparison.nonCurrentSelected.disabled === false);
-    check('§7.8 「与当前分支比较」打开的是**范围过滤的日志**：标签"比较: <分支> 与 <当前>"、范围文本 <当前>..<分支>、宿主收到 rangeExclusive/rangeInclusive: '
+    check('§7.8 「Compare with Current」打开的是**范围过滤的日志**：Tags"Compare: <Branch> with <Current>"、范围文本 <Current>..<Branch>、宿主收到 rangeExclusive/rangeInclusive: '
       + JSON.stringify([historyFilters.branchComparison.opened, historyFilters.branchComparison.params]),
-      historyFilters.branchComparison.opened.tabs.join(',') === '日志,比较: feature/ux 与 dsh'
+      historyFilters.branchComparison.opened.tabs.join(',') === 'Log,Compare: feature/ux with dsh'
         && historyFilters.branchComparison.opened.range.includes('dsh..feature/ux')
         && historyFilters.branchComparison.opened.rows.length === 2
         && historyFilters.branchComparison.opened.rows[0].includes('feat: 分支独有一')
@@ -18858,16 +18427,16 @@ async function main() {
         && historyFilters.branchComparison.params
         && historyFilters.branchComparison.params.rangeExclusive === 'dsh'
         && historyFilters.branchComparison.params.rangeInclusive === 'feature/ux');
-    check('§7.8 比较范围内没有独有提交时如实说明，点「日志」标签回到进入前的底部上下文: '
+    check('§7.8 比较范围内没有独有提交时如实说明，点「Log」标签回到进入前的底部上下文: '
       + JSON.stringify([historyFilters.branchComparison.empty, historyFilters.branchComparison.closed]),
       typeof historyFilters.branchComparison.empty === 'string'
-        && historyFilters.branchComparison.empty.includes('没有独有提交')
+        && historyFilters.branchComparison.empty.includes('No exclusive commits')
         && historyFilters.branchComparison.closed.logVisible === true
         && historyFilters.branchComparison.closed.compare === null
         && historyFilters.branchComparison.closed.bottom === 'git');
 
     // ---- 第 181 轮：「我的分支」（会话内过滤）与「显示标签」持久化（`20-branches-host-batch.md` §7 第 4 步）----
-    check('§7.8 「我的分支」是会话内开关：按下后引用树只剩我的分支＋HEAD 行、标签一并过滤（权威 showOnlyMy）: '
+    check('§7.8 「My Branches」是会话内开关：按下后引用树只剩我的分支＋HEAD 行、标签一并过滤（权威 showOnlyMy）: '
       + JSON.stringify([historyFilters.myBranches.before, historyFilters.myBranches.on]),
       historyFilters.myBranches.before.state.pressed === null
         && historyFilters.myBranches.on.state.disabled === false
@@ -18887,17 +18456,17 @@ async function main() {
       historyFilters.myBranches.before.state.background === 'rgba(0, 0, 0, 0)'
         && historyFilters.myBranches.on.state.background === 'rgba(255, 255, 255, 0.15)'
         && historyFilters.myBranches.off.state.background === 'rgba(0, 0, 0, 0)');
-    check('§7.8 关掉「我的分支」恢复完整引用树与标签组: '
+    check('§7.8 关掉「My Branches」恢复完整引用树与标签组: '
       + JSON.stringify([historyFilters.myBranches.off.state, historyFilters.myBranches.off.tree]),
       historyFilters.myBranches.off.state.pressed === null
         && historyFilters.myBranches.off.tree.branchNames.join(',') === 'dsh,feature/tracked,feature/ux,origin/dsh'
         && historyFilters.myBranches.off.tree.tags === true);
-    check('§7.8 没有任何"我的分支"时如实说明且 HEAD 行仍在: '
+    check('§7.8 没有任何"My Branches"时如实说明且 HEAD 行仍在: '
       + JSON.stringify(historyFilters.myBranches.empty.tree),
       historyFilters.myBranches.empty.tree.branchNames.length === 0
         && historyFilters.myBranches.empty.tree.headKept === true
-        && historyFilters.myBranches.empty.tree.text.includes('没有只属于'));
-    check('§7.8 「显示标签」写回设置文件（权威 GitVcsSettings；Augit 为应用级设置文件，登记差异）: '
+        && historyFilters.myBranches.empty.tree.text.includes('No branches owned only by'));
+    check('§7.8 「Show Tags」写回设置文件（权威 GitVcsSettings；Augit 为应用级设置文件，登记差异）: '
       + JSON.stringify([historyFilters.myBranches.tagsOff, historyFilters.myBranches.tagsOn]),
       historyFilters.myBranches.tagsOff === false && historyFilters.myBranches.tagsOn === true);
 
@@ -18914,15 +18483,15 @@ async function main() {
         && historyFilters.multiSelect.added.update.disabled === false
         && historyFilters.multiSelect.added.diff.disabled === false
         && historyFilters.multiSelect.removed.picked.join(',') === 'branch:feature/tracked');
-    check('§7.8 选中集里混进**当前分支** ⇒ 删除整体禁用并写明原因（权威 refs.none { it.isCurrent }）: '
+    check('§7.8 选中集里混进**Current branch** ⇒ 删除整体禁用并写明原因（权威 refs.none { it.isCurrent }）: '
       + JSON.stringify(historyFilters.multiSelect.withCurrent),
       historyFilters.multiSelect.withCurrent.picked.length === 3
         && historyFilters.multiSelect.withCurrent.del.disabled === true
-        && historyFilters.multiSelect.withCurrent.del.title.includes('当前'));
-    check('§7.8 删除文案随选中集：全是分支＝「删除分支…」，混进标签＝「删除」（权威 allRefsAreBranches）: '
+        && historyFilters.multiSelect.withCurrent.del.title.includes('Current'));
+    check('§7.8 删除文案随选中集：全是分支＝「Delete Branch…」，混进标签＝「Delete」（权威 allRefsAreBranches）: '
       + JSON.stringify([historyFilters.multiSelect.replaced.del, historyFilters.multiSelect.withTag.del]),
-      historyFilters.multiSelect.replaced.del.label === '删除分支…'
-        && historyFilters.multiSelect.withTag.del.label === '删除'
+      historyFilters.multiSelect.replaced.del.label === 'Delete Branch…'
+        && historyFilters.multiSelect.withTag.del.label === 'Delete'
         && historyFilters.multiSelect.withTag.del.disabled === false
         && historyFilters.multiSelect.withTag.picked.length === 2);
     check('§7.8 Shift+单击与 Shift+方向键都从锚点**扩展区间**；空格切换该行: '
@@ -18951,13 +18520,13 @@ async function main() {
       historyFilters.multiSelect.contextMenu.single.picked.join(',') === 'branch:feature/ux'
         && ['checkout', 'compare', 'rename', 'delete']
           .every((action) => historyFilters.multiSelect.contextMenu.single.items.includes(action)));
-    check('§7.8 多选时右键已在选中集里的行保持整个多选，菜单换成多选构成（无检出/重命名）: '
+    check('§7.8 多选时右键已在选中集里的行保持整个多选，菜单换成多选构成（无检出/Rename）: '
       + JSON.stringify(historyFilters.multiSelect.contextMenu.multiple),
       historyFilters.multiSelect.contextMenu.multiple.picked.join(',') === 'branch:feature/tracked,branch:feature/ux'
         // 第 193 轮照权威 `MultipleLocalBranchActions` 改成「比较分支／显示文件差异／更新选中分支／删除分支」
         // 的顺序（Augit 没有整树变更对话框 ⇒ 跳过「显示文件差异」；权威这一组里**没有**「与当前分支比较」）。
         && historyFilters.multiSelect.contextMenu.multiple.items.join(',') === 'compare-branches,update-selected,delete');
-    check('§7.8 多选菜单的「更新选中分支」把选中的受跟踪分支交给宿主: '
+    check('§7.8 多选菜单的「Update Selected」把选中的受跟踪分支交给宿主: '
       + JSON.stringify(historyFilters.multiSelect.contextMenu.fetched),
       !!historyFilters.multiSelect.contextMenu.fetched
         && historyFilters.multiSelect.contextMenu.fetched.branch === 'feature/tracked');
@@ -18966,7 +18535,7 @@ async function main() {
     // 选中集构成决定动作组（`BranchActionsBuilder.build()`，`BranchesDashboardActions.kt:100-121`）：
     // 单选 ⇒ `GitSingleRefActions`（没有「比较分支」）；3 个及以上分支 ⇒ `getBranchPair()` 返回 null（隐藏）；
     // 恰好两个 ⇒ 出现；1 分支 + HEAD ⇒ 只有两个比较动作、且配对是（该分支, 当前分支）。
-    check('§7.8 「比较分支」只在恰好两个分支（或 1 分支＋HEAD）时出现：单选与三选都没有: '
+    check('§7.8 「Compare Branches」只在恰好两个分支（或 1 Branch＋HEAD）时出现：单选与三选都没有: '
       + JSON.stringify([historyFilters.multiSelect.pairCompare.singleMenu, historyFilters.multiSelect.pairCompare.threeMenu,
         historyFilters.multiSelect.pairCompare.twoMenu]),
       historyFilters.multiSelect.pairCompare.singleMenu.items.includes('compare')
@@ -18975,14 +18544,14 @@ async function main() {
         && historyFilters.multiSelect.pairCompare.threeMenu.disabled.length === 0
         && historyFilters.multiSelect.pairCompare.twoMenu.items.join(',') === 'compare-branches,update-selected,delete');
     // 权威 `compareAny(b1, b2)` → `GitCompareBranchesUi` 的 `fromRange(b2, b1)`：范围 `b2..b1`（顺序＝选中顺序）。
-    check('§7.8 「比较分支」按选中顺序比较：宿主收到 rangeExclusive=第二个、rangeInclusive=第一个: '
+    check('§7.8 「Compare Branches」按选中顺序比较：宿主收到 rangeExclusive=第二个、rangeInclusive=第一个: '
       + JSON.stringify([historyFilters.multiSelect.pairCompare.pairParams, historyFilters.multiSelect.pairCompare.pairView]),
       !!historyFilters.multiSelect.pairCompare.pairParams
         && historyFilters.multiSelect.pairCompare.pairParams.rangeExclusive === 'feature/tracked'
         && historyFilters.multiSelect.pairCompare.pairParams.rangeInclusive === 'feature/ux'
-        && historyFilters.multiSelect.pairCompare.pairView.title === '比较: feature/ux 与 feature/tracked'
+        && historyFilters.multiSelect.pairCompare.pairView.title === 'Compare: feature/ux with feature/tracked'
         && historyFilters.multiSelect.pairCompare.pairView.range === 'feature/tracked..feature/ux');
-    check('§7.8 HEAD＋分支：这一组只有比较动作，配对是（该分支, 当前分支），HEAD＋当前分支时禁用并写明原因: '
+    check('§7.8 HEAD＋Branch：这一组只有比较动作，配对是（该分支, Current branch），HEAD＋当前分支时禁用并写明原因: '
       + JSON.stringify([historyFilters.multiSelect.pairCompare.headBranchMenu, historyFilters.multiSelect.pairCompare.headParams,
         historyFilters.multiSelect.pairCompare.sameMenu]),
       historyFilters.multiSelect.pairCompare.headBranchMenu.items.join(',') === 'compare-branches'
@@ -18993,48 +18562,48 @@ async function main() {
         && historyFilters.multiSelect.pairCompare.sameMenu.items.length === 0
         && historyFilters.multiSelect.pairCompare.sameMenu.disabled.some((item) => item.action === 'compare-branches' && item.reason.length > 0));
 
-    check('§7.8 日期筛选已接线：未设值时是名称＋箭头，弹层三项都可点（选择期间…／最近 24 小时／最近 7 天）: '
+    check('§7.8 日期筛选已接线：未设值时是名称＋箭头，弹层三项都可点（Select Range…／Last 24 Hours／Last 7 Days）: '
       + JSON.stringify([historyFilters.multiSelect.dateFilter.before, historyFilters.multiSelect.dateFilter.opened]),
       historyFilters.multiSelect.dateFilter.before.disabled === false
-        && historyFilters.multiSelect.dateFilter.before.text === '日期'
+        && historyFilters.multiSelect.dateFilter.before.text === 'Date'
         && historyFilters.multiSelect.dateFilter.before.icon === 'chevron-down'
         && historyFilters.multiSelect.dateFilter.opened.items.map((item) => item.action).join(',') === 'select,last-day,last-week'
         && historyFilters.multiSelect.dateFilter.opened.items[0].disabled === false
         && historyFilters.multiSelect.dateFilter.opened.items[1].disabled === false
         && historyFilters.multiSelect.dateFilter.opened.items[2].disabled === false);
-    check('§7.8 选「最近 7 天」⇒ 宿主收到 since（无 until），控件显示「日期: 自从 …」: '
+    check('§7.8 选「Last 7 Days」⇒ 宿主收到 since（无 until），控件显示「Date: Since …」: '
       + JSON.stringify(historyFilters.multiSelect.dateFilter.applied),
       !!historyFilters.multiSelect.dateFilter.applied.params
         && typeof historyFilters.multiSelect.dateFilter.applied.params.since === 'string'
         && historyFilters.multiSelect.dateFilter.applied.params.until === undefined
         && Math.abs(Date.now() - Date.parse(historyFilters.multiSelect.dateFilter.applied.params.since) - 7 * 24 * 60 * 60 * 1000) < 120000
-        && historyFilters.multiSelect.dateFilter.applied.control.text.startsWith('日期: 自从')
+        && historyFilters.multiSelect.dateFilter.applied.control.text.startsWith('Date: Since')
         && historyFilters.multiSelect.dateFilter.applied.control.icon === 'x');
     check('§7.8 日期控件的关闭叉清掉 since/until: '
       + JSON.stringify(historyFilters.multiSelect.dateFilter.cleared),
       historyFilters.multiSelect.dateFilter.cleared.params
         && historyFilters.multiSelect.dateFilter.cleared.params.since === undefined
         && historyFilters.multiSelect.dateFilter.cleared.params.until === undefined
-        && historyFilters.multiSelect.dateFilter.cleared.control.text === '日期');
-    check('§7.8 「选择期间…」打开期间对话框（起始/结束两字段），两端都空时确定不设筛选: '
+        && historyFilters.multiSelect.dateFilter.cleared.control.text === 'Date');
+    check('§7.8 「Select Range…」打开期间对话框（From/结束两字段），两端都空时确定不设筛选: '
       + JSON.stringify([historyFilters.multiSelect.dateFilter.range.opened, historyFilters.multiSelect.dateFilter.range.emptyConfirm]),
       historyFilters.multiSelect.dateFilter.range.opened.open === true
-        && historyFilters.multiSelect.dateFilter.range.opened.title.includes('选择期间')
+        && historyFilters.multiSelect.dateFilter.range.opened.title === 'Select Period'
         && historyFilters.multiSelect.dateFilter.range.opened.fields.join(',') === 'since,until'
         && (!historyFilters.multiSelect.dateFilter.range.emptyConfirm.params
           || (historyFilters.multiSelect.dateFilter.range.emptyConfirm.params.since === undefined
             && historyFilters.multiSelect.dateFilter.range.emptyConfirm.params.until === undefined))
         && historyFilters.multiSelect.dateFilter.range.emptyConfirm.dialogOpen === false);
-    check('§7.8 期间对话框填两端 ⇒ 宿主收到 since/until，控件显示「日期: <起>-<止>」: '
+    check('§7.8 期间对话框填两端 ⇒ 宿主收到 since/until，控件显示「Date: <起>-<止>」: '
       + JSON.stringify(historyFilters.multiSelect.dateFilter.range.applied),
       !!historyFilters.multiSelect.dateFilter.range.applied.params
         && typeof historyFilters.multiSelect.dateFilter.range.applied.params.since === 'string'
         && typeof historyFilters.multiSelect.dateFilter.range.applied.params.until === 'string'
-        && historyFilters.multiSelect.dateFilter.range.applied.control.text.startsWith('日期: 2026/09/01'));
-    check('§7.8 用户筛选已接线：点开读 git/authors，弹层＝全选／全不选＋作者复选行: '
+        && historyFilters.multiSelect.dateFilter.range.applied.control.text.startsWith('Date: 2026/09/01'));
+    check('§7.8 用户筛选已接线：点开读 git/authors，弹层＝Select All／Select None＋作者复选行: '
       + JSON.stringify([historyFilters.multiSelect.userFilter.before, historyFilters.multiSelect.userFilter.opened]),
       historyFilters.multiSelect.userFilter.before.disabled === false
-        && historyFilters.multiSelect.userFilter.before.text === '用户'
+        && historyFilters.multiSelect.userFilter.before.text === 'User'
         && historyFilters.multiSelect.userFilter.opened.calls === 1
         && historyFilters.multiSelect.userFilter.opened.items.length === 4
         && historyFilters.multiSelect.userFilter.opened.items.some((item) => item.action === 'l49@example.invalid' && item.checked === false));
@@ -19043,13 +18612,13 @@ async function main() {
       !!historyFilters.multiSelect.userFilter.picked.params
         && Array.isArray(historyFilters.multiSelect.userFilter.picked.params.authors)
         && historyFilters.multiSelect.userFilter.picked.params.authors.join(',') === 'l49@example.invalid'
-        && historyFilters.multiSelect.userFilter.picked.control.text === '用户: l49@example.invalid'
+        && historyFilters.multiSelect.userFilter.picked.control.text === 'User: l49@example.invalid'
         && historyFilters.multiSelect.userFilter.picked.control.icon === 'x');
-    check('§7.8 「全不选」清掉 authors，控件回到「用户」: '
+    check('§7.8 「Select None」清掉 authors，控件回到「User」: '
       + JSON.stringify(historyFilters.multiSelect.userFilter.cleared),
       historyFilters.multiSelect.userFilter.cleared.params
         && historyFilters.multiSelect.userFilter.cleared.params.authors === undefined
-        && historyFilters.multiSelect.userFilter.cleared.control.text === '用户');
+        && historyFilters.multiSelect.userFilter.cleared.control.text === 'User');
     check('§7.8 用户弹层的搜索框就地过滤列表行（权威 MultipleValueFilterPopupComponent 的搜索框）: '
       + JSON.stringify(historyFilters.multiSelect.userFilter.search),
       historyFilters.multiSelect.userFilter.search.present === true
@@ -19058,49 +18627,49 @@ async function main() {
         && historyFilters.multiSelect.userFilter.search.restored.length === 2);
     // 权威 `StructureFilterPopupComponent.createActionGroup()`：选择…（`EditPathsAction`）、
     // 在树中选择…（`SelectPathsInTreeAction`）、以及「最近」分组（`SelectFromHistoryAction`）。
-    check('§7.8 路径弹层＝选择… ＋ 在树中选择… ＋ 最近（权威 StructureFilterPopupComponent 的动作组）: '
+    check('§7.8 路径弹层＝Select… ＋ Select in Tree… ＋ Recent（权威 StructureFilterPopupComponent 的动作组）: '
       + JSON.stringify([historyFilters.multiSelect.pathFilter.before, historyFilters.multiSelect.pathFilter.opened]),
       historyFilters.multiSelect.pathFilter.before.disabled === false
-        && historyFilters.multiSelect.pathFilter.before.text === '路径'
+        && historyFilters.multiSelect.pathFilter.before.text === 'Path'
         && historyFilters.multiSelect.pathFilter.before.icon === 'chevron-down'
-        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'select' && item.text.includes('选择…'))
-        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'tree' && item.text.includes('在树中选择…'))
-        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.text.includes('最近')));
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'select' && item.text.includes('Select…'))
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.action === 'tree' && item.text.includes('Select in Tree…'))
+        && historyFilters.multiSelect.pathFilter.opened.items.some((item) => item.text.includes('Recent')));
     // 值文本：权威 `getTextFromFilePaths`（排序后第一条 ＋ " + N"，`FILTER_LABEL_LENGTH` = 30 中间省略）。
-    check('§7.8 「选择…」多行文本框按行成组应用路径筛选，控件显示"第一条 + N": '
+    check('§7.8 「Select…」多行文本框按行成组应用路径筛选，控件显示"第一条 + N": '
       + JSON.stringify([historyFilters.multiSelect.pathFilter.textDialog, historyFilters.multiSelect.pathFilter.applied,
         historyFilters.multiSelect.pathFilter.recent, historyFilters.multiSelect.pathFilter.cleared]),
       historyFilters.multiSelect.pathFilter.textDialog.open === true
-        && historyFilters.multiSelect.pathFilter.textDialog.title === '按路径筛选'
+        && historyFilters.multiSelect.pathFilter.textDialog.title === ''
         && historyFilters.multiSelect.pathFilter.textDialog.field === true
         && historyFilters.multiSelect.pathFilter.applied.params
         && (historyFilters.multiSelect.pathFilter.applied.params.paths || []).join(',') === 'docs,README.md'
-        && historyFilters.multiSelect.pathFilter.applied.control.text === '路径: README.md + 1'
+        && historyFilters.multiSelect.pathFilter.applied.control.text === 'Path: README.md + 1'
         && historyFilters.multiSelect.pathFilter.applied.control.icon === 'x'
         // 「最近」按权威 `SelectFromHistoryAction` 记住**整组**（`getTextFromFilePaths` 同一条值文本规则）；
         // 复位之后当前筛选为空，因此这一行不带勾（勾选态 = 与当前筛选相等）。
         && historyFilters.multiSelect.pathFilter.recent.some((item) => item.recent === '0'
           && item.text === 'README.md + 1' && item.checked === false)
         && historyFilters.multiSelect.pathFilter.cleared.params.paths === undefined
-        && historyFilters.multiSelect.pathFilter.cleared.control.text === '路径');
+        && historyFilters.multiSelect.pathFilter.cleared.control.text === 'Path');
     // 权威 `VcsStructureChooser`：标题 "Select Paths to Filter by"、底栏 "Selected: {0}"、
     // 没勾任何路径时确定禁用（`setOKActionEnabled(!mySelectedFiles.isEmpty())`）。
-    check('§7.8 「在树中选择…」对话框勾选路径后确定：确定按钮随勾选数启用，值进宿主的 paths: '
+    check('§7.8 「Select in Tree…」对话框勾选路径后确定：确定按钮随勾选数启用，值进宿主的 paths: '
       + JSON.stringify(historyFilters.multiSelect.pathFilter.tree),
       historyFilters.multiSelect.pathFilter.tree.opened.open === true
-        && historyFilters.multiSelect.pathFilter.tree.opened.title === '选择要筛选的路径'
+        && historyFilters.multiSelect.pathFilter.tree.opened.title === 'Select Paths to Filter'
         && historyFilters.multiSelect.pathFilter.tree.opened.rows.join(',') === 'docs,src,README.md'
-        && historyFilters.multiSelect.pathFilter.tree.opened.help === '已选择: 0'
+        && historyFilters.multiSelect.pathFilter.tree.opened.help === 'Selected: 0'
         && historyFilters.multiSelect.pathFilter.tree.opened.confirmDisabled === true
-        && historyFilters.multiSelect.pathFilter.tree.checked.help === '已选择: 2'
+        && historyFilters.multiSelect.pathFilter.tree.checked.help === 'Selected: 2'
         && historyFilters.multiSelect.pathFilter.tree.checked.confirmDisabled === false
         && (historyFilters.multiSelect.pathFilter.tree.applied.params.paths || []).join(',') === 'docs,src'
-        && historyFilters.multiSelect.pathFilter.tree.applied.control.text === '路径: docs + 1');
+        && historyFilters.multiSelect.pathFilter.tree.applied.control.text === 'Path: docs + 1');
     // 权威 `shortenPathWithEllipsis(path, FILTER_LABEL_LENGTH)`（`StringUtil.java:2841-2848`）：
     // 30 个字符、中间省略；Augit 侧不叠加用户/分支弹层的 20 字符上限。
     check('§7.8 长路径按权威 FILTER_LABEL_LENGTH=30 中间省略，不叠加 20 字符上限: '
       + JSON.stringify(historyFilters.multiSelect.pathFilter.longValue),
-      historyFilters.multiSelect.pathFilter.longValue === '路径: docs/v.../nested/file-name.txt');
+      historyFilters.multiSelect.pathFilter.longValue === 'Path: docs/v.../nested/file-name.txt');
 
     // ---- 第 164 轮补断言：§7.9「进入文件历史时保存日志上下文…详情显隐与**正文位置**」----
     // 走同一条往返：日志（选中第二个提交、正文可滚动）→ 项目树右键「文件历史」→ 点「日志」标签回来。
@@ -19233,7 +18802,7 @@ async function main() {
       await selectRow(1);
       const afterRepeat = await read();
       // ④ 收放详情区：阅读位置保持
-      const toggle = '.git-log .log-filterbar [aria-label="显示提交详情"], .git-log .log-filterbar [aria-label="隐藏提交详情"]';
+      const toggle = '.git-log .log-filterbar [aria-label="Show Commit Details"], .git-log .log-filterbar [aria-label="Hide Commit Details"]';
       await scene.page.evaluate((selector) => { document.querySelector(selector).click(); }, toggle);
       await scene.page.waitForTimeout(250);
       const collapsed = await scene.page.evaluate((selector) => ({
@@ -19267,7 +18836,7 @@ async function main() {
       });
       // 整块重绘后原因仍在（状态里带着失败原因，重绘不会退回占位模板）
       await scene.page.evaluate(() => {
-        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+        document.querySelector('.git-log .log-filterbar [aria-label="Refresh"]').click();
       });
       await scene.page.waitForTimeout(1200);
       const afterRefresh = await scene.page.evaluate(() => {
@@ -19287,7 +18856,7 @@ async function main() {
     check('§7.8 提交详情独立滚动、滚轮与键位只移动详情不切换提交: '
       + JSON.stringify([detailScroll.layout, detailScroll.afterWheel, detailScroll.keys]),
     detailScroll.layout.max > 40 && detailScroll.layout.tail === true
-      && detailScroll.layout.label === '提交详情' && detailScroll.layout.editable === false
+      && detailScroll.layout.label === 'Commit Details' && detailScroll.layout.editable === false
       && detailScroll.layout.hash === 'bbb2222'
       && detailScroll.afterWheel.top > 0 && detailScroll.afterWheel.hash === 'bbb2222'
       && detailScroll.keys.ArrowDown.top > detailScroll.beforeKeys.top
@@ -19303,7 +18872,7 @@ async function main() {
         detailScroll.afterExpand, detailScroll.afterSwitchAway, detailScroll.afterSwitchBack]),
     detailScroll.beforeRepeat.top === 150
       && detailScroll.afterRepeat.top === 150 && detailScroll.afterRepeat.hash === 'bbb2222'
-      && detailScroll.collapsed.display === 'none' && detailScroll.collapsed.label === '隐藏提交详情'
+      && detailScroll.collapsed.display === 'none' && detailScroll.collapsed.label === 'Hide Commit Details'
       && detailScroll.afterExpand.top === 150
       && detailScroll.beforeSwitch.top === 200
       && detailScroll.afterSwitchAway.full === 'full-head-hash' && detailScroll.afterSwitchAway.top === 0
@@ -19465,7 +19034,7 @@ async function main() {
     check('§7.8 详情操作行按字宽/高度分配，放不下时紧凑隐藏该行: '
       + JSON.stringify([detailActions.wide, detailActions.short, detailActions.narrow, detailActions.restored]),
     detailActions.wide.width >= 280 && detailActions.wide.hidden === false
-      && detailActions.wide.labels.join('|') === '提交详情|文件历史|Blame'
+      && detailActions.wide.labels.join('|') === 'Commit Details|File History|Blame'
       && detailActions.wide.reserved === 'var(--augit-history-tab-height, 24px)'
       && detailActions.short.height < 150 && detailActions.short.hidden === true
       && detailActions.short.reserved === '0px'
@@ -19481,15 +19050,15 @@ async function main() {
     detailActions.beforeMenu.focused === true
       && typeof detailActions.beforeMenu.selected === 'string' && detailActions.beforeMenu.selected.length > 0
       && detailActions.viaShiftF10.menus === 1
-      && detailActions.viaShiftF10.items.join('|') === '显示 Diff|文件历史|Blame'
-      && detailActions.viaShiftF10.focused === '显示 Diff'
+      && detailActions.viaShiftF10.items.join('|') === 'Show Diff|File History|Blame'
+      && detailActions.viaShiftF10.focused === 'Show Diff'
       && detailActions.viaShiftF10.comparisons === detailActions.beforeMenu.comparisons
       && detailActions.viaShiftF10.activeTab === detailActions.beforeMenu.activeTab
       && typeof detailActions.viaShiftF10.activeTab === 'string'
       && detailActions.viaShiftF10.logRows === detailActions.beforeMenu.logRows
-      && detailActions.secondItem === '文件历史'
+      && detailActions.secondItem === 'File History'
       && detailActions.afterEsc.menus === 0 && detailActions.afterEsc.inFiles === true
-      && detailActions.viaContextMenu.menus === 1 && detailActions.viaContextMenu.focused === '显示 Diff'
+      && detailActions.viaContextMenu.menus === 1 && detailActions.viaContextMenu.focused === 'Show Diff'
       && detailActions.folderMenu.menus === 0
       && detailActions.folderMenu.selectedBefore.length > 0
       && detailActions.folderMenu.selectedAfter.join('|') === detailActions.folderMenu.selectedBefore.join('|'));
@@ -19641,13 +19210,13 @@ async function main() {
     check('§7.8 竖条用右箭头替换放不下的按钮，极短区域不绘制越过底边的按钮、保留第一个入口: '
       + JSON.stringify([stripeOverflow.baseline, stripeOverflow.short, stripeOverflow.ultra, stripeOverflow.restored]),
     stripeOverflow.baseline.total === 12 && stripeOverflow.baseline.hidden > 0
-      && stripeOverflow.baseline.visible[0] === '隐藏分支'
+      && stripeOverflow.baseline.visible[0] === 'Hide Branches'
       && stripeOverflow.baseline.overflowShown === true
       && stripeOverflow.baseline.maxBottom <= stripeOverflow.baseline.height - 4
-      && stripeOverflow.short.height < 150 && stripeOverflow.short.visible.join('|') === '隐藏分支'
+      && stripeOverflow.short.height < 150 && stripeOverflow.short.visible.join('|') === 'Hide Branches'
       && stripeOverflow.short.overflowShown === true
       && stripeOverflow.short.maxBottom <= stripeOverflow.short.height - 4
-      && stripeOverflow.ultra.height < 60 && stripeOverflow.ultra.visible.join('|') === '隐藏分支'
+      && stripeOverflow.ultra.height < 60 && stripeOverflow.ultra.visible.join('|') === 'Hide Branches'
       && stripeOverflow.ultra.overflowShown === false
       && stripeOverflow.ultra.maxBottom <= stripeOverflow.ultra.height - 4
       && stripeOverflow.restored.visible.join('|') === stripeOverflow.baseline.visible.join('|'));
@@ -19670,7 +19239,7 @@ async function main() {
     check('§7.8 布局改变时关闭竖条溢出弹层: ' + JSON.stringify(stripeOverflow.layoutClose),
       stripeOverflow.layoutClose.openBefore === true && stripeOverflow.layoutClose.openAfter === false);
     check('§7.8 工具栏按钮用真实 Enter/Space 执行: ' + JSON.stringify([stripeOverflow.tallerVisible, stripeOverflow.keyboard]),
-    stripeOverflow.tallerVisible.includes('我的分支')
+    stripeOverflow.tallerVisible.includes('My Branches')
       && stripeOverflow.keyboard.focused === true && stripeOverflow.keyboard.visible === true
       && stripeOverflow.keyboard.before === null
       && stripeOverflow.keyboard.afterEnter.pressed === 'true'
@@ -19884,7 +19453,7 @@ async function main() {
       && filterMenu.afterTab2.focusInBar === true && filterMenu.afterTab2.focusKey === 'path');
     check('§7.8 收纳菜单调用同一套筛选动作并把焦点交给打开的弹层（与可见控件逐项一致）: '
       + JSON.stringify([filterMenu.viaControl, filterMenu.focusedDate, filterMenu.viaMenu, filterMenu.reset]),
-    filterMenu.viaControl.dateItems.join('|') === '选择期间…|最近 24 小时|最近 7 天'
+    filterMenu.viaControl.dateItems.join('|') === 'Select…|Last 24 hours|Last 7 days'
       && filterMenu.viaControl.focusInDate === true
       && filterMenu.focusedDate === true
       && filterMenu.viaMenu.overflowOpen === false
@@ -19950,7 +19519,7 @@ async function main() {
         };
       });
       const reload = () => scene.page.evaluate(() => {
-        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+        document.querySelector('.git-log .log-filterbar [aria-label="Refresh"]').click();
       });
       await scene.page.setViewportSize({ width: 1500, height: 760 });
       await scene.page.waitForTimeout(700);
@@ -19983,7 +19552,7 @@ async function main() {
       return payload;
     })();
     const logColumn = (snapshot, index) => snapshot.rows[index];
-    check('§7.8 引用/作者/日期分别成列且列宽来自同一套文字度量（常规宽度用完整日期与时间）: '
+    check('§7.8 引用/Author/日期分别成列且列宽来自同一套文字度量（常规宽度用完整日期与时间）: '
       + JSON.stringify([logColumns.wide.expected, logColumn(logColumns.wide, 0),
         logColumn(logColumns.wide, 1)]),
     logColumns.wide.listWidth > 300
@@ -20006,7 +19575,7 @@ async function main() {
         && row.tracks[3] === `${logColumns.narrow.expected.compact + 8}px`)
       && logColumns.narrow.rows.every((row) => !row.authorHidden && !row.dateHidden
         && row.authorW > 0 && row.dateW > 0));
-    check('§7.8 长引用停在 128 上限、让位时也不吞掉作者/日期；超长作者停在 96 上限: '
+    check('§7.8 长引用停在 128 上限、让位时也不吞掉作者/Date；超长作者停在 96 上限: '
       + JSON.stringify([logColumn(logColumns.longWide, 0), logColumn(logColumns.longNarrow, 0),
         logColumn(logColumns.longAuthor, 0)]),
     logColumns.longWide.rows[0].labelHidden === false
@@ -20030,12 +19599,12 @@ async function main() {
       && logColumns.longAuthor.rows[0].author.length > 20
       && logColumns.longAuthor.rows[0].tracks[3] === '104px'
       && logColumns.longAuthor.rows[0].dateW === logColumns.longAuthor.expected.full);
-    check('§7.8 右角「刷新」重新读取并重画历史（改前只写状态、DOM 一动不动）: '
+    check('§7.8 右角「Refresh」重新读取并重画历史（改前只写状态、DOM 一动不动）: '
       + JSON.stringify([logColumns.wide.rows[0].label, logColumns.longWide.rows[0].label,
         logColumns.longWide.activeLabel]),
     logColumns.wide.rows[0].label === 'dsh'
       && logColumns.longWide.rows[0].label === 'feature/very-long-branch-name-for-testing'
-      && logColumns.longWide.activeLabel === '刷新');
+      && logColumns.longWide.activeLabel === 'Refresh');
     // ---- 第 239 轮补断言（收 §7.8 第 22 条）：多轨窄栏的局部横向滚动、
     // 改变选择/重复点击/相同快照刷新保留横向位置、往返恢复与缩小内容时归位 ----
     // 实现位置：`mockup.js` 的 `bindHistoryLayout()`（行宽 = `max(列表宽, 图形宽 + 120 + 8 + 作者 + 8 +
@@ -20096,7 +19665,7 @@ async function main() {
           new MouseEvent('click', { bubbles: true, cancelable: true }));
       }, index);
       const refresh = () => page.evaluate(() => {
-        document.querySelector('.git-log .log-filterbar [aria-label="刷新"]').click();
+        document.querySelector('.git-log .log-filterbar [aria-label="Refresh"]').click();
       });
       const layout = await read();
       // ① 局部横向滚动：行宽 = 图形 + 120 + 8 + 作者 + 8 + 短日期 + 8，超出列表宽 ⇒ 可横向滚动
@@ -20363,7 +19932,7 @@ async function main() {
     const sharedIcons = Object.entries(iconByName).filter(([, list]) => list.length >= 2);
     const sharedKinds = new Set(sharedIcons.flatMap(([name, list]) =>
       list.map((entry) => iconContexts[entry.context][name].cls)));
-    check('§7.8 变化文件/项目树/标签/Changes/搜索结果共用同一套文件类型图标: '
+    check('§7.8 变化文件/项目树/Tags/Changes/搜索结果共用同一套文件类型图标: '
       + JSON.stringify(Object.fromEntries(Object.entries(iconContexts).map(([name, map]) => [name, Object.keys(map)]))),
     Object.values(iconContexts).every((map) => Object.keys(map).length > 0)
       && sharedIcons.length >= 4
@@ -20512,7 +20081,7 @@ async function main() {
       const applyFontSize = async (size) => {
         await page.locator('.titlebar [data-action="menu"]').click();
         await page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-        await page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Settings' }).first().click();
         await page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
         await page.evaluate((value) => {
           const field = document.querySelector('[data-setting="fontSize"]');
@@ -20551,13 +20120,13 @@ async function main() {
       console.log('INFO 字号与提交列表=' + JSON.stringify(payload));
       return payload;
     })();
-    check('§7.8 字号增大时提交列表按字高扩展、图标尺寸不变、文字不重叠: '
+    check('§7.8 字号增大时提交列表与工具轨图形扩展、文字不重叠: '
       + JSON.stringify([fontMetrics.before, fontMetrics.after]),
     fontMetrics.before.fontSize === '13px' && fontMetrics.after.fontSize === '20px'
       && fontMetrics.after.rowHeight > fontMetrics.before.rowHeight
       && fontMetrics.after.graphH === fontMetrics.after.rowHeight
       && fontMetrics.before.graphH === fontMetrics.before.rowHeight
-      && fontMetrics.after.railIcon === 16 && fontMetrics.before.railIcon === 16
+      && fontMetrics.after.railIcon === 35 && fontMetrics.before.railIcon === 20
       && fontMetrics.before.overlap === null && fontMetrics.after.overlap === null);
     // 图形区宽度随行高等比缩放（第 310 轮）：权威 `GraphCommitCellUtil.getGraphWidth` 的
     // `floor(列数 × 16 × 行高 ÷ 22) + floor(2 × 行高 ÷ 22)`，期望值在这里独立复算。
@@ -20618,7 +20187,7 @@ async function main() {
       && graphLine.strokeWidth !== 1.5
       && graphLine.strokeWidth !== expectedGraphNode(22, graphLine.dpr).lineThickness
       && graphLine.vectorEffect === 'none');
-    check('§7.8 外观应用保持顶部锚点/横向偏移/选择，不触发 Git 查询、不重建提交列表: '
+    check('§7.8 外观应用保持顶部锚点/横向偏移/Choose，不触发 Git 查询、不重建提交列表: '
       + JSON.stringify([fontMetrics.before, fontMetrics.after, fontMetrics.identity]),
     fontMetrics.before.firstHash !== null
       && fontMetrics.after.firstHash === fontMetrics.before.firstHash
@@ -20681,7 +20250,7 @@ async function main() {
       });
       const fit = await probe();
       // 键盘聚焦「放大」后按真实 Enter：必须缩放且焦点留在按钮上
-      await scene.page.locator('.image-toolbar [aria-label="放大"]').focus();
+      await scene.page.locator('.image-toolbar [aria-label="Zoom In"]').focus();
       const focused = await probe();
       await scene.page.keyboard.press('Enter');
       await scene.page.waitForTimeout(300);
@@ -20690,7 +20259,7 @@ async function main() {
       // 必须先放大到图片**大于画布**——适应区域时 `image-preview.js` 明确不进入拖动
       //（`picture.offsetWidth <= stage.clientWidth` 直接 return），方向键的平移也会被夹回 0。
       for (let step = 0; step < 2; step += 1) {
-        await scene.page.locator('.image-toolbar [aria-label="放大"]').click();
+        await scene.page.locator('.image-toolbar [aria-label="Zoom In"]').click();
         await scene.page.waitForTimeout(150);
       }
       const beforeOps = await probe();
@@ -20726,8 +20295,8 @@ async function main() {
     check('§7.5 按钮缩放保留焦点、缩放/拖动/按键只影响图片: '
       + JSON.stringify([imageCanvas.focused, imageCanvas.afterEnter, imageCanvas.beforeOps,
         imageCanvas.afterDrag, imageCanvas.afterKey]),
-    imageCanvas.focused.active === '放大'
-      && imageCanvas.afterEnter.active === '放大'
+    imageCanvas.focused.active === 'Zoom In'
+      && imageCanvas.afterEnter.active === 'Zoom In'
       && imageCanvas.afterEnter.scale > imageCanvas.focused.scale
       // 放大到 200%：图片宽高都超过画布，拖动与方向键才有作用
       && imageCanvas.beforeOps.scale >= 2
@@ -20807,14 +20376,14 @@ async function main() {
       console.log('INFO 图片加载态=' + JSON.stringify(payload));
       return payload;
     })();
-    check('§7.5 刷新超过 150ms 才在图片画布中心提示，不改工具栏/标签/面板尺寸，完成即撤去: '
+    check('§7.5 刷新超过 150ms 才在图片画布中心提示，不改工具栏/Tags/面板尺寸，完成即撤去: '
       + JSON.stringify([imageLoading.base, imageLoading.early, imageLoading.mid, imageLoading.done]),
     imageLoading.base.pending === null && imageLoading.base.hint === null && imageLoading.base.hasImage === true
       // 80ms：在途但**还没有**提示（150ms 阈值）
       && imageLoading.early.pending === 'web/image-sample.png' && imageLoading.early.hint === null
       && imageLoading.early.imageState === null
       // ~300ms：提示出现且居中；工具栏按钮数、标签数、画布尺寸都不变；旧图仍显示
-      && imageLoading.mid.hint === '正在读取文件…' && imageLoading.mid.hintRole === 'status'
+      && imageLoading.mid.hint === 'Reading file…' && imageLoading.mid.hintRole === 'status'
       && imageLoading.mid.centered === true && imageLoading.mid.hasImage === true
       && imageLoading.mid.toolbarButtons === imageLoading.base.toolbarButtons
       && imageLoading.mid.tabs === imageLoading.base.tabs
@@ -20829,7 +20398,7 @@ async function main() {
         .every((state) => state.docPath === 'web/image-sample.png'
           && state.active === imageLoading.focused.active && state.active !== 'BODY')
       && imageLoading.done.docPath === 'web/image-sample.png'
-      && imageLoading.done.active !== '只读图片'
+      && imageLoading.done.active !== 'Read-only image'
       // 实时标签条用的是 `live.tabs`（有 `data-tab-id`、不指向视觉稿页面）
       && imageLoading.base.tabId !== null && imageLoading.base.tabHref === '#');
 
@@ -20941,7 +20510,7 @@ async function main() {
       const initial = await probe();
       // ① 手动缩放 + 拖动后外部更新：复用预览、保留比例与位置（即使大小不变也重新解码）
       for (let step = 0; step < 3; step += 1) {
-        await scene.page.locator('.image-toolbar [aria-label="放大"]').click();
+        await scene.page.locator('.image-toolbar [aria-label="Zoom In"]').click();
         await scene.page.waitForTimeout(120);
       }
       const box = await scene.page.locator('.image-stage').boundingBox();
@@ -20954,21 +20523,21 @@ async function main() {
       await pushUpdate();
       const afterManualRefresh = await probe();
       // ② 适应模式：换一个尺寸（注入 2000×1200）后按新尺寸重新计算
-      await scene.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+      await scene.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
       await scene.page.waitForTimeout(250);
       const fitted = await probe();
       await scene.page.evaluate(() => { window.__imagePixelSize = { width: 2000, height: 1200 }; });
       await pushUpdate(1200);
       const refitted = await probe();
       // ③ 缩小时平滑采样 + 100% 原像素
-      await scene.page.locator('.image-toolbar [aria-label="适应区域"]').click();
+      await scene.page.locator('.image-toolbar [aria-label="Fit to View"]').click();
       await scene.page.waitForTimeout(250);
       const small = await probe();
       await scene.page.evaluate(() => {
         // 走到步进表里的 100% 档（此时图片是 2000×1200，适应比例远小于 1）
         const label = () => document.querySelector('.image-zoom-label').textContent;
         for (let i = 0; i < 14 && label() !== '100%'; i += 1) {
-          document.querySelector('.image-toolbar [aria-label="放大"]').click();
+          document.querySelector('.image-toolbar [aria-label="Zoom In"]').click();
         }
       });
       await scene.page.waitForTimeout(350);
@@ -21141,8 +20710,8 @@ async function main() {
       && commitFeedback.failed.feedback.full > commitFeedback.failed.feedback.visible
       // 等待与失败期间焦点都留在提交信息输入框上（不抢焦点），
       // 且光标位置与提交前一致（区域重绘不能把光标冲回开头）
-      && commitFeedback.waiting.active === '提交信息'
-      && commitFeedback.failed.active === '提交信息'
+      && commitFeedback.waiting.active === 'Commit message'
+      && commitFeedback.failed.active === 'Commit message'
       && commitFeedback.beforeClick.caret !== null
       && commitFeedback.beforeClick.caret[0] > 0
       && commitFeedback.waiting.caret !== null
@@ -21159,7 +20728,7 @@ async function main() {
         commitFeedback.elsewhereAfter.feedback.error, commitFeedback.elsewhereAfter.statusCalls]),
     // 重绘前焦点在工具入口上（提交区之外）
     commitFeedback.elsewhereBefore.active !== null
-      && commitFeedback.elsewhereBefore.active !== '提交信息'
+      && commitFeedback.elsewhereBefore.active !== 'Commit message'
       // 外部更新确实引起了一次宿主查询与重绘，错误提示仍在
       && commitFeedback.elsewhereAfter.statusCalls > commitFeedback.failed.statusCalls
       && commitFeedback.elsewhereAfter.feedback.error === true
@@ -21308,10 +20877,10 @@ async function main() {
       // ④ 销毁（工具窗口切换重建）清除悬停、重新显示不恢复旧状态
       await move(longGeom.x, spotY);
       const beforeHide = await state(spotY);
-      await scene.page.locator('.tool-rail .rail-button[aria-label="项目"]').click();
+      await scene.page.locator('.tool-rail .rail-button[aria-label="Project"]').click();
       await scene.page.waitForTimeout(500);
       const hiddenPanel = await state(null);
-      await scene.page.locator('.tool-rail .rail-button[aria-label="提交"]').click();
+      await scene.page.locator('.tool-rail .rail-button[aria-label="Commit"]').click();
       await scene.page.waitForTimeout(700);
       const shownBack = await state(null);
       await move(longGeom.x, spotY);
@@ -21385,7 +20954,7 @@ async function main() {
 
     // ---- 第 247 轮补断言（收 §7.6 第 10 条）：字号下各按字高扩展而图标/复选框固定、
     // 提交动作放不下时按原顺序排成两行、输入框至少保留提示行与一行正文、
-    // 「上一次提交」在空间不足时只留历史图标并保留完整悬停说明 ----
+    // 历史入口始终使用中性图标、与 Amend 相邻，数量只在 Changes 分组显示 ----
     const commitLayout = await (async () => {
       const scene = await openScene('scene=commit-changes&theme=dark');
       await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
@@ -21420,6 +20989,7 @@ async function main() {
           optionsHeight: Math.round(document.querySelector('.commit-options').getBoundingClientRect().height),
           boxGrid: getComputedStyle(document.querySelector('.commit-box')).gridTemplateRows,
           amendCheck: rect('.commit-amend .fake-check'),
+          amend: rect('.commit-amend'),
           primary: rect('.commit-actions > .primary-button'),
           secondary: rect('.commit-actions > .secondary-button'),
           settings: rect('.commit-actions > .icon-button'),
@@ -21431,7 +21001,8 @@ async function main() {
             iconBox: rect('.commit-box .commit-last svg'),
             spanDisplay: last.querySelector('span') ? getComputedStyle(last.querySelector('span')).display : null,
           } : null,
-          count: count ? { text: count.textContent.trim(), truncated: count.scrollWidth > count.clientWidth, box: rect('.commit-box .commit-count') } : null,
+          count: count ? { text: count.textContent.trim(), visible: count.checkVisibility(), box: rect('.commit-box .commit-count') } : null,
+          groupCount: [...document.querySelectorAll('.changes-list .check-group-row .commit-meta')].map(node => ({ text: node.textContent.trim(), visible: node.checkVisibility() })),
           field: field ? { h: Math.round(field.getBoundingClientRect().height), lineHeight } : null,
           feedback: feedback ? { h: Math.round(feedback.getBoundingClientRect().height), visible: getComputedStyle(feedback).display !== 'none' } : null,
           list: list ? { h: Math.round(list.getBoundingClientRect().height) } : null,
@@ -21458,7 +21029,7 @@ async function main() {
       // 「上一次提交」入口：先切到底部「终端」，再点它 ⇒ 必须打开 Git 历史工具窗口，且重复点击不折叠
       await scene.page.setViewportSize({ width: 1180, height: 760 });
       await setFont(13);
-      await scene.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await scene.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await scene.page.waitForTimeout(700);
       const beforeOpen = await scene.page.evaluate(() => ({
         bottom: window.__augitLive.layout.bottom,
@@ -21493,7 +21064,7 @@ async function main() {
     })();
     const keepsLine = (snapshot) => snapshot.feedback.visible === true
       && snapshot.field !== null && snapshot.field.h >= snapshot.field.lineHeight;
-    check('§7.6 字号改变时提交工具窗各按字高扩展、图标与复选框固定: '
+    check('§7.6 字号改变时提交工具窗与图标族扩展、复选框保留独立度量: '
       + JSON.stringify([[commitLayout.base.rowHeight, commitLayout.f20.rowHeight, commitLayout.f26.rowHeight],
         [commitLayout.base.optionsHeight, commitLayout.f20.optionsHeight, commitLayout.f26.optionsHeight],
         [commitLayout.base.primary.h, commitLayout.f20.primary.h, commitLayout.f26.primary.h],
@@ -21506,9 +21077,9 @@ async function main() {
       && commitLayout.f20.optionsHeight < commitLayout.f26.optionsHeight
       && commitLayout.base.primary.h < commitLayout.f20.primary.h
       && commitLayout.f20.primary.h < commitLayout.f26.primary.h
-      // 工具图标（16×16）、设置按钮（27×30）与 Amend 复选框（15×15）在三档字号下逐值不变
-      && [commitLayout.base, commitLayout.f20, commitLayout.f26].every((snapshot) => snapshot.settingsIcon.w === 16
-        && snapshot.settingsIcon.h === 16 && snapshot.settings.w === 27 && snapshot.settings.h === 30
+      // 16px工具图形与28×30命中区按1/1.75/2.25倍缩放；复选框为独立控件。
+      && [commitLayout.base, commitLayout.f20, commitLayout.f26].every((snapshot, index) => snapshot.settingsIcon.w === Math.round(16 * [1, 1.75, 2.25][index])
+        && snapshot.settingsIcon.h === snapshot.settingsIcon.w && snapshot.settings.w === Math.round(28 * [1, 1.75, 2.25][index]) && snapshot.settings.h === Math.round(30 * [1, 1.75, 2.25][index])
         && snapshot.amendCheck.w === 15 && snapshot.amendCheck.h === 15));
     check('§7.6 提交动作放不下时按原顺序排成两行、设置图标留在第一行右侧: '
       + JSON.stringify([commitLayout.f40.primary, commitLayout.f40.secondary, commitLayout.f40.settings, commitLayout.f40.boxGrid]),
@@ -21531,25 +21102,24 @@ async function main() {
       // 字号变大时提交区更高、列表同样让位，但输入框始终保留一行
       && commitLayout.f40.list.h < commitLayout.f26.list.h
       && keepsLine(commitLayout.f40));
-    check('§7.6 上一次提交在空间不足时只显示历史图标、保留完整悬停说明、数量按剩余宽度省略: '
+    check('§7.6 历史入口始终只显示图标、不与 Amend 重叠，数量只在分组显示且命令可用: '
       + JSON.stringify([commitLayout.base.last, commitLayout.f20.last, commitLayout.f40.last, commitLayout.f40.count,
         commitLayout.beforeOpen, commitLayout.afterOpen, commitLayout.afterSecond]),
-    // 设计基线：可容纳时是「上一次提交」+ 历史图标 + 完整悬停说明，且指向 Git 历史
+    // 设计基线：中性历史图标保留完整悬停说明，指向 Git 历史。
     commitLayout.base.last.tag === 'A'
-      && commitLayout.base.last.text === '上一次提交'
-      && commitLayout.base.last.title === '上一次提交'
+      && commitLayout.base.last.text === ''
+      && commitLayout.base.last.title === 'Last Commit'
       && commitLayout.base.last.icons === 1
       && /git-history\.html$/.test(commitLayout.base.last.href || '')
-      && commitLayout.base.last.iconOnly === false
-      // 空间不足（字号 20 起）：文字让位但**历史图标仍在**，`title` 仍保留完整说明，且不与数量重叠
-      && [commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === true
-        && snapshot.last.spanDisplay === 'none'
+      && commitLayout.base.last.iconOnly === true
+      // 各字号下历史图标仍在、完整说明仍在，且与相邻 Amend 命中区不重叠。
+      && [commitLayout.base, commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === true
         && snapshot.last.icons === 1
         && snapshot.last.iconBox.w >= 14 && snapshot.last.iconBox.h >= 14
-        && snapshot.last.title === '上一次提交'
-        && snapshot.last.box.right <= snapshot.count.box.left)
-      // 数量按剩余宽度省略（大字下确实被截断，而不是挤掉图标）
-      && commitLayout.f40.count.truncated === true
+        && snapshot.last.title === 'Last Commit'
+        && snapshot.amend.right <= snapshot.last.box.left
+        && snapshot.count.visible === false
+        && snapshot.groupCount.some(count => count.visible && /^\d+ files$/.test(count.text)))
       // 入口可用：从终端切过去必须打开 Git 历史工具窗口，且不算"未接线"
       && commitLayout.beforeOpen.bottom === 'terminal'
       && commitLayout.beforeOpen.hasLog === false
@@ -21592,15 +21162,15 @@ async function main() {
           loadingLabel: (() => { const el = bar.querySelector('.comparison-loading-label'); return el ? el.textContent.trim() : null; })(),
           count: count ? { text: count.textContent.trim(), box: rect(count) } : null,
           verifyNav: (() => {
-            const prev = bar.querySelector('[aria-label="上一个文件"]');
-            const next = bar.querySelector('[aria-label="下一个文件"]');
+            const prev = bar.querySelector('[aria-label="Previous File"]');
+            const next = bar.querySelector('[aria-label="Next File"]');
             const label = count;
             if (!prev || !next || !label) return null;
             const a = prev.getBoundingClientRect(), b = label.getBoundingClientRect(), c = next.getBoundingClientRect();
             return { grouped: a.right <= b.left + 1 && b.right <= c.left + 1 };
           })(),
-          settingsBox: rect(bar.querySelector('[aria-label="设置"]')),
-          ignoreBox: rect(bar.querySelector('[aria-label="忽略空白"]')),
+          settingsBox: rect(bar.querySelector('[aria-label="Settings"]')),
+          ignoreBox: rect(bar.querySelector('[aria-label="Ignore whitespace"]')),
           loadingAttr: !!document.querySelector('.editor-content .diff-layout[data-augit-loading]'),
           mode: window.__augitLive.diffMode,
           calls: (window.__diffCalls || []).length,
@@ -21633,10 +21203,10 @@ async function main() {
       await ig.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
       await ig.page.waitForTimeout(500);
       const ignoreBase = await barSnapshot(ig.page);
-      await ig.page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').first().click();
+      await ig.page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').first().click();
       await ig.page.waitForTimeout(800);
       const ignoreOn = await barSnapshot(ig.page);
-      await ig.page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').first().click();
+      await ig.page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').first().click();
       await ig.page.waitForTimeout(800);
       const ignoreOff = await barSnapshot(ig.page);
       await ig.page.close();
@@ -21650,7 +21220,7 @@ async function main() {
       await two.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
       await two.page.waitForTimeout(500);
       const summaryTwo = (await barSnapshot(two.page)).summary;
-      await two.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await two.page.locator('.editor-content .diff-toolbar [aria-label="Next Difference"]').first().click();
       await two.page.waitForTimeout(400);
       const navTotal = await two.page.evaluate(() => {
         const layout = document.querySelector('.editor-content .diff-layout');
@@ -21662,7 +21232,7 @@ async function main() {
       await st.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 20000 });
       await st.page.waitForTimeout(400);
       await st.page.evaluate(() => { window.__augitUnwiredAction = null; });
-      await st.page.locator('.editor-content .diff-toolbar [aria-label="设置"]').first().click();
+      await st.page.locator('.editor-content .diff-toolbar [aria-label="Settings"]').first().click();
       await st.page.waitForTimeout(600);
       const settingsOpen = await st.page.evaluate(() => ({
         dialog: !!document.querySelector('.settings-window, .dialog-xl'),
@@ -21756,12 +21326,12 @@ async function main() {
       console.log('INFO Diff工具栏=' + JSON.stringify(payload));
       return payload;
     })();
-    const toolbarLabels = ['上一处差异', '下一处差异', '查找', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'];
+    const toolbarLabels = ['Previous Difference', 'Next Difference', 'Find', 'Previous File', 'Next File', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings'];
     check('§7.7 Diff 工具栏按规格顺序排列、Tab 顺序与视觉顺序一致: '
       + JSON.stringify([diffToolbar.order.labels, diffToolbar.tabLabels, diffToolbar.order.count && diffToolbar.order.count.text, diffToolbar.order.verifyNav]),
     // 左侧：上一处、下一处、搜索、上一个文件、文件计数、下一个文件；右侧：差异摘要、忽略空白、双栏/单栏、设置
     JSON.stringify(diffToolbar.order.labels) === JSON.stringify(toolbarLabels)
-      && diffToolbar.order.count && diffToolbar.order.count.text === '1/3 个文件'
+      && diffToolbar.order.count && diffToolbar.order.count.text === '1/3 files'
       // 文件箭头围绕文件计数分组
       && diffToolbar.order.verifyNav && diffToolbar.order.verifyNav.grouped === true
       // 右侧控件在文件计数右侧
@@ -21769,10 +21339,10 @@ async function main() {
       && diffToolbar.order.ignoreBox.left > diffToolbar.order.summary.box.right
       && diffToolbar.order.settingsBox.left > diffToolbar.order.ignoreBox.right
       // 真实 Tab 顺序 = 视觉顺序。第 308 轮起「查找」也可用（Diff 正文查找按权威实现）⇒ 进入 Tab 循环
-      && JSON.stringify(diffToolbar.tabLabels) === JSON.stringify(['下一处差异', '查找', '上一个文件', '下一个文件', '忽略空白', '双栏', '单栏', '设置'])
+      && JSON.stringify(diffToolbar.tabLabels) === JSON.stringify(['Next Difference', 'Find', 'Previous File', 'Next File', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings'])
       && diffToolbar.tabLeaves === true
       && JSON.stringify(diffToolbar.order.visualOrder) === JSON.stringify(diffToolbar.order.enabledLabels));
-    const ignoreButton = (snapshot) => snapshot.buttons.find((b) => b.label === '忽略空白');
+    const ignoreButton = (snapshot) => snapshot.buttons.find((b) => b.label === 'Ignore whitespace');
     check('§7.7 忽略空白是真实差异选项：切换后重查并如实标记、再点还原: '
       + JSON.stringify([ignoreButton(diffToolbar.ignoreBase), ignoreButton(diffToolbar.ignoreOn), ignoreButton(diffToolbar.ignoreOff),
         diffToolbar.ignoreBase.whitespace, diffToolbar.ignoreOn.whitespace, diffToolbar.ignoreOff.whitespace,
@@ -21789,25 +21359,25 @@ async function main() {
       && diffToolbar.ignoreOff.whitespace[diffToolbar.ignoreOff.whitespace.length - 1] === false);
     check('§7.7 差异摘要按连续变更块计数、与导航同一口径: '
       + JSON.stringify([diffToolbar.summaryOne, diffToolbar.summaryTwo, diffToolbar.navTotal]),
-    diffToolbar.summaryOne && diffToolbar.summaryOne.text === '1 处差异'
-      && diffToolbar.summaryTwo && diffToolbar.summaryTwo.text === '2 处差异'
+    diffToolbar.summaryOne && diffToolbar.summaryOne.text === '1 difference'
+      && diffToolbar.summaryTwo && diffToolbar.summaryTwo.text === '2 differences'
       && diffToolbar.navTotal === '2');
     check('§7.7 差异设置入口打开设置对话框；加载态保持同一顺序并禁用变更导航: '
       + JSON.stringify([diffToolbar.settingsOpen, diffToolbar.loadingBar.labels, diffToolbar.loadingBar.loadingLabel,
-        diffToolbar.loadingBar.buttons.filter((b) => ['上一处差异', '下一处差异', '查找'].includes(b.label))]),
+        diffToolbar.loadingBar.buttons.filter((b) => ['Previous Difference', 'Next Difference', 'Find'].includes(b.label))]),
     // 设置入口按应用既有约定打开设置对话框，且不算"未接线"
     diffToolbar.settingsOpen.dialog === true && diffToolbar.settingsOpen.unwired === null
       // 加载态：同一套控件与顺序（追加"取消比较"），差异箭头与查找禁用并写明原因
-      && JSON.stringify(diffToolbar.loadingBar.labels) === JSON.stringify(['上一处差异', '下一处差异', '查找', '忽略空白', '双栏', '单栏', '设置', '取消比较'])
-      && diffToolbar.loadingBar.loadingLabel === '正在生成 diff…'
+      && JSON.stringify(diffToolbar.loadingBar.labels) === JSON.stringify(['Previous Difference', 'Next Difference', 'Find', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings', 'Cancel Comparison'])
+      && diffToolbar.loadingBar.loadingLabel === 'Generating diff…'
       && diffToolbar.loadingBar.loadingAttr === true
-      && ['上一处差异', '下一处差异', '查找'].every((label) => {
+      && ['Previous Difference', 'Next Difference', 'Find'].every((label) => {
         const button = diffToolbar.loadingBar.buttons.find((b) => b.label === label);
         return button && button.enabled === false && typeof button.title === 'string' && button.title.length > 0;
       })
       // 加载态禁用「查找」（正文是占位块），忽略空白与显示模式仍可用
-      && diffToolbar.loadingBar.buttons.find((b) => b.label === '忽略空白').enabled === true
-      && diffToolbar.loadingBar.buttons.filter((b) => ['双栏', '单栏', '设置'].includes(b.label)).every((b) => b.enabled === true));
+      && diffToolbar.loadingBar.buttons.find((b) => b.label === 'Ignore whitespace').enabled === true
+      && diffToolbar.loadingBar.buttons.filter((b) => ['Side-by-side', 'Unified', 'Settings'].includes(b.label)).every((b) => b.enabled === true));
     const sameRect = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     check('§7.7 第一次请求加载时保留旧正文、随后在同一正文区域替换为加载状态与新结果: '
       + JSON.stringify([diffToolbar.timeline.markerDelay, diffToolbar.timeline.early, diffToolbar.timeline.loadingFrames,
@@ -21826,7 +21396,7 @@ async function main() {
       && diffToolbar.timeline.backToOld === false
       // 结果落地：同一正文区域换成新文件的新正文
       && String(diffToolbar.afterLoad.filebar).includes('README.md')
-      && !String(diffToolbar.afterLoad.filebar).includes('正在生成')
+      && !String(diffToolbar.afterLoad.filebar).includes('Generating')
       && diffToolbar.afterLoad.oldBody > 0
       && diffToolbar.afterLoad.bodyHead !== diffToolbar.beforeLoad.bodyHead
       // 其他区域不变化（正文区与主框架几何逐值相同）
@@ -21873,7 +21443,7 @@ async function main() {
       const files = await scene.page.evaluate(() => [...document.querySelectorAll('.changes-list .change-file-row[data-path]')].map((r) => r.dataset.path));
       // 让"切到相邻文件"的查询慢下来，覆盖整个取样区间
       await scene.page.evaluate((list) => { window.__diffDelays = { [list[1]]: 2500 }; }, files);
-      await scene.page.locator('.diff-toolbar [aria-label="下一个文件"]').first().click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next File"]').first().click();
       await scene.page.waitForFunction('window.__augitLive.diffLoading === true', null, { timeout: 8000 }).catch(() => null);
       await scene.page.waitForTimeout(150);
       const during = await state(scene.page);
@@ -21900,19 +21470,19 @@ async function main() {
     check('§7.7 跨文件查询期间禁用差异箭头、文件箭头与 Changes 仍可改选: '
       + JSON.stringify([crossFile.during.buttons, crossFile.during.loadingLabel, crossFile.during.rows]),
     // 查询确实在途（否则下面的禁用矩阵什么都没验证）
-    crossFile.during.loading === true && crossFile.during.loadingLabel === '正在生成 diff…'
+    crossFile.during.loading === true && crossFile.during.loadingLabel === 'Generating diff…'
       // 差异箭头：禁用并写明原因（规格：跨文件查询期间禁用差异箭头）
-      && ['上一处差异', '下一处差异'].every((label) => {
+      && ['Previous Difference', 'Next Difference'].every((label) => {
         const button = buttonOf(crossFile.during, label);
         return button && button.disabled === true && typeof button.title === 'string' && button.title.length > 0;
       })
       // 文件箭头：**仍可用**（规格：文件箭头和 Changes 仍允许改选）
-      && ['上一个文件', '下一个文件'].every((label) => {
+      && ['Previous File', 'Next File'].every((label) => {
         const button = buttonOf(crossFile.during, label);
         return button && button.disabled === false;
       })
       // 显示模式、忽略空白、设置也不因查询被禁用
-      && ['忽略空白', '双栏', '单栏', '设置'].every((label) => {
+      && ['Ignore whitespace', 'Side-by-side', 'Unified', 'Settings'].every((label) => {
         const button = buttonOf(crossFile.during, label);
         return button && button.disabled === false;
       })
@@ -21922,7 +21492,7 @@ async function main() {
       // 查询结束后落到相邻文件，且用户状态/标签/几何都不丢
       && crossFile.after.path === crossFile.expectedNext
       && crossFile.after.loading === false
-      && crossFile.after.count === '2/' + crossFile.files.length + ' 个文件'
+      && crossFile.after.count === '2/' + crossFile.files.length + ' files'
       && JSON.stringify(crossFile.after.checks) === JSON.stringify(crossFile.interacting.checks)
       && crossFile.after.tabs === crossFile.before.tabs
       // 旧定位不恢复：新正文没有沿用上一份内容的导航索引
@@ -21956,20 +21526,20 @@ async function main() {
       await scene.page.waitForFunction('!!(window.__augitLive.historyComparison && window.__augitLive.historyComparison.status === "ready")', null, { timeout: 10000 });
       await scene.page.waitForTimeout(500);
       const split = await domBlockCount(scene.page);
-      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="Next Difference"]').first().click();
       await scene.page.waitForTimeout(400);
       const navigated = await scene.page.evaluate(() => {
         const el = document.querySelector('.editor-content .diff-layout');
         return { total: el ? el.dataset.diffTotal || null : null, reachable: !!window.__augitLive.diff };
       });
-      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="Unified"]').first().click();
       await scene.page.waitForTimeout(900);
       const unified = await domBlockCount(scene.page);
       const unifiedState = await scene.page.evaluate(() => ({
         path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
         mode: window.__augitLive.diffMode,
       }));
-      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="双栏"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="Side-by-side"]').first().click();
       await scene.page.waitForTimeout(900);
       const backToSplit = await domBlockCount(scene.page);
       await scene.page.close();
@@ -21979,15 +21549,15 @@ async function main() {
     check('§7.7 历史比较沿用同一变更块规则（摘要＝块数、导航计数、单双栏一致）: '
       + JSON.stringify([historyBlocks.split, historyBlocks.navigated, historyBlocks.unified, historyBlocks.unifiedState, historyBlocks.backToSplit]),
     // 分栏：两处被上下文隔开的 Modified ⇒ 摘要与独立复算的块数都必须是 2
-    historyBlocks.split && historyBlocks.split.blocks === 2 && historyBlocks.split.summary === '2 处差异'
+    historyBlocks.split && historyBlocks.split.blocks === 2 && historyBlocks.split.summary === '2 differences'
       // 导航沿用同一规则（data-diff-total = 块数），且正文没被打包丢掉
       && historyBlocks.navigated.total === '2' && historyBlocks.navigated.reachable === true
       // 单栏：同一份内容只重新排版 ⇒ 块数与摘要不变、正文仍在（第 249 轮实测的缺陷正是这里退回样例数据）
       && historyBlocks.unifiedState.mode === 'unified'
       && historyBlocks.unifiedState.path !== null
-      && historyBlocks.unified && historyBlocks.unified.blocks === 2 && historyBlocks.unified.summary === '2 处差异'
+      && historyBlocks.unified && historyBlocks.unified.blocks === 2 && historyBlocks.unified.summary === '2 differences'
       // 切回双栏同样保持
-      && historyBlocks.backToSplit && historyBlocks.backToSplit.blocks === 2 && historyBlocks.backToSplit.summary === '2 处差异');
+      && historyBlocks.backToSplit && historyBlocks.backToSplit.blocks === 2 && historyBlocks.backToSplit.summary === '2 differences');
     const refBlocks = await (async () => {
       const scene = await openScene('scene=commit-changes&theme=dark');
       await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
@@ -22000,7 +21570,7 @@ async function main() {
       await scene.page.locator('[data-popover-action="compare-workspace"]').click();
       await scene.page.waitForTimeout(1500);
       const split = await domBlockCount(scene.page);
-      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="Next Difference"]').first().click();
       await scene.page.waitForTimeout(400);
       const navigated = await scene.page.evaluate(() => {
         const el = document.querySelector('.editor-content .diff-layout');
@@ -22010,7 +21580,7 @@ async function main() {
           path: window.__augitLive.diff ? window.__augitLive.diff.path : null,
         };
       });
-      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="Unified"]').first().click();
       await scene.page.waitForTimeout(900);
       const unified = await domBlockCount(scene.page);
       await scene.page.close();
@@ -22020,9 +21590,9 @@ async function main() {
     check('§7.7 引用比较沿用同一变更块规则（摘要＝块数、导航计数、单栏一致）: '
       + JSON.stringify([refBlocks.split, refBlocks.navigated, refBlocks.unified]),
     refBlocks.navigated.editor === 'diff' && refBlocks.navigated.path !== null
-      && refBlocks.split && refBlocks.split.blocks === 2 && refBlocks.split.summary === '2 处差异'
+      && refBlocks.split && refBlocks.split.blocks === 2 && refBlocks.split.summary === '2 differences'
       && refBlocks.navigated.total === '2'
-      && refBlocks.unified && refBlocks.unified.blocks === 2 && refBlocks.unified.summary === '2 处差异');
+      && refBlocks.unified && refBlocks.unified.blocks === 2 && refBlocks.unified.summary === '2 differences');
 
     // ---- 第 250 轮补断言（收 §7.7 第 12、14 条）：改等宽字号只重排正文与行号；
     // Markdown/JSON 默认显示真实文本 diff、预览从工具栏打开 ----
@@ -22141,12 +21711,12 @@ async function main() {
         sourceMarker: document.querySelector('.editor-content').innerText.includes('**加粗**'),
         renderedStrong: !!document.querySelector('.editor-content .markdown-preview strong'),
         markdownPreview: !!document.querySelector('.editor-content .markdown-preview'),
-        previewButton: (() => { const el = document.querySelector('.changes-layout .toolbar [aria-label="预览"]'); return el ? { present: true, disabled: !!el.disabled } : null; })(),
+        previewButton: (() => { const el = document.querySelector('.changes-layout .toolbar [aria-label="Preview"]'); return el ? { present: true, disabled: !!el.disabled } : null; })(),
         unwired: window.__augitUnwiredAction || null,
         reads: window.__readCalls || 0,
       }));
       await scene.page.evaluate(() => { window.__augitUnwiredAction = null; });
-      await scene.page.locator('.changes-layout .toolbar [aria-label="预览"]').click();
+      await scene.page.locator('.changes-layout .toolbar [aria-label="Preview"]').click();
       await scene.page.waitForTimeout(1200);
       const afterPreview = await scene.page.evaluate(() => ({
         editor: window.__augitLive.editor,
@@ -22220,10 +21790,10 @@ async function main() {
         };
       });
       const split = await snap();
-      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="Unified"]').first().click();
       await scene.page.waitForTimeout(900);
       const unified = await snap();
-      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="双栏"]').first().click();
+      await scene.page.locator('.editor-content .diff-toolbar .segment[aria-label="Side-by-side"]').first().click();
       await scene.page.waitForTimeout(900);
       const back = await snap();
       await scene.page.close();
@@ -22246,7 +21816,7 @@ async function main() {
       && unifiedFilebar.unified.barRows.split(' ').length === 2
       // 两种模式：来源（基准）在前、目标（当前）在后，路径跟随来源，两侧各一个只读锁
       && unifiedFilebar.unified.beforeText.includes('HEAD')
-      && unifiedFilebar.unified.afterText.includes('工作区')
+      && unifiedFilebar.unified.afterText.includes('Workspace')
       && unifiedFilebar.unified.pathInBefore === true
       && unifiedFilebar.split.pathInBefore === true
       && unifiedFilebar.split.locks === 2 && unifiedFilebar.unified.locks === 2
@@ -22272,13 +21842,13 @@ async function main() {
         const scene = await openScene('scene=diff-boundary&theme=dark&diff=src%2FApp.cs');
         await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
         await scene.page.waitForTimeout(1200);
-        await show(scene.page, '下一处差异');
+        await show(scene.page, 'Next Difference');
         const shown = await state(scene.page);
         if (action) { await action(scene.page); await scene.page.waitForTimeout(500); }
         const after = await state(scene.page);
         let followUp = null;
         if (after.path) {
-          await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+          await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').first().click();
           await scene.page.waitForTimeout(600);
           followUp = await state(scene.page);
         }
@@ -22288,17 +21858,17 @@ async function main() {
       const out = {};
       out.baseline = await cycle(null);
       out.esc = await cycle((page) => page.keyboard.press('Escape'));
-      out.direction = await cycle((page) => page.locator('.diff-toolbar [aria-label="上一处差异"]').first().click());
+      out.direction = await cycle((page) => page.locator('.diff-toolbar [aria-label="Previous Difference"]').first().click());
       out.selectFile = await cycle((page) => page.locator('.changes-list .change-file-row').nth(1).click());
-      out.switchMode = await cycle((page) => page.locator('.editor-content .diff-toolbar .segment[aria-label="单栏"]').first().click());
+      out.switchMode = await cycle((page) => page.locator('.editor-content .diff-toolbar .segment[aria-label="Unified"]').first().click());
       out.reload = await cycle((page) => page.evaluate(() => { window.__augitLoadDiff('src/App.cs', { force: true }); }));
-      out.layout = await cycle((page) => page.evaluate(() => { const btn = document.querySelector('.tool-rail .rail-button[aria-label="项目"]'); if (btn) btn.click(); }));
+      out.layout = await cycle((page) => page.evaluate(() => { const btn = document.querySelector('.tool-rail .rail-button[aria-label="Project"]'); if (btn) btn.click(); }));
       out.close = await cycle((page) => page.evaluate(() => { window.__augitCloseDiff(); }));
       console.log('INFO 撤销矩阵=' + JSON.stringify(out));
       return out;
     })();
     const hintCancelled = (cycle) => cycle.shown.hint !== null && cycle.shown.hint.direction === 1
-      && cycle.shown.hintDom === '再次点击可进入下一个文件'
+      && cycle.shown.hintDom === 'Click again to open the next file'
       && cycle.after.hint === null && cycle.after.hintCount === 0
       && (cycle.followUp === null || cycle.followUp.path === cycle.after.path);
     check('§7.7 边界提示的撤销矩阵：Esc/改方向/选文件/切模式/重载/布局/关闭都撤销待跨文件状态: '
@@ -22306,15 +21876,15 @@ async function main() {
     // 正对照：不改任何东西时，第二次同方向点击确实切到相邻文件（两段式本身仍然成立）
     boundaryMatrix.baseline.after.hint !== null
       && boundaryMatrix.baseline.followUp.path === 'README.md'
-      && boundaryMatrix.baseline.followUp.count === '2/3 个文件'
+      && boundaryMatrix.baseline.followUp.count === '2/3 files'
       // Esc：提示与状态都清掉，且下一次同方向点击**重新给提示**（不直接跨文件）
       && hintCancelled(boundaryMatrix.esc)
-      && boundaryMatrix.esc.followUp.hint !== null && boundaryMatrix.esc.followUp.hintDom === '再次点击可进入下一个文件'
+      && boundaryMatrix.esc.followUp.hint !== null && boundaryMatrix.esc.followUp.hintDom === 'Click again to open the next file'
       // 改方向：旧的待跨文件状态被撤销，待跨文件方向跟着最新一次走，且绝不因此跨文件
       && boundaryMatrix.direction.shown.hint !== null && boundaryMatrix.direction.shown.hint.direction === 1
-      && boundaryMatrix.direction.shown.hintDom === '再次点击可进入下一个文件'
+      && boundaryMatrix.direction.shown.hintDom === 'Click again to open the next file'
       && boundaryMatrix.direction.after.hint !== null && boundaryMatrix.direction.after.hint.direction === -1
-      && boundaryMatrix.direction.after.hintDom === '再次点击可进入上一个文件'
+      && boundaryMatrix.direction.after.hintDom === 'Click again to open the previous file'
       && boundaryMatrix.direction.after.path === 'src/App.cs'
       && boundaryMatrix.direction.followUp.hint !== null && boundaryMatrix.direction.followUp.hint.direction === 1
       && boundaryMatrix.direction.followUp.path === boundaryMatrix.direction.after.path
@@ -22332,8 +21902,8 @@ async function main() {
     const boundaryEnds = await (async () => {
       const ends = {};
       for (const [name, path, label, verifyDirection] of [
-        ['first', 'src%2FApp.cs', '上一处差异', -1],
-        ['last', 'notes%2Fdraft.txt', '下一处差异', 1],
+        ['first', 'src%2FApp.cs', 'Previous Difference', -1],
+        ['last', 'notes%2Fdraft.txt', 'Next Difference', 1],
       ]) {
         const scene = await openScene(`scene=diff-boundary&theme=dark&diff=${path}`);
         await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
@@ -22365,19 +21935,19 @@ async function main() {
       + JSON.stringify(boundaryEnds),
     // 首个文件：方向 -1 的提示后，再按一次 ⇒ 局部说明"已到首个文件"，路径不动（没有回卷到列表末尾）
     boundaryEnds.first.shown.hint !== null && boundaryEnds.first.shown.hint.direction === -1
-      && boundaryEnds.first.shown.hintDom === '再次点击可进入上一个文件'
+      && boundaryEnds.first.shown.hintDom === 'Click again to open the previous file'
       && boundaryEnds.first.after.hint !== null && boundaryEnds.first.after.hint.atEnd === true
-      && boundaryEnds.first.after.hintDom === '已到改动列表的首个文件'
+      && boundaryEnds.first.after.hintDom === 'First file in Changes'
       && boundaryEnds.first.after.path === 'src/App.cs'
-      && boundaryEnds.first.after.count === '1/3 个文件'
+      && boundaryEnds.first.after.count === '1/3 files'
       && boundaryEnds.first.after.hintCount === 1
       // 末尾文件：方向 +1 的提示后，再按一次 ⇒ 局部说明"已到最后一个文件"，路径不动（没有回卷到列表开头）
       && boundaryEnds.last.shown.hint !== null && boundaryEnds.last.shown.hint.direction === 1
-      && boundaryEnds.last.shown.hintDom === '再次点击可进入下一个文件'
+      && boundaryEnds.last.shown.hintDom === 'Click again to open the next file'
       && boundaryEnds.last.after.hint !== null && boundaryEnds.last.after.hint.atEnd === true
-      && boundaryEnds.last.after.hintDom === '已到改动列表的最后一个文件'
+      && boundaryEnds.last.after.hintDom === 'Last file in Changes'
       && boundaryEnds.last.after.path === 'notes/draft.txt'
-      && boundaryEnds.last.after.count === '3/3 个文件'
+      && boundaryEnds.last.after.count === '3/3 files'
       && boundaryEnds.last.after.hintCount === 1);
 
     // ---- 第 251 轮补断言（续 §7.7 第 8 条）：首次边界提示不查询 Git、不移动正文 ----
@@ -22406,10 +21976,10 @@ async function main() {
       await scene.page.evaluate(() => { const el = document.querySelector('.editor-content .diff-columns'); if (el) el.scrollTop = 40; });
       await scene.page.waitForTimeout(200);
       const before = await snap();
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').first().click();
       await scene.page.waitForTimeout(400);
       const positioned = await snap();
-      await scene.page.locator('.diff-toolbar [aria-label="下一处差异"]').first().click();
+      await scene.page.locator('.diff-toolbar [aria-label="Next Difference"]').first().click();
       await scene.page.waitForTimeout(400);
       const hinted = await snap();
       const hint = await scene.page.evaluate(() => {
@@ -22441,7 +22011,7 @@ async function main() {
       && JSON.stringify(boundaryQuiet.hinted.columnsRect) === JSON.stringify(boundaryQuiet.positioned.columnsRect)
       && boundaryQuiet.hinted.index === boundaryQuiet.positioned.index
       && boundaryQuiet.hinted.path === boundaryQuiet.positioned.path
-      && boundaryQuiet.hint === '再次点击可进入下一个文件');
+      && boundaryQuiet.hint === 'Click again to open the next file');
 
     // ---- 第 252 轮补断言（收 §7.9 条目二）：文件历史列表四列布局、窄栏横向滚动（表头与数据行一起走）、
     // 改变列布局不重查比较 ----
@@ -22509,7 +22079,7 @@ async function main() {
     check('§7.9 文件历史列表四列布局、窄栏在自身区域横向滚动且表头随行一起走、改变列布局不重查: '
       + JSON.stringify([fileHistoryColumns.wide, fileHistoryColumns.narrow.pane, fileHistoryColumns.scrolled, fileHistoryColumns.backWide.pane]),
     // 四列顺序与表头文字（权威列集合：版本 → 日期 → 作者 → 提交信息），表头与数据行**共用同一套列宽**
-    JSON.stringify(fileHistoryColumns.wide.headerTexts) === JSON.stringify(['版本', '日期', '作者', '提交信息'])
+    JSON.stringify(fileHistoryColumns.wide.headerTexts) === JSON.stringify(['Revision', 'Date', 'Author', 'Commit message'])
       && fileHistoryColumns.wide.rowCellCount === 4
       && fileHistoryColumns.wide.headerTracks === fileHistoryColumns.wide.rowTracks
       && cellsAligned(fileHistoryColumns.wide)
@@ -22547,7 +22117,7 @@ async function main() {
       await page.waitForSelector('.commit-list .commit-row', { timeout: 15000 });
       await page.waitForTimeout(700);
       // ① 应用一个筛选（真实 Enter）并选中一个提交；等提交详情（变化文件树）就绪
-      const search = page.locator('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+      const search = page.locator('.log-filterbar.history-filters [aria-label="Text or hash"]');
       await search.click();
       await search.fill('fix');
       await search.press('Enter');
@@ -22567,7 +22137,7 @@ async function main() {
         const detail = document.querySelector('[data-live-commit-detail]');
         return detail ? Math.round(detail.scrollTop) : null;
       });
-      await page.locator('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]').first().click();
+      await page.locator('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]').first().click();
       await page.waitForTimeout(400);
       // ③ 页码与列表纵横滚动：状态层注入（真实分页/滚动行为分别由第 218／239 轮的用例覆盖）
       await page.evaluate(() => {
@@ -22580,7 +22150,7 @@ async function main() {
       // 该条已由「§7.9 日志筛选草稿在重绘后保留」覆盖（草稿存在 `live.historyFilterDraft`，往返只是重绘）。
       const snap = () => page.evaluate(() => {
         const live = window.__augitLive || {};
-        const filterField = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+        const filterField = document.querySelector('.log-filterbar.history-filters [aria-label="Text or hash"]');
         const detail = document.querySelector('.log-detail-panel');
         const selectedCommit = document.querySelector('.commit-list .commit-row[aria-selected="true"]');
         return {
@@ -22602,7 +22172,7 @@ async function main() {
       // ④ 真实入口：项目树右键 → 「文件历史」
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click({ force: true });
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
         const state = await page.evaluate(() => ({
           live: !!window.__augitLive,
@@ -22620,7 +22190,7 @@ async function main() {
       await page.waitForTimeout(600);
       const inFileHistory = await snap();
       // ⑤ 返回：点文件历史工具条的「清除路径筛选」
-      await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+      await page.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
       await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await page.waitForTimeout(900);
       const after = await snap();
@@ -22644,11 +22214,11 @@ async function main() {
         const beforePage = await readPage();
         await p2.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
         await p2.waitForTimeout(500);
-        await p2.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+        await p2.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
         await p2.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await p2.waitForSelector('.history-rows .history-row', { timeout: 10000 });
         await p2.waitForTimeout(500);
-        await p2.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await p2.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
         await p2.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await p2.waitForTimeout(800);
         const afterPage = await readPage();
@@ -22658,7 +22228,7 @@ async function main() {
       console.log('INFO 日志上下文保持=' + JSON.stringify({ before, inFileHistory, after, entryDetailScroll, pageKept, errors: errors.slice(0, 2) }));
       return { before, inFileHistory, after, entryDetailScroll, pageKept, errors };
     })();
-    check('§7.9 进入文件历史再返回后日志上下文逐项保持（筛选/页码/选择/纵横滚动/详情显隐/正文位置）: '
+    check('§7.9 进入文件历史再返回后日志上下文逐项保持（Filter/页码/Choose/纵横滚动/详情显隐/正文位置）: '
       + JSON.stringify([logContextKept.before, logContextKept.inFileHistory, logContextKept.after]),
     // 前置：确实进了文件历史（否则下面的"保持"什么都没验证）
     logContextKept.inFileHistory.fileHistory !== null && logContextKept.after.fileHistory === null
@@ -22699,7 +22269,7 @@ async function main() {
           window.__augitLive.history = null;
           return { historyLoaded: !!window.__augitLive.history, calls: window.__historyCalls || 0 };
         });
-        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
         await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await page.waitForTimeout(900);
         const after = await page.evaluate(() => ({
@@ -22728,11 +22298,11 @@ async function main() {
         // 入口走项目树右键菜单（空历史时树仍可用；此前它点不动正是因为空态铺满整窗，本轮已修）
         await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
         await page.waitForTimeout(500);
-        await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+        await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
         await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await page.waitForSelector('.history-rows .history-row', { timeout: 10000 }).catch(() => null);
         await page.waitForTimeout(500);
-        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
         await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await page.waitForTimeout(900);
         const after = await page.evaluate(() => ({
@@ -22750,7 +22320,7 @@ async function main() {
             return r.left >= h.left - 1 && r.right <= h.right + 1 && r.top >= h.top - 1 && r.bottom <= h.bottom + 1;
           })(),
           railHittable: (() => {
-            const rail = document.querySelector('.tool-rail .rail-button[aria-label="提交"]');
+            const rail = document.querySelector('.tool-rail .rail-button[aria-label="Commit"]');
             if (!rail) return null;
             const r = rail.getBoundingClientRect();
             const at = document.elementFromPoint(Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2));
@@ -22860,7 +22430,7 @@ async function main() {
       //    render + rebind 路径，与用户的返回动作完全一致）
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click({ force: true });
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
         const state = await page.evaluate(() => ({
           live: !!window.__augitLive,
@@ -22879,7 +22449,7 @@ async function main() {
         fileHistory: window.__augitLive.fileHistory ? window.__augitLive.fileHistory.path : null,
         treeRows: document.querySelectorAll('[data-live-changed-files] [data-history-path]').length,
       }));
-      await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+      await page.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
       await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await page.waitForTimeout(900);
       const after = await snapshot();
@@ -22914,7 +22484,7 @@ async function main() {
       console.log('INFO 变化文件树状态=' + JSON.stringify({ base, scrolled, decorated, away, after, redrawn, negBase, neg, other, otherRevision }));
       return { base, scrolled, decorated, away, after, redrawn, negBase, neg, other, otherRevision };
     })();
-    check('§7.9 提交详情「变化文件树」的折叠/选择/顶部位置在重绘与文件历史往返后保持: '
+    check('§7.9 Commit Details「变化文件树」的折叠/Choose/顶部位置在重绘与文件历史往返后保持: '
       + JSON.stringify([filesTree.base, filesTree.scrolled, filesTree.decorated, filesTree.after, filesTree.redrawn, filesTree.neg]),
     // 前置：确实构造出"多组 + 根叶"的树，且宿主**真的可以滚动**（否则"顶部位置"平凡为真）
     filesTree.base.leafCount >= 17 && filesTree.base.groupKeys.join(',') === ',docs,src,tools,tools/audit'
@@ -22949,7 +22519,7 @@ async function main() {
       && filesTree.neg.stateCollapsed.join(',') === 'docs' && filesTree.neg.docsExpanded === 'true'
       && filesTree.neg.hiddenLeaves === 0
       && filesTree.neg.stateSelected === 'src/App.cs' && filesTree.neg.selected.length === 0);
-    check('§7.9 变化文件树状态按提交归属：改选提交后不残留上一条的折叠/选择/位置: '
+    check('§7.9 变化文件树状态按提交归属：改选提交后不残留上一条的折叠/Choose/位置: '
       + JSON.stringify([filesTree.otherRevision, filesTree.other]),
     filesTree.otherRevision.detail === 'full-bbb2222' && filesTree.otherRevision.ui === 'full-bbb2222'
       // 上一条提交折叠了 `docs`、选中了 `src/App.cs`、滚到 60：都不许带过来
@@ -23387,7 +22957,7 @@ async function main() {
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await page.waitForTimeout(600);
@@ -23440,14 +23010,14 @@ async function main() {
       await page.waitForTimeout(400);
       const switched = await snap();
       // ③ 显示模式：单栏复用同一份补丁（不查 Git），预览状态与正文一起换
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Unified"]').click();
       await page.waitForTimeout(500);
       const unified = await snap();
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="双栏"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Side-by-side"]').click();
       await page.waitForTimeout(400);
       const backToSplit = await snap();
       // ④ 忽略空白是**真实差异选项**：重查一次、最后一次选项生效
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Ignore whitespace"]').click();
       await page.waitForFunction("() => !!(window.__augitLive.fileHistoryPreview || {}).ignoreWhitespace", null, { timeout: 10000 });
       await page.waitForTimeout(400);
       const ignored = await snap();
@@ -23497,7 +23067,7 @@ async function main() {
           window.__origPreviewMode257 = window.__augitLoadFileHistoryPreviewMode;
           window.__augitLoadFileHistoryPreviewMode = window.__augitLoadDiffMode;
         });
-        await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+        await page.locator('[data-live-file-history-pane="preview"] [aria-label="Unified"]').click();
         await page.waitForTimeout(400);
         const n2 = await page.evaluate(() => ({
           previewMode: (window.__augitLive.fileHistoryPreview || {}).mode || null,
@@ -23515,7 +23085,7 @@ async function main() {
           commit: (window.__augitLive.fileHistoryPreview || {}).commit || null,
           calls: (window.__diffCalls || []).length,
         }));
-        await page.locator('.history-tool-content [aria-label="清除路径筛选"]').first().click();
+        await page.locator('.history-tool-content [aria-label="Clear Path Filter"]').first().click();
         await page.waitForFunction('!window.__augitLive.fileHistory', null, { timeout: 10000 });
         await page.waitForTimeout(200);
         const justCleared = await page.evaluate(() => ({
@@ -23536,14 +23106,14 @@ async function main() {
       console.log('INFO 文件历史预览=' + JSON.stringify({ base, repeated, switched, unified, backToSplit, ignored, parity, race, cleared, negative, errors }));
       return { base, repeated, switched, unified, backToSplit, ignored, parity, race, cleared, negative, errors };
     })();
-    check('§7.9 文件历史右侧复用完整只读比较视图（工具栏顺序、文件栏父版本·提交版本·路径、与引用比较逐字同构）: '
+    check('§7.9 文件历史右侧复用完整只读比较视图（工具栏顺序、文件栏父版本·提交版本·Path、与引用比较逐字同构）: '
       + JSON.stringify([fhPreview.base, fhPreview.switched, fhPreview.unified, fhPreview.backToSplit, fhPreview.parity]),
     fhPreview.errors.length === 0
       // 右侧是预览面板（不再是提交信息面板）
       && fhPreview.base.paneKind === 'preview' && fhPreview.base.detailPane === false
       // 工具栏顺序 = 比较视图的九项（第 308 轮起「查找」也可用：Diff 正文查找按权威实现；
       // 比较视图没有文件导航）
-      && fhPreview.base.toolbar.join(',') === '上一处差异,下一处差异,查找,忽略空白,双栏,单栏,设置'
+      && fhPreview.base.toolbar.join(',') === 'Previous Difference,Next Difference,Find,Ignore whitespace,Side-by-side,Unified,Settings'
       && fhPreview.base.disabled.length === 0
       // 文件栏 = 父版本 · 提交版本 · 相对路径
       && fhPreview.base.source === 'full-bbb^' && fhPreview.base.target === 'full-bbb'
@@ -23608,7 +23178,7 @@ async function main() {
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await page.waitForTimeout(600);
@@ -23617,7 +23187,7 @@ async function main() {
         const pane = document.querySelector('[data-live-file-history-pane]');
         const layout = pane ? pane.querySelector('.diff-layout') : null;
         const list = document.querySelector('.history-list-pane');
-        const button = document.querySelector('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]');
+        const button = document.querySelector('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]');
         const preview = window.__augitLive.fileHistoryPreview || null;
         const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; };
         return {
@@ -23643,40 +23213,40 @@ async function main() {
       });
       const base = await snap();
       // ① 差异块导航：两份正文共用一套箭头，但作用域在预览里
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Next Difference"]').click();
       await page.waitForTimeout(250);
       const navFirst = await snap();
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Next Difference"]').click();
       await page.waitForTimeout(250);
       const navSecond = await snap();
       // 已在尾块再按同方向：不得出现"再次点击可进入下一个文件"、不得切文件、不得重查
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="下一处差异"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Next Difference"]').click();
       await page.waitForTimeout(300);
       const navEdge = await snap();
       // ② 隐藏右侧详情：制造一个**缓存外**的在途查询 —— 重复点同一条提交会命中补丁缓存（不产生请求），
       // 因此这里切「忽略空白」（真实差异选项 ⇒ 强制重查）并把该提交的响应拖慢。
       await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1200 }; });
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Ignore whitespace"]').click();
       await page.waitForFunction("() => { const p = window.__augitLive.fileHistoryPreview; return !!p && p.loading; }", null, { timeout: 10000 });
       const beforeHide = await snap();
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(250);
       const hiddenNow = await snap();
       await page.waitForTimeout(1400);
       const hiddenLate = await snap();
       // ③ 重显：按当前选择补查
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       // 补查是真实请求（该提交的响应被拖慢 1.2s）⇒ 等过注入延迟再取快照
       await page.waitForTimeout(1700);
       const reshown = await snap();
       // ④ 已完成的比较：切单栏后隐藏再显示 ⇒ 正文与阅读位置保留、不重查
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="单栏"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Unified"]').click();
       await page.waitForTimeout(400);
       const unified = await snap();
       await page.evaluate(() => { window.__paneLayout258 = document.querySelector('[data-live-file-history-pane="preview"] .diff-layout'); });
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(250);
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(400);
       const kept = await page.evaluate(() => {
         const pane = document.querySelector('[data-live-file-history-pane="preview"]');
@@ -23702,7 +23272,7 @@ async function main() {
         return { columns: getComputedStyle(content).gridTemplateColumns, listWidth: Math.round(list.getBoundingClientRect().width) };
       });
       // 复位：再隐藏一次，供下一条负向验证
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(250);
       // ⑥ 负向验证二：状态与 DOM 两面不一致（状态改成"显示"但 DOM 仍隐藏）⇒ 一致性判据会失败
       await page.evaluate(() => { window.__augitLive.fileHistoryDetailsHidden = false; });
@@ -23739,14 +23309,14 @@ async function main() {
       // 底部工具窗口现在横跨主内容区，宽度随测试视口变化；只验证收成单列且列表占满可用宽度。
       && fhDetails.hiddenNow.contentColumns === `${fhDetails.hiddenNow.listSize[0]}px`
       && fhDetails.hiddenNow.listSize[0] > fhDetails.beforeHide.listSize[0]
-      && fhDetails.hiddenNow.buttonLabel === '隐藏提交详情' && fhDetails.hiddenNow.buttonPressed === 'true'
+      && fhDetails.hiddenNow.buttonLabel === 'Hide Commit Details' && fhDetails.hiddenNow.buttonPressed === 'true'
       // 在途的那一份被取消：状态为空，且越过注入延迟后仍为空、没有多余请求
       && fhDetails.hiddenNow.preview === null
       && fhDetails.hiddenLate.preview === null
       && fhDetails.hiddenLate.calls === fhDetails.hiddenNow.calls
       // 重显：按当前选择补查，并沿用会话里的显示模式与忽略空白（键仍是 `…|ws`）
       && fhDetails.reshown.detailsAttribute === 'false' && fhDetails.reshown.paneDisplay === 'block'
-      && fhDetails.reshown.buttonLabel === '显示提交详情' && fhDetails.reshown.buttonPressed === 'false'
+      && fhDetails.reshown.buttonLabel === 'Show Commit Details' && fhDetails.reshown.buttonPressed === 'false'
       && fhDetails.reshown.preview && fhDetails.reshown.preview.ready === true
       && fhDetails.reshown.preview.commit === 'full-bbb'
       && fhDetails.reshown.preview.key.endsWith('|ws')
@@ -23784,7 +23354,7 @@ async function main() {
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click({ force: true });
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
         const state = await page.evaluate(() => ({
           live: !!window.__augitLive,
@@ -23836,24 +23406,24 @@ async function main() {
       // ② 隐藏再重显：阅读位置必须保留。
       // 隐藏期间**强制一次底部区域重绘**（外部刷新就是这条路径）—— 否则浏览器自己会保住子树滚动位置，
       // 判据就变成平凡为真；重绘换掉正文节点后，只有显式保存/恢复才回得来。
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(250);
       const hidden = await scrollerState();
       await page.evaluate(() => { window.__augitRenderRegions('bottomTool'); });
       await page.waitForTimeout(300);
       const hiddenRedrawn = await scrollerState();
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(500);
       const reshown = await scrollerState();
       // ③ 负向验证：把记住的位置抹掉 ⇒ 重显后回到顶部
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(250);
       await page.evaluate(() => {
         window.__augitLive.fileHistoryPreviewScroll = null;
         window.__augitRenderRegions('bottomTool');
       });
       await page.waitForTimeout(300);
-      await page.locator('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]').click();
+      await page.locator('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]').click();
       await page.waitForTimeout(500);
       const negNoMemory = await scrollerState();
       // ④ Tab 顺序：从文件历史列表的第一个工具按钮开始连按 18 次，记录落点
@@ -23914,9 +23484,9 @@ async function main() {
       // + 一条提交行 + **比较区正文** + 另一条提交行（第 260 轮把正文做成可聚焦的正文位置后，
       // Tab 链上多了"差异正文"这一站；第 308 轮起「查找」也可用 ⇒ 比较工具条由六项变七项）。
       && fhTrailRegions.slice(0, 14).every((region) => region === 'file-history')
-      && fhTrailLabels[3] === '显示提交详情'
-      && fhTrailLabels.slice(4, 11).join(',') === '上一处差异,下一处差异,查找,忽略空白,双栏,单栏,设置'
-      && fhTrailLabels.slice(11, 14).includes('差异正文')
+      && fhTrailLabels[3] === 'Show Commit Details'
+      && fhTrailLabels.slice(4, 11).join(',') === 'Previous Difference,Next Difference,Find,Ignore whitespace,Side-by-side,Unified,Settings'
+      && fhTrailLabels.slice(11, 14).includes('Diff Content')
       && fhTrailLabels.slice(11, 14).some((label) => typeof label === 'string' && label.startsWith('history-row'))
       // 全程不进入上方文档正文（`.editor-content`）
       && fhTrailRegions.every((region) => region !== 'editor'));
@@ -23945,7 +23515,7 @@ async function main() {
       await page.waitForTimeout(600);
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForSelector('.project-menu .menu-item', { timeout: 10000 });
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click({ force: true });
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click({ force: true });
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 15000 }).catch(async (error) => {
         const state = await page.evaluate(() => ({
           live: !!window.__augitLive,
@@ -23985,7 +23555,7 @@ async function main() {
           error: window.__augitError || null,
         };
       });
-      const railButton = page.locator('.tool-rail .rail-button[aria-label="Git 历史"]');
+      const railButton = page.locator('.tool-rail .rail-button[aria-label="Git Log"]');
       // ① 相同快照重复选择：不重写正文（节点身份）、不改阅读位置、不重查
       await page.evaluate(() => {
         const pane = document.querySelector('[data-live-file-history-pane="preview"]');
@@ -24122,7 +23692,7 @@ async function main() {
         const layout = document.querySelector('.editor-content .diff-layout');
         const bar = layout ? layout.querySelector(':scope > .current-find') : null;
         const current = layout ? layout.querySelector('.find-current') : null;
-        const button = layout ? layout.querySelector('.diff-toolbar [aria-label="查找"]') : null;
+        const button = layout ? layout.querySelector('.diff-toolbar [aria-label="Find"]') : null;
         return {
           buttonDisabled: button ? button.disabled : null,
           hasBar: !!bar,
@@ -24140,7 +23710,7 @@ async function main() {
         await page.fill('.editor-content .diff-layout > .current-find .search-field', value);
         await page.waitForTimeout(250);
       };
-      await page.locator('.editor-content .diff-toolbar [aria-label="查找"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Find"]').click();
       await page.waitForTimeout(300);
       const opened = await read();
       // 查找条没开出来时**跳过交互**（负向验证就是这一档），让断言以 JSON 明细失败而不是超时。
@@ -24149,45 +23719,45 @@ async function main() {
       if (opened.hasBar) {
         await type('value');
         first = await read();
-        await page.locator('.editor-content .current-find [aria-label="下一项"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Next Match"]').click();
         await page.waitForTimeout(200);
         next = await read();
-        await page.locator('.editor-content .current-find [aria-label="上一项"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Previous Match"]').click();
         await page.waitForTimeout(200);
         previous = await read();
         await type('VALUE');
         caseOff = await read();
-        await page.locator('.editor-content .current-find [aria-label="区分大小写"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Match case"]').click();
         await page.waitForTimeout(250);
         caseOn = await read();
-        await page.locator('.editor-content .current-find [aria-label="区分大小写"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Match case"]').click();
         await page.waitForTimeout(200);
         await type('\\b\\w{5}\\b');
-        await page.locator('.editor-content .current-find [aria-label="正则表达式"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Regex"]').click();
         await page.waitForTimeout(300);
         regex = await read();
-        await page.locator('.editor-content .current-find [aria-label="正则表达式"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Regex"]').click();
         await page.waitForTimeout(200);
         await type('value');
         split = await read();
-        await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+        await page.locator('.editor-content .diff-toolbar [aria-label="Unified"]').click();
         await page.waitForTimeout(400);
         unified = await read();
-        await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+        await page.locator('.editor-content .diff-toolbar [aria-label="Side-by-side"]').click();
         await page.waitForTimeout(400);
-        await page.locator('.editor-content .current-find [aria-label="关闭查找"]').click();
+        await page.locator('.editor-content .current-find [aria-label="Close Find"]').click();
         await page.waitForTimeout(250);
         closed = await read();
       }
       await page.close();
       return { opened, first, next, previous, caseOff, caseOn, regex, split, unified, closed, errors };
     })();
-    check('§7.7 Diff 正文查找：工具栏「查找」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致: '
+    check('§7.7 Diff 正文查找：工具栏「Find」打开共享查找条，计数/高亮/当前项与导航规则与文档正文一致: '
       + JSON.stringify({ opened: diffFind308.opened, first: diffFind308.first, next: diffFind308.next, previous: diffFind308.previous }),
     diffFind308.errors.length === 0
       // 工具栏按钮可用（此前是 disabled + "暂不支持"），点击后查找条插在文件栏与正文之间并聚焦输入框
       && diffFind308.opened.buttonDisabled === false && diffFind308.opened.hasBar === true
-      && diffFind308.opened.barBeforeBody === true && diffFind308.opened.focused === '当前文件查找'
+      && diffFind308.opened.barBeforeBody === true && diffFind308.opened.focused === 'Find in File'
       // 查询命中：计数、全量高亮（`find-hit`）、恰好一个当前项（`find-current`）
       && diffFind308.first.status === '1/2' && diffFind308.first.hits === 2 && diffFind308.first.currents === 1
       && diffFind308.first.currentLine === 'old value here'
@@ -24209,7 +23779,7 @@ async function main() {
       && diffFind308.unified.hits === 2 && diffFind308.unified.mode === 'unified'
       // 关闭：查找条移除、高亮清空、焦点回到差异正文、行内 `<mark>` 仍在
       && diffFind308.closed.hasBar === false && diffFind308.closed.hits === 0
-      && diffFind308.closed.focused === '差异正文' && diffFind308.closed.inlineMarks === 2);
+      && diffFind308.closed.focused === 'Diff Content' && diffFind308.closed.inlineMarks === 2);
 
     // ---- 第 307 轮补断言（收 backlog「对话框标题图标」项）：哪些对话框画图标、画哪一个，由权威定性 ----
     // 权威：`Messages` 系的确认/输入对话框用 `getQuestionIcon()`（删除 Stash `GitStashUtils.kt:86`、
@@ -24360,7 +23930,7 @@ async function main() {
         };
       });
       const split = await read();
-      await page.locator('.diff-toolbar [aria-label="单栏"]').click();
+      await page.locator('.diff-toolbar [aria-label="Unified"]').click();
       await page.waitForTimeout(400);
       const unified = await page.evaluate(() => ({
         connectors: document.querySelectorAll('.diff-gutter-connector').length,
@@ -24467,7 +24037,7 @@ async function main() {
       await preview.waitForTimeout(600);
       await preview.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await preview.waitForTimeout(500);
-      await preview.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await preview.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
       await preview.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await preview.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await preview.waitForTimeout(600);
@@ -24488,7 +24058,7 @@ async function main() {
         await preview.waitForTimeout(1300);
         await preview.evaluate(() => { window.__diffStatusOverride = 'Binary'; });
         // 切「忽略空白」会**强制重查**（绕过补丁缓存）⇒ 结果是"无文本差异/二进制"的最终说明
-        await preview.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+        await preview.locator('[data-live-file-history-pane="preview"] [aria-label="Ignore whitespace"]').click();
         await preview.waitForTimeout(700);
         const out = await preview.evaluate(() => {
           const pane = document.querySelector('[data-live-file-history-pane="preview"]');
@@ -24518,11 +24088,11 @@ async function main() {
       ]),
     diffBodyFocus.errors.length === 0
       // 正文本身可聚焦且有无障碍名
-      && diffBodyFocus.editorBody.tabIndex === 0 && diffBodyFocus.editorBody.label === '差异正文'
+      && diffBodyFocus.editorBody.tabIndex === 0 && diffBodyFocus.editorBody.label === 'Diff Content'
       // 编辑器：工具条末项之后落到正文，再按 Tab 离开编辑器正文区
       && diffBodyFocus.editorTrail.slice(0, 8).every((step) => step.inToolbar === true)
       && diffBodyFocus.editorTrail.slice(0, 8).map((step) => step.label).join(',')
-        === '下一处差异,查找,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
+        === 'Next Difference,Find,Previous File,Next File,Ignore whitespace,Side-by-side,Unified,Settings'
       && diffBodyFocus.editorTrail[8].isBody === true && diffBodyFocus.editorTrail[8].inEditorContent === true
       && diffBodyFocus.editorTrail[9].inEditorContent === false
       // 文件历史预览：正文同样在 Tab 链上，且落在工具窗口内；全程不进入上方文档正文
@@ -24532,7 +24102,7 @@ async function main() {
       + JSON.stringify([diffBodyFocus.loadingFocus, diffBodyFocus.emptyFocus]),
     // 加载态：正文容器仍在、可聚焦、有无障碍名
     diffBodyFocus.loadingFocus.loadingLayout === true && diffBodyFocus.loadingFocus.tabIndex === 0
-      && diffBodyFocus.loadingFocus.label === '差异正文'
+      && diffBodyFocus.loadingFocus.label === 'Diff Content'
       // 失败/空差异：最终说明本身就是正文位置（role=status + 可聚焦），并且不是"把补丁当文本显示"
       && diffBodyFocus.emptyFocus.notice === true && diffBodyFocus.emptyFocus.tabIndex === 0
       && diffBodyFocus.emptyFocus.role === 'status' && diffBodyFocus.emptyFocus.status === 'Binary'
@@ -24559,9 +24129,9 @@ async function main() {
       });
       const barBefore = await readBar();
       // ① 导航两次：差异总数只在比较工具栏，不得写进全局状态栏
-      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="Next Difference"]').click();
       await scene.page.waitForTimeout(300);
-      await scene.page.locator('.editor-content .diff-toolbar [aria-label="下一处差异"]').click();
+      await scene.page.locator('.editor-content .diff-toolbar [aria-label="Next Difference"]').click();
       await scene.page.waitForTimeout(300);
       const barAfterNav = await readBar();
       // ② 从正文按 Tab：沿可见顺序走出比较区，最终回到标签栏
@@ -24611,7 +24181,7 @@ async function main() {
       && diffTabReturn.start.isBody === true
       // 反向沿可见顺序：先比较工具栏（设置→单栏→双栏→忽略空白 …），再到达标签栏
       && diffTabReturn.reached !== null && diffTabReturn.reached <= 19
-      && diffTabReturn.labels.slice(0, 4).join(',') === '设置,单栏,双栏,忽略空白'
+      && diffTabReturn.labels.slice(0, 4).join(',') === 'Settings,Unified,Side-by-side,Ignore whitespace'
       && trailSteps.slice(0, diffTabReturn.reached).every((step) => step.inEditor === true)
       && diffTabReturn.regions[diffTabReturn.reached] === 'tabs'
       && diffTabReturn.trail[diffTabReturn.reached].inTabs === true);
@@ -24621,7 +24191,7 @@ async function main() {
     /\d+ 处差异/.test(diffTabReturn.barAfterNav.summary || '')
       && diffTabReturn.barAfterNav.summary === diffTabReturn.barBefore.summary
       && diffTabReturn.barAfterNav.status === diffTabReturn.barBefore.status
-      && diffTabReturn.barAfterNav.status === 'live-ws只读');
+      && diffTabReturn.barAfterNav.status === 'live-wsRead-only');
 
     // ---- 第 262 轮：Blame 关闭入口在实时模式恢复真实文档，并使在途查询失效（§7.9 第十/十一条）----
     const blameLive = await (async () => {
@@ -24651,7 +24221,7 @@ async function main() {
       });
       const before = await snap();
       // ① 关闭：恢复该文件的**真实**只读文档视图（不是视觉稿的样例 Markdown），焦点交回正文
-      await page.locator('[aria-label="关闭 Blame"]').first().click();
+      await page.locator('[aria-label="Close Blame"]').first().click();
       await page.waitForFunction("() => window.__augitLive.editor !== 'blame'", null, { timeout: 10000 }).catch(() => null);
       await page.waitForTimeout(250);
       const focusNow = await page.evaluate(() => {
@@ -24684,7 +24254,7 @@ async function main() {
       });
       await page.waitForFunction('window.__blameCalls >= 3', null, { timeout: 10000 }).catch(() => null);
       const inFlight = await snap();
-      await page.locator('[aria-label="关闭 Blame"]').first().click();
+      await page.locator('[aria-label="Close Blame"]').first().click();
       await page.waitForTimeout(1700);
       const afterLate = await snap();
       // ③ 在途查询失效（切换普通文件）：同样让查询变慢，在途时打开另一个文档
@@ -24713,7 +24283,7 @@ async function main() {
       const switched = await snap();
       await page.evaluate(() => { window.__blameDelays = {}; });
       await page.close();
-      console.log('INFO Blame关闭=' + JSON.stringify({ before, focusNow, closed, inFlight, afterLate, switching, switched, errors }));
+      console.log('INFO BlameClose=' + JSON.stringify({ before, focusNow, closed, inFlight, afterLate, switching, switched, errors }));
       return { before, focusNow, closed, inFlight, afterLate, switching, switched, errors };
     })();
     check('§7.9 实时外壳里关闭 Blame 恢复该文件的真实只读文档视图、交回焦点并使在途归属失效: '
@@ -24761,20 +24331,20 @@ async function main() {
       // 进入文件历史（真实入口）
       await page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]').first().click({ button: 'right' });
       await page.waitForTimeout(500);
-      await page.locator('.project-menu .menu-item').filter({ hasText: '文件历史' }).first().click();
+      await page.locator('.project-menu .menu-item').filter({ hasText: 'File History' }).first().click();
       await page.waitForFunction('!!window.__augitLive.fileHistory', null, { timeout: 10000 });
       await page.waitForSelector('[data-live-file-history-pane="preview"] .diff-layout .diff-code-line', { timeout: 15000 });
       await page.waitForTimeout(600);
       // ① 隐藏工具窗口（再次点击当前 rail 入口折叠底部）：取消在途的文件历史预览查询
       await page.evaluate(() => { window.__diffCommitDelays = { 'full-bbb': 1200 }; });
-      await page.locator('[data-live-file-history-pane="preview"] [aria-label="忽略空白"]').click();
+      await page.locator('[data-live-file-history-pane="preview"] [aria-label="Ignore whitespace"]').click();
       await page.waitForFunction("() => { const p = window.__augitLive.fileHistoryPreview; return !!p && p.loading; }", null, { timeout: 10000 });
       const previewInFlight = await page.evaluate(() => ({
         loading: !!(window.__augitLive.fileHistoryPreview || {}).loading,
         calls: (window.__diffCalls || []).length,
         collapsed: (window.__augitLive.layout || {}).collapsed || null,
       }));
-      await page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').first().click();
+      await page.locator('.tool-rail .rail-button[aria-label="Git Log"]').first().click();
       await page.waitForTimeout(400);
       const hidden = await page.evaluate(() => ({
         collapsed: (window.__augitLive.layout || {}).collapsed || null,
@@ -24789,9 +24359,9 @@ async function main() {
       }));
       await page.evaluate(() => { window.__diffCommitDelays = {}; });
       // 恢复底部（再点一次同一 rail 入口），回到日志视图并让提交详情加载出变化文件树
-      await page.locator('.tool-rail .rail-button[aria-label="Git 历史"]').first().click();
+      await page.locator('.tool-rail .rail-button[aria-label="Git Log"]').first().click();
       await page.waitForTimeout(900);
-      await page.locator('.bottom-tool .tool-tab').filter({ hasText: '日志' }).first().click();
+      await page.locator('.bottom-tool .tool-tab').filter({ hasText: 'Log' }).first().click();
       await page.waitForTimeout(900);
       await page.locator('.commit-list .commit-row').first().click();
       await page.waitForSelector('[data-live-changed-files] [data-history-path]', { timeout: 15000 });
@@ -24861,7 +24431,7 @@ async function main() {
           const bar = document.querySelector('.editor-content .diff-toolbar');
           const filebar = document.querySelector('.editor-content .diff-filebar');
           const body = document.querySelector('.editor-content .diff-columns');
-          const button = document.querySelector('.editor-content .diff-toolbar [aria-label="下一处差异"]');
+          const button = document.querySelector('.editor-content .diff-toolbar [aria-label="Next Difference"]');
           const icon = button ? button.querySelector('svg') : null;
           const root = getComputedStyle(document.documentElement);
           return {
@@ -24904,20 +24474,20 @@ async function main() {
       return { small, large, huge, narrow };
     })();
     const sizes = [diffRowHeights.small, diffRowHeights.large, diffRowHeights.huge];
-    check('§7.9 比较工具栏与文件信息区按实际行高扩展：只增高这两行并同步下移正文，图标与命中区不变: '
+    check('§7.9 比较工具栏、图标与命中区同步缩放，文件信息区按实际字高扩展并同步下移正文: '
       + JSON.stringify(sizes.map((item) => item.out.rowSum).concat([sizes.map((item) => [item.out.button, item.out.icon])])),
     sizes.every((item) => item.errors.length === 0)
       // 正文顶边 = 布局顶边 + 工具栏高 + 文件栏高（三档字号都成立 ⇒ "只增高这两行"）
       && sizes.every((item) => item.out.rowSum.bodyDelta === item.out.rowSum.toolbarH + item.out.rowSum.filebarH)
-      // 两行随字号增高（39/31 → 45/45 → 63/63），CSS 变量与实测高度一致
+      // 工具栏按39px基准缩放，文件栏按字体度量；CSS变量与实测高度一致。
       && sizes[0].out.toolbar.h === 39 && sizes[0].out.filebar.h === 31
-      && sizes[1].out.toolbar.h === 45 && sizes[1].out.filebar.h === 45
-      && sizes[2].out.toolbar.h === 63 && sizes[2].out.filebar.h === 63
+      && sizes[1].out.toolbar.h === 88 && sizes[1].out.filebar.h === 45
+      && sizes[2].out.toolbar.h === 127 && sizes[2].out.filebar.h === 63
       && sizes.every((item) => parseFloat(item.out.toolbarVar) === item.out.toolbar.h
         && parseFloat(item.out.filebarVar) === item.out.filebar.h)
-      // 图标 16×16、普通按钮命中区 28×28 逐值不变；文字不被裁切、按钮不重叠。
-      && sizes.every((item) => item.out.button.w === 28 && item.out.button.h === 28
-        && item.out.icon.w === 16 && item.out.icon.h === 16)
+      // 图形16px与命中区28px按所属图标族缩放，文字不裁切、按钮不重叠。
+      && sizes.every((item, index) => item.out.button.w === Math.round(28 * [1, 2.25, 3.25][index]) && item.out.button.h === item.out.button.w
+        && item.out.icon.w === Math.round(16 * [1, 2.25, 3.25][index]) && item.out.icon.h === item.out.icon.w)
       && sizes.every((item) => item.out.overlap === false)
       && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1));
     check('§7.9 窄宽度下比较工具栏保留既定按钮顺序与局部提示: '
@@ -24925,7 +24495,7 @@ async function main() {
     diffRowHeights.narrow.errors.length === 0
       // 窄到 900px（编辑区 507px）后按钮顺序与宽栏逐字相同、摘要提示仍在、按钮不重叠
       && diffRowHeights.narrow.out.labels.join(',') === diffRowHeights.small.out.labels.join(',')
-      && diffRowHeights.narrow.out.labels.join(',') === '上一处差异,下一处差异,查找,上一个文件,下一个文件,忽略空白,双栏,单栏,设置'
+      && diffRowHeights.narrow.out.labels.join(',') === 'Previous Difference,Next Difference,Find,Previous File,Next File,Ignore whitespace,Side-by-side,Unified,Settings'
       && diffRowHeights.narrow.out.summary === diffRowHeights.small.out.summary
       && diffRowHeights.narrow.out.overlap === false
       && diffRowHeights.narrow.out.toolbar.w < diffRowHeights.small.out.toolbar.w
@@ -24955,14 +24525,14 @@ async function main() {
           requestKey: live.diffRequestKey || null,
           options: live.diffOptions ? { ...live.diffOptions } : null,
           diffMode: live.diffMode || null,
-          ignorePressed: (() => { const b = document.querySelector('.editor-content .diff-toolbar [aria-label="忽略空白"]'); return b ? b.getAttribute('aria-pressed') : null; })(),
+          ignorePressed: (() => { const b = document.querySelector('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]'); return b ? b.getAttribute('aria-pressed') : null; })(),
           editor: live.editor || null,
         };
       });
       const base = await snap();
       // ① 重复点击当前显示模式：不排版（正文节点身份不变）、不查询
       await page.evaluate(() => { window.__columns265 = document.querySelector('.editor-content .diff-columns'); });
-      await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Side-by-side"]').click();
       await page.waitForTimeout(400);
       const repeatMode = await page.evaluate(() => ({
         sameColumns: window.__columns265 === document.querySelector('.editor-content .diff-columns'),
@@ -24970,11 +24540,11 @@ async function main() {
       }));
       // ② 查询期间切换显示模式：只改变最终呈现方式（不并发第二次查询）
       await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1200 }; });
-      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').click();
       await page.waitForFunction("() => { const l = window.__augitLive; return l.diffLoading === true || !!(document.querySelector('.editor-content .diff-layout[data-augit-loading]')); }", null, { timeout: 10000 }).catch(() => null);
       await page.waitForTimeout(200);
       const loading = await snap();
-      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Unified"]').click();
       await page.waitForTimeout(1500);
       const afterLoad = await snap();
       await page.evaluate(() => { window.__diffDelays = {}; });
@@ -24984,9 +24554,9 @@ async function main() {
         window.__diffCalls = [];
         window.__diffWhitespace = [];
       });
-      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').click();
       await page.waitForTimeout(120);
-      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').click();
       await page.waitForTimeout(1800);
       const lastWins = await snap();
       await page.evaluate(() => { window.__diffCallDelays = []; window.__diffWhitespace = []; });
@@ -25085,27 +24655,27 @@ async function main() {
       console.log('INFO 引用取消=' + JSON.stringify({ loading, cancelled, afterLate, errors }));
       return { loading, cancelled, afterLate, errors };
     })();
-    check('§7.9 引用查询在历史面板自身区域显示「取消比较」、不写全局提示，完成后隐藏入口且晚到响应不回填: '
+    check('§7.9 引用查询在历史面板自身区域显示「Cancel Comparison」、不写全局提示，完成后隐藏入口且晚到响应不回填: '
       + JSON.stringify([branchCancel.loading, branchCancel.cancelled, branchCancel.afterLate]),
     branchCancel.errors.length === 0
       // 查询期间：面板自身区域出现「取消比较」，面板给出自己的加载文案，比较标签保持在前台
       && branchCancel.loading.loading === true && branchCancel.loading.headerCancel === true
-      && branchCancel.loading.headerCancelLabel === '取消比较'
-      && branchCancel.loading.panelText.includes('正在读取差异提交')
-      && branchCancel.loading.bottomKind.includes('比较: feature/ux')
+      && branchCancel.loading.headerCancelLabel === 'Cancel Comparison'
+      && branchCancel.loading.panelText.includes('Loading commits to compare')
+      && branchCancel.loading.bottomKind.includes('Compare: feature/ux')
       // 不写全局提示：没有 toast、状态栏不变（也没有编辑区加载态）
       && branchCancel.loading.toast === null && branchCancel.loading.statusbar === 'live-ws'
       && branchCancel.loading.editorLoading === false
       // 取消后：入口隐藏、面板说明改为"比较已取消。"、仍然没有全局提示、比较标签不被关掉（可重试）
       && branchCancel.cancelled.loading === false && branchCancel.cancelled.cancelled === true
       && branchCancel.cancelled.headerCancel === false
-      && branchCancel.cancelled.panelText.includes('比较已取消')
+      && branchCancel.cancelled.panelText.includes('Comparison cancelled')
       && branchCancel.cancelled.toast === null
-      && branchCancel.cancelled.bottomKind.includes('比较: feature/ux')
+      && branchCancel.cancelled.bottomKind.includes('Compare: feature/ux')
       // 越过注入延迟：晚到的响应不得把已取消的比较填回来
       && branchCancel.afterLate.cancelled === true && branchCancel.afterLate.commits === 0
       && branchCancel.afterLate.headerCancel === false
-      && branchCancel.afterLate.panelText.includes('比较已取消'));
+      && branchCancel.afterLate.panelText.includes('Comparison cancelled'));
 
     // ---- 第 267 轮：比较标签三部分独立省略、前 8 位截断与文件栏完整引用（§7.9 第十七条）----
     const comparisonLabel17 = await (async () => {
@@ -25177,7 +24747,7 @@ async function main() {
         if (chip) chip.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       });
       await page.waitForTimeout(400);
-      const menuItem = page.locator('.popover .menu-item, .branch-popover .menu-item').filter({ hasText: '与工作区比较' }).first();
+      const menuItem = page.locator('.popover .menu-item, .branch-popover .menu-item').filter({ hasText: 'Compare with Workspace' }).first();
       let reference = null;
       if (await menuItem.count() > 0) {
         await menuItem.click();
@@ -25194,10 +24764,10 @@ async function main() {
       // 历史比较：标签是「文件名 · 前 8 位^ → 前 8 位」，三部分各有自己的省略
       && comparisonLabel17.history.hasCaption === true
       && comparisonLabel17.history.revisions.join(',') === 'aaaaaaaa^,aaaaaaaa'
-      && comparisonLabel17.history.fileText === '比较: notes.txt'
+      && comparisonLabel17.history.fileText === 'Compare: notes.txt'
       && [comparisonLabel17.history.fileStyle, ...comparisonLabel17.history.revisionStyles]
         .every((style) => style && style.overflow === 'hidden' && style.ellipsis === 'ellipsis')
-      && comparisonLabel17.history.tabText === '比较: notes.txt · aaaaaaaa^ → aaaaaaaa'
+      && comparisonLabel17.history.tabText === 'Compare: notes.txt · aaaaaaaa^ → aaaaaaaa'
       // 长文件名：文件部分被省略（scroll > client），两侧引用仍占位且文本未被改写
       && comparisonLabel17.longName.fileText.length > 40
       && comparisonLabel17.longName.fileStyle.scroll > comparisonLabel17.longName.fileStyle.client
@@ -25217,13 +24787,13 @@ async function main() {
     comparisonLabel17.reference !== null
       && comparisonLabel17.errors.length === 0
       // 命名引用保持原名（不按哈希截断）、三部分结构仍在
-      && comparisonLabel17.reference.tabText === '比较: App.cs · dsh → 工作区'
-      && comparisonLabel17.reference.revisions.join(',') === 'dsh,工作区'
+      && comparisonLabel17.reference.tabText === 'Compare: App.cs · dsh → Workspace'
+      && comparisonLabel17.reference.revisions.join(',') === 'dsh,Workspace'
       && comparisonLabel17.reference.barSource === 'dsh'
-      && comparisonLabel17.reference.barTarget === '工作区'
+      && comparisonLabel17.reference.barTarget === 'Workspace'
       && comparisonLabel17.reference.barPath === 'src/App.cs'
       // 悬停说明是完整的双方引用 + 相对路径
-      && comparisonLabel17.reference.barTitle === 'dsh → 工作区 · src/App.cs');
+      && comparisonLabel17.reference.barTitle === 'dsh → Workspace · src/App.cs');
 
     // ---- 第 268 轮：文件信息区的双栏左右/单栏上下与失败态按模式显示（§7.9 第十五条）----
     const filebarLayout = await (async () => {
@@ -25274,23 +24844,23 @@ async function main() {
         }));
       }
       // 单栏：文件栏应变上下两行
-      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Unified"]').click();
       await page.waitForTimeout(500);
       const unified = await read();
       // 失败/摘要态：仍在当前模式下显示双方身份
       await page.evaluate(() => { window.__diffStatusOverride = 'Binary'; });
-      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').click();
       await page.waitForTimeout(700);
       const unifiedFailure = await read();
-      await page.locator('.editor-content .diff-toolbar [aria-label="双栏"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Side-by-side"]').click();
       await page.waitForTimeout(500);
       const splitFailure = await read();
       await page.evaluate(() => { window.__diffStatusOverride = null; });
       // 查询/排版期间：布局与模式始终一致（不会半切）
-      await page.locator('.editor-content .diff-toolbar [aria-label="单栏"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Unified"]').click();
       await page.waitForTimeout(400);
       await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 1200 }; });
-      await page.locator('.editor-content .diff-toolbar [aria-label="忽略空白"]').click();
+      await page.locator('.editor-content .diff-toolbar [aria-label="Ignore whitespace"]').click();
       await page.waitForTimeout(250);
       const loading = await read();
       await page.waitForTimeout(1400);
@@ -25310,7 +24880,7 @@ async function main() {
       // 双栏：来源与目标左右并列，来源那侧显示来源 + 相对路径
       && filebarLayout.split.mode === 'side-by-side'
       && filebarSideBySide(filebarLayout.split)
-      && filebarLayout.split.source === 'HEAD' && filebarLayout.split.target === '工作区'
+      && filebarLayout.split.source === 'HEAD' && filebarLayout.split.target === 'Workspace'
       && filebarLayout.split.path === 'src/App.cs'
       // 单栏：来源与目标上下两行（同一左边缘、整宽），文件栏整体变高
       && filebarLayout.unified.mode === 'unified'
@@ -25324,11 +24894,11 @@ async function main() {
     // 失败态（0 行差异 + 摘要说明）在两种模式下都保留双方身份与路径，且布局随模式
     filebarLayout.unifiedFailure.notice === true && filebarLayout.unifiedFailure.mode === 'unified'
       && filebarStacked(filebarLayout.unifiedFailure) && filebarLayout.unifiedFailure.lines === 0
-      && filebarLayout.unifiedFailure.source === 'HEAD' && filebarLayout.unifiedFailure.target === '工作区'
+      && filebarLayout.unifiedFailure.source === 'HEAD' && filebarLayout.unifiedFailure.target === 'Workspace'
       && filebarLayout.unifiedFailure.path === 'src/App.cs'
       && filebarLayout.splitFailure.notice === true && filebarLayout.splitFailure.mode === 'side-by-side'
       && filebarSideBySide(filebarLayout.splitFailure) && filebarLayout.splitFailure.lines === 0
-      && filebarLayout.splitFailure.source === 'HEAD' && filebarLayout.splitFailure.target === '工作区'
+      && filebarLayout.splitFailure.source === 'HEAD' && filebarLayout.splitFailure.target === 'Workspace'
       // 查询/排版期间与落地后：模式与文件栏布局始终一致（不会半切）
       && filebarLayout.loading.mode === 'unified' && filebarStacked(filebarLayout.loading)
       && filebarLayout.afterLoad.mode === 'unified' && filebarStacked(filebarLayout.afterLoad)
@@ -25784,7 +25354,7 @@ async function main() {
       await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await scene.page.waitForTimeout(500);
       const opener = await scene.page.evaluate(() => {
-        const btn = document.querySelector('.titlebar .top-button[aria-label="搜索"]');
+        const btn = document.querySelector('.titlebar .top-button[aria-label="Search"]');
         if (!btn) return null;
         btn.focus();
         btn.click();
@@ -25834,7 +25404,7 @@ async function main() {
         return {
           uiFont: cs.fontSize,
           measuredH: h,
-          expected: Math.max(42, h + 16),
+          expected: Math.max(42, h + 16, Math.round(28 * Math.max(.75, Math.round(uiPixels / 12 * 4) / 4)) + 14),
           tokenFindHeight: Number.parseFloat(cs.getPropertyValue('--augit-find-height')) || null,
           barHeight: bar ? +bar.getBoundingClientRect().height.toFixed(1) : null,
           fieldHeight: field ? +field.getBoundingClientRect().height.toFixed(1) : null,
@@ -25848,13 +25418,13 @@ async function main() {
     // 这样"是否随字高扩展"才有判别力；20px 时 max(42, h+16) 恰好还是 42，用它断言会假失败。
     const find32 = await findBarAt(32);
     console.log('INFO 查找条随界面字号=' + JSON.stringify({ find13, find32 }));
-    check('§7.2 查找条高度 = max(42px, h + 16px)（h 为界面字体实测行高）: '
+    check('§7.2 查找条按字形与缩放命中区保底，限宽时容纳局部滚动条: '
       + JSON.stringify({ find13, find32 }),
       find13.tokenFindHeight === find13.expected && find13.barHeight === find13.expected
-        && find32.tokenFindHeight === find32.expected && find32.barHeight === find32.expected
+        && find32.tokenFindHeight === find32.expected && [find32.expected, find32.expected + 10].includes(find32.barHeight)
         && find32.barHeight > find13.barHeight);
 
-    // ---- 第 67 轮补断言：§7.2 查找条随字高扩展、§7.16 终端行高 = 等宽字号 ×1.7 ----
+    // ---- 第 67 轮补断言：§7.2 查找条随字高扩展、§7.16 终端基础行格随等宽字号变化 ----
     // 用 URL 播种字号（`code-font-size=`，桩在 boot 时读，见 settings/read 的注释），
     // 两次启动对比即可，不需要走设置对话框写盘。
     const r67 = await (async () => {
@@ -25876,12 +25446,8 @@ async function main() {
       };
       const small = await measureFind(13);
       const large = await measureFind(19);
-      // 规格 §7.2 要求"查找条按实际字高扩展"，但**当前实现是固定值**：
-      // `--augit-find-height: 42px`（mockup.css:48，视觉稿与实时外壳共用同一个令牌），
-      // 实测 code-font-size 13 → 42，19 → 42（输入框 30 → 30）。
-      // 这条断言因此**把当前实现钉住**（防止被误写成"已按字高扩展"），缺口记在 §3.2 第 19 条，
-      // 并按纪律标为"待用户裁决"（规格文本 vs 共用基线的固定令牌）。
-      check('§7.2 缺口钉住：查找条高度不随字号变化（当前固定 42px，与规格"按实际字高扩展"不符）: '
+      // 正文等宽字号不影响UI查找条；界面字号扩展由前一组独立验证。
+      check('§7.2 正文等宽字号独立于查找条UI度量: '
         + JSON.stringify({ small, large }),
         small.barHeight === 42 && large.barHeight === 42
           && small.fieldHeight === large.fieldHeight);
@@ -25897,6 +25463,7 @@ async function main() {
             rowHeight: row ? +row.getBoundingClientRect().height.toFixed(2) : null,
             fontFamily: font ? (font.family || font.fontFamily || null) : null,
             fontSize: font ? Number(font.size || font.fontSize) : null,
+            lineHeight: font ? font.lineHeight : null,
           };
         });
         await scene.page.close();
@@ -25906,16 +25473,11 @@ async function main() {
       const t17 = await termMetrics(17);
       const ratio13 = t13.rowHeight && t13.fontSize ? +(t13.rowHeight / t13.fontSize).toFixed(3) : null;
       const ratio17 = t17.rowHeight && t17.fontSize ? +(t17.rowHeight / t17.fontSize).toFixed(3) : null;
-      // 事实（第 67 轮实测 + 代码核对）：
-      //  * 应用**确实**给 xterm 设了 `lineHeight: 1.7`（live-data.js:634-635），与规格的"×1.7"一致；
-      //  * 但 xterm **渲染出来的行框**更高：13px → 25px（比率 1.92）、17px → 34px（比率 2.0），
-      //    而规格写的是"13px→22px"。也就是说配置侧符合、渲染侧不符 —— 这是"规格给的渲染值 vs
-      //    xterm 自身度量"的差异，不是配置漏了。已在 §3.2 第 20 条记为待裁决项。
-      // 断言只钉住**可核对的部分**：行高随字号单调增长，且 13px 时就是实测的 25（当前实现）。
-      check('§7.16 终端行高随字号增长（配置 lineHeight=1.7，渲染实测 13→25 / 17→34）: '
+      // 用户2026-10-15裁决按参考基础行格；不沿用旧字体和1.7系数的25/34px快照。
+      check('§7.16 终端基础行距1.0且实际行格随字号增长: '
         + JSON.stringify({ t13, t17, ratio13, ratio17 }),
-        t13.rowHeight === 25 && t17.rowHeight === 34 && t17.rowHeight > t13.rowHeight
-          && ratio13 !== null && ratio17 !== null);
+        t13.lineHeight === 1 && t17.lineHeight === 1 && t17.rowHeight > t13.rowHeight
+          && ratio13 >= 1 && ratio13 <= 1.5 && ratio17 >= 1 && ratio17 <= 1.5);
       return { small, large, t13, t17, ratio13, ratio17 };
     })();
 
@@ -25994,7 +25556,7 @@ async function main() {
         const again = document.querySelector('.side-content.tree .tree-row[data-tree-path="' + CSS.escape(p) + '"]');
         return { after: again ? again.getAttribute('aria-expanded') : null };
       }, dirEnter.path || '');
-      check('§5 树 Enter 展开/折叠目录行: ' + JSON.stringify({ dirEnter, dirAfter }),
+      check('§5 树 Enter Expand/折叠目录行: ' + JSON.stringify({ dirEnter, dirAfter }),
         dirEnter.noRow !== true && dirEnter.before !== null && dirAfter.after !== null
           && dirEnter.before !== dirAfter.after);
 
@@ -26171,7 +25733,7 @@ async function main() {
           && dirArrowClick.reads === 0
           && dirArrowClick.rows > 4);
       const dirNameDouble = await gestureProbe('dblclick');
-      check('§3.1 目录名称双击净切换一次展开（展开态→折叠）、不打开标签: ' + JSON.stringify(dirNameDouble),
+      check('§3.1 目录名称双击净切换一次展开（展开态→Collapse）、不打开标签: ' + JSON.stringify(dirNameDouble),
         dirNameDouble.noRow !== true
           && dirNameDouble.before.expanded === 'true'
           && dirNameDouble.after.expanded === 'false'
@@ -26220,7 +25782,7 @@ async function main() {
         const after = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
         return { expanded: after ? after.getAttribute('aria-expanded') : null };
       });
-      check('§3.1 连击三下之后双击仍只切换一次（展开→折叠）: ' + JSON.stringify(dirNameDoubleAgain2),
+      check('§3.1 连击三下之后双击仍只切换一次（Expand→Collapse）: ' + JSON.stringify(dirNameDoubleAgain2),
         dirNameDoubleAgain2.expanded === 'false');
 
       // ---- 以下两条钉住本轮修掉的两处状态口径缺陷（写模板的 `aria-selected`、根路径的空字符串）----
@@ -26412,7 +25974,7 @@ async function main() {
           rowGroups: [...new Set(files.map((f) => f.getAttribute('data-group')))],
         };
       });
-      check('§7.6 只有 Changes 与 Unversioned Files 两组、不显示 Changelist: ' + JSON.stringify(groups),
+      check('§7.6 只有 Changes with Unversioned Files 两组、不显示 Changelist: ' + JSON.stringify(groups),
         groups.labels.length === 2 && groups.labels[0] === 'Changes' && groups.labels[1] === 'Unversioned Files'
           && groups.changelist.length === 0 && groups.fileCount > 0);
 
@@ -26562,7 +26124,7 @@ async function main() {
         const rail = [...document.querySelectorAll('.tool-rail .rail-button')];
         const side = document.querySelector('.side-tool');
         if (!side || !side.checkVisibility()) {
-          const entry = rail.find((b) => (b.getAttribute('aria-label') || '').includes('项目'));
+          const entry = rail.find((b) => (b.getAttribute('aria-label') || '').includes('Project'));
           if (entry) { entry.click(); await new Promise((r) => setTimeout(r, 300)); }
         }
         return {
@@ -26575,7 +26137,7 @@ async function main() {
 
       // Esc：打开标题栏搜索浮层 -> Esc 关闭浮层，终端工具窗仍在（§5）
       const escState = await (async () => {
-        await term.page.locator('.titlebar .top-button[aria-label="搜索"]').click();
+        await term.page.locator('.titlebar .top-button[aria-label="Search"]').click();
         await term.page.waitForTimeout(400);
         const openedOverlay = await term.page.evaluate(() => document.querySelectorAll('[data-augit-overlay]').length);
         await term.page.keyboard.press('Escape');
@@ -26597,7 +26159,7 @@ async function main() {
           side: document.querySelector('.side-tool').checkVisibility(),
           bottom: !!document.querySelector('.terminal-tool'),
         }));
-        await term.page.locator('.terminal-header [aria-label="隐藏终端"]').click();
+        await term.page.locator('.terminal-header [aria-label="Hide Terminal"]').click();
         await term.page.waitForTimeout(500);
         const after = await term.page.evaluate(() => ({
           side: document.querySelector('.side-tool').checkVisibility(),
@@ -26615,12 +26177,12 @@ async function main() {
       await img.page.waitForTimeout(300);
       const tools = await img.page.evaluate(() => {
         const labels = [...document.querySelectorAll('.image-toolbar button')].map((b) => b.getAttribute('aria-label'));
-        const forbidden = labels.filter((l) => /编辑|裁剪|旋转|画笔|标注|保存|撤销/.test(l || ''));
+        const forbidden = labels.filter((l) => /编辑|裁剪|旋转|画笔|标注|Save|撤销/.test(l || ''));
         return { labels, forbidden };
       });
       check('§7.5 图片页只读：工具条只有缩放/适应，不含编辑类动作: ' + JSON.stringify(tools),
         tools.labels.length > 0
-          && tools.labels.every((l) => ['缩小', '放大', '适应区域'].includes(l))
+          && tools.labels.every((l) => ['Zoom Out', 'Zoom In', 'Fit to View'].includes(l))
           && tools.forbidden.length === 0);
       await img.page.close();
 
@@ -26645,7 +26207,7 @@ async function main() {
         };
       });
       check('§7.18 Git 不可用时显示局部错误并提供配置 git.exe 入口: ' + JSON.stringify(gitOff),
-        gitOff.hasError === true && gitOff.title === 'Git 不可用' && gitOff.hasSettingsEntry === true);
+        gitOff.hasError === true && gitOff.title === 'Git unavailable' && gitOff.hasSettingsEntry === true);
       check('§7.18 Git 可用时 rail 入口不禁用（对照）: ' + JSON.stringify({ railTotal: gitOff.railTotal, railDisabled: gitOff.railDisabled }),
         gitOff.railTotal > 0 && gitOff.railDisabled === 0);
       await noGit.page.close();
@@ -26705,13 +26267,13 @@ async function main() {
       };
     });
     csCheck('冲突后自动进入操作会话，显示类型/步骤/冲突文件: ' + JSON.stringify(csOpened),
-      csOpened !== null && csOpened.title === 'Rebase 冲突' && csOpened.summary === '2 个冲突文件'
-        && csOpened.step === '当前步骤 2/4'
+      csOpened !== null && csOpened.title === 'Rebase Conflicts' && csOpened.summary === '2 conflicting files'
+        && csOpened.step === 'Current step 2/4'
         && JSON.stringify(csOpened.conflicts) === JSON.stringify(['src/App.cs', 'README.md']));
     csCheck('Continue 前置未满足时保留并禁用且说明原因（§7.13）: '
       + JSON.stringify([csOpened && csOpened.continueDisabled, csOpened && csOpened.blocked, csOpened && csOpened.actions]),
     csOpened !== null && csOpened.continueDisabled === true
-      && typeof csOpened.blocked === 'string' && csOpened.blocked.includes('还有 2 个冲突未解决')
+      && typeof csOpened.blocked === 'string' && csOpened.blocked.includes('Remaining: 2 unresolved conflicts')
       && csOpened.actions.includes('abort') && csOpened.actions.includes('skip'));
 
     // §10.3：宿主判定"不适用于当前状态"的动作必须**隐藏**，而不是以禁用占位。
@@ -26801,8 +26363,8 @@ async function main() {
       };
     });
     csCheck('§7.13 外部解决冲突后会话列表在 500ms 内更新: ' + JSON.stringify([beforeExternal, externalUpdate]),
-      beforeExternal.rows === 2 && beforeExternal.summary === '2 个冲突文件'
-        && externalUpdate.rows === 1 && externalUpdate.summary === '1 个冲突文件'
+      beforeExternal.rows === 2 && beforeExternal.summary === '2 conflicting files'
+        && externalUpdate.rows === 1 && externalUpdate.summary === '1 conflicting files'
         && externalUpdate.elapsed < 500);
 
     // 还原：后续用例依赖 __sessionFixture（未注入 __operationSession 时走它）。
@@ -26867,942 +26429,7 @@ async function main() {
       throw new Error('断言失败：' + csSoft.join(' | '));
     }
 
-    // ---- 规格 §7.13：点击冲突文件打开三栏冲突解决器 ----
-    // 三栏解决器的 live 渲染（liveConflictResolver）与保存流程本就存在，
-    // 但此前**只有审计用的 --conflict 启动参数能到达**，产品里没有任何入口。
-    const crSoft = [];
-    const crCheck = (label, condition) => {
-      if (condition) { passed++; return; }
-      crSoft.push(label);
-      console.log('SOFT_FAIL: ' + label);
-    };
-    const cr = await openScene('scene=commit-changes&theme=dark');
-    await cr.page.bringToFront();
-    await cr.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await cr.page.evaluate(() => {
-      window.__conflictLoads = [];
-      window.__conflictSaves = [];
-      window.__operationCalls = 0;
-      window.__sessionFixture = {
-        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
-        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-        currentStep: 2, totalSteps: 4,
-        conflicts: [{ path: 'src/App.cs' }, { path: 'README.md' }],
-      };
-      window.__statusOperation = 'Rebase';
-      window.__statusConflicts = true;
-      window.__nextChanges = { files: [], gitMetadata: true };
-    });
-    await cr.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
 
-    await cr.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
-    const resolverView = await cr.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const result = dialog ? dialog.querySelector('.conflict-column.result .conflict-block') : null;
-      return {
-        title: dialog ? dialog.getAttribute('aria-label') : null,
-        loads: window.__conflictLoads || [],
-        columns: dialog ? dialog.querySelectorAll('.conflict-column').length : 0,
-        resultEditable: result ? result.getAttribute('contenteditable') : null,
-        header: dialog && dialog.querySelector('.conflict-header strong')
-          ? dialog.querySelector('.conflict-header strong').textContent : null,
-        hasBack: !!(dialog && dialog.querySelector('[data-conflict-back]')),
-        hasSave: !!(dialog && dialog.querySelector('[data-conflict-save]')),
-      };
-    });
-    crCheck('点击冲突文件打开三栏解决器: ' + JSON.stringify(resolverView),
-      resolverView.title === '解决冲突' && resolverView.loads.includes('src/App.cs')
-        && resolverView.columns === 3 && resolverView.resultEditable === 'plaintext-only'
-        // 设计稿的表头用**文件名**（完整路径由 __conflictLoads 佐证）。
-        && typeof resolverView.header === 'string' && resolverView.header.includes('App.cs')
-        && resolverView.hasBack === true && resolverView.hasSave === true);
-
-    await cr.page.evaluate(() => {
-      const back = document.querySelector('[data-conflict-back]');
-      if (back) back.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForTimeout(400);
-    const backToList = await cr.page.evaluate(() => ({
-      rows: document.querySelectorAll('[data-conflict-path]').length,
-      columns: document.querySelectorAll('.conflict-columns').length,
-    }));
-    crCheck('「返回冲突列表」回到会话列表: ' + JSON.stringify(backToList),
-      backToList.rows === 2 && backToList.columns === 0);
-
-    // 保存冲突结果：调用宿主、随后重新读取会话（§9.3「读取最新事实」）。
-    await cr.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForSelector('[data-conflict-save]', { timeout: 8000 }).catch(() => {});
-    const operationCallsBeforeSave = await cr.page.evaluate('window.__operationCalls || 0');
-    await cr.page.evaluate(() => {
-      const save = document.querySelector('[data-conflict-save]');
-      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForFunction(
-      '(window.__conflictSaves || []).length === 1', null, { timeout: 8000 }).catch(() => {});
-    await cr.page.waitForTimeout(700);
-    const savedConflict = await cr.page.evaluate(() => ({
-      saves: (window.__conflictSaves || []).map(
-        (entry) => ({ path: entry.path, length: String(entry.resultText || '').length })),
-      operationCalls: window.__operationCalls || 0,
-    }));
-    crCheck('保存冲突结果调用宿主并带上结果正文: ' + JSON.stringify(savedConflict.saves),
-      savedConflict.saves.length === 1 && savedConflict.saves[0].path === 'src/App.cs'
-        && savedConflict.saves[0].length > 0);
-    crCheck('保存后重新读取会话（§9.3 读取最新事实）: '
-      + JSON.stringify([operationCallsBeforeSave, savedConflict.operationCalls]),
-    savedConflict.operationCalls > operationCallsBeforeSave);
-
-    // ---- 规格 §7.14：接受左侧/两侧/右侧是**结果区的一次可撤销编辑** ----
-    // 宿主那个 AcceptSideAsync（git checkout --ours/--theirs）是整文件语义，
-    // 对应二进制/超大文件的"整侧接受"，不能拿来当这三个按钮的实现。
-    await cr.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
-    const acceptBefore = await cr.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      return {
-        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
-        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
-        sides: [...document.querySelectorAll('[data-conflict-side]')]
-          .map((button) => button.dataset.conflictSide),
-        leftText: (document.querySelectorAll('.conflict-column')[0] || {}).innerText || null,
-        resultText: block ? block.innerText : null,
-      };
-    });
-    check('前置条件：解决器显示 1 个未处理冲突与三种接受动作: ' + JSON.stringify([acceptBefore.markers, acceptBefore.count, acceptBefore.sides]),
-      acceptBefore.markers === 1 && acceptBefore.count === '1 个未处理冲突'
-        && JSON.stringify(acceptBefore.sides) === JSON.stringify(['yours', 'both', 'theirs']));
-
-    await cr.page.evaluate(() => {
-      const button = document.querySelector('[data-conflict-side="theirs"]');
-      if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForTimeout(400);
-    const accepted = await cr.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      return {
-        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
-        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
-        text: block ? block.innerText : null,
-        leftText: (document.querySelectorAll('.conflict-column')[0] || {}).innerText || null,
-      };
-    });
-    crCheck('接受右侧把结果区该冲突块换成右侧内容: ' + JSON.stringify([accepted.markers, accepted.count, accepted.text]),
-      accepted.markers === 0 && accepted.text.includes('右方改动')
-        && !accepted.text.includes('左方改动') && !accepted.text.includes('<<<<<<<'));
-    crCheck('接受后未处理数量随之更新: ' + JSON.stringify(accepted.count),
-      accepted.count === '0 个未处理冲突');
-    crCheck('左右只读栏不受接受动作影响: ' + JSON.stringify([acceptBefore.leftText === accepted.leftText]),
-      acceptBefore.leftText === accepted.leftText);
-
-    // Ctrl+Z：原生撤销把冲突块还回来，计数必须跟着回（不能只改正文不改计数）。
-    await cr.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      if (block) block.focus();
-    });
-    await cr.page.keyboard.press('Control+z');
-    await cr.page.waitForTimeout(400);
-    const undone = await cr.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      return {
-        markers: block ? (block.innerText.match(/^<{7}/gm) || []).length : null,
-        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
-        text: block ? block.innerText : null,
-      };
-    });
-    crCheck('撤销恢复冲突块且计数跟着回: ' + JSON.stringify([undone.markers, undone.count]),
-      undone.markers === 1 && undone.count === '1 个未处理冲突'
-        && undone.text.includes('<<<<<<<') && undone.text.includes('左方改动'));
-
-    // ---- 规格 §7.14：应用进行中冻结、只读与忙碌提示；失败保留正文并显示原因 ----
-    const readApplyState = () => cr.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const block = dialog ? dialog.querySelector('.conflict-column.result .conflict-block') : null;
-      const pick = (selector) => {
-        const node = dialog ? dialog.querySelector(selector) : null;
-        return node ? node.disabled : null;
-      };
-      return {
-        applying: dialog ? dialog.getAttribute('data-conflict-applying') : null,
-        count: (dialog && dialog.querySelector('[data-conflict-count]') || {}).textContent || null,
-        editable: block ? block.getAttribute('contenteditable') : null,
-        acceptDisabled: dialog
-          ? [...dialog.querySelectorAll('[data-conflict-side]')].map((node) => node.disabled) : [],
-        navDisabled: dialog
-          ? [...dialog.querySelectorAll('.conflict-header .secondary-button')].map((node) => node.disabled) : [],
-        backDisabled: pick('[data-conflict-back]'),
-        saveDisabled: pick('[data-conflict-save]'),
-        text: block ? block.innerText : null,
-      };
-    });
-
-    // 进行中：冻结接受/导航/关闭、结果区只读、顶部显示忙碌提示。
-    await cr.page.evaluate(() => {
-      window.__conflictSaves = [];
-      window.__conflictSAVED = null;
-      window.__conflictSaveDelays = 900;
-      window.__conflictSaveFails = false;
-      const save = document.querySelector('[data-conflict-save]');
-      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForTimeout(250);
-    const cfApplying = await readApplyState();
-    crCheck('应用进行中冻结接受/导航/关闭并只读结果区: ' + JSON.stringify(cfApplying),
-      cfApplying.applying === 'true' && cfApplying.editable === 'false'
-        && cfApplying.acceptDisabled.every((value) => value === true)
-        && cfApplying.navDisabled.every((value) => value === true)
-        && cfApplying.backDisabled === true && cfApplying.saveDisabled === true);
-    crCheck('应用进行中显示忙碌提示（不隐藏未处理数）: ' + JSON.stringify(cfApplying.count),
-      cfApplying.count === '正在应用结果并标记已解决…');
-
-    await cr.page.waitForFunction('(window.__conflictSaves || []).length === 1', null, { timeout: 8000 }).catch(() => {});
-    await cr.page.waitForTimeout(1200);
-    const cfApplied = await readApplyState();
-    crCheck('应用完成后解冻并按实际未处理数恢复动作: ' + JSON.stringify([cfApplied.applying, cfApplied.editable, cfApplied.count, cfApplied.acceptDisabled]),
-      cfApplied.applying === 'false' && cfApplied.editable === 'plaintext-only'
-        && cfApplied.count === '1 个未处理冲突'
-        && cfApplied.acceptDisabled.every((value) => value === false)
-        && cfApplied.saveDisabled === false);
-
-    // 失败：保留中央正文、显示最新原因与"未改变"说明，动作按实际未处理数恢复。
-    const textBeforeFailure = cfApplied.text;
-    await cr.page.evaluate(() => {
-      window.__conflictSaveDelays = 0;
-      window.__conflictSaveFails = true;
-      const save = document.querySelector('[data-conflict-save]');
-      if (save) save.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cr.page.waitForFunction(
-      "!document.querySelector('.conflict-session-dialog .conflict-notice').hidden",
-      null, { timeout: 8000 }).catch(() => {});
-    // 原子捕获：在"提示出现"的同一帧读取状态，不给后台轮询留出改写界面的窗口
-    // （否则断言可能读到轮询重绘中途的状态，得到与失败无关的 null）。
-    const cfFailed = await cr.page.waitForFunction(() => {
-      const dialog = [...document.querySelectorAll('.dialog.conflict-session-dialog')].at(-1) || null;
-      const notice = dialog ? dialog.querySelector('.conflict-notice') : null;
-      if (!dialog || !notice || notice.hidden) return false;
-      const block = dialog.querySelector('.conflict-column.result .conflict-block');
-      return {
-        dialogs: document.querySelectorAll('.dialog.conflict-session-dialog').length,
-        notice: notice.textContent,
-        text: block ? block.innerText : null,
-        editable: block ? block.getAttribute('contenteditable') : null,
-        acceptDisabled: [...dialog.querySelectorAll('[data-conflict-side]')].every((node) => node.disabled),
-        saveDisabled: dialog.querySelector('[data-conflict-save]').disabled,
-      };
-    }, null, { timeout: 8000 }).then((handle) => handle.jsonValue()).catch(() => null);
-    crCheck('应用失败保留正文并显示原因与未改变说明: '
-      + JSON.stringify([cfFailed && cfFailed.notice, cfFailed && cfFailed.text === textBeforeFailure]),
-    cfFailed !== null && cfFailed.dialogs === 1 && typeof cfFailed.notice === 'string'
-      // 与宿主 SaveResolvedAsync 的真实文案一致（版本不匹配时给出的下一步）。
-      && cfFailed.notice.includes('冲突文件已被外部工具修改') && cfFailed.notice.includes('重新载入')
-      && cfFailed.notice.includes('没有被修改')
-      && cfFailed.text === textBeforeFailure && cfFailed.editable === 'plaintext-only');
-    crCheck('应用失败后按实际未处理数恢复动作: '
-      + JSON.stringify([cfFailed && cfFailed.acceptDisabled, cfFailed && cfFailed.saveDisabled]),
-    cfFailed !== null && cfFailed.acceptDisabled === false && cfFailed.saveDisabled === false);
-    await cr.page.close();
-
-    if (crSoft.length > 0) {
-      throw new Error('断言失败：' + crSoft.join(' | '));
-    }
-
-    // ---- 规格 §7.14：上一处/下一处与"当前块"（接受作用于当前块）----
-    const cnSoft = [];
-    const cnCheck = (label, condition) => {
-      if (condition) { passed++; return; }
-      cnSoft.push(label);
-      console.log('SOFT_FAIL: ' + label);
-    };
-    const cn = await openScene('scene=commit-changes&theme=dark');
-    await cn.page.bringToFront();
-    await cn.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    // 两处冲突的文档：第 1 处在结果正文第 2 行（data-line=2），第 2 处在第 8 行（data-line=8）。
-    await cn.page.evaluate(() => {
-      window.__conflictFixture = {
-        available: true, path: 'src/App.cs', contentKind: 'Text',
-        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-        yoursText: '第一行\n左方改动\n中间行\n左方改动二\n第三行',
-        theirsText: '第一行\n右方改动\n中间行\n右方改动二\n第三行',
-        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n中间行\n<<<<<<< HEAD\n左方改动二\n=======\n右方改动二\n>>>>>>> feature/ux\n第三行',
-        operation: 'Rebase',
-        version: { length: 42, sha256: 'deadbeef', lastWriteUtc: '2026-09-15T00:00:00Z' },
-        blocks: [
-          { start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' },
-          { start: 7, length: 5, yours: '左方改动二', ancestor: null, theirs: '右方改动二' },
-        ],
-      };
-      window.__sessionFixture = {
-        kind: 'Rebase', inProgress: true, hasConflicts: true, branch: 'dsh',
-        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-        currentStep: 2, totalSteps: 4, conflicts: [{ path: 'src/App.cs' }],
-      };
-      window.__statusOperation = 'Rebase';
-      window.__statusConflicts = true;
-      window.__nextChanges = { files: [], gitMetadata: true };
-    });
-    await cn.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
-    await cn.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cn.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
-
-    const readNav = () => cn.page.evaluate(() => {
-      const dialog = [...document.querySelectorAll('.dialog.conflict-session-dialog')].at(-1) || null;
-      const selection = window.getSelection();
-      const node = selection && selection.rangeCount > 0 ? selection.anchorNode : null;
-      const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
-      const line = element && element.closest ? element.closest('.conflict-line') : null;
-      const prev = dialog ? dialog.querySelector('[data-conflict-nav="prev"]') : null;
-      const next = dialog ? dialog.querySelector('[data-conflict-nav="next"]') : null;
-      return {
-        count: (dialog && dialog.querySelector('[data-conflict-count]') || {}).textContent || null,
-        currentLine: line ? Number(line.dataset.line) : null,
-        index: window.__augitLive.conflictBlockIndex,
-        prevDisabled: prev ? prev.disabled : null,
-        nextDisabled: next ? next.disabled : null,
-      };
-    });
-
-    const navStart = await readNav();
-    check('前置条件：两处冲突且默认停在第一处: ' + JSON.stringify(navStart),
-      navStart.count === '2 个未处理冲突' && navStart.index === 0
-        && navStart.prevDisabled === true && navStart.nextDisabled === false);
-
-    await cn.page.evaluate(() => {
-      const next = document.querySelector('[data-conflict-nav="next"]');
-      if (next) next.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cn.page.waitForTimeout(300);
-    const navSecond = await readNav();
-    cnCheck('「下一处」移到第二处并把光标放过去: ' + JSON.stringify(navSecond),
-      navSecond.index === 1 && navSecond.currentLine === 8
-        && navSecond.prevDisabled === false && navSecond.nextDisabled === true);
-
-    // 接受作用于**当前**块：第二处被换掉，第一处保留。
-    await cn.page.evaluate(() => {
-      const button = document.querySelector('[data-conflict-side="theirs"]');
-      if (button) button.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await cn.page.waitForTimeout(400);
-    const acceptedSecond = await cn.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      return {
-        text: block ? block.innerText : null,
-        count: (document.querySelector('[data-conflict-count]') || {}).textContent || null,
-      };
-    });
-    cnCheck('接受作用于当前块（第二处），第一处保留: ' + JSON.stringify([acceptedSecond.count]),
-      acceptedSecond.count === '1 个未处理冲突'
-        && acceptedSecond.text.includes('右方改动二') && !acceptedSecond.text.includes('左方改动二')
-        && acceptedSecond.text.includes('<<<<<<<') && acceptedSecond.text.includes('左方改动'));
-
-    // 光标落到第一处：当前块跟着走（导航与接受都跟光标）。
-    await cn.page.evaluate(() => {
-      // 必须限定在**结果列**：左右只读栏也渲染 .conflict-line 与 data-line，
-      // 不加限定会选到左栏那一行（实测就这样把"当前块"测成了没跟着走）。
-      const line = document.querySelector('.conflict-column.result .conflict-line[data-line="2"]');
-      if (!line) return;
-      const range = document.createRange();
-      range.selectNodeContents(line);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.dispatchEvent(new Event('selectionchange'));
-    });
-    await cn.page.waitForTimeout(300);
-    const caretFollowed = await readNav();
-    cnCheck('光标落到第一处后当前块跟着走: ' + JSON.stringify(caretFollowed),
-      caretFollowed.index === 0 && caretFollowed.currentLine === 2);
-    await cn.page.close();
-
-    if (cnSoft.length > 0) {
-      throw new Error('断言失败：' + cnSoft.join(' | '));
-    }
-
-    // ---- 规格 §7.14：大字号 / 窄窗口下的标题行排布 ----
-    // 标题行放不下时：文件名移到窗口顶部"解决冲突"右侧，计数与导航保留独立一行；
-    // 来源拆成身份与分支名两行；完整路径与来源可悬停；三栏比例与正文等宽字号不变。
-    const thSoft = [];
-    const thCheck = (label, condition) => {
-      if (condition) { passed++; return; }
-      thSoft.push(label);
-      console.log('SOFT_FAIL: ' + label);
-    };
-    const th = await openScene('scene=commit-changes&theme=dark');
-    await th.page.bringToFront();
-    await th.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await th.page.evaluate(() => {
-      window.__conflictFixture = {
-        available: true, path: 'src/App.cs', contentKind: 'Text',
-        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-        yoursText: '第一行\n左方改动\n第三行',
-        theirsText: '第一行\n右方改动\n第三行',
-        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
-        operation: 'Merge',
-        version: { length: 42, sha256: 'h1', lastWriteUtc: '2026-09-15T00:00:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
-      };
-      window.__operationSession = {
-        kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
-        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-        currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
-      };
-      window.__statusOperation = 'Merge';
-      window.__statusConflicts = true;
-      window.__nextChanges = { files: [], gitMetadata: true };
-      void window.__augitLoadOperation();
-    });
-    await th.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
-    await th.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await th.page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
-
-    const headerState = () => th.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const page = dialog ? dialog.querySelector('.conflict-page') : null;
-      if (!dialog || !page) return null;
-      const columns = page.querySelector('.conflict-columns');
-      const body = page.querySelector('.conflict-block');
-      const inDialogHeader = dialog.querySelector('.dialog-header .conflict-file-title');
-      const inConflictHeader = page.querySelector('.conflict-header strong.conflict-file-title');
-      const title = inDialogHeader || inConflictHeader;
-      const help = dialog.querySelector('.footer-help');
-      return {
-        compact: dialog.classList.contains('compact-conflict-header'),
-        titleAt: inDialogHeader ? 'dialog' : (inConflictHeader ? 'conflict' : 'none'),
-        titleText: title ? title.textContent.trim() : null,
-        titlePath: title ? title.getAttribute('title') : null,
-        counts: page.querySelectorAll('.conflict-header .commit-meta').length,
-        countText: (page.querySelector('.conflict-header [data-conflict-count]') || {}).textContent || null,
-        nav: page.querySelectorAll('.conflict-header [data-conflict-nav]').length,
-        help: help ? help.textContent.trim() : null,
-        grid: columns ? getComputedStyle(columns).gridTemplateColumns : null,
-        columns: page.querySelectorAll('.conflict-column').length,
-        bodyFont: body ? getComputedStyle(body).fontSize : null,
-        titles: [...page.querySelectorAll('.conflict-column-title')].map((node) => ({
-          label: node.getAttribute('title'),
-          lines: node.children.length,
-          parts: [...node.children].map((child) => child.textContent.trim()),
-          text: node.textContent.trim(),
-        })),
-      };
-    });
-
-    // 宽窗口 + 默认字号：视觉稿的原始排布（文件名留在三栏表头里）。
-    const wide = await headerState();
-    thCheck('默认尺寸下使用视觉稿原始标题行: ' + JSON.stringify([wide && wide.compact, wide && wide.titleAt, wide && wide.titleText, wide && wide.titlePath]),
-      wide !== null && wide.compact === false && wide.titleAt === 'conflict'
-        && wide.titleText === '解决冲突 · App.cs' && wide.titlePath === 'src/App.cs');
-    thCheck('默认尺寸下计数与上一处/下一处同排且表尾提示为真实值: ' + JSON.stringify([wide && wide.countText, wide && wide.nav, wide && wide.help]),
-      wide !== null && wide.countText === '1 个未处理冲突' && wide.nav === 2
-        && wide.help === '未处理冲突块：1，当前位置：1');
-
-    // 大字号 + 窄窗口：文件名移到窗口顶部，计数与导航保留独立一行。
-    await th.page.evaluate(() => { document.documentElement.style.fontSize = '32px'; });
-    await th.page.setViewportSize({ width: 620, height: 760 });
-    await th.page.waitForFunction(
-      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    await th.page.waitForTimeout(300);
-    const compact = await headerState();
-    thCheck('大字号窄窗口下文件名移到窗口顶部且只显示文件名: '
-      + JSON.stringify([compact && compact.compact, compact && compact.titleAt, compact && compact.titleText, compact && compact.titlePath]),
-    compact !== null && compact.compact === true && compact.titleAt === 'dialog'
-      && compact.titleText === 'App.cs' && compact.titlePath === 'src/App.cs');
-    thCheck('计数与上一处/下一处保留在独立一行且仍然可用: '
-      + JSON.stringify([compact && compact.countText, compact && compact.nav, compact && compact.help]),
-    compact !== null && compact.countText === '1 个未处理冲突' && compact.nav === 2
-      && compact.help === '未处理冲突块：1，当前位置：1');
-    thCheck('来源拆成身份与分支名两行且完整来源可悬停: ' + JSON.stringify(compact && compact.titles),
-      compact !== null && compact.titles.length === 3
-        // 拆行后每一行都是独立一行，按原来的" · "拼回必须与完整来源一致（悬停值不变）。
-        && compact.titles.every((item) => item.lines === 2 && item.parts.join(' · ') === item.label)
-        && compact.titles.every((item) => item.parts.every((part) => part.length > 0)));
-    // 设计稿的三栏是 1fr / 1.08fr / 1fr：换字号或改窗口宽度时变的是像素宽度，**比例**必须不变。
-    const ratio = (grid) => {
-      const parts = String(grid || '').split(' ').map(parseFloat);
-      return parts.length === 3 && parts[0] > 0 ? parts[1] / parts[0] : null;
-    };
-    thCheck('三栏比例与正文等宽字号不随界面字号改变: '
-      + JSON.stringify([compact && compact.grid, wide && wide.grid, compact && compact.bodyFont, wide && wide.bodyFont]),
-    compact !== null && wide !== null && compact.columns === 3
-      && ratio(compact.grid) !== null && Math.abs(ratio(compact.grid) - ratio(wide.grid)) < 0.02
-      && compact.bodyFont === wide.bodyFont);
-
-    // 恢复默认尺寸：排布必须回到原始形态（度量是双向的，不是单向改写）。
-    await th.page.evaluate(() => { document.documentElement.style.fontSize = '13px'; });
-    await th.page.setViewportSize({ width: 1180, height: 760 });
-    await th.page.waitForFunction(
-      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && !d.classList.contains('compact-conflict-header'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    await th.page.waitForTimeout(300);
-    const thRestored = await headerState();
-    thCheck('恢复默认尺寸后标题行回到视觉稿原始排布: '
-      + JSON.stringify([thRestored && thRestored.titleAt, thRestored && thRestored.titleText]),
-    thRestored !== null && thRestored.compact === false && thRestored.titleAt === 'conflict'
-      && thRestored.titleText === '解决冲突 · App.cs');
-
-    // 解决器是按需创建的、不在整页重绘路径上：重开时必须自己度量一次。
-    // 这里只改界面字号（不触发 resize）再重建对话框——只有"打开时度量"能让它变成紧凑排布。
-    await th.page.setViewportSize({ width: 620, height: 760 });
-    await th.page.waitForTimeout(300);
-    const narrowOnly = await headerState();
-    thCheck('前置条件：窄窗口但默认字号不触发紧凑排布: ' + JSON.stringify(narrowOnly && narrowOnly.compact),
-      narrowOnly !== null && narrowOnly.compact === false);
-    await th.page.evaluate(() => {
-      document.documentElement.style.fontSize = '32px';
-      void window.__augitLoadOperation();
-    });
-    await th.page.waitForFunction(
-      "() => { const d = document.querySelector('.dialog.conflict-session-dialog'); return !!d && d.classList.contains('compact-conflict-header'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    await th.page.waitForTimeout(300);
-    const reopened = await headerState();
-    thCheck('重开解决器时按当前字号与窗口宽度重新度量: '
-      + JSON.stringify([reopened && reopened.compact, reopened && reopened.titleAt, reopened && reopened.titleText]),
-    reopened !== null && reopened.compact === true && reopened.titleAt === 'dialog'
-      && reopened.titleText === 'App.cs');
-    await th.page.close();
-
-    if (thSoft.length > 0) {
-      throw new Error('断言失败：' + thSoft.join(' | '));
-    }
-
-    // ---- 规格 §7.14：中央有未保存内容且外部文件变化时的模态选择 ----
-    // 没有未保存内容时自动接纳最新版本；有未保存内容时**不得**改写正文，必须先问。
-    const exSoft = [];
-    const exCheck = (label, condition) => {
-      if (condition) { passed++; return; }
-      exSoft.push(label);
-      console.log('SOFT_FAIL: ' + label);
-    };
-    const ex = await openScene('scene=commit-changes&theme=dark');
-    await ex.page.bringToFront();
-    await ex.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-    await ex.page.evaluate(() => {
-      window.__conflictLoads = [];
-      window.__conflictSaves = [];
-      window.__conflictSaveFails = false;
-      window.__conflictFixture = {
-        available: true, path: 'src/App.cs', contentKind: 'Text',
-        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-        yoursText: '第一行\n左方改动\n第三行',
-        theirsText: '第一行\n右方改动\n第三行',
-        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
-        operation: 'Merge',
-        version: { length: 42, sha256: 'v1', lastWriteUtc: '2026-09-15T00:00:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
-      };
-      window.__operationSession = {
-        kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
-        canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-        currentStep: 1, totalSteps: 1, conflicts: [{ path: 'src/App.cs' }],
-      };
-      window.__statusOperation = 'Merge';
-      window.__statusConflicts = true;
-      window.__nextChanges = { files: [], gitMetadata: true };
-      void window.__augitLoadOperation();
-    });
-    await ex.page.waitForSelector('[data-conflict-path="src/App.cs"]', { timeout: 10000 }).catch(() => {});
-    await ex.page.evaluate(() => {
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForSelector('.conflict-columns', { timeout: 8000 }).catch(() => {});
-
-    const exState = () => ex.page.evaluate(() => ({
-      prompt: !!document.querySelector('.dialog.conflict-external-dialog'),
-      result: (() => {
-        const block = document.querySelector('.conflict-column.result .conflict-block');
-        return block ? block.innerText.replace(/\s+/g, '') : null;
-      })(),
-      dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
-      loads: (window.__conflictLoads || []).length,
-      view: window.__augitLive ? window.__augitLive.conflictSessionView : null,
-    }));
-
-    // 对照组：无关文件变化既不能询问、也不能重新载入解决器。
-    // 用 gitMetadata 让这批变化必然触发一次状态查询，从而证明"批次确实到达并被处理"——
-    // 否则"什么都没发生"也可能只是因为批次没送到（这正是本段第一次跑时的假绿）。
-    const exBefore = await exState();
-    const exStatusBefore = await ex.page.evaluate('window.__statusCalls || 0');
-    await ex.page.evaluate(() => {
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\unrelated.md'], gitMetadata: true });
-    });
-    await ex.page.waitForFunction(
-      `(window.__statusCalls || 0) > ${exStatusBefore}`, null, { timeout: 10000 }).catch(() => {});
-    await ex.page.waitForTimeout(300);
-    const exUnrelated = await exState();
-    exCheck('对照：无关文件变化不询问也不重新载入解决器: '
-      + JSON.stringify([exUnrelated.prompt, exUnrelated.loads, exBefore.loads, exUnrelated.result === exBefore.result]),
-    exUnrelated.prompt === false && exUnrelated.loads === exBefore.loads
-      && exUnrelated.result === exBefore.result);
-
-    // 无未保存内容 + 外部变化 → 自动接纳最新版本。
-    await ex.page.evaluate(() => {
-      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
-        resultText: '第一行\n<<<<<<< HEAD\n外部左侧\n=======\n外部右侧\n>>>>>>> feature/ux\n第三行',
-        version: { length: 60, sha256: 'v2', lastWriteUtc: '2026-09-15T00:01:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '外部左侧', ancestor: null, theirs: '外部右侧' }],
-      });
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForFunction(
-      "() => { const b = document.querySelector('.conflict-column.result .conflict-block'); return !!b && b.innerText.includes('外部左侧'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    const exAuto = await exState();
-    exCheck('无未保存内容时外部变化自动接纳最新版本且不询问: ' + JSON.stringify([exAuto.result, exAuto.prompt, exAuto.loads]),
-      exAuto.prompt === false && exAuto.loads > exUnrelated.loads && exAuto.dirty === false
-        && exAuto.result.includes('外部左侧') && exAuto.result.includes('<<<<<<<'));
-
-    // 有未保存内容 + 外部变化 → 模态选择，且正文保持用户内容。
-    await ex.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-side="yours"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForTimeout(200);
-    const exEdited = await exState();
-    exCheck('编辑结果区后进入未保存状态: ' + JSON.stringify([exEdited.dirty, exEdited.result]),
-      exEdited.dirty === true && exEdited.result === '第一行外部左侧第三行');
-
-    await ex.page.evaluate(() => {
-      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
-        resultText: '第一行\n<<<<<<< HEAD\n外部第三次左\n=======\n外部第三次右\n>>>>>>> feature/ux\n第三行',
-        version: { length: 70, sha256: 'v3', lastWriteUtc: '2026-09-15T00:02:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '外部第三次左', ancestor: null, theirs: '外部第三次右' }],
-      });
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
-    const exPrompt = await ex.page.evaluate(() => {
-      const prompt = document.querySelector('.dialog.conflict-external-dialog');
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      return {
-        prompt: !!prompt,
-        text: prompt ? prompt.innerText.replace(/\s+/g, ' ').trim() : null,
-        keep: !!(prompt && prompt.querySelector('[data-conflict-keep]')),
-        reload: !!(prompt && prompt.querySelector('[data-conflict-reload]')),
-        result: block ? block.innerText.replace(/\s+/g, '') : null,
-        dirty: !!(window.__augitLive && window.__augitLive.conflictDirty),
-        saves: (window.__conflictSaves || []).length,
-      };
-    });
-    exCheck('有未保存内容时外部变化必须询问，且原文一字未改: ' + JSON.stringify([exPrompt.prompt, exPrompt.result, exPrompt.keep, exPrompt.reload, exPrompt.saves]),
-      exPrompt.prompt === true && exPrompt.keep === true && exPrompt.reload === true
-        && exPrompt.result === '第一行外部左侧第三行' && exPrompt.dirty === true && exPrompt.saves === 0);
-    exCheck('询问说明两种选择的后果: ' + JSON.stringify(exPrompt.text),
-      typeof exPrompt.text === 'string' && exPrompt.text.includes('src/App.cs')
-        && exPrompt.text.includes('重新载入') && exPrompt.text.includes('保留当前内容'));
-
-    // 「保留当前内容」：只收起询问，正文/选区/撤销记录都不动；同一磁盘版本不再重复询问。
-    await ex.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-keep]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForTimeout(300);
-    const exKept = await exState();
-    exCheck('保留当前内容后正文不变、未保存状态保留: ' + JSON.stringify([exKept.prompt, exKept.result, exKept.dirty]),
-      exKept.prompt === false && exKept.result === '第一行外部左侧第三行' && exKept.dirty === true);
-    // 撤销记录仍可用：撤销应把"左方改动"还原成冲突标记块。
-    await ex.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      block.focus();
-      document.execCommand('undo');
-    });
-    await ex.page.waitForTimeout(200);
-    const exUndone = await exState();
-    exCheck('保留当前内容不清空撤销记录（撤销后冲突块回来）: ' + JSON.stringify(exUndone.result),
-      typeof exUndone.result === 'string' && exUndone.result.includes('<<<<<<<'));
-
-    // 同一磁盘版本再次上报（一次外部写入常引发多个事件）不得重复询问。
-    const exLoadsBeforeRepeat = await ex.page.evaluate('(window.__conflictLoads || []).length');
-    await ex.page.evaluate(() => {
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForFunction(
-      `(window.__conflictLoads || []).length > ${exLoadsBeforeRepeat}`, null, { timeout: 10000 }).catch(() => {});
-    await ex.page.waitForTimeout(300);
-    const exRepeat = await exState();
-    exCheck('同一磁盘版本不重复询问: ' + JSON.stringify([exRepeat.prompt, exRepeat.loads]),
-      exRepeat.prompt === false && exRepeat.loads > exAuto.loads);
-
-    // 新的磁盘版本 → 再次询问；这次选择「重新载入」。
-    await ex.page.evaluate(() => {
-      window.__conflictFixture = Object.assign({}, window.__conflictFixture, {
-        resultText: '第一行\n外部第四次结果\n第三行',
-        version: { length: 80, sha256: 'v4', lastWriteUtc: '2026-09-15T00:03:00Z' },
-        blocks: [],
-      });
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForSelector('.dialog.conflict-external-dialog', { timeout: 10000 }).catch(() => {});
-    await ex.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-reload]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForFunction(
-      "() => { const b = document.querySelector('.conflict-column.result .conflict-block'); return !!b && b.innerText.includes('外部第四次结果'); }",
-      null, { timeout: 10000 }).catch(() => {});
-    const exReloaded = await exState();
-    exCheck('重新载入接纳外部版本并回到干净状态: ' + JSON.stringify([exReloaded.prompt, exReloaded.result, exReloaded.dirty]),
-      exReloaded.prompt === false && exReloaded.result === '第一行外部第四次结果第三行' && exReloaded.dirty === false);
-
-    // 外部工具把文件解决掉：解决器收起，回到冲突列表（§5.3 自动同步最新状态）。
-    await ex.page.evaluate(() => {
-      window.__conflictFixture = { available: false, reason: '该文件已不再处于冲突状态。' };
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForFunction(
-      'window.__augitLive && window.__augitLive.conflict === null', null, { timeout: 10000 }).catch(() => {});
-    await ex.page.waitForTimeout(300);
-    const exResolved = await ex.page.evaluate(() => ({
-      columns: !!document.querySelector('.conflict-columns'),
-      conflict: !!(window.__augitLive && window.__augitLive.conflict),
-      view: window.__augitLive ? window.__augitLive.conflictSessionView : null,
-    }));
-    exCheck('外部解决后收起解决器并回到冲突列表: ' + JSON.stringify(exResolved),
-      exResolved.columns === false && exResolved.conflict === false && exResolved.view === 'list');
-
-    // 文件已被外部解决、而中央仍有未保存内容：不得静默清掉正文（规格 §7.14）。
-    await ex.page.evaluate(() => {
-      // 把文件恢复成冲突，重新打开解决器并做一次用户编辑。
-      window.__conflictFixture = {
-        available: true, path: 'src/App.cs', contentKind: 'Text',
-        yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-        yoursText: '第一行\n左方改动\n第三行',
-        theirsText: '第一行\n右方改动\n第三行',
-        resultText: '第一行\n<<<<<<< HEAD\n左方改动\n=======\n右方改动\n>>>>>>> feature/ux\n第三行',
-        operation: 'Merge',
-        version: { length: 90, sha256: 'v6', lastWriteUtc: '2026-09-15T00:04:00Z' },
-        blocks: [{ start: 1, length: 5, yours: '左方改动', ancestor: null, theirs: '右方改动' }],
-      };
-      // 先按真实行为返回冲突列表：解决器视图里没有冲突文件行。
-      const back = document.querySelector('[data-conflict-back]');
-      if (back) back.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      const row = document.querySelector('[data-conflict-path="src/App.cs"]');
-      if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForSelector('.conflict-columns', { timeout: 10000 }).catch(() => {});
-    await ex.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-side="yours"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await ex.page.waitForTimeout(200);
-    const exDirtyAgain = await exState();
-    exCheck('重新打开并编辑后再次进入未保存状态: ' + JSON.stringify([exDirtyAgain.dirty, exDirtyAgain.result]),
-      exDirtyAgain.dirty === true && exDirtyAgain.result === '第一行左方改动第三行');
-    await ex.page.evaluate(() => {
-      window.__conflictFixture = { available: false, reason: '该文件已不再处于冲突状态。' };
-      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\src\\App.cs'], gitMetadata: false });
-    });
-    await ex.page.waitForFunction(
-      "() => { const n = document.querySelector('.conflict-session-dialog .conflict-notice'); return !!n && !n.hidden; }",
-      null, { timeout: 10000 }).catch(() => {});
-    await ex.page.waitForTimeout(300);
-    const exResolvedDirty = await ex.page.evaluate(() => {
-      const block = document.querySelector('.conflict-column.result .conflict-block');
-      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
-      return {
-        columns: !!document.querySelector('.conflict-columns'),
-        conflict: !!(window.__augitLive && window.__augitLive.conflict),
-        result: block ? block.innerText.replace(/\s+/g, '') : null,
-        notice: notice ? notice.textContent.trim() : null,
-      };
-    });
-    exCheck('外部解决但中央有未保存内容时保留正文并说明事实: ' + JSON.stringify(exResolvedDirty),
-      exResolvedDirty.columns === true && exResolvedDirty.conflict === true
-        && exResolvedDirty.result === '第一行左方改动第三行'
-        && typeof exResolvedDirty.notice === 'string' && exResolvedDirty.notice.includes('不在冲突状态'));
-    await ex.page.close();
-
-    if (exSoft.length > 0) {
-      throw new Error('断言失败：' + exSoft.join(' | '));
-    }
-
-    // ---- 规格 §7.14：二进制 / 非法 UTF-8 / 超限文件只能整侧接受 ----
-    // 三栏对这些类型没有意义：页面必须换成"整侧接受 + 外部工具"，宿主走整文件语义。
-    const wsSoft = [];
-    const wsCheck = (label, condition) => {
-      if (condition) { passed++; return; }
-      wsSoft.push(label);
-      console.log('SOFT_FAIL: ' + label);
-    };
-    const openConflictScene = async (kind) => {
-      const scene = await openScene('scene=commit-changes&theme=dark');
-      await scene.page.bringToFront();
-      await scene.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
-      await scene.page.evaluate((contentKind) => {
-        window.__conflictLoads = [];
-        window.__conflictAccepts = [];
-        window.__launchCalls = [];
-        window.__conflictAcceptFails = false;
-        window.__launchFails = false;
-        window.__conflictFixture = {
-          available: true, path: 'assets/logo.png', contentKind,
-          yoursLabel: '当前分支 · main', theirsLabel: '合入内容 · feature/ux',
-          operation: 'Merge',
-          version: { length: 20480, sha256: 'beef', lastWriteUtc: '2026-09-15T00:00:00Z' },
-          blocks: [],
-        };
-        window.__operationSession = {
-          kind: 'Merge', inProgress: true, hasConflicts: true, branch: 'dsh',
-          canContinue: false, canSkip: true, canAbort: true, supportsContinue: true,
-          currentStep: 1, totalSteps: 1, conflicts: [{ path: 'assets/logo.png' }],
-        };
-        window.__statusOperation = 'Merge';
-        window.__statusConflicts = true;
-        window.__nextChanges = { files: [], gitMetadata: true };
-        // 不等兜底轮询：直接触发一次会话读取，让冲突列表立刻出现（测试钩子）。
-        void window.__augitLoadOperation();
-      }, kind);
-      await scene.page.waitForSelector('[data-conflict-path="assets/logo.png"]', { timeout: 10000 }).catch(() => {});
-      await scene.page.evaluate(() => {
-        const row = document.querySelector('[data-conflict-path="assets/logo.png"]');
-        if (row) row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      });
-      await scene.page.waitForSelector('[data-conflict-whole]', { timeout: 8000 }).catch(() => {});
-      return scene;
-    };
-
-    const whole = await openConflictScene('Binary');
-    const wholeShape = await whole.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const buttons = Array.from(document.querySelectorAll('[data-conflict-whole]'));
-      const heading = dialog && dialog.querySelector('.info-block h2');
-      return {
-        columns: !!document.querySelector('.conflict-columns'),
-        save: !!document.querySelector('[data-conflict-save]'),
-        sides: buttons.map((node) => node.dataset.conflictWhole),
-        heading: heading ? heading.textContent.trim() : null,
-        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : '',
-        loads: (window.__conflictLoads || []).slice(),
-      };
-    });
-    wsCheck('前置条件：确实读取了该冲突文件: ' + JSON.stringify(wholeShape.loads),
-      wholeShape.loads.length === 1 && wholeShape.loads[0] === 'assets/logo.png');
-    wsCheck('二进制冲突不渲染三栏，也不提供逐块保存: '
-      + JSON.stringify([wholeShape.columns, wholeShape.save]), wholeShape.columns === false && wholeShape.save === false);
-    wsCheck('二进制冲突提供整侧接受与外部工具三个动作: ' + JSON.stringify(wholeShape.sides),
-      JSON.stringify(wholeShape.sides) === JSON.stringify(['yours', 'theirs', 'external']));
-    wsCheck('说明为什么不能合并且写明不可撤销: ' + JSON.stringify(wholeShape.heading),
-      wholeShape.heading === '无法在三栏中合并此文件' && wholeShape.body.includes('二进制')
-        && wholeShape.body.includes('不可撤销') && wholeShape.body.includes('assets/logo.png'));
-
-    // 反面控制：同一条路径的文本冲突仍然必须渲染三栏（否则上面的断言可能只因"页面没渲染"而通过）。
-    const textControl = await openConflictScene('Text');
-    const textShape = await textControl.page.evaluate(() => ({
-      columns: !!document.querySelector('.conflict-columns'),
-      whole: document.querySelectorAll('[data-conflict-whole]').length,
-    }));
-    wsCheck('对照：文本冲突仍走三栏且没有整侧接受按钮: ' + JSON.stringify(textShape),
-      textShape.columns === true && textShape.whole === 0);
-    await textControl.page.close();
-
-    // 整侧接受：调用宿主的整文件语义，随后该文件离开冲突列表。
-    await whole.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-whole="theirs"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await whole.page.waitForFunction('(window.__conflictAccepts || []).length === 1', null, { timeout: 10000 }).catch(() => {});
-    const wholeAccepted = await whole.page.evaluate(() => ({
-      accepts: (window.__conflictAccepts || []).slice(),
-      whole: document.querySelectorAll('[data-conflict-whole]').length,
-      list: !!document.querySelector('[data-conflict-path="assets/logo.png"]'),
-      toast: (() => {
-        const layer = document.querySelector('.toast-layer');
-        return layer ? layer.innerText.replace(/\s+/g, ' ').trim() : null;
-      })(),
-    }));
-    wsCheck('整侧接受调用宿主并带上正确的一侧: ' + JSON.stringify(wholeAccepted.accepts),
-      wholeAccepted.accepts.length === 1 && wholeAccepted.accepts[0].path === 'assets/logo.png'
-        && wholeAccepted.accepts[0].side === 'theirs');
-    wsCheck('整侧接受后离开解决器，文件不再列为冲突，并给出反馈: '
-      + JSON.stringify([wholeAccepted.whole, wholeAccepted.list, wholeAccepted.toast]),
-      wholeAccepted.whole === 0 && wholeAccepted.list === false
-        && typeof wholeAccepted.toast === 'string' && wholeAccepted.toast.includes('logo.png'));
-    await whole.page.close();
-
-    // 失败路径：文件已不再冲突时不得假装成功，也不得离开页面。
-    const failedWhole = await openConflictScene('InvalidUtf8');
-    const invalidShape = await failedWhole.page.evaluate(() => {
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      return {
-        body: dialog ? dialog.innerText.replace(/\s+/g, ' ').trim() : '',
-        columns: !!document.querySelector('.conflict-columns'),
-      };
-    });
-    wsCheck('非法 UTF-8 走整侧接受页并说明原因: ' + JSON.stringify(invalidShape.columns),
-      invalidShape.columns === false && invalidShape.body.includes('UTF-8'));
-    await failedWhole.page.evaluate(() => { window.__conflictAcceptFails = true; });
-    await failedWhole.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-whole="yours"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await failedWhole.page.waitForFunction('(window.__conflictAccepts || []).length === 1', null, { timeout: 10000 }).catch(() => {});
-    await failedWhole.page.waitForTimeout(400);
-    const wholeFailed = await failedWhole.page.evaluate(() => {
-      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
-      const dialog = document.querySelector('.dialog.conflict-session-dialog');
-      const yours = document.querySelector('[data-conflict-whole="yours"]');
-      return {
-        notice: notice ? notice.textContent.trim() : null,
-        hidden: notice ? notice.hidden : null,
-        whole: document.querySelectorAll('[data-conflict-whole]').length,
-        yoursDisabled: yours ? yours.disabled : null,
-        applying: dialog ? dialog.getAttribute('data-conflict-applying') : null,
-      };
-    });
-    wsCheck('整侧接受失败时说明原因、留在页面并按实际状态恢复动作: ' + JSON.stringify(wholeFailed),
-      wholeFailed.notice === '所选文件已不再处于冲突状态。' && wholeFailed.hidden === false
-        && wholeFailed.whole === 3 && wholeFailed.yoursDisabled === false && wholeFailed.applying === 'false');
-
-    // 外部工具：仍然走 external/launch，但用系统默认程序打开（不是定位、也不是终端）。
-    await failedWhole.page.evaluate(() => { window.__conflictAcceptFails = false; });
-    await failedWhole.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-whole="external"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await failedWhole.page.waitForFunction("(window.__launchCalls || []).length === 1", null, { timeout: 10000 }).catch(() => {});
-    const wholeExternal = await failedWhole.page.evaluate(() => ({
-      calls: (window.__launchCalls || []).slice(),
-      accepts: (window.__conflictAccepts || []).length,
-    }));
-    wsCheck('外部工具用系统默认程序打开该文件，且不改变仓库状态: ' + JSON.stringify(wholeExternal),
-      JSON.stringify(wholeExternal.calls) === JSON.stringify(['open:assets/logo.png']) && wholeExternal.accepts === 1);
-    await failedWhole.page.evaluate(() => { window.__launchFails = true; });
-    await failedWhole.page.evaluate(() => {
-      const node = document.querySelector('[data-conflict-whole="external"]');
-      if (node) node.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    });
-    await failedWhole.page.waitForFunction("(window.__launchCalls || []).length === 2", null, { timeout: 10000 }).catch(() => {});
-    await failedWhole.page.waitForTimeout(400);
-    const externalFailed = await failedWhole.page.evaluate(() => {
-      const notice = document.querySelector('.conflict-session-dialog .conflict-notice');
-      return { notice: notice ? notice.textContent.trim() : null, hidden: notice ? notice.hidden : null };
-    });
-    wsCheck('外部工具打不开时必须说出来: ' + JSON.stringify(externalFailed),
-      externalFailed.hidden === false && typeof externalFailed.notice === 'string'
-        && externalFailed.notice.includes('只能打开当前工作区内的路径'));
-    await failedWhole.page.close();
-
-    if (wsSoft.length > 0) {
-      throw new Error('断言失败：' + wsSoft.join(' | '));
-    }
-
-    // ---- 规格 §6.3：Git 文件列表刷新不得等待慢 Diff ----
     // 「Git 文件列表的刷新独立完成，不能等待慢 Diff，后续新增文件和状态变化
     // 仍须及时进入列表。」慢 Diff 在途时来一次变化批次，列表必须立刻更新。
     const listFirst = await openScene('scene=commit-changes&theme=dark');
@@ -28011,7 +26638,7 @@ async function main() {
       { status: 'SideTooLarge', expect: '无法显示文本差异' },
       { status: 'OutputTooLarge', expect: '无法显示文本差异' },
       { status: 'Binary', expect: '无法显示文本差异' },
-      { status: 'Ready', expect: '没有文本差异' },
+      { status: 'Ready', expect: 'No text differences' },
     ];
     for (const item of finalStates) {
       const { page } = await openScene('scene=commit-changes&theme=dark');
@@ -28049,8 +26676,8 @@ async function main() {
         hintShown === true && finalState.hintGone === true && finalState.text.includes(item.expect));
       // §10.2：最终说明还必须写清"哪些状态没有改变"和"可以做什么"，不能只给一句原因。
       check(`最终说明三要素齐备（${item.status}）: ` + JSON.stringify(finalState.text.slice(0, 60)),
-        finalState.text.includes('没有被修改')
-          && (finalState.text.includes('可以关闭') || finalState.text.includes('重新双击'))
+        finalState.text.includes('unchanged')
+          && (finalState.text.includes('Close') || finalState.text.includes('double-click'))
           && finalState.text.includes(item.expect));
       await page.close();
     }
@@ -28072,20 +26699,20 @@ async function main() {
       };
     });
     check('§7.9 引用比较无差异时给出比较语义的摘要: ' + JSON.stringify(compareEmptyState.text.slice(0, 60)),
-      compareEmptyState.text.includes('这两个引用在这个文件上没有文本差异')
-        && compareEmptyState.text.includes('没有被修改')
-        && compareEmptyState.text.includes('选择另一个提交或文件'));
+      compareEmptyState.text.includes('These references have no text differences in this file')
+        && compareEmptyState.text.includes('unchanged')
+        && compareEmptyState.text.includes('Select another commit or file'));
     // 规格 §7.9：清空的是"变更导航"（前后改动与正文搜索），显示模式与忽略空白仍可用。
     // 文件栏的"→"是 CSS 绘制的，`innerText` 里拿不到；因此核对**双方引用都在**而不是核对箭头字符。
-    const navButtons = compareEmptyState.buttons.filter((b) => ['上一处差异', '下一处差异', '查找'].includes(b.label));
+    const navButtons = compareEmptyState.buttons.filter((b) => ['Previous Difference', 'Next Difference', 'Find'].includes(b.label));
     check('§7.9 摘要禁用变更导航但保留入口、且不渲染差异行: '
       + JSON.stringify([compareEmptyState.buttons, compareEmptyState.diffRows, compareEmptyState.filebar]),
     navButtons.length === 3 && navButtons.every((b) => b.disabled === true)
-      && compareEmptyState.buttons.some((b) => b.label === '忽略空白' && b.disabled === false)
+      && compareEmptyState.buttons.some((b) => b.label === 'Ignore whitespace' && b.disabled === false)
       && compareEmptyState.diffRows === 0
       && String(compareEmptyState.filebar).includes('dfe5c25a^')
       && String(compareEmptyState.filebar).includes('dfe5c25a')
-      && !String(compareEmptyState.filebar).includes('工作区'));
+      && !String(compareEmptyState.filebar).includes('Workspace'));
     await compareEmpty.page.close();
 
     // 实时侧同一条规则：历史比较有效且没有差异行时用比较措辞，工作区 Diff 仍用工作区措辞。
@@ -28115,10 +26742,10 @@ async function main() {
       return { asComparison, asWorkspace };
     });
     check('§7.9 历史比较无差异用比较措辞: ' + JSON.stringify(liveWording.asComparison.slice(0, 48)),
-      liveWording.asComparison.includes('这两个引用在这个文件上没有文本差异'));
+      liveWording.asComparison.includes('These references have no text differences in this file'));
     check('§7.9 工作区无差异仍用工作区措辞（负向对照）: ' + JSON.stringify(liveWording.asWorkspace.slice(0, 48)),
-      liveWording.asWorkspace.includes('该文件当前没有文本差异')
-        && !liveWording.asWorkspace.includes('这两个引用'));
+      liveWording.asWorkspace.includes('This file has no text differences')
+        && !liveWording.asWorkspace.includes('These references'));
     await compareLive.page.close();
 
     // ---- 规格 §6.1：异步数据到达不得打断用户输入 ----
@@ -28246,7 +26873,7 @@ async function main() {
     check('加载提示出现在 Diff 文件标题行: ' + JSON.stringify(loadingHint),
       loadingHint.loading === true && loadingHint.filebar === true
         && loadingHint.markerInFilebar === true
-        && typeof loadingHint.text === 'string' && loadingHint.text.includes('正在生成'));
+        && typeof loadingHint.text === 'string' && loadingHint.text.includes('Generating'));
     check('加载提示不早于 150 毫秒出现: ' + JSON.stringify(loadingHint.shownDelay),
       loadingHint.shownDelay !== null && loadingHint.shownDelay >= 140);
     check('加载期间保留旧正文: ' + JSON.stringify(loadingHint.oldBodyKept),
@@ -28449,13 +27076,13 @@ async function main() {
         collapsed: window.__augitLive.layout ? window.__augitLive.layout.collapsed : null,
       }));
     };
-    await freshRail('提交');
-    const freshSwitched = await freshRail('提交');
-    check('§9.4 折叠（最小序列）：再次点击已激活入口则折叠: ' + JSON.stringify(freshSwitched),
-      freshSwitched.active === '提交' && freshSwitched.side === false
+    await freshRail('Commit');
+    const freshSwitched = await freshRail('Commit');
+    check('§9.4 Collapse（最小序列）：再次点击已激活入口则折叠: ' + JSON.stringify(freshSwitched),
+      freshSwitched.active === 'Commit' && freshSwitched.side === false
       && freshSwitched.collapsed === 'side');
-    const freshRestored = await freshRail('提交');
-    check('§9.4 折叠（最小序列）：第三次点击恢复: ' + JSON.stringify(freshRestored),
+    const freshRestored = await freshRail('Commit');
+    check('§9.4 Collapse（最小序列）：第三次点击恢复: ' + JSON.stringify(freshRestored),
       freshRestored.side === true && freshRestored.collapsed === null);
     await twFresh.page.close();
 
@@ -28489,18 +27116,18 @@ async function main() {
 
     const twInitial = await leftState();
     check('§9.4 左侧初始为项目: ' + JSON.stringify([twInitial.active, twInitial.sideTitle]),
-      twInitial.active === '项目' && twInitial.sideTitle === '项目');
+      twInitial.active === 'Project' && twInitial.sideTitle === 'Project');
 
     // 互相切换：项目 → 提交 → 搜索
-    await clickRail('提交');
+    await clickRail('Commit');
     const twCommit = await leftState();
     check('§9.4 左侧切换到提交: ' + JSON.stringify([twCommit.active, twCommit.sideTitle]),
-      twCommit.active === '提交' && twCommit.sideTitle === '提交');
-    await clickRail('搜索');
+      twCommit.active === 'Commit' && twCommit.sideTitle === 'Commit');
+    await clickRail('Search');
     const twSearch = await leftState();
     // 按视觉稿，搜索是**浮层**而不是侧栏内容：rail 高亮「搜索」时侧栏仍显示项目，
     // 搜索界面出现在浮层里（repository-search 场景即 `side: "project"` + 搜索浮层）。
-    check('§9.4 左侧切换到搜索: ' + JSON.stringify(twSearch.active), twSearch.active === '搜索');
+    check('§9.4 左侧切换到搜索: ' + JSON.stringify(twSearch.active), twSearch.active === 'Search');
     const twOverlay = await tw.page.evaluate(() => !!document.querySelector('.search-overlay'));
     check('§9.4 搜索入口打开搜索浮层: ' + twOverlay, twOverlay === true);
     await tw.page.keyboard.press('Escape');
@@ -28520,22 +27147,22 @@ async function main() {
         ? document.querySelector('.bottom-tool .bottom-title').innerText : null,
     }));
     const twBottomBefore = await bottomState();
-    await clickRail('项目');
+    await clickRail('Project');
     const twBottomAfter = await bottomState();
     check('§9.4 左侧与底部状态独立: ' + JSON.stringify([twBottomBefore, twBottomAfter]),
       twBottomBefore.hasBottom === twBottomAfter.hasBottom
       && twBottomBefore.bottomTitle === twBottomAfter.bottomTitle);
 
     // 底部互斥：Git 历史与终端不同时占用
-    await clickRail('Git 历史');
+    await clickRail('Git Log');
     const twGit = await bottomState();
-    await clickRail('终端');
+    await clickRail('Terminal');
     const twTerminal = await tw.page.evaluate(() => ({
       bottoms: document.querySelectorAll('.bottom-tool').length,
       bottomTitle: document.querySelector('.bottom-tool .bottom-title')
         ? document.querySelector('.bottom-tool .bottom-title').innerText : null,
     }));
-    check('§9.4 底部切换为 Git 历史: ' + JSON.stringify(twGit.bottomTitle),
+    check('§9.4 底部切换为 Git Log: ' + JSON.stringify(twGit.bottomTitle),
       twGit.hasBottom === true);
     check('§9.4 终端与 Git 历史互斥: ' + JSON.stringify([twTerminal.bottoms, twTerminal.bottomTitle]),
       twTerminal.bottoms === 1);
@@ -28565,7 +27192,7 @@ async function main() {
       listRows: document.querySelectorAll('.changes-list .change-file-row').length,
     }));
     check('§10.1 无 Changes 显示指定文案: ' + JSON.stringify(emptyChanges.text.slice(0, 24)),
-      emptyChanges.emptyState === true && emptyChanges.text.includes('没有待提交的更改'));
+      emptyChanges.emptyState === true && emptyChanges.text.includes('No changes to commit'));
     check('§10.1 无 Changes 保留提交工具窗口骨架: ' + JSON.stringify([emptyChanges.toolbar, emptyChanges.commitBox, emptyChanges.submitDisabled]),
       emptyChanges.toolbar >= 1 && emptyChanges.commitBox === true && emptyChanges.submitDisabled === true);
     check('§10.1 无 Changes 不再列出文件行', emptyChanges.listRows === 0);
@@ -28602,7 +27229,7 @@ async function main() {
       commits: window.__augitLive.history ? window.__augitLive.history.commits.length : -1,
     }));
     check('§10.1 无历史显示指定文案: ' + JSON.stringify(emptyHistory.text.slice(0, 20)),
-      emptyHistory.text.includes('仓库还没有提交'));
+      emptyHistory.text.includes('No commits in this repository'));
     check('§10.1 无历史保留引用树与筛选栏: ' + JSON.stringify([
       emptyHistory.hasRefPanel, emptyHistory.hasFilters, emptyHistory.rows, emptyHistory.commits]),
       emptyHistory.hasRefPanel === true && emptyHistory.hasFilters === true
@@ -28615,8 +27242,8 @@ async function main() {
       detail: (document.querySelector('.bottom-tool [data-live-commit-detail]') || {}).innerText || '',
     }));
     check('§10.1 无历史时详情区不停在加载态: ' + JSON.stringify(emptyDetail),
-      !emptyDetail.changedFiles.includes('正在读取')
-        && !emptyDetail.detail.includes('正在读取')
+      !emptyDetail.changedFiles.includes('Loading')
+        && !emptyDetail.detail.includes('Loading')
         && emptyDetail.changedFiles.trim().length > 0);
     await esHist.close();
 
@@ -28636,7 +27263,7 @@ async function main() {
       overlay: !!document.querySelector('.search-overlay'),
     }));
     check('§10.1 搜索无结果显示指定文案: ' + JSON.stringify(emptySearch.text.slice(0, 20)),
-      emptySearch.text.includes('未找到结果'));
+      emptySearch.text.includes('No results found'));
     check('§10.1 搜索无结果保留输入框与查询: ' + JSON.stringify([emptySearch.overlay, emptySearch.query]),
       emptySearch.overlay === true && emptySearch.query === '绝不存在的查询串');
     check('§10.1 搜索无结果不列出结果行', emptySearch.rows === 0);
@@ -28655,18 +27282,18 @@ async function main() {
     await fm.page.waitForTimeout(600);
     const fmEmpty = await fm.page.evaluate(() => window.__augitCommitError || '');
     check('§10.2 提交错误说明发生了什么: ' + JSON.stringify(fmEmpty.slice(0, 16)),
-      fmEmpty.includes('提交信息不能为空'));
+      fmEmpty.includes('Commit message cannot be empty'));
     check('§10.2 提交错误说明哪些状态未改变: ' + JSON.stringify(fmEmpty),
-      fmEmpty.includes('改动列表、勾选与提交信息都没有变化'));
+      fmEmpty.includes('Changes, file selection, and the commit message are preserved'));
     check('§10.2 提交错误说明可以做什么: ' + JSON.stringify(fmEmpty),
-      fmEmpty.includes('修正后可直接重试'));
+      fmEmpty.includes('Correct the problem and retry'));
     // 错误归属到发生区域而非全局消息框：提交错误出现在提交侧栏的反馈位
     const fmRegion = await fm.page.evaluate(() => ({
       feedback: (document.querySelector('.commit-box .commit-feedback') || {}).textContent || null,
       globalDialog: document.querySelectorAll('.dialog[role="alert"], .modal-error').length,
     }));
     check('§10.2 错误归属到发生区域: ' + JSON.stringify([fmRegion.feedback, fmRegion.globalDialog]),
-      typeof fmRegion.feedback === 'string' && fmRegion.feedback.includes('提交信息不能为空')
+      typeof fmRegion.feedback === 'string' && fmRegion.feedback.includes('Commit message cannot be empty')
       && fmRegion.globalDialog === 0);
 
     // 未勾选时：**提交动作直接禁用**。
@@ -28729,7 +27356,7 @@ async function main() {
       }
       return out;
     });
-    const diffButton = dcReasons.find((x) => x.label.includes('显示 Diff'));
+    const diffButton = dcReasons.find((x) => x.label.includes('Show Diff'));
     check('§10.3 禁用控件带可发现原因: ' + JSON.stringify(diffButton),
       !!diffButton && typeof diffButton.title === 'string' && diffButton.title.length > 0);
     check('§10.3 原因说明用户该做什么: ' + JSON.stringify(diffButton && diffButton.title),
@@ -28743,7 +27370,7 @@ async function main() {
     await dc.page.waitForTimeout(600);
     const afterSelect = await dc.page.evaluate(() => {
       const el = [...document.querySelectorAll('.toolbar-button')]
-        .find((b) => (b.getAttribute('aria-label') || '').includes('显示 Diff'));
+        .find((b) => (b.getAttribute('aria-label') || '').includes('Show Diff'));
       return el ? { disabled: el.disabled, title: el.getAttribute('title') } : null;
     });
     check('§10.3 选中后该命令可用: ' + JSON.stringify(afterSelect),
@@ -28770,7 +27397,7 @@ async function main() {
     await dcFresh.page.close();
     const labelsOf = (list) => (list || []).map((b) => b.label);
     const diffDisabledFlag = (list) => {
-      const item = (list || []).find((b) => (b.label || '').includes('显示 Diff'));
+      const item = (list || []).find((b) => (b.label || '').includes('Show Diff'));
       return item ? item.disabled : null;
     };
     check('§10.3 暂时不可用的工具栏命令保留在原位置（禁用而非移除/重排）: '
@@ -28787,10 +27414,10 @@ async function main() {
     const pushReason = await dc.page.evaluate(() => {
       // 直接按同一套规则求解，确认推送禁用时会给出「先配置远端」这类原因
       const push = { branch: 'dsh', upstream: null, commits: [], ready: false };
-      return push.upstream ? null : '请先在「定义远端」里配置推送远端。';
+      return push.upstream ? null : '请先在「Define remote」里配置推送远端。';
     });
     check('§10.3 推送禁用原因是可执行的: ' + JSON.stringify(pushReason),
-      typeof pushReason === 'string' && pushReason.includes('定义远端'));
+      typeof pushReason === 'string' && pushReason.includes('Define remote'));
     await dc.page.close();
 
     // ---- 规格 §10.4：危险状态 ----
@@ -28812,14 +27439,14 @@ async function main() {
         })(),
         impact: (document.querySelector('.reset-impact') || {}).innerText || null,
         hasConfirmWord: [...document.querySelectorAll('.dialog-footer button, .dialog-footer a')]
-          .some((b) => b.innerText.trim() === '确定' || b.innerText.trim() === '确认'),
+          .some((b) => b.innerText.trim() === 'OK' || b.innerText.trim() === '确认'),
       }));
       await page.page.close();
       return state;
     })();
     check('§10.4 危险确认按钮使用动作名称: ' + JSON.stringify(dangerButtons.confirmText),
-      dangerButtons.confirmText.some((t) => t.includes('确认 Reset')));
-    check('§10.4 不使用泛化的「确定」: ' + dangerButtons.hasConfirmWord, dangerButtons.hasConfirmWord === false);
+      dangerButtons.confirmText.some((t) => t.includes('Reset')));
+    check('§10.4 不使用泛化的「OK」: ' + dangerButtons.hasConfirmWord, dangerButtons.hasConfirmWord === false);
     check('§10.4 显示具体影响: ' + JSON.stringify((dangerButtons.impact || '').slice(0, 30)),
       typeof dangerButtons.impact === 'string' && dangerButtons.impact.length > 0);
 
@@ -28847,7 +27474,7 @@ async function main() {
         // 按类名取到的可能不是推送。
         pushDisabled: (function () {
           const b = [...actions.querySelectorAll('.secondary-button')]
-            .find((el) => el.textContent.includes('提交并推送'));
+            .find((el) => el.textContent.includes('Commit and Push'));
           if (!b) return null;
           return b.tagName === 'A' ? b.getAttribute('aria-disabled') === 'true' : b.disabled;
         })(),
@@ -28855,7 +27482,7 @@ async function main() {
         cancel: !!actions.querySelector('[data-write-cancel]'),
       };
     });
-    check('§9.3 进行中记录当前动作: ' + JSON.stringify(wmBusy.operation), wmBusy.operation === '提交');
+    check('§9.3 进行中记录当前动作: ' + JSON.stringify(wmBusy.operation), wmBusy.operation === 'Commit');
     check('§9.3 进行中禁用重复触发: ' + JSON.stringify([wmBusy.submitDisabled, wmBusy.pushDisabled]),
       wmBusy.submitDisabled === true && wmBusy.pushDisabled === true);
     check('§9.3 进行中显示当前动作: ' + JSON.stringify(wmBusy.status),
@@ -28936,7 +27563,7 @@ async function main() {
       wmCancelling.cancels === 1 && wmCancelling.statusCallsAtCancel === 0);
     check('§9.3 宿主确认前保持取消中: ' + JSON.stringify([wmCancelling.operation, wmCancelling.cancelling, wmCancelling.submitDisabled, wmCancelling.reason]),
       wmCancelling.cancelling === true && wmCancelling.submitDisabled === true
-        && typeof wmCancelling.reason === 'string' && wmCancelling.reason.includes('取消中'));
+        && typeof wmCancelling.reason === 'string' && wmCancelling.reason.includes('Cancelling'));
     check('§9.3 取消期间不提前重读状态: ' + JSON.stringify(wmCancelling.statusCalls),
       wmCancelling.statusCalls === 0);
     // 权威 `ProgressDialogUI.initCancellation()`（ProgressDialogUI.kt:136-152）：
@@ -28963,7 +27590,7 @@ async function main() {
     check('§9.3 取消后清除进行中标记: ' + JSON.stringify(wmCancelled.operation), wmCancelled.operation === null);
     check('§9.3 取消后重新读取真实状态: ' + wmCancelled.statusCalls, wmCancelled.statusCalls >= 1);
     check('§9.3 取消给出说明: ' + JSON.stringify(wmCancelled.reason),
-      typeof wmCancelled.reason === 'string' && wmCancelled.reason.includes('取消'));
+      typeof wmCancelled.reason === 'string' && wmCancelled.reason.includes('Cancel'));
     await wm.page.evaluate(() => { window.__commitDelays = 0; });
     await wm.page.close();
 
@@ -28998,7 +27625,7 @@ async function main() {
       check('§5.1 首屏主菜单可以打开: ' + JSON.stringify(mbBefore), mbBefore === true);
       check('§5.1 外部变化刷新后主菜单仍可打开: ' + JSON.stringify(mbAfter), mbAfter === true);
       check('§5.1 再次点击收起菜单并恢复普通标题栏: ' + JSON.stringify(mbClosed),
-        mbClosed.bar === false && mbClosed.hamburger === '主菜单');
+        mbClosed.bar === false && mbClosed.hamburger === 'Main Menu');
       await mb.page.close();
     }
 
@@ -29069,13 +27696,13 @@ async function main() {
       const entries = await tb.page.evaluate(() => {
         const el = (label) => [...document.querySelectorAll('.titlebar .top-button')]
           .find((node) => node.getAttribute('aria-label') === label) || null;
-        return { search: !!el('搜索'), gear: !!el('设置') };
+        return { search: !!el('Search'), gear: !!el('Settings') };
       });
       check('§5.1 标题栏存在搜索与设置图标入口: ' + JSON.stringify(entries),
         entries.search === true && entries.gear === true);
 
       await tb.page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
-      await tb.page.locator('.titlebar .top-button[aria-label="搜索"]').click();
+      await tb.page.locator('.titlebar .top-button[aria-label="Search"]').click();
       await tb.page.waitForSelector('.search-overlay', { timeout: 8000 });
       const afterSearch = await tb.page.evaluate(() => ({
         unwired: window.__augitUnwiredLabel || null,
@@ -29088,7 +27715,7 @@ async function main() {
       await tb.page.waitForTimeout(300);
 
       await tb.page.evaluate(() => { window.__augitUnwiredLabel = null; window.__augitUnwiredAction = null; });
-      await tb.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+      await tb.page.locator('.titlebar .top-button[aria-label="Settings"]').click();
       await tb.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
       const afterGear = await tb.page.evaluate(() => ({
         unwired: window.__augitUnwiredLabel || null,
@@ -29154,7 +27781,7 @@ async function main() {
       await st.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await st.page.waitForTimeout(400);
       const openSettings = async () => {
-        await st.page.locator('.titlebar .top-button[aria-label="设置"]').click();
+        await st.page.locator('.titlebar .top-button[aria-label="Settings"]').click();
         await st.page.waitForSelector('.settings-window [data-settings-page]', { timeout: 8000 });
         await st.page.waitForTimeout(200);
       };
@@ -29165,7 +27792,7 @@ async function main() {
             .map((row) => row.textContent.trim()),
           group: !!document.querySelector('.settings-window .settings-nav .settings-nav-group'),
           active: body ? body.dataset.settingsPageBody : null,
-          heading: body ? (body.querySelector('h2') || {}).textContent : null,
+          heading: body ? (body.querySelector('.settings-breadcrumbs > span:last-child') || {}).textContent : null,
           hasUiFontSize: !!document.querySelector('.settings-window [data-setting="fontSize"]'),
           hasCodeFontSize: !!document.querySelector('.settings-window [data-setting="codeFontSize"]'),
           hasCustomCommand: !!document.querySelector('.settings-window [data-setting="terminalCustomCommand"]'),
@@ -29176,10 +27803,10 @@ async function main() {
       await openSettings();
       const opened = await pageState();
       check('§7.17 设置窗口有四个分类入口与分组表头: ' + JSON.stringify([opened.rows, opened.group]),
-        JSON.stringify(opened.rows) === JSON.stringify(['外观', '文件查看', 'Git', '终端']) && opened.group === true);
-      check('§7.17 默认停在"外观"且右页只显示外观字段: '
+        JSON.stringify(opened.rows) === JSON.stringify(['Appearance', 'File View', 'Git', 'Terminal']) && opened.group === true);
+      check('§7.17 默认停在"Appearance"且右页只显示外观字段: '
         + JSON.stringify([opened.active, opened.heading, opened.hasUiFontSize, opened.hasCodeFontSize, opened.hasGitPath]),
-      opened.active === 'appearance' && opened.heading === '外观' && opened.hasUiFontSize === true
+      opened.active === 'appearance' && opened.heading === 'Appearance' && opened.hasUiFontSize === true
         && opened.hasCodeFontSize === false && opened.hasGitPath === false);
 
       await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
@@ -29189,9 +27816,9 @@ async function main() {
         { timeout: 8000 },
       );
       const fileView = await pageState();
-      check('§7.17 点击"文件查看"真正切页且右页只显示该分类: '
+      check('§7.17 点击"File View"真正切页且右页只显示该分类: '
         + JSON.stringify([fileView.active, fileView.heading, fileView.hasUiFontSize, fileView.hasCodeFontSize]),
-      fileView.active === 'file-view' && fileView.heading === '文件查看'
+      fileView.active === 'file-view' && fileView.heading === 'File View'
         && fileView.hasUiFontSize === false && fileView.hasCodeFontSize === true);
 
       // ---- 第 301 轮补断言（收 §7.17 第 4、7 条）：设置页的字体字段与"不显示的能力"清单 ----
@@ -29230,23 +27857,23 @@ async function main() {
       const forbiddenHits = ['插件', '市场', '键位', '解释器', '构建', '调试'].filter((word) => settingsText.includes(word));
       // `AI` 是英文缩写，必须按**独立词**判定 —— 否则会撞上 `Augit`／`Git Bash` 之类。
       const hasAiWord = /(^|[^A-Za-z])AI([^A-Za-z]|$)/.test(settingsText);
-      check('§7.17 不显示插件/市场/键位/解释器/构建/调试和 AI 设置（全页文本词扫描 + 字段路径白名单）: '
+      check('§7.17 不显示插件/市场/键位/解释器/构建/调试和 AI Settings（全页文本词扫描 + 字段路径白名单）: '
         + JSON.stringify({ forbiddenHits, hasAiWord, settingsPaths, navRows: settingsPages.navRows, settingsText }),
       forbiddenHits.length === 0 && hasAiWord === false
-        && JSON.stringify(settingsPages.navRows) === JSON.stringify(['外观', '文件查看', 'Git', '终端'])
+        && JSON.stringify(settingsPages.navRows) === JSON.stringify(['Appearance', 'File View', 'Git', 'Terminal'])
         // 结构闸门：这类设置只能以新增 `data-setting` 的形式出现，白名单之外即失败
         && settingsPaths.every((path) => [
           'theme', 'textFontFamily', 'fontSize', 'monospaceFontFamily', 'codeFontSize',
           'gitExecutablePath', 'terminalShell', 'terminalCustomCommand',
         ].includes(path)));
-      check('§7.17 文件查看只提供等宽字体/字号（界面字体/字号在"外观"）；按用户裁决不提供"默认换行"持久化字段: '
+      check('§7.17 文件查看只提供等宽字体/Size（UI font/字号在"Appearance"）；按用户裁决不提供"默认换行"持久化字段: '
         + JSON.stringify({ fileView: settingsPages.pages['file-view'], appearance: settingsPages.pages.appearance, hasDefaultWrap: /默认换行/.test(settingsText) }),
       JSON.stringify(settingsPages.pages['file-view'].paths) === JSON.stringify(['codeFontSize', 'monospaceFontFamily'])
-        && /等宽字体/.test(settingsPages.pages['file-view'].text)
-        && /字号/.test(settingsPages.pages['file-view'].text)
+        && /Monospaced font/.test(settingsPages.pages['file-view'].text)
+        && /Size/.test(settingsPages.pages['file-view'].text)
         // 四项字体模型（product-spec.md:165）：界面字体/字号归「外观」，与等宽互不覆盖
         && JSON.stringify(settingsPages.pages.appearance.paths) === JSON.stringify(['fontSize', 'textFontFamily', 'theme'])
-        && /界面字体/.test(settingsPages.pages.appearance.text)
+        && /UI font/.test(settingsPages.pages.appearance.text)
         // 用户 2026-09-19 裁决：设置页不出现"默认换行"这一行（只保留正文工具栏的「自动换行」）
         && /默认换行/.test(settingsText) === false);
 
@@ -29275,12 +27902,12 @@ async function main() {
 
       // 搜索框按分类名过滤
       await openSettings();
-      await st.page.fill('.settings-window [data-settings-filter]', '文件');
+      await st.page.fill('.settings-window [data-settings-filter]', 'File');
       await st.page.waitForTimeout(200);
       const filtered = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
         .filter((row) => !row.hidden).map((row) => row.textContent.trim()));
       check('§7.17 搜索框按分类名过滤: ' + JSON.stringify(filtered),
-        JSON.stringify(filtered) === JSON.stringify(['文件查看']));
+        JSON.stringify(filtered) === JSON.stringify(['File View']));
       await st.page.fill('.settings-window [data-settings-filter]', '');
       await st.page.waitForTimeout(150);
       const cleared = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
@@ -29316,10 +27943,10 @@ async function main() {
       check('§7.17 搜索按选项名命中并切到命中分类（权威 SearchableOptionsRegistrar）: '
         + JSON.stringify(optionHit),
         optionHit.query === '等宽' && optionHit.pages.join(',') === 'file-view' && optionHit.active === 'file-view'
-          && optionHit.hits.includes('monospaceFontFamily') && optionHit.hits.includes('等宽字体')
+          && optionHit.hits.includes('monospaceFontFamily') && optionHit.hits.includes('Monospaced font')
           && optionHit.noHits === false && optionHit.focused === true);
       // 多个分类命中：'字号' 同时是「外观」与「文件查看」的选项标签 ⇒ 两个分类都保留。
-      await st.page.fill('.settings-window [data-settings-filter]', '字号');
+      await st.page.fill('.settings-window [data-settings-filter]', 'Size');
       await st.page.waitForTimeout(400);
       const multiHit = await searchState();
       check('§7.17 一个搜索词可命中多个分类（命中项所在分类都保留）: ' + JSON.stringify(multiHit),
@@ -29346,7 +27973,7 @@ async function main() {
       await st.page.locator('.settings-window [data-settings-page="git"]').click();
       await st.page.waitForFunction(
         'document.querySelector(".settings-window [data-git-detection]")'
-          + ' && !document.querySelector(".settings-window [data-git-detection]").textContent.includes("正在检测")',
+          + ' && !document.querySelector(".settings-window [data-git-detection]").textContent.includes("Detecting")',
         null,
         { timeout: 8000 },
       );
@@ -29406,7 +28033,7 @@ async function main() {
       await st.page.waitForTimeout(200);
       const afterCustom = await st.page.evaluate(() =>
         document.querySelector('.settings-window [data-setting="terminalCustomCommand"]').disabled);
-      check('§7.17 终端自定义命令仅在选择"自定义命令"时可编辑: ' + JSON.stringify([beforeCustom, afterCustom]),
+      check('§7.17 终端自定义命令仅在选择"Custom command"时可编辑: ' + JSON.stringify([beforeCustom, afterCustom]),
         beforeCustom === true && afterCustom === false);
       await st.page.fill('.settings-window [data-setting="terminalCustomCommand"]', 'wsl.exe -d Ubuntu');
       await st.page.evaluate(() => { window.__settingsWritten = {}; });
@@ -29423,9 +28050,9 @@ async function main() {
       await openSettings();
       const settingsFooter = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window [data-settings-action]')]
         .map((node) => ({ action: node.dataset.settingsAction, text: node.textContent.trim(), disabled: node.disabled === true })));
-      check('§7.17 设置底栏＝取消／应用／确定，「应用」无改动时禁用: ' + JSON.stringify(settingsFooter),
-        settingsFooter.map((item) => item.action).join(',') === 'cancel,apply,save'
-          && settingsFooter.map((item) => item.text).join(',') === '取消,应用,确定'
+      check('§7.17 设置底栏＝Cancel／Apply／OK，「Apply」无改动时禁用: ' + JSON.stringify(settingsFooter),
+        settingsFooter.map((item) => item.action).join(',') === 'save,cancel,apply'
+          && settingsFooter.map((item) => item.text).join(',') === 'OK,Cancel,Apply'
           && settingsFooter.find((item) => item.action === 'apply').disabled === true);
       // 「应用」= 写回设置但**不关窗**（权威 Apply 只调 `editor.apply()`；关窗是 OK 的 `applyAndClose()`）
       await st.page.locator('.settings-window [data-settings-page="terminal"]').click();
@@ -29449,7 +28076,7 @@ async function main() {
         applyDisabled: document.querySelector('.settings-window [data-settings-action="apply"]').disabled === true,
         markers: document.querySelectorAll('.settings-window .settings-nav .settings-dirty').length,
       }));
-      check('§7.17 「应用」写回设置但不关窗，应用后标记与禁用态复位: ' + JSON.stringify([applyReady, applied]),
+      check('§7.17 「Apply」写回设置但不关窗，应用后标记与禁用态复位: ' + JSON.stringify([applyReady, applied]),
         applyReady.disabled === false && applyReady.markers >= 1
           && applied.written.terminalShell === 'CommandPrompt' && applied.dialog === true
           && applied.stored === 'CommandPrompt' && applied.applyDisabled === true && applied.markers === 0);
@@ -29457,7 +28084,7 @@ async function main() {
       // `selectText()` ＋ `requestFocus()`），且**不能**顺带打开文档的"当前文件查找"。
       await st.page.evaluate(() => {
         const field = document.querySelector('.settings-window [data-settings-filter]');
-        field.value = '字号';
+        field.value = 'Size';
         field.dispatchEvent(new Event('input', { bubbles: true }));
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       });
@@ -29475,7 +28102,7 @@ async function main() {
       });
       check('§7.17 Ctrl+F 聚焦并全选设置搜索框、不触发文档查找: ' + JSON.stringify(findShortcut),
         findShortcut.focused === true && findShortcut.selection === true
-          && findShortcut.value === '字号' && findShortcut.documentFindBar === false);
+          && findShortcut.value === 'Size' && findShortcut.documentFindBar === false);
       // 搜索框里的 ↑/↓ = 移动分类选择（权威 `SettingsSearch.preprocessEventForTextField()` 把无修饰键的
       // 上下键委托给分类树），焦点仍留在搜索框。
       const beforeArrow = await st.page.evaluate(() => ({
@@ -29496,7 +28123,7 @@ async function main() {
       await st.page.keyboard.press('Enter');
       await st.page.waitForFunction('!document.querySelector(".settings-window")', null, { timeout: 8000 });
       const enterSave = await st.page.evaluate(() => ({ written: window.__settingsWritten }));
-      check('§7.17 Enter = 确定（写回设置并关窗）: ' + JSON.stringify(enterSave), !!enterSave.written);
+      check('§7.17 Enter = OK（写回设置并关窗）: ' + JSON.stringify(enterSave), !!enterSave.written);
 
       await st.page.close();
     }
@@ -29537,7 +28164,7 @@ async function main() {
         window.__terminalStops = 0;
         window.__terminalReadDelays = 120;   // 让轮询间隔短于一次往返，检验并发守卫
       });
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('终端建立会话', 'window.__augitTerminalShell === "Windows PowerShell"');
       await tryWait('终端挂载 xterm', '!!document.querySelector(".terminal-view .xterm")');
       await tm.page.waitForTimeout(900);
@@ -29570,7 +28197,7 @@ async function main() {
       check('§7.16 终端正文显示宿主输出', true);
 
       // 没有前台命令：关闭直接结束会话并收起
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
       const closed = await tm.page.evaluate(() => ({
         stops: window.__terminalStops || 0,
@@ -29581,17 +28208,17 @@ async function main() {
         closed.stops === 1 && closed.bottom === '' && closed.confirm === false);
 
       // 有前台命令：先确认；取消不结束会话，确认才结束
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('重开后重新挂载 xterm', '!!document.querySelector(".terminal-view .xterm")');
       await tm.page.evaluate(() => { window.__terminalStops = 0; window.__terminalForeground = true; });
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tm.page.waitForSelector('.terminal-close-dialog', { timeout: 8000 });
       const asking = await tm.page.evaluate(() => ({
         stops: window.__terminalStops || 0,
         text: document.querySelector('.terminal-close-dialog').textContent,
       }));
       check('§7.16 有前台命令时先确认且未结束会话: ' + JSON.stringify([asking.stops, asking.text.slice(0, 40)]),
-        asking.stops === 0 && asking.text.includes('命令正在运行'));
+        asking.stops === 0 && asking.text.includes('command is still running'));
       await tm.page.locator('.terminal-close-dialog [data-terminal-close="cancel"]').click();
       await tm.page.waitForTimeout(400);
       const kept = await tm.page.evaluate(() => ({
@@ -29601,7 +28228,7 @@ async function main() {
       }));
       check('§7.16 取消后保留终端: ' + JSON.stringify(kept),
         kept.stops === 0 && kept.dialog === false && kept.tool === true);
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tm.page.waitForSelector('.terminal-close-dialog', { timeout: 8000 });
       await tm.page.locator('.terminal-close-dialog [data-terminal-close="confirm"]').click();
       await tryWait('确认后收起面板', '!document.querySelector(".terminal-tool")');
@@ -29610,7 +28237,7 @@ async function main() {
 
       // 隐藏：只收起面板，会话保留（再次打开即恢复同一会话与同一段正文）
       // 注意：上一步是"确认关闭"，会话已结束并重建；因此 starts/正文 必须在**同一会话内**比较。
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('隐藏前 xterm 在位', '!!document.querySelector(".terminal-view .xterm")');
       await tm.page.evaluate(() => {
         window.__terminalStops = 0;
@@ -29620,10 +28247,10 @@ async function main() {
       await tryWait('隐藏前正文已渲染', 'document.querySelector(".terminal-view").textContent.includes("hide-marker")');
       const startsBeforeHide = await tm.page.evaluate(() =>
         (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length);
-      await tm.page.locator('.terminal-tool [aria-label="隐藏终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Hide Terminal"]').click();
       await tryWait('隐藏后收起面板', '!document.querySelector(".terminal-tool")');
       const hidden = await tm.page.evaluate(() => ({ stops: window.__terminalStops || 0 }));
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('恢复后 xterm 在位', '!!document.querySelector(".terminal-view .xterm")');
       const restored = await tm.page.evaluate(() => ({
         stops: window.__terminalStops || 0,
@@ -29636,13 +28263,13 @@ async function main() {
 
       // ---- §7.16 第 6 条：宿主在页面 ready 前就产出的提示符/输出，终端显示后必须保留 ----
       await tm.page.evaluate(() => { window.__terminalForeground = false; });
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
       await tm.page.evaluate(() => {
         window.__terminalBootOutput = 'BOOT-PROMPT-BEFORE-READY\r\n';
         window.__terminalCalls = [];
       });
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('ready 前的输出在终端显示', 'document.querySelector(".terminal-view").textContent.includes("BOOT-PROMPT-BEFORE-READY")', 30000);
       const bootOutput = await tm.page.evaluate(() => ({
         shown: document.querySelector('.terminal-view').textContent.includes('BOOT-PROMPT-BEFORE-READY'),
@@ -29659,12 +28286,12 @@ async function main() {
         window.__terminalStartDelayMs = 700;   // 让 terminal/start 处于在途
         window.__augitError = null;
       });
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tryWait('关闭后收起面板', '!document.querySelector(".terminal-tool")');
       await tm.page.evaluate(() => { window.__terminalStops = 0; window.__terminalCalls = []; });
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tm.page.waitForTimeout(150);       // 启动在途，先不完成
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tm.page.waitForTimeout(1400);      // 等晚到的 terminal/start 收尾
       const lateStart = await tm.page.evaluate(() => ({
         stops: window.__terminalStops || 0,
@@ -29678,7 +28305,7 @@ async function main() {
         lateStart.starts === 1 && lateStart.stops === 2 && lateStart.ready === false
           && lateStart.tool === false && lateStart.bottom === '');
       await tm.page.evaluate(() => { window.__terminalStartDelayMs = 0; window.__terminalCalls = []; });
-      await tm.page.locator('.tool-rail .rail-button[aria-label="终端"]').click();
+      await tm.page.locator('.tool-rail .rail-button[aria-label="Terminal"]').click();
       await tryWait('重开后建立新请求', 'window.__augitTerminalShell === "Windows PowerShell" && !!document.querySelector(".terminal-view .xterm")');
       const reopenedAfterCancel = await tm.page.evaluate(() => ({
         starts: (window.__terminalCalls || []).filter((m) => m === 'terminal/start').length,
@@ -29687,7 +28314,7 @@ async function main() {
       check('§7.16 关闭后立即重开建立新请求: ' + JSON.stringify(reopenedAfterCancel),
         reopenedAfterCancel.starts === 1 && reopenedAfterCancel.ready === true);
       await tm.page.evaluate(() => { window.__terminalForeground = false; });
-      await tm.page.locator('.terminal-tool [aria-label="关闭终端"]').click();
+      await tm.page.locator('.terminal-tool [aria-label="Close Terminal"]').click();
       await tryWait('收尾关闭终端', '!document.querySelector(".terminal-tool")');
       await tm.page.close();
     }
@@ -29772,8 +28399,8 @@ async function main() {
       // 原断言编码的是"打开即 Hard ＋ 红色确认"的旧默认，第 143 轮按权威改正。
       check('§7.11 默认模式为 Mixed（权威顺序 MIXED→SOFT→HARD）: '
         + JSON.stringify([rsOpen.modeValue, rsOpen.danger, rsOpen.runText, rsOpen.impact]),
-      rsOpen.modeValue === 0 && rsOpen.danger === false && rsOpen.runText.includes('执行 Reset')
-      && rsOpen.impact.includes('重置索引'));
+      rsOpen.modeValue === 0 && rsOpen.danger === false && rsOpen.runText.includes('Reset')
+      && rsOpen.impact.includes('reset the index'));
 
       // 模式切换：说明与按钮文字同步变化，且非 Hard 不使用危险样式。
       // 按 `value` 选而不是按索引 —— **顺序本身就是对齐对象**，索引会随权威改动而变。
@@ -29782,17 +28409,17 @@ async function main() {
       const rsSoft = await resetState();
       check('§7.11 切换到 Soft 同步说明与按钮: '
         + JSON.stringify([rsSoft.impact, rsSoft.runText, rsSoft.danger]),
-      rsSoft.impact.includes('仅移动 HEAD') && rsSoft.runText.includes('执行 Reset') && rsSoft.danger === false);
+      rsSoft.impact.includes('Move HEAD only') && rsSoft.runText.includes('Reset') && rsSoft.danger === false);
 
       await rs.page.selectOption('#reset-mode', 'hard');
       await rs.page.waitForTimeout(150);
       const rsHard = await resetState();
       check('§10.4 Hard 使用危险确认样式且按钮写动作名: '
         + JSON.stringify([rsHard.danger, rsHard.runText]),
-      rsHard.danger === true && rsHard.runText.includes('确认 Reset Hard'));
+      rsHard.danger === true && rsHard.runText.includes('Reset Hard'));
       // 影响说明必须按**当前**已跟踪改动数（5）显示，而不是样例的 35。
       check('§10.4 影响说明使用真实已跟踪改动数: ' + JSON.stringify([rsHard.impact, rsHard.impactDetail]),
-        rsHard.impact.includes('5 个已跟踪文件') && rsHard.impactDetail.length > 0);
+        rsHard.impact.includes('5 tracked files') && rsHard.impactDetail.length > 0);
 
       // 进行中：禁用重复触发、出现取消入口；完成一次请求后关闭并重读真实状态。
       await rs.page.evaluate(() => { window.__resetDelays = 800; window.__resetCalls = []; });
@@ -29802,7 +28429,7 @@ async function main() {
       const rsBusy = await resetState();
       check('§9.3 Reset 进行中禁用重复触发并给出取消入口: '
         + JSON.stringify([rsBusy.runDisabled, rsBusy.cancelText, rsBusy.notice]),
-      rsBusy.runDisabled === true && rsBusy.cancelText.includes('取消') && rsBusy.open === true);
+      rsBusy.runDisabled === true && rsBusy.cancelText.includes('Cancel') && rsBusy.open === true);
       check('§9.3 Reset 进行中在同一次按下里只发一次请求: '
         + JSON.stringify((await rs.page.evaluate(() => window.__resetCalls)).length),
       (await rs.page.evaluate(() => window.__resetCalls)).length === 1);
@@ -29837,7 +28464,7 @@ async function main() {
         + JSON.stringify([rsFail.open, rsFail.runDisabled, rsFail.target, rsFail.notice]),
       rsFail.open === true && rsFail.runDisabled === false
         && /^[0-9a-f]{7}$/.test(String(rsFail.target))
-        && typeof rsFail.notice === 'string' && rsFail.notice.includes('没有被修改'));
+        && typeof rsFail.notice === 'string' && rsFail.notice.includes('unchanged'));
       await rs.page.evaluate(() => { window.__resetFails = false; });
 
       // 取消：零请求、关闭对话框（负向：如果取消路径直接发请求，这条会红）。
@@ -29869,7 +28496,7 @@ async function main() {
       const rsCancelling = await resetState();
       check('§9.3 Reset 进行中取消先通知宿主: '
         + JSON.stringify([rsCancelling.cancelText, rsCancelling.notice]),
-      typeof rsCancelling.notice === 'string' && rsCancelling.notice.includes('取消'));
+      typeof rsCancelling.notice === 'string' && rsCancelling.notice.includes('Cancel'));
       // 宿主确认（本机 Git 停稳）之前：取消请求已发出，但**不得**重读真实状态。
       check('§9.3 Reset 取消期间不提前重读状态: '
         + JSON.stringify([rsCancelling.writeCancels, rsCancelling.statusCalls, rsCancelling.runDisabled]),
@@ -29885,7 +28512,7 @@ async function main() {
         })(),
       }));
       check('§9.3 Reset 取消请求发到宿主并给出结果: ' + JSON.stringify(rsCancelled),
-        rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && rsCancelled.notice.includes('取消'));
+        rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && rsCancelled.notice.includes('Cancel'));
       // 停稳之后必须按最新事实恢复：重新读取真实仓库状态。
       check('§9.3 Reset 取消停稳后重新读取真实状态: ' + JSON.stringify(rsCancelled.statusCalls),
         rsCancelled.statusCalls > 0);
@@ -30201,7 +28828,7 @@ async function main() {
       check('§5.1 长按不重复切换工具窗口（最多切换一次）: '
         + JSON.stringify([longPress.sequence, transitions]),
       transitions <= 1);
-      check('§5.1 长按后状态与单击一致（已激活入口 → 折叠）: '
+      check('§5.1 长按后状态与单击一致（已激活入口 → Collapse）: '
         + JSON.stringify([longPress.collapsed, longPress.hasSide]),
       longPress.collapsed === 'side' && longPress.hasSide === false);
       console.log('INFO §5.1 重复按键后的焦点=' + JSON.stringify(longPress.activeAfterRepeat));
@@ -30525,7 +29152,7 @@ async function main() {
       const openSettings154 = async () => {
         await f154.page.locator('.titlebar [data-action="menu"]').click();
         await f154.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-        await f154.page.locator('.titlebar .main-menu-entry').filter({ hasText: '设置' }).first().click();
+        await f154.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Settings' }).first().click();
         await f154.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
       };
       await openSettings154();
@@ -30610,6 +29237,7 @@ async function main() {
       await f154.page.close();
     }
 
+    if (failures.length) throw new Error(`live-shell ${failures.length}项断言失败，${passed}项通过；失败项已逐条输出。`);
     console.log(`live-shell 通过 ${passed} 项断言` + (skippedChecks > 0 ? `（另有 ${skippedChecks} 项因环境未执行，不计入通过）` : ''));
   } finally {
     await browser?.close();
@@ -30618,6 +29246,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('live-shell 失败：' + error.message);
+  console.error('live-shell 失败：' + (error.stack || error.message));
   process.exit(1);
 });

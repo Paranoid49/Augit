@@ -5,17 +5,15 @@
 // 因此首屏只取工作区信息、Git 状态与根目录一层；更深层级在展开时再取。
 
 import { hasHost, invoke, subscribe } from "./bridge.js";
+import { terminalAnsiPalette, terminalSelectionPalette } from "./terminal-palette.js";
+import { terminalCellWidth, terminalCellHeight } from "./terminal-geometry.js";
 import { renderMarkdown } from "./markdown.js";
+import { uiMessage } from "./ui-text.js";
+import { snapshotDepthForMutation } from "./native-modal-state.js";
 
-const MAX_ENTRIES_PER_DIRECTORY = 200;
-// 项目树隐藏构建产物与本地工具目录：目录名命中列表，或名称以点开头（如 .git/.idea/.vs/.tmp）。
-// 以点开头的文件（如 .gitignore、.editorconfig）保留，它们是有意义的项目文件。
-const SKIPPED_DIRECTORIES = new Set(["bin", "obj", "node_modules", "TestResults", "publish", "artifacts", ".git", ".idea", ".vs", ".tmp"]);
-
+// 普通项目树仅隐藏 Git 元数据；构建产物、忽略目录和其它点目录仍可按需浏览。
 function isVisibleEntry(entry) {
-  if (SKIPPED_DIRECTORIES.has(entry.name)) return false;
-  if (entry.isDirectory && entry.name.startsWith(".")) return false;
-  return true;
+  return entry.name.toLowerCase() !== ".git";
 }
 
 // 目录树状态：展开集合与子项缓存都保存在这里，
@@ -31,6 +29,9 @@ let latestHistory = null;
 let historyRequestToken = 0;
 const expandedPaths = new Set([""]);
 const childrenByPath = new Map();
+let workspaceLoadGeneration = 0;
+// 所有目录读取共用刷新代次；F5 后的旧展开请求不能重新写入缓存。
+let treeListingGeneration = 0;
 
 /** 列举一个目录并转换成树行（只取一层，展开时再调用）。 */
 async function loadChildren(parentPath, parentDepth) {
@@ -39,6 +40,7 @@ async function loadChildren(parentPath, parentDepth) {
   }
 
   const rows = [];
+  const generation = treeListingGeneration;
   let listing;
   try {
     listing = await invoke("workspace/list", { path: parentPath }, 30000);
@@ -50,17 +52,18 @@ async function loadChildren(parentPath, parentDepth) {
   const directories = entries.filter((entry) => entry.isDirectory);
   const files = entries.filter((entry) => !entry.isDirectory);
   const childDepth = parentDepth + 1;
-  for (const entry of [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY)) {
+  for (const entry of [...directories, ...files]) {
     rows.push({
       name: entry.name,
       path: entry.path,
       depth: childDepth,
       isDirectory: entry.isDirectory,
-      hasChildren: entry.isDirectory,
+      hasChildren: entry.canExpand ?? (entry.isDirectory && !entry.isReparsePoint),
       expanded: false,
     });
   }
 
+  if (generation !== treeListingGeneration) return childrenByPath.get(parentPath) || [];
   childrenByPath.set(parentPath, rows);
   return rows;
 }
@@ -68,12 +71,12 @@ async function loadChildren(parentPath, parentDepth) {
 /** 只从缓存拼装可见树：展开集合决定哪些层级可见，不发起新的宿主请求。 */
 function buildVisibleTree(rootName, rootPath) {
   const rows = [{
-    name: rootName || "工作区",
+    name: rootName || "Workspace",
     path: rootPath,
     depth: 0,
     isDirectory: true,
     hasChildren: true,
-    expanded: true,
+    expanded: expandedPaths.has(rootPath),
   }];
   const walk = (parentPath, depth) => {
     if (!expandedPaths.has(parentPath)) return;
@@ -87,6 +90,14 @@ function buildVisibleTree(rootName, rootPath) {
 }
 
 async function loadDocument() {
+  const generation = ++workspaceLoadGeneration;
+  const liveObject = window.__augitLive;
+  liveObject.workspaceLoading = true;
+  if (window.__augitReady) {
+    liveObject.workspaceNotice = { title: "Loading Workspace", text: "Reading workspace information…" };
+    liveObject.toast = liveObject.workspaceNotice;
+    refreshAfterEvent("toast");
+  }
   const marks = {};
   const started = performance.now();
   const mark = (name) => {
@@ -97,20 +108,28 @@ async function loadDocument() {
     const infoPromise = invoke("workspace/info");
     const rootPromise = invoke("workspace/list", { path: "" }, 30000).catch(() => null);
     const info = await infoPromise;
+    if (!info || typeof info.root !== "string" || typeof info.name !== "string" || info.valid === false) {
+      throw new Error(info?.error || "Workspace information is unavailable.");
+    }
     mark("info");
     const listing = await rootPromise;
+    if (generation !== workspaceLoadGeneration) return liveObject;
     mark("root");
+
+    if (!listing || !Array.isArray(listing.entries) || listing.available === false) {
+      throw new Error(listing?.reason || "Cannot read the workspace directory.");
+    }
 
     if (listing) {
       const entries = (listing.entries || []).filter(isVisibleEntry);
       const directories = entries.filter((entry) => entry.isDirectory);
       const files = entries.filter((entry) => !entry.isDirectory);
-      childrenByPath.set("", [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY).map((entry) => ({
+      childrenByPath.set("", [...directories, ...files].map((entry) => ({
         name: entry.name,
         path: entry.path,
         depth: 1,
         isDirectory: entry.isDirectory,
-        hasChildren: entry.isDirectory,
+        hasChildren: entry.canExpand ?? (entry.isDirectory && !entry.isReparsePoint),
         expanded: false,
       })));
     }
@@ -118,7 +137,8 @@ async function loadDocument() {
     const tree = buildVisibleTree(info.name, "");
 
     window.__augitMarks = marks;
-    const liveObject = {
+    // 初始占位、重试和晚到结果共用同一对象；保留用户在等待期间建立的布局、标签和草稿。
+    Object.assign(liveObject, {
       root: info.root,
       rootPath: "",
       name: info.name,
@@ -130,11 +150,12 @@ async function loadDocument() {
       isDetached: false,
       changeCount: 0,
       tree,
-    };
-    window.__augitLive = liveObject;
-    // 在建立 live 对象时就固定初始工具窗口布局：
-    // 之后若干次渲染会把场景值覆盖掉，晚读会丢失初始的底部工具窗口。
-    liveObject.layout = readInitialLayout();
+      workspaceLoading: false,
+      workspaceLoadError: null,
+    });
+    if (liveObject.toast === liveObject.workspaceNotice) liveObject.toast = null;
+    liveObject.workspaceNotice = null;
+    if (window.__augitError?.startsWith("load-document:")) window.__augitError = null;
     if (pendingGitUnavailableReason) {
       liveObject.gitUnavailableReason = pendingGitUnavailableReason;
       // 状态早于 live 到达时，showGitUnavailable 已经返回、提示没能建立；
@@ -149,8 +170,21 @@ async function loadDocument() {
     applyHistory();
     return liveObject;
   } catch (error) {
+    if (generation !== workspaceLoadGeneration) return liveObject;
     window.__augitError = "load-document:" + String(error && error.message || error);
-    return null;
+    liveObject.workspaceLoading = false;
+    liveObject.workspaceLoadError = String(error && error.message || error);
+    liveObject.workspaceNotice = { title: "Cannot Read Workspace",
+      text: `${liveObject.workspaceLoadError} Press F5 to retry.` };
+    liveObject.toast = liveObject.workspaceNotice;
+    return liveObject;
+  } finally {
+    // 启动等待截止后才返回的数据也必须显示；局部更新不能重建用户已经打开的弹层。
+    if (generation === workspaceLoadGeneration && window.__augitReady) {
+      const regions = ["titlebar", "statusbar", "toast"];
+      if (layersAllowProjectTree(liveObject)) regions.push("side");
+      refreshAfterEvent(...regions);
+    }
   }
 }
 
@@ -195,6 +229,7 @@ async function loadStatus() {
     } else if (window.__augitLive && window.__augitLive.operationSession) {
       window.__augitLive.operationSession = null;
       window.__augitLive.operationSessionShown = false;
+  window.__augitLive.operationSessionSuppressed = false;
     }
     // 状态可能早于工作区数据到达，因此先缓存，再尝试附着到当前 live 对象。
     applyStatus();
@@ -206,7 +241,7 @@ async function loadStatus() {
     // 规格 §9.2：查询失败显示**非阻塞**错误，保留上一个已知界面，但必须明确标记
     // 它不是最新状态。此前这里只记了一个时间戳，界面上什么都没有——用户会把
     // 上一次读到的改动列表当成当前状态（例如据此提交已经变化的文件）。
-    latestStatusError = String((error && error.message) || error || "原因未知");
+    latestStatusError = String((error && error.message) || error || "Unknown reason");
     const live = window.__augitLive;
     if (live) {
       live.statusError = latestStatusError;
@@ -373,7 +408,7 @@ async function loadHistoryPage(page) {
     if (token !== historyRequestToken) return false;
     if (!history || !history.available || !history.isRepository || !Array.isArray(history.commits)) {
       // 失败：保留当前页与页码，下一次触底从同一页重试（不显示为成功）。
-      window.__augitHistoryPageError = (history && history.reason) || "读取下一页失败。";
+      window.__augitHistoryPageError = (history && history.reason) || "Failed to load the next page.";
       return false;
     }
     const known = new Set((latestHistory.commits || []).map((commit) => commit.fullHash));
@@ -526,6 +561,9 @@ async function loadBlame(path, revision = null) {
           // 槽位显示短日期；悬停提示的 `Date:` 要用日期时间（权威 `DateFormatUtil.formatDateTime`）。
           date: line.date,
           dateTime: line.dateTime,
+          timestamp: line.timestamp,
+          committerTimestamp: line.committerTimestamp,
+          path: line.path,
           summary: line.summary,
           content: line.content,
         })),
@@ -579,7 +617,7 @@ async function loadUnpushed() {
       live.unpushedReady = false;
       live.unpushedCommits = [];
       live.unpushedUpstream = null;
-      live.unpushedReason = (result && result.reason) || "当前无法读取待推送提交。";
+      live.unpushedReason = (result && result.reason) || "Cannot load outgoing commits.";
     } else {
       live.unpushedReady = !!result.ready;
       live.unpushedCommits = result.commits || [];
@@ -747,7 +785,7 @@ function abortLimitedSearch() {
   const count = (live.search.matches || []).length;
   live.search.limitPrompt = null;
   live.search.truncated = false;
-  live.search.notice = `已按你的选择中止继续搜索，当前显示前 ${count} 条。`;
+  live.search.notice = `Search stopped; showing the first ${count} results.`;
   closeSearchLimitDialog();
   renderSearchOverlay("repository");
   return live.search;
@@ -797,8 +835,8 @@ function bindSearchOverlay(kind) {
     if (event.key === "Enter" && !event.repeat && results.length > 0) {
       event.preventDefault();
       const row = results[Math.max(0, index)];
-      // Enter 复用唯一临时预览标签；正式确认语义与快速打开规范冲突，暂按既有状态保留。
-      openSearchResult(row);
+      // Enter 明确确认结果并打开正式标签；不依赖重复的冒泡监听。
+      openSearchResult(row, { preview: false });
     }
   });
   input.focus();
@@ -808,17 +846,16 @@ function bindSearchOverlay(kind) {
 function currentSearchOptions() {
   const pressed = (label) => document.querySelector(`.search-option[aria-label="${label}"]`)?.getAttribute("aria-pressed") === "true";
   return {
-    matchCase: pressed("区分大小写"),
-    matchWholeWord: pressed("全字匹配"),
-    useRegularExpression: pressed("正则表达式"),
+    matchCase: pressed("Match case"),
+    matchWholeWord: pressed("Words"),
+    useRegularExpression: pressed("Regex"),
     includeIgnoredFiles: !!document.querySelector(".search-ignored input")?.checked,
   };
 }
 
 /**
  * 搜索结果（规格 §5.2）。
- * 单击只改变选中项；Enter 或双击打开并激活**临时预览标签**，
- * 下一个结果复用同一个标签。
+ * 单击只改变选中项；Enter 或双击打开并激活正式标签。
  */
 function selectSearchResult(row) {
   for (const other of document.querySelectorAll(".search-result.selected")) {
@@ -828,12 +865,32 @@ function selectSearchResult(row) {
   if (row) row.classList.add("selected");
 }
 
-function openSearchResult(row, { preview = true } = {}) {
+async function openSearchResult(row, { preview = true } = {}) {
   const path = row && row.dataset.searchPath;
   if (!path) return;
+  const generation = ++searchOpenGeneration;
+  const line = Number(row.dataset.searchLine);
   selectSearchResult(row);
-  void openDocument(path, { preview });
+  await openDocument(path, { preview });
+  if (generation !== searchOpenGeneration) return;
+  const live = window.__augitLive;
+  if (live?.document?.path !== path || !Number.isInteger(line) || line < 1) return;
+  // 文本搜索定位磁盘原文；Markdown/JSON 的显示变换不能改变命中行身份。
+  const mode = document.querySelector('.editor-tabs button[data-markdown-mode="source"], .editor-content [data-json-mode="source"]');
+  if (mode && !mode.classList.contains('active')) {
+    mode.click();
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+    if (generation !== searchOpenGeneration || live.document?.path !== path) return;
+  }
+  const view = document.querySelector('.editor-content .code-view');
+  const target = view?.querySelector(`.code-line[data-line="${line}"]`) || view?.querySelectorAll('.code-line')[line - 1];
+  if (!target) return;
+  view.querySelectorAll('.code-line.active').forEach(node => node.classList.remove('active'));
+  target.classList.add('active');
+  target.scrollIntoView({ block: 'center' });
+  // 搜索浮层仍由用户控制关闭，保留其输入或结果行焦点。
 }
+let searchOpenGeneration = 0;
 
 document.addEventListener("click", (event) => {
   const option = event.target.closest && event.target.closest(".search-option");
@@ -870,7 +927,7 @@ document.addEventListener("keydown", (event) => {
   const row = event.target.closest && event.target.closest(".search-result");
   if (!row || !row.dataset.searchPath) return;
   event.preventDefault();
-  openSearchResult(row);
+  openSearchResult(row, { preview: false });
 }, true);
 
 /** 读取远端、分支标签、Stash 与 Worktree，供管理窗口使用。 */
@@ -897,8 +954,6 @@ async function loadReferences() {
       refresh("side", "editorContent", "statusbar", "bottomTool", "overlay", "titlebar");
       reattachTerminal();
       bindSettingsSave();
-      bindConflictSave();
-      bindConflictDirtyTracking();
       if (window.__augitLive && window.__augitLive.search) bindSearchOverlay(window.__augitLive.search.kind);
       void refreshCommitDetails();
     }
@@ -951,9 +1006,13 @@ function terminalTypography() {
   const rootStyle = getComputedStyle(document.documentElement);
   const family = rootStyle.getPropertyValue("--augit-code").trim();
   const size = Number.parseFloat(rootStyle.getPropertyValue("--augit-code-size"));
+  const resolvedSize = Number.isFinite(size) && size >= 9 && size <= 40 ? size : 13;
+  const bundledLoaded = [...document.fonts].some(face => face.family.replaceAll('"', '') === 'JetBrains Mono' && face.style === 'normal' && face.weight === '400' && face.status === 'loaded');
   return {
-    family: family.length > 0 ? family : 'Cascadia Mono, Consolas, monospace',
-    size: Number.isFinite(size) && size >= 9 && size <= 40 ? size : 13,
+    family: family.length > 0 ? family : '"JetBrains Mono", "Cascadia Mono", Consolas, monospace',
+    size: resolvedSize,
+    cellWidth: terminalCellWidth(family, resolvedSize, window.devicePixelRatio || 1, bundledLoaded),
+    cellHeight: terminalCellHeight(family, resolvedSize, window.devicePixelRatio || 1, bundledLoaded),
   };
 }
 
@@ -972,19 +1031,25 @@ function terminalTheme() {
   const background = style.backgroundColor;
   const foreground = style.color;
   return {
+    ...terminalAnsiPalette(document.body.dataset.theme),
     background,
     foreground,
     cursor: foreground,
-    // 选中底色沿用界面里的选中蓝（DOM 对照实测 rgb(47,70,111)）。
-    selectionBackground: '#2F466F',
+    ...terminalSelectionPalette(document.body.dataset.theme),
   };
 }
+
+// 与页面同寿命；关闭会话后立即返回，不保留额外观察器或定时器。
+document.fonts.addEventListener('loadingdone', () => refreshTerminalTypography());
+window.addEventListener('resize', () => refreshTerminalTypography());
 
 function refreshTerminalTypography() {
   if (!terminalInstance) return;
   const typography = terminalTypography();
   terminalInstance.options.fontFamily = typography.family;
   terminalInstance.options.fontSize = typography.size;
+  terminalInstance.options.augitCellWidth = typography.cellWidth;
+  terminalInstance.options.augitCellHeight = typography.cellHeight;
   terminalInstance.options.theme = terminalTheme();
   try {
     terminalFitAddon.fit();
@@ -1017,7 +1082,10 @@ async function startTerminal() {
     cursorBlink: true,
     fontFamily: typography.family,
     fontSize: typography.size,
-    lineHeight: 1.7,
+    augitCellWidth: typography.cellWidth,
+    augitCellHeight: typography.cellHeight,
+    // 按PyCharm实机采用字体基础行格；xterm系数乘字体度量，不是字号倍数。
+    lineHeight: 1,
     scrollback: 2000,
     theme: terminalTheme(),
   });
@@ -1089,7 +1157,7 @@ function applyTerminalStartState() {
   if (!label) return;
   const rendered = String(label.textContent || '').replace(/ · 正在启动…$/, '') || 'Windows PowerShell';
   const base = window.__augitTerminalShell || rendered;
-  const text = live.terminalStarting ? `${base} · 正在启动…` : base;
+  const text = live.terminalStarting ? `${base} · Starting…` : base;
   if (label.textContent !== text) label.textContent = text;
   label.title = text;
   if (typeof window.__augitMeasureTerminalHeaders === 'function') window.__augitMeasureTerminalHeaders();
@@ -1103,9 +1171,59 @@ function applyTerminalStartState() {
  * 这与搜索浮层第 153 轮修过的"结果到达把输入框冲回旧值"是同一类缺陷。
  */
 function bindLogFilterDraft() {
-  const field = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+  const field = document.querySelector('.log-filterbar.history-filters [aria-label="Text or hash"]');
   if (!field || field.dataset.logFilterDraftBound === "true") return;
   field.dataset.logFilterDraftBound = "true";
+  const history = field.closest(".history-search")?.querySelector("[data-history-text-menu]");
+  history?.addEventListener("mousedown", (event) => event.preventDefault());
+  history?.addEventListener("click", () => {
+    document.querySelector(".history-text-history")?.remove();
+    const popup = document.createElement("section");
+    popup.className = "popover history-text-history";
+    popup.setAttribute("role", "menu");
+    const rect = field.getBoundingClientRect();
+    popup.style.left = `${Math.max(4, Math.min(rect.left, innerWidth - 244))}px`;
+    popup.style.top = `${rect.bottom + 2}px`;
+    const queries = recentHistoryTextQueries();
+    for (const query of queries) {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "menu-item";
+      item.textContent = query;
+      item.setAttribute("role", "menuitem");
+      item.addEventListener("mousedown", (event) => event.preventDefault());
+      item.addEventListener("click", () => {
+        popup.remove();
+        field.value = query;
+        if (applyHistoryTextFilter(query)) void reloadHistoryKeepingFocus();
+      });
+      popup.append(item);
+    }
+    if (!queries.length) {
+      const empty = document.createElement("span");
+      empty.className = "menu-item disabled";
+      empty.textContent = "No Recent Searches";
+      popup.append(empty);
+    }
+    popup.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); popup.remove(); field.focus(); }
+      if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+        const items = [...popup.querySelectorAll("button")];
+        if (!items.length) return;
+        event.preventDefault();
+        const index = items.indexOf(document.activeElement);
+        items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+      }
+    });
+    popup.setAttribute("popover", "auto");
+    popup.addEventListener("toggle", (event) => {
+      history.setAttribute("aria-expanded", String(event.newState === "open"));
+      if (event.newState === "closed") popup.remove();
+    });
+    document.querySelector(".augit-window").append(popup);
+    popup.showPopover();
+  });
+  registerRegionDisposer(() => document.querySelector(".history-text-history")?.remove());
   field.addEventListener("input", () => {
     const live = window.__augitLive;
     if (live) live.historyFilterDraft = field.value;
@@ -1114,11 +1232,18 @@ function bindLogFilterDraft() {
   // 输入框自己的 `ActionListener`（回车）执行筛选并入历史；`onFieldCleared()` 在清空时清掉筛选；
   // `onFocusLost()` 在文本与已应用的不一致时也执行一次（on-the-fly 关闭时即失焦执行）。
   field.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") {
+      const item = document.querySelector(".history-text-history button");
+      if (item) { event.preventDefault(); item.focus(); return; }
+    }
     if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
+    const query = field.value.trim();
+    if (query) rememberHistoryTextQuery(query);
     if (applyHistoryTextFilter(field.value)) void reloadHistoryKeepingFocus();
   });
-  field.addEventListener("blur", () => {
+  field.addEventListener("blur", (event) => {
+    if (event.relatedTarget?.closest(".history-search, .history-text-history")) return;
     // 区域重绘会把输入框节点摘下；那不是"用户离开输入框"，不能在这里执行筛选
     // （第 160 轮的草稿断言正是靠"重绘后草稿仍在"成立的）。
     if (!field.isConnected) return;
@@ -1129,6 +1254,23 @@ function bindLogFilterDraft() {
     if (String(field.value).trim() === applied) return;
     if (applyHistoryTextFilter(field.value)) void reloadHistoryKeepingFocus();
   });
+}
+
+// 与参考 SearchTextField 的五项应用级历史一致，存入现有 WebView2 本地配置目录；
+// 不在仓库写文件，也不把查询发送到外部。存储不可用时保留本窗口内的历史。
+function recentHistoryTextQueries() {
+  try {
+    const value = JSON.parse(localStorage.getItem("augit.log.text.history") || "[]");
+    if (Array.isArray(value)) return [...new Set(value.filter((item) => typeof item === "string" && item.trim()))].slice(0, 5);
+  } catch { /* 本地存储不可用时退回当前会话。 */ }
+  return window.__augitLive?.historyTextRecent || [];
+}
+
+function rememberHistoryTextQuery(query) {
+  const values = [query, ...recentHistoryTextQueries().filter((value) => value !== query)].slice(0, 5);
+  if (window.__augitLive) window.__augitLive.historyTextRecent = values;
+  try { localStorage.setItem("augit.log.text.history", JSON.stringify(values)); }
+  catch { /* 配额或权限失败不阻止筛选。 */ }
 }
 
 /**
@@ -1303,6 +1445,8 @@ function rememberHistoryPathFilter(paths) {
  * 起始／结束两个日期字段；确定后走 `VcsLogFilterObject.fromDates(after, before)`，
  * **两端都空则不设筛选**（权威 `if (after != null || before != null)`）。
  */
+let historyFilterAnchor=null;
+
 function openHistoryDateRangeDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
@@ -1316,25 +1460,90 @@ function openHistoryDateRangeDialog() {
     const pad = (number) => String(number).padStart(2, "0");
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   };
-  const body = `<div class="form-grid">`
-    + `<label for="history-date-since">起始</label>`
-    + `<input id="history-date-since" type="date" class="text-field" data-history-date-field="since" value="${day(filter.since)}">`
-    + `<label for="history-date-until">结束</label>`
-    + `<input id="history-date-until" type="date" class="text-field" data-history-date-field="until" value="${day(filter.until)}">`
+  const today=day(new Date().toISOString());
+  const datePicker=(name,label)=>`<span class="history-date-picker"><input id="history-date-${name}" type="text" inputmode="numeric" class="text-field" aria-label="${label} date" data-history-date-field="${name}" value="${(day(filter[name])||today).replaceAll('-','/')}"${filter[name]?'':' disabled'}><button type="button" class="history-date-calendar" aria-label="Open ${label} Calendar" data-history-date-calendar="${name}"${filter[name]?'':' disabled'}><svg viewBox="0 0 9 9" aria-hidden="true"><path fill="currentColor" d="M0 0h9v9H0z"/><path stroke="var(--augit-dialog-bg)" stroke-width=".5" d="M3 0v9M6 0v9M0 3h9M0 6h9"/></svg></button></span>`;
+  const body = `<div class="history-date-range-fields">`
+    + `<label class="history-date-bound"><input type="checkbox" data-history-date-enabled="since"${filter.since ? ' checked' : ''}><span>After</span></label>`
+    + datePicker('since','After')
+    + `<label class="history-date-bound"><input type="checkbox" data-history-date-enabled="until"${filter.until ? ' checked' : ''}><span>Before</span></label>`
+    + datePicker('until','Before')
     + `</div>`;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay history-date-range-window";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = dialog(
-    "选择期间",
-    body,
-    `<button type="button" class="secondary-button" data-history-date-range="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-history-date-range="confirm">确定</button>`,
-    false,
-    "history-date-range-dialog");
+  layer.innerHTML = `<section class="dialog history-date-range-dialog" role="dialog" aria-modal="true" aria-label="Select Period"><div class="dialog-header"><span>Select Period</span><span class="grow"></span><button type="button" class="icon-button" aria-label="Close" data-history-date-range="cancel">${icon('x')}</button></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span><button type="button" class="primary-button" data-history-date-range="confirm">OK</button></div></section>`;
   host.appendChild(layer);
-  const first = layer.querySelector('[data-history-date-field="since"]');
-  if (first) first.focus({ preventScroll: true });
+  const confirm=layer.querySelector('[data-history-date-range="confirm"]');
+  const sync=()=>{
+    let valid=true;
+    layer.querySelectorAll('[data-history-date-enabled]').forEach(toggle=>{
+      const input=layer.querySelector(`[data-history-date-field="${toggle.dataset.historyDateEnabled}"]`);
+      input.disabled=!toggle.checked;if(toggle.checked&&!parseHistoryDate(input.value))valid=false;
+      layer.querySelector(`[data-history-date-calendar="${toggle.dataset.historyDateEnabled}"]`).disabled=input.disabled;
+    });
+    confirm.disabled=!valid;
+  };
+  layer.addEventListener('change',sync);layer.addEventListener('input',sync);
+  layer.addEventListener('click',event=>{
+    const calendar=event.target.closest('[data-history-date-calendar]');
+    if(calendar&&!calendar.disabled)openHistoryCalendar(layer,calendar);
+  });
+  layer.addEventListener('keydown',event=>{
+    if(event.key!=='Enter'||event.isComposing||event.keyCode===229||event.repeat)return;
+    event.preventDefault();event.stopPropagation();if(!confirm.disabled)confirm.click();
+  });
+  sync();layer.querySelector('[data-history-date-enabled="since"]').focus({preventScroll:true});
+}
+
+/** Microba经典日历等价面板：年/月导航、42格日期、Today/None，草稿确认前不查询Git。 */
+function openHistoryCalendar(layer,button) {
+  layer.querySelector('.history-calendar')?.__augitClose?.();
+  const field=layer.querySelector(`[data-history-date-field="${button.dataset.historyDateCalendar}"]`);
+  if(!field||field.disabled)return;
+  const parse=value=>parseHistoryDate(value)||new Date();
+  const format=date=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  let selected=parse(field.value),month=new Date(selected.getFullYear(),selected.getMonth(),1),cursor=selected;
+  const popup=document.createElement('section');popup.className='history-calendar';popup.setAttribute('role','dialog');popup.setAttribute('aria-label','Choose Date');
+  layer.append(popup);
+  let outside;
+  const close=(restore=true)=>{popup.remove();if(outside)layer.removeEventListener('pointerdown',outside,true);if(restore)button.focus({preventScroll:true});};
+  popup.__augitClose=close;
+  const commit=date=>{field.value=date?format(date).replaceAll('-','/'):'';field.dispatchEvent(new Event('input',{bubbles:true}));field.dispatchEvent(new Event('change',{bubbles:true}));close();};
+  const render=()=>{
+    const first=new Date(month.getFullYear(),month.getMonth(),1),start=new Date(first);start.setDate(1-(first.getDay()+6)%7);
+    const days=Array.from({length:42},(_,index)=>{const date=new Date(start);date.setDate(start.getDate()+index);const value=format(date),outside=date.getMonth()!==month.getMonth();return `<button type="button" data-calendar-date="${value}" role="gridcell" aria-label="${value}" aria-selected="${value===format(selected)}" tabindex="${value===format(cursor)?0:-1}"${outside?' disabled':''} class="calendar-day${outside?' other-month':''}${value===format(selected)?' selected':''}">${outside?'':date.getDate()}</button>`;}).join('');
+    const arrow=(back,double)=>`<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="${back?'M10 4 5 8l5 4Z':'M6 4l5 4-5 4Z'}"/>${double?`<path fill="currentColor" d="${back?'M6 4 1 8l5 4Z':'M10 4l5 4-5 4Z'}"/>`:''}</svg>`;
+    popup.innerHTML=`<div class="calendar-navigation"><button type="button" data-calendar-shift="-12" aria-label="Previous Year">${arrow(true,true)}</button><button type="button" data-calendar-shift="-1" aria-label="Previous Month">${arrow(true,false)}</button><strong>${month.toLocaleDateString('en-US',{month:'long',year:'numeric'})}</strong><button type="button" data-calendar-shift="1" aria-label="Next Month">${arrow(false,false)}</button><button type="button" data-calendar-shift="12" aria-label="Next Year">${arrow(false,true)}</button></div><div class="calendar-weekdays">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(day=>`<span>${day}</span>`).join('')}</div><div class="calendar-grid" role="grid" aria-label="Calendar days">${days}</div><div class="calendar-footer"><button type="button" data-calendar-today>today: ${new Date().toLocaleDateString('en-US')}</button><button type="button" data-calendar-none>none</button></div>`;
+    const host=layer.closest('.augit-window').getBoundingClientRect(),anchor=field.getBoundingClientRect(),box=popup.getBoundingClientRect();
+    popup.style.left=`${Math.max(4,Math.min(anchor.left-host.left,host.width-box.width-4))}px`;
+    popup.style.top=`${Math.max(4,Math.min(anchor.bottom-host.top+1,host.height-box.height-4))}px`;
+  };
+  popup.addEventListener('click',event=>{
+    const day=event.target.closest('[data-calendar-date]');if(day){commit(parse(day.dataset.calendarDate));return;}
+    const shift=event.target.closest('[data-calendar-shift]');if(shift){const amount=shift.dataset.calendarShift;month.setMonth(month.getMonth()+Number(amount));cursor=new Date(month);render();popup.querySelector(`[data-calendar-shift="${amount}"]`)?.focus({preventScroll:true});return;}
+    if(event.target.closest('[data-calendar-today]'))commit(new Date());
+    if(event.target.closest('[data-calendar-none]'))commit(null);
+  });
+  popup.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229||event.repeat)return;
+    if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();return;}
+    if(event.key==='Enter'){event.preventDefault();event.stopPropagation();const control=event.target.closest('button');if(control&&!control.hasAttribute('data-calendar-date'))control.click();else commit(cursor);return;}
+    const step={ArrowLeft:-1,ArrowRight:1,ArrowUp:-7,ArrowDown:7}[event.key];
+    if(step!==undefined){event.preventDefault();cursor.setDate(cursor.getDate()+step);month=new Date(cursor.getFullYear(),cursor.getMonth(),1);render();popup.querySelector(`[data-calendar-date="${format(cursor)}"]`)?.focus();}
+    if(event.key==='PageUp'||event.key==='PageDown'){event.preventDefault();month.setMonth(month.getMonth()+(event.key==='PageUp'?-1:1));cursor=new Date(month);render();popup.querySelector('[tabindex="0"]')?.focus();}
+  });
+  outside=event=>{if(!popup.contains(event.target)&&event.target!==button&&!button.contains(event.target))close(false);};
+  layer.addEventListener('pointerdown',outside,{capture:true});
+  render();popup.querySelector('[tabindex="0"]')?.focus({preventScroll:true});
+}
+
+/** 日期草稿只接受有效本地年月日，不能让JS把2月30日静默进位到3月。 */
+function parseHistoryDate(value) {
+  const match=/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(String(value));
+  if(!match)return null;
+  const year=Number(match[1]),month=Number(match[2])-1,day=Number(match[3]);
+  const date=new Date(year,month,day);
+  return date.getFullYear()===year&&date.getMonth()===month&&date.getDate()===day?date:null;
 }
 
 /**
@@ -1346,8 +1555,7 @@ function openHistoryDateRangeDialog() {
  * 输入按 `\n` 切分、逐项 trim、丢空行，`Ctrl+Enter` 以 OK 关闭并应用（`popup.closeOk(...)` ⇒ `event.isOk()`）；
  * 一个路径都不剩时清掉筛选（`myFilterModel.setFilter(null)`）。
  *
- * **登记差异**：权威是**无标题**弹层（提示文本在弹层底部）、只有 `Ctrl+Enter` 一个收尾手势；
- * Augit 用带标题的对话框，并保留「确定／取消」按钮（键盘仍支持 `Ctrl+Enter`）。
+ * 无标题、无底栏按钮；贴近触发控件，Ctrl+Enter 提交，Esc/外部点击取消草稿。
  */
 function openHistoryPathTextDialog() {
   const live = window.__augitLive;
@@ -1356,33 +1564,27 @@ function openHistoryPathTextDialog() {
   closeLiveOverlay();
   rememberDialogFocus();
   const current = ((live.historyFilter || {}).paths) || [];
-  const body = `<div class="form-grid">`
-    + `<label for="history-path-text">路径</label>`
-    + `<textarea id="history-path-text" class="text-field history-path-text" rows="6" aria-label="路径" data-log-path-field>${escapeHtml(current.join("\n"))}</textarea>`
-    + `</div>`;
+  const body = `<textarea id="history-path-text" class="history-path-text" rows="3" aria-label="Paths" data-log-path-field>${escapeHtml(current.join("\n"))}</textarea><div class="history-path-popup-help">Select one or more values separated with new lines, use Ctrl+Enter to finish</div>`;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay history-path-text-window";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = dialog(
-    "按路径筛选",
-    body,
-    `<button type="button" class="secondary-button" data-log-path-text="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-log-path-text="confirm">确定</button>`,
-    false,
-    "history-path-text-dialog");
+  layer.innerHTML = `<section class="popover history-path-text-popover" role="dialog" aria-label="Paths"><div class="history-path-popup-body">${body}</div></section>`;
   host.appendChild(layer);
-  // 提示文本复用对话框底栏的空位（`.footer-help`），不新增视觉语言。
-  const help = layer.querySelector(".dialog-footer .footer-help");
-  if (help) help.textContent = "每行一个值，Ctrl+Enter 完成。";
+  const popup=layer.querySelector('.history-path-text-popover');
+  const anchor=historyFilterAnchor&&historyFilterAnchor.key==='path'?historyFilterAnchor.rect:document.querySelector('.history-filters > [data-filter-key="path"]')?.getBoundingClientRect();
+  const hostRect=host.getBoundingClientRect(),box=popup.getBoundingClientRect();
+  popup.style.left=`${Math.max(4,Math.min((anchor?.left||hostRect.left)-hostRect.left,hostRect.width-box.width-4))}px`;
+  popup.style.top=`${Math.max(4,Math.min((anchor?.bottom||hostRect.top)+4-hostRect.top,hostRect.height-box.height-4))}px`;
+  layer.addEventListener('pointerdown',event=>{if(event.target===layer)closeLiveOverlay();});
   const field = layer.querySelector("[data-log-path-field]");
   if (field) {
-    // 权威的收尾手势就是 `Ctrl+Enter`（`MultilinePopupBuilder` 给 `okAction` 注册的
-    // `CommonShortcuts.getCtrlEnter()`）；这里同样生效，按钮只是 Augit 多给的一条路。
+    // 普通Enter保留换行；Ctrl+Enter才将草稿写入筛选，输入法确认不触发提交。
     field.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
+      if (event.key !== "Enter" || !event.ctrlKey || event.isComposing || event.keyCode===229 || event.repeat) return;
       event.preventDefault();
-      const confirm = layer.querySelector('[data-log-path-text="confirm"]');
-      if (confirm) confirm.click();
+      event.stopPropagation();
+      const values=field.value.split('\n').map(line=>line.trim()).filter(Boolean);
+      closeLiveOverlay();setHistoryPathFilter(values);void reloadHistoryKeepingFocus();
     });
     field.focus({ preventScroll: true });
   }
@@ -1396,8 +1598,7 @@ function openHistoryPathTextDialog() {
  * 底部标签是 `vcs.log.filters.structure.label` = "Selected: {0}"，**一个都没勾时确定按钮禁用**
  * （`setOKActionEnabled(!mySelectedFiles.isEmpty())`，同文件 `:136`）。
  *
- * **登记差异**：权威的树是模块文件系统的完整 `CheckboxTree`（带速搜与 `MAX_FOLDERS` 上限提示，
- * 同文件 `:231-234`）；Augit 用**已经加载**的项目树（`live.tree`，懒加载 ⇒ 未展开过的目录不在候选里）。
+ * 使用独立的目录缓存与展开集合；不依赖 Project 当前展开状态，关闭后丢弃本次选择草稿。
  */
 function openHistoryPathTreeDialog() {
   const live = window.__augitLive;
@@ -1406,35 +1607,98 @@ function openHistoryPathTreeDialog() {
   closeLiveOverlay();
   rememberDialogFocus();
   const current = new Set((((live.historyFilter || {}).paths) || []).map(String));
-  const rows = (Array.isArray(live.tree) ? live.tree : []).filter((entry) => entry && entry.path && entry.depth > 0);
-  const row = (entry) => {
-    const checked = current.has(entry.path);
-    return `<a class="menu-item" href="#" role="menuitemcheckbox" aria-checked="${checked ? "true" : "false"}"`
-      + ` data-log-path-row="${escapeHtml(entry.path)}" style="padding-left:${8 + entry.depth * 14}px">`
-      + `<span class="fake-check${checked ? " checked" : ""}"></span> ${escapeHtml(entry.name)}</a>`;
-  };
-  const body = `<div class="form-grid">`
-    + `<label>路径</label>`
-    + `<div id="history-path-tree-list" role="group" aria-label="选择要筛选的路径" data-log-path-list>`
-    + (rows.length === 0 ? `<span class="menu-item disabled" aria-disabled="true">项目树里还没有可选的路径</span>` : rows.map(row).join(""))
-    + `</div>`
-    + `</div>`;
+  const body = `<div id="history-path-tree-list" class="history-path-browser" role="tree" aria-label="Select Paths to Filter" data-log-path-list></div>`;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay history-path-tree-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "选择要筛选的路径",
+    "Select Paths to Filter",
     body,
-    `<button type="button" class="secondary-button" data-log-path-tree="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-log-path-tree="confirm"${current.size === 0 ? " disabled aria-disabled=\"true\"" : ""}>确定</button>`,
+    `<button type="button" class="secondary-button" data-log-path-tree="cancel">Cancel</button>`
+      + `<button type="button" class="primary-button" data-log-path-tree="confirm"${current.size === 0 ? " disabled aria-disabled=\"true\"" : ""}>OK</button>`,
     false,
     "history-path-tree-dialog");
   host.appendChild(layer);
-  // 底部标签就是权威 `vcs.log.filters.structure.label` = "Selected: {0}"，复用底栏空位。
-  const help = layer.querySelector(".dialog-footer .footer-help");
-  if (help) help.textContent = `已选择: ${current.size}`;
-  const first = layer.querySelector("[data-log-path-row]");
-  if (first) first.focus({ preventScroll: true });
+  const cache=new Map(), expanded=new Set(['']), pending=new Set(), errors=new Map();
+  let expansionGeneration=0;
+  const list=layer.querySelector('[data-log-path-list]');
+  const root={name:live.name||live.workspaceName||'Workspace',path:'',isDirectory:true,canExpand:true};
+  const render=()=>{
+    if(!layer.isConnected)return;
+    const focus=list.contains(document.activeElement)?document.activeElement.closest('[data-log-path-row]')?.dataset.logPathRow:null;
+    const top=list.scrollTop;
+    const row=(entry,depth)=>{
+      const canExpand=entry.isDirectory&&(entry.canExpand??!entry.isReparsePoint);
+      const open=expanded.has(entry.path),checked=current.has(entry.path);
+      let html=`<div class="tree-row" role="treeitem" tabindex="-1" data-log-path-row="${escapeHtml(entry.path)}" data-path-directory="${entry.isDirectory}" data-path-depth="${depth}" aria-level="${depth+1}" aria-checked="${checked}"${entry.isDirectory?` aria-expanded="${open}"`:''} style="--tree-depth:${depth}">`
+        + `<span class="chevron" data-path-disclosure>${canExpand?icon(open?'chevron-down':'chevron-right'):''}</span>`
+        + (entry.path?`<span class="fake-check${checked?' checked':''}"></span>`:'')
+        + `<span class="${entry.isDirectory?'folder-icon':'file-icon'}">${entry.isDirectory?treeFolderIcon():fileTypeIcon(entry.name)}</span><span class="tree-name">${escapeHtml(entry.name)}</span></div>`;
+      if(open&&canExpand){
+        if(pending.has(entry.path))html+='<div class="commit-meta path-tree-notice" role="status">Loading…</div>';
+        if(errors.has(entry.path))html+=`<button type="button" class="path-tree-notice" data-path-retry="${escapeHtml(entry.path)}">Could not load this directory. Retry</button>`;
+        for(const child of cache.get(entry.path)||[])html+=row(child,depth+1);
+      }
+      return html;
+    };
+    list.innerHTML=row(root,0);list.scrollTop=top;
+    const help=layer.querySelector('.footer-help');if(help)help.textContent=`Selected: ${current.size}`;
+    const confirm=layer.querySelector('[data-log-path-tree="confirm"]');confirm.disabled=current.size===0;confirm.setAttribute('aria-disabled',String(confirm.disabled));
+    if(focus!==null)list.querySelector(`[data-log-path-row="${CSS.escape(focus)}"]`)?.focus({preventScroll:true});
+  };
+  const load=async path=>{
+    if(cache.has(path)||pending.has(path)||!layer.isConnected)return;
+    pending.add(path);errors.delete(path);render();
+    try {
+      const result=await invoke('workspace/list',{path},30000);
+      if(!layer.isConnected)return;
+      cache.set(path,(result.entries||[]).filter(isVisibleEntry));
+    }catch(error){if(layer.isConnected)errors.set(path,error);}
+    finally{pending.delete(path);render();}
+  };
+  const toggle=async row=>{
+    if(row.dataset.pathDirectory!=='true'||!row.querySelector('.chevron svg'))return;
+    expansionGeneration++;
+    const path=row.dataset.logPathRow;
+    if(expanded.has(path))expanded.delete(path);
+    else {expanded.add(path);render();await load(path);}
+    render();
+  };
+  layer.__augitSelectedPaths=()=>[...current];
+  layer.__augitTogglePath=(row,disclosure)=>{
+    if(disclosure){void toggle(row);return;}
+    const path=row.dataset.logPathRow;if(!path)return;
+    current.has(path)?current.delete(path):current.add(path);render();
+  };
+  list.addEventListener('dblclick',event=>{const row=event.target.closest('[data-log-path-row]');if(row?.dataset.pathDirectory==='true')void toggle(row);});
+  list.addEventListener('click',event=>{const retry=event.target.closest('[data-path-retry]');if(retry)void load(retry.dataset.pathRetry);});
+  list.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229||event.repeat)return;
+    const row=event.target.closest('[data-log-path-row]');if(!row)return;
+    const rows=[...list.querySelectorAll('[data-log-path-row]')],index=rows.indexOf(row);
+    let next=null;
+    if(event.key===' '){event.preventDefault();layer.__augitTogglePath(row,false);return;}
+    if(event.key==='ArrowRight'){
+      event.preventDefault();
+      if(row.dataset.pathDirectory==='true'&&row.getAttribute('aria-expanded')!=='true')void toggle(row);
+      else next=rows[index+1];
+    }else if(event.key==='ArrowLeft'){
+      event.preventDefault();
+      if(row.getAttribute('aria-expanded')==='true')void toggle(row);
+      else next=rows.slice(0,index).reverse().find(item=>+item.dataset.pathDepth<+row.dataset.pathDepth);
+    }else if(event.key==='ArrowDown')next=rows[index+1];
+    else if(event.key==='ArrowUp')next=rows[index-1];
+    else if(event.key==='Home')next=rows[0];else if(event.key==='End')next=rows.at(-1);
+    if(next){event.preventDefault();next.focus({preventScroll:true});next.scrollIntoView({block:'nearest'});}
+  });
+  render();list.querySelector('[data-log-path-row]')?.focus({preventScroll:true});
+  void (async()=>{
+    const generation=expansionGeneration;
+    await load('');
+    // 初始深层选择逐层恢复，关闭后的慢响应只会被丢弃，不改变 Project 展开状态。
+    for(const path of current){const parts=path.split('/');parts.pop();let parent='';for(const part of parts){parent=parent?`${parent}/${part}`:part;if(!layer.isConnected||generation!==expansionGeneration)return;expanded.add(parent);await load(parent);}}
+    render();
+  })();
 }
 
 /**
@@ -1496,17 +1760,31 @@ async function reloadHistoryKeepingFocus() {
       label: active.getAttribute("aria-label"),
       kind: active.dataset ? active.dataset.refKind : null,
       name: active.dataset ? active.dataset.refName : null,
+      filterKey: active.dataset ? active.dataset.filterKey : null,
     }
     : null;
-  await loadHistory().catch(() => null);
+  const request=loadHistory().catch(() => null);
+  const generation=historyRequestToken;
+  await request;
+  if(generation!==historyRequestToken)return;
+  // 刷新等待期间用户已进入新弹层或其它输入区时，不能把焦点抢回旧筛选入口。
+  const current=document.activeElement;
+  const mayRestore=current===active||current===document.body
+    || (!active.isConnected&&!!current?.closest?.('.history-filters'));
   refresh("bottomTool");
-  if (!restore) return;
+  if (!restore||!mayRestore) return;
   let target = null;
   if (restore.name) {
     target = document.querySelector(
       `.log-ref-panel .tree-row[data-ref-kind="${restore.kind}"][data-ref-name="${CSS.escape(restore.name)}"]`);
-  } else if (restore.label === "文本或哈希") {
-    target = document.querySelector('.log-filterbar.history-filters [aria-label="文本或哈希"]');
+  } else if (restore.label === "Text or hash") {
+    target = document.querySelector('.log-filterbar.history-filters [aria-label="Text or hash"]');
+  } else if (restore.filterKey) {
+    target = document.querySelector(`.history-filters > [data-filter-key="${CSS.escape(restore.filterKey)}"]`);
+    if (target?.hidden) {
+      const overflow=document.querySelector('.history-filter-overflow');
+      if(overflow){overflow.open=true;target=overflow.querySelector(`[data-filter-key="${CSS.escape(restore.filterKey)}"]`);}
+    }
   }
   if (target && typeof target.focus === "function") target.focus({ preventScroll: true });
 }
@@ -1648,10 +1926,10 @@ function openTerminalCloseDialog() {
   layer.className = 'overlay-layer live-overlay terminal-close-window';
   layer.setAttribute('data-augit-overlay', '');
   layer.innerHTML = dialog(
-    '关闭终端',
-    `<div class="info-block" style="width:auto;text-align:left"><h2>终端中仍有命令正在运行</h2><p>继续将结束前台命令、Shell 及其整个子进程树。</p></div>`,
-    `<button type="button" class="secondary-button" data-terminal-close="cancel">保留终端</button>`
-      + `<button type="button" class="danger-button" data-terminal-close="confirm">结束命令并关闭</button>`,
+    'Close Terminal',
+    `<div class="info-block" style="width:auto;text-align:left"><h2>A command is still running in the terminal</h2><p>Continuing stops the foreground command, shell, and all child processes.</p></div>`,
+    `<button type="button" class="secondary-button" data-terminal-close="cancel">Keep Terminal</button>`
+      + `<button type="button" class="danger-button" data-terminal-close="confirm">Stop Command and Close</button>`,
     false,
     'terminal-close-dialog');
   host.appendChild(layer);
@@ -1686,7 +1964,7 @@ function diffRequestKey({ path, revision, commit, ignoreWhitespace, detectRename
   return [
     live ? live.root : "",
     path,
-    revision || "工作区",
+    revision || "Workspace",
     commit || "",
     ignoreWhitespace ? "ignore-ws" : "keep-ws",
     detectRenames ? "renames" : "no-renames",
@@ -1720,7 +1998,7 @@ async function loadDiff(path, options = {}) {
   const live0 = window.__augitLive;
   const parts = {
     path,
-    revision: options.revision || "工作区",
+    revision: options.revision || "Workspace",
     // 历史比较传入提交：宿主自行解析父版本，比较的是两个版本而不是工作区。
     // 它必须进入请求键，否则同一文件的"工作区 Diff"与"历史比较"会互相复用结果。
     commit: options.commit,
@@ -1772,7 +2050,7 @@ async function loadDiff(path, options = {}) {
         path,
         ignoreWhitespace: parts.ignoreWhitespace,
         // 「工作区」是界面里的默认占位，不是真实基准：不传时宿主按 HEAD 处理。
-        revision: parts.revision === "工作区" ? undefined : parts.revision,
+        revision: parts.revision === "Workspace" ? undefined : parts.revision,
         // 历史比较：提交交给宿主解析父版本。
         commit: parts.commit,
       }, 30000);
@@ -1833,6 +2111,7 @@ function closeDiff() {
   if (live) {
     live.diff = null;
     live.diffRequestKey = null;
+    live.workspaceDiff = false;
     live.editor = live.document ? live.document.editor : "empty";
   }
 }
@@ -1936,11 +2215,12 @@ function syncChangesToolbar() {
     && ((live.status && live.status.files) || []).some((file) => file.path === live.selectedChangePath);
   for (const button of toolbar.querySelectorAll(
     '[data-action="show-change-diff"], [data-action="rollback-change"]')) {
-    button.disabled = !selected;
+    if (button.disabled !== !selected) button.disabled = !selected;
     if (selected) {
       button.removeAttribute("title");
     } else {
-      button.setAttribute("title", button.dataset.disabledReason || "先在改动列表里选择一个文件。");
+      const title = button.dataset.disabledReason || "Select a file in Changes first.";
+      if (button.title !== title) button.title = title;
     }
   }
 }
@@ -1987,14 +2267,16 @@ function patchChangesList() {
     const header = headers.find((node) => node.dataset.group === group.label);
     // 组头只改"文件数"与全选态两处，节点本身保留。
     const meta = header.querySelector(".commit-meta");
-    if (meta) meta.textContent = `${group.files.length} 个文件`;
+    // 同值写入也会触发背景观察器，仅提交实际变化。
+    const metaText = changesFileCount(group.files.length);
+    if (meta && meta.textContent !== metaText) meta.textContent = metaText;
     const check = header.querySelector(".fake-check");
     if (check) {
       const state = group.files.every((file) => file.checked) ? "true"
         : group.files.some((file) => file.checked) ? "mixed" : "false";
       check.classList.toggle("checked", state === "true");
       check.classList.toggle("mixed", state === "mixed");
-      check.setAttribute("aria-checked", state);
+      if (check.getAttribute("aria-checked") !== state) check.setAttribute("aria-checked", state);
     }
 
     desired.push(header);
@@ -2012,11 +2294,18 @@ function patchChangesList() {
           // 文件名会**丢掉 Git 状态色**（第 245 轮实测：补丁后 `file-status-*` 整个消失）。
           const wanted = `tree-name file-status-${String(file.kind).toLowerCase()}`;
           if (name.className !== wanted) name.className = wanted;
+          const description = gitStatusDescription(file);
+          if (name.title !== description) name.title = description;
         }
-        row.dataset.group = group.label;
-        row.dataset.indexStatus = file.indexStatus || " ";
-        row.dataset.worktreeStatus = file.workTreeStatus || " ";
-        row.setAttribute("aria-label", changeAccessibleName(file.kind, file.name, file));
+        if (row.dataset.group !== group.label) row.dataset.group = group.label;
+        const indexStatus = file.indexStatus || " ";
+        const worktreeStatus = file.workTreeStatus || " ";
+        if (row.dataset.indexStatus !== indexStatus) row.dataset.indexStatus = indexStatus;
+        if (row.dataset.worktreeStatus !== worktreeStatus) row.dataset.worktreeStatus = worktreeStatus;
+        const label = changeAccessibleName(file.kind, file.name, file);
+        if (row.getAttribute("aria-label") !== label) row.setAttribute("aria-label", label);
+        const title = [file.path, gitStatusDescription(file)].filter(Boolean).join("\n");
+        if (row.title !== title) row.title = title;
       } else {
         // 新增行用与整块渲染**同一份**标记（勾选态来自宿主状态）。
         const holder = document.createElement("template");
@@ -2049,8 +2338,9 @@ function patchChangesList() {
   const count = document.querySelector(".commit-box .commit-count");
   if (count) {
     const changed = expected[0].files.length;
-    count.textContent = `${changed} modified`;
-    count.title = `${changed} modified`;
+    const text = `${changed} files`;
+    if (count.textContent !== text) count.textContent = text;
+    if (count.title !== text) count.title = text;
   }
 
   // 提交框的 `.commit-last` 槽位是设计基线的**「上一次提交」入口**
@@ -2084,11 +2374,13 @@ function patchChangesList() {
 
 /** 状态变化后的刷新：优先原地更新改动列表，形态不符时回退到区域替换。 */
 function refreshStatusRegions(...regions) {
-  if (patchChangesList()) {
+  if (regions.includes("side") && patchChangesList()) {
     // 选中行、勾选、草稿与滚动位置由同一套恢复逻辑落地（含新行）。
     restoreChangesState();
     syncChangesToolbar();
-    refresh(...regions.filter((name) => name !== "side"));
+    const remaining = regions.filter((name) => name !== "side");
+    // 空参数refresh表示整页重绘；侧栏已就地完成时不能借此销毁正文、弹窗和焦点。
+    if (remaining.length > 0) refresh(...remaining);
     return;
   }
 
@@ -2167,7 +2459,7 @@ async function openChangeDiff(path, options = {}) {
     if (live) live.diffError = null;
     renderDiffErrorNotice();
     // 复用同一个标签时同步文字，否则标签会一直显示第一次打开的文件名。
-    syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
+    syncComparisonTab(tab, path, `Commit: ${diff.name || path}`);
     if (activate) activateComparisonTab(tab);
 
     // 规格 §12.2 要求已有 Diff 标签时「只更新该标签正文」，不得刷新改动列表、
@@ -2186,7 +2478,7 @@ async function openChangeDiff(path, options = {}) {
       const liveNow = window.__augitLive;
       if (liveNow) {
         liveNow.diffLoading = false;
-        liveNow.diffError = { path, reason: window.__augitError || "读取差异失败" };
+        liveNow.diffError = { path, reason: window.__augitError || "Failed to Read Diff" };
       }
       renderDiffErrorNotice();
       refreshAfterEvent("editorContent", "editorTabs", "statusbar");
@@ -2212,8 +2504,8 @@ function renderDiffErrorNotice() {
   notice.className = "comparison-notice diff-status-notice";
   notice.setAttribute("role", "status");
   notice.setAttribute("data-augit-diff-error", String(live.diffError.path || ""));
-  notice.textContent = "无法读取 " + String(live.diffError.path || "")
-    + " 的差异：" + String(live.diffError.reason || "读取差异失败") + "。可再次双击该文件重试。";
+  notice.textContent = "Cannot read " + String(live.diffError.path || "")
+    + " diff:" + String(live.diffError.reason || "Failed to Read Diff") + ". Double-click the file again to retry.";
   host.insertBefore(notice, host.firstChild);
 }
 
@@ -2225,7 +2517,7 @@ function ensureComparisonTab(path, title, parts) {
   // 复用分支也同步标题与目标——否则标签会一直显示上一个比较的名字。
   // `parts` 是标签的**三部分结构化标签**（文件名 / 来源 / 目标）：实时标签条按它渲染三个独立省略的 span
   //（规格 §7.9 第十七条），没有它才退回整串文本。
-  const resolvedTitle = title || `提交: ${path}`;
+  const resolvedTitle = title || `Commit: ${path}`;
   const existing = findComparisonTab();
   if (existing) {
     syncComparisonTab(existing, path, resolvedTitle);
@@ -2266,8 +2558,8 @@ function ensureComparisonTab(path, title, parts) {
  * 完整值另存在部件的 `title` 上（悬停说明），实际 Git 查询始终用完整原值（调用方传的就是完整值）。
  */
 function comparisonParts(path, source, target) {
-  const name = String(path || "").split("/").at(-1) || "选择文件";
-  return { file: `比较: ${name}`, source: String(source || ""), target: String(target || "") };
+  const name = String(path || "").split("/").at(-1) || "Select File";
+  return { file: `Compare: ${name}`, source: String(source || ""), target: String(target || "") };
 }
 
 /** 提交/引用的展示形式：完整哈希截前 8 位并保留祖先后缀；命名引用保持原名。 */
@@ -2591,9 +2883,9 @@ function applyFileHistoryDetailsState() {
   if (content) content.dataset.detailsHidden = hidden ? "true" : "false";
   const pane = document.querySelector("[data-live-file-history-pane]");
   if (pane) pane.style.display = hidden ? "none" : "";
-  const button = document.querySelector('.history-tool-content [aria-label="显示提交详情"], .history-tool-content [aria-label="隐藏提交详情"]');
+  const button = document.querySelector('.history-tool-content [aria-label="Show Commit Details"], .history-tool-content [aria-label="Hide Commit Details"]');
   if (button) {
-    button.setAttribute("aria-label", hidden ? "隐藏提交详情" : "显示提交详情");
+    button.setAttribute("aria-label", hidden ? "Hide Commit Details" : "Show Commit Details");
     button.setAttribute("aria-pressed", hidden ? "true" : "false");
   }
 }
@@ -2754,7 +3046,7 @@ async function followChangeSelection(path) {
     return;
   }
 
-  syncComparisonTab(tab, path, `提交: ${diff.name || path}`);
+  syncComparisonTab(tab, path, `Commit: ${diff.name || path}`);
   refreshAfterEvent("editorContent", "editorTabs", "statusbar");
 }
 
@@ -2779,7 +3071,7 @@ function markUserInteraction() {
  * 宿主返回的是工作区相对路径；按层级从浅到深补齐，使恢复顺序与用户展开目录的顺序一致，
  * 且不依赖"循环结束后才重建一次可见树"这个实现细节（若将来改成逐步重建，浅层在前才是对的）。
  */
-async function restoreExpandedDirectories(paths) {
+async function restoreExpandedDirectories(paths, generation = sessionRestoreGeneration) {
   const live = window.__augitLive;
   if (!live || !Array.isArray(paths) || paths.length === 0) {
     return;
@@ -2790,10 +3082,16 @@ async function restoreExpandedDirectories(paths) {
     .slice()
     .sort((left, right) => left.split("/").length - right.split("/").length);
   for (const path of relatives) {
+    if (generation !== sessionRestoreGeneration) return;
     if (expandedPaths.has(path)) continue;
     expandedPaths.add(path);
+    live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+    refresh("side");
     // 与 toggleDirectory 同一套深度口径：本层目录的子项深度 = 路径段数。
     await loadChildren(path, path.split("/").length).catch(() => null);
+    if (generation !== sessionRestoreGeneration) return;
+    live.tree = buildVisibleTree(live.name, live.rootPath ?? "");
+    refresh("side");
   }
 
   if (live.name !== undefined) {
@@ -2805,7 +3103,7 @@ async function restoreSession() {
   const live = window.__augitLive;
   const settings = live && live.settings;
   const files = settings && Array.isArray(settings.openFiles) ? settings.openFiles : [];
-  if (!live || files.length === 0) {
+  if (!live || !settings) {
     return;
   }
 
@@ -2832,7 +3130,8 @@ async function restoreSession() {
   }
 
   // 目录展开层级与标签一起恢复；顺序由函数内部按层级排序保证。
-  await restoreExpandedDirectories(settings.expandedDirectories).catch(() => null);
+  await restoreExpandedDirectories(settings?.expandedDirectories, generation).catch(() => null);
+  if (generation !== sessionRestoreGeneration) return;
 
   // 恢复完成后按**实际**结果对齐（例如某个文件已经不在了）：下一次变更才会写回真实列表。
   live.settings.openFiles = [];
@@ -2881,11 +3180,14 @@ async function persistSession() {
 }
 
 /** 读取设置并挂上保存动作。 */
-async function loadSettings() {
+async function loadSettings(canApply = () => true, initialSettings) {
   try {
-    const settings = await invoke("settings/read", {}, 15000);
+    const settings = initialSettings ?? await invoke("settings/read", {}, 15000);
     const live = window.__augitLive;
-    if (live && settings) {
+    if (live && settings && canApply()) {
+      // 无修改的OK也会回读设置；字体未变时不能重复度量整页并触发背景截图。
+      const typographyChanged = !window.__augitSettingsReady || !live.settings
+        || ['fontSize','codeFontSize','textFontFamily','monospaceFontFamily'].some(key => live.settings[key] !== settings[key]);
       live.settings = settings;
       // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true）：从持久化设置恢复，
       // 而不是每次启动都回到默认值。
@@ -2896,15 +3198,27 @@ async function loadSettings() {
       // `large.file.editor.notification.disabled`，`LargeFileNotificationProvider.java:38-58`）。
       live.hideLargeFileWarning = settings.hideLargeFileWarning === true;
       // 字体设置只改变显示（规格 §7.14）：先按字体算出各区域的度量，再夹取已保存的面板尺寸。
-      if (typeof applyTypographyPreview === "function") {
-        await applyTypographyPreview();
+      const typographyKey = JSON.stringify(['fontSize','codeFontSize','textFontFamily','monospaceFontFamily'].map(key => settings[key]));
+      let typographyTask = live.settingsTypographyTask;
+      if (typographyTask?.key !== typographyKey) typographyTask = null;
+      if (!typographyTask && typographyChanged && typeof applyTypographyPreview === "function") {
+        window.__augitSettingsReady = false;
+        typographyTask = { key: typographyKey, promise: applyTypographyPreview() };
+        live.settingsTypographyTask = typographyTask;
       }
+      if (typographyTask) {
+        // committed与closed可在同一次字体等待中连续到达；同配置共享等待，不能提前恢复面板。
+        try { await typographyTask.promise; }
+        finally { if (live.settingsTypographyTask === typographyTask) delete live.settingsTypographyTask; }
+      }
+      // 字体加载期间可能已应用更新的回读；旧续接不能再恢复旧面板或标记就绪。
+      if (!canApply() || window.__augitLive !== live || live.settings !== settings) return;
       refreshTerminalTypography();
       applySavedPanelSizes(settings);
       window.__augitSettingsReady = true;
     }
   } catch (error) {
-    window.__augitError = "load-settings:" + String(error && error.message || error);
+    if (canApply()) window.__augitError = "load-settings:" + String(error && error.message || error);
   }
 }
 
@@ -2912,7 +3226,48 @@ async function loadSettings() {
  * 收集设置窗口里带 data-setting 的字段并写回。
  * 只提交界面上真实存在的字段，未出现的字段由宿主保留原值。
  */
-async function saveSettings() {
+let settingsSession = null;
+let settingsSessionSequence = 0;
+let settingsWritePending = false;
+
+/** 每次打开独立归属草稿与应答；节点重绘不改变会话身份。 */
+function currentSettingsSession() {
+  const dialog = document.querySelector('.settings-window .dialog, .dialog-xl:has(.settings-layout)');
+  if (!dialog) return null;
+  if (settingsSession?.dialog !== dialog) {
+    settingsSession = { id: ++settingsSessionSequence, dialog, status: 'draft' };
+  }
+  return settingsSession;
+}
+
+function isCurrentSettingsSession(session) {
+  return session === settingsSession && session?.dialog.isConnected;
+}
+
+/** 保存期间冻结本会话修改；取消只关窗，已发出的持久化继续等待宿主。 */
+function syncSettingsBusy() {
+  const session = currentSettingsSession();
+  if (!session) return;
+  const saving = session.status === 'saving';
+  session.dialog.setAttribute('aria-busy', String(saving));
+  session.dialog.dataset.settingsState = session.status;
+  for (const field of session.dialog.querySelectorAll('.settings-layout input, .settings-layout select, .settings-layout button')) {
+    if (saving) {
+      if (!field.hasAttribute('data-settings-was-disabled')) field.dataset.settingsWasDisabled = String(field.disabled);
+      field.disabled = true;
+    } else if (field.hasAttribute('data-settings-was-disabled')) {
+      field.disabled = field.dataset.settingsWasDisabled === 'true';
+      delete field.dataset.settingsWasDisabled;
+    }
+  }
+  for (const button of session.dialog.querySelectorAll('[data-settings-action="save"], [data-settings-action="apply"]')) {
+    button.disabled = settingsWritePending || (button.dataset.settingsAction === 'apply' && settingsDirtyPages(window.__augitLive).size === 0);
+    button.setAttribute('aria-disabled', String(button.disabled));
+  }
+}
+
+async function saveSettings(session = currentSettingsSession(), { closeAfterSave = false } = {}) {
+  if (!session || settingsWritePending) return null;
   const payload = {};
   // 先把**其它分类**的草稿合并进来：分页后 DOM 里只有当前分类的字段，
   // 只收 DOM 会静默丢掉在别的分类里改过的值。
@@ -2928,17 +3283,38 @@ async function saveSettings() {
     }
   }
 
-  const saved = await invoke("settings/write", payload, 15000);
-  if (!saved || !saved.saved) {
-    // 把宿主给出的原因带给用户；缺失时退回通用提示。
-    throw new Error(saved && saved.reason ? saved.reason : "设置未能保存");
+  settingsWritePending = true;
+  session.status = 'saving';
+  const feedback = session.dialog.querySelector('.footer-help');
+  if (feedback) {
+    feedback.textContent = 'Saving settings…';
+    feedback.classList.remove('settings-failure');
   }
-  window.__augitSettingsSaved = true;
-  // 预览过的主题至此已是持久值："取消恢复"的记忆不再需要（规格 §7.17 第 3 条）。
-  commitThemePreview();
-  // 宿主会忽略越界字号并保留未知枚举，因此重新读取一次真实值再应用字体与面板尺寸。
-  await loadSettings();
-  return saved;
+  syncSettingsBusy();
+  try {
+    // 持久化超时不等于宿主写入结束，不能因此解锁第二次提交。
+    const saved = await invoke("settings/write", payload, 0);
+    if (!saved?.saved) throw new Error(saved?.reason || "Settings Could Not Be Saved");
+    if (!isCurrentSettingsSession(session)) return saved;
+    window.__augitSettingsSaved = true;
+    commitThemePreview();
+    // 独立窗口确定后即销毁；主窗由committed/closed回读，子窗无需再读配置和度量字体。
+    if (!closeAfterSave || !window.__augitSettingsSurface) {
+      await loadSettings(() => isCurrentSettingsSession(session));
+    }
+    if (isCurrentSettingsSession(session)) {
+      live.settingsDraft = {};
+      session.status = 'saved';
+      if (feedback) feedback.textContent = feedback.title = '';
+    }
+    return saved;
+  } catch (error) {
+    if (isCurrentSettingsSession(session)) session.status = 'failed';
+    throw error;
+  } finally {
+    settingsWritePending = false;
+    syncSettingsBusy();
+  }
 }
 
 /**
@@ -2963,7 +3339,7 @@ function bindImageDecodeFallback() {
     const live = window.__augitLive || {};
     // 同一张图只替换一次：替换后 `<img>` 已不在文档里，事件不会再触发。
     const holder = document.createElement("template");
-    holder.innerHTML = liveUnavailableDocument("图片数据无法解码，文件可能已损坏。");
+    holder.innerHTML = liveUnavailableDocument("Cannot decode image data; the file may be corrupt.");
     const replacement = holder.content.firstElementChild;
     if (!replacement) return;
     view.replaceWith(replacement);
@@ -2983,13 +3359,17 @@ function bindSettingsSave() {
   document.addEventListener("click", (event) => {
     const live = window.__augitLive;
     if (!live || !live.settings) return;
+    // 标题栏使用链接式图标；实时设置必须取消本会话，不能落到视觉稿页面导航。
+    if (event.target.closest?.('.settings-window .dialog-header [aria-label="Close"]')) {
+      event.preventDefault(); event.stopImmediatePropagation(); closeSettingsDialog(); return;
+    }
     // 接管范围靠"对话框里有没有 [data-setting] 字段"判定，不靠容器类名：
     // live 设置框是 `.dialog.wide.settings-dialog`，`.dialog-xl` 只存在于视觉稿页面；
     // 只认后者会让真机的保存路径整条静默失效，只认 `[data-settings-action]` 又会让
     // 视觉稿场景（取消/应用/确定 三个无标记按钮）失去唯一的处理者（两次都实测踩到）。
     const button = event.target.closest && event.target.closest(
       ".dialog-footer [data-settings-action], .dialog-footer .secondary-button, .dialog-footer .primary-button");
-    if (!button) return;
+    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
     const dialog = button.closest(".dialog");
     if (!dialog || !dialog.querySelector("[data-setting]")) return;
     const buttons = [...dialog.querySelectorAll(".dialog-footer .secondary-button, .dialog-footer .primary-button")];
@@ -3008,8 +3388,11 @@ function bindSettingsSave() {
     // 「应用」= 写回设置但**不关窗**（权威 `SettingsDialog.createActions()` 里的 Apply 只 `editor.apply()`，
     // 关窗是 OK 的 `applyAndClose()`）；「确定」= 写回后关窗。
     const applyOnly = button.dataset.settingsAction === "apply";
-    void saveSettings()
+    const session = currentSettingsSession();
+    if (settingsWritePending) return;
+    void saveSettings(session, { closeAfterSave: !applyOnly })
       .then(() => {
+        if (!isCurrentSettingsSession(session)) return;
         if (applyOnly) {
           // 应用后未保存标记与「应用」的可用性都要就地重算（权威在 `updateStatus()` 里做同一件事）。
           syncSettingsDirtyMarkers();
@@ -3018,6 +3401,7 @@ function bindSettingsSave() {
         closeSettingsDialog();
       })
       .catch((error) => {
+        if (!isCurrentSettingsSession(session)) return;
         const reason = String((error && error.message) || error);
         window.__augitError = "save-settings:" + reason;
         showSettingsFailure(reason);
@@ -3034,8 +3418,8 @@ function showSettingsFailure(reason) {
   if (!help) return;
   // 与视觉稿 `settings-save-failure` 逐字一致（像素对照比的是同一段文案），
   // 并满足 §10.2 的三段式：发生了什么 / 哪些状态没有改变 / 可以做什么。
-  help.textContent = "设置没有保存成功：" + describeFailure(reason, {
-    unchanged: "设置没有被修改，可以修正后重试。",
+  help.textContent = "Settings were not saved:" + describeFailure(reason, {
+    unchanged: "Settings are unchanged. Correct the problem and try again.",
   });
   help.title = help.textContent;
   help.classList.add("settings-failure");
@@ -3057,8 +3441,8 @@ function openBlameRowMenu(row, clientX, clientY) {
   const revision = row.dataset.blamePrevious || "";
   closeLiveOverlay();
   if (!revision) return;
-  const markup = `<section class="popover context-menu blame-row-menu" aria-label="归属行" data-blame-revision="${escapeHtml(revision)}">`
-    + `<a class="menu-item" href="#" data-blame-action="annotate-previous">${icon("git-history")} 标注上一修订</a>`
+  const markup = `<section class="popover context-menu blame-row-menu" aria-label="Attribution Line" data-blame-revision="${escapeHtml(revision)}">`
+    + `<a class="menu-item" href="#" data-blame-action="annotate-previous">${icon("git-history")} Annotate Previous Revision</a>`
     + `</section>`;
   const layer = showPointerContextMenu(markup, {
     layerClass: "blame-row-menu-layer",
@@ -3104,6 +3488,12 @@ document.addEventListener("click", (event) => {
  * 映射用**完整提交哈希**（`ux-spec.md:493`）。日志里没有该提交时按权威"跳转失败"的同类口径
  * 就地说明，而不是静默无反应。
  */
+// 提示只读完整提交信息，复用既有桥接，不修改日志选择或激活其它标签。
+window.__augitReadBlameCommit = async revision => {
+  const commit = await invoke('git/commit', { revision }, 30000);
+  return commit?.available && typeof commit.body === 'string' ? commit.body : null;
+};
+
 async function locateBlameCommit(fullHash) {
   const live = window.__augitLive;
   if (!live || typeof fullHash !== "string" || fullHash.length === 0) return false;
@@ -3129,8 +3519,8 @@ async function locateBlameCommit(fullHash) {
   const commit = document.querySelector(`.commit-row[data-full-hash="${CSS.escape(fullHash)}"]`);
   if (!commit) {
     showToast({
-      title: "无法定位到该提交",
-      text: "该提交不在当前加载的历史里。",
+      title: "Cannot Locate Commit",
+      text: "This commit is outside the loaded history.",
       kind: "error",
     });
     return false;
@@ -3150,16 +3540,16 @@ document.addEventListener("click", (event) => {
 }, true);
 
 /**
- * 文件系统变化轮询。
- * 宿主不主动推送，界面按固定间隔读取累积的变化并做局部刷新：
+ * 文件系统变化消费。
+ * 宿主推送唤醒读取，低频轮询兜底，累积变化按批次做局部刷新：
  * - `.git` 变化 -> 刷新 Git 状态与历史（对应 §12.2「外部改变当前文件后在
  *   500 毫秒内更新当前 diff」）；
  * - 普通文件变化 -> 只在该文件正是当前查看/差异对象时刷新，避免无关文件
  *   触发当前视图进入加载状态（对应 §12.2「外部改变无关文件时当前 diff
  *   不进入加载状态」）。
  */
-// 变化以宿主推送为主：事件到达即处理，延迟由文件系统监视的合并窗口（50 毫秒）决定，
-// 远低于规格的 500 毫秒要求，空闲时不产生任何定时唤醒。
+// 变化以宿主推送为主：事件到达即唤醒；总延迟还包括读取、区域渲染和模态背景呈现，
+// 不能用文件系统监视的50毫秒合并窗口宣称达到500毫秒目标。
 // 兜底轮询只用于事件可能丢失的场景（例如观察器建立失败），间隔远大于合并窗口。
 const ChangeFallbackIntervalMs = 2000;
 let changeTimer = 0;
@@ -3186,9 +3576,28 @@ function clearReportedError(key) {
   reportedErrors.delete(key);
 }
 
+let workspaceChangesRunning = false;
+let workspaceChangesPending = false;
+
 async function drainWorkspaceChanges() {
   const live = window.__augitLive;
   if (!live) return;
+  // 宿主读取会取走整个批次；必须连同界面应用串行，避免旧查询晚到覆盖新状态。
+  // 在途推送只登记再次读取，不按路径去重，也不把事件载荷当最新磁盘事实。
+  workspaceChangesPending = true;
+  if (workspaceChangesRunning) return;
+  workspaceChangesRunning = true;
+  try {
+    do {
+      workspaceChangesPending = false;
+      await consumeWorkspaceChanges();
+    } while (workspaceChangesPending);
+  } finally {
+    workspaceChangesRunning = false;
+  }
+}
+
+async function consumeWorkspaceChanges() {
   try {
     const changes = await invoke("workspace/changes", {}, 10000);
     if (changes && changes.available) {
@@ -3201,10 +3610,10 @@ async function drainWorkspaceChanges() {
     // 同一错误在恢复之前只提示一次，避免每次轮询都弹。
     notifyErrorOnce(
       "workspace-changes",
-      "无法读取工作区变化",
+      "Cannot Read Workspace Changes",
       describeFailure(String((error && error.message) || error), {
-        unchanged: "当前显示的改动列表可能不是最新的。",
-        next: "会在下一次轮询时自动重试。",
+        unchanged: "The displayed changes may be out of date.",
+        next: "Augit will retry automatically.",
       }));
   }
 }
@@ -3219,19 +3628,50 @@ async function pollWorkspaceChanges() {
 
 function startWorkspaceChangePolling() {
   if (!hasHost()) return;
-  // 宿主推送立即处理；兜底轮询保持低频。
-  subscribe("workspace-changed", (payload) => {
-    void applyWorkspaceChanges(payload || { files: [], gitMetadata: false });
+  // 推送只唤醒同一个消费入口，原子取走宿主批次；否则两秒兜底会再次应用已推送的变化。
+  // 不按路径或时间去重，同一文件连续真实变化仍须逐批读取。
+  subscribe("workspace-changed", () => {
+    void drainWorkspaceChanges();
   });
+  // 首次读取创建宿主文件监视器，不能等低频兜底定时器才开始接收外部修改。
+  void drainWorkspaceChanges();
   void pollWorkspaceChanges();
+}
+
+/** 后台重读只更新仍存在的原标签，不推进前台读取代次或改写加载提示。 */
+async function reloadChangedBackgroundDocument(live, path) {
+  const tab = live.tabs?.find(item => item.kind === 'document' && item.path === path);
+  if (!tab || live.pendingDocument === path) return false;
+  const previous = tab.document;
+  const stillCurrent = () => window.__augitLive === live && live.tabs.includes(tab)
+    && tab.document === previous && live.pendingDocument !== path;
+  try {
+    const payload = await fetchDocument(path);
+    if (!stillCurrent()) return false;
+    if (!payload || payload.path !== path) throw new Error('Invalid document response: path mismatch.');
+    const model = toLiveDocument(payload);
+    tab.document = model; tab.editor = model.editor; tab.title = model.name || path;
+    clearReportedError('background-document:' + path);
+    if (live.activeTabId !== tab.id || live.pendingDocument) return false;
+    syncActiveTab();
+    return true;
+  } catch (error) {
+    if (stillCurrent()) notifyErrorOnce('background-document:' + path, 'Cannot Refresh File',
+      describeFailure(String(error?.message || error), {unchanged:'The displayed file may be out of date.', next:'Reopen the file to retry.'}));
+    return false;
+  }
 }
 
 /** 把一次变化批次应用到界面。只刷新受影响的区域。 */
 async function applyWorkspaceChanges(changes) {
   const live = window.__augitLive;
   if (!live) return;
+  // 文件通知只是失效提示；读取后的可见数据相同，不能重建背景并触发模态捕获。
+  const statusBefore = JSON.stringify([buildSnapshot(live.status, live.history), live.statusError]);
+  const treeBefore = JSON.stringify(live.tree);
   const files = changes.files || [];
   const currentPath = live.document ? live.document.path : null;
+  const documentReadAtStart = documentToken;
   const diffPath = live.diff ? live.diff.path : null;
   // 宿主只应传字符串路径；非字符串项直接丢弃，避免一次异常让整轮刷新中断。
   const toRelative = (absolute) => {
@@ -3251,24 +3691,20 @@ async function applyWorkspaceChanges(changes) {
   // editorContent/editorTabs 的节点；否则替换会销毁用户正在看的节点、丢掉焦点与输入上下文
   // （规格 §125：不改变焦点、滚动和主窗口布局；第 293/294 轮同引擎实测）。
   let editorTouched = false;
+  // 当前文件的删除判断、Git元数据与列表更新共用本批读取；后续批次仍重新查询磁盘。
+  let statusRead = null;
+  const readBatchStatus = () => statusRead ??= loadStatus().catch(() => null);
 
   if (changes.gitMetadata) {
     // Git 元数据变化：状态与历史都可能变，重新读取后局部刷新。
-    await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
+    await Promise.all([readBatchStatus(), loadHistory().catch(() => null)]);
     touchedCurrent = true;
   }
 
   if (relative.length > 0) {
     const hitsCurrent = currentPath !== null && relative.some((path) => path.toLowerCase() === currentPath.toLowerCase());
     const hitsDiff = diffPath !== null && relative.some((path) => path.toLowerCase() === diffPath.toLowerCase());
-    // 解决器打开的文件变化优先处理：它可能在用户有未保存内容时被外部改写（规格 §7.14）。
-    const conflictPath = live.conflictSessionView === "resolver" && live.conflict ? live.conflict.path : null;
-    const hitsConflict = conflictPath !== null
-      && relative.some((path) => path.toLowerCase() === conflictPath.toLowerCase());
-    if (hitsConflict) {
-      await recheckOpenConflict().catch(() => null);
-      touchedCurrent = true;
-    } else if (hitsDiff && diffPath) {
+    if (hitsDiff && diffPath) {
       // 只有当前差异对象本身变化才重新请求差异。
       await loadDiff(diffPath, { force: true }).catch(() => null);
       touchedCurrent = true;
@@ -3277,19 +3713,24 @@ async function applyWorkspaceChanges(changes) {
       // 当前查看的普通文件被外部修改或删除。
       // 先取一次最新状态：判断「是否已删除」必须基于变化后的状态，
       // 否则拿到的是变化前的列表，永远看不到 Deleted。
-      await loadStatus().catch(() => null);
+      await readBatchStatus();
       const path = currentPath;
       const deleted = live.status && Array.isArray(live.status.files)
         && live.status.files.some((file) => file.path === path && file.kind === "Deleted");
+      // 状态等待期间用户可能切换、关闭标签或开始另一次读取；旧批次不能递增读取代次抢占新选择。
+      const reloadCurrent = window.__augitLive === live && documentToken === documentReadAtStart
+        && live.document?.path === path && !live.pendingDocument;
+      let backgroundBecameActive = false;
+      let currentDocumentChanged = reloadCurrent;
       if (deleted) {
         // 文件已不存在：移除它的标签，而不是留下一个打不开的标签（规格 §5.2）。
         for (const tab of (live.tabs || []).filter((item) => item.kind === "document" && item.path === path)) {
           closeTab(tab.id);
         }
-      } else {
+      } else if (reloadCurrent) {
         // 仍在：重新读取内容，并保留该标签在标签栏中的位置与当前标签。
         const index = (live.tabs || []).findIndex((item) => item.kind === "document" && item.path === path);
-        await openDocument(path, { activate: false }).catch(() => null);
+        currentDocumentChanged = await openDocument(path, { activate: false, deferRender: true }).catch(() => null) !== false;
         if (index >= 0 && live.document && live.document.path === path) {
           const current = live.tabs.find((item) => item.kind === "document" && item.path === path);
           if (current && live.tabs.indexOf(current) !== index) {
@@ -3297,16 +3738,18 @@ async function applyWorkspaceChanges(changes) {
             live.tabs.splice(index, 0, current);
           }
         }
+      } else {
+        backgroundBecameActive = await reloadChangedBackgroundDocument(live, path);
       }
 
       touchedCurrent = true;
-      editorTouched = true;
+      editorTouched = !!deleted || currentDocumentChanged || backgroundBecameActive;
     } else {
       // 无关文件变化：当前 diff 不进入加载状态，只刷新状态列表。
       touchedNothing = true;
     }
 
-    await loadStatus().catch(() => null);
+    await readBatchStatus();
     touchedCurrent = true;
   }
 
@@ -3314,13 +3757,19 @@ async function applyWorkspaceChanges(changes) {
   // 规格 §7.1 第 7 条：外部目录变化也要**增量更新当前已加载的目录** —— 重列展开集合里的每一层
   //（未展开的目录不递归读取），晚到的旧批次由代际丢弃。
   if (relative.length > 0) await refreshLoadedDirectories().catch(() => null);
-  // 正文区域只在这一批**真的碰到当前文档/比较**时才替换（见 editorTouched 注释）。
-  // 其余情况仍然刷新列表、状态栏与标题栏：外部变化的提示与列表收敛必须照常发生
-  // （§6.4/§6.5），第 295/296 轮证明"整批跳过刷新"会破坏这条规格要求。
-  const regions = ["side", "statusbar", "bottomTool", "titlebar"];
-  if (editorTouched) { regions.push("editorContent", "editorTabs"); }
-  refreshStatusRegions(...regions);
-  void refreshCommitDetails();
+  // 保留真实文件、目录、错误恢复和Git元数据变化；只省去数据未变的区域重建。
+  // 当前文件内容可能变化而Git路径/状态完全相同，因此正文单独判断。
+  const statusChanged = statusBefore !== JSON.stringify([buildSnapshot(live.status, live.history), live.statusError]);
+  const regions = new Set();
+  if (statusChanged || changes.gitMetadata) {
+    for (const region of ["side", "statusbar", "bottomTool", "titlebar"]) regions.add(region);
+  }
+  if (treeBefore !== JSON.stringify(live.tree)) regions.add("side");
+  if (editorTouched) {
+    for (const region of ["editorContent", "editorTabs", "statusbar", "titlebar"]) regions.add(region);
+  }
+  if (regions.size) refreshStatusRegions(...regions);
+  if (statusChanged || changes.gitMetadata) void refreshCommitDetails();
 }
 
 /**
@@ -3463,7 +3912,11 @@ function bottomBounds() {
   const available = main ? main.clientHeight : window.innerHeight;
   const rowGap = main ? Number.parseFloat(getComputedStyle(main).rowGap) || BOTTOM_DRAG_ZONE : BOTTOM_DRAG_ZONE;
   const minimum = bottomMinimum();
-  const editorMinimum = Math.min(260, Math.max(0, available - rowGap - minimum));
+  const rootStyle = getComputedStyle(document.documentElement);
+  const tab = parseFloat(rootStyle.getPropertyValue('--augit-tab-height')) || 40;
+  const toolbar = parseFloat(rootStyle.getPropertyValue('--augit-document-toolbar-height')) || 36;
+  const measuredMinimum = parseFloat(rootStyle.getPropertyValue('--augit-editor-min-height')) || tab + toolbar + 24;
+  const editorMinimum = Math.max(measuredMinimum, Math.min(260, Math.max(0, available - rowGap - minimum)));
   const max = Math.max(0, available - rowGap - editorMinimum);
   return { min: Math.min(minimum, max), max };
 }
@@ -3642,7 +4095,7 @@ window.__augitSaveSettings = () => saveSettings();
 // 供验收套件直接验证写入口的字段校验；返回宿主响应并刷新本地副本。
 // 供验收套件读取终端实际使用的等宽字体与字号（xterm 自绘，CSS 探针读不到）。
 window.__augitTerminalFont = () => (terminalInstance
-  ? { family: terminalInstance.options.fontFamily, size: terminalInstance.options.fontSize }
+  ? { family: terminalInstance.options.fontFamily, size: terminalInstance.options.fontSize, lineHeight: terminalInstance.options.lineHeight }
   : null);
 
 window.__augitOpenStashManager = () => openStashManagerDialog();
@@ -3730,16 +4183,16 @@ function clearToast() {
 /** Git 不可用提示的内容；状态早于 live 到达时也要能补出同一条。 */
 function gitUnavailableToast(reason) {
   return {
-    title: "Git 不可用",
-    text: `${reason} 文件浏览仍可使用。`,
+    title: "Git unavailable",
+    text: `${reason} File browsing remains available.`,
     kind: "error",
-    action: { label: "配置 git.exe", href: "settings.html" },
+    action: { label: "Configure git.exe", href: "settings.html" },
   };
 }
 
 function showGitUnavailable(reason) {
   // 状态可能在 live 对象建立之前就返回，因此先缓存原因，稍后再附着。
-  pendingGitUnavailableReason = reason || "未找到 Git for Windows 2.40 或更高版本。";
+  pendingGitUnavailableReason = reason || "Git for Windows 2.40 or newer was not found.";
   window.__augitGitUnavailable = true;
   const live = window.__augitLive;
   if (!live) return;
@@ -3798,11 +4251,11 @@ function openRepositoryInitDialog() {
   layer.className = "overlay-layer live-overlay repository-init-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "创建 Git 仓库",
+    "Create Git Repository",
     // 目标目录缺省取工作区根（权威：起点是当前选中目录、取不到则项目根）。
     repositoryInitBody(live.root || "", "", false),
-    '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
-      + '<button type="button" class="primary-button" data-repo-init-action="create">创建</button>',
+    '<button type="button" class="secondary-button" data-repo-init-action="cancel">Cancel</button>'
+      + '<button type="button" class="primary-button" data-repo-init-action="create">Create</button>',
     false,
     "repository-init-dialog");
   host.appendChild(layer);
@@ -3821,10 +4274,10 @@ function openRepositoryInitWarning(target) {
   layer.className = "overlay-layer live-overlay repository-init-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "初始化 Git",
+    "Git Init",
     repositoryInitWarningBody(target),
-    '<button type="button" class="secondary-button" data-repo-init-action="cancel">取消</button>'
-      + '<button type="button" class="primary-button" data-repo-init-action="confirm">继续</button>',
+    '<button type="button" class="secondary-button" data-repo-init-action="cancel">Cancel</button>'
+      + '<button type="button" class="primary-button" data-repo-init-action="confirm">Continue</button>',
     false,
     // 权威 `GitInit.java:66-74` 的警告档 ⇒ 标题画警告图标（与静态场景同一类名）。
     "repository-init-dialog repository-init-warning");
@@ -3847,9 +4300,9 @@ function setRepositoryInitBusy(busy, notice) {
     node.disabled = busy;
   }
   const create = layer.querySelector('[data-repo-init-action="create"]');
-  if (create) create.textContent = busy ? "正在初始化…" : "创建";
+  if (create) create.textContent = busy ? "Initializing…" : "Create";
   const confirm = layer.querySelector('[data-repo-init-action="confirm"]');
-  if (confirm) confirm.textContent = busy ? "正在初始化…" : "继续";
+  if (confirm) confirm.textContent = busy ? "Initializing…" : "Continue";
   setRepositoryInitNotice(notice);
 }
 
@@ -3868,7 +4321,7 @@ async function pickRepositoryInitTarget() {
     failure = String((error && error.message) || error);
   }
   if (failure) {
-    setRepositoryInitNotice(`无法选择目录：${failure}`);
+    setRepositoryInitNotice(`Cannot select directory:${failure}`);
     return null;
   }
   if (field && payload && typeof payload.path === "string") {
@@ -3889,7 +4342,7 @@ async function submitRepositoryInit() {
   const target = field ? field.value : (live && live.root) || "";
   if (!live || !target || live.repositoryInitializing) return null;
   live.repositoryInitializing = true;
-  setRepositoryInitBusy(true, "正在初始化…");
+  setRepositoryInitBusy(true, "Initializing…");
   let payload = null;
   let failure = null;
   try {
@@ -3913,7 +4366,7 @@ async function confirmRepositoryInit() {
   const target = live && live.repositoryInitTarget ? live.repositoryInitTarget : null;
   if (!live || !target || live.repositoryInitializing) return null;
   live.repositoryInitializing = true;
-  setRepositoryInitBusy(true, "正在初始化…");
+  setRepositoryInitBusy(true, "Initializing…");
   let payload = null;
   let failure = null;
   try {
@@ -3928,16 +4381,16 @@ async function confirmRepositoryInit() {
 /** 收尾：失败在窗口内写明原因（权威是带 Git 错误输出的错误通知），成功则关窗并刷新。 */
 async function finishRepositoryInit(payload, failure) {
   if (!failure && payload && payload.cancelled) {
-    failure = payload.reason || "操作已取消。";
+    failure = payload.reason || "Operation cancelled.";
   }
   if (!failure && payload && payload.available === false) {
-    failure = payload.reason || "无法初始化该目录。";
+    failure = payload.reason || "Cannot initialize this directory.";
   }
   if (!failure && (!payload || payload.initialized !== true)) {
-    failure = "初始化没有完成。";
+    failure = "Initialization did not complete.";
   }
   if (failure) {
-    setRepositoryInitBusy(false, `Git 初始化失败：${failure}`);
+    setRepositoryInitBusy(false, `Git initialization failed:${failure}`);
     return null;
   }
 
@@ -3985,9 +4438,9 @@ function openSmartCheckoutDialog(name, kind, paths) {
   layer.className = "overlay-layer live-overlay smart-checkout-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "Git 检出问题",
+    "Git Checkout Problem",
     smartCheckoutBody(paths, "", false),
-    '<button type="button" class="secondary-button" data-smart-action="cancel">不检出</button>'
+    '<button type="button" class="secondary-button" data-smart-action="cancel">Don\'t Checkout</button>'
       + '<button type="button" class="primary-button" data-smart-action="smart">Smart Checkout</button>',
     false,
     "smart-checkout-dialog");
@@ -4012,7 +4465,7 @@ function setSmartCheckoutBusy(busy, notice) {
     node.disabled = busy;
   }
   const smart = layer.querySelector('[data-smart-action="smart"]');
-  if (smart) smart.textContent = busy ? "正在切换…" : "Smart Checkout";
+  if (smart) smart.textContent = busy ? "Checking out…" : "Smart Checkout";
   setSmartCheckoutNotice(notice);
 }
 
@@ -4025,7 +4478,7 @@ async function submitSmartCheckout() {
   const pending = live && live.smartCheckout;
   if (!live || !pending || !pending.name || live.smartCheckoutRunning) return null;
   live.smartCheckoutRunning = true;
-  setSmartCheckoutBusy(true, "正在暂存改动并切换…");
+  setSmartCheckoutBusy(true, "Stashing changes and checking out…");
   let payload = null;
   let failure = null;
   try {
@@ -4043,10 +4496,10 @@ async function submitSmartCheckout() {
  */
 async function finishSmartCheckout(payload, failure) {
   if (!failure && payload && payload.cancelled) {
-    failure = payload.reason || "操作已取消。";
+    failure = payload.reason || "Operation cancelled.";
   }
   if (!failure && payload && payload.available === false) {
-    failure = payload.reason || "无法执行 Smart Checkout。";
+    failure = payload.reason || "Cannot run Smart Checkout.";
   }
 
   const session = payload && payload.session ? payload.session : null;
@@ -4054,15 +4507,15 @@ async function finishSmartCheckout(payload, failure) {
     closeLiveOverlay();
     await refreshAfterSmartCheckout();
     showToast({
-      title: "Smart Checkout 未完成",
-      text: "恢复改动时发生冲突：改动已保留在临时 stash 中，解决冲突后可从操作会话继续。",
+      title: "Smart Checkout Did Not Complete",
+      text: "Restoring changes caused conflicts. Changes are kept in a temporary stash; resolve conflicts to continue the operation.",
       kind: "warning",
     });
     return payload;
   }
 
   if (failure || !payload || payload.switched !== true) {
-    setSmartCheckoutBusy(false, `Smart Checkout 失败：${failure || "分支没有切换。"}`);
+    setSmartCheckoutBusy(false, `Smart Checkout failed:${failure || "The branch was not changed."}`);
     return null;
   }
 
@@ -4096,16 +4549,19 @@ async function loadOperationSession() {
     const payload = await invoke("git/operation", {}, 30000);
     const session = payload && payload.available ? payload.session : null;
     live.operationSession = session;
-    if (session && session.inProgress && session.hasConflicts && !live.operationSessionShown) {
-      live.operationSessionShown = true;
-      // 自动进入会话时总是从冲突列表开始，不停留在上一次的解决器视图上。
-      live.conflictSessionView = "list";
-      openConflictSession();
-    } else if (live.operationSessionShown && (!session || !session.inProgress)) {
+    if (!session || !session.inProgress) {
+      // 会话结束：清理窗口与抑制标记，下一次新会话仍会自动进入冲突列表。
+      if (live.operationSessionShown) closeConflictSession();
       live.operationSessionShown = false;
-      closeConflictSession();
+      live.operationSessionSuppressed = false;
+    } else if (live.operationSessionSuppressed) {
+      // 用户正在查看冲突文件的普通只读 Diff：不自动弹回会话窗口；
+      // Continue/Skip/Abort 仍可从该 Diff 的冲突横幅重新打开。
+    } else if (session.hasConflicts && !live.operationSessionShown) {
+      live.operationSessionShown = true;
+      openConflictSession();
     } else if (live.operationSessionShown) {
-      // 会话进行中：窗口内容随会话变化重绘（步骤、冲突数、可用动作都会变）。
+      // 会话进行中：窗口内容随会话变化更新（步骤、冲突数、可用动作都会变）。
       openConflictSession();
     }
 
@@ -4118,531 +4574,69 @@ async function loadOperationSession() {
 }
 
 /**
- * 会话窗口的当前视图。视觉稿把"冲突列表"与"三栏解决器"做成两个页面，
- * 实时界面里用同一个模态窗口的两个视图表达同一层关系（避免模态叠模态）。
+ * 打开（或就地重绘）冲突操作会话窗口。
+ *
+ * 2026-10-17 用户批准移除内置三栏编辑器后，窗口只保留冲突列表、操作步骤和
+ * Continue/Skip/Abort；冲突文件改由普通只读 Diff 查看（见 `openConflictFile`）。
  */
-function conflictSessionView() {
-  const live = window.__augitLive;
-  return live && live.conflictSessionView === "resolver" && live.conflict ? "resolver" : "list";
-}
-
-/** 打开（或就地重绘）冲突操作会话窗口。 */
 function openConflictSession() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   const session = live ? live.operationSession : null;
   if (!live || !host || !session) return;
 
-  // 有未保存内容或正在应用时**不重建**解决器（规格 §7.14）。
-  // 状态刷新会顺带重绘会话窗口，而重绘会替换结果区控件、丢掉选区、滚动与撤销记录——
-  // 那等于把用户的编辑悄悄扔掉（"保留当前内容"后尤其明显）。此时只补上可能缺失的询问层。
-  const editing = document.querySelector(
-    ".dialog.conflict-session-dialog .conflict-column.result .conflict-block");
-  if (editing && conflictSessionView() === "resolver" && (live.conflictDirty || live.conflictApplying)) {
-    if (live.conflictPending) {
-      showConflictMergePrompt(live.conflictPending);
-    }
+  // 状态刷新会反复调用本函数：已有窗口只更新内容，避免重建打断按钮焦点和阅读。
+  const existing = document.querySelector(".dialog.conflict-session-dialog");
+  if (existing) {
+    const body = existing.querySelector(".dialog-body");
+    const footer = existing.querySelector(".dialog-footer");
+    const title = existing.querySelector(".dialog-header > span:first-child");
+    if (title) title.textContent = liveConflictSessionTitle(session);
+    if (body) body.innerHTML = liveConflictSessionBody(session);
+    if (footer) footer.innerHTML = '<span class="footer-help"></span>' + liveConflictSessionFooter(session);
     return;
   }
 
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
-  document.querySelectorAll(".dialog.conflict-session-dialog").forEach((node) => {
-    const owner = node.closest("[data-augit-overlay]") || node;
-    owner.remove();
-  });
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
-  if (conflictSessionView() === "resolver") {
-    // 三栏解决器：正文由 mockup 从 live.conflict 渲染，保存按钮由 bindConflictSave 接管。
-    layer.innerHTML = dialog(
-      "解决冲突",
-      liveConflictResolver(),
-      '<button type="button" class="secondary-button" data-conflict-back>返回冲突列表</button>',
-      true,
-      "conflict-session-dialog");
-  } else {
-    layer.innerHTML = dialog(
-      liveConflictSessionTitle(session),
-      liveConflictSessionBody(session),
-      liveConflictSessionFooter(session),
-      true,
-      "conflict-session-dialog");
-  }
-
+  layer.innerHTML = dialog(
+    liveConflictSessionTitle(session),
+    liveConflictSessionBody(session),
+    liveConflictSessionFooter(session),
+    true,
+    "conflict-session-dialog");
   host.appendChild(layer);
-  // 询问层必须最后落上：本函数会清掉所有 live 覆盖层（外部修改时状态刷新也会触发一次重绘），
-  // 否则"重新载入 / 保留当前内容"会被悄悄抹掉，而用户以为自己已经选过了（规格 §7.14）。
-  if (live.conflictPending) {
-    showConflictMergePrompt(live.conflictPending);
-  }
-  if (conflictSessionView() === "resolver") {
-    bindConflictSave();
-    bindConflictUndoRefresh();
-    bindConflictDirtyTracking();
-    bindConflictCaretTracking();
-    // 重绘会造出新的对话框节点：冻结标记与按计数恢复的按钮状态都要重新落上
-    // （否则应用成功后重绘会让 data-conflict-applying 消失，读状态时得到 null）。
-    // 状态先落，布局后做：排版问题不该影响动作可用性与冻结标记。
-    setConflictApplying(!!(live && live.conflictApplying));
-    // 解决器是按需创建的：它不在 __augitRender 的重绘路径上，因此必须自己度量一次，
-    // 否则"大字号/窄窗口把文件名移到窗口顶部"这条规则要等到用户改变窗口大小才生效。
-    if (typeof measureConflictResolver === "function") {
-      measureConflictResolver();
-      syncConflictCount();
-    }
-  }
 }
 
 /**
- * 结果区里还未解决的冲突块（规格 §7.14）。
+ * 打开冲突文件的普通只读 Diff（2026-10-17 移除三栏编辑器后的行为）。
  *
- * 按结果正文里的冲突起始标记行推导，而不是按宿主返回的块下标：
- * 接受一次就少一个标记组，撤销会把标记组还回来——两种情况下计数都自动正确，
- * 不需要额外维护"已解决"状态（也就不会与撤销记录不一致）。
- */
-function unresolvedConflictGroups(block) {
-  const spans = [...block.querySelectorAll(".conflict-line")];
-  const groups = [];
-  let open = null;
-  for (const span of spans) {
-    const text = span.textContent || "";
-    if (/^<{7}/.test(text)) {
-      open = { spans: [span], start: Number(span.dataset.line), end: Number(span.dataset.line) };
-      continue;
-    }
-
-    if (!open) continue;
-    open.spans.push(span);
-    if (/^>{7}/.test(text)) {
-      open.end = Number(span.dataset.line);
-      groups.push(open);
-      open = null;
-    }
-  }
-
-  return groups;
-}
-
-/**
- * 当前冲突块在"未处理块"里的下标（规格 §7.14：上一处/下一处与接受动作都作用于它）。
- * 用户把光标放进某一处冲突时下标跟着走；块被接受掉或被撤销还原后按下标夹取。
- */
-function currentConflictGroupIndex(groups) {
-  const live = window.__augitLive;
-  const index = live && Number.isInteger(live.conflictBlockIndex) ? live.conflictBlockIndex : 0;
-  if (groups.length === 0) return -1;
-  return Math.max(0, Math.min(index, groups.length - 1));
-}
-
-/** 把某个冲突块的行选中（导航据此把目标滚动到可见处；设计里没有额外的"当前块"装饰）。 */
-function selectConflictGroup(group) {
-  if (!group || !group.spans || group.spans.length === 0) return;
-  const range = document.createRange();
-  // 起点落在第一行**内部**（而不是它之前）：这样选区锚点属于该行，
-  // "当前块"才能从光标位置读出来（锚点落在容器上就读不到行号）。
-  range.setStart(group.spans[0], 0);
-  range.setEndAfter(group.spans[group.spans.length - 1]);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
-  if (typeof group.spans[0].scrollIntoView === "function") {
-    group.spans[0].scrollIntoView({ block: "nearest" });
-  }
-}
-
-/** 上一处 / 下一处：移动到相邻的未处理冲突块并把光标放到该块（规格 §7.14）。 */
-function navigateConflictBlock(delta) {
-  const live = window.__augitLive;
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  if (!live || !block) return null;
-  const groups = unresolvedConflictGroups(block);
-  if (groups.length === 0) return null;
-  const current = currentConflictGroupIndex(groups);
-  const next = Math.max(0, Math.min(current + delta, groups.length - 1));
-  live.conflictBlockIndex = next;
-  selectConflictGroup(groups[next]);
-  syncConflictCount();
-  return next;
-}
-
-/**
- * 光标位于哪一处冲突块（规格 §7.14：导航与接受都跟着"当前"块走）。
- * 监听 `selectionchange`，只在光标确实落在结果区里时更新下标。
- */
-function bindConflictCaretTracking() {
-  if (window.__augitConflictCaretBound) return;
-  window.__augitConflictCaretBound = true;
-  document.addEventListener("selectionchange", () => {
-    const live = window.__augitLive;
-    const block = document.querySelector(".conflict-column.result .conflict-block");
-    if (!live || !block) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    const node = selection.anchorNode;
-    const element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
-    const line = element && element.closest ? element.closest(".conflict-line") : null;
-    if (!line || !block.contains(line)) return;
-    // 用**包含关系**判定（行号在编辑后可能不再连续）：光标所在的那一行属于哪个块。
-    const index = unresolvedConflictGroups(block)
-      .findIndex((group) => group.spans.some((span) => span === line || span.contains(line)));
-    if (index >= 0 && index !== live.conflictBlockIndex) {
-      live.conflictBlockIndex = index;
-      syncConflictCount();
-    }
-  });
-}
-
-/** 把"还有几个未处理冲突"写回解决器顶部（规格 §7.14：计数固定在顶部）。 */
-function syncConflictCount() {
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  const label = document.querySelector("[data-conflict-count]");
-  if (!block || !label) return null;
-  const count = unresolvedConflictGroups(block).length;
-  label.textContent = `${count} 个未处理冲突`;
-  // 视觉稿的表尾提示同时给出总数与当前位置；实际计数由这里维护（度量函数不覆盖实时值）。
-  const help = document.querySelector(".conflict-session-dialog .footer-help");
-  if (help) {
-    const groups = unresolvedConflictGroups(block);
-    const position = currentConflictGroupIndex(groups);
-    help.textContent = help.title = count > 0
-      ? `未处理冲突块：${count}，当前位置：${position + 1}`
-      : "没有未处理的冲突块";
-  }
-  // 规格 §7.14：失败、取消或异常后**按实际未处理冲突数恢复动作**——
-  // 没有未处理冲突时接受与导航都不该还可点（撤销把它们还回来后要重新可用）。
-  const dialog = document.querySelector(".dialog.conflict-session-dialog");
-  const applying = dialog && dialog.getAttribute("data-conflict-applying") === "true";
-  if (dialog && !applying) {
-    const groups = unresolvedConflictGroups(block);
-    const index = currentConflictGroupIndex(groups);
-    const hasConflicts = groups.length > 0;
-    for (const node of dialog.querySelectorAll("[data-conflict-side]")) {
-      node.disabled = !hasConflicts;
-    }
-
-    // 导航按钮按位置可用：第一处不能再"上一处"，最后一处不能再"下一处"。
-    const prev = dialog.querySelector('[data-conflict-nav="prev"]');
-    const next = dialog.querySelector('[data-conflict-nav="next"]');
-    if (prev) prev.disabled = index <= 0;
-    if (next) next.disabled = index < 0 || index >= groups.length - 1;
-  }
-
-  return count;
-}
-
-/**
- * 应用进行中的冻结与解冻（规格 §7.14）。
- *
- * 冻结接受、导航与普通关闭，中央结果区暂时只读并显示
- * 「正在应用结果并标记已解决…」；解冻后按实际未处理冲突数恢复动作。
- */
-function setConflictApplying(applying) {
-  const live = window.__augitLive;
-  if (live) live.conflictApplying = applying;
-  const dialog = document.querySelector(".dialog.conflict-session-dialog");
-  if (!dialog) return;
-  dialog.setAttribute("data-conflict-applying", applying ? "true" : "false");
-  for (const node of dialog.querySelectorAll(
-    "[data-conflict-side], [data-conflict-save], [data-conflict-back], .conflict-header .secondary-button")) {
-    node.disabled = applying;
-  }
-
-  const block = dialog.querySelector(".conflict-column.result .conflict-block");
-  if (block) block.setAttribute("contenteditable", applying ? "false" : "plaintext-only");
-  const label = dialog.querySelector("[data-conflict-count]");
-  if (label) {
-    if (applying) {
-      label.textContent = "正在应用结果并标记已解决…";
-    } else {
-      syncConflictCount();
-    }
-  }
-}
-
-/** 解决器里的局部提示（§10.2：说明发生了什么、哪些状态未改变、可以做什么）。 */
-function setConflictNotice(message) {
-  const notice = document.querySelector(".conflict-session-dialog .conflict-notice");
-  if (!notice) return;
-  notice.hidden = !message;
-  notice.textContent = message || "";
-  notice.title = message || "";
-}
-
-/**
- * 应用结果并标记已解决（规格 §7.14）。
- *
- * 校验交给宿主：桥接在保存前会重新读取该文件当前版本与操作类型，版本不符即拒绝。
- * 这里负责界面侧：进行中冻结与只读、失败保留正文并显示最新原因、结束后按实际
- * 未处理冲突数恢复动作。进行中不重复触发（§9.3）。
- */
-async function applyConflictResult() {
-  const live = window.__augitLive;
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  const path = live && live.conflict ? live.conflict.path : null;
-  if (!live || !path || !block || live.conflictApplying) return null;
-
-  const resultText = block.innerText;
-  setConflictApplying(true);
-  setConflictNotice("");
-  let failure = null;
-  let payload = null;
-  try {
-    payload = await invoke("git/conflict-save", { path, resultText }, 120000);
-    if (!payload || !payload.available || payload.saved === false) {
-      failure = (payload && payload.reason) || "应用结果失败。";
-    }
-  } catch (error) {
-    failure = String((error && error.message) || error);
-  }
-
-  setConflictApplying(false);
-  if (failure) {
-    setConflictNotice(describeFailure(failure, {
-      unchanged: "中央结果区与冲突文件都没有被修改。",
-      next: "可以重新载入文件或再次应用。",
-    }));
-    return null;
-  }
-
-  window.__augitConflictSaved = path;
-  // 正文已经写回磁盘：不再有未保存内容，也不再挂着外部修改的询问（规格 §7.14）。
-  live.conflictDirty = false;
-  live.conflictPromptVersion = null;
-  // 解决一个冲突会改变未处理数量与 Continue 的可用性：重新读取会话（§9.3）。
-  void loadOperationSession();
-  return payload;
-}
-
-/**
- * 接受当前冲突块的一侧（规格 §7.14）。
- *
- * 关键点：这是**结果区的一次可撤销编辑**，不是整文件 checkout——宿主那个
- * `AcceptSideAsync`（`git checkout --ours/--theirs`）对应的是二进制/超大文件的
- * "整侧接受"，语义不同，不能拿来当这三个按钮的实现。
- * 编辑走 `insertText` 并保留浏览器原生撤销栈，因此 Ctrl+Z 能把这处冲突块还原。
- */
-function acceptConflictBlock(side) {
-  const live = window.__augitLive;
-  const document_ = live ? live.conflict : null;
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  if (!document_ || !block) return false;
-  const groups = unresolvedConflictGroups(block);
-  if (groups.length === 0) return false;
-  // 当前块：光标/导航指定的那一处（§7.14「提供接受左侧、两侧或右侧的动作」作用于当前冲突块）。
-  const index = currentConflictGroupIndex(groups);
-  if (index < 0) return false;
-  // 第 k 个剩余标记组对应宿主块列表里的第 (总数 - 剩余数 + k) 个（接受只减少标记组，顺序不变）。
-  const blocks = document_.blocks || [];
-  const target = blocks[blocks.length - groups.length + index] || null;
-  if (!target) return false;
-
-  const replacement = side === "yours"
-    ? (target.yours || "")
-    : side === "theirs"
-      ? (target.theirs || "")
-      // 「接受两侧」= 两侧内容都保留，顺序为先当前分支后合入内容。
-      : [target.yours || "", target.theirs || ""].filter((text) => text.length > 0).join("\n");
-
-  const group = groups[index];
-  // execCommand 作用于当前编辑宿主：先把结果区聚焦，否则命令可能不生效。
-  if (typeof block.focus === "function") block.focus({ preventScroll: true });
-  const range = document.createRange();
-  range.setStartBefore(group.spans[0]);
-  range.setEndAfter(group.spans[group.spans.length - 1]);
-  const selection = window.getSelection();
-  selection.removeAllRanges();
-  selection.addRange(range);
-  const edited = document.execCommand("insertText", false, replacement);
-  if (!edited) return false;
-
-  syncConflictCount();
-  return true;
-}
-
-/**
- * 打开某个冲突文件的三栏解决器（规格 §7.13「点击冲突文件打开三栏冲突解决器」）。
- * 先读取该文件的三栏内容，读不到时不切视图（不假装打开）。
+ * 收起会话窗口但保留会话状态：跳到编辑区的只读 Diff 后，状态刷新不再自动弹回；
+ * Diff 顶部横幅提供冲突说明和返回冲突列表的入口。
  */
 async function openConflictFile(path) {
   const live = window.__augitLive;
   if (!live || !path) return null;
-  const loaded = await loadConflict(path).catch(() => null);
-  if (!loaded) {
-    window.__augitError = "open-conflict:" + path;
-    return null;
-  }
-
-  live.conflictSessionView = "resolver";
-  // 打开一个新文件时从第一处冲突开始。
-  live.conflictBlockIndex = 0;
-  openConflictSession();
-  return loaded;
+  live.operationSessionShown = false;
+  live.operationSessionSuppressed = true;
+  closeConflictSession();
+  const tab = ensureComparisonTab(path);
+  activateComparisonTab(tab);
+  live.workspaceDiff = true;
+  await loadDiff(path).catch(() => null);
+  refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
+  return live.diff;
 }
 
-/**
- * 结果区聚焦时的撤销/重做（规格 §7.14：`Ctrl+Z` 撤销、`Ctrl+Shift+Z` 或 `Ctrl+Y` 重做）。
- *
- * 不拦截这些按键——交给浏览器的原生撤销栈处理（也就不会把控制字符写进正文），
- * 只在其后把"还有几个未处理冲突"重新算一遍：撤销会把冲突块还回来，计数必须跟着回。
- */
-function bindConflictUndoRefresh() {
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  if (!block || block.dataset.undoBound === "true") return;
-  block.dataset.undoBound = "true";
-  block.addEventListener("keydown", (event) => {
-    if (!event.ctrlKey) return;
-    const key = event.key.toLowerCase();
-    if (key !== "z" && key !== "y") return;
-    // 原生撤销/重做在本事件之后生效，因此延后一拍再重新计数。
-    window.setTimeout(() => syncConflictCount(), 0);
-  });
-}
-
-/**
- * 中央结果区是否有未保存的编辑（规格 §7.14）。
- *
- * 用户键入、以及"接受左侧/右侧/两侧"（结果区的一次可撤销编辑）都会触发 `input`；
- * 载入新版本或应用成功后回到干净状态。这个标记决定外部变化时是自动同步还是必须先询问。
- */
-function bindConflictDirtyTracking() {
-  const block = document.querySelector(".conflict-column.result .conflict-block");
-  if (!block || block.dataset.dirtyBound === "true") return;
-  block.dataset.dirtyBound = "true";
-  block.addEventListener("input", () => {
-    const live = window.__augitLive;
-    if (live) live.conflictDirty = true;
-  });
-}
-
-/** 两个磁盘版本是否相同（规格 §7.14：接纳新内容前先核对文件版本）。 */
-function conflictVersionEqual(left, right) {
-  if (!left || !right) return left === right;
-  return left.length === right.length
-    && left.sha256 === right.sha256
-    && left.lastWriteUtc === right.lastWriteUtc;
-}
-
-/**
- * 解决器打开的文件被外部改动后重新核对（规格 §7.14）。
- *
- * 只读一次磁盘版本再决定，不直接改写界面状态：
- * - 文件已不再是冲突（外部工具已解决）→ 关闭解决器，交给随后的状态刷新重建列表；
- * - 版本未变 → 什么都不做（外部事件常成串到达，不能因此反复载入）；
- * - 版本已变且中央**没有**未保存内容 → 自动接纳最新版本（§5.3 外部解决后自动同步）；
- * - 版本已变且中央**有**未保存内容 → 显示"重新载入 / 保留当前内容"的模态选择。
- *
- * 读取期间用户可能已经编辑或关掉窗口，因此回到这里要**重新核对窗口、路径与未保存状态**，
- * 而不是用发起读取时的判断。
- */
-async function recheckOpenConflict() {
+/** 从只读 Diff 的冲突横幅重新打开冲突列表（仍以真实 Git 会话为准）。 */
+async function reopenConflictSession() {
   const live = window.__augitLive;
-  if (!live || !live.conflict) return null;
-  const path = live.conflict.path;
-  const previous = live.conflict.version;
-  const fresh = await invoke("git/conflict-load", { path }, 30000).catch(() => null);
-  if (!live.conflict || live.conflict.path !== path) return null;
-
-  if (!fresh || !fresh.available) {
-    if (live.conflictDirty) {
-      // 文件已不是冲突，但中央有未保存内容：**不清除正文**（规格 §7.14），只说明事实。
-      // 此时没有"重新载入"可言（磁盘上已没有可合并的版本），因此给提示而不是模态选择。
-      setConflictNotice("该文件已不在冲突状态；中央的未保存内容不会被写回，可以复制后关闭。");
-      return null;
-    }
-
-    live.conflict = null;
-    live.conflictDirty = false;
-    live.conflictPending = null;
-    live.conflictPromptVersion = null;
-    live.conflictSessionView = "list";
-    closeConflictMergePrompt();
-    return null;
-  }
-
-  if (conflictVersionEqual(previous, fresh.version)) return null;
-
-  if (!live.conflictDirty) {
-    live.conflict = fresh;
-    live.conflictPending = null;
-    live.conflictPromptVersion = null;
-    openConflictSession();
-    return fresh;
-  }
-
-  // 同一个磁盘版本只询问一次：一次外部写入会引发多个事件，不能弹成一串（§10.2）。
-  if (live.conflictPromptVersion && conflictVersionEqual(live.conflictPromptVersion, fresh.version)) {
-    return fresh;
-  }
-
-  showConflictMergePrompt(fresh);
-  return fresh;
-}
-
-/**
- * 「中央有未保存内容且外部文件变化」的模态选择（规格 §7.14）。
- *
- * 视觉稿没有这一页（`conflict-resolver.html` 只画了三栏），因此沿用既有的确认对话框语言
- * （`dialog()` + `info-block`，与"初始化仓库""关闭运行中终端"同构），不新增样式。
- */
-function showConflictMergePrompt(fresh) {
-  const live = window.__augitLive;
-  const host = document.querySelector(".augit-window");
-  if (!live || !host || !live.conflict) return null;
-  closeConflictMergePrompt();
-  const layer = document.createElement("div");
-  layer.className = "overlay-layer live-overlay conflict-external-window";
-  layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = dialog(
-    "文件已被外部修改",
-    `<div class="info-block" style="width:auto;text-align:left"><h2>${escapeHtml(live.conflict.path)}</h2>`
-      + "<p>磁盘上的版本已经变化，而中央结果区还有未保存的内容。</p>"
-      + "<p>重新载入会丢弃中央的编辑并显示最新内容；保留当前内容不会改动正文、选区、滚动和撤销记录。</p></div>",
-    '<button type="button" class="secondary-button" data-conflict-keep>保留当前内容</button>'
-      + '<button type="button" class="primary-button" data-conflict-reload>重新载入</button>',
-    true,
-    "conflict-external-dialog");
-  host.appendChild(layer);
-  live.conflictPending = fresh;
-  live.conflictPromptVersion = fresh.version;
-  window.__augitConflictPrompt = live.conflict.path;
-  return layer;
-}
-
-/** 关闭外部修改的询问层（不改变正文内容）。 */
-function closeConflictMergePrompt() {
-  const live = window.__augitLive;
-  if (live) live.conflictPending = null;
-  document.querySelectorAll("[data-augit-overlay].live-overlay.conflict-external-window").forEach((node) => node.remove());
-  window.__augitConflictPrompt = null;
-}
-
-/** 选择「重新载入」：接纳外部版本，中央的未保存编辑被丢弃。 */
-function applyPendingConflictReload() {
-  const live = window.__augitLive;
-  const fresh = live && live.conflictPending ? live.conflictPending : null;
-  closeConflictMergePrompt();
-  if (!live || !fresh) return null;
-  live.conflict = fresh;
-  live.conflictDirty = false;
-  live.conflictPromptVersion = null;
-  // 重绘会重建结果主体控件，撤销记录随新的磁盘内容一起重来（这是"重新载入"的定义）。
-  openConflictSession();
-  return fresh;
-}
-
-/** 选择「保留当前内容」：只收起询问，正文控件、选区、滚动与撤销记录都不动。 */
-function keepConflictEdits() {
-  closeConflictMergePrompt();
-  return null;
-}
-
-/** 回到冲突列表视图（视觉稿的「返回冲突列表」）。 */
-function returnToConflictList() {
-  const live = window.__augitLive;
-  if (!live) return;
-  live.conflictSessionView = "list";
-  openConflictSession();
+  if (!live) return null;
+  live.operationSessionSuppressed = false;
+  live.operationSessionShown = false;
+  return loadOperationSession();
 }
 
 /** 关闭会话窗口（不动会话本身，用户可再次打开）。 */
@@ -4682,8 +4676,8 @@ async function runConflictSessionAction(action) {
     const notice = document.querySelector(".conflict-session-dialog .commit-meta.conflict-blocked")
       || document.querySelector(".conflict-session-dialog .toolbar");
     if (notice) {
-      notice.textContent = describeFailure((payload && payload.reason) || "该动作没有完成。", {
-        unchanged: "仓库状态没有被这次尝试修改。",
+      notice.textContent = describeFailure((payload && payload.reason) || "The action did not complete.", {
+        unchanged: "This attempt did not change repository state.",
       });
     }
     buttons.forEach((button) => { button.disabled = false; });
@@ -4693,7 +4687,7 @@ async function runConflictSessionAction(action) {
   live.operationSession = payload.session || null;
   if (!payload.session || !payload.session.inProgress) {
     live.operationSessionShown = false;
-    live.conflictSessionView = null;
+    live.operationSessionSuppressed = false;
     closeConflictSession();
   } else {
     openConflictSession();
@@ -4704,7 +4698,7 @@ async function runConflictSessionAction(action) {
   return payload;
 }
 
-/** 读取当前冲突会话与冲突文件列表。 *//** 读取当前冲突会话与冲突文件列表。 */
+/** 读取当前冲突会话与冲突文件列表。 */
 async function loadConflicts() {
   try {
     const conflicts = await invoke("git/conflicts", {}, 30000);
@@ -4718,104 +4712,11 @@ async function loadConflicts() {
   }
 }
 
-/** 读取单个冲突文件的三栏内容；结果栏可编辑。 */
-async function loadConflict(path) {
-  try {
-    const conflict = await invoke("git/conflict-load", { path }, 30000);
-    const live = window.__augitLive;
-    if (live && conflict && conflict.available) {
-      live.conflict = conflict;
-      // 刚载入的正文与磁盘一致：没有未保存内容，也没有待处理的询问（规格 §7.14）。
-      live.conflictDirty = false;
-      live.conflictPromptVersion = null;
-      live.conflictPending = null;
-    }
-    return live ? live.conflict : null;
-  } catch (error) {
-    window.__augitError = "load-conflict:" + String(error && error.message || error);
-    return null;
-  }
-}
-
-/** 保存冲突解决结果：把结果栏文本写回文件并标记已解决。 */
-/** 发布待推送信息，供 Push 对话框使用。 *//** 发布待推送信息，供 Push 对话框使用。 */
-/** 状态或引用变化后按已有数据重算推送预览；不发起查询。 */
+/** 发布待推送信息，供 Push 对话框使用。 */
 function refreshPush() {
   const live = window.__augitLive;
   if (!live) return;
   live.push = computePush(live);
-}
-
-/**
- * 无法逐块合并的冲突文件（规格 §7.14）：二进制、非法 UTF-8、超限文件。
- *
- * 与三栏里的接受不同，这里走宿主的**整文件**语义（`git checkout --ours/--theirs`
- * 后 `git add`），文件被覆盖并立即标记为已解决，**不可撤销**——页面上的说明也这么写。
- * `external` 只是把文件交给系统默认程序，不改变仓库状态，所以不做任何冻结。
- */
-async function runConflictWholeSide(action) {
-  const live = window.__augitLive;
-  const conflict = live && live.conflict;
-  if (!live || !conflict) return null;
-
-  if (action === "external") {
-    try {
-      const launched = await invoke("external/launch", { action: "open", path: conflict.path }, 30000);
-      if (launched && launched.launched === false) {
-        // 对话框是模态的，全局提示可能被遮住，因此失败原因就近显示（规格 §10.2）。
-        setConflictNotice(launched.reason || "无法用系统默认程序打开该文件。");
-      } else if (launched && launched.launched) {
-        // 之前那次失败的原因不该继续挂着（规格 §10.2：状态未变才可重复，恢复后要消失）。
-        setConflictNotice("");
-      }
-      return launched;
-    } catch (error) {
-      setConflictNotice("无法用系统默认程序打开该文件：" + String((error && error.message) || error));
-      return null;
-    }
-  }
-
-  if (action !== "yours" && action !== "theirs") return null;
-  const label = action === "yours" ? (conflict.yoursLabel || "左侧") : (conflict.theirsLabel || "右侧");
-  setConflictApplying(true);
-  setConflictNotice("");
-  try {
-    const result = await invoke("git/conflict-accept", { path: conflict.path, side: action }, 60000);
-    if (!result || result.available === false) {
-      // 失败后按实际未处理冲突数恢复动作，并说明原因（规格 §10.2）。
-      setConflictApplying(false);
-      setConflictNotice((result && result.reason) || "整侧接受失败，文件没有被修改。");
-      return result;
-    }
-    live.conflictApplying = false;
-    // 该文件已被暂存并标记解决：清掉解决器状态，回到（可能已关闭的）冲突列表。
-    live.conflict = null;
-    live.conflictSessionView = "list";
-    showToast({ title: `已接受${label}`, text: `${conflict.path} 已整侧接受并标记为已解决。`, kind: "info" });
-    await loadOperationSession();
-    return result;
-  } catch (error) {
-    setConflictApplying(false);
-    setConflictNotice("整侧接受失败：" + String((error && error.message) || error));
-    return null;
-  }
-}
-
-/**
- * 重新绑定冲突解决器的保存动作。整页重绘会替换按钮，因此每次重绘后都要调用。
- */
-function bindConflictSave() {
-  const button = document.querySelector("[data-conflict-save]");
-  const live = window.__augitLive;
-  if (!button || !live || !live.conflict) return;
-  if (button.dataset.bound === "true") return;
-  button.dataset.bound = "true";
-  button.addEventListener("click", async () => {
-    const block = document.querySelector(".conflict-column.result .conflict-block");
-    if (!block) return;
-    // 统一走应用状态机：冻结、只读、忙碌提示、失败恢复都在里面（规格 §7.14）。
-    await applyConflictResult();
-  });
 }
 
 /**
@@ -5259,13 +5160,13 @@ async function resolveMarkdownImages() {
       const replacement = document.createElement("span");
       replacement.className = "markdown-blocked";
       replacement.setAttribute("title", reason);
-      replacement.textContent = `${image.getAttribute("alt") || raw}（图片已阻止：${reason}）`;
+      replacement.textContent = `${image.getAttribute("alt") || raw}(Image blocked:${reason}）`;
       image.replaceWith(replacement);
     };
     let decoded = raw;
     try { decoded = decodeURIComponent(raw); } catch { /* 保留原文 */ }
     const resolved = resolveMarkdownTarget(decoded.split("#")[0].split("?")[0], documentPath);
-    if (!resolved) { blocked("目标越出工作区。"); continue; }
+    if (!resolved) { blocked("The target is outside the workspace."); continue; }
     const parent = resolved.split("/").slice(0, -1).join("/");
     const name = resolved.split("/").at(-1);
     let entry = null;
@@ -5273,18 +5174,18 @@ async function resolveMarkdownImages() {
       const listing = await invoke("workspace/list", { path: parent }, 15000);
       entry = ((listing && listing.entries) || []).find((item) => item && item.name === name) || null;
     } catch {
-      blocked("无法确认目标是否存在。");
+      blocked("Cannot confirm that the target exists.");
       continue;
     }
     if (token !== markdownImageToken) return;
     if (!image.isConnected) continue;
-    if (!entry) { blocked("路径不存在。"); continue; }
-    if (entry.isDirectory) { blocked("目标是目录，不是图片。"); continue; }
+    if (!entry) { blocked("The path does not exist."); continue; }
+    if (entry.isDirectory) { blocked("The target is a directory, not an image."); continue; }
     let payload = null;
     try {
       payload = await invoke("document/read", { path: entry.path || resolved }, 30000);
     } catch (error) {
-      blocked(String((error && error.message) || error || "无法读取图片。"));
+      blocked(String((error && error.message) || error || "Cannot read the image."));
       continue;
     }
     if (token !== markdownImageToken) return;
@@ -5293,7 +5194,7 @@ async function resolveMarkdownImages() {
       image.src = payload.dataUrl;
       image.hidden = false;
     } else {
-      blocked((payload && payload.reason) || "该文件不是可预览的图片。");
+      blocked((payload && payload.reason) || "This file is not a supported image.");
     }
   }
 }
@@ -5397,7 +5298,7 @@ async function closeBlameView() {
 
 // Blame 头部的关闭入口（规格 §7.9 第十一条）：实时模式下由这里接管样例链路。
 document.addEventListener("click", (event) => {
-  const button = event.target.closest && event.target.closest('[aria-label="关闭 Blame"]');
+  const button = event.target.closest && event.target.closest('[aria-label="Close Blame"]');
   if (!button || !window.__augitLive || !window.__augitLive.blame) return;
   event.preventDefault();
   void closeBlameView();
@@ -5413,14 +5314,14 @@ document.addEventListener("click", (event) => {
 function applyHistoryDetailsState() {
   const live = window.__augitLive;
   const panel = document.querySelector(".log-detail-panel");
-  const button = document.querySelector('.log-filterbar.history-filters [aria-label="显示提交详情"], .log-filterbar.history-filters [aria-label="隐藏提交详情"]')
-    || document.querySelector('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+  const button = document.querySelector('.log-filterbar.history-filters [aria-label="Show Commit Details"], .log-filterbar.history-filters [aria-label="Hide Commit Details"]')
+    || document.querySelector('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]');
   const hidden = !!(live && live.historyDetailsHidden);
   if (panel) panel.style.display = hidden ? "none" : "";
   if (button) {
     // 标签与 `aria-pressed` 沿用既有语义（第 68 轮的断言钉住的取值：隐藏后标签是"隐藏提交详情"、
     // `aria-pressed` 为 "true"）—— 本轮只把"显隐"从 DOM 搬进状态，不顺手改标签语义。
-    button.setAttribute("aria-label", hidden ? "隐藏提交详情" : "显示提交详情");
+    button.setAttribute("aria-label", hidden ? "Hide Commit Details" : "Show Commit Details");
     button.setAttribute("aria-pressed", hidden ? "true" : "false");
   }
 }
@@ -5447,7 +5348,7 @@ function commitDetailsUi(revision) {
 /** 按状态重建变化文件树的 HTML（唯一构建入口，实时层与重绘路径共用）。 */
 function commitFilesHtml(files, revision) {
   if (typeof window.__augitHistoryFiles !== "function") {
-    return `<p class="commit-meta">该提交没有变更文件</p>`;
+    return `<p class="commit-meta">This commit has no changed files</p>`;
   }
   return window.__augitHistoryFiles(files, commitDetailsUi(revision));
 }
@@ -5576,8 +5477,8 @@ function applyDiffBoundaryHint() {
   all.slice(1).forEach((node) => node.remove());
   // 规格 §7.7 第 10 条：列表首/尾没有相邻文件时**只显示"已到首/尾"的局部说明**，不循环整个文件列表。
   const text = hint.atEnd
-    ? (hint.direction > 0 ? "已到改动列表的最后一个文件" : "已到改动列表的首个文件")
-    : (hint.direction > 0 ? "再次点击可进入下一个文件" : "再次点击可进入上一个文件");
+    ? (hint.direction > 0 ? "Last file in Changes" : "First file in Changes")
+    : (hint.direction > 0 ? "Click again to open the next file" : "Click again to open the previous file");
   if (existing) {
     if (existing.textContent !== text) existing.textContent = text;
     return;
@@ -5661,7 +5562,7 @@ function moveDiffChange(direction, scope = null) {
 function labelFileHistoryClearEntry() {
   const button = document.querySelector(".history-tool-content .history-toolbar .icon-button");
   if (!button) return;
-  if (!button.getAttribute("aria-label")) button.setAttribute("aria-label", "清除路径筛选");
+  if (!button.getAttribute("aria-label")) button.setAttribute("aria-label", "Clear Path Filter");
 }
 
 /** 清掉文件历史的路径筛选，并**恢复进入前的底部工具窗上下文**（规格 §7.9）。 */
@@ -5722,9 +5623,9 @@ function ensureComparisonReadonlyMarker() {
     || (live.referenceComparison && live.referenceComparison.path));
   if (!comparing) return;
   const spans = [...fields.querySelectorAll("span")];
-  if (spans.some((span) => span.textContent.trim() === "只读")) return;
+  if (spans.some((span) => span.textContent.trim() === "Read-only")) return;
   const marker = document.createElement("span");
-  marker.textContent = "只读";
+  marker.textContent = "Read-only";
   fields.appendChild(marker);
 }
 
@@ -5747,7 +5648,7 @@ function applyPendingDocumentStatus() {
   path.setAttribute("title", pending);
   fields.textContent = "";
   const marker = document.createElement("span");
-  marker.textContent = "只读";
+  marker.textContent = "Read-only";
   fields.appendChild(marker);
 }
 
@@ -5786,12 +5687,12 @@ function applyWhitespaceMarkers() {
   }
   const view = document.querySelector(".code-view, .diff-columns");
   if (view) view.classList.toggle("show-whitespace", on);
-  const button = document.querySelector('.document-toolbar [aria-label="显示空白"]');
+  const button = document.querySelector('.document-toolbar [aria-label="Show Whitespaces"]');
   if (button) {
     button.setAttribute("aria-pressed", on ? "true" : "false");
     button.classList.toggle("active", on);
   }
-  const lines = [...document.querySelectorAll(".code-line")];
+  const lines = [...document.querySelectorAll(".code-line, .diff-code-line")];
   if (!on) {
     lines.forEach((line) => {
       const marks = [...line.querySelectorAll("span.ws")];
@@ -5811,7 +5712,7 @@ function applyWhitespaceMarkers() {
         const text = node.nodeValue || "";
         if (!/[ \t]/.test(text)) return NodeFilter.FILTER_REJECT;
         const parent = node.parentElement;
-        if (parent && (parent.classList.contains("line-number") || parent.closest(".line-number"))) {
+        if (parent && parent.closest(".line-number, .diff-line-number, .diff-line-prefix")) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -5844,15 +5745,16 @@ function applyDisplayOptionMarkers() {
   const wrap = !!(live.displayOptions && live.displayOptions.wrap);
   const view = document.querySelector(".code-view, .diff-columns");
   if (view) view.classList.toggle("wrap", wrap);
-  const button = document.querySelector('.document-toolbar [aria-label="自动换行"]');
+  const button = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
   if (button) {
     button.setAttribute("aria-pressed", wrap ? "true" : "false");
     button.classList.toggle("active", wrap);
   }
+  document.querySelectorAll('.diff-layout').forEach(node=>node.classList.toggle('hide-line-numbers',live.diffDisplayOptions?.lineNumbers===false));
 }
 
 document.addEventListener("click", (event) => {
-  const whitespace = event.target.closest && event.target.closest('.document-toolbar [aria-label="显示空白"]');
+  const whitespace = event.target.closest && event.target.closest('.document-toolbar [aria-label="Show Whitespaces"]');
   if (whitespace) {
     event.preventDefault();
     const live = window.__augitLive;
@@ -5863,7 +5765,7 @@ document.addEventListener("click", (event) => {
     }
     return;
   }
-  const button = event.target.closest && event.target.closest('.document-toolbar [aria-label="自动换行"]');
+  const button = event.target.closest && event.target.closest('.document-toolbar [aria-label="Soft Wraps"]');
   if (!button) return;
   event.preventDefault();
   const live = window.__augitLive;
@@ -5874,6 +5776,8 @@ document.addEventListener("click", (event) => {
 }, true);
 
 function rebindAfterRender() {
+  // 区域重绘会替换终端宿主；保留原会话、输出与输入节点，不显示静态示例。
+  reattachTerminal();
   // 工具窗口、标签栏与改动列表可能已被替换。
   bindToolRail?.();
   // 提交详情的显隐是**状态**：重绘后按 `live.historyDetailsHidden` 重新落地（规格 §7.9 条目三）。
@@ -5905,6 +5809,7 @@ function rebindAfterRender() {
   bindTitlebarMenuEscape();
   bindWindowChrome();
   bindManagementFieldDraft();
+  bindRemoteInteractions();
   bindLogFilterDraft();
   // 引用树选中态决定竖条里"需要选中引用"的项能否用（权威按选择刷 `update()`）；
   // 区域刷新会重建行与竖条，因此每次渲染后都要按状态重新落一遍。
@@ -6182,13 +6087,13 @@ function refreshAfterEvent(...regions) {
 // 搜索按视觉稿是**浮层**而不是侧栏内容，因此不属于侧栏区域。
 const RAIL_SIDE = ["project", "commit"];
 const RAIL_BOTTOM = ["terminal", "history"];
-// 视觉稿的入口用中文 aria-label 标识；沿用同一标识，避免改动设计基线标记。
+// 工具动作由稳定的 data-tool 标识；可见文案不能参与命令路由。
 const RAIL_LABELS = {
-  项目: "project",
-  提交: "commit",
-  搜索: "search",
-  终端: "terminal",
-  "Git 历史": "history",
+  Project: "project",
+  Commit: "commit",
+  Search: "search",
+  Terminal: "terminal",
+  "Git Log": "history",
 };
 // 底部区域的入口标识与 shell() 的 bottom 取值不同名（Git 历史的取值是 git）。
 const RAIL_BOTTOM_VALUE = { terminal: "terminal", history: "git" };
@@ -6209,9 +6114,9 @@ function setToolRegionHidden(layout, region, hidden) {
 function readInitialLayout() {
   const main = document.querySelector('.app-main');
   const buttons = [...document.querySelectorAll(".tool-rail .rail-button")];
-  const names = buttons.map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null);
+  const names = buttons.map((b) => b.dataset.tool || RAIL_LABELS[b.getAttribute("aria-label")] || null);
   const activeNames = buttons.filter((b) => b.classList.contains("active"))
-    .map((b) => RAIL_LABELS[b.getAttribute("aria-label")] || null).filter(Boolean);
+    .map((b) => b.dataset.tool || RAIL_LABELS[b.getAttribute("aria-label")] || null).filter(Boolean);
   const activeSideName = activeNames.find((name) => RAIL_SIDE.includes(name));
   const activeBottomName = activeNames.find((name) => RAIL_BOTTOM.includes(name));
   const activeRail = activeSideName || activeBottomName || "project";
@@ -6358,7 +6263,7 @@ function bindToolRail() {
     layout.activeRail = name;
     layout.userDriven = true;
     document.querySelectorAll('.tool-rail .rail-button').forEach((button) => {
-      button.classList.toggle('active', RAIL_LABELS[button.getAttribute('aria-label')] === name);
+      button.classList.toggle('active', (button.dataset.tool || RAIL_LABELS[button.getAttribute('aria-label')]) === name);
     });
   }, true);
   // 挂在 document 的捕获阶段：工具窗口入口会在整页重绘时被换掉，
@@ -6373,7 +6278,7 @@ function bindToolRail() {
     // `aria-disabled` + `title` 原因）。点击不再切换工具窗口，也不重复弹错——
     // 局部错误与「配置 git.exe」入口在检测时已给出一次。
     if (button.getAttribute("aria-disabled") === "true") return;
-    const name = RAIL_LABELS[button.getAttribute("aria-label")] || null;
+    const name = button.dataset.tool || RAIL_LABELS[button.getAttribute("aria-label")] || null;
     if (name) applyRailAction(name);
   }, true);
 }
@@ -6533,8 +6438,9 @@ function restoreChangesState() {
   const feedback = document.querySelector(".commit-box .commit-feedback");
   if (feedback) {
     const error = window.__augitCommitError || "";
-    feedback.textContent = error || "提交信息";
-    feedback.title = error || "提交信息";
+    const text = error || "Commit message";
+    if (feedback.textContent !== text) feedback.textContent = text;
+    if (feedback.title !== text) feedback.title = text;
     feedback.classList.toggle("error", error.length > 0);
   }
 
@@ -6742,7 +6648,7 @@ function guardUnwiredNavigation() {
     }
 
     // 提交设置入口：打开设置对话框（规格 §7.6 的入口适配）。
-    const settingsEntry = event.target.closest && event.target.closest('[aria-label="提交设置"]');
+    const settingsEntry = event.target.closest && event.target.closest('[aria-label="Commit Settings"]');
     if (settingsEntry && document.querySelector(".commit-actions")) {
       event.preventDefault();
       openSettingsDialog();
@@ -6754,9 +6660,9 @@ function guardUnwiredNavigation() {
     // 点下去只有 preventDefault，界面毫无反应（用户实测"右上角放大镜和齿轮点了没反应"）。
     const titlebarEntry = event.target.closest && event.target.closest(".titlebar .top-button[aria-label]");
     const titlebarLabel = titlebarEntry ? titlebarEntry.getAttribute("aria-label") : null;
-    if (titlebarLabel === "搜索" || titlebarLabel === "设置") {
+    if (titlebarLabel === "Search" || titlebarLabel === "Settings") {
       event.preventDefault();
-      if (titlebarLabel === "搜索") openSearchOverlay("quick");
+      if (titlebarLabel === "Search") openSearchOverlay("quick");
       else openSettingsDialog();
       return;
     }
@@ -6783,14 +6689,14 @@ function guardUnwiredNavigation() {
 
     // 终端标题行的动作（规格 §7.16）。这两个入口此前同样没有绑定 ——
     // 终端关不掉、也收不起来，只能靠点左侧入口折叠。
-    const terminalClose = event.target.closest && event.target.closest('[aria-label="关闭终端"]');
+    const terminalClose = event.target.closest && event.target.closest('[aria-label="Close Terminal"]');
     if (terminalClose && terminalClose.closest('.terminal-tool')) {
       event.preventDefault();
       void requestCloseTerminal();
       return;
     }
 
-    const terminalHide = event.target.closest && event.target.closest('[aria-label="隐藏终端"]');
+    const terminalHide = event.target.closest && event.target.closest('[aria-label="Hide Terminal"]');
     if (terminalHide && terminalHide.closest('.terminal-tool')) {
       event.preventDefault();
       // 隐藏只收起底部工具窗口，会话保留（再次点入口即恢复）。
@@ -6805,7 +6711,7 @@ function guardUnwiredNavigation() {
     // 用裸的 `[aria-label=…]` 会把对话框内的点击（包括"跳转"按钮）也当成这个入口
     // —— 实测后果是点"跳转"又开一个窗口、目标行永远不生效。
     const jumpToLineButton = event.target.closest
-      && event.target.closest('.document-toolbar [aria-label="跳转行"]');
+      && event.target.closest('.document-toolbar [aria-label="Go to Line"]');
     if (jumpToLineButton) {
       event.preventDefault();
       openGoToLineDialog();
@@ -6813,7 +6719,7 @@ function guardUnwiredNavigation() {
     }
 
     const minimizeTool = event.target.closest
-      && event.target.closest('.side-tool .tool-header [aria-label="最小化"]');
+      && event.target.closest('.side-tool .tool-header [aria-label="Minimize"]');
     if (minimizeTool) {
       event.preventDefault();
       const layout = currentLayout();
@@ -6829,7 +6735,7 @@ function guardUnwiredNavigation() {
     }
 
     const locateCurrentFile = event.target.closest
-      && event.target.closest('.side-tool .tool-header [aria-label="定位当前文件"]');
+      && event.target.closest('.side-tool .tool-header [aria-label="Select Opened File"]');
     if (locateCurrentFile) {
       event.preventDefault();
       const live = window.__augitLive;
@@ -6845,7 +6751,7 @@ function guardUnwiredNavigation() {
     }
 
     const collapseTree = event.target.closest
-      && event.target.closest('.side-tool .tool-header [aria-label="折叠项目树"]');
+      && event.target.closest('.side-tool .tool-header [aria-label="Collapse Project Tree"]');
     if (collapseTree) {
       event.preventDefault();
       // 展开层级是会话数据（`expandedPaths` + `live.tree`）：清空后重建可见树并按规格 §6.7 防抖写回。
@@ -6859,7 +6765,7 @@ function guardUnwiredNavigation() {
 
     // 提交侧栏工具栏「刷新」（规格 §5.2）：第 168 轮行为实测（点一下看宿主请求/焦点）发现它点了没反应。
     const changesRefresh = event.target.closest
-      && event.target.closest('.changes-layout .toolbar [aria-label="刷新"]');
+      && event.target.closest('.changes-layout .toolbar [aria-label="Refresh"]');
     if (changesRefresh) {
       event.preventDefault();
       void loadStatus().catch(() => null);
@@ -6980,7 +6886,7 @@ function guardUnwiredNavigation() {
       && event.target.closest('.history-filters .toolbar-button[aria-label]');
     if (logToolbarEntry) {
       const label = logToolbarEntry.getAttribute('aria-label');
-      if (label === '刷新') {
+      if (label === 'Refresh') {
         event.preventDefault();
         // 规格 §7.8：右角的「刷新」要**重新读取并重画**历史。此前只 `loadHistory()`（只写状态、
         // 不刷新区域），列表继续显示旧内容 —— 宿主已经返回了新的引用名/新提交，DOM 却一动不动
@@ -7039,6 +6945,8 @@ function guardUnwiredNavigation() {
       event.preventDefault();
       const liveFilter = window.__augitLive;
       const key = filterControl.dataset.filterKey;
+      const anchorRect=filterControl.getBoundingClientRect();
+      historyFilterAnchor={key,rect:{left:anchorRect.left,top:anchorRect.top,bottom:anchorRect.bottom,right:anchorRect.right}};
       const filterNow = (liveFilter && liveFilter.historyFilter) || {};
       // 日期筛选的值在 `since`／`until` 两个键上、路径筛选在 `paths` 上，都不是控件名本身。
       const selected = key === 'date'
@@ -7046,7 +6954,7 @@ function guardUnwiredNavigation() {
         : key === 'user' ? !!(filterNow.authors && filterNow.authors.length > 0)
         : key === 'path' ? !!(filterNow.paths && filterNow.paths.length > 0)
         : !!filterNow[key];
-      if (selected) {
+      if (selected && !filterControl.dataset.openFilter && (!filterControl.classList.contains('history-filter') || event.target.closest('svg'))) {
         // 关闭叉：复位（权威 `createResetAction()` → `setFilter(null)`）。
         if (key === 'branch') {
           setHistoryBranchFilter('');
@@ -7087,13 +6995,14 @@ function guardUnwiredNavigation() {
         // 弹层（权威 `BranchFilterPopupComponent`／`DateFilterPopupComponent`）。位置与关闭规则与其它指针菜单一致。
         closeLiveOverlay();
         const rect = filterControl.getBoundingClientRect();
-        showPointerContextMenu(key === 'branch' ? historyBranchFilterMenu() : historyDateFilterMenu(), {
+        const layer = showPointerContextMenu(key === 'branch' ? historyBranchFilterMenu() : historyDateFilterMenu(), {
           layerClass: key === 'branch' ? 'history-branch-filter-menu' : 'history-date-menu',
           clientX: Math.round(rect.left),
           clientY: Math.round(rect.bottom + 4),
           maxHeight: 320,
           focusFirst: true,
         });
+        if (key === 'branch') bindHistoryBranchSpeedSearch(layer);
         return;
       }
       if (key === 'path') {
@@ -7163,6 +7072,11 @@ function guardUnwiredNavigation() {
     if (pathRow) {
       event.preventDefault();
       const layer = pathRow.closest('.history-path-tree-window');
+      if (layer?.__augitTogglePath) {
+        pathRow.focus({preventScroll:true});
+        layer.__augitTogglePath(pathRow,!!event.target.closest('[data-path-disclosure]'));
+        return;
+      }
       const checked = pathRow.getAttribute('aria-checked') === 'true';
       pathRow.setAttribute('aria-checked', checked ? 'false' : 'true');
       const box = pathRow.querySelector('.fake-check');
@@ -7170,7 +7084,7 @@ function guardUnwiredNavigation() {
       if (layer) {
         const count = layer.querySelectorAll('[data-log-path-row][aria-checked="true"]').length;
         const help = layer.querySelector('.dialog-footer .footer-help');
-        if (help) help.textContent = `已选择: ${count}`;
+        if (help) help.textContent = `Selected: ${count}`;
         const confirm = layer.querySelector('[data-log-path-tree="confirm"]');
         if (confirm) {
           confirm.disabled = count === 0;
@@ -7186,7 +7100,7 @@ function guardUnwiredNavigation() {
     if (pathTree) {
       event.preventDefault();
       const layer = pathTree.closest('.history-path-tree-window');
-      const values = layer
+      const values = layer?.__augitSelectedPaths ? layer.__augitSelectedPaths() : layer
         ? [...layer.querySelectorAll('[data-log-path-row][aria-checked="true"]')].map((row) => row.dataset.logPathRow)
         : [];
       const action = pathTree.dataset.logPathTree;
@@ -7258,7 +7172,7 @@ function guardUnwiredNavigation() {
       const layer = dateRange.closest('.history-date-range-window');
       const read = (name) => {
         const input = layer ? layer.querySelector(`[data-history-date-field="${name}"]`) : null;
-        return input && input.value ? new Date(`${input.value}T00:00:00`) : null;
+        return input && !input.disabled ? parseHistoryDate(input.value) : null;
       };
       const since = read('since');
       const until = read('until');
@@ -7433,7 +7347,7 @@ function guardUnwiredNavigation() {
     // 提交历史工具栏「搜索提交」（规格 §7.8）：把焦点交给日志搜索框。
     // 核实过：`history-utility`（该按钮的类）在 live-data.js 里此前**完全没有出现** ⇒ 死入口。
     const historySearchEntry = event.target.closest
-      && event.target.closest('[aria-label="搜索提交"]');
+      && event.target.closest('[aria-label="Search Commits"]');
     if (historySearchEntry) {
       event.preventDefault();
       const input = historySearchEntry.closest(".log-filterbar")
@@ -7445,7 +7359,7 @@ function guardUnwiredNavigation() {
 
     // 文件历史「清除路径筛选」入口（规格 §7.9）。
     const clearHistoryPath = event.target.closest
-      && event.target.closest('.history-tool-content [aria-label="清除路径筛选"]');
+      && event.target.closest('.history-tool-content [aria-label="Clear Path Filter"]');
     if (clearHistoryPath) {
       event.preventDefault();
       void clearHistoryPathFilter();
@@ -7508,7 +7422,7 @@ function guardUnwiredNavigation() {
     // 提交历史工具栏的「显示/隐藏提交详情」（规格 §7.8）：切换底部日志详情区的显隐。
     // 此前该入口有 aria-label、有图形，却没有绑定（点击无任何效果）。
     const historyDetails = event.target.closest
-      && event.target.closest('[aria-label="显示提交详情"], [aria-label="隐藏提交详情"]');
+      && event.target.closest('[aria-label="Show Commit Details"], [aria-label="Hide Commit Details"]');
     if (historyDetails && historyDetails.closest(".history-tool-content")) {
       // 文件历史右侧详情（规格 §7.9 第七条）：隐藏时取消在途查询与排版，重显按当前选择补查，
       // 已经完成的比较保留正文、显示模式与阅读位置。
@@ -7534,7 +7448,7 @@ function guardUnwiredNavigation() {
         liveNow.historyDetailsHidden = panel ? panel.style.display !== "none" : !liveNow.historyDetailsHidden;
       } else if (panel) {
         panel.style.display = panel.style.display === "none" ? "" : "none";
-        historyDetails.setAttribute("aria-label", panel.style.display === "none" ? "显示提交详情" : "隐藏提交详情");
+        historyDetails.setAttribute("aria-label", panel.style.display === "none" ? "Show Commit Details" : "Hide Commit Details");
         historyDetails.setAttribute("aria-pressed", panel.style.display === "none" ? "true" : "false");
         return;
       }
@@ -7544,15 +7458,15 @@ function guardUnwiredNavigation() {
 
     // 终端标题栏「更多操作」（规格 §7.16）：菜单提供「切换 Shell 配置」与「在外部终端打开」。
     const terminalMore = event.target.closest
-      && event.target.closest('.terminal-header [aria-label="更多操作"]');
+      && event.target.closest('.terminal-header [aria-label="More Actions"]');
     if (terminalMore) {
       event.preventDefault();
       const rect = terminalMore.getBoundingClientRect();
       // 注意 `showPointerContextMenu(menuMarkup, …)` 收的是 **markup 字符串**（内部走 template.innerHTML）：
       // 传 DOM 元素会被字符串化，`firstElementChild` 为 null 后**静默返回 null**（第一次实测菜单没出现就是这个原因）。
       const menuMarkup = '<section class="popover context-menu">'
-        + '<a class="menu-item" href="#" data-terminal-more="settings">切换 Shell 配置</a>'
-        + '<a class="menu-item" href="#" data-terminal-more="external">在外部终端打开</a>'
+        + '<a class="menu-item" href="#" data-terminal-more="settings">Change Shell Configuration</a>'
+        + '<a class="menu-item" href="#" data-terminal-more="external">Open in External Terminal</a>'
         + '</section>';
       showPointerContextMenu(menuMarkup, {
         layerClass: "terminal-more-menu",
@@ -7569,6 +7483,9 @@ function guardUnwiredNavigation() {
       const kind = terminalMoreAction.dataset.terminalMore;
       closeLiveOverlay();
       if (kind === "settings") {
+        if (window.__augitSettingsWindowAvailable) {
+          void invoke('window/settings-open',{page:'terminal'},0).catch(error=>{window.__augitError='settings-open:'+error.message;});return;
+        }
         openSettingsDialog();
         switchSettingsPage("terminal");
       } else {
@@ -7593,11 +7510,28 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 远端窗口的动作。
+    // 远端窗口的动作（Add/Remove/Edit/唯一 OK）。
     const remoteAction = event.target.closest && event.target.closest("[data-remote-action]");
     if (remoteAction) {
       event.preventDefault();
       void runRemoteAction(remoteAction.dataset.remoteAction);
+      return;
+    }
+
+    // 远端 Define Remote 与 Remove Remote 确认（规格 §7.11）。
+    const remoteDefine = event.target.closest && event.target.closest("[data-remote-define]");
+    if (remoteDefine) {
+      event.preventDefault();
+      if (remoteDefine.dataset.remoteDefine === "ok") void saveRemoteDefine();
+      else closeRemoteDefine();
+      return;
+    }
+
+    const remoteConfirm = event.target.closest && event.target.closest("[data-remote-confirm]");
+    if (remoteConfirm) {
+      event.preventDefault();
+      if (remoteConfirm.dataset.remoteConfirm === "remove") void confirmRemoveRemote();
+      else closeRemoteRemoveConfirm();
       return;
     }
 
@@ -7609,18 +7543,11 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 外部修改后的模态选择（规格 §7.14）。
-    const conflictReload = event.target.closest && event.target.closest("[data-conflict-reload]");
-    if (conflictReload) {
+    // 冲突文件的只读 Diff 横幅：返回冲突列表（2026-10-17 移除三栏编辑器后保留的冲突提示）。
+    const openConflictSessionAction = event.target.closest && event.target.closest("[data-open-conflict-session]");
+    if (openConflictSessionAction) {
       event.preventDefault();
-      applyPendingConflictReload();
-      return;
-    }
-
-    const conflictKeep = event.target.closest && event.target.closest("[data-conflict-keep]");
-    if (conflictKeep) {
-      event.preventDefault();
-      keepConflictEdits();
+      void reopenConflictSession();
       return;
     }
 
@@ -7647,17 +7574,11 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 远端管理页（规格 §7.11）：选择条目与编辑字段都进状态。
-    const remoteRow = event.target.closest && event.target.closest("[data-remote-index]");
+    // 远端管理页（规格 §7.11）：单击只选行（不打开编辑、不重建表格）。
+    const remoteRow = event.target.closest && event.target.closest(".remote-table .remote-row[data-remote-index]");
     if (remoteRow) {
       event.preventDefault();
-      const live = window.__augitLive;
-      const index = Number(remoteRow.dataset.remoteIndex);
-      if (live && Number.isInteger(index)) {
-        live.selectedRemoteIndex = index;
-        live.remoteDraft = null;
-        renderRemoteManager();
-      }
+      selectRemoteRow(remoteRow.closest(".remote-table"), Number(remoteRow.dataset.remoteIndex), { focusTable: true });
       return;
     }
 
@@ -7673,7 +7594,7 @@ function guardUnwiredNavigation() {
       } else if (action === "new") {
         startManagementCreate(kind);
       } else if (action === "delete") {
-        if (kind === "remote") void deleteRemoteFromManager();
+        if (kind === "remote") openRemoteRemoveConfirm();
         else if (kind === "stash") openStashDropConfirm();
         else if (kind === "worktrees") openWorktreeRemoveConfirm();
       }
@@ -7848,36 +7769,6 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 无法逐块合并的文件（规格 §7.14）：整侧接受或交给外部工具。
-    const conflictWhole = event.target.closest && event.target.closest("[data-conflict-whole]");
-    if (conflictWhole) {
-      event.preventDefault();
-      void runConflictWholeSide(conflictWhole.dataset.conflictWhole);
-      return;
-    }
-
-    // 解决器里的接受动作（规格 §7.14）：结果区的一次可撤销编辑。
-    const conflictSide = event.target.closest && event.target.closest("[data-conflict-side]");
-    if (conflictSide) {
-      event.preventDefault();
-      acceptConflictBlock(conflictSide.dataset.conflictSide);
-      return;
-    }
-
-    const conflictNav = event.target.closest && event.target.closest("[data-conflict-nav]");
-    if (conflictNav) {
-      event.preventDefault();
-      navigateConflictBlock(conflictNav.dataset.conflictNav === "next" ? 1 : -1);
-      return;
-    }
-
-    const conflictBack = event.target.closest && event.target.closest("[data-conflict-back]");
-    if (conflictBack) {
-      event.preventDefault();
-      returnToConflictList();
-      return;
-    }
-
     // 冲突操作会话的动作（规格 §7.13）。
     const operationAction = event.target.closest && event.target.closest("[data-operation-action]");
     if (operationAction) {
@@ -7931,21 +7822,21 @@ function guardUnwiredNavigation() {
     if (projectMenu) {
       event.preventDefault();
       const label = (projectMenu.textContent || "").trim();
-      const action = label.includes("文件历史") ? "file-history"
+      const action = label.includes("File History") ? "file-history"
         : label.includes("Blame") ? "blame"
-          : label.includes("刷新") ? "refresh-tree" : null;
+          : label.includes("Refresh") ? "refresh-tree" : null;
       if (action === "refresh-tree") {
         closeLiveOverlay();
         void refreshFileTree();
       } else if (action) {
         void runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treePath" });
-      } else if (label.includes("复制路径")) {
+      } else if (label.includes("Copy Path")) {
         void copyTreePath(projectMenu.closest(".project-menu").dataset.treePath);
         closeLiveOverlay();
-      } else if (label.includes("资源管理器")) {
+      } else if (label.includes("Explorer")) {
         void launchExternal("reveal", projectMenu.closest(".project-menu").dataset.treePath);
         closeLiveOverlay();
-      } else if (label.includes("外部终端")) {
+      } else if (label.includes("External Terminal")) {
         void launchExternal("terminal", projectMenu.closest(".project-menu").dataset.treePath);
         closeLiveOverlay();
       } else {
@@ -7966,18 +7857,18 @@ function guardUnwiredNavigation() {
       // 目标路径取自菜单层自己的数据：条目本身是 <a href>，不能拿 href 当路径。
       const changesLayer = changesMenu.closest(".changes-menu");
       const changePath = changesLayer ? changesLayer.dataset.changePath : null;
-      const action = label.includes("显示 Diff") ? "diff"
-        : label.includes("回滚") ? "rollback"
-          : label.includes("文件历史") ? "file-history"
+      const action = label.includes("Show Diff") ? "diff"
+        : label.includes("Rollback") ? "rollback"
+          : label.includes("File History") ? "file-history"
             : label.includes("Blame") ? "blame" : null;
       if (action) {
         void runChangesContextAction(action);
-      } else if (label.includes("复制路径")) {
+      } else if (label.includes("Copy Path")) {
         // 与项目树菜单同一实现（规格 §5.4）：此前这两项落在"其余条目"分支，
         // 只关掉菜单什么都不做——等于把"点了没反应"留在菜单里。
         void copyTreePath(changePath);
         closeLiveOverlay();
-      } else if (label.includes("资源管理器")) {
+      } else if (label.includes("Explorer")) {
         void launchExternal("reveal", changePath);
         closeLiveOverlay();
       } else closeLiveOverlay();
@@ -8026,7 +7917,7 @@ function guardUnwiredNavigation() {
         return;
       }
 
-      if (link.textContent.includes("提交并推送")) {
+      if (link.textContent.includes("Commit and Push")) {
         // 推送尚未接线，先完成提交并如实说明。
         void commitSelectedChanges(true, event);
         return;
@@ -8055,9 +7946,9 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
   // （`CommitChangeListDialog.java:602-604,616-618`）；Augit 的禁用由渲染侧负责，
   // 这里只保留一次兜底说明，避免"点了没反应"。
   if (selected.length === 0) {
-    window.__augitCommitError = describeFailure("请至少选择一个要提交的文件。", {
-      unchanged: "工作区没有变化。",
-      next: "在改动列表里勾选要提交的文件。",
+    window.__augitCommitError = describeFailure("Select at least one file to commit.", {
+      unchanged: "The working tree is unchanged.",
+      next: "Check the files to commit in Changes.",
     });
     refreshAfterEvent("side");
     return;
@@ -8084,7 +7975,7 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
 
   // 进行中：禁用重复触发（规格 §9.3），并记录当前动作供界面显示。
   if (live.writeOperation) return;
-  live.writeOperation = "提交";
+  live.writeOperation = "Commit";
   // 提交动作由提交区触发：权威把焦点留在提交信息编辑器上（用户接着看结果或改信息），
   // 因此这次重绘要把焦点还回输入框（`restoreChangesState()` 读这个一次性信号）。
   // 不依赖"点击后 activeElement 在哪"——按钮是否吃焦点因浏览器与控件类型而异。
@@ -8109,9 +8000,9 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
 
   if (!result || !result.committed) {
     window.__augitCommitResult = null;
-    window.__augitCommitError = describeFailure((result && result.reason) || "提交失败。", {
-      unchanged: "改动列表、勾选与提交信息都没有变化。",
-      next: "修正后可直接重试。",
+    window.__augitCommitError = describeFailure((result && result.reason) || "Commit failed.", {
+      unchanged: "Changes, file selection, and the commit message are preserved.",
+      next: "Correct the problem and retry.",
     });
     live.writeOperation = null;
     refreshAfterEvent("side", "statusbar");
@@ -8142,7 +8033,7 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
       pushReason: push && !push.pushed ? push.reason : null,
     };
     if (push && !push.pushed) {
-      window.__augitCommitError = "提交已成功，但推送失败：" + (push.reason || "原因未知。");
+      window.__augitCommitError = "Commit succeeded, but push failed:" + (push.reason || "Unknown reason.");
     }
   }
 
@@ -8156,7 +8047,7 @@ async function commitSelectedChanges(andPush, event, confirmed = false) {
 async function pushCurrentBranch() {
   try {
     const result = await invoke("git/push", {}, 300000);
-    return result || { pushed: false, reason: "推送没有返回结果。" };
+    return result || { pushed: false, reason: "Push returned no result." };
   } catch (error) {
     return { pushed: false, reason: String(error && error.message || error) };
   }
@@ -8230,9 +8121,9 @@ async function checkoutReference(name, kind) {
       return;
     }
 
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "检出失败。", {
-      unchanged: "当前分支与工作区都没有变化。",
-      next: "请先提交或贮藏改动，再重试。",
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "Checkout failed.", {
+      unchanged: "The current branch and working tree are unchanged.",
+      next: "Commit or stash changes, then retry.",
     });
     // 保留弹层并把原因显示出来，不静默关闭。
     openBranchesPopover();
@@ -8291,15 +8182,15 @@ function openBranchActionDialog(kind, context) {
   compactDialogFrom = target ? target.name : null;
   compactDialogStartPoint = (context && context.startPoint) || null;
   if (kind === "rename" && !target) {
-    window.__augitCheckoutError = "找不到要重命名的分支。";
+    window.__augitCheckoutError = "The branch to rename was not found.";
     openBranchesPopover();
     return;
   }
 
-  const title = kind === "create" ? "新建分支" : "重命名分支";
-  const label = kind === "create" ? "分支名" : "新名称";
+  const title = kind === "create" ? "New Branch" : "Rename Branch";
+  const label = kind === "create" ? "Branch name" : "New name";
   const value = kind === "rename" ? (target ? target.name : "") : "";
-  showCompactInput(title, label, value, kind === "create" ? "创建" : "重命名");
+  showCompactInput(title, label, value, kind === "create" ? "Create" : "Rename");
 }
 
 /**
@@ -8322,7 +8213,7 @@ function openTagDialog(hash) {
   compactDialogKind = "tag";
   compactDialogFrom = null;
   compactDialogStartPoint = hash || null;
-  showCompactInput(`在 ${hash || "HEAD"} 上新建标签`, "新标签名称", "", "创建");
+  showCompactInput(`Create New Tag On ${hash || "HEAD"}`, "Enter the name of new tag", "", "Create");
 }
 
 function closeCompactDialog() {
@@ -8354,19 +8245,19 @@ function goToLine(text) {
   };
 
   const raw = String(text ?? "").trim();
-  if (!/^\d+$/.test(raw)) return report("请输入行号（正整数）。");
+  if (!/^\d+$/.test(raw)) return report("Enter a line number (positive integer).");
   const line = Number.parseInt(raw, 10);
-  if (line < 1) return report("行号从 1 开始。");
+  if (line < 1) return report("Line numbers start at 1.");
 
   const view = document.querySelector(".editor-content .code-view");
-  if (!view) return report("当前没有可跳转的只读正文。");
+  if (!view) return report("No read-only text is available for Go to Line.");
   // 优先按 data-line 找；个别正文（Blame 等）没有该属性时按顺序兜底。
   const row = view.querySelector(`.code-line[data-line="${line}"]`)
     || view.querySelectorAll(".code-line")[line - 1]
     || null;
   if (!row) {
     const total = view.querySelectorAll(".code-line").length;
-    return report(total > 0 ? `当前文件只有 ${total} 行。` : "当前正文没有可跳转的行。");
+    return report(total > 0 ? `The current file has only ${total} lines.` : "The current text has no lines to navigate to.");
   }
 
   view.querySelectorAll(".code-line.active").forEach((node) => node.classList.remove("active"));
@@ -8395,7 +8286,7 @@ async function submitCompactDialog() {
   }
 
   if (value.length === 0) {
-    window.__augitCheckoutError = "名称不能为空。";
+    window.__augitCheckoutError = "Name cannot be empty.";
     return;
   }
 
@@ -8404,7 +8295,7 @@ async function submitCompactDialog() {
   // `GitReferenceValidator.java`（分支/引用名走 `git rev-parse --verify`，空白名必然不通过）。
   // 宿主 `check-ref-format` 也会拒绝，这里先在窗口内给出原因，不打无谓的 Git 调用。
   if (kind !== "checkout-revision" && /\s/.test(value)) {
-    window.__augitCheckoutError = "名称不能包含空白字符。";
+    window.__augitCheckoutError = "Name cannot contain whitespace.";
     return;
   }
 
@@ -8442,9 +8333,9 @@ async function submitCompactDialog() {
   }
 
   if (!result || !result.changed) {
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "分支操作失败。", {
-      unchanged: "已有分支与当前分支都没有变化。",
-      next: "请换一个名称后重试。",
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "Branch operation failed.", {
+      unchanged: "Existing branches and the current branch are unchanged.",
+      next: "Try another name.",
     });
     closeCompactDialog();
     openBranchesPopover();
@@ -8475,11 +8366,11 @@ function bindCompactDialogKeys() {
     if (!layer) return;
     // 组词期间 Enter 与 Esc 交给输入法。
     if (event.isComposing || event.keyCode === 229) return;
+
     const field = layer.querySelector("[data-compact-field]");
     const order = [
       field,
-      layer.querySelector('[data-compact-action="cancel"]'),
-      layer.querySelector('[data-compact-action="confirm"]'),
+      ...layer.querySelectorAll('.dialog-footer [data-compact-action]'),
       layer.querySelector('[data-compact-action="close"]'),
     ].filter(Boolean);
 
@@ -8583,9 +8474,9 @@ async function runPopoverAction(action) {
   }
 
   if (!result || !result[key]) {
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "操作失败。", {
-      unchanged: "本地引用与工作区都没有变化。",
-      next: "请检查网络或远端配置后重试。",
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "Operation failed.", {
+      unchanged: "Local references and the working tree are unchanged.",
+      next: "Check the network or remote configuration and retry.",
     });
     openBranchesPopover();
     return;
@@ -8638,9 +8529,9 @@ async function updateSelectedBranch(names) {
 
   live.logFetchRunning = false;
   if (!result || !result.fetched) {
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "操作失败。", {
-      unchanged: "该分支与远端没有可快进的内容。",
-      next: "请检查网络、远端配置或该分支的跟踪关系后重试。",
+    window.__augitCheckoutError = describeFailure((result && result.reason) || "Operation failed.", {
+      unchanged: "This branch has no fast-forward updates from its remote.",
+      next: "Check the network, remote configuration, and upstream branch, then retry.",
     });
     openBranchesPopover();
     return;
@@ -8762,7 +8653,7 @@ async function compareWithWorkspace() {
   const files = (live.status && live.status.files) || [];
   const target = files.find((file) => file.path === live.selectedChangePath) || files[0];
   if (!target) {
-    window.__augitCheckoutError = "当前没有可比较的改动文件。";
+    window.__augitCheckoutError = "No changed files are available to compare.";
     openBranchesPopover();
     return;
   }
@@ -8772,11 +8663,11 @@ async function compareWithWorkspace() {
   // 引用比较独立于 Changes 跟随（规格 §5.2/§7.9）：它比较的是整个引用与工作区，
   // 不是当前选中的某个改动文件，因此必须解除跟随，否则后续单击改动行会把它改写成工作区 Diff。
   live.followChanges = false;
-  const title = `比较: ${branch}`;
+  const title = `Compare: ${branch}`;
   // 引用比较的双方引用要同时出现在**标签**和**文件栏**（规格 §7.9 第十四/十七条）：
   // 状态记下实际查询用的修订（完整命名引用），标签拿到结构化三部件。
   live.referenceComparison = { path: target.path, revision: branch };
-  const referenceParts = comparisonParts(target.path, branch, "工作区");
+  const referenceParts = comparisonParts(target.path, branch, "Workspace");
   // 与工作区 Diff 同一处理：标签与视图必须在**发请求之前**就位，并调度加载提示。
   // 否则查询期间编辑区还停在上一个视图、也没有加载指示
   // （规格 §7.9 要求"激活时立即打开并显示双方引用及文件路径，查询完成后只填充正文"）。
@@ -8809,7 +8700,7 @@ async function compareWithWorkspace() {
       const liveNow = window.__augitLive;
       if (liveNow) {
         liveNow.diffLoading = false;
-        liveNow.diffError = { path: target.path, reason: window.__augitError || "读取差异失败" };
+        liveNow.diffError = { path: target.path, reason: window.__augitError || "Failed to Read Diff" };
       }
       renderDiffErrorNotice();
       refreshAfterEvent("editorContent", "editorTabs", "statusbar");
@@ -8842,9 +8733,9 @@ function setPushDialogRunning(dialog, running, notice = null) {
     // 结束时只在"预览本来就可推送"的前提下解禁（规格 §7.12 第 9 条）。
     confirm.disabled = running || dialog.dataset.pushReady !== "true";
     if (confirm.tagName === "A") confirm.setAttribute("aria-disabled", String(confirm.disabled));
-    confirm.textContent = running ? "正在推送…" : "推送";
+    confirm.textContent = running ? "Pushing…" : "Push";
   }
-  if (cancel) cancel.textContent = running ? "取消操作" : "取消";
+  if (cancel) cancel.textContent = running ? "Cancel" : "Cancel";
   if (notice !== null) {
     const box = dialog.querySelector(".push-notice");
     if (box) { box.textContent = notice; box.hidden = !notice; }
@@ -8889,8 +8780,8 @@ function renderPushDialog() {
   layer.innerHTML = dialog(
     "Push",
     livePushDialogBody(),
-    `<button type="button" class="secondary-button" data-push-action="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-push-action="confirm"${canPush ? "" : " disabled"}>推送</button>`,
+    `<button type="button" class="secondary-button" data-push-action="cancel">Cancel</button>`
+      + `<button type="button" class="primary-button" data-push-action="confirm"${canPush ? "" : " disabled"}>Push</button>`,
     true,
     "push-dialog");
   // 预览是否可推送要留在**对话框自身**上（不是外层覆盖层）：进行态收尾时据此恢复「推送」按钮的
@@ -8987,7 +8878,7 @@ async function cancelPushDialog() {
   if (!pushDialogRun.running) { closePushDialog(); return; }
   if (pushDialogRun.cancelling) return;
   pushDialogRun.cancelling = true;
-  setPushDialogRunning(dialog, true, "正在取消推送，等待 Git 停止…");
+  setPushDialogRunning(dialog, true, "Cancelling push; waiting for Git…");
   try {
     await invoke("write/cancel", {}, 30000);
   } catch (error) {
@@ -9033,10 +8924,10 @@ function openRollbackDialog(path) {
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    `回滚文件 · ${escapeText(file.path)}`,
+    `Rollback File · ${escapeText(file.path)}`,
     liveRollbackBody(),
-    `<button type="button" class="secondary-button" data-rollback-action="cancel">取消</button>`
-      + `<button type="button" class="danger-button" data-rollback-action="confirm">回滚完整文件</button>`,
+    `<button type="button" class="secondary-button" data-rollback-action="cancel">Cancel</button>`
+      + `<button type="button" class="danger-button" data-rollback-action="confirm">Rollback File</button>`,
     true,
     "rollback-dialog");
   host.appendChild(layer);
@@ -9080,8 +8971,8 @@ async function confirmRollbackDialog() {
       notice.hidden = false;
       notice.classList.add("error");
       notice.textContent = notice.title = describeFailure(
-        (result && result.reason) || "回滚未完成。",
-        { unchanged: "文件内容、Changes 列表与提交输入没有被修改。" });
+        (result && result.reason) || "Rollback did not complete.",
+        { unchanged: "File content, Changes, and the commit message are unchanged." });
     }
     if (button) button.disabled = false;
     return;
@@ -9093,24 +8984,64 @@ async function confirmRollbackDialog() {
 }
 
 /**
- * 远端管理（规格 §7.11 / §7.12）。
+ * 远端管理（规格 §7.11）与 Push 内嵌的「定义远端」（规格 §7.12）。
  *
- * 页面本体用视觉稿的 `liveManagementPage("remote")`（列表 + 可编辑详情 + 删除/保存动作行），
- * 底栏只留「关闭」：此前这里自己写了一份重复的列表与表单，既与视觉稿结构不一致、
- * 也少了设计里的删除动作。
+ * 结构按权威 `GitConfigureRemotesDialog`：Name/URL 两列表格 + 顶端 Add/Remove/Edit，
+ * 主窗只有唯一 OK；单击只选行，双击或 Edit 打开独立 `GitDefineRemoteDialog` 次模态。
+ * 产品额外的 Push URL 放在 Define 窗口里（与参考的差异登记在 ux-spec §7.11）。
+ *
+ * 所有在途异步都带 `remoteRun.generation` 与层身份：晚到的结果不得重开窗口、
+ * 重建节点或抢焦点（规格 §7.12「远端窗口关闭或销毁后的晚到结果不得回写 Push」）。
  */
-function openRemoteDialog() {
+const remoteRun = { generation: 0, saving: false, opening: false };
+let remoteFocusBeforeDefine = null;
+
+function remoteManagerLayer() {
+  const manager = document.querySelector('.remote-dialog');
+  return manager?.closest('.remote-window') || manager?.closest('[data-augit-overlay]') || null;
+}
+
+/** 只重读远端列表并写回状态；不触发 overlay 区域整树刷新（避免碰掉 Push／本窗口）。 */
+async function reloadRemotes(generation = remoteRun.generation) {
+  const live = window.__augitLive;
+  const result = await invoke("git/remotes", {}, 30000).catch(() => null);
+  if (generation !== remoteRun.generation || live !== window.__augitLive) return [];
+  if (live && result && result.available) {
+    const selectedName = live.remotes?.remotes?.[live.selectedRemoteIndex]?.name;
+    const remotes = [...result.remotes].sort((left, right) => {
+      if (left.name === 'origin') return right.name === 'origin' ? 0 : -1;
+      if (right.name === 'origin') return 1;
+      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
+    });
+    live.remotes = { ...result, remotes };
+    if (selectedName) {
+      const next = remotes.findIndex(remote => remote.name === selectedName);
+      live.selectedRemoteIndex = next >= 0 ? next : null;
+    }
+    refreshPush();
+  }
+  return (live && live.remotes && live.remotes.remotes) || [];
+}
+
+async function openRemoteDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
   rememberDialogFocus();
-  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
-  const remotes = (live.remotes && live.remotes.remotes) || [];
-  if (!Number.isInteger(live.selectedRemoteIndex) || live.selectedRemoteIndex >= remotes.length) {
-    live.selectedRemoteIndex = remotes.length > 0 ? 0 : null;
-  }
+  const generation = ++remoteRun.generation;
+  remoteRun.saving = false;
+  remoteRun.opening = true;
+  remoteFocusBeforeDefine = null;
   live.remoteDraft = null;
-  renderRemoteManager();
+  // 打开时重读真实列表，避免显示过期远端（与 Push 打开时重读预览同一原则）。
+  await reloadRemotes(generation);
+  if (generation !== remoteRun.generation || !host.isConnected) return;
+  remoteRun.opening = false;
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  if (!Number.isInteger(live.selectedRemoteIndex) || live.selectedRemoteIndex < 0 || live.selectedRemoteIndex >= remotes.length) {
+    live.selectedRemoteIndex = null;
+  }
+  renderRemoteManager({ focus: true });
 }
 
 /** 当前打开的管理页类型（远端 / Stash / Worktree），工具栏动作据此分派。 */
@@ -9126,45 +9057,51 @@ async function refreshManagementList(kind) {
   await loadReferences().catch(() => null);
   if (kind === "remote") {
     renderRemoteManager();
-    setRemoteNotice("已刷新远端列表。");
+    setRemoteNotice("Remote list refreshed.");
   } else if (kind === "stash") {
     await loadStashFiles().catch(() => null);
     renderStashManager();
-    setStashNotice("已刷新 Stash 列表。");
+    setStashNotice("Stash list refreshed.");
   } else if (kind === "worktrees") {
     await loadWorktreeRemoval().catch(() => null);
     renderWorktreeManager();
-    setWorktreeNotice("已刷新 Worktree 列表。");
+    setWorktreeNotice("Worktree list refreshed.");
   }
 }
 
-/** 重绘远端管理窗口（保留 Push 窗口本身）。 */
-function renderRemoteManager() {
+/**
+ * 重绘远端主窗（只动远端自己的层，不刷新 overlay 区域整树、不碰 Push）。
+ *
+ * `liveManagementPage("remote")` 给出 Name/URL 表格；`measureRemoteDialog()` 在挂载后量一次
+ * （字号→`--remote-field`／`--remote-row`／`--remote-height` 等），否则实时窗口拿不到 `--remote-*`。
+ */
+function renderRemoteManager({ focus = false } = {}) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
-  if (!live || !host) return;
-  // 按**覆盖层**删除：`dialog()` 自己带一层 [data-augit-overlay]，
-  // 只删内层 dialog 会留下空的 .remote-window 外壳，反复重绘就层层累积。
-  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
+  if (!live || !host) return null;
+  // 只删远端自己的覆盖层：Push／设置／冲突等由各自路径管理。
+  document.querySelectorAll(".live-overlay.remote-window").forEach((node) => node.remove());
+  document.querySelectorAll(".live-overlay.remote-define-window, .live-overlay.remote-confirm-window").forEach((node) => node.remove());
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay remote-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "远端管理",
+    "Git Remotes",
     liveManagementPage("remote"),
-    '<button type="button" class="secondary-button" data-remote-action="cancel">关闭</button>',
+    '<button type="button" class="primary-button" data-remote-action="ok">OK</button>',
     true,
     "remote-dialog");
   host.appendChild(layer);
-  // 视觉稿的度量函数（字号→`--remote-field`／`--remote-button`／`--remote-title`／`--remote-height`）
-  // 此前只在静态页与后续区域重绘时跑到，实时远端管理窗口因此拿不到任何 `--remote-*` 令牌：
-  // 字段/按钮停在 CSS 默认值、不随界面字号排布（第 278 轮实测字号 20 时 `--remote-field` 为空、
-  // `#remote-field=name` 高度仍 30px）。挂载后立即量一次（与 Push/Clone 同一处理）。
+  // 标题栏关闭叉也是「OK」（参考 `createActions() = arrayOf(okAction)` 的唯一动作）。
+  layer.querySelector(".dialog-header .icon-button")?.setAttribute("data-remote-action", "close");
   if (typeof measureRemoteDialog === "function") measureRemoteDialog();
   setRemoteNotice("");
+  if (live.remoteDraft) renderRemoteDefine();
+  if (focus) layer.querySelector(".remote-table")?.focus({ preventScroll: true });
+  return layer;
 }
 
-/** 远端管理页内的局部提示（规格 §10.2）。 */
+/** 远端主窗内的局部提示（规格 §10.2）。 */
 function setRemoteNotice(message) {
   const notice = document.querySelector(".remote-window .remote-notice");
   if (!notice) return;
@@ -9173,107 +9110,303 @@ function setRemoteNotice(message) {
   notice.title = message || "";
 }
 
-/** 读取当前编辑中的远端草稿（界面字段优先，其次是选中的远端）。 */
-function currentRemoteDraft() {
+/** 远端表格的选择：只改 class／aria 与状态，不重建表格（重建会破双击与焦点）。 */
+function selectRemoteRow(table, index, { focusTable = false } = {}) {
   const live = window.__augitLive;
-  const layer = document.querySelector(".remote-window");
-  if (!live || !layer) return null;
-  const field = (name) => {
+  if (!table) return;
+  const rows = [...table.querySelectorAll(".remote-row[data-remote-index]")];
+  if (!Number.isInteger(index) || index < 0 || index >= rows.length) return;
+  if (live) {
+    live.selectedRemoteIndex = index;
+    live.remoteDraft = null;
+  }
+  rows.forEach((row, candidate) => {
+    const active = candidate === index;
+    row.classList.toggle("selected", active);
+    row.setAttribute("aria-selected", String(active));
+  });
+  const manager = table.closest(".remote-dialog") || table.closest("[data-augit-overlay]");
+  manager?.querySelectorAll('[data-remote-action="remove"], [data-remote-action="edit"]').forEach((button) => {
+    button.disabled = false;
+  });
+  rows[index].scrollIntoView({ block: "nearest" });
+  if (focusTable) table.focus({ preventScroll: true });
+}
+
+/** Define Remote 次模态的字段值（界面优先；没有界面节点时退回状态草稿）。 */
+function remoteDefineDraftFromDom() {
+  const live = window.__augitLive;
+  const layer = document.querySelector(".live-overlay.remote-define-window");
+  if (!live || !live.remoteDraft) return null;
+  if (!layer) return live.remoteDraft;
+  const value = (name) => {
     const node = layer.querySelector(`[data-remote-field="${name}"]`);
-    return node ? node.value.trim() : "";
+    if (!node) return "";
+    return name === "fetch" ? node.checked : node.value;
   };
-  const remotes = (live.remotes && live.remotes.remotes) || [];
-  const selected = Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
-  if (!layer.querySelector("[data-remote-field]")) return null;
   return {
-    name: field("name"),
-    fetchUrl: field("fetchUrl"),
-    pushUrl: field("pushUrl"),
-    currentName: selected ? selected.name : null,
+    ...live.remoteDraft,
+    name: value("name").trim(),
+    fetchUrl: value("fetchUrl").trim(),
+    pushUrl: value("pushUrl").trim(),
+    fetch: !!value("fetch"),
+    error: "",
   };
 }
 
-/** 保存远端：没有选中项时按"新增"提交，否则按"更新"提交（名称可改）。 */
-async function saveRemoteFromManager() {
+/** 打开 Define Remote 次模态（参考 `GitDefineRemoteDialog`）。 */
+function openRemoteDefine(mode) {
   const live = window.__augitLive;
-  const draft = currentRemoteDraft();
-  if (!live || !draft) return null;
-  if (draft.name.length === 0 || draft.fetchUrl.length === 0) {
-    setRemoteNotice("名称与获取 URL 都不能为空。");
+  if (!live) return null;
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  const selected = Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+  if (mode === "edit" && !selected) return null;
+  remoteRun.generation += 1;
+  remoteRun.saving = false;
+  const active = document.activeElement;
+  // 记录 Define 打开前主窗内的焦点（一般是表格或工具条按钮），取消时归还。
+  remoteFocusBeforeDefine = active && active.closest && active.closest(".remote-dialog") ? active : null;
+  live.remoteDraft = mode === "edit"
+    ? { name: selected.name, fetchUrl: selected.fetchUrl || "", pushUrl: selected.pushUrl || "", currentName: selected.name, fetch: true, error: "", busy: false }
+    // 参考 `addRemote()`：仓库里没有名为 origin 的远端时把它作为建议名，否则留空。
+    : { name: remotes.some((remote) => remote.name === "origin") ? "" : "origin", fetchUrl: "", pushUrl: "", currentName: null, fetch: true, error: "", busy: false };
+  return renderRemoteDefine();
+}
+
+/** 渲染 Define Remote 次模态；初始焦点按参考：Name 为空聚焦 Name，否则聚焦 URL。 */
+function renderRemoteDefine() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const draft = live && live.remoteDraft;
+  if (!draft || !host) return null;
+  document.querySelectorAll(".live-overlay.remote-define-window").forEach((node) => node.remove());
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay remote-define-window";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = dialog(
+    "Define Remote",
+    remoteDefineBody(draft, { busy: !!draft.busy, error: draft.error || "" }),
+    `<button type="button" class="primary-button" data-remote-define="ok"${draft.busy ? " disabled" : ""}>OK</button>`
+      + '<button type="button" class="secondary-button" data-remote-define="cancel">Cancel</button>',
+    false,
+    "remote-define-dialog");
+  host.appendChild(layer);
+  layer.querySelector(".dialog-header .icon-button")?.setAttribute("data-remote-define", "cancel");
+  if (typeof measureRemoteDialog === "function") measureRemoteDialog();
+  const target = !draft.name
+    ? layer.querySelector('[data-remote-field="name"]')
+    : layer.querySelector('[data-remote-field="fetchUrl"]');
+  target?.focus({ preventScroll: true });
+  return layer;
+}
+
+/** 关闭 Define Remote；默认把焦点还给打开前的行／工具条（规格 §7.11）。 */
+function closeRemoteDefine({ restoreFocus = true, invalidate = true } = {}) {
+  const live = window.__augitLive;
+  if (invalidate) {
+    remoteRun.generation += 1;
+    remoteRun.saving = false;
+  }
+  document.querySelectorAll(".live-overlay.remote-define-window").forEach((node) => node.remove());
+  if (live) live.remoteDraft = null;
+  if (!restoreFocus) { remoteFocusBeforeDefine = null; return; }
+  const previous = remoteFocusBeforeDefine;
+  remoteFocusBeforeDefine = null;
+  syncModalBackground();
+  if (previous && previous.isConnected) { previous.focus({ preventScroll: true }); return; }
+  document.querySelector(".remote-dialog .remote-table")?.focus({ preventScroll: true });
+}
+
+/** 保存进行中冻结字段与 OK（阻止重复提交）。 */
+function setRemoteDefineBusy(busy) {
+  const layer = document.querySelector(".live-overlay.remote-define-window");
+  if (!layer) return;
+  layer.querySelectorAll("[data-remote-field]").forEach((node) => { node.disabled = busy; });
+  const ok = layer.querySelector('[data-remote-define="ok"]');
+  if (ok) ok.disabled = busy;
+  layer.dataset.busy = String(busy);
+}
+
+/**
+ * 保存 Define Remote：新增按 add、编辑按 update，payload 保持 `currentName/name/fetchUrl/pushUrl`。
+ *
+ * 客户端先判空与重名（权威 `GitDefineRemoteDialog` 的 `validationOnApply`），失败不调用 Git；
+ * Git 失败保留原输入。名称、Fetch URL、Push URL 都没变化时直接关窗，不写、不取回
+ * （参考 `editRemote()`：`newRemoteName == oldName && newRemoteUrl == oldUrl` 直接返回）。
+ * 保存成功且 Fetch remote 勾选时调用一次 `git/fetch {remote: name}`——默认勾选加 OK 提交
+ * 就是用户的明确取回请求，不引入额外的"复选框改动过"标记；取消、失败、取消勾选都不取回。
+ */
+async function saveRemoteDefine() {
+  const live = window.__augitLive;
+  const layer = document.querySelector(".live-overlay.remote-define-window");
+  const draft = remoteDefineDraftFromDom();
+  if (!live || !layer || !draft || remoteRun.saving) return null;
+  const remotes = (live.remotes && live.remotes.remotes) || [];
+  const original = draft.currentName ? remotes.find((remote) => remote.name === draft.currentName) || null : null;
+  const fail = (message, field) => {
+    const notice = layer.querySelector(".remote-notice");
+    if (notice) { notice.hidden = false; notice.textContent = notice.title = message; }
+    layer.querySelector(`[data-remote-field="${field}"]`)?.focus({ preventScroll: true });
+    return null;
+  };
+  if (!draft.name) return fail("Remote name cannot be empty", "name");
+  // GitRefNameValidator 的非法字符、路径段与尾缀规则；宿主仍执行自己的最终校验。
+  if (/^[.\-/]|[\x00-\x20\x7f~:^?*"\[\\]|@\{|\/\/|\.\.|\.\/|\/\.|[./]$|\.lock$/.test(draft.name)) {
+    return fail("Remote name contains illegal characters", "name");
+  }
+  if (!draft.fetchUrl) return fail("Remote URL cannot be empty", "fetchUrl");
+  if (draft.name !== draft.currentName && remotes.some((remote) => remote.name === draft.name)) {
+    return fail(`Remote name '${draft.name}' is already used`, "name");
+  }
+
+  const originalUrl = original ? (original.fetchUrl || "") : "";
+  const originalPush = original ? (original.pushUrl || "") : "";
+  if (original && draft.name === original.name && draft.fetchUrl === originalUrl && draft.pushUrl === originalPush) {
+    closeRemoteDefine();
     return null;
   }
 
-  const payload = draft.currentName
-    ? { action: "update", currentName: draft.currentName, name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl }
-    : { action: "add", name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl };
+  const generation = remoteRun.generation;
+  const layerIdentity = layer;
+  remoteRun.saving = true;
+  setRemoteDefineBusy(true);
   let result = null;
   let failure = null;
   try {
-    result = await invoke("git/remote-write", payload, 60000);
-    if (!result || result.changed === false) {
-      failure = (result && result.reason) || "远端没有保存成功。";
-    }
+    const payload = draft.currentName
+      ? { action: "update", currentName: draft.currentName, name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl }
+      : { action: "add", name: draft.name, fetchUrl: draft.fetchUrl, pushUrl: draft.pushUrl };
+    result = await invoke("git/remote-write", payload, 0);
+    if (!result || result.changed === false) failure = (result && result.reason) || "Remote was not saved.";
   } catch (error) {
     failure = String((error && error.message) || error);
   }
-
+  // 晚到结果：层已关闭（用户取消）或已被新一代取代时整体丢弃，不重开窗口、不抢焦点。
+  if (generation !== remoteRun.generation || !layerIdentity.isConnected) {
+    return result;
+  }
+  remoteRun.saving = false;
   if (failure) {
-    setRemoteNotice(describeFailure(failure, {
-      unchanged: "远端配置没有变化。",
-      next: "可以检查名称与 URL 后重试。",
-    }));
+    setRemoteDefineBusy(false);
+    const notice = layer.querySelector(".remote-notice");
+    if (notice) {
+      notice.hidden = false;
+      notice.textContent = notice.title = describeFailure(failure, {
+        unchanged: "Remote configuration is unchanged.",
+        next: "Check the name and URL, then retry.",
+      });
+    }
     return null;
   }
 
+  const shouldFetch = draft.fetch !== false;
   window.__augitRemoteSaved = true;
   live.remoteDraft = null;
-  await loadReferences().catch(() => null);
-  const remotes = (live.remotes && live.remotes.remotes) || [];
-  const index = remotes.findIndex((remote) => remote.name === draft.name);
-  live.selectedRemoteIndex = index >= 0 ? index : 0;
-  renderRemoteManager();
-  setRemoteNotice(draft.currentName ? `已保存 ${draft.name}。` : `已新增 ${draft.name}。`);
-  // 远端变化会影响推送预览：按已有数据重算，不发起新的远端查询。
+  closeRemoteDefine({ restoreFocus: false, invalidate: false });
+  await reloadRemotes(generation);
+  if (generation !== remoteRun.generation) return result;
+  const refreshed = (live.remotes && live.remotes.remotes) || [];
+  const index = refreshed.findIndex((remote) => remote.name === draft.name);
+  live.selectedRemoteIndex = index >= 0 ? index : (refreshed.length > 0 ? 0 : null);
+  renderRemoteManager({ focus: true });
+  const savedNotice = draft.currentName ? `Saved ${draft.name}.` : `Added ${draft.name}.`;
+  setRemoteNotice(savedNotice);
   refreshPush();
+  if (shouldFetch) {
+    let fetched = null;
+    try {
+      fetched = await invoke("git/fetch", { remote: draft.name }, 0);
+    } catch (error) {
+      fetched = { available: false, fetched: false, reason: String((error && error.message) || error) };
+    }
+    if (generation !== remoteRun.generation) return result;
+    const ok = !!(fetched && fetched.available !== false && fetched.fetched !== false);
+    setRemoteNotice(ok
+      ? `${savedNotice} Fetched ${draft.name}.`
+      : `${savedNotice} ${describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Run Fetch again later." })}`);
+    if (document.querySelector('.push-dialog')) {
+      await loadUnpushed().catch(() => null);
+      if (generation === remoteRun.generation) refreshPush();
+    }
+  }
   return result;
 }
 
-/** 删除选中的远端（视觉稿的动作行里就有它，不需要额外确认：不涉及本地数据）。 */
-async function deleteRemoteFromManager() {
+/** Remove Remote 确认（规格 §7.11）：显示名称、URL 与影响；取消／Esc 不写。 */
+function openRemoteRemoveConfirm() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const remotes = (live && live.remotes && live.remotes.remotes) || [];
+  const selected = live && Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+  if (!live || !host || !selected) return null;
+  remoteRun.generation += 1;
+  remoteRun.saving = false;
+  document.querySelectorAll(".live-overlay.remote-confirm-window").forEach((node) => node.remove());
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay remote-confirm-window";
+  layer.setAttribute("data-augit-overlay", "");
+  const url = selected.fetchUrl || selected.url || "";
+  layer.innerHTML = dialog(
+    "Remove Remote",
+    `<p class="remote-confirm-text">Remove remote ${escapeHtml(selected.name)} '${escapeHtml(url)}'?</p>`
+      + '<p class="commit-meta">This deletes the remote from the local repository configuration. Local commits and the working tree are unchanged; fetch and push that target it will stop working.</p>'
+      + '<p class="remote-notice commit-meta" role="status" hidden></p>',
+    '<button type="button" class="danger-button" data-remote-confirm="remove">Yes</button>'
+      + '<button type="button" class="secondary-button" data-remote-confirm="cancel">No</button>',
+    false,
+    "remote-define-dialog remote-confirm-dialog");
+  host.appendChild(layer);
+  layer.querySelector(".dialog-header .icon-button")?.setAttribute("data-remote-confirm", "cancel");
+  if (typeof measureRemoteDialog === "function") measureRemoteDialog();
+  layer.querySelector('[data-remote-confirm="cancel"]')?.focus({ preventScroll: true });
+  return layer;
+}
+
+function closeRemoteRemoveConfirm({ restoreFocus = true, invalidate = true } = {}) {
+  if (invalidate) {
+    remoteRun.generation += 1;
+    remoteRun.saving = false;
+  }
+  document.querySelectorAll(".live-overlay.remote-confirm-window").forEach((node) => node.remove());
+  syncModalBackground();
+  if (restoreFocus) document.querySelector(".remote-dialog .remote-table")?.focus({ preventScroll: true });
+}
+
+/** 确认删除：失败保留原选择与列表并把原因写进主窗；成功按实际列表刷新。 */
+async function confirmRemoveRemote() {
   const live = window.__augitLive;
   const remotes = (live && live.remotes && live.remotes.remotes) || [];
   const selected = live && Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
-  if (!live || !selected) {
-    setRemoteNotice("先选择一个远端。");
-    return null;
-  }
-
+  const confirmLayer = document.querySelector(".live-overlay.remote-confirm-window");
+  if (!live || !selected || !confirmLayer || remoteRun.saving) return null;
+  const generation = remoteRun.generation;
+  remoteRun.saving = true;
+  confirmLayer.querySelectorAll("[data-remote-confirm]").forEach((node) => { node.disabled = true; });
   let result = null;
   let failure = null;
   try {
-    result = await invoke("git/remote-write", { action: "delete", name: selected.name }, 60000);
-    if (!result || result.changed === false) {
-      failure = (result && result.reason) || "远端没有删除。";
-    }
+    result = await invoke("git/remote-write", { action: "delete", name: selected.name }, 0);
+    if (!result || result.changed === false) failure = (result && result.reason) || "Remote was not deleted.";
   } catch (error) {
     failure = String((error && error.message) || error);
   }
-
+  if (generation !== remoteRun.generation || !confirmLayer.isConnected) return result;
+  remoteRun.saving = false;
+  closeRemoteRemoveConfirm({ restoreFocus: false, invalidate: false });
   if (failure) {
+    renderRemoteManager({ focus: true });
     setRemoteNotice(describeFailure(failure, {
-      unchanged: "远端配置没有变化。",
-      next: "可以先刷新列表确认远端是否仍存在。",
+      unchanged: "Remote configuration is unchanged.",
+      next: "Refresh the list to check whether the remote still exists.",
     }));
     return null;
   }
-
   window.__augitRemoteDeleted = true;
-  live.remoteDraft = null;
-  await loadReferences().catch(() => null);
-  const remaining = (live.remotes && live.remotes.remotes) || [];
-  live.selectedRemoteIndex = remaining.length > 0 ? 0 : null;
-  renderRemoteManager();
-  setRemoteNotice(`已删除远端 ${selected.name}。`);
+  const refreshed = await reloadRemotes(generation);
+  if (generation !== remoteRun.generation) return result;
+  live.selectedRemoteIndex = refreshed.length > 0 ? 0 : null;
+  renderRemoteManager({ focus: true });
+  setRemoteNotice(`Deleted remote ${selected.name}.`);
   refreshPush();
   return result;
 }
@@ -9283,11 +9416,7 @@ function startManagementCreate(kind) {
   const live = window.__augitLive;
   if (!live) return;
   if (kind === "remote") {
-    live.remoteDraft = { name: "", fetchUrl: "", pushUrl: "" };
-    live.selectedRemoteIndex = null;
-    renderRemoteManager();
-    const field = document.querySelector(".remote-window [data-remote-field=\"name\"]");
-    if (field) field.focus({ preventScroll: true });
+    openRemoteDefine("add");
     return;
   }
   if (kind === "stash") {
@@ -9300,75 +9429,59 @@ function startManagementCreate(kind) {
   }
 }
 
-/** 关闭远端窗口：只重读推送预览，不动 Push 窗口本身。 */
+/**
+ * 关闭远端窗口（规格 §7.11／§7.12）。
+ *
+ * 关闭是新一代：在途保存／取回的晚到结果全部作废。只在**原本就有 Push** 时重读预览并
+ * 原位重建唯一 Push；没有 Push 时不凭空创建第二个。只重读远端与引用，不刷新 overlay 区域整树。
+ */
 async function closeRemoteDialog() {
   const live = window.__augitLive;
-  document.querySelectorAll("[data-augit-overlay].live-overlay.remote-window").forEach((node) => node.remove());
+  const generation = ++remoteRun.generation;
+  remoteRun.saving = false;
+  remoteRun.opening = false;
+  remoteFocusBeforeDefine = null;
+  // 记录 Push 是否本来就开着及其节点身份：只在原本存在时重读预览并原位重建。
+  const pushDialog = document.querySelector(".live-overlay .dialog.push-dialog, .dialog.push-dialog");
+  const managerLayer = remoteManagerLayer();
+  managerLayer?.remove();
+  document.querySelectorAll(".live-overlay.remote-confirm-window, .live-overlay.remote-define-window, .live-overlay.remote-window").forEach((node) => node.remove());
+  if (live) live.remoteDraft = null;
   if (!live) return;
   restoreDialogFocus();
-  const [references, remotes] = await Promise.all([
-    invoke("git/references", {}, 30000).catch(() => null),
-    invoke("git/remotes", {}, 30000).catch(() => null),
-  ]);
+  const references = await invoke("git/references", {}, 30000).catch(() => null);
+  if (generation !== remoteRun.generation || live !== window.__augitLive) return;
   if (references && references.available) live.references = references;
-  if (remotes && remotes.available) live.remotes = remotes;
-  // 只重读预览；Push 窗口节点原样保留（不新建第二个）。
-  await loadUnpushed();
-  renderPushDialog();
+  await reloadRemotes(generation);
+  if (generation !== remoteRun.generation || !pushDialog?.isConnected) return;
+  const preview = await invoke("git/unpushed", {}, 30000).catch(error => ({ available: false, reason: error.message }));
+  if (generation !== remoteRun.generation || !pushDialog.isConnected || live !== window.__augitLive) return;
+  live.unpushedReady = preview?.available !== false && !!preview?.ready;
+  live.unpushedCommits = live.unpushedReady ? (preview.commits || []) : [];
+  live.unpushedUpstream = live.unpushedReady ? preview.upstream : null;
+  live.unpushedReason = live.unpushedReady ? null : preview?.reason || "Cannot load outgoing commits.";
+  live.push = computePush(live);
+  const body = pushDialog.querySelector('.dialog-body');
+  body.innerHTML = livePushDialogBody();
+  const canPush = live.push.ready && live.push.commits.length > 0;
+  pushDialog.dataset.pushReady = String(canPush);
+  const confirm = pushDialog.querySelector('[data-push-action="confirm"]');
+  if (confirm) confirm.disabled = !canPush;
+  const list = pushDialog.querySelector('.push-commits');
+  bindPushCommitSelection(list);
+  measurePushDialog();
+  syncModalBackground();
+  list?.focus({ preventScroll: true });
 }
 
-/** 保存远端；失败原因写在远端窗口内，不关闭窗口。 */
+/** 远端主窗的动作（规格 §7.11）：Add/Remove/Edit 与唯一 OK。 */
 async function runRemoteAction(action) {
-  if (action === "cancel") {
-    await closeRemoteDialog();
-    return;
-  }
-
-  if (action === "delete") {
-    await deleteRemoteFromManager();
-    return;
-  }
-
-  // 保存不再关闭窗口：视觉稿把「保存」放在详情动作行里，窗口留在原地显示结果。
-  if (action === "save") {
-    await saveRemoteFromManager();
-    return;
-  }
-
-  const layer = document.querySelector(".remote-window");
-  if (!layer) return;
-  const value = (name) => {
-    const field = layer.querySelector(`[data-remote-field="${name}"]`);
-    return field ? field.value.trim() : "";
-  };
-
-  let result;
-  try {
-    result = await invoke("git/remote-write", {
-      action: layer.dataset.remoteCurrent ? "update" : "add",
-      name: value("name"),
-      currentName: layer.dataset.remoteCurrent || undefined,
-      fetchUrl: value("fetchUrl"),
-      pushUrl: value("pushUrl") || undefined,
-    }, 60000);
-  } catch (error) {
-    showRemoteNotice(String(error && error.message || error));
-    return;
-  }
-
-  if (!result || !result.changed) {
-    showRemoteNotice((result && result.reason) || "远端保存失败。");
-    return;
-  }
-
-  await closeRemoteDialog();
-}
-
-function showRemoteNotice(message) {
-  const notice = document.querySelector(".remote-window .remote-notice");
-  if (!notice) return;
-  notice.textContent = message;
-  notice.hidden = false;
+  const live = window.__augitLive;
+  if (!live) return;
+  if (action === "add") { openRemoteDefine("add"); return; }
+  if (action === "edit") { openRemoteDefine("edit"); return; }
+  if (action === "remove") { openRemoteRemoveConfirm(); return; }
+  if (action === "ok" || action === "cancel" || action === "close") { await closeRemoteDialog(); return; }
 }
 
 /**
@@ -9388,7 +9501,7 @@ async function confirmPushDialog() {
   const token = ++pushDialogRun.token;
   pushDialogRun.running = true;
   pushDialogRun.cancelling = false;
-  setPushDialogRunning(dialog, true, "正在推送…");
+  setPushDialogRunning(dialog, true, "Pushing…");
 
   const result = await pushCurrentBranch();
   // 关闭/销毁后退拒绝晚到结果（代次已前进）。
@@ -9400,12 +9513,12 @@ async function confirmPushDialog() {
   if (pushDialogRun.cancelling) {
     pushDialogRun.cancelling = false;
     window.__augitPushError = null;
-    setPushDialogRunning(dialog, false, "操作已取消。");
+    setPushDialogRunning(dialog, false, "Operation cancelled.");
     return;
   }
 
   if (!result || !result.pushed) {
-    window.__augitPushError = (result && result.reason) || "推送失败。";
+    window.__augitPushError = (result && result.reason) || "Push failed.";
     setPushDialogRunning(dialog, false, window.__augitPushError);
     return;
   }
@@ -9428,9 +9541,20 @@ async function confirmPushDialog() {
  * 打开期间不重建背景页面，保存后只应用设置本身的影响。
  */
 function openSettingsDialog() {
+  if (window.__augitSettingsWindowAvailable && !window.__augitSettingsSurface) {
+    rememberDialogFocus();
+    void invoke('window/settings-open', {page:'appearance'}, 0).catch(error => { window.__augitError = 'settings-open:' + error.message; });
+    return;
+  }
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
+  // 呈现交接期间的重复入口复用同一表单，不能关闭重建或清空未保存草稿。
+  const existing = document.querySelector('.settings-window .dialog');
+  if (existing) {
+    if (!existing.contains(document.activeElement)) existing.querySelector('[data-settings-filter]')?.focus({ preventScroll: true });
+    return;
+  }
   rememberDialogFocus();
   if (!live.settings) {
     window.__augitError = "settings:not-loaded";
@@ -9440,6 +9564,8 @@ function openSettingsDialog() {
   closeLiveOverlay();
   // 每次打开都从第一个分类开始；草稿只在**本次打开期间**跨分类保留未保存编辑。
   live.settingsPage = "appearance";
+  live.settingsBack=[];
+  live.settingsForward=[];
   live.settingsDraft = {};
   // 搜索框也每次从空开始（权威 `SearchTextField` 只记历史、不恢复文本）。
   live.settingsFilter = "";
@@ -9448,22 +9574,45 @@ function openSettingsDialog() {
   layer.className = "overlay-layer live-overlay settings-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "设置 — Augit",
+    "Settings — Augit",
     liveSettingsBody("appearance"),
     // 底栏照权威 `SettingsDialog.createActions()`：OK ＋ Cancel ＋ Apply（主设置对话框
     // `isApplyButtonNeeded = true`、`isResetButtonNeeded = false`，`SettingsDialog.java:86-96,200-215`）
     // ⇒ 「取消 / 应用 / 确定」，与视觉稿同一组。`apply` 只在有未保存修改时可用
     //（`SettingsEditor.updateStatus()`：`editor.getApplyAction().setEnabled(isModified())`）。
-    `<button type="button" class="secondary-button" data-settings-action="cancel">取消</button>`
-      + `<button type="button" class="secondary-button" data-settings-action="apply" disabled aria-disabled="true">应用</button>`
-      + `<button type="button" class="primary-button" data-settings-action="save">确定</button>`,
+    `<button type="button" class="primary-button" data-settings-action="save">OK</button>`
+      + `<button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button>`
+      + `<button type="button" class="secondary-button" data-settings-action="apply" disabled aria-disabled="true">Apply</button>`
+      ,
     true,
-    "settings-dialog");
+    "dialog-xl settings-dialog");
   host.appendChild(layer);
+  currentSettingsSession();
+  syncSettingsBusy();
   // 复用既有的保存动作绑定（它按 .dialog-xl 结构挂载）。
   bindSettingsSave();
   bindSettingsPages();
+  void ensureSettingsFonts();
   void ensureGitDetection();
+}
+
+/** 字体枚举只在首次打开设置时请求，结果就地补入下拉项，不重绘或覆盖用户草稿。 */
+async function ensureSettingsFonts() {
+  const live=window.__augitLive;if(!live)return;
+  if(!live.fontFamilies&&!live.fontFamiliesRequest){
+    live.fontFamiliesRequest=invoke('settings/fonts',{},15000).then(result=>{
+      live.fontFamilies=Array.isArray(result?.families)?result.families.filter(name=>typeof name==='string'&&name):[];
+    }).catch(()=>{live.fontFamilies=[];});
+  }
+  await live.fontFamiliesRequest;
+  if (await loadBundledCodeFont() && !live.fontFamilies.some(name => name.toLowerCase() === 'jetbrains mono')) {
+    live.fontFamilies.push('JetBrains Mono');
+  }
+  document.querySelectorAll('.settings-layout .font-family-select').forEach(select=>{
+    const current=select.value;
+    const names=[...new Set([current,...live.fontFamilies])].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
+    select.replaceChildren(...names.map(name=>{const option=document.createElement('option');option.value=option.textContent=name;option.selected=name===current;return option;}));
+  });
 }
 
 /** 读取一次 Git 检测结果（规格 §7.17 的 Git 分类要显示检测结果与最低版本）。 */
@@ -9477,7 +9626,7 @@ async function ensureGitDetection() {
   } catch (error) {
     detection = { available: false, reason: String((error && error.message) || error) };
   }
-  live.gitDetection = detection || { available: false, reason: "无法读取 Git 检测结果。" };
+  live.gitDetection = detection || { available: false, reason: "Cannot read Git detection results." };
   // 对话框正开在 Git 分类上时补一次重绘，避免一直停在"正在检测…"。
   if (live.settingsPage === "git" && document.querySelector(".settings-window")) renderSettingsDialog();
   return live.gitDetection;
@@ -9510,6 +9659,46 @@ function collectSettingsDraft() {
 function bindSettingsPages() {
   if (window.__augitSettingsPagesBound) return;
   window.__augitSettingsPagesBound = true;
+
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-settings-nav]');
+    const live=window.__augitLive;if(!button||button.disabled||!live)return;
+    event.preventDefault();
+    const back=button.dataset.settingsNav==='back';
+    const from=back?live.settingsBack:live.settingsForward;
+    const to=back?live.settingsForward:live.settingsBack;
+    if(!from?.length)return;
+    to.push(live.settingsPage);switchSettingsPage(from.pop(),{recordHistory:false});
+  },true);
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest?.("[data-restore-reference]");
+    const live = window.__augitLive;
+    if (!button || !live?.settings) return;
+    event.preventDefault();
+    const session = currentSettingsSession();
+    if (session?.status === 'saving') return;
+    await ensureSettingsFonts();
+    if (!isCurrentSettingsSession(session)) return;
+    const installed = live.fontFamilies || [];
+    const preferred = REFERENCE_APPEARANCE.monospaceFontFamily;
+    const resolved = [preferred, 'Cascadia Mono', 'Consolas', 'Courier New']
+      .map(name => installed.find(family => family.toLowerCase() === name.toLowerCase())).find(Boolean)
+      || live.settings.monospaceFontFamily;
+    collectSettingsDraft();
+    Object.assign(live.settingsDraft, REFERENCE_APPEARANCE, { monospaceFontFamily: resolved });
+    beginThemePreview();
+    applyPageTheme("light");
+    renderSettingsDialog();
+    syncSettingsDirtyMarkers();
+    const feedback = session.dialog.querySelector('.footer-help');
+    if (feedback && resolved !== preferred) {
+      feedback.textContent = installed.length
+        ? `JetBrains Mono is unavailable. Using ${resolved}.`
+        : `Installed fonts could not be verified. Keeping ${resolved}.`;
+      feedback.title = feedback.textContent;
+    }
+  }, true);
 
   // 归属判定一律用"在 .settings-layout 里"，不写死外层容器类：
   // 实时外壳是 `.settings-window`，`--scene settings` 是 `.dialog-xl`；
@@ -9580,7 +9769,7 @@ function bindSettingsPages() {
     return true;
   };
   window.addEventListener("keydown", (event) => {
-    if (event.isComposing) return;
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey
         && String(event.key).toLowerCase() === "f") {
       const field = document.querySelector(".settings-window [data-settings-filter]")
@@ -9599,13 +9788,16 @@ function bindSettingsPages() {
       return;
     }
     if (event.key !== "Enter" || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-    if (event.target && event.target.tagName === "TEXTAREA") return;
     const dialog = document.querySelector(".settings-window .dialog");
-    if (!dialog) return;
-    const save = dialog.querySelector('[data-settings-action="save"]');
-    if (!save) return;
+    if (!dialog || !dialog.contains(event.target)) return;
+    // 下拉与多行字段保留原生键盘行为；按钮优先执行自身动作，禁用项不落到 OK。
+    if (event.target.matches('select, textarea') || event.target.isContentEditable) return;
+    const focused = event.target.closest('button');
+    const action = focused || dialog.querySelector('[data-settings-action="save"]');
     event.preventDefault();
-    save.click();
+    event.stopImmediatePropagation();
+    if (event.repeat || !action || action.disabled || action.getAttribute('aria-disabled') === 'true') return;
+    action.click();
   }, true);
 
   // Shell 不是"自定义命令"时禁用自定义启动命令输入框：避免"填了却不生效"的错觉。
@@ -9789,7 +9981,7 @@ function syncSettingsDirtyMarkers() {
     const existing = row.querySelector(".settings-dirty");
     if (dirty.has(page) && !existing) {
       row.insertAdjacentHTML("beforeend",
-        '<span class="settings-dirty" role="status" aria-label="有未保存的修改" title="有未保存的修改"></span>');
+        '<span class="settings-dirty" role="status" aria-label="Unsaved changes" title="Unsaved changes"></span>');
     } else if (!dirty.has(page) && existing) {
       existing.remove();
     }
@@ -9800,20 +9992,24 @@ function syncSettingsDirtyMarkers() {
     || document.querySelector(".dialog-xl [data-settings-action=\"apply\"]")
     || layout.querySelector('[data-settings-action="apply"]');
   if (applyButton) {
-    const enabled = dirty.size > 0;
+    const enabled = dirty.size > 0 && !settingsWritePending;
     applyButton.disabled = !enabled;
     if (enabled) applyButton.removeAttribute("aria-disabled");
     else applyButton.setAttribute("aria-disabled", "true");
   }
+  syncSettingsBusy();
 }
 
 /** 切到某个分类：先收草稿，再只重绘右页（左导航与底栏保持）。 */
-function switchSettingsPage(page) {
+function switchSettingsPage(page,{recordHistory=true}={}) {
   const live = window.__augitLive;
   if (!live) return;
   const allowed = ["appearance", "file-view", "git", "terminal"];
   const next = allowed.includes(page) ? page : "appearance";
   collectSettingsDraft();
+  if(recordHistory&&live.settingsPage&&live.settingsPage!==next){
+    (live.settingsBack||=[]).push(live.settingsPage);live.settingsForward=[];
+  }
   live.settingsPage = next;
   renderSettingsDialog();
   // 搜索驱动的切页：重绘后重新标出命中项并把焦点交回搜索框（权威在过滤期间保持搜索框持有焦点）。
@@ -9837,10 +10033,16 @@ function renderSettingsDialog() {
   if (!replacement) return;
   window_.replaceWith(replacement);
   bindSettingsPages();
+  syncSettingsDirtyMarkers();
 }
 
 /** 关闭设置对话框。 */
 function closeSettingsDialog() {
+  settingsSession = null;
+  if (window.__augitSettingsSurface) {
+    void invoke('window/settings-close', {}, 0).catch(error => { window.__augitError = 'settings-close:' + error.message; });
+    return;
+  }
   // 取消（含 Esc／右上角关闭）要把预览过的主题退回原设置（规格 §7.17 第 3 条）。
   revertThemePreview();
   document.querySelectorAll(".settings-window").forEach((node) => node.remove());
@@ -9856,8 +10058,10 @@ function currentThemeName() {
 function applyPageTheme(name) {
   if (name === "dark") document.body.dataset.theme = "dark";
   else delete document.body.dataset.theme;
+  if (window.__augitSettingsSurface) void invoke('window/settings-preview', {theme:name}).catch(() => {});
   // 终端正文画在 canvas 上，CSS 规则管不到它，主题变化要单独重排一次（与 `theme/changed` 同一条）。
   refreshTerminalTypography();
+  if (typeof refreshCommitGraphGeometry === "function") refreshCommitGraphGeometry();
 }
 
 /**
@@ -9941,10 +10145,10 @@ function openResetDialog() {
   });
   const template = document.createElement("template");
   template.innerHTML = dialog(
-    "Reset 当前分支",
+    "Reset Current Branch",
     liveResetBody(),
-    `<button type="button" class="secondary-button">取消</button>`
-      + `<button type="button" class="reset-run danger-button">确认 Reset Hard</button>`,
+    `<button type="button" class="reset-run danger-button">Reset Hard</button>`
+      + `<button type="button" class="secondary-button">Cancel</button>`,
     false,
     "reset-dialog");
   // 直接用 dialog() 自己的覆盖层当实时层：再套一层 div 会让
@@ -9975,9 +10179,9 @@ function openWorkspaceDialog() {
   layer.className = "overlay-layer live-overlay workspace-open-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "打开工作区",
+    "Open Workspace",
     liveWorkspaceOpenBody(),
-    '<button type="button" class="secondary-button" data-workspace-action="cancel">取消</button>',
+    '<button type="button" class="secondary-button" data-workspace-action="cancel">Cancel</button>',
     true,
     "workspace-open-dialog");
   host.appendChild(layer);
@@ -9996,13 +10200,13 @@ function setWorkspaceNotice(message) {
 async function openWorkspacePath(path) {
   const live = window.__augitLive;
   if (!live || !path) return null;
-  setWorkspaceNotice(`正在打开 ${path}…`);
+  setWorkspaceNotice(`Opening ${path}…`);
   let payload = null;
   let failure = null;
   try {
     payload = await invoke("workspace/open", { path }, 30000);
     if (!payload || payload.opened === "invalid") {
-      failure = (payload && payload.reason) || "无法打开该目录。";
+      failure = (payload && payload.reason) || "Cannot open this directory.";
     }
   } catch (error) {
     failure = String((error && error.message) || error);
@@ -10010,8 +10214,8 @@ async function openWorkspacePath(path) {
 
   if (failure) {
     setWorkspaceNotice(describeFailure(failure, {
-      unchanged: "当前窗口与已打开的工作区都没有变化。",
-      next: "可以换一个目录，或先在资源管理器里确认路径。",
+      unchanged: "The current window and open workspace are unchanged.",
+      next: "Choose another directory or check the path in Explorer.",
     }));
     return null;
   }
@@ -10019,10 +10223,10 @@ async function openWorkspacePath(path) {
   window.__augitWorkspaceOpened = payload.opened;
   setWorkspaceNotice(
     payload.opened === "current"
-      ? "这个目录已经在当前窗口打开。"
+      ? "This directory is already open in the current window."
       : payload.opened === "activated"
-        ? "已激活该目录已有的窗口。"
-        : "已在新窗口中打开该目录。");
+        ? "Activated the existing window for this directory."
+        : "Opened the directory in a new window.");
   if (payload.opened !== "current") {
     closeLiveOverlay();
     restoreDialogFocus();
@@ -10032,7 +10236,7 @@ async function openWorkspacePath(path) {
 
 /** 「选择目录…」：先用系统对话框取路径，再按同一套逻辑打开。 */
 async function pickWorkspaceAndOpen() {
-  setWorkspaceNotice("正在等待系统目录选择…");
+  setWorkspaceNotice("Waiting for the system folder picker…");
   let payload = null;
   let failure = null;
   try {
@@ -10048,8 +10252,8 @@ async function pickWorkspaceAndOpen() {
 
   if (failure) {
     setWorkspaceNotice(describeFailure(failure, {
-      unchanged: "当前窗口与已打开的工作区都没有变化。",
-      next: "可以重试，或从最近目录里选择。",
+      unchanged: "The current window and open workspace are unchanged.",
+      next: "Retry or choose a recent workspace.",
     }));
     return null;
   }
@@ -10073,10 +10277,10 @@ function openCloneDialog() {
   layer.className = "overlay-layer live-overlay clone-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "克隆仓库",
+    "Clone Repository",
     liveCloneBody(),
-    '<button type="button" class="secondary-button">取消</button>'
-      + '<button type="button" class="primary-button">克隆</button>',
+    '<button type="button" class="secondary-button">Cancel</button>'
+      + '<button type="button" class="primary-button">Clone</button>',
     true,
     "clone-dialog");
   host.appendChild(layer);
@@ -10097,8 +10301,8 @@ function openStashDialog() {
   layer.innerHTML = dialog(
     "Stash",
     liveStashBody(),
-    '<button type="button" class="secondary-button" data-stash-create-action="cancel">取消</button>'
-      + '<button type="button" class="primary-button" data-stash-create-action="create">创建 Stash</button>',
+    '<button type="button" class="primary-button" data-stash-create-action="create">Create Stash</button>'
+      + '<button type="button" class="secondary-button" data-stash-create-action="cancel">Cancel</button>',
     false,
     "stash-dialog");
   host.appendChild(layer);
@@ -10131,23 +10335,84 @@ function bindManagementFieldDraft() {
   window.__augitMgmtFieldBound = true;
   document.addEventListener("input", (event) => {
     const live = window.__augitLive;
-    const field = event.target.closest && event.target.closest(".remote-window [data-remote-field]");
-    if (!live || !field) return;
-    const layer = document.querySelector(".remote-window");
+    const field = event.target.closest && event.target.closest(".remote-define-window [data-remote-field]");
+    if (!live || !field || !live.remoteDraft) return;
+    const layer = document.querySelector(".live-overlay.remote-define-window");
     if (!layer) return;
     const read = (name) => {
       const node = layer.querySelector(`[data-remote-field="${name}"]`);
-      return node ? node.value : "";
+      if (!node) return "";
+      return name === "fetch" ? node.checked : node.value;
     };
-    // currentName 由当前选中项推导：草稿一旦丢失这个字段，"保存"会被当成"新增"。
-    const remotes = (live.remotes && live.remotes.remotes) || [];
-    const selected = Number.isInteger(live.selectedRemoteIndex) ? remotes[live.selectedRemoteIndex] || null : null;
+    // currentName 由草稿带入：丢了它就分不清"新增"与"改名"。
     live.remoteDraft = {
+      ...live.remoteDraft,
       name: read("name"),
       fetchUrl: read("fetchUrl"),
       pushUrl: read("pushUrl"),
-      currentName: selected ? selected.name : null,
+      fetch: read("fetch"),
     };
+  }, true);
+}
+
+/**
+ * 远端表格键盘与双击（规格 §7.11）。
+ *
+ * 单击只选行（上面的点击分派），双击或 Edit 打开 Define Remote；方向键与 Home/End 单选。
+ * 挂在 document 上、按 `.remote-table` 定位，因此实时层与 `scene=remote` 的静态层共用。
+ */
+function bindRemoteInteractions() {
+  if (!window.__augitLive || window.__augitRemoteBound) return;
+  window.__augitRemoteBound = true;
+  document.addEventListener("dblclick", (event) => {
+    const row = event.target.closest && event.target.closest(".remote-table .remote-row[data-remote-index]");
+    if (!row) return;
+    event.preventDefault();
+    selectRemoteRow(row.closest(".remote-table"), Number(row.dataset.remoteIndex));
+    openRemoteDefine("edit");
+  }, true);
+  document.addEventListener('click', event => {
+    const close = event.target.closest?.('.remote-dialog .dialog-header .icon-button');
+    if (!close || close.hasAttribute('data-remote-action')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void closeRemoteDialog();
+  }, true);
+  window.addEventListener('resize', measureRemoteDialog);
+  document.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229 || event.ctrlKey || event.altKey || event.metaKey) return;
+    const table = event.target.closest && event.target.closest(".remote-table");
+    if (table && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      const rows = [...table.querySelectorAll(".remote-row[data-remote-index]")];
+      if (rows.length === 0) return;
+      event.preventDefault();
+      const current = rows.findIndex((row) => row.classList.contains("selected"));
+      let next;
+      if (event.key === "ArrowDown") next = Math.min(rows.length - 1, (current < 0 ? -1 : current) + 1);
+      else if (event.key === "ArrowUp") next = Math.max(0, (current < 0 ? rows.length : current) - 1);
+      else if (event.key === "Home") next = 0;
+      else next = rows.length - 1;
+      selectRemoteRow(table, next, { focusTable: true });
+      return;
+    }
+
+    const define = event.target.closest && event.target.closest(".remote-define-window .remote-define-dialog:not(.remote-confirm-dialog)");
+    const owner = define || event.target.closest?.('.remote-dialog, .remote-confirm-dialog');
+    if (!owner) return;
+    // Enter 在文本框里等同 OK（Swing `DialogWrapper` 的默认按钮语义）。
+    if (define && event.key === "Enter" && event.target.matches && event.target.matches("input.text-field")) {
+      event.preventDefault();
+      void saveRemoteDefine();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const order = [...owner.querySelectorAll("input, .remote-toolbar button, .remote-table, .dialog-footer button, .dialog-header .icon-button")]
+      .filter((node) => !node.disabled && node.getAttribute("aria-disabled") !== "true");
+    if (order.length === 0) return;
+    event.preventDefault();
+    const index = order.indexOf(document.activeElement);
+    const step = event.shiftKey ? -1 : 1;
+    order[(index + step + order.length) % order.length]?.focus();
   }, true);
 }
 
@@ -10162,7 +10427,7 @@ function bindStashDialogKeys() {
     const cancel = layer.querySelector('[data-stash-create-action="cancel"]');
     const create = layer.querySelector('[data-stash-create-action="create"]');
     const close = layer.querySelector(".dialog-header .icon-button");
-    const order = [...fields, cancel, create, close].filter(Boolean);
+    const order = [...fields, create, cancel, close].filter(Boolean);
 
     if (event.key === "Escape") {
       event.preventDefault();
@@ -10195,7 +10460,7 @@ async function cancelStashDialog() {
   const live = window.__augitLive;
   if (live && live.stashCreating) {
     live.stashCreating = false;
-    setStashDialogNotice("操作已取消。");
+    setStashDialogNotice("Operation cancelled.");
     setStashDialogRunning(false);
     return;
   }
@@ -10214,9 +10479,9 @@ function setStashDialogRunning(running) {
   const close = layer.querySelector(".dialog-header .icon-button");
   if (create) {
     create.disabled = running;
-    create.textContent = running ? "正在创建 Stash…" : "创建 Stash";
+    create.textContent = running ? "Creating Stash…" : "Create Stash";
   }
-  if (cancel) cancel.textContent = running ? "取消操作" : "取消";
+  if (cancel) cancel.textContent = running ? "Cancel" : "Cancel";
   if (close) close.setAttribute("aria-disabled", String(running));
 }
 
@@ -10233,7 +10498,7 @@ async function submitStashDialog() {
   const include = layer.querySelector("#stash-include-untracked");
 
   setStashDialogRunning(true);
-  setStashDialogNotice("正在创建 Stash…");
+  setStashDialogNotice("Creating Stash…");
   let payload = null;
   let failure = null;
   try {
@@ -10243,7 +10508,7 @@ async function submitStashDialog() {
       includeUntracked: !!(include && include.checked),
     }, 120000);
     if (!payload || payload.ok === false) {
-      failure = (payload && payload.reason) || "创建 Stash 失败。";
+      failure = (payload && payload.reason) || "Failed to create Stash.";
     }
   } catch (error) {
     failure = String((error && error.message) || error);
@@ -10260,8 +10525,8 @@ async function submitStashDialog() {
   if (failure) {
     setStashDialogRunning(false);
     setStashDialogNotice(describeFailure(failure, {
-      unchanged: "工作区与 Stash 列表都没有变化。",
-      next: "可以先刷新状态确认是否还有需要暂存的改动。",
+      unchanged: "The working tree and Stash list are unchanged.",
+      next: "Refresh status to check for changes to stash.",
     }));
     return null;
   }
@@ -10302,7 +10567,7 @@ async function loadStashFiles() {
   const stashes = (live.stashes && live.stashes.stashes) || [];
   const current = stashes[live.selectedStashIndex || 0] || null;
   if (!current) {
-    live.stashFiles = { available: false, files: [], reason: "没有可查看的 Stash。" };
+    live.stashFiles = { available: false, files: [], reason: "No Stash is available to view." };
     return live.stashFiles;
   }
 
@@ -10310,7 +10575,7 @@ async function loadStashFiles() {
     const payload = await invoke("git/stash-content", { reference: current.reference }, 30000);
     live.stashFiles = payload && payload.available
       ? payload
-      : { available: false, files: [], reason: (payload && payload.reason) || "无法读取 Stash 内容。" };
+      : { available: false, files: [], reason: (payload && payload.reason) || "Cannot read Stash content." };
   } catch (error) {
     live.stashFiles = {
       available: false,
@@ -10331,9 +10596,9 @@ function renderStashManager() {
   layer.className = "overlay-layer live-overlay stash-manager-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "Stash 管理",
+    "Stash",
     liveManagementPage("stash"),
-    '<button type="button" class="secondary-button" data-stash-action="close">关闭</button>',
+    '<button type="button" class="secondary-button" data-stash-action="close">Close</button>',
     true,
     "stash-manager-dialog");
   host.appendChild(layer);
@@ -10368,14 +10633,14 @@ function openStashDropConfirm() {
   layer.className = "overlay-layer live-overlay stash-drop-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "删除 Stash",
+    "Delete Stash",
     // 与视觉基线共用 `dangerConfirmBody()`：基线页与实时侧的结构出自同一函数。
     dangerConfirmBody(`${current.reference} · ${current.message}`, [
-      `删除后这个 Stash 及其 ${files.length} 个文件的改动都会消失，并且无法恢复。`,
-      "工作区与其它 Stash 不会被修改。",
+      `Deleting this Stash discards its ${files.length} files' changes permanently.`,
+      "The working tree and other Stashes are unchanged.",
     ]),
-    '<button type="button" class="secondary-button" data-stash-cancel="1">取消</button>'
-      + `<button type="button" class="danger-button" data-stash-confirm="drop">删除 ${escapeText(current.reference)}</button>`,
+    '<button type="button" class="secondary-button" data-stash-cancel="1">Cancel</button>'
+      + `<button type="button" class="danger-button" data-stash-confirm="drop">Delete ${escapeText(current.reference)}</button>`,
     false,
     "stash-drop-dialog");
   host.appendChild(layer);
@@ -10400,13 +10665,13 @@ async function runStashAction(action) {
   const current = stashes[live ? live.selectedStashIndex || 0 : 0] || null;
   if (!live || !current) return null;
 
-  setStashNotice(`正在${action === "apply" ? "应用" : action === "pop" ? "弹出" : "删除"} ${current.reference}…`);
+  setStashNotice(`Running${action === "apply" ? "Apply" : action === "pop" ? "Pop" : "Delete"} ${current.reference}…`);
   let payload = null;
   let failure = null;
   try {
     payload = await invoke("git/stash-write", { action, reference: current.reference }, 120000);
     if (!payload || payload.ok === false) {
-      failure = (payload && payload.reason) || "Stash 操作失败。";
+      failure = (payload && payload.reason) || "Stash operation failed.";
     }
   } catch (error) {
     failure = String((error && error.message) || error);
@@ -10424,18 +10689,18 @@ async function runStashAction(action) {
 
   if (failure) {
     setStashNotice(`${describeFailure(failure, {
-      unchanged: action === "drop" ? "Stash 列表没有变化。" : "工作区与 Stash 列表都没有变化。",
-      next: "可以先查看内容确认，再重试。",
+      unchanged: action === "drop" ? "The Stash list is unchanged." : "The working tree and Stash list are unchanged.",
+      next: "Review the contents, then retry.",
     })}`);
     return null;
   }
 
   window.__augitStashAction = action;
   setStashNotice(action === "apply"
-    ? `已应用 ${current.reference}，改动回到工作区；该 Stash 仍然保留。`
+    ? `Applied ${current.reference}; changes returned to the working tree and the Stash is kept.`
     : action === "pop"
-      ? `已弹出 ${current.reference}，改动回到工作区，该 Stash 已删除。`
-      : `已删除 ${current.reference}。`);
+      ? `Popped ${current.reference}; changes returned to the working tree and the Stash was removed.`
+      : `Deleted ${current.reference}。`);
   await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
   refreshAfterEvent("side", "statusbar", "bottomTool", "titlebar");
   return payload;
@@ -10454,18 +10719,18 @@ async function openStashContentDiff() {
   const files = (live && live.stashFiles && live.stashFiles.files) || [];
   if (!live || !current) return null;
   if (files.length === 0) {
-    setStashNotice("这个 Stash 里没有可查看的文件。");
+    setStashNotice("This Stash has no files to view.");
     return null;
   }
 
   const path = files[0].path;
-  const label = `比较: ${path.split("/").at(-1)} · ${current.reference}`;
+  const label = `Compare: ${path.split("/").at(-1)} · ${current.reference}`;
   const tab = ensureComparisonTab(path, label);
   activateComparisonTab(tab);
   const diff = await loadDiff(path, { commit: current.reference, force: true }).catch(() => null);
   if (!diff) {
     closeTab(tab.id);
-    setStashNotice(`无法读取 ${path} 在 ${current.reference} 中的差异。`);
+    setStashNotice(`Cannot read ${path} At ${current.reference} diff.`);
     return null;
   }
 
@@ -10514,7 +10779,7 @@ async function loadWorktreeRemoval() {
     const payload = await invoke("git/worktree-removal", { path: current.path }, 30000);
     live.worktreeRemoval = payload && payload.available
       ? Object.assign({ path: current.path }, payload)
-      : { path: current.path, available: false, canRemove: false, reason: (payload && payload.reason) || "无法检查该 Worktree。" };
+      : { path: current.path, available: false, canRemove: false, reason: (payload && payload.reason) || "Cannot inspect this Worktree." };
   } catch (error) {
     live.worktreeRemoval = {
       path: current.path,
@@ -10536,9 +10801,9 @@ function renderWorktreeManager() {
   layer.className = "overlay-layer live-overlay worktree-manager-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "Worktree 管理",
+    "Worktrees",
     liveManagementPage("worktrees"),
-    '<button type="button" class="secondary-button" data-wtm-action="close">关闭</button>',
+    '<button type="button" class="secondary-button" data-wtm-action="close">Close</button>',
     true,
     "worktree-dialog");
   host.appendChild(layer);
@@ -10563,7 +10828,7 @@ async function openWorktreeWindow() {
   if (!current) return null;
   const result = await launchExternal("augit", current.path);
   if (result && result.launched) {
-    setWorktreeNotice(`已在新窗口中打开 ${current.path}。`);
+    setWorktreeNotice(`Opened in a new window: ${current.path}。`);
   } else {
     setWorktreeNotice("");
   }
@@ -10584,7 +10849,7 @@ function openWorktreeRemoveConfirm() {
   const readiness = live ? live.worktreeRemoval : null;
   if (!live || !host || !current) return;
   if (!readiness || !readiness.canRemove) {
-    setWorktreeNotice((readiness && readiness.reason) || "正在检查是否可以安全移除。");
+    setWorktreeNotice((readiness && readiness.reason) || "Checking whether removal is safe.");
     return;
   }
 
@@ -10592,16 +10857,16 @@ function openWorktreeRemoveConfirm() {
   layer.className = "overlay-layer live-overlay worktree-remove-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "移除 Worktree",
+    "Remove Worktree",
     // 与视觉基线 `stash-drop-confirm` 共用 `dangerConfirmBody()`：结构由同一函数产出，
     // 基线页与实时侧不会再各写一套（§10.4 要求显示具体影响）。
     dangerConfirmBody(current.branch || "(detached)", [
-      `将移除 ${current.path} 的目录与 Worktree 登记；分支本身不会被删除。`,
-      "该目录当前没有本地改动，也没有运行中的内置终端会话。",
-      "移除后需要重新 `git worktree add` 才能再次使用这个目录。",
+      `Remove ${current.path} directory and Worktree registration; the branch is kept.`,
+      "This directory is clean and has no running embedded terminal session.",
+      "Use `git worktree add` to recreate this directory after removal.",
     ]),
-    '<button type="button" class="secondary-button" data-worktree-remove-cancel="1">取消</button>'
-      + '<button type="button" class="danger-button" data-worktree-remove-confirm="remove">移除 Worktree</button>',
+    '<button type="button" class="secondary-button" data-worktree-remove-cancel="1">Cancel</button>'
+      + '<button type="button" class="danger-button" data-worktree-remove-confirm="remove">Remove Worktree</button>',
     false,
     "worktree-remove-dialog");
   host.appendChild(layer);
@@ -10621,13 +10886,13 @@ async function runWorktreeRemove() {
   const current = list[live ? live.selectedWorktreeIndex || 0 : 0] || null;
   if (!live || !current) return null;
 
-  setWorktreeNotice(`正在移除 ${current.path}…`);
+  setWorktreeNotice(`Removing ${current.path}…`);
   let payload = null;
   let failure = null;
   try {
     payload = await invoke("git/worktree-remove", { path: current.path }, 120000);
     if (!payload || payload.ok === false) {
-      failure = (payload && payload.reason) || "移除 Worktree 失败。";
+      failure = (payload && payload.reason) || "Failed to remove Worktree.";
     }
   } catch (error) {
     failure = String((error && error.message) || error);
@@ -10646,14 +10911,14 @@ async function runWorktreeRemove() {
 
   if (failure) {
     setWorktreeNotice(describeFailure(failure, {
-      unchanged: "Worktree、分支与工作区都没有变化。",
-      next: "可以先查看状态，确认目录是否干净、终端是否已关闭。",
+      unchanged: "Worktrees, branches, and the working tree are unchanged.",
+      next: "Check that the directory is clean and its terminal is closed.",
     }));
     return null;
   }
 
   window.__augitWorktreeRemoved = true;
-  setWorktreeNotice(`已移除 ${current.path}。分支仍然保留。`);
+  setWorktreeNotice(`Removed ${current.path}. The branch is kept.`);
   await Promise.all([loadStatus().catch(() => null), loadHistory().catch(() => null)]);
   refreshAfterEvent("side", "statusbar", "bottomTool", "titlebar");
   return payload;
@@ -10675,21 +10940,21 @@ function openWorktreeDialog() {
   // `GitWorktreeService.cs:103-122` 用 `check-ref-format --branch` 校验后加 `-b`），
   // 只是 UI 从未传过它；默认**不勾** ⇒ 不改变任何现有行为（不新增功能，只是暴露已有能力）。
   const body = `<div class="form-grid">`
-    + `<label for="worktree-branch">分支</label>`
+    + `<label for="worktree-branch">Branch</label>`
     + `<input id="worktree-branch" class="text-field" data-worktree-field="branch" value="${escapeText(branch)}">`
-    + `<span class="worktree-new-branch-row"><label class="check-line"><input id="worktree-new-branch" type="checkbox" data-worktree-field="newBranchEnabled">新分支</label>`
-    + `<input id="worktree-new-branch-name" class="text-field" data-worktree-field="newBranch" placeholder="新分支名" disabled></span>`
-    + `<label for="worktree-destination">目录</label>`
+    + `<span class="worktree-new-branch-row"><label class="check-line"><input id="worktree-new-branch" type="checkbox" data-worktree-field="newBranchEnabled">New Branch</label>`
+    + `<input id="worktree-new-branch-name" class="text-field" data-worktree-field="newBranch" placeholder="New branch name" disabled></span>`
+    + `<label for="worktree-destination">Directory</label>`
     + `<input id="worktree-destination" class="text-field" data-worktree-field="destination" placeholder="D:\\projects\\repository-worktree">`
     + `</div><div class="worktree-notice" role="status" hidden></div>`;
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay worktree-window";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    "新建 Worktree",
+    "New Worktree",
     body,
-    `<button type="button" class="secondary-button" data-worktree-action="cancel">取消</button>`
-      + `<button type="button" class="primary-button" data-worktree-action="create">创建</button>`,
+    `<button type="button" class="secondary-button" data-worktree-action="cancel">Cancel</button>`
+      + `<button type="button" class="primary-button" data-worktree-action="create">Create</button>`,
     false,
     "worktree-dialog");
   host.appendChild(layer);
@@ -10734,19 +10999,19 @@ async function runWorktreeAction(action) {
   })();
   const newBranch = newBranchEnabled ? value("newBranch") : "";
   if (branch.length === 0) {
-    showWorktreeNotice("请填写来源分支。");
+    showWorktreeNotice("Enter a source branch.");
     return;
   }
 
   if (newBranchEnabled && newBranch.length === 0) {
-    showWorktreeNotice("请填写新分支名。");
+    showWorktreeNotice("Enter a new branch name.");
     const field = layer.querySelector('[data-worktree-field="newBranch"]');
     if (field) field.focus({ preventScroll: true });
     return;
   }
 
   if (destination.length === 0) {
-    showWorktreeNotice("请填写目标目录。");
+    showWorktreeNotice("Enter a destination directory.");
     return;
   }
 
@@ -10762,9 +11027,9 @@ async function runWorktreeAction(action) {
   }
 
   if (!result || !result.changed) {
-    showWorktreeNotice(describeFailure((result && result.reason) || "Worktree 创建失败。", {
-      unchanged: "已填写的目录与分支都保留在表单里。",
-      next: "换一个空目录后重试。",
+    showWorktreeNotice(describeFailure((result && result.reason) || "Failed to create Worktree.", {
+      unchanged: "The entered directory and branch remain in the form.",
+      next: "Choose an empty directory and retry.",
     }));
     return;
   }
@@ -10796,7 +11061,7 @@ function openRevisionDialog() {
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = compactInputDialog("检出标签或版本", "标签或版本", "", "检出");
+  layer.innerHTML = compactInputDialog("Checkout Tag or Revision", "Tag or revision", "", "Checkout");
   host.appendChild(layer);
   const field = layer.querySelector("[data-compact-field]");
   if (field) field.focus();
@@ -11047,7 +11312,7 @@ function bindRefTreeFilter() {
   window.__augitRefTreeFilterBound = true;
   document.addEventListener("input", (event) => {
     const field = event.target;
-    if (!field || field.getAttribute("aria-label") !== "分支或标签") return;
+    if (!field || field.getAttribute("aria-label") !== "Branch or tag") return;
     const live = window.__augitLive;
     if (live) live.logRefFilter = field.value;
     if (typeof window.__augitApplyRefTreeFilter === "function") window.__augitApplyRefTreeFilter(field.value);
@@ -11077,7 +11342,7 @@ async function ensureMyBranches() {
   liveNow.myBranchesAuthor = result && result.author ? result.author : null;
   liveNow.myBranchesReason = result && result.available
     ? null
-    : ((result && result.reason) || "无法判断哪些分支属于你。");
+    : ((result && result.reason) || "Cannot determine which branches belong to you.");
   refreshAfterEvent("bottomTool");
   return liveNow.myBranchNames;
 }
@@ -11091,7 +11356,7 @@ function bindHistoryUserSearch() {
   window.__augitUserSearchBound = true;
   document.addEventListener("input", (event) => {
     const field = event.target;
-    if (!field || !field.getAttribute || field.getAttribute("aria-label") !== "搜索用户") return;
+    if (!field || !field.getAttribute || field.getAttribute("aria-label") !== "Search users") return;
     const live = window.__augitLive;
     if (live) live.historyUserFilter = field.value;
     const needle = String(field.value || "").trim().toLowerCase();
@@ -11113,10 +11378,10 @@ async function locateSelectedRef() {
   const commit = target ? document.querySelector(`.commit-row[data-full-hash="${CSS.escape(target)}"]`) : null;
   if (!commit) {
     showToast({
-      title: "无法定位到该引用",
+      title: "Cannot Locate Reference",
       text: target
-        ? "该引用的提交不在当前加载的历史里。"
-        : "这个引用没有可定位的提交。",
+        ? "This reference's commit is outside the loaded history."
+        : "This reference has no commit to locate.",
       kind: "error",
     });
     return false;
@@ -11136,7 +11401,7 @@ function openRefDeleteConfirm(targets, force) {
   if (list.length === 0) return;
   const name = list[0].name;
   const onlyTag = list.every((item) => item.kind === "tag");
-  const noun = onlyTag ? "标签" : "分支";
+  const noun = onlyTag ? "Tags" : "Branch";
   closeLiveOverlay();
   rememberDialogFocus();
   const layer = document.createElement("div");
@@ -11146,14 +11411,14 @@ function openRefDeleteConfirm(targets, force) {
   layer.dataset.refName = name;
   layer.dataset.refKind = list[0].kind;
   layer.dataset.refTargets = JSON.stringify(list);
-  const what = list.length === 1 ? `${noun} ${name}` : `${list.length} 个引用`;
+  const what = list.length === 1 ? `${noun} ${name}` : `${list.length} references`;
   layer.innerHTML = dialog(
-    `删除${noun}`,
+    `Delete${noun}`,
     dangerConfirmBody(what, force
-      ? ["其中还有提交没有合并到当前分支。", "继续将删除，未合并的提交会一并丢弃。", "删除后只能通过 Reflog 找回。"]
-      : [`将删除${what}的引用。`, "已合并到当前分支的提交不会丢失。", "删除后需要重新创建才能再次使用这些引用。"]),
-    '<button type="button" class="secondary-button" data-ref-delete-cancel="1">取消</button>'
-      + `<button type="button" class="danger-button" data-ref-delete-confirm="${force ? "force" : "plain"}">删除${noun}</button>`,
+      ? ["Some commits are not merged into the current branch.", "Continuing deletes the references and discards unmerged commits.", "After deletion, recovery requires Reflog."]
+      : [`Delete${what}references.`, "Commits merged into the current branch are kept.", "Recreate these references to use them again."]),
+    '<button type="button" class="secondary-button" data-ref-delete-cancel="1">Cancel</button>'
+      + `<button type="button" class="danger-button" data-ref-delete-confirm="${force ? "force" : "plain"}">Delete${noun}</button>`,
     false,
     "ref-delete-dialog");
   host.appendChild(layer);
@@ -11205,7 +11470,7 @@ async function runRefDelete(targets, force) {
     return payload;
   }
   if (!changed) {
-    window.__augitReferenceError = (payload && payload.reason) || "删除失败。";
+    window.__augitReferenceError = (payload && payload.reason) || "Deletion failed.";
     openBranchesPopover();
     return payload;
   }
@@ -11262,23 +11527,113 @@ function showPointerContextMenu(menuMarkup, options) {
     layer.dataset[key] = value;
   }
 
-  // 定位到指针处并夹在窗口内，避免菜单被裁掉。
+  // 先落入DOM取得真实尺寸，再夹边；菜单宽度不能用固定240px猜测。
   const rect = host.getBoundingClientRect();
   layer.style.position = "absolute";
   layer.style.inset = "0";
   menu.style.position = "absolute";
-  menu.style.left = `${Math.max(4, Math.min(options.clientX - rect.left, rect.width - 240))}px`;
-  menu.style.top = `${Math.max(4, Math.min(options.clientY - rect.top, rect.height - maxHeight))}px`;
+  menu.style.left = '4px';
+  menu.style.top = '4px';
   menu.style.zIndex = "2";
   layer.appendChild(menu);
   host.appendChild(layer);
+  menu.style.maxHeight=`${Math.min(maxHeight||rect.height-8,rect.height-8)}px`;menu.style.overflowY='auto';
+  const box=menu.getBoundingClientRect();
+  menu.style.left=`${Math.max(4,Math.min(options.clientX-rect.left,rect.width-box.width-4))}px`;
+  menu.style.top=`${Math.max(4,Math.min(options.clientY-rect.top,rect.height-box.height-4))}px`;
+  rememberDialogFocus();
+  layer.addEventListener('keydown',event=>{
+      if(menu.classList.contains('history-branch-menu')||event.defaultPrevented||event.isComposing||event.keyCode===229||event.repeat||event.target.matches('input,textarea,select'))return;
+      const rows=[...menu.querySelectorAll('.menu-item')].filter(row=>row.matches('a,button')&&!row.hidden&&row.getAttribute('aria-disabled')!=='true'&&!row.classList.contains('disabled'));
+      const current=rows.indexOf(document.activeElement);
+      const index=event.key==='Home'?0:event.key==='End'?rows.length-1:event.key==='ArrowDown'?Math.min(rows.length-1,current+1):event.key==='ArrowUp'?Math.max(0,current-1):-1;
+      if(index>=0){event.preventDefault();event.stopPropagation();rows[index]?.focus({preventScroll:true});rows[index]?.scrollIntoView({block:'nearest'});}
+      if(event.key==='Enter'&&!event.repeat){event.preventDefault();event.stopPropagation();(rows[current]||rows[0])?.click();}
+    });
   if (focusFirst) {
-    const first = layer.querySelector(".menu-item");
+    const first = [...layer.querySelectorAll(".menu-item")].find(row=>row.matches('a,button')&&!row.hidden&&!row.classList.contains('disabled')&&row.getAttribute('aria-disabled')!=='true');
     if (first) first.focus({ preventScroll: true });
   }
 
   return layer;
 }
+
+/** 分支筛选沿用 speed-search：输入即筛选，Esc 先清空，方向键和 Enter 操作可见结果。 */
+function bindHistoryBranchSpeedSearch(layer) {
+  if (!layer) return;
+  const menu = layer.querySelector('.history-branch-menu');
+  const input = document.createElement('input');
+  input.className = 'search-field history-branch-speed-search';
+  input.setAttribute('aria-label', 'Search branches');
+  input.placeholder = 'Search branches';
+  input.hidden = true;
+  menu.prepend(input);
+  const rows = [...menu.querySelectorAll('[data-history-branch]')];
+  const match = (name, query) => {
+    const words=name.replace(/([a-z0-9])([A-Z])/g,'$1 $2');
+    name = name.toLowerCase();query = query.toLowerCase();
+    if (name.includes(query)) return true;
+    // 同时支持分隔段/驼峰词首；不引入后台索引或远端查询。
+    const initials = words.toLowerCase().split(/[\s/_\-.]+/).map(part=>part[0]||'').join('');
+    return initials.includes(query);
+  };
+  const update = () => {
+    const query=input.value.trim();
+    rows.forEach(row=>row.hidden=!!query&&!match(row.dataset.historyBranch||row.textContent,query));
+    menu.querySelectorAll('.menu-group-label').forEach(group=>{
+      let next=group.nextElementSibling, visible=false;
+      while(next&&!next.classList.contains('menu-group-label')) {if(next.matches('[data-history-branch]')&&!next.hidden)visible=true;next=next.nextElementSibling;}
+      group.hidden=!visible;
+    });
+    menu.querySelectorAll('.menu-separator').forEach(node=>node.hidden=!!query);
+    rows.forEach(row=>row.classList.remove('selected'));
+    rows.find(row=>!row.hidden)?.classList.add('selected');
+  };
+  input.addEventListener('input',event=>{if(!event.isComposing)update();});
+  input.addEventListener('compositionend',update);
+  layer.addEventListener('compositionend',event=>{
+    if(event.target===input||!event.data)return;
+    input.hidden=false;input.value+=event.data;input.focus();update();
+  });
+  layer.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229||event.repeat) return;
+    if(event.key==='Escape'&&input.value) {event.preventDefault();event.stopImmediatePropagation();input.value='';update();return;}
+    const visible=rows.filter(row=>!row.hidden);
+    if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+      event.preventDefault();event.stopPropagation();
+      const current=visible.findIndex(row=>row===document.activeElement||row.classList.contains('selected'));
+      const index=event.key==='Home'?0:event.key==='End'?visible.length-1:Math.max(0,Math.min(visible.length-1,current+(event.key==='ArrowDown'?1:-1)));
+      rows.forEach(row=>row.classList.toggle('selected',row===visible[index]));
+      visible[index]?.focus({preventScroll:true});visible[index]?.scrollIntoView({block:'nearest'});return;
+    }
+    if(event.key==='Enter') {event.preventDefault();event.stopPropagation();(visible.find(row=>row===document.activeElement||row.classList.contains('selected'))||visible[0])?.click();return;}
+    if(event.key==='Backspace'&&event.target!==input&&input.value) {
+      event.preventDefault();input.value=input.value.slice(0,-1);input.focus();update();return;
+    }
+    if(event.target!==input&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&event.key.length===1) {
+      event.preventDefault();input.hidden=false;input.value+=event.key;input.focus();update();
+    }
+  });
+}
+
+/** FilterComponent 的键盘入口：Down/Enter 打开，Delete 只清除当前控件。 */
+document.addEventListener('keydown',event=>{
+  const control=event.target.closest?.('.history-filters [data-filter-key]');
+  if(!control||control.disabled||event.defaultPrevented||event.isComposing||event.keyCode===229||event.repeat) return;
+  if(event.ctrlKey||event.altKey||event.metaKey||event.shiftKey) return;
+  const key=control.dataset.filterKey;
+  if(event.key==='Delete') {
+    event.preventDefault();event.stopImmediatePropagation();
+    if(key==='branch')setHistoryBranchFilter('');
+    else if(key==='date')setHistoryDateFilter(null,null);
+    else if(key==='user')setHistoryAuthorFilter([]);
+    else if(key==='path')setHistoryPathFilter([]);
+    void reloadHistoryKeepingFocus();
+  } else if(event.key==='ArrowDown'||event.key==='Enter') {
+    event.preventDefault();event.stopImmediatePropagation();
+    control.dataset.openFilter='true';control.click();delete control.dataset.openFilter;
+  }
+},true);
 
 /**
  * 项目树的右键菜单（规格 §5.4）。
@@ -11318,12 +11673,12 @@ async function launchExternal(action, path) {
   try {
     const result = await invoke("external/launch", { action, path }, 15000);
     if (result && result.launched === false) {
-      window.__augitLaunchError = result.reason || "无法用系统程序打开该路径。";
+      window.__augitLaunchError = result.reason || "Cannot open this path in a system application.";
       showToast({
-        title: "无法打开该路径",
+        title: "Cannot Open Path",
         text: describeFailure(window.__augitLaunchError, {
-          unchanged: "文件内容与改动列表没有被修改。",
-          next: "可以改用资源管理器打开。",
+          unchanged: "File content and Changes are unchanged.",
+          next: "Try opening it in Explorer.",
         }),
       });
     } else if (result && result.launched) {
@@ -11334,10 +11689,10 @@ async function launchExternal(action, path) {
   } catch (error) {
     window.__augitLaunchError = "external-launch:" + String(error && error.message || error);
     showToast({
-      title: "无法打开该路径",
+      title: "Cannot Open Path",
       text: describeFailure(window.__augitLaunchError, {
-        unchanged: "文件内容与改动列表没有被修改。",
-        next: "可以改用资源管理器打开。",
+        unchanged: "File content and Changes are unchanged.",
+        next: "Try opening it in Explorer.",
       }),
     });
     return null;
@@ -11380,21 +11735,21 @@ function resolveMarkdownTarget(target, basePath) {
  */
 async function openMarkdownLink(target) {
   const raw = String(target || "");
-  if (raw.length === 0) return { opened: false, reason: "链接目标为空。" };
+  if (raw.length === 0) return { opened: false, reason: "The link target is empty." };
   if (/^(https?:)?\/\//i.test(raw) || /^mailto:/i.test(raw)) {
     const result = await launchExternal("open", raw);
     if (result && result.launched) return { opened: true };
-    return { opened: false, reason: window.__augitLaunchError || "系统无法打开该链接。" };
+    return { opened: false, reason: window.__augitLaunchError || "The system cannot open this link." };
   }
   // 其它协议（javascript:、file: 等）一律阻止，不做任何降级解释。
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) {
-    return { opened: false, reason: "不支持该链接协议。" };
+    return { opened: false, reason: "This link protocol is unsupported." };
   }
   let decoded = raw;
   try { decoded = decodeURIComponent(raw); } catch { /* 保留原文 */ }
   const document_ = (window.__augitLive && window.__augitLive.document) || null;
   const resolved = resolveMarkdownTarget(decoded.split("#")[0].split("?")[0], document_ && document_.path);
-  if (!resolved) return { opened: false, reason: "目标越出工作区。" };
+  if (!resolved) return { opened: false, reason: "The target is outside the workspace." };
   const parent = resolved.split("/").slice(0, -1).join("/");
   const name = resolved.split("/").at(-1);
   let entry = null;
@@ -11402,10 +11757,10 @@ async function openMarkdownLink(target) {
     const listing = await invoke("workspace/list", { path: parent }, 15000);
     entry = ((listing && listing.entries) || []).find((item) => item && item.name === name) || null;
   } catch {
-    return { opened: false, reason: "无法确认目标是否存在。" };
+    return { opened: false, reason: "Cannot confirm that the target exists." };
   }
-  if (!entry) return { opened: false, reason: "路径不存在。" };
-  if (entry.isDirectory) return { opened: false, reason: "目标是目录，不是可查看的文件。" };
+  if (!entry) return { opened: false, reason: "The path does not exist." };
+  if (entry.isDirectory) return { opened: false, reason: "The target is a directory, not a viewable file." };
   await openDocument(entry.path || resolved);
   return { opened: true };
 }
@@ -11432,14 +11787,14 @@ async function copyTreePath(path) {
     }
 
     window.__augitCopiedPath = null;
-    window.__augitCopyError = (result && result.reason) || "复制失败。";
+    window.__augitCopyError = (result && result.reason) || "Copy failed.";
     // 规格 §10.2：失败必须说明发生了什么、哪些状态未改变、可以做什么。
     // 此前这里只把原因写进一个**没有任何地方读取**的变量，用户看不到任何反馈。
     showToast({
-      title: "复制路径失败",
+      title: "Failed to Copy Path",
       text: describeFailure(window.__augitCopyError, {
-        unchanged: "文件内容与改动列表没有被修改。",
-        next: "可以直接在资源管理器中复制。",
+        unchanged: "File content and Changes are unchanged.",
+        next: "Copy the path directly in Explorer.",
       }),
     });
     return false;
@@ -11447,10 +11802,10 @@ async function copyTreePath(path) {
     window.__augitCopiedPath = null;
     window.__augitCopyError = "copy-path:" + String(error && error.message || error);
     showToast({
-      title: "复制路径失败",
+      title: "Failed to Copy Path",
       text: describeFailure(window.__augitCopyError, {
-        unchanged: "文件内容与改动列表没有被修改。",
-        next: "可以直接在资源管理器中复制。",
+        unchanged: "File content and Changes are unchanged.",
+        next: "Copy the path directly in Explorer.",
       }),
     });
     return false;
@@ -11581,7 +11936,7 @@ function restoreDialogFocus() {
  * 这两项由界面层补，因为它才知道当前保留了哪些输入与区域。
  */
 function describeFailure(reason, { unchanged, next }) {
-  const parts = [reason || "操作失败。"];
+  const parts = [uiMessage(reason || "Operation failed.")];
   if (unchanged) parts.push(unchanged);
   if (next) parts.push(next);
   return parts.join(" ");
@@ -11624,7 +11979,7 @@ function reflectWriteOperation() {
       button.disabled = shouldDisable;
     }
     // 禁用理由与状态一致（规格 §10.3）：无勾选时说明要先勾选；进行中由下面的状态文字负责。
-    if (!busy && !hasIncluded) button.setAttribute("title", "先在改动列表里勾选要提交的文件。");
+    if (!busy && !hasIncluded) button.setAttribute("title", "Check files to commit in Changes first.");
     else button.removeAttribute("title");
   }
 
@@ -11634,7 +11989,7 @@ function reflectWriteOperation() {
     cancel.type = "button";
     cancel.className = "secondary-button";
     cancel.dataset.writeCancel = "true";
-    cancel.textContent = "取消";
+    cancel.textContent = "Cancel";
     // 插到推送按钮之后：取消按钮同样是 .secondary-button，
     // 插在提交按钮之前会让「.secondary-button」指向取消而不是推送。
     const pushButton = actions.querySelector(".secondary-button");
@@ -11667,7 +12022,7 @@ function reflectWriteOperation() {
   }
 
   if (label) {
-    if (busy) label.textContent = `${live.writeOperation}进行中…`;
+    if (busy) label.textContent = `${live.writeOperation}Running…`;
     else label.remove();
   }
 }
@@ -11694,7 +12049,7 @@ async function cancelWriteOperation() {
   // 取消中：**保持进行态**（按钮仍禁用），等宿主确认本机 Git 真的停下来（规格 §9.3）。
   // 提前解冻会让用户在命令仍在跑的时候再点一次提交。
   live.writeCancelling = true;
-  live.writeCancelReason = `${operation}取消中…`;
+  live.writeCancelReason = `${operation}Cancelling…`;
   refreshAfterEvent("side", "statusbar");
 
   let stopped = false;
@@ -11718,8 +12073,8 @@ async function cancelWriteOperation() {
     live.writeOperation = null;
   }
   live.writeCancelReason = stopped
-    ? `${operation}已取消。`
-    : `${operation}已结束（${reason || "没有可取消的操作"}）。`;
+    ? `${operation}Cancelled.`
+    : `${operation}Finished (${reason || "No operation to cancel"}）。`;
   refreshAfterEvent("side", "editorContent", "statusbar", "bottomTool");
   window.__augitWriteCancelStopped = stopped;
   return stopped;
@@ -11761,6 +12116,159 @@ function bindModalBackground() {
   // 回调里只做一次 querySelectorAll，且 MutationObserver 会合并同一批改动。
   new MutationObserver(() => syncModalBackground()).observe(root, { childList: true, subtree: true });
   syncModalBackground();
+  bindNativeModalHost();
+}
+
+/** 恢复表单后的帧回调仍在绘制之前；到下一帧后的任务再撤盖。 */
+function waitForRestoredModalFrame() {
+  return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+/** 独立模态复用原会话；隐藏最上层后才截取所有者，避免背景留下重复表单。 */
+function bindNativeModalHost() {
+  if (!window.__augitNativeModalAvailable || window.__augitNativeModalBound || !hasHost()) return;
+  window.__augitNativeModalBound = true;
+  let generation = 0, operation = 0, running = false, closing = false, scheduled = false, microtaskQueued = false, signature = '', presentedKey = '';
+  const dirtyDepths = new Set();
+  const identities = new WeakMap();
+  const presentedDialogs = new WeakSet();
+  let presentedDialog = null;
+  const observed = new Set();
+  const resizeObserver = new ResizeObserver(() => schedule());
+  const topDialog = () => [...document.querySelectorAll('.dialog')].filter(node => node.isConnected && !node.closest('[hidden]')).at(-1);
+  const sync = async () => {
+    microtaskQueued = false;
+    scheduled = false;
+    for (const node of observed) if (!node.isConnected) { resizeObserver.unobserve(node); observed.delete(node); }
+    const dialog = topDialog();
+    if (!dialog) {
+      dirtyDepths.clear();
+      // 关闭越过背景捕获等待，避免DOM已消失而原生空框等待截图超时。
+      if (!closing && (signature || running)) {
+        const currentOperation = ++operation;
+        running = true; closing = true;
+        try {
+          await invoke('window/modal-close'); signature = ''; presentedKey = ''; presentedDialog = null; window.__augitNativeModalActive = false;
+          window.__augitNativeBackgroundBusy = false;
+        } catch (error) { window.__augitErrors?.push('native-modal-close:' + error.message); }
+        finally {
+          if (operation === currentOperation) { running = false; closing = false; if (scheduled || topDialog()) queueMicrotask(sync); }
+        }
+      }
+      return;
+    }
+    // 新表单在排队阶段就隐藏，避免旧关闭或背景捕获尚未应答时画进旧窗口。
+    // 已呈现父表单返回时保持可见，不重复捕获或丢失输入焦点。
+    if (!presentedDialogs.has(dialog)) dialog.dataset.nativeCapture = 'true';
+    if (running && !closing && presentedDialog && !presentedDialog.isConnected && presentedDialogs.has(dialog)) {
+      // 上层已关闭：保留父表单身份，淘汰旧截图链后立即恢复原生父窗口。
+      // 身份分配不等于已呈现；立即消费返回状态，避免应答前的变化重复抢占。
+      presentedDialog = dialog;
+      operation++; running = false; dirtyDepths.clear();
+      for (const node of document.querySelectorAll('.dialog')) delete node.dataset.nativeBackgroundCapture;
+      window.__augitNativeBackgroundBusy = false;
+    }
+    if (running) { scheduled = true; return; }
+    if (!identities.has(dialog)) identities.set(dialog, `modal-${++generation}`);
+    if (!observed.has(dialog)) { observed.add(dialog); resizeObserver.observe(dialog); }
+    const key = identities.get(dialog), rect = dialog.getBoundingClientRect();
+    const next = [key,rect.x,rect.y,rect.width,rect.height].join(':');
+    if (next === signature) {
+      if (!dirtyDepths.size || !window.__augitNativeModalActive) return;
+      let depths = [...dirtyDepths].sort((a,b) => a-b);
+      dirtyDepths.clear(); running = true;
+      const currentOperation = ++operation;
+      window.__augitNativeBackgroundBusy = true;
+      const dialogs = [...document.querySelectorAll('.dialog')].filter(node => node.isConnected && !node.closest('[hidden]'));
+      try {
+        const cover = await invoke('window/modal-cover');
+        if (operation !== currentOperation || !cover.active || !cover.captureCoverReady) return;
+        // 遮盖准备期间的变化尚未进入背景捕获，合并到本批；捕获开始后的变化继续留给下一批。
+        depths = [...new Set([...depths, ...dirtyDepths])].sort((a,b) => a-b);
+        dirtyDepths.clear();
+        // 每层隐藏自己及更上层表单，分别更新所属背景；同一会话焦点与草稿不重建。
+        for (const depth of depths.filter(depth => depth < dialogs.length)) {
+          for (const hidden of dialogs.slice(depth)) hidden.dataset.nativeBackgroundCapture = 'true';
+          try {
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            if (operation !== currentOperation) return;
+            await invoke('window/modal-refresh', {depth});
+            if (operation !== currentOperation) return;
+          } finally { if (operation === currentOperation) for (const hidden of dialogs.slice(depth)) delete hidden.dataset.nativeBackgroundCapture; }
+        }
+      } catch (error) { if (operation === currentOperation) window.__augitErrors?.push(`native-modal-background:${error.message}`); }
+      finally {
+        // 表单重新合成后才移除原图遮盖，避免恢复帧仍是透明正文。
+        try {
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          await waitForRestoredModalFrame();
+          if (operation === currentOperation) await invoke('window/modal-uncover');
+        } finally {
+          if (operation === currentOperation) { window.__augitNativeBackgroundBusy = false; running = false; if (scheduled) queueMicrotask(sync); }
+        }
+      }
+      return;
+    }
+    running = true;
+    const currentOperation = ++operation;
+    // 同一窗口的尺寸或DPI更新不创建背景副本；隐藏会让输入框丢失焦点。
+    const needsCapture = !presentedDialogs.has(dialog);
+    presentedDialog = dialog;
+    const captureFocus = needsCapture && dialog.contains(document.activeElement) ? document.activeElement : null;
+    if (needsCapture) dialog.dataset.nativeCapture = 'true';
+    try {
+      // 一帧让隐藏标记进入真实合成图，原DOM和焦点不重建。
+      if (needsCapture) await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      if (operation !== currentOperation) return;
+      const ancestors = [...document.querySelectorAll('.dialog')].filter(node => node !== dialog && identities.has(node)).map(node => identities.get(node));
+      const state = await invoke('window/modal-present', { key, ancestors, title:dialog.getAttribute('aria-label')||dialog.querySelector('.dialog-header')?.textContent?.trim()||'Augit', x:rect.x, y:rect.y, width:rect.width, height:rect.height });
+      if (operation !== currentOperation) return;
+      window.__augitNativeModalLastState = state;
+      if (state.active) dialog.dataset.nativeWindow = 'true';
+      presentedDialogs.add(dialog);
+      signature = next; presentedKey = key; presentedDialog = dialog; window.__augitNativeModalActive = state.active;
+    } catch (error) {
+      if (operation === currentOperation) window.__augitErrors?.push(`native-modal:${error.message}`);
+    } finally {
+      delete dialog.dataset.nativeCapture;
+      if (captureFocus?.isConnected && dialog === topDialog() && (document.activeElement === document.body || document.activeElement === captureFocus)) {
+        captureFocus.focus({ preventScroll: true });
+      }
+      if (operation === currentOperation) {
+        running = false;
+        if (scheduled || topDialog() !== dialog) queueMicrotask(sync);
+      }
+    }
+  };
+  // 在途任务的重试标记不代表已有微任务；关闭通知必须仍能唤醒同步。
+  const schedule = () => { scheduled = true; if (!microtaskQueued) { microtaskQueued = true; queueMicrotask(sync); } };
+  new MutationObserver(mutations => {
+    const dialogs = [...document.querySelectorAll('.dialog')].filter(node => node.isConnected && !node.closest('[hidden]'));
+    if (window.__augitNativeModalActive) for (const mutation of mutations) {
+      const firstDepth = snapshotDepthForMutation(mutation, dialogs);
+      if (firstDepth !== null) for (let depth = firstDepth; depth < dialogs.length; depth += 1) dirtyDepths.add(depth);
+    }
+    schedule();
+  }).observe(document.getElementById('app'), { childList:true, subtree:true, characterData:true, attributes:true, attributeOldValue:true, attributeFilter:['class','style','hidden','aria-checked','disabled','src','value'] });
+  const appearanceObserver = new MutationObserver(mutations => {
+    if (window.__augitNativeModalActive && mutations.some(mutation => snapshotDepthForMutation(mutation, []) !== null)) {
+      const count = document.querySelectorAll('.dialog').length;
+      for (let depth = 0; depth < count; depth += 1) dirtyDepths.add(depth);
+      schedule();
+    }
+  });
+  appearanceObserver.observe(document.documentElement, {attributes:true, attributeOldValue:true, attributeFilter:['style']});
+  appearanceObserver.observe(document.body, {attributes:true, attributeOldValue:true, attributeFilter:['data-theme']});
+  window.addEventListener('resize', schedule);
+  window.addEventListener('pagehide', () => { resizeObserver.disconnect(); observed.clear(); appearanceObserver.disconnect(); });
+  window.__augitNativeModalDrag = () => invoke('window/modal-drag').catch(() => {});
+  subscribe('window/modal-scale', () => { signature = ''; schedule(); });
+  subscribe('window/modal-cancel', () => {
+    const dialog = topDialog();
+    const close = dialog?.querySelector('.dialog-header [aria-label="Close"], .dialog-header button, [data-dialog-close], [data-compact-cancel]');
+    close?.click();
+  });
+  schedule();
 }
 
 /**
@@ -11877,6 +12385,8 @@ function bindRegionTabOrder() {
     if (event.isComposing || event.keyCode === 229) return;
     const active = document.activeElement;
     if (!active || active === document.body) return;
+    // 查找条自行循环且跳过禁用导航，区域级捕获不得再次移动一次焦点。
+    if (active.closest('.current-find')) return;
     // 弹层与对话框自带焦点规则，不在这里接管。
     // 开放中的 `popover`（竖条溢出菜单等）与开放中的 `details` 菜单（筛选栏收纳菜单）在顶层、
     // 又不是 `[data-augit-overlay]`，此前漏掉了：Tab 于是被处理两次（本处理器一次 ＋ 弹层自己一次），
@@ -11965,12 +12475,20 @@ window.__augitRememberedJsonMode = () => {
 
 /** 显式关闭操作清理实时弹层；Esc 调用时只清理最上层。 */
 function closeLiveOverlay({ topOnly = false } = {}) {
+  if (window.__augitSettingsSurface && document.querySelectorAll('.dialog').length === 1) { closeSettingsDialog(); return true; }
   // 只关闭最上层覆盖层；搜索结果过多对话框与搜索浮层是兄弟层，Esc 不能把两层一起移除。
   const live = window.__augitLive;
   const layers = [...document.querySelectorAll("[data-augit-overlay].live-overlay")];
   const targets = topOnly ? layers.slice(-1) : layers;
   const layer = targets.at(-1);
   if (!layer) return false;
+  // 远端窗口（规格 §7.11／§7.12）：走远端自己的收尾，只重读预览并按需原位重建唯一 Push。
+  if (topOnly && layer.querySelector(".remote-dialog, .remote-define-dialog, .remote-confirm-dialog")) {
+    if (layer.querySelector(".remote-confirm-dialog")) closeRemoteRemoveConfirm();
+    else if (layer.querySelector(".remote-define-dialog")) closeRemoteDefine();
+    else void closeRemoteDialog();
+    return true;
+  }
   const hadSearch = targets.some((node) => node.matches(".search-overlay") || !!node.querySelector(":scope > .search-overlay"));
   if (hadSearch) invalidateSearchRequests();
   if (live && hadSearch) {
@@ -11978,7 +12496,10 @@ function closeLiveOverlay({ topOnly = false } = {}) {
     live.search = null;
   }
   // Esc／遮罩点击关掉设置对话框时同样要退回预览前的主题。
-  if (targets.some((node) => node.classList.contains("settings-window") || node.querySelector(".settings-layout"))) revertThemePreview();
+  if (targets.some((node) => node.classList.contains("settings-window") || node.querySelector(".settings-layout"))) {
+    settingsSession = null;
+    revertThemePreview();
+  }
   targets.forEach((node) => node.remove());
   // 通用弹层关闭路径（Esc、遮罩点击、菜单选择）也要交回焦点（规格 §5.3）。
   // 各打开函数都在调用本函数**之前**记录焦点，因此这里恢复的是打开前的元素。
@@ -12001,6 +12522,37 @@ function bindOverlayEscape() {
     if (event.defaultPrevented) return;
     // 组词中的 Esc 交给输入法（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
+
+    const calendar=document.querySelector('.history-calendar');
+    if(calendar){event.preventDefault();event.stopImmediatePropagation();calendar.__augitClose?.();return;}
+
+    const branchSearch = document.querySelector('.history-branch-speed-search');
+    if (branchSearch?.value) {
+      event.preventDefault();event.stopImmediatePropagation();
+      branchSearch.value='';branchSearch.dispatchEvent(new Event('input',{bubbles:true}));
+      return;
+    }
+
+    // 远端窗口优先于下层 Push（规格 §7.12 嵌套）：Esc 先关最上层远端层，
+    // 否则会越过它直接取消下层的 Push。Remove 确认与 Define 更在上层。
+    if (document.querySelector(".live-overlay.remote-confirm-window")) {
+      event.preventDefault();
+      closeRemoteRemoveConfirm();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (document.querySelector(".live-overlay.remote-define-window")) {
+      event.preventDefault();
+      closeRemoteDefine();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (remoteManagerLayer() || remoteRun.opening) {
+      event.preventDefault();
+      void closeRemoteDialog();
+      event.stopImmediatePropagation();
+      return;
+    }
 
     // 推送对话框与其它实时弹层优先关闭。进行中时 Esc 等同「取消」：先请求宿主结束 Git。
     if (document.querySelector("[data-push-action]")) {
@@ -12145,10 +12697,13 @@ function globalShortcutBlocked(event) {
 function bindGlobalShortcuts() {
   if (window.__augitShortcutsBound) return;
   window.__augitShortcutsBound = true;
+  let composing = false;
+  document.addEventListener("compositionstart", () => { composing = true; }, true);
+  document.addEventListener("compositionend", () => { composing = false; }, true);
   document.addEventListener("keydown", (event) => {
     if (!window.__augitLive) return;
     // 组词期间不抢占按键（规格 §5.3）。
-    if (event.isComposing || event.keyCode === 229) return;
+    if (event.defaultPrevented || composing || event.isComposing || event.keyCode === 229) return;
     if (globalShortcutBlocked(event)) return;
     if (event.repeat) return;
     const key = event.key.toLowerCase();
@@ -12203,10 +12758,10 @@ function bindGlobalShortcuts() {
  * 没有绑定行为；实时外壳此前让它们落到 `__augitUnwired*` 兜底，等于点了没有反应。
  */
 const MAIN_MENU_ACTIONS = {
-  终端: "terminal",
-  设置: "settings",
-  文件: "file",
-  视图: "view",
+  Terminal: "terminal",
+  Settings: "settings",
+  File: "file",
+  View: "view",
   Git: "git",
 };
 
@@ -12339,23 +12894,23 @@ const MAIN_MENU_POPOVERS = {
   // 只列已经实现的动作：「打开工作区」需要新的宿主能力（选择目录、切换工作区），
   // 本轮不造——菜单里放一个点了没反应的条目，等于把"点了没反应"挪进菜单。
   file: [
-    { action: "workspace-open", label: "打开工作区…" },
-    { action: "refresh-tree", label: "刷新文件树" },
+    { action: "workspace-open", label: "Open Workspace…" },
+    { action: "refresh-tree", label: "Refresh Project Tree" },
   ],
   view: [
-    { action: "toggle-side", label: "显示/隐藏项目工具窗口" },
-    { action: "toggle-bottom", label: "显示/隐藏底部工具窗口" },
+    { action: "toggle-side", label: "Show/Hide Project Tool Window" },
+    { action: "toggle-bottom", label: "Show/Hide Bottom Tool Window" },
   ],
   git: [
     // 权威 `GitInit` 的入口就在 VCS 菜单里（`action.Git.Init.text` = "Create Git Repository…"）。
-    { action: "git-init", label: "创建 Git 仓库…" },
-    { action: "fetch", label: "获取" },
-    { action: "push", label: "推送…" },
-    { action: "branches", label: "分支与标签…" },
-    { action: "stash-manager", label: "Stash 管理…" },
-    { action: "stash-create", label: "创建 Stash…" },
-    { action: "worktree-manager", label: "Worktree 管理…" },
-    { action: "reset", label: "Reset 当前分支…" },
+    { action: "git-init", label: "Create Git Repository…" },
+    { action: "fetch", label: "Fetch" },
+    { action: "push", label: "Push…" },
+    { action: "branches", label: "Branches and Tags…" },
+    { action: "stash-manager", label: "Stashes…" },
+    { action: "stash-create", label: "Create Stash…" },
+    { action: "worktree-manager", label: "Worktrees…" },
+    { action: "reset", label: "Reset Current Branch…" },
   ],
 };
 
@@ -12449,7 +13004,7 @@ function applyWindowState(state) {
   if (live) live.windowMaximized = maximized;
   const dot = document.querySelector('.window-dot[data-window-action="maximize"]');
   if (!dot || typeof window.__augitIcon !== "function") return;
-  const label = maximized ? "向下还原" : "最大化";
+  const label = maximized ? "Restore Down" : "Maximize";
   dot.setAttribute("aria-label", label);
   dot.setAttribute("title", label);
   dot.innerHTML = window.__augitIcon(maximized ? "window-restore" : "window-maximize");
@@ -12505,6 +13060,14 @@ function openSearchOverlay(kind) {
 function openCurrentFileFind() {
   const view = document.querySelector(".document-view:has(.code-view):not(.blame-document)");
   if (!view) {
+    const diff = document.querySelector(".editor-content .diff-layout");
+    if (diff) {
+      if (typeof bindDiffFind === "function") bindDiffFind();
+      const existing = diff.querySelector('.current-find .search-field');
+      if (existing) existing.focus({ preventScroll: true });
+      else diff.querySelector('.diff-toolbar [aria-label="Find"]')?.click();
+      return;
+    }
     window.__augitError = "current-find:no-document";
     return;
   }
@@ -12525,10 +13088,7 @@ function openCurrentFileFind() {
     return;
   }
 
-  const message = { bubbles: true, cancelable: true };
-  view.dispatchEvent(new CustomEvent("document-content-changed", message));
-  const field = document.querySelector(".current-find .search-field");
-  if (field) field.focus();
+  view.dispatchEvent(new Event("open-current-find"));
 }
 
 /** Ctrl+G：跳转行（复用紧凑输入窗口）。 */
@@ -12541,7 +13101,26 @@ function openGoToLineDialog() {
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay go-to-line-window";
   layer.setAttribute("data-augit-overlay", "");
-  layer.innerHTML = compactInputDialog("跳转行", "行号", "", "跳转");
+  layer.innerHTML = compactInputDialog("Go to Line", "Line number", "", "OK");
+  const dialog = layer.querySelector('[data-compact-dialog]');
+  dialog.classList.add('goto-line-dialog');
+  // 标题与视觉稿共用品牌例外：16px蓝色A、40px标题起点、32px关闭区域。
+  const header = dialog.querySelector('.dialog-header');
+  header.querySelector('span').classList.add('goto-line-title');
+  header.querySelector('.grow').remove();
+  const mark = document.createElement('span');
+  mark.className = 'brand-mark';
+  mark.setAttribute('aria-hidden', 'true');
+  mark.textContent = 'A';
+  header.prepend(mark);
+  const cancel = dialog.querySelector('[data-compact-action="cancel"]');
+  cancel.before(dialog.querySelector('[data-compact-action="confirm"]'));
+  // 输入装饰与命中区分离，保持普通入口和视觉稿相同的焦点几何。
+  const fieldFrame = document.createElement("span");
+  fieldFrame.className = "goto-line-field";
+  const input = dialog.querySelector("[data-compact-field]");
+  input.before(fieldFrame);
+  fieldFrame.appendChild(input);
   host.appendChild(layer);
   const field = layer.querySelector("[data-compact-field]");
   if (field) {
@@ -12554,6 +13133,10 @@ function openGoToLineDialog() {
 async function refreshFileTree() {
   const live = window.__augitLive;
   if (!live) return;
+  if (live.workspaceLoadError || live.workspaceLoading) {
+    await loadDocument();
+    return;
+  }
   await loadStatus().catch(() => null);
   // 规格 §7.1 第 7 条：F5 要**增量更新当前已加载的目录** —— 重新列举展开集合里的每一层（含根），
   // 未展开的目录不递归读取。请求带代际：晚到的旧响应不得覆盖新结果。
@@ -12563,7 +13146,6 @@ async function refreshFileTree() {
 
 // 目录清单请求的代际（规格 §7.1 第 7 条「旧任务不能恢复先前的展开和选择」）：
 // F5／外部变化／展开各发起一批重列，晚到的旧批次整批丢弃。
-let treeListingGeneration = 0;
 
 /**
  * 重新列举**当前已加载**的目录（根 + `expandedPaths` 里的每一层），更新缓存并重建可见树。
@@ -12591,12 +13173,12 @@ async function refreshLoadedDirectories() {
     const directories = entries.filter((entry) => entry.isDirectory);
     const files = entries.filter((entry) => !entry.isDirectory);
     const depth = path === "" ? 1 : path.split("/").length + 1;
-    childrenByPath.set(path, [...directories, ...files].slice(0, MAX_ENTRIES_PER_DIRECTORY).map((entry) => ({
+    childrenByPath.set(path, [...directories, ...files].map((entry) => ({
       name: entry.name,
       path: entry.path,
       depth,
       isDirectory: entry.isDirectory,
-      hasChildren: entry.isDirectory,
+      hasChildren: entry.canExpand ?? (entry.isDirectory && !entry.isReparsePoint),
       expanded: false,
     })));
     present.set(path, new Set(entries.map((entry) => entry.path)));
@@ -12682,15 +13264,17 @@ function patchProjectTree() {
   // 用户点过树行以 `live.treeSelectedPath` 为准，否则回落到当前文档路径，再回落到场景默认值。
   // 已有行的选中态本来就由 `selectTreeRow()` 直接写在 DOM 上（这里不再比较/纠正它），
   // 这个值只用于**新建/重建行**时补上选中类（第 295 轮全量实测：判据不一致会把默认选中行擦掉）。
-  const selected = live.treeSelectedPath
-    || (live.document ? live.document.path : null)
-    || window.__augitTreeSelection
-    || null;
+  const selectedPath = () => live.treeSelectedPath
+    ?? (live.document ? live.document.path : null)
+    ?? window.__augitTreeSelection
+    ?? null;
   const step = (offset) => {
-    if (generation !== treePatchGeneration) return;
+    if (generation !== treePatchGeneration || !host.isConnected || !layersAllowProjectTree(live)) return;
     const end = Math.min(offset + TREE_PATCH_CHUNK, desired.length);
     for (let index = offset; index < end; index += 1) {
       const entry = desired[index];
+      // 后续帧使用用户最新的选择；不能沿用第一帧捕获的路径。
+      const selected = selectedPath();
       const reused = existing.get(entry.path) || null;
       let node = reused;
       if (reused) {
@@ -12699,25 +13283,35 @@ function patchProjectTree() {
           const fresh = buildTreeRow(entry, selected, live);
           if (fresh) {
             // 重建的行要把原来的选中态带过去（选中态不参与重建判据）。
-            if (reused.classList.contains("selected") && !fresh.classList.contains("selected")) {
+            if (live.treeSelectedPath === undefined && reused.classList.contains("selected") && !fresh.classList.contains("selected")) {
               fresh.classList.add("selected");
               fresh.setAttribute("aria-selected", "true");
             }
+            const hadFocus = reused.contains(document.activeElement);
             reused.replaceWith(fresh);
+            if (hadFocus) fresh.focus({ preventScroll: true });
             node = fresh;
           }
         }
       } else {
         node = buildTreeRow(entry, selected, live);
       }
-      if (node && host.children[index] !== node) host.insertBefore(node, host.children[index] || null);
+      if (node && host.children[index] !== node) {
+        const hadFocus = node.contains(document.activeElement);
+        host.insertBefore(node, host.children[index] || null);
+        if (hadFocus) node.focus({ preventScroll: true });
+      }
     }
     if (end < desired.length) {
       requestAnimationFrame(() => step(end));
       return;
     }
     // 收尾批：删掉不再存在的行 —— 只有新增/删除才做结构变动。
-    for (const node of existing.values()) node.remove();
+    for (const node of existing.values()) {
+      const hadFocus = node.contains(document.activeElement);
+      node.remove();
+      if (hadFocus) host.focus({ preventScroll: true });
+    }
     if (typeof window.__augitMeasureTabFade === "function") window.__augitMeasureTabFade();
   };
   step(0);
@@ -12817,7 +13411,7 @@ async function refreshCommitDetails() {
 // 规格 §7.8：「超 150ms 显示局部加载与"取消比较"」——加载态的"取消比较"入口。
 // 语义要点（同条规格的后半）：**失败与取消都保留标签可重试** ⇒ 只作废在途请求与加载态，**不关标签**。
 document.addEventListener("click", (event) => {
-  const cancel = event.target.closest && event.target.closest('[aria-label="取消比较"]');
+  const cancel = event.target.closest && event.target.closest('[aria-label="Cancel Comparison"]');
   if (!cancel) return;
   event.preventDefault();
   const live = window.__augitLive;
@@ -12872,7 +13466,7 @@ async function loadCommitDetails(revision) {
       return;
     }
     if (!commit || !commit.available) {
-      const reasonHtml = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "无法读取提交详情")}</p>`;
+      const reasonHtml = `<p class="commit-meta">${escapeText(commit && commit.reason ? commit.reason : "Cannot Read Commit Details")}</p>`;
       // 规格 §7.8：「提交信息读取超过既有 20 MB 输出边界时明确说明原因」。
       // 原因必须**同时**进详情栏：此前只写左栏（变化文件），右栏就只剩行头（主题/哈希/作者/日期），
       // 读者看不出正文为什么不见了；而且 `detailHtml` 留空时，任何区域重绘都会退回占位模板 ——
@@ -12941,7 +13535,8 @@ async function loadCommitDetails(revision) {
     // 从文件历史返回时要恢复"进入前的详情正文位置"（规格 §7.9）；这是异步详情排完的收尾处 ⇒ 消费待办。
     applyPendingDetailScroll(true);
     if (live) live.commitDetailLoading = false;
-    window.__augitCommitLoaded = commit.hash;
+    // 刷新判据使用完整提交身份；短显示哈希不能命中，也不能区分同前缀提交。
+    window.__augitCommitLoaded = commit.fullHash;
   } catch (error) {
     if (token === commitDetailsToken) {
       window.__augitError = "load-commit:" + String(error && error.message || error);
@@ -12979,6 +13574,7 @@ async function loadFileHistory(path) {
         committerName: commit.committerName,
         committerEmail: commit.committerEmail,
         date: commit.date,
+        dateTime: commit.dateTime,
       }));
       live.fileHistory = {
         path: history.path,
@@ -13058,7 +13654,60 @@ function applyStatus() {
   live.statusError = latestStatusError;
 }
 
+// 独立设置仅装配共享表单，不加载工作区、历史、标签、终端或文件监听。
+async function bootSettingsSurface() {
+  document.body.dataset.settingsSurface = 'true';
+  window.__augitLive = {settings:await invoke('settings/read'), settingsDraft:{}, settingsPage:'appearance', layout:{}, tabs:[]};
+  await new Promise((resolve,reject) => {
+    const script=document.createElement('script');script.src='src/mockup.js';
+    script.onload=resolve;script.onerror=()=>reject(new Error('Settings assets failed to load'));document.head.append(script);
+  });
+  openSettingsDialog();
+  document.querySelector('.settings-window .dialog').dataset.nativeWindow='true';
+  // 复用本次开窗刚读取的配置；普通回读和关闭通知仍从宿主取得最新值。
+  await loadSettings(() => true, window.__augitLive.settings);
+  window.__augitBind?.();
+  bindOverlayEscape();
+  bindModalBackground();
+  subscribe('settings/cancel',()=>closeSettingsDialog());
+  subscribe('theme/changed',payload=>{if((window.__augitLive.settingsDraft.theme||window.__augitLive.settings.theme)==='System')applyPageTheme(payload.theme);});
+  subscribe('settings/write-idle',()=>{if(currentSettingsSession()?.status!=='saving')settingsWritePending=false;syncSettingsBusy();});
+  document.addEventListener('pointerdown',event=>{
+    if(event.button===0&&event.target.closest('.dialog-header')&&!event.target.closest('button,a,input,select')) {
+      event.preventDefault();void invoke('window/settings-drag').catch(()=>{});
+    }
+  },true);
+  await document.fonts.ready;
+  applyPageTheme(previewThemeName(window.__augitLive.settings.theme));
+  // 原生窗尚未显示，不能等待可能被浏览器暂停的动画帧；字体和同步布局就绪后交给宿主显示。
+  document.querySelector('.settings-dialog').getBoundingClientRect();
+  const ready=await invoke('window/settings-ready',{},0);
+  settingsWritePending=ready.saving===true;syncSettingsBusy();
+  if(['appearance','file-view','git','terminal'].includes(ready.page))switchSettingsPage(ready.page);
+  // 搜索焦点也会改变合成表面，须纳入宿主最后一次渲染确认，不能在揭示后补做。
+  document.querySelector('[data-settings-filter]')?.focus({preventScroll:true});
+  // 隐藏窗口的动画帧会被节流；由宿主等待一次真实表面渲染后再揭示。
+  await invoke('window/settings-present',{},0);
+  window.__augitReady=true;
+}
+
+function bindIndependentSettingsEvents() {
+  let revision=0, previewRevision=0;
+  const reload=async()=>{
+    const token=++revision;
+    const previewToken=previewRevision;
+    await loadSettings(()=>token===revision);
+    // 回读仍更新已提交配置；等待期间的新预览独立生效，不能被旧回读改回。
+    if(token===revision&&previewToken===previewRevision)applyPageTheme(previewThemeName(window.__augitLive.settings?.theme));
+  };
+  subscribe('settings/committed',()=>{void reload();});
+  subscribe('settings/closed',()=>{void reload();restoreDialogFocus();});
+  subscribe('settings/preview',payload=>{if(['light','dark'].includes(payload?.theme)){previewRevision++;applyPageTheme(payload.theme);}});
+  subscribe('settings/failed',payload=>{window.__augitError='settings-open:'+payload.reason;showToast({title:'Settings',text:payload.reason});});
+}
+
 async function boot() {
+  if (window.__augitSettingsSurface) { await bootSettingsSurface(); return; }
   let statusPromiseRef = Promise.resolve(null);
   let historyPromiseRef = Promise.resolve(null);
   const query = new URLSearchParams(window.location.search);
@@ -13070,6 +13719,7 @@ async function boot() {
 
   const wantsTerminal = query.get("scene") === "terminal";
   const wantsSettings = query.get("scene") === "settings";
+  if(wantsSettings&&window.__augitSettingsWindowAvailable)document.body.dataset.scene='main-project';
   const wantsClone = query.get("scene") === "clone";
   const searchScene = query.get("scene") === "quick-open" ? "quick"
     : query.get("scene") === "repository-search" ? "repository"
@@ -13094,8 +13744,8 @@ async function boot() {
       if (!result || !result.reset) {
         return {
           ok: false,
-          reason: describeFailure((result && result.reason) || "Reset 未完成。", {
-            unchanged: "HEAD、索引、工作区与改动列表没有被修改。",
+          reason: describeFailure((result && result.reason) || "Reset did not complete.", {
+            unchanged: "HEAD, the index, working tree, and Changes are unchanged.",
           }),
         };
       }
@@ -13122,15 +13772,26 @@ async function boot() {
     window.__augitResetClosed = () => restoreDialogFocus();
   }
   if (hasHost()) {
-    // 桥接异常不能阻塞界面：超时后回退视觉稿样例数据。
+    // 真实宿主从一开始就有独立空态；异常和等待截止都不能回退视觉稿的样例工作区。
+    window.__augitLive = {
+      root: "", rootPath: "", name: "Workspace", workspaceName: "Workspace", valid: false,
+      branch: null, isDetached: false, changeCount: 0, tree: [], tabs: [], layout: readInitialLayout(),
+    };
     statusPromiseRef = loadStatus();
     historyPromiseRef = loadHistory();
-    window.__augitLive = await Promise.race([
-      loadDocument(),
-      new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
-    ]);
-    if (window.__augitLive === null) {
-      window.__augitError = (window.__augitError || "") + "|timeout";
+    let startupTimer;
+    try {
+      await Promise.race([
+        loadDocument(),
+        new Promise(resolve => { startupTimer = setTimeout(resolve, 8000); }),
+      ]);
+    } finally {
+      clearTimeout(startupTimer);
+    }
+    if (window.__augitLive.workspaceLoading) {
+      const live = window.__augitLive;
+      live.workspaceNotice = { title: "Loading Workspace", text: "Workspace information is still loading." };
+      live.toast = live.workspaceNotice;
     }
   }
 
@@ -13168,7 +13829,9 @@ async function boot() {
   }
 
   if (requestedDiff && window.__augitLive) {
-    // `--diff` 打开的是**工作区 Diff**（不建比较标签）：只有这种视图才有"上一个文件/计数/下一个文件"。
+    // 显式工作区 Diff 同样使用正式标签模型，避免真实空态标签条吞掉它；文件导航仍仅属工作区 Diff。
+    const tab = ensureComparisonTab(requestedDiff);
+    activateComparisonTab(tab);
     window.__augitLive.workspaceDiff = true;
     await loadDiff(requestedDiff);
     refresh("side", "editorContent", "editorTabs", "statusbar", "titlebar");
@@ -13176,8 +13839,7 @@ async function boot() {
 
   if (requestedConflict && window.__augitLive) {
     await loadConflicts();
-    await loadConflict(requestedConflict);
-    refresh("editorContent", "editorTabs", "statusbar", "overlay");
+    await openConflictFile(requestedConflict);
   }
 
   // 界面此时已可交互：**先把重绘后的绑定补齐，再标记就绪**。
@@ -13187,6 +13849,7 @@ async function boot() {
   // 全为 false，点击分支芯片这类未接线链接会**直接把界面导航离开应用**。
   // Git 状态实测约 15 秒才到，这个窗口并不短，所以必须在这里补上。
   rebindAfterRender();
+  bindIndependentSettingsEvents();
   window.__augitReady = true;
 
   // 非 Git 目录：此刻 `mockup.js` 已加载、live 对象也已建立，可以给出「创建 Git 仓库」入口。
@@ -13260,18 +13923,22 @@ async function boot() {
   // 并把恢复集合里的活动文件重新激活 —— 实测 `--blame docs/product-spec.md` 时
   // blame 标签已排在首位却不是活动标签，编辑器显示的是恢复出来的二进制文档。
   const explicitDocument = Boolean(
-    requestedDocument || requestedBlame || requestedFileHistory || requestedDiff || requestedConflict);
+    requestedDocument || requestedBlame || requestedFileHistory || requestedDiff);
   // 审计用（`--no-session-restore`）：逐场景截图必须只取决于启动参数；
   // 会话恢复会把上一次运行的活动文件带进来，把场景渲染成另一个页面（实测踩过）。
   const noSessionRestore = query.get("no-session-restore") === "1";
   if (!explicitDocument && !noSessionRestore) void restoreSession();
   if (wantsSettings) {
+    if(window.__augitSettingsWindowAvailable)openSettingsDialog();
+    else {
     window.__augitRender();
     bindSettingsSave();
     // 场景渲染的设置页同样要能切分类（`__augitRender` 只走 bindInteractions，
     // 不经过 rebindAfterRender，这里显式补一次；函数本身有幂等守卫）。
     bindSettingsPages();
+    void ensureSettingsFonts();
     void ensureGitDetection();
+    }
   }
 
   if (wantsTerminal) {
@@ -13297,6 +13964,7 @@ async function boot() {
 /** 目录展开/折叠：状态写入 store 后整页重绘，因此打开文件不会丢失展开层级。 */
 async function toggleDirectory(row) {
   const path = row.dataset.treePath;
+  if (!window.__augitLive?.tree?.find(entry => entry.path === path)?.hasChildren) return;
   if (expandedPaths.has(path)) {
     expandedPaths.delete(path);
   } else {
@@ -13428,7 +14096,7 @@ document.addEventListener("click", (event) => {
   const live = window.__augitLive;
   if (!live) return;
   const button = event.target.closest
-    && event.target.closest('.side-tool .changes-layout > .toolbar [aria-label="预览"]');
+    && event.target.closest('.side-tool .changes-layout > .toolbar [aria-label="Preview"]');
   if (!button) return;
   event.preventDefault();
   event.stopPropagation();
@@ -13584,8 +14252,8 @@ function applyAmendActionLabel(box, checked) {
   if (!actions) return;
   const primary = actions.querySelector(".primary-button");
   const secondary = actions.querySelector(".secondary-button");
-  if (primary) primary.textContent = checked ? "修改提交" : "提交";
-  if (secondary) secondary.textContent = checked ? "修改提交并推送…" : "提交并推送…";
+  if (primary) primary.textContent = checked ? "Amend" : "Commit";
+  if (secondary) secondary.textContent = checked ? "Amend and Push…" : "Commit and Push…";
 }
 
 /**
@@ -13721,18 +14389,18 @@ function moveDiffFile(direction) {
 
 document.addEventListener("click", (event) => {
   const button = event.target.closest
-    && event.target.closest('.diff-toolbar [aria-label="上一个文件"], .diff-toolbar [aria-label="下一个文件"]');
+    && event.target.closest('.diff-toolbar [aria-label="Previous File"], .diff-toolbar [aria-label="Next File"]');
   if (!button) return;
   event.preventDefault();
   window.__diffFileHit = (window.__diffFileHit || 0) + 1;
-  moveDiffFile(button.getAttribute("aria-label") === "下一个文件" ? 1 : -1);
+  moveDiffFile(button.getAttribute("aria-label") === "Next File" ? 1 : -1);
 }, true);
 
 // 比较工具栏「忽略空白」（规格 §7.7 第 5 条）：这是**真实的差异选项**——宿主 `git/diff` 收
 // `ignoreWhitespace`（`ShellBridge.cs`），请求键与补丁缓存键都已含它，因此切换后必须**重查**，
 // 不能只改按钮外观。没有正文（加载/空差异）时只改状态，下一次装载自然生效。
 document.addEventListener("click", (event) => {
-  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="忽略空白"]');
+  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="Ignore whitespace"]');
   if (!button) return;
   event.preventDefault();
   const live = window.__augitLive;
@@ -13758,13 +14426,28 @@ document.addEventListener("click", (event) => {
     .catch(() => null);
 }, true);
 
-// 比较工具栏「设置」：按应用既有约定打开设置对话框（与提交框的「提交设置」同一入口）。
+// Diff局部菜单只提供产品已有的只读显示选项，不跳转全局设置或增加编辑器功能。
 document.addEventListener("click", (event) => {
-  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="设置"]');
+  const button = event.target.closest && event.target.closest('.diff-toolbar [aria-label="Settings"]');
   if (!button) return;
   event.preventDefault();
-  openSettingsDialog();
+  rememberDialogFocus();closeLiveOverlay();
+  const options={whitespace:!!window.__augitLive?.displayOptions?.whitespace,lineNumbers:window.__augitLive?.diffDisplayOptions?.lineNumbers!==false};
+  const items=[['whitespace','Show Whitespaces'],['lineNumbers','Show Line Numbers']];
+  const markup=`<section class="popover context-menu diff-settings-menu" aria-label="Diff Settings">${items.map(([key,label])=>`<button type="button" class="menu-item" data-diff-display="${key}" role="menuitemcheckbox" aria-checked="${!!options[key]}"><span class="fake-check${options[key]?' checked':''}"></span>${label}</button>`).join('')}</section>`;
+  const rect=button.getBoundingClientRect();
+  showPointerContextMenu(markup,{layerClass:'diff-settings-popup',clientX:rect.left,clientY:rect.bottom+4,focusFirst:true});
 }, true);
+
+document.addEventListener('click',event=>{
+  const button=event.target.closest?.('[data-diff-display]');if(!button)return;
+  event.preventDefault();const live=window.__augitLive;if(!live)return;
+  const key=button.dataset.diffDisplay;
+  if(key==='whitespace'){const options=live.displayOptions||={};options.whitespace=!options.whitespace;}
+  else if(key==='lineNumbers'){const options=live.diffDisplayOptions||={};options.lineNumbers=options.lineNumbers===false;}
+  else return;
+  closeLiveOverlay();applyWhitespaceMarkers();applyDisplayOptionMarkers();
+},true);
 
 // 比较工具栏「上一处/下一处差异」（规格 §7.8/§7.9/§7.10）。
 // 用**捕获阶段**的独立监听器，而不是大点击链的尾部：链尾可能被更早监听器的
@@ -13772,12 +14455,12 @@ document.addEventListener("click", (event) => {
 // 而捕获阶段先于所有冒泡监听器执行 —— 这也与项目树/上下文菜单的既有做法一致。
 document.addEventListener("click", (event) => {
   const button = event.target.closest
-    && event.target.closest('.diff-toolbar [aria-label="上一处差异"], .diff-toolbar [aria-label="下一处差异"]');
+    && event.target.closest('.diff-toolbar [aria-label="Previous Difference"], .diff-toolbar [aria-label="Next Difference"]');
   if (!button) return;
   window.__diffNavHit = (window.__diffNavHit || 0) + 1;
   event.preventDefault();
   // 同一套箭头服务两份正文：点在预览工具条上时只在**预览**里定位（作用域交给 `moveDiffChange`）。
-  moveDiffChange(button.getAttribute("aria-label") === "下一处差异" ? 1 : -1,
+  moveDiffChange(button.getAttribute("aria-label") === "Next Difference" ? 1 : -1,
     button.closest("[data-live-file-history-preview]"));
 }, true);
 
@@ -14112,7 +14795,7 @@ function syncImagePreviewState() {
     node.className = "image-loading";
     node.dataset.liveHint = "true";
     node.setAttribute("role", "status");
-    node.textContent = "正在读取文件…";
+    node.textContent = "Reading file…";
     stage.append(node);
   } else if (!loading && liveHint) {
     liveHint.remove();
@@ -14164,7 +14847,7 @@ window.__augitLargeFileWarningHidden = largeFileWarningHidden;
 
 /** 打开一个真实文件：取回内容、更新活动文档并重绘编辑区。 */
 async function openDocument(path, options = {}) {
-  const { preview = false, activate = true } = options;
+  const { preview = false, activate = true, deferRender = false } = options;
   const live = window.__augitLive;
   if (!live) return;
   // 切换普通文件使**在途的 Blame／文件历史详情**失效（规格 §7.9 第十条）：它们与文档区共用
@@ -14175,6 +14858,10 @@ async function openDocument(path, options = {}) {
   // 已经是激活标签且不要求转为正式标签：无需重复读取。
   const current = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
   if (current && activate && live.activeTabId === current.id && !preview) return;
+  // 后台重读已显示的纯文本不重复显示打开提示；仍读磁盘并核对全部显示字段。
+  const previousDocument = current?.document;
+  const quietTextRefresh = deferRender && !activate && live.document === previousDocument
+    && previousDocument?.kind === 'Text' && previousDocument.status === 'TextReady';
   // 规格 §6.7 第一条：读取完成时"是否显示必须**重新核对**…当前活动标签"。
   // 这里记下读取开始时用户正看着哪个标签；收尾时若当前活动标签变成了**另一个仍然存在的**标签，
   // 说明用户在读取期间自己切走了（切到标签栏里已有的标签不会发起新的读取，因此不会被递增令牌
@@ -14190,7 +14877,7 @@ async function openDocument(path, options = {}) {
   const token = ++documentToken;
   // 规格 §4.1 第 121/123 行：读取尚未完成时状态栏要显示"本次打开的路径"并给"只读"标识。
   live.pendingDocument = path;
-  applyPendingDocumentStatus();
+  if (!quietTextRefresh) applyPendingDocumentStatus();
   // 规格 §7.3：预览加载期间保留原文或上一次预览，**只在预览侧**显示局部加载状态；
   // 短读取（<150ms）不闪提示。
   scheduleMarkdownPreviewHint(token);
@@ -14204,7 +14891,21 @@ async function openDocument(path, options = {}) {
     // 直接按失败处理，避免把「字段缺失的文档对象」留在 live 上——
     // 那会让后续每一次渲染都依赖调用方的容错。
     if (!payload || typeof payload.path !== "string" || payload.path.length === 0) {
-      throw new Error("document/read 返回的载荷缺少 path。");
+      throw new Error("Invalid document response: missing path.");
+    }
+
+    if (quietTextRefresh && window.__augitLive === live && live.tabs.includes(current)
+      && current.document === previousDocument && live.document === previousDocument) {
+      const model = toLiveDocument(payload);
+      if (Object.keys(model).every(key => key === 'jsonError'
+        ? model[key]?.line === previousDocument[key]?.line && model[key]?.column === previousDocument[key]?.column
+        : model[key] === previousDocument[key])) {
+        live.pendingDocument = null;
+        clearTimeout(markdownPreviewHintTimer);
+        markdownPreviewHintTimer = null;
+        clearImagePreviewState();
+        return false;
+      }
     }
 
     // 打开为标签；openDocumentTab 同步写入 live.document / live.editor。
@@ -14227,6 +14928,8 @@ async function openDocument(path, options = {}) {
     clearImagePreviewState();
   } catch (error) {
     // 失败路径也必须清掉"读取中"状态，否则状态栏会**卡在**"只读 + 待打开路径"上（成功路径已清）。
+    // 与成功路径使用相同代次：旧读取的失败不能清除新正文、加载提示或标签。
+    if (token !== documentToken) return;
     if (live.pendingDocument === path) {
       live.pendingDocument = null;
       refresh("statusbar");
@@ -14255,7 +14958,7 @@ async function openDocument(path, options = {}) {
         state: "failure",
         // `path` 是**当时显示的那个文档**（提示与旧预览属于它）；`retryPath` 是失败的那次读取。
         path: live.document ? live.document.path : null,
-        reason: String((error && error.message) || error || "文件读取失败。"),
+        reason: String((error && error.message) || error || "Failed to read file."),
         retryPath: path,
       };
       window.__augitError = "open-document:" + String((error && error.message) || error);
@@ -14269,6 +14972,9 @@ async function openDocument(path, options = {}) {
     return;
   }
 
+  // 外部变化批次会在目录与状态读取完成后统一刷新；成功重读不提前重复替换正文。
+  // 错误路径仍立即反馈；普通用户打开沿原有事件后刷新与等待契约。
+  if (deferRender) return;
   // 打开文档只影响编辑区、标签、状态栏与侧栏选中态；
   // 只做区域刷新以保留项目树的展开状态与滚动位置；
   // 并延后到事件派发结束，避免在捕获阶段就替换掉被点击的行。
@@ -14283,6 +14989,7 @@ try {
   await boot();
 } catch (error) {
   window.__augitError = "boot-failed:" + String(error && error.stack || error);
+  if(window.__augitSettingsSurface)void invoke('window/settings-failed',{},0).catch(()=>{});
   window.__augitHistoryReady = true;
   window.__augitGitReady = true;
 }

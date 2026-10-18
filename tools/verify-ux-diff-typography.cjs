@@ -25,7 +25,7 @@ async function main() {
           await page.waitForSelector('body[data-typography-preview="ready"]');
           const layout = page.locator('.diff-layout').first();
           const outer = await layout.boundingBox();
-          for (const mode of ['单栏', '双栏']) {
+          for (const mode of ['Unified', 'Side-by-side']) {
             await layout.getByRole('button', { name: mode, exact: true }).click();
             const state = await layout.evaluate(element => {
               const rect = node => { const r = node.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; };
@@ -47,14 +47,19 @@ async function main() {
               assert.ok(row.b - row.t >= state.height, `${label} 引用行高度不足`);
               assert.ok(row.t >= state.header.t && row.b <= state.header.b, `${label} 引用行越界`);
             }
-            if (mode === '单栏') assert.ok(state.rows[0].b <= state.rows[1].t, label);
+            if (mode === 'Unified') assert.ok(state.rows[0].b <= state.rows[1].t, label);
             else assert.equal(state.rows[0].t, state.rows[1].t, label);
             for (const icon of state.icons) {
-              assert.equal(icon.b - icon.t, 27, `${label} 图标不跟随字号放大`);
-              assert.ok(icon.l >= state.bounds.l && icon.r <= state.bounds.r, `${label} 工具图标越界`);
+              assert.equal(icon.b - icon.t, Math.round(28 * Math.max(.75, Math.round(Number(size) / 12 * 4) / 4)), `${label} 图形命中区按UI字号缩放`);
+              // 限宽下只滚动工具条；逐项聚焦时命中区须完整出现，比较外框不位移。
+            }
+            for (const button of await layout.locator('.diff-toolbar button:not(:disabled)').all()) {
+              await button.focus();
+              assert.ok(await button.evaluate(node => { const a=node.getBoundingClientRect(), b=node.closest('.diff-toolbar').getBoundingClientRect(); return a.left >= b.left-1 && a.right <= b.right+1; }), `${label} 焦点动作完整可达`);
+              assert.deepEqual(await layout.boundingBox(), outer, `${label} 工具条焦点不得滚动比较外框`);
             }
             for (const text of state.summaries) assert.ok(text.b - text.t >= state.height, `${label} 摘要高度不足`);
-            if (mode === '双栏') {
+            if (mode === 'Side-by-side') {
               const content = await layout.evaluate(element => {
                 const sides = [...element.querySelectorAll('.diff-side')].map(side => [...side.querySelectorAll('.diff-code-line')]);
                 const gutter = element.querySelector('.diff-gutter');

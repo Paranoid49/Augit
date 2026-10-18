@@ -1,11 +1,17 @@
 # Augit 统一设计系统
 
+2026-10-17远端工具栏禁用图标沿用安装版GrayFilter：浅#BDBDBD、深#5A5A5A，不复用Label.disabledForeground。仅作用于Remove/Edit禁用图标，恢复启用时仍用icon色；浅色正常入口原图已确认，深色完整实机配对未完成，见pixel-remote-approved-layout-2026-10-17.md。
+
+2026-10-15用户裁决：正常启动的全部界面以真实外壳测试基准对齐。旧外观配置首次读取迁移到 Light、Microsoft YaHei UI 12；以 appearanceVersion=1 标记，后续保留用户的主题及界面字号调整。等宽正文固定为随包 JetBrains Mono 13，覆盖旧等宽偏好并取消设置页的等宽字体/字号选择。保留工作区、标签、面板及 Git 设置；系统 DPI 正常跟随，不复制审计强制100%参数。本条取代下文旧字体保留、等宽字体及字号可任选的条款。
+
 ## 1. 文档目的
 
-> **未决项清单**：执行期间的未决项曾集中登记在 `docs/nui-behavior/10-backlog.md`；该表**已于第 307 轮清零**（每项都有结案依据），当前口径以 `docs/ui-classification.md`（归类总表，§7 待处理表已清零）与 `docs/ui-compliance.md` §2.10／§3.2 为准。本文不再指向空表。
+> **当前状态（2026-10-12）**：第 307／309 轮的“清零／完成”只说明当时登记范围，不代表当前 PyCharm 全场景复原。当前整改与验证缺口见 [整改清单](ui-restoration-checklist-2026-10-12.md) 和 [实施记录](ui-restoration-fixes-2026-10-12.md)；未验证项保持未验证，不转成通过。
 
 
 本文把 `product-spec.md`、`architecture.md` 和 `ux-spec.md` 中已经确认的界面规则收敛为一套可执行的视觉系统。它用于统一 Augit 当前已有页面和状态的实现细节，使界面具有一致的字体、间距、图标、颜色、层级和交互反馈。
+
+2026-10-13像素整改及用户裁决：复选框统一使用24px透明画布、16px绘制外框；未选聚焦外框18px，已选/半选聚焦保留16px内框并绘制22px外环，随界面字号档位缩放。取消按钮始终显示Cancel，进行态原因放在局部状态区；Amend与蓝色last commit链接分开，链接打开现有Git Log，不提供指定提交Amend下拉；Windows Stash/Reset确认在Cancel左侧。以下旧条款中独立15px复选框、取消进行态预留和Amend中性历史图标由此订正。字体安装、随包加载和独立模态接续见[字体与窗口整改记录](pixel-font-followup-2026-10-13.md)，首批逐项证据见[整改记录](pixel-restoration-2026-10-13.md)。
 
 本文不新增产品能力，不新增页面、按钮、设置项、文件格式或 Git 操作。任何组件只能承载产品规格已经列出的动作；没有产品动作的视觉稿不得转化为可点击控件。
 
@@ -34,11 +40,11 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | 文中旧表述 | 当前实际落点 |
 | --- | --- |
 | 原生控件、owner-draw、`DrawItem`、GDI/GDI+ 绘制 | HTML 元素与 CSS 声明 |
-| Scintilla、直接调用接口、`SendMessage`、正文标记 | `.code-view` / `.diff-layout` / 冲突三栏等 DOM 结构与类名 |
+| Scintilla、直接调用接口、`SendMessage`、正文标记 | `.code-view` / `.diff-layout` 等 DOM 结构与类名 |
 | `NativeTheme`、颜色与度量缓存 | `web/src/mockup.css` 中的 CSS 自定义属性（`--augit-*`） |
 | HWND、subclass、`TrackMouseEvent`、窗口消息 | DOM 事件与 `:hover` / `:focus-visible` / `[aria-*]` 状态 |
 | `CreateRoundRectRgn`、圆角直径 | `border-radius` |
-| 原生弹层、模态窗口 | `[data-augit-overlay]` 下的浮层或对话框结构 |
+| 原生弹层、模态窗口 | 弹层仍为DOM结构；Settings按2026-10-16授权使用独立WebView2及唯一owned窗口，主窗持续呈现；其他真实模态重挂同一WebView2会话，表单继续由共享DOM绘制 |
 
 **令牌的唯一权威落点是 `web/src/mockup.css`。** 本文登记令牌的语义与取值；CSS 中出现的视觉常数必须能在本文找到登记项，反之本文新增令牌必须同步落到 CSS，并由 `tools/audit/verify-ui-assets.ps1` 保证 `docs/ux-mockups/` 与 `web/src/` 的字节一致性。
 
@@ -52,6 +58,8 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 - 一致：同一语义在所有页面使用同一颜色、图标、字号、间距和状态表达。
 - 可读：浅色、深色、100%/125%/150% DPI 下文字和状态均清晰。
 - 克制：使用 PyCharm 的空间组织、信息密度和功能图标视觉；Augit 只保留自己的品牌标记，不为已有功能设计另一套“近似图标”。
+
+本次复原的当前数值与旧记录发生差异时，以 [24 · 参考外观整改](nui-behavior/24-reference-restoration.md) 的逐组件取证为准；历史待办结案不代表整体视觉验收。
 
 ## 4. 基础令牌
 
@@ -83,7 +91,7 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | --- | ---: | --- |
 | `window-title-height` | 44 | 默认标题栏高度；随实际字高扩展 |
 | `global-rail-width` | 42 | 左侧全局工具栏宽度 |
-| `tool-button-hit` | 32×32 | 全局、工具栏和标题栏图标命中区 |
+| `tool-button-hit` | 工具轨 37×40；其他按钮按组件 | 工具轨的绘制内距与命中区分离 |
 | `icon-visible` | 16×16 | 工具图标可见绘图区 |
 | `side-panel-default` | 360 | 推荐窗口左侧工具窗口宽度 |
 | `side-panel-min` | 300 | 小窗口左侧工具窗口最小宽度 |
@@ -91,9 +99,9 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | `bottom-panel-max` | `max(305, bottom-panel-min)` | 底部工具窗口参考最大高度；高字体时不小于最小高度 |
 | `bottom-panel-default` | `clamp(bottom-panel-min, 客户区高度×31%, bottom-panel-max)` | 默认 Git 历史或终端高度 |
 | `tool-header-height` | 38–42 | 工具窗口标题和底部工具窗口标题 |
-| `row-height` | 24（字号增大时为 `max(24, h + 8)`） | IntelliJ 项目树行；列表行与 Changes 按各自组件令牌 |
+| `row-height` | `max(round(24s), h)` | 项目树行，`s` 为界面字号相对 12px 的 0.25 离散缩放档；默认 24px |
 | `control-height` | 30–31 | 输入框、选择框和普通按钮 |
-| `tab-height` | 40（字号增大时为 `max(40, h + 12)`） | IntelliJ New UI 编辑标签栏 |
+| `tab-height` | `max(round(40s), h + round(12s))` | IntelliJ New UI 编辑标签栏；默认 40px |
 | `tab-visible-height` | 28 | 默认界面字号下正式和临时标签的可见背景高度，栏内上下各留 6px |
 | `tab-content-inset` | 8 | 标签背景内图标左侧留白（`EditorTabs.tabInsets` 的左右分量）；图标区 16px，图文间距 4px（`EditorTabbedContainer` 的 `iconTextGap`） |
 | `tab-close-visible` | 8 | 标签关闭叉号的可见尺寸，独立命中区宽度 28px |
@@ -104,9 +112,9 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 
 内容行、文件树行和表格行不使用卡片圆角。圆角只表达一个独立表面，不用于每一项列表。
 
-主框架在界面字号或字体改变后，以正文、半粗体和临时标签斜体中的最大实际行高 `h` 计算容器：标题栏至少 `h + 18px`，其中带文字的按钮至少 `h + 4px`；标签栏为 `max(40px, h + 12px)`（标签卡片高为栏高减 12px，上下各留 6px）；项目头至少 `h + 10px`；文件树行采用 `max(24px, h + 8px)`（New UI 的 `Tree.rowHeight = 24`）；文件路径工具栏至少 `h + 8px`；状态栏为 `max(28px, h + 12px)`（状态栏 Widget 上下内距合计 12px）。各项同时保留表中默认下限，所有留白先按当前 DPI 换算。主菜单项和状态栏右侧格式文字按实际字宽分配，长路径使用剩余空间省略。
+主框架在界面字号或字体改变后，以正文、半粗体和临时标签斜体中的最大实际行高 `h` 计算容器，字号档位为 `s = max(0.75, round(字号 / 12 × 4) / 4)`。标题栏至少 `h + 18px`，文字按钮至少 `h + 4px`；标签栏、树行按上表的离散缩放基准与字形下限计算；项目头至少 `h + 10px`，文件路径工具栏至少 `h + 8px`，状态栏为 `max(round(28s), h + round(12s))`。标签卡片默认上下各留 6px。所有留白再按当前 DPI 换算。主菜单项和状态栏右侧文字按实际字宽分配，长路径使用剩余空间省略。工具轨列宽为 37px，主网格不另加左内距，项目表面从 4px 间隙后的 x=41 开始。
 
-字号变化只扩展承载文字的区域。左侧工具按钮保持 32×32px，项目头和文档工具图标保持原有尺寸并在新高度内居中；树选择、首个可见节点、正文选择和滚动保持，等宽字号不随界面字号改变。设置回默认 12px 后恢复默认主框架尺寸。当前打开的 PyCharm 2026.2 Islands Light 前台配置为 Microsoft YaHei UI 12px、175% DPI，因此本轮把默认界面字号定为 12px；该值是当前参考环境的明确配置，不泛化为所有 PyCharm 用户的个人默认。对话框按钮和来源标题按实际字宽分配，空间不足时按视觉稿分组换行，不能让按钮文字换行、溢出或推动其他列越界。配套视觉稿的 `json-preview.html?ui-size=40` 提供大字号对照。
+界面字号变化同时缩放所属图标族、命中区和框架尺寸。用户缩放 `s = max(0.75, round(UI字号 / 12 × 4) / 4)`，逻辑像素尺寸按 `round(基准 × s)` 计算，系统 DPI 再由 WebView2 栅格化。基准：普通图形16、紧凑图形13、工具轨及标题动作20、普通命中区28、模式步长26、工具轨37×40、内距5/2/5/5、圆角6；工具轨限高时纵向滚动。系统窗口控制和对话框框架关闭图形保持16，复选框按24px画布／16px外框独立度量并随用户缩放，提交图继续按实际提交行高计算。标题栏44、项目头39、标签40、文档工具栏36、Diff工具栏39为各自缩放基准，并以实际字形高度保底；搜索和提交槽位须容纳缩放后的图形。树选择、首个可见节点、正文选择和滚动保持，等宽字号不随界面字号改变。设置回默认12px后恢复基准。当前参考的12px来自 Microsoft YaHei UI 配置，不泛化为所有用户默认；大字号的自动化几何验证不等于 PyCharm 同字号墨迹已验收。
 
 底部 Git 工具窗口在字号变化后使用 `max(180px, 4h + 80px)` 作为最小高度，其中 `h` 取当前界面字体的实际行高；默认高度仍按客户区 31% 比例计算并受参考上限约束。扩展只作用于底部工具窗口，不改变左侧工具窗口、编辑标签和正文的选择与滚动状态。
 
@@ -125,10 +133,13 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 ### 5.1 字体族
 
 - 界面字体：默认 `Microsoft YaHei UI`，与参考环境中 PyCharm 的实际界面字体一致；缺失时依次回退 `Segoe UI`、`Microsoft Sans Serif`。用户已经保存的其他字体继续优先使用。
-- 只读文本、Diff、冲突结果和终端：使用用户设置的等宽字体，默认 `Cascadia Mono`，缺失时依次回退 `Consolas`、`Courier New`。必须先核对已安装字体，不能只把不存在的名称交给系统后接受无声替换。
-- 界面、Markdown 与终端共用字体解析结果，并按 `zh-CN` 区域渲染。应用不安装、复制或读取 PyCharm 目录内的字体资源；用户自己安装的字体可以通过已有设置选择。
-- 为了比较字体和布局，PyCharm 参考窗口与 Augit 都必须先设置为相同的界面字体、等宽字体和字号；当前前台基线为界面正文 12px、等宽正文 13px（Microsoft YaHei UI、Cascadia Mono）。PyCharm 配置来自本次实测，不把其他用户或其他安装的个人配置推广为平台默认。
+- 只读文本、Diff 和终端：使用用户设置的等宽字体，默认随包 `JetBrains Mono` 2.304，资源不可用时依次回退 `Cascadia Mono`、`Consolas`、`Courier New`。必须验证随包字体加载或系统字体存在，不能只把不存在的名称交给系统后接受无声替换。参考默认`FontPreferencesImpl.myUseLigatures=false`，只读正文、Diff与Markdown代码关闭连字；终端沿用xterm逐格字形。
+- 界面、Markdown 与终端共用字体解析结果，界面按 `en` 区域渲染，用户文档保留原文。应用不读取 PyCharm 目录内的字体资源；随包字体仅来自独立开源仓库，附 OFL 许可证。用户安装的字体可以通过已有设置选择。
+- 为了比较字体和布局，PyCharm 参考窗口与 Augit 都必须先设置为相同的界面字体、等宽字体和字号。2026-10-11 前台实测 PyCharm 为 Microsoft YaHei UI／12、JetBrains Mono／13.0、编辑器行距 1.2；Augit 当前用户配置为 Microsoft YaHei UI／12、Cascadia Mono／13，两端等宽字体尚未统一。此前 Cascadia Mono 是 Augit 配置，不能写成 PyCharm 实测值。用户已保存字体不被静默覆盖，应用不读取 PyCharm 字体；本批次已安装并随包集成独立开源 JetBrains Mono，但未统一实际字体前不得宣称正文栅格与行高验收通过。
 - Markdown 预览必须接收同一套用户字体设置，并对字体名称进行 HTML/CSS 转义。正文跟随**界面**字号、代码块跟随**等宽**字号——落地细节、死令牌 `--augit-ui-font-size` 的订正与本轮验证见 [21 · Markdown 预览字号归属与死令牌](nui-behavior/21-markdown-preview-fonts.md)。
+- “恢复参考外观”的快照为 Light、Microsoft YaHei UI／12、JetBrains Mono／13，来源为2026-10-12前台复核。按用户2026-10-13裁决，新配置默认使用随包 JetBrains Mono 2.304；恢复前验证实际字体资源和系统字体。资源不可用时依次选择Cascadia Mono、Consolas、Courier New并显示原因。恢复只改草稿，Cancel不持久化，不覆盖已有用户字体。字体资源实际加载后重新度量正文；字体可用与逐像素配对分别登记。
+- Markdown正文行距1.6、左右内距2em；h1–h6倍率为2.2／1.8／1.3／1／1／1，标题顶部1em、底部16px，h1–h3顶部内距0.6em；h2行距1.2、h3为1，列表缩进2em。代码独立等宽字号，代码块内距16px、行距1.45、圆角3px。参考为当前PyCharm安装包Markdown `baseStyles/default.css`，字号归属仍按产品设置模型，不新增独立预览字号。
+- 查找框高为`max(30,字高+4,round(28s)+2)`，条高为`max(42,字高+16,round(28s)+14)`；发生局部横向滚动时额外容纳10px滚动条。输入、三开关、导航与关闭仍占一行，Tab聚焦须完整显示命中区；局部滚动不得推动整个编辑器。只读JSON错误与符号链接提示共存时可各自滚动，说明区至少一行加16px内距，正文至少保留一行。
 - Markdown 预览的页面背景、正文、辅助说明和边框共用 `Panel`、`Text`、`Muted`、`Border` 色板；不另设深色背景。加载提示为预览区域顶部的 36px 紧凑行，失败提示按文字换行度量高度，原文或旧预览保持可见。
 - 不使用 Emoji 作为图标，也不使用图标字体中的任意字符替代正式图标绘制。
 - 不使用 Unicode 箭头、菱形、三点或文字字形充当功能图标；例如下拉箭头、分支、提交和更多动作都必须由统一绘制入口生成。按钮标题中的省略号仍属于文字内容，可以保留在本地化字符串中。
@@ -143,22 +154,23 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | `ui-medium` | 12px（默认） | 半粗 | 当前项目、当前分支、选中项、主要标签；由用户字号设置覆盖 |
 | `ui-heading` | 12px（默认） | 半粗 | 工具窗口标题、对话框标题；由用户字号设置覆盖 |
 | `ui-small` | 12px（默认） | 普通 | 路径、作者、时间和辅助说明；只降低颜色，不缩小字号；由用户字号设置覆盖 |
-| `code-body` | 13px（默认） | 普通 | 普通文本、Diff、冲突和终端正文；由用户字号设置覆盖 |
+| `code-body` | 13px（默认） | 普通 | 普通文本、Diff 和终端正文；由用户字号设置覆盖 |
 | `code-line-number` | 13px（默认） | 普通 | 行号；使用较弱文字色并跟随等宽字号设置 |
 
 只允许普通和半粗两个主要字重。正文、路径和状态不能通过连续减小字号制造层级；层级优先使用颜色、位置和间距表达。
 
 ### 5.3 文字排版
 
-- 所有界面文字使用集中管理的简体中文资源。
-- 英文只保留文件名、分支名、Git 状态和用户文件内容。
+- 界面可见文案固定为英文，术语与当前参考环境统一；宿主兼容说明由 `web/src/ui-text.js` 管理。
+- 用户文件内容、提交信息、引用名和 Git／终端原始输出保持原文；文档与代码注释使用中文。
 - 标签、树节点和按钮使用单行省略号；省略号前保留最小 8px，关闭按钮保持独立命中区。
 - 标题栏工作区入口显示当前工作区目录名；未打开工作区时显示 `Augit`。工作区与分支入口按实际字宽分配，最大宽度各为 180px，长名称独立省略；图形到文字间距 8px，文字到 8px 下拉箭头间距 4px，右侧留白 8px。当前文件入口宽度为实际字宽加 28px（左右各 8px、文字到箭头 4px、箭头 8px），不保留固定的 112px 最小宽度。下拉箭头统一复用 `NativeTheme.DrawChevronIcon`。界面字体改变时重新度量，分支名称未变的状态刷新不触发布局。
 - 文本与图标垂直居中以字体实际度量为准，不能按字符框顶部硬编码。
 - 代码区行号、正文和 Diff 两侧使用相同的行高和等宽字宽；行号列宽按最大行号调整。
-- 文本行号栏用当前等宽字体实际度量最长行号（至少预留三位），再加 28px 逻辑留白；只读正文、等宽字号或 DPI 变化时重新度量，界面字号不得改变正文起点。隐藏行号的冲突三栏在修改字体后继续保持隐藏。
-- 等宽正文行高为字号的 1.7 倍，经 DPI 换算后四舍五入到物理像素，默认 13px 在 96 DPI 下为 22px；实际字形更高时以字高为下限，额外留白上下分配。普通文本、JSON、Markdown 源文、Diff 和 Blame 共用规则。HTML 同样按当前等宽字体度量行号列，行号文字取配色方案的 `LINE_NUMBERS_COLOR`（浅 `#AEB3C2`／深 `#4B5059`，即 `line-number` 令牌），行号栏与代码区同底（浅色方案 `GUTTER_BACKGROUND = ffffff`，深色方案未设该键、回落编辑区底色），右侧留 3px；行号栏横向固定，正文单独滚动。
-- 设置中的界面字体与等宽字体各自占一行，每行包含字体名称和独立的字号输入；默认界面字号为 12px，默认等宽字号为 13px。修改等宽字号不得改变树、标签和按钮的字号，修改界面字号不得改变只读源文、Diff、冲突结果和终端的字号。Markdown 预览正文跟随界面字号，代码块跟随等宽字号。
+- Windows参考Editor为Subpixel抗锯齿。随包JetBrains Mono加载成功时，编辑器字符步长按独立JBR整数度量取 `round(round(字号 × DPR) × 0.6) / DPR`，以相对浏览器实际字宽的letter-spacing实现；行号和词级／查找高亮使用同一步长，字体或DPI变化重新度量。其他字体、资源未加载时保持原始字距，终端和Markdown渲染预览不套用编辑器规则。32字号×8比例的参考度量和原始屏幕边界见[普通文本取证](pixel-text-pair-2026-10-14.md)。字距对齐不代表抗锯齿墨迹完全相同。
+- 文本行号栏用当前等宽字体实际度量最长行号（至少预留三位），再加 28px 逻辑留白；只读正文、等宽字号或 DPI 变化时重新度量，界面字号不得改变正文起点。
+- 只读正文和 Diff 的行距乘数为 1.2，作用于实际字体度量，不直接以字号乘 1.7。随包JetBrains Mono加载成功后使用参考JBR的AWT度量：hhea为1020/−300/0、unitsPerEm为1000，ascent/descent分别向上取整，再按Java单精度乘1.2向上取整；基线为行高减去descent与一半附加行距。13px对应22px行盒、16px基线；18px/37px保留Java单精度造成的31px/61px行盒。通过真实DOM基线探针只平移文字墨迹，不改行盒、背景或滚动步长。其他字体或资源失败继续使用浏览器实际度量；终端沿已登记的xterm行距，Markdown预览代码仍为1.45。普通文本、JSON、Markdown源文、Diff和Blame共用编辑器规则。32档独立JBR与浏览器实测、真实WebView2基线及边界见[接续记录](pixel-font-followup-2026-10-13.md)。HTML同样按实际等宽字宽度量行号列，行号文字取浅`#AEB3C2`／深`#4B5059`；行号栏与代码区同底、右侧留3px，横向固定，正文单独滚动。
+- 设置中的界面字体与等宽字体各自占一行，每行包含字体名称和独立的字号输入；默认界面字号为 12px，默认等宽字号为 13px。修改等宽字号不得改变树、标签和按钮的字号，修改界面字号不得改变只读源文、Diff和终端的字号。Markdown 预览正文跟随界面字号，代码块跟随等宽字号。
 - 旧版本只保存一个字号时，两类文字先沿用旧值；用户分别调整后独立保存。设置窗口执行“应用”后自身的文字和输入控件也必须立即使用新字体。
 
 ### 5.4 PyCharm 对齐的字体设置契约
@@ -169,7 +181,7 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | --- | --- | --- |
 | 界面字体 | `Microsoft YaHei UI`（按回退规则解析） | 文件树、标签、工具窗口、菜单、按钮、状态栏和 Markdown 普通正文 |
 | 界面字号 | `12px` | 上述所有界面文字 |
-| 等宽字体 | `Cascadia Mono`（按回退规则解析） | 只读文件正文、Diff、冲突三栏、Git 文本详情和终端 |
+| 等宽字体 | 随包 `JetBrains Mono` 2.304（按回退规则解析） | 只读文件正文、Diff、Git 文本详情和终端 |
 | 等宽字号 | `13px` | 上述所有等宽文字 |
 
 修改任一值不得隐式修改另外三个值。字号允许用户在 9–40px 范围内调整，立即刷新已打开的视图并持久化；字体缺失时必须显示实际回退字体，不能保留一个未安装的名称造成“看似一致”的假象。截图验收时必须记录四个实际生效值，并在相同 Windows DPI 下对照 PyCharm。
@@ -178,15 +190,7 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 
 颜色名称是语义令牌，页面不得直接使用颜色字面量。以下值与 `NativeTheme.Palette` 和视觉稿保持一致。
 
-**重要：浅色与深色的权威主题不是同一套。** 三套 expUI 主题的父链与取值完全不同：
-
-| 主题文件 | 名称 | 父主题 | 是否采用 |
-| --- | --- | --- | --- |
-| `expUI_light_with_light_header.theme.json` | Light with Light Header | `ExperimentalLight` | **浅色采用**——PyCharm 参考截图实测与 `ManyIslands*` 家族别名逐一对上（chrome `#E9EAEE`、次级文字 `#5F6269`、侧栏选中 `#3871E1`） |
-| `expUI_dark.theme.json` | Dark | `Darcula` | **深色采用**——深色面板 `#1E1F22` 只等于它的 `Gray1`，ManyIslandsDark 的灰阶里没有该值 |
-| `expUI_light.theme.json` | Light | `IntelliJ` | **不采用**——`#E9EAEE`、`#5F6269` 都不在它的 Gray 调色板里 |
-
-取色规则：**浅色查 ManyIslands 家族语义别名（或参考截图实测），深色查 `expUI_dark` 的 Gray 调色板**。浅色悬停是半透明覆盖而深色是实色，就是这个不对称造成的。
+浅色与深色均使用 Islands 家族的语义别名。`ManyIslandsLight.theme.json` 与 `ManyIslandsDark.theme.json` 分别解析各自颜色链，父主题只补充没有覆写的键；不得以“最接近的 expUI 色值”替代已存在的 Islands 语义色。深色 SVG 的 `#CED0D6` 还需按主题图标调色补丁映射为 `icon-default-stroke = #C3C5CB`。
 
 ### 6.1 浅色主题
 
@@ -208,14 +212,16 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | `tab-selected-border` | `#D1D3D9` | 选中标签卡片描边（未聚焦档，`inactiveUnderlinedTabBorderColor` = `tab-selected-border-inactive` = `gray-130`；参考截图卡片边线实测同值） |
 | `tab-selected-bg-active` | `#E3EBFE` | 选中标签卡片底（聚焦档，`underlinedTabBackground` = `tab-selected-bg-active` = `blue-150`） |
 | `tab-selected-border-active` | `#A7C5FF` | 选中标签卡片描边（聚焦档，`underlinedBorderColor` = `tab-selected-border-active` = `blue-120`） |
-| `scrollbar-thumb` | `#73737333` | 滚动条滑块（浅色继承 LAF `intellijlaf.theme.json` 的 `ScrollBar.thumbColor`），轨道透明。`scrollbar-color` 可继承，设在 `html, body` 即覆盖全部滚动容器 |
+| `scrollbar-thumb` | `#73737333` | 普通区域滑块，轨道透明；使用 WebView2 区域滚动条 |
+| `scrollbar-thumb-hover` | `#73737347` | 普通区域滑块悬停和拖动，取 `ScrollBarPainter.THUMB_HOVERED_BACKGROUND` |
+| `tab-scrollbar-thumb` / `tab-scrollbar-thumb-hover` | `#ABABAB` / `#7F7F7F` | 标签栏专用滑块，取 `TABS_THUMB_BACKGROUND` / `TABS_THUMB_HOVERED_BACKGROUND` |
 | `accent` | `#3574F0` | 激活工具、主要动作、焦点（`*.focusColor` / `*.underlineColor` = `Blue4`） |
 | `accent-brand` | `#3871E1` | **侧栏选中工具按钮的底色**（`ui.ToolWindow.Button.selectedBackground` = `toolbar-selected-bg-active` = `accent-brand-bg` = `blue-80`），前景固定白（`icon-over-accent`）。与 `accent` **不是同一个蓝**：复选框选中底在参考主题里是 `#3574F0` |
 | `rail-selected-fg` | `#FFFFFF` | 激活工具窗口入口的图标前景（`ui.ToolWindow.Button.selectedForeground`；与 `accent-brand` 底配对） |
 | `accent-soft` | `#D0DFFE` | 选中行和辅助选中表面（参考家族 ManyIslandsLight 的 `selection-bg-active` = `blue-140`；`#D4E2FF` 是未被采用的 expUI_light 的 Blue11） |
 | `selection-inactive` | `#E9EAEE` | 列表、树失去焦点后保留选择的中性背景（`ui.*.selectionInactiveBackground` = `selection-bg-inactive` = `gray-150`） |
 | `history-selection-inactive` | `#DFE1E5` | Git 历史列表失去焦点后保留选择的中性背景（同上；旧值 `#E9EAEC` 实为 `Log.Commit.hoveredBackground`，不是失焦选中色） |
-| `hover` | `#00000012` | **仅用于树行与 Changes 行的悬停底**（第 87 轮审计后已无其它用途）。权威 `ui.MainMenu.selectionBackground` = `toolbar-bg-hovered` = `core-bg-transparent-hovered` = `transparent-black-20`，**半透明覆盖**。注意：动作按钮与菜单项现已各自使用 `action-button-hover`／`title-menu-hover`，**不再共用本令牌**；树行与 Changes 行的悬停取 `row-hover`（见下），不再用本令牌；§6.1 末尾"没有悬停底"的旧表述已按 backlog #9 的裁决（2026 年，用户裁定：**行有悬停底**）更正 |
+| `hover` | `#00000012` | 普通控件悬停的兼容令牌；项目树、Changes 和引用树不绘制悬停行底色，表格行使用 `row-hover`。 |
 | `action-button-hover` | `#00000012` | **动作按钮**（图标按钮、分段按钮、对话框次级按钮）悬停底。权威 `ActionButton.hoverBackground`（`EditorToolbarButtonLook`、`SegmentedButtonLook` 的 `POPPED` 态都读它）；深色见 §6.2——那里是 `#FFFFFF16`（`MainToolbar.Icon.hoverBackground` 未定义时的回落） |
 | `title-menu-hover` | `#00000012` | **主菜单条目**悬停底。权威 `MainMenu.transparentSelectionBackground`；深色 §6.2 为 `#FFFFFF1A`。注意「菜单项」与「动作按钮」在权威里是**不同的键**，Augit 原先共用一个 `hover` 令牌是错的 |
 | `pressed` | `#00000020` | 按下表面**以及工具栏 ToggleAction 的选中态**。权威 `ui.ActionButton.pressedBackground`（ManyIslandsLight 指向 `core-bg-transparent-pressed` = `transparent-black-30`）；与 `hover` 同为正黑叠加、比它更重一档。选中的 toggle 之所以也用它，是因为 `ActionButton.getPopState()` 把 `isSelected()` 喂给 `isPushed` 参数、直接返回 `PUSHED`（第 194 轮）。深色见 §6.2 |
@@ -223,7 +229,7 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 | `spotlight-border` | `#E08855` | 设置搜索命中项的 spotlight 边框（线宽 2、外扩 1）。权威 `GlassPanel` 的 `Settings.Spotlight.borderColor` 兜底 = `ColorPalette.Orange6`；**登记差异**：权威同时用 glass panel 把命中之外的区域压暗，那层底色是从目标背景现算的（`darker()` + alpha 100）而非常量，Augit 不做压暗层。深色见 §6.2 |
 | `search-option-selected` | `#DAE4ED` | **芯片式可选按钮**（查找条与全仓搜索里的区分大小写／全字匹配／正则表达式）**未悬停的选中态**底。权威 `ui.SearchOption.selectedBackground` = `JBColor.namedColor(..., 0xDAE4ED, 0x5C6164)`（只有 `intellijlaf` 主题定义该键 ⇒ New UI 走兜底值）；悬停/按下另取 `selectedHoveredBackground`／`selectedPressedBackground`，默认回落到 `pressed`。深色见 §6.2 |
 | `row-hover` | `#00000008` | 表格类列表（Git 历史提交、文件历史）在**持有焦点**时的行悬停底。权威 `ui.Table.hoverBackground`／`ui.List.hoverBackground`，ManyIslandsLight 把两者都指向 `selection-bg-hovered` = `transparent-black-10` = `#00000008`（**半透明覆盖**，与 `hover` 同一原则）；`#EDF5FC` 只是 `JBUI.java:2379` 的代码默认值，参考家族已覆盖 |
-| `row-hover-inactive` | `#00000008` | 同上但列表**未持有焦点**时（`ui.List.hoverInactiveBackground`，同样指向 `selection-bg-hovered`，故浅色两档同值）。树与 Changes 行同样取 `row-hover`（第 100 轮按裁决落地） |
+| `row-hover-inactive` | `#00000008` | 表格失焦悬停底；项目树、Changes 和引用树不安装行悬停监听。 |
 | `success` | `#338555` | 成功、新增状态（非 Diff 场景；Diff 行底用独立令牌，见 §6.2）。权威 `Label.successForeground` = `text-success` = `green-80` |
 | `danger` | `#C54E58` | 删除、危险动作、错误。权威 `Label.errorForeground` = `text-error` = `red-80` |
 | `warning` | `#A56906` | 警告和超限。权威 `Label.warningForeground` = `text-warning` = `yellow-80` |
@@ -237,46 +243,48 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 
 | 令牌 | 色值 | 用途 |
 | --- | --- | --- |
-| `chrome` | `#2B2D30` | 标题栏、全局工具栏、状态栏背景（`*.background` / `MainToolbar.background` = `Gray2`） |
-| `panel` | `#1E1F22` | 工具窗口、编辑区、对话框内容（`Gray1`） |
-| `panel-muted` | `#2B2D30` | 工具窗口底等次级表面（`*.background` = `Gray2`）；New UI 下与 `chrome` 同值 |
-| `border` | `#1E1F22` | 普通分隔线（`*.borderColor` = `Gray1`）。深色下边框**比表面更深**，因此是一条暗线，不是亮线 |
+| `chrome` | `#26282C` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `panel` | `#191A1C` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `panel-muted` | `#212326` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `border` | `#26282C` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `toolbar-border` | `#393B40` | 文档工具条底边（`Editor.Toolbar.borderColor` = `Gray3`）。深色下这条线**比表面亮**，不是暗线 |
-| `border-strong` | `#4E5157` | 拖动分隔线、组件边框（`Component.borderColor` / `Tree.hash` = `Gray5`） |
-| `text` | `#DFE1E5` | 主文字（`Gray12`） |
-| `muted` | `#9DA0A8` | 路径、时间、辅助文字（`expUI_dark` 的 `StatusBar.Widget.foreground` = `Gray9`） |
-| `faint` | `#5A5D63` | 禁用文字和弱提示（`*.disabledForeground` = `Gray6`） |
-| `icon` | `#CED0D6` | 未激活图标与文件类型图标（深色 `icons.ColorPalette` 把该值登记为 `icon-default-stroke`） |
+| `border-strong` | `#40434A` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `text` | `#D1D3D9` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `muted` | `#9FA2A8` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `faint` | `#4C4F56` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `icon` | `#C3C5CB` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `line-number` | `#4B5059` | 编辑器行号文字（配色方案 `LINE_NUMBERS_COLOR`） |
-| `tabs-border` | `#393B40` | 标签栏下沿分隔线（`expUI_dark` 的 `underTabsBorderColor` = `Gray3`） |
-| `tab-selected-bg` | `#1E1F22` | 选中标签卡片底（`expUI_dark` 的 `underlinedTabBackground` = `Gray1`，与标签栏同色故不可见） |
-| `tab-selected-border` | `#7F99C380` | 选中标签卡片描边（未聚焦档；`expUI_dark` 未定义该键，走 `IslandsTabPainter` 默认 `#7F99C380`） |
-| `tab-selected-bg-active` | `#1E1F22` | 选中标签卡片底（聚焦档，同 `Gray1`） |
-| `tab-selected-border-active` | `#7F99C3` | 选中标签卡片描边（聚焦档，painter 默认 `#7F99C3`） |
-| `scrollbar-thumb` | `#73737333` | 滚动条滑块（`expUI_dark` 与 `Darcula` 都**不覆盖** ScrollBar 的 thumb，故沿用 LAF 基主题值），轨道透明 |
+| `tabs-border` | `#26282C` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `tab-selected-bg` | `#26282C` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `tab-selected-border` | `#40434A` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `tab-selected-bg-active` | `#233558` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `tab-selected-border-active` | `#2E4D89` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `scrollbar-thumb` | `#80808059` | 取 ManyIslandsDark 的 `ScrollBar.thumbColor`／`Transparent.thumbColor` 覆盖值 |
+| `scrollbar-thumb-hover` | `#8080808C` | 取同主题的 `hoverThumbColor` 覆盖值，包含悬停和拖动 |
+| `tab-scrollbar-thumb` / `tab-scrollbar-thumb-hover` | `#434344` / `#535455` | 标签栏专用滑块的深色默认值 |
 | `accent` | `#3574F0` | 激活工具、主要动作、焦点（`*.focusColor` / `*.underlineColor` = `Blue6`） |
-| `accent-brand` | `#3574F0` | 侧栏选中工具按钮的底色（`expUI_dark` 的 `ui.ToolWindow.Button.selectedBackground` = `Blue6`；深色下与 `accent` 同值），前景固定白（`Gray14`） |
+| `accent-brand` | `#3871E1` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `rail-selected-fg` | `#FFFFFF` | 激活工具窗口入口的图标前景（`ui.ToolWindow.Button.selectedForeground`；深色主题仍为白色） |
-| `accent-soft` | `#2E436E` | 选中行和辅助选中表面（`*.selectionBackground` = `Blue2`） |
-| `selection-inactive` | `#43454A` | 列表失去焦点后保留选择的中性背景（`*.selectionInactiveBackground` = `Gray4`） |
+| `accent-soft` | `#2A4371` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `selection-inactive` | `#33353B` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `history-selection-inactive` | `#43454A` | Git 历史列表失去焦点后保留选择的中性背景（同上） |
-| `hover` | `#393B40` | 同上（仅树行/Changes 行）。`expUI_dark` 的 `ui.MainMenu.selectionBackground` = `Gray3`（**深色是实色，不是覆盖色**）。树行与 Changes 行的悬停已按 backlog #9 裁决改用 `row-hover`（深色同值 `#464A4D`），本令牌不再用于行悬停 |
-| `row-hover` | `#464A4D` | 表格类列表（Git 历史提交、文件历史）在**持有焦点**时的行悬停底 |
-| `row-hover-inactive` | `#464A4D` | 同上但列表**未持有焦点**时；深色下两档同值 |
+| `hover` | `#FFFFFF17` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `row-hover` | `#FFFFFF10` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `row-hover-inactive` | `#FFFFFF10` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `success` | `#57965C` | 成功、新增状态（非 Diff 场景）。expUI_dark 无 successForeground 键，取调色板 `Green6` |
-| `danger` | `#DB5C5C` | 删除、危险动作、错误（`Label.errorForeground` = `Red7`） |
-| `pressed` | `#FFFFFF26` | 按下表面（`ui.ActionButton.pressedBackground`）。注意与深色 `hover`（`#393B40`，取自 `MainMenu.selectionBackground`）**来源不同**：一个是半透明白叠加、一个是实色中性面，这是两处权威各自的规定，不是笔误 |
-| `action-button-hover` | `#FFFFFF16` | 动作按钮悬停底（`ActionButton.hoverBackground`） |
+| `danger` | `#F57E84` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `pressed` | `#FFFFFF29` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `action-button-hover` | `#FFFFFF17` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `search-error-bg` | `#743A3A` | 设置搜索无命中时的输入框底色（`SearchField.errorBackground` 的深色兜底值） |
 | `spotlight-border` | `#A36B4E` | 设置搜索命中项的 spotlight 边框（`Settings.Spotlight.borderColor` 兜底 = `ColorPalette.Orange4`） |
 | `search-option-selected` | `#5C6164` | 芯片式可选按钮**未悬停的选中态**底（`ui.SearchOption.selectedBackground` 的深色兜底值；只有 `intellijlaf` 主题定义该键 ⇒ New UI 走 `0xDAE4ED`／`0x5C6164`） |
-| `title-menu-hover` | `#FFFFFF1A` | 主菜单条目悬停底（`MainMenu.transparentSelectionBackground`） |
-| `warning` | `#BA9752` | 警告和超限（`Label.warningForeground` = `Yellow5`） |
+| `title-menu-hover` | `#FFFFFF17` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `warning` | `#D59637` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 | `green-soft` | `#273828` | 成功提示条底色（深色无 `Banner` 键，取调色板 `Green2`） |
-| `red-soft` | `#472B2B` | 危险提示条底色（调色板 `Red2`） |
-| `yellow-soft` | `#5E4D33` | 警告提示条底色（调色板 `Yellow2`） |
+| `red-soft` | `#56272B` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
+| `yellow-soft` | `#44321D` | Islands Dark 对应语义别名；具体解析链见本轮整改分册 |
 
-Diff 行底色使用参考实现的配色方案取值，**不**用 `success`／`danger`／`warning` 近似：纯新增行为 `#BEE6BE`（深色 `#294436`）、纯删除行为 `#D6D6D6`（深色 `#484A4A`）、修改行为 `#E7EFFA`（深色 `#283541`）—— 整行底分两档：没有行内差异的块取 `DIFF_*.BACKGROUND` 全强度，有行内差异的块取 `TextDiffTypeImpl.getIgnoredColor()` = `mix(DIFF_*.BACKGROUND, 编辑器底, 0.6)`（第 223 轮订正，出处见 `nui-behavior/08-diff-merge.md` §2.1）；**行内（词级）高亮**再用全强度的 `DIFF_*.BACKGROUND`（浅 `#BEE6BE`／`#D6D6D6`／`#C2D8F2`，深 `#294436`／`#484A4A`／`#385570`）叠加。注意 `*_LINES_COLOR` 的 `#7FC784`／`#767A8A`／`#88ADF7`（深 `#549159`／`#868A91`／`#375FAD`）是**行号槽实心标记**色族，不是正文行底。仅空白差异的修改行为 `#F7E2CB`（深色 `#52433D`）、未变更区域的折叠分隔底为 `#E4E6EB`（深色 `#2B2D30`）；忽略空白时的行边框取 `IGNORED_*_BORDER_COLOR`（`#7FC784`／`#767A8A`／`#88ADF7`）。文件状态色同样取自配色方案：新增 `#067D17`（深色 `#73BD79`）、修改 `#0033B3`（深色 `#70AEFF`）、删除 `#6C707E`（深色 `#6F737A`）、冲突 `#DE1B2E`（深色 `#DE6A66`）、未跟踪/未知 `#B23247`（深色 `#E88F89`）。状态不能只靠颜色，必须同时显示图标、文字或结构位置。取值出处见 [IntelliJ Platform New UI 数值参考](intellij-platform-ui-reference.md) §5.7。
+Diff 行底色使用参考实现的配色方案取值，**不**用 `success`／`danger`／`warning` 近似：纯新增行为 `#BEE6BE`（深色 `#294436`）、纯删除行为 `#D6D6D6`（深色 `#484A4A`）、修改行为 `#E7EFFA`（深色 `#25323E`）—— 整行底分两档：没有行内差异的块取 `DIFF_*.BACKGROUND` 全强度，有行内差异的块取 `TextDiffTypeImpl.getIgnoredColor()` = `mix(DIFF_*.BACKGROUND, 编辑器底, 0.6)`（第 223 轮订正，出处见 `nui-behavior/08-diff-merge.md` §2.1）；**行内（词级）高亮**再用全强度的 `DIFF_*.BACKGROUND`（浅 `#BEE6BE`／`#D6D6D6`／`#C2D8F2`，深 `#294436`／`#484A4A`／`#385570`）叠加。注意 `*_LINES_COLOR` 的 `#7FC784`／`#767A8A`／`#88ADF7`（深 `#549159`／`#868A91`／`#375FAD`）是**行号槽实心标记**色族，不是正文行底。仅空白差异的修改行为 `#F7E2CB`（深色 `#52433D`）、未变更区域的折叠分隔底为 `#E4E6EB`（深色 `#2B2D30`）；忽略空白时的行边框取 `IGNORED_*_BORDER_COLOR`（`#7FC784`／`#767A8A`／`#88ADF7`）。文件状态色同样取自配色方案：新增 `#067D17`（深色 `#73BD79`）、修改 `#0033B3`（深色 `#70AEFF`）、删除 `#6C707E`（深色 `#6F737A`）、冲突 `#DE1B2E`（深色 `#DE6A66`）、未跟踪/未知 `#B23247`（深色 `#E88F89`）。状态不能只靠颜色，必须同时显示图标、文字或结构位置。取值出处见 [IntelliJ Platform New UI 数值参考](intellij-platform-ui-reference.md) §5.7。
 
 ### 6.3 状态优先级
 
@@ -298,9 +306,11 @@ Diff 行底色使用参考实现的配色方案取值，**不**用 `success`／`
 | `title-close-pressed` | 窗口关闭按钮按下：`#C42B1C`，白色图形 |
 
 **细线（分隔线、描边、焦点环）按 DPI 取整到整设备像素**：权威把"1 单位的线"按 `JBUIScale.scale(1) = round(userScaleFactor)` 取整（`JBValue.get()` 同义，`JBValue.java:65-78`；`07-theme-dpi-dialogs.md` §2 明说"分隔线粗细"必须按 DPI 缩放、§2.4 的 `alignIntToInt()` 同义）。CSS 侧的等价写法是 `round(dpr) / dpr` px，落在令牌 `--augit-hairline`（`calc(var(--augit-hairline-device) * 1px / var(--augit-dpr))`，两个变量由 `mockup.js` 的 `applyDeviceScale()` 写；未运行 JS 时回落 1px，与改动前逐值相同）。**引擎限制（登记差异）**：Chromium 会把 `border-*`／`outline` 的宽度取整到整数 CSS 像素，因此令牌只在 `height`/`width` 画出来的分隔线与 `box-shadow` 描边这类能表达小数的属性上生效；边框仍等于 1px（不变差），参考实现的 `scale(1)` 对边框的那点影响在 CSS 里无法表达。另登记：参考实现的 `patchLafFonts` 还会把界面字号折进 `userScaleFactor`（`LafManagerImpl.kt:857-885`），Augit 的细线只按 DPI 取整 —— 长度模型把字号影响烘进各自公式（`07` §2 的映射里已接受），再叠一次会重复计算。
-**工具条图标按钮（`.icon-button` / `.toolbar-button`）的背景圆角半径为 3px**（第 86 轮再由 `EditorToolbarButtonLook` 印证：它未覆写 `getButtonArc()` 且委托 `SYSTEM_LOOK` ⇒ 仍是 `BUTTON_ARC` = 6 ⇒ 半径 3）；**其悬停底取 `ActionButton.hoverBackground`**（浅 `#00000012`／深 `#FFFFFF16`，深色是 `MainToolbar.Icon.hoverBackground` 未定义时的回落），按下底取 `ActionButton.pressedBackground`（= `--augit-pressed`，浅 `#00000020`／深 `#FFFFFF26`）；（权威 `IntUiBridgeIconButton.kt:24,55`：`CornerSize(DarculaUIUtil.BUTTON_ARC.dp / 2)`，`Button.arc` = 6 ⇒ 3；同文件 `minSize` = 24×24、`padding` = 0，而 Augit 现为 27×27／28×24 —— 该尺寸来自本规范 §4 的字号适配（如 `max(27px, h + 6px)`），Jewel `IconButton` 的 24×24 属 Compose 栈、**不适用**于 Swing 等价物的 HTML 复刻（`ui-classification.md` §1.21），**不再列为待核**）；**标题栏按钮与文字入口的背景圆角半径为 6px**（权威 `MainToolbar.Button.arc` = `UIInteger("MainToolbar.Button.arc", 12)`，arc 是直径 ⇒ 半径 6、标题栏下拉（工作区 chip／分支 chip／当前文件入口）的内容内距取权威 `MainToolbar.Dropdown.borderInsets` = New UI 下的 `insets(5, 10, 5, 6)`（`JBUI.java:1383`、标题栏按钮尺寸取 `MainToolbar.Button.size` = **30×30**（`JBUI.java:1274-1278`）、图标取 `MainToolbar.Button.iconSize` = **20**（`:1286-1299` 默认 20，主题未覆盖；30 − 20 = 左右各 5，与 `MainToolbar.Icon.insets` = `6,5,4,5` 的左右值一致）、标题栏下拉最大宽取 `MainToolbar.Dropdown.maxWidth` = **350**（两套家族一致）；`MainToolbar.Dropdown.hoverArc()` 与 `Dropdown.arc` 同值 12 ⇒ 半径 6，见 `:1391`）；窗口标题栏工具条走同一个 `HeaderToolbarButtonLook.hoverArc()`），左侧轨道按钮圆角 **3px**（权威 `IdeaActionButtonLook.getButtonArc()` 返回 `DarculaUIUtil.BUTTON_ARC` = `UIInteger("Button.arc", 6)`，Java2D 的 arc 参数是弧宽高 ⇒ 半径 3；第 58 轮"权威里没有轨道按钮圆角键"的结论是错的，第 84 轮修正）；轨道按钮**几何已经核实**：按钮 **32×32**、图标 **16**、轨道列宽 42（`ToolWindowStripeExtension.ICON_UNSCALED_SIZE = 16`，按钮尺寸取自该扩展的 `getButtonMinSize()`；`StripeToolbar.Button.size`/`iconSize` 的代码默认 **40×40／20** 只在**未安装该扩展**时生效，而 2026 参考图（1.5x，`vcs-operations-popup.png`）实测按钮约 32 逻辑px，与扩展路径一致）；圆角 7px 的绘制在更底层模块（`paintLookBackground`）未定位，待核。轨道按钮的**悬停底**取权威 `ToolWindow.Button.hoverBackground` 的代码默认 `JBColor(Gray.x55.withAlpha(40), Gray.x0F.withAlpha(40))`（浅 `#55555528`／深 `#0f0f0f28`，40/255 ≈ 15.7% 叠加；规则放在 `.rail-button.active` 之后，使"选中未聚焦"时悬停也生效，而聚焦档特异性更高仍压过悬停）；轨道按钮的**选中态分两档**（权威 `SquareStripeButtonLook.getState()/getBackgroundColor()/paintIcon()`）：**该工具窗口未激活**时用普通前景与透明底，**窗口激活**时才是白字 + `--augit-accent-brand`。这里的判据是 `SquareStripeButton.isFocused()`，而它的实现是 `toolWindow.isActive`（`SquareStripeButton.kt:120`；`ToolWindowImpl.isActive()` = `windowInfo.isVisible && decorator != null && toolWindowManager.activeToolWindowId == id`，`ToolWindowImpl.kt:470-472`），**不是按钮自身的 DOM 键盘焦点**；第 84 轮曾按字面把它落成 CSS `:focus`，实测后果是点击入口后焦点回到正文或文件树，激活工具窗口的入口又变回灰色，与 §4.4"当前全局工具入口使用蓝色实心底"和 `01-tool-window.md` §7 第 3 条的"按钮选中态 = 蓝底白图标"矛盾，**第 314 轮按权威订正为实现 `.rail-button.active` 即白字 + `--augit-accent-brand`**；轨道按钮**未选中**的前景取权威 `ToolWindow.Button.foreground`、**分隔线**取 `ToolWindow.Stripe.separatorColor`（浅 = `core-border-transparent` = `transparent-black-30` = `#00000020` 的**淡叠加**，不是实色灰；深 = `#43454A`）、 = 浅 `gray-70` `#5F6269`／深 `#9DA0A8`，**选中**底与前景取 `ToolWindow.Button.selectedBackground` = `accent-brand-bg`（浅 `blue-80` `#3871E1`／深 `#3574F0`）与白字——Augit 的 `--augit-accent-brand` 本来就与这两个值一致；**菜单项选中圆角 4px**（权威 `PopupMenu.Selection.arc` = 8 ⇒ 4，`IntUiBridgeMenu.kt` / `IntUiBridgeSimpleListItem.kt` 同样除 2）；**CSS 去重以"选择器+属性+值三者全同"为界**（第 107 轮）：这类重复中后一处必胜（选择器相同 ⇒ 特异性相同），但**若后一处在 `@media`/`@supports` 内则不然** —— 媒体查询不成立时先前那条才生效。因此去重必须排除 at-rule 内的规则；本轮据此删除 40 处，并用"新旧 CSS 逐元素计算样式对照"验证为 0 差异。**对话框标题行左右内距均为 12**（第 106 轮收尾）：第二条 `.dialog-header` 基类的 `padding: 0 13px` 与 reset／rollback 的右侧 13px 都改为 **12**，与 `getRegularPanelInsets()` 的左右 12 一致；reset／rollback 左侧保留 16px（标题图标实测左边距）。**`.compact-input` 是活类**（`mockup.js` 的 `compactInputDialog()` 与"跳转行"页在用），属 COMPACT 风格：权威里 COMPACT 的内容边框是 `JBUI.Borders.empty()`，但其内容组件自带 16px 内距并不被禁止，故保留待核。**对话框内容（正文 .dialog-body）的内距取权威 `UIUtil.getRegularPanelInsets()` = `(8, 12, 8, 12)`**（`UIUtil.java:370-371` 的 `REGULAR_PANEL_TOP_BOTTOM_INSET = 8`、`REGULAR_PANEL_LEFT_RIGHT_INSET = 12`，经 `DialogWrapper.createDefaultBorder()` 作用于内容面板）：第 105 轮把 11 条 body 规则的横向 16/17px 与纵向 15/17px 统一为 **`8px 12px`**（4 个滚动容器保留其纵向 0、横向改为 12）。`.compact-input .dialog-body` 例外未动 —— 它的名字对应 `DialogStyle.COMPACT`，而权威里 COMPACT 的内容边框是 `Borders.empty()`。**对话框底栏与标题行的内距取权威 `DialogWrapper` 的两个 border**（第 104 轮）：New UI 布局路径（`DialogWrapper.java:1522`）里 south section 是 `JBUI.Borders.empty(0, 12, 8, 12)` ⇒ **左右 12**（COMPACT 路径的 `:843` 也是 `empty(8,12)`）；内容/标题侧走 `createDefaultBorder()` → `UIUtil.getRegularPanelInsets()`。因此 8 个对话框页脚的横向内距由 16/17/22px 统一改为 **12px**（`.push-dialog` 保留其顶部 12px），5 个操作类对话框标题行的 `padding-left: 25/26px` 改为 **12px**（reset／rollback 因有标题图标保留 **16px**，与参考图实测的图标左边距一致）。各对话框**body** 的内距（15px 17px 等）未动，属另一议题。**表单控件与主菜单条目的高度/内距必须随字号缩放**（第 119 轮）：① `.reset-dialog` 的文本框与下拉框此前被写死 `height: 30px`（第 95 轮为解开与按钮变量的耦合），大字号下 `clientHeight < fontSize` 被验收判为"裁剪"，现改为 `var(--reset-field, 30px)`，`--reset-field` 由 `mockup.js` 按 `Math.max(30, line + 10)` 计算（与 clone/stash 的 `field` 同式）；② 主菜单条目原与 `.top-button` 共用 `padding: 0 5px`（合计 10px），而它是**下拉**，权威 `MainToolbar.Dropdown.borderInsets` = `insets(5, 10, 5, 6)` ⇒ 左 10 + 右 6 = 16px，已拆开单独设置。**对话框底栏高度必须容得下按钮**（第 118 轮）：`push` 的底栏公式原写 `Math.max(53, line + 25)`，而底栏实际高度 = 按钮 `Math.max(37, line + 17)` + 顶部内距 12 = `line + 29`；大字号下按钮因此溢出对话框底边（`verify-ux-push` 在 `ui-size=40` 实测溢出 3px）。已改为 `line + 29`。其余对话框的底栏用的是 `button + 23/25`，本就会随按钮缩放，无需改动。**分段组（`.segmented`）容器无底色、边框取 `Component.borderColor`**（第 125 轮）：基类注释已记录权威「`SegmentedButtonComponent.paint()` 只调 `super.paint()` 未设背景、Jewel 的 `SegmentedControlColors` 也没有 background 字段」，但深色曾单独加过 `background: var(--augit-panel-muted)`，与之一致性矛盾，已删除（两主题都透出父容器底色）。容器边框浅 `#D1D3D9`／深 `Gray5 #4E5157`；几何自洽式：组宽 87 = 边框 1 + 内距 2 + 按钮 40 + 间隙 1 + 按钮 40 + 内距 2 + 边框 1，按钮距组边缘 3（= `getBorderInsets()` = BW(LW)）。**焦点环统一用 `accent`**（第 117 轮）：`design-system` 一贯写"焦点使用命中区内侧 1px **accent** 圆角边框"，但实现里有 14 条焦点态规则写成了 `--augit-blue`（浅 `#3574F0`，比 accent 的 `#3871E1` 偏亮）。现全部改用 `--augit-accent-brand`；覆盖 `.message-field:focus`、各处 `:focus-visible`、对话框与工具栏/终端的 `:focus::after` 等。检查器 `verify-ux-frame-buttons`／`document-button-states`／`conflict` 里深色 accent 的错误期望 `Blue8 #548AF7` 也订正为权威的 `Blue6 #3574F0`。**对话框底栏（south panel）没有分隔线**（第 103 轮）：权威 `DialogWrapper.java:838-845` —— 只有 `getStyle() == DialogStyle.COMPACT` 时才给 south panel 加 `CustomLineBorder(…, 1, 0, 0, 0)` 的 1px 顶边，普通对话框只加 `JBUI.Borders.emptyTop(8)`；2026 参考图 Confirm Exit 实测确实**没有**分隔线。Augit 原先在 `.dialog-footer` 上写了 `border-top`，已删除；底栏基类内距同时按权威取 **`8px 12px`**（`JBUI.Borders.empty(8, 12)`）。注意各对话框仍有自己的页脚内距覆写（16/17/22px），那是视觉稿对齐值，**未改动**，列为待核。**破坏性确认框（reset／rollback）的标题图标**（第 102 轮落地）：2026 参考图 Confirm Exit 里，标题前有一个 **27.3 逻辑px** 的蓝底白问号图标、**左边距 16 逻辑px**；配色取官方 `general/questionDialog.svg`（浅 `#4682FA`／深 `#548AF7` + 白色问号）。Augit 用 `.reset-dialog/.rollback-dialog .dialog-header::before` 实现 —— `.dialog-header` 本身已是 flex 容器，伪元素即第一个 flex 项，**无需改 DOM 或 JS**；同时把这两个对话框标题行的左内距 25px 改为 16px（原 25px 是空位）。**第 307 轮把「哪些对话框有图标、画哪一个」按权威定性并补齐**（用户裁决「完全参考 intellij-community」）：① `Messages` 系的确认框用 `getQuestionIcon()` —— 删除 Stash（`GitStashUtils.kt:86`）、删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree（`GitCheckoutInOtherWorktreeDialogs.kt:54`），加上原有的 reset／rollback，统一为 28px 蓝底白问号（浅 `#4682FA`／深 `#548AF7`，即 `--augit-dialog-icon-bg`），左边距 16px；② `GitInit.java:72` 的「目标已在 Git 下」警告用 `getWarningIcon()` ⇒ 橙底白叹号（浅 `#FFAF0F`／深 `#F2C55C`，新增令牌 `--augit-dialog-warning-bg`；官方 `general/warningDialog.svg` 是圆角三角，这里用 `clip-path` 三角近似 + 文本叹号，与问号图标的做法一致）；③ 自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）都没有 `setIcon` ⇒ 不画标题图标，Augit 的 stash／clone／push／远端等对话框因此保持无图标；④ 紧凑输入窗口（新建标签／重命名／跳转行）对应权威的**常规** `Messages.showInputDialog`，Augit 用紧凑适配、形状不同 ⇒ 同样不画图标。**订正旧记述**：那 5 个操作类对话框的 `padding-left: 25/26px` 空位早在第 104／105 轮就归一为 **12px**，此处不再保留空位。**滚动条滑块取权威 `ScrollBar.Transparent.thumbColor` = `key(0x33737373, 0x47A6A6A6)`**（`ScrollBarPainter.java:113`，Java 字面量是 ARGB、前两位为 alpha）⇒ 浅 `#73737333`／深 **`#a6a6a647`**；第 101 轮订正：早先记的"深浅同值"不成立（两个 New UI 家族虽都不覆写该键，但代码默认自带深色一半）。同文件 88-122 行其余默认：`hoverThumbColor` = 浅 `#73737347`／深 `#a6a6a659`、`hoverThumbBorderColor` = 浅 `#59595947`／深 `#38383859`、`Transparent.thumbBorderColor` = 浅 `#59595933`／深 `#38383847`；**悬停档未实现**——`scrollbar-color` 表达不了 hover，而 `::-webkit-scrollbar` 与标准属性混用时 Chromium 优先采用标准属性，需整体改用 webkit 方案。**失焦选中色统一取权威 `selection-bg-inactive` = `gray-150` = `#E9EAEE`**（浅色）：通用行与**历史（git log）列表**都用它（第 99 轮把历史列表误用的 `#dfe1e5` 改正 —— 那是 `--augit-text` 的深色值）；深色两者同为 `#43454a`（expUI_dark 没有 `selection-bg-inactive` 键，按层级反向取 Gray4）。**已删除的零引用令牌**（第 98 轮）：`--augit-blue-hover`、`--augit-green`、`--augit-green-soft` —— 全库 0 次 `var()` 引用、C# 外壳亦无；Diff 相关配色用的是 `--augit-diff-added/deleted/modified`（第 223 轮起浅色为 `#bee6be`／`#d6d6d6`／`#e7effa`，行内层另有 `--augit-diff-inline-*`），与它们无关。**工作区/项目徽标（`.brand-mark`）= 20×20、圆角 3**（第 97 轮统一）：此前有三层——已被覆盖的死值 23px/5px、17px、以及 `.workspace-chip > .brand-mark` 的 20px。按内部一致性（chip 内一直是 20px）与相关权威键 `recentProjectAvatarIconSize()` = 20 统一到 **20px**，并删除死值；参考图实测徽标约 18 逻辑px（第 63 轮，读图精度有限），17 与 20 都在误差内，故取与既有 chip 一致且有关联权威键的 20。**菜单项行高 = 28px**（第 96 轮）：2026 参考图 `vcs-operations-popup.png`（1.5x 已复核）实测选中色带 42 物理px ÷1.5 = **28 逻辑px**；权威里**没有**菜单项高度的键（`JBUI`／`Editor`／`PopupMenu` 都没有），而 Augit 的 29（基类）／30（`.context-menu`）也无依据，故统一为 28；菜单内的 `.menu-separator` 仍为"1px 线 + 上下各 1px 边距"（合计 3，第 66 轮按 `PopupMenuSeparator.height` 落地）。**对话框按钮高度 = 37px**（第 95 轮统一）：权威 `Button.minimumSize` = 72×28 只是**下限**，2026 参考图 Confirm Exit 实测 **37.3 逻辑px**（该图缩放已复核为 1.5x），故取 37；此前同一产品里并存 28／30／31 三种高度，现由 `mockup.js` 各对话框的 `button = Math.max(37, line + 17)` 与 CSS 侧 fallback 统一到 37。**注意**：这些高度**由 JS 在运行时计算**（`mockup.js` 用模板拼接 `--<name>-button` 等变量名），改 CSS fallback 不足以改变实际渲染，必须同时改 JS 公式；同时把字段/行高对 `--<name>-button` 的**借用**解开了（reset 文本框与 stash 复选行改为固定 30px），clone 的按钮也从 `--clone-field` 改为独立的 `--clone-button`。**复选框/单选框的图标与文字间距取权威 `ui.CheckBox.textIconGap` / `ui.RadioButton.iconTextGap` = `4`**（两套 New UI 家族一致；第 92 轮把 `.check-line`/`.radio-line` 及其对话框专用覆写里的 8px 全部改为 4px）。同组键还有 `iconSize` = **24**（画布）与 `borderInsets` = `4,4,4,4`：官方 SVG 是「24 画布中方框 15×15、rx 2.5」，所以 4.5 的边距正是那 4 个 inset、可见方框 15px 与 Augit 的 `15×15` 一致（圆角 3 与 `rx 2.5` 差 0.5px 未动）；`ui.CheckBox`/`ui.RadioButton` 只给了这些键、**没有**行高键，`.check-line` 的 `min-height: 30px` 暂留，**对话框底取 `dialog-bg` = `layer-1-bg` = `gray-160` = `#F7F8F9`**（亮色 layer 链：`layer-0-bg` = `gray-150` = `#E9EAEE` 撑起 chrome、`layer-1-bg` = `#F7F8F9` 是面板/对话框层、`layer-2-bg` = white 是内容层；2026 参考图 Confirm Exit 实测对话框底正是 `#F7F8F9` ✓。深色主题**没有** layer 定义，按"深色层级反向"layer-1 即 `Gray1` `#1E1F22`，与 `--augit-panel` 现值一致故不变。弹层与搜索浮层仍用 `popup-bg` = `#FFFFFF`，因此第 91 轮把 `.dialog` 的背景单独覆盖，不再与 `.popover`/`.search-overlay` 共用），**主按钮底色取 `Button.default.startBackground`/`endBackground`**（浅 `control-brand-bg` = `accent-brand-bg` = `blue-80` = `#3871E1`、深 `Blue6` = `#3574F0`，正好等于 `--augit-accent-brand` 的浅/深值；2026 参考图 Confirm Exit 的主按钮实测 `#3871E1` ✓；第 90 轮由 `--augit-blue` 改正），编辑器**查找框底色**取权威 `Editor.SearchField.background` = `editor-bg-inline`（浅 `#F7F8F9`／深 `Gray1` `#1E1F22`，第 89 轮落地），**主框架几何按当前 PyCharm 前台配置**：`tab-height = max(40, h + 12)`、`tree-height = max(24, h + 8)`、`status-height = max(28, h + 12)`；当前界面字号 12px 时默认值分别为 **40／24／28**。CSS 兜底令牌同步为 40／24／28，避免静态视觉稿首帧与实时外壳出现尺寸跳变。**同时该检查器只允许 400/600 两档字重**，第 102 轮给对话框标题图标写的 `font-weight: 700` 已改回 **600**。**当前差异块高亮（第 114 轮实现 → 第 223 轮删除）**：`.diff-current` 这一层在权威里没有对应物（`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`（无底+点线边框）／`EXCLUDED_*`），第 223 轮按权威删除 —— `live-data.js` 的 `moveDiffChange` 只保留定位与触发按钮焦点，`mockup.css` 删掉 3 条规则与 6 处令牌定义。检查器由原来的 `check-diff-current.test.cjs` 改为 `tools/audit/check-diff-inline.test.cjs`。**Diff 的两层颜色（第 113 轮修正，第 223 轮订正取值）**：① **整行底** ＝ 按权威两档规则取 增 `#BEE6BE`／删 `#D6D6D6`／改 `#E7EFFA`（第 223 轮订正；原记的 `#EDFCED`／`#F4F7F9` 是错认，理由见后段"第 223 轮订正"）；② **行内（词/段级）高亮的强色** ＝ `DiffColors.DIFF_*.BACKGROUND` 全强度（浅 `#BEE6BE`／`#D6D6D6`／`#C2D8F2`）。第 113 轮把参考图里宽度 590.7 的强色带读成"选中差异的整栏背景"，**第 223 轮的逐行复测推翻**：那是**一行**的高度（`y623–661` ≈ 26 逻辑px），且权威的整行取色随"该变更块有没有行内差异"分两档（`DiffViewerHighlighters.createHighlighter` 的 `ignored = !resolved && innerFragments != null` ⇒ `getIgnoredColor()`），并非"当前差异"层。第 112 轮"标记条贴行号槽、宽 65px"的判断也一并作废（行号槽色族是 `*_LINES_COLOR`，不是正文行色）。**Diff 的三层颜色已分清**（第 111 轮，第 223 轮订正②③）：① **整行底**（`.diff-code-line.*` 的整行背景）＝ 增 `#BEE6BE`／删 `#D6D6D6`／改 `#E7EFFA`（深 `#294436`／`#484A4A`／`#283541`）；② 第 111 轮把"标记条/词级层"记成 `LineStatusMarkerColorScheme` 的原始方案色（`ADDED/DELETED/MODIFIED_LINES_COLOR`），并说参考图里细条处实测的 `#BEE6BE`／`#C2D8F2` "正是 Augit 原有的两个强色" —— **层归属记错**：那两个值是 `DIFF_*.BACKGROUND`（整行底与行内高亮层），`*_LINES_COLOR`（浅 `#7FC784`／`#767A8A`／`#88ADF7`）才是行号槽实心标记；③ 深色整套与行内层当时都未实现（`grep diff-word|word-diff|diff-inline` 为 0）—— **第 223 轮已实现行内层并订正两档整行底**。**Diff 行底色 = 权威 `DIFF_*.BACKGROUND` 的两档取色（第 110 轮起，第 223 轮订正）**：真实 Diff 视图（`diff-viewer-ctrlD-file.png` 等，1.5x）里纯新增行的整行底实测就是 `#BEE6BE`、有行内差异的修改行是 `#E7EFFA`（= `mix(#C2D8F2, #FFFFFF, 0.6)`），行内层是 `#C2D8F2` —— 三者同图并存、与 §2.1 的两档规则逐值吻合。第 110 轮曾把 `#EDFCED` 当成"增行软底"（它其实是语言注入片段底色，见下段），**第 223 轮已改回权威值**。**编辑器配色方案**（`expUI_lightScheme.xml`／`expUI_darkScheme.xml`）是第 110 轮启用的新权威来源：`--augit-line-number`（`AEB3C2`／`4B5059`）、`--augit-file-added`（`067D17`／`73BD79`）、`--augit-file-deleted`（`6C707E`／`6F737A`）、`--augit-file-modified`（`0033B3`／`70AEFF`）与之**逐值一致** ✓。****第 223 轮订正（原"遗留"）**：浅色"软行底" `#EDFCED`／`#F4F7F9` 是第 110 轮的错认 —— `#EDFCED` 在参考图里于 `y738..892` 段**左右两栏同时满宽覆盖**（同一张图里的纯新增行已被量到是 `#BEE6BE`，一个截图不可能有两个增行底色），且它逐字等于 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`（语言注入片段底色，Augit 无语言服务 ⇒ 不适用）；`#F4F7F9` 在差异正文两栏内一个像素都没有，等于浅色 `layer-1-bg`（面板底）。现整行底按权威两档规则取 `#BEE6BE`／`#D6D6D6`／`#E7EFFA`（深 `#294436`／`#484A4A`／`#283541`），并新增**行内词级高亮层**（`DIFF_*.BACKGROUND` 全强度，见上）。**深色弹层/对话框的层级关系已定**（第 109 轮，此前记为"深色无解"）：`ManyIslandsDark.theme.json` 的 layer 链给出答案 —— `popup-bg` = `layer-1-bg` = `gray-30` = **#26282C**、`dialog-bg` = `layer-0-bg` = `gray-10` = **#191A1C**，即**深色下对话框比弹层更暗**，与浅色（dialog = `layer-1` #F7F8F9 < popup = `layer-2` #FFFFFF）**次序一致**。Augit 原先深色两者同为 `Gray1`，现把弹层/搜索浮层改用新增的 `--augit-popup-bg`（浅 #FFFFFF／深 **Gray2 #2B2D30**，取 expUI_dark 灰阶中最接近 #26282C 的一档），对话框仍是 `--augit-dialog-bg`（浅 #F7F8F9／深 Gray1 #1E1F22）。**弹层与菜单的底色取权威 `PopupMenu.background`**（第 108 轮补全链条）：New UI 的弹层/菜单由 Jewel 渲染，`IntUiBridgePopupContainer.kt:21` 与 `IntUiBridgeMenu.kt:39` **都读 `PopupMenu.background`**（不是 `Popup.background`）；浅色该键 = `popup-bg` → `layer-2-bg` → **#FFFFFF**（实测三个菜单页均为白 ✓），而**对话框**走 `layer-1-bg` = #F7F8F9（第 91 轮）—— 两层之分在权威里成立。深色下 `ui.PopupMenu.background`、`colors.popup-bg`、`ui.Popup.background` 与 `Panel.background` **全部未定义**，Jewel 会拿到 `Color.Unspecified`、Swing 对话框落到旧默认（`#CDCDCD`／`#3C3F41`），故深色取值**无法由主题判定**，保留 Augit 的 Gray1 `#1E1F22`（依据"深色层级反向"）。**浮层/对话框/搜索浮层的 1px 边框色取权威 `ui.Popup.borderColor`**（浅 `#D1D3D9`／深 `#43454A`，即 `popup-border` 令牌；深色原先有一条特异性更高的覆盖写 `--augit-border-strong` = `Gray5 #4E5157`，第 88 轮已改），**菜单/浮层容器圆角 8px**（权威 `IdeaPopupMenuUI.CORNER_RADIUS` = `UIInteger("PopupMenu.borderCornerRadius", 8)`，名字即半径、桥接 `IntUiBridgePopupContainer.kt` 不除 2、**浮层内列表选中项圆角 4px、左右内缩 8px**（权威 `Popup.Selection.arc` = 8 ⇒ 半径 4、`Popup.Selection.leftRightInset` = 8，`JBUI.java:1640-1641`；浮层搜索框自身取 `Popup.SearchField.borderInsets` = `insets(4, 12)`、`inputInsets` = `insets(4, 8, 8, 2)`，`JBUI.java:1594/1598`）；2026 参考图里工具栏溢出菜单面板的角实测约 13.5 物理px ÷ 1.79 ≈ 7.5，吻合）；**文件树选中行圆角 4px**（权威 `Tree.Selection.arc` = 8 ⇒ 4，`IntUiBridgeLazyTree.kt:49`）。 菜单几何另按权威补齐：浮层左右内距按选中框的 `outerInsets` 取 **7px**（2026 参考图 vcs-operations-popup 实测选中色带距弹层边缘约 7 逻辑px，两者吻合）、`PopupMenuSeparator.height` = 3（整条区域高，其中线本身 `stripeWidth` = 1、左缩进 `stripeIndent` = 1，见 `DarculaMenuSeparatorUI.java:15-17`，两套 New UI 主题都未覆盖），菜单项横向内距取 `PopupMenu.Selection.innerInsets` = `insets(0, 6)`（`JBUI.java:1672`，New UI 分支），选中框相对弹层的 `outerInsets` = `insets(1, 7)`（`:1676`）。改动列表与 Git 日志表的行圆角在 Swing 侧查不到对应键（`WideSelectionListUI` 不含 arc），暂留 5px 并记为待核。焦点使用命中区内侧 1px `accent` 圆角边框，不改变尺寸。普通图标使用 `icon`，悬停或按下时使用 `text`；文字入口使用 `text`。禁用时使用 `faint`，不显示悬停、按下或焦点环；工作区保留常驻底色，其他入口恢复 `chrome`。同一按钮内部移动不反复使其失效重绘。
+**工具条图标按钮（`.icon-button` / `.toolbar-button`）的背景圆角半径为 3px**（第 86 轮再由 `EditorToolbarButtonLook` 印证：它未覆写 `getButtonArc()` 且委托 `SYSTEM_LOOK` ⇒ 仍是 `BUTTON_ARC` = 6 ⇒ 半径 3）；**其悬停底取 `ActionButton.hoverBackground`**（浅 `#00000012`／深 `#FFFFFF16`，深色是 `MainToolbar.Icon.hoverBackground` 未定义时的回落），按下底取 `ActionButton.pressedBackground`（= `--augit-pressed`，浅 `#00000020`／深 `#FFFFFF26`）；（权威 `IntUiBridgeIconButton.kt:24,55`：`CornerSize(DarculaUIUtil.BUTTON_ARC.dp / 2)`，`Button.arc` = 6 ⇒ 3；同文件 `minSize` = 24×24、`padding` = 0，而 Augit 现为 27×27／28×24 —— 该尺寸来自本规范 §4 的字号适配（如 `max(27px, h + 6px)`），Jewel `IconButton` 的 24×24 属 Compose 栈、**不适用**于 Swing 等价物的 HTML 复刻（`ui-classification.md` §1.21），**不再列为待核**）；**标题栏按钮与文字入口的背景圆角半径为 6px**（权威 `MainToolbar.Button.arc` = `UIInteger("MainToolbar.Button.arc", 12)`，arc 是直径 ⇒ 半径 6、标题栏下拉（工作区 chip／分支 chip／当前文件入口）的内容内距取权威 `MainToolbar.Dropdown.borderInsets` = New UI 下的 `insets(5, 10, 5, 6)`（`JBUI.java:1383`、标题栏按钮尺寸取 `MainToolbar.Button.size` = **30×30**（`JBUI.java:1274-1278`）、图标取 `MainToolbar.Button.iconSize` = **20**（`:1286-1299` 默认 20，主题未覆盖；30 − 20 = 左右各 5，与 `MainToolbar.Icon.insets` = `6,5,4,5` 的左右值一致）、标题栏下拉最大宽取 `MainToolbar.Dropdown.maxWidth` = **350**（两套家族一致）；`MainToolbar.Dropdown.hoverArc()` 与 `Dropdown.arc` 同值 12 ⇒ 半径 6，见 `:1391`）；窗口标题栏工具条走同一个 `HeaderToolbarButtonLook.hoverArc()`）；左侧工具轨采用当前 Islands 路径：命中区 37×40px、背景 30×30px、20px 专用图标、6px 背景圆角；上下内距各 5px、左右为 5/2px，同组中心步长 40px。此规则替代旧扩展路径的 32×32／16px 推断。可见未激活入口保持 pressed 背景，激活入口保持蓝底白图形，hover 与键盘 focus 不改变活动工具窗身份；轨道按钮**未选中**的前景取权威 `ToolWindow.Button.foreground`、**分隔线**取 `ToolWindow.Stripe.separatorColor`（浅 = `core-border-transparent` = `transparent-black-30` = `#00000020` 的**淡叠加**，不是实色灰；深 = `#43454A`）、 = 浅 `gray-70` `#5F6269`／深 `#9DA0A8`，**选中**底与前景取 `ToolWindow.Button.selectedBackground` = `accent-brand-bg`（浅 `blue-80` `#3871E1`／深 `#3574F0`）与白字——Augit 的 `--augit-accent-brand` 本来就与这两个值一致；**菜单项选中圆角 4px**（权威 `PopupMenu.Selection.arc` = 8 ⇒ 4，`IntUiBridgeMenu.kt` / `IntUiBridgeSimpleListItem.kt` 同样除 2）；**CSS 去重以"选择器+属性+值三者全同"为界**（第 107 轮）：这类重复中后一处必胜（选择器相同 ⇒ 特异性相同），但**若后一处在 `@media`/`@supports` 内则不然** —— 媒体查询不成立时先前那条才生效。因此去重必须排除 at-rule 内的规则；本轮据此删除 40 处，并用"新旧 CSS 逐元素计算样式对照"验证为 0 差异。**对话框标题行左右内距均为 12**（第 106 轮收尾）：第二条 `.dialog-header` 基类的 `padding: 0 13px` 与 reset／rollback 的右侧 13px 都改为 **12**，与 `getRegularPanelInsets()` 的左右 12 一致；reset／rollback 左侧保留 16px（标题图标实测左边距）。**`.compact-input` 是活类**（`mockup.js` 的 `compactInputDialog()` 与"跳转行"页在用），属 COMPACT 风格：权威里 COMPACT 的内容边框是 `JBUI.Borders.empty()`，但其内容组件自带 16px 内距并不被禁止，故保留待核。**对话框内容（正文 .dialog-body）的内距取权威 `UIUtil.getRegularPanelInsets()` = `(8, 12, 8, 12)`**（`UIUtil.java:370-371` 的 `REGULAR_PANEL_TOP_BOTTOM_INSET = 8`、`REGULAR_PANEL_LEFT_RIGHT_INSET = 12`，经 `DialogWrapper.createDefaultBorder()` 作用于内容面板）：第 105 轮把 11 条 body 规则的横向 16/17px 与纵向 15/17px 统一为 **`8px 12px`**（4 个滚动容器保留其纵向 0、横向改为 12）。`.compact-input .dialog-body` 例外未动 —— 它的名字对应 `DialogStyle.COMPACT`，而权威里 COMPACT 的内容边框是 `Borders.empty()`。**对话框底栏与标题行的内距取权威 `DialogWrapper` 的两个 border**（第 104 轮）：New UI 布局路径（`DialogWrapper.java:1522`）里 south section 是 `JBUI.Borders.empty(0, 12, 8, 12)` ⇒ **左右 12**（COMPACT 路径的 `:843` 也是 `empty(8,12)`）；内容/标题侧走 `createDefaultBorder()` → `UIUtil.getRegularPanelInsets()`。因此 8 个对话框页脚的横向内距由 16/17/22px 统一改为 **12px**（`.push-dialog` 保留其顶部 12px），5 个操作类对话框标题行的 `padding-left: 25/26px` 改为 **12px**（reset／rollback 因有标题图标保留 **16px**，与参考图实测的图标左边距一致）。各对话框**body** 的内距（15px 17px 等）未动，属另一议题。**表单控件与主菜单条目的高度/内距必须随字号缩放**（第 119 轮）：① `.reset-dialog` 的文本框与下拉框此前被写死 `height: 30px`（第 95 轮为解开与按钮变量的耦合），大字号下 `clientHeight < fontSize` 被验收判为"裁剪"，现改为 `var(--reset-field, 30px)`，`--reset-field` 由 `mockup.js` 按 `Math.max(30, line + 10)` 计算（与 clone/stash 的 `field` 同式）；② 主菜单条目原与 `.top-button` 共用 `padding: 0 5px`（合计 10px），而它是**下拉**，权威 `MainToolbar.Dropdown.borderInsets` = `insets(5, 10, 5, 6)` ⇒ 左 10 + 右 6 = 16px，已拆开单独设置。**对话框底栏高度必须容得下按钮**（第 118 轮）：`push` 的底栏公式原写 `Math.max(53, line + 25)`，而底栏实际高度 = 按钮 `Math.max(37, line + 17)` + 顶部内距 12 = `line + 29`；大字号下按钮因此溢出对话框底边（`verify-ux-push` 在 `ui-size=40` 实测溢出 3px）。已改为 `line + 29`。其余对话框的底栏用的是 `button + 23/25`，本就会随按钮缩放，无需改动。**分段组（`.segmented`）容器无底色、边框取 `Component.borderColor`**（第 125 轮）：基类注释已记录权威「`SegmentedButtonComponent.paint()` 只调 `super.paint()` 未设背景、Jewel 的 `SegmentedControlColors` 也没有 background 字段」，但深色曾单独加过 `background: var(--augit-panel-muted)`，与之一致性矛盾，已删除（两主题都透出父容器底色）。容器边框浅 `#D1D3D9`／深 `Gray5 #4E5157`；几何自洽式：组宽 87 = 边框 1 + 内距 2 + 按钮 40 + 间隙 1 + 按钮 40 + 内距 2 + 边框 1，按钮距组边缘 3（= `getBorderInsets()` = BW(LW)）。**焦点环统一用 `accent`**（第 117 轮）：`design-system` 一贯写"焦点使用命中区内侧 1px **accent** 圆角边框"，但实现里有 14 条焦点态规则写成了 `--augit-blue`（浅 `#3574F0`，比 accent 的 `#3871E1` 偏亮）。现全部改用 `--augit-accent-brand`；覆盖 `.message-field:focus`、各处 `:focus-visible`、对话框与工具栏/终端的 `:focus::after` 等。检查器 `verify-ux-frame-buttons`／`document-button-states`／`conflict` 里深色 accent 的错误期望 `Blue8 #548AF7` 也订正为权威的 `Blue6 #3574F0`。**对话框底栏（south panel）没有分隔线**（第 103 轮）：权威 `DialogWrapper.java:838-845` —— 只有 `getStyle() == DialogStyle.COMPACT` 时才给 south panel 加 `CustomLineBorder(…, 1, 0, 0, 0)` 的 1px 顶边，普通对话框只加 `JBUI.Borders.emptyTop(8)`；2026 参考图 Confirm Exit 实测确实**没有**分隔线。Augit 原先在 `.dialog-footer` 上写了 `border-top`，已删除；底栏基类内距同时按权威取 **`8px 12px`**（`JBUI.Borders.empty(8, 12)`）。注意各对话框仍有自己的页脚内距覆写（16/17/22px），那是视觉稿对齐值，**未改动**，列为待核。**破坏性确认框（reset／rollback）的标题图标**（第 102 轮落地）：2026 参考图 Confirm Exit 里，标题前有一个 **27.3 逻辑px** 的蓝底白问号图标、**左边距 16 逻辑px**；配色取官方 `general/questionDialog.svg`（浅 `#4682FA`／深 `#548AF7` + 白色问号）。Augit 用 `.reset-dialog/.rollback-dialog .dialog-header::before` 实现 —— `.dialog-header` 本身已是 flex 容器，伪元素即第一个 flex 项，**无需改 DOM 或 JS**；同时把这两个对话框标题行的左内距 25px 改为 16px（原 25px 是空位）。**第 307 轮把「哪些对话框有图标、画哪一个」按权威定性并补齐**（用户裁决「完全参考 intellij-community」）：① `Messages` 系的确认框用 `getQuestionIcon()` —— 删除 Stash（`GitStashUtils.kt:86`）、删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree（`GitCheckoutInOtherWorktreeDialogs.kt:54`），加上原有的 reset／rollback，统一为 28px 蓝底白问号（浅 `#4682FA`／深 `#548AF7`，即 `--augit-dialog-icon-bg`），左边距 16px；② `GitInit.java:72` 的「目标已在 Git 下」警告用 `getWarningIcon()` ⇒ 橙底白叹号（浅 `#FFAF0F`／深 `#F2C55C`，新增令牌 `--augit-dialog-warning-bg`；官方 `general/warningDialog.svg` 是圆角三角，这里用 `clip-path` 三角近似 + 文本叹号，与问号图标的做法一致）；③ 自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）都没有 `setIcon` ⇒ 不画标题图标，Augit 的 stash／clone／push／远端等对话框因此保持无图标；④ 紧凑输入窗口（新建标签／重命名／跳转行）对应权威的**常规** `Messages.showInputDialog`，Augit 用紧凑适配、形状不同 ⇒ 同样不画图标。**订正旧记述**：那 5 个操作类对话框的 `padding-left: 25/26px` 空位早在第 104／105 轮就归一为 **12px**，此处不再保留空位。**滚动条滑块取权威 `ScrollBar.Transparent.thumbColor` = `key(0x33737373, 0x47A6A6A6)`**（`ScrollBarPainter.java:113`，Java 字面量是 ARGB、前两位为 alpha）⇒ 浅 `#73737333`／深 **`#a6a6a647`**；第 101 轮订正：早先记的"深浅同值"不成立（两个 New UI 家族虽都不覆写该键，但代码默认自带深色一半）。同文件 88-122 行其余默认：`hoverThumbColor` = 浅 `#73737347`／深 `#a6a6a659`、`hoverThumbBorderColor` = 浅 `#59595947`／深 `#38383859`、`Transparent.thumbBorderColor` = 浅 `#59595933`／深 `#38383847`；**悬停档未实现**——`scrollbar-color` 表达不了 hover，而 `::-webkit-scrollbar` 与标准属性混用时 Chromium 优先采用标准属性，需整体改用 webkit 方案。**失焦选中色统一取权威 `selection-bg-inactive` = `gray-150` = `#E9EAEE`**（浅色）：通用行与**历史（git log）列表**都用它（第 99 轮把历史列表误用的 `#dfe1e5` 改正 —— 那是 `--augit-text` 的深色值）；深色两者同为 `#43454a`（expUI_dark 没有 `selection-bg-inactive` 键，按层级反向取 Gray4）。**已删除的零引用令牌**（第 98 轮）：`--augit-blue-hover`、`--augit-green`、`--augit-green-soft` —— 全库 0 次 `var()` 引用、C# 外壳亦无；Diff 相关配色用的是 `--augit-diff-added/deleted/modified`（第 223 轮起浅色为 `#bee6be`／`#d6d6d6`／`#e7effa`，行内层另有 `--augit-diff-inline-*`），与它们无关。**工作区/项目徽标（`.brand-mark`）= 20×20、圆角 3**（第 97 轮统一）：此前有三层——已被覆盖的死值 23px/5px、17px、以及 `.workspace-chip > .brand-mark` 的 20px。按内部一致性（chip 内一直是 20px）与相关权威键 `recentProjectAvatarIconSize()` = 20 统一到 **20px**，并删除死值；参考图实测徽标约 18 逻辑px（第 63 轮，读图精度有限），17 与 20 都在误差内，故取与既有 chip 一致且有关联权威键的 20。**菜单项行高 = 28px**（第 96 轮）：2026 参考图 `vcs-operations-popup.png`（1.5x 已复核）实测选中色带 42 物理px ÷1.5 = **28 逻辑px**；权威里**没有**菜单项高度的键（`JBUI`／`Editor`／`PopupMenu` 都没有），而 Augit 的 29（基类）／30（`.context-menu`）也无依据，故统一为 28；菜单内的 `.menu-separator` 仍为"1px 线 + 上下各 1px 边距"（合计 3，第 66 轮按 `PopupMenuSeparator.height` 落地）。**对话框按钮高度 = 37px**（第 95 轮统一）：权威 `Button.minimumSize` = 72×28 只是**下限**，2026 参考图 Confirm Exit 实测 **37.3 逻辑px**（该图缩放已复核为 1.5x），故取 37；此前同一产品里并存 28／30／31 三种高度，现由 `mockup.js` 各对话框的 `button = Math.max(37, line + 17)` 与 CSS 侧 fallback 统一到 37。**注意**：这些高度**由 JS 在运行时计算**（`mockup.js` 用模板拼接 `--<name>-button` 等变量名），改 CSS fallback 不足以改变实际渲染，必须同时改 JS 公式；同时把字段/行高对 `--<name>-button` 的**借用**解开了（reset 文本框与 stash 复选行改为固定 30px），clone 的按钮也从 `--clone-field` 改为独立的 `--clone-button`。**复选框/单选框的图标与文字间距取权威 `ui.CheckBox.textIconGap` / `ui.RadioButton.iconTextGap` = `4`**（两套 New UI 家族一致；第 92 轮把 `.check-line`/`.radio-line` 及其对话框专用覆写里的 8px 全部改为 4px）。同组键还有 `iconSize` = **24**（画布）与 `borderInsets` = `4,4,4,4`：官方 SVG 是「24 画布中方框 15×15、rx 2.5」，所以 4.5 的边距正是那 4 个 inset、可见方框 15px 与 Augit 的 `15×15` 一致（圆角 3 与 `rx 2.5` 差 0.5px 未动）；`ui.CheckBox`/`ui.RadioButton` 只给了这些键、**没有**行高键，`.check-line` 的 `min-height: 30px` 暂留，**对话框底取 `dialog-bg` = `layer-1-bg` = `gray-160` = `#F7F8F9`**（亮色 layer 链：`layer-0-bg` = `gray-150` = `#E9EAEE` 撑起 chrome、`layer-1-bg` = `#F7F8F9` 是面板/对话框层、`layer-2-bg` = white 是内容层；2026 参考图 Confirm Exit 实测对话框底正是 `#F7F8F9` ✓。深色主题**没有** layer 定义，按"深色层级反向"layer-1 即 `Gray1` `#1E1F22`，与 `--augit-panel` 现值一致故不变。弹层与搜索浮层仍用 `popup-bg` = `#FFFFFF`，因此第 91 轮把 `.dialog` 的背景单独覆盖，不再与 `.popover`/`.search-overlay` 共用），**主按钮底色取 `Button.default.startBackground`/`endBackground`**（浅 `control-brand-bg` = `accent-brand-bg` = `blue-80` = `#3871E1`、深 `Blue6` = `#3574F0`，正好等于 `--augit-accent-brand` 的浅/深值；2026 参考图 Confirm Exit 的主按钮实测 `#3871E1` ✓；第 90 轮由 `--augit-blue` 改正），编辑器**查找框底色**取权威 `Editor.SearchField.background` = `editor-bg-inline`（浅 `#F7F8F9`／深 `Gray1` `#1E1F22`，第 89 轮落地），**主框架几何按当前 PyCharm 前台配置**：`tab-height = max(40, h + 12)`、`tree-height = max(24, h + 8)`、`status-height = max(28, h + 12)`；当前界面字号 12px 时默认值分别为 **40／24／28**。CSS 兜底令牌同步为 40／24／28，避免静态视觉稿首帧与实时外壳出现尺寸跳变。**同时该检查器只允许 400/600 两档字重**，第 102 轮给对话框标题图标写的 `font-weight: 700` 已改回 **600**。**当前差异块高亮（第 114 轮实现 → 第 223 轮删除）**：`.diff-current` 这一层在权威里没有对应物（`DiffDrawUtil.PaintMode` 只有 `DEFAULT`／`IGNORED`／`RESOLVED`（无底+点线边框）／`EXCLUDED_*`），第 223 轮按权威删除 —— `live-data.js` 的 `moveDiffChange` 只保留定位与触发按钮焦点，`mockup.css` 删掉 3 条规则与 6 处令牌定义。检查器由原来的 `check-diff-current.test.cjs` 改为 `tools/audit/check-diff-inline.test.cjs`。**Diff 的两层颜色（第 113 轮修正，第 223 轮订正取值）**：① **整行底** ＝ 按权威两档规则取 增 `#BEE6BE`／删 `#D6D6D6`／改 `#E7EFFA`（第 223 轮订正；原记的 `#EDFCED`／`#F4F7F9` 是错认，理由见后段"第 223 轮订正"）；② **行内（词/段级）高亮的强色** ＝ `DiffColors.DIFF_*.BACKGROUND` 全强度（浅 `#BEE6BE`／`#D6D6D6`／`#C2D8F2`）。第 113 轮把参考图里宽度 590.7 的强色带读成"选中差异的整栏背景"，**第 223 轮的逐行复测推翻**：那是**一行**的高度（`y623–661` ≈ 26 逻辑px），且权威的整行取色随"该变更块有没有行内差异"分两档（`DiffViewerHighlighters.createHighlighter` 的 `ignored = !resolved && innerFragments != null` ⇒ `getIgnoredColor()`），并非"当前差异"层。第 112 轮"标记条贴行号槽、宽 65px"的判断也一并作废（行号槽色族是 `*_LINES_COLOR`，不是正文行色）。**Diff 的三层颜色已分清**（第 111 轮，第 223 轮订正②③）：① **整行底**（`.diff-code-line.*` 的整行背景）＝ 增 `#BEE6BE`／删 `#D6D6D6`／改 `#E7EFFA`（深 `#294436`／`#484A4A`／`#283541`）；② 第 111 轮把"标记条/词级层"记成 `LineStatusMarkerColorScheme` 的原始方案色（`ADDED/DELETED/MODIFIED_LINES_COLOR`），并说参考图里细条处实测的 `#BEE6BE`／`#C2D8F2` "正是 Augit 原有的两个强色" —— **层归属记错**：那两个值是 `DIFF_*.BACKGROUND`（整行底与行内高亮层），`*_LINES_COLOR`（浅 `#7FC784`／`#767A8A`／`#88ADF7`）才是行号槽实心标记；③ 深色整套与行内层当时都未实现（`grep diff-word|word-diff|diff-inline` 为 0）—— **第 223 轮已实现行内层并订正两档整行底**。**Diff 行底色 = 权威 `DIFF_*.BACKGROUND` 的两档取色（第 110 轮起，第 223 轮订正）**：真实 Diff 视图（`diff-viewer-ctrlD-file.png` 等，1.5x）里纯新增行的整行底实测就是 `#BEE6BE`、有行内差异的修改行是 `#E7EFFA`（= `mix(#C2D8F2, #FFFFFF, 0.6)`），行内层是 `#C2D8F2` —— 三者同图并存、与 §2.1 的两档规则逐值吻合。第 110 轮曾把 `#EDFCED` 当成"增行软底"（它其实是语言注入片段底色，见下段），**第 223 轮已改回权威值**。**编辑器配色方案**（`expUI_lightScheme.xml`／`expUI_darkScheme.xml`）是第 110 轮启用的新权威来源：`--augit-line-number`（`AEB3C2`／`4B5059`）、`--augit-file-added`（`067D17`／`73BD79`）、`--augit-file-deleted`（`6C707E`／`6F737A`）、`--augit-file-modified`（`0033B3`／`70AEFF`）与之**逐值一致** ✓。****第 223 轮订正（原"遗留"）**：浅色"软行底" `#EDFCED`／`#F4F7F9` 是第 110 轮的错认 —— `#EDFCED` 在参考图里于 `y738..892` 段**左右两栏同时满宽覆盖**（同一张图里的纯新增行已被量到是 `#BEE6BE`，一个截图不可能有两个增行底色），且它逐字等于 `INJECTED_LANGUAGE_FRAGMENT.BACKGROUND`（语言注入片段底色，Augit 无语言服务 ⇒ 不适用）；`#F4F7F9` 在差异正文两栏内一个像素都没有，等于浅色 `layer-1-bg`（面板底）。现整行底按权威两档规则取 `#BEE6BE`／`#D6D6D6`／`#E7EFFA`（深 `#294436`／`#484A4A`／`#283541`），并新增**行内词级高亮层**（`DIFF_*.BACKGROUND` 全强度，见上）。**深色弹层/对话框的层级关系已定**（第 109 轮，此前记为"深色无解"）：`ManyIslandsDark.theme.json` 的 layer 链给出答案 —— `popup-bg` = `layer-1-bg` = `gray-30` = **#26282C**、`dialog-bg` = `layer-0-bg` = `gray-10` = **#191A1C**，即**深色下对话框比弹层更暗**，与浅色（dialog = `layer-1` #F7F8F9 < popup = `layer-2` #FFFFFF）**次序一致**。Augit 原先深色两者同为 `Gray1`，现把弹层/搜索浮层改用新增的 `--augit-popup-bg`（浅 #FFFFFF／深 **Gray2 #2B2D30**，取 expUI_dark 灰阶中最接近 #26282C 的一档），对话框仍是 `--augit-dialog-bg`（浅 #F7F8F9／深 Gray1 #1E1F22）。**弹层与菜单的底色取权威 `PopupMenu.background`**（第 108 轮补全链条）：New UI 的弹层/菜单由 Jewel 渲染，`IntUiBridgePopupContainer.kt:21` 与 `IntUiBridgeMenu.kt:39` **都读 `PopupMenu.background`**（不是 `Popup.background`）；浅色该键 = `popup-bg` → `layer-2-bg` → **#FFFFFF**（实测三个菜单页均为白 ✓），而**对话框**走 `layer-1-bg` = #F7F8F9（第 91 轮）—— 两层之分在权威里成立。深色下 `ui.PopupMenu.background`、`colors.popup-bg`、`ui.Popup.background` 与 `Panel.background` **全部未定义**，Jewel 会拿到 `Color.Unspecified`、Swing 对话框落到旧默认（`#CDCDCD`／`#3C3F41`），故深色取值**无法由主题判定**，保留 Augit 的 Gray1 `#1E1F22`（依据"深色层级反向"）。**浮层/对话框/搜索浮层的 1px 边框色取权威 `ui.Popup.borderColor`**（浅 `#D1D3D9`／深 `#43454A`，即 `popup-border` 令牌；深色原先有一条特异性更高的覆盖写 `--augit-border-strong` = `Gray5 #4E5157`，第 88 轮已改），**菜单/浮层容器圆角 8px**（权威 `IdeaPopupMenuUI.CORNER_RADIUS` = `UIInteger("PopupMenu.borderCornerRadius", 8)`，名字即半径、桥接 `IntUiBridgePopupContainer.kt` 不除 2、**浮层内列表选中项圆角 4px、左右内缩 8px**（权威 `Popup.Selection.arc` = 8 ⇒ 半径 4、`Popup.Selection.leftRightInset` = 8，`JBUI.java:1640-1641`；浮层搜索框自身取 `Popup.SearchField.borderInsets` = `insets(4, 12)`、`inputInsets` = `insets(4, 8, 8, 2)`，`JBUI.java:1594/1598`）；2026 参考图里工具栏溢出菜单面板的角实测约 13.5 物理px ÷ 1.79 ≈ 7.5，吻合）；**文件树选中行圆角 4px**（权威 `Tree.Selection.arc` = 8 ⇒ 4，`IntUiBridgeLazyTree.kt:49`）。 菜单几何另按权威补齐：浮层左右内距按选中框的 `outerInsets` 取 **7px**（2026 参考图 vcs-operations-popup 实测选中色带距弹层边缘约 7 逻辑px，两者吻合）、`PopupMenuSeparator.height` = 3（整条区域高，其中线本身 `stripeWidth` = 1、左缩进 `stripeIndent` = 1，见 `DarculaMenuSeparatorUI.java:15-17`，两套 New UI 主题都未覆盖），菜单项横向内距取 `PopupMenu.Selection.innerInsets` = `insets(0, 6)`（`JBUI.java:1672`，New UI 分支），选中框相对弹层的 `outerInsets` = `insets(1, 7)`（`:1676`）。改动列表与 Git 日志表的行圆角在 Swing 侧查不到对应键（`WideSelectionListUI` 不含 arc），暂留 5px 并记为待核。焦点使用命中区内侧 1px `accent` 圆角边框，不改变尺寸。普通图标使用 `icon`，悬停或按下时使用 `text`；文字入口使用 `text`。禁用时使用 `faint`，不显示悬停、按下或焦点环；工作区保留常驻底色，其他入口恢复 `chrome`。同一按钮内部移动不反复使其失效重绘。
 
 ### 6.5 主工具栏的项目配色渐变
+
+颜色索引保存在 `%LOCALAPPDATA%/Augit/WebView2/Shell/Session` 的本地存储 `augit.project.colors`，按工作区规范化路径恢复，首次分配使用本次蓝色参考索引 4（对应 IntelliJ 零基索引 3），后续工作区按九色顺序分配。路径大小写和分隔符变化、重启、主题变化不重新分配；不读取或改写 `.idea`，不新增配色设置入口。
 
 New UI 的主工具栏背景**不是固定颜色**，而是按当前项目的配色绘制的水平渐变。Augit 采用同一机制，使标题栏左侧呈现参考界面那种轻微冷蓝渐变。
 
@@ -327,11 +337,13 @@ New UI 的主工具栏背景**不是固定颜色**，而是按当前项目的配
 ### 7.0 复原边界
 
 - 对产品规格已经存在的每个功能入口，视觉结果必须以 PyCharm 2026.2.1 New UI 中对应场景的图标为目标，按逐像素对照修正。对照范围包括轮廓、比例、内外留白、线宽、端点、填充、颜色、状态、中心点和命中区；“语义相同但外形不同”的替代图标不算完成。平台抗锯齿造成的边缘像素差异作为渲染差异记录，不能掩盖几何差异。参考场景本来没有图标时保留空列，不从其他场景移入同名图标。
-- 复原的是用户可见结果，不复制 JetBrains 的官方资源文件、字体文件、商标、产品标志或私有实现。应用内使用 owner-draw 或其他项目内自绘等效实现，绘制结果应与参考图标保持一致。
+- 复原的是用户可见结果，不复制 JetBrains 的官方图标资源文件、商标、产品标志或私有实现。应用内使用 owner-draw 或其他项目内自绘等效实现，绘制结果应与参考图标保持一致。
 - 只复原产品规格已经列出的动作。PyCharm 中 Augit 没有对应能力的入口不得为了视觉相似而新增；删除或裁剪后的空间按 PyCharm 的剩余布局规则重新对齐。
 - Augit 的品牌 `A` 标记是唯一不要求与 PyCharm 相同的图形。它只能出现在品牌位置，不能替代任何功能图标，也不能改变功能图标的几何和对齐规则。
 
 ### 7.1 绘制规则
+
+2026-10-10 场景选图补充：JS 使用黄色 JS 徽标，TS 使用蓝色 TS 徽标，CSS 使用蓝盾，Python 使用蓝/黄双层形，`.editorconfig` 使用专用齿轮，`.gitignore` 使用灰色斜线圆。分支树依 `GitBranchesTreeIconProvider` 选择普通分支、当前、收藏与组合图形；`main/master` 和 `origin/main/master` 使用源码默认收藏，明确的 `isFavorite` 优先。日志引用依 `TagPainter` 绘制独立或叠加色标，不能复用分支树图标。对应场景、颜色令牌和测试范围见 [场景整改](scene-alignment-2026-10-10.md)。
 
 - 通用功能图标使用 16×16px 绘图网格，默认放置在 32×32px 命中区中心；网格不等于可见笔画必须撑满 16px。标签关闭、下拉箭头、菜单和紧凑工具栏使用对应组件登记的图形尺寸和命中区。
 - **描边图标默认使用 1px 逻辑线宽**（expUI 集合的描边图标普遍不声明 `stroke-width`，取 SVG 默认值 1）；少数图标显式更粗，例如勾形为 1.5px 圆头圆角。**但参考实现有两套图标集，线宽不同**：`platform/icons/src/expui/**` 为 1，而 `expui/` 以外的经典集为 **1.75**；New UI 未提供 expUI 版时会回落到经典集（例如分支图标用的是经典 `vcs/branch.svg`，线宽 1.75）。取图标时必须先确认它来自哪一套，不能一律按 1px 处理。**多数功能图标其实是填充路径而非描边线条**（加号、减号、窗口最小化/还原/关闭、齿轮、提交圆环、文件夹角标等），绘制时应按对应参考图标的实际形式表达，不能一律画成描边。实际线宽、填充、端点和转角按对应图标登记；复制图标使用 1px 细轮廓等已校准差异不能被通用值覆盖。逐图标的测量见 [New UI 图标参数](nui-behavior/09-icons.md)。
@@ -391,9 +403,9 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 
 ```
 标题栏 44px
-全局工具栏 42px | 左侧工具窗口 | 编辑标签与正文
+全局工具轨 37px | 左侧工具窗口 | 编辑标签与正文
                      └── 底部 Git 历史或终端（互斥，横跨左侧工具窗口与编辑区）
-状态栏 22–23px
+状态栏 28px（默认字号）
 ```
 
 标题栏、工具栏、标签栏和状态栏即使处于空态、加载态或错误态也保留。窗口变窄时先压缩左侧工具窗口和 Git 详情区，不缩小字体，不改成纵向移动布局。
@@ -412,23 +424,23 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 
 - 项目树行高使用 `max(24px, h + 8px)`；Changes、历史和普通列表按各自组件令牌取值，不能继续使用旧的 28px 统一基准。
 - 展开箭头、文件图标、状态标记和文本依次排列，中心线一致。
-- 树缩进使用 **18px 一级步长**（权威 `Tree.leftChildIndent` = 7 ＋ `Tree.rightChildIndent` = 11，实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`；2026 参考图三层最左墨迹实测步长 33 物理px ≈ 18.4）；箭头到图标 4px，图标到文字 8px。项目树的行内距由行上的 `--tree-depth` 计算（首级 22px = 4 + 18），**任意深度**都按 18 递增；`Tree.border = 4,12,4,12` 是 Swing 树的外内距，Augit 的 DOM 用行内距表达同一边距，不逐值套用。
+- 树一级步长按`max(round(7s), floor(round(16s)/2)) + round(11s)`计算，`s`为界面字号档位。`ClassicPainter.getLeftIndent(controlWidth/2)`把左缩进限制到展开图标画布的整数半宽；New UI画布16px，故默认是8+11=19px，UI14为24px、UI40为62px。行内距沿`--tree-depth`逐级累加，默认项目树首级为4+19=23px；第7级为137px。旧18px解释遗漏了半宽下限。Changes使用`Tree.border`左右12px加首级renderer偏移19px；展开画布为16px，独立置于renderer之前，文件为第二级38px。2026-10-14原始PNG双方子框向右33物理px、行步长42px、蓝框28×28px，先前34px差已消除；两张整窗尺寸仍不同，绝对横坐标差−2px不计整页配准通过，见[精确量测](../artifacts/pycharm-reference-2026-10-13/commit-components-metrics.json)。
 - 焦点位于列表时，选中行使用 `accent-soft`；焦点移出列表后仍保留选择，但改用对应的 `selection-inactive`（Git 历史使用 `history-selection-inactive`）。这不是取消选择，也不触发文件打开、Diff 请求或 Git 勾选变化。悬停使用 `hover`；背景覆盖内容行，不绘制卡片边框。
-- 项目树悬停复用现有内容行范围，选中态优先于悬停态；文件夹根角标周围使用当前行的真实底色。HTML 与原生共用 `row-hover`：浅色 = `selection-bg-hovered` = `transparent-black-10` = `#00000008`（半透明覆盖），深色 = 代码默认 `#464A4D`。平台元数据把 `List/Tree/Table.hoverBackground` 都记为"…if hover is allowed"，即平台支持、由组件决定；参考实现没给树装监听，Augit 按验收套件要求与用户裁决**保留树的悬停**，属有意偏离。（原表述引用的 `#F1F2F4` 是被删除的 `--augit-blue-hover` 的值，已失效。）
+- 项目树、Changes 和引用树不额外绘制悬停底；选中项保留聚焦或失焦背景。根文件夹角标透出所在行实际底色，不引入另一层行背景。
 - 单击行只改变选择；双击或 `Enter` 执行打开。复选框的勾选状态与列表选择状态完全独立。
 - 虚拟化列表仍必须保持相同的键盘顺序、行高和滚动锚点。
-- 项目树、标签、Changes、历史变化文件与搜索结果共用文件类型图标。**类型色写在图标自身的 class 上、不能被 Git 状态或选中态覆盖**（实现见 `mockup.css` 的 `.file-type-*` 调色板；Git 状态色只施加在名称节点上，二者是并列兄弟）；调色板逐类型取权威 `expui/fileTypes/*.svg`（深色取 `*_dark.svg`）：markdown `#3574F0`／`#548AF7`、Csharp `#208A3C`／`#5FAD65`、json `#834DF0`／`#B589EC`、yaml `#DB3B4B`／`#DB5C5C`、xml `#E66D17`／`#C77D55`、html `#369650`／`#57965C`、image 描边 `#3574F0`／`#548AF7`，text/unknown/ignored 用标准图标色（= `icon` 令牌）；**`.gitignore` 是独立的 `gitignore` 类型**，取 `expui/fileTypes/gitignore.svg` 的橙红 `#F34E29`（该图标无 `_dark` 变体）——它与 `fileTypes/ignored.svg`（灰色斜线圆，表示"被忽略的文件"）是**两个不同图标**，2026 参考图的项目树里 `.gitignore` 正是橙红色。2026 参考图的项目树里 `#0033B3`（Git 修改态名称色）与 `#3574F0`（Markdown 类型色）同时出现，印证了这条规则。有 Git 状态的文件名使用既有状态色，无变化名称使用正文色，目录路径使用辅助色。状态的分组和辅助技术说明继续保留。图标区到文字为 8px，复选框与选择行为保持独立。
+- 项目树、标签、Changes、历史变化文件与搜索结果共用文件类型图标。类型色写在图标自身，Git 状态只改变文件名颜色。映射必须同时核对实际 FileType 调用和 `PlatformIconMappings`：JS/TS/CSS/Python、EditorConfig、忽略文件和各文档类型使用自己的图形；`.gitignore` 实际走 `Vcs.Ignore_file` 并映射为 `expui/fileTypes/ignored.svg` 的斜线圆，不采用同名 `gitignore.svg` 的 Git 菱形。各类型浅深色与几何见本轮场景记录。项目树和 Changes 的文件图标与文字间距为2px，复选与选择独立。
 - 项目树与历史变化文件的目录使用同一个圆角文件夹：16px 网格内约 14×12px 主体、1px 细边和浅填充，左右侧边竖直；展开与折叠共用图形，不加前盖横线。工作区根目录右下叠加 7px 蓝色圆角标记，周围保留实际行背景。普通文件夹与全局项目工具按钮是不同组件，不共用同一个工具栏轮廓。
 - 浅色目录边线 `#6C707E`、填充 `#EBECF0`，根角标边线 `#3574F0`、填充 `#E7EFFD`，来自 PyCharm 168 DPI 屏幕样本。深色暂用 `#868A91/#43454A` 和 `#548AF7/#253F61`：深浅结构同构，但**未取得同场景的 PyCharm 深色参考截图** ⇒ 这 4 个深色值归**无法取证**（`ui-classification.md` §5），按内部一致性维护，不写成"已与 PyCharm 深色对齐"。由 `NativeTheme.TreeIcons.cs` 集中绘制。
 - 项目树展开标复用统一曲线绘制；8px 箭头网格到 16px 目录/文件网格间距 4px，图标到名称 8px。根目录名按当前半粗字体实际字宽分配，最多 180px；辅助路径左对齐并紧跟名称 8px，不按字符数估宽，也不靠右对齐制造中间空洞。
 - Markdown 使用无外框的实心 M 与独立下箭头，在 16px 图标区内居中，高度约 8px；不得用 12px 高的细折线或 `M↧` 字符拼接替代。C# 使用圆弧 C 与倾斜的井号，中心保持开放，不使用界面字体。
-- 文件类型色由 `NativeTheme.FileTypeIconColor` 集中解析。Markdown/图片浅色 `#3574F0`、深色 `#6A9FFF`；C#/标记文件浅色 `#369A5C`、深色 `#6AAB73`；结构化文件浅色 `#B88E2B`、深色 `#EBC051`；其他文件使用 `icon`。Markdown 浅色主色来自可见参考截图采样，其余值属于待进一步校准的设计值，不宣称所有类型均已逐像素验收。
+- 当前文件类型色由共享 CSS 的 `.file-type-*` 与独立多层令牌解析。Markdown、JSON、YAML、JS、TS、CSS、Python 和 EditorConfig 的双主题栅格对照已覆盖；不把该范围外的图形或真实屏幕抗锯齿写成已全部验收。
 - 通用文件图标使用折角纸页和水平文字线，图片使用矩形外框与框内山形、圆点；不得为普通文件绘制图片内容，也不得省略图片外框。
 - `.slnx`、`.props` 和 `.gitattributes` 复用已有三条水平线图形，`.gitignore` 复用已有圆圈斜杠图形；这些类型也由统一入口绘制，不能在项目树与 Changes 中使用不同图形。
 - Changes 的文件名与目录按当前字体实际字宽分配，间距为 8px；优先显示完整文件名，两者各自的最小辨认宽度取实际字宽与 56px 的较小值。空间不足以同时容纳这两个最小宽度及间距时优先保留文件名，不再按固定百分比分列。
-- Changes 文件行和分组行**按参考实现不应有悬停底色**：Changes 是树（`ChangesTreeImpl extends ChangesTree`），`TreeHoverListener` 不默认安装，树的悬停分支永不触发；项目树与引用树同理。**表格类列表相反**——`JBTable` 默认安装 `TableHoverListener`，所以 Git 历史提交列表与文件历史列表**有**行悬停，取 `--augit-row-hover`（获焦，浅色 `#EDF5FC`／深色 `#464A4D`）或 `--augit-row-hover-inactive`（失焦，浅色 `#F5F5F5`／深色 `#464A4D`），列表自身获得焦点时用前者。**树与 Changes 的悬停是已裁决的"有意产品差异"（第 100 轮，用户裁决）：保留悬停底，取值用权威 `--augit-row-hover`，验收套件 `真实悬停改变行背景` 也要求有变化**；上一版"待断言更新后再按参考实现移除"的表述已作废——参考实现只是"没有启用"平台支持的悬停（键注释为 "…if hover is allowed"），并不禁止。选中行继续使用焦点或失焦选中色，不被悬停覆盖（两者特异性相同，靠规则顺序让选中态胜出）。不改变文件状态色、复选图形、行高或内边距。
+- 项目树、Changes 文件/分组行和引用树不额外绘制悬停底色（2026-10-10 用户裁决，替代第 100 轮的有意差异）。Git 历史和文件历史属于表格，保留 `row-hover`／`row-hover-inactive`。选中项使用聚焦或失焦选中色，悬停不覆盖选中。
 
-提交工具窗使用同一实际字高 `h`：标题为 `max(39px, h + 10px)`，工具行为 `max(36px, h + 8px)`，Changes 行为 `max(27px, h + 6px)`，Amend 行为 `max(22px, h + 4px)`，底部文字动作为 `max(30px, h + 8px)`。图标按钮维持 27px 宽，设置图标命中区维持 27×30px；默认提交/提交并推送宽度下限为 53/102px，实际文字左右各留 13px。两动作加设置图标与两个 7px 间距超过可用宽度时换成两行，行间距 7px，底部留 5px。提示行与输入正文至少容纳一行实际文字；空间不足先缩短列表，不挤压按钮。Amend 保留文字，上一次提交放不下完整文字时只保留原图标，数量省略并可悬停。这些字号适配值与视觉稿、原生共用，不作为新的 PyCharm 实测结论。
+提交工具窗使用同一实际字高 `h`：标题为 `max(39px, h + 10px)`，工具行为 `max(36px, h + 8px)`，Changes 行为 `max(round(24s), h)`（`s` 是界面字号的离散缩放档，12px 基线为 24px），Amend 行为 `max(22px, h + 4px)`，底部文字动作为 `max(30px, h + 8px)`。图标按钮维持 27px 宽，设置图标命中区维持 27×30px；默认提交/提交并推送外宽下限为78/102px，实际字宽另加28px内距和6px透明边框。两动作加设置图标与两个 7px 间距超过可用宽度时换成两行，行间距 7px，底部留 5px。提示行与输入正文至少容纳一行实际文字；空间不足先缩短列表，不挤压按钮。Amend行为“Amend”与蓝色“last commit”链接，放不下时链接换到下一行，文件数量仅在列表分组显示，不在输入栏重复显示；大字号时标签省略并保留完整悬停说明。这些字号适配值与视觉稿、原生共用，不作为新的 PyCharm 实测结论。
 
 ### 8.3.1 Git 历史密度
 
@@ -474,13 +486,13 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 
 历史/引用比较已有工具栏采用相同的右侧顺序：“差异计数、忽略空白、双栏、单栏、设置”，左侧保留上一处、下一处和搜索。差异计数显示“n 处差异”，右对齐在忽略空白之前，使用 `ui-body` 与 `muted`；加载期间清除旧计数，超过 150 毫秒仍使用局部加载文字，摘要、失败和取消时不显示文本差异计数。Tab 按按钮可见顺序进入可见正文，双栏按左、右顺序，随后返回标签栏；计数、文件栏和行号中栏不进入 Tab 顺序。键盘焦点使用与普通文档工具栏一致的 1px `accent` 内边框，不以选项选中底色代替焦点。提交与文件选择跟随按已确认的 UX 第 7.8 节执行；历史多文件导航的参考证据仍单独验收，不能由工具栏外观证明完成。
 
-- 标签栏高度 **40px**，相邻标签**重叠 1px**（`tabHGap = -tabBorder.thickness`），不是可见间隙；默认字号下标签高 28px、上下各留 6px（权威 `ManyIslandsLight.theme.json` 的 `ui.EditorTabs.tabInsets = -6,8,-6,8`；2026 参考图实测标签条白底加下沿边线共 70 物理px，按卡片 28 逻辑px 定标得 39.2，吻合）。选中标签**用圆角卡片表达**：卡片底色取 `tab-selected-bg-active`（`blue-150` = `#E3EBFE`，聚焦档）或 `tab-selected-bg-inactive`（`gray-150` = `#E9EAEE`，未聚焦档），并带 1px 描边；**不使用下划线**。两份 PyCharm 参考截图（`pycharm-baseline-20260919/pycharm-main.png` 与 `visual-refinement-2026-09-08/pycharm-history-normal.png`）都显示选中标签是圆角卡片 + 描边 + 关闭叉，且 Islands 渲染的 `paintUnderline()` 是空实现；原先"经典下划线、不用底色方块"的结论来自一次**取样窗口漏掉选中标签**的采样，已在 `intellij-platform-ui-reference.md` §5.2.1 推翻。标签栏底色与编辑区一致（`EditorTabs.background` = 白）。**已实现**（第十六轮）：卡片用 `::before` 画在标签内容之后（`isolation: isolate` + `z-index: -1`），`inset: 0 4px` 对应 `IslandsTabPainter.paintTab` 的 `hOffset = 4`；圆角半径 6（`arc = 12` 视为直径）；纵向不额外内缩——标签盒本身就是 28px 内容盒，与 `vOffset` 后的卡片高一致。底色/描边走 §6.1／§6.2 的 `tab-selected-*` 令牌，聚焦档由 `.editor-tabs:focus-within` 切换。同时删掉了原 `::after` 4px 下划线与一条旧的 `body[data-theme="dark"] .editor-tab.active` 覆盖（它用 `panel-muted` + `border-strong`，特异性更高会把卡片盖掉）。
+- 标签栏高度 **40px**，相邻标签**重叠 1px**（`tabHGap = -tabBorder.thickness`），不是可见间隙；默认字号下标签高 28px、上下各留 6px（权威 `ManyIslandsLight.theme.json` 的 `ui.EditorTabs.tabInsets = -6,8,-6,8`；2026 参考图实测标签条白底加下沿边线共 70 物理px，按卡片 28 逻辑px 定标得 39.2，吻合）。选中标签**用圆角卡片表达**：卡片底色取 `tab-selected-bg-active`（`blue-150` = `#E3EBFE`，聚焦档）或 `tab-selected-bg-inactive`（`gray-150` = `#E9EAEE`，未聚焦档），并带 1px 描边；**不使用下划线**。两份 PyCharm 参考截图（`pycharm-baseline-20260919/pycharm-main.png` 与 `visual-refinement-2026-09-08/pycharm-history-normal.png`）都显示选中标签是圆角卡片 + 描边 + 关闭叉，且 Islands 渲染的 `paintUnderline()` 是空实现；原先"经典下划线、不用底色方块"的结论来自一次**取样窗口漏掉选中标签**的采样，已在 `intellij-platform-ui-reference.md` §5.2.1 推翻。标签栏底色与编辑区一致（`EditorTabs.background` = 白）。**已实现**（第十六轮）：卡片用 `::before` 画在标签内容之后（`isolation: isolate` + `z-index: -1`），`inset: 0 4px` 对应 `IslandsTabPainter.paintTab` 的 `hOffset = 4`；圆角半径 6（`arc = 12` 视为直径）；纵向不额外内缩——标签盒本身就是 28px 内容盒，与 `vOffset` 后的卡片高一致。底色/描边走 §6.1／§6.2 的 `tab-selected-*` 令牌，聚焦档由包含标签与正文的 `.editor-area:focus-within` 切换；未选中项悬停时用相同卡片几何绘制 `tab-hover-bg`（浅 `#00000012`／深 `#FFFFFF17`），选中但失焦的悬停背景也用该档，活动选中卡片保持活动底色。同时删掉了原 `::after` 4px 下划线与一条旧的 `body[data-theme="dark"] .editor-tab.active` 覆盖（它用 `panel-muted` + `border-strong`，特异性更高会把卡片盖掉）。
 - 标签宽度按当前界面字体的实际字宽计算，不按字符数估算；图标区 16px，图文间距 8px，始终预留关闭按钮空间，悬停和激活不改变文件名的省略位置。普通标签自然宽度限制为 110–215px，空间不足时保留现有压缩和活动标签可见规则。
 - 引用比较标签自然宽度为 210–420px，显示顺序为“比较: 文件名 · 来源 → 目标”；保留临时标签斜体、16px 图标和独立关闭热区。按实际字宽绘制，空间不足时文件名获得约 40% 内容宽度，两侧引用平分余量，较短内容让出空余空间；三部分各自省略。分隔符同样按字体度量，不得覆盖关闭按钮。文件栏显示短哈希，其完整身份由悬停说明提供。此收缩分配是 Augit 适配规则，不作为 PyCharm 同场景已实测结论。
 - 文件类型图标、修改标记和关闭按钮必须有固定顺序：图标 → 状态标记 → 文件名 → 关闭按钮。
 - 临时标签与正式标签只通过状态标记或文字重量区分，不改变标签栏高度。
 - 面包屑、工具栏和正文使用同一左边界；正文行号列固定，正文滚动不带走行号。
-- 普通文本、Diff 和冲突正文始终只读，只有冲突结果区按产品规格解除只读。
+- 普通文本和 Diff 始终只读；2026-10-17 用户批准移除内置冲突编辑器后，冲突文件同样只读，Augit 不提供任何内置文本编辑或保存。
 
 历史、引用和文件历史比较的正文沿用视觉稿的左右 13px、顶部 8px 内边距；中间行号区左右各留 7px。行号区至少 84px，按当前等宽字体度量两列最长行号（至少三位）及四个空格后加左右留白，不再让大字号或长行号被固定宽度裁切。右版本标题与右正文同步对齐。修改等宽字体只重新度量和排列当前控件，不重新解析补丁或调用 Git；正文与行号共用相同的顶部留白和行高。以上为 Augit 现有比较结构的适配，不作为新增 PyCharm 实测。
 
@@ -514,7 +526,7 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 - 图片稿与原生审计共用 `ux-mockups/assets/image-sample.png`，其自有 SVG 源文件和生成脚本一并保留，样图不作为运行时依赖或随应用发布。移除与原生样图无关的 HTML 文本卡片，图片按真实尺寸和适应比例显示。该样本用于受控对照，不代表 PyCharm 图片场景已实测。
 - 图片刷新超过 150ms 时在画布中心叠加单行“正在读取文件…”，背景为 `panel`、文字为 `text`、四边内距 12px、圆角半径 3px；不添加遮罩或占用布局行，不接受焦点或鼠标输入。完成后移除，大小随真实文字度量；视觉稿通过 `?image-state=loading` 查看。这是 Augit 的异步状态适配，非 PyCharm 图片场景实测。
 - 符号链接目标在文档工具栏下单独显示完整路径，使用 `panel-muted` 底色、`text` 文字及底部 1px `border`，四边内距 8px、最小高 32px，长路径和大字号按实际字高换行；JSON 错误条位于其后，正文和查找条顺次下移。目标信息不进入 Tab 顺序。
-- Markdown 的原文/对照/预览分段控件使用 26px 紧凑按钮步长和 36px 工具栏高度；原文图标是四条等距横线，对照图标是左侧短横线加右侧窄圆角框，预览图标是带圆点和山形的圆角图片框。只给当前按钮绘制 2px 内缩、约 5px 圆角的选中底色，整组不绘制额外外框；JSON 的原文/格式化双段控件沿用同一尺寸骨架。
+- Markdown原文/对照/预览动作位于编辑标签区右侧、Tab Options之前，不另占正文工具栏；26px模式步长随UI用户缩放。原文图标为四条等距横线，对照为左侧短横线加右侧窄圆角框，预览为带圆点和山形的圆角图片框。只有当前项绘制2px内缩、约5px圆角的选中底，整组无外框，Tooltip与键盘焦点可用。JSON保留正文工具栏内的双段控件，36px为其工具栏基准。
 - Markdown 对照默认把扣除 6px 分隔带后的正文宽度等分，两侧各保留 240px 最小宽度；不足 480px 时按剩余宽度等分夹紧，原生按物理像素舍入。这是 Augit 的窄栏保护规则，不作为 PyCharm 同场景测量值。HTML 与原生使用相同的可用宽度口径，不把分隔带额外计入左栏百分比。
 - JSON 顶部错误条位于路径工具栏和可选符号链接目标下方、正文上方，宽度随文档区，最小高 32px，四边文字内距 8px；高度按实际字高和换行行数扩展。使用 `panel` 底色、`danger` 文字、底部 1px `border`，获得焦点后使用 1px `accent` 内框，按下使用 `hover` 底色。行列、错误文字和“点击定位”共同表达状态，不依赖颜色；无需新增错误图标。属于 Augit 既有 JSON 规则的设计适配，当前没有对应 PyCharm 同场景实测。
 - 三种模式图形由 `NativeTheme.DocumentIcons.cs` 提供 16px 网格内的 1px 细线几何；线条中心距、圆点和预览框圆角不随界面字体或等宽字体改变。文档“更多”复用通用纵向三点入口，文件历史设置复用六齿齿轮，不能使用双同心圆。
@@ -527,13 +539,17 @@ Augit 使用自己的 `A` 标记。品牌标记不参与工具栏图标对齐，
 
 #### 主框架入口与终端标题
 
-主框架左侧全局按钮保持 32×32px、7px 圆角；项目标题与终端标题图标动作保持各自原有尺寸、5px 圆角。普通为 `icon` 图形，悬停/按下使用 `hover` 底和 `text` 图形，焦点图形使用 `text`；激活全局入口继续使用 `accent-brand` 底和白图形，不被悬停覆盖。禁用使用 `faint`、不保留激活或悬停底。焦点沿用文档按钮的 1px 内框；蓝底激活入口再加左上 1px、右下 2px 内距的 `panel` 中性外框，避免蓝色焦点不可辨认。
+主框架工具轨采用 37×40px 命中区、30×30px 背景、20px 专用图标和 6px 圆角；项目标题与终端标题动作保持各自组件尺寸。普通、悬停、按下、可见、激活、焦点和禁用规则以工具轨专节及 CSS 令牌为准；激活入口的蓝底白图形不被悬停覆盖，禁用不显示背景或焦点环。
 
 终端标题行高取 `max(38px, h + 12px)`，文字控件高取 `max(24px, h + 4px)`。左标题从 8px 开始，宽度至少 54px 或实际字宽加 8px；会话名称从标题宽度加 12px 开始，宽度至少 124px 或实际字宽加 16px，但为其后的三个动作保留 96px。会话关闭与名称相距 2px，命中区 24×24px；更多与隐藏为 28×24px，分别从右侧 68px、36px 开始，全部垂直居中。当前 Shell 显示为非交互单会话标签，长名称省略且悬停可读全名；不叠加第二个选择 Shell 按钮，切换配置沿现有更多菜单。该组尺寸是既有单会话能力的内容适配，不作为新的 PyCharm 实测值。
 
 加载期间会话名称追加“ · 正在启动…”，仍使用同一套按字宽测量与省略规则；正文保留终端面板背景，不伪造 Shell 输出。就绪后只移除加载后缀，不重建标题控件。视觉稿通过 `terminal.html?terminal-state=loading` 查看该状态。
 
+深色终端正文使用控制台方案背景#1E1F22、普通输出#BCBEC4，加载空白、静态样本与实时xterm一致，不继承工具面板#191A1C。来源、原始屏幕与逐行残差见[深色终端配对](pixel-terminal-dark-base-2026-10-16.md)，颜色一致不等于字形或整窗像素通过。
+
 ### 8.5 底部状态栏
+
+2026-10-09 当前 PyCharm Islands Light 屏幕附件中，状态栏空白位置 `(700,970)`、`(900,970)`、`(1050,970)` 均为 `#E9EAEE`，与 `ManyIslandsLight.StatusBar.background = main-window-bg` 一致。历史 `#E2E3E8` 不再作为当前主题的取值依据。附件与尺寸见 [本轮整改记录](reference-restoration-2026-10-09.md)。
 
 状态栏左侧显示工作区或活动文件路径，右侧格式组保持视觉稿中编码、换行、只读的顺序并靠右排列。各组之间使用 12px 间隔，左右各留 6px；不把状态文字作为可点击按钮，除非产品规格明确提供对应设置入口。
 
@@ -570,45 +586,53 @@ Reset／Rollback 底栏按钮在默认字号下为 30px 高、**圆角半径 3px
 
 #### 9.2.1 复选框
 
-- 可见方框为 15×15px，圆角半径 3px；未选中时使用 1px `faint` 边框与 `panel` 内底。
-- 全选与部分选中使用实心蓝底和白色标记；浅色选中底为 `#3574F0`，来自参考窗口采样，深色使用 `accent`。勾号与横线使用 1.5px 圆端笔画，不使用字体字符。
-- 全选显示勾号，部分选中显示居中短横线；禁用时使用 `panel-muted` 内底、`faint` 边框及标记，不能保留启用蓝色。
+- 24×24px透明画布内居中16×16px绘制外框（15px中心路径加1px描边）；圆角路径半径2.5px。未选边框浅`#A8ADBD`／深`#5A5D63`，使用复选框专用令牌，不借用一般分隔色。
+- 全选与部分选中使用`#3574F0`蓝底和白色标记；勾号与横线使用2px基准圆端笔画，不使用字体字符。未选聚焦绘制18px外框，已选/半选聚焦保留16px内框并绘制22px外环。
+- 禁用勾号浅`#C9CCD6`／深`#6F737A`，深色禁用半选横线`#868A91`；边框、内底、蓝底与标记各自按状态取值，不能一律降低整体透明度。
 - Changes 与 Unversioned Files 的复选状态由完整 Git 快照和提交选择计算，折叠或展开不改变显示结果；空组显示未选中。
 - 行选中背景只作用于实际选中的一行。分组身份、文件是否勾选与行是否选中是独立状态，不能把所有分组标题永久涂成选中蓝色。
-- Changes、Amend 和 Diff 中的自绘复选框由 `NativeTheme.DrawCheckbox` 统一绘制。其余对话框沿用系统复选框，本节只声明这三处的自绘，**不表示全部对话框已经视觉验收**；该差异归**有意产品差异（实现方式）**（`ui-classification.md` §1.24），不是当前待办。
+- Changes、Amend、日期/筛选及Clone、Stash等原生HTML复选框共用相同画布、遮罩、颜色和焦点几何；原生input保留键盘与勾选语义。全部尺寸随UI字号档位缩放，UI40画布78px、外框52px。状态回归通过不代表全部业务状态已取得PyCharm配对截图。
 
 ### 9.3 弹层、菜单和模态框
 
 - 非模态弹层贴近触发控件出现，自动聚焦第一个输入；`Esc` 只关闭最上层弹层。
 - 菜单项高度 30px，左右内边距 12px，图标列宽 20px，文字列与图标间 8px。
 - 菜单以最长文字的真实字宽加 52px 计算宽度，限制在 200–420px；200px 是短动作菜单的最小命中范围，420px 是当前产品裁剪后菜单的上限，属于 Augit 布局规则，不是 PyCharm 所有菜单的固定尺寸。文字、图标与分隔线各自保持原列，不用固定 320px 拉出空白。高度累加已缩放的各行及分隔项，再加上下各 8px，避免 125% DPI 下累计舍入侵占底部留白。
+- 筛选弹层例外：日期筛选是三项无图标短列表，宽108px、行高24px；日期范围和路径输入分别遵循 IntelliJ `DateFilterComponent` 与 `MultilinePopupBuilder` 的独立结构。详细场景与键盘回归见 [筛选弹层整改](filter-popup-remediation-2026-10-10.md)。
+- 设置正文抬头使用1rem半粗面包屑与前后导航，导航选区跨栏无外缩圆角；字体选择按本机列表提供下拉。Diff齿轮位于单双栏切换后，打开局部显示空白/行号菜单。日历使用应用内经典月份网格，所有普通菜单按真实宽高夹边并提供方向/Home/End/Enter导航。当前证据与限制见 [设置与Diff整改](settings-diff-remediation-2026-10-10.md)。
+- Settings左侧搜索、右侧面包屑固定，分类列表和正文分别滚动；网格行列均允许收缩到可用区域，不能用隐式auto行高让大字号分类撑高整个主体。权威`SettingsEditor.java:379–390`将搜索和右侧抬头分别放在左右面板NORTH，分类树有独立滚动窗格。正文用自身宽度与字号判断表单排布：不超过48em时标签与字段单列，不超过24em时字体选择独占一行；字号框至少容纳两位数字、内距、边框与16px步进槽，宽度为`max(70px, 3ch + 26px)`。这是现有字号与局部滚动规则的落实，48em/24em不登记为PyCharm实测常量。标签按实际字形包围盒检查，不能侵入相邻字段。验证与截图见[当前接续记录](pixel-font-followup-2026-10-13.md)§5.1。
 - 上下文菜单圆角半径 8px，1px `border-strong` 边框沿圆角连续绘制；选中背景半径 4px。图标列只决定 16px 图形的中心，不按行高拉伸；选中勾号由 `NativeTheme.DrawMenuCheckmark` 绘制，字体变化不得改变形状。危险文字使用 `danger`。分隔线、禁用行和四周留白不触发动作。
 - 菜单动作图形集中于 `NativeTheme.MenuIcons.cs`，工具栏已有同名图形直接复用原入口。复制图标按可见 PyCharm 菜单的双页及短文字线校准；其他原先按矩形拉伸的菜单图形统一网格与比例；未取得对应 PyCharm 菜单样本的形状归**无法取证**（`ui-classification.md` §5），按图标体系内部一致性维护，不记为逐像素验收通过。
 - 图标是否出现也遵循对应场景的参考：实测 Git 提交右键菜单中，复制哈希、Cherry-pick 和 Reset 显示图形；与工作区比较、Revert、新建分支、新建标签保留空图标列。空列仍占相同宽度，不能用其他位置的同名功能图标补位。菜单裁剪后保留 Augit 已有动作及原顺序。
 - 模态框保留背后主窗口结构，**不降低背景权重**：参考实现不给对话框做背景变暗（见下方遮罩条款）。取消恢复打开前焦点。
+- Settings取得原生窗口呈现确认后，由DWM负责窗口外框及圆角，网页保留边框占位但不重复绘制边框、圆角与阴影；非原生视觉稿保持网页外框。此规则不改变窗口、字段或按钮几何，也不代表背景刷新无闪验收通过，详见[设置外框接续](settings-native-frame-2026-10-16.md)。
 - Clone 宽版模态保持 930px 默认宽度，标题至少 45px、字段至少 30px、底栏至少 53px；版本控制、仓库 URL、目录和浅克隆按垂直表单排列。界面字号增大时按实际字高扩展字段、按钮和错误说明，底栏固定，错误内容在正文区域内滚动，不出现平台账号、帮助占位或 Force Push 等产品范围外入口。
 - **遮罩是透明的点击承接层，不做背景变暗。** 参考实现没有模态变暗：`platform/openapi/wm/impl/IdeGlassPaneImpl.kt` 只注册 `namedPainters`、`windowShadowPainter` 与 `loadingIndicator`（`IdePaneLoadingLayer`），没有任何变暗绘制；参考截图 `artifacts/pycharm-16-final/pycharm-branches-dialog.png`（2880×1800）在对话框之外的六个区域仍是精确的 `#FFFFFF`（55–90%）与 `#E9EAEE`——若真有 32% 的 `#EEF1F6` 洗白，纯白应变成 `#FAFBFC` 一类值。
 - 遮罩元素仍必须存在并覆盖完整宿主客户区、随其大小变化，因为它承担「点击外部关闭」；它不接收键盘焦点。原先按视觉稿级联结果登记的浅色 `#EEF1F6`／32% 与深色 `chrome`／44%、以及 75% 背景饱和度，**已按参考实现取消**——这些值来自 Augit 自身视觉稿，不是 PyCharm 实测。Win11 原生紧凑模态的系统合成外部阴影仍独立成立，与遮罩无关。
-- 模态框按钮右下对齐，主要动作在右侧；危险动作使用 `danger`。
-- Push 默认宽 930px，常规高 494px、无远端高 524px；宽高受宿主减 80px/88px 限制。实际字高为 `h` 时，标题为 `max(45px, h + 18px)`、底栏为 `max(53px, h + 25px)`、提交行为 `max(27px, h + 8px)`、按钮为 `max(28px, h + 8px)`。正文左右 17px、上下 15px，左栏 260px，右侧说明内距 18px；无远端额外预留 `max(30px, 行高 + 3px)` 的标签区。引用摘要及提交行圆角半径 5px，提交勾形在行左侧 20px 后的 16px 图标区，图文间距 6px。主要按钮/取消分别至少 84px/78px，预留进行态文字宽度加 24px，间距 8px、距右边 17px；此项统一现有视觉稿与原生的字号和限高规则，不构成新增参考实测。
+- 模态框按钮组右下对齐，危险动作使用 `danger`。Windows的Stash/Reset按权威默认动作组排列为确认、Cancel；Clone/Push沿各自已验证动作组，不将同类推导冒称该页实测。
+- Push 默认宽 930px，常规高 494px、无远端高 524px；宽高受宿主减 80px/88px 限制。实际字高为 `h` 时，标题为 `max(45px, h + 18px)`、底栏为 `max(53px, h + 25px)`、提交行为 `max(27px, h + 8px)`、按钮为 `max(28px, h + 8px)`。正文左右 17px、上下 15px，左栏 260px，右侧说明内距 18px；无远端额外预留 `max(30px, 行高 + 3px)` 的标签区。引用摘要及提交行圆角半径 5px，提交勾形在行左侧 20px 后的 16px 图标区，图文间距 6px。主要按钮/取消分别至少84px/78px；主要按钮预留进行态文字宽度加24px，取消始终为Cancel，间距 8px、距右边 17px；此项统一现有视觉稿与原生的字号和限高规则，不构成新增参考实测。
 
 #### Clone 窗口
 
 默认 930×289px，宽度最多为宿主减 90px，高度最多为宿主减 40px。标题高为 `max(45px, h + 16px)`，字段与按钮高为 `max(30px, h + 10px)`，底栏高为字段高加 23px；标签列至少 110px，与字段相隔 10px。表单左右 17px、顶部 15px、行距 13px，浅克隆行额外下移 1px；勾选文字至少 180px，深度至少 58px，单位至少 80px，各相隔 10px。放不下时深度与单位整体换到下一行，行距 8px。默认整窗按共同边界缩放，分数 DPI 的舍入余量留在正文底部，初始表单不因舍入出现滚动条。
 
-取消与克隆分别预留“取消操作”和“正在克隆…”的实际字宽加 24px，按钮间距 8px、右距 14px；状态切换不改变按钮位置。输入框使用 1px 主题边框和 5px 圆角；禁用的深度及单位使用主题弱化文字，不使用系统浮雕。错误在浅克隆行下方以实际字体换行，只有正文滚动；关闭保持固定 16px 图形，不显示帮助占位。这些规则落实已有模态和字号适配，不登记为新增 PyCharm 实测。
+取消按Cancel字宽和78px外宽下限分配；克隆预留“Cloning…”的实际字宽加24px，按钮间距 8px、右距 14px；状态切换不改变按钮位置。输入框使用 1px 主题边框和 5px 圆角；禁用的深度及单位使用主题弱化文字，不使用系统浮雕。错误在浅克隆行下方以实际字体换行，只有正文滚动；关闭保持固定 16px 图形，不显示帮助占位。这些规则落实已有模态和字号适配，不登记为新增 PyCharm 实测。
 
 #### 远端管理窗口
 
-远端管理双栏窗口沿用默认 930×407px，宽度最多为宿主减 90px，高度最多为宿主减 88px。标题栏至少 45px／实际字高加 16px，字段至少 30px／字高加 12px，按钮至少 28px／字高加 12px，底栏至少 53px／按钮高加 25px。标签列至少 110px，按三个字段名的实际字宽扩展；右侧详情采用原生视口独立滚动，焦点移入时保持控件完整可见。滚动不能改变左侧选择或请求 Git，输入框使用 1px 主题边框和 5px 圆角；本项是现有字体适配规则的落实，不是新的 PyCharm 实测。
+2026-10-17安装版组件复核：主窗外层不占布局边框（网页预览用内侧轮廓），内容根内距8/12/8/12；工具条24px动作区外另有1px底分隔，按钮26×24、相邻gap0；表头为行高加1px（默认25），空态从完整表头后开始。底栏上下8px、左右12px。此规则覆盖下文对应旧工具条占位，Define保留现有三行和Push URL。证据与剩余差异见[pixel-remote-component-insets-2026-10-17.md](pixel-remote-component-insets-2026-10-17.md)。
+
+远端管理为单列表格窗口。2026-10-17用户明确批准“按实机调整，保留 Push URL”：默认逻辑宽度为624/1.75px、高220px，对应175%下624×385物理像素参考；宽度最多为宿主减90px，高度最多为宿主减88px。Name/URL两列表格按权威`GitConfigureRemotesDialog.updateTableWidth()`公式扩宽：名称列=`max(30, 名称字宽)+30+10`，URL列至少250px，名称与URL均按当前界面粗体（本产品600）字宽预留，URL正文显示仍为400；整窗按名称列、URL列、10px间隔及24px正文内距扩展。顶端Add/Remove/Edit工具条与底栏唯一OK固定，字号放大或窗口限高时只滚动表格正文。实际字高为h时，行高取`max(24px, h+6px)`，标题栏`max(40px, h+18px)`，工具条`max(24px, h+4px)`，底栏`max(50px, h+25px)`，字段`max(30px, h+12px)`，按钮`max(34px, h+12px)`。标题使用40px品牌槽、16px Augit标记、普通字重、右侧32px关闭区，无标题底部分隔线；正文上距8px、左右12px，主要按钮600字重。单击只改选中态，双击或Edit打开独立Define Remote次模态；字段标签列按实际字宽扩展。输入框使用1px主题边框和5px圆角。原始参考见`artifacts/pixel-followup-2026-10-16/remote-normal-pair/`，此规范调整不等同整页像素验收通过。
+
+Define Remote 默认 405×207px（2026-10-11 前台取证，系统 175%）；产品额外的 Push URL 在参考的两行之外再加一行，高度按 `max(24px, 行高 + 6px)` 追加，因此不声称与参考 207px 精确相同。Remove Remote 确认使用同一尺寸骨架并显示名称、URL 与影响。
 
 #### 创建 Stash 窗口
 
-默认保持 620×323px，宽度至少容纳实际标签与底部动作，最多为宿主减 90px，高度最多为宿主减 40px。标题高为 `max(45px, h + 16px)`，字段高为 `max(30px, h + 10px)`，分支高为 `max(24px, h)`，消息高为 `max(78px, 3h + 12px)`，按钮高为 `max(30px, h + 10px)`，底栏高为 `max(53px, 按钮高 + 23px)`。默认整窗高度以共同边界换算，分数 DPI 的舍入余量留在正文底部。表单左右 17px、顶部 15px；标签列至少 110px，与字段间隔 10px。正文独立滚动，焦点进入字段时使其完整可见；错误换行位于勾选项之后。取消与创建预留进行态文字宽度，状态变化不移动按钮；保留索引使用统一 15px 复选框绘制并保留原生勾选语义，关闭使用固定图形，不显示帮助占位。本项为已有字号、模态及反馈规则的落实，不作为新增 PyCharm 实测。
+默认保持 620×323px，宽度至少容纳实际标签与底部动作，最多为宿主减 90px，高度最多为宿主减 40px。标题高为 `max(45px, h + 16px)`，字段高为 `max(30px, h + 10px)`，分支高为 `max(24px, h)`，消息高为 `max(78px, 3h + 12px)`，按钮高为 `max(30px, h + 10px)`，底栏高为 `max(53px, 按钮高 + 23px)`。默认整窗高度以共同边界换算，分数 DPI 的舍入余量留在正文底部。表单左右 17px、顶部 15px；标签列至少 110px，与字段间隔 10px。正文独立滚动，焦点进入字段时使其完整可见；错误换行位于勾选项之后。取消保持Cancel且外宽至少78px，创建预留进行态文字宽度，状态变化不移动按钮；保留索引使用统一24px画布／16px外框复选框绘制并保留原生勾选语义，关闭使用固定图形，不显示帮助占位。本项为已有字号、模态及反馈规则的落实，不作为新增 PyCharm 实测。
 
 #### Reset 与回滚确认窗口
 
-Reset 默认 620×288px，回滚默认 930×430px；实际宽高按内容扩展，最多为宿主减 90px／40px。标题高为 `max(45px, h + 16px)`，字段和按钮高为 `max(30px, h + 10px)`，底栏为按钮高加 23px；标题文字从左侧 26px 开始，关闭图形保持固定尺寸。正文左右 17px、顶部 15px，底部动作右距 17px、间距 8px，按实际字宽加 26px 分配。Reset 预留取消与确认的进行态宽度；表单标签列至少 110px，字段间隔 13px，标签与字段相隔 10px，模式文本预算包含系统箭头、边框和滚动条实际占宽。
+Reset 默认 620×288px，回滚默认 930×430px；实际宽高按内容扩展，最多为宿主减 90px／40px。标题高为 `max(45px, h + 16px)`，字段和按钮高为 `max(30px, h + 10px)`，底栏为按钮高加 23px；标题文字从左侧 26px 开始，关闭图形保持固定尺寸。正文左右 17px、顶部 15px，底部动作右距 17px、间距 8px，按实际字宽加 26px 分配。Reset取消保持Cancel，确认预留进行态宽度；表单标签列至少 110px，字段间隔 13px，标签与字段相隔 10px，模式文本预算包含系统箭头、边框和滚动条实际占宽。
 
 Reset 风险说明距表单 16px，回滚风险说明距比较 14px；警告内距左右 12px、上下 6px，标题与正文相隔 4px，按实际字体换行，浅深警告底分别为 `#F7D7D7`／`#4B2D2D`。Reset 风险区至少 62px，回滚至少 81px；回滚比较至少 214px，并保证能容纳当前工具栏、两行来源信息和四行默认等宽正文。错误也在正文内换行，限高时正文滚动且标题、底栏固定；无功能帮助占位不显示。这些规则落实现有字号与模态契约，不登记为新增 PyCharm 实测。
 
@@ -619,16 +643,24 @@ Reset 风险说明距表单 16px，回滚风险说明距比较 14px；警告内�
 - 标题、标签和按钮按实际字体度量；长标题或大字号扩大窗口，不能把字体缩小或裁切按钮。所有换算经 `NativeTheme` 完成；界面字体和主题覆盖输入及标题，不使用固定系统字体。输入聚焦使用 `accent` 边框，按钮焦点有独立可见轮廓；状态变化不移动控件。
 - 标题栏关闭按钮复用已有关闭图形，32px 宽命中区，图形只随 DPI 缩放，不随用户字号放大；提供“关闭”悬停说明及辅助技术名称。
 
-#### 三栏冲突解决器
+- **跳转行例外（2026-10-15 用户批准）**：按 PyCharm 2026.2.1、DPI168 原始参考图584×252物理px调整，默认逻辑宽334px、最小高144px，宽度至少27em且受宿主两侧12px约束。标题区至少40px或实际行高加18px，不画标题下分隔线；按实机DialogHeader保留左侧40px品牌槽：Augit蓝色A为16×16px、距左12px；标题从40px开始，右侧32px为关闭命中区，标题省略不能覆盖关闭按钮。按实机组件几何，表单上12px、下8px、左12px、右20px，标签最小宽93px，与输入相隔8px；默认输入命中区200×34px，高度至少为行高加14px，随大字号扩宽。输入正常绘制区域在命中区内缩3px，1px边框；聚焦内缩2px、2px品牌蓝边框，圆角半径3px，焦点切换不移动控件。外窗边框叠绘，不参与布局。标题常规字重、OK强调字重。底部上下8px、左右12px，OK在左、Cancel在右、间距6px；按钮命中区至少78×34px且随字号增长。错误说明独占底栏一行并扩大窗口，不挤压按钮。仅跳转行应用此布局，不改变其他紧凑窗口。标题和标签保留仅行号语义，不新增列跳转。
 
-- 视觉稿为 `ux-mockups/conflict-resolver.html`。对话框默认宽 1040px，窄窗口左右各保留 40px；圆角半径 9px，边框 1px。正文左右留白 17px，三栏可用宽度**等分**（`1 : 1 : 1`）为当前分支、可编辑结果、合入内容，栏间 1px 分隔；权威 `ThreeDiffSplitter.resetProportions()` 为 `myProportion1 = myProportion2 = 1f / 3`，原 `1 : 1.08 : 1` 是 Augit 自定值，已按"冲突一律以 New UI 为准"改回；左右正文始终只读。
-- 设当前界面实际行高为 `h`，按钮高 `b = max(37px, h + 17px)`（第 95 轮与全产品对话框按钮统一；原 `max(28px, h + 8px)` 已废止）；标题高 `max(45px, h + 18px)`，导航行高 `max(42px, b + 14px)`，来源行高 `max(36px, h + 12px)`，底部返回区高 `max(53px, b + 25px)`。对话框总高为这些区域加操作区及 243px 正文，**最高不超过宿主高度**；受限时正文独立滚动。**第 132 轮订正上限**：原写"宿主高度减 40px"，那 40px 是自定边距、无权威依据；权威 `ScreenUtil.fitToScreen()` 转调 `moveToFit(rect, screen, padding = null, crop = true)`（`ScreenUtil.java:371-393`），即**没有外边距**、超出屏幕时直接裁到屏幕边界。原值在 1024×640、`ui-size=40` 下把三栏正文压到 76px（列标题分两行 114 + 导航行 82 + 操作区两行 164），去掉自定边距后正文 116px。
-- 冲突操作按钮宽为实际字宽加 24px，接受、取消、保存、返回、导航分别保留 112/80/164/126/78px 下限；组内间距 8px。接受与保存两组加间距超过正文可用宽度时分两行；操作区为一行按钮加 20px 或两行按钮加 28px。组内顺序和主要动作位置不变，文字不得换行或越界，返回冲突列表固定在最底部右侧，左侧保留状态原因并提供完整悬停说明。
-- 标题、计数和导航按实际字宽分配，内容标题与计数至少间隔 8px；同一行放不下时，文件名移到外层“解决冲突”标题右侧，间距 12px，导航行只保留左侧计数和右侧上一处/下一处。不增加标题行数，长文件名单独省略并可悬停查看完整相对路径。任一来源文字放不下时，三栏来源统一变为两行：第一行为身份，第二行为分支名或“可编辑”，行高为 `h`，来源区高 `max(36px, 2h + 12px)`；每行单独省略并保留完整悬停说明。这是 Augit 现有字号设置的适配，不作为 PyCharm 大字号直接实测。
-- 上下处按钮文字为“上一处”“下一处”；关闭入口沿用固定尺寸图形，不随用户字体变大。以上度量是 Augit 对已有视觉稿的大字号适配，不能登记为 PyCharm 大字号实测。
+#### 三栏冲突解决器（2026-10-17 经批准移出范围）
+
+**范围变更**：用户已批准移除内置三栏冲突编辑器，保留冲突提示、冲突文件列表、普通只读 Diff 和外部处理后的状态同步。本小节以下全部数值、视觉稿和像素记录仅作历史追溯，不再是当前设计约束、实现要求或验收目标；原有未完成状态登记为“经批准移出范围”，不得改写为通过。冲突文件改用普通只读 Diff 的既有视觉规则。
+
+- 默认 Apply Changes 使用半粗字重600，其他底栏按钮保持400。对应参考默认按钮绘制时加粗、首选尺寸按组件普通字体计算的规则；保留现有普通字体宽度计算，并检查实际半粗文字不会裁切。
+- 冲突底栏文本首选宽度按参考FontMetrics.stringWidth取最近逻辑整数，再加34px；不统一向上取整。UI12、Microsoft YaHei UI基线为Accept Left 99px、Accept Right 108px、Apply Changes 120px、Cancel 78px；其它字体及字号继续按实际文本度量，不能硬编码这四个宽度。
+
+- 工具栏禁用图标单独使用参考灰阶，浅色 `#BDBDBD`、深色 `#5A5A5A`，不复用禁用文字的 `faint`。数值由安装版 PyCharm 2026.2.1 的 GrayFilter 对现有 icon 颜色计算得到，浅色已与原始参考箭头纯色核对；深色尚缺同态屏幕配对。禁用不显示悬停或焦点，不改变命中区和三栏布局；重新启用恢复 icon 颜色。
+
+- 视觉稿为 `ux-mockups/conflict-resolver.html`。2026-10-15 用户批准按 PyCharm 2026.2.1 实机重排：文件名固定在标题，紧凑工具栏、左对齐来源标题、三栏正文及单层底栏依次排列。移除独立文件名导航行和重复返回底栏。默认宽度最多1080px、高度694px，受宿主限制；三栏先扣除连接带，左右取三分之一的整数宽度，余量归中央；正文无外层横向留白，左右始终只读。
+- 设界面实际行高为 `h`：标题 `max(40px,h+18px)`，按钮 `b=max(34px,h+14px)`（含两侧各3px透明命中边框），工具栏 `max(42px,h+16px)`，来源行 `max(30px,行数×h+8px)`（已包含底边框）。横线连续穿过两条连接带，采用编辑器TEARLINE_COLOR（浅色#D4D4D4、深色#555555），按设备像素绘制。窗口总高至少覆盖243px正文和固定区域，并裁到宿主高度；正文独立滚动。以上是实机默认几何加现有字号适配，大字号不是参考实测；冲突窗口采用布局居中，避免编辑光标出现后的半像素合成偏移；175%原生初始横线3452像素与参考一致，接受左侧及全部处理后同一区域颜色稳定，整窗仍未完全配对，见[来源标题记录](pixel-conflict-title-separator-2026-10-15.md)。
+- 底栏左右12px、上下8px；左侧 Accept Left、Accept Right，右侧 Apply Changes、Cancel，同组间距6px。各按钮宽为各自实际文字加34px、下限78px；两组放不下时分两行。取消复用原返回冲突会话语义，状态提示在顶部，应用仍校验并标记已解决。接受按钮继续处理当前块，可撤销；不得将布局重排解释为新增整文件接受行为。
+- 工具栏左右外距8px、内距4px/6px、圆角6px；导航及当前块接受两侧/忽略侧为图标，具有完整 title 和 aria-label。仅展示已实现动作，不照搬参考智能合并等无对应能力入口；状态计数靠右。来源统一左对齐，必要时按真实字宽同时扩展行数。文件名省略但完整路径保留悬停说明。
 - 保存进行中冻结所有动作并将结果区设为只读；失败、取消和外部读取冲突使用局部文字提示，不重建三栏、不清除结果正文或阅读状态。
 - 接受、导航、取消、返回和标题关闭的悬停／按下使用 `hover`；主要应用动作保留 `accent`。动作背景圆角半径 5px，次要动作边框 1px；禁用文字用 `faint`、底色用 `panel-muted`（标题关闭仍与 `panel` 共底）。焦点沿用文档按钮的 1px 内框，主要动作追加 1px `panel` 外环，禁用不显示悬停或焦点。状态只重绘当前按钮，不改变三栏、选择和解析版本；隐藏、禁用与销毁清除悬停跟踪。
-- 三栏正文统一左右各 12px 留白、无额外顶部留白，行高为等宽字号的 1.7 倍并按原生像素取整；保留缩进，长行横向滚动。普通上下文使用 `panel`，仅实际冲突行铺满所在栏的正文宽度：浅色来源 `#F7D7D7`、结果 `#DCE9FC`，深色来源 `#523234`、结果 `#2B3F59`。不把整块编辑器染色或额外添加红蓝外框。视觉稿使用与原生审计宿主一致的 `RefreshAsync` 三侧样本，中央未处理正文同时显示两侧代码；这不是已接受某一侧的最终结果。
+- 三栏正文采用来源槽接续所列留白、无额外顶部留白，行高为等宽字体实际度量的 1.2 倍并在设备空间取整；保留缩进，长行横向滚动。普通上下文使用 `panel`，仅实际冲突行铺满所在栏的正文宽度；覆盖中央/右来源正文两侧留白和左来源右侧3px间隔，左来源18px固定编辑器边距保持panel。长短行共享横向内容宽度，横滚后短行底色不得露出缺口。按 `DefaultColorSchemesManager.xml` 的 `DIFF_CONFLICT`，三侧基础冲突色均为浅色 `#FFD5CC`、深色 `#45302B`，中央不使用蓝底。不把整块编辑器染色或额外添加红蓝外框。真实草稿中央从祖先构造，接受动作逐侧处理。参考 `DiffViewerHighlighters` 在存在行内差异时使用减淡行底色、保留差异片段原色；已通过 CSS Highlight 实现行内分层，并验证过期异步结果不会恢复已处理高亮；分词算法及同态像素配对仍未完成验收，不能代表完整高亮复原。静态 `RefreshAsync` 样本仍需随真实参考更新，不能用样本证明中央初始状态一致。
 - 冲突块较短的一侧在其末尾使用 `panel` 色展示留白，使后续冲突与公共正文落在同一纵向位置；留白每行为同一等宽正文行高，不显示行号、字符、边框或冲突底色，不进入复制、编辑、撤销及保存文本。既有示例左侧补两行、右侧补三行，三栏结尾大括号对齐。
 - 文件第一行就是冲突且某侧内容为空时，留白从该栏正文顶部开始，同样随正文滚动；首行留白超过一屏时仍可用滚轮和滚动条进入后续正文。对应视觉稿为[首行左侧为空](ux-mockups/conflict-resolver.html?empty-side=left)和[首行右侧为空](ux-mockups/conflict-resolver.html?empty-side=right)。两侧及中央使用相同内容样本，公共方法声明与结束大括号保持同一纵坐标；HTML 行高也按当前 DPI 的物理像素取整，不能累积小数误差。
 
@@ -703,3 +735,53 @@ Diff 边界导航使用正文附近的非模态提示，见 [文件边界视觉�
 5. 收敛普通按钮、图标按钮、输入框、选择框、菜单和模态框的状态。
 6. 逐页按浅色、深色、最小/推荐窗口和 96/120/144 DPI 生成真实截图，对照 `ux-mockups` 修复偏差。
 7. 运行现有自动化、格式检查、截图审计和资源清理检查后，记录当前视觉验收证据；历史路线图不作为当前设计依据。
+
+### 2026-10-10查找与Blame组件令牌
+
+查找栏在输入外壳内放搜索图标和三个28px按钮，开关间距4px、组右内距2px；计数样本文本9888 results，正常数量变化不移动导航。输入外壳边框1px、圆角3px；关闭按钮贴右侧。无匹配/搜索中/组词时导航保持位置并禁用。
+
+Blame浅色五锚点为#A1BEF7/#C9DAFB/#DEE8FC/#EDF2FA/#F7F8FA，深色为#2F5194/#2D416B/#283754/#242D42/#22252E；每相邻锚点四个插值色，通道按ColorGenerator浮点截断生成21色，CSS令牌为--augit-blame-color-0到20。归属行通过提交者时间分组选择索引。富文本提示最大宽600px、客户区四边至少4px、内边距8px/10px、圆角4px，沿用面板与主题边框/文字令牌；提交链接用主题蓝色。此处记录WebView2等价实现，不声明提示全部像素已经同场景验收。
+
+### 三栏中央编号槽（2026-10-14）
+
+中央结果不保留来源接受/忽略空间：槽宽为max(16px, 实际最大编号字宽)+27px，正文再右移3px，编号右侧21px；默认43px。编号逐项使用正文等宽字体、字号和字距，禁止依赖可能为空的font简写。固定留白来自本机175%参考图，详见[测量与边界](pixel-conflict-gutter-2026-10-14.md)，其他字号仅完成自适应验证，未宣称参考像素全量通过。
+
+### 三栏块连接带（2026-10-14）
+
+2026-10-15来源槽接续：分隔线仅沿行号槽与正文的交界绘制，左来源镜像至槽左边，中央和右来源在槽右边；连接带外缘不绘制贯穿来源标题的竖线。左右编号也使用max(16px,实际最大编号字宽)，槽再加60px；左正文18px，右正文在槽后3px。左动作距槽左18px，右动作距槽右12px；左编号固定左边54px以容纳多位，右编号距槽右51px。来源标题及连接带使用编辑器panel底色。这些留白来自本机175%参考图，跨字号只验证无重叠，不宣称像素全量通过；证据见[pixel-conflict-source-gutter-2026-10-15.md](pixel-conflict-source-gutter-2026-10-15.md)。
+
+三栏先扣除两条24px连接带（diff.divider.width），左右逻辑宽度向下取整，中央承接余量，与ThreeDiffSplitter一致。连接形状采用0.3/0.7三次贝塞尔控制点；未处理侧填DIFF_CONFLICT原色，已处理侧无填充、上下2.3px的2/2点线；空侧双边界。显示层不接收指针，不进入可编辑正文，滚动复用路径。实现与精确栅格未验收边界见[连接带记录](pixel-conflict-connectors-2026-10-14.md)。
+
+2026-10-15终端行高裁决：按PyCharm实机使用JetBrains Mono13和基础行距1.0，默认参考约18逻辑px。静态终端和实时xterm均使用实际字体基础行格；随包字体加载后为ceil(字号×1.02)+ceil(字号×0.3)，其他字体沿原始度量，须记录实际度量和DPI取整，不再复用只读正文22px行高。此项只改变终端，不改变正文、Diff、冲突或工具栏。
+
+2026-10-15实时终端格宽：终端仍不套用编辑器CSS字距。随包JetBrains Mono实际加载后，经xterm DOM专用格宽选项将单列设为 round(round(字号×DPR)×0.6)/DPR；来源为CharacterGrid/EditorView的粗斜体W网格及256组独立JBR度量。文字、光标、选区和鼠标命中共用网格；xterm行后代继承内部补偿字距，禁止全局零字距覆盖。其他字体或资源未加载时回到上游度量。用户未增加外观选项，字形不缩放。真实两行宽差最终降至0/0物理px，基线、抗锯齿与完整配对仍未通过，见[终端格宽记录](pixel-terminal-grid-2026-10-15.md)。
+
+2026-10-15终端行格接续：xterm增加与格宽同源的augitCellHeight，避免浏览器把AWT默认18px、17号字24px压成约17.18/22.25px。真实17号字双端相同字母步长均42物理px，两行宽度一致；13号字当前32对参考31，仍有舍入/基线差异，不计完整通过。来源、逐字分析与失败边界见[终端行格配对](pixel-terminal-row-grid-2026-10-15.md)。
+
+2026-10-17终端命令块有意差异（用户已批准）：Augit 保留简洁 xterm 连续字符网格，不实现 PyCharm Reworked 引擎的命令块装饰。参考实现 `TerminalBlocksDecorator` 在 `showSeparatorsBetweenBlocks` 下为非首块顶部生成 7 逻辑px、已完成块底部生成 6 逻辑px 的留白（经 `JBUI.scale`），并绘制块分隔线；由此产生的命令块分隔与块间行距差异登记为**有意差异**，不再作为终端验收缺口。除此之外，文字字形与行格、颜色、面板尺寸和位置、实际内容、光标与选区仍须对照；有意差异不得用于解释或掩盖其他未通过项。
+
+2026-10-15已处理正文及编号槽边界：按UIUtil.drawBoringDottedLine每4逻辑像素绘制2px矩形，宽高按设备像素取整，边界从y-1开始；空范围重复两行后合并为3px高。绝对定位不改变行盒或保存文本。175%实机主体着色4/留白3，边缘厚度及抗锯齿仍未通过像素配对，详见[pixel-conflict-line-pair-2026-10-15.md](pixel-conflict-line-pair-2026-10-15.md)。
+
+2026-10-15冲突边界矢量接续：渐变与图案贴图会损失边缘像素，改用只读SVG直接路径；实际175%上4排/下3排与参考一致，两段局部平移配准共3000像素零差异，不等于整窗同态通过。12组严格栅格及真实单块/多块/空侧保存通过。证据、失败、哈希与清理见[三状态记录](pixel-conflict-line-pair-2026-10-15.md)。整体目标仍未完成。
+
+2026-10-15运行时诊断补记：PyCharm 262.9437.214在988逻辑像素宽度下，三栏313/314/313px、连接带24px。来源槽总宽79px、中央46px；分隔线位置分别距起点76/43px，余下3px属于正文前留白。Augit继续以分隔线为槽边界，正文留白由2改3px；槽线使用INDENT_GUIDE浅色#EBECF0、深色#313438。截图仍有中央2物理px及右侧1物理px残差，不能宣称完全对齐。详见[pixel-conflict-runtime-geometry-2026-10-15.md](pixel-conflict-runtime-geometry-2026-10-15.md)。
+
+2026-10-15客户区与底栏接续：参考根面板Insets为0，冲突窗口外框改为不占布局的覆盖描边；默认工具栏42px、来源标题30px。底栏上下8px、左右12px，同组按钮间距6px；左右接受分别按各自字宽加34px、下限78px定宽，取消/应用同样度量；单层底栏为按钮高加16px，换行为两倍按钮高加24px。客户区高度与宽度不再被外框压缩。上述修改基于参考运行时及DarculaButtonUI、MergeRequestProcessor源码；大字号只证明自适应，未证明参考像素一致。详见[pixel-conflict-client-area-2026-10-15.md](pixel-conflict-client-area-2026-10-15.md)。
+
+2026-10-15冲突正文尾部留白：按PyCharm 2026.2.1运行时EditorComponent Insets，中央结果与右来源正文右侧保留18逻辑px；左来源仍为左18px、右侧行号槽及3px正文间隙。行高、基线、文字起点及保存内容不变，整行高亮覆盖该尾部留白。依据和验证见[pixel-conflict-end-inset-2026-10-15.md](pixel-conflict-end-inset-2026-10-15.md)。
+
+2026-10-15冲突正文LCD：不透明正文使用无位移translateZ(0)独立栅格化，不设置会禁用LCD的will-change，避免正文并入透明scrim层。保留背景快照、行盒、文字坐标和保存语义。运行时追踪、反证及未验限制见[pixel-conflict-lcd-text-2026-10-15.md](pixel-conflict-lcd-text-2026-10-15.md)。
+
+2026-10-15冲突光标行号：三栏各自保留当前逻辑行，编号浅色#767A8A、深色#A1A3AB，失焦后保留；选择活动端、插入/删除及编号重排同步，空白对齐占位不编号，不改变正文与保存内容。20项定向检查及真实多块保存通过，整窗仍未配对，整体目标未完成。依据、哈希、证据和启停清理见[光标行号记录](pixel-conflict-caret-numbers-2026-10-15.md)。
+
+2026-10-15冲突正文基线：既有JBR目标基线与行高不变，正文leading及顶部留白先经CSSStyleDeclaration规范化再作为共享变量传给所有行，避免嵌套calc残差使WebView2基线向下截断。不得逐行增加固定设备像素平移；插入行继承相同参数，保持行盒、编号、背景和保存内容。真实13px三栏基线16逻辑px；其它字号/DPR为定向自动化验证，不代替参考实机。见[基线序列化整改](pixel-conflict-leading-2026-10-15.md)。
+
+2026-10-17已处理左来源边界：起点遵循EditorPainter正文Insets.left与UIUtil的4px周期取整，默认18px留白对应16px点阵起点；不得从整栏零点覆盖固定留白。只修正显示层起点，不改变行盒、草稿或字体；实机相位仍有残差，见[正常入口配对](pixel-conflict-daily-inset-2026-10-17.md)。
+
+2026-10-16冲突客户区布局：保持原生外窗物理尺寸，内部按向下取整的逻辑宽高排布，设备像素余量不推移右侧按钮或底栏；外窗尺寸变化重新度量。该规则来自参考整数根面板，实机按钮几何已对照，完整屏幕像素仍未通过，见[本批证据](pixel-conflict-save-lifecycle-2026-10-16.md)。
+
+2026-10-16远端新增表单高度补记：应用字段和字号令牌后，按完整表单实际高度、正文上下内距及border-box上下边框确定内容所需高度，避免默认尺寸出现2px无意义滚动及大字号复选框溢出；受视口限制时仍只滚动正文。不是参考两行表单的像素匹配声明，见[本批记录](pixel-remote-daily-entry-2026-10-16.md)。
+
+2026-10-17远端空态历史阶段：正常启动器取得修前／修后空态及Define原始PNG，前景、DPI、指针门禁通过；补齐ToolbarDecorator外框、表头分隔。4组空态、8组Define布局及41项远端行为通过，尺寸与标题工具条当时未完成，见[前批记录](pixel-remote-table-2026-10-17.md)。后续用户批准按实机调整且保留Push URL，主窗已624×385；空态按StatusText默认规则水平居中、纵向位于剩余空间三分之一，禁止再沿用居中布局。最新仍差20982像素，不计整页通过，见[批准后整改](pixel-remote-approved-layout-2026-10-17.md)。
+
+2026-10-17远端列布局：依据实际JTable，preferredWidth70/250在330宽空表分配为75/255；窗口限宽时按距minWidth15的余量收缩。表头和正文共享列边界，表头renderer左右内距8、正文SimpleColoredComponent左右内距2，不要求文字同起点。原始证据与未通过边界见[pixel-remote-table-columns-2026-10-17.md](pixel-remote-table-columns-2026-10-17.md)。

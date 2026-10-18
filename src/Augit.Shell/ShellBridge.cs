@@ -72,10 +72,14 @@ internal sealed class ShellBridge : IDisposable
 
     private readonly Action<string, object>? _notify;
 
-    public ShellBridge(string workspaceRoot, Action<string, object>? notify = null)
+    /// <summary>设置读写使用的 Store；审计可注入隔离的设置文件。</summary>
+    private readonly SettingsStore _settingsStore;
+
+    public ShellBridge(string workspaceRoot, Action<string, object>? notify = null, SettingsStore? settingsStore = null)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
         _notify = notify;
+        _settingsStore = settingsStore ?? new SettingsStore();
     }
 
     public string WorkspaceRoot => _workspaceRoot;
@@ -199,9 +203,6 @@ internal sealed class ShellBridge : IDisposable
             "git/operation" => await InspectOperationAsync(cancellationToken),
             "git/operation-action" => await RunOperationActionAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
-            "git/conflict-accept" => await AcceptConflictSideAsync(parameters, cancellationToken),
-            "git/conflict-load" => await LoadConflictAsync(parameters, cancellationToken),
-            "git/conflict-save" => await RunWriteAsync(ct => SaveConflictAsync(parameters, ct), cancellationToken),
             "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
             "terminal/read" => ReadTerminal(parameters),
             "terminal/status" => ReadTerminalStatus(),
@@ -218,6 +219,7 @@ internal sealed class ShellBridge : IDisposable
             "external/launch" => await LaunchExternalAsync(parameters, cancellationToken),
             "clipboard/write" => WriteClipboard(parameters),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
+            "settings/fonts" => new { families = ShellFontCatalog.Families },
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
             "session/write" => await WriteSessionAsync(parameters, cancellationToken),
             _ when method.StartsWith("window/", StringComparison.Ordinal) => DispatchWindow(method, parameters),
@@ -832,7 +834,7 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>
-    /// 快速打开：按文件名搜索，最多 100 项。
+    /// 快速打开：按文件名搜索，最多 30 项。
     /// 上限、超时与取消语义都由搜索服务负责，这里只做参数整形与结果映射。
     /// </summary>
     /// <summary>
@@ -1228,10 +1230,14 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>读取当前设置。</summary>
     private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
     {
-        SettingsStore store = new();
-        ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+        ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
         bool sameWorkspace = string.Equals(
             settings.LastWorkspace,
+            _workspaceRoot,
+            StringComparison.OrdinalIgnoreCase);
+        ToolWindowLayoutSettings layout = settings.ToolWindows ?? new();
+        bool sameLayoutWorkspace = string.Equals(
+            layout.WorkspaceRoot ?? settings.LastWorkspace,
             _workspaceRoot,
             StringComparison.OrdinalIgnoreCase);
         return new
@@ -1258,8 +1264,8 @@ internal sealed class ShellBridge : IDisposable
             activeFile = sameWorkspace ? settings.ActiveFile : null,
             // 界面上的树用**工作区相对路径**，因此读取时相对化；写入时再还原成绝对路径。
             expandedDirectories = sameWorkspace ? RelativeDirectories(settings.ExpandedDirectories) : [],
-            projectPanelWidth = sameWorkspace ? settings.ToolWindows.ProjectPanelWidth : null,
-            bottomPanelHeight = sameWorkspace ? settings.ToolWindows.BottomPanelHeight : null,
+            projectPanelWidth = sameLayoutWorkspace ? layout.ProjectPanelWidth : null,
+            bottomPanelHeight = sameLayoutWorkspace ? layout.BottomPanelHeight : null,
         };
     }
 
@@ -1275,12 +1281,14 @@ internal sealed class ShellBridge : IDisposable
     /// </summary>
     private async Task<object?> WriteSessionAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        SettingsStore store = new();
-        ApplicationSettings current = await store.LoadAsync(cancellationToken);
+        ApplicationSettings current = await _settingsStore.LoadAsync(cancellationToken);
         string[]? directories = GetStringArray(parameters, "expandedDirectories");
+        ToolWindowLayoutSettings layout = current.ToolWindows ?? new();
         // Normalize 会去重、限量并把 ActiveFile 校正到列表之内。
         ApplicationSettings updated = current with
         {
+            // 旧配置的尺寸隐式属于旧 LastWorkspace；会话转移前固定归属，避免把旧尺寸带到新目录。
+            ToolWindows = layout with { WorkspaceRoot = layout.WorkspaceRoot ?? current.LastWorkspace },
             OpenFiles = GetStringArray(parameters, "openFiles") ?? current.OpenFiles,
             ActiveFile = GetString(parameters, "activeFile") ?? current.ActiveFile,
             // 目录展开层级由界面按工作区相对路径发来，这里还原成绝对路径，
@@ -1293,7 +1301,7 @@ internal sealed class ShellBridge : IDisposable
             // 因此这里必须记下当前工作区，否则展开层级下次启动会被清空。
             LastWorkspace = _workspaceRoot ?? current.LastWorkspace,
         };
-        await store.SaveAsync(updated, cancellationToken);
+        await _settingsStore.SaveAsync(updated, cancellationToken);
         return new { saved = true };
     }
 
@@ -1350,17 +1358,44 @@ internal sealed class ShellBridge : IDisposable
         return [.. values];
     }
 
-    private async Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
+    /// <summary>
+    /// 设置写入入口。写入实例的 Store；测试可通过构造注入隔离的设置文件。
+    /// </summary>
+    private Task<object?> WriteSettingsAsync(JsonElement parameters, CancellationToken cancellationToken)
+        => WriteSettingsAsync(parameters, _settingsStore, cancellationToken);
+
+    /// <summary>
+    /// 写入设置。只接受已知字段：未知字段被忽略，字号等数值先做范围校验，
+    /// 避免把非法值写进设置文件。
+    /// </summary>
+    /// <remarks>
+    /// 分隔条一次只提交一个尺寸；按既有持久化范围合并有效值，保留缺失或非法字段的原值。
+    /// </remarks>
+    internal async Task<object?> WriteSettingsAsync(
+        JsonElement parameters,
+        SettingsStore store,
+        CancellationToken cancellationToken)
     {
-        SettingsStore store = new();
         ApplicationSettings current = await store.LoadAsync(cancellationToken);
+        // 旧配置缺少布局或布局为 null 时，从空布局合并。
+        ToolWindowLayoutSettings toolWindows = current.ToolWindows ?? new();
+        double? panelWidth = GetPanelSize(parameters, "projectPanelWidth", 240, 1600);
+        double? panelHeight = GetPanelSize(parameters, "bottomPanelHeight", 180, 1200);
+        bool writesLayout = panelWidth is not null || panelHeight is not null;
+        string? layoutOwner = toolWindows.WorkspaceRoot ?? current.LastWorkspace;
+        if (writesLayout && layoutOwner is not null
+            && !string.Equals(layoutOwner, _workspaceRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            // 新工作区第一次只拖一个面板时，不接管另一工作区未提交的尺寸。
+            toolWindows = new();
+        }
         ApplicationSettings updated = current with
         {
             Theme = NormalizeTheme(GetString(parameters, "theme")) ?? current.Theme,
             TextFontFamily = GetString(parameters, "textFontFamily") ?? current.TextFontFamily,
-            MonospaceFontFamily = GetString(parameters, "monospaceFontFamily") ?? current.MonospaceFontFamily,
-            FontSize = ClampFontSize(GetDouble(parameters, "codeFontSize")) ?? current.FontSize,
-            TextFontSize = ClampFontSize(GetDouble(parameters, "fontSize")) ?? current.UiFontSize,
+            MonospaceFontFamily = "JetBrains Mono",
+            FontSize = 13,
+            TextFontSize = ClampFontSize(GetDouble(parameters, "fontSize")) ?? current.TextFontSize,
             GitExecutablePath = GetString(parameters, "gitExecutablePath") ?? current.GitExecutablePath,
             // 枚举型字段只接受已知取值：写入未知值会让界面显示与运行时行为不一致
             // （例如主题存成 "Purple"，界面照存，运行时却按深色回退）。
@@ -1372,6 +1407,13 @@ internal sealed class ShellBridge : IDisposable
             GroupBranchesByDirectory = GetBool(parameters, "groupBranchesByDirectory") ?? current.GroupBranchesByDirectory,
             // 大文件只读预览的「不再显示」：来自预览横幅的动作，不给值时保留原值。
             HideLargeFileWarning = GetBool(parameters, "hideLargeFileWarning") ?? current.HideLargeFileWarning,
+            // 两个尺寸独立合并，不覆盖本次未提交的面板。
+            ToolWindows = toolWindows with
+            {
+                WorkspaceRoot = writesLayout ? _workspaceRoot : toolWindows.WorkspaceRoot,
+                ProjectPanelWidth = panelWidth ?? toolWindows.ProjectPanelWidth,
+                BottomPanelHeight = panelHeight ?? toolWindows.BottomPanelHeight,
+            },
         };
         await store.SaveAsync(updated, cancellationToken);
         // 设置写入后让 Git 解析缓存与状态缓存失效：
@@ -1384,6 +1426,25 @@ internal sealed class ShellBridge : IDisposable
 
         InvalidateStatusCache();
         return new { saved = true, theme = updated.Theme, fontSize = updated.UiFontSize };
+    }
+
+    /// <summary>
+    /// 按既有持久化范围读取有限尺寸；无效参数返回 null，保留原值。
+    /// </summary>
+    private static double? GetPanelSize(JsonElement parameters, string name, double minimum, double maximum)
+    {
+        if (parameters.ValueKind != JsonValueKind.Object
+            || !parameters.TryGetProperty(name, out JsonElement element)
+            || element.ValueKind != JsonValueKind.Number
+            || !element.TryGetDouble(out double size)
+            || !double.IsFinite(size)
+            || size < minimum
+            || size > maximum)
+        {
+            return null;
+        }
+
+        return size;
     }
 
     /// <summary>主题只接受三个已知取值；未知取值一律忽略，保留原值。</summary>
@@ -1441,8 +1502,7 @@ internal sealed class ShellBridge : IDisposable
         await StopTerminalAsync();
         int columns = GetInt(parameters, "columns") ?? 80;
         int rows = GetInt(parameters, "rows") ?? 24;
-        SettingsStore store = new();
-        ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+        ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
         TerminalLaunchResult launch = TerminalShellResolver.Resolve(settings, _workspaceRoot);
         if (!launch.IsSuccess || launch.LaunchInfo is not { } launchInfo)
         {
@@ -1633,7 +1693,7 @@ internal sealed class ShellBridge : IDisposable
         return new { available = true };
     }
 
-    /// <summary>读取当前冲突会话与冲突文件列表。</summary>
+    /// <summary>读取当前冲突文件列表（2026-10-17 移除三栏编辑器后只返回状态）。</summary>
     /// <summary>
     /// 读取当前 Git 操作会话（规格 §7.13）：操作类型、是否进行中、冲突文件、当前步骤
     /// 与实际可用动作。宿主本来就实现了这套判定，但此前桥接没有暴露，
@@ -1720,41 +1780,6 @@ internal sealed class ShellBridge : IDisposable
         };
     }
 
-    /// <summary>
-    /// 整侧接受一个冲突文件（规格 §7.14 最后一条）：二进制、非法 UTF-8 与超限文件
-    /// 无法逐块合并，只能整侧取一侧。语义与三栏里的"接受左侧/右侧"**不同**——
-    /// 那三个按钮是结果区的一次可撤销编辑（页面侧），走的是 `git/conflict-save`。
-    /// </summary>
-    private async Task<object?> AcceptConflictSideAsync(JsonElement parameters, CancellationToken cancellationToken)
-    {
-        string relative = GetString(parameters, "path")
-            ?? throw new ArgumentException("git/conflict-accept 需要 path 参数。");
-        string sideName = GetString(parameters, "side")
-            ?? throw new ArgumentException("git/conflict-accept 需要 side 参数。");
-        if (!Enum.TryParse(sideName, ignoreCase: true, out GitConflictSide side))
-        {
-            throw new ArgumentException($"未知的冲突侧：{sideName}。");
-        }
-
-        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
-        if (!IsUsable(repository, runtime))
-        {
-            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
-        }
-
-        GitConflictMutationResult result = await new GitConflictService(runtime)
-            .AcceptSideAsync(repository!, relative, side, cancellationToken)
-            .ConfigureAwait(false);
-        // 整侧接受改写了工作区：缓存失效，界面随后读取真实状态。
-        InvalidateStatusCache();
-        return new
-        {
-            available = result.IsSuccess,
-            reason = result.ErrorMessage,
-            hasConflicts = result.Session?.HasConflicts,
-        };
-    }
-
     private async Task<object?> ReadConflictsAsync(CancellationToken cancellationToken)
     {
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
@@ -1785,81 +1810,6 @@ internal sealed class ShellBridge : IDisposable
                     name = Path.GetFileName(file.RelativePath),
                     directory = (Path.GetDirectoryName(file.RelativePath) ?? string.Empty).Replace('\\', '/'),
                 }),
-        };
-    }
-
-    /// <summary>读取单个冲突文件的三栏内容与冲突块。</summary>
-    private async Task<object?> LoadConflictAsync(JsonElement parameters, CancellationToken cancellationToken)
-    {
-        string relative = GetString(parameters, "path")
-            ?? throw new ArgumentException("git/conflict-load 需要 path 参数。");
-        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
-        if (!IsUsable(repository, runtime))
-        {
-            return new { available = false };
-        }
-
-        GitConflictService conflicts = new(runtime);
-        GitConflictLoadResult result = await conflicts.LoadAsync(repository!, relative, cancellationToken);
-        if (!result.IsSuccess || result.Document is not { } document)
-        {
-            return new { available = false, reason = result.ErrorMessage };
-        }
-
-        return new
-        {
-            available = true,
-            path = relative,
-            contentKind = document.ContentKind.ToString(),
-            yoursLabel = document.YoursLabel,
-            theirsLabel = document.TheirsLabel,
-            yoursText = document.YoursText,
-            theirsText = document.TheirsText,
-            resultText = document.ResultText,
-            operation = document.Operation.ToString(),
-            version = document.FileVersion is { } version
-                ? new { length = version.Length, sha256 = version.Sha256, lastWriteUtc = version.LastWriteTimeUtc.ToString("O", CultureInfo.InvariantCulture) }
-                : null,
-            blocks = document.Blocks.Select(block => new
-            {
-                start = block.Start,
-                length = block.Length,
-                yours = block.YoursText,
-                ancestor = block.AncestorText,
-                theirs = block.TheirsText,
-            }),
-        };
-    }
-
-    /// <summary>写入冲突解决结果。版本不一致时拒绝保存，避免覆盖外部改动。</summary>
-    private async Task<object?> SaveConflictAsync(JsonElement parameters, CancellationToken cancellationToken)
-    {
-        string relative = GetString(parameters, "path")
-            ?? throw new ArgumentException("git/conflict-save 需要 path 参数。");
-        string resultText = GetString(parameters, "resultText") ?? string.Empty;
-        (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
-        if (!IsUsable(repository, runtime))
-        {
-            return new { available = false, reason = "当前目录不是带工作区的 Git 仓库。" };
-        }
-
-        GitConflictService conflicts = new(runtime);
-        GitConflictLoadResult loaded = await conflicts.LoadAsync(repository!, relative, cancellationToken);
-        if (!loaded.IsSuccess || loaded.Document?.FileVersion is not { } version)
-        {
-            return new { available = false, reason = loaded.ErrorMessage ?? "无法读取冲突文件版本。" };
-        }
-
-        GitConflictMutationResult saved = await conflicts.SaveResolvedAsync(
-            repository!,
-            new GitConflictSaveRequest(relative, resultText, version, loaded.Document.Operation),
-            cancellationToken);
-        return new
-        {
-            available = saved.IsSuccess,
-            reason = saved.ErrorMessage,
-            hasConflicts = saved.Session?.HasConflicts,
-            conflictCount = saved.Session?.ConflictFiles.Count,
         };
     }
 
@@ -1975,6 +1925,8 @@ internal sealed class ShellBridge : IDisposable
             status = document.Status.ToString(),
             oldSize = document.OldSize,
             newSize = document.NewSize,
+            oldLineEndings = DescribeLineEndings(document.OldLineEndings),
+            newLineEndings = DescribeLineEndings(document.NewLineEndings),
             truncated,
             lines = lines.Select(line => new
             {
@@ -3041,6 +2993,9 @@ internal sealed class ShellBridge : IDisposable
                 // 日期时间字段给提示用。格式与仓库里其它日期时间串一致（`yyyy/M/d H:mm`，本地时区）。
                 date = line.AuthorDate.ToLocalTime().ToString("yyyy/M/d", CultureInfo.InvariantCulture),
                 dateTime = line.AuthorDate.ToLocalTime().ToString("yyyy/M/d H:mm", CultureInfo.InvariantCulture),
+                timestamp = line.AuthorDate.ToUnixTimeMilliseconds(),
+                committerTimestamp = (line.CommitterDate ?? line.AuthorDate).ToUnixTimeMilliseconds(),
+                path = line.RelativePath,
                 summary = line.Summary,
                 content = line.Content,
                 // 「标注上一修订」用的上一修订（`git blame --line-porcelain` 的 `previous` 头）；
@@ -3086,8 +3041,8 @@ internal sealed class ShellBridge : IDisposable
                 authorEmail = entry.AuthorEmail,
                 committerName = entry.CommitterName,
                 committerEmail = entry.CommitterEmail,
-                date = entry.AuthorDate.ToLocalTime()
-                    .ToString("yyyy/MM/dd HH:mm", CultureInfo.InvariantCulture),
+                date = ShellPrettyDate.Format(entry.AuthorDate, DateTimeOffset.Now),
+                dateTime = entry.AuthorDate.ToLocalTime().ToString("yyyy/M/d H:mm", CultureInfo.InvariantCulture),
             }),
         };
     }
@@ -3117,8 +3072,7 @@ internal sealed class ShellBridge : IDisposable
         string? configured = null;
         try
         {
-            SettingsStore store = new();
-            ApplicationSettings settings = await store.LoadAsync(cancellationToken);
+            ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
             configured = settings.GitExecutablePath;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)

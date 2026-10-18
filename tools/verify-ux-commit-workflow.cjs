@@ -34,7 +34,8 @@ async function verifyHover(browser, outputPath) {
         const color = row => row.evaluate(element => getComputedStyle(element).backgroundColor);
         // 悬停色按 权威 `List/Tree.hoverBackground` = `selection-bg-hovered`（浅 `#00000008`／深代码默认 `#464A4D`）（第 100 轮按用户裁决更正 §8.3 的旧表述；原值 rgb(241,242,244)/rgb(45,47,51)
         // 属已删除的 `--augit-blue-hover`，无权威依据）。
-        const hover = theme === "dark" ? "rgb(70, 74, 77)" : "rgba(0, 0, 0, 0.03)";
+        // 当前Islands树行不画独立hover底；选择与焦点底保持原归属。
+        const hover = "rgba(0, 0, 0, 0)";
         const selectedColor = await color(first);
         await second.hover();
         assert.equal(await color(second), hover);
@@ -42,7 +43,7 @@ async function verifyHover(browser, outputPath) {
         assert.deepEqual(await snapshot(), before, "悬停不改选择、勾选、草稿、焦点、滚动或正文。");
         await first.hover();
         assert.equal(await color(first), selectedColor, "悬停不能覆盖失焦选中态。");
-        assert.notEqual(await color(second), hover, "移出后恢复原背景。");
+        assert.equal(await color(second), hover, "移出后仍不画独立hover背景。");
         await page.locator(".changes-list").focus();
         const focusedColor = await color(first);
         await second.hover();

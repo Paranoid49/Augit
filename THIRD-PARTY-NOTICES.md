@@ -12,13 +12,15 @@
 - 许可证：BSD-3-Clause。
 - 移除条件：出现能在相同视觉还原度下显著降低常驻内存的受支持渲染宿主，且经用户确认切换技术栈。
 
-## xterm.js 6.0.0
+## xterm.js 6.0.0（Augit DOM格宽补丁）
 
 - 用途：在内置终端面板中处理 ANSI 控制序列、键盘输入、选择复制和 2000 行滚动缓冲，不承担 Shell 或进程管理。
-- 运行时成本：发布产物增加 `web/vendor/xterm/xterm.js`（`488663` 字节）和 `xterm.css`（`7112` 字节），只在用户打开内置终端时加载，不创建独立进程。
+- 运行时成本：发布产物增加 `web/vendor/xterm/xterm.js`（`489227` 字节）和 `xterm.css`（`7112` 字节），只在用户打开内置终端时加载，不创建独立进程。
 - 替代方案：自行实现终端协议和渲染会显著做重并增加兼容风险；直接嵌入 Windows Terminal 没有稳定的受支持宿主接口。
 - 许可证：MIT。
 - 移除条件：内置终端被取消，或者 Windows 提供可嵌入、同等兼容且资源成本更低的稳定原生终端控件。
+
+- 本地补丁：tools/audit/patch-xterm-cell-width.cjs 从保留的上游原包校验 SHA256 后生成七个定点替换，新增 augitCellWidth 和 augitCellHeight 选项；0 保持上游行为，正数指定逻辑格尺寸。只支持当前内置 DOM 渲染器，不适用于未集成的 Canvas/WebGL addon。体积增加564字节，无新依赖、进程或定时器。字体未实际加载或使用其他字体时不启用。公开 letterSpacing 取整到设备像素，不能表示175%下所需的小数补偿；直接缩放字形会改变墨迹，因此不采用。上游提供等效稳定格宽接口时删除补丁；升级时必须重新审查锚点、哈希及网格回归。
 
 ## @xterm/addon-fit 0.11.0
 
@@ -35,6 +37,14 @@
 - 替代方案：自行递归搜索会增加复杂度和性能风险；Windows Search 无法保证仓库语义和可移植性。
 - 许可证：MIT 或 Unlicense 双许可证。
 - 移除条件：无法满足进程回收或性能指标，或者平台提供同等语义且更轻的稳定能力。
+
+## JetBrains Mono 2.304
+
+- 用途：随包提供只读正文、Diff、冲突、代码块及终端的默认等宽字体，使未安装系统字体的机器也能使用参考外观。来源为独立开源仓库 https://github.com/JetBrains/JetBrainsMono/tree/v2.304，不读取 PyCharm 安装目录。
+- 运行时成本：四种字形的 WOFF2 共 380768 字节，按实际字重和斜体使用加载；不联网、不创建进程。许可证原文随包，资产的版本、来源、大小和 SHA256 记录在 `tools/runtime-assets.lock.json`。
+- 替代方案：用户仍可选择已安装等宽字体；资源不可用时使用 Cascadia Mono、Consolas 或 Courier New，并在恢复参考外观时显示实际选择。
+- 许可证：SIL Open Font License 1.1，附 `web/vendor/jetbrains-mono/OFL.txt` 和发布目录 `licenses/JetBrainsMono-OFL.txt`。
+- 移除条件：产品不再需要独立于系统安装提供参考等宽字形，或替代字体在已登记场景中通过同字体验收。移除时保留已保存的用户字体设置并显示实际回退。
 
 ## MSTest 4.0.2
 

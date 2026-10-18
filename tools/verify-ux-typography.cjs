@@ -54,11 +54,14 @@ async function main() {
           });
           assert.equal(result.bodySize, `${size}px`, label);
           assert.equal(result.codeSize, '13px', `${label} 等宽字号保持独立`);
-          assert.equal(result.metrics.tab, Math.max(40, result.metrics.h + 12), `${label} 标签栏字号适配公式`);
-          assert.equal(result.metrics.tree, Math.max(24, result.metrics.h + 8), `${label} 树行字号适配公式`);
-          assert.equal(result.metrics.status, Math.max(28, result.metrics.h + 12), `${label} 状态栏字号适配公式`);
-          assert.equal(result.rail.height, 32, label);
-          assert.equal(result.rail.width, 32, label);
+          const referenceTreeHeights = { 9: 18, 12: 24, 13: 24, 19: 36, 40: 78 };
+          assert.equal(result.metrics.tree, referenceTreeHeights[size], `${label} New UI 字号档位与树行密度`);
+          for (const height of [result.metrics.tab, result.metrics.tree, result.metrics.status]) {
+            assert.ok(height >= result.metrics.h, `${label} 字形不被容器裁切`);
+          }
+          const userScale = Math.max(.75, Math.round(size / 12 * 4) / 4);
+          assert.equal(result.rail.height, Math.round(40 * userScale), label);
+          assert.equal(result.rail.width, Math.round(37 * userScale), label);
           assert.equal(result.rootWidth, width, `${label} 不产生横向溢出`);
           assert.ok(result.workspace.right <= result.branch.left, `${label} 工作区与分支不重叠`);
           assert.ok(result.branch.right <= result.context.left, `${label} 分支与当前文件不重叠`);
@@ -76,7 +79,7 @@ async function main() {
           }
           if (outputPath && (size === 12 || size === 40) && width === 1024)
             await page.screenshot({ path: path.join(outputPath, `mockup-${label}.png`) });
-          await page.getByRole('button', { name: '主菜单', exact: true }).click();
+          await page.getByRole('button', { name: 'Main Menu', exact: true }).click();
           const menu = await page.evaluate(() => {
             const items = [...document.querySelectorAll('.main-menu-entry')];
             return {

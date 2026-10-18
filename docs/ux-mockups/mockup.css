@@ -1,3 +1,8 @@
+/* 官方独立开源字体采用SIL OFL 1.1许可；与图标资源规则分开登记。 */
+@font-face { font-family: "JetBrains Mono"; src: url("../vendor/jetbrains-mono/JetBrainsMono-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("../vendor/jetbrains-mono/JetBrainsMono-Bold.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("../vendor/jetbrains-mono/JetBrainsMono-Italic.woff2") format("woff2"); font-weight: 400; font-style: italic; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("../vendor/jetbrains-mono/JetBrainsMono-BoldItalic.woff2") format("woff2"); font-weight: 700; font-style: italic; font-display: block; }
 :root {
   color-scheme: light;
   /* 界面字族由字体设置下发（规格：字体设置只改变显示）；默认值与视觉稿一致。 */
@@ -25,6 +30,7 @@
   --augit-toolbar-border: #e9eaee;
   --augit-border-strong: #d1d3d9;
   --augit-text: #000000;
+  --augit-code-text: #000000;
   --augit-muted: #5f6269;
   --augit-line-number: #aeb3c2;
   /* 对话框标题图标：官方 `general/questionDialog.svg`（浅 #4682FA／深 #548AF7 蓝底白问号）与
@@ -32,12 +38,22 @@
   --augit-dialog-icon-bg: #4682fa;
   --augit-dialog-warning-bg: #ffaf0f;
   --augit-scrollbar-thumb: #73737333;
+  --augit-scrollbar-thumb-hover: #73737347;
+  --augit-tab-scrollbar-thumb: #ababab;
+  --augit-tab-scrollbar-thumb-hover: #7f7f7f;
   /* 标签卡片（Islands 渲染）权威：ui.EditorTabs.underlinedTabBackground = tab-selected-bg-active、inactiveUnderlinedTabBackground = tab-selected-bg-inactive、underlinedBorderColor = tab-selected-border-active、inactiveUnderlinedTabBorderColor = tab-selected-border-inactive、underTabsBorderColor = editor-border。 */
   --augit-tabs-border: #e9eaee;
   --augit-tab-selected-bg: #e9eaee;
   --augit-tab-selected-border: #d1d3d9;
   --augit-tab-selected-bg-active: #e3ebfe;
   --augit-tab-selected-border-active: #a7c5ff;
+  --augit-tab-hover-bg: #00000012;
+  --augit-js-ink: #000000;
+  --augit-python-blue: #4682fa;
+  --augit-python-yellow: #ffaf0f;
+  --augit-ignore-paper: #ebecf0;
+  --augit-current-branch-icon: #ffaf0f;
+  --augit-favorite-icon: #f4af3d;
   /* 分段控件（权威 ui.SegmentedButton）：选中按钮底 = control-bg-raised、两端描边 = control-border-raised、
      聚焦选中 = toolbar-selected-bg。浅色取 ManyIslandsLight：白／gray-110／blue-140。 */
   --augit-segment-active-bg: #ffffff;
@@ -132,10 +148,11 @@
   --augit-warning: #a56906;
   /* `Banner.errorBackground` = red-160。 */
   --augit-red-soft: #fff6f5;
-  --augit-conflict-side: #f7d7d7;
-  --augit-conflict-result: #dce9fc;
   /* `Label.warningForeground` = `text-warning` = yellow-80。 */
   --augit-graph: #47a1b3;
+  --augit-graph-saturation: 0.6;
+  --augit-graph-brightness: 0.7;
+  --augit-graph-default: #000000;
   --augit-graph-secondary: #9767b1;
   --augit-graph-third: #609349;
   --augit-graph-fourth: #c2665a;
@@ -212,7 +229,7 @@
   --augit-title-glow-center: 78px;
   /* 渐变起始色；未设置项目配色时等于 chrome，即不可见。 */
   --augit-title-glow: var(--augit-chrome);
-  --augit-code: "Cascadia Mono", Consolas, monospace;
+  --augit-code: "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
   /* 正文等宽字号与界面字号相互独立（规格 §7.14：正文独立等宽字号保持不变）。 */
   --augit-code-size: 13px;
   --augit-title-height: 44px;
@@ -255,105 +272,124 @@ body {
        hoverThumbColor        = 浅 `#73737347`／深 `#A6A6A659`
        hoverThumbBorderColor  = 浅 `#59595947`／深 `#38383859`
        Transparent.thumbBorderColor = 浅 `#59595933`／深 `#38383847`
-     悬停档**未实现**：`scrollbar-color` 表达不了 hover，而 `::-webkit-scrollbar` 与标准属性
-     混用时 Chromium 优先采用标准属性，需整体改用 webkit 方案才行。 */
-  scrollbar-color: var(--augit-scrollbar-thumb) transparent;
+     使用 webkit 区域滚动条表达悬停档；标准属性保持 auto，避免 Chromium 覆盖区域状态。 */
+  scrollbar-color: auto;
 }
 
+/* Chromium 与 WebView2 共用滚动条：普通、悬停分别取 ScrollBarPainter 的透明档。 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background: var(--augit-scrollbar-thumb);
+  background-clip: padding-box;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:is(:hover, :active) { background-color: var(--augit-scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: var(--augit-panel); }
+
 body[data-theme="dark"] {
+  --augit-graph-brightness: 0.6;
+  --augit-graph-default: #d1d3d9;
+  /* 按 ManyIslandsDark 的语义别名解析；父主题只补未覆盖的组件键。 */
   color-scheme: dark;
-  /* New UI（expUI）深色：panel-muted=Gray2，border=Gray1，border-strong=Gray5，
-     muted=Gray9，faint=Gray6，blue=Blue4，blue-soft=Blue2。 */
-  --augit-chrome: #2b2d30;
-  --augit-panel: #1e1f22;
-  --augit-panel-muted: #2b2d30;
-  --augit-border: #1e1f22;
-  /* 深色 `Editor.Toolbar.borderColor` = Gray3 #393B40——深色下这是比表面更亮的线。 */
-  --augit-toolbar-border: #393b40;
-  --augit-border-strong: #4e5157;
-  --augit-text: #dfe1e5;
-  --augit-muted: #9da0a8;
+
+  --augit-chrome: #26282c;
+  --augit-panel: #191a1c;
+  --augit-panel-muted: #212326;
+  --augit-border: #26282c;
+
+  --augit-toolbar-border: #26282c;
+  --augit-border-strong: #40434a;
+  --augit-text: #d1d3d9;
+  --augit-code-text: #bcbec4;
+  --augit-muted: #9fa2a8;
   --augit-line-number: #4b5059;
-  /* 权威 `ScrollBar.Transparent.thumbColor` 的深色一半（`0x47A6A6A6`）。 */
+
   --augit-dialog-icon-bg: #548af7;
   --augit-dialog-warning-bg: #f2c55c;
-  --augit-scrollbar-thumb: #a6a6a647;
-  /* expUI_dark：underlinedTabBackground = Gray1、underTabsBorderColor = Gray3；两个边框键未定义，走 painter 默认 #7F99C3／#7F99C380。 */
-  --augit-tabs-border: #393b40;
-  --augit-tab-selected-bg: #1e1f22;
-  --augit-tab-selected-border: #7f99c380;
-  --augit-tab-selected-bg-active: #1e1f22;
-  --augit-tab-selected-border-active: #7f99c3;
-  /* 深色权威是 expUI_dark：选中 Gray3／两端 Gray7／聚焦 Blue3。 */
-  --augit-segment-active-bg: #393b40;
-  --augit-segment-active-border: #6f737a;
-  --augit-segment-active-bg-focus: #35538f;
-  --augit-icon: #ced0d6;
-  --augit-faint: #5a5d63;
+  --augit-scrollbar-thumb: #80808059;
+  --augit-scrollbar-thumb-hover: #8080808c;
+  --augit-tab-scrollbar-thumb: #434344;
+  --augit-tab-scrollbar-thumb-hover: #535455;
+
+  --augit-tabs-border: #26282c;
+  --augit-tab-selected-bg: #26282c;
+  --augit-tab-selected-border: #40434a;
+  --augit-tab-selected-bg-active: #233558;
+  --augit-tab-selected-border-active: #2e4d89;
+  --augit-tab-hover-bg: #ffffff17;
+  --augit-js-ink: #1e1f22;
+  --augit-python-blue: #548af7;
+  --augit-python-yellow: #f2c55c;
+  --augit-ignore-paper: #43454a;
+  --augit-current-branch-icon: #f2c55c;
+
+  --augit-segment-active-bg: #26282c;
+  --augit-segment-active-border: #5f6269;
+  --augit-segment-active-bg-focus: #2e4d89;
+  --augit-icon: #c3c5cb;
+  --augit-faint: #4c4f56;
   --augit-blue: #3574f0;
-  --augit-blue-soft: #2e436e;
-  /* 深色 `SearchOption.selectedBackground` = 0x5C6164（同上）。 */
+  --augit-blue-soft: #2a4371;
+
   --augit-search-option-selected: #5c6164;
   --augit-search-error-bg: #743a3a;
   --augit-spotlight-border: #a36b4e;
-  --augit-log-current-branch: #283044;
-  --augit-accent-brand: #3574f0;
+  --augit-log-current-branch: #1d2336;
+  --augit-accent-brand: #3871e1;
   --augit-rail-selected-fg: #ffffff;
-  /* 深色 `ToolWindow.Button.foreground` = #9DA0A8。 */
-  --augit-rail-fg: #9da0a8;
-  /* 深色 `ToolWindow.Stripe.separatorColor` = #43454A。 */
-  --augit-rail-separator: #43454a;
-  /* 深色同理：#0F0F0F 的 40/255 叠加。 */
+
+  --augit-rail-fg: #9fa2a8;
+
+  --augit-rail-separator: #ffffff21;
+
   --augit-rail-hover: #0f0f0f28;
-  /* 深色 `ui.Popup.borderColor` = #43454A。 */
-  --augit-popup-border: #43454a;
-  --augit-search-field-bg: #1e1f22;
-  /* 深色无 layer 定义；按"深色层级反向"layer-1 即 Gray1 = #1E1F22，与 `--augit-panel` 现值一致。 */
-  --augit-popup-bg: #2b2d30;
-  --augit-dialog-bg: #1e1f22;
-  --augit-selection-inactive: #43454a;
+
+  --augit-popup-border: #33353b;
+  --augit-search-field-bg: #212326;
+
+  --augit-popup-bg: #26282c;
+  --augit-dialog-bg: #191a1c;
+  --augit-selection-inactive: #33353b;
   --augit-yaml-paper: #402929;
-  --augit-history-selection-inactive: #43454a;
-  --augit-hover: #393b40;
-  /* 按下态：`ui.ActionButton.pressedBackground` = #FFFFFF26（与深色悬停取自 MainMenu.selectionBackground 的来源不同，见文档记录）。 */
-  --augit-pressed: #ffffff26;
-  --title-button-pressed: #393b40;
-  /* 深色：下拉的透明悬停 = #FFFFFF1A；图标/按钮回落 `ActionButton.hoverBackground` = #FFFFFF16。 */
-  --title-chip-hover: #ffffff1a;
-  --title-context-hover: #ffffff1a;
-  --title-menu-hover: #ffffff1a;
-  --title-button-hover: #ffffff16;
-  --augit-action-button-hover: #ffffff16;
-  /* 深色无 successForeground 键，取调色板 Green6。 */
-  /* 深色无 Banner 键，取调色板 Green2。 */
-  /* expUI_dark 的 `Label.errorForeground` = Red7。 */
-  --augit-red: #db5c5c;
-  --augit-warning: #ba9752;
-  /* 深色取调色板 Red2。 */
-  --augit-red-soft: #472b2b;
-  --augit-conflict-side: #523234;
-  --augit-conflict-result: #2b3f59;
-  /* expUI_dark 的 `Label.warningForeground` = Yellow5。 */
+  --augit-history-selection-inactive: #33353b;
+  --augit-hover: #ffffff17;
+
+  --augit-pressed: #ffffff29;
+  --title-button-pressed: #ffffff29;
+
+  --title-chip-hover: #ffffff17;
+  --title-context-hover: #ffffff17;
+  --title-menu-hover: #ffffff17;
+  --title-button-hover: #ffffff17;
+  --augit-action-button-hover: #ffffff17;
+
+
+
+  --augit-red: #f57e84;
+  --augit-warning: #d59637;
+
+  --augit-red-soft: #56272b;
+
   --augit-graph: #5bb5ca;
   --augit-graph-secondary: #b88ad1;
   --augit-graph-third: #87b772;
   --augit-graph-fourth: #de8f81;
-  /* 文件夹描边：权威 expui/nodes/folder_dark.svg 的 stroke = #CED0D6（浅色侧 folder.svg 的 #6C707E 本来就对）。
-     原 #868a91 只是深色调色板里的某个灰，不是该图标文件的值。 */
-  --augit-folder-outline: #ced0d6;
+
+  --augit-folder-outline: #c3c5cb;
   --augit-folder-fill: #43454a;
   --augit-root-outline: #548af7;
-  /* 工作区根徽标取自 expui/nodes/sourceRoot.svg：浅色 fill #E7EFFD／stroke #3574F0，深色 fill #25324D／stroke #548AF7。
-     原来深色 fill 写成 #253f61，与权威不符。 */
+
   --augit-root-fill: #25324d;
   --augit-ref-head: #e1c731;
   --augit-ref-branch: #3cb45c;
   --augit-ref-remote: #9f79b5;
   --augit-ref-tag: #999999;
-  /* 深色取调色板 Yellow2。 */
-  --augit-yellow-soft: #5e4d33;
-  /* New UI 项目配色（深色）。第 3 套与浅色不同，是 expUI_dark 与浅色暗头部变体的唯一差异。 */
-  /* ManyIslandsDarcula.theme.json 的 RecentProject.Color{1..9}.MainToolbarGradientStart。 */
+
+  --augit-yellow-soft: #44321d;
+
+
   --augit-project-1: #664832;
   --augit-project-2: #5e4724;
   --augit-project-3: #45522f;
@@ -363,13 +399,11 @@ body[data-theme="dark"] {
   --augit-project-7: #503d70;
   --augit-project-8: #325959;
   --augit-project-9: #365439;
-  /* New UI Diff 配色（深色）。整行底按权威 `getIgnoredColor()` 的同一式推：
-     `mix(DIFF_*.BACKGROUND, 编辑器底 #1e1f22, 0.6)`（`TextDiffTypeFactory.java:64-74`、
-     `MixedColorProducer.java:52`；编辑器底取 expUI_darkScheme.xml:756-760 的 `TEXT.BACKGROUND`）。 */
-  --augit-diff-added: #294436;          /* DIFF_INSERTED.BACKGROUND 全强度 */
-  --augit-diff-deleted: #484a4a;        /* DIFF_DELETED.BACKGROUND 全强度 */
-  --augit-diff-modified: #283541;       /* mix(385570, 1e1f22, 0.6) */
-  /* 行内（词/段级）高亮取权威 `DIFF_*.BACKGROUND` 原值（Darcula 段 `DefaultColorSchemesManager.xml:2261-2276`）。 */
+
+  --augit-diff-added: #294436;
+  --augit-diff-deleted: #484a4a;
+  --augit-diff-modified: #25323e;
+
   --augit-diff-inline-added: #294436;
   --augit-diff-inline-deleted: #484a4a;
   --augit-diff-inline-modified: #385570;
@@ -381,15 +415,15 @@ body[data-theme="dark"] {
   --augit-file-conflict: #de6a66;
   --augit-file-unknown: #e88f89;
   --augit-status-clean: #57965c;
-  /* 深色的标签减弱混色比是 0.7（浅色 0.9），图标 alpha 两主题同为 0.75。 */
+
   --augit-tab-unselected-blend: 70%;
   --augit-tab-unselected-alpha: 0.75;
-  /* 深色下获焦与失焦的悬停底色相同，都是 #464A4D。 */
-  --augit-row-hover: #464a4d;
-  --augit-row-hover-inactive: #464a4d;
-  /* 深色箭头用 chevronRight_dark.svg 的 #B4B8BF（Gray10）。 */
+
+  --augit-row-hover: #ffffff10;
+  --augit-row-hover-inactive: #ffffff10;
+
   --augit-tree-arrow: #b4b8bf;
-  /* 分支图标用经典集 vcs/branch.svg 的固定填充色（不是 currentColor）。 */
+
   --augit-branch-icon: #afb1b3;
 }
 
@@ -505,7 +539,7 @@ button {
   min-width: 0;
   min-height: 0;
   display: grid;
-  padding: 0 8px 0 7px;
+  padding: 0 8px 0 0;
 }
 
 .tool-rail {
@@ -521,8 +555,7 @@ button {
 }
 
 .rail-button {
-  /* 圆角：权威 `IdeaActionButtonLook.getButtonArc()` = `DarculaUIUtil.BUTTON_ARC`(=6)，
-     Java2D 的 arc 是弧宽高 ⇒ 半径 3。（第 58 轮曾记"权威里没有轨道按钮圆角键"，那是错的。） */
+  /* 外层只承载命中区；Islands 的 6px 圆角背景由末尾 ::before 规则绘制。 */
   text-decoration: none;
 }
 
@@ -607,11 +640,11 @@ button {
   /* 标签栏底色与编辑区一致（EditorTabs.background）。
      底色若沿用 chrome 会在标签栏与正文之间留一道接缝，参考实现没有这道缝。 */
   background: var(--augit-panel);
-  /* 标签放不下时横向滚动，而不是把标签压缩到看不见名字；标签条本身不显示滚动条。 */
+  /* 标签放不下时横向滚动，不压缩名称；标签区域使用独立的细滑块。 */
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
-  scrollbar-width: none;
+  scrollbar-width: auto;
   /* 标签被滚动到部分移出可见区时，在可见边缘做 10px 渐隐
      （ide.editor.tabs.fadeout.width = 10）。注意语义：渐隐不是"内容被压缩时替代省略号"，
      而是滚动到边缘时才出现的特性——左端只在已滚动时出现，右端只在还有未显示内容时出现。
@@ -629,7 +662,9 @@ button {
   -webkit-mask-image: var(--tab-fade-mask);
 }
 
-.editor-tabs::-webkit-scrollbar { display: none; }
+.editor-tabs::-webkit-scrollbar { height: 6px; }
+.editor-tabs::-webkit-scrollbar-thumb { background-color: var(--augit-tab-scrollbar-thumb); }
+.editor-tabs::-webkit-scrollbar-thumb:is(:hover, :active) { background-color: var(--augit-tab-scrollbar-thumb-hover); }
 
 .tool-header {
   padding: 0 10px;
@@ -695,8 +730,7 @@ button {
   opacity: var(--augit-tab-unselected-alpha);
 }
 
-/* 悬停或选中时取消减弱。参考实现里标签的悬停底色是**透明**的
-   （EditorTabs.hoverBackground = #FFFFFF00），所以悬停不改变底色，只取消减弱。 */
+/* 悬停或选中时取消前景减弱；Islands 的悬停卡片在下方独立绘制。 */
 .editor-tab:is(:hover, .active) {
   color: var(--augit-text);
 }
@@ -705,26 +739,26 @@ button {
   opacity: 1;
 }
 
-/* 选中标签的样式只在本文件后半段定义一处（用底部下划线，不用底色方块）。 */
+/* 标签卡片状态集中定义在后半段，避免基础规则覆盖 Islands 绘制。 */
 
 .file-status-modified {
   color: var(--augit-file-modified);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .file-status-deleted {
   color: var(--augit-file-deleted);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .file-status-added {
   color: var(--augit-file-added);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .file-status-conflict {
   color: var(--augit-file-conflict);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .file-status-untracked,
@@ -733,7 +767,7 @@ button {
 .file-status-copied,
 .file-status-typechanged,
 .file-status-unmerged {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .file-status-untracked,
@@ -750,13 +784,13 @@ button {
   margin-left: 2px;
   text-align: center;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 /* 注意：file-status-new 不是文件状态，它是 Worktree 面板“干净，可安全移除”这类正向状态文字。 */
 .file-status-new {
   color: var(--augit-status-clean);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .editor-content {
@@ -796,10 +830,7 @@ button {
    并把取值从 `--augit-hover`（浅 #00000012）改为权威 `--augit-row-hover`
    （浅 = `selection-bg-hovered` = `transparent-black-10` = #00000008；深 = 代码默认 #464A4D）。
    这是**有意偏离**参考实现（参考实现没给树装监听），已在 design-system 注明。 */
-.tree-row:hover {
-  background: var(--augit-row-hover);
-  --augit-row-background: var(--augit-row-hover);
-}
+/* Project、Changes、引用树未安装 TreeHoverListener；悬停不产生额外行底色。 */
 
 /* 表格类行的悬停底色：浅色是半透明覆盖 #00000008（获焦/失焦同值），深色两者同为代码默认 #464A4D。
    本规则必须排在选中态规则之前——两者特异性相同，靠顺序让选中态覆盖悬停态，
@@ -848,10 +879,12 @@ button {
   --augit-row-background: var(--augit-blue-soft);
 }
 
-.tree-row.depth-1 { padding-left: 20px; }
-.tree-row.depth-2 { padding-left: 38px; }
-.tree-row.depth-3 { padding-left: 56px; }
-.tree-row.depth-4 { padding-left: 74px; }
+.tree-row.depth-1 { padding-left: calc(2px + var(--augit-tree-indent, 19px)); }
+.tree-row.depth-2 { padding-left: calc(2px + var(--augit-tree-indent, 19px) * 2); }
+.tree-row.depth-3 { padding-left: calc(2px + var(--augit-tree-indent, 19px) * 3); }
+.tree-row.depth-4 { padding-left: calc(2px + var(--augit-tree-indent, 19px) * 4); }
+.log-ref-panel .tree-row[style] { padding-left: calc(2px + var(--augit-tree-indent, 19px) * var(--tree-depth, 0)); }
+.log-ref-panel .tree-row.depth-0 { padding-left: 7px; }
 
 .tree-name {
   overflow: hidden;
@@ -885,7 +918,8 @@ button {
 .augit-toolbar-icon,
 .file-type-icon,
 .tree-folder-icon,
-.git-reference-icon {
+.git-reference-icon,
+.git-branch-tree-icon {
   width: 16px;
   height: 16px;
   flex: 0 0 16px;
@@ -931,7 +965,10 @@ button {
 .file-type-xml { color: #e66d17; }
 .file-type-image { color: #3574f0; }
 /* .gitignore：权威 expui/fileTypes/gitignore.svg 的 #F34E29（该图标无 _dark 变体）。 */
-.file-type-gitignore { color: #f34e29; }
+.file-type-gitignore, .file-type-editorconfig { color: var(--augit-icon); }
+.file-type-javascript { color: #ffaf0f; }
+.file-type-typescript { color: #3574f0; }
+.file-type-css { color: #4682fa; }
 body[data-theme="dark"] .file-type-markdown { color: #548af7; }
 body[data-theme="dark"] .file-type-csharp { color: #5fad65; }
 body[data-theme="dark"] .file-type-json { color: #b589ec; }
@@ -939,6 +976,9 @@ body[data-theme="dark"] .file-type-yaml { color: #db5c5c; }
 body[data-theme="dark"] .file-type-html { color: #57965c; }
 body[data-theme="dark"] .file-type-xml { color: #c77d55; }
 body[data-theme="dark"] .file-type-image { color: #548af7; }
+body[data-theme="dark"] .file-type-javascript { color: #f2c55c; }
+body[data-theme="dark"] .file-type-typescript,
+body[data-theme="dark"] .file-type-css { color: #548af7; }
 /* 旧的、Augit 自定的三类颜色（#369a5c／#b88e2b／#6a9fff／#6aab73／#ebc051）已删除：
    上面的完整调色板按权威 expui/fileTypes/*.svg 逐类型取色，两者会互相覆盖。 */
 
@@ -1041,8 +1081,10 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
 
 
 /* 显示空白（规格 §7.2 显示选项）：用**伪元素**画点，`textContent` 保持不变（便于断言与查找）。 */
-.code-view.show-whitespace .code-line span.ws { position: relative; }
-.code-view.show-whitespace .code-line span.ws::before {
+.code-view.show-whitespace .code-line span.ws,
+.diff-columns.show-whitespace .diff-code-line span.ws { position: relative; }
+.code-view.show-whitespace .code-line span.ws::before,
+.diff-columns.show-whitespace .diff-code-line span.ws::before {
   content: "·"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--augit-muted); opacity: 0.55; pointer-events: none;
 }
@@ -1052,6 +1094,8 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
   min-width: 0;
   overflow: auto;
   font-family: var(--augit-code);
+  /* 参考FontPreferencesImpl的默认useLigatures=false；禁用上下文连字以保持逐字符字形。 */
+  font-variant-ligatures: none;
   font-size: var(--augit-code-size, 13px);
   line-height: var(--code-line-height, 22px);
   /* 行号栏底色 = 编辑区底色：浅色方案 GUTTER_BACKGROUND=ffffff，深色方案未设该键、回落编辑区底色。
@@ -1060,6 +1104,11 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
 }
 
 .code-view:focus { outline: none; }
+.code-view, .diff-columns { letter-spacing: var(--code-letter-spacing, 0px); }
+/* 全局零字距不应覆盖正文及词级高亮；不将编辑器字距传给动作按钮。 */
+.code-line, .code-line span, .code-line mark, .diff-code-line, .diff-code-line span,
+.diff-gutter-cell, .diff-gutter > div, .unified-diff-line, .unified-diff-line span,
+.blame-row, .blame-row > span { letter-spacing: var(--code-letter-spacing, 0px); }
 .code-lines { width: max-content; min-width: 100%; }
 
 .code-line {
@@ -1085,6 +1134,12 @@ body[data-theme="dark"] .file-type-image { color: #548af7; }
 .code-line.active {
   background: color-mix(in srgb, var(--augit-blue) 5%, transparent);
 }
+
+/* 正文与行号的墨迹同步对齐JBR基线，透明行盒和高亮背景保持原几何。 */
+.code-line > span { translate: 0 var(--code-baseline-shift, 0px); }
+.diff-code-line .code-glyph,
+.unified-diff-line > span { position: relative; top: var(--code-baseline-shift, 0px); }
+.diff-gutter-live > .diff-gutter-cell { line-height: calc(var(--code-line-height, 22px) + 2 * var(--code-baseline-shift, 0px)); }
 
 .markdown-split {
   height: 100%;
@@ -1240,31 +1295,31 @@ body[data-theme="dark"] .image-zoom-crossbar { width: 0.8px; rx: 0.4px; }
   background: var(--augit-red);
 }
 
-/* Reset 与回滚的动作状态只作用于当前模态，不移动按钮或背景布局。 */
-body[data-theme="dark"]:is([data-scene="reset"], [data-scene="rollback"]) .dialog .danger-button:not([aria-disabled="true"]) {
+/* 按对话框类型应用状态，正常入口与审计场景共享，不依赖启动场景名。 */
+body[data-theme="dark"] .dialog:is(.reset-dialog, .rollback-dialog) .danger-button:not([aria-disabled="true"]) {
   background: var(--augit-red);
 }
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.secondary-button, .dialog-header .icon-button):is(:hover, :active) {
+.dialog:is(.reset-dialog, .rollback-dialog) :is(.secondary-button, .dialog-header .icon-button):is(:hover, :active) {
   background: var(--augit-action-button-hover);
 }
 
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.secondary-button, .dialog-header .icon-button):active {
+.dialog:is(.reset-dialog, .rollback-dialog) :is(.secondary-button, .dialog-header .icon-button):active {
   background: var(--augit-pressed);
 }
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.primary-button, .secondary-button, .danger-button, .dialog-header .icon-button):focus:not([aria-disabled="true"]) {
+.dialog:is(.reset-dialog, .rollback-dialog) :is(.primary-button, .secondary-button, .danger-button, .dialog-header .icon-button):focus:not([aria-disabled="true"]) {
   outline: var(--augit-hairline) solid var(--augit-accent-brand);
   outline-offset: -3px;
 }
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .primary-button:focus:not([aria-disabled="true"]) {
+.dialog:is(.reset-dialog, .rollback-dialog) .primary-button:focus:not([aria-disabled="true"]) {
   box-shadow: inset 0 0 0 2px var(--augit-panel);
 }
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog :is(.primary-button, .secondary-button, .danger-button)[aria-disabled="true"] {
+.dialog:is(.reset-dialog, .rollback-dialog) :is(.primary-button, .secondary-button, .danger-button)[aria-disabled="true"] {
   background: var(--augit-panel-muted);
   color: var(--augit-faint);
   outline: none;
   box-shadow: none;
 }
-body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .icon-button[aria-disabled="true"] {
+.dialog:is(.reset-dialog, .rollback-dialog) .dialog-header .icon-button[aria-disabled="true"] {
   background: var(--augit-panel);
   color: var(--augit-faint);
   outline: none;
@@ -1309,9 +1364,7 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
    与 .tree-row:hover 同一裁决（第 100 轮）：参考实现不给树/列表装悬停监听，
    但平台支持（元数据 "if hover is allowed"）、验收套件也要求，故保留悬停，
    取值同样改用权威 `--augit-row-hover`。详见上方 .tree-row:hover 的说明。 */
-.changes-list .check-row:not(.selected):hover {
-  background: var(--augit-row-hover);
-}
+/* Changes 沿用树的选中反馈，不另画悬停底。 */
 
 .fake-check {
   position: relative;
@@ -1460,13 +1513,15 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
 .changes-layout .empty-tool-state p { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .changes-layout .empty-tool-state.compact p { display: none; }
 .commit-amend, .commit-last { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.commit-amend > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .commit-last > span { overflow: hidden; text-overflow: ellipsis; }
 .commit-last > svg { flex: 0 0 16px; }
 .commit-last.icon-only { justify-content: center; }
 .commit-last.icon-only > span { display: none; }
 .commit-count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; align-content: center; }
+.commit-count[hidden] { display: none; }
 .commit-box:has(.commit-amend) .commit-message-box { grid-template-rows: var(--commit-feedback-height, 20px) minmax(0, 1fr); }
-.changes-layout .check-row { height: var(--commit-row-height, 27px); }
+.changes-layout .check-row { height: var(--commit-row-height, 24px); }
 .commit-box:has(.commit-amend) .commit-actions > .primary-button,
 .commit-box:has(.commit-amend) .commit-actions > .secondary-button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1501,7 +1556,7 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 78px minmax(0, 1fr);
-  overflow: hidden;
+  overflow: auto;
   font-family: var(--augit-code);
   font-size: 12.5px;
   line-height: 1.65;
@@ -1509,7 +1564,8 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
 
 .diff-side {
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   padding-top: 8px;
 }
 
@@ -1553,13 +1609,21 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   position: absolute;
   z-index: 1;
   top: 8px;
-  bottom: 0;
+  /* 连接块百分比以实际文本行总高为基准，不随视口剩余空白拉伸。 */
   left: calc(50% - 7px);
   width: 14px;
   pointer-events: none;
 }
 
 .diff-gutter-connector { position: absolute; left: 0; right: 0; }
+.diff-line-ending { margin-left: auto; flex: none; color: var(--augit-muted); }
+/* 权威DiffUtil.createSeparatorPanel使用JBColor，独立于普通链接与错误提示色。 */
+.diff-line-ending[data-line-ending="lf"] { color: #0000ff; }
+.diff-line-ending[data-line-ending="crlf"] { color: #ff0000; }
+.diff-line-ending[data-line-ending="cr"] { color: #ff00ff; }
+[data-theme="dark"] .diff-line-ending[data-line-ending="lf"] { color: #589df6; }
+[data-theme="dark"] .diff-line-ending[data-line-ending="crlf"] { color: #ff6464; }
+[data-theme="dark"] .diff-line-ending[data-line-ending="cr"] { color: #9776a9; }
 .diff-gutter-connector.added { background: var(--augit-diff-inline-added); }
 .diff-gutter-connector.removed { background: var(--augit-diff-inline-deleted); }
 .diff-gutter-connector.changed { background: var(--augit-diff-inline-modified); }
@@ -1568,6 +1632,18 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   padding: 0 12px;
   white-space: pre;
 }
+.diff-code-line:is(.empty-added,.empty-removed) { position: relative; }
+.diff-code-line:is(.empty-added,.empty-removed)::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--augit-diff-inline-added);
+  pointer-events: none;
+}
+.diff-code-line.empty-removed::before { background: var(--augit-diff-inline-deleted); }
 
 .diff-code-line.added {
   background: var(--augit-diff-added);
@@ -1660,6 +1736,23 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   transform: translateY(-50%);
   color: var(--augit-icon);
 }
+.history-search-trigger {
+  position: absolute;
+  inset: 0 auto 0 4px;
+  width: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--augit-icon);
+}
+.history-text-history { position: fixed; inset: auto; width: 240px; margin: 0; }
+.history-text-history .menu-item { width: 100%; }
+.history-text-history::backdrop { background: transparent; }
+.settings-page [data-restore-reference] { max-width: 100%; height: auto; padding-block: 8px; white-space: normal; }
+.settings-page :is(input.text-field, select.select-field) { height: max(30px, calc(1em + 12px)); }
+.settings-nav > .search-field { height: max(25px, calc(1em + 8px)); }
+.settings-nav .tree-row { min-height: max(24px, calc(1em + 8px)); height: auto; padding-block: 4px; white-space: normal; }
 
 .history-search .search-field {
   width: 100%;
@@ -1884,6 +1977,9 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   white-space: nowrap;
 }
 
+.log-reference-label { display: inline-flex; align-items: center; flex: none; gap: 2px; }
+.log-reference-icon { height: 16px; flex: none; }
+
 .log-detail-panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) minmax(80px, 43%);
@@ -2002,7 +2098,7 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   padding: 12px 14px;
   overflow: hidden;
   font-family: var(--augit-code);
-  line-height: 1.7;
+  line-height: calc(18 / 13);
   background: var(--augit-panel);
 }
 
@@ -2376,145 +2472,6 @@ body:is([data-scene="reset"], [data-scene="rollback"]) .dialog .dialog-header .i
   font-weight: 600;
 }
 
-.conflict-page {
-  height: 100%;
-  display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) 48px;
-}
-
-.conflict-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-bottom: var(--augit-hairline) solid var(--augit-border);
-}
-
-.conflict-header .grow {
-  flex: 1;
-}
-
-.conflict-columns {
-  min-height: 0;
-  display: grid;
-  /* 三栏等分：权威 `ThreeDiffSplitter.resetProportions()` 就是 `myProportion1 = myProportion2 = 1f / 3`，
-     原 `1 : 1.08 : 1`（中栏略宽）是 Augit 自定值，按"冲突一律以 New UI 为准"改回严格等分。 */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.conflict-column {
-  min-width: 0;
-  overflow: hidden;
-  border-right: var(--augit-hairline) solid var(--augit-border);
-}
-
-.conflict-column:last-child {
-  border-right: 0;
-}
-
-.conflict-column-title {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-bottom: var(--augit-hairline) solid var(--augit-border);
-  color: var(--augit-muted);
-  font-weight: 400;
-}
-
-.conflict-block {
-  margin: 0;
-  padding: 0 12px;
-  background: var(--augit-panel);
-  font-family: var(--augit-code);
-  line-height: var(--conflict-line-height, 1.7);
-  white-space: pre;
-}
-
-.conflict-line {
-  display: block;
-  min-height: var(--conflict-line-height, 1.7em);
-  width: max-content;
-  min-width: 100%;
-}
-
-.conflict-line.conflict-side {
-  background: var(--augit-conflict-side);
-}
-
-.conflict-line.conflict-result {
-  background: var(--augit-conflict-result);
-}
-
-.conflict-spacer {
-  display: block;
-  background: var(--augit-panel);
-  user-select: none;
-}
-
-.conflict-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border-top: var(--augit-hairline) solid var(--augit-border);
-}
-
-.conflict-footer .grow {
-  flex: 1;
-}
-
-.dialog:has(.conflict-page) {
-  /* 适屏取权威 `ScreenUtil.fitToScreen()` → `moveToFit(rect, screen, padding = null, crop = true)`：
-     **没有外边距**，超出屏幕时直接裁到屏幕边界（`ScreenUtil.java:371-393`）。这里原先的
-     `calc(100% - 40px)` 是自定边距；第 132 轮实测它在 1024×640、ui-size=40 下把三栏正文压到 76px。
-     基类 `.dialog` 的 `calc(100% - 120px)` 对普通对话框仍是"内容驱动 + 上限"，不在本轮范围。 */
-  max-height: 100%;
-  min-width: 0;
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: var(--conflict-header, 45px) minmax(0, 1fr) var(--conflict-footer, 53px);
-}
-.dialog:has(.conflict-page) .dialog-header { height: auto; }
-.dialog:has(.conflict-page) .dialog-body { min-width: 0; min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
-.dialog:has(.conflict-page) .dialog-footer { min-height: 0; padding: 0 12px; }
-.dialog:has(.conflict-page) .dialog-footer > a { height: var(--conflict-button, 37px); flex: none; padding: 0; white-space: nowrap; }
-.dialog:has(.conflict-page) .footer-help { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--augit-muted); }
-.conflict-page { width: 100%; min-width: 0; min-height: 0; grid-template-rows: var(--conflict-content-header, 42px) minmax(0, 1fr) var(--conflict-actions, 48px); }
-.conflict-page .secondary-button, .conflict-page .primary-button { height: var(--conflict-button, 37px); flex: none; padding: 0; }
-.conflict-page button, .conflict-page a { white-space: nowrap; }
-.conflict-header, .conflict-footer { min-width: 0; padding: 0; }
-.conflict-header strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.dialog-header > .conflict-file-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.compact-conflict-header .dialog-header > strong:first-child { flex: none; }
-.compact-conflict-header .dialog-header > .conflict-file-title { margin-left: 4px; }
-.compact-conflict-header .dialog-header > .grow,
-.compact-conflict-header .conflict-header > .grow { display: none; }
-.compact-conflict-header .conflict-header .commit-meta { margin-right: auto; }
-.conflict-column-title > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.conflict-header .commit-meta { flex: none; }
-.conflict-header button { max-width: 100%; }
-.conflict-column { display: grid; grid-template-rows: var(--conflict-column, 36px) minmax(0, 1fr); }
-.conflict-column-title { height: auto; display: block; align-content: center; padding: 0 6px; text-align: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.conflict-block { min-height: 0; overflow: auto; }
-.conflict-footer { align-items: start; align-content: flex-start; justify-content: space-between; padding-top: 10px; gap: 8px; }
-.conflict-accept-actions, .conflict-save-actions { display: flex; gap: 8px; }
-.conflict-accept-actions > button { width: var(--conflict-accept, 112px); }
-.conflict-save-actions > button { width: var(--conflict-cancel, 80px); }
-.conflict-save-actions > a { width: var(--conflict-save, 164px); }
-.wrap-actions .conflict-footer { flex-wrap: wrap; }
-.wrap-actions .conflict-save-actions { margin-left: auto; }
-.dialog:has(.conflict-page) :is(button, a) { position: relative; }
-.dialog:has(.conflict-page) .secondary-button:is(:hover, :active):not(:disabled) { background: var(--augit-action-button-hover); }
-.dialog:has(.conflict-page) .secondary-button:active:not(:disabled) { background: var(--augit-pressed); }
-.dialog:has(.conflict-page) .dialog-header .icon-button:disabled { background: var(--augit-panel); }
-.dialog:has(.conflict-page) :is(button, a):focus { outline: none; }
-.dialog:has(.conflict-page) :is(button, a):focus:not(:disabled):not([disabled])::after {
-  content: ""; position: absolute; inset: 2px 3px 3px 2px; border: var(--augit-hairline) solid var(--augit-accent-brand); pointer-events: none;
-}
-.dialog:has(.conflict-page) .primary-button:focus:not([disabled])::before {
-  content: ""; position: absolute; inset: var(--augit-hairline) 2px 2px var(--augit-hairline); border: var(--augit-hairline) solid var(--augit-panel); pointer-events: none;
-}
 
 /* 外壳 chrome 不参与文本选择。
    桌面外壳里拖选会把标题栏/项目树/标签/工具栏的文字选中，Ctrl+C 还能把它们复制走；
@@ -2675,7 +2632,7 @@ textarea,
   right: auto;
   z-index: 3;
   display: grid;
-  grid-template-columns: minmax(80px, 1fr) repeat(3, 28px) minmax(0, var(--find-status-width, 48px)) repeat(3, 28px);
+  grid-template-columns: minmax(150px, 55%) minmax(0, var(--find-status-width, 48px)) 28px 28px minmax(0,1fr) 28px;
   width: 100%;
   height: var(--augit-find-height);
   font-family: var(--augit-font);
@@ -2697,13 +2654,21 @@ textarea,
   min-width: 0;
   height: var(--augit-find-edit-height);
   padding: 0 7px;
-  border-color: var(--augit-border);
-  background: var(--augit-search-field-bg);
+  border: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
-.current-find .search-field:focus { border-color: var(--augit-accent-brand); box-shadow: none; }
+.find-input-shell { display: flex; align-items: center; min-width: 0; height: var(--augit-find-edit-height); border: 1px solid var(--augit-border); border-radius: 3px; background: var(--augit-search-field-bg); }
+.find-input-shell:focus-within { border-color: var(--augit-accent-brand); box-shadow: inset 0 0 0 1px var(--augit-accent-brand); }
+.find-input-shell .search-field { flex: 1; width: 0; height: 100%; padding: 0 4px; }
+.find-search-icon { display: flex; padding-left: 6px; color: var(--augit-muted); }
+.find-search-icon svg { width: 16px; height: 16px; }
+.find-input-shell .icon-button { flex: 0 0 28px; }
+.find-options { display: flex; gap: 4px; padding-right: 2px; flex: 0 0 auto; }
+.current-find .search-field:focus { box-shadow: none; }
 .current-find .icon-button { width: 28px; height: 28px; }
-.current-find .find-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--augit-muted); }
+.current-find .find-status { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: center; color: var(--augit-muted); }
 .current-find [aria-pressed="true"] { background: var(--augit-blue-soft); }
 .find-current { color: inherit; background: var(--augit-blue-soft); outline: var(--augit-hairline) solid var(--augit-blue); }
 .find-current:empty { display: inline-block; width: 0; height: 1em; vertical-align: text-bottom; }
@@ -2742,6 +2707,7 @@ textarea,
 }
 
 .blame-row {
+  background: var(--blame-row-background, transparent);
   height: var(--code-line-height, 22px);
   display: grid;
   grid-template-columns: var(--blame-date-width, 72px) minmax(0, 1fr) var(--blame-number-width, 24px);
@@ -2757,6 +2723,26 @@ textarea,
 }
 
 .blame-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 提交提示沿用HTML归属提示的分行与可点击修订，不使用浏览器原生title。 */
+.blame-tooltip {
+  position: fixed;
+  z-index: 9000;
+  max-width: min(600px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px);
+  overflow: auto;
+  padding: 8px 10px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  border-radius: 4px;
+  background: var(--augit-panel);
+  color: var(--augit-text);
+  box-shadow: 0 4px 12px #00000024;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.blame-tooltip-revision { color: var(--augit-blue); text-decoration: none; }
+.blame-tooltip-revision:hover { text-decoration: underline; }
+.blame-tooltip-message { margin-top: 1em; white-space: pre-wrap; }
 
 button:disabled,
 .primary-button[disabled] {
@@ -2903,11 +2889,12 @@ button:disabled,
 }
 
 .app-main {
-  grid-template-columns: 42px var(--augit-side-width) minmax(0, 1fr);
+  grid-template-columns: var(--augit-rail-width, 37px) var(--augit-side-width) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 0;
   column-gap: 4px;
   row-gap: 0;
-  padding: 0 7px 0 6px;
+  /* 工具轨自身已包含图标绘制内距，不在主网格左侧重复留白。 */
+  padding: 0 7px 0 0;
 }
 
 /* 主内容区是两行拓扑：rail 纵跨全高，上方为左侧工具窗与编辑器，
@@ -2947,9 +2934,9 @@ button:disabled,
 }
 
 .rail-button {
-  width: 32px;
-  height: 32px;
-  /* 工具轨按钮中心按 32px 步长排列；间距由固定命中区承载，不额外叠加外边距。 */
+  width: 37px;
+  height: 40px;
+  /* 工具轨按钮中心按 40px 步长排列；间距由固定命中区承载，不额外叠加外边距。 */
   /* 圆角：权威 `IdeaActionButtonLook.getButtonArc()` = `DarculaUIUtil.BUTTON_ARC`(=6)，
      Java2D 的 arc 是弧宽高 ⇒ 半径 3。（第 58 轮曾记"权威里没有轨道按钮圆角键"，那是错的。） */
   border-radius: 3px;
@@ -2991,11 +2978,8 @@ button:disabled,
   grid-template-rows: var(--augit-tab-height) minmax(0, 1fr);
 }
 
-/* 选中标签用底部 4px 圆角下划线表达，不用底色方块——expUI 经典渲染的标签是平铺矩形，
-   底色方块与圆角只属于 Islands 卡片渲染。下划线几何：贴标签底边、通铺整宽、高 4px、
-   端部圆角 4px（EditorTabs.underlineHeight / underlineArc）；颜色用焦点色
-   （*.underlineColor，浅色 Blue4 / 深色 Blue6）。 */
-.editor-tab.active {
+/* 当前参考使用 Islands 卡片渲染：选中项为圆角背景与描边，正文焦点切换其颜色档。 */
+.editor-tab {
   color: var(--augit-text);
   /* Islands 卡片用 ::before 画：卡片横向内缩 hOffset = 4（IslandsTabPainter.paintTab 的
      x = rect.x + hOffset、width = rect.width − 2·hOffset），因此不能用标签自身的底色/边框。
@@ -3004,7 +2988,8 @@ button:disabled,
   isolation: isolate;
 }
 
-.editor-tab.active::before {
+.editor-tab.active::before,
+.editor-tab:not(.active):hover::before {
   content: "";
   position: absolute;
   inset: 0 4px;
@@ -3015,7 +3000,13 @@ button:disabled,
   background: var(--augit-tab-selected-bg);
 }
 
-.editor-tabs:focus-within .editor-tab.active::before {
+.editor-tab:not(.active):hover::before {
+  background: var(--augit-tab-hover-bg);
+  border-color: transparent;
+}
+
+.editor-tab.active:hover::before { background: var(--augit-tab-hover-bg); }
+.editor-area:focus-within .editor-tab.active::before {
   background: var(--augit-tab-selected-bg-active);
   border-color: var(--augit-tab-selected-border-active);
 }
@@ -3128,29 +3119,25 @@ button:disabled,
   padding-right: 6px;
 }
 
-/* 项目树缩进步长 **18px**：权威 `Tree.leftChildIndent`(7) + `Tree.rightChildIndent`(11)，
-   实际偏移走 `ClassicPainter.getRendererOffset()` 的 `(depth-1) * (left + right)`（`platform/platform-impl/
-   src/com/intellij/ui/tree/ui/ClassicPainter.java:37-45`），2026 参考图三层最左墨迹实测步长 33 物理px ≈ 18.4。
-   第 216 轮之前这里被四条固定 `depth-N` 规则写成 **16px** 步长（22/38/54/70），与权威和参考图都不符。
-   现在改用行上的 `--tree-depth`：首级 22（= 4 + 18×1，与旧值一致，只修正步长），**任意深度**都按 18 递增；
-   旧写法只定义到 `depth-4`，更深层会退回 6px 而丢掉缩进。 */
+/* ClassicPainter将左缩进限制到16px展开画布的整数半宽，再加11px右缩进，默认步长19px。
+   --tree-depth支持任意深度；项目树自身的外内距与Changes分开度量。 */
 .side-content.tree .tree-row:not(.root-row) {
-  padding-left: calc(4px + 18px * var(--tree-depth, 1));
+  padding-left: calc(var(--augit-tree-inset, 4px) + var(--augit-tree-indent, 19px) * var(--tree-depth, 1));
 }
 
 .side-content.tree .chevron {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 8px;
-  margin-right: 4px;
+  flex: 0 0 var(--augit-tree-control, 8px);
+  margin-right: var(--augit-tree-control-gap, 4px);
 }
 
 .side-content.tree .chevron > svg { flex: 0 0 16px; }
 
 .side-content.tree .folder-icon,
 .side-content.tree .file-icon {
-  flex: 0 0 16px;
+  flex: 0 0 var(--augit-tree-icon-slot, 16px);
   margin-right: 2px;
 }
 
@@ -3230,7 +3217,7 @@ button:disabled,
   order: 2;
 }
 
-.diff-toolbar > .icon-button[aria-label="设置"] {
+.diff-toolbar > .icon-button[aria-label="Settings"] {
   order: 3;
 }
 
@@ -3251,27 +3238,39 @@ body[data-theme="dark"] .search-overlay {
 
 .code-view,
 .diff-columns,
-.terminal-view,
-.conflict-block {
+.terminal-view {
   /* 等宽字族同样来自字体设置；默认值与视觉稿一致。 */
   font-family: var(--augit-code);
   font-size: var(--augit-code-size);
 }
 
 .markdown-preview {
-  padding: 24px 36px 40px;
-  line-height: 1.62;
+  padding: 0 2em;
+  line-height: 1.6;
+  overflow-wrap: break-word;
 }
 
-.markdown-preview h1 {
-  margin-bottom: 28px;
-  font-size: 29px;
+.markdown-preview :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 calc(16rem / 12);
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.4;
 }
-
-.markdown-preview h2 {
-  margin: 26px 0 13px;
-  font-size: 21px;
-}
+.markdown-preview h1 { font-size: 2.2em; padding-top: .6em; }
+.markdown-preview h2 { font-size: 1.8em; line-height: 1.2; padding-top: .6em; }
+.markdown-preview h3 { font-size: 1.3em; line-height: 1; padding-top: .6em; }
+.markdown-preview :is(h4, h5, h6) { font-size: 1em; }
+.markdown-preview :is(p, blockquote, ul, ol, table, pre) { margin-block: calc(16rem / 12); }
+.markdown-preview :is(ul, ol) { padding-left: 2em; }
+.markdown-preview :is(ul, ol) :is(ul, ol) { margin-block: 0; }
+.markdown-preview li > p { margin-block: 0; }
+.markdown-preview blockquote { margin-inline: 0; padding: 0 1em; border-left: .25em solid var(--augit-border); color: var(--augit-muted); }
+.markdown-preview blockquote > :first-child { margin-top: 0; }
+.markdown-preview blockquote > :last-child { margin-bottom: 0; }
+.markdown-preview table { display: block; width: 100%; overflow: auto; border-collapse: collapse; font-size: 1em; }
+.markdown-preview :is(th, td) { padding: .5em calc(13em / 12); border: 1px solid var(--augit-border); }
+.markdown-preview th { font-weight: 600; }
+.markdown-preview img { max-width: 100%; }
 
 /* Markdown 代码块与行内代码跟随**等宽**设置（design-system §5.3 末："Markdown 预览正文跟随界面字号，
    代码块跟随等宽字号"）。`markdown.js:18/:85` 生成 `<code>` / `<pre><code>`，
@@ -3284,19 +3283,19 @@ body[data-theme="dark"] .search-overlay {
 }
 
 .markdown-preview pre {
-  margin: 0 0 16px;
-  padding: 8px 12px;
-  border-radius: 4px;
+  padding: calc(16rem / 12);
+  line-height: 1.45;
+  border-radius: 3px;
   background: var(--augit-panel-muted);
   overflow: auto;
 }
 
+.markdown-preview code { padding: .2em .4em; margin: 2px; border-radius: 3px; background: var(--augit-panel-muted); }
+.markdown-preview pre > code { padding: 0; margin: 0; font-size: inherit; line-height: inherit; background: transparent; }
+
 .markdown-preview p,
 .markdown-preview li {
-  /* 不写死字号：规格要求「Markdown 预览正文跟随界面字号」（design-system §5.3 末、
-     §5.4 作用范围行、ux-spec §4.3），而界面字号是 `:root { font-size }`。
-     原为 `13px`，界面字号调到 40 时预览正文仍是 13px；同表里 `h1/h2` 是相对标题的角色字号、
-     不在本次改动范围内。默认 13px 下取值不变。 */
+  /* 普通正文和标题均按界面字号派生，代码单独取等宽设置。 */
   font-size: inherit;
 }
 
@@ -3386,6 +3385,9 @@ body[data-theme="dark"] .search-overlay {
   gap: 2px;
   white-space: nowrap;
 }
+
+.changes-list .change-file-row { column-gap: 2px; }
+.changes-list .change-file-row .fake-check { margin-right: 4px; }
 
 .log-ref-panel > .tree {
   height: calc(100% - var(--augit-history-filter-height, 36px));
@@ -3514,8 +3516,14 @@ body[data-theme="dark"] .search-overlay {
 
 .terminal-view {
   padding: 11px 12px;
-  line-height: var(--code-line-height, 22px);
+  /* 字体加载后按参考基础度量更新，失败时沿浏览器回退字体。 */
+  line-height: var(--terminal-line-height, normal);
 }
+/* xterm在行容器计算格宽补偿；后代须继承，不能被全局零字距覆盖。 */
+.terminal-view .xterm-rows div, .terminal-view .xterm-rows span { letter-spacing: inherit; }
+/* 控制台使用编辑器方案的CONSOLE键，不能继承Islands工具面板的底色与文字色。 */
+body[data-theme="dark"] .terminal-view { background: #1e1f22; color: #bcbec4; }
+body[data-theme="dark"] .terminal-view .terminal-prompt { color: inherit; }
 
 .popover,
 .dialog,
@@ -3584,6 +3592,75 @@ body[data-theme="dark"] .search-overlay {
   top: 210px;
   left: 286px;
 }
+
+.history-branch-speed-search { width: 100%; min-width: 180px; margin-bottom: 4px; }
+.history-branch-menu [hidden] { display: none; }
+.history-branch-menu { max-height: min(320px, calc(100vh - 8px)); overflow-y: auto; }
+
+/* 筛选ListPopup不同于带图标列的操作菜单；三项短菜单按字宽与24px行高分配。 */
+.popover.history-date-menu {
+  min-width: 108px; max-width: min(420px, calc(100vw - 8px)); padding: 4px;
+}
+.history-date-menu .menu-item { min-height: var(--augit-tree-height, 24px); padding: 0 6px; }
+
+.history-path-browser { max-height: 360px; min-height: 240px; overflow: auto; }
+.history-path-browser .tree-row { height: var(--augit-tree-height, 24px); padding-left: calc(8px + var(--augit-tree-indent, 19px) * var(--tree-depth, 0)); gap: 4px; }
+.history-path-browser .tree-row:focus { outline: none; background: var(--augit-blue-soft); }
+.history-path-browser .chevron { flex: 0 0 calc(var(--augit-tree-control, 8px) + var(--augit-tree-control-gap, 4px)); }
+.history-path-browser .chevron svg { width: 16px; height: 16px; }
+.history-path-browser :is(.file-icon,.folder-icon) { flex: 0 0 var(--augit-tree-icon-slot, 16px); }
+.history-path-browser .file-type-icon { width: 16px; height: 16px; }
+.path-tree-notice { padding: 4px 12px; }
+
+.dialog.history-date-range-dialog { width: min(var(--augit-history-date-width, 504px), calc(100% - 16px)); max-height: calc(100% - 16px); }
+.history-date-range-dialog .dialog-header { height: var(--augit-history-date-title-height, 34px); }
+.history-date-range-dialog .dialog-body { min-height: 54px; padding: 8px 12px; }
+.history-date-range-fields { display: grid; grid-template-columns: auto minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 8px; min-height: 38px; }
+.history-date-bound { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.history-date-bound input { appearance: none; width: 15px; height: 15px; margin: 0; border: 1px solid var(--augit-border-strong); border-radius: 3px; background: var(--augit-panel); }
+.history-date-bound input:checked { background: var(--augit-blue); border-color: var(--augit-blue); }
+.history-date-bound input:checked::after { content: ''; display: block; width: 7px; height: 4px; border-left: 1px solid white; border-bottom: 1px solid white; transform: translate(3px,3px) rotate(-45deg); }
+.history-date-bound input:focus-visible { outline: 1px solid var(--augit-accent-brand); outline-offset: 2px; }
+.history-date-range-fields .text-field { min-width: 0; width: 100%; height: var(--augit-history-date-field-height, 28px); color-scheme: light; }
+.history-date-range-fields .text-field:disabled { color: var(--augit-faint); background: transparent; opacity: .7; }
+.history-date-picker { display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 6px; min-width: 0; }
+.history-date-range-fields .text-field { padding: 0 6px; }
+.history-date-range-fields .text-field::-webkit-calendar-picker-indicator { display: none; }
+.history-date-calendar { display: grid; place-items: center; height: var(--augit-history-date-field-height, 28px); border: 1px solid var(--augit-border-strong); border-radius: 5px; background: transparent; color: var(--augit-icon); }
+.history-date-calendar svg { width: 9px; height: 9px; }
+.history-date-calendar:disabled { color: var(--augit-faint); opacity: .7; }
+.history-calendar { position: absolute; z-index: 5; width: min(318px,calc(100% - 8px)); padding: 3px; border: 1px solid var(--augit-border-strong); background: var(--augit-dialog-bg); box-shadow: 0 4px 12px #00000026; font: 1rem/normal var(--augit-font); }
+.calendar-navigation { display: grid; grid-template-columns: 72px 28px minmax(0,1fr) 28px 72px; align-items: center; gap: 4px; margin-bottom: 6px; }
+.calendar-navigation strong { text-align: center; }
+.history-calendar button { font: inherit; color: var(--augit-text); }
+.calendar-navigation button { display: grid; place-items: center; height: 28px; padding: 0; border: 1px solid var(--augit-border); border-radius: 4px; background: var(--augit-panel); }
+.calendar-navigation button svg { width: 16px; height: 16px; }
+.calendar-weekdays,.calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 2px; text-align: center; }
+.calendar-weekdays { padding: 3px 0; background: #525662; color: #ced0d6; }
+.calendar-grid { background: var(--augit-panel); min-height: 126px; border: 1px solid #7f99c3; }
+.calendar-day { min-height: 20px; padding: 0; border: 0; background: transparent; }
+.calendar-day.other-month { color: var(--augit-faint); }
+.calendar-day.selected { background: var(--augit-blue-soft); }
+.calendar-day:focus-visible { outline: 1px solid var(--augit-accent-brand); outline-offset: -1px; }
+.calendar-footer { display: flex; justify-content: space-between; padding-top: 6px; min-height: 34px; }
+.calendar-footer button { background: transparent; border: 0; padding: 3px; color: var(--augit-text); }
+body[data-theme="dark"] .history-date-range-fields .text-field { color-scheme: dark; }
+.history-date-range-dialog .dialog-footer { min-height: 40px; padding: 0 12px 8px; }
+.history-date-range-dialog .dialog-footer .primary-button { min-width: 72px; height: 28px; }
+.history-path-text-popover { width: max-content; min-width: 200px; max-width: calc(100% - 8px); padding: 0; overflow: auto; resize: both; }
+.history-path-popup-body { display: grid; }
+.history-path-text { display: block; width: 100%; min-height: 54px; min-width: 0; padding: 4px; border: 0; resize: none; background: var(--augit-panel); color: var(--augit-text); font: 1rem/normal var(--augit-code); outline: none; }
+.history-path-popup-help { padding: 8px 12px; color: var(--augit-muted); font-size: .9em; white-space: nowrap; }
+
+/* HelpTooltip.smallTextBorderInsets = 8,12,9,12；提示不改变工具窗焦点。 */
+.rail-help-tooltip {
+  position: absolute; z-index: 100; padding: 8px 12px 9px;
+  max-width: min(360px, calc(100% - 8px)); border: 1px solid var(--augit-border-strong);
+  border-radius: 6px; background: var(--augit-panel); color: var(--augit-text);
+  box-shadow: 0 4px 12px #00000020; pointer-events: none; font: 1rem/normal var(--augit-font);
+}
+.rail-help-tooltip .help-shortcut { margin-left: 8px; color: var(--augit-muted); }
+.rail-help-tooltip .help-description { margin-top: 8px; color: var(--augit-muted); }
 
 .popover.log-context {
   top: auto;
@@ -3787,6 +3864,25 @@ body[data-theme="dark"] .search-overlay {
   width: min(1040px, calc(100% - 80px));
 }
 
+/* 设置独立窗由DWM绘制外框；保留边框占位，避免网页描边和圆角重复合成。 */
+.dialog:has(.settings-layout)[data-native-window="true"] {
+  border-radius: 0;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* 独立设置客户区只放一份表单，主窗口不再作为截图背景搬进此页面。 */
+body[data-settings-surface="true"] .settings-surface {
+  width: 100vw; height: 100vh; min-width: 0; min-height: 0; border: 0; margin: 0;
+}
+body[data-settings-surface="true"] .settings-window { inset: 0; padding: 0; }
+body[data-settings-surface="true"] .settings-dialog {
+  left: 0; top: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; transform: none;
+  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+}
+body[data-settings-surface="true"] .settings-dialog > .dialog-body { min-height: 0; overflow: hidden; }
+body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 0; }
+
 .dialog-header {
   height: 45px;
   padding: 0 12px; /* 权威 getRegularPanelInsets() 左右 12 */
@@ -3888,7 +3984,7 @@ body[data-theme="dark"] .search-overlay {
 .reset-dialog .reset-impact :is(strong, p) { white-space: normal; overflow-wrap: anywhere; }
 .reset-dialog .reset-notice { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reset-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
-.reset-dialog .dialog-footer button { height: var(--reset-button, 37px); flex: none; white-space: nowrap; padding: 0; }
+.reset-dialog .dialog-footer button { height: var(--reset-button, 34px); flex: none; white-space: nowrap; padding: 0; }
 .reset-dialog .secondary-button { width: var(--reset-cancel, 78px); }
 .reset-dialog .reset-run { width: var(--reset-run, 116px); }
 .reset-dialog .text-field:disabled, .reset-dialog .select-field:disabled { color: var(--augit-faint); }
@@ -3910,7 +4006,7 @@ body[data-theme="dark"] .search-overlay {
 .rollback-dialog .rollback-impact p { margin: 4px 0 0; }
 .rollback-dialog .rollback-comparison { margin-top: 14px; height: var(--rollback-comparison, 214px); overflow: hidden; }
 .rollback-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
-.rollback-dialog .dialog-footer a { flex: none; height: var(--rollback-button, 37px); padding: 0; white-space: nowrap; }
+.rollback-dialog .dialog-footer a { flex: none; height: var(--rollback-button, 34px); padding: 0; white-space: nowrap; }
 .rollback-dialog .secondary-button { width: var(--rollback-cancel, 78px); }
 .rollback-dialog .danger-button { width: var(--rollback-run, 116px); }
 .stash-dialog .dialog-header { height: auto; padding: 0 12px; /* 无图标，保持原预留值 */ }
@@ -3937,7 +4033,7 @@ body[data-theme="dark"] .search-overlay {
 .stash-dialog :focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -3px; }
 .stash-dialog .stash-notice { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .stash-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
-.stash-dialog .dialog-footer button { height: var(--stash-button, 37px); padding: 0; flex: none; white-space: nowrap; }
+.stash-dialog .dialog-footer button { height: var(--stash-button, 34px); padding: 0; flex: none; white-space: nowrap; }
 .stash-dialog .secondary-button { width: var(--stash-cancel, 80px); }
 .stash-dialog .primary-button { width: var(--stash-create, 136px); }
 .stash-dialog button:disabled { background: var(--augit-panel-muted); color: var(--augit-faint); }
@@ -3958,7 +4054,7 @@ body[data-theme="dark"] .search-overlay {
 .clone-dialog .text-field, .clone-dialog .select-field { height: var(--clone-field, 30px); }
 .clone-dialog .select-field, .clone-dialog .text-field { width: 100%; }
 .clone-dialog .clone-shallow-row { grid-column: 2; display: flex; flex-wrap: wrap; align-items: center; min-height: var(--clone-field, 30px); gap: 8px 10px; margin-top: 1px; }
-.clone-dialog .clone-shallow-row .check-line { flex: none; width: var(--clone-shallow, 180px); max-width: 100%; min-height: var(--clone-field, 30px); white-space: nowrap; gap: 4px; }
+.clone-dialog .clone-shallow-row .check-line { flex: 0 1 var(--clone-shallow, 180px); width: var(--clone-shallow, 180px); max-width: 100%; min-height: var(--clone-field, 30px); white-space: normal; overflow-wrap: anywhere; gap: 4px; }
 .clone-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: var(--augit-hairline) solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
 .clone-dialog input[type=checkbox]:checked { background: #3574f0; border-color: #3574f0; }
 .clone-dialog input[type=checkbox]:checked::after { content: ""; display: block; width: 8px; height: 4px; margin: 3px 2px; border-left: 1.5px solid white; border-bottom: 1.5px solid white; transform: rotate(-45deg); }
@@ -3969,7 +4065,7 @@ body[data-theme="dark"] .search-overlay {
 .clone-dialog .text-field:disabled, .clone-dialog .select-field:disabled { background: var(--augit-panel); color: var(--augit-faint); }
 .clone-dialog .clone-notice { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .clone-dialog .dialog-footer { min-height: 0; padding: 0 13px; }
-.clone-dialog .dialog-footer button { height: var(--clone-button, 37px); padding: 0; flex: none; white-space: nowrap; }
+.clone-dialog .dialog-footer button { height: var(--clone-button, 34px); padding: 0; flex: none; white-space: nowrap; }
 .clone-dialog .secondary-button { width: var(--clone-cancel, 80px); }
 .clone-dialog .primary-button { width: var(--clone-create, 90px); }
 .clone-dialog button:disabled { background: var(--augit-panel-muted); color: var(--augit-faint); }
@@ -4011,6 +4107,36 @@ body[data-theme="dark"] .search-overlay {
   height: 31px;
 }
 
+/* 跳转行按实机紧凑布局；其他紧凑输入窗口保留原契约。 */
+.dialog.compact-input.goto-line-dialog {
+  width: min(max(334px, 27em), calc(100% - 24px));
+  min-height: 144px;
+  border: 0;
+  display: grid;
+  grid-template-rows: auto auto auto;
+}
+.goto-line-dialog::after { content: ""; position: absolute; inset: 0; border: var(--augit-hairline) solid var(--augit-border-strong); border-radius: inherit; pointer-events: none; }
+/* 原生跳转窗由DWM裁圆角和描边；网页再次描边会在四角内侧叠出暗线。 */
+.goto-line-dialog[data-native-window="true"] { border-radius: 0; box-shadow: none; }
+.goto-line-dialog[data-native-window="true"]::after { border-color: transparent; }
+/* 参考DialogHeader左侧40px品牌槽、右侧32px窗口动作；品牌使用Augit自身标记。 */
+.goto-line-dialog .dialog-header { display: grid; grid-template-columns: 40px minmax(0, 1fr) 32px; gap: 0; height: auto; min-height: max(40px, calc(1lh + 18px)); padding: 0; border-bottom: 0; font-weight: 400; }
+.goto-line-dialog .dialog-header .brand-mark { width: 16px; height: 16px; margin-left: 12px; font-size: 8px; }
+.goto-line-dialog .goto-line-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goto-line-dialog .dialog-header .icon-button { width: 32px; height: 100%; min-height: 40px; color: var(--augit-text); border-radius: 0; }
+.goto-line-dialog .dialog-body label { min-width: 93px; }
+.goto-line-dialog .dialog-body { min-height: 54px; padding: 12px 20px 8px 12px; gap: 8px; }
+/* 参考输入的命中区含四边3px留白；聚焦只向外扩绘1px，不改变布局。 */
+.goto-line-field { position: relative; display: block; min-width: 0; width: 100%; max-width: max(200px, 16em); height: max(34px, calc(1lh + 14px)); }
+.goto-line-field::after { content: ""; position: absolute; inset: 3px; border: 1px solid var(--augit-border-strong); border-radius: 3px; pointer-events: none; }
+.goto-line-field:focus-within::after { inset: 2px; border-width: 2px; border-color: var(--augit-accent-brand); }
+.goto-line-dialog .goto-line-field .text-field { height: 100%; min-width: 0; border: 3px solid transparent; border-radius: 6px; padding: 0 9px; background-clip: padding-box; box-shadow: none; outline: none; }
+.goto-line-dialog .dialog-footer { height: auto; min-height: 50px; padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+.goto-line-dialog .dialog-footer :is(a, button) { min-width: 78px; height: max(34px, calc(1lh + 14px)); flex: none; }
+.goto-line-dialog .primary-button { font-weight: 600; }
+.goto-line-dialog .dialog-footer .footer-help:empty { display: none; }
+.goto-line-dialog .dialog-footer .footer-help:not(:empty) { flex-basis: 100%; white-space: normal; overflow-wrap: anywhere; }
+
 .settings-layout {
   height: min(650px, calc(100vh - 235px));
   grid-template-columns: 245px minmax(0, 1fr);
@@ -4047,7 +4173,7 @@ body[data-theme="dark"] .search-overlay {
   grid-template-rows: var(--push-header, 45px) minmax(0, 1fr) var(--push-footer, 53px);
 }
 .push-dialog .dialog-header { height: auto; padding: 0 12px; }
-.push-dialog .dialog-header a { width: 32px; height: var(--push-button, 37px); flex: none; }
+.push-dialog .dialog-header a { width: 32px; height: var(--push-button, 34px); flex: none; }
 .push-dialog .dialog-body { min-height: 0; display: grid; grid-template-rows: minmax(0, 365px) var(--push-tags, 0px); padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
 .push-dialog .management-content { min-height: 0; grid-template-columns: var(--push-sidebar, 260px) minmax(0, 1fr); }
 .push-dialog .management-list { min-width: 0; min-height: 0; display: grid; grid-template-rows: var(--push-row, 27px) minmax(0, 1fr); padding: 8px; }
@@ -4069,35 +4195,84 @@ body[data-theme="dark"] .search-overlay {
 .push-notice { color: var(--augit-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .push-notice.error { color: var(--augit-red); }
 .push-empty { min-height: 100%; display: grid; place-items: center; text-align: center; color: var(--augit-muted); }
-.push-tags { align-self: start; margin-top: 5px; height: var(--push-button, 37px); gap: 7px; }
+.push-tags { align-self: start; margin-top: 5px; height: var(--push-button, 34px); gap: 7px; }
 .push-tags input { width: 15px; height: 15px; margin: 0; }
-.push-tags .select-field { height: var(--push-button, 37px); width: auto; min-width: 96px; }
+.push-tags .select-field { height: var(--push-button, 34px); width: auto; min-width: 96px; }
 .push-dialog .dialog-footer { min-height: 0; padding: 12px 12px 0; align-items: flex-start; gap: 8px; }
-.push-dialog .dialog-footer button { height: var(--push-button, 37px); padding: 0; flex: none; white-space: nowrap; }
+.push-dialog .dialog-footer button { height: var(--push-button, 34px); padding: 0; flex: none; white-space: nowrap; }
 .push-dialog .secondary-button { width: var(--push-cancel, 78px); }
 .push-dialog .primary-button { width: var(--push-push, 84px); }
 
-/* 远端表单只在详情区滚动。 */
+/* 远端管理：Name/URL 两列表格 + 顶端 Add/Remove/Edit，主窗唯一 OK；
+   Define Remote 与 Remove Remote 确认为独立次模态。
+   Remotes按已批准的实机原图取357×220逻辑像素，系统175%；
+   Define 多一行产品额外的 Push URL，高度按行高追加，不声称与参考 207px 精确相同。 */
 .dialog.remote-dialog {
-  height: min(var(--remote-height, 407px), calc(100% - 88px));
+  /* 参考DialogRootPane不占布局边框；描边交给系统或内侧轮廓。 */
+  border: 0;
+  outline: var(--augit-hairline) solid var(--augit-border-strong);
+  outline-offset: calc(-1 * var(--augit-hairline));
+  width: min(var(--remote-width, 356.571429px), calc(100% - 90px));
+  height: min(var(--remote-height, 220px), calc(100% - 88px));
+  display: grid;
+  grid-template-rows: var(--remote-header, 40px) minmax(0, 1fr) var(--remote-footer, 50px);
+}
+.remote-dialog .dialog-header { height: auto; padding: 0 12px; }
+.remote-dialog .dialog-body { min-height: 0; padding: 8px 12px 0; /* 权威 getRegularPanelInsets()及实机上侧间距 */ overflow: hidden; }
+.remote-dialog .dialog-footer { min-height: 0; padding: 8px 12px; /* 根内容下距8px，SouthPanel上距8px；按钮34px。 */ }
+.remote-dialog .history-page { grid-template-rows: calc(var(--remote-toolbar, 24px) + 1px) minmax(0, 1fr); }
+.remote-dialog .toolbar { height: auto; min-height: 0; padding: 0; }
+.remote-toolbar { gap: 0; --augit-icon-hit: 24px; border-bottom-width: 1px; }
+/* 安装版GrayFilter的禁用图标灰阶；不能复用Label.disabledForeground。 */
+.remote-toolbar button:disabled { color: #bdbdbd; }
+[data-theme="dark"] .remote-toolbar button:disabled { color: #5a5a5a; }
+.remote-toolbar :is(.icon-button, .toolbar-button) { width: 26px; height: 24px; min-width: 26px; }
+.remote-content { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.remote-table { min-width: 0; min-height: 0; overflow: auto; outline: none; }
+.remote-content .remote-notice { margin: 6px; }
+.remote-table-head, .remote-row { display: grid; grid-template-columns: var(--remote-name-width, 96px) minmax(0, 1fr); align-items: center; }
+.remote-table-head { height: calc(var(--remote-row, 24px) + 1px); padding: 0; border-bottom: var(--augit-hairline) solid var(--augit-border); color: var(--augit-text); font-weight: 400; position: sticky; top: 0; background: var(--augit-panel); z-index: 1; }
+.remote-row { height: var(--remote-row, 24px); padding: 0; }
+.remote-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.remote-row.selected { background: var(--augit-selection-inactive); }
+.remote-table:focus .remote-row.selected { background: var(--augit-blue-soft); }
+.remote-table:not([aria-disabled="true"]) .remote-row:not(.selected):hover { background: var(--augit-row-hover); }
+/* GitConfigureRemotesDialog的ToolbarDecorator外框及JBTable空态；只影响远端列表。 */
+.remote-page { border: var(--augit-hairline) solid var(--augit-border); }
+.remote-table { position: relative; }
+.remote-table-head { background: transparent; }
+.remote-table-head > span:first-child { align-self: stretch; display: flex; align-items: center; border-right: var(--augit-hairline) solid var(--augit-border); }
+/* JBTable表头renderer内距8；Git远端正文取消border后保留SimpleColoredComponent内距2。 */
+.remote-table-head > span { min-width: 0; overflow: hidden; padding: 0 8px; }
+.remote-row > span { padding: 0 2px; }
+.remote-empty { position: absolute; inset: calc(var(--remote-row, 24px) + 1px) 0 0; margin: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 2fr); text-align: center; pointer-events: none; }
+.remote-empty > span { grid-row: 2; }
+.remote-dialog .primary-button { min-width: 78px; height: var(--remote-button, 34px); padding: 0 12px; flex-shrink: 0; }
+
+.dialog.remote-define-dialog {
+  width: min(var(--remote-define-width, 405px), calc(100% - 90px));
+  height: min(var(--remote-define-height, 246px), calc(100% - 88px));
   display: grid;
   grid-template-rows: var(--remote-header, 45px) minmax(0, 1fr) var(--remote-footer, 53px);
 }
-.remote-dialog .dialog-header { height: auto; }
-.remote-dialog .dialog-body { min-height: 0; padding: 0 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: hidden; }
-.remote-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
-.remote-dialog .history-page { grid-template-rows: var(--remote-toolbar, 61px) minmax(0, 1fr); }
-.remote-dialog .toolbar { height: auto; padding: 0; }
-.remote-dialog .management-list { min-width: 0; overflow: auto; padding: 0 8px 4px 0; }
-.remote-dialog .management-detail { min-width: 0; overflow: auto; padding: 14px 18px 16px; }
-.remote-dialog .management-detail h2 { height: var(--remote-title, 30px); font-size: inherit; line-height: 1; margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.remote-dialog .form-grid { grid-template-columns: var(--remote-label, 110px) minmax(0, 1fr); gap: 14px 10px; }
-.remote-dialog .form-grid label { white-space: nowrap; }
-.remote-dialog .text-field { height: var(--remote-field, 30px); min-width: 0; padding: 0 8px; }
-.remote-dialog .button-row { margin-top: 16px; }
-.remote-dialog .secondary-button, .remote-dialog .primary-button { min-width: 78px; height: var(--remote-button, 37px); padding: 0 12px; flex-shrink: 0; }
+.remote-define-dialog .dialog-header { height: auto; padding: 0 12px; }
+/* 与已批准参考一致的品牌槽、普通字重、关闭区；不影响其他模态。 */
+:is(.remote-dialog, .remote-define-dialog) .dialog-header { display: grid; grid-template-columns: 40px minmax(0, 1fr) 32px; gap: 0; padding: 0; border-bottom: 0; font-weight: 400; }
+:is(.remote-dialog, .remote-define-dialog) .dialog-header .brand-mark { width: 16px; height: 16px; margin-left: 12px; font-size: 8px; }
+:is(.remote-dialog, .remote-define-dialog) .remote-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.remote-dialog, .remote-define-dialog) .dialog-header .icon-button { width: 32px; height: 100%; color: var(--augit-text); border-radius: 0; }
+:is(.remote-dialog, .remote-define-dialog) .primary-button { font-weight: 600; }
+.remote-define-dialog .dialog-body { min-height: 0; padding: 8px 12px; overflow: auto; }
+.remote-define-dialog .dialog-footer { min-height: 0; padding: 0 12px; }
+.remote-define-dialog .form-grid { grid-template-columns: var(--remote-label, 110px) minmax(0, 1fr); gap: 14px 10px; }
+.remote-define-dialog .form-grid label { white-space: nowrap; }
+.remote-define-dialog .text-field { height: var(--remote-field, 30px); min-width: 0; padding: 0 8px; }
+.remote-define-dialog .check-line { min-height: var(--remote-field, 30px); }
+.remote-define-dialog .check-line input { width: 15px; height: 15px; margin: 0; }
+.remote-define-dialog .secondary-button, .remote-define-dialog .danger-button, .remote-define-dialog .primary-button { min-width: 78px; height: var(--remote-button, 34px); padding: 0 12px; flex-shrink: 0; }
+.remote-confirm-dialog .remote-confirm-text { margin: 0 0 10px; }
 
-/* Worktree 与远端共用双栏信息密度；状态和详情不因字号放大而推移底栏。 */
+/* Worktree 保留双栏信息密度；状态和详情不因字号放大而推移底栏。 */
 .dialog.worktree-dialog {
   width: min(930px, calc(100vw - 90px));
   height: min(var(--worktree-height, 365px), calc(100% - 40px));
@@ -4115,7 +4290,7 @@ body[data-theme="dark"] .search-overlay {
 .worktree-dialog .form-grid { grid-template-columns: var(--worktree-label, 110px) minmax(0, 1fr); gap: 6px 10px; }
 .worktree-dialog .management-detail .form-grid > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worktree-dialog .button-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
-.worktree-dialog .secondary-button, .worktree-dialog .primary-button, .worktree-dialog .danger-button { min-width: 78px; height: var(--worktree-button, 37px); padding: 0 12px; flex-shrink: 0; }
+.worktree-dialog .secondary-button, .worktree-dialog .primary-button, .worktree-dialog .danger-button { min-width: 78px; height: var(--worktree-button, 34px); padding: 0 12px; flex-shrink: 0; }
 
 /* Stash 管理：列表固定在左侧，详情和失败说明只在右侧正文滚动。 */
 .dialog.stash-manager-dialog {
@@ -4131,9 +4306,9 @@ body[data-theme="dark"] .search-overlay {
 .stash-manager-dialog .toolbar { height: auto; padding: 0; }
 .stash-manager-dialog .management-list { min-width: 0; min-height: 0; overflow: auto; padding: 0 8px 4px 0; }
 .stash-manager-dialog .management-detail { min-width: 0; min-height: 0; overflow: auto; padding: 14px 18px 16px; }
-.stash-manager-dialog .management-detail h2 { min-height: var(--stash-manager-button, 37px); margin: 0 0 6px; font-size: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stash-manager-dialog .management-detail h2 { min-height: var(--stash-manager-button, 34px); margin: 0 0 6px; font-size: inherit; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stash-manager-dialog .button-row { margin: 12px 0 14px; gap: 8px; flex-wrap: wrap; }
-.stash-manager-dialog .button-row button { min-width: 78px; height: var(--stash-manager-button, 37px); padding: 0 12px; flex: none; white-space: nowrap; }
+.stash-manager-dialog .button-row button { min-width: 78px; height: var(--stash-manager-button, 34px); padding: 0 12px; flex: none; white-space: nowrap; }
 .stash-manager-dialog .management-detail .tree-row { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .history-tool-content {
@@ -4300,6 +4475,24 @@ body[data-theme="dark"] .search-overlay {
 
 .inline-alert.danger {
   background: var(--augit-red-soft);
+}
+
+/* 冲突文件的只读 Diff 横幅（2026-10-17 移除三栏编辑器后保留的冲突提示）。 */
+.conflict-readonly-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 12px 8px;
+  background: var(--augit-red-soft);
+}
+
+.conflict-readonly-notice strong {
+  flex: none;
+}
+
+.conflict-readonly-notice p {
+  flex: 1;
+  margin: 0;
 }
 
 .progress-track {
@@ -4489,8 +4682,8 @@ body[data-typography-preview] .main-menu-bar { grid-column: 3 / 8; }
   background: #dfdfdf;
   z-index: -1;
 }
-body[data-theme="dark"] .document-modes .segment { color: #ced0d6; }
-body[data-theme="dark"] .document-modes .segment.active::before { background: #43454a; }
+body[data-theme="dark"] .document-modes .segment { color: var(--augit-icon); }
+body[data-theme="dark"] .document-modes .segment.active::before { background: var(--augit-segment-active-bg); }
 body[data-theme="dark"] .document-modes.segmented { background: var(--augit-panel); }
 /* 文档模式组保留参考图校准的内缩选中面（design-system §7.2），不跟随分段控件的聚焦底色。 */
 .document-modes.segmented:focus-within .segment.active { background: transparent; }
@@ -4647,3 +4840,423 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 
 /* 覆盖层容器：只用于把 scrim 与对话框作为一个整体替换，不改变布局。 */
 .overlay-layer { display: contents; }
+/* 截取所有者背景时临时隐藏顶层表单，实际会话和布局保持。 */
+.dialog[data-native-capture="true"] { visibility: hidden; }
+.dialog[data-native-background-capture="true"] { opacity: 0; }
+
+/* 与 ManyIslands 的工具轨组件分开处理：主题中的轨道按钮为 37×40，
+   图形仍在 16px 网格内，按钮之间按 40px 步长排列。 */
+.tool-rail .rail-button {
+  width: 37px;
+  height: 40px;
+  border-radius: 6px;
+  flex: 0 0 40px;
+  padding: 5px 2px 5px 5px;
+  background: transparent;
+}
+.tool-rail .rail-button::before {
+  content: "";
+  position: absolute;
+  inset: 5px 2px 5px 5px;
+  border-radius: 6px;
+  background: transparent;
+  pointer-events: none;
+}
+.tool-rail .rail-button.visible::before { background: var(--augit-pressed); }
+.tool-rail .rail-button:hover:not(.active):not(.visible):not([aria-disabled="true"])::before { background: var(--augit-action-button-hover); }
+.tool-rail .rail-button.active::before { background: var(--augit-accent-brand); }
+.tool-rail .rail-button:active:not(.active):not(.visible):not([aria-disabled="true"])::before { background: var(--augit-pressed); }
+.tool-rail .rail-button[aria-disabled="true"]::before { background: transparent; border: 0; }
+.tool-rail .rail-button[aria-disabled="true"]::after { content: none; }
+.tool-rail .rail-button > svg { position: relative; width: var(--augit-rail-icon-size, 20px); height: var(--augit-rail-icon-size, 20px); }
+.tool-rail .rail-button:focus::after { inset: 5px 2px 5px 5px; border-radius: 6px; }
+.tool-rail .rail-button.active:focus::before { inset: 5px 2px 5px 5px; }
+.tool-rail .rail-separator { margin-block: 4px 8px; }
+
+/* Changes、Diff 和只读正文共用等宽角色；字号与行高不再各自写死。 */
+.diff-columns {
+  font-family: var(--augit-code);
+  font-size: var(--augit-code-size, 13px);
+  line-height: var(--code-line-height, 22px);
+  color: var(--augit-code-text);
+}
+.code-view, .markdown-preview pre { color: var(--augit-code-text); }
+
+/* New UI 普通按钮下限为 28px；字号放大时由实际行高扩展。 */
+:is(.primary-button, .secondary-button, .danger-button) {
+  min-width: 78px;
+  min-height: max(34px, calc(1em + 12px));
+  height: max(34px, calc(1em + 12px));
+  border: 3px solid transparent;
+  border-radius: 7px;
+  background-clip: padding-box;
+}
+
+/* 设置页按剩余宽度换行，字段列不再把说明文字推出视口；横向溢出只允许输入值自身滚动。 */
+.settings-layout {
+  width: 100%;
+  min-width: 0;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+}
+/* 左右正文独立滚动，搜索与面包屑留在各自固定区域。 */
+.settings-layout > :is(.settings-nav, .settings-page) { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+.settings-nav-tree, .settings-content { min-width: 0; min-height: 0; overflow: auto; }
+.settings-page,
+.settings-page .form-grid,
+.settings-page .font-setting { min-width: 0; }
+
+/* SettingsEditor 的正文抬头是紧凑路径与前后导航；设置树选区铺满整栏。 */
+.settings-page { padding: 12px 16px; }
+.settings-page-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: max(28px, 1em + 8px); margin-bottom: 14px; }
+.settings-breadcrumbs { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 1rem; font-weight: 600; white-space: nowrap; }
+.settings-breadcrumbs svg { width: 12px; height: 12px; }
+.diff-settings-menu .menu-item { width: 100%; background: transparent; border: 0; text-align: left; font: inherit; }
+.diff-settings-menu .menu-item:is(:hover,:focus) { background: var(--augit-blue-soft); outline: none; }
+.diff-layout.hide-line-numbers .diff-gutter-cell { color: transparent; }
+.diff-layout.hide-line-numbers .diff-gutter:not(.diff-gutter-live) > div { visibility: hidden; }
+.diff-layout.hide-line-numbers :is(.line-number,.diff-line-number) { display: none; }
+.diff-layout.hide-line-numbers .unified-number { display: none; }
+.diff-layout.hide-line-numbers .unified-diff-line { grid-template-columns: 18px minmax(0,1fr); }
+.settings-breadcrumbs > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.settings-breadcrumbs .breadcrumb-arrow { display: inline-flex; color: var(--augit-muted); }
+.settings-navigation { display: flex; flex: none; gap: 0; }
+.settings-nav { padding: 10px 0; }
+.settings-nav > .search-field { width: calc(100% - 20px) !important; margin-left: 10px; margin-right: 10px; }
+.settings-nav .tree-row { border-radius: 0; padding-left: 12px; }
+.settings-nav .tree-row.depth-1 { padding-left: 30px; }
+.settings-nav .tree-row.selected { background: var(--augit-blue-soft); }
+.font-family-select { width: 100%; min-width: 0; color-scheme: light; }
+body[data-theme="dark"] .font-family-select { color-scheme: dark; }
+.font-family-select option { color: var(--augit-text); background: var(--augit-panel); }
+.settings-page .form-grid > :is(.commit-meta, .settings-detection) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.settings-page .font-setting { grid-template-columns: minmax(0, 1fr) auto minmax(56px, 70px); }
+.settings-page input.text-field,
+.settings-page select.select-field { min-width: 0; }
+
+/* 按正文自身宽度与字号排布；固定110px标签列不能容纳大字号的Theme等文案。 */
+.settings-page { container: settings-form / inline-size; }
+.settings-page .form-grid > label { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+.settings-page .font-setting { grid-template-columns: minmax(0, 1fr) auto minmax(70px, calc(3ch + 26px)); }
+@container settings-form (max-width: 48em) {
+  .settings-page .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-page .form-grid > label:empty { display: none; }
+}
+@container settings-form (max-width: 24em) {
+  .settings-page .font-setting { grid-template-columns: auto minmax(0, 1fr); }
+  .settings-page .font-setting > select { grid-column: 1 / -1; }
+  .settings-page .font-setting > input { width: min(100%, max(70px, calc(3ch + 26px))); }
+}
+
+/* YAML 图标保留权威纸张、轮廓和 Y 三层颜色。 */
+.file-type-yaml { color: var(--augit-yaml-outline, #db3b4b); }
+.file-type-yaml .yaml-paper { fill: var(--augit-yaml-paper, #fff7f7); }
+.file-type-yaml .yaml-letter { fill: var(--augit-yaml-letter, #6c707e); }
+body[data-theme="dark"] {
+  --augit-yaml-outline: #db5c5c;
+  --augit-yaml-paper: #402929;
+  --augit-yaml-letter: #c3c5cb;
+}
+
+/* 普通按钮的透明 3px 边框归入命中区，内部背景下限为 72×28。 */
+.secondary-button { box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-border-strong); }
+
+/* 参考默认关闭连字；终端由xterm按字符格绘制。 */
+.diff-columns, .markdown-preview pre, .markdown-preview code { font-variant-ligatures: none; }
+
+/* 源文和三栏正文使用同一字体度量行距；终端由 xterm 独立度量。 */
+.code-view, .markdown-source { line-height: var(--code-line-height, 20px); }
+
+/* 归属21色：5个VCS_ANNOTATIONS_COLOR锚点，每段4个中间色，通道按ColorGenerator截断。 */
+:root {
+  --augit-blame-color-0: #a1bef7;
+  --augit-blame-color-1: #a9c3f7;
+  --augit-blame-color-2: #b1c9f8;
+  --augit-blame-color-3: #b9cef9;
+  --augit-blame-color-4: #c1d4fa;
+  --augit-blame-color-5: #c9dafb;
+  --augit-blame-color-6: #cddcfb;
+  --augit-blame-color-7: #d1dffb;
+  --augit-blame-color-8: #d5e2fb;
+  --augit-blame-color-9: #d9e5fb;
+  --augit-blame-color-10: #dee8fc;
+  --augit-blame-color-11: #e1eafb;
+  --augit-blame-color-12: #e4ecfb;
+  --augit-blame-color-13: #e7eefa;
+  --augit-blame-color-14: #eaf0fa;
+  --augit-blame-color-15: #edf2fa;
+  --augit-blame-color-16: #eff3fa;
+  --augit-blame-color-17: #f1f4fa;
+  --augit-blame-color-18: #f3f5fa;
+  --augit-blame-color-19: #f5f6fa;
+  --augit-blame-color-20: #f7f8fa;
+}
+body[data-theme="dark"] {
+  --augit-blame-color-0: #2f5194;
+  --augit-blame-color-1: #2e4d8b;
+  --augit-blame-color-2: #2e4a83;
+  --augit-blame-color-3: #2d477b;
+  --augit-blame-color-4: #2d4473;
+  --augit-blame-color-5: #2d416b;
+  --augit-blame-color-6: #2c3f66;
+  --augit-blame-color-7: #2b3d61;
+  --augit-blame-color-8: #2a3b5d;
+  --augit-blame-color-9: #293958;
+  --augit-blame-color-10: #283754;
+  --augit-blame-color-11: #273550;
+  --augit-blame-color-12: #26334c;
+  --augit-blame-color-13: #253149;
+  --augit-blame-color-14: #242f45;
+  --augit-blame-color-15: #242d42;
+  --augit-blame-color-16: #232b3e;
+  --augit-blame-color-17: #23293a;
+  --augit-blame-color-18: #222836;
+  --augit-blame-color-19: #222632;
+  --augit-blame-color-20: #22252e;
+}
+
+/* Markdown模式归属标签区；查找及符号链接提示仍在当前正文内。 */
+.markdown-document { grid-template-rows: minmax(0, 1fr); }
+.markdown-document.has-target { grid-template-rows: auto minmax(0, 1fr); }
+.markdown-document:has(> .current-find) { grid-template-rows: var(--augit-find-height) minmax(0, 1fr); }
+.markdown-document.has-target:has(> .current-find) { grid-template-rows: auto var(--augit-find-height) minmax(0, 1fr); }
+.markdown-tab-actions { flex: none; align-self: center; }
+.markdown-tab-actions .segment { position: relative; }
+.markdown-tab-actions .segment:focus-visible { outline: 1px solid var(--augit-accent-brand); outline-offset: -3px; }
+
+/* 图形按所属UI图标族缩放；正文图、提交图和系统窗口控制使用各自度量。 */
+.augit-window :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon, .git-branch-tree-icon) {
+  width: var(--augit-icon-size, 16px);
+  height: var(--augit-icon-size, 16px);
+  flex-basis: var(--augit-icon-size, 16px);
+}
+.augit-window :is(.side-content.tree, .changed-files .tree-row, .log-ref-panel .tree-row, .history-path-browser) :is(.augit-toolbar-icon, .file-type-icon, .tree-folder-icon, .git-reference-icon) {
+  width: var(--augit-icon-size, 16px);
+  height: var(--augit-icon-size, 16px);
+  flex-basis: var(--augit-icon-size, 16px);
+}
+.augit-window .editor-tab > :is(.file-type-icon, .augit-toolbar-icon, .git-reference-icon),
+.augit-window .top-chip > .augit-toolbar-icon,
+.augit-window .titlebar-context > .augit-toolbar-icon,
+.augit-window :is(.tool-header, .bottom-header) :is(.augit-toolbar-icon, .file-type-icon, .git-reference-icon),
+.augit-window .commit-row > .branch-label > .git-reference-icon {
+  width: var(--augit-compact-icon-size, 13px);
+  height: var(--augit-compact-icon-size, 13px);
+  flex-basis: var(--augit-compact-icon-size, 13px);
+}
+.augit-window .titlebar :is(.top-button, .main-menu-entry) > .augit-toolbar-icon,
+.augit-window .tool-rail .rail-button > svg {
+  width: var(--augit-rail-icon-size, 20px);
+  height: var(--augit-rail-icon-size, 20px);
+  flex-basis: var(--augit-rail-icon-size, 20px);
+}
+.augit-window :is(.icon-button, .toolbar-button, .segment):has(> .augit-toolbar-icon) {
+  min-width: var(--augit-icon-hit, 28px);
+  min-height: var(--augit-icon-hit, 28px);
+}
+.augit-window .document-modes .segment {
+  width: var(--augit-mode-hit, 26px);
+  height: var(--augit-mode-hit, 26px);
+  min-width: var(--augit-mode-hit, 26px);
+  min-height: var(--augit-mode-hit, 26px);
+}
+.augit-window .tool-rail .rail-button {
+  width: var(--augit-rail-width, 37px);
+  height: var(--augit-rail-step, 40px);
+  flex-basis: var(--augit-rail-step, 40px);
+  padding: var(--augit-rail-inset, 5px) var(--augit-rail-right-inset, 2px) var(--augit-rail-inset, 5px) var(--augit-rail-inset, 5px);
+}
+.augit-window .tool-rail .rail-button::before,
+.augit-window .tool-rail .rail-button:focus::after,
+.augit-window .tool-rail .rail-button.active:focus::before {
+  inset: var(--augit-rail-inset, 5px) var(--augit-rail-right-inset, 2px) var(--augit-rail-inset, 5px) var(--augit-rail-inset, 5px);
+  border-radius: var(--augit-rail-radius, 6px);
+}
+.augit-window .tool-rail { overflow-y: auto; overflow-x: hidden; }
+/* 查找仍占正文顶部一行；限宽时局部滚动，保留缩放图形、输入与全部键盘入口。 */
+.augit-window .current-find {
+  grid-template-columns: minmax(calc(var(--augit-icon-size,16px) + 3 * var(--augit-icon-hit,28px) + 70px),55%) minmax(0,var(--find-status-width,48px)) var(--augit-icon-hit,28px) var(--augit-icon-hit,28px) minmax(0,1fr) var(--augit-icon-hit,28px);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.augit-window .find-input-shell { min-width: calc(var(--augit-icon-size,16px) + 3 * var(--augit-icon-hit,28px) + 70px); }
+.augit-window .find-input-shell .icon-button { flex-basis: var(--augit-icon-hit,28px); }
+.augit-window .current-find .icon-button { width: var(--augit-icon-hit,28px); height: var(--augit-icon-hit,28px); }
+/* 工具条限宽时只滚动自身，聚焦末端动作不得推动整个编辑区横向滚动。 */
+.augit-window .diff-toolbar { overflow-x: auto; overflow-y: hidden; }
+/* 多条只读说明共存时各自可滚动，保留至少一行正文，不能让溢出文字覆盖下一行。 */
+.document-target, .json-error { overflow: auto; min-height: calc(1.4em + 16px); line-height: 1.4; }
+.document-target:focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -2px; }
+.json-document.json-invalid.has-target { min-height: calc(var(--augit-document-toolbar-height) + 2 * (1.4em + 16px) + var(--code-line-height,22px)); }
+.json-document.json-invalid.has-target:has(> .current-find) { min-height: calc(var(--augit-document-toolbar-height) + var(--augit-find-height) + 2 * (1.4em + 16px) + var(--code-line-height,22px)); }
+.json-document.json-invalid.has-target { grid-template-rows: var(--augit-document-toolbar-height) minmax(calc(1.4em + 16px),auto) minmax(calc(1.4em + 16px),auto) minmax(var(--code-line-height,22px),1fr); }
+.json-document.json-invalid.has-target:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) minmax(calc(1.4em + 16px),auto) minmax(calc(1.4em + 16px),auto) var(--augit-find-height) minmax(var(--code-line-height,22px),1fr); }
+/* 独立对话框的框架关闭入口保持系统尺寸，正文与工具条图标走用户缩放。 */
+.augit-window .dialog-header .icon-button { min-width: 28px; min-height: 28px; }
+.augit-window .dialog-header .icon-button > svg { width: 16px; height: 16px; flex-basis: 16px; }
+.augit-window .window-dot > svg { width: 16px; height: 16px; flex-basis: 16px; }
+.augit-window .titlebar { grid-template-columns: 24px max-content auto auto minmax(0,1fr) auto minmax(0,1fr) auto; }
+.augit-window .titlebar .top-button { width: calc(30px * var(--augit-ui-scale,1)); height: calc(30px * var(--augit-ui-scale,1)); }
+.augit-window .titlebar-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.augit-window [data-augit-icon="lock"] { width: calc(12px * var(--augit-ui-scale, 1)); height: calc(12px * var(--augit-ui-scale, 1)); flex-basis: calc(12px * var(--augit-ui-scale, 1)); }
+.augit-window [data-augit-icon="file-warning"] { width: calc(18px * var(--augit-ui-scale, 1)); height: calc(18px * var(--augit-ui-scale, 1)); flex-basis: calc(18px * var(--augit-ui-scale, 1)); }
+
+/* 2026-10-13像素整改：24px透明画布内绘制16px外框，所有复用入口共用状态和几何。 */
+:root {
+  --augit-check-canvas: 24px;
+  --augit-check-visible: 16px;
+  --augit-check-focus: 18px;
+  --augit-check-selected-focus: 22px;
+  --augit-check-stroke: 1px;
+  --augit-check-bg: #ffffff;
+  --augit-check-border: #a8adbd;
+  --augit-check-selected: #3574f0;
+  --augit-check-foreground: #ffffff;
+  --augit-check-disabled-bg: #f7f8fa;
+  --augit-check-disabled-border: #dfe1e5;
+  --augit-check-disabled-foreground: #c9ccd6;
+  --augit-check-disabled-mixed: #c9ccd6;
+}
+body[data-theme="dark"] {
+  --augit-check-bg: #2b2d30;
+  --augit-check-border: #5a5d63;
+  --augit-check-disabled-bg: #393b40;
+  --augit-check-disabled-border: #5a5d63;
+  --augit-check-disabled-foreground: #6f737a;
+  --augit-check-disabled-mixed: #868a91;
+}
+.augit-window .fake-check,
+.augit-window input[type="checkbox"] {
+  --check-fill: var(--augit-check-bg);
+  --check-edge: var(--augit-check-border);
+  --check-ink: var(--augit-check-foreground);
+  position: relative;
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-block;
+  width: var(--augit-check-canvas);
+  height: var(--augit-check-canvas);
+  flex: 0 0 var(--augit-check-canvas);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  vertical-align: middle;
+}
+.augit-window .fake-check::before,
+.augit-window input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: var(--augit-check-visible); height: var(--augit-check-visible);
+  transform: translate(-50%, -50%);
+  border-radius: calc(3px * var(--augit-ui-scale, 1));
+  background: var(--check-fill);
+  box-shadow: inset 0 0 0 var(--augit-check-stroke) var(--check-edge);
+}
+.augit-window .fake-check:is(.checked, .mixed),
+.augit-window input[type="checkbox"]:is(:checked, :indeterminate) {
+  --check-fill: var(--augit-check-selected);
+  --check-edge: var(--augit-check-selected);
+  background: transparent;
+}
+.augit-window .fake-check::after,
+.augit-window input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: none;
+  width: auto; height: auto;
+  margin: 0; border: 0;
+  transform: none;
+  background: var(--check-ink);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M8 12.5 11 15.5 16.5 9' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+.augit-window .fake-check.checked::after,
+.augit-window input[type="checkbox"]:checked::after { display: block; inset: 0; width: auto; height: auto; margin: 0; border: 0; transform: none; background: var(--check-ink); }
+.augit-window input[type="checkbox"]:disabled::after { border: 0; }
+.augit-window .fake-check.mixed::after,
+.augit-window input[type="checkbox"]:indeterminate::after {
+  display: block;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='6.5' y='11' width='11' height='2' rx='1'/%3E%3C/svg%3E");
+}
+.augit-window .fake-check:is(:disabled, [aria-disabled="true"]),
+.augit-window input[type="checkbox"]:disabled {
+  --check-fill: var(--augit-check-disabled-bg);
+  --check-edge: var(--augit-check-disabled-border);
+  --check-ink: var(--augit-check-disabled-foreground);
+  background: transparent;
+}
+.augit-window .fake-check.mixed:is(:disabled, [aria-disabled="true"]),
+.augit-window input[type="checkbox"]:indeterminate:disabled { --check-ink: var(--augit-check-disabled-mixed); }
+.augit-window .fake-check:focus-visible::before,
+.augit-window input[type="checkbox"]:focus-visible::before {
+  width: var(--augit-check-focus); height: var(--augit-check-focus);
+  border-radius: calc(4px * var(--augit-ui-scale, 1));
+  box-shadow: inset 0 0 0 calc(2 * var(--augit-check-stroke)) var(--augit-check-selected);
+}
+/* 未选聚焦扩展到18px；已选和半选保留16px内框，另绘22px外环。 */
+.augit-window .fake-check:is(.checked, .mixed):focus-visible::before,
+.augit-window input[type="checkbox"]:is(:checked, :indeterminate):focus-visible::before {
+  width: var(--augit-check-visible); height: var(--augit-check-visible);
+  border-radius: calc(3px * var(--augit-ui-scale, 1));
+  box-shadow: inset 0 0 0 var(--augit-check-stroke) var(--check-edge);
+}
+.augit-window .fake-check:is(.checked, .mixed):focus-visible,
+.augit-window input[type="checkbox"]:is(:checked, :indeterminate):focus-visible {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='2' width='20' height='20' rx='4.5' fill='none' stroke='%233574f0' stroke-width='2'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+.augit-window .fake-check:focus-visible,
+.augit-window input[type="checkbox"]:focus-visible { outline: none; }
+/* Tree.border左右12px；ClassicPainter首级renderer偏移19px、第二级38px。
+   展开画布单独位于renderer之前，不用缩成8px图形或叠加多个flex间隙凑起点。 */
+.changes-layout > .changes-list { padding-left: var(--augit-change-inset, 12px); padding-right: var(--augit-change-inset, 12px); }
+.check-group-row { position: relative; gap: var(--augit-tree-control-gap, 4px); padding-left: var(--augit-tree-indent, 19px); }
+.change-chevron { position: absolute; left: 0; width: var(--augit-icon-size, 16px); height: calc(var(--augit-icon-size, 16px) + 2px); }
+.augit-window .change-chevron > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
+.changes-list .change-file-row { padding-left: calc(2 * var(--augit-tree-indent, 19px)); }
+.check-row { border-radius: 4px; }
+.augit-window [data-workspace-diff-tab] .tab-close { width: var(--augit-icon-hit, 28px); height: var(--augit-icon-hit, 28px); flex: 0 0 var(--augit-icon-hit, 28px); }
+.augit-window [data-workspace-diff-tab] .tab-close > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
+.augit-window .editor-tab .tab-close { display: inline-flex; align-items: center; justify-content: center; width: var(--augit-icon-hit, 28px); height: var(--augit-icon-hit, 28px); flex: 0 0 var(--augit-icon-hit, 28px); }
+.augit-window .editor-tab .tab-close > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
+.history-search-trigger { width: var(--augit-icon-hit, 28px); }
+.augit-window .history-search-trigger > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
+.history-search .search-field { min-height: calc(var(--augit-icon-size, 16px) + 2px); padding-left: calc(var(--augit-icon-hit, 28px) + 6px); }
+.settings-nav > .search-field { height: max(25px, calc(1em + 8px)); flex: none; }
+.settings-nav .tree-row { min-width: 0; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; }
+.augit-window .settings-breadcrumbs .breadcrumb-arrow > svg { width: var(--augit-compact-icon-size, 13px); height: var(--augit-compact-icon-size, 13px); flex-basis: var(--augit-compact-icon-size, 13px); }
+.settings-breadcrumbs > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.settings-breadcrumbs .breadcrumb-arrow { flex: none; }
+.commit-last { color: var(--augit-blue); text-decoration: none; }
+.commit-last { overflow: hidden; text-overflow: ellipsis; }
+.commit-amend { gap: var(--augit-tree-control-gap, 4px); }
+.commit-last:hover { text-decoration: underline; }
+.stash-dialog .check-line { height: auto; min-height: max(30px, var(--augit-check-canvas)); }
+
+/* 受限窗口保留一行编辑正文；工具窗内部按原顺序滚动，不让状态栏覆盖内容。 */
+.app-main.bottom-open { grid-template-rows: minmax(var(--workbench-editor-minimum, 100px), 1fr) min(var(--augit-bottom-height), max(0px, calc(100% - var(--workbench-editor-minimum, 100px) - 4px))); }
+.space-constrained > .bottom-tool { display: block; overflow: auto; }
+.space-constrained > .bottom-tool > :last-child { height: calc(var(--augit-bottom-min-height, 180px) - var(--augit-history-header-height, 38px)); min-height: 180px; }
+.changes-layout { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.changes-layout > * { min-width: 0; }
+.side-tool.commit-scroll-tool { display: block; overflow: auto; }
+.changes-layout.commit-scroll-layout { height: auto; grid-template-rows: var(--commit-toolbar-height) calc(var(--commit-row-height) + 10px) var(--commit-minimum) !important; align-content: start; overflow: visible; }
+.commit-scroll-layout .changes-list { min-height: calc(var(--commit-row-height) + 10px); }
+.commit-scroll-layout .commit-box { min-height: var(--commit-minimum); }
+.commit-scroll-layout .commit-actions { background: var(--augit-panel); }
+.info-state { min-width: 0; min-height: 0; overflow: auto; grid-template-columns: minmax(0, 1fr); align-items: safe center; justify-items: center; padding: min(40px, 4vw); }
+.info-state .info-block { width: min(560px, 100%); min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.info-block h2 { font-size: 1.5rem; }
+.info-state .button-row { flex-wrap: wrap; }
+.info-state .button-row > * { max-width: 100%; white-space: normal; height: auto; min-height: max(34px, 1em + 12px); }
+.dialog-header { cursor: move; touch-action: none; }
