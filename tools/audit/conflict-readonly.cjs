@@ -16,6 +16,18 @@ async function git(cwd, ...args) {
   return execute('git', ['-C', cwd, ...args], { windowsHide: true, timeout: 30000 });
 }
 
+// 冲突界面文案也必须是英文；夹具正文全英文，因此可直接扫描可见文本。
+async function assertNoCjk(targetPage, report, label) {
+  const body = await targetPage.evaluate(() => document.body.innerText);
+  assert.equal(/[\u3400-\u9fff]/.test(body), false, label + ' 含中文界面文案');
+  const attrs = await targetPage.evaluate(() => [...document.querySelectorAll('[title], [aria-label]')]
+    .filter((node) => node.offsetWidth || node.offsetHeight || node.getClientRects().length)
+    .flatMap((node) => [node.getAttribute('title'), node.getAttribute('aria-label')])
+    .filter((value) => value && /[\u3400-\u9fff]/.test(value)));
+  assert.deepEqual(attrs, [], label + ' 的 title/aria 含中文：' + attrs.join(' | '));
+  report.checks.push({ name: label + '-cjk', bodyHasCjk: false, attrs });
+}
+
 (async () => {
   await fs.mkdir(output, { recursive: true });
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'Augit-conflict-readonly-'));
@@ -148,6 +160,7 @@ async function git(cwd, ...args) {
     console.log('CONFLICT_LIST=' + JSON.stringify(list));
     assert.ok(abort && !abort.disabled, '进行中的 merge 必须提供 Abort');
     assert.ok(cont && cont.disabled, '仍有冲突时 Continue 必须禁用');
+    await assertNoCjk(page, report, 'conflict-list');
 
     // ---- 点击冲突文件：普通只读 Diff + 冲突提示，不进入内置编辑 ----
     await page.locator('[data-conflict-path="conflict.txt"]').click();
@@ -179,6 +192,7 @@ async function git(cwd, ...args) {
     assert.ok(diff.codeLines > 0, '只读 Diff 应有正文');
     assert.match(diff.notice || '', /Unresolved conflict/);
     assert.match(diff.notice || '', /does not provide a built-in merge editor/);
+    await assertNoCjk(page, report, 'conflict-readonly-diff');
     const fonts = await page.evaluate(() => {
       const line = document.querySelector('.diff-code-line');
       const body = document.querySelector('.titlebar, .side-tool, body');
@@ -244,6 +258,7 @@ async function git(cwd, ...args) {
     synced.syncMs = syncMs;
     report.checks.push({ name: 'external-resolution-sync', synced });
     console.log('SYNC_MS=' + syncMs);
+    await assertNoCjk(page, report, 'conflict-continue-ready');
 
     // 显式 --abort-close：在临时仓库执行 Abort，验证操作对话关闭后主窗可正常关闭；默认只读路径不受影响。
     if (process.argv.includes('--abort-close')) {

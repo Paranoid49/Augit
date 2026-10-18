@@ -5,7 +5,8 @@ param(
   [Parameter(Mandatory=$true)][int]$Y,
   [string]$ProcessName = "Augit",
   [string]$Out = "",
-  [int]$AfterMs = 1500
+  [int]$AfterMs = 1500,
+  [int64]$WindowHandle = 0
 )
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
@@ -36,7 +37,7 @@ public class Clicker {
 '@
 try { [void][Clicker]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
 $proc = Get-Process -Name $ProcessName -ErrorAction Stop | Select-Object -First 1
-$h = $proc.MainWindowHandle
+$h = if ($WindowHandle -ne 0) { [IntPtr]$WindowHandle } else { $proc.MainWindowHandle }
 if ($h -eq 0) { Write-Output "NO_WINDOW"; exit 2 }
 [void][Clicker]::ShowWindow($h, 5)
 [void][Clicker]::BringWindowToTop($h)

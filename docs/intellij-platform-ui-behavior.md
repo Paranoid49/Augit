@@ -1,5 +1,7 @@
 # IntelliJ Platform New UI 行为与页面逻辑（索引）
 
+2026-10-18终端标签裁决：用户选择参考的 `Local` 作为可见标签，当前 Shell 放在悬停 `title`/`aria-label`。正常入口 PID19284/端口60293，实测 `Local` + `title="Custom terminal"`、八行输出、面板 327 CSS、正常关窗；`terminal-matched-panel`、`ui-text`、共享资源校验通过。`live-data.js` MD5=`D8D4998D4FC7C82433873C38E3E8A2FE`、SHA256=`B4719F2F947D68434F2185BBC2505DF611592CCBCFBEA279A3849ECA9B37B45B`。完整终端面板/状态栏仍非同态，见[本批记录](terminal-custom-label-2026-10-18.md)。
+
 2026-10-17控制器调用分界：正式路径增加controller-create-issued，不改等待和显隐。两批无CDP呈现663/845ms，同步创建调用约1.5ms、异步68/76ms，未复现慢创建；首批录像漏开窗已拒，第二批479帧关联及42/43邻帧核对。附CDP字体批再次呈现2904ms，present请求2479ms但缺细分导出，慢开未解决。22项JS、17项Shell及八组功能回归通过，四批资源独立清理；Shell映射SHA256=37A8CA23…7DF8C67E，网页未变，详见[控制器分界](settings-controller-issued-2026-10-17.md)。整体未完成，冲突精简及终端命令块提案仍待答复。
 
 2026-10-17终端提示符间距定位：参考Reworked安装包非首块顶部7、已完成块底部6逻辑像素，经JBUI.scale；旧原图输出偏移40px、提示符17px，23px残差与13×1.75相近，仍仅来源推断。JAR/class哈希及原始字节码保留。未改产品、未新增实例，完整逐行未通过；简洁终端命令块有意差异提案待用户答复，未算批准。见[来源记录](terminal-block-layout-source-2026-10-17.md)。

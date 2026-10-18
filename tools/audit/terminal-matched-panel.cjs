@@ -105,6 +105,15 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       await page.waitForSelector('.xterm', { timeout: 20000 });
       await page.waitForFunction(() => (document.querySelector('.xterm')?.textContent || '').split('Ag 0123456789').length >= 9, null, { timeout: 30000 });
       await delay(700);
+      const terminalLabel = (await page.locator('.terminal-session').first().textContent() || '').trim();
+      const terminalTitle = (await page.locator('.terminal-session').first().getAttribute('title') || '').trim();
+      assert.equal(/[\u4e00-\u9fff]/.test(terminalLabel), false, '终端标签不得出现中文界面文案：' + terminalLabel);
+      assert.equal(/[\u4e00-\u9fff]/.test(terminalTitle), false, '终端悬停文案不得出现中文界面文案：' + terminalTitle);
+      assert.equal(terminalLabel, 'Local', '终端标签必须与参考一致显示 Local：' + terminalLabel);
+      assert.match(terminalTitle, /Custom terminal|Windows PowerShell/i, '当前 Shell 必须放在悬停文案中：' + terminalTitle);
+      report.terminalLabel = terminalLabel;
+      report.terminalTitle = terminalTitle;
+      await fs.writeFile(path.join(output, 'terminal-label.json'), JSON.stringify({ terminalLabel, terminalTitle }, null, 2) + '\n');
 
       const before = await page.locator('.bottom-tool').boundingBox();
       assert.ok(before, '找不到底部分隔条面板');

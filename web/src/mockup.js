@@ -219,7 +219,6 @@ function measureTerminalHeaders() {
     const titleWidth = Math.max(54, Math.ceil(context.measureText('Terminal').width) + 8);
     context.font = `normal ${style.fontSize} ${style.fontFamily}`;
     const label = tool.querySelector('.terminal-session');
-    label.title = label.textContent;
     const sessionWidth = Math.min(Math.max(124, Math.ceil(context.measureText(label.textContent).width) + 16),
       Math.max(0, header.clientWidth - titleWidth - 12 - 96));
     tool.style.setProperty('--terminal-header-height', `${Math.max(38, height + 12)}px`);
@@ -5163,9 +5162,10 @@ function fileHistoryTool() {
 
 function terminalTool() {
   const loading = new URLSearchParams(location.search).get("terminal-state") === "loading";
-  const name = `Windows PowerShell${loading ? " · Starting…" : ""}`;
+  const shell = "Windows PowerShell";
+  const name = `Local${loading ? " · Starting…" : ""}`;
   const output = loading ? "" : `<div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">dotnet test Augit.slnx -c Release</span></div><div>Passed! - Failed: 0, Passed: 183, Skipped: 0, Total: 183</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">git status --short</span></div><div class="file-status-modified"> M docs/product-spec.md</div><div class="file-status-modified"> M src/Augit.App/NativeGitPanel.cs</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">_</span></div>`;
-  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${name}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("x")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
+  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("x")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
 /**

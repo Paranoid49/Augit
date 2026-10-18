@@ -100,6 +100,14 @@ async function git(cwd, ...args) {
     const actions = await page.evaluate(() => [...document.querySelectorAll('.dialog.conflict-session-dialog [data-operation-action]')]
       .map((button) => ({ action: button.dataset.operationAction, disabled: button.disabled, text: button.textContent.trim() })));
     report.checks.push({ name: 'rebase-actions', actions });
+    const cjkBody = await page.evaluate(() => document.body.innerText);
+    assert.equal(/[\u3400-\u9fff]/.test(cjkBody), false, 'rebase 冲突列表含中文界面文案');
+    const cjkAttrs = await page.evaluate(() => [...document.querySelectorAll('[title], [aria-label]')]
+      .filter((node) => node.offsetWidth || node.offsetHeight || node.getClientRects().length)
+      .flatMap((node) => [node.getAttribute('title'), node.getAttribute('aria-label')])
+      .filter((value) => value && /[\u3400-\u9fff]/.test(value)));
+    assert.deepEqual(cjkAttrs, [], 'rebase 冲突列表 title/aria 含中文');
+    report.checks.push({ name: 'rebase-conflict-cjk', bodyHasCjk: false, attrs: cjkAttrs });
     const skip = actions.find((item) => item.action === 'skip');
     assert.ok(skip && !skip.disabled, 'rebase 冲突必须提供启用的 Skip');
     const cont = actions.find((item) => item.action === 'continue');

@@ -1135,7 +1135,8 @@ async function startTerminal() {
   // 其收尾由 pollTerminal 的代际守卫丢弃，不能把旧偏移带进新 Shell。
   terminalOffset = 0;
   terminalReady = true;
-  window.__augitTerminalShell = started.displayName;
+  // 宿主 displayName 可能是中文诊断值；终端标题属于界面文案，必须走统一英文转换。
+  window.__augitTerminalShell = uiMessage(started.displayName);
   if (live) {
     live.terminalStarting = false;
     applyTerminalStartState();
@@ -1156,10 +1157,12 @@ function applyTerminalStartState() {
   const label = document.querySelector('.terminal-tool .terminal-session');
   if (!label) return;
   const rendered = String(label.textContent || '').replace(/ · 正在启动…$/, '') || 'Windows PowerShell';
-  const base = window.__augitTerminalShell || rendered;
-  const text = live.terminalStarting ? `${base} · Starting…` : base;
+  const shell = uiMessage(window.__augitTerminalShell || rendered);
+  // 用户 2026-10-18 裁决：标签跟参考用 Local，当前 Shell 放在悬停 title/aria 中。
+  const text = live.terminalStarting ? 'Local · Starting…' : 'Local';
   if (label.textContent !== text) label.textContent = text;
-  label.title = text;
+  label.title = live.terminalStarting ? `${shell} · Starting…` : shell;
+  label.setAttribute('aria-label', `Local terminal: ${shell}`);
   if (typeof window.__augitMeasureTerminalHeaders === 'function') window.__augitMeasureTerminalHeaders();
 }
 
@@ -8278,6 +8281,13 @@ async function submitCompactDialog() {
   if (!field) return;
   const value = field.value.trim();
   const kind = compactDialogKind;
+  const showError = (message) => {
+    const help = layer.querySelector(".footer-help");
+    if (help) {
+      help.textContent = message;
+      help.title = message;
+    }
+  };
 
   // 跳转行只移动正文，不写任何 Git 状态（规格 §5.3：窗口本身不执行 Git 或文件写入）。
   if (kind === "go-to-line") {
@@ -8287,6 +8297,7 @@ async function submitCompactDialog() {
 
   if (value.length === 0) {
     window.__augitCheckoutError = "Name cannot be empty.";
+    showError("Name cannot be empty.");
     return;
   }
 
@@ -8296,6 +8307,7 @@ async function submitCompactDialog() {
   // 宿主 `check-ref-format` 也会拒绝，这里先在窗口内给出原因，不打无谓的 Git 调用。
   if (kind !== "checkout-revision" && /\s/.test(value)) {
     window.__augitCheckoutError = "Name cannot contain whitespace.";
+    showError("Name cannot contain whitespace.");
     return;
   }
 

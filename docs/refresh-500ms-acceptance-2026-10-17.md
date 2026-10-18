@@ -24,8 +24,13 @@
 - 外部分支 checkout：命令 82ms，界面 branch 更新 **125ms**（PID 20572/端口 54491，正常关窗、临时目录删除）。
 - 冲突外部解决同步：Abort 230ms、Continue 241ms、只读回归 411ms，均 <500ms。
 
+## 2026-10-18 首个屏幕内容帧补充
+
+正常入口全主窗 GDI 录像四轮：严格撤盖 651.6/421.7/402.5/390.4ms，首个新内容帧 731.7/494.7/462.5/480.2ms；录像约 20.4fps，故 60.0–89.8ms 是采样上界，真实滞后约 11–90ms。首轮即使扣一帧仍超过 500ms；第 2–4 轮低于 500ms。同一构建轻量无录像批严格为 460.9/339.6/352.8/359.5ms，但没有全窗视频。详见[首个可见新内容帧](refresh-content-onset-2026-10-18.md)。
+
 ## 结论与边界
 
 - 在已采样的**文件写入**和**本地 Git 分支/冲突状态**变化中，500ms 严格计时均满足；没有把 25ms 轮询超出的 502/504/506 当作产品超时。
+- 严格撤盖不是首个屏幕内容帧；全窗录像下首轮已出现超过 500ms 的可见内容样本，因此不能只凭严格计时宣称外部可见 500ms 通过。
 - 仍未覆盖：Git commit/remote/fetch/rebase 等所有元数据、每个 Present、全屏内容区无闪、不同 DPI/负载；因此整体 500ms/无闪验收仍不完成。
-- 证据：`refresh-baseline-round2-20ms*/`、`refresh-owner-*/`、`git-metadata-refresh/`、`conflict-*`。
+- 证据：`refresh-baseline-round2-20ms*/`、`refresh-owner-*/`、`git-metadata-refresh/`、`conflict-*`、`artifacts/pixel-followup-2026-10-18/refresh-owner-current/`。

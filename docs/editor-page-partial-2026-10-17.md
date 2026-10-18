@@ -6,6 +6,7 @@
 - 实际：`editor-page-360-nobottom/actual-panel.png`，正常入口、CDP 页面截图 2881×1717、项目树 360 CSS、底部 Git 工具窗已隐藏；
 - 内容同为 fixture `notes.txt`，浅色，`Ag 0123456789` / `First line` / `Second line`；
 - 两侧项目树宽度已同为 360 CSS，不再是旧参考的 519 CSS。
+- **2026-10-18 更正**：上一条“同为 360 CSS”不被原始 PNG 支持。重新测量显示参考项目面板约 320–322 CSS、实际约 360–362 CSS；参考还有实际没有的约 39 CSS 右侧栏。原 +48 x 不是同宽下的纯内容偏移，6.082% 与 4.259% 均非同态指标。历史正文/行距测量保留，但整页结论需按[几何纠正](editor-page-geometry-correction-2026-10-18.md)重读。
 
 ## 编辑正文
 

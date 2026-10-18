@@ -34,6 +34,11 @@
 - 设置正常入口 3 次：presented **281 / 304 / 286ms**，rendered 279/295/279ms，未触发超时。\n- 追加 4 次冷启动首窗、同时 4 个 PowerShell CPU 占用进程：presented **352 / 332 / 337 / 343ms**，rendered 345/323/332/333ms，host 973/992/1178/985ms，仍未复现 2904ms，也未触发 500ms 捕获上限。\n- 捕获超时构建上深色白闪复验：288 帧/约2.5s，`maxWhiteSamples` **0**，擦除底色修复仍有效。
 - 当前 Shell SHA256 `15A1AE14B74D049B3F3B695F4BC052BEB606CF22E9F87B606CE58DFE594A74CD`；Infrastructure 仍 `2CCA339F…AF8190F1F`。
 
+## 2026-10-18 当前构建补充
+
+无 CDP 正常入口五批有效开窗原生呈现 599.2/730.9/656.6/747.5/678.3ms， `CapturePreviewAsync` 调用后异步等待 92.1–103.3ms，仍未触发 500ms 超时；两次前台合格录像的近白扫描最大 3,629,455/4,942,080、0 帧达到 4,500,000。运行 8 用 `click-window.ps1 -WindowHandle` + `AttachThreadInput` 真实点击 Cancel，Settings 正常关闭，原生 `close-request→destroyed` 59.1ms，主窗正常关窗；已覆盖浅色/深色/重复 Cancel、Save/OK、标题 WM_CLOSE 和 Esc，共 7 次关闭样本；不同 DPI 仍未。详见[无 CDP 设置开窗复核](settings-no-cdp-2026-10-18.md)。
+另尝试 OS 级挂起 WebView2 renderer/GPU，七次有效尝试均未触发 `capture-timeout`；用 CDP `SystemInfo.getProcessInfo` 精确定位并挂起设置页 renderer（含 GPU）后，捕获仍 81–93ms 完成，说明 `CapturePreviewAsync` 不等待被挂起的 renderer/GPU。该路径已否证；超时分支仍未实机验证，见[捕获超时挂起尝试](settings-capture-stall-2026-10-18.md)。
+
 ## 边界
 
 - 2904ms 样本不可重复，500ms 超时路径尚未在真实慢样本中触发；不能宣称慢开已完全修复。

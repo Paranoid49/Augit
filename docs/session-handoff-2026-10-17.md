@@ -1,10 +1,28 @@
 # 会话交接（2026-10-17）
 
+## 2026-10-18 接续：正常入口设置/嵌套/刷新首内容帧证据
+
+本批从已提交基线 `d43e761` 接续，正常入口实测（强制非增量构建）记录在[正常入口接续验收](normal-entry-acceptance-2026-10-18.md)：
+
+- 实际映射 `Augit.dll` `159123F2…EA8559D`、`Augit.Infrastructure.dll` `A92BBE4C…D42894CE`；普通冒烟、设置映射批、刷新和嵌套模态均为同一构建。普通冒烟 PID 24608 正常关窗、端口关闭、临时目录删除；纯文本/终端/Changes→Diff/零页面错误通过。
+- 当前验收状态总表见[保留范围验收状态](retained-acceptance-status-2026-10-18.md)，其中区分已通过、部分通过和需裁决项。
+- 设置正常入口 30 窗（深/浅/映射三批各 10 窗）原生呈现 339–497ms、捕获调用 ≤2.9ms、异步等待 73.6–101.1ms、原生关闭 24.6–56.8ms；Cancel/Save/Esc/标题关闭、主题取消、持久化失败重试、Apply/重开通过，无页面错误；未触发 500ms 捕获超时，慢样本仍未复现。另无 CDP 实例中十一次有效开窗 599.2–747.5ms（重复 732.6/714.5ms），捕获等待 92.1–139.9ms；运行 8–14 取得 7 次正常关闭：Cancel 4 次（浅色 59.1ms、深色 72.7ms、同一进程重复 67.9/55.8ms）、Save/OK 54.8ms、标题 WM_CLOSE 86.7ms、Esc 48.3ms；运行 10 录像 `foreground=true`，其余关闭录像前景 false。Esc 的 `SendInput` 路径返回 0 失败，`keybd_event` 路径成功；仍需不同 DPI。运行 5–7 在输入/截图前退出且无 Application Error 事件，直接启动诊断 3/3 存活，原因未定位。“940×560 CSS 窄窗”已核实为审计侧 DPI 二次换算错误，同配置正常启动实际 2880×1716 最大化，该结论撤回。见[无 CDP 记录](settings-no-cdp-2026-10-18.md)。
+- 尝试用 OS 级挂起 WebView2 renderer/GPU 触发 500ms 捕获超时：7 次有效尝试均未出现 `capture-timeout`。缓存进程要么晚于捕获，要么击中设置页初始化；改用 CDP `SystemInfo.getProcessInfo` 精确挂起设置页新 renderer（含 GPU）后，捕获仍在 81–93ms 完成。该路径说明 `CapturePreviewAsync` 不等待被挂起的 renderer/GPU，不能证明提前揭示无风险；超时分支仍未实机验证。见[捕获超时挂起尝试](settings-capture-stall-2026-10-18.md)，不要重复 renderer/GPU 挂起。
+- 新增真实嵌套模态脚本：Push → Define remote → 关闭子窗 → 返回同一 Push HWND/DOM → 关闭 Push；子窗 ownerWindow 指向 Push，最终快照 0、所有者启用、`CloseMainWindow` 成功。5 项生命周期正/负向测试通过。
+- 刷新新增“首个真实内容帧”量测：全主窗 GDI 录像约 20.4fps，四轮严格撤盖 651.6/421.7/402.5/390.4ms，首个新内容帧 731.7/494.7/462.5/480.2ms；60.0–89.8ms 是约 49ms/帧的采样上界，真实滞后约 11–90ms。首轮即使扣一帧仍超过 500ms；轻量无录像严格 460.9/339.6/352.8/359.5ms，但无全窗视频。见[首个可见新内容帧](refresh-content-onset-2026-10-18.md)。
+- 保留模态补一项当前同状态复核：跳转行空输入（浅色、UI12、DPI168、聚焦）字段 200×34、相对 dialog x=113/y=52 CSS、按钮 78×34/间距6，参考与实际一致；蓝色聚焦框仅 1 物理像素偏移，旧“字段整体 3px 左移”在当前构建不成立。标题/标签/品牌图标差异属产品范围；1598/27900 像素差不能当整页通过。见[跳转行当前配对](goto-line-current-pair-2026-10-18.md)。
+- 编辑页 6.082% 前提纠正：原始 PNG 重测显示参考项目面板约 320–322 CSS、实际约 360–362 CSS，参考另有实际没有的约 39 CSS 右侧栏；原“两侧同为 360 CSS”不成立，+48 x 不是纯内容偏移，6.082% 与 4.259% 均非同态指标。正文 135/135、行距 39/38 仍是有效局部证据。见[编辑页几何纠正](editor-page-geometry-correction-2026-10-18.md)。
+- 终端标签已按用户 2026-10-18 裁决改为参考 `Local`，当前 Shell 放悬停 `title`/`aria-label`；正常入口 PID19284/端口60293，实测 `Local` + `title="Custom terminal"`、八行输出、面板327 CSS、正常关窗。`terminal-matched-panel`、`ui-text`、共享资源校验通过；`live-data.js` MD5=`D8D4998D4FC7C82433873C38E3E8A2FE`。完整面板/状态栏/内容仍待同态参考，见[终端标签记录](terminal-custom-label-2026-10-18.md)。
+- 正常入口英文审计：英文夹具下扫描 main/text/changes/diff/terminal、设置四页、设置保存失败、go-to-line、stash-create、stash-manager、worktree-manager、New Worktree 空字段、无远程 fetch 失败、push、remote、Define Remote 空名称/空 URL，共20状态；终端标签裁决后复验浅色 PID27264/端口55723、深色 PID12796/端口62816 各一轮，合计40状态，可见文本/title/aria 的 CJK 发现数均为0；两轮注入中文负向对照均检出1项。补充新建分支空/空白名称与新建标签空名称校验 PID20524/端口64786，底栏英文错误、无中文；冲突列表/只读 Diff 真实 merge 夹具 PID17344/端口62807，CJK 0；Rebase Skip/Abort 夹具 PID5140/端口50564，动作英文、CJK 0，Skip 后 rebase 完成且正常关窗；Merge Continue 夹具 PID3172/端口52119，外部解决后 CJK 0，点击 Continue 后正常关窗；Merge Abort 夹具 PID19348/端口59750，CJK 0，点击 Abort 后正常关窗。见[界面英文审计](ui-english-audit-2026-10-18.md)。
+- 历史“阴影差异已接受”无用户裁决来源；用户 2026-10-18 已裁决登记为**已知差异、不宣称验收**，见[阴影差异登记](shadow-difference-registration-2026-10-18.md)。
+- 已核实旧参考 PID 21240 不存在且无进程引用后，删除其已批准的临时目录；本批实例/端口/临时目录均清理。用户原有 PyCharm PID 22768 未触碰。
+- 仍未完成：2904ms 慢样本与捕获超时真实路径、全 DPI/全场景闪帧、54 页双端同态 0 合格、终端完整内容/面板、阴影顶部/底部差异与深色/非活动/DPI。不能因本批证据把整体目标标记完成。
+
 ## 第二轮：设置原生阶段与刷新合并窗口（覆盖下文旧性能描述）
 
 设置捕获等待上限：定位 2904ms 历史样本为窗口显示后捕获/渲染等待（present 请求 2478.8ms、rendered 2889ms），给 `CapturePreviewAsync` 加 500ms 上限并记录 `capture-timeout`；Shell 246、设置 281/304/286ms、正常冒烟 3/3 通过。慢样本不可重复，超时路径未在真实慢样本触发，不能宣称慢开完全修复。当前 Shell SHA256=`15A1AE14B74D049B3F3B695F4BC052BEB606CF22E9F87B606CE58DFE594A74CD`（捕获等待上限构建；白闪修复在 AF55 上验证）。详见[捕获超时记录](settings-capture-timeout-2026-10-17.md)。
 
-2026-10-18 阴影同背景定量：参考 left/right31、top26.3、bottom69，外沿45/45/37/≥64px；隐藏 DSH/Edge/PyCharm 后实际 left/right30、top16、bottom55，外沿46/45/17/≥64px。实际有阴影，左/右基本一致，顶部/底部偏弱；此前实际0结论撤回。产品取舍为保留 DWM 阴影并接受该已知差异，不再追加完整自绘层；实验全部撤回，Shell 15A1。
+2026-10-18 阴影同背景定量：参考 left/right31、top26.3、bottom69，外沿45/45/37/≥64px；隐藏 DSH/Edge/PyCharm 后实际 left/right30、top16、bottom55，外沿46/45/17/≥64px。实际有阴影，左/右基本一致，顶部/底部偏弱；此前实际0结论撤回。产品行为保持保留 DWM 阴影并撤回无收益实验；用户 2026-10-18 裁决登记为已知差异、不宣称验收（不是豁免），见[阴影差异登记](shadow-difference-registration-2026-10-18.md)；Shell 15A1。
 
 2026-10-18 编辑页同侧栏对照：参考实例已重启为 PID24408（隔离配置，`window.layouts` Project weight 0.17），在 Project 标题栏边界 y=150 真实拖动把项目树拉到 360 CSS；实际用正常入口 + CDP 页面截图得 `editor-page-360-nobottom`（2881×1717、侧栏360、底部工具窗隐藏）。编辑正文墨迹宽 135/135，行号到正文间距 20/20，第1–3行步长 39/38 对 39/38，**字宽、行距、gutter 相对关系一致**；整体偏移 +48 x / +63 y，按偏移对齐后仍有 9412/221000（4.259%）像素差≥16，暗墨 IoU 0.825、实际墨量重约14%；未对齐整页差≥16 为 300580/4,942,080（6.082%）。故只是编辑正文结构对齐，不是整页或逐像素通过。详见[编辑页对照](editor-page-partial-2026-10-17.md)。
 

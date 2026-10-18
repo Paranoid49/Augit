@@ -41,6 +41,8 @@ const {waitAsyncCondition}=require('./wait-async-condition.cjs');
    const identity=await execute('powershell.exe',['-NoProfile','-Command',
     '$p=Get-CimInstance Win32_Process -Filter "ProcessId = '+shell.pid+'"; [pscustomobject]@{pid=$p.ProcessId;path=$p.ExecutablePath;commandLine=$p.CommandLine;modules=@((Get-Process -Id '+shell.pid+').Modules | Where-Object {$_.ModuleName -eq "Augit.dll" -or $_.ModuleName -eq "AudioDevProps2.dll"} | Select-Object ModuleName,FileName)} | ConvertTo-Json -Depth 4'],{windowsHide:true,timeout:15000});
    evidence.set('process-identity.json',JSON.parse(identity.stdout));
+   const mapped=await execute(process.env.AUGIT_AUDIT_PYTHON||'D:/Python/Python3119/python.exe',['-B','tools/audit/read-process-mapped-images.py',String(shell.pid)],{windowsHide:true,timeout:15000,env:{...process.env,PYTHONUTF8:'1'}});
+   evidence.set('mapped-images.json',JSON.parse(mapped.stdout));
   }
   for(let i=0;i<120;i++){try{browser=await chromium.connectOverCDP('http://127.0.0.1:'+port);break;}catch{assert.equal(shell.exitCode,null);await delay(250);}}
   assert.ok(browser);main=browser.contexts()[0].pages()[0];main.setDefaultTimeout(15000);
