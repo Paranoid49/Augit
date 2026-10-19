@@ -1,5 +1,7 @@
 # 同态参考截图交接（2026-10-18）
 
+> 2026-10-18 19:17 补记：首个 `main-project`/`text-viewer` 同态配对已采集并测量。参考必须用 `D:/JetBrains/PyCharm-2026.2.1-reference/unpacked/bin/pycharm64.exe`（product-info 2026.2.1 / 262.9437.214）；`D:/JetBrains/PyCharm 2026.2.1` 目录实际是 2026.2.3，不能使用。Find Action 没有 “Hide Right Sidebar”；`View | Appearance | Tool Window Bars` 会同时隐藏左侧工具轨，右条只能登记为结构差异。详见[首个同态配对](homologous-main-text-pair-2026-10-18.md)。
+
 ## 当前已推送状态
 
 - 分支 `dsh`，HEAD `b3d8a8b5911001b9d1e7807d31492983979ca658`，已推送至 `origin/dsh`。
