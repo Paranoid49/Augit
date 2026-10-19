@@ -365,3 +365,4 @@
 - `cleanup-check-217.json`（终端区域对齐汇总）：矩阵第 37 行更新为“深色纵向/浅色 ANSI 已对齐”；深色 header 1176、首行 1187、配准 dy -1；浅色首行 1187；右侧 42 CSS 工具轨登记结构差异；页面级仍 50、像素仍 0。
 - `cleanup-check-218.json`（终端顶距后三套件回归）：frame 24/24、titlebar 12/12、document 60/60 全部通过；共享 CSS 修改未使三个状态矩阵回归；页面级仍 50、像素仍 0。
 - `cleanup-check-219.json`（推送后正常入口冒烟）：PID 6344，ProductVersion `0.1.0+15600a2…`；Terminal 正常打开、真实输入 `Write-Host "SMOKE"` 输出；资源哈希 `mockup.css 33974150…`；页面级仍 50、像素仍 0。
+- `cleanup-check-220.json`（终端内容二维配准）：深色 315.4 + 2.5px 顶距，header 1176、首行 1187；内容区域二维配准最佳 dx -1 / dy -1；这是终端内容区域，不是整页像素合格；页面级仍 50、像素仍 0。

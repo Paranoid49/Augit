@@ -37,7 +37,7 @@ DOM 测量显示 `.terminal-view` 的 `padding-top` 为 11 CSS，而参考首行
 - 正常入口 PID 14596、深色、`bottomPanelHeight=315.4`、同内容复采：
   - header 顶边框 **1176**（参考 1176）；
   - 首条内容 **1187**（参考 1187）；
-  - 终端区域配准最佳 dy **-1px**。
+  - 终端内容区域二维配准最佳 **dx -1px / dy -1px**。
 - 新增 `tools/test-terminal-view-padding.mjs`，web/视觉稿 2/2 通过；UI 资产字节一致 PASS。
 - 这是终端区域对齐，不是整页像素合格；页面级仍 50、像素 0。
 
