@@ -2,7 +2,7 @@
 const keys = ['black','red','green','yellow','blue','magenta','cyan','white',
   'brightBlack','brightRed','brightGreen','brightYellow','brightBlue','brightMagenta','brightCyan','brightWhite'];
 const light = ['000000','CE0505','067D17','B28C00','063FDB','B309B3','028E8E','929292',
-  '656565','FF1616','16B42C','ECC32C','2D61F0','E617E6','15C1C1','C9C9C9'];
+  '656565','FF1616','16B42C','ECC32C','0060AF','E617E6','15C1C1','C9C9C9'];
 const dark = ['000000','F0524F','5C962C','A68A0D','3993D4','A771BF','00A3A3','808080',
   '595959','FF4050','4FC414','E5BF00','1FB0FF','ED7EED','00E5E5','FFFFFF'];
 

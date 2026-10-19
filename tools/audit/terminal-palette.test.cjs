@@ -15,7 +15,7 @@ test('ANSI16色对应参考控制台索引且主题结果独立',async()=>{
   const {terminalAnsiPalette}=await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   const light=terminalAnsiPalette('light'),dark=terminalAnsiPalette('dark');
   assert.equal(Object.keys(light).length,16);
-  assert.deepEqual(Object.values(light),['#000000','#CE0505','#067D17','#B28C00','#063FDB','#B309B3','#028E8E','#929292','#656565','#FF1616','#16B42C','#ECC32C','#2D61F0','#E617E6','#15C1C1','#C9C9C9']);
+  assert.deepEqual(Object.values(light),['#000000','#CE0505','#067D17','#B28C00','#063FDB','#B309B3','#028E8E','#929292','#656565','#FF1616','#16B42C','#ECC32C','#0060AF','#E617E6','#15C1C1','#C9C9C9']);
   assert.equal(dark.red,'#F0524F');assert.equal(dark.white,'#808080');assert.equal(dark.brightWhite,'#FFFFFF');
   light.red='#000000';assert.equal(terminalAnsiPalette('light').red,'#CE0505');
 });
