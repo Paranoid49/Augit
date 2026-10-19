@@ -361,3 +361,4 @@
 - `cleanup-check-211.json`（搜索限速尝试）：`PROCESS_MODE_BACKGROUND_BEGIN` error 87；`IDLE_PRIORITY_CLASS` 可设但不降 I/O；250k Idle 后仍无 timeout；不再重复该 P/Invoke；需 Job Object I/O 限速/慢文件系统；页面级仍 50、像素仍 0；未提交、未推送。
 - `cleanup-check-212.json`（搜索 SMB 慢共享尝试）：`New-SmbShare` 因非管理员“拒绝访问”，未创建共享、未启动搜索；100k 临时树已删除；不再重复；页面级仍 50、像素仍 0；未提交、未推送。
 - `cleanup-check-215.json`（终端首行顶部内距）：`.terminal-view` `padding-top` 11→2.5 CSS；正常入口 PID 14596、深色 315.4、同内容：header 顶 1176、首内容 1187，与参考一致（配准 dy -1）；新增 `tools/test-terminal-view-padding.mjs` 2/2，UI 资产 PASS；页面级仍 50、像素仍 0。
+- `cleanup-check-216.json`（浅色终端回归）：正常入口 PID 21408、浅色、同内容：header 分隔线 1176、首内容 1187，与深色一致；顶部内距修复主题无关；页面级仍 50、像素仍 0。

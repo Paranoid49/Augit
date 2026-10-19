@@ -41,11 +41,21 @@ DOM 测量显示 `.terminal-view` 的 `padding-top` 为 11 CSS，而参考首行
 - 新增 `tools/test-terminal-view-padding.mjs`，web/视觉稿 2/2 通过；UI 资产字节一致 PASS。
 - 这是终端区域对齐，不是整页像素合格；页面级仍 50、像素 0。
 
+### 浅色回归
+
+正常入口 PID 21408、浅色、同内容复采：
+
+- header 分隔线 **1176**；
+- 首条内容 **1187**；
+- 与深色结果一致，说明 `.terminal-view` 顶部内距修复是主题无关的，不是只对深色补丁。
+
 ## 5. 证据
 
 - 参考：`artifacts/pixel-followup-2026-10-18/terminal-dark-pair/reference/reference-terminal-dark.png`
 - 实际 320：`artifacts/pixel-followup-2026-10-19/terminal-dark-match/actual-dark-320.png`
 - 实际 315.4：`artifacts/pixel-followup-2026-10-19/terminal-dark-315/actual-dark-315.png`
+- 正常入口深色：`artifacts/pixel-followup-2026-10-19/terminal-dark-padding-fix/actual-dark-padding.png`
+- 正常入口浅色：`artifacts/pixel-followup-2026-10-19/terminal-light-padding/actual-light-padding.png`
 
 ## 6. 状态与清理
 
