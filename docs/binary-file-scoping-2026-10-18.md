@@ -14,6 +14,12 @@
 - 参考 PID 24084：双击 `sample.zip` 只选中 Project 行（底栏显示 sample.zip），编辑器仍是 app.py；没有打开二进制页/标签。证据 `D549E161…2F59`。
 - 参考对 `.bin` 弹文件类型关联、对已知 `.zip` 不打开预览；实际都有明确二进制摘要页。**仍无同态页可配对**。
 
+## 1.2 Commit Diff 重试（2026-10-19）
+
+- 实际 PID 6084：Commit 视图双击 `sample.bin` → 打开 `Commit: sample.bin`，正文 `Text diff is unavailable for this file (Binary).`；不是文件预览页，而是二进制 Diff 摘要。
+- 参考 PID 21560：同一 `.bin` 的 Commit Diff → `Cannot show diff for an unknown file type` + 两侧 `Associate`；`.zip` → ZIP 归档内容比较页（临时解包路径 + `Nothing to show`）。
+- 仍无“二进制摘要”同态参考页；登记为产品差异，不增加页面级 50。详见[二进制 Diff 参考复核](binary-diff-reference-2026-10-19.md)。
+
 ## 2. 后续
 
 - 参考端先为 `.bin` 选择 PyCharm 内打开（或改用已知二进制类型如 `.zip`）后再采“Binary file”页；实际不可预览页证据保留。
