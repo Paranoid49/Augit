@@ -18,10 +18,10 @@ async function main() {
         const page = await context.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
-        // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF16）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
-        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
-        // 按下底是**独立一档**：权威 `ActionButton.pressedBackground` = `--augit-pressed`（浅 #00000020／深 #FFFFFF26，第 65/86 轮）。
-        const pressedBg = theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.125)';
+        // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF17 = 0.09）。
+        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)';
+        // 按下底是**独立一档**：权威 `ActionButton.pressedBackground` = `--augit-pressed`（浅 #00000020／深 #FFFFFF29 = 0.16）。
+        const pressedBg = theme === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)';
         // 选中（`aria-pressed="true"`）**且悬停**：芯片式可选按钮走
         // `FieldInplaceActionButtonLook.getStateBackground()`（New UI 分支）的
         // `SearchOption.selectedHoveredBackground`／`selectedPressedBackground`，两者的默认值都是
@@ -33,8 +33,8 @@ async function main() {
         // = `JBColor.namedColor("SearchOption.selectedBackground", 0xDAE4ED, 0x5C6164)`（`JBUI.java:522-528`）。
         const chipSelected = theme === 'dark' ? 'rgb(92, 97, 100)' : 'rgb(218, 228, 237)';
         const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
-        // 权威 `Label.disabledForeground`：浅 #9FA2A8／深 Gray6 #5A5D63（第 120 轮同族订正）。
-        const faint = theme === 'dark' ? 'rgb(90, 93, 99)' : 'rgb(159, 162, 168)';
+        // 权威 `Label.disabledForeground`：浅 #9FA2A8／深 faint #4C4F56。
+        const faint = theme === 'dark' ? 'rgb(76, 79, 86)' : 'rgb(159, 162, 168)';
         for (const scene of ['text-viewer', 'markdown-preview', 'json-preview', 'image-preview', 'blame']) {
           const label = `${scene}-${theme}-${size}-${scale}`;
           const url = pathToFileURL(path.resolve(__dirname, `../docs/ux-mockups/${scene}.html`));
@@ -42,8 +42,9 @@ async function main() {
           await page.goto(url.href);
           await page.waitForSelector('body[data-typography-preview="ready"]');
           if (scene === 'text-viewer') {
-            await page.getByRole('button', { name: '当前文件搜索', exact: true }).click();
-            await page.getByRole('textbox', { name: '当前文件查找', exact: true }).fill('Git');
+            // 界面英文审计后为 "Find in File"；旧中文 aria 已过期。
+            await page.getByRole('button', { name: 'Find in File', exact: true }).click();
+            await page.getByRole('textbox', { name: 'Find in File', exact: true }).fill('Git');
             await page.waitForFunction(() => document.querySelector('.find-status')?.textContent.includes('/'));
           }
           const controls = page.locator(':is(.document-toolbar, .current-find) :is(.icon-button, .segment)');
@@ -98,7 +99,7 @@ async function main() {
             // 查找条里的三个可选开关是**芯片式**按钮（`SearchTextArea.MyActionButton` + field-inplace look）：
             // 未悬停的选中态用 `SearchOption.selectedBackground`，与悬停/按下的 `ActionButton.pressedBackground`
             // 是两档。上面那条通用断言（强制 aria-pressed 后仍悬停）验证的是后者。
-            for (const name of ['区分大小写', '全字匹配', '正则表达式']) {
+            for (const name of ['Match case', 'Words', 'Regex']) {
               const chip = page.locator(`.current-find .icon-button[aria-label="${name}"]`);
               const original = await chip.getAttribute('aria-pressed');
               await chip.evaluate(element => element.setAttribute('aria-pressed', 'true'));
@@ -111,10 +112,13 @@ async function main() {
             }
           }
           if (output && scale === 1 && size === 13) {
-            const target = controls.first();
-            await target.hover();
-            await target.focus();
-            await page.screenshot({ path: path.join(output, `${scene}-${theme}.png`) });
+            // 截图是可选证据；部分场景（如图片预览）没有文档工具栏，不能因此让状态矩阵假失败。
+            if (await controls.count()) {
+              const target = controls.first();
+              await target.hover();
+              await target.focus();
+              await page.screenshot({ path: path.join(output, `${scene}-${theme}.png`) });
+            }
           }
           assert.deepEqual(errors, []);
           passed++;

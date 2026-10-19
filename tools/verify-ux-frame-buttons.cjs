@@ -31,11 +31,14 @@ async function main() {
         const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' /* 权威深色 hover = #FFFFFF17；旧 #FFFFFF16 是过期值 */ : 'rgba(0, 0, 0, 0.07)';
         const pushed = theme === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)';
         const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
-        const panel = theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)';
+        // 深色 `--augit-panel` 是 #191A1C（design-system §6.2 的 panel）；#1E1F22 是 editor-bg，
+        // 旧期望把两者混用，激活工具轨边框因此假失败。
+        const panel = theme === 'dark' ? 'rgb(25, 26, 28)' : 'rgb(255, 255, 255)';
         // 禁用态底取 `--augit-panel-muted`：浅 = Islands `*.disabledBackground` = `dialog-bg` = `gray-160`
         // `#F7F8F9`（第 131 轮订正；原 `#F7F8FA` = **未被采用**的 expUI_light `Gray13`，更早的 #F5F8FE 无依据）；
         // 深 = expUI_dark `*.disabledBackground` = `Gray2` `#2B2D30`（原 #25262A 无依据）。
-        const mutedPanel = theme === 'dark' ? 'rgb(43, 45, 48)' : 'rgb(247, 248, 249)';
+        // 深色 `--augit-panel-muted` 是 #212326；#2B2D30 是 popup-bg，不是禁用底。
+        const mutedPanel = theme === 'dark' ? 'rgb(33, 35, 38)' : 'rgb(247, 248, 249)';
         const faint = theme === 'dark' ? 'rgb(76, 79, 86)' /* 权威深色 faint = #4C4F56；旧 #5A5D63 是另一个灰阶 */ : 'rgb(159, 162, 168)';
         const controls = page.locator('.rail-button, .side-tool:has(.side-content.tree) > .tool-header .icon-button, .terminal-header .icon-button');
         assert.equal(await controls.count(), 12);
@@ -109,6 +112,15 @@ async function main() {
         // 否则"未悬停档"会因为取样条件从未成立而静默通过（负向验证也测不出回归）。
         assert.ok(restingReads.some(entry => entry.rail && entry.active && !entry.hovering),
           `未悬停档一个"激活轨道入口"样本都没取到：${JSON.stringify(restingReads)}`);
+        // `hover()` 会把目标滚入视口；这里比较的是布局是否移动，不是滚动位置。
+        // 不先复位滚动会拿"hover 后的滚动态"去比"初始态"，得到整页 x/y 平移的假失败。
+        await page.evaluate(() => {
+          window.scrollTo(0, 0);
+          for (const element of document.querySelectorAll('*')) {
+            if (element.scrollLeft) element.scrollLeft = 0;
+            if (element.scrollTop) element.scrollTop = 0;
+          }
+        });
         assert.deepEqual(await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON())), bounds);
         // 界面英文审计后终端头部 aria 标签为英文；旧中文期望已过期。
         assert.deepEqual(await page.locator('.terminal-header button').evaluateAll(elements => elements.map(e => e.getAttribute('aria-label'))),
@@ -118,9 +130,14 @@ async function main() {
           await page.evaluate(() => measureTerminalHeaders());
           const layout = await page.locator('.terminal-header').evaluate(header => {
             const rect = element => { const r = element.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, height: r.height }; };
+            const style = getComputedStyle(header);
+            const iconHit = Number.parseFloat(style.getPropertyValue('--augit-icon-hit')) || 28;
+            // 大字号命中区 91px 时，Local 标签按文字高度取 49px；普通字号回落到命中区。
+            const sessionHeight = Number.parseFloat(style.getPropertyValue('--terminal-session-height')) || iconHit;
             return {
               header: rect(header),
-              iconHit: Number.parseFloat(getComputedStyle(header).getPropertyValue('--augit-icon-hit')) || 28,
+              iconHit,
+              sessionHeight,
               children: [...header.children].map(element => ({ ...rect(element), close: element.classList.contains('terminal-session-close') })),
             };
           });
@@ -130,9 +147,13 @@ async function main() {
             assert.ok(child.right <= layout.header.right && child.bottom <= layout.header.bottom);
             previous = child.right;
           }
-          // 终端头部动作与 Local 标签/关闭段都随 --augit-icon-hit 缩放；12px 基准为 28 CSS（参考实测 49 物理像素）。
-          assert.equal(layout.children[1].height, layout.iconHit, `终端 Local 标签高度应等于图标命中区：${theme}/${size}`);
-          for (const child of layout.children.slice(2)) assert.equal(child.height, layout.iconHit);
+          // 动作命中区随 --augit-icon-hit 缩放；Local 标签/关闭段在大字号下用独立文字高度（49px），
+          // 不能像旧断言那样要求两者都等于 91px 的命中区。12px 基准仍为 28 CSS。
+          assert.equal(layout.children[1].height, layout.sessionHeight, `终端 Local 标签高度：${theme}/${size}`);
+          for (const child of layout.children.slice(2)) {
+            assert.equal(child.height, child.close ? layout.sessionHeight : layout.iconHit,
+              `终端${child.close ? '关闭段' : '动作'}高度：${theme}/${size}`);
+          }
         }
         if (output && scale === 1) {
           await page.getByRole('link', { name: 'Terminal', exact: true }).focus();

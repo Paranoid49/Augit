@@ -33,20 +33,21 @@ async function main() {
         url.searchParams.set('ui-size', String(size));
         await page.goto(url.href);
         await page.waitForSelector('body[data-typography-preview="ready"]');
-        const chrome = theme === 'dark' ? [43, 45, 48] : [233, 234, 238];
-        const chromeCss = theme === 'dark' ? 'rgb(43, 45, 48)' : 'rgb(233, 234, 238)';
-        // 主菜单条目是**菜单项**，悬停底取 `--title-menu-hover`（浅 #00000012／深 #FFFFFF1A），与按钮悬停的 #FFFFFF16 不同。
-        const menuHover = theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.07)';
-        // 按钮悬停底 `--title-button-hover`（浅 #00000012／深 #FFFFFF16）。
-        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
-        // 按下底是独立一档：`--title-button-pressed`（浅 #00000020／深 Gray3 #393B40）。
-        const titlePressed = theme === 'dark' ? 'rgb(57, 59, 64)' : 'rgba(0, 0, 0, 0.125)';
+        // 深色 chrome 是 #26282C；#2B2D30 是 popup-bg，旧期望混用了弹层色。
+        const chrome = theme === 'dark' ? [38, 40, 44] : [233, 234, 238];
+        const chromeCss = theme === 'dark' ? 'rgb(38, 40, 44)' : 'rgb(233, 234, 238)';
+        // 主菜单/标题入口悬停底统一取 `--title-menu-hover` / `--title-chip-hover`（深 #FFFFFF17）。
+        const menuHover = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)';
+        // 按钮悬停底 `--title-button-hover`（浅 #00000012／深 #FFFFFF17 = 23/255 ≈ 0.09）。
+        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)';
+        // 按下底是独立一档：`--title-button-pressed`（浅 #00000020／深 #FFFFFF29 = 41/255 ≈ 0.16）。
+        const titlePressed = theme === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)';
         // 权威 `accent-brand-bg`：浅 blue-80 #3871E1／深 Blue6 #3574F0（原写 Blue8 #548AF7，无依据）。
         const accent = theme === 'dark' ? [53, 116, 240] : [56, 113, 225];
         const text = theme === 'dark' ? [223, 225, 229] : [32, 33, 36];
-        // 权威 `Label.disabledForeground` → `text-disabled`：浅 gray-100 #9FA2A8／深 expUI_dark 灰阶 Gray6 #5A5D63
-        // （原 [160,164,170]/[111,115,123] 为旧值，无依据）。
-        const faint = theme === 'dark' ? [90, 93, 99] : [159, 162, 168];
+        // 权威 `Label.disabledForeground` → `text-disabled`：浅 gray-100 #9FA2A8／深 faint #4C4F56
+        // （#5A5D63 是旧值，与 frame-buttons 的 faint 不一致）。
+        const faint = theme === 'dark' ? [76, 79, 86] : [159, 162, 168];
         // 直接读 computed 字符串（canvas 读法会丢 alpha，见第 120/125 轮）。
         const rawBg = (locator) => locator.evaluate(el => getComputedStyle(el).backgroundColor);
         const controls = page.locator('.titlebar :is(.top-button, .top-chip, .titlebar-context)');
@@ -61,15 +62,15 @@ async function main() {
           // 不是 chip 底色；`MainToolbar` 里也没有"项目色底"这个键）。第 70 轮已据此实现，此处同步期望。
           const normal = workspace ? 'rgba(0, 0, 0, 0)' : chromeCss;
           // 悬停/按下底改为权威令牌（第 85/87/117 轮）：chips 与当前文件入口 = `--title-chip-hover`/`--title-context-hover`
-          // （浅 #00000012／深 #FFFFFF1A），其余按钮 = `--title-button-hover`（浅 #00000012／深 #FFFFFF16），
-          // 按下 = `--title-button-pressed`（浅 #00000020／深 Gray3 #393B40）。
+          // （浅 #00000012／深 #FFFFFF17），其余按钮 = `--title-button-hover`（浅 #00000012／深 #FFFFFF17），
+          // 按下 = `--title-button-pressed`（浅 #00000020／深 #FFFFFF29）。
           // 这些值是**半透明**的，原来的 canvas 读法会丢掉 alpha，故直接用 computed 字符串比较。
           const dark = theme === 'dark';
           const chipish = workspace || branch || type.includes('titlebar-context');
           const hovered = chipish
-            ? (dark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.07)')
-            : (dark ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)');
-          const pressed = dark ? 'rgb(57, 59, 64)' : 'rgba(0, 0, 0, 0.125)';
+            ? (dark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)')
+            : (dark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.07)');
+          const pressed = dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)';
           await page.mouse.move(700, 700);
           if (workspace) assert.equal(await rawBg(button), normal);
           await button.hover();
@@ -108,7 +109,8 @@ async function main() {
         }
         await page.locator('[data-action="menu"]').click();
         const entries = page.locator('.main-menu-entry');
-        assert.deepEqual(await entries.allTextContents(), ['文件', '视图', 'Git', '终端', '设置']);
+        // 界面英文审计后主菜单为英文；旧中文数组已过期。
+        assert.deepEqual(await entries.allTextContents(), ['File', 'View', 'Git', 'Terminal', 'Settings']);
         await entries.first().hover();
         assert.equal(await rawBg(entries.first()), menuHover);
         await entries.first().focus();

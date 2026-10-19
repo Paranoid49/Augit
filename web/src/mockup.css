@@ -2353,6 +2353,13 @@ body[data-theme="dark"] .dialog:is(.reset-dialog, .rollback-dialog) .danger-butt
   background: var(--augit-hover);
 }
 
+/* 影响说明必须完整显示 stash/checkout/restore 三件事；`.commit-meta` 在提交区是单行摘要，
+   直接复用到本对话框会把句子截在右缘（第 167 批正常入口实测止于 “resto”）。 */
+.smart-checkout-dialog .smart-checkout-impact {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* 「创建 Git 仓库」对话框的目录行：只读路径 ＋ 「选择目录…」（权威的单目录选择器）。 */
 .repository-init-dialog .path-row {
   display: flex;
@@ -4532,6 +4539,21 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   background: var(--augit-red-soft);
 }
 
+.diff-truncated-notice {
+  margin: 8px 10px;
+}
+.diff-truncated-label {
+  color: var(--augit-muted);
+  white-space: nowrap;
+}
+/* 截断说明是 toolbar/filebar 之后的独立行；不给显式行会与正文同占第 3 行而重叠。 */
+.diff-layout:has(> .diff-truncated-notice) {
+  grid-template-rows: var(--augit-diff-toolbar-height, 39px) var(--augit-diff-filebar-height, 31px) auto minmax(0, 1fr);
+}
+.diff-layout[data-diff-mode="unified"]:has(> .diff-truncated-notice) {
+  grid-template-rows: var(--augit-diff-toolbar-height, 39px) var(--augit-diff-unified-filebar-height, 55px) auto minmax(0, 1fr);
+}
+
 /* 冲突文件的只读 Diff 横幅（2026-10-17 移除三栏编辑器后保留的冲突提示）。 */
 .conflict-readonly-notice {
   display: flex;
@@ -4828,6 +4850,20 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   /* 终端工具窗边框用参考实测色，不沿用 .bottom-tool 的 border 80% 混合。 */
   box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-terminal-panel-border, #f1f2f4);
 }
+/* 2026-10-19 终端状态栏实测：参考上缘 1661，普通态 1668；终端打开时状态栏高 4 CSS，
+   工具窗同步上移，主窗/文本状态栏不受影响。 */
+.augit-window:has(.terminal-tool) {
+  --augit-status-height: calc(var(--augit-status-height-base, 28px) + 4px);
+}
+/* 参考终端状态栏在 1661 先有 1 物理px #F1F2F4 顶边，再从 1662 进入 #E9EAEE。 */
+.augit-window:has(.terminal-tool) .statusbar {
+  /* 参考是 1 物理px；--augit-hairline 在 175% 下按 round(scale)=2 设备px，故这里直接除以 DPR。 */
+  border-top: calc(1px / var(--augit-dpr, 1)) solid var(--augit-terminal-panel-border, #f1f2f4);
+}
+/* 深色参考在状态栏顶边前还有 1 物理px 工具窗底 #191A1C（浅色没有）。 */
+body[data-theme="dark"] .terminal-tool {
+  border-bottom: calc(1px / var(--augit-dpr, 1)) solid var(--augit-panel);
+}
 /* app-main 的 4px 行间隙会透出 chrome；终端打开时用参考终端工具窗边色填充，
    这样实测顶边才是 #F1F2F4（浅）/ #212326（深），而不是 chrome 的 #E9EAEE/#26282C。 */
 .app-main:has(.terminal-tool) {
@@ -4895,6 +4931,23 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .terminal-header .terminal-session-close:disabled::before { background: var(--augit-panel-muted); }
 .terminal-header .terminal-more { right: 40px; }
 .terminal-header .terminal-hide { right: 8px; }
+
+/* 大字号命中区（40 号 UI 实测 91px）需要同时放大 header、会话标签和动作按钮；
+   否则固定的 28px 标签与 40px 偏移会把 Local、关闭叉、More、Hide 挤在一起。 */
+.terminal-tool.terminal-large-actions .terminal-header .terminal-session,
+.terminal-tool.terminal-large-actions .terminal-header .terminal-session-close {
+  height: var(--terminal-session-height, 28px);
+  top: calc((var(--terminal-header-height, 38px) - var(--terminal-session-height, 28px)) / 2);
+}
+.terminal-tool.terminal-large-actions .terminal-header .icon-button:not(.terminal-session-close) {
+  top: calc((var(--terminal-header-height, 38px) - var(--augit-icon-hit, 28px)) / 2);
+  width: var(--augit-icon-hit, 28px);
+  height: var(--augit-icon-hit, 28px);
+}
+.terminal-tool.terminal-large-actions .terminal-header .terminal-more {
+  right: calc(8px + var(--augit-icon-hit, 28px) + 8px);
+}
+.terminal-tool.terminal-large-actions .terminal-header .terminal-hide { right: 8px; }
 
 /* 实时设置页：字体行需要在窄列里保留字体名输入的可读宽度。
    .form-grid 的 minmax(0, 1fr) 会把字体名输入压到 0 宽，这里为字体行单独定宽。 */

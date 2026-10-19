@@ -129,7 +129,10 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   // 状态栏的 New UI Widget.border 垂直 insets 共 12px；默认高度 28，大字号时随文本高度扩展。
   // 参考默认状态栏为 28px；Chromium 的字体包围盒不包含 AWT leading，
   // 因此保留实测基准下限，再按组件字号档位与实际字形扩展。
-  length("status-height", Math.max(Math.round(28 * uiScale), height + Math.round(12 * uiScale)));
+  const statusHeight = Math.max(Math.round(28 * uiScale), height + Math.round(12 * uiScale));
+  length("status-height", statusHeight);
+  // 终端打开时参考状态栏比普通页面高约 7 物理px（4 CSS）；保留基准供终端态叠加。
+  length("status-height-base", statusHeight);
   length("find-height", Math.max(42, height + 16, Math.round(28 * uiScale) + 14));
   length("find-edit-height", Math.max(30, height + 4, Math.round(28 * uiScale) + 2));
   length("history-header-height", Math.max(38, height + 14));
@@ -223,8 +226,15 @@ function measureTerminalHeaders() {
     // 不再用 124px 的会话下拉框宽度。sessionWidth 只承担文字+左右内距，20px 关闭段由紧随其后的按钮承担。
     const sessionWidth = Math.min(Math.max(44, Math.ceil(context.measureText(label.textContent).width) + 12),
       Math.max(0, header.clientWidth - titleWidth - 22 - 96));
-    tool.style.setProperty('--terminal-header-height', `${Math.max(38, height + 12)}px`);
+    // 大字号时 icon 命中区会大于 header 的文本高度（40 号 UI 实测 91px）；
+    // 只有放大 header 并让动作区按命中区定位，More/Hide 才不会被裁切或互相覆盖。
+    const iconHit = parseFloat(getComputedStyle(tool).getPropertyValue('--augit-icon-hit')) || 28;
+    const largeActions = iconHit > 32;
+    tool.classList.toggle('terminal-large-actions', largeActions);
+    tool.style.setProperty('--terminal-header-height', `${Math.max(38, height + 12, largeActions ? iconHit + 8 : 0)}px`);
     tool.style.setProperty('--terminal-text-height', `${Math.max(24, height + 4)}px`);
+    if (largeActions) tool.style.setProperty('--terminal-session-height', `${Math.max(28, height - 2)}px`);
+    else tool.style.removeProperty('--terminal-session-height');
     tool.style.setProperty('--terminal-title-width', `${titleWidth}px`);
     tool.style.setProperty('--terminal-session-width', `${sessionWidth}px`);
   }
@@ -2597,6 +2607,14 @@ function liveConflictNotice(path) {
   return `<div class="inline-alert conflict-readonly-notice" role="status"><strong>Unresolved conflict</strong><p>This file still contains conflict markers. Resolve it with your external editor or terminal; Augit refreshes Git state automatically and does not provide a built-in merge editor.</p><button type="button" class="secondary-button" data-open-conflict-session>Show Conflicts</button></div>`;
 }
 
+// 宿主对超大补丁只回传前 2000 行；没有这句话时工具栏会把"前 2000 行无差异"
+// 显示成 "0 differences"，而文件末尾的真实改动根本不在正文里（2026-10-19 8.7MB 实测）。
+function liveDiffTruncationNotice() {
+  const diff = window.__augitLive && window.__augitLive.diff;
+  if (!diff || diff.truncated !== true) return "";
+  return `<div class="inline-alert diff-truncated-notice" role="status"><strong>Diff truncated</strong><p>Showing the first 2000 rows. Changes in the rest of the file are not shown in this comparison.</p></div>`;
+}
+
 function liveDiffView() {
   const live = window.__augitLive || {};
   const diff = live.diff;
@@ -2659,7 +2677,9 @@ function liveDiffView() {
   }
 
   const body = diffBodyParts(diff);
-  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary: body.summary })}${liveConflictNotice(diff.path)}${barFilebar}${body.unifiedTemplate}${body.columns}</div>`;
+  // 截断时不能沿用前 2000 行的差异计数；工具栏只显示 Truncated，具体边界由正文顶部说明。
+  const summary = diff.truncated === true ? '<span class="diff-truncated-label">Truncated</span>' : body.summary;
+  return `<div class="diff-layout">${liveDiffToolbar({ fileNav, summary })}${liveConflictNotice(diff.path)}${barFilebar}${liveDiffTruncationNotice()}${body.unifiedTemplate}${body.columns}</div>`;
 }
 
 /**
@@ -5586,7 +5606,7 @@ function smartCheckoutBody(paths, notice, busy = false) {
       `<div class="smart-checkout-path" role="listitem" title="${escapeHtml(path)}">${escapeHtml(path)}</div>`).join("")}</div>`
     : `<p class="commit-meta">Local changes would be overwritten by the target branch.</p>`;
   return list
-    + `<p class="commit-meta">Local changes to these files would be overwritten by checkout. Augit can stash them, check out, and restore them afterward.</p>`
+    + `<p class="commit-meta smart-checkout-impact">Local changes to these files would be overwritten by checkout. Augit can stash them, check out, and restore them afterward.</p>`
     + `<div class="stash-notice" role="status" data-smart-notice${notice ? "" : " hidden"}>${escapeHtml(notice || "")}</div>`;
 }
 
