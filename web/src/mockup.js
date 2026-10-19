@@ -219,8 +219,10 @@ function measureTerminalHeaders() {
     const titleWidth = Math.max(54, Math.ceil(context.measureText('Terminal').width) + 8);
     context.font = `normal ${style.fontSize} ${style.fontFamily}`;
     const label = tool.querySelector('.terminal-session');
-    const sessionWidth = Math.min(Math.max(124, Math.ceil(context.measureText(label.textContent).width) + 16),
-      Math.max(0, header.clientWidth - titleWidth - 12 - 96));
+    // 2026-10-18 参考：Local 是紧凑标签（约 64.6 CSS 宽、28 CSS 高），文字左对齐、关闭叉在同一卡片内；
+    // 不再用 124px 的会话下拉框宽度。sessionWidth 只承担文字+左右内距，20px 关闭段由紧随其后的按钮承担。
+    const sessionWidth = Math.min(Math.max(44, Math.ceil(context.measureText(label.textContent).width) + 12),
+      Math.max(0, header.clientWidth - titleWidth - 22 - 96));
     tool.style.setProperty('--terminal-header-height', `${Math.max(38, height + 12)}px`);
     tool.style.setProperty('--terminal-text-height', `${Math.max(24, height + 4)}px`);
     tool.style.setProperty('--terminal-title-width', `${titleWidth}px`);
@@ -1172,6 +1174,9 @@ const toolbarIconShapes = {
   // 且桶内**有两条竖线**（x6.5／x9.5，y7..12，这是 trash-2 与普通垃圾桶的区别）。
   "trash-2": '<path d="M2.5 4.5h11"/><path d="M6.5 4.5V3.3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.2"/><path d="M4.5 6.5h7v6a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1z"/><path d="M6.5 8v3.5M9.5 8v3.5"/>',
   "x": '<path stroke-width="1" d="m3.5 12.5 9-9m0 9-9-9"/>',
+  // 标签关闭：权威 expui/general/closeSmall.svg 是填充叉、可见约 7 单位、固定色 #A8ADBD。
+  // 与对话框/搜索用的 16px `x` 描边叉分开登记，避免改一处影响通用关闭动作。
+  "close-small": '<path fill="currentColor" stroke="none" fill-rule="evenodd" clip-rule="evenodd" d="M11.4939 4.48784C11.3002 4.28007 10.9724 4.27548 10.7729 4.47775L8.00074 7.28849L5.22871 4.47788C5.02922 4.27561 4.70143 4.2802 4.50768 4.48797C4.32506 4.68382 4.32933 4.98882 4.51736 5.17947L7.29908 7.99991L4.51756 10.8201C4.32953 11.0108 4.32526 11.3158 4.50788 11.5116C4.70163 11.7194 5.02942 11.724 5.22892 11.5217L8.00074 8.71133L10.7727 11.5219C10.9722 11.7241 11.3 11.7196 11.4937 11.5118C11.6764 11.3159 11.6721 11.0109 11.484 10.8203L8.7024 7.99991L11.4843 5.17934C11.6723 4.98869 11.6766 4.68368 11.4939 4.48784Z"/>',
   "pilcrow": '<g stroke-width="1"><ellipse cx="6" cy="5" rx="4" ry="4"/><path d="M8 1v14M12 1v14"/></g>',
   "corner-down-right": '<path stroke-width="1" d="M2 2v9h11M9 7l4 4-4 4"/>',
   "history-expand": '<path d="M8 1v14M4 5l4-4 4 4M4 11l4 4 4-4"/>',
@@ -1409,6 +1414,10 @@ function fileTypeIcon(name) {
     shape = `<g stroke="none" fill="currentColor">${sceneFileIconShapes[sceneKind]}</g>`;
     // 斜线圆为描边图形，不继承文件徽标的无描边组。
     if (sceneKind === 'gitignore') shape = sceneFileIconShapes.gitignore;
+  } else if (extension === "txt") {
+    // 权威 expui/fileTypes/text.svg：四条 1 单位实心横线，长/短交替（y=3/6/9/12，x2 起，长 12、短 8）。
+    kind = "textfile";
+    shape = '<g fill="currentColor" stroke="none"><rect x="2" y="3" width="12" height="1" rx="0.5"/><rect x="2" y="6" width="8" height="1" rx="0.5"/><rect x="2" y="9" width="12" height="1" rx="0.5"/><rect x="2" y="12" width="8" height="1" rx="0.5"/></g>';
   } else if (["slnx", "props", "gitattributes"].includes(extension)) {
     kind = "text";
     shape = '<path d="M2 4h11 M2 8h11 M2 12h11"/>';
@@ -2306,7 +2315,10 @@ function settingsDirtyPages(live) {
       const next = draft[key];
       const current = settings[key];
       const numeric = typeof next === "number" || typeof current === "number";
-      const same = numeric ? Number(next) === Number(current) : String(next) === String(current);
+      // 可选文本的"未设置"可能是 null/undefined，输入框读回是空字符串；两者语义相同，
+      // 不能因此把 Terminal 页在用户未改任何值时标成脏（Apply 初始可用 + 蓝点）。
+      const text = (value) => value == null ? "" : String(value);
+      const same = numeric ? Number(next) === Number(current) : text(next) === text(current);
       if (!same) { dirty.add(page); break; }
     }
   }
@@ -2777,9 +2789,11 @@ function diffBodyParts(diff) {
       : row.kind === "Added" ? "added"
         : row.kind === "Removed" ? "removed"
           : row.kind === "Modified" ? "changed" : "";
-    const lineNumber = newCells[index].lineNumber ?? oldCells[index].lineNumber ?? "";
+    const oldNumber = oldCells[index].lineNumber ?? "";
+    const newNumber = newCells[index].lineNumber ?? "";
+    const lineNumber = newNumber || oldNumber;
     const text = newCells[index].content !== "&nbsp;" ? newCells[index].content : oldCells[index].content;
-    return `<div class="diff-code-line ${kind}" data-line="${lineNumber}">${text}</div>`;
+    return `<div class="diff-code-line unified-diff-line ${kind}" data-line="${lineNumber}"><span class="unified-number">${oldNumber}</span><span class="unified-number">${newNumber}</span><span class="unified-marker"></span><span>${text}</span></div>`;
   }).join("");
   const unifiedTemplate = `<template class="diff-unified-template"><div class="diff-code-line hunk">${escapeHtml((diff && diff.path) || "")}</div>${unified}</template>`;
   return {
@@ -3232,7 +3246,7 @@ function editorTabs(active, extra = "") {
       const caption = tab.kind === "comparison" && tab.comparison
         ? `<span class="comparison-caption"><span class="comparison-file">${escapeHtml(tab.comparison.file)}</span><span> · </span><span class="comparison-revision">${escapeHtml(tab.comparison.source)}</span><span> → </span><span class="comparison-revision">${escapeHtml(tab.comparison.target)}</span></span>`
         : `<span class="change-tab-caption">${escapeHtml(label)}</span>`;
-      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${caption}<span class="tab-close" role="button" aria-label="Close File">${icon("x")}</span></a>`;
+      return `<a class="${cls.join(" ")}" href="#" data-tab-id="${escapeHtml(tab.id)}" title="${escapeHtml(label)}"${tab.id === live.activeTabId ? ' aria-current="true"' : ""}>${glyph} ${caption}<span class="tab-close" role="button" aria-label="Close File">${icon("close-small")}</span></a>`;
     }).join("");
     return `
     <div class="editor-tabs">
@@ -3245,7 +3259,7 @@ function editorTabs(active, extra = "") {
     const name = live.document.name || live.document.path;
     return `
     <div class="editor-tabs">
-      <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="Close File">${icon("x")}</span></a>
+      <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a>
       <span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
     </div>`;
   }
@@ -3610,7 +3624,7 @@ function liveStashBody() {
     + `<input id="stash-root" class="text-field" value="${escapeHtml(root)}" readonly>`
     + `<label>Current branch</label><span class="stash-branch">${escapeHtml(branch)}</span>`
     + `<label for="stash-message">Message</label><textarea id="stash-message" class="message-field" data-stash-field="message"></textarea><span></span>`
-    + `<label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox" data-stash-field="keep">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox" data-stash-field="includeUntracked">Include untracked files</label></div>`
+    + `<div class="stash-check-row"><label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox" data-stash-field="keep">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox" data-stash-field="includeUntracked">Include untracked files</label></div></div>`
     + `<div class="stash-notice" role="status" hidden></div>`;
 }
 
@@ -3661,6 +3675,12 @@ function blameTooltipDate(line) {
   return (line && (line.dateTime || line.date)) || "";
 }
 
+// 未提交行没有可归属的提交：参考 PyCharm Annotate 对这类行保留空白归属槽与行号。
+// `git blame` 对工作区行返回全零 hash 与 "Not Committed Yet"；两者都按未提交处理。
+function blameLineUncommitted(line) {
+  const hash = String((line && line.hash) || "");
+  return !hash || /^0+$/.test(hash) || String((line && line.author) || "").trim() === "Not Committed Yet";
+}
 // 外壳注入真实 Blame 时使用：行高由既有 measureCodeViews 统一校准，槽位结构与样例一致。
 function liveBlameView() {
   const blame = window.__augitLive.blame;
@@ -3670,7 +3690,10 @@ function liveBlameView() {
   const revisionNote = blame.revision
     ? `<span class="commit-meta">Previous Revision ${escapeHtml(String(blame.revision).slice(0, 7))}</span>`
     : "";
-  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000Read-only</span>${revisionNote}<span class="grow"></span><span class="commit-meta">${lines.length} Line Attribution</span><button class="icon-button" aria-label="Close Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" data-blame-full="${escapeHtml(line.fullHash || line.hash)}" data-blame-previous="${escapeHtml(line.previousRevision || "")}" aria-label="Locate commit for line ${line.number} commit" class="blame-row" ${blameRowAttributes(line, colors.get(line.fullHash || line.hash), blame.path)}><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame Read-only content">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
+  return `<div class="document-view blame-document"><div class="document-toolbar"><span class="document-path">${escapeHtml(blame.path || "")}\u3000Read-only</span>${revisionNote}<span class="grow"></span><span class="commit-meta">${lines.length} Line Attribution</span><button class="icon-button" aria-label="Close Blame">${icon("x")}</button></div><div class="blame-layout"><div class="blame-gutter">${lines.map(line => {
+              if (blameLineUncommitted(line)) return `<div class="blame-row uncommitted" aria-label="Line ${line.number} uncommitted"><span></span><span></span><span>${line.number}</span></div>`;
+              return `<a href="#blame-commit" data-blame-commit="${escapeHtml(line.hash)}" data-blame-full="${escapeHtml(line.fullHash || line.hash)}" data-blame-previous="${escapeHtml(line.previousRevision || "")}" aria-label="Locate commit for line ${line.number} commit" class="blame-row" ${blameRowAttributes(line, colors.get(line.fullHash || line.hash), blame.path)}><span>${escapeHtml(line.date)}</span><span>${escapeHtml(line.author)}</span><span>${line.number}</span></a>`;
+            }).join("")}</div><div class="code-view" tabindex="0" aria-label="Blame Read-only content">${lines.map(line => `<div class="code-line"><span class="line-number">${line.number}</span><span>${escapeHtml(line.content) || " "}</span></div>`).join("")}</div></div></div>`;
 }
 
 function blameView() {
@@ -3695,6 +3718,7 @@ function bindBlameTooltip(documentView) {
   const laterHide = () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 150); };
   const show = row => {
     hide();
+    if (!row || row.classList.contains('uncommitted')) return;
     if (!documentView.isConnected || !row.getClientRects().length) return;
     owner = row;
     tip = document.createElement('div');
@@ -3767,7 +3791,7 @@ function bindBlame() {
     body.addEventListener("scroll", sync, { passive: true });
     gutter.addEventListener("click", event => {
       const row = event.target.closest(".blame-row");
-      if (!row) return;
+      if (!row || row.classList.contains("uncommitted")) return;
       event.preventDefault();
       gutter.querySelectorAll(".blame-row").forEach(item => item.classList.toggle("selected", item === row));
       // 实时外壳里这段链路属于实时层：`live-data.js` 的捕获阶段监听调 `locateBlameCommit()`
@@ -5165,7 +5189,7 @@ function terminalTool() {
   const shell = "Windows PowerShell";
   const name = `Local${loading ? " · Starting…" : ""}`;
   const output = loading ? "" : `<div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">dotnet test Augit.slnx -c Release</span></div><div>Passed! - Failed: 0, Passed: 183, Skipped: 0, Total: 183</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">git status --short</span></div><div class="file-status-modified"> M docs/product-spec.md</div><div class="file-status-modified"> M src/Augit.App/NativeGitPanel.cs</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">_</span></div>`;
-  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("x")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
+  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("close-small")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
 /**
@@ -5292,7 +5316,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     const diffPath = (live && live.diff && live.diff.path)
       || (new URLSearchParams(location.search).get("diff"))
       || "app.manifest";
-    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">Commit: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("x")}</button></a>`;
+    editorExtra = `<a class="editor-tab active" href="#" data-workspace-diff-tab="true">${icon("git-compare-arrows")} <span class="change-tab-caption">Commit: ${escapeHtml(diffPath)}</span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("close-small")}</button></a>`;
     editorBody = live ? liveDiffView() : diffView(false, "ready", false, false, undefined, null, diffStatus);
     // `diff-boundary` 场景的**样例**提示只属于静态视觉稿：实时外壳的提示由
     // `live-data.js` 的 `applyDiffBoundaryHint()` 按 `live.diffBoundaryHint` 状态插入，
@@ -5303,7 +5327,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     }
   }
   if (editor === "comparison") {
-    editorExtra = `<a class="editor-tab active comparison-tab" href="git-compare.html">${icon("git-compare-arrows")}<span class="comparison-caption"><span class="comparison-file">Compare: app.manifest</span><span> · </span><span class="comparison-revision">${workspaceComparison ? "HEAD" : "dfe5c25a^"}</span><span> → </span><span class="comparison-revision">${workspaceComparison ? "Workspace" : "dfe5c25a"}</span></span><span class="tab-close" aria-label="Close Comparison">${icon("x")}</span></a>`;
+    editorExtra = `<a class="editor-tab active comparison-tab" href="git-compare.html">${icon("git-compare-arrows")}<span class="comparison-caption"><span class="comparison-file">Compare: app.manifest</span><span> · </span><span class="comparison-revision">${workspaceComparison ? "HEAD" : "dfe5c25a^"}</span><span> → </span><span class="comparison-revision">${workspaceComparison ? "Workspace" : "dfe5c25a"}</span></span><span class="tab-close" aria-label="Close Comparison">${icon("close-small")}</span></a>`;
     editorBody = diffView(true, comparisonState, workspaceComparison);
   }
   if (editor === "diff-loading") {
@@ -5323,11 +5347,11 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   // 点它会整页导航到 404），而且没有 `data-tab-id` ⇒ 关闭叉、中键关闭、点击激活全部失效
   //（第 243 轮实测：实时侧打开图片后，标签条上是一个没有 tab-id 的样例标签）。
   const staticTabs = editor === "image"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : editor === "json"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : scene === "go-to-line" || scene === "text-viewer"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="Close File">${icon("x")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
@@ -5758,7 +5782,7 @@ function renderScene() {
   //   （根目录／当前分支／消息／保留索引），而权威有该复选、宿主机 `ShellBridge.cs:1970` 也早已支持
   //   `includeUntracked` 且**默认 true**。加上它等于改变"什么会被 stash"（产品行为，不只是呈现），
   //   已升级为人工裁决，见 docs/nui-behavior/10-backlog.md §三 与 13-git-dialogs.md §2.3。
-  const stashBody = `<div class="form-grid"><label for="stash-root">Git root</label><select id="stash-root" class="select-field" title="Choose Git repository root"><option>D:\\github\\Augit</option></select><label>Current branch</label><span class="stash-branch" title="Currently checked out branch">main</span><label for="stash-message">Message</label><textarea id="stash-message" class="message-field" title="Enter Stash Message here"></textarea><span></span><label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox">Include untracked files</label></div><div class="stash-notice" role="status" hidden></div>`;
+  const stashBody = `<div class="form-grid"><label for="stash-root">Git root</label><select id="stash-root" class="select-field" title="Choose Git repository root"><option>D:\\github\\Augit</option></select><label>Current branch</label><span class="stash-branch" title="Currently checked out branch">main</span><label for="stash-message">Message</label><textarea id="stash-message" class="message-field" title="Enter Stash Message here"></textarea><span></span><div class="stash-check-row"><label class="check-line" title="Keep staged changes as-is"><input id="stash-keep" type="checkbox">Keep index</label><label class="check-line" title="Also stash untracked files."><input id="stash-include-untracked" type="checkbox">Include untracked files</label></div></div><div class="stash-notice" role="status" hidden></div>`;
   const cloneBody = `<div class="form-grid"><label for="clone-version">Version control</label><select id="clone-version" class="select-field"><option>Git</option></select><label for="clone-source">Repository URL</label><input id="clone-source" class="text-field" placeholder="https://example.com/team/repository.git"><label for="clone-destination">Directory</label><input id="clone-destination" class="text-field" placeholder="D:\\projects\\repository"><span></span><div class="clone-shallow-row"><label class="check-line"><input id="clone-shallow" type="checkbox">Shallow clone, history truncated to</label><div class="clone-depth-group disabled"><input id="clone-depth" class="text-field" value="1" inputmode="numeric" aria-label="Shallow clone depth" title="--depth" disabled><span>commits</span></div></div></div><div class="clone-notice" role="status" hidden></div>`;
   switch (scene) {
     case "main-project": return shell({ activeRail: "project", side: "project", editor: "markdown", bottom: "git" });
@@ -6237,7 +6261,7 @@ function bindHistoryComparisonFollow(root = document) {
     if (!comparison) {
       const tab = document.createElement("a"), view = document.createElement("div");
       tab.className = "editor-tab comparison-tab"; tab.href = "#"; tab.dataset.historyComparison = "true";
-      tab.innerHTML = `${icon("git-compare-arrows")}<span class="comparison-caption"></span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("x")}</button>`;
+      tab.innerHTML = `${icon("git-compare-arrows")}<span class="comparison-caption"></span><button type="button" class="tab-close" aria-label="Close Comparison">${icon("close-small")}</button>`;
       tabs.querySelector(":scope > span").before(tab);
       view.className = "document-view history-follow-view"; view.tabIndex = 0; content.append(view);
       comparison = { tab, view, path: null, hash: null };
@@ -6465,7 +6489,7 @@ function bindChangesWorkflow() {
     tab.dataset.workspaceDiffTab = "true";
     tab.innerHTML = icon("git-compare-arrows") + '<span class="change-tab-caption">Commit: '
       + escapeHtml(row.dataset.file) + '</span><button type="button" class="tab-close" aria-label="Close Comparison">'
-      + icon("x") + "</button>";
+      + icon("close-small") + "</button>";
     if (!existingTab) tabs.querySelector(":scope > span").before(tab);
     const comparison = { tab, view: existingView, path: existingView ? row.dataset.path : null };
     tab.addEventListener("click", event => {

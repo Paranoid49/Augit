@@ -20,6 +20,10 @@
      出处见 docs/intellij-platform-ui-reference.md §4、§5。 */
   --augit-chrome: #e9eaee;
   --augit-panel: #ffffff;
+  /* 编辑器/行号栏底色：浅色方案 GUTTER_BACKGROUND=#FFFFFF；不是工具面板底色的通用别名。 */
+  --augit-editor-bg: #ffffff;
+  /* 2026-10-18 终端配对实测：参考终端工具窗顶边浅色 #F1F2F4、深色 #212326。 */
+  --augit-terminal-panel-border: #f1f2f4;
   --augit-panel-muted: #f7f8f9;
   /* 浅色权威取 ManyIslands 家族（参考主题 "Light with Light Header"）：
      ui.*.borderColor = dialog-border = layer-1-border-inline = gray-150 = #E9EAEE，
@@ -48,6 +52,11 @@
   --augit-tab-selected-bg-active: #e3ebfe;
   --augit-tab-selected-border-active: #a7c5ff;
   --augit-tab-hover-bg: #00000012;
+  /* 标签关闭叉：权威 expui/general/closeSmall.svg 的固定填充色，浅色实测最暗 #A8ADBD。 */
+  --augit-tab-close: #a8adbd;
+  /* 终端 Local 标签：2026-10-18 参考实测填充 #ECECF0、边框 #D6D8DD。 */
+  --augit-terminal-tab-bg: #ececf0;
+  --augit-terminal-tab-border: #d6d8dd;
   --augit-js-ink: #000000;
   --augit-python-blue: #4682fa;
   --augit-python-yellow: #ffaf0f;
@@ -118,6 +127,8 @@
   --augit-popup-bg: #ffffff;
   --augit-dialog-bg: #f7f8f9;
   --augit-selection-inactive: #e9eaee;
+  /* 2026-10-18 参考 notes.txt 双击选词实测 #A6D2FF；Chromium 默认蓝 #3367D1 不符。 */
+  --augit-selection-bg: #a6d2ff;
   --augit-yaml-paper: #fff7f7;
   /* 权威 `selection-bg-inactive` = `gray-150` = #E9EAEE（与 `--augit-selection-inactive` 同值）；
      原 #dfe1e5 是 `--augit-text` 的深色值，属复制串行。 */
@@ -296,6 +307,11 @@ body[data-theme="dark"] {
 
   --augit-chrome: #26282c;
   --augit-panel: #191a1c;
+  /* 2026-10-18 深色配对实测：参考编辑器/行号栏底 #1E1F22，实际原继承工具面板 #191A1C。
+     编辑器底不是工具面板底，单独建令牌；终端正文已另有 #1E1F22 规则。 */
+  --augit-editor-bg: #1e1f22;
+  /* 终端工具窗顶边：深色参考实测 #212326（与 --augit-panel-muted 同值，但语义独立）。 */
+  --augit-terminal-panel-border: #212326;
   --augit-panel-muted: #212326;
   --augit-border: #26282c;
 
@@ -319,6 +335,11 @@ body[data-theme="dark"] {
   --augit-tab-selected-bg-active: #233558;
   --augit-tab-selected-border-active: #2e4d89;
   --augit-tab-hover-bg: #ffffff17;
+  /* closeSmall.svg 是固定填充色图标，深色沿用同一填充。 */
+  --augit-tab-close: #a8adbd;
+  /* 终端 Local 标签深色暂取标签选中底/边框令牌；未取得深色终极端实测。 */
+  --augit-terminal-tab-bg: #26282c;
+  --augit-terminal-tab-border: #40434a;
   --augit-js-ink: #1e1f22;
   --augit-python-blue: #548af7;
   --augit-python-yellow: #f2c55c;
@@ -337,7 +358,8 @@ body[data-theme="dark"] {
   --augit-search-error-bg: #743a3a;
   --augit-spotlight-border: #a36b4e;
   --augit-log-current-branch: #1d2336;
-  --augit-accent-brand: #3871e1;
+  /* 深色 accent-brand-bg 权威值 = Blue6 #3574F0（浅色才是 blue-80 #3871E1）；此前误用浅色值。 */
+  --augit-accent-brand: #3574f0;
   --augit-rail-selected-fg: #ffffff;
 
   --augit-rail-fg: #9fa2a8;
@@ -352,6 +374,8 @@ body[data-theme="dark"] {
   --augit-popup-bg: #26282c;
   --augit-dialog-bg: #191a1c;
   --augit-selection-inactive: #33353b;
+  /* 深色编辑器选中背景与终端 selectionBackground 同值。 */
+  --augit-selection-bg: #214283;
   --augit-yaml-paper: #402929;
   --augit-history-selection-inactive: #33353b;
   --augit-hover: #ffffff17;
@@ -926,9 +950,10 @@ button {
   vertical-align: middle;
 }
 
-/* IntelliJ 图标族按组件路径使用不同的绘图盒：编辑器标签、标题栏下拉和工具窗口动作
-   使用 13×13 的紧凑图形；项目树、Changes/history 树和工具轨保留 16×16 命中盒。
-   这些规则只改变可见图形的绘图盒，不改变按钮命中区。 */
+/* IntelliJ 图标族按组件路径使用不同的绘图盒：标题栏下拉和工具窗口动作使用 13×13 的紧凑图形；
+   编辑器标签文件图标、项目树、Changes/history 树和工具轨使用 16×16 绘图盒（2026-10-18 参考实测：
+   text.svg 12 单位 ×16px = 21 物理像素，13px 只有 17 物理像素）。这些规则只改变可见图形的绘图盒，
+   不改变按钮命中区。 */
 .editor-tab > :is(.file-type-icon, .augit-toolbar-icon, .git-reference-icon),
 .top-chip > .augit-toolbar-icon,
 .titlebar-context > .augit-toolbar-icon,
@@ -1089,6 +1114,12 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
   color: var(--augit-muted); opacity: 0.55; pointer-events: none;
 }
 
+/* 文本始终只读、鼠标选择和复制可用（ux-spec §7.2）；选中色用参考编辑器方案，不用浏览器默认蓝。 */
+::selection {
+  background: var(--augit-selection-bg, #a6d2ff);
+  color: inherit;
+}
+
 .code-view {
   min-height: 0;
   min-width: 0;
@@ -1098,9 +1129,9 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
   font-variant-ligatures: none;
   font-size: var(--augit-code-size, 13px);
   line-height: var(--code-line-height, 22px);
-  /* 行号栏底色 = 编辑区底色：浅色方案 GUTTER_BACKGROUND=ffffff，深色方案未设该键、回落编辑区底色。
-     参考截图行号栏区域中位色实测 #FFFFFF。 */
-  background: var(--augit-panel);
+  /* 行号栏底色 = 编辑区底色：浅色 GUTTER_BACKGROUND=#FFFFFF；深色参考编辑区/行号栏实测 #1E1F22。
+     不能再用工具面板底色 --augit-panel（深色 #191A1C 会被误当成编辑区底色）。 */
+  background: var(--augit-editor-bg);
 }
 
 .code-view:focus { outline: none; }
@@ -1225,6 +1256,11 @@ body[data-theme="dark"] .image-zoom-crossbar { width: 0.8px; rx: 0.4px; }
 .json-document.json-invalid:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) auto var(--augit-find-height) minmax(0, 1fr); }
 .document-view.has-target:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) auto var(--augit-find-height) minmax(0, 1fr); }
 .json-document.json-invalid.has-target:has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) auto auto var(--augit-find-height) minmax(0, 1fr); }
+/* 大文件 Warning 横幅是 .document-view 的额外 grid item；不显式加一行会落到隐式行、
+   被正文挤出视口。以下三条把横幅行插到工具栏与正文（/查找条）之间。 */
+.document-view:has(> .editor-notification) { grid-template-rows: var(--augit-document-toolbar-height) auto minmax(0, 1fr); }
+.document-view:has(> .editor-notification):has(> .current-find) { grid-template-rows: var(--augit-document-toolbar-height) auto var(--augit-find-height) minmax(0, 1fr); }
+.document-view.has-target:has(> .editor-notification) { grid-template-rows: var(--augit-document-toolbar-height) auto auto minmax(0, 1fr); }
 .find-match { color: inherit; background: color-mix(in srgb, var(--augit-blue) 20%, transparent); }
 .json-document .document-modes .segment:disabled { opacity: .45; cursor: default; }
 .json-document .code-view:focus { outline: none; }
@@ -4025,6 +4061,8 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .stash-dialog .form-grid > :nth-child(5), .stash-dialog .form-grid > :nth-child(6) { margin-top: 5px; }
 .stash-dialog .message-field { width: 100%; height: var(--stash-message, 78px); font: inherit; padding: 6px 8px; }
 .stash-dialog .check-line { margin-top: 13px; height: 30px; gap: 4px; }
+.stash-dialog .stash-check-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; margin-top: 13px; }
+.stash-dialog .stash-check-row .check-line { margin-top: 0; }
 .stash-dialog input[type=checkbox] { appearance: none; flex: none; margin: 0; width: 15px; height: 15px; border: var(--augit-hairline) solid var(--augit-faint); border-radius: 3px; background: var(--augit-panel); }
 .stash-dialog input[type=checkbox]:checked { background: #3574f0; border-color: #3574f0; }
 .stash-dialog input[type=checkbox]:checked::after { content: ""; display: block; width: 8px; height: 4px; margin: 3px 2px; border-left: 1.5px solid white; border-bottom: 1.5px solid white; transform: rotate(-45deg); }
@@ -4289,6 +4327,19 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .worktree-dialog .management-detail h2 { height: var(--worktree-title, 30px); font-size: inherit; line-height: 1; margin: 0 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .worktree-dialog .form-grid { grid-template-columns: var(--worktree-label, 110px) minmax(0, 1fr); gap: 6px 10px; }
 .worktree-dialog .management-detail .form-grid > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* New Worktree：新分支复选与名称输入必须占满一行，否则 Directory 标签会落到该行右侧、
+   目录输入被挤到新分支输入下方；第 68 批实测的重叠/截断即由此产生。 */
+.worktree-dialog .form-grid > .worktree-new-branch-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: visible;
+  white-space: normal;
+}
+.worktree-dialog .worktree-new-branch-row .check-line { flex: 0 0 auto; margin-top: 0; }
+.worktree-dialog .worktree-new-branch-row .text-field { flex: 1 1 auto; min-width: 0; }
 .worktree-dialog .button-row { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
 .worktree-dialog .secondary-button, .worktree-dialog .primary-button, .worktree-dialog .danger-button { min-width: 78px; height: var(--worktree-button, 34px); padding: 0 12px; flex-shrink: 0; }
 
@@ -4431,6 +4482,10 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 作为 .document-view 的 grid item 时浏览器会把高度压到一行文字（13px），
+     按钮和图标被裁掉；显式下限保证 Warning 横幅至少 26px 高。 */
+  min-height: 26px;
+  box-sizing: border-box;
   padding: 6px 10px;
   border-bottom: var(--augit-hairline) solid var(--augit-border);
   font-size: inherit;
@@ -4768,7 +4823,16 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   color: var(--augit-faint);
   background: transparent;
 }
-.terminal-tool { grid-template-rows: var(--terminal-header-height, 38px) minmax(0, 1fr); }
+.terminal-tool {
+  grid-template-rows: var(--terminal-header-height, 38px) minmax(0, 1fr);
+  /* 终端工具窗边框用参考实测色，不沿用 .bottom-tool 的 border 80% 混合。 */
+  box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-terminal-panel-border, #f1f2f4);
+}
+/* app-main 的 4px 行间隙会透出 chrome；终端打开时用参考终端工具窗边色填充，
+   这样实测顶边才是 #F1F2F4（浅）/ #212326（深），而不是 chrome 的 #E9EAEE/#26282C。 */
+.app-main:has(.terminal-tool) {
+  background: var(--augit-terminal-panel-border, #f1f2f4);
+}
 .terminal-header { position: relative; height: var(--terminal-header-height, 38px); padding: 0; }
 .terminal-header .terminal-title,
 .terminal-header .terminal-session {
@@ -4783,13 +4847,18 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 }
 .terminal-header .terminal-title { left: 8px; width: var(--terminal-title-width, 54px); padding: 0 4px; }
 .terminal-header .terminal-session {
-  left: calc(var(--terminal-title-width, 54px) + 12px);
-  width: var(--terminal-session-width, 124px);
-  padding: 0 8px;
-  justify-content: center;
-  box-shadow: inset 0 0 0 var(--augit-hairline) var(--augit-panel), inset 0 0 0 2px var(--augit-border-strong);
-  background: var(--augit-panel-muted);
-  border-radius: 3px;
+  /* 2026-10-18 参考实测：Local 标签 113×49 物理像素 ≈ 64.6×28 CSS，填充 #ECECF0、边框 #D6D8DD；
+     文字左对齐，关闭叉在同一卡片右段。会话段与关闭段各画一半边框，视觉合并为一张标签。 */
+  left: calc(var(--terminal-title-width, 54px) + 22px);
+  top: calc((var(--terminal-header-height, 38px) - 28px) / 2);
+  height: 28px;
+  width: var(--terminal-session-width, 44px);
+  padding: 0 4px 0 8px;
+  justify-content: flex-start;
+  border: var(--augit-hairline) solid var(--augit-terminal-tab-border, #d6d8dd);
+  border-right: 0;
+  background: var(--augit-terminal-tab-bg, #ececf0);
+  border-radius: 6px 0 0 6px;
   text-overflow: ellipsis;
 }
 .terminal-header .icon-button {
@@ -4800,22 +4869,30 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   border-radius: 3px;
 }
 .terminal-header .terminal-session-close {
-  left: calc(var(--terminal-title-width, 54px) + 12px + var(--terminal-session-width, 124px) + 2px);
-  width: 24px;
-  color: var(--augit-text);
+  /* 关闭段是标签的一部分，不使用主框架 icon-button 的 28px 最小命中区；用局部令牌压到 20。 */
+  --augit-icon-hit: 20px;
+  left: calc(var(--terminal-title-width, 54px) + 22px + var(--terminal-session-width, 44px));
+  top: calc((var(--terminal-header-height, 38px) - 28px) / 2);
+  width: 20px;
+  min-width: 20px;
+  height: 28px;
+  color: var(--augit-tab-close, #a8adbd);
   background: transparent;
 }
 .terminal-header .terminal-session-close::before {
   content: "";
   position: absolute;
-  inset: 1px;
-  border: var(--augit-hairline) solid var(--augit-border-strong);
-  border-radius: 2.5px;
-  background: var(--augit-panel-muted);
+  inset: 0;
+  border: var(--augit-hairline) solid var(--augit-terminal-tab-border, #d6d8dd);
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--augit-terminal-tab-bg, #ececf0);
   z-index: -1;
 }
 .terminal-header .terminal-session-close { isolation: isolate; }
 .terminal-header .terminal-session-close:is(:hover, :active):not(:disabled)::before { background: var(--augit-action-button-hover); }
+.terminal-header .terminal-session-close:is(:hover, :active):not(:disabled) { color: var(--augit-icon); }
+.terminal-header .terminal-session-close:disabled::before { background: var(--augit-panel-muted); }
 .terminal-header .terminal-more { right: 40px; }
 .terminal-header .terminal-hide { right: 8px; }
 
@@ -4897,7 +4974,9 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
   width: 100%;
   min-width: 0;
   grid-template-rows: minmax(0, 1fr);
-  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+  /* 2026-10-18 参考 Appearance 页实测左栏分隔线 443 物理 ≈ 253 CSS；原 230 CSS 实测 414 物理。
+     列宽取 246 CSS，使实际分隔线落在约 443（列宽 + 既有 6–7 CSS 内容偏移）。 */
+  grid-template-columns: minmax(190px, 246px) minmax(0, 1fr);
 }
 /* 左右正文独立滚动，搜索与面包屑留在各自固定区域。 */
 .settings-layout > :is(.settings-nav, .settings-page) { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
@@ -4907,7 +4986,9 @@ body[data-theme="dark"] .document-modes.segmented { background: var(--augit-pane
 .settings-page .font-setting { min-width: 0; }
 
 /* SettingsEditor 的正文抬头是紧凑路径与前后导航；设置树选区铺满整栏。 */
-.settings-page { padding: 12px 16px; }
+/* 2026-10-18 参考：页面白底从标题栏下缘开始，面包屑距上缘约 10 物理；实际原 12px 页顶内距
+   加上 dialog-body 内距后，面包屑在 50 物理处、主题行低 26 物理。去掉页顶 12 CSS，主题行回到 168（参考 163）。 */
+.settings-page { padding: 0 16px 12px; }
 .settings-page-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: max(28px, 1em + 8px); margin-bottom: 14px; }
 .settings-breadcrumbs { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 1rem; font-weight: 600; white-space: nowrap; }
 .settings-breadcrumbs svg { width: 12px; height: 12px; }
@@ -4950,6 +5031,26 @@ body[data-theme="dark"] .font-family-select { color-scheme: dark; }
   .settings-page .font-setting { grid-template-columns: auto minmax(0, 1fr); }
   .settings-page .font-setting > select { grid-column: 1 / -1; }
   .settings-page .font-setting > input { width: min(100%, max(70px, calc(3ch + 26px))); }
+}
+
+/* 2026-10-18 参考 Appearance 实测：标签列约 52 CSS（内容左缘到控件左缘 91 物理），
+   主题下拉 177 CSS 宽（310 物理）；实际原为 110 CSS 标签列 + 全行宽下拉。
+   只改 Appearance 页，Git/终端/文件查看等页的既有表单布局不动。 */
+.settings-page[data-settings-page-body="appearance"] .form-grid {
+  grid-template-columns: 42px minmax(0, 1fr);
+}
+.settings-page[data-settings-page-body="appearance"] .form-grid > select {
+  width: 180px;
+}
+.settings-page[data-settings-page-body="appearance"] .font-setting {
+  max-width: 560px;
+}
+.settings-page[data-settings-page-body="appearance"] .form-grid > label:empty + :is(.commit-meta, .settings-detection) {
+  grid-column: 1 / -1;
+}
+@container settings-form (max-width: 48em) {
+  .settings-page[data-settings-page-body="appearance"] .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-page[data-settings-page-body="appearance"] .form-grid > label:empty + :is(.commit-meta, .settings-detection) { grid-column: auto; }
 }
 
 /* YAML 图标保留权威纸张、轮廓和 Y 三层颜色。 */
@@ -5047,6 +5148,13 @@ body[data-theme="dark"] {
   width: var(--augit-compact-icon-size, 13px);
   height: var(--augit-compact-icon-size, 13px);
   flex-basis: var(--augit-compact-icon-size, 13px);
+}
+/* 参考 2026.2.1 的编辑器标签文件图标为 16×16（expui/fileTypes/*.svg 的 16 网格）；
+   13px 紧凑盒只用于标题栏/工具窗口动作，不能套到标签文件图标。 */
+.augit-window .editor-tab > .file-type-icon {
+  width: var(--augit-icon-size, 16px);
+  height: var(--augit-icon-size, 16px);
+  flex-basis: var(--augit-icon-size, 16px);
 }
 .augit-window .titlebar :is(.top-button, .main-menu-entry) > .augit-toolbar-icon,
 .augit-window .tool-rail .rail-button > svg {
@@ -5227,8 +5335,9 @@ body[data-theme="dark"] {
 .check-row { border-radius: 4px; }
 .augit-window [data-workspace-diff-tab] .tab-close { width: var(--augit-icon-hit, 28px); height: var(--augit-icon-hit, 28px); flex: 0 0 var(--augit-icon-hit, 28px); }
 .augit-window [data-workspace-diff-tab] .tab-close > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
-.augit-window .editor-tab .tab-close { display: inline-flex; align-items: center; justify-content: center; width: var(--augit-icon-hit, 28px); height: var(--augit-icon-hit, 28px); flex: 0 0 var(--augit-icon-hit, 28px); }
+.augit-window .editor-tab .tab-close { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: 0 0 20px; color: var(--augit-tab-close, #a8adbd); }
 .augit-window .editor-tab .tab-close > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
+.augit-window .editor-tab .tab-close:hover { color: var(--augit-icon); }
 .history-search-trigger { width: var(--augit-icon-hit, 28px); }
 .augit-window .history-search-trigger > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
 .history-search .search-field { min-height: calc(var(--augit-icon-size, 16px) + 2px); padding-left: calc(var(--augit-icon-hit, 28px) + 6px); }

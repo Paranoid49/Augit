@@ -15,7 +15,8 @@ async function inspect(page) {
       unresolved: document.querySelectorAll('[data-lucide], svg.lucide').length,
       // `polygon` 也算画出了形状：第 174 轮加入的收藏星形照权威 `nodes/favorite.svg` 是五角星多边形。
       empty: icons.filter(element => !element.querySelector('path, circle, rect, ellipse, polygon')).map(element => element.dataset.augitIcon),
-      grids: icons.filter(element => !['0 0 16 16', '0 0 12 12', '0 0 18 18'].includes(element.getAttribute('viewBox'))).map(element => element.dataset.augitIcon),
+      // 工具轨使用 20×20 绘图盒（design-system §4.2 / §6.4），其余图形只允许 16/12/18 网格。
+      grids: icons.filter(element => !['0 0 16 16', '0 0 12 12', '0 0 18 18', '0 0 20 20'].includes(element.getAttribute('viewBox'))).map(element => element.dataset.augitIcon),
       inaccessible: icons.filter(element => element.getAttribute('aria-hidden') !== 'true').length,
       pending: [...document.querySelectorAll('[data-pending-icon]')].map(element => ({
         name: element.dataset.pendingIcon, text: (element.closest('.menu-item, .tree-row, .check-row') || element.parentElement).textContent.trim(),
@@ -37,6 +38,35 @@ async function inspect(page) {
         const activeBounds = activeTab?.getBoundingClientRect();
         return {
           editorFile: size('.editor-tab > .file-type-icon'),
+          editorClose: size('.editor-tab .tab-close'),
+          editorCloseIcon: document.querySelector('.editor-tab .tab-close > svg')?.dataset.augitIcon || null,
+          editorCloseColor: (() => {
+            const element = document.querySelector('.editor-tab .tab-close');
+            return element ? getComputedStyle(element).color : null;
+          })(),
+          terminalSession: size('.terminal-tool .terminal-session'),
+          terminalClose: size('.terminal-tool .terminal-session-close'),
+          terminalCloseIcon: document.querySelector('.terminal-tool .terminal-session-close > svg')?.dataset.augitIcon || null,
+          terminalCloseColor: (() => {
+            const element = document.querySelector('.terminal-tool .terminal-session-close');
+            return element ? getComputedStyle(element).color : null;
+          })(),
+          codeViewBg: (() => {
+            const element = document.querySelector('.code-view');
+            return element ? getComputedStyle(element).backgroundColor : null;
+          })(),
+          terminalGapBg: (() => {
+            const element = document.querySelector('.app-main');
+            return element ? getComputedStyle(element).backgroundColor : null;
+          })(),
+          selectionBg: (() => {
+            const element = document.querySelector('.code-line');
+            return element ? getComputedStyle(element, '::selection').backgroundColor : null;
+          })(),
+          selectionColor: (() => {
+            const element = document.querySelector('.code-line');
+            return element ? getComputedStyle(element, '::selection').color : null;
+          })(),
           editorCard: tabBounds && activeBounds ? {
             width: activeBounds.width,
             height: activeBounds.height,
@@ -102,14 +132,45 @@ async function main() {
         const result = await inspect(page);
         if (name !== 'index.html') assert.ok(result.count > 10, `${name} 主框架图标缺失。`);
         if (name === 'main-project.html') {
-          assert.deepEqual(result.geometry.editorFile, { width: 13, height: 13 }, `${theme} 编辑器标签文件图标应为 13×13`);
+          assert.deepEqual(result.geometry.editorFile, { width: 16, height: 16 }, `${theme} 编辑器标签文件图标应为 16×16`);
+        }
+        if (name === 'text-viewer.html') {
+          // 静态 main-project 标签不带关闭叉；text-viewer 的静态标签带真实关闭入口，用它门禁关闭图标。
+          assert.deepEqual(result.geometry.editorClose, { width: 20, height: 20 }, `${theme} 编辑器标签关闭命中区应为 20×20`);
+          assert.equal(result.geometry.editorCloseIcon, 'close-small', `${theme} 编辑器标签关闭应使用 closeSmall 图标`);
+          assert.equal(result.geometry.editorCloseColor, 'rgb(168, 173, 189)', `${theme} 编辑器标签关闭色应为 #A8ADBD`);
           assert.equal(result.geometry.editorCard.height, 28, `${theme} Islands 标签卡片高度应为 28px`);
           assert.ok(Math.abs(result.geometry.editorCard.topInset - 6) <= 0.6, `${theme} Islands 标签卡片上留白应约为 6px`);
           assert.ok(Math.abs(result.geometry.editorCard.bottomInset - 6) <= 0.6, `${theme} Islands 标签卡片下留白应约为 6px`);
-          assert.deepEqual(result.geometry.rail, { width: 16, height: 16 }, `${theme} 工具轨图标应为 16×16`);
+          assert.deepEqual(result.geometry.rail, { width: 20, height: 20 }, `${theme} 工具轨图标应为 20×20（design-system §4.2）`);
+          const textIconMarkup = await page.evaluate(() => fileTypeIcon('notes.txt'));
+          assert.match(textIconMarkup, /file-type-textfile/, `${theme} .txt 应使用 textfile 图标`);
+          assert.equal((textIconMarkup.match(/<rect /g) || []).length, 4, `${theme} .txt 应为 text.svg 的四横线图标`);
           assert.deepEqual(result.geometry.toolHeader, { width: 13, height: 13 }, `${theme} 项目工具窗动作图标应为 13×13`);
           assert.deepEqual(result.geometry.treeFile, { width: 16, height: 16 }, `${theme} 项目树文件图标应为 16×16`);
           assert.deepEqual(result.geometry.treeFolder, { width: 16, height: 16 }, `${theme} 项目树文件夹图标应为 16×16`);
+        }
+        if (name === 'text-viewer.html') {
+          // 2026-10-18 深色配对：编辑器/行号栏底 #1E1F22，不继承工具面板 #191A1C。
+          assert.equal(result.geometry.codeViewBg, theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)',
+            `${theme} 编辑器底色错误`);
+          assert.equal(result.geometry.selectionBg, theme === 'dark' ? 'rgb(33, 66, 131)' : 'rgb(166, 210, 255)',
+            `${theme} 文本选择背景错误`);
+          assert.equal(result.geometry.selectionColor, theme === 'dark' ? 'rgb(188, 190, 196)' : 'rgb(0, 0, 0)',
+            `${theme} 文本选择文字色错误`);
+        }
+        if (name === 'terminal.html') {
+          // 2026-10-18 参考：Local 标签约 65 CSS 宽、28 CSS 高，关闭叉在同一卡片内。
+          assert.ok(result.geometry.terminalSession, `${theme} 终端 Local 标签缺失`);
+          assert.equal(result.geometry.terminalSession.height, 28, `${theme} 终端 Local 标签高度应为 28`);
+          assert.ok(result.geometry.terminalSession.width >= 40 && result.geometry.terminalSession.width <= 50,
+            `${theme} 终端 Local 标签宽度应在 40–50 之间`);
+          assert.deepEqual(result.geometry.terminalClose, { width: 20, height: 28 }, `${theme} 终端关闭段应为 20×28`);
+          assert.equal(result.geometry.terminalCloseIcon, 'close-small', `${theme} 终端关闭应使用 closeSmall 图标`);
+          assert.equal(result.geometry.terminalCloseColor, 'rgb(168, 173, 189)', `${theme} 终端关闭色应为 #A8ADBD`);
+          // 2026-10-18 参考：终端与编辑区之间的 4px 行间隙顶边 #F1F2F4（浅）/#212326（深）。
+          assert.equal(result.geometry.terminalGapBg, theme === 'dark' ? 'rgb(33, 35, 38)' : 'rgb(241, 242, 244)',
+            `${theme} 终端面板间隙色错误`);
         }
         if (name === 'git-history.html') {
           if (result.geometry.commitReference) assert.deepEqual(result.geometry.commitReference, { width: 13, height: 13 }, `${theme} 提交行引用图标应为 13×13`);
@@ -132,7 +193,7 @@ async function main() {
         await open('git-history.html', theme);
         await page.locator('[data-history-path]').first().click();
         await page.locator('.changed-files').press('Enter');
-        assert.equal(await page.locator('[data-history-comparison] svg[data-augit-icon="x"]').count(), 1);
+        assert.equal(await page.locator('[data-history-comparison] svg[data-augit-icon="close-small"]').count(), 1, '历史比较标签必须使用 closeSmall 关闭叉。');
         await page.locator('[data-history-path]').nth(1).click();
         await inspect(page);
         await page.locator('[data-history-path]').first().click({ button: 'right' });
@@ -141,7 +202,7 @@ async function main() {
         assert.ok(await page.locator('.history-files-menu').textContent(), '无图标菜单仍须有文字动作。');
         await open('text-viewer.html', theme);
         await page.keyboard.press('Control+f');
-        assert.equal(await page.locator('.current-find svg').count(), 6, '动态查找条的开关、导航和关闭必须完整。');
+        assert.equal(await page.locator('.current-find svg').count(), 7, '动态查找条的搜索框、三开关、导航和关闭必须完整。');
         await inspect(page);
         report.workflows.push(theme);
       }

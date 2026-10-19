@@ -23,19 +23,20 @@ async function main() {
         await page.goto(url.href);
         await page.waitForSelector('body[data-typography-preview="ready"]');
         assert.equal(await page.locator('.terminal-view').getAttribute('aria-busy'), String(state === 'loading'));
+        // 用户 2026-10-18 裁决：可见标签固定 Local，当前 Shell 只在 title/aria；加载中追加 Starting…。
         assert.equal(await page.locator('.terminal-session').textContent(),
-          `Windows PowerShell${state === 'loading' ? ' · 正在启动…' : ''}`);
+          `Local${state === 'loading' ? ' · Starting…' : ''}`);
         if (state === 'loading') assert.equal(await page.locator('.terminal-view').textContent(), '');
         // 悬停色按 权威 `ActionButton.hoverBackground`（浅 #00000012／深 #FFFFFF16）（第 116 轮更新；原 rgb(241,242,244)/rgb(45,47,51) 属已删除的 --augit-blue-hover，无权威依据）。
-        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.086)' : 'rgba(0, 0, 0, 0.07)';
-        const pushed = theme === 'dark' ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.125)';
+        const hover = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' /* 权威深色 hover = #FFFFFF17；旧 #FFFFFF16 是过期值 */ : 'rgba(0, 0, 0, 0.07)';
+        const pushed = theme === 'dark' ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.125)';
         const accent = theme === 'dark' ? 'rgb(53, 116, 240)' /* 权威 accent-brand-bg 深色 = Blue6 #3574F0（第 116 轮订正；原 Blue8 无依据） */ : 'rgb(56, 113, 225)';
         const panel = theme === 'dark' ? 'rgb(30, 31, 34)' : 'rgb(255, 255, 255)';
         // 禁用态底取 `--augit-panel-muted`：浅 = Islands `*.disabledBackground` = `dialog-bg` = `gray-160`
         // `#F7F8F9`（第 131 轮订正；原 `#F7F8FA` = **未被采用**的 expUI_light `Gray13`，更早的 #F5F8FE 无依据）；
         // 深 = expUI_dark `*.disabledBackground` = `Gray2` `#2B2D30`（原 #25262A 无依据）。
         const mutedPanel = theme === 'dark' ? 'rgb(43, 45, 48)' : 'rgb(247, 248, 249)';
-        const faint = theme === 'dark' ? 'rgb(90, 93, 99)' : 'rgb(159, 162, 168)';
+        const faint = theme === 'dark' ? 'rgb(76, 79, 86)' /* 权威深色 faint = #4C4F56；旧 #5A5D63 是另一个灰阶 */ : 'rgb(159, 162, 168)';
         const controls = page.locator('.rail-button, .side-tool:has(.side-content.tree) > .tool-header .icon-button, .terminal-header .icon-button');
         assert.equal(await controls.count(), 12);
         const bounds = await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON()));
@@ -71,7 +72,8 @@ async function main() {
           });
           await page.mouse.move(away.x, away.y);
           const hovering = await isHovered(button);
-          const resting = await read(button, close ? '::before' : null);
+          // 工具轨与终端关闭段的底色都画在 ::before 上；标题动作按钮的底色在元素自身。
+          const resting = await read(button, (close || rail) ? '::before' : null);
           // 权威 `SquareStripeButtonLook.getState()/getBackgroundColor()`：
           // `SquareStripeButton.isFocused()` 的实现是 `toolWindow.isActive`（`SquareStripeButton.kt:120`；
           // `ToolWindowImpl.isActive()` = 窗口可见、有装饰器且 `activeToolWindowId == id`，`ToolWindowImpl.kt:470-472`），
@@ -92,14 +94,14 @@ async function main() {
           await button.hover();
           // 悬停档：激活入口的底色**不换**（`getState()` 在 `isFocused()` 处提前返回 `SELECTED`，`popState` 不参与）；
           // 非激活入口才给 `--augit-rail-hover`。第 314 轮按权威订正。
-          assert.equal((await read(button, close ? '::before' : null)).background,
+          assert.equal((await read(button, (close || rail) ? '::before' : null)).background,
             rail ? (active ? accent : visible ? pushed : hover) : hover);
           await button.focus();
           assert.equal((await read(button, '::after')).border, accent);
           if (active) assert.equal((await read(button, '::before')).border, panel);
           await button.evaluate((element, rail) => { if (rail) element.setAttribute('aria-disabled', 'true'); else element.disabled = true; }, rail);
           assert.equal((await read(button)).color, faint);
-          assert.equal((await read(button, close ? '::before' : null)).background, close ? mutedPanel : 'rgba(0, 0, 0, 0)');
+          assert.equal((await read(button, (close || rail) ? '::before' : null)).background, close ? mutedPanel : 'rgba(0, 0, 0, 0)');
           assert.equal((await read(button, '::after')).content, 'none');
           await button.evaluate(element => { element.removeAttribute('aria-disabled'); element.disabled = false; element.blur(); });
         }
@@ -108,14 +110,19 @@ async function main() {
         assert.ok(restingReads.some(entry => entry.rail && entry.active && !entry.hovering),
           `未悬停档一个"激活轨道入口"样本都没取到：${JSON.stringify(restingReads)}`);
         assert.deepEqual(await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON())), bounds);
+        // 界面英文审计后终端头部 aria 标签为英文；旧中文期望已过期。
         assert.deepEqual(await page.locator('.terminal-header button').evaluateAll(elements => elements.map(e => e.getAttribute('aria-label'))),
-          ['关闭终端', '更多操作', '隐藏终端']);
+          ['Close Terminal', 'More Actions', 'Hide Terminal']);
         for (const width of [1024, 1180]) {
           await page.setViewportSize({ width, height: 760 });
           await page.evaluate(() => measureTerminalHeaders());
           const layout = await page.locator('.terminal-header').evaluate(header => {
             const rect = element => { const r = element.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, height: r.height }; };
-            return { header: rect(header), children: [...header.children].map(rect) };
+            return {
+              header: rect(header),
+              iconHit: Number.parseFloat(getComputedStyle(header).getPropertyValue('--augit-icon-hit')) || 28,
+              children: [...header.children].map(element => ({ ...rect(element), close: element.classList.contains('terminal-session-close') })),
+            };
           });
           let previous = layout.header.left;
           for (const child of layout.children) {
@@ -123,10 +130,12 @@ async function main() {
             assert.ok(child.right <= layout.header.right && child.bottom <= layout.header.bottom);
             previous = child.right;
           }
-          for (const child of layout.children.slice(2)) assert.equal(child.height, 24);
+          // 终端头部动作与 Local 标签/关闭段都随 --augit-icon-hit 缩放；12px 基准为 28 CSS（参考实测 49 物理像素）。
+          assert.equal(layout.children[1].height, layout.iconHit, `终端 Local 标签高度应等于图标命中区：${theme}/${size}`);
+          for (const child of layout.children.slice(2)) assert.equal(child.height, layout.iconHit);
         }
         if (output && scale === 1) {
-          await page.getByRole('link', { name: '终端', exact: true }).focus();
+          await page.getByRole('link', { name: 'Terminal', exact: true }).focus();
           await page.screenshot({ path: path.join(output, `terminal-${state}-${theme}-${size}.png`) });
         }
         assert.deepEqual(errors, []);

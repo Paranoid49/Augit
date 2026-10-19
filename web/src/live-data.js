@@ -6,6 +6,7 @@
 
 import { hasHost, invoke, subscribe } from "./bridge.js";
 import { terminalAnsiPalette, terminalSelectionPalette } from "./terminal-palette.js";
+import { isTerminalCopyShortcut } from "./terminal-copy.js";
 import { terminalCellWidth, terminalCellHeight } from "./terminal-geometry.js";
 import { renderMarkdown } from "./markdown.js";
 import { uiMessage } from "./ui-text.js";
@@ -1108,6 +1109,14 @@ async function startTerminal() {
   // 只拦**不带修饰键**的 Esc（权威的 `isEscape`：`VK_ESCAPE && modifiersEx == 0`）；
   // Shift/Esc 这类组合仍是 Shell 的输入。没有可聚焦的正文时不拦（权威在拿不到工具窗口时也不处理）。
   terminalInstance.attachCustomKeyEventHandler((event) => {
+    if (isTerminalCopyShortcut(event)) {
+      // 终端选区复制：Ctrl+Shift+C / Ctrl+Insert。不能走 navigator.clipboard
+      //（WebView2 默认不授予 ClipboardApiRequested），交给宿主 clipboard/write。
+      // Ctrl+C 仍是 Shell 的 SIGINT，不拦截。
+      const selected = terminalInstance.hasSelection() ? terminalInstance.getSelection() : '';
+      if (selected) void invoke('clipboard/write', { text: selected }, 10000).catch(() => {});
+      return false;
+    }
     if (event.type !== 'keydown' || event.key !== 'Escape') return true;
     if (event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return true;
     return !focusEditorFromTerminal();
@@ -8170,6 +8179,16 @@ function showCompactInput(title, label, value, confirmLabel) {
   if (field) {
     field.focus();
     field.select();
+    // 权威输入窗口（`Messages.showInputDialog`）在名称为空时禁用确认；
+    // New Branch / Rename / New Tag 共用本入口，空名称不应表现为可提交。
+    const confirm = layer.querySelector('[data-compact-action="confirm"]');
+    if (confirm) {
+      const syncConfirm = () => {
+        confirm.disabled = field.value.trim().length === 0;
+      };
+      field.addEventListener("input", syncConfirm);
+      syncConfirm();
+    }
   }
 }
 
@@ -9502,6 +9521,15 @@ async function runRemoteAction(action) {
  * 进行中冻结列表与确认按钮（阻止重复提交）；成功关闭并恢复主窗口原焦点；失败保留引用、
  * 提交列表与焦点并允许重试；用户取消后晚到的成功结果被代次丢弃。
  */
+/**
+ * 推送成功提示文案（供验收套件单测）：优先显示 upstream，缺失时用通用完成文案。
+ * 参考端以 balloon 呈现结果；Augit 用全局提示（规格 §10.2）。
+ */
+function pushSuccessText(upstream) {
+  const target = String(upstream || "").trim();
+  return target ? `Pushed to ${target}.` : "Push completed.";
+}
+
 async function confirmPushDialog() {
   const live = window.__augitLive;
   const dialog = document.querySelector("[data-augit-overlay] .push-dialog");
@@ -9537,6 +9565,8 @@ async function confirmPushDialog() {
 
   window.__augitPushError = null;
   window.__augitCommitResult = { pushed: true };
+  const pushedUpstream = live && live.push && live.push.upstream;
+  showToast({ title: "Push", text: pushSuccessText(pushedUpstream), kind: "success" });
   closePushDialog();
   if (live) {
     live.references = null;
@@ -11654,11 +11684,19 @@ document.addEventListener('keydown',event=>{
  * 复制路径、在资源管理器中定位、在外部终端打开、刷新、文件历史、Blame。
  * 此前项目树**完全没有右键处理**（只有改动列表有），右键毫无反应。
  */
+function treeContextPath(row, live) {
+  const direct = row && row.dataset ? row.dataset.treePath : "";
+  if (direct) return direct;
+  const isRoot = row && row.classList && row.classList.contains("root-row");
+  return isRoot && live && typeof live.root === "string" ? live.root : "";
+}
+
 function openTreeContextMenu(row, clientX, clientY) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host || !row) return;
-  const path = row.dataset.treePath;
+  // 根节点在 buildVisibleTree 里以空路径表示工作区根，不能因此让右键无反应。
+  const path = treeContextPath(row, live);
   if (!path) return;
   rememberDialogFocus();
   closeLiveOverlay();
