@@ -32,6 +32,7 @@ terminal-palette.js 32952A034BEF80248AE47501C50F213BA3D66D09162B7F95DF201303ACE0
 - Smart Checkout **5/5**
 - 终端大字号 **5/5**
 - UI 资产字节一致性 **PASS**
+- 完整 .NET 测试：**521 通过 / 0 失败 / 0 跳过**（Core 72、Shell 246、Infrastructure 203）
 
 ## 4. 推送后冒烟
 
