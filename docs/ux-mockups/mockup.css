@@ -3558,7 +3558,8 @@ body[data-theme="dark"] .search-overlay {
 }
 
 .terminal-view {
-  padding: 11px 12px;
+  /* 参考终端首行距工具窗顶约 11 物理px；旧 11 CSS 顶距会多出约 15 物理px。 */
+  padding: 2.5px 12px 11px;
   /* 字体加载后按参考基础度量更新，失败时沿浏览器回退字体。 */
   line-height: var(--terminal-line-height, normal);
 }

@@ -29,10 +29,17 @@
   - 实际 315.4 header 文案 1202–1222、首条 1233–1253。
 - 因此 8px 面板顶偏移已由夹具高度消除；剩余是**终端 header/内容顶部约 8 CSS 的内部高度差**，不能用面板高度继续补。
 
-## 4. 下一步
+## 4. 修复与正常入口复核
 
-- 用 CDP/DOM 读取 `.terminal-header`、`.terminal-tool` 的实际 content rect 与 padding，定位 8 CSS 差异；
-- 不改 CSS 猜测，直到两态同内容、同面板顶、同 header 高度。
+DOM 测量显示 `.terminal-view` 的 `padding-top` 为 11 CSS，而参考首行只需约 2.5 CSS：
+
+- `web/src/mockup.css` / `docs/ux-mockups/mockup.css`：`padding: 11px 12px` → `2.5px 12px 11px`；
+- 正常入口 PID 14596、深色、`bottomPanelHeight=315.4`、同内容复采：
+  - header 顶边框 **1176**（参考 1176）；
+  - 首条内容 **1187**（参考 1187）；
+  - 终端区域配准最佳 dy **-1px**。
+- 新增 `tools/test-terminal-view-padding.mjs`，web/视觉稿 2/2 通过；UI 资产字节一致 PASS。
+- 这是终端区域对齐，不是整页像素合格；页面级仍 50、像素 0。
 
 ## 5. 证据
 
