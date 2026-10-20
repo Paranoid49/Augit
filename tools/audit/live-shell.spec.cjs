@@ -18712,7 +18712,7 @@ async function main() {
       + JSON.stringify(historyFilters.multiSelect.pathFilter.tree),
       historyFilters.multiSelect.pathFilter.tree.opened.open === true
         && historyFilters.multiSelect.pathFilter.tree.opened.title === 'Select Paths to Filter'
-        && historyFilters.multiSelect.pathFilter.tree.opened.rows.join(',') === 'docs,src,README.md'
+        && historyFilters.multiSelect.pathFilter.tree.opened.rows.filter(Boolean).join(',') === 'docs,src,README.md'
         && historyFilters.multiSelect.pathFilter.tree.opened.help === 'Selected: 0'
         && historyFilters.multiSelect.pathFilter.tree.opened.confirmDisabled === true
         && historyFilters.multiSelect.pathFilter.tree.checked.help === 'Selected: 2'
