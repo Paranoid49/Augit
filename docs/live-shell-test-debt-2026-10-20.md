@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-32` 复跑中；`run-31` 已把设置搜索可见性漏洞暴露并修复，当前套件仍停在第 18419 行日志筛选语义（需权威确认清空文本是否同时清分支）。
+- **本轮最后状态**：`run-35` 复跑中；`run-34` 已通过第 18419/18449 行：合成点击必须落在筛选控件的**关闭叉 SVG** 上才会复位（点按钮本身是“打开弹层”），文本/哈希前与标签双击前先复位分支；`Compare with Current` 的禁用原因按产品文案 `The selection is the current branch…` 改为大小写不敏感匹配，停在 18466 之后待复跑。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

@@ -17578,6 +17578,16 @@ async function main() {
         }, key);
         await scene.page.waitForTimeout(700);
       };
+      // 关闭叉是控件内的 SVG 图标；直接点按钮会走“打开弹层”，不会复位筛选。
+      // 真实用户点的是那个图标，合成事件也必须落在图标上（2026-10-21 实测发现）。
+      const clickFilterClear = async (key) => {
+        await scene.page.evaluate((k) => {
+          const button = document.querySelector(`.history-filters > button[data-filter-key="${k}"]`);
+          const icon = button ? [...button.querySelectorAll('svg')].pop() : null;
+          (icon || button).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, key);
+        await scene.page.waitForTimeout(700);
+      };
 
       // ① 四个筛选控件的初始状态（权威：未设值时是名称 ＋ 向下箭头；未接线项禁用并写明原因）。
       const controls = {
@@ -17594,7 +17604,7 @@ async function main() {
       const afterDoubleClick = { params: await lastParams(), subjects: await subjects(), control: await controlState('branch') };
 
       // ③ 文本或哈希：回车执行（权威 `TextFilterField` 的 ActionListener）。先点关闭叉清掉分支筛选。
-      await clickControl('branch');
+      await clickFilterClear('branch');
       await resetParams();
       const field = scene.page.locator('.log-filterbar.history-filters [aria-label="Text or hash"]');
       await field.fill('真实提交二');
@@ -17652,7 +17662,7 @@ async function main() {
       await resetParams();
       await enterRow('branch', 'feature/ux');
       const afterEnter = { params: await lastParams(), subjects: await subjects() };
-      await clickControl('branch');
+      await clickFilterClear('branch');
       await resetParams();
       await doubleClickRow('tag', 'v1.0.0');
       const afterTagDoubleClick = { params: await lastParams(), subjects: await subjects() };
@@ -18456,7 +18466,7 @@ async function main() {
     check('§7.8 「Compare with Current」按权威启停：选当前分支禁用、选非当前分支可用: '
       + JSON.stringify([historyFilters.branchComparison.currentSelected, historyFilters.branchComparison.nonCurrentSelected]),
       historyFilters.branchComparison.currentSelected.disabled === true
-        && historyFilters.branchComparison.currentSelected.title.includes('Current branch')
+        && /current branch/i.test(historyFilters.branchComparison.currentSelected.title)
         && historyFilters.branchComparison.nonCurrentSelected.disabled === false);
     check('§7.8 「Compare with Current」打开的是**范围过滤的日志**：Tags"Compare: <Branch> with <Current>"、范围文本 <Current>..<Branch>、宿主收到 rangeExclusive/rangeInclusive: '
       + JSON.stringify([historyFilters.branchComparison.opened, historyFilters.branchComparison.params]),
