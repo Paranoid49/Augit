@@ -369,3 +369,4 @@
 - `cleanup-check-221.json`（终端修复后完整 .NET 测试）：`dotnet test Augit.slnx --no-restore` 共 **521 通过 / 0 失败 / 0 跳过**（Core 72、Shell 246、Infrastructure 203）；共享 CSS/调色板修改未造成测试回归；页面级仍 50、像素仍 0。
 - `cleanup-check-222.json`（搜索超时与取消）：正常入口受控停顿真实触发 15 秒超时（已完成结果保留 + 超时说明 + rg 结束）；发现并修复“关闭浮层/改发新查询不结束 ripgrep”的取消缺陷，修复后 Esc 后 <0.3s 结束；Shell 246/246、桥接/接线测试通过；推送 `83650e1`；页面级仍 50、像素仍 0。
 - `cleanup-check-223.json`（Diff 加载形态）：按参考源码把骨架屏改为头部不定进度条 + 正文 `Loading...` 消息；mockup-scenes 54/54（浅/深）、verify-ux-history 42 组、diff-initial-loading 2/2、UI 资产 PASS；源码形态对齐，非像素合格；页面级仍 50、像素仍 0。
+- `cleanup-check-224.json`（Settings 原生 presented 时间线）：正常入口 PID 5328、隔离设置副本（全局仍 `B8868855…DC3D`）、真实鼠标、DWM cloak 探针 3 周期：点击→presented **495–585ms**，创建→presented 423–489ms，`CapturePreviewAsync` 85–94ms，Esc→消失 32–60ms；presented 与 +60ms 共 6 张截图同哈希、首帧即完整 Appearance 页；3 次快速点击齿轮仍只有 1 个设置窗；2904ms/捕获超时/深色/跨屏未覆盖；页面级仍 50、像素仍 0。

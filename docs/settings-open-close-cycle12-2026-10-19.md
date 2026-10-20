@@ -1,5 +1,7 @@
 # Settings 打开/关闭 cycle12：Cancel 生效（2026-10-19）
 
+> 2026-10-20 补充：后续用正常入口 + DWM cloak 探针 + 宿主原生 trace 取得 3 周期的完整 presented 时间线（495–585ms）与首内容证据，见[Settings 原生长时间线](settings-native-timeline-2026-10-20.md)。本文的标题探针（636/877ms）仍不是完整首内容。
+
 ## 1. 方法
 
 - 正常入口，PID 8356，无 CDP；
