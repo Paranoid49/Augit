@@ -4,7 +4,7 @@
 // 性能约束：桥接调用每次跨进程，必须尽量少而并行。
 // 因此首屏只取工作区信息、Git 状态与根目录一层；更深层级在展开时再取。
 
-import { hasHost, invoke, subscribe } from "./bridge.js";
+import { cancelRequest, hasHost, invoke, subscribe } from "./bridge.js";
 import { terminalAnsiPalette, terminalSelectionPalette } from "./terminal-palette.js";
 import { isTerminalCopyShortcut } from "./terminal-copy.js";
 import { terminalCellWidth, terminalCellHeight } from "./terminal-geometry.js";
@@ -641,11 +641,24 @@ async function loadUnpushed() {
  * 输入去抖 180 毫秒，避免每敲一个字符都拉起一次 ripgrep。
  */
 let searchToken = 0;
+// 搜索请求自己的编号：随请求发给宿主，关闭浮层或改发新查询时按它取消对应 ripgrep。
+// 桥接消息 id 由 bridge.js 内部递增，网页侧拿不到，因此不能复用它做取消。
+let searchRequestSequence = 0;
+let activeSearchRequest = 0;
 // 搜索输入的去抖句柄跨区域重绘保存；关闭浮层时必须同步清掉，避免晚到的去抖任务重新启动查询。
 let cancelSearchDebounce = null;
 
+/** 结束仍在宿主中运行的搜索；取消是幂等的，没有活动请求时什么都不做。 */
+function cancelActiveSearchRequest() {
+  if (!activeSearchRequest) return;
+  const requestId = activeSearchRequest;
+  activeSearchRequest = 0;
+  cancelRequest(requestId);
+}
+
 function invalidateSearchRequests() {
   searchToken += 1;
+  cancelActiveSearchRequest();
   if (cancelSearchDebounce) {
     cancelSearchDebounce();
     cancelSearchDebounce = null;
@@ -656,15 +669,20 @@ async function runSearch(kind, query, options) {
   const live = window.__augitLive;
   if (!live) return;
   const token = ++searchToken;
+  // 新查询取代旧查询：先结束旧的 ripgrep，结果随后按令牌丢弃。
+  cancelActiveSearchRequest();
+  const requestId = ++searchRequestSequence;
+  activeSearchRequest = requestId;
   const method = kind === "repository" ? "search/text" : "search/files";
   // 权威 `SearchEverywhereUI.rebuildList()`：每次搜索开始先清空上一个查询的结果，空态显示
   // "Searching…"，结果到达才替换 ⇒ 先落到"进行中"状态再发查询。
   live.search = { kind, query, options: options || {}, matches: [], notice: "", truncated: false, pending: true };
   renderSearchOverlay(kind);
   try {
-    const result = await invoke(method, { query, ...(options || {}) }, 30000);
+    const result = await invoke(method, { query, requestId, ...(options || {}) }, 30000);
     // 晚到的旧查询不得覆盖新查询的结果。
     if (token !== searchToken) return;
+    if (activeSearchRequest === requestId) activeSearchRequest = 0;
     const matches = result && result.matches ? result.matches : [];
     const truncated = !!(result && result.truncated);
     live.search = {
@@ -693,6 +711,7 @@ async function runSearch(kind, query, options) {
     else closeSearchLimitDialog();
   } catch (error) {
     if (token !== searchToken) return;
+    if (activeSearchRequest === requestId) activeSearchRequest = 0;
     window.__augitError = "search:" + String(error && error.message || error);
   }
 }
@@ -752,19 +771,27 @@ async function continueLimitedSearch() {
   // 安全上限：即使结果被持续追加，也不让一次"继续"无限循环（100 页 = 10 万条）。
   for (let page = 0; page < 100; page++) {
     let result = null;
+    const requestId = ++searchRequestSequence;
+    activeSearchRequest = requestId;
     try {
       result = await invoke("search/text", {
         query: prompt.query,
+        requestId,
         ...(prompt.options || {}),
         offset,
         limit: 1000,
       }, 30000);
     } catch (error) {
+      if (activeSearchRequest === requestId) activeSearchRequest = 0;
       window.__augitError = "search-continue:" + String((error && error.message) || error);
       return null;
     }
     // 用户又发起了新查询：晚到的分页结果不得落到新查询上。
-    if (token !== searchToken) return null;
+    if (token !== searchToken) {
+      if (activeSearchRequest === requestId) activeSearchRequest = 0;
+      return null;
+    }
+    if (activeSearchRequest === requestId) activeSearchRequest = 0;
     const added = result && result.matches ? result.matches : [];
     const current = live.search;
     if (!current) return null;

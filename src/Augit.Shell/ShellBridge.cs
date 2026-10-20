@@ -59,6 +59,14 @@ internal sealed class ShellBridge : IDisposable
     private readonly Lock _changeGate = new();
     private readonly HashSet<string> _pendingWorkspaceChanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _terminalGate = new();
+    private readonly Lock _searchGate = new();
+    /// <summary>
+    /// 正在运行的搜索请求（网页 requestId → 取消源）。
+    ///
+    /// 规格 §7.15 要求超时**和取消**都结束 ripgrep：网页关闭搜索浮层或改发新查询时
+    /// 会发送 `search/cancel`，宿主按 requestId 只取消对应请求，不误杀并行的文件名搜索。
+    /// </summary>
+    private readonly Dictionary<long, CancellationTokenSource> _searchRequests = [];
     private WorkspaceFileWatcher? _workspaceWatcher;
     private GitMetadataWatcher? _gitWatcher;
     private bool _pendingGitMetadataChange;
@@ -216,6 +224,7 @@ internal sealed class ShellBridge : IDisposable
             "workspace/changes" => ReadWorkspaceChanges(),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
+            "search/cancel" => CancelSearch(parameters),
             "external/launch" => await LaunchExternalAsync(parameters, cancellationToken),
             "clipboard/write" => WriteClipboard(parameters),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
@@ -941,24 +950,34 @@ internal sealed class ShellBridge : IDisposable
     private async Task<object?> SearchFilesAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string query = GetString(parameters, "query") ?? string.Empty;
-        RipgrepSearchService search = new(RipgrepPath);
-        FileSearchResultSet result = await search.SearchFilesWithStatusAsync(
-            _workspaceRoot,
-            query,
-            cancellationToken);
-        return new
+        long requestId = GetInt(parameters, "requestId") ?? 0;
+        CancellationTokenSource? request = RegisterSearch(requestId);
+        try
         {
-            available = true,
-            timedOut = result.IsTimedOut,
-            cancelled = result.IsCancelled,
-            notice = result.Notice,
-            matches = result.Matches.Select(match => new
+            RipgrepSearchService search = new(RipgrepPath);
+            FileSearchResultSet result = await search.SearchFilesWithStatusAsync(
+                _workspaceRoot,
+                query,
+                request?.Token ?? cancellationToken);
+            return new
             {
-                path = match.RelativePath,
-                name = Path.GetFileName(match.RelativePath),
-                directory = (Path.GetDirectoryName(match.RelativePath) ?? string.Empty).Replace('\\', '/'),
-            }),
-        };
+                available = true,
+                timedOut = result.IsTimedOut,
+                cancelled = result.IsCancelled,
+                notice = result.Notice,
+                matches = result.Matches.Select(match => new
+                {
+                    path = match.RelativePath,
+                    name = Path.GetFileName(match.RelativePath),
+                    directory = (Path.GetDirectoryName(match.RelativePath) ?? string.Empty).Replace('\\', '/'),
+                }),
+            };
+        }
+        finally
+        {
+            UnregisterSearch(requestId, request);
+            request?.Dispose();
+        }
     }
 
     /// <summary>全仓搜索：按内容搜索，最多 1000 项并标记截断。</summary>
@@ -982,7 +1001,19 @@ internal sealed class ShellBridge : IDisposable
                 SearchOptions.MaximumTextResults),
         };
         RipgrepSearchService search = new(RipgrepPath);
-        TextSearchResult result = await search.SearchTextAsync(_workspaceRoot, options, cancellationToken);
+        long requestId = GetInt(parameters, "requestId") ?? 0;
+        CancellationTokenSource? request = RegisterSearch(requestId);
+        TextSearchResult result;
+        try
+        {
+            result = await search.SearchTextAsync(_workspaceRoot, options, request?.Token ?? cancellationToken);
+        }
+        finally
+        {
+            UnregisterSearch(requestId, request);
+            request?.Dispose();
+        }
+
         return new
         {
             available = true,
@@ -1000,6 +1031,68 @@ internal sealed class ShellBridge : IDisposable
                 text = match.LineText,
             }),
         };
+    }
+
+    /// <summary>
+    /// 登记一个可取消的搜索请求。网页每次请求带自己的 `requestId`（不是桥接消息 id），
+    /// 这样 `search/cancel` 只结束对应 ripgrep，不影响同一时刻的另一个搜索。
+    /// </summary>
+    private CancellationTokenSource? RegisterSearch(long requestId)
+    {
+        if (requestId <= 0) return null;
+        CancellationTokenSource source = new();
+        CancellationTokenSource? stale = null;
+        lock (_searchGate)
+        {
+            // 同一 requestId 重复出现（重试）：旧请求必须先停，旧源的释放仍由它自己的 finally 负责。
+            if (_searchRequests.Remove(requestId, out CancellationTokenSource? previous))
+            {
+                stale = previous;
+            }
+            _searchRequests[requestId] = source;
+        }
+        if (stale is not null)
+        {
+            try { stale.Cancel(); }
+            catch (Exception exception) when (exception is ObjectDisposedException or AggregateException) { }
+        }
+        return source;
+    }
+
+    private void UnregisterSearch(long requestId, CancellationTokenSource? source)
+    {
+        if (requestId <= 0 || source is null) return;
+        lock (_searchGate)
+        {
+            // 只移除自己登记的源：旧请求晚到的收尾不能删掉同 id 的新请求。
+            if (_searchRequests.TryGetValue(requestId, out CancellationTokenSource? current)
+                && ReferenceEquals(current, source))
+            {
+                _searchRequests.Remove(requestId);
+            }
+        }
+    }
+
+    /// <summary>结束一个仍在运行的搜索（关闭浮层、改发新查询）。</summary>
+    private object? CancelSearch(JsonElement parameters)
+    {
+        long requestId = GetInt(parameters, "requestId") ?? 0;
+        CancellationTokenSource? source = null;
+        lock (_searchGate)
+        {
+            if (requestId > 0) _searchRequests.TryGetValue(requestId, out source);
+        }
+        if (source is null) return new { cancelled = false };
+        try
+        {
+            source.Cancel();
+            return new { cancelled = true };
+        }
+        catch (Exception exception) when (exception is ObjectDisposedException or AggregateException)
+        {
+            // 请求恰好已经收尾；取消是幂等的，不把竞态报成错误。
+            return new { cancelled = false };
+        }
     }
 
     /// <summary>

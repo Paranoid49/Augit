@@ -59,8 +59,7 @@ export function subscribe(event, handler) {
 export const hasHost = () => hostAvailable;
 
 /** 调用宿主方法；Git 写入、网络与取消始终等待宿主结束，其余方法按 timeoutMs 超时。 */
-export function invoke(method, params = {}, timeoutMs = 15000) {
-  if (!hostAvailable) return Promise.reject(new Error("no-host"));
+export function invoke(method, params = {}, timeoutMs = 15000) {  if (!hostAvailable) return Promise.reject(new Error("no-host"));
   const deadline = waitsForHost.has(method) ? 0 : timeoutMs;
   const id = ++sequence;
   return new Promise((resolve, reject) => {
@@ -86,4 +85,24 @@ export function invoke(method, params = {}, timeoutMs = 15000) {
       reject(error);
     }
   });
+}
+
+/**
+ * 取消网页侧已经发出的一个宿主请求。
+ *
+ * 搜索浮层关闭或改发新查询时，宿主必须结束对应的 ripgrep（规格 §7.15：超时和取消后结束搜索进程）。
+ * `requestId` 由调用方生成并随原请求发送，宿主按它只取消那一个任务；这里不等待应答，
+ * 原请求的 Promise 会在宿主返回取消结果时正常结算，调用方用旧令牌丢弃它。
+ */
+export function cancelRequest(requestId) {
+  if (!hostAvailable || !requestId) return;
+  try {
+    window.chrome.webview.postMessage(JSON.stringify({
+      id: ++sequence,
+      method: "search/cancel",
+      params: { requestId },
+    }));
+  } catch {
+    // 页面正在关闭或宿主已不可用：没有可取消的任务，静默忽略。
+  }
 }
