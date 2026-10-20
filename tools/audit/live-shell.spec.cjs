@@ -20861,13 +20861,21 @@ async function main() {
         }
         const base = window.__hoverBaseline;
         return {
-          hovered: visible.filter((row) => !row.classList.contains('selected')
+          // 规格 §7.6/§7.8：Changes 行不安装悬停监听、不画悬停底 ⇒ 这个集合必须始终为空。
+          hoverBgRows: visible.filter((row) => !row.classList.contains('selected')
             && bg(row) !== (Object.prototype.hasOwnProperty.call(base, key(row)) ? base[key(row)] : 'rgba(0, 0, 0, 0)')).map(key),
           hoverMatch: visible.filter((row) => row.matches(':hover')).map(key),
           under: visible.filter(under).map(key),
           visibleCount: visible.length,
           rowHeight: fileRows[0] ? Math.round(fileRows[0].getBoundingClientRect().height) : 0,
           firstRowBg: fileRows[0] ? getComputedStyle(fileRows[0]).backgroundColor : null,
+          checked: rows.filter((row) => row.querySelector('input[type="checkbox"]')?.checked).map(key),
+          selected: (document.querySelector('.changes-list .check-row.selected') || { dataset: {} }).dataset.path
+            || (document.querySelector('.changes-list .check-row.selected') || { dataset: {} }).dataset.group || null,
+          active: document.activeElement ? (document.activeElement.getAttribute('aria-label')
+            || document.activeElement.id || document.activeElement.tagName) : null,
+          statusCalls: window.__statusCalls || 0,
+          historyCalls: window.__historyCalls || 0,
           mutations: window.__hoverMutations || 0,
           sameNodes: Array.isArray(window.__hoverNodes)
             && window.__hoverNodes.length === rows.length
@@ -20992,61 +21000,55 @@ async function main() {
       console.log('INFO 悬停重命中=' + JSON.stringify(payload));
       return payload;
     })();
-    const oneVisible = (snapshot) => snapshot.hovered.length === 1 && snapshot.under.length === 1
-      && snapshot.hovered[0] === snapshot.under[0];
-    check('§7.6 悬停只改外观、不重绘列表（同一行内移动不重复重绘）: '
-      + JSON.stringify([hoverRehit.neutral.firstRowBg, hoverRehit.styled.firstRowBg, hoverRehit.mutations, hoverRehit.styled.sameNodes, hoverRehit.sameRow.hovered]),
-    // 基线（指针在列表外）该行没有悬停底；悬停后底色变化
-    hoverRehit.neutral.firstRowBg !== hoverRehit.styled.firstRowBg
-      && hoverRehit.neutral.hovered.length === 0
-      // 悬停期间列表零 DOM 变更（含 attributes），且行节点身份不变 ⇒ 没有重绘任何行
-      && hoverRehit.mutations === 0
-      && hoverRehit.styled.sameNodes === true
-      // 命中行就是几何上在指针下的那一行；同一行内横向移动不改变命中行
-      && oneVisible(hoverRehit.styled)
-      && hoverRehit.sameRow.hovered[0] === hoverRehit.styled.hovered[0]
-      && oneVisible(hoverRehit.sameRow)
-      // 换行后只有新行悬停
-      && oneVisible(hoverRehit.otherRow)
-      && hoverRehit.otherRow.hovered[0] === hoverRehit.otherRowKey);
-    check('§7.6 滚动、列表增删、行高变化与折叠后按指针位置重新命中: '
-      + JSON.stringify([hoverRehit.hit0.hovered, hoverRehit.hitScrolled.hovered, hoverRehit.hitGrown.hovered, hoverRehit.hitTypo.hovered, hoverRehit.hitCollapsed.hovered, hoverRehit.hitExpanded.hovered]),
-    // 基线：指针下的那一行被悬停
-    oneVisible(hoverRehit.hit0)
-      // 滚动后：命中行跟着几何走（内容真的移动了 ⇒ 新行与基线不同）
+    // 规格 §7.6/§7.8：Changes 行不安装行悬停监听、不画悬停底；移动指针不得重绘列表或改变状态。
+    const oneUnder = (snapshot) => snapshot.under.length === 1;
+    const sameState = (a, b) => JSON.stringify(a.checked) === JSON.stringify(b.checked)
+      && a.selected === b.selected && a.active === b.active
+      && a.statusCalls === b.statusCalls && a.historyCalls === b.historyCalls;
+    const sameDataState = (a, b) => JSON.stringify(a.checked) === JSON.stringify(b.checked)
+      && a.selected === b.selected && a.statusCalls === b.statusCalls && a.historyCalls === b.historyCalls;
+    check('§7.6 Changes 行不画悬停底、移动指针不重绘也不改选择/勾选/焦点: '
+      + JSON.stringify([hoverRehit.neutral.firstRowBg, hoverRehit.styled.firstRowBg, hoverRehit.mutations,
+        hoverRehit.styled.sameNodes, hoverRehit.styled.under]),
+    hoverRehit.neutral.firstRowBg === hoverRehit.styled.firstRowBg
+      && hoverRehit.neutral.hoverBgRows.length === 0 && hoverRehit.styled.hoverBgRows.length === 0
+      && hoverRehit.sameRow.hoverBgRows.length === 0 && hoverRehit.otherRow.hoverBgRows.length === 0
+      && hoverRehit.mutations === 0 && hoverRehit.styled.sameNodes === true
+      && oneUnder(hoverRehit.styled) && hoverRehit.styled.under[0] === hoverRehit.fileRow
+      && hoverRehit.sameRow.under[0] === hoverRehit.styled.under[0]
+      && oneUnder(hoverRehit.otherRow) && hoverRehit.otherRow.under[0] === hoverRehit.otherRowKey
+      && sameState(hoverRehit.styled, hoverRehit.neutral)
+      && sameState(hoverRehit.otherRow, hoverRehit.neutral));
+    check('§7.6 滚动、列表增删、行高变化与折叠后按指针位置重新命中（仍无悬停底）: '
+      + JSON.stringify([hoverRehit.hit0.under, hoverRehit.hitScrolled.under, hoverRehit.hitGrown.under,
+        hoverRehit.hitTypo.under, hoverRehit.hitCollapsed.under, hoverRehit.hitExpanded.under]),
+    oneUnder(hoverRehit.hit0) && hoverRehit.hit0.hoverBgRows.length === 0
       && hoverRehit.hitScrolled.scrollTop > hoverRehit.hit0.scrollTop
-      && oneVisible(hoverRehit.hitScrolled)
-      && hoverRehit.hitScrolled.hovered[0] !== hoverRehit.hit0.hovered[0]
-      // 列表增删后：仍是几何上在指针下的那一行
-      && oneVisible(hoverRehit.hitGrown)
-      // 行高变化后：行高确实变了（27 → 31），命中行仍与几何一致
-      && hoverRehit.hitTypo.rowHeight > hoverRehit.hitGrown.rowHeight
-      && oneVisible(hoverRehit.hitTypo)
-      // 折叠后：该处没有可见行，可见悬停必须为空（隐藏行上的陈旧 :hover 匹配不算）
+      && oneUnder(hoverRehit.hitScrolled) && hoverRehit.hitScrolled.under[0] !== hoverRehit.hit0.under[0]
+      && oneUnder(hoverRehit.hitGrown)
+      && hoverRehit.hitTypo.rowHeight > hoverRehit.hitGrown.rowHeight && oneUnder(hoverRehit.hitTypo)
       && hoverRehit.hitCollapsed.visibleCount < hoverRehit.hitTypo.visibleCount
-      && hoverRehit.hitCollapsed.hovered.length === 0
-      // 展开后重新命中
-      && oneVisible(hoverRehit.hitExpanded));
-    check('§7.6 空白区不算最后一行: '
-      + JSON.stringify([hoverRehit.blankY, hoverRehit.lastRow.lastRowBottom, hoverRehit.blank.hovered, hoverRehit.lastRow.hovered]),
-    // 空白点确实在最后一行之下、列表之内（否则这条断言会因为点在列表外而空过）
+      && hoverRehit.hitCollapsed.under.length === 0
+      && oneUnder(hoverRehit.hitExpanded)
+      && [hoverRehit.hitScrolled, hoverRehit.hitGrown, hoverRehit.hitTypo, hoverRehit.hitExpanded]
+        .every((snapshot) => snapshot.hoverBgRows.length === 0));
+    check('§7.6 空白区不算最后一行（且不画悬停底）: '
+      + JSON.stringify([hoverRehit.blankY, hoverRehit.lastRow.lastRowBottom, hoverRehit.blank.under, hoverRehit.lastRow.under]),
     hoverRehit.blankY > hoverRehit.lastRow.lastRowBottom
       && hoverRehit.blankY < hoverRehit.lastRow.listBottom
-      && hoverRehit.blank.under.length === 0
-      && hoverRehit.blank.hovered.length === 0
-      // 同一根指针移到最后一行上就必须命中它（证明空区为空是判据本身的结果）
-      && oneVisible(hoverRehit.lastRow));
+      && hoverRehit.blank.under.length === 0 && hoverRehit.blank.hoverBgRows.length === 0
+      && oneUnder(hoverRehit.lastRow) && hoverRehit.lastRow.hoverBgRows.length === 0);
     check('§7.6 隐藏/销毁后清除悬停、重新显示不恢复旧状态: '
-      + JSON.stringify([hoverRehit.beforeHide.hovered, hoverRehit.hiddenPanel.panel, hoverRehit.shownBack.hovered, hoverRehit.shownBackMoved.hovered]),
-    // 切换工具窗口前：命中行在悬停
-    oneVisible(hoverRehit.beforeHide)
-      // 隐藏后提交工具窗已销毁（列表不在文档里）
-      && hoverRehit.hiddenPanel.panel === false
-      && hoverRehit.hiddenPanel.hovered.length === 0
-      // 重新显示、指针仍在原处时：**不得**恢复旧悬停——可见悬停只能是几何上在指针下的行
-      && hoverRehit.shownBack.hovered.every((key) => hoverRehit.shownBack.under.includes(key))
-      // 指针移到列表内后照常命中
-      && oneVisible(hoverRehit.shownBackMoved));
+      + JSON.stringify([hoverRehit.beforeHide.under, hoverRehit.hiddenPanel.panel, hoverRehit.shownBack.under]),
+    oneUnder(hoverRehit.beforeHide) && hoverRehit.beforeHide.hoverBgRows.length === 0
+      && hoverRehit.hiddenPanel.panel === false && hoverRehit.hiddenPanel.hoverBgRows.length === 0
+      && hoverRehit.shownBack.panel === true
+      && hoverRehit.shownBack.hoverBgRows.length === 0
+      && hoverRehit.shownBack.under.length === 0
+      && oneUnder(hoverRehit.shownBackMoved)
+      && hoverRehit.shownBackMoved.hoverBgRows.length === 0
+      && JSON.stringify(hoverRehit.beforeHide.checked) === JSON.stringify(hoverRehit.shownBackMoved.checked)
+      && hoverRehit.beforeHide.selected === hoverRehit.shownBackMoved.selected);
 
     // ---- 第 247 轮补断言（收 §7.6 第 10 条）：字号下各按字高扩展而图标/复选框固定、
     // 提交动作放不下时按原顺序排成两行、输入框至少保留提示行与一行正文、
