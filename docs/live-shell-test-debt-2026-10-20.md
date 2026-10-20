@@ -11,33 +11,28 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 - 2026-10-20 在干净 HEAD `83650e1` 的临时 worktree 复跑，得到同一处失败 ⇒ 不是本批改动引入。
 - 临时 worktree 已删除，未改参考仓库或用户配置。
 
-## 2. 已修正的两处过期期望
+## 2. 已修正的过期期望
 
 | 位置 | 旧期望 | 现行为与依据 |
 | --- | --- | --- |
-| `live-shell.spec.cjs` 提交详情等待 | `window.__augitCommitLoaded === "aaa1111"` | `live-data.js` 已按注释「刷新判据使用完整提交身份」写 `commit.fullHash`，桩数据为 `full-head-hash`；改为等完整哈希。 |
-| `live-shell.spec.cjs` Settings/File View | 查找 `[data-setting="codeFontSize"]` | 2026-10-15 用户裁决固定 JetBrains Mono 13 并移除等宽字体/字号控件；改为断言 `[data-fixed-code-font]`=`JetBrains Mono`、`[data-fixed-code-size]`=`13`，且无编辑控件。 |
+| 提交详情等待 | `window.__augitCommitLoaded === "aaa1111"` | `live-data.js` 已按注释「刷新判据使用完整提交身份」写 `commit.fullHash`，桩数据为 `full-head-hash`；改为等完整哈希。 |
+| Settings/File View | 查找 `[data-setting="codeFontSize"]` | 2026-10-15 用户裁决固定 JetBrains Mono 13 并移除等宽字体/字号控件；改为断言 `[data-fixed-code-font]`=`JetBrains Mono`、`[data-fixed-code-size]`=`13`，且无编辑控件。 |
+| 字体段落（界面/等宽字号、行高、字族、终端） | 等宽字号可改 17/22、行高随 17 增长、字族可改 Courier New、终端跟随 22、越界后仍保留 17 | 桩的 `settings/write` 对齐 `ShellBridge.WriteSettingsAsync`：任何写入后 `monospaceFontFamily=JetBrains Mono`、`codeFontSize=13`；正文行高断言改为固定 13 的 **22px**（`ceil((ceil(13×1.02)+ceil(13×0.3))×1.2)`）；终端断言固定 13/JetBrains Mono；删除已随冲突编辑器移除的 `.conflict-block` 死类测量。 |
 
-## 3. 仍然阻塞套件的过期假设
+## 3. 当前阻塞与剩余债务
 
-以下条目仍按“等宽字体/字号可编辑、可改终端字号”的旧设计断言，必须按 2026-10-15 裁决重写，不能靠放宽断言通过：
-
-- `live-shell.spec.cjs` §“改等宽字号会作用到正文但不影响界面字号”“正文行高跟着等宽字号走”“越界字号与未知主题被忽略”：当前写入 `codeFontSize` 后 UI 仍为 13，行高 18px；应按固定 13 断言，并验证 `monospaceFontFamily` 的写入被忽略/回退。
-- “启动时就按已保存的字体设置渲染”“内置终端跟随等宽字体与字号”“已打开的终端随等宽设置变化”：`code-font-size=17` 启动后仍为 13、终端字体固定 JetBrains Mono；应按固定值重写。
+- **当前最先阻塞**（2026-10-20 重写字体段落后）：`live-shell.spec.cjs` 约第 2205 行「对话框内的 Tab 仍按窗口自身顺序循环」失败，观察值 `["field","cancel","cancel","cancel"]`，期望 `field → cancel → primary → field` 一类顺序。该项与等宽字体无关，尚未判定是桩/测试过期还是真实焦点缺陷，需要单独核对产品焦点规则后再处理。
 - 第 6760 行附近、第 9310 行附近、第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构；需逐段按当前简化 Settings 重写。
-- 这些段落未改，套件仍在第一次遇到它们时失败；**本批不宣称 live-shell 通过**。
+- 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
-## 4. 2026-10-20 晚间补充核对（未完成重写）
-
-在尝试重写字体段落时做了两项实机/源码核对，供下一轮直接使用：
+## 4. 重写依据（已用于字体段落）
 
 - **宿主写入契约**（隔离设置文件实测）：`settings/write` 写入 `fontSize:16` 与 `monospaceFontFamily:"Courier New"`、`codeFontSize:17` 后，磁盘保存为 `textFontSize:16`、`fontSize:13`、`monospaceFontFamily:"JetBrains Mono"`；读取返回 `codeFontSize:13`、`monospaceFontFamily:JetBrains Mono`。
-- **正文行高**：真实正常入口在 JetBrains Mono 13 下 `--code-line-height` 为 **22px**（`design-system.md` §5.1：`ceil((ceil(13×1.02)+ceil(13×0.3))×1.2)=22`），终端基础行格才是 18px。旧测试断言的 18px 是桩默认 `Cascadia Mono` 走 canvas 度量的结果，不是固定 13 的生产值。
-- 旧字体段落还测量了已随冲突编辑器移除的 `.conflict-block`（当前源码中不存在，只有 `.conflict-blocked`），应删除该测量而不是给它补样式。
-- 因此重写字体段落需要同时：把桩的 `settings/write` 与 `settings/read` 对齐宿主固定值、把桩默认等宽字体改为 `JetBrains Mono`、按 22px 断言正文行高、删除死类测量，并同步其后 6760/9310/27800 附近的旧结构。本轮尝试后在提交前回退了测试改动，未留下半改状态；套件仍未通过该段落。
+- **正文行高**：真实正常入口在 JetBrains Mono 13 下 `--code-line-height` 为 **22px**（`design-system.md` §5.1），终端基础行格才是 18px。旧测试断言的 18px 是桩默认 `Cascadia Mono` 走 canvas 度量的结果。
+- 字体度量在 `document.fonts` 完成后异步更新，测试在保存后等待行高稳定为 22px，而不是立即读取。
 
 ## 5. 下一步
 
-1. 按 §4 的契约一次性重写字体段落与桩归一化（固定 13/JetBrains、正文行高 22、终端行格 18、无编辑控件）。
-2. 重新运行完整套件，处理其后可能暴露的其他过期断言。
+1. 核对并处理「对话框内 Tab 顺序」失败：先看产品焦点规则与真实正常入口，再决定改桩还是报缺陷。
+2. 逐段处理 6760/9310/27800 附近的旧 Settings 结构。
 3. 套件恢复后，把它作为 Diff/设置等公共状态改动的回归门；在恢复前，用 `mockup-scenes`、`verify-ux-*` 与定向单元测试作为本批证据。

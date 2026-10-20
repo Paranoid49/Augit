@@ -775,10 +775,12 @@ async function main() {
         if (shells.includes(params.terminalShell)) next.terminalShell = params.terminalShell;
         const size = (value) => (typeof value === 'number' && value >= 9 && value <= 40 ? value : null);
         if (size(params.fontSize) !== null) next.fontSize = params.fontSize;
-        if (size(params.codeFontSize) !== null) next.codeFontSize = params.codeFontSize;
         for (const key of ['textFontFamily', 'monospaceFontFamily', 'gitExecutablePath', 'terminalCustomCommand']) {
           if (typeof params[key] === 'string') next[key] = params[key];
         }
+        // 与 ShellBridge.WriteSettingsAsync 一致（2026-10-15 用户裁决）：等宽字体与字号固定，任何写入都不改变。
+        next.monospaceFontFamily = 'JetBrains Mono';
+        next.codeFontSize = 13;
         window.__settingsState = next;
         return { saved: true, theme: next.theme, fontSize: next.fontSize };
       }
@@ -1774,7 +1776,6 @@ async function main() {
         titleHeight: declared.getPropertyValue('--augit-title-height').trim(),
         bodyFamily: getComputedStyle(document.body).fontFamily,
         codeView: measure('code-view'),
-        conflictBlock: measure('conflict-block'),
       };
     });
 
@@ -1807,9 +1808,9 @@ async function main() {
 
     const tyBase = await typography();
     tyCheck('默认字号来自设置并落到界面上: '
-      + JSON.stringify([tyBase.rootSize, tyBase.codeSizeVar, tyBase.codeView.size, tyBase.conflictBlock.size]),
+      + JSON.stringify([tyBase.rootSize, tyBase.codeSizeVar, tyBase.codeView.size]),
     tyBase.rootSize === '13px' && tyBase.codeSizeVar === '13px'
-      && tyBase.codeView.size === '13px' && tyBase.conflictBlock.size === '13px');
+      && tyBase.codeView.size === '13px');
     tyCheck('默认字族来自设置（界面与正文各用各的栈）: '
       + JSON.stringify([tyBase.uiFamilyVar, tyBase.codeFamilyVar, tyBase.bodyFamily]),
     tyBase.uiFamilyVar.includes('Microsoft YaHei UI') && tyBase.codeFamilyVar.includes('Cascadia Mono')
@@ -1819,34 +1820,37 @@ async function main() {
     const uiOnly = await setSettings({ fontSize: 26 });
     const tyUi = await typography();
     tyCheck('改界面字号会作用到界面但不影响正文等宽字号: '
-      + JSON.stringify([uiOnly, tyUi.rootSize, tyUi.codeSizeVar, tyUi.codeView.size, tyUi.conflictBlock.size]),
+      + JSON.stringify([uiOnly, tyUi.rootSize, tyUi.codeSizeVar, tyUi.codeView.size]),
     uiOnly !== null && uiOnly.fontSize === 26 && tyUi.rootSize === '26px'
-      && tyUi.codeSizeVar === '13px' && tyUi.codeView.size === '13px' && tyUi.conflictBlock.size === '13px');
+      && tyUi.codeSizeVar === '13px' && tyUi.codeView.size === '13px');
     tyCheck('界面字号变化后按新字号重新推导区域高度: '
       + JSON.stringify([tyBase.titleHeight, tyUi.titleHeight]),
     Number.parseFloat(tyUi.titleHeight) > Number.parseFloat(tyBase.titleHeight));
 
-    // 只改等宽字号：界面字号必须保持不变。
+    // 等宽字号已按 2026-10-15 用户裁决固定为 13：写入被宿主忽略，界面字号不受影响。
     const codeOnly = await setSettings({ codeFontSize: 17 });
+    // 字体度量与行高在 document.fonts 完成后异步更新；固定 JetBrains Mono 13 的正文行高是 22px。
+    await ty.page.waitForFunction(
+      "() => getComputedStyle(document.documentElement).getPropertyValue('--code-line-height').trim() === '22px'",
+      null, { timeout: 5000 }).catch(() => {});
     const tyCode = await typography();
-    tyCheck('改等宽字号会作用到正文但不影响界面字号: '
-      + JSON.stringify([codeOnly, tyCode.rootSize, tyCode.codeSizeVar, tyCode.codeView.size, tyCode.conflictBlock.size]),
-    codeOnly !== null && codeOnly.codeFontSize === 17 && tyCode.rootSize === '26px'
-      && tyCode.codeSizeVar === '17px' && tyCode.codeView.size === '17px'
-      && tyCode.conflictBlock.size === '17px');
-    tyCheck('正文行高跟着等宽字号走: ' + JSON.stringify([tyBase.codeLineHeight, tyCode.codeLineHeight]),
-      Number.parseFloat(tyCode.codeLineHeight) > Number.parseFloat(tyBase.codeLineHeight) && Number.parseFloat(tyCode.codeLineHeight) >= 17);
+    tyCheck('等宽字号写入被固定为 13，界面字号不变: '
+      + JSON.stringify([codeOnly, tyCode.rootSize, tyCode.codeSizeVar, tyCode.codeView.size]),
+    codeOnly !== null && codeOnly.codeFontSize === 13 && tyCode.rootSize === '26px'
+      && tyCode.codeSizeVar === '13px' && tyCode.codeView.size === '13px');
+    tyCheck('正文行高保持固定 13 的 22px: ' + JSON.stringify([tyCode.codeLineHeight]),
+      tyCode.codeLineHeight === '22px');
 
-    // 字族同样生效，并且只作用于各自那一类文字。
+    // 界面字族可改；等宽字族按裁决固定 JetBrains Mono，写入同样被宿主忽略。
     const families = await setSettings({ textFontFamily: 'Tahoma', monospaceFontFamily: 'Courier New' });
     const tyFamily = await typography();
-    tyCheck('界面与等宽字族各自生效: '
+    tyCheck('界面字族生效，等宽字族固定 JetBrains Mono: '
       + JSON.stringify([families, tyFamily.uiFamilyVar, tyFamily.bodyFamily, tyFamily.codeFamilyVar, tyFamily.codeView.family]),
     families !== null && tyFamily.uiFamilyVar.includes('"Tahoma"') && tyFamily.bodyFamily.includes('Tahoma')
-      && tyFamily.codeFamilyVar.includes('"Courier New"') && tyFamily.codeView.family.includes('Courier New')
+      && tyFamily.codeFamilyVar.includes('"JetBrains Mono"') && tyFamily.codeView.family.includes('JetBrains Mono')
       && tyFamily.codeView.family !== tyFamily.bodyFamily);
 
-    // 启动路径：用户之前保存过字体设置时，首屏就必须按它渲染（不是等到保存后才生效）。
+    // 验收 preview 参数（非生产保存路径）：URL 播种的字号应在首屏渲染时生效。
     const boot = await openScene('scene=terminal&theme=dark&ui-font-size=19&code-font-size=17');
     await boot.page.waitForFunction('window.__augitSettingsReady === true', null, { timeout: 15000 });
     await boot.page.waitForFunction('window.__augitTerminalFont && window.__augitTerminalFont()', null, { timeout: 20000 }).catch(() => {});
@@ -1866,14 +1870,14 @@ async function main() {
     tyCheck('内置终端跟随等宽字体与字号（xterm 自绘，读同一份变量）: ' + JSON.stringify(bootState.terminalFont),
       bootState.terminalFont !== null && bootState.terminalFont.size === 17
         && bootState.terminalFont.family.includes('Cascadia Mono'));
-    // 终端已经打开时改等宽字号：已存在的会话也要跟着变（不能等下次启动）。
+    // 终端已经打开时写入等宽设置：宿主按 2026-10-15 裁决固定 JetBrains Mono 13，终端随之回到固定值。
     await boot.page.evaluate(() => window.__augitSettingsWrite({ codeFontSize: 22, monospaceFontFamily: 'Courier New' }));
     await boot.page.waitForFunction(
-      "() => { const f = window.__augitTerminalFont && window.__augitTerminalFont(); return !!f && f.size === 22; }",
+      "() => { const f = window.__augitTerminalFont && window.__augitTerminalFont(); return !!f && f.size === 13; }",
       null, { timeout: 10000 }).catch(() => {});
     const bootRefreshed = await boot.page.evaluate(() => window.__augitTerminalFont());
-    tyCheck('已打开的终端随等宽设置变化: ' + JSON.stringify(bootRefreshed),
-      bootRefreshed !== null && bootRefreshed.size === 22 && bootRefreshed.family.includes('Courier New'));
+    tyCheck('已打开的终端按固定 13/JetBrains Mono 更新: ' + JSON.stringify(bootRefreshed),
+      bootRefreshed !== null && bootRefreshed.size === 13 && bootRefreshed.family.includes('JetBrains Mono'));
     await boot.page.close();
 
     // 越界字号与未知枚举由宿主忽略：界面不能因此改变（与真实 ShellBridge 同一套规则）。
@@ -1885,8 +1889,8 @@ async function main() {
     const tyRejected = await typography();
     tyCheck('越界字号与未知主题被忽略且界面不变: '
       + JSON.stringify([rejected, tyRejected.rootSize, tyRejected.codeSizeVar, tyRejected.uiFamilyVar]),
-    rejected.fontSize === 26 && rejected.codeFontSize === 17 && rejected.theme === 'Dark'
-      && tyRejected.rootSize === '26px' && tyRejected.codeSizeVar === '17px');
+    rejected.fontSize === 26 && rejected.codeFontSize === 13 && rejected.theme === 'Dark'
+      && tyRejected.rootSize === '26px' && tyRejected.codeSizeVar === '13px');
     await ty.page.close();
 
     if (tySoft.length > 0) {
