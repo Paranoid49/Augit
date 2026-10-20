@@ -31,7 +31,8 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 终端标题行断言补上 `largeActions ? icon-hit+8`：32px 界面字号下放大动作区使 token=85，旧公式只算 `max(38,h+12)=53`。
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
-- **本轮最后状态**：`run-31` 已通过 Update Selected 段落并推进到第 18419 行：日志文本/哈希筛选在 `branch=feature/ux` 仍生效时，清空文本后 `params` 仍是 `{branch:'feature/ux'}`、subjects 为 0；旧断言期望恢复 3 条，与“分支筛选仍在”冲突。需先按权威 `LogFilter`/`TextFilterModel` 确认“清空文本是否同时清分支”，再决定改产品还是改断言；未凭猜测修改。
+  - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
+- **本轮最后状态**：`run-32` 复跑中；`run-31` 已把设置搜索可见性漏洞暴露并修复，当前套件仍停在第 18419 行日志筛选语义（需权威确认清空文本是否同时清分支）。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

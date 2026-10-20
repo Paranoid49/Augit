@@ -27988,6 +27988,12 @@ async function main() {
         + JSON.stringify(optionHit),
         optionHit.query === 'Monospaced' && optionHit.pages.join(',') === 'file-view' && optionHit.active === 'file-view'
           && optionHit.noHits === false && optionHit.focused === true);
+      // 只有 `hidden` 属性还不够：导航行是 `display:flex`，会盖掉 UA 的 `[hidden]{display:none}`。
+      // 2026-10-21 正常入口实测发现未命中分类仍然可见；这里补算样式，防止只断言属性。
+      const hiddenRowsDisplay = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
+        .filter((row) => row.hidden).map((row) => getComputedStyle(row).display));
+      check('§7.17 搜索未命中的分类行确实不可见（hidden 的计算样式为 none）: ' + JSON.stringify(hiddenRowsDisplay),
+        hiddenRowsDisplay.length > 0 && hiddenRowsDisplay.every((display) => display === 'none'));
       // 多个分类命中：'Size' 同时是「外观」界面字号与「文件查看」只读固定字号的标签 ⇒ 两个分类都保留。
       await st.page.fill('.settings-window [data-settings-filter]', 'Size');
       await st.page.waitForTimeout(400);

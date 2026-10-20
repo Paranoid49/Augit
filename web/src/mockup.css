@@ -1789,6 +1789,9 @@ body[data-theme="dark"] .dialog:is(.reset-dialog, .rollback-dialog) .danger-butt
 .settings-page :is(input.text-field, select.select-field) { height: max(30px, calc(1em + 12px)); }
 .settings-nav > .search-field { height: max(25px, calc(1em + 8px)); }
 .settings-nav .tree-row { min-height: max(24px, calc(1em + 8px)); height: auto; padding-block: 4px; white-space: normal; }
+/* 设置搜索用 `hidden` 收起未命中的分类；行本身是 `display:flex`，会盖掉 UA 的
+   `[hidden] { display:none }`，必须显式补回，否则分类仍然可见（2026-10-21 正常入口实测）。 */
+.settings-nav .tree-row[hidden] { display: none; }
 
 .history-search .search-field {
   width: 100%;

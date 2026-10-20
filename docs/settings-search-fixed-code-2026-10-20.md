@@ -30,5 +30,15 @@ PyCharm 的 `SearchableOptionsRegistrar` 按可见选项名检索，不要求字
 
 - `run-17`/`run-18` 已通过 §7.17 设置段落；`run-19` 通过 Ctrl+G 紧凑窗口（用
   `data-compact-dialog` 属性判标题，不再依赖 header 首个 span 的 innerText）。
+- **2026-10-21 正常入口复验**（PID 21436，隔离设置副本，DPI 168，`start-augit.ps1`）：
+  - 在设置窗口搜索框用 UI Automation `ValuePattern` 输入 `Monospaced`，右页切到 **File View** 并显示
+    `JetBrains Mono` / `Size 13`；修复前同一输入只切页、左侧仍显示 Appearance/Git/Terminal。
+  - 根因：搜索用 `hidden` 属性收起未命中分类，但 `.settings-nav .tree-row` 是 `display:flex`，
+    盖掉了 UA 的 `[hidden] { display:none }`；补 `.settings-nav .tree-row[hidden] { display: none; }` 后
+    复验只剩 **File View** 一行（组标题 "Appearance & Behavior" 保留）。
+  - 截图：`artifacts/normal-entry-round9-2026-10-21/settings-search-monospaced2.png`（修复前）、
+    `settings-search-fixed.png`（修复后）。
+  - `live-shell` 新增 1 条断言：未命中分类行的 `getComputedStyle(...).display === 'none'`，
+    防止只断言 `hidden` 属性再次漏掉可见性问题。
 - 只读行没有 `data-setting`，搜索不会在行上画 spotlight 边框；只保证分类可见与切换。
-- 页面级配对仍 **50**、像素合格仍 **0**；本项不增加页面数。
+- 这是功能/可见性证据，不是像素合格；页面级配对仍 **50**、像素合格仍 **0**。
