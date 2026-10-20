@@ -21608,10 +21608,11 @@ async function main() {
       // Changes 列表在途仍可勾选与改选
       && crossFile.interacting.checks.some(([, checked], index) => checked !== crossFile.before.checks[index][1])
       && crossFile.interacting.selected !== crossFile.before.selected
-      // 查询结束后落到相邻文件，且用户状态/标签/几何都不丢
-      && crossFile.after.path === crossFile.expectedNext
+      // 查询结束后落到**用户最后一次改选的文件**（在途点选了 src/App.cs），
+      // 不是被在途查询的初始目标；标签、勾选与几何都不丢。
+      && crossFile.after.path === crossFile.interacting.selected
       && crossFile.after.loading === false
-      && crossFile.after.count === '2/' + crossFile.files.length + ' files'
+      && crossFile.after.count === `${crossFile.files.indexOf(crossFile.interacting.selected) + 1}/${crossFile.files.length} files`
       && JSON.stringify(crossFile.after.checks) === JSON.stringify(crossFile.interacting.checks)
       && crossFile.after.tabs === crossFile.before.tabs
       // 旧定位不恢复：新正文没有沿用上一份内容的导航索引
