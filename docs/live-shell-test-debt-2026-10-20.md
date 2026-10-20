@@ -23,7 +23,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 
 - 2026-10-20 已修正：完整哈希、File View 固定等宽、字体段落、紧凑输入窗口 Tab（产品缺陷，见[修复记录](compact-dialog-tab-fix-2026-10-20.md)）、Stash 创建框的 Windows 按钮顺序与 `.stash-check-row` 结构、Stash 限高视口（300px，创建框自然高度约 331px；420px 已不构成约束）、终端启动标签（固定 `Local · Starting…`，Shell 名在 title/aria）、删除依赖已移除“等宽字号控件”的横向范围重算断言。
 - **本轮最后阻塞**：第 9727 行「快速切换提交只接纳最新详情」仍按短哈希 `bbb2222` 断言，而 `window.__augitCommitLoaded` 已按完整提交身份写 `full-bbb2222`（与 §2 第一项同一根因）；已改为完整哈希，待下一次完整套件复跑确认。
-- 第 9310 行附近、第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构；需逐段按当前简化 Settings 重写。
+- 第 9310 行附近的越界字号段落已随桩归一化通过（固定 13 落在 9–40 内）；第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构，需按当前简化 Settings 重写。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
