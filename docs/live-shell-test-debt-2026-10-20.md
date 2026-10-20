@@ -27,8 +27,17 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 - 第 6760 行附近、第 9310 行附近、第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构；需逐段按当前简化 Settings 重写。
 - 这些段落未改，套件仍在第一次遇到它们时失败；**本批不宣称 live-shell 通过**。
 
-## 4. 下一步
+## 4. 2026-10-20 晚间补充核对（未完成重写）
 
-1. 按产品裁决重写上述字体段落（固定 13、无编辑控件、终端跟随固定值）。
+在尝试重写字体段落时做了两项实机/源码核对，供下一轮直接使用：
+
+- **宿主写入契约**（隔离设置文件实测）：`settings/write` 写入 `fontSize:16` 与 `monospaceFontFamily:"Courier New"`、`codeFontSize:17` 后，磁盘保存为 `textFontSize:16`、`fontSize:13`、`monospaceFontFamily:"JetBrains Mono"`；读取返回 `codeFontSize:13`、`monospaceFontFamily:JetBrains Mono`。
+- **正文行高**：真实正常入口在 JetBrains Mono 13 下 `--code-line-height` 为 **22px**（`design-system.md` §5.1：`ceil((ceil(13×1.02)+ceil(13×0.3))×1.2)=22`），终端基础行格才是 18px。旧测试断言的 18px 是桩默认 `Cascadia Mono` 走 canvas 度量的结果，不是固定 13 的生产值。
+- 旧字体段落还测量了已随冲突编辑器移除的 `.conflict-block`（当前源码中不存在，只有 `.conflict-blocked`），应删除该测量而不是给它补样式。
+- 因此重写字体段落需要同时：把桩的 `settings/write` 与 `settings/read` 对齐宿主固定值、把桩默认等宽字体改为 `JetBrains Mono`、按 22px 断言正文行高、删除死类测量，并同步其后 6760/9310/27800 附近的旧结构。本轮尝试后在提交前回退了测试改动，未留下半改状态；套件仍未通过该段落。
+
+## 5. 下一步
+
+1. 按 §4 的契约一次性重写字体段落与桩归一化（固定 13/JetBrains、正文行高 22、终端行格 18、无编辑控件）。
 2. 重新运行完整套件，处理其后可能暴露的其他过期断言。
 3. 套件恢复后，把它作为 Diff/设置等公共状态改动的回归门；在恢复前，用 `mockup-scenes`、`verify-ux-*` 与定向单元测试作为本批证据。
