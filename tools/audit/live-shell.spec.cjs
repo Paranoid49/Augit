@@ -19591,9 +19591,10 @@ async function main() {
       await scene.page.setViewportSize({ width: 1500, height: 760 });
       await scene.page.waitForTimeout(700);
       const wide = await read();
-      // 底部工具窗现在从项目树边缘完整跨栏；使用足够窄的真实视口验证引用列让位，
-      // 避免把旧的“编辑器列宽”当作历史列表可用宽度。
-      await scene.page.setViewportSize({ width: 840, height: 760 });
+      // 底部工具窗现在从项目树边缘完整跨栏；用足够窄的真实视口触发「短日期 + 引用整列让位」。
+      // 840px 视口下列表仍有 363px，完整日期+作者+引用最小 64 恰好落在预算内（201 ≤ 207），
+      // 产品按规格「先保证标题/作者/日期可辨认」保留完整日期；要验证让位档必须再窄一档。
+      await scene.page.setViewportSize({ width: 760, height: 760 });
       await scene.page.waitForTimeout(700);
       const narrow = await read();
       // 长引用：宽栏停在 128 的上限，窄栏整列让位（作者/日期保持各自宽度）
