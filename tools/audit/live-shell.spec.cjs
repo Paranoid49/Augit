@@ -19499,14 +19499,16 @@ async function main() {
       && filterMenu.wide.overflowShown === false
       && filterMenu.wide.menuItems.every((item) => item.hidden === true)
       && filterMenu.narrow.overflowShown === true
-      && filterMenu.narrow.controls.join('|') === 'branch|user'
+      // 权威 `VcsLogClassicFilterUi.TextFilterField.getMinimumSize()` = `JBUIScale.scale(150)`：
+      // 363px 栏里 Branch 之后只够放 150px 输入框，User/Date/Path 全部收进收纳菜单。
+      && filterMenu.narrow.controls.join('|') === 'branch'
       && menuKeys(filterMenu.narrow) === 'branch|user|date|path'
-      && filterMenu.narrow.menuItems.map((item) => item.hidden).join('|') === 'true|true|false|false'
-      && filterMenu.narrow.menuItems.filter((item) => !item.hidden).map((item) => item.key).join('|') === 'date|path'
+      && filterMenu.narrow.menuItems.map((item) => item.hidden).join('|') === 'true|false|false|false'
+      && filterMenu.narrow.menuItems.filter((item) => !item.hidden).map((item) => item.key).join('|') === 'user|date|path'
       && filterMenu.narrow.controls.length + filterMenu.narrow.menuItems.filter((item) => !item.hidden).length === 4
-      && filterMenu.narrow.searchWidth >= 100
-      && filterMenu.afterTab.focusInBar === true && filterMenu.afterTab.focusKey === 'date'
-      && filterMenu.afterTab2.focusInBar === true && filterMenu.afterTab2.focusKey === 'path');
+      && filterMenu.narrow.searchWidth >= 150
+      && filterMenu.afterTab.focusInBar === true && filterMenu.afterTab.focusKey === 'user'
+      && filterMenu.afterTab2.focusInBar === true && filterMenu.afterTab2.focusKey === 'date');
     check('§7.8 收纳菜单调用同一套筛选动作并把焦点交给打开的弹层（与可见控件逐项一致）: '
       + JSON.stringify([filterMenu.viaControl, filterMenu.focusedDate, filterMenu.viaMenu, filterMenu.reset]),
     filterMenu.viaControl.dateItems.join('|') === 'Select…|Last 24 hours|Last 7 days'

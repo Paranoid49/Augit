@@ -6015,7 +6015,9 @@ function bindHistoryLayout(root = document) {
       const available = Math.max(0, panel.clientWidth - 76);
       let visible = 4;
       const slots = () => visible * (buttonWidth + 4) + (visible < 4 ? 32 : 0);
-      while (visible > 0 && available - slots() - 4 < 110) visible--;
+      // 权威 `VcsLogClassicFilterUi.TextFilterField.getMinimumSize()`：文本/哈希输入框
+      // 至少 `JBUIScale.scale(150)`。收纳判定必须按 150 预留，不能用更小的值把输入框压细。
+      while (visible > 0 && available - slots() - 4 < 150) visible--;
       buttons.forEach((button, index) => {
         button.hidden = index >= visible;
         button.style.width = `${buttonWidth}px`;

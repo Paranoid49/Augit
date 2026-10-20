@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-40` 已通过“超 20 MB”本地化段落，推进到第 19496 行筛选栏收纳：363px 窄栏下产品只保留 `Branch` 可见、`User/Date/Path` 进收纳菜单（`menuItems` 隐藏模式 `true|false|false|false`），旧断言期望 `Branch+User` 两个可见（`true|true|false|false`）。需按控件实测宽度与权威 `FilterComponent` 收纳规则核对后再决定改产品还是改断言，未凭猜测修改。
+- **本轮最后状态**：`run-41` 复跑中；第 19496 行根因已核对：权威 `VcsLogClassicFilterUi.TextFilterField.getMinimumSize()` = `JBUIScale.scale(150)`，产品收纳判定原来只按 110px 预留，363px 栏仍保留 Branch+User 会把输入框压到 107px；产品改为按 **150px** 预留，363px 栏只保留 `Branch`，`User/Date/Path` 进收纳菜单（搜索框 179px）。测试同步为 1 个可见控件、`searchWidth >= 150`、Tab 焦点 `user`→`date`。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
