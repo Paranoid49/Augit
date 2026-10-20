@@ -21176,10 +21176,12 @@ async function main() {
       && commitLayout.f20.optionsHeight < commitLayout.f26.optionsHeight
       && commitLayout.base.primary.h < commitLayout.f20.primary.h
       && commitLayout.f20.primary.h < commitLayout.f26.primary.h
-      // 16px工具图形与28×30命中区按1/1.75/2.25倍缩放；复选框为独立控件。
+      // 16px工具图形与28×30命中区按1/1.75/2.25倍缩放；复选框是 24px 画布，
+      // 同样随用户缩放（ux-spec §7.6：复选框按 24px 画布、16px 外框随用户缩放）。
       && [commitLayout.base, commitLayout.f20, commitLayout.f26].every((snapshot, index) => snapshot.settingsIcon.w === Math.round(16 * [1, 1.75, 2.25][index])
         && snapshot.settingsIcon.h === snapshot.settingsIcon.w && snapshot.settings.w === Math.round(28 * [1, 1.75, 2.25][index]) && snapshot.settings.h === Math.round(30 * [1, 1.75, 2.25][index])
-        && snapshot.amendCheck.w === 15 && snapshot.amendCheck.h === 15));
+        && snapshot.amendCheck.w === Math.round(24 * [1, 1.75, 2.25][index])
+        && snapshot.amendCheck.h === snapshot.amendCheck.w));
     check('§7.6 提交动作放不下时按原顺序排成两行、设置图标留在第一行右侧: '
       + JSON.stringify([commitLayout.f40.primary, commitLayout.f40.secondary, commitLayout.f40.settings, commitLayout.f40.boxGrid]),
     // 大字下确实换行：提交在上、提交并推送在下，左边缘对齐（原顺序），两行不重叠
