@@ -9585,12 +9585,8 @@ async function confirmPushDialog() {
   }
 
   if (!result || !result.pushed) {
-    const reason = (result && result.reason) || "Push failed.";
-    window.__augitPushError = reason;
-    setPushDialogRunning(dialog, false, reason);
-    // 参考以 balloon 呈现结果：通知只放摘要，完整原始原因仍留在对话框内（不新增 Console）。
-    const summary = String(reason).split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "Push failed.";
-    showToast({ title: "Push failed", text: summary, kind: "error" });
+    window.__augitPushError = (result && result.reason) || "Push failed.";
+    setPushDialogRunning(dialog, false, window.__augitPushError);
     return;
   }
 

@@ -13,24 +13,27 @@
 - `web/src/mockup.js`：新增 `toastMarkup()` / `toastNotificationIcon()`，统一生成
   「类型图标 + 粗体标题 + 正文 + 蓝色文字动作」；`liveToast()`、`operation-result`、`git-unavailable`、`operation-progress` 共用。
 - `web/src/mockup.css`：卡片改白底 375px、8px 圆角、`--augit-border` 边框、轻阴影、图标 16px、正文 1.35 行高、动作 `.toast-action` 为蓝色链接（不再用 secondary 按钮）。
-- `web/src/live-data.js`：Push 失败新增 `Push failed` 错误通知（正文取原始错误首行），完整原因仍保留在 Push 对话框内；成功通知沿用 `Push` / `Pushed to <upstream>.`，按 `notifySuccess→INFORMATION` 显示信息图标。
+- `web/src/live-data.js`：成功通知沿用 `Push` / `Pushed to <upstream>.`，按 `notifySuccess→INFORMATION` 显示信息图标。
+- **失败结果仍保留 Push 对话框内的内联原始错误**：本批尝试过在失败时额外弹 `Push failed` 通知，但实测模态期间 toast 区域不刷新（旧成功通知仍留在屏幕上，UIA 也读不到新通知）；参考是“关闭对话框 + balloon”，而关闭会移除 Augit 规格要求保留的重试入口。该差异登记为**未对齐的产品差异**，不在本批擅自关闭对话框或把通知压到模态之上。
 - 未新增 Console、独立“结果页”或参考没有的 Git 能力。
 
 ## 3. 验证
 
 - 新增 `tools/verify-ux-operation-result.cjs`：浅/深两套共 **24 项**通过（卡片宽度/圆角、错误图标 `rgb(219,88,96)`、标题、正文、动作链接 `rgb(53,116,240)` 且默认无下划线）。
 - `mockup-scenes` 54/54（浅）、54/54（深）；frame-buttons 24/24、titlebar 12/12、document-button-states 60/60；`verify-ui-assets` PASS；`check-doc-claims` OK。
-- 静态截图：`artifacts/git-balloon-2026-10-20/actual-operation-result.png`（与参考裁剪并排比较，卡片形态一致）。
+- 正常入口成功推送（PID 1560，隔离 clone + 本机 bare remote，真实菜单/鼠标点击 Push）：1 个提交推送到 `origin/master`，右下通知显示蓝色信息图标 + 粗体 `Push` + `Pushed to origin/master.`；截图 `artifacts/git-balloon-2026-10-20/push-success-toast2.png`。
+- 正常入口失败推送（同一 clone，origin 改为 `http://127.0.0.1:1/repo.git`，真实点击 Push）：对话框内显示 `fatal: unable to access ... 502`，旧成功通知仍未被替换；确认失败 balloon 在模态期间不可见后回退了该通知改动（见 §2）。屏幕证据 `push-failed-screen.png`。
 
 ## 4. 边界
 
 - 只测了**浅色**卡片的实测值；深色 balloon 没有参考截图，沿用主题面板色，未做像素验收。
 - 参考截图是裁剪图，无法可靠测量卡片到窗口右/下的距离；实现保留右 18 / 下 33，不宣称位置像素通过。
 - 成功 balloon 未从参考实机重新采集；成功图标依据 `VcsNotifier.notifySuccess → INFORMATION` 的源码事实，不是参考截图。
-- 失败时同时保留 Push 对话框内的原始错误与通知摘要，这是 Augit 不新增 Console 的适配；参考会关闭对话框并给 `Show details in console`。
+- **失败结果未对齐**：参考关闭对话框并显示 `Push failed` balloon + `Show details in console`；Augit 保留对话框内联错误以维持规格要求的重试入口，且模态期间 toast 不刷新，因此不做“关闭对话框换 balloon”的未授权行为变化。该差异保持未闭环，不用成功形态掩盖。
 - 页面级配对仍 **50**、像素合格仍 **0**；本项不增加页面数。
 
 ## 5. 清理
 
-- 本批只启动无头 Chromium（`verify-ux-operation-result`、状态矩阵、场景渲染），未启动 Augit 或 PyCharm 实例；浏览器由脚本 `finally` 关闭。
-- 原始参考裁剪与实测值在 `artifacts/git-balloon-2026-10-20/`（Git 忽略）。
+- 正常入口实例 PID 1560（隔离 clone + 本机 bare remote + 隔离设置副本）：成功推送与失败推送各一次；模态未响应正常关窗，核实 PID 后 `taskkill /PID 1560 /T /F`；无残留 Augit/rg。
+- 隔离设置副本未写回全局设置；失败/成功操作只在临时 clone 与本地 bare remote 内，未触碰用户仓库。
+- 无头 Chromium 由脚本 `finally` 关闭；原始参考裁剪、正常入口截图与实测值在 `artifacts/git-balloon-2026-10-20/`（Git 忽略）。
