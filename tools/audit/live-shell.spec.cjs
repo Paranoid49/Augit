@@ -20060,10 +20060,12 @@ async function main() {
     check('§7.8 变更行的辅助技术名称同时保留状态符号与文件名: '
       + JSON.stringify([iconReuse.changesDark.rows.map((row) => row.label), iconReuse.mainDark.changedLabels]),
     iconReuse.changesDark.rows.length >= 3
-      && iconReuse.changesDark.rows.every((row) => row.label === expectedLabel(row))
-      && darkRows['App.cs'].label === 'M App.cs'
-      && darkRows['README.md'].label === 'M README.md'
-      && darkRows['draft.txt'].label === 'draft.txt'
+      // commit-changes 行在符号+文件名之后还带 Index/Working tree 细节（辅助技术可读的补充说明），
+      // 不能再用完全相等；要求以「符号 + 文件名」开头，且不含相反的顺序。
+      && iconReuse.changesDark.rows.every((row) => row.label.startsWith(expectedLabel(row)))
+      && darkRows['App.cs'].label.startsWith('M App.cs')
+      && darkRows['README.md'].label.startsWith('M README.md')
+      && darkRows['draft.txt'].label.startsWith('draft.txt')
       && darkRows['draft.txt'].status === 'file-status-untracked'
       && iconReuse.mainDark.changedLabels.map((row) => row.label).sort().join('|') === 'A notes.txt|M App.cs'
       && iconReuse.mainDark.changedLabels.every((row) => row.label.endsWith(String(row.path).split('/').pop())));
