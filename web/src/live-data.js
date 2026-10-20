@@ -7,6 +7,7 @@
 import { cancelRequest, hasHost, invoke, subscribe } from "./bridge.js";
 import { terminalAnsiPalette, terminalSelectionPalette } from "./terminal-palette.js";
 import { isTerminalCopyShortcut } from "./terminal-copy.js";
+import { compactDialogFocusOrder, nextCompactDialogFocus } from "./compact-dialog-focus.js";
 import { terminalCellWidth, terminalCellHeight } from "./terminal-geometry.js";
 import { renderMarkdown } from "./markdown.js";
 import { uiMessage } from "./ui-text.js";
@@ -8426,11 +8427,12 @@ function bindCompactDialogKeys() {
     if (event.isComposing || event.keyCode === 229) return;
 
     const field = layer.querySelector("[data-compact-field]");
-    const order = [
+    // 禁用的主按钮（空名称时的 Create/OK）不能进入顺序：否则 Tab 会反复 focus 它而停在 Cancel 上。
+    const order = compactDialogFocusOrder([
       field,
       ...layer.querySelectorAll('.dialog-footer [data-compact-action]'),
       layer.querySelector('[data-compact-action="close"]'),
-    ].filter(Boolean);
+    ]);
 
     if (event.key === "Escape") {
       event.preventDefault();
@@ -8440,9 +8442,7 @@ function bindCompactDialogKeys() {
 
     if (event.key === "Tab") {
       event.preventDefault();
-      const index = order.indexOf(document.activeElement);
-      const backwards = event.shiftKey;
-      const next = order[(index + (backwards ? -1 : 1) + order.length) % order.length];
+      const next = nextCompactDialogFocus(order, document.activeElement, event.shiftKey);
       if (next) next.focus();
       return;
     }
