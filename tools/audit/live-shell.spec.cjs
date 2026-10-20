@@ -5766,7 +5766,8 @@ async function main() {
 
     // 窗口限高：只有表单滚动，标题与底栏固定。
     const stashLimitPage = await openScene('scene=main-project&theme=dark');
-    await stashLimitPage.page.setViewportSize({ width: 1180, height: 420 });
+    // 创建框自然高度约 331px；视口必须小于它才能形成“限高”前提（420 已不再约束）。
+    await stashLimitPage.page.setViewportSize({ width: 1180, height: 300 });
     await stashLimitPage.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await stashLimitPage.page.waitForFunction('!!window.__augitLive.stashes', null, { timeout: 10000 });
     await stashLimitPage.page.waitForTimeout(400);
@@ -5964,15 +5965,16 @@ async function main() {
         suffix: label ? label.textContent.includes('Starting') : null,
       };
     });
-    check('§7.16 打开后立即显示"Shell Name · Starting…"且加载期间隐藏/关闭可用: '
+    check('§7.16 打开后立即显示"Local · Starting…"且加载期间隐藏/关闭可用: '
       + JSON.stringify([terminalStarting, terminalReadyState]),
-    // 启动中：标题带后缀、提示属性同步、隐藏/关闭都可用、尚未 ready
+    // 启动中：标签固定 Local + 后缀、提示属性同步、隐藏/关闭都可用、尚未 ready
     terminalStarting.ready === false
-      && terminalStarting.title === 'Windows PowerShell · Starting…'
+      && terminalStarting.title === 'Local · Starting…'
       && terminalStarting.titleAttr === terminalStarting.title
       && terminalStarting.hideDisabled === false && terminalStarting.closeDisabled === false
-      // 就绪后：后缀去掉，标题是宿主返回的真实 Shell 名
-      && terminalReadyState.suffix === false && terminalReadyState.title === terminalReadyState.shell);
+      // 就绪后：后缀去掉，标签仍是 Local，Shell 名由宿主状态/提示属性承载
+      && terminalReadyState.suffix === false && terminalReadyState.title === 'Local'
+      && typeof terminalReadyState.shell === 'string' && terminalReadyState.shell.length > 0);
     await terminalBoot.page.close();
 
     // 启动完成不覆盖用户选择：启动期间隐藏终端 → 完成后仍保持收起、不重新显示，会话照常建立。
@@ -6775,56 +6777,9 @@ async function main() {
         && hs3AfterShrink.scrollWidth === hs3AfterShrink.clientWidth
         && hs3AfterShrink.lines === 2);
 
-      // 字号变化同样要重新度量：120 个字符的行在 24px 等宽字号下溢出、在 9px 下不再溢出。
-      // 用真实设置路径（标题栏主菜单 → 设置 → 文件查看 → 等宽字号）改字号，不直接改 CSS 变量。
-      await hs3.page.evaluate(async () => {
-        const line = 'M'.repeat(120);
-        const text = [line, '短行'].join('\n') + '\n';
-        window.__limitDocs['docs/font-line.md'] = {
-          path: 'docs/font-line.md', name: 'font-line.md', fullPath: 'D:\\live-ws\\docs\\font-line.md',
-          workspaceName: 'live-ws', status: 'TextReady', kind: 'Text', typeName: '纯文本',
-          fileSize: text.length, text, lineEndings: 'LF', encoding: 'UTF-8',
-        };
-        await window.__augitOpenDocument('docs/font-line.md');
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      });
-      const hs3OpenSettings = async () => {
-        await hs3.page.locator('.titlebar [data-action="menu"]').click();
-        await hs3.page.waitForSelector('.titlebar .main-menu-entry', { timeout: 8000 });
-        await hs3.page.locator('.titlebar .main-menu-entry').filter({ hasText: 'Settings' }).first().click();
-        await hs3.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
-        // 等宽字号在"文件查看"分页，设置窗口默认停在"外观"。
-        await hs3.page.locator('.settings-window [data-settings-page="file-view"]').click();
-        await hs3.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
-      };
-      const hs3ApplyCodeFont = async (size) => {
-        await hs3.page.evaluate((value) => {
-          const field = document.querySelector('[data-setting="codeFontSize"]');
-          field.value = String(value);
-          document.querySelector('.settings-window .dialog-footer [data-settings-action="save"]').click();
-        }, size);
-        await hs3.page.waitForFunction(
-          `getComputedStyle(document.documentElement).getPropertyValue("--augit-code-size").trim() === "${size}px"`,
-          null,
-          { timeout: 10000 },
-        );
-        await hs3.page.waitForTimeout(300);
-      };
-      await hs3OpenSettings();
-      await hs3ApplyCodeFont(24);
-      const hs3Font24 = await hs3Read();
-      await hs3.page.evaluate(() => { document.querySelector('.editor-content .code-view').scrollLeft = 220; });
-      await hs3.page.waitForTimeout(200);
-      const hs3FontScrolled = await hs3Read();
-      await hs3OpenSettings();
-      await hs3ApplyCodeFont(9);
-      const hs3Font9 = await hs3Read();
-      check('§7.2 正文字号变化后重新度量横向范围并收回旧偏移: '
-        + JSON.stringify({ hs3Font24, hs3FontScrolled, hs3Font9 }),
-      hs3Font24.mono === '24px' && hs3Font24.horizontal === true
-        && hs3FontScrolled.scrollLeft === 220
-        && hs3Font9.mono === '9px' && hs3Font9.horizontal === false
-        && hs3Font9.scrollWidth === hs3Font9.clientWidth && hs3Font9.scrollLeft === 0);
+      // 2026-10-15 用户裁决：等宽正文固定 13px 并移除设置页的等宽字号控件，
+      // 原先“用设置改成 24/9px 再验证横向范围重算”的场景已不可达；
+      // 内容变短后的重算已在上一断言覆盖，这里不再保留旧控件路径。
       await hs3.page.close();
     }
 
@@ -9770,7 +9725,7 @@ async function main() {
       return { loaded: window.__augitCommitLoaded, text: detail ? detail.innerText.slice(0, 40) : null };
     });
     check('快速切换提交只接纳最新详情: ' + JSON.stringify(detailRace),
-      detailRace.loaded === 'bbb2222' && (detailRace.text || '').includes('第二个提交'));
+      detailRace.loaded === 'full-bbb2222' && (detailRace.text || '').includes('第二个提交'));
 
     // ---- 第 122 轮补断言：§7.8 的另两半（**先呈现首段再更新滚动范围** + **End 记录末尾意图**）----
     // 口径说明（两次跑摸清的）：桩的 `__commitDelays` 在这条 live 路径上**没有生效**（150ms 内两段就跑完了），
