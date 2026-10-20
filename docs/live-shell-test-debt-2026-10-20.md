@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-42` 复跑中；`run-41` 已通过筛选收纳（363px 栏 1 个可见控件、搜索框 179px、Tab user→date），停在提交行列宽：测试的 `expected.label` 只算文字+20，遗漏引用标签 chip 的 SVG 宽度与 2px 间距（产品 track 54 = 46+8，测试期望 51）。已按 `bindHistoryLayout()` 同一公式补上图标宽度，待复跑。
+- **本轮最后状态**：`run-42` 已通过筛选收纳与提交行列宽（引用 chip 计入图标宽度），停在窄栏列宽（listWidth 363）：产品预算 207px、完整日期+作者+引用最小 64 合计 201 ≤ 207，因此保留完整日期与引用列；旧断言期望 363px 就换短日期并整列隐藏引用。需按参考实机在 363px 附近的列宽边界核对（不是 1px 容差问题），未凭猜测改产品。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
