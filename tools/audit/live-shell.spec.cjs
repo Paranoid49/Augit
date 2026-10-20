@@ -19898,6 +19898,13 @@ async function main() {
         'window.__augitGitReady === true && window.__augitHistoryReady === true', null, { timeout: 20000 });
       await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
       await scene.page.waitForTimeout(600);
+      // 主场景默认没有打开文件；先双击 README.md 打开标签，让标签栏也参与图标复用核对。
+      const readmeRow = scene.page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]');
+      if (await readmeRow.count()) {
+        await readmeRow.dblclick();
+        await scene.page.waitForSelector('.editor-tab', { timeout: 8000 }).catch(() => {});
+        await scene.page.waitForTimeout(600);
+      }
       const mainDark = await scene.page.evaluate(() => {
         const info = (node) => {
           const svg = node.querySelector('svg.file-type-icon');
