@@ -3122,8 +3122,6 @@ button:disabled,
 
 .comparison-notice .notice-mark { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: var(--augit-muted); stroke-width: 1; }
 .comparison-notice.failure .notice-mark { stroke: var(--augit-red); }
-.comparison-loading-label { color: var(--augit-text); }
-
 .tree {
   padding: 6px 7px 12px;
 }
@@ -3742,35 +3740,46 @@ body[data-theme="dark"] .history-date-range-fields .text-field { color-scheme: d
   white-space: nowrap;
 }
 
-.diff-loading-side {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  padding: 62px 14px 12px;
-  background: var(--augit-panel);
+.diff-loading-columns > .diff-loading-message {
+  grid-column: 1 / -1;
 }
 
-.diff-loading-gutter {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-content: start;
-  gap: 12px 14px;
-  padding: 65px 12px 12px;
-  background: var(--augit-panel-muted);
-  border-left: var(--augit-hairline) solid var(--augit-border);
-  border-right: var(--augit-hairline) solid var(--augit-border);
+/* 参考 `DiffRequestProcessor` 的头部不定进度条（JProgressBar, indeterminate）：
+   只在加载期间出现，不占用正文行高，也不替换工具栏按钮。 */
+.diff-progress {
+  position: relative;
+  flex: 0 0 auto;
+  width: 120px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--augit-blue) 18%, transparent);
 }
 
-.diff-loading-line {
-  display: block;
-  height: 8px;
-  background: color-mix(in srgb, var(--augit-text) 6%, var(--augit-panel));
+.diff-progress::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--augit-blue);
+  animation: diff-progress-slide 1.1s ease-in-out infinite;
 }
 
-.diff-loading-gutter-line {
-  display: block;
-  height: 3px;
-  background: var(--augit-border-strong);
+@keyframes diff-progress-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(350%); }
+}
+
+.diff-loading-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: 24px;
+  color: var(--augit-muted);
+  font: inherit;
 }
 
 .diff-loading-status {

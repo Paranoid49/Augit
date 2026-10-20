@@ -2037,16 +2037,14 @@ function diffView(comparison = false, state = "ready", workspaceComparison = fal
     const disabled = state === "ready" ? "" : "disabled";
     let body = `<div class="diff-columns"><div class="diff-side">${renderLines(alignedOldLines, oldChanged, "removed")}</div><div class="diff-gutter"><div>${oldNumbers.map(number => `${number}<br>`).join("")}</div><div>${newLines.map((_, index) => `${index + 1}<br>`).join("")}</div></div><div class="diff-side">${renderLines(newLines, newChanged, "added")}</div></div>`;
     if (state === "loading") {
-      const lines = [72, 46, 87, 61, 78, 39, 69, 54, 82, 48, 64, 43].map(width => `<span class="diff-loading-line" style="width:${width}%"></span>`).join("");
-      const gutter = Array.from({ length: 12 }, () => '<span class="diff-loading-gutter-line"></span><span class="diff-loading-gutter-line"></span>').join("");
-      body = `<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>Generating diff…</span></div><div class="diff-loading-side">${lines}</div><div class="diff-loading-gutter">${gutter}</div><div class="diff-loading-side">${lines}</div></div>`;
+      body = `<div class="diff-columns diff-loading-columns"><div class="diff-loading-message" role="status">Loading...</div></div>`;
     } else if (state === "summary") {
       // 无文本差异：清空正文变更导航（按钮禁用但保留），正文只留比较语义的摘要说明。
       body = comparisonSummaryNotice();
     } else if (state !== "ready") {
       body = `<div class="comparison-notice ${state === "failure" ? "failure" : ""}"><svg class="notice-mark" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7"/><path d="M8 5v4m0 2v.5"/></svg><span>${state === "failure" ? "Cannot read the file at this commit: Git query failed." : "Comparison cancelled."}</span></div>`;
     }
-    return `<div class="diff-layout"><div class="diff-toolbar comparison-toolbar"><button class="toolbar-button" ${disabled} aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" ${disabled} aria-label="Next Difference">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" ${disabled} aria-label="Find">${icon("search")}</button><span class="grow"></span>${state === "loading" ? '<span class="comparison-loading-label">Generating diff…</span>' : state === "ready" ? '<span class="comparison-summary">1 difference</span>' : ""}<button class="toolbar-button" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="Settings">${icon("settings")}</button></div>${diffFileHeader(source, target, referenceTitle, fileHistory ? "docs/product-spec.md" : undefined)}${body}${state === "ready" ? unifiedTemplate : ""}</div>`;
+    return `<div class="diff-layout"><div class="diff-toolbar comparison-toolbar"><button class="toolbar-button" ${disabled} aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" ${disabled} aria-label="Next Difference">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" ${disabled} aria-label="Find">${icon("search")}</button><span class="grow"></span>${state === "loading" ? diffLoadingProgress() : state === "ready" ? '<span class="comparison-summary">1 difference</span>' : ""}<button class="toolbar-button" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="Settings">${icon("settings")}</button></div>${diffFileHeader(source, target, referenceTitle, fileHistory ? "docs/product-spec.md" : undefined)}${body}${state === "ready" ? unifiedTemplate : ""}</div>`;
   }
   return `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="toolbar-separator"></span><button class="toolbar-button" aria-label="Find">${icon("search")}</button><button class="toolbar-button" aria-label="Previous File">${icon("arrow-left")}</button><span class="file-status-modified">1/42 files</span><button class="toolbar-button" aria-label="Next File">${icon("arrow-right")}</button><span class="grow"></span><span>1 difference, 0 included</span><button class="toolbar-button" aria-label="Ignore whitespace">${icon("diff-ignore-whitespace")}</button><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div><button class="icon-button" aria-label="Settings">${icon("settings")}</button></div>${diffFileHeader("HEAD", "Current Version", "HEAD → Current Version", workspacePath)}<div class="diff-columns"><div class="diff-side">${renderLines(alignedOldLines, oldChanged, "removed")}</div><div class="diff-gutter"><div>${oldNumbers.map(number => `${number}<br>`).join("")}</div><div>${newLines.map((_, index) => `${index + 1}<br>`).join("")}</div></div><div class="diff-side">${renderLines(newLines, newChanged, "added")}</div></div>${unifiedTemplate}</div>`;
 }
@@ -2555,6 +2553,15 @@ function liveRollbackBody() {
 }
 
 /**
+ * Diff 加载指示：参考 2026.2.1 的 `DiffRequestProcessor` 在头部放一个不定进度条
+ * （`MyProgressBar extends JProgressBar`，`setIndeterminate(true)`），正文同时是
+ * `LoadingDiffRequest` 的 "Loading..." 消息面板；不使用骨架屏，也不新造独立加载页。
+ */
+function diffLoadingProgress() {
+  return '<span class="diff-progress" role="progressbar" aria-label="Generating diff"></span>';
+}
+
+/**
  * 实时 Diff 工具栏（规格 `ux-spec.md:439`）。
  *
  * 左侧依次为上一处、下一处、搜索、上一个文件、文件计数、下一个文件；右侧为差异摘要、
@@ -2645,9 +2652,8 @@ function liveDiffView() {
     return `<div class="diff-layout" data-augit-loading="true">${liveDiffToolbar({
       // 规格 §7.7 第 9 条：「跨文件查询/排版期间禁用差异箭头，文件箭头和 Changes 仍允许改选」
       // ⇒ 文件箭头（`fileNav`）**不**禁用，只有上一处/下一处交给 `arrowsDisabled`。
-      fileNav, arrowsDisabled: true, busy: true,
-      summary: '<span class="comparison-loading-label">Generating diff…</span>',
-    })}${liveConflictNotice(diff.path)}${diffFileHeader("HEAD", "Workspace", diff.path, diff.path)}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+      fileNav, arrowsDisabled: true, busy: true, summary: diffLoadingProgress(),
+    })}${liveConflictNotice(diff.path)}${diffFileHeader("HEAD", "Workspace", diff.path, diff.path)}<div class="diff-columns diff-loading-columns" tabindex="0" aria-label="Diff Content"><div class="diff-loading-message" role="status">Loading...</div></div></div>`;
   }
 
   // 文件栏的双方引用（规格 §7.8/§7.9）：
@@ -2850,9 +2856,8 @@ function liveFileHistoryPreviewView() {
   };
   if (!preview || preview.loading) {
     return `<div class="diff-layout" data-augit-loading="true" data-live-file-history-preview>${liveDiffToolbar({
-      ...options, arrowsDisabled: true,
-      summary: '<span class="comparison-loading-label">Generating diff…</span>',
-    })}${filebar}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div></div>`;
+      ...options, arrowsDisabled: true, summary: diffLoadingProgress(),
+    })}${filebar}<div class="diff-columns diff-loading-columns" tabindex="0" aria-label="Diff Content"><div class="diff-loading-message" role="status">Loading...</div></div></div>`;
   }
   const rows = (preview.diff && preview.diff.rows) || [];
   if (rows.length === 0) {
@@ -5352,14 +5357,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   }
   if (editor === "diff-loading") {
     editorExtra = `<a class="editor-tab active" href="diff-loading.html">${icon("git-compare-arrows")} Commit: app.manifest</a>`;
-    const loadingLineWidths = [72, 46, 87, 61, 78, 39, 69, 54, 82, 48, 64, 43];
-    const loadingLines = (offset = 0) => loadingLineWidths
-      .map((width, index) => `<span class="diff-loading-line" style="width:${loadingLineWidths[(index + offset) % loadingLineWidths.length]}%"></span>`)
-      .join("");
-    const loadingGutterLines = loadingLineWidths
-      .map(() => `<span class="diff-loading-gutter-line"></span><span class="diff-loading-gutter-line"></span>`)
-      .join("");
-    editorBody = `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="grow"></span><span>Computing diff…</span><div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "Current Version", "HEAD → Current Version")}<div class="diff-columns diff-loading-columns"><div class="diff-loading-status"><span class="loading-mark"></span><span>Loading diff for app.manifest</span></div><div class="diff-loading-side">${loadingLines()}</div><div class="diff-loading-gutter">${loadingGutterLines}</div><div class="diff-loading-side">${loadingLines(3)}</div></div></div>`;
+    editorBody = `<div class="diff-layout"><div class="diff-toolbar"><button class="toolbar-button" aria-label="Previous Difference">${icon("arrow-up")}</button><button class="toolbar-button" aria-label="Next Difference">${icon("arrow-down")}</button><span class="grow"></span>${diffLoadingProgress()}<div class="segmented"><button class="segment active" aria-label="Side-by-side">${icon("diff-side-by-side")}</button><button class="segment" aria-label="Unified">${icon("diff-unified")}</button></div></div>${diffFileHeader("HEAD", "Current Version", "HEAD → Current Version")}<div class="diff-columns diff-loading-columns"><div class="diff-loading-message" role="status">Loading...</div></div></div>`;
   }
   if (editor === "empty") editorBody = `<div class="empty-state">Select a file to view its content</div>`;
   // 实时外壳下标签条**一律**来自 `live.tabs`（规格 §5.2）。此前 `editor === "image"`／`"json"`

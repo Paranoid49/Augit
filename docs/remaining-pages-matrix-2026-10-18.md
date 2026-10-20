@@ -17,7 +17,7 @@
 | 11 | Commit 空态 | 配对 | [Commit 空态配对](commit-empty-homologous-pair-2026-10-18.md) | 空态呈现/Unversioned/Log/通知差异 |
 | 12 | Changes 右键菜单 | 配对 | [Changes 菜单配对](changes-context-menu-homologous-pair-2026-10-18.md) | 动作子集 vs 完整菜单 |
 | 13 | 工作区 diff | 配对 | [Diff 配对](diff-homologous-pair-2026-10-18.md) | 行尾/工具栏/编辑铅笔 |
-| 14 | Diff 局部加载 | 部分（上限状态级配对；2000 行截断提示已修；局部加载未完成） | [Diff 上限参考态](diff-limit-reference-2026-10-19.md)、[截断提示修复](diff-truncation-notice-fix-2026-10-19.md) | 25.38MB 两端拒绝正文；8.74MB/92001 行实际只回传前 2000 行，现已显示 `Truncated` + 边界说明，参考完整显示 1 difference。仍需真正的慢读/局部加载与重试状态 |
+| 14 | Diff 局部加载 | 部分（上限状态级配对；截断提示已修；加载形态已按参考源码整改） | [Diff 上限参考态](diff-limit-reference-2026-10-19.md)、[截断提示修复](diff-truncation-notice-fix-2026-10-19.md)、[加载形态整改](diff-loading-form-2026-10-20.md) | 25.38MB 两端拒绝正文；8.74MB/92001 行实际只回传前 2000 行，现已显示 `Truncated` + 边界说明，参考完整显示 1 difference。加载态已改为头部不定进度条 + 正文 `Loading...`（源码形态，非像素）；仍需参考实机加载态像素、实时瞬态截图与重试状态 |
 | 15 | Git 历史 | 配对 | [Git Log 配对](git-log-pair-scoping-2026-10-18.md) | 标签模型/Console/图/列/高度 |
 | 16 | Git 历史右键菜单 | 配对 | [提交菜单配对](git-log-context-menu-homologous-pair-2026-10-18.md) | 实际动作子集 |
 | 17 | 文件历史 | 配对 | [File History 配对](file-history-homologous-pair-2026-10-18.md) | Revision/头/Console/预览宽度 |
@@ -48,7 +48,7 @@
 
 ## 结论
 
-- 本表对 §12 的 41 项逐一标注：**未完成 5 项**（不可预览文件—**大文件预览已配对、实际 Warning 显示/两个真实动作已闭环、参考同文件无 Warning、二进制摘要产品差异**、Diff 局部加载—**上限状态级已配对、局部加载未完成**、Git 操作进行中—**进行中状态级已配对、两端取消均已复核通过、失败状态级已配对、结果 balloon/结果页未完成**、搜索截断/超时—**截断已配对、超时与取消状态级已验证（受控停顿、rg 结束、取消缺陷已修）**、Git 操作结果—**成功/网络失败状态级已配对、页面未闭环**）、**scoping 0 项**（Open Workspace 参考已采但只登记语义状态；Stash Manager 已配对）。Smart Checkout 已配对；项目文件行与根节点右键均已配对；目录节点/菜单动作未测；全仓搜索空态/结果/零结果/截断、Quick Open 空态/结果、Git 不可用、初始化仓库、关闭运行中终端已配对。
+- 本表对 §12 的 41 项逐一标注：**未完成 5 项**（不可预览文件—**大文件预览已配对、实际 Warning 显示/两个真实动作已闭环、参考同文件无 Warning、二进制摘要产品差异**、Diff 局部加载—**上限状态级已配对、加载形态已按参考源码整改（非像素）、参考实机加载态/重试未完成**、Git 操作进行中—**进行中状态级已配对、两端取消均已复核通过、失败状态级已配对、结果 balloon/结果页未完成**、搜索截断/超时—**截断已配对、超时与取消状态级已验证（受控停顿、rg 结束、取消缺陷已修）**、Git 操作结果—**成功/网络失败状态级已配对、页面未闭环**）、**scoping 0 项**（Open Workspace 参考已采但只登记语义状态；Stash Manager 已配对）。Smart Checkout 已配对；项目文件行与根节点右键均已配对；目录节点/菜单动作未测；全仓搜索空态/结果/零结果/截断、Quick Open 空态/结果、Git 不可用、初始化仓库、关闭运行中终端已配对。
 - 页面级配对总数 **50**，覆盖本表项目/项目文件右键/项目根节点右键/初始化仓库/文本/Markdown/JSON/图片/大文件只读预览/Commit/Commit 空态/Changes 菜单/Diff/Git Log/菜单/文件历史/Blame/Compare/分支/Stash/Reset/Rollback/Worktree/远端 Git Remotes+Define Remote/Clone/Push（无 upstream+有 upstream+待推提交+被拒）/冲突列表/Smart Checkout/Stash Manager/Settings Appearance+Git+Terminal+File View/Find in Files 空态+结果+零结果+截断/Quick Open 空态+结果/Git 不可用/关闭运行中终端/终端，另含表中未单列的 Checkout/New Branch/New Tag/Worktrees 管理/损坏图片错误页等模态子页。41 项不是 54 页全量分母。
 - **不应把本表的状态当作 41/41 或 54/54 完成**；未完成项需要正常入口证据。
 - 输入桌面在 2026-10-19 08:31 恢复后已补 Commit 空态、Git Remotes、Push 状态、冲突列表和项目文件右键；2026-10-19 晚补大文件 Warning 真实输入/重开/重启闭环（参考同文件无 Warning）、Diff 上限参考态（状态级，不增页面数）、Smart Checkout 页面/动作/说明截断修复（页面级 48→49）、Git 进行中真实慢远端状态、Push 网络 502 失败状态（状态级，均不增页面数）、Open Workspace 参考 Welcome（语义状态，不增页面数）与 Stash Manager 页面级配对（49→50）。并补 Diff 2000 行截断提示（工具栏 `Truncated`、正文边界说明，参考同文件完整 1 difference）。后续优先 Diff 真正局部加载/重试、Git 结果页、搜索超时。

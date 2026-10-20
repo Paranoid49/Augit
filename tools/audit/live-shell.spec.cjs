@@ -1588,7 +1588,7 @@ async function main() {
     await historyPage.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
     await historyPage.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
     try {
-      await historyPage.waitForFunction('window.__augitCommitLoaded === "aaa1111"', null, { timeout: 15000 });
+      await historyPage.waitForFunction('window.__augitCommitLoaded === "full-head-hash"', null, { timeout: 15000 });
     } catch {
       const st = await historyPage.evaluate(() => ({ err: window.__augitError || null, loaded: window.__augitCommitLoaded || null }));
       throw new Error('提交详情未加载: ' + JSON.stringify(st));
@@ -1686,7 +1686,10 @@ async function main() {
       values.theme = read('theme');
       values.fontSize = read('fontSize');
       await goto('file-view');
-      values.codeFontSize = read('codeFontSize');
+      // 2026-10-15 用户裁决：等宽正文固定随包 JetBrains Mono 13，File View 只读显示，不提供编辑控件。
+      values.codeFont = document.querySelector('[data-fixed-code-font]')?.textContent.trim() ?? null;
+      values.codeSize = document.querySelector('[data-fixed-code-size]')?.textContent.trim() ?? null;
+      values.codeFontEditable = !!document.querySelector('[data-setting="codeFontSize"], [data-setting="monospaceFontFamily"]');
       await goto('git');
       values.gitExecutablePath = read('gitExecutablePath');
       await goto('terminal');
@@ -1696,7 +1699,8 @@ async function main() {
     });
     check('设置窗口显示真实主题: ' + JSON.stringify(settingsValues), settingsValues.theme === 'Dark');
     check('设置窗口显示真实界面字号: ' + JSON.stringify(settingsValues), settingsValues.fontSize === '13');
-    check('设置窗口显示真实等宽字号: ' + JSON.stringify(settingsValues), settingsValues.codeFontSize === '13');
+    check('File View 只读显示固定等宽字体/字号且无编辑控件: ' + JSON.stringify(settingsValues),
+      settingsValues.codeFont === 'JetBrains Mono' && settingsValues.codeSize === '13' && settingsValues.codeFontEditable === false);
     check('设置窗口显示真实 Shell: ' + JSON.stringify(settingsValues), settingsValues.terminalShell === 'PowerShell7');
     check('设置窗口显示真实 git Path: ' + JSON.stringify(settingsValues),
       String(settingsValues.gitExecutablePath).includes('Git'));
@@ -21160,6 +21164,7 @@ async function main() {
           buttons,
           summary: summary ? { text: summary.textContent.trim(), box: rect(summary) } : null,
           loadingLabel: (() => { const el = bar.querySelector('.comparison-loading-label'); return el ? el.textContent.trim() : null; })(),
+          loadingProgress: !!bar.querySelector('.diff-progress'),
           count: count ? { text: count.textContent.trim(), box: rect(count) } : null,
           verifyNav: (() => {
             const prev = bar.querySelector('[aria-label="Previous File"]');
@@ -21369,7 +21374,7 @@ async function main() {
     diffToolbar.settingsOpen.dialog === true && diffToolbar.settingsOpen.unwired === null
       // 加载态：同一套控件与顺序（追加"取消比较"），差异箭头与查找禁用并写明原因
       && JSON.stringify(diffToolbar.loadingBar.labels) === JSON.stringify(['Previous Difference', 'Next Difference', 'Find', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings', 'Cancel Comparison'])
-      && diffToolbar.loadingBar.loadingLabel === 'Generating diff…'
+      && diffToolbar.loadingBar.loadingProgress === true
       && diffToolbar.loadingBar.loadingAttr === true
       && ['Previous Difference', 'Next Difference', 'Find'].every((label) => {
         const button = diffToolbar.loadingBar.buttons.find((b) => b.label === label);
@@ -21424,6 +21429,7 @@ async function main() {
           path: live.diff ? live.diff.path : null,
           loading: !!live.diffLoading,
           loadingLabel: (() => { const el = document.querySelector('.comparison-loading-label'); return el ? el.textContent.trim() : null; })(),
+          loadingProgress: !!document.querySelector('.diff-progress'),
           count: (() => { const el = document.querySelector('.diff-toolbar .file-status-modified'); return el ? el.textContent.trim() : null; })(),
           buttons: [...document.querySelectorAll('.editor-content .diff-toolbar button[aria-label]')].map((b) => ({
             label: b.getAttribute('aria-label'), disabled: !!b.disabled, title: b.getAttribute('title'),
@@ -21470,7 +21476,7 @@ async function main() {
     check('§7.7 跨文件查询期间禁用差异箭头、文件箭头与 Changes 仍可改选: '
       + JSON.stringify([crossFile.during.buttons, crossFile.during.loadingLabel, crossFile.during.rows]),
     // 查询确实在途（否则下面的禁用矩阵什么都没验证）
-    crossFile.during.loading === true && crossFile.during.loadingLabel === 'Generating diff…'
+    crossFile.during.loading === true && crossFile.during.loadingProgress === true
       // 差异箭头：禁用并写明原因（规格：跨文件查询期间禁用差异箭头）
       && ['Previous Difference', 'Next Difference'].every((label) => {
         const button = buttonOf(crossFile.during, label);
