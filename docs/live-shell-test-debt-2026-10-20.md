@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-49` 复跑中；`run-48` 已通过图标复用（Ctrl+P 打开后 `live.tabs=1`、标签含 markdown 图标），停在变更行辅助名称：`commit-changes` 行在「符号 + 文件名」之后还带 `Index/Working tree` 细节，旧断言用完全相等；改为 `startsWith(符号+文件名)`，主列表 `A notes.txt`/`M App.cs` 的精确断言保留。待复跑确认。
+- **本轮最后状态**：`run-49` 已通过辅助名称段落，推进到第 20,997 行悬停重命中：ux-spec §7.6/§7.8 明确「Changes 文件行和分组行不安装行悬停监听、不另画悬停底色」，产品当前行为正确（`firstRowBg` 悬停前后同为透明、零 DOM 变更）；但该段测试整个以“悬停底变化”来判定悬停行（`hovered` 由背景色差得出），需要重写为「无悬停底、不重绘、不改变选择/勾选/焦点」的口径，不能用小改让旧判据假通过。下一轮专门重写这一段。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
