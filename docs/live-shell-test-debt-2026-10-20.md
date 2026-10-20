@@ -31,7 +31,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 终端标题行断言补上 `largeActions ? icon-hit+8`：32px 界面字号下放大动作区使 token=85，旧公式只算 `max(38,h+12)=53`。
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
-- **本轮最后状态**：`run-28` 已通过 New Tag 段落（产品输出 `Create New Tag On aaa1111`、字段 `Enter the name of new tag`、空白校验英文提示），停在 §5.2「未完全合并时再问一次」：产品文案是 `Some commits are not merged into the current branch`，旧断言只认字面 `unmerged`；已改为 `/not merged/i`，待下一次复跑。`run-28` 级进度为第 16847 行。
+- **本轮最后状态**：`run-30` 复跑中；`run-29` 已通过 New Tag 与分支删除二次确认段落，停在 §7.8「选当前分支时删除禁用」——产品原因写 `The selection includes the checked-out branch and cannot be deleted.`，旧断言只认 `Current`；已改为 `/checked-out|current/i`。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

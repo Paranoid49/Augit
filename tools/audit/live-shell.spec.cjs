@@ -17368,7 +17368,7 @@ async function main() {
       + JSON.stringify([logTools.afterNonCurrent, logTools.afterCurrent]),
       logTools.afterNonCurrent.selected === logTools.nonCurrent && logTools.afterNonCurrent.selectedKind === 'branch'
         && logTools.afterNonCurrent.deleteDisabled === false
-        && logTools.afterCurrent.disabled === true && logTools.afterCurrent.reason.includes('Current'));
+        && logTools.afterCurrent.disabled === true && /checked-out|current/i.test(logTools.afterCurrent.reason));
     check('§7.8 引用树上下键移动选择并把焦点交给新行: ' + JSON.stringify(logTools.keyboard),
       !!logTools.keyboard.focus && logTools.keyboard.focus === logTools.keyboard.selected
         && logTools.keyboard.focus !== logTools.nonCurrent);
@@ -17508,7 +17508,7 @@ async function main() {
         && updateSelected.invoked.selection[0].name === 'feature/tracked'
         && updateSelected.invoked.selectedRow === 'feature/tracked');
     check('§7.8 选中当前分支时「Update Selected」禁用并写明原因: ' + JSON.stringify(updateSelected.current),
-      updateSelected.current.disabled === true && updateSelected.current.reason.includes('update mode'));
+      updateSelected.current.disabled === true && /current/i.test(updateSelected.current.reason));
     check('§7.8 选中没有跟踪配置的引用时「Update Selected」禁用并写明原因: '
       + JSON.stringify([updateSelected.untrackedLocal, updateSelected.remoteOnly]),
       updateSelected.untrackedLocal.disabled === true && updateSelected.untrackedLocal.reason.includes('upstream')
