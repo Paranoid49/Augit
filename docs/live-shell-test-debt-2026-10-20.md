@@ -21,7 +21,8 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 
 ## 3. 当前阻塞与剩余债务
 
-- **当前最先阻塞**（2026-10-20 重写字体段落后）：`live-shell.spec.cjs` 约第 2205 行「对话框内的 Tab 仍按窗口自身顺序循环」失败，观察值 `["field","cancel","cancel","cancel"]`，期望 `field → cancel → primary → field` 一类顺序。该项与等宽字体无关，尚未判定是桩/测试过期还是真实焦点缺陷，需要单独核对产品焦点规则后再处理。
+- 2026-10-20 已修正：完整哈希、File View 固定等宽、字体段落、紧凑输入窗口 Tab（产品缺陷，见[修复记录](compact-dialog-tab-fix-2026-10-20.md)）、Stash 创建框的 Windows 按钮顺序与 `.stash-check-row` 结构。
+- **当前最先阻塞**：`live-shell.spec.cjs` 约第 5794 行「Stash 创建框限高时只滚表单、标题与底栏固定」失败，观察值 `{dialogTop:45, dialogBottom:376, viewportHeight:420, bodyScrollable:false, bodyScrollTop:0, header/footer 稳定}`；在 420px 视口下表单尚未溢出，未判定是测试前提过期还是限高行为缺陷，需要单独核对。
 - 第 6760 行附近、第 9310 行附近、第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构；需逐段按当前简化 Settings 重写。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 

@@ -2186,17 +2186,42 @@ async function main() {
     await tabRegion.page.waitForTimeout(400);
     await tabRegion.page.locator('[data-augit-overlay] [data-branch-action="create"]').click();
     await tabRegion.page.waitForSelector('[data-compact-dialog]', { timeout: 8000 }).catch(() => {});
+    const compactId = () => tabRegion.page.evaluate(() => {
+      const el = document.activeElement;
+      return el && el.dataset ? (el.dataset.compactAction || (el.dataset.compactField !== undefined ? 'field' : el.className)) : null;
+    });
+    // 名称非空：主按钮可用，Tab 走完整顺序。
+    await tabRegion.page.evaluate(() => {
+      const field = document.querySelector('[data-compact-field]');
+      field.value = 'tab-order-check';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      field.focus();
+    });
+    await tabRegion.page.waitForTimeout(120);
     const dialogTab = [];
     for (let i = 0; i < 4; i += 1) {
-      dialogTab.push(await tabRegion.page.evaluate(() => {
-        const el = document.activeElement;
-        return el && el.dataset ? (el.dataset.compactAction || (el.dataset.compactField !== undefined ? 'field' : el.className)) : null;
-      }));
+      dialogTab.push(await compactId());
       await tabRegion.page.keyboard.press('Tab');
       await tabRegion.page.waitForTimeout(120);
     }
     tabCheck('对话框内的 Tab 仍按窗口自身顺序循环: ' + JSON.stringify(dialogTab),
       dialogTab.join(',') === 'field,cancel,confirm,close');
+    // 空名称：主按钮禁用，Tab 必须跳过它，不能停在 Cancel。
+    await tabRegion.page.evaluate(() => {
+      const field = document.querySelector('[data-compact-field]');
+      field.value = '';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('[data-compact-action="cancel"]').focus();
+    });
+    await tabRegion.page.waitForTimeout(120);
+    const disabledSkip = [];
+    for (let i = 0; i < 2; i += 1) {
+      disabledSkip.push(await compactId());
+      await tabRegion.page.keyboard.press('Tab');
+      await tabRegion.page.waitForTimeout(120);
+    }
+    tabCheck('空名称时 Tab 跳过禁用的主按钮: ' + JSON.stringify(disabledSkip),
+      disabledSkip.join(',') === 'cancel,close');
     await tabRegion.page.keyboard.press('Escape');
     await tabRegion.page.waitForTimeout(300);
     await tabRegion.page.close();
@@ -2468,9 +2493,10 @@ async function main() {
         // 权威 `GitStashDialog.kt:30-36`：`Include untracked` 默认**不勾选**。
         && stashDialogShape.includeChecked === false
         && stashDialogShape.focused === true
-        && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['Cancel', 'Create Stash']));
+        // Windows 约定（design-system 2026-10-13 裁决）：主按钮在 Cancel 左侧。
+        && JSON.stringify(stashDialogShape.actions) === JSON.stringify(['Create Stash', 'Cancel']));
 
-    // Tab 顺序：消息 → 保留索引 → 包含未跟踪文件 → 取消 → 创建（权威字段顺序）。
+    // Tab 顺序：消息 → 保留索引 → 包含未跟踪文件 → 创建 → 取消（Windows 主按钮在 Cancel 左侧）。
     const stashTabOrder = [];
     for (let i = 0; i < 4; i += 1) {
       await stashCreate.page.keyboard.press('Tab');
@@ -2481,7 +2507,7 @@ async function main() {
       }));
     }
     sdCheck('Stash 对话框内 Tab 按字段顺序循环: ' + JSON.stringify(stashTabOrder),
-      stashTabOrder.join(',') === 'keep,includeUntracked,cancel,create');
+      stashTabOrder.join(',') === 'keep,includeUntracked,create,cancel');
 
     // 组词中的 Esc/Enter 不关闭也不提交。
     await stashCreate.page.evaluate(() => {
@@ -5649,7 +5675,7 @@ async function main() {
       for (const node of grid.children) {
         if (node.id) order.push(node.id);
         else if (node.classList.contains('stash-branch')) order.push('stash-branch');
-        else if (node.classList.contains('check-line')) order.push(node.textContent.trim());
+        else if (node.classList.contains('stash-check-row')) order.push('stash-check-row');
         else if (node.tagName === 'LABEL') order.push('label:' + node.textContent.trim());
         else order.push(node.tagName.toLowerCase());
       }
@@ -5662,10 +5688,15 @@ async function main() {
       return {
         order,
         width: Math.round(dr.width),
-        // 创建按钮在底栏里、位于取消右侧、贴右下角（与底栏内距一致）
+        // Windows 约定（design-system 2026-10-13 裁决）：主按钮在 Cancel 左侧、整体贴右下角。
         inFooter: footer.contains(create),
-        rightOfCancel: cr.left > cancel.getBoundingClientRect().left,
+        leftOfCancel: cr.right <= cancel.getBoundingClientRect().left + 1,
+        checkRowOrder: [...dialog.querySelectorAll('.stash-check-row input')].map((node) => node.id),
         rightGap: Math.round(dr.right - cr.right),
+        cancelWidth: Math.round(cancel.getBoundingClientRect().width),
+        buttonGap: Math.round(cancel.getBoundingClientRect().left - cr.right),
+        cancelRightGap: Math.round(dr.right - cancel.getBoundingClientRect().right),
+        footerPaddingRight: Math.round(Number.parseFloat(getComputedStyle(footer).paddingRight) || 0),
         bottomGap: Math.round(dr.bottom - cr.bottom),
         footerRightGap: Math.round(dr.right - fr.right),
         footerBottomGap: Math.round(dr.bottom - fr.bottom),
@@ -5676,12 +5707,15 @@ async function main() {
     });
     check('§7.11 Stash 创建框的字段顺序、紧凑宽度与右下角创建按钮: ' + JSON.stringify(stashShapeState),
       JSON.stringify(stashShapeState.order) === JSON.stringify(['label:Git root', 'stash-root', 'label:Current branch',
-        'stash-branch', 'label:Message', 'stash-message', 'span', 'Keep index', 'Include untracked files'])
+        'stash-branch', 'label:Message', 'stash-message', 'span', 'stash-check-row'])
+        && JSON.stringify(stashShapeState.checkRowOrder) === JSON.stringify(['stash-keep', 'stash-include-untracked'])
         && stashShapeState.width === 620
-        && stashShapeState.inFooter === true && stashShapeState.rightOfCancel === true
+        && stashShapeState.inFooter === true && stashShapeState.leftOfCancel === true
         && stashShapeState.inRightHalf === true
-        && stashShapeState.rightGap >= stashShapeState.footerRightGap
-        && stashShapeState.rightGap - stashShapeState.footerRightGap <= 20
+        // Windows 约定：Cancel 贴右下角（底栏内距 + 自身右内距），Create 在它左侧 4–16px。
+        && Math.abs(stashShapeState.cancelRightGap
+          - (stashShapeState.footerRightGap + stashShapeState.footerPaddingRight)) <= 1
+        && stashShapeState.buttonGap >= 4 && stashShapeState.buttonGap <= 16
         && stashShapeState.bottomGap - stashShapeState.footerBottomGap <= 20
         && stashShapeState.keepChecked === false && stashShapeState.includeChecked === false);
 
