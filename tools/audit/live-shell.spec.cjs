@@ -18500,13 +18500,15 @@ async function main() {
     // 第 194 轮：ToggleAction 的**选中**态底 = `ActionButton.pressedBackground`（`--augit-pressed`）。
     // 权威 `ActionButton.getPopState()`：`return getPopState(isSelected())`，而 `isPushed` 为真就直接返回
     // PUSHED（`ActionButton.java:221-222,626-639`）；`ActionButtonLook.getStateBackground()` 的 PUSHED 分支
-    // 取 `ActionButton.pressedBackground()`（ManyIslands 的 `toolbar-bg-pressed` = `#00000020`／`#ffffff26`）。
+    // 取 `ActionButton.pressedBackground()`。ManyIslandsDark：`pressedBackground` = `toolbar-bg-pressed`
+    // = `core-bg-transparent-pressed` = `transparent-white-40` = **#FFFFFF29**（alpha 41/255 = 0.16；
+    // 旧注释里的 `#ffffff26` 是过时值）。
     // 悬停不改色：`getPopState` 的第一个条件就是选中态。未选中（NORMAL）不画底。
     check('§7.8 竖条 ToggleAction 选中态底取 ActionButton.pressedBackground（未选中不画底）: '
       + JSON.stringify([historyFilters.myBranches.before.state, historyFilters.myBranches.on.state,
         historyFilters.myBranches.off.state]),
       historyFilters.myBranches.before.state.background === 'rgba(0, 0, 0, 0)'
-        && historyFilters.myBranches.on.state.background === 'rgba(255, 255, 255, 0.15)'
+        && historyFilters.myBranches.on.state.background === 'rgba(255, 255, 255, 0.16)'
         && historyFilters.myBranches.off.state.background === 'rgba(0, 0, 0, 0)');
     check('§7.8 关掉「My Branches」恢复完整引用树与标签组: '
       + JSON.stringify([historyFilters.myBranches.off.state, historyFilters.myBranches.off.tree]),
@@ -18539,7 +18541,7 @@ async function main() {
       + JSON.stringify(historyFilters.multiSelect.withCurrent),
       historyFilters.multiSelect.withCurrent.picked.length === 3
         && historyFilters.multiSelect.withCurrent.del.disabled === true
-        && historyFilters.multiSelect.withCurrent.del.title.includes('Current'));
+        && /checked-out|current/i.test(historyFilters.multiSelect.withCurrent.del.title));
     check('§7.8 删除文案随选中集：全是分支＝「Delete Branch…」，混进标签＝「Delete」（权威 allRefsAreBranches）: '
       + JSON.stringify([historyFilters.multiSelect.replaced.del, historyFilters.multiSelect.withTag.del]),
       historyFilters.multiSelect.replaced.del.label === 'Delete Branch…'
