@@ -18906,7 +18906,9 @@ async function main() {
       return { layout, afterWheel, beforeKeys, keys, beforeRepeat, afterRepeat, collapsed, afterExpand,
         beforeSwitch, afterSwitchAway, afterSwitchBack, failure, afterRefresh };
     })();
-    const refusedHint = '提交信息超过 20 MB';
+    // 宿主给中文原因（`GitHistoryService`），UI 语言为英文时经 `ui-text.js` 本地化；
+    // 这里断言用户实际看到的英文文案。
+    const refusedHint = 'Commit message exceeds 20 MB';
     check('§7.8 提交详情独立滚动、滚轮与键位只移动详情不切换提交: '
       + JSON.stringify([detailScroll.layout, detailScroll.afterWheel, detailScroll.keys]),
     detailScroll.layout.max > 40 && detailScroll.layout.tail === true
