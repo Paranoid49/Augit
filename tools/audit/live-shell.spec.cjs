@@ -19907,6 +19907,15 @@ async function main() {
         await scene.page.waitForSelector('.editor-tab', { timeout: 8000 }).catch(() => {});
         await scene.page.waitForTimeout(600);
       }
+      // 树行双击在本场景未建立标签（诊断 live.tabs=0）；再用 Ctrl+P 打开同一文件，
+      // 走真实的快速打开路径，确保标签栏有文档可核对。
+      await scene.page.keyboard.press('Control+p');
+      await scene.page.waitForSelector('.search-overlay .search-field', { timeout: 8000 }).catch(() => {});
+      await scene.page.fill('.search-overlay .search-field', 'README').catch(() => {});
+      await scene.page.waitForSelector('.search-overlay .search-result', { timeout: 8000 }).catch(() => {});
+      await scene.page.keyboard.press('Enter');
+      await scene.page.waitForSelector('.editor-tab', { timeout: 8000 }).catch(() => {});
+      await scene.page.waitForTimeout(800);
       const mainDark = await scene.page.evaluate(() => {
         const info = (node) => {
           const svg = node.querySelector('svg.file-type-icon');
