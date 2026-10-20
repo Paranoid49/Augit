@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-44` 复跑中；`run-43` 已通过窄栏列宽（760px → 列表 283px：引用整列隐藏、短日期、作者仍可见），停在多轨横向滚动：用例声称“多轨”却打开单轨 `git-history` 场景，单轨行宽正好等于 250px 列表宽，不产生溢出；已改用 `git-history-graph` 场景（`complexGraph` 才渲染多列图形）。待复跑确认。
+- **本轮最后状态**：`run-45` 复跑中；`run-44` 已确认多轨场景图形宽 54px，720px 视口下列表 250px、行宽也恰为 250px（54+120+8+27+41），没有横向溢出；再窄到 680px 视口（列表约 210px）才会真正触发局部横向滚动。测试视口改 680px，待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

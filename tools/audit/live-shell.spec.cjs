@@ -19697,7 +19697,9 @@ async function main() {
       await page.waitForSelector('.commit-row', { timeout: 10000 });
       // 底部工具窗现在按产品规格横跨项目树和编辑器；1024px 下列表已经是宽栏，
       // 不能再稳定地产生局部横向溢出。用真实窄视口验证列表自身的横向滚动。
-      await page.setViewportSize({ width: 720, height: 760 });
+      // 窄视口下列表宽 ~210px；多轨行宽 = max(列表宽, 图形 + 120 + 8 + 作者 + 8 + 短日期 + 8)，
+      // 在 720px 时两者恰好都是 250px（无溢出），再窄 40px 才会真正出现局部横向滚动。
+      await page.setViewportSize({ width: 680, height: 760 });
       await page.waitForTimeout(800);
       const read = () => page.evaluate(() => {
         const list = document.querySelector('.log-list-panel .commit-list');
