@@ -19899,7 +19899,9 @@ async function main() {
       await scene.page.waitForSelector('.commit-row', { timeout: 10000 });
       await scene.page.waitForTimeout(600);
       // 主场景默认没有打开文件；先双击 README.md 打开标签，让标签栏也参与图标复用核对。
+      // 树行可能比提交列表晚渲染，先等行出现，否则 count()=0 会静默跳过打开步骤。
       const readmeRow = scene.page.locator('.side-content.tree .tree-row[data-tree-path="README.md"]');
+      await scene.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="README.md"]', { timeout: 8000 }).catch(() => {});
       if (await readmeRow.count()) {
         await readmeRow.dblclick();
         await scene.page.waitForSelector('.editor-tab', { timeout: 8000 }).catch(() => {});
@@ -19923,6 +19925,8 @@ async function main() {
           return out;
         };
         return {
+          liveTabs: (window.__augitLive && Array.isArray(window.__augitLive.tabs) ? window.__augitLive.tabs.length : -1),
+          editorTabCount: document.querySelectorAll('.editor-tab').length,
           tree: collect('.side-content.tree .tree-row[data-tree-path]',
             (node) => String(node.dataset.treePath).split('/').pop()),
           tabs: collect('.editor-tab', (node) => node.textContent.trim().split('/').pop()),
@@ -20011,6 +20015,8 @@ async function main() {
     const sharedIcons = Object.entries(iconByName).filter(([, list]) => list.length >= 2);
     const sharedKinds = new Set(sharedIcons.flatMap(([name, list]) =>
       list.map((entry) => iconContexts[entry.context][name].cls)));
+    console.log('INFO 标签上下文=' + JSON.stringify([iconReuse.mainDark.liveTabs,
+      iconReuse.mainDark.editorTabCount, Object.keys(iconReuse.mainDark.tabs)]));
     check('§7.8 变化文件/项目树/Tags/Changes/搜索结果共用同一套文件类型图标: '
       + JSON.stringify(Object.fromEntries(Object.entries(iconContexts).map(([name, map]) => [name, Object.keys(map)]))),
     Object.values(iconContexts).every((map) => Object.keys(map).length > 0)
