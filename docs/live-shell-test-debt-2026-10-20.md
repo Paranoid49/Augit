@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-46` 复跑中；`run-45` 已通过多轨横向滚动（680px 视口列表 239px、行 245px、maxLeft 6、滚动/选择/刷新/往返均保持），停在文件类型图标复用：`main-project` 场景默认没有打开文件，`.editor-tab` 为空导致 `tabs` 上下文为空；测试改为先双击 README.md 打开标签再采集。待复跑确认。
+- **本轮最后状态**：`run-46` 已通过多轨横向滚动（680px 视口 maxLeft 6、滚动/选择/刷新/往返保持），仍停在文件类型图标复用：即使测试先双击 README.md 并等待 `.editor-tab`，`tabs` 上下文仍为空（`tree` 有 README.md，说明行存在；需用单场景 DOM 探针确认标签是否创建、标签内是否渲染 `svg.file-type-icon`，而不是继续用整轮 16 分钟复跑猜测）。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
