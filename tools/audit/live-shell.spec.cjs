@@ -21225,11 +21225,12 @@ async function main() {
       && commitLayout.base.last.icons === 0
       && /git-history\.html$/.test(commitLayout.base.last.href || '')
       && commitLayout.base.last.iconOnly === false
-      // 各字号下文字链接仍在、完整说明仍在，且与相邻 Amend 命中区不重叠。
+      // 各字号下文字链接仍在、完整说明仍在；放不下时按规范换到 Amend 下一行，
+      // 因此“不重叠”要么水平排在其右，要么垂直排在其下。
       && [commitLayout.base, commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === false
         && snapshot.last.text === 'last commit'
         && snapshot.last.title === 'View the last commit in Git Log'
-        && snapshot.amend.right <= snapshot.last.box.left
+        && (snapshot.amend.right <= snapshot.last.box.left || snapshot.last.box.top >= snapshot.amend.bottom)
         && snapshot.count.visible === false
         && snapshot.groupCount.some(count => count.visible && /^\d+ files$/.test(count.text)))
       // 入口可用：从终端切过去必须打开 Git 历史工具窗口，且不算"未接线"

@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-54` 复跑中；`run-53` 已通过大字滚动布局段，停在历史入口：ux-spec §7.6 明确 Amend 区显示 **蓝色「last commit」文字链接**，产品 `text="last commit"`、无图标、`iconOnly=false`；旧断言要求图标-only 入口（`text=""`、`icons=1`、`title="Last Commit"`），已按规范改正。待复跑确认。
+- **本轮最后状态**：`run-55` 复跑中；`run-54` 已确认历史入口为文字链接且 40px 滚动布局成立；仍停 21217 的原因是 26/40px 时 `last commit` 按规范**换行到 Amend 下一行**（f26 last.box.top 394 = amend.bottom 394），旧断言只允许水平排在 Amend 右侧。改为二维不重叠：`amend.right <= last.left` 或 `last.top >= amend.bottom`。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
