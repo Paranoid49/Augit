@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-50` 复跑中；Changes 悬停段已按规格重写：`hoverBgRows` 必须始终为空（行不画悬停底），移动指针零 DOM 变更、行节点身份不变，`under` 按几何命中；选择/勾选/焦点/宿主查询次数前后不变；滚动、增删、行高变化、折叠、空白区与工具窗销毁/重显均按同一口径断言。待复跑确认。
+- **本轮最后状态**：`run-51` 复跑中；悬停段重写后已通过“无悬停底/零重绘/状态不变”段，但几何 `under` 用闭区间会在行边界同时命中上下两行（`["src/File05.cs","src/File06.cs"]`）；改为半开区间 `top <= y < bottom`，与 CSS 命中一致。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

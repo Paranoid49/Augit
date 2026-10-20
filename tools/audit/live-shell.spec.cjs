@@ -20848,7 +20848,8 @@ async function main() {
         const visible = rows.filter((row) => getComputedStyle(row).display !== 'none' && row.getBoundingClientRect().height > 0);
         const under = (row) => {
           const r = row.getBoundingClientRect();
-          return yy !== null && r.top <= yy && r.bottom >= yy;
+          // 半开区间：row.top <= y < row.bottom。闭区间会在行边界同时命中上下两行。
+          return yy !== null && r.top <= yy && r.bottom > yy;
         };
         const fileRows = visible.filter((row) => !row.classList.contains('check-group-row'));
         // "悬停中"的判据取**底色相对基线的变化**而不是 `matches(':hover')`：
