@@ -19690,7 +19690,9 @@ async function main() {
           date: '2026/9/15 10:00', graph: '*', parents: [], references: [],
         }))];
       });
-      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history&theme=dark`, { waitUntil: 'load' });
+      // 多轨窄栏：必须用 `git-history-graph` 场景（`complexGraph` 才渲染多列图形），
+      // 单轨 `git-history` 在 250px 列表里行宽正好等于列表宽，不会出现横向溢出。
+      await page.goto(`http://127.0.0.1:${port}/index.html?scene=git-history-graph&theme=dark`, { waitUntil: 'load' });
       await page.waitForFunction('window.__augitHistoryReady === true', null, { timeout: 20000 });
       await page.waitForSelector('.commit-row', { timeout: 10000 });
       // 底部工具窗现在按产品规格横跨项目树和编辑器；1024px 下列表已经是宽栏，
