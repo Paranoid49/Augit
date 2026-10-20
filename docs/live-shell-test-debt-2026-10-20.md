@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-55` 复跑中；`run-54` 已确认历史入口为文字链接且 40px 滚动布局成立；仍停 21217 的原因是 26/40px 时 `last commit` 按规范**换行到 Amend 下一行**（f26 last.box.top 394 = amend.bottom 394），旧断言只允许水平排在 Amend 右侧。改为二维不重叠：`amend.right <= last.left` 或 `last.top >= amend.bottom`。待复跑确认。
+- **本轮最后状态**：`run-56` 复跑中；`run-55` 已通过历史入口换行/无重叠段，推进到第 21,479 行：Diff 工具栏齿轮实际打开**显示选项弹层**（`section.popover.diff-settings-menu`，checkable 菜单，参考 PyCharm 的 Diff 齿轮行为），旧断言要求打开主设置窗口 `.settings-window/.dialog-xl`；已改为断言弹层、菜单项非空、非主设置窗口、非未接线。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

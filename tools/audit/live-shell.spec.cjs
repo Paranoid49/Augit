@@ -21349,6 +21349,9 @@ async function main() {
       await st.page.locator('.editor-content .diff-toolbar [aria-label="Settings"]').first().click();
       await st.page.waitForTimeout(600);
       const settingsOpen = await st.page.evaluate(() => ({
+        // 参考 PyCharm：Diff 工具栏的齿轮打开显示选项弹层（checkable 菜单），不是主设置窗口。
+        popover: !!document.querySelector('.diff-settings-menu, .diff-settings-popup'),
+        items: [...document.querySelectorAll('.diff-settings-menu .menu-item')].map((node) => node.textContent.trim()),
         dialog: !!document.querySelector('.settings-window, .dialog-xl'),
         unwired: window.__augitUnwiredAction || null,
       }));
@@ -21476,11 +21479,12 @@ async function main() {
     diffToolbar.summaryOne && diffToolbar.summaryOne.text === '1 difference'
       && diffToolbar.summaryTwo && diffToolbar.summaryTwo.text === '2 differences'
       && diffToolbar.navTotal === '2');
-    check('§7.7 差异设置入口打开设置对话框；加载态保持同一顺序并禁用变更导航: '
+    check('§7.7 差异设置入口打开显示选项弹层；加载态保持同一顺序并禁用变更导航: '
       + JSON.stringify([diffToolbar.settingsOpen, diffToolbar.loadingBar.labels, diffToolbar.loadingBar.loadingLabel,
         diffToolbar.loadingBar.buttons.filter((b) => ['Previous Difference', 'Next Difference', 'Find'].includes(b.label))]),
-    // 设置入口按应用既有约定打开设置对话框，且不算"未接线"
-    diffToolbar.settingsOpen.dialog === true && diffToolbar.settingsOpen.unwired === null
+    // 设置入口按参考打开显示选项弹层（齿轮 → checkable 菜单），且不算"未接线"。
+    diffToolbar.settingsOpen.popover === true && diffToolbar.settingsOpen.items.length > 0
+      && diffToolbar.settingsOpen.dialog === false && diffToolbar.settingsOpen.unwired === null
       // 加载态：同一套控件与顺序（追加"取消比较"），差异箭头与查找禁用并写明原因
       && JSON.stringify(diffToolbar.loadingBar.labels) === JSON.stringify(['Previous Difference', 'Next Difference', 'Find', 'Ignore whitespace', 'Side-by-side', 'Unified', 'Settings', 'Cancel Comparison'])
       && diffToolbar.loadingBar.loadingProgress === true
