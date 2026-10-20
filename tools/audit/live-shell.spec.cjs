@@ -21214,21 +21214,21 @@ async function main() {
       && !!commitLayout.f40.sideScroll
       && commitLayout.f40.sideScroll.scrollHeight > commitLayout.f40.sideScroll.clientHeight
       && keepsLine(commitLayout.f40));
-    check('§7.6 历史入口始终只显示图标、不与 Amend 重叠，数量只在分组显示且命令可用: '
+    check('§7.6 历史入口为「last commit」链接、不与 Amend 重叠，数量只在分组显示且命令可用: '
       + JSON.stringify([commitLayout.base.last, commitLayout.f20.last, commitLayout.f40.last, commitLayout.f40.count,
         commitLayout.beforeOpen, commitLayout.afterOpen, commitLayout.afterSecond]),
-    // 设计基线：中性历史图标保留完整悬停说明，指向 Git 历史。
+    // ux-spec §7.6：Amend 区显示“Amend”与蓝色“last commit”链接（不是图标-only 入口），
+    // 链接保留完整悬停说明并指向 Git 历史。
     commitLayout.base.last.tag === 'A'
-      && commitLayout.base.last.text === ''
-      && commitLayout.base.last.title === 'Last Commit'
-      && commitLayout.base.last.icons === 1
+      && commitLayout.base.last.text === 'last commit'
+      && commitLayout.base.last.title === 'View the last commit in Git Log'
+      && commitLayout.base.last.icons === 0
       && /git-history\.html$/.test(commitLayout.base.last.href || '')
-      && commitLayout.base.last.iconOnly === true
-      // 各字号下历史图标仍在、完整说明仍在，且与相邻 Amend 命中区不重叠。
-      && [commitLayout.base, commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === true
-        && snapshot.last.icons === 1
-        && snapshot.last.iconBox.w >= 14 && snapshot.last.iconBox.h >= 14
-        && snapshot.last.title === 'Last Commit'
+      && commitLayout.base.last.iconOnly === false
+      // 各字号下文字链接仍在、完整说明仍在，且与相邻 Amend 命中区不重叠。
+      && [commitLayout.base, commitLayout.f20, commitLayout.f26, commitLayout.f40].every((snapshot) => snapshot.last.iconOnly === false
+        && snapshot.last.text === 'last commit'
+        && snapshot.last.title === 'View the last commit in Git Log'
         && snapshot.amend.right <= snapshot.last.box.left
         && snapshot.count.visible === false
         && snapshot.groupCount.some(count => count.visible && /^\d+ files$/.test(count.text)))
