@@ -2554,23 +2554,51 @@ textarea,
 
 .toast {
   position: absolute;
-  bottom: 34px;
+  right: 18px;
+  bottom: 33px;
   z-index: 30;
-  width: min(420px, calc(100% - 36px));
-  padding: 12px 14px;
-  border: var(--augit-hairline) solid var(--augit-border-strong);
-  border-radius: 7px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: min(375px, calc(100% - 36px));
+  padding: 12px 16px;
+  border: var(--augit-hairline) solid var(--augit-border);
+  border-radius: 8px;
   background: var(--augit-panel);
-  box-shadow: 0 8px 28px color-mix(in srgb, #000000 20%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, #000000 14%, transparent);
+}
+
+.toast-icon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.toast-content {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .toast-title {
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   font-weight: 600;
 }
 
-.toast.error .toast-title {
-  color: var(--augit-red);
+.toast-text {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--augit-blue);
+  text-decoration: none;
+}
+
+.toast-action:hover {
+  text-decoration: underline;
 }
 
 .statusbar {
@@ -4676,13 +4704,6 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 }
 .titlebar .workspace-chip:is(:disabled, [aria-disabled="true"]) { background: var(--title-workspace); }
 .titlebar .workspace-chip:is(:disabled, [aria-disabled="true"]) .brand-mark { background: var(--augit-faint); }
-
-.toast {
-  right: 18px;
-  bottom: 33px;
-  width: min(395px, calc(100% - 36px));
-  border-radius: 8px;
-}
 
 .statusbar {
   gap: 12px;

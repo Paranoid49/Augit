@@ -5217,6 +5217,37 @@ function terminalTool() {
   return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("close-small")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
+// IntelliJ 通知图标（24×24 源文件，`platform/icons/src/general/notification*.svg`）：
+// 错误 #DB5860 实心圆+感叹号、信息 #389FD6 实心圆+i、警告 #EDA200 三角+感叹号。
+// `VcsNotifier.notifySuccess` 使用 `NotificationType.INFORMATION`，所以成功结果也用信息图标。
+const TOAST_ICON_PATHS = {
+  error: '<path fill="#DB5860" fill-rule="evenodd" d="M12,22 C6.4771525,22 2,17.5228475 2,12 C2,6.4771525 6.4771525,2 12,2 C17.5228475,2 22,6.4771525 22,12 C22,17.5228475 17.5228475,22 12,22 Z M10.5,5 L10.5,13 L13.5,13 L13.5,5 L10.5,5 Z M10.5,15 L10.5,18 L13.5,18 L13.5,15 L10.5,15 Z"/>',
+  success: '<path fill="#389FD6" fill-rule="evenodd" d="M12,22 C6.4771525,22 2,17.5228475 2,12 C2,6.4771525 6.4771525,2 12,2 C17.5228475,2 22,6.4771525 22,12 C22,17.5228475 17.5228475,22 12,22 Z M10.5,10 L10.5,18 L13.5,18 L13.5,10 L10.5,10 Z M10.5,5 L10.5,8 L13.5,8 L13.5,5 L10.5,5 Z"/>',
+  warning: '<path fill="#EDA200" fill-rule="evenodd" d="M12,2 L23,21 L1,21 L12,2 Z M13.5,19 L13.5,16 L10.5,16 L10.5,19 L13.5,19 Z M13.5,14 L13.5,8 L10.5,8 L10.5,14 L13.5,14 Z"/>',
+};
+
+/** 通知图标；未登记的 kind 不画图标（保持既有无类型提示的外观）。 */
+function toastNotificationIcon(kind) {
+  const path = TOAST_ICON_PATHS[kind];
+  if (!path) return "";
+  const label = kind === "error" ? "Error" : kind === "warning" ? "Warning" : "Success";
+  return `<span class="toast-icon" role="img" aria-label="${label}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">${path}</svg></span>`;
+}
+
+/**
+ * 通知卡片（参考 balloon 形态，2026-10-20 按 PyCharm 2026.2.1 失败 balloon 实测）：
+ * 白底、8px 圆角、16px 类型图标、粗体标题、正文、蓝色文字动作。
+ * 提示仍由状态驱动；这里只统一标记，不引入独立“结果页”。
+ */
+function toastMarkup({ title, text = "", kind = "", action = null, extra = "" }) {
+  const known = Object.hasOwn(TOAST_ICON_PATHS, kind) ? kind : "";
+  const classes = ["toast", known ? `toast-${known}` : "", known === "error" ? "error" : ""].filter(Boolean).join(" ");
+  const actionHtml = action && action.label
+    ? `<a class="toast-action" href="${escapeHtml(action.href || "settings.html")}">${escapeHtml(action.label)}</a>`
+    : "";
+  return `<div class="${classes}" role="alert">${toastNotificationIcon(known)}<div class="toast-content"><div class="toast-title">${escapeHtml(title)}</div>${text ? `<div class="toast-text">${escapeHtml(text)}</div>` : ""}${extra}${actionHtml}</div></div>`;
+}
+
 /**
  * 规格 §10.2：提示由**状态**驱动渲染。
  *
@@ -5227,10 +5258,12 @@ function liveToast() {
   const live = window.__augitLive || {};
   const toast = live.toast;
   if (!toast || !toast.title) return "";
-  const action = toast.action && toast.action.label
-    ? `<div class="button-row"><a class="secondary-button" href="${escapeHtml(toast.action.href || "settings.html")}">${escapeHtml(toast.action.label)}</a></div>`
-    : "";
-  return `<div class="toast ${toast.kind === "error" ? "error" : ""}" role="alert"><div class="toast-title">${escapeHtml(toast.title)}</div><div>${escapeHtml(toast.text || "")}</div>${action}</div>`;
+  return toastMarkup({
+    title: toast.title,
+    text: toast.text || "",
+    kind: toast.kind || "",
+    action: toast.action || null,
+  });
 }
 
 /**
@@ -5847,8 +5880,8 @@ function renderScene() {
     case "settings-save-failure": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("Settings — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsBody, `<span class="footer-help settings-failure">Settings were not saved: cannot access the file or directory. Check permissions or file locks and try again.</span><button type="button" class="primary-button" data-settings-action="save">OK</button><button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button><button type="button" class="secondary-button" data-settings-action="apply">Apply</button>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
     // 未保存修改标记（⑭ 第 6 项，PyCharm 实测的实心圆点）：静态基线里直接标"文件查看"有草稿。
     case "settings-dirty": return shell({ activeRail: "project", side: "project", editor: "markdown", overlay: dialog("Settings — Augit", (window.__augitLive && window.__augitLive.settings) ? liveSettingsBody() : settingsLayoutHtml("appearance", null, false, new Set(["file-view"])), `<button type="button" class="primary-button" data-settings-action="save">OK</button><button type="button" class="secondary-button" data-settings-action="cancel">Cancel</button><button type="button" class="secondary-button" data-settings-action="apply">Apply</button>`, true, "dialog-xl"), selectedFile: "product-spec.md" });
-    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", gitUnavailable: "Git for Windows 2.40 or newer was not found.", toast: `<div class="toast error"><div class="toast-title">Git unavailable</div><div>Git for Windows 2.40 or newer was not found; file browsing remains available.</div><div class="button-row"><a class="secondary-button" href="settings.html">Configure git.exe</a></div></div>` });
-    case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast error"><div class="toast-title">Push Failed</div><div>No remote is configured. Local commits and the working tree are unchanged.</div><div class="commit-meta" style="margin-top:5px">Command output is discarded when this notification closes.</div></div>` });
+    case "git-unavailable": return shell({ activeRail: "project", side: "project", editor: "empty", gitUnavailable: "Git for Windows 2.40 or newer was not found.", toast: toastMarkup({ kind: "error", title: "Git unavailable", text: "Git for Windows 2.40 or newer was not found; file browsing remains available.", action: { label: "Configure git.exe", href: "settings.html" } }) });
+    case "operation-result": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: toastMarkup({ kind: "error", title: "Push failed", text: "No remote is configured. Local commits and the working tree are unchanged.", extra: '<div class="commit-meta" style="margin-top:5px">Command output is discarded when this notification closes.</div>' }) });
     case "workspace-open": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: dialog("Open Workspace", `<div class="management-content" style="height:350px"><div class="management-list"><div class="tree-row selected">${icon("history")} Recent Workspaces</div><div class="tree-row">${icon("folder-open")} Choose Directory…</div><div class="tree-row">${icon("clone")} Clone Repository…</div></div><div class="management-detail"><h2>Recent Workspaces</h2><a class="tree-row selected" href="main-project.html"><span>${treeFolderIcon(true)}</span><span class="tree-name">Augit</span><span class="tree-path">D:\\github\\Augit</span></a><p class="commit-meta">Opening the same directory activates its existing window.</p></div></div>`, `<a class="secondary-button" href="main-project.html">Cancel</a><button class="primary-button">Open</button>`, true) });
     case "repository-init": return shell({ activeRail: "project", side: "project", editor: "empty", overlay: repositoryInitScene() });
     case "blame": return shell({ activeRail: "history", side: "project", editor: "blame", bottom: "file-history", selectedFile: "product-spec.md" });
@@ -5860,7 +5893,7 @@ function renderScene() {
       const body = rollbackFile ? liveRollbackBody() : `<div class="inline-alert danger rollback-impact"><strong>All local changes in this file will be discarded</strong><p class="commit-meta">Rollback affects the entire file, including all local changes.</p><p class="rollback-recycle" hidden>Untracked or new files are moved to the Windows Recycle Bin.</p></div><div class="rollback-comparison">${diffView(true, "ready", true)}</div>`;
       return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(title, body, `<a class="secondary-button" href="commit-diff.html">Cancel</a><a class="danger-button" href="operation-progress.html">Rollback File</a>`, true, "rollback-dialog") });
     }
-    case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: `<div class="toast"><div class="toast-title">Running Smart Checkout…</div><div class="commit-meta">Restoring temporary Stash</div><div class="progress-track"><div class="progress-value"></div></div><div class="button-row"><a class="secondary-button" href="operation-result.html">Cancel</a></div></div>` });
+    case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: toastMarkup({ title: "Running Smart Checkout…", extra: '<div class="commit-meta">Restoring temporary Stash</div><div class="progress-track"><div class="progress-value"></div></div>', action: { label: "Cancel", href: "operation-result.html" } }) });
     case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("Close Terminal", `<div class="info-block" style="width:auto;text-align:left"><h2>A command is still running in the terminal</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>Continuing stops the foreground command, shell, and all child processes.</p></div>`, `<a class="secondary-button" href="terminal.html">Keep Terminal</a><a class="danger-button" href="main-project.html">Stop Command and Close</a>`) });
     case "search-limited": {
       // 到限态叠上权威的「结果过多」；`search-state=timeout` 等其它态只显示浮层自己的说明。
