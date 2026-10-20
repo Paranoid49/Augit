@@ -10959,7 +10959,7 @@ async function main() {
     check('打开后输入框获得焦点', createOpen.focused === true);
     check('新建时输入框为空', createOpen.value === '');
 
-    // Tab 循环顺序：输入框 → 取消 → 确定 → 标题栏关闭 → 输入框
+    // Tab 循环顺序：空名称时 OK 禁用 ⇒ 输入框 → 取消 → 标题栏关闭 → 输入框（跳过禁用项）。
     const tabOrder = [];
     for (let i = 0; i < 4; i += 1) {
       tabOrder.push(await cd.page.evaluate(() => {
@@ -10969,13 +10969,13 @@ async function main() {
       await cd.page.keyboard.press('Tab');
       await cd.page.waitForTimeout(120);
     }
-    check('Tab 按输入框→Cancel→OK→关闭循环: ' + JSON.stringify(tabOrder),
-      tabOrder.join(',') === 'field,cancel,confirm,close');
-    // Shift+Tab 反向
+    check('Tab 在空名称时按输入框→Cancel→关闭循环（跳过禁用 OK）: ' + JSON.stringify(tabOrder),
+      tabOrder.join(',') === 'field,cancel,close,field');
+    // Shift+Tab 反向：4 次 Tab 后焦点停在 Cancel，反向应回到输入框。
     await cd.page.keyboard.press('Shift+Tab');
     await cd.page.waitForTimeout(150);
     const back = await cd.page.evaluate(() => document.activeElement.dataset.compactAction || 'field');
-    check('Shift+Tab 反向循环: ' + back, back === 'close');
+    check('Shift+Tab 反向循环: ' + back, back === 'field');
 
     // 输入名称后按 Enter 确认
     await cd.page.evaluate(() => { window.__branchCalls = []; });
@@ -11868,6 +11868,8 @@ async function main() {
       tabs: document.querySelectorAll('.search-tabs').length,
       tabText: document.querySelector('.search-tabs') ? document.querySelector('.search-tabs').innerText.trim() : null,
       compact: !!document.querySelector('[data-compact-dialog]'),
+      compactAttr: document.querySelector('[data-compact-dialog]')
+        ? document.querySelector('[data-compact-dialog]').getAttribute('data-compact-dialog') : null,
       compactTitle: document.querySelector('[data-compact-dialog] .dialog-header span')
         ? document.querySelector('[data-compact-dialog] .dialog-header span').innerText : null,
       focused: document.activeElement ? document.activeElement.className : null,
@@ -11948,8 +11950,8 @@ async function main() {
     await ks.page.keyboard.press('Control+g');
     await ks.page.waitForTimeout(600);
     const ksG = await ksState();
-    check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactTitle]),
-      ksG.compact === true && ksG.compactTitle === 'Go to Line');
+    check('Ctrl+G 打开跳转行: ' + JSON.stringify([ksG.compact, ksG.compactAttr, ksG.compactTitle]),
+      ksG.compact === true && ksG.compactAttr === 'Go to Line');
 
     // 模态窗口拥有自己的键盘业务流；全局 Ctrl+P 不得穿透跳转行窗口再打开搜索浮层。
     const modalShortcut = await ks.page.evaluate(() => {
@@ -14877,6 +14879,40 @@ async function main() {
       // 并把 \t 经 terminal/write 送给 pty。判据取"焦点没离开终端 + 宿主收到了 \t"，
       // 而不是"事件没被 preventDefault"（那正好会读反）。
       await page.page.evaluate(() => { window.__terminalWrites = []; });
+      // 终端场景默认可能没有打开文档：Esc 的交接目标是"可聚焦的正文"，
+      // 先打开 Project 工具窗并展开文件，才能验证"焦点回到正文且 ESC 不送给 Shell"。
+      if (!(await page.page.$('.editor-content .code-view'))) {
+        const projectRail = page.page.locator('.rail-button[data-tool="project"]');
+        if (await projectRail.count()) {
+          await projectRail.first().click();
+          await page.page.waitForTimeout(400);
+        }
+        const docsRow = page.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]');
+        if (await docsRow.count()) {
+          await docsRow.dblclick();
+          await page.page.waitForTimeout(300);
+        }
+        const docsFile = page.page.locator('.side-content.tree .tree-row[data-tree-path="docs/product-spec.md"]');
+        if (await docsFile.count()) {
+          await docsFile.dblclick();
+          await page.page.waitForTimeout(500);
+        }
+      }
+      if (!(await page.page.$('.editor-content .code-view'))) {
+        const rows = page.page.locator('.side-content.tree .tree-row[data-tree-path]');
+        const total = await rows.count();
+        for (let i = 0; i < total; i += 1) {
+          const treePath = await rows.nth(i).getAttribute('data-tree-path');
+          if (!treePath || !/\.(md|txt|cs|json|manifest)$/.test(treePath)) continue;
+          await rows.nth(i).dblclick();
+          await page.page.waitForTimeout(500);
+          if (await page.page.$('.editor-content .code-view')) break;
+        }
+      }
+      const editorTargetBeforeEsc = await page.page.evaluate(() => ({
+        codeViews: document.querySelectorAll('.editor-content .code-view').length,
+        body: document.querySelector('.editor-content') ? document.querySelector('.editor-content').innerText.slice(0, 60) : null,
+      }));
       const textarea = await page.page.$('.xterm-helper-textarea');
       const bodyTab = await (async () => {
         if (!textarea) return { missing: true };
@@ -14907,7 +14943,7 @@ async function main() {
         });
       })();
       await page.page.close();
-      return { shape, seen, reverse, bodyTab, bodyEscape };
+      return { shape, seen, reverse, bodyTab, bodyEscape, editorTargetBeforeEsc };
     })();
     check('§7.16 终端标题栏动作按可见顺序、Current Shell 标签不入 Tab 顺序: '
       + JSON.stringify([termTab.shape.buttons, termTab.shape.sessionTabindex, termTab.seen]),
@@ -14931,7 +14967,7 @@ async function main() {
     check('§7.16 终端正文的 Tab 交给 Shell（宿主收到 \\t）: ' + JSON.stringify(termTab.bodyTab),
       termTab.bodyTab.writes.includes('\t'));
     // 与 Tab 相反：Esc 是**终端的退出键**（权威 `TerminalEscapeKeyListener`）—— 焦点回到正文，且 ESC 不送给 pty。
-    check('§7.16 终端里 Esc 把焦点交回正文且不送给 Shell: ' + JSON.stringify(termTab.bodyEscape),
+    check('§7.16 终端里 Esc 把焦点交回正文且不送给 Shell: ' + JSON.stringify([termTab.bodyEscape, termTab.editorTargetBeforeEsc]),
       termTab.bodyEscape.focusInTerminal === false && termTab.bodyEscape.focusInEditor === true
       && !termTab.bodyEscape.writes.includes('\u001b'));
     // ---- 第 73 轮：把分支弹层的**实测几何**钉成可复跑证据（供 §1.3 的 L 行与 PyCharm 对照）----
@@ -15099,7 +15135,7 @@ async function main() {
       // `__augitGitReady`），说明该场景下工具条要么尚未渲染要么不可见；不再继续猜选择器，
       // 如实记为未断言并在 §2 里写明。
 
-      return { panes, order, wrapToggle };
+      return { order, wrapToggle };
     })();
 
     // ---- 第 68 轮补断言：§7.8 两个图标入口各自只做一件事、§7.9 Blame 头部与关闭、§7.16 终端"更多"菜单 ----
@@ -15157,7 +15193,7 @@ async function main() {
       await hist.page.close();
 
       // §7.9 Blame 顶部右侧"n 行归属"与关闭入口；关闭按钮可聚焦并用 Enter 关闭
-      const blame = await openScene('scene=blame&theme=dark');
+      const blame = await openScene('scene=blame&theme=dark&blame=docs%2Fnotes.txt');
       await blame.page.waitForTimeout(900);
       const blameHeader = await blame.page.evaluate(() => {
         const close = document.querySelector('[aria-label="Close Blame"]');
@@ -15166,6 +15202,8 @@ async function main() {
         return { hasClose: !!close, text, attrCount: document.querySelectorAll('[aria-label="Blame Read-only content"]').length };
       });
       const closedByEnter = await (async () => {
+        const hasClose = await blame.page.evaluate(() => !!document.querySelector('[aria-label="Close Blame"]'));
+        if (!hasClose) return { blameCloseStill: -1, bodyStill: -1, missing: true };
         await blame.page.evaluate(() => document.querySelector('[aria-label="Close Blame"]').focus());
         await blame.page.keyboard.press('Enter');
         await blame.page.waitForTimeout(500);
@@ -15182,7 +15220,7 @@ async function main() {
 
       // ---- 第 123 轮补断言：§7.9 的另两半（**隐藏普通文档动作** + **Tab 可达关闭**）----
       const blameA11y = await (async () => {
-        const scene = await openScene('scene=blame&theme=dark');
+        const scene = await openScene('scene=blame&theme=dark&blame=docs%2Fnotes.txt');
         await scene.page.waitForTimeout(900);
         const absent = await scene.page.evaluate(() => {
           const toolbar = document.querySelector('.blame-document .document-toolbar');
@@ -15779,8 +15817,9 @@ async function main() {
         && frame32.iconW === Math.round(37 * 2.75) && frame32.iconH === Math.round(40 * 2.75));
 
     // ---- 第 103 轮补断言：§7.16「标题行随字高扩展」（与查找条同型的**公式校验**）----
-    // 实现见 mockup.js:168-169：`--terminal-header-height = max(38, h+12)`、`--terminal-text-height = max(24, h+4)`，
-    // 其中 h 是**界面字体**实测行高。所以要用 `ui-font-size` 对照，并直接校验公式取值。
+    // 实现见 mockup.js:234：`--terminal-header-height = max(38, h+12, largeActions ? icon-hit+8 : 0)`，
+    // 其中 h 是**界面字体**实测行高；界面字号大到图标动作区放大时，标题行还要容纳放大后的动作图标。
+    // 所以要用 `ui-font-size` 对照，并直接校验公式取值。
     const terminalHeaderAt = async (uiSize) => {
       const scene = await openScene('scene=terminal&theme=dark&ui-font-size=' + uiSize);
       await scene.page.waitForSelector('.terminal-header', { timeout: 15000 });
@@ -15798,12 +15837,17 @@ async function main() {
         }
         const tool = document.querySelector('.terminal-tool');
         const header = document.querySelector('.terminal-header');
+        const styles = tool ? getComputedStyle(tool) : null;
+        const largeActions = !!(tool && tool.classList.contains('terminal-large-actions'));
+        const iconHit = styles ? (Number.parseFloat(styles.getPropertyValue('--augit-icon-hit')) || 0) : 0;
         return {
           uiFont: cs.fontSize,
           measuredH: h,
-          expected: Math.max(38, h + 12),
-          token: tool ? Number.parseFloat(getComputedStyle(tool).getPropertyValue('--terminal-header-height')) : null,
+          expected: Math.max(38, h + 12, largeActions ? iconHit + 8 : 0),
+          token: styles ? Number.parseFloat(styles.getPropertyValue('--terminal-header-height')) : null,
           headerHeight: header ? +header.getBoundingClientRect().height.toFixed(1) : null,
+          largeActions,
+          iconHit,
         };
       });
       await scene.page.close();
@@ -15813,8 +15857,8 @@ async function main() {
     const th32 = await terminalHeaderAt(32);
     console.log('INFO 终端标题行=' + JSON.stringify({ th13, th32 }));
     // token 必须**精确等于**公式；渲染高度允许 ±1px —— 头部还有一条 1px 底边框
-    // （实测 13px 时 token 38 / 渲染 39；32px 时 token 53 / 渲染 53）。
-    check('§7.16 终端标题行高度 = max(38px, h + 12px)（随界面字号增长）: ' + JSON.stringify({ th13, th32 }),
+    // （实测 13px 时 token 38 / 渲染 39；32px 时 largeActions 生效，token 85 / 渲染 85）。
+    check('§7.16 终端标题行高度 = max(38px, h + 12px, 放大动作区)（随界面字号增长）: ' + JSON.stringify({ th13, th32 }),
       th13.token === th13.expected && Math.abs(th13.headerHeight - th13.expected) <= 1
         && th32.token === th32.expected && Math.abs(th32.headerHeight - th32.expected) <= 1
         && th32.headerHeight > th13.headerHeight);
@@ -16118,8 +16162,9 @@ async function main() {
           index: scroller && scroller.dataset ? scroller.dataset.diffIndex || null : null,
           total: scroller && scroller.dataset ? scroller.dataset.diffTotal || null : null,
           active: document.activeElement ? document.activeElement.getAttribute('aria-label') : null,
-          // 变更**单元格**数（两栏各一份）：1 处替换 = 删+增两行 × 两栏 = 4。
-          changedCells: document.querySelectorAll('.diff-code-line.added, .diff-code-line.removed').length,
+          // 变更**单元格**数（两栏各一份）：该 fixture 是一次纯修改（`changed` 行），
+          // 每栏各一行，共 2 个单元格；一次替换的删+增形态才会是 4。
+          changedCells: document.querySelectorAll('.diff-code-line.added, .diff-code-line.removed, .diff-code-line.changed').length,
           hit: window.__diffNavHit || 0,
         };
       });
@@ -16138,11 +16183,11 @@ async function main() {
       return { initial, afterNext, afterNext2, afterPrev };
     })();
     check('§7.9 差异导航按连续变更块移动且保留按钮焦点: ' + JSON.stringify(diffNav),
-      // 该 diff 是**一次替换**（Removed + Added 相邻），按连续变更块就是**1 处**
+      // 该 diff 是**一次纯修改**（`changed` 行，两栏各一行），按连续变更块就是**1 处**
       // （`ux-spec.md:441`「同一次替换的删除行与新增行属于同一处差异」）。
-      // 第 116 轮这里记成"2 处"是**两栏各算一次**的产物（`diffChangeBlocks()` 当时扫整份 DOM），
-      // 第 224 轮改为只按一栏计块后回到规格口径：总数 1、`下一处`定位到 0、再按仍在 0。
-      diffNav.initial.changedCells === 4
+      // 第 224 轮改为只按一栏计块后：总数 1、`下一处`定位到 0、再按仍在 0。
+      // 变更单元格按当前渲染计 `.changed`：1 行 × 两栏 = 2（不是删+增形态的 4）。
+      diffNav.initial.changedCells === 2
         && diffNav.afterNext.index === '0' && diffNav.afterNext.total === '1'
         && diffNav.afterNext2.index === '0'
         && diffNav.afterPrev.index === '0'
@@ -16651,13 +16696,13 @@ async function main() {
         && logMenu.branchCreate.calls[0].name === 'feat/from-commit'
         && logMenu.branchCreate.calls[0].startPoint === logMenu.target.fullHash
         && logMenu.branchCreate.dialog === false);
-    check('§7.8 日志菜单「New Tag…」是单字段窗口且标题带该提交（权威 `Git.CreateNewTag`）: ' + JSON.stringify(logMenu.tagDialog),
+    check('§7.8 日志菜单「New Tag…」是单字段窗口且标题带该提交的短哈希（权威 `Git.CreateNewTag`）: ' + JSON.stringify(logMenu.tagDialog),
       logMenu.tagDialog.open === true
-        && typeof logMenu.tagDialog.title === 'string' && logMenu.tagDialog.title.includes(logMenu.target.fullHash)
-        && logMenu.tagDialog.label === 'New tag name' && logMenu.tagDialog.value === ''
+        && typeof logMenu.tagDialog.title === 'string' && logMenu.tagDialog.title.includes(logMenu.target.hash)
+        && logMenu.tagDialog.label === 'Enter the name of new tag' && logMenu.tagDialog.value === ''
         && logMenu.tagDialog.menuClosed === 0);
     check('§7.8 标签名含空白字符时不调用宿主并保留窗口: ' + JSON.stringify(logMenu.tagInvalid),
-      logMenu.tagInvalid.calls === 0 && /空白/.test(logMenu.tagInvalid.error || '')
+      logMenu.tagInvalid.calls === 0 && /whitespace/i.test(logMenu.tagInvalid.error || '')
         && logMenu.tagInvalid.dialog === true);
     check('§7.8 确认后把标签打在选中的提交上: ' + JSON.stringify(logMenu.tagCreate),
       logMenu.tagCreate.calls.length === 1 && logMenu.tagCreate.calls[0].action === 'create'
@@ -16801,7 +16846,7 @@ async function main() {
         && typeof refMenu.firstConfirm.text === 'string' && refMenu.firstConfirm.text.includes('Delete'));
     check('§5.2 未完全合并时再问一次并强制删除: ' + JSON.stringify([refMenu.secondWindow, refMenu.after]),
       refMenu.secondWindow.force === 'force'
-        && typeof refMenu.secondWindow.text === 'string' && refMenu.secondWindow.text.includes('unmerged')
+        && typeof refMenu.secondWindow.text === 'string' && /not merged/i.test(refMenu.secondWindow.text)
         && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === false)
         && refMenu.after.calls.some((c) => c.action === 'delete' && c.force === true)
         && !!refMenu.after.deleted && refMenu.after.window === false);
@@ -27794,6 +27839,8 @@ async function main() {
           heading: body ? (body.querySelector('.settings-breadcrumbs > span:last-child') || {}).textContent : null,
           hasUiFontSize: !!document.querySelector('.settings-window [data-setting="fontSize"]'),
           hasCodeFontSize: !!document.querySelector('.settings-window [data-setting="codeFontSize"]'),
+          fixedCodeFont: (document.querySelector('.settings-window [data-fixed-code-font]') || {}).textContent || null,
+          fixedCodeSize: (document.querySelector('.settings-window [data-fixed-code-size]') || {}).textContent || null,
           hasCustomCommand: !!document.querySelector('.settings-window [data-setting="terminalCustomCommand"]'),
           hasGitPath: !!document.querySelector('.settings-window [data-setting="gitExecutablePath"]'),
         };
@@ -27815,10 +27862,11 @@ async function main() {
         { timeout: 8000 },
       );
       const fileView = await pageState();
-      check('§7.17 点击"File View"真正切页且右页只显示该分类: '
-        + JSON.stringify([fileView.active, fileView.heading, fileView.hasUiFontSize, fileView.hasCodeFontSize]),
+      check('§7.17 点击"File View"真正切页且只读显示固定等宽字体: '
+        + JSON.stringify([fileView.active, fileView.heading, fileView.hasUiFontSize, fileView.hasCodeFontSize, fileView.fixedCodeFont, fileView.fixedCodeSize]),
       fileView.active === 'file-view' && fileView.heading === 'File View'
-        && fileView.hasUiFontSize === false && fileView.hasCodeFontSize === true);
+        && fileView.hasUiFontSize === false && fileView.hasCodeFontSize === false
+        && fileView.fixedCodeFont === 'JetBrains Mono' && fileView.fixedCodeSize === '13');
 
       // ---- 第 301 轮补断言（收 §7.17 第 4、7 条）：设置页的字体字段与"不显示的能力"清单 ----
       // 规格 §7.17：「文件查看提供正文字体、等宽字体、字号和默认换行等产品规格内设置。」
@@ -27862,42 +27910,39 @@ async function main() {
         && JSON.stringify(settingsPages.navRows) === JSON.stringify(['Appearance', 'File View', 'Git', 'Terminal'])
         // 结构闸门：这类设置只能以新增 `data-setting` 的形式出现，白名单之外即失败
         && settingsPaths.every((path) => [
-          'theme', 'textFontFamily', 'fontSize', 'monospaceFontFamily', 'codeFontSize',
+          'theme', 'textFontFamily', 'fontSize',
           'gitExecutablePath', 'terminalShell', 'terminalCustomCommand',
         ].includes(path)));
-      check('§7.17 文件查看只提供等宽字体/Size（UI font/字号在"Appearance"）；按用户裁决不提供"默认换行"持久化字段: '
+      check('§7.17 文件查看只读显示固定等宽字体/Size（UI font/字号在"Appearance"）；按用户裁决不提供"默认换行"持久化字段: '
         + JSON.stringify({ fileView: settingsPages.pages['file-view'], appearance: settingsPages.pages.appearance, hasDefaultWrap: /默认换行/.test(settingsText) }),
-      JSON.stringify(settingsPages.pages['file-view'].paths) === JSON.stringify(['codeFontSize', 'monospaceFontFamily'])
+      JSON.stringify(settingsPages.pages['file-view'].paths) === JSON.stringify([])
         && /Monospaced font/.test(settingsPages.pages['file-view'].text)
         && /Size/.test(settingsPages.pages['file-view'].text)
+        && /JetBrains Mono/.test(settingsPages.pages['file-view'].text)
         // 四项字体模型（product-spec.md:165）：界面字体/字号归「外观」，与等宽互不覆盖
         && JSON.stringify(settingsPages.pages.appearance.paths) === JSON.stringify(['fontSize', 'textFontFamily', 'theme'])
         && /UI font/.test(settingsPages.pages.appearance.text)
         // 用户 2026-09-19 裁决：设置页不出现"默认换行"这一行（只保留正文工具栏的「自动换行」）
         && /默认换行/.test(settingsText) === false);
 
-      // 切页保留未保存编辑：在外观改界面字号、在文件查看改等宽字号，来回切一遍再看
+      // 切页保留未保存编辑：外观改界面字号，切到文件查看再回来，草稿仍在。
       await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
       await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
       await st.page.fill('.settings-window [data-setting="fontSize"]', '17');
       await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
-      await st.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
-      await st.page.fill('.settings-window [data-setting="codeFontSize"]', '15');
+      await st.page.waitForSelector('.settings-window [data-fixed-code-font]', { timeout: 8000 });
       await st.page.locator('.settings-window [data-settings-page="appearance"]').click();
       await st.page.waitForSelector('.settings-window [data-setting="fontSize"]', { timeout: 8000 });
       const keptUi = await st.page.evaluate(() => document.querySelector('.settings-window [data-setting="fontSize"]').value);
-      await st.page.locator('.settings-window [data-settings-page="file-view"]').click();
-      await st.page.waitForSelector('.settings-window [data-setting="codeFontSize"]', { timeout: 8000 });
-      const keptCode = await st.page.evaluate(() => document.querySelector('.settings-window [data-setting="codeFontSize"]').value);
-      check('§7.17 切页保留未保存编辑: ' + JSON.stringify([keptUi, keptCode]), keptUi === '17' && keptCode === '15');
+      check('§7.17 切页保留未保存编辑: ' + JSON.stringify([keptUi]), keptUi === '17');
 
-      // 保存：两个分类的改动必须一起写回（分页后 DOM 里只有当前分类）
+      // 保存：界面字号写回；等宽字体/字号没有编辑控件，不产生写入。
       await st.page.evaluate(() => { window.__settingsWritten = {}; });
       await st.page.locator('.settings-window [data-settings-action="save"]').click();
       await st.page.waitForFunction('window.__settingsWritten && window.__settingsWritten.fontSize === 17', null, { timeout: 8000 });
       const writtenPages = await st.page.evaluate(() => window.__settingsWritten);
-      check('§7.17 跨分类的改动一起保存: ' + JSON.stringify(writtenPages),
-        writtenPages.fontSize === 17 && writtenPages.codeFontSize === 15);
+      check('§7.17 保存写回界面字号且不写等宽字段: ' + JSON.stringify(writtenPages),
+        writtenPages.fontSize === 17 && !('codeFontSize' in writtenPages) && !('monospaceFontFamily' in writtenPages));
 
       // 搜索框按分类名过滤
       await openSettings();
@@ -27932,24 +27977,23 @@ async function main() {
           focused: document.activeElement === field,
         };
       });
-      // 选项名命中：'等宽' 只出现在「文件查看」的选项标签里 ⇒ 该分类可见，且**切到**它并标出命中项。
-      await st.page.fill('.settings-window [data-settings-filter]', '等宽');
+      // 选项名命中：'Monospaced' 只出现在「文件查看」的只读固定等宽行 ⇒ 该分类可见并切到它。
+      await st.page.fill('.settings-window [data-settings-filter]', 'Monospaced');
       await st.page.waitForFunction(
         'document.querySelector(".settings-window .settings-page").dataset.settingsPageBody === "file-view"',
         null, { timeout: 8000 });
       await st.page.waitForTimeout(300);
       const optionHit = await searchState();
-      check('§7.17 搜索按选项名命中并切到命中分类（权威 SearchableOptionsRegistrar）: '
+      check('§7.17 搜索按只读选项名命中并切到命中分类（权威 SearchableOptionsRegistrar）: '
         + JSON.stringify(optionHit),
-        optionHit.query === '等宽' && optionHit.pages.join(',') === 'file-view' && optionHit.active === 'file-view'
-          && optionHit.hits.includes('monospaceFontFamily') && optionHit.hits.includes('Monospaced font')
+        optionHit.query === 'Monospaced' && optionHit.pages.join(',') === 'file-view' && optionHit.active === 'file-view'
           && optionHit.noHits === false && optionHit.focused === true);
-      // 多个分类命中：'字号' 同时是「外观」与「文件查看」的选项标签 ⇒ 两个分类都保留。
+      // 多个分类命中：'Size' 同时是「外观」界面字号与「文件查看」只读固定字号的标签 ⇒ 两个分类都保留。
       await st.page.fill('.settings-window [data-settings-filter]', 'Size');
       await st.page.waitForTimeout(400);
       const multiHit = await searchState();
       check('§7.17 一个搜索词可命中多个分类（命中项所在分类都保留）: ' + JSON.stringify(multiHit),
-        multiHit.pages.join(',') === 'appearance,file-view' && multiHit.hits.includes('codeFontSize')
+        multiHit.pages.join(',') === 'appearance,file-view' && multiHit.hits.includes('fontSize')
           && multiHit.noHits === false);
       // 无命中：分类全部隐藏且输入框底色变红（深色 SearchField.errorBackground = #743a3a）。
       await st.page.fill('.settings-window [data-settings-filter]', 'zzz-不存在');

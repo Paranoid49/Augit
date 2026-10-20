@@ -2387,7 +2387,7 @@ function settingsPageHtml(page, values, live) {
 
   if (page === "file-view") {
     return `<section class="settings-group"><div class="form-grid">`
-      + `<label>Monospaced font</label><div class="font-setting"><span data-fixed-code-font>JetBrains Mono</span><label>Size</label><span data-fixed-code-size>13</span></div>`
+      + `<label>Monospaced font</label><div class="font-setting" data-settings-search="Monospaced font JetBrains Mono Size 13"><span data-fixed-code-font>JetBrains Mono</span><label>Size</label><span data-fixed-code-size>13</span></div>`
       + `<label></label><span class="commit-meta">The monospaced font applies to read-only text, Diff, conflicts, and the terminal; Markdown code blocks follow it.</span>`
       + `<label></label><span class="commit-meta">Fonts only affect display; files are not modified.</span>`
       + `</div></section>`;

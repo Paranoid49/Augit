@@ -1837,9 +1837,13 @@ async function reloadHistoryKeepingFocus() {
  * （对应权威在 `toolWindow == null` 时不处理的守卫）。
  */
 function focusEditorFromTerminal() {
-  const target = document.querySelector(
-    '.editor-content .code-view, .editor-content .markdown-source, .editor-content [tabindex="0"]');
-  if (!target || typeof target.focus !== 'function') return false;
+  // 只选**可见**的正文目标：Markdown 预览模式下 `.markdown-source` 仍留在 DOM 里但
+  // `display:none`，对隐藏节点调 `focus()` 是空操作，会让 Esc 被吞掉却仍停在终端。
+  const candidates = [...document.querySelectorAll(
+    '.editor-content .code-view, .editor-content .markdown-source, .editor-content [tabindex="0"]')]
+    .filter((node) => typeof node.focus === "function" && node.getClientRects().length > 0);
+  const target = candidates[0];
+  if (!target) return false;
   target.focus({ preventScroll: true });
   return true;
 }
@@ -7364,6 +7368,8 @@ function guardUnwiredNavigation() {
       const action = logMenuAction.dataset.logAction;
       const menu = logMenuAction.closest('.log-menu');
       const fullHash = menu ? menu.dataset.commitFullHash : null;
+      // 权威 `GitCreateTagAction` 标题用 `commit.asString()`（短哈希）；实际建标签仍用完整哈希。
+      const shortHash = menu ? menu.dataset.commitHash : null;
       closeLiveOverlay();
       if (action === 'copy-hash' && fullHash) {
         // 与"复制路径"同一条宿主通道：WebView2 里页面自己写剪贴板会静默失败。
@@ -7379,7 +7385,7 @@ function guardUnwiredNavigation() {
       }
       if (action === 'new-tag') {
         // 权威 `Git.CreateNewTag` → `GitCreateTagAction`：单字段输入框，标签打在选中的提交上。
-        openTagDialog(fullHash);
+        openTagDialog(shortHash || fullHash, fullHash);
         return;
       }
     }
@@ -8255,14 +8261,15 @@ function openBranchActionDialog(kind, context) {
  *
  * 注意：四字段的 `GitTagDialog` 是**分支浮层**那条路径（`Git.Tag`），不是这个入口。
  */
-function openTagDialog(hash) {
+function openTagDialog(hash, target = hash) {
   const live = window.__augitLive;
   if (!live) return;
   closeLiveOverlay();
   rememberDialogFocus();
   compactDialogKind = "tag";
   compactDialogFrom = null;
-  compactDialogStartPoint = hash || null;
+  // 标题按权威用短哈希；`compactDialogStartPoint` 保留完整哈希供建标签使用。
+  compactDialogStartPoint = target || hash || null;
   showCompactInput(`Create New Tag On ${hash || "HEAD"}`, "Enter the name of new tag", "", "Create");
 }
 
@@ -9939,7 +9946,7 @@ function settingsPageSearchTexts(page) {
   const holder = document.createElement("template");
   holder.innerHTML = settingsPageHtml(page, settingsSearchValues(), true);
   const root = holder.content;
-  return [...root.querySelectorAll("[data-setting]")].map((field) => {
+  const entries = [...root.querySelectorAll("[data-setting]")].map((field) => {
     const label = settingsFieldLabelNode(field, root);
     const texts = [
       label ? label.textContent : "",
@@ -9951,6 +9958,11 @@ function settingsPageSearchTexts(page) {
     ];
     return { key: field.dataset.setting, text: texts.join("\u0001") };
   });
+  // 只读的固定等宽信息没有 `data-setting` 控件，但仍是可见文本：搜索应能命中该分类。
+  for (const node of root.querySelectorAll("[data-settings-search]")) {
+    entries.push({ key: "fixed-code", text: node.getAttribute("data-settings-search") || node.textContent || "" });
+  }
+  return entries;
 }
 
 /**

@@ -22,8 +22,16 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 ## 3. 当前阻塞与剩余债务
 
 - 2026-10-20 已修正：完整哈希、File View 固定等宽、字体段落、紧凑输入窗口 Tab（产品缺陷，见[修复记录](compact-dialog-tab-fix-2026-10-20.md)）、Stash 创建框的 Windows 按钮顺序与 `.stash-check-row` 结构、Stash 限高视口（300px，创建框自然高度约 331px；420px 已不构成约束）、终端启动标签（固定 `Local · Starting…`，Shell 名在 title/aria）、删除依赖已移除“等宽字号控件”的横向范围重算断言。
-- **本轮最后阻塞**：第 9727 行「快速切换提交只接纳最新详情」仍按短哈希 `bbb2222` 断言，而 `window.__augitCommitLoaded` 已按完整提交身份写 `full-bbb2222`（与 §2 第一项同一根因）；已改为完整哈希，待下一次完整套件复跑确认。
-- 第 9310 行附近的越界字号段落已随桩归一化通过（固定 13 落在 9–40 内）；第 27800–27960 行附近仍有 `[data-setting="codeFontSize"]`、`monospaceFontFamily`、搜索命中 `file-view` 等旧结构，需按当前简化 Settings 重写。
+- 本批继续修正：
+  - 第 9727 行完整哈希期望已确认通过；第 27800–27960 行的 Settings 段落按“只读固定等宽”重写（结构、草稿、保存、搜索），并给只读固定行补 `data-settings-search` 搜索索引（[记录](settings-search-fixed-code-2026-10-20.md)）。
+  - 空名称紧凑窗口 Tab 断言改为跳过禁用 OK（`field,cancel,close,field`）；4 次 Tab 后焦点在 Cancel，Shift+Tab 反向回输入框。
+  - Ctrl+G 用 `data-compact-dialog` 属性判标题（header 首个 span 的 innerText 在该场景读到 “A”，不能作为标题判据）。
+  - 终端 Esc 用例先打开文档；同时修复产品缺陷：`focusEditorFromTerminal()` 会选中 Markdown 预览模式下隐藏的 `.markdown-source`，`focus()` 空操作导致 Esc 被吞但焦点不动；改为只选可见正文（[记录](terminal-escape-focus-fix-2026-10-20.md)）。
+  - 删除 r69 中三栏编辑器移除后残留的 `panes` 引用；Blame 场景补 `blame=docs/notes.txt` 参数并对缺失关闭按钮做守卫。
+  - 终端标题行断言补上 `largeActions ? icon-hit+8`：32px 界面字号下放大动作区使 token=85，旧公式只算 `max(38,h+12)=53`。
+  - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
+  - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
+- **本轮最后状态**：`run-28` 已通过 New Tag 段落（产品输出 `Create New Tag On aaa1111`、字段 `Enter the name of new tag`、空白校验英文提示），停在 §5.2「未完全合并时再问一次」：产品文案是 `Some commits are not merged into the current branch`，旧断言只认字面 `unmerged`；已改为 `/not merged/i`，待下一次复跑。`run-28` 级进度为第 16847 行。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
@@ -34,6 +42,6 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
 
 ## 5. 下一步
 
-1. 核对并处理「对话框内 Tab 顺序」失败：先看产品焦点规则与真实正常入口，再决定改桩还是报缺陷。
-2. 逐段处理 6760/9310/27800 附近的旧 Settings 结构。
+1. 复跑 `run-25`，继续处理后续第一个失败；终端标题行公式已按 `mockup.js:234` 的实际实现补上 largeActions 分支。
+2. 逐段处理其余旧结构（尤其仍按已移除控件/场景缺参数写的断言）。
 3. 套件恢复后，把它作为 Diff/设置等公共状态改动的回归门；在恢复前，用 `mockup-scenes`、`verify-ux-*` 与定向单元测试作为本批证据。
