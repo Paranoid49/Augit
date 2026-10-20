@@ -19564,10 +19564,19 @@ async function main() {
         return {
           listWidth: Math.round(list.clientWidth),
           rows: cells,
-          // 与实现同一套度量（含同样的上限）：用来核对列宽不是常量
+          // 与实现同一套度量（含同样的上限）：引用标签是「图标 + 文字」chip，
+          // 列宽必须把 SVG 宽度与 2px 间距算进去（2026-10-21 与 `bindHistoryLayout()` 对齐）。
           expected: {
-            label: Math.min(128, Math.max(...rows.map(
-              (row) => measure(row.querySelector('.branch-label').textContent.trim()) + 20))),
+            label: Math.min(128, Math.max(...rows.map((row) => {
+              const host = row.querySelector('.branch-label');
+              const labels = [...host.querySelectorAll('.log-reference-label')];
+              if (labels.length) {
+                return labels.reduce((width, label) => width + measure(label.textContent)
+                  + Number(label.querySelector('svg').viewBox.baseVal.width) + 2, 0) + (labels.length - 1) * 4;
+              }
+              const text = host.textContent.trim();
+              return text ? measure(text) + 20 : 0;
+            }))),
             author: Math.min(96, Math.max(...rows.map(
               (row) => measure(row.querySelector('.commit-author').textContent.trim())))),
             full: Math.max(...rows.map((row) => measure(row.querySelector('time').dataset.full))),
