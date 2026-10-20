@@ -18141,7 +18141,7 @@ async function main() {
           const applied = { params: await lastParams(), control: await controlState() };
           // 关闭叉复位（权威 `FilterComponent.createResetAction()`）。
           await resetParams();
-          await clickControl('date');
+          await clickFilterClear('date');
           const cleared = { params: await lastParams(), control: await controlState() };
           // 「选择期间…」对话框（权威 `DateFilterComponent`：起始/结束 ＋ 确定 → `fromDates(after, before)`）。
           const range = await (async () => {
@@ -18317,9 +18317,9 @@ async function main() {
           await scene.page.waitForTimeout(900);
           const applied = { params: await lastParams(), control: await pathControl() };
 
-          // 关闭叉复位（权威 `FilterComponent.createResetAction()`：设了值时点控件即复位，弹层不会打开）。
+          // 关闭叉复位（权威 `FilterComponent.createResetAction()`：设了值时点关闭叉即复位，弹层不会打开）。
           await resetParams();
-          await clickControl('path');
+          await clickFilterClear('path');
           const cleared = { params: await lastParams(), control: await pathControl() };
 
           // 复位后再点开弹层：「最近」里出现刚用过的整组（权威 `SelectFromHistoryAction`，勾选态＝当前筛选）。
