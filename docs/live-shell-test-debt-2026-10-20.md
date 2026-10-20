@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-52` 已通过提交布局的字号缩放段（含复选框 24px 画布），停在“输入框至少保留提示行与一行正文”：**这是产品缺陷**，不是测试口径——40px UI（面板 760 高）时提交框次级按钮底边到 942px、已超出窗口，列表却保留 88px（26px UI 时列表只有 66px），即大字下未继续压缩列表而是让提交区溢出。需要修 `commit-box` 的大字布局（让列表让位、动作区不越出窗口），不能改断言掩盖。下一轮先复现并修该布局。
+- **本轮最后状态**：`run-53` 复跑中；40px UI 提交框“溢出”已核实**不是缺陷**：`measureWorkbenchSpace()` 在可用高度低于 `commit-minimum + toolbar + row + 10` 时切换到 `commit-scroll-layout`/`commit-scroll-tool`，由工具窗整体滚动、列表保留一行最小高度，动作区可滚动到达；旧断言把“26px 常规布局列表 66px”和“40px 滚动布局列表 88px”直接比大小，口径错误。测试改为断言 26px 非滚动、40px 滚动且 `scrollHeight > clientHeight`、输入框仍保留一行。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

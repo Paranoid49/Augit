@@ -21105,6 +21105,13 @@ async function main() {
           field: field ? { h: Math.round(field.getBoundingClientRect().height), lineHeight } : null,
           feedback: feedback ? { h: Math.round(feedback.getBoundingClientRect().height), visible: getComputedStyle(feedback).display !== 'none' } : null,
           list: list ? { h: Math.round(list.getBoundingClientRect().height) } : null,
+          // 面板/字号大到提交区放不下时，改由工具窗整体滚动（`commit-scroll-layout`），
+          // 此时列表保留"一行 + 间距"的最小高度，动作区可通过滚动到达，不是被裁掉。
+          scrollLayout: !!document.querySelector('.changes-layout.commit-scroll-layout'),
+          sideScroll: (() => {
+            const side = document.querySelector('.commit-scroll-tool');
+            return side ? { scrollHeight: side.scrollHeight, clientHeight: side.clientHeight } : null;
+          })(),
         };
       });
       const setFont = async (size) => {
@@ -21193,15 +21200,19 @@ async function main() {
       && commitLayout.f40.settings.bottom <= commitLayout.f40.primary.bottom);
     check('§7.6 输入框至少保留提示行与一行正文，必要时减少列表高度: '
       + JSON.stringify([[commitLayout.base.field, commitLayout.base.list.h], [commitLayout.short13.field, commitLayout.short13.list.h],
-        [commitLayout.short40.field, commitLayout.short40.list.h], [commitLayout.f40.field, commitLayout.f40.list.h]]),
+        [commitLayout.short40.field, commitLayout.short40.list.h], [commitLayout.f40.field, commitLayout.f40.list.h],
+        [commitLayout.f26.scrollLayout, commitLayout.f40.scrollLayout, commitLayout.f40.sideScroll]]),
     // 面板高 420（字号 13）与 480（字号 40）时：提示行可见 + 正文至少一行
     keepsLine(commitLayout.short13)
       && keepsLine(commitLayout.short40)
       // 面板被压低时是**列表**让位（列表高下降），而不是压缩输入框到一行以下
       && commitLayout.short13.list.h < commitLayout.base.list.h
-      && commitLayout.short40.list.h < commitLayout.short13.list.h
-      // 字号变大时提交区更高、列表同样让位，但输入框始终保留一行
-      && commitLayout.f40.list.h < commitLayout.f26.list.h
+      // 40px UI 在 760 高面板下已放不下提交区：切换到工具窗整体滚动，
+      // 列表保留最小行高，动作区通过滚动可达（不是被裁掉）；26px 仍是常规布局。
+      && commitLayout.f26.scrollLayout === false
+      && commitLayout.f40.scrollLayout === true
+      && !!commitLayout.f40.sideScroll
+      && commitLayout.f40.sideScroll.scrollHeight > commitLayout.f40.sideScroll.clientHeight
       && keepsLine(commitLayout.f40));
     check('§7.6 历史入口始终只显示图标、不与 Amend 重叠，数量只在分组显示且命令可用: '
       + JSON.stringify([commitLayout.base.last, commitLayout.f20.last, commitLayout.f40.last, commitLayout.f40.count,
