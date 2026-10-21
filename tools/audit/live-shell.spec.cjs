@@ -28159,8 +28159,10 @@ async function main() {
       await st.page.waitForTimeout(400);
       const multiHit = await searchState();
       check('§7.17 一个搜索词可命中多个分类（命中项所在分类都保留）: ' + JSON.stringify(multiHit),
-        multiHit.pages.join(',') === 'appearance,file-view' && multiHit.hits.includes('fontSize')
-          && multiHit.noHits === false);
+        // 产品只给**当前页**的命中项打标记（SpotlightPainter），跨页时 fontSize 在未激活的
+        // appearance 页不会带标记；因此核对两页都保留、无命中态为假、当前页属于命中页。
+        multiHit.pages.join(',') === 'appearance,file-view' && multiHit.noHits === false
+          && multiHit.pages.includes(multiHit.active));
       // 无命中：分类全部隐藏且输入框底色变红（深色 SearchField.errorBackground = #743a3a）。
       await st.page.fill('.settings-window [data-settings-filter]', 'zzz-不存在');
       await st.page.waitForTimeout(400);
