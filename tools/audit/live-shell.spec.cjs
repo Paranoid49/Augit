@@ -24456,7 +24456,9 @@ async function main() {
       && blameLive.switched.editor === 'markdown' && blameLive.switched.docPath === 'docs/product-spec.md'
       && blameLive.switched.markdown === true && blameLive.switched.blameRows === 0
       && blameLive.switched.bodyText.includes('# 真实标题')
-      && blameLive.switched.toolbarPath.includes('docs/product-spec.md')
+      // Markdown 文档视图没有 `.document-path` 文档工具栏（路径在标签/状态栏），
+      // 因此这里断言“没有旧 Blame 路径”，不是要求一个 Markdown 工具栏路径。
+      && blameLive.switched.toolbarPath === null
       && blameLive.switched.readCalls === 2);
 
     // ---- 第 263 轮：切换比较标签 / 隐藏工具窗口 使在途的详情请求失效（§7.9 第十条余下）----
