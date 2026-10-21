@@ -26818,10 +26818,11 @@ async function main() {
     // ---- 规格 §6.5：最终说明必须持续可见，不能被加载指示的收尾隐藏 ----
     // 二进制、超限、无文本差异与错误各有最终说明；加载指示结束时不得把它清掉。
     const finalStates = [
-      { status: 'SideTooLarge', expect: '无法显示文本差异' },
-      { status: 'OutputTooLarge', expect: '无法显示文本差异' },
-      { status: 'Binary', expect: '无法显示文本差异' },
-      { status: 'Ready', expect: 'No text differences' },
+      // UI 语言为英文：最终说明用同一句英文（产品 `diffStatusNotice()`），不再断言中文旧文案。
+      { status: 'SideTooLarge', expect: 'Text diff is unavailable for this file' },
+      { status: 'OutputTooLarge', expect: 'Text diff is unavailable for this file' },
+      { status: 'Binary', expect: 'Text diff is unavailable for this file' },
+      { status: 'Ready', expect: 'This file has no text differences.' },
     ];
     for (const item of finalStates) {
       const { page } = await openScene('scene=commit-changes&theme=dark');

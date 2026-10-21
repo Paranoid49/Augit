@@ -1894,7 +1894,7 @@ function workspaceSampleOriginal(path) {
 function diffStatusNotice(status) {
   const unavailable = Boolean(status) && status !== "Ready";
   const reason = unavailable
-    ? `Text diff is unavailable for this file (${status}）。`
+    ? `Text diff is unavailable for this file (${status}).`
     : "This file has no text differences.";
   const unchanged = "File content, changes, other tabs, and the current selection are unchanged.";
   const action = unavailable

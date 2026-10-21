@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-77` 复跑中；图片只读工具条段已通过（`open` 参数补上后工具条只剩 Zoom Out/Zoom In/Fit to View），推进到外部解决冲突后的会话列表更新：产品在 1 个冲突文件时输出单数 `1 conflicting file`，旧断言写死错误复数 `1 conflicting files`；按产品单复数改正。待复跑确认。
+- **本轮最后状态**：`run-78` 复跑中；冲突汇总单复数已通过，推进到 §6.5 最终说明：产品 `diffStatusNotice()` 输出英文 `Text diff is unavailable for this file (SideTooLarge）。`（末尾还混入中文全角括号），旧断言只认中文 `无法显示文本差异`。产品改为 ASCII `(...)` 句号；断言按英文同一句与 `This file has no text differences.` 核对（三要素 unchanged/action 仍保留）。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
