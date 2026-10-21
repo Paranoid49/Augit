@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-68` 已通过引用取消、比较标签、文件栏布局等段，推进到第 25,123 行「加载不变量」：该用例在**尚未打开过 diff** 的场景直接触发首次慢加载（`beforeLoad` 空态 1、lines 0），却断言 `contentChars > 500` 且旧正文仍在；实际是 54 字符的加载占位，且背景实测 `rgb(38,40,44)`（用例期望 `rgb(43,45,48)`，未核对是哪个 diff 区域令牌）。需要先把「先打开一份 diff → 再触发第二份慢加载」的前置建立起来，并按实际 diff 正文令牌核对背景，不能改期望数字硬通过。
+- **本轮最后状态**：`run-69` 复跑中；加载不变量用例已重写前置：先无延迟打开第一份 diff（`__augitDiffReady` + 500ms），再给**第二份** `README.md` 注入 2.5s 延迟，验证加载窗口里旧正文仍在；背景判据改为「early.bodyBg === beforeLoad.bodyBg、early.diffBg === beforeLoad.diffBg 且为深色面」，`diffCalls` 改为 `beforeLoad.diffCalls + 1`，不再硬编码 `rgb(43,45,48)`。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

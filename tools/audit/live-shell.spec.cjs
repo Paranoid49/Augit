@@ -25069,12 +25069,17 @@ async function main() {
         const layout = document.querySelector('.editor-content .diff-layout');
         const rect = (node) => { if (!node) return null; const r = node.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
         const bodyBg = getComputedStyle(document.body).backgroundColor;
+        const diffBg = (() => {
+          const el = document.querySelector('.editor-content .diff-columns') || document.querySelector('.editor-content .diff-layout');
+          return el ? getComputedStyle(el).backgroundColor : null;
+        })();
         return {
           loading: !!window.__augitLive.diffLoading,
           loadingAttr: !!(layout && layout.dataset.augitLoading === 'true'),
           contentRect: rect(content),
           contentChars: content ? content.textContent.replace(/\s+/g, '').length : 0,
           bodyBg,
+          diffBg,
           emptyState: document.querySelectorAll('.editor-content .empty-state').length,
           diffCalls: (window.__diffCalls || []).length,
           renders: window.__renderCount || 0,
@@ -25085,6 +25090,11 @@ async function main() {
           mutations: window.__mutationCount || 0,
         };
       });
+      // 前置：先无延迟打开第一份 diff，让加载窗口里确实有**旧正文**可保留；
+      // 之后再对第二份文件注入延迟，验证“有旧正文时保留正文、不白屏”。
+      await page.locator('.changes-list .change-file-row').first().dblclick();
+      await page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
+      await page.waitForTimeout(500);
       // 计数钩子：渲染入口 + 正文子树的 DOM 变更
       await page.evaluate(() => {
         window.__renderCount = 0;
@@ -25100,9 +25110,9 @@ async function main() {
         }
       });
       const beforeLoad = await snap();
-      // ① 慢差异：观察加载窗口内是否循环重绘/白屏
-      await page.evaluate(() => { window.__diffDelays = { 'src/App.cs': 2500 }; });
-      await page.locator('.changes-list .change-file-row').first().dblclick();
+      // ① 慢差异：观察加载窗口内是否循环重绘/白屏（对第二份文件注入延迟，旧正文为第一份）
+      await page.evaluate(() => { window.__diffDelays = { 'README.md': 2500 }; });
+      await page.locator('.changes-list .change-file-row').nth(1).dblclick();
       await page.waitForFunction("() => window.__augitLive.diffLoading === true", null, { timeout: 10000 });
       await page.waitForTimeout(400);
       const early = await snap();
@@ -25120,6 +25130,10 @@ async function main() {
       console.log('INFO 加载不变量=' + JSON.stringify({ beforeLoad, early, late, afterPush, settled, errors }));
       return { beforeLoad, early, late, afterPush, settled, errors };
     })();
+    const darkSurface = (rgb) => {
+      const values = String(rgb || '').match(/\d+/g);
+      return !!values && (0.2126 * Number(values[0]) + 0.7152 * Number(values[1]) + 0.0722 * Number(values[2])) < 80;
+    };
     check('§6 加载指示不循环触发布局、不大面积白屏（有旧正文时保留正文）: '
       + JSON.stringify([loadingInvariants.beforeLoad, loadingInvariants.early, loadingInvariants.late]),
     loadingInvariants.errors.length === 0
@@ -25127,13 +25141,17 @@ async function main() {
       && loadingInvariants.early.regionRenders === loadingInvariants.late.regionRenders
       && loadingInvariants.early.mutations === loadingInvariants.late.mutations
       && loadingInvariants.early.loading === true && loadingInvariants.late.loading === true
-      // 主框架位置不变、没有大面积白屏（深色底 + 无空态铺满 + 旧正文仍在）
+      // 主框架位置不变；窗口底色与差异面颜色与加载前一致（不是白屏），且是深色面
       && JSON.stringify(loadingInvariants.early.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
       && JSON.stringify(loadingInvariants.late.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
-      && loadingInvariants.early.bodyBg === 'rgb(43, 45, 48)'
+      && loadingInvariants.early.bodyBg === loadingInvariants.beforeLoad.bodyBg
+      && loadingInvariants.early.diffBg === loadingInvariants.beforeLoad.diffBg
+      && darkSurface(loadingInvariants.early.diffBg)
       && loadingInvariants.early.emptyState === 0 && loadingInvariants.late.emptyState === 0
+      // 有旧正文：加载期间正文仍在（字符数不少于加载前、行仍可见）
+      && loadingInvariants.early.contentChars >= loadingInvariants.beforeLoad.contentChars
       && loadingInvariants.early.contentChars > 500 && loadingInvariants.early.lines > 0
-      && loadingInvariants.early.diffCalls === 1);
+      && loadingInvariants.early.diffCalls === loadingInvariants.beforeLoad.diffCalls + 1);
     check('§6 无变化的 Git 状态通知复用进行中的 diff 请求: '
       + JSON.stringify([loadingInvariants.early, loadingInvariants.afterPush, loadingInvariants.settled]),
     // 前置：慢差异在途（1 次请求）
