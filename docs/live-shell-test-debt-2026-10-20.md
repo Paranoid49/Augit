@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-84` 复跑中；§10.3 禁用原因段通过，推进到 §9.3 进行中动作：产品英文 `CommitRunning…`，旧断言只认 `提交进行中`；改为「中文短语或 `/Commit.*(Running|in progress)/i`」，判据仍是动作 + 进行中。待复跑确认。
+- **本轮最后状态**：`run-85` 复跑中；§9.3 进行中动作通过，推进到 §7.17 设置搜索：过滤 `File` 时产品同时按**选项**匹配（同一段后续断言写明 SettingsFilter 会保留含命中项的分类），Git 页含 "File" 选项因此可见；旧断言写死只剩 `File View`。改为断言 `File View` 命中且无命中的 `Appearance` 不出现。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

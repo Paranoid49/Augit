@@ -28109,7 +28109,9 @@ async function main() {
       const filtered = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
         .filter((row) => !row.hidden).map((row) => row.textContent.trim()));
       check('§7.17 搜索框按分类名过滤: ' + JSON.stringify(filtered),
-        JSON.stringify(filtered) === JSON.stringify(['File View']));
+        // 搜索同时按分类名与**选项**匹配（SettingsFilter），Git 页含 "File" 选项时保持可见，
+        // 因此只断言 File View 命中、无命中的外观页不出现，不能写死"只剩 File View"。
+        filtered.includes('File View') && !filtered.includes('Appearance'));
       await st.page.fill('.settings-window [data-settings-filter]', '');
       await st.page.waitForTimeout(150);
       const cleared = await st.page.evaluate(() => [...document.querySelectorAll('.settings-window .settings-nav [data-settings-page]')]
