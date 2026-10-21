@@ -24023,6 +24023,14 @@ async function main() {
       await page.locator('.changes-list .change-file-row').first().dblclick();
       await page.waitForSelector('.diff-columns .diff-gutter-cell', { timeout: 15000 });
       await page.waitForTimeout(800);
+      // 桩默认 Cascadia Mono（行高 18）；产品默认随包 JetBrains Mono（13px → 22px），
+      // 逐行槽底对齐断言按产品字体计算，先把桩字体设为 JetBrains Mono。
+      await page.evaluate(async () => {
+        window.__augitLive.settings.monospaceFontFamily = 'JetBrains Mono';
+        window.__augitLive.settings.codeFontSize = 13;
+        await window.applyTypography({ codeSize: 13 });
+      });
+      await page.waitForTimeout(400);
       const read = () => page.evaluate(() => {
         const cols = document.querySelector('.diff-columns');
         const gutter = cols.querySelector('.diff-gutter');
