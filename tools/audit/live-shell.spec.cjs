@@ -26871,7 +26871,18 @@ async function main() {
     // ---- 规格 §7.9：引用比较的"无文本差异"摘要按比较语义措辞（⑭ 第 4 项）----
     // 视觉稿侧此前只有 ready/loading/failure/cancelled 四态：无差异只能借用工作区那句
     // "改动文件后重新双击该行即可刷新" —— 对"这个提交没有改这个文件"是误导。
-    const compareEmpty = await openScene('scene=git-compare-empty&theme=dark');
+    // 该场景是**静态基线页**（docs/ux-mockups/git-compare-empty.html），实时外壳没有同名场景；
+    // 直接以 file:// 打开基线页核对措辞（live 的 `comparisonSummaryNotice()` 与它同源）。
+    const compareEmpty = await (async () => {
+      const page = await context.newPage();
+      const errors = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const base = 'file:///' + process.cwd().replace(/\\/g, '/') + '/docs/ux-mockups/git-compare-empty.html';
+      await page.goto(base, { waitUntil: 'load' });
+      await page.waitForFunction('window.__augitReady === true || document.body.dataset.scene', null, { timeout: 15000 });
+      await page.waitForTimeout(400);
+      return { page, errors };
+    })();
     const compareEmptyState = await compareEmpty.page.evaluate(() => {
       const body = document.querySelector('.editor-content');
       const buttons = [...document.querySelectorAll('.editor-content .comparison-toolbar .toolbar-button')]
