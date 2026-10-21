@@ -24326,8 +24326,9 @@ async function main() {
       && diffTabReturn.trail[diffTabReturn.reached].inTabs === true);
     check('§7.9 差异总数只在比较工具栏显示，导航不写全局状态栏: '
       + JSON.stringify([diffTabReturn.barBefore, diffTabReturn.barAfterNav]),
-    // 摘要仍是"N 处差异"，且两次导航前后全局状态栏文本完全一致（导航没有往状态栏写东西）
-    /\d+ 处差异/.test(diffTabReturn.barAfterNav.summary || '')
+    // 摘要仍是"N 处差异"（UI 语言为英文时是 "N difference(s)"），且两次导航前后
+    // 全局状态栏文本完全一致（导航没有往状态栏写东西）
+    /^\d+ differences?$/.test(diffTabReturn.barAfterNav.summary || '')
       && diffTabReturn.barAfterNav.summary === diffTabReturn.barBefore.summary
       && diffTabReturn.barAfterNav.status === diffTabReturn.barBefore.status
       && diffTabReturn.barAfterNav.status === 'live-wsRead-only');
