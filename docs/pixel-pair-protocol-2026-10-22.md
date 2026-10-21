@@ -102,10 +102,18 @@
 | `pre` | **`0.85em`** JetBrains Mono（≈11.9px），行高 1.45，`padding: 16px` | `var(--augit-code-size)` = **13px**，行高 1.45，padding `16rem/12` | 代码字号偏大，解释实测 22 vs 17 的墨迹高 |
 | `code`（行内） | `0.9em` | 13px | 偏大 |
 
-**规范冲突（暂不自行选择）**：`design-system §5.3` 写“Markdown 预览代码块跟随等宽字号”，
-按当前固定等宽 13 会得到 13px；参考实际是 body 14px 的 0.85em ≈ 11.9px。两者不能同时满足。
-在不改动 `design-system` 的前提下，下一轮需要裁决：预览代码按参考的 0.85em 比例，还是按内部文档的
-“跟随等宽字号”。在裁决前**不修改** Markdown 预览字号，避免引入未授权产品变化。
+**规范冲突（暂不自行选择）**：`design-system §5.3` 第 173 行写“Markdown 预览正文跟随界面字号，
+代码块跟随等宽字号”，按当前固定等宽 13 会得到 13px；参考实际是 body 14px 的 0.85em ≈ 11.9px。
+两者不能同时满足。候选实现已单独验证但**未提交**（提交会与 §5.3 直接冲突）：
+
+| 候选改动 | 计算样式验证结果 |
+| --- | --- |
+| `.markdown-preview` `font-family: Helvetica, Arial, freesans, sans-serif; font-size: 14px` | 计算为 `Helvetica, Arial, freesans, sans-serif` / `14px`；h1 `30.8px` |
+| `pre { font-size: .85em }`、`code { font-size: .9em }` | `pre` 11.9px / 行高 17.255px（1.45）、`code` 12.6px |
+
+验证方式：临时页面加载 `docs/ux-mockups/mockup.css`，headless Chromium 读取计算样式；改动已 `git checkout` 还原，
+工作区无遗留。下一轮需裁决：采用候选实现并同步修订 `design-system §5.3`，还是保留“正文跟随界面字号 / 代码跟随等宽字号”。
+在裁决前不提交产品改动。
 
 字号/字体的实测差（参考标题更宽、代码更小）与本节 CSS 差完全对应；位置差（低 10–14px、左缘 +5px）
 还需在字号确定后用同一组行带复测，排除字体度量对基线的连带影响。
