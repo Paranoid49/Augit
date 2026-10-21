@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-88` 复跑中；设置只读页 OK 修复已让 Enter=OK 段通过，推进到 §9.3 Reset 取消：产品在停稳后给 `Operation cancelled. HEAD, the index, working tree, and Changes are unchanged.`，旧断言用大小写敏感的 `includes('Cancel')`；改为 `/cancel/i`（取消请求计数与停稳后重读状态判据不变）。待复跑确认。
+- **本轮最后状态**：`run-89` 复跑中；Reset 取消段已通过并推进到 29,415（§5.1 重复按键/Reset 重复 Enter/§154 字号与树滚动等段通过），停在 §154「等宽正文不跟随界面字号」：桩启动字体是 Cascadia（18px），保存界面字号触发 `applyTypographyPreview()` 后按已保存的 JetBrains Mono 重排成 22px，被误判为“跟随界面字号”。在基线 probe 前把桩字体归一为产品默认 JetBrains Mono 13 再测。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

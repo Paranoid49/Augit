@@ -29356,6 +29356,15 @@ async function main() {
         };
       });
 
+      // 桩的默认等宽字体是 Cascadia Mono（18px 行高），产品默认是随包 JetBrains Mono（22px）。
+      // 保存界面字号会触发 applyTypographyPreview() 按已保存字体重排；若基线不先统一，
+      // 13px 的 18→22 会被误判成“等宽跟随界面字号”。测量前先按产品字体归一。
+      await f154.page.evaluate(async () => {
+        window.__augitLive.settings.monospaceFontFamily = 'JetBrains Mono';
+        window.__augitLive.settings.codeFontSize = 13;
+        await window.applyTypography({ codeSize: 13, monospaceFamily: 'JetBrains Mono' });
+      });
+      await f154.page.waitForTimeout(400);
       const f154Base = await probe();
 
       // 打开设置（标题栏主菜单 → 设置），只改界面字号后保存 —— 与用户路径一致。
