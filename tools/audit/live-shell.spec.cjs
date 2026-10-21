@@ -24588,6 +24588,10 @@ async function main() {
               const el = document.querySelector('.editor-content .diff-summary');
               return el ? { scroll: el.scrollWidth, client: el.clientWidth } : null;
             })(),
+            countClip: (() => {
+              const el = document.querySelector('.editor-content .diff-file-count');
+              return el ? { scroll: el.scrollWidth, client: el.clientWidth, title: el.getAttribute('title') } : null;
+            })(),
             overlap: (() => {
               const boxes = [...document.querySelectorAll('.editor-content .diff-toolbar button[aria-label]')]
                 .map((n) => n.getBoundingClientRect()).sort((a, b) => a.left - b.left);
@@ -24632,7 +24636,11 @@ async function main() {
       && sizes.every((item) => item.out.button.w === 28 && item.out.button.h === 28
         && item.out.icon.w === 16 && item.out.icon.h === 16)
       && sizes.every((item) => item.out.overlap === false)
-      && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1));
+      && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1)
+      // 摘要不可裁切；空间不足时由文件计数让位（省略显示），完整值必须留在 title。
+      && sizes.every((item) => !item.out.countClip
+        || item.out.countClip.scroll <= item.out.countClip.client + 1
+        || (item.out.countClip.title || '').includes('files')));
     check('§7.9 窄宽度下比较工具栏保留既定按钮顺序与局部提示: '
       + JSON.stringify([diffRowHeights.small.out.labels, diffRowHeights.narrow.out.labels, diffRowHeights.narrow.out.toolbar]),
     diffRowHeights.narrow.errors.length === 0

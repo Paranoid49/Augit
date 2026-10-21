@@ -1584,6 +1584,15 @@ body[data-theme="dark"] .dialog:is(.reset-dialog, .rollback-dialog) .danger-butt
   flex: 1;
 }
 
+/* ux-spec §7.9：摘要不允许被裁切；空间不足时让唯一可让位的文件计数省略（完整值在 title）。 */
+.diff-toolbar > .diff-summary {
+  flex: none;
+}
+
+.diff-toolbar > .diff-file-count {
+  min-width: 0;
+}
+
 .diff-toolbar { min-width: 0; }
 .diff-toolbar > span:not(.toolbar-separator) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .diff-toolbar > button { flex: none; }

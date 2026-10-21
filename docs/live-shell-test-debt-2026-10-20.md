@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-66` 已确认图标/命中区修复生效（28/16 恒定，工具栏 39/88/127、文件栏 31/45/63 仍按字高增长），但 40px UI + 715px 编辑区下摘要仍差 **13px**（`summaryClip.scroll 227 / client 214`）：7 个工具按钮 + 2 个分段按钮 + 文件计数 + 摘要 + 间距/内距超过可用宽度，摘要作为可收缩 flex 项被省略。需按参考 `ActionToolbar` 的溢出策略（尾部按钮进 chevron 菜单，保摘要完整）实现，或确认该宽度下摘要省略是被接受的；不能放宽“文字不裁切”判据。下一轮先查参考/权威的工具栏溢出行为再动手。
+- **本轮最后状态**：`run-67` 复跑中；40px UI 摘要 13px 溢出的处理：摘要 `flex:none`（ux-spec §7.9 不允许裁切），唯一可让位的文件计数加 `.diff-file-count` 并省略显示、完整 `1/3 files` 放进 `title`；测试新增 `countClip`，断言“摘要不裁切，计数若省略必须保留完整 title”。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

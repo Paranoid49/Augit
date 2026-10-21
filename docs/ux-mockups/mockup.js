@@ -2641,7 +2641,10 @@ function liveDiffView() {
   // （上一处/下一处/查找/差异计数/忽略空白/双栏/单栏/设置）。第 115 轮重测暴露：不加这个门控时
   // 文件导航会**泄漏进比较视图**（commit-diff 1.59→1.80、diff-status 1.29→1.45）。
   const hasFileNav = live.workspaceDiff === true && currentFileIndex >= 0 && changedFiles.length > 1;
-  const fileNavCount = '<span class="file-status-modified">' + (currentFileIndex + 1) + '/' + changedFiles.length + ' files</span>';
+  const fileCountText = (currentFileIndex + 1) + '/' + changedFiles.length + ' files';
+  // 文件计数是工具栏里唯一可让位的文字项：空间不足时省略显示，完整值留在 title
+  // （摘要按 ux-spec §7.9 不允许被裁切）。
+  const fileNavCount = '<span class="file-status-modified diff-file-count" title="' + fileCountText + '">' + fileCountText + '</span>';
   const fileNav = hasFileNav
     ? '<button class="toolbar-button" aria-label="Previous File">' + icon("arrow-left") + '</button>' + fileNavCount
       + '<button class="toolbar-button" aria-label="Next File">' + icon("arrow-right") + '</button>'
