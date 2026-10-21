@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-65` 已通过 Markdown 工具栏 null 段与比较行高前段，停在第 24,619 行：大字号（26/40px）下差异摘要被裁切（`summaryClip.scroll 147/227`，`client 62/0`），而断言要求摘要不被裁切；工具栏 9 个按钮按 91px 放大后在 752px 内放不下。需按参考实机确认大字号工具栏是溢出菜单、换行还是滚动，再决定修产品还是改断言；不能放宽摘要裁切判据。下一轮先查参考/权威的工具栏溢出规则。
+- **本轮最后状态**：`run-66` 复跑中；大字号摘要裁切根因已定位并按 ux-spec §7.9 修复：比较工具栏「字号变大时只增高工具行/文件信息行并下移正文，图标尺寸与命中区保持」。产品此前让 `.toolbar-button` 走全局 `--augit-icon-hit` 缩放（28→63→91），9 个按钮在 752px 内放不下导致摘要被压到 0；现为 `.diff-toolbar` 固定 28px 命中区、分段按钮 40px、图形 16px，只保留工具行高度增长。测试同步为三档恒定尺寸。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

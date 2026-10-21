@@ -5253,6 +5253,23 @@ body[data-theme="dark"] {
   min-width: var(--augit-icon-hit, 28px);
   min-height: var(--augit-icon-hit, 28px);
 }
+/* 比较工具栏：字号变大时只增高工具行/文件信息行并下移正文，图标与命中区保持基线
+   （ux-spec §7.9「图标尺寸与命中区保持，文字不能被裁切或覆盖」）。 */
+.augit-window .diff-toolbar :is(.icon-button, .toolbar-button, .segment):has(> .augit-toolbar-icon) {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.augit-window .diff-toolbar .segment:has(> .augit-toolbar-icon) {
+  width: 40px;
+  min-width: 40px;
+}
+.augit-window .diff-toolbar :is(.icon-button, .toolbar-button, .segment) > .augit-toolbar-icon {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+}
 .augit-window .document-modes .segment {
   width: var(--augit-mode-hit, 26px);
   height: var(--augit-mode-hit, 26px);

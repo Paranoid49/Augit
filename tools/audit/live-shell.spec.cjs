@@ -24627,9 +24627,10 @@ async function main() {
       && sizes[2].out.toolbar.h === 127 && sizes[2].out.filebar.h === 63
       && sizes.every((item) => parseFloat(item.out.toolbarVar) === item.out.toolbar.h
         && parseFloat(item.out.filebarVar) === item.out.filebar.h)
-      // 图形16px与命中区28px按所属图标族缩放，文字不裁切、按钮不重叠。
-      && sizes.every((item, index) => item.out.button.w === Math.round(28 * [1, 2.25, 3.25][index]) && item.out.button.h === item.out.button.w
-        && item.out.icon.w === Math.round(16 * [1, 2.25, 3.25][index]) && item.out.icon.h === item.out.icon.w)
+      // ux-spec §7.9：比较工具栏字号变大时只增高工具行/文件信息行，图标尺寸与命中区**保持**，
+      // 文字不被裁切；图形 16px、普通命中区 28px、分段按钮 40px 在三档字号下恒定。
+      && sizes.every((item) => item.out.button.w === 28 && item.out.button.h === 28
+        && item.out.icon.w === 16 && item.out.icon.h === 16)
       && sizes.every((item) => item.out.overlap === false)
       && sizes.every((item) => item.out.summaryClip.scroll <= item.out.summaryClip.client + 1));
     check('§7.9 窄宽度下比较工具栏保留既定按钮顺序与局部提示: '
