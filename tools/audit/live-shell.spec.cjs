@@ -26922,7 +26922,8 @@ async function main() {
     const liveWording = await compareLive.page.evaluate(() => {
       const text = () => {
         const body = document.querySelector('.editor-content');
-        return body ? body.innerText.replace(/\s+/g, '') : '';
+        // 保留单词间空格，按整句核对措辞。
+        return body ? body.innerText.replace(/\s+/g, ' ').trim() : '';
       };
       const live = window.__augitLive;
       live.diff.rows = [];
