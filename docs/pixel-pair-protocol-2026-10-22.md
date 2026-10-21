@@ -143,3 +143,7 @@
 1. **Markdown 预览字号/字体**：候选实现已验证（14px Helvetica、pre .85em、code .9em），但与 design-system §5.3「正文跟随界面字号、代码跟随等宽字号」冲突，待裁决后提交。
 2. **侧栏宽度**：树/编辑区分隔 Augit 699 vs 参考 703（物理 px，差 2.3 CSS）；design-system 的 side-panel-default 360 与实际分隔位置的口径需要先核对（是否含工具轨/边框），核对前不改 token。
 3. **标题栏中部语义与文件状态表达**：Augit 显示当前文件名、行尾 M 徽标；参考为 Current File 下拉、Project Files 视图无徽标。均需产品裁决后才能改。
+
+## 8. 全局设置清理（2026-10-22）
+
+正常入口配对采集直接使用了全局设置，lastWorkspace/openFiles/ctiveFile 被写成参考夹具与 README（外观字段未变）。已按 2026-10-18 的 settings-before.json 恢复这三项为 D:\\github\\Augit、用户原标签与 	ools/release.ps1；窗口几何与视觉设置未动。后续实机采集必须用 -SettingsFile 隔离副本，结束不得回写全局设置。
