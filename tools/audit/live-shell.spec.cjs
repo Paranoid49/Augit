@@ -26262,7 +26262,9 @@ async function main() {
         };
       });
       check('§7.16 终端正文留白 11px/12px 且字体来自等宽设置: ' + JSON.stringify(metrics),
-        metrics.padding === '11px 12px 11px 12px'
+        // 参考终端首行距工具窗顶约 11 **物理** px；按 DPI 折算后 CSS 顶距为 2.5px
+        // （旧 11 CSS 顶距会多出约 15 物理px，见 docs/terminal-dark-panel-offset-2026-10-19.md）。
+        metrics.padding === '2.5px 12px 11px 12px'
           && !!metrics.fontFamily && String(metrics.fontFamily).length > 0
           && Number(metrics.fontSize) > 0);
       await term.page.close();

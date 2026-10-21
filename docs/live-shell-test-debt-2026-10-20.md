@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-73` 复跑中；请求复用与查找条、树 Enter 段已通过，推进到 25,796 根行焦点：重绘会按 live 选择态重新给根行加 `selected`，而断言要求“焦点交还靠路径、不是靠选中态”⇒ 必须以 `rootSelected === false` 为判据；实际 `focusedPath === ''` 已证明按空字符串路径恢复。改为只断言 `focusedTree && focusedPath === ''`，不把重绘恢复选中态当失败。待复跑确认。
+- **本轮最后状态**：`run-74` 复跑中；根行焦点段已通过，团队/会话/组词等段通过，推进到终端正文留白：产品按参考实测用 `padding: 2.5px 12px 11px`（首行距顶约 11 **物理** px，CSS 顶距 2.5；旧 11px CSS 会多出约 15 物理px，见 terminal-dark-panel-offset 文档），旧断言仍要求 `11px 12px 11px 12px`；按产品/参考改正。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
