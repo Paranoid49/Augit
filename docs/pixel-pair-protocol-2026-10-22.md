@@ -88,6 +88,28 @@
 
 结论：**外框、chrome/标签条分界、标签条高度、树行距已经基本对齐**；剩余差异集中在**标题栏中部语义、树根行/状态表达、Markdown 预览的垂直起点/左缘/代码字号、底部 Git 内部布局**。上一版“标题约大 4–6%”是混合墨迹框造成的粗测，已用逐行测量替换：参考标题实际略矮但更宽，代码行明显更小。
 
+### 4.5 参考 Markdown 预览样式的权威来源
+
+从参考安装的 `plugins/markdown/lib/intellij.markdown.jar` 提取
+`org/intellij/plugins/markdown/extensions/common/baseStyles/default.css`（存于
+`artifacts/pixel-pair-main-project-2026-10-22/intellij-markdown-default.css`），与 Augit 现行规则对照：
+
+| 规则 | 参考 `default.css` | Augit `mockup.css` | 差 |
+| --- | --- | --- | --- |
+| body 字体 | `Helvetica, Arial, freesans, sans-serif` | 继承 UI 字体（Microsoft YaHei UI） | 字体族不同，拉丁字宽偏大 |
+| body 字号/行高 | **14px / 1.6**，`margin: 0 2em` | 继承 13px（`p/li` 后改为 `inherit`）/1.6，`padding: 0 2em` | 字号小 1px |
+| 标题 | h1 `2.2em`、h2 `1.8em`、h3 `1.3em`，行高 1.4/1.2/1 | 同左（已对齐） | 一致 |
+| `pre` | **`0.85em`** JetBrains Mono（≈11.9px），行高 1.45，`padding: 16px` | `var(--augit-code-size)` = **13px**，行高 1.45，padding `16rem/12` | 代码字号偏大，解释实测 22 vs 17 的墨迹高 |
+| `code`（行内） | `0.9em` | 13px | 偏大 |
+
+**规范冲突（暂不自行选择）**：`design-system §5.3` 写“Markdown 预览代码块跟随等宽字号”，
+按当前固定等宽 13 会得到 13px；参考实际是 body 14px 的 0.85em ≈ 11.9px。两者不能同时满足。
+在不改动 `design-system` 的前提下，下一轮需要裁决：预览代码按参考的 0.85em 比例，还是按内部文档的
+“跟随等宽字号”。在裁决前**不修改** Markdown 预览字号，避免引入未授权产品变化。
+
+字号/字体的实测差（参考标题更宽、代码更小）与本节 CSS 差完全对应；位置差（低 10–14px、左缘 +5px）
+还需在字号确定后用同一组行带复测，排除字体度量对基线的连带影响。
+
 ## 5. 当前结论与下一步
 
 - 已建立并跑通「同 DPI、同最大化窗口、同视图、同文档、同显示模式」的整窗采集；
