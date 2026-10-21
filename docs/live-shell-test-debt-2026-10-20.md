@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-75` 复跑中；终端留白段通过，会话标签断言与用户裁决冲突：裁决是「标签 `Local`、当前 Shell 放 title/aria」，旧断言要求 `sessionText === shellName`；产品实测 `Local` + `title="Windows PowerShell"` + `aria-label="Local terminal: …"`。改为断言 `Local` 且 title/aria 包含 shell 名。待复跑确认。
+- **本轮最后状态**：`run-76` 复跑中；终端会话标签与 §5/§9 段已通过，推进到图片只读工具条：用例打开 `scene=image-preview` 时漏了 `open=web%2Fimage-sample.png`，场景只有空编辑器、`.image-toolbar` 永不出现（既有图片用例都带该参数）；按真实入口补上 `open`。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

@@ -26353,8 +26353,9 @@ async function main() {
         independent.after.side === independent.before.side && independent.after.bottom === false);
       await term.page.close();
 
-      // §7.5 图片页不提供编辑工具（只读查看）
-      const img = await openScene('scene=image-preview&theme=dark');
+      // §7.5 图片页不提供编辑工具（只读查看）；必须按既有图片用例的 `open=` 参数真正打开图片文档，
+      // 否则场景只有空编辑器、不会渲染 `.image-toolbar`。
+      const img = await openScene('scene=image-preview&theme=dark&open=web%2Fimage-sample.png');
       await img.page.waitForSelector('.image-toolbar', { timeout: 10000 });
       await img.page.waitForTimeout(300);
       const tools = await img.page.evaluate(() => {
