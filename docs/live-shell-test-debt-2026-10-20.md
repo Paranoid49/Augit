@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-61` 仍在第 24,084 行：颜色矩阵全部匹配，但该 `diff-boundary` 场景设置桩字体为 JetBrains Mono 并 `applyTypography({codeSize:13})` 后行高仍是 **18**（产品默认应为 22），说明该预览/差异表面的重排入口没有走 `applyTypography` 或用了另一份字体状态；改用直接改 CSS 变量会掩盖真实重排链路，需下一轮定位该场景的正确重算入口（先查 `measureCodeViews()` 在预览面板的调用路径），不能靠硬编码 22 通过。
+- **本轮最后状态**：`run-62` 复跑中；`diff-boundary` 行高仍 18 的根因已定位：`applyTypography({ codeSize })` 不传 `monospaceFamily` 时 `typographyFamily(null)` 返回 null，`--augit-code` 保持启动时的 Cascadia 不变（此前 codeFontRelayout 的 22 依赖场景里已存在的 JetBrains 变量）。四处调用都改为显式传 `monospaceFamily: 'JetBrains Mono'`。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

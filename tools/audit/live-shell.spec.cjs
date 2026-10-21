@@ -21729,7 +21729,7 @@ async function main() {
       await scene.page.evaluate(async () => {
         window.__augitLive.settings.monospaceFontFamily = 'JetBrains Mono';
         window.__augitLive.settings.codeFontSize = 13;
-        await window.applyTypography({ codeSize: 13 });
+        await window.applyTypography({ codeSize: 13, monospaceFamily: 'JetBrains Mono' });
       });
       await scene.page.waitForTimeout(500);
       await scene.page.locator('.commit-box .message-field').fill('字号变化前的草稿');
@@ -21775,10 +21775,10 @@ async function main() {
         };
       });
       const before = await snap();
-      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 20 }); });
+      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 20, monospaceFamily: 'JetBrains Mono' }); });
       await scene.page.waitForTimeout(700);
       const after20 = await snap();
-      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 13 }); });
+      await scene.page.evaluate(async () => { await window.applyTypography({ codeSize: 13, monospaceFamily: 'JetBrains Mono' }); });
       await scene.page.waitForTimeout(700);
       const restored = await snap();
       await scene.page.close();
@@ -24028,7 +24028,7 @@ async function main() {
       await page.evaluate(async () => {
         window.__augitLive.settings.monospaceFontFamily = 'JetBrains Mono';
         window.__augitLive.settings.codeFontSize = 13;
-        await window.applyTypography({ codeSize: 13 });
+        await window.applyTypography({ codeSize: 13, monospaceFamily: 'JetBrains Mono' });
       });
       await page.waitForTimeout(400);
       const read = () => page.evaluate(() => {
