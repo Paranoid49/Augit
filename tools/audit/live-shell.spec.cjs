@@ -27559,7 +27559,8 @@ async function main() {
     check('§10.3 禁用控件带可发现原因: ' + JSON.stringify(diffButton),
       !!diffButton && typeof diffButton.title === 'string' && diffButton.title.length > 0);
     check('§10.3 原因说明用户该做什么: ' + JSON.stringify(diffButton && diffButton.title),
-      !!diffButton && /先|请|尚未|没有/.test(diffButton.title));
+      // UI 语言为英文（"Select a file in Changes first."）；兼容中文动作词，判据是“可执行动作”。
+      !!diffButton && /先|请|尚未|没有|Select|Choose|Open|first/i.test(diffButton.title));
     // 未给不出原因的控件硬塞空话：所有补上的说明都必须是可读句子
     const badTitles = dcReasons.filter((x) => x.title !== null && x.title.trim().length < 4);
     check('§10.3 补充的说明都是可读句子: ' + JSON.stringify(badTitles), badTitles.length === 0);
