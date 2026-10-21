@@ -27686,7 +27686,9 @@ async function main() {
     check('§9.3 进行中禁用重复触发: ' + JSON.stringify([wmBusy.submitDisabled, wmBusy.pushDisabled]),
       wmBusy.submitDisabled === true && wmBusy.pushDisabled === true);
     check('§9.3 进行中显示当前动作: ' + JSON.stringify(wmBusy.status),
-      typeof wmBusy.status === 'string' && wmBusy.status.includes('提交进行中'));
+      // UI 语言为英文（CommitRunning…）；兼容中文“提交进行中”，判据是“动作 + 进行中”。
+      typeof wmBusy.status === 'string'
+      && (wmBusy.status.includes('提交进行中') || /Commit.*(Running|in progress)/i.test(wmBusy.status)));
     check('§9.3 进行中显示取消入口', wmBusy.cancel === true);
 
     // 重复点击不产生第二次请求。
