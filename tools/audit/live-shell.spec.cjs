@@ -26059,8 +26059,10 @@ async function main() {
       });
       check('§6 重绘后按空字符串路径把焦点交还根行（treeFocusPath 不折叠为 null）: '
         + JSON.stringify(rootFocusKept),
+      // 焦点仍落在 data-tree-path="" 的根行上即证明按空字符串路径恢复（而不是折叠成 null 后丢失）；
+      // 重绘会按 live 选择态重新加回 selected，不能用“未选中”作为判据。
       rootFocusKept.noRoot !== true && rootFocusKept.focusedTree === true
-          && rootFocusKept.focusedPath === '' && rootFocusKept.rootSelected === false);
+          && rootFocusKept.focusedPath === '');
       await gestures.page.close();
       // r81 的 Enter 段结果（`enter`／`dirEnter`）属于那个 async IIFE 的作用域，这里不引用它。
       return {
