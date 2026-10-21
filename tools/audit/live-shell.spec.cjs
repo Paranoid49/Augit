@@ -26889,7 +26889,8 @@ async function main() {
         .map((b) => ({ label: b.getAttribute('aria-label'), disabled: b.hasAttribute('disabled') }));
       const filebar = document.querySelector('.editor-content .diff-filebar');
       return {
-        text: body ? body.innerText.replace(/\s+/g, '') : '',
+        // 保留单词间空格：摘要按整句匹配（压掉空白会让英文句子永远 includes 不到）。
+        text: body ? body.innerText.replace(/\s+/g, ' ').trim() : '',
         buttons,
         filebar: filebar ? filebar.innerText.replace(/\s+/g, ' ').trim() : null,
         diffRows: document.querySelectorAll('.editor-content .diff-columns .diff-side').length,

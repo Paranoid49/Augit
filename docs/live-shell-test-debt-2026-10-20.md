@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-80` 复跑中；最终说明段已通过，推进到引用比较无差异摘要：`scene=git-compare-empty` 只是**静态基线页**（docs/ux-mockups），实时外壳没有同名场景，`openScene` 打开的是空编辑器（`Select a file...`）。改为以 `file://` 打开基线页核对 `These references have no text differences in this file` / `unchanged` / `Select another commit or file`（live 与基线共用 `comparisonSummaryNotice()`）。待复跑确认。
+- **本轮最后状态**：`run-81` 复跑中；引用比较无差异基线页已能打开，但该用例的 `text` 同样用 `replace(/\s+/g,'')` 压掉空格（日志 `Thesereferencesha...`），整句 `includes` 仍失败；与最终说明一致改为压成单空格 + trim。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
