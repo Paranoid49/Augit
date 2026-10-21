@@ -2793,18 +2793,17 @@ function diffBodyParts(diff) {
       + '<div class="diff-gutter-gap"></div>'
       + `<div class="diff-gutter-cell new ${slotClass(row, index, "new")}" data-line="${newNumber}">${newNumber}</div>`;
   }).join("");
-  // 连接区：每个变更块一个梯形，左边缘 = 旧侧行范围、右边缘 = 新侧行范围；某一侧没有行时那一侧收成尖角
-  //（几何来自权威的 `startY1..endY1`／`startY2..endY2`）。纵向用百分比表达 ⇒ 与字号/DPI 无关。
+  // 连接区：每个变更块一个梯形，左边缘 = 旧侧行范围、右边缘 = 新侧行范围；某一侧没有行时那一侧
+  // 收成**块高度的中点**尖角（权威 `startY1..endY1`／`startY2..endY2` 的一侧空范围）。
+  // 百分比相对连接区自身高度 ⇒ 中点恒为 50%，与字号/DPI 无关。
   const percent = (value, total) => `${Math.round((value / Math.max(1, total)) * 10000) / 100}%`;
-  const edge = (rows, total, fallbackRows) => {
-    if (rows.length) return [percent(rows[0], total), percent(rows[rows.length - 1] + 1, total)];
-    const anchor = fallbackRows.length ? fallbackRows[0] : 0;
-    const single = percent(anchor, total);
-    return [single, single];
+  const edge = (rows, total) => {
+    if (!rows.length) return ["50%", "50%"];
+    return [percent(rows[0], total), percent(rows[rows.length - 1] + 1, total)];
   };
   const connectors = blockShapes.map((block, index) => {
-    const [leftTop, leftBottom] = edge(block.oldRows, block.rows, block.newRows);
-    const [rightTop, rightBottom] = edge(block.newRows, block.rows, block.oldRows);
+    const [leftTop, leftBottom] = edge(block.oldRows, block.rows);
+    const [rightTop, rightBottom] = edge(block.newRows, block.rows);
     return `<div class="diff-gutter-connector ${block.kind}" data-block="${index}"`
       + ` style="top:${percent(block.start, content.length)};height:${percent(block.rows, content.length)};`
       + `clip-path:polygon(0 ${leftTop},100% ${rightTop},100% ${rightBottom},0 ${leftBottom})"></div>`;

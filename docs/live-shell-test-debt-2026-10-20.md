@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-62` 复跑中；`diff-boundary` 行高仍 18 的根因已定位：`applyTypography({ codeSize })` 不传 `monospaceFamily` 时 `typographyFamily(null)` 返回 null，`--augit-code` 保持启动时的 Cascadia 不变（此前 codeFontRelayout 的 22 依赖场景里已存在的 JetBrains 变量）。四处调用都改为显式传 `monospaceFamily: 'JetBrains Mono'`。待复跑确认。
+- **本轮最后状态**：`run-63` 复跑中；`run-62` 已通过行高段（22/33），停在变更连接区：纯删除/纯新增块的连接区应收成**块高度中点**尖角，产品错误地收在顶部（`edge()` 单侧空时用 `fallbackRows[0]`，取到相对行号 0）。已修 `mockup.js`：单侧空范围返回 `50%/50%`（百分比相对连接区自身高度），`changed` 的斜边不变。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
