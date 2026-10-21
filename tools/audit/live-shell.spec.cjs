@@ -24782,7 +24782,7 @@ async function main() {
           headerCancel: !!cancel,
           headerCancelLabel: cancel ? cancel.getAttribute('aria-label') : null,
           headerText: header ? header.textContent.replace(/\s+/g, ' ').trim().slice(0, 80) : null,
-          panelText: (() => { const el = document.querySelector('.history-list-pane'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : null; })(),
+          panelText: (() => { const el = document.querySelector('.history-list-pane'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : null; })(),
           toast: document.querySelector('.toast, .toast.error') ? document.querySelector('.toast, .toast.error').textContent.trim() : null,
           editorLoading: !!document.querySelector('.editor-content .diff-layout[data-augit-loading]'),
           statusbar: (() => { const el = document.querySelector('.statusbar'); return el ? el.textContent.replace(/\s+/g, ' ').trim().slice(0, 60) : null; })(),
