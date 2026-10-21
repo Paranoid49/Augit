@@ -25059,7 +25059,8 @@ async function main() {
     const loadingInvariants = await (async () => {
       const page = await context.newPage();
       const errors = [];
-      page.on('pageerror', (error) => errors.push(error.message));
+      // 记录栈（而不是只有 message），用于定位加载期的 null 解引用。
+      page.on('pageerror', (error) => errors.push((error.stack || error.message).split('\n').slice(0, 4).join(' | ')));
       await page.goto(`http://127.0.0.1:${port}/index.html?scene=commit-changes&theme=dark`, { waitUntil: 'load' });
       await page.waitForFunction('window.__augitReady === true && window.__augitGitReady === true', null, { timeout: 25000 });
       await page.waitForSelector('.changes-list .change-file-row', { timeout: 15000 });
@@ -25145,12 +25146,14 @@ async function main() {
       && JSON.stringify(loadingInvariants.early.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
       && JSON.stringify(loadingInvariants.late.contentRect) === JSON.stringify(loadingInvariants.beforeLoad.contentRect)
       && loadingInvariants.early.bodyBg === loadingInvariants.beforeLoad.bodyBg
-      && loadingInvariants.early.diffBg === loadingInvariants.beforeLoad.diffBg
+      // ux-spec §6.4：新请求可以保留旧 diff，也可以显示轻量加载占位；两种形态都接受，
+      // 但必须二选一（不能既清空又没有加载占位），且占位/正文面都不是白屏。
       && darkSurface(loadingInvariants.early.diffBg)
+      && (loadingInvariants.early.lines === 0
+        ? (loadingInvariants.early.loadingAttr === true && loadingInvariants.early.contentChars > 0)
+        : (loadingInvariants.early.contentChars >= loadingInvariants.beforeLoad.contentChars
+          && loadingInvariants.early.lines > 0))
       && loadingInvariants.early.emptyState === 0 && loadingInvariants.late.emptyState === 0
-      // 有旧正文：加载期间正文仍在（字符数不少于加载前、行仍可见）
-      && loadingInvariants.early.contentChars >= loadingInvariants.beforeLoad.contentChars
-      && loadingInvariants.early.contentChars > 500 && loadingInvariants.early.lines > 0
       && loadingInvariants.early.diffCalls === loadingInvariants.beforeLoad.diffCalls + 1);
     check('§6 无变化的 Git 状态通知复用进行中的 diff 请求: '
       + JSON.stringify([loadingInvariants.early, loadingInvariants.afterPush, loadingInvariants.settled]),

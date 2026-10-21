@@ -6483,9 +6483,15 @@ function bindChangesWorkflow() {
   };
   const updateComparison = (comparison, row) => {
     if (comparison.path === row.dataset.path) return;
-    comparison.path = comparison.tab.dataset.path = row.dataset.path;
-    comparison.tab.querySelector(".change-tab-caption").textContent = "Commit: " + row.dataset.file;
-    comparison.tab.title = comparison.path;
+    comparison.path = row.dataset.path;
+    // 实时外壳的标签栏由 live.tabs 渲染，比较对象没有自己的 tab 节点（`createComparison`
+    // 在 live 模式返回 `tab: null`）；此前无条件写 `comparison.tab.dataset` 会在
+    // commit-changes 里每次点文件都抛 null 解引用，并跳过路径/标题更新。
+    if (comparison.tab) {
+      comparison.tab.dataset.path = comparison.path;
+      comparison.tab.querySelector(".change-tab-caption").textContent = "Commit: " + row.dataset.file;
+      comparison.tab.title = comparison.path;
+    }
     const holder = document.createElement("template");
     holder.innerHTML = diffView(false, "ready", false, false, comparison.path);
     const view = holder.content.firstElementChild, previous = comparison.view;
