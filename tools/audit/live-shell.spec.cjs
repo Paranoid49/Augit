@@ -26547,7 +26547,7 @@ async function main() {
     });
     csCheck('§7.13 外部解决冲突后会话列表在 500ms 内更新: ' + JSON.stringify([beforeExternal, externalUpdate]),
       beforeExternal.rows === 2 && beforeExternal.summary === '2 conflicting files'
-        && externalUpdate.rows === 1 && externalUpdate.summary === '1 conflicting files'
+        && externalUpdate.rows === 1 && externalUpdate.summary === '1 conflicting file'
         && externalUpdate.elapsed < 500);
 
     // 还原：后续用例依赖 __sessionFixture（未注入 __operationSession 时走它）。
