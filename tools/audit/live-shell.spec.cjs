@@ -21751,8 +21751,10 @@ async function main() {
             .filter((node) => node.nodeType === Node.TEXT_NODE)
             .map((node) => node.textContent.trim().length)));
           const dpr = window.devicePixelRatio || 1;
+          const spacing = Number.parseFloat(style.getPropertyValue('--code-letter-spacing')) || 0;
+          const sample = `${'9'.repeat(digits)}    ${'9'.repeat(digits)}`;
           expectedGutter = Math.max(84,
-            Math.ceil(context.measureText(`${'9'.repeat(digits)}    ${'9'.repeat(digits)}`).width * dpr) / dpr + 14);
+            Math.ceil((context.measureText(sample).width + sample.length * spacing) * dpr) / dpr + 14);
         }
         const live = window.__augitLive;
         return {
@@ -21785,11 +21787,12 @@ async function main() {
     })();
     check('§7.7 改变等宽字号只重排正文与行号，不重新请求 Git、不清空草稿与文件选择: '
       + JSON.stringify([codeFontRelayout.before, codeFontRelayout.after20, codeFontRelayout.restored]),
-    // 字号确实变了：行高按 codeSize × 1.7、正文行盒跟着变、中栏按**新字体**重新度量
+    // 字号确实变了：行高按 `ceil((ceil(size*1.02)+ceil(size*0.3))*1.2)`（13→22、20→33），
+    // 中栏按新字体与字距重新度量。
     codeFontRelayout.after20.font === '20px'
-      && codeFontRelayout.after20.codeLineHeight === '34px'
+      && codeFontRelayout.after20.codeLineHeight === '33px'
       && codeFontRelayout.before.codeLineHeight === '22px'
-      && codeFontRelayout.after20.rowHeight === 34 && codeFontRelayout.before.rowHeight === 22
+      && codeFontRelayout.after20.rowHeight === 33 && codeFontRelayout.before.rowHeight === 22
       && codeFontRelayout.after20.gutter !== codeFontRelayout.before.gutter
       && codeFontRelayout.after20.gutter === codeFontRelayout.after20.expectedGutter
       && codeFontRelayout.before.gutter === codeFontRelayout.before.expectedGutter
