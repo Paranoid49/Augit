@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-71` 复跑中；null `dataset` 已按栈定位并修复：`updateComparison()` 无条件写 `comparison.tab.dataset.path`，而实时外壳的标签栏由 `live.tabs` 渲染、`createComparison` 在 live 模式返回 `tab: null`，于是 commit-changes 每次点文件都抛 `Cannot read properties of null (reading 'dataset')` 并跳过路径/标题更新；改为 `if (comparison.tab)` 内更新。另按 ux-spec §6.4「保留旧 diff 或轻量加载占位」二选一，把加载期断言改为接受占位形态（`loadingAttr` + 非空占位 + 深色面），不再强制旧正文/固定背景色。待复跑确认。
+- **本轮最后状态**：`run-72` 复跑中；null `dataset` 修复后加载不变量已通过（`errors: []`、占位形态 `loadingAttr true`、深色面、正文区位置不变），推进到「无变化状态通知复用请求」：用例仍以绝对 `diffCalls === 1` 为前置，而新前置会先加载一份旧 diff（基线 1、在途 2）；改为 `beforeLoad.diffCalls + 1`，并断言落地后仍是同一次请求（`settled.diffCalls === early.diffCalls`）。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

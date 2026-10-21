@@ -25157,15 +25157,17 @@ async function main() {
       && loadingInvariants.early.diffCalls === loadingInvariants.beforeLoad.diffCalls + 1);
     check('§6 无变化的 Git 状态通知复用进行中的 diff 请求: '
       + JSON.stringify([loadingInvariants.early, loadingInvariants.afterPush, loadingInvariants.settled]),
-    // 前置：慢差异在途（1 次请求）
-    loadingInvariants.early.loading === true && loadingInvariants.early.diffCalls === 1
+    // 前置：慢差异在途（在前一份已加载的基础上新增 1 次请求）
+    loadingInvariants.early.loading === true
+      && loadingInvariants.early.diffCalls === loadingInvariants.beforeLoad.diffCalls + 1
       // 状态通知确实被处理（status 重读一次）但在途请求被复用 ⇒ git/diff 调用数不变
       && loadingInvariants.afterPush.statusCalls === loadingInvariants.early.statusCalls + 1
       && loadingInvariants.afterPush.diffCalls === loadingInvariants.early.diffCalls
       && loadingInvariants.afterPush.loading === true
       // 落地后仍是同一次请求，正文就位
       && loadingInvariants.settled.loading === false
-      && loadingInvariants.settled.diffCalls === 1 && loadingInvariants.settled.lines > 0);
+      && loadingInvariants.settled.diffCalls === loadingInvariants.early.diffCalls
+      && loadingInvariants.settled.lines > 0);
 
     // ---- 第 270 轮：读取期间的用户操作不被抢、关闭前面的后台标签不使读取失效（§6 第 37、38 条）----
     const readRaces = await (async () => {
