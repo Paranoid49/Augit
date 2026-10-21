@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-87` 复跑中；设置 Enter=OK 未关窗的根因已定位：文档级保存委托用 `dialog.querySelector("[data-setting]")` 判定承载，而 **File View 分类是只读页**（只有固定等宽字体/字号，没有 `[data-setting]`），在搜索后按 ↓ 切到 File View 再按 Enter 时整条保存/关闭路径直接 return。已修 `bindSettingsSave()`：`.settings-window` 内的对话框一律视为实时设置承载，只读页也允许 OK/取消/应用；视觉稿 `.dialog-xl` 仍按有无 `[data-setting]` 判定。待复跑确认。
+- **本轮最后状态**：`run-88` 复跑中；设置只读页 OK 修复已让 Enter=OK 段通过，推进到 §9.3 Reset 取消：产品在停稳后给 `Operation cancelled. HEAD, the index, working tree, and Changes are unchanged.`，旧断言用大小写敏感的 `includes('Cancel')`；改为 `/cancel/i`（取消请求计数与停稳后重读状态判据不变）。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

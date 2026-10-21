@@ -28723,7 +28723,7 @@ async function main() {
         })(),
       }));
       check('§9.3 Reset 取消请求发到宿主并给出结果: ' + JSON.stringify(rsCancelled),
-        rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && rsCancelled.notice.includes('Cancel'));
+        rsCancelled.cancels === 1 && typeof rsCancelled.notice === 'string' && /cancel/i.test(rsCancelled.notice));
       // 停稳之后必须按最新事实恢复：重新读取真实仓库状态。
       check('§9.3 Reset 取消停稳后重新读取真实状态: ' + JSON.stringify(rsCancelled.statusCalls),
         rsCancelled.statusCalls > 0);
