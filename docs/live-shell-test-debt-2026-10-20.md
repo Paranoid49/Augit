@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-57` 复跑中；`run-56` 已通过 Diff 设置弹层与工具栏段，停在跨文件查询：在途时测试点选了 `src/App.cs`（Changes 可改选），旧断言仍要求结束后落到初始相邻文件 `README.md`（2/3）；按“查询结束后保留用户最后一次改选”改为断言 `after.path === interacting.selected` 且计数 `1/3 files`。待复跑确认。
+- **本轮最后状态**：`run-58` 复跑中；`run-57` 已通过跨文件查询段，停在等宽字号重排：桩的默认等宽字体是 `Cascadia Mono`（行高 13→18、20→29），而断言按产品默认随包 `JetBrains Mono`（13→22、20→34）计算；测试在测量前把桩设置改为 JetBrains Mono 并重算排版。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）

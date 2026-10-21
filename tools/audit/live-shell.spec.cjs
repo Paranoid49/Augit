@@ -21724,6 +21724,14 @@ async function main() {
       await scene.page.locator('.changes-list .change-file-row').first().dblclick();
       await scene.page.waitForFunction('window.__augitDiffReady === true', null, { timeout: 15000 });
       await scene.page.waitForTimeout(400);
+      // 桩的默认等宽字体是 Cascadia Mono（真实产品默认是随包 JetBrains Mono）；
+      // 行高断言按产品字体 13→22、20→34 计算，所以先把桩的字体设为 JetBrains Mono。
+      await scene.page.evaluate(async () => {
+        window.__augitLive.settings.monospaceFontFamily = 'JetBrains Mono';
+        window.__augitLive.settings.codeFontSize = 13;
+        await window.applyTypography({ codeSize: 13 });
+      });
+      await scene.page.waitForTimeout(500);
       await scene.page.locator('.commit-box .message-field').fill('字号变化前的草稿');
       await scene.page.locator('.changes-list .change-file-row').nth(1).click();
       await scene.page.waitForTimeout(300);
