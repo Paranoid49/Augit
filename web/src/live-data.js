@@ -3415,7 +3415,11 @@ function bindSettingsSave() {
       ".dialog-footer [data-settings-action], .dialog-footer .secondary-button, .dialog-footer .primary-button");
     if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
     const dialog = button.closest(".dialog");
-    if (!dialog || !dialog.querySelector("[data-setting]")) return;
+    // 实时设置窗里有些分类是**只读**的（File View 只有固定的等宽字体/字号，没有 [data-setting]），
+    // 但「确定/取消/应用」仍必须可用；此前只按“有没有可编辑字段”判定承载，导致在 File View
+    // 页按 Enter（默认按钮 OK）时整条保存路径静默失效、窗口关不掉。
+    const liveSettingsDialog = !!dialog && !!dialog.closest(".settings-window");
+    if (!dialog || (!liveSettingsDialog && !dialog.querySelector("[data-setting]"))) return;
     const buttons = [...dialog.querySelectorAll(".dialog-footer .secondary-button, .dialog-footer .primary-button")];
     // live 的两个按钮带显式语义；视觉稿场景退回"第一个（取消）之外都算保存"。
     const isCancel = button.dataset.settingsAction

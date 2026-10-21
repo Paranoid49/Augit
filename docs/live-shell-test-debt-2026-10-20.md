@@ -32,7 +32,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 差异导航 fixture 现为纯修改（`changed` 行，两栏各 1 行）：变更单元格期望由 4 改为 2，块数仍为 1。
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
-- **本轮最后状态**：`run-86` 已通过多分类搜索段，推进到第 28,335 行「设置搜索框 Enter = OK（写回并关窗）」：按下 Enter 后 8s 内 `.settings-window` 仍未关闭。窗口捕获的 Enter 处理器存在（`live-data.js:9866-9877` 点 `[data-settings-action="save"]`），需核查重开设置后保存按钮是否被重新绑定/是否因无改动走不到 close、以及异步写入是否卡住。下一轮先复现并查 `bindSettingsSave` 在 `renderSettingsDialog` 复用 host 时的绑定与关闭时序，不能靠放宽等待或改断言绕过。
+- **本轮最后状态**：`run-87` 复跑中；设置 Enter=OK 未关窗的根因已定位：文档级保存委托用 `dialog.querySelector("[data-setting]")` 判定承载，而 **File View 分类是只读页**（只有固定等宽字体/字号，没有 `[data-setting]`），在搜索后按 ↓ 切到 File View 再按 Enter 时整条保存/关闭路径直接 return。已修 `bindSettingsSave()`：`.settings-window` 内的对话框一律视为实时设置承载，只读页也允许 OK/取消/应用；视觉稿 `.dialog-xl` 仍按有无 `[data-setting]` 判定。待复跑确认。
 - 套件在第一个未处理断言处即停止；**本批不宣称 live-shell 通过**。
 
 ## 4. 重写依据（已用于字体段落）
