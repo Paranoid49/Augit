@@ -26283,14 +26283,18 @@ async function main() {
         return {
           sessionCount: sessions.length,
           sessionText: sessions[0] ? sessions[0].textContent.trim() : null,
+          sessionTitle: sessions[0] ? sessions[0].getAttribute('title') : null,
+          sessionAria: sessions[0] ? sessions[0].getAttribute('aria-label') : null,
           shellName: window.__augitTerminalShell || null,
           multiSessionUi: multi.length,
         };
       });
+      // 用户裁决：终端标签固定为 Local，当前 Shell 放 title/aria（不再让标签随 Shell 名变化）。
       check('§7.16 只显示一个会话标签、标题栏显示当前 Shell、无多会话管理 UI: ' + JSON.stringify(header),
         header.sessionCount === 1 && header.multiSessionUi === 0
-          && typeof header.sessionText === 'string' && header.sessionText.length > 0
-          && header.sessionText === header.shellName);
+          && header.sessionText === 'Local'
+          && typeof header.shellName === 'string' && header.shellName.length > 0
+          && `${header.sessionTitle || ''} ${header.sessionAria || ''}`.includes(header.shellName));
 
       // §5 左侧与底部工具窗口可同时打开；§9 两者状态独立；§5 Esc 只关弹层
       const both = await term.page.evaluate(() => ({
