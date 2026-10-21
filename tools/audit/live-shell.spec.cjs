@@ -26852,7 +26852,9 @@ async function main() {
       const finalState = await page.evaluate(() => {
         const body = document.querySelector('.editor-content');
         return {
-          text: body ? body.innerText.replace(/\s+/g, '') : '',
+          // 保留单词间空格：最终说明按整句匹配（此前把所有空白压掉后，
+          // 带空格的英文句子永远 includes 不到）。
+          text: body ? body.innerText.replace(/\s+/g, ' ').trim() : '',
           hintGone: !document.querySelector('.editor-content .diff-loading-status'),
         };
       });
