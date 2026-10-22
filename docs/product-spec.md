@@ -118,6 +118,7 @@ Git 命令语义和操作状态以 IntelliJ IDEA 2026.2 为参考，操作界面
 - 图形 Git 命令需要交互输入时停止执行并明确提示原因，不提供原命令复制或终端重试入口。
 - 本机其他工具修改文件、索引、分支、提交或跟踪状态后，Augit 在 500 毫秒内刷新本地状态。
 - 本机外部工具完成 push 后，只反映由此产生的本地 Git 状态变化。
+- Fetch 进行中允许取消：关闭分支弹层（含 Esc）会取消本次 `git fetch` 进程并立即恢复引用树操作，不显示失败通知；只取消本次请求，不影响其他 Git 操作。
 - Fetch 成功/失败按参考显示结果通知：成功 `Fetch successful`／`Fetched successfully`，失败 `Fetch failed`／Git 原始错误；失败关闭分支弹层，不在弹层内保留错误，也不自动打开其他对话框。
 - Update Selected 走同一 fetch 结果通道：成功 `Fetch successful` + `Fetched N target(s)`，失败 `Update failed` + Git 原始错误；同样不把失败留在弹层内。
 - Define Remote 保存后勾选 Fetch 的自动取回：成功只在远端管理器保留保存结果与内联取回说明；失败在管理器内联显示 Git 原始错误。参考用可浮在模态之上的原生 VcsNotifier；Augit 的页内 toast 会被远端管理模态遮挡，因此暂保留可见的内联错误，登记为**呈现差异，未验收**，不得写成已对齐。

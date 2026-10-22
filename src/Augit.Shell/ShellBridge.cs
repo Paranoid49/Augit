@@ -67,6 +67,8 @@ internal sealed class ShellBridge : IDisposable
     /// 会发送 `search/cancel`，宿主按 requestId 只取消对应请求，不误杀并行的文件名搜索。
     /// </summary>
     private readonly Dictionary<long, CancellationTokenSource> _searchRequests = [];
+    private readonly Dictionary<long, CancellationTokenSource> _fetchRequests = [];
+    private readonly object _fetchRequestsLock = new();
     private WorkspaceFileWatcher? _workspaceWatcher;
     private GitMetadataWatcher? _gitWatcher;
     private bool _pendingGitMetadataChange;
@@ -191,6 +193,7 @@ internal sealed class ShellBridge : IDisposable
             "git/branch" => await RunWriteAsync(ct => BranchAsync(parameters, ct), cancellationToken),
             "git/tag" => await RunWriteAsync(ct => TagAsync(parameters, ct), cancellationToken),
             "git/fetch" => await FetchAsync(parameters, cancellationToken),
+            "git/fetch-cancel" => CancelFetch(parameters),
             "git/unpushed" => await ReadUnpushedAsync(cancellationToken),
             "git/remote-write" => await RunWriteAsync(ct => WriteRemoteAsync(parameters, ct), cancellationToken),
             "git/diff" => await ReadDiffAsync(parameters, cancellationToken),
@@ -2783,6 +2786,69 @@ internal sealed class ShellBridge : IDisposable
     /// 多选时逐个取，第一个失败即返回并把分支名带进原因。
     /// </summary>
     private async Task<object?> FetchAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        long requestId = GetInt(parameters, "requestId") ?? 0;
+        CancellationTokenSource? source = RegisterFetch(requestId, cancellationToken);
+        try
+        {
+            return await FetchCoreAsync(parameters, source?.Token ?? cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (source is not null)
+            {
+                UnregisterFetch(requestId, source);
+                source.Dispose();
+            }
+        }
+    }
+
+    private CancellationTokenSource? RegisterFetch(long requestId, CancellationToken cancellationToken)
+    {
+        if (requestId <= 0) return null;
+        CancellationTokenSource source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationTokenSource? stale = null;
+        lock (_fetchRequestsLock)
+        {
+            if (_fetchRequests.Remove(requestId, out stale))
+            {
+                // 同一 requestId 的旧取回必须先停；旧源的释放由它自己的 finally 负责。
+                stale.Cancel();
+            }
+
+            _fetchRequests[requestId] = source;
+        }
+
+        return source;
+    }
+
+    private void UnregisterFetch(long requestId, CancellationTokenSource source)
+    {
+        lock (_fetchRequestsLock)
+        {
+            if (_fetchRequests.TryGetValue(requestId, out CancellationTokenSource? current) && ReferenceEquals(current, source))
+            {
+                _fetchRequests.Remove(requestId);
+            }
+        }
+    }
+
+    private object CancelFetch(JsonElement parameters)
+    {
+        long requestId = GetInt(parameters, "requestId") ?? 0;
+        if (requestId <= 0) return new { cancelled = false };
+        CancellationTokenSource? source = null;
+        lock (_fetchRequestsLock)
+        {
+            _fetchRequests.TryGetValue(requestId, out source);
+        }
+
+        if (source is null) return new { cancelled = false };
+        source.Cancel();
+        return new { cancelled = true };
+    }
+
+    private async Task<object?> FetchCoreAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         string? remoteName = GetString(parameters, "remote");
         string? branchName = GetString(parameters, "branch");

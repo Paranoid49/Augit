@@ -8495,6 +8495,8 @@ function bindCompactDialogKeys() {
  * 分支弹层里的快捷动作（规格 §7.11 / §5.1）。
  * 需要写 Git 的动作只在确认后执行；失败原因如实回传。
  */
+let fetchRequestSeq = 0;
+
 async function runPopoverAction(action) {
   const live = window.__augitLive;
   if (!live) return;
@@ -8554,15 +8556,24 @@ async function runPopoverAction(action) {
   // 权威 `UpdateSelectedBranchAction.update()` 用 `GitFetchSupport.isFetchRunning` 判断"获取进行中"；
   // Augit 侧对应 `live.logFetchRunning`（竖条的「获取」「更新选中分支」据此禁用）。
   const liveNow = window.__augitLive;
+  const requestId = ++fetchRequestSeq;
   if (liveNow) {
     liveNow.logFetchRunning = true;
+    liveNow.fetchRequestId = requestId;
+    liveNow.fetchCancelledRequestId = 0;
     if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
   }
   let result;
   try {
-    result = await invoke(method, {}, 300000);
+    result = await invoke(method, { requestId }, 300000);
   } catch (error) {
-    if (liveNow) liveNow.logFetchRunning = false;
+    if (liveNow) {
+      const cancelled = liveNow.fetchCancelledRequestId === requestId;
+      liveNow.fetchCancelledRequestId = 0;
+      liveNow.logFetchRunning = false;
+      liveNow.fetchRequestId = 0;
+      if (cancelled) return;
+    }
     closeLiveOverlay();
     window.__augitCheckoutError = "";
     showFetchResult(false, error && error.message || error);
@@ -8570,8 +8581,12 @@ async function runPopoverAction(action) {
   }
 
   if (liveNow) {
+    const cancelled = liveNow.fetchCancelledRequestId === requestId;
+    liveNow.fetchCancelledRequestId = 0;
+    liveNow.fetchRequestId = 0;
     liveNow.logFetchRunning = false;
     if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
+    if (cancelled) return;
   }
 
   if (!result || !result[key]) {
@@ -12634,6 +12649,16 @@ function closeLiveOverlay({ topOnly = false } = {}) {
   if (window.__augitSettingsSurface && document.querySelectorAll('.dialog').length === 1) { closeSettingsDialog(); return true; }
   // 只关闭最上层覆盖层；搜索结果过多对话框与搜索浮层是兄弟层，Esc 不能把两层一起移除。
   const live = window.__augitLive;
+  // 分支弹层里的 Fetch 在进行中按 Esc/关闭时通知宿主结束对应 git 进程；
+  // 只取消本次 requestId，不影响「更新选中分支」等其他调用。
+  if (live && live.logFetchRunning && live.fetchRequestId) {
+    const requestId = live.fetchRequestId;
+    live.fetchRequestId = 0;
+    live.fetchCancelledRequestId = requestId;
+    live.logFetchRunning = false;
+    if (typeof window.__augitApplyRefSelection === "function") window.__augitApplyRefSelection();
+    void invoke("git/fetch-cancel", { requestId }, 5000).catch(() => {});
+  }
   const layers = [...document.querySelectorAll("[data-augit-overlay].live-overlay")];
   const targets = topOnly ? layers.slice(-1) : layers;
   const layer = targets.at(-1);

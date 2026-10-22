@@ -531,6 +531,7 @@ Diff 请求键由仓库、文件路径、比较基准、单栏或双栏、忽略
 - 点击标题栏当前分支打开非模态弹层，搜索框自动获得焦点。
 - 顶部快捷动作按 Update、Commit、Push、新建分支、检出标签或版本排序。
 - Fetch 动作按参考关闭弹层并显示结果通知：成功为 `Fetch successful` + `Fetched successfully`，失败为 `Fetch failed` + Git 原始错误；失败不把原因留在弹层内，也不自动打开其他对话框（权威 `GitFetchSupportImpl.FetchResultImpl.doShowNotification()`）。
+- Fetch 进行中按 Esc/关闭分支弹层：取消本次 fetch（宿主结束对应 git 进程），引用树立即恢复可操作；取消不显示 `Fetch failed`，也不影响「更新选中分支」等其他调用。
 - Update Selected 也按同一 fetch 结果通道显示通知：成功 `Fetch successful` + `Fetched N target(s)`，失败 `Update failed` + Git 原始错误（权威 `GitBranchActionsUtil.updateBranches()` 的 `showNotificationIfFailed("Update failed")`）。
 - 引用按本地分支、远程分支和标签分组；当前分支醒目标记。
 - 选择引用后打开该引用自己的二级动作，不立即执行切换（权威 `GitDefaultBranchesPopupStep.kt:97-101`：每一行都用 `Git.Branch` 那组动作，而不是只有当前分支才有动作）；条目按权威的"不适用即不出现"生成（`GitSingleRefAction.kt:40` 的 `setEnabledAndVisible` ⇒ `Presentation.java:576` 同时置可见与可用）：非当前本地分支为检出、重命名、删除，当前分支只有重命名（当前引用的检出仅在多仓库分歧时可用 `GitCheckoutAction.kt:19-23`，删除对当前引用整体不可用 `GitDeleteRefAction.kt:16`），标签为检出、删除，远端分支没有重命名（`GitRenameBranchAction.kt:14`）；只有"权威有该动作、Augit 尚未接线"（远端分支删除）才留成禁用并写明原因。

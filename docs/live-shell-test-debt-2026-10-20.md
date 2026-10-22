@@ -33,7 +33,7 @@ node tools/audit/live-shell.spec.cjs D:/github/universe-genesis-sandbox/node_mod
   - 日志右键 “New Tag…” 标题按权威 `commit.asString()` 用**短哈希**（产品改为 `openTagDialog(short, full)`，建标签仍用完整哈希）；字段文案按权威 `Enter the name of new tag`、空白校验按英文提示断言。
   - **正常入口实测补漏**：设置搜索虽然切到 File View，但未命中的分类行因 `display:flex` 盖掉 `[hidden]` 仍然可见；补 CSS 并新增一条“未命中分类行计算样式为 none”的断言（check 计数 1231→1232）。
 - **本轮最后状态（2026-10-22）**：`run-89` **完整通过**：`live-shell 通过 2339 项断言`（退出码 0，未执行 0 项）。收尾前修复了 `<commit>` 实时比较空 tab 的 null `dataset`、设置只读分类页 OK/取消/应用静默失效两个产品缺陷，并按产品/规范修正了加载占位、字号基线、英文文案、纯静态场景入口等一批判据。
-- **2026-10-22 后续批次**：Markdown 参考排版、项目树纯颜色状态与 Push 失败 balloon 改动后，套件 **通过 2342 项断言**（退出码 0，未执行 0）。2340→2342 的增量来自 Fetch 成功通知与 Define Remote 自动 Fetch 失败通知断言；`check(...)` 调用点保持 **1234**（自动 Fetch 断言在 `live-goal-remote` 模块内，不计入本文件调用点数）。
+- **2026-10-22 后续批次**：Markdown 参考排版、项目树纯颜色状态与 Push 失败 balloon 改动后，套件 **通过 2344 项断言**（退出码 0，未执行 0）。2340→2344 的增量来自 Fetch 成功通知、Define Remote 自动 Fetch 失败内联错误，以及 Fetch 进行中 Esc 取消/晚到结果不弹通知两条断言；`check(...)` 调用点同步为 **1236**。
 - **套件通过 ≠ 整体验收**：它是无头 Chromium + 宿主桩的行为/语义套件；页面级同态配对仍 **50**、像素合格仍 **0**。正常入口的 Settings 慢开/白闪/关闭卡顿、刷新首内容帧、搜索 timeout、参考 Diff 加载态仍未闭环，按 `retained-acceptance-status` 与各专项文档继续。
 
 ## 4. 重写依据（已用于字体段落）

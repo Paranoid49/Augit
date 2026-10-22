@@ -948,9 +948,13 @@ async function main() {
         if (window.__worktreeFails) return { available: true, changed: false, reason: '目标目录不为空。' };
         return { available: true, changed: true, branch: params.branch };
       }
+      if (method === 'git/fetch-cancel') {
+        window.__fetchCancelCalls = (window.__fetchCancelCalls || 0) + 1;
+        window.__fetchCancelParams = (window.__fetchCancelParams || []).concat([params]);
+        return { cancelled: true };
+      }
       if (method === 'git/fetch') {
-        window.__fetchCalls = (window.__fetchCalls || 0) + 1;
-        // 第 178 轮：参数要能被断言看到（「更新选中分支」必须带 branch），并支持注入延迟，
+        window.__fetchCalls = (window.__fetchCalls || 0) + 1;        // 第 178 轮：参数要能被断言看到（「更新选中分支」必须带 branch），并支持注入延迟，
         // 才能观察到权威 `GitFetchSupport.isFetchRunning` 对应的"获取进行中"禁用态。
         window.__fetchParams = (window.__fetchParams || []).concat([params]);
         const fetchDelay = window.__fetchDelayMs || 0;
@@ -11240,6 +11244,40 @@ async function main() {
       fetchFail.toastTitle === 'Fetch failed'
         && typeof fetchFail.toastText === 'string'
         && fetchFail.toastText.includes('No remote configured'));
+
+    // Fetch 进行中按 Esc：关闭弹层并向宿主发送 git/fetch-cancel；晚到的成功结果不得再弹通知。
+    await pa.page.evaluate(() => {
+      window.__fetchFails = false;
+      window.__fetchDelayMs = 2500;
+      window.__fetchCancelCalls = 0;
+      if (window.__augitLive) window.__augitLive.toast = null;
+      window.__augitRenderRegions('toast');
+    });
+    await openPopover();
+    await pa.page.locator('[data-popover-action="fetch"]').click();
+    await pa.page.waitForTimeout(300);
+    await pa.page.keyboard.press('Escape');
+    await pa.page.waitForTimeout(250);
+    const fetchCancelled = await pa.page.evaluate(() => ({
+      cancelCalls: window.__fetchCancelCalls || 0,
+      cancelParams: window.__fetchCancelParams || [],
+      overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+      running: !!(window.__augitLive && window.__augitLive.logFetchRunning),
+    }));
+    check('Fetch 进行中 Esc 关闭弹层并向宿主取消: ' + JSON.stringify(fetchCancelled),
+      fetchCancelled.cancelCalls === 1
+        && fetchCancelled.cancelParams[0]
+        && Number.isInteger(fetchCancelled.cancelParams[0].requestId)
+        && fetchCancelled.overlay === false
+        && fetchCancelled.running === false);
+    await pa.page.waitForTimeout(2800);
+    const lateFetchToast = await pa.page.evaluate(() => ({
+      title: (document.querySelector('.toast-title') || {}).textContent || null,
+      text: (document.querySelector('.toast-text') || {}).textContent || null,
+    }));
+    check('取消后晚到的 Fetch 结果不弹成功通知: ' + JSON.stringify(lateFetchToast),
+      lateFetchToast.title === null);
+    await pa.page.evaluate(() => { window.__fetchDelayMs = 0; });
     check('弹层已标注的快捷动作数量: ' + actionCount, actionCount >= 5);
     await pa.page.close();
 

@@ -56,9 +56,17 @@
 - 结论：不能用页内 toast 复现参考的模态之上通知。Augit 改为在远端管理器**内联显示 Git 原始错误**，保留可见反馈；该呈现与参考不同，登记为**差异、未验收**，不写成已对齐。
 - `live-goal-remote` 场景相应断言：自动 Fetch 失败时 `notice` 同时含 `Added fetchfail` 与 `No remote configured`，且不弹被遮挡的 toast。本模块 **42/42** 通过。
 
+### 2.5 Fetch 取消
+
+- 正常入口：临时仓库 origin 改为 `http://127.0.0.1:18999/repo.git`，用本地 TCP 监听只接受连接、不返回 HTTP 响应，让 `git fetch` 保持等待。
+- PID 23880、Light、DPI168、最大化；UIA 打开分支弹层并点击 `Update Project…`；1 秒后确认应用子进程 `git.exe`（PID 19424）仍在运行，慢服务日志出现 `ACCEPT 127.0.0.1:58682`。
+- 将应用置前后发送 Esc：约 2 秒内 `git.exe` 子进程消失，分支弹层关闭，UIA 无 `Fetch failed`/`Fetch successful`；截图 `artifacts/fetch-evidence-2026-10-22/fetch-cancelled.png`（sha256 `5D1FE750…112EB`）。
+- 实现：网页为每次 Fetch 生成 `requestId`；宿主 `git/fetch` 用 linked CTS 登记，`git/fetch-cancel` 只取消对应 requestId；Esc/关闭弹层发送取消，晚到的结果不再弹通知。
+- 边界：慢服务是受控诊断服务，不是自然慢盘；取消只验证进程结束和 UI 恢复，未测网络层 FIN/重试。
+
 ## 3. 验证
 
-- 全量 `live-shell` **2342/2342 通过**（退出码 0、未执行 0）；fetch 场景断言成功通知标题/正文、失败关闭弹层与原始错误；`live-goal-remote` 断言自动 Fetch 失败保留内联错误且不弹遮挡 toast。
+- 全量 `live-shell` **2344/2344 通过**（退出码 0、未执行 0）；fetch 场景断言成功通知标题/正文、失败关闭弹层与原始错误；`live-goal-remote` 断言自动 Fetch 失败保留内联错误且不弹遮挡 toast；分支弹层场景断言 Fetch 进行中 Esc 发送一次 `git/fetch-cancel`、弹层关闭且晚到成功结果不弹通知。
 - 未改 `mockup.js`/`mockup.css`，`verify-ui-assets` 仍为双侧一致。
 
 ## 4. 边界
