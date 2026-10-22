@@ -105,13 +105,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:/github/Augit/tools/start-
 - Run 配置/AI 等是参考独有能力，Augit 不新增；Augit 在该位置显示当前文件名，属于产品信息，不应为了凑图加一个没有功能的 `Current File` 下拉。
 - 结论：把该区域登记为参考独有功能差异；`pixel-pair-protocol` 第 4.3/4.4 节把它写成“文件上下文语义差异”不准确，已更正。证据：`artifacts/pixel-rulings-2026-10-22/pycharm-run-widget-menu.png`、`pycharm-apppy-titlebar.png`。
 
-### 5.3 仍需产品裁决的三项
+### 5.3 2026-10-22 已裁决的三项
 
-1. **Markdown 预览字体/字号**：参考插件 CSS 为正文 14 px `Helvetica, Arial, freesans, sans-serif`，`pre` `0.85em`、`code` `0.9em`；`product-spec.md` §7 与 `design-system.md` §5.3 要求预览正文跟随界面字号、代码跟随等宽字号。两者不能同时满足。候选实现已验证但未提交。
-2. **Push 失败呈现**：参考关闭对话框并在右下显示 `Push failed` balloon（错误正文 + `Show details in console`）；`ux-spec.md` §7.12 要求失败保留对话框、列表与焦点并允许重试。需要确认是否采用“关闭对话框 + balloon + 点击动作重新打开保留重试”的兼容方案。
-3. **文件状态表达**：参考 Project Files 视图只用文件名颜色；`ux-spec.md` 第 171 行要求同时显示状态文字或文件状态标记，Augit 现有 `M` 徽标因此与参考不同。需要确认是改为仅颜色，还是保留徽标并登记为已批准差异。
+1. **Markdown 预览字体/字号**：用户裁决以参考实机与 `intellij-community` 为准。实际参考预览字号为 13px（覆盖插件默认 14px），`pre` 0.85em、`code` 0.9em；已实现并同步修订 `product-spec.md` §7、`design-system.md` §5.3、`ux-spec.md` §7.3。正常入口实测见[Markdown 预览参考排版](markdown-typography-2026-10-22.md)。
+2. **Push 失败呈现**：按参考关闭对话框并显示 `Push failed` balloon；为保留重试，balloon 动作 `Show details` 重新打开含错误详情、可重试的 Push 对话框，不新增 Git Console。待实施并同步修订 `ux-spec.md` §7.12。
+3. **文件状态表达**：按参考 Project Files 只用文件名颜色，移除行尾 `M` 徽标；已实现并同步修订 `ux-spec.md` 第 171 行。正常入口截图见[Markdown 预览参考排版](markdown-typography-2026-10-22.md) §1.2。
 
-在裁决前不提交对应产品改动；其余已授权工作继续。
+三项均已由用户裁决，不再等待产品选择；未实施项按[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md) §8 继续。
 
 ## 6. 清理与边界
 

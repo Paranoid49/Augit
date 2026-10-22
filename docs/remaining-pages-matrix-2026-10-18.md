@@ -6,10 +6,10 @@
 | --- | --- | --- | --- | --- |
 | 1 | 打开工作区 | 部分（参考 Welcome 已采，语义状态） | [Open Workspace 参考采集](open-workspace-reference-2026-10-19.md) | 实际 `Open Workspace` 对话框 vs 参考无项目 `WelcomeScreen`；共享最近项目/打开/克隆语义，但上下文/结构不同，暂不计页面级；补同上下文状态或实际 Choose Directory 动作 |
 | 2 | 初始化仓库 | 配对 | [初始化仓库配对](init-repo-homologous-pair-2026-10-18.md) | 执行初始化后状态、Choose Directory、已存在 .git、深色 |
-| 3 | 项目 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md)（含 Project 面板） | 面板几何/宽度差异继续收窄 |
+| 3 | 项目 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md)（含 Project 面板）、[文件状态表达](markdown-typography-2026-10-22.md) | 文件状态已改为参考纯颜色、无行尾徽标（正常入口截图）；面板几何/宽度差异继续收窄 |
 | 4 | 项目右键菜单 | 配对（文件行+根节点） | [项目文件右键菜单配对](project-file-context-homologous-pair-2026-10-18.md)、[根节点右键配对+修复](project-root-context-homologous-pair-2026-10-18.md) | 目录节点/菜单动作未测 |
 | 5 | 普通文本 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md) | 标签/工具栏/几何已知差异 |
-| 6 | Markdown | 配对 | [Markdown 配对](markdown-homologous-pair-2026-10-18.md) | 源码高亮/垂直节奏 |
+| 6 | Markdown | 配对 | [Markdown 配对](markdown-homologous-pair-2026-10-18.md)、[参考排版实现与实测](markdown-typography-2026-10-22.md) | 已按参考实机 13px 实现：h1/正文/代码垂直带与参考对齐，标题/正文位置一致；代码字族回退宽度差 16 物理 px；深色/大字号/整窗像素未覆盖 |
 | 7 | JSON | 配对 | [JSON 配对](json-homologous-pair-2026-10-18.md) | 语法高亮/工具栏 |
 | 8 | 图片 | 配对 | [有效图片配对](image-valid-homologous-pair-2026-10-18.md) | 默认缩放按 §7.5 不放大，不改 |
 | 9 | 不可预览文件 | 配对（大文件预览）/部分 | [大文件预览配对](large-file-limit-homologous-pair-2026-10-18.md)、[Warning 真实输入闭环](large-warning-real-input-2026-10-19.md)、[二进制 Diff 复核](binary-diff-reference-2026-10-19.md) | 实际 Warning 显示与两个真实鼠标动作已闭环；参考同文件无 Warning，故无参考动作可配；二进制摘要页产品专有差异（参考 `.bin` 未知类型/`.zip` 归档页），图片大文件仍未覆盖 |

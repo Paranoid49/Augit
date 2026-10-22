@@ -414,7 +414,7 @@
 | --- | --- | --- |
 | §2.4「导航动作在 lead 为空时选**第一行**」 | **在 Augit 的 DOM 模型里不可达**，无需实现 | 树容器 `.side-content.tree` **没有 `tabindex`**（有 `role="tree"` 但不可聚焦），能聚焦的是行本身（`<a href>`）；`live-data.js` 的方向键处理以 `event.target.closest(".side-content.tree .tree-row")` 为前提，因此不存在「树有焦点但没有任何行是 lead」的状态 |
 | 参考实现的树是否画**缩进导线** | **不画**，Augit 一致，无需加 | `ui.Tree.hash` 在参考家族里走 `tree-indent-guide-border` → `tool-window-border`，但把参考截图（`pycharm-history-normal.png`）的项目树放大后，逐级缩进的行之间**没有任何竖线** |
-| 树行前缀的 `M↓` 是不是状态徽标 | **不是**，是 **Markdown 文件类型图标**（Markdown 标志本身就是 M + 下箭头） | 参考图里所有 `.md` 行都带 `M↓`、`.bmp` 行是另一套橙棕色图标；`design-system.md` 的「图标 → 状态标记 → 文件名」顺序未被违反 |
+| 树行前缀的 `M↓` 是不是状态徽标 | **不是**，是 **Markdown 文件类型图标**（Markdown 标志本身就是 M + 下箭头）；项目树状态只用文件名颜色，行尾不显示 A/M/? 徽标（2026-10-22 裁决） | 参考图里所有 `.md` 行都带 `M↓`、`.bmp` 行是另一套橙棕色图标；状态颜色与 `aria-label`/`data-git-status` 保留，`design-system.md` 的图标顺序规则在此不含可见状态标记 |
 | §1.3 `forceFocusedSelectionForeground` | New UI 为 `false` → **选中行沿用元素自身颜色**，只有背景随焦点变；Augit 的「文件名按状态着色、不随焦点改写」**正是该行为** | 本册原文：expUI 里该键为 `false`（`expUI_light.theme.json:799`），旧主题 `intellijlaf` 才是 `true` |
 | 参考图里选中行文件名呈**红色** | 不是规则差异，是该文件自身的状态色（状态色含**冲突红**） | 同图其余修改文件均为蓝色（`修改`），与 Augit 的 `.file-status-*` 令牌一致 |
 | §1.1「展开/收起箭头只在选中且有焦点时用 selected 版图标」 | 该条**不适用于** `expui/general/tree*.svg`：那三枚是**「树形视图」图画**（两个小方框 + 一段 L 形连线），不是行内折线 | `general/tree.svg` 与 `general/treeSelected.svg` 唯一差别是描边色 `#6C707E` → **`#3574F0`**，即「选中态用强调蓝」；它是工具栏切换按钮的图形语义，与行内折线（`--augit-tree-arrow`）无关 |

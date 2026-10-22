@@ -3044,33 +3044,30 @@ function liveTreeRowHtml(entry, selected, live) {
   const status = !entry.isDirectory ? treeGitStatus(entry.path, live) : null;
   const statusClass = status ? ` file-status-${status.className}` : "";
   const statusLabel = status ? `, Git status:${status.label}` : "";
-  const statusMarker = status
-    ? `<span class="tree-status file-status-${status.className}" aria-hidden="true">${status.marker}</span>`
-    : "";
   // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
   // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
   // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
   const gitAttrs = status
     ? ` data-git-status="${status.className}" data-index-status="${escapeHtml(status.indexStatus)}" data-worktree-status="${escapeHtml(status.workTreeStatus)}"`
     : "";
-  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}"${gitAttrs} role="treeitem" aria-label="${escapeHtml(entry.name + statusLabel)}" aria-level="${entry.depth + 1}" aria-selected="${entry.path === selected || entry.name === selected ? "true" : "false"}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name${statusClass}">${escapeHtml(entry.name)}</span>${statusMarker}${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}"${gitAttrs} role="treeitem" aria-label="${escapeHtml(entry.name + statusLabel)}" aria-level="${entry.depth + 1}" aria-selected="${entry.path === selected || entry.name === selected ? "true" : "false"}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name${statusClass}">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
 }
 
-/** 项目树文件的状态只影响文件名与辅助标记，不能覆盖文件类型图标的颜色。 */
+/** 项目树文件状态只影响文件名颜色与无障碍状态，不能覆盖文件类型图标的颜色。 */
 function treeGitStatus(path, live) {
   const file = (live && live.status && Array.isArray(live.status.files) ? live.status.files : [])
     .find((item) => item && item.path === path);
   if (!file) return null;
   const kind = String(file.kind || "Modified");
   const status = {
-    Added: { className: "added", marker: "A", label: "Added" },
-    Untracked: { className: "unknown", marker: "?", label: "Unversioned" },
-    Modified: { className: "modified", marker: "M", label: "Modified" },
-    Deleted: { className: "deleted", marker: "D", label: "Delete" },
-    Renamed: { className: "modified", marker: "R", label: "Rename" },
-    Copied: { className: "added", marker: "C", label: "Copy" },
-    TypeChanged: { className: "modified", marker: "T", label: "Type Changed" },
-    Unmerged: { className: "conflict", marker: "!", label: "Conflicts" },
+    Added: { className: "added", label: "Added" },
+    Untracked: { className: "unknown", label: "Unversioned" },
+    Modified: { className: "modified", label: "Modified" },
+    Deleted: { className: "deleted", label: "Delete" },
+    Renamed: { className: "modified", label: "Rename" },
+    Copied: { className: "added", label: "Copy" },
+    TypeChanged: { className: "modified", label: "Type Changed" },
+    Unmerged: { className: "conflict", label: "Conflicts" },
   }[kind];
   if (!status) return null;
   const composite = file.indexStatus === "D" && file.workTreeStatus === "?"

@@ -60,8 +60,8 @@
 | 已批准例外 | 参考 `Start Free Trial`、右侧工具窗竖条；Augit 无 | 单列排除，不计通过 |
 | 标题栏/标签 | 标签圆角、内边距、激活底色与参考不同；参考有 trial 按钮 | 共享区域，需整改 |
 | 项目树根行 | Augit `fixture` + 灰色路径后缀；参考直接显示完整路径 | 共享区域，需按产品裁决统一 |
-| 文件状态 | Augit 行尾 `M` 徽标；参考 Project Files 视图无徽标（状态以颜色表达） | 共享区域，需对齐 |
-| 编辑区预览 | `Pixel reference` 等文字出现重影（字体/字号/左缘不一致），代码块底色与内距不同 | 共享区域，需按参考字体度量 |
+| 文件状态 | 2026-10-22 已改为与参考相同的文件名颜色表达，移除行尾 `M` 徽标 | 已对齐；正常入口局部截图见[Markdown 记录](markdown-typography-2026-10-22.md) |
+| 编辑区预览 | `Pixel reference` 等文字出现重影（字体/字号/左缘不一致），代码块底色与内距不同 | 2026-10-22 已按参考实机 13px 排版实现；垂直带对齐，代码字族回退宽 16 px |
 | 底部 Git | 工具栏分支/日期/路径控件宽度与位置、提交行高、右侧详情列宽均不同 | 共享区域，需逐项测量 |
 | 状态栏 | 两侧文本与分段位置不同 | 共享区域 |
 
@@ -94,29 +94,17 @@
 `org/intellij/plugins/markdown/extensions/common/baseStyles/default.css`（存于
 `artifacts/pixel-pair-main-project-2026-10-22/intellij-markdown-default.css`），与 Augit 现行规则对照：
 
-| 规则 | 参考 `default.css` | Augit `mockup.css` | 差 |
+| 规则 | 参考 `default.css` | Augit `mockup.css`（2026-10-22 修改后） | 差 |
 | --- | --- | --- | --- |
-| body 字体 | `Helvetica, Arial, freesans, sans-serif` | 继承 UI 字体（Microsoft YaHei UI） | 字体族不同，拉丁字宽偏大 |
-| body 字号/行高 | **14px / 1.6**，`margin: 0 2em` | 继承 13px（`p/li` 后改为 `inherit`）/1.6，`padding: 0 2em` | 字号小 1px |
-| 标题 | h1 `2.2em`、h2 `1.8em`、h3 `1.3em`，行高 1.4/1.2/1 | 同左（已对齐） | 一致 |
-| `pre` | **`0.85em`** JetBrains Mono（≈11.9px），行高 1.45，`padding: 16px` | `var(--augit-code-size)` = **13px**，行高 1.45，padding `16rem/12` | 代码字号偏大，解释实测 22 vs 17 的墨迹高 |
-| `code`（行内） | `0.9em` | 13px | 偏大 |
+| body 字体 | `Helvetica, Arial, freesans, sans-serif` | 同左 | 一致 |
+| body 字号/行高 | **13px / 1.6**（参考预览字号设置 13px，覆盖插件默认 14px），`margin: 0 2em` | 13px / 1.6，`padding: 0 2em`（26px） | 一致 |
+| 标题 | h1 `2.2em`、h2 `1.8em`、h3 `1.3em`，行高 1.4/1.2/1，粗体 600（Arial 600 实际匹配 Bold） | 同左，600 | 一致 |
+| `pre` | **`0.85em`** JetBrains Mono（≈11.05px），行高 1.45，`padding: 16px` | `.85em`（≈11.05px）、行高 1.45、padding 16px | 一致 |
+| `code`（行内） | `0.9em` | `.9em`（≈11.7px） | 一致 |
 
-**规范冲突（暂不自行选择）**：`design-system §5.3` 第 173 行写“Markdown 预览正文跟随界面字号，
-代码块跟随等宽字号”，按当前固定等宽 13 会得到 13px；参考实际是 body 14px 的 0.85em ≈ 11.9px。
-两者不能同时满足。候选实现已单独验证但**未提交**（提交会与 §5.3 直接冲突）：
+**裁决与实施（2026-10-22）**：用户对 Markdown 字体/字号、Push 失败呈现、文件状态表达统一答复“参考 PyCharm 实机与 `D:/github/intellij-community`”。本节按参考实机实现并同步修订 `product-spec.md` §7、`design-system.md` §5.3、`ux-spec.md` §7.3；计算样式验证见 `tools/audit/live-restoration-fixes.cjs` 与 `tools/verify-ux-markdown.cjs`。
 
-| 候选改动 | 计算样式验证结果 |
-| --- | --- |
-| `.markdown-preview` `font-family: Helvetica, Arial, freesans, sans-serif; font-size: 14px` | 计算为 `Helvetica, Arial, freesans, sans-serif` / `14px`；h1 `30.8px` |
-| `pre { font-size: .85em }`、`code { font-size: .9em }` | `pre` 11.9px / 行高 17.255px（1.45）、`code` 12.6px |
-
-验证方式：临时页面加载 `docs/ux-mockups/mockup.css`，headless Chromium 读取计算样式；改动已 `git checkout` 还原，
-工作区无遗留。下一轮需裁决：采用候选实现并同步修订 `design-system §5.3`，还是保留“正文跟随界面字号 / 代码跟随等宽字号”。
-在裁决前不提交产品改动。
-
-字号/字体的实测差（参考标题更宽、代码更小）与本节 CSS 差完全对应；位置差（低 10–14px、左缘 +5px）
-还需在字号确定后用同一组行带复测，排除字体度量对基线的连带影响。
+**实现后正常入口复测**（PID 22728，Light、DPI168、2880×1716、参考夹具 README preview-only）：h1 墨迹 y243–278 x758–1107，参考 y243–278 x760–1110；正文 y334–355，与参考完全同带；代码行 y423–442，参考 y424–441；内容左缘相对编辑区 45 vs 参考 44。垂直排版与标题/正文位置已对齐，水平 2–3 px 来自左侧栏分隔。代码行宽 986−784=202，参考 972−786=186：参考 JCEF 实际回退较窄等宽字体，Augit 固定随包 JetBrains Mono 11.05px；登记为字体回退差异，不擅自改字族。详见[Markdown 预览参考排版](markdown-typography-2026-10-22.md)。
 
 ## 5. 当前结论与下一步
 
@@ -126,10 +114,10 @@
 
 下一步（按差异占比从高到低）：
 
-1. 标题栏/标签条：先确认「标题栏中部是否显示当前文件名」与「标签条是否独立成 37px 行」的产品裁决；Augit 目前把文件名放进标题栏中部、标签条与正文同底色，参考是 `Current File` 下拉 + 独立标签条。
-2. 项目树：统一根行呈现（名称 + 路径的样式/省略）与文件状态表达（徽标 vs 颜色），以参考 Project Files 视图为准；
-3. 编辑区预览：按参考 Markdown 预览的字体、字号、段落间距、代码块内距逐项测量，消除文字重影；
-4. 底部 Git：工具栏控件宽度、提交行高、详情列宽按参考测量后整改；
+1. 标题栏/标签条：标题栏中部已核实为参考 Run 配置选择器，属参考独有能力，不新增；剩余是标签圆角/内边距与标题栏右侧共享图标的逐项测量。
+2. 项目树：文件状态已改为参考的纯颜色表达并移除行尾徽标；根行呈现（名称 + 路径的样式/省略）仍需按 Project Files 视图统一。
+3. 编辑区预览：已按参考实际 13px 排版实现，h1/正文/代码垂直带与参考对齐；剩余是代码字族回退宽度与深色/大字号复测。
+4. 底部 Git：工具栏控件宽度、提交行高、详情列宽按参考测量后整改；参考的 Console 与额外工具图标属参考独有能力，单列排除。
 5. 每改一类重抓两端整窗图，重新计算差异与分带占比，直到共享区域可判定；通过前不登记像素合格。
 
 ## 6. 清理
@@ -138,12 +126,12 @@
 - 未修改参考配置与用户项目文件；参考使用隔离 config/system/log。
 - 首轮另一次采集的参考 PID 6368、Augit PID 21680 也已正常关闭。
 
-## 7. 当前阻塞汇总（2026-10-22 收尾）
+## 7. 当前阻塞与待实施裁决（2026-10-22 收尾）
 
-1. **Markdown 预览字号/字体**：候选实现已验证（14px Helvetica、pre .85em、code .9em），但与 `product-spec.md` §7、`design-system.md` §5.3「正文跟随界面字号、代码跟随等宽字号」冲突，待裁决后提交。
+1. **Markdown 预览字号/字体（已裁决、已实施 CSS）**：2026-10-22 用户裁决以参考实机与 `intellij-community` 为准。正文 13px Helvetica/Arial 等、`pre` .85em、`code` .9em 已落地，`product-spec.md` §7、`design-system.md` §5.3、`ux-spec.md` §7.3 已同步；待正常入口整窗像素复测。
 2. **侧栏宽度（已核对，不是 token 缺陷）**：`side-panel-default=360` 是左侧工具窗轨道宽度，不含 37 px rail 和两侧 4 px 间隙。两端项目树左缘同为物理 x=72；Augit 白色内容止于 699、参考止于 703（差 2.3 CSS），与参考保存宽度／边框／滚动条留白的量级相符，但尚需读取参考保存值确认。**不改 token 凑图**。
-3. **标题栏中部与文件状态**：参考中部是 Run 配置选择器（`Current File` / `Edit Configurations…`），属参考独有能力，不新增、不计共享区域；Augit 显示当前文件名是产品信息。文件状态仍待确认：参考 Project Files 只用颜色，`ux-spec.md` 第 171 行要求状态文字或标记，现有 `M` 徽标与参考不同。
-4. **Push 失败呈现**：参考关闭对话框并显示 `Push failed` balloon；`ux-spec.md` §7.12 要求失败保留对话框与重试。需确认兼容方案后实施。
+3. **标题栏中部与文件状态（已裁决、待实施文件状态）**：参考中部是 Run 配置选择器（`Current File` / `Edit Configurations…`），属参考独有能力，不新增、不计共享区域；Augit 显示当前文件名是产品信息。文件状态按参考改为文件名颜色、移除 `M` 徽标，实施时同步修订 `ux-spec.md` 第 171 行。
+4. **Push 失败呈现（已裁决、待实施）**：参考关闭对话框并显示 `Push failed` balloon；保留重试的兼容方案为 balloon 动作 `Show details` 重新打开含错误详情与重试的 Push 对话框，不新增 Git Console。实施时同步修订 `ux-spec.md` §7.12。
 
 Settings 的深色、首内容和三条关闭路径证据见[Settings 深色首内容实测](settings-dark-first-content-2026-10-22.md)；该文同时纠正了 DWM cloak 查询属性（应查 `DWMWA_CLOAKED=14`，不是只写的 13）。
 

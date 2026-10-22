@@ -111,3 +111,13 @@
 ## 7. 完成条件
 
 只有保留范围内的行为、性能及共用功能页像素目标都由正常入口的实际证据支持，才能标记整体完成。测试通过、配对数量、提交推送成功、局部状态级配对或小区域配准都不构成整体验收。
+
+## 8. 2026-10-22 追加裁决
+
+用户对以下三项统一答复：**参考 PyCharm 实机与 `D:/github/intellij-community`**。
+
+1. **Markdown 预览字体/字号**：采用参考 Markdown 插件排版——正文 13px `Helvetica, Arial, freesans, sans-serif`，`pre` 0.85em、`code` 0.9em；同步修订 `product-spec.md` §7、`design-system.md` §5.3 和 `ux-spec.md` §7.3，不再要求预览跟随界面/等宽字号。2026-10-22 已实现 CSS 与测试，正常入口像素复测另行登记。
+2. **Push 失败呈现**：按参考关闭 Push 对话框并在右下显示 `Push failed` balloon（类型图标、粗体标题、原始脱敏错误正文、蓝色文字动作）。参考的 `Show details in console` 依赖 Augit 不提供的 Git Console；为保留既有重试能力，动作改为 `Show details`，点击重新打开含错误详情、可重试的 Push 对话框。实施时同步修订 `ux-spec.md` §7.12 的“失败保留对话框”表述，不新增独立结果页或 Git Console。
+3. **文件状态表达**：Project Files 视图按参考只用文件名颜色表达状态，移除行尾 `M` 徽标；同步修订 `ux-spec.md` 第 171 行，保留 `FILESTATUS_*` 颜色语义，不新增其他状态列。
+
+三项均不得扩大为新的有意差异；实施后仍以正常入口实机与整窗像素证据验收。

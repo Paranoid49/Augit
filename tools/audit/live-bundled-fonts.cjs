@@ -38,7 +38,7 @@ module.exports = async ({ openScene, check }) => {
       });
       const role = await page.locator(selector).first().evaluate(node => ({ family: getComputedStyle(node).fontFamily, size: getComputedStyle(node).fontSize, ligatures: getComputedStyle(node).fontVariantLigatures }));
       assert.ok(role.family.includes('JetBrains Mono'), `${name}: ${JSON.stringify(role)}`);
-      assert.equal(role.size, '13px');
+      assert.equal(role.size, name === 'markdown-preview' ? '11.05px' : '13px');
       if (name !== 'terminal') assert.equal(role.ligatures, 'none', '参考默认关闭连字');
       const faces = await page.evaluate(() => [...document.fonts].filter(f => f.family.replaceAll('"', '') === 'JetBrains Mono').map(f => ({ family: f.family, style: f.style, weight: f.weight, status: f.status })));
       assert.equal(faces.length, 4); assert.ok(faces.every(face => face.status === 'loaded'));

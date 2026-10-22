@@ -136,9 +136,9 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 - 只读文本、Diff 和终端：使用用户设置的等宽字体，默认随包 `JetBrains Mono` 2.304，资源不可用时依次回退 `Cascadia Mono`、`Consolas`、`Courier New`。必须验证随包字体加载或系统字体存在，不能只把不存在的名称交给系统后接受无声替换。参考默认`FontPreferencesImpl.myUseLigatures=false`，只读正文、Diff与Markdown代码关闭连字；终端沿用xterm逐格字形。
 - 界面、Markdown 与终端共用字体解析结果，界面按 `en` 区域渲染，用户文档保留原文。应用不读取 PyCharm 目录内的字体资源；随包字体仅来自独立开源仓库，附 OFL 许可证。用户安装的字体可以通过已有设置选择。
 - 为了比较字体和布局，PyCharm 参考窗口与 Augit 都必须先设置为相同的界面字体、等宽字体和字号。2026-10-11 前台实测 PyCharm 为 Microsoft YaHei UI／12、JetBrains Mono／13.0、编辑器行距 1.2；Augit 当前用户配置为 Microsoft YaHei UI／12、Cascadia Mono／13，两端等宽字体尚未统一。此前 Cascadia Mono 是 Augit 配置，不能写成 PyCharm 实测值。用户已保存字体不被静默覆盖，应用不读取 PyCharm 字体；本批次已安装并随包集成独立开源 JetBrains Mono，但未统一实际字体前不得宣称正文栅格与行高验收通过。
-- Markdown 预览必须接收同一套用户字体设置，并对字体名称进行 HTML/CSS 转义。正文跟随**界面**字号、代码块跟随**等宽**字号——落地细节、死令牌 `--augit-ui-font-size` 的订正与本轮验证见 [21 · Markdown 预览字号归属与死令牌](nui-behavior/21-markdown-preview-fonts.md)。
+- Markdown 预览采用参考 PyCharm Markdown 插件 `baseStyles/default.css` 的排版，不接收界面/等宽字号设置：正文字族 `Helvetica, Arial, freesans, sans-serif`、字号 13px（参考预览字号设置 13px 覆盖插件默认 14px），代码块 `0.85em`、行内代码 `0.9em`。参考页面必须对 Markdown 内容做 HTML/CSS 转义。2026-10-22 用户裁决见[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md) 的追加条目。
 - “恢复参考外观”的快照为 Light、Microsoft YaHei UI／12、JetBrains Mono／13，来源为2026-10-12前台复核。按用户2026-10-13裁决，新配置默认使用随包 JetBrains Mono 2.304；恢复前验证实际字体资源和系统字体。资源不可用时依次选择Cascadia Mono、Consolas、Courier New并显示原因。恢复只改草稿，Cancel不持久化，不覆盖已有用户字体。字体资源实际加载后重新度量正文；字体可用与逐像素配对分别登记。
-- Markdown正文行距1.6、左右内距2em；h1–h6倍率为2.2／1.8／1.3／1／1／1，标题顶部1em、底部16px，h1–h3顶部内距0.6em；h2行距1.2、h3为1，列表缩进2em。代码独立等宽字号，代码块内距16px、行距1.45、圆角3px。参考为当前PyCharm安装包Markdown `baseStyles/default.css`，字号归属仍按产品设置模型，不新增独立预览字号。
+- Markdown正文行距1.6、左右内距2em；h1–h6倍率为2.2／1.8／1.3／1／1／1，标题顶部1em、底部16px，h1–h3顶部内距0.6em；h2行距1.2、h3为1，列表缩进2em。代码使用随包等宽字族，字号为正文的0.85em（代码块）与0.9em（行内），代码块内距16px、行距1.45、圆角3px。以上数值取自当前PyCharm安装包Markdown `baseStyles/default.css`；预览不新增独立字号设置，也不跟随界面/等宽字号。
 - 查找框高为`max(30,字高+4,round(28s)+2)`，条高为`max(42,字高+16,round(28s)+14)`；发生局部横向滚动时额外容纳10px滚动条。输入、三开关、导航与关闭仍占一行，Tab聚焦须完整显示命中区；局部滚动不得推动整个编辑器。只读JSON错误与符号链接提示共存时可各自滚动，说明区至少一行加16px内距，正文至少保留一行。
 - Markdown 预览的页面背景、正文、辅助说明和边框共用 `Panel`、`Text`、`Muted`、`Border` 色板；不另设深色背景。加载提示为预览区域顶部的 36px 紧凑行，失败提示按文字换行度量高度，原文或旧预览保持可见。
 - 不使用 Emoji 作为图标，也不使用图标字体中的任意字符替代正式图标绘制。
@@ -170,7 +170,7 @@ PyCharm 2026.2.1 New UI 是空间组织、信息密度、反馈节奏和功能�
 - Windows参考Editor为Subpixel抗锯齿。随包JetBrains Mono加载成功时，编辑器字符步长按独立JBR整数度量取 `round(round(字号 × DPR) × 0.6) / DPR`，以相对浏览器实际字宽的letter-spacing实现；行号和词级／查找高亮使用同一步长，字体或DPI变化重新度量。其他字体、资源未加载时保持原始字距，终端和Markdown渲染预览不套用编辑器规则。32字号×8比例的参考度量和原始屏幕边界见[普通文本取证](pixel-text-pair-2026-10-14.md)。字距对齐不代表抗锯齿墨迹完全相同。
 - 文本行号栏用当前等宽字体实际度量最长行号（至少预留三位），再加 28px 逻辑留白；只读正文、等宽字号或 DPI 变化时重新度量，界面字号不得改变正文起点。
 - 只读正文和 Diff 的行距乘数为 1.2，作用于实际字体度量，不直接以字号乘 1.7。随包JetBrains Mono加载成功后使用参考JBR的AWT度量：hhea为1020/−300/0、unitsPerEm为1000，ascent/descent分别向上取整，再按Java单精度乘1.2向上取整；基线为行高减去descent与一半附加行距。13px对应22px行盒、16px基线；18px/37px保留Java单精度造成的31px/61px行盒。通过真实DOM基线探针只平移文字墨迹，不改行盒、背景或滚动步长。其他字体或资源失败继续使用浏览器实际度量；终端沿已登记的xterm行距，Markdown预览代码仍为1.45。普通文本、JSON、Markdown源文、Diff和Blame共用编辑器规则。32档独立JBR与浏览器实测、真实WebView2基线及边界见[接续记录](pixel-font-followup-2026-10-13.md)。HTML同样按实际等宽字宽度量行号列，行号文字取浅`#AEB3C2`／深`#4B5059`；行号栏与代码区同底、右侧留3px，横向固定，正文单独滚动。
-- 设置中的界面字体与等宽字体各自占一行，每行包含字体名称和独立的字号输入；默认界面字号为 12px，默认等宽字号为 13px。修改等宽字号不得改变树、标签和按钮的字号，修改界面字号不得改变只读源文、Diff和终端的字号。Markdown 预览正文跟随界面字号，代码块跟随等宽字号。
+- 设置中的界面字体与等宽字体各自占一行，每行包含字体名称和独立的字号输入；默认界面字号为 12px，默认等宽字号为 13px。修改等宽字号不得改变树、标签和按钮的字号，修改界面字号不得改变只读源文、Diff和终端的字号。Markdown 预览按参考插件排版固定为正文 13px Helvetica/Arial 等，不跟随界面或等宽字号。
 - 旧版本只保存一个字号时，两类文字先沿用旧值；用户分别调整后独立保存。设置窗口执行“应用”后自身的文字和输入控件也必须立即使用新字体。
 
 ### 5.4 PyCharm 对齐的字体设置契约

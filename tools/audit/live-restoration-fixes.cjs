@@ -67,14 +67,16 @@ module.exports = async function verifyRestorationFixes({ openScene, check }) {
       });
       const ratios = [2.2, 1.8, 1.3, 1, 1, 1];
       metrics.headings.forEach((heading, index) => {
-        assert.ok(Math.abs(heading.size - size * ratios[index]) < .01);
-        assert.equal(heading.family, metrics.body.family);
+        assert.ok(Math.abs(heading.size - 13 * ratios[index]) < .01);
+        assert.equal(heading.family, metrics.preview.family);
       });
-      for (const key of ['body', 'list', 'table', 'quote']) assert.equal(metrics[key].size, size);
-      assert.equal(metrics.preview.padding, size * 2);
-      assert.equal(metrics.code.size, 17);
-      assert.equal(metrics.inline.size, 17);
-      assert.ok(Math.abs(metrics.code.line - 17 * 1.45) < .01);
+      assert.equal(metrics.preview.size, 13);
+      assert.ok(metrics.preview.family.includes('Helvetica'), metrics.preview.family);
+      for (const key of ['body', 'list', 'table', 'quote']) assert.equal(metrics[key].size, 13);
+      assert.equal(metrics.preview.padding, 26);
+      assert.equal(metrics.code.size, 11.05);
+      assert.equal(metrics.inline.size, 11.7);
+      assert.ok(Math.abs(metrics.code.line - 11.05 * 1.45) < .01);
       assert.equal(await page.locator('.markdown-document > .document-toolbar').count(), 0);
       assert.equal(await page.locator('.editor-tabs .markdown-tab-actions button').count(), 3);
       // 预览状态下Ctrl+F仍须借标签动作切到原文，不能保留已移除的正文按钮查询。

@@ -25982,21 +25982,20 @@ async function main() {
         const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="README.md"]');
         const name = row?.querySelector('.tree-name');
         const icon = row?.querySelector('.file-icon');
-        const marker = row?.querySelector('.tree-status');
         return {
           rowStatus: row?.dataset.gitStatus || null,
           nameClass: name?.className || null,
-          marker: marker?.textContent || null,
-          markerLabel: marker?.getAttribute('aria-hidden') || null,
+          marker: row?.querySelector('.tree-status') ? 'present' : null,
+          ariaLabel: row?.getAttribute('aria-label') || null,
           iconClass: icon?.className || null,
           statusCount: document.querySelectorAll('.side-content.tree .tree-row[data-git-status]').length,
         };
       });
-      check('§3.1 项目树文件状态映射到文件名与辅助标记且不覆盖类型图标: ' + JSON.stringify(treeGitStatus),
+      check('§3.1 项目树文件状态只映射到文件名颜色且不覆盖类型图标: ' + JSON.stringify(treeGitStatus),
         treeGitStatus.rowStatus === 'modified'
           && treeGitStatus.nameClass.includes('file-status-modified')
-          && treeGitStatus.marker === 'M'
-          && treeGitStatus.markerLabel === 'true'
+          && treeGitStatus.marker === null
+          && treeGitStatus.ariaLabel.includes('Git status:Modified')
           && treeGitStatus.iconClass.includes('file-icon')
           && treeGitStatus.statusCount > 0);
 

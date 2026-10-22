@@ -1,5 +1,7 @@
 # 21 · Markdown 预览字号归属与死令牌（第 314 轮）
 
+> 2026-10-22 裁决更新：用户明确以参考 PyCharm 实机与 `D:/github/intellij-community` 为准。Markdown 预览改用参考插件 `baseStyles/default.css` 的排版：正文 13px `Helvetica, Arial, freesans, sans-serif`，`pre` 0.85em、`code` 0.9em，不再跟随界面/等宽字号。`product-spec.md` §7、`design-system.md` §5.3、`ux-spec.md` §7.3 已同步修订。以下为历史取证，其中“正文跟随界面字号、代码跟随等宽字号”的结论已被本次裁决取代。
+
 2026-10-14真实六组再次验证JetBrains Mono随包字形、13px行盒22px／基线16px；本次未改变Markdown正文规则。当前共享mockup.js/css MD5为3EEACB9FE4AA6B29CBE0F3495E426CC5／5C1D95FC4479C3DC8BB22D5869324890，前后哈希和命令见[接续记录](../pixel-font-followup-2026-10-13.md)§6；仍不能代替Markdown整页墨迹配对。
 
 2026-10-13字体接续见[字体与窗口记录](../pixel-font-followup-2026-10-13.md)：JetBrains Mono2.304已永久安装并随包分发，Markdown代码用等宽设置且关闭连字，正文仍用界面设置。CDP实际自定义字形及独立JBR行盒/基线通过；完整同态墨迹和终端canvas仍待验收。下文为历史取证，不代表当前缺字体。

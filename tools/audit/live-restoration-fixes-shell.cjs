@@ -65,8 +65,8 @@ const path = require('node:path');
       heading: getComputedStyle(document.querySelector('.markdown-preview h1')).fontSize,
       code: getComputedStyle(document.querySelector('.markdown-source')).fontFamily,
     }));
-    assert.equal(result.markdown.body, '12px');
-    assert.equal(result.markdown.heading, '26.4px');
+    assert.equal(result.markdown.body, '13px');
+    assert.equal(result.markdown.heading, '28.6px');
     assert.equal(result.markdown.modes[1].pressed, 'true');
     await page.screenshot({ path: path.join(output, 'markdown-tabs-light.png') });
     await page.locator('.titlebar [aria-label="Settings"]').click();
