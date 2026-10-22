@@ -5624,8 +5624,36 @@ async function main() {
     await interactive.page.locator('[data-popover-action="push"]').click();
     await interactive.page.waitForTimeout(1300);
     await interactive.page.locator('[data-push-action="confirm"]').click();
-    await interactive.page.waitForTimeout(600);
-    const interactiveState = await interactive.page.evaluate(() => {
+    await interactive.page.waitForSelector('.toast .toast-action', { timeout: 8000 });
+    const failureState = await interactive.page.evaluate(() => {
+      const toast = document.querySelector('.toast');
+      const dialog = document.querySelector('.push-dialog');
+      const action = toast && toast.querySelector('.toast-action');
+      const all = document.body.innerText || '';
+      const banned = ['复制命令', '复制原命令', '在终端重试', '重新输入', '重试命令', '打开终端', 'Git 控制台', 'Git Console'];
+      return {
+        dialogOpen: !!dialog,
+        title: toast ? (toast.querySelector('.toast-title') || {}).textContent : null,
+        text: toast ? (toast.querySelector('.toast-text') || {}).textContent : null,
+        action: action ? action.textContent : null,
+        actionTag: action ? action.tagName : null,
+        actionId: action ? action.dataset.toastAction : null,
+        bannedInPage: banned.filter((word) => all.includes(word)),
+      };
+    });
+    check('§7.12 失败关闭 Push 对话框并显示 Push failed balloon: ' + JSON.stringify(failureState),
+      failureState.dialogOpen === false
+        && failureState.title === 'Push failed'
+        && failureState.text === 'Git requires interactive input; the graphical operation was stopped.'
+        && failureState.action === 'Show details'
+        && failureState.actionTag === 'BUTTON'
+        && failureState.actionId === 'push-details'
+        && failureState.bannedInPage.length === 0);
+
+    await interactive.page.locator('.toast .toast-action').click();
+    await interactive.page.waitForSelector('.push-dialog', { timeout: 8000 });
+    await interactive.page.waitForTimeout(300);
+    const retryState = await interactive.page.evaluate(() => {
       const dialog = document.querySelector('.push-dialog');
       const notice = dialog.querySelector('.push-notice');
       const text = dialog.innerText || '';
@@ -5637,18 +5665,21 @@ async function main() {
         // 界面不得提供"复制原命令/在终端重试"这类入口
         bannedInDialog: banned.filter((word) => text.includes(word)),
         bannedInPage: banned.filter((word) => all.includes(word)),
-        // 失败后保留引用与列表，允许重试
+        // Show details 重开后保留引用与列表，允许重试
         summary: (dialog.querySelector('.push-summary') || {}).innerText || null,
         rows: dialog.querySelectorAll('.push-commit').length,
         confirmDisabled: dialog.querySelector('[data-push-action="confirm"]').disabled,
+        toastAfterOpen: !!document.querySelector('.toast'),
       };
     });
-    check('§7.12 需要交互输入的图形 Git 命令直接失败并说明原因、不提供复制或终端重试: '
-      + JSON.stringify(interactiveState),
-    interactiveState.open === true
-      && interactiveState.notice === 'Git requires interactive input; the graphical operation was stopped.'
-      && interactiveState.bannedInDialog.length === 0 && interactiveState.bannedInPage.length === 0
-      && interactiveState.rows === 1 && interactiveState.confirmDisabled === false);
+    check('§7.12 Show details 重开保留错误、提交列表与重试: ' + JSON.stringify(retryState),
+      retryState.open === true
+        && retryState.notice === 'Git requires interactive input; the graphical operation was stopped.'
+        && retryState.bannedInDialog.length === 0 && retryState.bannedInPage.length === 0
+        && retryState.rows === 1 && retryState.confirmDisabled === false
+        && retryState.toastAfterOpen === false);
+    await interactive.page.locator('[data-push-action="cancel"]').click();
+    await interactive.page.waitForTimeout(300);
     await interactive.page.evaluate(() => { window.__pushFails = false; window.__pushFailReason = null; });
     await interactive.page.close();
 

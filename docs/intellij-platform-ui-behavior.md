@@ -334,7 +334,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | 验证 | 结果 |
 | --- | --- |
 | 资源字节一致（`tools/audit/verify-ui-assets.ps1`） | `PASS: runtime UI assets match the visual mockups.` |
-| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2339 项断言`**（2026-10-22、HEAD `63f5bdb`、退出码 0；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
+| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2340 项断言`**（2026-10-22 当前批次、退出码 0、未执行 0；相对 2339 的增量是 Push 失败场景拆为 balloon 与 Show details 重开两条；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
 | 令牌唯一性 | 全部颜色令牌各 2 处定义（浅/深），无第三处覆盖 |
 | 断言是否硬编码色值 | 零个 hex 字面量——套件只断言令牌名、几何与状态，因此配色变更不会打挂断言 |
 
@@ -344,9 +344,9 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 #### 已验证快照（后续轮次用它低成本确认"代码未变、上次结论仍有效"）
 
-**当前复核（2026-10-22）**：HEAD `63f5bdb` 上完整实时套件通过，退出码 0，`live-shell 通过 2339 项断言`（未执行 0 项）。对应文件 md5：
+**当前复核（2026-10-22 晚）**：本批 Push 失败通知改动后完整实时套件通过，退出码 0，`live-shell 通过 2340 项断言`（未执行 0 项）。相对 2339 的增量来自 Push 失败场景由一条拆成“balloon 关闭”与“Show details 重开”两条。HEAD `2905393` + 本批未提交 web 改动；下面的 md5 表是同日早先 `63f5bdb` 的 2339 快照，保留作历史对照。
 
-| 文件 | md5（2026-10-22 当前复核值） |
+| 文件 | md5（2026-10-22 早先 `63f5bdb` 快照） |
 | --- | --- |
 | `web/src/mockup.css` | `ecfe22743c130acf5db5b8bd5115c7c4` |
 | `web/src/mockup.js` | `455b3d51c2b0d5a442bb0408a0d7d05e` |
@@ -899,4 +899,6 @@ Augit 原有一个 `.scrim`：`color-mix(in srgb, #EEF1F6 32%, transparent)` 底
 
 2026-10-22设置深色首内容与关闭路径：正常入口、隔离配置、真实SendInput，无CDP；深色3周期点击→presented 533.7/492.4/538.3ms、created→presented 431.3/398.4/449.1ms、CapturePreviewAsync 79.5–83.8ms，presented与+60ms及快速点击截图同哈希；60fps Desktop Duplication首帧与稳定帧逐像素相同，无空白中间帧。Cancel/OK/标题关闭点击→消失99.8/126.2/115.4ms（含30ms按住），原生destroy 44.6–58.4ms，均0残留；3次快速点击仍1窗。纠正：查询cloak必须用DWMWA_CLOAKED=14，属性13为只写CLOAK，查询E_INVALIDARG且值恒0，按13判presented会抓到主窗内容。侧栏360不含rail/gap、两端树左缘同为物理72；参考标题栏中部为Run配置选择器（Current File/Edit Configurations），非文件入口。全局设置哈希未变，两实例正常关闭、无本实例WebView2残留。未复现2904ms与capture超时，未覆盖跨屏/长时重复。证据见[settings-dark-first-content-2026-10-22.md](settings-dark-first-content-2026-10-22.md)，整体目标未完成。
 
-2026-10-22 Markdown参考排版与项目树状态：用户裁决以参考实机与intellij-community为准。参考实际预览字号13px（覆盖插件默认14px），正文Helvetica/Arial、pre .85em、code .9em；Augit 14px候选h1墨迹宽377/高39，13px为351/36，与参考351/36一致。正常入口PID 22728、Light、DPI168、2880×1716、参考夹具README preview-only：h1 243–278/758–1107 vs参考243–278/760–1110，正文334–355与参考同带，代码423–442 vs 424–441；内容左缘相对编辑区45 vs 44，水平2–3px来自左栏。代码行宽202 vs参考186，参考JCEF回退较窄等宽字体，Augit固定随包JetBrains Mono11.05px，登记不擅自改字族。项目树移除行尾A/M/?可见徽标，只保留文件名颜色、aria-label与data-git-status；`M↓`是Markdown类型图标。规范product-spec §7、design-system §5.3、ux-spec §7.3/171已同步。verify-ui-assets、verify-ux-markdown 6组+2拖动、mockup-scenes 54/54浅深通过；全量live-shell结果见记录。未做整窗像素，页面级仍50、像素0。证据见[markdown-typography-2026-10-22.md](markdown-typography-2026-10-22.md)。
+2026-10-22 Markdown参考排版与项目树状态：用户裁决以参考实机与intellij-community为准。参考实际预览字号13px（覆盖插件默认14px），正文Helvetica/Arial、pre .85em、code .9em；Augit 14px候选h1墨迹宽377/高39，13px为351/36，与参考351/36一致。正常入口PID 22728、Light、DPI168、2880×1716、参考夹具README preview-only：h1 243–278/758–1107 vs参考243–278/760–1110，正文334–355与参考同带，代码423–442 vs 424–441；内容左缘相对编辑区45 vs 44，水平2–3px来自左栏。代码行宽202 vs参考186，参考JCEF回退较窄等宽字体，Augit固定随包JetBrains Mono11.05px，登记不擅自改字族。项目树移除行尾A/M/?可见徽标，只保留文件名颜色、aria-label与data-git-status；`M↓`是Markdown类型图标。规范product-spec §7、design-system §5.3、ux-spec §7.3/171已同步。verify-ui-assets、verify-ux-markdown 6组+2拖动、mockup-scenes 54/54浅深通过；全量live-shell 2339项通过（本批当时）。未做整窗像素，页面级仍50、像素0。证据见[markdown-typography-2026-10-22.md](markdown-typography-2026-10-22.md)。
+
+2026-10-22 Push失败通知：按用户裁决对齐参考——失败关闭Push对话框并显示`Push failed` balloon（红色错误图标、粗体标题、502原文、蓝色`Show details`）；因不提供Git Console，`Show details`重开保留错误、提交列表与Push的对话框，允许重试。正常入口PID 8360、Light、DPI168、2880×1716、隔离夹具master ahead 1、远端http://127.0.0.1:1/repo.git：真实菜单打开Push→Push，对话框关闭且balloon显示同一502；点击Show details（UIA按钮矩形2268,1610,128,27）后对话框重开、错误与1条待推提交保留、Push可用；Cancel后分支仍ahead 1，远端未变。product-spec §5.1、ux-spec §7.12已同步。test-push-result-toast 12/12、全量live-shell 2340项断言通过（退出码0，未执行0；失败场景拆为balloon与重开两条）、verify-ui-assets与JS语法通过。未做balloon位置像素与深色/认证失败/超时；页面级仍50、像素0。证据见[push-failure-balloon-2026-10-22.md](push-failure-balloon-2026-10-22.md)。

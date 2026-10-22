@@ -1,5 +1,7 @@
 # Git 操作结果通知按参考 balloon 形态整改（2026-10-20）
 
+> 2026-10-22 接续：失败路径已按参考改为“关闭 Push 对话框 + `Push failed` balloon + `Show details` 重开保留重试”，正常入口 HTTP 502 实测与规范修订见[Push 失败通知整改](push-failure-balloon-2026-10-22.md)。本文下文的“失败仍保留内联错误”是 2026-10-20 的当时状态，已被本次整改取代。
+
 ## 1. 参考事实
 
 - 实机：PyCharm 2026.2.1 `Push failed` balloon（`artifacts/pixel-followup-2026-10-19/git-failure-closure/reference/reference-push-failed.png`）。

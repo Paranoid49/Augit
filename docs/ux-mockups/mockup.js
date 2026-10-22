@@ -5242,7 +5242,9 @@ function toastMarkup({ title, text = "", kind = "", action = null, extra = "" })
   const known = Object.hasOwn(TOAST_ICON_PATHS, kind) ? kind : "";
   const classes = ["toast", known ? `toast-${known}` : "", known === "error" ? "error" : ""].filter(Boolean).join(" ");
   const actionHtml = action && action.label
-    ? `<a class="toast-action" href="${escapeHtml(action.href || "settings.html")}">${escapeHtml(action.label)}</a>`
+    ? (action.href
+      ? `<a class="toast-action" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>`
+      : `<button type="button" class="toast-action" data-toast-action="${escapeHtml(action.id || "")}">${escapeHtml(action.label)}</button>`)
     : "";
   return `<div class="${classes}" role="alert">${toastNotificationIcon(known)}<div class="toast-content"><div class="toast-title">${escapeHtml(title)}</div>${text ? `<div class="toast-text">${escapeHtml(text)}</div>` : ""}${extra}${actionHtml}</div></div>`;
 }

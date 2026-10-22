@@ -108,10 +108,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:/github/Augit/tools/start-
 ### 5.3 2026-10-22 已裁决的三项
 
 1. **Markdown 预览字体/字号**：用户裁决以参考实机与 `intellij-community` 为准。实际参考预览字号为 13px（覆盖插件默认 14px），`pre` 0.85em、`code` 0.9em；已实现并同步修订 `product-spec.md` §7、`design-system.md` §5.3、`ux-spec.md` §7.3。正常入口实测见[Markdown 预览参考排版](markdown-typography-2026-10-22.md)。
-2. **Push 失败呈现**：按参考关闭对话框并显示 `Push failed` balloon；为保留重试，balloon 动作 `Show details` 重新打开含错误详情、可重试的 Push 对话框，不新增 Git Console。待实施并同步修订 `ux-spec.md` §7.12。
+2. **Push 失败呈现**：按参考关闭对话框并显示 `Push failed` balloon；为保留重试，balloon 动作 `Show details` 重新打开含错误详情、可重试的 Push 对话框，不新增 Git Console。已实现并同步修订 `product-spec.md` §5.1、`ux-spec.md` §7.12；HTTP 502 正常入口实测见[Push 失败通知整改](push-failure-balloon-2026-10-22.md)。
 3. **文件状态表达**：按参考 Project Files 只用文件名颜色，移除行尾 `M` 徽标；已实现并同步修订 `ux-spec.md` 第 171 行。正常入口截图见[Markdown 预览参考排版](markdown-typography-2026-10-22.md) §1.2。
 
-三项均已由用户裁决，不再等待产品选择；未实施项按[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md) §8 继续。
+三项均已由用户裁决并完成首轮实现，不再等待产品选择；后续按正常入口与整窗像素证据继续验收。
 
 ## 6. 清理与边界
 

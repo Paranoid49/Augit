@@ -4228,6 +4228,28 @@ function clearToast() {
   refreshAfterEvent("toast");
 }
 
+/**
+ * 通知卡片里的应用内动作（2026-10-22 Push 失败 balloon）。
+ *
+ * href 动作仍交给普通链接（如 Git 不可用的设置入口）；没有 href 的动作渲染成
+ * `data-toast-action` 按钮，由这里按当前 toast 的 action.id 核对后执行，避免旧卡片
+ * 的 DOM 在区域重绘前被点到时执行过期动作。
+ */
+document.addEventListener("click", (event) => {
+  const action = event.target.closest && event.target.closest("[data-toast-action]");
+  if (!action) return;
+  const live = window.__augitLive;
+  const toast = live && live.toast;
+  if (!toast || !toast.action || toast.action.id !== action.dataset.toastAction) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (toast.action.id === "push-details") {
+    const failure = toast.text || "";
+    clearToast();
+    void openPushDialog({ failure });
+  }
+});
+
 /** Git 不可用提示的内容；状态早于 live 到达时也要能补出同一条。 */
 function gitUnavailableToast(reason) {
   return {
@@ -8811,9 +8833,10 @@ function setPushDialogRunning(dialog, running, notice = null) {
   }
 }
 
-async function openPushDialog() {
+async function openPushDialog(options = {}) {
   const live = window.__augitLive;
   if (!live) return;
+  const failure = options && typeof options.failure === "string" && options.failure ? options.failure : null;
   rememberDialogFocus();
   closeLiveOverlay();
   const host = document.querySelector(".augit-window");
@@ -8824,6 +8847,11 @@ async function openPushDialog() {
   await loadUnpushed();
   if (!window.__augitPushDialogOpen) return;
   renderPushDialog();
+  if (failure) {
+    // 失败后从 balloon 的 Show details 重开：保留真实错误、提交列表和重试入口。
+    const dialog = document.querySelector("[data-augit-overlay] .push-dialog");
+    if (dialog) setPushDialogRunning(dialog, false, failure);
+  }
 }
 
 function renderPushDialog() {
@@ -9556,8 +9584,9 @@ async function runRemoteAction(action) {
 /**
  * 执行推送（规格 §7.12 第 9 条）。
  *
- * 进行中冻结列表与确认按钮（阻止重复提交）；成功关闭并恢复主窗口原焦点；失败保留引用、
- * 提交列表与焦点并允许重试；用户取消后晚到的成功结果被代次丢弃。
+ * 进行中冻结列表与确认按钮（阻止重复提交）；成功关闭并恢复主窗口原焦点；失败按参考关闭
+ * 对话框并显示 `Push failed` 通知，`Show details` 重开保留错误、提交列表与重试；用户取消后
+ * 晚到的成功结果被代次丢弃。
  */
 /**
  * 推送成功提示文案（供验收套件单测）：优先显示 upstream，缺失时用通用完成文案。
@@ -9596,8 +9625,18 @@ async function confirmPushDialog() {
   }
 
   if (!result || !result.pushed) {
-    window.__augitPushError = (result && result.reason) || "Push failed.";
-    setPushDialogRunning(dialog, false, window.__augitPushError);
+    // 参考：失败关闭 Push 对话框并在右下显示 balloon。Augit 不提供 Git Console，
+    // 因此 balloon 动作为 Show details，点击后重新打开保留错误、列表与重试的对话框。
+    const failure = (result && result.reason) || "Push failed.";
+    window.__augitPushError = failure;
+    window.__augitCommitResult = { pushed: false, reason: failure };
+    closePushDialog();
+    showToast({
+      title: "Push failed",
+      text: failure,
+      kind: "error",
+      action: { id: "push-details", label: "Show details" },
+    });
     return;
   }
 

@@ -107,7 +107,7 @@ Git 命令语义和操作状态以 IntelliJ IDEA 2026.2 为参考，操作界面
 - 兜底校验只要求标题符合 `type(scope)!: description`、`type!: description` 或不带破坏性标记的对应形式，不限制 type 枚举和标题长度，正文与 footer 按规范处理；Git 自动生成的 merge、revert 和 rebase 信息不使用该兜底校验。
 - 完整执行仓库 hooks 和签名配置，不提供跳过校验按钮。
 - 支持单栏/双栏 diff、字词级变化、忽略空白差异、重命名识别、二进制摘要、文件历史、blame 和提交图。
-- 不提供 Git Console 或 Git 操作历史；命令失败时只在当前操作界面临时显示脱敏输出，关闭后不保留。
+- 不提供 Git Console 或 Git 操作历史；命令失败时按参考显示 `Push failed` 通知，正文为脱敏输出，`Show details` 可重新打开操作界面查看并重试；通知关闭后不保留。
 
 ### 5.2 仓库、远端与历史
 

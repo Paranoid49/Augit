@@ -2597,6 +2597,15 @@ textarea,
   text-decoration: none;
 }
 
+button.toast-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
 .toast-action:hover {
   text-decoration: underline;
 }

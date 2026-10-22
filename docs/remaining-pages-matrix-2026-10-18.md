@@ -44,7 +44,7 @@
 | 38 | 关闭运行中终端 | 配对 | [关闭终端配对](close-terminal-homologous-pair-2026-10-18.md) | Stop/Terminate 后的实际终止、Don't ask again 持久化 |
 | 39 | 设置 | 配对（Appearance/Git/Terminal/File View） | [Settings/Appearance](settings-appearance-homologous-pair-2026-10-18.md)、[Settings/Git](settings-git-homologous-pair-2026-10-18.md)、[Settings/Terminal](settings-terminal-homologous-pair-2026-10-18.md)、[Settings/File View](settings-fileview-homologous-pair-2026-10-18.md)、[设置 scoping](settings-pair-scoping-2026-10-18.md)、[原生长时间线](settings-native-timeline-2026-10-20.md)、[深色首内容与关闭路径](settings-dark-first-content-2026-10-22.md) | 简化功能集合已批准；2026-10-20 正常入口 presented 495–585ms、Esc 关闭 32–60ms、presented 首帧完整、3 次快速点击仍 1 窗；2026-10-22 深色 3 周期点击→presented 492–538ms、Cancel/OK/标题关闭均 0 残留、60fps 首帧与稳定帧逐像素相同；2904ms、capture 超时、跨屏与长时间重复未覆盖；像素未合格 |
 | 40 | Git 不可用 | 配对 | [Git 不可用配对](git-unavailable-homologous-pair-2026-10-18.md) | 修复路径后恢复、不同错误、深色 |
-| 41 | Git 操作结果 | 部分（状态级；成功通知已按参考 balloon 形态整改） | [Git 操作结果配对与修复](git-result-homologous-pair-2026-10-18.md)、[Push 网络失败](git-push-failure-2026-10-19.md)、[balloon 形态整改](git-result-balloon-2026-10-20.md) | 成功通知已改为图标/粗体标题/正文/蓝色文字动作，正常入口实测 `Push` + `Pushed to origin/master.`；失败仍保留对话框内联原始错误（参考关闭对话框 + balloon，与本产品保留重试入口冲突，未擅自改）；fetch/取消结果仍未闭环；页面级仍 50、像素 0 |
+| 41 | Git 操作结果 | 部分（状态级；成功/失败通知均已按参考 balloon 形态整改） | [Git 操作结果配对与修复](git-result-homologous-pair-2026-10-18.md)、[Push 网络失败](git-push-failure-2026-10-19.md)、[balloon 形态整改](git-result-balloon-2026-10-20.md)、[Push 失败通知整改](push-failure-balloon-2026-10-22.md) | 成功通知为图标/粗体标题/正文/蓝色动作，正常入口实测 `Push` + `Pushed to origin/master.`；失败已按参考关闭对话框并显示 `Push failed` balloon（502 正常入口实测），`Show details` 重开保留错误、列表与重试；fetch/取消结果仍未闭环；页面级仍 50、像素 0 |
 
 ## 结论
 
