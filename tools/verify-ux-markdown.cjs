@@ -126,6 +126,10 @@ async function main() {
         assert.equal(await preview.locator('[data-font-probe="code"]').evaluate(element => getComputedStyle(element).fontSize), '11.05px');
         assert.equal(await preview.locator('[data-font-probe="inline"]').evaluate(element => getComputedStyle(element).fontSize), '11.7px');
         assert.equal(await preview.locator('[data-font-probe="code"] code').evaluate(element => getComputedStyle(element).fontFamily), '"JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace');
+        // 参考 JCEF 屏幕实测浅色 #F4F7F9；深色取编辑器方案 DOC_CODE_BLOCK #26292C。
+        const codeBackground = theme === 'dark' ? 'rgb(38, 41, 44)' : 'rgb(244, 247, 249)';
+        assert.equal(await preview.locator('[data-font-probe="code"]').evaluate(element => getComputedStyle(element).backgroundColor), codeBackground);
+        assert.equal(await preview.locator('[data-font-probe="inline"]').evaluate(element => getComputedStyle(element).backgroundColor), codeBackground);
       }
       assert.equal(await view.getAttribute('data-markdown-mode'), 'preview');
       const originalText = await preview.innerText();

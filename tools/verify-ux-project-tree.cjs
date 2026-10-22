@@ -75,6 +75,10 @@ async function main() {
             assert.equal(indent.d2 - indent.d1, step, `项目树第 1→2 级按字号缩放左右子缩进：${JSON.stringify(indent)}`);
             assert.equal(indent.d3 - indent.d2, step, `项目树第 2→3 级按字号缩放左右子缩进：${JSON.stringify(indent)}`);
             assert.equal(indent.d7, Math.round(4*scale)+step*7, `项目树第 7 级必须保留缩放后的完整缩进：${JSON.stringify(indent)}`);
+            // 参考 Project Files 根行直接显示完整工作区路径，不再拆成项目名 + 路径后缀。
+            const rootRow = page.locator('.side-content.tree .tree-row.root-row');
+            assert.equal((await rootRow.locator('.tree-name').innerText()).trim(), 'D:\\github\\Augit');
+            assert.equal(await rootRow.locator('.tree-path').count(), 0);
             if (theme === 'light' && dpi === 96 && size === 13) console.log('项目树缩进=' + JSON.stringify(indent));
             passed++;
           } finally { await context.close(); }

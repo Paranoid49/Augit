@@ -26042,6 +26042,9 @@ async function main() {
           selectedBefore: root.classList.contains('selected'),
           ariaBefore: root.getAttribute('aria-selected'),
           liveBefore: window.__augitLive.treeSelectedPath ?? null,
+          // 参考 Project Files 根行直接显示工作区完整路径，不再拆成项目名 + 路径后缀。
+          text: root.querySelector('.tree-name') ? root.querySelector('.tree-name').textContent : null,
+          liveRoot: window.__augitLive.root,
         };
       });
       if (rootState.noRoot !== true) {
@@ -26059,9 +26062,10 @@ async function main() {
           doc: live.document ? live.document.path : null,
         };
       });
-      check('§3.1 单击根行按空字符串入状态（不折叠为 null）: ' + JSON.stringify({ rootState, rootSelected }),
+      check('§3.1 单击根行按空字符串入状态（不折叠为 null）且根行文本为工作区完整路径: ' + JSON.stringify({ rootState, rootSelected }),
         rootState.noRoot !== true
           && rootState.selectedBefore === false && rootState.ariaBefore === 'false'
+          && rootState.text === rootState.liveRoot
           && rootSelected.selected === true && rootSelected.aria === 'true'
           && rootSelected.liveState === '' && rootSelected.doc === null);
 

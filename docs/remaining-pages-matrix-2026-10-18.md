@@ -1,15 +1,15 @@
 # 保留页面覆盖矩阵（2026-10-18）
 
-> 本表按 `docs/ux-spec.md` §12 的页面清单对照当前证据；只做静态盘点，不新增配对，不替代正常入口截图。当前页面级同态配对 **50**、像素合格 **0**。2026-10-20 用户裁决、验收类别和已批准例外见[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md)；本表状态不等于整页像素通过。2026-10-22 已取得首组同态整窗配对（Project Files 视图 + README 预览，2880×1716/DPI168）：原始差异 **15.41%**，未通过；协议、组件测量与三项待裁决见[整窗同态像素配对](pixel-pair-protocol-2026-10-22.md)。
+> 本表按 `docs/ux-spec.md` §12 的页面清单对照当前证据；只做静态盘点，不新增配对，不替代正常入口截图。当前页面级同态配对 **50**、像素合格 **0**。2026-10-20 用户裁决、验收类别和已批准例外见[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md)；本表状态不等于整页像素通过。2026-10-22 首组同态整窗（Project Files 视图 + README 预览，2880×1716/DPI168）原始差异 **15.41%**；第二组修复 Markdown 代码块底色与项目树根行后为 **11.0175%**，仍未通过；协议见[整窗同态像素配对](pixel-pair-protocol-2026-10-22.md)，第二组见[第二组整窗配对](pixel-pair-2-2026-10-22.md)。
 
 | # | 页面/状态 | 状态 | 证据 | 下一步 |
 | --- | --- | --- | --- | --- |
 | 1 | 打开工作区 | 部分（参考 Welcome 已采，语义状态） | [Open Workspace 参考采集](open-workspace-reference-2026-10-19.md) | 实际 `Open Workspace` 对话框 vs 参考无项目 `WelcomeScreen`；共享最近项目/打开/克隆语义，但上下文/结构不同，暂不计页面级；补同上下文状态或实际 Choose Directory 动作 |
 | 2 | 初始化仓库 | 配对 | [初始化仓库配对](init-repo-homologous-pair-2026-10-18.md) | 执行初始化后状态、Choose Directory、已存在 .git、深色 |
-| 3 | 项目 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md)（含 Project 面板）、[文件状态表达](markdown-typography-2026-10-22.md) | 文件状态已改为参考纯颜色、无行尾徽标（正常入口截图）；面板几何/宽度差异继续收窄 |
+| 3 | 项目 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md)（含 Project 面板）、[文件状态表达](markdown-typography-2026-10-22.md)、[第二组整窗](pixel-pair-2-2026-10-22.md) | 文件状态已改为参考纯颜色、无行尾徽标；根行已改为完整路径与常规字重；树文字仍低 1–2 px、树宽差 3 px，面板几何继续收窄 |
 | 4 | 项目右键菜单 | 配对（文件行+根节点） | [项目文件右键菜单配对](project-file-context-homologous-pair-2026-10-18.md)、[根节点右键配对+修复](project-root-context-homologous-pair-2026-10-18.md) | 目录节点/菜单动作未测 |
 | 5 | 普通文本 | 配对 | [首个配对](homologous-main-text-pair-2026-10-18.md) | 标签/工具栏/几何已知差异 |
-| 6 | Markdown | 配对 | [Markdown 配对](markdown-homologous-pair-2026-10-18.md)、[参考排版实现与实测](markdown-typography-2026-10-22.md) | 已按参考实机 13px 实现：h1/正文/代码垂直带与参考对齐，标题/正文位置一致；代码字族回退宽度差 16 物理 px；深色/大字号/整窗像素未覆盖 |
+| 6 | Markdown | 配对 | [Markdown 配对](markdown-homologous-pair-2026-10-18.md)、[参考排版实现与实测](markdown-typography-2026-10-22.md)、[第二组整窗](pixel-pair-2-2026-10-22.md) | 已按参考实机 13px 实现：h1/正文/代码垂直带与参考对齐；代码块底色已对齐 #F4F7F9；代码字族回退宽度差 16 物理 px；整窗第二组 11.0175%，未通过 |
 | 7 | JSON | 配对 | [JSON 配对](json-homologous-pair-2026-10-18.md) | 语法高亮/工具栏 |
 | 8 | 图片 | 配对 | [有效图片配对](image-valid-homologous-pair-2026-10-18.md) | 默认缩放按 §7.5 不放大，不改 |
 | 9 | 不可预览文件 | 配对（大文件预览）/部分 | [大文件预览配对](large-file-limit-homologous-pair-2026-10-18.md)、[Warning 真实输入闭环](large-warning-real-input-2026-10-19.md)、[二进制 Diff 复核](binary-diff-reference-2026-10-19.md) | 实际 Warning 显示与两个真实鼠标动作已闭环；参考同文件无 Warning，故无参考动作可配；二进制摘要页产品专有差异（参考 `.bin` 未知类型/`.zip` 归档页），图片大文件仍未覆盖 |

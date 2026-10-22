@@ -3044,13 +3044,15 @@ function liveTreeRowHtml(entry, selected, live) {
   const status = !entry.isDirectory ? treeGitStatus(entry.path, live) : null;
   const statusClass = status ? ` file-status-${status.className}` : "";
   const statusLabel = status ? `, Git status:${status.label}` : "";
+  // 参考 Project Files 的根行直接显示工作区完整路径，不再拆成“项目名 + 路径后缀”。
+  const label = entry.depth === 0 && live.root ? live.root : entry.name;
   // 选中判据以**路径**为准（重名文件可分布在多级目录，按名字会选错行）；只有实时外壳既没有
   // 用户点过的树行、也没有已打开文档时，`selected` 才会是视觉稿的默认**文件名**，故保留按名字
   // 回退，否则启动瞬间整棵树没有任何选中行（第 270 轮 §4.4 复跑实测：整行高亮断言因此拿不到节点）。
   const gitAttrs = status
     ? ` data-git-status="${status.className}" data-index-status="${escapeHtml(status.indexStatus)}" data-worktree-status="${escapeHtml(status.workTreeStatus)}"`
     : "";
-  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}"${gitAttrs} role="treeitem" aria-label="${escapeHtml(entry.name + statusLabel)}" aria-level="${entry.depth + 1}" aria-selected="${entry.path === selected || entry.name === selected ? "true" : "false"}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name${statusClass}">${escapeHtml(entry.name)}</span>${entry.depth === 0 && live.root ? `<span class="tree-path">${escapeHtml(live.root)}</span>` : ""}</div>`;
+  return `<div class="tree-row ${depth} ${entry.path === selected || entry.name === selected ? "selected" : ""}" style="--tree-depth:${entry.depth}" data-tree-path="${escapeHtml(entry.path)}" data-tree-directory="${entry.isDirectory}"${gitAttrs} role="treeitem" aria-label="${escapeHtml(label + statusLabel)}" aria-level="${entry.depth + 1}" aria-selected="${entry.path === selected || entry.name === selected ? "true" : "false"}" aria-expanded="${entry.isDirectory ? expanded : "false"}" tabindex="-1"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${entry.isDirectory ? "folder-icon" : "file-icon"}">${entry.isDirectory ? treeFolderIcon(entry.depth === 0) : fileTypeIcon(entry.name)}</span><span class="tree-name${statusClass}">${escapeHtml(label)}</span></div>`;
 }
 
 /** 项目树文件状态只影响文件名颜色与无障碍状态，不能覆盖文件类型图标的颜色。 */
@@ -3121,7 +3123,11 @@ function projectTree(selected = "product-spec.md", liveRows = null) {
     <aside class="tool-window side-tool">
       <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("fold-vertical")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="side-content tree">
-        ${rows.map(([depth, chevron, fileIcon, name, path, href]) => `${href ? `<a href="${href}"` : `<div`} class="tree-row ${depth} ${name === selected ? "selected" : ""}" style="--tree-depth:${depth === "root-row" ? 0 : Number(depth.slice(6))}"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${fileIcon === "folder" ? "folder-icon" : "file-icon"}">${fileIcon === "folder" ? treeFolderIcon(depth === "root-row") : fileTypeIcon(name)}</span><span class="tree-name">${name}</span>${path ? `<span class="tree-path">${path}</span>` : ""}${href ? "</a>" : "</div>"}`).join("")}
+        ${rows.map(([depth, chevron, fileIcon, name, path, href]) => {
+          // 参考 Project Files 根行直接显示完整工作区路径，不再拼接项目名与路径后缀。
+          const label = depth === "root-row" ? (path || name) : name;
+          return `${href ? `<a href="${href}"` : `<div`} class="tree-row ${depth} ${name === selected ? "selected" : ""}" style="--tree-depth:${depth === "root-row" ? 0 : Number(depth.slice(6))}"><span class="chevron">${chevron ? icon(chevron) : ""}</span><span class="${fileIcon === "folder" ? "folder-icon" : "file-icon"}">${fileIcon === "folder" ? treeFolderIcon(depth === "root-row") : fileTypeIcon(name)}</span><span class="tree-name">${label}</span>${depth !== "root-row" && path ? `<span class="tree-path">${path}</span>` : ""}${href ? "</a>" : "</div>"}`;
+        }).join("")}
       </div>
     </aside>`;
 }

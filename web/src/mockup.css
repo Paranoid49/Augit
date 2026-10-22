@@ -25,6 +25,10 @@
   /* 2026-10-18 终端配对实测：参考终端工具窗顶边浅色 #F1F2F4、深色 #212326。 */
   --augit-terminal-panel-border: #f1f2f4;
   --augit-panel-muted: #f7f8f9;
+  /* Markdown 代码块/行内代码底取编辑器方案 `DOC_CODE_BLOCK`。安装包浅色方案写 #F8F8F9，
+     但参考 JCEF 屏幕实测为 #F4F7F9（同一区域多张参考图一致），按实机屏幕值落地；
+     深色取方案值 #26292C。 */
+  --augit-doc-code-block: #f4f7f9;
   /* 浅色权威取 ManyIslands 家族（参考主题 "Light with Light Header"）：
      ui.*.borderColor = dialog-border = layer-1-border-inline = gray-150 = #E9EAEE，
      ui.Component.borderColor = control-border = gray-130 = #D1D3D9。
@@ -313,6 +317,7 @@ body[data-theme="dark"] {
   /* 终端工具窗顶边：深色参考实测 #212326（与 --augit-panel-muted 同值，但语义独立）。 */
   --augit-terminal-panel-border: #212326;
   --augit-panel-muted: #212326;
+  --augit-doc-code-block: #26292c;
   --augit-border: #26282c;
 
   --augit-toolbar-border: #26282c;
@@ -3182,12 +3187,14 @@ button:disabled,
 }
 
 .tree-row.root-row {
-  font-weight: 600;
+  /* 参考 Project Files 根行显示完整路径，字重与文件名一致，不再加粗项目名。 */
+  font-weight: 400;
 }
 
 /* 项目树按 8px 箭头、4px 箭头间距、16px 图标和2px图标文字间距排列。 */
 .side-content.tree {
-  padding: 6px 0 12px;
+  /* 参考 Project Files 首个树行从内容区顶 +7 物理px 开始；6px 逻辑内距实测低约 2 物理px。 */
+  padding: 5px 0 12px;
 }
 
 .side-content.tree .tree-row {
@@ -3220,8 +3227,9 @@ button:disabled,
 }
 
 .side-content.tree .root-row .tree-name {
-  flex-shrink: 0;
-  max-width: 180px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
 }
 
 .side-content.tree .tree-path {
@@ -3366,11 +3374,11 @@ body[data-theme="dark"] .search-overlay {
   font-size: .85em;
   line-height: 1.45;
   border-radius: 3px;
-  background: var(--augit-panel-muted);
+  background: var(--augit-doc-code-block);
   overflow: auto;
 }
 
-.markdown-preview code { padding: .2em .4em; margin: 2px; font-size: .9em; border-radius: 3px; background: var(--augit-panel-muted); }
+.markdown-preview code { padding: .2em .4em; margin: 2px; font-size: .9em; border-radius: 3px; background: var(--augit-doc-code-block); }
 .markdown-preview pre > code { padding: 0; margin: 0; font-size: 100%; line-height: inherit; background: transparent; }
 
 .changes-layout {
