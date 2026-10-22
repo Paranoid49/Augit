@@ -41,7 +41,7 @@
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
 | 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（26 个 `.ps1` 全部满足 BOM/ASCII 规则，2026-10-18 实测，含日常启动、回归、录屏前景、窗口响应采样及捕获挂起诊断脚本） |
-| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **2344/2344（未执行 0 项）**（2026-10-22 当前批次；当前登记值取自 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"，历史沿革见该表；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600），并机械核对本行与 §2.3 的登记值 |
+| 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **2345/2345（未执行 0 项）**（2026-10-22 当前批次；当前登记值取自 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"，历史沿革见该表；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600），并机械核对本行与 §2.3 的登记值 |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **54/54 ×2 主题**（2026-10-22 实测；`docs/ux-mockups/*.html` 共 55 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
 | 真机窗口 chrome | `powershell -File tools/audit/verify-window-chrome.ps1` | **11/11** |
@@ -54,13 +54,13 @@
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、
-> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 1236 个 `check(...)` 调用点（2026-10-20 随固定等宽 13 裁决删除 1 条已不可达的“等宽字号变化重算”断言；2026-10-21 补 1 条“搜索未命中分类的计算样式为 none”；2026-10-22 补 1 条 Push 失败 balloon 与 Show details 重开断言，随后再补 1 条 Fetch 成功通知标题/正文断言、1 条 Define Remote 自动 Fetch 失败内联错误断言与 2 条 Fetch 取消断言；另有 `csCheck` 包裹的 8 条会话断言，不计入该调用点数；2026-10-12补入真实工具轨Tooltip断言，数量不作为整体复原率），
-> 其中一部分在场景/主题循环里重复执行，因此**当前登记的**实际断言数（2344，见 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"）大于调用点数。
+> 终端、设置、冲突、写操作状态机、Reset 与竞态。它有 1237 个 `check(...)` 调用点（2026-10-20 随固定等宽 13 裁决删除 1 条已不可达的“等宽字号变化重算”断言；2026-10-21 补 1 条“搜索未命中分类的计算样式为 none”；2026-10-22 补 1 条 Push 失败 balloon 与 Show details 重开断言，随后再补 1 条 Fetch 成功通知标题/正文断言、1 条 Define Remote 自动 Fetch 失败内联错误断言、2 条 Fetch 取消断言与 1 条搜索超时 Enter 重试断言；另有 `csCheck` 包裹的 8 条会话断言，不计入该调用点数；2026-10-12补入真实工具轨Tooltip断言，数量不作为整体复原率），
+> 其中一部分在场景/主题循环里重复执行，因此**当前登记的**实际断言数（2345，见 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"）大于调用点数。
 > 这三个数由 `tools/audit/check-doc-claims.cjs` 机械核对（前者与 `csCheck` 条数对规格实测，后者对 §2.3 登记值）；本说明原先写 745／2／942，是旧值。
 
 ### 0.2 交接摘要（2026-09-21，第 89 轮收敛时写；**第 311 轮：按当前事实回填了 ⑦⑧ 的覆盖率与"下一步"**）
 
-**闸门（当前复核的实测值）**：`live-shell` **2344/2344（未执行 0 项，2026-10-22 当前批次）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本节其余数字是第 89 轮离开时的历史读数）、`Augit.Shell.Tests` 119/119、
+**闸门（当前复核的实测值）**：`live-shell` **2345/2345（未执行 0 项，2026-10-22 当前批次）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本节其余数字是第 89 轮离开时的历史读数）、`Augit.Shell.Tests` 119/119、
 `Augit.Core.Tests` 86/86、真机巡检 53/53（保留范围；原 54/54 含已移出的 `conflict-resolver`）+ `diff-boundary` 1/1（含改动工作区）、
 打包 zip 2,795,619 B / setup 4,386,825 B（`sha256sum -c` 两项 OK、32 条目 0 可疑、包内 `live-data.js` 与仓库逐字节相同）、
 `verify-ui-assets` PASS、`verify-script-encoding` PASS（14 个脚本）、
@@ -1294,7 +1294,7 @@ PyCharm 侧：`artifacts/pycharm-baseline-20260919/pycharm-settings-appearance.p
 | 外壳单测 | `dotnet test tests/Augit.Shell.Tests` | **74/74** |
 | 核心单测 | `dotnet test tests/Augit.Core.Tests` | **86/86** |
 | C# 单测（基础设施：搜索/Git/终端/设置） | `dotnet test tests/Augit.Infrastructure.Tests` | **175/175**（第 90 轮补录） |
-| 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **2344/2344（未执行 0 项，2026-10-22 当前批次）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本行原记 1014/1014，是 2026-09-21 第 89 轮的历史读数） |
+| 实时外壳断言 | `node tools/audit/live-shell.spec.cjs` | **2345/2345（未执行 0 项，2026-10-22 当前批次）**（当前登记值，见 `intellij-platform-ui-behavior.md` §2.3；本行原记 1014/1014，是 2026-09-21 第 89 轮的历史读数） |
 | 真机全场景巡检 | `verify-acceptance.ps1` | **54/54 PASS（干净仓库）** + `diff-boundary` **1/1**（含改动工作区） |
 | 打包 | `tools/release.ps1` | zip **2,795,619 B** / setup **4,386,825 B** / `sha256sum -c` **两项 OK** / 包内 32 条目 0 可疑 / 包内 `live-data.js` 与仓库**逐字节相同** |
 | 交互基线 | `check-interactions.cjs` | `INTERACTIONS_BASELINE_OK`（surfaces **7** / jumps 4 / feedback 8 / sequences 6 / gaps 4；CHECKED 18。本行原记 `surfaces` 为 6，是 2026-09-21 的旧读数，现按 `docs/baselines/pycharm-interactions.json` 实测订正） |

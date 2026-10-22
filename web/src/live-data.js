@@ -861,6 +861,18 @@ function bindSearchOverlay(kind) {
       return;
     }
 
+    if (event.key === "Enter" && !event.repeat && window.__augitLive?.search?.timedOut) {
+      // 超时后再次按 Enter：重试当前查询，而不是把（可能不完整的）首条结果当成用户确认。
+      // 参考 Search Everywhere 在结果不完整时仍允许重新发起同一查询；这里用同一输入与选项重跑。
+      event.preventDefault();
+      const live = window.__augitLive;
+      live.search.timedOut = false;
+      live.search.cancelled = false;
+      live.search.notice = "";
+      void runSearch(kind, input.value, currentSearchOptions());
+      return;
+    }
+
     if (event.key === "Enter" && !event.repeat && results.length > 0) {
       event.preventDefault();
       const row = results[Math.max(0, index)];

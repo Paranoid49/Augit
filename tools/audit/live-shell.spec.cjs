@@ -6650,6 +6650,25 @@ async function main() {
       { timeout: 10000 },
     ).catch(() => {});
     const seKeepTimeout = await seKeepRead();
+    // 超时后按 Enter：重试同一查询，清掉超时说明；不能把首条不完整结果当成确认打开。
+    await seKeep.page.evaluate(() => {
+      window.__searchTimedOut = false;
+      window.__searchNotice = undefined;
+    });
+    await seKeep.page.locator('.search-overlay .search-field').focus();
+    await seKeep.page.keyboard.press('Enter');
+    await seKeep.page.waitForFunction(
+      "document.querySelectorAll('.search-overlay .search-result').length > 0 && !document.querySelector('.search-overlay .search-notice')",
+      null,
+      { timeout: 10000 },
+    ).catch(() => {});
+    const seKeepRetried = await seKeepRead();
+    check('§7.15 超时后 Enter 重试当前查询并清除超时说明: ' + JSON.stringify(seKeepRetried),
+      seKeepRetried.rows > 0
+        && seKeepRetried.matches === seKeepRetried.rows
+        && seKeepRetried.notice === null
+        && seKeepRetried.timedOut === false
+        && seKeepRetried.cancelled === false);
     // 取消：换一个查询让宿主按"已取消"回话，已完成结果同样要留着
     await seKeep.page.evaluate(() => {
       window.__searchNotice = 'Search cancelled.';
