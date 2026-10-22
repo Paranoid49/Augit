@@ -8542,6 +8542,15 @@ async function runPopoverAction(action) {
   const method = action === "fetch" ? "git/fetch" : null;
   if (!method) return;
   const key = "fetched";
+  // 权威 `GitFetchSupportImpl.FetchResultImpl.doShowNotification()`：成功/失败都显示
+  // `Fetch successful`／`Fetch failed` 的 VcsNotifier 通知，失败不再把原因留在分支弹层里。
+  const showFetchResult = (ok, reason) => {
+    showToast({
+      title: ok ? "Fetch successful" : "Fetch failed",
+      text: ok ? "Fetched successfully" : String(reason || "Fetch failed."),
+      kind: ok ? "success" : "error",
+    });
+  };
   // 权威 `UpdateSelectedBranchAction.update()` 用 `GitFetchSupport.isFetchRunning` 判断"获取进行中"；
   // Augit 侧对应 `live.logFetchRunning`（竖条的「获取」「更新选中分支」据此禁用）。
   const liveNow = window.__augitLive;
@@ -8554,8 +8563,9 @@ async function runPopoverAction(action) {
     result = await invoke(method, {}, 300000);
   } catch (error) {
     if (liveNow) liveNow.logFetchRunning = false;
-    window.__augitCheckoutError = String(error && error.message || error);
-    openBranchesPopover();
+    closeLiveOverlay();
+    window.__augitCheckoutError = "";
+    showFetchResult(false, error && error.message || error);
     return;
   }
 
@@ -8565,16 +8575,18 @@ async function runPopoverAction(action) {
   }
 
   if (!result || !result[key]) {
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "Operation failed.", {
-      unchanged: "Local references and the working tree are unchanged.",
-      next: "Check the network or remote configuration and retry.",
-    });
-    openBranchesPopover();
+    // 权威 `GitFetchSupportImpl.FetchResultImpl.buildMessage()`：失败通知正文直接是 Git 错误，
+    // 不附加本产品自己的“未改变/重试”说明。
+    const reason = String((result && result.reason) || "Fetch failed.");
+    closeLiveOverlay();
+    window.__augitCheckoutError = "";
+    showFetchResult(false, reason);
     return;
   }
 
-  // 成功：关闭弹层并重新读取状态与引用。
+  // 成功：关闭弹层、显示结果通知并重新读取状态与引用。
   closeLiveOverlay();
+  showFetchResult(true);
   live.references = null;
   await Promise.all([
     loadStatus().catch(() => null),

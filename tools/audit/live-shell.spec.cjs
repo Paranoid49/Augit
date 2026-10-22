@@ -11081,9 +11081,13 @@ async function main() {
     const fetched = await pa.page.evaluate(() => ({
       calls: window.__fetchCalls || 0,
       overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
+      toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
+      toastText: (document.querySelector('.toast-text') || {}).textContent || null,
     }));
     check('更新项目调用 fetch: ' + fetched.calls, fetched.calls === 1);
     check('更新项目成功后关闭弹层', fetched.overlay === false);
+    check('更新项目成功显示 Fetch successful 通知: ' + JSON.stringify([fetched.toastTitle, fetched.toastText]),
+      fetched.toastTitle === 'Fetch successful' && fetched.toastText === 'Fetched successfully');
 
     // 推送… → 先打开推送对话框预览（规格 §7.12：预览未就绪不允许推送）
     await openPopover();
@@ -11221,18 +11225,21 @@ async function main() {
     check('检出标签按 tag 类型调用: ' + JSON.stringify(revChecked),
       revChecked.length === 1 && revChecked[0].kind === 'tag' && revChecked[0].name === 'v2.0.0');
 
-    // 失败：保留弹层并显示 Git 原因
+    // 失败：关闭弹层并显示 Fetch failed 通知（权威 GitFetchSupportImpl.doShowNotification）
     await pa.page.evaluate(() => { window.__fetchFails = true; });
     await openPopover();
     await pa.page.locator('[data-popover-action="fetch"]').click();
     await pa.page.waitForTimeout(900);
     const fetchFail = await pa.page.evaluate(() => ({
       overlay: !!document.querySelector('[data-augit-overlay].live-overlay'),
-      alert: (document.querySelector('[data-augit-overlay] .inline-alert') || {}).textContent || null,
+      toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
+      toastText: (document.querySelector('.toast-text') || {}).textContent || null,
     }));
-    check('更新项目失败保留弹层: ' + fetchFail.overlay, fetchFail.overlay === true);
-    check('更新项目失败显示 Git 原因: ' + JSON.stringify(fetchFail.alert),
-      typeof fetchFail.alert === 'string' && fetchFail.alert.includes('No remote configured'));
+    check('更新项目失败关闭弹层: ' + fetchFail.overlay, fetchFail.overlay === false);
+    check('更新项目失败显示 Fetch failed 通知: ' + JSON.stringify([fetchFail.toastTitle, fetchFail.toastText]),
+      fetchFail.toastTitle === 'Fetch failed'
+        && typeof fetchFail.toastText === 'string'
+        && fetchFail.toastText.includes('No remote configured'));
     check('弹层已标注的快捷动作数量: ' + actionCount, actionCount >= 5);
     await pa.page.close();
 
