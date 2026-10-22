@@ -17508,6 +17508,8 @@ async function main() {
         params: window.__fetchParams || [],
         selection: (window.__augitLive && window.__augitLive.logRefSelection) || null,
         selectedRow: (document.querySelector('.log-ref-panel .tree-row.selected') || {}).dataset?.refName || null,
+        toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
+        toastText: (document.querySelector('.toast-text') || {}).textContent || null,
       }));
       await selectRow('branch', 'dsh');
       const current = await stateOf('update-selected');
@@ -17544,7 +17546,9 @@ async function main() {
         && Array.isArray(updateSelected.invoked.selection)
         && updateSelected.invoked.selection.length === 1
         && updateSelected.invoked.selection[0].name === 'feature/tracked'
-        && updateSelected.invoked.selectedRow === 'feature/tracked');
+        && updateSelected.invoked.selectedRow === 'feature/tracked'
+        && updateSelected.invoked.toastTitle === 'Fetch successful'
+        && updateSelected.invoked.toastText === 'Fetched 1 target');
     check('§7.8 选中当前分支时「Update Selected」禁用并写明原因: ' + JSON.stringify(updateSelected.current),
       updateSelected.current.disabled === true && /current/i.test(updateSelected.current.reason));
     check('§7.8 选中没有跟踪配置的引用时「Update Selected」禁用并写明原因: '

@@ -8625,18 +8625,21 @@ async function updateSelectedBranch(names) {
       300000);
   } catch (error) {
     live.logFetchRunning = false;
-    window.__augitCheckoutError = String(error && error.message || error);
-    openBranchesPopover();
+    closeLiveOverlay();
+    window.__augitCheckoutError = "";
+    showToast({ title: "Update failed", text: String((error && error.message) || error), kind: "error" });
     return;
   }
 
   live.logFetchRunning = false;
   if (!result || !result.fetched) {
-    window.__augitCheckoutError = describeFailure((result && result.reason) || "Operation failed.", {
-      unchanged: "This branch has no fast-forward updates from its remote.",
-      next: "Check the network, remote configuration, and upstream branch, then retry.",
+    closeLiveOverlay();
+    window.__augitCheckoutError = "";
+    showToast({
+      title: "Update failed",
+      text: String((result && result.reason) || "Operation failed."),
+      kind: "error",
     });
-    openBranchesPopover();
     return;
   }
 
@@ -8646,6 +8649,12 @@ async function updateSelectedBranch(names) {
     loadStatus().catch(() => null),
     loadReferences().catch(() => null),
   ]);
+  closeLiveOverlay();
+  showToast({
+    title: "Fetch successful",
+    text: `Fetched ${targets.length} ${targets.length === 1 ? "target" : "targets"}`,
+    kind: "success",
+  });
   refreshAfterEvent("titlebar", "side", "bottomTool", "statusbar");
 }
 

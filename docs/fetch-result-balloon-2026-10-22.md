@@ -39,6 +39,14 @@
 - 结果：弹层关闭；UIA 文本 `Fetch successful`（2268,1574,171,27）与正文 `Fetched successfully`（2268,1608,204,27）；引用树出现 `Remote/origin`，分支行显示 `main ⇄ origin/main`。
 - 截图：`artifacts/fetch-evidence-2026-10-22/fetch-success.png`（sha256 `55F0C5F4…20CD5`）。
 
+### 2.3 Update Selected
+
+- 同一临时仓库增加受跟踪的非当前分支 `feature`（upstream `origin/feature`），checkout 回 `main`。
+- 在引用树选择 `feature`，点击左侧竖条 `Update Selected`：
+  - 成功：UIA 显示 `Fetch successful`（2268,1574,171,27）与 `Fetched 1 target`（2268,1608,166,27）；截图 `artifacts/fetch-evidence-2026-10-22/update-selected-success.png`。
+  - 失败（origin 改为 `http://127.0.0.1:1/repo.git` 后再次执行）：UIA 显示 `Update failed`（2268,1546,144,27）与 Git 原始 502 错误；截图 `artifacts/fetch-evidence-2026-10-22/update-selected-failed.png`。
+- 依据：`GitBranchActionsUtil.updateBranches()` 对 fetch 目标调用 `showNotificationIfFailed("Update failed")`，成功后发送 `branches.fetch.finished`。
+
 ## 3. 验证
 
 - 全量 `live-shell` **2341/2341 通过**（退出码 0、未执行 0）；fetch 场景断言成功通知标题/正文、失败关闭弹层与原始错误。
