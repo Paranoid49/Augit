@@ -1,6 +1,6 @@
 # 保留页面覆盖矩阵（2026-10-18）
 
-> 本表按 `docs/ux-spec.md` §12 的页面清单对照当前证据；只做静态盘点，不新增配对，不替代正常入口截图。当前页面级同态配对 **50**、像素合格 **0**。2026-10-20 用户裁决、验收类别和已批准例外见[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md)；本表状态不等于整页像素通过。2026-10-22 首组同态整窗（Project Files 视图 + README 预览，2880×1716/DPI168）原始差异 **15.41%**；第二组修复 Markdown 代码块底色与项目树根行后为 **11.0175%**，仍未通过；协议见[整窗同态像素配对](pixel-pair-protocol-2026-10-22.md)，第二组见[第二组整窗配对](pixel-pair-2-2026-10-22.md)。
+> 本表按 `docs/ux-spec.md` §12 的页面清单对照当前证据；只做静态盘点，不新增配对，不替代正常入口截图。当前页面级同态配对 **50**、像素合格 **0**。2026-10-20 用户裁决、验收类别和已批准例外见[验收范围与裁决](acceptance-scope-rulings-2026-10-20.md)；本表状态不等于整页像素通过。2026-10-22 首组同态整窗（Project Files 视图 + README 预览，2880×1716/DPI168）原始差异 **15.41%**；第二组修复 Markdown 代码块底色与项目树根行后为 **11.0175%**；第三组在参考提交/根行同选中并重整 Git 三列后为 **10.3752%**，仍未通过；协议见[整窗同态像素配对](pixel-pair-protocol-2026-10-22.md)，第二/三组见[第二组](pixel-pair-2-2026-10-22.md)、[第三组](pixel-pair-3-commit-selected-2026-10-22.md)。
 
 | # | 页面/状态 | 状态 | 证据 | 下一步 |
 | --- | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 | 12 | Changes 右键菜单 | 配对 | [Changes 菜单配对](changes-context-menu-homologous-pair-2026-10-18.md) | 动作子集 vs 完整菜单 |
 | 13 | 工作区 diff | 配对 | [Diff 配对](diff-homologous-pair-2026-10-18.md) | 行尾/工具栏/编辑铅笔 |
 | 14 | Diff 局部加载 | 部分（上限状态级配对；截断提示已修；加载形态已按参考源码整改） | [Diff 上限参考态](diff-limit-reference-2026-10-19.md)、[截断提示修复](diff-truncation-notice-fix-2026-10-19.md)、[加载形态整改](diff-loading-form-2026-10-20.md) | 25.38MB 两端拒绝正文；8.74MB/92001 行实际只回传前 2000 行，现已显示 `Truncated` + 边界说明，参考完整显示 1 difference。加载态已改为头部不定进度条 + 正文 `Loading...`（源码形态，非像素）；仍需参考实机加载态像素、实时瞬态截图与重试状态 |
-| 15 | Git 历史 | 配对 | [Git Log 配对](git-log-pair-scoping-2026-10-18.md) | 标签模型/Console/图/列/高度 |
+| 15 | Git 历史 | 配对 | [Git Log 配对](git-log-pair-scoping-2026-10-18.md)、[第三组整窗](pixel-pair-3-commit-selected-2026-10-22.md) | 引用/详情列宽已按参考对齐（940/2249）；Console、额外工具图标、详情排版与状态栏文件上下文仍差 |
 | 16 | Git 历史右键菜单 | 配对 | [提交菜单配对](git-log-context-menu-homologous-pair-2026-10-18.md) | 实际动作子集 |
 | 17 | 文件历史 | 配对 | [File History 配对](file-history-homologous-pair-2026-10-18.md) | Revision/头/Console/预览宽度 |
 | 18 | Blame | 配对 | [Blame 配对](blame-homologous-pair-2026-10-18.md) | inlay/Console/几何；未提交行已修 |

@@ -3498,7 +3498,9 @@ body[data-theme="dark"] .search-overlay {
 }
 
 .git-log {
-  grid-template-columns: clamp(230px, 20%, 285px) minmax(0, 1fr) clamp(280px, 29%, 390px);
+  /* 参考同环境 2880×1716/DPI168 实测：引用面板右缘物理 940、详情面板左缘 2249；
+     原 285/390 两列使提交列表左移约 305 物理px、详情左缘偏左约 65 物理px。 */
+  grid-template-columns: clamp(230px, 29.4%, 460px) minmax(0, 1fr) clamp(280px, 29%, 353px);
 }
 
 /* 竖条折叠（权威 `ExpandablePanelController.toggleExpand`：`expandablePanel.isVisible = expand`，
