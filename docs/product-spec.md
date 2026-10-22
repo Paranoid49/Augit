@@ -120,6 +120,7 @@ Git 命令语义和操作状态以 IntelliJ IDEA 2026.2 为参考，操作界面
 - 本机外部工具完成 push 后，只反映由此产生的本地 Git 状态变化。
 - Fetch 成功/失败按参考显示结果通知：成功 `Fetch successful`／`Fetched successfully`，失败 `Fetch failed`／Git 原始错误；失败关闭分支弹层，不在弹层内保留错误，也不自动打开其他对话框。
 - Update Selected 走同一 fetch 结果通道：成功 `Fetch successful` + `Fetched N target(s)`，失败 `Update failed` + Git 原始错误；同样不把失败留在弹层内。
+- Define Remote 保存后勾选 Fetch 的自动取回：成功只在远端管理器保留保存结果与内联取回说明；失败额外显示 `Fetch failed` + Git 原始错误，不把错误写进内联 notice（参考 `GitConfigureRemotesDialog.doFetch()` 的 `showNotificationIfFailed()`）。
 - 远端被其他电脑修改时，Augit 不自动探测；只有用户主动 fetch 或 pull 后才更新远端状态。
 
 ### 5.3 工作区操作与冲突

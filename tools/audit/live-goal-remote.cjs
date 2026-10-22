@@ -246,6 +246,39 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
         && added.fetchCalls === 1 && added.fetchParams[0].remote === 'backup'
         && added.rows.includes('backup') && /Added backup/.test(added.notice || ''));
 
+    // 自动 Fetch 失败：参考 `GitConfigureRemotesDialog.doFetch()` 只显示失败通知，
+    // 远端管理器保留保存结果，不把错误写进内联 notice。
+    await openDefine(page, 'add');
+    await page.locator(`${DEFINE} [data-remote-field="name"]`).fill('fetchfail');
+    await page.locator(`${DEFINE} [data-remote-field="fetchUrl"]`).fill('https://example.com/fail.git');
+    await page.evaluate(() => {
+      window.__fetchCalls = 0;
+      window.__fetchParams = [];
+      window.__fetchFails = true;
+    });
+    await page.locator(`${DEFINE} .dialog-footer [data-remote-define="ok"]`).click();
+    await page.waitForFunction('(window.__fetchCalls || 0) > 0', null, { timeout: 10000 });
+    await page.waitForSelector(DEFINE, { state: 'detached', timeout: 5000 });
+    await page.waitForSelector('.toast-title', { timeout: 5000 });
+    const autoFetchFailed = await page.evaluate(() => ({
+      writes: window.__remoteWrites || [],
+      fetchCalls: window.__fetchCalls || 0,
+      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
+      toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
+      toastText: (document.querySelector('.toast-text') || {}).textContent || null,
+      rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
+    }));
+    check('自动 Fetch 失败显示 Fetch failed 通知且远端只保留保存结果: ' + JSON.stringify(autoFetchFailed),
+      autoFetchFailed.writes.length === 2
+        && autoFetchFailed.writes[1].action === 'add' && autoFetchFailed.writes[1].name === 'fetchfail'
+        && autoFetchFailed.fetchCalls === 1
+        && autoFetchFailed.rows.includes('fetchfail')
+        && /Added fetchfail/.test(autoFetchFailed.notice || '')
+        && !/Fetch failed|No remote configured/.test(autoFetchFailed.notice || '')
+        && autoFetchFailed.toastTitle === 'Fetch failed'
+        && autoFetchFailed.toastText.includes('No remote configured'));
+    await page.evaluate(() => { window.__fetchFails = false; });
+
     // 改名：改 Name 走 update 并带 currentName。
     await page.evaluate(() => { window.__fetchCalls = 0; window.__fetchParams = []; });
     await page.locator('.remote-window .remote-row[data-remote-entry="origin"]').click();
@@ -259,8 +292,8 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
       rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
     }));
     check('改名按 update 提交 currentName 并取回新名: ' + JSON.stringify({ writes: renamed.writes.map((write) => [write.action, write.currentName, write.name]), rows: renamed.rows }),
-      renamed.writes.length === 2 && renamed.writes[1].action === 'update'
-        && renamed.writes[1].currentName === 'origin' && renamed.writes[1].name === 'upstream'
+      renamed.writes.length === 3 && renamed.writes[2].action === 'update'
+        && renamed.writes[2].currentName === 'origin' && renamed.writes[2].name === 'upstream'
         && renamed.fetchParams[0].remote === 'upstream'
         && renamed.rows.includes('upstream') && !renamed.rows.includes('origin'));
 

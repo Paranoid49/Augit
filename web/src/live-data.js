@@ -9439,9 +9439,18 @@ async function saveRemoteDefine() {
     }
     if (generation !== remoteRun.generation) return result;
     const ok = !!(fetched && fetched.available !== false && fetched.fetched !== false);
-    setRemoteNotice(ok
-      ? `${savedNotice} Fetched ${draft.name}.`
-      : `${savedNotice} ${describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Run Fetch again later." })}`);
+    if (ok) {
+      setRemoteNotice(`${savedNotice} Fetched ${draft.name}.`);
+    } else {
+      // 参考 `GitConfigureRemotesDialog.doFetch()` 只调用 `showNotificationIfFailed()`：
+      // 自动 Fetch 失败显示 `Fetch failed` 通知，远端管理器只保留保存结果。
+      setRemoteNotice(savedNotice);
+      showToast({
+        title: "Fetch failed",
+        text: String((fetched && fetched.reason) || "Fetch failed."),
+        kind: "error",
+      });
+    }
     if (document.querySelector('.push-dialog')) {
       await loadUnpushed().catch(() => null);
       if (generation === remoteRun.generation) refreshPush();
