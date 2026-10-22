@@ -21,6 +21,13 @@
 - 每次切换前台用 Alt+Tab（`SetForegroundWindow` 在无输入所有权时被系统拒绝；`AppActivate` 亦不可靠），切换后先用 `GetForegroundWindow` 核对 PID 再抓图。
 - **PrintWindow 只能作诊断**：JetBrains 编辑器正文由加速表面绘制，`PrintWindow` 抓到的编辑区是空白；首次 `pycharm-before.png` 即为此限制的证据，不能用于像素结论。
 - 原始图保存在 `artifacts/pixel-pair-main-project-2026-10-22/`（Git 忽略）。
+- **面板几何也是状态**：配对设置必须显式包含 `projectPanelWidth`、`bottomPanelHeight`，且 `toolWindows.workspaceRoot` 指向本批工作区；否则 Augit 按设计忽略不属于当前工作区保存的尺寸。采集前运行：
+
+  ```powershell
+  node tools/audit/check-pixel-pair-settings.cjs <本批设置.json> <本批工作区>
+  ```
+
+  第四组首次用 `projectPanelWidth=362`、`bottomPanelHeight=321` 对齐参考保存的 Project/Version Control 权重；未对齐面板尺寸的整窗数值不能当作共享绘制差异。
 
 ## 3. 首次采集暴露的状态差异（均为像素合格的前置阻塞）
 
@@ -110,10 +117,14 @@
 
 **第三组同态复测（2026-10-22 晚）**：把参考提交行也选中，统一根行选中/README/单标签，并按参考实测把 `.git-log` 三列改为 `clamp(230px,29.4%,460px) minmax(0,1fr) clamp(280px,29%,353px)`；引用面板右缘参考 940 / Augit 939，详情面板左缘两端均 2249。整窗差异 **512749/4942080 = 10.3752%**（底部 14.06%、树 7.73%、编辑区 4.66%）。状态栏仍有一处不同（参考根行焦点只显示 `fixture`，Augit 仍显示 `fixture › README.md`），仍未通过。详见[第三组整窗配对](pixel-pair-3-commit-selected-2026-10-22.md)。
 
+**第四组面板几何同态（2026-10-22 晚）**：前三组没有对齐用户可保存的 Project 面板宽度与底部 Git 高度；参考保存布局为 Project weight `0.2225258`、Version Control weight `0.33044806`。本组在隔离设置中显式使用 `projectPanelWidth=362`、`bottomPanelHeight=321`，并把 `toolWindows.workspaceRoot` 指向参考夹具（否则 Augit 按设计忽略不属于当前工作区的尺寸）。项目树/编辑区分隔对齐到物理 703，底部 Git 顶边对齐到 1097，Git 引用/详情边界 939/2249。整窗差异 **434119/4942080 = 8.7841%**：主区 4.44%（树 7.19%、编辑区 3.55%）、底部 10.59%、标签条 9.89%、状态栏 6.06%。**没有改产品默认 token**；这是首次面板几何同态配对，仍未通过。详见[第四组面板几何配对](pixel-pair-4-panel-geometry-2026-10-22.md)。
+
+**状态记录要求（本组补）**：整窗配对必须同时记录并核对 `projectPanelWidth`、`bottomPanelHeight`、`toolWindows.workspaceRoot`；只对齐视图/文件/标签/选择不足以判定共享布局差异。前三组的差异数仍可作为历史记录，但不是面板同态数值。
+
 ## 5. 当前结论与下一步
 
 - 已建立并跑通「同 DPI、同最大化窗口、同视图、同文档、同显示模式」的整窗采集；
-- 首组 15.4095%；第二组 11.0175%；第三组在提交/根行同选中后为 **10.3752%**，仍集中在标题栏、底部 Git 内容与树/文字栅格，不能归为已批准例外；
+- 首组 15.4095%；第二组 11.0175%；第三组 10.3752%；第四组在面板几何同态后为 **8.7841%**，仍集中在标题栏、底部 Git 内容与树/文字栅格，不能归为已批准例外；
 - 页面级同态配对仍 **50**、整窗像素合格仍 **0**。
 
 下一步（按差异占比从高到低）：
@@ -136,7 +147,7 @@
 2. **侧栏宽度（已核对，不是 token 缺陷）**：`side-panel-default=360` 是左侧工具窗轨道宽度，不含 37 px rail 和两侧 4 px 间隙。两端项目树左缘同为物理 x=72；Augit 白色内容止于 699、参考止于 703（差 2.3 CSS），与参考保存宽度／边框／滚动条留白的量级相符，但尚需读取参考保存值确认。**不改 token 凑图**。
 3. **标题栏中部、文件状态与树根行（已实施）**：参考中部是 Run 配置选择器，属参考独有能力，不新增；文件状态已改为文件名颜色并移除 `M` 徽标；树根行已改为完整路径、常规字重。剩余是标题栏共享图标/标签几何与树文字栅格。
 4. **Push 失败呈现（已实施）**：参考形态的 `Push failed` balloon + `Show details` 重开保留重试已完成，`product-spec.md` §5.1、`ux-spec.md` §7.12 已同步；正常入口 502 证据见[Push 失败通知](push-failure-balloon-2026-10-22.md)。
-5. **整窗像素（未通过）**：第二组 11.0175%；底部 Git 提交选择态（参考未选中、Augit 默认选中首行）仍是最大状态差异，需先对齐状态再比较共享布局。
+5. **整窗像素（未通过）**：第四组在面板几何同态后 **8.7841%**；剩余集中在标题栏（参考项目名/渐变/Run/trial）、标签条头部图标、底部 Git 内容（Console/过滤/查看图标/行内距）与树/文字栅格。不能把参考独有区域计入通过。
 
 Settings 的深色、首内容和三条关闭路径证据见[Settings 深色首内容实测](settings-dark-first-content-2026-10-22.md)；该文同时纠正了 DWM cloak 查询属性（应查 `DWMWA_CLOAKED=14`，不是只写的 13）。
 
