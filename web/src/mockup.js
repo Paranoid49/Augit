@@ -3510,17 +3510,22 @@ function liveDocument() {
   return live && live.document ? live.document : null;
 }
 
+function liveLineView(line, index) {
+  return `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`;
+}
+
 function liveLineViews(text) {
   const lines = String(text ?? "").replace(/\r\n?/g, "\n").split("\n");
   // 每行带 data-line：跳转行、错误定位这类"按行号找节点"的动作都靠它
   // （JSON 正文与差异正文一直是这么标的，实时纯文本/Markdown 正文此前漏了）。
-  return lines.map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`).join("");
+  return lines.map(liveLineView).join("");
 }
 
-// 大文件只读预览先绘制警告横幅，再在下一帧构建数万行 DOM。
-// 这样即使行节点构建仍需时间，用户也能先看到 Large file 警告，而不是空白等待。
+// 大文件只读预览先绘制警告横幅，再在后续帧分块构建数万行 DOM。
+// 这样警告和首批正文先出现，剩余行不会在一次同步任务里长时间阻断界面。
 let deferredPreviewSequence = 0;
 const deferredPreviews = new Map();
+const DEFERRED_LINES_PER_CHUNK = 500;
 
 function scheduleDeferredPreview(text) {
   const id = ++deferredPreviewSequence;
@@ -3535,10 +3540,27 @@ function scheduleDeferredPreview(text) {
     deferredPreviews.delete(id);
     if (typeof deferredText !== "string") return;
     code.removeAttribute("data-deferred-preview");
-    code.setAttribute("aria-busy", "false");
-    code.innerHTML = liveLineViews(deferredText);
+    const lines = deferredText.replace(/\r\n?/g, "\n").split("\n");
+    let offset = 0;
+    const appendChunk = () => {
+      if (!code.isConnected) return;
+      const end = Math.min(offset + DEFERRED_LINES_PER_CHUNK, lines.length);
+      let html = "";
+      for (let index = offset; index < end; index++) {
+        html += liveLineView(lines[index], index);
+      }
+      code.insertAdjacentHTML("beforeend", html);
+      offset = end;
+      if (offset < lines.length) {
+        requestAnimationFrame(appendChunk);
+        return;
+      }
+      code.setAttribute("aria-busy", "false");
+    };
+    // 警告已在上面的两帧中绘制；这里先同步填第一批，再逐帧补齐。
+    appendChunk();
   };
-  // 两帧：确保警告横幅已经进入首帧，再开始同步构建行节点。
+  // 两帧：确保警告横幅已经进入首帧，再开始构建行节点。
   requestAnimationFrame(() => requestAnimationFrame(hydrate));
   return id;
 }
