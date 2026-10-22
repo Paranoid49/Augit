@@ -73,7 +73,7 @@
 | 标签条底（白色正文起点） | 145–147 | 145–147 | 0 |
 | 树/编辑区竖分隔 | 699 | 703 | 4（2.3 CSS） |
 | 底部工具窗顶 | 1126–1135 | 1096 / 1175–1182（多段） | 30–40 |
-| 标题栏中部内容 | 显示**当前文件名**（README.md） | `Current File` 下拉 | 语义差异 |
+| 标题栏中部内容 | 显示**当前文件名**（README.md） | Run 配置选择器，标签为 `Current File`（点击菜单为 `Current File` / `Edit Configurations…`） | 参考独有能力；不是文件上下文入口，按已批准范围不新增 |
 
 ### 4.4 组件探测（同图测量）
 
@@ -140,9 +140,12 @@
 
 ## 7. 当前阻塞汇总（2026-10-22 收尾）
 
-1. **Markdown 预览字号/字体**：候选实现已验证（14px Helvetica、pre .85em、code .9em），但与 design-system §5.3「正文跟随界面字号、代码跟随等宽字号」冲突，待裁决后提交。
-2. **侧栏宽度**：树/编辑区分隔 Augit 699 vs 参考 703（物理 px，差 2.3 CSS）；design-system 的 side-panel-default 360 与实际分隔位置的口径需要先核对（是否含工具轨/边框），核对前不改 token。
-3. **标题栏中部语义与文件状态表达**：Augit 显示当前文件名、行尾 M 徽标；参考为 Current File 下拉、Project Files 视图无徽标。均需产品裁决后才能改。
+1. **Markdown 预览字号/字体**：候选实现已验证（14px Helvetica、pre .85em、code .9em），但与 `product-spec.md` §7、`design-system.md` §5.3「正文跟随界面字号、代码跟随等宽字号」冲突，待裁决后提交。
+2. **侧栏宽度（已核对，不是 token 缺陷）**：`side-panel-default=360` 是左侧工具窗轨道宽度，不含 37 px rail 和两侧 4 px 间隙。两端项目树左缘同为物理 x=72；Augit 白色内容止于 699、参考止于 703（差 2.3 CSS），与参考保存宽度／边框／滚动条留白的量级相符，但尚需读取参考保存值确认。**不改 token 凑图**。
+3. **标题栏中部与文件状态**：参考中部是 Run 配置选择器（`Current File` / `Edit Configurations…`），属参考独有能力，不新增、不计共享区域；Augit 显示当前文件名是产品信息。文件状态仍待确认：参考 Project Files 只用颜色，`ux-spec.md` 第 171 行要求状态文字或标记，现有 `M` 徽标与参考不同。
+4. **Push 失败呈现**：参考关闭对话框并显示 `Push failed` balloon；`ux-spec.md` §7.12 要求失败保留对话框与重试。需确认兼容方案后实施。
+
+Settings 的深色、首内容和三条关闭路径证据见[Settings 深色首内容实测](settings-dark-first-content-2026-10-22.md)；该文同时纠正了 DWM cloak 查询属性（应查 `DWMWA_CLOAKED=14`，不是只写的 13）。
 
 ## 8. 全局设置清理（2026-10-22）
 
