@@ -37,6 +37,19 @@ trace `frequency=10000000`（100ns tick），下列毫秒为相邻/相对阶段�
 
 按 `created` 到 `presented`：**480.0ms**；`prepare-start` 到 `presented`：**178.9ms**。
 
+可用 `node tools/audit/settings-trace-summary.cjs <trace.json>` 复算，本次输出：
+
+```json
+{
+  "createdToPresentedMs": 480,
+  "prepareToPresentedMs": 179,
+  "captureMs": 84.7,
+  "captureTimedOut": false
+}
+```
+
+`tools/audit/settings-trace-summary.test.cjs` 覆盖正常完成、capture-timeout 标记、缺阶段和空 trace 四种输入（4/4 通过）。
+
 ## 3. 结论
 
 - 本次**全新进程首次**打开 Settings 的 created→presented 为 **480.0ms**，低于 500ms；没有复现历史 2904ms 慢样本。
