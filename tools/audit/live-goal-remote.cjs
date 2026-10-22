@@ -246,8 +246,8 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
         && added.fetchCalls === 1 && added.fetchParams[0].remote === 'backup'
         && added.rows.includes('backup') && /Added backup/.test(added.notice || ''));
 
-    // 自动 Fetch 失败：参考 `GitConfigureRemotesDialog.doFetch()` 只显示失败通知，
-    // 远端管理器保留保存结果，不把错误写进内联 notice。
+    // 自动 Fetch 失败：Augit 页内 toast 会被远端管理模态遮挡，因此保留管理器内联错误；
+    // 参考的 VcsNotifier 浮层无法用当前页内通知等价复现，登记为呈现差异。
     await openDefine(page, 'add');
     await page.locator(`${DEFINE} [data-remote-field="name"]`).fill('fetchfail');
     await page.locator(`${DEFINE} [data-remote-field="fetchUrl"]`).fill('https://example.com/fail.git');
@@ -259,24 +259,21 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
     await page.locator(`${DEFINE} .dialog-footer [data-remote-define="ok"]`).click();
     await page.waitForFunction('(window.__fetchCalls || 0) > 0', null, { timeout: 10000 });
     await page.waitForSelector(DEFINE, { state: 'detached', timeout: 5000 });
-    await page.waitForSelector('.toast-title', { timeout: 5000 });
     const autoFetchFailed = await page.evaluate(() => ({
       writes: window.__remoteWrites || [],
       fetchCalls: window.__fetchCalls || 0,
       notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
       toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
-      toastText: (document.querySelector('.toast-text') || {}).textContent || null,
       rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
     }));
-    check('自动 Fetch 失败显示 Fetch failed 通知且远端只保留保存结果: ' + JSON.stringify(autoFetchFailed),
+    check('自动 Fetch 失败在远端管理器内联显示错误且不弹被遮挡的 toast: ' + JSON.stringify(autoFetchFailed),
       autoFetchFailed.writes.length === 2
         && autoFetchFailed.writes[1].action === 'add' && autoFetchFailed.writes[1].name === 'fetchfail'
         && autoFetchFailed.fetchCalls === 1
         && autoFetchFailed.rows.includes('fetchfail')
         && /Added fetchfail/.test(autoFetchFailed.notice || '')
-        && !/Fetch failed|No remote configured/.test(autoFetchFailed.notice || '')
-        && autoFetchFailed.toastTitle === 'Fetch failed'
-        && autoFetchFailed.toastText.includes('No remote configured'));
+        && /No remote configured/.test(autoFetchFailed.notice || '')
+        && autoFetchFailed.toastTitle === null);
     await page.evaluate(() => { window.__fetchFails = false; });
 
     // 改名：改 Name 走 update 并带 currentName。

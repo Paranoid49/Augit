@@ -49,13 +49,16 @@
 
 ### 2.4 Define Remote 自动 Fetch
 
-- 参考 `GitConfigureRemotesDialog.kt:286-292` 的 `doFetch()` 只调用 `showNotificationIfFailed()`：保存远端后的自动 Fetch 失败显示 `Fetch failed` 通知，成功不额外发通知。
-- Augit 对应：保存成功并勾选 Fetch 时，成功仍只更新管理器内联 `Added/Saved … Fetched …`；失败保留 `Added/Saved …` 并显示 `Fetch failed` + Git 原始错误，不把错误写进内联 notice。
-- `live-goal-remote` 新增场景：新增 `fetchfail` 远端、`__fetchFails=true`，断言只写一次 `add`、自动 Fetch 一次、行出现、notice 只有 `Added fetchfail`、toast 为 `Fetch failed` + `No remote configured`。本模块 **42/42** 通过。
+- 参考 `GitConfigureRemotesDialog.kt:286-292` 的 `doFetch()` 只调用 `showNotificationIfFailed()`：保存远端后的自动 Fetch 失败显示原生 `Fetch failed` 通知，成功不额外发通知。
+- Augit 页内 toast 位于主窗页面层，**会被远端管理模态遮挡**。2026-10-22 诊断实例（exe 直接启动，`--browser-args "--remote-debugging-port=9222"`；CDP 填 Name/URL 并点击 OK，属**诊断输入**）保存无效 remote 后：
+  - UIA 能读到 `Fetch failed` + 502 错误；
+  - 真实屏幕截图 `artifacts/fetch-evidence-2026-10-22/auto-fetch-failed-cdp.png` 只看到 `Git Remotes` 模态（896×437）与 `Added badremote.`，**看不到 toast**。
+- 结论：不能用页内 toast 复现参考的模态之上通知。Augit 改为在远端管理器**内联显示 Git 原始错误**，保留可见反馈；该呈现与参考不同，登记为**差异、未验收**，不写成已对齐。
+- `live-goal-remote` 场景相应断言：自动 Fetch 失败时 `notice` 同时含 `Added fetchfail` 与 `No remote configured`，且不弹被遮挡的 toast。本模块 **42/42** 通过。
 
 ## 3. 验证
 
-- 全量 `live-shell` **2342/2342 通过**（退出码 0、未执行 0）；fetch 场景断言成功通知标题/正文、失败关闭弹层与原始错误；`live-goal-remote` 断言保存远端后的自动 Fetch 失败只显示 `Fetch failed` 通知、不写入内联错误。
+- 全量 `live-shell` **2342/2342 通过**（退出码 0、未执行 0）；fetch 场景断言成功通知标题/正文、失败关闭弹层与原始错误；`live-goal-remote` 断言自动 Fetch 失败保留内联错误且不弹遮挡 toast。
 - 未改 `mockup.js`/`mockup.css`，`verify-ui-assets` 仍为双侧一致。
 
 ## 4. 边界

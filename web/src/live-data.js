@@ -9439,18 +9439,12 @@ async function saveRemoteDefine() {
     }
     if (generation !== remoteRun.generation) return result;
     const ok = !!(fetched && fetched.available !== false && fetched.fetched !== false);
-    if (ok) {
-      setRemoteNotice(`${savedNotice} Fetched ${draft.name}.`);
-    } else {
-      // 参考 `GitConfigureRemotesDialog.doFetch()` 只调用 `showNotificationIfFailed()`：
-      // 自动 Fetch 失败显示 `Fetch failed` 通知，远端管理器只保留保存结果。
-      setRemoteNotice(savedNotice);
-      showToast({
-        title: "Fetch failed",
-        text: String((fetched && fetched.reason) || "Fetch failed."),
-        kind: "error",
-      });
-    }
+    // 自动 Fetch 发生在远端管理模态内。Augit 的 toast 位于主窗页面层，会被模态窗口遮挡；
+    // 参考的原生 VcsNotifier 可浮在模态之上，当前无法用页内 toast 等价复现。
+    // 因此失败仍写管理器内联 notice，保留可见反馈；该项登记为呈现差异。
+    setRemoteNotice(ok
+      ? `${savedNotice} Fetched ${draft.name}.`
+      : `${savedNotice} ${describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Run Fetch again later." })}`);
     if (document.querySelector('.push-dialog')) {
       await loadUnpushed().catch(() => null);
       if (generation === remoteRun.generation) refreshPush();

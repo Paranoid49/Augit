@@ -556,7 +556,7 @@ Diff 请求键由仓库、文件路径、比较基准、单栏或双栏、忽略
 - 远端工具条及表格共用细线外框，Name／URL表头有列分隔；空表在表头下方显示“Nothing to show”，水平居中、纵向按StatusText默认规则位于扣除文字高度后的剩余高度三分之一处。空态不拦截表格焦点和鼠标操作，新增数据后恢复普通行与独立滚动。依据PyCharm 2026.2.1原始截图及GitConfigureRemotesDialog的ToolbarDecorator/JBTable结构；2026-10-17用户批准按实机调整尺寸、标题栏和工具条，并明确保留Push URL，几何见设计系统，像素差异继续单独验收。
 - Define Remote 的 Name/URL 为空、名称不符合 `GitRefNameValidator` 或与已有远端重名时是客户端错误（不调用 Git），错误保留输入并聚焦对应字段；Git 失败保留原输入与窗口。名称、Fetch URL、Push URL 都没有变化时直接关闭窗口，不写、不取回。保存进行中冻结字段与 OK，阻止重复提交。保留参考默认勾选的 Fetch remote；用户点击 OK 且选项保持勾选时，仅在保存成功后取回该远端，取消、保存失败或取消勾选不取回。与参考的另一处登记差异：不实现 `GitDefineRemoteDialog` 的 `ls-remote` 联网可达性校验；URL 的最终可达性由用户选择的 Fetch 返回真实结果。
 - Remove Remote 先弹独立确认，显示远端名称、URL 与影响；取消或 Esc 不写。失败保留原选择与列表并把原因写在主窗；成功按实际列表刷新。
-- Fetch remote 复选框默认勾选；用户按 OK 提交且勾选保持时，保存成功后调用一次 `git/fetch {remote: name}`。默认勾选加 OK 提交就是用户的明确取回请求，不要求用户额外改动复选框；取消、保存失败或取消勾选都不取回。自动取回成功只保留管理器内联 `Added/Saved … Fetched …`；失败保留保存结果并显示 `Fetch failed` + Git 原始错误通知（参考 `GitConfigureRemotesDialog.doFetch()` 只调用 `showNotificationIfFailed()`）。
+- Fetch remote 复选框默认勾选；用户按 OK 提交且勾选保持时，保存成功后调用一次 `git/fetch {remote: name}`。默认勾选加 OK 提交就是用户的明确取回请求，不要求用户额外改动复选框；取消、保存失败或取消勾选都不取回。自动取回成功只保留管理器内联 `Added/Saved … Fetched …`；失败保留保存结果并在管理器内联显示 Git 原始错误。参考的原生 VcsNotifier 可浮在模态之上，Augit 页内 toast 会被模态遮挡，故当前不弹 toast，登记为呈现差异、未验收。
 - 远端窗口嵌套在 Push 里时，关闭只重读推送预览并保留唯一 Push 窗口；没有 Push 时不新建第二个。远端窗口关闭或销毁后的晚到结果不得重开窗口、重建节点或抢回焦点。
 
 ### 7.12 Clone、Push 与本地 Git 操作反馈
