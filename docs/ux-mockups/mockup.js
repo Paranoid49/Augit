@@ -3517,11 +3517,43 @@ function liveLineViews(text) {
   return lines.map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`).join("");
 }
 
+// 大文件只读预览先绘制警告横幅，再在下一帧构建数万行 DOM。
+// 这样即使行节点构建仍需时间，用户也能先看到 Large file 警告，而不是空白等待。
+let deferredPreviewSequence = 0;
+const deferredPreviews = new Map();
+
+function scheduleDeferredPreview(text) {
+  const id = ++deferredPreviewSequence;
+  deferredPreviews.set(id, text);
+  const hydrate = () => {
+    const code = document.querySelector(`.code-view[data-deferred-preview="${id}"]`);
+    if (!code) {
+      deferredPreviews.delete(id);
+      return;
+    }
+    const deferredText = deferredPreviews.get(id);
+    deferredPreviews.delete(id);
+    if (typeof deferredText !== "string") return;
+    code.removeAttribute("data-deferred-preview");
+    code.setAttribute("aria-busy", "false");
+    code.innerHTML = liveLineViews(deferredText);
+  };
+  // 两帧：确保警告横幅已经进入首帧，再开始同步构建行节点。
+  requestAnimationFrame(() => requestAnimationFrame(hydrate));
+  return id;
+}
+
 function liveTextDocument(find) {
   const document_ = liveDocument();
   const name = document_.name || document_.path;
   const findBox = find ? currentFindBox() : "";
-  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view" tabindex="0" aria-label="${escapeHtml(name)} Read-only content">${liveLineViews(document_.text)}</div></div>`;
+  const deferLines = document_.readOnlyPreview === true && typeof document_.text === "string" && document_.text.length > 200000;
+  const deferredId = deferLines ? scheduleDeferredPreview(document_.text) : 0;
+  const codeAttrs = deferLines
+    ? ` data-deferred-preview="${deferredId}" aria-busy="true"`
+    : "";
+  const codeBody = deferLines ? "" : liveLineViews(document_.text);
+  return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view"${codeAttrs} tabindex="0" aria-label="${escapeHtml(name)} Read-only content">${codeBody}</div></div>`;
 }
 
 /**

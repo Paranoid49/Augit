@@ -9477,7 +9477,7 @@ async function main() {
         'binary.bin': { path: 'binary.bin', name: 'binary.bin', fullPath: 'D:\\w\\binary.bin', workspaceName: 'w', status: 'BinarySummary', kind: 'Binary', typeName: '二进制文件', fileSize: 4096, message: '此文件只提供二进制摘要，可使用系统默认程序打开。' },
         // 第 209 轮：超过**内容加载上限**的文本按权威给"前 N 的只读预览"＋警告横幅
         // （`DocumentReadStatus.TextPreview`），不再是整页拒绝。
-        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextPreview', kind: 'Text', typeName: '文本文件', fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024, text: '第一行\n第二行\n', encoding: 'UTF-8', lineEndings: 'LF', message: 'Large file (21.0 MB). Showing the first 2.4 MB as a read-only preview.' },
+        'oversize.txt': { path: 'oversize.txt', name: 'oversize.txt', fullPath: 'D:\\w\\oversize.txt', workspaceName: 'w', status: 'TextPreview', kind: 'Text', typeName: '文本文件', fileSize: 21 * 1024 * 1024, previewBytes: 2500 * 1024, text: Array.from({ length: 5000 }, (_, i) => 'line ' + i + ' ' + '-'.repeat(120)).join('\n'), encoding: 'UTF-8', lineEndings: 'LF', message: 'Large file (21.0 MB). Showing the first 2.4 MB as a read-only preview.' },
       };
       const out = [];
       for (const path of ['binary.bin', 'oversize.txt']) {
@@ -9490,12 +9490,21 @@ async function main() {
           await new Promise((r) => setTimeout(r, 50));
         }
         const banner = document.querySelector('.editor-content [data-large-file-banner]');
+        if (path === 'oversize.txt') {
+          const lineDeadline = Date.now() + 5000;
+          while (Date.now() < lineDeadline
+            && document.querySelectorAll('.editor-content .code-view .code-line').length < 5000) {
+            await new Promise((r) => setTimeout(r, 50));
+          }
+        }
         out.push({
           path,
           editor: window.__augitLive.editor,
           hasText: !!(window.__augitLive.document && window.__augitLive.document.text),
           status: window.__augitLive.document ? window.__augitLive.document.status : null,
           readOnlyPreview: !!(window.__augitLive.document && window.__augitLive.document.readOnlyPreview),
+          codeLines: document.querySelectorAll('.editor-content .code-view .code-line').length,
+          ariaBusy: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('aria-busy') : null,
           banner: banner ? banner.innerText : null,
           actions: banner ? [...banner.querySelectorAll('[data-large-file-action]')].map((n) => n.textContent.trim()) : [],
           // 横幅在**正文之上**：它必须排在 `.code-view` 前面。
@@ -9517,6 +9526,9 @@ async function main() {
         && limitByPath['oversize.txt'].status === 'TextPreview'
         && limitByPath['oversize.txt'].readOnlyPreview === true
         && limitByPath['oversize.txt'].hasText === true);
+    check('大文件只读预览延迟行构建后完整补齐并结束 busy: ' + JSON.stringify([limitByPath['oversize.txt'].codeLines, limitByPath['oversize.txt'].ariaBusy]),
+      limitByPath['oversize.txt'].codeLines === 5000
+        && limitByPath['oversize.txt'].ariaBusy === 'false');
     check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),
       typeof limitByPath['oversize.txt'].banner === 'string'
         && limitByPath['oversize.txt'].banner.includes('Large file (21.0 MB).')
