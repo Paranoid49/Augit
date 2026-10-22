@@ -1608,7 +1608,7 @@ const textViewerSourceLines = [
 ];
 
 function codeLines(lines = sourceLines, active = 12) {
-  return lines.map((line, index) => `<div class="code-line ${index + 1 === active ? "active" : ""}"><span class="line-number">${index + 1}</span><span>${line || " "}</span></div>`).join("");
+  return lines.map((line, index) => `<div class="code-line ${index + 1 === active ? "active" : ""}"><span class="line-number" aria-hidden="true">${index + 1}</span><span>${line || " "}</span></div>`).join("");
 }
 
 // 编辑器的 1.2 行距乘数作用于字体度量，而不是字号（EditorView.getLineHeight）。
@@ -1780,7 +1780,7 @@ function bindJsonModes() {
     const invalid = view.classList.contains("json-invalid");
     const text = invalid ? (hasLiveSource() ? source() : sampleInvalidSource)
       : mode === "source" ? source() : formattedSource() != null ? formattedSource() : JSON.stringify(JSON.parse(source()), null, 2);
-    code.innerHTML = text.split("\n").map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line)}</span></div>`).join("");
+    code.innerHTML = text.split("\n").map((line, index) => `<div class="code-line" data-line="${index + 1}"><span class="line-number" aria-hidden="true">${index + 1}</span><span>${escapeHtml(line)}</span></div>`).join("");
     measureCodeViews();
     const [left, top] = positions.get(mode) || [0, 0];
     code.scrollTo(left, top);
@@ -3511,7 +3511,7 @@ function liveDocument() {
 }
 
 function liveLineView(line, index) {
-  return `<div class="code-line" data-line="${index + 1}"><span class="line-number">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`;
+  return `<div class="code-line" data-line="${index + 1}"><span class="line-number" aria-hidden="true">${index + 1}</span><span>${escapeHtml(line) || " "}</span></div>`;
 }
 
 function liveLineViews(text) {
@@ -3572,7 +3572,7 @@ function liveTextDocument(find) {
   const deferLines = document_.readOnlyPreview === true && typeof document_.text === "string" && document_.text.length > 200000;
   const deferredId = deferLines ? scheduleDeferredPreview(document_.text) : 0;
   const codeAttrs = deferLines
-    ? ` data-deferred-preview="${deferredId}" aria-busy="true"`
+    ? ` data-large-preview="1" data-deferred-preview="${deferredId}" aria-busy="true"`
     : "";
   const codeBody = deferLines ? "" : liveLineViews(document_.text);
   return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view"${codeAttrs} tabindex="0" aria-label="${escapeHtml(name)} Read-only content">${codeBody}</div></div>`;

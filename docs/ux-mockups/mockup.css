@@ -1148,6 +1148,12 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
   white-space: pre;
 }
 
+.code-view[data-large-preview="1"] .code-line {
+  /* 仅大文件预览：跳过离屏行的布局/绘制；行节点与行号仍完整保留。 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--code-line-height, 22px);
+}
+
 .line-number {
   position: sticky;
   left: 0;

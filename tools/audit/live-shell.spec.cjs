@@ -9505,6 +9505,15 @@ async function main() {
           readOnlyPreview: !!(window.__augitLive.document && window.__augitLive.document.readOnlyPreview),
           codeLines: document.querySelectorAll('.editor-content .code-view .code-line').length,
           ariaBusy: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('aria-busy') : null,
+          largePreview: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('data-large-preview') : null,
+          codeLineVisibility: (() => {
+            const line = document.querySelector('.editor-content .code-view .code-line');
+            return line ? getComputedStyle(line).contentVisibility : null;
+          })(),
+          lineNumberHidden: (() => {
+            const number = document.querySelector('.editor-content .code-view .code-line .line-number');
+            return number ? number.getAttribute('aria-hidden') : null;
+          })(),
           banner: banner ? banner.innerText : null,
           actions: banner ? [...banner.querySelectorAll('[data-large-file-action]')].map((n) => n.textContent.trim()) : [],
           // 横幅在**正文之上**：它必须排在 `.code-view` 前面。
@@ -9529,6 +9538,10 @@ async function main() {
     check('大文件只读预览延迟行构建后完整补齐并结束 busy: ' + JSON.stringify([limitByPath['oversize.txt'].codeLines, limitByPath['oversize.txt'].ariaBusy]),
       limitByPath['oversize.txt'].codeLines === 5000
         && limitByPath['oversize.txt'].ariaBusy === 'false');
+    check('大文件预览跳过离屏行布局且行号不进入可访问树: ' + JSON.stringify([limitByPath['oversize.txt'].largePreview, limitByPath['oversize.txt'].codeLineVisibility, limitByPath['oversize.txt'].lineNumberHidden]),
+      limitByPath['oversize.txt'].largePreview === '1'
+        && limitByPath['oversize.txt'].codeLineVisibility === 'auto'
+        && limitByPath['oversize.txt'].lineNumberHidden === 'true');
     check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),
       typeof limitByPath['oversize.txt'].banner === 'string'
         && limitByPath['oversize.txt'].banner.includes('Large file (21.0 MB).')
