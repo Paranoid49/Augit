@@ -12,6 +12,7 @@ const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/terminal-ansi-colors-2026-10-24');
 const dark = process.argv.includes('--dark');
+const extended = process.argv.includes('--extended');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid) {
@@ -94,7 +95,9 @@ async function launch(workspace, settings, port) {
     await page.waitForSelector('.terminal-tool .terminal-view',{timeout:20000}); await delay(2500);
     const view=await page.evaluate(()=>{const n=document.querySelector('.terminal-tool .terminal-view');const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}});
     await clickCss(hwnd,{x:view.x+30,y:view.y+20});
-    const batches=[
+    const batches = extended ? [
+      { name: 'extended', command: '$e=[char]27; $c=@("38;5;196","38;5;46","38;5;21","38;5;244","38;2;18;52;86","38;2;200;120;40"); $n=@("I196","I46","I21","I244","T1856","T20012040"); for($i=0;$i -lt $c.Count;$i++){ Write-Host ($e+"["+$c[$i]+"m"+$n[$i]) }' },
+    ] : [
       {name:'normal',command:'$e=[char]27; 30..37 | ForEach-Object { Write-Host ($e+"["+$_+"mC"+$_) }'},
       {name:'bright',command:'$e=[char]27; 90..97 | ForEach-Object { Write-Host ($e+"["+$_+"mC"+$_) }'},
     ];
@@ -102,7 +105,7 @@ async function launch(workspace, settings, port) {
       await pasteAndEnter(batch.command); await delay(1500);
       const state=await page.evaluate(()=>[...document.querySelectorAll('.xterm-rows > div')].map((n,i)=>{const r=n.getBoundingClientRect();return{index:i,text:n.textContent,x:r.x,y:r.y,width:r.width,height:r.height}}));
       const file=path.join(output,`ansi-${dark?'dark-':''}${batch.name}.png`); await page.screenshot({path:file});
-      report.batches.push({name:batch.name,theme:dark?'dark':'light',file,rows:state.filter(r=>/^C\d+$/.test(r.text.trim()))});
+      report.batches.push({name:batch.name,theme:dark?'dark':'light',file,rows:state.filter(r=>/^(C\d+|I\d+|T\d+)$/.test(r.text.trim()))});
       await pasteAndEnter('Clear-Host'); await delay(700);
     }
     report.closedNormally=await closeApp(pid); closed=report.closedNormally; await delay(500); report.pidAlive=(()=>{try{process.kill(pid,0);return true}catch{return false}})();

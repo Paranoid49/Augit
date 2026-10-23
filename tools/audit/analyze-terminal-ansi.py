@@ -24,6 +24,10 @@ DARK = {
     "C90": "595959", "C91": "FF4050", "C92": "4FC414", "C93": "E5BF00",
     "C94": "1FB0FF", "C95": "ED7EED", "C96": "00E5E5", "C97": "FFFFFF",
 }
+EXTENDED = {
+    "I196": "FF0000", "I46": "00FF00", "I21": "0000FF", "I244": "808080",
+    "T1856": "123456", "T20012040": "C87828",
+}
 SCALE = 1.75
 
 
@@ -58,11 +62,12 @@ def analyze(directory: Path, expected: dict) -> list:
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
-        print("usage: analyze-terminal-ansi.py <light-dir> <dark-dir> <out.json>", file=sys.stderr)
+    if len(sys.argv) not in (4, 5):
+        print("usage: analyze-terminal-ansi.py <light-dir> <dark-dir> <out.json> [extended-dir]", file=sys.stderr)
         return 2
     light = analyze(Path(sys.argv[1]), LIGHT)
     dark = analyze(Path(sys.argv[2]), DARK)
+    extended = analyze(Path(sys.argv[4]), EXTENDED) if len(sys.argv) == 5 else []
     payload = {
         "dpr": SCALE,
         "light": light,
@@ -70,13 +75,20 @@ def main() -> int:
         "lightMatches": sum(1 for item in light if item["match"]),
         "darkMatches": sum(1 for item in dark if item["match"]),
     }
+    if extended:
+        payload["extended"] = extended
+        payload["extendedMatches"] = sum(1 for item in extended if item["match"])
     Path(sys.argv[3]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({
         "light": f"{payload['lightMatches']}/{len(light)}",
         "dark": f"{payload['darkMatches']}/{len(dark)}",
+        "extended": f"{payload.get('extendedMatches', 0)}/{len(extended)}",
         "out": sys.argv[3],
     }, ensure_ascii=False))
-    return 0 if payload["lightMatches"] == len(light) and payload["darkMatches"] == len(dark) else 1
+    ok = payload["lightMatches"] == len(light) and payload["darkMatches"] == len(dark)
+    if extended:
+        ok = ok and payload["extendedMatches"] == len(extended)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

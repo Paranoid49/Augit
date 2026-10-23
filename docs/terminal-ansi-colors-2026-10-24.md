@@ -53,18 +53,37 @@
 - 分析：`artifacts/terminal-ansi-colors-analysis.json`（32 条逐行记录）。
 - 两个实例均正常关闭；临时仓库删除；无 Augit/终端子进程残留。
 
+## 3.1 256 色与 24-bit 抽样
+
+同一终端再输出 4 个 256 色索引和 2 个 24-bit 颜色：
+
+| 行 | 期望 / 核心像素数 | 类型 |
+| --- | --- | --- |
+| I196 | `#FF0000` / 134 | 256 色 index 196 |
+| I46 | `#00FF00` / 70 | 256 色 index 46 |
+| I21 | `#0000FF` / 102 | 256 色 index 21 |
+| I244 | `#808080` / 90 | 256 色 index 244 |
+| T1856 | `#123456` / 139 | 24-bit `18;52;86` |
+| T20012040 | `#C87828` / 229 | 24-bit `200;120;40` |
+
+- **6/6 精确命中**，说明 256 色立方/灰阶和 24-bit SGR 都被原样传给 xterm；
+- 截图：`artifacts/terminal-ansi-extended-2026-10-24/ansi-extended.png`；
+- 实例 PID 20760 正常关闭；
+- 扩展分析：`artifacts/terminal-ansi-extended-analysis.json`（light 16/16、dark 16/16、extended 6/6）。
+
 ## 4. 边界
 
-- 只验证 **SGR 30–37/90–97** 的 16 个 ANSI 索引，不是 256 色/24-bit；未验证背景色、
-  粗体/暗淡、选区色、光标色。
+- 16 色覆盖完整；256 色只抽样 196/46/21/244，24-bit 只抽样两组，不是全部 256 索引。
+- 未验证背景色、粗体/暗淡、选区色、光标色。
 - 只验证浅/深当前 DPI 和默认字体；抗锯齿混合像素存在，但每行都取到了参考核心色。
-- 参考值来自 `terminal-palette.js`（已由参考源文档推导），**不是** PyCharm 整页截图；
-  页面级配对仍 50、像素仍 0，不写成参考像素通过。
+- 参考值来自 `terminal-palette.js`（16 色）和 xterm/ANSI 标准映射（扩展色），**不是**
+  PyCharm 整页截图；页面级配对仍 50、像素仍 0。
 
 ## 5. 复验
 
 ```powershell
 node tools/audit/terminal-ansi-colors.cjs <playwright> artifacts/terminal-ansi-colors-2026-10-24
 node tools/audit/terminal-ansi-colors.cjs <playwright> artifacts/terminal-ansi-colors-dark-2026-10-24 --dark
-python tools/audit/analyze-terminal-ansi.py artifacts/terminal-ansi-colors-2026-10-24 artifacts/terminal-ansi-colors-dark-2026-10-24 artifacts/terminal-ansi-colors-analysis.json
+node tools/audit/terminal-ansi-colors.cjs <playwright> artifacts/terminal-ansi-extended-2026-10-24 --extended
+python tools/audit/analyze-terminal-ansi.py artifacts/terminal-ansi-colors-2026-10-24 artifacts/terminal-ansi-colors-dark-2026-10-24 artifacts/terminal-ansi-extended-analysis.json artifacts/terminal-ansi-extended-2026-10-24
 ```
