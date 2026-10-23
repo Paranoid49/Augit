@@ -55,7 +55,19 @@
 - 约 1 秒内 `Merge Conflicts` 窗口消失，Changes 恢复为 0 文件，`git status` 干净，历史回到 `master`；
 - 截图：`artifacts/conflict-refresh-2026-10-23/external-abort.png`。
 
-## 7. 边界
+## 7. 二进制冲突
+
+- 创建 256 字节二进制 `blob.bin`，`other` 与 `master` 分别改同一字节，`git merge` 产生 `UU blob.bin`；
+- 正常入口 PID 28320 显示 `Merge Conflicts`/`1 conflicting file`/`blob.bin`；
+- 双击后打开 `Commit: blob.bin` 只读 Diff，显示：
+  - `Unresolved conflict` 横幅；
+  - `This file has no text differences.`；
+  - 没有二进制摘要/不可比较说明；
+- 截图：`artifacts/conflict-refresh-2026-10-23/binary-open.png`。
+
+这暴露一个尚未对齐的呈现问题：二进制冲突被当成“无文本差异”，而不是明确的二进制冲突。当前横幅仍提示外部处理，但没有说明“二进制”这一原因；由于参考实机的二进制冲突文案未采，本轮不擅自改文案，登记为待补证据。
+
+## 8. 边界
 
 - 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；外部 Abort 已验证单文件 merge；
 - 未测外部 Abort rebase、删除冲突文件、二进制冲突、多文件 Skip；
