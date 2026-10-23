@@ -72,6 +72,19 @@ credential.helper = !f() { echo username=user; echo password=pass; }; f
 这说明认证成功不只依赖 URL 内置凭据；Git 的 credential helper 也能在本机供给凭据，
 Augit 不读取、不存储这些凭据。
 
+## 2.2 深色 + 窄窗
+
+同一 URL 凭据路径在 Dark、1000×740 窗口重跑：
+
+- 右下通知仍为 `Push / Pushed to origin/main.`；
+- Push 弹层关闭；
+- 远端 `main` 两条提交：`6c6b5e3 test: auth push`、`340a89b test: auth seed`；
+- 7 次 HTTP 请求，4 次带 Authorization；
+- 实例 PID 22496 正常关闭；
+- 截图：`artifacts/push-auth-dark-narrow-2026-10-24/push-auth-success.png`。
+
+通知在窄窗右下完整显示两行文本，没有被裁切；仍未采参考 PyCharm 通知像素。
+
 ## 3. 与认证失败路径的关系
 
 - 失败路径（[push-auth-failure-2026-10-24.md](push-auth-failure-2026-10-24.md)）使用同一
@@ -88,7 +101,7 @@ Augit 不读取、不存储这些凭据。
   隔离了全局/系统 Git 配置，不能写成自然 GCM 环境已通过。
 - 服务端是本地受控 CGI，不代表自然网络延迟、慢盘或远端 hooks。
 - 通知是浅色、当前 DPI 的截图/文本证据，不是参考整页像素；页面级配对仍 50、像素仍 0。
-- 未验证 Push 结果通知在深色/窄窗下的位置；该组合仍单独记录。
+- 深色/窄窗只验证了 URL 凭据成功通知的位置与文本，未采参考像素；helper 路径未重复深色/窄窗。
 
 ## 5. 清理与复验
 

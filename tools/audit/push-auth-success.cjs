@@ -12,6 +12,8 @@ const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/push-auth-success-2026-10-24');
 const helper = process.argv.includes('--helper');
+const dark = process.argv.includes('--dark');
+const narrow = process.argv.includes('--narrow');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid){const s=`$d=(Get-Date).AddSeconds(20); while((Get-Date)-lt $d){$h=(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).MainWindowHandle; if($h -ne 0){Write-Output $h; exit 0}; Start-Sleep -Milliseconds 100}; exit 2`;return Number((await execute('powershell.exe',['-NoProfile','-Command',s],{timeout:30000})).stdout.trim())}
@@ -120,6 +122,8 @@ async function smartServer(root, report) {
   await git(['add','extra.txt'],seed); await git(['commit','-m','test: auth push'],seed);
   const source=JSON.parse(await fs.readFile(path.join(process.env.LOCALAPPDATA,'Augit/settings.json'),'utf8'));
   source.lastWorkspace=seed; source.openFiles=[]; source.activeFile=null;
+  if (dark) source.theme = 'Dark';
+  if (narrow) source.window = { ...(source.window || {}), width: 1000, height: 740, isMaximized: false };
   await fs.writeFile(settings,JSON.stringify(source,null,2)+'\n');
   const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));
   pid=await launch(seed,settings,port); const hwnd=await waitWindow(pid); report.pid=pid; report.hwnd=hwnd; report.port=port; await topmost(hwnd);
