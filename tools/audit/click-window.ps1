@@ -6,7 +6,10 @@ param(
   [string]$ProcessName = "Augit",
   [string]$Out = "",
   [int]$AfterMs = 1500,
-  [int64]$WindowHandle = 0
+  [int64]$WindowHandle = 0,
+  [int]$Clicks = 1,
+  [int]$GapMs = 80,
+  [switch]$NoForeground
 )
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
@@ -41,20 +44,27 @@ $h = if ($WindowHandle -ne 0) { [IntPtr]$WindowHandle } else { $proc.MainWindowH
 if ($h -eq 0) { Write-Output "NO_WINDOW"; exit 2 }
 [void][Clicker]::ShowWindow($h, 5)
 [void][Clicker]::BringWindowToTop($h)
-# Windows 会拒绝非前台进程直接抢焦点；把本线程输入队列接到当前前台线程后即可成功。
-$fgBefore = [Clicker]::GetForegroundWindow()
-$targetPid = 0; $fgPid = 0
-$targetThread = [Clicker]::GetWindowThreadProcessId($h, [ref]$targetPid)
-$fgThread = [Clicker]::GetWindowThreadProcessId($fgBefore, [ref]$fgPid)
-$self = [Clicker]::GetCurrentThreadId()
-$attached = $false
-if ($fgThread -ne 0 -and $fgThread -ne $self) { $attached = [Clicker]::AttachThreadInput($self, $fgThread, $true) }
-[void][Clicker]::SetForegroundWindow($h)
-Start-Sleep -Milliseconds 400
-if ($attached) { [void][Clicker]::AttachThreadInput($self, $fgThread, $false) }
-Start-Sleep -Milliseconds 500
-$fg = [Clicker]::GetForegroundWindow()
-Write-Output ("foreground_match=" + ($fg -eq $h) + " fg=0x" + $fg.ToString("X") + " target=0x" + $h.ToString("X"))
+if ($NoForeground) {
+  # 调用方已把目标窗口置为 topmost；真实鼠标点击会完成激活，不再抢前台。
+  Write-Output "foreground_match=SKIPPED"
+} else {
+  # Windows 会拒绝非前台进程直接抢焦点；把本线程输入队列接到当前前台线程后即可成功。
+  $fgBefore = [Clicker]::GetForegroundWindow()
+  $fgPid = 0
+  $fgThread = 0
+  if ($null -ne $fgBefore -and $fgBefore -ne [IntPtr]::Zero) {
+    try { $fgThread = [Clicker]::GetWindowThreadProcessId($fgBefore, [ref]$fgPid) } catch { $fgThread = 0 }
+  }
+  $self = [Clicker]::GetCurrentThreadId()
+  $attached = $false
+  if ($fgThread -ne 0 -and $fgThread -ne $self) { $attached = [Clicker]::AttachThreadInput($self, $fgThread, $true) }
+  [void][Clicker]::SetForegroundWindow($h)
+  Start-Sleep -Milliseconds 400
+  if ($attached) { [void][Clicker]::AttachThreadInput($self, $fgThread, $false) }
+  Start-Sleep -Milliseconds 500
+  $fg = [Clicker]::GetForegroundWindow()
+  Write-Output ("foreground_match=" + ($fg -eq $h) + " fg=0x" + $fg.ToString("X") + " target=0x" + $h.ToString("X"))
+}
 $client = New-Object Clicker+POINT
 [void][Clicker]::ClientToScreen($h, [ref]$client)
 $dpi = [Clicker]::GetDpiForWindow($h)
@@ -68,9 +78,12 @@ $under = New-Object Clicker+POINT
 [void][Clicker]::GetCursorPos([ref]$under)
 $hit = [Clicker]::WindowFromPoint($under)
 Write-Output ("cursor=(" + $under.X + "," + $under.Y + ") windowFromPoint=0x" + $hit.ToString("X") + " match=" + ($hit -eq $h))
-[Clicker]::mouse_event([Clicker]::LEFTDOWN, 0, 0, 0, [IntPtr]::Zero)
-Start-Sleep -Milliseconds 60
-[Clicker]::mouse_event([Clicker]::LEFTUP, 0, 0, 0, [IntPtr]::Zero)
+for ($i = 0; $i -lt [Math]::Max(1, $Clicks); $i++) {
+  [Clicker]::mouse_event([Clicker]::LEFTDOWN, 0, 0, 0, [IntPtr]::Zero)
+  Start-Sleep -Milliseconds 60
+  [Clicker]::mouse_event([Clicker]::LEFTUP, 0, 0, 0, [IntPtr]::Zero)
+  if ($i + 1 -lt $Clicks) { Start-Sleep -Milliseconds $GapMs }
+}
 Start-Sleep -Milliseconds $AfterMs
 if ($Out -ne "") {
   $rect = New-Object Clicker+RECT
