@@ -1,0 +1,74 @@
+# Push 认证成功路径：URL 内置凭据 + smart HTTP（2026-10-24）
+
+> 结论：真实外壳 Push 到本地 smart-HTTP 远端成功；远端 URL 使用 `user:pass@` 内置凭据，
+> Git 先收到 401 challenge，再带 `Authorization` 重试并完成 `git-receive-pack`。
+> 主窗右下显示 `Push / Pushed to origin/main.`，弹层关闭，远端 main 前进到待推提交。
+
+## 1. 方法
+
+- 临时目录内用 `git init --bare server/remote.git` 建裸远端。
+- Node 服务端实现 `git http-backend` CGI：
+  - 无 `Authorization` 返回 401 + `WWW-Authenticate: Basic`；
+  - 凭据不等于 `user:pass` 返回 403；
+  - 通过后设置 `GIT_PROJECT_ROOT`/`PATH_INFO` 等 CGI 环境，代理 GET/POST 到
+    `git http-backend`，返回 smart-HTTP 响应。
+- 种子仓库先 `git push -u` 到 `http://user:pass@127.0.0.1:<port>/remote.git`，建立一个
+  在远端 `main` 上的基础提交；随后新增 `extra.txt` 提交，形成一条待推提交。
+- 真实外壳 `start-augit.ps1 -SkipBuild` 打开种子工作区：
+  1. 真实鼠标点分支 chip；
+  2. `Push…`；
+  3. Push 弹层确认按钮（真实 Win32 点击）；
+  4. 等右下结果通知，再截图并读取远端 `git log`。
+- CDP 只读 DOM 矩形、通知文本与截图；凭据不写入设置或产品存储。
+
+## 2. 结果
+
+| 项 | 值 |
+| --- | --- |
+| 通知 | **`Push` / `Pushed to origin/main.`** |
+| Push 弹层 | 已关闭 |
+| 远端 `main` | `150f1f0 test: auth push`、`85a9464 test: auth seed` |
+| HTTP 请求 | 7 次：2 次无凭据 401 challenge、4 次带 Authorization、1 次 HEAD `/` |
+| 实例 | PID 31304 正常关闭，`pidAlive=false` |
+| 截图 | `artifacts/push-auth-success-2026-10-24/push-auth-success.png` |
+| 报告 | `push-auth-success.json` |
+
+请求序列（同一端口）：
+
+```text
+GET  /remote.git/info/refs?service=git-receive-pack  无 Authorization → 401
+GET  /remote.git/info/refs?service=git-receive-pack  Authorization
+GET  /remote.git/info/refs?service=git-receive-pack  无 Authorization → 401
+GET  /remote.git/info/refs?service=git-receive-pack  Authorization
+POST /remote.git/git-receive-pack                     Authorization
+HEAD /                                                无 Authorization（连通性探测）
+POST /remote.git/git-receive-pack                     Authorization
+```
+
+两次 401 是 Git 对带凭据 URL 的 challenge 流程，最终由 URL 凭据完成认证；
+没有凭据提示、没有认证失败通知。
+
+## 3. 与认证失败路径的关系
+
+- 失败路径（[push-auth-failure-2026-10-24.md](push-auth-failure-2026-10-24.md)）使用同一
+  401 端点，认证不可用时点击 Push 得到 `Push failed` 与明确认证文案。
+- 本批成功路径使用同一端点加 Basic 校验；说明失败文案不是“所有 HTTP 401 都统一失败”，
+  而是凭据可用时正常重试并完成。
+- Augit 仍不存储凭据；凭据来自远端 URL（由本机 Git 处理）。这不是产品推荐的用户配置方式，
+  只是验证认证成功链路。
+
+## 4. 边界
+
+- 只覆盖 **URL 内置用户名/密码 + Basic**，不覆盖 credential helper、SSH key、token UI、
+  OAuth、代理或证书错误。
+- 服务端是本地受控 CGI，不代表自然网络延迟、慢盘或远端 hooks。
+- 通知是浅色、当前 DPI 的截图/文本证据，不是参考整页像素；页面级配对仍 50、像素仍 0。
+- 未验证 Push 结果通知在深色/窄窗下的位置；该组合仍单独记录。
+
+## 5. 清理与复验
+
+- 服务端、Augit、临时裸远端/种子仓库全部关闭并删除；无残留端口或进程。
+- 复验：
+  ```powershell
+  node tools/audit/push-auth-success.cjs <playwright> artifacts/push-auth-success-2026-10-24
+  ```
