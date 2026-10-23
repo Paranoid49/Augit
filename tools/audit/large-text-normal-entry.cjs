@@ -122,13 +122,15 @@ async function closeWindow(pid) {
   try {
     await fs.mkdir(workspace);
     await fs.copyFile(path.join(process.env.LOCALAPPDATA, 'Augit/settings.json'), settings).catch(() => fs.writeFile(settings, '{}\n'));
+    const small = bigText(2000, { 1: 'NEEDLE_FIRST', 1000: 'NEEDLE_MIDDLE', 2000: 'NEEDLE_LAST' }, 120);
     const huge = bigText(211100, { 1: 'NEEDLE_FIRST', 12000: 'NEEDLE_MIDDLE', 22000: 'NEEDLE_LAST' }, 100);
     const mid = bigText(80000, { 1: 'NEEDLE_FIRST', 40000: 'NEEDLE_MIDDLE', 80000: 'NEEDLE_LAST' }, 24);
+    await fs.writeFile(path.join(workspace, 'small.txt'), small);
     await fs.writeFile(path.join(workspace, 'huge.txt'), huge);
     await fs.writeFile(path.join(workspace, 'mid.txt'), mid);
     // 非 Git 目录会弹「初始化仓库」模态，挡住正常项目树入口；建一个只含种子提交的仓库，
     // 大文件保留在磁盘但不进入索引，项目树仍可见、Git 状态也不会扫描 23 MB 内容。
-    await fs.writeFile(path.join(workspace, '.gitignore'), 'huge.txt\nmid.txt\n');
+    await fs.writeFile(path.join(workspace, '.gitignore'), 'small.txt\nhuge.txt\nmid.txt\n');
     await fs.writeFile(path.join(workspace, 'seed.txt'), 'seed\n');
     await execute('git', ['init', '-b', 'main'], { cwd: workspace, windowsHide: true });
     await execute('git', ['config', 'user.name', 'Augit Large Entry'], { cwd: workspace, windowsHide: true });
@@ -137,6 +139,7 @@ async function closeWindow(pid) {
     await execute('git', ['add', '.gitignore', 'seed.txt'], { cwd: workspace, windowsHide: true });
     await execute('git', ['commit', '-m', 'test: large text fixture'], { cwd: workspace, windowsHide: true });
     report.fixtures = {
+      small: { bytes: Buffer.byteLength(small), lines: 2000 },
       huge: { bytes: Buffer.byteLength(huge), lines: 211100 },
       mid: { bytes: Buffer.byteLength(mid), lines: 80000 },
       settingsSha256: crypto.createHash('sha256').update(await fs.readFile(settings)).digest('hex').toUpperCase(),
@@ -186,6 +189,7 @@ async function closeWindow(pid) {
     }
 
     for (const sample of [
+      { key: 'small', file: 'small.txt', lines: 2000, goto: 2000, findLine: 2000, preview: false },
       { key: 'mid', file: 'mid.txt', lines: 80000, goto: 80000, findLine: 80000, preview: false },
       // 22.75 MiB 超过 20 MB 内容加载上限，宿主只返回前 2.5 MB 的 TextPreview；
       // 预览行数由实际截断决定，不拿原文件 212,000 行当预期。
@@ -291,14 +295,18 @@ async function closeWindow(pid) {
       let selectAll = null;
       let drag = null;
       let osDragResult = null;
-      if (sample.key === 'mid' || sample.key === 'huge') {
+      if (sample.key === 'small' || sample.key === 'mid' || sample.key === 'huge') {
         await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
         await page.keyboard.press('Control+a');
         await delay(250);
         await page.keyboard.press('Control+c');
         await delay(400);
         const clip = await clipboardInfo();
-        const expectedHash = sample.key === 'mid' ? crypto.createHash('sha256').update(mid).digest('hex') : null;
+        const expectedHash = sample.key === 'small'
+          ? crypto.createHash('sha256').update(small).digest('hex')
+          : sample.key === 'mid'
+            ? crypto.createHash('sha256').update(mid).digest('hex')
+            : null;
         const expectedLength = opened.textLength;
         selectAll = {
           length: clip.length,
