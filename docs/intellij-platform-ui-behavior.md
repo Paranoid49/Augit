@@ -348,7 +348,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `294a3e3c531d5c320fd69e261a8d82fd` |
+| `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3` |
 | `web/src/mockup.js` | `1947a04a1bf895201167708553804779` |
 | `web/src/live-data.js` | `f140f1e278485b88fc17fff5ddd405ef` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
@@ -366,7 +366,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-05 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `5f6d41b10241085d04d0ef3f8a20c8b6`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
+| `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
 | `web/src/mockup.js` | `e4694d910af5788bf7ce251288f4b710`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
 | `web/src/live-data.js` | `6812d388cb695ce1902389a718f8c60a`（当前复核：搜索/快捷键状态机、终端代际、树状态变化与 HEAD 快照） |
 | `web/src/bridge.js` | `8d2d3173074a8558cd12e6778b3bfc82` |

@@ -259,13 +259,19 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
     await page.locator(`${DEFINE} .dialog-footer [data-remote-define="ok"]`).click();
     await page.waitForFunction('(window.__fetchCalls || 0) > 0', null, { timeout: 10000 });
     await page.waitForSelector(DEFINE, { state: 'detached', timeout: 5000 });
-    const autoFetchFailed = await page.evaluate(() => ({
-      writes: window.__remoteWrites || [],
-      fetchCalls: window.__fetchCalls || 0,
-      notice: (document.querySelector('.remote-window .remote-notice') || {}).textContent || null,
-      toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
-      rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
-    }));
+    const autoFetchFailed = await page.evaluate(() => {
+      const notice = document.querySelector('.remote-window .remote-notice');
+      return {
+        writes: window.__remoteWrites || [],
+        fetchCalls: window.__fetchCalls || 0,
+        notice: notice ? notice.textContent : null,
+        noticeWhiteSpace: notice ? getComputedStyle(notice).whiteSpace : null,
+        noticeOverflowWrap: notice ? getComputedStyle(notice).overflowWrap : null,
+        noticeClipped: notice ? notice.scrollWidth > notice.clientWidth + 1 : null,
+        toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
+        rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
+      };
+    });
     check('自动 Fetch 失败在远端管理器内联显示错误且不弹被遮挡的 toast: ' + JSON.stringify(autoFetchFailed),
       autoFetchFailed.writes.length === 2
         && autoFetchFailed.writes[1].action === 'add' && autoFetchFailed.writes[1].name === 'fetchfail'
@@ -273,6 +279,9 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
         && autoFetchFailed.rows.includes('fetchfail')
         && /Added fetchfail/.test(autoFetchFailed.notice || '')
         && /No remote configured/.test(autoFetchFailed.notice || '')
+        && autoFetchFailed.noticeWhiteSpace === 'normal'
+        && autoFetchFailed.noticeOverflowWrap === 'anywhere'
+        && autoFetchFailed.noticeClipped === false
         && autoFetchFailed.toastTitle === null);
     await page.evaluate(() => { window.__fetchFails = false; });
 
