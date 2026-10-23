@@ -97,6 +97,8 @@
       code.append(lines);
     }
     lines.classList.add("virtual-code-lines");
+    lines.setAttribute("role", "list");
+    lines.setAttribute("aria-label", `Read-only lines, ${model.lineCount.toLocaleString("en-US")} total`);
     lines.replaceChildren();
     // 视觉窗口里只有全文的一小段；可访问树暴露**当前窗口的行文本 + 全文行数**。
     // 曾经额外挂一个承载全文的 `pre[role=document]`：2.8 MB 文本节点在开启可访问树
@@ -268,6 +270,9 @@
         row = document.createElement("div");
         row.className = "code-line";
         row.dataset.line = String(index + 1);
+        row.setAttribute("role", "listitem");
+        row.setAttribute("aria-setsize", String(model.lineCount));
+        row.setAttribute("aria-posinset", String(index + 1));
         row.style.top = `${index * state.rowHeight}px`;
         const number = document.createElement("span");
         number.className = "line-number";

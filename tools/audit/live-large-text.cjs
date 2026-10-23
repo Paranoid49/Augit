@@ -62,6 +62,11 @@ module.exports = async function liveLargeText({ openScene, check }) {
       a11yRole: code.querySelector('.virtual-text-accessible').getAttribute('role'),
       codeLabel: code.getAttribute('aria-label'),
       linesAriaHidden: code.querySelector(':scope > .code-lines').getAttribute('aria-hidden'),
+      linesRole: code.querySelector(':scope > .code-lines').getAttribute('role'),
+      linesLabel: code.querySelector(':scope > .code-lines').getAttribute('aria-label'),
+      firstRowRole: code.querySelector('.code-line[data-line="1"]')?.getAttribute('role') || null,
+      firstRowPos: Number(code.querySelector('.code-line[data-line="1"]')?.getAttribute('aria-posinset')),
+      firstRowSet: Number(code.querySelector('.code-line[data-line="1"]')?.getAttribute('aria-setsize')),
       ariaBusy: code.getAttribute('aria-busy'),
       firstLine: code.querySelector('.code-line[data-line="1"] .virtual-line-text')?.textContent || null,
       firstLineNumber: code.querySelector('.code-line[data-line="1"] .line-number')?.textContent || null,
@@ -74,12 +79,17 @@ module.exports = async function liveLargeText({ openScene, check }) {
     mounted.rows > 0 && mounted.rows < 120 && mounted.rows < fixture.count / 4);
   check('大文件预览的加载状态结束且行号/正文对应: ' + JSON.stringify([mounted.ariaBusy, mounted.firstLineNumber, mounted.firstLine, mounted.mountedMs]),
     mounted.ariaBusy === 'false' && mounted.firstLineNumber === '1' && mounted.firstLine.startsWith('line 1 needle first'));
-  check('大文件预览提供窗口层可访问文本与全文行数: ' + JSON.stringify([mounted.a11yLength, mounted.a11yLabel, mounted.codeLabel, mounted.a11yRole, mounted.linesAriaHidden, mounted.accessibleMs]),
+  check('大文件预览提供窗口层可访问文本与全文行数: ' + JSON.stringify([mounted.a11yLength, mounted.a11yLabel, mounted.codeLabel, mounted.a11yRole, mounted.linesAriaHidden, mounted.linesRole, mounted.linesLabel, mounted.firstRowRole, mounted.firstRowPos, mounted.firstRowSet, mounted.accessibleMs]),
     mounted.a11yLength === 0
       && mounted.a11yRole === 'document'
       && mounted.a11yLabel === 'Read-only content, 2,000 lines'
       && mounted.codeLabel === 'Read-only content, 2,000 lines'
       && mounted.linesAriaHidden === 'false'
+      && mounted.linesRole === 'list'
+      && mounted.linesLabel === 'Read-only lines, 2,000 total'
+      && mounted.firstRowRole === 'listitem'
+      && mounted.firstRowPos === 1
+      && mounted.firstRowSet === 2000
       && mounted.accessibleMs < 1000);
 
   // ---- 滚动到未显示区域：最后一行可见 ---------------------------------------

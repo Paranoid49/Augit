@@ -355,7 +355,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
 | `web/src/image-preview.js` | `bef0375129064dae3c526c265b66fbe8` |
-| `web/src/large-text-view.js`（本批新增） | `b14de44f77916e4117eb032296f34582` |
+|`web/src/large-text-view.js`（本批新增）|`19f9df6f777bbcac41bf83993f97092b`|
 | `live-shell.spec.cjs`（工作区版） | `7341490cd241a8c1a3be6528f3123ba5` |
 
 该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。大文件窗口层目前只有无头 Chromium 证据，真实外壳 22.75 MB 正常入口仍未验收，见[大文件预览虚拟化原型](large-text-virtualization-2026-10-23.md)。
