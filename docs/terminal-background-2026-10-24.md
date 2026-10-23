@@ -29,10 +29,25 @@
   - `artifacts/terminal-background-dark-2026-10-24/ansi-dark-background.png`
 - 报告：各自目录的 `terminal-ansi-colors.json`。
 
-## 3. 边界
+## 3. 光标
+
+同一背景批次的终端提示符处读取 `.xterm-cursor.xterm-cursor-block`：
+
+| 主题 | 光标 color | background | 尺寸 |
+| --- | --- | --- | --- |
+| 浅色 | `rgb(0, 0, 0)` / `#000000` | `rgba(0, 0, 0, 0)` | 8×18 |
+| 深色 | `rgb(188, 190, 196)` / `#BCBEC4` | `rgba(0, 0, 0, 0)` | 8×18 |
+
+- 光标色等于终端 foreground（`terminalTheme()` 的 `cursor: foreground`），不是独立随机色；
+- 背景批次 PID 23132（浅）/10744（深）正常关闭；
+- 截图：`artifacts/terminal-background-light-2026-10-24b/ansi-background.png`、
+  `artifacts/terminal-background-dark-2026-10-24b/ansi-dark-background.png`。
+- 这是 computed color + 几何，不是光标块截图逐像素；未测闪烁节奏。
+
+## 4. 边界
 
 - 只验证 SGR 41/44 两种背景色；未覆盖其余 14 个背景索引、反显、粗体/暗淡、选区背景。
-- 未验证终端光标色；未采参考 PyCharm 背景像素。
+- 未验证光标块的屏幕像素/闪烁节奏；未采参考 PyCharm 背景/光标像素。
 - 背景色是调色板实现验证，不是整页参考像素；页面级配对仍 50、像素仍 0。
 
 ## 4. 复验

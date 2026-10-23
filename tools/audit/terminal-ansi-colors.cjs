@@ -111,6 +111,21 @@ async function launch(workspace, settings, port) {
       report.batches.push({name:batch.name,theme:dark?'dark':'light',file,rows:state.filter(r=>/^(C\d+|I\d+|T\d+|B\d+)$/.test(r.text.trim()))});
       await pasteAndEnter('Clear-Host'); await delay(700);
     }
+    report.cursor = await page.evaluate(() => {
+      const node = document.querySelector('.xterm-cursor') || document.querySelector('[class*="xterm-cursor"]');
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return {
+        className: String(node.className),
+        background: style.backgroundColor,
+        color: style.color,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
     report.closedNormally=await closeApp(pid); closed=report.closedNormally; await delay(500); report.pidAlive=(()=>{try{process.kill(pid,0);return true}catch{return false}})();
     await browser.close(); browser=null;
   }catch(error){report.error=String(error&&error.stack||error);process.exitCode=1}
