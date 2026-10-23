@@ -48,10 +48,20 @@ DOM:
 - 标题栏显示 `b3f256cd19e9`，`live.isDetached=true`；
 - 因此 detached HEAD 下引用树没有错误标注旧分支。
 
-仍有一个未改的文案差异：HEAD 行在 detached 时仍写 `HEAD (Current Branch)`。当前没有规范或参考实机证据说明该状态应显示 `HEAD`、提交哈希还是其他文本，故不擅自改动。
+参考 `GitBundle.properties:716` 的 `group.Git.HEAD.Branch.Filter.title=HEAD (Current Branch)` 是分支面板的**静态分组标题**，不随当前分支或 detached 状态改变；因此 Augit 的 HEAD 行文案与参考一致，不按 detached 改成其他文本。
 
-## 5. 边界
+## 5. 外部创建/删除分支
+
+同一正常入口 PID 9956，当前 `main`：
+
+- 外部 `git branch probe` 后，引用树 Local 出现 `probe`；截图 `artifacts/external-branch-2026-10-23/branch-created.png`；
+- 外部 `git branch -D probe` 后，引用树移除 `probe`；UIA 轮询在约 1.28 秒内读到条目消失；截图 `artifacts/external-branch-2026-10-23/branch-deleted.png`；
+- 临时分支已删除，仓库只剩 `main`、`feature`。
+
+轮询包含启动 PowerShell/UIA 的开销，不能当作精确刷新延迟；它只证明创建和删除都能同步，不失真。
+
+## 6. 边界
 
 - 这是行为同步证据，不是引用树像素配对；
-- 只测一次外部 checkout，未测 detached HEAD、删除当前分支、冲突检出等状态；
+- 外部 checkout、detached HEAD、创建/删除分支已覆盖；未测删除当前分支、冲突检出；
 - 引用树更新未做逐帧计时；标题栏 318ms 是 UIA 轮询近似值。
