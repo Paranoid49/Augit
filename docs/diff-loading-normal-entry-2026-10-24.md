@@ -125,3 +125,16 @@ node --test tools/audit/diff-initial-loading.test.cjs
   脚本结束删除，不进入产品。
 - 只覆盖浅色、单文件、当前 DPI；没有参考端失败态像素对照。
 - 包装器第一次失败只针对 `changed.txt` 的 diff；若产品先请求其他 diff 不消耗标记。
+
+## 7. 深色 / 窄窗补充
+
+同一 7.08 MB / 100,000 行 Diff 夹具在 **Dark**、1024×640 CSS 视口（1100×800 物理请求）下
+重新打开：
+
+- 视口 1024×640；`.diff-layout` **672×326 @ (345,84)**，工具栏 39、文件栏 31；
+- 截断横幅 `Diff truncated / Showing the first 2000 rows…` 在深色下可见；
+- 正文仍建 **3,990** 行节点，窗口内可读；
+- 截图：`artifacts/diff-loading-dark-narrow-2026-10-24/diff-dark-narrow.png`；
+- 实例 PID 28736 正常关闭；临时仓库删除。
+
+这是深色/窄窗的行为与截图证据，不是参考像素；窄窗下右侧列被横向裁切属预期，未做列宽适配。

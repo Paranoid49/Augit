@@ -18,6 +18,7 @@ const { execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/diff-loading-normal-entry-2026-10-24');
+const darkNarrow = process.argv.includes('--dark-narrow');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid) {
@@ -193,6 +194,7 @@ function installDiffProbe() {
     settingsObject.lastWorkspace = workspace;
     settingsObject.openFiles = [];
     settingsObject.activeFile = null;
+    if (darkNarrow) settingsObject.theme = 'Dark';
     await fs.writeFile(settings, JSON.stringify(settingsObject, null, 2) + '\n');
     const listener = net.createServer();
     await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
@@ -288,6 +290,34 @@ function installDiffProbe() {
       };
     });
     await page.screenshot({ path: path.join(output, 'diff-loaded.png') });
+    let darkNarrowState = null;
+    if (darkNarrow) {
+      const resize = `Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class DiffNarrow { [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags); [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c); }
+"@
+try { [void][DiffNarrow]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+[void][DiffNarrow]::SetWindowPos([IntPtr]${hwnd}, [IntPtr]::Zero, 0, 0, 1100, 800, (0x0004 -bor 0x0010))`;
+      await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', resize], { timeout: 30000 });
+      await delay(800);
+      darkNarrowState = await page.evaluate(() => {
+        const layout = document.querySelector('.editor-content .diff-layout');
+        const toolbar = document.querySelector('.editor-content .diff-toolbar');
+        const filebar = document.querySelector('.editor-content .reference-filebar');
+        const rect = (node) => node ? (() => { const r = node.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }; })() : null;
+        return {
+          theme: document.body.dataset.theme || null,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          layout: rect(layout), toolbar: rect(toolbar), filebar: rect(filebar),
+          summary: document.querySelector('.diff-toolbar .diff-summary')?.textContent || null,
+          truncation: document.querySelector('.diff-truncation')?.innerText || null,
+          rows: document.querySelectorAll('.diff-code-line').length,
+        };
+      });
+      await page.screenshot({ path: path.join(output, 'diff-dark-narrow.png') });
+      report.darkNarrow = darkNarrowState;
+    }
     report.runs.push({ key: 'text', click: textClick, loading: loadingState, done: textDone });
 
     if (rowRects.binary) {
