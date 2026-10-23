@@ -145,6 +145,15 @@ public sealed class GitDiffService : IGitDiffService
         GitDiffContentStatus status = IsBinaryPatch(result.StandardOutput)
             ? GitDiffContentStatus.Binary
             : GitDiffContentStatus.Ready;
+        // 未合并的二进制冲突没有文本补丁（git 不输出 Binary files 行），
+        // 不能因此显示“无文本差异”；按磁盘内容识别为二进制摘要。
+        if (status == GitDiffContentStatus.Ready
+            && !string.IsNullOrWhiteSpace(currentPath)
+            && File.Exists(currentPath)
+            && IsBinaryFile(currentPath))
+        {
+            status = GitDiffContentStatus.Binary;
+        }
         return GitDiffResult.Success(new(
             status,
             changedFile.RelativePath,
@@ -491,6 +500,29 @@ public sealed class GitDiffService : IGitDiffService
     {
         return patch.Contains("Binary files ", StringComparison.Ordinal)
             || patch.Contains("GIT binary patch", StringComparison.Ordinal);
+    }
+
+    private static bool IsBinaryFile(string path)
+    {
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            Span<byte> buffer = stackalloc byte[8192];
+            int read = stream.Read(buffer);
+            for (int index = 0; index < read; index++)
+            {
+                if (buffer[index] == 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // 读不到就不擅自判为二进制；保持原有文本/无差异路径。
+        }
+
+        return false;
     }
 
     private static GitDiffResult Failure(GitCommandResult result)

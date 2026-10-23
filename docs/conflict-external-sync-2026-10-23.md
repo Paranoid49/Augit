@@ -58,19 +58,20 @@
 ## 7. 二进制冲突
 
 - 创建 256 字节二进制 `blob.bin`，`other` 与 `master` 分别改同一字节，`git merge` 产生 `UU blob.bin`；
-- 正常入口 PID 28320 显示 `Merge Conflicts`/`1 conflicting file`/`blob.bin`；
+- 正常入口 PID 27844 显示 `Merge Conflicts`/`1 conflicting file`/`blob.bin`；
 - 双击后打开 `Commit: blob.bin` 只读 Diff，显示：
   - `Unresolved conflict` 横幅；
-  - `This file has no text differences.`；
-  - 没有二进制摘要/不可比较说明；
-- 截图：`artifacts/conflict-refresh-2026-10-23/binary-open.png`。
+  - `Text diff is unavailable for this file (Binary).`；
+  - 不再误报“This file has no text differences”；
+- 截图：`artifacts/conflict-refresh-2026-10-23/binary-fixed.png`。
 
-这暴露一个尚未对齐的呈现问题：二进制冲突被当成“无文本差异”，而不是明确的二进制冲突。当前横幅仍提示外部处理，但没有说明“二进制”这一原因；由于参考实机的二进制冲突文案未采，本轮不擅自改文案，登记为待补证据。
+修复内容：未合并二进制冲突没有文本补丁，`git diff` 不会输出 `Binary files` 行；`GitDiffService` 在补丁为空时按磁盘内容检测 NUL 字节，把状态标为 `Binary`。自动化测试 `未合并二进制冲突没有文本补丁时仍标记为二进制` 覆盖真实合并冲突。
 
 ## 8. 边界
 
 - 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；外部 Abort 已验证单文件 merge；
-- 未测外部 Abort rebase、删除冲突文件、二进制冲突、多文件 Skip；
+- 未测外部 Abort rebase、删除冲突文件、多文件 Skip；
+- 二进制冲突已验证为只读 Binary 摘要，未测二进制外部解决后的状态刷新；
 - 未重建三栏冲突编辑器，符合 2026-10-17 裁决；
 - 外部解决是文本编辑 + `git add`，不经过应用内编辑；
 - 这是行为证据，不是冲突页像素配对。

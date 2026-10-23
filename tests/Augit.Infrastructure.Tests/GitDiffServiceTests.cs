@@ -241,6 +241,43 @@ public sealed class GitDiffServiceTests
         }
     }
 
+    [TestMethod]
+    public async Task 未合并二进制冲突没有文本补丁时仍标记为二进制()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "core.autocrlf", "false");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "user.name", "Augit Tests");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "config", "user.email", "augit-tests@example.invalid");
+            string initialBranch = (await GitTestEnvironment.RunAsync(
+                runtime, temporary.FullPath, "symbolic-ref", "--short", "HEAD")).StandardOutput.Trim();
+            await File.WriteAllBytesAsync(temporary.GetPath("blob.bin"), [0, 1, 2, 3]);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "blob.bin");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-m", "test: base");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "checkout", "-b", "other");
+            await File.WriteAllBytesAsync(temporary.GetPath("blob.bin"), [0, 1, 9, 3]);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-am", "test: other");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "checkout", initialBranch);
+            await File.WriteAllBytesAsync(temporary.GetPath("blob.bin"), [0, 1, 7, 3]);
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "commit", "-am", "test: master");
+            GitCommandResult merge = await new GitCommandRunner().RunAsync(
+                runtime.ExecutablePath!,
+                temporary.FullPath,
+                ["merge", "other"],
+                GitCommandMode.LocalWrite);
+            Assert.IsFalse(merge.IsSuccess, "预期的二进制冲突没有失败。");
+
+            GitStatusResult status = await new GitStatusService(runtime).ReadAsync(repository);
+            Assert.IsTrue(status.IsSuccess, status.ErrorMessage);
+            GitChangedFile conflicted = status.Snapshot!.Files.Single(file => file.RelativePath == "blob.bin");
+            GitDiffResult result = await new GitDiffService(runtime).CreateAsync(repository, conflicted, new());
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual(GitDiffContentStatus.Binary, result.Document!.Status);
+        }
+    }
+
     private static async Task<GitChangedFile> ReadOnlyChangeAsync(
         GitRuntimeInfo runtime,
         GitRepositorySnapshot repository)
