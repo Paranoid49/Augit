@@ -334,7 +334,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | 验证 | 结果 |
 | --- | --- |
 | 资源字节一致（`tools/audit/verify-ui-assets.ps1`） | `PASS: runtime UI assets match the visual mockups.` |
-| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2370 项断言`**（2026-10-23 当前批次、退出码 0、未执行 0；相对 2348 的增量是大文件只读预览/超大普通文本改用全文逻辑层/视觉窗口层后的 22 项断言：2,000 行选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化与软换行回退；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
+| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2371 项断言`**（2026-10-23 当前批次、退出码 0、未执行 0；相对 2348 的增量是大文件只读预览/超大普通文本改用全文逻辑层/视觉窗口层后的 22 项断言：2,000 行选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化与软换行回退；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
 | 令牌唯一性 | 全部颜色令牌各 2 处定义（浅/深），无第三处覆盖 |
 | 断言是否硬编码色值 | 零个 hex 字面量——套件只断言令牌名、几何与状态，因此配色变更不会打挂断言 |
 
@@ -344,19 +344,19 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 #### 已验证快照（后续轮次用它低成本确认"代码未变、上次结论仍有效"）
 
-**当前复核（2026-10-24）**：大文件窗口层与首次 Diff 加载态修复后，完整实时套件通过，退出码 0，`live-shell 通过 2370 项断言`（未执行 0 项）。相对 2348 的 +22 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化与软换行回退断言；本次增量是首次 Diff 请求显示 `Loading...`/进度条（mockup.js）。HEAD `db56b09`（本批大文件可访问性修复已提交）；下表的 md5 是本次完整套件实际加载的版本。
+**当前复核（2026-10-24）**：大文件窗口层、首次 Diff 加载态与搜索 Include ignored 修复后，完整实时套件通过，退出码 0，`live-shell 通过 2371 项断言`（未执行 0 项）。相对 2348 的 +23 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化、软换行回退、首次 Diff 加载态，以及搜索 Include ignored 重跑查询断言。HEAD `b7d2b52` + 本批未提交搜索修复；下表的 md5 是本次完整套件实际加载的版本。
 
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
 | `web/src/mockup.css` | `294a3e3c531d5c320fd69e261a8d82fd` |
 | `web/src/mockup.js` | `1947a04a1bf895201167708553804779` |
-| `web/src/live-data.js` | `5c8660298260def3b30c86a2a836057c` |
+| `web/src/live-data.js` | `a044e2bc5609baf0ba3515dd3bb57eed` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
 | `web/src/image-preview.js` | `bef0375129064dae3c526c265b66fbe8` |
 | `web/src/large-text-view.js`（本批新增） | `b14de44f77916e4117eb032296f34582` |
-| `live-shell.spec.cjs`（工作区版） | `c9670e0dbb48576679a8abdb5f21795a` |
+| `live-shell.spec.cjs`（工作区版） | `00c196cf6b68cad24a90cb7addf5b7d6` |
 
 该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。大文件窗口层目前只有无头 Chromium 证据，真实外壳 22.75 MB 正常入口仍未验收，见[大文件预览虚拟化原型](large-text-virtualization-2026-10-23.md)。
 

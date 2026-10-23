@@ -532,6 +532,18 @@ async function main() {
           };
         }
         if (window.__emptySearch) return { ...data.searchText, matches: [], notice: '' };
+        // 含忽略文件开关：真实服务只应在 includeIgnoredFiles=true 时返回忽略文件；
+        // 用额外一条伪命中验证 checkbox 会真正重跑查询，而不是只改视觉状态。
+        if (params && params.includeIgnoredFiles) {
+          window.__includeIgnoredCalls = (window.__includeIgnoredCalls || 0) + 1;
+          return {
+            ...data.searchText,
+            matches: [
+              ...(data.searchText.matches || []),
+              { path: 'ignored/build.txt', name: 'build.txt', directory: 'ignored', line: 2, column: 1, text: 'needle ignored' },
+            ],
+          };
+        }
         // 结果区下方的状态/错误说明（规格 §7.15 第 10 条）：`__searchNotice` 注入长文案，
         // `__searchTimedOut`／`__searchCancelled` 标记状态来源。
         if (window.__searchNotice !== undefined) {
@@ -8206,6 +8218,33 @@ async function main() {
     const repoText = await repo.page.locator('.search-overlay').innerText();
     check('全仓搜索显示命中行号与内容: ' + repoText.replace(/\n/g, ' ').slice(0, 90), repoText.includes('12:') && repoText.includes('轻量优先'));
     check('全仓搜索不残留样例', !repoText.includes('Git 状态已刷新'));
+
+    // Include ignored files 是 checkbox：勾选/取消都必须重跑同一查询并更新结果。
+    await repo.page.evaluate(() => { window.__includeIgnoredCalls = 0; });
+    const ignoredBefore = await repo.page.locator('.search-result').count();
+    await repo.page.locator('.search-ignored input').check();
+    await repo.page.waitForFunction((count) => window.__includeIgnoredCalls === 1
+      && document.querySelectorAll('.search-result').length === count + 1, ignoredBefore, { timeout: 10000 });
+    const ignoredChecked = await repo.page.evaluate(() => ({
+      checked: !!document.querySelector('.search-ignored input')?.checked,
+      results: document.querySelectorAll('.search-result').length,
+      paths: [...document.querySelectorAll('.search-result')].map((row) => row.dataset.searchPath),
+      calls: window.__includeIgnoredCalls || 0,
+    }));
+    await repo.page.locator('.search-ignored input').uncheck();
+    await repo.page.waitForFunction((count) => window.__includeIgnoredCalls === 1
+      && document.querySelectorAll('.search-result').length === count, ignoredBefore, { timeout: 10000 });
+    const ignoredUnchecked = await repo.page.evaluate(() => ({
+      checked: !!document.querySelector('.search-ignored input')?.checked,
+      results: document.querySelectorAll('.search-result').length,
+      calls: window.__includeIgnoredCalls || 0,
+    }));
+    check('全仓搜索 Include ignored files 勾选/取消都重跑查询: ' + JSON.stringify({ ignoredBefore, ignoredChecked, ignoredUnchecked }),
+      ignoredBefore > 0
+        && ignoredChecked.checked === true && ignoredChecked.results === ignoredBefore + 1
+        && ignoredChecked.paths.includes('ignored/build.txt') && ignoredChecked.calls === 1
+        && ignoredUnchecked.checked === false && ignoredUnchecked.results === ignoredBefore
+        && ignoredUnchecked.calls === 1);
 
     // ---- 「结果过多」（权威 `UsageLimitUtil.showTooManyUsagesWarning`，`:26-34`）----
     // 到限先问 Continue／Abort；Continue 让同一查询继续跑完且不再提示，Abort 保留已有结果并停止。

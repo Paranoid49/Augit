@@ -963,6 +963,23 @@ document.addEventListener("click", (event) => {
   selectSearchResult(row);
 }, true);
 
+// “Include ignored files” 是 checkbox，不在 `.search-option` 按钮分支内。此前只切换了
+// checked 视觉状态，没有重跑查询，用户看到开关已开但结果不变。与选项按钮一样，
+// 等 checkbox 状态落地后读取 currentSearchOptions() 重新搜索。
+document.addEventListener("change", (event) => {
+  const input = event.target.closest && event.target.closest(".search-ignored input");
+  if (!input) return;
+  const live = window.__augitLive;
+  const field = document.querySelector(".search-overlay .search-field");
+  if (!live || !live.search || !field) return;
+  window.setTimeout(() => {
+    const current = window.__augitLive;
+    const latestField = document.querySelector(".search-overlay .search-field");
+    if (!current || !current.search || !latestField) return;
+    void runSearch(current.search.kind, latestField.value, currentSearchOptions());
+  }, 0);
+}, true);
+
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.repeat || event.isComposing || event.keyCode === 229) return;
   const row = event.target.closest && event.target.closest(".search-result");
