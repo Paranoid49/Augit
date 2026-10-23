@@ -39,21 +39,21 @@
 - 报告：`artifacts/search-timeout-retry-2026-10-24c/search-timeout-retry.json`、
   `suspend-result.json`。
 
-## 2.1 非默认选项保留（Words + Regex）
+## 2.1 非默认选项保留（Match case + Words + Regex）
 
-同一夹具、同一查询再跑一次，在输入前打开 **Words** 与 **Regex**（同时尝试 Match case，
-但该按钮的点击仍未生效，最终 `case=false`；因此本节证明 Words + Regex）：
+同一夹具、同一查询再跑一次，在输入前打开 **Match case / Words / Regex**：
 
 | 状态 | 查询 | options | 结果 |
 | --- | --- | --- | --- |
-| 超时 | `needle_retry_token` | `case=false, words=true, regex=true` | 48 条已完成 |
-| Enter 重试 | 同上 | 仍 `case=false, words=true, regex=true` | **320** 条；`timedOut=false`，说明清除 |
+| 超时 | `needle_retry_token` | `case=true, words=true, regex=true` | 43 条已完成 |
+| Enter 重试 | 同上 | 仍 `case=true, words=true, regex=true` | **320** 条；`timedOut=false`，说明清除 |
 
-- 截图：`artifacts/search-timeout-retry-options-all-2026-10-24/timeout.png`、`retry.png`；
-- 报告：`search-timeout-retry.json`，`pressed` 在超时和重试两态均为 `words=true, regex=true`；
-- 实例 PID 27104 正常关闭；80k 夹具删除。
-- 边界：Match case 的点击仍未生效（连续两次/等待后仍 `false`），不把它写成已通过；
-  该点击竞态本身未定位，不作为产品缺陷结论。
+- 截图：`artifacts/search-timeout-retry-options-fixed-2026-10-24/timeout.png`、`retry.png`；
+- 报告：`search-timeout-retry.json`，`pressed` 在超时和重试两态三项均为 `true`；
+- 实例 PID 19936 正常关闭；80k 夹具删除。
+- 此前 Match case 点击不生效的根因是**首次打开浮层未量 header、选项与 ignored 叠在同一原点**；
+  修复后真实 OS 点击三态均可切换，详见
+  [search-match-case-layout-2026-10-24.md](search-match-case-layout-2026-10-24.md)。
 
 ## 3. 行为核对
 
