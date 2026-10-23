@@ -28,7 +28,29 @@
 - 引用树 Local 中 `feature` 带当前分支标记并排到前面，`main` 不再标当前；
 - 仓库已恢复 `main`。
 
-## 4. 边界
+## 4. detached HEAD 复核（纠正误判）
+
+后续在正常入口执行 `git checkout --detach`，截图里 `main` 仍显示黄色图标，曾被误判为“仍标当前分支”。用 CDP 读取真实桥接响应和 DOM 后确认：
+
+```text
+git/references:
+  feature isCurrent:false
+  main    isCurrent:false
+live.references:
+  feature false
+  main    false
+DOM:
+  main    data-ref-current="false" icon="favorite"
+  feature data-ref-current="false" icon="branch"
+```
+
+- 黄色图标是 `main` 的 **favorite** 星标，不是当前分支标记；
+- 标题栏显示 `b3f256cd19e9`，`live.isDetached=true`；
+- 因此 detached HEAD 下引用树没有错误标注旧分支。
+
+仍有一个未改的文案差异：HEAD 行在 detached 时仍写 `HEAD (Current Branch)`。当前没有规范或参考实机证据说明该状态应显示 `HEAD`、提交哈希还是其他文本，故不擅自改动。
+
+## 5. 边界
 
 - 这是行为同步证据，不是引用树像素配对；
 - 只测一次外部 checkout，未测 detached HEAD、删除当前分支、冲突检出等状态；
