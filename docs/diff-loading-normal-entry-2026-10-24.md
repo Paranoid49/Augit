@@ -26,7 +26,7 @@
 
 ```js
 if (live.diffLoading) {
-  return `<div class="diff-layout" data-augit-loading="true">` 
+  return `<div class="diff-layout" data-augit-loading="true">`
     + liveDiffToolbar({ arrowsDisabled: true, busy: true, summary: diffLoadingProgress() })
     + liveConflictNotice(path) + diffFileHeader("HEAD", "Workspace", path, path)
     + `<div class="diff-columns diff-loading-columns" ...><div class="diff-loading-message" role="status">Loading...</div></div></div>`;
