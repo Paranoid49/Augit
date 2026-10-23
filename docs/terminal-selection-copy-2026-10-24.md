@@ -42,6 +42,24 @@
 - 实例 PID 22352 正常关闭，`pidAlive=false`。
 - 深色选区色与浅色不同，但仍是行为/截图证据，不是参考像素。
 
+### 2.2 多行补充
+
+执行 `echo COPY_LINE_1; echo COPY_LINE_2`，从第一行输出拖到第二行输出：
+
+- 输出行 y=708.6（`COPY_LINE_1`）、y=726.6（`COPY_LINE_2`）；
+- 拖选 CSS 57,717.6 → 193,735.6（物理 221,1343 → 459,1374）；
+- `.xterm-selection div` 3 个；
+- 剪贴板精确为：
+  ```text
+  COPY_LINE_1\r\nCOPY_LINE_2
+  ```
+  （Windows 换行，没有提示符/额外行）；
+- 截图：`artifacts/terminal-selection-copy-multi-2026-10-24/terminal-selection-multi.png`；
+- 实例 PID 2168 正常关闭，`pidAlive=false`。
+
+这验证了跨两行的连续选区复制；仍不是参考像素，也未覆盖反向拖选或块选择。
+
+
 
 ## 3. 失败路径（不是产品缺陷）
 
@@ -53,7 +71,7 @@
 
 ## 4. 边界
 
-- 只测浅色和深色、当前 DPI、单行单 token；未测多行拖选、反向拖选、块选择、
+- 只测浅色/深色与两行连续拖选、当前 DPI；未测反向拖选、块选择、
   双击/三击、Ctrl+Insert、鼠标释放到窗口外。
 - 未采参考 PyCharm 选区像素；选区颜色/抗锯齿没有逐像素配对。
 - 剪贴板只验证文本精确值，不验证富文本/MIME 或复制后的终端状态。

@@ -11,6 +11,7 @@ const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/terminal-selection-copy-2026-10-24');
 const dark = process.argv.includes('--dark');
+const multi = process.argv.includes('--multi');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid) {
@@ -135,24 +136,29 @@ async function launch(workspace, settings, port) {
     await delay(2500);
     const viewRect=await page.evaluate(()=>{const n=document.querySelector('.terminal-tool .terminal-view');const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}});
     await clickCss(hwnd,{x:viewRect.x+30,y:viewRect.y+20},'terminal-focus');
-    await pasteAndEnter('echo COPY_TOKEN_12345');
+    await pasteAndEnter(multi ? 'echo COPY_LINE_1; echo COPY_LINE_2' : 'echo COPY_TOKEN_12345');
     await delay(1500);
     const rows=await page.evaluate(()=>[...document.querySelectorAll('.xterm-rows > div')].map((n,i)=>{const r=n.getBoundingClientRect();return{index:i,text:n.textContent,x:r.x,y:r.y,width:r.width,height:r.height}}));
-    const outputRow=rows.find(r=>r.text.trim()==='COPY_TOKEN_12345')||null;
-    const tokenRow=outputRow||rows.find(r=>r.text.includes('COPY_TOKEN'))||null;
-    const point=tokenRow?{x:tokenRow.x+4,y:tokenRow.y+tokenRow.height/2}:{x:viewRect.x+30,y:viewRect.y+viewRect.height-40};
-    const drag=await dragCss(hwnd,point,{x:point.x+140,y:point.y},'drag-select');
+    const tokens=multi?['COPY_LINE_1','COPY_LINE_2']:['COPY_TOKEN_12345'];
+    const outputRows=tokens.map(t=>rows.find(r=>r.text.trim()===t)||null);
+    const firstRow=outputRows.find(Boolean)||null;
+    const lastRow=[...outputRows].reverse().find(Boolean)||null;
+    const tokenRow=firstRow;
+    const point=firstRow?{x:firstRow.x+4,y:firstRow.y+firstRow.height/2}:{x:viewRect.x+30,y:viewRect.y+viewRect.height-40};
+    const end=lastRow?{x:lastRow.x+140,y:lastRow.y+lastRow.height/2}:{x:point.x+140,y:point.y};
+    const drag=await dragCss(hwnd,point,end,'drag-select');
     await delay(300);
     const selection=await page.evaluate(()=>({
       nodes:document.querySelectorAll('.xterm-selection div').length,
       text:document.querySelector('.xterm-selection')?.textContent||null,
     }));
-    await page.screenshot({path:path.join(output,dark?'terminal-selection-dark.png':'terminal-selection.png')});
+    await page.screenshot({path:path.join(output,multi?'terminal-selection-multi.png':dark?'terminal-selection-dark.png':'terminal-selection.png')});
     await copyShortcut(hwnd);
     await delay(300);
     const clipboard1=(await execute('powershell.exe',['-NoProfile','-Command','Get-Clipboard -Raw'],{timeout:30000})).stdout.trim();
+    const success=(text)=>tokens.every(t=>(text||'').includes(t));
     let triple=null,clipboard2=null,selection2=null;
-    if(!clipboard1.includes('COPY_TOKEN_12345')){
+    if(!success(clipboard1) && !multi){
       triple=await tripleClickCss(hwnd,{x:point.x+40,y:point.y});
       await delay(250);
       selection2=await page.evaluate(()=>({nodes:document.querySelectorAll('.xterm-selection div').length,text:document.querySelector('.xterm-selection')?.textContent||null}));
@@ -160,7 +166,7 @@ async function launch(workspace, settings, port) {
       clipboard2=(await execute('powershell.exe',['-NoProfile','-Command','Get-Clipboard -Raw'],{timeout:30000})).stdout.trim();
       await page.screenshot({path:path.join(output,'terminal-selection-triple.png')});
     }
-    report.result={rows,tokenRow,point,drag,selection,clipboard1,triple,selection2,clipboard2,ok:clipboard1.includes('COPY_TOKEN_12345')||(clipboard2||'').includes('COPY_TOKEN_12345')};
+    report.result={rows,outputRows,tokenRow,point,end,drag,selection,clipboard1,triple,selection2,clipboard2,ok:success(clipboard1)||success(clipboard2)};
     await browser.close(); browser=null; closed=await closeApp(pid); report.closedNormally=closed; await delay(500); report.pidAlive=(()=>{try{process.kill(pid,0);return true}catch{return false}})();
   }catch(error){report.error=String(error&&error.stack||error);process.exitCode=1}
   finally{if(browser)await browser.close().catch(()=>{});if(pid&&!closed)await closeApp(pid).catch(()=>{});await fs.writeFile(path.join(output,'terminal-selection-copy.json'),JSON.stringify(report,null,2)+'\n');await fs.rm(temp,{recursive:true,force:true}).catch(()=>{})}
