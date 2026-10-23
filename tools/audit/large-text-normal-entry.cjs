@@ -286,26 +286,27 @@ async function closeWindow(pid) {
         };
       });
 
-      // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口；2.96 MB 剪贴板
-      // 的长度/SHA256 与磁盘 mid.txt 完全一致才算通过。
+      // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口。mid 对磁盘文件做
+      // 长度/SHA256；huge 是宿主 2.5 MB TextPreview，对 bridge 的 text 长度做校验。
       let selectAll = null;
       let drag = null;
       let osDragResult = null;
-      if (sample.key === 'mid') {
+      if (sample.key === 'mid' || sample.key === 'huge') {
         await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
         await page.keyboard.press('Control+a');
         await delay(250);
         await page.keyboard.press('Control+c');
         await delay(400);
         const clip = await clipboardInfo();
-        const expectedHash = crypto.createHash('sha256').update(mid).digest('hex');
+        const expectedHash = sample.key === 'mid' ? crypto.createHash('sha256').update(mid).digest('hex') : null;
+        const expectedLength = opened.textLength;
         selectAll = {
           length: clip.length,
           hash: clip.hash,
-          expectedLength: Buffer.byteLength(mid),
+          expectedLength,
           expectedHash,
-          lengthMatches: clip.length === Buffer.byteLength(mid),
-          hashMatches: clip.hash === expectedHash,
+          lengthMatches: clip.length === expectedLength,
+          hashMatches: expectedHash ? clip.hash === expectedHash : null,
         };
         // 窗口外拖动 + 自动滚动：把指针停在正文下方 1.2s，滚动应前进，复制内容
         // 应比可见窗口多，证明拖选不是只覆盖当前窗口。
