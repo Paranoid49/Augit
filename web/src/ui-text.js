@@ -85,6 +85,7 @@ const messages = new Map(Object.entries({
   "Git 错误输出超过上限，已截断。": "Git error output exceeded the limit and was truncated.",
   "Git 输出超过上限，已截断。": "Git output exceeded the limit and was truncated.",
   "Git 需要交互输入，图形操作已停止。": "Git requires interactive input; the graphical operation was stopped.",
+  "Git 需要认证凭据，图形操作已停止。": "Git requires authentication credentials; the graphical operation was stopped.",
   "Git 命令执行失败。": "Git command failed.",
   "Git 运行环境不可用。": "The Git environment is unavailable.",
   "读取上一次提交信息只适用于具有工作区的 Git 仓库。": "Reading the last commit message requires a Git repository with a working tree.",

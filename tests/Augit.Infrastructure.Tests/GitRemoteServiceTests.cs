@@ -320,7 +320,7 @@ public sealed class GitRemoteServiceTests
     }
 
     [TestMethod]
-    public async Task 需要交互输入时返回稳定原因且不暴露原命令()
+    public async Task 需要认证凭据时返回稳定原因且不暴露原命令()
     {
         using TemporaryDirectory temporary = new();
 
@@ -328,6 +328,22 @@ public sealed class GitRemoteServiceTests
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
             temporary.FullPath,
             ["/d", "/c", "echo fatal: could not read Username because terminal prompts disabled 1>&2 & exit /b 1"],
+            GitCommandMode.Network);
+
+        Assert.AreEqual(GitOperationFailureKind.InteractiveInputRequired, result.FailureKind);
+        Assert.AreEqual("Git 需要认证凭据，图形操作已停止。", result.ErrorMessage);
+        Assert.DoesNotContain("cmd.exe", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [TestMethod]
+    public async Task 其他交互输入仍返回通用原因()
+    {
+        using TemporaryDirectory temporary = new();
+
+        GitCommandResult result = await new GitCommandRunner().RunAsync(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            temporary.FullPath,
+            ["/d", "/c", "echo fatal: terminal prompts disabled 1>&2 & exit /b 1"],
             GitCommandMode.Network);
 
         Assert.AreEqual(GitOperationFailureKind.InteractiveInputRequired, result.FailureKind);

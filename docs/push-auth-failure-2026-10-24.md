@@ -1,10 +1,8 @@
 # Push 认证失败（HTTP 401）正常入口探测（2026-10-24）
 
-> 结论：真实外壳对一个只返回 HTTP 401 的远端执行 Push，Git 请求走到认证挑战，但 Augit
-> 没有凭据输入界面，宿主把交互式凭据提示统一终止为
-> “Git requires interactive input; the graphical operation was stopped.”，
-> 关闭 Push 对话框并显示 `Push failed` balloon。**这不是认证专用错误，也不是认证通过**；
-> 认证失败文案、重试和参考像素仍未完成。
+> 结论：真实外壳对一个只返回 HTTP 401 的远端执行 Push，Git 请求走到认证挑战；Augit
+> 不打开凭据输入，宿主终止操作并显示 `Push failed`。**修复后**文案已从笼统的
+> “交互输入”改为“认证凭据”，见 §2.2；凭据输入、重试成功和参考像素仍未完成。
 
 ## 1. 夹具与方法
 
@@ -24,7 +22,7 @@ HEAD /                                            → 401
 HEAD /                                            → 401
 ```
 
-## 2. 结果
+## 2. 结果（修复前）
 
 | 项 | 值 |
 | --- | --- |
@@ -43,26 +41,42 @@ HEAD /                                            → 401
 - 实例 PID 20440 正常关闭，`pidAlive=false`；HTTP 服务关闭；临时仓库删除；
   无残留 Augit/服务。
 
-## 2.1 深色窄窗补充
+## 2.1 深色窄窗补充（修复后）
 
 同一 401 路径在深色、1024×640 CSS 视口（1100×800 物理请求）下重跑：
 
-- balloon 标题/正文不变；
+- balloon 标题/正文为修复后的认证文案：
+  `Git requires authentication credentials; the graphical operation was stopped.`；
 - `toast` 几何 **375×100 @ (631,507)**，右缘 1006、下缘 607，均在 1024×640 视口内；
-- 截图：`artifacts/push-auth-failure-dark-narrow-2026-10-24/push-auth-failure-dark-narrow.png`；
-- 实例 PID 18092 正常关闭，服务关闭，临时仓库删除。
+- 截图：`artifacts/push-auth-failure-auth-message-dark-2026-10-24/push-auth-failure-dark-narrow.png`；
+- 实例 PID 正常关闭，服务关闭，临时仓库删除。
 
-这补充了通知的深色/窄窗可见性，但仍**不是**参考像素或认证专用反馈。
+这补充了通知的深色/窄窗可见性，但仍**不是**参考像素。
+
+## 2.2 认证文案修复
+
+- `GitCommandRunner` 现在区分认证提示（`could not read Username/Password`、
+  `authentication prompts disabled`）与其他交互输入；认证时返回
+  `Git 需要认证凭据，图形操作已停止。`
+- `ui-text.js` 增加对应英文
+  `Git requires authentication credentials; the graphical operation was stopped.`
+- 其他 `terminal prompts disabled` 等情况仍返回通用
+  `Git requires interactive input; the graphical operation was stopped.`
+- C# 测试：`GitRemoteServiceTests` **9/9 通过**（新增认证/通用两条）。
+- 正常入口复验（HTTP 401）：
+  - 标题 `Push failed`；
+  - 正文 `Git requires authentication credentials; the graphical operation was stopped.`；
+  - `Show details` 仍保留；
+  - 截图：`artifacts/push-auth-failure-auth-message-2026-10-24/push-auth-failure.png`。
+- 仍然没有凭据输入、凭据管理器集成或认证成功路径；参考实机未采。
 
 ## 3. 技术结论
 
-- HTTP 401 确实到达 Git；Git 需要交互式凭据；宿主按既定策略停止图形操作，因此
-  产品没有把它显示成“认证失败”，而是“需要交互输入”。
-- 这对“Push 认证失败”的验收是**未通过/未完成**，不能把该 balloon 当作认证错误已对齐。
-- 要真正覆盖认证失败，需要：可用的凭据来源（凭据管理器/环境）、或产品自己的认证提示，
-  或至少把 401/403 与“需要交互输入”区分开。三者都超出本批“不新增参考独有功能”的授权，
-  本轮不擅自实现。
-- 参考 PyCharm 的认证失败反馈仍未采；不能把通用文案写成参考一致。
+- HTTP 401 确实到达 Git；Git 需要交互式凭据；宿主按既定策略停止图形操作。
+- 文案修复后已明确显示“认证凭据”，不再把认证失败笼统写成“交互输入”；
+  但产品仍不提供凭据输入/凭据管理器，也没有认证成功或重试路径。
+- 因此“认证失败通知文案”已有进展，**认证流程与参考像素仍未完成**，不能写成认证已对齐。
+- 参考 PyCharm 的认证失败反馈仍未采；不能把当前文案写成参考一致。
 
 ## 4. 边界
 

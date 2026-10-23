@@ -254,8 +254,12 @@ internal sealed class GitCommandRunner
         GitOperationFailureKind failureKind = RequiresInteractiveInput(failureOutput)
             ? GitOperationFailureKind.InteractiveInputRequired
             : GitOperationFailureKind.CommandFailed;
+        bool credentialsRequired = failureKind == GitOperationFailureKind.InteractiveInputRequired
+            && RequiresAuthentication(failureOutput);
         string message = failureKind == GitOperationFailureKind.InteractiveInputRequired
-            ? "Git 需要交互输入，图形操作已停止。"
+            ? credentialsRequired
+                ? "Git 需要认证凭据，图形操作已停止。"
+                : "Git 需要交互输入，图形操作已停止。"
             : string.IsNullOrWhiteSpace(failureOutput) ? "Git 命令执行失败。" : failureOutput;
         return new(
             process.ExitCode,
@@ -300,6 +304,17 @@ internal sealed class GitCommandRunner
             || output.Contains("could not read Username", StringComparison.OrdinalIgnoreCase)
             || output.Contains("could not read Password", StringComparison.OrdinalIgnoreCase)
             || output.Contains("user interactivity has been disabled", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("authentication prompts disabled", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// 认证类提示与其他交互输入分开：凭据缺失时明确告知认证问题，不把两者都笼统写成
+    /// “交互输入”。命令仍由宿主终止，不打开凭据输入，也不新增凭据存储。
+    /// </summary>
+    private static bool RequiresAuthentication(string output)
+    {
+        return output.Contains("could not read Username", StringComparison.OrdinalIgnoreCase)
+            || output.Contains("could not read Password", StringComparison.OrdinalIgnoreCase)
             || output.Contains("authentication prompts disabled", StringComparison.OrdinalIgnoreCase);
     }
 
