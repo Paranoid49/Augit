@@ -8,6 +8,7 @@ const { execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/search-match-case-probe-2026-10-24');
+const largeFont = process.argv.includes('--large-font');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function launch(workspace, settings, port) {
@@ -65,6 +66,7 @@ async function connect(port) {
     await execute('git',['commit','-m','test: case probe'],{cwd:workspace,windowsHide:true});
     const source=JSON.parse(await fs.readFile(path.join(process.env.LOCALAPPDATA,'Augit/settings.json'),'utf8'));
     source.lastWorkspace=workspace; source.openFiles=[]; source.activeFile=null;
+    if (largeFont) { source.fontSize = 20; source.textFontSize = 20; source.codeFontSize = 20; }
     await fs.writeFile(settings,JSON.stringify(source,null,2)+'\n');
     const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));
     pid=await launch(workspace,settings,port); const hwnd=await waitWindow(pid); report.pid=pid; report.hwnd=hwnd; await topmost(hwnd);
