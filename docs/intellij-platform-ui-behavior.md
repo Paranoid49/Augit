@@ -334,7 +334,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | 验证 | 结果 |
 | --- | --- |
 | 资源字节一致（`tools/audit/verify-ui-assets.ps1`） | `PASS: runtime UI assets match the visual mockups.` |
-| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2348 项断言`**（2026-10-22 当前批次、退出码 0、未执行 0；相对 2339 的增量是 Push 失败 balloon/重开、Fetch 成功通知、自动 Fetch 失败内联错误、Fetch 取消、搜索超时 Enter 重试与大文件预览延迟分块、离屏布局跳过与外部 checkout 引用同步；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
+| 验收套件（`node tools/audit/live-shell.spec.cjs`） | **`live-shell 通过 2368 项断言`**（2026-10-23 当前批次、退出码 0、未执行 0；相对 2348 的增量是大文件只读预览改用全文逻辑层/视觉窗口层后的 20 项断言：2,000 行选择/复制/Find/Go to Line、80,000 行窗口化、软换行回退；覆盖终端、搜索、Diff、Blame、文件历史、设置、DPI/字号、读写竞态及底部工具窗口生命周期；历史轮次见下方快照沿革） |
 | 令牌唯一性 | 全部颜色令牌各 2 处定义（浅/深），无第三处覆盖 |
 | 断言是否硬编码色值 | 零个 hex 字面量——套件只断言令牌名、几何与状态，因此配色变更不会打挂断言 |
 
@@ -344,17 +344,21 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 #### 已验证快照（后续轮次用它低成本确认"代码未变、上次结论仍有效"）
 
-**当前复核（2026-10-22 晚）**：本批 Push 失败通知改动后完整实时套件通过，退出码 0，`live-shell 通过 2348 项断言`（未执行 0 项）。相对 2339 的增量来自 Push 失败 balloon/重开、Fetch 成功通知、自动 Fetch 失败内联错误、Fetch 取消、搜索超时 Enter 重试与大文件预览延迟分块、离屏布局跳过与外部 checkout 引用同步。HEAD `2905393` + 本批未提交 web 改动；下面的 md5 表是同日早先 `63f5bdb` 的 2339 快照，保留作历史对照。
+**当前复核（2026-10-23）**：大文件只读预览改为全文逻辑层 + 视觉窗口层后，完整实时套件通过，退出码 0，`live-shell 通过 2368 项断言`（未执行 0 项）。相对 2348 的 +20 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化与软换行回退断言。HEAD `7307ce9` + 本批未提交 web 改动；下表的 md5 是本次完整套件实际加载的版本。
 
-| 文件 | md5（2026-10-22 早先 `63f5bdb` 快照） |
+| 文件 | md5（2026-10-23 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `ecfe22743c130acf5db5b8bd5115c7c4` |
-| `web/src/mockup.js` | `455b3d51c2b0d5a442bb0408a0d7d05e` |
-| `web/src/live-data.js` | `afc48e425635dc1475bec00a515149f5` |
+| `web/src/mockup.css` | `102931b7f1928e463295e3b14ccf4770` |
+| `web/src/mockup.js` | `b625f8ecdc670fce572100122bc06c5f` |
+| `web/src/live-data.js` | `9c0a2427f687f730e050e79801fb2f88` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
-| `tools/audit/live-shell.spec.cjs`（工作区版） | `7d10a2bcb9425dab04e900292a14735d` |
+| `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
+| `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
+| `web/src/image-preview.js` | `bef0375129064dae3c526c265b66fbe8` |
+| `web/src/large-text-view.js`（本批新增） | `4308a9ef38d96c07ec1696ea3582aa30` |
+| `live-shell.spec.cjs`（工作区版） | `bb385be2c09afa18903d9ce589e085ce` |
 
-该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。
+该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。大文件窗口层目前只有无头 Chromium 证据，真实外壳 22.75 MB 正常入口仍未验收，见[大文件预览虚拟化原型](large-text-virtualization-2026-10-23.md)。
 
 **历史复核（2026-10-05）**：当时完整实时套件运行通过，退出码 0，共通过 **2373 项断言**。以下为该历史快照，不代表后续工作区的全量结果。2026-10-10 的当前改动、分批验证和限制见 [审查整改记录](review-remediation-2026-10-10.md)。
 

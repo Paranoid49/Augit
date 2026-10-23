@@ -1154,6 +1154,43 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
   contain-intrinsic-size: auto var(--code-line-height, 22px);
 }
 
+/* 大文件只读预览的全文逻辑层 + 视觉窗口层（web/src/large-text-view.js）。
+   滚动高度由 `.virtual-code-lines` 的全文行数占位承担，窗口里只保留可视行；
+   横向范围仍由绝对定位行的 max-content 宽度撑开，行号继续 sticky 在左侧。 */
+.code-view[data-virtual-lines] { user-select: none; }
+.code-view[data-virtual-lines] .virtual-code-lines {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+.code-view[data-virtual-lines] .code-line {
+  position: absolute;
+  left: 0;
+  width: max-content;
+  min-width: 100%;
+  grid-template-columns: var(--code-gutter-width, 51px) auto;
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+  /* 虚拟窗口按统一行高定位；软换行在启用时退回完整行构建（见 large-text-view.js）。 */
+  white-space: pre;
+}
+.code-view[data-virtual-lines] .virtual-selection {
+  background: var(--augit-selection-bg, #a6d2ff);
+  color: inherit;
+}
+.code-view[data-virtual-lines] .virtual-text-accessible {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: pre;
+  contain: strict;
+  pointer-events: none;
+  user-select: none;
+}
+
 .line-number {
   position: sticky;
   left: 0;

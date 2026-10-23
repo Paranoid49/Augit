@@ -1687,8 +1687,12 @@ function measureCodeViews() {
     }
   });
   document.querySelectorAll(".code-view").forEach(view => {
+    // 大文件预览只建可视区行节点：行号列宽必须按**全文行数**的位数度量，
+    // 不能拿窗口里的几十个节点当总行数（80,000 行时位数会少一位）。
+    const virtualCount = Number(view.dataset.virtualLines) || 0;
     const rows = [...view.querySelectorAll(":scope > .code-line, :scope > .code-lines > .code-line")];
-    if (!rows.length) return;
+    const totalRows = virtualCount || rows.length;
+    if (!totalRows) return;
     let lines = view.querySelector(":scope > .code-lines");
     if (!lines) {
       lines = document.createElement("div");
@@ -1698,7 +1702,7 @@ function measureCodeViews() {
     }
     const style = getComputedStyle(view);
     context.font = `${style.fontSize} ${style.fontFamily}`;
-    const digits = Math.max(3, String(rows.length).length);
+    const digits = Math.max(3, String(totalRows).length);
     const spacing = codeLetterSpacing(style.fontFamily, parseFloat(style.fontSize), scale);
     view.style.setProperty('--code-letter-spacing', `${spacing}px`);
     const gutter = Math.round((context.measureText("9".repeat(digits)).width + digits * spacing) * scale) / scale
@@ -1706,6 +1710,8 @@ function measureCodeViews() {
     view.style.setProperty("--code-gutter-width", `${gutter}px`);
     view.style.setProperty("--code-line-height", `${codeLineHeight(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
     view.style.setProperty('--code-baseline-shift', `${codeBaselineShift(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
+    // 行高或字距变化后，虚拟窗口层的行距与全文占位高度要跟着重算。
+    if (view.__augitVirtual && typeof view.__augitVirtual.refreshMetrics === "function") view.__augitVirtual.refreshMetrics();
     view.closest(".blame-layout")?.style.setProperty("--code-line-height", view.style.getPropertyValue("--code-line-height"));
     const blame = view.closest(".blame-layout")?.querySelector(".blame-gutter");
     if (blame) {
@@ -3540,6 +3546,22 @@ function scheduleDeferredPreview(text) {
     deferredPreviews.delete(id);
     if (typeof deferredText !== "string") return;
     code.removeAttribute("data-deferred-preview");
+    const wrapOn = !!(window.__augitLive && window.__augitLive.displayOptions
+      && window.__augitLive.displayOptions.wrap);
+    // 大文件预览改用全文逻辑层 + 视觉窗口层：只建可视区行节点，选择/复制/查找/跳转
+    // 都走全文偏移。模块缺席（视觉稿页面）或用户已启用软换行时，退回逐帧分块构建：
+    // 软换行下行高不再统一，窗口层按统一行高定位会错位。
+    if (!wrapOn && window.__augitLargeTextView && typeof window.__augitLargeTextView.mount === "function") {
+      window.__augitLargeTextView.mount(code, deferredText);
+      code.setAttribute("aria-busy", "false");
+      code.dispatchEvent(new CustomEvent("document-content-changed", {
+        bubbles: true,
+        detail: { preserveMatch: false, virtualText: true },
+      }));
+      return;
+    }
+    // 换行状态下先用既有分块路径保证语义；关掉换行时据此恢复窗口层。
+    if (wrapOn) code.dataset.virtualWrap = "1";
     const lines = deferredText.replace(/\r\n?/g, "\n").split("\n");
     let offset = 0;
     const appendChunk = () => {
@@ -3564,6 +3586,38 @@ function scheduleDeferredPreview(text) {
   requestAnimationFrame(() => requestAnimationFrame(hydrate));
   return id;
 }
+
+/**
+ * 大文件预览的软换行开关：虚拟窗口按统一行高定位，无法表达换行后的可变行高。
+ * 打开换行时退回完整行构建（语义与普通文档一致，代价是重新建立全部行节点）；
+ * 关闭后若当前文档仍是大文件只读预览，重新挂回全文窗口层。
+ */
+window.__augitApplyLargeTextWrap = function (view, wrap) {
+  if (!view || !view.classList || !view.classList.contains("code-view")) return;
+  const controller = view.__augitVirtual;
+  if (wrap && controller) {
+    const text = controller.text;
+    controller.destroy();
+    view.innerHTML = liveLineViews(text);
+    view.dataset.virtualWrap = "1";
+    view.setAttribute("aria-busy", "false");
+    if (typeof measureCodeViews === "function") measureCodeViews();
+    return;
+  }
+  if (!wrap && view.dataset.virtualWrap === "1") {
+    delete view.dataset.virtualWrap;
+    const document_ = liveDocument();
+    if (!document_ || !document_.readOnlyPreview
+      || !window.__augitLargeTextView || typeof window.__augitLargeTextView.mount !== "function") return;
+    view.replaceChildren();
+    window.__augitLargeTextView.mount(view, document_.text);
+    if (typeof measureCodeViews === "function") measureCodeViews();
+    view.dispatchEvent(new CustomEvent("document-content-changed", {
+      bubbles: true,
+      detail: { preserveMatch: true, virtualText: true },
+    }));
+  }
+};
 
 function liveTextDocument(find) {
   const document_ = liveDocument();
@@ -6928,6 +6982,7 @@ function bindInteractions() {
   if (typeof bindDiffFind === 'function') bindDiffFind();
   bindBlame();
   if (typeof bindImagePreview === "function") bindImagePreview();
+  if (window.__augitLargeTextView && typeof window.__augitLargeTextView.prune === "function") window.__augitLargeTextView.prune();
   measureCodeViews();
   bindSelectionFocus();
   bindHistoryToolbar();

@@ -1232,7 +1232,7 @@ async function main() {
       console.log(`live-icons 通过 ${passed} 项断言`);
       return;
     }
-    if (!process.argv.includes('--workspace-delivery-only') && !process.argv.includes('--restoration-only') && !process.argv.includes('--reference-only') && !process.argv.includes('--review-only') && !process.argv.includes('--scene-alignment-only') && !process.argv.includes('--filter-popups-only') && !process.argv.includes('--settings-diff-only') && !process.argv.includes('--find-blame-only') && !process.argv.includes('--goal-conflict-only') && !process.argv.includes('--goal-log-only') && !process.argv.includes('--empty-session-only') && !process.argv.includes('--goal-remote-only') && !process.argv.includes('--goal-write-only') && !process.argv.includes('--goal-startup-only') && !process.argv.includes('--settings-state-only') && !process.argv.includes('--restoration-fixes-only') && !process.argv.includes('--pixel-remediation-only')) {
+    if (!process.argv.includes('--workspace-delivery-only') && !process.argv.includes('--restoration-only') && !process.argv.includes('--reference-only') && !process.argv.includes('--review-only') && !process.argv.includes('--scene-alignment-only') && !process.argv.includes('--filter-popups-only') && !process.argv.includes('--settings-diff-only') && !process.argv.includes('--find-blame-only') && !process.argv.includes('--goal-conflict-only') && !process.argv.includes('--goal-log-only') && !process.argv.includes('--empty-session-only') && !process.argv.includes('--goal-remote-only') && !process.argv.includes('--goal-write-only') && !process.argv.includes('--goal-startup-only') && !process.argv.includes('--settings-state-only') && !process.argv.includes('--restoration-fixes-only') && !process.argv.includes('--pixel-remediation-only') && !process.argv.includes('--large-text-only')) {
       await require('./live-layout.cjs')({ browser, port, stubHost, stubData, data: WORKSPACE, check });
     }
     if (process.argv.includes('--layout-only') || process.argv.includes('--layout-details-only')) {
@@ -1297,6 +1297,11 @@ async function main() {
     if (goalModule) {
       await require(goalModules[goalModule])({ openScene, check });
       console.log(`live-goal 通过 ${passed} 项断言`);
+      return;
+    }
+    if (process.argv.includes('--large-text-only')) {
+      await require('./live-large-text.cjs')({ openScene, check });
+      console.log(`live-large-text 通过 ${passed} 项断言`);
       return;
     }
     if (process.argv.includes('--find-blame-only')) {
@@ -9520,8 +9525,9 @@ async function main() {
         const banner = document.querySelector('.editor-content [data-large-file-banner]');
         if (path === 'oversize.txt') {
           const lineDeadline = Date.now() + 5000;
-          while (Date.now() < lineDeadline
-            && document.querySelectorAll('.editor-content .code-view .code-line').length < 5000) {
+          while (Date.now() < lineDeadline) {
+            const code = document.querySelector('.editor-content .code-view');
+            if (code && code.__augitVirtual) break;
             await new Promise((r) => setTimeout(r, 50));
           }
         }
@@ -9532,6 +9538,15 @@ async function main() {
           status: window.__augitLive.document ? window.__augitLive.document.status : null,
           readOnlyPreview: !!(window.__augitLive.document && window.__augitLive.document.readOnlyPreview),
           codeLines: document.querySelectorAll('.editor-content .code-view .code-line').length,
+          virtualLines: (() => {
+            const code = document.querySelector('.editor-content .code-view');
+            return code && code.__augitVirtual ? code.__augitVirtual.lineCount : null;
+          })(),
+          a11yLength: (() => {
+            const node = document.querySelector('.editor-content .code-view .virtual-text-accessible');
+            return node ? node.textContent.length : null;
+          })(),
+          textLength: (window.__augitLive.document && window.__augitLive.document.text || '').length,
           ariaBusy: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('aria-busy') : null,
           largePreview: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('data-large-preview') : null,
           codeLineVisibility: (() => {
@@ -9563,12 +9578,14 @@ async function main() {
         && limitByPath['oversize.txt'].status === 'TextPreview'
         && limitByPath['oversize.txt'].readOnlyPreview === true
         && limitByPath['oversize.txt'].hasText === true);
-    check('大文件只读预览延迟行构建后完整补齐并结束 busy: ' + JSON.stringify([limitByPath['oversize.txt'].codeLines, limitByPath['oversize.txt'].ariaBusy]),
-      limitByPath['oversize.txt'].codeLines === 5000
+    check('大文件只读预览用全文窗口层收敛 DOM 并结束 busy: ' + JSON.stringify([limitByPath['oversize.txt'].virtualLines, limitByPath['oversize.txt'].codeLines, limitByPath['oversize.txt'].ariaBusy]),
+      limitByPath['oversize.txt'].virtualLines === 5000
+        && limitByPath['oversize.txt'].codeLines > 0
+        && limitByPath['oversize.txt'].codeLines < 200
         && limitByPath['oversize.txt'].ariaBusy === 'false');
-    check('大文件预览跳过离屏行布局且行号不进入可访问树: ' + JSON.stringify([limitByPath['oversize.txt'].largePreview, limitByPath['oversize.txt'].codeLineVisibility, limitByPath['oversize.txt'].lineNumberHidden]),
-      limitByPath['oversize.txt'].largePreview === '1'
-        && limitByPath['oversize.txt'].codeLineVisibility === 'auto'
+    check('大文件预览保留全文可访问文本且行号不进入可访问树: ' + JSON.stringify([limitByPath['oversize.txt'].a11yLength, limitByPath['oversize.txt'].textLength, limitByPath['oversize.txt'].largePreview, limitByPath['oversize.txt'].lineNumberHidden]),
+      limitByPath['oversize.txt'].a11yLength === limitByPath['oversize.txt'].textLength
+        && limitByPath['oversize.txt'].largePreview === '1'
         && limitByPath['oversize.txt'].lineNumberHidden === 'true');
     check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),
       typeof limitByPath['oversize.txt'].banner === 'string'
@@ -9647,6 +9664,10 @@ async function main() {
     const limitLaunch = await limits.page.evaluate(() => (window.__launchCalls || []).slice());
     check('按钮用系统默认程序打开当前文件: ' + JSON.stringify(limitLaunch),
       JSON.stringify(limitLaunch) === JSON.stringify(['open:archive.bin']));
+
+    // 大文件预览已改为全文逻辑层 + 视觉窗口层：上面这条检查窗口行数收敛，
+    // 这里按规格逐项验证全文选择/复制、Find 计数与定位、Go to Line 和可访问性。
+    await require('./live-large-text.cjs')({ openScene, check });
 
     // 图片解码失败/超限（§7.5 / §10.2）：宿主不返回 dataUrl，界面必须走"不可预览"信息态并显示原因。
     // 修复前实测 editor=image、.image-stage img 的 src 长度为 0、info-block 不存在 —— 用户只看到一张破图。

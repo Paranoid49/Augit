@@ -4939,6 +4939,26 @@ function reuseTextViewInPlace() {
   if (!!banner !== bannerWanted) return false;
   // 相同内容的重复通知不重写正文（规格 §7.2 末句）。
   const next = String(live.document.text ?? "").replace(/\r\n?/g, "\n");
+  const virtual = code.__augitVirtual;
+  if (virtual) {
+    if (virtual.text === next) return true;
+    // 大文件预览的正文在全文逻辑层里：重建控制器即可，查找条/工具栏/横幅节点保持原样。
+    const virtualScroll = [code.scrollLeft, code.scrollTop];
+    const virtualFocus = document.activeElement === code || code.contains(document.activeElement);
+    virtual.destroy();
+    code.replaceChildren();
+    window.__augitLargeTextView.mount(code, next);
+    code.scrollLeft = virtualScroll[0];
+    code.scrollTop = virtualScroll[1];
+    if (typeof measureCodeViews === "function") measureCodeViews();
+    if (virtualFocus) code.focus({ preventScroll: true });
+    view.dispatchEvent(new CustomEvent("document-content-changed", {
+      bubbles: true,
+      cancelable: true,
+      detail: { preserveMatch: true },
+    }));
+    return true;
+  }
   if (renderedTextViewText(code) === next) return true;
   const caret = captureMarkdownCaret(code);
   const scroll = [code.scrollLeft, code.scrollTop];
@@ -5832,6 +5852,8 @@ function applyDisplayOptionMarkers() {
   const wrap = !!(live.displayOptions && live.displayOptions.wrap);
   const view = document.querySelector(".code-view, .diff-columns");
   if (view) view.classList.toggle("wrap", wrap);
+  // 大文件预览的虚拟窗口按统一行高定位；启用软换行时退回完整行构建，关闭时恢复窗口层。
+  if (typeof window.__augitApplyLargeTextWrap === "function") window.__augitApplyLargeTextWrap(view, wrap);
   const button = document.querySelector('.document-toolbar [aria-label="Soft Wraps"]');
   if (button) {
     button.setAttribute("aria-pressed", wrap ? "true" : "false");
@@ -8351,6 +8373,19 @@ function goToLine(text) {
 
   const view = document.querySelector(".editor-content .code-view");
   if (!view) return report("No read-only text is available for Go to Line.");
+  // 大文件只读预览只有可视窗口的行节点；跳转必须按全文行数定位，再让窗口滚动到该行，
+  // 不能拿窗口里的节点数当文件行数（规格 §3.3/§7.2）。
+  const virtual = view.__augitVirtual;
+  if (virtual) {
+    if (line > virtual.lineCount) {
+      return report(`The current file has only ${virtual.lineCount} lines.`);
+    }
+    view.querySelectorAll(".code-line.active").forEach((node) => node.classList.remove("active"));
+    virtual.revealLine(line, { center: true, active: true });
+    closeCompactDialog();
+    view.focus({ preventScroll: true });
+    return true;
+  }
   // 优先按 data-line 找；个别正文（Blame 等）没有该属性时按顺序兜底。
   const row = view.querySelector(`.code-line[data-line="${line}"]`)
     || view.querySelectorAll(".code-line")[line - 1]

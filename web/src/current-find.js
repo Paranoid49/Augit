@@ -329,7 +329,17 @@ function bindCurrentFind() {
   let bar = view.querySelector('.current-find');
   const code = view.querySelector('.code-view');
   let rows = [], sourceLines = [], source = '';
+  // 大文件只读预览的全文在视觉窗口之外：查找的计数与定位必须走全文逻辑层，
+  // 不能只扫描当前窗口里的几十个行节点（规格 §3.3/§7.2）。
+  const virtualText = () => code.__augitVirtual || null;
   const readSource = () => {
+    const virtual = virtualText();
+    if (virtual) {
+      rows = [];
+      sourceLines = [];
+      source = virtual.text;
+      return;
+    }
     rows = [...code.querySelectorAll('.code-line')];
     sourceLines = rows.map(row => row.lastElementChild.textContent);
     source = sourceLines.join('\n');
@@ -381,6 +391,11 @@ function bindCurrentFind() {
     updateFindNavigation(bar, false);
   };
   const clearHighlight = () => {
+    const virtual = virtualText();
+    if (virtual) {
+      virtual.clearFind();
+      return;
+    }
     code.querySelectorAll('[data-find-selected]').forEach(row => {
       delete row.dataset.findSelected;
       row.lastElementChild.textContent = sourceLines[rows.indexOf(row)];
@@ -390,6 +405,15 @@ function bindCurrentFind() {
     if (!matches.length) return;
     current = current < 0 ? backwards ? matches.length - 1 : 0
       : (current + (backwards ? -1 : 1) + matches.length) % matches.length;
+    const virtual = virtualText();
+    if (virtual) {
+      virtual.setFind(matches, current);
+      status(`${current + 1}/${matches.length}`);
+      rememberPosition(matches[current].start);
+      // 定位到未显示的命中行：按全文偏移滚动视觉窗口，而不是在窗口里找节点。
+      if (!preservePosition) virtual.revealOffset(matches[current].start);
+      return;
+    }
     clearHighlight();
     let offset = 0, matchIndex = 0, firstMark = null;
     for (let lineIndex = 0; lineIndex < rows.length; lineIndex++) {
@@ -510,6 +534,17 @@ function bindCurrentFind() {
     if (savedQuery !== label('Find in File').value) completed = false;
     savedQuery = label('Find in File').value;
     stop(); clearHighlight(); bar.remove(); bar = null;
+    const virtual = virtualText();
+    if (virtual) {
+      // 关闭查找后把当前命中保留成全文选区；没有命中时清掉旧选区。
+      if (current >= 0 && matches[current]) {
+        virtual.setSelection(matches[current].start, matches[current].start + matches[current].length);
+      } else {
+        virtual.clearSelection();
+      }
+      code.focus({ preventScroll: true });
+      return;
+    }
     // 高亮只是查找状态；关闭后保留普通正文选区，不能继续涂亮所有匹配。
     if (current >= 0 && matches[current]) {
       const match = matches[current], range = document.createRange();
