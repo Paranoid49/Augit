@@ -57,7 +57,20 @@
 - 截图：`artifacts/terminal-selection-copy-multi-2026-10-24/terminal-selection-multi.png`；
 - 实例 PID 2168 正常关闭，`pidAlive=false`。
 
-这验证了跨两行的连续选区复制；仍不是参考像素，也未覆盖反向拖选或块选择。
+这验证了跨两行的连续选区复制；仍不是参考像素，也未覆盖块选择。
+
+### 2.3 反向拖选 + Ctrl+Insert
+
+同一 token 从右向左拖选，并使用 **Ctrl+Insert** 复制：
+
+- 拖选 CSS 193,717.6 → 57,717.6（物理 459,1343 → 221,1343）；
+- `.xterm-selection div` 2 个；
+- 剪贴板仍精确为 `COPY_TOKEN_12345`；
+- 截图：`artifacts/terminal-selection-reverse-insert-2026-10-24/terminal-selection-insert.png`；
+- 实例 PID 16368 正常关闭，`pidAlive=false`。
+
+这补齐了反向拖选和 Ctrl+Insert 两个快捷键路径；仍不是参考像素。
+
 
 
 
@@ -71,7 +84,7 @@
 
 ## 4. 边界
 
-- 只测浅色/深色与两行连续拖选、当前 DPI；未测反向拖选、块选择、
+- 只测浅色/深色、反向与两行连续拖选、当前 DPI；未测块选择、
   双击/三击、Ctrl+Insert、鼠标释放到窗口外。
 - 未采参考 PyCharm 选区像素；选区颜色/抗锯齿没有逐像素配对。
 - 剪贴板只验证文本精确值，不验证富文本/MIME 或复制后的终端状态。

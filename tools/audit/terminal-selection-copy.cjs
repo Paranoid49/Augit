@@ -12,6 +12,8 @@ const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/terminal-selection-copy-2026-10-24');
 const dark = process.argv.includes('--dark');
 const multi = process.argv.includes('--multi');
+const reverse = process.argv.includes('--reverse');
+const insert = process.argv.includes('--insert');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid) {
@@ -79,14 +81,17 @@ $old=Get-Clipboard -Raw -ErrorAction SilentlyContinue; Set-Clipboard -Value '${l
 if($null -ne $old){Set-Clipboard -Value $old}`;
   await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 });
 }
-async function copyShortcut(hwnd) {
+async function copyShortcut(hwnd, useInsert = false) {
+  const keys = useInsert
+    ? `[CK]::keybd_event(0x11,0,0,[UIntPtr]::Zero); [CK]::keybd_event(0x2D,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 40; [CK]::keybd_event(0x2D,0,2,[UIntPtr]::Zero); [CK]::keybd_event(0x11,0,2,[UIntPtr]::Zero)`
+    : `[CK]::keybd_event(0x11,0,0,[UIntPtr]::Zero); [CK]::keybd_event(0x10,0,0,[UIntPtr]::Zero); [CK]::keybd_event(0x43,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 40; [CK]::keybd_event(0x43,0,2,[UIntPtr]::Zero); [CK]::keybd_event(0x10,0,2,[UIntPtr]::Zero); [CK]::keybd_event(0x11,0,2,[UIntPtr]::Zero)`;
   const script = `Add-Type @"
 using System; using System.Runtime.InteropServices;
 public static class CK { [DllImport("user32.dll")] public static extern void keybd_event(byte vk,byte scan,uint f,UIntPtr e); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); }
 "@
 [CK]::SetForegroundWindow([IntPtr]${hwnd}) | Out-Null
 # xterm 的复制是 Ctrl+Shift+C（或 Ctrl+Insert），不是 Ctrl+C。
-[CK]::keybd_event(0x11,0,0,[UIntPtr]::Zero); [CK]::keybd_event(0x10,0,0,[UIntPtr]::Zero); [CK]::keybd_event(0x43,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 40; [CK]::keybd_event(0x43,0,2,[UIntPtr]::Zero); [CK]::keybd_event(0x10,0,2,[UIntPtr]::Zero); [CK]::keybd_event(0x11,0,2,[UIntPtr]::Zero)`;
+${keys}`;
   await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 });
 }
 async function closeApp(pid) {
@@ -146,14 +151,14 @@ async function launch(workspace, settings, port) {
     const tokenRow=firstRow;
     const point=firstRow?{x:firstRow.x+4,y:firstRow.y+firstRow.height/2}:{x:viewRect.x+30,y:viewRect.y+viewRect.height-40};
     const end=lastRow?{x:lastRow.x+140,y:lastRow.y+lastRow.height/2}:{x:point.x+140,y:point.y};
-    const drag=await dragCss(hwnd,point,end,'drag-select');
+    const drag=await dragCss(hwnd,reverse?end:point,reverse?point:end,'drag-select');
     await delay(300);
     const selection=await page.evaluate(()=>({
       nodes:document.querySelectorAll('.xterm-selection div').length,
       text:document.querySelector('.xterm-selection')?.textContent||null,
     }));
-    await page.screenshot({path:path.join(output,multi?'terminal-selection-multi.png':dark?'terminal-selection-dark.png':'terminal-selection.png')});
-    await copyShortcut(hwnd);
+    await page.screenshot({path:path.join(output,insert?'terminal-selection-insert.png':multi?'terminal-selection-multi.png':dark?'terminal-selection-dark.png':'terminal-selection.png')});
+    await copyShortcut(hwnd, insert);
     await delay(300);
     const clipboard1=(await execute('powershell.exe',['-NoProfile','-Command','Get-Clipboard -Raw'],{timeout:30000})).stdout.trim();
     const success=(text)=>tokens.every(t=>(text||'').includes(t));
