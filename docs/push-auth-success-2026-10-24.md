@@ -1,4 +1,4 @@
-# Push 认证成功路径：URL 内置凭据 + smart HTTP（2026-10-24）
+# Push 认证成功路径：URL 内置凭据 / credential helper + smart HTTP（2026-10-24）
 
 > 结论：真实外壳 Push 到本地 smart-HTTP 远端成功；远端 URL 使用 `user:pass@` 内置凭据，
 > Git 先收到 401 challenge，再带 `Authorization` 重试并完成 `git-receive-pack`。
@@ -48,6 +48,30 @@ POST /remote.git/git-receive-pack                     Authorization
 两次 401 是 Git 对带凭据 URL 的 challenge 流程，最终由 URL 凭据完成认证；
 没有凭据提示、没有认证失败通知。
 
+### 2.1 凭据助手路径
+
+同一 smart-HTTP 端点、URL **不带**用户名/密码（`http://127.0.0.1:<port>/remote.git`），
+仓库本地配置凭据助手：
+
+```text
+credential.helper = !f() { echo username=user; echo password=pass; }; f
+```
+
+为隔离本机已安装的 credential manager，测试进程把 `GIT_CONFIG_GLOBAL` 和
+`GIT_CONFIG_SYSTEM` 指向空文件；仓库本地助手仍由真实 Git 子进程调用。
+
+| 项 | 值 |
+| --- | --- |
+| 通知 | **`Push` / `Pushed to origin/main.`** |
+| 远端 `main` | `03c1e99 test: auth push`、`94cfd81 test: auth seed` |
+| HTTP 请求 | 6 次：2 次 401 challenge、4 次带 Authorization；无 HEAD 探测 |
+| 实例 | PID 23048 正常关闭，`pidAlive=false` |
+| 截图 | `artifacts/push-auth-helper-2026-10-24j/push-auth-success.png` |
+| 报告 | `artifacts/push-auth-helper-2026-10-24j/push-auth-success.json`（`mode=credential-helper`） |
+
+这说明认证成功不只依赖 URL 内置凭据；Git 的 credential helper 也能在本机供给凭据，
+Augit 不读取、不存储这些凭据。
+
 ## 3. 与认证失败路径的关系
 
 - 失败路径（[push-auth-failure-2026-10-24.md](push-auth-failure-2026-10-24.md)）使用同一
@@ -59,8 +83,9 @@ POST /remote.git/git-receive-pack                     Authorization
 
 ## 4. 边界
 
-- 只覆盖 **URL 内置用户名/密码 + Basic**，不覆盖 credential helper、SSH key、token UI、
-  OAuth、代理或证书错误。
+- 覆盖 **URL 内置用户名/密码** 与 **仓库本地 credential helper** 两种 Basic 供给方式；
+  不覆盖系统 credential manager、SSH key、token UI、OAuth、代理或证书错误。helper 路径
+  隔离了全局/系统 Git 配置，不能写成自然 GCM 环境已通过。
 - 服务端是本地受控 CGI，不代表自然网络延迟、慢盘或远端 hooks。
 - 通知是浅色、当前 DPI 的截图/文本证据，不是参考整页像素；页面级配对仍 50、像素仍 0。
 - 未验证 Push 结果通知在深色/窄窗下的位置；该组合仍单独记录。

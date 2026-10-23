@@ -11,6 +11,7 @@ const { spawn, execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/push-auth-success-2026-10-24');
+const helper = process.argv.includes('--helper');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid){const s=`$d=(Get-Date).AddSeconds(20); while((Get-Date)-lt $d){$h=(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).MainWindowHandle; if($h -ne 0){Write-Output $h; exit 0}; Start-Sleep -Milliseconds 100}; exit 2`;return Number((await execute('powershell.exe',['-NoProfile','-Command',s],{timeout:30000})).stdout.trim())}
@@ -98,17 +99,19 @@ async function smartServer(root, report) {
 (async()=>{
  await fs.mkdir(output,{recursive:true});
  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'Augit-push-auth-'));
+ if (helper) { const globalConfig = path.join(temp, 'gitconfig-global'); const systemConfig = path.join(temp, 'gitconfig-system'); await fs.writeFile(globalConfig, ''); await fs.writeFile(systemConfig, ''); process.env.GIT_CONFIG_GLOBAL = globalConfig; process.env.GIT_CONFIG_SYSTEM = systemConfig; }
  const root=path.join(temp,'server'); const remote=path.join(root,'remote.git'); const seed=path.join(temp,'seed'); const settings=path.join(temp,'settings.json');
- let server=null,browser=null,pid=0,closed=false; const report={generatedAt:new Date().toISOString(),requests:[],runs:[]};
+ let server=null,browser=null,pid=0,closed=false; const report={generatedAt:new Date().toISOString(),mode:helper?'credential-helper':'url-credentials',requests:[],runs:[]};
  try{
   await fs.mkdir(root); await fs.mkdir(seed);
   await execute('git',['init','--bare',remote],{cwd:root,windowsHide:true});
   server=await smartServer(root,report); report.authPort=server.address().port;
-  const url=`http://user:pass@127.0.0.1:${report.authPort}/remote.git`;
+  const url=helper?`http://127.0.0.1:${report.authPort}/remote.git`:`http://user:pass@127.0.0.1:${report.authPort}/remote.git`;
   await git(['init','-b','main'],seed);
   await git(['config','user.name','Push Auth Success'],seed);
   await git(['config','user.email','push-auth@example.invalid'],seed);
   await git(['config','commit.gpgsign','false'],seed);
+ if (helper) await git(['config','credential.helper','!f() { echo username=user; echo password=pass; }; f'],seed);
   await fs.writeFile(path.join(seed,'base.txt'),'base\n');
   await git(['add','base.txt'],seed); await git(['commit','-m','test: auth seed'],seed);
   await git(['remote','add','origin',url],seed);
