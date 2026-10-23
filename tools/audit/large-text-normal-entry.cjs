@@ -356,7 +356,7 @@ async function closeWindow(pid) {
         const osClip = await clipboardInfo();
         osDragResult = { cursor, osDuring, clipboardLength: osClip.length, copiedBeyondWindow: osClip.length > 2000 };
         // 反向跨窗口拖动：先滚到末尾，再从底部向上拖，自动滚动应把选区向回扩展。
-        if (sample.key === 'small') {
+        if (sample.key === 'small' || sample.key === 'mid' || sample.key === 'huge') {
           const rect3 = await page.evaluate(() => {
             const code = document.querySelector('.editor-content .code-view');
             code.scrollTop = code.scrollHeight;
