@@ -16100,11 +16100,14 @@ async function main() {
       const read = () => scene.page.evaluate(() => {
         const live = window.__augitLive || {};
         const notice = document.querySelector('[data-augit-diff-error]');
+        const tabs = document.querySelector('.editor-tabs');
         return {
           tabs: (live.tabs || []).filter((t) => t.kind === 'comparison').length,
           error: live.diffError ? String(live.diffError.path || '') : null,
           notice: notice ? 1 : 0,
           noticeText: notice ? notice.textContent : null,
+          noticeParent: notice && notice.parentElement ? notice.parentElement.className : null,
+          tabsHeight: tabs ? Math.round(tabs.getBoundingClientRect().height) : null,
           diffPath: live.diff ? live.diff.path : null,
         };
       });
@@ -16130,6 +16133,8 @@ async function main() {
         && failureRetry.afterFailure.notice === 1
         && typeof failureRetry.afterFailure.noticeText === 'string'
         && failureRetry.afterFailure.noticeText.includes('retry')
+        && failureRetry.afterFailure.noticeParent === 'editor-content'
+        && failureRetry.afterFailure.tabsHeight < 120
         && failureRetry.afterRetry.error === null
         && failureRetry.afterRetry.notice === 0
         && failureRetry.afterRetry.diffPath === failureRetry.paths[0]);

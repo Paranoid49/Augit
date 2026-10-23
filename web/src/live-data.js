@@ -2548,7 +2548,11 @@ async function openChangeDiff(path, options = {}) {
  */
 function renderDiffErrorNotice() {
   const live = window.__augitLive;
-  const host = document.querySelector(".editor-area .editor-content, .editor-area");
+  // querySelector 按文档顺序返回匹配项；`.editor-area .editor-content, .editor-area`
+  // 会先命中祖先 `.editor-area`，把说明插成 editor-area 的额外网格行（实测标签栏
+  // 被撑到 434 px、正文挤到底部）。必须显式优先选择编辑器正文容器。
+  const host = document.querySelector(".editor-area .editor-content")
+    || document.querySelector(".editor-area");
   if (!host) return;
   const existing = document.querySelector("[data-augit-diff-error]");
   if (!live || !live.diffError) {

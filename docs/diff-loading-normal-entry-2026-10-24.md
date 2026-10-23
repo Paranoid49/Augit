@@ -2,6 +2,7 @@
 
 > 结论：正常入口首次打开一个大 Diff 时，加载期间正文**原本是空白**，头部只有“Generating diff…”；
 > `Loading...` 与不定进度条只在“已有旧 diff”时出现。本批修复了首次请求分支，并用真实外壳截图验证。
+> 同批追加了失败 → 重试的正常入口证据，并修掉失败说明插入 `.editor-area` 导致的标签栏/正文挤压。
 > 页面级像素配对仍 0，不把本文写成 Diff 加载态像素通过。
 
 ## 1. 问题
@@ -89,3 +90,38 @@ node --test tools/audit/diff-initial-loading.test.cjs
 - 截图：`loading-250.png` / `loading-700.png` / `diff-loaded.png` / `binary.png`。
 - 实例 PID 28432 由脚本 `CloseMainWindow` 正常关闭；无残留 Augit、无监听端口，
   临时仓库删除；隔离设置只写入临时副本，全局设置 SHA256 仍为 `8840E775…462CF`。
+
+## 6. 失败 → 重试与失败态布局（同批追加）
+
+夹具：`changed.txt` 一行修改；临时编译 `GitFailWrap.exe`，只对包含 `changed.txt` 的
+`git diff` **第一次**返回 1，其余命令原样转发真实 Git；标记文件随后存在，第二次 diff 放行。
+这是受控故障，用于稳定走 `openChangeDiff` 失败分支，不替换产品逻辑。
+
+**失败态**
+
+- 第一次真实双击：标签 `Commit: changed.txt` 保留且仍激活；`live.diffError.path=changed.txt`、
+  reason=`Failed to Read Diff`；正文行数 0；`live.diffLoading=false`。
+- 说明文本：`Cannot read changed.txt diff:Failed to Read Diff. Double-click the file again to retry.`
+- 截图：`artifacts/diff-failure-retry-2026-10-24c/failure.png`。
+
+**同时修掉的失败态布局缺陷**：`renderDiffErrorNotice()` 原用
+`querySelector(".editor-area .editor-content, .editor-area")`。选择器列表按**文档顺序**返回，
+祖先 `.editor-area` 先命中，说明被插成 editor-area 的额外网格行：实测 `editor-tabs` 高 **434 px**、
+`.editor-content` 被挤到 y=518、高 78 px，标签条和工具栏整体落到页面中部。
+改为显式优先 `.editor-content` 后：`editor-tabs` 40 px、content y=84 高 512 px、toolbar y=155；
+说明位于正文顶部，文件栏与空 Diff 正文保持正常。修复后截图同上。
+
+**重试**
+
+- 第二次真实双击同一行：说明消失、`diffError=null`、同一标签 `tab-1`、`diff.path=changed.txt`、
+  `diffLoading=false`、正文 **8 行**、差异摘要 `2 differences`。
+- 截图：`artifacts/diff-failure-retry-2026-10-24c/retry.png`。
+- `live-shell` 的“§7.8 失败的比较保留标签、给出说明、可重试”断言补了
+  `noticeParent === 'editor-content'` 且 `tabsHeight < 120`，防止说明再次插到 editor-area。
+
+**边界**
+
+- 失败由受控 Git 包装器触发，不是自然网络/磁盘故障；包装器、标记文件和仓库都在临时目录，
+  脚本结束删除，不进入产品。
+- 只覆盖浅色、单文件、当前 DPI；没有参考端失败态像素对照。
+- 包装器第一次失败只针对 `changed.txt` 的 diff；若产品先请求其他 diff 不消耗标记。
