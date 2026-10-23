@@ -295,6 +295,7 @@ async function closeWindow(pid) {
       let selectAll = null;
       let drag = null;
       let osDragResult = null;
+      let reverseDrag = null;
       if (sample.key === 'small' || sample.key === 'mid' || sample.key === 'huge') {
         await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
         await page.keyboard.press('Control+a');
@@ -354,6 +355,30 @@ async function closeWindow(pid) {
         await delay(400);
         const osClip = await clipboardInfo();
         osDragResult = { cursor, osDuring, clipboardLength: osClip.length, copiedBeyondWindow: osClip.length > 2000 };
+        // 反向跨窗口拖动：先滚到末尾，再从底部向上拖，自动滚动应把选区向回扩展。
+        if (sample.key === 'small') {
+          const rect3 = await page.evaluate(() => {
+            const code = document.querySelector('.editor-content .code-view');
+            code.scrollTop = code.scrollHeight;
+            const r = code.getBoundingClientRect();
+            return { x: r.x, y: r.y, width: r.width, height: r.height, beforeTop: code.scrollTop };
+          });
+          await delay(250);
+          await page.mouse.move(rect3.x + 120, rect3.y + rect3.height - 12);
+          await page.mouse.down();
+          await page.mouse.move(rect3.x + 120, rect3.y - 40, { steps: 6 });
+          await delay(1200);
+          const duringReverse = await page.evaluate(() => {
+            const code = document.querySelector('.editor-content .code-view');
+            return { scrollTop: code.scrollTop };
+          });
+          await page.mouse.up();
+          await delay(200);
+          await page.keyboard.press('Control+c');
+          await delay(400);
+          const reverseClip = await clipboardInfo();
+          reverseDrag = { beforeTop: rect3.beforeTop, duringReverse, clipboardLength: reverseClip.length, scrolledBack: duringReverse.scrollTop < rect3.beforeTop };
+        }
       }
 
       // Find in File：全文计数 3，Enter 两次定位到最后一个未显示行。
@@ -435,7 +460,7 @@ async function closeWindow(pid) {
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, osDragResult, find, afterFind, goto, end, failures });
+      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
