@@ -40,7 +40,7 @@
 | 检查 | 命令（在本仓库根目录执行） | 当前结果 |
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
-| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（28 个 `.ps1` 全部满足 BOM/ASCII 规则，2026-10-18 实测，含日常启动、回归、录屏前景、窗口响应采样及捕获挂起诊断脚本） |
+| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（29 个 `.ps1` 全部满足 BOM/ASCII 规则，2026-10-18 实测，含日常启动、回归、录屏前景、窗口响应采样及捕获挂起诊断脚本） |
 | 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **2370/2370（未执行 0 项）**（2026-10-23 当前批次；当前登记值取自 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"，历史沿革见该表；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600），并机械核对本行与 §2.3 的登记值 |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **54/54 ×2 主题**（2026-10-22 实测；`docs/ux-mockups/*.html` 共 55 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |

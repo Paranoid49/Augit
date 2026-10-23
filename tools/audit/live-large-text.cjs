@@ -58,7 +58,9 @@ module.exports = async function liveLargeText({ openScene, check }) {
       totalHeight: code.querySelector(':scope > .code-lines').getBoundingClientRect().height,
       clientHeight: code.clientHeight,
       a11yLength: code.querySelector('.virtual-text-accessible').textContent.length,
+      a11yLabel: code.querySelector('.virtual-text-accessible').getAttribute('aria-label'),
       a11yRole: code.querySelector('.virtual-text-accessible').getAttribute('role'),
+      codeLabel: code.getAttribute('aria-label'),
       linesAriaHidden: code.querySelector(':scope > .code-lines').getAttribute('aria-hidden'),
       ariaBusy: code.getAttribute('aria-busy'),
       firstLine: code.querySelector('.code-line[data-line="1"] .virtual-line-text')?.textContent || null,
@@ -72,8 +74,13 @@ module.exports = async function liveLargeText({ openScene, check }) {
     mounted.rows > 0 && mounted.rows < 120 && mounted.rows < fixture.count / 4);
   check('大文件预览的加载状态结束且行号/正文对应: ' + JSON.stringify([mounted.ariaBusy, mounted.firstLineNumber, mounted.firstLine, mounted.mountedMs]),
     mounted.ariaBusy === 'false' && mounted.firstLineNumber === '1' && mounted.firstLine.startsWith('line 1 needle first'));
-  check('大文件预览提供全文可访问文本: ' + JSON.stringify([mounted.a11yLength, fixture.length, mounted.a11yRole, mounted.linesAriaHidden, mounted.accessibleMs]),
-    mounted.a11yLength === fixture.length && mounted.a11yRole === 'document' && mounted.linesAriaHidden === 'true');
+  check('大文件预览提供窗口层可访问文本与全文行数: ' + JSON.stringify([mounted.a11yLength, mounted.a11yLabel, mounted.codeLabel, mounted.a11yRole, mounted.linesAriaHidden, mounted.accessibleMs]),
+    mounted.a11yLength === 0
+      && mounted.a11yRole === 'document'
+      && mounted.a11yLabel === 'Read-only content, 2,000 lines'
+      && mounted.codeLabel === 'Read-only content, 2,000 lines'
+      && mounted.linesAriaHidden === 'false'
+      && mounted.accessibleMs < 1000);
 
   // ---- 滚动到未显示区域：最后一行可见 ---------------------------------------
   const scrolled = await page.evaluate(async () => {
@@ -403,6 +410,7 @@ module.exports = async function liveLargeText({ openScene, check }) {
       scrollHeight: code.scrollHeight,
       rowHeight: controller.rowHeight,
       a11yLength: code.querySelector('.virtual-text-accessible').textContent.length,
+      a11yLabel: code.querySelector('.virtual-text-accessible').getAttribute('aria-label'),
       textLength: text.length,
     };
     controller.destroy();
@@ -414,8 +422,8 @@ module.exports = async function liveLargeText({ openScene, check }) {
       && perf.rows > 0 && perf.rows < 120 && perf.scrollHeight > 80000 * (perf.rowHeight - 2));
   check('80,000 行预览滚到末尾渲染最后一行: ' + JSON.stringify([perf.lastLine, perf.lastText]),
     perf.lastLine === 80000 && (perf.lastText || '').startsWith('line 80000'));
-  check('80,000 行预览的全文可访问文本完整: ' + JSON.stringify([perf.a11yLength, perf.textLength]),
-    perf.a11yLength === perf.textLength);
+  check('80,000 行预览的窗口层可访问文本与全文行数: ' + JSON.stringify([perf.a11yLength, perf.a11yLabel, perf.textLength, perf.accessibleMs]),
+    perf.a11yLength === 0 && perf.a11yLabel === 'Read-only content, 80,000 lines' && perf.accessibleMs < 1000);
   check('80,000 行预览的挂载/滚动耗时可复验（原型门槛 1000ms/1000ms）: ' + JSON.stringify([perf.mountMs, perf.layoutMs, perf.scrollMs, perf.accessibleMs]),
     perf.mountMs < 1000 && perf.layoutMs < 1000 && perf.scrollMs < 1000);
   console.log('live-large-text metrics ' + JSON.stringify({

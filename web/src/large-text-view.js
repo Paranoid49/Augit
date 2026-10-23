@@ -85,7 +85,8 @@
     // ---- 视觉窗口层的骨架 -------------------------------------------------
     code.classList.add("virtual-text");
     code.setAttribute("data-virtual-lines", String(model.lineCount));
-    code.setAttribute("role", "group");
+    code.setAttribute("role", "document");
+    code.setAttribute("aria-label", `Read-only content, ${model.lineCount.toLocaleString("en-US")} lines`);
     code.setAttribute("aria-busy", "true");
     code.style.setProperty("contain", "layout style");
 
@@ -97,24 +98,22 @@
     }
     lines.classList.add("virtual-code-lines");
     lines.replaceChildren();
-    // 视觉窗口里只有全文的一小段；整篇文本由下方的 `pre[role=document]` 提供，
-    // 避免屏幕阅读器把同一段文字读两遍。
-    lines.setAttribute("aria-hidden", "true");
+    // 视觉窗口里只有全文的一小段；可访问树暴露**当前窗口的行文本 + 全文行数**。
+    // 曾经额外挂一个承载全文的 `pre[role=document]`：2.8 MB 文本节点在开启可访问树
+    // （屏幕阅读器 / `--force-renderer-accessibility`）时首次布局实测约 100 s；
+    // 分块 aria-label 也会在构建 625 个块时 16 s 未完成。全文仍由逻辑模型服务选择、
+    // 复制、Find 与 Go to Line；可访问树不做全文单节点，避免把辅助技术锁死。
+    // 行不再 aria-hidden：屏幕阅读器可读当前窗口；行号仍只作视觉标记。
+    lines.setAttribute("aria-hidden", "false");
 
-    // 全文的可访问表示：单个文本节点，避免为屏幕阅读器建回 80,000 个行节点。
-    // `contain: strict` + 1px 视口让它在视觉上不占位，但文本仍留在可访问树中。
+    // 摘要节点：只给全文行数，不承载全文文本（见上面的布局成本）。
     const accessible = document.createElement("pre");
     accessible.className = "virtual-text-accessible";
     accessible.setAttribute("role", "document");
-    accessible.setAttribute("aria-label", "Read-only document text");
-    // 全文文本**不在这里同步写入**：Chromium 为 2.8 MB 单文本节点做首次布局约 0.6 s，
-    // 会挡住窗口行的首内容。先让可视行绘制，再在空闲时补齐可访问全文；补齐时强制一次
-    // 布局并记录真实耗时，避免把「赋值完成」误当成「已可被辅助技术读取」。
+    accessible.setAttribute("aria-label", `Read-only content, ${model.lineCount.toLocaleString("en-US")} lines`);
     code.append(accessible);
-    accessible.setAttribute("aria-busy", "true");
-    let accessibleFrame = 0;
-    let accessibleTimer = 0;
-    let accessibleCancel = null;
+    accessible.setAttribute("aria-busy", "false");
+    code.setAttribute("data-accessible-text", "ready");
 
     function measureRowHeight() {
       // 不能只读 `line-height`：`.code-line` 还有 `min-height: var(--code-line-height, 22px)`，
@@ -568,16 +567,8 @@
         resize?.disconnect();
         if (state.frame) global.cancelAnimationFrame(state.frame);
         if (drag.frame) global.cancelAnimationFrame(drag.frame);
-        if (accessibleFrame) global.cancelAnimationFrame(accessibleFrame);
-        if (accessibleTimer) {
-          if (typeof accessibleCancel === "function") accessibleCancel(accessibleTimer);
-          else global.clearTimeout(accessibleTimer);
-        }
         state.frame = 0;
         drag.frame = 0;
-        accessibleFrame = 0;
-        accessibleTimer = 0;
-        accessibleCancel = null;
         controllers.delete(controller);
         if (code.__augitVirtual === controller) delete code.__augitVirtual;
         code.classList.remove("virtual-text");
@@ -594,29 +585,9 @@
 
     code.__augitVirtual = controller;
     controller.__code = code;
+    controller.accessibleAt = performance.now();
+    controller.accessibleLaidOutAt = controller.accessibleAt;
     controllers.add(controller);
-    accessibleFrame = global.requestAnimationFrame(() => {
-      accessibleFrame = 0;
-      if (!code.isConnected) return;
-      const fill = () => {
-        accessibleTimer = 0;
-        if (!code.isConnected || code.__augitVirtual !== controller) return;
-        accessible.textContent = model.text;
-        controller.accessibleAt = performance.now();
-        // 强制布局：文本节点写入本身不做字形布局，不能把「已赋值」当成「辅助技术可读」。
-        void accessible.getBoundingClientRect();
-        controller.accessibleLaidOutAt = performance.now();
-        accessible.setAttribute("aria-busy", "false");
-        code.setAttribute("data-accessible-text", "ready");
-      };
-      if (typeof global.requestIdleCallback === "function") {
-        accessibleCancel = (handle) => global.cancelIdleCallback(handle);
-        accessibleTimer = global.requestIdleCallback(fill, { timeout: 3000 });
-      } else {
-        accessibleCancel = null;
-        accessibleTimer = global.setTimeout(fill, 300);
-      }
-    });
     return controller;
   }
 

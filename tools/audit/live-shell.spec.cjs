@@ -9546,6 +9546,10 @@ async function main() {
             const node = document.querySelector('.editor-content .code-view .virtual-text-accessible');
             return node ? node.textContent.length : null;
           })(),
+          a11yLabel: (() => {
+            const node = document.querySelector('.editor-content .code-view .virtual-text-accessible');
+            return node ? node.getAttribute('aria-label') : null;
+          })(),
           textLength: (window.__augitLive.document && window.__augitLive.document.text || '').length,
           ariaBusy: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('aria-busy') : null,
           largePreview: (document.querySelector('.editor-content .code-view') || {}).getAttribute ? document.querySelector('.editor-content .code-view').getAttribute('data-large-preview') : null,
@@ -9583,8 +9587,9 @@ async function main() {
         && limitByPath['oversize.txt'].codeLines > 0
         && limitByPath['oversize.txt'].codeLines < 200
         && limitByPath['oversize.txt'].ariaBusy === 'false');
-    check('大文件预览保留全文可访问文本且行号不进入可访问树: ' + JSON.stringify([limitByPath['oversize.txt'].a11yLength, limitByPath['oversize.txt'].textLength, limitByPath['oversize.txt'].largePreview, limitByPath['oversize.txt'].lineNumberHidden]),
-      limitByPath['oversize.txt'].a11yLength === limitByPath['oversize.txt'].textLength
+    check('大文件预览提供窗口层可访问文本与全文行数、行号不进入可访问树: ' + JSON.stringify([limitByPath['oversize.txt'].a11yLength, limitByPath['oversize.txt'].a11yLabel, limitByPath['oversize.txt'].largePreview, limitByPath['oversize.txt'].lineNumberHidden]),
+      limitByPath['oversize.txt'].a11yLength === 0
+        && limitByPath['oversize.txt'].a11yLabel === 'Read-only content, 5,000 lines'
         && limitByPath['oversize.txt'].largePreview === '1'
         && limitByPath['oversize.txt'].lineNumberHidden === 'true');
     check('大文件警告横幅含权威文案与两个动作: ' + JSON.stringify([limitByPath['oversize.txt'].banner, limitByPath['oversize.txt'].actions, limitByPath['oversize.txt'].bannerBeforeContent]),

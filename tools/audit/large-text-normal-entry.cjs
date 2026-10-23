@@ -213,6 +213,7 @@ async function closeWindow(pid) {
           visibleRows: code.querySelectorAll('.code-line').length,
           textLength: controller.text.length,
           a11yLength: code.querySelector('.virtual-text-accessible').textContent.length,
+          a11yLabel: code.querySelector('.virtual-text-accessible').getAttribute('aria-label'),
           readOnlyPreview: !!window.__augitLive.document.readOnlyPreview,
           bannerVisible: !!banner,
           bannerText: banner ? banner.innerText.replace(/\s+/g, ' ').trim() : null,
@@ -296,7 +297,10 @@ async function closeWindow(pid) {
       if (!sample.preview && opened.lineCount !== sample.lines) failures.push('lineCount=' + opened.lineCount);
       if (!sample.preview && opened.bannerVisible) failures.push('普通文本不应出现大文件横幅');
       if (opened.visibleRows >= 200) failures.push('visibleRows=' + opened.visibleRows);
-      if (opened.a11yLength !== opened.textLength) failures.push('a11yLength=' + opened.a11yLength + '/' + opened.textLength);
+      if (opened.a11yLength !== 0
+        || opened.a11yLabel !== `Read-only content, ${opened.lineCount.toLocaleString('en-US')} lines`) {
+        failures.push('a11y=' + opened.a11yLength + '/' + opened.a11yLabel);
+      }
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
