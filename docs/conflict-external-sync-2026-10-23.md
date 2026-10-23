@@ -48,10 +48,17 @@
   - 截图：`artifacts/conflict-refresh-2026-10-23/rebase-skipped.png`。
 - 另造两文件 `git merge` 冲突：对话框只有 `Abort Merge`/`Continue Merge`，没有 `Skip`。Git merge 本身没有 skip 语义，因此这不是缺陷；Skip 只在 rebase 等可跳过步骤的操作里出现。
 
-## 6. 边界
+## 6. 外部 Abort
 
-- 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；
-- 未测外部 Abort、删除冲突文件、二进制冲突、多文件 Skip；
+- 新建单文件 merge 冲突夹具，正常入口 PID 15364 显示 `Merge Conflicts`/`Abort Merge`；
+- 外部执行 `git merge --abort`；
+- 约 1 秒内 `Merge Conflicts` 窗口消失，Changes 恢复为 0 文件，`git status` 干净，历史回到 `master`；
+- 截图：`artifacts/conflict-refresh-2026-10-23/external-abort.png`。
+
+## 7. 边界
+
+- 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；外部 Abort 已验证单文件 merge；
+- 未测外部 Abort rebase、删除冲突文件、二进制冲突、多文件 Skip；
 - 未重建三栏冲突编辑器，符合 2026-10-17 裁决；
 - 外部解决是文本编辑 + `git add`，不经过应用内编辑；
 - 这是行为证据，不是冲突页像素配对。
