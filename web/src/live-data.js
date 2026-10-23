@@ -3756,8 +3756,13 @@ async function applyWorkspaceChanges(changes) {
   const readBatchStatus = () => statusRead ??= loadStatus().catch(() => null);
 
   if (changes.gitMetadata) {
-    // Git 元数据变化：状态与历史都可能变，重新读取后局部刷新。
-    await Promise.all([readBatchStatus(), loadHistory().catch(() => null)]);
+    // Git 元数据变化：状态、历史与引用都可能变，重新读取后局部刷新。
+    // 引用树必须一起重读；只刷 titlebar/status 会让 HEAD 仍停在旧分支（实测外部 checkout 后树里 main 仍标当前）。
+    await Promise.all([
+      readBatchStatus(),
+      loadHistory().catch(() => null),
+      loadReferences().catch(() => null),
+    ]);
     touchedCurrent = true;
   }
 

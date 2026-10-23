@@ -836,7 +836,10 @@ async function main() {
         window.__remotesState = { available: true, remotes: next };
         return { available: true, changed: true, remotes: next };
       }
-      if (method === 'git/references') return data.references;
+      if (method === 'git/references') {
+        window.__referencesCalls = (window.__referencesCalls || 0) + 1;
+        return window.__referencesState || data.references;
+      }
       if (method === 'git/authors') {
         // 第 188 轮：「按用户筛选」的列表（权威 `GitUserRegistry` 从日志收集用户）。
         window.__authorsCalls = (window.__authorsCalls || 0) + 1;
@@ -8426,6 +8429,31 @@ async function main() {
     await watch.page.waitForTimeout(1200);
     check('Git 元数据变化后界面仍可用', await watch.page.evaluate('window.__augitLive && window.__augitLive.status ? true : true'));
     await watch.page.close();
+
+    // 外部 checkout：gitMetadata 变化必须重读引用树，不能只更新标题栏分支。
+    const branchSync = await openScene('scene=main-project&theme=dark');
+    await branchSync.page.waitForFunction('window.__augitRefsReady === true', null, { timeout: 20000 });
+    const refsBefore = await branchSync.page.evaluate('window.__referencesCalls || 0');
+    await branchSync.page.evaluate(() => {
+      const base = window.__augitLive.references;
+      window.__referencesState = {
+        ...base,
+        branches: base.branches.map((branch) => ({
+          ...branch,
+          isCurrent: branch.name === 'feature/ux',
+        })),
+      };
+      window.__nextChanges = { files: [], gitMetadata: true };
+    });
+    await branchSync.page.waitForFunction(`(window.__referencesCalls || 0) > ${refsBefore}`, null, { timeout: 10000 });
+    await branchSync.page.waitForTimeout(300);
+    const branchSyncState = await branchSync.page.evaluate(() =>
+      [...document.querySelectorAll('.log-ref-panel .tree-row[data-ref-kind="branch"]')]
+        .map((row) => ({ name: row.dataset.refName, current: row.dataset.refCurrent })));
+    check('Git 元数据变化后重读引用并更新当前分支标记: ' + JSON.stringify(branchSyncState),
+      branchSyncState.find((row) => row.name === 'feature/ux')?.current === 'true'
+        && branchSyncState.find((row) => row.name === 'dsh')?.current === 'false');
+    await branchSync.page.close();
 
     // ---- 规格 §9.2：状态查询失败的局部失败状态 ----
     // 条款要求「显示非阻塞错误，保留上一个已知界面但**明确标记不是最新状态**」。
