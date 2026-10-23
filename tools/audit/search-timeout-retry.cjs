@@ -48,8 +48,38 @@ Write-Output ("TOPMOST=" + $top)`;
   return (await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 })).stdout.trim();
 }
 
-async function sendKeys(keys) {
-  const literal = String(keys).replaceAll("'", "''");
+async function clickCss(hwnd, rect) {
+  // 与 click-window.ps1 不同：显式用客户区原点 + DPI 比例，避免 168 DPI 下把逻辑坐标
+  // 直接交给 SetCursorPos 导致点空。
+  const script = `Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class SearchDpiClick {
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out Rect r);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref Point p);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int L, T, R, B; }
+  [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+}
+"@
+try { [void][SearchDpiClick]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+$r = New-Object SearchDpiClick+Rect
+$o = New-Object SearchDpiClick+Point
+[void][SearchDpiClick]::GetClientRect([IntPtr]${hwnd}, [ref]$r)
+[void][SearchDpiClick]::ClientToScreen([IntPtr]${hwnd}, [ref]$o)
+$s = [SearchDpiClick]::GetDpiForWindow([IntPtr]${hwnd}) / 96.0
+$x = [int][Math]::Round($o.X + ${rect.x + rect.width / 2} * $s)
+$y = [int][Math]::Round($o.Y + ${rect.y + rect.height / 2} * $s)
+[void][SearchDpiClick]::SetCursorPos($x, $y)
+[SearchDpiClick]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero)
+[SearchDpiClick]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)`;
+  await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 });
+}
+
+async function sendKeys(keys) {  const literal = String(keys).replaceAll("'", "''");
   const script = `Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait('${literal}')`;
   await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 });
@@ -186,12 +216,16 @@ async function createFixture(workspace) {
         const r = node.getBoundingClientRect();
         return { x: r.x, y: r.y, width: r.width, height: r.height };
       }, label);
-      await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.resolve('tools/audit/click-window.ps1'),
-        '-X', String(rect.x + rect.width / 2), '-Y', String(rect.y + rect.height / 2),
-        '-WindowHandle', String(hwnd), '-AfterMs', '120', '-Clicks', '1', '-NoForeground'], { timeout: 30000 });
-      await delay(250);
+      await clickCss(hwnd, rect);
+      await delay(400);
+      const current = await page.evaluate((name) => document.querySelector(`.search-option[aria-label="${name}"]`)?.getAttribute('aria-pressed'), label);
+      if (current !== 'true') {
+        await clickCss(hwnd, rect);
+        await delay(300);
+      }
     };
     await pressOption('Match case');
+    await pressOption('Words');
     await pressOption('Regex');
     const overlayBefore = await page.evaluate(() => {
       const pressed = (name) => document.querySelector(`.search-option[aria-label="${name}"]`)?.getAttribute('aria-pressed') || null;
@@ -199,7 +233,7 @@ async function createFixture(workspace) {
         value: document.querySelector('.search-overlay .search-field')?.value || '',
         notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
         results: document.querySelectorAll('.search-overlay .search-result').length,
-        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
+        pressed: { case: pressed('Match case'), words: pressed('Words'), regex: pressed('Regex') },
       };
     });
     await sendKeys('needle_retry_token');
@@ -214,7 +248,7 @@ async function createFixture(workspace) {
         value: document.querySelector('.search-overlay .search-field')?.value || null,
         notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
         results: document.querySelectorAll('.search-overlay .search-result').length,
-        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
+        pressed: { case: pressed('Match case'), words: pressed('Words'), regex: pressed('Regex') },
         timedOut: !!live.search?.timedOut,
         cancelled: !!live.search?.cancelled,
         noticeState: live.search?.notice || null,
@@ -241,7 +275,7 @@ async function createFixture(workspace) {
         value: document.querySelector('.search-overlay .search-field')?.value || null,
         notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
         results: document.querySelectorAll('.search-overlay .search-result').length,
-        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
+        pressed: { case: pressed('Match case'), words: pressed('Words'), regex: pressed('Regex') },
         timedOut: !!live.search?.timedOut,
         cancelled: !!live.search?.cancelled,
         noticeState: live.search?.notice || null,
