@@ -241,6 +241,7 @@ async function closeWindow(pid) {
       // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口；2.96 MB 剪贴板
       // 的长度/SHA256 与磁盘 mid.txt 完全一致才算通过。
       let selectAll = null;
+      let drag = null;
       if (sample.key === 'mid') {
         await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
         await page.keyboard.press('Control+a');
@@ -257,6 +258,28 @@ async function closeWindow(pid) {
           lengthMatches: clip.length === Buffer.byteLength(mid),
           hashMatches: clip.hash === expectedHash,
         };
+        // 窗口外拖动 + 自动滚动：把指针停在正文下方 1.2s，滚动应前进，复制内容
+        // 应比可见窗口多，证明拖选不是只覆盖当前窗口。
+        const rect = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          code.scrollTop = 0;
+          const r = code.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        await page.mouse.move(rect.x + 120, rect.y + 12);
+        await page.mouse.down();
+        await page.mouse.move(rect.x + 120, rect.y + rect.height + 40, { steps: 6 });
+        await delay(1200);
+        const duringDrag = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return { scrollTop: code.scrollTop, rows: code.querySelectorAll('.code-line').length };
+        });
+        await page.mouse.up();
+        await delay(200);
+        await page.keyboard.press('Control+c');
+        await delay(400);
+        const dragClip = await clipboardInfo();
+        drag = { duringDrag, clipboardLength: dragClip.length, copiedBeyondWindow: dragClip.length > 2000 };
       }
 
       // Find in File：全文计数 3，Enter 两次定位到最后一个未显示行。
@@ -338,7 +361,7 @@ async function closeWindow(pid) {
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, find, afterFind, goto, end, failures });
+      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
