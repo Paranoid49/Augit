@@ -39,9 +39,19 @@
 - 主窗 Changes 为 0 文件，提交历史显示合并提交；
 - 截图：`artifacts/conflict-refresh-2026-10-23/conflict-continued.png`。
 
-## 5. 边界
+## 5. Rebase Skip / Merge 无 Skip
 
-- 只测一个冲突文件；单文件时没有出现 `Skip`，未验证多文件 Skip；
+- 新建单文件 rebase 冲突夹具：`master` 与 `other` 改同一行，`git rebase other` 产生 `UU a.txt`；
+- 正常入口 PID 31628 显示 `Rebase Conflicts`、`1 conflicting file`、`Abort Rebase`、`Skip`、`Continue Rebase`；
+  - 截图：`artifacts/conflict-refresh-2026-10-23/rebase-before.png`。
+- UIA 点击 `Skip`：rebase 完成，仓库回到 `master`，`git status` 干净，当前提交为 `9b30f37 other`；
+  - 截图：`artifacts/conflict-refresh-2026-10-23/rebase-skipped.png`。
+- 另造两文件 `git merge` 冲突：对话框只有 `Abort Merge`/`Continue Merge`，没有 `Skip`。Git merge 本身没有 skip 语义，因此这不是缺陷；Skip 只在 rebase 等可跳过步骤的操作里出现。
+
+## 6. 边界
+
+- 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；
+- 未测外部 Abort、删除冲突文件、二进制冲突、多文件 Skip；
 - 未重建三栏冲突编辑器，符合 2026-10-17 裁决；
 - 外部解决是文本编辑 + `git add`，不经过应用内编辑；
-- 未测外部 abort、删除文件、二进制冲突、多冲突文件。
+- 这是行为证据，不是冲突页像素配对。
