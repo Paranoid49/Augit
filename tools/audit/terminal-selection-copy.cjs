@@ -10,6 +10,7 @@ const { execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/terminal-selection-copy-2026-10-24');
+const dark = process.argv.includes('--dark');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitWindow(pid) {
@@ -122,6 +123,7 @@ async function launch(workspace, settings, port) {
     await execute('git',['commit','-m','test: terminal selection fixture'],{cwd:workspace,windowsHide:true});
     const source=JSON.parse(await fs.readFile(path.join(process.env.LOCALAPPDATA,'Augit/settings.json'),'utf8'));
     source.lastWorkspace=workspace; source.openFiles=[]; source.activeFile=null;
+    if (dark) source.theme = 'Dark';
     await fs.writeFile(settings,JSON.stringify(source,null,2)+'\n');
     const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));
     report.port=port; pid=await launch(workspace,settings,port); const hwnd=await waitWindow(pid); report.pid=pid; report.hwnd=hwnd; await topmost(hwnd);
@@ -145,7 +147,7 @@ async function launch(workspace, settings, port) {
       nodes:document.querySelectorAll('.xterm-selection div').length,
       text:document.querySelector('.xterm-selection')?.textContent||null,
     }));
-    await page.screenshot({path:path.join(output,'terminal-selection.png')});
+    await page.screenshot({path:path.join(output,dark?'terminal-selection-dark.png':'terminal-selection.png')});
     await copyShortcut(hwnd);
     await delay(300);
     const clipboard1=(await execute('powershell.exe',['-NoProfile','-Command','Get-Clipboard -Raw'],{timeout:30000})).stdout.trim();
