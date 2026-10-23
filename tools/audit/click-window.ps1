@@ -79,6 +79,7 @@ $under = New-Object Clicker+POINT
 $hit = [Clicker]::WindowFromPoint($under)
 Write-Output ("cursor=(" + $under.X + "," + $under.Y + ") windowFromPoint=0x" + $hit.ToString("X") + " match=" + ($hit -eq $h))
 for ($i = 0; $i -lt [Math]::Max(1, $Clicks); $i++) {
+  if ($i -eq 0) { Write-Output ("click_utc=" + [DateTime]::UtcNow.ToString('o')) }
   [Clicker]::mouse_event([Clicker]::LEFTDOWN, 0, 0, 0, [IntPtr]::Zero)
   Start-Sleep -Milliseconds 60
   [Clicker]::mouse_event([Clicker]::LEFTUP, 0, 0, 0, [IntPtr]::Zero)

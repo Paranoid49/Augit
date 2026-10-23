@@ -2635,6 +2635,11 @@ function liveDiffView() {
     // 真实请求尚未返回时只显示目标与空正文，不能闪现视觉稿示例文件。
     const tab = (live.tabs || []).find(item => item.id === live.activeTabId);
     const path = tab?.path || new URLSearchParams(location.search).get("diff") || "";
+    // 首次打开时 `live.diff` 还不存在；加载提示不能因此整块缺失（参考的
+    // LoadingDiffRequest 在首次请求期间同样显示进度条和 Loading... 正文）。
+    if (live.diffLoading) {
+      return `<div class="diff-layout" data-augit-loading="true">${liveDiffToolbar({ arrowsDisabled: true, busy: true, summary: diffLoadingProgress() })}${liveConflictNotice(path)}${diffFileHeader("HEAD", "Workspace", path, path)}<div class="diff-columns diff-loading-columns" tabindex="0" aria-label="Diff Content"><div class="diff-loading-message" role="status">Loading...</div></div></div>`;
+    }
     return `<div class="diff-layout">${liveDiffToolbar({ arrowsDisabled: true, busy: !!live.diffLoading })}${liveConflictNotice(path)}${diffFileHeader("HEAD", "Workspace", path, path)}<div class="diff-columns" tabindex="0" aria-label="Diff Content"><div class="diff-side"></div><div class="diff-gutter"></div><div class="diff-side"></div></div>`;
   }
   const rows = diff.rows || [];

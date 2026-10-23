@@ -10,6 +10,7 @@ for(const busy of [false,true])test(`首次差异加载：延迟提示${busy?'�
  const calls=[];
  const context=vm.createContext({window:{__augitLive:{activeTabId:2,tabs:[{id:1,path:'old.py'},{id:2,path:'folder/current.py'}],diffLoading:busy}},location:{search:''},URLSearchParams,
   liveDiffToolbar:options=>{calls.push(options);return '<toolbar>';},
+  diffLoadingProgress:()=>'<progress-bar>',
   liveConflictNotice:()=>'',
   diffFileHeader:(from,to,title,path)=>{assert.equal(path,'folder/current.py');return '<header>';},
   diffView:()=>{throw Error('禁止显示示例');},
@@ -18,4 +19,13 @@ for(const busy of [false,true])test(`首次差异加载：延迟提示${busy?'�
  assert.match(result,/aria-label="Diff Content"/);
  assert.doesNotMatch(result,/diff-code-line|app.manifest/);
  assert.equal(calls[0].arrowsDisabled,true);assert.equal(calls[0].busy,busy);
+ if(busy){
+  assert.match(result,/data-augit-loading="true"/);
+  assert.match(result,/diff-loading-message/);
+  assert.match(result,/Loading\.\.\./);
+  assert.equal(calls[0].summary,'<progress-bar>');
+ }else{
+  assert.doesNotMatch(result,/diff-loading-message|Loading\.\.\./);
+  assert.equal(calls[0].summary,undefined);
+ }
 });
