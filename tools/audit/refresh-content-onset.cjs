@@ -23,6 +23,37 @@ function documentText(generation) {
   return Array.from({ length: 40 }, (_, i) => `Line ${String(i + 1).padStart(2, '0')}  generation ${generation}  Ag 0123456789`).join('\n') + '\n';
 }
 
+function installStageTrace() {
+  const bridge = chrome.webview;
+  const original = bridge.postMessage;
+  const pending = new Map();
+  window.__onsetStage = { requests: [], cycle: null };
+  bridge.addEventListener('message', (event) => {
+    const response = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+    const item = pending.get(response.id);
+    if (!item) return;
+    item.end = performance.now();
+    pending.delete(response.id);
+  });
+  bridge.postMessage = function (raw) {
+    const request = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (['git/status', 'document/read', 'workspace/changes'].includes(request.method)) {
+      const item = { id: request.id, method: request.method, start: performance.now() };
+      pending.set(request.id, item);
+      window.__onsetStage.requests.push(item);
+    }
+    return original.call(this, raw);
+  };
+  new MutationObserver(() => {
+    const cycle = window.__onsetStage.cycle;
+    if (!cycle || cycle.mutation) return;
+    const code = document.querySelector('.editor-content .code-view');
+    if (!code || !code.textContent.includes(`generation ${cycle.target}`)) return;
+    cycle.mutation = performance.now();
+    requestAnimationFrame(() => { cycle.paint = performance.now(); });
+  }).observe(document.getElementById('app'), { childList: true, subtree: true, characterData: true });
+}
+
 async function waitWindow(pid) {
   const script = `$deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
@@ -267,8 +298,6 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
           firstLine: document.querySelector('.editor-content .code-line .virtual-line-text, .editor-content .code-line span:last-child')?.textContent || null,
         };
       });
-      await browser.close();
-      browser = null;
       const clickDpi = Number(/dpi=(\d+)/.exec(click.stdout)?.[1] || geometry.dpr * 96);
       const clickScale = clickDpi / 96;
       const screenPoint = /screen=\((\d+),(\d+)\)/.exec(click.stdout);
@@ -286,13 +315,20 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       if (!/FOREGROUND=True/.test(captureForeground)) {
         throw new Error('窗口未在前台，拒绝录制被遮挡的桌面: ' + captureForeground);
       }
+      // 同轮记录 DOM 变化与桥接阶段；用于区分「产品慢」与「采集/合成慢」。
+      await page.evaluate(installStageTrace);
 
       const rawPath = path.join(output, `${run.key}.raw`);
       const logsPath = path.join(output, `${run.key}.ffmpeg.log`);
+      const desktopDuplication = process.argv.includes('--ddagrab');
+      const captureArgs = desktopDuplication
+        ? ['-f', 'lavfi', '-i',
+          `ddagrab=output_idx=0:draw_mouse=0:framerate=60:output_fmt=bgra:offset_x=${x}:offset_y=${y}:video_size=${width}x${height},hwdownload,format=bgra`]
+        : ['-f', 'gdigrab', '-framerate', '60', '-offset_x', String(x), '-offset_y', String(y),
+          '-video_size', `${width}x${height}`, '-i', 'desktop'];
       const recorder = spawn('ffmpeg', [
         '-y', '-hide_banner', '-loglevel', 'warning',
-        '-f', 'gdigrab', '-framerate', '60', '-offset_x', String(x), '-offset_y', String(y),
-        '-video_size', `${width}x${height}`, '-i', 'desktop',
+        ...captureArgs,
         '-t', '4', '-f', 'rawvideo', '-pix_fmt', 'gray', rawPath,
       ], { windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] });
       let ffmpegLog = '';
@@ -310,11 +346,37 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       if (firstSize < frameBytes) throw new Error('ffmpeg 未写出首帧');
       const t0 = Date.now() - Math.floor(firstSize / frameBytes) / 60 * 1000;
       await delay(Math.max(0, 800 - (Date.now() - t0)));
-      const writeAt = Date.now();
-      await fs.writeFile(path.join(workspace, 'refresh.txt'), documentText(run.key === 'dark-1' ? 11 : 1));
+      const generation = run.key === 'dark-1' ? 11 : 1;
+      const marker = await page.evaluate((target) => {
+        window.__onsetStage.cycle = { target, start: performance.now(), mutation: null, paint: null };
+        window.__onsetStage.cycle.requestStartIndex = window.__onsetStage.requests.length;
+        return { start: window.__onsetStage.cycle.start, epoch: Date.now() };
+      }, generation);
+      const writeEpoch = Date.now();
+      const writeAt = writeEpoch;
+      await fs.writeFile(path.join(workspace, 'refresh.txt'), documentText(generation));
       await new Promise((resolve) => recorder.once('close', resolve));
       await fs.writeFile(logsPath, ffmpegLog);
       const analysis = await analyze(rawPath, frameBytes, writeAt, t0);
+      const stageTrace = await page.evaluate(() => {
+        const cycle = window.__onsetStage.cycle;
+        const writeOffset = cycle ? cycle.start : 0;
+        const requests = window.__onsetStage.requests.slice(cycle.requestStartIndex || 0)
+          .filter((item) => item.start >= writeOffset - 5)
+          .map((item) => ({
+            method: item.method,
+            start: Math.round(item.start - writeOffset),
+            end: Number.isFinite(item.end) ? Math.round(item.end - writeOffset) : null,
+            duration: Number.isFinite(item.end) ? Math.round(item.end - item.start) : null,
+          }));
+        return { mutation: cycle.mutation, paint: cycle.paint, requests };
+      });
+      const writePerformance = marker.start + (writeEpoch - marker.epoch);
+      const stage = {
+        mutationMs: stageTrace.mutation === null ? null : Math.round(stageTrace.mutation - writePerformance),
+        paintMs: stageTrace.paint === null ? null : Math.round(stageTrace.paint - writePerformance),
+        requests: stageTrace.requests,
+      };
       const runReport = {
         key: run.key,
         pid,
@@ -322,7 +384,9 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
         port,
         foreground: { click: clickForeground, capture: captureForeground, clientX, clientY, dpi, topmost },
         crop: { x, y, width, height, dpi, scale },
+        capture: desktopDuplication ? 'ffmpeg-ddagrab' : 'ffmpeg-gdigrab',
         geometry,
+        stage,
         recorderPid: recorder.pid,
         t0,
         writeAt,
@@ -342,6 +406,8 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
         }
       }
       await fs.rm(rawPath, { force: true });
+      await browser.close();
+      browser = null;
       report.runs.push(runReport);
       runReport.closedNormally = await closeWindow(pid);
       currentClosed = runReport.closedNormally;
@@ -366,6 +432,7 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       writeOffsetMs: run.writeOffsetMs,
       onsetFrame: run.analysis.onsetFrame,
       lagMs: run.analysis.lagMs,
+      stage: run.stage,
       counts: run.analysis.countsNearWrite,
     })),
     closedNormally: report.closedNormally,
