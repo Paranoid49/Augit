@@ -4928,6 +4928,10 @@ function reuseTextViewInPlace() {
   if (view.querySelector(".markdown-panes")) return false;
   const code = view.querySelector(":scope > .code-view");
   if (!code) return false;
+  // 大文件延迟路径在挂载窗口层之前只有空的 `.code-view`：此时若按普通文本走
+  // `liveLineViews()` 会把 80,000 行一次性建出来（真实入口实测把渲染进程推到 3.3 GB）。
+  // 让区域替换重新生成延迟节点，新的 hydrate 会用最新的 live.document.text。
+  if (!code.__augitVirtual && code.hasAttribute("data-deferred-preview")) return false;
   // 正身对账：工具栏显示的路径必须是本文档。换文件（或读取失败退化）时交给正常的区域替换。
   const pathLabel = view.querySelector(".document-path");
   if (!pathLabel || !pathLabel.textContent.startsWith(live.document.path)) return false;

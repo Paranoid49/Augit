@@ -3607,7 +3607,7 @@ window.__augitApplyLargeTextWrap = function (view, wrap) {
   if (!wrap && view.dataset.virtualWrap === "1") {
     delete view.dataset.virtualWrap;
     const document_ = liveDocument();
-    if (!document_ || !document_.readOnlyPreview
+    if (!document_ || typeof document_.text !== "string" || document_.text.length <= 200000
       || !window.__augitLargeTextView || typeof window.__augitLargeTextView.mount !== "function") return;
     view.replaceChildren();
     window.__augitLargeTextView.mount(view, document_.text);
@@ -3623,10 +3623,13 @@ function liveTextDocument(find) {
   const document_ = liveDocument();
   const name = document_.name || document_.path;
   const findBox = find ? currentFindBox() : "";
-  const deferLines = document_.readOnlyPreview === true && typeof document_.text === "string" && document_.text.length > 200000;
+  // 全文窗口层不只服务「超过内容加载上限的只读预览」：2.96 MB / 80,000 行的普通
+  // UTF-8 文本同样会一次建 80,000 个行节点（真实外壳首行约 7.8 s）。超过 200,000
+  // 字符就进入延迟/窗口路径；是否显示大文件警告仍由 `readOnlyPreview` 决定。
+  const deferLines = typeof document_.text === "string" && document_.text.length > 200000;
   const deferredId = deferLines ? scheduleDeferredPreview(document_.text) : 0;
   const codeAttrs = deferLines
-    ? ` data-large-preview="1" data-deferred-preview="${deferredId}" aria-busy="true"`
+    ? ` data-large-text="1"${document_.readOnlyPreview ? ' data-large-preview="1"' : ""} data-deferred-preview="${deferredId}" aria-busy="true"`
     : "";
   const codeBody = deferLines ? "" : liveLineViews(document_.text);
   return `<div class="document-view"><div class="document-toolbar"><span class="document-path">${escapeHtml(document_.path)}\u3000Read-only</span><button class="icon-button" aria-label="Soft Wraps">${icon("wrap-text")}</button><button class="icon-button" aria-label="Show Whitespaces">${icon("pilcrow")}</button><button class="icon-button" aria-label="Find in File">${icon("search")}</button><button class="icon-button" aria-label="Go to Line">${icon("corner-down-right")}</button></div>${largeFileBanner(document_, typeof window.__augitLargeFileWarningHidden === "function" && window.__augitLargeFileWarningHidden(document_))}${findBox}<div class="code-view"${codeAttrs} tabindex="0" aria-label="${escapeHtml(name)} Read-only content">${codeBody}</div></div>`;

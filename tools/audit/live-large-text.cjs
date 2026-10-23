@@ -81,17 +81,19 @@ module.exports = async function liveLargeText({ openScene, check }) {
     code.scrollTop = code.scrollHeight;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const rows = [...code.querySelectorAll('.code-line')];
-    const last = rows[rows.length - 1];
+    // 绝对定位窗口节点的 DOM 顺序是追加顺序，不等于行号顺序。
+    const lastLine = rows.length ? Math.max(...rows.map((row) => Number(row.dataset.line))) : null;
+    const last = rows.find((row) => Number(row.dataset.line) === lastLine);
     return {
       rows: rows.length,
-      lastLine: last ? last.dataset.line : null,
+      lastLine,
       lastText: last ? last.querySelector('.virtual-line-text').textContent : null,
       scrollTop: code.scrollTop,
       scrollHeight: code.scrollHeight,
     };
   });
   check('大文件预览滚到全文末尾仍能渲染最后一行: ' + JSON.stringify([scrolled.lastLine, scrolled.scrollTop, scrolled.scrollHeight, scrolled.rows]),
-    scrolled.lastLine === '2000' && scrolled.lastText.includes('needle last')
+    scrolled.lastLine === 2000 && scrolled.lastText.includes('needle last')
       && scrolled.scrollTop > scrolled.scrollHeight - 2000 && scrolled.rows < 120);
 
   // ---- 横向滚动时行号列固定 ------------------------------------------------
@@ -300,6 +302,61 @@ module.exports = async function liveLargeText({ openScene, check }) {
   check('关闭软换行后恢复窗口层: ' + JSON.stringify(wrapOff),
     wrapOff.virtual === true && wrapOff.wrap === false && wrapOff.virtualWrap === null
       && wrapOff.lineCount === 2000 && wrapOff.rows < 120);
+
+  // ---- 普通 TextReady 的大文本同样走窗口层（不是只有超限预览） --------------
+  await page.evaluate(() => {
+    const lines = [];
+    for (let index = 1; index <= 80000; index++) lines.push(`normal line ${index} ${'z'.repeat(110)}`);
+    window.__limitDocs = {
+      'normal-big.txt': {
+        path: 'normal-big.txt', name: 'normal-big.txt', fullPath: 'D:\\w\\normal-big.txt', workspaceName: 'w',
+        status: 'TextReady', kind: 'Text', typeName: '纯文本',
+        fileSize: lines.join('\n').length, text: lines.join('\n'), encoding: 'UTF-8', lineEndings: 'LF',
+      },
+    };
+    window.__augitOpenDocument('normal-big.txt');
+  });
+  await page.waitForFunction(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return !!code && !!code.__augitVirtual && code.__augitVirtual.lineCount === 80000;
+  }, null, { timeout: 20000 });
+  const normalBig = await page.evaluate(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return {
+      virtual: !!code.__augitVirtual,
+      lineCount: code.__augitVirtual.lineCount,
+      rows: code.querySelectorAll('.code-line').length,
+      readOnlyPreview: !!window.__augitLive.document.readOnlyPreview,
+      largePreview: code.getAttribute('data-large-preview'),
+      largeText: code.getAttribute('data-large-text'),
+      banner: !!document.querySelector('.editor-content [data-large-file-banner]'),
+    };
+  });
+  check('超过 200,000 字符的普通文本也使用窗口层而非完整行节点: ' + JSON.stringify(normalBig),
+    normalBig.virtual === true && normalBig.lineCount === 80000 && normalBig.rows < 120
+      && normalBig.readOnlyPreview === false && normalBig.largePreview === null
+      && normalBig.largeText === '1' && normalBig.banner === false);
+  // 80,000 行普通文本上的查找也必须走全文层并定位到末尾。
+  await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+  await page.keyboard.press('Control+f');
+  await page.locator('.current-find input').fill('normal line 79999');
+  await page.waitForFunction(() => {
+    const status = document.querySelector('.current-find .find-status');
+    return !!status && status.textContent === '1/1';
+  }, null, { timeout: 20000 });
+  const normalFind = await page.evaluate(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    const current = document.querySelector('.find-current');
+    return {
+      status: document.querySelector('.current-find .find-status').textContent,
+      line: current ? Number(current.closest('.code-line').dataset.line) : null,
+      scrollTop: code.scrollTop,
+      rows: code.querySelectorAll('.code-line').length,
+    };
+  });
+  check('80,000 行普通文本的 Find 定位到末尾行: ' + JSON.stringify(normalFind),
+    normalFind.status === '1/1' && normalFind.line === 79999 && normalFind.scrollTop > 100000 && normalFind.rows < 120);
+  await page.keyboard.press('Escape');
   await page.close();
 
   // ---- 80,000 行：只建可视窗口，滚到末尾 -----------------------------------
@@ -331,7 +388,8 @@ module.exports = async function liveLargeText({ openScene, check }) {
     }
     const accessibleMs = Math.round(controller.accessibleLaidOutAt - started);
     const rows = [...code.querySelectorAll('.code-line')];
-    const last = rows[rows.length - 1];
+    const lastLine = rows.length ? Math.max(...rows.map((row) => Number(row.dataset.line))) : null;
+    const last = rows.find((row) => Number(row.dataset.line) === lastLine);
     const result = {
       mountMs: Math.round(mountMs * 10) / 10,
       layoutMs: Math.round(layoutMs * 10) / 10,
@@ -340,7 +398,7 @@ module.exports = async function liveLargeText({ openScene, check }) {
       initialRows,
       rows: rows.length,
       lineCount: controller.lineCount,
-      lastLine: last ? last.dataset.line : null,
+      lastLine,
       lastText: last ? last.querySelector('.virtual-line-text').textContent : null,
       scrollHeight: code.scrollHeight,
       rowHeight: controller.rowHeight,
@@ -355,7 +413,7 @@ module.exports = async function liveLargeText({ openScene, check }) {
     perf.lineCount === 80000 && perf.initialRows > 0 && perf.initialRows < 120
       && perf.rows > 0 && perf.rows < 120 && perf.scrollHeight > 80000 * (perf.rowHeight - 2));
   check('80,000 行预览滚到末尾渲染最后一行: ' + JSON.stringify([perf.lastLine, perf.lastText]),
-    perf.lastLine === '80000' && (perf.lastText || '').startsWith('line 80000'));
+    perf.lastLine === 80000 && (perf.lastText || '').startsWith('line 80000'));
   check('80,000 行预览的全文可访问文本完整: ' + JSON.stringify([perf.a11yLength, perf.textLength]),
     perf.a11yLength === perf.textLength);
   check('80,000 行预览的挂载/滚动耗时可复验（原型门槛 1000ms/1000ms）: ' + JSON.stringify([perf.mountMs, perf.layoutMs, perf.scrollMs, perf.accessibleMs]),

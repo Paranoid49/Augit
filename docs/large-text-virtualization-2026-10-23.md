@@ -1,7 +1,7 @@
-# 大文件只读预览的全文层 / 视觉窗口层原型（2026-10-23）
+# 大文件预览 / 超大文本的全文层与视觉窗口层原型（2026-10-23）
 
-> 状态：**原型已建立并通过 2,000 行语义验证与 80,000 行结构性验证；尚未完成真实外壳 22.75 MB 正常入口验收。**
-> 本文只登记本批实现、证据和边界，不把无头 Chromium 结果写成真实外壳或整页像素验收。
+> 状态：**原型已建立，并通过 2,000 行语义、80,000 行结构、2.96 MB/80,000 行与 22.75 MiB 预览的真实外壳正常入口验证；仍缺 UIA 全量枚举、前台 OS 输入和像素验收。**
+> 本文只登记本批实现、证据和边界，不把无头 Chromium/CDP 结果写成整页像素验收。
 
 ## 1. 背景与目标
 
@@ -84,23 +84,67 @@ Go to Line 跳到未显示区域、原文换行与行号对应、可访问性和
 
 ## 5. 边界与未完成
 
-1. 以上是**无头 Chromium + 宿主桩**结果，不是真实 Win32 外壳、WebView2、UIA 或像素证据。
-   尚未在 22.75 MB 真机样本上验证首内容、选择/复制、Find、Go to Line 和 UIA 枚举耗时。
-2. 80,000 行样本是合成文本；2.96 MB / 80,000 行真实文件与 22.75 MB 文件仍需分开记录。
+1. 第 3/4 节是**无头 Chromium + 宿主桩**结果；真实 Win32 外壳的一次正常入口测量见 §6，
+   但仍没有 UIA 全量枚举耗时、整窗或正文像素截图、前台 OS `SendInput` 证据。
+2. 2.96 MB / 80,000 行真实文件与 22.75 MiB 真实文件已在 §6 分开记录；后者宿主只返回
+   前 2.5 MB 预览，不能把该表写成完整 22.75 MB 正文的读取或交互验收。
 3. 软换行启用时退回完整行构建。80,000 行 + 换行仍会建立全部行节点，是登记的回退，
    不是窗口化完成。
 4. 全文可访问文本在空闲任务里一次性写入；辅助技术要等这次布局完成才能读到全文。
    若后续实测影响输入，需要改成按需/分片物化，但不能删掉全文可访问语义。
-5. 本批未改产品规范、未新增功能、未删除任何已批准能力；普通文档路径保持原实现。
+5. 普通小文档保持原完整行渲染；超过 200,000 字符的普通 `TextReady` 文本也进入窗口层
+   （§6 的 mid 样本），不是只改大文件预览。
 
-## 6. 复验命令与证据
+## 6. 真实外壳正常入口（2026-10-24）
+
+`tools/audit/large-text-normal-entry.cjs` 用 `tools/start-augit.ps1` 启动真实外壳，在项目树里
+**双击** `mid.txt` / `huge.txt`，通过 WebView2 调试端口读取 DOM 状态（CDP 只观测状态并注入
+键盘/鼠标事件，不替换宿主返回值、不加场景参数）。
+
+夹具与实例：
+
+| 项 | mid | huge |
+| --- | --- | --- |
+| 文件 | 2,959,963 B / 80,000 行 | 23,854,035 B（22.75 MiB）/ 211,100 行 |
+| 宿主结果 | `TextReady`，全文 | `TextPreview`，前 2,560,000 字符 / 22,658 行 |
+| 行高 / 字体 | 22 px / `JetBrains Mono` 13 | 22 px / `JetBrains Mono` 13 |
+| 窗口行节点 | 33 | 32 |
+
+| 事件（双击起算） | mid | huge |
+| --- | --- | --- |
+| 警告横幅 | —（普通文本无横幅） | **103.3 ms** |
+| 首行 / 窗口层挂载 | **209.7 ms** | **121.4 ms** |
+| 全文可访问文本布局完成 | 484 ms | 235.8 ms |
+| Find `NEEDLE` | `3/3`，定位第 80000 行 | `3/3`，定位第 22000 行 |
+| Find 关闭后的选区 | `NEEDLE` 在全文末尾 | `NEEDLE` 在第 22000 行 |
+| Go to Line 末行 | 80000，居中 | 22658（预览末行），居中 |
+| 滚到末尾最后一行 | 80000 | 22658 |
+
+- 实例 PID 30096，CDP 端口 51890；`WM_CLOSE` 正常关闭，`pidAlive=false`，临时目录已删除。
+- 隔离设置仍是全局副本，SHA256 `8840E775…462CF`，全局配置批前/批后不变。
+- huge 的横幅文案：`Large file (22.7 MB). Showing the first 2.4 MB as a read-only preview.`，
+  两个动作存在；这是**实际侧**状态，参考端同文件不出横幅，不构成参考动作配对。
+
+**正常入口暴露并修掉的缺陷**：第一次实测时，延迟挂载的两帧内如果发生 Git 状态刷新，
+`reuseTextViewInPlace()` 会走普通文本路径，用 `liveLineViews()` 一次建出 80,000 行。
+实测渲染进程 Working Set 升到 **3.3 GB**、CPU 11 分钟仍未结束（只能按本批 PID 结束）。
+修复：`.code-view` 仍带 `data-deferred-preview` 且尚无窗口控制器时，`reuseTextViewInPlace()`
+返回 `false`，让区域替换重新生成延迟节点；修复后 mid 首行 209.7 ms、huge 121.4 ms。
+这是正常入口证据，而不是无头套件能发现的路径。
+
+**本条仍不是**：前台 OS `SendInput` 鼠标/键盘证据、UIA 全量枚举耗时、整窗或正文像素截图、
+浅/深色与 DPI 矩阵、22.75 MB 文件完整正文（宿主只返回 2.5 MB 预览）。CDP 观测不能写成
+「正常入口像素通过」。
+
+## 7. 复验命令与证据
 
 ```powershell
 $env:AUGIT_BROWSER_EXECUTABLE='C:\Users\wl024\AppData\Local\ms-playwright\chromium-1243\chrome-win64\chrome.exe'
 node tools/audit/live-shell.spec.cjs C:/Users/wl024/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright --large-text-only
+node tools/audit/large-text-normal-entry.cjs C:/Users/wl024/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright artifacts/large-text-normal-entry-2026-10-23
 ```
 
-本批结果：`live-large-text 通过 20 项断言`，指标：
+本批结果：`live-large-text 通过 22 项断言`，指标：
 
 ```json
 {"mountedMs":182,"accessibleMs2000":77,"rows2000":28,"rowHeight":18,
@@ -108,14 +152,15 @@ node tools/audit/live-shell.spec.cjs C:/Users/wl024/.cache/codex-runtimes/codex-
  "accessibleMs80000":558,"rows80000":42,"a11yChars":2868893}
 ```
 
-该模块已接入完整 `live-shell` 流程：2026-10-23 当前工作区版完整套件 `live-shell 通过 2368 项断言`
-（退出码 0，未执行 0 项；相对 2348 的 +20 即本模块），组件哈希与登记见
+该模块已接入完整 `live-shell` 流程：2026-10-23 当前工作区版完整套件 `live-shell 通过 2370 项断言`
+（退出码 0，未执行 0 项；相对 2348 的 +22 即本模块）。随后把普通 `TextReady` 大文本
+（2.96 MB / 80,000 行）也纳入窗口层并补两条断言，最终代码的完整套件结果与哈希见
 `docs/intellij-platform-ui-behavior.md` §2.3。完整套件里本模块的指标为
 `mountedMs=47`、`mountMs80000=22.9`、`layoutMs80000=28`、`scrollMs80000=7.2`、
 `accessibleMs80000=685`；与上面的单跑值同量级，说明差异来自机器负载而不是实现分叉。
 
-行高 18 来自宿主桩的字体回退（桩设置 `Cascadia Mono` 未随包加载），不是参考环境或
-真实外壳的 22 px；真实外壳仍须按随包 JetBrains Mono 13 重新测量，不能把本表行高当结论。
+无头套件的行高 18 来自宿主桩字体回退（桩设置 `Cascadia Mono` 未随包加载）；真实外壳 §6
+已实测 `JetBrains Mono` 13、行高 22、`scrollHeight=498476`，两者不能混用。
 
 `live-shell.spec.cjs` 中原「延迟行构建后完整补齐 5000 行」断言已替换为窗口层断言：
 窗口行节点 < 200、全文行数 5000、可访问文本完整、行号仍 `aria-hidden`。

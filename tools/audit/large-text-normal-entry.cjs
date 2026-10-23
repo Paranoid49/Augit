@@ -1,0 +1,336 @@
+// 大文件只读预览的正常入口验收（真实外壳 + WebView2，CDP 只用于观测与输入）。
+//
+// 目的：在真实 start-augit.ps1 启动的实例里，用项目树的正常双击入口打开
+// 2.96 MB / 80,000 行与 22.75 MiB 样本，记录：
+//   - 警告横幅、首行、全文窗口层挂载、全文可访问文本的时序；
+//   - 窗口行数、全文行数、实际行高；
+//   - Find in File 的全文计数与定位（跳到未显示行）；
+//   - Go to Line 跳到全文末尾。
+//
+// 这是行为/时序证据，不是前台像素或 UIA 全量枚举验收；CDP 只驱动 DOM 输入并读取状态，
+// 不注入场景、不替换宿主返回值。实例与临时目录在 finally 中正常关闭/删除。
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const net = require('node:net');
+const crypto = require('node:crypto');
+const { execFile } = require('node:child_process');
+const execute = require('node:util').promisify(execFile);
+const { chromium } = require(process.argv[2]);
+const output = path.resolve(process.argv[3] || 'artifacts/large-text-normal-entry-2026-10-23');
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function bigText(lines, tokenLines, width = 96) {
+  const tokens = new Map(Object.entries(tokenLines || {}).map(([line, token]) => [Number(line), token]));
+  const out = [];
+  for (let index = 1; index <= lines; index++) {
+    const token = tokens.get(index);
+    out.push(`line ${String(index).padStart(6, '0')} ${token ? token : '-'.repeat(width)}`);
+  }
+  return out.join('\n');
+}
+
+async function closeWindow(pid) {
+  const script = [
+    'Add-Type @\"',
+    'using System; using System.Runtime.InteropServices;',
+    'public static class CloseProbe { [DllImport(\"user32.dll\")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l); }',
+    '\"@',
+    `$p = Get-Process -Id ${pid} -ErrorAction Stop`,
+    '[void][CloseProbe]::PostMessage($p.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)',
+    '$deadline = (Get-Date).AddSeconds(20)',
+    'while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }',
+    'if ($p.HasExited) { exit 0 }',
+    'exit 2',
+  ].join('\n');
+  try {
+    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 30000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+(async () => {
+  await fs.mkdir(output, { recursive: true });
+  const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'Augit-large-entry-'));
+  const workspace = path.join(temporary, 'workspace');
+  const settings = path.join(temporary, 'settings.json');
+  let listener;
+  let pid = 0;
+  let browser = null;
+  const report = { generatedAt: new Date().toISOString(), launcher: 'tools/start-augit.ps1', cdp: true, samples: [] };
+  try {
+    await fs.mkdir(workspace);
+    await fs.copyFile(path.join(process.env.LOCALAPPDATA, 'Augit/settings.json'), settings).catch(() => fs.writeFile(settings, '{}\n'));
+    const huge = bigText(211100, { 1: 'NEEDLE_FIRST', 12000: 'NEEDLE_MIDDLE', 22000: 'NEEDLE_LAST' }, 100);
+    const mid = bigText(80000, { 1: 'NEEDLE_FIRST', 40000: 'NEEDLE_MIDDLE', 80000: 'NEEDLE_LAST' }, 24);
+    await fs.writeFile(path.join(workspace, 'huge.txt'), huge);
+    await fs.writeFile(path.join(workspace, 'mid.txt'), mid);
+    // 非 Git 目录会弹「初始化仓库」模态，挡住正常项目树入口；建一个只含种子提交的仓库，
+    // 大文件保留在磁盘但不进入索引，项目树仍可见、Git 状态也不会扫描 23 MB 内容。
+    await fs.writeFile(path.join(workspace, '.gitignore'), 'huge.txt\nmid.txt\n');
+    await fs.writeFile(path.join(workspace, 'seed.txt'), 'seed\n');
+    await execute('git', ['init', '-b', 'main'], { cwd: workspace, windowsHide: true });
+    await execute('git', ['config', 'user.name', 'Augit Large Entry'], { cwd: workspace, windowsHide: true });
+    await execute('git', ['config', 'user.email', 'large-entry@example.invalid'], { cwd: workspace, windowsHide: true });
+    await execute('git', ['config', 'commit.gpgsign', 'false'], { cwd: workspace, windowsHide: true });
+    await execute('git', ['add', '.gitignore', 'seed.txt'], { cwd: workspace, windowsHide: true });
+    await execute('git', ['commit', '-m', 'test: large text fixture'], { cwd: workspace, windowsHide: true });
+    report.fixtures = {
+      huge: { bytes: Buffer.byteLength(huge), lines: 211100 },
+      mid: { bytes: Buffer.byteLength(mid), lines: 80000 },
+      settingsSha256: crypto.createHash('sha256').update(await fs.readFile(settings)).digest('hex').toUpperCase(),
+    };
+
+    listener = net.createServer();
+    await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
+    const port = listener.address().port;
+    await new Promise((resolve) => listener.close(resolve));
+    report.port = port;
+    const launch = require('./daily-launch-command.cjs')(process.cwd(), settings, port, workspace);
+    const started = await execute(launch.file, launch.args, { env: launch.env, timeout: 240000 });
+    pid = Number(/AUGIT_PID=(\d+)/.exec(started.stdout)?.[1]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('启动器未返回 PID: ' + started.stdout);
+    report.pid = pid;
+    report.launchCommand = launch.args;
+
+    for (let attempt = 0; attempt < 160 && !browser; attempt++) {
+      try {
+        browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+      } catch {
+        await delay(250);
+      }
+    }
+    if (!browser) throw new Error('无法连接 WebView2 调试端口');
+    let page = browser.contexts().flatMap((context) => context.pages()).find((candidate) => candidate.url().includes('index.html'));
+    for (let attempt = 0; attempt < 120 && !page; attempt++) {
+      await delay(250);
+      page = browser.contexts().flatMap((context) => context.pages()).find((candidate) => candidate.url().includes('index.html'));
+    }
+    if (!page) throw new Error('找不到 WebView2 页面: ' + JSON.stringify(browser.contexts().flatMap((context) => context.pages()).map((candidate) => candidate.url())));
+    try {
+      await page.waitForFunction('window.__augitReady === true && !!window.__augitLive && !!document.querySelector(".side-content.tree")', null, { timeout: 60000 });
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        url: location.href,
+        ready: window.__augitReady,
+        gitReady: window.__augitGitReady,
+        historyReady: window.__augitHistoryReady,
+        error: window.__augitError || null,
+        hasLive: !!window.__augitLive,
+        bodyText: (document.body && document.body.innerText || '').slice(0, 300),
+      })).catch((probeError) => ({ probeError: String(probeError) }));
+      throw new Error('首屏未就绪: ' + JSON.stringify(state) + ' / ' + String(error && error.message || error));
+    }
+
+    for (const sample of [
+      { key: 'mid', file: 'mid.txt', lines: 80000, goto: 80000, findLine: 80000, preview: false },
+      // 22.75 MiB 超过 20 MB 内容加载上限，宿主只返回前 2.5 MB 的 TextPreview；
+      // 预览行数由实际截断决定，不拿原文件 212,000 行当预期。
+      { key: 'huge', file: 'huge.txt', lines: null, goto: 'last', findLine: 22000, preview: true },
+    ]) {
+      await page.evaluate(() => {
+        if (window.__largeProbeTimer) cancelAnimationFrame(window.__largeProbeTimer);
+        window.__largeProbe = { t0: 0, events: {}, textLength: 0, mountedAt: 0, accessibleAt: 0 };
+      });
+      const row = page.locator(`.side-content.tree .tree-row[data-tree-path="${sample.file}"]`);
+      await row.waitFor({ state: 'visible', timeout: 15000 });
+      const start = await page.evaluate(() => {
+        const probe = window.__largeProbe;
+        probe.t0 = performance.now();
+        const codeOf = () => document.querySelector('.editor-content .code-view');
+        const tick = () => {
+          const now = performance.now();
+          const code = codeOf();
+          if (!probe.events.banner && document.querySelector('.editor-content [data-large-file-banner]')) probe.events.banner = now - probe.t0;
+          if (!probe.events.line && code && code.querySelector('.code-line')) probe.events.line = now - probe.t0;
+          if (!probe.events.virtual && code && code.__augitVirtual) {
+            probe.events.virtual = now - probe.t0;
+            probe.textLength = code.__augitVirtual.text.length;
+            probe.mountedAt = code.__augitVirtual.mountedAt - probe.t0;
+          }
+          if (!probe.events.accessible && code && code.getAttribute('data-accessible-text') === 'ready') {
+            probe.events.accessible = now - probe.t0;
+            probe.accessibleAt = code.__augitVirtual ? code.__augitVirtual.accessibleLaidOutAt - probe.t0 : null;
+          }
+          if (now - probe.t0 < 30000) window.__largeProbeTimer = requestAnimationFrame(tick);
+        };
+        window.__largeProbeTimer = requestAnimationFrame(tick);
+        return probe.t0;
+      });
+      await row.dblclick();
+      await page.waitForFunction((file) => window.__augitLive && window.__augitLive.document
+        && window.__augitLive.document.path === file, sample.file, { timeout: 30000 });
+      try {
+        await page.waitForFunction(({ lines, preview }) => {
+          const code = document.querySelector('.editor-content .code-view');
+          if (!code || !code.__augitVirtual || code.getAttribute('data-accessible-text') !== 'ready') return false;
+          const count = code.__augitVirtual.lineCount;
+          if (preview) {
+            return !!window.__augitLive.document.readOnlyPreview && count > 20000 && count < 40000;
+          }
+          return count === lines;
+        }, { lines: sample.lines, preview: sample.preview }, { timeout: 60000 });
+      } catch (error) {
+        const diagnostic = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          const doc = window.__augitLive.document;
+          return {
+            editor: window.__augitLive.editor,
+            documentPath: doc ? doc.path : null,
+            status: doc ? doc.status : null,
+            kind: doc ? doc.kind : null,
+            readOnlyPreview: !!(doc && doc.readOnlyPreview),
+            fileSize: doc ? doc.fileSize : null,
+            previewBytes: doc ? doc.previewBytes : null,
+            textLength: doc && typeof doc.text === 'string' ? doc.text.length : null,
+            codeView: !!code,
+            codeAttrs: code ? {
+              largePreview: code.getAttribute('data-large-preview'),
+              deferred: code.getAttribute('data-deferred-preview'),
+              virtualLines: code.getAttribute('data-virtual-lines'),
+              ariaBusy: code.getAttribute('aria-busy'),
+              accessible: code.getAttribute('data-accessible-text'),
+            } : null,
+            rows: code ? code.querySelectorAll('.code-line').length : 0,
+            hasModule: typeof window.__augitLargeTextView,
+            wrap: !!(window.__augitLive.displayOptions && window.__augitLive.displayOptions.wrap),
+            probe: window.__largeProbe,
+            error: window.__augitError || null,
+          };
+        }).catch((probeError) => ({ probeError: String(probeError) }));
+        throw new Error('窗口层未出现: ' + JSON.stringify(diagnostic) + ' / ' + String(error && error.message || error));
+      }
+      const opened = await page.evaluate(() => {
+        const code = document.querySelector('.editor-content .code-view');
+        const controller = code.__augitVirtual;
+        const banner = document.querySelector('.editor-content [data-large-file-banner]');
+        return {
+          events: window.__largeProbe.events,
+          lineCount: controller.lineCount,
+          rowHeight: controller.rowHeight,
+          visibleRows: code.querySelectorAll('.code-line').length,
+          textLength: controller.text.length,
+          a11yLength: code.querySelector('.virtual-text-accessible').textContent.length,
+          readOnlyPreview: !!window.__augitLive.document.readOnlyPreview,
+          bannerVisible: !!banner,
+          bannerText: banner ? banner.innerText.replace(/\s+/g, ' ').trim() : null,
+          scrollHeight: code.scrollHeight,
+          clientHeight: code.clientHeight,
+          fontFamily: getComputedStyle(code).fontFamily,
+          fontSize: getComputedStyle(code).fontSize,
+          lineHeight: getComputedStyle(code).lineHeight,
+        };
+      });
+
+      // Find in File：全文计数 3，Enter 两次定位到最后一个未显示行。
+      await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+      await page.keyboard.press('Control+f');
+      await page.locator('.current-find input').fill('NEEDLE');
+      await page.waitForFunction(() => {
+        const status = document.querySelector('.current-find .find-status');
+        return !!status && status.textContent === '1/3';
+      }, null, { timeout: 30000 });
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => {
+        const status = document.querySelector('.current-find .find-status');
+        return !!status && status.textContent === '3/3';
+      }, null, { timeout: 30000 });
+      await page.waitForTimeout(150);
+      const find = await page.evaluate((expectedLine) => {
+        const code = document.querySelector('.editor-content .code-view');
+        const current = document.querySelector('.find-current');
+        const row = current ? current.closest('.code-line') : null;
+        return {
+          status: document.querySelector('.current-find .find-status').textContent,
+          line: row ? Number(row.dataset.line) : null,
+          scrollTop: code.scrollTop,
+          visibleRows: code.querySelectorAll('.code-line').length,
+          expectedLine,
+        };
+      }, sample.findLine);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+      const afterFind = await page.evaluate(() => {
+        const controller = document.querySelector('.editor-content .code-view').__augitVirtual;
+        return { selected: controller.selectedText(), selection: controller.selection };
+      });
+
+      // Go to Line：跳到全文最后一行并保持活动行可见。
+      const gotoLine = await page.evaluate(() => document.querySelector('.editor-content .code-view').__augitVirtual.lineCount);
+      await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+      await page.keyboard.press('Control+g');
+      await page.locator('[data-compact-dialog] [data-compact-field]').waitFor({ state: 'visible', timeout: 10000 });
+      await page.locator('[data-compact-dialog] [data-compact-field]').fill(String(gotoLine));
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      const goto = await page.evaluate((line) => {
+        const code = document.querySelector('.editor-content .code-view');
+        const active = code.querySelector('.code-line.active');
+        return {
+          dialog: !!document.querySelector('[data-compact-dialog]'),
+          line: active ? Number(active.dataset.line) : null,
+          text: active ? active.querySelector('.virtual-line-text').textContent : null,
+          scrollTop: code.scrollTop,
+          maxScroll: code.scrollHeight - code.clientHeight,
+          expectedLine: line,
+          visibleRows: code.querySelectorAll('.code-line').length,
+        };
+      }, gotoLine);
+
+      // 滚到末尾确认最后一行渲染，不把「窗口外无节点」当成失败。
+      const end = await page.evaluate(async (lines) => {
+        const code = document.querySelector('.editor-content .code-view');
+        code.scrollTop = code.scrollHeight;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const rows = [...code.querySelectorAll('.code-line')];
+        // 行节点是绝对定位的窗口节点，DOM 顺序是追加顺序，不等于行号顺序。
+        const lastLine = rows.length ? Math.max(...rows.map((row) => Number(row.dataset.line))) : null;
+        return { lastLine, rows: rows.length, expectedLine: lines, scrollTop: code.scrollTop };
+      }, opened.lineCount);
+
+      const failures = [];
+      if (opened.readOnlyPreview !== sample.preview) failures.push('readOnlyPreview=' + opened.readOnlyPreview);
+      if (!sample.preview && opened.lineCount !== sample.lines) failures.push('lineCount=' + opened.lineCount);
+      if (!sample.preview && opened.bannerVisible) failures.push('普通文本不应出现大文件横幅');
+      if (opened.visibleRows >= 200) failures.push('visibleRows=' + opened.visibleRows);
+      if (opened.a11yLength !== opened.textLength) failures.push('a11yLength=' + opened.a11yLength + '/' + opened.textLength);
+      if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
+      if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
+      if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
+      report.samples.push({ key: sample.key, file: sample.file, opened, find, afterFind, goto, end, failures });
+      if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
+      await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
+      await page.waitForTimeout(300);
+    }
+  } catch (error) {
+    report.error = String(error && error.stack || error);
+    process.exitCode = 1;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    if (pid) report.closedNormally = await closeWindow(pid);
+    await delay(1000);
+    report.pidAlive = pid ? (() => { try { process.kill(pid, 0); return true; } catch { return false; } })() : null;
+    await fs.writeFile(path.join(output, 'large-text-normal-entry.json'), JSON.stringify(report, null, 2) + '\n');
+    await fs.rm(temporary, { recursive: true, force: true }).catch(() => {});
+  }
+  console.log(JSON.stringify({
+    pid: report.pid,
+    fixtures: report.fixtures,
+    samples: report.samples.map((sample) => ({
+      key: sample.key,
+      events: sample.opened.events,
+      lineCount: sample.opened.lineCount,
+      visibleRows: sample.opened.visibleRows,
+      rowHeight: sample.opened.rowHeight,
+      find: { status: sample.find.status, line: sample.find.line },
+      goto: { line: sample.goto.line, dialog: sample.goto.dialog },
+      end: sample.end,
+    })),
+    closedNormally: report.closedNormally,
+    pidAlive: report.pidAlive,
+    error: report.error || null,
+  }, null, 2));
+})();

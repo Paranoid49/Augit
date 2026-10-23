@@ -1148,8 +1148,10 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
   white-space: pre;
 }
 
-.code-view[data-large-preview="1"] .code-line {
-  /* 仅大文件预览：跳过离屏行的布局/绘制；行节点与行号仍完整保留。 */
+.code-view[data-large-preview="1"] .code-line,
+.code-view[data-large-text="1"] .code-line {
+  /* 大文件预览/超大普通文本：模块缺席或软换行回退时，跳过离屏行的布局/绘制；
+     窗口层挂载后由下方 [data-virtual-lines] 规则覆盖为 visible。 */
   content-visibility: auto;
   contain-intrinsic-size: auto var(--code-line-height, 22px);
 }
