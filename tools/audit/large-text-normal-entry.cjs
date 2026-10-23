@@ -43,6 +43,52 @@ async function clipboardInfo() {
   return { hash, length: Number(length) };
 }
 
+async function windowHandle(pid) {
+  const script = `$d=(Get-Date).AddSeconds(20); while((Get-Date)-lt $d){$h=(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).MainWindowHandle; if($h -ne 0){Write-Output $h; exit 0}; Start-Sleep -Milliseconds 100}; exit 2`;
+  return Number((await execute('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 30000 })).stdout.trim());
+}
+
+async function osDrag(hwnd, rect, holdMs) {
+  const script = `Add-Type @"
+using System; using System.Runtime.InteropServices; using System.Threading;
+public static class LargeDrag {
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h,int c);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h,out Rect r);
+  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h,ref Pt p);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f,uint x,uint y,uint d,UIntPtr e);
+  [StructLayout(LayoutKind.Sequential)] public struct Rect{public int L,T,R,B;}
+  [StructLayout(LayoutKind.Sequential)] public struct Pt{public int X,Y;}
+}
+"@
+try{[void][LargeDrag]::SetProcessDpiAwarenessContext([IntPtr](-4))}catch{}
+$h=[IntPtr]${hwnd}; [void][LargeDrag]::ShowWindow($h,5); [void][LargeDrag]::BringWindowToTop($h); [void][LargeDrag]::SetWindowPos($h,[IntPtr](-1),0,0,0,0,0x0003); [void][LargeDrag]::SetForegroundWindow($h); Start-Sleep -Milliseconds 300
+$r=New-Object LargeDrag+Rect; $o=New-Object LargeDrag+Pt; [void][LargeDrag]::GetClientRect($h,[ref]$r); [void][LargeDrag]::ClientToScreen($h,[ref]$o); $s=[LargeDrag]::GetDpiForWindow($h)/96.0
+$sx=[int][Math]::Round($o.X+(${rect.x + 120})*$s); $sy=[int][Math]::Round($o.Y+(${rect.y + 12})*$s)
+$ex=[int][Math]::Round($o.X+(${rect.x + 120})*$s); $ey=[int][Math]::Round($o.Y+(${rect.y + rect.height + 40})*$s)
+[void][LargeDrag]::SetCursorPos($sx,$sy); Start-Sleep -Milliseconds 120
+[LargeDrag]::mouse_event(2,0,0,0,[UIntPtr]::Zero)
+for($i=1;$i -le 6;$i++){ $y=[int]($sy+($ey-$sy)*$i/6); [void][LargeDrag]::SetCursorPos($ex,$y); Start-Sleep -Milliseconds 60 }
+Start-Sleep -Milliseconds ${holdMs}
+[LargeDrag]::mouse_event(4,0,0,0,[UIntPtr]::Zero)
+Write-Output "$sx,$sy -> $ex,$ey"`;
+  return (await execute('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 30000 })).stdout.trim();
+}
+
+async function osCopy() {
+  const script = `Add-Type @"
+using System; using System.Runtime.InteropServices;
+public static class LargeCopy { [DllImport("user32.dll")] public static extern void keybd_event(byte vk,byte scan,uint f,UIntPtr e); }
+"@
+[LargeCopy]::keybd_event(0x11,0,0,[UIntPtr]::Zero); [LargeCopy]::keybd_event(0x43,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 40; [LargeCopy]::keybd_event(0x43,0,2,[UIntPtr]::Zero); [LargeCopy]::keybd_event(0x11,0,2,[UIntPtr]::Zero)`;
+  await execute('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 30000 });
+}
+
 async function closeWindow(pid) {
   const script = [
     'Add-Type @\"',
@@ -107,6 +153,8 @@ async function closeWindow(pid) {
     if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('启动器未返回 PID: ' + started.stdout);
     report.pid = pid;
     report.launchCommand = launch.args;
+    const hwnd = await windowHandle(pid);
+    report.hwnd = hwnd;
 
     for (let attempt = 0; attempt < 160 && !browser; attempt++) {
       try {
@@ -242,6 +290,7 @@ async function closeWindow(pid) {
       // 的长度/SHA256 与磁盘 mid.txt 完全一致才算通过。
       let selectAll = null;
       let drag = null;
+      let osDragResult = null;
       if (sample.key === 'mid') {
         await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
         await page.keyboard.press('Control+a');
@@ -280,6 +329,22 @@ async function closeWindow(pid) {
         await delay(400);
         const dragClip = await clipboardInfo();
         drag = { duringDrag, clipboardLength: dragClip.length, copiedBeyondWindow: dragClip.length > 2000 };
+        // 再用 Win32 mouse_event 做同一路径，避免只依赖 CDP 合成指针。
+        const rect2 = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          code.scrollTop = 0;
+          const r = code.getBoundingClientRect();
+          return { x: r.x, y: r.y, width: r.width, height: r.height };
+        });
+        const cursor = await osDrag(hwnd, rect2, 1200);
+        const osDuring = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return { scrollTop: code.scrollTop, rows: code.querySelectorAll('.code-line').length };
+        });
+        await osCopy();
+        await delay(400);
+        const osClip = await clipboardInfo();
+        osDragResult = { cursor, osDuring, clipboardLength: osClip.length, copiedBeyondWindow: osClip.length > 2000 };
       }
 
       // Find in File：全文计数 3，Enter 两次定位到最后一个未显示行。
@@ -361,7 +426,7 @@ async function closeWindow(pid) {
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, find, afterFind, goto, end, failures });
+      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, osDragResult, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
