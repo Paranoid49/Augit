@@ -263,7 +263,7 @@ function measureSearchOverlay() {
   let fieldTop = header;
   title.style.cssText = `left:10px;top:${(header - line) / 2}px;line-height:${line}px`;
   if (options.length) {
-    const ignored = overlay.querySelector('.search-ignored'), ignoredWidth = Math.min(content, Math.ceil(context.measureText('Include ignored files').width) + 22);
+    const ignored = overlay.querySelector('.search-ignored'), ignoredTextWidth = Math.ceil(context.measureText('Include ignored files').width), ignoredWidth = Math.min(content, Math.max(ignoredTextWidth + 22, ignored.scrollWidth || 0));
     const groupWidth = options.length * optionWidth + (options.length - 1) * optionGap;
     const optionsWidth = groupWidth + 8 + ignoredWidth;
     let left = overlay.clientWidth - 10 - optionsWidth, top = (header - button) / 2;

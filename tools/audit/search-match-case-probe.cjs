@@ -9,6 +9,7 @@ const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/search-match-case-probe-2026-10-24');
 const largeFont = process.argv.includes('--large-font');
+const narrow = process.argv.includes('--narrow');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function launch(workspace, settings, port) {
@@ -67,6 +68,7 @@ async function connect(port) {
     const source=JSON.parse(await fs.readFile(path.join(process.env.LOCALAPPDATA,'Augit/settings.json'),'utf8'));
     source.lastWorkspace=workspace; source.openFiles=[]; source.activeFile=null;
     if (largeFont) { source.fontSize = 20; source.textFontSize = 20; source.codeFontSize = 20; }
+    if (narrow) source.window = { ...(source.window || {}), width: 1000, height: 740, isMaximized: false };
     await fs.writeFile(settings,JSON.stringify(source,null,2)+'\n');
     const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));
     pid=await launch(workspace,settings,port); const hwnd=await waitWindow(pid); report.pid=pid; report.hwnd=hwnd; await topmost(hwnd);
@@ -83,7 +85,13 @@ async function connect(port) {
       return {rect:{x:r.x,y:r.y,width:r.width,height:r.height},center:{x:cx,y:cy},hit:hit?{tag:hit.tagName,cls:hit.className,label:hit.getAttribute('aria-label')}:null,pointer:getComputedStyle(b).pointerEvents,pressed:b.getAttribute('aria-pressed')};
     });
     report.geom=geom;
-    report.options=await page.evaluate(()=>[...document.querySelectorAll('.search-option,.search-ignored')].map(n=>{const r=n.getBoundingClientRect();const cx=r.x+r.width/2,cy=r.y+r.height/2;const hit=document.elementFromPoint(cx,cy);return{tag:n.tagName,cls:n.className,label:n.getAttribute('aria-label')||n.innerText.trim(),rect:{x:r.x,y:r.y,w:r.width,h:r.height},center:{x:cx,y:cy},hit:hit?{tag:hit.tagName,label:hit.getAttribute('aria-label'),cls:hit.className}:null}}));
+    report.options=await page.evaluate(()=>[...document.querySelectorAll('.search-option,.search-ignored')].map(n=>{const r=n.getBoundingClientRect();const cx=r.x+r.width/2,cy=r.y+r.height/2;const hit=document.elementFromPoint(cx,cy);return{tag:n.tagName,cls:n.className,label:n.getAttribute('aria-label')||n.innerText.trim(),scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,rect:{x:r.x,y:r.y,w:r.width,h:r.height},center:{x:cx,y:cy},hit:hit?{tag:hit.tagName,label:hit.getAttribute('aria-label'),cls:hit.className}:null}}));
+    const ignoredRow = report.options.find((item) => item.cls === 'search-ignored');
+    report.layoutOk = report.options.length === 4
+      && new Set(report.options.map((item) => Math.round(item.rect.x))).size === 4
+      && report.options.filter((item) => item.cls === 'search-option').every((item) => item.hit && item.hit.tag !== 'INPUT')
+      && !!ignoredRow && ignoredRow.scrollWidth <= ignoredRow.clientWidth;
+    if (!report.layoutOk) process.exitCode = 1;
     const read=async()=>page.evaluate(()=>({pressed:document.querySelector('.search-option[aria-label="Match case"]')?.getAttribute('aria-pressed'),words:document.querySelector('.search-option[aria-label="Words"]')?.getAttribute('aria-pressed'),focus:document.activeElement?.getAttribute('aria-label')||document.activeElement?.tagName}));
     // 1 DOM click
     await page.evaluate(()=>document.querySelector('.search-option[aria-label="Match case"]').click());

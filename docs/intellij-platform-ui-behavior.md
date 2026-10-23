@@ -349,14 +349,14 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
 | `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3` |
-| `web/src/mockup.js` | `1947a04a1bf895201167708553804779` |
+| `web/src/mockup.js` | `8784639fccdef2156128c5d6d5c84cc3` |
 | `web/src/live-data.js` | `f140f1e278485b88fc17fff5ddd405ef` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
 | `web/src/image-preview.js` | `bef0375129064dae3c526c265b66fbe8` |
 |`web/src/large-text-view.js`（本批新增）|`19f9df6f777bbcac41bf83993f97092b`|
-| `live-shell.spec.cjs`（工作区版） | `7341490cd241a8c1a3be6528f3123ba5` |
+| `live-shell.spec.cjs`（工作区版） | `eb28c7ba5572cbaa722af56daa8b8397` |
 
 该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。大文件窗口层目前只有无头 Chromium 证据，真实外壳 22.75 MB 正常入口仍未验收，见[大文件预览虚拟化原型](large-text-virtualization-2026-10-23.md)。
 
@@ -367,7 +367,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | 文件 | md5（2026-10-05 当前复核值） |
 | --- | --- |
 | `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
-| `web/src/mockup.js` | `e4694d910af5788bf7ce251288f4b710`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
+| `web/src/mockup.js` | `8784639fccdef2156128c5d6d5c84cc3`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
 | `web/src/live-data.js` | `6812d388cb695ce1902389a718f8c60a`（当前复核：搜索/快捷键状态机、终端代际、树状态变化与 HEAD 快照） |
 | `web/src/bridge.js` | `8d2d3173074a8558cd12e6778b3bfc82` |
 | `live-shell.spec.cjs`（工作区版） | `41d4b57e1b77a7f242697acc1222e5a4`（当前复核：项目树 Git 状态、快捷键/搜索/查找状态机与布局断言，断言数 2332 → 2373） |

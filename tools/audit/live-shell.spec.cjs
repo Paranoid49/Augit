@@ -6535,6 +6535,8 @@ async function main() {
           rowFormula: Math.max(32, line + 8),
           fieldHeight: field ? Math.round(field.getBoundingClientRect().height) : null,
           ignoredWidth: ignored ? Math.round(ignored.getBoundingClientRect().width) : null,
+          ignoredScrollWidth: ignored ? ignored.scrollWidth : null,
+          ignoredClientWidth: ignored ? ignored.clientWidth : null,
           ignoredFormula: ignored
             ? Math.min(overlay.clientWidth - 20, Math.ceil(canvas.measureText('Include ignored files').width) + 22)
             : null,
@@ -6578,9 +6580,11 @@ async function main() {
     seRepoSmall.icons.length === 3 && seRepoSmall.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
       && seRepoBig.icons.every((icon) => icon[0] === 44 && icon[1] === 44)
       && seNarrow.icons.every((icon) => icon[0] === 16 && icon[1] === 16)
-      // "包含忽略文件"宽度 = 文案宽度 + 22（随字号变化），不是固定值
-      && seRepoSmall.ignoredWidth === seRepoSmall.ignoredFormula
-      && seRepoBig.ignoredWidth === seRepoBig.ignoredFormula
+      // "包含忽略文件"宽度至少为文案宽度 + 22，且必须容得下实际文本（不裁切）
+      && seRepoSmall.ignoredWidth >= seRepoSmall.ignoredFormula
+      && seRepoSmall.ignoredScrollWidth <= seRepoSmall.ignoredClientWidth
+      && seRepoBig.ignoredWidth >= seRepoBig.ignoredFormula
+      && seRepoBig.ignoredScrollWidth <= seRepoBig.ignoredClientWidth
       && seRepoBig.ignoredWidth > seRepoSmall.ignoredWidth
       // 窄宽度：三个开关仍在同一行且保持原顺序（x 递增），"包含忽略文件"换到下一行
       && seNarrow.optionGeometry.length === 3

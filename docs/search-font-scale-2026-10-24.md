@@ -41,6 +41,39 @@
 | ignored 宽 | 139 | 217 |
 | 是否重叠 | 否 | 否 |
 
+### 2.1 窄窗发现并修复标签裁切
+
+同一 20px 字号在 **1000×740** 窗口（CDP viewport 1024×??）重跑时发现：
+
+- `Include ignored files` 的 `clientWidth=217`，`scrollWidth=244`；
+- 文本右侧被浮层裁掉（截图 `artifacts/search-font20-narrow-2026-10-24c/after-os.png`）；
+- 这不是按钮重叠，而是 ignored 的宽度只按 canvas 文本 +22 估算，未覆盖 checkbox +
+  gap + 实际文本的完整内在宽度。
+
+修复 `measureSearchOverlay()`：
+
+```js
+const ignoredWidth = Math.min(
+  content,
+  Math.max(ignoredTextWidth + 22, ignored.scrollWidth || 0),
+);
+```
+
+- 同步 `docs/ux-mockups/mockup.js`，`verify-ui-assets` 通过；
+- 修复后同一窗口：ignored `clientWidth=scrollWidth=244`，右缘完整；
+- 选项整体左移（Match case x 480.1→453.1），四项仍互不重叠；
+- 实例 PID 28080 正常关闭；
+- 截图/报告：`artifacts/search-font20-narrow-fixed2-2026-10-24/`；
+- 诊断脚本增加 `layoutOk`：四项 x 互异、按钮中心不被 checkbox 命中、ignored 不裁切；
+  不满足时退出码非 0。
+- 修改后完整 `live-shell` **2371/2371、退出码 0**；`§7.15` 断言改为“宽度至少为公式、
+  正常宽度下 scrollWidth<=clientWidth”，不再把旧的无裁切假设当成正确。
+
+**32px + 窄窗仍未解决**：同一窄窗把字号设为 32px 时，浮层内容宽约 148，而
+ignored 内在宽度约 385；当前只按内容宽夹取，仍会裁切。本批不把该组合写成通过，
+也不伪造 32px 窄窗截图；若后续要做，需要为 label 增加换行/省略号策略并重排 header。
+
+
 ## 4. 边界
 
 - 只验证 20px 一种大字号；未覆盖 32/40px，也未覆盖窄窗 + 大字号组合；
