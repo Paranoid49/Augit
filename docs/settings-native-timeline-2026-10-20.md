@@ -51,13 +51,14 @@
   - 标题栏关闭（`WM_CLOSE`）：**49ms**。
 - 三条路径都能关闭唯一设置窗；关闭后 UIA 不再有 `Settings — Augit`。
 - 截图：`artifacts/settings-close-2026-10-23/opened.png`、`closed.png`。
-- 未覆盖深色、跨屏 DPI、重复快速点击三条路径；标题关闭用 `WM_CLOSE` 而不是真实鼠标点 X。
+- **2026-10-23 深色补充**（PID 12016，Dark）：`Cancel` **126ms**、`OK` **168ms**、标题关闭 **69ms**，均关闭成功；截图 `artifacts/settings-close-2026-10-23/dark-opened.png`。
+- 未覆盖跨屏 DPI、重复快速点击；标题关闭用 `WM_CLOSE` 而不是真实鼠标点 X。
 
 ## 4. 边界
 
 - 只有 3 个周期、Light 主题、单屏 2880×1800/DPI 168；不是 13 周期统计的替代，也不是全窗录像。
 - “presented 首帧已完整”是 6 张同哈希截图的结论，证明力限于 60ms 采样；不能据此宣布“无白闪”全场景通过。
-- 已补 Cancel/OK/标题关闭三条路径（Light）；未覆盖深色、跨屏 DPI、2904ms 慢样本与 capture 超时分支。
+- 已补 Cancel/OK/标题关闭三条路径（Light 和 Dark 各一次）；未覆盖跨屏 DPI、2904ms 慢样本与 capture 超时分支。
 - 这是原生窗口生命周期/首内容证据，不是 Settings 控件像素或交互验收；页面级仍 **50**、像素仍 **0**。
 
 ## 5. 清理
