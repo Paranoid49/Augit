@@ -67,11 +67,18 @@
 
 修复内容：未合并二进制冲突没有文本补丁，`git diff` 不会输出 `Binary files` 行；`GitDiffService` 在补丁为空时按磁盘内容检测 NUL 字节，把状态标为 `Binary`。自动化测试 `未合并二进制冲突没有文本补丁时仍标记为二进制` 覆盖真实合并冲突。
 
+**外部解决**
+
+- 正常入口 PID 27044，外部执行 `git checkout --theirs -- blob.bin` + `git add blob.bin`；
+- 约 1 秒内 `Merge Conflicts` 显示 `No unresolved conflicts`，`Continue Merge` 可用；
+- UIA 点击 `Continue Merge` 后生成合并提交 `e398a20`，`git status` 干净；
+- 截图：`artifacts/conflict-refresh-2026-10-23/binary-resolved.png`、`binary-continued.png`。
+
 ## 8. 边界
 
 - 单文件 merge/rebase 已验证；多文件 merge 只验证了按钮集合，没有执行 Abort；外部 Abort 已验证单文件 merge；
 - 未测外部 Abort rebase、删除冲突文件、多文件 Skip；
-- 二进制冲突已验证为只读 Binary 摘要，未测二进制外部解决后的状态刷新；
+- 二进制冲突已验证为只读 Binary 摘要，并验证外部 `--theirs` 解决后 Continue；
 - 未重建三栏冲突编辑器，符合 2026-10-17 裁决；
 - 外部解决是文本编辑 + `git add`，不经过应用内编辑；
 - 这是行为证据，不是冲突页像素配对。
