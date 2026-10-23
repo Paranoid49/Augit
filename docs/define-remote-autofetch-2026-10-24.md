@@ -63,8 +63,10 @@
 
 ## 6. 边界
 
-- 只验证 Augit 侧内联反馈；PyCharm 参考侧因 Java Access Bridge 未暴露窗口，仍未取得
-  自动 Fetch 失败通知的真实位置/生命周期，不能写成参考一致。
+- 只验证 Augit 侧内联反馈；PyCharm 参考侧已通过键盘+截图单独取得（见
+  [Define Remote 参考反馈](define-remote-reference-2026-10-24.md)），参考会保留 Define
+  Remote、在 URL 旁显示气球且不写入远端；Augit 当前的管理器内联 notice 是**差距**，
+  不能写成参考一致。
 - 错误使用本机 `127.0.0.1:1` 的 502，不覆盖真实网络、认证、代理和慢盘。
 - notice 是文本换行修复，不是参考像素；页面级配对仍 50、像素仍 0。
 - Define 对话框的 Name/URL/Push URL 布局、校验、删除和重命名不属于本批新证据。
