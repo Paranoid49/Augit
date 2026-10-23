@@ -5910,6 +5910,11 @@ document.addEventListener("click", (event) => {
 }, true);
 
 function rebindAfterRender() {
+  // 区域替换会重建整个搜索浮层；重新量一次 header，否则选项失去 inline left/top，
+  // 绝对定位全部叠在原点（本轮实测 ignored checkbox 盖住 Match case）。
+  if (document.querySelector(".search-overlay") && typeof window.measureSearchOverlay === "function") {
+    window.measureSearchOverlay();
+  }
   // 区域重绘会替换终端宿主；保留原会话、输出与输入节点，不显示静态示例。
   reattachTerminal();
   // 工具窗口、标签栏与改动列表可能已被替换。
@@ -13312,6 +13317,9 @@ function openSearchOverlay(kind) {
   bindSearchOverlay(kind);
   const field = layer.querySelector(".search-field");
   if (field) field.focus();
+  // live overlay 不是静态页初始化时的那份：不重新量，绝对定位的选项会叠在
+  // 同一原点，Include ignored files 的 checkbox 会盖住 Match case。
+  if (typeof window.measureSearchOverlay === "function") window.measureSearchOverlay();
 }
 
 /** Ctrl+F：当前文件查找条。没有可查找的正文时如实说明。 */

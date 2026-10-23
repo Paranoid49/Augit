@@ -8210,7 +8210,27 @@ async function main() {
     // ---- 全仓搜索：按内容，含开关与结果行号 ----
     const repo = await openScene('scene=repository-search&theme=dark');
     await repo.page.waitForSelector('.search-overlay .search-field', { timeout: 10000 });
-    check('全仓搜索显示三个开关', await repo.page.locator('.search-option').count() === 3);
+    const searchOptionsLayout = await repo.page.evaluate(() => {
+      const options = [...document.querySelectorAll('.search-option')];
+      const ignored = document.querySelector('.search-ignored');
+      const rows = options.map((node) => {
+        const r = node.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return {
+          x: r.x, y: r.y, right: r.right, bottom: r.bottom,
+          label: node.getAttribute('aria-label'),
+          hitMatches: hit === node || !!(hit && hit.closest && hit.closest('.search-option') === node),
+        };
+      });
+      const ir = ignored ? ignored.getBoundingClientRect() : null;
+      const overlap = !!ir && rows.some((r) => !(r.right <= ir.left || r.x >= ir.right || r.bottom <= ir.top || r.y >= ir.bottom));
+      return { count: options.length, rows, ignoredRect: ir ? { x: ir.x, y: ir.y, width: ir.width, height: ir.height } : null, overlap };
+    });
+    check('全仓搜索三个开关各自可见且不被 Include ignored 覆盖: ' + JSON.stringify(searchOptionsLayout),
+      searchOptionsLayout.count === 3
+        && new Set(searchOptionsLayout.rows.map((row) => Math.round(row.x))).size === 3
+        && searchOptionsLayout.rows.every((row) => row.hitMatches)
+        && searchOptionsLayout.overlap === false);
     check('全仓搜索显示包含忽略文件', (await repo.page.locator('.search-ignored').innerText()).includes('Include ignored files'));
     await repo.page.locator('.search-overlay .search-field').fill('轻量');
     await repo.page.waitForFunction('window.__augitSearchReady === true', null, { timeout: 10000 });
