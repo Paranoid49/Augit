@@ -30,6 +30,19 @@ function bigText(lines, tokenLines, width = 96) {
   return out.join('\n');
 }
 
+async function clipboardInfo() {
+  const script = [
+    '$text = Get-Clipboard -Raw',
+    '$bytes = [Text.Encoding]::UTF8.GetBytes([string]$text)',
+    '$hash = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)',
+    '$hex = ($hash | ForEach-Object { $_.ToString("x2") }) -join ""',
+    'Write-Output ($hex + "|" + $bytes.Length)',
+  ].join('\n');
+  const out = (await execute('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 60000 })).stdout.trim();
+  const [hash, length] = out.split('|');
+  return { hash, length: Number(length) };
+}
+
 async function closeWindow(pid) {
   const script = [
     'Add-Type @\"',
@@ -225,6 +238,27 @@ async function closeWindow(pid) {
         };
       });
 
+      // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口；2.96 MB 剪贴板
+      // 的长度/SHA256 与磁盘 mid.txt 完全一致才算通过。
+      let selectAll = null;
+      if (sample.key === 'mid') {
+        await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+        await page.keyboard.press('Control+a');
+        await delay(250);
+        await page.keyboard.press('Control+c');
+        await delay(400);
+        const clip = await clipboardInfo();
+        const expectedHash = crypto.createHash('sha256').update(mid).digest('hex');
+        selectAll = {
+          length: clip.length,
+          hash: clip.hash,
+          expectedLength: Buffer.byteLength(mid),
+          expectedHash,
+          lengthMatches: clip.length === Buffer.byteLength(mid),
+          hashMatches: clip.hash === expectedHash,
+        };
+      }
+
       // Find in File：全文计数 3，Enter 两次定位到最后一个未显示行。
       await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
       await page.keyboard.press('Control+f');
@@ -304,7 +338,7 @@ async function closeWindow(pid) {
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, find, afterFind, goto, end, failures });
+      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
