@@ -39,6 +39,22 @@
 - 报告：`artifacts/search-timeout-retry-2026-10-24c/search-timeout-retry.json`、
   `suspend-result.json`。
 
+## 2.1 非默认选项保留（Regex）
+
+同一夹具、同一查询再跑一次，在输入前把 **Regex** 打开（试图同时打开 Match case，但第一次点击
+落在浮层刚打开/聚焦的竞态里，最终 `aria-pressed` 仍为 `false`；因此本节只证明 Regex）：
+
+| 状态 | 查询 | options | 结果 |
+| --- | --- | --- | --- |
+| 超时 | `needle_retry_token` | `case=false, regex=true` | 48 条已完成 |
+| Enter 重试 | 同上 | 仍 `case=false, regex=true` | **320** 条；`timedOut=false`，说明清除 |
+
+- 截图：`artifacts/search-timeout-retry-2026-10-24-options/timeout.png`、`retry.png`；
+- 报告：`search-timeout-retry.json`，`pressed` 在超时和重试两态均为 `regex=true`；
+- 实例 PID 13536 正常关闭；80k 夹具删除。
+- 边界：只验证 Regex，不把 Match case/Words 的保留写成已通过；第一次选项点击的竞态本身
+  未定位，不作为产品缺陷结论。
+
 ## 3. 行为核对
 
 - 超时后 **Enter 不打开当前首条结果**，而是重跑同一查询与同一 options；重试后 Enter

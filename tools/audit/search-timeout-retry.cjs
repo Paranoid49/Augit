@@ -180,11 +180,28 @@ async function createFixture(workspace) {
       '-ParentProcessId', String(pid), '-Out', suspendResult, '-DelayMilliseconds', '700', '-HoldMilliseconds', '17000'], { windowsHide: true, stdio: 'ignore' });
     await sendShortcut();
     await page.waitForFunction(() => !!document.querySelector('.search-overlay .search-field'), null, { timeout: 15000 });
-    const overlayBefore = await page.evaluate(() => ({
-      value: document.querySelector('.search-overlay .search-field')?.value || '',
-      notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
-      results: document.querySelectorAll('.search-overlay .search-result').length,
-    }));
+    const pressOption = async (label) => {
+      const rect = await page.evaluate((name) => {
+        const node = document.querySelector(`.search-option[aria-label="${name}"]`);
+        const r = node.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      }, label);
+      await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.resolve('tools/audit/click-window.ps1'),
+        '-X', String(rect.x + rect.width / 2), '-Y', String(rect.y + rect.height / 2),
+        '-WindowHandle', String(hwnd), '-AfterMs', '120', '-Clicks', '1', '-NoForeground'], { timeout: 30000 });
+      await delay(250);
+    };
+    await pressOption('Match case');
+    await pressOption('Regex');
+    const overlayBefore = await page.evaluate(() => {
+      const pressed = (name) => document.querySelector(`.search-option[aria-label="${name}"]`)?.getAttribute('aria-pressed') || null;
+      return {
+        value: document.querySelector('.search-overlay .search-field')?.value || '',
+        notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
+        results: document.querySelectorAll('.search-overlay .search-result').length,
+        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
+      };
+    });
     await sendKeys('needle_retry_token');
     const queryAt = Date.now();
     await page.waitForFunction(() => !!window.__augitLive.search && (window.__augitLive.search.timedOut || window.__augitLive.search.notice), null, { timeout: 25000 }).catch(() => {});
@@ -192,10 +209,12 @@ async function createFixture(workspace) {
     await delay(2000);
     const timedOut = await page.evaluate(() => {
       const live = window.__augitLive;
+      const pressed = (name) => document.querySelector(`.search-option[aria-label="${name}"]`)?.getAttribute('aria-pressed') || null;
       return {
         value: document.querySelector('.search-overlay .search-field')?.value || null,
         notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
         results: document.querySelectorAll('.search-overlay .search-result').length,
+        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
         timedOut: !!live.search?.timedOut,
         cancelled: !!live.search?.cancelled,
         noticeState: live.search?.notice || null,
@@ -217,10 +236,12 @@ async function createFixture(workspace) {
     await delay(500);
     const retried = await page.evaluate(() => {
       const live = window.__augitLive;
+      const pressed = (name) => document.querySelector(`.search-option[aria-label="${name}"]`)?.getAttribute('aria-pressed') || null;
       return {
         value: document.querySelector('.search-overlay .search-field')?.value || null,
         notice: document.querySelector('.search-overlay .search-notice')?.textContent || null,
         results: document.querySelectorAll('.search-overlay .search-result').length,
+        pressed: { case: pressed('Match case'), regex: pressed('Regex') },
         timedOut: !!live.search?.timedOut,
         cancelled: !!live.search?.cancelled,
         noticeState: live.search?.notice || null,
