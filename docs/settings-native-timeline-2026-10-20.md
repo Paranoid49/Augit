@@ -53,6 +53,7 @@
 - 截图：`artifacts/settings-close-2026-10-23/opened.png`、`closed.png`。
 - **2026-10-23 深色补充**（PID 12016，Dark）：`Cancel` **126ms**、`OK` **168ms**、标题关闭 **69ms**，均关闭成功；截图 `artifacts/settings-close-2026-10-23/dark-opened.png`。
 - **2026-10-23 连续 5 周期快速开合**（PID 25416，Dark）：每周期点击齿轮后轮询到设置窗成为前景，立即发送 Esc。齿轮→成为前景 **332–411ms**；Esc→窗口消失 **410–585ms**；始终只有 1 个设置窗，没有重复窗。该关闭时长明显高于窗口稳定后的 Esc 32–60ms，说明开启动画/首内容未完成时 Esc 要等窗口就绪后才生效。
+- 根因定位：设置窗的 Esc 由 `live-data.js` 的文档级 keydown/`closeLiveOverlay` 处理（`window.__augitSettingsSurface && .dialog` 分支调用 `closeSettingsDialog`），宿主没有原生 Esc 关闭路径。WebView2 首内容和脚本注册完成前，立即 Esc 没有人处理；脚本就绪后才生效，因此快速 Esc 延迟接近首内容时间。
 - 未覆盖跨屏 DPI；标题关闭用 `WM_CLOSE` 而不是真实鼠标点 X。
 
 ## 4. 边界
