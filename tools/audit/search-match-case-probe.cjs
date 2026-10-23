@@ -9,6 +9,7 @@ const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/search-match-case-probe-2026-10-24');
 const largeFont = process.argv.includes('--large-font');
+const font32 = process.argv.includes('--font32');
 const narrow = process.argv.includes('--narrow');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -67,7 +68,7 @@ async function connect(port) {
     await execute('git',['commit','-m','test: case probe'],{cwd:workspace,windowsHide:true});
     const source=JSON.parse(await fs.readFile(path.join(process.env.LOCALAPPDATA,'Augit/settings.json'),'utf8'));
     source.lastWorkspace=workspace; source.openFiles=[]; source.activeFile=null;
-    if (largeFont) { source.fontSize = 20; source.textFontSize = 20; source.codeFontSize = 20; }
+    if (largeFont || font32) { const size = font32 ? 32 : 20; source.fontSize = size; source.textFontSize = size; source.codeFontSize = size; }
     if (narrow) source.window = { ...(source.window || {}), width: 1000, height: 740, isMaximized: false };
     await fs.writeFile(settings,JSON.stringify(source,null,2)+'\n');
     const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));

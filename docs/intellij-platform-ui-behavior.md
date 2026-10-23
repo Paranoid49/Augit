@@ -348,8 +348,8 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3` |
-| `web/src/mockup.js` | `8784639fccdef2156128c5d6d5c84cc3` |
+| `web/src/mockup.css` | `dc0729bb30046df008d31cd30c3fce82` |
+| `web/src/mockup.js` | `4bc36471ebbd2697da56021e511e5474` |
 | `web/src/live-data.js` | `f140f1e278485b88fc17fff5ddd405ef` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
@@ -366,11 +366,11 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-05 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `77e334923c10e7f6add5abc9834deac3`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
-| `web/src/mockup.js` | `8784639fccdef2156128c5d6d5c84cc3`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
+| `web/src/mockup.css` | `dc0729bb30046df008d31cd30c3fce82`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
+| `web/src/mockup.js` | `4bc36471ebbd2697da56021e511e5474`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
 | `web/src/live-data.js` | `6812d388cb695ce1902389a718f8c60a`（当前复核：搜索/快捷键状态机、终端代际、树状态变化与 HEAD 快照） |
 | `web/src/bridge.js` | `8d2d3173074a8558cd12e6778b3bfc82` |
-| `live-shell.spec.cjs`（工作区版） | `41d4b57e1b77a7f242697acc1222e5a4`（当前复核：项目树 Git 状态、快捷键/搜索/查找状态机与布局断言，断言数 2332 → 2373） |
+| `live-shell.spec.cjs`（工作区版） | `eb28c7ba5572cbaa722af56daa8b8397`（当前复核：项目树 Git 状态、快捷键/搜索/查找状态机与布局断言，断言数 2332 → 2373） |
 | `web/src/markdown.js`（第 283 轮加入本表） | `192c3443bbe1a28bba7459160c3d35b4`（图片阻止与相对候选占位） |
 | `web/src/image-preview.js` | `97f7e23b8b2b4bcb0c27e1c2e6dcd78f`（当前复核未变） |
 | `web/src/current-find.js` | `c8d284f5462bfce475f28a9dd1bede9e`（当前复核：失焦 Esc、重复 Ctrl+F 与 IME 状态边界） |

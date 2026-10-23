@@ -69,9 +69,25 @@ const ignoredWidth = Math.min(
 - 修改后完整 `live-shell` **2371/2371、退出码 0**；`§7.15` 断言改为“宽度至少为公式、
   正常宽度下 scrollWidth<=clientWidth”，不再把旧的无裁切假设当成正确。
 
-**32px + 窄窗仍未解决**：同一窄窗把字号设为 32px 时，浮层内容宽约 148，而
-ignored 内在宽度约 385；当前只按内容宽夹取，仍会裁切。本批不把该组合写成通过，
-也不伪造 32px 窄窗截图；若后续要做，需要为 label 增加换行/省略号策略并重排 header。
+### 2.2 32px + 真实 1000×740
+
+把 `textFontSize` 改为 32 后在同一真实窗口重跑：
+
+| 控件 | x | 宽 |
+| --- | ---: | ---: |
+| Match case | 158.1 | 77 |
+| Words | 246.1 | 77 |
+| Regex | 334.1 | 77 |
+| Include ignored files | 419.1 | 385 |
+
+- ignored 右缘 804，仍在浮层内；标签完整显示“Include ignored files”；
+- `layoutOk=true`，实例 PID 3288 正常关闭；
+- 截图：`artifacts/search-font32-narrow-2026-10-24/after-os.png`。
+
+对极端窄的合成内容（约 148px），ignored 文本改用
+`.search-ignored-text` 的 `overflow:hidden + text-overflow:ellipsis`，并以 label 的
+`title` 提供完整文本；不再让文字裸裁切。`live-shell` 的合成窄窗仍是 scroll 内容宽
+大于 client 宽，但视觉结果是省略号，不是无提示截断。
 
 
 ## 4. 边界

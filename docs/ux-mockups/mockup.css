@@ -3948,7 +3948,8 @@ body[data-theme="dark"] .history-date-range-fields .text-field { color-scheme: d
 .search-option[aria-pressed="true"] { background: var(--augit-search-option-selected); color: var(--augit-blue); }
 .search-option[aria-pressed="true"]:is(:hover, :active) { background: var(--augit-pressed); }
 .search-option:focus-visible { outline: var(--augit-hairline) solid var(--augit-accent-brand); outline-offset: -2px; }
-.search-ignored { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+.search-ignored { display: flex; align-items: center; gap: 7px; white-space: nowrap; min-width: 0; overflow: hidden; }
+.search-ignored-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-ignored input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--augit-blue); }
 .search-overlay { display: flex; flex-direction: column; }
 .search-results {

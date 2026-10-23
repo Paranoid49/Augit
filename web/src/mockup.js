@@ -5583,7 +5583,7 @@ function liveSearchOverlay(kind) {
   const search = live.search;
   const repository = kind === "repository";
   const header = repository
-    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case', 'matchCase'], ['whole-word', 'Words', 'matchWholeWord'], ['regex', 'Regex', 'useRegularExpression']].map(([name, label, key]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="${search && search.options && search.options[key] ? 'true' : 'false'}">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="Include ignored files"${search && search.options && search.options.includeIgnoredFiles ? ' checked' : ''}>Include ignored files</label>`
+    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case', 'matchCase'], ['whole-word', 'Words', 'matchWholeWord'], ['regex', 'Regex', 'useRegularExpression']].map(([name, label, key]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="${search && search.options && search.options[key] ? 'true' : 'false'}">${icon(name)}</button>`).join('')}<label class="search-ignored" title="Include ignored files"><input type="checkbox" aria-label="Include ignored files"${search && search.options && search.options.includeIgnoredFiles ? ' checked' : ''}><span class="search-ignored-text">Include ignored files</span></label>`
     : `<strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
   const query = (search && search.query) || "";
   const matches = (search && search.matches) || [];
@@ -5616,7 +5616,7 @@ function liveSearchOverlay(kind) {
 function searchOverlay(kind) {
   const repository = kind === "repository";
   const searchHeader = repository
-    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case'], ['whole-word', 'Words'], ['regex', 'Regex']].map(([name, label]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="false">${icon(name)}</button>`).join('')}<label class="search-ignored"><input type="checkbox" aria-label="Include ignored files">Include ignored files</label>`
+    ? `<strong>Find in Files</strong>${[['case-sensitive', 'Match case'], ['whole-word', 'Words'], ['regex', 'Regex']].map(([name, label]) => `<button class="icon-button search-option" aria-label="${label}" title="${label}" aria-pressed="false">${icon(name)}</button>`).join('')}<label class="search-ignored" title="Include ignored files"><input type="checkbox" aria-label="Include ignored files"><span class="search-ignored-text">Include ignored files</span></label>`
     : `<strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span>`;
   const state = new URLSearchParams(location.search).get('search-state') || (scene === 'search-limited' ? 'limited' : 'ready');
   const notices = { ready: '3 results', limited: 'More than 1000 results. Continue searching or narrow the query.', timeout: 'Search timed out; completed results are preserved.', error: 'Invalid search expression. Check the parentheses and try again.\n'.repeat(12).trim(), empty: '' };
