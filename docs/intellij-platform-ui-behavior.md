@@ -344,13 +344,13 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 #### 已验证快照（后续轮次用它低成本确认"代码未变、上次结论仍有效"）
 
-**当前复核（2026-10-24）**：大文件窗口层、首次 Diff 加载态与搜索 Include ignored 修复后，完整实时套件通过，退出码 0，`live-shell 通过 2371 项断言`（未执行 0 项）。相对 2348 的 +23 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化、软换行回退、首次 Diff 加载态，以及搜索 Include ignored 重跑查询断言。HEAD `f224ec6`（搜索修复已提交）；下表的 md5 是本次完整套件实际加载的版本。
+**当前复核（2026-10-24）**：发布收口批次新增宿主刷新阶段跟踪、真实鼠标 Continue、80,000 行软换行边界与运行时缺失提示后，完整实时套件通过，退出码 0，`live-shell 通过 2379 项断言`（未执行 0 项）。相对 2348 的 +31 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化、软换行回退（含 80,000 行软换行构建/滚动/Find/Go to Line/全选/关闭）、首次 Diff 加载态，以及搜索 Include ignored 重跑查询断言；相对上轮 2371 的 +8 来自本批 80,000 行软换行断言。源码 HEAD `3574ce1` + 本批未提交改动；下表的 md5 是本次完整套件实际加载的版本。
 
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
 | `web/src/mockup.css` | `52f9d9c77974f2c69322aff0a8fbbabd` |
 | `web/src/mockup.js` | `760c05648aa5b81f35eb3ee860e314e9` |
-| `web/src/live-data.js` | `502a94b737b4fd0db00e8258d6e7b1f6` |
+| `web/src/live-data.js` | `4584f26255ad71ef600142acddb5e8fc` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
@@ -914,3 +914,5 @@ Augit 原有一个 `.scrim`：`color-mix(in srgb, #EEF1F6 32%, transparent)` 底
 2026-10-22第四组面板几何同态配对：前三组未对齐可保存的Project面板宽度/底部Git高度；参考workspace保存Project weight 0.2225258、Version Control weight 0.33044806。隔离设置显式`projectPanelWidth=362`、`bottomPanelHeight=321`，且`toolWindows.workspaceRoot`指向参考夹具，否则Augit按设计忽略非当前工作区尺寸。正常入口PID 24516、Light、DPI168、2880×1716；零容差差异**434119/4942080=8.7841%**：标题栏48.52%、标签条9.89%、主区4.44%（树7.19%、编辑区3.55%）、底部Git10.59%、状态栏6.06%。项目树/编辑区分隔703/703、底部Git顶边1097/1097、引用/详情边界939/940、2249/2249。未改产品默认token；剩余标题栏参考项目名/渐变/Run/trial、标签条头部图标、底部Git的Console/过滤查看图标/行内距、状态栏上下文与文字栅格。全量live-shell 2340/2340等沿用上一提交验证（本轮无产品代码改动）；页面级仍50、像素0。证据见[pixel-pair-4-panel-geometry-2026-10-22.md](pixel-pair-4-panel-geometry-2026-10-22.md)。
 
 2026-10-22 Fetch结果通知：按`GitBundle.properties`/`GitFetchSupportImpl.FetchResultImpl.doShowNotification()`对齐——成功显示`Fetch successful`/`Fetched successfully`，失败关闭分支弹层并显示`Fetch failed`/Git原始错误；不再把失败原因留在弹层。正常入口PID 7376、Light、DPI168、隔离临时仓库：无效remote 502经UIA分支chip→Update Project得到`Fetch failed`+`fatal: unable to access...502`；改本地bare remote后得到`Fetch successful`+`Fetched successfully`，引用树出现origin/main。`Update Selected`同走该通道：PID 30324、受跟踪非当前分支`feature`，成功`Fetch successful`+`Fetched 1 target`（UIA 2268,1608），无效remote 502时`Update failed`+原始错误（UIA 2268,1546）；截图artifacts/fetch-evidence-2026-10-22/update-selected-*.png。Define Remote 保存后的自动 Fetch 参考`doFetch()`原本发原生失败通知；诊断实例（CDP填字段、屏幕截图）证明Augit页内toast会被`Git Remotes`模态遮挡、不可见（截图仅见`Added badremote.`），因此失败改为管理器内联`Git原始错误`，登记为呈现差异、未验收；`live-goal-remote` 42/42（`fetchfail`场景断言内联错误且无被遮挡toast）。Fetch 取消、搜索超时 Enter 重试与大文件预览延迟分块、离屏布局跳过与外部 checkout 引用同步：正常入口PID 23880、慢TCP服务18999让git fetch等待，UIA点击`Update Project…`后子`git.exe`(19424)运行，Esc约2秒内子进程消失、弹层关闭、无失败/成功toast；截图artifacts/fetch-evidence-2026-10-22/fetch-cancelled.png；`live-shell` 2345含 Fetch 取消两条与搜索超时 Enter 重试断言。产品/UX规范已同步；页面级仍50、像素0。
+
+2026-10-24 发布收口（Beta 冻结）：版本统一为 `1.0.0-beta.1`（程序集/安装器/产物命名，安装器 `VersionInfoVersion=1.0.0.0`），重写被 `fa2194a` 误截断的 README，发布脚本把 `LICENSE` 与 README/第三方说明一起复制并校验；便携包烟测（必需文件、web 双向哈希、程序集版本、真实启动截图、关闭 129.5ms、退出码0、无残留）PASS。新增宿主刷新阶段跟踪（`AUGIT_REFRESH_TRACE_DIRECTORY`，默认空操作）与 `harness-mark` QPC 对齐：外部文件修改 gdigrab 5 轮屏幕首内容 275–293ms、ddagrab 5 轮 236–289ms，网页应用 161–207ms；外部 checkout 3 轮分支可见 117–152ms、完整应用 201–232ms；历史 611/552/624ms 未复现，保留未闭环风险。真实前台 OS 鼠标点击 Continue Rebase：绝对物理坐标 `(2117,1064)` 命中 `BUTTON.primary-button`（pointerdown=1），Git 状态/分支/HEAD 全部符合预期。80,000 行软换行：页面级 3.62s、真实外壳 5.23s 全量构建，Find/Go to Line/全选/关闭/恢复窗口层通过，登记为已知限制。缺少 WebView2 时新增启动探测显示缺失项与微软官方地址；缺少 .NET 时宿主显示 `Download it now`；`VerifyRuntime.ps1` 0/9/10/11/12 分支实测通过。本轮 `web/src/live-data.js` MD5=`4584F26255AD71EF600142ACDDB5E8FC`，`large-text-view.js`=`A29892B3FEDA77C60FC22000B0926F9B`；Release 构建0警告0错误，Core 72/72、Infrastructure 206/206、Shell 252/252，全量 live-shell **2379/2379**（退出码0），verify-ui-assets、脚本编码、coverage、JS语法、`git diff --check` 通过。页面级仍50、像素0。证据见[发布收口台账](release-closure-2026-10-24.md)、[宿主阶段](refresh-host-stage-2026-10-24.md)、[真实鼠标](conflict-rebase-real-mouse-continue-2026-10-24.md)、[软换行边界](large-text-wrap-boundary-2026-10-24.md)、[运行时提示](runtime-missing-messaging-2026-10-24.md)。

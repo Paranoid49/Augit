@@ -1,6 +1,6 @@
 ﻿param(
     [string]$OutputDirectory = 'artifacts',
-    [string]$Version = '0.1.0'
+    [string]$Version = '1.0.0-beta.1'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,8 +98,8 @@ try {
         [System.IO.File]::Delete($webViewDocumentation)
     }
 
-    # 分发产物必须自带第三方依赖说明和许可证原文，这两份文件不在发布目录里，需要单独复制。
-    foreach ($documentName in @('THIRD-PARTY-NOTICES.md', 'README.md')) {
+    # 分发产物必须自带用户说明、项目许可证和第三方依赖说明/许可证原文，这些文件不在发布目录里，需要单独复制。
+    foreach ($documentName in @('THIRD-PARTY-NOTICES.md', 'README.md', 'LICENSE')) {
         Copy-Item -LiteralPath (Join-Path $repositoryRoot $documentName) `
             -Destination (Join-Path $portableRoot $documentName)
     }
@@ -134,7 +134,8 @@ try {
         'licenses\xterm-addon-fit-LICENSE.txt',
         'licenses\JetBrainsMono-OFL.txt',
         'THIRD-PARTY-NOTICES.md',
-        'README.md'
+        'README.md',
+        'LICENSE'
     )
     foreach ($relativePath in $requiredFiles) {
         if (-not (Test-Path -LiteralPath (Join-Path $portableRoot $relativePath))) {

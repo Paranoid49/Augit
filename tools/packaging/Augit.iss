@@ -22,6 +22,9 @@
 AppId={{BC6B9385-88A8-4B7D-9F16-4CD4379F1B13}
 AppName=Augit
 AppVersion={#AppVersion}
+; 预发布标识（如 1.0.0-beta.1）不是合法的四段文件版本；显式给出数值文件版本，
+; 避免安装器文件属性里出现空白 FileVersion。产品版本仍显示完整的预发布标识。
+VersionInfoVersion=1.0.0.0
 AppPublisher=Augit
 DefaultDirName={autopf}\Augit
 DefaultGroupName=Augit
