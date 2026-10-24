@@ -473,12 +473,29 @@
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();
           const current = state.activeLine >= 0 ? state.activeLine : Math.max(0, Math.floor(code.scrollTop / state.rowHeight));
-          activateLine(clamp(current + (event.key === "ArrowDown" ? 1 : -1), 0, model.lineCount - 1));
+          const next = clamp(current + (event.key === "ArrowDown" ? 1 : -1), 0, model.lineCount - 1);
+          if (event.shiftKey) {
+            if (state.anchor < 0) state.anchor = model.lineStarts[current];
+            state.focus = event.key === "ArrowDown" ? lineEndOf(model, next) : model.lineStarts[next];
+          } else {
+            state.anchor = -1;
+            state.focus = -1;
+          }
+          activateLine(next);
           return;
         }
         if (event.key === "Home" || event.key === "End") {
           event.preventDefault();
-          activateLine(event.key === "Home" ? 0 : model.lineCount - 1);
+          const current = state.activeLine >= 0 ? state.activeLine : Math.max(0, Math.floor(code.scrollTop / state.rowHeight));
+          const target = event.key === "Home" ? 0 : model.lineCount - 1;
+          if (event.shiftKey) {
+            if (state.anchor < 0) state.anchor = model.lineStarts[current];
+            state.focus = event.key === "Home" ? model.lineStarts[target] : lineEndOf(model, target);
+          } else {
+            state.anchor = -1;
+            state.focus = -1;
+          }
+          activateLine(target);
           return;
         }
       }

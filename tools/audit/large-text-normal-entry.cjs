@@ -312,6 +312,18 @@ async function closeWindow(pid) {
           };
         });
         await page.keyboard.press('Home');
+        await page.keyboard.press('Shift+ArrowDown');
+        await page.keyboard.press('Shift+ArrowDown');
+        keyboard.shiftSelection = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          const selection = code.__augitVirtual.selection;
+          return {
+            start: selection.start,
+            end: selection.end,
+            activeLine: code.__augitVirtual.activeLine,
+            text: code.__augitVirtual.selectedText().slice(0, 120),
+          };
+        });
       }
 
       // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口。mid 对磁盘文件做
@@ -483,6 +495,11 @@ async function closeWindow(pid) {
       }
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
+      if (sample.key === 'small' && (!keyboard || !keyboard.shiftSelection
+        || keyboard.shiftSelection.end <= keyboard.shiftSelection.start
+        || keyboard.shiftSelection.activeLine !== 2)) {
+        failures.push('keyboard-selection=' + JSON.stringify(keyboard && keyboard.shiftSelection));
+      }
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
       report.samples.push({ key: sample.key, file: sample.file, opened, keyboard, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
