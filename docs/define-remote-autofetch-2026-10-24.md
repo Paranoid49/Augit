@@ -21,6 +21,8 @@
    - update 回滚为原 name/fetchUrl/pushUrl；
    - `reloadRemotes()` 后重新渲染 Define，设置 `error` 与 `invalidField="fetchUrl"`；
    - 错误渲染在 URL 上方的 `.remote-url-balloon`（红框 + 气球），不是对话框底部；
+  气球背景使用 `--augit-red-soft`（浅色 `#fff6f5`），边框 `#ffc4c5`；这两个值
+  从参考截图采样（背景 `(255,246,245)`，边框 `(255,196,197)`）；
    - 不关闭 Define、不写管理器 notice、不设置 `__augitRemoteSaved`；
 3. Fetch 成功才关闭 Define、刷新管理器并显示 `Added … Fetched …`。
 
@@ -71,7 +73,7 @@
 | 主窗 Push 对话框 | 仍在底层 |
 | `git remote` | **空**（回滚成功） |
 | 实例 | PID 8296 正常关闭，`pidAlive=false`（新增失败）；编辑失败 PID 18996 |
-| 截图 | `artifacts/define-remote-balloon-2026-10-24l/define-remote-autofetch.png` |
+| 截图 | `artifacts/define-remote-balloon-color-2026-10-24/define-remote-autofetch.png` |
 
 ## 4. 与参考对比
 
@@ -97,7 +99,8 @@
 
 ## 6. 边界
 
-- 气球位于 URL 上方，但尺寸/偏移/阴影未与参考像素认证；不写成参考像素一致。
+- 背景/边框颜色已与参考采样一致；气球尺寸、偏移、阴影和箭头仍未像素认证，
+  不写成整组件像素一致。
 - 只验证新增远端；编辑远端回滚走同一代码路径但未单独正常入口复验。
 - 错误来自本机 `127.0.0.1:1` 502，不覆盖认证、代理、慢盘。
 - 页面级配对仍 50、像素仍 0。
