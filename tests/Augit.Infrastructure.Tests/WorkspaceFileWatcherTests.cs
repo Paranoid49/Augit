@@ -107,6 +107,37 @@ public sealed class WorkspaceFileWatcherTests
     }
 
     /// <summary>
+    /// 诊断阶段回调：每批先报告一次接收，合并后报告一次，且不改变原有通知行为。
+    /// </summary>
+    [TestMethod]
+    public async Task 阶段回调报告接收与合并()
+    {
+        using TemporaryDirectory temporary = new();
+        List<string> stages = [];
+        using WorkspaceFileWatcher watcher = new(temporary.FullPath, stage =>
+        {
+            lock (stages)
+            {
+                stages.Add(stage);
+            }
+        });
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        watcher.Changed += (_, _) => completion.TrySetResult();
+
+        await File.WriteAllTextAsync(temporary.GetPath("trace.txt"), "变化");
+        await completion.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await Task.Delay(100);
+
+        lock (stages)
+        {
+            Assert.IsNotEmpty(stages);
+            Assert.AreEqual("watch-received", stages[0]);
+            Assert.AreEqual("watch-merged", stages[^1]);
+            Assert.AreEqual(1, stages.Count(stage => stage == "watch-merged"));
+        }
+    }
+
+    /// <summary>
     /// 对同一路径连续写两次，制造"同一路径的两个文件系统事件"。
     /// 两次写**串行**执行：同一路径并发写会因文件句柄独占而失败，串行仍能在合并窗口内产生两个事件。
     /// </summary>

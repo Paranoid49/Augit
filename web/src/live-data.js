@@ -144,6 +144,7 @@ async function loadDocument() {
       root: info.root,
       rootPath: "",
       name: info.name,
+      refreshTrace: info.refreshTrace === true,
       // 标题栏显示工作区名；与树根的 name 分开命名，避免与文档名混淆。
       workspaceName: info.name,
       valid: info.valid,
@@ -3856,6 +3857,20 @@ async function applyWorkspaceChanges(changes) {
   }
   if (regions.size) refreshStatusRegions(...regions);
   if (statusChanged || changes.gitMetadata) void refreshCommitDetails();
+  reportRefreshStageApplied(live, currentPath);
+}
+
+/**
+ * 诊断：网页应用完一次外部变化后向宿主回报阶段。
+ * 只有宿主显式开启刷新跟踪时才发送；普通运行没有额外桥接消息，也不改变界面状态。
+ */
+function reportRefreshStageApplied(live, path) {
+  if (!live || live.refreshTrace !== true) return;
+  const detail = typeof path === "string" ? path : null;
+  invoke("audit/refresh-applied", { stage: "applied", path: detail }, 2000).catch(() => {});
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    invoke("audit/refresh-applied", { stage: "painted", path: detail }, 2000).catch(() => {});
+  }));
 }
 
 /**

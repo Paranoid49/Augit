@@ -17,6 +17,9 @@ const { spawn, execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/refresh-content-onset-2026-10-24');
+const traceRoot = process.env.AUGIT_REFRESH_TRACE_DIRECTORY
+  ? path.resolve(process.env.AUGIT_REFRESH_TRACE_DIRECTORY)
+  : null;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function documentText(generation) {
@@ -140,14 +143,16 @@ exit 2`;
   }
 }
 
-async function launch(workspace, settings, port) {
+async function launch(workspace, settings, port, traceDirectory) {
   const literal = (value) => "'" + String(value).replaceAll("'", "''") + "'";
   const launcher = path.resolve('tools/start-augit.ps1');
   const command = '$ErrorActionPreference="Stop"; $p = & ' + literal(launcher)
     + ' -Workspace ' + literal(workspace) + ' -SettingsFile ' + literal(settings)
     + ' -SkipBuild; if (-not $p.Id) { throw "no pid" }; Write-Output ("AUGIT_PID=" + $p.Id)';
+  const env = { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + port };
+  if (traceDirectory) env.AUGIT_REFRESH_TRACE_DIRECTORY = traceDirectory;
   const started = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + port },
+    env,
     timeout: 120000,
   });
   const pid = Number(/AUGIT_PID=(\d+)/.exec(started.stdout)?.[1]);
@@ -212,6 +217,48 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
   };
 }
 
+/**
+ * 解析宿主导出的阶段文件。所有阶段内时间用 QPC 计算；跨进程只用 harness mark
+ * 对齐（误差为打点往返的一半，单独报告）。屏幕首内容仍以采集帧为准。
+ */
+async function readHostTrace(directory, hostMark, writeEpoch) {
+  const files = (await fs.readdir(directory)).filter((name) => /^refresh-.*\.json$/.test(name));
+  if (files.length === 0) return { available: false, reason: 'no export file' };
+  const data = JSON.parse(await fs.readFile(path.join(directory, files[0]), 'utf8'));
+  const frequency = data.frequency;
+  if (!Number.isFinite(frequency) || frequency <= 0) return { available: false, reason: 'bad frequency' };
+  const samples = Array.isArray(data.samples) ? data.samples : [];
+  const mark = samples.find((sample) => sample.stage === 'harness-mark');
+  const toMs = (timestamp) => (timestamp / frequency) * 1000;
+  const writeFromMark = hostMark && mark && Number.isFinite(hostMark.nodeEpoch)
+    ? writeEpoch - hostMark.nodeEpoch
+    : null;
+  const timeline = samples.map((sample) => {
+    const fromMark = mark ? toMs(sample.timestamp) - toMs(mark.timestamp) : null;
+    return {
+      stage: sample.stage,
+      detail: sample.detail === undefined ? null : sample.detail,
+      fromMarkMs: fromMark === null ? null : Math.round(fromMark * 10) / 10,
+      fromWriteMs: fromMark === null || writeFromMark === null
+        ? null
+        : Math.round((fromMark - writeFromMark) * 10) / 10,
+    };
+  });
+  return {
+    available: true,
+    file: files[0],
+    frequency,
+    processId: data.processId,
+    samples: samples.length,
+    markRecorded: !!mark,
+    markNodeEpoch: hostMark ? hostMark.nodeEpoch : null,
+    markPageSent: hostMark ? hostMark.sent : null,
+    markRoundTripMs: hostMark ? hostMark.roundTripMs : null,
+    writeFromMarkMs: writeFromMark === null ? null : Math.round(writeFromMark * 10) / 10,
+    timeline,
+  };
+}
+
 (async () => {
   await fs.mkdir(output, { recursive: true });
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'Augit-refresh-onset-'));
@@ -256,7 +303,9 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       const port = listener.address().port;
       await new Promise((resolve) => listener.close(resolve));
       report.port = port;
-      const pid = await launch(workspace, run.settings, port);
+      const runTraceDir = traceRoot ? path.join(traceRoot, run.key) : null;
+      if (runTraceDir) await fs.mkdir(runTraceDir, { recursive: true });
+      const pid = await launch(workspace, run.settings, port, runTraceDir);
       const hwnd = await waitWindow(pid);
       currentPid = pid;
       currentClosed = false;
@@ -347,6 +396,44 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       const t0 = Date.now() - Math.floor(firstSize / frameBytes) / 60 * 1000;
       await delay(Math.max(0, 800 - (Date.now() - t0)));
       const generation = run.key === 'dark-1' ? 11 : 1;
+      let hostMark = null;
+      if (runTraceDir) {
+        // 写入前经真实桥接打点：宿主在同一时刻记录 QPC，采集器记录墙钟与往返时间。
+        const before = Date.now();
+        const pageMark = await page.evaluate(() => new Promise((resolve) => {
+          const id = 900000 + Math.floor(Math.random() * 100000);
+          const sent = Date.now();
+          const handler = (event) => {
+            const response = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            if (!response || response.id !== id) return;
+            chrome.webview.removeEventListener('message', handler);
+            resolve({
+              recorded: !!(response.result && response.result.recorded),
+              sent,
+              received: Date.now(),
+            });
+          };
+          chrome.webview.addEventListener('message', handler);
+          chrome.webview.postMessage(JSON.stringify({
+            id,
+            method: 'audit/refresh-mark',
+            params: { epochMs: String(Date.now()) },
+          }));
+          setTimeout(() => {
+            chrome.webview.removeEventListener('message', handler);
+            resolve({ recorded: false, sent, received: Date.now() });
+          }, 2000);
+        }));
+        const after = Date.now();
+        const oneWay = Math.max(0, (after - before) / 2);
+        hostMark = {
+          recorded: pageMark.recorded,
+          sent: pageMark.sent,
+          roundTripMs: pageMark.received - pageMark.sent,
+          // 网页与采集器共用系统墙钟；用单程估计把打点对齐到宿主接收时刻。
+          nodeEpoch: pageMark.sent + oneWay,
+        };
+      }
       const marker = await page.evaluate((target) => {
         window.__onsetStage.cycle = { target, start: performance.now(), mutation: null, paint: null };
         window.__onsetStage.cycle.requestStartIndex = window.__onsetStage.requests.length;
@@ -413,6 +500,10 @@ async function analyze(rawPath, frameBytes, writeAt, t0) {
       currentClosed = runReport.closedNormally;
       await delay(500);
       runReport.pidAlive = (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
+      if (runTraceDir) {
+        runReport.hostMark = hostMark;
+        runReport.hostTrace = await readHostTrace(runTraceDir, hostMark, writeAt);
+      }
       report.closedNormally = runReport.closedNormally;
       report.pidAlive = runReport.pidAlive;
     }

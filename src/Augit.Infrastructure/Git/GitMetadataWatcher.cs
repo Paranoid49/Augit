@@ -8,12 +8,15 @@ public sealed class GitMetadataWatcher : IDisposable
     private readonly object _gate = new();
     private readonly List<FileSystemWatcher> _watchers = [];
     private readonly Timer _timer;
+    private readonly Action<string>? _stage;
     private bool _disposed;
     private bool _changePending;
+    private bool _batchObserved;
 
-    public GitMetadataWatcher(GitRepositorySnapshot repository)
+    public GitMetadataWatcher(GitRepositorySnapshot repository, Action<string>? stage = null)
     {
         ArgumentNullException.ThrowIfNull(repository);
+        _stage = stage;
         _timer = new(Flush, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         IEnumerable<string> directories = new[] { repository.GitDirectory, repository.GitCommonDirectory }
             .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
@@ -81,6 +84,7 @@ public sealed class GitMetadataWatcher : IDisposable
 
     private void QueueChange()
     {
+        bool firstEvent;
         lock (_gate)
         {
             if (_disposed)
@@ -89,7 +93,14 @@ public sealed class GitMetadataWatcher : IDisposable
             }
 
             _changePending = true;
+            firstEvent = !_batchObserved;
+            _batchObserved = true;
             _timer.Change(MergeDelay, Timeout.InfiniteTimeSpan);
+        }
+
+        if (firstEvent)
+        {
+            _stage?.Invoke("git-watch-received");
         }
     }
 
@@ -103,8 +114,10 @@ public sealed class GitMetadataWatcher : IDisposable
             }
 
             _changePending = false;
+            _batchObserved = false;
         }
 
+        _stage?.Invoke("git-watch-merged");
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }

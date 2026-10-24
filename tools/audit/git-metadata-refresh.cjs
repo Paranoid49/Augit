@@ -9,7 +9,45 @@ const { execFile } = require('node:child_process');
 const execute = require('node:util').promisify(execFile);
 const { chromium } = require(process.argv[2]);
 const output = path.resolve(process.argv[3] || 'artifacts/git-metadata-refresh');
+const traceRoot = process.env.AUGIT_REFRESH_TRACE_DIRECTORY
+  ? path.resolve(process.env.AUGIT_REFRESH_TRACE_DIRECTORY)
+  : null;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 与 refresh-content-onset.cjs 同一口径：阶段内用 QPC，跨进程只用 harness mark 对齐。
+async function readHostTrace(directory, hostMark, eventEpoch) {
+  const files = (await fs.readdir(directory)).filter((name) => /^refresh-.*\.json$/.test(name));
+  if (files.length === 0) return { available: false, reason: 'no export file' };
+  const data = JSON.parse(await fs.readFile(path.join(directory, files[0]), 'utf8'));
+  const frequency = data.frequency;
+  if (!Number.isFinite(frequency) || frequency <= 0) return { available: false, reason: 'bad frequency' };
+  const samples = Array.isArray(data.samples) ? data.samples : [];
+  const mark = samples.find((sample) => sample.stage === 'harness-mark');
+  const toMs = (timestamp) => (timestamp / frequency) * 1000;
+  const eventFromMark = hostMark && mark && Number.isFinite(hostMark.nodeEpoch)
+    ? eventEpoch - hostMark.nodeEpoch
+    : null;
+  const timeline = samples.map((sample) => {
+    const fromMark = mark ? toMs(sample.timestamp) - toMs(mark.timestamp) : null;
+    return {
+      stage: sample.stage,
+      detail: sample.detail === undefined ? null : sample.detail,
+      fromMarkMs: fromMark === null ? null : Math.round(fromMark * 10) / 10,
+      fromEventMs: fromMark === null || eventFromMark === null
+        ? null
+        : Math.round((fromMark - eventFromMark) * 10) / 10,
+    };
+  });
+  return {
+    available: true,
+    file: files[0],
+    frequency,
+    samples: samples.length,
+    markRecorded: !!mark,
+    eventFromMarkMs: eventFromMark === null ? null : Math.round(eventFromMark * 10) / 10,
+    timeline,
+  };
+}
 
 async function git(cwd, ...args) {
   return execute('git', ['-C', cwd, ...args], { windowsHide: true, timeout: 30000 });
@@ -24,6 +62,9 @@ async function git(cwd, ...args) {
   let port = 0;
   let shell = null;
   let browser = null;
+  let hostMark = null;
+  let runTraceDir = null;
+  let gitDoneAt = null;
   const report = { launcher: 'tools/start-augit.ps1', forcedBuild: true, cdpAttached: true, checks: [] };
   try {
     await fs.mkdir(workspace);
@@ -40,6 +81,12 @@ async function git(cwd, ...args) {
     await new Promise((resolve) => listener.listen(0, '127.0.0.1', resolve));
     port = listener.address().port;
     await new Promise((resolve) => listener.close(resolve));
+    if (traceRoot) {
+      // 宿主只接受绝对且已存在的目录；必须在启动前设置，启动器与 Augit 才会继承。
+      runTraceDir = path.join(traceRoot, 'checkout');
+      await fs.mkdir(runTraceDir, { recursive: true });
+      process.env.AUGIT_REFRESH_TRACE_DIRECTORY = runTraceDir;
+    }
     const launch = require('./daily-launch-command.cjs')(process.cwd(), settings, port, workspace);
     const started = await execute(launch.file, launch.args, { env: launch.env, timeout: 180000 });
     const pid = Number(/AUGIT_PID=(\d+)/.exec(started.stdout)?.[1]);
@@ -74,8 +121,38 @@ async function git(cwd, ...args) {
     assert.equal(await page.evaluate(() => window.__augitLive?.branch), 'main');
 
     const startedAt = Date.now();
+    if (runTraceDir) {
+      const before = Date.now();
+      const pageMark = await page.evaluate(() => new Promise((resolve) => {
+        const id = 910000 + Math.floor(Math.random() * 100000);
+        const sent = Date.now();
+        const handler = (event) => {
+          const response = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (!response || response.id !== id) return;
+          chrome.webview.removeEventListener('message', handler);
+          resolve({ recorded: !!(response.result && response.result.recorded), sent, received: Date.now() });
+        };
+        chrome.webview.addEventListener('message', handler);
+        chrome.webview.postMessage(JSON.stringify({
+          id,
+          method: 'audit/refresh-mark',
+          params: { epochMs: String(Date.now()) },
+        }));
+        setTimeout(() => {
+          chrome.webview.removeEventListener('message', handler);
+          resolve({ recorded: false, sent, received: Date.now() });
+        }, 2000);
+      }));
+      const after = Date.now();
+      hostMark = {
+        recorded: pageMark.recorded,
+        sent: pageMark.sent,
+        roundTripMs: pageMark.received - pageMark.sent,
+        nodeEpoch: pageMark.sent + Math.max(0, (after - before) / 2),
+      };
+    }
     await git(workspace, 'checkout', '-b', 'external-branch');
-    const gitDoneAt = Date.now();
+    gitDoneAt = Date.now();
     await page.waitForFunction(() => window.__augitLive?.branch === 'external-branch', null, { polling: 10, timeout: 5000 });
     const observedAt = Date.now();
     const latency = observedAt - gitDoneAt;
@@ -138,6 +215,13 @@ async function git(cwd, ...args) {
     } catch { report.portClosed = false; }
     try { await fs.rm(temporary, { recursive: true, force: true }); report.temporaryRemoved = true; }
     catch { report.temporaryRemoved = false; }
+    if (runTraceDir && gitDoneAt !== null) {
+      report.hostMark = hostMark;
+      report.hostTrace = await readHostTrace(runTraceDir, hostMark, gitDoneAt).catch((error) => ({
+        available: false,
+        reason: String(error && error.message || error),
+      }));
+    }
     await fs.writeFile(path.join(output, 'cleanup.json'), JSON.stringify(report, null, 2)).catch(() => {});
   }
 })();

@@ -10,13 +10,16 @@ public sealed class WorkspaceFileWatcher : IDisposable
     private readonly string _gitMetadataRoot;
     private readonly FileSystemWatcher _watcher;
     private readonly Timer _timer;
+    private readonly Action<string>? _stage;
+    private bool _batchObserved;
     private bool _disposed;
 
-    public WorkspaceFileWatcher(string workspaceRoot)
+    public WorkspaceFileWatcher(string workspaceRoot, Action<string>? stage = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
         string fullWorkspaceRoot = Path.GetFullPath(workspaceRoot);
         _gitMetadataRoot = Path.Combine(fullWorkspaceRoot, ".git");
+        _stage = stage;
         _timer = new(Flush, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _watcher = new(fullWorkspaceRoot)
         {
@@ -79,6 +82,7 @@ public sealed class WorkspaceFileWatcher : IDisposable
             return;
         }
 
+        bool firstEvent;
         lock (_gate)
         {
             if (_disposed)
@@ -87,7 +91,15 @@ public sealed class WorkspaceFileWatcher : IDisposable
             }
 
             _pendingPaths.Add(path);
+            firstEvent = !_batchObserved;
+            _batchObserved = true;
             _timer.Change(MergeDelay, Timeout.InfiniteTimeSpan);
+        }
+
+        // 只报告每批第一次原始事件；回调只是诊断入口，必须在锁外调用。
+        if (firstEvent)
+        {
+            _stage?.Invoke("watch-received");
         }
     }
 
@@ -124,8 +136,10 @@ public sealed class WorkspaceFileWatcher : IDisposable
 
             paths = [.. _pendingPaths];
             _pendingPaths.Clear();
+            _batchObserved = false;
         }
 
+        _stage?.Invoke("watch-merged");
         Changed?.Invoke(this, new(paths));
     }
 }

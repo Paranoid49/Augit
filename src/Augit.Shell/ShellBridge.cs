@@ -85,14 +85,36 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>设置读写使用的 Store；审计可注入隔离的设置文件。</summary>
     private readonly SettingsStore _settingsStore;
 
-    public ShellBridge(string workspaceRoot, Action<string, object>? notify = null, SettingsStore? settingsStore = null)
+    /// <summary>外部刷新阶段跟踪；默认关闭，只在显式诊断目录存在时记录。</summary>
+    private readonly RefreshStageTrace _refreshTrace;
+
+    public ShellBridge(
+        string workspaceRoot,
+        Action<string, object>? notify = null,
+        SettingsStore? settingsStore = null,
+        RefreshStageTrace? refreshTrace = null)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
         _notify = notify;
         _settingsStore = settingsStore ?? new SettingsStore();
+        _refreshTrace = refreshTrace ?? RefreshStageTrace.FromEnvironment();
     }
 
     public string WorkspaceRoot => _workspaceRoot;
+
+    /// <summary>监听器的阶段回调；未启用跟踪时为空，避免监听线程做额外判断。</summary>
+    private Action<string>? RefreshStageCallback
+    {
+        get
+        {
+            if (!_refreshTrace.IsEnabled)
+            {
+                return null;
+            }
+
+            return stage => _refreshTrace.Record(stage);
+        }
+    }
 
     /// <summary>
     /// 窗口命令（<c>window/*</c>）的处理入口，由外壳窗口在构造后注入。
@@ -117,7 +139,19 @@ internal sealed class ShellBridge : IDisposable
             JsonElement parameters = root.TryGetProperty("params", out JsonElement paramsElement)
                 ? paramsElement
                 : default;
+            // 只跟踪刷新链路上的少数方法，避免启动期其它请求占满样本。
+            bool traced = IsRefreshTraceMethod(method);
+            if (traced)
+            {
+                _refreshTrace.Record("bridge-request", method);
+            }
+
             object? result = await DispatchAsync(method, parameters, cancellationToken);
+            if (traced)
+            {
+                _refreshTrace.Record("bridge-response", method);
+            }
+
             return Serialize(id, result, null);
         }
         catch (Exception exception) when (exception is ArgumentException or BridgeValidationException)
@@ -225,6 +259,10 @@ internal sealed class ShellBridge : IDisposable
             "write/cancel" => await CancelWriteAsync(),
             "workspace/pick" => PickWorkspace(),
             "workspace/changes" => ReadWorkspaceChanges(),
+            // 诊断入口：网页在应用外部变化后回传自身阶段；未启用跟踪时立即返回未记录。
+            "audit/refresh-applied" => RecordRefreshApplied(parameters),
+            // 诊断入口：采集器在写入外部文件前打点，用于把宿主 QPC 与采集时钟对齐。
+            "audit/refresh-mark" => RecordRefreshMark(parameters),
             "search/files" => await SearchFilesAsync(parameters, cancellationToken),
             "search/text" => await SearchTextAsync(parameters, cancellationToken),
             "search/cancel" => CancelSearch(parameters),
@@ -339,7 +377,42 @@ internal sealed class ShellBridge : IDisposable
             name = Path.GetFileName(_workspaceRoot.TrimEnd(Path.DirectorySeparatorChar)),
             valid = validation.IsValid,
             error = validation.ErrorMessage,
+            // 只有显式诊断时网页才回报应用阶段；普通运行完全不发送额外消息。
+            refreshTrace = _refreshTrace.IsEnabled,
         };
+    }
+
+    /// <summary>
+    /// 网页在应用完一次外部变化后回报阶段。只写诊断缓冲，不改变界面或桥接状态。
+    /// </summary>
+    private object RecordRefreshApplied(JsonElement parameters)
+    {
+        string? stage = GetString(parameters, "stage");
+        if (!_refreshTrace.IsEnabled || stage is not ("applied" or "painted"))
+        {
+            return new { recorded = false };
+        }
+
+        _refreshTrace.Record("page-" + stage, GetString(parameters, "path"));
+        return new { recorded = true };
+    }
+
+    private static bool IsRefreshTraceMethod(string method) =>
+        method is "document/read" or "git/status" or "workspace/changes";
+
+    /// <summary>
+    /// 采集器记录的写入前打点。detail 是采集器自己的墙钟毫秒，只用于对齐两套时钟。
+    /// </summary>
+    private object RecordRefreshMark(JsonElement parameters)
+    {
+        if (!_refreshTrace.IsEnabled)
+        {
+            return new { recorded = false };
+        }
+
+        string? epoch = GetString(parameters, "epochMs");
+        _refreshTrace.Record("harness-mark", epoch);
+        return new { recorded = true };
     }
 
     private object ListDirectory(JsonElement parameters)
@@ -1143,7 +1216,7 @@ internal sealed class ShellBridge : IDisposable
 
             try
             {
-                _workspaceWatcher = new WorkspaceFileWatcher(_workspaceRoot);
+                _workspaceWatcher = new WorkspaceFileWatcher(_workspaceRoot, RefreshStageCallback);
                 _workspaceWatcher.Changed += OnWorkspaceFilesChanged;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
@@ -1169,6 +1242,7 @@ internal sealed class ShellBridge : IDisposable
         }
 
         // 主动推送，网页层无需轮询；读取时仍会返回同一批次，两者幂等。
+        _refreshTrace.Record("bridge-notify", $"files={batch.Length}");
         _notify?.Invoke("workspace-changed", new { files = batch, gitMetadata = false });
     }
 
@@ -1185,7 +1259,7 @@ internal sealed class ShellBridge : IDisposable
 
         try
         {
-            _gitWatcher = new GitMetadataWatcher(repository);
+            _gitWatcher = new GitMetadataWatcher(repository, RefreshStageCallback);
             _gitWatcher.Changed += (_, _) =>
             {
                 InvalidateStatusCache();
@@ -1194,6 +1268,7 @@ internal sealed class ShellBridge : IDisposable
                     _pendingGitMetadataChange = true;
                 }
 
+                _refreshTrace.Record("bridge-notify-git");
                 _notify?.Invoke("workspace-changed", new { files = Array.Empty<string>(), gitMetadata = true });
             };
         }
@@ -1205,6 +1280,7 @@ internal sealed class ShellBridge : IDisposable
 
     public void Dispose()
     {
+        _refreshTrace.Export();
         _workspaceWatcher?.Dispose();
         _gitWatcher?.Dispose();
     }
