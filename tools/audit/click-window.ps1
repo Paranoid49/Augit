@@ -1,23 +1,33 @@
-﻿# Click inside a window's client area at logical (CSS) pixel coordinates and optionally capture.
+# Click inside a window's client area at logical (CSS) pixel coordinates and optionally capture.
 # Coordinates are relative to the client area origin, matching what the web layer lays out.
 param(
-  [Parameter(Mandatory=$true)][int]$X,
-  [Parameter(Mandatory=$true)][int]$Y,
+  [int]$X = 0,
+  [int]$Y = 0,
   [string]$ProcessName = "Augit",
   [string]$Out = "",
   [int]$AfterMs = 1500,
   [int64]$WindowHandle = 0,
   [int]$Clicks = 1,
   [int]$GapMs = 80,
-  [switch]$NoForeground
+  [switch]$NoForeground,
+  # Use physical screen coordinates directly (caller calibrates with window.screenX + CSS * dpr).
+  [switch]$Absolute,
+  [int]$ScreenX = 0,
+  [int]$ScreenY = 0
 )
 $ErrorActionPreference = "Stop"
+if (-not $Absolute -and (-not $PSBoundParameters.ContainsKey('X') -or -not $PSBoundParameters.ContainsKey('Y'))) {
+  throw "X and Y are required unless -Absolute is used."
+}
 Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class Clicker {
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  // The PowerShell host may already be system-DPI aware; the process call then fails,
+  // but the thread awareness can still be switched.
+  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr c);
   [DllImport("user32.dll", EntryPoint="GetWindowRect")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h, ref POINT p);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
@@ -39,16 +49,18 @@ public class Clicker {
 }
 '@
 try { [void][Clicker]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+try { [void][Clicker]::SetThreadDpiAwarenessContext([IntPtr](-4)) } catch { }
 $proc = Get-Process -Name $ProcessName -ErrorAction Stop | Select-Object -First 1
 $h = if ($WindowHandle -ne 0) { [IntPtr]$WindowHandle } else { $proc.MainWindowHandle }
 if ($h -eq 0) { Write-Output "NO_WINDOW"; exit 2 }
 [void][Clicker]::ShowWindow($h, 5)
 [void][Clicker]::BringWindowToTop($h)
 if ($NoForeground) {
-  # 调用方已把目标窗口置为 topmost；真实鼠标点击会完成激活，不再抢前台。
+  # The caller already made the target topmost; the real click itself activates it.
   Write-Output "foreground_match=SKIPPED"
 } else {
-  # Windows 会拒绝非前台进程直接抢焦点；把本线程输入队列接到当前前台线程后即可成功。
+  # Windows refuses focus changes from a background process; attach this thread input queue
+  # to the current foreground thread so SetForegroundWindow succeeds.
   $fgBefore = [Clicker]::GetForegroundWindow()
   $fgPid = 0
   $fgThread = 0
@@ -69,9 +81,17 @@ $client = New-Object Clicker+POINT
 [void][Clicker]::ClientToScreen($h, [ref]$client)
 $dpi = [Clicker]::GetDpiForWindow($h)
 $scale = if ($dpi -gt 0) { $dpi / 96.0 } else { 1.0 }
-$px = [int][Math]::Round($client.X + $X * $scale)
-$py = [int][Math]::Round($client.Y + $Y * $scale)
-Write-Output "click logical=($X,$Y) dpi=$dpi scale=$scale screen=($px,$py)"
+if ($Absolute) {
+  # The caller already converted window.screenX/screenY, CSS coordinates and devicePixelRatio
+  # to physical pixels; do not add ClientToScreen/DPI again.
+  $px = $ScreenX
+  $py = $ScreenY
+  Write-Output "click absolute=($px,$py) dpi=$dpi"
+} else {
+  $px = [int][Math]::Round($client.X + $X * $scale)
+  $py = [int][Math]::Round($client.Y + $Y * $scale)
+  Write-Output "click logical=($X,$Y) dpi=$dpi scale=$scale client=($($client.X),$($client.Y)) screen=($px,$py)"
+}
 [void][Clicker]::SetCursorPos($px, $py)
 Start-Sleep -Milliseconds 400
 $under = New-Object Clicker+POINT

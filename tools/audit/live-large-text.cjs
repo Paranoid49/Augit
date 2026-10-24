@@ -385,6 +385,118 @@ module.exports = async function liveLargeText({ openScene, check }) {
   check('80,000 行普通文本的 Find 定位到末尾行: ' + JSON.stringify(normalFind),
     normalFind.status === '1/1' && normalFind.line === 79999 && normalFind.scrollTop > 100000 && normalFind.rows < 120);
   await page.keyboard.press('Escape');
+
+  // ---- 80,000 行软换行回退：全量行构建的成本与操作边界 ----------------------
+  // 已知实现边界：软换行开启时退回完整行构建。这里量化 80,000 行的构建、
+  // 滚动、Find、Go to Line、全选与关闭成本，避免把「能打开」写成没有代价。
+  const wrapBaseline = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.editor-content .code-line').length,
+    heap: (performance.memory && performance.memory.usedJSHeapSize) || null,
+  }));
+  const wrapStarted = Date.now();
+  await page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
+  await page.waitForFunction(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return !!code && !code.__augitVirtual && code.querySelectorAll('.code-line').length === 80000;
+  }, null, { timeout: 120000 });
+  const wrapBuildMs = Date.now() - wrapStarted;
+  const wrapped = await page.evaluate(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return {
+      virtual: !!code.__augitVirtual,
+      rows: code.querySelectorAll('.code-line').length,
+      wrap: code.classList.contains('wrap'),
+      heap: (performance.memory && performance.memory.usedJSHeapSize) || null,
+      scrollHeight: code.scrollHeight,
+    };
+  });
+  check('80,000 行打开软换行会退回全量 DOM（登记边界）: ' + JSON.stringify([wrapped.virtual, wrapped.rows, wrapped.wrap, wrapBuildMs]),
+    wrapped.virtual === false && wrapped.rows === 80000 && wrapped.wrap === true);
+  check('80,000 行软换行构建耗时低于 15 秒: ' + wrapBuildMs + 'ms', wrapBuildMs < 15000);
+  const wrapBottom = await page.evaluate(async () => {
+    const code = document.querySelector('.editor-content .code-view');
+    code.scrollTop = code.scrollHeight;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { scrollTop: code.scrollTop, scrollHeight: code.scrollHeight };
+  });
+  check('80,000 行软换行可滚动到末尾: ' + JSON.stringify(wrapBottom),
+    wrapBottom.scrollTop > 0 && wrapBottom.scrollHeight > 0);
+  await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+  await page.keyboard.press('Control+f');
+  await page.locator('.current-find input').fill('normal line 79999');
+  await page.waitForFunction(() => {
+    const status = document.querySelector('.current-find .find-status');
+    return !!status && status.textContent === '1/1';
+  }, null, { timeout: 30000 });
+  const wrapFind = await page.evaluate(() => {
+    const current = document.querySelector('.find-current');
+    return {
+      status: document.querySelector('.current-find .find-status').textContent,
+      line: current ? Number(current.closest('.code-line').dataset.line) : null,
+      rows: document.querySelectorAll('.editor-content .code-line').length,
+    };
+  });
+  check('80,000 行软换行下 Find 仍定位到末尾行: ' + JSON.stringify(wrapFind),
+    wrapFind.status === '1/1' && wrapFind.line === 79999 && wrapFind.rows === 80000);
+  await page.keyboard.press('Escape');
+  await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+  await page.keyboard.press('Control+g');
+  await page.waitForSelector('[data-compact-dialog] [data-compact-field]', { timeout: 5000 });
+  await page.locator('[data-compact-dialog] [data-compact-field]').fill('40000');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  const wrapGoto = await page.evaluate(() => {
+    const row = document.querySelector('.editor-content .code-line.active');
+    return { line: row ? row.dataset.line : null, dialog: !!document.querySelector('[data-compact-dialog]') };
+  });
+  check('80,000 行软换行下 Go to Line 仍可跳转: ' + JSON.stringify(wrapGoto),
+    wrapGoto.dialog === false && wrapGoto.line === '40000');
+  await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const wrapSelection = await page.evaluate(() => {
+    const text = window.getSelection() ? window.getSelection().toString() : '';
+    return { length: text.length, expected: window.__limitDocs['normal-big.txt'].text.length };
+  });
+  check('80,000 行软换行下全选覆盖全文: ' + JSON.stringify(wrapSelection),
+    wrapSelection.length > wrapSelection.expected - 10);
+  await page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
+  await page.waitForFunction(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return !!code && !!code.__augitVirtual && code.__augitVirtual.lineCount === 80000;
+  }, null, { timeout: 30000 });
+  await page.waitForTimeout(200);
+  const wrapRestored = await page.evaluate(() => {
+    const code = document.querySelector('.editor-content .code-view');
+    return {
+      virtual: !!code.__augitVirtual,
+      rows: code.querySelectorAll('.code-line').length,
+      wrap: code.classList.contains('wrap'),
+      heap: (performance.memory && performance.memory.usedJSHeapSize) || null,
+    };
+  });
+  check('关闭软换行后 80,000 行恢复窗口层: ' + JSON.stringify(wrapRestored),
+    wrapRestored.virtual === true && wrapRestored.rows < 120 && wrapRestored.wrap === false);
+  await page.keyboard.press('Control+w');
+  await page.waitForTimeout(500);
+  const wrapClosed = await page.evaluate(() => ({
+    rows: document.querySelectorAll('.editor-content .code-line').length,
+    virtual: !!document.querySelector('.editor-content .code-view.__augitVirtual'),
+    tabs: (window.__augitLive && window.__augitLive.tabs ? window.__augitLive.tabs.length : null),
+  }));
+  check('关闭 80,000 行软换行标签后不保留全量行节点: ' + JSON.stringify([wrapClosed.rows, wrapClosed.virtual, wrapClosed.tabs]),
+    wrapClosed.rows < 120);
+  console.log('live-large-text-wrap metrics ' + JSON.stringify({
+    buildMs: wrapBuildMs,
+    rows: wrapped.rows,
+    heapBefore: wrapBaseline.heap,
+    heapWrapped: wrapped.heap,
+    heapRestored: wrapRestored.heap,
+    findLine: wrapFind.line,
+    gotoLine: wrapGoto.line,
+    selected: wrapSelection.length,
+  }));
+
   await page.close();
 
   // ---- 80,000 行：只建可视窗口，滚到末尾 -----------------------------------

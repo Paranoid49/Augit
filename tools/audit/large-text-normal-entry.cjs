@@ -494,6 +494,44 @@ async function closeWindow(pid) {
         return { lastLine, rows: rows.length, expectedLine: lines, scrollTop: code.scrollTop };
       }, opened.lineCount);
 
+      // 软换行回退：只在 80,000 行样本上量化全量 DOM 构建成本与操作边界。
+      let wrap = null;
+      if (sample.key === 'mid') {
+        const wrapStarted = Date.now();
+        await page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
+        await page.waitForFunction((count) => {
+          const code = document.querySelector('.editor-content .code-view');
+          return !!code && !code.__augitVirtual && code.querySelectorAll('.code-line').length === count;
+        }, opened.lineCount, { timeout: 120000 });
+        wrap = await page.evaluate(async (count) => {
+          const code = document.querySelector('.editor-content .code-view');
+          code.scrollTop = code.scrollHeight;
+          await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          const rows = [...code.querySelectorAll('.code-line')];
+          const lastLine = rows.length ? Math.max(...rows.map((row) => Number(row.dataset.line))) : null;
+          const last = rows.find((row) => Number(row.dataset.line) === lastLine);
+          return {
+            virtual: !!code.__augitVirtual,
+            rows: rows.length,
+            wrap: code.classList.contains('wrap'),
+            lastLine,
+            lastText: last ? last.textContent.slice(0, 80) : null,
+            expected: count,
+          };
+        }, opened.lineCount);
+        wrap.buildMs = Date.now() - wrapStarted;
+        await page.locator('.document-toolbar [aria-label="Soft Wraps"]').click();
+        await page.waitForFunction(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return !!code && !!code.__augitVirtual;
+        }, null, { timeout: 30000 });
+        wrap.restored = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return { virtual: !!code.__augitVirtual, rows: code.querySelectorAll('.code-line').length };
+        });
+        report.wrap = wrap;
+      }
+
       const failures = [];
       if (opened.readOnlyPreview !== sample.preview) failures.push('readOnlyPreview=' + opened.readOnlyPreview);
       if (!sample.preview && opened.lineCount !== sample.lines) failures.push('lineCount=' + opened.lineCount);
@@ -516,7 +554,12 @@ async function closeWindow(pid) {
         failures.push('keyboard-page=' + JSON.stringify(keyboard && keyboard.pageDown));
       }
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, keyboard, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });
+      if (wrap && (wrap.virtual || wrap.rows !== opened.lineCount || !wrap.wrap || wrap.lastLine !== opened.lineCount)) {
+        failures.push('wrap=' + JSON.stringify(wrap));
+      }
+      if (wrap && wrap.buildMs > 15000) failures.push('wrapBuildMs=' + wrap.buildMs);
+      if (wrap && (!wrap.restored || !wrap.restored.virtual)) failures.push('wrapRestore=' + JSON.stringify(wrap.restored));
+      report.samples.push({ key: sample.key, file: sample.file, opened, keyboard, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, wrap, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
