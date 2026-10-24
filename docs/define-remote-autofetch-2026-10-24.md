@@ -38,6 +38,24 @@
 
 - 同步 `docs/ux-mockups/`，`verify-ui-assets` PASS。
 
+### 2.1 编辑远端失败
+
+同一正常入口继续：
+
+1. 失败定义取消后，重新添加 `origin`，URL `https://example.com/repo.git`，**取消**
+   Fetch remote，OK，管理器出现 `origin`；
+2. 选中 `origin` → Edit，URL 改为 `http://127.0.0.1:1/repo.git`，勾选 Fetch，OK；
+3. Fetch 失败后：
+   - Define 仍打开；
+   - URL `aria-invalid=true`；
+   - URL 上方错误气球显示 502；
+   - `git remote get-url origin` = **`https://example.com/repo.git`**，即回滚到旧 URL；
+4. Cancel 后管理器仍只有旧 `origin`；
+5. 实例 PID 18996 正常关闭，`pidAlive=false`；
+6. 报告：`artifacts/define-remote-edit-failure-2026-10-24b/define-remote-autofetch.json`
+   （`steps[1].edit`）。截图 `edit-fetch-failure.png` 在该路径，但本批页面截图未包含
+   原生定义窗，仅作辅助；气球外观以新增失败截图为准。
+
 ## 3. 结果
 
 正常入口报告：`artifacts/define-remote-reference-fix-2026-10-24e/define-remote-autofetch.json`：
@@ -52,7 +70,7 @@
 | toast | 无 |
 | 主窗 Push 对话框 | 仍在底层 |
 | `git remote` | **空**（回滚成功） |
-| 实例 | PID 8296 正常关闭，`pidAlive=false` |
+| 实例 | PID 8296 正常关闭，`pidAlive=false`（新增失败）；编辑失败 PID 18996 |
 | 截图 | `artifacts/define-remote-balloon-2026-10-24l/define-remote-autofetch.png` |
 
 ## 4. 与参考对比

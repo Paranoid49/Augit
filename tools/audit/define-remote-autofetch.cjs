@@ -84,10 +84,39 @@ async function launch(workspace,settings,port){const lit=v=>"'"+String(v).replac
   await delay(1200);
   await page.screenshot({path:path.join(output,'define-remote-autofetch.png')});
   report.steps.push({result});
-  // 先正常关闭两层对话框，再关主窗；否则 WM_CLOSE 会被仍打开的管理器/推送窗挡住。
+  // 编辑远端失败：先正常添加一个不 Fetch 的 origin，再改 URL 触发自动 Fetch 失败，
+  // 验证回滚到旧 URL、仍保留 Define，而不是只验证新增路径。
+  let edit = null;
   try {
     await clickCss(hwnd,await rect('[data-remote-define="cancel"]'));
     await page.waitForSelector('.remote-define-dialog',{state:'detached',timeout:10000});
+    await clickCss(hwnd,await rect('[data-remote-action="add"]'));
+    await page.waitForSelector('[data-remote-field="name"]',{timeout:10000});
+    await clickCss(hwnd,await rect('[data-remote-field="name"]')); await selectAll(); await pasteText('origin');
+    await clickCss(hwnd,await rect('[data-remote-field="fetchUrl"]')); await selectAll(); await pasteText('https://example.com/repo.git');
+    const fetchChecked = await page.evaluate(()=>document.querySelector('[data-remote-field="fetch"]')?.checked);
+    if (fetchChecked) await clickCss(hwnd,await rect('[data-remote-field="fetch"]'));
+    await clickCss(hwnd,await rect('[data-remote-define="ok"]'));
+    await page.waitForSelector('.remote-define-dialog',{state:'detached',timeout:15000});
+    await page.waitForSelector('.remote-window .remote-row[data-remote-entry="origin"]',{timeout:10000});
+    await clickCss(hwnd,await rect('.remote-window .remote-row[data-remote-entry="origin"]'));
+    await delay(300);
+    await clickCss(hwnd,await rect('[data-remote-action="edit"]'));
+    await page.waitForSelector('[data-remote-field="fetchUrl"]',{timeout:10000});
+    await clickCss(hwnd,await rect('[data-remote-field="fetchUrl"]')); await selectAll(); await pasteText('http://127.0.0.1:1/repo.git');
+    const editFetch = await page.evaluate(()=>document.querySelector('[data-remote-field="fetch"]')?.checked);
+    if (!editFetch) await clickCss(hwnd,await rect('[data-remote-field="fetch"]'));
+    await clickCss(hwnd,await rect('[data-remote-define="ok"]'));
+    await page.waitForFunction(()=>{const n=document.querySelector('.remote-define-dialog .remote-notice');const t=n?.textContent||'';return !n?.hidden && (t.includes('unable')||t.includes('502')||t.includes('Fetch failed'))},null,{timeout:30000});
+    edit=await page.evaluate(()=>({defineOpen:!!document.querySelector('.remote-define-dialog'),urlInvalid:document.querySelector('[data-remote-field="fetchUrl"]')?.getAttribute('aria-invalid')||null,notice:document.querySelector('.remote-define-dialog .remote-notice')?.textContent||null,manager:!!document.querySelector('.remote-dialog')}));
+    edit.remoteConfig=(await execute('git',['remote','get-url','origin'],{cwd:workspace,windowsHide:true})).stdout.trim();
+    await page.screenshot({path:path.join(output,'edit-fetch-failure.png')});
+    await clickCss(hwnd,await rect('[data-remote-define="cancel"]'));
+    await page.waitForSelector('.remote-define-dialog',{state:'detached',timeout:10000});
+  } catch (editError) { edit={error:String(editError&&editError.message||editError)}; }
+  report.steps.push({edit});
+  // 先正常关闭两层对话框，再关主窗；否则 WM_CLOSE 会被仍打开的管理器/推送窗挡住。
+  try {
     await clickCss(hwnd,await rect('[data-remote-action="ok"]'));
     await page.waitForSelector('.remote-dialog',{state:'detached',timeout:10000});
     await clickCss(hwnd,await rect('[data-push-action="cancel"]'));
@@ -97,5 +126,5 @@ async function launch(workspace,settings,port){const lit=v=>"'"+String(v).replac
   await browser.close(); browser=null; report.closedNormally=await closeApp(pid); closed=report.closedNormally; await delay(500); report.pidAlive=(()=>{try{process.kill(pid,0);return true}catch{return false}})();
  }catch(error){report.error=String(error&&error.stack||error);process.exitCode=1}
  finally{if(browser)await browser.close().catch(()=>{});if(pid&&!closed)await closeApp(pid).catch(()=>{});await fs.writeFile(path.join(output,'define-remote-autofetch.json'),JSON.stringify(report,null,2)+'\n');await fs.rm(temp,{recursive:true,force:true}).catch(()=>{})}
- console.log(JSON.stringify(report.steps[0]||{error:report.error||null},null,2));
+ console.log(JSON.stringify(report.steps,null,2));
 })();
