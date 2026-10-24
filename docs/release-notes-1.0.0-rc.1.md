@@ -49,6 +49,10 @@ Beta 对照产物（已通过安装升级验收）：
 
 `SHA256SUMS.txt` 在每个目录内，可复核。产物是本机构建，未上传到任何公开 Release。
 
+Web 资源清单（`web/` 下 27 个文件，按“文件 SHA256 + 相对路径”排序后计算的清单 SHA256）：
+`141ba8d7d467becbe6c25053679ec98a8e7f6b3ded945787f16373d9e8500446`；
+原始清单 `artifacts/release-1.0.0-rc.1/final2/web-resource-manifest.txt`。
+
 ## 5. 系统要求
 
 - Windows 10 22H2 x64 或 Windows 11 x64（本候选只在 Windows 11 x64 实机验证）。

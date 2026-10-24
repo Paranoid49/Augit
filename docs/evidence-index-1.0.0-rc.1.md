@@ -13,6 +13,7 @@
 | 便携包 SHA256 | `d5bed9ad686a9f1b9232f8b4a1a2512e9912d62a7751b72d18d0a19d7871803a` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
 | 安装器 SHA256 | `bc9913c06fae8393e6b7b51eb0678ed15c6b584b04481773e4e7e2a26826cf3b` | `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` |
 | 便携包 SHA256SUMS | `artifacts/release-1.0.0-rc.1/final2/SHA256SUMS.txt` | `artifacts/release-1.0.0-beta.1/final2/SHA256SUMS.txt` |
+| web 资源清单 SHA256 | `141ba8d7d467becbe6c25053679ec98a8e7f6b3ded945787f16373d9e8500446`（27 个文件；清单 `artifacts/release-1.0.0-rc.1/final2/web-resource-manifest.txt`） | 同一 web 资源内容（便携烟测双向哈希 0 差异） |
 
 ## 2. 构建与全量检查
 
