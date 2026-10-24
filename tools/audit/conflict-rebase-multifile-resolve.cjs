@@ -126,6 +126,16 @@ async function git(cwd, ...args) {
 
     const remove = await git(workspace, 'rm', 'a.txt');
     report.checks.push({ name: 'external-remove', stdout: remove.stdout.trim(), stderr: remove.stderr.trim() });
+    await delay(800);
+    const mid = await page.evaluate(() => ({
+      dialog: !!document.querySelector('.dialog.conflict-session-dialog'),
+      text: document.querySelector('.dialog.conflict-session-dialog')?.innerText || '',
+      actions: [...document.querySelectorAll('.dialog.conflict-session-dialog [data-operation-action]')].map((b) => ({ action: b.dataset.operationAction, disabled: b.disabled, text: b.textContent.trim() })),
+    }));
+    report.checks.push({ name: 'mid-external-resolve', ...mid });
+    assert.ok(mid.dialog, '外部解决一个文件后冲突窗应仍打开');
+    assert.doesNotMatch(mid.text, /a\.txt/, '已删除的 a.txt 应从冲突列表消失');
+    assert.match(mid.text, /b\.txt/, '未解决的 b.txt 应仍在列表');
     await fs.writeFile(path.join(workspace, 'b.txt'), 'b-resolved\n');
     await git(workspace, 'add', 'b.txt');
     report.checks.push({ name: 'external-edit-add', file: 'b.txt', content: 'b-resolved' });

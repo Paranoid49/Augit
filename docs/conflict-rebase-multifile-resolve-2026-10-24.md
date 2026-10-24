@@ -2,7 +2,8 @@
 
 > 结论：两个文件同时冲突时，冲突窗列出 `a.txt` / `b.txt`；外部对 `a.txt` 删除、
 > 对 `b.txt` 编辑后 `git add`，再 `git rebase --continue`，应用关闭冲突窗、工作区
-> 干净、feature 历史可用。本批验证多文件与“删除+编辑”混合解决，不是 Skip。
+> 干净、feature 历史可用。本批验证多文件与“删除+编辑”混合解决，并观察外部先解决
+> 一个文件后的中间列表刷新，不是 Skip。
 
 ## 1. 夹具
 
@@ -16,8 +17,12 @@
 ## 2. 外部解决
 
 1. `git rm a.txt`（删除一个冲突文件）；
-2. `b.txt` 写为 `b-resolved`，`git add b.txt`；
-3. `git -c core.editor=true rebase --continue`；
+2. 等待应用刷新：冲突窗仍打开，显示 `1 conflicting file`、只剩 `b.txt`、
+   `Current step 1/2`、`Remaining: 1 unresolved conflict`；应用内报告的操作按钮仍只有
+   `Abort Rebase` / `Skip`（文本里出现 `Continue Rebase`，但没有对应的
+   `data-operation-action`，不把它当成已启用）。
+3. `b.txt` 写为 `b-resolved`，`git add b.txt`；
+4. `git -c core.editor=true rebase --continue`；
 4. Git 输出：
    ```
    [detached HEAD 52de056] test: feature-conflict
@@ -35,17 +40,18 @@
 
 ## 3. 证据
 
-- 截图：`artifacts/conflict-rebase-multifile-resolve-2026-10-24/after-external-resolve.png`
-- 报告：`.../report.json`（`multifile-conflict-ui`、`external-remove`、`external-edit-add`、`external-continue`）
+- 截图：`artifacts/conflict-rebase-gradual-resolve-2026-10-24/after-external-resolve.png`
+- 报告：`.../report.json`（`multifile-conflict-ui`、`mid-external-resolve`、
+  `external-remove`、`external-edit-add`、`external-continue`）
 - 脚本：`tools/audit/conflict-rebase-multifile-resolve.cjs`
-- 实例 PID 484 正常关闭，`pidAlive=false`。
+- 实例 PID 7112 正常关闭，`pidAlive=false`（本批逐步刷新）。
 
 ## 4. 边界
 
 - 两文件、一个删除 + 一个编辑；未测两文件都编辑、都删除、二进制冲突。
 - 未在应用内点击 Continue / Skip；应用内多文件 Skip 仍未单独覆盖。
-- 未验证应用在多文件冲突过程中逐步外部解决一个文件时的中间列表刷新；本批在两次
-  Git 操作后一次性继续。
+- 已观察外部先解决一个文件后的中间列表刷新（1 个文件、b.txt、1/2）；
+  未在中间状态点击应用内 Continue/Skip，也未验证“先外部解决 b、后 a”的反向顺序。
 - 行为/状态证据，不是冲突窗口像素配对；页面级仍 50、像素仍 0。
 
 ## 5. 复验
@@ -53,5 +59,5 @@
 ```powershell
 node tools/audit/conflict-rebase-multifile-resolve.cjs `
   C:/Users/wl024/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright `
-  artifacts/conflict-rebase-multifile-resolve-2026-10-24
+  artifacts/conflict-rebase-gradual-resolve-2026-10-24
 ```
