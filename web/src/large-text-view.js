@@ -88,6 +88,8 @@
     code.setAttribute("role", "document");
     code.setAttribute("aria-label", `Read-only content, ${model.lineCount.toLocaleString("en-US")} lines`);
     code.setAttribute("aria-busy", "true");
+    if (!code.hasAttribute("tabindex")) code.tabIndex = 0;
+    code.setAttribute("aria-activedescendant", "");
     code.style.setProperty("contain", "layout style");
 
     let lines = code.querySelector(":scope > .code-lines");
@@ -270,9 +272,11 @@
         row = document.createElement("div");
         row.className = "code-line";
         row.dataset.line = String(index + 1);
+        row.id = `virtual-line-${index + 1}`;
         row.setAttribute("role", "listitem");
         row.setAttribute("aria-setsize", String(model.lineCount));
         row.setAttribute("aria-posinset", String(index + 1));
+        if (index === state.activeLine) row.setAttribute("aria-current", "true");
         row.style.top = `${index * state.rowHeight}px`;
         const number = document.createElement("span");
         number.className = "line-number";
@@ -283,6 +287,8 @@
         lines.append(row);
       }
       row.classList.toggle("active", index === state.activeLine);
+      if (index === state.activeLine) row.setAttribute("aria-current", "true");
+      else row.removeAttribute("aria-current");
       row.dataset.signature = fullSignature;
       row.querySelector(".virtual-line-text")?.remove();
       row.append(body);
@@ -450,8 +456,32 @@
       event.preventDefault();
     }
 
+    function activateLine(index) {
+      if (!Number.isInteger(index) || index < 0 || index >= model.lineCount) return;
+      state.activeLine = index;
+      const top = index * state.rowHeight;
+      const height = code.clientHeight || 1;
+      if (top < code.scrollTop) code.scrollTop = top;
+      else if (top + state.rowHeight > code.scrollTop + height) code.scrollTop = top + state.rowHeight - height;
+      code.setAttribute("aria-activedescendant", `virtual-line-${index + 1}`);
+      render(true);
+    }
+
     function onKeyDown(event) {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const current = state.activeLine >= 0 ? state.activeLine : Math.max(0, Math.floor(code.scrollTop / state.rowHeight));
+          activateLine(clamp(current + (event.key === "ArrowDown" ? 1 : -1), 0, model.lineCount - 1));
+          return;
+        }
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          activateLine(event.key === "Home" ? 0 : model.lineCount - 1);
+          return;
+        }
+      }
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
         && event.key.toLowerCase() === "a") {
         event.preventDefault();
@@ -553,6 +583,7 @@
         code.scrollTop = center
           ? Math.max(0, top - (height - state.rowHeight) / 2)
           : Math.min(top, Math.max(0, code.scrollTop));
+        code.setAttribute("aria-activedescendant", `virtual-line-${index + 1}`);
         render(true);
         return true;
       },

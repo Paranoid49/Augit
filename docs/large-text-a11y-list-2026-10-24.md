@@ -30,23 +30,42 @@
 - 实例 PID 3456 正常关闭；
 - 报告：`artifacts/large-text-a11y-rows-2026-10-24/large-text-normal-entry.json`。
 
+### 2.1 键盘行导航
+
+窗口层现在可聚焦（`tabindex=0`），并支持：
+
+- `ArrowDown` / `ArrowUp`：逐行移动活动行，滚动到该行；
+- `Home` / `End`：跳到首/末行；
+- `aria-activedescendant="virtual-line-N"`；
+- 活动行 `aria-current="true"`，行号仍 `aria-hidden`。
+
+正常入口 2,000 行样本：
+
+- 点击正文后 `ArrowDown` 两次再 `End`；
+- `activeLine=1999`；
+- `aria-activedescendant=virtual-line-2000`；
+- `aria-current` 行 id 同为 `virtual-line-2000`；
+- 文本 `line 002000 NEEDLE_LAST`；
+- `scrollTop=43,474.9`，说明键盘可到达未显示末尾；
+- 随后 `Home` 复位，Find 3/3、GoTo 2000、末尾均继续通过；
+- 实例 PID 8324 正常关闭；
+- 报告：`artifacts/large-text-keyboard-2026-10-24c/large-text-normal-entry.json`。
+
 ## 3. 自动化
 
-- `live-large-text` 扩展了既有可访问性断言（不增加断言数）：
-  - `linesRole=list`；
-  - list label 精确 `Read-only lines, 2,000 total`；
-  - 首行 `role=listitem`、`aria-posinset=1`、`aria-setsize=2000`；
-  - 仍要求 `a11yLabel="Read-only content, 2,000 lines"`、`a11yLength=0`。
+- `live-large-text` 扩展既有可访问性断言：
+  - `linesRole=list`、list label、首行 `listitem/posinset/setsize`；
+  - `ArrowDown` 两次后 `activeLine=2`、`aria-activedescendant=virtual-line-3`、
+    `aria-current` 同一行；
+  - 仍要求 `a11yLabel`、`a11yLength=0`。
 - 定向运行：**live-large-text 22/22 通过**；
 - 改动后完整 `live-shell` **2371/2371、退出码 0**。
 
 ## 4. 仍不是“全文可访问树”
 
-- 离屏 1,999 / 79,999 / 22,657 行不在可访问树中；屏幕阅读器无法一次性顺序遍历全文。
-- 当前语义是“已知全文长度、当前窗口行的绝对位置”，等价于标准虚拟化列表；
-  不等于把全文文本作为单个可访问节点。
-- 全量 `pre` 方案仍因约 100 s 可访问布局代价不可接受；本批没有回退到全量 DOM，
-  也没有把 `aria-label` 截断当成全文可访问。
+- 当前语义是“已知全文长度 + 键盘/活动行可到达未显示行”，比纯摘要更接近虚拟化列表；
+- 但离屏行仍不同时在可访问树中，屏幕阅读器不能一次顺序遍历全文；
+- 全量 `pre` 方案仍因约 100 s 可访问布局代价不可接受；没有把 `aria-label` 截断当成全文。
 - 页面级配对仍 50、像素仍 0。
 
 ## 5. 复验

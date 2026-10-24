@@ -46,6 +46,10 @@ module.exports = async function liveLargeText({ openScene, check }) {
   }, null, { timeout: 20000 });
   await page.waitForTimeout(100);
 
+  await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+
   const mounted = await page.evaluate(() => {
     const code = document.querySelector('.editor-content .code-view');
     const controller = code.__augitVirtual;
@@ -70,6 +74,10 @@ module.exports = async function liveLargeText({ openScene, check }) {
       ariaBusy: code.getAttribute('aria-busy'),
       firstLine: code.querySelector('.code-line[data-line="1"] .virtual-line-text')?.textContent || null,
       firstLineNumber: code.querySelector('.code-line[data-line="1"] .line-number')?.textContent || null,
+      activeLine: controller.activeLine,
+      activeDescendant: code.getAttribute('aria-activedescendant'),
+      activeRowCurrent: code.querySelector('.code-line[aria-current="true"]')?.id || null,
+      keyboardScrollTop: code.scrollTop,
     };
   });
   check('大文件预览的全文逻辑层覆盖全部 2,000 行: ' + JSON.stringify([mounted.lineCount, mounted.totalHeight, mounted.clientHeight, mounted.rowHeight]),
@@ -79,7 +87,7 @@ module.exports = async function liveLargeText({ openScene, check }) {
     mounted.rows > 0 && mounted.rows < 120 && mounted.rows < fixture.count / 4);
   check('大文件预览的加载状态结束且行号/正文对应: ' + JSON.stringify([mounted.ariaBusy, mounted.firstLineNumber, mounted.firstLine, mounted.mountedMs]),
     mounted.ariaBusy === 'false' && mounted.firstLineNumber === '1' && mounted.firstLine.startsWith('line 1 needle first'));
-  check('大文件预览提供窗口层可访问文本与全文行数: ' + JSON.stringify([mounted.a11yLength, mounted.a11yLabel, mounted.codeLabel, mounted.a11yRole, mounted.linesAriaHidden, mounted.linesRole, mounted.linesLabel, mounted.firstRowRole, mounted.firstRowPos, mounted.firstRowSet, mounted.accessibleMs]),
+  check('大文件预览提供窗口层可访问文本与全文行数: ' + JSON.stringify([mounted.a11yLength, mounted.a11yLabel, mounted.codeLabel, mounted.a11yRole, mounted.linesAriaHidden, mounted.linesRole, mounted.linesLabel, mounted.firstRowRole, mounted.firstRowPos, mounted.firstRowSet, mounted.activeLine, mounted.activeDescendant, mounted.activeRowCurrent, mounted.accessibleMs]),
     mounted.a11yLength === 0
       && mounted.a11yRole === 'document'
       && mounted.a11yLabel === 'Read-only content, 2,000 lines'
@@ -90,6 +98,9 @@ module.exports = async function liveLargeText({ openScene, check }) {
       && mounted.firstRowRole === 'listitem'
       && mounted.firstRowPos === 1
       && mounted.firstRowSet === 2000
+      && mounted.activeLine === 2
+      && mounted.activeDescendant === 'virtual-line-3'
+      && mounted.activeRowCurrent === 'virtual-line-3'
       && mounted.accessibleMs < 1000);
 
   // ---- 滚动到未显示区域：最后一行可见 ---------------------------------------

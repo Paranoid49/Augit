@@ -295,6 +295,25 @@ async function closeWindow(pid) {
         };
       });
 
+      let keyboard = null;
+      if (sample.key === 'small') {
+        await page.locator('.editor-content .code-view').click({ position: { x: 200, y: 40 } });
+        await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('End');
+        keyboard = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return {
+            activeLine: code.__augitVirtual.activeLine,
+            activeDescendant: code.getAttribute('aria-activedescendant'),
+            activeRow: code.querySelector('.code-line[aria-current="true"]')?.id || null,
+            scrollTop: code.scrollTop,
+            endRowText: code.querySelector('.code-line[aria-current="true"] .virtual-line-text')?.textContent || null,
+          };
+        });
+        await page.keyboard.press('Home');
+      }
+
       // 全选复制：Ctrl+A 必须选中全文模型，而不是当前可见窗口。mid 对磁盘文件做
       // 长度/SHA256；huge 是宿主 2.5 MB TextPreview，对 bridge 的 text 长度做校验。
       let selectAll = null;
@@ -465,7 +484,7 @@ async function closeWindow(pid) {
       if (find.status !== '3/3' || find.line !== sample.findLine) failures.push('find=' + find.status + '@' + find.line);
       if (goto.dialog || goto.line !== gotoLine) failures.push('goto=' + goto.line + ' expected=' + gotoLine);
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
-      report.samples.push({ key: sample.key, file: sample.file, opened, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });
+      report.samples.push({ key: sample.key, file: sample.file, opened, keyboard, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });
       if (failures.length) throw new Error(sample.key + ' 正常入口失败: ' + JSON.stringify(failures));
       await page.evaluate(() => window.__augitOpenDocument('sample.txt')).catch(() => {});
       await page.waitForTimeout(300);
