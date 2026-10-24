@@ -1,6 +1,6 @@
 ﻿param(
     [string]$OutputDirectory = 'artifacts',
-    [string]$Version = '1.0.0-beta.1'
+    [string]$Version = '1.0.0-rc.1'
 )
 
 $ErrorActionPreference = 'Stop'

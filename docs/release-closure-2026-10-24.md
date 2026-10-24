@@ -82,6 +82,10 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
 - B3：真实前台 OS 鼠标点击 Continue，`pointerdown=1`、Git 状态符合预期；见[真实鼠标记录](conflict-rebase-real-mouse-continue-2026-10-24.md)。
 - B4：80,000 行软换行 30/30（页面级）与真实外壳 0 失败，边界为 5.23s 全量构建；见[软换行边界](large-text-wrap-boundary-2026-10-24.md)。
 - A5/B6：`ShellStartupProbe` 与官方下载地址、`VerifyRuntime.ps1` 0/9/10/11/12 分支；见[运行时提示记录](runtime-missing-messaging-2026-10-24.md)。
+- B5/B8：最终 Beta 便携包 `artifacts/release-1.0.0-beta.1/final2/`（源提交 `51dcadd`，exe ProductVersion
+  `1.0.0-beta.1+51dcadd…`），zip SHA256 `0d11e998…`、setup `f937bf99…`；`verify-portable-package` PASS。
+  首次最终包（`a931a1c`）启动只弹 `#32770` 的回归已定位为探测早于加载器加载并修复，未进入交付。
+  安装/覆盖升级/卸载见 B5（需管理员）。
 - 新增自动化：`RefreshStageTraceTests`、`RefreshTraceBridgeTests`、`WorkspaceFileWatcherTests` 阶段回调、`ShellFailureTextTests` 运行时文案；
   新增/修改审计脚本 `verify-portable-package.ps1`、`click-window.ps1`（绝对坐标）、`refresh-content-onset.cjs`（宿主阶段）、
   `git-metadata-refresh.cjs`（宿主阶段）、`conflict-rebase-multifile-continue-os.cjs`、`large-text-normal-entry.cjs`（软换行）。
