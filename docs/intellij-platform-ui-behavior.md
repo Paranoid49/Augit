@@ -348,9 +348,9 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-24 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `dc0729bb30046df008d31cd30c3fce82` |
-| `web/src/mockup.js` | `4bc36471ebbd2697da56021e511e5474` |
-| `web/src/live-data.js` | `f140f1e278485b88fc17fff5ddd405ef` |
+| `web/src/mockup.css` | `f29a206ca7beeec939a126862694894b` |
+| `web/src/mockup.js` | `24f48f84d7a7f0cc1a847078cadc6e78` |
+| `web/src/live-data.js` | `86a160746fc6c301002aea5b2e434799` |
 | `web/src/bridge.js` | `457ec3159fc3a91f727c20e27f43207e` |
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
@@ -366,8 +366,8 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 | 文件 | md5（2026-10-05 当前复核值） |
 | --- | --- |
-| `web/src/mockup.css` | `dc0729bb30046df008d31cd30c3fce82`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
-| `web/src/mockup.js` | `4bc36471ebbd2697da56021e511e5474`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
+| `web/src/mockup.css` | `f29a206ca7beeec939a126862694894b`（当前复核：快捷键配套布局、工具轨步长、工具栏尺寸与 Diff 顺序） |
+| `web/src/mockup.js` | `24f48f84d7a7f0cc1a847078cadc6e78`（当前复核：树状态映射、状态标记与历史文件通用选择器） |
 | `web/src/live-data.js` | `6812d388cb695ce1902389a718f8c60a`（当前复核：搜索/快捷键状态机、终端代际、树状态变化与 HEAD 快照） |
 | `web/src/bridge.js` | `8d2d3173074a8558cd12e6778b3bfc82` |
 | `live-shell.spec.cjs`（工作区版） | `eb28c7ba5572cbaa722af56daa8b8397`（当前复核：项目树 Git 状态、快捷键/搜索/查找状态机与布局断言，断言数 2332 → 2373） |

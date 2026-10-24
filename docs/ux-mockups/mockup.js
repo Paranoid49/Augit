@@ -2173,15 +2173,21 @@ function remoteSampleRows() {
  * Define Remote 次模态正文（权威 `GitDefineRemoteDialog.kt:69-85`）：
  * Name／URL 两行 + `Fetch remote` 复选框（参考默认勾选）；Push URL 是本产品额外一行。
  */
-function remoteDefineBody(draft, { busy = false, error = "" } = {}) {
+function remoteDefineBody(draft, { busy = false, error = "", invalidField = "" } = {}) {
   const disabled = busy ? " disabled" : "";
+  const field = (name, extra = "") => ({
+    className: `text-field${invalidField === name ? " invalid" : ""}`,
+    aria: invalidField === name ? ' aria-invalid="true"' : "",
+    extra,
+  });
+  const name = field("name"), url = field("fetchUrl"), push = field("pushUrl");
   return `<div class="remote-define-form"><div class="form-grid">`
     + `<label for="remote-define-name">Name:</label>`
-    + `<input id="remote-define-name" class="text-field" data-remote-field="name" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.name)}"${disabled}>`
+    + `<input id="remote-define-name" class="${name.className}" data-remote-field="name" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.name)}"${name.aria}${disabled}>`
     + `<label for="remote-define-url">URL:</label>`
-    + `<input id="remote-define-url" class="text-field" data-remote-field="fetchUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.fetchUrl)}"${disabled}>`
+    + `<input id="remote-define-url" class="${url.className}" data-remote-field="fetchUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.fetchUrl)}"${url.aria}${disabled}>`
     + `<label for="remote-define-push">Push URL:</label>`
-    + `<input id="remote-define-push" class="text-field" data-remote-field="pushUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.pushUrl || "")}"${disabled}>`
+    + `<input id="remote-define-push" class="${push.className}" data-remote-field="pushUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.pushUrl || "")}"${push.aria}${disabled}>`
     + `</div><div class="check-line"><input type="checkbox" id="remote-define-fetch" data-remote-field="fetch"${draft.fetch === false ? "" : " checked"}${disabled}><label for="remote-define-fetch">Fetch remote</label></div>`
     + `<p class="remote-notice commit-meta" role="status"${error ? "" : " hidden"}>${escapeHtml(error)}</p></div>`;
 }

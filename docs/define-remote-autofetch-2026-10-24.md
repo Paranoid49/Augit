@@ -1,72 +1,84 @@
-# Define Remote 自动 Fetch 失败的内联反馈与换行修复（2026-10-24）
+# Define Remote 自动 Fetch 失败：保留对话框并回滚（2026-10-24）
 
-> 结论：正常入口（无远端仓库 → 分支 chip → Push… → Define remote → Add → 无效 URL → OK）
-> 保存远端后自动 Fetch 失败，管理器保持打开，内联 notice 显示 `Added badremote.` 和完整
-> Git 错误；主窗 toast 不出现。修复前该 notice 因 `.commit-meta { white-space: nowrap }`
-> 被对话框 `overflow:hidden` 截断，只能看到 `http://127.0.0.1:1/rep…`。
+> 结论：按参考 PyCharm `GitDefineRemoteDialog` 修正生命周期。无远端仓库正常入口中，
+> 无效 URL 的自动 Fetch 失败后：Define Remote **保持打开**、URL 红框、对话框底部显示
+> 完整 Git 错误；刚写入的远端被**回滚删除**，管理器和 Push 预览都不出现新远端、也不弹
+> toast。与参考仍有“URL 旁气球 vs 对话框底部内联 notice”的位置差异。
 
-## 1. 正常入口步骤
+## 1. 正常入口
 
-- 临时仓库无 remote；真实启动 `start-augit.ps1 -SkipBuild`。
-- 真实鼠标：
-  1. 分支 chip → `Push…`；
-  2. Push 对话框中的 `Define remote`；
-  3. Git Remotes 管理器 `Add`；
-  4. Name 清空后输入 `badremote`，URL 输入 `http://127.0.0.1:1/repo.git`；
-  5. OK。
-- 等待 `.remote-window .remote-notice` 含 `Added badremote` 和 Git 错误；截图。
+- 临时 Git 仓库无 remote；真实 `start-augit.ps1 -SkipBuild`。
+- 分支 chip → `Push…` → `Define remote` → `Add`；
+- Name 清空为 `badremote`，URL `http://127.0.0.1:1/repo.git`，OK。
 
-## 2. 修复前
+## 2. 修复
 
-`artifacts/define-remote-autofetch-2026-10-24b/define-remote-autofetch.png`：
+`web/src/live-data.js` 的 `saveRemoteDefine()`：
 
-- notice 文本实际是完整的：
-  ```
-  Added badremote. fatal: unable to access 'http://127.0.0.1:1/repo.git/':
-  The requested URL returned error: 502 Run Fetch again later.
-  ```
-- 但视觉上只显示到 `http://127.0.0.1:1/rep…`，后面被裁掉；原因是 notice 同时带
-  `.commit-meta` 的 `white-space: nowrap`，而 `.remote-dialog .dialog-body` 是
-  `overflow: hidden`。
-- 管理器仍打开、toast 不存在；行为正确，呈现不完整。
+1. 写入远端（add/update）后，**先**在 Define 对话框仍打开时执行 `git/fetch`；
+2. Fetch 失败：
+   - add 回滚为 `git/remote-write {action:"delete", name}`；
+   - update 回滚为原 name/fetchUrl/pushUrl；
+   - `reloadRemotes()` 后重新渲染 Define，设置 `error` 与 `invalidField="fetchUrl"`；
+   - 不关闭 Define、不写管理器 notice、不设置 `__augitRemoteSaved`；
+3. Fetch 成功才关闭 Define、刷新管理器并显示 `Added … Fetched …`。
 
-## 3. 修复
+`web/src/mockup.js`：
+
+- `remoteDefineBody()` 支持 `invalidField`，URL 加 `aria-invalid="true"` 和 `.invalid`；
+- 重绘后 Define 层级保持在管理器之上。
 
 `web/src/mockup.css`：
 
 ```css
-.remote-content .remote-notice {
-  margin: 6px;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
+.remote-define-dialog .text-field.invalid { border-color: var(--augit-red); }
+.remote-define-dialog .remote-notice { white-space: normal; overflow-wrap: anywhere; }
 ```
 
-- 同步到 `docs/ux-mockups/mockup.css`，`verify-ui-assets` 通过。
-- `live-goal-remote.cjs` 的自动 Fetch 失败断言增加：
-  `whiteSpace=normal`、`overflowWrap=anywhere`、`scrollWidth <= clientWidth+1`（不裁切）。
+- 同步 `docs/ux-mockups/`，`verify-ui-assets` PASS。
 
-## 4. 修复后
+## 3. 结果
 
-`artifacts/define-remote-autofetch-2026-10-24e/define-remote-autofetch.png`：
+正常入口报告：`artifacts/define-remote-reference-fix-2026-10-24e/define-remote-autofetch.json`：
 
-- 完整错误分三行显示在管理器内、OK 按钮上方；
-- 实例 PID 24832 正常关闭（先关管理器、再关 Push、再关主窗），`pidAlive=false`；
-- 管理器仍打开，Push 对话框仍在底层；
-- `toast=false`，没有用被模态遮挡的主窗 toast 冒充反馈。
+| 项 | 值 |
+| --- | --- |
+| Define 对话框 | **保持打开** |
+| URL `aria-invalid` | **true / 红框** |
+| Define notice | 完整 502 文本，两行换行 |
+| 管理器 notice | null |
+| 管理器新行 | 无 |
+| toast | 无 |
+| 主窗 Push 对话框 | 仍在底层 |
+| `git remote` | **空**（回滚成功） |
+| 实例 | PID 8296 正常关闭，`pidAlive=false` |
+| 截图 | `.../define-remote-autofetch.png` |
 
-## 5. 证据
+## 4. 与参考对比
 
-- 正常入口报告：`artifacts/define-remote-autofetch-2026-10-24e/define-remote-autofetch.json`（含 `manager/notice/toast/pushDialog`）。
-- 修复前截图：`...-2026-10-24b/`；修复后：`...-2026-10-24d/`。
-- `live-shell` 相关断言扩展后，完整套件 2371/2371 通过（退出码 0）。
+| 项 | 参考 | Augit |
+| --- | --- | --- |
+| Define 保持打开 | 是 | 是 |
+| URL 红框 | 是 | 是 |
+| 不写远端 | 是 | 是 |
+| 管理器通知 | 无 | 无 |
+| 错误位置 | URL 旁气球 | 对话框底部 notice（**差异**） |
+
+参考截图：[Define Remote 参考反馈](define-remote-reference-2026-10-24.md)。
+
+## 5. 自动化
+
+- `live-goal-remote` 自动 Fetch 失败断言改为：
+  - Define 仍在、URL `aria-invalid=true`；
+  - 写序列最后两步为 `add` + `delete`；
+  - 无 fetchfail 行、无管理器 notice；
+  - notice 不裁切、无 toast。
+- 完整 `live-shell` 2371/2371 通过（退出码 0）。
+- `define-remote-autofetch.cjs` 正常入口报告 `remoteConfig=""`。
 
 ## 6. 边界
 
-- 只验证 Augit 侧内联反馈；PyCharm 参考侧已通过键盘+截图单独取得（见
-  [Define Remote 参考反馈](define-remote-reference-2026-10-24.md)），参考会保留 Define
-  Remote、在 URL 旁显示气球且不写入远端；Augit 当前的管理器内联 notice 是**差距**，
-  不能写成参考一致。
-- 错误使用本机 `127.0.0.1:1` 的 502，不覆盖真实网络、认证、代理和慢盘。
-- notice 是文本换行修复，不是参考像素；页面级配对仍 50、像素仍 0。
-- Define 对话框的 Name/URL/Push URL 布局、校验、删除和重命名不属于本批新证据。
+- 位置仍是内联 notice，不是参考的 URL 旁气球；不写成参考像素一致。
+- 只验证新增远端；编辑远端回滚走同一代码路径但未单独正常入口复验。
+- 错误来自本机 `127.0.0.1:1` 502，不覆盖认证、代理、慢盘。
+- 页面级配对仍 50、像素仍 0。

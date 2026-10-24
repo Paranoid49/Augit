@@ -9296,7 +9296,10 @@ function renderRemoteManager({ focus = false } = {}) {
   if (!live || !host) return null;
   // 只删远端自己的覆盖层：Push／设置／冲突等由各自路径管理。
   document.querySelectorAll(".live-overlay.remote-window").forEach((node) => node.remove());
-  document.querySelectorAll(".live-overlay.remote-define-window, .live-overlay.remote-confirm-window").forEach((node) => node.remove());
+  document.querySelectorAll(".live-overlay.remote-confirm-window").forEach((node) => node.remove());
+  // Define 仍持有 draft 时（例如自动 Fetch 失败后保留对话框）不能被管理器刷新移除。
+  const keptDefine = live.remoteDraft ? document.querySelector(".live-overlay.remote-define-window") : null;
+  if (!keptDefine) document.querySelectorAll(".live-overlay.remote-define-window").forEach((node) => node.remove());
   const layer = document.createElement("div");
   layer.className = "overlay-layer live-overlay remote-window";
   layer.setAttribute("data-augit-overlay", "");
@@ -9307,6 +9310,7 @@ function renderRemoteManager({ focus = false } = {}) {
     true,
     "remote-dialog");
   host.appendChild(layer);
+  if (keptDefine && keptDefine.parentElement === host) host.appendChild(keptDefine);
   // 标题栏关闭叉也是「OK」（参考 `createActions() = arrayOf(okAction)` 的唯一动作）。
   layer.querySelector(".dialog-header .icon-button")?.setAttribute("data-remote-action", "close");
   if (typeof measureRemoteDialog === "function") measureRemoteDialog();
@@ -9400,7 +9404,7 @@ function renderRemoteDefine() {
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
     "Define Remote",
-    remoteDefineBody(draft, { busy: !!draft.busy, error: draft.error || "" }),
+    remoteDefineBody(draft, { busy: !!draft.busy, error: draft.error || "", invalidField: draft.invalidField || "" }),
     `<button type="button" class="primary-button" data-remote-define="ok"${draft.busy ? " disabled" : ""}>OK</button>`
       + '<button type="button" class="secondary-button" data-remote-define="cancel">Cancel</button>',
     false,
@@ -9515,6 +9519,41 @@ async function saveRemoteDefine() {
   }
 
   const shouldFetch = draft.fetch !== false;
+  let fetchedOk = false;
+  if (shouldFetch) {
+    let fetched = null;
+    try {
+      fetched = await invoke("git/fetch", { remote: draft.name }, 0);
+    } catch (error) {
+      fetched = { available: false, fetched: false, reason: String((error && error.message) || error) };
+    }
+    if (generation !== remoteRun.generation) return result;
+    fetchedOk = !!(fetched && fetched.available !== false && fetched.fetched !== false);
+    if (!fetchedOk) {
+      // 参考 GitDefineRemoteDialog：Fetch 失败时保留 Define 对话框、回滚刚写入的远端，
+      // 在 URL 处显示错误；不把远端留在配置里，也不把错误挪到管理器内联 notice。
+      let rollbackError = null;
+      try {
+        const rollback = draft.currentName
+          ? { action: "update", currentName: draft.name, name: (original && original.name) || draft.currentName, fetchUrl: originalUrl, pushUrl: originalPush }
+          : { action: "delete", name: draft.name };
+        await invoke("git/remote-write", rollback, 0);
+      } catch (error) {
+        rollbackError = String((error && error.message) || error);
+      }
+      await reloadRemotes(generation).catch(() => null);
+      remoteRun.saving = false;
+      const message = describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Check the URL, then retry." })
+        + (rollbackError ? " " + describeFailure(rollbackError, { next: "Check the remote manually." }) : "");
+      live.remoteDraft = { ...draft, error: message, invalidField: "fetchUrl", busy: false };
+      const defineLayer = renderRemoteDefine();
+      // 管理器的刷新可能在本层之后重建；显式把 Define 放回最后，保证它仍位于管理器之上。
+      const host = document.querySelector(".augit-window");
+      if (defineLayer && host && defineLayer.parentElement === host) host.appendChild(defineLayer);
+      return null;
+    }
+  }
+
   window.__augitRemoteSaved = true;
   live.remoteDraft = null;
   closeRemoteDefine({ restoreFocus: false, invalidate: false });
@@ -9525,27 +9564,11 @@ async function saveRemoteDefine() {
   live.selectedRemoteIndex = index >= 0 ? index : (refreshed.length > 0 ? 0 : null);
   renderRemoteManager({ focus: true });
   const savedNotice = draft.currentName ? `Saved ${draft.name}.` : `Added ${draft.name}.`;
-  setRemoteNotice(savedNotice);
+  setRemoteNotice(shouldFetch ? `${savedNotice} Fetched ${draft.name}.` : savedNotice);
   refreshPush();
-  if (shouldFetch) {
-    let fetched = null;
-    try {
-      fetched = await invoke("git/fetch", { remote: draft.name }, 0);
-    } catch (error) {
-      fetched = { available: false, fetched: false, reason: String((error && error.message) || error) };
-    }
-    if (generation !== remoteRun.generation) return result;
-    const ok = !!(fetched && fetched.available !== false && fetched.fetched !== false);
-    // 自动 Fetch 发生在远端管理模态内。Augit 的 toast 位于主窗页面层，会被模态窗口遮挡；
-    // 参考的原生 VcsNotifier 可浮在模态之上，当前无法用页内 toast 等价复现。
-    // 因此失败仍写管理器内联 notice，保留可见反馈；该项登记为呈现差异。
-    setRemoteNotice(ok
-      ? `${savedNotice} Fetched ${draft.name}.`
-      : `${savedNotice} ${describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Run Fetch again later." })}`);
-    if (document.querySelector('.push-dialog')) {
-      await loadUnpushed().catch(() => null);
-      if (generation === remoteRun.generation) refreshPush();
-    }
+  if (document.querySelector('.push-dialog')) {
+    await loadUnpushed().catch(() => null);
+    if (generation === remoteRun.generation) refreshPush();
   }
   return result;
 }

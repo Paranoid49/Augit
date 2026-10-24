@@ -246,8 +246,8 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
         && added.fetchCalls === 1 && added.fetchParams[0].remote === 'backup'
         && added.rows.includes('backup') && /Added backup/.test(added.notice || ''));
 
-    // 自动 Fetch 失败：Augit 页内 toast 会被远端管理模态遮挡，因此保留管理器内联错误；
-    // 参考的 VcsNotifier 浮层无法用当前页内通知等价复现，登记为呈现差异。
+    // 自动 Fetch 失败：参考 GitDefineRemoteDialog 保留 Define、URL 红框、错误留在 URL 附近；
+    // 本轮回滚新增远端，不写管理器内联 notice，也不弹被遮挡的 toast。
     await openDefine(page, 'add');
     await page.locator(`${DEFINE} [data-remote-field="name"]`).fill('fetchfail');
     await page.locator(`${DEFINE} [data-remote-field="fetchUrl"]`).fill('https://example.com/fail.git');
@@ -258,31 +258,42 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
     });
     await page.locator(`${DEFINE} .dialog-footer [data-remote-define="ok"]`).click();
     await page.waitForFunction('(window.__fetchCalls || 0) > 0', null, { timeout: 10000 });
-    await page.waitForSelector(DEFINE, { state: 'detached', timeout: 5000 });
+    await page.waitForFunction(() => {
+      const notice = document.querySelector('.remote-define-window .remote-notice');
+      return !!notice && !notice.hidden && /No remote configured/.test(notice.textContent || '');
+    }, null, { timeout: 10000 });
     const autoFetchFailed = await page.evaluate(() => {
-      const notice = document.querySelector('.remote-window .remote-notice');
+      const notice = document.querySelector('.remote-define-window .remote-notice');
       return {
         writes: window.__remoteWrites || [],
         fetchCalls: window.__fetchCalls || 0,
+        defineOpen: !!document.querySelector('.remote-define-window'),
+        managerNotice: document.querySelector('.remote-window .remote-notice')?.textContent || null,
         notice: notice ? notice.textContent : null,
         noticeWhiteSpace: notice ? getComputedStyle(notice).whiteSpace : null,
         noticeOverflowWrap: notice ? getComputedStyle(notice).overflowWrap : null,
         noticeClipped: notice ? notice.scrollWidth > notice.clientWidth + 1 : null,
+        urlInvalid: document.querySelector('.remote-define-window [data-remote-field="fetchUrl"]')?.getAttribute('aria-invalid') || null,
         toastTitle: (document.querySelector('.toast-title') || {}).textContent || null,
         rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
       };
     });
-    check('自动 Fetch 失败在远端管理器内联显示错误且不弹被遮挡的 toast: ' + JSON.stringify(autoFetchFailed),
-      autoFetchFailed.writes.length === 2
-        && autoFetchFailed.writes[1].action === 'add' && autoFetchFailed.writes[1].name === 'fetchfail'
+    check('自动 Fetch 失败保留 Define、红框且回滚远端: ' + JSON.stringify(autoFetchFailed),
+      autoFetchFailed.defineOpen
+        && autoFetchFailed.writes.length >= 2
+        && autoFetchFailed.writes[autoFetchFailed.writes.length - 2].action === 'add'
+        && autoFetchFailed.writes[autoFetchFailed.writes.length - 1].action === 'delete'
         && autoFetchFailed.fetchCalls === 1
-        && autoFetchFailed.rows.includes('fetchfail')
-        && /Added fetchfail/.test(autoFetchFailed.notice || '')
+        && !autoFetchFailed.rows.includes('fetchfail')
+        && !/fetchfail/.test(autoFetchFailed.managerNotice || '')
         && /No remote configured/.test(autoFetchFailed.notice || '')
+        && autoFetchFailed.urlInvalid === 'true'
         && autoFetchFailed.noticeWhiteSpace === 'normal'
         && autoFetchFailed.noticeOverflowWrap === 'anywhere'
         && autoFetchFailed.noticeClipped === false
         && autoFetchFailed.toastTitle === null);
+    await page.locator(`${DEFINE} .dialog-footer [data-remote-define="cancel"]`).click();
+    await page.waitForSelector(DEFINE, { state: 'detached', timeout: 5000 });
     await page.evaluate(() => { window.__fetchFails = false; });
 
     // 改名：改 Name 走 update 并带 currentName。
@@ -298,8 +309,8 @@ module.exports = async function verifyGoalRemote({ openScene, check }) {
       rows: [...document.querySelectorAll('.remote-window .remote-row[data-remote-index]')].map((row) => row.dataset.remoteEntry),
     }));
     check('改名按 update 提交 currentName 并取回新名: ' + JSON.stringify({ writes: renamed.writes.map((write) => [write.action, write.currentName, write.name]), rows: renamed.rows }),
-      renamed.writes.length === 3 && renamed.writes[2].action === 'update'
-        && renamed.writes[2].currentName === 'origin' && renamed.writes[2].name === 'upstream'
+      renamed.writes.length >= 2 && renamed.writes[renamed.writes.length - 1].action === 'update'
+        && renamed.writes[renamed.writes.length - 1].currentName === 'origin' && renamed.writes[renamed.writes.length - 1].name === 'upstream'
         && renamed.fetchParams[0].remote === 'upstream'
         && renamed.rows.includes('upstream') && !renamed.rows.includes('origin'));
 

@@ -72,13 +72,17 @@ async function launch(workspace,settings,port){const lit=v=>"'"+String(v).replac
   await clickCss(hwnd,await rect('[data-remote-field="name"]')); await selectAll(); await pasteText('badremote');
   await clickCss(hwnd,await rect('[data-remote-field="fetchUrl"]')); await selectAll(); await pasteText('http://127.0.0.1:1/repo.git');
   await clickCss(hwnd,await rect('[data-remote-define="ok"]'));
-  await page.waitForFunction(()=>{const n=document.querySelector('.remote-window .remote-notice');const t=n?.textContent||'';return t.includes('Added badremote') && (t.includes('unable')||t.includes('fatal')||t.includes('Fetch failed'))},null,{timeout:30000});
+  await page.waitForFunction(()=>{const n=document.querySelector('.remote-define-dialog .remote-notice');const t=n?.textContent||'';return !n?.hidden && (t.includes('unable')||t.includes('502')||t.includes('Fetch failed'))},null,{timeout:30000});
   await delay(500);
-  const result=await page.evaluate(()=>({manager:!!document.querySelector('.remote-dialog'),notice:document.querySelector('.remote-window .remote-notice')?.textContent||null,toast:!!document.querySelector('.toast'),toastText:document.querySelector('.toast')?.innerText||null,pushDialog:!!document.querySelector('.push-dialog')}));
+  const result=await page.evaluate(()=>({defineOpen:!!document.querySelector('.remote-define-dialog'),urlInvalid:document.querySelector('[data-remote-field="fetchUrl"]')?.getAttribute('aria-invalid')||null,notice:document.querySelector('.remote-define-dialog .remote-notice')?.textContent||null,manager:!!document.querySelector('.remote-dialog'),managerNotice:document.querySelector('.remote-window .remote-notice')?.textContent||null,managerHasRow:!!document.querySelector('.remote-window .remote-row[data-remote-entry="badremote"]'),toast:!!document.querySelector('.toast'),toastText:document.querySelector('.toast')?.innerText||null,pushDialog:!!document.querySelector('.push-dialog'),overlayOrder:[...document.querySelectorAll('.live-overlay')].map(n=>n.className)}));
+  result.remoteConfig=(await execute('git',['remote'],{cwd:workspace,windowsHide:true})).stdout.trim();
+  await delay(1200);
   await page.screenshot({path:path.join(output,'define-remote-autofetch.png')});
   report.steps.push({result});
   // 先正常关闭两层对话框，再关主窗；否则 WM_CLOSE 会被仍打开的管理器/推送窗挡住。
   try {
+    await clickCss(hwnd,await rect('[data-remote-define="cancel"]'));
+    await page.waitForSelector('.remote-define-dialog',{state:'detached',timeout:10000});
     await clickCss(hwnd,await rect('[data-remote-action="ok"]'));
     await page.waitForSelector('.remote-dialog',{state:'detached',timeout:10000});
     await clickCss(hwnd,await rect('[data-push-action="cancel"]'));
