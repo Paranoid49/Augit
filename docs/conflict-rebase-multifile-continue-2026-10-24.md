@@ -50,6 +50,19 @@ Abort Rebase   Skip   Continue Rebase
   `external-edit-add`、`external-resolve-state`）
 - 脚本：`tools/audit/conflict-rebase-multifile-continue.cjs`
 
+### 5.1 真实鼠标输入尝试
+
+本批曾尝试用 `click-window.ps1` 在 Continue 按钮的 CSS 矩形中心发 Win32 鼠标事件：
+
+- 输出 `windowFromPoint ... match=True`，但 Continue 未被触发；
+- 随后用 `capture-screen-region.ps1` 做窗口截图时，目标不是前台窗口（另一应用占前台），
+  采集被拒绝；
+- 因此本批**没有**取得真实前台鼠标点击 Continue 的证据，已回到页面 locator 点击，
+  不把 CDP 点击写成 OS 鼠标通过。
+
+后续若要补真实鼠标，需要先把 Augit 置于前台/无遮挡，并用窗口截图像素定位按钮，
+不能继续用 CSS 矩形直接映射屏幕坐标。
+
 ## 5. 边界
 
 - Continue 输入用页面 locator 点击，不是真实 OS 鼠标；因此不能替代前台鼠标点击验收。
