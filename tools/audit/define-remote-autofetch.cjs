@@ -59,6 +59,7 @@ async function launch(workspace,settings,port){const lit=v=>"'"+String(v).replac
   const listener=net.createServer(); await new Promise(r=>listener.listen(0,'127.0.0.1',r)); const port=listener.address().port; await new Promise(r=>listener.close(r));
   pid=await launch(workspace,settings,port); const hwnd=await waitWindow(pid); report.pid=pid; report.hwnd=hwnd; report.port=port; await topmost(hwnd);
   browser=await connect(port); const page=browser.contexts().flatMap(c=>c.pages()).find(x=>x.url().includes('index.html'));
+  const pageErrors=[]; page.on('pageerror',e=>pageErrors.push(String(e))); page.on('console',m=>{if(m.type()==='error')pageErrors.push('console:'+m.text())}); report.pageErrors=pageErrors;
   await page.waitForFunction('window.__augitReady===true && window.__augitGitReady===true',null,{timeout:30000});
   const rect=async sel=>page.evaluate(s=>{const n=document.querySelector(s);const r=n.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height}},sel);
   const chip=await rect('.top-chip.branch-chip'); await clickCss(hwnd,chip);
@@ -71,8 +72,12 @@ async function launch(workspace,settings,port){const lit=v=>"'"+String(v).replac
   await page.waitForSelector('[data-remote-field="name"]',{timeout:15000});
   await clickCss(hwnd,await rect('[data-remote-field="name"]')); await selectAll(); await pasteText('badremote');
   await clickCss(hwnd,await rect('[data-remote-field="fetchUrl"]')); await selectAll(); await pasteText('http://127.0.0.1:1/repo.git');
+  report.preClick=await page.evaluate(()=>{const ok=document.querySelector('[data-remote-define="ok"]');const d=document.querySelector('.remote-define-window .dialog');const r=ok?.getBoundingClientRect();const dr=d?.getBoundingClientRect();return{ok:r?{x:r.x,y:r.y,w:r.width,h:r.height}:null,dialog:dr?{x:dr.x,y:dr.y,w:dr.width,h:dr.height}:null,viewport:[innerWidth,innerHeight]}});
+  await page.screenshot({path:path.join(output,'before-ok.png')});
   await clickCss(hwnd,await rect('[data-remote-define="ok"]'));
-  await page.waitForFunction(()=>{const n=document.querySelector('.remote-define-dialog .remote-notice');const t=n?.textContent||'';return !n?.hidden && (t.includes('unable')||t.includes('502')||t.includes('Fetch failed'))},null,{timeout:30000});
+  await delay(1200);
+  report.postClick=await page.evaluate(()=>({define:!!document.querySelector('.remote-define-window'),draft:window.__augitLive?.remoteDraft||null,notice:[...document.querySelectorAll('.remote-define-window .remote-notice')].map(n=>({text:n.textContent,hidden:n.hidden,display:getComputedStyle(n).display})),manager:!!document.querySelector('.remote-window')}));
+  try { await page.waitForFunction(()=>{const n=document.querySelector('.remote-define-dialog .remote-notice');const t=n?.textContent||'';return !n?.hidden && (t.includes('unable')||t.includes('502')||t.includes('Fetch failed'))},null,{timeout:30000}); } catch (e) { report.balloonDebug=await page.evaluate(()=>({define:!!document.querySelector('.remote-define-dialog'),defineHtml:document.querySelector('.remote-define-dialog')?.innerHTML.slice(0,1500)||null,notices:[...document.querySelectorAll('.remote-notice')].map(n=>({text:n.textContent,hidden:n.hidden,display:getComputedStyle(n).display,rect:n.getBoundingClientRect().toJSON()})),url:document.querySelector('[data-remote-field="fetchUrl"]')?.value||null,draft:window.__augitLive?.remoteDraft||null})); throw e; }
   await delay(500);
   const result=await page.evaluate(()=>({defineOpen:!!document.querySelector('.remote-define-dialog'),urlInvalid:document.querySelector('[data-remote-field="fetchUrl"]')?.getAttribute('aria-invalid')||null,notice:document.querySelector('.remote-define-dialog .remote-notice')?.textContent||null,manager:!!document.querySelector('.remote-dialog'),managerNotice:document.querySelector('.remote-window .remote-notice')?.textContent||null,managerHasRow:!!document.querySelector('.remote-window .remote-row[data-remote-entry="badremote"]'),toast:!!document.querySelector('.toast'),toastText:document.querySelector('.toast')?.innerText||null,pushDialog:!!document.querySelector('.push-dialog'),overlayOrder:[...document.querySelectorAll('.live-overlay')].map(n=>n.className)}));
   result.remoteConfig=(await execute('git',['remote'],{cwd:workspace,windowsHide:true})).stdout.trim();

@@ -1014,7 +1014,7 @@ function measureRemoteDialog() {
     const content = define.querySelector('.remote-define-form').getBoundingClientRect().height;
     const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
     const padding = parseFloat(bodyStyle.paddingTop) + parseFloat(bodyStyle.paddingBottom);
-    const height = Math.max(207 + row + 8, header + footer + content + padding + borders);
+    const height = Math.max(207 + row + 8, header + footer + content + padding + borders + 24);
     define.style.setProperty("--remote-define-height", `${height}px`);
   }
 }
@@ -2188,8 +2188,7 @@ function remoteDefineBody(draft, { busy = false, error = "", invalidField = "" }
     + `<input id="remote-define-url" class="${url.className}" data-remote-field="fetchUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.fetchUrl)}"${url.aria}${disabled}>`
     + `<label for="remote-define-push">Push URL:</label>`
     + `<input id="remote-define-push" class="${push.className}" data-remote-field="pushUrl" autocomplete="off" spellcheck="false" value="${escapeHtml(draft.pushUrl || "")}"${push.aria}${disabled}>`
-    + `</div><div class="check-line"><input type="checkbox" id="remote-define-fetch" data-remote-field="fetch"${draft.fetch === false ? "" : " checked"}${disabled}><label for="remote-define-fetch">Fetch remote</label></div>`
-    + `<p class="remote-notice commit-meta" role="status"${error ? "" : " hidden"}>${escapeHtml(error)}</p></div>`;
+    + `</div><p class="remote-notice remote-url-balloon" role="alert"${error ? "" : " hidden"}>${escapeHtml(error)}</p><div class="check-line"><input type="checkbox" id="remote-define-fetch" data-remote-field="fetch"${draft.fetch === false ? "" : " checked"}${disabled}><label for="remote-define-fetch">Fetch remote</label></div>`;
 }
 
 function managementPage(kind) {

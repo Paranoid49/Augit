@@ -9543,7 +9543,7 @@ async function saveRemoteDefine() {
       }
       await reloadRemotes(generation).catch(() => null);
       remoteRun.saving = false;
-      const message = describeFailure((fetched && fetched.reason) || "Fetch failed.", { next: "Check the URL, then retry." })
+      const message = describeFailure((fetched && fetched.reason) || "Fetch failed.", {})
         + (rollbackError ? " " + describeFailure(rollbackError, { next: "Check the remote manually." }) : "");
       live.remoteDraft = { ...draft, error: message, invalidField: "fetchUrl", busy: false };
       const defineLayer = renderRemoteDefine();

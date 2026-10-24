@@ -2555,7 +2555,7 @@ body[data-theme="dark"] .dialog:is(.reset-dialog, .rollback-dialog) .danger-butt
 
 .data-table th,
 .data-table td {
-  padding: 8px 10px;
+  padding: 6px 9px;
   border-bottom: var(--augit-hairline) solid var(--augit-border);
   text-align: left;
 }
@@ -2861,7 +2861,7 @@ button.toast-action {
   max-width: min(600px, calc(100vw - 8px));
   max-height: calc(100vh - 8px);
   overflow: auto;
-  padding: 8px 10px;
+  padding: 6px 9px;
   border: var(--augit-hairline) solid var(--augit-border-strong);
   border-radius: 4px;
   background: var(--augit-panel);
@@ -4414,7 +4414,36 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .remote-define-dialog .form-grid label { white-space: nowrap; }
 .remote-define-dialog .text-field { height: var(--remote-field, 30px); min-width: 0; padding: 0 8px; }
 .remote-define-dialog .text-field.invalid { border-color: var(--augit-red); }
-.remote-define-dialog .remote-notice { white-space: normal; overflow-wrap: anywhere; }
+.remote-define-form { position: relative; }
+.remote-define-dialog .remote-url-balloon {
+  position: absolute;
+  left: calc(var(--remote-label, 110px) + 10px);
+  right: 0;
+  top: calc(var(--remote-field, 30px) + 20px);
+  transform: translateY(-100%);
+  z-index: 3;
+  margin: 0;
+  padding: 6px 9px;
+  border: var(--augit-hairline) solid var(--augit-red);
+  border-radius: 4px;
+  background: var(--augit-dialog-bg);
+  box-shadow: 0 4px 14px color-mix(in srgb, #000000 18%, transparent);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.remote-define-dialog .remote-url-balloon::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  transform: rotate(45deg);
+  background: var(--augit-dialog-bg);
+  border-right: var(--augit-hairline) solid var(--augit-red);
+  border-bottom: var(--augit-hairline) solid var(--augit-red);
+}
+.remote-define-dialog .dialog-body:has(.remote-url-balloon:not([hidden])) { overflow: visible; }
 .remote-define-dialog .check-line { min-height: var(--remote-field, 30px); }
 .remote-define-dialog .check-line input { width: 15px; height: 15px; margin: 0; }
 .remote-define-dialog .secondary-button, .remote-define-dialog .danger-button, .remote-define-dialog .primary-button { min-width: 78px; height: var(--remote-button, 34px); padding: 0 12px; flex-shrink: 0; }
