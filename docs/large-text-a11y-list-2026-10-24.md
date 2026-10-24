@@ -36,7 +36,8 @@
 
 - `ArrowDown` / `ArrowUp`：逐行移动活动行，滚动到该行；
 - `Home` / `End`：跳到首/末行；
-- `Shift+ArrowUp/Down` / `Shift+Home/End`：按行扩展/收缩全文选择；
+- `PageUp` / `PageDown`：按视口行数翻页；
+- `Shift+ArrowUp/Down` / `Shift+Home/End` / `Shift+PageUp/Down`：按行扩展/收缩全文选择；
 - `aria-activedescendant="virtual-line-N"`；
 - 活动行 `aria-current="true"`，行号仍 `aria-hidden`。
 
@@ -48,13 +49,16 @@
 - `aria-current` 行 id 同为 `virtual-line-2000`；
 - 文本 `line 002000 NEEDLE_LAST`；
 - `scrollTop=43,474.9`，说明键盘可到达未显示末尾；
-- 随后 `Home` 复位，再 `Shift+ArrowDown` 两次：
+- 随后 `Home` 复位，`PageDown`：
+  - `activeLine=22`；
+  - `aria-activedescendant=virtual-line-23`；
+- 再 `Shift+ArrowDown` 两次：
   - 选择 `start=0`、`end=290`；
   - 选中前两行文本（`line 000001 …\nline 000002 …`）；
   - `activeLine=2`；
 - 随后 Find 3/3、GoTo 2000、末尾均继续通过；
-- 实例 PID 21012 正常关闭；
-- 报告：`artifacts/large-text-shift-select-2026-10-24/large-text-normal-entry.json`。
+- 实例 PID 30308 正常关闭；
+- 报告：`artifacts/large-text-page-keys-2026-10-24/large-text-normal-entry.json`。
 
 ## 3. 自动化
 

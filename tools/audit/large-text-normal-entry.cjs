@@ -312,6 +312,16 @@ async function closeWindow(pid) {
           };
         });
         await page.keyboard.press('Home');
+        await page.keyboard.press('PageDown');
+        keyboard.pageDown = await page.evaluate(() => {
+          const code = document.querySelector('.editor-content .code-view');
+          return {
+            activeLine: code.__augitVirtual.activeLine,
+            activeDescendant: code.getAttribute('aria-activedescendant'),
+            scrollTop: code.scrollTop,
+          };
+        });
+        await page.keyboard.press('Home');
         await page.keyboard.press('Shift+ArrowDown');
         await page.keyboard.press('Shift+ArrowDown');
         keyboard.shiftSelection = await page.evaluate(() => {
@@ -499,6 +509,11 @@ async function closeWindow(pid) {
         || keyboard.shiftSelection.end <= keyboard.shiftSelection.start
         || keyboard.shiftSelection.activeLine !== 2)) {
         failures.push('keyboard-selection=' + JSON.stringify(keyboard && keyboard.shiftSelection));
+      }
+      if (sample.key === 'small' && (!keyboard || !keyboard.pageDown
+        || keyboard.pageDown.activeLine <= 0
+        || keyboard.pageDown.activeDescendant !== `virtual-line-${keyboard.pageDown.activeLine + 1}`)) {
+        failures.push('keyboard-page=' + JSON.stringify(keyboard && keyboard.pageDown));
       }
       if (end.lastLine !== opened.lineCount) failures.push('end=' + end.lastLine + ' expected=' + opened.lineCount);
       report.samples.push({ key: sample.key, file: sample.file, opened, keyboard, selectAll, drag, osDragResult, reverseDrag, find, afterFind, goto, end, failures });

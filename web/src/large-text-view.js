@@ -484,6 +484,21 @@
           activateLine(next);
           return;
         }
+        if (event.key === "PageUp" || event.key === "PageDown") {
+          event.preventDefault();
+          const current = state.activeLine >= 0 ? state.activeLine : Math.max(0, Math.floor(code.scrollTop / state.rowHeight));
+          const page = Math.max(1, Math.floor((code.clientHeight || state.rowHeight) / state.rowHeight) - 1);
+          const next = clamp(current + (event.key === "PageDown" ? page : -page), 0, model.lineCount - 1);
+          if (event.shiftKey) {
+            if (state.anchor < 0) state.anchor = model.lineStarts[current];
+            state.focus = event.key === "PageDown" ? lineEndOf(model, next) : model.lineStarts[next];
+          } else {
+            state.anchor = -1;
+            state.focus = -1;
+          }
+          activateLine(next);
+          return;
+        }
         if (event.key === "Home" || event.key === "End") {
           event.preventDefault();
           const current = state.activeLine >= 0 ? state.activeLine : Math.max(0, Math.floor(code.scrollTop / state.rowHeight));
