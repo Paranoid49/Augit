@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-24
 - 状态：**1.0 Release Candidate 候选**，不是正式 1.0
-- 源码提交：`06e41072771542958c244aec70a4333f7d6dbaee`
+- 源码提交：`909ecb62c3006ab066940590a5f19bb07aa88f8b`（运行代码与 Beta 相同，另含发布文档/README 更新）
 - 上一发布线：`0.1.0`（历史产物）；本次为 1.0 预发布候选
 
 ## 1. 这是什么
@@ -32,8 +32,8 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `Augit-1.0.0-rc.1-win-x64-portable.zip` | 3,522,176 B | `a65016ba9987c165bf0c4dd258b1362cae9ad781d68253f6cb481aff78607a25` |
-| `Augit-1.0.0-rc.1-win-x64-setup.exe` | 5,010,433 B | `47310fa3e8c6edacb30024db70be2243b126b7c8bcc043199154c5fa46456076` |
+| `Augit-1.0.0-rc.1-win-x64-portable.zip` | 3,522,205 B | `d5bed9ad686a9f1b9232f8b4a1a2512e9912d62a7751b72d18d0a19d7871803a` |
+| `Augit-1.0.0-rc.1-win-x64-setup.exe` | 5,009,614 B | `bc9913c06fae8393e6b7b51eb0678ed15c6b584b04481773e4e7e2a26826cf3b` |
 
 Beta 对照产物（已通过安装升级验收）：
 
@@ -44,7 +44,7 @@ Beta 对照产物（已通过安装升级验收）：
 
 产物绝对路径：
 
-- `D:\github\Augit\artifacts\release-1.0.0-rc.1\final\`
+- `D:\github\Augit\artifacts\release-1.0.0-rc.1\final2\`
 - `D:\github\Augit\artifacts\release-1.0.0-beta.1\final2\`
 
 `SHA256SUMS.txt` 在每个目录内，可复核。产物是本机构建，未上传到任何公开 Release。

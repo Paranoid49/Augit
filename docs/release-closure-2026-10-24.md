@@ -46,7 +46,7 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
 | B2 | 本地 Git/冲突状态同步是否 ≤500ms | 外部 `git add`/切分支/解决冲突 | 外部 checkout 3 轮：分支可见 117–152ms，完整应用 201–232ms，绘制 208–239ms；`git-watch-received` 早于命令退出属正常（引用写入即触发）。冲突刷新沿用历史专项 230/241/411ms，本批未重测 | **通过**（checkout 3/3；冲突沿用专项证据） |
 | B3 | 真实前台 OS 鼠标点击 Continue Rebase | 多文件冲突全部解决后 | **通过**：HWND 置 topmost/前台，绝对物理坐标点击命中 `BUTTON.primary-button`（`pointerdown=1`/`click=1`），冲突窗关闭；`git status` 空、分支 `feature`、HEAD `test: feature-second`、日志与索引符合预期 | **通过**；见[真实鼠标记录](conflict-rebase-real-mouse-continue-2026-10-24.md) |
 | B4 | 软换行开启/关闭下的大文本性能与操作完整性 | 大文本预览切换软换行 | 80,000 行退回 80,000 行 DOM：页面级构建 3.621s、真实外壳 5.230s；滚动/Find/Go to Line/全选/关闭/恢复窗口层均通过（30/30 + 真实外壳 0 失败） | **通过但披露边界**：一次性多秒构建与 80,000 节点，见[软换行边界](large-text-wrap-boundary-2026-10-24.md)，列入已知限制 |
-| B5 | 候选包安装/覆盖升级/设置保留/卸载/集成清理 | 管理员安装 beta 再升级 rc | **通过**：beta 安装、rc 覆盖升级、静默卸载退出码均 0；PATH 逐字恢复且未重复、右键菜单/开始菜单清理、用户设置哈希不变、.NET/WebView2 共享运行时未变；beta 安装后启动窗口 918.3ms、退出 0 | 报告 `artifacts/install-acceptance-2026-10-24/installed-report.json`；见[Beta 验收](beta-acceptance-2026-10-24.md) §4 | **通过**（管理员/UAC） |
+| B5 | 候选包安装/覆盖升级/设置保留/卸载/集成清理 | 管理员安装 beta 再升级 rc | **通过**：beta 安装、rc 覆盖升级、静默卸载退出码均 0；PATH 逐字恢复且未重复、右键菜单/开始菜单清理、用户设置哈希不变、.NET/WebView2 共享运行时未变；beta 安装后启动窗口 906.6ms、退出 0 | 报告 `artifacts/install-acceptance-2026-10-24-final2/installed-report.json`；见[Beta 验收](beta-acceptance-2026-10-24.md) §4 | **通过**（管理员/UAC） |
 | B6 | 安装器缺少运行时时的确认/下载/校验/取消/失败/重试 | 干净机器或受控缺失条件 | `VerifyRuntime.ps1` 成功与 9/10/11/12 失败分支全部实测；便携包缺少 .NET/WebView2 提示实测；安装器真实缺失运行时交互未测（不卸载共享运行时） | **部分通过**：校验与便携提示通过；安装器联网交互登记为缺干净环境 |
 | B7 | 屏幕阅读器实际阅读大文本 | 使用真实屏幕阅读器阅读虚拟化大文本 | 已有 list/listitem、绝对行号、活动行、键盘可达证据；离屏全文不在可访问树 | 判断现有替代操作是否满足产品承诺；不把 ARIA 属性正确当成读屏验收 | 未验证；披露边界 |
 | B8 | 当前候选包的启动、告警与退出残留 | 从最终 zip/安装目录直接运行 | 便携包 PASS（窗口类、前台截图、关闭 109–130ms、退出码 0、无残留）；安装目录 PASS（窗口 918.3ms、退出 0） | **便携与安装目录均通过** |
@@ -84,7 +84,7 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
 - A5/B6：`ShellStartupProbe` 与官方下载地址、`VerifyRuntime.ps1` 0/9/10/11/12 分支；见[运行时提示记录](runtime-missing-messaging-2026-10-24.md)。
 - B5/B8：管理员验收一次完成 beta 安装 → rc 覆盖升级 → 静默卸载，退出码均 0；PATH 逐字恢复且仅 1 项、
   右键菜单/开始菜单清理、设置哈希不变（`8840E775…`）、.NET/WebView2 版本不变；beta 安装后启动窗口 918.3ms、
-  退出 0。报告 `artifacts/install-acceptance-2026-10-24/installed-report.json`，摘要见[Beta 验收](beta-acceptance-2026-10-24.md) §4。
+  退出 0。报告 `artifacts/install-acceptance-2026-10-24-final2/installed-report.json`，摘要见[Beta 验收](beta-acceptance-2026-10-24.md) §4。
   最终 Beta 便携包 `artifacts/release-1.0.0-beta.1/final2/`（源提交 `51dcadd`，exe ProductVersion
   `1.0.0-beta.1+51dcadd…`），zip SHA256 `0d11e998…`、setup `f937bf99…`；`verify-portable-package` PASS。
   首次最终包（`a931a1c`）启动只弹 `#32770` 的回归已定位为探测早于加载器加载并修复，未进入交付。

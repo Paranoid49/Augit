@@ -7,12 +7,12 @@
 | 项 | RC | Beta |
 | --- | --- | --- |
 | 版本 | `1.0.0-rc.1` | `1.0.0-beta.1` |
-| 源码提交 | `06e41072771542958c244aec70a4333f7d6dbaee` | `51dcadd356cd2fc5b8910dc60690d50416245491` |
-| 程序集 ProductVersion | `1.0.0-rc.1+06e4107…` | `1.0.0-beta.1+51dcadd…` |
-| 产物目录 | `artifacts/release-1.0.0-rc.1/final/` | `artifacts/release-1.0.0-beta.1/final2/` |
-| 便携包 SHA256 | `a65016ba9987c165bf0c4dd258b1362cae9ad781d68253f6cb481aff78607a25` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
-| 安装器 SHA256 | `47310fa3e8c6edacb30024db70be2243b126b7c8bcc043199154c5fa46456076` | `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` |
-| 便携包 SHA256SUMS | `artifacts/release-1.0.0-rc.1/final/SHA256SUMS.txt` | `artifacts/release-1.0.0-beta.1/final2/SHA256SUMS.txt` |
+| 源码提交 | `909ecb62c3006ab066940590a5f19bb07aa88f8b` | `51dcadd356cd2fc5b8910dc60690d50416245491` |
+| 程序集 ProductVersion | `1.0.0-rc.1+909ecb6…` | `1.0.0-beta.1+51dcadd…` |
+| 产物目录 | `artifacts/release-1.0.0-rc.1/final2/` | `artifacts/release-1.0.0-beta.1/final2/` |
+| 便携包 SHA256 | `d5bed9ad686a9f1b9232f8b4a1a2512e9912d62a7751b72d18d0a19d7871803a` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
+| 安装器 SHA256 | `bc9913c06fae8393e6b7b51eb0678ed15c6b584b04481773e4e7e2a26826cf3b` | `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` |
+| 便携包 SHA256SUMS | `artifacts/release-1.0.0-rc.1/final2/SHA256SUMS.txt` | `artifacts/release-1.0.0-beta.1/final2/SHA256SUMS.txt` |
 
 ## 2. 构建与全量检查
 
@@ -30,13 +30,13 @@
 | JS 语法（4 个运行时文件） | PASS | 同上 |
 | `git diff --check` | PASS | 同上 |
 | 最终 Beta 便携包烟测 | PASS | `artifacts/release-1.0.0-beta.1/final2-verify/portable-report.json` |
-| 最终 RC 便携包烟测 | PASS（关闭 109ms、退出 0、无残留） | `artifacts/release-1.0.0-rc.1/final-verify/portable-report.json` |
+| 最终 RC 便携包烟测 | PASS（关闭 109ms、退出 0、无残留） | `artifacts/release-1.0.0-rc.1/final2-verify/portable-report.json` |
 
 ## 3. 安装、升级、卸载
 
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
-| Beta 安装 | 退出 0；文档/快捷方式/右键菜单/PATH 齐全；启动窗口 918.3ms、退出 0 | `artifacts/install-acceptance-2026-10-24/installed-report.json` |
+| Beta 安装 | 退出 0；文档/快捷方式/右键菜单/PATH 齐全；启动窗口 906.6ms、退出 0 | `artifacts/install-acceptance-2026-10-24-final2/installed-report.json` |
 | RC 覆盖升级 | 退出 0；版本 `1.0.0-rc.1`；PATH 值不变且仅 1 项；设置哈希不变 | 同上 |
 | 卸载 | 退出 0；安装目录/卸载记录/右键菜单/开始菜单移除；PATH 逐字恢复；共享运行时未变 | 同上 |
 | 安装/升级日志 | Inno Setup | 同目录 `beta-install.log`、`rc-upgrade.log` |

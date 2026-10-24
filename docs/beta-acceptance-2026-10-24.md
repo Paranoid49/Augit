@@ -8,16 +8,16 @@
 | 项 | Beta | RC |
 | --- | --- | --- |
 | 版本 | `1.0.0-beta.1` | `1.0.0-rc.1` |
-| 源码提交 | `51dcadd356cd2fc5b8910dc60690d50416245491` | `06e41072771542958c244aec70a4333f7d6dbaee` |
-| 产品代码差异 | — | 仅版本号（csproj、release 默认值） |
-| 便携包 | `Augit-1.0.0-beta.1-win-x64-portable.zip`，3,522,193 B，SHA256 `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` | `Augit-1.0.0-rc.1-win-x64-portable.zip`，3,522,176 B，SHA256 `a65016ba9987c165bf0c4dd258b1362cae9ad781d68253f6cb481aff78607a25` |
-| 安装器 | `Augit-1.0.0-beta.1-win-x64-setup.exe`，5,010,079 B，SHA256 `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` | `Augit-1.0.0-rc.1-win-x64-setup.exe`，5,010,433 B，SHA256 `47310fa3e8c6edacb30024db70be2243b126b7c8bcc043199154c5fa46456076` |
-| 程序集 ProductVersion | `1.0.0-beta.1+51dcadd…` | `1.0.0-rc.1+06e4107…` |
+| 源码提交 | `51dcadd356cd2fc5b8910dc60690d50416245491` | `909ecb62c3006ab066940590a5f19bb07aa88f8b` |
+| 产品代码差异 | — | 仅版本号（Beta 之后另含发布文档/README 更新，运行代码相同） |
+| 便携包 | `Augit-1.0.0-beta.1-win-x64-portable.zip`，3,522,193 B，SHA256 `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` | `Augit-1.0.0-rc.1-win-x64-portable.zip`，3,522,205 B，SHA256 `d5bed9ad686a9f1b9232f8b4a1a2512e9912d62a7751b72d18d0a19d7871803a` |
+| 安装器 | `Augit-1.0.0-beta.1-win-x64-setup.exe`，5,010,079 B，SHA256 `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` | `Augit-1.0.0-rc.1-win-x64-setup.exe`，5,009,614 B，SHA256 `bc9913c06fae8393e6b7b51eb0678ed15c6b584b04481773e4e7e2a26826cf3b` |
+| 程序集 ProductVersion | `1.0.0-beta.1+51dcadd…` | `1.0.0-rc.1+909ecb6…` |
 
 产物绝对路径：
 
 - Beta：`D:\github\Augit\artifacts\release-1.0.0-beta.1\final2\`
-- RC：`D:\github\Augit\artifacts\release-1.0.0-rc.1\final\`
+- RC：`D:\github\Augit\artifacts\release-1.0.0-rc.1\final2\`
 
 ## 2. 实测环境
 
@@ -38,7 +38,7 @@
 | B2 本地 Git 500ms | **通过**：checkout 分支可见 117–152ms、完整应用 201–232ms | 同上 |
 | B3 真实鼠标 Continue | **通过**：真实前台 OS 鼠标命中按钮，Git 状态/HEAD/索引符合预期 | `conflict-rebase-real-mouse-continue-2026-10-24.md` |
 | B4 大文本软换行 | **通过但披露边界**：80,000 行全量构建 5.23s；操作与恢复通过 | `large-text-wrap-boundary-2026-10-24.md` |
-| B5 安装/升级/卸载 | **通过**：beta→rc 覆盖升级，PATH 精确恢复、右键菜单清理、设置保留、共享运行时不变 | `artifacts/install-acceptance-2026-10-24/installed-report.json` |
+| B5 安装/升级/卸载 | **通过**：beta→rc 覆盖升级，PATH 精确恢复、右键菜单清理、设置保留、共享运行时不变 | `artifacts/install-acceptance-2026-10-24-final2/installed-report.json` |
 | B6 安装器缺运行时交互 | **部分通过**：`VerifyRuntime.ps1` 0/9/10/11/12 全通过；安装器真实缺失运行时交互未测 | `runtime-missing-messaging-2026-10-24.md` |
 | B7 真实屏幕阅读器 | **未验证**：只有强制 accessibility + UIA；离屏全文不在可访问树 | `large-text-accessibility-2026-10-24.md` |
 | B8 候选包启动/退出 | **通过**：便携包与安装目录均启动出窗口、正常关闭、无残留 | 便携报告、安装报告 |
@@ -46,12 +46,12 @@
 ## 4. 安装链路实测（B5/B8）
 
 - Beta 安装：退出码 0；默认 `C:\Program Files\Augit`；README/LICENSE/第三方说明齐全；开始菜单快捷方式存在；
-  PATH 项 1 个（ExpandString）；资源管理器右键菜单存在；安装后启动窗口 918.3ms、标题 `Augit`、退出码 0。
-- RC 覆盖升级：退出码 0；程序集 `1.0.0-rc.1+06e4107…`；PATH 仍为 1 项且值与 Beta 完全相同；
+  PATH 项 1 个（ExpandString）；资源管理器右键菜单存在；安装后启动窗口 906.6ms、标题 `Augit`、退出码 0。
+- RC 覆盖升级：退出码 0；程序集 `1.0.0-rc.1+909ecb6…`；PATH 仍为 1 项且值与 Beta 完全相同；
   右键菜单、开始菜单、文档保留；用户设置 SHA256 未变（`8840E775…2CF`）。
 - 卸载：退出码 0；安装目录删除；卸载记录 0；右键菜单移除；开始菜单移除；系统 PATH **逐字恢复**到安装前；
   .NET 运行时与 WebView2 版本前后完全一致；用户设置保留。
-- 报告：`artifacts/install-acceptance-2026-10-24/installed-report.json`；
+- 报告：`artifacts/install-acceptance-2026-10-24-final2/installed-report.json`；
   安装/升级日志 `beta-install.log`、`rc-upgrade.log` 同目录。
 - 签名：Beta/RC setup 均为 `NotSigned`（Augit 自身未签名）；下载的微软运行时才校验 Microsoft 签名。
 
