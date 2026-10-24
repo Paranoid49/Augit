@@ -41,6 +41,21 @@
 - 逐帧数据：`frame-analysis.json`（`frame/white/near/mean/diff`）
 - 运行参数与 PID：`run.json`
 
+## 3.1 深色启动补充
+
+同一方法另录一次深色（settings `theme=Dark`、空工作区）：
+
+- 应用 PID 21328，ffmpeg PID 480；
+- 应用首帧为 **帧 70 / 2.33s**，画面直接是深色外壳（窗口区域均值 **30.2**，
+  纯白 **0.01%**）；
+- 帧 64–69 为桌面（均值 234.6），不是应用窗口；
+- 深色启动没有先出现浅色/白色应用帧；
+- 视频：`artifacts/main-startup-close-dark-2026-10-24/startup-close-dark.mkv`；
+- 逐帧：`.../frame-analysis.json`。
+
+本批深色录制未包含关闭段（录制在关闭前结束），因此**不**把深色关闭写成已覆盖；
+浅色关闭仍见上一节。
+
 ## 4. 边界
 
 - 空工作区、浅色、单屏、最大化；未测深色、多显示器、跨屏 DPI、最小化恢复。
