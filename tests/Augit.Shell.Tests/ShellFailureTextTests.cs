@@ -18,6 +18,19 @@ public sealed class ShellFailureTextTests
     }
 
     [TestMethod]
+    public void 缺少运行时提示包含缺失项与微软官方下载入口()
+    {
+        string missing = ShellFailureText.MissingWebView2();
+        StringAssert.Contains(missing, "WebView2 Runtime");
+        StringAssert.Contains(missing, "https://developer.microsoft.com/microsoft-edge/webview2/");
+        StringAssert.Contains(missing, "never install runtimes automatically");
+
+        string startup = ShellFailureText.Startup(new InvalidOperationException("x"));
+        StringAssert.Contains(startup, "https://dotnet.microsoft.com/download/dotnet/10.0");
+        StringAssert.Contains(startup, "https://developer.microsoft.com/microsoft-edge/webview2/");
+    }
+
+    [TestMethod]
     public void 导航错误保留原始目录而呈现英文说明()
     {
         const string directory = @"D:\中文目录\web";

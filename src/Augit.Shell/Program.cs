@@ -13,6 +13,13 @@ internal static class Program
     {
         try
         {
+            // 便携包缺少 WebView2 时先给出缺失项与官方下载入口；不自动安装共享运行时。
+            if (!ShellStartupProbe.HasWebView2Runtime())
+            {
+                _ = MessageBox(0, ShellFailureText.MissingWebView2(), "Augit", 0x00000010);
+                return 1;
+            }
+
             ShellOptions options = ShellOptions.Parse(arguments);
             // 设置只读一次：主题与窗口摆放共用同一份快照，避免启动时读两遍文件。
             // 审计可显式指定设置文件，隔离运行不得读写用户设置。
