@@ -21,7 +21,7 @@ internal static class ShellFailureText
     /// 便携包在缺少 WebView2 时使用：明确缺失项并给出微软官方下载入口，不尝试自动安装。
     /// </summary>
     public static string MissingWebView2() =>
-        "Augit needs the Microsoft Edge WebView2 Runtime to show its interface.\n"
+        "Augit needs the Microsoft Edge WebView2 Runtime, or its bundled loader is missing, to show its interface.\n"
         + "Install the Evergreen WebView2 Runtime from Microsoft:\n"
         + "https://developer.microsoft.com/microsoft-edge/webview2/\n"
         + "Portable builds never install runtimes automatically. Start Augit again after installing it.";

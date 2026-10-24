@@ -36,7 +36,7 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
 | A2 | 分发包缺少项目 MIT `LICENSE` 原文 | 解压或安装后检查许可证 | README 声称 MIT，但包内无许可证全文；分发合规性缺失 | `release.ps1` 原先只复制 `README.md` 与 `THIRD-PARTY-NOTICES.md` | 历史全部产物 | 发布脚本复制 `LICENSE` 并加入必需文件校验；便携包烟测逐项核对 | **已修复**（随 Beta 验证） | 是（已关闭） |
 | A3 | 应用、程序集与安装器版本仍为 `0.1.0`，无法区分预发布与正式版 | 安装、升级、查看文件属性或应用列表 | 用户可能把候选包误认为正式 1.0，回滚与问题定位也缺少版本身份 | `Augit.Shell.csproj` `Version=0.1.0`；`release.ps1` 默认 `0.1.0` | 历史全部产物 | 统一冻结为 `1.0.0-beta.1`；程序集 `ProductVersion` 带源码提交号；安装器 `AppVersion` 显示预发布标识，`VersionInfoVersion=1.0.0.0` 保留数值文件版本 | **已修复**（待最终候选重建） | 是（已关闭） |
 | A4 | 安装器文件属性没有 FileVersion | 查看 setup.exe 属性 | 预发布字符串不能直接作为四段文件版本，属性中文件版本为空 | 首版 beta 构建 `FileVersion` 为空 | `1.0.0-beta.1` 首构建 | `Augit.iss` 显式 `VersionInfoVersion=1.0.0.0`；重建后核对 | **已修复**（重建验证） | 是（已关闭） |
-| A5 | 便携包缺少运行时的提示是否满足规格 | 在缺少 .NET/WebView2 的机器解压运行 | 若只有笼统失败提示，用户不知道缺什么、去哪里下载，便携包不可用 | 受控验证：缺少 .NET 时宿主显示 `Download it now`；缺少 WebView2 时新增启动探测显示缺失项、微软 Evergreen 地址和“不自动安装”说明；`VerifyRuntime.ps1` 0/9/10/11/12 分支全部符合预期 | 当前全部便携包 | 新增 `ShellStartupProbe`/`ShellFailureText.MissingWebView2` 与文案测试；证据见[运行时提示记录](runtime-missing-messaging-2026-10-24.md) | **已修复并验证**（受控环境变量，非干净机器） | 是（已关闭） |
+| A5 | 便携包缺少运行时的提示是否满足规格 | 在缺少 .NET/WebView2 的机器解压运行 | 若只有笼统失败提示，用户不知道缺什么、去哪里下载，便携包不可用 | 受控验证：缺少 .NET 时宿主显示 `Download it now`；缺少 WebView2 时新增启动探测显示缺失项、微软 Evergreen 地址和“不自动安装”说明；`VerifyRuntime.ps1` 0/9/10/11/12 分支全部符合预期。首次最终包烟测发现探测早于 `native\WebView2Loader.dll` 加载，正常启动会误报缺失；已修复并回归 | 当前全部便携包 | 新增 `ShellStartupProbe`/`ShellFailureText.MissingWebView2` 与文案测试；证据见[运行时提示记录](runtime-missing-messaging-2026-10-24.md) | **已修复并验证**（受控环境变量，非干净机器；打包后正常启动已复验） | 是（已关闭） |
 
 ## 3. B 类：必须核实后才能裁定
 

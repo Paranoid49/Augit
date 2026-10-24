@@ -25,7 +25,7 @@
 - UIA 读到 Augit 消息框（`ControlType.Text` 完整原文）：
 
 ```
-Augit needs the Microsoft Edge WebView2 Runtime to show its interface.
+Augit needs the Microsoft Edge WebView2 Runtime, or its bundled loader is missing, to show its interface.
 Install the Evergreen WebView2 Runtime from Microsoft:
 https://developer.microsoft.com/microsoft-edge/webview2/
 Portable builds never install runtimes automatically. Start Augit again after installing it.
@@ -35,6 +35,18 @@ Portable builds never install runtimes automatically. Start Augit again after in
   `artifacts/runtime-missing-2026-10-24/webview2-missing-fallback-dialog.png`。
 - 该路径有自动化文案测试（`ShellFailureTextTests`），但“真实机器未安装 WebView2”的端到端
   仍以本条受控环境变量证据为准，不冒充干净机器验证。
+
+### 2.1 首次最终包烟测发现的回归与修复
+
+- 首次从提交 `a931a1c` 构建的便携包启动时只弹出 `#32770` 对话框并退出 1，没有主窗口。
+  原因是启动探测在 `ShellWindow` 显式 `LoadLibrary(native\WebView2Loader.dll)` 之前调用
+  `GetAvailableBrowserVersionString()`；P/Invoke 在应用根目录找不到 `native` 子目录里的加载器，
+  探测把“加载器未加载”误判成“运行时缺失”。
+- 修复：`ShellStartupProbe` 先按与 `ShellWindow` 相同的路径显式加载 `native\WebView2Loader.dll`
+  （缺失时返回 false），再探测运行时；重复 LoadLibrary 只增加模块引用计数。
+- 回归：Debug 正常启动出现 `Augit` 主窗、`CloseMainWindow` 退出码 0；缺少 WebView2 的受控条件
+  仍显示上面的新文案并退出 1；最终便携包重新构建后由 `verify-portable-package.ps1` 复验。
+- 该回归没有进入任何对外产物；它证明“只验证 bin/Release 或只验证构建”不足以发现分发路径问题。
 
 ## 3. `VerifyRuntime.ps1` 分支
 
