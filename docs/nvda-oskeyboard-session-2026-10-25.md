@@ -75,7 +75,9 @@ NVDA+Down: alpha line onebeta line twogamma line threedelta line fourepsilon lin
 - 2k：app PID 3504，CDP 9458（只读）；小文件：app PID 2520，CDP 9459；80k：app PID 5776，CDP 9460；
   NVDA PID 3164（helper 子进程）。
 - 三个 app 均通过 `WM_CLOSE` 关闭；NVDA/helper 停止；端口无监听；测试 profile/临时设置隔离，
-  未改全局设置。已提取并保留日志、截图、证据；NVDA 运行时在取证后删除。
+  未改全局设置。已提取并保留日志、截图、证据；NVDA 运行时主体已删除。剩余
+  `lib/2026.2/x64/IAccessible2proxy.dll`、`ISimpleDOM.dll`（约 259KB）被外部 Chromium 进程锁定，
+  当前删除被拒绝，待持有进程退出后可删；不属于产品文件。
 - 证据：`artifacts/accessibility-oskeyboard-2026-10-25/nvda-osk-debug.log`、
   `nvda-osk-evidence.txt`、`big2k-osk-line2000.png`、`big80k-osk-line80000-full.png`、
   `send-oskeys.ps1`。
