@@ -13,8 +13,9 @@
   测试结束已删除运行时，仅保留日志与截图。
 - 屏幕阅读器输出用 **NVDA Speech Viewer** 与 `--debug-logging` 日志交叉记录；日志中
   `IO - speech.speech.speak` 行是实际送入语音合成器的文本。
-- 被测程序：`artifacts/release-1.0.0-rc.1/final2-verify/portable/Augit/Augit.exe`（RC 便携包），
-  隔离设置与隔离工作区；窗口 2880×1800、175% DPI。
+- 被测程序：`artifacts/release-1.0.0-rc.1/final2-verify/portable/Augit/Augit.exe`（rc.1 便携包）
+  加工作区修复后的 `large-text-view.js`；修复已进入最终 `1.0.0-rc.2` 包
+  （`artifacts/release-1.0.0-rc.2/final/`，便携烟测 PASS）。隔离设置与隔离工作区；窗口 2880×1800、175% DPI。
 - 说明：文件打开与翻页按键由 CDP/Playwright 驱动页面（OS 级按键在 NVDA 浏览模式下会被 NVDA
   消费）；**NVDA 进程、可访问树、焦点事件和语音日志都是真实的**，不是手工伪造的 ARIA 断言。
   这是本会话的输入方式边界，仍需在正式发布前补一次纯 OS 键盘会话。

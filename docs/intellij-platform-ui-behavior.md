@@ -344,9 +344,9 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 
 #### 已验证快照（后续轮次用它低成本确认"代码未变、上次结论仍有效"）
 
-**当前复核（2026-10-24）**：发布收口批次新增宿主刷新阶段跟踪、真实鼠标 Continue、80,000 行软换行边界与运行时缺失提示后，完整实时套件通过，退出码 0，`live-shell 通过 2379 项断言`（未执行 0 项）。相对 2348 的 +31 来自 2,000 行全文选择/复制/Find/Go to Line、80,000 行窗口化、普通 TextReady 大文本窗口化、软换行回退（含 80,000 行软换行构建/滚动/Find/Go to Line/全选/关闭）、首次 Diff 加载态，以及搜索 Include ignored 重跑查询断言；相对上轮 2371 的 +8 来自本批 80,000 行软换行断言。源码 HEAD `3574ce1` + 本批未提交改动；下表的 md5 是本次完整套件实际加载的版本。
+**当前复核（2026-10-25）**：在 2026-10-24 发布收口基础上，真实 NVDA 2026.2 会话发现并修复大文本活动行不读正文的可访问名称缺陷（窗口行 `aria-label`、先 render 后设 `aria-activedescendant`），完整实时套件在空闲机器复跑通过，退出码 0，`live-shell 通过 2379 项断言`（未执行 0 项；断言点未新增，扩展了既有大文本检查）。此前一次全量在构建/安装并发负载下于 §7.8 触底分页断言失败，空闲复跑通过，失败记录保留。RC 源码 HEAD `8643b9e`；下表 md5 是本次完整套件实际加载的版本。
 
-| 文件 | md5（2026-10-24 当前复核值） |
+| 文件 | md5（2026-10-25 当前复核值） |
 | --- | --- |
 | `web/src/mockup.css` | `52f9d9c77974f2c69322aff0a8fbbabd` |
 | `web/src/mockup.js` | `760c05648aa5b81f35eb3ee860e314e9` |
@@ -355,7 +355,7 @@ Settings新增无CDP采集及线程反证，独立域候选无明确收益已撤
 | `web/src/current-find.js` | `a1966af4231910c8d628272e2c4abfa9` |
 | `web/src/markdown.js` | `2effda5f1b71e7cdf4360d86089783ce` |
 | `web/src/image-preview.js` | `bef0375129064dae3c526c265b66fbe8` |
-|`web/src/large-text-view.js`（本批新增）|`a29892b3feda77c60fc22000b0926f9b`|
+| `web/src/large-text-view.js` | `f36c352f1bd74be1aa5d3c8da368d58b` |
 | `live-shell.spec.cjs`（工作区版） | `eb28c7ba5572cbaa722af56daa8b8397` |
 
 该结论是**行为/语义**套件通过，不代表整页像素合格（页面级同态配对 50、像素合格 0），也不替代正常入口实机证据。大文件窗口层目前只有无头 Chromium 证据，真实外壳 22.75 MB 正常入口仍未验收，见[大文件预览虚拟化原型](large-text-virtualization-2026-10-23.md)。
@@ -916,3 +916,5 @@ Augit 原有一个 `.scrim`：`color-mix(in srgb, #EEF1F6 32%, transparent)` 底
 2026-10-22 Fetch结果通知：按`GitBundle.properties`/`GitFetchSupportImpl.FetchResultImpl.doShowNotification()`对齐——成功显示`Fetch successful`/`Fetched successfully`，失败关闭分支弹层并显示`Fetch failed`/Git原始错误；不再把失败原因留在弹层。正常入口PID 7376、Light、DPI168、隔离临时仓库：无效remote 502经UIA分支chip→Update Project得到`Fetch failed`+`fatal: unable to access...502`；改本地bare remote后得到`Fetch successful`+`Fetched successfully`，引用树出现origin/main。`Update Selected`同走该通道：PID 30324、受跟踪非当前分支`feature`，成功`Fetch successful`+`Fetched 1 target`（UIA 2268,1608），无效remote 502时`Update failed`+原始错误（UIA 2268,1546）；截图artifacts/fetch-evidence-2026-10-22/update-selected-*.png。Define Remote 保存后的自动 Fetch 参考`doFetch()`原本发原生失败通知；诊断实例（CDP填字段、屏幕截图）证明Augit页内toast会被`Git Remotes`模态遮挡、不可见（截图仅见`Added badremote.`），因此失败改为管理器内联`Git原始错误`，登记为呈现差异、未验收；`live-goal-remote` 42/42（`fetchfail`场景断言内联错误且无被遮挡toast）。Fetch 取消、搜索超时 Enter 重试与大文件预览延迟分块、离屏布局跳过与外部 checkout 引用同步：正常入口PID 23880、慢TCP服务18999让git fetch等待，UIA点击`Update Project…`后子`git.exe`(19424)运行，Esc约2秒内子进程消失、弹层关闭、无失败/成功toast；截图artifacts/fetch-evidence-2026-10-22/fetch-cancelled.png；`live-shell` 2345含 Fetch 取消两条与搜索超时 Enter 重试断言。产品/UX规范已同步；页面级仍50、像素0。
 
 2026-10-24 发布收口（Beta 冻结）：版本统一为 `1.0.0-beta.1`（程序集/安装器/产物命名，安装器 `VersionInfoVersion=1.0.0.0`），重写被 `fa2194a` 误截断的 README，发布脚本把 `LICENSE` 与 README/第三方说明一起复制并校验；便携包烟测（必需文件、web 双向哈希、程序集版本、真实启动截图、关闭 129.5ms、退出码0、无残留）PASS。新增宿主刷新阶段跟踪（`AUGIT_REFRESH_TRACE_DIRECTORY`，默认空操作）与 `harness-mark` QPC 对齐：外部文件修改 gdigrab 5 轮屏幕首内容 275–293ms、ddagrab 5 轮 236–289ms，网页应用 161–207ms；外部 checkout 3 轮分支可见 117–152ms、完整应用 201–232ms；历史 611/552/624ms 未复现，保留未闭环风险。真实前台 OS 鼠标点击 Continue Rebase：绝对物理坐标 `(2117,1064)` 命中 `BUTTON.primary-button`（pointerdown=1），Git 状态/分支/HEAD 全部符合预期。80,000 行软换行：页面级 3.62s、真实外壳 5.23s 全量构建，Find/Go to Line/全选/关闭/恢复窗口层通过，登记为已知限制。缺少 WebView2 时新增启动探测显示缺失项与微软官方地址；缺少 .NET 时宿主显示 `Download it now`；`VerifyRuntime.ps1` 0/9/10/11/12 分支实测通过。首次最终包烟测发现探测早于 `native\WebView2Loader.dll` 加载导致正常启动误报缺失，已修复并从 `51dcadd` 重建；管理员验收完成 Beta 安装 → RC 覆盖升级 → 静默卸载，退出码均 0、PATH 逐字恢复、设置保留、共享运行时未变。本轮 `web/src/live-data.js` MD5=`4584F26255AD71EF600142ACDDB5E8FC`，`large-text-view.js`=`A29892B3FEDA77C60FC22000B0926F9B`；Release 构建0警告0错误，Core 72/72、Infrastructure 206/206、Shell 252/252，全量 live-shell **2379/2379**（退出码0），verify-ui-assets、脚本编码、coverage、JS语法、`git diff --check` 通过。页面级仍50、像素0。证据见[发布收口台账](release-closure-2026-10-24.md)、[宿主阶段](refresh-host-stage-2026-10-24.md)、[真实鼠标](conflict-rebase-real-mouse-continue-2026-10-24.md)、[软换行边界](large-text-wrap-boundary-2026-10-24.md)、[运行时提示](runtime-missing-messaging-2026-10-24.md)。
+
+2026-10-25 接续收口（rc.2）：真实 NVDA 2026.2 会话完成小文件与 2,001 行窗口化大文本阅读，发现活动行只播报“2001 之 165 项”而不读正文；已修 `large-text-view.js`：每个渲染行带 `aria-label`（行号+正文，超长截断 2000 字符），`activateLine` 先 `render(true)` 再设 `aria-activedescendant`。复测播报“当前 line 0016…”并可键盘到末行 2000；离屏全文仍只有窗口内 25 行，连续全文朗读受限，列正式 1.0 已知限制。以本机历史 0.1.0 安装包完成 `0.1.0 → 1.0.0-rc.2` 覆盖升级 → 启动 631ms → 静默卸载，PATH 逐字恢复、设置/共享运行时未变。追加 gdigrab/ddagrab 各 5 轮（254–275ms），合计 20/20 同轮 <300ms。Settings 3 次冷开 491/451/567ms，capture 88–159ms，2904ms 历史样本未复现、慢在 capture/present 等待。软换行 80,000 行未实现可变行高虚拟化，保留全量 DOM 实测并列为 1.0 后工程。全量 live-shell 在空闲复跑 **2379/2379**（此前构建/安装并发负载下 §7.8 触底分页失败一次，失败记录保留）；Release 构建 0 警告 0 错误，Core 72/72、Infrastructure 206/206、Shell 252/252，32 个 PowerShell 编码、UI 资产、coverage、JS 语法、doc claims、`git diff --check` 通过。最终 RC 产物 `Augit-1.0.0-rc.2-win-x64-portable.zip`（3,522,601 B，SHA256 `e339da49…`）、setup（5,010,098 B，`ecb00134…`），便携/安装烟测 PASS。外部缺口：Windows 10、跨屏 DPI、干净 VM、安装器真实缺运行时交互、代码签名。页面级仍50、像素0。

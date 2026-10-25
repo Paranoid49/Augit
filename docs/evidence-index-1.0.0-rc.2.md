@@ -1,4 +1,4 @@
-# Augit 1.0.0-rc.1 证据索引（2026-10-24）
+# Augit 1.0.0-rc.2 证据索引（2026-10-25）
 
 本索引把 RC 交付所需的产物、命令、报告和证据位置集中列出。原始大文件在 `D:\github\Augit\artifacts\`（Git 忽略），本文不宣称它们已上传或公开。
 
@@ -6,42 +6,45 @@
 
 | 项 | RC | Beta |
 | --- | --- | --- |
-| 版本 | `1.0.0-rc.1` | `1.0.0-beta.1` |
-| 源码提交 | `909ecb62c3006ab066940590a5f19bb07aa88f8b` | `51dcadd356cd2fc5b8910dc60690d50416245491` |
-| 程序集 ProductVersion | `1.0.0-rc.1+909ecb6…` | `1.0.0-beta.1+51dcadd…` |
-| 产物目录 | `artifacts/release-1.0.0-rc.1/final2/` | `artifacts/release-1.0.0-beta.1/final2/` |
-| 便携包 SHA256 | `d5bed9ad686a9f1b9232f8b4a1a2512e9912d62a7751b72d18d0a19d7871803a` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
-| 安装器 SHA256 | `bc9913c06fae8393e6b7b51eb0678ed15c6b584b04481773e4e7e2a26826cf3b` | `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` |
-| 便携包 SHA256SUMS | `artifacts/release-1.0.0-rc.1/final2/SHA256SUMS.txt` | `artifacts/release-1.0.0-beta.1/final2/SHA256SUMS.txt` |
-| web 资源清单 SHA256 | `141ba8d7d467becbe6c25053679ec98a8e7f6b3ded945787f16373d9e8500446`（27 个文件；清单 `artifacts/release-1.0.0-rc.1/final2/web-resource-manifest.txt`） | 同一 web 资源内容（便携烟测双向哈希 0 差异） |
+| 版本 | `1.0.0-rc.2` | `1.0.0-beta.1` |
+| 源码提交 | `8643b9e176f0b739806c44c480a915df9796d9e9` | `51dcadd356cd2fc5b8910dc60690d50416245491` |
+| 当前文档 HEAD | `8643b9e176f0b739806c44c480a915df9796d9e9`（RC 构建源；其后的发布文档提交不改变产物） | 同上 |
+| 程序集 ProductVersion | `1.0.0-rc.2+8643b9e…` | `1.0.0-beta.1+51dcadd…` |
+| 产物目录 | `artifacts/release-1.0.0-rc.2/final/` | `artifacts/release-1.0.0-beta.1/final2/` |
+| 便携包 SHA256 | `e339da490611d7c0ea2e4b87bddd33f9cb840eb2c76333be9fc5ab4a207bb5fc` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
+| 安装器 SHA256 | `ecb0013425ef096763f08331f29f67b653673512dd5304152fd098f31272e65c` | `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` |
+| 便携包 SHA256SUMS | `artifacts/release-1.0.0-rc.2/final/SHA256SUMS.txt` | `artifacts/release-1.0.0-beta.1/final2/SHA256SUMS.txt` |
+| web 资源清单 SHA256 | `76d8f3d6c8f2016fe4a026ef5b59ad6b4b882709c2c91f167468fba3b5e5532f`（27 个文件；清单 `artifacts/release-1.0.0-rc.2/final/web-resource-manifest.txt`） | 不同：Beta 使用旧 `large-text-view.js`（无行名称修复），web 清单与 RC 有 1 个文件差异 |
 
 ## 2. 构建与全量检查
 
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
-| Release 构建 | 0 警告 / 0 错误 | `artifacts/release-1.0.0-beta.1/full-validation.log` |
+| Release 构建 | 0 警告 / 0 错误 | `artifacts/release-1.0.0-rc.2/full-validation.log` |
 | Core 测试 | 72/72 | 同上 |
 | Infrastructure 测试 | 206/206 | 同上 |
 | Shell 测试 | 252/252 | 同上 |
-| 全量 live-shell | **2379/2379，退出码 0，未执行 0** | `artifacts/release-1.0.0-beta.1/live-shell-full.log` |
-| UI 资产字节一致 | PASS | 同上 |
-| PowerShell 编码规则 | 31 个脚本 PASS | 同上 |
-| 文档声明机械核对 | `DOC_CLAIMS_OK` | `artifacts/release-1.0.0-beta.1/doc-claims.log` |
+| 全量 live-shell | **2379/2379，退出码 0，未执行 0**（空闲复跑；此前并发负载下 §7.8 失败一次，记录保留） | `artifacts/release-1.0.0-rc.2/live-shell-full2.log`；失败日志 `live-shell-full.log` |
+| UI 资产字节一致 | PASS | 同上（全量检查日志） |
+| PowerShell 编码规则 | 32 个脚本 PASS | 同上 |
+| 文档声明机械核对 | `DOC_CLAIMS_OK` | 同上 |
 | coverage 生成器自测 | PASS | 同上 |
 | JS 语法（4 个运行时文件） | PASS | 同上 |
 | `git diff --check` | PASS | 同上 |
-| 最终 Beta 便携包烟测 | PASS | `artifacts/release-1.0.0-beta.1/final2-verify/portable-report.json` |
-| 最终 RC 便携包烟测 | PASS（关闭 109ms、退出 0、无残留） | `artifacts/release-1.0.0-rc.1/final2-verify/portable-report.json` |
+| 最终 Beta 便携包烟测 | PASS（关闭 130ms、退出 0、无残留） | `artifacts/release-1.0.0-beta.1/final2-verify/portable-report.json` |
+| 最终 RC.2 便携包烟测 | PASS（关闭 94ms、退出 0、无残留） | `artifacts/release-1.0.0-rc.2/final-verify/portable-report.json` |
 
 ## 3. 安装、升级、卸载
 
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
-| Beta 安装 | 退出 0；文档/快捷方式/右键菜单/PATH 齐全；启动窗口 906.6ms、退出 0 | `artifacts/install-acceptance-2026-10-24-final2/installed-report.json` |
-| RC 覆盖升级 | 退出 0；版本 `1.0.0-rc.1`；PATH 值不变且仅 1 项；设置哈希不变 | 同上 |
-| 卸载 | 退出 0；安装目录/卸载记录/右键菜单/开始菜单移除；PATH 逐字恢复；共享运行时未变 | 同上 |
-| 安装/升级日志 | Inno Setup | 同目录 `beta-install.log`、`rc-upgrade.log` |
-| 签名状态 | Beta/RC setup 均 `NotSigned` | 同上报告 `before.betaSetupSignature/rcSetupSignature` |
+| `0.1.0` 安装 | 退出 0；版本 `0.1.0+6ae4ced…`；端口/菜单/PATH 检查通过；README/第三方说明存在、无 LICENSE | `artifacts/legacy-upgrade-acceptance-2026-10-25-rc2d/legacy-upgrade-report.json` |
+| RC.2 覆盖升级 | 退出 0；版本 `1.0.0-rc.2+8643b9e…`；卸载记录 1 个；PATH 值与安装前完全相同；documents 齐全 | 同上 |
+| RC.2 启动 | 窗口出现 631ms、退出 0 | 同上 `launch` |
+| 卸载 | 退出 0；安装目录/卸载记录/右键菜单/开始菜单移除；PATH 逐字恢复；共享运行时未变；设置保留 | 同上 `after` |
+| 安装/升级日志 | Inno Setup | 同目录 `legacy-install.log`、`rc-upgrade.log` |
+| 签名状态 | 0.1.0/RC setup 均 `NotSigned` | 同上报告 `before.*Signature` |
+| Beta → rc.1 历史 | 通过（旧候选，保留作沿革） | `artifacts/install-acceptance-2026-10-24-final2/installed-report.json` |
 
 ## 4. 500ms 同轮宿主阶段
 
@@ -49,6 +52,9 @@
 | --- | --- | --- |
 | 外部文件 gdigrab 5 轮 | 屏幕首内容 275–293ms；网页应用 198–208ms | `artifacts/refresh-host-trace-2026-10-24b/report.json` |
 | 外部文件 ddagrab 5 轮 | 屏幕首内容 236–289ms；网页应用 161–205ms | `artifacts/refresh-host-trace-2026-10-24c/report.json` |
+| 追加 gdigrab 5 轮（2026-10-25） | 屏幕首内容 254–271ms；网页应用 164–179ms | `artifacts/refresh-host-trace-2026-10-25a/report.json` |
+| 追加 ddagrab 5 轮（2026-10-25） | 屏幕首内容 249–275ms；网页应用 167–177ms | `artifacts/refresh-host-trace-2026-10-25b/report.json` |
+| 合计 | **20/20 同轮屏幕首内容 <300ms**；历史 611/552/624ms 未复现 | 上述四批 |
 | 本地 checkout 3 轮 | 分支可见 117–152ms；完整应用 201–232ms | `artifacts/git-status-sync-2026-10-24b|c|d/cleanup.json` |
 | 记录文档 | 阶段定义、校准、历史慢样本边界 | `docs/refresh-host-stage-2026-10-24.md` |
 
@@ -70,9 +76,20 @@
 | 80,000 行软换行（真实外壳） | 构建 5.23s、末行 80000、恢复窗口层；0 失败 | `artifacts/large-text-wrap-normal-entry-2026-10-24/large-text-normal-entry.json` |
 | 80,000 行窗口化/选择/Find/Go to Line | 通过 | `docs/large-text-virtualization-2026-10-23.md`、`docs/large-text-2000-2026-10-24.md` |
 | 可访问树/UIA | 138 后代/168ms；离屏全文不可读 | `docs/large-text-accessibility-2026-10-24.md`、`docs/large-text-a11y-list-2026-10-24.md` |
-| 记录文档 | 边界与影响 | `docs/large-text-wrap-boundary-2026-10-24.md` |
+| 真实 NVDA 2026.2 会话 | 小文件全文读出；2,001 行初始读出“total 2,001/26 项”；活动行只报位置→修复后播报行号+正文；末行 2000 正文；可访问树仅 25 行 | `artifacts/nvda-session-2026-10-25/nvda-debug.log`、`nvda-evidence-final.txt`、`nvda-big2k-line2000-final.png` |
+| 可访问性记录 | 缺陷、修复、边界与正式 1.0 建议 | `docs/nvda-screen-reader-session-2026-10-25.md` |
+| 记录文档 | 软换行边界与影响 | `docs/large-text-wrap-boundary-2026-10-24.md` |
 
-## 7. 运行时缺失与校验
+## 7. Settings 阶段
+
+| 项 | 结果 | 位置 |
+| --- | --- | --- |
+| 冷开 3 次（2026-10-24c） | 491.4 / 451.1 / 567.2ms；原生 created→presented 411/371/469ms；CapturePreview 159/89.9/88.5ms | `artifacts/settings-cold-open-2026-10-24c/settings-cold-open.json` |
+| 2904ms 历史样本 | prepare 410ms、capture 完成 2889ms、present 请求 2478.8ms；未复现 | `docs/settings-controller-issued-2026-10-17.md` |
+| 结论文档 | 567ms 不自动升级为发布阻塞；capture 超时仅单测 | `docs/settings-cold-open-stage-2026-10-25.md` |
+| 2026-10-25 复跑 | 固定坐标错过设置按钮，opened=false，记为采集输入问题；脚本已修正 | `artifacts/settings-cold-open-2026-10-25c/settings-cold-open.json` |
+
+## 8. 运行时缺失与校验
 
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
@@ -81,7 +98,7 @@
 | VerifyRuntime.ps1 | 成功=0；错误哈希=10；错误大小=9；未签名=11；第三方签名=12 | `artifacts/runtime-missing-2026-10-24/verify-runtime-results.txt` |
 | 首次打包启动回归 | 探测早于加载器加载；已修复并从 `51dcadd` 重建 | `docs/runtime-missing-messaging-2026-10-24.md` §2.1 |
 
-## 8. 既有专项证据（本轮未重跑）
+## 9. 既有专项证据（本轮未重跑）
 
 以下证据仍是有效历史记录，但不能替代本轮 RC 的整窗像素结论：
 
@@ -94,20 +111,21 @@
 - 主窗启动/关闭帧：`docs/main-window-startup-close-frames-2026-10-24.md`
 - 冲突外部 abort/混合解决/逐步刷新：`docs/conflict-rebase-external-abort-2026-10-24.md`、`conflict-rebase-multifile-resolve-2026-10-24.md`、`conflict-rebase-multifile-continue-2026-10-24.md`
 
-## 9. 范围裁决与限制
+## 10. 范围裁决与限制
 
 - 发布阶段裁决：`docs/acceptance-scope-rulings-2026-10-20.md` §9
 - 发布收口台账：`docs/release-closure-2026-10-24.md`
+- 正式 1.0 发布建议：`docs/release-recommendation-1.0-2026-10-25.md`
 - Beta 验收：`docs/beta-acceptance-2026-10-24.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.1.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.2.md`
 - 原像素协议：`docs/pixel-pair-protocol-2026-10-22.md`（历史结果 0 张，不因 RC 改写）
 
-## 10. 未验证环境
+## 11. 未验证环境
 
 - Windows 10 22H2 x64 实机。
 - 跨屏/多显示器混合 DPI。
 - 干净虚拟机/第二台机器的安装。
 - 真实安装器缺少运行时下的确认、联网下载、取消、失败与重试。
-- 真实 Narrator/NVDA 连续朗读会话。
+- 纯 OS 键盘的 NVDA 会话；Narrator/JAWS/Braille；80,000 行的 NVDA 阅读。
 
 这些项目在发布说明和已知限制中如实登记，不写成通过。

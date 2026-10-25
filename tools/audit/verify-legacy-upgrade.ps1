@@ -1,18 +1,24 @@
-# Legacy upgrade acceptance: install the historical 0.1.0 setup, upgrade in place to
-# 1.0.0-rc.1, verify integrations/settings, then uninstall and confirm byte-for-byte PATH
+# Legacy upgrade acceptance: install the historical 0.1.0 setup, upgrade in place to the
+# candidate RC, verify integrations/settings, then uninstall and confirm byte-for-byte PATH
 # restoration. Must run elevated. Never removes shared .NET/WebView2 runtimes.
 param(
     [Parameter(Mandatory = $true)][string]$LegacySetup,
     [Parameter(Mandatory = $true)][string]$RcSetup,
     [Parameter(Mandatory = $true)][string]$OutDir,
-    [string]$LegacyVersion = '0.1.0',
-    [string]$RcVersion = '1.0.0-rc.1'
+    [string]$LegacyVersion = '',
+    [string]$RcVersion = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $LegacySetup = [System.IO.Path]::GetFullPath($LegacySetup)
 $RcSetup = [System.IO.Path]::GetFullPath($RcSetup)
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
+if ([string]::IsNullOrWhiteSpace($LegacyVersion)) {
+    $LegacyVersion = (Get-Item -LiteralPath $LegacySetup).VersionInfo.ProductVersion.Trim()
+}
+if ([string]::IsNullOrWhiteSpace($RcVersion)) {
+    $RcVersion = (Get-Item -LiteralPath $RcSetup).VersionInfo.ProductVersion.Trim()
+}
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
 $report = [ordered]@{
