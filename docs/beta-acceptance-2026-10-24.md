@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 版本 | `1.0.0-beta.1` | `1.0.0-rc.2` |
 | 源码提交 | `51dcadd356cd2fc5b8910dc60690d50416245491` | `8643b9e176f0b739806c44c480a915df9796d9e9` |
-| 当前文档 HEAD | `8643b9e176f0b739806c44c480a915df9796d9e9`（RC 构建源；后续仅发布文档提交） | 同左 |
+| 文档收口提交 | `48b9c9bc79447dc6177e413e07c346f950ca08f0`（RC 构建源仍为 `8643b9e176f0b739806c44c480a915df9796d9e9`；后续仅发布文档提交） | 同左 |
 | 产品代码差异 | — | 版本号 + 大文本可访问名称修复（`large-text-view.js`）+ README/发布文档 |
 | 便携包 | `Augit-1.0.0-beta.1-win-x64-portable.zip`，3,522,193 B，SHA256 `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` | `Augit-1.0.0-rc.2-win-x64-portable.zip`，3,522,601 B，SHA256 `e339da490611d7c0ea2e4b87bddd33f9cb840eb2c76333be9fc5ab4a207bb5fc` |
 | 安装器 | `Augit-1.0.0-beta.1-win-x64-setup.exe`，5,010,079 B，SHA256 `f937bf99cfcd112220c5ba42736b36a80b414b2cd5cafe7520a66f13cf2294a6` | `Augit-1.0.0-rc.2-win-x64-setup.exe`，5,010,098 B，SHA256 `ecb0013425ef096763f08331f29f67b653673512dd5304152fd098f31272e65c` |

@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 版本 | `1.0.0-rc.2` | `1.0.0-beta.1` |
 | 源码提交 | `8643b9e176f0b739806c44c480a915df9796d9e9` | `51dcadd356cd2fc5b8910dc60690d50416245491` |
-| 当前文档 HEAD | `8643b9e176f0b739806c44c480a915df9796d9e9`（RC 构建源；其后的发布文档提交不改变产物） | 同上 |
+| 文档收口提交 | `48b9c9bc79447dc6177e413e07c346f950ca08f0`（RC 构建源仍为 `8643b9e176f0b739806c44c480a915df9796d9e9`；后续发布文档提交不改变产物） | 同上 |
 | 程序集 ProductVersion | `1.0.0-rc.2+8643b9e…` | `1.0.0-beta.1+51dcadd…` |
 | 产物目录 | `artifacts/release-1.0.0-rc.2/final/` | `artifacts/release-1.0.0-beta.1/final2/` |
 | 便携包 SHA256 | `e339da490611d7c0ea2e4b87bddd33f9cb840eb2c76333be9fc5ab4a207bb5fc` | `0d11e998136b9b2fd241276fe31073424faface5bd30db4b4821892e47b96c05` |
