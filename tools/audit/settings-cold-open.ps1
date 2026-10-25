@@ -202,7 +202,14 @@ try {
         for ($attempt = 1; $attempt -le 3 -and $settingsHandle -eq [IntPtr]::Zero; $attempt++) {
             $clickAttempts = $attempt
             Set-TopmostForeground $main
-            $clickAt = Click-Client $main 1522 22
+            # The Settings button sits 124 CSS px left of the client right edge. A hard-coded
+            # 1522 only works when the window is maximized at 175% DPI; restored windows are
+            # narrower and the click missed every round.
+            $clientRect = New-Object SettingsCold+RECT
+            [void][SettingsCold]::GetClientRect($main, [ref]$clientRect)
+            $dpi = [SettingsCold]::GetDpiForWindow($main)
+            $settingsX = (($clientRect.R - $clientRect.L) / ($dpi / 96.0)) - 124
+            $clickAt = Click-Client $main $settingsX 22
             if ($index -eq 2 -and $attempt -eq 1) { Start-Sleep -Milliseconds 15; [SettingsCold]::keybd_event([SettingsCold]::VK_TAB, 0, 0, [UIntPtr]::Zero); [SettingsCold]::keybd_event([SettingsCold]::VK_TAB, 0, [SettingsCold]::KEYUP, [UIntPtr]::Zero) }
             $pollDeadline = (Get-Date).AddSeconds(2.5)
             while ((Get-Date) -lt $pollDeadline) {

@@ -1,0 +1,268 @@
+# Legacy upgrade acceptance: install the historical 0.1.0 setup, upgrade in place to
+# 1.0.0-rc.1, verify integrations/settings, then uninstall and confirm byte-for-byte PATH
+# restoration. Must run elevated. Never removes shared .NET/WebView2 runtimes.
+param(
+    [Parameter(Mandatory = $true)][string]$LegacySetup,
+    [Parameter(Mandatory = $true)][string]$RcSetup,
+    [Parameter(Mandatory = $true)][string]$OutDir,
+    [string]$LegacyVersion = '0.1.0',
+    [string]$RcVersion = '1.0.0-rc.1'
+)
+
+$ErrorActionPreference = 'Stop'
+$LegacySetup = [System.IO.Path]::GetFullPath($LegacySetup)
+$RcSetup = [System.IO.Path]::GetFullPath($RcSetup)
+$OutDir = [System.IO.Path]::GetFullPath($OutDir)
+New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+
+$report = [ordered]@{
+    startedAt = (Get-Date).ToString('o')
+    elevated = $false
+    legacySetup = $LegacySetup
+    rcSetup = $RcSetup
+    legacySetupSha256 = ''
+    rcSetupSha256 = ''
+    before = [ordered]@{}
+    legacyInstall = [ordered]@{}
+    legacyState = [ordered]@{}
+    rcUpgrade = [ordered]@{}
+    rcState = [ordered]@{}
+    launch = [ordered]@{}
+    uninstall = [ordered]@{}
+    after = [ordered]@{}
+    result = 'RUNNING'
+    failures = @()
+}
+
+function Get-PathValue {
+    $key = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
+    $item = Get-Item -LiteralPath $key
+    return [ordered]@{
+        raw = [string]$item.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        kind = [string]$item.GetValueKind('Path')
+    }
+}
+
+function Get-AugitUninstallEntries {
+    $roots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+    $entries = @()
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        foreach ($key in Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue) {
+            $item = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction SilentlyContinue
+            if ($item -and $item.DisplayName -like 'Augit*') {
+                $entries += [ordered]@{
+                    key = $key.PSPath
+                    displayName = [string]$item.DisplayName
+                    displayVersion = [string]$item.DisplayVersion
+                    installLocation = [string]$item.InstallLocation
+                    uninstallString = [string]$item.UninstallString
+                }
+            }
+        }
+    }
+    return $entries
+}
+
+function Get-SettingsHash([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+}
+
+function Get-RuntimeSnapshot {
+    $dotnet = @(& dotnet --list-runtimes 2>$null | Where-Object { $_ -match '^Microsoft\.(NETCore|WindowsDesktop)\.App' })
+    $webview = $null
+    $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+    if (Test-Path -LiteralPath $key) { $webview = (Get-ItemProperty -LiteralPath $key).pv }
+    return [ordered]@{ dotnet = $dotnet; webview2 = [string]$webview }
+}
+
+function Wait-Until([scriptblock]$Condition, [int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (& $Condition) { return $true }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
+function Get-FileProductVersion([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    return (Get-Item -LiteralPath $path).VersionInfo.ProductVersion
+}
+
+function Invoke-Setup([string]$setup, [string]$logName, [string[]]$tasks) {
+    $log = Join-Path $OutDir $logName
+    $arguments = @('/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$log")
+    if ($tasks.Count -gt 0) { $arguments += "/TASKS=""$($tasks -join ',')""" }
+    $process = Start-Process -FilePath $setup -ArgumentList $arguments -PassThru -Wait
+    return [ordered]@{ exitCode = $process.ExitCode; log = $log }
+}
+
+$settingsPath = Join-Path $env:LOCALAPPDATA 'Augit\settings.json'
+$installDir = Join-Path $env:ProgramFiles 'Augit'
+$startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Augit\Augit.lnk'
+$explorerKeys = @(
+    'Registry::HKEY_CLASSES_ROOT\Directory\shell\Augit',
+    'Registry::HKEY_CLASSES_ROOT\Directory\Background\shell\Augit'
+)
+
+try {
+    $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+    $report.elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $report.elevated) { throw 'This verification must run elevated.' }
+    if (-not (Test-Path -LiteralPath $LegacySetup)) { throw "legacy setup missing: $LegacySetup" }
+    if (-not (Test-Path -LiteralPath $RcSetup)) { throw "rc setup missing: $RcSetup" }
+    if (Test-Path -LiteralPath $installDir) { throw "Augit is already installed: $installDir" }
+    if (@(Get-AugitUninstallEntries).Count -gt 0) { throw 'An existing Augit uninstall entry is present.' }
+
+    $report.legacySetupSha256 = (Get-FileHash -LiteralPath $LegacySetup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $report.rcSetupSha256 = (Get-FileHash -LiteralPath $RcSetup -Algorithm SHA256).Hash.ToLowerInvariant()
+    $report.before = [ordered]@{
+        path = Get-PathValue
+        uninstall = @(Get-AugitUninstallEntries)
+        explorerKeys = @($explorerKeys | ForEach-Object { Test-Path -LiteralPath $_ })
+        startMenu = (Test-Path -LiteralPath $startMenu)
+        settingsSha256 = Get-SettingsHash $settingsPath
+        runtimes = Get-RuntimeSnapshot
+        installDir = (Test-Path -LiteralPath $installDir)
+        legacySetupSignature = [string](Get-AuthenticodeSignature -LiteralPath $LegacySetup).Status
+        rcSetupSignature = [string](Get-AuthenticodeSignature -LiteralPath $RcSetup).Status
+        legacySetupProductVersion = (Get-Item -LiteralPath $LegacySetup).VersionInfo.ProductVersion
+        legacySetupFileVersion = (Get-Item -LiteralPath $LegacySetup).VersionInfo.FileVersion
+        rcSetupProductVersion = (Get-Item -LiteralPath $RcSetup).VersionInfo.ProductVersion
+    }
+
+    $report.legacyInstall = Invoke-Setup $LegacySetup 'legacy-install.log' @('addtopath', 'explorercontext')
+    if ($report.legacyInstall.exitCode -ne 0) { throw "legacy installer exit code $($report.legacyInstall.exitCode)" }
+    $legacyExe = Join-Path $installDir 'Augit.exe'
+    if (-not (Test-Path -LiteralPath $legacyExe)) { throw 'legacy install did not create Augit.exe' }
+    $legacyPath = Get-PathValue
+    $report.legacyState = [ordered]@{
+        exeProductVersion = Get-FileProductVersion $legacyExe
+        readme = (Test-Path -LiteralPath (Join-Path $installDir 'README.md'))
+        license = (Test-Path -LiteralPath (Join-Path $installDir 'LICENSE'))
+        notices = (Test-Path -LiteralPath (Join-Path $installDir 'THIRD-PARTY-NOTICES.md'))
+        uninstall = @(Get-AugitUninstallEntries)
+        pathContainsInstallDir = @($legacyPath.raw -split ';' | Where-Object { $_.TrimEnd('\') -ieq $installDir.TrimEnd('\') }).Count
+        pathKind = $legacyPath.kind
+        explorerKeys = @($explorerKeys | ForEach-Object { Test-Path -LiteralPath $_ })
+        startMenu = (Test-Path -LiteralPath $startMenu)
+        settingsSha256 = Get-SettingsHash $settingsPath
+    }
+    if ($report.legacyState.exeProductVersion -notlike "$LegacyVersion*") {
+        throw "legacy exe version $($report.legacyState.exeProductVersion)"
+    }
+    if ($report.legacyState.pathContainsInstallDir -ne 1) { throw 'legacy PATH entry missing or duplicated' }
+    if (@($report.legacyState.explorerKeys | Where-Object { -not $_ }).Count -gt 0) { throw 'legacy explorer context menu missing' }
+
+    $report.rcUpgrade = Invoke-Setup $RcSetup 'rc-upgrade.log' @()
+    if ($report.rcUpgrade.exitCode -ne 0) { throw "rc installer exit code $($report.rcUpgrade.exitCode)" }
+    $rcPath = Get-PathValue
+    $rcEntries = @(Get-AugitUninstallEntries)
+    $report.rcState = [ordered]@{
+        exeProductVersion = Get-FileProductVersion (Join-Path $installDir 'Augit.exe')
+        readme = (Test-Path -LiteralPath (Join-Path $installDir 'README.md'))
+        license = (Test-Path -LiteralPath (Join-Path $installDir 'LICENSE'))
+        notices = (Test-Path -LiteralPath (Join-Path $installDir 'THIRD-PARTY-NOTICES.md'))
+        uninstall = $rcEntries
+        uninstallEntryCount = $rcEntries.Count
+        pathContainsInstallDir = @($rcPath.raw -split ';' | Where-Object { $_.TrimEnd('\') -ieq $installDir.TrimEnd('\') }).Count
+        pathUnchangedFromLegacy = ($rcPath.raw -eq $legacyPath.raw)
+        explorerKeys = @($explorerKeys | ForEach-Object { Test-Path -LiteralPath $_ })
+        startMenu = (Test-Path -LiteralPath $startMenu)
+        settingsSha256 = Get-SettingsHash $settingsPath
+    }
+    if ($report.rcState.exeProductVersion -notlike "$RcVersion*") {
+        throw "rc exe version $($report.rcState.exeProductVersion)"
+    }
+    if (-not $report.rcState.readme -or -not $report.rcState.license -or -not $report.rcState.notices) {
+        throw 'rc upgrade did not install user documents/license'
+    }
+    if ($report.rcState.uninstallEntryCount -ne 1) {
+        throw "legacy upgrade left $($report.rcState.uninstallEntryCount) uninstall entries (expected 1)"
+    }
+    if ($report.rcState.pathContainsInstallDir -ne 1) { throw 'rc upgrade duplicated or removed PATH entry' }
+    if (-not $report.rcState.pathUnchangedFromLegacy) { throw 'rc upgrade changed system PATH' }
+    if (@($report.rcState.explorerKeys | Where-Object { -not $_ }).Count -gt 0) { throw 'rc upgrade removed explorer menu' }
+    if ($report.rcState.settingsSha256 -ne $report.before.settingsSha256) { throw 'upgrade changed user settings' }
+
+    # Launch the upgraded RC with isolated settings and workspace.
+    $workspace = Join-Path $OutDir 'workspace'
+    if (Test-Path -LiteralPath $workspace) { Remove-Item -LiteralPath $workspace -Recurse -Force }
+    New-Item -ItemType Directory -Path $workspace -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $workspace 'README.md') -Value '# legacy upgrade smoke' -Encoding UTF8
+    $isolatedSettings = Join-Path $OutDir 'settings-isolated.json'
+    if (Test-Path -LiteralPath $isolatedSettings) { Remove-Item -LiteralPath $isolatedSettings -Force }
+    $exe = Join-Path $installDir 'Augit.exe'
+    $started = Get-Date
+    $process = Start-Process -FilePath $exe -ArgumentList @('--workspace', ('"{0}"' -f $workspace), '--settings-file', ('"{0}"' -f $isolatedSettings)) -PassThru
+    $window = Wait-Until { $process.Refresh(); $process.MainWindowHandle -ne 0 } 30
+    $report.launch = [ordered]@{
+        pid = $process.Id
+        windowAppeared = $window
+        windowAppearedMs = [math]::Round(((Get-Date) - $started).TotalMilliseconds, 1)
+        windowTitle = $process.MainWindowTitle
+    }
+    if (-not $window) { throw 'upgraded rc did not show a window' }
+    [void]$process.CloseMainWindow()
+    if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'upgraded rc did not close normally' }
+    $report.launch.exitCode = $process.ExitCode
+    if ($process.ExitCode -ne 0) { throw "upgraded rc exit code $($process.ExitCode)" }
+
+    $uninstaller = Join-Path $installDir 'unins000.exe'
+    if (-not (Test-Path -LiteralPath $uninstaller)) { throw 'uninstaller missing' }
+    $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -PassThru
+    [void]$uninstallProcess.WaitForExit(120000)
+    $remaining = Wait-Until { -not (Test-Path -LiteralPath $installDir) } 60
+    $report.uninstall = [ordered]@{ exitCode = $uninstallProcess.ExitCode; directoryRemoved = $remaining }
+    if (-not $remaining) { throw 'uninstall did not remove the install directory' }
+
+    $afterPath = Get-PathValue
+    $report.after = [ordered]@{
+        path = $afterPath
+        pathRestoredExactly = ($afterPath.raw -eq $report.before.path.raw)
+        pathKindRestored = ($afterPath.kind -eq $report.before.path.kind)
+        uninstall = @(Get-AugitUninstallEntries)
+        explorerKeys = @($explorerKeys | ForEach-Object { Test-Path -LiteralPath $_ })
+        startMenu = (Test-Path -LiteralPath $startMenu)
+        settingsPreserved = ((Get-SettingsHash $settingsPath) -eq $report.before.settingsSha256)
+        runtimes = Get-RuntimeSnapshot
+        runtimesUnchanged = (((Get-RuntimeSnapshot | ConvertTo-Json -Compress)) -eq ($report.before.runtimes | ConvertTo-Json -Compress))
+        installDir = (Test-Path -LiteralPath $installDir)
+    }
+    if (-not $report.after.pathRestoredExactly) { throw 'system PATH was not restored exactly' }
+    if (@($report.after.uninstall).Count -ne 0) { throw 'uninstall registry entry remains' }
+    if (@($report.after.explorerKeys | Where-Object { $_ }).Count -ne 0) { throw 'explorer context menu remains' }
+    if ($report.after.startMenu) { throw 'start menu shortcut remains' }
+    if (-not $report.after.settingsPreserved) { throw 'uninstall removed user settings' }
+    if (-not $report.after.runtimesUnchanged) { throw 'shared runtimes changed during install/uninstall' }
+
+    $report.result = 'PASS'
+} catch {
+    $report.failures += $_.Exception.Message
+    $report.result = 'FAIL'
+    try {
+        $entries = @(Get-AugitUninstallEntries)
+        foreach ($entry in $entries) {
+            if ($entry.uninstallString) {
+                $uninstaller = ($entry.uninstallString -replace '"', '').Trim()
+                if (Test-Path -LiteralPath $uninstaller) {
+                    $cleanup = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -PassThru
+                    [void]$cleanup.WaitForExit(120000)
+                }
+            }
+        }
+    } catch {
+        $report.failures += 'cleanup: ' + $_.Exception.Message
+    }
+} finally {
+    $report.finishedAt = (Get-Date).ToString('o')
+    $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $OutDir 'legacy-upgrade-report.json') -Encoding UTF8
+    Write-Output "RESULT $($report.result)"
+    foreach ($failure in $report.failures) { Write-Output "FAIL $failure" }
+}
+if ($report.result -ne 'PASS') { exit 1 }
