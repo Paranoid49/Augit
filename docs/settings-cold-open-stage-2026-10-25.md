@@ -46,8 +46,11 @@
 ## 4. CapturePreview 受控故障边界
 
 - 真实 500ms 超时无法在正常设置页自然出现；不能靠无限等待取证。
-- 现有 `ShellSettingsCaptureTimeoutTests` 覆盖 `WaitForCaptureAsync` 的 500ms 超时与
-  `capture-timeout` 阶段；这是**单元级受控故障证据**，不冒充真实慢样本。
+- 现有 `ShellSettingsCaptureTimeoutTests` 已扩为 3 项：30ms 机制测试、**500ms 生产上限直接测试**、
+  正常完成/异常传播测试；本批 **3/3 通过（548–558ms）**。这是**单元级受控故障证据**，
+  不冒充真实慢样本。
+- 关闭路径沿用 2026-10-24c 的真实开窗证据：Esc 53.7ms、Cancel 29.1ms、标题关闭 89.7ms；
+  presented 截图完整，没有无法关闭或错误输入。
 - 未对 `CapturePreviewAsync` 注入进程挂起；此前尝试挂起 renderer/GPU 未使捕获等待，
   已作为否证记录，不再重复。
 

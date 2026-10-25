@@ -20,10 +20,10 @@
 
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
-| Release 构建 | 0 警告 / 0 错误 | `artifacts/release-1.0.0-rc.2/full-validation.log` |
+| Release 构建 | 0 警告 / 0 错误 | `artifacts/release-1.0.0-rc.2/full-validation-2026-10-25b.log` |
 | Core 测试 | 72/72 | 同上 |
 | Infrastructure 测试 | 206/206 | 同上 |
-| Shell 测试 | 252/252 | 同上 |
+| Shell 测试 | 253/253 | 同上 |
 | 全量 live-shell | **2379/2379，退出码 0，未执行 0**（空闲复跑；此前并发负载下 §7.8 失败一次，记录保留） | `artifacts/release-1.0.0-rc.2/live-shell-full2.log`；失败日志 `live-shell-full.log` |
 | UI 资产字节一致 | PASS | 同上（全量检查日志） |
 | PowerShell 编码规则 | 32 个脚本 PASS | 同上 |
@@ -73,11 +73,14 @@
 | 项 | 结果 | 位置 |
 | --- | --- | --- |
 | 80,000 行软换行（页面级） | 构建 3.62s、80,000 节点；Find/Go to Line/全选/关闭/恢复通过 | `artifacts/large-text-wrap-2026-10-24/run.log` |
+| 80,000 行软换行（2026-10-25 重跑） | 构建 **4,371ms**、80,000 节点；Find/GoTo/全选/关闭/恢复 30/30 | `artifacts/accessibility-oskeyboard-2026-10-25/large-text-wrap-review.log` |
 | 80,000 行软换行（真实外壳） | 构建 5.23s、末行 80000、恢复窗口层；0 失败 | `artifacts/large-text-wrap-normal-entry-2026-10-24/large-text-normal-entry.json` |
 | 80,000 行窗口化/选择/Find/Go to Line | 通过 | `docs/large-text-virtualization-2026-10-23.md`、`docs/large-text-2000-2026-10-24.md` |
 | 可访问树/UIA | 138 后代/168ms；离屏全文不可读 | `docs/large-text-accessibility-2026-10-24.md`、`docs/large-text-a11y-list-2026-10-24.md` |
 | 真实 NVDA 2026.2 会话 | 小文件全文读出；2,001 行初始读出“total 2,001/26 项”；活动行只报位置→修复后播报行号+正文；末行 2000 正文；可访问树仅 25 行 | `artifacts/nvda-session-2026-10-25/nvda-debug.log`、`nvda-evidence-final.txt`、`nvda-big2k-line2000-final.png` |
+| 纯 OS 键盘 NVDA（rc.2） | 小文件 5 行全文；2,001 行到 1504/1523/2000；80,001 行到 61/80000；真实 OS 键盘，无 CDP 输入 | `docs/nvda-oskeyboard-session-2026-10-25.md`、`artifacts/accessibility-oskeyboard-2026-10-25/nvda-osk-debug.log` |
 | 可访问性记录 | 缺陷、修复、边界与正式 1.0 建议 | `docs/nvda-screen-reader-session-2026-10-25.md` |
+| 限制逐项判定 | §3/§4 分类、证据与外部条件 | `docs/limits-triage-2026-10-25.md` |
 | 记录文档 | 软换行边界与影响 | `docs/large-text-wrap-boundary-2026-10-24.md` |
 
 ## 7. Settings 阶段
@@ -87,6 +90,7 @@
 | 冷开 3 次（2026-10-24c） | 491.4 / 451.1 / 567.2ms；原生 created→presented 411/371/469ms；CapturePreview 159/89.9/88.5ms | `artifacts/settings-cold-open-2026-10-24c/settings-cold-open.json` |
 | 2904ms 历史样本 | prepare 410ms、capture 完成 2889ms、present 请求 2478.8ms；未复现 | `docs/settings-controller-issued-2026-10-17.md` |
 | 结论文档 | 567ms 不自动升级为发布阻塞；capture 超时仅单测 | `docs/settings-cold-open-stage-2026-10-25.md` |
+| 受控超时测试 | 500ms 上限 + 正常/异常路径 **3/3 通过**（558ms） | 、`tests/Augit.Shell.Tests/ShellSettingsCaptureTimeoutTests.cs` |
 | 2026-10-25 复跑 | 固定坐标错过设置按钮，opened=false，记为采集输入问题；脚本已修正 | `artifacts/settings-cold-open-2026-10-25c/settings-cold-open.json` |
 
 ## 8. 运行时缺失与校验
@@ -116,6 +120,7 @@
 - 发布阶段裁决：`docs/acceptance-scope-rulings-2026-10-20.md` §9
 - 发布收口台账：`docs/release-closure-2026-10-24.md`
 - 正式 1.0 发布建议：`docs/release-recommendation-1.0-2026-10-25.md`
+- §3/§4 限制逐项判定：`docs/limits-triage-2026-10-25.md`
 - Beta 验收：`docs/beta-acceptance-2026-10-24.md`
 - 已知限制：`docs/known-limitations-1.0.0-rc.2.md`
 - 原像素协议：`docs/pixel-pair-protocol-2026-10-22.md`（历史结果 0 张，不因 RC 改写）
@@ -126,6 +131,6 @@
 - 跨屏/多显示器混合 DPI。
 - 干净虚拟机/第二台机器的安装。
 - 真实安装器缺少运行时下的确认、联网下载、取消、失败与重试。
-- 纯 OS 键盘的 NVDA 会话；Narrator/JAWS/Braille；80,000 行的 NVDA 阅读。
+- Narrator 完整会话、JAWS/Braille、其他 DPI/深色/窄窗屏幕阅读器；纯 OS 键盘 NVDA 与 80,001 行抽样已完成。
 
 这些项目在发布说明和已知限制中如实登记，不写成通过。

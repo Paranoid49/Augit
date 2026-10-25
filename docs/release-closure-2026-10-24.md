@@ -100,22 +100,30 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
   发现活动行只播报位置不读正文，已修复（行 `aria-label`、先渲染后设 `aria-activedescendant`），
   复测播报“当前 line 0016…”与末行 2000 正文。离屏全文仍不在可访问树（25/2,001），
   列为正式 1.0 已知限制。见[NVDA 会话](nvda-screen-reader-session-2026-10-25.md)。
+- B7（纯 OS 键盘补充）：rc.2 上以真实 `keybd_event`（EXTENDEDKEY）+ NVDA 睡眠模式完成小文件 5 行全文、
+  2,001 行到第 1504/1523 行、End/Up 到 2001/2000、80,001 行到第 61/80000 行；NVDA 播报行号+正文+
+  “2001/80001 之 N 项”。未发现新焦点/行号/播报缺陷；无 CDP 键盘输入。见[纯 OS 键盘 NVDA](nvda-oskeyboard-session-2026-10-25.md)。
 - B1（追加）：2026-10-25 再跑 gdigrab 5 轮 254–271ms、ddagrab 5 轮 249–275ms，
   与 2026-10-24 合并 20/20 同轮 <300ms；历史 611/552/624ms 仍未复现。
+- B4（追加）：当前页面级重跑 80,000 行软换行 **4,371ms / 80,000 节点**，Find/GoTo/全选/关闭/恢复 30/30；
+  真实外壳 5,230ms 保留；仍是高成本后续工程。
 - C7/C8：Settings 阶段分析见[Settings 冷开阶段](settings-cold-open-stage-2026-10-25.md)；
   3 次冷开 491/451/567ms，capture 88–159ms；2904ms 历史样本慢在 capture/present 等待，
-  未复现；本轮脚本复跑因固定坐标错过按钮，记录为采集输入问题。
+  未复现；本轮脚本复跑因固定坐标错过按钮，记录为采集输入问题。500ms 上限/正常/异常路径已由
+  `ShellSettingsCaptureTimeoutTests` **3/3** 覆盖，关闭路径沿用 29.1–89.7ms。
 - 新增自动化：`RefreshStageTraceTests`、`RefreshTraceBridgeTests`、`WorkspaceFileWatcherTests` 阶段回调、`ShellFailureTextTests` 运行时文案；
   新增/修改审计脚本 `verify-portable-package.ps1`、`click-window.ps1`（绝对坐标）、`refresh-content-onset.cjs`（宿主阶段）、
   `git-metadata-refresh.cjs`（宿主阶段）、`conflict-rebase-multifile-continue-os.cjs`、`large-text-normal-entry.cjs`（软换行）。
 
 ## 6. 未闭环项（截至本次更新）
 
-- 大文本离屏全文不在可访问树：真实 NVDA 已确认；连续全文朗读受限，列正式 1.0 已知限制。
+- 大文本离屏全文不在可访问树：真实 NVDA + 纯 OS 键盘会话均已确认；连续全文朗读受限，列正式 1.0 已知限制。
 - B1 历史 611/552/624ms 慢样本：追加 10 轮后仍 20/20 未复现，但没有归因；保留为未归因风险。
 - 安装器真实缺失运行时交互（C15）。
 - Windows 10 22H2、跨屏/多显示器 DPI 未实机验证；干净虚拟机/第二台机器安装未验证。
 - Augit 自身代码签名缺失（需证书与发布授权）。
+- Narrator 完整会话、JAWS/Braille、其他 DPI/深色/窄窗 NVDA 未验证。
+- 真实日常使用观察需来自用户真实工作，不能用自动化替代。
 - 软换行 80,000 行全量构建与节点数作为 1.0 后工程目标，不在本阶段实现。
 - `0.1.0 → 1.0.0-rc.2` 已实测；最终 rc.2 字节的安装/升级/卸载报告为
   `artifacts/legacy-upgrade-acceptance-2026-10-25-rc2d/legacy-upgrade-report.json`。
@@ -125,7 +133,7 @@ P0 指数据丢失或损坏等严重问题，P1 指核心操作无法完成、�
 | 分类 | 项目 | 依据/边界 |
 | --- | --- | --- |
 | **已修复并验证** | A1 README、A2 LICENSE、A3/A4 版本身份、A5 启动探测、B3 真实鼠标 Continue、B5/B8/B9 安装升级卸载、NVDA 活动行不读正文 | 回归/报告见 §2、§5；rc.2 字节已复验 |
-| **当前环境可继续验证** | B1 500ms 追加采样、Settings 冷开 567ms/2904ms 复测、软换行性能复测 | 已有 20/20 与 3 次 Settings 样本；无重复数秒卡顿或无法关闭，继续观察即可，不需要伪称稳定通过 |
+| **当前环境可继续验证** | B1 500ms 追加采样、Settings 冷开 567ms/2904ms 复测、软换行性能复测 | 已有 20/20 与 3 次 Settings 样本；本轮又完成纯 OS NVDA 与 80k 抽样、500ms 上限 3/3 单测；仍不把未复现写成稳定通过 |
 | **需要外部环境** | Windows 10 22H2、多显示器/跨屏 DPI、干净 VM/第二台机器、安装器真实缺 .NET/WebView2 流程、Augit 代码签名、真实日常使用观察 | 当前机器不具备或不许破坏共享运行时；不得改写支持声明 |
 | **高成本后续工程** | 可变行高软换行虚拟化（80,000 行全量 DOM）、屏幕阅读器离屏全文连续朗读、整窗像素 0/50 的持续整改 | 需要重新设计行高索引/滚动/选择/查找/可访问性，或大规模视觉返工；明确列为 1.0 后目标 |
 | **已批准范围差异** | Force Push、Git 子模块、平台 API、内置 Git Console、AI、内置文本编辑/保存、PyCharm 独有工具轨/Console/试用期控件 | 按产品规格与既有裁决保留差异，不复制未批准功能 |

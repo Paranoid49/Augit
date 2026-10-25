@@ -26,25 +26,29 @@ rc.2 相对 rc.1 的运行时变化只有大文本活动行的可访问名称修
 | --- | --- | --- |
 | `0.1.0 → rc.2` 直接覆盖升级 | **PASS**：安装/升级/启动 631ms/卸载退出码均 0；PATH 逐字恢复、设置保留、共享运行时不变 | `artifacts/legacy-upgrade-acceptance-2026-10-25-rc2d/legacy-upgrade-report.json` |
 | 真实屏幕阅读器 | 真实 NVDA 2026.2 读出小文件全文、2,001 行窗口与末行正文；修复活动行只报位置不读正文的语义缺陷 | `docs/nvda-screen-reader-session-2026-10-25.md` |
+| 纯 OS 键盘 NVDA（rc.2） | 小文件 5 行全文；2,001 行到第 1504/1523/2000 行，NVDA 报行号+正文+“2001 之 N 项”；80,001 行抽样到第 61/80000 行；未发现新语义缺陷 | `docs/nvda-oskeyboard-session-2026-10-25.md`、`artifacts/accessibility-oskeyboard-2026-10-25/` |
+| Settings 受控测试 | 500ms 上限直接单测 + 正常/异常路径 **3/3 通过**；关闭路径沿用 3 次 29.1–89.7ms | `tests/Augit.Shell.Tests/ShellSettingsCaptureTimeoutTests.cs` |
 | 活动行可访问名称回归 | `live-large-text` 30/30；活动行/全部渲染行均带行号+正文名称 | `artifacts/large-text-nvda-fix-2026-10-25/run.log` |
 | 外部文件 500ms | 2026-10-24/25 合计 **20/20** 同轮屏幕首内容 236–293ms；历史 611/552/624ms 未复现 | `docs/refresh-host-stage-2026-10-24.md`、四批 `refresh-host-trace-*` |
 | Settings 阶段分析 | 3 次冷开 491/451/567ms；capture 88–159ms；2904ms 历史样本慢在 capture/present、未复现 | `docs/settings-cold-open-stage-2026-10-25.md` |
 | 最终包启动/退出 | 便携关闭 94ms、退出 0、无残留；安装版启动 631ms、退出 0 | `release-1.0.0-rc.2/final-verify/portable-report.json`、legacy 报告 |
-| 构建与回归 | Release 0 警告 0 错误；Core 72/72、Infrastructure 206/206、Shell 252/252；全量 live-shell 2379/2379；32 个 PowerShell 编码、UI 资产、doc claims、coverage、JS、diff check 通过 | `artifacts/release-1.0.0-rc.2/full-validation.log`、`live-shell-full2.log` |
+| 构建与回归 | Release 0 警告 0 错误；Core 72/72、Infrastructure 206/206、Shell 253/253；全量 live-shell 2379/2379；32 个 PowerShell 编码、UI 资产、doc claims、coverage、JS、diff check 通过 | `artifacts/release-1.0.0-rc.2/full-validation-2026-10-25b.log`、`live-shell-full2.log` |
 
 说明：全量 live-shell 首次在构建/安装并发负载下于 §7.8 触底分页失败一次；空闲复跑 2379/2379
 通过，失败日志保留，不把负载下失败写成稳定通过。
 
 ## 3. 已披露限制（不阻塞候选交付，但不写成通过）
 
-1. **软换行 80,000 行退回全量 DOM**：页面级 3.62–9.78s、真实外壳首测 5.23s，80,000 个行节点；
-   之后滚动/Find/Go to Line/全选/关闭可用。可变行高虚拟化列为 1.0 后工程目标；不声称所有
-   大文本模式都已窗口化。
-2. **屏幕阅读器离屏全文不可连续朗读**：可访问树只暴露当前窗口约 25 行（总数 2,001）；
+1. **软换行 80,000 行退回全量 DOM**：页面级 3.62–9.78s（本轮重跑 4.371s）、真实外壳首测 5.23s，
+   80,000 个行节点；之后滚动/Find/Go to Line/全选/关闭可用。可变行高虚拟化列为 1.0 后工程目标；
+   不声称所有大文本模式都已窗口化。
+2. **屏幕阅读器离屏全文不可连续朗读**：可访问树只暴露当前窗口约 25–30 行（总数 2,001/80,001）；
    可逐页导航、读当前行、Find/Go to Line/复制全文，但不能像普通文档一样一次连续朗读全文。
+   纯 OS 键盘 NVDA 已覆盖小文件、2,001 行和 80,001 行抽样，未发现新的焦点/行号/正文缺陷。
 3. **Settings 冷开未连续 500ms**：3 次 491/451/567ms；567ms 是性能余项，不升级为发布阻塞。
-4. **历史 2904ms Settings 慢样本未复现**：慢点指向 CapturePreview/呈现等待；500ms 超时仅单测覆盖，
-   无自然超时样本。
+   500ms 超时/异常路径已由受控单测覆盖（3/3），关闭路径沿用 29.1–89.7ms 证据。
+4. **历史 2904ms Settings 慢样本未复现**：慢点指向 CapturePreview/呈现等待；500ms 超时/异常路径
+   已由 3 个受控单测覆盖，仍无自然超时样本。
 5. **500ms 历史慢样本未归因**：20/20 未复现，保留未归因风险。
 6. **整窗像素**：历史结果仍为 0 张合格 / 50 组页面级配对，未达成原整改目标；只登记持续改进。
 7. **代码签名**：Augit 自身 `NotSigned`，SmartScreen 可能提示未知发布者。
@@ -59,7 +63,8 @@ rc.2 相对 rc.1 的运行时变化只有大文本活动行的可访问名称修
 - 安装器在真实缺少 .NET/WebView2 的机器上的确认、联网下载、取消、失败与重试。
 - 代码签名证书与发布授权。
 - 真实日常使用观察（仓库浏览、外部修改同步、提交/分支、拉取推送、冲突、终端、重启恢复）。
-- 可选：Narrator/JAWS/Braille、纯 OS 键盘 NVDA、80,000 行屏幕阅读器会话。
+- 可选：Narrator/JAWS/Braille。纯 OS 键盘 NVDA 与 80,001 行 NVDA 抽样已完成；
+  Narrator 只确认可执行文件存在，未做完整会话；JAWS/Braille 依赖许可/硬件。
 
 这些项目必须继续标为“未验证”，不能因 rc.2 通过安装或便携烟测而改写成已通过。
 
@@ -100,5 +105,7 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 - 已知限制：`docs/known-limitations-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`
 - NVDA 会话：`docs/nvda-screen-reader-session-2026-10-25.md`
+- 纯 OS 键盘 NVDA：`docs/nvda-oskeyboard-session-2026-10-25.md`
+- 限制逐项判定：`docs/limits-triage-2026-10-25.md`
 - Settings 阶段：`docs/settings-cold-open-stage-2026-10-25.md`
 - Beta 验收：`docs/beta-acceptance-2026-10-24.md`

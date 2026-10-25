@@ -66,7 +66,7 @@
 ## 5. 本轮验证摘要
 
 - Release 构建：0 警告、0 错误。
-- 单元测试：Core 72/72、Infrastructure 206/206、Shell 252/252。
+- 单元测试：Core 72/72、Infrastructure 206/206、Shell 253/253。
 - 全量 live-shell：**2379/2379**，退出码 0，未执行 0（空闲复跑；此前并发负载下 §7.8 失败一次，失败日志保留）。
 - `verify-ui-assets` PASS；32 个 PowerShell 脚本编码规则 PASS；`check-doc-claims` OK；coverage、JS 语法、`git diff --check` 通过。
 - 便携包烟测：Beta/rc.2 均 PASS（必需文件、web 双向哈希、版本、真实启动截图、关闭 94–130ms、退出 0、无残留）。
