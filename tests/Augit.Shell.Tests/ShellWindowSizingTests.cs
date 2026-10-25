@@ -204,6 +204,75 @@ public sealed class ShellWindowSizingTests
         Assert.AreEqual(1080, size.Height);
     }
 
+    [TestMethod]
+    public void 恢复的大窗口按目标显示器工作区收敛()
+    {
+        // 缺陷 D2：保存尺寸是主屏放得下的 2500x1300，但位置在 1920x1040 的副屏。
+        // 不能只按主屏工作区判断，否则右侧 620px、下方 360px 会落到屏外。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(2600, 100, 2500, 1300, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            work: new WindowFrameRect(2560, 0, 4480, 1040),
+            screen: new VirtualScreen(0, 0, 4480, 1440));
+        Assert.AreEqual(new PhysicalPlacement(2560, 0, 1920, 1040, false), placement);
+    }
+
+    [TestMethod]
+    public void 副屏正常大小的恢复矩形保持不变()
+    {
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(2660, 120, 1180, 760, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            work: new WindowFrameRect(2560, 0, 4480, 1040),
+            screen: new VirtualScreen(0, 0, 4480, 1440));
+        Assert.AreEqual(new PhysicalPlacement(2660, 120, 1180, 760, false), placement);
+    }
+
+    [TestMethod]
+    public void 尺寸放得下时保留标题栏可达的屏外位置()
+    {
+        // 尺寸本身放得下时沿用原来的“标题栏可达即可”规则，不把用户有意跨屏的窗口
+        // 强行挪回单块显示器；D2 的整窗夹取只用于尺寸放不下的情况。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(4000, 100, 1180, 760, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            work: new WindowFrameRect(2560, 0, 4480, 1040),
+            screen: new VirtualScreen(0, 0, 4480, 1440));
+        Assert.AreEqual(new PhysicalPlacement(4000, 100, 1180, 760, false), placement);
+    }
+
+    [TestMethod]
+    public void 工作区不可用时回退到原启动摆放()
+    {
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(9000, 5000, 1180, 760, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            work: new WindowFrameRect(0, 0, 0, 0),
+            screen: new VirtualScreen(0, 0, 4480, 1440));
+        Assert.AreEqual(new PhysicalPlacement(80, 80, 1180, 760, false), placement);
+    }
+
+    [TestMethod]
+    public void 目标显示器上仍恢复最大化状态()
+    {
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(2600, 100, 2500, 1300, true),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 96,
+            work: new WindowFrameRect(2560, 0, 4480, 1040),
+            screen: new VirtualScreen(0, 0, 4480, 1440));
+        Assert.AreEqual(new PhysicalPlacement(2560, 0, 1920, 1040, true), placement);
+    }
+
     // ---- 窗口摆放恢复（§6.6「已恢复窗口尺寸不得被默认值覆盖」）----
 
     /// <summary>一块 3840x2160 的虚拟屏幕，足够放下默认窗口。</summary>

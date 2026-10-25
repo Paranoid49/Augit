@@ -94,8 +94,24 @@ internal sealed partial class ShellWindow
         child._settingsStartupTimeout = new Timer(_ => PostMessage(childHandle, SettingsStartupTimeoutMessage, 0, 0), null, 20000, Timeout.Infinite);
         child._settingsPage = page;
         GetWindowRect(child._window, out Rect childBounds);
-        SetWindowPos(child._window, 0, bounds.Left + ((bounds.Right - bounds.Left) - (childBounds.Right - childBounds.Left)) / 2,
-            bounds.Top + ((bounds.Bottom - bounds.Top) - (childBounds.Bottom - childBounds.Top)) / 2, 0, 0, SwpNosize | SwpNozorder | SwpNoactivate);
+        int childWidth = childBounds.Right - childBounds.Left;
+        int childHeight = childBounds.Bottom - childBounds.Top;
+        // 独立设置窗不是模态，但也必须像模态一样夹到 Owner 所在显示器的工作区；
+        // 只按中心摆放会在靠近屏幕右/下边缘时把设置内容推到屏外。
+        int left = bounds.Left + ((bounds.Right - bounds.Left) - childWidth) / 2;
+        int top = bounds.Top + ((bounds.Bottom - bounds.Top) - childHeight) / 2;
+        WindowFrameRect placement = new(left, top, left + childWidth, top + childHeight);
+        if (TryGetMonitorWorkArea(out WindowFrameRect work))
+        {
+            placement = ShellModalGeometry.CenterAndFit(
+                new WindowFrameRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom),
+                childWidth,
+                childHeight,
+                work);
+        }
+
+        SetWindowPos(child._window, 0, placement.Left, placement.Top,
+            placement.Right - placement.Left, placement.Bottom - placement.Top, SwpNozorder | SwpNoactivate);
         SetWindowText(child._window, "Settings — Augit");
         SettingsMargins margins = new() { Left = 1, Right = 1, Top = 1, Bottom = 1 };
         _ = DwmExtendFrameIntoClientArea(child._window, ref margins);

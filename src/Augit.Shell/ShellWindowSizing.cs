@@ -161,15 +161,58 @@ internal static class ShellWindowSizing
         int workHeight,
         VirtualScreen screen)
     {
-        int logicalWidth = overrideWidth
-            ?? ResolveLogicalDimension(saved.Width, DefaultLogicalWidth, MinimumLogicalWidth);
-        int logicalHeight = overrideHeight
-            ?? ResolveLogicalDimension(saved.Height, DefaultLogicalHeight, MinimumLogicalHeight);
+        (int logicalWidth, int logicalHeight) = ResolveLogicalSize(saved, overrideWidth, overrideHeight);
         PhysicalSize size = InitialWindow(logicalWidth, logicalHeight, effectiveDpi, workWidth, workHeight);
         (int x, int y) = ResolveStartupPosition(saved.Left, saved.Top, effectiveDpi, screen);
         bool maximized = overrideWidth is null && overrideHeight is null && saved.IsMaximized;
         return new PhysicalPlacement(x, y, size.Width, size.Height, maximized);
     }
+
+    /// <summary>
+    /// 在多显示器下按“窗口所在显示器”的工作区恢复摆放：尺寸先收敛到该工作区，
+    /// 再把整个还原矩形夹进工作区。只在正常启动（没有显式 --width/--height）使用；
+    /// 显式尺寸的审计矩阵继续走 <see cref="ResolveStartupPlacement"/>，避免改变审计截图。
+    /// </summary>
+    internal static PhysicalPlacement ResolveStartupPlacementInWorkArea(
+        SavedPlacement saved,
+        int? overrideWidth,
+        int? overrideHeight,
+        int effectiveDpi,
+        WindowFrameRect work,
+        VirtualScreen screen)
+    {
+        if (work.Right <= work.Left || work.Bottom <= work.Top)
+        {
+            return ResolveStartupPlacement(saved, overrideWidth, overrideHeight, effectiveDpi, 0, 0, screen);
+        }
+
+        (int logicalWidth, int logicalHeight) = ResolveLogicalSize(saved, overrideWidth, overrideHeight);
+        PhysicalSize requested = new(
+            ScaleToPhysical(logicalWidth, effectiveDpi),
+            ScaleToPhysical(logicalHeight, effectiveDpi));
+        PhysicalSize size = InitialWindow(
+            logicalWidth,
+            logicalHeight,
+            effectiveDpi,
+            work.Right - work.Left,
+            work.Bottom - work.Top);
+        (int x, int y) = ResolveStartupPosition(saved.Left, saved.Top, effectiveDpi, screen);
+        WindowFrameRect rect = new(x, y, x + size.Width, y + size.Height);
+        // 只有尺寸本身在工作区放不下（或刚好铺满）时才连同位置一起夹取；
+        // 放得下的小窗口保留原来的跨屏/靠边位置，避免重启时把用户有意跨屏的窗口挪走。
+        bool fitPosition = requested.Width >= work.Right - work.Left || requested.Height >= work.Bottom - work.Top;
+        WindowFrameRect fitted = fitPosition ? ShellModalGeometry.Fit(rect, work) : rect;
+        bool maximized = overrideWidth is null && overrideHeight is null && saved.IsMaximized;
+        return new PhysicalPlacement(fitted.Left, fitted.Top, fitted.Right - fitted.Left, fitted.Bottom - fitted.Top, maximized);
+    }
+
+    private static (int Width, int Height) ResolveLogicalSize(
+        SavedPlacement saved,
+        int? overrideWidth,
+        int? overrideHeight)
+        => (
+            overrideWidth ?? ResolveLogicalDimension(saved.Width, DefaultLogicalWidth, MinimumLogicalWidth),
+            overrideHeight ?? ResolveLogicalDimension(saved.Height, DefaultLogicalHeight, MinimumLogicalHeight));
 }
 
 /// <summary>窗口的物理像素尺寸。</summary>

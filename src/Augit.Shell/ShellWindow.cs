@@ -249,26 +249,57 @@ internal sealed partial class ShellWindow : IDisposable
 
     private nint CreateWindowInstance()
     {
-        // 窗口按生效 DPI 放大，使界面拿到与视觉稿一致的逻辑视口；再收敛到工作区，
-        // 避免 175%/200% 缩放的笔记本屏幕上窗口比屏幕还大。
+        // 窗口按生效 DPI 放大，使界面拿到与视觉稿一致的逻辑视口；再收敛到窗口所在
+        // 显示器的工作区。多屏分辨率不同时不能只按主屏工作区收敛，否则在大主屏保存的
+        // 窗口移到小副屏重启后会大部分落在屏外。
         _hasWorkArea = SystemParametersInfo(SpiGetWorkArea, 0, ref _workArea, 0);
-        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacement(
-            new SavedPlacement(
-                _savedPlacement.Left,
-                _savedPlacement.Top,
-                _savedPlacement.Width,
-                _savedPlacement.Height,
-                _savedPlacement.IsMaximized),
-            _options.Width,
-            _options.Height,
-            _effectiveDpi,
-            WorkWidth,
-            WorkHeight,
-            new VirtualScreen(
-                GetSystemMetrics(SystemMetricsXVirtualScreen),
-                GetSystemMetrics(SystemMetricsYVirtualScreen),
-                GetSystemMetrics(SystemMetricsCxVirtualScreen),
-                GetSystemMetrics(SystemMetricsCyVirtualScreen)));
+        SavedPlacement saved = new(
+            _savedPlacement.Left,
+            _savedPlacement.Top,
+            _savedPlacement.Width,
+            _savedPlacement.Height,
+            _savedPlacement.IsMaximized);
+        VirtualScreen virtualScreen = new(
+            GetSystemMetrics(SystemMetricsXVirtualScreen),
+            GetSystemMetrics(SystemMetricsYVirtualScreen),
+            GetSystemMetrics(SystemMetricsCxVirtualScreen),
+            GetSystemMetrics(SystemMetricsCyVirtualScreen));
+        PhysicalPlacement placement;
+        if (_options.Width is null && _options.Height is null)
+        {
+            // 先按保存位置解析目标显示器，再把尺寸和整个矩形都收敛到它的工作区。
+            (int targetX, int targetY) = ShellWindowSizing.ResolveStartupPosition(
+                saved.Left,
+                saved.Top,
+                _effectiveDpi,
+                virtualScreen);
+            WindowFrameRect targetWork = new(0, 0, WorkWidth, WorkHeight);
+            if (TryGetMonitorWorkAreaAtPoint(targetX + 1, targetY + 1, out WindowFrameRect monitorWork))
+            {
+                targetWork = monitorWork;
+            }
+
+            placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+                saved,
+                null,
+                null,
+                _effectiveDpi,
+                targetWork,
+                virtualScreen);
+        }
+        else
+        {
+            // 审计用显式 --width/--height 必须保持确定尺寸，继续沿用主屏工作区路径。
+            placement = ShellWindowSizing.ResolveStartupPlacement(
+                saved,
+                _options.Width,
+                _options.Height,
+                _effectiveDpi,
+                WorkWidth,
+                WorkHeight,
+                virtualScreen);
+        }
+
         _startupMaximized = placement.IsMaximized;
 
         return CreateWindowEx(
@@ -347,6 +378,29 @@ internal sealed partial class ShellWindow : IDisposable
     {
         work = default;
         nint monitor = MonitorFromWindow(_window, MonitorDefaultToNearest);
+        if (monitor == 0)
+        {
+            return false;
+        }
+
+        MonitorInfo info = new() { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfo(monitor, ref info))
+        {
+            return false;
+        }
+
+        work = new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+        return true;
+    }
+
+    /// <summary>
+    /// 取指定屏幕坐标最近显示器的工作区。启动时窗口尚未创建，不能用 MonitorFromWindow；
+    /// 先按保存位置解析目标点，再决定尺寸收敛到哪块屏。
+    /// </summary>
+    private static bool TryGetMonitorWorkAreaAtPoint(int x, int y, out WindowFrameRect work)
+    {
+        work = default;
+        nint monitor = MonitorFromPoint(new ShellPoint { X = x, Y = y }, MonitorDefaultToNearest);
         if (monitor == 0)
         {
             return false;
@@ -1216,6 +1270,9 @@ internal sealed partial class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern nint MonitorFromWindow(nint window, int flags);
+
+    [DllImport("user32.dll")]
+    private static extern nint MonitorFromPoint(ShellPoint point, int flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
     private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
