@@ -292,6 +292,15 @@
       row.dataset.signature = fullSignature;
       row.querySelector(".virtual-line-text")?.remove();
       row.append(body);
+      // NVDA/ChromeVBuf 在 aria-activedescendant 变化时只读列表项角色与位置，不会回退到
+      // 子节点文本；窗口行必须自带可访问名称，否则键盘移动只报「2001 之 165 项」而不读正文。
+      // 名称按行号 + 行文本生成，超长行截断，避免单行大文本把可访问名称撑到 MB 级。
+      const labelText = body.textContent || "";
+      const labelLimit = 2000;
+      row.setAttribute(
+        "aria-label",
+        `${index + 1}: ${labelText.length > labelLimit ? labelText.slice(0, labelLimit) + "…" : labelText}`,
+      );
       return row;
     }
 
@@ -463,8 +472,10 @@
       const height = code.clientHeight || 1;
       if (top < code.scrollTop) code.scrollTop = top;
       else if (top + state.rowHeight > code.scrollTop + height) code.scrollTop = top + state.rowHeight - height;
-      code.setAttribute("aria-activedescendant", `virtual-line-${index + 1}`);
+      // 先渲染目标行，再发布 aria-activedescendant；否则无障碍客户端可能在行文本建立前
+      // 查询到空名称，只播报角色与位置。
       render(true);
+      code.setAttribute("aria-activedescendant", `virtual-line-${index + 1}`);
     }
 
     function onKeyDown(event) {

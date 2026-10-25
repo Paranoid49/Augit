@@ -77,6 +77,8 @@ module.exports = async function liveLargeText({ openScene, check }) {
       activeLine: controller.activeLine,
       activeDescendant: code.getAttribute('aria-activedescendant'),
       activeRowCurrent: code.querySelector('.code-line[aria-current="true"]')?.id || null,
+      activeRowLabel: code.querySelector('.code-line.active')?.getAttribute('aria-label') || null,
+      labeledRows: [...code.querySelectorAll('.code-line')].filter((row) => !!row.getAttribute('aria-label')).length,
       keyboardScrollTop: code.scrollTop,
     };
   });
@@ -101,6 +103,8 @@ module.exports = async function liveLargeText({ openScene, check }) {
       && mounted.activeLine === 2
       && mounted.activeDescendant === 'virtual-line-3'
       && mounted.activeRowCurrent === 'virtual-line-3'
+      && mounted.activeRowLabel === '3: line 3 ' + '-'.repeat(160)
+      && mounted.labeledRows === mounted.rows
       && mounted.accessibleMs < 1000);
 
   // ---- 滚动到未显示区域：最后一行可见 ---------------------------------------
