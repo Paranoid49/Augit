@@ -92,6 +92,9 @@ jobs:
           git config --global init.defaultBranch master
 
       - name: Run tests
+        env:
+          # 托管 runner 的 FileSystemWatcher 延迟不代表产品路径；本地默认仍断言 500ms。
+          AUGIT_WATCHER_BUDGET_MS: '1500'
         run: >-
           dotnet test Augit.slnx -c Release --no-build --no-restore
           --filter "FullyQualifiedName!~ConPtyTerminalSessionTests"

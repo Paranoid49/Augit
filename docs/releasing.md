@@ -84,7 +84,7 @@ Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART
 
 ## 6. CI 与发布流水线
 
-- `.github/workflows/ci.yml`：push/PR 到 `main`/`dsh` 时执行还原、Release 构建、全部测试和仓库审计。托管 Windows runner 没有可供 ConPTY 使用的交互式控制台，因此 CI 排除 `ConPtyTerminalSessionTests` 的 4 个交互式集成用例；这些用例在本地真实桌面和 Windows 10 22H2 实机验证。
+- `.github/workflows/ci.yml`：push/PR 到 `main`/`dsh` 时执行还原、Release 构建、全部测试和仓库审计。托管 Windows runner 没有可供 ConPTY 使用的交互式控制台，因此 CI 排除 `ConPtyTerminalSessionTests` 的 4 个交互式集成用例；这些用例在本地真实桌面和 Windows 10 22H2 实机验证。托管 runner 的 `FileSystemWatcher` 延迟也不代表产品路径，CI 显式设置 `AUGIT_WATCHER_BUDGET_MS=1500`；本地默认和产品验收仍断言 500ms。
 - `.github/workflows/release.yml`：
   - `workflow_dispatch` 手动触发，输入版本号；`publish=true` 时创建或更新 GitHub Release。
   - 推送 `v*` 标签会从该标签构建并发布对应 Pre-release；发布正文中的资产表由流水线根据本次实际 `SHA256SUMS.txt` 生成。

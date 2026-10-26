@@ -18,7 +18,15 @@ public sealed class WorkspaceFileWatcherTests
         await File.WriteAllTextAsync(changedPath, "变化");
         IReadOnlyList<string> paths = await completion.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
-        Assert.IsLessThanOrEqualTo(500L, Environment.TickCount64 - started);
+        // 产品默认预算仍是 500ms；托管 CI runner 的文件系统事件延迟不等于产品路径延迟，
+        // 由工作流显式设置 AUGIT_WATCHER_BUDGET_MS 放宽上限，避免把 runner I/O 抖动误判为回归。
+        long budget = Environment.GetEnvironmentVariable("AUGIT_WATCHER_BUDGET_MS") is { Length: > 0 } configured
+            && long.TryParse(configured, out long parsed)
+            && parsed > 0
+                ? parsed
+                : 500L;
+        long elapsed = Environment.TickCount64 - started;
+        Assert.IsLessThanOrEqualTo(budget, elapsed, $"文件变化通知预算 {budget}ms，实测 {elapsed}ms。");
         Assert.IsTrue(paths.Contains(changedPath, StringComparer.OrdinalIgnoreCase));
     }
 

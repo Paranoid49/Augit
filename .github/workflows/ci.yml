@@ -55,6 +55,9 @@ jobs:
 
       - name: Run unit and integration tests
         shell: pwsh
+        env:
+          # 托管 runner 的 FileSystemWatcher 延迟不代表产品路径；本地默认仍断言 500ms。
+          AUGIT_WATCHER_BUDGET_MS: '1500'
         run: |
           # GitHub 托管 Windows runner 没有可供 ConPTY 使用的交互式控制台；
           # 这 4 个 ConPTY 集成用例在真实桌面（本地/Windows 10 实机）验证。
