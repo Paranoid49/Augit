@@ -84,7 +84,7 @@ Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART
 
 ## 6. CI 与发布流水线
 
-- `.github/workflows/ci.yml`：push/PR 到 `main`/`dsh` 时执行还原、Release 构建、全部测试和仓库审计。
+- `.github/workflows/ci.yml`：push/PR 到 `main`/`dsh` 时执行还原、Release 构建、全部测试和仓库审计。托管 Windows runner 没有可供 ConPTY 使用的交互式控制台，因此 CI 排除 `ConPtyTerminalSessionTests` 的 4 个交互式集成用例；这些用例在本地真实桌面和 Windows 10 22H2 实机验证。
 - `.github/workflows/release.yml`：
   - `workflow_dispatch` 手动触发，输入版本号；`publish=true` 时创建或更新 GitHub Release。
   - 推送 `v*` 标签只构建并上传 workflow artifact，**不会**自动覆盖已发布的 Release；发布资产必须经过人工验收后由 `publish=true` 发布。

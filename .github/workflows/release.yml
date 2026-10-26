@@ -91,7 +91,9 @@ jobs:
           git config --global init.defaultBranch master
 
       - name: Run tests
-        run: dotnet test Augit.slnx -c Release --no-build --no-restore
+        run: >-
+          dotnet test Augit.slnx -c Release --no-build --no-restore
+          --filter "FullyQualifiedName!~ConPtyTerminalSessionTests"
 
       - name: Verify UI assets
         shell: powershell
