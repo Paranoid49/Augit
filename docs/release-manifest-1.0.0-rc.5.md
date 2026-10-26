@@ -7,9 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.5> |
+| Release id | `423978615` |
 | Tag | `v1.0.0-rc.5` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | tag `v1.0.0-rc.5` 指向的提交（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `fd71d9f594a34a0f5d8547b99043eea3bd75ca9c` |
 | 版本 | `1.0.0-rc.5` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -21,13 +22,18 @@ rc.5 是 rc.4 的首次启动补齐修复：旧版本把程序目录/欢迎目�
 
 ## 2. 资产
 
-Release 包含：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.5-win-x64-setup.exe` | 5,016,658 B | `9cdf4207e6e359f39c7a68c6d3e28e550229d7f20e76d01bdc17fbd8ba427e35` |
+| `Augit-1.0.0-rc.5-win-x64-portable.zip` | 39,134,537 B | `42cc1c42ea85d3de2e1bfda7b34cce5f1354ec6bf202168d2ce68790fb50df9e` |
+| `SHA256SUMS.txt` | 205 B | `51acff6ded04637d5758ef090fbfa614ee76776609a2134132dcfdf133f9349b` |
 
-- `Augit-1.0.0-rc.5-win-x64-setup.exe`（framework-dependent 安装器）
-- `Augit-1.0.0-rc.5-win-x64-portable.zip`（self-contained 便携包）
-- `SHA256SUMS.txt`
+`SHA256SUMS.txt`：
 
-最终资产大小和 SHA-256 以 Release 正文的「资产校验」表和附件 `SHA256SUMS.txt` 为准；发布后核对结果在本文 §6 记录。
+```text
+42cc1c42ea85d3de2e1bfda7b34cce5f1354ec6bf202168d2ce68790fb50df9e  Augit-1.0.0-rc.5-win-x64-portable.zip
+9cdf4207e6e359f39c7a68c6d3e28e550229d7f20e76d01bdc17fbd8ba427e35  Augit-1.0.0-rc.5-win-x64-setup.exe
+```
 
 ## 3. 构建与验证
 
@@ -64,13 +70,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 | 安装器版本资源 | ProductVersion `1.0.0-rc.5`；FileVersion `1.0.0.0` |
 | 安装器签名 | `NotSigned` |
 
-本机预构建（提交 `bfd2489`，仅作发布前同源验证，不是最终 Release 资产）：
+发布后匿名下载**实际 Release 资产**复验：
+
+- 便携包 `39,134,537 B`、SHA-256 `42cc1c42…`；安装器 `5,016,658 B`、SHA-256 `9cdf4207…`，与发布正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **338ms**、关闭 **110ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.5+fd71d9f…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动，证明不依赖共享 .NET。
+- 用 `lastWorkspace` 指向发布目录的设置启动，仍显示「Open Workspace」，`augit.log` 记录 `startup-workspace=welcome`；不需要删除旧设置。
+- 安装器 ProductVersion `1.0.0-rc.5`、FileVersion `1.0.0.0`、`NotSigned`。
+- 报告：`artifacts/release-1.0.0-rc.5-gh-verify/portable-report.json`（Git 忽略）。
+
+本机预构建（提交 `bfd2489`，仅作发布前同源验证）：
 
 - 便携包 `39,134,510 B`，SHA-256 `b99a5def935e66acb2862271ffe4ca304bc90d26f63715b013b6284532c62c98`。
 - 安装器 `5,016,450 B`，SHA-256 `046d919dc18ec34ab0ecdaa5713a108e9a50fcc2647d0e7a752869dbe062037e`。
-- 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）后便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 363ms、关闭约 104ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
-- 旧 `LastWorkspace` 等于程序目录时仍显示「Open Workspace」，`augit.log` 记录 `startup-workspace=welcome`。
-- 报告：`artifacts/release-1.0.0-rc.5-commit-verify/portable-report.json`（Git 忽略）。
 
 ## 4. Windows 10 22H2 证据与边界
 
@@ -93,13 +105,13 @@ rc.4/rc.5 的 Win10 22H2 启动路径修复（CETCompat、欢迎页、async void
 
 ## 6. 发布后核对
 
-发布后应：
+2026-10-26 已完成：
 
-- 从 Release 匿名下载 zip、setup、`SHA256SUMS.txt`；
-- 核对大小与 SHA-256 和发布正文一致；
-- 解压 zip，在隐藏/失效共享 .NET 的环境运行 `Augit.exe`，确认 ProductVersion、窗口和退出；
-- 用 `lastWorkspace` 指向发布目录/欢迎目录的设置启动，确认显示「Open Workspace」；
-- 在 Windows 10 22H2 实机复验首次启动、选择目录、创建仓库和正常退出；
-- 把实际结果、构建提交和资产哈希回填到本节。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS（见 §3）；`lastWorkspace` 指向发布目录时的欢迎页路径已验证。
+- 安装器版本资源与未签名状态已核对。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.5 的首次启动/选择目录/创建仓库路径；干净虚拟机/全新系统安装也未验证。两项继续按“未验证”披露。
 
-回填状态：**待发布后核对**。
+状态：**PASS**（Win10 22H2 启动路径与干净安装复验除外）。

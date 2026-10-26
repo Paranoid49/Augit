@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.5` 指向的提交（由 GitHub Actions 构建；`Augit.exe` ProductVersion 内含提交号）
+- 构建源提交：`fd71d9f594a34a0f5d8547b99043eea3bd75ca9c`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.5`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -14,11 +14,15 @@ rc.5 是 rc.4 的 **Windows 10 22H2 首次启动补齐修复**：rc.4 已经能�
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.5-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.5/Augit-1.0.0-rc.5-win-x64-setup.exe) | 5,016,658 B | `9cdf4207e6e359f39c7a68c6d3e28e550229d7f20e76d01bdc17fbd8ba427e35` |
+| [Augit-1.0.0-rc.5-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.5/Augit-1.0.0-rc.5-win-x64-portable.zip) | 39,134,537 B | `42cc1c42ea85d3de2e1bfda7b34cce5f1354ec6bf202168d2ce68790fb50df9e` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.5/SHA256SUMS.txt) | 205 B | `51acff6ded04637d5758ef090fbfa614ee76776609a2134132dcfdf133f9349b` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.5>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只要求系统已有 Microsoft Edge WebView2 Runtime。
 - **安装版**：按需联网的小型安装器，需要管理员权限；缺少 .NET 10/WebView2 时先说明，经确认后下载并校验。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置。
@@ -36,7 +40,8 @@ rc.5 是 rc.4 的 **Windows 10 22H2 首次启动补齐修复**：rc.4 已经能�
 
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **270/270**、Infrastructure **207/207**；新增“旧 LastWorkspace 等于程序目录时回到欢迎页”测试。
-- 本机 self-contained 便携包隐藏共享 .NET 启动 PASS；首次启动工作区判定与「Open Workspace」路径在 rc.4 已实测，rc.5 只扩展了旧设置场景。
+- 发布后匿名下载实际 Release 便携包，隐藏共享 .NET（`DOTNET_ROOT` 不存在）启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **338ms**、关闭 **110ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.5+fd71d9f…`。
+- 用 `lastWorkspace` 指向发布目录的设置启动，仍显示「Open Workspace」，`augit.log` 记录 `startup-workspace=welcome`；不需要删除旧设置。
 - **Windows 10 22H2 实机复验**：rc.5 仍需在用户出问题的机器上验证首次启动/选择目录/创建仓库路径；rc.2/rc.3 的双屏/DPI/安装证据不覆盖该启动路径。
 - 仍未验证：干净虚拟机、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器。
 
