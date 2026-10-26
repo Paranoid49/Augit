@@ -432,6 +432,31 @@ public sealed class ShellWindowSizingTests
     }
 
     [TestMethod]
+    public void 跨DPI变化保持逻辑窗口尺寸()
+    {
+        // 100% 的 1180x760 拖到 125% 应变成 1475x950，而不是被新 DPI 的最小尺寸夹成 1280x800。
+        Assert.AreEqual(
+            new PhysicalSize(1475, 950),
+            ShellWindowSizing.ScaleForDpiChange(1180, 760, 96, 120));
+        // 反向：125% 的 1280x800 回到 100% 应回到 1024x640。
+        Assert.AreEqual(
+            new PhysicalSize(1024, 640),
+            ShellWindowSizing.ScaleForDpiChange(1280, 800, 120, 96));
+        // 175% 下保持 1024x640 逻辑尺寸。
+        Assert.AreEqual(
+            new PhysicalSize(1792, 1120),
+            ShellWindowSizing.ScaleForDpiChange(1024, 640, 96, 168));
+    }
+
+    [TestMethod]
+    public void 跨DPI变化遇到非法输入时原样返回()
+    {
+        Assert.AreEqual(new PhysicalSize(1180, 760), ShellWindowSizing.ScaleForDpiChange(1180, 760, 0, 120));
+        Assert.AreEqual(new PhysicalSize(1180, 760), ShellWindowSizing.ScaleForDpiChange(1180, 760, 96, 0));
+        Assert.AreEqual(new PhysicalSize(0, 0), ShellWindowSizing.ScaleForDpiChange(0, 0, 96, 120));
+    }
+
+    [TestMethod]
     public void 恢复位置不因取整而偏移()
     {
         // 端到端实测过：把 (300,200) 物理位置按 175% 存成逻辑 (171.42857, 114.28571) 后，

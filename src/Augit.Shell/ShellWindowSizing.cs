@@ -108,6 +108,22 @@ internal static class ShellWindowSizing
         => dpi > 0 ? physical * BaselineDpi / (double)dpi : physical;
 
     /// <summary>
+    /// 跨显示器 DPI 变化时保持逻辑尺寸：把旧 DPI 下的物理像素换算成逻辑值，
+    /// 再按新 DPI 换算回物理像素。取整后最多相差 1 像素。
+    /// </summary>
+    internal static PhysicalSize ScaleForDpiChange(int physicalWidth, int physicalHeight, int previousDpi, int currentDpi)
+    {
+        if (physicalWidth <= 0 || physicalHeight <= 0 || previousDpi <= 0 || currentDpi <= 0)
+        {
+            return new PhysicalSize(physicalWidth, physicalHeight);
+        }
+
+        return new PhysicalSize(
+            ScaleToPhysical(ToLogical(physicalWidth, previousDpi), currentDpi),
+            ScaleToPhysical(ToLogical(physicalHeight, previousDpi), currentDpi));
+    }
+
+    /// <summary>
     /// 标题栏上的探针点：恢复的位置至少要让它落在虚拟屏幕内，否则窗口会被放到用户看不到的地方
     /// （显示器被拔掉、分辨率变小、投影切换都会造成这种陈旧位置）。
     /// </summary>

@@ -50,6 +50,8 @@ internal sealed partial class ShellWindow : IDisposable
     private const uint WmClose = 0x0010;
     private const uint WmDestroy = 0x0002;
     private const uint WmDpichanged = 0x02E0;
+    private const uint WmEntersizemove = 0x0231;
+    private const uint WmExitsizemove = 0x0232;
     private const uint WmGetMinMaxInfo = 0x0024;
 
     private const int IdiApplication = 32512;
@@ -73,6 +75,10 @@ internal sealed partial class ShellWindow : IDisposable
     private readonly nint _instance;
     private nint _window;
     private int _effectiveDpi;
+    private bool _inSizeMove;
+    private int _sizeMoveDpi;
+    private PhysicalSize _sizeMoveClient;
+    private PhysicalSize? _pendingDpiSize;
     private bool _startupMaximized;
     // 上一次推给网页层的最大化状态；只在真的变化时推送，避免每次 WM_SIZE 都跨进程发消息。
     private bool? _reportedMaximized;
@@ -107,10 +113,15 @@ internal sealed partial class ShellWindow : IDisposable
         // 窗口命令（自绘窗口按钮、标题栏拖动）只有窗口能做：桥接层不认识 HWND。
         if (settingsOwner is null) _bridge.WindowCommandHandler = HandleWindowCommand;
         _instance = GetModuleHandle(null);
+        // 设置窗必须跟随 Owner 当前显示器的 DPI；跟随系统 DPI 会在主屏 175%
+        // 而进程启动于 150% 时把 1040x672 逻辑尺寸缩小成 891x576 CSS。
+        int startupDpi = settingsOwner is not null && GetDpiForWindow(settingsOwner._window) is > 0 and var ownerDpi
+            ? (int)ownerDpi
+            : (int)GetDpiForSystem();
         _effectiveDpi = ShellWindowSizing.ResolveEffectiveDpi(
             options.Dpi,
             options.PixelExact,
-            (int)GetDpiForSystem());
+            startupDpi);
         RegisterWindowClass();
         _window = CreateWindowInstance();
         if (_window == 0)
@@ -267,16 +278,27 @@ internal sealed partial class ShellWindow : IDisposable
         PhysicalPlacement placement;
         if (_options.Width is null && _options.Height is null)
         {
-            // 先按保存位置解析目标显示器，再把尺寸和整个矩形都收敛到它的工作区。
-            (int targetX, int targetY) = ShellWindowSizing.ResolveStartupPosition(
-                saved.Left,
-                saved.Top,
-                _effectiveDpi,
-                virtualScreen);
+            // 保存的位置是逻辑单位，但不同显示器的 DPI 不同。逐个显示器尝试用
+            // 它自己的 DPI 解释保存坐标；不能只按系统 DPI 缩放，否则 175% 主屏 +
+            // 100% 副屏时，副屏上的 2660 会被放大到虚拟屏外并回退到主屏默认位置。
             WindowFrameRect targetWork = new(0, 0, WorkWidth, WorkHeight);
-            if (TryGetMonitorWorkAreaAtPoint(targetX + 1, targetY + 1, out WindowFrameRect monitorWork))
+            if (_options.Dpi is null && !_options.PixelExact
+                && TryResolveStartupMonitor(saved.Left, saved.Top, virtualScreen, out WindowFrameRect monitorWork, out int monitorDpi))
             {
                 targetWork = monitorWork;
+                _effectiveDpi = monitorDpi;
+            }
+            else
+            {
+                (int targetX, int targetY) = ShellWindowSizing.ResolveStartupPosition(
+                    saved.Left,
+                    saved.Top,
+                    _effectiveDpi,
+                    virtualScreen);
+                if (TryGetMonitorWorkAreaAtPoint(targetX + 1, targetY + 1, out WindowFrameRect fallbackWork))
+                {
+                    targetWork = fallbackWork;
+                }
             }
 
             placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
@@ -394,12 +416,13 @@ internal sealed partial class ShellWindow : IDisposable
     }
 
     /// <summary>
-    /// 取指定屏幕坐标最近显示器的工作区。启动时窗口尚未创建，不能用 MonitorFromWindow；
-    /// 先按保存位置解析目标点，再决定尺寸收敛到哪块屏。
+    /// 取指定屏幕坐标最近显示器的工作区和有效 DPI。启动时窗口尚未创建，
+    /// 不能用 MonitorFromWindow；先按保存位置解析目标点，再决定尺寸收敛到哪块屏。
     /// </summary>
-    private static bool TryGetMonitorWorkAreaAtPoint(int x, int y, out WindowFrameRect work)
+    private static bool TryGetMonitorAtPoint(int x, int y, out WindowFrameRect work, out int dpi)
     {
         work = default;
+        dpi = 0;
         nint monitor = MonitorFromPoint(new ShellPoint { X = x, Y = y }, MonitorDefaultToNearest);
         if (monitor == 0)
         {
@@ -413,7 +436,70 @@ internal sealed partial class ShellWindow : IDisposable
         }
 
         work = new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+        if (GetDpiForMonitor(monitor, 0, out uint dpiX, out _) >= 0 && dpiX > 0)
+        {
+            dpi = (int)dpiX;
+        }
+
         return true;
+    }
+
+    private static bool TryGetMonitorWorkAreaAtPoint(int x, int y, out WindowFrameRect work)
+        => TryGetMonitorAtPoint(x, y, out work, out _);
+
+    /// <summary>
+    /// 用每个显示器自己的 DPI 解释保存的逻辑坐标，找到保存位置真正所属的显示器。
+    /// 例：主屏 175% + 副屏 100%，保存的副屏 left=2660 按 175% 会落到虚拟屏外，
+    /// 按副屏 100% 才落在副屏内。
+    /// </summary>
+    private static bool TryResolveStartupMonitor(
+        double? savedLeft,
+        double? savedTop,
+        VirtualScreen screen,
+        out WindowFrameRect work,
+        out int dpi)
+    {
+        work = default;
+        dpi = 0;
+        if (savedLeft is not { } left || savedTop is not { } top
+            || !double.IsFinite(left) || !double.IsFinite(top))
+        {
+            return false;
+        }
+
+        bool found = false;
+        WindowFrameRect foundWork = default;
+        int foundDpi = 0;
+        MonitorEnumProc callback = (nint monitor, nint hdc, nint rect, nint data) =>
+        {
+            MonitorInfo info = new() { Size = Marshal.SizeOf<MonitorInfo>() };
+            if (!GetMonitorInfo(monitor, ref info)
+                || GetDpiForMonitor(monitor, 0, out uint dpiX, out _) < 0
+                || dpiX == 0)
+            {
+                return true;
+            }
+
+            int candidateX = ShellWindowSizing.ScaleToPhysical(left, (int)dpiX);
+            int candidateY = ShellWindowSizing.ScaleToPhysical(top, (int)dpiX);
+            Rect monitorRect = info.Monitor;
+            if (candidateX < monitorRect.Left || candidateX >= monitorRect.Right
+                || candidateY < monitorRect.Top || candidateY >= monitorRect.Bottom
+                || !ShellWindowSizing.IsTitleBarReachable(candidateX, candidateY, screen))
+            {
+                return true;
+            }
+
+            found = true;
+            foundDpi = (int)dpiX;
+            foundWork = new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+            return false;
+        };
+
+        _ = EnumDisplayMonitors(0, 0, callback, 0);
+        work = foundWork;
+        dpi = foundDpi;
+        return found;
     }
 
     private bool IsMaximized() => _window != 0 && IsZoomed(_window);
@@ -702,6 +788,12 @@ internal sealed partial class ShellWindow : IDisposable
                 return DefWindowProc(window, message, wParam, lParam);            case WmSize:
                 shell.SyncBounds();
                 shell.NotifyWindowState();
+                return 0;
+            case WmEntersizemove:
+                shell.BeginSizeMove();
+                return 0;
+            case WmExitsizemove:
+                shell.EndSizeMove();
                 return 0;
             case WmDpichanged:
                 shell.SyncBounds();
@@ -1194,24 +1286,131 @@ internal sealed partial class ShellWindow : IDisposable
         }
     }
 
+    private void BeginSizeMove()
+    {
+        _inSizeMove = true;
+        _sizeMoveDpi = _effectiveDpi;
+        _pendingDpiSize = null;
+        _sizeMoveClient = GetClientRect(_window, out Rect client) && client.Right > 0 && client.Bottom > 0
+            ? new PhysicalSize(client.Right, client.Bottom)
+            : default;
+    }
+
+    private void EndSizeMove()
+    {
+        _inSizeMove = false;
+        PhysicalSize? pending = _pendingDpiSize;
+        _pendingDpiSize = null;
+        if (pending is not { } target || _window == 0 || !GetWindowRect(_window, out Rect current))
+        {
+            return;
+        }
+
+        // 真实拖动结束后再改尺寸：在移动循环内部重设尺寸会被系统下一次
+        // WM_WINDOWPOSCHANGING 覆盖，实测两个方向会得到不一致的尺寸。
+        WindowFrameRect desired = new(
+            current.Left,
+            current.Top,
+            current.Left + target.Width,
+            current.Top + target.Height);
+        if (TryGetMonitorWorkArea(out WindowFrameRect work))
+        {
+            desired = ShellModalGeometry.Fit(desired, work);
+        }
+
+        _ = SetWindowPos(
+            _window,
+            0,
+            desired.Left,
+            desired.Top,
+            desired.Right - desired.Left,
+            desired.Bottom - desired.Top,
+            SwpNozorder | SwpNoactivate);
+    }
+
     /// <summary>
     /// 显示器 DPI 变化时更新生效 DPI。显式 <c>--dpi</c> 与 <c>--pixel-exact</c> 已经把
     /// WebView2 的栅格化比例固定住并关闭了监视器缩放跟随，此时不得改写。
-    /// 同时交给默认过程按系统建议的矩形调整窗口，否则换到更高 DPI 的显示器后
-    /// 逻辑视口会再次小于布局下限。
+    /// 普通启动按旧/新 DPI 重新计算物理尺寸，保持逻辑视口；只交给默认过程会让
+    /// 小窗口被新 DPI 的最小尺寸夹住，跨屏后逻辑尺寸缩小。
     /// </summary>
     private nint OnDpiChanged(uint message, nint wParam, nint lParam)
     {
-        if (_options.Dpi is null && !_options.PixelExact && _window != 0)
+        if (_options.Dpi is not null || _options.PixelExact || _window == 0)
         {
-            int dpi = (int)GetDpiForWindow(_window);
-            if (dpi > 0)
-            {
-                _effectiveDpi = dpi;
-            }
+            return DefWindowProc(_window, message, wParam, lParam);
         }
 
-        return DefWindowProc(_window, message, wParam, lParam);
+        int dpi = (int)GetDpiForWindow(_window);
+        if (dpi <= 0 || dpi == _effectiveDpi)
+        {
+            return DefWindowProc(_window, message, wParam, lParam);
+        }
+
+        int previousDpi = _effectiveDpi;
+        _effectiveDpi = dpi;
+        if (lParam == 0 || IsMaximized() || IsIconic(_window))
+        {
+            return DefWindowProc(_window, message, wParam, lParam);
+        }
+
+        PhysicalSize target;
+        if (_inSizeMove && _sizeMoveDpi > 0 && _sizeMoveClient.Width > 0 && _sizeMoveClient.Height > 0)
+        {
+            // 拖动开始时记录的是旧 DPI 下的逻辑尺寸；跨多个屏时始终以它为基准。
+            target = ShellWindowSizing.ScaleForDpiChange(
+                _sizeMoveClient.Width,
+                _sizeMoveClient.Height,
+                _sizeMoveDpi,
+                dpi);
+        }
+        else
+        {
+            if (!GetWindowRect(_window, out Rect current) || current.Right <= current.Left || current.Bottom <= current.Top)
+            {
+                return DefWindowProc(_window, message, wParam, lParam);
+            }
+
+            target = ShellWindowSizing.ScaleForDpiChange(
+                current.Right - current.Left,
+                current.Bottom - current.Top,
+                previousDpi,
+                dpi);
+        }
+
+        if (_inSizeMove)
+        {
+            // 不能在移动循环内直接改尺寸：系统的下一次位置计算会覆盖它。
+            _pendingDpiSize = target;
+            return 0;
+        }
+
+        if (!GetWindowRect(_window, out Rect currentRect)
+            || currentRect.Right <= currentRect.Left
+            || currentRect.Bottom <= currentRect.Top)
+        {
+            return DefWindowProc(_window, message, wParam, lParam);
+        }
+
+        WindowFrameRect desired = new(
+            currentRect.Left,
+            currentRect.Top,
+            currentRect.Left + target.Width,
+            currentRect.Top + target.Height);
+        if (TryGetMonitorWorkArea(out WindowFrameRect work))
+        {
+            desired = ShellModalGeometry.Fit(desired, work);
+        }
+
+        _ = SetWindowPos(
+            _window,
+            0,
+            desired.Left,
+            desired.Top,
+            desired.Right - desired.Left,
+            desired.Bottom - desired.Top,
+            SwpNozorder | SwpNoactivate);
+        return 0;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -1273,6 +1472,14 @@ internal sealed partial class ShellWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern nint MonitorFromPoint(ShellPoint point, int flags);
+
+    private delegate bool MonitorEnumProc(nint monitor, nint hdc, nint rect, nint data);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumDisplayMonitors(nint hdc, nint clip, MonitorEnumProc callback, nint data);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(nint monitor, int dpiType, out uint dpiX, out uint dpiY);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
     private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
