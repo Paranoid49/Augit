@@ -13,17 +13,19 @@ public sealed class GitCommandRunnerTests
     {
         using TemporaryDirectory temporary = new();
         using CancellationTokenSource cancellation = new();
-        GitCommandRunner runner = new(TimeSpan.FromSeconds(30), 1024);
+        // 托管 Windows runner 上多个 Windows PowerShell 并发启动可能明显慢于本地；
+        // 给“所有进程都已启动”的观察窗口留出余量，避免把启动慢误判成取消清理失败。
+        GitCommandRunner runner = new(TimeSpan.FromSeconds(120), 1024);
         string[] identities = Enumerable.Range(0, count).Select(index => temporary.GetPath($"query-{index}.pid")).ToArray();
         Task<GitCommandResult>[] tasks = identities.Select(file => runner.RunAsync(
             Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
             temporary.FullPath,
-            ["-NoProfile", "-Command", $"[IO.File]::WriteAllText('{file.Replace("'", "''", StringComparison.Ordinal)}', [string]$PID); Start-Sleep -Seconds 20"],
+            ["-NoProfile", "-Command", $"[IO.File]::WriteAllText('{file.Replace("'", "''", StringComparison.Ordinal)}', [string]$PID); Start-Sleep -Seconds 120"],
             GitCommandMode.LocalQuery,
             cancellation.Token)).ToArray();
         try
         {
-            DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+            DateTime deadline = DateTime.UtcNow.AddSeconds(45);
             while (!identities.All(File.Exists) && DateTime.UtcNow < deadline)
             {
                 await Task.Delay(20);
