@@ -170,13 +170,10 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           PRERELEASE: ${{ github.event.inputs.prerelease }}
         run: |
-          $releaseDir = "artifacts/release-$env:VERSION"
-          $assets = @(
-            "$releaseDir/Augit-$env:VERSION-win-x64-portable.zip",
-            "$releaseDir/Augit-$env:VERSION-win-x64-setup.exe",
-            "$releaseDir/SHA256SUMS.txt"
-          )
-          foreach ($asset in $assets) {
+          $setup = "$releaseDir/Augit-$env:VERSION-win-x64-setup.exe"
+          $zip = "$releaseDir/Augit-$env:VERSION-win-x64-portable.zip"
+          $sums = "$releaseDir/SHA256SUMS.txt"
+          foreach ($asset in @($setup, $zip, $sums)) {
             if (-not (Test-Path -LiteralPath $asset)) { throw "缺少发布资产：$asset" }
           }
 
@@ -184,15 +181,22 @@ jobs:
           if (-not (Test-Path -LiteralPath $notesFile)) { throw "缺少发布正文：$notesFile" }
           # workflow_dispatch 未提供输入时按 Pre-release 处理；显式 false 用于正式版。
           $isPrerelease = $env:PRERELEASE -ne 'false'
-          $prereleaseArgs = if ($isPrerelease) { @('--prerelease') } else { @('--prerelease=false') }
 
           & gh release view $env:TAG --json tagName *> $null
           if ($LASTEXITCODE -eq 0) {
-            & gh release upload $env:TAG @assets --clobber
+            & gh release upload $env:TAG $zip $setup $sums --clobber
             if ($LASTEXITCODE -ne 0) { throw '上传 Release 资产失败。' }
-            & gh release edit $env:TAG --title "Augit $env:VERSION" --notes-file $notesFile @prereleaseArgs
+            if ($isPrerelease) {
+              & gh release edit $env:TAG --title "Augit $env:VERSION" --notes-file $notesFile --prerelease
+            } else {
+              & gh release edit $env:TAG --title "Augit $env:VERSION" --notes-file $notesFile --prerelease=false
+            }
             if ($LASTEXITCODE -ne 0) { throw '更新 Release 说明失败。' }
           } else {
-            & gh release create $env:TAG @assets --title "Augit $env:VERSION" --notes-file $notesFile @prereleaseArgs
+            if ($isPrerelease) {
+              & gh release create $env:TAG $zip $setup $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease
+            } else {
+              & gh release create $env:TAG $zip $setup $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease=false
+            }
             if ($LASTEXITCODE -ne 0) { throw '创建 Release 失败。' }
           }
