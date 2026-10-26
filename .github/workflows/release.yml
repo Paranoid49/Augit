@@ -83,6 +83,13 @@ jobs:
       - name: Build Release
         run: dotnet build Augit.slnx -c Release --no-restore
 
+      - name: Configure Git identity for repository tests
+        run: |
+          git config --global user.name "Augit Tests"
+          git config --global user.email "augit-tests@example.invalid"
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch master
+
       - name: Run tests
         run: dotnet test Augit.slnx -c Release --no-build --no-restore
 

@@ -46,8 +46,43 @@ jobs:
       - name: Build Release
         run: dotnet build Augit.slnx -c Release --no-restore
 
+      - name: Configure Git identity for repository tests
+        run: |
+          git config --global user.name "Augit Tests"
+          git config --global user.email "augit-tests@example.invalid"
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch master
+
       - name: Run unit and integration tests
-        run: dotnet test Augit.slnx -c Release --no-build --no-restore --logger "console;verbosity=normal"
+        shell: pwsh
+        run: |
+          dotnet test Augit.slnx -c Release --no-build --no-restore `
+            --logger "console;verbosity=normal" `
+            --logger "trx;LogFileName=augit-tests.trx" `
+            --results-directory TestResults
+
+      - name: Summarize failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          $summary = $env:GITHUB_STEP_SUMMARY
+          "## Failed tests" | Out-File -FilePath $summary -Append -Encoding utf8
+          $found = $false
+          foreach ($file in Get-ChildItem -Path TestResults -Filter *.trx -ErrorAction SilentlyContinue) {
+            [xml]$trx = Get-Content -LiteralPath $file.FullName
+            foreach ($test in $trx.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' }) {
+              $found = $true
+              "- ``$($test.testName)``" | Out-File -FilePath $summary -Append -Encoding utf8
+              if ($test.Output.ErrorInfo.Message) {
+                '  ```' | Out-File -FilePath $summary -Append -Encoding utf8
+                ($test.Output.ErrorInfo.Message -split "`n" | Select-Object -First 12) |
+                  ForEach-Object { "  $_" } |
+                  Out-File -FilePath $summary -Append -Encoding utf8
+                '  ```' | Out-File -FilePath $summary -Append -Encoding utf8
+              }
+            }
+          }
+          if (-not $found) { "No TRX failure details were available." | Out-File -FilePath $summary -Append -Encoding utf8 }
 
       - name: Verify UI assets match visual mockups
         shell: powershell
