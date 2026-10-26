@@ -1,0 +1,87 @@
+name: Bug report / 缺陷报告
+description: 报告 Augit 1.0.0-rc.2 的可复现问题
+title: '[Bug] '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢试用 Augit。请先确认使用的是公开 Release 中的安装包或便携包，并附上版本号。
+        Augit 不做遥测和崩溃上报，请手动提供复现信息；不要上传凭据、私有仓库内容或完整用户目录。
+  - type: input
+    id: version
+    attributes:
+      label: Augit 版本
+      description: 安装器标题、`Augit.exe` 文件属性或「设置 > 关于」中的 ProductVersion。
+      placeholder: '例如 1.0.0-rc.2+<构建提交>'
+    validations:
+      required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: 安装方式
+      options:
+        - 安装版（setup.exe）
+        - 便携版（portable.zip）
+        - 从源码构建
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows 版本
+      description: 运行 `winver` 或提供 `10.0.x` / `11` 版本号。
+      placeholder: '例如 Windows 10 22H2 19045.6456 x64'
+    validations:
+      required: true
+  - type: textarea
+    id: displays
+    attributes:
+      label: 显示器与 DPI
+      description: 显示器数量、分辨率、缩放比例、是否混合 DPI；单屏可写“单屏 100%”。
+      placeholder: '双屏 2560×1440@100% + 1920×1080@125%'
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小、确定的步骤。
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 观察到 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 可附截图、错误文案或日志片段；请先移除凭据和个人路径。
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他信息
+      description: 是否可稳定复现、最近是否升级、Git 版本、WebView2 版本等。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已核对下载文件的 SHA-256 与 Release 中的 SHA256SUMS.txt 一致。
+          required: false
+        - label: 我已阅读已知限制，确认不是已披露的边界。
+          required: true
+        - label: 我没有在本 Issue 中粘贴凭据、私有代码或未经脱敏的日志。
+          required: true

@@ -2,7 +2,24 @@
 
 Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方式的轻量 Windows 只读项目查看器与 Git 图形工具。开发者在 Augit 中浏览项目、检查变化并执行 Git 操作；Augit 不接入 AI，也不提供普通代码编辑和保存。
 
-本 README 随安装包与便携包一起分发。实际版本以安装器标题、Windows「设置 > 应用 > 已安装的应用」或 `Augit.exe` 文件属性中的产品版本为准。当前交付线是 1.0 的预发布候选（`1.0.0-beta`/`1.0.0-rc`），**不是正式 1.0**：候选包需要完成真实日常使用观察后才进入正式发布。
+当前公开发布为 **1.0.0-rc.2 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随安装包与便携包一起分发；实际版本以安装器标题、Windows「设置 > 应用 > 已安装的应用」或 `Augit.exe` 文件属性中的产品版本为准。
+
+## 下载与安装（无需从源码构建）
+
+| 方式 | 下载 | 适合场景 |
+| --- | --- | --- |
+| 安装版 | [Augit-1.0.0-rc.2-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-setup.exe) | 长期使用；需要开始菜单、系统 PATH 或资源管理器集成时 |
+| 便携版 | [Augit-1.0.0-rc.2-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-portable.zip) | 解压即用；不想安装或没有管理员权限时 |
+| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/SHA256SUMS.txt) | 下载后核对文件完整性 |
+
+发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.2>
+
+变更记录：<https://github.com/Paranoid49/Augit/blob/main/CHANGELOG.md>
+
+- 安装版需要管理员权限；安装器会先检测 .NET 10 Runtime 和 WebView2 Runtime，缺少时列出缺失项，经用户确认后才从项目锁定的微软官方地址下载，并校验固定哈希与 Microsoft Corporation 数字签名。
+- 便携版解压后直接运行 `Augit.exe`，不写系统 PATH、不添加资源管理器菜单，也不会自动安装运行时；缺少运行时会提示缺失项并给出微软官方下载入口。
+- 安装版与便携版共用 `%LOCALAPPDATA%\Augit` 下的个人设置、最近目录和会话状态。
+- **未做代码签名**：Augit 可执行文件与安装包没有 Augit 自身代码签名，Windows SmartScreen 可能提示「未知发布者」。这不是安装包损坏；如不放心，请先核对 `SHA256SUMS.txt`。
 
 ## 系统要求
 
@@ -11,7 +28,15 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - Microsoft Edge WebView2 Runtime（Evergreen）。主界面本身由 WebView2 承载，缺少时无法加载界面。
 - 使用 Git 功能时需要 Git for Windows 2.40 或更高版本。Augit 不捆绑 Git，优先使用设置中指定的 `git.exe`，否则使用系统 `PATH` 中的 Git。
 
-Windows 10 22H2 仍在产品支持范围内，但本候选版本只在 Windows 11 x64 上完成了实机验证；Windows 10 与跨屏 DPI 的组合尚未实机验证，详见「已知限制」。
+## 验证状态
+
+本候选已在以下真实机器上完成安装/便携运行验证；未验证项不写成已通过：
+
+- **Windows 11 x64**：主界面、安装/升级/卸载、便携包、屏幕阅读器与性能基线。
+- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行与静默安装。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+- 本次公开 rc.2 资产由包含上述 Windows 10/DPI 修复的源码重新构建；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
+
+仍未验证：干净虚拟机安装、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
 ## 安装版：安装、升级与卸载
 
@@ -24,7 +49,7 @@ Windows 10 22H2 仍在产品支持范围内，但本候选版本只在 Windows 1
 
 ## 便携版：解压即用
 
-- 把 `Augit-<版本>-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
+- 把 `Augit-1.0.0-rc.2-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
 - 便携版不写入系统 PATH，不添加资源管理器菜单，也不自动安装运行时。缺少 .NET 10 Runtime 或 WebView2 Runtime 时会明确提示缺失项，并给出微软官方下载入口；补齐运行时后重新运行即可。
 - 便携版与安装版共用 `%LOCALAPPDATA%\Augit` 下的个人设置；不会向被浏览的仓库写入工具配置。
 
@@ -56,25 +81,30 @@ Windows 10 22H2 仍在产品支持范围内，但本候选版本只在 Windows 1
 
 以下限制与当前候选版本的实际验证状态一致；未验证项不写成已通过。
 
-- **Windows 10 22H2 未实机验证**：支持范围包含 Windows 10，但本候选只在 Windows 11 x64 实测。
-- **跨屏 DPI 未验证**：本机没有多显示器混合 DPI 条件，跨屏拖动与缩放未实测。
 - **未做代码签名**：Augit 可执行文件与安装包没有 Augit 自身代码签名，Windows SmartScreen 可能显示未知发布者提示。安装器下载的微软运行时包会校验 Microsoft Corporation 数字签名。
-- **无障碍**：大文本编辑区向辅助技术暴露虚拟化列表（文件总数、绝对行号、活动行与键盘可达），但离屏全文不会同时存在于可访问树中，连续全文朗读仍受虚拟化限制。
-- **500 毫秒状态同步**：普通文件外部修改与本地 Git 状态刷新按 500 毫秒目标验证；当前证据中仍有偶发超过 500 毫秒的样本未完成归因，不能写成已稳定达标。
+- **干净虚拟机与真实缺少 WebView2 的安装流程未实测**：Windows 10 22H2 实机已验证安装器在缺少 .NET 10 时提示、下载并安装，但真实缺少 WebView2 的机器和干净虚拟机没有条件复验。
+- **三块及以上显示器、物理拔插显示器未验证**：双显示器、负坐标和软件模拟热插拔已通过；三屏与物理拔线已由用户移出本次验收范围。
+- **无障碍**：大文本编辑区向辅助技术暴露虚拟化列表（文件总数、绝对行号、活动行与键盘可达），但离屏全文不会同时存在于可访问树中，连续全文朗读仍受虚拟化限制。真实 NVDA 会话和纯 OS 键盘导航已覆盖小文件、2,001 行与 80,001 行抽样。
+- **500 毫秒状态同步**：普通文件外部修改与本地 Git 状态刷新按 500 毫秒目标验证；后续 20/20 轮为 236–293ms，但历史 611/552/624ms 慢样本未完成归因，不能写成已稳定达标。
+- **Settings 冷开**：3 次全新进程为 491/451/567ms，未连续达成 500ms；500ms 超时与异常路径已有受控单测，2904ms 历史慢样本未复现。
+- **超大文本开启软换行**：80,000 行/约 3MB 文件会退回全量行 DOM，页面级构建 3.62–9.78s，真实外壳首测 5.23s；之后滚动、查找、跳转、全选与关闭可用。大文件建议保持软换行关闭。
 - **真实鼠标 Continue Rebase 仅覆盖代表性场景**：两文件 rebase 冲突、外部删除一个并编辑暂存另一个后，真实前台 OS 鼠标点击已通过；Skip/Abort、反向解决顺序和二进制冲突未用真实鼠标复验。
 - **像素目标未整体达成**：共享功能页与 PyCharm 2026.2.1 的整窗像素对照仍有未通过页面，按持续改进登记，不冒充通过。
 - **视觉范围差异**：不提供参考的右侧 42 CSS 工具轨，Settings 为简化自定义结构，终端为简洁 xterm；这些是已批准的范围差异，不是待修复缺陷。
+- **真实日常使用观察仍在进行**：本候选需要真实仓库中的长期使用反馈；Augit 不做遥测，问题请通过 Issue 反馈。
 
 ## 从源码构建
 
 ```powershell
 dotnet restore Augit.slnx --locked-mode
-dotnet build Augit.slnx -c Release --no-restore
-dotnet test Augit.slnx -c Release --no-build --no-restore
+dotnet build Augit.slnx -c Release
+dotnet test Augit.slnx -c Release --no-build
 powershell -NoProfile -File .\tools\release.ps1 -Version <版本> -OutputDirectory artifacts\<版本输出目录>
 ```
 
 发布脚本从锁定依赖还原开始，生成 win-x64、非 self-contained 的便携压缩包和小型联网安装器，校验必需文件、第三方许可证、无 PDB、运行时下载哈希，并在结束前清理发布暂存目录。若还原时无法访问 NuGet 源（离线环境），可追加 `-p:NuGetAudit=false` 跳过漏洞审计。
+
+发布与 CI 流程见 [`docs/releasing.md`](https://github.com/Paranoid49/Augit/blob/main/docs/releasing.md)。
 
 ## 项目结构
 
@@ -84,10 +114,11 @@ powershell -NoProfile -File .\tools\release.ps1 -Version <版本> -OutputDirecto
 - `web`：界面资源（HTML/CSS/JS），与 `docs/ux-mockups` 共用同一套样式与场景脚本。
 - `docs`：产品规格、架构、UX/设计规范、验收证据与各专项记录。
 - `tools`：发布脚本、打包与安装器定义、真实像素采集和界面审计工具。
+- `.github/workflows`：Windows CI 与发布流水线。
 
 ## 反馈
 
-通过项目交付渠道或项目仓库 Issue 反馈。请附上版本（安装器标题或 `Augit.exe` 文件属性）、复现步骤、期望结果和实际结果，必要时附截图。Augit 不做遥测和崩溃上报，不会自动上传代码、日志或使用数据。
+通过 [GitHub Issues](https://github.com/Paranoid49/Augit/issues) 反馈。请附上版本（安装器标题或 `Augit.exe` 文件属性）、复现步骤、期望结果和实际结果，必要时附截图。Augit 不做遥测和崩溃上报，不会自动上传代码、日志或使用数据。
 
 ## 许可证
 

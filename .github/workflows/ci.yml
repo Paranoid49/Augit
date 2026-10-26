@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dsh
+  pull_request:
+    branches:
+      - main
+      - dsh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build, test and audit
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Restore locked dependencies
+        run: dotnet restore Augit.slnx --locked-mode
+
+      - name: Build Release
+        run: dotnet build Augit.slnx -c Release --no-restore
+
+      - name: Run unit and integration tests
+        run: dotnet test Augit.slnx -c Release --no-build --no-restore --logger "console;verbosity=normal"
+
+      - name: Verify UI assets match visual mockups
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-ui-assets.ps1
+
+      - name: Verify PowerShell script encoding
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-script-encoding.ps1
+
+      - name: Verify documentation claims
+        run: node tools/audit/check-doc-claims.cjs
+
+      - name: Verify coverage generator
+        run: node tools/audit/coverage-generator.test.cjs

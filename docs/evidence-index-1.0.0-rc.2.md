@@ -120,6 +120,8 @@
 - 发布阶段裁决：`docs/acceptance-scope-rulings-2026-10-20.md` §9
 - 发布收口台账：`docs/release-closure-2026-10-24.md`
 - 正式 1.0 发布建议：`docs/release-recommendation-1.0-2026-10-25.md`
+- 公开发布清单：`docs/release-manifest-1.0.0-rc.2.md`
+- 发布流程：`docs/releasing.md`
 - §3/§4 限制逐项判定：`docs/limits-triage-2026-10-25.md`
 - Beta 验收：`docs/beta-acceptance-2026-10-24.md`
 - 已知限制：`docs/known-limitations-1.0.0-rc.2.md`
@@ -127,10 +129,12 @@
 
 ## 11. 未验证环境
 
-- Windows 10 22H2 x64 实机。
-- 跨屏/多显示器混合 DPI。
-- 干净虚拟机/第二台机器的安装。
-- 真实安装器缺少运行时下的确认、联网下载、取消、失败与重试。
+> 2026-10-26 更新：Windows 10 22H2 x64、双显示器/混合 DPI 已完成实机验证，见[22H2 验证](win10-22h2-multimonitor-validation-2026-10-26.md)与[DPI 修复复验](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。以下保留当前仍未验证的项。
+
+- 干净虚拟机/全新系统的安装。
+- 真实缺少 WebView2 的安装流程（缺少 .NET 的流程已在 22H2 实机通过）。
+- 三块及以上显示器、物理拔插显示器、其他 DPI 组合与显示器排列。
 - Narrator 完整会话、JAWS/Braille、其他 DPI/深色/窄窗屏幕阅读器；纯 OS 键盘 NVDA 与 80,001 行抽样已完成。
+- 足够时长的真实日常使用观察。
 
 这些项目在发布说明和已知限制中如实登记，不写成通过。
