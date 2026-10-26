@@ -87,19 +87,16 @@ Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART
 - `.github/workflows/ci.yml`：push/PR 到 `main`/`dsh` 时执行还原、Release 构建、全部测试和仓库审计。托管 Windows runner 没有可供 ConPTY 使用的交互式控制台，因此 CI 排除 `ConPtyTerminalSessionTests` 的 4 个交互式集成用例；这些用例在本地真实桌面和 Windows 10 22H2 实机验证。
 - `.github/workflows/release.yml`：
   - `workflow_dispatch` 手动触发，输入版本号；`publish=true` 时创建或更新 GitHub Release。
-  - 推送 `v*` 标签只构建并上传 workflow artifact，**不会**自动覆盖已发布的 Release；发布资产必须经过人工验收后由 `publish=true` 发布。
+  - 推送 `v*` 标签会从该标签构建并发布对应 Pre-release；发布正文中的资产表由流水线根据本次实际 `SHA256SUMS.txt` 生成。
   - Release job 使用 `contents: write` 和仓库自带 `GITHUB_TOKEN`；不使用长期 PAT。
-  - 打包后以 `-SkipLaunch` 校验便携包内容；启动/安装验证仍以真实机器证据为准。
+  - 打包后以 `-SkipLaunch` 校验便携包内容；启动/安装验证仍以真实机器证据为准。发布后必须下载实际资产再复验一次。
 
 ## 7. 打标签与创建 Release
 
-构建源提交与发布记录提交分开：
+推荐由发布流水线构建公开资产，避免“本机字节”和“公开字节”不是同一份：
 
-1. 完成代码、README、CI 和发布文档，提交为构建源提交 `A`。
-2. 从 `A` 构建并验证资产，记录大小、SHA-256 和 ProductVersion。
-3. 更新 `docs/release-manifest-<版本>.md` 与 `docs/release-notes-<版本>.md`，提交为发布记录提交 `B`（仅文档）。
-4. 在 `B` 上打 lightweight tag `v<版本>`；tag 包含最终发布说明，资产由 `A` 构建。
-5. 推送 tag 和 `main`：
+1. 完成代码、README、CI 和发布文档，提交并推送 `main`。
+2. 在发布提交上创建并推送 tag：
 
 ```powershell
 git tag v1.0.0-rc.2
@@ -107,7 +104,10 @@ git push origin v1.0.0-rc.2
 git push origin dsh:main
 ```
 
-6. 在 GitHub Actions 运行 `Release`，输入版本并设置 `publish=true`；或在 GitHub CLI 已授权时：
+3. tag 推送触发 `.github/workflows/release.yml`：构建、测试、打包、校验便携包内容，生成带实际资产表的 Release 正文，然后创建或更新 Pre-release 并上传 zip、setup、`SHA256SUMS.txt`。
+4. 也可以手动触发 `Release` workflow，输入版本、`publish=true`；发布逻辑相同。
+5. 发布后从 Release 匿名下载三个资产，核对大小和 SHA-256，并把验证结果与构建提交写回 `docs/release-manifest-<版本>.md`（仅文档提交）。
+6. 若 GitHub CLI 已授权，手动补发/修复资产可使用：
 
 ```powershell
 gh release create v1.0.0-rc.2 `
@@ -127,7 +127,7 @@ gh release create v1.0.0-rc.2 `
 - `SHA256SUMS.txt` 与下载文件哈希一致。
 - `Augit.exe` 的 ProductVersion 包含预期版本号和构建源提交。
 - README 的下载链接指向实际 Release；`latest` 链接不适用于 Pre-release。
-- 默认分支 `main` 已包含当前 README、CI 和发布清单；tag 指向发布记录提交。
+- 默认分支 `main` 已包含当前 README、CI 和发布清单；tag 指向被构建并发布的提交。
 - 已知限制、安装说明和反馈入口与实际一致。
 
 ## 9. 回滚

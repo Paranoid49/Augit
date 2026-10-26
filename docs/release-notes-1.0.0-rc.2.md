@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：`ff1795b597802321da4fa57abec085f1bb5d02e9`
+- 构建源提交：tag `v1.0.0-rc.2` 指向的提交（由发布流水线检出；`Augit.exe` 的 ProductVersion 内含提交号）
 - 发布记录提交 / tag：`v1.0.0-rc.2`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -14,14 +14,11 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ## 2. 下载
 
-| 文件 | 大小 | SHA-256 |
-| --- | ---: | --- |
-| [Augit-1.0.0-rc.2-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-setup.exe) | 5,014,082 B | `e723545e4e30e30bf3c508387cadb49e74eec213e4369409159bc74c404fde4d` |
-| [Augit-1.0.0-rc.2-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-portable.zip) | 3,526,544 B | `e6827c25f23a89a93cfa8864f562afb6509d2522baeffac9397d274a4c1bf807` |
-| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/SHA256SUMS.txt) | 205 B | 见文件内容 |
+<!-- RELEASE_ASSETS -->
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.2>
 
+- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。若表格未渲染，请直接打开 Release 资产列表。
 - 安装版需要管理员权限，默认安装到 `%ProgramFiles%\Augit`；安装器检测 .NET 10/WebView2，缺少时经用户确认后从项目锁定的微软官方地址下载并校验哈希与 Microsoft 签名。
 - 便携版解压后运行 `Augit.exe`，不写 PATH/右键菜单，不自动安装运行时。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置、最近目录和会话状态。
@@ -51,10 +48,10 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 ## 5. 验证摘要
 
 - Release 构建：0 警告、0 错误。
-- 测试：Core **72/72**、Shell **268/268**、Infrastructure **206/206**（合计 **546**）。
+- 测试：Core **72/72**、Shell **268/268**、Infrastructure **206/206**（合计 **546**；托管 CI 排除 4 个需要交互式控制台的 ConPTY 用例，它们在真实桌面和 Windows 10 实机验证）。
 - UI 资产字节一致性、PowerShell 编码、文档数字自洽、coverage generator 检查通过。
-- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`，窗口出现 353ms，关闭 112.5ms，退出码 0，无残留 WebView2/子进程；打包 web 树与仓库源一致。
-- 安装器 ProductVersion `1.0.0-rc.2`、FileVersion `1.0.0.0`；未签名状态如实记录。
+- 本机对同源构建的便携包完成真实启动 PASS：窗口类 `Augit.Shell.Window`，窗口出现 353ms，关闭 112.5ms，退出码 0，无残留 WebView2/子进程；打包 web 树与仓库源一致。Release 资产由发布流水线从 tag 构建，发布后下载复验结果记录在发布清单。
+- 安装器 ProductVersion `1.0.0-rc.2+<构建提交>`、FileVersion `1.0.0.0`；未签名状态如实记录。
 - Windows 10 22H2 实机：双显示器、100%/125%/150%/175%/200%、负坐标、模拟热插拔、深色窄窗；rc.2 重建包便携启动与静默安装通过，缺少 .NET 10 时安装器完成确认、下载、校验和安装。
 - 历史 `0.1.0 → 1.0.0-rc.2` 覆盖升级、启动、PATH 恢复、设置保留和静默卸载通过。
 
