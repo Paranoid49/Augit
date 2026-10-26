@@ -50,6 +50,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
     {
         string? webRoot = null;
         string? workspaceRoot = null;
+        string? positionalWorkspace = null;
         bool workspaceExplicit = false;
         string? scene = null;
         string? theme = null;
@@ -142,7 +143,19 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
                     dpi = dpiValue;
                     break;
                 default:
-                    throw new ArgumentException($"未知的启动参数：{argument}");
+                    // 兼容 `augit .` / `augit D:\repo`：只接受一个不以 - 开头的目录参数。
+                    // 新窗口启动也使用同一个入口（显式 --workspace），两条路径必须一致。
+                    if (argument.Length == 0
+                        || argument.StartsWith('-')
+                        || workspaceExplicit
+                        || positionalWorkspace is not null)
+                    {
+                        throw new ArgumentException($"未知的启动参数：{argument}");
+                    }
+
+                    positionalWorkspace = argument;
+                    workspaceExplicit = true;
+                    break;
             }
         }
 
@@ -151,7 +164,7 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
             : Path.GetFullPath(webRoot);
         return new ShellOptions(
             root,
-            Path.GetFullPath(workspaceRoot ?? Environment.CurrentDirectory),
+            Path.GetFullPath(workspaceRoot ?? positionalWorkspace ?? Environment.CurrentDirectory),
             // 注意：工作区在 Program 里还会按设置解析一次（见 ShellStartup.ResolveWorkspace），
             // 因此这里保留"命令行没给"的原始事实。
             scene,

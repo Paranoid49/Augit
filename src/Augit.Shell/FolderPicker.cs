@@ -18,12 +18,17 @@ internal static class FolderPicker
     /// <summary>弹出选择框；用户取消或调用失败时返回 null（调用方据此如实回话）。</summary>
     public static string? Pick(string title)
     {
+        nint displayName = Marshal.AllocHGlobal(260 * sizeof(char));
         try
         {
+            // pszDisplayName 是调用方提供的输出缓冲区，不是只读输入字符串。
+            // 过去传 string.Empty 会让 SHBrowseForFolder 写入不可变字符串，选中目录后
+            // 在 comctl32 内以 c0000005 崩溃；这里用显式非托管缓冲区，避免字符串封送。
+            Marshal.Copy(new char[260], 0, displayName, 260);
             BrowseInfo info = new()
             {
                 Owner = GetForegroundWindow(),
-                DisplayName = string.Empty,
+                DisplayName = displayName,
                 Title = title,
                 Flags = BrowseReturnOnlyFsDirs | BrowseNewDialogStyle | BrowseEditBox,
             };
@@ -49,6 +54,10 @@ internal static class FolderPicker
             // 外壳与 shell32 的正常组合不会走到这里；真出现时按"没选到目录"处理，不抛给界面。
             return null;
         }
+        finally
+        {
+            Marshal.FreeHGlobal(displayName);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -56,7 +65,7 @@ internal static class FolderPicker
     {
         public nint Owner;
         public nint Root;
-        [MarshalAs(UnmanagedType.LPWStr)] public string DisplayName;
+        public nint DisplayName;
         [MarshalAs(UnmanagedType.LPWStr)] public string Title;
         public uint Flags;
         public nint Callback;

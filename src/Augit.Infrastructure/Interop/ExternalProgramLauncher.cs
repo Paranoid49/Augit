@@ -95,6 +95,7 @@ public static class ExternalProgramLauncher
             WorkingDirectory = fullWorkspacePath,
             UseShellExecute = true,
         };
+        startInfo.ArgumentList.Add("--workspace");
         startInfo.ArgumentList.Add(fullWorkspacePath);
         return startInfo;
     }

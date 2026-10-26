@@ -2,6 +2,19 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.6] - 2026-10-26
+
+### Fixed
+
+- **选择目录后 `comctl32.dll` 崩溃**：`BROWSEINFO.pszDisplayName` 从 `string.Empty` 改为显式非托管 `MAX_PATH` 缓冲区；`SHBrowseForFolder` 不再向不可变字符串写入，避免 `c0000005` 在用户确认目录后终止进程。
+- **选择目录后新窗口报 `ArgumentException (0x80070057)`**：`CreateAugitWorkspaceStartInfo` 显式传 `--workspace <path>`；`ShellOptions.Parse` 同时支持 `augit <目录>` 位置参数，修复启动器与解析器契约不一致。
+- 新增启动器/解析器集成测试，直接解析 `ArgumentList` 验证工作区路径；更新启动器参数契约测试。
+- 保留 rc.5 的首次启动/旧 LastWorkspace 欢迎页、CETCompat、async void 边界、本地日志与 `git init` 超时。
+
+### Changed
+
+- 测试总数 Shell **271**、Infrastructure **207**；Windows 11 上真实“欢迎页 → Choose Directory → 目标目录”流程已复验，Win10 22H2 实机仍待复验。
+
 ## [1.0.0-rc.5] - 2026-10-26
 
 ### Fixed

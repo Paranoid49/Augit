@@ -1,3 +1,4 @@
+using Augit.Infrastructure.Interop;
 using Augit.Infrastructure.Settings;
 using Augit.Shell.Tests.Helpers;
 
@@ -121,5 +122,22 @@ public sealed class ShellStartupTests
 
         Assert.AreEqual(Path.GetFullPath(welcome.FullPath), staleResolved.WorkspaceRoot);
         Assert.IsTrue(staleResolved.Welcome);
+    }
+
+    [TestMethod]
+    public void 命令行位置参数与新窗口参数都能解析为同一工作区()
+    {
+        using TemporaryDirectory directory = new();
+
+        ShellOptions commandLine = ShellOptions.Parse([directory.FullPath]);
+        Assert.AreEqual(Path.GetFullPath(directory.FullPath), commandLine.WorkspaceRoot);
+        Assert.IsTrue(commandLine.WorkspaceExplicit);
+
+        System.Diagnostics.ProcessStartInfo startInfo = ExternalProgramLauncher.CreateAugitWorkspaceStartInfo(
+            "Augit.exe",
+            directory.FullPath);
+        ShellOptions launched = ShellOptions.Parse(startInfo.ArgumentList.ToArray());
+        Assert.AreEqual(Path.GetFullPath(directory.FullPath), launched.WorkspaceRoot);
+        Assert.IsTrue(launched.WorkspaceExplicit);
     }
 }

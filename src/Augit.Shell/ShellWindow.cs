@@ -773,7 +773,8 @@ internal sealed partial class ShellWindow : IDisposable
                     shell.PaintSettingsBackground(wParam);
                     return 1;
                 }
-                return DefWindowProc(window, message, wParam, lParam);            case WmSize:
+                return DefWindowProc(window, message, wParam, lParam);
+            case WmSize:
                 shell.SyncBounds();
                 shell.NotifyWindowState();
                 return 0;

@@ -18,7 +18,7 @@ public sealed class ExternalProgramLauncherTests
     }
 
     [TestMethod]
-    public void 新窗口使用当前程序并只传递Worktree目录()
+    public void 新窗口使用当前程序并显式传递Worktree目录()
     {
         using TemporaryDirectory temporary = new();
         string executable = temporary.GetPath("Augit.exe");
@@ -29,7 +29,9 @@ public sealed class ExternalProgramLauncherTests
 
         Assert.AreEqual(executable, startInfo.FileName);
         Assert.AreEqual(temporary.FullPath, startInfo.WorkingDirectory);
-        Assert.AreEqual(temporary.FullPath, startInfo.ArgumentList.Single());
+        CollectionAssert.AreEqual(
+            new[] { "--workspace", temporary.FullPath },
+            startInfo.ArgumentList.ToArray());
         Assert.IsTrue(startInfo.UseShellExecute);
     }
 }

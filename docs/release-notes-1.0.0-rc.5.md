@@ -1,5 +1,7 @@
 # Augit 1.0.0-rc.5 发布说明
 
+> **2026-10-26 后续**：rc.6 修复选择目录后的 comctl32 崩溃和新窗口 --workspace 参数错误；本文保留 rc.5 历史记录，当前版本见 [rc.6 发布说明](release-notes-1.0.0-rc.6.md)。
+
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
 - 构建源提交：`fd71d9f594a34a0f5d8547b99043eea3bd75ca9c`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
