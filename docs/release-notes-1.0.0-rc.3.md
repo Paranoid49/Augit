@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.3` 指向的提交（由 GitHub Actions 构建；`Augit.exe` ProductVersion 内含提交号）
+- 构建源提交：`1fee1aace3bb29358426ba37860b420b3eb3d4df`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.3`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -14,11 +14,15 @@ rc.3 是 rc.2 的**分发修复版**：运行代码与 rc.2 相同，只把便�
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.3-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.3/Augit-1.0.0-rc.3-win-x64-setup.exe) | 5,014,276 B | `814fea114ade1d6cac69642286e53175a63c97981701d2cad9f80bcca370f769` |
+| [Augit-1.0.0-rc.3-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.3/Augit-1.0.0-rc.3-win-x64-portable.zip) | 39,131,650 B | `92da12b350628cde6bb408ef8a6518a6394fb44a8b55bd455d93f9309ab0f09a` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.3/SHA256SUMS.txt) | 205 B | `8b9950ce8acfe6ec1d4b73f246f0626c138b70e56712aff16fc5f8e9f1cfc6c9` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.3>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - **便携版**：已内置 .NET 10.0.11 Runtime，不需要预装 .NET；只要求系统已有 Microsoft Edge WebView2 Runtime。不写系统 PATH，不添加资源管理器菜单，不安装或修改共享运行时。
 - **安装版**：仍是按需联网的小型安装器，需要管理员权限；缺少 .NET 10/WebView2 时先说明，经确认后从项目锁定的微软官方地址下载并校验哈希与 Microsoft 签名。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置、最近目录和会话状态。
@@ -54,7 +58,7 @@ rc.2 的便携包是 framework-dependent。2026-10-26 在一台没有 .NET 10 �
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **268/268**、Infrastructure **202/202**（4 个需要交互式控制台的 ConPTY 用例仅在托管 CI 排除，真实桌面/Win10 保留验证）。
 - UI 资产字节一致性、PowerShell 编码、文档数字自洽、coverage generator 检查通过。
-- 本机预构建的 rc.3 便携包启动 PASS（隐藏共享 .NET 路径）：窗口出现约 496.8ms、关闭约 100ms、退出码 0、无残留子进程；打包 web 树与仓库源一致，`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。Release 资产发布后再下载复验。
+- 发布后匿名下载实际 Release 便携包并启动 PASS（隐藏共享 .NET 路径）：窗口出现约 487.5ms、关闭约 109ms、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.3+1fee1aa…`，`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
 - 安装器 ProductVersion `1.0.0-rc.3`、FileVersion `1.0.0.0`、`NotSigned`；.NET 检测/下载逻辑沿用 rc.2 的 Windows 10 22H2 实机证据。
 - Windows 10 22H2 实机证据（双屏、100–200% DPI、负坐标、模拟热插拔、深色窄窗）继续适用于 rc.3，因为运行代码未变。
 

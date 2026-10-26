@@ -39,7 +39,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - **Windows 11 x64**：主界面、安装/升级/卸载、便携包、屏幕阅读器与性能基线。
 - **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行与静默安装。rc.3 只改变打包方式（便携版 self-contained），运行代码与 rc.2 相同，因此该实机证据继续适用。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
 - 本次公开 rc.3 资产由 GitHub Actions 从 `v1.0.0-rc.3` 标签构建，并包含上述 Windows 10/DPI 修复；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
-- rc.3 便携包在本机把 `DOTNET_ROOT` 指向不存在目录、禁用多级查找后仍能启动（self-contained 运行时生效）；真实全新 Windows 虚拟机仍待复验。
+- 发布后匿名下载的 rc.3 实际 Release 便携包，把 `DOTNET_ROOT` 指向不存在目录、禁用多级查找后仍能启动（self-contained 运行时生效）；真实全新 Windows 虚拟机仍待复验。
 
 仍未验证：干净虚拟机安装、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 

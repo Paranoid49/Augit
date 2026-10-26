@@ -7,9 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.3> |
+| Release id | `423918886` |
 | Tag | `v1.0.0-rc.3` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | tag `v1.0.0-rc.3` 指向的提交（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `1fee1aace3bb29358426ba37860b420b3eb3d4df` |
 | 版本 | `1.0.0-rc.3` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -22,11 +23,18 @@ rc.3 是 rc.2 的分发修复版：运行代码相同，只把便携版改为 se
 
 ## 2. 资产
 
-Release 包含：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.3-win-x64-setup.exe` | 5,014,276 B | `814fea114ade1d6cac69642286e53175a63c97981701d2cad9f80bcca370f769` |
+| `Augit-1.0.0-rc.3-win-x64-portable.zip` | 39,131,650 B | `92da12b350628cde6bb408ef8a6518a6394fb44a8b55bd455d93f9309ab0f09a` |
+| `SHA256SUMS.txt` | 205 B | `8b9950ce8acfe6ec1d4b73f246f0626c138b70e56712aff16fc5f8e9f1cfc6c9` |
 
-- `Augit-1.0.0-rc.3-win-x64-setup.exe`（framework-dependent 安装器）
-- `Augit-1.0.0-rc.3-win-x64-portable.zip`（self-contained 便携包）
-- `SHA256SUMS.txt`
+`SHA256SUMS.txt`：
+
+```text
+92da12b350628cde6bb408ef8a6518a6394fb44a8b55bd455d93f9309ab0f09a  Augit-1.0.0-rc.3-win-x64-portable.zip
+814fea114ade1d6cac69642286e53175a63c97981701d2cad9f80bcca370f769  Augit-1.0.0-rc.3-win-x64-setup.exe
+```
 
 资产大小和 SHA-256 以 Release 正文的「资产校验」表和附件 `SHA256SUMS.txt` 为准。发布后核对结果在本文 §6 记录。
 
@@ -72,6 +80,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 - 把 `DOTNET_ROOT` 指向不存在目录、禁用多级查找后，便携包仍真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 496.8ms、关闭约 100ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
 - 报告：`artifacts/release-1.0.0-rc.3-commit-verify/portable-report.json`（Git 忽略）。
 
+发布后匿名下载**实际 Release 资产**复验：
+
+- 便携包 `39,131,650 B`、SHA-256 `92da12b3…`；安装器 `5,014,276 B`、SHA-256 `814fea11…`，与发布正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **487.5ms**、关闭 **109ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.3+1fee1aa…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动，证明不依赖共享 .NET。
+- 安装器 ProductVersion `1.0.0-rc.3`、FileVersion `1.0.0.0`、`NotSigned`。
+- 报告：`artifacts/release-1.0.0-rc.3-gh-verify/portable-report.json`（Git 忽略）。
+
 ## 4. Windows 10 22H2 证据
 
 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器实机已完成：
@@ -93,12 +109,13 @@ rc.2 的便携包是 framework-dependent，在没有 .NET 10 的新电脑上会�
 
 ## 6. 发布后核对
 
-发布后应：
+2026-10-26 已完成：
 
-- 从 Release 匿名下载 zip、setup、`SHA256SUMS.txt`；
-- 核对大小与 SHA-256 和发布正文一致；
-- 解压 zip，在隐藏/失效共享 .NET 的环境运行 `Augit.exe`，确认 ProductVersion、窗口和退出；
-- 如条件允许，在干净 Windows 10/11 测试机复验便携与安装/卸载；
-- 把实际结果、构建提交和资产哈希回填到本节。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS（见 §3）；ProductVersion `1.0.0-rc.3+1fee1aa…`。
+- 安装器版本资源与未签名状态已核对；安装/卸载的 Windows 10 22H2 证据见 §4。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- 未完成：干净 Windows 虚拟机/全新系统上的便携与安装/卸载复验。该项继续按“未验证”披露，不因本清单 PASS 而写成已通过。
 
-回填状态：**待发布后核对**。
+状态：**PASS**（上述未验证项除外）。
