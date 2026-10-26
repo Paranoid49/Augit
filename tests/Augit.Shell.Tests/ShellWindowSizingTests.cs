@@ -248,6 +248,21 @@ public sealed class ShellWindowSizingTests
     }
 
     [TestMethod]
+    public void 高DPI窄窗纵向不要压住任务栏()
+    {
+        // 200% 下保存的 80 逻辑像素 top 会变成 160 物理像素，1024x640 窗口底部到达 1440，
+        // 覆盖 1360 高的工作区/任务栏。尺寸本身放得下，但纵向越界时必须上移。
+        PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(
+            new SavedPlacement(80, 80, 1024, 640, false),
+            overrideWidth: null,
+            overrideHeight: null,
+            effectiveDpi: 192,
+            work: new WindowFrameRect(0, 0, 2560, 1360),
+            screen: new VirtualScreen(0, 0, 2560, 1440));
+        Assert.AreEqual(new PhysicalPlacement(160, 80, 2048, 1280, false), placement);
+    }
+
+    [TestMethod]
     public void 工作区不可用时回退到原启动摆放()
     {
         PhysicalPlacement placement = ShellWindowSizing.ResolveStartupPlacementInWorkArea(

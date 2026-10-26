@@ -256,9 +256,12 @@ internal static class ShellWindowSizing
             work.Bottom - work.Top);
         (int x, int y) = ResolveStartupPosition(saved.Left, saved.Top, effectiveDpi, screen);
         WindowFrameRect rect = new(x, y, x + size.Width, y + size.Height);
-        // 只有尺寸本身在工作区放不下（或刚好铺满）时才连同位置一起夹取；
-        // 放得下的小窗口保留原来的跨屏/靠边位置，避免重启时把用户有意跨屏的窗口挪走。
-        bool fitPosition = requested.Width >= work.Right - work.Left || requested.Height >= work.Bottom - work.Top;
+        // 尺寸放不下、或纵向越过工作区时才连同位置夹取；高 DPI 下保存的 80 逻辑像素
+        // 会放大到压住任务栏。水平跨屏仍保留原位置，避免重启时把有意跨屏的窗口挪走。
+        bool fitPosition = requested.Width >= work.Right - work.Left
+            || requested.Height >= work.Bottom - work.Top
+            || rect.Top < work.Top
+            || rect.Bottom > work.Bottom;
         WindowFrameRect fitted = fitPosition ? ShellModalGeometry.Fit(rect, work) : rect;
         bool maximized = overrideWidth is null && overrideHeight is null && saved.IsMaximized;
         return new PhysicalPlacement(fitted.Left, fitted.Top, fitted.Right - fitted.Left, fitted.Bottom - fitted.Top, maximized);

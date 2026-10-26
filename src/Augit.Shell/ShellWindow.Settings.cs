@@ -64,8 +64,8 @@ internal sealed partial class ShellWindow
         }
         GetWindowRect(_window, out Rect bounds);
         double scale = _controller?.RasterizationScale ?? _effectiveDpi / 96.0;
-        int width = Math.Min(1040, Math.Max(320, (int)((bounds.Right - bounds.Left) / scale) - 80));
-        int height = Math.Min(760, Math.Max(240, (int)((bounds.Bottom - bounds.Top) / scale) - 88));
+        int width = Math.Min(1040, Math.Max(ShellWindowSizing.MinimumLogicalWidth, (int)((bounds.Right - bounds.Left) / scale) - 80));
+        int height = Math.Min(760, Math.Max(ShellWindowSizing.MinimumLogicalHeight, (int)((bounds.Bottom - bounds.Top) / scale) - 88));
         ShellOptions options = _options with
         {
             Scene = null,
