@@ -82,8 +82,6 @@ public sealed class ShellStartupTests
 
         ShellOptions resolved = ShellStartup.ResolveLaunchWorkspace(
             options,
-            new ApplicationSettings(),
-            application.FullPath,
             application.FullPath,
             welcome.FullPath);
 
@@ -101,21 +99,27 @@ public sealed class ShellStartupTests
 
         ShellOptions explicitResolved = ShellStartup.ResolveLaunchWorkspace(
             explicitOptions,
-            new ApplicationSettings(),
-            application.FullPath,
             application.FullPath,
             welcome.FullPath);
 
         Assert.AreEqual(Path.GetFullPath(explicitDirectory.FullPath), explicitResolved.WorkspaceRoot);
 
-        ShellOptions lastOptions = ShellOptions.Parse([]) with { WorkspaceRoot = application.FullPath };
+        ShellOptions lastOptions = ShellOptions.Parse([]) with { WorkspaceRoot = explicitDirectory.FullPath };
         ShellOptions lastResolved = ShellStartup.ResolveLaunchWorkspace(
             lastOptions,
-            new ApplicationSettings { LastWorkspace = explicitDirectory.FullPath },
-            application.FullPath,
             application.FullPath,
             welcome.FullPath);
 
-        Assert.AreEqual(Path.GetFullPath(application.FullPath), lastResolved.WorkspaceRoot);
+        Assert.AreEqual(Path.GetFullPath(explicitDirectory.FullPath), lastResolved.WorkspaceRoot);
+
+        // 旧版本可能把发布目录保存成 LastWorkspace；rc.4 仍要把这种值当作欢迎页。
+        ShellOptions staleOptions = ShellOptions.Parse([]) with { WorkspaceRoot = application.FullPath };
+        ShellOptions staleResolved = ShellStartup.ResolveLaunchWorkspace(
+            staleOptions,
+            application.FullPath,
+            welcome.FullPath);
+
+        Assert.AreEqual(Path.GetFullPath(welcome.FullPath), staleResolved.WorkspaceRoot);
+        Assert.IsTrue(staleResolved.Welcome);
     }
 }

@@ -33,7 +33,7 @@ internal static class Program
             // 未显式指定 --workspace 时恢复设置里上次打开的目录（产品规格 §3）。
             options = ShellStartup.ResolveWorkspace(options, settings);
             // 首次启动且当前目录是程序目录时，避免把发布目录当工作区（见 ShellStartup）。
-            options = ShellStartup.ResolveLaunchWorkspace(options, settings);
+            options = ShellStartup.ResolveLaunchWorkspace(options);
             AugitLog.Info($"options workspace={options.WorkspaceRoot} theme={options.Theme} isolated={options.HasIsolatedState}");
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：

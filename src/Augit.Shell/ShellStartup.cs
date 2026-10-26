@@ -42,41 +42,30 @@ internal static class ShellStartup
     /// 这里改用 <c>%LOCALAPPDATA%\Augit\Welcome</c> 空目录，用户随后通过「打开目录」选择项目。
     /// 显式 <c>--workspace</c>（包括 <c>augit .</c>）始终优先，不受影响。
     /// </summary>
-    public static ShellOptions ResolveLaunchWorkspace(ShellOptions options, ApplicationSettings settings)
+    public static ShellOptions ResolveLaunchWorkspace(ShellOptions options)
     {
         string welcome = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Augit",
             "Welcome");
-        return ResolveLaunchWorkspace(
-            options,
-            settings,
-            AppContext.BaseDirectory,
-            Environment.CurrentDirectory,
-            welcome);
+        return ResolveLaunchWorkspace(options, AppContext.BaseDirectory, welcome);
     }
 
     internal static ShellOptions ResolveLaunchWorkspace(
         ShellOptions options,
-        ApplicationSettings settings,
         string appDirectory,
-        string currentDirectory,
         string welcomeDirectory)
     {
-        if (options.WorkspaceExplicit || !string.IsNullOrWhiteSpace(settings.LastWorkspace))
+        if (options.WorkspaceExplicit)
         {
             return options;
         }
 
         string app = Normalize(appDirectory);
-        string current = Normalize(currentDirectory);
-        if (!string.Equals(current, app, StringComparison.OrdinalIgnoreCase))
-        {
-            return options;
-        }
-
-        // 最近目录失效时 ResolveWorkspace 会保留当前目录；只有仍然指向程序目录才需要回退。
-        if (!string.Equals(Normalize(options.WorkspaceRoot), current, StringComparison.OrdinalIgnoreCase))
+        string welcome = Normalize(welcomeDirectory);
+        string root = Normalize(options.WorkspaceRoot);
+        if (!string.Equals(root, app, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(root, welcome, StringComparison.OrdinalIgnoreCase))
         {
             return options;
         }

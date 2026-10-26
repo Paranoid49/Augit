@@ -2,6 +2,18 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.5] - 2026-10-26
+
+### Fixed
+
+- 首次启动工作区判定覆盖旧版本保存的 `LastWorkspace`：如果最近目录等于程序目录或 `%LOCALAPPDATA%\Augit\Welcome`，仍显示「Open Workspace」欢迎页，不再恢复发布目录并自动弹出「Create Git Repository」。
+- 无需用户手动删除 `%LOCALAPPDATA%\Augit\settings.json` 即可从 rc.3/rc.4 的旧设置升级。
+
+### Changed
+
+- 其余 rc.4 修复保持不变：`CETCompat=false`、async void 异常边界、本地 `augit.log`、`git init` 30 秒超时与本地路径校验；便携版 self-contained、安装版 framework-dependent。
+- 新增“旧 LastWorkspace 等于程序目录”测试；Windows 10 22H2 启动路径仍待用户实机复验。
+
 ## [1.0.0-rc.4] - 2026-10-26
 
 ### Fixed
