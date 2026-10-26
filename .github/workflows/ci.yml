@@ -72,6 +72,7 @@ jobs:
             [xml]$trx = Get-Content -LiteralPath $file.FullName
             foreach ($test in $trx.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' }) {
               $found = $true
+              Write-Host "::error title=Failed test::$($test.testName)"
               "- ``$($test.testName)``" | Out-File -FilePath $summary -Append -Encoding utf8
               if ($test.Output.ErrorInfo.Message) {
                 '  ```' | Out-File -FilePath $summary -Append -Encoding utf8
