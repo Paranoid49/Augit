@@ -9,7 +9,7 @@
 - **M2**：Settings 子窗改用 Owner 当前显示器 DPI；175% 下 CSS 从 `891×576` 恢复为 `1040×672`。
 - **M4**：200% + 1024×640 窄窗时，Settings 先按小于最小尺寸的矩形计算摆放、再被最小尺寸撑大，底部 OK/Cancel 被推到任务栏下方；主窗也会压住任务栏。改为按最小逻辑尺寸计算 Settings，并在纵向越界时上移主窗。
 
-扩展验证覆盖 150%、175%、200%、反向“主屏 100% + 副屏 125%”、负坐标布局、模拟热插拔、深色 1024×640 窄窗（100/125/200%）、rc.2 源码包构建/便携运行/安装器。除三屏（无第三块可用显示器）外均通过；live-shell 通过 2379 项断言。
+扩展验证覆盖 150%、175%、200%、反向“主屏 100% + 副屏 125%”、负坐标布局、模拟热插拔、深色 1024×640 窄窗（100/125/200%）、rc.2 源码包构建/便携运行/安装器。三屏/物理拔线已由用户明确移出范围，不在本次验收内；其余均通过，live-shell 通过 2379 项断言。
 
 Shell 测试 `268/268` 通过；行为修复提交 `7892c34`（`fix(shell): keep logical window size across monitor DPI changes`）、`98c443f`（`fix(shell): keep high-DPI narrow windows above taskbar`），启动显示器选择补强与 3 个单元测试提交 `c0f80e9`（`test(shell): cover per-monitor startup DPI selection`）。
 
@@ -84,14 +84,14 @@ Shell 测试 `268/268` 通过；行为修复提交 `7892c34`（`fix(shell): keep
 - Settings：`(-1730,164)–(-690,836)`，`1040×672`；模态：`(-1410,418)–(-1010,582)`，`400×164`。
 - 保存尺寸大于副屏工作区（`2500×1300`）：收敛为 `(-1920,0)–(0,1040)`，客户区 `1920×1040`。
 
-## 模拟热插拔
+## 模拟热插拔（物理拔线已移出范围）
 
 应用在副屏 `(2660,120)` 时执行 `DisplaySwitch.exe /internal`（仅主屏）：
 
 - 副屏从显示器列表移除后，应用仍在主屏可见：`(133,160)–(1313,920)`，`1180×760@96`。
 - `DisplaySwitch.exe /extend` 恢复双屏后应用保持可见、无崩溃，仍在主屏；未发生窗口留在已移除屏幕坐标的情况。
 
-这是软件模拟拔插，不是物理拔线；物理热插拔未验证。
+这是软件模拟拔插；物理拔线已按用户决定移出范围，未做。
 
 ## 深色窄窗
 
@@ -114,17 +114,19 @@ GitHub 仓库 `Paranoid49/Augit` 当前没有公开 release、tag 或 rc.2 资�
 - 安装器检测到系统缺少 .NET 10，弹出中文 Yes/No 提示；`/SUPPRESSMSGBOXES` **没有**抑制这个自定义提示。确认后下载 `30,604,768` 字节的 .NET 10.0.11 安装包并装入系统，再完成 Augit 安装。
 - 从 `C:\Program Files\Augit\Augit.exe` 启动（不设置 `DOTNET_ROOT`，使用安装器装入的系统运行时）：`1180×760@96`，CSS `1180×760`，`__augitErrors=[]`。
 
+M4 修复后按当前 HEAD 重新构建并覆盖安装了最终包：
+
+- 便携包 `3,525,225 B`，SHA256 `1a0c2d9aca61d74d6abf0bfed38b722ccacbb303a307538904a84cef61232053`。
+- 安装器 `5,012,778 B`，SHA256 `eefd79f0f21a71aa1bc8d0c1a75c28764925522735f172ecd45ec28ff094c926`，静默安装退出码 `0`。
+- 安装版 ProductVersion `1.0.0-rc.2+cdce550…`；启动 `1180×760@96`、CSS `1180×760`、`__augitErrors=[]`。
+
 另按发布记录中的冻结提交 `8643b9e` 重建了一次 rc.2 源码包，用于确认发布源本身可用：
 
 - 便携包：`3,522,608` 字节，SHA256 `c013bdd1dc45dfddac24e721f2dad73a8fd4cee90ca86d3c67f28f72266f2599`；ProductVersion `1.0.0-rc.2+8643b9e…`；启动后 `1180×760@96`、CSS `1180×760`、`__augitErrors=[]`。
 - 安装器：`5,009,763` 字节，SHA256 `9d26724b2ae94eea7ff454ac3d9a2bb160871496244fd0500d9089c0317597e6`。
 - 与文档记录的已发布参考（便携 `3,522,601 B` / `e339da49…`，安装器 `5,010,098 B` / `ecb00134…`）**不相等**，因此这两次重建都不能冒充已发布 rc.2 二进制；只能在源码层面验证 rc.2 发布链路。
 
-安装器日志：`artifacts/win10-22h2-multimonitor-2026-10-26/release-install/setup-22h2.log`。
-
-## 三屏
-
-**未验证。** 机器只有两块活动显示器；`GameViewer Virtual Display Adapter`（`ROOT\DISPLAY\0000`）状态为 OK，GameViewer 服务/客户端（网易UU远程）也在运行，但 `QueryDisplayConfig` 当前只有 2 条活动 path，没有第三块活动的 monitor。没有控制器会话或显式“超级屏”开关触发虚拟显示器时，无法把第三块屏接到桌面；因此不能宣称三屏布局已通过。
+安装器日志：`artifacts/win10-22h2-multimonitor-2026-10-26/release-install/setup-22h2.log`、`setup-final-m4.log`。
 
 ## live-shell
 
@@ -153,4 +155,3 @@ node tools/audit/live-shell.spec.cjs D:\github\Augit\node_modules\playwright-cor
 - `dark-narrow/`：100/125/200% 主窗、Settings、模态截图。
 - `release-install/`：安装器日志、安装后与便携运行截图。
 - `logs/`：构建与 Shell 268 测试日志。
-- `three-screen.json`：仅有两条活动显示器及 GameViewer 适配器无第三 path 的记录。
