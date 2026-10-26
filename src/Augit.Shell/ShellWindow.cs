@@ -962,20 +962,26 @@ internal sealed partial class ShellWindow : IDisposable
         _controller.DefaultBackgroundColor = System.Drawing.Color.FromArgb(r, g, b);
     }
 
-    private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
+    private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs eventArgs)
     {
-
-        if (eventArgs.IsSuccess || _disposed)
+        try
         {
-            return;
-        }
-        if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置导航失败。")); return; }
+            if (eventArgs.IsSuccess || _disposed)
+            {
+                return;
+            }
+            if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置导航失败。")); return; }
 
-        _ = MessageBox(
-            _window,
-            ShellFailureText.Navigation(eventArgs.WebErrorStatus.ToString(), _options.WebRoot),
-            "Augit",
-            0x00000010);
+            _ = MessageBox(
+                _window,
+                ShellFailureText.Navigation(eventArgs.WebErrorStatus.ToString(), _options.WebRoot),
+                "Augit",
+                0x00000010);
+        }
+        catch (Exception exception)
+        {
+            AugitLog.Error("navigation-completed", exception);
+        }
     }
 
     private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs eventArgs)
@@ -984,6 +990,9 @@ internal sealed partial class ShellWindow : IDisposable
         {
             return;
         }
+        AugitLog.Error(
+            $"webview2-process-failed kind={eventArgs.ProcessFailedKind} reason={eventArgs.Reason} exitCode={eventArgs.ExitCode}",
+            null);
         if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置渲染进程失败。")); return; }
 
         _ = MessageBox(
@@ -1003,6 +1012,11 @@ internal sealed partial class ShellWindow : IDisposable
         if (_options.Scene is { Length: > 0 } scene)
         {
             parts.Add($"scene={Uri.EscapeDataString(scene)}");
+        }
+
+        if (_options.Welcome)
+        {
+            parts.Add("welcome=1");
         }
 
         if (_options.Theme is { Length: > 0 } theme)
@@ -1057,6 +1071,19 @@ internal sealed partial class ShellWindow : IDisposable
     /// 因此响应经自定义窗口消息投回 UI 线程后再发送。
     /// </summary>
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
+    {
+        try
+        {
+            await HandleWebMessageAsync(sender, eventArgs);
+        }
+        catch (Exception exception)
+        {
+            // async void 事件处理器不得把异常抛回消息循环，否则整个进程会被终止。
+            AugitLog.Error("web-message-handler", exception);
+        }
+    }
+
+    private async Task HandleWebMessageAsync(object? sender, CoreWebView2WebMessageReceivedEventArgs eventArgs)
     {
         if (sender is not CoreWebView2 || _disposed)
         {

@@ -90,6 +90,23 @@ public sealed class GitCommandRunnerTests
     }
 
     [TestMethod]
+    public async Task 本地写操作可使用单次显式超时()
+    {
+        using TemporaryDirectory temporary = new();
+        GitCommandRunner runner = new(TimeSpan.FromSeconds(30), 1024);
+
+        GitCommandResult result = await runner.RunWithTimeoutAsync(
+            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
+            temporary.FullPath,
+            ["/d", "/c", "ping 127.0.0.1 -n 10 >nul"],
+            GitCommandMode.LocalWrite,
+            TimeSpan.FromMilliseconds(100));
+
+        Assert.AreEqual(GitOperationFailureKind.TimedOut, result.FailureKind);
+        Assert.IsFalse(result.IsSuccess);
+    }
+
+    [TestMethod]
     public async Task 写操作只响应用户取消并结束整个进程树()
     {
         using TemporaryDirectory temporary = new();

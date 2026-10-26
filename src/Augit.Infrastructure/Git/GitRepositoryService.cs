@@ -139,11 +139,12 @@ public sealed class GitRepositoryService : IGitRepositoryService
                 before.Repository);
         }
 
-        GitCommandResult result = await _runner.RunAsync(
+        GitCommandResult result = await _runner.RunWithTimeoutAsync(
             Runtime.ExecutablePath!,
             before.Repository.WorkspacePath,
             ["init"],
             GitCommandMode.LocalWrite,
+            TimeSpan.FromSeconds(30),
             cancellationToken).ConfigureAwait(false);
         GitRepositoryOperationResult actualState = await InspectWithoutCancellationAsync(before.Repository.WorkspacePath).ConfigureAwait(false);
         if (!result.IsSuccess)

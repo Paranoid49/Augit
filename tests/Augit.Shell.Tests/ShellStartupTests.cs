@@ -72,4 +72,50 @@ public sealed class ShellStartupTests
         Assert.IsTrue(ShellOptions.Parse(["--workspace", directory.FullPath]).WorkspaceExplicit);
         Assert.IsFalse(ShellOptions.Parse(["--theme", "dark"]).WorkspaceExplicit);
     }
+
+    [TestMethod]
+    public void 首次启动且当前目录是程序目录时使用欢迎空目录()
+    {
+        using TemporaryDirectory application = new();
+        using TemporaryDirectory welcome = new();
+        ShellOptions options = ShellOptions.Parse([]) with { WorkspaceRoot = application.FullPath };
+
+        ShellOptions resolved = ShellStartup.ResolveLaunchWorkspace(
+            options,
+            new ApplicationSettings(),
+            application.FullPath,
+            application.FullPath,
+            welcome.FullPath);
+
+        Assert.AreEqual(Path.GetFullPath(welcome.FullPath), resolved.WorkspaceRoot);
+        Assert.IsTrue(resolved.Welcome);
+    }
+
+    [TestMethod]
+    public void 显式工作区或有最近目录时不使用欢迎空目录()
+    {
+        using TemporaryDirectory application = new();
+        using TemporaryDirectory welcome = new();
+        using TemporaryDirectory explicitDirectory = new();
+        ShellOptions explicitOptions = ShellOptions.Parse(["--workspace", explicitDirectory.FullPath]);
+
+        ShellOptions explicitResolved = ShellStartup.ResolveLaunchWorkspace(
+            explicitOptions,
+            new ApplicationSettings(),
+            application.FullPath,
+            application.FullPath,
+            welcome.FullPath);
+
+        Assert.AreEqual(Path.GetFullPath(explicitDirectory.FullPath), explicitResolved.WorkspaceRoot);
+
+        ShellOptions lastOptions = ShellOptions.Parse([]) with { WorkspaceRoot = application.FullPath };
+        ShellOptions lastResolved = ShellStartup.ResolveLaunchWorkspace(
+            lastOptions,
+            new ApplicationSettings { LastWorkspace = explicitDirectory.FullPath },
+            application.FullPath,
+            application.FullPath,
+            welcome.FullPath);
+
+        Assert.AreEqual(Path.GetFullPath(application.FullPath), lastResolved.WorkspaceRoot);
+    }
 }

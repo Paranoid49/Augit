@@ -102,6 +102,31 @@ internal sealed class GitCommandRunner
             cancellationToken);
     }
 
+    /// <summary>
+    /// 对单次写操作使用显式超时。只用于 <c>git init</c> 这类必须在有限时间内返回的
+    /// 本地写操作；commit/push 等可能长时间运行的写操作仍不套用查询超时。
+    /// </summary>
+    public Task<GitCommandResult> RunWithTimeoutAsync(
+        string executablePath,
+        string workingDirectory,
+        IReadOnlyList<string> arguments,
+        GitCommandMode mode,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
+        return RunCoreAsync(
+            executablePath,
+            workingDirectory,
+            arguments,
+            mode,
+            null,
+            null,
+            false,
+            cancellationToken,
+            timeout);
+    }
+
     private async Task<GitCommandResult> RunCoreAsync(
         string executablePath,
         string workingDirectory,
@@ -110,7 +135,8 @@ internal sealed class GitCommandRunner
         IReadOnlySet<int>? additionalSuccessExitCodes,
         string? standardInput,
         bool captureRawOutput,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeoutOverride = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -173,8 +199,9 @@ internal sealed class GitCommandRunner
             process.StandardInput.Close();
         }
 
-        using CancellationTokenSource? timeout = mode == GitCommandMode.LocalQuery
-            ? new CancellationTokenSource(_queryTimeout)
+        TimeSpan? timeoutDuration = mode == GitCommandMode.LocalQuery ? _queryTimeout : timeoutOverride;
+        using CancellationTokenSource? timeout = timeoutDuration is { } duration
+            ? new CancellationTokenSource(duration)
             : null;
         using CancellationTokenSource linked = timeout is null
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
@@ -213,7 +240,9 @@ internal sealed class GitCommandRunner
             return new(
                 null,
                 cancelledOutput.Text,
-                timedOut ? "Git 查询超过 30 秒，已停止。" : "Git 操作已取消。",
+                timedOut
+                    ? $"Git 查询超过 {(timeoutDuration ?? _queryTimeout).TotalSeconds:0} 秒，已停止。"
+                    : "Git 操作已取消。",
                 timedOut ? GitOperationFailureKind.TimedOut : GitOperationFailureKind.Cancelled,
                 cancelledOutput.IsTruncated,
                 cancelledError.IsTruncated,

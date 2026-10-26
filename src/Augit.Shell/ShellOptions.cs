@@ -16,6 +16,12 @@ internal sealed record ShellOptions(string WebRoot, string WorkspaceRoot, string
     public bool WorkspaceExplicit { get; init; }
 
     /// <summary>
+    /// 首次启动使用欢迎空目录时为 true；网页层据此显示「打开工作区」而不是自动弹出
+    /// 「创建 Git 仓库」。显式工作区/最近目录恢复不会设置该标记。
+    /// </summary>
+    public bool Welcome { get; init; }
+
+    /// <summary>
     /// 主题模式：设置里的 <c>System</c>／<c>Light</c>／<c>Dark</c>，或命令行显式给出的值。
     /// </summary>
     /// <remarks>

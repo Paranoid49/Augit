@@ -13,6 +13,10 @@ import { renderMarkdown } from "./markdown.js";
 import { uiMessage } from "./ui-text.js";
 import { snapshotDepthForMutation } from "./native-modal-state.js";
 
+// 首次启动的欢迎空目录：显示「打开工作区」，不要因为空目录不是 Git 仓库就自动弹
+// 「创建 Git 仓库」。显式进入普通非 Git 目录时仍保留原有自动入口。
+const isWelcomeWorkspace = new URLSearchParams(window.location.search).get("welcome") === "1";
+
 // 普通项目树仅隐藏 Git 元数据；构建产物、忽略目录和其它点目录仍可按需浏览。
 function isVisibleEntry(entry) {
   return entry.name.toLowerCase() !== ".git";
@@ -218,6 +222,11 @@ async function loadStatus() {
     if (!status.isRepository) {
       // 非 Git 目录（产品规格 §2）。状态可能早于 live 对象与 `mockup.js` 到达，
       // 需求先缓存，由 `showRepositoryInitEntry()` 在可弹时补上；只弹一次。
+      // 首次启动的欢迎空目录不是用户项目，改为显示「打开工作区」。
+      if (isWelcomeWorkspace) {
+        return null;
+      }
+
       pendingRepositoryInit = true;
       showRepositoryInitEntry();
       return null;
@@ -14157,9 +14166,15 @@ async function boot() {
   window.__augitReady = true;
 
   // 非 Git 目录：此刻 `mockup.js` 已加载、live 对象也已建立，可以给出「创建 Git 仓库」入口。
-  if (pendingRepositoryInit && window.__augitLive) {
+  if (!isWelcomeWorkspace && pendingRepositoryInit && window.__augitLive) {
     pendingRepositoryInit = false;
     showRepositoryInitEntry();
+  }
+
+  if (isWelcomeWorkspace && !window.__augitWelcomeShown) {
+    // 首次启动：显示启动页，让用户选择真实项目，而不是把程序目录/欢迎目录当仓库。
+    window.__augitWelcomeShown = true;
+    openWorkspaceDialog();
   }
 
   const status = await statusPromiseRef;

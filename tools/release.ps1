@@ -1,6 +1,6 @@
 ﻿param(
     [string]$OutputDirectory = 'artifacts',
-    [string]$Version = '1.0.0-rc.3',
+    [string]$Version = '1.0.0-rc.4',
     [string]$RuntimeFrameworkVersion = '10.0.11'
 )
 

@@ -125,6 +125,7 @@ internal sealed class ShellBridge : IDisposable
     public async Task<string> HandleAsync(string requestJson, CancellationToken cancellationToken)
     {
         long id = 0;
+        string method = string.Empty;
         try
         {
             JsonElement root = ParseRequest(requestJson);
@@ -133,7 +134,7 @@ internal sealed class ShellBridge : IDisposable
                 id = idElement.GetInt64();
             }
 
-            string method = root.TryGetProperty("method", out JsonElement methodElement)
+            method = root.TryGetProperty("method", out JsonElement methodElement)
                 ? methodElement.GetString() ?? string.Empty
                 : string.Empty;
             JsonElement parameters = root.TryGetProperty("params", out JsonElement paramsElement)
@@ -177,7 +178,8 @@ internal sealed class ShellBridge : IDisposable
         }
         catch (Exception exception)
         {
-            // 兜底：不回传原始消息，避免把实现细节暴露到界面。
+            // 兜底：不回传原始消息，避免把实现细节暴露到界面；本地日志保留类型与堆栈。
+            AugitLog.Error($"bridge method={method}", exception);
             return Serialize(id, null, $"内部错误：{exception.GetType().Name}");
         }
     }
@@ -734,6 +736,13 @@ internal sealed class ShellBridge : IDisposable
             throw new ArgumentException("git/init 的 path 不能为空。");
         }
 
+        WorkspaceValidationResult validation = WorkspaceDirectoryService.ValidateRoot(path);
+        if (!validation.IsValid)
+        {
+            return new { available = false, reason = validation.ErrorMessage ?? "目标目录不是可访问的本地目录。" };
+        }
+        path = validation.FullPath!;
+
         bool confirmed = GetBool(parameters, "confirm") ?? false;
         (GitRuntimeInfo runtime, _) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable)
@@ -1219,9 +1228,11 @@ internal sealed class ShellBridge : IDisposable
                 _workspaceWatcher = new WorkspaceFileWatcher(_workspaceRoot, RefreshStageCallback);
                 _workspaceWatcher.Changed += OnWorkspaceFilesChanged;
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+            catch (Exception exception)
             {
-                // 监视不可用不影响其它功能：界面只是不会自动刷新。
+                // 监视不可用不影响其它功能：界面只是不会自动刷新。记录原因以便区分
+                // 超大目录/禁用路径与真正的启动故障，不能把这里的异常抛成进程退出。
+                AugitLog.Error("workspace-watcher", exception);
                 _workspaceWatcher = null;
             }
         }
@@ -1272,8 +1283,9 @@ internal sealed class ShellBridge : IDisposable
                 _notify?.Invoke("workspace-changed", new { files = Array.Empty<string>(), gitMetadata = true });
             };
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception exception)
         {
+            AugitLog.Error("git-watcher", exception);
             _gitWatcher = null;
         }
     }

@@ -11,6 +11,7 @@ internal static class Program
     [STAThread]
     private static int Main(string[] arguments)
     {
+        AugitLog.Initialize(arguments);
         try
         {
             // 便携包缺少 WebView2 时先给出缺失项与官方下载入口；不自动安装共享运行时。
@@ -31,6 +32,9 @@ internal static class Program
             options = options with { Theme = ResolveTheme(options.Theme, settings), ThemeMode = themeMode };
             // 未显式指定 --workspace 时恢复设置里上次打开的目录（产品规格 §3）。
             options = ShellStartup.ResolveWorkspace(options, settings);
+            // 首次启动且当前目录是程序目录时，避免把发布目录当工作区（见 ShellStartup）。
+            options = ShellStartup.ResolveLaunchWorkspace(options, settings);
+            AugitLog.Info($"options workspace={options.WorkspaceRoot} theme={options.Theme} isolated={options.HasIsolatedState}");
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：
             // 「再次打开同一目录时，在 1 秒内激活已有窗口并退出新进程」）。
@@ -53,6 +57,7 @@ internal static class Program
         }
         catch (Exception exception)
         {
+            AugitLog.Error("startup", exception);
             _ = MessageBox(0, ShellFailureText.Startup(exception), "Augit", 0x00000010);
             return 1;
         }

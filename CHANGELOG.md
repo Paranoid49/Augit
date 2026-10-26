@@ -2,6 +2,25 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.4] - 2026-10-26
+
+### Fixed
+
+- Windows 10 22H2 首次启动选择目录后卡住/退出的加固：apphost 显式 `CETCompat=false`；首次启动在程序目录时改用欢迎空目录并显示「Open Workspace」，不再把发布目录当项目或自动弹出「Create Git Repository」。
+- `OnWebMessageReceived`/`OnNavigationCompleted` 增加 async void 异常边界，处理器异常只写本地日志，不再终止进程。
+- 新增 `%LOCALAPPDATA%\Augit\logs\augit.log` 本地诊断日志（启动、桥接异常、watcher 初始化异常、WebView2 进程失败），不上传、不记录文件内容/Git 输出/凭据，4 MB 轮换。
+- `git/init` 增加 30 秒超时和本地固定磁盘路径校验，避免在网络/异常目录上无限停在 “Initializing…”。
+- 保留 rc.3 的 self-contained 便携版（.NET 10.0.11），安装版仍为 framework-dependent 联网安装器。
+
+### Changed
+
+- 新增首次启动回退与显式写超时测试；测试总数 Shell 270、Infrastructure 207。
+- rc.4 的 Windows 10 22H2 启动路径修复仍待在用户出问题的实机复验；rc.2/rc.3 的 Win10 界面/DPI/安装证据不覆盖本版启动路径。
+
+### Known limitations
+
+完整列表见 [`docs/known-limitations-1.0.0-rc.4.md`](docs/known-limitations-1.0.0-rc.4.md)。重点：Win10 22H2 修复待复验、干净虚拟机/真实缺 WebView2、三屏/物理拔线、80,000 行软换行、离屏全文连续朗读、Settings 冷开 567ms、500ms 历史慢样本未归因、整窗像素目标未整体达成。
+
 ## [1.0.0-rc.3] - 2026-10-26
 
 ### Fixed

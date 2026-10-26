@@ -5,7 +5,7 @@
     <!-- 发布产物使用产品名 Augit，与安装器、审计脚本和用户可见的进程名保持一致。 -->
     <AssemblyName>Augit</AssemblyName>
     <RootNamespace>Augit.Shell</RootNamespace>
-    <Version>1.0.0-rc.3</Version>
+    <Version>1.0.0-rc.4</Version>
     <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -13,6 +13,13 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!--
+      Windows 10 21H2/部分 22H2 机器的 CET 支持不完整：默认开启 CET 的 apphost 可能以
+      0x80131506 退出（见 docs/win10-multimonitor-validation-2026-10-25.md §6.1）。
+      Augit 的产品支持范围包含 Windows 10 22H2，因此发布 apphost 显式关闭 CET 兼容标记；
+      这是 apphost 的兼容性开关，不改变 .NET 运行时或其它安全缓解措施。
+    -->
+    <CETCompat>false</CETCompat>
   </PropertyGroup>
 
   <ItemGroup>

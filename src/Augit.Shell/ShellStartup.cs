@@ -32,4 +32,68 @@ internal static class ShellStartup
 
         return options with { WorkspaceRoot = Path.GetFullPath(last) };
     }
+
+    /// <summary>
+    /// 首次启动（没有可用的最近目录）且进程当前目录就是程序目录时，不使用程序目录作为工作区。
+    ///
+    /// 双击便携包/开始菜单快捷方式时，Windows 会把当前目录设为程序目录。直接把它当工作区会把
+    /// <c>Augit.exe</c>、<c>coreclr.dll</c> 和发布目录里的二进制全部当作用户项目，并自动进入
+    /// “创建 Git 仓库”状态；这既不是产品规格的启动页，也让首次使用落在错误的目录上。
+    /// 这里改用 <c>%LOCALAPPDATA%\Augit\Welcome</c> 空目录，用户随后通过「打开目录」选择项目。
+    /// 显式 <c>--workspace</c>（包括 <c>augit .</c>）始终优先，不受影响。
+    /// </summary>
+    public static ShellOptions ResolveLaunchWorkspace(ShellOptions options, ApplicationSettings settings)
+    {
+        string welcome = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Augit",
+            "Welcome");
+        return ResolveLaunchWorkspace(
+            options,
+            settings,
+            AppContext.BaseDirectory,
+            Environment.CurrentDirectory,
+            welcome);
+    }
+
+    internal static ShellOptions ResolveLaunchWorkspace(
+        ShellOptions options,
+        ApplicationSettings settings,
+        string appDirectory,
+        string currentDirectory,
+        string welcomeDirectory)
+    {
+        if (options.WorkspaceExplicit || !string.IsNullOrWhiteSpace(settings.LastWorkspace))
+        {
+            return options;
+        }
+
+        string app = Normalize(appDirectory);
+        string current = Normalize(currentDirectory);
+        if (!string.Equals(current, app, StringComparison.OrdinalIgnoreCase))
+        {
+            return options;
+        }
+
+        // 最近目录失效时 ResolveWorkspace 会保留当前目录；只有仍然指向程序目录才需要回退。
+        if (!string.Equals(Normalize(options.WorkspaceRoot), current, StringComparison.OrdinalIgnoreCase))
+        {
+            return options;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(welcomeDirectory);
+            AugitLog.Info("startup-workspace=welcome");
+            return options with { WorkspaceRoot = Path.GetFullPath(welcomeDirectory), Welcome = true };
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            AugitLog.Error("startup-welcome-failed", exception);
+            return options;
+        }
+    }
+
+    private static string Normalize(string path)
+        => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 }

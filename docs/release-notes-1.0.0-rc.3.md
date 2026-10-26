@@ -1,5 +1,7 @@
 # Augit 1.0.0-rc.3 发布说明
 
+> **2026-10-26 后续**：rc.3 在 Windows 10 22H2 上出现首次启动/选择目录后退出的问题；rc.4 增加 CET 兼容、欢迎页、async void 异常边界、`git init` 超时和本地诊断日志。本文保留 rc.3 历史记录；当前公开版本见 [rc.4 发布说明](release-notes-1.0.0-rc.4.md)。
+
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
 - 构建源提交：`1fee1aace3bb29358426ba37860b420b3eb3d4df`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
