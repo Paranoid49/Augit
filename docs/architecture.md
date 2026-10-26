@@ -151,7 +151,7 @@ WebView2初始化在环境创建、控制器创建及脚本注册的异步续接
 
 ### 6.2 正式测量口径
 
-- 使用 Release、win-x64、非 self-contained 发布版，不连接调试器。
+- 使用 Release、win-x64 发布版，不连接调试器。安装版为 framework-dependent，便携版为 self-contained；性能对比必须注明被测形态，不能把两种发布形态的运行时加载差异混入同一组结论。
 - 冷启动从创建进程开始，到主窗口完成首次渲染并能够响应界面输入为止。1 秒是优先优化目标。
 - 内存统计 **Augit 主进程与它派生的 WebView2 进程树之和**。只统计主进程会严重低估真实占用；只统计 `msedgewebview2` 进程还会把其他应用的浏览器进程算进来（实测曾因此把 525 MB 误报成 822 MB）。必须按父进程关系归属到本实例。
 - 正式测试使用 10 万文件测试仓库，记录 Windows 版本、CPU、内存、磁盘、.NET Runtime、发布方式和测量结果。
@@ -175,9 +175,9 @@ WebView2初始化在环境创建、控制器创建及脚本注册的异步续接
 - 设置文件损坏（非法 JSON、被截断、空文件、字段类型错误）时一致回退默认值，并在下一次写入时修复文件，不阻塞启动。
 - 内置终端首次默认启动 Windows PowerShell，用户主动选择后才使用其他 shell 或自定义命令；配置失效时返回明确错误，不静默回退。xterm.js 的 scrollback 固定为 2000 行。
 - 关闭空闲终端时直接结束 shell；存在前台命令时先确认，再终止 shell、前台命令及其整个子进程树。
-- 发布版依赖 .NET 10 Runtime 和 WebView2 Runtime，不依赖 .NET Desktop Runtime。正式产物的 .NET 兼容下限以 `Augit.runtimeconfig.json` 为准；缺失运行时时，安装版先向用户说明，经确认后从微软官方下载并安装锁定版本。
-- 运行时具体版本、微软官方下载地址和完整性信息统一维护在[运行时依赖锁定基线](runtime-dependencies.md)中。
-- 提供安装版和便携压缩包，不提供 self-contained 首版包。便携包不安装运行时，缺少依赖时只说明缺失项和官方下载入口。
+- 安装版为 framework-dependent，依赖 .NET 10 Runtime 和 WebView2 Runtime，不依赖 .NET Desktop Runtime；正式产物的 .NET 兼容下限以 `Augit.runtimeconfig.json` 为准；缺失 .NET 时，安装版先向用户说明，经确认后从微软官方下载并安装锁定版本。
+- 运行时具体版本、微软官方下载地址和完整性信息统一维护在[运行时依赖锁定基线](runtime-dependencies.md)中。便携版为 self-contained，自带 .NET 10 Runtime，不使用安装版的 .NET 下载流程；它仍依赖 WebView2 Runtime，但不会安装或修改共享运行时。
+- 提供安装版和便携压缩包：安装版是 framework-dependent 联网安装器，便携包是 self-contained 解压即用包。2026-10-26 用户批准该分发策略，替代此前“不提供 self-contained 包、便携包不安装运行时”的约束；该变更只影响分发方式，不改变技术栈、产品行为或进程模型。
 - 随程序分发的可执行文件、前端库和 NuGet 依赖必须附带相应许可证。
 
 ## 8. 验证方式

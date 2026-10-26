@@ -4,7 +4,7 @@
 
 ## 1. 发布身份
 
-当前公开发布为 `1.0.0-rc.2` 预发布候选，不是正式 1.0。发布资产：
+当前公开发布为 `1.0.0-rc.3` 预发布候选，不是正式 1.0。发布资产：
 
 - `Augit-<版本>-win-x64-portable.zip`
 - `Augit-<版本>-win-x64-setup.exe`
@@ -16,8 +16,8 @@
 
 - 当前候选线为 `1.0.0-rc.N`；正式 1.0 前不改变产品名和安装器 AppId。
 - 每次公开资产重建都必须更新发布清单和 `SHA256SUMS.txt`；不得用旧哈希描述新字节。
-- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.2 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重建；构建源提交见 `docs/release-manifest-1.0.0-rc.2.md`。
-- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.2.md` §8 的真实使用观察与用户裁决，不由 CI 自动升级。
+- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.3 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重建；构建源提交见 `docs/release-manifest-1.0.0-rc.3.md`。
+- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.3.md` §8 的真实使用观察与用户裁决，不由 CI 自动升级。
 
 ## 3. 发布前门禁
 
@@ -45,37 +45,52 @@ node tools\audit\coverage-generator.test.cjs
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\release.ps1 `
-  -Version 1.0.0-rc.2 `
-  -OutputDirectory artifacts\release-1.0.0-rc.2
+  -Version 1.0.0-rc.3 `
+  -OutputDirectory artifacts\release-1.0.0-rc.3
 ```
 
 脚本会：
 
 1. 以 `--locked-mode` 还原解决方案和打包项目；
-2. `dotnet publish` 生成 win-x64、非 self-contained 的发布目录；
-3. 删除 WebView2 XML 文档与 PDB，复制 README、LICENSE、第三方说明和许可证；
-4. 校验必需文件、锁定运行时资产、无 self-contained 运行时文件、无 PDB；
-5. 生成便携 zip 与 Inno Setup 联网安装器；
-6. 生成 `SHA256SUMS.txt` 并清理 staging 目录。
+2. 为安装版生成 framework-dependent 的 win-x64 发布目录；
+3. 使用 `packages.selfcontained.lock.json` 以 `--locked-mode` 还原 self-contained 依赖图，为便携版生成自带 .NET 10 的 win-x64 发布目录；
+4. 删除 WebView2 XML 文档与 PDB，复制 README、LICENSE、第三方说明和许可证；
+5. 分别校验两种发布目录：安装版不得包含 `coreclr.dll`/`hostfxr.dll`/`hostpolicy.dll`，便携版必须包含它们且 `runtimeconfig.json` 使用 `includedFrameworks`；
+6. 校验必需文件、锁定运行时资产、无 PDB；
+7. 生成 self-contained 便携 zip 与 framework-dependent 的 Inno Setup 联网安装器；
+8. 生成 `SHA256SUMS.txt` 并清理 staging 目录。
 
-输出目录必须位于仓库内。发布脚本不会上传，也不会修改用户安装。
+输出目录必须位于仓库内。发布脚本不会上传，也不会修改用户安装。`-RuntimeFrameworkVersion` 默认 `10.0.11`，与安装器下载的 .NET 安全补丁基线一致；self-contained 便携包会把它写入 `Augit.runtimeconfig.json` 的 `includedFrameworks`。
 
 ## 5. 本地验证
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\audit\verify-portable-package.ps1 `
-  -PortableZip artifacts\release-1.0.0-rc.2\Augit-1.0.0-rc.2-win-x64-portable.zip `
-  -OutDir artifacts\release-1.0.0-rc.2-verify `
-  -ExpectedVersion 1.0.0-rc.2
+  -PortableZip artifacts\release-1.0.0-rc.3\Augit-1.0.0-rc.3-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.3-verify `
+  -ExpectedVersion 1.0.0-rc.3
 ```
 
 有交互桌面时，该脚本会真实启动便携包、截图、关闭并检查进程树；无交互桌面时追加 `-SkipLaunch`，只做内容、版本和 web 资源一致性校验。
 
+self-contained 便携包还应隐藏共享 .NET 后启动，确认不依赖安装版运行时：
+
+```powershell
+$env:DOTNET_ROOT = 'C:\does-not-exist-dotnet'
+$env:DOTNET_ROOT_X64 = 'C:\does-not-exist-dotnet'
+$env:DOTNET_MULTILEVEL_LOOKUP = '0'
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File tools\audit\verify-portable-package.ps1 `
+  -PortableZip artifacts\release-1.0.0-rc.3\Augit-1.0.0-rc.3-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.3-verify-hidden-dotnet `
+  -ExpectedVersion 1.0.0-rc.3
+```
+
 安装器验证需要管理员权限，建议在可回滚的 Windows 10/11 测试机执行：
 
 ```powershell
-$setup = 'artifacts\release-1.0.0-rc.2\Augit-1.0.0-rc.2-win-x64-setup.exe'
+$setup = 'artifacts\release-1.0.0-rc.3\Augit-1.0.0-rc.3-win-x64-setup.exe'
 $log = Join-Path $PWD 'artifacts\setup-install.log'
 Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$log" -Wait
 ```
@@ -99,8 +114,8 @@ Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART
 2. 在发布提交上创建并推送 tag：
 
 ```powershell
-git tag v1.0.0-rc.2
-git push origin v1.0.0-rc.2
+git tag v1.0.0-rc.3
+git push origin v1.0.0-rc.3
 git push origin dsh:main
 ```
 
@@ -110,12 +125,12 @@ git push origin dsh:main
 6. 若 GitHub CLI 已授权，手动补发/修复资产可使用：
 
 ```powershell
-gh release create v1.0.0-rc.2 `
-  artifacts\release-1.0.0-rc.2\Augit-1.0.0-rc.2-win-x64-portable.zip `
-  artifacts\release-1.0.0-rc.2\Augit-1.0.0-rc.2-win-x64-setup.exe `
-  artifacts\release-1.0.0-rc.2\SHA256SUMS.txt `
-  --title "Augit 1.0.0-rc.2" `
-  --notes-file docs\release-notes-1.0.0-rc.2.md `
+gh release create v1.0.0-rc.3 `
+  artifacts\release-1.0.0-rc.3\Augit-1.0.0-rc.3-win-x64-portable.zip `
+  artifacts\release-1.0.0-rc.3\Augit-1.0.0-rc.3-win-x64-setup.exe `
+  artifacts\release-1.0.0-rc.3\SHA256SUMS.txt `
+  --title "Augit 1.0.0-rc.3" `
+  --notes-file docs\release-notes-1.0.0-rc.3.md `
   --prerelease
 ```
 

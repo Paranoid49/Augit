@@ -2,6 +2,25 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.3] - 2026-10-26
+
+### Fixed
+
+- 便携版改为 **self-contained**，自带 .NET 10 Runtime；没有预装 .NET 的新电脑不再先弹出 .NET 宿主错误，解压后可直接运行 `Augit.exe`。
+- 发布脚本分别构建 framework-dependent 安装版和 self-contained 便携版，并拒绝两种运行时形态混装。
+- self-contained 还原使用独立的 `packages.selfcontained.lock.json` 与 `--locked-mode`，不改写主 `packages.lock.json`。
+- 本机在隐藏/失效共享 .NET 路径后验证便携包真实启动：窗口正常、退出码 0、无残留子进程。
+
+### Changed
+
+- README、架构 §7、运行时依赖说明、发布流程和已知限制同步为“便携版 self-contained、安装版联网安装器”；安装版的 .NET 检测/下载逻辑保持不变。
+- 安装版仍是小型联网安装器；便携版仍要求系统已有 WebView2，但不安装或修改共享运行时。
+- rc.2 的公开 Release 保留，不覆盖、不改写；rc.3 运行代码与 rc.2 相同。
+
+### Known limitations
+
+完整列表见 [`docs/known-limitations-1.0.0-rc.3.md`](docs/known-limitations-1.0.0-rc.3.md)。重点：干净虚拟机/真实缺 WebView2、三屏/物理拔线、80,000 行软换行、离屏全文连续朗读、Settings 冷开 567ms、500ms 历史慢样本未归因、整窗像素目标未整体达成。
+
 ## [1.0.0-rc.2] - 2026-10-26
 
 ### Added

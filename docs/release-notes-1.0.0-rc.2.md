@@ -1,5 +1,7 @@
 # Augit 1.0.0-rc.2 发布说明
 
+> **2026-10-26 后续**：rc.2 便携版在没有 .NET 10 的新电脑上会先弹出 .NET 宿主错误；rc.3 已把便携版改为 self-contained。本文保留 rc.2 的历史发布记录；当前公开版本见 [rc.3 发布说明](release-notes-1.0.0-rc.3.md)。
+
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
 - 构建源提交：`bada0ebc0f56e81e0767512ae89e38a1527a25fb`（由 GitHub Actions 从 tag 构建；`Augit.exe` 的 ProductVersion 内含该提交号）
