@@ -2,7 +2,7 @@
 
 本文对应公开发布的 `1.0.0-rc.2` 预发布包。构建源提交、产物哈希与复验命令见[发布清单](release-manifest-1.0.0-rc.2.md)。它只登记本候选实际验证到的边界，不把未验证项写成通过，也不把已知缺陷包装成“后续优化”。更细的历史证据见[发布收口台账](release-closure-2026-10-24.md)与其中链接的专项记录。
 
-> **2026-10-26 后续**：rc.2 便携版为 framework-dependent，在没有 .NET 10 的新电脑上会先弹出 .NET 宿主错误；rc.3 已把便携版改为 self-contained。本文保留 rc.2 的历史记录；当前限制见 [rc.3 已知限制](known-limitations-1.0.0-rc.3.md)。
+> **2026-10-26 后续**：rc.2 便携版为 framework-dependent，在没有 .NET 10 的新电脑上会先弹出 .NET 宿主错误；rc.3 已把便携版改为 self-contained。本文保留 rc.2 的历史记录；当前限制见 [rc.4 已知限制](known-limitations-1.0.0-rc.4.md)。
 
 ## 1. 发布身份与签名
 
