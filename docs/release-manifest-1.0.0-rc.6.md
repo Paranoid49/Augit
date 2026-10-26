@@ -7,9 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.6> |
+| Release id | `424002687` |
 | Tag | `v1.0.0-rc.6` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | tag `v1.0.0-rc.6` 指向的提交（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `c7c0b5b0a35ba119a5a78da00d0f1c00000717d2` |
 | 版本 | `1.0.0-rc.6` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -24,13 +25,18 @@ rc.6 修复两个已确认的选择目录缺陷：
 
 ## 2. 资产
 
-Release 包含：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.6-win-x64-setup.exe` | 5,017,116 B | `17bb8641992583dc0a05b41aa7cf7cb99ef06e377443dd8380d280421a28165f` |
+| `Augit-1.0.0-rc.6-win-x64-portable.zip` | 39,134,632 B | `a06c44c233ed3f034ffa247eaf09b52606c565834ce5072b35257805d1d9f84a` |
+| `SHA256SUMS.txt` | 205 B | `4c3f09e86b6186d3c821ace73a781b4a333203a5b7fba3801ecbd9c6c918abe0` |
 
-- `Augit-1.0.0-rc.6-win-x64-setup.exe`（framework-dependent 安装器）
-- `Augit-1.0.0-rc.6-win-x64-portable.zip`（self-contained 便携包）
-- `SHA256SUMS.txt`
+`SHA256SUMS.txt`：
 
-最终资产大小和 SHA-256 以 Release 正文的「资产校验」表和附件 `SHA256SUMS.txt` 为准；发布后核对结果在本文 §6 记录。
+```text
+a06c44c233ed3f034ffa247eaf09b52606c565834ce5072b35257805d1d9f84a  Augit-1.0.0-rc.6-win-x64-portable.zip
+17bb8641992583dc0a05b41aa7cf7cb99ef06e377443dd8380d280421a28165f  Augit-1.0.0-rc.6-win-x64-setup.exe
+```
 
 ## 3. 构建与验证
 
@@ -67,13 +73,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 | 安装器版本资源 | ProductVersion `1.0.0-rc.6`；FileVersion `1.0.0.0` |
 | 安装器签名 | `NotSigned` |
 
-本机预构建（提交 `f62a640`，仅作发布前同源验证，不是最终 Release 资产）：
+发布后匿名下载**实际 Release 资产**复验：
+
+- 便携包 `39,134,632 B`、SHA-256 `a06c44c2…`；安装器 `5,017,116 B`、SHA-256 `17bb8641…`，与发布正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **498.5ms**、关闭 **101.1ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.6+c7c0b5b…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动，证明不依赖共享 .NET。
+- **真实选择目录流程（实际 Release 包，Windows 11）**：欢迎页 → Choose Directory → `D:\project\ops-server-report-resend` → 系统选择框正常返回；欢迎窗口仍在，目标目录在新窗口启动；日志为 `startup args=--workspace D:\project\ops-server-report-resend`、`options workspace=D:\project\ops-server-report-resend`。事件日志无新的 Augit `Application Error`/`.NET Runtime` 事件。
+- 修复前同一路径的 Event Log 证据：`comctl32.dll` `c0000005`、偏移 `0xf0873`；`.NET Runtime` 栈为 `Augit.Shell.FolderPicker.SHBrowseForFolder`。
+- 安装器 ProductVersion `1.0.0-rc.6`、FileVersion `1.0.0.0`、`NotSigned`。
+- 报告：`artifacts/release-1.0.0-rc.6-gh-verify/portable-report.json`（Git 忽略）。
+
+本机预构建（提交 `f62a640`，仅作发布前同源验证）：
 
 - 便携包 `39,134,628 B`，SHA-256 `6b73c4b9c7ace8a96fd1efb95860019e49891de27fbebc76c0d9d1dd47676038`。
 - 安装器 `5,017,466 B`，SHA-256 `1377473611ecfc05fe4eb5136d4e7918f5d1f179889c57b7eb43799b4bd4f48a`。
-- 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）后便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 488.9ms、关闭约 99ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
-- **真实选择目录流程复验（Windows 11）**：欢迎页 → Choose Directory → `D:\project\ops-server-report-resend` → 系统选择框正常返回；欢迎窗口仍在，目标目录在新窗口启动；日志为 `startup args=--workspace D:\project\ops-server-report-resend`、`options workspace=D:\project\ops-server-report-resend`。修复前同一操作在 Event Log 记录 `comctl32.dll` `c0000005`，`.NET Runtime` 栈为 `FolderPicker.SHBrowseForFolder`；修复后 4 分钟内无新的 Augit `Application Error`/`.NET Runtime` 事件。
-- 报告：`artifacts/release-1.0.0-rc.6-commit-verify/portable-report.json`（Git 忽略）。
 
 ## 4. Windows 10 22H2 证据与边界
 
@@ -97,14 +110,14 @@ rc.6 的选择目录/启动路径修复**尚未在该实机复验**；上述证�
 
 ## 6. 发布后核对
 
-发布后应：
+2026-10-26 已完成：
 
-- 从 Release 匿名下载 zip、setup、`SHA256SUMS.txt`；
-- 核对大小与 SHA-256 和发布正文一致；
-- 解压 zip，在隐藏/失效共享 .NET 的环境运行 `Augit.exe`，确认 ProductVersion、窗口和退出；
-- 用 `lastWorkspace` 指向发布目录/欢迎目录的设置启动，确认显示「Open Workspace」；
-- 在欢迎页 → Choose Directory → 目标目录，确认系统选择框不崩溃、目标窗口启动；
-- 在 Windows 10 22H2 实机复验首次启动、选择目录、创建仓库和正常退出；
-- 把实际结果、构建提交和资产哈希回填到本节。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS（见 §3）。
+- 实际 Release 包的真实选择目录流程 PASS：系统选择框不崩溃，目标目录在新窗口启动；无新的 Augit 崩溃事件。
+- 安装器版本资源与未签名状态已核对。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.6 的首次启动/选择目录/创建仓库路径；干净虚拟机/全新系统安装也未验证。两项继续按“未验证”披露。
 
-回填状态：**待发布后核对**。
+状态：**PASS**（Win10 22H2 启动路径与干净安装复验除外）。
