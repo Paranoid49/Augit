@@ -2,8 +2,8 @@
 
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.2` 指向的提交（由发布流水线检出；`Augit.exe` 的 ProductVersion 内含提交号）
-- 发布记录提交 / tag：`v1.0.0-rc.2`
+- 构建源提交：`bada0ebc0f56e81e0767512ae89e38a1527a25fb`（由 GitHub Actions 从 tag 构建；`Augit.exe` 的 ProductVersion 内含该提交号）
+- 发布记录 / tag：`v1.0.0-rc.2`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
 ## 1. 这是什么
@@ -14,11 +14,15 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.2-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-setup.exe) | 5,013,781 B | `169e35d60c932de5464b47b69b1e0714bdf4e64026448091890833948a7af6db` |
+| [Augit-1.0.0-rc.2-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/Augit-1.0.0-rc.2-win-x64-portable.zip) | 3,526,571 B | `7dc85daf3b6828a4cab1fcc19fcdc2d26aaf3085ce729bf950be12a94c0c8c6e` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.2/SHA256SUMS.txt) | 205 B | `93f57e623f647d5706de68581ade436868d741a11299d06cfb17329d12044bc4` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.2>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。若表格未渲染，请直接打开 Release 资产列表。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - 安装版需要管理员权限，默认安装到 `%ProgramFiles%\Augit`；安装器检测 .NET 10/WebView2，缺少时经用户确认后从项目锁定的微软官方地址下载并校验哈希与 Microsoft 签名。
 - 便携版解压后运行 `Augit.exe`，不写 PATH/右键菜单，不自动安装运行时。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置、最近目录和会话状态。
@@ -26,7 +30,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ### 与旧 rc.2 冻结构建的关系
 
-2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）**从未公开上传**，当时文档中的 `e339da49…` / `ecb00134…` 哈希无法复核，也不是本次发布资产。本次公开 rc.2 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重新构建；构建源提交、产物哈希和验证记录以[发布清单](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/release-manifest-1.0.0-rc.2.md)为准。
+2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）**从未公开上传**，当时文档中的 `e339da49…` / `ecb00134…` 哈希无法复核，也不是本次发布资产。本次公开 rc.2 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重新构建；构建源提交、产物哈希和验证记录以[发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.2.md)为准。
 
 ## 3. 本候选包含
 
@@ -50,12 +54,11 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **268/268**、Infrastructure **206/206**（合计 **546**；托管 CI 排除 4 个需要交互式控制台的 ConPTY 用例，它们在真实桌面和 Windows 10 实机验证）。
 - UI 资产字节一致性、PowerShell 编码、文档数字自洽、coverage generator 检查通过。
-- 本机对同源构建的便携包完成真实启动 PASS：窗口类 `Augit.Shell.Window`，窗口出现 353ms，关闭 112.5ms，退出码 0，无残留 WebView2/子进程；打包 web 树与仓库源一致。Release 资产由发布流水线从 tag 构建，发布后下载复验结果记录在发布清单。
-- 安装器 ProductVersion `1.0.0-rc.2+<构建提交>`、FileVersion `1.0.0.0`；未签名状态如实记录。
+- 发布后匿名下载实际 Release 资产并复验：便携包启动 PASS（窗口类 `Augit.Shell.Window`、窗口出现 419.4ms、关闭 111ms、退出码 0、无残留子进程）；ProductVersion `1.0.0-rc.2+bada0eb…`；安装器 ProductVersion `1.0.0-rc.2`、FileVersion `1.0.0.0`、`NotSigned`。
 - Windows 10 22H2 实机：双显示器、100%/125%/150%/175%/200%、负坐标、模拟热插拔、深色窄窗；rc.2 重建包便携启动与静默安装通过，缺少 .NET 10 时安装器完成确认、下载、校验和安装。
 - 历史 `0.1.0 → 1.0.0-rc.2` 覆盖升级、启动、PATH 恢复、设置保留和静默卸载通过。
 
-完整命令与结果见[发布清单](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/release-manifest-1.0.0-rc.2.md)；Windows 10/DPI 证据见[22H2 验证](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/win10-22h2-multimonitor-validation-2026-10-26.md)和[DPI 修复复验](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+完整命令与结果见[发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.2.md)；Windows 10/DPI 证据见[22H2 验证](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-validation-2026-10-26.md)和[DPI 修复复验](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
 
 ## 6. 系统要求
 
@@ -74,7 +77,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ## 8. 已知限制
 
-完整清单见[已知限制](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/known-limitations-1.0.0-rc.2.md)，重点：
+完整清单见[已知限制](https://github.com/Paranoid49/Augit/blob/main/docs/known-limitations-1.0.0-rc.2.md)，重点：
 
 - **未代码签名**，SmartScreen 可能提示未知发布者。
 - 干净虚拟机/全新系统安装、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器未验证。
@@ -87,13 +90,13 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ## 9. 证据与复验
 
-- [发布清单](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/release-manifest-1.0.0-rc.2.md)
-- [发布收口台账](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/release-closure-2026-10-24.md)
-- [证据索引](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/evidence-index-1.0.0-rc.2.md)
-- [Windows 10 22H2 多显示器验证](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/win10-22h2-multimonitor-validation-2026-10-26.md)
-- [Windows 10 22H2 DPI 修复复验](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)
-- [发布建议](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/release-recommendation-1.0-2026-10-25.md)
-- [发布流程](https://github.com/Paranoid49/Augit/blob/v1.0.0-rc.2/docs/releasing.md)
+- [发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.2.md)
+- [发布收口台账](https://github.com/Paranoid49/Augit/blob/main/docs/release-closure-2026-10-24.md)
+- [证据索引](https://github.com/Paranoid49/Augit/blob/main/docs/evidence-index-1.0.0-rc.2.md)
+- [Windows 10 22H2 多显示器验证](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-validation-2026-10-26.md)
+- [Windows 10 22H2 DPI 修复复验](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)
+- [发布建议](https://github.com/Paranoid49/Augit/blob/main/docs/release-recommendation-1.0-2026-10-25.md)
+- [发布流程](https://github.com/Paranoid49/Augit/blob/main/docs/releasing.md)
 
 原始截图、日志和本机验收报告位于本机 `artifacts/`（Git 忽略），不在公开仓库或 Release 中；Release 只包含便携 zip、安装器和 `SHA256SUMS.txt`。
 
