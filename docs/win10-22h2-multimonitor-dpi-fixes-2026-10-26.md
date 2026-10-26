@@ -2,15 +2,16 @@
 
 ## 结论
 
-在 Windows 10 Pro 22H2 `10.0.19045.6456` 的双显示器实机上，修复并复验了三个 DPI 相关缺陷：
+在 Windows 10 Pro 22H2 `10.0.19045.6456` 的双显示器实机上，修复并复验了四个 DPI 相关缺陷：
 
 - **M1**：真实鼠标跨屏拖动后逻辑窗口尺寸不再缩小；100% ↔ 125% 双向都保持 CSS `1180×760`。
 - **M3**：混合 DPI 启动按目标显示器自己的 DPI 解释保存位置；125%/175% 主屏 + 100% 副屏时副屏窗口不再被放大或回退到主屏默认位置。
 - **M2**：Settings 子窗改用 Owner 当前显示器 DPI；175% 下 CSS 从 `891×576` 恢复为 `1040×672`。
+- **M4**：200% + 1024×640 窄窗时，Settings 先按小于最小尺寸的矩形计算摆放、再被最小尺寸撑大，底部 OK/Cancel 被推到任务栏下方；主窗也会压住任务栏。改为按最小逻辑尺寸计算 Settings，并在纵向越界时上移主窗。
 
-扩展验证覆盖 150%、175%、200%、反向“主屏 100% + 副屏 125%”、负坐标布局、模拟热插拔、深色 1024×640 窄窗、rc.2 源码包构建/便携运行/安装器。除三屏（无第三块可用显示器）外均通过；live-shell 通过 2379 项断言。
+扩展验证覆盖 150%、175%、200%、反向“主屏 100% + 副屏 125%”、负坐标布局、模拟热插拔、深色 1024×640 窄窗（100/125/200%）、rc.2 源码包构建/便携运行/安装器。除三屏（无第三块可用显示器）外均通过；live-shell 通过 2379 项断言。
 
-Shell 测试 `267/267` 通过；行为修复提交 `7892c34`（`fix(shell): keep logical window size across monitor DPI changes`），启动显示器选择补强与 3 个单元测试提交 `c0f80e9`（`test(shell): cover per-monitor startup DPI selection`）。
+Shell 测试 `268/268` 通过；行为修复提交 `7892c34`（`fix(shell): keep logical window size across monitor DPI changes`）、`98c443f`（`fix(shell): keep high-DPI narrow windows above taskbar`），启动显示器选择补强与 3 个单元测试提交 `c0f80e9`（`test(shell): cover per-monitor startup DPI selection`）。
 
 ## 环境
 
@@ -36,7 +37,7 @@ Shell 测试 `267/267` 通过；行为修复提交 `7892c34`（`fix(shell): keep
 
 ## 修复
 
-提交：`7892c34`。
+提交：`7892c34`、`98c443f`。
 
 1. **`OnDpiChanged` 按逻辑尺寸缩放并延迟到移动循环结束**
    - 非拖动路径：用旧/新 DPI 把当前物理尺寸换算回逻辑尺寸，再缩放到新 DPI；结果收敛到当前显示器工作区。
@@ -46,8 +47,11 @@ Shell 测试 `267/267` 通过；行为修复提交 `7892c34`（`fix(shell): keep
    - 解决 M3，也覆盖保存位置被系统 DPI 放大到虚拟屏外的情形。
 3. **Settings 子窗使用 Owner 的 DPI**
    - 构造 Settings 时取 `GetDpiForWindow(owner)`，不再用 `GetDpiForSystem()`；解决 M2。
+4. **高 DPI 窄窗按最小逻辑尺寸摆放并避免压住任务栏**
+   - `OpenSettingsWindow` 的宽高不再允许低于 `MinimumLogicalWidth/Height`，避免先用 944×552 计算中心、随后被最小跟踪尺寸撑成 1024×640 导致底部溢出。
+   - `ResolveStartupPlacementInWorkArea` 在窗口尺寸放得下但 `rect.Bottom > work.Bottom`（200% 下 80 逻辑 top 放大到 160，640 逻辑高放大到 1280）时也执行纵向夹取；水平跨屏位置仍保留。
 
-`ShellWindowSizing.ScaleForDpiChange` 及边界测试位于 `tests/Augit.Shell.Tests/ShellWindowSizingTests.cs`：1180×760@96→120 = 1475×950；1280×800@120→96 = 1024×640；1024×640@96→168 = 1792×1120；非法输入原样返回。
+`ShellWindowSizing.ScaleForDpiChange` 及边界测试位于 `tests/Augit.Shell.Tests/ShellWindowSizingTests.cs`：1180×760@96→120 = 1475×950；1280×800@120→96 = 1024×640；1024×640@96→168 = 1792×1120；200% 下 1024×640/工作区 1360 时 top 从 160 夹到 80；非法输入原样返回。
 
 ## DPI 组合复验
 
@@ -91,11 +95,12 @@ Shell 测试 `267/267` 通过；行为修复提交 `7892c34`（`fix(shell): keep
 
 ## 深色窄窗
 
-深色主题、`1024×640` 最小逻辑尺寸：
+深色主题、`1024×640` 最小逻辑尺寸，覆盖 100/125/200%：
 
-- 主窗：客户区 `1024×640@96`，CSS `1024×640`，`window.__augitErrors=[]`。
-- 从主屏移到副屏：`(2660,120)–(3684,760)`，仍 `1024×640`。
-- Settings：`1024×640@96`，完整显示；模态 `400×164@96`。
+- 100%：主窗客户区 `1024×640@96`，CSS `1024×640`，`window.__augitErrors=[]`；Settings `1024×640@96`；模态 `400×164@96`。
+- 125%：主窗 `1280×800@120`，CSS `1024×640`；Settings `1280×800@120`，CSS `1024×640`；模态 `500×204@120`。
+- 200%：主窗 `2048×1280@192`，收敛到 `(160,80)–(2208,1360)`，CSS `1024×640`；Settings 同为 `2048×1280@192`、`(160,80)–(2208,1360)`，CSS `1024×640`；模态 `800×328@192`。
+- **M4 复现与修复**：修复前 200% 窄窗的 Settings 按 `944×552` 逻辑计算中心，随后被最小跟踪尺寸撑成 `1024×640`，实际落到 `(240,248)–(2288,1528)`，底部 OK/Cancel 落到屏幕外；主窗也因保存的 80 逻辑 top 放大后压住任务栏。修复后 Settings/主窗都收敛到 `(160,80)–(2208,1360)`，底部按钮可见。
 - 截图见 `artifacts/win10-22h2-multimonitor-2026-10-26/dark-narrow/`。
 
 ## rc.2 源码包、便携运行与安装器
@@ -134,7 +139,7 @@ node tools/audit/live-shell.spec.cjs D:\github\Augit\node_modules\playwright-cor
 ## 测试与清理
 
 - `dotnet build Augit.slnx`：0 警告、0 错误。
-- Shell 测试：`267/267` 通过（新增 2 个 DPI 缩放测试和 3 个启动显示器选择测试）。
+- Shell 测试：`268/268` 通过（新增 2 个 DPI 缩放测试、3 个启动显示器选择测试、1 个 200% 窄窗纵向夹取测试）。
 - Core 72/72、Infrastructure 206/206 在初始 22H2 验证中通过，本次 Shell 改动未触及其代码。
 - 验证后两块屏均恢复 100%（96/96）；负坐标布局已恢复右侧；无残留 Augit 验证进程。安装器装入的 .NET 10.0.11 和已安装的 Augit 保留在系统中，便于继续复验。
 
@@ -145,7 +150,7 @@ node tools/audit/live-shell.spec.cjs D:\github\Augit\node_modules\playwright-cor
 - `followup-measurements.json`：本次矩阵、负坐标、热插拔、深色窄窗、发布与安装的机器可读记录。
 - `dpi-fix/`：125/150/175/200 Settings、125 模态和 200 主窗/模态截图。
 - `negative-hotplug/`：负坐标 Settings/模态截图。
-- `dark-narrow/`：主窗、副屏、Settings、模态截图。
+- `dark-narrow/`：100/125/200% 主窗、Settings、模态截图。
 - `release-install/`：安装器日志、安装后与便携运行截图。
-- `logs/`：构建与 Shell 267 测试日志。
+- `logs/`：构建与 Shell 268 测试日志。
 - `three-screen.json`：仅有两条活动显示器及 GameViewer 适配器无第三 path 的记录。
