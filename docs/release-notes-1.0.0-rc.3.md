@@ -54,7 +54,7 @@ rc.2 的便携包是 framework-dependent。2026-10-26 在一台没有 .NET 10 �
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **268/268**、Infrastructure **202/202**（4 个需要交互式控制台的 ConPTY 用例仅在托管 CI 排除，真实桌面/Win10 保留验证）。
 - UI 资产字节一致性、PowerShell 编码、文档数字自洽、coverage generator 检查通过。
-- self-contained 便携包本机启动 PASS（隐藏共享 .NET 路径）：窗口出现约 471.6ms、关闭约 116ms、退出码 0、无残留子进程；打包 web 树与仓库源一致，`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
+- 本机预构建的 rc.3 便携包启动 PASS（隐藏共享 .NET 路径）：窗口出现约 496.8ms、关闭约 100ms、退出码 0、无残留子进程；打包 web 树与仓库源一致，`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。Release 资产发布后再下载复验。
 - 安装器 ProductVersion `1.0.0-rc.3`、FileVersion `1.0.0.0`、`NotSigned`；.NET 检测/下载逻辑沿用 rc.2 的 Windows 10 22H2 实机证据。
 - Windows 10 22H2 实机证据（双屏、100–200% DPI、负坐标、模拟热插拔、深色窄窗）继续适用于 rc.3，因为运行代码未变。
 

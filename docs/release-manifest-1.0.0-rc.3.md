@@ -65,12 +65,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 | 安装器版本资源 | ProductVersion `1.0.0-rc.3`；FileVersion `1.0.0.0` |
 | 安装器签名 | `NotSigned` |
 
-本机预构建（提交 `347a1ad`，仅作发布前同源验证，不是最终 Release 资产）：
+本机预构建（提交 `52709ca`，仅作发布前同源验证，不是最终 Release 资产）：
 
-- 便携包 `39,131,612 B`，SHA-256 `3f3c303da7031615bd2fc71fb9f1e543d6ca73497e7cba58cc60a898e6f57a23`。
-- 安装器 `5,014,248 B`，SHA-256 `05b1f9d3898dc2f1fe2dd4b094934efadc8f7063fdfc6d355be415b701e333ee`。
-- 把 `DOTNET_ROOT` 指向不存在目录、禁用多级查找后，便携包仍真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 471.6ms、关闭约 116ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
-- 报告：`artifacts/release-1.0.0-rc.3-final-verify/portable-report.json`（Git 忽略）。
+- 便携包 `39,131,614 B`，SHA-256 `00ff43cc4598a6e13732365010c1a7aa8e6f23adcfe16dd31fade01094ad6c36`。
+- 安装器 `5,014,217 B`，SHA-256 `578af06be0873f2e2509da1d82c489f988d8712f1765eec9b6716835fcaccc47`。
+- 把 `DOTNET_ROOT` 指向不存在目录、禁用多级查找后，便携包仍真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 496.8ms、关闭约 100ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
+- 报告：`artifacts/release-1.0.0-rc.3-commit-verify/portable-report.json`（Git 忽略）。
 
 ## 4. Windows 10 22H2 证据
 
