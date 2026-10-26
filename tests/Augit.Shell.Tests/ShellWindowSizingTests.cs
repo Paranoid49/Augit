@@ -483,4 +483,53 @@ public sealed class ShellWindowSizingTests
             }
         }
     }
+
+    [TestMethod]
+    public void 混合DPI启动按目标显示器自己的DPI选择()
+    {
+        // 主屏 175% + 副屏 100%：保存的副屏 left=2660 按 175% 会放大到 4655（虚拟屏外），
+        // 按副屏 100% 才落在副屏内。启动不能只按系统 DPI 解释保存坐标。
+        MonitorCandidate[] monitors =
+        [
+            new(new WindowFrameRect(0, 0, 2560, 1440), new WindowFrameRect(0, 0, 2560, 1370), 168),
+            new(new WindowFrameRect(2560, 0, 4480, 1080), new WindowFrameRect(2560, 0, 4480, 1040), 96),
+        ];
+        VirtualScreen screen = new(0, 0, 4480, 1440);
+
+        Assert.IsTrue(ShellWindowSizing.TrySelectStartupMonitor(2660, 120, monitors, screen, out MonitorCandidate secondary));
+        Assert.AreEqual(96, secondary.Dpi);
+        Assert.AreEqual(2560, secondary.Work.Left);
+
+        Assert.IsTrue(ShellWindowSizing.TrySelectStartupMonitor(300, 200, monitors, screen, out MonitorCandidate primary));
+        Assert.AreEqual(168, primary.Dpi);
+        Assert.AreEqual(0, primary.Work.Left);
+    }
+
+    [TestMethod]
+    public void 负坐标显示器也能按自身DPI选中()
+    {
+        MonitorCandidate[] monitors =
+        [
+            new(new WindowFrameRect(0, 0, 2560, 1440), new WindowFrameRect(0, 0, 2560, 1400), 168),
+            new(new WindowFrameRect(-1920, 0, 0, 1080), new WindowFrameRect(-1920, 0, 0, 1040), 96),
+        ];
+        VirtualScreen screen = new(-1920, 0, 4480, 1440);
+
+        Assert.IsTrue(ShellWindowSizing.TrySelectStartupMonitor(-1800, 120, monitors, screen, out MonitorCandidate selected));
+        Assert.AreEqual(96, selected.Dpi);
+        Assert.AreEqual(-1920, selected.Monitor.Left);
+    }
+
+    [TestMethod]
+    public void 保存位置在所有显示器外时启动回退默认位置()
+    {
+        MonitorCandidate[] monitors =
+        [
+            new(new WindowFrameRect(0, 0, 2560, 1440), new WindowFrameRect(0, 0, 2560, 1400), 96),
+        ];
+        VirtualScreen screen = new(0, 0, 2560, 1440);
+
+        Assert.IsFalse(ShellWindowSizing.TrySelectStartupMonitor(9000, 5000, monitors, screen, out _));
+        Assert.IsFalse(ShellWindowSizing.TrySelectStartupMonitor(double.NaN, 120, monitors, screen, out _));
+    }
 }

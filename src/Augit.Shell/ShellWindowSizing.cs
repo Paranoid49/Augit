@@ -142,6 +142,48 @@ internal static class ShellWindowSizing
     }
 
     /// <summary>
+    /// 用每块显示器自己的 DPI 解释保存的逻辑坐标，选出保存位置所属显示器。
+    /// 不能只按系统 DPI 缩放：主屏 175% + 副屏 100% 时，副屏逻辑 left=2660
+    /// 按 175% 会落到虚拟屏外；按副屏 100% 才落在副屏内。
+    /// </summary>
+    internal static bool TrySelectStartupMonitor(
+        double? savedLeft,
+        double? savedTop,
+        IReadOnlyList<MonitorCandidate> monitors,
+        VirtualScreen screen,
+        out MonitorCandidate selected)
+    {
+        selected = default;
+        if (savedLeft is not { } left || savedTop is not { } top
+            || !double.IsFinite(left) || !double.IsFinite(top))
+        {
+            return false;
+        }
+
+        foreach (MonitorCandidate monitor in monitors)
+        {
+            if (monitor.Dpi <= 0)
+            {
+                continue;
+            }
+
+            int candidateX = ScaleToPhysical(left, monitor.Dpi);
+            int candidateY = ScaleToPhysical(top, monitor.Dpi);
+            if (candidateX < monitor.Monitor.Left || candidateX >= monitor.Monitor.Right
+                || candidateY < monitor.Monitor.Top || candidateY >= monitor.Monitor.Bottom
+                || !IsTitleBarReachable(candidateX, candidateY, screen))
+            {
+                continue;
+            }
+
+            selected = monitor;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 启动时的窗口位置：设置里恢复的位置优先，越界或非法时回到默认位置 (80, 80)。
     /// </summary>
     internal static (int X, int Y) ResolveStartupPosition(
@@ -239,6 +281,9 @@ internal readonly record struct PhysicalPlacement(int X, int Y, int Width, int H
 
 /// <summary>设置文件里恢复的窗口摆放；尺寸与位置都是逻辑单位。</summary>
 internal readonly record struct SavedPlacement(double? Left, double? Top, double Width, double Height, bool IsMaximized);
+
+/// <summary>启动时候选显示器的物理边界、工作区与有效 DPI。</summary>
+internal readonly record struct MonitorCandidate(WindowFrameRect Monitor, WindowFrameRect Work, int Dpi);
 
 /// <summary>所有显示器的物理像素并集（SM_*VIRTUALSCREEN）。</summary>
 internal readonly record struct VirtualScreen(int X, int Y, int Width, int Height);

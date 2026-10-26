@@ -461,15 +461,7 @@ internal sealed partial class ShellWindow : IDisposable
     {
         work = default;
         dpi = 0;
-        if (savedLeft is not { } left || savedTop is not { } top
-            || !double.IsFinite(left) || !double.IsFinite(top))
-        {
-            return false;
-        }
-
-        bool found = false;
-        WindowFrameRect foundWork = default;
-        int foundDpi = 0;
+        List<MonitorCandidate> candidates = [];
         MonitorEnumProc callback = (nint monitor, nint hdc, nint rect, nint data) =>
         {
             MonitorInfo info = new() { Size = Marshal.SizeOf<MonitorInfo>() };
@@ -480,26 +472,22 @@ internal sealed partial class ShellWindow : IDisposable
                 return true;
             }
 
-            int candidateX = ShellWindowSizing.ScaleToPhysical(left, (int)dpiX);
-            int candidateY = ShellWindowSizing.ScaleToPhysical(top, (int)dpiX);
-            Rect monitorRect = info.Monitor;
-            if (candidateX < monitorRect.Left || candidateX >= monitorRect.Right
-                || candidateY < monitorRect.Top || candidateY >= monitorRect.Bottom
-                || !ShellWindowSizing.IsTitleBarReachable(candidateX, candidateY, screen))
-            {
-                return true;
-            }
-
-            found = true;
-            foundDpi = (int)dpiX;
-            foundWork = new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
-            return false;
+            candidates.Add(new MonitorCandidate(
+                new WindowFrameRect(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right, info.Monitor.Bottom),
+                new WindowFrameRect(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom),
+                (int)dpiX));
+            return true;
         };
 
         _ = EnumDisplayMonitors(0, 0, callback, 0);
-        work = foundWork;
-        dpi = foundDpi;
-        return found;
+        if (!ShellWindowSizing.TrySelectStartupMonitor(savedLeft, savedTop, candidates, screen, out MonitorCandidate selected))
+        {
+            return false;
+        }
+
+        work = selected.Work;
+        dpi = selected.Dpi;
+        return true;
     }
 
     private bool IsMaximized() => _window != 0 && IsZoomed(_window);
