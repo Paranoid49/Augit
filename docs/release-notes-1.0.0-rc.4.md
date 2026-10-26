@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.4` 指向的提交（由 GitHub Actions 构建；`Augit.exe` ProductVersion 内含提交号）
+- 构建源提交：`5b03ccb303683a427e67f607dfc4a7dab384a961`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.4`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -14,11 +14,15 @@ rc.4 是 **Windows 10 22H2 启动/选择目录退出的加固版**，建立在 r
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.4-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.4/Augit-1.0.0-rc.4-win-x64-setup.exe) | 5,016,402 B | `dc79380768b40c2592fb372f4e6cf2b6414c2d29b7637194eb26cd89d38d16a4` |
+| [Augit-1.0.0-rc.4-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.4/Augit-1.0.0-rc.4-win-x64-portable.zip) | 39,134,517 B | `9168826c43a145405186894bf3bee652d5ac952881887791e6bfa49e4ba5dc29` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.4/SHA256SUMS.txt) | 205 B | `7212a1c2cdbd347f13ed1e02ce076d3ffef9c2c4913c26f09bbe177356a4ca97` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.4>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只要求系统已有 Microsoft Edge WebView2 Runtime。不写系统 PATH，不添加资源管理器菜单，不安装或修改共享运行时。
 - **安装版**：按需联网的小型安装器，需要管理员权限；缺少 .NET 10/WebView2 时先说明，经确认后从项目锁定的微软官方地址下载并校验哈希与 Microsoft 签名。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置、最近目录和会话状态。
@@ -60,7 +64,8 @@ rc.4 是 **Windows 10 22H2 启动/选择目录退出的加固版**，建立在 r
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **270/270**、Infrastructure **207/207**（新增首次启动回退与显式写超时测试；托管 CI 排除 4 个需要交互式控制台的 ConPTY 用例）。
 - UI 资产字节一致性、PowerShell 编码、文档数字自洽、coverage generator 检查通过。
-- 本机 self-contained 便携包启动 PASS（隐藏 `DOTNET_ROOT`）：窗口类 `Augit.Shell.Window`、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
+- 发布后匿名下载实际 Release 便携包并启动 PASS（隐藏 `DOTNET_ROOT`）：窗口类 `Augit.Shell.Window`、窗口出现 **469.5ms**、关闭 **96ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.4+5b03ccb…`，`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
+- 首次启动（无有效最近目录、当前目录为发布目录）显示「Open Workspace」，`augit.log` 记录 `startup-workspace=welcome`；不再自动弹出「Create Git Repository」。
 - **Windows 10 22H2 实机复验**：rc.4 的 CET/首次启动/退出保护需要在用户出问题的机器上复验；rc.3 的 Windows 10 22H2 双屏/DPI/安装证据仅覆盖运行代码相同的部分，不覆盖本版的启动路径修复。
 - 仍未验证：干净虚拟机、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器。
 
