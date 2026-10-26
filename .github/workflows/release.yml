@@ -170,6 +170,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           PRERELEASE: ${{ github.event.inputs.prerelease }}
         run: |
+          $releaseDir = "artifacts/release-$env:VERSION"
           $setup = "$releaseDir/Augit-$env:VERSION-win-x64-setup.exe"
           $zip = "$releaseDir/Augit-$env:VERSION-win-x64-portable.zip"
           $sums = "$releaseDir/SHA256SUMS.txt"
