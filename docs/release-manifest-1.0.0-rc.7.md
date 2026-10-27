@@ -7,9 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.7> |
+| Release id | `425126802` |
 | Tag | `v1.0.0-rc.7` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | tag `v1.0.0-rc.7` 指向的提交（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `0bd83dd2c5760f527769521772c21aa6c756f52e` |
 | 版本 | `1.0.0-rc.7` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -21,13 +22,18 @@ rc.7 修复 rc.6 实机使用中的三类 UI 问题：欢迎页在项目窗口�
 
 ## 2. 资产
 
-Release 包含：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.7-win-x64-setup.exe` | 5,016,858 B | `a7a13fd884ad956b833fe1ec4350accf3c5f5f6647d96e670255768bfe94ac8b` |
+| `Augit-1.0.0-rc.7-win-x64-portable.zip` | 39,135,199 B | `8bfb982a13b0b6aee3616bb9a114043614591ae1dbad871f13a54c45d1befe53` |
+| `SHA256SUMS.txt` | 205 B | `5875e30dd983c0a44fbb9a27e002a617af802542fbb550d7567025ae3cbfd7f8` |
 
-- `Augit-1.0.0-rc.7-win-x64-setup.exe`（framework-dependent 安装器）
-- `Augit-1.0.0-rc.7-win-x64-portable.zip`（self-contained 便携包）
-- `SHA256SUMS.txt`
+`SHA256SUMS.txt`：
 
-最终资产大小和 SHA-256 以 Release 正文的「资产校验」表和附件 `SHA256SUMS.txt` 为准；发布后核对结果在本文 §6 记录。
+```text
+8bfb982a13b0b6aee3616bb9a114043614591ae1dbad871f13a54c45d1befe53  Augit-1.0.0-rc.7-win-x64-portable.zip
+a7a13fd884ad956b833fe1ec4350accf3c5f5f6647d96e670255768bfe94ac8b  Augit-1.0.0-rc.7-win-x64-setup.exe
+```
 
 ## 3. 构建与验证
 
@@ -64,16 +70,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 | 安装器版本资源 | ProductVersion `1.0.0-rc.7`；FileVersion `1.0.0.0` |
 | 安装器签名 | `NotSigned` |
 
-本机预构建（提交 `0b80fe5`，仅作发布前同源验证，不是最终 Release 资产）：
+发布后匿名下载**实际 Release 资产**复验：
 
-- 便携包 `39,135,205 B`，SHA-256 `dfac08b7f75923c7ad808f82ec5b3400446d0b94ddedfa387cb9cf3b8e68f9ea`。
-- 安装器 `5,017,559 B`，SHA-256 `5ab4a46652bbcb17c8d8d408c4d48f1e89627c9955345fef499174fae9b6a0c0`。
-- 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）后便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 488ms、关闭约 103ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
-- **欢迎页选择目录**：CDP 点击 Choose Directory → 系统选择框 → `D:\tmp\augit-branch-ui`；欢迎进程退出，目标项目窗口启动，最终只有 **1 个** Augit 进程；日志为 `startup args=--workspace D:\tmp\augit-branch-ui`。
+- 便携包 `39,135,199 B`、SHA-256 `8bfb982a…`；安装器 `5,016,858 B`、SHA-256 `a7a13fd8…`，与发布正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **477.9ms**、关闭 **108ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.7+0bd83dd…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动，证明不依赖共享 .NET。
+- **实际 Release 包欢迎页 → Choose Directory → `D:\tmp\augit-branch-ui`**：欢迎进程退出，目标窗口启动，最终只有 **1 个** Augit 进程；日志为 `startup args=--workspace D:\tmp\augit-branch-ui`。
 - **分支树折叠**：点击 `Local` 后 `codex`/`feature` 等行 `display: none`、高度 0，只保留 HEAD 与 `Tags`；`Local/codex` 单独折叠同样生效。
 - **分支弹层**：打开 branch chip 后 DOM 中 `.branch-actions` 数量为 **0**，只有分支/标签列表。
 - **欢迎页静置 12 秒**：无 `Cannot Read Workspace Changes` toast；欢迎页不启动 `workspace/changes`。
-- 报告：`artifacts/release-1.0.0-rc.7-commit-verify/portable-report.json`（Git 忽略）。
+- 安装器 ProductVersion `1.0.0-rc.7`、FileVersion `1.0.0.0`、`NotSigned`。
+- 报告：`artifacts/release-1.0.0-rc.7-gh-verify/portable-report.json`（Git 忽略）。
+
+本机预构建（提交 `0b80fe5`，仅作发布前同源验证）：
+
+- 便携包 `39,135,205 B`，SHA-256 `dfac08b7f75923c7ad808f82ec5b3400446d0b94ddedfa387cb9cf3b8e68f9ea`。
+- 安装器 `5,017,559 B`，SHA-256 `5ab4a46652bbcb17c8d8d408c4d48f1e89627c9955345fef499174fae9b6a0c0`。
 
 ## 4. Windows 10 22H2 证据与边界
 
@@ -98,14 +110,14 @@ rc.7 的欢迎页/分支树/分支弹层修复**尚未在该实机复验**；上
 
 ## 6. 发布后核对
 
-发布后应：
+2026-10-27 已完成：
 
-- 从 Release 匿名下载 zip、setup、`SHA256SUMS.txt`；
-- 核对大小与 SHA-256 和发布正文一致；
-- 解压 zip，在隐藏/失效共享 .NET 的环境运行 `Augit.exe`，确认 ProductVersion、窗口和退出；
-- 在欢迎页 → Choose Directory → 目标目录，确认最终只有一个项目窗口；
-- 在 Git Log 分支树点击 `Local`/`codex`，确认折叠后行实际消失；打开 branch chip 确认无右侧常驻动作面板；
-- 在 Windows 10 22H2 实机复验首次启动、选择目录、创建仓库和正常退出；
-- 把实际结果、构建提交和资产哈希回填到本节。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS（见 §3）。
+- 实际 Release 包的欢迎页单窗口、分支树折叠、分支弹层无右侧面板均通过 CDP/进程观测。
+- 安装器版本资源与未签名状态已核对。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.7 的首次启动/选择目录/分支树；干净虚拟机/全新系统安装也未验证。
 
-回填状态：**待发布后核对**。
+状态：**PASS**（Win10 22H2 实机与干净安装复验除外）。

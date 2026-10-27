@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-27
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.7` 指向的提交（由 GitHub Actions 构建；`Augit.exe` ProductVersion 内含提交号）
+- 构建源提交：`0bd83dd2c5760f527769521772c21aa6c756f52e`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.7`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -23,11 +23,15 @@ rc.6 的选择目录 `comctl32` 缓冲区修复、新窗口 `--workspace` 参数
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.7-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.7/Augit-1.0.0-rc.7-win-x64-setup.exe) | 5,016,858 B | `a7a13fd884ad956b833fe1ec4350accf3c5f5f6647d96e670255768bfe94ac8b` |
+| [Augit-1.0.0-rc.7-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.7/Augit-1.0.0-rc.7-win-x64-portable.zip) | 39,135,199 B | `8bfb982a13b0b6aee3616bb9a114043614591ae1dbad871f13a54c45d1befe53` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.7/SHA256SUMS.txt) | 205 B | `5875e30dd983c0a44fbb9a27e002a617af802542fbb550d7567025ae3cbfd7f8` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.7>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只要求系统已有 Microsoft Edge WebView2 Runtime。
 - **安装版**：按需联网的小型安装器，需要管理员权限；缺少 .NET 10/WebView2 时先说明，经确认后下载并校验。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置。
@@ -36,11 +40,12 @@ rc.6 的选择目录 `comctl32` 缓冲区修复、新窗口 `--workspace` 参数
 
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **271/271**、Infrastructure **207/207**；托管 CI 排除 4 个需要交互式控制台的 ConPTY 用例。
-- 本机 CDP 实测：
+- 发布后匿名下载实际 Release 便携包，隐藏共享 .NET（`DOTNET_ROOT` 不存在）启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **477.9ms**、关闭 **108ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.7+0bd83dd…`。
+- 实际 Release 包 CDP 实测：
   - 分支树点击 `Local` 后，`codex`/`feature` 等行实际 `display: none`、高度 0，只保留 HEAD 与 `Tags`；`Local/codex` 单独折叠同样生效。
   - 打开分支弹层后 DOM 中 `.branch-actions` 数量为 0，只有分支/标签列表。
   - 欢迎页等待 12 秒无 `Cannot Read Workspace Changes` toast；`workspace/changes` 不再启动。
-  - 欢迎页选择 `D:\tmp\augit-branch-ui` 后，欢迎进程退出，目标项目窗口启动；日志为 `startup args=--workspace D:\tmp\augit-branch-ui`。
+  - 欢迎页选择 `D:\tmp\augit-branch-ui` 后，欢迎进程退出，目标项目窗口启动，最终只有 **1 个** Augit 进程；日志为 `startup args=--workspace D:\tmp\augit-branch-ui`。
 - 仍待 **Windows 10 22H2 实机**复验；rc.2/rc.3 的双屏/DPI/安装证据不覆盖本版 UI 路径。
 
 ## 4. 已知限制
