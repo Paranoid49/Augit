@@ -5801,27 +5801,96 @@ function compactInputDialog(title, label, value, confirmLabel) {
 }
 
 // 外壳注入真实引用时使用：分组、当前分支标记与二级动作沿用样例版结构。
+// 这里按 PyCharm 的分支弹层树复原：Recent/Local/Remote/Tags 默认折叠，组内按 `/`
+// 再分目录组，分支行只显示名称（upstream 只进 tooltip），弹层自身有最大高度并滚动。
+// 之前把所有分组一次性展开、每行再塞 upstream 文本，长仓库会变成一条又高又宽的平铺列表。
 function liveBranchesPopover() {
-  const references = window.__augitLive.references;
+  const live = window.__augitLive || {};
+  const references = live.references || { branches: [], tags: [] };
   const branches = references.branches || [];
   const tags = references.tags || [];
   const local = branches.filter(branch => !branch.isRemote);
   const remote = branches.filter(branch => branch.isRemote);
-const row = (branch, selected) => `<div class="menu-item${selected ? " selected" : ""}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${branch.isRemote ? "remote" : "branch"}"${branch.isCurrent ? ' data-branch-current="true"' : ""}>${branchTreeIcon(branch, branch.isRemote ? 'remote' : 'branch')} ${escapeHtml(branch.name)}${branch.isCurrent ? ' <span class="commit-meta">Current</span>' : ''}${branch.upstream ? ` <span class="commit-meta">→ ${escapeHtml(branch.upstream)}</span>` : ''}<span class="grow"></span>${icon("chevron-right")}</div>`;
-  const group = (label, items) => items.length === 0
-    ? ""
-    : `<div class="menu-item"><span>${icon("chevron-down")}</span><strong>${label}</strong></div>${items.join("")}`;
+  const filter = String(live.branchPopupFilter || "").trim().toLowerCase();
+  const collapsed = live.branchPopupCollapsed || {};
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), "zh-Hans", { numeric: true, sensitivity: "base" });
+  const order = (items) => [...items].sort((a, b) => (b.isCurrent ? 1 : 0) - (a.isCurrent ? 1 : 0) || byName(a, b));
+
+  const row = (branch, kind, depth, ancestors) => {
+    const current = kind === "branch" && branch.isCurrent;
+    const tip = kind === "branch" && branch.upstream ? `${branch.name} → ${branch.upstream}` : branch.name;
+    return `<div class="menu-item branch-popup-row${current ? " selected" : ""}" style="--branch-depth:${depth}" role="menuitem" tabindex="0" title="${escapeHtml(tip)}" data-branch="${escapeHtml(branch.name)}" data-branch-kind="${kind}" data-branch-row="true" data-branch-current="${current ? "true" : "false"}" data-branch-ancestors="${escapeHtml(ancestors.join("|"))}" data-branch-search="${escapeHtml(String(branch.name).toLowerCase())}">${branchTreeIcon(branch, kind)}<span class="branch-popup-name">${escapeHtml(branch.name)}</span>${current ? '<span class="commit-meta">Current</span>' : ''}</div>`;
+  };
+
+  const group = (label, key, depth, parents, children) => {
+    const isCollapsed = !!collapsed[key] && !filter;
+    return `<div class="menu-item branch-popup-group${isCollapsed ? " collapsed" : ""}" style="--branch-depth:${depth}" role="menuitem" tabindex="0" aria-expanded="${isCollapsed ? "false" : "true"}" data-branch-group="${escapeHtml(key)}" data-branch-group-parents="${escapeHtml(parents.join("|"))}"><span class="branch-popup-chevron">${icon(isCollapsed ? "chevron-right" : "chevron-down")}</span><strong>${escapeHtml(label)}</strong></div>${children}`;
+  };
+
+  /**
+   * 按目录前缀建树。条目都保留在同一 DOM 里，折叠/搜索只设置 `hidden`，
+   * 打开/关闭分组不需要重绘整个弹层。
+   */
+  const subtree = (entries, kind, depth, ancestors, groupKey, grouping, nested) => {
+    const nodes = [];
+    const groups = new Map();
+    for (const entry of entries) {
+      const parts = entry.parts;
+      if (!grouping || parts.length === 1) {
+        nodes.push({ branch: entry.branch });
+        continue;
+      }
+
+      const first = parts[0];
+      if (!groups.has(first)) {
+        groups.set(first, []);
+        nodes.push({ prefix: first });
+      }
+      groups.get(first).push({ branch: entry.branch, parts: parts.slice(1) });
+    }
+
+    if (nested) {
+      const rank = (node) => (node.prefix ? 0 : node.branch.isCurrent ? 1 : 2);
+      nodes.sort((a, b) => rank(a) - rank(b));
+    }
+
+    return nodes.map((node) => {
+      if (node.branch) return row(node.branch, kind, depth, ancestors);
+      const childKey = `${groupKey}/${node.prefix}`;
+      const children = subtree(groups.get(node.prefix), kind, depth + 1, [...ancestors, childKey], childKey, grouping, true);
+      return group(node.prefix, childKey, depth, ancestors, children);
+    }).join("");
+  };
+
+  const section = (label, key, items, kind, grouping) => {
+    if (items.length === 0) return "";
+    const entries = order(items).map(branch => ({ branch, parts: String(branch.name).split("/") }));
+    return group(label, key, 0, [], subtree(entries, kind, 1, [key], key, grouping, false));
+  };
+
+  // Recent 与 PyCharm 一样只放少量最近引用；Augit 尚无持久化的最近检出记录，
+  // 先以当前分支作为 Recent 的第一项，检出成功后由 live.recentBranches 补充。
+  const current = local.find(branch => branch.isCurrent);
+  const recentNames = [current ? current.name : null, ...(Array.isArray(live.recentBranches) ? live.recentBranches : [])]
+    .filter(Boolean)
+    .filter((name, index, list) => list.indexOf(name) === index);
+  const recent = recentNames.map(name => local.find(branch => branch.name === name)).filter(Boolean).slice(0, 8);
+
   const checkoutError = window.__augitCheckoutError
     ? `<div class="inline-alert danger" role="alert">${escapeHtml(window.__augitCheckoutError)}</div>`
     : "";
-  const quick = `<input class="search-field" placeholder="Search branches and actions" aria-label="Search branches and actions">${checkoutError}<a class="menu-item" href="operation-result.html" data-popover-action="fetch">${icon("branch-update")} Update Project…</a><a class="menu-item" href="commit-changes.html" data-popover-action="commit">${icon("git-commit-horizontal")} Commit…</a><a class="menu-item" href="push.html" data-popover-action="push">${icon("branch-push")} Push…</a><div class="menu-separator"></div><a class="menu-item" href="branches.html" data-popover-action="create-branch">${icon("plus")} New Branch…</a><a class="menu-item" href="git-compare.html" data-popover-action="checkout-revision">${icon("git-compare-arrows")} Checkout Tag or Revision…</a><div class="menu-separator"></div>`;
-  const groups = group("Local", local.map(branch => row(branch, branch.isCurrent)))
-    + group("Remote", remote.map(branch => row(branch, false)))
-    + group("Tags", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon("tag")} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
+  const quick = `<input class="search-field" placeholder="Search branches and actions" aria-label="Search branches and actions" value="${escapeHtml(live.branchPopupFilter || "")}">${checkoutError}<a class="menu-item" href="operation-result.html" data-popover-action="fetch">${icon("branch-update")} Update Project…<span class="grow"></span><span class="branch-popup-shortcut">Ctrl+T</span></a><a class="menu-item" href="commit-changes.html" data-popover-action="commit">${icon("git-commit-horizontal")} Commit…<span class="grow"></span><span class="branch-popup-shortcut">Ctrl+K</span></a><a class="menu-item" href="push.html" data-popover-action="push">${icon("branch-push")} Push…<span class="grow"></span><span class="branch-popup-shortcut">Ctrl+Shift+K</span></a><div class="menu-separator"></div><a class="menu-item" href="branches.html" data-popover-action="create-branch">${icon("plus")} New Branch…<span class="grow"></span><span class="branch-popup-shortcut">Ctrl+Alt+N</span></a><a class="menu-item" href="git-compare.html" data-popover-action="checkout-revision">${icon("git-compare-arrows")} Checkout Tag or Revision…</a><div class="menu-separator"></div>`;
+
+  const groups = section("Recent", "Recent", recent, "branch", false)
+    + section("Local", "Local", local, "branch", true)
+    + section("Remote", "Remote", remote, "remote", false)
+    + (tags.length > 0
+      ? group("Tags", "Tags", 0, [], subtree(order(tags).map(tag => ({ branch: tag, parts: [tag.name] })), "tag", 1, ["Tags"], "Tags", false, false))
+      : "");
   // 分支行自己的动作组**只在用户右键该行时出现**（见 live-data.js 的 openRefMenu）；
   // 不能在打开分支列表时把"当前分支"的动作常驻在右侧。2026-10-27 实机反馈：右侧面板
   // 会在分支弹层打开时无条件出现，遮挡日志且不是 PyCharm 的行为。
-  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">No references</p>'}</section></div>`;
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover"><div class="branches-popup-quick">${quick}</div><div class="branches-popup-tree">${groups || '<p class="commit-meta">No references</p>'}<p class="commit-meta branch-popup-empty" hidden>No matching branches</p></div></section></div>`;
 }
 
 /**

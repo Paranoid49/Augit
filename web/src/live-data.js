@@ -8040,6 +8040,14 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // 分支弹层里的分组头：点击折叠/展开，不触发检出。
+    const branchGroup = event.target.closest && event.target.closest(".branches-popover [data-branch-group]");
+    if (branchGroup) {
+      event.preventDefault();
+      toggleBranchPopupGroup(branchGroup.dataset.branchGroup);
+      return;
+    }
+
     // 分支弹层里的引用行是 <div>（不是链接），单独处理：点击即检出（规格 §7.11）。
     const branchRow = event.target.closest && event.target.closest("[data-augit-overlay] [data-branch]");
     if (branchRow) {
@@ -8233,6 +8241,12 @@ function openBranchesPopover() {
     return;
   }
 
+  // 每次打开重置搜索；分组折叠状态保留，首次打开按 PyCharm 的默认值全部折叠。
+  live.branchPopupFilter = "";
+  if (!live.branchPopupCollapsed || typeof live.branchPopupCollapsed !== "object") {
+    live.branchPopupCollapsed = { Recent: true, Local: true, Remote: true, Tags: true };
+  }
+
   // liveBranchesPopover 返回的**本身就是完整覆盖层**（含 .overlay-layer 与 data 属性），
   // 因此这里不再包第二层——实测重复包裹会出现嵌套的两层覆盖层。
   const host = document.querySelector(".augit-window");
@@ -8253,8 +8267,59 @@ function openBranchesPopover() {
   // 实测（第 65 轮 harness）修复前什么都不聚焦，焦点留在被点击的分支芯片 <a> 上 ——
   // 弹层虽然开了，键盘用户却要先 Tab 才能搜索，与条文不符。
   const branchSearch = layer.querySelector("input.search-field");
-  if (branchSearch) branchSearch.focus({ preventScroll: true });
+  if (branchSearch) {
+    branchSearch.addEventListener("input", () => {
+      live.branchPopupFilter = branchSearch.value;
+      applyBranchPopupFilter();
+    });
+    branchSearch.focus({ preventScroll: true });
+  }
+  applyBranchPopupFilter();
 }
+
+/** 分支弹层的分组折叠/搜索只改 `hidden`，不重建 DOM；状态保存在 live 上。 */
+function applyBranchPopupFilter() {
+  const live = window.__augitLive;
+  const panel = document.querySelector(".branches-popover");
+  if (!live || !panel) return;
+  const needle = String(live.branchPopupFilter || "").trim().toLowerCase();
+  const collapsed = live.branchPopupCollapsed || {};
+  const rows = [...panel.querySelectorAll("[data-branch-row]")];
+  const ancestorsOf = (node) => String(node.dataset.branchAncestors || "").split("|").filter(Boolean);
+  for (const row of rows) {
+    row.hidden = needle
+      ? !String(row.dataset.branchSearch || "").includes(needle)
+      : ancestorsOf(row).some((key) => collapsed[key]);
+  }
+  const empty = panel.querySelector(".branch-popup-empty");
+  if (empty) empty.hidden = !needle || rows.some((row) => !row.hidden);
+  // 从内层往外算：内层先定 hidden，外层才能判断有没有可见后代。
+  const groups = [...panel.querySelectorAll("[data-branch-group]")].reverse();
+  for (const node of groups) {
+    const key = node.dataset.branchGroup;
+    const parents = String(node.dataset.branchGroupParents || "").split("|").filter(Boolean);
+    const isCollapsed = !!collapsed[key] && !needle;
+    node.classList.toggle("collapsed", isCollapsed);
+    node.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    const chevron = node.querySelector(".branch-popup-chevron");
+    if (chevron) chevron.innerHTML = icon(isCollapsed ? "chevron-right" : "chevron-down");
+    if (needle) {
+      node.hidden = !rows.some((row) => !row.hidden && ancestorsOf(row).includes(key));
+    } else {
+      node.hidden = parents.some((parent) => collapsed[parent]);
+    }
+  }
+}
+
+function toggleBranchPopupGroup(key) {
+  const live = window.__augitLive;
+  if (!live || !key || live.branchPopupFilter) return;
+  live.branchPopupCollapsed = live.branchPopupCollapsed || {};
+  live.branchPopupCollapsed[key] = !live.branchPopupCollapsed[key];
+  applyBranchPopupFilter();
+}
+
+window.__augitApplyBranchPopupFilter = applyBranchPopupFilter;
 
 /**
  * 检出分支、远端引用或标签（规格 §7.11）。
@@ -8296,6 +8361,10 @@ async function checkoutReference(name, kind) {
   }
 
   // 成功：关闭弹层，重新读取状态与引用（HEAD 与工作区都已改变）。
+  live.recentBranches = [name, ...(Array.isArray(live.recentBranches) ? live.recentBranches : [])]
+    .filter((item, index, list) => item !== name || list.indexOf(item) === index)
+    .filter((item) => item)
+    .slice(0, 8);
   closeLiveOverlay();
   live.references = null;
   await Promise.all([

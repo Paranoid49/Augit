@@ -3677,10 +3677,50 @@ body[data-theme="dark"] .terminal-view .terminal-prompt { color: inherit; }
   border-radius: 8px;
 }
 
-/* 分支弹层按当前 PyCharm 前台实测收敛，避免引用行横向留白过大。 */
-.branches-popover { width: 434px; }
-.branches-popover > .search-field { height: 25px; }
+/* 分支弹层按 PyCharm 2026.2 实机复原：固定宽度、最大高度、树区独立滚动。
+   之前把所有分支平铺展开，长仓库会变成一条贯穿屏幕的高列表。 */
+.branches-popover {
+  width: 434px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.branches-popup-quick { flex: 0 0 auto; }
+.branches-popup-quick > .search-field { height: 25px; }
+.branches-popup-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(560px, calc(100vh - 300px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -7px -7px;
+  padding: 0 7px 7px;
+}
 .branches-popover .menu-item { min-height: 24px; padding-top: 0; padding-bottom: 0; }
+.branch-popup-group,
+.branch-popup-row { padding-left: calc(6px + var(--branch-depth, 0) * 16px); }
+.branch-popup-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.branch-popup-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-popup-row .commit-meta { margin-left: auto; }
+.branch-popup-shortcut {
+  margin-left: auto;
+  color: var(--augit-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 /* 对话框底与弹层不同：`dialog-bg`(#F7F8F9) vs `popup-bg`(#FFFFFF)。单独覆盖，保留分组规则里的定位/边框/阴影。 */
 .dialog { background: var(--augit-dialog-bg); }

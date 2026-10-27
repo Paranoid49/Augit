@@ -2,6 +2,19 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.8] - 2026-10-27
+
+### Changed
+
+- 按 PyCharm 2026.2 实机重做分支弹层：`Recent`/`Local`/`Remote`/`Tags` 默认折叠，`Local` 按 `/` 建目录子树，upstream 只放 tooltip，弹层固定宽度/最大高度并滚动。
+- 分支弹层搜索实时过滤并自动展开命中分组；无命中显示 `No matching branches`；顶部动作补回 `Ctrl+T`/`Ctrl+K`/`Ctrl+Shift+K`/`Ctrl+Alt+N` 快捷键提示。
+- 分支行不再显示行尾 chevron/upstream 长文本；完整 PyCharm `NextStep` 行内二级菜单仍未实现，行动作走右键/菜单键/Shift+F10。
+
+### Fixed
+
+- 长分支列表不再把弹层拉成一整屏；弹层树区独立滚动。
+- 保留 rc.7 欢迎页单窗口、分支树折叠、欢迎页不轮询 changes，以及 rc.6 的选择目录缓冲区/`--workspace` 修复。
+
 ## [1.0.0-rc.7] - 2026-10-27
 
 ### Fixed

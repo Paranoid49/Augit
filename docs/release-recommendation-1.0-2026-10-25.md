@@ -2,7 +2,7 @@
 
 > **2026-10-26 状态更新**：Windows 10 22H2 与双显示器/混合 DPI 已在实机完成验证（含 100/125/150/175/200%、负坐标、模拟热插拔、深色窄窗和 rc.2 重建包安装），见[22H2 多显示器 DPI 修复与扩展验证](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。用户已决定把 `1.0.0-rc.2` 作为**公开预发布**交付，真实用户可以下载安装包或便携包试用。本文 §4 的 Windows 10/跨屏条目据此关闭；§5 建议 A 中“不创建公开 Release、不上传产物”已被该决定取代。正式 1.0 的其余外部条件仍然有效。
 >
-> **2026-10-27 rc.7 补充**：rc.2 便携版在没有 .NET 10 的新电脑上先弹出 .NET 宿主错误；rc.3 把便携版改为 self-contained，安装版保持 framework-dependent 联网安装器。rc.4 增加 Windows 10 22H2 首次启动/选目录退出的加固（CETCompat=false、欢迎页、async void 边界、`git init` 超时和本地日志）；rc.5 修复旧版本把程序目录保存为 `LastWorkspace` 时仍恢复该目录的问题；rc.6 修复 `SHBrowseForFolder` 输出缓冲区导致的 `comctl32` 崩溃和新窗口 `--workspace` 参数契约；rc.7 修复欢迎页双窗口、分支树折叠和分支弹层右侧动作面板。启动路径仍待在用户实机复验。当前公开资产见[rc.7 发布清单](release-manifest-1.0.0-rc.7.md)。
+> **2026-10-27 rc.8 补充**：rc.2 便携版在没有 .NET 10 的新电脑上先弹出 .NET 宿主错误；rc.3 把便携版改为 self-contained，安装版保持 framework-dependent 联网安装器。rc.4 增加 Windows 10 22H2 首次启动/选目录退出的加固（CETCompat=false、欢迎页、async void 边界、`git init` 超时和本地日志）；rc.5 修复旧版本把程序目录保存为 `LastWorkspace` 时仍恢复该目录的问题；rc.6 修复 `SHBrowseForFolder` 输出缓冲区导致的 `comctl32` 崩溃和新窗口 `--workspace` 参数契约；rc.7 修复欢迎页双窗口、分支树折叠和分支弹层右侧动作面板；rc.8 按 PyCharm 重做分支弹层分组树。启动路径仍待在用户实机复验。当前公开资产见[rc.8 发布清单](release-manifest-1.0.0-rc.8.md)。
 >
 > **结论：`1.0.0-rc.2` 可以作为最终 RC 候选交付；当前不建议直接宣布正式 1.0。**
 > 推荐进入 RC 真实日常使用观察，并把 Windows 10、跨屏 DPI、干净虚拟机、安装器真实缺运行时、
@@ -57,7 +57,7 @@ rc.2 相对 rc.1 的运行时变化只有大文本活动行的可访问名称修
 6. **整窗像素**：历史结果仍为 0 张合格 / 50 组页面级配对，未达成原整改目标；只登记持续改进。
 7. **代码签名**：Augit 自身 `NotSigned`，SmartScreen 可能提示未知发布者。
 8. **未支持/已批准范围差异**：Force Push、子模块、平台接口、内置 Git Console、AI、内置编辑保存等，
-   以 `docs/known-limitations-1.0.0-rc.7.md` 为准。
+   以 `docs/known-limitations-1.0.0-rc.8.md` 为准。
 
 ## 4. 外部环境要求（当前机器不可验证）
 
@@ -101,14 +101,14 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 - 当前环境可解决的收口项已完成，rc.2 是当前最强、可复验的候选。
 - 2026-10-26 已发布公开预发布资产；正式 1.0 仍受干净虚拟机、真实缺 WebView2、代码签名、其他辅助技术与真实使用观察约束。
 - 建议**继续 RC 观察**，而不是现在宣布正式 1.0。
-- 若用户接受披露边界并完成/豁免外部条件，rc.7 可作为正式 1.0 的发布基础。
+- 若用户接受披露边界并完成/豁免外部条件，rc.8 可作为正式 1.0 的发布基础。
 
 ## 7. 证据入口
 
 - 收口台账：`docs/release-closure-2026-10-24.md`
-- rc.7 发布清单：`docs/release-manifest-1.0.0-rc.7.md`
-- rc.7 发布说明：`docs/release-notes-1.0.0-rc.7.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.7.md`
+- rc.8 发布清单：`docs/release-manifest-1.0.0-rc.8.md`
+- rc.8 发布说明：`docs/release-notes-1.0.0-rc.8.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.8.md`
 - rc.2 历史发布记录：`docs/release-manifest-1.0.0-rc.2.md`、`docs/release-notes-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`
 - Windows 10 22H2 多显示器/DPI：`docs/win10-22h2-multimonitor-validation-2026-10-26.md`、`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`

@@ -4,7 +4,7 @@
 
 ## 1. 发布身份
 
-当前公开发布为 `1.0.0-rc.7` 预发布候选，不是正式 1.0。发布资产：
+当前公开发布为 `1.0.0-rc.8` 预发布候选，不是正式 1.0。发布资产：
 
 - `Augit-<版本>-win-x64-portable.zip`
 - `Augit-<版本>-win-x64-setup.exe`
@@ -16,8 +16,8 @@
 
 - 当前候选线为 `1.0.0-rc.N`；正式 1.0 前不改变产品名和安装器 AppId。
 - 每次公开资产重建都必须更新发布清单和 `SHA256SUMS.txt`；不得用旧哈希描述新字节。
-- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.7 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重建；构建源提交见 `docs/release-manifest-1.0.0-rc.7.md`。
-- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.7.md` §8 的真实使用观察与用户裁决，不由 CI 自动升级。
+- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.8 由包含 Windows 10 22H2 多显示器/DPI 修复的源码重建；构建源提交见 `docs/release-manifest-1.0.0-rc.8.md`。
+- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.8.md` §8 的真实使用观察与用户裁决，不由 CI 自动升级。
 
 ## 3. 发布前门禁
 
@@ -45,8 +45,8 @@ node tools\audit\coverage-generator.test.cjs
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\release.ps1 `
-  -Version 1.0.0-rc.7 `
-  -OutputDirectory artifacts\release-1.0.0-rc.7
+  -Version 1.0.0-rc.8 `
+  -OutputDirectory artifacts\release-1.0.0-rc.8
 ```
 
 脚本会：
@@ -67,9 +67,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\audit\verify-portable-package.ps1 `
-  -PortableZip artifacts\release-1.0.0-rc.7\Augit-1.0.0-rc.7-win-x64-portable.zip `
-  -OutDir artifacts\release-1.0.0-rc.7-verify `
-  -ExpectedVersion 1.0.0-rc.7
+  -PortableZip artifacts\release-1.0.0-rc.8\Augit-1.0.0-rc.8-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.8-verify `
+  -ExpectedVersion 1.0.0-rc.8
 ```
 
 有交互桌面时，该脚本会真实启动便携包、截图、关闭并检查进程树；无交互桌面时追加 `-SkipLaunch`，只做内容、版本和 web 资源一致性校验。
@@ -82,15 +82,15 @@ $env:DOTNET_ROOT_X64 = 'C:\does-not-exist-dotnet'
 $env:DOTNET_MULTILEVEL_LOOKUP = '0'
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\audit\verify-portable-package.ps1 `
-  -PortableZip artifacts\release-1.0.0-rc.7\Augit-1.0.0-rc.7-win-x64-portable.zip `
-  -OutDir artifacts\release-1.0.0-rc.7-verify-hidden-dotnet `
-  -ExpectedVersion 1.0.0-rc.7
+  -PortableZip artifacts\release-1.0.0-rc.8\Augit-1.0.0-rc.8-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.8-verify-hidden-dotnet `
+  -ExpectedVersion 1.0.0-rc.8
 ```
 
 安装器验证需要管理员权限，建议在可回滚的 Windows 10/11 测试机执行：
 
 ```powershell
-$setup = 'artifacts\release-1.0.0-rc.7\Augit-1.0.0-rc.7-win-x64-setup.exe'
+$setup = 'artifacts\release-1.0.0-rc.8\Augit-1.0.0-rc.8-win-x64-setup.exe'
 $log = Join-Path $PWD 'artifacts\setup-install.log'
 Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/LOG=$log" -Wait
 ```
@@ -114,8 +114,8 @@ Start-Process $setup -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART
 2. 在发布提交上创建并推送 tag：
 
 ```powershell
-git tag v1.0.0-rc.7
-git push origin v1.0.0-rc.7
+git tag v1.0.0-rc.8
+git push origin v1.0.0-rc.8
 git push origin dsh:main
 ```
 
@@ -125,12 +125,12 @@ git push origin dsh:main
 6. 若 GitHub CLI 已授权，手动补发/修复资产可使用：
 
 ```powershell
-gh release create v1.0.0-rc.7 `
-  artifacts\release-1.0.0-rc.7\Augit-1.0.0-rc.7-win-x64-portable.zip `
-  artifacts\release-1.0.0-rc.7\Augit-1.0.0-rc.7-win-x64-setup.exe `
-  artifacts\release-1.0.0-rc.7\SHA256SUMS.txt `
-  --title "Augit 1.0.0-rc.7" `
-  --notes-file docs\release-notes-1.0.0-rc.7.md `
+gh release create v1.0.0-rc.8 `
+  artifacts\release-1.0.0-rc.8\Augit-1.0.0-rc.8-win-x64-portable.zip `
+  artifacts\release-1.0.0-rc.8\Augit-1.0.0-rc.8-win-x64-setup.exe `
+  artifacts\release-1.0.0-rc.8\SHA256SUMS.txt `
+  --title "Augit 1.0.0-rc.8" `
+  --notes-file docs\release-notes-1.0.0-rc.8.md `
   --prerelease
 ```
 
