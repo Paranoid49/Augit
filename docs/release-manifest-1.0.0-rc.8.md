@@ -7,9 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.8> |
+| Release id | `425164225` |
 | Tag | `v1.0.0-rc.8` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | tag `v1.0.0-rc.8` 指向的提交（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `4d300cb208d314716e621f548b6872e64893955c` |
 | 版本 | `1.0.0-rc.8` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -21,13 +22,18 @@ rc.8 按 PyCharm 2026.2 实机重做分支弹层：顶部动作、默认折叠�
 
 ## 2. 资产
 
-Release 包含：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.8-win-x64-setup.exe` | 5,018,346 B | `36e656da0ff2dc986589189e37e80f1621ef071d1943d12219cd2128792694a3` |
+| `Augit-1.0.0-rc.8-win-x64-portable.zip` | 39,137,822 B | `78bc1f44b7be262fd39f8259e422cf4374ee0a1f11ca70cd2af5c36f922c2f38` |
+| `SHA256SUMS.txt` | 205 B | `4fde0ae3b53c8e22288b26d7e9fe621654d0cd403758c92a779b1b4d1c3572fb` |
 
-- `Augit-1.0.0-rc.8-win-x64-setup.exe`（framework-dependent 安装器）
-- `Augit-1.0.0-rc.8-win-x64-portable.zip`（self-contained 便携包）
-- `SHA256SUMS.txt`
+`SHA256SUMS.txt`：
 
-最终资产大小和 SHA-256 以 Release 正文的「资产校验」表和附件 `SHA256SUMS.txt` 为准；发布后核对结果在本文 §6 记录。
+```text
+78bc1f44b7be262fd39f8259e422cf4374ee0a1f11ca70cd2af5c36f922c2f38  Augit-1.0.0-rc.8-win-x64-portable.zip
+36e656da0ff2dc986589189e37e80f1621ef071d1943d12219cd2128792694a3  Augit-1.0.0-rc.8-win-x64-setup.exe
+```
 
 ## 3. 构建与验证
 
@@ -64,19 +70,24 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\verify-portable-
 | 安装器版本资源 | ProductVersion `1.0.0-rc.8`；FileVersion `1.0.0.0` |
 | 安装器签名 | `NotSigned` |
 
-本机预构建（提交 `86c5a03`，仅作发布前同源验证，不是最终 Release 资产）：
+发布后匿名下载**实际 Release 资产**复验：
+
+- 便携包 `39,137,822 B`、SHA-256 `78bc1f44…`；安装器 `5,018,346 B`、SHA-256 `36e656da…`，与发布正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **460.1ms**、关闭 **108ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.8+4d300cb…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动，证明不依赖共享 .NET。
+- **实际 Release 包分支弹层 CDP 实测**（合成仓库：8 + 80 个本地分支、1 个远端引用、1 个标签）：
+  - 打开时 `Recent`/`Local`/`Remote`/`Tags` 全部折叠，弹层约 434×272px；
+  - 展开 `Local` 后目录组 `bulk`/`codex`/`feature`/`fix`/`release` 出现，树区 `overflow-y:auto`，`scrollHeight 2335 > clientHeight 461`；
+  - 搜索 `codex` 后只剩 `Local`/`Local/codex` 与 3 个 `codex/*` 行；清空后恢复折叠/展开状态；无命中显示 `No matching branches`；
+  - 顶部快捷键 `Ctrl+T`/`Ctrl+K`/`Ctrl+Shift+K`/`Ctrl+Alt+N` 存在；
+  - `.branch-actions` 常驻面板数量为 0；分支行动作走右键。
+- 安装器 ProductVersion `1.0.0-rc.8`、FileVersion `1.0.0.0`、`NotSigned`。
+- 报告：`artifacts/release-1.0.0-rc.8-gh-verify/portable-report.json`（Git 忽略）。
+
+本机预构建（提交 `86c5a03`，仅作发布前同源验证）：
 
 - 便携包 `39,137,791 B`，SHA-256 `e11dcf83f6827c1a78bc59a9db6652564227d2ea11298fe8355f01d38c2bc94a`。
 - 安装器 `5,018,406 B`，SHA-256 `e8f6095364f592cf7ab0c945e3c004404f86a708cdf8ae775c697e24215530fb`。
-- 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）后便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现约 465.5ms、关闭约 96ms、退出码 0、无残留子进程；`includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`。
-- **分支弹层 CDP 实测**（合成仓库：89 个本地/远端引用）：
-  - 打开时分组默认折叠，弹层约 434×272px；
-  - 展开 `Local` 后目录组 `bulk`/`codex`/`feature`/`fix`/`release` 出现，树区 `scrollHeight 2335 > clientHeight 461`，`overflow-y:auto`；
-  - 搜索 `codex` 后只剩 `Local`/`Local/codex` 与 3 个 `codex/*` 行；清空后恢复折叠状态；
-  - 搜索不存在的名称时显示 `No matching branches`；
-  - 顶部快捷键为 `Ctrl+T`/`Ctrl+K`/`Ctrl+Shift+K`/`Ctrl+Alt+N`；
-  - `.branch-actions` 常驻面板数量为 0；分支行动作走右键。
-- 报告：`artifacts/release-1.0.0-rc.8-commit-verify/portable-report.json`（Git 忽略）。
 
 ## 4. Windows 10 22H2 证据与边界
 
@@ -102,14 +113,14 @@ rc.8 的分支弹层/欢迎页/分支树修复**尚未在该实机复验**；上
 
 ## 6. 发布后核对
 
-发布后应：
+2026-10-27 已完成：
 
-- 从 Release 匿名下载 zip、setup、`SHA256SUMS.txt`；
-- 核对大小与 SHA-256 和发布正文一致；
-- 解压 zip，在隐藏/失效共享 .NET 的环境运行 `Augit.exe`，确认 ProductVersion、窗口和退出；
-- 在欢迎页 → Choose Directory → 目标目录，确认最终只有一个项目窗口；
-- 在 Git Log 点击 branch chip，确认分组默认折叠、展开后目录组/滚动/搜索符合 PyCharm 参照；
-- 在 Windows 10 22H2 实机复验首次启动、选择目录、分支弹层和正常退出；
-- 把实际结果、构建提交和资产哈希回填到本节。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS（见 §3）。
+- 实际 Release 包的分支弹层默认折叠、目录组、滚动、搜索、无命中提示、快捷键、无右侧面板均通过 CDP。
+- 安装器版本资源与未签名状态已核对。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.8 的首次启动/选择目录/分支弹层；干净虚拟机/全新系统安装也未验证。
 
-回填状态：**待发布后核对**。
+状态：**PASS**（Win10 22H2 实机与干净安装复验除外）。

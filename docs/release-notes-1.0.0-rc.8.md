@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-27
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：tag `v1.0.0-rc.8` 指向的提交（由 GitHub Actions 构建；`Augit.exe` ProductVersion 内含提交号）
+- 构建源提交：`4d300cb208d314716e621f548b6872e64893955c`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.8`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -21,11 +21,15 @@ rc.7 的欢迎页单窗口、分支树折叠、欢迎页不轮询 `workspace/cha
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.8-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.8/Augit-1.0.0-rc.8-win-x64-setup.exe) | 5,018,346 B | `36e656da0ff2dc986589189e37e80f1621ef071d1943d12219cd2128792694a3` |
+| [Augit-1.0.0-rc.8-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.8/Augit-1.0.0-rc.8-win-x64-portable.zip) | 39,137,822 B | `78bc1f44b7be262fd39f8259e422cf4374ee0a1f11ca70cd2af5c36f922c2f38` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.8/SHA256SUMS.txt) | 205 B | `4fde0ae3b53c8e22288b26d7e9fe621654d0cd403758c92a779b1b4d1c3572fb` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.8>
 
-- 上表由发布流水线从本次实际构建的 `SHA256SUMS.txt` 生成；下载后请以 Release 附件中的 `SHA256SUMS.txt` 复核。
+- 上表与 Release 正文、附件 `SHA256SUMS.txt` 一致；发布后已匿名下载复核。
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只要求系统已有 Microsoft Edge WebView2 Runtime。
 - **安装版**：按需联网的小型安装器，需要管理员权限；缺少 .NET 10/WebView2 时先说明，经确认后下载并校验。
 - 两种包共用 `%LOCALAPPDATA%\Augit` 中的个人设置。
@@ -34,10 +38,12 @@ rc.7 的欢迎页单窗口、分支树折叠、欢迎页不轮询 `workspace/cha
 
 - Release 构建：0 警告、0 错误。
 - 测试：Core **72/72**、Shell **271/271**、Infrastructure **207/207**；托管 CI 排除 4 个需要交互式控制台的 ConPTY 用例。
-- CDP 实测（合成仓库：8 + 80 个本地分支、1 个远端引用、1 个标签）：
+- 发布后匿名下载实际 Release 便携包，隐藏共享 .NET（`DOTNET_ROOT` 不存在）启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **460.1ms**、关闭 **108ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.8+4d300cb…`。
+- 实际 Release 包 CDP 实测（合成仓库：8 + 80 个本地分支、1 个远端引用、1 个标签）：
   - 弹层打开时 `Recent`/`Local`/`Remote`/`Tags` 全部折叠，弹层高度约 **272px**；
   - 展开 `Local` 后目录组 `bulk`/`codex`/`feature` 正确显示，树区 `overflow-y:auto`，`scrollHeight 2335 > clientHeight 461`；
-  - 搜索 `codex` 后只剩 `Local`/`Local/codex` 与 3 个 `codex/*` 行；清空后恢复折叠/展开状态；
+  - 搜索 `codex` 后只剩 `Local`/`Local/codex` 与 3 个 `codex/*` 行；清空后恢复折叠/展开状态；无命中显示 `No matching branches`；
+  - 顶部快捷键 `Ctrl+T`/`Ctrl+K`/`Ctrl+Shift+K`/`Ctrl+Alt+N` 存在；
   - 无右侧 `.branch-actions` 常驻面板。
 - 实际 Release 包仍需在 Windows 10 22H2 实机复验；rc.2/rc.3 的双屏/DPI/安装证据不覆盖本版 UI 路径。
 
