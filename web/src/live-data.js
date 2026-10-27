@@ -12986,8 +12986,11 @@ function bindOverlayEscape() {
 /**
  * 非模态弹层的外部点击关闭。
  *
- * PyCharm 的分支弹层、搜索浮层、文件树/Git 右键菜单在点击弹层外任意位置时关闭，
- * 且这次点击只负责关闭，不继续落到下层控件。此前 context menu 的覆盖层铺满窗口，
+ * PyCharm 的分支弹层、搜索浮层、文件树/Git 右键菜单在点击弹层外任意位置时关闭；
+ * 如果那个位置下面正好是按钮、树行、标签或链接，关闭后这次点击继续作用到它（不是吞掉点击）。
+ * 全屏覆盖层在 pointerdown 阶段移除后，pointerup 的目标会变成下面的控件，浏览器不会再
+ * 为 down/up 不同目标生成 click，因此在 pointerup 补一次；搜索浮层/标题栏菜单没有全屏层，
+ * pointerdown 目标本来就是下面的控件，不需要补。此前 context menu 的覆盖层铺满窗口，
  * 但层本身没有点击处理；`search-overlay` 也没有 scrim，于是弹层会一直挂着。
  *
  * 模态 `.dialog` 不在此处理：它有自己的 scrim/取消逻辑，点外不应关闭。
@@ -12995,22 +12998,7 @@ function bindOverlayEscape() {
 function bindOverlayOutsideClick() {
   if (!window.__augitLive || window.__augitOverlayOutsideBound) return;
   window.__augitOverlayOutsideBound = true;
-  const suppressNextClick = () => {
-    let done = false;
-    const block = (clickEvent) => {
-      if (done) return;
-      done = true;
-      clickEvent.preventDefault();
-      clickEvent.stopImmediatePropagation();
-      document.removeEventListener("click", block, true);
-    };
-    document.addEventListener("click", block, true);
-    window.setTimeout(() => {
-      if (done) return;
-      done = true;
-      document.removeEventListener("click", block, true);
-    }, 500);
-  };
+
   document.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     const target = event.target;
@@ -13018,13 +13006,10 @@ function bindOverlayOutsideClick() {
     // 模态对话框的外部点击交给它自己的遮罩/取消逻辑。
     if (document.querySelector("[data-augit-overlay].live-overlay .dialog")) return;
 
-    // 标题栏汉堡菜单是内嵌节点，不是覆盖层；点菜单外也要恢复标准标题栏。
+    // 标题栏汉堡菜单是内嵌节点，不是覆盖层；点菜单外恢复标准标题栏，点击继续生效。
     const titleMenu = document.querySelector(".titlebar .main-menu-bar");
     if (titleMenu && !target.closest(".main-menu-bar") && !target.closest("[data-action='menu']")) {
       closeMainMenu();
-      suppressNextClick();
-      event.preventDefault();
-      event.stopPropagation();
       return;
     }
 
@@ -13032,9 +13017,6 @@ function bindOverlayOutsideClick() {
     const openDetails = [...document.querySelectorAll("details[open]")];
     if (openDetails.length > 0 && !target.closest("details[open]")) {
       openDetails.forEach((node) => { node.open = false; });
-      suppressNextClick();
-      event.preventDefault();
-      event.stopPropagation();
       return;
     }
 
@@ -13047,15 +13029,45 @@ function bindOverlayOutsideClick() {
     if (hasDialog) return;
 
     const top = layers.at(-1);
-    // 点击落在弹层内容（菜单/树/搜索框）上：交给原本的控件处理。
     const content = target.closest(".popover, .menu-list, .search-overlay, [role='menu'], [role='dialog']");
     if (content && top.contains(content)) return;
 
-    // 点击覆盖层背景或弹层外部：只关闭，不让这次点击继续触发下层控件。
-    suppressNextClick();
-    event.preventDefault();
-    event.stopPropagation();
+    // 全屏 `.overlay-layer` 会把 pointerdown 的目标截在层上；关闭层后 pointerup
+    // 会落到下面的真实控件，但浏览器不会为 down/up 不同目标生成 click。
+    // 因此在 pointerup 时按坐标补一次 click，且只补一次；搜索浮层/标题栏菜单
+    // 没有全屏层，pointerdown 目标本来就是下面的控件，不需要补。
+    const coveredByLayer = top.contains(target);
+    const startX = event.clientX;
+    const startY = event.clientY;
     closeLiveOverlay();
+    if (!coveredByLayer) return;
+
+    let done = false;
+    const cleanup = () => {
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+    };
+    const onPointerCancel = () => { done = true; cleanup(); };
+    const onPointerUp = (upEvent) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (upEvent.button !== 0) return;
+      if (Math.hypot(upEvent.clientX - startX, upEvent.clientY - startY) > 8) return;
+      const hit = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+      if (!hit) return;
+      const actionable = hit.closest(
+        "a, button, input, select, textarea, label, [role='tab'], [role='button'], "
+        + "[role='treeitem'], .tree-row, .editor-tab, .tab, .commit-row, .change-row, .check-row");
+      if (!actionable || actionable.matches("[disabled], [aria-disabled='true']")) return;
+      // 这次 click 是对触摸/鼠标序列的补发，阻止原始 pointerup 再触发一次。
+      upEvent.preventDefault();
+      upEvent.stopPropagation();
+      if (typeof actionable.click === "function") actionable.click();
+      else actionable.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    };
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
   }, true);
 }
 

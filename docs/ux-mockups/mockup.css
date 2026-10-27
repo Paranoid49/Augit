@@ -1144,7 +1144,7 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
 .code-line, .code-line span, .code-line mark, .diff-code-line, .diff-code-line span,
 .diff-gutter-cell, .diff-gutter > div, .unified-diff-line, .unified-diff-line span,
 .blame-row, .blame-row > span { letter-spacing: var(--code-letter-spacing, 0px); }
-.code-lines { width: max-content; min-width: 100%; }
+.code-lines { width: max-content; min-width: 100%; padding-bottom: 12px; }
 
 .code-line {
   min-height: var(--code-line-height, 22px);
@@ -1202,13 +1202,23 @@ body[data-theme="dark"] .file-type-css { color: #548af7; }
 .line-number {
   position: sticky;
   left: 0;
-  padding-right: 3px;
+  /* PyCharm 的行号在 gutter 内左对齐，竖线在 gutter 右缘；行号本身靠近左缘。 */
+  padding-left: 8px;
+  padding-right: 8px;
   /* 行号文字色取配色方案 LINE_NUMBERS_COLOR（浅 aeb3c2 / 深 4b5059），不是 muted；
      参考截图行号区实测 #AEB3C2。 */
   color: var(--augit-line-number);
-  background: var(--augit-panel);
-  text-align: right;
+  /* 行号栏底色必须与编辑区一致（深色下 --augit-panel 不是编辑器底色）。 */
+  background: var(--augit-editor-bg);
+  /* PyCharm 的 gutter 与正文之间有一条细竖线。 */
+  border-right: var(--augit-hairline) solid var(--augit-border);
+  text-align: left;
   user-select: none;
+}
+
+.code-line > span:nth-child(2) {
+  /* 竖线之后给正文留出与 PyCharm 相同的左内距。 */
+  padding-left: 6px;
 }
 
 .code-line.active {

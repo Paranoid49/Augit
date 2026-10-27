@@ -1706,7 +1706,7 @@ function measureCodeViews() {
     const spacing = codeLetterSpacing(style.fontFamily, parseFloat(style.fontSize), scale);
     view.style.setProperty('--code-letter-spacing', `${spacing}px`);
     const gutter = Math.round((context.measureText("9".repeat(digits)).width + digits * spacing) * scale) / scale
-      + Math.round(28 * scale) / scale;
+      + Math.round(36 * scale) / scale;
     view.style.setProperty("--code-gutter-width", `${gutter}px`);
     view.style.setProperty("--code-line-height", `${codeLineHeight(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
     view.style.setProperty('--code-baseline-shift', `${codeBaselineShift(style.fontFamily, parseFloat(style.fontSize), scale)}px`);
