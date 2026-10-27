@@ -2,6 +2,20 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [1.0.0-rc.7] - 2026-10-27
+
+### Fixed
+
+- **首次打开出现两个窗口**：从欢迎页成功启动/激活目标项目后关闭欢迎窗口；目标窗口成为唯一项目窗口。
+- **分支列表无法折叠**：全局恢复 `[hidden] { display: none !important; }`，修复 `.tree-row { display:flex }` 覆盖 `hidden` 导致折叠/搜索过滤只改属性、行仍可见的问题；`Local`、`codex` 等分组现在真正隐藏。
+- **分支弹层右侧动作面板无条件出现**：移除 `liveBranchesPopover()` 中常驻的“当前分支动作”面板；默认只显示分支/标签列表，行动作仍通过右键/菜单键/Shift+F10 打开。
+- **欢迎页 `workspace/changes` 超时 toast**：欢迎空目录不再启动 changes 轮询，也不读取 Git 状态/历史/引用。
+
+### Changed
+
+- 行尾 chevron 暂只作视觉提示，完整行内二级菜单未实现；在已知限制中登记。
+- 其余 rc.6 修复保持不变：`SHBrowseForFolder` 输出缓冲区、`--workspace` 新窗口参数、CETCompat、async void 边界、本地日志。
+
 ## [1.0.0-rc.6] - 2026-10-26
 
 ### Fixed

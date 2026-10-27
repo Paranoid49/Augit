@@ -5,7 +5,7 @@
     <!-- 发布产物使用产品名 Augit，与安装器、审计脚本和用户可见的进程名保持一致。 -->
     <AssemblyName>Augit</AssemblyName>
     <RootNamespace>Augit.Shell</RootNamespace>
-    <Version>1.0.0-rc.6</Version>
+    <Version>1.0.0-rc.7</Version>
     <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

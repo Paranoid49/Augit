@@ -5818,11 +5818,10 @@ const row = (branch, selected) => `<div class="menu-item${selected ? " selected"
   const groups = group("Local", local.map(branch => row(branch, branch.isCurrent)))
     + group("Remote", remote.map(branch => row(branch, false)))
     + group("Tags", tags.map(tag => `<div class="menu-item" data-branch="${escapeHtml(tag.name)}" data-branch-kind="tag">${gitReferenceIcon("tag")} ${escapeHtml(tag.name)}<span class="grow"></span>${icon("chevron-right")}</div>`));
-  const current = local.find(branch => branch.isCurrent);
-  const actions = current
-    ? `<section class="popover branch-actions"><a class="menu-item" href="smart-checkout.html" data-branch-action="create">${icon("plus")} From ${escapeHtml(current.name)} New Branch…</a><a class="menu-item" href="git-compare.html" data-popover-action="compare-workspace">${icon("git-compare-arrows")} Compare with Workspace</a><a class="menu-item" href="worktrees.html" data-popover-action="create-worktree">${icon("folder-git-2")} New Worktree…</a><div class="menu-separator"></div><a class="menu-item" href="push.html">${icon("branch-push")} Push…</a><a class="menu-item" href="branches.html" data-branch-action="rename">${icon("rename")} Rename…</a></section>`
-    : "";
-  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">No references</p>'}</section>${actions}</div>`;
+  // 分支行自己的动作组**只在用户右键该行时出现**（见 live-data.js 的 openRefMenu）；
+  // 不能在打开分支列表时把"当前分支"的动作常驻在右侧。2026-10-27 实机反馈：右侧面板
+  // 会在分支弹层打开时无条件出现，遮挡日志且不是 PyCharm 的行为。
+  return `<div class="overlay-layer" data-augit-overlay><section class="popover branches-popover">${quick}${groups || '<p class="commit-meta">No references</p>'}</section></div>`;
 }
 
 /**

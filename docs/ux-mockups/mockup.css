@@ -270,6 +270,12 @@
   letter-spacing: 0;
 }
 
+/* `hidden` 是全局状态契约：`.tree-row` 等组件自己声明了 `display: flex`，会覆盖 UA 的
+   `[hidden] { display: none }`，导致折叠/过滤只改了属性、行仍然可见。这里统一恢复语义。 */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   width: 100%;

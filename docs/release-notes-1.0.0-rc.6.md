@@ -1,5 +1,7 @@
 # Augit 1.0.0-rc.6 发布说明
 
+> **2026-10-27 后续**：rc.7 修复欢迎页双窗口、分支树折叠和分支弹层右侧动作面板；本文保留 rc.6 历史记录，当前版本见 [rc.7 发布说明](release-notes-1.0.0-rc.7.md)。
+
 - 发布日期：2026-10-26
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
 - 构建源提交：`c7c0b5b0a35ba119a5a78da00d0f1c00000717d2`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）

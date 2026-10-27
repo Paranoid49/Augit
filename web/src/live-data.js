@@ -3718,7 +3718,7 @@ async function pollWorkspaceChanges() {
 }
 
 function startWorkspaceChangePolling() {
-  if (!hasHost()) return;
+  if (!hasHost() || isWelcomeWorkspace) return;
   // 推送只唤醒同一个消费入口，原子取走宿主批次；否则两秒兜底会再次应用已推送的变化。
   // 不按路径或时间去重，同一文件连续真实变化仍须逐批读取。
   subscribe("workspace-changed", () => {
@@ -10512,6 +10512,14 @@ async function openWorkspacePath(path) {
     return null;
   }
 
+  // 首次启动的欢迎窗口只是启动页，不是用户项目。目标窗口已经启动/激活后关闭自己，
+  // 避免 Welcome 和目标项目两个窗口同时存在（PyCharm 的 Welcome 也是被项目窗口取代）。
+  if (isWelcomeWorkspace && payload.opened !== "current" && !window.__augitWelcomeClosing) {
+    window.__augitWelcomeClosing = true;
+    void invoke("window/close").catch(() => {});
+    return payload;
+  }
+
   window.__augitWorkspaceOpened = payload.opened;
   setWorkspaceNotice(
     payload.opened === "current"
@@ -14090,8 +14098,11 @@ async function boot() {
       root: "", rootPath: "", name: "Workspace", workspaceName: "Workspace", valid: false,
       branch: null, isDetached: false, changeCount: 0, tree: [], tabs: [], layout: readInitialLayout(),
     };
-    statusPromiseRef = loadStatus();
-    historyPromiseRef = loadHistory();
+    // 欢迎页不是用户项目：不要为 %LOCALAPPDATA%\Augit\Welcome 读 Git 状态/历史/引用，
+    // 也不启动 workspace/changes 轮询。否则空目录仍会走 10 秒超时并在启动页弹
+    // "Cannot Read Workspace Changes"（2026-10-27 实机截图）。
+    statusPromiseRef = isWelcomeWorkspace ? Promise.resolve(null) : loadStatus();
+    historyPromiseRef = isWelcomeWorkspace ? Promise.resolve(null) : loadHistory();
     let startupTimer;
     try {
       await Promise.race([
@@ -14188,7 +14199,7 @@ async function boot() {
     window.__augitGitReady = true;
   }
 
-  const referencesPromise = hasHost() ? loadReferences() : Promise.resolve(null);
+  const referencesPromise = hasHost() && !isWelcomeWorkspace ? loadReferences() : Promise.resolve(null);
   const history = await historyPromiseRef;
   if (history) {
     document.addEventListener("history-commit-selected", () => {
