@@ -59,8 +59,8 @@
 - **Windows 10 22H2 加固**：apphost 显式 `CETCompat=false`；首次启动在无有效最近目录且当前目录为程序目录时使用 `%LOCALAPPDATA%\Augit\Welcome` 并显示「Open Workspace」，不再把发布目录当项目或自动弹出创建仓库；`OnWebMessageReceived`/`OnNavigationCompleted` 增加 async void 异常边界；`git init` 增加 30 秒超时和本地路径校验。上述修复仍需在用户出问题的 Win10 22H2 机器上复验。
 - **本地诊断日志**：`%LOCALAPPDATA%\Augit\logs\augit.log` 记录启动、桥接异常、watcher 初始化异常和 WebView2 进程失败；不上传、不记录文件内容/Git 输出/凭据。若 rc.7 仍异常退出，日志为空时需要同时提供 Windows 应用程序日志中的 `Application Error`/`.NET Runtime` 事件。
 - 便携包解压启动、必需文件/许可证、web 资源一致性、版本与关闭清理已验证。
-- 安装版仍是 framework-dependent 联网安装器：本机以管理员完成 **0.1.0 安装 → 1.0.0-rc.2 覆盖升级 → 静默卸载**，退出码均 0；PATH 逐字恢复、右键菜单/开始菜单清理、用户设置哈希不变、.NET/WebView2 共享运行时未变。rc.3/rc.4 不改变安装器逻辑。
-- Windows 10 22H2 实机完成 rc.2 源码重建包的便携运行与静默安装：安装器检测到系统缺少 .NET 10，显示中文确认提示；确认后下载 `30,604,768` 字节的 .NET 10.0.11 安装包、校验并安装，随后完成 Augit 安装；安装版从 `C:\Program Files\Augit\Augit.exe` 启动正常。该证据适用于 rc.4 安装版的 .NET 检测/下载链路，但不覆盖 rc.4 的启动路径修复。
+- 安装版仍是 framework-dependent 联网安装器：本机以管理员完成 **0.1.0 安装 → 1.0.0-rc.2 覆盖升级 → 静默卸载**，退出码均 0；PATH 逐字恢复、右键菜单/开始菜单清理、用户设置哈希不变、.NET/WebView2 共享运行时未变。rc.3–rc.7 不改变安装器逻辑。
+- Windows 10 22H2 实机完成 rc.2 源码重建包的便携运行与静默安装：安装器检测到系统缺少 .NET 10，显示中文确认提示；确认后下载 `30,604,768` 字节的 .NET 10.0.11 安装包、校验并安装，随后完成 Augit 安装；安装版从 `C:\Program Files\Augit\Augit.exe` 启动正常。该证据适用于 rc.7 安装版的 .NET 检测/下载链路，但不覆盖 rc.7 的启动路径修复。
 - 安装器在**真实缺少 WebView2** 的机器上的确认、联网下载、取消、下载失败和重试路径未实测；本机 WebView2 齐全。干净虚拟机/全新系统安装也未验证。
 - 安装器不提供包含完整运行时的离线包；便携包自带 .NET，但仍要求系统已有 WebView2。无自动更新。
 - 公开 Release 只包含便携 zip、安装器与 `SHA256SUMS.txt`；原始截图、日志和本机验收报告不在公开仓库或 Release 中。
