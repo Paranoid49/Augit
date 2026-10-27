@@ -7088,10 +7088,13 @@ function bindInteractions() {
       if (!button) return;
 
       const title = document.querySelector(".titlebar");
-      if (title.querySelector(".main-menu-bar")) {
-        title.outerHTML = titlebar();
+      if (window.__augitOpenMainMenuBar && !title.querySelector(".main-menu-bar[data-menu-mode]")) {
+        window.__augitOpenMainMenuBar();
+      } else if (title.querySelector(".main-menu-bar")) {
+        if (window.__augitCloseMainMenu) window.__augitCloseMainMenu();
+        else title.outerHTML = titlebar();
       } else {
-        title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><button class="top-button" aria-label="Close Main Menu" data-action="menu">${icon("menu")}</button><nav class="main-menu-bar"><a class="main-menu-entry" href="workspace-open.html">File</a><a class="main-menu-entry" href="main-project.html">View</a><a class="main-menu-entry" href="git-history.html">Git</a><a class="main-menu-entry" href="terminal.html">Terminal</a><a class="main-menu-entry" href="settings.html">Settings</a></nav><span></span><span></span><nav class="window-actions" aria-label="Window Tools">${windowActionIcons()}</nav>`;
+        title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div><nav class="main-menu-bar"><a class="main-menu-entry" href="#" data-main-menu-action="file">File</a><a class="main-menu-entry" href="#" data-main-menu-action="view">View</a><a class="main-menu-entry" href="#" data-main-menu-action="git">Git</a></nav><span></span><span></span><nav class="window-actions" aria-label="Window Tools">${windowActionIcons()}</nav>`;
       }
     });
 
@@ -7103,7 +7106,8 @@ function bindInteractions() {
       const title = document.querySelector(".titlebar");
       if (title && title.querySelector(".main-menu-bar")) {
         event.preventDefault();
-        title.outerHTML = titlebar();
+        if (window.__augitCloseMainMenu) window.__augitCloseMainMenu();
+        else title.outerHTML = titlebar();
         return;
       }
 

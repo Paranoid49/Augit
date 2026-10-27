@@ -5970,6 +5970,7 @@ function rebindAfterRender() {
   restoreTreeState();
   bindOverlayEscape();
   bindOverlayOutsideClick();
+  bindTitlebarMenuHover();
   bindTitlebarMenuEscape();
   bindWindowChrome();
   bindManagementFieldDraft();
@@ -8057,14 +8058,17 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 标题栏内嵌菜单的五个入口（规格 §5.1）：
-    // 必须放在"链接兜底"之前，否则会先被记成未接线动作。
+    // 标题栏主菜单入口（File / View / Git）：保持菜单模式，打开对应动作弹层。
+    // 旧视觉稿的 Terminal/Settings 文本入口仍保留兼容分支，但实时外壳不再渲染它们。
     const menuEntry = event.target.closest && event.target.closest(".titlebar .main-menu-entry");
     if (menuEntry) {
+      event.preventDefault();
+      if (menuEntry.dataset.mainMenuAction) {
+        openMainMenuPopover(menuEntry.dataset.mainMenuAction);
+        return;
+      }
       const menuAction = MAIN_MENU_ACTIONS[(menuEntry.textContent || "").trim()];
       if (menuAction) {
-        event.preventDefault();
-        // 规格：终端与设置执行前先恢复普通标题栏。
         closeMainMenu();
         void runMainMenuAction(menuAction);
         return;
@@ -13008,7 +13012,13 @@ function bindOverlayOutsideClick() {
 
     // 标题栏汉堡菜单是内嵌节点，不是覆盖层；点菜单外恢复标准标题栏，点击继续生效。
     const titleMenu = document.querySelector(".titlebar .main-menu-bar");
-    if (titleMenu && !target.closest(".main-menu-bar") && !target.closest("[data-action='menu']")) {
+    if (titleMenu && !target.closest(".main-menu-bar") && !target.closest("[data-action='menu']")
+      && !target.closest(".main-menu-popover")) {
+      // 标题栏右侧的搜索/设置/窗口按钮本身要执行；先让 click 完成，再恢复标题栏。
+      if (target.closest(".titlebar .window-actions")) {
+        window.setTimeout(() => closeMainMenu(), 0);
+        return;
+      }
       closeMainMenu();
       return;
     }
@@ -13240,10 +13250,60 @@ const MAIN_MENU_ACTIONS = {
   Git: "git",
 };
 
-/** 恢复标准标题栏（内嵌菜单收起）。 */
+/** 恢复标准标题栏（内嵌菜单收起），同时关闭它下面的动作弹层。 */
 function closeMainMenu() {
   const host = document.querySelector(".titlebar");
-  if (host && host.querySelector(".main-menu-bar")) host.outerHTML = titlebar();
+  if (!host || !host.querySelector(".main-menu-bar")) return;
+  host.outerHTML = titlebar();
+  closeLiveOverlay();
+}
+
+window.__augitCloseMainMenu = closeMainMenu;
+
+/**
+ * 打开标题栏主菜单模式（三条杠 → File / View / Git）。
+ *
+ * 三条杠消失，菜单从原三条杠的位置开始；默认 File 高亮并打开 File 菜单。
+ * Terminal/Settings 不再占顶层入口；Settings 收进 File 菜单。
+ */
+window.__augitOpenMainMenuBar = () => {
+  const title = document.querySelector(".titlebar");
+  if (!title) return;
+  const actions = title.querySelector(".window-actions")?.outerHTML || "";
+  title.innerHTML = `<div class="brand-mark" aria-label="Augit">A</div>`
+    + `<nav class="main-menu-bar" data-menu-mode="true" aria-label="Main Menu">`
+    + `<a class="main-menu-entry" href="#" data-main-menu-action="file" role="menuitem">File</a>`
+    + `<a class="main-menu-entry" href="#" data-main-menu-action="view" role="menuitem">View</a>`
+    + `<a class="main-menu-entry" href="#" data-main-menu-action="git" role="menuitem">Git</a>`
+    + `</nav><span></span><span></span>${actions}`;
+  const file = title.querySelector('[data-main-menu-action="file"]');
+  if (file) file.classList.add("active");
+  openMainMenuPopover("file");
+};
+
+/**
+ * 主菜单 Hover 行为：进入 File/View/Git 即开对应菜单；指针完整离开
+ * 标题栏与当前菜单后恢复标准标题栏。不需要点击，也不保留 Terminal 顶层入口。
+ */
+function bindTitlebarMenuHover() {
+  if (!window.__augitLive || window.__augitTitlebarHoverBound) return;
+  window.__augitTitlebarHoverBound = true;
+  document.addEventListener("pointerover", (event) => {
+    const entry = event.target.closest?.(".titlebar .main-menu-entry[data-main-menu-action]");
+    if (!entry || !document.querySelector(".titlebar .main-menu-bar[data-menu-mode]")) return;
+    openMainMenuPopover(entry.dataset.mainMenuAction);
+  }, true);
+  document.addEventListener("pointermove", (event) => {
+    const bar = document.querySelector(".titlebar .main-menu-bar[data-menu-mode]");
+    if (!bar) return;
+    const title = document.querySelector(".titlebar");
+    const menu = document.querySelector(".main-menu-popover .menu-list");
+    const inRect = (rect, pad = 0) => rect
+      && event.clientX >= rect.left - pad && event.clientX <= rect.right + pad
+      && event.clientY >= rect.top - pad && event.clientY <= rect.bottom + pad;
+    if (inRect(title?.getBoundingClientRect()) || inRect(menu?.getBoundingClientRect(), 6)) return;
+    closeMainMenu();
+  }, true);
 }
 
 async function runMainMenuAction(action) {
@@ -13270,6 +13330,16 @@ function openMainMenuPopover(action) {
   const host = document.querySelector(".augit-window");
   const titlebarNode = document.querySelector(".titlebar");
   if (!live || !host || !titlebarNode) return;
+  const entry = titlebarNode.querySelector(`.main-menu-entry[data-main-menu-action="${CSS.escape(action)}"]`);
+  if (!entry) return;
+  const current = document.querySelector(".main-menu-popover");
+  if (current?.dataset.mainMenuAction === action) {
+    // 同一个入口重复 hover：只更新高亮，不重建 DOM，避免鼠标经过子节点时闪动。
+    titlebarNode.querySelectorAll(".main-menu-entry").forEach((node) => {
+      node.classList.toggle("active", node === entry);
+    });
+    return;
+  }
   rememberDialogFocus();
   closeLiveOverlay();
   const items = MAIN_MENU_POPOVERS[action] || [];
@@ -13280,9 +13350,21 @@ function openMainMenuPopover(action) {
   const layer = template.content.firstElementChild;
   if (!layer) return;
   layer.setAttribute("data-augit-overlay", "");
-  const rect = titlebarNode.getBoundingClientRect();
-  layer.querySelector(".menu-list").style.top = `${Math.round(rect.bottom + 4)}px`;
+  layer.dataset.mainMenuAction = action;
   host.appendChild(layer);
+  // menu-list 是绝对定位；必须同时给 left/top，否则会按普通流落到窗口底部。
+  const hostRect = host.getBoundingClientRect();
+  const entryRect = entry.getBoundingClientRect();
+  const menu = layer.querySelector(".menu-list");
+  menu.style.top = `${Math.round(entryRect.bottom - hostRect.top + 4)}px`;
+  menu.style.left = `${Math.round(entryRect.left - hostRect.left)}px`;
+  const menuRect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(
+    Math.round(entryRect.left - hostRect.left),
+    Math.round(hostRect.width - menuRect.width - 4)))}px`;
+  titlebarNode.querySelectorAll(".main-menu-entry").forEach((node) => {
+    node.classList.toggle("active", node === entry);
+  });
   const first = layer.querySelector(".menu-item");
   if (first) first.focus({ preventScroll: true });
 }
@@ -13296,7 +13378,13 @@ function openMainMenuPopover(action) {
 async function runMainMenuPopoverAction(action) {
   const live = window.__augitLive;
   closeLiveOverlay();
+  closeMainMenu();
   if (!live || !action) return;
+
+  if (action === "settings") {
+    openSettingsDialog();
+    return;
+  }
 
   if (action === "workspace-open") {
     openWorkspaceDialog();
@@ -13371,6 +13459,7 @@ const MAIN_MENU_POPOVERS = {
   file: [
     { action: "workspace-open", label: "Open Workspace…" },
     { action: "refresh-tree", label: "Refresh Project Tree" },
+    { action: "settings", label: "Settings…" },
   ],
   view: [
     { action: "toggle-side", label: "Show/Hide Project Tool Window" },
@@ -14147,6 +14236,7 @@ async function bootSettingsSurface() {
   window.__augitBind?.();
   bindOverlayEscape();
   bindOverlayOutsideClick();
+  bindTitlebarMenuHover();
   bindModalBackground();
   subscribe('settings/cancel',()=>closeSettingsDialog());
   subscribe('theme/changed',payload=>{if((window.__augitLive.settingsDraft.theme||window.__augitLive.settings.theme)==='System')applyPageTheme(payload.theme);});

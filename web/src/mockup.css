@@ -4781,6 +4781,33 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   gap: 1px;
 }
 
+.main-menu-entry.active {
+  background: var(--title-menu-hover);
+}
+
+/* 三条杠菜单模式：标题栏只保留品牌、File/View/Git 与右侧窗口按钮。
+   菜单弹层必须绝对定位到入口下方；`.overlay-layer` 默认 display:contents 会让
+   `.menu-list` 按普通流落到窗口底部（实机截图里的 Git 菜单因此出现在最下方）。 */
+.overlay-layer.main-menu-popover {
+  position: absolute;
+  inset: 0;
+  display: block;
+  z-index: 20;
+  /* 只让菜单本身接收指针；否则全屏层会盖住 File/View/Git，hover 永远进不来。 */
+  pointer-events: none;
+}
+.main-menu-popover .menu-list {
+  position: absolute;
+  min-width: 220px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 7px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  border-radius: 8px;
+  background: var(--augit-popup-bg);
+  box-shadow: 0 12px 34px color-mix(in srgb, #000000 20%, transparent);
+  pointer-events: auto;
+}
+
 .main-menu-entry {
   height: var(--augit-title-text-height);
   display: inline-flex;
