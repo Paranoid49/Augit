@@ -5969,6 +5969,7 @@ function rebindAfterRender() {
   // 项目树的位置与树内焦点同样跨重绘保留（规格 §6 第 37 条）。
   restoreTreeState();
   bindOverlayEscape();
+  bindOverlayOutsideClick();
   bindTitlebarMenuEscape();
   bindWindowChrome();
   bindManagementFieldDraft();
@@ -12904,8 +12905,7 @@ function closeLiveOverlay({ topOnly = false } = {}) {
 function bindOverlayEscape() {
   if (!window.__augitLive || window.__augitOverlayEscBound) return;
   window.__augitOverlayEscBound = true;
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape") return;
+  document.addEventListener("keydown", (event) => {    if (event.key !== "Escape") return;
     if (event.defaultPrevented) return;
     // 组词中的 Esc 交给输入法（规格 §5.3）。
     if (event.isComposing || event.keyCode === 229) return;
@@ -12980,6 +12980,82 @@ function bindOverlayEscape() {
 
     overlay.remove();
     event.stopImmediatePropagation();
+  }, true);
+}
+
+/**
+ * 非模态弹层的外部点击关闭。
+ *
+ * PyCharm 的分支弹层、搜索浮层、文件树/Git 右键菜单在点击弹层外任意位置时关闭，
+ * 且这次点击只负责关闭，不继续落到下层控件。此前 context menu 的覆盖层铺满窗口，
+ * 但层本身没有点击处理；`search-overlay` 也没有 scrim，于是弹层会一直挂着。
+ *
+ * 模态 `.dialog` 不在此处理：它有自己的 scrim/取消逻辑，点外不应关闭。
+ */
+function bindOverlayOutsideClick() {
+  if (!window.__augitLive || window.__augitOverlayOutsideBound) return;
+  window.__augitOverlayOutsideBound = true;
+  const suppressNextClick = () => {
+    let done = false;
+    const block = (clickEvent) => {
+      if (done) return;
+      done = true;
+      clickEvent.preventDefault();
+      clickEvent.stopImmediatePropagation();
+      document.removeEventListener("click", block, true);
+    };
+    document.addEventListener("click", block, true);
+    window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      document.removeEventListener("click", block, true);
+    }, 500);
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    // 模态对话框的外部点击交给它自己的遮罩/取消逻辑。
+    if (document.querySelector("[data-augit-overlay].live-overlay .dialog")) return;
+
+    // 标题栏汉堡菜单是内嵌节点，不是覆盖层；点菜单外也要恢复标准标题栏。
+    const titleMenu = document.querySelector(".titlebar .main-menu-bar");
+    if (titleMenu && !target.closest(".main-menu-bar") && !target.closest("[data-action='menu']")) {
+      closeMainMenu();
+      suppressNextClick();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // 原生 <details> 下拉（历史筛选溢出菜单等）没有全局 light-dismiss，补同样的行为。
+    const openDetails = [...document.querySelectorAll("details[open]")];
+    if (openDetails.length > 0 && !target.closest("details[open]")) {
+      openDetails.forEach((node) => { node.open = false; });
+      suppressNextClick();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    const layers = [...document.querySelectorAll("[data-augit-overlay].live-overlay")]
+      .filter((node) => node.isConnected && !node.hidden);
+    if (layers.length === 0) return;
+    // 模态对话框存在时，外部点击交给它自己的遮罩/取消逻辑。
+    const hasDialog = layers.some((layer) => layer.matches(".dialog")
+      || !!layer.querySelector(":scope > .dialog"));
+    if (hasDialog) return;
+
+    const top = layers.at(-1);
+    // 点击落在弹层内容（菜单/树/搜索框）上：交给原本的控件处理。
+    const content = target.closest(".popover, .menu-list, .search-overlay, [role='menu'], [role='dialog']");
+    if (content && top.contains(content)) return;
+
+    // 点击覆盖层背景或弹层外部：只关闭，不让这次点击继续触发下层控件。
+    suppressNextClick();
+    event.preventDefault();
+    event.stopPropagation();
+    closeLiveOverlay();
   }, true);
 }
 
@@ -14058,6 +14134,7 @@ async function bootSettingsSurface() {
   await loadSettings(() => true, window.__augitLive.settings);
   window.__augitBind?.();
   bindOverlayEscape();
+  bindOverlayOutsideClick();
   bindModalBackground();
   subscribe('settings/cancel',()=>closeSettingsDialog());
   subscribe('theme/changed',payload=>{if((window.__augitLive.settingsDraft.theme||window.__augitLive.settings.theme)==='System')applyPageTheme(payload.theme);});
