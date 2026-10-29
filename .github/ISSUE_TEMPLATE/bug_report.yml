@@ -1,5 +1,5 @@
 name: Bug report / 缺陷报告
-description: 报告 Augit 1.0.0-rc.8 的可复现问题
+description: 报告 Augit 1.0.0-rc.9 的可复现问题
 title: '[Bug] '
 labels:
   - bug
@@ -14,7 +14,7 @@ body:
     attributes:
       label: Augit 版本
       description: 安装器标题、`Augit.exe` 文件属性或「设置 > 关于」中的 ProductVersion。
-      placeholder: '例如 1.0.0-rc.8+<构建提交>'
+      placeholder: '例如 1.0.0-rc.9+<构建提交>'
     validations:
       required: true
   - type: dropdown
