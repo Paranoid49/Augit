@@ -6779,6 +6779,23 @@ function guardUnwiredNavigation() {
   window.__augitNavGuarded = true;
   window.addEventListener("click", (event) => {
     if (event.defaultPrevented) return;
+
+    // 普通对话框标题栏的 × 是视觉稿里的 `main-project.html` 链接；没有自定义关闭
+    // 状态机的对话框此前只留下兜底，点了不动。自定义对话框（Push/Clone/Stash/
+    // Reset/Rollback/Remote）自己在目标节点上处理关闭并 preventDefault，这里排除它们，
+    // 避免绕过运行中保护或清理逻辑。
+    const dialogClose = event.target.closest && event.target.closest(".augit-window .dialog-header a[aria-label='Close']");
+    if (dialogClose) {
+      const dialog = dialogClose.closest(".dialog");
+      const customClose = dialog && dialog.matches(
+        ".push-dialog, .clone-dialog, .stash-dialog, .reset-dialog, .rollback-dialog, .remote-dialog, .remote-define-dialog");
+      if (!customClose) {
+        event.preventDefault();
+        closeLiveOverlay();
+        return;
+      }
+    }
+
     // 分支弹层的快捷动作。
     const popoverAction = event.target.closest && event.target.closest("[data-augit-overlay] [data-popover-action]");
     if (popoverAction) {
