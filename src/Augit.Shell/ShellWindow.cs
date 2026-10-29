@@ -190,6 +190,8 @@ internal sealed partial class ShellWindow : IDisposable
         _disposed = true;
         TraceSettingsStage("dispose-start");
         _settingsStartupTimeout?.Dispose();
+        _settingsPrewarmTimer?.Dispose();
+        _settingsPrewarmTimer = null;
         _settingsChild?.Dispose();
         _settingsChild = null;
         _modalHost?.Dispose();
@@ -787,6 +789,9 @@ internal sealed partial class ShellWindow : IDisposable
             case SettingsPrepareMessage:
                 shell.PrepareSettingsWindow();
                 return 0;
+            case SettingsPrewarmMessage:
+                shell.PrewarmSettingsWindow();
+                return 0;
             case SettingsRevealMessage:
                 shell.RevealSettingsWindow();
                 return 0;
@@ -1001,8 +1006,14 @@ internal sealed partial class ShellWindow : IDisposable
     {
         try
         {
-            if (eventArgs.IsSuccess || _disposed)
+            if (_disposed)
             {
+                return;
+            }
+            if (eventArgs.IsSuccess)
+            {
+                // 主窗页面加载完成后在后台预热设置子窗；点击齿轮时直接显示已构建好的页面。
+                if (_settingsOwner is null) ScheduleSettingsPrewarm();
                 return;
             }
             if (_settingsOwner is not null) { FailSettingsInitialization(new InvalidOperationException("设置导航失败。")); return; }

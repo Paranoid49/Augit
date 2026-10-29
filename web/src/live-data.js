@@ -10426,6 +10426,9 @@ function switchSettingsPage(page,{recordHistory=true}={}) {
   if (next === "git") void ensureGitDetection();
 }
 
+// 原生预热路径在显示前切到请求的分类（齿轮默认 Appearance，终端设置传 Terminal）。
+window.__augitSwitchSettingsPage = (page) => switchSettingsPage(page);
+
 /** 用当前分类与草稿重绘设置对话框正文。 */
 function renderSettingsDialog() {
   const live = window.__augitLive;
@@ -14355,6 +14358,13 @@ async function bootSettingsSurface() {
   document.querySelector('.settings-dialog').getBoundingClientRect();
   const ready=await invoke('window/settings-ready',{},0);
   settingsWritePending=ready.saving===true;syncSettingsBusy();
+  if (ready.preloaded) {
+    // 原生层已把设置窗隐藏在后台构建完成；用户点击齿轮时由宿主直接显示，
+    // 不再等待一次 WebView2 冷启动和 settings-present 往返。
+    window.__augitSettingsPreloaded = true;
+    window.__augitReady = true;
+    return;
+  }
   if(['appearance','file-view','git','terminal'].includes(ready.page))switchSettingsPage(ready.page);
   // 搜索焦点也会改变合成表面，须纳入宿主最后一次渲染确认，不能在揭示后补做。
   document.querySelector('[data-settings-filter]')?.focus({preventScroll:true});

@@ -46,20 +46,42 @@ internal sealed partial class ShellWindow
     private string _settingsPage = "appearance";
     private long _settingsRevision;
     private string? _settingsThemeMode;
+    // 设置子窗在后台预热：页面加载完成但窗口不显示；用户点击齿轮后直接呈现，
+    // 避免每次冷启动 WebView2 + 字体枚举造成数秒等待。
+    private bool _settingsPrewarm;
+    private bool _settingsPreloaded;
+    private bool _settingsOpenRequested;
+    private Timer? _settingsPrewarmTimer;
     private const uint SettingsStartupTimeoutMessage = 0x0400 + 8;
     private const uint SettingsPresentMessage = 0x0400 + 9;
     private const uint SettingsSurfaceThemeMessage = 0x0400 + 10;
     private const uint SettingsRevealMessage = 0x0400 + 11;
     private const uint SettingsPrepareMessage = 0x0400 + 12;
+    private const uint SettingsPrewarmMessage = 0x0400 + 13;
     private long _settingsPrepareRequest;
     private long _settingsPresentRequest;
     private Timer? _settingsStartupTimeout;
 
-    private void OpenSettingsWindow(string page)
+    private void OpenSettingsWindow(string page, bool prewarm = false)
     {
         if (_settingsChild is { } existing)
         {
-            if (existing._settingsReady) SetForegroundWindow(existing._window);
+            if (existing._settingsPreloaded)
+            {
+                existing.TraceSettingsStage("open-request");
+                existing.PresentPreloadedSettingsWindow(page);
+            }
+            else if (existing._settingsReady)
+            {
+                SetForegroundWindow(existing._window);
+            }
+            else
+            {
+                // 预热尚未完成：记下用户已经要打开设置，ready 后走正常呈现路径。
+                existing._settingsOpenRequested = true;
+                existing._settingsPage = page;
+            }
+
             return;
         }
         GetWindowRect(_window, out Rect bounds);
@@ -81,6 +103,7 @@ internal sealed partial class ShellWindow
         };
         ShellWindow child = new(options, settingsOwner: this);
         _settingsChild = child;
+        child._settingsPrewarm = prewarm;
         // 设置开关不得以系统缩放淡出留下半透明表单；只作用于本次子窗，不修改系统全局动画。
         int disableTransitions = 1;
         int transitionResult = DwmSetWindowAttribute(child._window, 3, ref disableTransitions, sizeof(int));
@@ -93,11 +116,22 @@ internal sealed partial class ShellWindow
         nint childHandle = child._window;
         child._settingsStartupTimeout = new Timer(_ => PostMessage(childHandle, SettingsStartupTimeoutMessage, 0, 0), null, 20000, Timeout.Infinite);
         child._settingsPage = page;
+        PositionSettingsWindow(child);
+        SetWindowText(child._window, "Settings — Augit");
+        SettingsMargins margins = new() { Left = 1, Right = 1, Top = 1, Bottom = 1 };
+        _ = DwmExtendFrameIntoClientArea(child._window, ref margins);
+    }
+
+    /// <summary>
+    /// 把设置窗摆到当前 Owner 显示器工作区的中央。预热窗可能在主窗移动/缩放后才显示，
+    /// 因此创建时和真正显示前都要重新计算一次。
+    /// </summary>
+    private void PositionSettingsWindow(ShellWindow child)
+    {
+        GetWindowRect(_window, out Rect bounds);
         GetWindowRect(child._window, out Rect childBounds);
         int childWidth = childBounds.Right - childBounds.Left;
         int childHeight = childBounds.Bottom - childBounds.Top;
-        // 独立设置窗不是模态，但也必须像模态一样夹到 Owner 所在显示器的工作区；
-        // 只按中心摆放会在靠近屏幕右/下边缘时把设置内容推到屏外。
         int left = bounds.Left + ((bounds.Right - bounds.Left) - childWidth) / 2;
         int top = bounds.Top + ((bounds.Bottom - bounds.Top) - childHeight) / 2;
         WindowFrameRect placement = new(left, top, left + childWidth, top + childHeight);
@@ -112,9 +146,103 @@ internal sealed partial class ShellWindow
 
         SetWindowPos(child._window, 0, placement.Left, placement.Top,
             placement.Right - placement.Left, placement.Bottom - placement.Top, SwpNozorder | SwpNoactivate);
-        SetWindowText(child._window, "Settings — Augit");
-        SettingsMargins margins = new() { Left = 1, Right = 1, Top = 1, Bottom = 1 };
-        _ = DwmExtendFrameIntoClientArea(child._window, ref margins);
+    }
+
+    /// <summary>
+    /// 主窗稳定后把设置窗口隐藏在后台预加载；用户点击齿轮时只做显示/激活。
+    /// 预热失败不向用户弹错，点击时仍可走正常冷启动路径。
+    /// </summary>
+    private void PrewarmSettingsWindow()
+    {
+        if (_settingsOwner is not null || _disposed || _settingsChild is not null)
+        {
+            return;
+        }
+
+        OpenSettingsWindow("appearance", prewarm: true);
+    }
+
+    private void ScheduleSettingsPrewarm()
+    {
+        if (_settingsOwner is not null || _disposed)
+        {
+            return;
+        }
+
+        _settingsPrewarmTimer ??= new Timer(
+            _ => PostMessage(_window, SettingsPrewarmMessage, 0, 0),
+            null,
+            Timeout.Infinite,
+            Timeout.Infinite);
+        _settingsPrewarmTimer.Change(1200, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// 呈现已预热完成的设置页。页面的字体、分类和表单都已构建，只需显示窗口、
+    /// 切到请求的分类、激活并等一帧真实绘制；不再走 settings-ready/present 往返。
+    /// </summary>
+    private async void PresentPreloadedSettingsWindow(string page)
+    {
+        if (_disposed || _settingsClosing || _settingsOwner is not { } owner || owner._disposed
+            || !_settingsPreloaded || _controller?.CoreWebView2 is not { } webView)
+        {
+            return;
+        }
+
+        try
+        {
+            _settingsPage = page;
+            _settingsPreloaded = false;
+            _settingsPrewarm = false;
+            // 预热页固定从 Appearance 开始；从终端/其他分类点击齿轮时在显示前切换。
+            if (page != "appearance")
+            {
+                string script = "window.__augitSwitchSettingsPage&&window.__augitSwitchSettingsPage("
+                    + JsonSerializer.Serialize(page) + ");";
+                await webView.ExecuteScriptAsync(script);
+            }
+
+            EnableWindow(owner._window, false);
+            owner.PositionSettingsWindow(this);
+            _controller.IsVisible = true;
+            Show();
+            SetForegroundWindow(_window);
+            _controller.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+            _ = DwmFlush();
+            try
+            {
+                // 预热页在隐藏控制器里完成布局；显示后等一帧，避免首帧空白。
+                Task capture = webView.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, Stream.Null);
+                await capture.WaitAsync(TimeSpan.FromMilliseconds(180));
+            }
+            catch (TimeoutException)
+            {
+                TraceSettingsStage("preload-capture-timeout");
+            }
+            catch (COMException)
+            {
+                // 捕获只是首帧确认，失败不阻止显示。
+            }
+
+            if (_disposed || _settingsClosing || owner._disposed)
+            {
+                return;
+            }
+
+            int uncloak = 0;
+            _ = DwmSetWindowAttribute(_window, 13, ref uncloak, sizeof(int));
+            _settingsReady = true;
+            _settingsPresentedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
+            _settingsStartupTimeout?.Dispose();
+            TraceSettingsStage("preload-presented");
+            _ = webView.ExecuteScriptAsync(
+                "document.querySelector('[data-settings-filter]')?.focus({preventScroll:true});");
+            ExportSettingsStages();
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException)
+        {
+            FailSettingsInitialization(exception);
+        }
     }
 
     private void ReleaseSettingsOwner()
@@ -141,6 +269,8 @@ internal sealed partial class ShellWindow
             SetForegroundWindow(owner._window);
             TraceSettingsStage("owner-activated");
             owner.Notify("settings/closed", new { revision = owner._settingsRevision });
+            // 下一次打开也走预热路径；预热失败（从未真正显示过）不重试，避免错误循环。
+            if (_settingsReady) owner.ScheduleSettingsPrewarm();
         }
     }
 
@@ -148,6 +278,13 @@ internal sealed partial class ShellWindow
     {
         // 关闭后到达的初始化或捕获异常属于旧窗口，不能影响后来重开的设置。
         if (_disposed || _settingsOwner?._disposed == true) return;
+        if (_settingsPrewarm && !_settingsOpenRequested)
+        {
+            // 后台预热失败时静默放弃；用户还没请求设置，不应弹出错误。
+            _settingsPrewarm = false;
+            Dispose();
+            return;
+        }
         _settingsOwner?.Notify("settings/failed", new { reason = "Settings could not be opened (" + exception.GetType().Name + "). Please retry." });
         Dispose();
     }
@@ -211,6 +348,21 @@ internal sealed partial class ShellWindow
                 case "window/settings-ready":
                     if (_settingsClosing || _disposed) return true;
                     if (_controller is null) throw new InvalidOperationException();
+                    if (_settingsPrewarm && !_settingsOpenRequested)
+                    {
+                        // 后台预热：页面已构建完成，但不显示、不激活、不捕获。
+                        // 解掉启动超时，等用户点击后再由 PresentPreloadedSettingsWindow 显示。
+                        _settingsPreloaded = true;
+                        _settingsStartupTimeout?.Dispose();
+                        QueueSettingsReply(id, new
+                        {
+                            preloaded = true,
+                            page = _settingsPage,
+                            saving = owner._settingsWriteInFlight
+                        });
+                        return true;
+                    }
+                    _settingsPrewarm = false;
                     _settingsPrepareRequest = id;
                     PostMessage(_window, SettingsPrepareMessage, 0, 0);
                     break;
