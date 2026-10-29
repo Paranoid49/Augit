@@ -4808,6 +4808,82 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   pointer-events: auto;
 }
 
+/* 项目名下拉（PyCharm project widget）：当前项目 + Recent Projects，不再弹单独窗口。 */
+.overlay-layer.workspace-popover {
+  position: absolute;
+  inset: 0;
+  display: block;
+  z-index: 20;
+  pointer-events: none;
+}
+.workspace-popup {
+  position: absolute;
+  width: min(340px, calc(100vw - 16px));
+  max-height: min(620px, calc(100vh - 90px));
+  overflow: auto;
+  padding: 7px;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  border-radius: 8px;
+  background: var(--augit-popup-bg);
+  box-shadow: 0 12px 34px color-mix(in srgb, #000000 20%, transparent);
+  pointer-events: auto;
+}
+.workspace-section-title {
+  padding: 5px 10px 3px;
+  color: var(--augit-muted);
+  font-size: 11px;
+}
+.workspace-current {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 10px 6px;
+  border-radius: 5px;
+  background: var(--augit-selected-bg, var(--augit-blue-soft));
+}
+.workspace-current-check {
+  flex: none;
+  color: var(--augit-blue);
+  line-height: 18px;
+}
+.workspace-current-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.workspace-current-text strong,
+.workspace-recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.workspace-current-text span,
+.workspace-recent-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--augit-muted);
+  font-size: 11px;
+}
+.workspace-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 4px 10px;
+}
+.workspace-recent-name { font-weight: 400; }
+.workspace-empty {
+  padding: 5px 10px 8px;
+  color: var(--augit-muted);
+  font-size: 11px;
+}
+
 .main-menu-entry {
   height: var(--augit-title-text-height);
   display: inline-flex;

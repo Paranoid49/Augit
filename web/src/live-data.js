@@ -6837,11 +6837,36 @@ function guardUnwiredNavigation() {
     // 放大镜/齿轮一样没有任何绑定**：点下去只留下兜底记录，界面毫无反应
     // （`grep -n "titlebar-context\|workspace-chip" web/src/live-data.js` 只命中窗口拖拽的
     // 控件选择器，没有任何点击处理）。这里按各自 title 声明的语义接上：
-    // 工作区芯片 → 打开工作区页；当前文件芯片 → 打开快速打开浮层。
+    // 工作区芯片 → PyCharm 风格的项目下拉；当前文件芯片 → 快速打开浮层。
     const workspaceChip = event.target.closest && event.target.closest('.top-chip.workspace-chip');
     if (workspaceChip) {
       event.preventDefault();
-      openWorkspaceDialog();
+      openWorkspacePopover();
+      return;
+    }
+
+    const workspacePopupAction = event.target.closest && event.target.closest("[data-workspace-popup-action]");
+    if (workspacePopupAction) {
+      event.preventDefault();
+      const action = workspacePopupAction.dataset.workspacePopupAction;
+      closeLiveOverlay();
+      if (action === "open") void pickWorkspaceAndOpen();
+      else if (action === "clone") openCloneDialog();
+      return;
+    }
+
+    const workspaceRecent = event.target.closest && event.target.closest(".workspace-popover .workspace-recent[data-workspace-path]");
+    if (workspaceRecent) {
+      event.preventDefault();
+      const path = workspaceRecent.dataset.workspacePath;
+      closeLiveOverlay();
+      void openWorkspacePath(path);
+      return;
+    }
+
+    if (event.target.closest && event.target.closest(".workspace-popover .workspace-current")) {
+      event.preventDefault();
+      closeLiveOverlay();
       return;
     }
 
@@ -10530,6 +10555,56 @@ function openResetDialog() {
 }
 
 /**
+ * 项目名（工作区芯片）下拉：PyCharm 的 project widget，而不是单独的 Open Workspace 窗口。
+ *
+ * 顶部动作、当前项目、Recent Projects 三段；最近目录来自 settings.recentWorkspaces。
+ */
+function openWorkspacePopover() {
+  const live = window.__augitLive;
+  const host = document.querySelector(".augit-window");
+  const chip = document.querySelector(".titlebar .workspace-chip");
+  if (!live || !host || !chip) return;
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const currentRoot = String(live.root || live.rootPath || "");
+  const currentName = String(live.workspaceName || currentRoot.split(/[\\/]/).filter(Boolean).at(-1) || "Workspace");
+  const nameOf = (path) => String(path).split(/[\\/]/).filter((part) => part.length > 0).at(-1) || path;
+  const samePath = (left, right) => String(left).replace(/\\/g, "/").toLowerCase()
+    === String(right).replace(/\\/g, "/").toLowerCase();
+  const recent = ((live.settings && live.settings.recentWorkspaces) || [])
+    .filter((path) => path && !samePath(path, currentRoot));
+  const recentRows = recent.map((path) => `<a class="menu-item workspace-recent" href="#" role="menuitem" title="${escapeHtml(path)}" data-workspace-path="${escapeHtml(path)}">`
+    + `<span class="workspace-recent-name">${escapeHtml(nameOf(path))}</span>`
+    + `<span class="workspace-recent-path">${escapeHtml(path)}</span></a>`).join("");
+  const layer = document.createElement("div");
+  layer.className = "overlay-layer live-overlay workspace-popover";
+  layer.setAttribute("data-augit-overlay", "");
+  layer.innerHTML = `<div class="menu-list workspace-popup" role="menu">`
+    + `<a class="menu-item" href="#" role="menuitem" data-workspace-popup-action="open">${icon("folder-open")} Open Workspace…</a>`
+    + `<a class="menu-item" href="#" role="menuitem" data-workspace-popup-action="clone">${icon("clone")} Clone Repository…</a>`
+    + `<div class="menu-separator"></div>`
+    + `<div class="workspace-section-title">Open Projects</div>`
+    + `<div class="workspace-current" title="${escapeHtml(currentRoot || currentName)}">`
+    + `<span class="workspace-current-check" aria-hidden="true">✓</span>`
+    + `<span class="workspace-current-text"><strong>${escapeHtml(currentName)}</strong><span>${escapeHtml(currentRoot || "Current workspace")}</span></span>`
+    + `</div>`
+    + `<div class="menu-separator"></div>`
+    + `<div class="workspace-section-title">Recent Projects</div>`
+    + (recentRows || `<div class="workspace-empty">No recent projects.</div>`)
+    + `</div>`;
+  host.appendChild(layer);
+  const menu = layer.querySelector(".workspace-popup");
+  const hostRect = host.getBoundingClientRect();
+  const chipRect = chip.getBoundingClientRect();
+  menu.style.top = `${Math.round(chipRect.bottom - hostRect.top + 4)}px`;
+  menu.style.left = `${Math.round(chipRect.left - hostRect.left)}px`;
+  const menuRect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(
+    Math.round(chipRect.left - hostRect.left),
+    Math.round(hostRect.width - menuRect.width - 4)))}px`;
+}
+
+/**
  * 「打开工作区」（产品规格 §2 / 视觉稿 workspace-open）。
  *
  * 最近目录来自设置；条目点击后交给宿主：同目录激活已有窗口、不同目录开新窗口。
@@ -10579,10 +10654,14 @@ async function openWorkspacePath(path) {
   }
 
   if (failure) {
-    setWorkspaceNotice(describeFailure(failure, {
-      unchanged: "The current window and open workspace are unchanged.",
-      next: "Choose another directory or check the path in Explorer.",
-    }));
+    if (document.querySelector(".workspace-open-window .workspace-notice")) {
+      setWorkspaceNotice(describeFailure(failure, {
+        unchanged: "The current window and open workspace are unchanged.",
+        next: "Choose another directory or check the path in Explorer.",
+      }));
+    } else {
+      showToast({ title: "Open Workspace", text: failure, kind: "error" });
+    }
     return null;
   }
 
@@ -10625,10 +10704,14 @@ async function pickWorkspaceAndOpen() {
   }
 
   if (failure) {
-    setWorkspaceNotice(describeFailure(failure, {
-      unchanged: "The current window and open workspace are unchanged.",
-      next: "Retry or choose a recent workspace.",
-    }));
+    if (document.querySelector(".workspace-open-window .workspace-notice")) {
+      setWorkspaceNotice(describeFailure(failure, {
+        unchanged: "The current window and open workspace are unchanged.",
+        next: "Retry or choose a recent workspace.",
+      }));
+    } else {
+      showToast({ title: "Open Workspace", text: failure, kind: "error" });
+    }
     return null;
   }
 
