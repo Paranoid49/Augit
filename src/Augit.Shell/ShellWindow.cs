@@ -353,7 +353,7 @@ internal sealed partial class ShellWindow : IDisposable
         nint window = CreateWindowEx(
             0,
             WindowClassName,
-            "Augit",
+            ShellWindowTitle.Resolve(_options, _settingsOwner is not null),
             _settingsOwner is null ? WsFramelessWindow : 0x00C80000,
             placement.X,
             placement.Y,

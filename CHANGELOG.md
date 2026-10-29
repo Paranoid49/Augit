@@ -8,6 +8,7 @@
 
 - 标题栏三条杠菜单与品牌徽标垂直对齐：菜单条按标题栏 30px 控件高度居中，File/View/Git 不再被 `data-typography-preview` 旧规则挤到第二行；动作弹层固定在标题栏底边下方。
 - 普通对话框标题栏的 × 恢复关闭：Open Workspace、Create Git Repository、Smart Checkout、工作树/Stash 管理等未自定义关闭状态机的对话框点击 × 会关闭覆盖层；Push/Clone/Stash/Reset/Rollback/Remote 仍走自己的清理与运行中保护。
+- 主窗口标题改为工作区目录名（如 `ops-server-report-resend`），Windows 任务栏悬停缩略图和 Alt-Tab 不再把所有项目都标成 `Augit`；欢迎页仍为 `Augit`，设置窗口为 `Settings`。
 
 ## [1.0.0-rc.9] - 2026-10-29
 
