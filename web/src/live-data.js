@@ -13438,8 +13438,11 @@ function openMainMenuPopover(action) {
   // menu-list 是绝对定位；必须同时给 left/top，否则会按普通流落到窗口底部。
   const hostRect = host.getBoundingClientRect();
   const entryRect = entry.getBoundingClientRect();
+  const titlebarRect = titlebarNode.getBoundingClientRect();
   const menu = layer.querySelector(".menu-list");
-  menu.style.top = `${Math.round(entryRect.bottom - hostRect.top + 4)}px`;
+  // 弹层贴在标题栏底边，而不是菜单项自身底边：菜单项在 44px 标题栏里只占 30px，
+  // 用 entry.bottom 会把弹层压进标题栏内部。
+  menu.style.top = `${Math.round(titlebarRect.bottom - hostRect.top + 4)}px`;
   menu.style.left = `${Math.round(entryRect.left - hostRect.left)}px`;
   const menuRect = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(4, Math.min(

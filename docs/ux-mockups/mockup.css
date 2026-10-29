@@ -4782,7 +4782,9 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 
 .main-menu-bar {
   grid-column: 2 / 6;
-  align-self: stretch;
+  /* 与普通标题栏的 30px 按钮同高并垂直居中；stretch 会把菜单条拉到 44px，
+     连带把菜单弹层定位到标题栏内部。 */
+  align-self: center;
   display: flex;
   align-items: center;
   gap: 1px;
@@ -4982,7 +4984,9 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   text-overflow: ellipsis;
 }
 .status-fields { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; white-space: nowrap; }
-body[data-typography-preview] .main-menu-bar { grid-column: 3 / 8; }
+/* 注意：不要再给 `.main-menu-bar` 写 `body[data-typography-preview]` 的 3/8 覆盖。
+   `data-typography-preview="ready"` 在正常启动就存在，旧规则会让菜单条跨到第二行，
+   表现成 File/View/Git 与品牌 A 垂直错位。菜单条固定在 2/6 列，剩余列留给窗口按钮。 */
 
 @media (max-width: 1180px) {
   :root {
