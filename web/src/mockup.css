@@ -5296,26 +5296,36 @@ body[data-theme="dark"] .terminal-tool {
   height: 24px;
 }
 .terminal-header .grow { flex: 1 1 auto; min-width: 8px; }
-.terminal-close-dialog .terminal-close-question { margin: 0 0 12px; }
-.terminal-close-dialog .terminal-close-dont-ask { min-height: 24px; }
-.terminal-warning-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
+.terminal-close-dialog .terminal-close-question { margin: 0 0 10px; line-height: 1.45; }
+.terminal-close-dialog .terminal-close-dont-ask { min-height: 24px; margin-top: 6px; }
+/* MessageDialog 的标题、图标和正文同底：标题行不画分隔线，正文左缘与标题文字对齐。
+   390×约 200px 取自 IntelliJ/PyCharm 2026.2 实机浅色截图（100% DPI）。 */
+.terminal-warning-dialog { width: min(390px, calc(100% - 90px)); border-radius: 8px; font-size: max(13px, 1rem); }
+.terminal-warning-dialog .dialog-header {
+  height: 42px;
+  padding: 0 12px 0 29px;
+  gap: 14px;
+  border-bottom: 0;
+}
 .terminal-warning-dialog .dialog-header::before {
-  content: "!";
+  content: "";
   flex: none;
   width: 28px;
   height: 28px;
-  background: var(--augit-dialog-warning-bg);
-  clip-path: polygon(50% 3%, 97% 93%, 3% 93%);
-  color: #ffffff;
-  display: grid;
-  place-items: center;
-  padding-top: 3px;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1;
+  /* expui/general/warningDialog.svg：圆角三角，而不是 Augit 旧版的尖角 polygon。 */
+  clip-path: path("M12.72 2.74194C13.2889 1.75269 14.7111 1.75269 15.28 2.74194L26.7998 22.7742C27.3687 23.7634 26.6576 25 25.5198 25H2.4802C1.34244 25 0.631339 23.7634 1.20022 22.7742L12.72 2.74194Z");
+  background:
+    linear-gradient(#ffffff, #ffffff) center 7px / 2px 8px no-repeat,
+    radial-gradient(circle at 50% 19px, #ffffff 2px, transparent 2.2px) center / 5px 5px no-repeat,
+    var(--augit-dialog-warning-bg);
 }
-.terminal-warning-dialog { width: min(430px, calc(100% - 90px)); }
-.terminal-warning-dialog .dialog-body { min-height: 0; padding: 10px 12px 4px; }
+.terminal-warning-dialog .dialog-body {
+  min-height: 100px;
+  padding: 4px 16px 8px 71px;
+}
+.terminal-warning-dialog .dialog-footer { min-height: 53px; padding: 8px 12px 18px; }
+.terminal-warning-dialog .dialog-footer .primary-button { min-width: 104px; min-height: 32px; height: 32px; border: 0; border-radius: 5px; box-sizing: border-box; font-weight: 600; }
+.terminal-warning-dialog .dialog-footer .secondary-button { min-width: 72px; min-height: 32px; height: 32px; border: var(--augit-hairline) solid var(--augit-border-strong); border-radius: 5px; box-sizing: border-box; font-weight: 400; }
 
 /* 大字号命中区（40 号 UI 实测 91px）需要同时放大 header、会话标签和动作按钮；
    否则固定的 28px 标签与 40px 偏移会把 Local、关闭叉、More、Hide 挤在一起。 */

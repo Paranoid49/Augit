@@ -2312,9 +2312,9 @@ async function openTerminalShellMenu(anchor) {
       label: labels[shell.shellId] || shell.displayName || shell.shellId,
     }))
     : Object.entries(labels).map(([id, label]) => ({ id, label }));
-  const rows = items.map((item) => `<button type="button" class="menu-item" data-terminal-shell="${escapeText(item.id)}">${escapeText(item.label)}</button>`).join('');
+  const rows = items.map((item) => `<a class="menu-item" href="#" data-terminal-shell="${escapeText(item.id)}">${escapeText(item.label)}</a>`).join('');
   const markup = `<section class="popover context-menu terminal-shell-menu">${rows}`
-    + `<div class="menu-separator"></div><button type="button" class="menu-item" data-terminal-shell-settings>Settings</button></section>`;
+    + `<div class="menu-separator"></div><a class="menu-item" href="#" data-terminal-shell-settings>Settings</a></section>`;
   showPointerContextMenu(markup, {
     layerClass: 'terminal-shell-menu-layer',
     clientX: Math.round(rect.left),
@@ -7210,10 +7210,18 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    const terminalAdd = event.target.closest && event.target.closest('[data-terminal-add], [data-terminal-add-menu]');
+    const terminalAdd = event.target.closest && event.target.closest('[data-terminal-add]');
     if (terminalAdd && terminalAdd.closest('.terminal-tool')) {
       event.preventDefault();
-      void openTerminalShellMenu(terminalAdd);
+      // `+` 按 Settings 中配置的默认 Shell 新建；下拉箭头才显示其他 Shell。
+      void createTerminalTab();
+      return;
+    }
+
+    const terminalAddMenu = event.target.closest && event.target.closest('[data-terminal-add-menu]');
+    if (terminalAddMenu && terminalAddMenu.closest('.terminal-tool')) {
+      event.preventDefault();
+      void openTerminalShellMenu(terminalAddMenu);
       return;
     }
 

@@ -162,7 +162,7 @@ internal sealed partial class ShellWindow
         OpenSettingsWindow("appearance", prewarm: true);
     }
 
-    private void ScheduleSettingsPrewarm()
+    private void ScheduleSettingsPrewarm(int delayMilliseconds = 0)
     {
         if (_settingsOwner is not null || _disposed)
         {
@@ -174,7 +174,7 @@ internal sealed partial class ShellWindow
             null,
             Timeout.Infinite,
             Timeout.Infinite);
-        _settingsPrewarmTimer.Change(1200, Timeout.Infinite);
+        _settingsPrewarmTimer.Change(Math.Max(0, delayMilliseconds), Timeout.Infinite);
     }
 
     /// <summary>
@@ -270,7 +270,7 @@ internal sealed partial class ShellWindow
             TraceSettingsStage("owner-activated");
             owner.Notify("settings/closed", new { revision = owner._settingsRevision });
             // 下一次打开也走预热路径；预热失败（从未真正显示过）不重试，避免错误循环。
-            if (_settingsReady) owner.ScheduleSettingsPrewarm();
+            if (_settingsReady) owner.ScheduleSettingsPrewarm(0);
         }
     }
 
@@ -348,7 +348,7 @@ internal sealed partial class ShellWindow
                 case "window/settings-ready":
                     if (_settingsClosing || _disposed) return true;
                     if (_controller is null) throw new InvalidOperationException();
-                    if (_settingsPrewarm && !_settingsOpenRequested)
+                    if (_settingsPrewarm)
                     {
                         // 后台预热：页面已构建完成，但不显示、不激活、不捕获。
                         // 解掉启动超时，等用户点击后再由 PresentPreloadedSettingsWindow 显示。
@@ -360,6 +360,14 @@ internal sealed partial class ShellWindow
                             page = _settingsPage,
                             saving = owner._settingsWriteInFlight
                         });
+                        if (_settingsOpenRequested)
+                        {
+                            // 点击发生在预热过程中：ready 后直接呈现，不再走
+                            // settings-ready → prepare → settings-present 的额外往返。
+                            _settingsOpenRequested = false;
+                            _settingsPrewarm = false;
+                            PresentPreloadedSettingsWindow(_settingsPage);
+                        }
                         return true;
                     }
                     _settingsPrewarm = false;

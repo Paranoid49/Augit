@@ -926,6 +926,9 @@ internal sealed partial class ShellWindow : IDisposable
             _environment = _settingsOwner?._environment ?? await CoreWebView2Environment.CreateAsync(null, userDataFolder, environmentOptions);
             // 等待环境期间主窗可能已关闭；不能再用已归零的HWND创建控制器。
             if (_disposed) return;
+            // 环境已经就绪后立即预热设置页，和主 WebView 控制器并行；主窗导航完成后再启动
+            // 会让启动后第一次点击设置落到 1–2 秒的冷启动路径。
+            if (_settingsOwner is null) ScheduleSettingsPrewarm();
             if (_settingsOwner is not null) _settingsControllerStartedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
             TraceSettingsStage("controller-create-start");
             // 分开记录COM调用返回与异步完成，避免把同步阻塞和回调等待混为一段。
@@ -976,6 +979,9 @@ internal sealed partial class ShellWindow : IDisposable
             if (_settingsOwner is not null) _settingsNavigationStartedMilliseconds = _settingsStartupClock.ElapsedMilliseconds;
             TraceSettingsStage("navigation-start");
             webView.Navigate($"https://{DefaultVirtualHost}/{EntryDocument(_settingsOwner is not null)}{BuildQuery()}");
+            // 设置页与主窗同时开始预热，而不是等主窗导航完成后再延迟 1.2s；
+            // 否则启动后第一次点击齿轮仍可能落到冷启动路径。
+            if (_settingsOwner is null) ScheduleSettingsPrewarm();
         }
         catch (Exception exception)
         {
