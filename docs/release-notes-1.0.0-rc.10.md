@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-29
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建方式：GitHub Actions 从 `v1.0.0-rc.10` 标签构建；实际提交与产物哈希以发布页和 `SHA256SUMS.txt` 为准
+- 构建源提交：`637221903aeca180ea1a7ce8a858fc8154c7e3b5`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.10`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -22,7 +22,11 @@ rc.9 的 PyCharm 风格分支弹层、非模态弹层点击外部关闭、行号
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.10-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/Augit-1.0.0-rc.10-win-x64-setup.exe) | 5,059,130 B | `019f7ca5b5613076b872b3159b5b19b0fd23cf95b539992c5e60699b0b430695` |
+| [Augit-1.0.0-rc.10-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/Augit-1.0.0-rc.10-win-x64-portable.zip) | 39,258,295 B | `aedd52308412ab892b025c26ff5ad92f95cf61616c45f7fb4bcdcf3412b79dfc` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/SHA256SUMS.txt) | 207 B | `70e1950ef6a99ec903996b4fce81e1b0c7a5b8a4cdd75b081ec0263764c42798` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.10>
 
@@ -44,6 +48,9 @@ rc.9 的 PyCharm 风格分支弹层、非模态弹层点击外部关闭、行号
   - `ping -t` 前台进程关闭时出现 JetBrains 风格警告，`Cancel` 保留、`Terminate` 结束并收起；
   - 标签编号保持 `Local` / `Local (2)`，关闭后新建不会无限增长。
 - 本机预构建随包验证：`1.0.0-rc.10+0b53cd4…`，便携包窗口出现 **483.1ms**、关闭 **103.8ms**、退出码 0、无残留子进程；实际公开发布资产仍以 tag 流水线产物为准。
+- **实际 Release 资产复核**：匿名下载的便携包 `39,258,295 B`、SHA-256 `aedd52308412ab892b025c26ff5ad92f95cf61616c45f7fb4bcdcf3412b79dfc`；安装器 `5,059,130 B`、SHA-256 `019f7ca5b5613076b872b3159b5b19b0fd23cf95b539992c5e60699b0b430695`；`SHA256SUMS.txt` `207 B`、SHA-256 `70e1950ef6a99ec903996b4fce81e1b0c7a5b8a4cdd75b081ec0263764c42798`，三者与 Release 正文一致。
+- 实际 Release 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **380.7ms**、关闭 **104.8ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.10+6372219…`。隐藏共享 .NET 后启动 PASS：窗口出现 **501.6ms**、关闭 **100ms**、退出码 0、无残留子进程。
+- 安装器 ProductVersion `1.0.0-rc.10`、FileVersion `1.0.0.0`、`NotSigned`。
 - Windows 10 22H2 实机本轮未复验；不把 rc.9 的历史证据写成 rc.10 已通过。
 
 ## 4. 已知限制

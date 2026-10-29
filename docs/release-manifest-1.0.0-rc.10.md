@@ -7,10 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.10> |
-| Release id | 流水线完成后填写 |
+| Release id | `427525083` |
 | Tag | `v1.0.0-rc.10` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | 流水线完成后填写（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `637221903aeca180ea1a7ce8a858fc8154c7e3b5` |
 | 版本 | `1.0.0-rc.10` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -22,13 +22,18 @@ rc.10 重做终端工具窗：多标签、独立 ConPTY 会话、稳定 `Local` 
 
 ## 2. 资产
 
-待 GitHub Actions 流水线完成后填写：
-
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `Augit-1.0.0-rc.10-win-x64-setup.exe` | 待填写 | 待填写 |
-| `Augit-1.0.0-rc.10-win-x64-portable.zip` | 待填写 | 待填写 |
-| `SHA256SUMS.txt` | 待填写 | 待填写 |
+| `Augit-1.0.0-rc.10-win-x64-setup.exe` | 5,059,130 B | `019f7ca5b5613076b872b3159b5b19b0fd23cf95b539992c5e60699b0b430695` |
+| `Augit-1.0.0-rc.10-win-x64-portable.zip` | 39,258,295 B | `aedd52308412ab892b025c26ff5ad92f95cf61616c45f7fb4bcdcf3412b79dfc` |
+| `SHA256SUMS.txt` | 207 B | `70e1950ef6a99ec903996b4fce81e1b0c7a5b8a4cdd75b081ec0263764c42798` |
+
+`SHA256SUMS.txt`：
+
+```text
+aedd52308412ab892b025c26ff5ad92f95cf61616c45f7fb4bcdcf3412b79dfc  Augit-1.0.0-rc.10-win-x64-portable.zip
+019f7ca5b5613076b872b3159b5b19b0fd23cf95b539992c5e60699b0b430695  Augit-1.0.0-rc.10-win-x64-setup.exe
+```
 
 ## 3. 构建与验证
 
@@ -60,6 +65,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-portable-
 | Infrastructure 测试 | **PASS**：207/207；另 4 个 ConPTY 交互用例在真实桌面验证 |
 | UI 资产一致性 | **PASS** |
 | JavaScript 语法 / `git diff --check` | **PASS** |
+| GitHub Actions Release 流水线 | **PASS**（首次测试步骤失败，同 tag 重试通过；构建 0 警告/0 错误、测试与 UI 资产检查通过） |
 
 ### 本机预构建（发布前同源验证）
 
@@ -106,12 +112,15 @@ rc.10 的多终端、Shell 热切换、JetBrains 关闭确认、标题栏菜单�
 
 ## 7. 发布后核对
 
-待 GitHub Actions 完成后填写：
+2026-10-29 已完成：
 
-- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- Release 标记为 **Pre-release**，三个资产匿名可下载；Release id `427525083`。
 - 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
-- 实际 Release 便携包真实启动、版本资源与关闭清理。
-- 安装器 ProductVersion / FileVersion / 签名状态。
-- 默认分支 `main`、tag 和发布正文指向同一版本。
+- 实际 Release 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **380.7ms**、关闭 **104.8ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.10+6372219…`。
+- 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）启动 PASS：窗口出现 **501.6ms**、关闭 **100ms**、退出码 0、无残留子进程。
+- 安装器 ProductVersion `1.0.0-rc.10`、FileVersion `1.0.0.0`、`NotSigned`；exe/安装器图标资源随发布脚本生成。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- 首次 Release 流水线在测试步骤失败；同一 tag/提交重新触发后通过，未改变构建源提交，也未使用本机包冒充公开资产。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.10 的多终端、Shell 热切换、关闭确认、标题栏菜单、project widget、行号栏和任务栏图标；干净虚拟机/全新系统安装也未验证。
 
-状态：**待发布流水线完成**。
+状态：**PASS**（Windows 10 22H2 实机与干净安装复验除外）。
