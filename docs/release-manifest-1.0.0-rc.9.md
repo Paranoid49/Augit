@@ -7,10 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.9> |
-| Release id | 待发布流水线创建后回填 |
+| Release id | `427383510` |
 | Tag | `v1.0.0-rc.9` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | 以 `v1.0.0-rc.9` 标签指向的提交为准（发布后回填） |
+| 构建提交 | `939ff87c8e4a3d840bba1b04891c2f65e5a0c397` |
 | 版本 | `1.0.0-rc.9` |
 | 便携版形态 | **self-contained**（自带 .NET 10.0.11 Runtime） |
 | 安装版形态 | **framework-dependent**（安装器检测/下载 .NET 10） |
@@ -22,18 +22,17 @@ rc.9 集中修复窗口交互与品牌识别：非模态弹层点击外部关闭
 
 ## 2. 资产
 
-待发布流水线构建完成后回填实际大小与 SHA-256：
-
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `Augit-1.0.0-rc.9-win-x64-setup.exe` | 待回填 | 待回填 |
-| `Augit-1.0.0-rc.9-win-x64-portable.zip` | 待回填 | 待回填 |
-| `SHA256SUMS.txt` | 待回填 | 待回填 |
+| `Augit-1.0.0-rc.9-win-x64-setup.exe` | 5,053,237 B | `149f15da16e46b983f1f91c9343fe113addc8ff7a5d51fae2e3951f450c91151` |
+| `Augit-1.0.0-rc.9-win-x64-portable.zip` | 39,250,092 B | `2f1f427592da6660a341a999a890605cd918dd94c4f40abd727ebdcaf4908b51` |
+| `SHA256SUMS.txt` | 205 B | `c68f5a2b91404dce8acae2b632ed54d6e31b88865e364809c3c1c409049689c4` |
 
 `SHA256SUMS.txt`：
 
 ```text
-待发布流水线生成后回填
+2f1f427592da6660a341a999a890605cd918dd94c4f40abd727ebdcaf4908b51  Augit-1.0.0-rc.9-win-x64-portable.zip
+149f15da16e46b983f1f91c9343fe113addc8ff7a5d51fae2e3951f450c91151  Augit-1.0.0-rc.9-win-x64-setup.exe
 ```
 
 ## 3. 构建与验证
@@ -60,24 +59,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-portable-
 
 | 项 | 结果 |
 | --- | --- |
-| Release 构建 | 待发布流水线回填 |
-| Core 测试 | 待发布流水线回填 |
-| Shell 测试 | 待发布流水线回填 |
-| Infrastructure 测试 | 待发布流水线回填 |
-| UI 资产一致性 | 待发布流水线回填 |
-| 安装版 runtimeconfig | 待发布流水线回填 |
-| 便携版 runtimeconfig | 待发布流水线回填 |
-| 便携包内容/版本/web 树 | 待发布流水线回填 |
-| 安装器版本资源 | 待发布流水线回填 |
-| 安装器签名 | 待发布流水线回填 |
+| Release 构建 | **PASS**：0 警告 / 0 错误 |
+| Core 测试 | **PASS**：72/72 |
+| Shell 测试 | **PASS**：271/271 |
+| Infrastructure 测试 | **PASS**：207/207；另 4 个 ConPTY 交互用例在托管 runner 排除、在真实桌面/Win10 验证 |
+| UI 资产一致性 | **PASS** |
+| 安装版 runtimeconfig | **PASS**：framework-dependent，无 `coreclr.dll`/`hostfxr.dll`/`hostpolicy.dll` |
+| 便携版 runtimeconfig | **PASS**：self-contained，含 `coreclr.dll`/`hostfxr.dll`/`hostpolicy.dll` 与 `includedFrameworks` |
+| 便携包内容/版本/web 树 | **PASS**（流水线 `-SkipLaunch`） |
+| 安装器版本资源 | **PASS**：ProductVersion `1.0.0-rc.9`；FileVersion `1.0.0.0` |
+| 安装器签名 | `NotSigned`（Augit 自身未签名） |
 
 发布后匿名下载**实际 Release 资产**复验：
 
-- 待发布后回填 zip、setup、`SHA256SUMS.txt` 的大小与 SHA-256。
-- 待回填便携包真实启动、窗口类、启动/关闭耗时、退出码、残留进程和 ProductVersion。
-- 待回填 `includedFrameworks` 和隐藏共享 .NET 启动结果。
-- 待回填 rc.9 实际 Release 包的 CDP 交互验证（外部点击关闭/穿透、标题栏 hover 菜单、项目下拉、行号栏、任务栏图标）。
-- 待回填安装器 ProductVersion、FileVersion、签名状态。
+- 便携包 `39,250,092 B`、SHA-256 `2f1f427592da…`；安装器 `5,053,237 B`、SHA-256 `149f15da16e4…`；`SHA256SUMS.txt` `205 B`、SHA-256 `c68f5a2b9140…`，与 Release 正文和 `SHA256SUMS.txt` 一致。
+- 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **478.9ms**、关闭 **90ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.9+939ff87…`。
+- `includedFrameworks` 为 `Microsoft.NETCore.App 10.0.11`；在 `DOTNET_ROOT` 指向不存在目录、禁用多级查找的环境下启动 PASS：窗口出现 **455.9ms**、关闭 **85ms**、退出码 0、无残留子进程。
+- **实际 Release 包 CDP 实测**：
+  - 标题栏菜单只显示 File/View/Git，无三条杠，Settings 在 File 内；hover View 切换，指针离开后恢复；弹层位于入口下方（x=39, y=34）。
+  - 项目下拉存在，独立 `.workspace-open-window` 数量为 0；显示当前项目路径、Open Workspace、Clone Repository 与 Recent Projects；点击外部关闭。
+  - 行号 `text-align:left`，右侧竖线 `1.14px solid #E9EAEE`，行号栏使用编辑区底色。
+  - 搜索浮层点击外部关闭（1 → 0）。
+  - 窗口 `WM_GETICON` 大/小图标句柄均非 0；任务栏实拍显示新 Logo。
+- 安装器 ProductVersion `1.0.0-rc.9`、FileVersion `1.0.0.0`、`NotSigned`；exe/安装器图标提取成功。
+- 报告：`artifacts/release-1.0.0-rc.9-gh-verify/portable-report.json`（Git 忽略）。
 
 ### 本机预构建（发布前同源验证）
 
@@ -86,10 +91,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-portable-
 - 便携包：`39,250,046 B`，SHA-256 `970f7b4cf43c9788805964e344980986542f38ddbc1207fd31dbf67a598a8fa8`。
 - 安装器：`5,053,432 B`，SHA-256 `f2798fc3b78a6b7ffe79676cce26709e34ef90be6aed7258c8629d2d05004dcd`。
 - ProductVersion：`1.0.0-rc.9+c15806cf143338a23ef7629b00d1f65e028a6ce9`；FileVersion `1.0.0.0`。
-- 测试：Core **72/72**、Shell **271/271**、Infrastructure **207/207**；Release 构建 0 警告 / 0 错误；`dotnet format --verify-no-changes` 通过；`verify-ui-assets` PASS。
-- 便携包真实启动：窗口类 `Augit.Shell.Window`、窗口出现 **506.8ms**、关闭 **98.6ms**、退出码 0、无残留子进程。
-- 便携包隐藏共享 .NET（`DOTNET_ROOT` 指向不存在目录、禁用多级查找）启动：窗口出现 **463.9ms**、关闭 **89.1ms**、退出码 0、无残留子进程。
-- 安装器版本资源：ProductVersion `1.0.0-rc.9`、FileVersion `1.0.0.0`、`NotSigned`；exe/安装器图标提取成功。
+- 便携包真实启动：窗口出现 **506.8ms**、关闭 **98.6ms**、退出码 0；隐藏共享 .NET 启动：窗口出现 **463.9ms**、关闭 **89.1ms**、退出码 0。
+
 ## 4. Windows 10 22H2 证据与边界
 
 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器实机已完成：
@@ -99,7 +102,7 @@ Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器实机已完成：
 - 负坐标显示器布局、模拟显示器热插拔、深色 1024×640 窄窗。
 - rc.2 源码重建包便携启动与静默安装；缺少 .NET 10 时安装器确认、下载 `30,604,768` 字节的 .NET 10.0.11、校验并安装。
 
-rc.9 的非模态弹层外部点击、标题栏菜单、project widget 下拉、行号栏和徽标/任务栏图标**尚未在该实机复验**；上述证据只覆盖运行代码相同的界面/DPI/安装部分。Windows 11 已完成本轮回归，但 Win10 22H2 仍需用户实测。
+rc.9 的非模态弹层外部点击、标题栏菜单、project widget 下拉、行号栏和徽标/任务栏图标**尚未在该实机复验**；上述证据只覆盖运行代码相同的界面/DPI/安装部分。Windows 11 已完成本轮回归，但 Win10 22H2 仍需用户实测。安装/升级/卸载本轮未重跑，沿用 rc.2 的安装器证据；rc.9 只核对安装器版本资源与签名状态。
 
 ## 5. 与 rc.2–rc.8 的关系
 
@@ -115,14 +118,14 @@ rc.9 的非模态弹层外部点击、标题栏菜单、project widget 下拉、
 
 ## 6. 发布后核对
 
-待 `v1.0.0-rc.9` 发布流水线完成后回填：
+2026-10-29 已完成：
 
-- Release 是否标记为 **Pre-release**，三个资产是否匿名可下载。
-- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 是否和发布正文一致。
-- 实际 Release 便携包隐藏/失效共享 .NET 环境启动是否 PASS。
-- rc.9 实际 Release 包的外部点击关闭/穿透、标题栏 hover 菜单、项目下拉、行号栏和任务栏图标是否通过 CDP/实机。
-- 安装器版本资源与未签名状态。
-- 默认分支 `main`、tag 和发布正文是否指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接是否一致。
-- Windows 10 22H2 出问题机器复验、干净虚拟机/全新系统安装是否仍未完成。
+- Release 标记为 **Pre-release**，三个资产匿名可下载。
+- 匿名下载的 zip、setup、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
+- 实际 Release 便携包在隐藏/失效共享 .NET 的环境真实启动 PASS。
+- 实际 Release 包的外部点击关闭/穿透、标题栏 hover 菜单、项目下拉、行号栏和任务栏图标均通过 CDP/实机。
+- 安装器版本资源与未签名状态已核对。
+- 默认分支 `main`、tag 和发布正文均指向同一版本；README、Release 正文和 `SHA256SUMS.txt` 的下载链接一致。
+- **未完成**：在 Windows 10 22H2 出问题机器上复验 rc.9 的外部点击/菜单/项目下拉/行号栏/任务栏图标；干净虚拟机/全新系统安装也未验证。
 
-状态：**待发布**。
+状态：**PASS**（Win10 22H2 实机与干净安装复验除外）。

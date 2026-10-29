@@ -2,7 +2,7 @@
 
 - 发布日期：2026-10-29
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建源提交：以本次 `v1.0.0-rc.9` 标签指向的提交为准，资产 ProductVersion 内含该提交号
+- 构建源提交：`939ff87c8e4a3d840bba1b04891c2f65e5a0c397`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.9`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -19,7 +19,11 @@ rc.9 集中修复窗口交互与品牌识别，继续保留 rc.8 的 PyCharm 风
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.9-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/Augit-1.0.0-rc.9-win-x64-setup.exe) | 5,053,237 B | `149f15da16e46b983f1f91c9343fe113addc8ff7a5d51fae2e3951f450c91151` |
+| [Augit-1.0.0-rc.9-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/Augit-1.0.0-rc.9-win-x64-portable.zip) | 39,250,092 B | `2f1f427592da6660a341a999a890605cd918dd94c4f40abd727ebdcaf4908b51` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/SHA256SUMS.txt) | 205 B | `c68f5a2b91404dce8acae2b632ed54d6e31b88865e364809c3c1c409049689c4` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.9>
 
@@ -38,7 +42,13 @@ rc.9 集中修复窗口交互与品牌识别，继续保留 rc.8 的 PyCharm 风
   - 项目名下拉显示当前项目/路径/Open/Clone/Recent，独立 Open Workspace 窗口不再出现；
   - 行号左对齐、右侧竖线与正文间距按截图核对；
   - exe 图标提取成功，窗口 `WM_GETICON` 大/小图标句柄均非 0，任务栏实拍显示新 Logo。
-- 实际 Release 资产的匿名下载、哈希、便携包启动和安装器版本资源核对结果见[发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.9.md)。
+- **实际 Release 资产复核**：
+  - 匿名下载的便携包 `39,250,092 B`、SHA-256 `2f1f427592da…`；安装器 `5,053,237 B`、SHA-256 `149f15da16e4…`；`SHA256SUMS.txt` `205 B`、SHA-256 `c68f5a2b9140…`，三者与 Release 正文一致。
+  - 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **478.9ms**、关闭 **90ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.9+939ff87…`。
+  - 隐藏共享 .NET（`DOTNET_ROOT` 不存在、禁用多级查找）启动 PASS：窗口出现 **455.9ms**、关闭 **85ms**、退出码 0、无残留子进程。
+  - 实际 Release 包 CDP 复核：标题栏只显示 File/View/Git、无三条杠、Settings 在 File 内；hover View 切换、离开后恢复；项目下拉存在且不出现独立 Open Workspace 窗口；行号 `text-align:left` + 右侧竖线；搜索浮层点击外部关闭；任务栏实拍显示新 Logo。
+  - 安装器 ProductVersion `1.0.0-rc.9`、FileVersion `1.0.0.0`、`NotSigned`；exe/安装器图标提取成功。
+- 报告：`artifacts/release-1.0.0-rc.9-gh-verify/portable-report.json`（Git 忽略）。
 
 ## 4. 已知限制
 

@@ -39,7 +39,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - **Windows 11 x64**：主界面、安装/升级/卸载、便携包、屏幕阅读器与性能基线。
 - **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行与静默安装。rc.3 改为 self-contained 便携包；rc.4–rc.9 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
 - 本次公开 rc.9 资产由 GitHub Actions 从 `v1.0.0-rc.9` 标签构建，并包含上述 Windows 10/DPI 修复；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
-- rc.9 便携包在本机隐藏共享 .NET 后仍能启动（self-contained），并已验证首次启动显示「Open Workspace」而不是把程序目录当项目；真实全新 Windows 虚拟机仍待复验。
+- rc.9 便携包在本机隐藏共享 .NET 后仍能启动（self-contained，窗口出现 455.9ms、关闭 85ms），并已验证首次启动显示「Open Workspace」而不是把程序目录当项目；真实全新 Windows 虚拟机仍待复验。
 
 仍未验证：干净虚拟机安装、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
