@@ -1,21 +1,21 @@
 # Augit
 
 [![CI](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.9)
+[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.10)
 
 Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方式的轻量 Windows 只读项目查看器与 Git 图形工具。开发者在 Augit 中浏览项目、检查变化并执行 Git 操作；Augit 不接入 AI，也不提供普通代码编辑和保存。
 
-当前公开发布为 **1.0.0-rc.9 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随安装包与便携包一起分发；实际版本以安装器标题、Windows「设置 > 应用 > 已安装的应用」或 `Augit.exe` 文件属性中的产品版本为准。
+当前公开发布为 **1.0.0-rc.10 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随安装包与便携包一起分发；实际版本以安装器标题、Windows「设置 > 应用 > 已安装的应用」或 `Augit.exe` 文件属性中的产品版本为准。
 
 ## 下载与安装（无需从源码构建）
 
 | 方式 | 下载 | 适合场景 |
 | --- | --- | --- |
-| 安装版 | [Augit-1.0.0-rc.9-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/Augit-1.0.0-rc.9-win-x64-setup.exe) | 长期使用；需要开始菜单、系统 PATH 或资源管理器集成时 |
-| 便携版 | [Augit-1.0.0-rc.9-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/Augit-1.0.0-rc.9-win-x64-portable.zip) | 解压即用；不想安装或没有管理员权限时 |
-| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.9/SHA256SUMS.txt) | 下载后核对文件完整性 |
+| 安装版 | [Augit-1.0.0-rc.10-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/Augit-1.0.0-rc.10-win-x64-setup.exe) | 长期使用；需要开始菜单、系统 PATH 或资源管理器集成时 |
+| 便携版 | [Augit-1.0.0-rc.10-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/Augit-1.0.0-rc.10-win-x64-portable.zip) | 解压即用；不想安装或没有管理员权限时 |
+| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.10/SHA256SUMS.txt) | 下载后核对文件完整性 |
 
-发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.9>
+发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.10>
 
 变更记录：<https://github.com/Paranoid49/Augit/blob/main/CHANGELOG.md>
 
@@ -37,9 +37,9 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 本候选已在以下真实机器上完成安装/便携运行验证；未验证项不写成已通过：
 
 - **Windows 11 x64**：主界面、安装/升级/卸载、便携包、屏幕阅读器与性能基线。
-- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行与静默安装。rc.3 改为 self-contained 便携包；rc.4–rc.9 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
-- 本次公开 rc.9 资产由 GitHub Actions 从 `v1.0.0-rc.9` 标签构建，并包含上述 Windows 10/DPI 修复；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
-- rc.9 便携包在本机隐藏共享 .NET 后仍能启动（self-contained，窗口出现 455.9ms、关闭 85ms），并已验证首次启动显示「Open Workspace」而不是把程序目录当项目；真实全新 Windows 虚拟机仍待复验。
+- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行与静默安装。rc.3 改为 self-contained 便携包；rc.4–rc.10 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+- 本次公开 rc.10 资产由 GitHub Actions 从 `v1.0.0-rc.10` 标签构建，并包含上述 Windows 10/DPI 修复和终端重做；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
+- rc.10 的终端重做已在 Windows 11 x64 实机验证多标签、Shell 菜单、设置热切换和关闭确认；rc.9 便携包在隐藏共享 .NET 后仍能启动（self-contained，窗口出现 455.9ms、关闭 85ms），首次启动显示「Open Workspace」而不是把程序目录当项目；rc.10 发布包的真实启动与全新 Windows 虚拟机仍待复验。
 
 仍未验证：干净虚拟机安装、真实缺少 WebView2 的安装流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
@@ -54,7 +54,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 ## 便携版：解压即用
 
-- 把 `Augit-1.0.0-rc.9-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
+- 把 `Augit-1.0.0-rc.10-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
 - 便携版已内置 .NET 10 Runtime（self-contained），新电脑无需预装 .NET；不写入系统 PATH，不添加资源管理器菜单，也不会安装或修改共享运行时。
 - 首次启动没有可用最近目录时显示「Open Workspace」启动页，不会把 `Augit.exe` 所在的发布目录当成项目；请通过「打开目录」选择真实工作区。
 - 仍需系统已有 Microsoft Edge WebView2 Runtime。缺少 WebView2 时 Augit 会明确提示缺失项，并给出微软官方下载入口；补齐后重新运行即可。
@@ -98,7 +98,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - **真实鼠标 Continue Rebase 仅覆盖代表性场景**：两文件 rebase 冲突、外部删除一个并编辑暂存另一个后，真实前台 OS 鼠标点击已通过；Skip/Abort、反向解决顺序和二进制冲突未用真实鼠标复验。
 - **像素目标未整体达成**：共享功能页与 PyCharm 2026.2.1 的整窗像素对照仍有未通过页面，按持续改进登记，不冒充通过。
 - **视觉范围差异**：不提供参考的右侧 42 CSS 工具轨，Settings 为简化自定义结构，终端为简洁 xterm；这些是已批准的范围差异，不是待修复缺陷。
-- **Windows 10 22H2 启动退出修复待实机复验**：rc.4–rc.9 增加 CET 兼容标记、首次启动欢迎页、async void 异常边界、`git init` 超时、选择目录输出缓冲区、新窗口 `--workspace`、欢迎页单窗口、分支树折叠、分支弹层默认面板和 PyCharm 分组树修复，但尚未在用户出问题的 22H2 机器上复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
+- **Windows 10 22H2 启动退出修复待实机复验**：rc.4–rc.10 增加 CET 兼容标记、首次启动欢迎页、async void 异常边界、`git init` 超时、选择目录输出缓冲区、新窗口 `--workspace`、欢迎页单窗口、分支树折叠、分支弹层默认面板和 PyCharm 分组树修复，但尚未在用户出问题的 22H2 机器上复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
 - **真实日常使用观察仍在进行**：本候选需要真实仓库中的长期使用反馈；Augit 不做遥测，问题请通过 Issue 反馈。
 
 ## 从源码构建

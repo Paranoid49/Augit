@@ -4,7 +4,7 @@
 
 更新日期与状态：**2026-10-01（第 310 轮 ＋ 本轮收口）**；当前状态见 §5「已完成 / 已结案」。
 
-> **2026-10-29 发布状态补充**：本文主体仍是 2026-10-01 的交接快照。当前已公开 `1.0.0-rc.9` 预发布资产（self-contained 便携包、framework-dependent 安装器、校验和），Windows 10 22H2 双显示器/混合 DPI 已完成实机验证。发布身份、资产哈希和未验证边界以[rc.9 发布清单](release-manifest-1.0.0-rc.9.md)、[rc.9 发布说明](release-notes-1.0.0-rc.9.md)和[rc.9 已知限制](known-limitations-1.0.0-rc.9.md)为准；本文中“Windows 10 未验证”“不创建公开 Release”等旧描述已被取代。
+> **2026-10-29 发布状态补充**：本文主体仍是 2026-10-01 的交接快照。当前已公开 `1.0.0-rc.10` 预发布资产（self-contained 便携包、framework-dependent 安装器、校验和），Windows 10 22H2 双显示器/混合 DPI 已完成实机验证。发布身份、资产哈希和未验证边界以[rc.10 发布清单](release-manifest-1.0.0-rc.10.md)、[rc.10 发布说明](release-notes-1.0.0-rc.10.md)和[rc.10 已知限制](known-limitations-1.0.0-rc.10.md)为准；本文中“Windows 10 未验证”“不创建公开 Release”等旧描述已被取代。
 
 ---
 
@@ -195,7 +195,7 @@ titlebar  rail  side  editorTabs  editorContent  statusbar  bottomTool  overlay 
 
 ## 8. 一句话交接
 
-**目标已完成并终审通过（第 309 轮）：功能本体、验收套件与文档归类三者一致；「待处理」清单为零，无法取证／不适用项各有具体原因与用户认可的结论。** 该结论针对 2026-10-01 的界面/功能目标，不等于正式 1.0 已发布；当前发布状态以[发布清单](release-manifest-1.0.0-rc.9.md)和[已知限制](known-limitations-1.0.0-rc.9.md)为准。接手时的第一件事是读 `docs/ui-classification.md`（归类总表）与 `docs/ui-compliance.md` §2.10／§3.2（条款结论与差异清单）的**当前口径**，而不是本节的历史交接文本；继续开发时仍按 `docs/development-validation.md` 分批验证，并遵守第 3 节的六条硬约束以免重现已修缺陷。
+**目标已完成并终审通过（第 309 轮）：功能本体、验收套件与文档归类三者一致；「待处理」清单为零，无法取证／不适用项各有具体原因与用户认可的结论。** 该结论针对 2026-10-01 的界面/功能目标，不等于正式 1.0 已发布；当前发布状态以[发布清单](release-manifest-1.0.0-rc.10.md)和[已知限制](known-limitations-1.0.0-rc.10.md)为准。接手时的第一件事是读 `docs/ui-classification.md`（归类总表）与 `docs/ui-compliance.md` §2.10／§3.2（条款结论与差异清单）的**当前口径**，而不是本节的历史交接文本；继续开发时仍按 `docs/development-validation.md` 分批验证，并遵守第 3 节的六条硬约束以免重现已修缺陷。
 
 ---
 

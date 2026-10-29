@@ -11,6 +11,8 @@
 
 > **2026-10-29 rc.9 补充**：rc.9 修复非模态弹层外部点击关闭/点击穿透、标题栏 File/View/Git hover 菜单、项目名 project widget 下拉、正文行号栏，并加入自有徽标与 exe/任务栏图标；rc.8 的 PyCharm 分支弹层继续保留。当前公开资产见[rc.9 发布清单](release-manifest-1.0.0-rc.9.md)。
 
+> **2026-10-29 rc.10 补充**：rc.10 重做多标签终端、Shell 菜单、设置热切换和 JetBrains 风格关闭确认；同时合入 rc.9 之后的标题栏菜单对齐、普通对话框 ×、项目窗口标题和设置窗口预热修复。当前公开资产见[rc.10 发布清单](release-manifest-1.0.0-rc.10.md)。
+
 ## 1. 候选身份
 
 | 项 | 值 |
@@ -59,7 +61,7 @@ rc.2 相对 rc.1 的运行时变化只有大文本活动行的可访问名称修
 6. **整窗像素**：历史结果仍为 0 张合格 / 50 组页面级配对，未达成原整改目标；只登记持续改进。
 7. **代码签名**：Augit 自身 `NotSigned`，SmartScreen 可能提示未知发布者。
 8. **未支持/已批准范围差异**：Force Push、子模块、平台接口、内置 Git Console、AI、内置编辑保存等，
-   以 `docs/known-limitations-1.0.0-rc.9.md` 为准。
+   以 `docs/known-limitations-1.0.0-rc.10.md` 为准。
 
 ## 4. 外部环境要求（当前机器不可验证）
 
@@ -103,14 +105,14 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 - 当前环境可解决的收口项已完成，rc.2 是当前最强、可复验的候选。
 - 2026-10-26 已发布公开预发布资产；正式 1.0 仍受干净虚拟机、真实缺 WebView2、代码签名、其他辅助技术与真实使用观察约束。
 - 建议**继续 RC 观察**，而不是现在宣布正式 1.0。
-- 若用户接受披露边界并完成/豁免外部条件，rc.9 可作为正式 1.0 的发布基础。
+- 若用户接受披露边界并完成/豁免外部条件，rc.10 可作为正式 1.0 的发布基础。
 
 ## 7. 证据入口
 
 - 收口台账：`docs/release-closure-2026-10-24.md`
-- rc.9 发布清单：`docs/release-manifest-1.0.0-rc.9.md`
-- rc.9 发布说明：`docs/release-notes-1.0.0-rc.9.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.9.md`
+- rc.10 发布清单：`docs/release-manifest-1.0.0-rc.10.md`
+- rc.10 发布说明：`docs/release-notes-1.0.0-rc.10.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.10.md`
 - rc.2 历史发布记录：`docs/release-manifest-1.0.0-rc.2.md`、`docs/release-notes-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`
 - Windows 10 22H2 多显示器/DPI：`docs/win10-22h2-multimonitor-validation-2026-10-26.md`、`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`

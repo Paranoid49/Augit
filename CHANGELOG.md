@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.0.0-rc.10] - 2026-10-29
+
 ### Added
 
 - 终端工具窗支持同时打开多个标签：标题栏显示 `Terminal | Local × + ⌄`，标签可切换、单独关闭；`+`/`⌄` 直接列出 Windows PowerShell、PowerShell 7、Command Prompt、Git Bash、Ubuntu（WSL）和 Settings，不必先打开设置。
