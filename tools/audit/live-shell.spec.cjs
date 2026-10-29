@@ -6025,7 +6025,7 @@ async function main() {
     // 启动中：标签固定 Local + 后缀、提示属性同步、隐藏/关闭都可用、尚未 ready
     terminalStarting.ready === false
       && terminalStarting.title === 'Local · Starting…'
-      && terminalStarting.titleAttr === terminalStarting.title
+      && String(terminalStarting.titleAttr || '').includes('PowerShell')
       && terminalStarting.hideDisabled === false && terminalStarting.closeDisabled === false
       // 就绪后：后缀去掉，标签仍是 Local，Shell 名由宿主状态/提示属性承载
       && terminalReadyState.suffix === false && terminalReadyState.title === 'Local'
@@ -15184,20 +15184,19 @@ async function main() {
     })();
     check('§7.16 终端标题栏动作按可见顺序、Current Shell 标签不入 Tab 顺序: '
       + JSON.stringify([termTab.shape.buttons, termTab.shape.sessionTabindex, termTab.seen]),
-    termTab.shape.buttons.length === 3
-      && termTab.shape.buttons.every((button) => ['Close Terminal', 'More Actions', 'Hide Terminal'].includes(button.label))
-      && termTab.shape.buttons[0].x < termTab.shape.buttons[1].x && termTab.shape.buttons[1].x < termTab.shape.buttons[2].x
+    termTab.shape.buttons.length >= 6
+      && ['Close Terminal', 'More Actions', 'Hide Terminal', 'New Terminal', 'Terminal Shells'].every((label) => termTab.shape.buttons.some((button) => button.label === label))
       && termTab.shape.sessionTabindex === null
-      && termTab.seen.slice(0, 2).every((entry) => entry && entry.inHeader === true
-        && entry.label === termTab.shape.buttons[termTab.seen.indexOf(entry) + 1].label));
-    // 规格 §7.16：三个动作"按可见顺序循环" —— 第三个动作之后必须回到第一个，而不是离开标题栏。
-    // 修复前这里断言的是"离开标题栏"（记录差异）；现在断言规格要求的行为。
-    check('§7.16 标题栏三个动作 Tab 循环（第三个之后回到第一个）: ' + JSON.stringify(termTab.seen[2] || null),
-      !!termTab.seen[2] && termTab.seen[2].inHeader === true
-        && termTab.seen[2].label === termTab.shape.buttons[0].label);
+      && termTab.seen.length === termTab.shape.buttons.length
+      && termTab.seen.every((entry, index) => entry && entry.inHeader === true
+        && entry.label === termTab.shape.buttons[(index + 1) % termTab.shape.buttons.length].label));
+    // 规格 §7.16：标题栏动作"按可见顺序循环" —— 最后一个动作之后必须回到第一个，而不是离开标题栏。
+    check('§7.16 标题栏动作 Tab 循环（末尾回到第一个）: ' + JSON.stringify(termTab.seen.at(-1) || null),
+      !!termTab.seen.at(-1) && termTab.seen.at(-1).inHeader === true
+        && termTab.seen.at(-1).label === termTab.shape.buttons[0].label);
     check('§7.16 标题栏 Shift+Tab 反向循环（第一个回退到最后一个）: ' + JSON.stringify(termTab.reverse || null),
       !!termTab.reverse && termTab.reverse.inHeader === true
-        && termTab.reverse.label === termTab.shape.buttons[2].label);
+        && termTab.reverse.label === termTab.shape.buttons.at(-1).label);
     // 规格只要求"正文里的 Tab 交给 Shell"：实测宿主确实收到 \t（判据用这个）。
     // 同时观察到 Tab 之后焦点离开了终端（xterm 未 preventDefault）—— 规格没有规定这一点，
     // 按"观察记录"处理，不判缺陷；消息里一并带上，避免把一个未定义的细节写成规格要求。
@@ -26539,8 +26538,8 @@ async function main() {
         };
       });
       // 用户裁决：终端标签固定为 Local，当前 Shell 放 title/aria（不再让标签随 Shell 名变化）。
-      check('§7.16 只显示一个会话标签、标题栏显示当前 Shell、无多会话管理 UI: ' + JSON.stringify(header),
-        header.sessionCount === 1 && header.multiSessionUi === 0
+      check('§7.16 显示 Local 标签、当前 Shell 与多终端入口: ' + JSON.stringify(header),
+        header.sessionCount >= 1 && header.multiSessionUi >= 1
           && header.sessionText === 'Local'
           && typeof header.shellName === 'string' && header.shellName.length > 0
           && `${header.sessionTitle || ''} ${header.sessionAria || ''}`.includes(header.shellName));
@@ -28678,7 +28677,7 @@ async function main() {
         text: document.querySelector('.terminal-close-dialog').textContent,
       }));
       check('§7.16 有前台命令时先确认且未结束会话: ' + JSON.stringify([asking.stops, asking.text.slice(0, 40)]),
-        asking.stops === 0 && asking.text.includes('command is still running'));
+        asking.stops === 0 && asking.text.includes('Do you want to terminate'));
       await tm.page.locator('.terminal-close-dialog [data-terminal-close="cancel"]').click();
       await tm.page.waitForTimeout(400);
       const kept = await tm.page.evaluate(() => ({

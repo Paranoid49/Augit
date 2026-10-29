@@ -59,6 +59,8 @@ internal sealed class ShellBridge : IDisposable
     private readonly Lock _changeGate = new();
     private readonly HashSet<string> _pendingWorkspaceChanges = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock _terminalGate = new();
+    private readonly Dictionary<string, TerminalSlot> _terminalSlots = new(StringComparer.Ordinal);
+    private const string DefaultTerminalSessionId = "main";
     private readonly Lock _searchGate = new();
     /// <summary>
     /// 正在运行的搜索请求（网页 requestId → 取消源）。
@@ -72,13 +74,8 @@ internal sealed class ShellBridge : IDisposable
     private WorkspaceFileWatcher? _workspaceWatcher;
     private GitMetadataWatcher? _gitWatcher;
     private bool _pendingGitMetadataChange;
-    private readonly StringBuilder _terminalBuffer = new();
     private readonly string _workspaceRoot;
     private readonly WriteOperationTracker _writes = new();
-    private ConPtyTerminalSession? _terminal;
-    private long _terminalOffset;
-    private bool _terminalExited;
-    private int _terminalExitCode;
 
     private readonly Action<string, object>? _notify;
 
@@ -251,11 +248,12 @@ internal sealed class ShellBridge : IDisposable
             "git/operation-action" => await RunOperationActionAsync(parameters, cancellationToken),
             "git/conflicts" => await ReadConflictsAsync(cancellationToken),
             "terminal/start" => await StartTerminalAsync(parameters, cancellationToken),
+            "terminal/shells" => await ListTerminalShellsAsync(cancellationToken),
             "terminal/read" => ReadTerminal(parameters),
-            "terminal/status" => ReadTerminalStatus(),
+            "terminal/status" => ReadTerminalStatus(parameters),
             "terminal/write" => await WriteTerminalAsync(parameters, cancellationToken),
             "terminal/resize" => ResizeTerminal(parameters),
-            "terminal/stop" => await StopTerminalAsync(),
+            "terminal/stop" => await StopTerminalAsync(parameters),
             "git/clone" => await RunWriteAsync(ct => CloneAsync(parameters, ct), cancellationToken),
             "workspace/open" => OpenWorkspace(parameters),
             "write/cancel" => await CancelWriteAsync(),
@@ -1295,6 +1293,19 @@ internal sealed class ShellBridge : IDisposable
         _refreshTrace.Export();
         _workspaceWatcher?.Dispose();
         _gitWatcher?.Dispose();
+        TerminalSlot[] terminals;
+        lock (_terminalGate)
+        {
+            terminals = [.. _terminalSlots.Values];
+            _terminalSlots.Clear();
+        }
+
+        foreach (TerminalSlot slot in terminals)
+        {
+            slot.Session?.OutputReceived -= slot.OutputHandler;
+            slot.Session?.Exited -= slot.ExitHandler;
+            slot.Session?.Dispose();
+        }
     }
 
     /// <summary>
@@ -1678,52 +1689,142 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>
-    /// 启动内置终端。终端是独占的单会话资源：已有会话时先结束再启动，
-    /// 避免留下孤儿 Shell 进程。
+    /// 启动一个具名终端会话。每个标签页有独立 sessionId；不传 sessionId 时沿用
+    /// "main" 以兼容旧调用。同一 sessionId 重新启动会先结束旧会话。
     /// </summary>
     private async Task<object?> StartTerminalAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        await StopTerminalAsync();
+        string sessionId = ReadTerminalSessionId(parameters);
         int columns = GetInt(parameters, "columns") ?? 80;
         int rows = GetInt(parameters, "rows") ?? 24;
         ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
+        string? requestedShell = NormalizeTerminalShell(GetString(parameters, "shellId"));
+        string? requestedCommand = GetString(parameters, "customCommand");
+        if (requestedShell is not null)
+        {
+            settings = settings with { TerminalShell = requestedShell };
+        }
+
+        if (requestedCommand is not null
+            && (requestedShell is null || requestedShell == TerminalShellIds.Custom))
+        {
+            settings = settings with { TerminalCustomCommand = requestedCommand };
+        }
+
         TerminalLaunchResult launch = TerminalShellResolver.Resolve(settings, _workspaceRoot);
         if (!launch.IsSuccess || launch.LaunchInfo is not { } launchInfo)
         {
-            return new { available = false, reason = launch.ErrorMessage };
+            return new { available = false, sessionId, reason = launch.ErrorMessage };
         }
 
+        // 只有新 Shell 已解析成功才替换旧会话；解析失败时保留已打开的终端。
+        await StopTerminalByIdAsync(sessionId);
         ConPtyTerminalSession session = ConPtyTerminalSession.Start(
             launchInfo,
             _workspaceRoot,
             Math.Clamp(columns, 20, 500),
             Math.Clamp(rows, 5, 200));
+        TerminalSlot slot = new()
+        {
+            Id = sessionId,
+        };
+        slot.OutputHandler = (_, data) => OnTerminalOutput(slot, data);
+        slot.ExitHandler = (_, exitCode) => OnTerminalExited(slot, exitCode);
+        session.OutputReceived += slot.OutputHandler;
+        session.Exited += slot.ExitHandler;
+        slot.Session = session;
         lock (_terminalGate)
         {
-            _terminal = session;
-            _terminalBuffer.Clear();
+            _terminalSlots[sessionId] = slot;
         }
 
-        session.OutputReceived += OnTerminalOutput;
-        session.Exited += OnTerminalExited;
         return new
         {
             available = true,
+            sessionId,
             shellId = launchInfo.ShellId,
             displayName = launchInfo.DisplayName,
         };
     }
 
-    private void OnTerminalOutput(object? sender, string data)
+    internal static string ReadTerminalSessionId(JsonElement parameters)
+    {
+        string id = GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
+        if (id.Length is 0 or > 64)
+        {
+            return DefaultTerminalSessionId;
+        }
+
+        foreach (char character in id)
+        {
+            if (!char.IsAsciiLetterOrDigit(character) && character is not ('-' or '_'))
+            {
+                return DefaultTerminalSessionId;
+            }
+        }
+
+        return id;
+    }
+
+    private TerminalSlot? FindTerminalSlot(string sessionId)
     {
         lock (_terminalGate)
         {
-            _terminalBuffer.Append(data);
+            return _terminalSlots.TryGetValue(sessionId, out TerminalSlot? slot) ? slot : null;
+        }
+    }
+
+    /// <summary>终端工具窗口的“新建终端”菜单可选项；只返回本机实际可启动的 Shell。</summary>
+    private async Task<object?> ListTerminalShellsAsync(CancellationToken cancellationToken)
+    {
+        ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
+        string[] ids =
+        [
+            TerminalShellIds.WindowsPowerShell,
+            TerminalShellIds.PowerShell7,
+            TerminalShellIds.CommandPrompt,
+            TerminalShellIds.GitBash,
+            TerminalShellIds.Wsl,
+            TerminalShellIds.Custom,
+        ];
+        List<object> shells = [];
+        foreach (string id in ids)
+        {
+            if (id == TerminalShellIds.Custom && string.IsNullOrWhiteSpace(settings.TerminalCustomCommand))
+            {
+                continue;
+            }
+
+            TerminalLaunchResult launch = TerminalShellResolver.Resolve(settings with { TerminalShell = id }, _workspaceRoot);
+            shells.Add(new
+            {
+                shellId = id,
+                displayName = launch.LaunchInfo?.DisplayName ?? id,
+                available = launch.IsSuccess,
+                reason = launch.ErrorMessage,
+            });
+        }
+
+        return new { shells };
+    }
+
+    private void OnTerminalOutput(TerminalSlot slot, string data)
+    {
+        lock (_terminalGate)
+        {
+            if (!_terminalSlots.TryGetValue(slot.Id, out TerminalSlot? current) || !ReferenceEquals(current, slot))
+            {
+                return;
+            }
+
+            slot.Buffer.Append(data);
             // 只保留最近一段的输出，避免长时间运行后内存无界增长。
             // 用"上限 + 余量"再裁（见 TerminalTrimSlackLength）：逐次裁剪是二次成本。
-            if (ShouldTrimTerminalBuffer(_terminalBuffer.Length, MaximumTerminalBufferLength, TerminalTrimSlackLength))
+            if (ShouldTrimTerminalBuffer(slot.Buffer.Length, MaximumTerminalBufferLength, TerminalTrimSlackLength))
             {
-                TrimTerminalBuffer(_terminalBuffer, ref _terminalOffset, MaximumTerminalBufferLength);
+                long offset = slot.Offset;
+                TrimTerminalBuffer(slot.Buffer, ref offset, MaximumTerminalBufferLength);
+                slot.Offset = offset;
             }
         }
     }
@@ -1732,7 +1833,7 @@ internal sealed class ShellBridge : IDisposable
     /// 终端输出缓冲区的裁剪：超过上限时丢掉最旧的一段。
     /// 读取偏移量必须**同步减去被裁掉的字符数**，否则偏移会永久大于缓冲区长度，
     /// `ReadTerminal` 的 <c>Math.Clamp</c> 会把起点夹到末尾，终端从此再也读不到输出
-    /// （此前写成 <c>_terminalOffset - (buffer.Length - Maximum)</c>，而 Remove 之后该项已变成 0）。
+    /// （此前写成 <c>offset - (buffer.Length - Maximum)</c>，而 Remove 之后该项已变成 0）。
     /// </summary>
     /// <summary>是否该裁剪：超过"上限 + 余量"才裁，用于把裁剪成本摊销掉。</summary>
     internal static bool ShouldTrimTerminalBuffer(int length, int maximumLength, int slack)
@@ -1750,131 +1851,159 @@ internal sealed class ShellBridge : IDisposable
         offset = Math.Max(0, offset - removed);
     }
 
-    private void OnTerminalExited(object? sender, int exitCode)
+    private void OnTerminalExited(TerminalSlot slot, int exitCode)
     {
         lock (_terminalGate)
         {
-            _terminalExited = true;
-            _terminalExitCode = exitCode;
+            if (!_terminalSlots.TryGetValue(slot.Id, out TerminalSlot? current) || !ReferenceEquals(current, slot))
+            {
+                return;
+            }
+
+            slot.Exited = true;
+            slot.ExitCode = exitCode;
         }
     }
 
-    /// <summary>增量读取终端输出：网页层按偏移量轮询，避免重复传输。</summary>
+    /// <summary>增量读取指定终端会话的输出：网页层按偏移量轮询，避免重复传输。</summary>
     private object ReadTerminal(JsonElement parameters)
     {
+        string sessionId = ReadTerminalSessionId(parameters);
         long offset = GetLong(parameters, "offset") ?? 0;
         // 客户端可以要求更小的分段；缺省用 128 KB。上限夹在 1 KB 到整个缓冲区之间。
         int maximum = (int)Math.Clamp(
             GetLong(parameters, "maximumLength") ?? MaximumTerminalChunkLength,
             1024,
             MaximumTerminalBufferLength);
+        TerminalSlot? slot = FindTerminalSlot(sessionId);
         lock (_terminalGate)
         {
-            long start = Math.Clamp(offset, 0, _terminalBuffer.Length);
-            int backlog = (int)(_terminalBuffer.Length - start);
+            if (slot is null)
+            {
+                return new
+                {
+                    available = false,
+                    sessionId,
+                    running = false,
+                    exited = true,
+                    exitCode = -1,
+                    offset,
+                    pending = 0,
+                    notifyError = (string?)null,
+                    outputEnded = true,
+                    data = string.Empty,
+                };
+            }
+
+            long start = Math.Clamp(offset, 0, slot.Buffer.Length);
+            int backlog = (int)(slot.Buffer.Length - start);
             int length = Math.Min(backlog, maximum);
-            string chunk = _terminalBuffer.ToString((int)start, length);
+            string chunk = slot.Buffer.ToString((int)start, length);
             return new
             {
-                available = _terminal is not null,
-                running = _terminal?.IsRunning ?? false,
-                exited = _terminalExited,
-                exitCode = _terminalExitCode,
+                available = slot.Session is not null,
+                sessionId,
+                running = slot.Session?.IsRunning ?? false,
+                exited = slot.Exited,
+                exitCode = slot.ExitCode,
                 // 报告**本段末尾**而不是缓冲区末尾：偏移必须与真正返回的字符数一致，
                 // 否则分批返回时客户端会跳过还没拿到的那一段。
                 offset = start + length,
                 // 还剩多少没读：客户端可以据此连续轮询追平（也便于真机探针判断积压）。
                 pending = backlog - length,
                 // 后台读取循环里"投递输出"失败的原因（诊断用；null 表示没有失败）。
-                notifyError = _terminal?.LastNotifyError,
+                notifyError = slot.Session?.LastNotifyError,
                 // 输出管道是否已读到 EOF（读取循环结束）：真机探针据此区分
                 // "循环已退出"与"Shell 阻塞写满管道"这两种机制。
-                outputEnded = _terminal?.OutputEnded ?? false,
+                outputEnded = slot.Session?.OutputEnded ?? false,
                 data = chunk,
             };
         }
     }
 
     /// <summary>
-    /// 终端会话状态（规格 §7.16：关闭运行中终端前必须先确认）。
+    /// 指定终端会话状态（规格 §7.16：关闭运行中终端前必须先确认）。
     /// 只有用户点了关闭才会查一次前台进程，因此不进轮询路径。
     /// </summary>
-    private object ReadTerminalStatus()
+    private object ReadTerminalStatus(JsonElement parameters)
     {
+        string sessionId = ReadTerminalSessionId(parameters);
+        TerminalSlot? slot = FindTerminalSlot(sessionId);
         lock (_terminalGate)
         {
-            bool available = _terminal is not null;
+            bool available = slot?.Session is not null;
             return new
             {
                 available,
-                running = _terminal?.IsRunning ?? false,
-                foreground = available && _terminal!.HasForegroundProcess,
-                exited = _terminalExited,
-                exitCode = _terminalExitCode,
+                sessionId,
+                running = slot?.Session?.IsRunning ?? false,
+                foreground = available && slot!.Session!.HasForegroundProcess,
+                exited = slot?.Exited ?? true,
+                exitCode = slot?.ExitCode ?? -1,
             };
         }
     }
 
     private async Task<object?> WriteTerminalAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
+        string sessionId = ReadTerminalSessionId(parameters);
         string data = GetString(parameters, "data") ?? string.Empty;
-        ConPtyTerminalSession? session;
-        lock (_terminalGate)
-        {
-            session = _terminal;
-        }
-
+        TerminalSlot? slot = FindTerminalSlot(sessionId);
+        ConPtyTerminalSession? session = slot?.Session;
         if (session is null || !session.IsRunning)
         {
-            return new { available = false };
+            return new { available = false, sessionId };
         }
 
         await session.WriteAsync(data, cancellationToken);
-        return new { available = true };
+        return new { available = true, sessionId };
     }
 
     private object ResizeTerminal(JsonElement parameters)
     {
+        string sessionId = ReadTerminalSessionId(parameters);
         int columns = GetInt(parameters, "columns") ?? 80;
         int rows = GetInt(parameters, "rows") ?? 24;
-        ConPtyTerminalSession? session;
-        lock (_terminalGate)
-        {
-            session = _terminal;
-        }
-
+        TerminalSlot? slot = FindTerminalSlot(sessionId);
+        ConPtyTerminalSession? session = slot?.Session;
         if (session is not null && session.IsRunning)
         {
             session.Resize(Math.Clamp(columns, 20, 500), Math.Clamp(rows, 5, 200));
         }
 
-        return new { available = session is not null };
+        return new { available = session is not null, sessionId };
     }
 
-    private async Task<object?> StopTerminalAsync()
+    private async Task<object?> StopTerminalAsync(JsonElement parameters)
     {
-        ConPtyTerminalSession? session;
+        string sessionId = ReadTerminalSessionId(parameters);
+        bool stopped = await StopTerminalByIdAsync(sessionId);
+        return new { available = stopped, sessionId };
+    }
+
+    private async Task<bool> StopTerminalByIdAsync(string sessionId)
+    {
+        TerminalSlot? slot;
         lock (_terminalGate)
         {
-            session = _terminal;
-            _terminal = null;
+            if (!_terminalSlots.Remove(sessionId, out slot))
+            {
+                return false;
+            }
+
+            slot.Session?.OutputReceived -= slot.OutputHandler;
+            slot.Session?.Exited -= slot.ExitHandler;
         }
 
-        if (session is null)
+        if (slot.Session is null)
         {
-            return new { available = false };
+            return true;
         }
 
-        session.OutputReceived -= OnTerminalOutput;
-        session.Exited -= OnTerminalExited;
-        await session.StopAsync();
-        session.Dispose();
-        lock (_terminalGate)
-        {
-            _terminalExited = true;
-        }
-
-        return new { available = true };
+        await slot.Session.StopAsync();
+        slot.Session.Dispose();
+        slot.Exited = true;
+        return true;
     }
 
     /// <summary>读取当前冲突文件列表（2026-10-17 移除三栏编辑器后只返回状态）。</summary>
@@ -3470,6 +3599,20 @@ internal sealed class ShellBridge : IDisposable
         return JsonSerializer.Serialize(
             error is null ? new Response(id, result, null) : new Response(id, null, error),
             PayloadOptions);
+    }
+
+    private sealed class TerminalSlot
+    {
+        public string Id { get; init; } = string.Empty;
+        public string ShellId { get; init; } = string.Empty;
+        public string DisplayName { get; init; } = string.Empty;
+        public ConPtyTerminalSession? Session { get; set; }
+        public StringBuilder Buffer { get; } = new();
+        public long Offset { get; set; }
+        public bool Exited { get; set; }
+        public int ExitCode { get; set; }
+        public EventHandler<string>? OutputHandler { get; set; }
+        public EventHandler<int>? ExitHandler { get; set; }
     }
 
     private sealed record Response(long Id, object? Result, string? Error);

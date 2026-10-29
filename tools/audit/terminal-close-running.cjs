@@ -1,7 +1,7 @@
-// 关闭运行中终端的确认 → Stop Command and Close → 子进程终止的正常入口证据。
+// 关闭运行中终端的确认 → Terminate → 子进程终止的正常入口证据。
 //
 // 真实外壳打开 Terminal，输入 ping -t 127.0.0.1，点击 Local 标签关闭，确认框点
-// Stop Command and Close；记录 ping 子进程消失、终端工具关闭。输入/点击均为 Win32。
+// Terminate；记录 ping 子进程消失、终端工具关闭。输入/点击均为 Win32。
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -239,7 +239,7 @@ $result | ConvertTo-Json -Compress`;
       const r = node.getBoundingClientRect();
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     });
-    const stop = await clickRect(hwnd, stopRect, 'stop-and-close');
+    const stop = await clickRect(hwnd, stopRect, 'terminate');
     await page.waitForFunction(() => !document.querySelector('[data-terminal-close="confirm"]'), null, { timeout: 15000 });
     await delay(2500);
     let pingAfter = await pingUnder(pid);

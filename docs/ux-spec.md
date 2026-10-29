@@ -101,7 +101,7 @@
 | Commit 工具窗口 | Changes、Unversioned Files、完整文件复选、提交信息、Amend、Commit、Commit and Push | 删除多个 Changelist、部分行提交和暂存区事务模型 |
 | Git Log | 引用树、提交图、筛选、提交详情、变化文件、文件历史和 Blame | 删除 Git Console、平台 API、Pull Request 和子模块 |
 | Branches 弹层 | 分支、标签、Fetch、Pull、Push、比较和工作区管理入口 | 删除 Force Push、GitHub/GitLab 入口和多个仓库根节点 |
-| Terminal 工具窗口 | 单会话内置终端和外部终端入口 | 删除多标签终端和终端任务集成 |
+| Terminal 工具窗口 | 多标签内置终端、标签栏新建/切换/关闭、Shell 菜单和外部终端入口 | 删除终端任务集成 |
 | Settings | 外观、字体、Git 路径、终端 Shell 和启动恢复设置 | 删除插件、主题市场、键位市场、解释器和构建配置 |
 | Search Everywhere | `Ctrl+P` 快速打开文件 | 删除类、符号、操作和非项目项搜索 |
 | Find in Files | 全仓文本搜索 | 删除文件类型筛选、范围模板和复杂结构化搜索 |
@@ -623,18 +623,18 @@ Diff 请求键由仓库、文件路径、比较基准、单栏或双栏、忽略
 视觉稿：[内置终端](ux-mockups/terminal.html)与[关闭运行中终端](ux-mockups/terminal-close.html)。
 
 - 终端在底部工具窗口按需创建，打开后替换 Git 历史但不影响项目树和编辑区。
-- 点击打开后立即显示 `Local · 正在启动…`：可见标签固定 `Local`，当前 Shell 名放在悬停 `title`（启动中附 `· Starting…`）与 `aria-label`（`Local terminal: <Shell>`）中（2026-10-18 用户裁决）；加载期间隐藏和关闭入口可用。重复打开复用同一个启动请求。用户随后隐藏终端、切换 Git 历史或把焦点移到项目树/正文，启动完成不覆盖这些选择。
+- 点击打开后立即显示 `Local · 正在启动…`：可见标签保持 `Local`（多标签按 `Local (N)` 编号），当前 Shell 名放在悬停 `title`（启动中附 `· Starting…`）与 `aria-label`（`Local terminal: <Shell>`）中（2026-10-18 用户裁决）；加载期间隐藏和关闭入口可用。重复打开复用同一个启动请求。用户随后隐藏终端、切换 Git 历史或把焦点移到项目树/正文，启动完成不覆盖这些选择。
 - 加载期间关闭终端或切换工作区后，旧请求失效，不启动旧 Shell、不重新显示面板，也不覆盖新工作区的状态提示。关闭后立即重开建立新请求，旧请求的完成或失败不影响新会话。
-- 首版只显示一个会话标签，不显示无效的多会话管理。
+- 标题栏显示 `Terminal | Local × + ⌄`：`Local` 为当前标签名，多标签按 `Local`、`Local (2)` 编号；每个标签有独立关闭叉，`+`/`⌄` 打开 Shell 菜单。标签可切换，隐藏工具窗时所有会话保留。
 - Shell 就绪后自动显示初始提示符，不要求用户先按键；首次布局不能截断启动输出。隐藏工具窗口不结束会话，恢复后保留隐藏期间的输出，调整面板大小不重新创建 Shell。
 - WebView2 首次导航期间 Shell 可并行启动；页面 ready 前的提示符和输出必须在终端显示后保留，ready 后按实际终端列行补偿尺寸，不因等待浏览器而额外延迟 Shell。
 - 终端正文使用等宽字体，默认按 PyCharm 2026.2.1 实机的 JetBrains Mono 13px、行距系数 1.0 使用字体基础行格（参考约 18 逻辑px）；不再使用字号的 1.7 倍或固定 22px。xterm 的行距系数保持 1.0；已加载的随包JetBrains Mono基础行格取ceil(字号×1.02)+ceil(字号×0.3)，默认18px、17号字24px，静态终端同样按此度量。其他字体或资源加载失败沿xterm原始度量。实际行格须记录字体引擎度量和设备像素取整结果，不能把配置相同当作双端像素通过。正文留白为上下 11px、左右 12px；字号变化只重新度量终端，不改变标题栏图标尺寸。此口径按用户 2026-10-15 裁决同步。
 - 实时终端的文字、光标、选区和鼠标命中共用字符网格。已加载的随包JetBrains Mono按参考整数设备步长排版，其他字体与加载失败恢复xterm原始度量；字体、字号或DPI变化重新度量，不缩放字形。详见设计系统终端格宽记录。
 - 2026-10-17 用户批准保留简洁 xterm 终端：PyCharm Reworked 引擎的命令块分隔线、块间留白（非首块顶部 7、已完成块底部 6 逻辑像素，经 JBUI.scale）以及由此产生的行距差异登记为**有意差异**，不再作为验收缺口。除此之外，终端文字字形、行格、颜色、面板尺寸与位置、实际内容、光标与选区仍须按 PyCharm 2026.2.1 对照；有意差异不得用于掩盖其他未通过的像素或状态差异。
 - 深色终端正文背景与普通输出按参考编辑器方案的控制台键取#1E1F22与#BCBEC4，不继承工具面板的#191A1C与界面文字色；静态稿、加载空白及实时终端一致。ANSI色仍按各自索引，不用普通输出色覆盖。
-- 标题栏显示当前 Shell，更多菜单提供切换配置和外部终端入口。
+- 当前标签的 Shell 名放在 `title`/`aria-label` 中，标签名保持 `Local`/`Local (N)`；`+`/`⌄` 菜单直接提供 PowerShell、CMD、Git Bash、WSL、自定义命令和 Settings，更多菜单继续提供切换配置与外部终端入口。
 - 会话名称按实际字宽显示，标题行随实际字高扩展，关闭会话、更多和隐藏图标按紧凑UI图标族缩放。标题栏三个动作按可见顺序循环 Tab/Shift+Tab，Enter/空格执行已有动作；终端正文中的 Tab 仍交给 Shell，而不带修饰键的 `Esc` 相反：把焦点交回编辑器正文并消费该键，**不把 ESC 送给 Shell**（权威 `TerminalEscapeKeyListener`；带修饰键的 Esc 组合仍交给 Shell，没有可聚焦正文时不拦截）。当前 Shell 标签不进入 Tab 顺序，长名称提供完整悬停说明。
-- 关闭空闲终端直接释放；存在前台命令时显示确认对话框并说明将结束整个子进程树。
+- 关闭空闲终端直接释放该标签；存在前台命令时显示 JetBrains 风格 `Process 'Terminal Local (N)' Is Running` 警告（橙色三角、`Don't ask again`、`Terminate` / `Cancel`），确认后结束该标签及其子进程树；关闭最后一个标签后恢复底部工具窗状态。
 - 关闭后立即恢复先前底部工具窗口状态或折叠底部区域，并回收 WebView2、Shell、WSL 和会话目录。
 
 ### 7.17 设置
@@ -875,7 +875,7 @@ WebView2 栅格化比例，使逻辑尺寸不变），仍由真实窗口完成�
 | `repository-search` | [全仓搜索](ux-mockups/repository-search.html) | `repository-search` | 结果按文件和命中行组织，打开后保持原工具窗口状态。 |
 | `search-limited` | [搜索截断与超时](ux-mockups/search-limited.html) | `search-limited` | 到限后按权威弹「结果过多」（默认按钮「继续」）：继续则分页取完余下结果且不再提示，中止则保留已有结果并取消搜索；超时保留已完成的结果。 |
 | `terminal` | [终端](ux-mockups/terminal.html) | `terminal` | 打开后替换底部 Git 历史，项目树和编辑区保持可见。 |
-| `terminal-close` | [关闭运行中终端](ux-mockups/terminal-close.html) | `terminal-close` | 前台命令存在时先确认；确认后回收 Shell、子进程和会话目录。 |
+| `terminal-close` | [关闭运行中终端](ux-mockups/terminal-close.html) | `terminal-close` | 前台命令存在时先以 JetBrains 风格警告确认；确认后只回收该标签的 Shell、子进程和会话目录。 |
 | `settings` | [设置](ux-mockups/settings.html) | `settings` | 只出现受支持配置；保存后局部应用，不重建工作区。 |
 | `git-unavailable` | [Git 不可用](ux-mockups/git-unavailable.html) | `git-unavailable` | 文件浏览保持可用；Git 入口禁用且通知给出配置入口。 |
 | `operation-result` | [Git 操作结果](ux-mockups/operation-result.html) | `operation-result` | 成功、失败和冲突均说明事实与后续动作，不把失败包装为成功。 |

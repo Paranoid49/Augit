@@ -1041,9 +1041,108 @@ let terminalTimer = 0;
 let terminalReady = false;
 // 同一时刻只允许一个在途的 terminal/read（见 pollTerminal）。
 let terminalPolling = false;
-// 终端启动代际（规格 §7.16）：关闭/切换时递增，使在途的 terminal/start 收尾失效 ——
-// 晚到的启动不得接管界面，也不能把已经启动的 Shell 留在宿主里（要发 terminal/stop 释放）。
-let terminalGeneration = 0;
+// 多终端标签页。每个标签有独立 xterm、ConPTY sessionId、输出偏移和轮询定时器；
+// terminalInstance/terminalOffset/terminalTimer 始终指向当前活动标签，兼容既有单会话代码。
+const terminalTabs = new Map();
+let terminalTabSequence = 0;
+let activeTerminalId = null;
+
+/** 终端 focus/设备状态回报也会走 xterm.onData；它们不是用户输入，不能阻止设置热切换。 */
+function isTerminalUserInputData(data) {
+  if (!data) return false;
+  if (/^\u001b\[[IO]$/.test(data)) return false;
+  if (/^\u001b\[[0-9;?]*[Rc]$/.test(data)) return false;
+  return true;
+}
+function activeTerminalTab() {
+  return activeTerminalId ? terminalTabs.get(activeTerminalId) || null : null;
+}
+
+function syncTerminalGlobals() {
+  const tab = activeTerminalTab();
+  terminalInstance = tab?.instance || null;
+  terminalFitAddon = tab?.fitAddon || null;
+  terminalReady = !!tab?.ready;
+  terminalOffset = tab?.offset || 0;
+  terminalTimer = tab?.timer || 0;
+  window.__augitTerminalReady = terminalReady;
+  window.__augitTerminalExited = !!tab?.exited;
+  window.__augitTerminalShell = tab?.shellName || window.__augitTerminalShell || "Windows PowerShell";
+}
+
+function syncTerminalTabState() {
+  const live = window.__augitLive;
+  syncTerminalGlobals();
+  if (!live) return;
+  live.activeTerminalId = activeTerminalId;
+  live.terminalTabs = [...terminalTabs.values()].map((tab) => ({
+    id: tab.id,
+    label: tab.label,
+    starting: !!tab.starting,
+    exited: !!tab.exited,
+    shellName: tab.shellName || "Windows PowerShell",
+  }));
+}
+
+function terminalTabMarkup() {
+  const tabs = [...terminalTabs.values()];
+  const tabHtml = tabs.map((tab) => {
+    const active = tab.id === activeTerminalId;
+    const label = tab.starting ? `${tab.label} · Starting…` : tab.label;
+    const title = tab.starting ? `${tab.shellName} · Starting…` : tab.shellName;
+    return `<span class="terminal-tab${active ? " active" : ""}" data-session-tab="${tab.id}">`
+      + `<button type="button" class="terminal-session" data-terminal-activate="${tab.id}" title="${escapeText(title)}" aria-label="Local terminal: ${escapeText(tab.shellName)}">${escapeText(label)}</button>`
+      + `<button type="button" class="icon-button terminal-session-close" data-terminal-close="${tab.id}" aria-label="Close Terminal">${icon("close-small")}</button>`
+      + `</span>`;
+  }).join("");
+  return `<div class="terminal-tabstrip" role="tablist" aria-label="Terminals">${tabHtml}`
+    + `<button type="button" class="icon-button terminal-add" data-terminal-add aria-label="New Terminal">${icon("plus")}</button>`
+    + `<button type="button" class="icon-button terminal-add-menu" data-terminal-add-menu aria-label="Terminal Shells">${icon("chevron-down")}</button>`
+    + `</div>`;
+}
+window.__augitTerminalTabsMarkup = terminalTabMarkup;
+
+function refreshTerminalTabs() {
+  syncTerminalTabState();
+  const host = document.querySelector(".terminal-header .terminal-tabstrip");
+  if (host) host.outerHTML = terminalTabMarkup();
+  else {
+    const header = document.querySelector(".terminal-header");
+    if (header) header.insertAdjacentHTML("beforeend", terminalTabMarkup());
+  }
+  applyTerminalStartState();
+}
+
+function attachActiveTerminal() {
+  const tab = activeTerminalTab();
+  const host = document.querySelector(".terminal-view");
+  if (!tab || !host || !tab.instance) return;
+  const element = tab.instance.element;
+  if (element && element.parentElement !== host) {
+    host.innerHTML = "";
+    host.appendChild(element);
+  }
+  try { tab.fitAddon?.fit(); } catch { /* 宿主未完成布局时忽略 */ }
+  try { tab.instance.focus(); } catch { /* 工具窗隐藏时忽略 */ }
+  syncTerminalGlobals();
+}
+
+function setActiveTerminal(id) {
+  if (!terminalTabs.has(id)) return;
+  const previous = activeTerminalTab();
+  if (previous && previous.timer) {
+    window.clearInterval(previous.timer);
+    previous.timer = 0;
+  }
+  activeTerminalId = id;
+  refreshTerminalTabs();
+  attachActiveTerminal();
+  const tab = activeTerminalTab();
+  if (tab) {
+    if (tab.ready) pollTerminal(tab);
+    syncTerminalTabState();
+  }
+}
 
 /**
  * 整页重绘会替换终端宿主元素，但 xterm 实例与会话必须保留，
@@ -1126,25 +1225,49 @@ function refreshTerminalTypography() {
   }
 }
 
-/** 启动内置终端并接上输出轮询。重复调用时复用已有会话。 */
-async function startTerminal() {
+/** 标签名按当前已打开的终端取最小可用编号（关闭后新建不会无限增长）。 */
+function nextTerminalLabel() {
+  const used = new Set([...terminalTabs.values()].map((tab) => tab.label));
+  if (!used.has('Local')) return 'Local';
+  let index = 2;
+  while (used.has(`Local (${index})`)) index += 1;
+  return `Local (${index})`;
+}
+/** 新建一个终端标签；shellId 为空时使用设置里的默认 Shell。 */
+async function createTerminalTab(shellId = null, labelOverride = null) {
   const host = document.querySelector('.terminal-view');
   if (!host || typeof window.Terminal !== 'function') return null;
-  if (terminalInstance && terminalReady) return terminalInstance;
-  // 规格 §7.16 第 2 条：打开后到 Shell 就绪之间，标题要显示"Shell 名称 · 正在启动…"。
-  // 状态进 `live`（不只写在 DOM 上），这样区域重绘后 `rebindAfterRender()` 能按状态补回。
   const live = window.__augitLive;
+  const id = `terminal-${++terminalTabSequence}`;
+  const label = labelOverride || nextTerminalLabel();
+  const tab = {
+    id,
+    label,
+    shellId,
+    usesSettings: !shellId,
+    shellName: 'Windows PowerShell',
+    instance: null,
+    fitAddon: null,
+    offset: 0,
+    timer: 0,
+    polling: false,
+    ready: false,
+    starting: true,
+    exited: false,
+    hasUserInput: false,
+    closed: false,
+  };
+  terminalTabs.set(id, tab);
+  activeTerminalId = id;
   if (live) {
     live.terminalStarting = true;
-    applyTerminalStartState();
+    live.activeTerminalId = id;
   }
-  // 启动期间的代际：`terminal/start` 是异步的（宿主真正拉起 Shell），期间用户可能关闭终端。
-  // 晚到的成功若继续设置 ready/轮询，就把已关闭的终端"复活"了（规格 §7.16 第 3 条）。
-  const generation = terminalGeneration;
+  syncTerminalTabState();
+  refreshTerminalTabs();
 
-  // 终端与只读文本、diff、冲突用同一套等宽字体与字号（规格：字体设置只改变显示）。
   const typography = terminalTypography();
-  terminalInstance = new window.Terminal({
+  const instance = new window.Terminal({
     allowProposedApi: false,
     convertEol: false,
     cursorBlink: true,
@@ -1152,35 +1275,29 @@ async function startTerminal() {
     fontSize: typography.size,
     augitCellWidth: typography.cellWidth,
     augitCellHeight: typography.cellHeight,
-    // 按PyCharm实机采用字体基础行格；xterm系数乘字体度量，不是字号倍数。
     lineHeight: 1,
     scrollback: 2000,
     theme: terminalTheme(),
   });
-  terminalFitAddon = new window.FitAddon.FitAddon();
-  terminalInstance.loadAddon(terminalFitAddon);
+  const fitAddon = new window.FitAddon.FitAddon();
+  instance.loadAddon(fitAddon);
+  tab.instance = instance;
+  tab.fitAddon = fitAddon;
   host.innerHTML = '';
-  terminalInstance.open(host);
-  try { terminalFitAddon.fit(); } catch { /* 宿主尚未布局时忽略 */ }
+  instance.open(host);
+  try { fitAddon.fit(); } catch { /* 宿主尚未布局时忽略 */ }
+  syncTerminalGlobals();
 
-  terminalInstance.onData((data) => {
-    void invoke('terminal/write', { data }, 10000).catch(() => {});
+  instance.onData((data) => {
+    if (isTerminalUserInputData(data)) tab.hasUserInput = true;
+    void invoke('terminal/write', { sessionId: tab.id, data }, 10000).catch(() => {});
   });
-  terminalInstance.onResize((size) => {
-    void invoke('terminal/resize', { columns: size.cols, rows: size.rows }, 10000).catch(() => {});
+  instance.onResize((size) => {
+    void invoke('terminal/resize', { sessionId: tab.id, columns: size.cols, rows: size.rows }, 10000).catch(() => {});
   });
-  // 权威 `TerminalEscapeKeyListener`（platform/execution-impl/src/com/intellij/terminal/
-  // TerminalEscapeKeyListener.java:34-72）：在终端工具窗口里按 **`Esc`**（即
-  // `Terminal.SwitchFocusToEditor` 的快捷键）会把焦点**交给编辑器组件**并 `consume()` 掉这个键
-  // —— ESC 不送给 Shell。Augit 原来所有按键都经 onData 原样转发，Esc 会被送到 pty。
-  // 只拦**不带修饰键**的 Esc（权威的 `isEscape`：`VK_ESCAPE && modifiersEx == 0`）；
-  // Shift/Esc 这类组合仍是 Shell 的输入。没有可聚焦的正文时不拦（权威在拿不到工具窗口时也不处理）。
-  terminalInstance.attachCustomKeyEventHandler((event) => {
+  instance.attachCustomKeyEventHandler((event) => {
     if (isTerminalCopyShortcut(event)) {
-      // 终端选区复制：Ctrl+Shift+C / Ctrl+Insert。不能走 navigator.clipboard
-      //（WebView2 默认不授予 ClipboardApiRequested），交给宿主 clipboard/write。
-      // Ctrl+C 仍是 Shell 的 SIGINT，不拦截。
-      const selected = terminalInstance.hasSelection() ? terminalInstance.getSelection() : '';
+      const selected = instance.hasSelection() ? instance.getSelection() : '';
       if (selected) void invoke('clipboard/write', { text: selected }, 10000).catch(() => {});
       return false;
     }
@@ -1189,38 +1306,85 @@ async function startTerminal() {
     return !focusEditorFromTerminal();
   });
 
-  const started = await invoke('terminal/start', {
-    columns: terminalInstance.cols,
-    rows: terminalInstance.rows,
-  }, 30000);
-  if (generation !== terminalGeneration) {
-    // 启动期间终端已被关闭：释放刚启动的 Shell，旧请求不得重新显示或接管界面。
-    if (started && started.available) await invoke('terminal/stop', {}, 15000).catch(() => {});
+  let started = null;
+  let startError = null;
+  try {
+    started = await invoke('terminal/start', {
+      sessionId: tab.id,
+      shellId: shellId || undefined,
+      columns: instance.cols,
+      rows: instance.rows,
+    }, 30000);
+  } catch (error) {
+    startError = String(error && error.message || error);
+  }
+  if (tab.closed || !terminalTabs.has(id)) {
+    if (started && started.available) await invoke('terminal/stop', { sessionId: tab.id }, 15000).catch(() => {});
     return null;
   }
-  if (!started || !started.available) {
+  if (startError || !started || !started.available) {
+    tab.starting = false;
+    tab.ready = false;
+    tab.error = startError || String(started && started.reason ? started.reason : 'Terminal unavailable');
     if (live) {
       live.terminalStarting = false;
       applyTerminalStartState();
     }
-    window.__augitError = 'terminal-start:' + String(started && started.reason ? started.reason : 'unavailable');
+    syncTerminalTabState();
+    refreshTerminalTabs();
+    showToast({ title: 'Terminal', text: tab.error, kind: 'error' });
     return null;
   }
 
-  // 新会话从零偏移开始。关闭旧会话时可能仍有一轮异步读取在途，
-  // 其收尾由 pollTerminal 的代际守卫丢弃，不能把旧偏移带进新 Shell。
-  terminalOffset = 0;
-  terminalReady = true;
-  // 宿主 displayName 可能是中文诊断值；终端标题属于界面文案，必须走统一英文转换。
-  window.__augitTerminalShell = uiMessage(started.displayName);
+  tab.shellName = shellId === 'Wsl' ? 'Ubuntu' : uiMessage(started.displayName || shellId || 'Windows PowerShell');
+  tab.starting = false;
+  tab.ready = true;
+  tab.offset = 0;
   if (live) {
-    live.terminalStarting = false;
-    applyTerminalStartState();
+    live.terminalStarting = !!activeTerminalTab()?.starting;
   }
-  pollTerminal(generation, terminalInstance);
-  return terminalInstance;
+  syncTerminalTabState();
+  refreshTerminalTabs();
+  if (tab.id === activeTerminalId) {
+    window.__augitTerminalReady = true;
+    window.__augitTerminalExited = false;
+    if (live) live.activeTerminalId = id;
+    attachActiveTerminal();
+    pollTerminal(tab);
+  }
+  return tab.instance;
 }
 
+/** 启动内置终端；没有活动标签时新建默认标签，失败的旧标签先释放。 */
+async function startTerminal() {
+  const tab = activeTerminalTab();
+  if (tab?.ready) {
+    syncTerminalGlobals();
+    return tab.instance;
+  }
+  if (tab?.starting) return null;
+  if (tab) {
+    await discardTerminalTab(tab);
+  }
+  return createTerminalTab();
+}
+
+/** 丢弃一个不可用的终端标签，不收起工具窗（用于失败重试）。 */
+async function discardTerminalTab(tab) {
+  if (!tab) return;
+  tab.closed = true;
+  if (tab.timer) {
+    window.clearInterval(tab.timer);
+    tab.timer = 0;
+  }
+  terminalTabs.delete(tab.id);
+  try { tab.instance?.dispose(); } catch { /* 已销毁时忽略 */ }
+  await invoke('terminal/stop', { sessionId: tab.id }, 15000).catch(() => {});
+  if (activeTerminalId === tab.id) {
+    activeTerminalId = terminalTabs.keys().next().value || null;
+  }
+  syncTerminalGlobals();
+}
 /**
  * 终端标题按"是否仍在启动"写回（规格 §7.16 第 2 条）。
  *
@@ -1230,14 +1394,15 @@ async function startTerminal() {
 function applyTerminalStartState() {
   const live = window.__augitLive;
   if (!live) return;
-  const label = document.querySelector('.terminal-tool .terminal-session');
+  const tab = activeTerminalTab();
+  if (!tab) return;
+  const label = document.querySelector('.terminal-tab.active .terminal-session');
   if (!label) return;
-  const rendered = String(label.textContent || '').replace(/ · 正在启动…$/, '') || 'Windows PowerShell';
-  const shell = uiMessage(window.__augitTerminalShell || rendered);
+  const shell = uiMessage(tab.shellName || window.__augitTerminalShell || 'Windows PowerShell');
   // 用户 2026-10-18 裁决：标签跟参考用 Local，当前 Shell 放在悬停 title/aria 中。
-  const text = live.terminalStarting ? 'Local · Starting…' : 'Local';
+  const text = tab.starting ? `${tab.label} · Starting…` : tab.label;
   if (label.textContent !== text) label.textContent = text;
-  label.title = live.terminalStarting ? `${shell} · Starting…` : shell;
+  label.title = tab.starting ? `${shell} · Starting…` : shell;
   label.setAttribute('aria-label', `Local terminal: ${shell}`);
   if (typeof window.__augitMeasureTerminalHeaders === 'function') window.__augitMeasureTerminalHeaders();
 }
@@ -1887,58 +2052,59 @@ function focusEditorFromTerminal() {
   return true;
 }
 
-/** 增量拉取终端输出；会话结束后停止轮询。 */
-function pollTerminal(generation, instance) {
-  if (terminalTimer !== 0) return;
-  terminalTimer = window.setInterval(async () => {
-    if (!terminalInstance || terminalInstance !== instance || generation !== terminalGeneration) return;
+/** 拉取某个标签的终端输出；会话结束后停止该标签的轮询。 */
+function pollTerminal(tab) {
+  if (!tab || tab.timer || tab.closed) return;
+  tab.timer = window.setInterval(async () => {
+    if (tab.closed || !terminalTabs.has(tab.id)) return;
     // 上一轮还没回来就跳过这一轮：60ms 的间隔短于一次桥接往返时，
-    // 旧写法会不停堆积在途请求（实测每个 tick 都新发一个），把渲染进程和
-    // UI 线程一起拖住，表现为"点开终端像卡死"。
-    if (terminalPolling) return;
-    terminalPolling = true;
+    // 旧写法会不停堆积在途请求，把渲染进程和 UI 线程一起拖住。
+    if (tab.polling) return;
+    tab.polling = true;
     try {
-      // 分批读：每轮最多 128 KB。真机实测一次搬最多 4 MB 的积压会让大输出后的终端
-      // **永久停止更新**（§3.2 第 15 条）；宿主按返回的 offset 连续轮询即可追平。
-      const chunk = await invoke('terminal/read', { offset: terminalOffset, maximumLength: 131072 }, 10000);
-      // 读取返回期间终端可能已经关闭或切换到新会话；旧会话的输出和偏移都必须丢弃。
-      if (terminalInstance !== instance || generation !== terminalGeneration) return;
+      const chunk = await invoke('terminal/read', {
+        sessionId: tab.id,
+        offset: tab.offset,
+        maximumLength: 131072,
+      }, 10000);
+      if (tab.closed || !terminalTabs.has(tab.id)) return;
       if (chunk && typeof chunk.data === 'string' && chunk.data.length > 0) {
-        terminalInstance.write(chunk.data);
+        tab.instance?.write(chunk.data);
       }
-      if (chunk && typeof chunk.offset === 'number') terminalOffset = chunk.offset;
+      if (chunk && typeof chunk.offset === 'number') {
+        tab.offset = chunk.offset;
+        if (tab.id === activeTerminalId) terminalOffset = chunk.offset;
+      }
       window.__augitTerminalReadError = null;
       window.__augitTerminalBacklog = chunk && typeof chunk.pending === 'number' ? chunk.pending : 0;
       window.__augitTerminalNotifyError = chunk && chunk.notifyError ? chunk.notifyError : null;
       window.__augitTerminalOutputEnded = !!(chunk && chunk.outputEnded === true);
       if (chunk && (chunk.exited || !chunk.running)) {
-        window.clearInterval(terminalTimer);
-        terminalTimer = 0;
-        window.__augitTerminalExited = true;
+        window.clearInterval(tab.timer);
+        tab.timer = 0;
+        tab.exited = true;
+        tab.ready = false;
+        syncTerminalTabState();
+        if (tab.id === activeTerminalId) window.__augitTerminalExited = true;
       }
     } catch (error) {
-      // 单次读取失败不终止轮询，下次重试；但**必须留下痕迹** —— 此前这里静默吞掉，
-      // 真机大输出冻结时 __augitError 一直是 null，用户与探针都看不到原因。
+      // 单次读取失败不终止轮询，下次重试；留下诊断痕迹。
       window.__augitTerminalReadError = String(error && error.message || error);
     } finally {
-      terminalPolling = false;
+      tab.polling = false;
     }
   }, 60);
+  if (tab.id === activeTerminalId) terminalTimer = tab.timer;
 }
 
-/**
- * 终端面板出现时确保会话已经建好（规格 §7.16「按需单会话」）。
- *
- * 此前 `startTerminal()` 只在 `--scene terminal` 启动路径上调用，
- * 运行时点左下角终端入口只会渲染出一个空的 `.terminal-view`：
- * 没有 xterm、没有会话、输入无回显（用户实测"点开卡死"）。
- */
+/** 终端面板出现时确保当前标签已有会话。 */
 async function ensureTerminal() {
   const host = document.querySelector('.terminal-view');
   if (!host) return null;
-  if (terminalInstance && terminalReady) {
+  const tab = activeTerminalTab();
+  if (tab?.ready) {
     reattachTerminal();
-    return terminalInstance;
+    return tab.instance;
   }
   const instance = await startTerminal();
   reattachTerminal();
@@ -1946,93 +2112,228 @@ async function ensureTerminal() {
   return instance;
 }
 
-/** 结束会话并停止轮询。 */
-async function stopTerminal() {
-  if (terminalTimer !== 0) {
-    window.clearInterval(terminalTimer);
-    terminalTimer = 0;
+/** 停止指定标签的宿主会话并停止轮询；不删除标签。 */
+async function stopTerminal(tab = activeTerminalTab()) {
+  if (!tab) return;
+  if (tab.timer) {
+    window.clearInterval(tab.timer);
+    tab.timer = 0;
   }
-  terminalReady = false;
-  terminalPolling = false;
-  // 关闭/停止后不再处于"正在启动"（规格 §7.16 第 2 条）。
+  tab.ready = false;
+  tab.starting = false;
+  tab.polling = false;
+  if (tab.id === activeTerminalId) terminalReady = false;
   const live = window.__augitLive;
   if (live) {
     live.terminalStarting = false;
     applyTerminalStartState();
   }
-  await invoke('terminal/stop', {}, 15000).catch(() => {});
+  await invoke('terminal/stop', { sessionId: tab.id }, 15000).catch(() => {});
 }
 
-/** 关闭终端：先问宿主有没有前台命令，有则先确认（规格 §7.16）。 */
-async function requestCloseTerminal() {
-  const status = await invoke('terminal/status', {}, 8000).catch(() => null);
-  if (status && status.foreground) {
-    openTerminalCloseDialog();
+/** 关闭指定终端：先问宿主有没有前台命令，有则先确认。 */
+async function requestCloseTerminal(id = activeTerminalId) {
+  const tab = id ? terminalTabs.get(id) : null;
+  if (!tab) return;
+  const live = window.__augitLive;
+  const status = await invoke('terminal/status', { sessionId: tab.id }, 8000).catch(() => null);
+  if (status && status.foreground && !live?.terminalCloseDontAsk) {
+    openTerminalCloseDialog(tab);
     return;
   }
-  await closeTerminalNow();
+  await closeTerminalTabNow(tab.id);
 }
 
-/** 真正结束会话并收起底部工具窗口。 */
+/** 关闭当前活动标签；若没有剩余标签则收起底部工具窗口。 */
 async function closeTerminalNow() {
-  // 先推进代际：在途的 `terminal/start` 收尾据此作废（规格 §7.16 第 3 条）。
-  terminalGeneration += 1;
-  await stopTerminal();
-  const live = window.__augitLive;
-  if (terminalInstance) {
-    try { terminalInstance.dispose(); } catch { /* 已销毁时忽略 */ }
-    terminalInstance = null;
+  const tab = activeTerminalTab();
+  if (tab) await closeTerminalTabNow(tab.id);
+}
+
+async function closeTerminalTabNow(id) {
+  const tab = terminalTabs.get(id);
+  if (!tab) return;
+  tab.closed = true;
+  if (tab.timer) {
+    window.clearInterval(tab.timer);
+    tab.timer = 0;
   }
-  terminalOffset = 0;
-  window.__augitTerminalExited = false;
-  window.__augitTerminalReady = false;
-  if (live && live.layout && live.layout.bottom === 'terminal') {
+  tab.ready = false;
+  terminalTabs.delete(id);
+  try { tab.instance?.dispose(); } catch { /* 已销毁时忽略 */ }
+  await invoke('terminal/stop', { sessionId: id }, 15000).catch(() => {});
+  if (activeTerminalId === id) {
+    activeTerminalId = terminalTabs.keys().next().value || null;
+  }
+  const live = window.__augitLive;
+  syncTerminalGlobals();
+  if (!activeTerminalId) {
+    terminalOffset = 0;
+    terminalPolling = false;
+    terminalReady = false;
+    window.__augitTerminalExited = false;
+    window.__augitTerminalReady = false;
+  }
+  if (live) {
+    live.activeTerminalId = activeTerminalId;
+    live.terminalTabs = [...terminalTabs.values()].map((item) => ({
+      id: item.id,
+      label: item.label,
+      starting: !!item.starting,
+      exited: !!item.exited,
+      shellName: item.shellName,
+    }));
+    live.terminalStarting = !!activeTerminalTab()?.starting;
+  }
+  if (!activeTerminalId && live?.layout?.bottom === 'terminal') {
     live.layout.userDriven = true;
     live.layout.bottom = '';
     setToolRegionHidden(live.layout, 'bottom', false);
-    // 关闭后入口必须回到侧栏那个入口：否则 activeRail 仍是"终端"，
-    // 再次点击会被 applyRailAction 当成"折叠已激活入口"，面板永远打不开
-    // （实测：关闭后点入口得到 bottom='' 且 collapsed='bottom'）。
     live.layout.activeRail = RAIL_SIDE.includes(live.layout.side) ? live.layout.side : 'project';
     window.__augitRender();
     rebindAfterRender();
+  } else {
+    refreshTerminalTabs();
+    attachActiveTerminal();
+    const next = activeTerminalTab();
+    if (next?.ready) pollTerminal(next);
   }
 }
 
-/** 「关闭终端」确认窗口（视觉稿 terminal-close 页的对话框，规格 §7.16）。 */
-function openTerminalCloseDialog() {
+/** JetBrains 风格「进程仍在运行」确认窗口。 */
+function openTerminalCloseDialog(tab) {
   const host = document.querySelector('.augit-window');
-  if (!host) return;
+  if (!host || !tab) return;
   closeLiveOverlay();
   rememberDialogFocus();
   const layer = document.createElement('div');
   layer.className = 'overlay-layer live-overlay terminal-close-window';
   layer.setAttribute('data-augit-overlay', '');
+  const title = `Process 'Terminal ${tab.label}' Is Running`;
   layer.innerHTML = dialog(
-    'Close Terminal',
-    `<div class="info-block" style="width:auto;text-align:left"><h2>A command is still running in the terminal</h2><p>Continuing stops the foreground command, shell, and all child processes.</p></div>`,
-    `<button type="button" class="secondary-button" data-terminal-close="cancel">Keep Terminal</button>`
-      + `<button type="button" class="danger-button" data-terminal-close="confirm">Stop Command and Close</button>`,
+    title,
+    `<p class="terminal-close-question">Do you want to terminate the process 'Terminal ${escapeText(tab.label)}'?</p>`
+      + `<label class="terminal-close-dont-ask check-line"><input type="checkbox" data-terminal-close-dont-ask>Don't ask again</label>`,
+    `<button type="button" class="primary-button" data-terminal-close="confirm">Terminate</button>`
+      + `<button type="button" class="secondary-button" data-terminal-close="cancel">Cancel</button>`,
     false,
-    'terminal-close-dialog');
+    'terminal-close-dialog terminal-warning-dialog');
   host.appendChild(layer);
   const confirm = layer.querySelector('[data-terminal-close="confirm"]');
   if (confirm) confirm.focus();
-
   layer.addEventListener('click', (event) => {
     const action = event.target.closest && event.target.closest('[data-terminal-close]');
     if (!action) return;
     event.preventDefault();
+    const dontAsk = layer.querySelector('[data-terminal-close-dont-ask]')?.checked;
     if (action.dataset.terminalClose === 'confirm') {
+      const live = window.__augitLive;
+      if (dontAsk && live) live.terminalCloseDontAsk = true;
       closeLiveOverlay();
-      void closeTerminalNow();
+      void closeTerminalTabNow(tab.id);
     } else {
       closeLiveOverlay();
     }
   });
 }
+/**
+ * 设置保存后让“由默认设置启动”的空闲终端热切换 Shell。
+ * 用户已经输入过命令的会话不在背后杀掉；由新建终端菜单指定 Shell 的标签也不改。
+ */
+async function applyTerminalSettingsHotReload(previousShell, previousCustomCommand) {
+  const live = window.__augitLive;
+  if (!live || !live.settings) return;
+  if (previousShell === live.settings.terminalShell
+    && previousCustomCommand === live.settings.terminalCustomCommand) return;
+  const tabs = [...terminalTabs.values()].filter((tab) => tab.usesSettings);
+  if (tabs.length === 0) return;
+  const activeBefore = activeTerminalId;
+  const activeLabel = activeTerminalId ? terminalTabs.get(activeTerminalId)?.label : null;
+  let restarted = 0;
+  for (const tab of tabs) {
+    // 用户已经在会话里输入过命令时不在背后杀掉；新建终端仍会使用新的默认 Shell。
+    if (tab.hasUserInput) continue;
+    tab.closed = true;
+    if (tab.timer) {
+      window.clearInterval(tab.timer);
+      tab.timer = 0;
+    }
+    terminalTabs.delete(tab.id);
+    try { tab.instance?.dispose(); } catch { /* 已销毁时忽略 */ }
+    await invoke('terminal/stop', { sessionId: tab.id }, 15000).catch(() => {});
+    restarted += 1;
+  }
+  if (restarted === 0) return;
+  if (activeTerminalId && !terminalTabs.has(activeTerminalId)) {
+    activeTerminalId = terminalTabs.keys().next().value || null;
+  }
+  syncTerminalGlobals();
+  const host = document.querySelector('.terminal-view');
+  if (restarted > 0 && !terminalTabs.has(activeBefore) && host) {
+    // 当前活动标签被替换：保留原标签名新建一个使用新默认 Shell 的会话。
+    await createTerminalTab(null, activeLabel || null);
+    if (activeLabel) {
+      const created = activeTerminalTab();
+      if (created) {
+        created.label = activeLabel;
+        refreshTerminalTabs();
+        syncTerminalTabState();
+      }
+    }
+  } else if (terminalTabs.size === 0 && host) {
+    await createTerminalTab();
+  } else {
+    refreshTerminalTabs();
+    attachActiveTerminal();
+    const next = activeTerminalTab();
+    if (next?.ready) pollTerminal(next);
+  }
+}
+/** 新建终端菜单：直接启动某个 Shell，不需要先进设置。 */
+async function openTerminalShellMenu(anchor) {
+  if (!anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  let shells = [];
+  try {
+    const result = await invoke('terminal/shells', {}, 8000);
+    shells = Array.isArray(result?.shells) ? result.shells : [];
+  } catch { /* 菜单仍提供标准 Shell 兜底 */ }
+  const labels = {
+    WindowsPowerShell: 'Windows PowerShell',
+    PowerShell7: 'PowerShell 7',
+    CommandPrompt: 'Command Prompt',
+    GitBash: 'Git Bash',
+    Wsl: 'Ubuntu',
+    Custom: 'Custom Command',
+  };
+  const items = shells.length > 0
+    ? shells.filter((shell) => shell.available !== false).map((shell) => ({
+      id: shell.shellId,
+      label: labels[shell.shellId] || shell.displayName || shell.shellId,
+    }))
+    : Object.entries(labels).map(([id, label]) => ({ id, label }));
+  const rows = items.map((item) => `<button type="button" class="menu-item" data-terminal-shell="${escapeText(item.id)}">${escapeText(item.label)}</button>`).join('');
+  const markup = `<section class="popover context-menu terminal-shell-menu">${rows}`
+    + `<div class="menu-separator"></div><button type="button" class="menu-item" data-terminal-shell-settings>Settings</button></section>`;
+  showPointerContextMenu(markup, {
+    layerClass: 'terminal-shell-menu-layer',
+    clientX: Math.round(rect.left),
+    clientY: Math.round(rect.bottom + 2),
+    maxHeight: 300,
+  });
+}
 
-/** 读取工作区中某个文件的差异，供编辑器差异视图使用。 *//** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
+function openTerminalSettingsPage() {
+  if (window.__augitSettingsWindowAvailable) {
+    void invoke('window/settings-open', { page: 'terminal' }, 0).catch((error) => {
+      window.__augitError = 'settings-open:' + error.message;
+    });
+    return;
+  }
+  openSettingsDialog();
+  switchSettingsPage('terminal');
+}
+/** 读取工作区中某个文件的差异，供编辑器差异视图使用。 */
 // 已加载的补丁缓存：键是「内容」维度（规格 §6.3），不含单/双栏这类显示维度。
 // 这样切换显示模式只重新排版，不再次查询 Git。
 const diffPatches = new Map();
@@ -3275,7 +3576,14 @@ async function loadSettings(canApply = () => true, initialSettings) {
       // 无修改的OK也会回读设置；字体未变时不能重复度量整页并触发背景截图。
       const typographyChanged = !window.__augitSettingsReady || !live.settings
         || ['fontSize','codeFontSize','textFontFamily','monospaceFontFamily'].some(key => live.settings[key] !== settings[key]);
+      const previousTerminalShell = live.settings?.terminalShell;
+      const previousCustomCommand = live.settings?.terminalCustomCommand;
       live.settings = settings;
+      if (previousTerminalShell !== undefined
+        && (previousTerminalShell !== settings.terminalShell
+          || previousCustomCommand !== settings.terminalCustomCommand)) {
+        void applyTerminalSettingsHotReload(previousTerminalShell, previousCustomCommand);
+      }
       // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true）：从持久化设置恢复，
       // 而不是每次启动都回到默认值。
       live.logRefShowTags = settings.showGitBranchesTags !== false;
@@ -6894,12 +7202,44 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 终端标题行的动作（规格 §7.16）。这两个入口此前同样没有绑定 ——
-    // 终端关不掉、也收不起来，只能靠点左侧入口折叠。
-    const terminalClose = event.target.closest && event.target.closest('[aria-label="Close Terminal"]');
+    // 终端标签切换 / 新建 / 关闭与 Shell 菜单。
+    const terminalActivate = event.target.closest && event.target.closest('[data-terminal-activate]');
+    if (terminalActivate) {
+      event.preventDefault();
+      setActiveTerminal(terminalActivate.dataset.terminalActivate);
+      return;
+    }
+
+    const terminalAdd = event.target.closest && event.target.closest('[data-terminal-add], [data-terminal-add-menu]');
+    if (terminalAdd && terminalAdd.closest('.terminal-tool')) {
+      event.preventDefault();
+      void openTerminalShellMenu(terminalAdd);
+      return;
+    }
+
+    const terminalShell = event.target.closest && event.target.closest('[data-terminal-shell]');
+    if (terminalShell) {
+      event.preventDefault();
+      const shellId = terminalShell.dataset.terminalShell;
+      closeLiveOverlay();
+      void createTerminalTab(shellId);
+      return;
+    }
+
+    const terminalShellSettings = event.target.closest && event.target.closest('[data-terminal-shell-settings]');
+    if (terminalShellSettings) {
+      event.preventDefault();
+      closeLiveOverlay();
+      openTerminalSettingsPage();
+      return;
+    }
+
+    const terminalClose = event.target.closest
+      && (event.target.closest('[data-terminal-close]')
+        || event.target.closest('[aria-label="Close Terminal"]'));
     if (terminalClose && terminalClose.closest('.terminal-tool')) {
       event.preventDefault();
-      void requestCloseTerminal();
+      void requestCloseTerminal(terminalClose.dataset.terminalClose || activeTerminalId);
       return;
     }
 

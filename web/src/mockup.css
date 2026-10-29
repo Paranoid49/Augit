@@ -5227,6 +5227,96 @@ body[data-theme="dark"] .terminal-tool {
 .terminal-header .terminal-more { right: 40px; }
 .terminal-header .terminal-hide { right: 8px; }
 
+/* 多终端标签：标题栏改为 flex，标签按内容宽度排列；旧单会话绝对定位规则只在静态视觉稿里保留。 */
+.augit-window .terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 12px;
+}
+.augit-window .terminal-header .terminal-title {
+  position: static;
+  flex: none;
+  width: auto;
+  padding: 0;
+}
+.terminal-tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: min(55vw, 620px);
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.terminal-tabstrip::-webkit-scrollbar { display: none; }
+.terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 28px;
+  border: var(--augit-hairline) solid var(--augit-terminal-tab-border, #d6d8dd);
+  border-radius: 6px;
+  background: var(--augit-terminal-tab-bg, #ececf0);
+  overflow: hidden;
+}
+.terminal-tab.active { background: var(--augit-terminal-tab-bg, #ececf0); }
+.augit-window .terminal-tab .terminal-session {
+  position: static;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: auto;
+  max-width: 150px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-overflow: ellipsis;
+}
+.augit-window .terminal-tab .terminal-session-close {
+  position: static;
+  flex: none;
+  width: 20px;
+  min-width: 20px;
+  height: 28px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.augit-window .terminal-tab .terminal-session-close::before { display: none; }
+.augit-window .terminal-add,
+.augit-window .terminal-add-menu {
+  position: static;
+  flex: none;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+}
+.terminal-header .grow { flex: 1 1 auto; min-width: 8px; }
+.terminal-close-dialog .terminal-close-question { margin: 0 0 12px; }
+.terminal-close-dialog .terminal-close-dont-ask { min-height: 24px; }
+.terminal-warning-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
+.terminal-warning-dialog .dialog-header::before {
+  content: "!";
+  flex: none;
+  width: 28px;
+  height: 28px;
+  background: var(--augit-dialog-warning-bg);
+  clip-path: polygon(50% 3%, 97% 93%, 3% 93%);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  padding-top: 3px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+.terminal-warning-dialog { width: min(430px, calc(100% - 90px)); }
+.terminal-warning-dialog .dialog-body { min-height: 0; padding: 10px 12px 4px; }
+
 /* 大字号命中区（40 号 UI 实测 91px）需要同时放大 header、会话标签和动作按钮；
    否则固定的 28px 标签与 40px 偏移会把 Local、关闭叉、More、Hide 挤在一起。 */
 .terminal-tool.terminal-large-actions .terminal-header .terminal-session,

@@ -4,8 +4,20 @@
 
 ## [Unreleased]
 
+### Added
+
+- 终端工具窗支持同时打开多个标签：标题栏显示 `Terminal | Local × + ⌄`，标签可切换、单独关闭；`+`/`⌄` 直接列出 Windows PowerShell、PowerShell 7、Command Prompt、Git Bash、Ubuntu（WSL）和 Settings，不必先打开设置。
+- 终端标签标题栏保留当前 Shell 的 title/aria 信息；关闭全部标签后才收起工具窗，隐藏工具窗时后台会话继续保留。
+
+### Changed
+
+- 修改 Settings → Terminal 的 Shell 或自定义命令后即时应用到空闲的默认终端会话，不需要重启应用；用户已经输入过命令的会话不会被静默终止，新建终端会使用新配置。
+- 关闭仍有前台进程的终端改用 JetBrains 风格的 `Process 'Terminal Local (N)' Is Running` 警告：橙色警告三角、`Don't ask again`、`Terminate` / `Cancel`；无前台进程时仍直接关闭。
+
 ### Fixed
 
+- 修复切换 Terminal Shell 后终端无法打开、改回旧 Shell 也无法恢复、必须重启应用的问题：每个标签使用独立 ConPTY 会话，启动失败或设置变化时释放旧会话后再启动，不再复用卡死的单会话状态。
+- 终端标签使用稳定的 `Local` / `Local (2)` 编号；关闭后新建不会留下无限增长的 `Local (N)` 或切换错标签。
 - 标题栏三条杠菜单与品牌徽标垂直对齐：菜单条按标题栏 30px 控件高度居中，File/View/Git 不再被 `data-typography-preview` 旧规则挤到第二行；动作弹层固定在标题栏底边下方。
 - 普通对话框标题栏的 × 恢复关闭：Open Workspace、Create Git Repository、Smart Checkout、工作树/Stash 管理等未自定义关闭状态机的对话框点击 × 会关闭覆盖层；Push/Clone/Stash/Reset/Rollback/Remote 仍走自己的清理与运行中保护。
 - 主窗口标题改为工作区目录名（如 `ops-server-report-resend`），Windows 任务栏悬停缩略图和 Alt-Tab 不再把所有项目都标成 `Augit`；欢迎页仍为 `Augit`，设置窗口为 `Settings`。

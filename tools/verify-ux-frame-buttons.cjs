@@ -122,9 +122,9 @@ async function main() {
           }
         });
         assert.deepEqual(await controls.evaluateAll(elements => elements.map(element => element.getBoundingClientRect().toJSON())), bounds);
-        // 界面英文审计后终端头部 aria 标签为英文；旧中文期望已过期。
+        // 界面英文审计后终端头部 aria 标签为英文；多标签后还包含新建/Shell 菜单入口。
         assert.deepEqual(await page.locator('.terminal-header button').evaluateAll(elements => elements.map(e => e.getAttribute('aria-label'))),
-          ['Close Terminal', 'More Actions', 'Hide Terminal']);
+          ['Local terminal: Windows PowerShell', 'Close Terminal', 'New Terminal', 'Terminal Shells', 'More Actions', 'Hide Terminal']);
         for (const width of [1024, 1180]) {
           await page.setViewportSize({ width, height: 760 });
           await page.evaluate(() => measureTerminalHeaders());
@@ -138,22 +138,20 @@ async function main() {
               header: rect(header),
               iconHit,
               sessionHeight,
-              children: [...header.children].map(element => ({ ...rect(element), close: element.classList.contains('terminal-session-close') })),
+              session: rect(header.querySelector('.terminal-tab .terminal-session')),
+              close: rect(header.querySelector('.terminal-tab .terminal-session-close')),
+              controls: [...header.querySelectorAll('button')].map(rect),
             };
           });
-          let previous = layout.header.left;
-          for (const child of layout.children) {
-            assert.ok(child.left >= previous - .01, `终端标题重叠：${theme}/${size}/${width}`);
-            assert.ok(child.right <= layout.header.right && child.bottom <= layout.header.bottom);
-            previous = child.right;
+          for (const control of layout.controls) {
+            assert.ok(control.left >= layout.header.left - .01 && control.right <= layout.header.right + .01,
+              `终端控件超出标题栏：${theme}/${size}/${width}`);
+            assert.ok(control.bottom <= layout.header.bottom + .01,
+              `终端控件超出标题栏高度：${theme}/${size}/${width}`);
           }
-          // 动作命中区随 --augit-icon-hit 缩放；Local 标签/关闭段在大字号下用独立文字高度（49px），
-          // 不能像旧断言那样要求两者都等于 91px 的命中区。12px 基准仍为 28 CSS。
-          assert.equal(layout.children[1].height, layout.sessionHeight, `终端 Local 标签高度：${theme}/${size}`);
-          for (const child of layout.children.slice(2)) {
-            assert.equal(child.height, child.close ? layout.sessionHeight : layout.iconHit,
-              `终端${child.close ? '关闭段' : '动作'}高度：${theme}/${size}`);
-          }
+          // Local 标签与关闭段使用标签高度；新建/Shell 菜单/更多/隐藏在 20–91px 命中区内。
+          assert.equal(layout.session.height, layout.sessionHeight, `终端 Local 标签高度：${theme}/${size}`);
+          assert.equal(layout.close.height, layout.sessionHeight, `终端关闭段高度：${theme}/${size}`);
         }
         if (output && scale === 1) {
           await page.getByRole('link', { name: 'Terminal', exact: true }).focus();

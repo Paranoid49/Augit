@@ -5336,11 +5336,18 @@ function fileHistoryTool() {
 }
 
 function terminalTool() {
+  const live = window.__augitLive;
+  if (live) {
+    const tabs = typeof window.__augitTerminalTabsMarkup === "function" ? window.__augitTerminalTabsMarkup() : "";
+    const loading = !live.terminalTabs || live.terminalTabs.length === 0;
+    return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span>${tabs}<span class="grow"></span><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}"></div></section>`;
+  }
   const loading = new URLSearchParams(location.search).get("terminal-state") === "loading";
   const shell = "Windows PowerShell";
   const name = `Local${loading ? " · Starting…" : ""}`;
   const output = loading ? "" : `<div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">dotnet test Augit.slnx -c Release</span></div><div>Passed! - Failed: 0, Passed: 183, Skipped: 0, Total: 183</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">git status --short</span></div><div class="file-status-modified"> M docs/product-spec.md</div><div class="file-status-modified"> M src/Augit.App/NativeGitPanel.cs</div><div><span class="terminal-prompt">PS </span><span class="terminal-path">D:\\github\\Augit</span>&gt; <span class="terminal-command">_</span></div>`;
-  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span><span class="terminal-session" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</span><button class="icon-button terminal-session-close" aria-label="Close Terminal">${icon("close-small")}</button><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
+  const tabs = `<div class="terminal-tabstrip" role="tablist" aria-label="Terminals"><span class="terminal-tab active" data-session-tab="terminal-static"><button type="button" class="terminal-session" data-terminal-activate="terminal-static" title="${shell}${loading ? " · Starting…" : ""}" aria-label="Local terminal: ${shell}">${name}</button><button type="button" class="icon-button terminal-session-close" data-terminal-close="terminal-static" aria-label="Close Terminal">${icon("close-small")}</button></span><button type="button" class="icon-button terminal-add" data-terminal-add aria-label="New Terminal">${icon("plus")}</button><button type="button" class="icon-button terminal-add-menu" data-terminal-add-menu aria-label="Terminal Shells">${icon("chevron-down")}</button></div>`;
+  return `<section class="bottom-tool terminal-tool"><div class="bottom-header terminal-header"><span class="bottom-title terminal-title">Terminal</span>${tabs}<span class="grow"></span><button class="icon-button terminal-more" aria-label="More Actions">${icon("ellipsis-vertical")}</button><button class="icon-button terminal-hide" aria-label="Hide Terminal">${icon("minus")}</button></div><div class="terminal-view" aria-busy="${loading}">${output}</div></section>`;
 }
 
 // IntelliJ 通知图标（24×24 源文件，`platform/icons/src/general/notification*.svg`）：
@@ -6090,7 +6097,7 @@ function renderScene() {
       return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(title, body, `<a class="secondary-button" href="commit-diff.html">Cancel</a><a class="danger-button" href="operation-progress.html">Rollback File</a>`, true, "rollback-dialog") });
     }
     case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: toastMarkup({ title: "Running Smart Checkout…", extra: '<div class="commit-meta">Restoring temporary Stash</div><div class="progress-track"><div class="progress-value"></div></div>', action: { label: "Cancel", href: "operation-result.html" } }) });
-    case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("Close Terminal", `<div class="info-block" style="width:auto;text-align:left"><h2>A command is still running in the terminal</h2><p><code>dotnet test Augit.slnx -c Release</code></p><p>Continuing stops the foreground command, shell, and all child processes.</p></div>`, `<a class="secondary-button" href="terminal.html">Keep Terminal</a><a class="danger-button" href="main-project.html">Stop Command and Close</a>`) });
+    case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("Process 'Terminal Local (2)' Is Running", `<p class="terminal-close-question">Do you want to terminate the process 'Terminal Local (2)'?</p><label class="terminal-close-dont-ask check-line"><input type="checkbox">Don't ask again</label>`, `<a class="primary-button" href="main-project.html">Terminate</a><a class="secondary-button" href="terminal.html">Cancel</a>`, false, "terminal-close-dialog terminal-warning-dialog") });
     case "search-limited": {
       // 到限态叠上权威的「结果过多」；`search-state=timeout` 等其它态只显示浮层自己的说明。
       const limited = (new URLSearchParams(location.search).get('search-state') || 'limited') === 'limited';
