@@ -2929,12 +2929,19 @@ button:disabled,
 }
 
 .brand-mark {
-  /* 徽标尺寸取权威 `recentProjectAvatarIconSize()` = 20（与 `.workspace-chip > .brand-mark` 一致）。 */
+  /* 徽标尺寸取权威 ecentProjectAvatarIconSize() = 20（与 .workspace-chip > .brand-mark 一致）。 */
   width: 20px;
   height: 20px;
   border-radius: 3px;
-  font-size: 10px;
-  box-shadow: inset 0 0 0 var(--augit-hairline) color-mix(in srgb, #ffffff 34%, transparent);
+  /* Augit 自有徽标：与 exe/任务栏图标同源，蓝底白 A，带渐变和内描边。 */
+  background-color: var(--augit-blue);
+  background-image: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNTYgMjU2Ij4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYXVnaXQtYmciIHgxPSIwIiB5MT0iMCIgeDI9IjI1NiIgeTI9IjI1NiIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiM0YzhkZmYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMWU0YmM4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgcng9IjU1IiBmaWxsPSJ1cmwoI2F1Z2l0LWJnKSIvPgogIDxyZWN0IHg9IjQuNSIgeT0iNC41IiB3aWR0aD0iMjQ3IiBoZWlnaHQ9IjI0NyIgcng9IjUxIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS1vcGFjaXR5PSIwLjIyIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cGF0aCBmaWxsPSIjZmZmZmZmIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik01MCAyMDIgTDExMCA1NiBIMTQ2IEwyMDYgMjAyIEgxNjggTDE1NiAxNjYgSDEwMCBMODggMjAyIFogTTEwOCAxMzggSDE0OCBMMTI4IDg4IFoiLz4KPC9zdmc+");
+  background-position: center;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  color: transparent;
+  font-size: 0;
+  box-shadow: none;
 }
 
 .top-button {

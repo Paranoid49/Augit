@@ -26,6 +26,7 @@ AppVersion={#AppVersion}
 ; 避免安装器文件属性里出现空白 FileVersion。产品版本仍显示完整的预发布标识。
 VersionInfoVersion=1.0.0.0
 AppPublisher=Augit
+SetupIconFile=..\..\src\Augit.Shell\Assets\augit.ico
 DefaultDirName={autopf}\Augit
 DefaultGroupName=Augit
 DisableProgramGroupPage=yes

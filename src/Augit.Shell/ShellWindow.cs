@@ -18,6 +18,13 @@ internal sealed partial class ShellWindow : IDisposable
     // 客户区顶到窗口边由 WM_NCCALCSIZE 处理，拖动/缩放由 WM_NCHITTEST 处理。
     private const int WsCaption = 0x00C00000;
     private const int WsFramelessWindow = 0x00CF0000 & ~WsCaption;
+    // 应用主图标由 csc /win32icon 写入资源 ID 32512（IDI_APPLICATION）；窗口类与 WM_SETICON 都取它。
+    private const int AppIconResource = 32512;
+    private const uint ImageIcon = 1;
+    private const uint LrShared = 0x00008000;
+    private const uint WmSetIcon = 0x0080;
+    private const int IconSmall = 0;
+    private const int IconBig = 1;
 
     private const uint WmNcCalcSize = 0x0083;
     private const uint WmNcHitTest = 0x0084;
@@ -217,6 +224,8 @@ internal sealed partial class ShellWindow : IDisposable
             WindowProcedure = Marshal.GetFunctionPointerForDelegate(Procedure),
             Instance = GetModuleHandle(null),
             Cursor = LoadCursor(0, IdiApplication),
+            Icon = LoadApplicationIcon(32),
+            SmallIcon = LoadApplicationIcon(16),
             ClassName = WindowClassName,
         };
         ushort atom = RegisterClassEx(ref windowClass);
@@ -227,6 +236,23 @@ internal sealed partial class ShellWindow : IDisposable
         }
 
         _classRegistered = true;
+    }
+
+    /// <summary>
+    /// 从可执行文件的主图标资源加载窗口图标。
+    /// 先按精确尺寸取，资源里缺少该尺寸时退回 LoadIcon 的默认尺寸。
+    /// </summary>
+    private static nint LoadApplicationIcon(int size)
+    {
+        nint module = GetModuleHandle(null);
+        nint icon = LoadImage(module, AppIconResource, ImageIcon, size, size, LrShared);
+        if (icon != 0)
+        {
+            return icon;
+        }
+
+        icon = LoadIcon(module, AppIconResource);
+        return icon != 0 ? icon : LoadIcon(0, AppIconResource);
     }
 
     /// <summary>
@@ -324,7 +350,7 @@ internal sealed partial class ShellWindow : IDisposable
 
         _startupMaximized = placement.IsMaximized;
 
-        return CreateWindowEx(
+        nint window = CreateWindowEx(
             0,
             WindowClassName,
             "Augit",
@@ -337,6 +363,14 @@ internal sealed partial class ShellWindow : IDisposable
             0,
             _instance,
             0);
+        if (window != 0)
+        {
+            // 无 caption 窗口的 taskbar/Alt-Tab 图标由窗口图标提供；同时设置大小两种尺寸。
+            _ = SendMessage(window, WmSetIcon, IconBig, LoadApplicationIcon(32));
+            _ = SendMessage(window, WmSetIcon, IconSmall, LoadApplicationIcon(16));
+        }
+
+        return window;
     }
 
     /// <summary>
@@ -1482,6 +1516,12 @@ internal sealed partial class ShellWindow : IDisposable
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
     private static extern nint SendMessage(nint window, uint message, nint wParam, nint lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadImageW", SetLastError = true)]
+    private static extern nint LoadImage(nint instance, nint name, uint type, int width, int height, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadIconW", SetLastError = true)]
+    private static extern nint LoadIcon(nint instance, nint name);
 
     [DllImport("user32.dll")]
     private static extern nint MonitorFromWindow(nint window, int flags);

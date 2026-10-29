@@ -10,6 +10,7 @@
 - 正文行号栏按 PyCharm 复原：行号左对齐、右侧竖线、行号栏使用编辑区底色（深色主题不再用工具面板底色），正文与竖线之间留出间距，代码末尾保留 12px 底部留白。
 - 标题栏三条杠菜单按 PyCharm 复原：点击后隐藏三条杠，只显示 File/View/Git；Settings 收进 File；hover 入口自动切换下拉，指针离开标题栏/菜单区域后整体恢复；动作菜单绝对定位在对应入口下方，不再落到窗口底部；移除顶层 Terminal。
 - 点击左上角项目名改为 PyCharm 风格的项目下拉：不再打开单独的 Open Workspace 窗口；菜单提供 Open Workspace…、Clone Repository…、当前项目及 Recent Projects，点击外部/Esc 关闭。
+- 新增 Augit 自有蓝底白 A 徽标：标题栏、工作区 chip、对话框标题使用同一 SVG；exe/任务栏/Alt-Tab/安装器/网页 favicon 使用同一图形。
 
 ## [1.0.0-rc.8] - 2026-10-27
 

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="augit-bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4c8dff"/>
+      <stop offset="1" stop-color="#1e4bc8"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="55" fill="url(#augit-bg)"/>
+  <rect x="4.5" y="4.5" width="247" height="247" rx="51" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="2"/>
+  <path fill="#ffffff" fill-rule="evenodd" d="M50 202 L110 56 H146 L206 202 H168 L156 166 H100 L88 202 Z M108 138 H148 L128 88 Z"/>
+</svg>
