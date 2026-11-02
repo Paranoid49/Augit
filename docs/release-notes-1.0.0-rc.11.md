@@ -2,7 +2,7 @@
 
 - 发布日期：2026-11-02
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建方式：GitHub Actions 从 `v1.0.0-rc.11` 标签构建；实际提交与产物哈希以发布页和 `SHA256SUMS.txt` 为准
+- 构建源提交：`24b089bc14e9f59413e8b8141465a9f561d43f23`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.11`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -19,7 +19,11 @@ rc.11 修复 rc.10 用户反馈的终端菜单、设置打开速度和关闭确�
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.11-win-x64-setup.exe](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.11/Augit-1.0.0-rc.11-win-x64-setup.exe) | 5,059,860 B | `7ae0382c3975a837dc2be486b3a2f560acc52f4d6240ce5965e485db028304a7` |
+| [Augit-1.0.0-rc.11-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.11/Augit-1.0.0-rc.11-win-x64-portable.zip) | 39,258,988 B | `a2ee734e2b9b022a2f16342044f1567f871fba499cebd7b1fdbbd35859798ece` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.11/SHA256SUMS.txt) | 207 B | `b3fb31bc2972a9e850bf37fbff4f47509809dd0f324fb7b95d12eb224a6a209a` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.11>
 
@@ -41,7 +45,9 @@ rc.11 修复 rc.10 用户反馈的终端菜单、设置打开速度和关闭确�
   - 多标签、Shell 菜单、设置热切换、`ping -t` 关闭确认和标签编号继续通过。
 - 本机启动首窗仍在约 367ms 出现，提前预热设置没有拖慢主窗呈现。
 - 本机预构建随包验证：`1.0.0-rc.11+9ea4ec7…`，便携包窗口出现 **469.8ms**、关闭 **133.1ms**、退出码 0、无残留子进程。
-- 实际公开发布资产与真实启动结果以 tag 流水线产物为准。
+- **实际 Release 资产复核**：匿名下载的便携包 `39,258,988 B`、SHA-256 `a2ee734e2b9b022a2f16342044f1567f871fba499cebd7b1fdbbd35859798ece`；安装器 `5,059,860 B`、SHA-256 `7ae0382c3975a837dc2be486b3a2f560acc52f4d6240ce5965e485db028304a7`；`SHA256SUMS.txt` `207 B`、SHA-256 `b3fb31bc2972a9e850bf37fbff4f47509809dd0f324fb7b95d12eb224a6a209a`，三者与 Release 正文一致。
+- 实际 Release 便携包真实启动 PASS：窗口出现 **463ms**、关闭 **128.6ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.11+24b089b…`。隐藏共享 .NET 后启动 PASS：窗口出现 **451.1ms**、关闭 **127.1ms**、退出码 0、无残留子进程。
+- 安装器 ProductVersion `1.0.0-rc.11`、FileVersion `1.0.0.0`、`NotSigned`。
 
 ## 4. 已知限制
 
