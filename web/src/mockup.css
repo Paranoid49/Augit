@@ -5256,13 +5256,19 @@ body[data-theme="dark"] .terminal-tool {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
+  box-sizing: border-box;
   height: 28px;
-  border: var(--augit-hairline) solid var(--augit-terminal-tab-border, #d6d8dd);
+  border: var(--augit-hairline) solid transparent;
   border-radius: 6px;
-  background: var(--augit-terminal-tab-bg, #ececf0);
+  background: transparent;
   overflow: hidden;
 }
-.terminal-tab.active { background: var(--augit-terminal-tab-bg, #ececf0); }
+/* IntelliJ 终端标签：只有当前标签是浅灰圆角卡片，未选中标签只保留文字和关闭叉。 */
+.terminal-tab.active {
+  border-color: var(--augit-terminal-tab-border, #d6d8dd);
+  background: var(--augit-terminal-tab-bg, #ececf0);
+}
+.terminal-tab:not(.active):hover { background: var(--augit-hover); }
 .augit-window .terminal-tab .terminal-session {
   position: static;
   flex: 0 1 auto;
