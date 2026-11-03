@@ -1047,13 +1047,7 @@ const terminalTabs = new Map();
 let terminalTabSequence = 0;
 let activeTerminalId = null;
 
-/** 终端 focus/设备状态回报也会走 xterm.onData；它们不是用户输入，不能阻止设置热切换。 */
-function isTerminalUserInputData(data) {
-  if (!data) return false;
-  if (/^\u001b\[[IO]$/.test(data)) return false;
-  if (/^\u001b\[[0-9;?]*[Rc]$/.test(data)) return false;
-  return true;
-}
+
 function activeTerminalTab() {
   return activeTerminalId ? terminalTabs.get(activeTerminalId) || null : null;
 }
@@ -1243,8 +1237,6 @@ async function createTerminalTab(shellId = null, labelOverride = null) {
   const tab = {
     id,
     label,
-    shellId,
-    usesSettings: !shellId,
     shellName: 'Windows PowerShell',
     instance: null,
     fitAddon: null,
@@ -1254,7 +1246,6 @@ async function createTerminalTab(shellId = null, labelOverride = null) {
     ready: false,
     starting: true,
     exited: false,
-    hasUserInput: false,
     closed: false,
   };
   terminalTabs.set(id, tab);
@@ -1289,7 +1280,6 @@ async function createTerminalTab(shellId = null, labelOverride = null) {
   syncTerminalGlobals();
 
   instance.onData((data) => {
-    if (isTerminalUserInputData(data)) tab.hasUserInput = true;
     void invoke('terminal/write', { sessionId: tab.id, data }, 10000).catch(() => {});
   });
   instance.onResize((size) => {
@@ -2235,59 +2225,6 @@ function openTerminalCloseDialog(tab) {
       closeLiveOverlay();
     }
   });
-}
-/**
- * 设置保存后让“由默认设置启动”的空闲终端热切换 Shell。
- * 用户已经输入过命令的会话不在背后杀掉；由新建终端菜单指定 Shell 的标签也不改。
- */
-async function applyTerminalSettingsHotReload(previousShell, previousCustomCommand) {
-  const live = window.__augitLive;
-  if (!live || !live.settings) return;
-  if (previousShell === live.settings.terminalShell
-    && previousCustomCommand === live.settings.terminalCustomCommand) return;
-  const tabs = [...terminalTabs.values()].filter((tab) => tab.usesSettings);
-  if (tabs.length === 0) return;
-  const activeBefore = activeTerminalId;
-  const activeLabel = activeTerminalId ? terminalTabs.get(activeTerminalId)?.label : null;
-  let restarted = 0;
-  for (const tab of tabs) {
-    // 用户已经在会话里输入过命令时不在背后杀掉；新建终端仍会使用新的默认 Shell。
-    if (tab.hasUserInput) continue;
-    tab.closed = true;
-    if (tab.timer) {
-      window.clearInterval(tab.timer);
-      tab.timer = 0;
-    }
-    terminalTabs.delete(tab.id);
-    try { tab.instance?.dispose(); } catch { /* 已销毁时忽略 */ }
-    await invoke('terminal/stop', { sessionId: tab.id }, 15000).catch(() => {});
-    restarted += 1;
-  }
-  if (restarted === 0) return;
-  if (activeTerminalId && !terminalTabs.has(activeTerminalId)) {
-    activeTerminalId = terminalTabs.keys().next().value || null;
-  }
-  syncTerminalGlobals();
-  const host = document.querySelector('.terminal-view');
-  if (restarted > 0 && !terminalTabs.has(activeBefore) && host) {
-    // 当前活动标签被替换：保留原标签名新建一个使用新默认 Shell 的会话。
-    await createTerminalTab(null, activeLabel || null);
-    if (activeLabel) {
-      const created = activeTerminalTab();
-      if (created) {
-        created.label = activeLabel;
-        refreshTerminalTabs();
-        syncTerminalTabState();
-      }
-    }
-  } else if (terminalTabs.size === 0 && host) {
-    await createTerminalTab();
-  } else {
-    refreshTerminalTabs();
-    attachActiveTerminal();
-    const next = activeTerminalTab();
-    if (next?.ready) pollTerminal(next);
-  }
 }
 /** 新建终端菜单：直接启动某个 Shell，不需要先进设置。 */
 async function openTerminalShellMenu(anchor) {
@@ -3576,14 +3513,8 @@ async function loadSettings(canApply = () => true, initialSettings) {
       // 无修改的OK也会回读设置；字体未变时不能重复度量整页并触发背景截图。
       const typographyChanged = !window.__augitSettingsReady || !live.settings
         || ['fontSize','codeFontSize','textFontFamily','monospaceFontFamily'].some(key => live.settings[key] !== settings[key]);
-      const previousTerminalShell = live.settings?.terminalShell;
-      const previousCustomCommand = live.settings?.terminalCustomCommand;
+      // 默认终端设置只影响之后新建的标签；已经打开的会话保持原 Shell，不能被设置保存操作关闭。
       live.settings = settings;
-      if (previousTerminalShell !== undefined
-        && (previousTerminalShell !== settings.terminalShell
-          || previousCustomCommand !== settings.terminalCustomCommand)) {
-        void applyTerminalSettingsHotReload(previousTerminalShell, previousCustomCommand);
-      }
       // 分支面板「显示标签」（权威 `git.branches.show.tags`，默认 true）：从持久化设置恢复，
       // 而不是每次启动都回到默认值。
       live.logRefShowTags = settings.showGitBranchesTags !== false;
