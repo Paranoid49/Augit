@@ -7,22 +7,21 @@ body:
   - type: markdown
     attributes:
       value: |
-        感谢试用 Augit。请先确认使用的是公开 Release 中的安装包或便携包，并附上版本号。
+        感谢试用 Augit。请先确认使用的是公开 Release 中的便携包，并附上版本号。
         Augit 不做遥测和崩溃上报，请手动提供复现信息；不要上传凭据、私有仓库内容或完整用户目录。
   - type: input
     id: version
     attributes:
       label: Augit 版本
-      description: 安装器标题、`Augit.exe` 文件属性或「设置 > 关于」中的 ProductVersion。
+      description: `Augit.exe` 文件属性或应用内更新提示中的 ProductVersion。
       placeholder: '例如 1.0.0-rc.11+<构建提交>'
     validations:
       required: true
   - type: dropdown
     id: package
     attributes:
-      label: 安装方式
+      label: 运行方式
       options:
-        - 安装版（setup.exe）
         - 便携版（portable.zip）
         - 从源码构建
     validations:

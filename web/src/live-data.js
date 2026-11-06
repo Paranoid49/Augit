@@ -4529,6 +4529,62 @@ function clearToast() {
   refreshAfterEvent("toast");
 }
 
+// 自动更新只展示一次检查结果；下载与重启都必须由用户点动作触发。
+let updateCheckStarted = false;
+let availableUpdate = null;
+
+async function checkForUpdates() {
+  if (updateCheckStarted || !window.__augitLive) return;
+  updateCheckStarted = true;
+  try {
+    const result = await invoke("update/check", {}, 20000);
+    if (!result || result.disabled || !result.available) return;
+    availableUpdate = result;
+    window.__augitUpdate = result;
+    showToast({
+      title: `Augit ${result.version} is available`,
+      text: `You are using ${result.currentVersion}. Download the update, then restart Augit to install it.`,
+      kind: "info",
+      action: { id: "update-install", label: "Download update" },
+    });
+  } catch {
+    // 更新检查是后台能力；离线或 GitHub 不可达时不能打断正常使用。
+  }
+}
+
+async function installUpdate() {
+  if (!availableUpdate || !availableUpdate.version) return;
+  const version = availableUpdate.version;
+  clearToast();
+  showToast({ title: "Downloading update", text: `Augit ${version}…`, kind: "info" });
+  try {
+    const staged = await invoke("update/download", { version }, 300000);
+    if (!staged || !staged.downloaded) throw new Error("更新包未能暂存。");
+    availableUpdate = { ...availableUpdate, ...staged };
+    showToast({
+      title: "Update ready",
+      text: `Augit ${version} is ready. Restarting will close the current window and its terminal sessions.`,
+      kind: "info",
+      action: { id: "update-restart", label: "Restart and update" },
+    });
+  } catch (error) {
+    const message = String(error && error.message || error);
+    showToast({ title: "Update download failed", text: message, kind: "error" });
+  }
+}
+
+async function applyUpdate() {
+  if (!availableUpdate) return;
+  clearToast();
+  try {
+    await invoke("update/apply", {}, 20000);
+    await invoke("window/close", {}, 5000).catch(() => {});
+  } catch (error) {
+    const message = String(error && error.message || error);
+    showToast({ title: "Update could not start", text: message, kind: "error" });
+  }
+}
+
 /**
  * 通知卡片里的应用内动作（2026-10-22 Push 失败 balloon）。
  *
@@ -4548,6 +4604,10 @@ document.addEventListener("click", (event) => {
     const failure = toast.text || "";
     clearToast();
     void openPushDialog({ failure });
+  } else if (toast.action.id === "update-install") {
+    void installUpdate();
+  } else if (toast.action.id === "update-restart") {
+    void applyUpdate();
   }
 });
 
@@ -14781,6 +14841,7 @@ async function boot() {
   rebindAfterRender();
   bindIndependentSettingsEvents();
   window.__augitReady = true;
+  void checkForUpdates();
 
   // 非 Git 目录：此刻 `mockup.js` 已加载、live 对象也已建立，可以给出「创建 Git 仓库」入口。
   if (!isWelcomeWorkspace && pendingRepositoryInit && window.__augitLive) {

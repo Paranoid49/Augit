@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: 下载 Augit 1.0.0-rc.11
     url: https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.11
-    about: 安装版、便携版与 SHA256SUMS.txt
+    about: 便携版、自动更新与 SHA256SUMS.txt
   - name: 已知限制
     url: https://github.com/Paranoid49/Augit/blob/main/docs/known-limitations-1.0.0-rc.11.md
     about: 提交问题前请先确认不是已披露的边界

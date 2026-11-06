@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -12,6 +13,7 @@ using Augit.Infrastructure.Interop;
 using Augit.Infrastructure.Search;
 using Augit.Infrastructure.Settings;
 using Augit.Infrastructure.Terminal;
+using Augit.Infrastructure.Updates;
 
 namespace Augit.Shell;
 
@@ -85,16 +87,24 @@ internal sealed class ShellBridge : IDisposable
     /// <summary>外部刷新阶段跟踪；默认关闭，只在显式诊断目录存在时记录。</summary>
     private readonly RefreshStageTrace _refreshTrace;
 
+    /// <summary>自动更新服务；隔离审计实例不创建网络服务。</summary>
+    private readonly UpdateService? _updates;
+
+    /// <summary>已完成验签和解压、等待 <c>update/apply</c> 的暂存更新。</summary>
+    private StagedUpdate? _stagedUpdate;
+
     public ShellBridge(
         string workspaceRoot,
         Action<string, object>? notify = null,
         SettingsStore? settingsStore = null,
-        RefreshStageTrace? refreshTrace = null)
+        RefreshStageTrace? refreshTrace = null,
+        bool updatesEnabled = true)
     {
         _workspaceRoot = Path.GetFullPath(workspaceRoot);
         _notify = notify;
         _settingsStore = settingsStore ?? new SettingsStore();
         _refreshTrace = refreshTrace ?? RefreshStageTrace.FromEnvironment();
+        _updates = updatesEnabled ? new UpdateService(Program.CurrentVersion) : null;
     }
 
     public string WorkspaceRoot => _workspaceRoot;
@@ -268,6 +278,9 @@ internal sealed class ShellBridge : IDisposable
             "search/cancel" => CancelSearch(parameters),
             "external/launch" => await LaunchExternalAsync(parameters, cancellationToken),
             "clipboard/write" => WriteClipboard(parameters),
+            "update/check" => await CheckUpdatesAsync(cancellationToken),
+            "update/download" => await DownloadUpdateAsync(cancellationToken),
+            "update/apply" => ApplyUpdate(),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/fonts" => new { families = ShellFontCatalog.Families },
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
@@ -1306,6 +1319,7 @@ internal sealed class ShellBridge : IDisposable
             slot.Session?.Exited -= slot.ExitHandler;
             slot.Session?.Dispose();
         }
+        _updates?.Dispose();
     }
 
     /// <summary>
@@ -1423,6 +1437,111 @@ internal sealed class ShellBridge : IDisposable
     }
 
     /// <summary>读取当前设置。</summary>
+    /// <summary>检查 GitHub 上最新发布；隔离实例返回 disabled，不发起网络请求。</summary>
+    private async Task<object?> CheckUpdatesAsync(CancellationToken cancellationToken)
+    {
+        if (_updates is null)
+        {
+            return new { disabled = true, available = false, currentVersion = Program.CurrentVersion };
+        }
+
+        UpdateCheckResult result = await _updates.CheckAsync(cancellationToken).ConfigureAwait(false);
+        return new
+        {
+            disabled = false,
+            available = result.Available,
+            currentVersion = result.CurrentVersion,
+            version = result.Version,
+            error = result.Error,
+        };
+    }
+
+    /// <summary>下载并暂存最近一次已验签的更新；下载内容不会直接执行。</summary>
+    private async Task<object?> DownloadUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (_updates is null)
+        {
+            throw new BridgeValidationException("当前实例未启用自动更新。");
+        }
+
+        StagedUpdate staged = await _updates.DownloadLastAsync(cancellationToken).ConfigureAwait(false);
+        _stagedUpdate = staged;
+        return new
+        {
+            downloaded = true,
+            version = staged.Manifest.Version,
+        };
+    }
+
+    /// <summary>
+    /// 启动暂存的新版 Augit.exe 进入更新模式；它等待本进程退出后替换目录并重启。
+    /// 网页在收到成功应答后调用 window/close，不能在本方法内同步关闭窗口。
+    /// </summary>
+    private object ApplyUpdate()
+    {
+        if (_updates is null)
+        {
+            throw new BridgeValidationException("当前实例未启用自动更新。");
+        }
+        StagedUpdate staged = _stagedUpdate
+            ?? throw new BridgeValidationException("没有已下载并校验的更新。");
+
+        string target = Path.GetFullPath(AppContext.BaseDirectory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (IsFileSystemRoot(target) || !File.Exists(Path.Combine(target, "Augit.exe")))
+        {
+            throw new BridgeValidationException("当前程序目录不是可更新的便携版目录。");
+        }
+
+        string stagedExecutable = Path.Combine(staged.AppDirectory, "Augit.exe");
+        if (!File.Exists(stagedExecutable))
+        {
+            throw new BridgeValidationException("暂存更新缺少 Augit.exe，请重新下载。");
+        }
+        string targetExecutable = Path.Combine(target, "Augit.exe");
+        foreach (Process other in Process.GetProcessesByName("Augit"))
+        {
+            try
+            {
+                if (other.Id != Environment.ProcessId
+                    && string.Equals(other.MainModule?.FileName, targetExecutable, StringComparison.OrdinalIgnoreCase))
+                {
+                    other.Dispose();
+                    throw new BridgeValidationException("还有其他 Augit 窗口在运行；请先关闭全部窗口再更新。");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+            }
+            finally
+            {
+                other.Dispose();
+            }
+        }
+
+        ProcessStartInfo start = new(stagedExecutable)
+        {
+            WorkingDirectory = staged.AppDirectory,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("--apply-update");
+        start.ArgumentList.Add("--parent-pid");
+        start.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
+        start.ArgumentList.Add("--target");
+        start.ArgumentList.Add(target);
+        _ = Process.Start(start) ?? throw new BridgeValidationException("无法启动更新器。");
+
+        return new { started = true, version = staged.Manifest.Version };
+    }
+
+    private static bool IsFileSystemRoot(string path)
+        => string.Equals(
+            path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetPathRoot(path)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
     private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
     {
         ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);

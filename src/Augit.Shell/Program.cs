@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Augit.Infrastructure.Settings;
 
@@ -8,10 +9,28 @@ namespace Augit.Shell;
 /// </summary>
 internal static class Program
 {
+    /// <summary>产品版本（含预发布后缀，不含构建提交号），用于更新比较。</summary>
+    internal static string CurrentVersion { get; } = ResolveCurrentVersion();
+
+    private static string ResolveCurrentVersion()
+    {
+        string? informational = typeof(Program).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        return (informational ?? typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "0.0.0")
+            .Split('+', 2)[0];
+    }
+
     [STAThread]
     private static int Main(string[] arguments)
     {
         AugitLog.Initialize(arguments);
+        // 更新器模式必须先于 WebView2/窗口初始化执行：它由暂存目录中的新版本启动，
+        // 等待旧进程退出后替换目标目录，不能创建任何窗口或 WebView2。
+        if (UpdateApplier.IsUpdateInvocation(arguments))
+        {
+            return UpdateApplier.Run(arguments);
+        }
+
         try
         {
             // 便携包缺少 WebView2 时先给出缺失项与官方下载入口；不自动安装共享运行时。

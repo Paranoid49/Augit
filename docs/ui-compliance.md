@@ -40,7 +40,7 @@
 | 检查 | 命令（在本仓库根目录执行） | 当前结果 |
 | --- | --- | --- |
 | 共享界面资源字节一致 | `powershell -File tools/audit/verify-ui-assets.ps1` | **PASS**（`mockup.js` / `mockup.css` / `current-find.js` / `image-preview.js` 四对） |
-| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（32 个 `.ps1` 全部满足 BOM/ASCII 规则，2026-10-25 实测，含日常启动、回归、录屏前景、窗口响应采样、分发烟测、旧版升级及捕获挂起诊断脚本） |
+| 审计脚本编码规则 | `powershell -File tools/audit/verify-script-encoding.ps1` | **PASS**（34 个 `.ps1` 全部满足 BOM/ASCII 规则，2026-10-25 实测，含日常启动、回归、录屏前景、窗口响应采样、分发烟测、旧版升级及捕获挂起诊断脚本） |
 | 实时外壳（真实数据路径） | `node tools/audit/live-shell.spec.cjs <playwright>` | **2379/2379（未执行 0 项）**（2026-10-24 当前批次；当前登记值取自 `intellij-platform-ui-behavior.md` §2.3 的"已验证快照"，历史沿革见该表；摘要格式为"通过 N 项断言（另有 M 项因环境未执行，不计入通过）"）；`check-doc-claims` 新增字重守卫（400/600），并机械核对本行与 §2.3 的登记值 |
 | 视觉稿场景渲染 | `node tools/audit/mockup-scenes.spec.cjs <playwright> dark\|light` | **54/54 ×2 主题**（2026-10-22 实测；`docs/ux-mockups/*.html` 共 55 个，除 `index.html` 外全部渲染） |
 | 同引擎像素对照 | `powershell -File tools/audit/compare-pixels.ps1 …` + `python3 tools/audit/compare-pixels.py …` | 见 §1.1（**55/55 场景**，新增 `settings-save-failure`、`image-error`、`git-compare-empty`、`settings-dirty`、`stash-drop-confirm`） |
@@ -51,6 +51,7 @@
 | 覆盖表生成器一致性 + 环境断言守卫 | `node tools/audit/coverage-generator.test.cjs` | **PASS**（§1.1/§1.4 像素值、§1.6 页表与分档、§3.7 的"分档 → 五类最终归类"逐页一致、C 线模板和写回摘要一致；并钉住不可复现的"当前无 PyCharm 进程/窗口"旧断言，要求 §3.6 保留 PID/窗口/最小化复查事实） |
 | 交互基线一致性 | `node tools/audit/check-interactions.cjs`（并 `node tools/audit/gen-interaction-baseline.cjs` 生成人类视图） | **INTERACTIONS_BASELINE_OK**：`surfaces=7 jumps=4 feedback=8 sequences=6 gaps=4`（`CHECKED 18`：pass 9 / diff 2 / gap 1 / other 6），逐条可核对（`pass` 必须有真实断言名、`gap` 必须写明交付文档出处、`diff` 必须写原因）；检查器曾抓出 1 处断言名过期、2 处差异未写进文档 |
 | 打包 | `powershell -File tools/release.ps1` | **通过（2026-09-21 复跑）**：`Augit-0.1.0-win-x64-portable.zip` **2,795,619 B（2026-09-21 重打包）**、`Augit-0.1.0-win-x64-setup.exe` **4,386,825 B（2026-09-21 复跑）**、`SHA256SUMS.txt` 195 B 且两项 `sha256sum -c` 均 **OK**；包内 **32 个条目**，抽查含 `Augit\web\index.html`、`src/{live-data,mockup,current-find,image-preview}.js`、`mockup.css`、`vendor/xterm/xterm.js`、5 个第三方许可证文件；包内 `live-data.js` 含 `__augitResetRequest`/`write/cancel`/`terminal/status`，`Augit.dll` 含 `git/reset`/`git/detect`/`terminal/status`/`git/operation`/`git/worktree-removal`（**按 UTF-16LE 匹配**：.NET 字符串字面量不是 UTF-8 字节，按 ASCII 搜会得到假阴性） |
+| 打包（2026-11-06 起） | `powershell -File tools/release.ps1` / `pwsh tools/update/create-release-manifest.ps1` | **单一 self-contained 便携 zip + `update.json`/`update.json.sig`；安装器与 `tools/packaging` 已移除，签名私钥必须配置为 `AUGIT_UPDATE_SIGNING_KEY` Secret。** |
 
 > 说明：`live-shell.spec.cjs` 在无头 Chromium 里用 `addInitScript` 模拟 WebView2 宿主，
 > 因此**不需要启动 Windows 应用**就能覆盖桥接、目录展开、文档、Changes、历史、Blame、

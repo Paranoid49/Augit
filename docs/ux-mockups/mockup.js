@@ -5350,6 +5350,7 @@ function terminalTool() {
 const TOAST_ICON_PATHS = {
   error: '<path fill="#DB5860" fill-rule="evenodd" d="M12,22 C6.4771525,22 2,17.5228475 2,12 C2,6.4771525 6.4771525,2 12,2 C17.5228475,2 22,6.4771525 22,12 C22,17.5228475 17.5228475,22 12,22 Z M10.5,5 L10.5,13 L13.5,13 L13.5,5 L10.5,5 Z M10.5,15 L10.5,18 L13.5,18 L13.5,15 L10.5,15 Z"/>',
   success: '<path fill="#389FD6" fill-rule="evenodd" d="M12,22 C6.4771525,22 2,17.5228475 2,12 C2,6.4771525 6.4771525,2 12,2 C17.5228475,2 22,6.4771525 22,12 C22,17.5228475 17.5228475,22 12,22 Z M10.5,10 L10.5,18 L13.5,18 L13.5,10 L10.5,10 Z M10.5,5 L10.5,8 L13.5,8 L13.5,5 L10.5,5 Z"/>',
+  info: '<path fill="#389FD6" fill-rule="evenodd" d="M12,22 C6.4771525,22 2,17.5228475 2,12 C2,6.4771525 6.4771525,2 12,2 C17.5228475,2 22,6.4771525 22,12 C22,17.5228475 17.5228475,22 12,22 Z M10.5,10 L10.5,18 L13.5,18 L13.5,10 L10.5,10 Z M10.5,5 L10.5,8 L13.5,8 L13.5,5 L10.5,5 Z"/>',
   warning: '<path fill="#EDA200" fill-rule="evenodd" d="M12,2 L23,21 L1,21 L12,2 Z M13.5,19 L13.5,16 L10.5,16 L10.5,19 L13.5,19 Z M13.5,14 L13.5,8 L10.5,8 L10.5,14 L13.5,14 Z"/>',
 };
 
@@ -5357,7 +5358,7 @@ const TOAST_ICON_PATHS = {
 function toastNotificationIcon(kind) {
   const path = TOAST_ICON_PATHS[kind];
   if (!path) return "";
-  const label = kind === "error" ? "Error" : kind === "warning" ? "Warning" : "Success";
+  const label = kind === "error" ? "Error" : kind === "warning" ? "Warning" : kind === "info" ? "Information" : "Success";
   return `<span class="toast-icon" role="img" aria-label="${label}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">${path}</svg></span>`;
 }
 

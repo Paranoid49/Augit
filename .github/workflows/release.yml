@@ -78,9 +78,6 @@ jobs:
       - name: Restore locked dependencies
         run: dotnet restore Augit.slnx --locked-mode
 
-      - name: Restore packaging dependencies
-        run: dotnet restore tools/packaging/Augit.Packaging.csproj --locked-mode
-
       - name: Build Release
         run: dotnet build Augit.slnx -c Release --no-restore
 
@@ -103,7 +100,7 @@ jobs:
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/audit/verify-ui-assets.ps1
 
-      - name: Build portable package and installer
+      - name: Build portable package
         shell: powershell
         run: >-
           powershell -NoProfile -ExecutionPolicy Bypass
@@ -124,13 +121,44 @@ jobs:
             -ExpectedVersion $env:VERSION `
             -SkipLaunch
 
+      - name: Create and sign update manifest
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          AUGIT_UPDATE_SIGNING_KEY: ${{ secrets.AUGIT_UPDATE_SIGNING_KEY }}
+        run: |
+          $directory = "artifacts/release-$env:VERSION"
+          $zip = Join-Path $directory "Augit-$env:VERSION-win-x64-portable.zip"
+          pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File tools/update/create-release-manifest.ps1 `
+            -Version $env:VERSION `
+            -Tag $env:TAG `
+            -ZipPath $zip `
+            -OutputDirectory $directory
+          if ($LASTEXITCODE -ne 0) { throw '生成或签名更新清单失败。' }
+          pwsh -NoProfile -ExecutionPolicy Bypass `
+            -File tools/update/verify-release-manifest.ps1 `
+            -ManifestPath (Join-Path $directory 'update.json') `
+            -SignaturePath (Join-Path $directory 'update.json.sig')
+          if ($LASTEXITCODE -ne 0) { throw '更新清单签名复核失败。' }
+          $sums = Join-Path $directory 'SHA256SUMS.txt'
+          $lines = foreach ($name in @('update.json', 'update.json.sig')) {
+            $path = Join-Path $directory $name
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $size = (Get-Item -LiteralPath $path).Length
+            "$hash  $name"
+          }
+          [System.IO.File]::AppendAllText($sums, ($lines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))
+
       - name: Upload release build
         uses: actions/upload-artifact@v4
         with:
           name: augit-${{ steps.version.outputs.version }}-win-x64
           path: |
             artifacts/release-${{ steps.version.outputs.version }}/*.zip
-            artifacts/release-${{ steps.version.outputs.version }}/*.exe
+            artifacts/release-${{ steps.version.outputs.version }}/update.json
+            artifacts/release-${{ steps.version.outputs.version }}/update.json.sig
             artifacts/release-${{ steps.version.outputs.version }}/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -147,8 +175,9 @@ jobs:
           $notes = Get-Content -LiteralPath $notesPath -Raw -Encoding utf8
           if ($notes -notmatch '<!-- RELEASE_ASSETS -->') { throw '发布说明缺少资产占位标记。' }
           $names = @(
-            "Augit-$env:VERSION-win-x64-setup.exe",
             "Augit-$env:VERSION-win-x64-portable.zip",
+            "update.json",
+            "update.json.sig",
             "SHA256SUMS.txt"
           )
           $rows = foreach ($name in $names) {
@@ -175,10 +204,11 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           $releaseDir = "artifacts/release-$env:VERSION"
-          $setup = "$releaseDir/Augit-$env:VERSION-win-x64-setup.exe"
           $zip = "$releaseDir/Augit-$env:VERSION-win-x64-portable.zip"
+          $manifest = "$releaseDir/update.json"
+          $signature = "$releaseDir/update.json.sig"
           $sums = "$releaseDir/SHA256SUMS.txt"
-          foreach ($asset in @($setup, $zip, $sums)) {
+          foreach ($asset in @($zip, $manifest, $signature, $sums)) {
             if (-not (Test-Path -LiteralPath $asset)) { throw "缺少发布资产：$asset" }
           }
 
@@ -196,7 +226,7 @@ jobs:
             exit 0
           }
           if ($releaseExists) {
-            & gh release upload $env:TAG $zip $setup $sums --clobber
+            & gh release upload $env:TAG $zip $manifest $signature $sums --clobber
             if ($LASTEXITCODE -ne 0) { throw '上传 Release 资产失败。' }
             if ($isPrerelease) {
               & gh release edit $env:TAG --title "Augit $env:VERSION" --notes-file $notesFile --prerelease
@@ -206,9 +236,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw '更新 Release 说明失败。' }
           } else {
             if ($isPrerelease) {
-              & gh release create $env:TAG $zip $setup $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease
+              & gh release create $env:TAG $zip $manifest $signature $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease
             } else {
-              & gh release create $env:TAG $zip $setup $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease=false
+              & gh release create $env:TAG $zip $manifest $signature $sums --title "Augit $env:VERSION" --notes-file $notesFile --prerelease=false
             }
             if ($LASTEXITCODE -ne 0) { throw '创建 Release 失败。' }
           }

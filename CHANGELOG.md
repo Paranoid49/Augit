@@ -10,6 +10,10 @@
 - 删除编辑标签区右侧无功能的 Tab Options 三点按钮；Markdown 的原文/对照/预览三模式按钮仍保留在右侧。
 - Settings 的界面字体固定为 Microsoft YaHei UI，不再提供字体下拉；界面字号仍可自由调整，系统缺字体时静默回退到 Segoe UI。
 - 修改 Settings 默认终端不再关闭或重启已经打开的终端；已有标签保持原 Shell，只有之后点击 + 新建的标签使用新配置。
+### Added
+
+- 便携版内置自动更新：启动后检查签名 `update.json`，下载完整便携 zip，校验 ECDSA 签名、大小与 SHA-256，用户确认后重启替换；失败自动回滚旧版本。
+- Release 资产改为单一 self-contained 便携 zip，附 `update.json`、`update.json.sig` 和 `SHA256SUMS.txt`；不再构建或发布安装器。
 
 ## [1.0.0-rc.11] - 2026-11-02
 

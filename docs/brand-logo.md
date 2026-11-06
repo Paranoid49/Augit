@@ -15,7 +15,6 @@ Augit 使用自有徽标，不再用纯文字 `A` 充当应用图标。
 | SVG 源/网页 favicon | `web/assets/augit.svg` |
 | 标题栏 `.brand-mark` | `web/src/mockup.css` 内嵌同一 SVG 的 data URI |
 | Windows 应用/任务栏图标 | `src/Augit.Shell/Assets/augit.ico`（16/20/24/32/40/48/64/128/256） |
-| 安装器向导图标 | `tools/packaging/Augit.iss` 的 `SetupIconFile` |
 
 ## 接线
 

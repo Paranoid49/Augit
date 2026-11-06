@@ -116,7 +116,7 @@ internal sealed partial class ShellWindow : IDisposable
         // 审计与视觉对照会显式指定场景、DPI 或尺寸；这些运行不得把审计窗口写进用户设置。
         _persistPlacement = settingsOwner is null && options is
         { Width: null, Height: null, Dpi: null, PixelExact: false, NoSessionRestore: false, Scene: null or "" };
-        _bridge = settingsOwner?._bridge ?? new ShellBridge(options.WorkspaceRoot, Notify, _settingsStore);
+        _bridge = settingsOwner?._bridge ?? new ShellBridge(options.WorkspaceRoot, Notify, _settingsStore, updatesEnabled: !options.HasIsolatedState && options.Scene is null);
         // 窗口命令（自绘窗口按钮、标题栏拖动）只有窗口能做：桥接层不认识 HWND。
         if (settingsOwner is null) _bridge.WindowCommandHandler = HandleWindowCommand;
         _instance = GetModuleHandle(null);

@@ -98,22 +98,6 @@ function Assert-DistributionFiles {
     }
 }
 
-function Assert-FrameworkDependentPublish {
-    param([string]$Root, [string]$Label)
-
-    foreach ($relativePath in @('coreclr.dll', 'hostfxr.dll', 'hostpolicy.dll')) {
-        if (Test-Path -LiteralPath (Join-Path $Root $relativePath)) {
-            throw "$Label 意外包含 self-contained 运行时文件 $relativePath。"
-        }
-    }
-
-    $runtimeConfig = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'Augit.runtimeconfig.json') |
-        ConvertFrom-Json
-    if ($runtimeConfig.runtimeOptions.framework.name -ne 'Microsoft.NETCore.App') {
-        throw "$Label 必须只依赖基础 .NET Runtime。"
-    }
-}
-
 function Assert-SelfContainedPublish {
     param([string]$Root, [string]$Label)
 
@@ -153,13 +137,10 @@ if ($RuntimeFrameworkVersion -notmatch '^\d+\.\d+\.\d+$') {
 
 $stagingRoot = Join-Path $outputRoot 'staging'
 $portableRoot = Join-Path $stagingRoot 'Augit'
-$installerRoot = Join-Path $stagingRoot 'installer'
 $packageRoot = Join-Path $stagingRoot 'packages'
 $portableArchive = Join-Path $outputRoot "Augit-$Version-win-x64-portable.zip"
-$installerPath = Join-Path $outputRoot "Augit-$Version-win-x64-setup.exe"
 $checksumsPath = Join-Path $outputRoot 'SHA256SUMS.txt'
 $stagedPortableArchive = Join-Path $packageRoot ([System.IO.Path]::GetFileName($portableArchive))
-$stagedInstallerPath = Join-Path $packageRoot ([System.IO.Path]::GetFileName($installerPath))
 $stagedChecksumsPath = Join-Path $packageRoot ([System.IO.Path]::GetFileName($checksumsPath))
 $runtimeAssetLockPath = Join-Path $repositoryRoot 'tools\runtime-assets.lock.json'
 $runtimeAssetLock = Get-Content -LiteralPath $runtimeAssetLockPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -178,7 +159,6 @@ if (Test-Path -LiteralPath $stagingRoot) {
     [System.IO.Directory]::Delete($stagingRoot, $true)
 }
 New-Item -ItemType Directory -Path $portableRoot -Force | Out-Null
-New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
@@ -186,26 +166,6 @@ try {
     & dotnet restore (Join-Path $repositoryRoot 'Augit.slnx') --locked-mode
     if ($LASTEXITCODE -ne 0) {
         throw '解决方案依赖还原失败。'
-    }
-
-    $packagingProject = Join-Path $repositoryRoot 'tools\packaging\Augit.Packaging.csproj'
-    & dotnet restore $packagingProject --locked-mode
-    if ($LASTEXITCODE -ne 0) {
-        throw '安装器构建依赖还原失败。'
-    }
-
-    # 安装版保持 framework-dependent：安装器负责检测/下载 .NET 10，保持较小的联网安装包。
-    & dotnet publish (Join-Path $repositoryRoot 'src\Augit.Shell\Augit.Shell.csproj') `
-        -c Release `
-        -r win-x64 `
-        --self-contained false `
-        --no-restore `
-        -p:DebugType=None `
-        -p:DebugSymbols=false `
-        -p:Version=$Version `
-        -o $installerRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Augit 安装版发布失败。'
     }
 
     # 便携版为 self-contained：新电脑不需要预装 .NET 10，解压即可运行。
@@ -234,27 +194,14 @@ try {
         throw 'Augit 便携版发布失败。'
     }
 
-    Copy-DistributionDocuments $installerRoot
     Copy-DistributionDocuments $portableRoot
 
-    Assert-DistributionFiles $installerRoot '安装版'
-    Assert-FrameworkDependentPublish $installerRoot '安装版'
     Assert-DistributionFiles $portableRoot '便携版'
     Assert-SelfContainedPublish $portableRoot '便携版'
 
     Compress-Archive -LiteralPath $portableRoot -DestinationPath $stagedPortableArchive -CompressionLevel Optimal
 
-    & dotnet msbuild $packagingProject `
-        -nologo `
-        -t:BuildInstaller `
-        -p:PublishDir=$installerRoot `
-        -p:InstallerOutputDir=$packageRoot `
-        -p:PackageVersion=$Version
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $stagedInstallerPath)) {
-        throw '联网安装器生成失败。'
-    }
-
-    $checksumLines = @($stagedPortableArchive, $stagedInstallerPath) | ForEach-Object {
+    $checksumLines = @($stagedPortableArchive) | ForEach-Object {
         $hash = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $([System.IO.Path]::GetFileName($_))"
     }
@@ -264,7 +211,6 @@ try {
         [System.Text.UTF8Encoding]::new($false))
 
     [System.IO.File]::Copy($stagedPortableArchive, $portableArchive, $true)
-    [System.IO.File]::Copy($stagedInstallerPath, $installerPath, $true)
     [System.IO.File]::Copy($stagedChecksumsPath, $checksumsPath, $true)
 } finally {
     if (Test-Path -LiteralPath $stagingRoot) {
