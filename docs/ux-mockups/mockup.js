@@ -3297,7 +3297,7 @@ function editorTabs(active, extra = "") {
     return `
     <div class="editor-tabs">
       ${markup}
-      <span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
+      <span style="flex:1"></span>
     </div>`;
   }
 
@@ -3306,7 +3306,7 @@ function editorTabs(active, extra = "") {
     return `
     <div class="editor-tabs">
       <a class="editor-tab active" href="#">${fileTypeIcon(name)} ${escapeHtml(name)}<span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a>
-      <span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
+      <span style="flex:1"></span>
     </div>`;
   }
 
@@ -3318,7 +3318,7 @@ function editorTabs(active, extra = "") {
       <a class="editor-tab ${active === "third" ? "active" : ""}" href="text-viewer.html">${fileTypeIcon("THIRD-PARTY-NOTICES.md")} THIRD-PARTY-NOTICES.md</a>
       <a class="editor-tab ${active === "roadmap" ? "active" : ""}" href="markdown-preview.html">${fileTypeIcon("roadmap.md")} roadmap.md</a>
       <a class="editor-tab ${active === "product" ? "active" : ""}" href="markdown-preview.html">${fileTypeIcon("product-spec.md")} product-spec.md</a>
-      ${extra}<span style="flex:1"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button>
+      ${extra}<span style="flex:1"></span>
     </div>`;
 }
 
@@ -5533,18 +5533,19 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
   // 点它会整页导航到 404），而且没有 `data-tab-id` ⇒ 关闭叉、中键关闭、点击激活全部失效
   //（第 243 轮实测：实时侧打开图片后，标签条上是一个没有 tab-id 的样例标签）。
   const staticTabs = editor === "image"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="image-preview.html">${fileTypeIcon("image-sample.png")}<span class="json-tab-caption">image-sample.png</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span></div>`
     : editor === "json"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="json-preview.html">${fileTypeIcon("global.json")}<span class="json-tab-caption">global.json</span><span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span></div>`
     : scene === "go-to-line" || scene === "text-viewer"
-    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span><button class="icon-button" aria-label="Tab Options">${icon("ellipsis-vertical")}</button></div>`
+    ? `<div class="editor-tabs"><a class="editor-tab active" href="text-viewer.html">${fileTypeIcon("MainWindow.cs")} MainWindow.cs<span class="tab-close" aria-label="Close File">${icon("close-small")}</span></a><span class="grow"></span></div>`
     : editor === "diff" || editor === "diff-loading" || editor === "comparison"
     ? editorTabs("", editorExtra)
     : editorTabs(editor === "markdown" || editor === "blame" ? "product" : "third", editorExtra);
   let tabs = live ? editorTabs("", editorExtra) : staticTabs;
   if (editor === 'markdown') {
     const mode = editorBody.match(/data-markdown-mode="(source|split|preview)"/)?.[1] || 'preview';
-    tabs = tabs.replace('<button class="icon-button" aria-label="Tab Options">', `${markdownTabActions(mode)}<button class="icon-button" aria-label="Tab Options">`);
+    // 三模式动作仍在编辑标签区右侧；无功能的 Tab Options 三点按钮已移除。
+    tabs = tabs.replace('<span style="flex:1"></span>', `<span style="flex:1"></span>${markdownTabActions(mode)}`);
   }
   const bottomHtml = bottom === "git" ? gitLog(true, complexGraph, comparisonState === "loading", emptyHistory) : bottom === "terminal" ? terminalTool() : bottom === "file-history" ? ((live && live.fileHistory) ? liveFileHistoryTool() : fileHistoryTool()) : bottom === "branch-compare" ? ((live && live.branchComparison) ? liveBranchCompareTool() : fileHistoryTool()) : "";
   const mainClasses = ["app-main", side ? "" : "side-collapsed", bottom ? "bottom-open" : ""].filter(Boolean).join(" ");
