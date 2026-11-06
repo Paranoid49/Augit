@@ -37,7 +37,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 本候选已在以下真实机器上完成便携运行验证；未验证项不写成已通过：
 
 - **Windows 11 x64**：主界面、便携包、屏幕阅读器与性能基线。
-- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行。rc.3 改为 self-contained 便携包；rc.4–rc.11 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行。rc.3 改为 self-contained 便携包；rc.4–rc.12 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
 - 本次公开 rc.12 资产由 GitHub Actions 从 `v1.0.0-rc.12` 标签构建，包含签名自动更新、单一便携版发行和 rc.11 之后的 UI 修正；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
 - rc.10 的终端重做已在 Windows 11 x64 实机验证多标签、Shell 菜单、设置热切换和关闭确认；实际 Release 便携包真实启动 PASS（窗口出现 380.7ms、关闭 104.8ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 501.6ms、关闭 100ms）；全新 Windows 虚拟机仍待复验。
 - rc.11 修复终端 Shell 菜单灰底、+ 默认新建、Settings 预热速度和关闭确认像素；Windows 11 x64 实测连续打开 Settings 为 102–485ms，极早点击最坏 661ms，主窗首窗约 367ms。实际 Release 便携包真实启动 PASS（窗口出现 463ms、关闭 128.6ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 451.1ms、关闭 127.1ms）。
@@ -91,7 +91,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - **真实鼠标 Continue Rebase 仅覆盖代表性场景**：两文件 rebase 冲突、外部删除一个并编辑暂存另一个后，真实前台 OS 鼠标点击已通过；Skip/Abort、反向解决顺序和二进制冲突未用真实鼠标复验。
 - **像素目标未整体达成**：共享功能页与 PyCharm 2026.2.1 的整窗像素对照仍有未通过页面，按持续改进登记，不冒充通过。
 - **视觉范围差异**：不提供参考的右侧 42 CSS 工具轨，Settings 为简化自定义结构，终端为简洁 xterm；这些是已批准的范围差异，不是待修复缺陷。
-- **Windows 10 22H2 启动退出修复待实机复验**：rc.4–rc.11 增加 CET 兼容标记、首次启动欢迎页、async void 异常边界、`git init` 超时、选择目录输出缓冲区、新窗口 `--workspace`、欢迎页单窗口、分支树折叠、分支弹层默认面板和 PyCharm 分组树修复，但尚未在用户出问题的 22H2 机器上复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
+- **Windows 10 22H2 启动退出修复待实机复验**：rc.4–rc.12 增加 CET 兼容标记、首次启动欢迎页、async void 异常边界、`git init` 超时、选择目录输出缓冲区、新窗口 `--workspace`、欢迎页单窗口、分支树折叠、分支弹层默认面板和 PyCharm 分组树修复，但尚未在用户出问题的 22H2 机器上复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
 - **真实日常使用观察仍在进行**：本候选需要真实仓库中的长期使用反馈；Augit 不做遥测，问题请通过 Issue 反馈。
 
 ## 从源码构建

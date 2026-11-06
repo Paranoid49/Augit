@@ -87,7 +87,7 @@ Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器实机历史完成：
 
 rc.12 的自动更新、终端标签高亮、Settings 行为、固定 UI 字体和便携替换路径**尚未在 Windows 10 22H2 实机复验**；Windows 11 x64 完成本轮回归。
 
-## 6. 与 rc.2–rc.11 的关系
+## 6. 与 rc.2–rc.12 的关系
 
 - rc.2 便携版 framework-dependent。
 - rc.3 便携版改为 self-contained。
@@ -100,7 +100,7 @@ rc.12 的自动更新、终端标签高亮、Settings 行为、固定 UI 字体�
 - rc.10 重做多标签终端、Shell 菜单、设置热切换与 JetBrains 关闭确认。
 - rc.11 修复 Shell 菜单灰底、`+` 默认新建、Settings 预热和关闭确认像素。
 - rc.12 加入签名自动更新、改为单一便携版发行，并修正终端标签高亮、Settings 默认终端、Tab Options 和 UI 字体。
-- rc.2–rc.11 的公开 Release 保留，不覆盖、不改写。
+- rc.2–rc.12 的公开 Release 保留，不覆盖、不改写。
 
 ## 7. 发布后核对
 

@@ -84,7 +84,7 @@ Windows 不允许运行中的 `Augit.exe` 覆盖自身，因此下载完成后�
 
 ```text
 Augit 1.0.0-rc.12 is available
-You are using 1.0.0-rc.11. Download the update, then restart Augit to install it.
+You are using 1.0.0-rc.12. Download the update, then restart Augit to install it.
 [Download update]
 ```
 
