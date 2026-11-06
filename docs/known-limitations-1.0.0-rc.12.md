@@ -64,6 +64,7 @@
 - **自动更新**：启动后检查 GitHub Releases 的签名 `update.json`，下载并校验签名、大小、SHA-256 和包内版本；用户确认后由暂存的 `--apply-update` 进程等待旧进程退出、备份旧目录、替换并重启，启动失败或 10 秒内无窗口时回滚。更新要求便携目录可写且同目录其它 Augit 窗口已关闭。
 - **自动更新未覆盖**：真实网络下的 GitHub API/下载、签名 Secret 配错、真实缺 WebView2、Windows 10 22H2、断电/强杀更新器、磁盘满和杀毒软件拦截未复验；本轮只完成本机端到端与单元验证。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
 - **WebView2**：便携包仍要求系统已有 WebView2 Runtime；没有安装器自动检测/下载流程，缺少时只显示官方下载入口。
+- 首次在非 Git 目录显示仓库初始化遮罩时，右下角更新通知会被遮罩挡住；需先关闭/完成该遮罩才能点击更新动作。该层叠问题登记为 UI 待修，不阻塞更新器本身。
 - 公开 Release 只包含便携 zip、`update.json`、`update.json.sig` 和 `SHA256SUMS.txt`；原始截图、日志和本机验收报告不在公开仓库或 Release 中。
 - rc.12 的 exe/任务栏/Alt-Tab 使用新嵌入的多尺寸 ICO；若 Windows 任务栏仍显示旧图标，需完全退出 Augit 后重新启动，必要时取消固定再重新固定以刷新图标缓存。
 

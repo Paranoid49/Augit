@@ -15,6 +15,8 @@
 
 > **2026-11-02 rc.11 补充**：rc.11 修复终端 Shell 菜单灰底、+ 默认新建与 ⌄ 菜单分工、Settings 预热速度，以及按 IntelliJ 像素校正的关闭确认。当前公开资产见[rc.11 发布清单](release-manifest-1.0.0-rc.11.md)。
 
+> **2026-11-06 rc.12 补充**：rc.12 加入 ECDSA 签名自动更新，改为单一 self-contained 便携版发行，并合入终端标签高亮、Settings 默认终端、Tab Options 和 UI 字体修正。当前公开资产见[rc.12 发布清单](release-manifest-1.0.0-rc.12.md)。
+
 ## 1. 候选身份
 
 | 项 | 值 |
@@ -112,9 +114,9 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 ## 7. 证据入口
 
 - 收口台账：`docs/release-closure-2026-10-24.md`
-- rc.11 发布清单：`docs/release-manifest-1.0.0-rc.11.md`
-- rc.11 发布说明：`docs/release-notes-1.0.0-rc.11.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.11.md`
+- rc.12 发布清单：`docs/release-manifest-1.0.0-rc.12.md`
+- rc.12 发布说明：`docs/release-notes-1.0.0-rc.12.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.12.md`
 - rc.2 历史发布记录：`docs/release-manifest-1.0.0-rc.2.md`、`docs/release-notes-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`
 - Windows 10 22H2 多显示器/DPI：`docs/win10-22h2-multimonitor-validation-2026-10-26.md`、`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`

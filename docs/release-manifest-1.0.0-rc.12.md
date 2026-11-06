@@ -7,10 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.12> |
-| Release id | 流水线完成后填写 |
+| Release id | `436146783` |
 | Tag | `v1.0.0-rc.12` |
 | 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | 流水线完成后填写（`Augit.exe` ProductVersion 内含该提交号） |
+| 构建提交 | `3f52f11aece6939b654e5ca045fa980f64063840` |
 | 版本 | `1.0.0-rc.12` |
 | 形态 | **self-contained 便携 zip**（自带 .NET 10.0.11 Runtime） |
 | 自动更新 | `update.json` + `update.json.sig`，ECDSA P-256 |
@@ -23,14 +23,12 @@ rc.12 加入签名自动更新，改为单一自包含便携版发行；同时�
 
 ## 2. 资产
 
-待 GitHub Actions 流水线完成后填写：
-
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `Augit-1.0.0-rc.12-win-x64-portable.zip` | 待填写 | 待填写 |
-| `update.json` | 待填写 | 待填写 |
-| `update.json.sig` | 待填写 | 待填写 |
-| `SHA256SUMS.txt` | 待填写 | 待填写 |
+| `Augit-1.0.0-rc.12-win-x64-portable.zip` | 39,275,373 B | `cea4fb98e928a71254858b1cc544e4e6667e96d8e48e51b4bb31a15b6709587c` |
+| `update.json` | 432 B | `8369497c0ce38a24355d45d5546d985d081bde97560d242d6d27070a1f135a83` |
+| `update.json.sig` | 89 B | `0052e78c1fde7e6e7b52450c4782058d96d2ba3666bfab6092d48e3d2d386d11` |
+| `SHA256SUMS.txt` | 265 B | `3534a64f0cadffc6b419a2bfb310c2c909e7459d4ea4e757948c74a286783c79` |
 
 ## 3. 构建与验证
 
@@ -60,7 +58,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools/update/verify-release-manife
 | UI 资产一致性 | **PASS** |
 | `dotnet format` / `git diff --check` | **PASS** |
 | 便携包内容与版本 | **PASS** |
-| 更新清单签名/复核 | **PASS**（本机私钥，发布流水线 Secret 待复核） |
+| 更新清单签名/复核 | **PASS**（本机私钥与发布流水线 Secret 均通过内置公钥复核） |
 | 本机更新器端到端 | **PASS**：替换、窗口出现、备份清理 |
 ### 本机预构建（发布前同源验证）
 
@@ -106,12 +104,15 @@ rc.12 的自动更新、终端标签高亮、Settings 行为、固定 UI 字体�
 
 ## 7. 发布后核对
 
-待 GitHub Actions 完成后填写：
+2026-11-06 已完成：
 
-- Release 标记为 **Pre-release**，四个资产匿名可下载。
+- Release 标记为 **Pre-release**，四个资产匿名可下载；Release id `436146783`。
 - 匿名下载的 zip、`update.json`、`update.json.sig`、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致。
-- 实际 Release 便携包真实启动、版本资源、更新清单验签与关闭清理。
-- 默认分支 `main`、tag 和发布正文指向同一版本。
-- 首次真实自动更新（上一版 rc.11 到 rc.12）在干净便携目录验证。
+- `update.json` 使用内置公钥验签 **PASS**；发布流水线的独立验签步骤也通过。
+- 实际 Release 便携包真实启动 PASS：窗口类 `Augit.Shell.Window`、窗口出现 **482.1ms**、关闭 **111.1ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.12+3f52f11…`。
+- 隐藏共享 .NET 启动 PASS：窗口出现 **468.2ms**、关闭 **111.6ms**、退出码 0、无残留子进程。
+- **本机真实自动更新端到端**：用同源、带更新器但版本标为 `1.0.0-rc.11` 的测试便携构建，从公开 GitHub Release 检查到 rc.12，下载并验签 `update.json`，下载 39 MB 便携包，成功后重启替换；目标 `Augit.exe` ProductVersion 变为 `1.0.0-rc.12+3f52f11…`，备份目录清理，`update.log` 记录成功。
+- **注意**：公开的 rc.11 本身没有更新器代码，因此 rc.11→rc.12 不是可用的真实升级路径；首个可自动升级的版本是 rc.12，下一次 rc.13 才能从 rc.12 直接升级。
+- 校验 `main`、tag 和发布正文指向同一版本。
 
-状态：**待发布流水线完成**。
+状态：**PASS**（Windows 10 22H2 实机、真实公网下载失败/断电/杀毒拦截等边界未复验）。

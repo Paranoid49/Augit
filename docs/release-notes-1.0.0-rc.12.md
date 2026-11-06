@@ -2,7 +2,7 @@
 
 - 发布日期：2026-11-06
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建方式：GitHub Actions 从 `v1.0.0-rc.12` 标签构建；实际提交与产物哈希以发布页和 `SHA256SUMS.txt` 为准
+- 构建源提交：`3f52f11aece6939b654e5ca045fa980f64063840`（GitHub Actions 从 tag 构建；`Augit.exe` ProductVersion 内含该提交号）
 - 发布记录 / tag：`v1.0.0-rc.12`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
@@ -19,7 +19,12 @@ rc.12 是第一个只发布 self-contained 便携版、并内置签名自动更�
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.12-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/Augit-1.0.0-rc.12-win-x64-portable.zip) | 39,275,373 B | `cea4fb98e928a71254858b1cc544e4e6667e96d8e48e51b4bb31a15b6709587c` |
+| [update.json](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/update.json) | 432 B | `8369497c0ce38a24355d45d5546d985d081bde97560d242d6d27070a1f135a83` |
+| [update.json.sig](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/update.json.sig) | 89 B | `0052e78c1fde7e6e7b52450c4782058d96d2ba3666bfab6092d48e3d2d386d11` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/SHA256SUMS.txt) | 265 B | `3534a64f0cadffc6b419a2bfb310c2c909e7459d4ea4e757948c74a286783c79` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.12>
 
@@ -42,7 +47,11 @@ rc.12 是第一个只发布 self-contained 便携版、并内置签名自动更�
   - 等待旧进程退出、替换、重启路径通过。
 - 签名清单在本地用与内置公钥配对的 ECDSA P-256 私钥生成并通过复核；发布流水线还会再验一次签名。
 - 本机预构建随包验证：`1.0.0-rc.12+ce7ec9b…`，便携包 `39,275,363 B`、SHA-256 `5290bbf8bd5c1a2e19968a78524103c8e9d7d13fb96b0072dedee81bb184aa29`；窗口出现 **471.9ms**、关闭 **136ms**、退出码 0、无残留子进程。
-- 实际 Release 便携包和更新资产的匿名下载/哈希/启动结果以本次 tag 流水线产物为准。
+- **实际 Release 资产复核**：匿名下载的便携包 `39,275,373 B`、SHA-256 `cea4fb98e928a71254858b1cc544e4e6667e96d8e48e51b4bb31a15b6709587c`；`update.json` `432 B`、`8369497c…`；`update.json.sig` `89 B`、`0052e78…`；`SHA256SUMS.txt` `265 B`、`3534a64f…`，与发布正文一致。
+- 实际 Release 便携包真实启动 PASS：窗口出现 **482.1ms**、关闭 **111.1ms**、退出码 0、无残留子进程；ProductVersion `1.0.0-rc.12+3f52f11…`。隐藏共享 .NET 后启动 PASS：窗口出现 **468.2ms**、关闭 **111.6ms**、退出码 0、无残留子进程。
+- **本机真实自动更新 PASS**：用同源、带更新器但版本标为 rc.11 的测试构建，从公开 GitHub Release 检查到 rc.12，下载并验签 `update.json`，下载 39 MB 便携包，重启替换后目标 ProductVersion 变为 `1.0.0-rc.12+3f52f11…`，备份目录清理。
+- 公开的 rc.11 本身没有更新器代码，因此 rc.11→rc.12 不是可用升级路径；首个可自动升级的版本是 rc.12，下一次 rc.13 才能从 rc.12 直接升级。
+
 
 ## 4. 自动更新边界
 
@@ -53,6 +62,7 @@ rc.12 是第一个只发布 self-contained 便携版、并内置签名自动更�
 - 更新包验签和 SHA-256 校验失败一律拒绝，没有跳过校验入口。
 - 仍未做 Authenticode 签名；签名清单只保证更新来源和完整性，不代表 Windows SmartScreen 信任。
 - Windows 10 22H2 实机和真实网络下的更新未复验。
+- 首次在非 Git 目录显示仓库初始化遮罩时，更新通知会被遮罩挡住；需先关闭/完成遮罩。该层叠问题登记为后续 UI 修正。
 
 ## 5. 已知限制
 
