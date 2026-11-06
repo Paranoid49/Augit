@@ -1,20 +1,20 @@
 # Augit
 
 [![CI](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.11)
+[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.12)
 
 Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方式的轻量 Windows 只读项目查看器与 Git 图形工具。开发者在 Augit 中浏览项目、检查变化并执行 Git 操作；Augit 不接入 AI，也不提供普通代码编辑和保存。
 
-当前公开发布为 **1.0.0-rc.11 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随便携包一起分发；实际版本以 `Augit.exe` 文件属性或应用内更新提示中的 ProductVersion 为准。
+当前公开发布为 **1.0.0-rc.12 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随便携包一起分发；实际版本以 `Augit.exe` 文件属性或应用内更新提示中的 ProductVersion 为准。
 
 ## 下载与运行（无需从源码构建）
 
 | 方式 | 下载 | 适合场景 |
 | --- | --- | --- |
-| 便携版 | [Augit-1.0.0-rc.11-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.11/Augit-1.0.0-rc.11-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装 |
-| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.11/SHA256SUMS.txt) | 下载后核对文件完整性 |
+| 便携版 | [Augit-1.0.0-rc.12-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/Augit-1.0.0-rc.12-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装 |
+| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.12/SHA256SUMS.txt) | 下载后核对文件完整性 |
 
-发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.11>
+发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.12>
 
 变更记录：<https://github.com/Paranoid49/Augit/blob/main/CHANGELOG.md>
 自动更新与签名说明：[docs/auto-update.md](https://github.com/Paranoid49/Augit/blob/main/docs/auto-update.md)
@@ -22,7 +22,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - 只发布 self-contained 便携 zip，不提供安装器；解压后直接运行 `Augit.exe`。
 - 便携包自带 .NET 10 Runtime，不写系统 PATH、不添加资源管理器菜单，也不会安装或修改共享运行时；仅 WebView2 Runtime 需要系统已有。
 - 设置和会话保存在 `%LOCALAPPDATA%\Augit`；替换程序目录不会丢失设置。
-- 后续版本支持应用内自动更新：下载并校验签名清单后，由用户确认重启替换；不静默升级。
+- 支持应用内自动更新：下载并校验签名清单后，由用户确认重启替换；不静默升级。
 - **未做代码签名**：Augit 可执行文件没有 Augit 自身 Authenticode 签名，Windows SmartScreen 可能提示「未知发布者」。更新清单另有独立 ECDSA 签名；如不放心，请先核对 `SHA256SUMS.txt`。
 
 ## 系统要求
@@ -38,15 +38,16 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 - **Windows 11 x64**：主界面、便携包、屏幕阅读器与性能基线。
 - **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行。rc.3 改为 self-contained 便携包；rc.4–rc.11 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
-- 本次公开 rc.11 资产由 GitHub Actions 从 `v1.0.0-rc.11` 标签构建，并包含上述 Windows 10/DPI 修复、终端重做和 rc.11 UI 修正；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
+- 本次公开 rc.12 资产由 GitHub Actions 从 `v1.0.0-rc.12` 标签构建，包含签名自动更新、单一便携版发行和 rc.11 之后的 UI 修正；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
 - rc.10 的终端重做已在 Windows 11 x64 实机验证多标签、Shell 菜单、设置热切换和关闭确认；实际 Release 便携包真实启动 PASS（窗口出现 380.7ms、关闭 104.8ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 501.6ms、关闭 100ms）；全新 Windows 虚拟机仍待复验。
 - rc.11 修复终端 Shell 菜单灰底、+ 默认新建、Settings 预热速度和关闭确认像素；Windows 11 x64 实测连续打开 Settings 为 102–485ms，极早点击最坏 661ms，主窗首窗约 367ms。实际 Release 便携包真实启动 PASS（窗口出现 463ms、关闭 128.6ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 451.1ms、关闭 127.1ms）。
+- rc.12 修复选中终端标签高亮、Settings 默认终端不再关闭已打开终端、移除无功能 Tab Options、固定 UI 字体，并加入签名自动更新；本机 569/569 测试通过，便携包与更新签名步骤待本次 Release 复核。
 
 仍未验证：干净虚拟机运行、真实缺少 WebView2 的流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
 ## 便携版：解压即用
 
-- 把 `Augit-1.0.0-rc.11-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
+- 把 `Augit-1.0.0-rc.12-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
 - 便携版已内置 .NET 10 Runtime（self-contained），新电脑无需预装 .NET；不写入系统 PATH，不添加资源管理器菜单，也不会安装或修改共享运行时。
 - 首次启动没有可用最近目录时显示「Open Workspace」启动页，不会把 `Augit.exe` 所在的发布目录当成项目；请通过「打开目录」选择真实工作区。
 - 仍需系统已有 Microsoft Edge WebView2 Runtime。缺少 WebView2 时 Augit 会明确提示缺失项，并给出微软官方下载入口；补齐后重新运行即可。
