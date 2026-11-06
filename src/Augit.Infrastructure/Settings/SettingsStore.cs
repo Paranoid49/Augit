@@ -90,7 +90,14 @@ public sealed class SettingsStore
             };
         }
 
-        return settings with { MonospaceFontFamily = "JetBrains Mono", FontSize = 13 };
+        // 界面字体固定为 Microsoft YaHei UI；系统缺失时由前端字体栈静默回退到 Segoe UI。
+        // 旧配置里的其他界面字体不再生效，下一次保存时归一化到固定值。
+        return settings with
+        {
+            TextFontFamily = "Microsoft YaHei UI",
+            MonospaceFontFamily = "JetBrains Mono",
+            FontSize = 13,
+        };
     }
 
     private static ApplicationSettings Normalize(ApplicationSettings settings)

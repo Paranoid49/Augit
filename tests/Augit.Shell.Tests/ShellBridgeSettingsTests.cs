@@ -236,6 +236,21 @@ public sealed class ShellBridgeSettingsTests
     }
 
     [TestMethod]
+    public async Task 界面字体写入被固定为微软雅黑且字号仍可调整()
+    {
+        using TemporaryDirectory temporary = new();
+        string settingsPath = temporary.GetPath("settings.json");
+        using ShellBridge bridge = new(temporary.FullPath);
+        SettingsStore store = new(settingsPath);
+
+        await WriteAsync(bridge, store, """{"textFontFamily":"Tahoma","fontSize":15}""");
+
+        ApplicationSettings actual = await new SettingsStore(settingsPath).LoadAsync();
+        Assert.AreEqual("Microsoft YaHei UI", actual.TextFontFamily);
+        Assert.AreEqual(15d, actual.UiFontSize);
+    }
+
+    [TestMethod]
     public async Task 写入面板尺寸保留其它设置与窗口和会话数据()
     {
         using TemporaryDirectory temporary = new();
@@ -274,7 +289,7 @@ public sealed class ShellBridgeSettingsTests
         Assert.AreEqual(400d, actual.ToolWindows.ProjectPanelWidth);
         Assert.AreEqual(SeededPanelHeight, actual.ToolWindows.BottomPanelHeight);
         Assert.AreEqual("Dark", actual.Theme);
-        Assert.AreEqual("Segoe UI", actual.TextFontFamily);
+        Assert.AreEqual("Microsoft YaHei UI", actual.TextFontFamily);
         Assert.AreEqual("JetBrains Mono", actual.MonospaceFontFamily);
         Assert.AreEqual(13d, actual.FontSize);
         Assert.AreEqual(15d, actual.UiFontSize);

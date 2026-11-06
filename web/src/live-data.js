@@ -10274,27 +10274,7 @@ function openSettingsDialog() {
   // 复用既有的保存动作绑定（它按 .dialog-xl 结构挂载）。
   bindSettingsSave();
   bindSettingsPages();
-  void ensureSettingsFonts();
   void ensureGitDetection();
-}
-
-/** 字体枚举只在首次打开设置时请求，结果就地补入下拉项，不重绘或覆盖用户草稿。 */
-async function ensureSettingsFonts() {
-  const live=window.__augitLive;if(!live)return;
-  if(!live.fontFamilies&&!live.fontFamiliesRequest){
-    live.fontFamiliesRequest=invoke('settings/fonts',{},15000).then(result=>{
-      live.fontFamilies=Array.isArray(result?.families)?result.families.filter(name=>typeof name==='string'&&name):[];
-    }).catch(()=>{live.fontFamilies=[];});
-  }
-  await live.fontFamiliesRequest;
-  if (await loadBundledCodeFont() && !live.fontFamilies.some(name => name.toLowerCase() === 'jetbrains mono')) {
-    live.fontFamilies.push('JetBrains Mono');
-  }
-  document.querySelectorAll('.settings-layout .font-family-select').forEach(select=>{
-    const current=select.value;
-    const names=[...new Set([current,...live.fontFamilies])].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
-    select.replaceChildren(...names.map(name=>{const option=document.createElement('option');option.value=option.textContent=name;option.selected=name===current;return option;}));
-  });
 }
 
 /** 读取一次 Git 检测结果（规格 §7.17 的 Git 分类要显示检测结果与最低版本）。 */
@@ -10353,33 +10333,19 @@ function bindSettingsPages() {
     to.push(live.settingsPage);switchSettingsPage(from.pop(),{recordHistory:false});
   },true);
 
-  document.addEventListener("click", async (event) => {
+  document.addEventListener("click", (event) => {
     const button = event.target.closest?.("[data-restore-reference]");
     const live = window.__augitLive;
     if (!button || !live?.settings) return;
     event.preventDefault();
     const session = currentSettingsSession();
     if (session?.status === 'saving') return;
-    await ensureSettingsFonts();
-    if (!isCurrentSettingsSession(session)) return;
-    const installed = live.fontFamilies || [];
-    const preferred = REFERENCE_APPEARANCE.monospaceFontFamily;
-    const resolved = [preferred, 'Cascadia Mono', 'Consolas', 'Courier New']
-      .map(name => installed.find(family => family.toLowerCase() === name.toLowerCase())).find(Boolean)
-      || live.settings.monospaceFontFamily;
     collectSettingsDraft();
-    Object.assign(live.settingsDraft, REFERENCE_APPEARANCE, { monospaceFontFamily: resolved });
+    Object.assign(live.settingsDraft, REFERENCE_APPEARANCE);
     beginThemePreview();
     applyPageTheme("light");
     renderSettingsDialog();
     syncSettingsDirtyMarkers();
-    const feedback = session.dialog.querySelector('.footer-help');
-    if (feedback && resolved !== preferred) {
-      feedback.textContent = installed.length
-        ? `JetBrains Mono is unavailable. Using ${resolved}.`
-        : `Installed fonts could not be verified. Keeping ${resolved}.`;
-      feedback.title = feedback.textContent;
-    }
   }, true);
 
   // 归属判定一律用"在 .settings-layout 里"，不写死外层容器类：
@@ -14906,8 +14872,7 @@ async function boot() {
     // 场景渲染的设置页同样要能切分类（`__augitRender` 只走 bindInteractions，
     // 不经过 rebindAfterRender，这里显式补一次；函数本身有幂等守卫）。
     bindSettingsPages();
-    void ensureSettingsFonts();
-    void ensureGitDetection();
+      void ensureGitDetection();
     }
   }
 

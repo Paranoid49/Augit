@@ -1587,7 +1587,8 @@ internal sealed class ShellBridge : IDisposable
         ApplicationSettings updated = current with
         {
             Theme = NormalizeTheme(GetString(parameters, "theme")) ?? current.Theme,
-            TextFontFamily = GetString(parameters, "textFontFamily") ?? current.TextFontFamily,
+            // 界面字体族固定；只接受字号调整。旧配置在 SettingsStore 读取时已归一化。
+            TextFontFamily = "Microsoft YaHei UI",
             MonospaceFontFamily = "JetBrains Mono",
             FontSize = 13,
             TextFontSize = ClampFontSize(GetDouble(parameters, "fontSize")) ?? current.TextFontSize,

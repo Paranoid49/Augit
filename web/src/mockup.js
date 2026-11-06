@@ -5,20 +5,18 @@ const app = document.getElementById("app");
 // 导致设置里选了“深色”却仍是浅色界面（审计与视觉稿一律用小写参数，掩盖了它）。
 const requestedTheme = (new URLSearchParams(window.location.search).get("theme") || "").trim().toLowerCase();
 
-// 字体设置只改变显示：界面字号/字族与正文等宽字号/字族相互独立（规格 §7.14 与设置页）。
+// 界面字体固定为 Microsoft YaHei UI；只在系统缺字时由字体栈静默回退。
+const FIXED_UI_FONT_FAMILY = "Microsoft YaHei UI";
+const FIXED_UI_FONT_STACK = '"Microsoft YaHei UI", "Segoe UI", "Microsoft YaHei", sans-serif';
+
+// 字体设置只改变显示：界面字号与正文等宽字号/字族相互独立（规格 §7.14 与设置页）。
 // 预览参数（ui-size / code-size）优先于真实设置，便于视觉稿做字号对照。
 function typographyFamily(name, fallback) {
   const cleaned = String(name ?? "").replace(/["\'\\;{}()]/g, "").replace(/\s+/g, " ").trim();
   return cleaned.length > 0 ? `"${cleaned}", ${fallback}` : null;
 }
 
-// 随包字体是否可用由浏览器实际加载结果判定，不能依赖本机字体枚举冒充加载成功。
-let bundledCodeFontRequest = null;
-function loadBundledCodeFont() {
-  return bundledCodeFontRequest ??= document.fonts.load('13px "JetBrains Mono"', 'Ag 0123456789')
-    .then(faces => faces.length > 0 && document.fonts.check('13px "JetBrains Mono"'))
-    .catch(() => false);
-}
+
 
 // 规格 §154：调整界面字号时保持"原文档控件、树选择和首个可见节点、正文选择与滚动位置"。
 // 行高由界面字号推导（`--augit-tree-height` 等），而 `scrollTop` 是像素值：
@@ -56,8 +54,9 @@ async function applyTypography({ uiSize = null, codeSize = null, uiFamily = null
   const generation = ++typographyGeneration;
   const scrollAnchors = captureScrollAnchors();
   const root = document.documentElement.style;
-  const font = typographyFamily(uiFamily, '"Microsoft YaHei UI", "Segoe UI", sans-serif');
-  if (font) root.setProperty("--augit-font", font);
+  // 界面字体族不再接受用户/设置值；仅视觉稿的 ui-family 预览参数可覆盖字体族。
+  const font = uiFamily ? typographyFamily(uiFamily, FIXED_UI_FONT_STACK) : FIXED_UI_FONT_STACK;
+  root.setProperty("--augit-font", font || FIXED_UI_FONT_STACK);
   const code = typographyFamily(monospaceFamily, '"Cascadia Mono", Consolas, "Courier New", monospace');
   if (code) root.setProperty("--augit-code", code);
 
@@ -202,7 +201,7 @@ async function applyTypographyPreview() {
   await applyTypography({
     uiSize: previewSize("ui-size") ?? (settings ? settings.fontSize : null),
     codeSize: previewSize("code-size") ?? (settings ? settings.codeFontSize : null),
-    uiFamily: previewFamily("ui-family") ?? (settings ? settings.textFontFamily : null),
+    uiFamily: previewFamily("ui-family"),
     monospaceFamily: previewFamily("code-family") ?? (settings ? settings.monospaceFontFamily : null),
   });
 }
@@ -2389,12 +2388,7 @@ function settingsPageHtml(page, values, live) {
     ? values[key] : fallback));
   const themeOption = (option, label) => `<option value="${option}"${values && values.theme === option ? " selected" : ""}>${label}</option>`;
   const shellOption = (option, label) => `<option value="${option}"${values && values.terminalShell === option ? " selected" : ""}>${label}</option>`;
-  const fontSelect=(key,fallback,label)=>{
-    const current=String(values?.[key]??fallback);
-    const catalog=window.__augitLive?.fontFamilies||['JetBrains Mono','Cascadia Mono','Consolas','Courier New','Microsoft YaHei UI','Segoe UI','Tahoma'];
-    const fonts=[...new Set([current,...catalog])].sort((a,b)=>a.localeCompare(b,'en',{sensitivity:'base'}));
-    return `<select class="select-field font-family-select" aria-label="${label}"${attr(key)}>${fonts.map(name=>`<option value="${escapeHtml(name)}"${name===current?' selected':''}>${escapeHtml(name)}</option>`).join('')}</select>`;
-  };
+
 
   if (page === "file-view") {
     return `<section class="settings-group"><div class="form-grid">`
@@ -2436,8 +2430,8 @@ function settingsPageHtml(page, values, live) {
   return `<section class="settings-group"><div class="form-grid">`
     + `<label>Theme</label><select class="select-field"${attr("theme")}>${themeOption("System", "Sync with Windows")}${themeOption("Light", "Light")}${themeOption("Dark", "Dark")}</select>`
     + `<label></label><span class="commit-meta">The theme covers the main UI and previews; fonts only affect display.</span>`
-      + `<label>UI font</label><div class="font-setting">${fontSelect('textFontFamily','Microsoft YaHei UI','UI font')}<label for="ui-font-size">Size</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 12)}"></div>`
-    + `<label></label><span class="commit-meta">The UI font applies to the tree, tabs, tool windows, menus, buttons, status bar, and Markdown body.</span>`
+      + `<label>UI font</label><div class="font-setting" data-settings-search="UI font Microsoft YaHei UI Size"><span data-fixed-ui-font title="Microsoft YaHei UI; if unavailable, Segoe UI is used automatically.">${FIXED_UI_FONT_FAMILY}</span><label for="ui-font-size">Size</label><input id="ui-font-size" type="number" min="9" max="40" class="text-field"${attr("fontSize")} value="${value("fontSize", 12)}"></div>`
+    + `<label></label><span class="commit-meta">The UI font is fixed to Microsoft YaHei UI (silent Segoe UI fallback); only the size is adjustable. It applies to the tree, tabs, tool windows, menus, buttons, status bar, and Markdown body.</span>`
     + `<label></label><span class="commit-meta">Restore the last workspace and tabs at startup.</span>`
     + `</div><div class="button-row"><button type="button" class="secondary-button" data-restore-reference>Restore Reference Appearance</button></div></section>`;
 }

@@ -61,6 +61,7 @@ public sealed class SettingsStoreTests
         Assert.AreEqual(15d, saved.UiFontSize);
         Assert.AreEqual("JetBrains Mono", saved.MonospaceFontFamily);
         Assert.AreEqual(13d, saved.FontSize);
+        Assert.AreEqual("Microsoft YaHei UI", saved.TextFontFamily);
         Assert.AreEqual(1, saved.AppearanceVersion);
     }
 

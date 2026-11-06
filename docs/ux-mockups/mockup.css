@@ -6,7 +6,7 @@
 :root {
   color-scheme: light;
   /* 界面字族由字体设置下发（规格：字体设置只改变显示）；默认值与视觉稿一致。 */
-  --augit-font: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  --augit-font: "Microsoft YaHei UI", "Segoe UI", "Microsoft YaHei", sans-serif;
   font-family: var(--augit-font);
   /* 当前打开的 PyCharm 2026.2 New UI 界面基线为 12px；等宽正文独立保持 13px。 */
   font-size: 12px;
@@ -5438,6 +5438,13 @@ body[data-theme="dark"] .terminal-tool {
 .settings-page,
 .settings-page .form-grid,
 .settings-page .font-setting { min-width: 0; }
+.settings-page .font-setting > [data-fixed-ui-font],
+.settings-page .font-setting > [data-fixed-code-font] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* SettingsEditor 的正文抬头是紧凑路径与前后导航；设置树选区铺满整栏。 */
 /* 2026-10-18 参考：页面白底从标题栏下缘开始，面包屑距上缘约 10 物理；实际原 12px 页顶内距
@@ -5461,9 +5468,7 @@ body[data-theme="dark"] .terminal-tool {
 .settings-nav .tree-row { border-radius: 0; padding-left: 12px; }
 .settings-nav .tree-row.depth-1 { padding-left: 30px; }
 .settings-nav .tree-row.selected { background: var(--augit-blue-soft); }
-.font-family-select { width: 100%; min-width: 0; color-scheme: light; }
-body[data-theme="dark"] .font-family-select { color-scheme: dark; }
-.font-family-select option { color: var(--augit-text); background: var(--augit-panel); }
+
 .settings-page .form-grid > :is(.commit-meta, .settings-detection) {
   min-width: 0;
   overflow-wrap: anywhere;
