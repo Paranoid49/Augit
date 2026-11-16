@@ -61,6 +61,71 @@ public sealed class DocumentClassifierTests
     }
 
     [TestMethod]
+    public void Sql或未知扩展名的Utf8文本可预览()
+    {
+        byte[] content = Encoding.UTF8.GetBytes("SELECT * FROM users;\n");
+
+        DocumentClassification sql = DocumentClassifier.Classify("R_2026_M1028_ops.sql", content);
+        DocumentClassification unknown = DocumentClassifier.Classify("script.unknown-ext", content);
+
+        Assert.AreEqual(DocumentKind.Text, sql.Kind);
+        Assert.AreEqual(DocumentKind.Text, unknown.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf8, sql.TextEncoding);
+        Assert.AreEqual("SELECT * FROM users;\n", DocumentClassifier.DecodeText(content, sql));
+    }
+
+    [TestMethod]
+    public void Utf16带Bom的Sql按文本预览()
+    {
+        const string text = "-- 迁移脚本\r\nCREATE TABLE 用户 (id BIGINT);\r\n";
+        byte[] payload = Encoding.Unicode.GetBytes(text);
+        byte[] content = [0xFF, 0xFE, .. payload];
+
+        DocumentClassification result = DocumentClassifier.Classify("R_2026_M1028_ops.sql", content);
+
+        Assert.AreEqual(DocumentKind.Text, result.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf16Le, result.TextEncoding);
+        Assert.AreEqual("UTF-16 LE", result.EncodingName);
+        Assert.AreEqual(text, DocumentClassifier.DecodeText(content, result));
+    }
+
+    [TestMethod]
+    public void Utf16无Bom的Sql按高置信度文本预览()
+    {
+        const string text = "CREATE TABLE users (id BIGINT);\r\n";
+        byte[] content = Encoding.Unicode.GetBytes(text);
+
+        DocumentClassification result = DocumentClassifier.Classify("migration.sql", content);
+
+        Assert.AreEqual(DocumentKind.Text, result.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf16Le, result.TextEncoding);
+        Assert.AreEqual(text, DocumentClassifier.DecodeText(content, result));
+    }
+
+    [TestMethod]
+    public void Utf16大端带Bom也能预览()
+    {
+        const string text = "SELECT 1;";
+        byte[] content = [0xFE, 0xFF, .. Encoding.BigEndianUnicode.GetBytes(text)];
+
+        DocumentClassification result = DocumentClassifier.Classify("query.unknown", content);
+
+        Assert.AreEqual(DocumentKind.Text, result.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf16Be, result.TextEncoding);
+        Assert.AreEqual(text, DocumentClassifier.DecodeText(content, result));
+    }
+
+    [TestMethod]
+    public void 含Nul的随机二进制仍不冒充文本()
+    {
+        byte[] content = [0x00, 0x01, 0x02, 0x00, 0x03, 0x04, 0x00, 0x05];
+
+        DocumentClassification result = DocumentClassifier.Classify("payload.bin", content);
+
+        Assert.AreEqual(DocumentKind.Binary, result.Kind);
+    }
+
+    [TestMethod]
     [DataRow("README.md", DocumentKind.Markdown)]
     [DataRow("settings.JSON", DocumentKind.Json)]
     [DataRow("source.cs", DocumentKind.Text)]

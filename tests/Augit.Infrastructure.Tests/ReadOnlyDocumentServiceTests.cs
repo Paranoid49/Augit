@@ -25,6 +25,41 @@ public sealed class ReadOnlyDocumentServiceTests
     }
 
     [TestMethod]
+    public async Task Sql的Utf16文本按文本读取()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("R_2026_M1028_ops.sql");
+        const string sql = "-- 迁移脚本\r\nCREATE TABLE users (id BIGINT);\r\n";
+        byte[] content = [0xFF, 0xFE, .. Encoding.Unicode.GetBytes(sql)];
+        await File.WriteAllBytesAsync(path, content);
+
+        DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(temporary.FullPath, path);
+
+        Assert.AreEqual(DocumentReadStatus.TextReady, result.Status);
+        Assert.AreEqual(DocumentKind.Text, result.Classification.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf16Le, result.Classification.TextEncoding);
+        Assert.AreEqual(sql, result.Text);
+        Assert.AreEqual(DocumentLineEndings.CrLf, result.LineEndings);
+        CollectionAssert.AreEqual(content, await File.ReadAllBytesAsync(path));
+    }
+
+    [TestMethod]
+    public async Task 未知扩展名的Utf16文本也可读取()
+    {
+        using TemporaryDirectory temporary = new();
+        string path = temporary.GetPath("migration.unknown");
+        const string sql = "CREATE TABLE users (id BIGINT);\r\n";
+        await File.WriteAllBytesAsync(path, Encoding.Unicode.GetBytes(sql));
+
+        DocumentReadResult result = await ReadOnlyDocumentService.ReadAsync(temporary.FullPath, path);
+
+        Assert.AreEqual(DocumentReadStatus.TextReady, result.Status);
+        Assert.AreEqual(DocumentKind.Text, result.Classification.Kind);
+        Assert.AreEqual(DocumentTextEncoding.Utf16Le, result.Classification.TextEncoding);
+        Assert.AreEqual(sql, result.Text);
+    }
+
+    [TestMethod]
     public async Task 非法Utf8显示稳定错误且不返回正文()
     {
         using TemporaryDirectory temporary = new();

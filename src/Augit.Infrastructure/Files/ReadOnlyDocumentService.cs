@@ -86,22 +86,23 @@ public static class ReadOnlyDocumentService
                 stream.Position = 0;
                 await stream.ReadExactlyAsync(preview, cancellationToken).ConfigureAwait(false);
                 // 截断边界必须落在**完整字符**上：截到半个 UTF-8 序列会解码出替换字符。
-                int usable = Utf8CompletePrefixLength(preview);
+                int usable = DocumentClassifier.CompleteTextPrefixLength(preview, headerClassification.TextEncoding);
                 ReadOnlySpan<byte> prefix = preview.AsSpan(0, usable);
                 DocumentClassification previewClassification = DocumentClassifier.Classify(requestedPath, prefix);
+                string previewText = DocumentClassifier.DecodeText(prefix, previewClassification);
                 return new(
                     DocumentReadStatus.TextPreview,
                     requestedPath,
                     resolvedPath,
                     previewClassification,
                     length,
-                    DocumentClassifier.DecodeUtf8(prefix),
+                    previewText,
                     null,
                     null,
                     $"文件过大（{FormatSize(length)}）。这里显示前 {FormatSize(previewBytes)} 的只读预览。")
                 {
                     PreviewBytes = previewBytes,
-                    LineEndings = DocumentLineEndingDetector.Detect(prefix),
+                    LineEndings = DocumentLineEndingDetector.Detect(previewText),
                 };
             }
 
@@ -137,18 +138,19 @@ public static class ReadOnlyDocumentService
                     "此文件只提供二进制摘要，可使用系统默认程序打开。");
             }
 
+            string text = DocumentClassifier.DecodeText(content, classification);
             return new(
                 DocumentReadStatus.TextReady,
                 requestedPath,
                 resolvedPath,
                 classification,
                 length,
-                DocumentClassifier.DecodeUtf8(content),
+                text,
                 null,
                 null,
                 string.Empty)
             {
-                LineEndings = DocumentLineEndingDetector.Detect(content),
+                LineEndings = DocumentLineEndingDetector.Detect(text),
             };
         }
         catch (FileNotFoundException)

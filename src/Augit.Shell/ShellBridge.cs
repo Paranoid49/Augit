@@ -521,7 +521,7 @@ internal sealed class ShellBridge : IDisposable
             // 避免让用户以为文件是文本。只读预览**仍是文本视图**（权威的大文件编辑器照样显示编码），
             // 因此它与正常文本同样带上这两项。
             encoding = result.Status is DocumentReadStatus.TextReady or DocumentReadStatus.TextPreview
-                ? TextEncodingName
+                ? result.Classification.EncodingName
                 : null,
             lineEndings = result.Status is DocumentReadStatus.TextReady or DocumentReadStatus.TextPreview
                 ? DescribeLineEndings(result.LineEndings)
@@ -2393,9 +2393,6 @@ internal sealed class ShellBridge : IDisposable
 
     /// <summary>随包分发的 ripgrep；缺失时搜索功能明确失败，不静默降级。</summary>
     private static string RipgrepPath => Path.Combine(AppContext.BaseDirectory, "tools", "rg.exe");
-
-    /// <summary>Augit 的普通文件查看器只读取 UTF-8（可带 BOM），因此文本编码固定为 UTF-8。</summary>
-    private const string TextEncodingName = "UTF-8";
 
     private static string DescribeLineEndings(DocumentLineEndings endings) => endings switch
     {
