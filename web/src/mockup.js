@@ -5375,7 +5375,7 @@ function toastMarkup({ title, text = "", kind = "", action = null, extra = "" })
       ? `<a class="toast-action" href="${escapeHtml(action.href)}">${escapeHtml(action.label)}</a>`
       : `<button type="button" class="toast-action" data-toast-action="${escapeHtml(action.id || "")}">${escapeHtml(action.label)}</button>`)
     : "";
-  return `<div class="${classes}" role="alert">${toastNotificationIcon(known)}<div class="toast-content"><div class="toast-title">${escapeHtml(title)}</div>${text ? `<div class="toast-text">${escapeHtml(text)}</div>` : ""}${extra}${actionHtml}</div></div>`;
+  return `<div class="${classes}" role="alert">${toastNotificationIcon(known)}<div class="toast-content"><div class="toast-title">${escapeHtml(title)}</div>${text ? `<div class="toast-text">${escapeHtml(text)}</div>` : ""}${extra}${actionHtml}</div><button type="button" class="toast-close" data-toast-dismiss aria-label="Close notification" title="Close">${icon("x")}</button></div>`;
 }
 
 /**

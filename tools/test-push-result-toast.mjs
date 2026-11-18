@@ -29,6 +29,8 @@ const checks = [
   ['Show details 重新打开带错误的 Push 对话框', source.includes('void openPushDialog({ failure });') && source.includes('const failure = options && typeof options.failure === "string"')],
   ['toast 无 href 动作渲染为按钮', mockup.includes('button type="button" class="toast-action" data-toast-action=')],
   ['toast 动作按当前 action.id 核对', source.includes('toast.action.id !== action.dataset.toastAction')],
+  ['toast 有可关闭按钮', mockup.includes('class="toast-close" data-toast-dismiss')],
+  ['toast 关闭动作清空状态', source.includes('event.target.closest("[data-toast-dismiss]")') && source.includes('clearToast();')],
 ];
 for (const [name, ok] of checks) console.log((ok ? 'PASS ' : 'FAIL ') + name);
 const failed = checks.filter(([, ok]) => !ok).length;

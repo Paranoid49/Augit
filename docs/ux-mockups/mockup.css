@@ -2627,7 +2627,8 @@ textarea,
   gap: 10px;
   align-items: flex-start;
   width: min(375px, calc(100% - 36px));
-  padding: 12px 16px;
+  /* 右侧给固定关闭叉留位，长正文不会压在叉下面。 */
+  padding: 12px 38px 12px 16px;
   border: var(--augit-hairline) solid var(--augit-border);
   border-radius: 8px;
   background: var(--augit-panel);
@@ -2674,6 +2675,39 @@ button.toast-action {
 
 .toast-action:hover {
   text-decoration: underline;
+}
+
+/* 通知关闭叉：参考 balloon 的 16px 关闭图形，命中区 24×24，悬停用通用 hover 底。
+   通知是状态驱动的单条提示，关闭即清空状态并移除提示；错误也必须可关闭。 */
+.toast-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--augit-muted);
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  background: var(--augit-hover);
+  color: var(--augit-text);
+}
+
+.toast-close:focus-visible {
+  outline: var(--augit-hairline) solid var(--augit-accent-brand);
+  outline-offset: calc(-1 * var(--augit-hairline));
+}
+
+.toast-close svg {
+  width: 16px;
+  height: 16px;
 }
 
 .statusbar {

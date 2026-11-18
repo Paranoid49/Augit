@@ -4521,6 +4521,9 @@ function showToast({ title, text, kind = "error", action = null }) {
   return true;
 }
 
+// 验收套件与通知回归测试复用同一条状态驱动入口；不改变真实用户可见行为。
+window.__augitShowToast = showToast;
+
 /** 清除全局提示（例如同一次操作重试成功后，旧的失败提示不该继续挂着）。 */
 function clearToast() {
   const live = window.__augitLive;
@@ -4593,6 +4596,15 @@ async function applyUpdate() {
  * 的 DOM 在区域重绘前被点到时执行过期动作。
  */
 document.addEventListener("click", (event) => {
+  const dismiss = event.target.closest && event.target.closest("[data-toast-dismiss]");
+  const toastNode = dismiss && dismiss.closest(".toast");
+  if (dismiss && toastNode && window.__augitLive && window.__augitLive.toast) {
+    event.preventDefault();
+    event.stopPropagation();
+    clearToast();
+    return;
+  }
+
   const action = event.target.closest && event.target.closest("[data-toast-action]");
   if (!action) return;
   const live = window.__augitLive;
@@ -10935,10 +10947,20 @@ function openWorkspacePopover() {
  * 最近目录来自设置；条目点击后交给宿主：同目录激活已有窗口、不同目录开新窗口。
  * 结果按事实说明，不假设成功（规格 §10.2）。
  */
-function openWorkspaceDialog() {
+async function openWorkspaceDialog() {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
+  // 其它窗口启动时会把新目录写进同一份设置；当前窗口缓存可能仍是启动时的旧列表。
+  // 打开对话框前读一次最新设置，打开过多个项目后 Recent Workspaces 不会继续为空。
+  try {
+    const latest = await invoke("settings/read", {}, 8000);
+    if (live.settings && latest && Array.isArray(latest.recentWorkspaces)) {
+      live.settings.recentWorkspaces = latest.recentWorkspaces;
+    }
+  } catch {
+    // 设置读取失败时继续显示当前缓存；打开工作区本身仍可用。
+  }
   closeLiveOverlay();
   rememberDialogFocus();
   const layer = document.createElement("div");
@@ -13817,12 +13839,36 @@ function bindGlobalShortcuts() {
   if (window.__augitShortcutsBound) return;
   window.__augitShortcutsBound = true;
   let composing = false;
+  // 双击 Shift：PyCharm 的 Search Everywhere 入口；Augit 范围内打开文件快速搜索。
+  // 只认两次独立 Shift 键，中间按过其他键就重置；输入框、终端和弹层不抢。
+  let lastShiftDownAt = 0;
   document.addEventListener("compositionstart", () => { composing = true; }, true);
   document.addEventListener("compositionend", () => { composing = false; }, true);
   document.addEventListener("keydown", (event) => {
     if (!window.__augitLive) return;
     // 组词期间不抢占按键（规格 §5.3）。
     if (event.defaultPrevented || composing || event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Shift") {
+      if (event.ctrlKey || event.altKey || event.metaKey) {
+        lastShiftDownAt = 0;
+        return;
+      }
+      if (event.repeat) return;
+      if (globalShortcutBlocked(event)) {
+        lastShiftDownAt = 0;
+        return;
+      }
+      const now = performance.now();
+      if (lastShiftDownAt !== 0 && now - lastShiftDownAt <= 450) {
+        lastShiftDownAt = 0;
+        event.preventDefault();
+        openSearchOverlay("quick");
+        return;
+      }
+      lastShiftDownAt = now;
+      return;
+    }
+    lastShiftDownAt = 0;
     if (globalShortcutBlocked(event)) return;
     if (event.repeat) return;
     const key = event.key.toLowerCase();

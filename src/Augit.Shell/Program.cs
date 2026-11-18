@@ -53,6 +53,7 @@ internal static class Program
             options = ShellStartup.ResolveWorkspace(options, settings);
             // 首次启动且当前目录是程序目录时，避免把发布目录当工作区（见 ShellStartup）。
             options = ShellStartup.ResolveLaunchWorkspace(options);
+            RememberOpenedWorkspace(options);
             AugitLog.Info($"options workspace={options.WorkspaceRoot} theme={options.Theme} isolated={options.HasIsolatedState}");
 
             // 同一工作区已经打开时激活原窗口并退出（产品规格 §2：
@@ -79,6 +80,33 @@ internal static class Program
             AugitLog.Error("startup", exception);
             _ = MessageBox(0, ShellFailureText.Startup(exception), "Augit", 0x00000010);
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// 启动时记录最近工作区（产品规格「最近目录」）。欢迎页、场景页和审计隔离实例
+    /// 不写用户设置；真实项目窗口在新窗口创建前把当前目录移到 Recent Workspaces 首位，
+    /// 这样下一次「Open Workspace」不会一直是空列表。
+    /// </summary>
+    private static void RememberOpenedWorkspace(ShellOptions options)
+    {
+        if (options.HasIsolatedState
+            || options.Welcome
+            || options.Scene is { Length: > 0 }
+            || string.IsNullOrWhiteSpace(options.WorkspaceRoot))
+        {
+            return;
+        }
+
+        try
+        {
+            SettingsStore store = new(options.SettingsFile);
+            _ = store.RememberWorkspaceAsync(options.WorkspaceRoot).GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // 最近工作区是便利数据；写盘失败不能阻止启动。
+            AugitLog.Error("recent-workspace-failed", exception);
         }
     }
 

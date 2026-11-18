@@ -76,6 +76,50 @@ public sealed class SettingsStore
         }
     }
 
+    /// <summary>
+    /// 记录一次工作区打开：当前目录移到最近工作区首位，并把 LastWorkspace 更新为它。
+    /// 最近工作区用于「Open Workspace」的 Recent Workspaces 列表；必须在新窗口创建前写入，
+    /// 这样目标窗口的设置读取和下一次打开都能看到当前项目。
+    /// </summary>
+    public async Task<ApplicationSettings> RememberWorkspaceAsync(
+        string workspacePath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workspacePath);
+
+        string full = NormalizeWorkspacePath(workspacePath);
+        ApplicationSettings current = await LoadAsync(cancellationToken).ConfigureAwait(false);
+        string[] recent = current.RecentWorkspaces
+            .Where(path => !string.Equals(path, full, StringComparison.OrdinalIgnoreCase))
+            .Prepend(full)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(10)
+            .ToArray();
+        bool recentChanged = !current.RecentWorkspaces.SequenceEqual(recent, StringComparer.OrdinalIgnoreCase);
+        bool lastChanged = !string.Equals(current.LastWorkspace, full, StringComparison.OrdinalIgnoreCase);
+        if (!recentChanged && !lastChanged)
+        {
+            return current;
+        }
+
+        ApplicationSettings updated = current with
+        {
+            LastWorkspace = full,
+            RecentWorkspaces = recent,
+        };
+        await SaveAsync(updated, cancellationToken).ConfigureAwait(false);
+        return updated;
+    }
+
+    private static string NormalizeWorkspacePath(string path)
+    {
+        string full = Path.GetFullPath(path);
+        string root = Path.GetPathRoot(full) ?? string.Empty;
+        return full.Length > root.Length
+            ? full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : full;
+    }
+
     /// <summary>旧外观仅迁移一次；正文按用户裁决固定字体及字号，其他会话数据不变。</summary>
     private static ApplicationSettings AlignAppearance(ApplicationSettings settings)
     {

@@ -124,6 +124,55 @@ public sealed class SettingsStoreTests
     }
 
     [TestMethod]
+    public async Task 记录最近工作区时去重置顶并更新最后工作区()
+    {
+        using TemporaryDirectory temporary = new();
+        string first = temporary.GetPath("first");
+        string second = temporary.GetPath("second");
+        string third = temporary.GetPath("third");
+        Directory.CreateDirectory(first);
+        Directory.CreateDirectory(second);
+        Directory.CreateDirectory(third);
+        SettingsStore store = new(temporary.GetPath("settings.json"));
+        await store.SaveAsync(new() { LastWorkspace = second, RecentWorkspaces = [first, second] });
+
+        await store.RememberWorkspaceAsync(first);
+        ApplicationSettings firstLoaded = await store.LoadAsync();
+        CollectionAssert.AreEqual(new[] { first, second }, firstLoaded.RecentWorkspaces);
+        Assert.AreEqual(first, firstLoaded.LastWorkspace);
+
+        await store.RememberWorkspaceAsync(third);
+        await store.RememberWorkspaceAsync(first);
+        ApplicationSettings final = await store.LoadAsync();
+        CollectionAssert.AreEqual(new[] { first, third, second }, final.RecentWorkspaces);
+        Assert.AreEqual(first, final.LastWorkspace);
+        Assert.IsFalse(File.Exists(temporary.GetPath("settings.json.tmp")));
+    }
+
+    [TestMethod]
+    public async Task 最近工作区限制十个且不区分大小写重复()
+    {
+        using TemporaryDirectory temporary = new();
+        string[] workspaces = Enumerable.Range(0, 12)
+            .Select(index => temporary.GetPath($"workspace-{index}"))
+            .ToArray();
+        foreach (string workspace in workspaces)
+        {
+            Directory.CreateDirectory(workspace);
+        }
+
+        SettingsStore store = new(temporary.GetPath("settings.json"));
+        await store.SaveAsync(new() { RecentWorkspaces = workspaces.Take(10).ToArray() });
+        await store.RememberWorkspaceAsync(workspaces[10]);
+        await store.RememberWorkspaceAsync(workspaces[10].ToUpperInvariant());
+
+        ApplicationSettings loaded = await store.LoadAsync();
+        Assert.HasCount(10, loaded.RecentWorkspaces);
+        Assert.IsTrue(string.Equals(workspaces[10], loaded.RecentWorkspaces[0], StringComparison.OrdinalIgnoreCase));
+        Assert.AreEqual(workspaces[8], loaded.RecentWorkspaces[^1]);
+    }
+
+    [TestMethod]
     public async Task 设置仅写入指定本地目录并可恢复()
     {
         using TemporaryDirectory temporary = new();
