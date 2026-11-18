@@ -4098,6 +4098,124 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
   padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */
 }
 
+/* JSON 临时格式化窗口：两栏等宽正文，左粘贴、右只读格式化结果。
+   设计基线沿用 PyCharm 的 DialogWrapper：45px 标题、53px 底栏、编辑区左右 12px 内距；
+   窗口只承载进程内剪贴板内容，不接触项目文件。 */
+.json-format-dialog {
+  width: min(1040px, calc(100% - 80px));
+  height: min(720px, calc(100% - 80px));
+  max-height: calc(100% - 40px);
+  display: grid;
+  grid-template-rows: 45px minmax(0, 1fr) 53px;
+}
+
+.json-format-dialog .dialog-body {
+  min-height: 0;
+  padding: 8px 12px 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.json-format-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.json-format-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--augit-hairline) solid var(--augit-border-strong);
+  border-radius: 3px;
+  background: var(--augit-editor-bg);
+}
+
+.json-format-pane-header {
+  flex: 0 0 29px;
+  height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: var(--augit-hairline) solid var(--augit-border);
+  background: var(--augit-panel-muted);
+  font-weight: 600;
+}
+
+.json-format-pane-header .commit-meta {
+  font-weight: 400;
+}
+
+.json-format-divider {
+  align-self: stretch;
+  background: var(--augit-border);
+}
+
+.json-format-input {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: auto;
+  background: var(--augit-editor-bg);
+  color: var(--augit-code-text);
+  font-family: var(--augit-code);
+  font-size: var(--augit-code-size, 13px);
+  line-height: var(--code-line-height, 22px);
+  font-variant-ligatures: none;
+  tab-size: 2;
+}
+
+.json-format-input:focus-visible {
+  outline: var(--augit-hairline) solid var(--augit-accent-brand);
+  outline-offset: calc(-1 * var(--augit-hairline));
+}
+
+.json-format-output {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 0 12px;
+}
+
+.json-format-empty {
+  padding: 8px 12px;
+  color: var(--augit-muted);
+}
+
+.json-format-status {
+  flex: 0 0 auto;
+  min-height: 22px;
+  padding: 3px 2px 0;
+  overflow: hidden;
+  color: var(--augit-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.json-format-status[data-kind="error"] {
+  color: var(--augit-red);
+}
+
+.json-format-dialog .dialog-footer button {
+  min-width: 78px;
+}
+
+.json-format-dialog .dialog-footer .primary-button {
+  min-width: 92px;
+}
+
+
 .dialog-footer {
   min-height: 53px;
   padding: 8px 12px; /* 权威 `JBUI.Borders.empty(8, 12)` */

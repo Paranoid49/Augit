@@ -13558,6 +13558,232 @@ function bindEditorTabs() {
   }, true);
 }
 
+/** JSON 临时格式化窗口：状态只保存在当前 WebView 进程内，不写设置/会话/文件。 */
+const JSON_FORMAT_MAX_BYTES = 5 * 1024 * 1024;
+const jsonFormatState = {
+  input: "",
+  formatted: "",
+  errorLine: null,
+  errorColumn: null,
+  status: "",
+  statusKind: "",
+};
+let jsonFormatRequest = 0;
+
+function jsonFormatOutputHtml(text) {
+  if (!text) return '<div class="json-format-empty">Formatted JSON will appear here.</div>';
+  return text.split("\n").map((line, index) => `<div class="code-line"><span class="line-number" aria-hidden="true">${index + 1}</span><span>${escapeText(line) || " "}</span></div>`).join("");
+}
+
+function jsonFormatStatusText() {
+  if (jsonFormatState.errorLine !== null) {
+    return `Invalid JSON: line ${jsonFormatState.errorLine}, column ${jsonFormatState.errorColumn ?? 1}.`;
+  }
+  if (jsonFormatState.formatted) {
+    return `Formatted JSON · ${jsonFormatState.formatted.split("\n").length} lines`;
+  }
+  return jsonFormatState.status || "Paste JSON, then choose Format.";
+}
+
+function setJsonFormatStatus(dialog, text, kind = "info") {
+  const status = dialog.querySelector(".json-format-status");
+  if (!status) return;
+  status.textContent = text || "";
+  status.dataset.kind = kind;
+  status.hidden = !text;
+}
+
+function renderJsonFormatOutput(dialog) {
+  const output = dialog.querySelector(".json-format-output");
+  if (!output) return;
+  output.innerHTML = jsonFormatOutputHtml(jsonFormatState.formatted);
+  output.dataset.empty = jsonFormatState.formatted ? "false" : "true";
+  const copy = dialog.querySelector('[data-json-format-action="copy"]');
+  if (copy) copy.disabled = !jsonFormatState.formatted;
+  setJsonFormatStatus(
+    dialog,
+    jsonFormatStatusText(),
+    jsonFormatState.errorLine !== null || jsonFormatState.statusKind === "error" ? "error" : "info",
+  );
+}
+
+function jsonFormatDialog() {
+  return document.querySelector(".json-format-dialog");
+}
+
+function bindJsonFormatDialog(dialog) {
+  const source = dialog.querySelector(".json-format-input");
+  if (!source) return;
+  source.value = jsonFormatState.input;
+  source.addEventListener("input", () => {
+    jsonFormatState.input = source.value;
+    // 输入变了，旧的格式化结果不能再被复制或误认为仍是当前文本；
+    // 同时在途的 Format 请求也不能把旧结果写回。
+    jsonFormatRequest++;
+    jsonFormatState.formatted = "";
+    jsonFormatState.errorLine = null;
+    jsonFormatState.errorColumn = null;
+    jsonFormatState.status = source.value.trim() ? "Input changed. Choose Format." : "";
+    jsonFormatState.statusKind = "";
+    renderJsonFormatOutput(dialog);
+  });
+  dialog.closest("[data-augit-overlay]")?.querySelector(".scrim")
+    ?.addEventListener("click", () => closeLiveOverlay({ topOnly: true }));
+  (dialog.querySelector(".json-format-dialog") || dialog).setAttribute("aria-modal", "true");
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "Tab") {
+      const targets = [...dialog.querySelectorAll("button:not(:disabled), textarea, [tabindex='0'], .dialog-header a[aria-label='Close']")]
+        .filter((node) => !node.hidden && node.getClientRects().length > 0);
+      const index = targets.indexOf(document.activeElement);
+      const direction = event.shiftKey ? -1 : 1;
+      event.preventDefault();
+      targets[(index + direction + targets.length) % targets.length]?.focus();
+      return;
+    }
+    if (event.ctrlKey && !event.shiftKey && !event.altKey && event.key === "Enter") {
+      event.preventDefault();
+      void formatJsonScratch();
+    }
+  });
+  renderJsonFormatOutput(dialog);
+  source.focus({ preventScroll: true });
+}
+
+function openJsonFormatter() {
+  const host = document.querySelector(".augit-window");
+  if (!host) return;
+  const existing = jsonFormatDialog();
+  if (existing) {
+    existing.querySelector(".json-format-input")?.focus({ preventScroll: true });
+    return;
+  }
+  closeLiveOverlay();
+  rememberDialogFocus();
+  const body = `<div class="json-format-layout">`
+    + `<section class="json-format-pane"><div class="json-format-pane-header"><span>Source</span><span class="commit-meta">Paste JSON</span></div><textarea class="json-format-input" aria-label="JSON source" spellcheck="false" autocomplete="off"></textarea></section>`
+    + `<div class="json-format-divider" role="separator" aria-orientation="vertical"></div>`
+    + `<section class="json-format-pane"><div class="json-format-pane-header"><span>Formatted</span><span class="commit-meta">2-space indent</span></div><div class="json-format-output code-view" tabindex="0" aria-label="Formatted JSON"></div></section>`
+    + `</div><div class="json-format-status" role="status" aria-live="polite"></div>`;
+  const footer = `<button type="button" class="secondary-button" data-json-format-action="clear">Clear</button>`
+    + `<button type="button" class="secondary-button" data-json-format-action="copy" disabled>Copy</button>`
+    + `<button type="button" class="secondary-button" data-json-format-action="close">Close</button>`
+    + `<button type="button" class="primary-button" data-json-format-action="format">Format</button>`;
+  const template = document.createElement("template");
+  template.innerHTML = dialog("Format JSON", body, footer, false, "json-format-dialog");
+  const layer = template.content.firstElementChild;
+  if (!layer) return;
+  layer.classList.add("live-overlay");
+  host.appendChild(layer);
+  bindJsonFormatDialog(layer);
+}
+
+async function formatJsonScratch() {
+  const dialog = jsonFormatDialog();
+  if (!dialog) return;
+  const source = dialog.querySelector(".json-format-input");
+  if (!source) return;
+  const text = source.value;
+  const request = ++jsonFormatRequest;
+  jsonFormatState.input = text;
+  if (!text.trim()) {
+    jsonFormatState.formatted = "";
+    jsonFormatState.errorLine = null;
+    jsonFormatState.errorColumn = null;
+    jsonFormatState.status = "Paste JSON, then choose Format.";
+    jsonFormatState.statusKind = "";
+    renderJsonFormatOutput(dialog);
+    return;
+  }
+  if (new TextEncoder().encode(text).length > JSON_FORMAT_MAX_BYTES) {
+    jsonFormatState.formatted = "";
+    jsonFormatState.errorLine = null;
+    jsonFormatState.errorColumn = null;
+    jsonFormatState.status = "JSON input cannot exceed 5 MB.";
+    jsonFormatState.statusKind = "error";
+    renderJsonFormatOutput(dialog);
+    return;
+  }
+  setJsonFormatStatus(dialog, "Formatting…", "info");
+  try {
+    const result = await invoke("json/format", { text }, 20000);
+    const current = jsonFormatDialog();
+    if (!current || current !== dialog || request !== jsonFormatRequest || source.value !== text) return;
+    if (result && result.valid) {
+      jsonFormatState.formatted = String(result.formatted ?? "");
+      jsonFormatState.errorLine = null;
+      jsonFormatState.errorColumn = null;
+      jsonFormatState.status = "";
+      jsonFormatState.statusKind = "";
+    } else {
+      jsonFormatState.formatted = "";
+      jsonFormatState.errorLine = result?.errorLine ?? 1;
+      jsonFormatState.errorColumn = result?.errorColumn ?? 1;
+      jsonFormatState.status = "";
+      jsonFormatState.statusKind = "";
+    }
+    renderJsonFormatOutput(current);
+  } catch (error) {
+    const current = jsonFormatDialog();
+    if (!current || current !== dialog || request !== jsonFormatRequest || source.value !== text) return;
+    jsonFormatState.formatted = "";
+    jsonFormatState.errorLine = null;
+    jsonFormatState.errorColumn = null;
+    jsonFormatState.status = String((error && error.message) || error || "JSON could not be formatted.");
+    jsonFormatState.statusKind = "error";
+    renderJsonFormatOutput(current);
+  }
+}
+
+async function copyJsonFormatResult() {
+  const dialog = jsonFormatDialog();
+  if (!dialog) return;
+  if (!jsonFormatState.formatted) {
+    setJsonFormatStatus(dialog, "Nothing to copy yet. Choose Format first.", "info");
+    return;
+  }
+  try {
+    const result = await invoke("clipboard/write", { text: jsonFormatState.formatted }, 10000);
+    if (result && result.copied) {
+      setJsonFormatStatus(dialog, "Copied formatted JSON.", "info");
+    } else {
+      setJsonFormatStatus(dialog, (result && result.reason) || "Copy failed.", "error");
+    }
+  } catch (error) {
+    setJsonFormatStatus(dialog, String((error && error.message) || error), "error");
+  }
+}
+
+function clearJsonFormatter() {
+  const dialog = jsonFormatDialog();
+  if (!dialog) return;
+  const source = dialog.querySelector(".json-format-input");
+  jsonFormatState.input = "";
+  jsonFormatState.formatted = "";
+  jsonFormatState.errorLine = null;
+  jsonFormatState.errorColumn = null;
+  jsonFormatState.status = "";
+  jsonFormatState.statusKind = "";
+  jsonFormatRequest++;
+  if (source) {
+    source.value = "";
+    source.focus({ preventScroll: true });
+  }
+  renderJsonFormatOutput(dialog);
+}
+
+document.addEventListener("click", (event) => {
+  const action = event.target.closest?.("[data-json-format-action]");
+  if (!action) return;
+  const dialog = action.closest(".json-format-dialog");
+  if (!dialog) return;
+  event.preventDefault();
+  const name = action.dataset.jsonFormatAction;
+  if (name === "format") void formatJsonScratch();
+  else if (name === "copy") void copyJsonFormatResult();
+  else if (name === "clear") clearJsonFormatter();
+  else if (name === "close") closeLiveOverlay({ topOnly: true });
+}, true);
+
 /**
  * 全局快捷键的模态门。
  *
@@ -13582,8 +13808,8 @@ function globalShortcutBlocked(event) {
  * 固定快捷键（产品规格 §3.3）。
  *
  * `Ctrl+P` 快速打开文件、`Ctrl+Shift+F` 全仓搜索、`Ctrl+F` 当前文件搜索、
- * `Ctrl+G` 跳转行、`Ctrl+W` 关闭当前标签、`F5` 刷新文件树、
- * `Esc` 关闭浮层或取消搜索。
+ * `Ctrl+G` 跳转行、`Ctrl+W` 关闭当前标签、`Ctrl+Shift+J` 打开 JSON 临时格式化窗口、
+ * `F5` 刷新文件树、`Esc` 关闭浮层或取消搜索。
  *
  * 全部挂在 document 的捕获阶段：区域刷新会换掉节点，挂在节点上的监听会随节点消失。
  */
@@ -13614,6 +13840,13 @@ function bindGlobalShortcuts() {
     if (event.shiftKey && key === "f") {
       event.preventDefault();
       openSearchOverlay("repository");
+      return;
+    }
+
+    // Ctrl+Shift+J：进程内 JSON 临时格式化窗口（不创建、不保存文件）。
+    if (event.shiftKey && key === "j") {
+      event.preventDefault();
+      openJsonFormatter();
       return;
     }
 
@@ -13814,6 +14047,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "json-format") {
+    openJsonFormatter();
+    return;
+  }
+
   if (action === "toggle-side") {
     // 与左侧竖向入口同一套布局逻辑：切到项目工具窗口。
     applyRailAction("project");
@@ -13873,6 +14111,7 @@ const MAIN_MENU_POPOVERS = {
     { action: "settings", label: "Settings…" },
   ],
   view: [
+    { action: "json-format", label: "Format JSON…" },
     { action: "toggle-side", label: "Show/Hide Project Tool Window" },
     { action: "toggle-bottom", label: "Show/Hide Bottom Tool Window" },
   ],

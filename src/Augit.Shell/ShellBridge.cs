@@ -281,6 +281,7 @@ internal sealed class ShellBridge : IDisposable
             "update/check" => await CheckUpdatesAsync(cancellationToken),
             "update/download" => await DownloadUpdateAsync(cancellationToken),
             "update/apply" => ApplyUpdate(),
+            "json/format" => FormatJsonText(parameters),
             "settings/read" => await ReadSettingsAsync(cancellationToken),
             "settings/fonts" => new { families = ShellFontCatalog.Families },
             "settings/write" => await WriteSettingsAsync(parameters, cancellationToken),
@@ -1542,6 +1543,29 @@ internal sealed class ShellBridge : IDisposable
             path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             Path.GetPathRoot(path)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// JSON 临时格式化窗口的无副作用能力：只格式化网页传来的字符串，不读写工作区文件。
+    /// 输入上限与网页保持 5 MB；超限时明确拒绝，避免一次粘贴拖死 WebView。
+    /// </summary>
+    private static object FormatJsonText(JsonElement parameters)
+    {
+        string text = GetString(parameters, "text") ?? throw new BridgeValidationException("JSON 输入不能为空。");
+        if (Encoding.UTF8.GetByteCount(text) > 5 * 1024 * 1024)
+        {
+            throw new BridgeValidationException("JSON 输入不能超过 5 MB。");
+        }
+
+        JsonDisplayResult display = JsonDisplayFormatter.Format(text);
+        return new
+        {
+            valid = display.IsValid,
+            formatted = display.IsValid ? display.DisplayText : null,
+            errorLine = display.ErrorLine,
+            errorColumn = display.ErrorColumn,
+        };
+    }
+
     private async Task<object?> ReadSettingsAsync(CancellationToken cancellationToken)
     {
         ApplicationSettings settings = await _settingsStore.LoadAsync(cancellationToken);
