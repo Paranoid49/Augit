@@ -1,6 +1,6 @@
 # Augit 正式 1.0 发布建议（2026-10-25）
 
-> **2026-11-06 当前状态**：当前公开候选是 `1.0.0-rc.12`，采用单一 self-contained 便携版并内置签名自动更新；安装器已移除。本文 §1 的 rc.2 身份、§5 的“rc.10 可作为正式 1.0 基础”等旧结论均已被后续版本取代；正式 1.0 仍以当前 `rc.12` 的已知限制、真实使用观察和用户裁决为准。当前发布入口：[rc.12 发布清单](release-manifest-1.0.0-rc.12.md)。
+> **2026-11-18 当前状态**：当前公开候选是 `1.0.0-rc.13`，采用单一 self-contained 便携版并内置签名自动更新；安装器已移除。本文 §1 的 rc.2 身份、§5 的“rc.10 可作为正式 1.0 基础”等旧结论均已被后续版本取代；正式 1.0 仍以当前 `rc.13` 的已知限制、真实使用观察和用户裁决为准。当前发布入口：[rc.13 发布清单](release-manifest-1.0.0-rc.13.md)。
 
 > **2026-10-26 状态更新**：Windows 10 22H2 与双显示器/混合 DPI 已在实机完成验证（含 100/125/150/175/200%、负坐标、模拟热插拔、深色窄窗和 rc.2 重建包安装），见[22H2 多显示器 DPI 修复与扩展验证](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。用户已决定把 `1.0.0-rc.2` 作为**公开预发布**交付，真实用户可以下载安装包或便携包试用。本文 §4 的 Windows 10/跨屏条目据此关闭；§5 建议 A 中“不创建公开 Release、不上传产物”已被该决定取代。正式 1.0 的其余外部条件仍然有效。
 >
@@ -17,7 +17,9 @@
 
 > **2026-11-02 rc.11 补充**：rc.11 修复终端 Shell 菜单灰底、+ 默认新建与 ⌄ 菜单分工、Settings 预热速度，以及按 IntelliJ 像素校正的关闭确认。当前公开资产见[rc.11 发布清单](release-manifest-1.0.0-rc.11.md)。
 
-> **2026-11-06 rc.12 补充**：rc.12 加入 ECDSA 签名自动更新，改为单一 self-contained 便携版发行，并合入终端标签高亮、Settings 默认终端、Tab Options 和 UI 字体修正。当前公开资产见[rc.12 发布清单](release-manifest-1.0.0-rc.12.md)。
+> **2026-11-06 rc.12 补充**：rc.12 加入 ECDSA 签名自动更新，改为单一 self-contained 便携版发行，并合入终端标签高亮、Settings 默认终端、Tab Options 和 UI 字体修正。该版本资产见[rc.12 发布清单](release-manifest-1.0.0-rc.12.md)。
+>
+> **2026-11-18 rc.13 补充**：rc.13 修复 SQL/未知扩展名 UTF-16 文本预览，加入进程内 JSON 临时格式化、通知关闭叉、Recent Workspaces 记录和双击 Shift 文件搜索。
 
 ## 1. 候选身份
 
@@ -111,14 +113,14 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 - 当前环境可解决的收口项已完成，rc.2 是当前最强、可复验的候选。
 - 2026-10-26 已发布公开预发布资产；正式 1.0 仍受干净虚拟机、真实缺 WebView2、代码签名、其他辅助技术与真实使用观察约束。
 - 建议**继续 RC 观察**，而不是现在宣布正式 1.0。
-- 若用户接受披露边界并完成/豁免外部条件，当前 rc.12 可作为正式 1.0 的候选基础；正式裁决仍需后续真实使用观察。
+- 若用户接受披露边界并完成/豁免外部条件，当前 rc.13 可作为正式 1.0 的候选基础；正式裁决仍需后续真实使用观察。
 
 ## 7. 证据入口
 
 - 收口台账：`docs/release-closure-2026-10-24.md`
-- rc.12 发布清单：`docs/release-manifest-1.0.0-rc.12.md`
-- rc.12 发布说明：`docs/release-notes-1.0.0-rc.12.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.12.md`
+- rc.13 发布清单：`docs/release-manifest-1.0.0-rc.13.md`
+- rc.13 发布说明：`docs/release-notes-1.0.0-rc.13.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.13.md`
 - rc.2 历史发布记录：`docs/release-manifest-1.0.0-rc.2.md`、`docs/release-notes-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`
 - Windows 10 22H2 多显示器/DPI：`docs/win10-22h2-multimonitor-validation-2026-10-26.md`、`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`
