@@ -4535,6 +4535,29 @@ function clearToast() {
 // 自动更新只展示一次检查结果；下载与重启都必须由用户点动作触发。
 let updateCheckStarted = false;
 let availableUpdate = null;
+let updateReady = false;
+let manualUpdateCheckRunning = false;
+
+function showAvailableUpdate(result) {
+  if (!result || !result.version) return;
+  availableUpdate = result;
+  window.__augitUpdate = result;
+  showToast({
+    title: `Augit ${result.version} is available`,
+    text: `You are using ${result.currentVersion}. Download the update, then restart Augit to install it.`,
+    kind: "info",
+    action: { id: "update-install", label: "Download update" },
+  });
+}
+
+function showUpdateReady(version) {
+  showToast({
+    title: "Update ready",
+    text: `Augit ${version} is ready. Restarting will close the current window and its terminal sessions.`,
+    kind: "info",
+    action: { id: "update-restart", label: "Restart and update" },
+  });
+}
 
 async function checkForUpdates() {
   if (updateCheckStarted || !window.__augitLive) return;
@@ -4542,16 +4565,70 @@ async function checkForUpdates() {
   try {
     const result = await invoke("update/check", {}, 20000);
     if (!result || result.disabled || !result.available) return;
-    availableUpdate = result;
-    window.__augitUpdate = result;
-    showToast({
-      title: `Augit ${result.version} is available`,
-      text: `You are using ${result.currentVersion}. Download the update, then restart Augit to install it.`,
-      kind: "info",
-      action: { id: "update-install", label: "Download update" },
-    });
+    showAvailableUpdate(result);
   } catch {
     // 更新检查是后台能力；离线或 GitHub 不可达时不能打断正常使用。
+  }
+}
+
+/**
+ * File → Check for Updates…：手动检查必须给出可见结果，尤其是公司网络、
+ * 代理或隔离实例导致的失败。自动启动检查仍保持静默。
+ */
+async function checkForUpdatesManually() {
+  if (!window.__augitLive || manualUpdateCheckRunning) return;
+  if (updateReady && availableUpdate) {
+    showUpdateReady(availableUpdate.version);
+    return;
+  }
+  if (availableUpdate && availableUpdate.version) {
+    showAvailableUpdate(availableUpdate);
+    return;
+  }
+
+  manualUpdateCheckRunning = true;
+  showToast({
+    title: "Checking for updates",
+    text: "Contacting GitHub Releases…",
+    kind: "info",
+  });
+  try {
+    const result = await invoke("update/check", {}, 20000);
+    if (!result) {
+      showToast({ title: "Update check failed", text: "GitHub Releases returned no result.", kind: "error" });
+      return;
+    }
+    if (result.disabled) {
+      showToast({
+        title: "Updates unavailable",
+        text: "This instance was started with isolated settings or user data, so update checks are disabled. Launch Augit normally to check for updates.",
+        kind: "error",
+      });
+      return;
+    }
+    if (result.error) {
+      showToast({ title: "Update check failed", text: result.error, kind: "error" });
+      return;
+    }
+    if (result.available) {
+      showAvailableUpdate(result);
+      return;
+    }
+    showToast({
+      title: "You're up to date",
+      text: result.currentVersion
+        ? `Augit ${result.currentVersion} is the latest version.`
+        : "Augit is up to date.",
+      kind: "info",
+    });
+  } catch (error) {
+    showToast({
+      title: "Update check failed",
+      text: String((error && error.message) || error || "GitHub Releases could not be reached."),
+      kind: "error",
+    });
+  } finally {
+    manualUpdateCheckRunning = false;
   }
 }
 
@@ -4564,12 +4641,8 @@ async function installUpdate() {
     const staged = await invoke("update/download", { version }, 300000);
     if (!staged || !staged.downloaded) throw new Error("更新包未能暂存。");
     availableUpdate = { ...availableUpdate, ...staged };
-    showToast({
-      title: "Update ready",
-      text: `Augit ${version} is ready. Restarting will close the current window and its terminal sessions.`,
-      kind: "info",
-      action: { id: "update-restart", label: "Restart and update" },
-    });
+    updateReady = true;
+    showUpdateReady(version);
   } catch (error) {
     const message = String(error && error.message || error);
     showToast({ title: "Update download failed", text: message, kind: "error" });
@@ -14076,6 +14149,11 @@ async function runMainMenuPopoverAction(action) {
     return;
   }
 
+  if (action === "check-updates") {
+    void checkForUpdatesManually();
+    return;
+  }
+
   if (action === "workspace-open") {
     openWorkspaceDialog();
     return;
@@ -14154,6 +14232,7 @@ const MAIN_MENU_POPOVERS = {
   file: [
     { action: "workspace-open", label: "Open Workspace…" },
     { action: "refresh-tree", label: "Refresh Project Tree" },
+    { action: "check-updates", label: "Check for Updates…" },
     { action: "settings", label: "Settings…" },
   ],
   view: [
