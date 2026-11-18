@@ -1163,9 +1163,9 @@ internal sealed partial class ShellWindow : IDisposable
                     }
                     double scale = _controller.RasterizationScale;
                     ShellModalPresentation presentation = request.Presentation(viewport.Right, viewport.Bottom, scale);
-                    await modalHost.PresentAsync(presentation.Key, presentation.Title, presentation.Ancestors, presentation.Clip, scale, viewport.Right, viewport.Bottom);
+                    await modalHost.PresentAsync(presentation.Key, presentation.Title, presentation.Ancestors, presentation.Clip, presentation.Radius, scale, viewport.Right, viewport.Bottom);
                 }
-                else if (method == "window/modal-close") _modalHost.Close();
+                else if (method == "window/modal-close") await _modalHost.CloseAsync();
                 else if (method == "window/modal-refresh") await modalHost.RefreshSnapshotAsync(request.SnapshotDepth());
                 else if (method == "window/modal-cover") await modalHost.CoverCaptureAsync();
                 else if (method == "window/modal-uncover") modalHost.HideCaptureCover();

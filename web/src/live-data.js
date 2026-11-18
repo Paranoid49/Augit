@@ -13106,7 +13106,8 @@ function bindNativeModalHost() {
       if (needsCapture) await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       if (operation !== currentOperation) return;
       const ancestors = [...document.querySelectorAll('.dialog')].filter(node => node !== dialog && identities.has(node)).map(node => identities.get(node));
-      const state = await invoke('window/modal-present', { key, ancestors, title:dialog.getAttribute('aria-label')||dialog.querySelector('.dialog-header')?.textContent?.trim()||'Augit', x:rect.x, y:rect.y, width:rect.width, height:rect.height });
+      const radius = parseFloat(getComputedStyle(dialog).borderTopLeftRadius) || 0;
+      const state = await invoke('window/modal-present', { key, ancestors, title:dialog.getAttribute('aria-label')||dialog.querySelector('.dialog-header')?.textContent?.trim()||'Augit', x:rect.x, y:rect.y, width:rect.width, height:rect.height, radius });
       if (operation !== currentOperation) return;
       window.__augitNativeModalLastState = state;
       if (state.active) dialog.dataset.nativeWindow = 'true';

@@ -42,6 +42,18 @@ public sealed class ShellModalRequestTests
     }
 
     [TestMethod]
+    public void 模态圆角参数缺省并限制到合法范围()
+    {
+        const string prefix = "{\"id\":1,\"method\":\"window/modal-present\",\"params\":{\"key\":\"a\",\"title\":\"Settings\",\"ancestors\":[],\"x\":0,\"y\":0,\"width\":400,\"height\":200";
+        Assert.IsTrue(ShellModalRequest.TryParse(prefix + "}}", out ShellModalRequest? missing));
+        Assert.AreEqual(9d, missing!.Presentation(800, 600, 1).Radius);
+        Assert.IsTrue(ShellModalRequest.TryParse(prefix + ",\"radius\":12.5}}", out ShellModalRequest? parsed));
+        Assert.AreEqual(12.5d, parsed!.Presentation(800, 600, 1).Radius);
+        Assert.IsTrue(ShellModalRequest.TryParse(prefix + ",\"radius\":200}}", out ShellModalRequest? clamped));
+        Assert.AreEqual(64d, clamped!.Presentation(800, 600, 1).Radius);
+    }
+
+    [TestMethod]
     public void 畸形与非模态请求不进入窗口通道()
     {
         foreach (string json in new[] { "{", "null", "[]", "\"{\"", "{\"method\":3,\"id\":1}",

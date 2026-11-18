@@ -48,18 +48,18 @@ internal sealed class ShellModalHost : IDisposable
 
     internal bool Active => _surfaces.Count > 0;
 
-    internal Task PresentAsync(string key, string title, IReadOnlySet<string> ancestors, WindowFrameRect clip, double scale, int viewportWidth, int viewportHeight)
+    internal Task PresentAsync(string key, string title, IReadOnlySet<string> ancestors, WindowFrameRect clip, double radius, double scale, int viewportWidth, int viewportHeight)
     {
         VerifyUiThread();
         ObjectDisposedException.ThrowIf(_disposed, this);
         // 返回已存在的父表面只同步重挂，不等待已被关闭子窗的异步截图。
         int existing = _surfaces.FindIndex(surface => surface.Key == key);
         if (existing >= 0 && existing < _surfaces.Count - 1)
-            return _operations.SupersedeAsync(generation => PresentCoreAsync(key, title, ancestors, clip, scale, viewportWidth, viewportHeight, generation));
-        return _operations.RunAsync(generation => PresentCoreAsync(key, title, ancestors, clip, scale, viewportWidth, viewportHeight, generation));
+            return _operations.SupersedeAsync(generation => PresentCoreAsync(key, title, ancestors, clip, radius, scale, viewportWidth, viewportHeight, generation));
+        return _operations.RunAsync(generation => PresentCoreAsync(key, title, ancestors, clip, radius, scale, viewportWidth, viewportHeight, generation));
     }
 
-    private async Task PresentCoreAsync(string key, string title, IReadOnlySet<string> ancestors, WindowFrameRect clip, double scale, int viewportWidth, int viewportHeight, long generation)
+    private async Task PresentCoreAsync(string key, string title, IReadOnlySet<string> ancestors, WindowFrameRect clip, double radius, double scale, int viewportWidth, int viewportHeight, long generation)
     {
         if (_disposed) return;
         // 区域重绘可能替换表单节点；已不属于当前DOM链的窗口不能留作新的所有者。
@@ -74,11 +74,13 @@ internal sealed class ShellModalHost : IDisposable
             _scale = scale;
             Surface current = _surfaces[^1];
             current.Scale = scale;
+            current.Radius = radius;
             if (current.Clip != clip)
             {
                 current.Clip = clip;
                 SetWindowPos(current.Window, 0, 0, 0, clip.Right - clip.Left, clip.Bottom - clip.Top, 0x0002 | 0x0004);
             }
+            ApplyRoundedRegion(current);
             SyncLiveBounds();
             return;
         }
@@ -125,17 +127,32 @@ internal sealed class ShellModalHost : IDisposable
         if (Active) _surfaces[^1].Snapshot = snapshot;
         else _background = snapshot;
         Hosts[window] = this;
-        _surfaces.Add(new(key, window, clip, scale));
+        Surface surface = new(key, window, clip, radius, scale);
+        _surfaces.Add(surface);
         // 保留系统边框和DWM合成阴影，客户区与网页表面重合。
         SetWindowPos(window, 0, 0, 0, 0, 0, 0x0020 | 0x0001 | 0x0002 | 0x0004);
         Margins margins = new() { Left = 1, Right = 1, Top = 1, Bottom = 1 };
         _ = DwmExtendFrameIntoClientArea(window, ref margins);
+        ApplyRoundedRegion(surface);
         try
         {
-            _live.ParentWindow = window;
-            SyncLiveBounds();
-            EnableWindow(parent, false);
-            ShowWindow(window, 5);
+            // 先以DWM cloak隐藏新窗口，等同一 WebView2 在裁切窗内完成首帧合成后再揭示。
+            // 直接 ShowWindow 会在一帧内透出所有者快照，用户看到的是对话框底色闪烁。
+            SetDwmCloaked(window, true);
+            try
+            {
+                _live.ParentWindow = window;
+                SyncLiveBounds();
+                EnableWindow(parent, false);
+                ShowWindow(window, 5);
+                await WaitForLivePaintAsync();
+            }
+            finally
+            {
+                // 捕获屏障失败也必须揭示窗口，否则用户会看到一个永不出现的模态窗。
+                SetDwmCloaked(window, false);
+                _ = DwmFlush();
+            }
             _live.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
         }
         catch
@@ -251,6 +268,23 @@ internal sealed class ShellModalHost : IDisposable
             snapshot.Close();
             throw;
         }
+    }
+
+    /// <summary>
+    /// 平滑关闭：先隐藏原生子窗，让仍在子窗中的同一 WebView2 把“表单已从 DOM 移除”的
+    /// 下一帧排到前台，再重挂回所有者。若直接重挂，合成器会有一两帧仍显示旧表单（用户看到的闪烁）。
+    /// </summary>
+    internal async Task CloseAsync()
+    {
+        VerifyUiThread();
+        if (_disposed || _closing) return;
+        _operations.Invalidate();
+        if (Active)
+        {
+            ShowWindow(_surfaces[^1].Window, 0);
+            await WaitForLivePaintAsync();
+        }
+        Close();
     }
 
     internal void Close()
@@ -396,6 +430,8 @@ internal sealed class ShellModalHost : IDisposable
             ReleaseCaptureCover,
             () =>
             {
+                // 先隐藏子窗，避免销毁可见HWND时露出桌面/所有者背景的一帧闪烁。
+                ShowWindow(current.Window, 0);
                 _live.ParentWindow = parent;
                 if (Active)
                 {
@@ -405,6 +441,7 @@ internal sealed class ShellModalHost : IDisposable
                     SetWindowPos(parent, 0, 0, 0, previous.Clip.Right - previous.Clip.Left, previous.Clip.Bottom - previous.Clip.Top, 0x0002 | 0x0004);
                 }
                 SyncLiveBounds();
+                _ = DwmFlush();
             },
             () => parentSnapshot?.Close(),
             () => current.Snapshot?.Close(),
@@ -480,6 +517,45 @@ internal sealed class ShellModalHost : IDisposable
         finally { _operations.Dispose(); }
     }
 
+    /// <summary>给原生模态窗口裁出与共享CSS相同的圆角，去掉DWM方框在四角露出的尖角。</summary>
+    private static void ApplyRoundedRegion(Surface surface)
+    {
+        if (surface.Radius <= 0 || !GetWindowRect(surface.Window, out NativeRect rect)) return;
+        int width = rect.Right - rect.Left;
+        int height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0) return;
+        int diameter = Math.Max(2, (int)Math.Round(surface.Radius * surface.Scale * 2));
+        nint region = CreateRoundRectRgn(0, 0, width + 1, height + 1, diameter, diameter);
+        if (region == 0) return;
+        if (SetWindowRgn(surface.Window, region, true) == 0)
+        {
+            DeleteObject(region);
+        }
+        // 成功时区域归窗口所有，不能再DeleteObject；失败路径必须回收，避免GDI泄漏。
+    }
+
+    private static void SetDwmCloaked(nint window, bool cloaked)
+    {
+        int value = cloaked ? 1 : 0;
+        _ = DwmSetWindowAttribute(window, 13, ref value, sizeof(int));
+    }
+
+    /// <summary>等待同一WebView2在重新挂载后的首帧合成；CapturePreview只作为渲染屏障，不保存图片。</summary>
+    private async Task WaitForLivePaintAsync()
+    {
+        try
+        {
+            using MemoryStream sink = new();
+            await _live.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, sink);
+            _ = DwmFlush();
+        }
+        catch (Exception exception) when (exception is COMException or InvalidOperationException or ObjectDisposedException)
+        {
+            // 捕获失败不能阻止窗口显示；DWM队列同步仍作为兜底。
+            System.Diagnostics.Trace.TraceError("等待模态首帧失败：{0}", exception);
+        }
+    }
+
     private void VerifyUiThread()
     {
         if (Environment.CurrentManagedThreadId != _uiThread) throw new InvalidOperationException("模态宿主只能在窗口线程调用。");
@@ -516,6 +592,7 @@ internal sealed class ShellModalHost : IDisposable
         NativeRect suggested = Marshal.PtrToStructure<NativeRect>(lParam);
         WindowFrameRect fitted = FitToScreen(window, new(suggested.Left, suggested.Top, suggested.Right, suggested.Bottom));
         SetWindowPos(window, 0, fitted.Left, fitted.Top, fitted.Right - fitted.Left, fitted.Bottom - fitted.Top, 0x0004);
+        ApplyRoundedRegion(surface);
         surface.Snapshot?.Sync(window, scale);
         if (surface != _surfaces[^1]) return;
         _operations.Invalidate();
@@ -547,7 +624,10 @@ internal sealed class ShellModalHost : IDisposable
                     return 0;
                 }
                 if (message == 0x0005 && host._surfaces.Find(surface => surface.Window == window) is { } resized)
+                {
+                    ShellModalHost.ApplyRoundedRegion(resized);
                     resized.Snapshot?.Sync(window, resized.Scale);
+                }
                 if (message == 0x0003 && host.Active && host._surfaces[^1].Window == window) host._live.NotifyParentWindowPositionChanged();
                 if (message == 0x0232 && GetWindowRect(window, out NativeRect rect))
                 {
@@ -581,11 +661,12 @@ internal sealed class ShellModalHost : IDisposable
         _registered = true;
     }
 
-    private sealed class Surface(string key, nint window, WindowFrameRect clip, double scale)
+    private sealed class Surface(string key, nint window, WindowFrameRect clip, double radius, double scale)
     {
         internal string Key { get; } = key;
         internal nint Window { get; } = window;
         internal WindowFrameRect Clip { get; set; } = clip;
+        internal double Radius { get; set; } = radius;
         internal double Scale { get; set; } = scale;
         internal Snapshot? Snapshot { get; set; }
     }
@@ -747,5 +828,9 @@ internal sealed class ShellModalHost : IDisposable
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")] private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetModuleHandleW")] private static extern nint GetModuleHandle(string? name);
     [DllImport("dwmapi.dll")] private static extern int DwmExtendFrameIntoClientArea(nint window, ref Margins margins);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(nint window, int attribute, ref int value, int size);
     [DllImport("dwmapi.dll")] private static extern int DwmFlush();
+    [DllImport("gdi32.dll")] private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+    [DllImport("user32.dll")] private static extern int SetWindowRgn(nint window, nint region, bool redraw);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(nint handle);
 }

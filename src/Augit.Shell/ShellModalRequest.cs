@@ -55,9 +55,14 @@ internal sealed record ShellModalRequest(long Id, string Method, JsonElement Par
                 throw new ArgumentException("模态窗口所有者标识无效。");
             keys.Add(key);
         }
+        double radius = Parameters.TryGetProperty("radius", out JsonElement radiusElement)
+            && radiusElement.ValueKind == JsonValueKind.Number
+            && radiusElement.TryGetDouble(out double rawRadius)
+            ? Math.Clamp(rawRadius, 0, 64) : 9;
         return new(Text("key"), Text("title"), keys,
-            ShellModalGeometry.Clip(Number("x"), Number("y"), Number("width"), Number("height"), viewportWidth, viewportHeight, scale));
+            ShellModalGeometry.Clip(Number("x"), Number("y"), Number("width"), Number("height"), viewportWidth, viewportHeight, scale),
+            radius);
     }
 }
 
-internal sealed record ShellModalPresentation(string Key, string Title, IReadOnlySet<string> Ancestors, WindowFrameRect Clip);
+internal sealed record ShellModalPresentation(string Key, string Title, IReadOnlySet<string> Ancestors, WindowFrameRect Clip, double Radius);
