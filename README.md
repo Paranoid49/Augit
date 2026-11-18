@@ -42,7 +42,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - rc.10 的终端重做已在 Windows 11 x64 实机验证多标签、Shell 菜单、设置热切换和关闭确认；实际 Release 便携包真实启动 PASS（窗口出现 380.7ms、关闭 104.8ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 501.6ms、关闭 100ms）；全新 Windows 虚拟机仍待复验。
 - rc.11 修复终端 Shell 菜单灰底、+ 默认新建、Settings 预热速度和关闭确认像素；Windows 11 x64 实测连续打开 Settings 为 102–485ms，极早点击最坏 661ms，主窗首窗约 367ms。实际 Release 便携包真实启动 PASS（窗口出现 463ms、关闭 128.6ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 451.1ms、关闭 127.1ms）。
 - rc.12 修复选中终端标签高亮、Settings 默认终端不再关闭已打开终端、移除无功能 Tab Options、固定 UI 字体，并加入签名自动更新；本机 569/569 测试通过。实际 Release 便携包真实启动 PASS（窗口出现 482.1ms、关闭 111.1ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 468.2ms、关闭 111.6ms）；本机以同源 rc.11 测试构建从公开 Release 自动更新到 rc.12 PASS。
-- rc.13 修复 SQL/未知扩展名 UTF-16 文本被误判为二进制，加入进程内 JSON 临时格式化窗口、右下角通知关闭叉、启动时记录 Recent Workspaces 和双击 Shift 文件搜索；本机 581/581 测试通过。实际 Release 便携包验证与升级路径在发布后补入[rc.13 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.13.md)。
+- rc.13 修复 SQL/未知扩展名 UTF-16 文本被误判为二进制，加入进程内 JSON 临时格式化窗口、右下角通知关闭叉、启动时记录 Recent Workspaces 和双击 Shift 文件搜索；本机 581/581 测试通过。实际 Release 资产已匿名复核：便携包 `39,282,490 B`、SHA-256 `23534777…`，签名/内容 PASS；官方包窗口与主界面启动 PASS；公开 rc.12 到 rc.13 自动更新替换 PASS。详见[rc.13 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.13.md)。
 
 仍未验证：干净虚拟机运行、真实缺少 WebView2 的流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 

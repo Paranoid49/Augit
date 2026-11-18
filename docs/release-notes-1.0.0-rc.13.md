@@ -2,7 +2,8 @@
 
 - 发布日期：2026-11-18
 - 状态：**公开预发布候选（GitHub Pre-release）**，不是正式 1.0
-- 构建方式：GitHub Actions 从 tag `v1.0.0-rc.13` 构建；`Augit.exe` ProductVersion 内含构建提交号，实际提交与资产哈希见[发布清单](release-manifest-1.0.0-rc.13.md)
+- 构建方式：GitHub Actions 从 tag `v1.0.0-rc.13` 构建；构建提交 `82d8124fc7749e2e90e646f2ad5fdf688f875d65`，`Augit.exe` ProductVersion 为 `1.0.0-rc.13+82d8124…`
+- Release id：`449499595`
 - 平台：Windows 10 22H2 x64、Windows 11 x64
 
 ## 1. 本版变化
@@ -17,7 +18,12 @@ rc.13 汇总 rc.12 之后的文件预览、临时工具和交互修正：
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.13-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.13/Augit-1.0.0-rc.13-win-x64-portable.zip) | 39,282,490 B | `23534777a29f591136c8041db32aec9df45869554671fa7b6ed16755eae815c2` |
+| [update.json](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.13/update.json) | 432 B | `520204d3d009e336b2c59ad7f9b7d20f2c6c927e843f6f54651aa960cdfe36a2` |
+| [update.json.sig](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.13/update.json.sig) | 89 B | `3dc31f4b7cc6856a3baab547dda8b6a6de6f5be3cebcf0a86f80a0a85a33abd5` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.13/SHA256SUMS.txt) | 265 B | `697d814302e78b54ff8ed397cda61141a56a8bd7000bbb8318b2dcc30eb80f09` |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.13>
 
@@ -33,11 +39,14 @@ rc.13 汇总 rc.12 之后的文件预览、临时工具和交互修正：
 - UI 资产一致性、JavaScript 语法、文档声明、脚本编码、`dotnet format` 和 `git diff --check` 通过。
 - 发布流水线执行锁定依赖还原、Release 构建、测试、便携包内容/版本校验、更新清单签名与签名复核。
 - 本版新增功能的实机验证：UTF-16 SQL 文本预览、JSON 临时格式化、错误通知关闭、Recent Workspaces 列表、双击 Shift 文件搜索、浅色/深色主题、关闭后重开状态保留、进程重启状态清空。
-- 实际 Release 资产的匿名下载、SHA-256、ECDSA 签名、便携包版本和启动验证结果在流水线完成后补入[发布清单](release-manifest-1.0.0-rc.13.md)。
+- 实际 Release 资产匿名下载并复核：四个文件大小与 SHA-256 均与 Release 正文一致；`update.json` 用内置 ECDSA P-256 公钥验签 **PASS**。
+- 官方便携包内容校验 **PASS**：必需文件、web 资源一致、无 PDB；`Augit.exe` ProductVersion `1.0.0-rc.13+82d8124…`，FileVersion `1.0.0.0`。
+- 官方便携包真实启动：窗口出现并通过 CDP 确认主界面 `window.__augitReady === true`，无启动错误；新增功能在源构建中完成实机验证。
+- **真实自动更新 PASS**：从公开 rc.12 便携包检查到 rc.13，下载并验签 `update.json`，用户确认后重启替换；目标 `Augit.exe` 变为 `1.0.0-rc.13+82d8124…`，`update.log` 记录替换成功。
 
 ## 4. 自动更新
 
-- rc.12 已内置签名自动更新，因此可以从公开 rc.12 检查并升级到 rc.13；发布后需用真实 Release 资产复核该路径。
+- rc.12 已内置签名自动更新；已用真实公开 rc.12 便携包完成到 rc.13 的检查、签名校验、下载和重启替换验证。
 - 启动后后台检查签名 `update.json`，不阻塞首屏；发现更新只显示通知。下载、校验签名/大小/SHA-256 和重启替换都需要用户操作，不静默升级。
 - 便携目录必须可写；同一目录还有其它 Augit 窗口运行时更新会被拒绝。失败时保留或尝试恢复旧版本。
 - 每次下载完整便携 zip（约 39 MB）；不做增量更新。
