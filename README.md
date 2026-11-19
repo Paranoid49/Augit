@@ -44,7 +44,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - rc.12 修复选中终端标签高亮、Settings 默认终端不再关闭已打开终端、移除无功能 Tab Options、固定 UI 字体，并加入签名自动更新；本机 569/569 测试通过。实际 Release 便携包真实启动 PASS（窗口出现 482.1ms、关闭 111.1ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 468.2ms、关闭 111.6ms）；本机以同源 rc.11 测试构建从公开 Release 自动更新到 rc.12 PASS。
 - rc.13 修复 SQL/未知扩展名 UTF-16 文本被误判为二进制，加入进程内 JSON 临时格式化窗口、右下角通知关闭叉、启动时记录 Recent Workspaces 和双击 Shift 文件搜索；本机 581/581 测试通过。实际 Release 资产已匿名复核：便携包 `39,282,490 B`、SHA-256 `23534777…`，签名/内容 PASS；官方包窗口与主界面启动 PASS；公开 rc.12 到 rc.13 自动更新替换 PASS。详见[rc.13 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.13.md)。
 
-- rc.14 加入 `File → Check for Updates…` 手动更新检查，并修复原生模态窗口打开/关闭的透明闪烁与方角外框；覆盖 Format JSON、New Branch 及所有同类模态。本机 582/582 测试通过。实际 Release 资产、官方包启动和 rc.13 → rc.14 自动更新结果在发布后补入[rc.14 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.14.md)。
+- rc.14 加入 `File → Check for Updates…` 手动更新检查，并修复原生模态窗口打开/关闭的透明闪烁与方角外框；覆盖 Format JSON、New Branch 及所有同类模态。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,284,414 B`、SHA-256 `55a241cc…`，签名/内容 PASS；官方包主界面启动 PASS；公开 rc.13 到 rc.14 自动更新替换 PASS。详见[rc.14 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.14.md)。
 
 仍未验证：干净虚拟机运行、真实缺少 WebView2 的流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
