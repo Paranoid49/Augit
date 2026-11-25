@@ -143,7 +143,7 @@ Git 命令语义和操作状态以 IntelliJ IDEA 2026.2 为参考，操作界面
 - 点击冲突文件打开该文件的普通只读 Diff（HEAD 与磁盘，可含冲突标记），不进入任何内置编辑器。
 - Augit 不提供三栏冲突编辑、逐块接受、撤销重做、草稿、保存或整侧接受；冲突文本由用户已有的外部编辑器、终端或开发工具修改。
 - 外部工具解决冲突、执行 `git add` 或完成 Git 操作后，Augit 在 500 毫秒内重新读取本地 Git 状态并同步冲突列表与会话可用动作，不自动接受任意一侧，也不自动标记已解决。
-- reset hard、rollback、删除分支或标签等会丢失数据的操作，必须先展示影响并明确确认。
+- reset hard、rollback、删除分支或标签等会丢失数据的操作，必须先展示影响并明确确认。Rollback 使用 IDEA `RollbackChangesDialog` 的多文件勾选树；新增/未跟踪文件在 `Delete local copies of added files` 未勾选时保留本地副本，勾选时进入 Windows 回收站。
 - 未跟踪文件删除进入 Windows 回收站；worktree 只在非主工作树、干净且对应 Augit 窗口没有运行中的内置终端会话时允许安全移除，外部终端不在检测范围内。
 
 ### 5.4 明确排除的 Git 能力

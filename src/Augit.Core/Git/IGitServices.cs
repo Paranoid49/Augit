@@ -305,6 +305,17 @@ public interface IGitWorkspaceStateService
         GitRepositorySnapshot repository,
         GitChangedFile changedFile,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 回滚一个或多个改动文件。deleteLocallyAddedFiles 对应
+    /// `RollbackChangesDialog` 的 “Delete local copies of added files”：新增/未跟踪文件
+    /// 在未勾选时只从索引或列表移除，保留本地文件；勾选后才移入回收站。
+    /// </summary>
+    Task<GitActionResult> RollbackAsync(
+        GitRepositorySnapshot repository,
+        IReadOnlyList<GitChangedFile> changedFiles,
+        bool deleteLocallyAddedFiles,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IGitWorktreeService

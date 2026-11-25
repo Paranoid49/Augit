@@ -28,3 +28,7 @@
 ## 5. 清理
 
 - 实际 PID 22784、参考 PID 10836 已结束；`settings.json` 恢复 `B8868855…DC3D`；未写 Git/fixture 未变；无残留；`cleanup-check-103.json`；未提交、未推送。
+
+## 6. 2026-11-25 整改
+
+用户以实机参考要求将 Rollback 改为 IDEA `RollbackChangesDialog` 结构：`Rollback Changes` 标题、按目录分组的勾选文件树、根/目录半选、状态 commit legend、`Delete local copies of added files` 与 `Rollback`/`Close`；同时支持多文件一次性回滚。旧版单文件 `Rollback File` 红色警告 + 比较视图作为历史记录保留在第 1 节，不再代表当前实现。尺寸、截图与交互验证见本轮提交记录。

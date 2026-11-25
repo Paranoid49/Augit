@@ -316,62 +316,114 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             .ConfigureAwait(false);
     }
 
-    public async Task<GitActionResult> RollbackAsync(
+    public Task<GitActionResult> RollbackAsync(
         GitRepositorySnapshot repository,
         GitChangedFile changedFile,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(changedFile);
+        return RollbackAsync(repository, [changedFile], deleteLocallyAddedFiles: true, cancellationToken);
+    }
+
+    public async Task<GitActionResult> RollbackAsync(
+        GitRepositorySnapshot repository,
+        IReadOnlyList<GitChangedFile> changedFiles,
+        bool deleteLocallyAddedFiles,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(changedFiles);
+        if (changedFiles.Count == 0)
+        {
+            return GitActionResult.Failure(GitOperationFailureKind.InvalidRequest, "没有选择要回滚的文件。");
+        }
+
         if (!TryGetRepositoryRoot(repository, out string? repositoryRoot, out string? error))
         {
             return GitActionResult.Failure(GitOperationFailureKind.InvalidRequest, error!);
         }
 
-        if (changedFile.Kind == GitChangeKind.Unmerged)
+        List<RollbackTarget> targets = [];
+        foreach (GitChangedFile changedFile in changedFiles)
         {
-            return GitActionResult.Failure(
-                GitOperationFailureKind.InvalidRequest,
-                "冲突文件必须在阶段四的冲突流程中处理，不能直接 Rollback。");
-        }
+            if (changedFile.Kind == GitChangeKind.Unmerged)
+            {
+                return GitActionResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "冲突文件必须在阶段四的冲突流程中处理，不能直接 Rollback。");
+            }
 
-        if (!GitPathValidator.TryNormalizeRelativePath(
-            repositoryRoot!,
-            changedFile.RelativePath,
-            out string? relativePath,
-            out string? fullPath))
-        {
-            return GitActionResult.Failure(
-                GitOperationFailureKind.InvalidRequest,
-                "Rollback 文件路径越过了仓库边界。");
-        }
-
-        string? originalRelativePath = null;
-        string? originalFullPath = null;
-        if (!string.IsNullOrWhiteSpace(changedFile.OriginalRelativePath)
-            && !GitPathValidator.TryNormalizeRelativePath(
+            if (!GitPathValidator.TryNormalizeRelativePath(
                 repositoryRoot!,
-                changedFile.OriginalRelativePath,
-                out originalRelativePath,
-                out originalFullPath))
-        {
-            return GitActionResult.Failure(
-                GitOperationFailureKind.InvalidRequest,
-                "Rollback 原文件路径越过了仓库边界。");
+                changedFile.RelativePath,
+                out string? relativePath,
+                out string? fullPath))
+            {
+                return GitActionResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "Rollback 文件路径越过了仓库边界。");
+            }
+
+            string? originalRelativePath = null;
+            string? originalFullPath = null;
+            if (!string.IsNullOrWhiteSpace(changedFile.OriginalRelativePath)
+                && !GitPathValidator.TryNormalizeRelativePath(
+                    repositoryRoot!,
+                    changedFile.OriginalRelativePath,
+                    out originalRelativePath,
+                    out originalFullPath))
+            {
+                return GitActionResult.Failure(
+                    GitOperationFailureKind.InvalidRequest,
+                    "Rollback 原文件路径越过了仓库边界。");
+            }
+
+            targets.Add(new(changedFile, relativePath!, fullPath!, originalRelativePath, originalFullPath));
         }
 
-        bool hasUntrackedWorkTreeFile = changedFile.WorkTreeStatus == '?';
-        if (changedFile.Group == GitChangeGroup.UnversionedFiles || hasUntrackedWorkTreeFile)
+        foreach (RollbackTarget target in targets)
         {
-            RecycleBinResult recycle = _moveToRecycleBin(fullPath!);
+            GitActionResult result = await RollbackTargetAsync(
+                repositoryRoot!,
+                repository,
+                target,
+                deleteLocallyAddedFiles,
+                cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                return result;
+            }
+        }
+
+        // 所有文件按顺序处理完后只读取一次真实状态，避免逐个文件触发重复 `git status`。
+        return await ReadActualStatusAsync(repository).ConfigureAwait(false);
+    }
+
+    private async Task<GitActionResult> RollbackTargetAsync(
+        string repositoryRoot,
+        GitRepositorySnapshot repository,
+        RollbackTarget target,
+        bool deleteLocallyAddedFiles,
+        CancellationToken cancellationToken)
+    {
+        GitChangedFile changedFile = target.File;
+        string relativePath = target.RelativePath;
+        string fullPath = target.FullPath;
+        string? originalRelativePath = target.OriginalRelativePath;
+        bool hasUntrackedWorkTreeFile = changedFile.WorkTreeStatus == '?';
+
+        if (changedFile.Group == GitChangeGroup.UnversionedFiles)
+        {
+            if (!deleteLocallyAddedFiles)
+            {
+                return GitActionResult.Success();
+            }
+
+            RecycleBinResult recycle = _moveToRecycleBin(fullPath);
             if (!recycle.IsSuccess)
             {
                 return await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
             }
 
-            if (changedFile.Group == GitChangeGroup.UnversionedFiles)
-            {
-                return await ReadActualStatusAsync(repository).ConfigureAwait(false);
-            }
+            return GitActionResult.Success();
         }
 
         if (changedFile.Kind is GitChangeKind.Added or GitChangeKind.Copied)
@@ -379,8 +431,8 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             if (changedFile.HasStagedChanges)
             {
                 GitCommandResult unstage = await RunAsync(
-                    repositoryRoot!,
-                    ["restore", "--staged", "--", relativePath!],
+                    repositoryRoot,
+                    ["restore", "--staged", "--", relativePath],
                     GitCommandMode.LocalWrite,
                     _runner,
                     cancellationToken).ConfigureAwait(false);
@@ -390,17 +442,33 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
                 }
             }
 
-            RecycleBinResult recycle = _moveToRecycleBin(fullPath!);
+            if (!deleteLocallyAddedFiles)
+            {
+                return GitActionResult.Success();
+            }
+
+            RecycleBinResult recycle = _moveToRecycleBin(fullPath);
             return recycle.IsSuccess
-                ? await ReadActualStatusAsync(repository).ConfigureAwait(false)
+                ? GitActionResult.Success()
                 : await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
+        }
+
+        // “暂存删除 + 工作区又重新出现文件”是复合状态：必须先回收工作区副本，
+        // 再从 HEAD 恢复原文件，否则恢复出的 HEAD 会被工作区副本覆盖。
+        if (hasUntrackedWorkTreeFile)
+        {
+            RecycleBinResult recycle = _moveToRecycleBin(fullPath);
+            if (!recycle.IsSuccess)
+            {
+                return await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
+            }
         }
 
         if (changedFile.Kind == GitChangeKind.Renamed && originalRelativePath is not null)
         {
             GitCommandResult unstage = await RunAsync(
-                repositoryRoot!,
-                ["restore", "--staged", "--", originalRelativePath, relativePath!],
+                repositoryRoot,
+                ["restore", "--staged", "--", originalRelativePath, relativePath],
                 GitCommandMode.LocalWrite,
                 _runner,
                 cancellationToken).ConfigureAwait(false);
@@ -411,7 +479,7 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
 
             if (File.Exists(fullPath) || Directory.Exists(fullPath))
             {
-                RecycleBinResult recycle = _moveToRecycleBin(fullPath!);
+                RecycleBinResult recycle = _moveToRecycleBin(fullPath);
                 if (!recycle.IsSuccess)
                 {
                     return await FailureWithActualStatusAsync(repository, recycle.ErrorMessage!).ConfigureAwait(false);
@@ -419,26 +487,33 @@ public sealed class GitWorkspaceStateService : IGitWorkspaceStateService
             }
 
             GitCommandResult restoreOriginal = await RunAsync(
-                repositoryRoot!,
+                repositoryRoot,
                 ["restore", "--source=HEAD", "--worktree", "--", originalRelativePath],
                 GitCommandMode.LocalWrite,
                 _runner,
                 cancellationToken).ConfigureAwait(false);
             return restoreOriginal.IsSuccess
-                ? await ReadActualStatusAsync(repository).ConfigureAwait(false)
+                ? GitActionResult.Success()
                 : await MutationFailureAsync(repository, restoreOriginal).ConfigureAwait(false);
         }
 
-        GitCommandResult result = await RunAsync(
-            repositoryRoot!,
-            ["restore", "--source=HEAD", "--staged", "--worktree", "--", relativePath!],
+        GitCommandResult restore = await RunAsync(
+            repositoryRoot,
+            ["restore", "--source=HEAD", "--staged", "--worktree", "--", relativePath],
             GitCommandMode.LocalWrite,
             _runner,
             cancellationToken).ConfigureAwait(false);
-        return result.IsSuccess
-            ? await ReadActualStatusAsync(repository).ConfigureAwait(false)
-            : await MutationFailureAsync(repository, result).ConfigureAwait(false);
+        return restore.IsSuccess
+            ? GitActionResult.Success()
+            : await MutationFailureAsync(repository, restore).ConfigureAwait(false);
     }
+
+    private sealed record RollbackTarget(
+        GitChangedFile File,
+        string RelativePath,
+        string FullPath,
+        string? OriginalRelativePath,
+        string? OriginalFullPath);
 
     internal static bool TryParseStashes(string output, out IReadOnlyList<GitStashInfo>? stashes)
     {

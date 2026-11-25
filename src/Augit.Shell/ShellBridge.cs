@@ -951,8 +951,20 @@ internal sealed class ShellBridge : IDisposable
     /// </summary>
     private async Task<object?> RollbackAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
-        string path = GetString(parameters, "path")
-            ?? throw new ArgumentException("git/rollback 需要 path 参数。");
+        string[]? requestedPaths = GetStringArray(parameters, "paths");
+        string? singlePath = GetString(parameters, "path");
+        if (requestedPaths is null || requestedPaths.Length == 0)
+        {
+            requestedPaths = string.IsNullOrWhiteSpace(singlePath) ? null : [singlePath];
+        }
+        if (requestedPaths is null)
+        {
+            throw new ArgumentException("git/rollback 需要 path 或 paths 参数。");
+        }
+
+        // 旧调用方不传该选项时保持原来的危险语义（新增/未跟踪文件进入回收站）；
+        // 新的 Rollback Changes 对话框始终显式传值。
+        bool deleteLocallyAddedFiles = GetBool(parameters, "deleteLocallyAddedFiles") ?? true;
         (GitRuntimeInfo runtime, GitRepositorySnapshot? repository) = await ResolveGitAsync(cancellationToken);
         if (!runtime.IsAvailable || repository is null || repository.Kind != GitRepositoryKind.WorkingTree)
         {
@@ -965,16 +977,35 @@ internal sealed class ShellBridge : IDisposable
             return new { available = true, rolledBack = false, reason = status.ErrorMessage ?? "无法读取当前改动列表。" };
         }
 
-        string normalized = path.Replace('\\', '/');
-        GitChangedFile? file = snapshot.Files.FirstOrDefault(
-            item => string.Equals(item.RelativePath.Replace('\\', '/'), normalized, StringComparison.OrdinalIgnoreCase));
-        if (file is null)
+        Dictionary<string, GitChangedFile> byPath = new(StringComparer.OrdinalIgnoreCase);
+        foreach (GitChangedFile file in snapshot.Files)
         {
-            return new { available = true, rolledBack = false, reason = "该文件已不在改动列表中，可能已被外部处理。" };
+            byPath[file.RelativePath.Replace('\\', '/')] = file;
+        }
+
+        List<GitChangedFile> files = [];
+        HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
+        foreach (string requested in requestedPaths)
+        {
+            string normalized = requested.Replace('\\', '/');
+            if (!seen.Add(normalized))
+            {
+                continue;
+            }
+            if (!byPath.TryGetValue(normalized, out GitChangedFile? file))
+            {
+                return new { available = true, rolledBack = false, reason = "该文件已不在改动列表中，可能已被外部处理。" };
+            }
+            files.Add(file);
+        }
+
+        if (files.Count == 0)
+        {
+            return new { available = true, rolledBack = false, reason = "没有选择要回滚的文件。" };
         }
 
         GitActionResult result = await new GitWorkspaceStateService(runtime)
-            .RollbackAsync(repository, file, cancellationToken)
+            .RollbackAsync(repository, files, deleteLocallyAddedFiles, cancellationToken)
             .ConfigureAwait(false);
         // 回滚改变了工作区：状态缓存必须失效，界面随后重新读取真实仓库状态。
         InvalidateStatusCache();
@@ -987,9 +1018,9 @@ internal sealed class ShellBridge : IDisposable
         {
             available = true,
             rolledBack = true,
-            path = file.RelativePath,
-            // 未跟踪或新增文件是被移入回收站，不是从 HEAD 恢复：界面据此给出准确说明。
-            recycled = WasRollbackFileRecycled(file),
+            paths = files.Select(file => file.RelativePath).ToArray(),
+            deleteLocallyAddedFiles,
+            recycled = deleteLocallyAddedFiles && files.Any(WasRollbackFileRecycled),
         };
     }
 

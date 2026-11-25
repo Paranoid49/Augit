@@ -551,7 +551,7 @@ Diff 请求键由仓库、文件路径、比较基准、单栏或双栏、忽略
 - Worktree 使用双栏管理窗口，左侧对象列表，右侧详情和动作。远端改为 Name/URL 单列表格，不再使用双栏与右侧内联字段。
 - Reset 模式必须在同一页面解释 HEAD、索引和工作区的影响；Hard 使用红色确认。
 - Reset 按实际字高度量字段、模式说明及按钮；标题和底栏固定，限高时只滚动表单与反馈。字段获得焦点时自动滚入可见区域，错误或进行态不移动整窗和底部动作；模式收起态完整容纳说明，不因原生箭头或滚动条占宽裁切末字。目标输入保留左右内距，点击内距可聚焦且不清除选区；不显示无对应功能的帮助图形。
-- Rollback 风险说明按实际字体换行，并为新增或未跟踪文件保留回收站说明；先展示真实只读比较，再由底栏确认。字号放大或窗口限高时，风险说明与比较所在正文可滚动，标题和底栏固定；比较自身继续独立滚动文本，Tab 进入被裁切的比较工具或正文时自动滚入可见区域。窗口和焦点变化不重查 Git、不替换当前比较。以上属于既有字号、模态与危险确认规则的落实，不登记为新增 PyCharm 实测。
+- Rollback 按实际 IDEA `RollbackChangesDialog` 结构整改为多文件勾选树：标题 `Rollback Changes`，树按目录分组，根/目录带全选或半选状态与文件计数；树上有显示 Diff/预览、展开/折叠工具条；下方按 Modified/Added/Deleted/Unversioned 等状态显示 commit legend，再显示 `Delete local copies of added files`；底栏为 `Rollback`（主）与 `Close`。初始只勾选用户点中的文件，允许继续勾选多项；未勾选删除本地副本时，新增/未跟踪文件只解除跟踪或保留，不进入回收站。参考尺寸约 380×563 逻辑像素，标题和底栏固定，正文树和错误说明可滚动。打开后不再重查 Git，失败保留勾选与原因。该结构取代旧版单文件红色警告+比较视图，按用户 2026-11-25 的实机参考要求落地，不登记为新的 PyCharm 独立实测。
 - Worktree 详情标题显示当前分支，正文显示路径、干净状态和内置终端占用；条件不满足时禁用移除并显示具体原因。主工作树（`git worktree list` 的第一项）不可移除，权威 `RemoveWorkingTreeAction.isEnabledFor()` 的判据是 `!isCurrent && !isMain`。
 - 远端表格显示 Name 与 URL 两列，URL 列显示 Fetch URL；origin 排在首位，其余按名称排序。顶端工具条只有 Add、Remove、Edit 三个动作（16px 图形：加号、减号、New UI 斜向铅笔），不出现上移/下移。产品额外的 Push URL 不放进表格，与 Name、Fetch URL 一起放在独立的 Define Remote 窗口（这是与权威 `GitConfigureRemotesDialog` 的登记差异）；不提供托管平台账号或项目选择。
 - 远端主窗只有唯一 OK，初始焦点在表格；单击只选中行，双击或 Edit 打开独立 Define Remote 次模态（OK/Cancel，初始焦点按参考：Name 为空聚焦 Name，否则聚焦 URL）。表格支持方向键与 Home/End 单选；没有选中行时 Remove 与 Edit 禁用，空表只允许 Add。窗口高度受限时只滚动表格正文，工具条与底栏固定；Tab 进入被裁切控件时自动滚入可见区域。失败说明在正文内换行并可滚动查看，不覆盖底部动作；不显示无对应功能的帮助占位。
@@ -890,7 +890,7 @@ WebView2 栅格化比例，使逻辑尺寸不变），仍由真实窗口完成�
 | `stash` | [创建 Stash](ux-mockups/stash.html) | `stash` | 仅允许单个当前仓库；确认前清楚显示包含范围。 |
 | `stash-manager` | [Stash 管理](ux-mockups/stash-manager.html) | `stash-manager` | 列表、详情与动作保持联动，危险动作进入明确确认。 |
 | `reset` | [Reset](ux-mockups/reset.html) | `reset` | 三种模式影响可见；Hard 必须使用危险确认样式。 |
-| `rollback` | [Rollback](ux-mockups/rollback.html) | `rollback` | 先展示真实 Diff；取消不写入，确认后只刷新相关区域。 |
+| `rollback` | [Rollback](ux-mockups/rollback.html) | `rollback` | IDEA 多文件勾选树；取消不写入，确认后只刷新相关区域。 |
 | `worktrees` | [Worktree](ux-mockups/worktrees.html) | `worktrees` | 运行中内置终端时移除入口禁用并解释原因。 |
 | `remote` | [远端](ux-mockups/remote.html) | `remote` | 详情与新增状态独立；不出现平台账号或托管服务入口。 |
 | `clone` | [Clone](ux-mockups/clone.html) | `clone` | 宽版表单、浅克隆深度和进行态符合视觉稿；不能重复提交。 |

@@ -192,6 +192,69 @@ public sealed class GitWorkspaceStateServiceTests
     }
 
     [TestMethod]
+    public async Task Rollback多文件未勾选删除副本时保留新增和未跟踪文件()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "base\n", "test: base");
+            GitWorkspaceStateService service = CreateService(runtime, out List<string> recycled);
+            GitStatusService statusService = new(runtime);
+
+            await File.WriteAllTextAsync(temporary.GetPath("tracked.txt"), "changed\n");
+            await File.WriteAllTextAsync(temporary.GetPath("untracked.txt"), "untracked\n");
+            await File.WriteAllTextAsync(temporary.GetPath("added.txt"), "added\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "added.txt");
+            GitStatusSnapshot before = (await statusService.ReadAsync(repository)).Snapshot!;
+            Assert.HasCount(3, before.Files);
+
+            GitActionResult result = await service.RollbackAsync(
+                repository, before.Files, deleteLocallyAddedFiles: false);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual("base\n", (await File.ReadAllTextAsync(temporary.GetPath("tracked.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.AreEqual("untracked\n", (await File.ReadAllTextAsync(temporary.GetPath("untracked.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.AreEqual("added\n", (await File.ReadAllTextAsync(temporary.GetPath("added.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.IsEmpty(recycled);
+            GitStatusSnapshot after = (await statusService.ReadAsync(repository)).Snapshot!;
+            string[] remainingPaths = ["added.txt", "untracked.txt"];
+            CollectionAssert.AreEquivalent(remainingPaths, after.Files.Select(file => file.RelativePath).ToArray());
+        }
+    }
+
+    [TestMethod]
+    public async Task Rollback多文件勾选删除副本时全部恢复并按顺序回收()
+    {
+        (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();
+        using (temporary)
+        {
+            await GitTestEnvironment.CommitFileAsync(runtime, temporary.FullPath, "tracked.txt", "base\n", "test: base");
+            GitWorkspaceStateService service = CreateService(runtime, out List<string> recycled);
+            GitStatusService statusService = new(runtime);
+
+            await File.WriteAllTextAsync(temporary.GetPath("tracked.txt"), "changed\n");
+            await File.WriteAllTextAsync(temporary.GetPath("untracked.txt"), "untracked\n");
+            await File.WriteAllTextAsync(temporary.GetPath("added.txt"), "added\n");
+            await GitTestEnvironment.RunAsync(runtime, temporary.FullPath, "add", "--", "added.txt");
+            GitStatusSnapshot before = (await statusService.ReadAsync(repository)).Snapshot!;
+
+            GitActionResult result = await service.RollbackAsync(
+                repository, before.Files, deleteLocallyAddedFiles: true);
+
+            Assert.IsTrue(result.IsSuccess, result.ErrorMessage);
+            Assert.AreEqual("base\n", (await File.ReadAllTextAsync(temporary.GetPath("tracked.txt")))
+                .Replace("\r\n", "\n", StringComparison.Ordinal));
+            Assert.IsFalse(File.Exists(temporary.GetPath("untracked.txt")));
+            Assert.IsFalse(File.Exists(temporary.GetPath("added.txt")));
+            Assert.HasCount(2, recycled);
+            Assert.IsEmpty((await statusService.ReadAsync(repository)).Snapshot!.Files);
+        }
+    }
+
+    [TestMethod]
     public async Task Rollback暂存删除后重建文件先回收工作区副本再恢复HEAD()
     {
         (TemporaryDirectory temporary, GitRuntimeInfo runtime, GitRepositorySnapshot repository) = await CreateRepositoryAsync();

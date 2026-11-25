@@ -8410,7 +8410,10 @@ function guardUnwiredNavigation() {
       return;
     }
 
-    // 回滚确认对话框的动作（规格 §10.4）。
+    // 回滚树、工具条和 Delete local copies 选项（规格 §10.4）。
+    if (handleRollbackDialogClick(event)) return;
+
+    // 回滚确认对话框的底栏动作（规格 §10.4）。
     const rollbackAction = event.target.closest && event.target.closest("[data-rollback-action]");
     if (rollbackAction) {
       event.preventDefault();
@@ -9672,18 +9675,19 @@ async function cancelPushDialog() {
  * 不改变提交列表、提交草稿，也不重排主窗口布局。
  */
 /**
- * 打开回滚确认对话框（规格 §10.4）。
+ * 打开 Rollback Changes 对话框（权威 `RollbackChangesDialog`，规格 §10.4）。
  *
- * 危险操作必须先显示**具体影响**并由用户确认。此前 Changes 右键菜单里的「回滚…」
- * 落在"其余条目"分支，只关掉菜单什么都不做——用户以为回滚了，实际没有发生任何事。
+ * 从 Changes 工具栏或右键菜单进入时显示**整棵改动树**，初始只勾选用户点中的
+ * 文件；用户可以继续勾选其它文件。危险动作仍是明确的 `Rollback` 主操作，
+ * 底部 `Delete local copies of added files` 决定新增/未跟踪文件是否移入回收站。
  */
 function openRollbackDialog(path) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
-  if (!live || !host || !path) return;
+  if (!live || !host) return;
   const files = (live.status && live.status.files) || [];
-  const file = files.find((item) => item.path === path) || null;
-  if (!file) {
+  const file = path ? files.find((item) => item.path === path) : null;
+  if (path && !file) {
     // 列表已经变化（例如文件刚被外部处理）：先重新读取状态，不打开一个对不上文件的确认框。
     void loadStatus().catch(() => null);
     return;
@@ -9691,9 +9695,9 @@ function openRollbackDialog(path) {
 
   closeLiveOverlay();
   rememberDialogFocus();
-  // 目标身份进状态：对话框内容由 mockup 的 liveRollbackBody 读状态渲染，
-  // 区域刷新会重建节点，只把目标写在 DOM 上会被静默丢弃（handoff 第 3 节第 5 条）。
-  live.rollback = { path: file.path };
+  const state = activeRollbackState(files, file ? file.path : null);
+  state.active = true;
+  live.rollback = state;
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
   document.querySelectorAll(".dialog.rollback-dialog").forEach((node) => {
     const owner = node.closest("[data-augit-overlay]") || node;
@@ -9703,18 +9707,24 @@ function openRollbackDialog(path) {
   layer.className = "overlay-layer live-overlay";
   layer.setAttribute("data-augit-overlay", "");
   layer.innerHTML = dialog(
-    `Rollback File · ${escapeText(file.path)}`,
-    liveRollbackBody(),
-    `<button type="button" class="secondary-button" data-rollback-action="cancel">Cancel</button>`
-      + `<button type="button" class="danger-button" data-rollback-action="confirm">Rollback File</button>`,
-    true,
+    "Rollback Changes",
+    rollbackBodyHtml(files, state),
+    `<button type="button" class="primary-button" data-rollback-action="confirm">Rollback</button>`
+      + `<button type="button" class="secondary-button" data-rollback-action="cancel">Close</button>`,
+    false,
     "rollback-dialog");
   host.appendChild(layer);
-  const confirm = layer.querySelector('[data-rollback-action="confirm"]');
-  if (confirm) confirm.focus();
+  measureRollbackDialog();
+  updateRollbackDialogFooter();
+  layer.addEventListener("keydown", handleRollbackDialogKeydown);
+  layer.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".rollback-leaf")) showRollbackDiff();
+  });
+  const selected = layer.querySelector(".rollback-row.selected") || layer.querySelector(".rollback-row");
+  if (selected) selected.focus({ preventScroll: true });
 }
 
-/** 关闭回滚对话框；目标身份一并清掉，避免下次打开沿用上一个文件。 */
+/** 关闭回滚对话框；目标与勾选状态一并清掉，避免下次打开沿用上一次的文件。 */
 function closeRollbackDialog() {
   document.querySelectorAll(".dialog.rollback-dialog").forEach((node) => {
     const owner = node.closest("[data-augit-overlay]") || node;
@@ -9725,6 +9735,196 @@ function closeRollbackDialog() {
   restoreDialogFocus();
 }
 
+function rollbackDialogFiles() {
+  const live = window.__augitLive;
+  return (live && live.status && live.status.files) || [];
+}
+
+function rollbackDialogState() {
+  const live = window.__augitLive;
+  return live && live.rollback && live.rollback.active ? live.rollback : null;
+}
+
+function rollbackCheckedSet(state = rollbackDialogState()) {
+  return new Set(state ? state.checked : []);
+}
+
+function rollbackPathsForNode(node) {
+  if (!node) return [];
+  if (node === "root" || node === "__root__") return rollbackDialogFiles().map((file) => file.path);
+  const files = rollbackDialogFiles();
+  return files
+    .filter((file) => file.path === node || String(file.path).startsWith(`${node}/`))
+    .map((file) => file.path);
+}
+
+function updateRollbackDialogFooter() {
+  const state = rollbackDialogState();
+  const dialog = document.querySelector(".rollback-dialog");
+  if (!state || !dialog) return;
+  const confirm = dialog.querySelector('[data-rollback-action="confirm"]');
+  if (confirm) {
+    confirm.disabled = state.checked.length === 0;
+    confirm.classList.toggle("disabled", confirm.disabled);
+  }
+}
+
+/** 局部重绘树正文；保留滚动位置与指定焦点，避免原生模态窗的捕获刷新把用户拉回顶部。 */
+function renderRollbackDialog(focusSelector = null) {
+  const state = rollbackDialogState();
+  const dialog = document.querySelector(".rollback-dialog");
+  if (!state || !dialog) return;
+  const body = dialog.querySelector(".dialog-body");
+  const tree = body.querySelector(".rollback-tree");
+  const scrollTop = tree ? tree.scrollTop : 0;
+  body.innerHTML = rollbackBodyHtml(rollbackDialogFiles(), state);
+  measureRollbackDialog();
+  const nextTree = body.querySelector(".rollback-tree");
+  if (nextTree) nextTree.scrollTop = scrollTop;
+  updateRollbackDialogFooter();
+  if (focusSelector) (body.querySelector(focusSelector) || dialog.querySelector(focusSelector))?.focus({ preventScroll: true });
+}
+
+function toggleRollbackChecked(target, force = null) {
+  const state = rollbackDialogState();
+  if (!state) return;
+  const checking = force === null ? !rollbackCheckedSet(state).has(target) : force;
+  const paths = rollbackPathsForNode(target);
+  const checked = new Set(state.checked);
+  for (const path of paths) {
+    if (checking) checked.add(path);
+    else checked.delete(path);
+  }
+  state.checked = [...checked];
+}
+
+function handleRollbackDialogClick(event) {
+  const state = rollbackDialogState();
+  const dialog = event.target.closest && event.target.closest(".rollback-dialog");
+  if (!state || !dialog) return false;
+  const toolbar = event.target.closest("[data-rollback-toolbar]");
+  if (toolbar) {
+    event.preventDefault();
+    const action = toolbar.dataset.rollbackToolbar;
+    if (action === "diff" || action === "preview") {
+      showRollbackDiff();
+      return true;
+    }
+    const files = rollbackDialogFiles();
+    if (action === "expand-all") {
+      state.rootCollapsed = false;
+      state.collapsed = [];
+    } else if (action === "collapse-all") {
+      state.rootCollapsed = false;
+      state.collapsed = files
+        .map((file) => {
+          const parts = String(file.path).split("/");
+          return parts.slice(0, -1).join("/");
+        })
+        .filter(Boolean);
+    }
+    renderRollbackDialog(`[data-rollback-toolbar="${action}"]`);
+    return true;
+  }
+
+  const deleteButton = event.target.closest("[data-rollback-delete]");
+  if (deleteButton) {
+    event.preventDefault();
+    if (deleteButton.getAttribute("aria-disabled") === "true") return true;
+    state.deleteLocallyAddedFiles = !state.deleteLocallyAddedFiles;
+    renderRollbackDialog("[data-rollback-delete]");
+    return true;
+  }
+
+  const collapse = event.target.closest("[data-rollback-collapse]");
+  if (collapse) {
+    event.preventDefault();
+    const key = collapse.dataset.rollbackCollapse;
+    if (key === "__root__") state.rootCollapsed = !state.rootCollapsed;
+    else if (state.collapsed.includes(key)) state.collapsed = state.collapsed.filter((path) => path !== key);
+    else state.collapsed = [...state.collapsed, key];
+    renderRollbackDialog(`[data-rollback-collapse="${CSS.escape(key)}"]`);
+    return true;
+  }
+
+  const checkRoot = event.target.closest("[data-rollback-check-root]");
+  if (checkRoot) {
+    event.preventDefault();
+    const all = rollbackDialogFiles();
+    const allChecked = all.length > 0 && all.every((file) => rollbackCheckedSet().has(file.path));
+    toggleRollbackChecked("root", !allChecked);
+    renderRollbackDialog("[data-rollback-check-root]");
+    return true;
+  }
+
+  const checkDir = event.target.closest("[data-rollback-check-dir]");
+  if (checkDir) {
+    event.preventDefault();
+    const key = checkDir.dataset.rollbackCheckDir;
+    const paths = rollbackPathsForNode(key);
+    const allChecked = paths.every((path) => rollbackCheckedSet().has(path));
+    toggleRollbackChecked(key, !allChecked);
+    renderRollbackDialog(`[data-rollback-check-dir="${CSS.escape(key)}"]`);
+    return true;
+  }
+
+  const checkFile = event.target.closest("[data-rollback-check-file]");
+  if (checkFile) {
+    event.preventDefault();
+    const path = checkFile.dataset.rollbackCheckFile;
+    toggleRollbackChecked(path, !rollbackCheckedSet().has(path));
+    renderRollbackDialog(`[data-rollback-check-file="${CSS.escape(path)}"]`);
+    return true;
+  }
+
+  const row = event.target.closest(".rollback-row");
+  if (row) {
+    event.preventDefault();
+    const fileRow = row.querySelector("[data-rollback-file]");
+    if (fileRow) {
+      state.selectedPath = fileRow.dataset.rollbackFile;
+      renderRollbackDialog(`[data-rollback-file="${CSS.escape(state.selectedPath)}"]`);
+    }
+    return true;
+  }
+  return false;
+}
+
+function handleRollbackDialogKeydown(event) {
+  const state = rollbackDialogState();
+  if (!state || !event.target.closest(".rollback-dialog")) return;
+  if (event.key === "Escape") return;
+  const rows = [...document.querySelectorAll(".rollback-dialog .rollback-leaf")];
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    if (rows.length === 0) return;
+    const index = Math.max(0, rows.findIndex((row) => row.querySelector("[data-rollback-file]")?.dataset.rollbackFile === state.selectedPath));
+    const next = event.key === "ArrowDown"
+      ? rows[(index + 1) % rows.length]
+      : rows[(index - 1 + rows.length) % rows.length];
+    state.selectedPath = next.querySelector("[data-rollback-file]").dataset.rollbackFile;
+    renderRollbackDialog(`[data-rollback-file="${CSS.escape(state.selectedPath)}"]`);
+    return;
+  }
+  if (event.key === " " || event.key === "Spacebar") {
+    const row = event.target.closest(".rollback-leaf");
+    if (!row) return;
+    event.preventDefault();
+    const path = row.querySelector("[data-rollback-file]").dataset.rollbackFile;
+    toggleRollbackChecked(path, !rollbackCheckedSet().has(path));
+    renderRollbackDialog(`[data-rollback-file="${CSS.escape(path)}"]`);
+  }
+}
+
+function showRollbackDiff() {
+  const state = rollbackDialogState();
+  const path = state && state.selectedPath;
+  if (!path) return;
+  closeRollbackDialog();
+  // 原生模态窗的平滑关闭先等表单移除的下一帧再重挂；比较视图在关闭后再打开。
+  setTimeout(() => { void openChangeDiff(path); }, 120);
+}
+
 /**
  * 确认回滚：交给宿主执行，随后重新读取真实仓库状态。
  *
@@ -9732,28 +9932,34 @@ function closeRollbackDialog() {
  * 不假装成功、也不自行推断结果——是否移入回收站由宿主的实际动作决定。
  */
 async function confirmRollbackDialog() {
-  const live = window.__augitLive;
-  const path = live && live.rollback ? live.rollback.path : null;
-  if (!path) return;
+  const state = rollbackDialogState();
+  if (!state || state.checked.length === 0) return;
   const button = document.querySelector('[data-rollback-action="confirm"]');
-  if (button) button.disabled = true;
+  const original = button ? button.textContent : "Rollback";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Rolling back…";
+  }
+  state.notice = null;
   let result = null;
   try {
-    result = await invoke("git/rollback", { path }, 60000);
+    result = await invoke("git/rollback", {
+      paths: [...state.checked],
+      deleteLocallyAddedFiles: !!state.deleteLocallyAddedFiles,
+    }, 60000);
   } catch (error) {
     result = { available: true, rolledBack: false, reason: String((error && error.message) || error) };
   }
 
   if (!result || !result.rolledBack) {
-    const notice = document.querySelector(".rollback-dialog .rollback-notice");
-    if (notice) {
-      notice.hidden = false;
-      notice.classList.add("error");
-      notice.textContent = notice.title = describeFailure(
-        (result && result.reason) || "Rollback did not complete.",
-        { unchanged: "File content, Changes, and the commit message are unchanged." });
+    state.notice = describeFailure(
+      (result && result.reason) || "Rollback did not complete.",
+      { unchanged: "File content, Changes, and the commit message are unchanged." });
+    if (button) {
+      button.disabled = false;
+      button.textContent = original;
     }
-    if (button) button.disabled = false;
+    renderRollbackDialog('[data-rollback-action="confirm"]');
     return;
   }
 

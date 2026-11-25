@@ -784,7 +784,8 @@ function measureResetDialog() {
   dialog.style.setProperty('--reset-height', `${height}px`);
 }
 
-// 回滚使用原比较视图；这里只度量确认窗口，不执行真实回滚。
+// Rollback Changes 的默认尺寸来自参考实机（约 380×563 逻辑 px）；大字号时
+// 只增长标题/底栏与字号相关部分，树和滚动区域继续占用剩余高度。
 function measureRollbackDialog() {
   const dialog = document.querySelector('.rollback-dialog');
   if (!dialog) return;
@@ -797,28 +798,33 @@ function measureRollbackDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(34, line + 12), footer = button + 23;
-  const cancel = Math.max(78, text('Cancel') + 26), run = Math.max(116, text('Rollback File') + 26);
-  const width = Math.max(930, cancel + run + 42);
-  const comparison = Math.max(214, Math.max(39, line + 12) + Math.max(55, 2 * Math.max(24, line + 4) + 7) + 96);
-  for (const [name, value] of Object.entries({ header, button, footer, cancel, run, width, line, comparison }))
-    dialog.style.setProperty(`--rollback-${name}`, `${value}px`);
-  dialog.style.setProperty('--rollback-height', `${Math.max(430, header + 15 + dialog.querySelector('.rollback-impact').offsetHeight + 14 + comparison + 8 + footer + 1)}px`);
+  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = button + 16;
+  const close = Math.max(80, text('Close') + 26);
+  const run = Math.max(84, text('Rollback') + 26);
+  const summary = Math.max(22, line + 8);
+  const deleteRow = Math.max(30, line + 12);
+  const width = Math.max(
+    380,
+    text('Delete local copies of added files') + 46,
+    close + run + 42);
+  const height = Math.max(563, header + footer + 8 + 28 + 200 + summary + deleteRow + 6 + line);
+  for (const [name, value] of Object.entries({ header, button, footer, width, height, line, close, run, summary, deleteRow }))
+    dialog.style.setProperty(`--rollback-${name === 'summary' ? 'summary-row' : name === 'deleteRow' ? 'delete-row' : name}`, `${value}px`);
 }
 
 function bindRollbackDialog() {
   const dialog = document.querySelector('.rollback-dialog');
   if (!dialog) return;
   dialog.querySelector('.footer-help')?.remove();
-  dialog.querySelector('.dialog-header > span').title = dialog.querySelector('.dialog-header > span').textContent;
+  const title = dialog.querySelector('.rollback-title');
+  if (title) title.title = title.textContent;
   dialog.setAttribute('aria-modal', 'true');
   const controller = new AbortController(), options = { signal: controller.signal };
-  if (new URLSearchParams(location.search).has('recycle')) dialog.querySelector('.rollback-recycle').hidden = false;
   dialog.querySelector('.dialog-body').addEventListener('focusin', event => event.target.scrollIntoView({ block: 'nearest' }), options);
   dialog.addEventListener('keydown', event => {
     if (event.key !== 'Tab') return;
-    const targets = [...dialog.querySelectorAll('.dialog-body button, .dialog-body [tabindex="0"], .dialog-footer a, .dialog-header a')]
-      .filter(node => !node.disabled && node.getClientRects().length && node.getAttribute('aria-disabled') !== 'true');
+    const targets = [...dialog.querySelectorAll('.rollback-toolbar button:not([disabled]), .rollback-tree [tabindex="0"], .rollback-delete:not([aria-disabled="true"]), .dialog-footer button:not([disabled]), .dialog-header a')]
+      .filter(node => node.getClientRects().length && node.getAttribute('aria-disabled') !== 'true');
     const index = targets.indexOf(document.activeElement), direction = event.shiftKey ? -1 : 1;
     event.preventDefault(); targets[(index + direction + targets.length) % targets.length]?.focus();
   }, options);
@@ -1253,6 +1259,10 @@ const toolbarIconShapes = {
   "eye": '<circle cx="8" cy="8" r="1.5"/><path d="M8 11.5C5.62351 11.5 3.2737 9.94494 2.53088 8C3.2737 6.05506 5.62351 4.5 8 4.5C10.3765 4.5 12.7263 6.05506 13.4691 8C12.7263 9.94494 10.3765 11.5 8 11.5Z"/>',
   "locate-fixed": '<path fill="currentColor" stroke="none" fill-rule="evenodd" clip-rule="evenodd" d="M8.5 5V2.02054C11.4149 2.26101 13.739 4.5851 13.9795 7.5H11C10.7239 7.5 10.5 7.72386 10.5 8S10.7239 8.5 11 8.5H13.9795C13.739 11.4149 11.4149 13.739 8.5 13.9795V11C8.5 10.7239 8.27614 10.5 8 10.5S7.5 10.7239 7.5 11V13.9795C4.5851 13.739 2.26101 11.4149 2.02054 8.5H5C5.27614 8.5 5.5 8.27614 5.5 8S5.27614 7.5 5 7.5H2.02054C2.26101 4.5851 4.5851 2.26101 7.5 2.02054V5C7.5 5.27614 7.72386 5.5 8 5.5S8.5 5.27614 8.5 5ZM1 8C1 4.13401 4.13401 1 8 1S15 4.13401 15 8 11.866 15 8 15 1 11.866 1 8Z"/>',
   "fold-vertical": '<path d="M4.5 2.5 8 6l3.5-3.5M4.5 13.5 8 10l3.5 3.5"/>',
+  // Changes 树右上角的展开/折叠图标：参考实机是上下两个相背/相向的 chevron，
+  // 不是 history-expand 的竖线箭头，也不是 fold-vertical 的内向双箭头。
+  "expand-all": '<path d="M4.5 6.5 8 3l3.5 3.5M4.5 9.5 8 13l3.5-3.5"/>',
+  "collapse-all": '<path d="M4.5 3.5 8 7l3.5-3.5M4.5 12.5 8 9l3.5 3.5"/>',
   // expui/fileTypes/shell.svg 的圆角外框与 1.2px 提示符/下划线几何。
   "square-terminal": '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M7.5 10.5h3M4.5 9.5 6.5 7.5 4.5 5.5"/>',
   // 历史与 Git 历史是两个不同图形：前者是「时钟」（general/history.svg），后者是 VCS 工具窗口的「两空心节点分支图」
@@ -2534,28 +2544,202 @@ function liveResetBody() {
   return `<div class="form-grid"><label for="reset-target">Target commit</label><input id="reset-target" class="text-field" value="${escapeHtml(head)}" aria-label="Reset target commit"><label for="reset-mode">Mode</label><select id="reset-mode" class="select-field"><option value="mixed" selected>Mixed · Reset index</option><option value="soft">Soft · Move HEAD only</option><option value="hard">Hard · Reset index and working tree</option></select></div><div class="inline-alert reset-impact danger"><strong></strong><p class="commit-meta"></p></div><div class="reset-notice" role="status" hidden></div>`;
 }
 
-// 外壳注入真实改动文件时的回滚对话框：目标是右键选中的那个文件
-// （没有显式目标时退回视觉稿原有行为：第一个已跟踪改动）。
-function liveRollbackBody() {
-  const live = window.__augitLive || {};
-  const files = (live.status && live.status.files) || [];
-  const file = live.rollback && live.rollback.path
-    ? files.find((item) => item.path === live.rollback.path) || null
-    : files.find((item) => item.group === "Changes") || files[0] || null;
-  if (!file) {
-    return `<div class="inline-alert danger rollback-impact"><strong>No changes to roll back</strong><p class="commit-meta">No tracked file changes in this workspace.</p></div><div class="rollback-notice" role="status" hidden></div>`;
-  }
-
-  // 规格 §10.4：危险操作必须显示**具体影响**，且未跟踪文件删除必须明确说明进入
-  // Windows 回收站。两种身份的后果不同，不能共用一句笼统说明：
-  // 已跟踪文件是恢复到 HEAD，未跟踪/新增文件没有可恢复版本、只是被移出工作区。
+/**
+ * Rollback Changes 对话框（权威 `RollbackChangesDialog` + `LocalChangesBrowser`）。
+ *
+ * 结构按参考实机：标题行（应用图标 + Rollback Changes）、文件浏览器工具条、
+ * 勾选文件树、按状态的 commit legend、`Delete local copies of added files`，
+ * 底栏是 `Rollback` / `Close`。树和状态都由同一个渲染函数生成，静态视觉稿与
+ * 实时外壳共用，避免两套 DOM 漂移。
+ */
+function rollbackFileIsNew(file) {
   const kind = String(file.kind || "");
-  const recycled = file.group !== "Changes" || kind === "Untracked" || kind === "Added" || file.workTreeStatus === "?";
-  const impact = recycled
-    ? `<strong>This file will be removed from the working tree</strong><p class="commit-meta">This file is untracked or new; no HEAD version can be restored.</p>`
-    : `<strong>All local changes in this file will be discarded</strong><p class="commit-meta">Rollback affects the entire file, including all local changes.</p>`;
-  return `<div class="inline-alert danger rollback-impact">${impact}<p class="rollback-recycle"${recycled ? "" : " hidden"}>Untracked or new files are moved to the Windows Recycle Bin.</p></div><div class="form-grid"><span>File</span><span>${escapeHtml(file.path)}</span><span>Changes</span><span class="file-status-${escapeHtml(String(file.kind).toLowerCase())}">${escapeHtml(file.kind)}</span></div><div class="rollback-notice" role="status" hidden></div>`;
+  return file.group === "UnversionedFiles" || kind === "Untracked" || kind === "Added";
 }
+
+function rollbackFileStatusClass(file) {
+  const kind = String(file.kind || "").toLowerCase();
+  // 未跟踪文件在 IDEA 的 ChangesTree 里仍是文件行；不能给它一个不存在的
+  // `file-status-untracked` 之外的假状态。现有令牌已覆盖 untracked。
+  return `file-status-${kind}`;
+}
+
+
+/** 把扁平改动列表装成 IDEA 的目录树；目录按路径排序，文件按名称排序。 */
+function rollbackTreeModel(files) {
+  const root = { type: "root", name: "Changes", path: "", children: new Map(), files: [] };
+  for (const file of [...files].sort((a, b) => String(a.path).localeCompare(String(b.path)))) {
+    const parts = String(file.path || "").split("/").filter(Boolean);
+    if (parts.length === 0) continue;
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      let child = node.children.get(part);
+      if (!child) {
+        child = {
+          type: "directory",
+          name: part,
+          path: node.path ? `${node.path}/${part}` : part,
+          children: new Map(),
+          files: [],
+        };
+        node.children.set(part, child);
+      }
+      node = child;
+    }
+    node.files.push(file);
+  }
+  return root;
+}
+
+function rollbackNodeFiles(node) {
+  if (node.type === "file") return node.file ? [node.file] : [];
+  return [
+    ...node.files,
+    ...[...node.children.values()].flatMap((child) => rollbackNodeFiles(child)),
+  ];
+}
+
+function rollbackNodeState(node, checkedPaths) {
+  const paths = rollbackNodeFiles(node).map((file) => file.path);
+  const included = paths.filter((path) => checkedPaths.has(path)).length;
+  return included === 0 ? "false" : included === paths.length ? "true" : "mixed";
+}
+
+function rollbackCheckboxHtml(state, attributes) {
+  const cls = state === "true" ? " checked" : state === "mixed" ? " mixed" : "";
+  return `<button class="fake-check${cls}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" ${attributes}></button>`;
+}
+
+function rollbackTreeRows(node, depth, state, checkedPaths) {
+  const root = node.type === "root";
+  const directory = node.type === "directory";
+  const collapsed = root
+    ? !!state.rootCollapsed
+    : state.collapsed.includes(node.path);
+  const checkState = rollbackNodeState(node, checkedPaths);
+  const count = rollbackNodeFiles(node).length;
+  const rowAttributes = root
+    ? 'data-rollback-root role="treeitem" aria-level="1"'
+    : directory
+      ? `data-rollback-dir="${escapeHtml(node.path)}" role="treeitem" aria-level="${depth + 1}"`
+      : `data-rollback-file="${escapeHtml(node.path)}" role="treeitem" aria-level="${depth + 1}"`;
+  const selected = !root && !directory && state.selectedPath === node.path;
+  const rowClass = `rollback-row${root ? " rollback-root" : directory ? " rollback-directory" : " rollback-leaf"}${selected ? " selected" : ""}`;
+  const rowStyle = `--rollback-depth:${depth}`;
+  const disclosure = root || directory
+    ? `<button class="change-chevron" type="button" tabindex="-1" data-rollback-collapse="${root ? "__root__" : escapeHtml(node.path)}" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${collapsed ? "Expand" : "Collapse"} ${escapeHtml(node.name)}">${icon(collapsed ? "chevron-right" : "chevron-down")}</button>`
+    : '<span class="rollback-chevron-spacer" aria-hidden="true"></span>';
+  const checkAttributes = root
+    ? 'data-rollback-check-root'
+    : directory
+      ? `data-rollback-check-dir="${escapeHtml(node.path)}"`
+      : `data-rollback-check-file="${escapeHtml(node.path)}"`;
+  const label = root
+    ? '<strong>Changes</strong>'
+    : directory
+      ? `<span class="folder-icon">${treeFolderIcon(false)}</span><span class="tree-name">${escapeHtml(node.name)}</span>`
+      : `<span class="file-icon">${fileTypeIcon(String(node.name || node.path).split("/").at(-1))}</span><span class="tree-name ${rollbackFileStatusClass(node)}" title="${escapeHtml(gitStatusDescription(node))}">${escapeHtml(String(node.name || node.path).split("/").at(-1))}</span>`;
+  const countHtml = `<span class="rollback-count">${changesFileCount(count)}</span>`;
+  const children = collapsed
+    ? ""
+    : [
+      ...[...node.children.values()].map((child) => rollbackTreeRows(child, depth + 1, state, checkedPaths)),
+      ...node.files
+        .map((file) => rollbackTreeRows({
+          type: "file",
+          name: file.name,
+          path: file.path,
+          kind: file.kind,
+          group: file.group,
+          indexStatus: file.indexStatus,
+          workTreeStatus: file.workTreeStatus,
+          children: new Map(),
+          files: [],
+          file,
+        }, depth + 1, state, checkedPaths)),
+    ].join("");
+  return `<div class="${rowClass}" style="${rowStyle}" ${rowAttributes} tabindex="${selected ? "0" : "-1"}" ${root || directory ? `aria-expanded="${collapsed ? "false" : "true"}"` : `aria-selected="${selected}"`} data-rollback-row>
+    ${disclosure}${rollbackCheckboxHtml(checkState, checkAttributes)}${label}${root || directory ? countHtml : ""}
+  </div>${children}`;
+}
+
+function rollbackTreeHtml(files, state) {
+  if (!files || files.length === 0) {
+    return '<div class="rollback-empty">No changes to roll back</div>';
+  }
+  return rollbackTreeRows(rollbackTreeModel(files), 0, state, new Set(state.checked));
+}
+
+function rollbackSummaryCounts(files, checkedPaths) {
+  const ordered = [
+    ["Modified", "modified", "file-status-modified"],
+    ["Added", "added", "file-status-added"],
+    ["Deleted", "deleted", "file-status-deleted"],
+    ["Renamed", "renamed", "file-status-renamed"],
+    ["Copied", "copied", "file-status-copied"],
+    ["TypeChanged", "type changed", "file-status-typechanged"],
+    ["Untracked", "unversioned", "file-status-untracked"],
+    ["Unmerged", "conflicted", "file-status-unmerged"],
+  ];
+  return ordered.map(([kind, label, className]) => {
+    const count = files.filter((file) => file.kind === kind && checkedPaths.has(file.path)).length;
+    return count > 0 ? `<span class="${className}">${count} ${label}</span>` : "";
+  }).filter(Boolean).join(" · ");
+}
+
+function rollbackSummaryHtml(files, state) {
+  const checked = new Set(state.checked);
+  const summary = rollbackSummaryCounts(files, checked);
+  return summary || '<span class="commit-meta">No files selected</span>';
+}
+
+
+function rollbackBodyHtml(files, state) {
+  const checked = new Set(state.checked);
+  const newFiles = files.filter((file) => rollbackFileIsNew(file));
+  const includedNew = newFiles.some((file) => checked.has(file.path));
+  const deleteChecked = state.deleteLocallyAddedFiles && includedNew;
+  const notice = state.notice
+    ? `<div class="rollback-notice error" role="status">${escapeHtml(String(state.notice))}</div>`
+    : '<div class="rollback-notice" role="status" hidden></div>';
+  return `<div class="rollback-toolbar" role="toolbar" aria-label="Rollback Changes toolbar">
+    <button class="toolbar-button" type="button" data-rollback-toolbar="diff" aria-label="Show Diff" title="Show Diff">${icon("git-compare-arrows")}</button>
+    <button class="toolbar-button" type="button" data-rollback-toolbar="preview" aria-label="Preview Diff" title="Preview Diff">${icon("eye")}</button>
+    <span class="toolbar-separator"></span>
+    <span class="grow"></span>
+    <button class="toolbar-button" type="button" data-rollback-toolbar="expand-all" aria-label="Expand All" title="Expand All">${icon("expand-all")}</button>
+    <button class="toolbar-button" type="button" data-rollback-toolbar="collapse-all" aria-label="Collapse All" title="Collapse All">${icon("collapse-all")}</button>
+  </div>
+  <div class="rollback-tree" role="tree" aria-label="Changes to roll back" tabindex="-1">${rollbackTreeHtml(files, state)}</div>
+  <div class="rollback-summary" aria-live="polite">${rollbackSummaryHtml(files, state)}</div>
+  <button class="check-line rollback-delete" type="button" role="checkbox" aria-checked="${deleteChecked}" data-rollback-delete title="${includedNew ? "New or untracked files are moved to the Windows Recycle Bin." : "Available when a selected file is added or untracked."}"${includedNew ? "" : ' disabled aria-disabled="true"'}>
+    <span class="fake-check${deleteChecked ? " checked" : ""}" aria-hidden="true"></span><span>Delete local copies of added files</span>
+  </button>${notice}`;
+}
+
+/** 静态视觉稿的回滚样例：目录、修改、未跟踪与新增副本选项都能在真实页面上看到。 */
+function rollbackSampleFiles() {
+  return [
+    { path: "ops-server-report-resend/README.md", name: "README.md", directory: "ops-server-report-resend", group: "Changes", kind: "Modified", staged: false, workingTree: true, indexStatus: " ", workTreeStatus: "M" },
+    { path: "ops-server-report-resend/.gitignore", name: ".gitignore", directory: "ops-server-report-resend", group: "Changes", kind: "Modified", staged: false, workingTree: true, indexStatus: " ", workTreeStatus: "M" },
+  ];
+}
+
+function activeRollbackState(files, selectedPath) {
+  return {
+    checked: selectedPath && files.some((file) => file.path === selectedPath)
+      ? [selectedPath]
+      : files.map((file) => file.path),
+    selectedPath: selectedPath && files.some((file) => file.path === selectedPath)
+      ? selectedPath
+      : (files[0] && files[0].path) || null,
+    collapsed: [],
+    rootCollapsed: false,
+    deleteLocallyAddedFiles: files.some((file) => rollbackFileIsNew(file)),
+    notice: null,
+  };
+}
+
 
 /**
  * Diff 加载指示：参考 2026.2.1 的 `DiffRequestProcessor` 在头部放一个不定进度条
@@ -3098,7 +3282,7 @@ function liveProjectTree(selected, live) {
   const rows = live.tree.map((entry) => liveTreeRowHtml(entry, selected, live)).join("");
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("fold-vertical")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
+      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("collapse-all")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="side-content tree" role="tree" aria-label="Project Files">
         ${rows}
       </div>
@@ -3131,7 +3315,7 @@ function projectTree(selected = "product-spec.md", liveRows = null) {
   ];
   return `
     <aside class="tool-window side-tool">
-      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("fold-vertical")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
+      <div class="tool-header"><span>Project</span><span>${icon("chevron-down")}</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="Select Opened File">${icon("locate-fixed")}</button><button class="icon-button" aria-label="Collapse Project Tree">${icon("collapse-all")}</button><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="side-content tree">
         ${rows.map(([depth, chevron, fileIcon, name, path, href]) => {
           // 参考 Project Files 根行直接显示完整工作区路径，不再拼接项目名与路径后缀。
@@ -5275,7 +5459,7 @@ function liveFileHistoryTool() {
   // 区域重绘按状态回填；标签/`aria-pressed` 沿用日志详情那一套既有语义（隐藏时标签是"隐藏提交详情"）。
   const detailsHidden = !!window.__augitLive.fileHistoryDetailsHidden;
   const eyeLabel = detailsHidden ? "Hide Commit Details" : "Show Commit Details";
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content" data-details-hidden="${detailsHidden ? "true" : "false"}"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button" aria-label="${eyeLabel}" aria-pressed="${detailsHidden ? "true" : "false"}">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div>${pane}</div></section>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: ${escapeHtml(fileHistory.path || "")}</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content" data-details-hidden="${detailsHidden ? "true" : "false"}"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("expand-all")}</button><button class="icon-button" aria-label="${eyeLabel}" aria-pressed="${detailsHidden ? "true" : "false"}">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div>${pane}</div></section>`;
 }
 
 /**
@@ -5326,7 +5510,7 @@ function fileHistoryTool() {
     { hash: "commit-3", date: "2026/8/27 19:02", subject: "docs: 补阶段五验收记录", author: "I49", authorEmail: "i49@example.com", committerName: "build-bot", committerEmail: "build@example.invalid" },
   ];
   const rows = sampleRows.map((commit, index) => `<div class="history-row${index === 0 ? " selected" : ""}"><span>${escapeHtml(commit.hash)}</span><span>${escapeHtml(commit.date)}</span>${historyAuthorCell(commit)}<span>${escapeHtml(commit.subject)}</span></div>`).join("");
-  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("history-expand")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
+  return `<section class="bottom-tool"><div class="bottom-header"><span class="bottom-title">Git</span><a class="tool-tab" href="git-history.html">Log</a><button class="tool-tab active">History: product-spec.md</button><span class="grow"></span><button class="icon-button">${icon("ellipsis-vertical")}</button><button class="icon-button">${icon("minus")}</button></div><div class="history-tool-content"><div class="history-list-pane"><div class="history-toolbar"><span>Branch: HEAD</span><button class="icon-button">${icon("x")}</button><span class="toolbar-separator"></span><button class="icon-button">${icon("refresh-cw")}</button><button class="icon-button">${icon("git-compare-arrows")}</button><button class="icon-button">${icon("expand-all")}</button><button class="icon-button">${icon("eye")}</button></div>${fileHistoryColumns()}<div class="history-rows">${rows}</div></div><div class="history-detail-pane">${diffView(true, new URLSearchParams(location.search).get("history-state") || "ready", false, true)}</div></div></section>`;
 }
 
 function terminalTool() {
@@ -5670,9 +5854,12 @@ function dialog(title, body, footer, wide = false, extraClass = "") {
   // scrim 与对话框作为同一个覆盖层整体替换，避免局部刷新后残留其一。
   // 远端使用已批准的实机标题结构，品牌仍为Augit自身标记。
   const remote = extraClass.split(' ').some(name => name === 'remote-dialog' || name === 'remote-define-dialog');
+  const rollback = extraClass.split(' ').some(name => name === 'rollback-dialog');
   const heading = remote
     ? `<span class="brand-mark" aria-hidden="true">A</span><span class="remote-title">${title}</span>`
-    : `<span>${title}</span><span class="grow"></span>`;
+    : rollback
+      ? `<span class="brand-mark" aria-hidden="true">A</span><span class="rollback-title">${title}</span><span class="grow"></span>`
+      : `<span>${title}</span><span class="grow"></span>`;
   return `<div class="overlay-layer" data-augit-overlay><div class="scrim"></div><section class="dialog ${wide ? "wide" : ""} ${extraClass}" role="dialog" aria-label="${title}"><div class="dialog-header">${heading}<a class="icon-button" href="main-project.html" aria-label="Close">${icon("x")}</a></div><div class="dialog-body">${body}</div><div class="dialog-footer"><span class="footer-help"></span>${footer}</div></section></div>`;
 }
 
@@ -6087,10 +6274,14 @@ function renderScene() {
     case "smart-checkout": return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: smartCheckoutScene() });
     case "rollback": {
       const liveStatus = window.__augitLive && window.__augitLive.status;
-      const rollbackFile = liveStatus && liveStatus.files ? (liveStatus.files.find(f => f.group === "Changes") || liveStatus.files[0]) : null;
-      const title = rollbackFile ? `Rollback File · ${rollbackFile.path}` : "Rollback File · src/Augit.App/app.manifest";
-      const body = rollbackFile ? liveRollbackBody() : `<div class="inline-alert danger rollback-impact"><strong>All local changes in this file will be discarded</strong><p class="commit-meta">Rollback affects the entire file, including all local changes.</p><p class="rollback-recycle" hidden>Untracked or new files are moved to the Windows Recycle Bin.</p></div><div class="rollback-comparison">${diffView(true, "ready", true)}</div>`;
-      return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog(title, body, `<a class="secondary-button" href="commit-diff.html">Cancel</a><a class="danger-button" href="operation-progress.html">Rollback File</a>`, true, "rollback-dialog") });
+      const files = liveStatus && Array.isArray(liveStatus.files) && liveStatus.files.length
+        ? liveStatus.files
+        : rollbackSampleFiles();
+      const state = window.__augitLive && window.__augitLive.rollback && window.__augitLive.rollback.active
+        ? window.__augitLive.rollback
+        : activeRollbackState(files, null);
+      const body = rollbackBodyHtml(files, state);
+      return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("Rollback Changes", body, `<button type="button" class="primary-button" data-rollback-action="confirm">Rollback</button><button type="button" class="secondary-button" data-rollback-action="cancel">Close</button>`, false, "rollback-dialog") });
     }
     case "operation-progress": return shell({ activeRail: "commit", side: "commit", editor: "diff", toast: toastMarkup({ title: "Running Smart Checkout…", extra: '<div class="commit-meta">Restoring temporary Stash</div><div class="progress-track"><div class="progress-value"></div></div>', action: { label: "Cancel", href: "operation-result.html" } }) });
     case "terminal-close": return shell({ activeRail: "terminal", side: "project", editor: "text", bottom: "terminal", overlay: dialog("Process 'Terminal Local (2)' Is Running", `<p class="terminal-close-question">Do you want to terminate the process 'Terminal Local (2)'?</p><label class="terminal-close-dont-ask check-line"><input type="checkbox">Don't ask again</label>`, `<a class="primary-button" href="main-project.html">Terminate</a><a class="secondary-button" href="terminal.html">Cancel</a>`, false, "terminal-close-dialog terminal-warning-dialog") });

@@ -2963,7 +2963,8 @@ button:disabled,
 }
 
 .brand-mark {
-  /* 徽标尺寸取权威 ecentProjectAvatarIconSize() = 20（与 .workspace-chip > .brand-mark 一致）。 */
+  /* 徽标尺寸取权威
+ecentProjectAvatarIconSize() = 20（与 .workspace-chip > .brand-mark 一致）。 */
   width: 20px;
   height: 20px;
   border-radius: 3px;
@@ -4282,17 +4283,15 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
    **哪些对话框有图标由权威定性**（第 307 轮，用户裁决"完全参考 intellij-community"）：
    · `Messages` 系的确认/输入对话框用 `getQuestionIcon()` —— 删除 Stash（`GitStashUtils.kt:86`）、
      删除引用（`GitBranchUiHandlerImpl.java:179` 的 `showOkCancelDialog`）、移除 Worktree
-     （`GitCheckoutInOtherWorktreeDialogs.kt:54`）、Reset／Rollback（参考图 Confirm Exit 实测）；
+     （`GitCheckoutInOtherWorktreeDialogs.kt:54`）、Reset（参考图 Confirm Exit 实测）；
    · 自定义 `DialogWrapper`（`GitStashDialog`／`GitCloneDialog`／`GitPushDialog`／`GitNewBranchDialog`）
      都没有 `setIcon` ⇒ 不画标题图标；
    · `GitInit.java:72` 的"已在 Git 下"警告用 `getWarningIcon()` ⇒ 见下面的三角叹号规则。 */
 .reset-dialog .dialog-header,
-.rollback-dialog .dialog-header,
 .stash-drop-dialog .dialog-header,
 .ref-delete-dialog .dialog-header,
 .worktree-remove-dialog .dialog-header { height: auto; padding: 0 12px 0 16px; }
 .reset-dialog .dialog-header::before,
-.rollback-dialog .dialog-header::before,
 .stash-drop-dialog .dialog-header::before,
 .ref-delete-dialog .dialog-header::before,
 .worktree-remove-dialog .dialog-header::before {
@@ -4346,26 +4345,101 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .reset-dialog .reset-run { width: var(--reset-run, 116px); }
 .reset-dialog .text-field:disabled, .reset-dialog .select-field:disabled { color: var(--augit-faint); }
 .rollback-dialog {
-  width: min(var(--rollback-width, 930px), calc(100% - 90px));
-  height: min(var(--rollback-height, 430px), calc(100% - 40px));
+  width: min(var(--rollback-width, 380px), calc(100% - 90px));
+  height: min(var(--rollback-height, 563px), calc(100% - 40px));
   max-height: calc(100% - 40px);
   display: grid;
   grid-template-rows: var(--rollback-header, 45px) minmax(0, 1fr) var(--rollback-footer, 53px);
   border: var(--augit-hairline) solid var(--augit-border-strong);
 }
 .rollback-dialog .dialog-header { height: auto; min-width: 0; padding: 0 12px 0 16px; }
-.rollback-dialog .dialog-header > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rollback-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
-.rollback-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }
-.rollback-dialog .rollback-impact { min-height: 81px; padding: 6px 12px; }
-.rollback-dialog .rollback-impact :is(strong, p) { white-space: normal; overflow-wrap: anywhere; line-height: var(--rollback-line, 18px); font-size: inherit; }
-.rollback-dialog .rollback-impact strong { display: block; }
-.rollback-dialog .rollback-impact p { margin: 4px 0 0; }
-.rollback-dialog .rollback-comparison { margin-top: 14px; height: var(--rollback-comparison, 214px); overflow: hidden; }
-.rollback-dialog .dialog-footer { min-height: 0; padding: 0 12px; /* 权威 DialogWrapper.java:1522 empty(0,12,8,12) */ }
-.rollback-dialog .dialog-footer a { flex: none; height: var(--rollback-button, 34px); padding: 0; white-space: nowrap; }
-.rollback-dialog .secondary-button { width: var(--rollback-cancel, 78px); }
-.rollback-dialog .danger-button { width: var(--rollback-run, 116px); }
+.rollback-dialog .dialog-header .brand-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  font-size: 8px;
+}
+.rollback-dialog .rollback-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rollback-dialog .dialog-header .icon-button { flex: none; width: 32px; height: 31px; color: var(--augit-text); border-radius: 0; }
+.rollback-dialog .dialog-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: var(--rollback-toolbar, 28px) minmax(0, 1fr) auto auto auto;
+  row-gap: 0;
+  padding: 8px 14px 6px;
+  overflow: hidden;
+}
+.rollback-dialog .rollback-toolbar { display: flex; align-items: center; min-width: 0; gap: 1px; }
+.rollback-dialog .rollback-toolbar .toolbar-button { flex: none; width: 27px; height: 27px; }
+.rollback-dialog .rollback-toolbar .toolbar-separator { flex: none; width: 1px; height: 16px; margin: 0 4px; background: var(--augit-border); }
+.rollback-dialog .rollback-tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 2px;
+  border: var(--augit-hairline) solid var(--augit-border);
+  border-radius: 2px;
+  background: var(--augit-panel);
+}
+.rollback-dialog .rollback-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--augit-tree-height, 24px);
+  min-height: var(--augit-tree-height, 24px);
+  padding: 0 4px 0 calc(2px + var(--augit-tree-indent, 19px) * var(--rollback-depth, 0));
+  border-radius: 4px;
+  color: var(--augit-text);
+  white-space: nowrap;
+  cursor: default;
+}
+.rollback-dialog .rollback-row.selected { background: var(--augit-blue-soft); }
+.rollback-dialog .rollback-row:focus,
+.rollback-dialog .rollback-row:focus-visible { outline: none; }
+.rollback-dialog .rollback-row .change-chevron { flex: 0 0 16px; width: 16px; height: 20px; }
+.rollback-dialog .rollback-chevron-spacer { flex: 0 0 16px; width: 16px; height: 20px; }
+.rollback-dialog .rollback-row .fake-check { flex: none; margin-right: 2px; }
+.rollback-dialog .rollback-row :is(.file-icon, .folder-icon) { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
+.rollback-dialog .rollback-count { margin-left: 4px; color: var(--augit-muted); font-size: inherit; }
+.rollback-dialog .rollback-root strong { font-weight: 600; }
+.rollback-dialog .rollback-empty { padding: 8px 6px; color: var(--augit-muted); }
+.rollback-dialog .rollback-summary {
+  min-height: var(--rollback-summary-row, 22px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+}
+.rollback-dialog .rollback-summary .commit-meta { font-size: inherit; }
+.rollback-dialog .rollback-delete {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: 100%;
+  min-height: var(--rollback-delete-row, 30px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--augit-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rollback-dialog .rollback-delete .fake-check { pointer-events: none; flex: none; }
+.rollback-dialog .rollback-delete:is(:disabled, [aria-disabled="true"]) { color: var(--augit-faint); cursor: default; }
+.rollback-dialog .rollback-notice { margin-top: 6px; max-height: 56px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rollback-dialog .dialog-footer { min-height: 0; align-items: flex-end; padding: 0 12px; }
+.rollback-dialog .dialog-footer button { flex: none; height: var(--rollback-button, 37px); padding: 0; white-space: nowrap; }
+.rollback-dialog .secondary-button { width: var(--rollback-close, 80px); }
+.rollback-dialog .primary-button { width: var(--rollback-run, 84px); }
+.rollback-dialog .dialog-header .icon-button:hover { background: var(--augit-hover); }
+
 .stash-dialog .dialog-header { height: auto; padding: 0 12px; /* 无图标，保持原预留值 */ }
 .stash-dialog .dialog-header a { flex: none; width: 32px; height: 31px; }
 .stash-dialog .dialog-body { min-height: 0; padding: 8px 12px; /* 权威 getRegularPanelInsets() = (8,12,8,12) */ overflow: auto; }

@@ -2,6 +2,12 @@
 
 本文件记录用户可见的发布变化。版本号遵循 `1.0.0-rc.N` 候选线；正式 1.0 之前不承诺兼容性。
 
+## [Unreleased]
+
+### Changed
+
+- Git 回滚对话框按 IDEA `RollbackChangesDialog` 整改为 `Rollback Changes` 多文件勾选树：按目录分组、根/目录半选、状态计数、`Delete local copies of added files`、Rollback/Close；新增/未跟踪文件在未勾选删除副本时保留本地文件。所有 Changes 工具栏和右键入口共用，不再显示旧版单文件红色警告+比较视图。
+
 ## [1.0.0-rc.14] - 2026-11-19
 
 ### Fixed

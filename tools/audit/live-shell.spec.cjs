@@ -360,7 +360,7 @@ async function main() {
       }
       if (method === 'git/rollback') {
         // 回滚（规格 §10.4）：记录调用与目标路径，支持注入失败。
-        window.__rollbackCalls = (window.__rollbackCalls || []).concat([params.path]);
+        window.__rollbackCalls = (window.__rollbackCalls || []).concat([{ paths: params.paths, deleteLocallyAddedFiles: params.deleteLocallyAddedFiles }]);
         if (window.__rollbackDelays) await new Promise((r) => setTimeout(r, window.__rollbackDelays));
         if (window.__rollbackFails) {
           throw new Error('Git 回滚失败：索引被锁定（.git/index.lock 存在）。');
@@ -4952,10 +4952,21 @@ async function main() {
 
     // ---- Rollback 对话框 ----
     const rollback = await openScene('scene=rollback&theme=dark');
-    await rollback.page.waitForSelector('.dialog[aria-label^="Rollback File"]', { timeout: 10000 });
-    const rollbackTitle = await rollback.page.locator('.dialog[aria-label^="Rollback File"]').getAttribute('aria-label');
-    check('回滚标题显示真实文件: ' + rollbackTitle, rollbackTitle.includes('src/App.cs') || rollbackTitle.includes('README.md'));
-    check('回滚对话框不残留样例路径', !rollbackTitle.includes('app.manifest'));
+    await rollback.page.waitForSelector('.dialog.rollback-dialog', { timeout: 10000 });
+    const rollbackProbe = await rollback.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.rollback-dialog');
+      return {
+        title: dialog.getAttribute('aria-label'),
+        rows: dialog.querySelectorAll('.rollback-row').length,
+        files: [...dialog.querySelectorAll('.rollback-leaf')].map((row) => row.dataset.rollbackFile),
+        summary: (dialog.querySelector('.rollback-summary') || {}).textContent || '',
+      };
+    });
+    check('回滚标题固定为 Rollback Changes: ' + rollbackProbe.title, rollbackProbe.title === 'Rollback Changes');
+    check('回滚使用真实改动树: ' + JSON.stringify(rollbackProbe.files),
+      rollbackProbe.rows > 1 && rollbackProbe.files.length > 0
+        && rollbackProbe.files.every((path) => typeof path === 'string' && !path.includes('app.manifest')));
+    check('回滚树有状态计数: ' + JSON.stringify(rollbackProbe.summary), /\d+ (modified|added|unversioned|deleted|renamed)/.test(rollbackProbe.summary));
     await rollback.page.close();
 
     // ---- 工作区差异视图 ----
@@ -11676,10 +11687,10 @@ async function main() {
     check('Blame 读取归属并进入该视图: ' + JSON.stringify(bl), bl.calls === 1 && bl.editor === 'blame');
     await ctx.page.close();
 
-    // ---- 规格 §10.4：回滚必须显示具体影响并确认 ----
-    // 此前 Changes 右键菜单里的「回滚…」落在"其余条目"分支：菜单关掉、什么都不发生。
-    // 危险操作既没有确认、也没有影响说明，更没有未跟踪文件的回收站说明。
-    // 用收集式断言：退回修复时一次运行就能看到整块的全部失败，不必因 fail-fast 反复重跑。
+    // ---- 规格 §10.4：IDEA RollbackChangesDialog 的多文件回滚树 ----
+    // 旧实现是单文件红色警告 + 比较视图；现在必须是可勾选的多文件树、状态
+    // commit legend、Delete local copies 与 Rollback/Close。用收集式断言：退回修复时
+    // 一次运行就能看到整块的全部失败，不必因 fail-fast 反复重跑。
     const rbSoft = [];
     const rbCheck = (label, condition) => {
       if (condition) { passed++; return; }
@@ -11703,7 +11714,6 @@ async function main() {
         row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 90 }));
       }, group);
       await rb.page.waitForSelector('.changes-menu', { timeout: 8000 });
-      // 菜单项顺序按权威（见上）：回滚=0、显示 Diff=1、Blame=2、文件历史=3…
       await rb.page.evaluate(() => {
         document.querySelectorAll('.changes-menu .menu-item')[0].dispatchEvent(
           new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -11711,31 +11721,47 @@ async function main() {
       await rb.page.waitForSelector('.dialog.rollback-dialog', { timeout: 8000 });
       return rb.page.evaluate(() => {
         const dialog = document.querySelector('.dialog.rollback-dialog');
-        const recycle = dialog.querySelector('.rollback-recycle');
-        const cells = [...dialog.querySelectorAll('.form-grid > span')];
+        const deleteButton = dialog.querySelector('[data-rollback-delete]');
+        const confirm = dialog.querySelector('[data-rollback-action="confirm"]');
         return {
           title: dialog.getAttribute('aria-label'),
-          impact: (dialog.querySelector('.rollback-impact strong') || {}).textContent || null,
-          recycleHidden: recycle ? recycle.hidden : null,
-          recycleText: recycle ? recycle.textContent : null,
-          file: cells.length > 1 ? cells[1].textContent : null,
-          confirm: (dialog.querySelector('[data-rollback-action="confirm"]') || {}).textContent || null,
-          focused: document.activeElement && document.activeElement.dataset
-            ? document.activeElement.dataset.rollbackAction : null,
+          fileRows: [...dialog.querySelectorAll('.rollback-leaf')].map((row) => row.dataset.rollbackFile),
+          checked: [...dialog.querySelectorAll('.rollback-leaf .fake-check[aria-checked="true"]')]
+            .map((checkbox) => checkbox.closest('.rollback-leaf').dataset.rollbackFile),
+          selected: (dialog.querySelector('.rollback-leaf.selected') || {}).dataset?.rollbackFile || null,
+          summary: (dialog.querySelector('.rollback-summary') || {}).textContent || null,
+          deleteChecked: deleteButton ? deleteButton.getAttribute('aria-checked') : null,
+          deleteDisabled: deleteButton ? deleteButton.getAttribute('aria-disabled') : null,
+          confirm: confirm ? confirm.textContent : null,
           menus: document.querySelectorAll('.changes-menu').length,
         };
       });
     };
 
     const rbTracked = await openRollbackOn('Changes');
-    rbCheck('回滚确认显示已跟踪文件的具体影响与动作名: '
-      + JSON.stringify([rbTracked.title, rbTracked.impact, rbTracked.confirm]),
-    typeof rbTracked.title === 'string' && rbTracked.title.includes('Rollback File')
-      && typeof rbTracked.impact === 'string' && rbTracked.impact.includes('discarded')
-      && rbTracked.confirm === 'Rollback File');
-    rbCheck('已跟踪文件的回滚不显示回收站说明: ' + JSON.stringify(rbTracked.recycleHidden),
-      rbTracked.recycleHidden === true);
+    rbCheck('回滚标题为 IDEA 的 Rollback Changes: ' + JSON.stringify(rbTracked.title),
+      rbTracked.title === 'Rollback Changes');
+    rbCheck('回滚打开多文件勾选树: ' + JSON.stringify(rbTracked.fileRows),
+      rbTracked.fileRows.length > 0 && rbTracked.checked.length === 1
+        && rbTracked.fileRows.includes(rbTracked.selected));
+    rbCheck('回滚显示状态 commit legend: ' + JSON.stringify(rbTracked.summary),
+      typeof rbTracked.summary === 'string' && /\d+ (modified|added|deleted|unversioned)/.test(rbTracked.summary));
+    rbCheck('已跟踪文件不显示删除副本选项为可用: ' + JSON.stringify([rbTracked.deleteChecked, rbTracked.deleteDisabled]),
+      rbTracked.deleteChecked === 'false' && rbTracked.deleteDisabled === 'true');
+    rbCheck('回滚主操作使用 Rollback 文案: ' + JSON.stringify(rbTracked.confirm), rbTracked.confirm === 'Rollback');
     rbCheck('打开回滚确认后右键菜单已关闭: ' + JSON.stringify(rbTracked.menus), rbTracked.menus === 0);
+
+    // 根勾选应一次选中整棵树，并更新状态计数。
+    const rbAllChecked = await rb.page.evaluate(() => {
+      document.querySelector('[data-rollback-check-root]').click();
+      return {
+        checked: [...document.querySelectorAll('.rollback-leaf .fake-check[aria-checked="true"]')]
+          .map((checkbox) => checkbox.closest('.rollback-leaf').dataset.rollbackFile),
+        summary: document.querySelector('.rollback-summary').textContent || '',
+      };
+    });
+    rbCheck('根勾选选择整棵改动树: ' + JSON.stringify(rbAllChecked),
+      rbAllChecked.checked.length === rbTracked.fileRows.length && rbAllChecked.summary.length > 0);
 
     // 取消：不请求宿主，对话框关闭且状态清理干净。
     const rbCallsBefore = await rb.page.evaluate('(window.__rollbackCalls || []).length');
@@ -11753,14 +11779,14 @@ async function main() {
       + JSON.stringify([rbCancelled.dialogs, rbCancelled.calls, rbCancelled.state]),
     rbCancelled.dialogs === 0 && rbCancelled.calls === rbCallsBefore && rbCancelled.state === null);
 
-    // 未跟踪文件：必须明确说明进入 Windows 回收站（§10.4 第三条）。
+    // 未跟踪文件：删除副本选项可用且默认勾选，确认时带 deleteLocallyAddedFiles。
     const rbUntracked = await openRollbackOn('Unversioned Files');
-    rbCheck('未跟踪文件的回滚说明进入回收站: '
-      + JSON.stringify([rbUntracked.file, rbUntracked.impact, rbUntracked.recycleHidden, rbUntracked.recycleText]),
-    rbUntracked.file === 'notes/draft.txt' && rbUntracked.recycleHidden === false
-      && typeof rbUntracked.recycleText === 'string' && rbUntracked.recycleText.includes('Recycle Bin'));
+    rbCheck('未跟踪文件的删除副本选项可用: ' + JSON.stringify([rbUntracked.deleteChecked, rbUntracked.deleteDisabled]),
+      rbUntracked.deleteChecked === 'true' && rbUntracked.deleteDisabled === null);
+    rbCheck('未跟踪文件初始行被选中: ' + JSON.stringify(rbUntracked.selected),
+      typeof rbUntracked.selected === 'string' && rbUntracked.fileRows.includes(rbUntracked.selected));
 
-    // 确认：调用宿主并带上目标路径，成功后关闭对话框并重新读取状态。
+    // 确认：调用宿主并带上勾选路径及删除副本选项，成功后关闭并重新读取状态。
     const rbStatusBefore = await rb.page.evaluate('window.__statusCalls || 0');
     await rb.page.evaluate(() => {
       document.querySelector('[data-rollback-action="confirm"]').dispatchEvent(
@@ -11774,8 +11800,10 @@ async function main() {
       state: window.__augitLive.rollback || null,
       url: location.href,
     }));
-    rbCheck('确认回滚调用宿主并带上目标路径: ' + JSON.stringify(rbConfirmed.calls),
-      rbConfirmed.calls.length === 1 && rbConfirmed.calls[0] === 'notes/draft.txt');
+    rbCheck('确认回滚调用宿主并带上勾选路径/删除副本: ' + JSON.stringify(rbConfirmed.calls),
+      rbConfirmed.calls.length === 1
+        && Array.isArray(rbConfirmed.calls[0].paths) && rbConfirmed.calls[0].paths.length === 1
+        && rbConfirmed.calls[0].deleteLocallyAddedFiles === true);
     rbCheck('确认后关闭对话框、清理目标并重新读取状态: '
       + JSON.stringify([rbConfirmed.dialogs, rbConfirmed.state, rbStatusBefore]),
     rbConfirmed.dialogs === 0 && rbConfirmed.state === null);
@@ -11788,7 +11816,6 @@ async function main() {
       document.querySelector('[data-rollback-action="confirm"]').dispatchEvent(
         new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
-    // 轮询而不是硬等：失败提示缺失时应当由断言报出，而不是超时中断整条套件。
     for (let i = 0; i < 20; i += 1) {
       const shown = await rb.page.evaluate(
         () => !!document.querySelector('.rollback-dialog .rollback-notice:not([hidden])'));
@@ -14074,15 +14101,20 @@ async function main() {
     await ctb.page.waitForSelector('.dialog.rollback-dialog', { timeout: 8000 }).catch(() => {});
     const ctbRollback = await ctb.page.evaluate(() => {
       const dialog = document.querySelector('.dialog.rollback-dialog');
-      const cells = dialog ? [...dialog.querySelectorAll('.form-grid > span')] : [];
+      const selected = dialog ? dialog.querySelector('.rollback-leaf.selected') : null;
       return {
         dialog: !!dialog,
-        file: cells.length > 1 ? cells[1].textContent : null,
+        title: dialog ? dialog.getAttribute('aria-label') : null,
+        file: selected ? selected.dataset.rollbackFile : null,
+        checked: dialog ? [...dialog.querySelectorAll('.rollback-leaf .fake-check[aria-checked="true"]')]
+          .map((checkbox) => checkbox.closest('.rollback-leaf').dataset.rollbackFile) : [],
         rollbackCalls: (window.__rollbackCalls || []).length,
       };
     });
-    ctbCheck('工具栏「Rollback」打开该文件的确认对话框且未直接调用宿主: ' + JSON.stringify(ctbRollback),
-      ctbRollback.dialog === true && ctbRollback.file === 'src/App.cs' && ctbRollback.rollbackCalls === 0);
+    ctbCheck('工具栏「Rollback」打开该文件的 Rollback Changes 且未直接调用宿主: ' + JSON.stringify(ctbRollback),
+      ctbRollback.dialog === true && ctbRollback.title === 'Rollback Changes'
+        && ctbRollback.file === 'src/App.cs' && ctbRollback.checked.includes('src/App.cs')
+        && ctbRollback.rollbackCalls === 0);
     await ctb.page.close();
     if (ctbSoft.length > 0) {
       throw new Error('断言失败：' + ctbSoft.join(' | '));
