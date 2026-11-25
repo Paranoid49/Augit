@@ -1,0 +1,2822 @@
+{
+  "verified": false,
+  "theme": "Light",
+  "cycles": 2,
+  "dpi": null,
+  "entry": "isolated-explicit",
+  "exe": "D:\\github\\Augit\\src\\Augit.Shell\\bin\\Debug\\net10.0-windows\\win-x64\\Augit.exe",
+  "workspace": "D:\\github\\Augit",
+  "recording": "D:\\github\\Augit\\artifacts\\modal-transition-2026-11-25\\negative-prefix-1\\modal-transition-light.mkv",
+  "temporary": "C:\\Users\\wl024\\AppData\\Local\\Temp\\Augit-modal-transition-Dyll0j",
+  "steps": [],
+  "limits": [
+    "只覆盖 Format JSON 开关路径（所有普通模态共用 ShellModalHost）；未覆盖拖拽/缩放、背景刷新和系统睡眠恢复"
+  ],
+  "executable": {
+    "path": "D:\\github\\Augit\\src\\Augit.Shell\\bin\\Debug\\net10.0-windows\\win-x64\\Augit.exe",
+    "sha256": "33835B4614D53F14AC3BECDF6D724B48AD320273B5FFF02792F93E0B927F71CC"
+  },
+  "assemblies": {
+    "Augit.dll": "CF9314A3ECB435703C806426B6A5481F42363D169BD463C0EEF5B6E367F33241",
+    "Augit.Core.dll": "BB6ECD18AECEA094603D87C16658C09CC74E537DF5D3192C8CA0F2CC7BA1DFA5",
+    "Augit.Infrastructure.dll": "2A700A53763E88C6EE55FF85079759E360472A21D7906F8DBD8DCCF7B1EDBE0F"
+  },
+  "webAssets": {
+    "web/src/live-data.js": "272F4F74F7CB0C0EB59643F0EB473C377B942F7811E65FDCA91E2FE50F8BDA4A",
+    "web/src/mockup.js": "4A17B45B583D0693A46A06EAB6BFD67C5430CD0D31BE2BCCC4A1723D263B09DC",
+    "web/src/mockup.css": "3EF8ECCCA91D022D452E5C395DD3BDD414FBD7D2D45F9180F3AFA9061679738E"
+  },
+  "pid": 23376,
+  "port": 55132,
+  "window": {
+    "handle": 9242414,
+    "top": 80,
+    "dpi": 192,
+    "foregroundPid": 5564,
+    "left": 80,
+    "bottom": 1600,
+    "right": 2440,
+    "viewport": [
+      1180,
+      760,
+      2
+    ],
+    "topmostForCapture": true
+  },
+  "events": [
+    {
+      "label": "initial",
+      "t": 12,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-before-open",
+      "t": 15,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 69,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 210,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 345,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 470,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 613,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 737,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 876,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1005,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1151,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1279,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1497,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1631,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1806,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 1948,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2082,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2213,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2343,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2474,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2605,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2784,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 2982,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": null,
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-opened",
+      "t": 3128,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": true,
+        "nativeWindow": true,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-open-stable",
+      "t": 4036,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": true,
+        "nativeWindow": true,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4080,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4206,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4334,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4465,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4623,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4752,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 4883,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 5021,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 5146,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 5301,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed",
+      "t": 5427,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle0-closed-stable",
+      "t": 6348,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-before-open",
+      "t": 7764,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 7829,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 7960,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8097,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8244,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8382,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8514,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8644,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8776,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 8919,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 9166,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 9307,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 9433,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 9564,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 9706,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 10011,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-1",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 18810682,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 18810682
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-opened",
+      "t": 10157,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": true,
+        "nativeWindow": true,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-open-stable",
+      "t": 11099,
+      "state": {
+        "dialogs": 1,
+        "nativeActive": true,
+        "nativeWindow": true,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11162,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11291,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11435,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11562,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11698,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 11871,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12012,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12143,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12274,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12405,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12529,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12655,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 12850,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 13020,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": true,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed",
+      "t": 13151,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "cycle1-closed-stable",
+      "t": 14064,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    },
+    {
+      "label": "final",
+      "t": 15369,
+      "state": {
+        "dialogs": 0,
+        "nativeActive": false,
+        "nativeWindow": false,
+        "last": {
+          "active": true,
+          "backgroundHash": "884EBEEDC21C8E78D7B1F645E5D06C7CA9DFF460920017FD0CC5F9A3EDD73C0D",
+          "backgroundImageRevision": 0,
+          "backgroundLoadedRevision": 0,
+          "captureCoverBytes": 0,
+          "captureCoverReady": false,
+          "captureCoverTiming": {
+            "captureMilliseconds": 0,
+            "controllerMilliseconds": 0,
+            "navigationMilliseconds": 0,
+            "readyMilliseconds": 0
+          },
+          "captureCoverTopmostChild": false,
+          "captureCoverWindow": 0,
+          "captureCoverWindowVisible": false,
+          "depth": 1,
+          "key": "modal-2",
+          "liveBounds": {
+            "height": 1520,
+            "width": 2360,
+            "x": -140,
+            "y": -80
+          },
+          "liveControllerVisible": true,
+          "owner": 9242414,
+          "ownerEnabled": false,
+          "ownerWindow": 9242414,
+          "parentWindow": 15271592,
+          "rect": {
+            "height": 1360,
+            "width": 2080,
+            "x": 220,
+            "y": 160
+          },
+          "snapshotCount": 1,
+          "snapshotRevision": 0,
+          "snapshotStreamBytes": 247764,
+          "visible": true,
+          "window": 15271592
+        },
+        "errors": []
+      }
+    }
+  ],
+  "modalRectPhysical": {
+    "height": 1360,
+    "width": 2080,
+    "x": 220,
+    "y": 160
+  },
+  "pageErrors": [],
+  "foregroundSamples": [
+    {
+      "cycle": 0,
+      "foregroundPid": 5564
+    },
+    {
+      "cycle": 1,
+      "foregroundPid": 5564
+    }
+  ],
+  "analysisError": "逻辑状态数量不符：[{\"kind\":\"dark-run\",\"run\":7,\"start\":520,\"end\":522,\"mean\":22.347,\"darkFraction\":0.911864},{\"kind\":\"state-content-mismatch\",\"run\":7,\"classification\":\"dialog\",\"fraction\":0.952694,\"limit\":0.05},{\"kind\":\"state-count\",\"actual\":7,\"expected\":5,\"classifications\":\"main,main,dialog,dialog,main,main,main,dialog,main,dialog,dialog,main,main\"}]",
+  "closeMethod": "CloseMainWindow",
+  "temporaryRemoved": true,
+  "appExited": true,
+  "recordingLog": "apsed=0:00:08.79    \rframe=  466 fps= 50 q=-0.0 size=   99072KiB time=00:00:09.23 bitrate=87885.8kbits/s speed=0.993x elapsed=0:00:09.30    \rframe=  495 fps= 50 q=-0.0 size=  107264KiB time=00:00:09.82 bitrate=89477.7kbits/s speed=   1x elapsed=0:00:09.82    \rframe=  522 fps= 50 q=-0.0 size=  112896KiB time=00:00:10.34 bitrate=89416.6kbits/s speed=   1x elapsed=0:00:10.34    \rframe=  547 fps= 50 q=-0.0 size=  117504KiB time=00:00:10.80 bitrate=89096.9kbits/s speed=0.993x elapsed=0:00:10.87    \rframe=  574 fps= 50 q=-0.0 size=  121856KiB time=00:00:11.39 bitrate=87603.1kbits/s speed=   1x elapsed=0:00:11.39    \rframe=  599 fps= 50 q=-0.0 size=  124672KiB time=00:00:11.89 bitrate=85853.5kbits/s speed=0.999x elapsed=0:00:11.90    \rframe=  624 fps= 50 q=-0.0 size=  127488KiB time=00:00:12.39 bitrate=84274.5kbits/s speed=0.997x elapsed=0:00:12.42    \rframe=  645 fps= 50 q=-0.0 size=  133120KiB time=00:00:12.87 bitrate=84722.0kbits/s speed=0.994x elapsed=0:00:12.95    \rframe=  675 fps= 50 q=-0.0 size=  141312KiB time=00:00:13.43 bitrate=86154.1kbits/s speed=0.998x elapsed=0:00:13.46    \rframe=  693 fps= 50 q=-0.0 size=  144128KiB time=00:00:13.85 bitrate=85190.3kbits/s speed=0.991x elapsed=0:00:13.99    \rframe=  727 fps= 50 q=-0.0 size=  152320KiB time=00:00:14.50 bitrate=86036.4kbits/s speed=0.999x elapsed=0:00:14.51    \rframe=  751 fps= 50 q=-0.0 size=  157696KiB time=00:00:14.99 bitrate=86156.8kbits/s speed=0.998x elapsed=0:00:15.03    \rframe=  781 fps= 50 q=-0.0 size=  163328KiB time=00:00:15.55 bitrate=86031.0kbits/s speed=   1x elapsed=0:00:15.55    \rframe=  807 fps= 50 q=-0.0 size=  171520KiB time=00:00:16.03 bitrate=87614.7kbits/s speed=0.998x elapsed=0:00:16.07    \r\r\n\r\n[q] command received. Exiting.\r\n\r\n[out#0/matroska @ 00000183ad473900] video:179587KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.005406%\r\nframe=  839 fps= 51 q=-0.0 Lsize=  179596KiB time=00:00:16.59 bitrate=88657.1kbits/s speed=   1x elapsed=0:00:16.59    \r\n"
+}

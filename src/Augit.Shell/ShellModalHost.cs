@@ -134,6 +134,12 @@ internal sealed class ShellModalHost : IDisposable
         Margins margins = new() { Left = 1, Right = 1, Top = 1, Bottom = 1 };
         _ = DwmExtendFrameIntoClientArea(window, ref margins);
         ApplyRoundedRegion(surface);
+        // 关闭时不能让系统给模态窗做整窗淡出过渡：过渡期间旧表单以半透明叠在所有者快照上，
+        // 实测约 160ms／10 帧残影，违反规格 §5.3「打开和关闭都不显示透明帧」。
+        // 本机 PyCharm 参考实机用自身遮罩动画过渡对话框，而不是把旧表单淡出到下层快照；
+        // 且 Augit 的遮罩按规格保持透明。本窗口已有 cloak + 首帧屏障，不需要系统过渡。
+        int transitionsDisabled = 1;
+        _ = DwmSetWindowAttribute(window, 3, ref transitionsDisabled, sizeof(int));
         try
         {
             // 先以DWM cloak隐藏新窗口，等同一 WebView2 在裁切窗内完成首帧合成后再揭示。
@@ -141,6 +147,16 @@ internal sealed class ShellModalHost : IDisposable
             SetDwmCloaked(window, true);
             try
             {
+                // 背景副本与当前业务界面是同一画面；先让它完成合成，再移走业务控制器，
+                // 所有者窗口（及父模态的客户区）才不会在两层交接时露出无子窗的黑底。
+                try { await snapshot.ShowBackgroundAsync(parent, scale); }
+                catch (Exception exception) when (exception is COMException or InvalidOperationException or ObjectDisposedException)
+                {
+                    // 屏障失败不阻止呈现：图片已加载，显示后至少不会露出空白控制器。
+                    System.Diagnostics.Trace.TraceError("等待模态背景首帧失败：{0}", exception);
+                }
+                // 等待合成期间用户可能关闭或重新呈现；继续重挂会把已过期的窗口当成当前表面。
+                if (_disposed || !_operations.IsCurrent(generation)) throw new InvalidOperationException("模态呈现已过期。");
                 _live.ParentWindow = window;
                 SyncLiveBounds();
                 EnableWindow(parent, false);
@@ -187,7 +203,12 @@ internal sealed class ShellModalHost : IDisposable
             try
             {
                 if (_disposed || !_operations.IsCurrent(generation)) throw new InvalidOperationException("快照创建已过期。");
-                // 背景首图就绪前透出仍在原窗的业务界面，避免空白控制器覆盖整窗。
+                // 首图就绪前控制器不能铺满客户区：透明控制器不会透出下层业务控制器，
+                // 而是把所宿主窗口的无画刷客户区画成黑块。实测 DPI 200% 时新控制器创建后
+                // 主窗整块闪黑 3~6 帧（50~100ms），正是“打开模态时主界面闪烁”的可见来源。
+                // 也不能靠 IsVisible=false 或移到父窗裁剪区外规避：未参与屏幕合成的
+                // WebView2 会停住渲染，首图 onload 后的两帧 rAF 确认一直等不到。
+                // 容器构建完成后先由 ParkForFirstFrame 缩成 2×2 物理像素等待首图。
                 created.DefaultBackgroundColor = System.Drawing.Color.Transparent;
                 // 隐藏子窗的空页导航与PNG捕获并行；图片定尺后才装入，不提前显示。
                 if (captureCover)
@@ -237,7 +258,11 @@ internal sealed class ShellModalHost : IDisposable
             controller.CoreWebView2.Settings.AreDevToolsEnabled = false;
             controller.CoreWebView2.Settings.IsStatusBarEnabled = false;
             controller.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
-            snapshot.Sync(parent, captureScale);
+            // 背景副本先停在 2×2 物理像素等待首图；首图确认后由呈现路径移入完整客户区
+            // 并做合成屏障。遮盖不需要这一步：它挂在自身隐藏的子窗上，由 ShowCoverAsync
+            // 控制显示时机。
+            if (captureCover) snapshot.Sync(parent, captureScale);
+            else snapshot.ParkForFirstFrame(captureScale);
             double left = clip?.Left / captureScale ?? 0;
             double top = clip?.Top / captureScale ?? 0;
             string offsetX = left.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -689,6 +714,29 @@ internal sealed class ShellModalHost : IDisposable
             Visible = visible;
         }
         internal Task<bool> Ready => _ready.Task;
+        /// <summary>
+        /// 首图确认后把背景副本移入父客户区并完成一次合成屏障。
+        /// 调用点必须在业务控制器移出所有者之前：背景先以同一画面顶替，随后移走控制器，
+        /// 所有者窗口才不会在两层之间闪过无子窗的黑底（实测 DPI 200% 下 3~6 帧整窗闪黑）。
+        /// </summary>
+        internal async Task ShowBackgroundAsync(nint parent, double scale)
+        {
+            if (_closed) return;
+            Sync(parent, scale);
+            using MemoryStream sink = new();
+            await controller.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, sink);
+            _ = DwmFlush();
+        }
+        /// <summary>
+        /// 首图就绪前把控制器停在父客户区左上角的极小尺寸。控制器仍参与屏幕合成，渲染与
+        /// rAF 不被节流；停放区域小到不可察觉，随后 ShowBackgroundAsync 移入完整尺寸。
+        /// </summary>
+        internal void ParkForFirstFrame(double scale)
+        {
+            if (_closed) return;
+            controller.RasterizationScale = scale;
+            controller.Bounds = new(0, 0, ShellSnapshotPresentation.ParkedSize, ShellSnapshotPresentation.ParkedSize);
+        }
         internal async Task ShowCoverAsync()
         {
             if (_closed) return;

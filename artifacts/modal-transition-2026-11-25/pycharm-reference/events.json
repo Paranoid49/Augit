@@ -1,0 +1,34 @@
+[
+    {
+        "ms":  1637,
+        "event":  "settings-open-send"
+    },
+    {
+        "ms":  6680,
+        "event":  "settings-open-settled"
+    },
+    {
+        "ms":  6680,
+        "event":  "settings-close-send"
+    },
+    {
+        "ms":  10690,
+        "event":  "settings-closed-settled"
+    },
+    {
+        "ms":  11360,
+        "event":  "settings-open-send-2"
+    },
+    {
+        "ms":  16419,
+        "event":  "settings-open-settled-2"
+    },
+    {
+        "ms":  16419,
+        "event":  "settings-close-send-2"
+    },
+    {
+        "ms":  20427,
+        "event":  "settings-closed-settled-2"
+    }
+]

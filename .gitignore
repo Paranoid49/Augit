@@ -14,6 +14,10 @@ artifacts/*
 !artifacts/pixel-review-20260921b/
 !artifacts/perf-20260926/
 !artifacts/perf-20260927/
+!artifacts/modal-transition-2026-11-25/
+!artifacts/modal-transition-2026-11-25/**
+# 模态交接证据的 FFV1 录像体积大且可由审计工具复现，只入库 result.json 与关键帧。
+artifacts/modal-transition-2026-11-25/**/*.mkv
 publish/
 *.user
 *.suo

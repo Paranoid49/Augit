@@ -3,6 +3,14 @@ namespace Augit.Shell;
 /// <summary>控制器显示后等待两次渲染回调；不将图片解码完成当作已显示。</summary>
 internal static class ShellSnapshotPresentation
 {
+    /// <summary>
+    /// 首图就绪前背景控制器的停放边长（物理像素）。控制器必须继续参与屏幕合成：
+    /// IsVisible=false 或移到父窗裁剪区外都会让 WebView2 停住渲染，首图 onload 后的两帧 rAF
+    /// 确认永远等不到；而铺满客户区的透明控制器在首图就绪前会把所有者画成黑块（实测 200% DPI
+    /// 下整窗闪黑 3~6 帧）。2×2 在屏幕上不可察觉，同时保持渲染与 rAF 正常。
+    /// </summary>
+    internal const int ParkedSize = 2;
+
     /// <summary>导航前固定首图尺寸，避免onload前以物理宽高作为CSS尺寸闪现。</summary>
     internal static string InitialImageSize(ReadOnlySpan<byte> png, double scale)
     {

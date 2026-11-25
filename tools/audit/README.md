@@ -81,3 +81,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\audit\click-window.ps1
 ```
 
 参数：`-ProcessName`（默认 `Augit.Shell`）、`-AfterMs`（点击后等待，默认 1500）。
+
+## verify-modal-transition-frames.cjs
+
+真实外壳逐帧验收原生模态的打开/关闭交接：隔离启动 `Augit.exe`，用 CDP 按下 `Ctrl+Shift+J` / `Esc`
+打开关闭 Format JSON，同时用 Desktop Duplication（ffmpeg `ddagrab`，60fps，FFV1 无损）录制窗口
+物理区域；两遍解码后按稳定状态、过渡帧、对话框外像素与关闭恢复四类判据验收。所有普通模态共用
+`ShellModalHost`，因此该路径同时覆盖同类窗口。
+
+```powershell
+node tools/audit/verify-modal-transition-frames.cjs `
+  <Playwright 模块路径> artifacts/modal-transition-2026-11-25/light-192 `
+  --ffmpeg <ffmpeg.exe 路径> --theme Light --cycles 2
+```
+
+参数：`--theme Light|Dark`、`--cycles 1..3`、`--dpi <96..480>`（固定栅格化比例模拟缩放）、
+`--exe`（默认 Debug 产物）、`--workspace`、`--ffmpeg`。脚本在 `finally` 中停止 ffmpeg、关闭浏览器、
+`CloseMainWindow` 关闭实例并删除临时设置/WebView2 profile；`result.json` 记录逐帧判据与清理结果。
+纯计算判据在 `modal-transition-analysis.cjs`，单测：`node --test tools/audit/modal-transition-analysis.test.cjs`。
+录制为 FFV1 无损大文件（单组约 200~430MB），按需保留，不要提交入库。
