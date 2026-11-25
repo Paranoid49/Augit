@@ -61,6 +61,8 @@ WebView2初始化在环境创建、控制器创建及脚本注册的异步续接
 
 - 工具窗口尺寸以 `ToolWindows.WorkspaceRoot` 保存归属，与标签会话 `LastWorkspace` 分开；旧配置缺少归属时读取按原 LastWorkspace 判断，会话转移前固定旧尺寸归属。仅拖分隔条不转移旧工作区标签。网页 Git 写入、网络与取消请求统一等待宿主真实结束；有限网页超时只用于读取，不能代替本机进程停止。
 
+- 标签会话（`OpenFiles`、`ActiveFile`、`ExpandedDirectories`）只属于 `LastWorkspace`：`RememberWorkspaceAsync` 切换工作区时清空并从旧归属固定面板尺寸；`settings/read` 仅在同一工作区下发会话。否则真实启动顺序（先记住新工作区、后读设置）会绕过同工作区门控，把旧仓库标签按相对路径恢复到新窗口。网页恢复遇到宿主 `DocumentReadStatus.Missing` 时不创建标签；已打开标签按 `docs/ux-spec.md` §7.2 更新为删除状态页。见[跨工作区标签会话整改](session-workspace-isolation-2026-11-25.md)。
+
 - 审计可显式传入 `--settings-file <完全绝对文件路径>` 和 `--user-data-folder <完全绝对目录路径>`。两参数分别隔离本实例的配置和 WebView2 profile，完整隔离必须同时指定；普通启动仍使用用户默认路径。启动、桥接设置／会话读写与窗口保存共用该实例的 SettingsStore；隔离实例不参与用户窗口复用或登记，显式 profile 不清理默认历史会话目录。这是审计 CLI 入口，不加入产品页面。`workspace/open` 派生新窗口暂不继承隔离参数，取证不走该真实新窗出口；`--no-session-restore` 只控制恢复，不代表隔离。
 
 - `settings/fonts` 为只读按需桥接，外壳用Win32枚举字体族并仅缓存名称列表；设备上下文在枚举结束后释放，不引入GUI框架或后台服务。网页在首次打开设置时请求，结果就地补入下拉选项并保留当前草稿。

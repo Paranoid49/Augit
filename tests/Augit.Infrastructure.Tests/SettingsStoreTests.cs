@@ -150,6 +150,51 @@ public sealed class SettingsStoreTests
     }
 
     [TestMethod]
+    public async Task 切换工作区时清空旧工作区标签会话并固定旧布局归属()
+    {
+        using TemporaryDirectory temporary = new();
+        string previous = temporary.GetPath("previous");
+        string current = temporary.GetPath("current");
+        Directory.CreateDirectory(previous);
+        Directory.CreateDirectory(current);
+        string previousFile = Path.Combine(previous, "global.json");
+        SettingsStore store = new(temporary.GetPath("settings.json"));
+        await store.SaveAsync(new()
+        {
+            LastWorkspace = previous,
+            OpenFiles = [previousFile],
+            ActiveFile = previousFile,
+            ExpandedDirectories = [previous],
+            ToolWindows = new() { ProjectPanelWidth = 500, BottomPanelHeight = 400 },
+        });
+
+        await store.RememberWorkspaceAsync(current);
+
+        ApplicationSettings switched = await store.LoadAsync();
+        Assert.AreEqual(current, switched.LastWorkspace);
+        // 旧标签会话属于旧工作区；离开它后不能把这批相对路径当作新工作区的文件恢复。
+        Assert.IsEmpty(switched.OpenFiles);
+        Assert.IsNull(switched.ActiveFile);
+        Assert.IsEmpty(switched.ExpandedDirectories);
+        // 尺寸有自己的归属：切换前固定给旧工作区，新工作区不会套用旧布局。
+        Assert.AreEqual(previous, switched.ToolWindows.WorkspaceRoot);
+        Assert.AreEqual(500d, switched.ToolWindows.ProjectPanelWidth);
+
+        // 同一工作区重复记录只更新最近列表，不得清空本次会话。
+        await store.SaveAsync(switched with
+        {
+            OpenFiles = [Path.Combine(current, "package.json")],
+            ActiveFile = Path.Combine(current, "package.json"),
+            ExpandedDirectories = [current],
+        });
+        await store.RememberWorkspaceAsync(current);
+        ApplicationSettings same = await store.LoadAsync();
+        Assert.HasCount(1, same.OpenFiles);
+        Assert.AreEqual(Path.Combine(current, "package.json"), same.ActiveFile);
+        Assert.HasCount(1, same.ExpandedDirectories);
+    }
+
+    [TestMethod]
     public async Task 最近工作区限制十个且不区分大小写重复()
     {
         using TemporaryDirectory temporary = new();

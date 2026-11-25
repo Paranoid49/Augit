@@ -3445,8 +3445,12 @@ async function restoreSession() {
     if (generation !== sessionRestoreGeneration) return;
     // 直接激活刚恢复好的那个标签，不重新读取：文件刚读过，再读一次既慢又没有必要
     // （慢读取场景下会白白多等一个读取周期）。
+    // 上次活动文件可能已不存在（会话恢复会跳过它）：此时激活恢复集合里的第一个标签，
+    // 不能留下“有标签条但没有正文”的状态。
     const restoredTab = (live.tabs || []).find(
-      (item) => item.kind === "document" && item.path === activePath) || null;
+      (item) => item.kind === "document" && item.path === activePath)
+      || (live.tabs || []).find((item) => item.kind === "document")
+      || null;
     if (restoredTab) {
       activateTab(restoredTab.id);
     }
@@ -4082,6 +4086,22 @@ async function applyWorkspaceChanges(changes) {
     } else {
       // 无关文件变化：当前 diff 不进入加载状态，只刷新状态列表。
       touchedNothing = true;
+    }
+
+    // 变化路径命中的其他已打开文档：不切换标签，在后台重新读取正文。
+    // 文件被外部删除时更新为删除状态页，文件内容变化时复用标签更新（规格 §7.2）。
+    // 只处理变化批次涉及的路径，不因一次无关刷新读取全部后台标签。
+    const currentKey = currentPath ? currentPath.toLowerCase() : null;
+    const diffKey = diffPath ? diffPath.toLowerCase() : null;
+    const openPaths = new Set((live.tabs || [])
+      .filter((tab) => tab.kind === "document" && typeof tab.path === "string")
+      .map((tab) => tab.path.toLowerCase()));
+    const backgroundChanged = [...new Set(relative.map((path) => path.toLowerCase()))]
+      .filter((path) => path !== currentKey && path !== diffKey && openPaths.has(path));
+    for (const path of backgroundChanged) {
+      const tab = (live.tabs || []).find(
+        (item) => item.kind === "document" && typeof item.path === "string" && item.path.toLowerCase() === path);
+      if (tab) await reloadChangedBackgroundDocument(live, tab.path);
     }
 
     await readBatchStatus();
@@ -16422,9 +16442,11 @@ async function openDocument(path, options = {}) {
   // 打开另一个文档后晚到的归属会把编辑区换回 Blame，而 `live.document` 仍是新文档）。
   detailViewToken += 1;
   live.tabs ??= [];
-  // 已经是激活标签且不要求转为正式标签：无需重复读取。
+  // 已经是激活标签且不要求转为正式标签：无需重复读取。删除状态页例外：
+  // 文件可能已被外部恢复，再次打开要重新读一次，不能永远停在“已删除”页面。
   const current = live.tabs.find((tab) => tab.kind === "document" && tab.path === path);
-  if (current && activate && live.activeTabId === current.id && !preview) return;
+  if (current && activate && live.activeTabId === current.id && !preview
+      && current.document?.status !== "Missing") return;
   // 后台重读已显示的纯文本不重复显示打开提示；仍读磁盘并核对全部显示字段。
   const previousDocument = current?.document;
   const quietTextRefresh = deferRender && !activate && live.document === previousDocument
@@ -16459,6 +16481,36 @@ async function openDocument(path, options = {}) {
     // 那会让后续每一次渲染都依赖调用方的容错。
     if (!payload || typeof payload.path !== "string" || payload.path.length === 0) {
       throw new Error("Invalid document response: missing path.");
+    }
+
+    // 宿主确认“文件已被删除、重命名或替换”时，会话恢复和显式打开都不能凭空建出一个
+    // “已删除”的幽灵标签（规格 §5.2：外部变化保持标签顺序与当前标签，除非文件已不存在）。
+    // 已经存在的标签（典型是正文打开期间被外部删除）保留标签并更新为删除状态页（§7.2），
+    // 这样用户仍能看到准确原因；没有标签时只说明原因，不创建会再次写入会话的标签。
+    if (payload.status === "Missing") {
+      const existingTabs = (live.tabs || []).filter(
+        (tab) => tab.kind === "document" && tab.path === path);
+      if (existingTabs.length === 0) {
+        live.pendingDocument = null;
+        clearTimeout(markdownPreviewHintTimer);
+        markdownPreviewHintTimer = null;
+        // 启动恢复时文件缺失是正常跨分支/跨工作区场景：静默跳过并清掉“读取中”状态栏，
+        // 不把它记成启动错误，也不为一次不会保留的读取建标签。
+        if (!live.sessionRestoring && !deferRender) {
+          window.__augitError = "open-document:" + String(payload.message || "File no longer exists.");
+          showToast({
+            title: "Open File",
+            text: payload.message || "The file no longer exists.",
+            kind: "error",
+          });
+          // 清单与树可能还没收到外部删除事件：主动刷新一次，避免用户继续点中过期行。
+          void refreshFileTree();
+          refreshAfterEvent("editorTabs", "statusbar", "titlebar");
+        } else {
+          refreshAfterEvent("statusbar");
+        }
+        return false;
+      }
     }
 
     if (quietTextRefresh && window.__augitLive === live && live.tabs.includes(current)

@@ -1,0 +1,136 @@
+{
+  "settings": "D:\\github\\Augit\\.tmp\\session-repro\\settings-missing.json",
+  "workspace": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+  "stages": {
+    "restored": {
+      "workspaceName": "workspace-b",
+      "tabs": [
+        {
+          "path": "package.json",
+          "editor": "json",
+          "status": "TextReady",
+          "typeName": "JSON text"
+        }
+      ],
+      "active": "package.json",
+      "document": "package.json",
+      "toast": null,
+      "tree": [
+        "",
+        "package.json",
+        "README.md",
+        "worker.js"
+      ],
+      "error": null
+    },
+    "explicitMissing": {
+      "workspaceName": "workspace-b",
+      "tabs": [
+        {
+          "path": "package.json",
+          "editor": "json",
+          "status": "TextReady",
+          "typeName": "JSON text"
+        }
+      ],
+      "active": "package.json",
+      "document": "package.json",
+      "toast": {
+        "title": "Open File",
+        "text": "The file was deleted, renamed, or replaced.",
+        "kind": "error",
+        "action": null
+      },
+      "tree": [
+        "",
+        "package.json",
+        "README.md",
+        "worker.js"
+      ],
+      "error": "open-document:The file was deleted, renamed, or replaced."
+    },
+    "beforeDelete": {
+      "workspaceName": "workspace-b",
+      "tabs": [
+        {
+          "path": "package.json",
+          "editor": "json",
+          "status": "TextReady",
+          "typeName": "JSON text"
+        },
+        {
+          "path": "README.md",
+          "editor": "markdown",
+          "status": "TextReady",
+          "typeName": "Markdown text"
+        },
+        {
+          "path": "worker.js",
+          "editor": "text",
+          "status": "TextReady",
+          "typeName": "UTF-8 text"
+        }
+      ],
+      "active": "worker.js",
+      "document": "worker.js",
+      "toast": {
+        "title": "Open File",
+        "text": "The file was deleted, renamed, or replaced.",
+        "kind": "error",
+        "action": null
+      },
+      "tree": [
+        "",
+        "package.json",
+        "README.md",
+        "worker.js"
+      ],
+      "error": "open-document:The file was deleted, renamed, or replaced."
+    },
+    "afterDelete": {
+      "workspaceName": "workspace-b",
+      "tabs": [
+        {
+          "path": "package.json",
+          "editor": "json",
+          "status": "TextReady",
+          "typeName": "JSON text"
+        },
+        {
+          "path": "README.md",
+          "editor": "file-limit",
+          "status": "Missing",
+          "typeName": "Unknown file"
+        },
+        {
+          "path": "worker.js",
+          "editor": "text",
+          "status": "TextReady",
+          "typeName": "UTF-8 text"
+        }
+      ],
+      "active": "worker.js",
+      "document": "worker.js",
+      "toast": {
+        "title": "Open File",
+        "text": "The file was deleted, renamed, or replaced.",
+        "kind": "error",
+        "action": null
+      },
+      "tree": [
+        "",
+        "package.json",
+        "worker.js"
+      ],
+      "error": "open-document:The file was deleted, renamed, or replaced."
+    }
+  },
+  "passed": {
+    "noGhostOnRestore": true,
+    "activeFallback": true,
+    "sameTabsAfterExplicitMissing": true,
+    "explicitMissingToast": true,
+    "backgroundDeletedPage": true,
+    "activeKept": true
+  }
+}

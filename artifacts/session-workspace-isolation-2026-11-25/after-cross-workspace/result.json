@@ -1,0 +1,55 @@
+{
+  "tag": "postfix-real",
+  "originalHash": "0D5315801AC8402DE0DC335E9805A751317979DF861BB5F229A3632B748A5F9F",
+  "backup": "D:\\github\\Augit\\.tmp\\session-repro\\settings-backup-postfix-real.json",
+  "workspaceA": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-a",
+  "workspaceB": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+  "state": {
+    "workspaceName": "workspace-b",
+    "tabs": [],
+    "activePath": null,
+    "documentPath": null,
+    "tree": [
+      "",
+      "package.json"
+    ],
+    "error": null
+  },
+  "settingsAfterStart": {
+    "appearanceVersion": 1,
+    "version": 1,
+    "lastWorkspace": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+    "theme": "Light",
+    "textFontFamily": "Microsoft YaHei UI",
+    "monospaceFontFamily": "JetBrains Mono",
+    "fontSize": 13,
+    "textFontSize": 12,
+    "gitExecutablePath": null,
+    "terminalShell": "WindowsPowerShell",
+    "terminalCustomCommand": null,
+    "showGitBranchesTags": true,
+    "groupBranchesByDirectory": true,
+    "hideLargeFileWarning": false,
+    "window": {
+      "left": null,
+      "top": null,
+      "width": 1180,
+      "height": 760,
+      "isMaximized": false
+    },
+    "toolWindows": {
+      "workspaceRoot": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-a",
+      "projectPanelWidth": null,
+      "bottomPanelHeight": null
+    },
+    "openFiles": [],
+    "activeFile": null,
+    "expandedDirectories": [],
+    "recentWorkspaces": [
+      "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+      "D:\\github\\Augit\\.tmp\\session-repro\\workspace-a"
+    ]
+  },
+  "settingsSnapshot": "D:\\github\\Augit\\artifacts\\session-workspace-isolation-2026-11-25\\postfix-real\\settings-after-start.json",
+  "restoredHash": "0D5315801AC8402DE0DC335E9805A751317979DF861BB5F229A3632B748A5F9F"
+}

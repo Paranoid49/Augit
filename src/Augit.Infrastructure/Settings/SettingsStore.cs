@@ -107,6 +107,26 @@ public sealed class SettingsStore
             LastWorkspace = full,
             RecentWorkspaces = recent,
         };
+        if (lastChanged)
+        {
+            // 标签会话、活动文件与目录展开层级只属于上一个 LastWorkspace。打开另一个工作区
+            // 时若原样保留，新窗口会把这批相对路径当作自己仓库里的文件恢复出来：已不存在的
+            // 路径变成“文件已被删除、重命名或替换”的幽灵标签，同名文件则会错误显示别的仓库
+            // 内容（2026-11-25 用户实机：global.json 标签出现在不含该文件的仓库）。
+            // 面板尺寸有自己的工作区归属：切换前把旧尺寸固定给旧工作区，避免新工作区套用。
+            ToolWindowLayoutSettings previousLayout = current.ToolWindows ?? new ToolWindowLayoutSettings();
+            updated = updated with
+            {
+                OpenFiles = [],
+                ActiveFile = null,
+                ExpandedDirectories = [],
+                ToolWindows = previousLayout with
+                {
+                    WorkspaceRoot = previousLayout.WorkspaceRoot ?? current.LastWorkspace,
+                },
+            };
+        }
+
         await SaveAsync(updated, cancellationToken).ConfigureAwait(false);
         return updated;
     }

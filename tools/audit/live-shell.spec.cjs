@@ -757,10 +757,14 @@ async function main() {
         }
 
         const written = window.__settingsState;
+        // 恢复集合里注入一个已不存在的文件：验证会话恢复不会为它建幽灵标签。
+        const restoreMissing = new URLSearchParams(location.search).get('restore-missing');
+        const restoredFiles = ['docs/product-spec.md', 'docs/notes.txt'];
+        if (restoreMissing) restoredFiles.push(...restoreMissing.split(',').filter(Boolean));
         return wantsRestore
           ? Object.assign({}, data.settings, written, {
-            openFiles: ['docs/product-spec.md', 'docs/notes.txt'],
-            activeFile: 'docs/notes.txt',
+            openFiles: restoredFiles,
+            activeFile: restoreMissing ? restoreMissing.split(',').filter(Boolean)[0] : 'docs/notes.txt',
             // 故意把子目录放在前面：恢复必须按层级从浅到深补齐，否则子目录那层恢复不到。
             expandedDirectories: ['docs/api', 'docs'],
           })
@@ -1125,6 +1129,19 @@ async function main() {
         window.__readCalls = (window.__readCalls || 0) + 1;
         // 支持按路径注入读取失败，用于验证「文件已删除则移除其标签」。
         if (window.__failReads && window.__failReads[params.path]) throw new Error('not found: ' + params.path);
+        // 按真实宿主契约注入“文件已不存在”的 Missing 载荷（不是抛异常）：
+        // 启动恢复路径用查询参数注入（恢复发生在 boot 内），交互路径用 __missingDocs 注入。
+        const missingQuery = new URLSearchParams(location.search).get('missing');
+        const missingPaths = new Set((missingQuery || '').split(',').filter(Boolean));
+        for (const path of (window.__missingDocs || [])) missingPaths.add(path);
+        if (missingPaths.has(params.path)) {
+          return {
+            path: params.path, name: params.path.split('/').at(-1), fullPath: 'D:\\live-ws\\' + params.path,
+            workspaceName: 'live-ws', status: 'Missing', kind: 'Binary', typeName: '未知文件',
+            fileSize: 0, message: '文件已被删除、重命名或替换。', text: null,
+            encoding: null, lineEndings: null, dataUrl: null, formatted: null, jsonError: null,
+          };
+        }
         // 支持按路径注入延迟，用于验证乱序返回时旧响应被丢弃。
         let delay = (window.__readDelays || {})[params.path];
         // 启动恢复的竞态用查询参数注入：恢复发生在 boot 期间，测试来不及先写 __readDelays。
@@ -4463,6 +4480,98 @@ async function main() {
       tabsAfterControl.includes('docs/product-spec.md') || tabsAfterControl.includes('docs/notes.txt'));
     await flagRestore.page.close();
     await flagControl.page.close();
+
+    // ---- §5.2/§6.7：会话恢复遇到已不存在的文件，不建“已删除”幽灵标签 ----
+    // 桩按真实宿主契约返回 Missing 载荷（不是抛异常）；旧实现会照样建 file-limit 标签，
+    // 并把该路径写回 openFiles，重启后永久保留这个打不开的标签。
+    const restoreMissing = await openScene('scene=main-project&theme=dark&restore=1&restore-missing=docs/removed.txt&missing=docs/removed.txt');
+    await restoreMissing.page.waitForFunction('window.__augitSessionRestored === true', null, { timeout: 20000 });
+    await restoreMissing.page.waitForTimeout(1000);
+    const restoredMissing = await restoreMissing.page.evaluate(() => {
+      const live = window.__augitLive;
+      const lastWrite = (window.__sessionWrites || []).at(-1) || null;
+      return {
+        paths: (live.tabs || []).map((tab) => tab.path),
+        statuses: (live.tabs || []).map((tab) => tab.document?.status || null),
+        active: (live.tabs || []).find((tab) => tab.id === live.activeTabId)?.path || null,
+        document: live.document ? live.document.path : null,
+        toast: live.toast || null,
+        error: window.__augitError || null,
+        lastWrite,
+      };
+    });
+    check('§6.7 恢复时已不存在的文件不创建幽灵标签: ' + JSON.stringify(restoredMissing),
+      restoredMissing.paths.includes('docs/product-spec.md')
+        && restoredMissing.paths.includes('docs/notes.txt')
+        && !restoredMissing.paths.includes('docs/removed.txt')
+        && !restoredMissing.statuses.includes('Missing')
+        && restoredMissing.toast === null
+        && restoredMissing.error === null);
+    check('§6.7 上次活动文件已不存在时激活首个仍存在的恢复标签: ' + JSON.stringify(restoredMissing),
+      restoredMissing.active === 'docs/product-spec.md' && restoredMissing.document === restoredMissing.active);
+    check('§6.7 已不存在的恢复项不会写回会话 openFiles: ' + JSON.stringify(restoredMissing.lastWrite),
+      !!restoredMissing.lastWrite && Array.isArray(restoredMissing.lastWrite.openFiles)
+        && !restoredMissing.lastWrite.openFiles.includes('docs/removed.txt'));
+    await restoreMissing.page.close();
+
+    // ---- §10.2：显式打开已不存在的文件，不建标签，在提示区说明原因 ----
+    const missingOpen = await openScene('scene=main-project&theme=dark');
+    await missingOpen.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await missingOpen.page.evaluate(() => { window.__missingDocs = ['docs/gone.json']; });
+    await missingOpen.page.evaluate(() => window.__augitOpenDocument('docs/gone.json'));
+    await missingOpen.page.waitForTimeout(500);
+    const missingOpenState = await missingOpen.page.evaluate(() => {
+      const live = window.__augitLive;
+      return {
+        paths: (live.tabs || []).map((tab) => tab.path),
+        document: live.document ? live.document.path : null,
+        toast: live.toast || null,
+        error: window.__augitError || null,
+      };
+    });
+    check('§10.2 显式打开已不存在的文件不建标签: ' + JSON.stringify(missingOpenState),
+      missingOpenState.paths.length === 0 && missingOpenState.document === null);
+    check('§10.2 显式打开已不存在的文件在提示区说明原因: ' + JSON.stringify(missingOpenState.toast),
+      !!missingOpenState.toast && missingOpenState.toast.kind === 'error'
+        && String(missingOpenState.toast.text).includes('deleted, renamed, or replaced'));
+    await missingOpen.page.close();
+
+    // ---- §7.2：已打开文档被外部删除时保留标签并显示删除状态页；文件恢复后可重新读取 ----
+    const missingRead = await openScene('scene=main-project&theme=dark');
+    await missingRead.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await missingRead.page.evaluate(() => window.__augitOpenDocument('docs/notes.txt'));
+    await missingRead.page.waitForFunction("(window.__augitLive.tabs || []).some((tab) => tab.path === 'docs/notes.txt')", null, { timeout: 10000 });
+    // 走真实“外部文件变化”通道：当前文档被外部删除时重新读取，已有标签更新为删除状态页。
+    await missingRead.page.evaluate(() => {
+      window.__missingDocs = ['docs/notes.txt'];
+      window.__hostPush('workspace-changed', { files: ['D:\\live-ws\\docs\\notes.txt'], gitMetadata: false });
+    });
+    await missingRead.page.waitForTimeout(900);
+    const missingKept = await missingRead.page.evaluate(() => {
+      const live = window.__augitLive;
+      const tab = (live.tabs || []).find((item) => item.kind === 'document' && item.path === 'docs/notes.txt');
+      return {
+        paths: (live.tabs || []).map((item) => item.path),
+        status: tab?.document?.status || null,
+        editor: tab?.editor || null,
+        document: live.document ? live.document.path : null,
+        toast: live.toast || null,
+      };
+    });
+    check('§7.2 已打开文档被外部删除时保留标签与删除状态页: ' + JSON.stringify(missingKept),
+      missingKept.paths.includes('docs/notes.txt') && missingKept.status === 'Missing'
+        && missingKept.editor === 'file-limit' && missingKept.document === 'docs/notes.txt'
+        && missingKept.toast === null);
+    // 文件恢复后再次打开同一标签：删除状态页必须允许重新读取，不能永远停在失败页。
+    await missingRead.page.evaluate(() => { window.__missingDocs = []; window.__augitOpenDocument('docs/notes.txt'); });
+    await missingRead.page.waitForTimeout(600);
+    const missingRecovered = await missingRead.page.evaluate(() => {
+      const tab = (window.__augitLive.tabs || []).find((item) => item.kind === 'document' && item.path === 'docs/notes.txt');
+      return { status: tab?.document?.status || null, editor: tab?.editor || null, text: (tab?.document?.text || '').slice(0, 20) };
+    });
+    check('§7.2 已删除文档恢复后可重新读取: ' + JSON.stringify(missingRecovered),
+      missingRecovered.status === 'TextReady' && missingRecovered.editor === 'text' && missingRecovered.text.length > 0);
+    await missingRead.page.close();
 
     const ssFindings = [];
     const ssCheck = (label, condition) => {

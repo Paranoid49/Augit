@@ -1,0 +1,39 @@
+{
+  "appearanceVersion": 1,
+  "version": 1,
+  "lastWorkspace": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+  "theme": "Light",
+  "textFontFamily": "Microsoft YaHei UI",
+  "monospaceFontFamily": "JetBrains Mono",
+  "fontSize": 13,
+  "textFontSize": 12,
+  "gitExecutablePath": null,
+  "terminalShell": "WindowsPowerShell",
+  "terminalCustomCommand": null,
+  "showGitBranchesTags": true,
+  "groupBranchesByDirectory": true,
+  "hideLargeFileWarning": false,
+  "window": {
+    "left": null,
+    "top": null,
+    "width": 1180,
+    "height": 760,
+    "isMaximized": false
+  },
+  "toolWindows": {
+    "workspaceRoot": "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+    "projectPanelWidth": null,
+    "bottomPanelHeight": null
+  },
+  "openFiles": [
+    "global.json",
+    "package.json",
+    "src/a.txt"
+  ],
+  "activeFile": "global.json",
+  "expandedDirectories": [],
+  "recentWorkspaces": [
+    "D:\\github\\Augit\\.tmp\\session-repro\\workspace-b",
+    "D:\\github\\Augit\\.tmp\\session-repro\\workspace-a"
+  ]
+}

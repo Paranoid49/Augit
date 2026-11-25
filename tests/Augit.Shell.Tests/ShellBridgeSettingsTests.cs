@@ -47,6 +47,53 @@ public sealed class ShellBridgeSettingsTests
     }
 
     [TestMethod]
+    public async Task 启动记住新工作区后旧标签会话不会通过设置读取泄漏()
+    {
+        using TemporaryDirectory temporary = new();
+        string previous = temporary.GetPath("previous");
+        string workspace = temporary.GetPath("current");
+        Directory.CreateDirectory(previous);
+        Directory.CreateDirectory(workspace);
+        string previousFile = Path.Combine(previous, "global.json");
+        File.WriteAllText(previousFile, "{}");
+        SettingsStore store = new(temporary.GetPath("settings.json"));
+        await store.SaveAsync(new()
+        {
+            LastWorkspace = previous,
+            OpenFiles = [previousFile],
+            ActiveFile = previousFile,
+            ExpandedDirectories = [previous],
+            ToolWindows = new() { ProjectPanelWidth = 500, BottomPanelHeight = 420 },
+        });
+
+        // 真实启动顺序：Program 先 RememberOpenedWorkspace(当前目录)，随后窗口才读取设置。
+        // 若 RememberWorkspaceAsync 只改 LastWorkspace 不清旧会话，settings/read 的同工作区
+        // 门控会被绕过，新窗口按相对路径恢复出别的仓库的“幽灵标签”。
+        await store.RememberWorkspaceAsync(workspace);
+        using ShellBridge bridge = new(workspace, settingsStore: store);
+        using JsonDocument response = JsonDocument.Parse(await bridge.HandleAsync(
+            """{"id":1,"method":"settings/read","params":{}}""",
+            CancellationToken.None));
+        JsonElement result = response.RootElement.GetProperty("result");
+        Assert.IsEmpty(result.GetProperty("openFiles").EnumerateArray());
+        // 空字段在 JSON 里省缺或为 null 都表示没有活动文件。
+        Assert.IsTrue(!result.TryGetProperty("activeFile", out JsonElement activeFile)
+            || activeFile.ValueKind == JsonValueKind.Null);
+        Assert.IsEmpty(result.GetProperty("expandedDirectories").EnumerateArray());
+        Assert.IsFalse(result.TryGetProperty("projectPanelWidth", out _));
+
+        // 新工作区自己的会话读写不受影响。
+        await bridge.HandleAsync(
+            """{"id":2,"method":"session/write","params":{"openFiles":["package.json"],"activeFile":"package.json","expandedDirectories":[]}}""",
+            CancellationToken.None);
+        ApplicationSettings saved = await store.LoadAsync();
+        Assert.AreEqual(workspace, saved.LastWorkspace);
+        Assert.HasCount(1, saved.OpenFiles);
+        Assert.AreEqual("package.json", saved.OpenFiles[0]);
+        Assert.AreEqual("package.json", saved.ActiveFile);
+    }
+
+    [TestMethod]
     public async Task 新工作区仅拖布局也可恢复尺寸但不会接管旧标签会话()
     {
         using TemporaryDirectory temporary = new();
