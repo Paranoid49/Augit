@@ -1,4 +1,4 @@
-# Smoke-verify a built portable package: content inventory, web tree identity,
+﻿# Smoke-verify a built portable package: content inventory, web tree identity,
 # real launch from the extracted package, on-screen capture and clean shutdown.
 # This script never builds or substitutes the development output.
 param(
@@ -235,8 +235,8 @@ public class AugitPortableWin {
         [void][AugitPortableWin]::BringWindowToTop($handle)
         [void][AugitPortableWin]::SetForegroundWindow($handle)
         if ($attached) { [void][AugitPortableWin]::AttachThreadInput($self, $fgThread, $false) }
-        Start-Sleep -Milliseconds 2500
-
+        # 等待真实首帧内容：自包含冷启动时窗口先出现、WebView2 首帧可能晚于固定等待时间；
+        # 固定 2.5 秒会把“尚未渲染”误判成空白窗口。这里轮询像素直到出现内容，最长 20 秒。
         $rect = New-Object AugitPortableWin+RECT
         if (-not [AugitPortableWin]::GetWindowRectStruct($handle, [ref]$rect)) { throw 'GetWindowRect failed' }
         $width = $rect.R - $rect.L
@@ -244,28 +244,43 @@ public class AugitPortableWin {
         $report.launch.windowSize = "${width}x${height}"
         $report.launch.foreground = ([AugitPortableWin]::GetForegroundWindow() -eq $handle)
         $screenshot = Join-Path $OutDir 'portable-launch.png'
-        $bitmap = New-Object System.Drawing.Bitmap($width, $height)
-        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        $graphics.CopyFromScreen($rect.L, $rect.T, 0, 0, (New-Object System.Drawing.Size($width, $height)))
-        $graphics.Dispose()
-        $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
+        $captureStartedAt = Get-Date
+        $captureDeadline = $captureStartedAt.AddSeconds(20)
+        $bitmap = $null
         $white = 0
         $dark = 0
         $total = 0
-        for ($y = [int]($height * 0.15); $y -lt [int]($height * 0.85); $y += 10) {
-            for ($x = [int]($width * 0.15); $x -lt [int]($width * 0.85); $x += 10) {
-                $color = $bitmap.GetPixel($x, $y)
-                $total++
-                if ($color.R -gt 235 -and $color.G -gt 235 -and $color.B -gt 235) { $white++ }
-                if ($color.R -lt 128 -and $color.G -lt 128 -and $color.B -lt 128) { $dark++ }
+        while ($true) {
+            Start-Sleep -Milliseconds 300
+            if ($bitmap) { $bitmap.Dispose() }
+            $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+            $graphics.CopyFromScreen($rect.L, $rect.T, 0, 0, (New-Object System.Drawing.Size($width, $height)))
+            $graphics.Dispose()
+            $white = 0
+            $dark = 0
+            $total = 0
+            for ($y = [int]($height * 0.15); $y -lt [int]($height * 0.85); $y += 10) {
+                for ($x = [int]($width * 0.15); $x -lt [int]($width * 0.85); $x += 10) {
+                    $color = $bitmap.GetPixel($x, $y)
+                    $total++
+                    if ($color.R -gt 235 -and $color.G -gt 235 -and $color.B -gt 235) { $white++ }
+                    if ($color.R -lt 128 -and $color.G -lt 128 -and $color.B -lt 128) { $dark++ }
+                }
             }
+            $whitePercent = if ($total -gt 0) { 100.0 * $white / $total } else { 100 }
+            $darkPercent = if ($total -gt 0) { 100.0 * $dark / $total } else { 0 }
+            $rendered = $whitePercent -lt 99.5 -and $darkPercent -ge 0.05
+            if ($rendered -or (Get-Date) -ge $captureDeadline) { break }
         }
+        $report.launch.renderWaitMs = [math]::Round(((Get-Date) - $captureStartedAt).TotalMilliseconds, 1)
+        $bitmap.Save($screenshot, [System.Drawing.Imaging.ImageFormat]::Png)
         $bitmap.Dispose()
         $report.launch.screenshot = $screenshot
         $report.launch.screenshotSha256 = (Get-FileHash -LiteralPath $screenshot -Algorithm SHA256).Hash.ToLowerInvariant()
         # A light theme is legitimately white-dominated; only a blank frame is a failure.
-        $report.launch.sampledWhitePercent = if ($total -gt 0) { [math]::Round(100.0 * $white / $total, 1) } else { 100 }
-        $report.launch.sampledDarkPercent = if ($total -gt 0) { [math]::Round(100.0 * $dark / $total, 2) } else { 0 }
+        $report.launch.sampledWhitePercent = [math]::Round(100.0 * $white / $total, 1)
+        $report.launch.sampledDarkPercent = [math]::Round(100.0 * $dark / $total, 2)
         $report.launch.settingsCreated = (Test-Path -LiteralPath $settingsPath)
     } finally {
         if ($process -and -not $process.HasExited) {

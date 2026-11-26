@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（例如 1.0.0-rc.14）'
+        description: '版本号（例如 1.0.0-rc.15）'
         required: true
-        default: '1.0.0-rc.14'
+        default: '1.0.0-rc.15'
         type: string
       publish:
         description: '构建通过后创建或更新 GitHub Release'

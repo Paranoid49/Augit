@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.0.0-rc.15] - 2026-11-26
+
 ### Fixed
 
 - 打开 Format JSON、New Branch、Push、Reset、Stash、Worktree、远端管理、Rollback 等所有原生模态窗口时，主界面不再整块闪黑；背景快照在首图就绪前不再以全尺寸透明表面参与合成，业务 WebView2 在背景首帧屏障完成后才移出主窗口。
