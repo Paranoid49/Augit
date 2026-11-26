@@ -54,6 +54,9 @@ if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot
 New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
 $report.portableZipSha256 = (Get-FileHash -LiteralPath $PortableZip -Algorithm SHA256).Hash.ToLowerInvariant()
 Expand-Archive -LiteralPath $PortableZip -DestinationPath $extractRoot -Force
+# 从 GitHub 下载的 zip 解压出的 Augit.exe 会带 MOTW，真实启动前会被 Windows 安全警告
+# 阻塞；这里只解除本次 OutDir 临时解压副本的标记，不修改源 zip 或用户文件。
+Get-ChildItem -LiteralPath $extractRoot -Recurse -File | Unblock-File
 
 # The archive is expected to contain a single top-level "Augit" directory.
 $top = @(Get-ChildItem -LiteralPath $extractRoot)
@@ -158,6 +161,7 @@ public class AugitPortableWin {
     [DllImport("user32.dll", EntryPoint = "GetWindowRect")] public static extern bool GetWindowRectStruct(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint attach, uint attachTo, bool fAttach);
@@ -208,7 +212,15 @@ public class AugitPortableWin {
 
     $arguments = @('--workspace', ('"{0}"' -f $workspace), '--settings-file', ('"{0}"' -f $settingsPath))
     $startedAt = Get-Date
-    $process = Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $packageRoot -PassThru
+    # 用 CreateProcess 直接启动（UseShellExecute=false），不经 ShellExecute：后者会对
+    # 从下载 zip 解压出的无签名 exe 弹「Open File - Security Warning」并阻塞自动化。
+    # 产品从资源管理器启动的 SmartScreen 体验仍由发布说明披露，不在本自动化校验里模拟。
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $exe
+    $startInfo.Arguments = ($arguments -join ' ')
+    $startInfo.WorkingDirectory = $packageRoot
+    $startInfo.UseShellExecute = $false
+    $process = [System.Diagnostics.Process]::Start($startInfo)
     $handle = [IntPtr]::Zero
     $deadline = (Get-Date).AddSeconds(45)
     try {
@@ -285,7 +297,11 @@ public class AugitPortableWin {
     } finally {
         if ($process -and -not $process.HasExited) {
             $closeAt = Get-Date
-            try { [void]$process.CloseMainWindow() } catch { }
+            # 直接向已定位的主窗口发 WM_CLOSE：Process.MainWindowHandle 在 CreateProcess
+            # 启动路径上可能尚未刷新，CloseMainWindow 会因句柄为 0 而不发消息、白等 15 秒。
+            if (-not [AugitPortableWin]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
+                try { [void]$process.CloseMainWindow() } catch { }
+            }
             if (-not $process.WaitForExit(15000)) {
                 $report.cleanup.forcedKill = $true
                 try { $process.Kill() } catch { }
