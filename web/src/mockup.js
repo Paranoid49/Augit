@@ -798,7 +798,8 @@ function measureRollbackDialog() {
   }
   context.font = `${style.fontSize} ${style.fontFamily}`;
   const text = value => Math.ceil(context.measureText(value).width);
-  const header = Math.max(45, line + 16), button = Math.max(37, line + 17), footer = button + 16;
+  // design-system §9.1：默认字号下底栏按钮 30px 高；仅大字号时随实际行高增长。
+  const header = Math.max(45, line + 16), button = Math.max(30, line + 8), footer = Math.max(53, button + 16);
   const close = Math.max(80, text('Close') + 26);
   const run = Math.max(84, text('Rollback') + 26);
   const summary = Math.max(22, line + 8);
@@ -2566,8 +2567,8 @@ function rollbackFileStatusClass(file) {
 
 
 /** 把扁平改动列表装成 IDEA 的目录树；目录按路径排序，文件按名称排序。 */
-function rollbackTreeModel(files) {
-  const root = { type: "root", name: "Changes", path: "", children: new Map(), files: [] };
+function rollbackTreeModel(files, rootName = "Changes") {
+  const root = { type: "root", name: rootName, path: "", children: new Map(), files: [] };
   for (const file of [...files].sort((a, b) => String(a.path).localeCompare(String(b.path)))) {
     const parts = String(file.path || "").split("/").filter(Boolean);
     if (parts.length === 0) continue;
@@ -2635,7 +2636,7 @@ function rollbackTreeRows(node, depth, state, checkedPaths) {
       ? `data-rollback-check-dir="${escapeHtml(node.path)}"`
       : `data-rollback-check-file="${escapeHtml(node.path)}"`;
   const label = root
-    ? '<strong>Changes</strong>'
+    ? `<strong>${escapeHtml(node.name)}</strong>`
     : directory
       ? `<span class="folder-icon">${treeFolderIcon(false)}</span><span class="tree-name">${escapeHtml(node.name)}</span>`
       : `<span class="file-icon">${fileTypeIcon(String(node.name || node.path).split("/").at(-1))}</span><span class="tree-name ${rollbackFileStatusClass(node)}" title="${escapeHtml(gitStatusDescription(node))}">${escapeHtml(String(node.name || node.path).split("/").at(-1))}</span>`;
@@ -2663,11 +2664,11 @@ function rollbackTreeRows(node, depth, state, checkedPaths) {
   </div>${children}`;
 }
 
-function rollbackTreeHtml(files, state) {
+function rollbackTreeHtml(files, state, rootName = "Changes") {
   if (!files || files.length === 0) {
     return '<div class="rollback-empty">No changes to roll back</div>';
   }
-  return rollbackTreeRows(rollbackTreeModel(files), 0, state, new Set(state.checked));
+  return rollbackTreeRows(rollbackTreeModel(files, rootName), 0, state, new Set(state.checked));
 }
 
 function rollbackSummaryCounts(files, checkedPaths) {
@@ -2689,8 +2690,9 @@ function rollbackSummaryCounts(files, checkedPaths) {
 
 function rollbackSummaryHtml(files, state) {
   const checked = new Set(state.checked);
-  const summary = rollbackSummaryCounts(files, checked);
-  return summary || '<span class="commit-meta">No files selected</span>';
+  // IDEA 的 commit legend 在没有任何 included change 时不显示占位文案；行高仍保留，
+  // 底部的 Delete local copies 与按钮位置不跳动。
+  return rollbackSummaryCounts(files, checked);
 }
 
 
@@ -2702,15 +2704,17 @@ function rollbackBodyHtml(files, state) {
   const notice = state.notice
     ? `<div class="rollback-notice error" role="status">${escapeHtml(String(state.notice))}</div>`
     : '<div class="rollback-notice" role="status" hidden></div>';
+  const hasSelection = !!state.selectedPath && files.some((file) => file.path === state.selectedPath);
+  const diffUnavailable = hasSelection ? "" : ' disabled title="Select a file to show its diff."';
   return `<div class="rollback-toolbar" role="toolbar" aria-label="Rollback Changes toolbar">
-    <button class="toolbar-button" type="button" data-rollback-toolbar="diff" aria-label="Show Diff" title="Show Diff">${icon("git-compare-arrows")}</button>
-    <button class="toolbar-button" type="button" data-rollback-toolbar="preview" aria-label="Preview Diff" title="Preview Diff">${icon("eye")}</button>
+    <button class="toolbar-button" type="button" data-rollback-toolbar="diff" aria-label="Show Diff" title="Show Diff"${diffUnavailable}>${icon("git-compare-arrows")}</button>
     <span class="toolbar-separator"></span>
+    <button class="toolbar-button" type="button" data-rollback-toolbar="preview" aria-label="Preview Diff" title="Preview Diff"${diffUnavailable}>${icon("eye")}</button>
     <span class="grow"></span>
     <button class="toolbar-button" type="button" data-rollback-toolbar="expand-all" aria-label="Expand All" title="Expand All">${icon("expand-all")}</button>
     <button class="toolbar-button" type="button" data-rollback-toolbar="collapse-all" aria-label="Collapse All" title="Collapse All">${icon("collapse-all")}</button>
   </div>
-  <div class="rollback-tree" role="tree" aria-label="Changes to roll back" tabindex="-1">${rollbackTreeHtml(files, state)}</div>
+  <div class="rollback-tree" role="tree" aria-label="Changes to roll back" tabindex="-1">${rollbackTreeHtml(files, state, (window.__augitLive && window.__augitLive.workspaceName) || "Changes")}</div>
   <div class="rollback-summary" aria-live="polite">${rollbackSummaryHtml(files, state)}</div>
   <button class="check-line rollback-delete" type="button" role="checkbox" aria-checked="${deleteChecked}" data-rollback-delete title="${includedNew ? "New or untracked files are moved to the Windows Recycle Bin." : "Available when a selected file is added or untracked."}"${includedNew ? "" : ' disabled aria-disabled="true"'}>
     <span class="fake-check${deleteChecked ? " checked" : ""}" aria-hidden="true"></span><span>Delete local copies of added files</span>
@@ -2725,14 +2729,14 @@ function rollbackSampleFiles() {
   ];
 }
 
-function activeRollbackState(files, selectedPath) {
+function activeRollbackState(files, includedPaths = []) {
+  const existing = new Set(files.map((file) => file.path));
+  const checkedPaths = [...new Set(includedPaths)].filter((path) => existing.has(path));
   return {
-    checked: selectedPath && files.some((file) => file.path === selectedPath)
-      ? [selectedPath]
-      : files.map((file) => file.path),
-    selectedPath: selectedPath && files.some((file) => file.path === selectedPath)
-      ? selectedPath
-      : (files[0] && files[0].path) || null,
+    // 权威 `RollbackChangesDialog.rollbackChanges(project, changes)` 只勾选传入的改动；
+    // 没有传入具体文件时从空勾选开始，不能把整棵树默认勾上（IDEA 打开后 Rollback 禁用）。
+    checked: checkedPaths,
+    selectedPath: checkedPaths[0] || null,
     collapsed: [],
     rootCollapsed: false,
     deleteLocallyAddedFiles: files.some((file) => rollbackFileIsNew(file)),
@@ -3362,8 +3366,8 @@ function changeParentPresentation(file) {
   return file.directory ? file.directory.replaceAll("/", "\\") : (window.__augitLive?.workspaceName || "Augit");
 }
 
-function liveChangeFileRow(file, group, selectedName, fileIndex = 0) {
-  const isSelected = selectedName === file.name;
+function liveChangeFileRow(file, group, selectedPath, fileIndex = 0) {
+  const isSelected = selectedPath === file.path;
   return `
       <div class="check-row change-file-row ${isSelected ? "selected" : ""}" data-file="${escapeHtml(file.name)}" data-path="${escapeHtml(file.path)}" data-group="${escapeHtml(group)}" data-index-status="${escapeHtml(file.indexStatus || " ")}" data-worktree-status="${escapeHtml(file.workTreeStatus || " ")}" role="treeitem" aria-level="2" aria-selected="${isSelected}" aria-label="${escapeHtml(changeAccessibleName(file.kind, file.name, file))}" id="change-file-${fileIndex}" data-change-path="${escapeHtml(file.path)}" tabindex="-1">
         <button class="fake-check${file.checked ? " checked" : ""}" type="button" role="checkbox" tabindex="-1" aria-checked="${file.checked}" aria-label="Choose ${escapeHtml(file.name)}"></button>
@@ -3380,9 +3384,14 @@ function liveChangeGroupRow(label, groupFiles, groupIndex = 0) {
   return `<div class="check-row check-group-row" data-group="${escapeHtml(label)}" role="treeitem" aria-level="1" aria-expanded="true" aria-selected="false" id="change-group-${groupIndex}"><button class="change-chevron" type="button" tabindex="-1" aria-label="Collapse ${escapeHtml(label)}" aria-expanded="true">${icon("chevron-down")}</button><button class="fake-check${checkClass}" type="button" role="checkbox" tabindex="-1" aria-checked="${state}" aria-label="Select All ${escapeHtml(label)}"></button><strong>${escapeHtml(label)}</strong><span class="commit-meta">${changesFileCount(groupFiles.length)}</span></div>`;
 }
 
-function liveChangesSide(selected) {
-  const status = window.__augitLive.status;
+function liveChangesSide() {
+  const live = window.__augitLive;
+  const status = live.status;
   const groups = [["Changes", "Changes"], ["UnversionedFiles", "Unversioned Files"]];
+  // IDEA 非模态 Commit 模式把「勾选」当作命令目标（Rollback 按 included changes；
+  // Show Diff 也允许从已勾选项回退）。行选中仍是复选之外的独立状态；这里只决定命令是否可用。
+  const selectedPath = live.selectedChangePath || "";
+  const canShowDiff = !!selectedPath || status.files.some(file => file.checked);
   // 无改动时复用样例版的空状态：文案与规格 §10.1 一致（「没有待提交的更改」），
   // 并保留提交工具窗口骨架（工具栏、提交框与禁用的动作）。
   if (status.files.length === 0) {
@@ -3395,14 +3404,14 @@ function liveChangesSide(selected) {
       const groupFiles = status.files.filter(file => file.group === key);
       if (groupFiles.length === 0) return "";
       return liveChangeGroupRow(label, groupFiles, groupIndex) + groupFiles.map(
-        file => liveChangeFileRow(file, label, selected, changeFileIndex++)).join("");
+        file => liveChangeFileRow(file, label, selectedPath, changeFileIndex++)).join("");
     }).join("");
   const changed = status.files.filter(file => file.group === "Changes").length;
   return `
     <aside class="tool-window side-tool">
       <div class="tool-header"><span>Commit</span><span class="grow"></span><span class="header-actions"><button class="icon-button" aria-label="More">${icon("ellipsis-vertical")}</button><button class="icon-button" aria-label="Minimize">${icon("minus")}</button></span></div>
       <div class="changes-layout">
-        <div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" data-action="rollback-change" data-disabled-reason="Select a file in Changes first." aria-label="Rollback"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="Select a file in Changes first."'}>${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" data-disabled-reason="Select a file in Changes first." aria-label="Show Diff"${window.__augitLive && window.__augitLive.selectedChangePath ? "" : ' disabled title="Select a file in Changes first."'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="Expand All">${icon("download")}</button><button class="toolbar-button" aria-label="Preview">${icon("eye")}</button></div>
+        <div class="toolbar"><button class="toolbar-button" aria-label="Refresh">${icon("refresh-cw")}</button><button class="toolbar-button" data-action="rollback-change" aria-label="Rollback">${icon("undo-2")}</button><button class="toolbar-button" data-action="show-change-diff" data-disabled-reason="Select or include a file in Changes first." aria-label="Show Diff"${canShowDiff ? "" : ' disabled title="Select or include a file in Changes first."'}>${icon("git-compare-arrows")}</button><button class="toolbar-button" aria-label="Expand All">${icon("download")}</button><button class="toolbar-button" aria-label="Preview">${icon("eye")}</button></div>
         ${statusRefreshNotice()}
         <div class="changes-list" role="tree" aria-label="Files to Commit" tabindex="0">
           ${changeRows}
@@ -5662,7 +5671,7 @@ function shell({ activeRail = "project", side = "project", editor = "markdown", 
     : side === "commit"
       ? (live
         ? (live.status
-          ? liveChangesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : "")
+          ? liveChangesSide()
           // live 已存在但状态未到：不得退化成样例数据（会显示工作区里不存在的文件）。
           : loadingChangesSide())
         : changesSide(editor === "diff" || editor === "diff-loading" ? "app.manifest" : ""))
@@ -6279,7 +6288,7 @@ function renderScene() {
         : rollbackSampleFiles();
       const state = window.__augitLive && window.__augitLive.rollback && window.__augitLive.rollback.active
         ? window.__augitLive.rollback
-        : activeRollbackState(files, null);
+        : activeRollbackState(files, files[0] ? [files[0].path] : []);
       const body = rollbackBodyHtml(files, state);
       return shell({ activeRail: "commit", side: "commit", editor: "diff", overlay: dialog("Rollback Changes", body, `<button type="button" class="primary-button" data-rollback-action="confirm">Rollback</button><button type="button" class="secondary-button" data-rollback-action="cancel">Close</button>`, false, "rollback-dialog") });
     }
@@ -6828,14 +6837,27 @@ function bindChangesWorkflow() {
   const selected = () => list.querySelector(".check-row.selected");
   const selectedFile = () => list.querySelector(".change-file-row.selected:not([hidden])");
   const updateActions = () => {
-    const enabled = !!selectedFile();
-    side.querySelectorAll('[data-action="show-change-diff"], .toolbar [aria-label="Rollback"]').forEach(button => {
-      button.disabled = !enabled;
-      // 禁用原因必须与状态一致（规格 §10.3）：解禁后还挂着"先在改动列表里选择一个文件"
-      // 是错的说明，用户悬停会看到与实际状态矛盾的文字。
-      if (enabled) button.removeAttribute("title");
-      else button.setAttribute("title", button.dataset.disabledReason || "Select a file in Changes first.");
-    });
+    const liveNow = window.__augitLive;
+    // 实时外壳按 IDEA 非模态 Commit 模式：Rollback 只要有改动即可用（目标取行选中或
+    // included 文件）；Show Diff 在无行选中时回退到 included。视觉稿没有 live 状态，
+    // 仍按选中行演示禁用/解禁。
+    const files = (liveNow && liveNow.status && liveNow.status.files) || [];
+    const hasChecked = files.some(file => file.checked);
+    const hasSelection = !!selectedFile();
+    side.querySelectorAll('[data-action="show-change-diff"], .toolbar [aria-label="Rollback"], [data-action="rollback-change"]')
+      .forEach(button => {
+        const isRollback = button.dataset.action === "rollback-change"
+          || button.getAttribute("aria-label") === "Rollback";
+        const enabled = liveNow
+          ? (isRollback ? files.length > 0 : (hasSelection || hasChecked))
+          : hasSelection;
+        button.disabled = !enabled;
+        // 禁用原因必须与状态一致（规格 §10.3）：解禁后还挂着"先在改动列表里选择一个文件"
+        // 是错的说明，用户悬停会看到与实际状态矛盾的文字。
+        if (enabled) button.removeAttribute("title");
+        else button.setAttribute("title", button.dataset.disabledReason
+          || (isRollback ? "Select a file in Changes first." : "Select or include a file in Changes first."));
+      });
   };
   const setStatus = (path, comparison) => {
     const label = status.querySelector(".status-path");

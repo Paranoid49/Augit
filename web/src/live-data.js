@@ -2532,15 +2532,20 @@ function syncChangesToolbar() {
   const live = window.__augitLive;
   const toolbar = document.querySelector(".side-tool .changes-layout > .toolbar");
   if (!live || !toolbar) return;
+  const files = (live.status && live.status.files) || [];
   const selected = !!live.selectedChangePath
-    && ((live.status && live.status.files) || []).some((file) => file.path === live.selectedChangePath);
+    && files.some((file) => file.path === live.selectedChangePath);
+  const canShowDiff = selected || files.some((file) => file.checked);
+  // Rollback 在非模态 Commit 模式下只要有改动就可用（IDEA `RollbackAction.hasReversibleFiles`）；
+  // 打开后按行选中或已勾选文件决定初始 included，没有 included 时确认按钮禁用。
   for (const button of toolbar.querySelectorAll(
     '[data-action="show-change-diff"], [data-action="rollback-change"]')) {
-    if (button.disabled !== !selected) button.disabled = !selected;
-    if (selected) {
+    const enabled = button.dataset.action === "rollback-change" ? files.length > 0 : canShowDiff;
+    if (button.disabled !== !enabled) button.disabled = !enabled;
+    if (enabled) {
       button.removeAttribute("title");
     } else {
-      const title = button.dataset.disabledReason || "Select a file in Changes first.";
+      const title = button.dataset.disabledReason || "Select or include a file in Changes first.";
       if (button.title !== title) button.title = title;
     }
   }
@@ -9701,7 +9706,7 @@ async function cancelPushDialog() {
  * 文件；用户可以继续勾选其它文件。危险动作仍是明确的 `Rollback` 主操作，
  * 底部 `Delete local copies of added files` 决定新增/未跟踪文件是否移入回收站。
  */
-function openRollbackDialog(path) {
+function openRollbackDialog(path, includedPaths = null) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host) return;
@@ -9715,7 +9720,10 @@ function openRollbackDialog(path) {
 
   closeLiveOverlay();
   rememberDialogFocus();
-  const state = activeRollbackState(files, file ? file.path : null);
+  // 右键/工具栏选中文件时只勾选该文件；没有行选中时由调用方传入当前**已勾选**
+  // （included）的文件；两者都没有则以空勾选打开，Rollback 保持禁用。
+  const initialPaths = file ? [file.path] : (Array.isArray(includedPaths) ? includedPaths : []);
+  const state = activeRollbackState(files, initialPaths);
   state.active = true;
   live.rollback = state;
   document.querySelectorAll("[data-augit-overlay].live-overlay").forEach((node) => node.remove());
@@ -15668,10 +15676,19 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   event.preventDefault();
   event.stopPropagation();
-  const path = live.selectedChangePath;
+  const files = (live.status && live.status.files) || [];
+  // 行选中优先；没有选中行时，IDEA 非模态 Commit 模式按 included（已勾选）文件执行。
+  const selectedPath = files.some((file) => file.path === live.selectedChangePath)
+    ? live.selectedChangePath : null;
+  const checkedPaths = files.filter((file) => file.checked).map((file) => file.path);
+  if (button.dataset.action === "rollback-change") {
+    if (selectedPath) openRollbackDialog(selectedPath);
+    else openRollbackDialog(null, checkedPaths);
+    return;
+  }
+  const path = selectedPath || checkedPaths[0] || null;
   if (!path) return;
-  if (button.dataset.action === "rollback-change") openRollbackDialog(path);
-  else void openChangeDiff(path);
+  void openChangeDiff(path);
 }, true);
 
 // 改动工具窗工具栏的「预览」（规格 §7.7 第 14 条）：Markdown 与 JSON 的默认 Git 页面仍是**磁盘真实文本 diff**，
@@ -15687,8 +15704,10 @@ document.addEventListener("click", (event) => {
   if (!button) return;
   event.preventDefault();
   event.stopPropagation();
+  const files = (live.status && live.status.files) || [];
   const path = live.selectedChangePath
-    || ((live.status && live.status.files && live.status.files[0]) ? live.status.files[0].path : null);
+    || (files.find((file) => file.checked) || files[0] || {}).path
+    || null;
   if (!path) {
     window.__augitError = "preview:no-selection";
     return;

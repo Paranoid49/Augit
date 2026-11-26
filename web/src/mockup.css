@@ -4435,7 +4435,14 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .rollback-dialog .rollback-delete:is(:disabled, [aria-disabled="true"]) { color: var(--augit-faint); cursor: default; }
 .rollback-dialog .rollback-notice { margin-top: 6px; max-height: 56px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .rollback-dialog .dialog-footer { min-height: 0; align-items: flex-end; padding: 0 12px; }
-.rollback-dialog .dialog-footer button { flex: none; height: var(--rollback-button, 37px); padding: 0; white-space: nowrap; }
+.rollback-dialog .dialog-footer button {
+  flex: none;
+  height: var(--rollback-button, 30px);
+  min-height: var(--rollback-button, 30px);
+  max-height: var(--rollback-button, 30px);
+  padding: 0;
+  white-space: nowrap;
+}
 .rollback-dialog .secondary-button { width: var(--rollback-close, 80px); }
 .rollback-dialog .primary-button { width: var(--rollback-run, 84px); }
 .rollback-dialog .dialog-header .icon-button:hover { background: var(--augit-hover); }

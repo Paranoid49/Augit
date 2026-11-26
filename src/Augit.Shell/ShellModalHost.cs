@@ -306,10 +306,26 @@ internal sealed class ShellModalHost : IDisposable
         _operations.Invalidate();
         if (Active)
         {
+            // 先激活所有者再隐藏活动模态窗：若隐藏时所有者仍处于禁用状态，Windows 会按
+            // Z 序把前台交给其它应用，再调用 SetForegroundWindow 可能被前台锁拒绝，
+            // 用户看到主窗闪一下或掉到其它程序后面。所有者必须在隐藏前可激活。
+            ActivateWindowBeforeHide(_owner);
             ShowWindow(_surfaces[^1].Window, 0);
             await WaitForLivePaintAsync();
         }
         Close();
+    }
+
+    /// <summary>
+    /// 隐藏活动模态窗前先把目标窗激活。参考设置独立窗口的关闭路径：先 EnableWindow
+    /// 再 SetForegroundWindow，最后才隐藏子窗，避免系统在“无前台窗口”窗口期切到其它应用。
+    /// </summary>
+    private static void ActivateWindowBeforeHide(nint window)
+    {
+        if (window == 0 || !IsWindowVisible(window)) return;
+        _ = EnableWindow(window, true);
+        _ = SetForegroundWindow(window);
+        _ = DwmFlush();
     }
 
     internal void Close()
@@ -324,7 +340,12 @@ internal sealed class ShellModalHost : IDisposable
         cleanup.Add(() => { Snapshot? pending = _pendingBackground; _pendingBackground = null; pending?.Close(); });
         for (int index = _surfaces.Count; index > 0; index--) cleanup.Add(Pop);
         cleanup.Add(() => { Snapshot? background = _background; _background = null; background?.Close(); });
-        cleanup.Add(() => EnableWindow(_owner, true));
+        cleanup.Add(() =>
+        {
+            // 结束态兜底：即使前面的激活被系统拒绝，也在所有模态/快照销毁后恢复所有者。
+            _ = EnableWindow(_owner, true);
+            _ = SetForegroundWindow(_owner);
+        });
         try { ShellModalCleanup.Run([.. cleanup]); }
         finally { _closing = false; }
     }
@@ -455,6 +476,8 @@ internal sealed class ShellModalHost : IDisposable
             ReleaseCaptureCover,
             () =>
             {
+                // 同样先激活父窗再隐藏子窗；嵌套层退出时也不能让系统把前台交给其它应用。
+                ActivateWindowBeforeHide(parent);
                 // 先隐藏子窗，避免销毁可见HWND时露出桌面/所有者背景的一帧闪烁。
                 ShowWindow(current.Window, 0);
                 _live.ParentWindow = parent;

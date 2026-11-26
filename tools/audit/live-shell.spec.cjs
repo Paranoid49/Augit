@@ -11872,6 +11872,20 @@ async function main() {
     rbCheck('根勾选选择整棵改动树: ' + JSON.stringify(rbAllChecked),
       rbAllChecked.checked.length === rbTracked.fileRows.length && rbAllChecked.summary.length > 0);
 
+    // 全部取消勾选后：没有 included change，Rollback 必须禁用且不显示"No files selected"占位。
+    const rbEmpty = await rb.page.evaluate(() => {
+      document.querySelector('[data-rollback-check-root]').click();
+      return {
+        checked: [...document.querySelectorAll('.rollback-leaf .fake-check[aria-checked="true"]')].length,
+        confirmDisabled: document.querySelector('[data-rollback-action="confirm"]').disabled,
+        summary: (document.querySelector('.rollback-summary') || {}).textContent || '',
+      };
+    });
+    rbCheck('取消全部勾选后 Rollback 禁用: ' + JSON.stringify(rbEmpty),
+      rbEmpty.checked === 0 && rbEmpty.confirmDisabled === true && rbEmpty.summary.trim() === '');
+    // 再勾选整棵树，验证确认按钮恢复可用（后续取消/关闭路径不受影响）。
+    await rb.page.evaluate(() => document.querySelector('[data-rollback-check-root]').click());
+
     // 取消：不请求宿主，对话框关闭且状态清理干净。
     const rbCallsBefore = await rb.page.evaluate('(window.__rollbackCalls || []).length');
     await rb.page.evaluate(() => {
@@ -14165,12 +14179,38 @@ async function main() {
       };
     });
     const ctbBoot = await readToolbar();
-    ctbCheck('未选中改动时工具栏命令禁用并各自给出原因: ' + JSON.stringify(ctbBoot),
-      ctbBoot.showDiff && ctbBoot.showDiff.disabled === true
-        && typeof ctbBoot.showDiff.title === 'string' && ctbBoot.showDiff.title.length > 0
-        && ctbBoot.rollback && ctbBoot.rollback.disabled === true
-        && typeof ctbBoot.rollback.title === 'string' && ctbBoot.rollback.title.length > 0
+    // 参考 `RollbackAction.hasReversibleFiles`：非模态 Commit 模式下只要工作区有改动，
+    // Rollback 就可用（目标取自 included/勾选文件）；Show Diff 在无行选中时回退到已勾选文件。
+    // 修复前两者都要求行选中，未选中时被错误禁用。
+    ctbCheck('未选中改动时按勾选文件启用工具栏命令: ' + JSON.stringify(ctbBoot),
+      ctbBoot.showDiff && ctbBoot.showDiff.disabled === false
+        && (ctbBoot.showDiff.title === null || ctbBoot.showDiff.title === 'Show Diff')
+        && ctbBoot.rollback && ctbBoot.rollback.disabled === false
+        && (ctbBoot.rollback.title === null || ctbBoot.rollback.title === 'Rollback')
         && ctbBoot.selectedPath === null);
+
+    // 无行选中时点击 Rollback：以 included（勾选）文件为初始勾选；未勾选则不勾选并由确认按钮禁用。
+    const ctbRollbackFromChecked = await ctb.page.evaluate(async () => {
+      const checkedPaths = (window.__augitLive.status.files || [])
+        .filter((file) => file.checked).map((file) => file.path).sort();
+      document.querySelector('.side-tool [data-action="rollback-change"]').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const dialog = document.querySelector('.dialog.rollback-dialog');
+      const result = {
+        checkedPaths,
+        dialogChecked: dialog ? [...dialog.querySelectorAll('.rollback-leaf .fake-check[aria-checked="true"]')]
+          .map((checkbox) => checkbox.closest('.rollback-leaf').dataset.rollbackFile).sort() : [],
+        confirmDisabled: dialog ? dialog.querySelector('[data-rollback-action="confirm"]').disabled : null,
+      };
+      dialog?.querySelector('[data-rollback-action="cancel"]')?.dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }));
+      return result;
+    });
+    ctbCheck('无行选中时 Rollback 按 included 文件勾选: ' + JSON.stringify(ctbRollbackFromChecked),
+      ctbRollbackFromChecked.checkedPaths.length > 0
+        && JSON.stringify(ctbRollbackFromChecked.dialogChecked) === JSON.stringify(ctbRollbackFromChecked.checkedPaths)
+        && ctbRollbackFromChecked.confirmDisabled === false);
 
     await ctb.page.evaluate(() => {
       window.__diffCalls = [];
@@ -14182,8 +14222,10 @@ async function main() {
     const ctbSelected = await readToolbar();
     ctbCheck('选中改动行后工具栏命令解禁并撤掉过期说明: ' + JSON.stringify(ctbSelected),
       ctbSelected.selectedPath === 'src/App.cs'
-        && ctbSelected.showDiff.disabled === false && ctbSelected.showDiff.title === null
-        && ctbSelected.rollback.disabled === false && ctbSelected.rollback.title === null);
+        && ctbSelected.showDiff.disabled === false
+        && (ctbSelected.showDiff.title === null || ctbSelected.showDiff.title === 'Show Diff')
+        && ctbSelected.rollback.disabled === false
+        && (ctbSelected.rollback.title === null || ctbSelected.rollback.title === 'Rollback'));
 
     // 「显示 Diff」必须打开**真实**差异：路径是被选中的文件，且确实请求过 Git。
     await ctb.page.evaluate(() => {

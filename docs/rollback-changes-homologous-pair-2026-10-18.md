@@ -32,3 +32,14 @@
 ## 6. 2026-11-25 整改
 
 用户以实机参考要求将 Rollback 改为 IDEA `RollbackChangesDialog` 结构：`Rollback Changes` 标题、按目录分组的勾选文件树、根/目录半选、状态 commit legend、`Delete local copies of added files` 与 `Rollback`/`Close`；同时支持多文件一次性回滚。旧版单文件 `Rollback File` 红色警告 + 比较视图作为历史记录保留在第 1 节，不再代表当前实现。尺寸、截图与交互验证见本轮提交记录。
+
+## 7. 2026-11-26 用户实机复核后的补强
+
+用户反馈三点：改动工具窗两个动作灰、Rollback 窗口外观与真实 IDEA 有差距且“无选中文件时按钮可点”、关闭模态后主界面掉到其它应用后面或闪烁。核对 `intellij-community`：
+
+- `RollbackAction.update` 的可用性来自 `hasReversibleFiles`（工作区存在改动即可），动作目标在非模态提交模式下取 included（勾选）文件；`RollbackFilesAction` 仅在勾选优先模式下要求 `VcsDataKeys.CHANGES`。Augit 原先要求行选中，错误地禁用了两个动作。
+- `RollbackChangesDialog.rollbackChanges(project, changes)` 只勾选传入的改动；无传入时不预勾选，`inclusionListener` 在 included 为空时禁用 OK。Augit 原先在无路径时默认勾选全部文件。
+- `ChangesBrowserBase` 的 Show Diff 只在存在选中改动时可显示；Rollback 窗口工具条在无选中文件时应禁用 Diff/预览。
+- 原生模态关闭顺序参考设置独立窗口：先 `EnableWindow(owner,true)`、`SetForegroundWindow(owner)`，再隐藏/销毁子窗；否则隐藏活动窗时 Windows 会把前台交给其它应用。
+
+本批据此补齐：Rollback 按钮按 included 文件回退、对话框空勾选/footer 禁用、Diff/预览禁用、底栏 30px、根节点显示工作区名；关闭原生模态先激活所有者再隐藏。详细验证与截图见本轮提交记录。

@@ -189,3 +189,11 @@ node tools/audit/verify-modal-transition-frames.cjs `
 - `before-open-black-frame.png`、`before-close-fade-frame.png`：基线缺陷关键帧；
 - `after-open-transition.png`、`after-close-transition.png`：整改后过渡关键帧；
 - `pycharm-reference/`：参考实机主界面帧、Settings 打开帧、`events.json`。
+
+## 12. 2026-11-26 补记：关闭后主界面掉到其它窗口后面/闪烁
+
+用户报告关闭原生模态后主界面会短暂掉到其它应用后面，或闪一下才回来。复核关闭路径发现：模态存续期间所有者窗口被 `EnableWindow(owner,false)`；原实现先 `ShowWindow(modal,0)` 隐藏活动模态，再等待 WebView2 首帧，最后才启用并激活所有者。隐藏活动窗的同步请求会让系统先把前台交给其它应用；随后 `SetForegroundWindow(owner)` 可能被前台锁拒绝，主界面就留在后面或出现一次切换闪烁。
+
+修复：`ShellModalHost.CloseAsync` 在隐藏最上层模态前先启用所有者并 `SetForegroundWindow(owner)` 再 `DwmFlush`；嵌套层 `Pop` 同样先激活父窗再隐藏子窗；全部清理结束后再次兜底激活所有者。设置独立窗口此前已是相同顺序（先 owner-enabled/foreground，再 cloak/hide）。
+
+本机真实外壳验证：后台保留 Notepad 窗口，打开 Format JSON 后关闭；以 5ms 间隔采样前台窗口 240 次，关闭后全部样本都属于 Augit 主窗，未出现 Notepad 或其它进程前台。覆盖同一共享 `ShellModalHost` 的 Format JSON、Rollback 等全部普通模态与嵌套退出路径。
