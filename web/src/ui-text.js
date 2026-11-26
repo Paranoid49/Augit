@@ -271,7 +271,18 @@ const messages = new Map(Object.entries({
   "删除失败。": "Deletion failed.",
   "目录不存在或不是可访问的本地目录。": "The directory does not exist or is not an accessible local directory.",
   "无法为该目录启动新窗口。": "Cannot open a new window for this directory.",
-  "所选目录不存在或不是可访问的本地目录。": "The selected directory does not exist or is not an accessible local directory."
+  "所选目录不存在或不是可访问的本地目录。": "The selected directory does not exist or is not an accessible local directory.",
+  "没有可用的发布版本。": "No releases are available.",
+  "更新服务返回了无效的发布信息。": "The update service returned invalid release information.",
+  "最新版本尚未提供更新清单。": "The latest release does not provide an update manifest yet.",
+  "更新清单签名校验失败，已拒绝本次更新。": "The update manifest signature could not be verified; the update was rejected.",
+  "更新清单无效，已拒绝本次更新。": "The update manifest is invalid; the update was rejected.",
+  "更新清单内容无效，已拒绝本次更新。": "The update manifest content is invalid; the update was rejected.",
+  "更新清单版本号无效，已拒绝本次更新。": "The update manifest version is invalid; the update was rejected.",
+  "更新检查已取消。": "The update check was cancelled.",
+  "GitHub 暂时限制了更新检查请求，请稍后再试或从发布页手动下载。": "GitHub is temporarily rate-limiting update checks. Try again later or download the latest release from the Releases page.",
+  "无法连接 GitHub 更新服务，请检查网络或代理后重试。": "Cannot reach the GitHub update service. Check the network or proxy and try again.",
+  "连接 GitHub 更新服务超时，请稍后重试。": "Connecting to the GitHub update service timed out. Try again later."
 }));
 
 export function uiMessage(value) {

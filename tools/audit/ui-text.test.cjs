@@ -12,11 +12,16 @@ const path = require('node:path');
   assert.equal(uiMessage('当前分支 · 中文分支'), 'Current branch · 中文分支');
   assert.equal(uiMessage('fatal: 中文 hook 输出'), 'fatal: 中文 hook 输出');
   assert.equal(uiMessage('自定义终端'), 'Custom terminal');
+  assert.equal(uiMessage('GitHub 暂时限制了更新检查请求，请稍后再试或从发布页手动下载。'),
+    'GitHub is temporarily rate-limiting update checks. Try again later or download the latest release from the Releases page.');
+  assert.equal(uiMessage('更新服务返回了无效的发布信息。'), 'The update service returned invalid release information.');
+  assert.equal(uiMessage('检查更新失败：Response status code does not indicate success: 403'),
+    '检查更新失败：Response status code does not indicate success: 403');
   const liveSource = fs.readFileSync(path.resolve(__dirname, '../../web/src/live-data.js'), 'utf8');
-  assert.match(liveSource, /window\.__augitTerminalShell = uiMessage\(started\.displayName\)/);
-  assert.match(liveSource, /const shell = uiMessage\(window\.__augitTerminalShell \|\| rendered\)/);
-  assert.match(liveSource, /const text = live\.terminalStarting \? 'Local · Starting…' : 'Local'/);
-  assert.match(liveSource, /label\.title = live\.terminalStarting \? `\$\{shell\} · Starting…` : shell/);
+  assert.match(liveSource, /tab\.shellName = .*uiMessage\(started\.displayName/);
+  assert.match(liveSource, /const shell = uiMessage\(tab\.shellName \|\| window\.__augitTerminalShell \|\| 'Windows PowerShell'\)/);
+  assert.match(liveSource, /const text = tab\.starting \? `\$\{tab\.label\} · Starting…` : tab\.label/);
+  assert.match(liveSource, /label\.title = tab\.starting \? `\$\{shell\} · Starting…` : shell/);
   assert.match(liveSource, /label\.setAttribute\('aria-label', `Local terminal: \$\{shell\}`\)/);
   const content = { text: '操作已取消。', message: '操作已取消。', files: [{ path: '中文目录/文件.txt' }] };
   assert.equal(uiPayload(content, 'git/commit-details'), content);

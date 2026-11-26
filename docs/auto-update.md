@@ -45,11 +45,13 @@ Augit 只发布 self-contained 便携 zip，不提供安装器。便携版必须
 
 `UpdateService`：
 
-1. 请求 GitHub Releases API；
-2. 过滤 draft，按 SemVer 选择最高版本（当前 rc 阶段包含 Pre-release）；
-3. 下载该 Release 的 `update.json` 和 `update.json.sig`；
+1. 读取公开的 GitHub Releases Atom 源（`https://github.com/Paranoid49/Augit/releases.atom`）。它是静态订阅源，**不占用 GitHub REST API 的匿名配额（60 次/小时/IP）**，也符合产品规格「不接入 GitHub 托管平台 API」；
+2. 从 Atom 条目取 Release tag，按 SemVer 选择最高版本（当前 rc 阶段包含 Pre-release）；
+3. 用该 tag 直接下载 `update.json` 和 `update.json.sig`（发布资产下载链路，不经过 REST API）；
 4. 先验签，再解析和校验 tag、版本、GitHub HTTPS 地址、大小和 SHA-256；
 5. 只有版本高于当前版本才提示。
+
+Atom 源解析失败、网络失败、403/429 限流和超时分别给出明确原因；不再把 `Response status code does not indicate success: 403 (rate limit exceeded)` 这类原始英文直接显示给用户。
 
 下载时把便携 zip 写到：
 
@@ -141,7 +143,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools/update/generate-signing-key.
 
 - 不做后台静默安装；必须用户确认重启。
 - 不做增量更新，当前每次下载完整便携 zip（约 39 MB）。
-- 依赖 GitHub Releases API 和下载链路；中国大陆网络可能需要代理，失败不阻塞应用。
+- 依赖 GitHub Releases Atom 源和发布资产下载链路；中国大陆网络可能需要代理，失败不阻塞应用。Atom 源不受 REST API 60 次/小时的匿名配额限制，但 GitHub 仍可能临时限流或不可达，界面会显示可读原因并建议稍后重试或手动下载。
 - 仍需系统 WebView2 Runtime；它是界面运行依赖，不随 Augit 更新。
 - 仍未做 Authenticode 代码签名，SmartScreen 可能提示未知发布者；签名清单只保证更新来源和完整性，不等于 Windows 发布者信誉。
 - Windows 10 22H2 实机与更新失败回滚仍需真实验证。

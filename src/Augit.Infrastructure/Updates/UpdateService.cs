@@ -3,7 +3,8 @@ using System.IO.Compression;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace Augit.Infrastructure.Updates;
 
@@ -29,10 +30,14 @@ public sealed record StagedUpdate(
 /// </summary>
 public sealed class UpdateService : IDisposable
 {
-    public const string ReleasesApiUrl = "https://api.github.com/repos/Paranoid49/Augit/releases?per_page=30";
+    // Releases Atom 源是静态内容，不占用 GitHub REST API 的匿名配额（60 次/小时/IP）。
+    // 产品规格明确不接入 GitHub 托管平台 API；这里只读取公开的发布订阅源。
+    public const string ReleasesFeedUrl = "https://github.com/Paranoid49/Augit/releases.atom";
+    public const string ReleasesDownloadRoot = "https://github.com/Paranoid49/Augit/releases/download/";
     public const string ManifestAssetName = "update.json";
     public const string SignatureAssetName = "update.json.sig";
 
+    private const int MaximumFeedBytes = 512 * 1024;
     private const long MaximumManifestBytes = 128 * 1024;
     private const long MaximumPackageBytes = 200L * 1024 * 1024;
     private const long MaximumExtractedBytes = 300L * 1024 * 1024;
@@ -69,7 +74,6 @@ public sealed class UpdateService : IDisposable
                 Timeout = TimeSpan.FromMinutes(5),
             };
             _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"Augit/{CurrentVersion}");
-            _httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             _ownsHttpClient = true;
         }
         else
@@ -87,48 +91,14 @@ public sealed class UpdateService : IDisposable
         try
         {
             _lastManifest = null;
-            string releasesJson = await _httpClient.GetStringAsync(ReleasesApiUrl, cancellationToken).ConfigureAwait(false);
-            List<(SemanticVersion Version, string Tag, JsonElement Release)> releases = [];
-            using JsonDocument document = JsonDocument.Parse(releasesJson);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            string feed = await DownloadTextAsync(ReleasesFeedUrl, MaximumFeedBytes, cancellationToken).ConfigureAwait(false);
+            if (!TryReadLatestRelease(feed, out string latestTag, out _))
             {
-                return Failure("更新服务返回了无效的发布列表。");
+                return Failure("更新服务返回了无效的发布信息。");
             }
 
-            foreach (JsonElement release in document.RootElement.EnumerateArray())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (release.TryGetProperty("draft", out JsonElement draft) && draft.ValueKind == JsonValueKind.True)
-                {
-                    continue;
-                }
-                string? tag = ReadString(release, "tag_name");
-                if (string.IsNullOrWhiteSpace(tag) || !tag.StartsWith('v'))
-                {
-                    continue;
-                }
-                if (!SemanticVersion.TryParse(tag[1..], out SemanticVersion? version) || version is null)
-                {
-                    continue;
-                }
-                releases.Add((version, tag, release));
-            }
-
-            if (releases.Count == 0)
-            {
-                return Failure("没有可用的发布版本。");
-            }
-
-            (SemanticVersion latestVersion, string latestTag, JsonElement latestRelease) = releases
-                .OrderByDescending(item => item.Version)
-                .First();
-            string? manifestUrl = FindAssetUrl(latestRelease, ManifestAssetName);
-            string? signatureUrl = FindAssetUrl(latestRelease, SignatureAssetName);
-            if (manifestUrl is null || signatureUrl is null)
-            {
-                return Failure($"最新版本 {latestVersion} 尚未提供更新清单。");
-            }
-
+            string manifestUrl = ReleaseAssetUrl(latestTag, ManifestAssetName);
+            string signatureUrl = ReleaseAssetUrl(latestTag, SignatureAssetName);
             byte[] manifestBytes = await DownloadSmallAsync(manifestUrl, cancellationToken).ConfigureAwait(false);
             byte[] signatureBytes = await DownloadSmallAsync(signatureUrl, cancellationToken).ConfigureAwait(false);
             string signature = Encoding.UTF8.GetString(signatureBytes).Trim();
@@ -137,19 +107,19 @@ public sealed class UpdateService : IDisposable
                 return Failure("更新清单签名校验失败，已拒绝本次更新。");
             }
 
-            if (!UpdateManifest.TryParse(manifestBytes, out UpdateManifest? manifest, out string? parseError)
+            if (!UpdateManifest.TryParse(manifestBytes, out UpdateManifest? manifest, out _)
                 || manifest is null)
             {
-                return Failure(parseError ?? "更新清单解析失败。");
+                return Failure("更新清单无效，已拒绝本次更新。");
             }
-            if (!manifest.TryValidate(latestTag, out string? validationError))
+            if (!manifest.TryValidate(latestTag, out _))
             {
-                return Failure(validationError ?? "更新清单内容无效。");
+                return Failure("更新清单内容无效，已拒绝本次更新。");
             }
             if (!SemanticVersion.TryParse(manifest.Version, out SemanticVersion? updateVersion)
                 || updateVersion is null)
             {
-                return Failure("更新清单版本号无效。");
+                return Failure("更新清单版本号无效，已拒绝本次更新。");
             }
             if (updateVersion.CompareTo(ParseCurrentVersion()) <= 0)
             {
@@ -163,9 +133,21 @@ public sealed class UpdateService : IDisposable
         {
             return Failure("更新检查已取消。");
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or IOException or JsonException or InvalidDataException)
+        catch (HttpRequestException exception) when (exception.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
         {
-            return Failure($"检查更新失败：{exception.Message}");
+            return Failure("GitHub 暂时限制了更新检查请求，请稍后再试或从发布页手动下载。");
+        }
+        catch (HttpRequestException)
+        {
+            return Failure("无法连接 GitHub 更新服务，请检查网络或代理后重试。");
+        }
+        catch (TaskCanceledException)
+        {
+            return Failure("连接 GitHub 更新服务超时，请稍后重试。");
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or XmlException)
+        {
+            return Failure("更新服务返回了无效的发布信息。");
         }
         finally
         {
@@ -266,6 +248,91 @@ public sealed class UpdateService : IDisposable
         return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
     }
 
+    /// <summary>读取有大小上限的文本响应；发布源是公开 Atom 订阅，不经过 REST API。</summary>
+    private async Task<string> DownloadTextAsync(string url, int maximumBytes, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is long length && length > maximumBytes)
+        {
+            throw new InvalidDataException("更新发布信息响应过大。");
+        }
+        await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using MemoryStream memory = new();
+        byte[] buffer = new byte[8192];
+        while (true)
+        {
+            int read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0) break;
+            if (memory.Length + read > maximumBytes)
+            {
+                throw new InvalidDataException("更新发布信息响应过大。");
+            }
+            memory.Write(buffer, 0, read);
+        }
+        string text = Encoding.UTF8.GetString(memory.ToArray());
+        return text.Length > 0 && text[0] == '\uFEFF' ? text[1..] : text;
+    }
+
+    /// <summary>
+    /// 从 Releases Atom 源选择最高版本。Atom 源同时包含 Pre-release，且不受 REST API
+    /// 匿名配额限制；版本号仍必须经 SemVer 解析，发布 tag 与清单 tag 由后续验签校验。
+    /// </summary>
+    private static bool TryReadLatestRelease(string xml, out string tag, out SemanticVersion version)
+    {
+        tag = "";
+        version = null!;
+        try
+        {
+            XDocument document = XDocument.Parse(xml, LoadOptions.None);
+            XNamespace atom = "http://www.w3.org/2005/Atom";
+            SemanticVersion? latest = null;
+            string latestTag = "";
+            foreach (XElement entry in document.Root?.Elements(atom + "entry") ?? [])
+            {
+                XElement? link = entry.Elements(atom + "link").FirstOrDefault(element =>
+                    string.Equals((string?)element.Attribute("rel"), "alternate", StringComparison.Ordinal));
+                string? href = (string?)link?.Attribute("href");
+                if (string.IsNullOrWhiteSpace(href))
+                {
+                    continue;
+                }
+                const string marker = "/releases/tag/";
+                int markerIndex = href.IndexOf(marker, StringComparison.Ordinal);
+                if (markerIndex < 0)
+                {
+                    continue;
+                }
+                string candidateTag = Uri.UnescapeDataString(href[(markerIndex + marker.Length)..]).Trim('/');
+                if (!candidateTag.StartsWith('v')
+                    || !SemanticVersion.TryParse(candidateTag[1..], out SemanticVersion? candidate)
+                    || candidate is null)
+                {
+                    continue;
+                }
+                if (latest is null || candidate.CompareTo(latest) > 0)
+                {
+                    latest = candidate;
+                    latestTag = candidateTag;
+                }
+            }
+            if (latest is null)
+            {
+                return false;
+            }
+            tag = latestTag;
+            version = latest;
+            return true;
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+    }
+
+    private static string ReleaseAssetUrl(string tag, string name)
+        => ReleasesDownloadRoot + Uri.EscapeDataString(tag) + "/" + name;
+
     private async Task<byte[]> DownloadSmallAsync(string url, CancellationToken cancellationToken)
     {
         if (!IsGitHubReleaseAsset(url))
@@ -352,27 +419,6 @@ public sealed class UpdateService : IDisposable
             char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_' ? character : '_').ToArray());
         return string.IsNullOrWhiteSpace(sanitized) ? "unknown" : sanitized;
     }
-
-    private static string? FindAssetUrl(JsonElement release, string name)
-    {
-        if (!release.TryGetProperty("assets", out JsonElement assets) || assets.ValueKind != JsonValueKind.Array)
-        {
-            return null;
-        }
-        foreach (JsonElement asset in assets.EnumerateArray())
-        {
-            if (string.Equals(ReadString(asset, "name"), name, StringComparison.Ordinal))
-            {
-                return ReadString(asset, "browser_download_url");
-            }
-        }
-        return null;
-    }
-
-    private static string? ReadString(JsonElement element, string property)
-        => element.TryGetProperty(property, out JsonElement value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : null;
 
     private static bool IsGitHubReleaseAsset(string url)
         => Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)

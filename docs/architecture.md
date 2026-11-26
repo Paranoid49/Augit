@@ -183,7 +183,7 @@ WebView2初始化在环境创建、控制器创建及脚本注册的异步续接
 - 关闭空闲终端时直接结束 shell；存在前台命令时先确认，再终止 shell、前台命令及其整个子进程树。
 - 便携包为 self-contained，自带 .NET 10 Runtime，不依赖系统预装 .NET；正式产物的 .NET 兼容下限以 `Augit.runtimeconfig.json` 为准。
 - 运行时具体版本和完整性信息统一维护在[运行时依赖锁定基线](runtime-dependencies.md)中。便携版仍依赖系统 WebView2 Runtime，但不会安装或修改共享运行时。
-- 只提供 self-contained 便携压缩包，不提供安装器。自动更新由签名发布清单、应用内下载和独立 --apply-update 进程完成；该变更只影响分发方式，不改变技术栈、产品行为或进程模型。
+- 只提供 self-contained 便携压缩包，不提供安装器。自动更新由签名发布清单、应用内下载和独立 --apply-update 进程完成；版本发现读取公开 Releases Atom 源，不调用有匿名配额的 GitHub REST API（产品规格不接入托管平台 API）；该变更只影响分发方式，不改变技术栈、产品行为或进程模型。
 - 随程序分发的可执行文件、前端库和 NuGet 依赖必须附带相应许可证。
 
 ## 8. 验证方式

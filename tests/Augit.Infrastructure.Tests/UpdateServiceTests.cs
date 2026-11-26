@@ -30,16 +30,10 @@ public sealed class UpdateServiceTests
         string manifestUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json";
         string signatureUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json.sig";
         string assetUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/{asset}";
-        string releases = $$"""
-            [{"tag_name":"{{tag}}","draft":false,"prerelease":true,"assets":[
-              {"name":"update.json","browser_download_url":"{{manifestUrl}}"},
-              {"name":"update.json.sig","browser_download_url":"{{signatureUrl}}"},
-              {"name":"{{asset}}","browser_download_url":"{{assetUrl}}"}
-            ]}]
-            """;
+        string feed = CreateFeed(tag);
         using HttpClient http = new(new RouteHandler(new Dictionary<string, byte[]>
         {
-            [UpdateService.ReleasesApiUrl] = Encoding.UTF8.GetBytes(releases),
+            [UpdateService.ReleasesFeedUrl] = Encoding.UTF8.GetBytes(feed),
             [manifestUrl] = manifestBytes,
             [signatureUrl] = Encoding.UTF8.GetBytes(signature + "\n"),
             [assetUrl] = zip,
@@ -69,15 +63,10 @@ public sealed class UpdateServiceTests
         byte[] manifestBytes = Encoding.UTF8.GetBytes(CreateManifestJson(version, tag, asset, zip));
         string manifestUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json";
         string signatureUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json.sig";
-        string releases = $$"""
-            [{"tag_name":"{{tag}}","draft":false,"assets":[
-              {"name":"update.json","browser_download_url":"{{manifestUrl}}"},
-              {"name":"update.json.sig","browser_download_url":"{{signatureUrl}}"}
-            ]}]
-            """;
+        string feed = CreateFeed(tag);
         using HttpClient http = new(new RouteHandler(new Dictionary<string, byte[]>
         {
-            [UpdateService.ReleasesApiUrl] = Encoding.UTF8.GetBytes(releases),
+            [UpdateService.ReleasesFeedUrl] = Encoding.UTF8.GetBytes(feed),
             [manifestUrl] = manifestBytes,
             [signatureUrl] = Encoding.UTF8.GetBytes(Convert.ToBase64String(new byte[64]) + "\n"),
         }));
@@ -107,15 +96,10 @@ public sealed class UpdateServiceTests
             DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
         string manifestUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json";
         string signatureUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json.sig";
-        string releases = $$"""
-            [{"tag_name":"{{tag}}","draft":false,"assets":[
-              {"name":"update.json","browser_download_url":"{{manifestUrl}}"},
-              {"name":"update.json.sig","browser_download_url":"{{signatureUrl}}"}
-            ]}]
-            """;
+        string feed = CreateFeed(tag);
         using HttpClient http = new(new RouteHandler(new Dictionary<string, byte[]>
         {
-            [UpdateService.ReleasesApiUrl] = Encoding.UTF8.GetBytes(releases),
+            [UpdateService.ReleasesFeedUrl] = Encoding.UTF8.GetBytes(feed),
             [manifestUrl] = manifestBytes,
             [signatureUrl] = Encoding.UTF8.GetBytes(signature + "\n"),
         }));
@@ -126,6 +110,67 @@ public sealed class UpdateServiceTests
         Assert.IsNull(check.Error);
         Assert.IsFalse(check.Available);
     }
+
+    [TestMethod]
+    public async Task 发布源按语义版本选择最高版本而不是第一条()
+    {
+        using TemporaryDirectory temporary = new();
+        using ECDsa signing = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        string publicKey = Convert.ToBase64String(signing.ExportSubjectPublicKeyInfo());
+        string newerVersion = "9.9.9";
+        string tag = $"v{newerVersion}";
+        byte[] zip = CreatePortableZip();
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(CreateManifestJson(
+            newerVersion,
+            tag,
+            $"Augit-{newerVersion}-win-x64-portable.zip",
+            zip));
+        string signature = Convert.ToBase64String(signing.SignData(
+            manifestBytes,
+            HashAlgorithmName.SHA256,
+            DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+        string manifestUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json";
+        string signatureUrl = $"https://github.com/Paranoid49/Augit/releases/download/{tag}/update.json.sig";
+        using HttpClient http = new(new RouteHandler(new Dictionary<string, byte[]>
+        {
+            [UpdateService.ReleasesFeedUrl] = Encoding.UTF8.GetBytes(CreateFeed("v0.8.0", tag, "v1.2.3")),
+            [manifestUrl] = manifestBytes,
+            [signatureUrl] = Encoding.UTF8.GetBytes(signature + "\n"),
+        }));
+        using UpdateService service = new("0.9.0", temporary.GetPath("updates"), http, publicKey);
+
+        UpdateCheckResult check = await service.CheckAsync();
+
+        Assert.IsNull(check.Error);
+        Assert.IsTrue(check.Available);
+        Assert.AreEqual(newerVersion, check.Version);
+    }
+
+    [TestMethod]
+    public async Task 发布源限流时给出可读提示而不是原始Http错误()
+    {
+        using TemporaryDirectory temporary = new();
+        using HttpClient http = new(new RouteHandler(
+            new Dictionary<string, byte[]>(),
+            new Dictionary<string, HttpStatusCode>
+            {
+                [UpdateService.ReleasesFeedUrl] = HttpStatusCode.Forbidden,
+            }));
+        using UpdateService service = new("0.9.0", temporary.GetPath("updates"), http, "unused");
+
+        UpdateCheckResult check = await service.CheckAsync();
+
+        Assert.IsFalse(check.Available);
+        Assert.IsNotNull(check.Error);
+        Assert.IsTrue(check.Error.Contains("限制", StringComparison.Ordinal));
+        Assert.IsFalse(check.Error.Contains("Response status code", StringComparison.Ordinal));
+    }
+
+    private static string CreateFeed(params string[] tags)
+        => "<feed xmlns=\"http://www.w3.org/2005/Atom\">"
+            + string.Concat(tags.Select(tag =>
+                $"<entry><link rel=\"alternate\" type=\"text/html\" href=\"https://github.com/Paranoid49/Augit/releases/tag/{tag}\"/></entry>"))
+            + "</feed>";
 
     private static string CurrentTestProductVersion()
     {
@@ -163,13 +208,19 @@ public sealed class UpdateServiceTests
         });
     }
 
-    private sealed class RouteHandler(Dictionary<string, byte[]> routes) : HttpMessageHandler
+    private sealed class RouteHandler(
+        Dictionary<string, byte[]> routes,
+        Dictionary<string, HttpStatusCode>? failures = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             string url = request.RequestUri?.ToString() ?? "";
+            if (failures is not null && failures.TryGetValue(url, out HttpStatusCode status))
+            {
+                return Task.FromResult(new HttpResponseMessage(status));
+            }
             if (!routes.TryGetValue(url, out byte[]? content))
             {
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));

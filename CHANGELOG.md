@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 检查更新改为读取 GitHub Releases Atom 源，不再匿名调用有 60 次/小时配额限制的 GitHub REST API，避免公司 NAT/VPN 或其他工具耗尽配额后出现 `403 (rate limit exceeded)`；发布源不可达、限流和超时改为可读说明，不再直接显示 .NET HttpClient 的原始英文错误。
+
 ## [1.0.0-rc.15] - 2026-11-26
 
 ### Fixed
