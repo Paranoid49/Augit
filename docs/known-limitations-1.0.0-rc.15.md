@@ -74,7 +74,7 @@
 - **本地诊断日志**：`%LOCALAPPDATA%\Augit\logs\augit.log` 记录启动、桥接异常、watcher 初始化异常和 WebView2 进程失败；更新器另写 `update.log`。日志不上传、不记录文件内容/Git 输出/凭据。若 rc.15 仍异常退出，日志为空时需要同时提供 Windows 应用程序日志中的 `Application Error`/`.NET Runtime` 事件。
 - 便携包解压启动、必需文件/许可证、web 资源一致性、版本与关闭清理已验证；发布产物是单一 self-contained 便携 zip，不再提供安装器。
 - **自动更新**：启动后检查 GitHub Releases 的签名 `update.json`，下载并校验签名、大小、SHA-256 和包内版本；用户确认后由暂存的 `--apply-update` 进程等待旧进程退出、备份旧目录、替换并重启，启动失败或 10 秒内无窗口时回滚。更新要求便携目录可写且同目录其它 Augit 窗口已关闭。
-- **自动更新未覆盖**：真实网络下的 GitHub API/下载、签名 Secret 配错、真实缺 WebView2、Windows 10 22H2、断电/强杀更新器、磁盘满和杀毒软件拦截未复验；本轮只完成本机端到端与单元验证；2026-11-18 已用公开 rc.12 便携包完成 `rc.12 → rc.13` 自动更新替换 PASS；`rc.13 → rc.14` 的公开升级路径已完成 PASS；`rc.14 → rc.15` 的公开升级路径将在发布后复核。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
+- **自动更新未覆盖**：真实网络下的 GitHub API/下载、签名 Secret 配错、真实缺 WebView2、Windows 10 22H2、断电/强杀更新器、磁盘满和杀毒软件拦截未复验；本轮只完成本机端到端与单元验证；2026-11-18 已用公开 rc.12 便携包完成 `rc.12 → rc.13` 自动更新替换 PASS；`rc.13 → rc.14` 的公开升级路径已完成 PASS；`rc.14 → rc.15` 的公开升级端到端本轮未完成复验（公开 rc.14 在当前机器以正常入口启动时旧版 WebView2 环境创建回报 COMException；隔离设置下旧包可渲染，升级器代码未在本版改动），登记为发布后待复核。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
 - **WebView2**：便携包仍要求系统已有 WebView2 Runtime；没有安装器自动检测/下载流程，缺少时只显示官方下载入口。
 - 首次在非 Git 目录显示仓库初始化遮罩时，右下角更新通知会被遮罩挡住；需先关闭/完成该遮罩才能点击更新动作。该层叠问题登记为 UI 待修，不阻塞更新器本身。
 - 公开 Release 只包含便携 zip、`update.json`、`update.json.sig` 和 `SHA256SUMS.txt`；原始截图、日志和本机验收报告不在公开仓库或 Release 中。

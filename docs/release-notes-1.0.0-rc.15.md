@@ -18,7 +18,14 @@ rc.15 汇总 rc.14 之后的体验与稳定性修正：
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.15-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/Augit-1.0.0-rc.15-win-x64-portable.zip) | 39,292,879 B | `dd507c3cbbf56edc24442f10c3deda62a0b726f8a452d38b8156a61ec0ebb221` |
+| [update.json](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/update.json) | 432 B | `0b9ba50baff7a2e69cdecdf235855fda071395a978c35aef8ab786bdf2432c8a` |
+| [update.json.sig](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/update.json.sig) | 89 B | `cb808c5509e2e360d398ca99fa4bb33d0a8555843a3fc28b96efe43eaaee8082` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/SHA256SUMS.txt) | 265 B | `7a267505e912c8be8b82eeef28f5dbdeb19ada9aeb03c84f4cef6f5099a03519` |
+
+2026-11-26 通过匿名 GitHub 下载复核，GitHub 资产 digest 与 `SHA256SUMS.txt` 一致，`update.json` 内置公钥验签 PASS。
 
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只需系统已有 Microsoft Edge WebView2 Runtime。
 - **自动更新资产**：`update.json` 和 `update.json.sig` 供应用检查更新使用；普通用户只需下载便携 zip。
@@ -33,7 +40,8 @@ rc.15 汇总 rc.14 之后的体验与稳定性修正：
 - 原生模态修复按真实外壳逐帧录屏验证：打开阶段不再出现整块黑帧，关闭阶段不再残留半透明旧表单；浅色/深色和 200%/150%/125% 缩放下审计通过。
 - 跨工作区会话修复用真实入口复现：整改前新工作区出现 `global.json`、`src/a.txt` 两个 `Missing` 幽灵标签并错误恢复同名 `package.json`；整改后标签为 0（详细证据见 `artifacts/session-workspace-isolation-2026-11-25/`）。
 - 本机自包含便携包真实启动 PASS：窗口出现 **487ms**、WebView2 首帧后截图、关闭 **116.6ms**、退出码 0、无残留子进程；产物版本 `1.0.0-rc.15+f93288e…`。
-- 便携启动校验工具改为等待真实首帧内容（最长 20 秒）而不是固定 2.5 秒，避免冷启动首帧较慢时把正常窗口误判为空白。
+- 便携启动校验工具改为等待真实首帧内容（最长 20 秒）而不是固定 2.5 秒，避免冷启动首帧较慢时把正常窗口误判为空白；官方启动复验 PASS（窗口 305.7ms、首帧 475.3ms、关闭 76.6ms、退出码 0、无残留）。
+- **rc.14 → rc.15 自动更新端到端本轮未完成复验**：公开 rc.14 在当前机器以正常入口启动时旧版 WebView2 环境创建回报 COMException（隔离设置下旧包可渲染）；升级服务与清单校验代码在本版未改动，rc.12→rc.13、rc.13→rc.14 历史公开升级路径已 PASS。该边界已登记，不作为资产发布阻塞项。
 - 同一工作区缺失文件场景六项检查全部通过：恢复跳过、活动文件回退、恢复项不写回会话、显式打开不建标签并说明原因、已打开标签显示删除状态页、文件恢复后重新读取。
 
 ## 4. 自动更新

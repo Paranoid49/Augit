@@ -7,10 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.15> |
-| Release id | 待流水线完成后补入 |
+| Release id | `458859096` |
 | Tag | `v1.0.0-rc.15` |
-| 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | 待流水线完成后补入 |
+| 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建（run `45739681880`，2026-11-26） |
+| 构建提交 | `77606d17bbd4c712d46d139fe53d102940bfa81c` |
 | 版本 | `1.0.0-rc.15` |
 | 形态 | **self-contained 便携 zip**（自带 .NET 10.0.11 Runtime） |
 | 自动更新 | `update.json` + `update.json.sig`，ECDSA P-256 |
@@ -22,12 +22,14 @@ rc.15 在 rc.14 的基础上进一步消除原生模态窗口打开闪黑/关闭
 
 ## 2. 资产
 
-待发布流水线完成后补入；以下四项是唯一公开资产：
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.15-win-x64-portable.zip` | 39,292,879 B | `dd507c3cbbf56edc24442f10c3deda62a0b726f8a452d38b8156a61ec0ebb221` |
+| `update.json` | 432 B | `0b9ba50baff7a2e69cdecdf235855fda071395a978c35aef8ab786bdf2432c8a` |
+| `update.json.sig` | 89 B | `cb808c5509e2e360d398ca99fa4bb33d0a8555843a3fc28b96efe43eaaee8082` |
+| `SHA256SUMS.txt` | 265 B | `7a267505e912c8be8b82eeef28f5dbdeb19ada9aeb03c84f4cef6f5099a03519` |
 
-- `Augit-1.0.0-rc.15-win-x64-portable.zip`
-- `update.json`
-- `update.json.sig`
-- `SHA256SUMS.txt`
+2026-11-26 通过匿名 GitHub 下载四个资产并按上表复核；GitHub Release 资产 digest 与 `SHA256SUMS.txt` 完全一致，`update.json` 使用内置公钥验签 **PASS**。
 
 ## 3. 构建与验证
 
@@ -53,8 +55,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools/update/verify-release-manife
 | Shell 测试 | **PASS**：286/286 |
 | Infrastructure 测试 | **PASS**：219/219（排除 4 条 ConPTY 交互集成用例，与 CI 口径一致） |
 | UI 资产一致性 / 脚本编码 / 文档声明 / `dotnet format` / `git diff --check` | **PASS** |
-| 本地打包与内容校验 | **PASS**：`Augit-1.0.0-rc.15-win-x64-portable.zip` `39,292,896 B`、SHA-256 `1c4a3a04…`；版本 `1.0.0-rc.15+f93288e…`、FileVersion `1.0.0.0`、web 资源一致、无 PDB |
-| 官方便携包真实启动 | **PASS**：窗口出现 `487ms`、等待首帧 `2844.8ms`、关闭 `116.6ms`、退出码 `0`、无残留子进程 |
+| 本地打包与内容校验（预检） | **PASS**：本地 zip `39,292,896 B`、SHA-256 `1c4a3a04…`；版本 `1.0.0-rc.15+f93288e…`、FileVersion `1.0.0.0`、web 资源一致、无 PDB |
+| 官方下载资产匿名校验 | **PASS**：四个资产大小与 SHA-256 和发布正文一致，`update.json` 内置公钥验签 PASS |
+| 官方便携包真实启动 | **PASS**：窗口出现 `305.7ms`、首帧内容 `475.3ms`、窗口 `2360×1520`、关闭 `76.6ms`、退出码 `0`、无残留子进程；版本 `1.0.0-rc.15+77606d17…`、FileVersion `1.0.0.0` |
 | 新功能真实外壳验证 | **PASS**：原生模态逐帧审计、跨工作区会话隔离、缺失文件恢复/显式打开/后台删除页 |
 
 ## 4. 自动更新
@@ -62,7 +65,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools/update/verify-release-manife
 - rc.12 起内置签名自动更新；rc.13、rc.14 已完成公开升级路径验证。
 - 客户端读取 GitHub Release 的 `update.json` 和 `update.json.sig`，用内置 ECDSA P-256 公钥验签，再校验 tag、版本、GitHub HTTPS 地址、大小和 SHA-256。
 - 下载完整 zip 后校验 `Augit.exe` ProductVersion；用户确认后由暂存的新版本执行替换，失败时回滚旧版本。
-- rc.14 → rc.15 的公开升级路径在发布后复核并补入本清单。
+- **rc.14 → rc.15 的公开升级端到端本轮未完成复验**：公开 rc.14 便携包在当前机器上以正常（非隔离）入口启动时，旧版 WebView2 环境创建返回 `COMException (0x8000FFFF)`，无法稳定进入可自动点击更新通知的界面；隔离设置下旧包主界面可正常渲染。升级服务与清单校验代码在 rc.14 → rc.15 之间未改动，且 rc.12 → rc.13、rc.13 → rc.14 历史公开升级路径已 PASS；本项登记为发布后待复核，不作为 rc.15 资产发布的阻塞项。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
 
 ## 5. Windows 10 22H2 证据与边界
 
@@ -70,12 +73,14 @@ rc.2 时代的 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器、DPI、负坐
 
 ## 6. 发布后核对
 
-待发布流水线完成后补入：
+2026-11-26 已完成：
 
-- Release 页面标记为 **Pre-release**，四个资产匿名可下载；
+- 发布流水线 run `45739681880` 全部步骤 success；Release 页面标记为 **Pre-release**（id `458859096`），四个资产匿名可下载；
 - 匿名下载的 zip、`update.json`、`update.json.sig`、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致；
 - `update.json` 使用内置公钥验签 **PASS**；
-- 官方便携包真实启动与版本核对；
-- 便携包内容校验 **PASS**；
-- `rc.14 → rc.15` 自动更新端到端结果；
-- Windows 10 22H2 实机边界。
+- 官方便携包内容校验 **PASS**：必需文件、web 资源一致、无 PDB；`Augit.exe` 与三个托管程序集 ProductVersion `1.0.0-rc.15+77606d17…`，FileVersion `1.0.0.0`；
+- 官方便携包真实启动 **PASS**：窗口出现 305.7ms、首帧内容 475.3ms、关闭 76.6ms、退出码 0、无残留子进程；
+- `rc.14 → rc.15` 自动更新端到端：**本轮未完成**，原因与已登记边界见 §4；
+- Windows 10 22H2 实机：**未复验**。
+
+状态：**PASS（预发布资产与官方启动）**；Windows 10 22H2 实机、rc.14→rc.15 公开升级端到端、真实缺 WebView2 等边界未复验。
