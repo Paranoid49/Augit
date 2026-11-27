@@ -8512,9 +8512,6 @@ function guardUnwiredNavigation() {
         void refreshFileTree();
       } else if (action) {
         void runChangesContextAction(action, { layerClass: ".project-menu", pathField: "treePath" });
-      } else if (label.includes("Copy Path")) {
-        void copyTreePath(projectMenu.closest(".project-menu").dataset.treePath);
-        closeLiveOverlay();
       } else if (label.includes("Explorer")) {
         void launchExternal("reveal", projectMenu.closest(".project-menu").dataset.treePath);
         closeLiveOverlay();
@@ -8545,11 +8542,6 @@ function guardUnwiredNavigation() {
             : label.includes("Blame") ? "blame" : null;
       if (action) {
         void runChangesContextAction(action);
-      } else if (label.includes("Copy Path")) {
-        // 与项目树菜单同一实现（规格 §5.4）：此前这两项落在"其余条目"分支，
-        // 只关掉菜单什么都不做——等于把"点了没反应"留在菜单里。
-        void copyTreePath(changePath);
-        closeLiveOverlay();
       } else if (label.includes("Explorer")) {
         void launchExternal("reveal", changePath);
         closeLiveOverlay();
