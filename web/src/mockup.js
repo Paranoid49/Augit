@@ -2096,11 +2096,45 @@ function quickOpenEmpty() {
   return `<div class="search-overlay"><div class="search-tabs"><strong>Open File</strong><span class="grow"></span><span class="menu-shortcut">Ctrl+P</span></div><div class="search-query"><input class="search-field" value="" placeholder="Type a file name" aria-label="Search"></div></div>`;
 }
 
-function projectContextMenu() {
-  return `<section class="popover context-menu"><a class="menu-item" href="main-project.html">${icon("copy")} Copy Path</a><a class="menu-item" href="main-project.html">${icon("external-link")} Show in Explorer</a><a class="menu-item" href="terminal.html">${icon("square-terminal")} Open in External Terminal</a><div class="menu-separator"></div><a class="menu-item" href="main-project.html">${icon("refresh-cw")} Refresh</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a></section>`;
+/**
+ * 复制路径子菜单（权威 `CopyReferencePopupGroup`：`platform/platform-impl/resources/idea/PlatformActions.xml`
+ * 的 `CopyFileReference` 组）。PyCharm 2026.2.1 实机把复制路径作为顶层的
+ * `Copy Path/Reference...` 弹出组，子项是 `Absolute Path` 与 `Path from Content Root`。
+ * Augit 只实现本机工作区需要的这两项；File Name / Repository Root 等没有对应产品能力。
+ *
+ * 子菜单项不挂 `.menu-item`：视觉稿和普通菜单导航仍按“已实现顶层动作”计数，
+ * 由 `live-data.js` 的 `bindCopyPathSubmenu()` 单独负责展开、夹边与键盘移动。
+ */
+function copyPathPreview(path, kind) {
+  const text = String(path || "");
+  if (!text) return "";
+  if (kind === "content-root") return text;
+  if (/^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text)) return text.replaceAll("/", "\\");
+  const root = String((window.__augitLive && window.__augitLive.root) || "").replace(/[\\/]+$/, "");
+  return root ? `${root}\\${text.replaceAll("/", "\\").replace(/^\\+/, "")}` : text;
 }
 
-function changesContextMenu() {
+function copyPathSubmenuHtml(path = "") {
+  const absolutePreview = copyPathPreview(path, "absolute");
+  const contentRootPreview = copyPathPreview(path, "content-root");
+  const preview = (value) => value
+    ? `<span class="submenu-preview" title="${escapeHtml(value)}">${escapeHtml(value)}</span>`
+    : "";
+  return `<div class="menu-submenu-anchor" data-copy-path-menu>
+    <a class="menu-item menu-submenu-trigger" href="#" role="menuitem" aria-haspopup="menu" aria-expanded="false" data-copy-path-trigger>${icon("copy")} Copy Path/Reference…<span class="menu-chevron">${icon("chevron-right")}</span></a>
+    <div class="popover context-submenu" role="menu" aria-label="Copy Path/Reference">
+      <div class="submenu-title" aria-hidden="true">Copy</div>
+      <a class="menu-choice" href="#" role="menuitem" data-copy-path-kind="absolute"><span>Absolute Path</span>${preview(absolutePreview)}</a>
+      <a class="menu-choice" href="#" role="menuitem" data-copy-path-kind="content-root"><span>Path from Content Root</span>${preview(contentRootPreview)}</a>
+    </div>
+  </div>`;
+}
+
+function projectContextMenu(path = "") {
+  return `<section class="popover context-menu">${copyPathSubmenuHtml(path)}<a class="menu-item" href="main-project.html">${icon("external-link")} Show in Explorer</a><a class="menu-item" href="terminal.html">${icon("square-terminal")} Open in External Terminal</a><div class="menu-separator"></div><a class="menu-item" href="main-project.html">${icon("refresh-cw")} Refresh</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a></section>`;
+}
+
+function changesContextMenu(path = "") {
   // 项的**相对顺序**取权威 `ChangesViewPopupMenu`（`platform/vcs-impl/resources/META-INF/VcsActions.xml:186-219`）：
   //   CheckinFiles → **ChangesView.Revert / .RevertFiles** → Move → **Diff.ShowDiff** → EditSource →
   //   CopyReferencePopupGroup → … → Refresh → **VersionControlsGroup**
@@ -2111,7 +2145,7 @@ function changesContextMenu() {
   // 原实现两处都反了（第 138 轮按权威改正）。
   // 注：`在资源管理器中定位` 在 `ChangesViewPopupMenu` 里**未定位到对应动作** ⇒ 保留现状（不删既有入口），
   // 记为待核，见 docs/nui-behavior/12-commit-changes.md §10。
-  return `<section class="popover context-menu changes-context"><a class="menu-item" href="rollback.html">${icon("undo-2")} Rollback…</a><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} Show Diff</a><div class="menu-separator"></div><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><div class="menu-separator"></div><a class="menu-item" href="commit-changes.html">${icon("copy")} Copy Path</a><a class="menu-item" href="commit-changes.html">${icon("external-link")} Show in Explorer</a></section>`;
+  return `<section class="popover context-menu changes-context"><a class="menu-item" href="rollback.html">${icon("undo-2")} Rollback…</a><a class="menu-item" href="commit-diff.html">${icon("git-compare-arrows")} Show Diff</a><div class="menu-separator"></div><a class="menu-item" href="blame.html">${icon("list-tree")} Blame</a><a class="menu-item" href="file-history.html">${icon("history")} File History</a><div class="menu-separator"></div>${copyPathSubmenuHtml(path)}<a class="menu-item" href="commit-changes.html">${icon("external-link")} Show in Explorer</a></section>`;
 }
 
 /**
@@ -7110,7 +7144,7 @@ function bindChangesWorkflow() {
   const showMenu = (row, x, y) => {
     closeMenu(false);
     const holder = document.createElement("template");
-    holder.innerHTML = changesContextMenu();
+    holder.innerHTML = changesContextMenu(row.dataset.path || "");
     menu = holder.content.firstElementChild;
     menu.classList.add("changes-workflow-menu");
     menu.setAttribute("role", "menu");
@@ -7132,12 +7166,16 @@ function bindChangesWorkflow() {
     items[0].focus({ preventScroll: true });
   };
   list.addEventListener("contextmenu", event => {
+    // 实时外壳由 live-data.js 的 document 捕获处理器打开带真实动作的菜单；
+    // 视觉稿的样例菜单不能再叠一层（两套菜单同时出现会互相遮挡点击）。
+    if (window.__augitLive) return;
     const row = event.target.closest(".change-file-row");
     if (!row) return;
     event.preventDefault();
     showMenu(row, event.clientX, event.clientY);
   });
   list.addEventListener("keydown", event => {
+    if (window.__augitLive) return;
     if ((event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) || !selectedFile()) return;
     event.preventDefault();
     const row = selectedFile();

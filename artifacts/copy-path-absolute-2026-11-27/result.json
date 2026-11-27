@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-27",
+  "reference": {
+    "product": "PyCharm 2026.2.1",
+    "exe": "D:/JetBrains/PyCharm-2026.2.1-reference/unpacked/bin/pycharm64.exe",
+    "build_txt": "PY-262.9437.214",
+    "menu": [
+      "Copy Path/Reference...",
+      "Absolute Path",
+      "File Name",
+      "Path from Content Root",
+      "Path From Repository Root",
+      "Toolbox URL"
+    ],
+    "implemented": [
+      "Absolute Path",
+      "Path from Content Root"
+    ]
+  },
+  "augit": {
+    "tested_tree": "working tree at 2026-11-27",
+    "base_commit": "b41143a",
+    "target": {
+      "path": ".github",
+      "x": 41,
+      "y": 112
+    },
+    "menu": {
+      "trigger": "Copy Path/Reference…",
+      "expanded": "true",
+      "display": "block",
+      "triggerBox": {
+        "x": 69,
+        "y": 132,
+        "w": 194.21875,
+        "h": 28
+      },
+      "submenuBox": {
+        "x": 262.21875,
+        "y": 125,
+        "w": 262.6796875,
+        "h": 91
+      },
+      "choices": [
+        "Absolute PathD:\\github\\Augit\\.github",
+        "Path from Content Root.github"
+      ],
+      "menuOverflow": "visible"
+    },
+    "changes": {
+      "display": "block",
+      "choices": [
+        "Absolute PathD:\\github\\Augit\\CHANGELOG.md",
+        "Path from Content RootCHANGELOG.md"
+      ]
+    },
+    "copied": "D:\\github\\Augit\\.github",
+    "clipboard": "D:\\github\\Augit\\.github\r\n"
+  },
+  "files": [
+    {
+      "file": "pycharm-copy-path-submenu.png",
+      "bytes": 38522,
+      "sha256": "50CA9DB6947B6CF1BADCB3FD5D1329A840A5285C203EC9169F9712E95912B22B"
+    },
+    {
+      "file": "augit-project-copy-path-submenu.png",
+      "bytes": 62952,
+      "sha256": "6048432538F11B5BBF18E7B43DA668C44DF5DD080D436FA02D80F84F1BA369C6"
+    },
+    {
+      "file": "augit-changes-copy-path-submenu.png",
+      "bytes": 66290,
+      "sha256": "E450DC935E6BA4307E07161BDB9D54695771B90FA2919052B2ECC2917413678C"
+    }
+  ],
+  "cleanup": {
+    "pycharm_processes": 0,
+    "fixture_status": "M app.py; ?? .idea/ (pre-existing)"
+  }
+}

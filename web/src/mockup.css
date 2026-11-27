@@ -3816,6 +3816,64 @@ body[data-theme="dark"] .terminal-view .terminal-prompt { color: inherit; }
   margin: 1px 0 1px 1px;
 }
 
+/* `Copy Path/Reference...` 弹出组：参考 PyCharm 2026.2.1 顶层菜单的二级复制路径菜单。
+   子菜单项不挂 `.menu-item`，避免把二级动作混进顶层菜单的键盘顺序和动作清单；
+   `live-data.js` 负责展开、窗口夹边和方向键，静态视觉稿由 `:hover/:focus-within` 展开。 */
+.menu-submenu-anchor { position: relative; }
+.context-menu .menu-submenu-trigger { width: 100%; }
+.menu-chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: var(--augit-icon);
+}
+.menu-chevron svg { width: 16px; height: 16px; }
+.popover.context-submenu {
+  top: -7px;
+  left: calc(100% - 1px);
+  width: max-content;
+  min-width: 210px;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 7px;
+  border-radius: 8px;
+  display: none;
+  z-index: 21;
+}
+.menu-submenu-anchor:not([data-live-bound]):is(:hover, :focus-within) > .context-submenu,
+.menu-submenu-anchor.open > .context-submenu { display: block; }
+.menu-submenu-anchor.flip-left > .context-submenu { left: auto; right: calc(100% - 1px); }
+.context-submenu .submenu-title {
+  padding: 0 8px 4px;
+  color: var(--augit-muted);
+  text-align: center;
+}
+.context-submenu .menu-choice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--augit-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.context-submenu .submenu-preview {
+  margin-left: auto;
+  max-width: min(260px, calc(100vw - 280px));
+  overflow: hidden;
+  color: var(--augit-muted);
+  text-overflow: ellipsis;
+}
+.context-submenu .menu-choice:is(:hover, :focus-visible) {
+  background: var(--augit-blue-soft);
+  outline: none;
+}
+
 .popover.changes-context {
   top: 210px;
   left: 286px;

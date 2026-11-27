@@ -18,6 +18,8 @@ artifacts/*
 !artifacts/modal-transition-2026-11-25/**
 !artifacts/session-workspace-isolation-2026-11-25/
 !artifacts/session-workspace-isolation-2026-11-25/**
+!artifacts/copy-path-absolute-2026-11-27/
+!artifacts/copy-path-absolute-2026-11-27/**
 # 模态交接证据的 FFV1 录像体积大且可由审计工具复现，只入库 result.json 与关键帧。
 artifacts/modal-transition-2026-11-25/**/*.mkv
 publish/

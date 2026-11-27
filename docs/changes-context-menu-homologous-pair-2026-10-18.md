@@ -18,7 +18,8 @@
 ## 3. 已知差异
 
 - 实际为轻量动作子集；参考包含 changelist、patch、shelve、VCS、Git 子菜单、Local History 等完整动作。
-- 顺序/分组/快捷键/图标/分隔线不同；实际无 `Show Diff in a New Tab`、`Jump to Source`、`Copy Path/Reference` 子菜单。
+- 顺序/分组/快捷键/图标/分隔线不同；实际无 `Show Diff in a New Tab`、`Jump to Source`。
+- 2026-11-27 起实际菜单已有 `Copy Path/Reference...` 子菜单（`Absolute Path`、`Path from Content Root`），与参考的 `CopyReferencePopupGroup` 同族；详见 [Copy Path/Reference 绝对路径记录](copy-path-absolute-2026-11-27.md)。
 - 未测：各项动作执行、多选、禁用原因、深色。
 
 ## 4. 证据

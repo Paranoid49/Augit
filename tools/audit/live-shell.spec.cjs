@@ -13913,7 +13913,7 @@ async function main() {
     // 只断言"非空"无法发现悄悄多出来的占位项（§10.3 同款清单式写法）。
     check('§7.1 项目树右键菜单只显示已实现的动作: ' + JSON.stringify(treeMenuOpen.items),
       JSON.stringify(treeMenuOpen.items) === JSON.stringify([
-        'Copy Path', 'Show in Explorer', 'Open in External Terminal', 'Refresh', 'File History', 'Blame',
+        'Copy Path/Reference…', 'Show in Explorer', 'Open in External Terminal', 'Refresh', 'File History', 'Blame',
       ]));
 
     // 菜单必须夹在窗口内：贴近窗口右下角打开也不例外（共用定位 helper 的职责）。
@@ -13998,7 +13998,7 @@ async function main() {
     }));
     // 「在资源管理器中定位」「在外部终端打开」复用宿主既有能力（external/launch），
     // 路径边界由宿主校验。
-    const runTreeItem = async (itemLabel, setup) => {
+    const runTreeItem = async (itemLabel, setup, copyKind = null) => {
       const { page } = await openScene('scene=main-project&theme=dark');
       await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
@@ -14021,7 +14021,19 @@ async function main() {
         }));
       });
       await page.waitForSelector('.project-menu .menu-item', { timeout: 8000 });
-      await page.locator('.project-menu .menu-item').filter({ hasText: itemLabel }).first().click();
+      if (copyKind) {
+        // Copy Path/Reference... 是二级菜单：先展开，再点具体复制项。
+        await page.evaluate(() => {
+          document.querySelector('.project-menu [data-copy-path-trigger]').dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await page.evaluate((kind) => {
+          document.querySelector(`.project-menu [data-copy-path-kind="${kind}"]`).dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, copyKind);
+      } else {
+        await page.locator('.project-menu .menu-item').filter({ hasText: itemLabel }).first().click();
+      }
       await page.waitForTimeout(700);
       const state = await page.evaluate(() => ({
         launchCalls: window.__launchCalls || [],
@@ -14044,30 +14056,112 @@ async function main() {
       terminalItem.launchCalls.length === 1 && terminalItem.launchCalls[0] === 'terminal:docs'
         && terminalItem.unwired === null);
 
-    const copyItem = await runTreeItem('Copy Path');
-    check('项目树「Copy Path」经宿主写入剪贴板: '
+    const copyItem = await runTreeItem('Copy Path/Reference…', null, 'content-root');
+    check('项目树「Path from Content Root」经宿主写入相对路径: '
       + JSON.stringify([copyItem.clipboardWrites, copyItem.copied, copyItem.unwired]),
     copyItem.clipboardWrites.length === 1 && copyItem.clipboardWrites[0] === 'docs'
       && copyItem.copied === 'docs' && copyItem.unwired === null);
+
+    const copyAbsolute = await runTreeItem('Copy Path/Reference…', null, 'absolute');
+    check('项目树「Absolute Path」经宿主写入工作区绝对路径: '
+      + JSON.stringify([copyAbsolute.clipboardWrites, copyAbsolute.copied, copyAbsolute.unwired]),
+    copyAbsolute.clipboardWrites.length === 1
+      && copyAbsolute.clipboardWrites[0] === 'D:\\live-ws\\docs'
+      && copyAbsolute.copied === 'D:\\live-ws\\docs' && copyAbsolute.unwired === null);
 
     // 宿主拒绝（越界路径 / 剪贴板不可用）时如实记录，不假装成功。
     const launchFail = await runTreeItem('Explorer', () => { window.__launchFails = true; });
     check('宿主拒绝越界路径时仍完成调用并留在应用内: ' + JSON.stringify(launchFail.launchCalls),
       launchFail.launchCalls.length === 1 && launchFail.menuGone === true);
 
-    const copyFail = await runTreeItem('Copy Path', () => { window.__clipboardFails = true; });
+    const copyFail = await runTreeItem('Copy Path/Reference…', () => { window.__clipboardFails = true; }, 'content-root');
     check('剪贴板不可用时不谎报成功: ' + JSON.stringify([copyFail.copied, copyFail.clipboardWrites.length]),
       copyFail.copied === null && copyFail.clipboardWrites.length === 1);
 
     check('项目树「File History」切底部工具窗口并加载该路径: ' + JSON.stringify(treeHistory),
       treeHistory.path === 'docs/notes.txt' && treeHistory.bottom === 'file-history'
         && treeHistory.menuGone === true && treeHistory.unwired === null);
+
+    // Copy Path/Reference… 的键盘路径：ArrowRight 展开子菜单，Esc 先收子菜单再关菜单。
+    await treeMenu.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+      }));
+    });
+    await treeMenu.page.waitForSelector('.project-menu [data-copy-path-trigger]', { timeout: 8000 });
+    const copySubmenuFocus = await treeMenu.page.evaluate(() => ({
+      focused: (document.activeElement && document.activeElement.textContent || '').trim(),
+    }));
+    await treeMenu.page.keyboard.press('ArrowRight');
+    await treeMenu.page.waitForTimeout(250);
+    const copySubmenuOpened = await treeMenu.page.evaluate(() => {
+      const anchor = document.querySelector('.project-menu [data-copy-path-menu]');
+      const submenu = anchor ? anchor.querySelector('.context-submenu') : null;
+      return {
+        open: !!anchor && anchor.classList.contains('open'),
+        expanded: anchor ? anchor.querySelector('[data-copy-path-trigger]').getAttribute('aria-expanded') : null,
+        display: submenu ? getComputedStyle(submenu).display : null,
+        focusedKind: document.activeElement ? document.activeElement.dataset.copyPathKind || null : null,
+      };
+    });
+    await treeMenu.page.keyboard.press('Escape');
+    await treeMenu.page.waitForTimeout(200);
+    const copySubmenuAfterEscape = await treeMenu.page.evaluate(() => ({
+      open: !!document.querySelector('.project-menu [data-copy-path-menu].open'),
+      menuOpen: !!document.querySelector('.project-menu'),
+    }));
+    await treeMenu.page.keyboard.press('Escape');
+    await treeMenu.page.waitForTimeout(300);
+    const copySubmenuMenuClosed = await treeMenu.page.evaluate(() => !document.querySelector('.project-menu'));
+    check('Copy Path/Reference… 打开时焦点在触发项: ' + JSON.stringify(copySubmenuFocus),
+      copySubmenuFocus.focused.includes('Copy Path/Reference'));
+    check('ArrowRight 展开复制路径子菜单并聚焦首项: ' + JSON.stringify(copySubmenuOpened),
+      copySubmenuOpened.open === true && copySubmenuOpened.expanded === 'true'
+        && copySubmenuOpened.display === 'block' && copySubmenuOpened.focusedKind === 'absolute');
+    check('Esc 先收起子菜单且保留顶层菜单: ' + JSON.stringify(copySubmenuAfterEscape),
+      copySubmenuAfterEscape.open === false && copySubmenuAfterEscape.menuOpen === true);
+    check('再按 Esc 关闭顶层复制路径菜单', copySubmenuMenuClosed);
+
+    // 贴近窗口右缘打开菜单时，二级菜单向左翻而不是跑出窗口。
+    await treeMenu.page.evaluate(() => {
+      document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((node) => node.remove());
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: window.innerWidth - 4, clientY: Math.round(rect.top + 8),
+      }));
+    });
+    await treeMenu.page.waitForSelector('.project-menu [data-copy-path-trigger]', { timeout: 8000 });
+    await treeMenu.page.evaluate(() => {
+      document.querySelector('.project-menu [data-copy-path-trigger]').dispatchEvent(
+        new PointerEvent('pointerenter', { bubbles: false }));
+    });
+    await treeMenu.page.waitForTimeout(250);
+    const copySubmenuRightEdge = await treeMenu.page.evaluate(() => {
+      const host = document.querySelector('.augit-window').getBoundingClientRect();
+      const anchor = document.querySelector('.project-menu [data-copy-path-menu]');
+      const submenu = anchor.querySelector('.context-submenu').getBoundingClientRect();
+      return {
+        flip: anchor.classList.contains('flip-left'),
+        insideLeft: submenu.left >= host.left - 1,
+        insideRight: submenu.right <= host.right + 1,
+      };
+    });
+    check('贴近窗口右缘时子菜单向左翻并留在窗口内: ' + JSON.stringify(copySubmenuRightEdge),
+      copySubmenuRightEdge.flip === true && copySubmenuRightEdge.insideLeft
+        && copySubmenuRightEdge.insideRight);
+    await treeMenu.page.keyboard.press('Escape');
+    await treeMenu.page.keyboard.press('Escape');
     await treeMenu.page.close();
 
     // ---- 规格 §5.4/§10.4：Changes 右键菜单的「复制路径」「在资源管理器中定位」----
     // 这两项与项目树菜单共用同一实现（copyTreePath / launchExternal）。
     // 此前它们落在"其余条目"分支：只关掉菜单什么都不做，等于把"点了没反应"留在菜单里。
-    const runChangeItem = async (itemLabel, rowIndex, setup) => {
+    const runChangeItem = async (itemLabel, rowIndex, setup, copyKind = null) => {
       const { page } = await openScene('scene=commit-changes&theme=dark');
       await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
@@ -14089,11 +14183,22 @@ async function main() {
         return row.dataset.path;
       }, rowIndex);
       await page.waitForSelector('.changes-menu .menu-item', { timeout: 8000 });
-      await page.evaluate((label) => {
-        const item = [...document.querySelectorAll('.changes-menu .menu-item')]
-          .find((el) => el.textContent.includes(label));
-        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      }, itemLabel);
+      if (copyKind) {
+        await page.evaluate(() => {
+          document.querySelector('.changes-menu [data-copy-path-trigger]').dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        });
+        await page.evaluate((kind) => {
+          document.querySelector(`.changes-menu [data-copy-path-kind="${kind}"]`).dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, copyKind);
+      } else {
+        await page.evaluate((label) => {
+          const item = [...document.querySelectorAll('.changes-menu .menu-item')]
+            .find((el) => el.textContent.includes(label));
+          item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }, itemLabel);
+      }
       await page.waitForTimeout(700);
       const state = await page.evaluate(() => ({
         launchCalls: window.__launchCalls || [],
@@ -14123,12 +14228,20 @@ async function main() {
       && changeReveal.menuGone === true && changeReveal.unwired === null
       && changeReveal.url.includes('index.html'));
 
-    const changeCopy = await runChangeItem('Copy Path', 0);
-    cmCheck('Changes「Copy Path」经宿主写入剪贴板: '
+    const changeCopy = await runChangeItem('Copy Path/Reference…', 0, null, 'content-root');
+    cmCheck('Changes「Path from Content Root」经宿主写入相对路径: '
       + JSON.stringify([changeCopy.target, changeCopy.clipboardWrites, changeCopy.copied, changeCopy.unwired]),
     changeCopy.clipboardWrites.length === 1
       && changeCopy.clipboardWrites[0] === changeCopy.target
       && changeCopy.copied === changeCopy.target && changeCopy.unwired === null);
+
+    const changeCopyAbsolute = await runChangeItem('Copy Path/Reference…', 0, null, 'absolute');
+    const absoluteTarget = 'D:\\live-ws\\' + changeCopyAbsolute.target.replaceAll('/', '\\');
+    cmCheck('Changes「Absolute Path」经宿主写入工作区绝对路径: '
+      + JSON.stringify([changeCopyAbsolute.target, changeCopyAbsolute.clipboardWrites, changeCopyAbsolute.copied]),
+    changeCopyAbsolute.clipboardWrites.length === 1
+      && changeCopyAbsolute.clipboardWrites[0] === absoluteTarget
+      && changeCopyAbsolute.copied === absoluteTarget && changeCopyAbsolute.unwired === null);
 
     // 配对控制：换成第二行，路径必须跟着变——否则"路径来自被右键那一行"就没有被验证。
     const changeRevealSecond = await runChangeItem('Explorer', 1);
@@ -14139,7 +14252,7 @@ async function main() {
       && changeRevealSecond.launchCalls[0] === 'reveal:' + changeRevealSecond.target);
 
     // 宿主拒绝时如实记录，不假装成功、不导航离开。
-    const changeCopyFail = await runChangeItem('Copy Path', 0, () => { window.__clipboardFails = true; });
+    const changeCopyFail = await runChangeItem('Copy Path/Reference…', 0, () => { window.__clipboardFails = true; }, 'content-root');
     cmCheck('剪贴板不可用时 Changes 菜单不谎报成功: '
       + JSON.stringify([changeCopyFail.copied, changeCopyFail.clipboardWrites.length, changeCopyFail.url]),
     changeCopyFail.copied === null && changeCopyFail.clipboardWrites.length === 1
@@ -14281,20 +14394,27 @@ async function main() {
       toastSoft.push(label);
       console.log('SOFT_FAIL: ' + label);
     };
-    const toastCase = async (itemLabel, setup) => {
+    const toastCase = async (itemLabel, setup, copyKind = null) => {
       const { page } = await openScene('scene=main-project&theme=dark');
       await page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
       await page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
       await page.waitForTimeout(500);
       await page.evaluate(() => { window.__clipboardFails = false; window.__launchFails = false; });
       if (setup) await page.evaluate(setup);
-      const before = await page.evaluate(async (label) => {
+      const before = await page.evaluate(async ({ label, copyKind }) => {
         const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="docs"]');
         row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 90 }));
         await new Promise((r) => setTimeout(r, 400));
-        const item = [...document.querySelectorAll('.project-menu .menu-item')]
-          .find((el) => el.textContent.includes(label));
-        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        if (copyKind) {
+          document.querySelector('.project-menu [data-copy-path-trigger]').dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+          document.querySelector(`.project-menu [data-copy-path-kind="${copyKind}"]`).dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } else {
+          const item = [...document.querySelectorAll('.project-menu .menu-item')]
+            .find((el) => el.textContent.includes(label));
+          item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        }
         await new Promise((r) => setTimeout(r, 800));
         const toast = document.querySelector('.toast');
         return {
@@ -14302,7 +14422,7 @@ async function main() {
           title: toast ? (toast.querySelector('.toast-title') || {}).textContent || null : null,
           text: toast ? toast.textContent : null,
         };
-      }, itemLabel);
+      }, { label: itemLabel, copyKind });
       // 状态驱动：整页重绘后提示必须仍在且只有一条（直接 appendChild 的实现会被抹掉）。
       await page.evaluate(() => { window.__augitRender(); });
       await page.waitForTimeout(500);
@@ -14314,7 +14434,7 @@ async function main() {
       return { before, after };
     };
 
-    const copyToast = await toastCase('Copy Path', () => { window.__clipboardFails = true; });
+    const copyToast = await toastCase('Copy Path/Reference…', () => { window.__clipboardFails = true; }, 'content-root');
     toastCheck('复制路径失败必须显示提示（带原因与未改变的状态）: '
       + JSON.stringify(copyToast.before),
     copyToast.before.count === 1
@@ -14334,7 +14454,7 @@ async function main() {
           || launchToast.before.text.includes('Only paths in the current workspace can be opened.')));
 
     // 配对控制：同样的操作在宿主接受后不得留下上一次的失败提示。
-    const copyOk = await toastCase('Copy Path');
+    const copyOk = await toastCase('Copy Path/Reference…', null, 'content-root');
     toastCheck('复制成功后不留下失败提示: '
       + JSON.stringify([copyToast.before.count, copyOk.before.count]),
     copyToast.before.count === 1 && copyOk.before.count === 0);

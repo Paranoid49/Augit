@@ -30,3 +30,7 @@
 ## 5. 清理
 
 - 实际 PID 2592、参考 PID 22288 已结束；`settings.json` 恢复 `B8868855…DC3D`；fixture 未变；`cleanup-check-119.json`；未提交、未推送。
+
+## 6. 2026-11-27 补记
+
+实际菜单的 `Copy Path` 已按 PyCharm `CopyFileReference` 组改为 `Copy Path/Reference...` 二级菜单，新增 `Absolute Path`，保留 `Path from Content Root`。顶层六项集合不变，参考菜单的其余复制项（File Name / Repository Root / Toolbox URL）未实现。实现与截图见 [Copy Path/Reference 绝对路径记录](copy-path-absolute-2026-11-27.md)。

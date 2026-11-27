@@ -8476,6 +8476,27 @@ function guardUnwiredNavigation() {
       return;
     }
 
+    // Copy Path/Reference… 子菜单：触发器只展开二级菜单，复制动作在二级项上。
+    // 二级项不挂 `.menu-item`，必须在这里先于顶层菜单标签分支处理。
+    const copyPathTrigger = event.target.closest && event.target.closest("[data-copy-path-trigger]");
+    if (copyPathTrigger) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleCopyPathSubmenu(copyPathTrigger);
+      return;
+    }
+    const copyPathChoice = event.target.closest && event.target.closest("[data-copy-path-kind]");
+    if (copyPathChoice) {
+      event.preventDefault();
+      event.stopPropagation();
+      const copyLayer = copyPathChoice.closest(".project-menu, .changes-menu");
+      const copyPath = copyLayer
+        ? (copyLayer.dataset.treePath || copyLayer.dataset.changePath || "") : "";
+      closeLiveOverlay();
+      void copyTreePath(copyPath, copyPathChoice.dataset.copyPathKind);
+      return;
+    }
+
     // 项目树右键菜单里的动作（规格 §5.4）。
     // 条目语义取自视觉稿的 projectContextMenu()；「文件历史」「Blame」复用
     // 改动列表菜单的同一实现，避免两套布局状态机各自漂移。
@@ -12192,7 +12213,7 @@ function openChangesContextMenu(row, clientX, clientY) {
   const path = row.dataset.path;
   if (!path) return;
   closeLiveOverlay();
-  showPointerContextMenu(changesContextMenu(), {
+  showPointerContextMenu(changesContextMenu(path), {
     layerClass: "changes-menu",
     dataset: { changePath: path },
     clientX,
@@ -12623,6 +12644,88 @@ function openLogContextMenu(row, clientX, clientY) {
  * 改动列表菜单与项目树菜单的层创建、定位与夹边逻辑完全相同（只差类名、附加数据与
  * 夹边高度），此前各写了一遍。集中在这里后，两处菜单的定位行为不会再各自漂移。
  */
+/**
+ * 展开/收起 `Copy Path/Reference...` 的二级菜单，并按窗口右边界翻转。
+ *
+ * 子菜单是相对触发器的绝对定位元素；菜单本体若被 `showPointerContextMenu`
+ * 设为 `overflow:auto` 会裁掉它，因此带子菜单的短菜单改为可见溢出的夹边结构。
+ */
+function setCopyPathSubmenuOpen(anchor, open, hostRect) {
+  const trigger = anchor && anchor.querySelector("[data-copy-path-trigger]");
+  const submenu = anchor && anchor.querySelector(".context-submenu");
+  if (!trigger || !submenu) return;
+  anchor.classList.toggle("open", open);
+  anchor.classList.remove("flip-left");
+  trigger.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) {
+    submenu.style.removeProperty("top");
+    return;
+  }
+  // 先显示再量右侧：菜单被夹在窗口右缘时向左翻，避免子菜单跑出窗口。
+  const box = submenu.getBoundingClientRect();
+  if (hostRect && box.right > hostRect.right - 4) anchor.classList.add("flip-left");
+  if (hostRect && box.bottom > hostRect.bottom - 4) {
+    const overflow = box.bottom - (hostRect.bottom - 4);
+    const top = Number.parseFloat(getComputedStyle(submenu).top) || 0;
+    submenu.style.top = `${top - overflow}px`;
+  }
+}
+
+function toggleCopyPathSubmenu(trigger) {
+  const anchor = trigger && trigger.closest("[data-copy-path-menu]");
+  if (!anchor) return;
+  setCopyPathSubmenuOpen(anchor, !anchor.classList.contains("open"), anchor.closest("[data-augit-overlay]")?.getBoundingClientRect());
+}
+
+/** 绑定子菜单的悬停、焦点、方向键和 Esc；复制点击仍走 document 委托。 */
+function bindCopyPathSubmenu(menu, hostRect) {
+  const anchor = menu.querySelector("[data-copy-path-menu]");
+  if (!anchor) return;
+  const trigger = anchor.querySelector("[data-copy-path-trigger]");
+  const submenu = anchor.querySelector(".context-submenu");
+  if (!trigger || !submenu) return;
+  // 实时菜单的展开由 JS 管，禁用纯 CSS :hover，保证 Esc 收起后悬停不会立刻又弹开。
+  anchor.dataset.liveBound = "true";
+  const open = () => setCopyPathSubmenuOpen(anchor, true, hostRect);
+  const close = () => setCopyPathSubmenuOpen(anchor, false, hostRect);
+  trigger.addEventListener("pointerenter", open);
+  anchor.addEventListener("pointerleave", (event) => {
+    if (!anchor.contains(event.relatedTarget)) close();
+  });
+  anchor.addEventListener("focusout", (event) => {
+    if (!anchor.contains(event.relatedTarget)) close();
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (["ArrowRight", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+      submenu.querySelector(".menu-choice")?.focus({ preventScroll: true });
+    } else if (event.key === "Escape" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    }
+  });
+  submenu.addEventListener("keydown", (event) => {
+    const choices = [...submenu.querySelectorAll(".menu-choice")];
+    const current = choices.indexOf(document.activeElement);
+    if (event.key === "Escape" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      trigger.focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      choices[(current + delta + choices.length) % choices.length]?.focus({ preventScroll: true });
+    }
+  });
+}
+
 function showPointerContextMenu(menuMarkup, options) {
   const { layerClass, dataset, maxHeight, focusFirst = false } = options;
   const host = document.querySelector(".augit-window");
@@ -12648,10 +12751,18 @@ function showPointerContextMenu(menuMarkup, options) {
   menu.style.zIndex = "2";
   layer.appendChild(menu);
   host.appendChild(layer);
-  menu.style.maxHeight=`${Math.min(maxHeight||rect.height-8,rect.height-8)}px`;menu.style.overflowY='auto';
+  // 带二级菜单的短菜单必须允许子菜单溢出；普通菜单仍保持自身滚动，避免长菜单越出窗口。
+  const hasSubmenu = !!menu.querySelector("[data-copy-path-menu]");
+  if (hasSubmenu) {
+    menu.style.maxHeight = "none";
+    menu.style.overflow = "visible";
+  } else {
+    menu.style.maxHeight=`${Math.min(maxHeight||rect.height-8,rect.height-8)}px`;menu.style.overflowY='auto';
+  }
   const box=menu.getBoundingClientRect();
   menu.style.left=`${Math.max(4,Math.min(options.clientX-rect.left,rect.width-box.width-4))}px`;
   menu.style.top=`${Math.max(4,Math.min(options.clientY-rect.top,rect.height-box.height-4))}px`;
+  if (hasSubmenu) bindCopyPathSubmenu(menu, rect);
   rememberDialogFocus();
   layer.addEventListener('keydown',event=>{
       if(menu.classList.contains('history-branch-menu')||event.defaultPrevented||event.isComposing||event.keyCode===229||event.repeat||event.target.matches('input,textarea,select'))return;
@@ -12769,7 +12880,7 @@ function openTreeContextMenu(row, clientX, clientY) {
   if (!path) return;
   rememberDialogFocus();
   closeLiveOverlay();
-  showPointerContextMenu(projectContextMenu(), {
+  showPointerContextMenu(projectContextMenu(path), {
     layerClass: "project-menu",
     dataset: {
       treePath: path,
@@ -12888,13 +12999,34 @@ window.__augitResolveMarkdownTarget = resolveMarkdownTarget;
 window.__augitOpenMarkdownLink = (target) => openMarkdownLink(target);
 
 /**
+ * 把项目内相对路径折叠成当前工作区的绝对路径。
+ *
+ * 工作区根来自宿主 `workspace/info`（`live.root`，已是 `Path.GetFullPath` 结果）；
+ * 树根节点右键时 `path` 本身就是绝对路径，原样保留。复制的是树上展示的路径，
+ * 不做符号链接解析——用户复制的是自己看到的那个位置。Windows 上统一用 `\`，
+ * 与 IDEA `VirtualFile.getPresentableUrl()` 一致。
+ */
+function absoluteWorkspacePath(path) {
+  const text = String(path || "");
+  if (/^(?:[a-zA-Z]:[\\/]|\\\\)/.test(text)) return text.replaceAll("/", "\\");
+  const live = window.__augitLive;
+  const root = String((live && live.root) || "").replace(/[\\/]+$/, "");
+  if (!root) return text;
+  const relative = text.replaceAll("/", "\\").replace(/^\\+/, "");
+  return relative ? `${root}\\${relative}` : root;
+}
+window.__augitAbsoluteWorkspacePath = absoluteWorkspacePath;
+
+/**
  * 复制路径到剪贴板（规格 §5.4 项目树菜单）。
  *
  * 交给宿主而不是 `navigator.clipboard`：WebView2 默认不授予
  * `ClipboardApiRequested`，页面里写入会静默失败。宿主负责写入并按结果回话。
+ * `kind === "absolute"` 来自 `Copy Path/Reference...` 子菜单的 Absolute Path；
+ * 其余（含旧调用）保持项目内相对路径，即 IDEA 的 Path from Content Root。
  */
-async function copyTreePath(path) {
-  const text = String(path || "");
+async function copyTreePath(path, kind = "content-root") {
+  const text = kind === "absolute" ? absoluteWorkspacePath(path) : String(path || "");
   if (text.length === 0) return false;
   try {
     const result = await invoke("clipboard/write", { text }, 10000);
@@ -13659,6 +13791,16 @@ function bindOverlayEscape() {
     if (branchSearch?.value) {
       event.preventDefault();event.stopImmediatePropagation();
       branchSearch.value='';branchSearch.dispatchEvent(new Event('input',{bubbles:true}));
+      return;
+    }
+
+    // 右键菜单的 Copy Path/Reference… 二级菜单：Esc 先收起子菜单，再按一次才关顶层菜单。
+    const copyPathAnchor = document.querySelector('.project-menu [data-copy-path-menu].open, .changes-menu [data-copy-path-menu].open');
+    if (copyPathAnchor) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setCopyPathSubmenuOpen(copyPathAnchor, false);
+      copyPathAnchor.querySelector('[data-copy-path-trigger]')?.focus({ preventScroll: true });
       return;
     }
 
