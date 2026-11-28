@@ -6101,7 +6101,6 @@ body[data-theme="dark"] {
    Rollback 树此前因此把所有深度的箭头叠在对话框最左侧，行内只剩空白槽。 */
 .changes-list .check-group-row > .change-chevron { position: absolute; left: 0; width: var(--augit-icon-size, 16px); height: calc(var(--augit-icon-size, 16px) + 2px); }
 .augit-window .change-chevron > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
-.augit-window .change-chevron > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
 .changes-list .change-file-row { padding-left: calc(2 * var(--augit-tree-indent, 19px)); }
 .check-row { border-radius: 4px; }
 .augit-window [data-workspace-diff-tab] .tab-close { width: var(--augit-icon-hit, 28px); height: var(--augit-icon-hit, 28px); flex: 0 0 var(--augit-icon-hit, 28px); }
