@@ -7142,6 +7142,15 @@ function bindChangesWorkflow() {
     if (restore && ownedFocus) list.focus({ preventScroll: true });
   };
   const showMenu = (row, x, y) => {
+    // 静态视觉稿也遵循右键先选中：菜单目标行必须同时是选中行（实时外壳由 live-data 负责）。
+    if (!row.classList.contains("selected")) {
+      list.querySelectorAll(".change-file-row.selected").forEach((other) => {
+        other.classList.remove("selected");
+        other.setAttribute("aria-selected", "false");
+      });
+      row.classList.add("selected");
+      row.setAttribute("aria-selected", "true");
+    }
     closeMenu(false);
     const holder = document.createElement("template");
     holder.innerHTML = changesContextMenu(row.dataset.path || "");

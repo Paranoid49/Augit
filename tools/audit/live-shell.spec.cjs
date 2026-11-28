@@ -14286,6 +14286,99 @@ async function main() {
       throw new Error('断言失败：' + cmSoft.join(' | '));
     }
 
+    // ---- 行级右键必须先选中触发项：项目树 / Changes / Git 日志同一规则 ----
+    const contextSelect = await openScene('scene=main-project&theme=dark');
+    await contextSelect.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+    await contextSelect.page.waitForSelector('.side-content.tree .tree-row[data-tree-path="docs"]', { timeout: 10000 });
+    await contextSelect.page.locator('.side-content.tree .tree-row[data-tree-path="docs"]').click();
+    await contextSelect.page.evaluate(() => {
+      const row = document.querySelector('.side-content.tree .tree-row[data-tree-path="README.md"]');
+      const rect = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+      }));
+    });
+    await contextSelect.page.waitForSelector('.project-menu', { state: 'attached', timeout: 8000 });
+    const treeContextSelected = await contextSelect.page.evaluate(() => ({
+      selected: [...document.querySelectorAll('.side-content.tree .tree-row.selected')]
+        .map((row) => row.dataset.treePath),
+      state: window.__augitLive.treeSelectedPath || null,
+      menu: (document.querySelector('.project-menu') || {}).dataset?.treePath || null,
+    }));
+    check('项目树右键未选中行先替换高亮并让菜单指向该行: ' + JSON.stringify(treeContextSelected),
+      treeContextSelected.selected.length === 1 && treeContextSelected.selected[0] === 'README.md'
+        && treeContextSelected.state === 'README.md' && treeContextSelected.menu === 'README.md');
+    await contextSelect.page.keyboard.press('Escape');
+    await contextSelect.page.close();
+
+    const changeContextSelected = await (async () => {
+      const page = await openScene('scene=commit-changes&theme=dark');
+      await page.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
+      await page.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+      const target = await page.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.changes-list .change-file-row')];
+        rows[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        const second = rows[1];
+        const rect = second.getBoundingClientRect();
+        second.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+        }));
+        return second.dataset.path;
+      });
+      await page.page.waitForSelector('.changes-menu', { state: 'attached', timeout: 8000 });
+      const result = await page.page.evaluate(() => ({
+        selected: [...document.querySelectorAll('.changes-list .change-file-row.selected')]
+          .map((row) => row.dataset.path),
+        state: window.__augitLive.selectedChangePath || null,
+        menu: (document.querySelector('.changes-menu') || {}).dataset?.changePath || null,
+      }));
+      await page.page.keyboard.press('Escape');
+      await page.page.close();
+      return { ...result, target };
+    })();
+    check('Changes 右键未选中行先替换高亮并让菜单指向该行: ' + JSON.stringify(changeContextSelected),
+      changeContextSelected.selected.length === 1
+        && changeContextSelected.selected[0] === changeContextSelected.target
+        && changeContextSelected.state === changeContextSelected.target
+        && changeContextSelected.menu === changeContextSelected.target);
+
+    const logContextSelected = await (async () => {
+      const page = await openScene('scene=git-history&theme=dark');
+      await page.page.waitForFunction('window.__augitGitReady === true && window.__augitHistoryReady === true',
+        null, { timeout: 20000 });
+      await page.page.waitForSelector('.commit-list .commit-row', { timeout: 10000 });
+      const target = await page.page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.commit-list .commit-row')];
+        rows[0].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 }));
+        const second = rows[1];
+        const rect = second.getBoundingClientRect();
+        second.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+        }));
+        return { hash: second.dataset.hash, fullHash: second.dataset.fullHash };
+      });
+      await page.page.waitForSelector('.log-menu', { state: 'attached', timeout: 8000 });
+      const result = await page.page.evaluate(() => {
+        const selected = document.querySelector('.commit-list .commit-row[aria-selected="true"]');
+        const menu = document.querySelector('.log-menu');
+        return {
+          selectedHash: selected ? selected.dataset.hash : null,
+          stateHash: window.__augitLive.historySelectedHash || null,
+          menuHash: menu ? menu.dataset.commitHash : null,
+        };
+      });
+      await page.page.keyboard.press('Escape');
+      await page.page.close();
+      return { ...result, target };
+    })();
+    check('Git 日志右键未选中提交先替换高亮并让菜单指向该提交: ' + JSON.stringify(logContextSelected),
+      logContextSelected.selectedHash === logContextSelected.target.hash
+        && logContextSelected.stateHash === logContextSelected.target.hash
+        && logContextSelected.menuHash === logContextSelected.target.hash);
+
     // 收集式断言：退回接线或说明管理时一次运行即可看到这一块的全部失败。
     const ctbSoft = [];
     const ctbCheck = (label, condition) => {

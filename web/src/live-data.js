@@ -2500,7 +2500,7 @@ function clearDiffLoadingMarker() {
 
 
 /** 单击只更新改动列表的选中态，不请求差异（规格 §12.2）。 */
-function selectChangeRow(row) {
+function selectChangeRow(row, { follow = true } = {}) {
   // 选择文件撤销"待跨文件"状态（规格 §7.7 第 10 条）。
   clearDiffBoundaryHint();
   for (const other of document.querySelectorAll(".changes-list .change-file-row.selected")) {
@@ -2517,8 +2517,11 @@ function selectChangeRow(row) {
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
   // 注意改动行与树行的路径字段**不同**：改动行是 `data-path`，树行才是 `data-tree-path`。
   // 取错字段不会报错，只会让跟随静默失效——曾因此漏掉一整条跟随行为。
+  // 右键只改变选中态，不在菜单打开时更新已有 Diff；左键/键盘仍按默认 follow=true。
   const path = row.dataset.path;
-  if (path) void followChangeSelection(path);
+  if (follow && path) void followChangeSelection(path);
+  // 选中项变化会改变 Rollback/Show Diff 的可用条件和目标；工具栏必须同步，不能等下一次状态刷新。
+  syncChangesToolbar();
 }
 
 /**
@@ -12201,9 +12204,13 @@ function openChangesContextMenu(row, clientX, clientY) {
   const live = window.__augitLive;
   const host = document.querySelector(".augit-window");
   if (!live || !host || !row) return;
-  rememberDialogFocus();
   const path = row.dataset.path;
   if (!path) return;
+  // 右键未选中行先替换选中态（已在选中行上右键则保留当前选择），再打开菜单；
+  // 菜单动作始终以触发行为目标，不能沿用上一个高亮行。
+  if (!row.classList.contains("selected")) selectChangeRow(row, { follow: false });
+  row.focus({ preventScroll: true });
+  rememberDialogFocus();
   closeLiveOverlay();
   showPointerContextMenu(changesContextMenu(path), {
     layerClass: "changes-menu",
@@ -12228,6 +12235,7 @@ function openRefTreeMenu(row, clientX, clientY) {
   if (!isSelectedRefRow(row)) {
     selectRefRow(row);
   }
+  row.focus({ preventScroll: true });
   const markup = refTreeRowMenu({
     selections: selectedRefs(),
     references: live.references || { branches: [], tags: [] },
@@ -12619,6 +12627,9 @@ function openLogContextMenu(row, clientX, clientY) {
   if (!live || !row) return;
   const hash = row.dataset.hash;
   if (!hash) return;
+  // 右键未选中的提交时先选中该提交，详情和目标版本跟右键行走；已在选中行上则保持。
+  if (row.getAttribute("aria-selected") !== "true") row.click();
+  row.closest(".commit-list")?.focus({ preventScroll: true });
   rememberDialogFocus();
   closeLiveOverlay();
   showPointerContextMenu(gitLogContextMenu(true), {
@@ -12870,6 +12881,10 @@ function openTreeContextMenu(row, clientX, clientY) {
   // 根节点在 buildVisibleTree 里以空路径表示工作区根，不能因此让右键无反应。
   const path = treeContextPath(row, live);
   if (!path) return;
+  // 与 Swing Tree 的右键选择一致：右键未选中行时先替换选中集，右键当前行则保持；
+  // 右键只选择、不打开正文，也不在菜单打开时更新已有 Diff。
+  if (!row.classList.contains("selected")) selectTreeRow(row, { follow: false });
+  focusTreeRow(row);
   rememberDialogFocus();
   closeLiveOverlay();
   showPointerContextMenu(projectContextMenu(path), {
@@ -15776,7 +15791,7 @@ function activateTreeRow(row, { open = true, disclosure = false } = {}) {
 }
 
 /** 只更新树的选中态，不请求文件内容。 */
-function selectTreeRow(row) {
+function selectTreeRow(row, { follow = true } = {}) {
   for (const other of document.querySelectorAll(".side-content.tree .tree-row.selected")) {
     other.classList.remove("selected");
     other.removeAttribute("aria-selected");
@@ -15792,7 +15807,7 @@ function selectTreeRow(row) {
   // 已打开并处于跟随状态的比较标签随选择更新；未打开时单击不创建标签。
   // 注意树行的路径字段是 treePath（不是 path），取错字段会让跟随永不触发。
   const path = row.dataset.treePath;
-  if (path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
+  if (follow && path && row.dataset.treeDirectory !== "true") void followChangeSelection(path);
 }
 
 // 改动工具窗工具栏的「显示 Diff」与「回滚」作用于当前选中的改动文件（规格 §7.6/§10.4）。
