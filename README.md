@@ -11,7 +11,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 | 方式 | 下载 | 适合场景 |
 | --- | --- | --- |
-| 便携版 | [Augit-1.0.0-rc.17-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/Augit-1.0.0-rc.17-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装；官方资产大小与 SHA-256 发布后以 `SHA256SUMS.txt` 为准 |
+| 便携版 | [Augit-1.0.0-rc.17-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/Augit-1.0.0-rc.17-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装；官方资产 `39,299,152 B`，SHA-256 `c6f5cb3d…` |
 | 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/SHA256SUMS.txt) | 下载后核对文件完整性 |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.17>
@@ -47,7 +47,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - rc.14 加入 `File → Check for Updates…` 手动更新检查，并修复原生模态窗口打开/关闭的透明闪烁与方角外框；覆盖 Format JSON、New Branch 及所有同类模态。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,284,414 B`、SHA-256 `55a241cc…`，签名/内容 PASS；官方包主界面启动 PASS；公开 rc.13 到 rc.14 自动更新替换 PASS。详见[rc.14 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.14.md)。
 - rc.15 修复打开 Format JSON 等原生模态窗口时主界面整块闪黑、关闭时约 160ms 旧表单淡出；Git 回滚对话框按 IDEA `RollbackChangesDialog` 重做为 `Rollback Changes` 多文件勾选树；打开另一个工作区不再恢复旧仓库标签，已不存在的文件不再变成「文件已被删除、重命名或替换」的幽灵标签，同名文件也不会错误显示旧仓库内容。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,292,879 B`、SHA-256 `dd507c3c…`，签名/内容与官方包启动 PASS；用户后续确认 rc.14 → rc.15 自动更新端到端完成。详见[rc.15 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.15.md)。
 - rc.16 修复更新检查受 GitHub API 限流、Changes 工具栏 Rollback/Show Diff 启用条件、Rollback Changes 对话框空 included 状态、关闭原生模态后的前台恢复，并新增右键 `Copy Path/Reference…` 绝对路径复制；本机 Release 单元测试 584/584，定向 live-shell 54/54。验证与资产见[rc.16 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.16.md)。
-- rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不更新：右键先替换高亮、焦点和状态路径，再打开目标菜单；Changes 右键不额外刷新 Diff，Git 日志同步提交详情。
+- rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不更新：右键先替换高亮、焦点和状态路径，再打开目标菜单；Changes 右键不额外刷新 Diff，Git 日志同步提交详情。本机 Release 单元测试 584/584，定向 live-shell 3/3。
 
 仍未验证：干净虚拟机运行、真实缺少 WebView2 的流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 

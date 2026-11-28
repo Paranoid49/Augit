@@ -7,10 +7,10 @@
 | 项 | 值 |
 | --- | --- |
 | 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.17> |
-| Release id | 待发布流水线完成后补入 |
+| Release id | `461599232` |
 | Tag | `v1.0.0-rc.17` |
-| 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
-| 构建提交 | 待发布流水线完成后补入 |
+| 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建（run `46152171712`，2026-11-28） |
+| 构建提交 | `25d211fc187abcddc00989735acedc1ab1dfe7c8` |
 | 版本 | `1.0.0-rc.17` |
 | 形态 | **self-contained 便携 zip**（自带 .NET 10.0.11 Runtime） |
 | 自动更新 | `update.json` + `update.json.sig`，ECDSA P-256 |
@@ -24,10 +24,10 @@ rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不�
 
 | 文件 | 大小 | SHA-256 |
 | --- | ---: | --- |
-| `Augit-1.0.0-rc.17-win-x64-portable.zip` | 待流水线完成后补入 | 待流水线完成后补入 |
-| `update.json` | 待流水线完成后补入 | 待流水线完成后补入 |
-| `update.json.sig` | 待流水线完成后补入 | 待流水线完成后补入 |
-| `SHA256SUMS.txt` | 待流水线完成后补入 | 待流水线完成后补入 |
+| `Augit-1.0.0-rc.17-win-x64-portable.zip` | 39,299,152 B | `c6f5cb3da2860ad5a8840e541c3ec94a5d92fd04b409ae064d7bcfd7a2ae874b` |
+| `update.json` | 432 B | `6a5ffda7f1fb13ded289994d21f4c421509aa80ca31f274c7b5bd3ca3055e464` |
+| `update.json.sig` | 89 B | `b5b6d090375b19e1a8e18cf0386c766d36e2b879c0de2dcaa99751c0cbb93300` |
+| `SHA256SUMS.txt` | 265 B | `6dd126b7985c5f74031a49056755a9e0962943a0610387008840d3c98e378c8a` |
 
 ## 3. 构建与验证
 
@@ -56,10 +56,14 @@ rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不�
 
 ## 6. 发布后核对
 
-待发布流水线完成后补入：
+2026-11-28 已完成：
 
-- Release 页面标记、Release id、构建提交；
-- 四个资产的大小与 SHA-256、匿名下载核对、`update.json` 验签；
-- 官方便携包真实启动；
-- `rc.15→rc.16` 与 `rc.16→rc.17` 公开升级端到端状态；
-- 全量 live-shell 历史测试基线的缺口说明。
+- 发布流水线 run `46152171712` 全部步骤 success；Release 页面标记为 **Pre-release**（id `461599232`），四个资产匿名可下载；
+- 匿名下载的 zip、`update.json`、`update.json.sig`、`SHA256SUMS.txt` 大小与 SHA-256 和发布正文一致；
+- `update.json` 使用内置公钥验签 **PASS**；
+- 官方便携包内容校验 **PASS**：必需文件、web 资源一致、无 PDB；`Augit.exe` 与三个托管程序集 ProductVersion `1.0.0-rc.17+25d211f…`，FileVersion `1.0.0.0`；
+- 官方便携包真实启动 **PASS**：窗口出现 289ms、首帧 577.4ms、关闭 157ms、退出码 0、无残留子进程；
+- `rc.15→rc.16` 与 `rc.16→rc.17` 自动更新端到端：**本机未完成**（公开 rc.15/rc.16 在本机正常入口启动时旧版 WebView2 环境未建立，未进入更新界面）；仍需用户/可正常启动旧包的机器复验；
+- 全量 live-shell：**未通过**，原因是历史 harness 过期选择器；rc.17 定向块 3/3 通过，缺口保留。
+
+状态：**PASS（预发布资产、官方启动与签名）**；`rc.15→rc.16`、`rc.16→rc.17` 公开升级和全量 live-shell 历史基线仍待复验。

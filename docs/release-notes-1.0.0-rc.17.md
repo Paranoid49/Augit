@@ -16,7 +16,14 @@ rc.17 是 rc.16 之后的右键选中态修正：
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.17-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/Augit-1.0.0-rc.17-win-x64-portable.zip) | 39,299,152 B | `c6f5cb3da2860ad5a8840e541c3ec94a5d92fd04b409ae064d7bcfd7a2ae874b` |
+| [update.json](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/update.json) | 432 B | `6a5ffda7f1fb13ded289994d21f4c421509aa80ca31f274c7b5bd3ca3055e464` |
+| [update.json.sig](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/update.json.sig) | 89 B | `b5b6d090375b19e1a8e18cf0386c766d36e2b879c0de2dcaa99751c0cbb93300` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/SHA256SUMS.txt) | 265 B | `6dd126b7985c5f74031a49056755a9e0962943a0610387008840d3c98e378c8a` |
+
+2026-11-28 通过匿名 GitHub 下载复核，GitHub 资产 digest 与 `SHA256SUMS.txt` 一致，`update.json` 使用内置公钥验签 **PASS**。
 
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只需系统已有 Microsoft Edge WebView2 Runtime。
 - **自动更新资产**：`update.json` 和 `update.json.sig` 供应用检查更新使用；普通用户只需下载便携 zip。
@@ -29,7 +36,8 @@ rc.17 是 rc.16 之后的右键选中态修正：
 - 本机 Release 单元测试（排除托管 runner 无法使用的 4 条 ConPTY 交互集成用例）：Core **77/77**、Shell **286/286**、Infrastructure **221/221**，合计 **584/584**。
 - UI 资产一致性、脚本编码、文档声明、覆盖率、`dotnet format`、JavaScript 语法和 `git diff --check`：**PASS**。
 - 本版右键选中定向 `live-shell`：**3/3 PASS**（项目树、Changes、Git 日志的 DOM 高亮、状态字段和菜单目标一致）。
-- 本机预检包（构建提交 `934357a`）**PASS**：`39,299,170 B`，SHA-256 `e2394ff3…`；ProductVersion `1.0.0-rc.17+934357a…`；真实启动窗口 **313.9ms**、首帧 **594.9ms**、关闭 **145.6ms**、退出码 0、无残留子进程。官方资产以 GitHub Actions 从标签构建的字节为准。
+- 本机预检包（构建提交 `934357a`）**PASS**：`39,299,170 B`，SHA-256 `e2394ff3…`；ProductVersion `1.0.0-rc.17+934357a…`；真实启动窗口 **313.9ms**、首帧 **594.9ms**、关闭 **145.6ms**、退出码 0、无残留子进程。
+- 官方发布资产匿名核对 **PASS**：zip `39,299,152 B` / SHA-256 `c6f5cb3d…`，版本 `1.0.0-rc.17+25d211f…`；官方包真实启动窗口 **289ms**、首帧 **577.4ms**、关闭 **157ms**、退出码 0、无残留；`update.json` 验签 **PASS**。
 - **全量 `live-shell` 本轮未作为全绿门禁**：历史断言基线仍有已知过期选择器；本版只以本改动范围的 3 条定向断言和真实应用验证为准，不把全量套件写成通过。
 
 ## 4. 自动更新
