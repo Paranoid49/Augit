@@ -25,13 +25,13 @@ Augit 只发布 self-contained 便携 zip，不提供安装器。便携版必须
 ```json
 {
   "schema": 1,
-  "version": "1.0.0-rc.16",
-  "tag": "v1.0.0-rc.16",
-  "asset": "Augit-1.0.0-rc.16-win-x64-portable.zip",
-  "url": "https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/Augit-1.0.0-rc.16-win-x64-portable.zip",
+  "version": "1.0.0-rc.17",
+  "tag": "v1.0.0-rc.17",
+  "asset": "Augit-1.0.0-rc.17-win-x64-portable.zip",
+  "url": "https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.17/Augit-1.0.0-rc.17-win-x64-portable.zip",
   "size": 39292896,
   "sha256": "<64 hex>",
-  "notesUrl": "https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.16",
+  "notesUrl": "https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.17",
   "publishedAt": "2026-11-06T03:00:00.0000000Z"
 }
 ```
@@ -97,8 +97,8 @@ Windows 不允许运行中的 `Augit.exe` 覆盖自身，因此下载完成后�
 启动完成后后台检查一次，不阻塞首屏。发现更新时显示通知：
 
 ```text
-Augit 1.0.0-rc.16 is available
-You are using 1.0.0-rc.16. Download the update, then restart Augit to install it.
+Augit 1.0.0-rc.17 is available
+You are using 1.0.0-rc.17. Download the update, then restart Augit to install it.
 [Download update]
 ```
 
@@ -106,7 +106,7 @@ You are using 1.0.0-rc.16. Download the update, then restart Augit to install it
 
 ```text
 Update ready
-Augit 1.0.0-rc.16 is ready. Restarting will close the current window and its terminal sessions.
+Augit 1.0.0-rc.17 is ready. Restarting will close the current window and its terminal sessions.
 [Restart and update]
 ```
 

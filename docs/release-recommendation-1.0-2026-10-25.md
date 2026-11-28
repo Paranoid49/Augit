@@ -1,6 +1,6 @@
 # Augit 正式 1.0 发布建议（2026-10-25）
 
-> **2026-11-28 当前状态**：当前公开候选正在推进 `1.0.0-rc.16`，采用单一 self-contained 便携版并内置签名自动更新；安装器已移除。本文 §1 的 rc.2 身份、§5 的“rc.10 可作为正式 1.0 基础”等旧结论均已被后续版本取代。用户已确认 Windows 10 22H2 公司实机连续运行多个 rc 版本，并确认 rc.14→rc.15 公开升级完成；rc.16 的 `rc.15→rc.16` 升级需发布后复验。当前发布入口：[rc.16 发布清单](release-manifest-1.0.0-rc.16.md)（已发布，Release id `461385505`）；`rc.15→rc.16` 公开升级仍需在可正常启动 rc.15 的机器上复验。
+> **2026-11-28 当前状态**：当前公开候选正在推进 `1.0.0-rc.17`，采用单一 self-contained 便携版并内置签名自动更新；安装器已移除。本文 §1 的 rc.2 身份、§5 的“rc.10 可作为正式 1.0 基础”等旧结论均已被后续版本取代。用户已确认 Windows 10 22H2 公司实机连续运行多个 rc 版本，并确认 rc.14→rc.15 公开升级完成；rc.15→rc.16、rc.16→rc.17 升级仍需在可正常启动旧包的机器上复验。当前发布入口：[rc.17 发布清单](release-manifest-1.0.0-rc.17.md)。
 
 > **2026-10-26 状态更新**：Windows 10 22H2 与双显示器/混合 DPI 已在实机完成验证（含 100/125/150/175/200%、负坐标、模拟热插拔、深色窄窗和 rc.2 重建包安装），见[22H2 多显示器 DPI 修复与扩展验证](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。用户已决定把 `1.0.0-rc.2` 作为**公开预发布**交付，真实用户可以下载安装包或便携包试用。本文 §4 的 Windows 10/跨屏条目据此关闭；§5 建议 A 中“不创建公开 Release、不上传产物”已被该决定取代。正式 1.0 的其余外部条件仍然有效。
 >
@@ -26,6 +26,8 @@
 > **2026-11-26 rc.15 补充**：rc.15 进一步消除原生模态窗口打开闪黑与关闭旧表单淡出，按 IDEA `RollbackChangesDialog` 重做 Git 回滚多文件勾选树，并隔离跨工作区标签会话、跳过已不存在文件的恢复标签，避免旧仓库同名文件和幽灵标签。
 >
 > **2026-11-28 rc.16 补充**：rc.16 修复更新检查受 GitHub REST 配额限流、Changes 工具栏 Rollback/Show Diff 启用条件、Rollback Changes 空 included 状态和关闭原生模态后的前台恢复，并新增右键 `Copy Path/Reference…` 的绝对路径复制。用户已确认 Windows 10 22H2 公司实机运行多个 rc 版本，且 rc.14→rc.15 公开升级完成；rc.15→rc.16 升级在发布后验证。
+>
+> **2026-11-28 rc.17 补充**：rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不更新的问题，统一为“先选中触发行再打开菜单”；引用树原有规则保持。rc.15→rc.16 与 rc.16→rc.17 的公开升级仍需复验。
 
 ## 1. 候选身份
 
@@ -124,9 +126,10 @@ Agent 不能自行豁免现行 500ms、无障碍或平台验证要求；本建�
 ## 7. 证据入口
 
 - 收口台账：`docs/release-closure-2026-10-24.md`
-- rc.16 发布清单：`docs/release-manifest-1.0.0-rc.16.md`
-- rc.16 发布说明：`docs/release-notes-1.0.0-rc.16.md`
-- 已知限制：`docs/known-limitations-1.0.0-rc.16.md`
+- rc.17 发布清单：`docs/release-manifest-1.0.0-rc.17.md`
+- rc.17 发布说明：`docs/release-notes-1.0.0-rc.17.md`
+- 已知限制：`docs/known-limitations-1.0.0-rc.17.md`
+- rc.16 历史发布清单：`docs/release-manifest-1.0.0-rc.16.md`、`docs/release-notes-1.0.0-rc.16.md`
 - rc.15 历史发布清单：`docs/release-manifest-1.0.0-rc.15.md`、`docs/release-notes-1.0.0-rc.15.md`
 - rc.2 历史发布记录：`docs/release-manifest-1.0.0-rc.2.md`、`docs/release-notes-1.0.0-rc.2.md`
 - 证据索引：`docs/evidence-index-1.0.0-rc.2.md`

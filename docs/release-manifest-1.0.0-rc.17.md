@@ -1,0 +1,65 @@
+# Augit 1.0.0-rc.17 公开发布清单
+
+本清单记录 `1.0.0-rc.17` 公开预发布资产的构建方式、发布后核对结果和验证边界。Release 页面与 `SHA256SUMS.txt` 是资产哈希的权威来源；本文件在流水线完成后补入实际资产、构建提交和发布 id。
+
+## 1. 发布身份
+
+| 项 | 值 |
+| --- | --- |
+| 发布页 | <https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.17> |
+| Release id | 待发布流水线完成后补入 |
+| Tag | `v1.0.0-rc.17` |
+| 构建方式 | GitHub Actions `.github/workflows/release.yml`，从 tag 指向的提交构建 |
+| 构建提交 | 待发布流水线完成后补入 |
+| 版本 | `1.0.0-rc.17` |
+| 形态 | **self-contained 便携 zip**（自带 .NET 10.0.11 Runtime） |
+| 自动更新 | `update.json` + `update.json.sig`，ECDSA P-256 |
+| 安装器 | **不提供**；发布单一便携 zip |
+| FileVersion | `1.0.0.0` |
+| 代码签名 | **NotSigned**（无 Authenticode；更新清单有独立签名） |
+
+rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不更新的问题。
+
+## 2. 资产
+
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| `Augit-1.0.0-rc.17-win-x64-portable.zip` | 待流水线完成后补入 | 待流水线完成后补入 |
+| `update.json` | 待流水线完成后补入 | 待流水线完成后补入 |
+| `update.json.sig` | 待流水线完成后补入 | 待流水线完成后补入 |
+| `SHA256SUMS.txt` | 待流水线完成后补入 | 待流水线完成后补入 |
+
+## 3. 构建与验证
+
+发布流水线执行标准 rc.17 Release 构建、全部单元测试、便携打包、签名清单和发布上传。本机发布前门禁记录：
+
+| 项 | 结果 |
+| --- | --- |
+| Release 构建 | **PASS**：0 警告 / 0 错误 |
+| Core/Shell/Infrastructure 测试 | **PASS**：Core 77/77、Shell 286/286、Infrastructure 221/221，合计 584/584（排除 4 条 ConPTY，与 CI 口径一致） |
+| UI 资产 / 脚本编码 / 文档声明 / `dotnet format` / `git diff --check` | **PASS** |
+| rc.17 右键选中定向 live-shell | **3/3 PASS**：项目树、Changes、Git 日志的 DOM 高亮、状态字段和菜单目标一致 |
+| 本地 self-contained 便携包 | **PASS**：`39,299,170 B`，SHA-256 `e2394ff35414fe468674c6da489bf69eec5d950189b758fdf730aac9801644ce`；ProductVersion `1.0.0-rc.17+934357a…`；窗口 313.9ms、首帧 594.9ms、关闭 145.6ms、退出码 0、无残留 |
+| 全量 live-shell | 历史 harness 仍有已知过期选择器；本版不以它冒充全绿 |
+
+## 4. 自动更新
+
+- rc.12 起内置签名自动更新；用户已确认 `rc.12→rc.13`、`rc.13→rc.14`、`rc.14→rc.15` 的公开升级路径完成。
+- **`rc.15→rc.16` 与 `rc.16→rc.17` 的公开升级端到端在发布后验证**；本机公开 rc.15 正常入口启动时旧版 WebView2 环境未建立，不能把本机失败写成产品升级失败。
+- 下载完整 zip 后校验签名、大小、SHA-256 和 `Augit.exe` ProductVersion；用户确认后由暂存的新版本执行替换，失败时回滚旧版本。
+- 没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
+
+## 5. Windows 10 22H2 与用户确认
+
+- 用户于 2026-11-28 确认在公司 Windows 10 22H2 实机连续运行多个 rc 版本，并确认 `rc.14 → rc.15` 公开升级完成。
+- rc.17 启动与更新仍待用户在公司实机复验；不把 Windows 11 结果写成新包已在 Windows 10 验证。
+
+## 6. 发布后核对
+
+待发布流水线完成后补入：
+
+- Release 页面标记、Release id、构建提交；
+- 四个资产的大小与 SHA-256、匿名下载核对、`update.json` 验签；
+- 官方便携包真实启动；
+- `rc.15→rc.16` 与 `rc.16→rc.17` 公开升级端到端状态；
+- 全量 live-shell 历史测试基线的缺口说明。
