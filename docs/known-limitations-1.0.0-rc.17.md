@@ -6,7 +6,7 @@
 
 - 这是 **1.0.0-rc.17 公开预发布候选**（GitHub Pre-release），不是正式 1.0。正式 1.0 仍需 RC 的真实日常使用观察与用户裁决。
 - rc.3 是 rc.2 的分发修复版：便携版改为 self-contained；rc.4 增加 Windows 10 22H2 启动/选目录退出的加固（CETCompat=false、首次启动欢迎页、async void 异常边界、`git init` 超时和本地诊断日志）；rc.5 修复旧版本把程序目录/欢迎目录保存为 `LastWorkspace` 时仍恢复该目录的问题；rc.6 修复 `SHBrowseForFolder` 输出缓冲区导致的 `comctl32` 崩溃和新窗口 `--workspace` 参数契约；rc.7 修复欢迎页双窗口、分支树折叠和分支弹层右侧动作面板；rc.8 按 PyCharm 重做分支弹层层级树（默认折叠、目录分组、搜索、固定高度滚动）；rc.9 修复非模态弹层外部点击关闭/点击穿透、正文行号栏、标题栏 File/View/Git hover 菜单、项目名 project widget 下拉，并加入 Augit 自有徽标与任务栏图标；rc.10 重做多标签终端、Shell 菜单、设置热切换和 JetBrains 风格关闭确认；rc.11 修复终端 Shell 菜单灰底、`+` 默认新建、Settings 预热路径和关闭确认像素；rc.12 加入签名自动更新并改为单一自包含便携版发行，安装器已移除；rc.13 修复 SQL/未知扩展名 UTF-16 文本预览，加入进程内 JSON 临时格式化、通知关闭叉、Recent Workspaces 记录和双击 Shift 文件搜索；rc.14 加入手动检查更新，并修复原生模态窗口透明闪烁和方角外框；rc.15 进一步消除原生模态打开闪黑/关闭淡出、按 IDEA 重做回滚多文件树并隔离跨工作区标签；rc.16 修复更新检查的 GitHub API 限流、按 IDEA 修正 Rollback 工具栏/对话框、关闭原生模态时的前台恢复，并加入右键 Copy Path/Reference 绝对路径；rc.17 修复项目树、Changes 和 Git 日志右键未选中行时旧高亮不更新的问题。
-- 用户于 2026-11-28 确认：在公司 Windows 10 22H2 实机上已连续运行多个 rc 版本。该结论来自真实日常使用，不是本仓库重新采集的逐帧/哈希日志；rc.17 仍需用户在该实机复验。
+- 用户于 2026-11-28 确认：在公司 Windows 10 22H2 实机上连续运行多个 rc 版本，并完成 `rc.16→rc.17` 公开升级。该结论来自真实日常使用，不是本仓库重新采集的逐帧/哈希日志。
 - 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）**从未公开上传**，其原始哈希无法复核。本次公开资产由 GitHub Actions 从 `v1.0.0-rc.17` 标签构建；构建源提交与每个资产的 SHA-256 以[发布清单](release-manifest-1.0.0-rc.17.md)和 Release 内的 `SHA256SUMS.txt` 为准。
 - Augit 可执行文件**没有 Authenticode 代码签名**。Windows SmartScreen 可能提示“未知发布者”；企业环境可能按策略阻止运行。
 - 自动更新清单使用独立的 ECDSA P-256 签名；这不等于 Windows 已信任发布者。
@@ -15,7 +15,7 @@
 
 - 产品支持 Windows 10 22H2 x64 与 Windows 11 x64。
 - **Windows 11 x64** 已完成主界面、便携包、屏幕阅读器和性能基线验证。
-- **Windows 10 Pro 22H2 `10.0.19045.6456` x64** 已完成双显示器、100%/125%/150%/175%/200% 缩放、真实鼠标跨屏拖动、混合 DPI 启动、负坐标显示器布局、模拟显示器热插拔和深色窄窗验证。用户于 2026-11-28 确认在公司 Windows 10 22H2 实机连续运行多个 rc 版本；rc.17 尚需该实机复验。详见[22H2 多显示器 DPI 修复与扩展验证](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+- **Windows 10 Pro 22H2 `10.0.19045.6456` x64** 已完成双显示器、100%/125%/150%/175%/200% 缩放、真实鼠标跨屏拖动、混合 DPI 启动、负坐标显示器布局、模拟显示器热插拔和深色窄窗验证。用户于 2026-11-28 确认在公司 Windows 10 22H2 实机连续运行多个 rc 版本，并完成 `rc.16→rc.17` 升级；rc.17 已进入真实使用。详见[22H2 多显示器 DPI 修复与扩展验证](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
 - 尚未验证：干净虚拟机/全新系统运行；真实缺少 WebView2 的流程；三块及以上显示器；物理拔插显示器（已由用户移出本次验收范围）；更多 DPI 组合与显示器排列；Narrator 完整会话、JAWS、Braille；足够时长的真实日常使用观察。
 - 真实鼠标坐标校准覆盖 Windows 10 22H2 双屏与 Windows 11 单屏条件；其他显示器拓扑仍可能暴露未登记的几何差异。
 
@@ -71,11 +71,11 @@
 ## 8. 便携分发与自动更新
 
 - **便携版 self-contained**：发布目录包含 .NET 10.0.11 运行时（`coreclr.dll`/`hostfxr.dll`/`hostpolicy.dll`）和 `includedFrameworks` 运行时配置；本机把 `DOTNET_ROOT` 指向不存在目录并禁用多级查找后仍能启动，窗口类 `Augit.Shell.Window`、退出码 0、无残留子进程。新电脑不需要预装 .NET。
-- **Windows 10 22H2 加固**：apphost 显式 `CETCompat=false`；首次启动在无有效最近目录且当前目录为程序目录时使用 `%LOCALAPPDATA%\Augit\Welcome` 并显示「Open Workspace」，不再把发布目录当项目或自动弹出创建仓库；`OnWebMessageReceived`/`OnNavigationCompleted` 增加 async void 异常边界；`git init` 增加 30 秒超时和本地路径校验。用户已确认 Windows 10 22H2 实机可运行多个 rc 版本；rc.17 需复验。
+- **Windows 10 22H2 加固**：apphost 显式 `CETCompat=false`；首次启动在无有效最近目录且当前目录为程序目录时使用 `%LOCALAPPDATA%\Augit\Welcome` 并显示「Open Workspace」，不再把发布目录当项目或自动弹出创建仓库；`OnWebMessageReceived`/`OnNavigationCompleted` 增加 async void 异常边界；`git init` 增加 30 秒超时和本地路径校验。用户已确认 Windows 10 22H2 实机可运行多个 rc 版本，并完成 `rc.16→rc.17` 升级。
 - **本地诊断日志**：`%LOCALAPPDATA%\Augit\logs\augit.log` 记录启动、桥接异常、watcher 初始化异常和 WebView2 进程失败；更新器另写 `update.log`。日志不上传、不记录文件内容/Git 输出/凭据。若 rc.15 仍异常退出，日志为空时需要同时提供 Windows 应用程序日志中的 `Application Error`/`.NET Runtime` 事件。
 - 便携包解压启动、必需文件/许可证、web 资源一致性、版本与关闭清理已验证；发布产物是单一 self-contained 便携 zip，不再提供安装器。
 - **自动更新**：启动后检查 GitHub Releases 的签名 `update.json`，下载并校验签名、大小、SHA-256 和包内版本；用户确认后由暂存的 `--apply-update` 进程等待旧进程退出、备份旧目录、替换并重启，启动失败或 10 秒内无窗口时回滚。更新要求便携目录可写且同目录其它 Augit 窗口已关闭。
-- **自动更新未覆盖**：真实网络下的 GitHub API/下载、签名 Secret 配错、真实缺 WebView2、断电/强杀更新器、磁盘满和杀毒软件拦截未复验；本轮只完成本机端到端与单元验证；2026-11-18 已用公开 rc.12 便携包完成 `rc.12 → rc.13` 自动更新替换 PASS；`rc.13 → rc.14`、`rc.14 → rc.15` 的公开升级路径已由用户确认完成；`rc.15 → rc.16` 与 `rc.16 → rc.17` 的公开升级端到端待本版发布后复验。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
+- **自动更新未覆盖**：真实网络下的 GitHub API/下载、签名 Secret 配错、真实缺 WebView2、断电/强杀更新器、磁盘满和杀毒软件拦截未复验；本轮只完成本机端到端与单元验证；2026-11-18 已用公开 rc.12 便携包完成 `rc.12 → rc.13` 自动更新替换 PASS；`rc.13 → rc.14`、`rc.14 → rc.15` 的公开升级路径已由用户确认完成；`rc.16 → rc.17` 的公开升级端到端已由用户于 2026-11-28 确认完成；`rc.15 → rc.16` 仍未单独复验。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
 - **WebView2**：便携包仍要求系统已有 WebView2 Runtime；没有安装器自动检测/下载流程，缺少时只显示官方下载入口。
 - 首次在非 Git 目录显示仓库初始化遮罩时，右下角更新通知会被遮罩挡住；需先关闭/完成该遮罩才能点击更新动作。该层叠问题登记为 UI 待修，不阻塞更新器本身。
 - 公开 Release 只包含便携 zip、`update.json`、`update.json.sig` 和 `SHA256SUMS.txt`；原始截图、日志和本机验收报告不在公开仓库或 Release 中。
@@ -86,4 +86,4 @@
 - 在真实日常使用中观察：真实仓库浏览、外部修改同步、提交与分支、拉取推送、冲突、终端、重启恢复。
 - 处理 500ms 历史慢样本归因、软换行大文件构建、可访问性全文连续阅读、像素持续改进等余项。
 - 补齐干净虚拟机、真实缺 WebView2、更多显示器拓扑与 DPI 组合的验证。
-- 只有完成真实使用观察并经用户裁决后，才能讨论正式 1.0；本候选不因已公开预发布而自动升级为正式 1.0。用户已确认 Windows 10 22H2 实机与 rc.14→rc.15 升级；rc.15→rc.16 与 rc.16→rc.17 升级待发布后验证。
+- 只有完成真实使用观察并经用户裁决后，才能讨论正式 1.0；本候选不因已公开预发布而自动升级为正式 1.0。用户已确认 Windows 10 22H2 实机与 rc.14→rc.15、rc.16→rc.17 升级；rc.15→rc.16 仍未单独复验。
