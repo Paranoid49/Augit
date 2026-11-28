@@ -18,7 +18,14 @@ rc.16 汇总 rc.15 之后的用户可感知修正：
 
 ## 2. 下载
 
-<!-- RELEASE_ASSETS -->
+| 文件 | 大小 | SHA-256 |
+| --- | ---: | --- |
+| [Augit-1.0.0-rc.16-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/Augit-1.0.0-rc.16-win-x64-portable.zip) | 39,298,494 B | `087171a3072c234f04f3b8e28197a84393b6cb8bb5c00bb196b856152dbc4890` |
+| [update.json](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/update.json) | 432 B | `c83deafe0220e597018997dd82da432c2d214e39210e56e3ce8c01590c15d028` |
+| [update.json.sig](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/update.json.sig) | 89 B | `20c1b1f7e09f15878a4ee5b8ab6de7332dd1662f9b127d3c1b304b2454f6feb5` |
+| [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/SHA256SUMS.txt) | 265 B | `422416bc9a7e0ae952a48a7741ec075b7ff74d296941ca962acd78b6a01700a0` |
+
+2026-11-28 通过匿名 GitHub 下载复核，GitHub 资产 digest 与 `SHA256SUMS.txt` 一致，`update.json` 使用内置公钥验签 **PASS**。
 
 - **便携版**：自带 .NET 10.0.11 Runtime，不需要预装 .NET；只需系统已有 Microsoft Edge WebView2 Runtime。
 - **自动更新资产**：`update.json` 和 `update.json.sig` 供应用检查更新使用；普通用户只需下载便携 zip。
@@ -31,7 +38,8 @@ rc.16 汇总 rc.15 之后的用户可感知修正：
 - 本机 Release 单元测试（排除托管 runner 无法使用的 4 条 ConPTY 交互集成用例）：Core **77/77**、Shell **286/286**、Infrastructure **221/221**，合计 **584/584**。
 - UI 资产一致性、脚本编码、文档声明、覆盖率、`dotnet format`、JavaScript 语法和 `git diff --check`：**PASS**。
 - 本版定向 `live-shell`：Copy Path/Reference 上下文菜单 **27/27**、复制失败通知 **4/4**、Rollback 对话框 **18/18**、改动工具栏 **5/5**，合计 **54/54**。
-- 本机预检包（构建提交 `0047bbb`）**PASS**：`39,298,431 B`，SHA-256 `c9109912…`；ProductVersion `1.0.0-rc.16+0047bbb…`；真实启动窗口 **300.5ms**、首帧 **597.8ms**、关闭 **126.3ms**、退出码 0、无残留子进程。公开资产以 GitHub Actions 从标签构建的字节为准。
+- 本机预检包（构建提交 `0047bbb`）**PASS**：`39,298,431 B`，SHA-256 `c9109912…`；ProductVersion `1.0.0-rc.16+0047bbb…`；真实启动窗口 **300.5ms**、首帧 **597.8ms**、关闭 **126.3ms**、退出码 0、无残留子进程。
+- 官方发布资产匿名核对 **PASS**：zip `39,298,494 B` / SHA-256 `087171a3…`，版本 `1.0.0-rc.16+a8983d6…`；官方包真实启动窗口 **296.2ms**、首帧 **566.5ms**、关闭 **153ms**、退出码 0、无残留；`update.json` 验签 **PASS**。
 - **全量 `live-shell` 本轮未作为全绿门禁**：历史断言基线已有过期选择器（字体固定、分支弹层改为 `data-popover-action`、后台标签跟随外部变化、标题栏 Settings 入口改为当前控件）。本轮修复了可在改动范围内确认的过期断言，但套件仍在标题栏 Settings 选择器处停下；不把该历史基线写成通过，也不把失败混入本版功能结论。该缺口登记在发布清单中，后续单独整理测试基线。
 
 ## 4. 自动更新

@@ -4,7 +4,7 @@
 
 更新日期与状态：**2026-10-01（第 310 轮 ＋ 本轮收口）**；当前状态见 §5「已完成 / 已结案」。
 
-> **2026-11-26 发布状态补充**：本文主体仍是 2026-10-01 的交接快照。当前公开 `1.0.0-rc.15` 预发布候选（单一 self-contained 便携包、`update.json`/`update.json.sig`、校验和）；安装器已移除，自动更新从 rc.12 起可用。发布身份、资产哈希和未验证边界以[rc.15 发布清单](release-manifest-1.0.0-rc.15.md)、[rc.15 发布说明](release-notes-1.0.0-rc.15.md)和[rc.15 已知限制](known-limitations-1.0.0-rc.15.md)为准；本文中“Windows 10 未验证”“不创建公开 Release”等旧描述已被取代。
+> **2026-11-28 发布状态补充**：本文主体仍是 2026-10-01 的交接快照。当前公开 `1.0.0-rc.16` 预发布候选（单一 self-contained 便携包、`update.json`/`update.json.sig`、校验和）；安装器已移除，自动更新从 rc.12 起可用。发布身份、资产哈希和未验证边界以[rc.16 发布清单](release-manifest-1.0.0-rc.16.md)、[rc.16 发布说明](release-notes-1.0.0-rc.16.md)和[rc.16 已知限制](known-limitations-1.0.0-rc.16.md)为准；用户已确认 Windows 10 22H2 实机日常使用与 rc.14→rc.15 升级，rc.15→rc.16 升级仍待复验。
 
 ---
 

@@ -11,7 +11,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 
 | 方式 | 下载 | 适合场景 |
 | --- | --- | --- |
-| 便携版 | [Augit-1.0.0-rc.16-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/Augit-1.0.0-rc.16-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装 |
+| 便携版 | [Augit-1.0.0-rc.16-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/Augit-1.0.0-rc.16-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装；官方资产 `39,298,494 B`，SHA-256 `087171a3…` |
 | 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/SHA256SUMS.txt) | 下载后核对文件完整性 |
 
 发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.16>
