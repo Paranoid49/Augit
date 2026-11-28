@@ -4454,7 +4454,7 @@ body[data-settings-surface="true"] .settings-layout { height: 100%; min-height: 
 .rollback-dialog .rollback-row.selected { background: var(--augit-blue-soft); }
 .rollback-dialog .rollback-row:focus,
 .rollback-dialog .rollback-row:focus-visible { outline: none; }
-.rollback-dialog .rollback-row .change-chevron { flex: 0 0 16px; width: 16px; height: 20px; }
+.rollback-dialog .rollback-row .change-chevron { position: static; left: auto; flex: 0 0 16px; width: 16px; height: 20px; }
 .rollback-dialog .rollback-chevron-spacer { flex: 0 0 16px; width: 16px; height: 20px; }
 .rollback-dialog .rollback-row .fake-check { flex: none; margin-right: 2px; }
 .rollback-dialog .rollback-row :is(.file-icon, .folder-icon) { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; }
@@ -6096,7 +6096,11 @@ body[data-theme="dark"] {
    展开画布单独位于renderer之前，不用缩成8px图形或叠加多个flex间隙凑起点。 */
 .changes-layout > .changes-list { padding-left: var(--augit-change-inset, 12px); padding-right: var(--augit-change-inset, 12px); }
 .check-group-row { position: relative; gap: var(--augit-tree-control-gap, 4px); padding-left: var(--augit-tree-indent, 19px); }
-.change-chevron { position: absolute; left: 0; width: var(--augit-icon-size, 16px); height: calc(var(--augit-icon-size, 16px) + 2px); }
+/* 展开箭头只对 Changes 分组行绝对定位（行首预留 19px）；其它树/对话框里的
+   `.change-chevron` 仍参与 flex 排版，不能继承这里的 absolute/left:0。
+   Rollback 树此前因此把所有深度的箭头叠在对话框最左侧，行内只剩空白槽。 */
+.changes-list .check-group-row > .change-chevron { position: absolute; left: 0; width: var(--augit-icon-size, 16px); height: calc(var(--augit-icon-size, 16px) + 2px); }
+.augit-window .change-chevron > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
 .augit-window .change-chevron > svg { width: var(--augit-icon-size, 16px); height: var(--augit-icon-size, 16px); flex-basis: var(--augit-icon-size, 16px); }
 .changes-list .change-file-row { padding-left: calc(2 * var(--augit-tree-indent, 19px)); }
 .check-row { border-radius: 4px; }

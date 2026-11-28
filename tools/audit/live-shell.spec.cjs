@@ -11884,6 +11884,32 @@ async function main() {
     rbCheck('回滚主操作使用 Rollback 文案: ' + JSON.stringify(rbTracked.confirm), rbTracked.confirm === 'Rollback');
     rbCheck('打开回滚确认后右键菜单已关闭: ' + JSON.stringify(rbTracked.menus), rbTracked.menus === 0);
 
+    // 深目录的展开箭头必须仍在各自行内、随层级缩进；不能再被全局 absolute 拉回对话框左边。
+    const rbArrowGeometry = await rb.page.evaluate(() => {
+      const dialog = document.querySelector('.dialog.rollback-dialog');
+      const root = dialog.querySelector('[data-rollback-root]');
+      const directory = dialog.querySelector('[data-rollback-dir]');
+      const rootArrow = root && root.querySelector('.change-chevron');
+      const directoryArrow = directory && directory.querySelector('.change-chevron');
+      const rootBox = root && root.getBoundingClientRect(), directoryBox = directory && directory.getBoundingClientRect();
+      const arrowBox = (arrow) => arrow ? arrow.getBoundingClientRect() : null;
+      return {
+        rootArrow: arrowBox(rootArrow), directoryArrow: arrowBox(directoryArrow),
+        rootRow: rootBox ? { left: rootBox.left, right: rootBox.right } : null,
+        directoryRow: directoryBox ? { left: directoryBox.left, right: directoryBox.right } : null,
+        rootPosition: rootArrow ? getComputedStyle(rootArrow).position : null,
+        directoryPosition: directoryArrow ? getComputedStyle(directoryArrow).position : null,
+      };
+    });
+    rbCheck('回滚树展开箭头随目录层级缩进且留在行内: ' + JSON.stringify(rbArrowGeometry),
+      rbArrowGeometry.rootArrow && rbArrowGeometry.directoryArrow
+        && rbArrowGeometry.rootPosition === 'static' && rbArrowGeometry.directoryPosition === 'static'
+        && rbArrowGeometry.directoryArrow.left > rbArrowGeometry.rootArrow.left + 10
+        && rbArrowGeometry.directoryArrow.left >= rbArrowGeometry.rootArrow.left
+        && rbArrowGeometry.rootArrow.left >= rbArrowGeometry.rootRow.left
+        && rbArrowGeometry.directoryArrow.left >= rbArrowGeometry.directoryRow.left
+        && rbArrowGeometry.directoryArrow.right <= rbArrowGeometry.directoryRow.right);
+
     // 根勾选应一次选中整棵树，并更新状态计数。
     const rbAllChecked = await rb.page.evaluate(() => {
       document.querySelector('[data-rollback-check-root]').click();
