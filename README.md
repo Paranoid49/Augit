@@ -1,20 +1,20 @@
 # Augit
 
 [![CI](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Paranoid49/Augit/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.15)
+[![Release](https://img.shields.io/github/v/release/Paranoid49/Augit?include_prereleases&label=release)](https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.16)
 
 Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方式的轻量 Windows 只读项目查看器与 Git 图形工具。开发者在 Augit 中浏览项目、检查变化并执行 Git 操作；Augit 不接入 AI，也不提供普通代码编辑和保存。
 
-当前公开发布为 **1.0.0-rc.15 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随便携包一起分发；实际版本以 `Augit.exe` 文件属性或应用内更新提示中的 ProductVersion 为准。
+当前公开发布为 **1.0.0-rc.16 预发布候选**（GitHub Pre-release），**不是正式 1.0**。候选包需要完成真实日常使用观察后才进入正式发布。本 README 随便携包一起分发；实际版本以 `Augit.exe` 文件属性或应用内更新提示中的 ProductVersion 为准。
 
 ## 下载与运行（无需从源码构建）
 
 | 方式 | 下载 | 适合场景 |
 | --- | --- | --- |
-| 便携版 | [Augit-1.0.0-rc.15-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/Augit-1.0.0-rc.15-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装 |
-| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.15/SHA256SUMS.txt) | 下载后核对文件完整性 |
+| 便携版 | [Augit-1.0.0-rc.16-win-x64-portable.zip](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/Augit-1.0.0-rc.16-win-x64-portable.zip) | 解压即用；不需要管理员权限和 .NET 安装 |
+| 校验和 | [SHA256SUMS.txt](https://github.com/Paranoid49/Augit/releases/download/v1.0.0-rc.16/SHA256SUMS.txt) | 下载后核对文件完整性 |
 
-发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.15>
+发布页：<https://github.com/Paranoid49/Augit/releases/tag/v1.0.0-rc.16>
 
 变更记录：<https://github.com/Paranoid49/Augit/blob/main/CHANGELOG.md>
 自动更新与签名说明：[docs/auto-update.md](https://github.com/Paranoid49/Augit/blob/main/docs/auto-update.md)
@@ -37,21 +37,22 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 本候选已在以下真实机器上完成便携运行验证；未验证项不写成已通过：
 
 - **Windows 11 x64**：主界面、便携包、屏幕阅读器与性能基线。
-- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔、深色窄窗，以及 rc.2 源码重建包的便携运行。rc.3 改为 self-contained 便携包；rc.4–rc.15 增加 Windows 10 22H2 首次启动/CET/异常边界加固、旧 LastWorkspace 回退、选择目录输出缓冲区、新窗口参数修复，以及欢迎页单窗口、分支树折叠、分支弹层默认面板与 PyCharm 分组树修复；该启动路径仍待在用户出问题的 22H2 机器上复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
-- 本次公开 rc.15 资产由 GitHub Actions 从 `v1.0.0-rc.15` 标签构建，包含签名自动更新、单一便携版发行和 rc.14 之后的 UI 修正；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
+- **Windows 10 22H2 x64（`10.0.19045.6456`）**：双显示器、真实鼠标跨屏拖动、混合 DPI 启动、100%/125%/150%/175%/200% 缩放、负坐标显示器布局、模拟显示器热插拔和深色窄窗已验证。用户于 2026-11-28 确认在公司 Windows 10 22H2 实机连续运行多个 rc 版本；rc.16 仍需该实机复验。验证记录见 [`docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md`](https://github.com/Paranoid49/Augit/blob/main/docs/win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)。
+- 本次公开 rc.16 资产由 GitHub Actions 从 `v1.0.0-rc.16` 标签构建，包含签名自动更新、单一便携版发行和 rc.15 之后的 UI/更新检查修正；2026-10-25 的旧 rc.2 冻结构建从未公开上传，其原始哈希无法复核。本 Release 中的资产与 `SHA256SUMS.txt` 是发布基准。
 - rc.10 的终端重做已在 Windows 11 x64 实机验证多标签、Shell 菜单、设置热切换和关闭确认；实际 Release 便携包真实启动 PASS（窗口出现 380.7ms、关闭 104.8ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 501.6ms、关闭 100ms）；全新 Windows 虚拟机仍待复验。
 - rc.11 修复终端 Shell 菜单灰底、+ 默认新建、Settings 预热速度和关闭确认像素；Windows 11 x64 实测连续打开 Settings 为 102–485ms，极早点击最坏 661ms，主窗首窗约 367ms。实际 Release 便携包真实启动 PASS（窗口出现 463ms、关闭 128.6ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 451.1ms、关闭 127.1ms）。
 - rc.12 修复选中终端标签高亮、Settings 默认终端不再关闭已打开终端、移除无功能 Tab Options、固定 UI 字体，并加入签名自动更新；本机 569/569 测试通过。实际 Release 便携包真实启动 PASS（窗口出现 482.1ms、关闭 111.1ms、退出码 0、无残留子进程），隐藏共享 .NET 后启动 PASS（窗口出现 468.2ms、关闭 111.6ms）；本机以同源 rc.11 测试构建从公开 Release 自动更新到 rc.12 PASS。
 - rc.13 修复 SQL/未知扩展名 UTF-16 文本被误判为二进制，加入进程内 JSON 临时格式化窗口、右下角通知关闭叉、启动时记录 Recent Workspaces 和双击 Shift 文件搜索；本机 581/581 测试通过。实际 Release 资产已匿名复核：便携包 `39,282,490 B`、SHA-256 `23534777…`，签名/内容 PASS；官方包窗口与主界面启动 PASS；公开 rc.12 到 rc.13 自动更新替换 PASS。详见[rc.13 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.13.md)。
 
 - rc.14 加入 `File → Check for Updates…` 手动更新检查，并修复原生模态窗口打开/关闭的透明闪烁与方角外框；覆盖 Format JSON、New Branch 及所有同类模态。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,284,414 B`、SHA-256 `55a241cc…`，签名/内容 PASS；官方包主界面启动 PASS；公开 rc.13 到 rc.14 自动更新替换 PASS。详见[rc.14 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.14.md)。
-- rc.15 修复打开 Format JSON 等原生模态窗口时主界面整块闪黑、关闭时约 160ms 旧表单淡出；Git 回滚对话框按 IDEA `RollbackChangesDialog` 重做为 `Rollback Changes` 多文件勾选树；打开另一个工作区不再恢复旧仓库标签，已不存在的文件不再变成「文件已被删除、重命名或替换」的幽灵标签，同名文件也不会错误显示旧仓库内容。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,292,879 B`、SHA-256 `dd507c3c…`，签名/内容与官方包启动 PASS；rc.14 → rc.15 自动更新端到端本轮未完成（旧版正常入口 WebView2 COMException），详见[rc.15 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.15.md)。
+- rc.15 修复打开 Format JSON 等原生模态窗口时主界面整块闪黑、关闭时约 160ms 旧表单淡出；Git 回滚对话框按 IDEA `RollbackChangesDialog` 重做为 `Rollback Changes` 多文件勾选树；打开另一个工作区不再恢复旧仓库标签，已不存在的文件不再变成「文件已被删除、重命名或替换」的幽灵标签，同名文件也不会错误显示旧仓库内容。本机 582/582 测试通过。实际 Release 资产已匿名复核：便携包 `39,292,879 B`、SHA-256 `dd507c3c…`，签名/内容与官方包启动 PASS；用户后续确认 rc.14 → rc.15 自动更新端到端完成。详见[rc.15 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.15.md)。
+- rc.16 修复更新检查受 GitHub API 限流、Changes 工具栏 Rollback/Show Diff 启用条件、Rollback Changes 对话框空 included 状态、关闭原生模态后的前台恢复，并新增右键 `Copy Path/Reference…` 绝对路径复制；本机 Release 单元测试 584/584，定向 live-shell 54/54。验证与资产见[rc.16 发布清单](https://github.com/Paranoid49/Augit/blob/main/docs/release-manifest-1.0.0-rc.16.md)。
 
 仍未验证：干净虚拟机运行、真实缺少 WebView2 的流程、三块及以上显示器、物理拔插显示器、更多 DPI 组合、Narrator/JAWS/Braille 完整会话，以及足够时长的真实日常使用观察。
 
 ## 便携版：解压即用
 
-- 把 `Augit-1.0.0-rc.15-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
+- 把 `Augit-1.0.0-rc.16-win-x64-portable.zip` 解压到任意本地目录，运行其中的 `Augit.exe`。
 - 便携版已内置 .NET 10 Runtime（self-contained），新电脑无需预装 .NET；不写入系统 PATH，不添加资源管理器菜单，也不会安装或修改共享运行时。
 - 首次启动没有可用最近目录时显示「Open Workspace」启动页，不会把 `Augit.exe` 所在的发布目录当成项目；请通过「打开目录」选择真实工作区。
 - 仍需系统已有 Microsoft Edge WebView2 Runtime。缺少 WebView2 时 Augit 会明确提示缺失项，并给出微软官方下载入口；补齐后重新运行即可。
@@ -95,7 +96,7 @@ Augit 是面向「代码由外部 AI、脚本或人工修改」这一协作方�
 - **真实鼠标 Continue Rebase 仅覆盖代表性场景**：两文件 rebase 冲突、外部删除一个并编辑暂存另一个后，真实前台 OS 鼠标点击已通过；Skip/Abort、反向解决顺序和二进制冲突未用真实鼠标复验。
 - **像素目标未整体达成**：共享功能页与 PyCharm 2026.2.1 的整窗像素对照仍有未通过页面，按持续改进登记，不冒充通过。
 - **视觉范围差异**：不提供参考的右侧 42 CSS 工具轨，Settings 为简化自定义结构，终端为简洁 xterm；这些是已批准的范围差异，不是待修复缺陷。
-- **Windows 10 22H2 启动退出修复待实机复验**：rc.4–rc.15 增加 CET 兼容标记、首次启动欢迎页、async void 异常边界、`git init` 超时、选择目录输出缓冲区、新窗口 `--workspace`、欢迎页单窗口、分支树折叠、分支弹层默认面板和 PyCharm 分组树修复，但尚未在用户出问题的 22H2 机器上复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
+- **Windows 10 22H2**：用户于 2026-11-28 确认在公司 22H2 实机连续运行多个 rc 版本；rc.16 仍需该实机复验。若仍异常退出，请附 `%LOCALAPPDATA%\Augit\logs\augit.log` 末段或 Windows 应用程序日志中的崩溃事件。
 - **真实日常使用观察仍在进行**：本候选需要真实仓库中的长期使用反馈；Augit 不做遥测，问题请通过 Issue 反馈。
 
 ## 从源码构建

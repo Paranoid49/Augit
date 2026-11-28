@@ -4,7 +4,7 @@
 
 ## 1. 发布身份
 
-当前公开发布为 `1.0.0-rc.15` 预发布候选，不是正式 1.0。发布资产：
+当前公开发布为 `1.0.0-rc.16` 预发布候选，不是正式 1.0。发布资产：
 
 - `Augit-<版本>-win-x64-portable.zip`
 - `update.json`（签名发布清单）
@@ -17,8 +17,8 @@
 
 - 当前候选线为 `1.0.0-rc.N`；正式 1.0 前不改变产品名和便携目录约定。
 - 每次公开资产重建都必须更新发布清单和 `SHA256SUMS.txt`；不得用旧哈希描述新字节。
-- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.15 由包含跨工作区标签会话隔离与原生模态闪烁修复的源码构建；构建源提交见 `docs/release-manifest-1.0.0-rc.15.md`。
-- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.15.md` §9 的真实使用观察与用户裁决，不由 CI 自动升级。
+- 2026-10-25 的旧 rc.2 冻结构建（`8643b9e`）从未公开上传。当前公开 rc.16 在 rc.15 基础上包含更新检查、Rollback 工具栏/对话框、原生模态关闭前台恢复与右键绝对路径复制；构建源提交见 `docs/release-manifest-1.0.0-rc.16.md`。
+- 正式 1.0 需要完成 `docs/known-limitations-1.0.0-rc.16.md` §9 的真实使用观察与用户裁决，不由 CI 自动升级。
 
 ## 3. 发布前门禁
 
@@ -37,7 +37,7 @@ node tools\audit\coverage-generator.test.cjs
 平台相关验证：
 
 - Windows 11 x64：便携启动、主流程、应用内更新下载/重启替换/回滚。
-- Windows 10 22H2 x64：双显示器、混合 DPI、负坐标、模拟热插拔、深色窄窗、便携启动。
+- Windows 10 22H2 x64：用户已确认公司实机连续运行多个 rc 版本；rc.16 发布后需在该实机复验启动与更新。
 - 当前不具备的条件（干净虚拟机、真实缺 WebView2、更多显示器拓扑、Narrator/JAWS/Braille）必须继续标为未验证，不得用自动化或单屏结果替代。
 
 ## 4. 本地构建
@@ -45,8 +45,8 @@ node tools\audit\coverage-generator.test.cjs
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\release.ps1 `
-  -Version 1.0.0-rc.15 `
-  -OutputDirectory artifacts\release-1.0.0-rc.15
+  -Version 1.0.0-rc.16 `
+  -OutputDirectory artifacts\release-1.0.0-rc.16
 ```
 
 脚本会：
@@ -65,9 +65,9 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\audit\verify-portable-package.ps1 `
-  -PortableZip artifacts\release-1.0.0-rc.15\Augit-1.0.0-rc.15-win-x64-portable.zip `
-  -OutDir artifacts\release-1.0.0-rc.15-verify `
-  -ExpectedVersion 1.0.0-rc.15
+  -PortableZip artifacts\release-1.0.0-rc.16\Augit-1.0.0-rc.16-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.16-verify `
+  -ExpectedVersion 1.0.0-rc.16
 ```
 
 有交互桌面时，该脚本会真实启动便携包、截图、关闭并检查进程树；无交互桌面时追加 `-SkipLaunch`，只做内容、版本和 web 资源一致性校验。
@@ -80,9 +80,9 @@ $env:DOTNET_ROOT_X64 = 'C:\does-not-exist-dotnet'
 $env:DOTNET_MULTILEVEL_LOOKUP = '0'
 powershell -NoProfile -ExecutionPolicy Bypass `
   -File tools\audit\verify-portable-package.ps1 `
-  -PortableZip artifacts\release-1.0.0-rc.15\Augit-1.0.0-rc.15-win-x64-portable.zip `
-  -OutDir artifacts\release-1.0.0-rc.15-verify-hidden-dotnet `
-  -ExpectedVersion 1.0.0-rc.15
+  -PortableZip artifacts\release-1.0.0-rc.16\Augit-1.0.0-rc.16-win-x64-portable.zip `
+  -OutDir artifacts\release-1.0.0-rc.16-verify-hidden-dotnet `
+  -ExpectedVersion 1.0.0-rc.16
 ```
 
 ## 6. CI 与发布流水线
@@ -103,8 +103,8 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 2. 在发布提交上创建并推送 tag：
 
 ```powershell
-git tag v1.0.0-rc.15
-git push origin v1.0.0-rc.15
+git tag v1.0.0-rc.16
+git push origin v1.0.0-rc.16
 git push origin dsh:main
 ```
 
@@ -114,13 +114,13 @@ git push origin dsh:main
 6. 若 GitHub CLI 已授权，手动补发/修复资产可使用：
 
 ```powershell
-gh release create v1.0.0-rc.15 `
-  artifacts\release-1.0.0-rc.15\Augit-1.0.0-rc.15-win-x64-portable.zip `
-  artifacts\release-1.0.0-rc.15\update.json `
-  artifacts\release-1.0.0-rc.15\update.json.sig `
-  artifacts\release-1.0.0-rc.15\SHA256SUMS.txt `
-  --title "Augit 1.0.0-rc.15" `
-  --notes-file docs\release-notes-1.0.0-rc.15.md `
+gh release create v1.0.0-rc.16 `
+  artifacts\release-1.0.0-rc.16\Augit-1.0.0-rc.16-win-x64-portable.zip `
+  artifacts\release-1.0.0-rc.16\update.json `
+  artifacts\release-1.0.0-rc.16\update.json.sig `
+  artifacts\release-1.0.0-rc.16\SHA256SUMS.txt `
+  --title "Augit 1.0.0-rc.16" `
+  --notes-file docs\release-notes-1.0.0-rc.16.md `
   --prerelease
 ```
 

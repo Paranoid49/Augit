@@ -1882,12 +1882,14 @@ async function main() {
     tyCheck('正文行高保持固定 13 的 22px: ' + JSON.stringify([tyCode.codeLineHeight]),
       tyCode.codeLineHeight === '22px');
 
-    // 界面字族可改；等宽字族按裁决固定 JetBrains Mono，写入同样被宿主忽略。
+    // 2026-10-15 用户裁决与规格 §7.14：界面字体固定 Microsoft YaHei UI，
+    // 等宽字体/字号固定 JetBrains Mono/13；设置里不存在可编辑的字体族字段，
+    // 即使注入 textFontFamily/monospaceFontFamily 也必须被忽略。
     const families = await setSettings({ textFontFamily: 'Tahoma', monospaceFontFamily: 'Courier New' });
     const tyFamily = await typography();
-    tyCheck('界面字族生效，等宽字族固定 JetBrains Mono: '
+    tyCheck('界面字体固定 Microsoft YaHei UI，等宽字体固定 JetBrains Mono: '
       + JSON.stringify([families, tyFamily.uiFamilyVar, tyFamily.bodyFamily, tyFamily.codeFamilyVar, tyFamily.codeView.family]),
-    families !== null && tyFamily.uiFamilyVar.includes('"Tahoma"') && tyFamily.bodyFamily.includes('Tahoma')
+    families !== null && tyFamily.uiFamilyVar.includes('Microsoft YaHei UI') && tyFamily.bodyFamily.includes('Microsoft YaHei UI')
       && tyFamily.codeFamilyVar.includes('"JetBrains Mono"') && tyFamily.codeView.family.includes('JetBrains Mono')
       && tyFamily.codeView.family !== tyFamily.bodyFamily);
 
@@ -1943,6 +1945,9 @@ async function main() {
     const modalIso = await openScene('scene=commit-changes&theme=dark');
     await modalIso.page.waitForFunction('window.__augitGitReady === true', null, { timeout: 20000 });
     await modalIso.page.waitForSelector('.changes-list .change-file-row', { timeout: 10000 });
+    // 分支弹层在引用数据未到时只记录原因、不打开；必须先等 references 再点芯片。
+    await modalIso.page.waitForFunction('!!(window.__augitLive && window.__augitLive.references)',
+      null, { timeout: 20000 });
 
     const backgroundState = () => modalIso.page.evaluate(() => {
       const host = document.querySelector('.augit-window');
@@ -1970,12 +1975,14 @@ async function main() {
     const withNonModal = await backgroundState();
     check('非模态浮层不禁用背景: ' + JSON.stringify(withNonModal.inert), withNonModal.inert.length === 0);
     await modalIso.page.keyboard.press('Escape');
+    await modalIso.page.waitForFunction(
+      "() => !document.querySelector('.search-overlay')", null, { timeout: 8000 }).catch(() => {});
     await modalIso.page.waitForTimeout(400);
 
     // 打开模态（分支芯片 → 新建分支的紧凑模态窗口）：背景必须禁用，对话框自身保持可交互。
     await modalIso.page.locator('.top-chip.branch-chip').click();
-    await modalIso.page.waitForTimeout(500);
-    await modalIso.page.locator('[data-augit-overlay] [data-branch-action="create"]').click();
+    await modalIso.page.waitForSelector('[data-augit-overlay] [data-popover-action="create-branch"]', { timeout: 10000 });
+    await modalIso.page.locator('[data-augit-overlay] [data-popover-action="create-branch"]').click();
     await modalIso.page.waitForSelector('[data-compact-dialog]', { timeout: 8000 }).catch(() => {});
     await modalIso.page.waitForTimeout(400);
     const withModal = await backgroundState();
@@ -2223,9 +2230,11 @@ async function main() {
       sideExit.region !== 'titlebar' && sideExit.region !== 'tool-rail' && sideExit.region !== null);
 
     // 弹层例外：对话框自己的 Tab 循环不受影响（紧凑窗口用例已单独断言，这里只确认不抢）。
+    await tabRegion.page.waitForFunction('!!(window.__augitLive && window.__augitLive.references)',
+      null, { timeout: 20000 }).catch(() => {});
     await tabRegion.page.locator('.top-chip.branch-chip').click();
     await tabRegion.page.waitForTimeout(400);
-    await tabRegion.page.locator('[data-augit-overlay] [data-branch-action="create"]').click();
+    await tabRegion.page.locator('[data-augit-overlay] [data-popover-action="create-branch"]').click();
     await tabRegion.page.waitForSelector('[data-compact-dialog]', { timeout: 8000 }).catch(() => {});
     const compactId = () => tabRegion.page.evaluate(() => {
       const el = document.activeElement;
@@ -6533,13 +6542,14 @@ async function main() {
         tabStillV1: tab && tab.document ? String(tab.document.preview || '').includes('第一版') : null,
       };
     });
-    check('§7.3 后台标签不因更新创建预览: ' + JSON.stringify([mdBackgroundBefore, mdBackgroundAfter]),
-      // 隐藏的 Markdown 标签没有被重读（读取次数不变）、前台文档不变、正文里没有 Markdown 视图
-      mdBackgroundAfter.reads === mdBackgroundBefore.reads
+    check('§7.3 后台标签只更新命中路径且不抢占前台: ' + JSON.stringify([mdBackgroundBefore, mdBackgroundAfter]),
+      // rc.15 起后台已打开标签会跟随外部变化重读；命中路径各读一次，前台文档不切换，
+      // 且不因后台刷新在 DOM 里创建 Markdown 预览视图。
+      mdBackgroundAfter.reads === mdBackgroundBefore.reads + 1
         && mdBackgroundAfter.doc === mdBackgroundBefore.doc
         && mdBackgroundAfter.markdownInDom === false
-        // 它自己的内容也还是旧版本（没有在后台悄悄重建预览）
-        && mdBackgroundAfter.tabStillV1 === true);
+        // 旧正文已被第二版替换，但标签仍保持后台
+        && mdBackgroundAfter.tabStillV1 === false);
     await mdBackground.page.close();
 
     // ---- 规格 §7.3 第 9 条：阻止的图片在原位置显示紧凑错误、不使整个预览失败；
@@ -11255,7 +11265,21 @@ async function main() {
       await cd.page.evaluate(() => document.querySelectorAll('[data-augit-overlay].live-overlay').forEach((n) => n.remove()));
       await cd.page.locator('.top-chip.branch-chip').click();
       await cd.page.waitForTimeout(500);
-      await cd.page.locator(`[data-augit-overlay] [data-branch-action="${action}"]`).click();
+      if (action === 'create') {
+        await cd.page.locator('[data-augit-overlay] [data-popover-action="create-branch"]').click();
+      } else {
+        // 引用行自己的动作在右键菜单里（当前 UI 用 data-ref-action，不再有 data-branch-action）。
+        await cd.page.evaluate(() => {
+          const row = document.querySelector('.branches-popover [data-branch="dsh"]');
+          const rect = row.getBoundingClientRect();
+          row.dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true,
+            clientX: Math.round(rect.left + 12), clientY: Math.round(rect.top + 8),
+          }));
+        });
+        await cd.page.waitForSelector('.ref-menu [data-ref-action="rename"]', { timeout: 8000 });
+        await cd.page.locator('.ref-menu [data-ref-action="rename"]').click();
+      }
       await cd.page.waitForTimeout(500);
     };
 

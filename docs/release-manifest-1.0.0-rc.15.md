@@ -65,11 +65,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File tools/update/verify-release-manife
 - rc.12 起内置签名自动更新；rc.13、rc.14 已完成公开升级路径验证。
 - 客户端读取 GitHub Release 的 `update.json` 和 `update.json.sig`，用内置 ECDSA P-256 公钥验签，再校验 tag、版本、GitHub HTTPS 地址、大小和 SHA-256。
 - 下载完整 zip 后校验 `Augit.exe` ProductVersion；用户确认后由暂存的新版本执行替换，失败时回滚旧版本。
-- **rc.14 → rc.15 的公开升级端到端本轮未完成复验**：公开 rc.14 便携包在当前机器上以正常（非隔离）入口启动时，旧版 WebView2 环境创建返回 `COMException (0x8000FFFF)`，无法稳定进入可自动点击更新通知的界面；隔离设置下旧包主界面可正常渲染。升级服务与清单校验代码在 rc.14 → rc.15 之间未改动，且 rc.12 → rc.13、rc.13 → rc.14 历史公开升级路径已 PASS；本项登记为发布后待复核，不作为 rc.15 资产发布的阻塞项。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
+- **rc.14 → rc.15 的公开升级端到端已完成（用户 2026-11-28 确认）**：公开 rc.14 便携包升级到 rc.15 后发现更新、下载、验签、替换与重启确认均由用户在真实环境完成。本机此前以正常入口启动 rc.14 时曾遇到旧版 WebView2 `COMException (0x8000FFFF)`，该限制记录保留；不把本机该次失败写成产品升级路径失败。没有 Authenticode 代码签名，SmartScreen 仍可能提示未知发布者。
 
 ## 5. Windows 10 22H2 证据与边界
 
-rc.2 时代的 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器、DPI、负坐标和模拟热插拔历史证据继续有效（见[22H2 记录](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)）。rc.15 的启动、更新和新增功能尚未在用户出问题的 22H2 机器上复验，不把 Windows 11 结果写成 Windows 10 已通过。
+rc.2 时代的 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器、DPI、负坐标和模拟热插拔历史证据继续有效（见[22H2 记录](win10-22h2-multimonitor-dpi-fixes-2026-10-26.md)）。用户于 2026-11-28 确认在公司 Windows 10 22H2 实机上连续运行多个 rc 版本；rc.15 的启动与更新已在真实使用中验证。该结论来自用户确认，不替代本仓库逐帧/哈希记录。
 
 ## 6. 发布后核对
 
@@ -80,7 +80,7 @@ rc.2 时代的 Windows 10 Pro 22H2 `10.0.19045.6456` 双显示器、DPI、负坐
 - `update.json` 使用内置公钥验签 **PASS**；
 - 官方便携包内容校验 **PASS**：必需文件、web 资源一致、无 PDB；`Augit.exe` 与三个托管程序集 ProductVersion `1.0.0-rc.15+77606d17…`，FileVersion `1.0.0.0`；
 - 官方便携包真实启动 **PASS**：窗口出现 305.7ms、首帧内容 475.3ms、关闭 76.6ms、退出码 0、无残留子进程；
-- `rc.14 → rc.15` 自动更新端到端：**本轮未完成**，原因与已登记边界见 §4；
-- Windows 10 22H2 实机：**未复验**。
+- `rc.14 → rc.15` 自动更新端到端：**用户于 2026-11-28 确认完成**；
+- Windows 10 22H2 实机：**用户确认公司实机连续运行多个 rc 版本**。
 
-状态：**PASS（预发布资产与官方启动）**；Windows 10 22H2 实机、rc.14→rc.15 公开升级端到端、真实缺 WebView2 等边界未复验。
+状态：**PASS（预发布资产、官方启动、公开升级路径与 Windows 10 日常使用）**；真实缺 WebView2、干净虚拟机和更多显示器拓扑仍按已知限制披露。

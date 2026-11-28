@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [1.0.0-rc.16] - 2026-11-28
+
 ### Added
 
 - 项目树和 Commit 改动列表的右键菜单新增 `Copy Path/Reference…` 二级菜单：`Absolute Path` 复制当前工作区绝对路径，`Path from Content Root` 保留原有项目内相对路径复制；支持悬停/`ArrowRight` 展开、`Esc` 逐级收起、右缘自动向左翻，复制失败仍显示原因与未改变状态。参考 PyCharm 2026.2.1 与 `intellij-community` 的 `CopyFileReference` 组。
